@@ -28,17 +28,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   分配给我"；只声明不重写（契约 3.7）。括注 "(I must be assigned combat damage first.)"
  *   是 815.1.b 的提醒文本，不另写指令。
  *
- * status 判定（README 第 2 节）：judge-required —— 三处依赖未合入，均不近似实现：
- * 1. 可选附加费用没有生产接线：cost/ 的费用计划只在调用方显式传入 optionalAdditional 时
- *    生效（cost/cost-plan.ts 读 CostPlanInput.optionalAdditional），没有任何模块把 CardProgram
- *    声明的费用接进 Finalize；effects/instructions 也没有 cost.additional / cost.modify 原语
- *    （RIFT-89）。程序按 356.2.b.1 / 356.4.f.1 把两个组件写成 static 声明，保持可审查形状。
+ * status 判定（README 第 2 节）：judge-required —— 三处依赖仍未接线，均不近似实现：
+ * 1. 可选附加费用声明仍未进入 Finalize：cost/ 的费用计划只在调用方显式传入 optionalAdditional 时
+ *    生效，programs/play.ts 对 additional/additional-cost 字段直接判为 judge-required。程序按
+ *    356.2.b.1 / 356.4.f.1 把两个组件写成 static 声明，保持可审查形状。
  * 2. "If you do" 的回执没有绑定：356.4.f.1 的凭证是支付决定，冻结 IR 没有费用结果绑定
  *    （调研记为 condition.result，46 个身份），因此减费无法以"已支付"为条件；程序用
  *    grantedBy 指向附加费组件记录该依赖（同 brazen-buccaneer），不写成无条件减费。
- * 3. [Ambush]（822）与 [Tank]（815）的关键词展开与消费方未合入（Ambush 无 KeywordDef；
- *    Tank 的 continuous.combat 分配优先级没有消费方——combat/ 的分配器不读分配要求）。
- * 依赖：RIFT-89（附加费用/减费/回执接线）、RIFT-84（Ambush 关键词）、RIFT-90（战斗分配）。
+ * 3. [Ambush]（822）与 [Tank]（815）的 KeywordDef 与展开均已合入，但 Ambush 的位置/Reaction
+ *    许可没有 Finalize/chain.canAct 的完整消费方，Tank 的 continuous.combat 分配优先级也没有
+ *    战斗分配器消费方。
+ * 依赖：CardProgram 费用声明到 Finalize 的接线、支付回执条件、Ambush 位置选择与 Tank 战斗分配消费方。
  */
 const abilities: Ability[] = [
   // 822.1：印刷的 [Ambush]（提醒文本是 822.1.b 的说明）。
@@ -78,17 +78,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入：(1)「You may spend 3 XP as an additional cost to play me」是可选附加费用" +
-    "（356.2.b/356.2.b.1），但没有任何已合入路径把 CardProgram 声明的费用接进 Finalize——" +
-    "cost/cost-plan.ts 只在调用方显式传入 optionalAdditional 时生效，effects/instructions 也没有" +
-    "cost.additional / cost.modify 原语（RIFT-89）。(2)「If you do, I cost :rb_energy_3: less」的" +
+    "三处依赖仍未接线：(1)「You may spend 3 XP as an additional cost to play me」是可选附加费用" +
+    "（356.2.b/356.2.b.1），但 CardProgram 声明的费用尚未接进 Finalize——cost/cost-plan.ts 只在调用方" +
+    "显式传入 optionalAdditional 时生效，programs/play.ts 对 additional/additional-cost 字段直接判为 judge-required。(2)「If you do, I cost :rb_energy_3: less」的" +
     "闸门是 356.4.f.1 的支付决定，冻结 IR 没有费用结果绑定（调研记为 condition.result），" +
     "因此减费不能以「已支付」为条件；程序用 grantedBy 记录该依赖（同 brazen-buccaneer 的写法），" +
-    "不写成无条件减费。(3) [Ambush]（822.1.b/822.1.c）没有已合入的关键词展开（effects/keywords 无 " +
-    "Ambush.ts），其位置许可与 Reaction 时间许可（continuous.timing + 位置许可）无消费方（RIFT-84）；" +
-    "[Tank]（815.1.b）的 continuous.combat 分配优先级没有消费方——combat/ 的伤害分配器不读分配要求（RIFT-90）。" +
+    "不写成无条件减费。(3) [Ambush]（822.1.b/822.1.c）的 KeywordDef 与展开已合入，但位置许可与 Reaction 时间许可" +
+    "仍没有完整的 Finalize/chain.canAct 消费方；[Tank]（815.1.b）的 continuous.combat 分配优先级也没有战斗分配器消费方。" +
     "程序保留可审查的声明形状；印刷的 6 能量费用与无 minimum 的 3 能量减费未被改写（energy:null 不写成 0）。" +
-    "依赖：RIFT-89、RIFT-84、RIFT-90。不近似实现。",
+    "依赖：CardProgram 费用声明到 Finalize 的接线、支付回执条件、Ambush 位置选择与 Tank 战斗分配消费方。不近似实现。",
   abilities,
   sourceText:
     "You may spend 3 XP as an additional cost to play me. If you do, I cost :rb_energy_3: less.\n" +

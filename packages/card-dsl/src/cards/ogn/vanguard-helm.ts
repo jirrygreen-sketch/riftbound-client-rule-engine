@@ -32,10 +32,10 @@ import type { CardProgram } from "../../ir/index.js";
  * - the death event's payload filter must be bound to the dying unit of THIS
  *   trigger, and the trigger must be collected with the dying unit's last-known
  *   information (383.2.c.3.b / 429.1.a.1.b). The pipeline already collects
- *   object-killed with the pre-leave snapshot, but the card-program →
- *   TriggerRegistration adapter that supplies `activeZones`, the trigger body /
- *   cost and the payload-object binding for card programs is still unmerged
- *   (RIFT-257), so the trigger shown below is not registered by any merged path.
+ *   object-killed with the pre-leave snapshot, and the card-program →
+ *   TriggerRegistration adapter supplies `activeZones` and the trigger body.
+ *   Binding currently stops on the body target's unsupported `other` filter,
+ *   so the trigger cannot reach production resolution yet.
  *   (The "friendly" half is verified against the merged matcher: for
  *   `object-killed` the payload's `player` is the dying unit's controller, so
  *   `player: "self"` does restrict it to this ability's controller.)
@@ -53,8 +53,9 @@ const vanguardHelm = {
     "触发绑定缺失（复核 2026-10-17）：buffed 谓词已可用——702.3 规定一名单位至多一个 Buff 且 effect.buff 不重复放置，" +
     "因此 characteristics:{buffs:1} 精确等于 702.2.a 的「身上有 Buff counter」，已对合入匹配器（events/pipeline-match.ts）实测" +
     "（buffed 单位命中、未 buff 单位不命中，golden 断言）；friendly 半段的 player:self 同样与 object-killed 载荷的控制者对齐。" +
-    "剩余缺口是没有把卡牌程序注册成触发器的 card-program → TriggerRegistration 适配器（activeZones、触发正文/费用与事件对象绑定，" +
-    "RIFT-257）：合入代码里没有任何路径会用本卡声明的 filter 注册该触发（pipeline 以离场前快照收集 object-killed 的机制已具备）。" +
+    "剩余缺口是生产绑定器拒绝正文目标 filter 中的 `other` 字段（programs/filters.ts 报 Unsupported filter field other），" +
+    "因此本卡虽已有 CardProgram → TriggerRegistration 接线，仍不能把“another friendly unit”目标送入生产结算；" +
+    "pipeline 以离场前快照收集 object-killed 的机制已具备。" +
     "Buff 正文（另一个友方单位，740.1.a；effect.buff 的 702.2.a/427.1.b 语义）只用已合入结构，由 golden 以调用方提供的 Finalize 目标真实执行。" +
     "整卡因触发绑定保持 judge-required，不近似实现。",
   abilities: [

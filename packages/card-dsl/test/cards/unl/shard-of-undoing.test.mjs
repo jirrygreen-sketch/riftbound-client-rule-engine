@@ -32,7 +32,7 @@ test("unl-174-219 Shard of Undoing: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /Beginning Phase/);
   assert.match(program.judgeReason, /315\.2\.a\.1/);
   assert.match(program.judgeReason, /each opponent/);
-  assert.match(program.judgeReason, /契约 3\.5/);
+  assert.match(program.judgeReason, /TriggerRegistration|阶段字段/);
 });
 
 test("unl-174-219 Shard of Undoing: a friendly unit's death subscribes to object-killed", () => {
@@ -44,12 +44,10 @@ test("unl-174-219 Shard of Undoing: a friendly unit's death subscribes to object
     event: "object-killed",
     // "a friendly unit"：死亡者由本能力控制者控制。
     object: { type: "unit", controller: "self" },
-    // "during your Beginning Phase" 与 "the first time … each turn" 是描述性键：
-    // 阶段窗口与按触发玩家计的每回合一次没有执行路径（见 judgeReason）。
-    duringPhase: "beginning",
-    firstTimeEachTurn: true
+    // "during your Beginning Phase" 仍是待接入的阶段窗口谓词。
+    duringPhase: "beginning"
   });
-  assert.equal(ability.trigger.once, undefined);
+  assert.equal(ability.trigger.once, "per-turn");
   assert.equal(ability.trigger.condition, undefined);
   assert.equal(ability.optional, false);
 });
@@ -132,7 +130,4 @@ test.todo(
 test.todo(
   "Shard of Undoing: bind 'each opponent must kill one of their units' per opponent (CR 355.10.e/f) — no " +
     "per-opponent chooser fan-out primitive is merged (RIFT-9 target.player family, same gap as ogn/kings-edict)"
-);
-test.todo(
-  "Shard of Undoing: register the object-killed trigger from the CardProgram into the event pipeline (contract 3.5)"
 );

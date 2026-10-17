@@ -23,15 +23,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （所有 “this turn” 效果同时到期）处理。“a unit” 是结算期选择（355.5 的 Choice），
  *   按契约 3.6 写成 TargetSpec。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，三处缺口均不近似实现：
+ * 复核（2026-10-17，第二轮 M2 覆盖率复核）：continuous.grant-keyword 已注册并真实执行；
+ * 真实缺口只剩追加费用绑定与费用回执条件。授予指令显式引用 gust-monk.unit，
+ * golden 执行原始 body，断言所选单位获得 Assault 2、来源不受影响及 turn-end 到期。
+ *
+ * status 判定（cards/README.md 第 2 节）：judge-required，缺口均不近似实现：
  * 1. 可选追加费用没有消费方：effects/instructions/ 下没有 cost.additional 原语，也没有把卡牌程序
  *    声明的 CostSpec 接进 cost/ 计划的入口（buildCostPlan 只消费调用方传入的 optionalAdditional，
- *    RIFT-89）。程序按契约形状保留 play.cost 声明，不自行收费。
+ *    programs/play.ts 的 translateCost 对 additional-cost 直接 judgeRequired）。
+ *    程序按契约形状保留 play.cost 声明，不自行收费。
  * 2. “if you paid the additional cost” 没有可求值的凭据形态：356.4.f.1 的凭证是“玩家决定支付”，
  *    而冻结的 Condition/Expr 读不到费用计划的回执（同 ogn/clockwork-keeper、ogn/wallop 的
- *    condition.result 缺口，RIFT-89/90）。
- * 3. “[Assault 2] this turn” 是带 end-of-turn 期限的持续关键词授予：effects/instructions/ 下没有
- *    continuous.grant-keyword 原语（同 sfd/gem-jammer、ven/kayle-justified 的缺口，RIFT-83/RIFT-91）。
+ *    condition.result 缺口；条件谓词属进行中任务 RIFT-359 的相邻范围）。
+ * 3. 已合入部分：“give a unit [Assault 2] this turn” 的 continuous.grant-keyword 原语已注册，
+ *    golden 断言 ability 图层注册与 end-of-turn 到期。
  * 已支持部分：“banish a card from any trash” 用已合入的 effect.banish + 非目标 pick 在参考内核里
  * 真实执行（含任意一方垃圾场），见 golden 测试。
  */
@@ -69,13 +74,14 @@ const abilities: Ability[] = [
       },
       {
         id: "gust-monk.give-assault-2",
-        // 807.1.c 的 [Assault 2] 授予，期限为本回合（317.2.c 到期）；原语未合入。
+        // 807.1.c 的 [Assault 2] 授予，期限为本回合（317.2.c 到期）。
         op: "continuous.grant-keyword",
         linkedTo: "gust-monk.banish-a-card-from-any-trash",
         args: {
           keyword: { kind: "constant", value: "assault" },
           value: { kind: "constant", value: 2 },
-          duration: { kind: "constant", value: "end-of-turn" }
+          duration: { kind: "constant", value: "end-of-turn" },
+          target: { kind: "constant", value: "gust-monk.unit" }
         },
         targets: [
           {
@@ -97,13 +103,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1)「You may pay :rb_energy_1: as an additional cost to play me」是 " +
+    "两处缺口与一处已合入证据：(1)「You may pay :rb_energy_1: as an additional cost to play me」是 " +
     "356.2.b/356.2.b.1 的可选追加费用，但 effects/instructions/ 下没有 cost.additional 原语，" +
-    "也没有把卡牌程序的 CostSpec 接进 cost/ 计划的入口（buildCostPlan 只消费调用方传入的 optionalAdditional，RIFT-89）；" +
+    "也没有把卡牌程序的 CostSpec 接进 cost/ 计划的入口（buildCostPlan 只消费调用方传入的 optionalAdditional，" +
+    "programs/play.ts 的 translateCost 对 additional-cost 直接 judgeRequired）；" +
     "(2)「if you paid the additional cost」按 356.4.f.1 以「玩家决定支付」为凭证，冻结的 Condition/Expr " +
-    "没有读取费用回执的形态（condition.result 缺口，同 clockwork-keeper/wallop，RIFT-89/90）；" +
-    "(3)「give a unit [Assault 2] this turn」是带 end-of-turn 期限的持续关键词授予，没有已注册的 " +
-    "continuous.grant-keyword 原语（同 gem-jammer/kayle-justified，RIFT-83/RIFT-91）。" +
+    "没有读取费用回执的形态（condition.result 缺口，同 clockwork-keeper/wallop；条件谓词属进行中任务 RIFT-359）；" +
+    "(3) 已合入部分：「give a unit [Assault 2] this turn」的 continuous.grant-keyword 原语已注册，" +
+    "golden 执行原始 body，断言所选单位获得 Assault 2、来源不受影响及 end-of-turn 到期。" +
     "已支持部分：「banish a card from any trash」用 effect.banish + 非目标 pick（355.10.c.1/428.5）在 golden 中真实执行。",
   abilities,
   sourceText:

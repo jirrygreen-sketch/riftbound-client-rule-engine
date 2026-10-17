@@ -64,7 +64,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /exclude/);
   assert.match(program.judgeReason, /355\.7/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /programs\/filters\.ts/);
   assert.equal(
     program.sourceText,
     "When you play me, buff up to two other friendly units. (Each one that doesn't have a buff gets a +1 :rb_might: buff.)"
@@ -170,14 +170,10 @@ test("golden: the declared exclude anchor drops the source from a locked candida
 test.todo(
   "Kinkou Monk: classifying a legal zero-target choice for 'up to two' (CR 355.13) — the merged " +
     "effect.buff returns ignored/mistargeted when its locked target set is empty, which is a target-system " +
-    "/ primitive boundary (RIFT-90)"
+    "/ primitive boundary"
 );
 test.todo(
   "Kinkou Monk: the Finalize candidate provider (target/target-plan.ts legalCandidates through " +
-    "chain/engine.ts context.query -> layers/filter.ts) ignores the exclude/sameLocationAs anchors, so the " +
-    "source can still be offered as a legal candidate before the interpreter re-checks it (CR 355.7; RIFT-90)"
-);
-test.todo(
-  "Kinkou Monk: the played trigger only becomes reachable once the card-played timing emitted by " +
-    "chain/engine.ts is bound to a CardProgram TriggerRegistration (RIFT-257)"
+    "chain/engine.ts context.query -> layers/filter.ts) still needs to consume the exclude anchor, so the " +
+    "source can be offered as a legal candidate before the interpreter re-checks it (CR 355.7)"
 );

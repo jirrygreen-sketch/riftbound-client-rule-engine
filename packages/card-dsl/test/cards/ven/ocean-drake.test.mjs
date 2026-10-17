@@ -28,7 +28,7 @@ test("ven-115-166 Ocean Drake: identity, ruleset, status, judgeReason and verbat
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // 打出位置许可与否定 tag 过滤两处缺口。
+  // 打出位置许可、否定 tag 过滤与嵌套目标仍缺绑定。
   assert.match(program.judgeReason, /play-location-permission/);
   assert.match(program.judgeReason, /355\.2\.b/);
   assert.match(program.judgeReason, /excludeTags/);
@@ -200,7 +200,8 @@ test("ven-115-166 Ocean Drake golden: a stale target ignores only the return ins
 test.todo(
   "ven-115-166 Ocean Drake: 'You may play me to an open battlefield' reaches the Make Relevant Choices / " +
     "Finalize play-location permission (CR 355.2.a/355.2.b; open = unoccupied + uncontrolled, 170.11.a/170.11.c) " +
-    "— programs/statics.ts needs a play-location-permission mapping and the play Finalize consumer (RIFT-357)"
+    "— programs/statics.ts needs a play-location-permission mapping and the play Finalize consumer; " +
+    "LocationSelector and open-location candidates are already merged"
 );
 
 test.todo(

@@ -32,7 +32,8 @@ test("ven-122-166 Solari Sunhawk: identity, ruleset, status, judgeReason and ver
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /828\.1\.b\.1/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /442\.1\.a/);
+  assert.ok(!/RIFT-91|RIFT-90/.test(program.judgeReason));
 });
 
 test("ven-122-166 Solari Sunhawk: [Empower] is declared, never re-implemented (contract 3.7)", () => {
@@ -143,5 +144,6 @@ test.todo(
 test.todo(
   "ven-122-166 Solari Sunhawk: the +1 Might and [Deflect 2] reach the layers behind the Empowered gate, " +
     "and the Deflect target tax applies when an opponent chooses the host (CR 809.1.c / 809.1.d) — card-side " +
-    "continuous registration (RIFT-91) and the target.tax consumer (RIFT-90) are not wired"
+    "continuous registration is merged; the remaining blockers are the Empower/Empowered KeywordDef, " +
+    "the Empowered status predicate (442.1.a) and the keyword-to-target-plan tax wiring"
 );

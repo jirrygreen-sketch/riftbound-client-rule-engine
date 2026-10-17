@@ -24,13 +24,14 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  * status = judge-required（三处缺口均不近似实现）：
  * 1. keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef：
  *    827.1.c.1 的启动费用、“仅当未 Empowered 时”限制与 828.1.b.1 的依赖能力都无法
- *    展开（已合入的关键词批次不含它们）；
+ *    展开（programs/keywords.ts 的 expandProgram 在缺 KeywordDef 时直接 judge-required）；
  * 2. 没有 Empowered 状态谓词（442.1.a / 828.1.c）：Empowered 状态不在 ObjectSnapshot
- *    也不在契约的 Condition 代数里，本程序的 empoweredCount 只是描述性记录；
- * 3. “I have +2 :rb_might:” 需要卡牌侧 continuous.might 的注册/求值入口（RIFT-91
- *    已合入 layers 引擎，但没有任何已合入路径把 CardProgram 的 static 能力注册为
- *    ContinuousEffectSpec）。
- * 依赖新的 Empower/Empowered 关键词任务、RIFT-87（条件/谓词）与 RIFT-91（layers 接线）。
+ *    里（测试内核的 empowered 计数不进入快照），condition.predicate 无法求值
+ *    （RIFT-359），本程序的 empoweredCount 只是描述性记录；
+ * 3. 「I have +2 :rb_might:」与「I have [Ganking]」的 continuous.might /
+ *    continuous.grant-keyword 原语已合入，golden 用 grumpy-rockbear 同款 merged 原语
+ *    真实执行两条授予；但 Empowered 门控仍不可求值，整卡保持 judge-required。
+ * 依赖新的 Empower/Empowered 关键词任务与 RIFT-359（条件谓词）。
  */
 
 /** 442.1.a / 828.1.c：Empowered 门槛（描述性谓词，见 judgeReason）。 */
@@ -77,12 +78,15 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处缺口：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef：827.1.c.1 的" +
-    "「3 Energy：Empower me，仅当未 Empowered 时启动」与 828.1.b.1 的依赖能力都无展开实现（依赖新的" +
+    "「3 Energy：Empower me，仅当未 Empowered 时启动」与 828.1.b.1 的依赖能力都无展开实现" +
+    "（programs/keywords.ts 的 expandProgram 在缺 KeywordDef 时直接 judge-required，依赖新的" +
     "Empower/Empowered 关键词任务）；(2) 没有 Empowered 状态谓词——442.1.a 的二元状态不在 ObjectSnapshot / " +
-    "Condition 里，828.1.c 的门槛不可求值（本程序以描述性 empoweredCount >= 1 记录，不伪造可执行条件，" +
-    "依赖 RIFT-87）；(3) 「I have +2 :rb_might:」与「I have [Ganking]」需要卡牌侧的 continuous.might / " +
-    "continuous.grant-keyword 注册入口，RIFT-91 只合入了 layers 引擎、没有 CardProgram → ContinuousEffectSpec 的" +
-    "接线。不近似实现（不把 +2 :rb_might: 写成 Buff 计数器，也不把关键词授予写成卡级无条件关键词声明）。",
+    "Condition 里（测试内核的 empowered 计数不进入快照），828.1.c 的门槛不可求值（本程序以描述性 " +
+    "empoweredCount >= 1 记录，不伪造可执行条件，依赖 RIFT-359）；(3) 「I have +2 :rb_might:」与" +
+    "「I have [Ganking]」的 continuous.might / continuous.grant-keyword 原语已合入，golden 用 grumpy-rockbear " +
+    "同款 merged 原语真实执行两条授予（+2 Might 的算术层注册 + Ganking 的 ability 层注册），" +
+    "但 Empowered 门控仍不可求值、整卡保持 judge-required。不近似实现（不把 +2 :rb_might: 写成 Buff 计数器，" +
+    "也不把关键词授予写成卡级无条件关键词声明）。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_3: (:rb_energy_3:: Empower me. Use only if not Empowered.)\n" +

@@ -175,5 +175,5 @@ test("sfd-221-221 Veiled Temple golden: declining the ready skips the detach pro
 
 test.todo(
   "sfd-221-221 Veiled Temple: resolve the conquer event's details.battlefieldId into a location filter so the " +
-    "printed 'here' anchor can be bound (RIFT-357/RIFT-359; programs/filters.ts currently rejects the unresolved field)."
+    "printed 'here' anchor can be bound; programs/filters.ts currently rejects the unresolved field."
 );

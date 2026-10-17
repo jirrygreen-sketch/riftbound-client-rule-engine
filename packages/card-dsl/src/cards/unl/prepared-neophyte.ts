@@ -21,9 +21,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   与 ogn/loose-cannon（"If you've spent [4] or more this turn"）、unl/virtuoso（"if you
  *   spent [4] or more"）同一口径：不把金额条件近似成对象计数或恒真。
  *
- * status = judge-required。自本程序初写后合入的依赖：continuous.might 指令
- * （RIFT-258：arithmetic 层注册）与 CardProgram 的 static ↔ 图层接线
- * （RIFT-257，programs/lifecycle.ts 的 static 回调）。
+ * status = judge-required。continuous.might 指令的 arithmetic 层注册与 CardProgram 的
+ * static ↔ 图层接线均已合入。
  *
  * 仍缺两处（不近似实现）：
  * - 条件侧缺可求值的"本回合为一个法术实际支付的 Energy ≥ 4"：合并的 Condition 代数只能
@@ -42,7 +41,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "continuous.might 指令（RIFT-258）与卡牌 static ↔ 图层接线（RIFT-257）已合入，但仍有两处缺口，均不近似实现：" +
+    "continuous.might 指令与卡牌 static ↔ 图层接线已合入，但仍有两处缺口，均不近似实现：" +
     "(1) 条件「If you've spent :rb_energy_4: or more to play a spell this turn」没有可求值路径——" +
     "契约 3.6 的 HistoryQuery 只有 { scope, action, timingPoint, player, object }，只按动作次数计数、不读金额，" +
     "已合入的 condition.history 原语（interpreter/history.ts）对额外字段直接抛错，" +

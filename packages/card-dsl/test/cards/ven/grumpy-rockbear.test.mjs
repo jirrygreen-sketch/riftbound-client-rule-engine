@@ -38,7 +38,8 @@ test("grumpy-rockbear: judgeReason names the keyword, cost and layer gaps with t
   assert.match(program.judgeReason, /828\.1\.c/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /442\.1\.a/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /empower-activation-cost/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -83,12 +84,10 @@ test("grumpy-rockbear: the Empowered dependent ability grants Deflect 1 and Shie
   });
 });
 
-test("grumpy-rockbear: review evidence — the grant primitive (RIFT-258) and Deflect/Shield defs are merged", () => {
+test("grumpy-rockbear: review evidence — the grant primitive and Deflect/Shield defs are merged", () => {
   assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), true);
   assert.ok(keywordDefinitionsById.get("Deflect"), "the merged Deflect KeywordDef must be registered");
   assert.ok(keywordDefinitionsById.get("Shield"), "the merged Shield KeywordDef must be registered");
-  assert.equal(keywordDefinitionsById.get("Empower"), undefined);
-  assert.equal(keywordDefinitionsById.get("Empowered"), undefined);
 });
 
 test("grumpy-rockbear golden: the [Empowered] clause really grants Deflect 1 and Shield 3 through layers", () => {
@@ -132,8 +131,15 @@ test.todo(
     "per controlled rune, floor 0) and the 827.1.c.5 'play only if not Empowered' restriction, " +
     "pending the Empower/Empowered KeywordDefs"
 );
+
+test.todo(
+  "grumpy-rockbear: the 827.1.c.3 cost-rewrite static (continuous.cost-modification, appliesTo " +
+    "empower-activation-cost) has no staticTarget/layerFor mapping in programs/statics.ts and " +
+    "fails closed when bound (Unsupported static appliesTo)"
+);
 test.todo(
   "grumpy-rockbear: the [Empowered] gate on the Deflect/Shield grant (442.1.a / 828.1.c) — " +
     "layers conditionMatches falls back to true for unknown condition kinds, so the grant cannot " +
-    "be bound as written; the granted Deflect also needs the target.tax consumer (809.1.c / RIFT-90)"
+    "be bound as written (in-progress RIFT-359); the granted Deflect tax consumer (target.tax / " +
+    "TargetTaxAdapter) is merged"
 );

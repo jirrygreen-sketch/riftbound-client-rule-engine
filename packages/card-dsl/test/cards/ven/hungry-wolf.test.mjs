@@ -41,9 +41,7 @@ test("ven-125-166 Hungry Wolf: identity, status, judgeReason and verbatim source
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /HistoryQuery/);
-  assert.match(program.judgeReason, /RIFT-87/);
   assert.match(program.judgeReason, /386\.1/);
-  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("ven-125-166 Hungry Wolf: one Action-speed activated ability costing an Order Power", () => {

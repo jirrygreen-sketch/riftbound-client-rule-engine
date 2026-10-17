@@ -20,6 +20,7 @@ test("sfd-013-221 Blast Corps Cadet: validates identity and printed structure", 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /356\.4\.f\.1/);
   assert.match(program.judgeReason, /cost\.additional/);
+  assert.match(program.judgeReason, /optionalAdditional/);
   assert.equal(program.sourceText, "You may pay :rb_energy_1::rb_rune_fury: as an additional cost to play me.\nWhen you play me, if you paid the additional cost, deal 2 to a unit at a battlefield.");
 });
 
@@ -45,4 +46,4 @@ test("sfd-013-221 Blast Corps Cadet: deal-two body resolves against a locked bat
   assert.equal(kernel.getObject("battlefield-unit").damage, 2);
 });
 
-test.todo("Blast Corps Cadet: bind the optional-cost paid receipt so the damage runs only after the additional cost is chosen (RIFT-89)");
+test.todo("Blast Corps Cadet: wire the card-declared optional additional cost into play Finalize and bind the paid receipt so the damage runs only after the cost is chosen (356.4.f.1)");

@@ -12,6 +12,7 @@ import { bindResolveContext } from "../../../../engine-core/dist/events/action-a
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 
 const CANONICAL =
   "card.hash-abc384da043315415efa41d8d39f0cf4edbb77f2cbf021c4b7871cdf8732d768";
@@ -85,7 +86,7 @@ test("ven-062-166 Hextech Formula: identity, ruleset, status, judgeReason and ve
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /replacement/);
   assert.match(program.judgeReason, /359\.2\.d/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /Unsupported filter field other/);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
@@ -205,13 +206,68 @@ test("ven-062-166 Hextech Formula golden: without a finalized legal gear the abi
   assert.deepEqual(kernel.events, []);
 });
 
+test("ven-062-166 Hextech Formula golden: the merged replacement rewrites a real board entry", () => {
+  // Bind the replacement directly to the pre-entry source, as the production
+  // replacement registration contract requires. This exercises replacement.enter
+  // itself; the unsupported other:true target filter remains a separate TODO.
+  const kernel = world()
+    .unit("hextech-formula", {
+      types: ["gear"],
+      cardId: CANONICAL,
+      zone: "hand",
+      location: null,
+      energy: 2,
+      power: null,
+      might: null
+    })
+    .build();
+  const hostRef = kernel.ref("hextech-formula");
+  const registrations = [];
+  bindReplacement(
+    enterExhausted,
+    hostRef,
+    {
+      host: {
+        object: (ref) => kernel.object(ref),
+        objects: () => kernel.objects,
+        context: () => kernel
+      },
+      pipeline: {
+        clock: { turn: 1 },
+        registerReplacement: (registration) => registrations.push(registration)
+      }
+    }
+  );
+
+  assert.equal(kernel.perform({ type: "move-zone", object: hostRef, to: "chain" }).status, "done");
+  const entering = {
+    type: "move-zone",
+    object: kernel.ref("hextech-formula"),
+    to: "base",
+    location: { type: "base", player: "A" }
+  };
+  assert.equal(registrations.length, 1);
+  const [registration] = registrations;
+  assert.equal(registration.matches(entering, entering), true);
+  const replacement = registration.apply(entering, entering);
+  assert.equal(replacement.status, "replace");
+  assert.deepEqual(replacement.actions.map((action) => action.type), ["exhaust", "move-zone"]);
+  for (const action of replacement.actions) assert.equal(kernel.perform(action).status, "done");
+
+  const entered = kernel.getObject("hextech-formula");
+  assert.equal(entered.zone, "board");
+  assert.deepEqual(entered.location, { type: "base", player: "A" });
+  assert.equal(entered.exhausted, true);
+  assert.deepEqual(kernel.events.map((event) => event.action), ["move-zone", "exhaust", "move-zone"]);
+});
+
 test.todo(
-  "ven-062-166 Hextech Formula: \"This enters exhausted\" needs a CardProgram replacement registered against board entry " +
-    "(CR 369.1/369.3, 359.2.d) plus a replacement.enter primitive for card IR - only internal ReplacementRegistration exists " +
-    "and no path turns a card replacement into one (RIFT-120 follow-up, same gap as ogn/iron-ballista)"
+  "ven-062-166 Hextech Formula: contract change request - the other/exclude self-exclusion anchors for object " +
+    "filters (CR 740.1.a) need consumers in programs/filters.ts translateObjectFilter and in the interpreter's " +
+    "matchesObjectFilter target queries before 'Empower another gear' can bind"
 );
 test.todo(
-  "ven-062-166 Hextech Formula: the activated ability must be registered from card data and enter the chain " +
-    "(contract 3.5 CardProgram -> chain wiring, RIFT-120) before the whole card is executable; its body and cost " +
-    "are already exercised above with caller-supplied finalized targets"
+  "ven-062-166 Hextech Formula: once the other:true anchor is consumed, the production binding must select exactly " +
+    "one friendly gear other than the source (CR 355.7/355.9.a.1/740.1.a); the empower body and exhaust cost are " +
+    "already exercised with caller-supplied finalized targets"
 );

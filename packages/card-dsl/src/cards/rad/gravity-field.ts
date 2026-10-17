@@ -22,19 +22,19 @@ import type { CardProgram } from "../../ir/index.js";
  * 1. Deploy 的 KeywordDef 已合入（RIFT-267，effects/keywords/Deploy.ts）：它把 830.1.b
  *    展开成 static continuous.location（入场地点许可、非单位不被召回）与 hold 触发的
  *    effect.kill 自身。但展开仍缺消费方：continuous.location 的登记没有任何生产方把
- *    CardProgram 的 keyword 能力喂进去（卡牌程序绑定 RIFT-257），Finalize 也没有读取
+ *    CardProgram 的 keyword 展开仍不能绑定 continuous.location，Finalize 也没有完整读取
  *    playLocations() 的位置许可校验；cleanup 侧的“非单位 Gear 不被召回”同样没有接线；
- *    hold 触发的时点虽然已发出（RIFT-270），但没有订阅路径（RIFT-257）。
+ *    hold 触发的时点虽然已发出，但没有把 Deploy 的 host battlefield 绑定进订阅。
  * 2. Applied Cost（204.4）现在可由已合入的 continuous.restrict（mode "applied-cost"）
  *    登记，layers/rules/query.ts 的 appliedCosts() 也能按动作名读回（本文件已按该真实
  *    形状改写，golden 真实执行并断言读回值）；但没有任何消费方把登记到的 applied cost
- *    接进标准移动的费用计划，rainbow Power 的支付路径也属 RIFT-261（cost.pay）。
+ *    接进标准移动的费用计划；Rainbow Power 的支付路径仍不在该消费方。
  * 3. Deathknell 关键词展开（RIFT-82）仍未完成：effects/keywords/Deathknell.ts 的指令体
  *    引用尚未合入的 op trigger.leave，展开体会抛 “Unregistered instruction opcode:
  *    trigger.leave”（见 engine-core 的 keywords/Deathknell.test.mjs 记录），
- *    且没有卡牌程序 → 关键词 → 时点/链的接线（契约 3.5，RIFT-257）。
- * 依赖：RIFT-257（卡牌程序/关键词绑定）、移动费用管线的 applied-cost 消费与 RIFT-261、
- * events 侧的 hold 订阅。
+ *    且没有把该展开体接入可执行的离场触发指令。
+ * 依赖：Deploy 的 continuous.location/hold 宿主消费、移动费用管线的 applied-cost 消费、
+ * Rainbow Power 支付，以及 Deathknell 的 trigger.leave 原语。
  */
 export default {
   canonicalCardId: "card.hash-d406d8dc66cee52b94dfb12d6f6e4fc13ed28937147e943fb4c4f4478b6bb58c",
@@ -43,17 +43,17 @@ export default {
   judgeReason:
     "三处缺口（均不近似实现）：(1) Deploy 的 KeywordDef 已合入（RIFT-267 的 effects/keywords/Deploy.ts：" +
     "static continuous.location 的入场许可 + hold 触发的 effect.kill 自身），但没有消费方——" +
-    "卡牌 keyword 能力 → 展开的生产绑定仍待 RIFT-257，Finalize 不读取 playLocations() 的位置许可，" +
-    "cleanup 的「非单位 Gear 不被召回」也没有接线，hold 触发虽已有时点产生方（RIFT-270）但无订阅路径。" +
+    "但 CardProgram 的 keyword 展开当前不能绑定 continuous.location，Finalize 也没有完整读取 playLocations() 的位置许可，" +
+    "cleanup 的「非单位 Gear 不被召回」没有接线，hold 触发虽已有时点产生方但没有 Deploy 的宿主战场绑定。" +
     "(2)「Opponents must pay :rb_energy_1::rb_rune_rainbow: to move …」是 Applied Cost（CR 204.4/204.4.b），" +
     "现已按已合入的 continuous.restrict（mode applied-cost）真实登记、layers/rules/query.ts 的 appliedCosts() 能读回（golden 已断言），" +
-    "但没有消费方把该 applied cost 接进标准移动的费用计划，rainbow Power 的支付路径属 RIFT-261（cost.pay）。" +
+    "但没有消费方把该 applied cost 接进标准移动的费用计划，且 Rainbow Power 仍无可用的支付路径。" +
     "(3) Deathknell 的展开体（RIFT-82）仍引用未注册的 op trigger.leave，展开会抛 Unregistered instruction opcode，" +
-    "且缺少卡牌程序→关键词→时点/链的接线（契约 3.5）。Draw 1 原语已执行，但不构成整卡证据。" +
-    "依赖：RIFT-257、移动费用管线的 applied-cost 消费与 RIFT-261、events 侧 hold 订阅。",
+    "且 trigger.leave 原语仍未注册。Draw 1 原语已执行，但不构成整卡证据。" +
+    "依赖：Deploy 的位置许可/hold 事件消费、移动费用管线的 applied-cost 消费、Rainbow Power 支付、以及 Deathknell 的 trigger.leave 原语。",
   abilities: [
     // 830.1：印刷的 [Deploy] 声明。展开由已合入的 keywords/Deploy.ts 负责（RIFT-267），
-    // 生产绑定仍待 RIFT-257（见 judgeReason）。
+    // 生产绑定仍待 continuous.location/hold 宿主消费（见 judgeReason）。
     { kind: "keyword", keyword: "deploy" },
     {
       // 204.4 / 204.4.b：Applied Cost（"Opponents must pay … to move …"）随关联的

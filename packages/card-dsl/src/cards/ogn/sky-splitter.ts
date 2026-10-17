@@ -16,14 +16,11 @@ import type { CardProgram } from "../../ir/index.js";
  * - "This spell's Energy cost is reduced by ..." is a discount applied while the
  *   spell is being played, not an instruction that resolves on the chain
  *   (356.4.b: "reduced by [amount]"; 356.4.d orders total-cost discounts after
- *   component discounts). The merged cost machinery can apply such a discount,
- *   but only through a caller-supplied `CostPlanInput.discounts`
- *   (engine-core/src/cost/cost-plan.ts `applyDiscount` with resource "energy");
- *   a card can only declare a `CostSpec`, and `readCost` in cost/plan-values.ts
- *   explicitly blocks every CostSpec field outside kind/payments/energy/power/
- *   discard. There is no merged card-level primitive or IR field that registers
- *   a cost discount, so the clause is stated in the shape the cost system would
- *   consume and is left unexecuted.
+ *   component discounts). The merged `cost.modify` primitive exists, and the
+ *   cost plan can apply a caller-supplied `CostPlanInput.discounts`, but no
+ *   Finalize consumer registers a card's static cost modifier into that plan.
+ *   The clause is stated in the shape the cost system would consume and is left
+ *   unexecuted.
  * - The discount amount is an aggregate over a filtered set: "the highest Might
  *   among units you control". The frozen IR has `count` plus arithmetic over
  *   explicit operands, but no aggregate expression kind and no way to make the
@@ -36,10 +33,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   obligations of the same missing wiring.
  *
  * Dependencies: a card-declarable cost-discount consumer in the Finalize cost
- * plan (the merged applyDiscount only takes caller-supplied
- * CostPlanInput.discounts; the card-level cost.pay/cost.modify instructions are
- * still on the unmerged RIFT-261 branch) and a maximum-aggregate expression
- * over a filtered set.
+ * plan (the merged applyDiscount still only takes caller-supplied
+ * CostPlanInput.discounts) and a maximum-aggregate expression over a filtered set.
  */
 const skySplitter = {
   canonicalCardId: "card.hash-94735882304ffe96826dd127aea87fdfaac6f979e3b075524de966b982a9c89f",
@@ -47,13 +42,12 @@ const skySplitter = {
   status: "judge-required",
   judgeReason:
     "「This spell's Energy cost is reduced by the highest Might among units you control」是第 356.4 步的总费用折扣" +
-    "（在打出过程中应用，不是链上结算的指令）；但卡牌只能声明 CostSpec，cost/plan-values.ts 的 readCost 明确阻断" +
-    "kind/payments/energy/power/discard 之外的字段；唯一能应用折扣的入口是调用方提供的 CostPlanInput.discounts" +
-    "（cost/cost-plan.ts applyDiscount，resource: \"energy\"），而卡片级原语 cost.pay / cost.modify 尚未合入本分支" +
-    "（仍待 RIFT-261 合入），卡牌层没有可声明的原语或 IR 字段。" +
+    "（在打出过程中应用，不是链上结算的指令）；cost.modify 原语与 cost-plan 的 applyDiscount 已存在，" +
+    "但 Finalize 没有把卡牌 static cost.modify 注册进 CostPlanInput.discounts（当前仍只有调用方提供的折扣入口），" +
+    "因此该折扣尚未执行。" +
     "折扣数额还要求对动态集合取最大值（「units you control 中最高的 Might」），冻结 IR 只有 count 与显式操作数算术，" +
     "没有集合聚合表达式，故 amount 仅作描述性占位。356.4.e 的折扣下限与 206/204.1 的印刷费用语义由同一消费方承担。" +
-    "依赖：RIFT-261（cost.pay / cost.modify 原语）与集合 max 聚合表达式。",
+    "依赖：Finalize 对卡牌 static cost.modify 的消费接线与集合 max 聚合表达式。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "This spell's Energy cost is reduced by the highest Might among units you control.\n" +

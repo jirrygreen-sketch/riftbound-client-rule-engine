@@ -5,6 +5,8 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/ezreal-prodigy.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import discard from "../../../../engine-core/dist/effects/instructions/effect.discard.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -29,8 +31,8 @@ test("sfd-149-221 Ezreal, Prodigy: identity, ruleset, status, judgeReason and ve
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /356\.4/);
   assert.match(program.judgeReason, /163\.2\.b/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /layerFor/);
+  assert.match(program.judgeReason, /CostPlanInput.discounts/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -129,19 +131,68 @@ test("sfd-149-221 Ezreal, Prodigy golden: the discard primitive alone moves the 
   assert.deepEqual(kernel.zone("A", "trash").map((ref) => ref.id), ["discarded"]);
 });
 
-test.todo(
-  "sfd-149-221 Ezreal, Prodigy: apply the declared optional-additional-cost discount during Finalize " +
-    "(356.4 / 356.4.c / 356.4.f, with 356.4.f.1's payment decision as the receipt) — the merged cost plan " +
-    "only reads caller-supplied CostPlanInput.discounts and has no component-plus-decision dimension (RIFT-261)"
-);
+
+// The component ID is still supplied by the caller: these goldens verify the
+// merged cost layer, not automatic discovery of this card's static discount.
+for (const resource of ["energy", "power"]) {
+  test(`sfd-149-221 Ezreal, Prodigy cost golden: the ${resource} alternative discounts only the selected component`, () => {
+    const base = world().unit("spell", { energy: 3, power: null }).build();
+    const kernel = base.clone({ sourceSnapshot: base.getObject("spell") });
+    const cost = resource === "energy"
+      ? { energy: { kind: "constant", value: 2 } }
+      : { payments: [{ kind: "power", amount: { kind: "constant", value: 2 }, allowedDomains: ["Chaos"] }] };
+    const modifier = resource === "energy"
+      ? { resource: costStatic.effect.resource, amount: costStatic.effect.amount }
+      : { resource: costStatic.effect.alternative.resource, amount: { kind: "constant", value: costStatic.effect.alternative.amount } };
+    const run = runInstruction(costModify, {
+      id: `ezreal-${resource}-discount`,
+      cost: { kind: "printed" },
+      optionalAdditional: [{ id: "repeat", kind: "repeat", selected: true, cost }],
+      modifier: { kind: "reduce", ...modifier, component: "repeat" }
+    }, { world: kernel });
+
+    assert.equal(run.result.status, "executed");
+    const plan = run.linked.cost;
+    assert.equal(plan.base.energy, 3);
+    assert.equal(plan.printed.power, null);
+    assert.deepEqual(plan.selectedAdditional, [{ id: "repeat", kind: "repeat" }]);
+    const component = plan.components.find(entry => entry.id === "repeat");
+    assert.equal(component.stage, "optional-additional");
+    if (resource === "energy") {
+      assert.equal(component.original.energy, 2);
+      assert.equal(component.cost.energy, 1);
+      assert.equal(plan.total.energy, 4);
+    } else {
+      assert.deepEqual(component.original.power, [{ amount: 2, allowedDomains: ["Chaos"] }]);
+      assert.deepEqual(component.cost.power, [{ amount: 1, allowedDomains: ["Chaos"] }]);
+      assert.equal(plan.total.energy, 3);
+    }
+    assert.equal(plan.discounts[0].component, "repeat");
+    assert.equal(plan.discounts[0].before, 2);
+    assert.equal(plan.discounts[0].after, 1);
+    assert.deepEqual(kernel.events, []);
+  });
+}
+
+test("sfd-149-221 Ezreal, Prodigy cost golden: a selected additional cost reduced to zero remains paid (356.4.f.1)", () => {
+  const base = world().player("A", { energy: 3 }).unit("spell", { energy: 3, power: null }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("spell") });
+  const modified = runInstruction(costModify, {
+    id: "ezreal-zero-repeat",
+    cost: { kind: "printed" },
+    optionalAdditional: [{ id: "repeat", kind: "repeat", selected: true, cost: { energy: { kind: "constant", value: 1 } } }],
+    modifier: { kind: "reduce", resource: costStatic.effect.resource, amount: costStatic.effect.amount, component: "repeat" }
+  }, { world: kernel });
+  assert.equal(modified.result.status, "executed");
+  assert.equal(modified.linked.cost.components.find(entry => entry.id === "repeat").cost.energy, 0);
+  const paid = runInstruction(costPay, { cost: { kind: "constant", value: modified.linked.cost } }, { world: kernel });
+  assert.equal(paid.result.status, "executed");
+  assert.equal(kernel.player("A").energy, 0);
+  assert.deepEqual(paid.linked.payment.additional, [{ id: "repeat", kind: "repeat", paid: true }]);
+  assert.deepEqual(paid.events.map(event => event.action), ["pay"]);
+});
 
 test.todo(
-  "sfd-149-221 Ezreal, Prodigy: represent and charge the '[A]' (163.2.b Universal Power) alternative — the " +
-    "closed Domain type and CostDiscount.resource cannot express it (effect.resources keeps [A] unsupported; " +
-    "contract change request)"
-);
-
-test.todo(
-  "sfd-149-221 Ezreal, Prodigy: the card-played trigger reaches this ability through the trigger -> chain " +
-    "pipeline with the source-identity filter evaluated (383.4.a / 420.4.a) — RIFT-257"
+  "sfd-149-221 Ezreal, Prodigy: bind continuous.cost-modification's optional-additional scope to " +
+    "Finalize and discover component IDs/offer the Energy or Power choice (356.4.c/356.4.f.1)"
 );

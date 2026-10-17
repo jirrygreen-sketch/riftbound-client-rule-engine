@@ -6,6 +6,7 @@ import program from "../../../dist/cards/sfd/renata-glasc-industrialist.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-f24db41d4c6576e3cd77510e93f4c384bab9ccb151eba3ce9a3666b6862b79d3";
@@ -20,10 +21,8 @@ test("sfd-171-221 Renata Glasc, Industrialist: program validates and keeps its i
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Entry overrides are not supported/);
   assert.match(program.judgeReason, /replacement\.enter/);
-  // RIFT-260 merged the replacement binding, so the accurate remaining gap is
-  // the creation action not being a replaceable event plus the missing
-  // production registration consumer.
-  assert.match(program.judgeReason, /RIFT-260/);
+  // Default replacement registration exists; the blocker is token entry rewriting.
+  assert.match(program.judgeReason, /matchesEnterAction/);
   assert.match(program.judgeReason, /create-token/);
   assert.match(program.judgeReason, /replacement\.object/);
   assert.doesNotMatch(program.judgeReason, /replacement\.enter 族（调研 71 个身份）没有已合入实现/);
@@ -44,7 +43,8 @@ test("sfd-171-221 Renata Glasc, Industrialist: entry replacement over this contr
   assert.equal(enterReady.id, "renata.tokens-enter-ready");
   assert.equal(enterReady.op, "effect.ready");
   // The entering token of the replaced event is not a target choice (355.10.c)
-  // and no merged selector binds it; the referent stays symbolic.
+  // and must eventually use the existing replacement.object plan-time link;
+  // the current target remains a blocked declaration.
   assert.deepEqual(enterReady.args.objects, {
     kind: "constant",
     value: { kind: "target", id: "renata.entering-token" }
@@ -90,33 +90,28 @@ test("sfd-171-221 Renata Glasc, Industrialist: the printed Mech definition is th
 
 test.todo(
   "sfd-171-221 Renata Glasc, Industrialist: a create-token action must become a matchable event " +
-    "(or the creation action must accept an entry-orientation override), and a production caller must " +
-    "register the CardProgram replacement with the replaced event's object, so tokens enter ready " +
-    "instead of entering exhausted then readying (143.4 / 805.6) — RIFT-260 follow-up"
+    "(or the creation action must accept an entry-orientation override), with cross-object " +
+    "orientation rewriting so tokens enter ready " +
+    "instead of entering exhausted then readying (143.4 / 805.6)"
 );
 
-test("sfd-171-221 Renata Glasc, Industrialist: a bound replacement intercepts a board entry", () => {
-  // Evidence for the judgeReason. RIFT-260's bindReplacement is live: a
+test("sfd-171-221 Renata Glasc, Industrialist: a bound replacement intercepts a board entry", (t) => {
+  // Evidence for the judgeReason. The merged bindReplacement is live: a
   // replacement over object-enters-board really rewrites a token's board entry
   // (here: banishing it instead of readying it). The creation action is not a
   // matchable event yet, which is the card's remaining blocker.
-  const kernel = world()
-    .player("A")
-    .unit("renata", { owner: "A", controller: "A", might: 4 })
-    .build();
+  const { engine, kernel, host: actionHost } = fixture({ cards: [{
+    id: "renata", cardId: CANONICAL, might: 4
+  }] });
   const host = {
     object: (ref) => kernel.object(ref),
     objects: () => kernel.objects,
-    context: () => kernel
+    context: (source, controller) => actionHost.context(source, controller, "cleanup-start")
   };
-  const registered = [];
-  const pipeline = {
-    clock: { turn: 1 },
-    registerReplacement: (registration) => registered.push(registration),
-    unregisterReplacement: () => {}
-  };
-  kernel.perform({ type: "move-zone", object: kernel.ref("renata"), to: "base", location: { type: "base", player: "A" } });
+  engine.commit({ type: "move-zone", object: kernel.ref("renata"), to: "base", location: { type: "base", player: "A" } });
   const hostRef = kernel.ref("renata");
+  // Track the real registration method without replacing its implementation.
+  const register = t.mock.method(engine.pipeline, "registerReplacement");
 
   const bound = bindReplacement(
     {
@@ -138,9 +133,10 @@ test("sfd-171-221 Renata Glasc, Industrialist: a bound replacement intercepts a 
       }]
     },
     hostRef,
-    { host, pipeline }
+    { host, pipeline: engine.pipeline }
   );
-  assert.equal(registered.length, 1);
+  assert.equal(register.mock.callCount(), 1);
+  assert.equal(bound.registration.source.ref.id, "renata");
 
   // A real token entering the board through move-zone is intercepted.
   const tokenRef = kernel.addObject({
@@ -168,10 +164,16 @@ test("sfd-171-221 Renata Glasc, Industrialist: a bound replacement intercepts a 
   const entryAction = { type: "move-zone", object: tokenRef, to: "base", location: { type: "base", player: "A" } };
   assert.equal(bound.registration.matches(entryAction, entryAction), true);
 
-  // The registration is live and applied through the merged pipeline for a
-  // real board entry (the replacement rewrites it), so the card's entry data
-  // is wired; only the creation event is outside the matchable action set.
+  // Commit the real entry action through EventPipeline. No test callback
+  // performs the replacement or mutates the token's zone.
+  const beforeEntry = kernel.events.length;
+  const outcome = engine.commit(entryAction);
+  assert.equal(outcome.status, "replaced");
+  assert.equal(kernel.getObject("token-1").zone, "banishment");
+  assert.equal(kernel.events.slice(beforeEntry).length, 1);
+  assert.deepEqual(kernel.events.slice(beforeEntry).map(event => event.action), ["move-zone"]);
   assert.equal(typeof bound.registration.apply, "function");
   assert.deepEqual(bound.registration.activeZones.includes("hand"), true);
+  bound.cancel();
 });
 

@@ -6,7 +6,7 @@ import program from "../../../dist/cards/unl/elder-dragon.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-// RIFT-257's program binding turns this card's card-played trigger into a real
+// The program binding turns this card's card-played trigger into a real
 // TriggerRegistration; the golden below drives the printed play effect through
 // the production adapter instead of restating the body by hand.
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
@@ -38,12 +38,11 @@ test("unl-118-219 Elder Dragon: identity, status, judgeReason and verbatim sourc
   assert.match(program.judgeReason, /142\.4\.c/);
   assert.match(program.judgeReason, /perLocation/);
   assert.match(program.judgeReason, /355\.11/);
-  // RIFT-329 re-review: the trigger-registration gap was withdrawn — RIFT-257's
-  // programs/triggers.ts registers this card-played trigger and the golden below
-  // drives it through the production binding — so the reason now names only the
-  // two remaining gaps.
-  assert.ok(!/RIFT-120/.test(program.judgeReason));
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /programs\/triggers\.ts/);
+  // The trigger-registration gap was withdrawn: programs/triggers.ts registers
+  // this card-played trigger and the golden below drives it through production
+  // binding, so the reason names only the two remaining gaps.
+  assert.doesNotMatch(program.judgeReason, /RIFT-9|RIFT-90|RIFT-120|RIFT-257/);
 });
 
 test("unl-118-219 Elder Dragon: the lethal-damage rewrite is a layer effect, not a trigger (142.4.c)", () => {
@@ -214,10 +213,10 @@ function playElderDragon(answers) {
   return board;
 }
 
-test("unl-118-219 Elder Dragon golden: RIFT-257 registers the card-played trigger and a real play resolves it", () => {
-  // The withdrawn part of the old gap 3: RIFT-257's programs/triggers.ts really
-  // registers this card's "When you play me" trigger, and the production
-  // binding resolves the printed "Deal 1 to them" body against the locked set.
+test("unl-118-219 Elder Dragon golden: the card-played trigger registers and a real play resolves it", () => {
+  // The production programs/triggers.ts path registers this card's "When you
+  // play me" trigger and resolves the printed "Deal 1 to them" body against
+  // the locked set.
   const board = playElderDragon((world) => [world.kernel.ref("enemy-here")]);
 
   assert.equal(board.kernel.getObject("dragon").zone, "board");
@@ -229,10 +228,9 @@ test("unl-118-219 Elder Dragon golden: RIFT-257 registers the card-played trigge
   );
 });
 
-test("unl-118-219 Elder Dragon golden: the per-location group keeps one unit per location", () => {
-  // Today one up-to TargetSpec is resolved through the merged TargetPlan; the
-  // golden records the printed grouping the interpreter already enforces by
-  // locking exactly one enemy unit at the chosen location.
+test("unl-118-219 Elder Dragon golden: only the chosen enemy unit takes damage", () => {
+  // This supported single-target execution preserves the unchosen enemy. The
+  // per-location selection restriction still needs the Finalize coverage below.
   const board = playElderDragon((world) => [world.kernel.ref("enemy-here")]);
 
   assert.equal(board.kernel.getObject("enemy-here").damage, 1);
@@ -242,7 +240,7 @@ test("unl-118-219 Elder Dragon golden: the per-location group keeps one unit per
 test.todo(
   "unl-118-219 Elder Dragon: “Any amount of your damage is enough to kill enemy units” sets the lethal threshold " +
     "for damage marked by this card's controller (CR 142.4.a-142.4.c) — no continuous.lethal-threshold primitive or " +
-    "layer consumer is merged (RIFT-9 newPrimitive for this card)"
+    "layer consumer is available"
 );
 test.todo(
   "unl-118-219 Elder Dragon: “choose up to one enemy unit at each location” resolves per-location groups " +
@@ -250,7 +248,6 @@ test.todo(
     "allow two units at one location (target.many / TargetPlan work)"
 );
 test.todo(
-  "unl-118-219 Elder Dragon: resolving the trigger through a real play does not yet protect the printed " +
-    "per-location grouping — the golden below shows two enemy units at one location both legal for the " +
-    "single up-to TargetSpec (CR 355.11)"
+  "unl-118-219 Elder Dragon: Finalize must reject choosing two enemy units at the same location " +
+    "while permitting up to one enemy unit at each distinct location (CR 355.11)"
 );

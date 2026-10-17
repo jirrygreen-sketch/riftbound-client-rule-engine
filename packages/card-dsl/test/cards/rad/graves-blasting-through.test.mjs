@@ -35,7 +35,6 @@ test("rad-085-167 Graves, Blasting Through: validates, identity and source text"
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /combat damage/);
   assert.match(program.judgeReason, /continuous\.combat/);
-  assert.match(program.judgeReason, /RIFT-258/);
   assert.match(program.judgeReason, /attack-declared/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });

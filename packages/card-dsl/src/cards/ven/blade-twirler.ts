@@ -27,13 +27,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    PickSpec.options 是静态值数组，targets() 返回 ObjectRef、picks() 才可能返回
  *    PlayerId；ability-templates 第 4 节的 target.player 行明确 “each player 与
  *    choose opponent 不等价”。本程序按该形状写出指令，但它没有实现文件。
- * 2. object-moved 触发缺可判定载荷：events/action-adapter.ts 为 move-location 生成的
- *    事件不填 toZone/toKind，events/pipeline-match.ts 也不读取卡程序里的内层 filter
- *    锚点；同时没有已合入订阅方把 CardProgram 的 triggered ability 注册成
- *    TriggerRegistration（RIFT-120）。
- * 3. 没有已合入的指令能把 target.player 的结果作为 effect.mill 的 player 参数消费
+ * 2. 卡牌触发进入引擎的注册通道（programs/triggers.ts 的 registerProgramTriggers，
+ *    RIFT-120）已合入：move-location 事件也已带 fromZone/toZone。但 target.player
+ *    仍缺实现文件，玩家选择结果 → effect.mill 的 player 参数消费也没有已合入路径
  *    （链接值形状待定），所以即使选择落地也接不进烧牌步。
- * 依赖：target.player 原语与玩家选择接线、RIFT-120（移动时点载荷与卡牌触发注册）。
+ * 依赖：target.player 原语与玩家选择接线。
  * 已支持部分：effect.mill 本体（441.1/441.2/441.4）已合入，golden 用真实解释器 + 参考
  * 内核执行该烧牌步（直接绑定被选玩家，不伪造选择）。
  */
@@ -88,11 +86,11 @@ export default {
     "三处缺口：(1) 缺玩家选择原语 target.player——契约 3.6 的 TargetSpec 只描述对象过滤器，PickSpec.options 是静态值数组，" +
     "targets()/picks() 的对象形状承载不了「在所有玩家中选一个」的重放式选择（ability-templates 第 4 节 target.player 行：" +
     "each player 与 choose opponent 不等价），程序里声明的 target.player 在 effects/instructions/ 没有实现文件；" +
-    "(2) object-moved 触发缺可判定载荷——events/action-adapter.ts 为 move-location 生成的事件不填 toZone/toKind，" +
-    "events/pipeline-match.ts 也不读取内层 filter 锚点，且没有订阅方把 CardProgram 的 triggered ability 注册成 " +
-    "TriggerRegistration（RIFT-120）；(3) 没有已合入路径把玩家选择结果作为 effect.mill 的 player 参数消费。" +
+    "(2) 卡牌触发进入引擎的注册通道（programs/triggers.ts 的 registerProgramTriggers，RIFT-120）已合入，" +
+    "move-location 事件也已带 fromZone/toZone；(3) 没有已合入路径把玩家选择结果作为 effect.mill 的 player 参数消费" +
+    "（链接值形状待定），所以即使选择落地也接不进烧牌步。" +
     "已支持部分：effect.mill 本体（441.1/441.2/441.4 的 Burn 1）由 golden 用真实解释器 + 参考内核执行，" +
-    "绑定被选玩家而不伪造选择。依赖 target.player 原语与 RIFT-120。不近似实现。",
+    "绑定被选玩家而不伪造选择。依赖 target.player 原语与玩家选择接线。不近似实现。",
   abilities,
   sourceText:
     "The first time I move each turn, choose a player. They [Burn 1]. (They put the top card of their " +

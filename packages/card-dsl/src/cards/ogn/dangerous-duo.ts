@@ -21,8 +21,8 @@ export default {
   judgeReason:
     "continuous.might 已合入并可通过 dangerous-duo.unit 的 TargetSpec 注册本回合结束到期的 +2 Might；" +
     "仍缺 [Legion] 的本回合另一张牌历史条件（包括排除本卡自身）以及 CardProgram triggered ability 的生产链绑定，" +
-    "不能仅凭局部 Might 执行证据将整卡标为 executable。依赖：RIFT-82（Legion 关键词定义）、" +
-    "RIFT-9（history/excluding 条件语义）、RIFT-257（CardProgram 能力与触发订阅绑定）。",
+    "不能仅凭局部 Might 执行证据将整卡标为 executable：TriggerSpec 的普通 count 条件不能读取 " +
+    "ResolveContext.history 中本回合已结算的牌，也不能表达排除本卡自身的 Legion 历史谓词。",
   abilities: [
     {
       kind: "triggered",

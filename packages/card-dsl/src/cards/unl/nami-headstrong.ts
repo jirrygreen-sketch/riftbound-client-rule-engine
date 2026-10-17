@@ -14,7 +14,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 204.2 / 204.2.a / 356.2.b / 356.2.b.1："You may pay :rb_rune_calm: as an
  *   additional cost to play me." 是**可选附加费用**（由被播放卡上的被动能力给出、带 may），
  *   在打出流程的第 2 步声明、356.2 应用、357.2 支付；费用内容按 163.2 是 1 点 Calm Power。
- *   卡牌只声明这条附加费（契约 3.1 的 CostSpec 形态），支付归费用计划（RIFT-89）。
+ *   卡牌只声明这条附加费（契约 3.1 的 CostSpec 形态），支付由费用计划处理。
  * - 383.4.a / 383.2.a.1："When you play me" 是 Play Effect（时点 card-played，自身）；
  *   紧跟在触发条件之后的 "if you paid the additional cost" 属于触发条件（不是效果内条件），
  *   它读的是 356.4.f.1 的"已作出支付决定"收据（见 judgeReason）。
@@ -27,22 +27,21 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （effect.ready / effect.buff，两者均已合入），"it" 是触发事件的对象。
  *
  * status = judge-required（缺口不近似实现）：
- * - 可选附加费用的声明没有消费者：effects/instructions/ 只有 effect.* 文件，没有
- *   cost.additional / cost.pay 原语，也没有把 CardProgram 的 CostSpec 接进
- *   cost/cost-plan.ts 的 optionalAdditional 输入（契约 3.1 的 CostSpec 只被声明）；
+ * - 可选附加费用虽然有 cost.additional 声明，但 programs/play.ts 的费用翻译仍拒绝
+ *   additional/additional-cost 字段，CardProgram 的声明没有进入 Finalize 的 optionalAdditional 输入；
  * - "if you paid the additional cost" 需要费用凭证（356.4.f.1 的 paid 收据）进入条件求值，
  *   合并 IR 的 Condition 没有 condition.result；程序里只保留
  *   compare(count("paid-additional-cost"), gte, 1) 的**保留形状**——真实内核下该计数为 0，
  *   条件是假的，因此 Stun 不会无条件发生（与 piltover-enforcer/virtuoso 同一写法）。
- * - "the next time you play a unit this turn" 需要延迟触发注册与"下一次"窗口：RIFT-9 清单中的
+ * - "the next time you play a unit this turn" 需要延迟触发注册与"下一次"窗口：
  *   trigger.delayed 没有已注册的 InstructionDef，ResolveContext.registerDelayedTrigger 只有
  *   引擎内部调用方，TriggerSpec.once 也只有 per-turn/per-combat/per-chain/per-game；
  * - "ready it and [Buff] it" 的 "it" 是延迟触发的事件对象（被打出的那个单位），合并
  *   ObjectSelector 只有 self/source/target/pick/linked，没有事件对象选择器；程序里的
  *   TargetSpec 只是形状保留（virtuoso 同型），真实绑定须由触发系统在生成延迟触发时完成。
  *
- * 依赖：RIFT-89（可选附加费用与费用凭证）、引擎批 4/5 的延迟触发注册（trigger.delayed）
- * 与事件对象选择器；不近似实现。
+ * 依赖：CardProgram 费用声明到 Finalize 的接线、支付回执条件、trigger.delayed 的 InstructionDef、
+ * next-time-this-turn 窗口与事件对象选择器；不近似实现。
  */
 
 /** "the unit you played" —— 延迟触发的事件对象（形状保留，见 judgeReason）。 */
@@ -51,7 +50,7 @@ const PLAYED_UNIT = "nami-headstrong.played-unit";
 const abilities: Ability[] = [
   {
     // 356.2.b / 356.2.b.1：由被播放卡上的被动能力给出的可选附加费用
-    // （1 点 Calm Power，163.2）。费用计划与支付属 RIFT-89；卡牌只声明形状。
+    // （1 点 Calm Power，163.2）。卡牌只声明费用形状，费用计划负责支付。
     kind: "static",
     effect: {
       kind: "cost.additional",
@@ -117,7 +116,7 @@ const abilities: Ability[] = [
     body: [
       {
         id: "nami-headstrong.delayed-next-unit",
-        // RIFT-9 清单中的延迟触发注册（未注册 op，见 judgeReason）：窗口为"本回合的下一次"。
+        // 延迟触发注册仍待接线（见 judgeReason）：窗口为"本回合的下一次"。
         op: "trigger.delayed",
         args: {
           at: { kind: "constant", value: "card-played" },
@@ -179,18 +178,19 @@ export default {
   status: "judge-required",
   judgeReason:
     "四处缺口，均不近似实现：（1）可选附加费用『You may pay :rb_rune_calm: as an additional cost to play me.』" +
-    "（204.2 / 356.2.b / 356.2.b.1）没有消费者：effects/instructions/ 只有 effect.* 文件，没有 cost.additional / cost.pay 原语，" +
-    "也没有把 CardProgram 的 CostSpec 接进 cost/cost-plan.ts 的 optionalAdditional 输入。" +
+    "（204.2 / 356.2.b / 356.2.b.1）虽然保留了 cost.additional 声明，但 programs/play.ts 的费用翻译仍拒绝 " +
+    "additional/additional-cost 字段，CardProgram 的 CostSpec 没有接进 cost/cost-plan.ts 的 optionalAdditional 输入。" +
     "（2）『if you paid the additional cost』需要 356.4.f.1 的费用凭证（作出支付决定的收据）进入条件求值，" +
     "合并 IR 的 Condition 没有 condition.result；程序保留 count(subject \"paid-additional-cost\") 的比较形状，" +
     "真实内核下该计数为 0、条件为假，所以不会无条件 Stun（不近似实现）。" +
     "（3）『the next time you play a unit this turn』需要延迟触发注册与『下一次』窗口：" +
-    "RIFT-9 清单里的 trigger.delayed 没有已注册的 InstructionDef，ResolveContext.registerDelayedTrigger 只有引擎内部调用方，" +
+    "trigger.delayed 没有已注册的 InstructionDef，ResolveContext.registerDelayedTrigger 只有引擎内部调用方，" +
     "TriggerSpec.once 也只有 per-turn / per-combat / per-chain / per-game，没有 next-time 窗口。" +
     "（4）『ready it and [Buff] it』的 it 是延迟触发的事件对象（被打出的那个单位），合并 ObjectSelector 只有 " +
     "self / source / target / pick / linked，没有事件对象选择器；程序里的 TargetSpec 只是形状保留，" +
     "真实绑定须由触发系统在生成延迟触发时完成。" +
-    "依赖：RIFT-89（可选附加费用与费用凭证）、引擎批 4/5 的延迟触发注册（trigger.delayed）与事件对象选择器。" +
+    "依赖：CardProgram 费用声明到 Finalize 的接线、支付回执条件、trigger.delayed 的 InstructionDef、" +
+    "next-time-this-turn 窗口与事件对象选择器。" +
     "effect.stun / effect.ready / effect.buff 本体均已合入，golden 对它们做真实执行。",
   abilities,
   sourceText:

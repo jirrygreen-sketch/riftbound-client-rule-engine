@@ -25,15 +25,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   engine implements it (src/chain/engine.ts registers the delayed trigger into
  *   the event pipeline), but no merged instruction under
  *   `effects/instructions/` exposes it as an opcode: the `trigger.delayed`
- *   template is still unmerged, so `effect.delayed-trigger` below is a
+ *   template is still unmerged, so `trigger.delayed` below is a
  *   descriptive, unregistered op;
  * - `TriggerSpec.once` only offers per-turn / per-phase / per-combat /
  *   per-showdown / per-chain / per-object / per-game, so the "next three times"
  *   use counter cannot be stated with the merged trigger vocabulary;
  * - the end-of-turn expiry of the created delayed trigger needs a registration
  *   `expiresAt` / duration cleanup path for card-created delayed triggers
- *   (TriggerRegistration has `expiresAt`, but the card-program binding that would
- *   set it is RIFT-257).
+ *   (TriggerRegistration has `expiresAt`, but the delayed-registration path does not
+ *   currently accept or propagate that expiry).
  * The body keeps that intended shape instead of approximating the three uses
  * with a single immediate draw or a permanent "whenever you play a unit"
  * trigger.
@@ -45,9 +45,9 @@ export default {
   judgeReason:
     "缺延迟触发注册的卡牌侧原语与“接下来三次”的用量计数：ResolveContext.registerDelayedTrigger 已在契约 3.6 " +
     "且 chain/engine.ts 已实现（把延迟触发注册进事件管线），但 effects/instructions/ 没有把它暴露成 opcode" +
-    "（trigger.delayed 模板未合入，故本卡用未注册的描述性 op effect.delayed-trigger 记录形状）；" +
+    "（trigger.delayed 模板未合入，故本卡用未注册的描述性 op trigger.delayed 记录形状）；" +
     "TriggerSpec.once（events/trigger-spec.ts）只支持 per-turn / per-phase / per-combat / per-showdown / per-chain / per-object / per-game，" +
-    "无法表达“本回合接下来三次打出单位”；本回合到期需要注册 expiresAt 的接线（TriggerRegistration 有该字段，但卡牌程序绑定 RIFT-257 未合入）。" +
+    "无法表达“本回合接下来三次打出单位”；本回合到期需要让卡牌侧延迟注册传递 expiresAt（TriggerRegistration 有该字段，但 registerDelayedTrigger 当前不接受期限）。" +
     "不近似实现（不用立即抽 1、也不用永久“每当你打出单位”触发代替）。",
   abilities: [
     {
@@ -64,7 +64,7 @@ export default {
           // not registered yet (see judgeReason); the nested body is the real
           // instruction the delayed trigger would execute.
           id: "fanfare.register-delayed-trigger",
-          op: "effect.delayed-trigger",
+          op: "trigger.delayed",
           args: {
             at: { kind: "constant", value: "card-played" },
             // The event pattern is descriptive data here. It is deliberately

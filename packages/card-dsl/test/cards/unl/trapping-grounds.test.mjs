@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/trapping-grounds.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL_ID =
   "card.hash-7a01ecd3aa462214de6a41d9b27507498954ccd6e7095b6e731dbe742c275f90";
@@ -31,21 +32,22 @@ test("unl-217-219 Trapping Grounds: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /355\.2/);
   assert.match(program.judgeReason, /467\.2\.c/);
   assert.match(program.judgeReason, /RIFT-9/);
-  assert.match(program.judgeReason, /RIFT-31\/RIFT-33/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /source\/Battlefield/);
+  assert.match(program.judgeReason, /attachLifecycle/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
 test("unl-217-219 Trapping Grounds: conquer trigger with the excess-damage clause as trigger condition", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "triggered");
-  // 383.4.c / 383.4.c.1: a Conquer Effect; "here" is this Battlefield (053.3)
-  // and "you" its controller (190.6.d).
+  // 383.4.c / 383.4.c.1: a Conquer Effect; the card-side filter uses the
+  // closed-vocabulary event name "conquered" (the conquer timing point itself is
+  // emitted by turn/flow.ts) and "you" is the Battlefield's controller (190.6.d).
   assert.equal(ability.trigger.at, "conquer");
   assert.deepEqual(ability.trigger.filter, {
-    event: "conquer",
-    here: true,
-    player: "controller"
+    event: "conquered",
+    filter: { source: "self" },
+    player: "self"
   });
   // 383.2.a.1: the clause follows the trigger condition directly, so it belongs
   // to that condition; the "assigned excess damage" total is a combat-damage
@@ -88,6 +90,20 @@ test("unl-217-219 Trapping Grounds: one Bird token play with no fixed destinatio
   assert.equal(playBird.condition, undefined);
 });
 
+
+test("unl-217-219 Trapping Grounds golden: the conquered pattern retains the source Battlefield anchor", async () => {
+  // The event name is closed vocabulary, while the nested source:self filter
+  // preserves CR 053.3 "here" for the registration layer.
+  const pattern = ability.trigger.filter;
+  assert.equal(pattern.event, "conquered");
+  assert.deepEqual(pattern.filter, { source: "self" });
+  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  const translated = translateTriggerFilter(pattern, "trapping-grounds-source");
+  assert.equal(translated.event, "conquered");
+  assert.equal(translated.player, "self");
+  assert.deepEqual(translated.object, { objectId: "trapping-grounds-source" });
+});
+
 test.todo(
   "unl-217-219 Trapping Grounds: expose the conquer event's assigned excess-damage total " +
     "(467.2.c.1 assigning is not dealing, 467.2.c.4 excess above lethal) on the scoring payload " +
@@ -95,10 +111,10 @@ test.todo(
 );
 
 test.todo(
-  "unl-217-219 Trapping Grounds: emit the conquer timing point from scoring/ into the chain/events " +
-    "pipeline and register this CardProgram's triggered ability as a trigger, including the 053.3 " +
-    "'here' referent (conquer is emitted by turn/flow.ts now; the here filter is rejected by " +
-    "programs/filters.ts — RIFT-31/RIFT-33 payload, RIFT-120/RIFT-257 registration)"
+  "unl-217-219 Trapping Grounds: bind the conquer trigger to the source Battlefield in production " +
+    "(conquer is emitted by turn/flow.ts and createProgramBinding.attachLifecycle registers supplied " +
+    "programs, but the scoring emission carries only battlefieldId/player and lacks the source/object " +
+    "snapshot needed for the retained 053.3 here anchor; the default room does not inject this program)"
 );
 
 test.todo(

@@ -24,11 +24,11 @@ test("sfd-099-221 Veteran Poro: program validates, is registered and stays judge
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // README section 2: the reason names the missing primitives and the rules they serve.
+  // The blocker is authoritative Equip cost and symbol provenance.
   assert.match(program.judgeReason, /cost\.modify/);
-  assert.match(program.judgeReason, /cost\.pay/);
+  assert.match(program.judgeReason, /Equip/);
   assert.match(program.judgeReason, /821\.1/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /\[A\]\/\[C\]/);
   assert.equal(
     program.sourceText,
     "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)"
@@ -81,8 +81,5 @@ test("sfd-099-221 Veteran Poro: selecting no Equipment skips the whole cost/atta
   assert.deepEqual(kernel.events, []);
 });
 
-test.todo(
-  "sfd-099-221 Veteran Poro: pay the chosen Equipment's Equip cost reduced by [A] and attach it to this unit " +
-    "(CR 821.1.c) once cost.modify / cost.pay are merged (RIFT-261) and the card-program binding reaches the " +
-    "keyword expansion (RIFT-257 follow-up). No full-price Equip or named-domain [A] substitute is used."
-);
+test.todo("Veteran Poro: bind the chosen Equipment's Equip CostSpec and original [A] symbols, then pay and attach at Finalize (821.1.c.2-.5)");
+test.todo("Veteran Poro: match the expanded self card-played trigger to the actual played object incarnation");

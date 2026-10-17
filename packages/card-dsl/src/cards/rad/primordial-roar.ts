@@ -29,13 +29,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   board is a pick, not a target).
  *
  * Status: judge-required (rechecked 2026-10-17). Current gaps:
- * - RIFT-268 merged effects/keywords/ShowOff.ts, but its expansion is a static
+ * - effects/keywords/ShowOff.ts is merged, but its expansion is a static
  *   `cost.reveal` declaration with no consumer: chain Finalize does not read it,
  *   no instruction and no op produce the shown-off link, and nothing captures the
  *   locked characteristic at the `objects-shown-off` timing point (832.1.c.2,
- *   832.1.d.1). RIFT-261 owns the cost.pay/kind work still in progress.
- * - `effect.show-off` is still not a registered instruction op (RIFT-269 merged
- *   Predict/Burn/Add; Show Off's Finalize choice is not among them), so the
+ *   832.1.d.1); the action adapter maps show-off to that timing point, but no
+ *   chain producer emits it.
+ * - `effect.show-off` is still not a registered instruction op, so the
  *   program's Show Off instruction cannot execute; the descriptive op and its
  *   link keys are kept as reviewable structure only.
  * - `KeywordDef.expand` has no card-side parameter channel for the printed
@@ -52,11 +52,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Show Off] 仍不可执行：(1) RIFT-268 的 effects/keywords/ShowOff.ts 只发布 static " +
+    "[Show Off] 仍不可执行：(1) effects/keywords/ShowOff.ts 只发布 static " +
     "cost.reveal 声明，没有消费方——chain Finalize 不读它，832.1.c.2 的展示选择、" +
-    "832.1.d.1 在 objects-shown-off 锁定特征、以及产出的展示链接值都没有实现（RIFT-261 " +
-    "进行中的 cost.pay/费用种类与 RIFT-120 接线）。(2) effect.show-off 仍不是已注册指令 op" +
-    "（RIFT-269 合入的是 Predict/Burn/Add），因此程序里保留的展示指令无法执行。" +
+    "832.1.d.1 在 objects-shown-off 锁定特征、以及产出的展示链接值都没有实现；" +
+    "action-adapter 虽把 show-off 映射到 objects-shown-off 时点，但链上没有该时点的生产者。" +
+    "(2) effect.show-off 仍不是已注册指令 op，因此程序里保留的展示指令无法执行。" +
     "(3) KeywordDef.expand 没有卡牌侧的印刷 [Object] 参数通道（契约 3.8.3 的 params 未被 " +
     "KeywordAbility 承载），\"a unit\" 无法传给关键词展开。伤害半段必须读取展示时锁定的 Might" +
     "（832.1.d.1：之后变化不考虑），object-property 现读当前 Might 不等价；golden 在锁定值" +

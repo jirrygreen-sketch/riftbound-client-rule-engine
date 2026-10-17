@@ -27,26 +27,24 @@ import type { CardProgram } from "../../ir/index.js";
  *   the ready instruction: a replaced or negated ready must still draw
  *   (359.3.e.14.b, and 359.3.e.8 for partial target loss).
  *
- * Status: judge-required — every instruction runs on merged primitives, but the
- * card cannot be called executable end to end: the movement system still does
- * not consume the recorded restriction. zones/movement.ts validates a Standard
- * Move from its own board/timing inputs and never reads the layer engine's
- * MovementPermissions, and effect.move documents that path restrictions belong
- * to move-location, which has no continuous-restriction hook either, so the
- * registered "cannot-move" label cannot yet negate a move. CardProgram static
- * ability binding is also still pending (RIFT-257). Dependencies: the movement
- * restriction consumer plus RIFT-257. Not approximated: the restriction is
- * declared through the real primitive and never faked as an allowed move.
+ * Status: judge-required — every instruction runs on merged primitives and
+ * Standard Move consumes the recorded MovementPermissions restriction, but
+ * effect.move delegates to move-location, whose current action path does not
+ * consult continuous movement restrictions. CR 054.1 also forbids effect Moves
+ * under "can't move" (451), so Standard Move evidence alone is insufficient.
+ * The golden tests preserve ready/draw/receipt assertions, execute Standard
+ * Move rejection and expiry, and exercise the supported body and Reaction
+ * timing in a real chain without admitting the whole judged program.
  */
 export default {
   canonicalCardId: "card.hash-2664ce34bf1adce071ce02ab9d89d11c45b42381e2728fbb02be19a2d83e1575",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三段正文都已有已合入原语并真实执行（effect.ready、continuous.movement 的 restriction 形状、effect.draw；golden 用链解释器适配器 + 图层查询断言就绪、cannot-move 限制与抽 1）。" +
-    "整卡仍不可执行：「It can't move this turn」登记的移动禁止没有消费方——zones/movement.ts 只按自己的 Standard Move 输入校验、从不读图层的 MovementPermissions，" +
-    "effect.move 也明确把路径限制归 move-location，而它同样没有读取持续限制的接口，所以 054/054.1 的禁止（含 451.1 的效果移动）目前无法否定移动。" +
-    "另外卡牌 static/触发能力绑定仍待 RIFT-257。依赖：移动限制消费任务与 RIFT-257。不近似实现。",
+    "三段正文已通过真实解释器执行：effect.ready、continuous.movement 的 cannot-move 限制与 effect.draw；" +
+    "zones/movement.ts 的 Standard Move 已消费 MovementPermissions，且本回合结束后限制到期。" +
+    "当前缺口是效果移动：effect.move 把限制检查交给 move-location，但该动作及 chain/events 适配路径尚未读取持续移动限制，" +
+    "因此不能落实 054.1 对所有 Move（含 451 的效果移动）的禁止。依赖：move-location 的持续移动限制消费；不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

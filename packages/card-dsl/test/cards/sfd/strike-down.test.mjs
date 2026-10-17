@@ -50,7 +50,7 @@ test("Strike Down program is structurally valid and judge-required", () => {
   assert.equal(strikeDown.status, "judge-required");
   assert.match(strikeDown.judgeReason, /pick/i);
   assert.match(strikeDown.judgeReason, /object-attribute/);
-  assert.match(strikeDown.judgeReason, /RIFT-90/);
+  assert.match(strikeDown.judgeReason, /pick|ObjectRef/);
   assert.match(strikeDown.judgeReason, /equipped/);
   assert.equal(
     strikeDown.canonicalCardId,
@@ -217,8 +217,6 @@ test("Strike Down golden: a stale picked unit ignores the damage instead of gues
 });
 
 test.todo(
-  "Strike Down full play: the chain Finalize needs a pick lifecycle that fills the non-target " +
-    "\"choose an equipped friendly unit\" ObjectRefs (contract 3.6 / RIFT-90); today only " +
-    "instruction.targets receive a TargetPlan, and the equipped-friendly predicate has no merged " +
-    "ObjectFilter field"
+  "Strike Down full play: production Finalize must fill the non-target pick for an equipped friendly unit and the " +
+    "linked detach pick; the current ObjectFilter and pick lifecycle do not provide that complete selection path"
 );

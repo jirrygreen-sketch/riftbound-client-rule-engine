@@ -30,22 +30,22 @@ import type { CardProgram } from "../../ir/index.js";
  *        （layers 的 valueOf 目前不处理 count，会把结果当成 0）；
  *    (c) "at my battlefield" 的同地点锚点在图层过滤器中的支持（layers/filter.ts 不读
  *        sameLocationAs，也没有 buffed 谓词）。
- * 依赖：continuous.combat 消费方与战斗伤害指派顺序（RIFT-258 交接 / 战斗工作流）、
- * layers 的 count 求值与 sameLocationAs/buffed 谓词（RIFT-91 后续）。
+ * 依赖：continuous.combat 消费方与战斗伤害指派顺序，以及 layers 对动态 count、
+ * sameLocationAs 与 buffed 谓词的求值和卡牌 static 注册接线。
  */
 const settKingpin = {
   canonicalCardId: "card.hash-8e8505ab8acf50a1be41bbb00297263ad9415f1e111039591ccbaefedd5a2d00",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Tank] 的关键词展开已合入（effects/keywords/Tank.ts，RIFT-264），但展开出的 continuous.combat " +
+    "[Tank] 的关键词展开已合入（effects/keywords/Tank.ts），但展开出的 continuous.combat " +
     "没有消费方：layers/engine.ts 不命中该 kind，combat/ 的伤害指派也不读取它" +
     "（base-combat-allocation.ts 注明未绑定任何指派优先级），815.1.c 的伤害分配顺序不可执行；" +
     "「I get +1 [M] for each buffed friendly unit at my battlefield」需要卡牌 static 效果进 layers 算术层的注册路径、" +
     "以 count 表达式求值 amount（layers 的 valueOf 目前不处理 count，会得到 0）、以及「与我同地点 + buffed（至少 1 个 buff）」" +
     "的图层过滤器谓词（layers/filter.ts 不读 sameLocationAs，也没有 buffed 谓词）。" +
-    "以上任一缺失都会让效果变成 0 或空声明，故不标 executable。依赖：continuous.combat 消费方/战斗指派（RIFT-258 交接、" +
-    "战斗工作流）、RIFT-91（layers count 求值与过滤器谓词）。",
+    "以上任一缺失都会让效果变成 0 或空声明，故不标 executable。依赖：continuous.combat 消费方/战斗指派、" +
+    "以及 layers 对动态 count、sameLocationAs、buffed 谓词和卡牌 static 注册的支持。",
   sourceText:
     "[Tank] (I must be assigned combat damage first.)\n" +
     "I get +1 :rb_might: for each buffed friendly unit at my battlefield.",

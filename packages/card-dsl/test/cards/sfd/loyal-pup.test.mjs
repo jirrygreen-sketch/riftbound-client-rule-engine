@@ -31,7 +31,7 @@ test("sfd-126-221 Loyal Pup: judgeReason names the defense emission and destinat
   assert.match(program.judgeReason, /383\.4\.f\.2/);
   assert.match(program.judgeReason, /payloadFields/);
   assert.match(program.judgeReason, /combat-start-transaction/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /ResolveContext\/Expr/);
 });
 
 test("sfd-126-221 Loyal Pup: 'when you defend at a battlefield' subscribes to defense-declared once per combat", () => {
@@ -91,20 +91,29 @@ test("sfd-126-221 Loyal Pup golden: declining the may leaves Loyal Pup where it 
   assert.deepEqual(kernel.getObject("pup").location, { type: "base", player: "A" });
 });
 
+test("sfd-126-221 Loyal Pup golden: the unresolved defense referent cannot move the source to another battlefield", () => {
+  const base = world().base("pup").unit("other", { location: { type: "battlefield", id: "other-field" } }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("pup") });
+  kernel.setAnswers({ "loyal-pup.may-move/optional": true });
+  assert.throws(() => resolveChainBody(ability.body, kernel), /effect\.move to must be a location/);
+  assert.deepEqual(kernel.getObject("pup").location, { type: "base", player: "A" });
+  assert.deepEqual(kernel.events, []);
+});
+
 test.todo(
-  "sfd-126-221 Loyal Pup: the defense-declared timing point is emitted when this unit gains the " +
+  "sfd-126-221 Loyal Pup: the defense-declared timing point is emitted when its controller gains the " +
     "Defender designation (383.4.f.2, 466.2.c/323.2) — combat/ has no emission path yet " +
   "(combat/flow.ts throws combat-start-transaction)"
 );
 
 test.todo(
   "sfd-126-221 Loyal Pup: the defended battlefield reaches the ability as a resolvable destination for " +
-  "\"there\" (359.3.f.1 referent; the timing-point payload declares no fields) — the in-progress " +
-  "RIFT-357 runtime Location choice"
+  "\"there\" (359.3.f.1 referent; the timing-point payload declares no fields) — bind the defense event " +
+  "battlefieldId to the resolving body; generic Location choices are already merged"
 );
 
 test.todo(
   "sfd-126-221 Loyal Pup golden: accepting the may moves Loyal Pup from its current Location to the " +
     "defended battlefield; the authored destination is a declared referent marker (359.3.f.1), so no " +
-  "authentic execution is possible until the defended battlefield is resolvable — RIFT-357"
+  "authentic execution is possible until the defense event's battlefield is bound to the body"
 );

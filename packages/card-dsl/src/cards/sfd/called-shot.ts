@@ -13,10 +13,10 @@ import type { CardProgram } from "../../ir/index.js";
  * - "[Action]" (806.1.b/806.1.c, 159.2.a) is declared only; the Showdown
  *   permission is expanded by effects/keywords/Action.ts (contract 3.7).
  * - "[Repeat] :rb_rune_chaos:" (820.1.c) is an Optional Additional Cost. The
- *   frozen KeywordAbility (contract 3.1) carries no printed cost, and the
- *   CardProgram consumer that would collect the paid instance count and drive
- *   an extra execution has not merged (RIFT-257), so this declaration is not
- *   executed here.
+ *   frozen KeywordAbility (contract 3.1) carries no printed cost, and the merged
+ *   play binding rejects additional-cost outright (programs/play.ts
+ *   translateCost calls judgeRequired for additional-cost), so this declaration
+ *   is not executed here.
  * - "Look at the top 2 cards of your Main Deck" is a private look (128.3-128.4)
  *   over the deck's real order. Reading the deck top must use the zoneSlice
  *   contract (3.6), and the merged effect.inspect deliberately negates
@@ -41,7 +41,8 @@ import type { CardProgram } from "../../ir/index.js";
  * supplied ordered deck-top range, but no merged producer turns "the top 2
  * cards" into that range (the chain's Finalize surface locks instruction
  * targets only, and picks have no ordered-region lifecycle), and the [Repeat]
- * additional cost has no merged collection path. Neither gap is approximated.
+ * additional cost is rejected by the merged play binding. Neither gap is
+ * approximated.
  */
 const calledShot = {
   canonicalCardId: "card.hash-80891ed8d25bcc7b7a458d0779163e739b738892493c56f163344772ecf1eea2",
@@ -52,10 +53,12 @@ const calledShot = {
     "effect.inspect 自行规定非零 top 查看必须有有序来源（缺来源时 negated/impossible，绝不截取 query() 的顺序，契约 3.6 的 zoneSlice 才保序），" +
     "而链的 Finalize（chain/engine.ts assertFinalizationSurface）只锁定 instruction.targets 的 TargetSpec，没有有序区域 pick 的生命周期；" +
     "本文件声明了稳定的有序范围 id，由调用方按 zoneSlice 提供牌库顶两张。" +
-    "(2)「[Repeat] :rb_rune_chaos:」的可选追加费用没有收取/计数路径：冻结的 KeywordAbility（契约 3.1）不承载印刷费用，" +
-    "也没有已合入的卡牌程序消费方把已付费实例数接到额外执行上（RIFT-257），故只声明形状，不写死第二次结算。" +
-    "look → 入手 1 张（effect.zone，414.1/056.1）→ 回收其余（effect.recycle，417.1）三段只用已合入原语，golden 已借参考内核的有序 picks 真实执行。" +
-    "依赖：有序区域 picks / Finalize 生命周期、RIFT-257（卡牌程序绑定）与 Repeat 费用管线。",
+    "(2)「[Repeat] :rb_rune_chaos:」的可选追加费用没有绑定路径：冻结的 KeywordAbility（契约 3.1）不承载印刷费用，" +
+    "已合入的卡牌程序 play 绑定（programs/play.ts translateCost）对 additional-cost 直接 judgeRequired" +
+    "（\"Additional costs are not bound for ...\"），没有把已付费实例数接到 effect.repeat 额外执行上的路径，故只声明形状，" +
+    "不写死第二次结算。" +
+    "look → 入手 1 张（effect.zone，414.1/414.3）→ 回收其余（effect.recycle，417.1）三段只用已合入原语，golden 已借测试内核的有序 picks 真实执行。" +
+    "依赖：有序区域 picks / Finalize 生命周期、additional-cost 绑定与 Repeat 费用管线。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

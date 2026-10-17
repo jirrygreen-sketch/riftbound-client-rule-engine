@@ -32,7 +32,8 @@ test("unl-038-219 Skyward Strike: identity, ruleset, status, judgeReason and ver
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /355\.4/);
   assert.match(program.judgeReason, /824\.1/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.equal(cardProgramsById.get(program.canonicalCardId), program);
 });
 
@@ -55,7 +56,7 @@ test("unl-038-219 Skyward Strike: printed cost, Move target and the Level 6 gate
 
   // "Move an enemy unit": one enemy Board unit is the target (451 / 355.9.a.1);
   // the destination has no printed value, so it is the runtime location choice
-  // of 355.4 (recorded as a descriptive marker until RIFT-90 lands).
+  // of 355.4 (recorded as a descriptive marker until RIFT-357 lands).
   assert.deepEqual(moveInstruction.args.objects, {
     kind: "constant",
     value: { target: "skyward-strike.enemy-unit" }
@@ -138,17 +139,17 @@ test("unl-038-219 Skyward Strike golden: the printed [Stun] clause stuns a locke
 
 test.todo(
   "unl-038-219 Skyward Strike: the destination of 'Move an enemy unit' is a runtime location choice " +
-    "(CR 355.4 / 355.4.a / 451.1) that needs the runtime Location selector — RIFT-90"
+    "(CR 355.4 / 355.4.a / 451.1) that needs the runtime Location selector — RIFT-357"
 );
 
 test.todo(
   "unl-038-219 Skyward Strike: expand [Level 6][>] (CR 824.1.b.1: 'while you have 6 or more XP, this " +
     "card gains [Text]') with dynamic Active/Inactive re-evaluation (824.1.c.1/.d) and an evaluable XP " +
-    "predicate — no kw-level expansion and no Expr path to PlayerSnapshot.xp are merged (RIFT-89/90)"
+    "predicate — no kw-level expansion and no Expr path to PlayerSnapshot.xp are merged (RIFT-359)"
 );
 
 test.todo(
   "unl-038-219 Skyward Strike: the printed '[Stun] an enemy unit' through the production chain adapter " +
     "needs effect.stun's literal `target` decoded (chain/interpreter-adapter.ts LITERAL_FIELDS) — " +
-    "RIFT-119 primitive gap shared with the merged ogn/solari-shieldbearer"
+    "the chain adapter's literal-field registration for effect.stun"
 );

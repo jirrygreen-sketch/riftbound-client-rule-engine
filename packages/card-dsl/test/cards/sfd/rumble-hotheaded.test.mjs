@@ -1,7 +1,6 @@
 // Golden test for Rumble, Hotheaded (sfd-026-221).
-// The static Assault grant needs the continuous keyword layer (RIFT-91/81),
-// while the conquer trigger body only uses merged primitives and is executed
-// against the reference kernel.
+// Test supported static and primitive subeffects independently. Conquer
+// identity, recycle-cost selection and nested play cost binding remain blocked.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateCardProgram } from "../../../../../packages/card-dsl/dist/ir/index.js";
@@ -12,6 +11,10 @@ import playDef from "../../../../../packages/engine-core/dist/effects/instructio
 import keyword from "../../../../../packages/engine-core/dist/effects/instructions/continuous.grant-keyword.js";
 import { translateObjectFilter } from "../../../../../packages/engine-core/dist/programs/filters.js";
 import { translateCost } from "../../../../../packages/engine-core/dist/programs/play.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { world, runInstruction } from "../../../../../packages/engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870";
@@ -23,10 +26,10 @@ test("program passes validateCardProgram and is judge-required", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason ?? "", /continuous\.grant-keyword/);
-  assert.match(program.judgeReason ?? "", /RIFT-258/);
-  assert.match(program.judgeReason ?? "", /RIFT-81/);
-  assert.match(program.judgeReason ?? "", /RIFT-261/);
-  assert.match(program.judgeReason ?? "", /ProgramStaticBinder/);
+  assert.match(program.judgeReason ?? "", /默认 static binder/);
+  assert.match(program.judgeReason ?? "", /KeywordDef/);
+  assert.match(program.judgeReason ?? "", /cost\.modify\/cost\.pay/);
+  assert.match(program.judgeReason ?? "", /运行时授予/);
   assert.match(program.judgeReason ?? "", /designation/);
   assert.match(program.sourceText, /Your Mechs each have \[Assault\]/);
 });
@@ -104,38 +107,38 @@ test("reference kernel: recycling the fodder unit moves it to the bottom of its 
   assert.deepEqual(testWorld.objectsInZone("A", "deck"), [{ id: "fodder", zoneEntryId: 2 }]);
 });
 
-test("reference kernel: the linked play moves the chosen Mech from trash to the board", () => {
+test("reference kernel: an isolated play with an explicit cost moves the chosen Mech from trash to the board", () => {
   const testWorld = world()
+    .player("A", { energy: 5 })
     .card("mech-card", { owner: "A", zone: "trash", types: ["unit"], tags: ["Mech"], energy: 5 })
     .build();
   const run = runInstruction(
     playDef,
     {
       target: "rumble.mech-in-trash",
-      cost: { kind: "constant", value: { finalized: true, energy: 0 } }
+      cost: { kind: "constant", value: { finalized: true, energy: 5 } }
     },
     {
       world: testWorld,
-      targets: { "rumble.mech-in-trash": [testWorld.ref("mech-card")] },
-      linked: { recycledMight: 3 }
+      targets: { "rumble.mech-in-trash": [testWorld.ref("mech-card")] }
     }
   );
   assert.equal(run.result?.status, "executed");
   assert.equal(run.linked["played"], 1);
   assert.equal(testWorld.getObject("mech-card")?.zone, "board");
+  assert.equal(testWorld.player("A").energy, 0);
 });
 
 test.todo(
   "Rumble, Hotheaded: the cost plan must derive the discount from the recycled unit's Might " +
     "(the merged effect.recycle links references, not a Might value) and apply it at Finalize — " +
-    "RIFT-261 cost.modify / cost-plan work"
+    "recycled Might snapshot / nested play Finalize adapter"
 );
 test("the merged continuous.grant-keyword primitive registers the Assault grant itself", () => {
-  // RIFT-258 merged continuous.grant-keyword, so the static ability's data is
+  // The merged continuous.grant-keyword static data is
   // executable once a consumer registers it: the primitive writes an
   // ability-layer keyword grant per matching object with the printed value.
-  // (The card's own filters still need the programs-layer normalization, which
-  // is exactly the missing consumer this judgeReason records.)
+  // The production default binder normalizes the card's filter in the next test.
   const kernel = world()
     .unit("mech", { owner: "A", controller: "A", tags: ["Mech"] })
     .build();
@@ -170,7 +173,7 @@ test("the merged continuous.grant-keyword primitive registers the Assault grant 
   });
 });
 
-test("the merged cost and recycle paths do not carry the card's Might discount", () => {
+test("the card retains its blocked discount declaration and recycle reference links", () => {
   // Evidence for the judgeReason: the discount cannot be declared through the
   // card's `cost` field yet. The merged adapter accepts only
   // printed/activated/explicit cost kinds; a FinalizedCostPlan literal is
@@ -189,7 +192,7 @@ test("the merged cost and recycle paths do not carry the card's Might discount",
 
   // The merged effect.recycle links the recycled references and their count;
   // the Might value the program reads must be derived from those references by
-  // the still-missing cost-modification step.
+  // card-specific snapshot and Finalize binding.
   const kernel = world().base("fodder", { owner: "A", might: 3 }).build();
   const recycled = runInstruction(
     recycleDef,
@@ -204,6 +207,52 @@ test("the merged cost and recycle paths do not carry the card's Might discount",
 
 
 test.todo(
-  "grant Assault through continuous.grant-keyword with a real attacker designation and a production " +
-    "card-static registration consumer (RIFT-81 / RIFT-257 follow-up)"
+  "consume runtime-granted Assault as attacker-only Might (807.1.c/.d.1), with designation/combatRole alignment"
 );
+
+
+test("Rumble, Hotheaded: the default static binder registers the original friendly-Mech Assault aura", () => {
+  const { engine, kernel } = fixture({ cards: [
+    { id: "rumble", cardId: CANONICAL, tags: ["Mech"], might: 4 },
+    { id: "friendly-mech", tags: ["Mech"], might: 3 },
+    { id: "friendly-other", tags: [], might: 3 },
+    { id: "enemy-mech", owner: "B", controller: "B", tags: ["Mech"], might: 3 }
+  ] });
+  for (const id of ["rumble", "friendly-mech", "friendly-other", "enemy-mech"]) {
+    engine.commit({ type: "move-zone", object: kernel.ref(id), to: "base", location: { type: "base", player: kernel.getObject(id).controller } });
+  }
+  const handle = createEngineStaticBinder(engine).bindStatic(program.abilities[0], kernel.getObject("rumble"));
+  const [entry] = engine.layers.registry.list();
+  assert.deepEqual(entry.effect.filter, { zone: "board", controller: "A", tags: ["Mech"], type: "unit" });
+  engine.layers.setObjects(kernel.objects);
+  for (const id of ["rumble", "friendly-mech"]) {
+    assert.deepEqual(engine.layers.evaluate(kernel.ref(id)).keywords, [{ id: "Assault", value: 1 }]);
+  }
+  for (const id of ["friendly-other", "enemy-mech"]) {
+    assert.deepEqual(engine.layers.evaluate(kernel.ref(id)).keywords, []);
+  }
+  handle.unbind();
+  assert.equal(engine.layers.registry.list().length, 0);
+  assert.deepEqual(engine.layers.evaluate(kernel.ref("friendly-mech")).keywords, []);
+});
+
+test("Rumble, Hotheaded: merged cost.modify and cost.pay execute a real Might-valued discount independently", () => {
+  // This proves the primitives have landed. The original card still needs to
+  // take the recycle-cost snapshot and bind the plan to the selected Mech.
+  const kernel = world().player("A", { energy: 5 }).base("fodder", { might: 3 }).build();
+  const modified = runInstruction(costModify, {
+    id: "mech-cost-probe",
+    cost: { kind: "explicit", energy: { kind: "constant", value: 5 } },
+    modifier: { kind: "reduce", resource: "energy", amount: { kind: "object-property", object: { target: "fodder" }, property: "might" } }
+  }, { world: kernel, targets: { fodder: [kernel.ref("fodder")] } });
+  assert.equal(modified.result.status, "executed");
+  assert.equal(modified.linked.cost.finalized, true);
+  assert.equal(modified.linked.cost.total.energy, 2);
+  assert.equal(kernel.player("A").energy, 5);
+  const paid = runInstruction(costPay, {
+    cost: { kind: "constant", value: modified.linked.cost }
+  }, { world: kernel });
+  assert.equal(paid.result.status, "executed");
+  assert.equal(kernel.player("A").energy, 3);
+  assert.deepEqual(paid.events.map(event => event.action), ["pay"]);
+});

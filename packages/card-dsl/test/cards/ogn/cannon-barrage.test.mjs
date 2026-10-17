@@ -62,7 +62,7 @@ test("Cannon Barrage structure: 'all enemy units in combat' is not declared as a
       filter: {
         type: "unit",
         controller: "opponent",
-        combatRole: ["attacker", "defender"]
+        characteristics: { combatRole: ["attacker", "defender"] }
       }
     }
   });
@@ -93,17 +93,16 @@ test("Cannon Barrage golden: the printed 2 damage executes over the locked in-co
 
 test.todo(
   "Cannon Barrage: dealing damage to a programmatically selected set needs either a " +
-    "set/query form of effect.damage or a target-system set requirement with a location " +
-    "filter (355.10.d.1, RIFT-9 target.query/target.many; RIFT-90 target system)."
+    "set/query form of effect.damage or a target-system set requirement (355.10.d.1)."
 );
 
 test.todo(
   "Cannon Barrage: the 'in combat' test needs combatRole on ObjectSnapshot and its " +
-    "filter vocabulary (contract 3.8 item 1, 740.2.c); until it lands the set cannot be " +
-    "evaluated, so the instruction stays judged rather than approximated."
+    "live designation producer in CombatFlow (contract 3.8 item 1, 740.2.c); until " +
+    "that state is published the set cannot be evaluated."
 );
 
 test.todo(
   "Cannon Barrage: [Reaction] admission during Closed States (813.1.c, 159.2.b.2) is " +
-    "chain-side timing work with the card-program binding (RIFT-257), not card data."
+    "chain-side timing work, not card data."
 );

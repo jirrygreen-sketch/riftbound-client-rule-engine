@@ -28,10 +28,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - abilities[1] 写 [Effect] 本体：Predict 2 的三步按真实结算顺序链接
  *   （inspect top 2 → recycle 被选中的 → order 其余），与已合入的 ven/apprentice-mage 同型。
  *
- * status = judge-required（缺口不近似实现，见 judgeReason）：Deathknell 展开不可执行、
- * 没有 CardProgram→时点/链的触发注册、effect.inspect 的 top scope 缺生产侧有序 picks
- * 生命周期。Predict 2 本体（三步原语）已合入，golden 借参考内核按 zoneSlice 顺序提供
- * 有序牌库顶真实执行。
+ * status = judge-required（缺口不近似实现，见 judgeReason）：Deathknell 展开不可执行，
+ * effect.inspect 的 top scope 缺生产侧有序 picks 生命周期。Predict 2 本体（三步原语）已合入，
+ * golden 借参考内核按 zoneSlice 顺序提供有序牌库顶真实执行；CardProgram 的触发注册入口已合入，
+ * 但会在 Deathknell 展开阶段被其 trigger.leave 缺口阻断。
  */
 const abilities: Ability[] = [
   {
@@ -125,14 +125,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1) [Deathknell] 展开不可执行——keywords/Deathknell.ts 的展开体把触发体写成 " +
+    "两处依赖未合入，均不近似实现：(1) [Deathknell] 展开不可执行——keywords/Deathknell.ts 的展开体把触发体写成 " +
     "trigger.leave，而 effects/instructions/ 没有该原语文件（仓库内只有关键词注释与展开体引用它），" +
-    "808.1.d.1 死亡被替代时把触发移出链、808.1.d.3 换区前记录来源位置与属性、429.1.a.1.b 的 Pending Item 收集都没有卡牌可用路径（RIFT-82）。" +
-    "(2) 没有 CardProgram→时点/链的触发注册（契约 3.5）：object-killed 上的 Deathknell 触发无法进链（引擎批 4 / RIFT-120 的触发接线）。" +
-    "(3) effect.inspect 的 top scope 必须由上游提供有序 picksSpecId（契约 3.6 的 zoneSlice 保序；原语明确拒绝用无序 query 截取近似），" +
+    "808.1.d.1 死亡被替代时把触发移出链、808.1.d.3 换区前记录来源位置与属性、429.1.a.1.b 的 Pending Item 收集都没有卡牌可用路径。" +
+    "(2) effect.inspect 的 top scope 必须由上游提供有序 picksSpecId（契约 3.6 的 zoneSlice 保序；原语明确拒绝用无序 query 截取近似），" +
     "而合并的链 Finalize 只锁定 instruction.targets，没有有序区域 picks 的生产生命周期，生产打出时看不到牌库顶两张（同 ogn/stacked-deck 的缺口）。" +
     "Predict 2 本体（437.1/437.1.a/437.3.a/437.4）三步已用已合入原语写出，golden 借参考内核按 zoneSlice 顺序提供有序集合真实执行；" +
-    "依赖 RIFT-82 与引擎批 4 的触发/事件管线。",
+    "CardProgram 的 triggerRegistrations 入口已合入，但会在 Deathknell 的 trigger.leave 展开缺口处停止。",
   abilities,
   sourceText:
     "[Deathknell][>] [Predict 2]. (When I die, look at the top two cards of your Main Deck. " +

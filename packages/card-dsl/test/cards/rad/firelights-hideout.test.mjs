@@ -9,7 +9,6 @@ import { runInstruction, world } from "../../../../engine-core/dist/effects/test
 import grant from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
 import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
-import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL =
   "card.hash-b0fa1aa611f78286913c3002834a073dcdd58ad0678ff45714b3accf84b68c72";
@@ -59,7 +58,6 @@ test("rad-162-167 Firelights' Hideout: identity, ruleset, status and exact sourc
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /one-shot/);
-  assert.match(program.judgeReason, /RIFT-257/);
   // The merged grant op must not be described as unregistered.
   assert.doesNotMatch(program.judgeReason, /effects\/instructions\/ 没有该 op 的文件/);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -70,21 +68,15 @@ test("rad-162-167 Firelights' Hideout: conquer trigger at the 'here' battlefield
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.optional, false);
   assert.equal(ability.trigger.at, "conquer");
-  // 053.3 "here" + 190.6.d "you": the sibling battlefield programs keep the
-  // same placeholder spelling while the card-program trigger registration is
-  // unmerged. The engine's own trigger-spec validator rejects it today.
+  // 053.3 "here" + 190.6.d "you": the event carries the scoring battlefield id;
+  // binding that id to this Battlefield remains the card's open dependency.
   assert.deepEqual(ability.trigger.filter, {
     event: "conquer",
-    here: true,
-    player: "controller"
+    player: "self",
+    details: { battlefieldId: "self" }
   });
   assert.equal(ability.trigger.once, undefined);
   assert.equal(ability.trigger.condition, undefined);
-  assert.throws(
-    () => assertTriggerSpec(ability.trigger),
-    /here/,
-    "the engine trigger validator does not accept the placeholder spelling yet"
-  );
 });
 
 test("rad-162-167 Firelights' Hideout: the grant names Accelerate, this turn and the next unit", () => {
@@ -208,11 +200,10 @@ test.todo(
   "rad-162-167 Firelights' Hideout: install the granted [Accelerate] on the next unit the " +
     "controller plays this turn, assert the 1-energy-plus-Domain-power optional cost is offered " +
     "at that play and that entering ready follows payment (805.1.b/805.2/805.2.b) — needs the " +
-    "CardProgram continuous-effect registration and the one-shot next-unit window (RIFT-257)"
+    "one-shot next-unit window"
 );
 test.todo(
   "rad-162-167 Firelights' Hideout: subscribe the conquer trigger and resolve it for the " +
-    "Battlefield's controller (383.4.c.2.b, 190.6.d) — needs the CardProgram TriggerRegistration and " +
-    "the accepted 053.3 here-referent spelling (RIFT-257)"
+    "Battlefield's controller (383.4.c.2.b, 190.6.d) — needs the source battlefield identity binding"
 );
 

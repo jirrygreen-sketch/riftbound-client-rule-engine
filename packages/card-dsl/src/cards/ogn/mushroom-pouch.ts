@@ -30,8 +30,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   readable through `states: \"face-down\"`, which no merged query scopes to a
  *   battlefield Facedown Zone (355.9.a.3); `condition.value`'s count query is
  *   the only evaluation path and it reuses the same filter vocabulary;
- * - binding the card's trigger to the emitted point is still the CardProgram
- *   adapter (RIFT-257); the pipeline itself and once/condition hooks are merged.
+ * - program trigger registration and the `beginning-start` producer are merged;
+ *   only the Facedown Zone query remains outside the current filter vocabulary.
  * The draw half is executed in isolation by the golden test; nothing is
  * approximated to make the condition pass.
  */
@@ -44,8 +44,8 @@ const mushroomPouch = {
     "（107.3.a/107.3.e：Facedown Zone 是战场的子区域、不是 location；ZoneId 无 facedown 成员），" +
     "faceDown 只能经 states 读取而没有任何已合入查询能把它限定到战场的 Facedown Zone（355.9.a.3），" +
     "condition.value 的 count 求值复用同一套 filter 词汇，无法判定该从句。" +
-    "触发接线本身仍缺 CardProgram 程序绑定（RIFT-257）；beginning-start 已由 turn/flow.ts 在回合玩家 Beginning Phase 发出（RIFT-270），" +
-    "不再是无生产方。Draw 1（414.3）已合入并由 golden 单独执行；不近似实现。",
+    "beginning-start 已由 turn/flow.ts 在回合玩家 Beginning Phase 发出（RIFT-270），CardProgram 触发注册也已合入；" +
+    "当前只缺 Facedown Zone 的条件求值。Draw 1（414.3）已合入并由 golden 单独执行；不近似实现。",
   abilities: [
     {
       kind: "triggered",

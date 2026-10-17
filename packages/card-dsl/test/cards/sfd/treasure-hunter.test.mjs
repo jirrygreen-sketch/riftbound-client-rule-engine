@@ -28,7 +28,8 @@ test("sfd-130-221 Treasure Hunter: judgeReason names the current token gaps", ()
   assert.match(program.judgeReason, /440\.2\.c/);
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /143\.4/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /LocationExpr/);
+  assert.match(program.judgeReason, /ability-controller-base/);
 });
 
 test("sfd-130-221 Treasure Hunter: 'when I move' subscribes to object-moved scoped to this unit", () => {
@@ -51,6 +52,7 @@ test("sfd-130-221 Treasure Hunter: the body declares one Gold token played exhau
   assert.deepEqual(instruction.args.amount, { kind: "constant", value: 1 });
   // 440.2.c / 185.2.a: a *played* token is created on the Chain first.
   assert.deepEqual(instruction.args.mode, { kind: "constant", value: "play" });
+  assert.deepEqual(instruction.args.location, { kind: "location", value: "ability-controller-base" });
   // 184.1 / 185.2.d entry stipulation, never a later exhaust (143.4).
   assert.deepEqual(instruction.args.entersExhausted, { kind: "constant", value: true });
   assert.deepEqual(instruction.args.linkKey, { kind: "constant", value: "goldToken" });
@@ -62,5 +64,6 @@ test("sfd-130-221 Treasure Hunter: the body declares one Gold token played exhau
 test.todo(
   "sfd-130-221 Treasure Hunter: play the Gold gear token through chain creation plus the hand-off play " +
     "(440.2.c / 185.2.a / 350.2 / 354) with the CR 187.5 Gold definition and its exhausted entry " +
-    "(184.1 / 185.2.d), plus a controller-relative Base location resolver (RIFT-357)."
+    "(184.1 / 185.2.d); effect.token also needs to consume the contract LocationExpr " +
+    "ability-controller-base as a runtime LocationRef."
 );

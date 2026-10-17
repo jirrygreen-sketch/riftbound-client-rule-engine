@@ -34,8 +34,6 @@ test("ven-090-166 Cataclysmic Duel: judgeReason names the multi-player choice an
   assert.match(program.judgeReason, /choice\.each-player/);
   assert.match(program.judgeReason, /355\.10\.e/);
   assert.match(program.judgeReason, /effect\.kill/);
-  assert.match(program.judgeReason, /RIFT-9/);
-  assert.match(program.judgeReason, /RIFT-90/);
   assert.match(program.judgeReason, /不近似实现/);
 });
 
@@ -147,8 +145,8 @@ test("ven-090-166 Cataclysmic Duel: an empty rest set kills nothing (055)", () =
 test.todo(
   "ven-090-166 Cataclysmic Duel: iterate every player (including the caster) choosing one unit they " +
     "control on resolution (CR 355.10.e) — needs the multi-player ordered choice primitive the Divine " +
-    "Judgment / King's Edict records also ask for (RIFT-9 target.player / multi-player choice coordination, RIFT-90 " +
-    "target plan integration); the chooser set cannot name runtime player ids in static IR"
+    "Judgment / King's Edict records also ask for (target.player / multi-player choice coordination); " +
+    "the chooser set cannot name runtime player ids in static IR"
 );
 
 test.todo(

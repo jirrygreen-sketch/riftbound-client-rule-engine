@@ -33,9 +33,9 @@ test("unl-158-219 Shepherd's Heirloom: identity, status, judgeReason and verbati
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /equip/);
   assert.match(program.judgeReason, /818\.1\.c\.[34]/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
   assert.match(program.judgeReason, /818\.1\.c\.3/);
-  assert.match(program.judgeReason, /契约 3\.5/);
+  assert.match(program.judgeReason, /费用参数槽|最终绑定/);
 });
 
 test("unl-158-219 Shepherd's Heirloom: 'When you play this' subscribes to card-played for this card", () => {
@@ -147,13 +147,9 @@ test("unl-158-219 Shepherd's Heirloom: an XP cost is payable by the merged cost 
 
 test.todo(
   "Shepherd's Heirloom: pay the printed 'Spend 1 XP' Equip cost (CR 818.1.c.3) — needs the Equip activation cost " +
-    "to be carried from the printed text into the Finalize cost plan and payable as XP (RIFT-89 cost pipeline)"
+    "to be carried from the printed text into the Finalize cost plan and payable as XP"
 );
 test.todo(
   "Shepherd's Heirloom: carry the printed Equip cost kind/amount in the card program — KeywordAbility (contract 3.1) " +
     "has no cost parameter slot, so the XP unit of 'value: 1' is only documented in the file header and judgeReason"
-);
-test.todo(
-  "Shepherd's Heirloom: register the card-played trigger from the CardProgram into the event pipeline (contract 3.5) " +
-    "and wire the Equip keyword declaration to its KeywordDef expansion"
 );

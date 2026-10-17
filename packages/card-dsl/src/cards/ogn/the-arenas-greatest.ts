@@ -16,28 +16,21 @@ import type { CardProgram } from "../../ir/index.js";
  * - "each player's first Beginning Phase" is a per-player once-per-game window,
  *   and "that player" is an event participant, not the ability controller.
  *
- * Status: judge-required — effect.score now executes Gaining Points
- * (470.1/470.2), with golden coverage for a concretely bound recipient.
- * `beginning-start` is now emitted by the merged TurnFlow phase driver
- * (src/turn/flow.ts, row 已有 in docs/rules/timing-point-producers.md), so the
- * remaining gaps are the trigger side, none approximated:
- * 1. the card-program trigger binding (RIFT-257) that would subscribe this
- *    ability to the emitted timing point is not merged;
- * 2. the frequency scopes cannot express "each player's FIRST Beginning Phase",
- *    and the IR has no event-player selector for "that player".
+ * Status: judge-required.
+ * TurnFlow produces Beginning events and effect.score executes Gaining Points.
+ * Program binding is merged, but EventPattern has no beginning-start event
+ * discriminant/phase adapter. oncePerPlayer is not consumed as a per-player
+ * once-per-game scope; event-player is not a bound ResolveContext selector.
  */
 const theArenasGreatest = {
   canonicalCardId: "card.hash-23d43dc5325dcaca58f58415a7f9046b3d280f3c40d261f5aa7ddbfa1bf72770",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "effect.score 已合入，可执行 CR 470.1/470.2 的 Gaining Points；整卡仍有两处缺口：" +
-    "(1) beginning-start 时点（CR 315.2.a.1）已由 TurnFlow 的阶段驱动 emit 进唯一事件管线" +
-    "（docs/rules/timing-point-producers.md 记为已有），但把卡牌程序的触发能力订阅到该时点的 CardProgram 绑定" +
-    "（RIFT-257）尚未合入，触发器无法从真实对局进入链；" +
-    "(2) “each player's first Beginning Phase” 是每名玩家" +
-    "对局内一次的频度，TriggerSpec.once 的七个范围无法表达；接收者 “that player” 也没有事件玩家选择器。" +
-    "程序中的 \"event-player\" 仍为未绑定选择器的占位，不能用控制者代替；不近似实现。",
+    "effect.score 已合入，可执行 CR 470.1/470.2 的 Gaining Points，beginning-start 也已由 TurnFlow " +
+    "产生（315.2.a.1）。CardProgram 触发绑定已合入，但 EventPattern 不接受 beginning-start 事件名，尚缺阶段事件适配；“each " +
+    "player's first Beginning Phase” 还缺每名玩家对局内一次的频度，当前 oncePerPlayer 字段无消费方。接收者 “that " +
+    "player” 需要事件玩家选择器：ResolveContext 未暴露触发事件玩家，event-player 仍为未绑定占位，不能用控制者代替。不近似实现。",
   sourceText: "At the start of each player's first Beginning Phase, that player gains 1 point.",
   abilities: [
     {

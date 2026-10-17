@@ -63,8 +63,10 @@ test("ven-164-166 Sandswept Tomb: identity, ruleset, status and exact source tex
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  // The cost.modify primitive and its discount channel are merged (the golden
+  // below executes them); the remaining gap is the card-side wiring.
+  assert.match(program.judgeReason, /layerFor/);
+  assert.match(program.judgeReason, /translateCost/);
 });
 
 test("ven-164-166 Sandswept Tomb: one static -1 any-Domain Power discount for the chantless spell cost", () => {
@@ -130,14 +132,15 @@ test("ven-164-166 Sandswept Tomb golden: without the discount the same spell sti
 });
 
 test.todo(
-  "ven-164-166 Sandswept Tomb: install the static discount on the chosen spell's cost plan — no merged path turns " +
-    "a CardProgram's static continuous.cost-modification into CostPlanInput.discounts, and effects/instructions/ has " +
-    "no cost.modify primitive (in-flight RIFT-261); RIFT-257's statics.ts is only a callback slot"
+  "ven-164-166 Sandswept Tomb: install the static discount on the chosen spell's cost plan — the cost.modify " +
+    "primitive and the buildCostPlan discount channel are merged (executed below), but programs/statics.ts " +
+    "layerFor has no ability-layer mapping for continuous.cost-modification and translateCost still judge-requires " +
+    "the discount cost field, so the card-program wiring to Finalize is unmerged"
 );
 
 test.todo(
   "ven-164-166 Sandswept Tomb: evaluate 'chooses one or more units here that are friendly to it' (355.7/355.15, 053.3 " +
     "'here', 740.1.a 'friendly to it') against the spell's finalized target plan — the frozen Condition has no " +
-    "played-spell-target predicate (RIFT-90's TargetPlan is consumed inside the chain only), layers/filter.ts does " +
+    "played-spell-target predicate (TargetPlan is consumed inside the chain only), layers/filter.ts does " +
     "not read the sameLocationAs anchor, and no selector reads 'the controller of the spell being played'"
 );

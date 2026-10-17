@@ -33,7 +33,8 @@ test("Rousing Display identity, ruleset, status and printed text (including the 
   assert.match(program.judgeReason, /Show Off/);
   assert.match(program.judgeReason, /RIFT-268/);
   assert.match(program.judgeReason, /cost\.reveal/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /validateSurface|choice-plan/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The catalog's trailing "disa" is preserved verbatim (data issue reported
   // in the task reply; card-data must not be edited here).
@@ -118,5 +119,6 @@ test.todo(
 
 test.todo(
   "Rousing Display: 'If you showed off' needs the executable predicate for the finalization result; the two " +
-    "choice.mode branches currently record the structure only — RIFT-261 / RIFT-257"
+    "choice.mode branches currently record the structure only — the play body's choice.mode also needs the " +
+    "Finalize/Resolve choice-plan adapter that validateSurface names"
 );

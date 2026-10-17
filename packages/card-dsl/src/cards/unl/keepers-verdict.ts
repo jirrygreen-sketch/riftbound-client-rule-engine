@@ -25,10 +25,10 @@ import type { CardProgram } from "../../ir/index.js";
  *    模式之间选择，每个模式内部可以带指令；但链的 Finalize 面
  *    （chain/engine.ts assertFinalizationSurface）显式阻断结算期出现的 choice.mode
  *    （"Mode choices require a Finalize/Resolve choice-plan adapter"），因此本卡的模式分支
- *    目前无法通过打出管线执行（依赖 RIFT-90 的 Finalize/Resolve choice-plan 适配器）。
+ *    目前无法通过打出管线执行，因为 Finalize 面没有 choice.mode 的 Resolve choice-plan 适配器。
  * 2. 被移动对象的归属玩家由目标的 owner 决定，effect.zone 的 move-zone 由内核按 056.1
  *    路由到拥有者的对应区域；这部分形状已可写，但只有第 1 点解决后才能整卡执行。
- * 依赖：RIFT-90（选择计划 / 目的地计划）。[Action] 关键词、enemy+battlefield 的目标限制、
+ * 依赖：choice.mode 的 Finalize/Resolve choice-plan 适配器。[Action] 关键词、enemy+battlefield 的目标限制、
  * effect.zone 的 deck-top / deck-bottom 均已合入，golden 用真实解释器与参考内核执行两个模式；
  * 解释器路径可执行本身不构成"打出管线可执行"的证据。
  */
@@ -41,7 +41,7 @@ export default {
     "结算期的“top or bottom”二选一没有打出管线：CR 355.17 要求按指令的强制要求执行该选择、355.16 约束不得产生后续非法结果，" +
     "契约 3.9 的 choice.mode 只在模式之间选择（每个模式内部可带指令），但链的 Finalize 面" +
     "（chain/engine.ts assertFinalizationSurface）显式阻断结算期出现的 choice.mode：\"Mode choices require a Finalize/Resolve choice-plan adapter\"，" +
-    "因此本卡的模式分支目前无法通过打出管线执行（依赖 RIFT-90 的 Finalize/Resolve choice-plan 适配器）。" +
+    "因此本卡的模式分支目前无法通过打出管线执行，因为缺少 Finalize/Resolve choice-plan 适配器。" +
     "可写部分：目标按 355.5 / 355.7 / 355.9.a.1 / 355.9.b 声明为“敌方 + 战场单位”，" +
     "“Its owner” 是目标的 owner referent（359.3.f.1），放回由 effect.zone 的 deck-top / deck-bottom（056.1 / 124）完成；" +
     "golden 用真实解释器与参考内核执行两个模式，但解释器可执行不等于打出管线可执行。",

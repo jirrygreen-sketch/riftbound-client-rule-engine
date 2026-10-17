@@ -21,14 +21,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   的本回合期限）；Assault 自身的展开由已合入的 RIFT-81 KeywordDef 提供。
  *
  * status = judge-required（两处缺口均不近似实现）：
+ * 复核（2026-10-17，第二轮 M2 覆盖率复核）：
+ * - 旧 judgeReason 的「cost.pay / cost.modify 未合入（RIFT-261）」已不成立：
+ *   effects/instructions/cost.pay.ts 与 cost.modify.ts 已注册；真实缺口只剩
+ *   disempower 付费种类本身。
+ *
  * 1. “from anywhere other than your hand” 无法表达：card-played 的 EventPattern
- *    只有 fromZone 等值匹配（events/trigger-spec.ts 的 validateTriggerSpec 也只接受
- *    单个区域字符串），没有否定形式，且 chain/engine.ts 发出的 card-played 事件
+ *    只有 fromZone 等值匹配，没有否定形式，且 chain/engine.ts 发出的 card-played 事件
  *    不带 fromZone 载荷；filter 里以描述性 notFromHand 记录该否定条件
  *    （契约变更请求）；
  * 2. “Disempower me” 作为费用需要 disempower 付费种类（443.2.a），
  *    cost/plan-values.ts 的非标准费用只支持 exhaust/discard/recycle/kill/reveal/
- *    spend-buff；付费种类与 cost.pay / cost.modify 仍属未合入的 RIFT-261。
+ *    spend-buff（readCost 实测 CostPlanError）。
  *
  * 已合入部分的执行证据：触发 body “empower me” 用 effect.empower；“Give a unit
  * [Assault 2] this turn” 用 continuous.grant-keyword（RIFT-258），golden 通过真实
@@ -39,15 +43,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1) “from anywhere other than your hand” 无法表达——card-played 的 " +
-    "EventPattern 只有 fromZone 等值匹配、没有否定形式（validateTriggerSpec 的 ObjectFilter " +
-    "也不接受额外的否定键），chain/engine.ts 发出的 card-played 事件也不带 fromZone 载荷，" +
-    "程序里以描述性 notFromHand 记录（契约变更请求）；(2) “Disempower me” 作为费用需要 " +
+    "两处缺口，均不近似实现：(1) “from anywhere other than your hand” 无法表达——card-played 的 " +
+    "EventPattern 只有 fromZone 等值匹配、没有否定形式，chain/engine.ts 发出的 card-played 事件也不带 " +
+    "fromZone 载荷，程序里以描述性 notFromHand 记录（契约变更请求）；(2) “Disempower me” 作为费用需要 " +
     "disempower 付费种类（443.2.a），cost/plan-values.ts 的非标准费用只支持 " +
-    "exhaust/discard/recycle/kill/reveal/spend-buff，付费种类与 cost.pay / cost.modify " +
-    "仍属未合入的 RIFT-261。“empower me” 本体用已合入的 effect.empower；" +
-    "“Give a unit [Assault 2] this turn” 已由 RIFT-258 的 continuous.grant-keyword " +
-    "（this-turn 期限）真实执行并由 golden 覆盖。不近似实现。",
+    "exhaust/discard/recycle/kill/reveal/spend-buff（readCost 实测 CostPlanError）；指令级 cost.pay / " +
+    "cost.modify 原语均已注册，与本卡的启动费用路径无关。“empower me” 本体用已合入的 effect.empower；" +
+    "“Give a unit [Assault 2] this turn” 已由 continuous.grant-keyword（this-turn 期限）真实执行并由 golden 覆盖。",
   abilities: [
     {
       kind: "triggered",

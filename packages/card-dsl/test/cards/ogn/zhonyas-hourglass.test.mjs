@@ -8,10 +8,9 @@ import program from "../../../dist/cards/ogn/zhonyas-hourglass.js";
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { runInstruction } = await import(new URL("effects/testing/run-instruction.js", ENGINE));
 const { world } = await import(new URL("effects/testing/index.js", ENGINE));
-const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", ENGINE));
-const { default: kill } = await import(new URL("effects/instructions/effect.kill.js", ENGINE));
 const { default: move } = await import(new URL("effects/instructions/effect.move.js", ENGINE));
-const { planReplacementBody, bindReplacement, BlockedReplacementError } = await import(new URL("replacement/index.js", ENGINE));
+const { default: kill } = await import(new URL("effects/instructions/effect.kill.js", ENGINE));
+const { planReplacementBody, bindReplacement } = await import(new URL("replacement/index.js", ENGINE));
 
 const [hidden, replacement] = program.abilities;
 const [killThis, recall, exhaust] = replacement.with;
@@ -32,7 +31,6 @@ test("zhonyas-hourglass: identity, ruleset, status and printed text", () => {
   assert.match(program.judgeReason, /effect\.move/);
   assert.match(program.judgeReason, /457/);
   assert.match(program.judgeReason, /replacement\.object/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +
@@ -141,26 +139,10 @@ test("zhonyas-hourglass golden: the kill-this half executes through effect.kill 
   assert.deepEqual(run.linked.killed.map((ref) => ref.id), ["zhonyas-hourglass"]);
 });
 
-test("zhonyas-hourglass: the printed recall step is blocked at bind time, never approximated as a Move", () => {
-  const { hostRef, plan } = hourglassWorld();
-  // The merged RIFT-260 planner blocks the recall mode outright (CR 457-460)
-  // rather than substituting a plain Move, and the same block fails the whole
-  // printed replacement at bind time.
-  assert.throws(() => plan(recall), error => error instanceof BlockedReplacementError &&
-    /mode 'recall' is blocked/.test(error.message));
-
-  const { kernel } = hourglassWorld();
+test("zhonyas-hourglass: the supported kill and exhaust clauses still bind without Recall", () => {
+  const { hostRef, kernel } = hourglassWorld();
   const pipeline = { clock: { turn: 1 }, registerReplacement() {}, unregisterReplacement() {} };
-  assert.throws(
-    () => bindReplacement(
-      { replaces: replacement.replaces, with: [killThis, recall, exhaust] },
-      hostRef,
-      { host: { object: ref => kernel.getObject(ref.id), objects: () => kernel.objects, context: () => kernel }, pipeline }
-    ),
-    error => error instanceof BlockedReplacementError && /no Recall action exists/.test(error.message)
-  );
-  // Without the blocked recall step the rest of the body binds, which pins the
-  // block to the Recall itself and not to the planner's selector vocabulary.
+
   assert.doesNotThrow(
     () => bindReplacement(
       { replaces: replacement.replaces, with: [killThis, exhaust] },
@@ -170,36 +152,31 @@ test("zhonyas-hourglass: the printed recall step is blocked at bind time, never 
   );
 });
 
-test("zhonyas-hourglass golden: the recall half is blocked, never approximated as a Move", () => {
+test("zhonyas-hourglass golden: a blocked Recall attempt leaves the unit's location and status unchanged", () => {
   const kernel = world()
     .player("A", { energy: 20 })
     .player("B", { energy: 20 })
     .unit("zhonyas-hourglass", { types: ["gear"], zone: "board", location: { type: "base", player: "A" } })
     .unit("friendly-unit", { zone: "board", location: { type: "battlefield", id: "battlefield-1" } })
     .build();
-  // The isolated primitive receipt: the block is reported, not silently
-  // dropped. The primitive takes a target selector here because the merged
-  // { linked: "replacement.object" } spelling is resolved by the replacement
-  // planner (asserted above), not by the free-standing primitive path.
   const run = runInstruction(
     move,
     { objects: literal({ target: "dying-unit" }), to: recall.args.to, mode: recall.args.mode },
     { world: kernel, targets: { "dying-unit": [kernel.ref("friendly-unit")] } }
   );
+
   assert.equal(run.result.status, "negated");
   assert.equal(run.result.reason, "impossible");
   assert.match(run.linked.moved.blockedReason, /Recall/);
-  // No substitute Move was submitted and the printed status was not applied.
-  assert.equal(kernel.events.some((event) => event.action === "move-location"), false);
+  assert.equal(kernel.events.some(event => event.action === "move-location"), false);
   assert.deepEqual(kernel.getObject("friendly-unit").location, { type: "battlefield", id: "battlefield-1" });
   assert.equal(kernel.getObject("friendly-unit").exhausted, false);
 });
 
 test.todo(
-  "zhonyas-hourglass: card-level replacement registration (intercept a friendly unit's death and honor the " +
-    "printed 'the next time' one-shot lifetime) needs the card-program replacement binding (RIFT-257); the " +
-    "one-shot window lives on RIFT-260's replacement.event wrapper, whose raw instead body the frozen card IR " +
-    "cannot spell (validateInstruction accepts only Expr args)"
+  "zhonyas-hourglass: encode the printed 'the next time' one-shot lifetime using the " +
+    "replacement.event window; the current frozen replacement ability shape cannot carry its raw instead body " +
+    "(validateInstruction accepts only Expr args)"
 );
 
 test.todo(

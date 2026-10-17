@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/rampage.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
+import continuousMight from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-9c6aa95845a73edcec9a9568deba187100fbe690f0a6dfcc010810f04e6a9245";
@@ -36,10 +37,11 @@ test("ven-083-166 Rampage: identity, ruleset, status and exact source text", () 
 });
 
 test("ven-083-166 Rampage: judgeReason names the additional-cost, cost-result and Might gaps", () => {
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89/);
   assert.match(program.judgeReason, /condition\.result/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-258/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-258/);
+  assert.doesNotMatch(program.judgeReason, /没有 continuous\.might|continuous\.might 未合入/);
   // 356.4.f.1 is the "paid" record the conditional +2 needs.
   assert.match(program.judgeReason, /356\.4\.f\.1/);
   assert.match(program.judgeReason, /不近似实现/);
@@ -78,8 +80,9 @@ test("ven-083-166 Rampage: +2 Might body and the two Might-sourced Deal instruct
     ["rampage.enemy-deals", "effect.damage"]
   ]);
 
-  // 143.2.a / 317.2.c: the +2 is a this-turn layers Might change; no merged op
-  // creates it (judgeReason), and the paid-cost gate has no result binding.
+  // 143.2.a / 317.2.c: the +2 is a this-turn layers Might change written with
+  // the merged continuous.might instruction; the paid-cost gate still has no
+  // result binding.
   assert.deepEqual(givePlusTwo.args, {
     amount: { kind: "constant", value: 2 },
     duration: { kind: "constant", value: "this-turn" },
@@ -228,12 +231,42 @@ test("ven-083-166 Rampage golden: a chosen unit that left the Board is not dealt
 test.todo(
   "ven-083-166 Rampage: charge the optional :rb_rune_body: additional cost at Finalize (CR 356.2.b / " +
     "356.2.b.1) and gate the +2 on the paid result (356.4.f.1) — needs the card program's cost.additional / " +
-    "CostSpec clause wired into CostPlanInput.optionalAdditional plus a cost-result binding (RIFT-89)"
+    "CostSpec clause wired into CostPlanInput.optionalAdditional plus a cost-result binding"
 );
 
+test("ven-083-166 Rampage golden: the chosen friendly unit receives a +2 Might arithmetic-layer boost", () => {
+  const kernel = world()
+    .unit("friendly", { owner: "A", controller: "A", might: 3 })
+    .unit("enemy", { owner: "B", controller: "B", might: 5 })
+    .build();
+  const friendlyRef = kernel.ref("friendly");
+
+  const run = runInstruction(
+    continuousMight,
+    // runInstruction receives the evaluator-resolved argument shape, so bind
+    // the Expr args to the same plain values the interpreter produces.
+    {
+      amount: 2,
+      duration: "this-turn",
+      target: FRIENDLY_ID,
+    },
+    { world: kernel, targets: { [FRIENDLY_ID]: [friendlyRef] } }
+  );
+
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(run.result.linkedValues["affected.count"], 1);
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [registration] = kernel.continuousEffects;
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 2);
+  assert.deepEqual(registration.effect.filter.objectId, "friendly");
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+});
+
 test.todo(
-  "ven-083-166 Rampage: give the chosen friendly unit +2 Might this turn, then compute both Deal amounts " +
-    "from the modified Mights (CR 143.2.a / 317.2.c / 418.6.b.3) — needs the card-facing continuous.might " +
-    "instruction (RIFT-258 on top of the RIFT-91 layers engine); omitting the +2 would damage by the " +
-    "unmodified Mights and is refused"
+  "ven-083-166 Rampage: give the chosen friendly unit +2 Might this turn and compute both Deal amounts " +
+    "from the modified Mights (CR 143.2.a / 317.2.c / 418.6.b.3) — the +2 registration is proven by golden, " +
+    "but the paid-additional-cost result binding (356.4.f.1) is still missing, so the unfired-cost branch must " +
+    "never trigger the +2"
 );

@@ -25,8 +25,9 @@ test("rad-087-167 Portable Portal: validates, identity and source text", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /830\.1\.b/);
-  assert.match(program.judgeReason, /RIFT-120/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /continuous\.location/);
+  assert.match(program.judgeReason, /cost\.pay/);
+  assert.match(program.judgeReason, /success-gated/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -187,14 +188,16 @@ test("rad-087-167 Portable Portal: the merged Ganking grant lands on the chosen 
 
 test.todo(
   "rad-087-167 Portable Portal: the merged Deploy expansion's continuous.location permission and " +
-    "'when an opponent holds here, kill this' trigger still need Finalize/cleanup/trigger consumers (CR 830.1.b, RIFT-120)"
+    "'when an opponent holds here, kill this' trigger still need a production consumer for the structured " +
+    "location data and for the hold kill (CR 830.1.b); the binding layer rejects here:true fail-closed"
 );
 test.todo(
   "rad-087-167 Portable Portal: the ':rb_rune_body:' in-instruction Power payment (355.10.c.1) needs the " +
-    "cost.pay instruction path — RIFT-261 (in progress); the ready branch cannot be honestly charged yet"
+    "success-gated payment body (CR 203.3, cost/kinds/README.md request #2); the ready branch cannot be " +
+    "honestly gated yet"
 );
 test.todo(
   "rad-087-167 Portable Portal: the static 'Friendly units here have [Ganking]' continuous.grant-keyword " +
-    "(op merged by RIFT-258, Ganking expansion by RIFT-83) needs the CardProgram static -> layers registration " +
-    "path — RIFT-120/RIFT-257"
+    "(op merged by RIFT-258, Ganking expansion by RIFT-83) already maps to the ability layer via layerFor; " +
+    "the remaining gap is the production wiring that feeds the CardProgram static into that path"
 );

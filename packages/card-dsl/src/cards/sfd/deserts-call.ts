@@ -34,37 +34,27 @@ import type { CardProgram } from "../../ir/index.js";
  *   is finalized (355.2.a: by default the controller's Base or a Battlefield
  *   that player controls; 420.3.b.2 makes it a Finalize-time choice).
  *
- * Status: judge-required, with both gaps named:
- * - the Finalize-time destination choice has no expressible form: `effect.token`
- *   requires exactly one destination argument (location / target / pick /
- *   locations) and no merged Expr yields the legal-location set (RIFT-9
- *   target.location, in progress). Pinning a single Base would delete the
- *   printed Battlefield options, so no destination is written (the merged
- *   Herald of the Arcane program records the same gap).
- * - the [Repeat] payment cannot be charged or read back: no merged code turns a
+ * Status: judge-required. The [Repeat] payment cannot be charged or read back:
+ * no merged code turns a
  *   card program's declared optional additional cost into the cost planner's
  *   `optionalAdditional` input: programs/play.ts translateCost rejects kind
  *   "additional"/"additional-cost" outright ("Additional costs are not bound"),
  *   and the paid-instance count has no binding for the extra execution
  *   (820.1.c.1 / 820.1.d.1).
- * Nothing is approximated: the 2 Might Sand Soldier definition (187.3) is the
- * merged frozen definition, and the golden test exercises its play path with the
- * concrete Base the missing Finalize choice would supply.
+ * The destination now uses the merged target.location path at Finalize; the
+ * golden test exercises both a legal Base and a controlled Battlefield.
  */
 export default {
   canonicalCardId: "card.hash-13dac6e5e0aae54e0dba3935b0e7416d5e1cfe13a2c7817a155c406b27f0e5bf",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1)「Play a … token」没有印刷目的地，按 355.2 / 355.2.a / 420.3.b.2 该地点由玩家在 resulting game object " +
-    "的 Finalize 时选择（控制者的 Base 或该玩家控制的 Battlefield），而 effect.token 要求恰好一个目的地参数（location/target/pick/locations），" +
-    "且没有任何已合入 Expr 能产出运行时的合法地点集合（进行中的 RIFT-9 target.location）；把目的地钉死为 Base 会删掉印刷的战场选项，故不写目的地" +
-    "（与已合入的 Herald of the Arcane 记录同一缺口）。" +
-    "(2) [Repeat] :rb_energy_2: 的可选附加费用无法收取或回读：没有把卡牌程序声明的可选附加费用接进已合入 cost 计划的 optionalAdditional 入口，" +
+    "唯一未合入的依赖是 [Repeat] :rb_energy_2: 的可选附加费用无法收取或回读：没有把卡牌程序声明的可选附加费用接进已合入 cost 计划的 optionalAdditional 入口，" +
     "已付实例数也没有供结算读取的绑定（820.1.c.1 / 820.1.d.1；programs/play.ts 的 translateCost 对 kind additional/additional-cost 直接 " +
     "judgeRequired，\"Additional costs are not bound\"）。" +
-    "token 本体是 187.3 的 2 Might Sand Soldier（effect.token 冻结定义 id \"sand-soldier\"，Shurima 标签、无印刷费用，绝不写成 0），golden 用真实原语以" +
-    "具体 Base 执行链上创建 + 打出路径。依赖：RIFT-9（target.location 合法地点集合，进行中）、play additional-cost 的 translateCost/费用计划接线。",
+    "token 目的地已通过 instruction.locations 的 target.location 选择器在 Finalize 绑定为控制者的 Base 或其控制的 Battlefield，golden 覆盖两种合法地点；" +
+    "token 本体是 187.3 的 2 Might Sand Soldier（effect.token 冻结定义 id \"sand-soldier\"，Shurima 标签、无印刷费用，绝不写成 0）。" +
+    "依赖：play additional-cost 的 translateCost/费用计划接线。",
   abilities: [
     {
       kind: "play",
@@ -90,16 +80,38 @@ export default {
       },
       body: [
         {
+          id: "deserts-call.choose-location",
+          op: "condition.value",
+          locations: [
+            {
+              id: "deserts-call.token-location",
+              type: "any",
+              controller: "controller",
+              min: 1,
+              max: 1,
+              selection: "one"
+            }
+          ],
+          args: {
+            value: {
+              kind: "location",
+              value: { kind: "target-location", target: "deserts-call.token-location" }
+            },
+            key: { kind: "constant", value: "location" }
+          }
+        },
+        {
           // "Play a 2 Might Sand Soldier unit token" — the merged CR 187.3
-          // definition and the 440.2.c / 185.2.a play path. The destination is
-          // deliberately absent: the printed text names none, and the 355.2
-          // legal-location choice has no expressible form yet (see judgeReason).
+          // definition and the 440.2.c / 185.2.a play path. The printed text
+          // leaves the legal location to the Finalize-time location choice.
           id: "deserts-call.play-sand-soldier-token",
           op: "effect.token",
+          linkedTo: "deserts-call.choose-location",
           args: {
             token: { kind: "constant", value: "sand-soldier" },
             amount: { kind: "constant", value: 1 },
             mode: { kind: "constant", value: "play" },
+            location: { kind: "linked-value", instructionId: "deserts-call.choose-location", key: "location" },
             linkKey: { kind: "constant", value: "sandSoldierToken" }
           }
         }

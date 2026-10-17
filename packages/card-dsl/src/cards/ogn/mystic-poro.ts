@@ -21,10 +21,8 @@ import type { CardProgram } from "../../ir/index.js";
  * 注册表负责（RIFT-83 已合入 keywords/Vision.ts），卡牌程序不重复展开。
  *
  * status 判定（README 第 2 节；不因「能写出声明」标 executable）：
- * - 没有已合入的内核路径把卡牌程序的关键词能力解析到 KeywordDef 并接入
- *   时点与链（契约 3.5 的「时点 → 触发 → 进链 → 结算」；当前 src 中只有
- *   registry.generated.ts 与其测试消费关键词注册表；触发/关键词绑定属
- *   RIFT-257）。
+ * - CardProgram binding 已能把关键词能力展开并注册到 object-enters-board；
+ *   但生产路径上 Vision 的 Predict 仍需要有序的牌库顶选择。
  * - 即使接线完成，已合入的 Vision 展开在生产路径仍不可执行：Predict 需要
  *   有序的牌库顶选择，effect.inspect 在 top scope 缺少上游有序 picksSpecId 时
  *   按自身文档记录的分区顺序契约缺口直接 negated（契约 3.6 的 zoneSlice 已能
@@ -38,12 +36,10 @@ const mysticPoro = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Vision 关键词的可执行路径（CR 817.1.c / 437.1），不近似实现：" +
-    "(1) 没有已合入的绑定路径把卡牌的 keyword 能力解析到 KeywordDef 并注册为 object-enters-board 触发接入链" +
-    "（契约 3.5；keywords/Vision.ts 的 KeywordDef 已合入（RIFT-83），但只有 registry.generated.ts 与其测试消费注册表，卡牌程序绑定属 RIFT-257）；" +
-    "(2) 生产路径上 Predict 仍无法取得有序牌库顶：effect.inspect 在 top scope 需要上游有序 picksSpecId，" +
+    "缺 Vision 关键词的生产可执行路径（CR 817.1.c / 437.1），不近似实现：" +
+    "CardProgram binding 已能把 Vision 展开为 object-enters-board 触发；但生产路径上 Predict 仍无法取得有序牌库顶：effect.inspect 在 top scope 需要上游有序 picksSpecId，" +
     "缺少时按分区顺序契约缺口直接 negated（契约 3.6 的 zoneSlice 已能按区域顺序读牌库顶，但 inspect 不消费；" +
-    "有序 picks 目前只有测试内核的 setPicks 提供，装配层没有等价入口）。依赖：RIFT-257（关键词/触发绑定）与 inspect 的有序顶牌消费。",
+    "有序 picks 目前只有测试内核的 setPicks 提供，生产装配层没有等价入口）。",
   abilities: [{ kind: "keyword", keyword: "vision" }],
   sourceText:
     "[Vision] (When you play me, look at the top card of your Main Deck. You may recycle it.)"

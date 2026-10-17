@@ -83,15 +83,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Discard a gear」这条费用没有可落地的静态表达：423.1.a 规定弃哪张牌由执行动作的玩家选择" +
-    "（结算期选择），但 cost/plan-values.ts 的 PaymentObjectReference 要求 CostSpec 里直接列出" +
-    "精确的 ObjectRef 候选（choice.options），静态卡牌程序无法知道运行时手牌身份；当前只能像" +
-    "Assembly Rig 那样写占位候选项，plan-values 会以 invalid-cost-plan（Cost requires an exact " +
-    "object reference）拒绝，或者由调用方经 ctx.picks 注入候选——RIFT-102 的对象引用收口已合入，" +
-    "但“由选择生命周期在运行时解析手牌候选”的部分仍属费用计划接线（RIFT-261 仍在进行，" +
-    "plan-values.ts 尚未改变）。另外 1 Energy + 横置 + Deal 4 的目标与伤害原语" +
-    "均已合入，可单独执行验证。不近似实现：不把『弃一张装备』改成固定弃某张、不用 effect.discard " +
-    "代替费用、不放宽 423.3 的“费用必须能完成”。",
+    "复核 2026-10-17（第二轮覆盖率复核；本轮真实缺口，均不近似实现）：1 Energy、横置费用、" +
+    "目标锁定与 effect.damage 都已合入并有 golden 执行证据；「Discard a gear」的费用选择仍无运行时" +
+    "落点——423.1.a 规定弃哪张牌由执行动作的玩家在结算期选择，但 cost/plan-values.ts 的 " +
+    "choiceObjects 只接受精确的 ObjectRef 候选（Cost requires an exact object reference），" +
+    "静态卡牌程序写不了运行时手牌身份，也没有已合入路径在 Finalize 时从付款者手牌解析 " +
+    "PickSpec 描述性候选（如 gear-in-controller-hand）再交给 discard 付费种类。" +
+    "依赖：费用计划的运行时候选解析接线。不近似实现：不把『弃一张装备』改成固定弃某张、" +
+    "不用 effect.discard 代替费用、不放宽 423.3 的“费用必须能完成”。",
   abilities,
   sourceText: "Discard a gear, :rb_energy_1:, :rb_exhaust:: Deal 4 to a unit at a battlefield."
 } satisfies CardProgram;

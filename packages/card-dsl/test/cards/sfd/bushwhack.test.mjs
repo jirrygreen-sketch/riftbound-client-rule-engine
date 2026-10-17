@@ -82,17 +82,18 @@ test("sfd-004-221 Bushwhack structure: [Hidden], the entry-ready stipulation and
 test.todo(
   "sfd-004-221 Bushwhack: [Hidden]'s expansion must grant the Hide Discretionary Action, the facedown " +
     "zone and the facedown play (811.1.b / 811.1.c / 811.6); the merged cost.hidden declaration has no " +
-    "consumer yet — RIFT-84 / RIFT-89."
+    "reader yet"
 );
 
 test.todo(
   "sfd-004-221 Bushwhack: 'Friendly units enter ready this turn' is an entry replacement (143.4 / " +
     "184.1 / 185.2.d; 805.6 says it is not 'enter exhausted then become ready'), so it needs a " +
-    "temporary replacement.enter registration and the replaced-event object binding — RIFT-9 replacement family."
+    "body-level temporary replacement.enter registration and the replaced-event object binding — the " +
+    "merged replacement family only consumes replacement.enter declarations inside bound replacement abilities"
 );
 
 test.todo(
   "sfd-004-221 Bushwhack: playing the Gold gear token needs the CR 187.5 definition (with its own " +
     "printed ability) in the token table, the 440.2.c / 185.2.a chain-create + play handoff, and the " +
-    "exhausted entry stipulation of 143.4 / 185.2.d — RIFT-9 / RIFT-62/63 follow-up."
+    "exhausted entry stipulation of 143.4 / 185.2.d"
 );

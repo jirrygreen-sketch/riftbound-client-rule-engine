@@ -45,7 +45,7 @@ export default {
     "(2) 印刷的 Equip 费用（1 Chaos Power，CR 818.1.c）无法到达 KeywordDef.expand：契约 3.1 的 KeywordAbility 只有 " +
     "kind/keyword/value，合并的卡牌程序消费方没有传契约 3.8.3 的 params.cost。" +
     "已合入的 effect.attach 半段（附着自己的单位）由 golden 真实执行，但该局部证据不足以让启动可执行。" +
-    "818.1.c.3/.c.4（非资源费用与改费文本）对本卡不适用。依赖：Equip 费用支付种类、卡牌程序 → 关键词展开的 params 接线。",
+    "818.1.c.3/.c.4（非资源费用与改费文本）对本卡不适用。依赖：Equip 费用支付种类、params.cost 接线。",
   abilities: [equip],
   sourceText:
     "[Equip] :rb_rune_chaos: (:rb_rune_chaos:: Attach this to a unit you control.)"

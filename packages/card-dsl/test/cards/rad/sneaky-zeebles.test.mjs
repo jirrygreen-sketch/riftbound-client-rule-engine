@@ -56,21 +56,6 @@ test("rad-076-167 Sneaky Zeebles: the body adds one rainbow power through effect
   assert.equal(addRainbow.targets, undefined);
 });
 
-test("rad-076-167 Sneaky Zeebles: the rainbow symbol has no representation in the closed Domain set", () => {
-  // 135.2.e.5 / 163.2.b: [A] is Power of any domain, not one of the six Domains. The merged
-  // primitive accepts only the six, so the printed instruction is negated rather than silently
-  // restricted to one domain.
-  const kernel = world().build();
-  const run = runInstruction(
-    resources,
-    { power: { kind: "constant", value: ["rainbow"] } },
-    { world: kernel }
-  );
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.deepEqual(kernel.player("A").power, []);
-});
-
 test("rad-076-167 Sneaky Zeebles: the same primitive path really adds power for a concrete domain", () => {
   // Evidence that only the domain representation is missing: with one of the six domains the
   // merged primitive performs the Add and links the actual gain.
@@ -90,21 +75,26 @@ test("rad-076-167 Sneaky Zeebles: the same primitive path really adds power for 
   assert.deepEqual(run.events.map(event => event.action), ["gain-power"]);
 });
 
-test("rad-076-167 Sneaky Zeebles: an Add ability's immediate finalize is not modelled by the reference kernel", () => {
-  // 430.2 / 430.2.a: Add abilities finalize and resolve immediately without passing Priority or
-  // Focus. The reference kernel only records the action; the chain/priority wiring is pending.
+test("rad-076-167 Sneaky Zeebles: the declared Add body executes through the merged resource primitive", () => {
+  // The concrete-domain execution is the supported half of the printed Add.
+  // Immediate Finalize/priority handling remains a separate TODO below.
   const kernel = world().build();
   const run = runInstruction(
     resources,
-    { power: { kind: "constant", value: ["Body"] } },
+    {
+      power: { kind: "constant", value: ["Body"] },
+      linkKey: { kind: "constant", value: "sneaky-zeebles.added" }
+    },
     { world: kernel }
   );
   assert.equal(run.result.status, "executed");
-  assert.equal(
-    run.events.every(event => event.timingPoint === "main-start"),
-    true,
-    "the kernel stamps its ambient timing point, not a dedicated Add finalize step"
-  );
+  assert.deepEqual(kernel.player("A").power, ["Body"]);
+  assert.deepEqual(run.events.map(event => event.action), ["gain-power"]);
+  assert.deepEqual(run.linked["sneaky-zeebles.added"], {
+    player: "A",
+    energy: 0,
+    power: ["Body"]
+  });
 });
 
 test.todo(

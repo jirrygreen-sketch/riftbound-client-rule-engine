@@ -19,15 +19,12 @@ import type { CardProgram, Expr } from "../../ir/index.js";
  * - 授予的动态数值按结算 / 计算时读取：“equal to the number of gear you control” 用
  *   契约 3.6 的 count 表达式表达（取值时机即调用时）。
  *
- * status = judge-required（两处缺口均不近似实现）：
- * 1. 没有持续授予关键词的可执行路径：卡牌侧 continuous.grant-keyword 没有注册 / 求值
- *    原语（effects/instructions/ 下没有该 op），也没有任何已合入路径把 CardProgram 的
- *    static 能力注册为 ContinuousEffectSpec（RIFT-91 只合入了 layers 引擎）；
- * 2. 已合入的 Assault 展开（effects/keywords/Assault.ts）消费固定数值，其 attacker
- *    条件读的是 ObjectSnapshot.combatRole（契约 3.8 增补），该特征尚未落地、
- *    layers/engine.ts 的 conditionMatches 也还不识别 compare 条件，因此即使授予成功，
- *    “只在攻击时 +X [M]” 也无法正确生效。
- * 依赖：RIFT-91（layers 接线）、契约 3.8 的 combatRole 落地与 RIFT-81 的关键词展开收敛。
+ * status = judge-required（缺口见 judgeReason，均不近似实现）：
+ * 1. layers 引擎不会求值 continuous.grant-keyword 的 count 表达式，运行时被授予的
+ *    Assault 也没有 +X [M] 消费方，因此动态数值无法落地；
+ * 2. 已合入的 Assault 展开的 attacker 条件读 property "designation"，而对象快照实际
+ *    只带 combatRole，条件恒为 false。
+ * 依赖：layers 表达式求值、运行时授予的 Assault 消费方、快照 designation 落地。
  * 数值表达式本身可由解释器真实求值，golden 用解释器 + 参考内核断言“你控制的 gear 数”
  * 的取值（含对手 gear 与其它区域的排除）。
  */
@@ -44,13 +41,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1) 「I have [Assault] equal to the number of gear you control」需要持续授予关键词，" +
-    "但卡牌侧 continuous.grant-keyword 没有注册/求值原语（effects/instructions/ 下没有该 op），也没有任何" +
-    "已合入路径把 CardProgram 的 static 能力注册成 ContinuousEffectSpec（RIFT-91 只合入了 layers 引擎）；" +
-    "(2) 已合入的 Assault 展开消费固定数值，其 attacker 条件读取 ObjectSnapshot.combatRole（契约 3.8 的增补），" +
-    "该特征尚未落地、layers/engine.ts 的 conditionMatches 也还不识别 compare 条件，因此即便授予成功也无法" +
-    "做到“只在攻击时 +X [M]”（依赖 RIFT-81 关键词收敛与契约 3.8 落地）。数值表达式「你控制的 gear 数」" +
-    "已由 golden 用真实解释器求值（排除对手 gear 与非 Board 区域）；不近似实现（不改写为固定数值的关键词声明）。",
+    "两处缺口：(1) layers 引擎对 continuous.grant-keyword 的 count 表达式不求值（valueOf 原样透传），" +
+    "运行时被授予的 Assault 也没有把关键词实例转成 +X [M] 算术层的消费方；" +
+    "(2) 已合入的 Assault 展开的 attacker 条件读 property \"designation\"，但对象快照实际只带 " +
+    "combatRole（测试内核默认 null），条件恒为 false，因此即便授予成功也无法做到“只在攻击时 +X [M]”。" +
+    "数值表达式「你控制的 gear 数」已由 golden 用真实解释器求值（排除对手 gear 与非 Board 区域）；" +
+    "不近似实现（不改写为固定数值的关键词声明）。",
   abilities: [
     {
       kind: "static",

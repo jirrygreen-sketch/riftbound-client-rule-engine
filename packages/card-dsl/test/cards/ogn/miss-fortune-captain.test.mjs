@@ -39,9 +39,7 @@ test("ogn-162-298 Miss Fortune, Captain: judgeReason cites the move timing and t
   assert.match(program.judgeReason, /object-moved/);
   assert.match(program.judgeReason, /PickSpec/);
   assert.match(program.judgeReason, /355\.10\.d/);
-  // Re-sweep after RIFT-270: the point is now emitted by the pipeline, but the
-  // card trigger binding and the Standard Move -> pipeline wiring are missing.
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.match(program.judgeReason, /Standard Move/);
   assert.match(program.judgeReason, /finalizePick/);
 });
@@ -130,8 +128,7 @@ test("ogn-162-298 Miss Fortune, Captain: declining the optional readies nothing 
 test.todo(
   "ogn-162-298 Miss Fortune, Captain: 'The first time I move each turn' needs the duel Standard Move " +
     "(CR v1.5 421.1/449.1) to publish its results into the single event pipeline (zones/movement and " +
-    "duel/standard-move-executor-v2 only hand requiresMoveTriggers to the outer caller) and the card's " +
-    "trigger registration to bind the self anchor (RIFT-257)."
+    "duel/standard-move-executor-v2 only hands requiresMoveTriggers to the outer caller)."
 );
 test.todo(
   "ogn-162-298 Miss Fortune, Captain: the non-target pick (355.10.d/355.10.d.1) needs a Finalize " +

@@ -20,9 +20,8 @@ import type { CardProgram } from "../../ir/index.js";
  * - “ready a unit”：任意单位是单个选目标（355.9 / 355.10），用已合入的
  *   effect.ready 执行（416.1–416.3）。
  *
- * status = judge-required。自本程序初写后合入的依赖：conquer 时点已由
- * turn/flow.ts 的 Score 波次真实发出（RIFT-270 的时点产生方审计）、effect.exhaust /
- * effect.ready 原语与卡牌程序绑定（RIFT-257）。
+ * status = judge-required。conquer 时点已由 turn/flow.ts 的 Score 波次真实发出，
+ * effect.exhaust / effect.ready 原语与卡牌程序绑定也已合入。
  *
  * 仍缺两处（不近似实现）：
  * - 触发订阅与条件都不可用：conquer 时点 id 可被订阅，但 EVENT_PATTERN_TYPES 把事件名
@@ -41,7 +40,7 @@ import type { CardProgram } from "../../ir/index.js";
  * 结构与目标形状保留；effect.exhaust / effect.ready 子指令已可用，golden 用解释器 +
  * 参考内核执行。
  *
- * 依赖：战斗伤害分配的权威回执与 TriggeredAbility 的费用字段（RIFT-261 系列）。
+ * 依赖：战斗伤害分配的权威回执与 TriggeredAbility 的费用字段。
  */
 export default {
   canonicalCardId:
@@ -49,7 +48,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "conquer 时点已由 turn/flow.ts 的 Score 波次真实发出，effect.exhaust/effect.ready 与卡牌程序绑定（RIFT-257）也已合入；" +
+    "conquer 时点已由 turn/flow.ts 的 Score 波次真实发出，effect.exhaust/effect.ready 与卡牌程序绑定也已合入；" +
     "但整卡仍有两处缺口，均不近似实现：(1) 触发订阅与条件都不可用——EVENT_PATTERN_TYPES 把事件名拼成 `conquered`，" +
     "卡片 filter 的 `event: \"conquer\"` 会被 validateTriggerSpec 拒绝（仓库内 44 张卡同此拼写）；" +
     "而 “if you assigned 3 or more excess damage” 也无可求值路径——" +
@@ -58,7 +57,7 @@ export default {
     "467.2.c.2–c.4 的 Lethal Damage 与“超出致命所需的分配量”无法表达，combat/flow.ts 的 dealDamage 也仍在抛出。" +
     "(2) 效果开头 “exhaust me” 的费用语义（404.1.b.1 / 415.4 / 415.5：费用在 Finalize 支付、无法支付则该触发移出链）没有接线：" +
     "IR 的 TriggeredAbility 没有 CostSpec 字段，用 effect.exhaust 的状态改变代替费用会漏掉“已横置的来源不能支付费用”的检查。" +
-    "依赖战斗伤害分配的权威回执与 TriggeredAbility 的费用字段（RIFT-261 系列）；effect.ready 子指令已合入，golden 实际执行该部分。",
+    "依赖战斗伤害分配的权威回执与 TriggeredAbility 的费用字段；effect.ready 子指令已合入，golden 实际执行该部分。",
   abilities: [
     {
       kind: "triggered",

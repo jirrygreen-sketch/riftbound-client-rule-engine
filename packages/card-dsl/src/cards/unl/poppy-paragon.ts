@@ -24,8 +24,8 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  * - "ready me and gain 3 XP" 是同一效果里的两个并列指令（055 / 359.3.e.11：能做什么做什么），
  *   互不引用，因此两条指令都不写 linkedTo。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。自本程序初写后合入的依赖：
- * CardProgram → TriggerRegistration 适配器（RIFT-257）、effect.ready / effect.xp。
+ * status 判定（cards/README.md 第 2 节）：judge-required。CardProgram → TriggerRegistration
+ * 适配器、effect.ready / effect.xp 均已合入。
  *
  * 仍缺两处（不近似实现）：
  * 1. [Deflect] 的展开文件（effects/keywords/Deflect.ts）已合入，但没有生产方把永久物的
@@ -80,7 +80,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "卡牌程序绑定（RIFT-257）、effect.ready（416.1）与 effect.xp（730.1）已合入并在 golden 中真实执行；" +
+    "卡牌程序绑定、effect.ready（416.1）与 effect.xp（730.1）已合入并在 golden 中真实执行；" +
     "仍有两处缺口，均不近似实现：(1) [Deflect] 的展开文件已合入，但没有生产方把永久物的 target.tax 持续效果接进目标选择与费用计划" +
     "（target/target-plan.ts 只在调用方显式传入 tax 时追加，链的 Finalize 不读图层，layers/rules/query.ts 也没有 target.tax 查询），" +
     "且已合入的税→费用换算按 Energy 记账，809.1.c.1 要求可用任意域支付的 Power（同 sfd/navori-scout）。" +

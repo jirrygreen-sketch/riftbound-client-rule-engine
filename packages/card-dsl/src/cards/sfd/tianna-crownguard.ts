@@ -29,8 +29,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   target.tax 接进目标选择与追加费用（target/target-plan.ts 只在调用方显式传入
  *   taxAdapter 时追加；chain 也不从特征派生），已合入的换算按 Energy 记账而
  *   809.1.c.1 要求任意域 Power（与已合入的 ogn/pouty-poro 同一记录）。
- * 依赖：评分侧的持续限制消费方、`at-battlefield` 条件谓词（RIFT-359）、
- * 以及 Deflect 的任意域 Power 目标税接线（RIFT-360）。
+ * 依赖：评分侧读取 restrictions() 的消费方、`at-battlefield` 条件求值，
+ * 以及 Deflect 的任意域 Power 目标税接线。
  * 不近似实现（不把限制改写成伤害/扣分效果，也不把 [Deflect] 近似为其它时点或数值）。
  */
 const abilities: Ability[] = [
@@ -63,10 +63,10 @@ const program = {
     "三处当前缺口：(1) continuous.restrict 原语已合入，但「opponents can't score points」需要 score 动作的" +
     "禁止语义与 scoring/ 侧消费方：封闭 GameAction 集合没有「禁止 Scoring」动作，scoring/ 只在调用方传入 score 动作时" +
     "执行 470 起的流程，但没有生产方读取 layers/rules/query.ts 的 restrictions()。" +
-    "(2)「at a battlefield」的 363.2.a 条件仍需位置类型谓词，当前消费方不能从 ObjectSnapshot 求值（RIFT-359）。" +
+    "(2)「at a battlefield」的 363.2.a 条件仍需位置类型谓词，当前消费方不能从 ObjectSnapshot 求值。" +
     "(3)[Deflect] 的展开（effects/keywords/Deflect.ts 的 static target.tax）已合入，但没有生产方把永久物上的 " +
     "target.tax 接进目标选择与追加费用（target/target-plan.ts 只在调用方显式传入时追加，chain 不从特征派生），" +
-    "且当前追加量按 Energy 记账，而 809.1.c.1 要求任意域 Power（RIFT-360）。" +
+    "且当前追加量按 Energy 记账，而 809.1.c.1 要求任意域 Power。" +
     "不近似实现（不把限制改写成扣分/伤害效果）。",
   abilities,
   sourceText:

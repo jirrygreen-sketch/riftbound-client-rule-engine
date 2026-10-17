@@ -16,29 +16,23 @@ import type { CardProgram } from "../../ir/index.js";
  *   检查，故 IR 用同一位置锚点 sameLocationAs: "source" 表达（契约 3.6 的
  *   ObjectFilter 锚点，解释器负责绑定运行时引用）。
  *
- * 状态：judge-required。
- * 1. continuous.might 指令本体与图层算术已合入（RIFT-258；静态图层的
- *    appliesTo/filter 形态也被该原语支持），但本卡是持续型 static 能力：没有已合入
- *    的生产方把 CardProgram 的 static 能力解析成持续效果并在宿主入场时注册
- *    （RIFT-257 card-program binding；layers/engine.ts 的 registerContinuousEffect
- *    在卡牌路径上没有调用方）。
- * 2. 该持续效果需要在图层求值时按宿主当前位置动态取集合、并排除宿主（"other"
- *    + "here"：053.3、355.10.d、359.3.f.2）；interpreter 的集合查询已支持
- *    sameLocationAs/exclude 锚点（selectors.ts），但静态能力的持续重估仍缺上述注册路径。
+ * 状态：judge-required。continuous.might 与 CardProgram static 绑定已经合入，但本卡的
+ * 静态 filter 同时需要按宿主当前位置动态取集合并排除宿主（"other" + "here"：053.3、
+ * 355.10.d、359.3.f.2）。解释器的集合查询已支持 sameLocationAs/exclude 锚点；
+ * 生产静态绑定目前拒绝 exclude/source 这种相对排除，并在绑定时固定位置，无法完成该
+ * 动态集合的精确重算。
  * 本文件按契约 3.1 写出 static + 锚点过滤形状；不用 Buff 或其它原语近似 +1 Might。
- * 依赖：RIFT-257（CardProgram 静态能力绑定）。
+ * 依赖：静态层对 source-relative exclude 与宿主位置变化的支持。
  */
 export default {
   canonicalCardId: "card.hash-74b83d5a2a718072a63d9ce9431ec68047c326c6c61dad708fc3642b6b3c76a2",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 CardProgram 静态能力的持续注册路径：continuous.might 指令（RIFT-258）已能注册算术层持续效果，" +
+    "静态绑定仍无法精确消费本卡的 source-relative filter：continuous.might 与 static 绑定路径已存在，" +
     "interpreter 集合查询也能求值 sameLocationAs/exclude 锚点（other + here：053.3、355.10.d、359.3.f.2），" +
-    "但「其他友方单位在此处 +1 Might」是持续型 static 能力（CR 143.2），必须有生产方在宿主入场时把" +
-    "CardProgram 的 static 能力解析成已注册持续效果并随宿主位置变化重估——layers/engine.ts 的 " +
-    "registerContinuousEffect 在卡牌路径上没有调用方（RIFT-257 CardProgram 绑定）。不近似实现。" +
-    "依赖：RIFT-257（CardProgram 绑定）。",
+    "但生产静态 filter 不接受 exclude: \"source\"，且绑定时固定 source 位置，无法在宿主移动后" +
+    "重算「其他友方单位在此处 +1 Might」（CR 143.2）。不近似实现。依赖：静态层的相对排除与动态位置重算。",
   abilities: [
     {
       kind: "static",

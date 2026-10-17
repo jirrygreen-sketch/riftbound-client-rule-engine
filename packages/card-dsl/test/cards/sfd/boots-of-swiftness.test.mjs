@@ -111,6 +111,3 @@ test.todo(
     "\"equip\" cost-payment kind in cost/plan-values.ts and contract 3.8.3 params.cost so the printed rune " +
     "reaches KeywordDef.expand; the expansion's cost component is declared today and the cost plan rejects it"
 );
-test.todo(
-  "sfd-133-221 Boots of Swiftness: the card-program -> keyword expansion -> chain wiring from contract 3.5 must register the Equip activated ability before the whole card is executable."
-);

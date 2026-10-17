@@ -19,6 +19,7 @@ const [channelInstruction] = ability.body;
 test("nasus-guardian-of-knowledge: passes validateCardProgram and is judge-required", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.deepEqual(result.issues, []);
   assert.equal(
     program.canonicalCardId,
     "card.hash-356162b4f965ef0d8365391eaacb8f6ce7a5990f15529e553d4fd98f3e20bb89"

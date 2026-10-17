@@ -32,7 +32,6 @@ test("rad-062-167 Gravity Field: program validates and is judge-required", () =>
   assert.match(program.judgeReason, /Deploy/);
   assert.match(program.judgeReason, /204\.4/);
   assert.match(program.judgeReason, /trigger\.leave/);
-  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-062-167 Gravity Field: identity, ruleset and verbatim source text", () => {
@@ -177,15 +176,15 @@ test("rad-062-167 Gravity Field: the merged Deathknell expansion declares its tr
 
 test.todo(
   "rad-062-167 Gravity Field: Deploy's continuous.location permission and cleanup recall exemption " +
-    "(CR 830.1.b) need a consumer — nothing turns the CardProgram keyword ability into a registered " +
-    "layer effect (RIFT-257) and Finalize never reads playLocations()"
+    "(CR 830.1.b) need a consumer — the Deploy expansion still cannot bind its " +
+    "continuous.location/host battlefield data, and Finalize does not enforce the full location rule"
 );
 test.todo(
   "rad-062-167 Gravity Field: the applied cost (CR 204.4/204.4.b) must be charged when a unit is " +
     "moved to this battlefield — the move cost plan still has no applied-cost consumer and rainbow " +
-    "Power payment belongs to cost.pay (RIFT-261)"
+    "Power payment still needs the standard move cost consumer"
 );
 test.todo(
   "rad-062-167 Gravity Field: the Deathknell expansion needs trigger.leave plus the program -> " +
-    "keyword -> timing/chain wiring (contract 3.5, RIFT-257) before 'Draw 1' can fire on death"
+    "the trigger.leave opcode and its timing/chain consumer before 'Draw 1' can fire on death"
 );

@@ -123,5 +123,34 @@ test("Trifarian Gloryseeker: the merged keyword expansion declares the Legion hi
   });
 });
 
+test("Trifarian Gloryseeker: contract history excludes this object but counts another copy of the same card", () => {
+  const base = world()
+    .hand("gloryseeker", { cardId: program.canonicalCardId, types: ["unit"], energy: null, power: null })
+    .hand("another-gloryseeker", { cardId: program.canonicalCardId, types: ["unit"], energy: null, power: null })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("gloryseeker") });
+  // Exercise the supported history instruction, not the still-unbound Legion
+  // static predicate. "Another card" distinguishes objects, not card identities.
+  const history = [{
+    id: "legion-history",
+    op: "condition.history",
+    args: { query: { kind: "constant", value: {
+      scope: "turn", action: "play", player: kernel.controller, exclude: "self"
+    } } }
+  }];
+  assert.equal(kernel.perform({ type: "play", object: kernel.ref("gloryseeker"), player: kernel.controller }).status, "done");
+  assert.equal(runAbilityBody(history, kernel).linkedValues["legion-history.count"], 0);
+
+  assert.equal(kernel.perform({ type: "play", object: kernel.ref("another-gloryseeker"), player: kernel.controller }).status, "done");
+  const outcome = runAbilityBody(history, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.linkedValues["legion-history.count"], 1);
+  assert.equal(kernel.getObject("gloryseeker").cardId, kernel.getObject("another-gloryseeker").cardId);
+
+  assert.equal(kernel.perform({ type: "return-to-hand", object: kernel.ref("gloryseeker") }).status, "done");
+  assert.equal(kernel.perform({ type: "play", object: kernel.ref("gloryseeker"), player: kernel.controller }).status, "done");
+  assert.equal(runAbilityBody(history, kernel).linkedValues["legion-history.count"], 1);
+});
+
 test.todo("Trifarian Gloryseeker: evaluate Legion's another-card-Finalized-this-turn history at trigger time and consume condition.predicate (CR 812.1.b.1 / 812.1.c; RIFT-359)");
 test.todo("Trifarian Gloryseeker: bind non-target Buff-self without a TargetSpec or became-target event (CR 355.10.d.1 / 702.2.a; effect.buff selector contract)");

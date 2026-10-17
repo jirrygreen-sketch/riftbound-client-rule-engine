@@ -10,6 +10,8 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import flowDefinition from "../../../../engine-core/dist/effects/keywords/Flow.js";
 
 const CANONICAL = "card.hash-ee8db3ab5ed40e3950cf84297f9cb4b2438324dd0f733d2bd1a1332f6c24124c";
 const SOURCE_TEXT =
@@ -34,20 +36,45 @@ test("ven-049-166 Dredge Up: judgeReason names the Flow cost, banish replacement
   assert.match(program.judgeReason, /829\.1\.c\.1/);
   assert.match(program.judgeReason, /829\.1\.c\.3/);
   assert.match(program.judgeReason, /829\.1\.b\.1/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-260/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /KeywordDef\.expand\.params\.cost/);
+  assert.match(program.judgeReason, /实付实例回执/);
+  assert.match(program.judgeReason, /object-leaves-chain/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
 test("ven-049-166 Dredge Up: the printed [Flow] keyword is declared without inventing a value", () => {
   assert.deepEqual(flow, { kind: "keyword", keyword: "flow" });
   // 829.1.c is "Flow [Cost]": the printed 2 Energy is a keyword parameter, not
-  // a numeric value. KeywordAbility has no parameter field (contract 3.8.3 is
-  // not merged), so the cost lives in the judgeReason — never in value, and
+  // a numeric value. KeywordDef.expand supports params.cost, but KeywordAbility
+  // and expandProgram still cannot pass it, so the cost lives in the judgeReason — never in value, and
   // never as a second ordinary play cost.
   assert.equal(Object.hasOwn(flow, "value"), false);
   assert.equal(Object.hasOwn(flow, "cost"), false);
+});
+
+test("ven-049-166 Dredge Up golden: an explicitly supplied Flow parameter expands and plans the printed 2 Energy alternate cost", () => {
+  // This proves the generic expansion/planner support, not production parameter passing or Flow selection receipts.
+  const cost = { energy: { kind: "constant", value: 2 } };
+  const expanded = flowDefinition.expand({ host: { canonicalCardId: CANONICAL }, params: { cost } });
+  const flowCost = expanded.find(ability => ability.kind === "static").effect;
+  assert.equal(flowCost.kind, "flow.cost");
+  assert.equal(flowCost.sourceZone, "trash");
+  assert.deepEqual(flowCost.cost, cost);
+  const kernel = world()
+    .player("A", { energy: 3 })
+    .card("dredge-up", { zone: "trash", types: ["spell"], energy: 2, power: null })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("dredge-up") });
+  const plan = buildCostPlan(context, {
+    id: "dredge-up.flow",
+    cost: { kind: "printed" },
+    baseModifications: [{ kind: "flow", id: "dredge-up.flow-instance", cost: flowCost.cost }]
+  });
+  assert.equal(plan.total.energy, 2);
+  assert.deepEqual(plan.total.power, []);
+  assert.equal(payCostPlan(context, plan).paid, true);
+  assert.equal(context.player("A").energy, 1);
 });
 
 test("ven-049-166 Dredge Up: structure — printed energy 2, absent power, one unlinked Draw 1", () => {
@@ -99,12 +126,12 @@ test("ven-049-166 Dredge Up golden: an empty Main Deck draws 0 without inventing
 
 test.todo(
   "ven-049-166 Dredge Up: play from Trash for the 2 Energy Flow cost (829.1.c.1 alternate cost, " +
-    "829.1.c.3 instance tracking) — the flow.cost consumer and the Trash play permission need the " +
-    "RIFT-261 cost consumer and the RIFT-89 cost-plan wiring"
+    "829.1.c.3 instance tracking) — the planner supports Flow, but printed parameter passing, flow.cost-to-Finalize " +
+    "input, a selected-instance receipt and the Trash-play permission still need integration"
 );
 
 test.todo(
   "ven-049-166 Dredge Up: the delayed replacement that banishes the spell after it leaves the Chain " +
     "(829.1.b.1, distinguishing a normal Chain exit from one instructed by the spell itself) — needs " +
-    "the RIFT-260 replacement registration/ordering path"
+    "object-leaves-chain matching plus finalized/selected-instance/leavingInstruction checks; generic replacement binding exists"
 );

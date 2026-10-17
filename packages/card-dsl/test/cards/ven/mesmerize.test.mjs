@@ -5,7 +5,9 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/mesmerize.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import continuousMight from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-754aa7addecbea1ffa38ad32f6fbc52273f58dffb461b7a3b18b936fa4eee165";
@@ -58,10 +60,8 @@ test("ven-052-166 Mesmerize: program passes validateCardProgram with the catalog
 
 test("ven-052-166 Mesmerize: judgeReason names the temporary-Might gap and the Finalize mode adapter", () => {
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
   assert.match(program.judgeReason, /choice\.mode/);
   assert.match(program.judgeReason, /355\.3/);
-  assert.match(program.judgeReason, /RIFT-90/);
   // The catalog's missing separator between the two modes is reported, not fixed.
   assert.match(program.judgeReason, /数据问题/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
@@ -191,28 +191,38 @@ test("ven-052-166 Mesmerize golden: a friendly unit that left the Board ignores 
   assert.equal(kernel.player("A").handSize, 0);
 });
 
-test("ven-052-166 Mesmerize golden: the merged effect.zone primitive accepts the declared hand destination", () => {
+
+test("ven-052-166 Mesmerize: the merged effect.zone primitive accepts the declared hand destination", () => {
   const kernel = world().unit("friend", { owner: "A" }).build();
-  // effect.zone's own argsSchema takes the TargetSpec id as a literal string
-  // (the chain adapter's LITERAL_FIELDS decodes the card's constant wrapper),
-  // so the direct primitive call substitutes that one evaluated value.
   const run = runInstruction(zone, { ...returnUnit.args, target: returnUnit.args.target.value }, {
     world: kernel,
     targets: { [FRIENDLY]: [kernel.ref("friend")] }
   });
-
   assert.equal(run.result.status, "executed");
   assert.equal(kernel.getObject("friend").zone, "hand");
   assert.deepEqual(run.events.map(event => event.action), ["return-to-hand"]);
 });
 
-test.todo(
-  "ven-052-166 Mesmerize: 'Give an enemy unit -2 :rb_might: this turn' needs the continuous.might layers " +
-    "consumer with an end-of-turn duration (317.2.c) — RIFT-91"
-);
+test("ven-052-166 Mesmerize golden: the debuff registers -2 Might until turn end", () => {
+  const kernel = world().unit("enemy", { controller: "B", might: 5, zone: "board" }).build();
+  kernel.setTargets(ENEMY, [kernel.ref("enemy")]);
+  const outcome = runInstruction(continuousMight, debuffUnit.args, {
+    world: kernel,
+    targets: { [ENEMY]: [kernel.ref("enemy")] }
+  });
+  assert.equal(outcome.result.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  assert.equal(kernel.continuousEffects[0].effect.effect.kind, "continuous.might");
+  assert.equal(kernel.continuousEffects[0].effect.effect.amount, -2);
+  assert.deepEqual(kernel.continuousEffects[0].duration, { type: "end-of-turn" });
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  assert.equal(layers.evaluate(kernel.ref("enemy")).might, 3);
+  assert.deepEqual(layers.advance({ id: "turn-end" }), [kernel.continuousEffects[0].effect.id]);
+  assert.equal(layers.evaluate(kernel.ref("enemy")).might, 5);
+});
 
 test.todo(
   "ven-052-166 Mesmerize: the real chain executes 'Choose one —' at Finalize (CR 355.3) — " +
     "chain/engine.ts assertFinalizationSurface throws ChainContractBlockedError for choice.mode until " +
-    "the Finalize/Resolve choice-plan adapter lands (RIFT-90)"
+    "the Finalize/Resolve choice-plan adapter lands"
 );

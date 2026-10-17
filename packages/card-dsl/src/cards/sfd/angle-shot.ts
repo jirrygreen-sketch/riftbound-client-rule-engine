@@ -93,7 +93,7 @@ export default {
     "模式分支本身用已合入原语书写：choice.mode（355.3/355.11）的两个模式分别是 effect.attach（435.1/435.4，host 与 objects 由" +
     "TargetSpec 指称）与 effect.detach（436.1/436.3，被选装备经非目标选择消费）；「Draw 1.」是独立语句、不链接，" +
     "按 359.3.e.11/359.3.e.14 在任一模式被忽略时仍结算，故整卡的 draw 部分有真实执行测试。" +
-    "依赖：355.11 分组目标与 355.11.b 结算时子集重选（RIFT-90 目标系统）。",
+    "依赖：355.11 分组目标关系求值与 355.11.b 结算时子集重选（target-plan 目前只做单成员合法性与 min/max）。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

@@ -26,8 +26,8 @@ test("Call to Glory identity and judge-required status match the printing", () =
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("356.2.b"), true);
   assert.equal(program.judgeReason.includes("356.1.b"), true);
-  assert.equal(program.judgeReason.includes("RIFT-257"), true);
-  assert.equal(program.judgeReason.includes("RIFT-261"), true);
+  assert.match(program.judgeReason, /Finalize/);
+  assert.match(program.judgeReason, /ignore-base/);
   assert.equal(
     program.sourceText,
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
@@ -164,6 +164,6 @@ test("Call to Glory golden: the printed +3 Might executes through continuous.mig
 test.todo(
   "Call to Glory: the conditional rewrite \"If you do, ignore this spell's cost\" (356.1.b sets " +
     "the base cost to zero; 357.2.a counts the paid additional cost; 356.1.b.3 keeps later " +
-    "increases) needs the card-program binding that generates the Finalize cost plan with the " +
-    "runtime buff-holder choice (RIFT-257) and the card-facing cost operations (RIFT-261)."
+    "increases) needs a CardProgram-to-Finalize adapter with a runtime buff-holder choice and " +
+    "an ignore-base cost modification."
 );

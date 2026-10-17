@@ -4,6 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/akali-deadly-weapon.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -155,6 +157,38 @@ test("ven-021-166 Akali: accepting the may cannot invent the Empowered replaceme
   assert.equal(inner.result.reason, "mistargeted");
 });
 
+
+test("ven-021-166 golden: continuous.might really adds +1 Might through the merged primitive (RIFT-258)", () => {
+  // [Empowered][>] I have +1 :rb_might:. — the primitive itself is merged
+  // (RIFT-258); the Empowered gate is the remaining judge-required dependency.
+  // This golden runs the card's own static effect shape through the real
+  // interpreter + test kernel, then projects through the layers engine.
+  const kernel = world()
+    .unit("akali-deadly-weapon", { controller: "A", might: 3 })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("akali-deadly-weapon") });
+  const body = [{
+    id: "akali-deadly-weapon.grant-might",
+    op: "continuous.might",
+    args: {
+      amount: mightBonus.effect.amount,
+      mode: { kind: "constant", value: mightBonus.effect.mode },
+      appliesTo: { kind: "constant", value: "self" }
+    }
+  }];
+  const outcome = resolveChainBody(body, context);
+  assert.equal(outcome.status, "executed");
+  assert.equal(context.continuousEffects.length, 1);
+  assert.equal(context.continuousEffects[0].effect.layer, "arithmetic");
+  assert.deepEqual(context.continuousEffects[0].effect.effect.amount, 1);
+
+  const layers = createLayerEngine(context.objects, context.continuousEffects.map((entry, index) => ({
+    effect: entry.effect,
+    duration: entry.duration,
+    timestamp: index + 1
+  })));
+  assert.equal(layers.evaluate(context.ref("akali-deadly-weapon")).might, 4);
+});
 test.todo(
   "ven-021-166 Akali: [Empower] 2 Energy + 1 Fury Power expansion (827.1.c.1 activation cost, 'use " +
     "only if not Empowered' restriction) needs an Empower/Empowered KeywordDef — none is merged"
@@ -171,6 +205,6 @@ test.todo(
 );
 
 test.todo(
-  "ven-021-166 Akali: '[Empowered][>] I have +1 :rb_might:.' needs the card-side continuous.might " +
-    "primitive and layers registration with the Empowered gate (RIFT-91)"
+  "ven-021-166 Akali: '[Empowered][>] I have +1 :rb_might:.' needs the Empowered status predicate " +
+    "(442.1.a) to gate the merged continuous.might primitive (golden proves the +1 itself executes) "
 );

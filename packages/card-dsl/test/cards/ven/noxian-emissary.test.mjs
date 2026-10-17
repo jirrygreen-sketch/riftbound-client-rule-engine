@@ -16,7 +16,7 @@ const SOURCE_TEXT =
   "Recruit unit tokens to your base. (When I die while Empowered, get the effect.)";
 
 const [empower, deathknellEffect] = program.abilities;
-const [playRecruits] = deathknellEffect.body;
+const [baseLocation, playRecruits] = deathknellEffect.body;
 
 test("ven-128-166 Noxian Emissary: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -33,7 +33,8 @@ test("ven-128-166 Noxian Emissary: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /ObjectSnapshot/);
   assert.match(program.judgeReason, /727\.1\.c\.1/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /Empowered 状态/);
+  assert.match(program.judgeReason, /location/);
 });
 
 test("ven-128-166 Noxian Emissary: [Empower] is declared, not re-implemented (contract 3.7)", () => {
@@ -61,53 +62,53 @@ test("ven-128-166 Noxian Emissary: the Empowered Deathknell dependent ability sh
   assert.deepEqual(playRecruits.args.amount, { kind: "constant", value: 2 });
   // 440.2.c / 185.2.a: a token that is Played is created on the Chain first.
   assert.deepEqual(playRecruits.args.mode, { kind: "constant", value: "play" });
+  assert.deepEqual(baseLocation, {
+    id: "noxian-emissary.base-location",
+    op: "condition.value",
+    args: { value: { kind: "location", value: "ability-controller-base" } }
+  });
   assert.deepEqual(playRecruits.args.location, {
-    kind: "constant",
-    value: { type: "base", player: "controller" }
+    kind: "linked-value", instructionId: baseLocation.id, key: "value"
   });
   assert.equal(playRecruits.targets, undefined);
-  assert.equal(playRecruits.linkedTo, undefined);
+  assert.equal(playRecruits.linkedTo, baseLocation.id);
 });
 
-test("ven-128-166 golden: 'Play two 1 :rb_might: Recruit unit tokens to your base' runs for real", () => {
-  // Execute only the supported token body; the Empowered death gate remains
-  // judge-required. The real adapter preserves the primitive's Expr arguments.
-  const kernel = world().player("controller").build().clone({ controller: "controller" });
-  const outcome = resolveChainBody(deathknellEffect.body, kernel);
-  assert.equal(outcome.status, "executed");
+test("ven-128-166 golden: the original token body plays two Recruits to the actual A or B controller's base", () => {
+  for (const controller of ["A", "B"]) {
+    const base = world().unit("emissary", { owner: controller, cardId: CANONICAL_ID }).build();
+    const kernel = base.clone({ controller, sourceSnapshot: base.getObject("emissary") });
+    const outcome = resolveChainBody(deathknellEffect.body, kernel);
+    assert.equal(outcome.status, "executed");
+    assert.deepEqual(outcome.linkedValues[`${baseLocation.id}.value`], { type: "base", player: controller });
 
-  const recruits = kernel.query({ zone: "board", type: "unit" });
-  assert.equal(recruits.length, 2);
-  for (const recruit of recruits) {
-    assert.equal(recruit.name, "Recruit");
-    assert.equal(recruit.might, 1);
-    assert.deepEqual(recruit.tags, ["Recruit"]);
-    assert.equal(recruit.controller, "controller");
-    assert.deepEqual(recruit.location, { type: "base", player: "controller" });
-    assert.equal(recruit.isToken, true);
-    assert.equal(recruit.energy, null);
-    assert.equal(recruit.power, null);
+    const recruits = kernel.query({ zone: "board", type: "unit", tag: "Recruit" });
+    assert.equal(recruits.length, 2);
+    for (const recruit of recruits) {
+      assert.equal(recruit.name, "Recruit");
+      assert.equal(recruit.might, 1);
+      assert.deepEqual(recruit.tags, ["Recruit"]);
+      assert.equal(recruit.owner, controller);
+      assert.equal(recruit.controller, controller);
+      assert.deepEqual(recruit.location, { type: "base", player: controller });
+      assert.equal(recruit.isToken, true);
+      assert.equal(recruit.energy, null);
+      assert.equal(recruit.power, null);
+    }
+    assert.deepEqual(outcome.events.map(event => [event.action, event.timingPoint]), [
+      ["create-token", "chain-item-pending"], ["play", "card-played"],
+      ["create-token", "chain-item-pending"], ["play", "card-played"]
+    ]);
+    assert.deepEqual(kernel.pendingItems, []);
+    assert.equal(outcome.linkedValues[`${playRecruits.id}.token.amount`], 2);
+    assert.equal(outcome.linkedValues[`${playRecruits.id}.token.objects`].length, 2);
   }
-  // Both tokens are created on the Chain and then Played (440.2.c / 185.2.a).
-  assert.deepEqual(
-    outcome.events.map(event => [event.action, event.timingPoint]),
-    [
-      ["create-token", "chain-item-pending"],
-      ["play", "card-played"],
-      ["create-token", "chain-item-pending"],
-      ["play", "card-played"]
-    ]
-  );
-  assert.deepEqual(kernel.pendingItems, []);
-  assert.equal(outcome.linkedValues["noxian-emissary.play-two-recruits.token.amount"], 2);
-  assert.equal(outcome.linkedValues["noxian-emissary.play-two-recruits.token.objects"].length, 2);
 });
 
 test("ven-128-166 golden: an opponent's base destination negates the token play", () => {
   // Contract 3.6 restricts unit Base destinations to the controller's own Base;
   // the negative case must stay a truthfully reported negation.
-  const base = world().player("controller").player("B").build();
-  const kernel = base.clone({ controller: "controller" });
+  const kernel = world().build();
   const run = runInstruction(
     token,
     { ...playRecruits.args, location: { kind: "constant", value: { type: "base", player: "B" } } },

@@ -30,10 +30,11 @@ import type { CardProgram } from "../../ir/index.js";
  * - 费用侧的 "Kill a friendly unit or gear"：cost/kill 支付动作与费用选择器
  *   （cost-plan 的 nonstandard payments + choiceObjects）已合入，真实支付路径已在
  *   golden 中执行；缺的是把卡牌数据的字符串占位选项（"friendly-unit-or-gear"）
- *   解析成运行时对象选项的卡程序/费用绑定（RIFT-257/261），以及费用原语。
+ *   解析成 Finalize 时可枚举的运行时 ObjectRef。当前 CostSpec 仍要求精确对象选项，
+ *   没有动态的 Unit/Gear 候选绑定。
  *
  * 依赖：契约变更（Domain 增补 Universal / 或新增 gain-universal-power 动作）+
- * RIFT-257/261（费用绑定与原语）。
+ * 以及 friendly-unit-or-gear 的动态费用对象绑定。
  */
 const malzaharFanatic = {
   canonicalCardId: "card.hash-0821b41b5d117a852897d54edb6109cc048ab5637104799b63924d6edb073ee4",
@@ -45,9 +46,9 @@ const malzaharFanatic = {
     "（never approximated by a chosen domain，实现会 negated impossible），不得近似成任一具体域。" +
     "费用侧「Kill a friendly unit or gear」（355.10.c 的 cost within instructions）已能由费用的 kill 支付动作 + " +
     "对象选择器真实收取（golden 已验证），但卡牌数据的字符串占位选项 " +
-    "\"friendly-unit-or-gear\" 需要 CardProgram/费用绑定把它解析成运行时对象选项（RIFT-257/261），" +
-    "费用原语（cost.pay）同样未合入。" +
-    "依赖：契约变更（Domain 增补 Universal 或新增 gain-universal-power 动作）+ RIFT-257/261。",
+    "\"friendly-unit-or-gear\" 仍无法在 Finalize 解析为动态的 Unit/Gear ObjectRef 候选；当前 CostSpec " +
+    "只接受精确对象选项。依赖：契约变更（Domain 增补 Universal 或新增 gain-universal-power 动作）+ " +
+    "friendly-unit-or-gear 的动态费用对象绑定。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

@@ -23,8 +23,7 @@ test("Heimerdinger, Inventor identity and judge-required reason", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /479\.3/);
-  assert.match(program.judgeReason, /RIFT-258\/259/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /continuous\.grant-abilities/);
   assert.match(program.judgeReason, /動態|动态/);
   assert.equal(
     program.sourceText,
@@ -80,5 +79,5 @@ test("golden: the granted-source filter selects friendly legends/units/gear on t
 test.todo(
   "Heimerdinger, Inventor: the ability-altering (479.3) grant layer that copies each referenced object's " +
     "exhaust-cost activated abilities onto this unit, with a dependency closure over the runtime source set " +
-    "(RIFT-258/259 ability layer; RIFT-257 static ability binding; ability-templates.md section 4)"
+    "(ability-templates.md section 4)"
 );

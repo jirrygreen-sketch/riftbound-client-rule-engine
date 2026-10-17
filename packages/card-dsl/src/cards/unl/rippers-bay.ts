@@ -29,7 +29,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   controller (see judgeReason; the same event-player gap rad/rakelstake and
  *   ogn/obelisk-of-power record).
  * - 204.3.a / 383.3.a: "that player may pay [1 energy] to channel 1 rune" is a
- *   cost within instructions decided on resolution, so it is an optional
+ *   cost within instructions decided on resolution (204.3.a), so it is an optional
  *   wrapper (contract §3.9 `choice.optional`) holding the payment and the
  *   channel, never a `choice` plus a `linkedTo` consumer.
  * - 431.1 / 431.2 / 431.2.a: "channel 1 rune exhausted" takes one rune from
@@ -37,9 +37,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   (by default runes enter readied, which is why the stipulation is passed).
  *
  * Status (packages/card-dsl/src/cards/README.md §2): judge-required — the
- * channel half is a merged primitive and the golden test executes the printed
- * cost/channel shape through the real interpreter with the payer bound, but the
- * card cannot run as printed:
+ * channel half and the inline cost.pay payments path are merged and the golden tests execute
+ * the printed cost.pay/channel shape through the real interpreter, but the card cannot run as printed:
  * 1. "that player" is an event participant (190.6.c). No frozen
  *    ObjectSelector/Expr reads the triggering event's player, and the merged
  *    TriggerRegistration's `controller` is populated by the caller — nothing
@@ -51,13 +50,10 @@ import type { CardProgram } from "../../ir/index.js";
  *    entering object and fromZone=board, but no battlefield id, so the 053.3
  *    "here" filter cannot be evaluated (the filter key is a documented
  *    placeholder);
- * 3. no merged producer submits the printed 1-Energy payment as a
- *    resolution-time cost (cost.pay is not a merged instruction) and no
- *    subscriber registers a CardProgram's triggered ability as a
- *    TriggerRegistration (190.6.c choice ownership included).
+ * The printed payment is executable through the merged cost.pay payments path; the
+ * remaining gaps are the event-player binding and the missing battlefield id payload above.
  * Dependencies: an event-player selector and a play/return-location payload
- * (contract change requests) plus RIFT-89 (cost.pay) and RIFT-33 / contract
- * §7.2 batch 5 trigger registration. Nothing is approximated.
+ * (contract change requests). Nothing is approximated.
  */
 export default {
   canonicalCardId:
@@ -65,16 +61,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1)「that player」是事件的参与者（被回手单位的控制者），而冻结 IR 的选择器只有 " +
+    "两处缺口，均不近似实现：(1)「that player」是事件的参与者（被回手单位的控制者），而冻结 IR 的选择器只有 " +
     "self/source/target/pick/linked，没有任何 Expr 能读触发事件的玩家；两条指令都只能用能力控制者（190.6.d 的隐含 you），" +
     "真正的缺口是注册方必须按 190.6.c 把控制者解析为该事件玩家，而已合入链路没有该推导" +
     "（同 rad/rakelstake、ogn/obelisk-of-power 的事件玩家缺口）。" +
     "(2)「a unit here」需要被回手单位的原战场：已合入的 object-enters-hand 发射（events/action-adapter.ts）带进入对象与 fromZone=board，" +
     "但没有 battlefield id 载荷，053.3 的 here 无法求值（触发 filter 里的 here/nonBattlefield 键是记录占位）。" +
-    "(3) 没有已合入生产者把「另一名玩家的可选费用」作为结算期费用提交（cost.pay 不是已合入原语型指令），" +
-    "也没有订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration（含 190.6.c 的选择归属）。" +
-    "依赖：事件玩家选择器与回手地点载荷（契约变更请求）、RIFT-89（cost.pay）、RIFT-33/契约 §7.2 批 5 触发注册。" +
-    "golden 只把 cost.pay 与 effect.channel 的印刷形状（先付费、后横置入场地 channel 1）在绑定付款者后用参考内核执行。",
+    "cost.pay 的 payments 形状已合入：它在结算时按当前控制者内部构造并支付 1 Energy；" +
+    "golden 通过真实解释器覆盖支付成功、可选拒绝与余额不足，剩余缺口是事件玩家选择器与回手地点载荷（契约变更请求）。",
   sourceText:
     "When a unit here is returned to a player's hand, that player may pay :rb_energy_1: to channel 1 rune exhausted.",
   abilities: [
@@ -108,14 +102,12 @@ export default {
               value: [
                 {
                   // 204.3.a / 383.3.a: "that player may pay [1]" is a cost
-                  // within instructions paid as this ability resolves. The
-                  // payer is the ability's controller (190.6.c/190.6.d), which
-                  // is why no player argument is fabricated here. cost.pay is
-                  // not a merged instruction primitive (RIFT-89); the
-                  // declaration keeps the printed amount reviewable.
+                  // within instructions paid as this ability resolves. The merged
+                  // cost.pay primitive accepts an inline payments map and builds
+                  // the small finalized plan for the current ability controller.
                   id: "rippers-bay.pay",
                   op: "cost.pay",
-                  args: { energy: { kind: "constant", value: 1 } }
+                  args: { payments: { kind: "constant", value: { energy: 1 } } }
                 },
                 {
                   // 431.1 / 431.2: channel one rune from the top of that

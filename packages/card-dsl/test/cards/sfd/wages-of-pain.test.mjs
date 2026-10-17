@@ -22,14 +22,16 @@ test("sfd-070-221 Wages of Pain: program validates and is registered", () => {
   assert.equal(cardRegistryById.get(CARD_ID), program);
 });
 
-test("sfd-070-221 Wages of Pain: judge-required only because of the Gold gear token entry state", () => {
+test("sfd-070-221 Wages of Pain: judge-required for Gold token/intrinsic ability, entry state and complete Hidden play", () => {
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   // The judgeReason must name the actual, current gaps (contract 3.1).
-  assert.match(program.judgeReason, /Gold gear token/);
+  assert.match(program.judgeReason, /Gold/);
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /184\.1/);
+  assert.match(program.judgeReason, /Hidden/);
+  assert.match(program.judgeReason, /811\.1\.d\.2/);
   assert.match(program.sourceText, /Deal 3 to a unit at a battlefield./);
   assert.match(program.sourceText, /Play a Gold gear token exhausted./);
 });
@@ -99,19 +101,5 @@ test("sfd-070-221 Wages of Pain golden execution: a stale battlefield target is 
   assert.equal(run.events.length, 0);
 });
 
-test.todo(
-  "sfd-070-221 Wages of Pain: play a Gold gear token exhausted once the Gold definition (187.5) and the entry " +
-    "stipulation (184.1 / 185.2.d) are merged; the chain-create + play handoff is already merged (RIFT-62)."
-);
-
-test.todo(
-  "sfd-070-221 Wages of Pain: play a Gold gear token exhausted (CR 187.5 definition plus 184.1 / 185.2.d entry " +
-    "state). The card's own args record the real request (effect.token, token \"gold\", mode \"play\", " +
-    "entersExhausted true); the merged primitive cannot yet resolve the Gold definition or the entry override."
-);
-
-test.todo(
-  "sfd-070-221 Wages of Pain: playing from facedown must restrict the damage target to the battlefield " +
-    "it was hidden at (811.1.d.2) - enforcement belongs to Hidden's expansion consumer (RIFT-89) and the target " +
-    "system (RIFT-90)."
-);
+test.todo("Wages of Pain: play CR 187.5 Gold with its intrinsic resource ability and exhausted entry state (184.1/185.2.d)");
+test.todo("Wages of Pain: Hide, unlock on the next turn and play for free as a Reaction with the original battlefield target restriction (811.1.b/811.1.d.2)");

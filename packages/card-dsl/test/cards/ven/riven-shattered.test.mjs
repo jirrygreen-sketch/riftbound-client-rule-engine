@@ -86,8 +86,12 @@ test("ven-041-166 Riven, Shattered: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /Weaponmaster/);
   assert.match(program.judgeReason, /821\.1\.c\.2/);
   assert.match(program.judgeReason, /attack-declared/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  // The judgeReason names the concrete Equip-cost binding and attack-declared
+  // producer gaps without citing merged dependency tasks.
+  assert.doesNotMatch(program.judgeReason, /RIFT-89/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -223,11 +227,12 @@ test("ven-041-166 Riven, Shattered golden: an enemy unit at another location is 
 
 test.todo(
   "ven-041-166 Riven, Shattered: expand [Weaponmaster] (821.1.c.2 / 821.1.c.2.a: calculate the chosen " +
-    "Equipment's Equip cost, one any-Power less, and attach it without activating Equip) — no cost.modify / " +
-    "cost.pay instruction and no permanent-tax consumer (RIFT-89)"
+    "Equipment's Equip cost, one any-Power less, and attach it without activating Equip) — cost.modify / cost.pay " +
+    "are merged, but reduce-equip-cost throws by design because rule 821.1.c.2 still lacks an authoritative " +
+    "Equip-cost binding"
 );
 
 test.todo(
   "ven-041-166 Riven, Shattered: resolve 'When I attack' end to end (383.4.e.2) — combat must emit the " +
-    "attack-declared timing point and card programs must register their triggers as TriggerRegistrations (RIFT-120)"
+    "attack-declared timing point and the programs/filters adapter must support the sameLocationAs target filter"
 );

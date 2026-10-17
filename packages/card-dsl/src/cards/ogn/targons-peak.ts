@@ -18,37 +18,23 @@ import type { CardProgram } from "../../ir/index.js";
  * - 416.1: readying a rune readies it; effect.ready is the merged primitive
  *   for the action, and 417.1.b / 108.5 place runes in the Rune Zone.
  *
- * Status: judge-required — two merged gaps, none approximated:
- * 1. the `conquer` timing point is now emitted by TurnFlow's Score wave
- *    (src/turn/flow.ts, verified in docs/rules/timing-point-producers.md), but
- *    the trigger filter still needs the battlefield-relative `here` anchor and
- *    the card-program binding (RIFT-257) before the outer trigger can enter the
- *    chain from a real play;
- * 2. no merged primitive registers a delayed trigger with an expiry window:
- *    RIFT-9's primitive list names `trigger.delayed` and ResolveContext has
- *    `registerDelayedTrigger(at, body)` for engine internals, but the
- *    instruction registry has no opcode that consumes it
- *    (chain/README.md §契约变更请求 3 records the missing window/expiry
- *    information), so "at the end of this turn" cannot be expressed and the
- *    readying must not happen during the conquer resolution (355.5.b);
- * 3. the ready's choices belong to the delayed trigger's finalize, which needs
- *    the interpreter lifecycle interface the chain layer also has not merged.
- * The body records the two printed parameters (2 runes, at the end of this
- * turn) for review; it is not executable data.
+ * Status: judge-required.
+ * TurnFlow produces conquer events and program trigger binding is merged.
+ * Still missing: conquer -> conquered event normalization, a battlefield-relative
+ * here anchor, and a card-facing delayed-trigger instruction with a one-turn
+ * expiry. The runes must be chosen when that delayed trigger Finalizes, not
+ * when the original conquer trigger resolves.
  */
 const targonsPeak = {
   canonicalCardId: "card.hash-443bbd81ca54ffdeed5341da932702bf2c62ea4d20d8be07b4fbfc36c4340493",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1) conquer 时点（CR 471.1、473.2.a）已由 TurnFlow 的 Score wave emit 进唯一事件管线" +
-    "（docs/rules/timing-point-producers.md 记为已有），触发侧仍缺战场相对的 here 锚点与 CardProgram 绑定（RIFT-257），" +
-    "无法从真实打出进入链；" +
-    "(2) 缺 RIFT-9 清单中的 trigger.delayed 延迟触发注册原语：CR 391.2/355.5.b 要求把 ready 2 runes 作为" +
-    "本回合结束时的延迟触发，且选择在该延迟触发 finalize 时才做出，但 effects/instructions/ 没有任何 opcode " +
-    "消费 ResolveContext.registerDelayedTrigger，chain/README.md 契约变更请求 3 亦记录延迟窗口/期限信息缺失，" +
-    "无法表达 “at the end of this turn”；(3) 延迟触发的目标选择需要解释器生命周期接口（chain README " +
-    "契约变更请求 2），尚未合入。程序仅记录 2 runes 与本回合结束时两个印刷参数，不近似实现。",
+    "conquer 时点已由 TurnFlow 的真实征服/Score 流程产生（CR 473.2.a），CardProgram 触发绑定也已合入；仍缺 trigger " +
+    "filter 的 conquer→conquered 事件适配与战场相对 here 锚点。trigger.delayed 尚无指令实现，内部 " +
+    "registerDelayedTrigger 没有到期窗口参数，不能表达「at the end of this turn」的一次性本回合延迟触发（391.2）。" +
+    "延迟触发还需在其自身 Finalize 时绑定非目标符文选择（355.5.b），不能在征服触发结算时预选。effect.ready 半段有真实执行证据；" +
+    "整卡仍缺延迟注册/到期与选择生命周期，不近似实现。",
   sourceText: "When you conquer here, ready 2 runes at the end of this turn.",
   abilities: [
     {
@@ -61,7 +47,7 @@ const targonsPeak = {
       body: [
         {
           id: "targons-peak.ready-2-runes",
-          // Unregistered placeholder for RIFT-9's trigger.delayed primitive:
+          // Unregistered placeholder for the delayed-trigger instruction:
           // registering the end-of-turn delayed trigger has no merged
           // implementation (see judgeReason).
           op: "trigger.delayed",

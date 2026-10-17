@@ -25,8 +25,8 @@ test("Meditation identity, ruleset, status and printed text", () => {
   assert.equal(meditation.rulesetVersion, "core-1.5");
   assert.equal(meditation.status, "judge-required");
   assert.match(meditation.judgeReason, /415\.4/);
-  assert.match(meditation.judgeReason, /CostSpec/);
-  assert.match(meditation.judgeReason, /RIFT-257\/261/);
+  assert.match(meditation.judgeReason, /CostPlanInput/);
+  assert.match(meditation.judgeReason, /programs\/play\.ts/);
   assert.equal(cardRegistryById.get(meditation.canonicalCardId), meditation);
   assert.equal(
     meditation.sourceText,
@@ -185,9 +185,9 @@ test("Meditation golden: the printed exhaust payment is a real exhaust of a frie
 test.todo(
   "Meditation optional additional cost: declare and pay \"you may exhaust a friendly unit\" during " +
     "Finalize (CR 204.2 / 356.2.b / 355.1.a) and fail the play when it cannot be completed (CR 415.4) " +
-    "- the merged planner pays a constructed optional-additional exhaust component (golden), but no " +
-    "producer reads the card's cost.additional declaration into CostPlanInput.optionalAdditional " +
-    "(RIFT-257/RIFT-261)"
+    "- the merged planner pays a constructed optional-additional exhaust component (golden), but " +
+    "programs/play.ts still does not translate the card's cost.additional declaration into " +
+    "CostPlanInput.optionalAdditional"
 );
 
 test.todo(

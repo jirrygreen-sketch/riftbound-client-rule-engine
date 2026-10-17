@@ -12,7 +12,7 @@ import type { CardProgram } from "../../ir/index.js";
  * Modeling notes (Core Rules v1.5):
  * - [Hidden] (811) and [Action] (806) are keyword abilities expanded by the
  *   keyword registry (contract 3.7); the card only names them. Hidden's
- *   facedown play permission stays with RIFT-84.
+ *   facedown play permission still needs its cost and zone consumers.
  * - "Give a unit ... this turn" is a duration-bounded keyword grant. A keyword
  *   is not an instruction: keywords reach an object through the layers system
  *   as a static/continuous grant (contract 3.4 layer order copy -> trait ->
@@ -23,9 +23,8 @@ import type { CardProgram } from "../../ir/index.js";
  * Status: judge-required — the two keyword halves and the timed grant are
  * merged (Tank's KeywordDef at RIFT-264, Shield's at the earlier keyword batch,
  * continuous.grant-keyword at RIFT-258), but the whole card still cannot run:
- * - no merged producer binds a static/play CardProgram ability into the
- *   layer/chain pipeline (RIFT-257), so the duration-bound grant is never
- *   registered from the card;
+ * - the play body and timed grant are bindable, but Hidden/Action keyword
+ *   permissions still lack their production consumers;
  * - [Tank]'s expansion is a continuous.combat effect and the combat damage
  *   assignment path has no consumer for it (base-combat-allocation.ts records
  *   "No Tank/Backline/other assignment-priority requirement is bound here"),
@@ -46,12 +45,12 @@ const block = {
     "“Give a unit [Shield 3] and [Tank] this turn”的单个关键词与授予原语都已合入：Tank 的 KeywordDef（RIFT-264，815）、" +
     "Shield 的 KeywordDef（814，带数值叠加）、continuous.grant-keyword（RIFT-258，end-of-turn 期限；本卡测试真实执行并验证" +
     "Shield 3 与 Tank 在 ability 层的注册和到期清理）。仍缺三处：" +
-    "(1) 没有已合入的绑定层把卡牌静态/play 能力注册进图层与链（RIFT-257），整卡的授予不会被生产路径登记；" +
+    "(1) Hidden/Action 的关键词许可没有完整的生产消费者，尤其是 cost.hidden 的 Hide/facedown 路径；" +
     "(2) Tank 展开为 continuous.combat，战斗伤害指派路径没有消费方（combat/base-combat-allocation.ts 明确未绑定指派优先级），815.1.b/815.1.c.2 不生效；" +
     "(3) Shield 展开依赖 combat 流程赋予的 Defender 身份（814.1.d / 466.2.c.3）。" +
-    "依赖：RIFT-257 卡牌程序绑定、continuous.combat 的 combat 指派消费方与 combat 身份流程。" +
+    "依赖：Hidden/Action 许可消费者、continuous.combat 的 combat 指派消费者与 combat 身份流程。" +
     "不近似实现：不丢掉 [Tank] 半段，也不把 Shield 直接折算成 Might 修改（814.1.c 只在作为防守者时 +X Might）。" +
-    "[Hidden]/[Action] 仅为关键词声明（811/806），facedown 许可依赖 cost.hidden（RIFT-261）。",
+    "[Hidden]/[Action] 仅为关键词声明（811/806），facedown 许可依赖 cost.hidden 与区域消费者。",
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +
     "[Action] (Play on your turn or in showdowns.)\n" +

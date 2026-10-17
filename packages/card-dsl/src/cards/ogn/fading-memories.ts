@@ -11,7 +11,7 @@ const fadingMemories = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺「战场上的单位或任意 Gear」的异构析取目标过滤及 Finalize 翻译（CR 355.10.b；RIFT-359）。programs/lifecycle.ts 只在入区时展开 KeywordDef，未在图层授予/失去 Temporary 时更新实时触发注册，无法保证 CR 816.1.b/816.1.c 的控制者 Beginning Phase 消灭。",
+    "仍缺「战场上的单位或任意 Gear」的异构析取目标过滤：ObjectFilter 只能表达字段合取，无法让同一个选择在 Finalize 同时接受这两种形状（CR 355.10.b）。programs/lifecycle.ts 只在入区时展开 KeywordDef，未在图层授予/失去 Temporary 时更新实时触发注册，无法保证 CR 816.1.b/816.1.c 的控制者 Beginning Phase 消灭。",
   abilities: [
     {
       kind: "play",

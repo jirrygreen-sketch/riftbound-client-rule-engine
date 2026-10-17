@@ -21,12 +21,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   也不重写一条自己的分配顺序。
  *
  * status 判定（README 第 2 节）：judge-required。
- * Tank 的 KeywordDef 已合入（effects/keywords/Tank.ts，RIFT-264；展开为
+ * Tank 的 KeywordDef 已合入（effects/keywords/Tank.ts；展开为
  * static `continuous.combat`，priority "first"），但两层消费方都还没有合入：
  * 1. 战斗伤害分配：combat/base-combat-allocation.ts 明确写着 "No Tank/Backline/
  *    other assignment-priority requirement is bound here"，815.1.b /
  *    815.1.c.2 的「先分配致命伤害」无法落地；
- * 2. 关键词接线：CardProgram 的 keyword 能力由 RIFT-257 的 expandProgram 解析
+ * 2. 关键词接线：CardProgram 的 keyword 能力由已合入的 expandProgram 解析
  *    （expandProgram → KeywordDef.expand 已可执行，golden 直接验证），但展开出的
  *    static `continuous.combat` 既没有 layers 分支（layers/engine.ts 只处理
  *    copy/trait/ability/arithmetic，continuous.combat 无对应 apply 分支），
@@ -42,8 +42,8 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Tank]（815）的 KeywordDef 已合入（effects/keywords/Tank.ts，RIFT-264，展开为 static continuous.combat、" +
-    "priority \"first\"），RIFT-257 的 expandProgram 也能把卡牌关键词展开成该 static 能力（golden 已验证）；" +
+    "[Tank]（815）的 KeywordDef 已合入（effects/keywords/Tank.ts，展开为 static continuous.combat、" +
+    "priority \"first\"），已合入的 expandProgram 也能把卡牌关键词展开成该 static 能力（golden 已验证）；" +
     "但 815.1.b / 815.1.c.2（467.2.c.6–c.9 的指派顺序）仍无消费方：" +
     "combat/base-combat-allocation.ts 明确注释 \"No Tank/Backline/other assignment-priority requirement is " +
     "bound here\"，layers/engine.ts 没有 continuous.combat 分支，continuous.combat 指令原语本身也保持 " +

@@ -23,25 +23,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   但该谓词的消费者与 XP 读取路径仍未合入（文件头注明 keyword→ability 绑定与
  *   玩家 XP 的 Expr 读取都缺失）。
  *
- * status = judge-required（按当前 HEAD 复核；两处缺口均不近似实现）：
- * - cost.modify / cost.pay 原语已经合入，但 programs/statics.ts 的静态绑定器
- *   没有把 cost.modify 映射到 Finalize 费用计划；当前费用计划只应用调用方显式传入的 discounts。
- * - 「instead」的互斥选择仍不可判定：Level.ts 只发布 level-active/controller-xp 谓词，
- *   当前条件管线没有读取控制者 XP 的消费方（条件谓词缺口）。本程序保留两个阈值的
- *   static cost.modify 形状，不硬编码折扣、不近似为某一种减费。
- * 依赖：cost.modify 的 CardProgram→Finalize 绑定（RIFT-349 后续）与 Level/XP 条件谓词消费。
- * Draw 2 一半只用已合入的 effect.draw，golden 真实执行。
+ * Status: judge-required. Current source audit:
+ * Draw 2 is executable independently. The static discounts need a Finalize
+ * consumer and live XP gating; a named constant string is not that predicate.
  */
 const concentrate = {
   canonicalCardId: "card.hash-faa895f1e7713ee3a12d2dc5921967e2171457086b5582208825c5b0eae45fd6",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1)「This costs [2]/[4] less」是 CR 356.4 的印刷费用折扣，但 " +
-    "programs/statics.ts 尚未把静态 cost.modify 映射到 Finalize 费用计划；cost.modify/cost.pay 原语虽已合入，" +
-    "当前计划只应用调用方显式传入的 discounts。(2) [Level 6]/[Level 11]（CR 824.1.b.1/824.1.c）的「instead」互斥二选一需要" +
-    "可求值的 level-active/controller-xp 谓词，当前条件管线仍没有 XP 消费者。本程序只保留两个阈值的 cost.modify 形状，" +
-    "不硬编码折扣、不近似为其中一种减费。「Draw 2」只用已合入的 effect.draw，golden 真实执行。依赖：RIFT-349 后续与 Level/XP 条件谓词消费。",
+    "缺 programs/statics.ts 将静态 cost.modify 接入 Finalize discounts 的映射（CR 356.4），以及 Level 6/11 的控制者 XP 条件消费（824.1.b.1/824.1.c）。当前 level-active 常量字符串会被当成真值，不能读取 XP，也不能令 -2 与 -4 的 instead 折扣互斥；不可把两档折扣相加或硬编码其中一档。",
   abilities: [
     {
       // 「[Level 6][>] This costs [2] less」的保留形状：折扣在 Finalize 费用计划里

@@ -20,8 +20,8 @@ test("unl-039-219 Soul Sword: program validates and is judge-required", () => {
   assert.deepEqual(result.issues, []);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Equip|equip/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
+  assert.match(program.judgeReason, /Calm 费用参数|印刷费用参数/);
   assert.match(program.judgeReason, /effect\.attach/);
 });
 
@@ -145,9 +145,5 @@ test("unl-039-219 Soul Sword: the printed 1 Calm Power cannot be paid by the mer
 
 test.todo(
   "unl-039-219 Soul Sword: pay the printed Equip cost (1 Calm Power, 818.1.c / 818.1.c.3) through the cost plan " +
-    "and attach the gear end-to-end (RIFT-89 follow-up)"
-);
-test.todo(
-  "unl-039-219 Soul Sword: the card-program -> keyword expansion -> chain wiring (contract 3.5) is required " +
-    "before the declared KeywordAbility is expanded at runtime"
+    "and attach the gear end-to-end through the Equip payment path"
 );

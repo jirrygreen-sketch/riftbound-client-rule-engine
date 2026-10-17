@@ -21,17 +21,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   那个单位，不再重新选择）。"[Empowered]" 是 828.2 的可检查特征。
  *
  * status = judge-required（缺口均不近似实现）：
- * 1. 临时 Might 修改没有已合入的执行原语：契约 3.6 的封闭 GameAction 集合没有 Might 修改
- *    动作，effects/instructions/ 也没有注册通过 ResolveContext.addContinuous 创建
- *    continuous.might 的 op（layers 能求值，卡牌侧无入口；RIFT-91）。
- * 2. "If it's [Empowered]" 的谓词没有已合入实现：Condition 只有 always/never/compare/all/
- *    any/not/expression，没有 empowered 状态谓词；layers/engine.ts 的 conditionMatches 只
- *    识别 always/never/type/has-tag/has-keyword，且未识别条件按 true 处理，所以不能把该
- *    从句写成就近似的真条件。程序里保留具名谓词 is-empowered 与互斥条件形状，绝不近似成
- *    恒真、也不把两条数量合并成一条固定的 +2。
- * 3. 已支持部分：互斥条件形状与共用目标的声明由 golden 结构断言覆盖；真实 Might 落地写
- *    test.todo（依赖 RIFT-91）。
- * 依赖：RIFT-91（continuous.might 卡牌侧入口与到期、Empowered 谓词）。
+ * 复核（2026-10-17，第二轮 M2 覆盖率复核）：
+ * - 旧 judgeReason 的「continuous.might 无卡牌侧入口（RIFT-91）」已不成立：
+ *   continuous.might 指令已注册，golden 独立执行本卡 +2 指令的参数，断言
+ *   arithmetic 图层注册、3→5 Might 及 317.2.c 的 turn-end 到期后回到 3。
+ * - 真实缺口只剩 "[Empowered]" 状态谓词：生产 ObjectSnapshot（effects/contract.ts）
+ *   没有 empowered 字段；expression 的非空字符串 "is-empowered" 会转成 true，
+ *   不会读取目标状态，也不会因此抛 MissingInformation，不能作为条件执行证据；
+ *   条件谓词属进行中任务 RIFT-359，两个状态分支继续保留 TODO。
+ *
+ * status 判定（cards/README.md 第 2 节）：judge-required，缺口不近似实现。
+ * 程序里仅以 is-empowered 记录尚不能求值的状态条件及互斥形状，不把它视作已实现
+ * 的状态查询。golden 覆盖身份/结构和独立 Might 原语，不执行整段条件分支。
+ * 依赖：Empowered 状态谓词（进行中任务 RIFT-359）。
  */
 const EMPOWERED_CONDITION = {
   kind: "expression",
@@ -93,13 +95,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1) 临时 Might 修改没有已合入执行原语：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，" +
-    "effects/instructions/ 也没有注册通过 ResolveContext.addContinuous 创建 continuous.might 的 op（layers 能求值，卡牌侧无入口），" +
-    "effect.buff 只处理 CR 702 的 Buff 计数，不能近似；本卡没有印刷下限（143.2.c 是一般规则）。(2)「If it's [Empowered]」的谓词没有已合入实现：" +
-    "Condition 只有 always/never/compare/all/any/not/expression，没有 empowered 谓词，layers/engine.ts 的 conditionMatches 只识别 " +
-    "always/never/type/has-tag/has-keyword 且未识别条件按 true 处理；本卡按 135.2.b.5.b 只保留互斥条件形状" +
-    "（+2 挂该谓词的否定、+4 挂该谓词本身）与共用目标的声明，绝不写成恒真条件、也不把两条数量合并成固定 +2。" +
-    "依赖：RIFT-91（continuous.might 卡牌侧入口与到期、Empowered 谓词）。",
+    "continuous.might 已注册，golden 独立执行本卡 +2 指令的参数并断言 arithmetic 图层、3→5 Might 与 " +
+    "317.2.c 的 turn-end 到期后恢复 3；该证据不覆盖条件分支。唯一缺口：「If it's [Empowered]」的 " +
+    "828.2 状态谓词没有已合入实现——生产 ObjectSnapshot（effects/contract.ts）没有 empowered 字段，" +
+    "expression 的非空字符串 is-empowered 会转成 true，不会查询目标状态，不能作为可执行的状态谓词。" +
+    "本卡按 135.2.b.5.b 仅保留互斥条件形状（+2 挂该描述条件的否定、+4 挂描述条件本身）与共用目标的声明，" +
+    "两个状态分支继续 TODO；不把整张卡标为 executable，也不把两条数量合并成固定 +2。" +
+    "依赖：Empowered 状态谓词（进行中任务 RIFT-359）。",
   abilities,
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +

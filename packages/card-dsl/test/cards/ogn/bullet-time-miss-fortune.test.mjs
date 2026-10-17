@@ -32,9 +32,8 @@ test("Bullet Time identity, ruleset, status, printed text and judgeReason", () =
   assert.match(bulletTime.judgeReason, /355\.10\.d/);
   assert.match(bulletTime.judgeReason, /204\.3/);
   assert.match(bulletTime.judgeReason, /effect\.damage/);
-  assert.match(bulletTime.judgeReason, /cost\.pay/);
-  assert.match(bulletTime.judgeReason, /RIFT-257/);
-  assert.match(bulletTime.judgeReason, /RIFT-261/);
+  assert.match(bulletTime.judgeReason, /cost\.pay-any/);
+  assert.match(bulletTime.judgeReason, /链接值/);
   assert.equal(cardRegistryById.get(bulletTime.canonicalCardId), bulletTime);
 });
 
@@ -122,8 +121,7 @@ test("Bullet Time golden: the merged damage primitive deals the linked amount to
 
 test.todo(
   "Bullet Time instruction cost: bind the card's instruction cost to a resolve-time any-amount payment " +
-    "that publishes the amount actually paid (204.3 / 204.3.a; RIFT-257 program/cost binding with the " +
-    "RIFT-261 cost.pay family)"
+    "that publishes the amount actually paid as a linked value (204.3 / 204.3.a)"
 );
 
 test.todo(

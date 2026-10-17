@@ -26,17 +26,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * Empowered 谓词条件下；是否 Active 与如何套用由 828.1.c 的门控与 cost/layers 消费方
  * 决定。本程序不自行改写费用，也不手写 Empowered 判定。
  *
- * 复核（2026-10-17，第一轮 M2 覆盖率复核）：
- * - 原 judgeReason 里的「cost.modify 未合入（依赖 RIFT-89/RIFT-261）」已过时：cost/pay、
- *   cost/modify 的指令原语仍未在本分支（instructions 注册表没有 cost.*），但真正的缺口不是
+ * 复核（2026-10-17，第二轮 M2 覆盖率复核）：
+ * - 第一轮 judgeReason 里的「cost.modify 未合入（依赖 RIFT-89/RIFT-261）」已过时：cost.pay 与
+ *   cost.modify 指令均已合入注册表，但真正的缺口不是
  *   某个原语名，而是**消费方**——卡牌层的费率改写没有进入费用计划的通道：
  *   cost/cost-plan.ts 的 applyDiscount 只接受调用方传进来的 CostPlanInput.discounts，
  *   readCost 明确阻断 CostSpec 里 kind/payments/energy/power/discard 之外的字段，
  *   layers/rules/query.ts 也没有 cost-modification 的查询（appliedCosts 只读 continuous.restrict
- *   的 "applied-cost"，即 204.4 的已应用费用，不是 356.4 的折扣）。因此本程序**不**改用
- *   `cost.modify`（该 op 未注册，写了也只是占位），保持 static + continuous.cost-modification
- *   数据形状，等待 CardProgram static 效果进入费用计划的接线（RIFT-257 只绑定 play/activated/
- *   触发/替代的 draft，bindStatic 默认 noopStaticBinder）。
+ *   的 "applied-cost"，即 204.4 的已应用费用，不是 356.4 的折扣）。bindStatic 已随 RIFT-257 合入，
+ *   但对 continuous.cost-modification 的 appliesTo 抛 ProgramBindingError（Unsupported static appliesTo），
+ *   费用计划侧的连续折扣消费方仍未合入（RIFT-89/RIFT-257 的接线仍在进行）。
  * - Empowered 门控（828.1.c）同样未合入：Condition 没有该谓词，layers 的 conditionMatches
  *   对未知 kind 落回 true，所以这两条 static 效果即使被绑定也会恒真。
  * 依赖：CardProgram static → 费用计划的折扣接线（含 356.4.a–e 的顺序与最低值语义）与 442.1.a
@@ -92,8 +91,10 @@ export default {
     "（continuous.cost-modification 的 Energy 与 Power 分量）接进费用计划的折扣通道——" +
     "cost/cost-plan.ts 的 applyDiscount 只消费调用方提供的 CostPlanInput.discounts，readCost 阻断 " +
     "CostSpec 的其他字段，layers/rules/query.ts 也没有 cost-modification 查询（appliedCosts 只读 " +
-    "continuous.restrict 的 204.4 applied-cost）。依赖 RIFT-257（CardProgram static 绑定，bindStatic " +
-    "目前是 noopStaticBinder）与费用计划侧的连续折扣消费方（含 356.4.a 的顺序与 356.4.e 的最低值）。" +
+    "continuous.restrict 的 204.4 applied-cost）。bindStatic 已随 RIFT-257 合入" +
+    "但对 continuous.cost-modification 的 appliesTo 抛 ProgramBindingError（Unsupported static appliesTo），" +
+    "费用计划侧的连续折扣消费方（含 356.4.a 的顺序与 356.4.e 的最低值）仍未合入，" +
+    "这些接线属 RIFT-89。" +
     "不把折扣近似成固定的整数减免，也不在卡里手算法术费用。",
   abilities,
   sourceText:

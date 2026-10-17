@@ -36,7 +36,8 @@ test("sfd-027-221 Dunebreaker: judgeReason names the replacement-enter and hand-
   assert.match(program.judgeReason, /RIFT-260/);
   assert.match(program.judgeReason, /matchesEnterAction/);
   assert.match(program.judgeReason, /condition/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /383\.4\.d\.2\.a/);
+  assert.match(program.judgeReason, /battlefieldId/);
 });
 
 test("sfd-027-221 Dunebreaker: enter-ready is a replacement, not a post-entry effect.ready", () => {
@@ -122,16 +123,13 @@ test("sfd-027-221 Dunebreaker golden: the printed draw instruction runs on the m
 test("sfd-027-221 Dunebreaker golden: the merged replacement binding really rewrites the entry orientation", () => {
   const f = fixture({ cards: [{ id: "dunebreaker", types: ["unit"] }, { id: "extra", types: ["unit"] }] });
   const bound = bindReplacement(
-    {
-      replaces: enterReady.replaces,
-      with: enterReady.with
-    },
+    enterReady,
     f.kernel.ref("dunebreaker"),
     {
       host: {
         object: (ref) => f.kernel.object(ref),
         objects: () => f.kernel.objects,
-        context: () => f.kernel
+        context: f.host.context
       },
       pipeline: f.engine.pipeline
     }
@@ -142,7 +140,7 @@ test("sfd-027-221 Dunebreaker golden: the merged replacement binding really rewr
 
   const landed = f.kernel.getObject("dunebreaker");
   assert.equal(landed.zone, "board");
-  // 359.2.c / 805.6.a: the orientation comes from the entry rewrite itself, so
+  // 359.2.c / 369.3: the orientation comes from the entry rewrite itself, so
   // the permanent never passes through a separate "becomes ready" event.
   assert.equal(landed.exhausted, false);
   assert.equal(f.engine.pipeline.events.some((event) => event.timingPoint === "object-readied"), false);
@@ -152,10 +150,10 @@ test("sfd-027-221 Dunebreaker golden: the merged replacement binding really rewr
 test.todo(
   "sfd-027-221 Dunebreaker: the entry-orientation matcher must evaluate the ability condition " +
     "(\"If you have two or fewer cards in your hand\", 369.3) before rewriting the entry state — " +
-    "replacement/bind.ts matchesEnterAction returns before testCondition, so a 3-card hand still enters ready; RIFT-260 follow-up"
+    "a 3-card hand must enter exhausted; replacement/bind.ts must include condition in matchesEnterAction (RIFT-260 follow-up)"
 );
 
 test.todo(
-  "sfd-027-221 Dunebreaker: the hold timing point reaches this ability through the trigger -> chain " +
-    "pipeline and fires for the unit that held (CR 383.4.d, 383.4.d.2.a) — RIFT-257"
+  "sfd-027-221 Dunebreaker: a real Beginning Hold must draw 2 only for this unit's held battlefield " +
+    "(383.4.d.2.a); bind the hold player/battlefieldId to the unit's location instead of requiring event.object"
 );

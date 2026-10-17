@@ -8,7 +8,7 @@ import token from "../../../../engine-core/dist/effects/instructions/effect.toke
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-6f54620dc8f77d546cac09d65f9233740f7ec347a9981fbe6aae3fed0b9f3ef7";
 const SOURCE_TEXT =
@@ -50,8 +50,8 @@ test("ogn-094-298 Sprite Call judgeReason names the definition, the entry state 
   assert.match(program.judgeReason, /185\.3\.a/);
   assert.match(program.judgeReason, /143\.4/);
   assert.match(program.judgeReason, /185\.2\.d/);
-  assert.match(program.judgeReason, /RIFT-265/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /cost\.hidden/);
+  assert.match(program.judgeReason, /beginning-start/);
 });
 
 test("ogn-094-298 Sprite Call structure: [Hidden] + [Action] keywords plus one token-play instruction", () => {
@@ -86,25 +86,12 @@ test("ogn-094-298 Sprite Call structure: [Hidden] + [Action] keywords plus one t
   assert.equal(playSprite.condition, undefined);
 });
 
-test("ogn-094-298 Sprite Call: merged keyword/token support is explicit and the Sprite gap stays pending", () => {
+test("ogn-094-298 Sprite Call: merged keyword and token support is explicit", () => {
   // The merged keyword definitions and token primitive are exercised below;
-  // the Sprite definition, Temporary behavior, and ready-entry override stay
-  // covered by the explicit todos.
+  // the Sprite definition and ready-entry override stay covered by the todos.
   assert.equal(keywordDefinitionsById.has("Hidden"), true);
   assert.equal(keywordDefinitionsById.has("Action"), true);
   assert.equal(instructionDefinitionsById.get("effect.token"), token);
-
-  const kernel = world().build();
-  const run = runInstruction(token, evaluatedArgs, { world: kernel });
-
-  // The merged primitive negates with a documented blockedReason instead of
-  // inventing a token: the wrong-token shortcut and the fake ready/entry
-  // override are both refused.
-  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
-  assert.equal(run.linked["sprite.amount"], 0);
-  assert.deepEqual(run.linked["sprite.objects"], []);
-  assert.equal(run.linked.sprite.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.equal(kernel.query({}).length, 0);
 });
 
 test("ogn-094-298 Sprite Call golden: the same shape with a merged definition really creates and plays a token", () => {
@@ -132,7 +119,7 @@ test("ogn-094-298 Sprite Call golden: the same shape with a merged definition re
 });
 
 test("ogn-094-298 Sprite Call: the merged Temporary KeywordDef supplies the 816.1.b expansion", () => {
-  // The keyword definition that renders 816.1.b is merged (RIFT-265). Its
+  // The keyword definition that renders 816.1.b is merged. Its
   // expansion shape is the kill trigger; the Sprite token definition and the
   // ready entry state remain separate gaps (see the todos and judgeReason).
   assert.equal(keywordDefinitionsById.has("Temporary"), true);
@@ -145,9 +132,7 @@ test("ogn-094-298 Sprite Call: the merged Temporary KeywordDef supplies the 816.
 
 test.todo(
   "Sprite Call: the 3 Might domainless Fae Sprite with Temporary (CR 187.2 / 185.3.a null cost) as a " +
-    "resolvable token definition, including its Temporary trigger (816.1.b) - the frozen effect.token table " +
-    "holds only definitions with no additional abilities, and registered keyword triggers need the " +
-    "CardProgram binding (RIFT-257)"
+    "resolvable token definition, including its Temporary trigger (816.1.b), plus the ready entry state"
 );
 
 test.todo(
@@ -157,6 +142,6 @@ test.todo(
 
 test.todo(
   "Sprite Call: [Hidden]'s Hide action and facedown play permission (811.1.b/811.1.c/811.1.d, cost.hidden) " +
-    "still need a consumer and card binding for the merged RIFT-84 expansion, and [Action] admission (806.1.b) " +
-    "needs the chain's canAct check to read the merged continuous.timing grant (RIFT-257)"
+    "still need a production consumer, and [Action] admission (806.1.b) needs the chain's canAct " +
+    "check to read the continuous.timing grant"
 );

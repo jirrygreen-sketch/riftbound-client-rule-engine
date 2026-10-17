@@ -25,18 +25,16 @@ import type { CardProgram } from "../../ir/index.js";
  * Status: judge-required. The kill half really executes (the golden runs the
  * card's own instruction through the chain adapter); the delayed half still
  * cannot:
- * - there is still no card-facing delayed-instruction op (RIFT-9
- *   trigger.delayed): ResolveContext.registerDelayedTrigger exists (contract
- *   3.6) and chain/engine.ts wires it, but no merged opcode consumes it, and a
- *   card-owned triggered ability would be wrong (393: Delayed Abilities are
- *   created by the resolving spell, not owned by a permanent);
+ * - the card-facing delayed-instruction op is not available: Delayed Abilities
+ *   are created by the resolving spell, not owned by a permanent (393), so the
+ *   existing timing registration hook cannot be represented by this program;
  * - "play ... Bomb tokens" needs chain creation plus a play destination
  *   (440.2.c / 185.2.a / 350.2 / 354). effect.token requires exactly one
  *   destination argument for mode "play"; "to a single battlefield" is a
  *   resolution-time battlefield choice (355.9.a.4) and neither the frozen Expr
  *   vocabulary nor the ObjectSelector set can enumerate the current legal
  *   battlefields, so the destination has no resolvable location expression
- *   (the location machinery is a card-static/RIFT-257 + target-plan follow-up);
+ *   (the location machinery needs the current position-choice contract);
  * - the Bomb definition (187.12) carries its own Deploy and Deathknell
  *   abilities, which the merged effect.token definition table still does not
  *   include.
@@ -48,13 +46,13 @@ export default {
   judgeReason:
     "消灭半边由已合入的 effect.kill 真实执行（any number 可为零，355.13；golden 用卡内原始指令 + 链解释器适配器执行并断言事件与区域）；其余三点仍未合入：" +
     "(1)「At end of turn, play that many Bomb tokens …」是本法术创建的延迟能力（390/391.1/391.2，窗口为本回合 317.2.c），" +
-    "需要卡牌可用的 trigger.delayed 指令：ResolveContext.registerDelayedTrigger 与 chain/engine.ts 的接线已存在，但指令注册表没有消费它的 op" +
-    "（按 393 也不能写成卡自身的触发能力），属 RIFT-9 trigger.delayed 后续；" +
+    "需要卡牌可用的 trigger.delayed 指令；延迟能力由结算中的法术创建而不是由永久物持有（393），" +
+    "当前程序无法把该延迟注册绑定到法术结算；" +
     "(2)「play … Bomb tokens」的目的地是结算时选择的单一战场（440.2.c/185.2.a/350.2/354、355.9.a.4）：" +
     "effect.token 的 mode:\"play\" 必须且只能给出一个 destination，而冻结的 Expr 词汇与 ObjectSelector 集合都无法枚举「当前合法战场」，" +
-    "地点选择/地图层属 RIFT-90 目标计划与 RIFT-257 卡牌绑定的后续；" +
+    "地点选择需要当前的位置选择契约（RIFT-357）；" +
     "(3) Bomb gear token 定义（187.12，自带 Deploy 与 Deathknell）仍不在 effect.token 的已实现定义表内。" +
-    "依赖：RIFT-9 trigger.delayed、RIFT-90/RIFT-62 的地点选择、RIFT-257；不近似实现。",
+    "依赖：法术创建的延迟能力绑定、RIFT-357 的地点选择与 Bomb token 能力定义；不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

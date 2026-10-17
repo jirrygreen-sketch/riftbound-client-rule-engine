@@ -34,18 +34,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   condition.value 在结算时读出来源当前位置，再由 effect.move 的 to 经 linked-value
  *   读取（该形状被 effect.move 接受并真实执行）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
- * - attack-declared 时点没有发射方：events/action-adapter.ts 只按已提交的游戏动作派生
- *   时点（move-location/ready/exhaust/… ），combat/flow.ts 在 combat-start 事务处显式抛
- *   TurnCombatBlockedError（角色指定尚未实现），全仓库没有 'attack-declared' 的 emit 调用，
- *   触发无法进入链（383.4.e.2 的 "进链为 Pending Item" 路径缺失）。
- * - "到本战场"的 Move 目的地读取依赖来源的当前位置（359.3.f.1）；来源已离场/换位时的
- *   回看口径由事件与时点任务确定。
- * - 卡牌程序的触发注册与打出流程绑定仍属未合入的 RIFT-257。
- * - [Accelerate] 的展开已合入（805.1.b/.b.2），但其可选附加费用在卡牌侧的收取
- *   （cost.pay / optionalAdditional 接线）仍属未合入的 RIFT-261。
- * 依赖：attack-declared 发射路径（combat 角色事务）、RIFT-257、RIFT-261。
- * 不近似实现（不把 attack 触发改成其它时点，也不手改状态）。
+ * 当前复核：保持 judge-required；具体未接通路径见 judgeReason。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -117,13 +106,9 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "attack-declared 时点没有发射方：events/action-adapter.ts 只为已提交游戏动作派生时点，combat/flow.ts 的 " +
-    "combat-start 事务仍显式阻断（contestCombat 抛 TurnCombatBlockedError，Attacker/Defender 角色指定未实现），" +
-    "全仓库无 'attack-declared' 的 emit，触发无法按 383.4.e.2 进入链；Move 目的地「to this battlefield」要按 " +
-    "359.3.f.1 在结算时读取来源当前位置，来源已离场时的回看口径尚未由事件/时点任务确定；卡牌程序的触发注册与" +
-    "打出绑定仍属未合入的 RIFT-257；[Accelerate] 的展开已合入（805.1.b），但其可选附加费用在卡牌侧的收取" +
-    "（cost.pay / Finalize 的 optionalAdditional 接线）属未合入的 RIFT-261。" +
-    "依赖：attack-declared 发射路径（combat 角色事务）、RIFT-257、RIFT-261。不近似实现。",
+    "attack-declared 缺真实 combat 角色事务生产者（383.4.e.2/466.2.c）：combat/flow.ts 的 combat-start 仍阻断。" +
+    "Accelerate 的 accelerate.cost 尚未接入 programs/play.ts 的 optionalAdditional，且入场替代未以支付决定门控（805.2.b/805.6.a），不能免费就绪或入场后再 ready。" +
+    "可选 body 内的 token TargetSpec 被 chain/engine.ts 的 assertFinalizationSurface 主动阻断；Finalize 只收集顶层目标，不能在 Resolve 重新选目标。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_order: as an additional cost to have me enter ready.)\n" +

@@ -47,7 +47,7 @@ const bloodMoney = {
     "mode \"play\" 的 create-token(to: chain) + play 接手（440.2.c / 185.2.a）已在 effect.token 内实现，但被 Gold 定义判负挡住。" +
     "「Kill a unit at a battlefield with 2 :rb_might: or less」半段用已合入的 effect.kill 表达（目标过滤器保留战场与 Might≤2 限制数据），" +
     "两条 enemy/friendly 分支条件经 linked kill 结果真实求值，均由 golden 覆盖；token 半段不近似实现。" +
-    "依赖：Gold token 定义与入场状态改写（token 原语任务 / RIFT-257 的卡牌程序绑定线之外）。",
+    "依赖：Gold token 冻结定义、effect.token 的入场状态参数、目标过滤器的数值 Might 谓词。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "Kill a unit at a battlefield with 2 :rb_might: or less. If it was an enemy unit, play a Gold gear token exhausted. If it was a friendly unit, play two Gold gear tokens exhausted.",

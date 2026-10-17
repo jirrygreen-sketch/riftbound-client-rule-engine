@@ -30,9 +30,7 @@ test("sfd-148-221 Draven, Audacious: identity, ruleset, status, judgeReason and 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /combat-result/);
   assert.match(program.judgeReason, /target\.player/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-124/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-360/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -137,22 +135,22 @@ test("sfd-148-221 Draven, Audacious golden: the death body scores for the linked
 
 test.todo(
   "sfd-148-221 Draven, Audacious: the combat-result timing point (468.3) must be emitted by combat/ and reach " +
-    "this ability through the trigger -> chain pipeline with the winner payload exposed (RIFT-124 + RIFT-257)"
+    "this ability through the trigger -> chain pipeline with the winner payload exposed (combat-result producer)"
 );
 
 test.todo(
   "sfd-148-221 Draven, Audacious: \"choose an opponent\" needs the player-selection primitive (target.player) and " +
-    "a link shape that feeds the chosen PlayerId into effect.score's player argument (355.9.a; RIFT-90)"
+    "a link shape that feeds the chosen PlayerId into effect.score's player argument (355.9.a; native player target contract)"
 );
 
 test.todo(
   "sfd-148-221 Draven, Audacious: \"die in combat\" needs the in-combat state at the death event (740.2.c) — " +
     "ObjectSnapshot.combatRole exists (contract 3.8 item 1) but no timing point or payload carries the combat " +
-    "designation to object-killed, and the details.inCombat filter has no consumer (RIFT-124)"
+    "designation to object-killed, and the details.inCombat filter has no consumer (combat-result producer)"
 );
 
 test.todo(
   "sfd-148-221 Draven, Audacious: the [Deflect] expansion (static target.tax) needs its consumer — TargetPlan's " +
     "tax adapter only appends caller-supplied taxes and the merged tax -> cost mapping bills Energy instead of the " +
-    "any-domain Power of 809.1.c.1 (RIFT-90)"
+    "any-domain Power of 809.1.c.1 (RIFT-360)"
 );

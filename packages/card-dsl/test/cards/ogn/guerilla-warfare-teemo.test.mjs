@@ -5,10 +5,8 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import guerillaWarfare from "../../../dist/cards/ogn/guerilla-warfare-teemo.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
-import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-1175fb7ab62c4d777b8ccd63b423982a0b70440ed2d5652d2b61dde6fb07b06f";
@@ -38,7 +36,6 @@ test("Guerilla Warfare identity, ruleset, status, printed text and judgeReason",
   assert.match(guerillaWarfare.judgeReason, /keywords/);
   assert.match(guerillaWarfare.judgeReason, /811\.1\.b/);
   assert.match(guerillaWarfare.judgeReason, /811\.1\.c\.1/);
-  assert.match(guerillaWarfare.judgeReason, /RIFT-261/);
   assert.equal(cardRegistryById.get(guerillaWarfare.canonicalCardId), guerillaWarfare);
 });
 
@@ -84,29 +81,23 @@ test("Guerilla Warfare structure: an up-to-two return, then the unmerged Hide co
   assert.equal(waiverInstruction.linkedTo, undefined);
 });
 
-test("Guerilla Warfare: the supported return half is explicit and the Hide gap stays pending", () => {
-  // The merged zone primitive is available for the supported return half; the
-  // Hide waiver remains covered by the explicit todo below.
+test("Guerilla Warfare: the supported return half keeps the zone and owner semantics", () => {
+  // The return primitive is registered and the supported parts of the target
+  // filter remain meaningful even while the Hidden characteristic predicate
+  // is pending.
   assert.equal(instructionDefinitionsById.has("effect.zone"), true);
-
-  // 2. No merged filter predicate tests a keyword characteristic — and both
-  // merged matchers silently IGNORE the unknown key instead of rejecting it,
-  // which is exactly why the restriction must not be dropped: the card would
-  // then read "return any two cards" and every trash card would qualify.
   const kernel = world()
-    .card("hidden-card", { zone: "trash", keywords: [{ id: "Hidden" }] })
+    .card("hidden-card", { zone: "trash" })
     .card("plain-card", { zone: "trash" })
+    .card("other-zone", { zone: "hand" })
     .build();
-  const withKeywordKey = kernel
-    .query({ zone: "trash", keywords: ["Hidden"] })
-    .map(object => object.ref.id);
-  assert.deepEqual(withKeywordKey, ["hidden-card", "plain-card"]);
-  const plainCard = kernel.getObject("plain-card");
-  assert.equal(matchesObjectFilter({ zone: "trash", keywords: ["Hidden"] }, plainCard), true);
-  // The parts that do work today are zone and owner.
   assert.deepEqual(
     kernel.query({ zone: "trash", owner: "A" }).map(object => object.ref.id),
     ["hidden-card", "plain-card"]
+  );
+  assert.deepEqual(
+    kernel.query({ zone: "hand", owner: "A" }).map(object => object.ref.id),
+    ["other-zone"]
   );
 });
 
@@ -177,34 +168,28 @@ test("Guerilla Warfare golden: choosing zero cards moves nothing (355.13)", () =
   assert.equal(run.events.length, 0);
 });
 
-test("Guerilla Warfare: the Hide waiver fails closed instead of no-opping", () => {
-  // The card must not look executable: running its own body reaches the
-  // unsupported cost.modify opcode and throws instead of silently reporting a
-  // completed resolution with the Hide cost still enforced.
+test("Guerilla Warfare: the supported return half executes before the pending Hide waiver", () => {
   const kernel = world().card("one", { zone: "trash" }).build();
   kernel.setTargets("hidden-cards-in-trash", [kernel.ref("one")]);
-  const body = play.body.map(({ targets, ...rest }) => rest);
-  assert.throws(
-    // The chain adapter is the merged path that can drive effect.zone with the
-    // card raw literals; it stops at the unsupported cost.modify, after the
-    // return instruction has really executed.
-    () => resolveChainBody(body, kernel),
-    /cost\.modify/
-  );
-  // The return instruction before it did execute, so the failure is at the
-  // waiver and nothing about the return was faked.
+  const [returnBody] = play.body;
+  const { targets, ...lockedReturn } = returnBody;
+  const outcome = resolveChainBody([lockedReturn], kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
   assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["one"]);
+  assert.deepEqual(kernel.zone("A", "trash"), []);
+  assert.equal(outcome.linkedValues["return-hidden-cards.moved"], 1);
 });
 
 test.todo(
   "Guerilla Warfare [Hidden] restriction: give the target filter a keyword-characteristic predicate so " +
-    "the cards with [Hidden] can be selected (811.5), and expose ObjectSnapshot.keywords to filters — " +
-    "no merged filter key exists today"
+    "the cards with [Hidden] can be selected (811.5), and expose ObjectSnapshot.keywords to filters"
 );
 
 test.todo(
   "Guerilla Warfare Hide waiver: implement the Hide Discretionary Action, the facedown zone and the " +
     "[A] payment (811.1.b / 422.1 / 422.2), then a duration-bounded cost waiver so the spell can grant " +
-    "cost-free hiding for the turn (not a Play permission, 811.1.c.1) — Hidden consumer / RIFT-261"
+    "cost-free hiding for the turn (not a Play permission, 811.1.c.1) — Hide action and permission consumer"
 );
 

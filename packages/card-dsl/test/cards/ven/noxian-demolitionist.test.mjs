@@ -108,7 +108,7 @@ test("ven-080-166: the chosen body kills one gear and carries the Might gate", (
   assert.equal(killGear.linkedTo, undefined);
   assert.equal(killGear.picks, undefined);
   // 355.9.b + 143.2.a："with Energy cost no more than my Might" 的动态比较
-  //（目标的印刷 Energy 值 ≤ 宿主当前 Might），冻结的 ObjectFilter 没有该谓词，
+  //（目标的印刷 Energy 值 ≤ 宿主当前 Might），目标绑定尚未消费该谓词，
   // 因此按 359.3.e 的重验语义写在指令的 condition 上（见 judgeReason）。
   assert.deepEqual(killGear.condition, {
     kind: "compare",
@@ -126,23 +126,7 @@ test("ven-080-166 golden: accepting the may-body kills a gear whose Energy cost 
   const kernel = demolitionistWorld(1);
   kernel.setAnswers({ [OPTIONAL_ID]: true });
 
-  // The declared TargetSpec filter is the production contract; the reference
-  // kernel's matcher is literal, so the Finalize-locked selection is supplied
-  // through setTargets and the TargetSpec is dropped from the executable copy
-  // (the ogn/ambessa-respected-and-feared convention). Every instruction, the
-  // Might gate and the may-decision still come from the card program.
-  const body = ability.body.map((instruction) => ({
-    ...instruction,
-    args: {
-      ...instruction.args,
-      body: {
-        ...instruction.args.body,
-        value: instruction.args.body.value.map(({ targets, ...rest }) => rest)
-      }
-    }
-  }));
-
-  const outcome = resolveChainBody(body, kernel);
+  const outcome = resolveChainBody(ability.body, kernel);
 
   assert.equal(outcome.status, "executed");
   assert.deepEqual(
@@ -165,18 +149,7 @@ test("ven-080-166 golden: a gear whose Energy cost exceeds my Might is skipped, 
   for (const energy of [2, 5]) {
     const kernel = demolitionistWorld(energy);
     kernel.setAnswers({ [OPTIONAL_ID]: true });
-    const body = ability.body.map((instruction) => ({
-      ...instruction,
-      args: {
-        ...instruction.args,
-        body: {
-          ...instruction.args.body,
-          value: instruction.args.body.value.map(({ targets, ...rest }) => rest)
-        }
-      }
-    }));
-
-    const outcome = resolveChainBody(body, kernel);
+    const outcome = resolveChainBody(ability.body, kernel);
 
     assert.equal(outcome.status, "partial", `energy=${energy}`);
     assert.deepEqual(
@@ -216,6 +189,34 @@ test("ven-080-166 golden: the merged kill primitive re-checks the locked gear re
     { world: kernel, targets: { "noxian-demolitionist.gear": [locked] } }
   );
   assert.equal(run.result.status, "executed");
+  assert.equal(kernel.getObject("gear-piece").zone, "trash");
+});
+
+test("ven-080-166 golden: an unprinted Energy cost is ignored without treating null as zero", () => {
+  const kernel = demolitionistWorld(null);
+  kernel.setAnswers({ [OPTIONAL_ID]: true });
+  const outcome = resolveChainBody(ability.body, kernel);
+
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status, entry.result.reason]), [
+    [killGear.id, "ignored", "mistargeted"],
+    [optional.id, "ignored", "mistargeted"]
+  ]);
+  assert.equal(kernel.getObject("gear-piece").energy, null);
+  assert.equal(kernel.getObject("gear-piece").zone, "board");
+  assert.deepEqual(outcome.events, []);
+});
+
+test("ven-080-166 golden: a stale gear is ignored by the original optional body", () => {
+  const kernel = demolitionistWorld(1);
+  assert.equal(kernel.perform({ type: "kill", object: kernel.ref("gear-piece") }).status, "done");
+  kernel.setAnswers({ [OPTIONAL_ID]: true });
+  const outcome = resolveChainBody(ability.body, kernel);
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status, entry.result.reason]), [
+    [killGear.id, "ignored", "mistargeted"],
+    [optional.id, "ignored", "mistargeted"]
+  ]);
+  assert.deepEqual(outcome.events, []);
   assert.equal(kernel.getObject("gear-piece").zone, "trash");
 });
 

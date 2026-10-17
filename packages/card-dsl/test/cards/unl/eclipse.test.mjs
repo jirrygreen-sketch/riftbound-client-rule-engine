@@ -5,7 +5,11 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/eclipse.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { abilitySpeed, expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-de24e677d5541604808bbe583f958d702c8e2067e5a554af3d856ceac17c6354";
@@ -45,7 +49,8 @@ test("unl-063-219 Eclipse: identity, ruleset, status, judgeReason and verbatim s
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /437\.1/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /Finalize\/AwaitChoice/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-90|RIFT-91|RIFT-120|RIFT-257/);
   assert.equal(cardProgramsById.get(program.canonicalCardId), program);
 });
 
@@ -70,6 +75,34 @@ test("unl-063-219 Eclipse: [Reaction], printed cost and the printed instruction 
   );
 });
 
+test("unl-063-219 Eclipse: Reaction expansion permits Showdown and closed-state timing", () => {
+  const board = fixture({
+    cards: [{ id: "eclipse", cardId: CANONICAL_ID, types: ["spell"], energy: 3, power: null }]
+  });
+  const source = board.kernel.getObject("eclipse");
+  const expanded = expandProgram(program, source);
+  const timingGrant = expanded.expanded.find(
+    (ability) => ability.kind === "static" && ability.effect.kind === "continuous.timing"
+  );
+  assert.ok(timingGrant);
+  assert.deepEqual(timingGrant.effect.grants, ["showdown", "closed-state"]);
+  const speed = abilitySpeed(expanded.abilities, source);
+  assert.equal(speed, "reaction");
+
+  board.engine.openShowdown("A");
+  assert.equal(board.engine.turnState, "showdown-open");
+  assert.equal(board.engine.canAct("A", speed, source.ref, source), true);
+  assert.equal(board.engine.canAct("A", "normal", source.ref, source), false);
+
+  // Finalize a real Draw ability to enter a closed state before it resolves.
+  board.engine.execute(board.draft("draw-before-eclipse"));
+  assert.equal(board.engine.turnState, "showdown-closed");
+  assert.equal(board.kernel.player("A").handSize, 1);
+  assert.equal(board.engine.canAct("A", speed, source.ref, source), true);
+  assert.equal(board.engine.canAct("A", "action", source.ref, source), false);
+  assert.equal(board.engine.canAct("B", speed, source.ref, source), false);
+});
+
 test("unl-063-219 Eclipse: 'Give a unit -4 Might this turn' is a temporary modification, never a Buff", () => {
   // 143.2.a / 143.2.c: the card's "Might" is the layered effective value, and
   // 317.2.c expires "this turn" in the end-of-turn cleanup. Buff counters (702)
@@ -91,6 +124,33 @@ test("unl-063-219 Eclipse: 'Give a unit -4 Might this turn' is a temporary modif
       selection: "one"
     }
   ]);
+});
+
+test("unl-063-219 Eclipse golden: continuous.might registers -4 and expires at end of turn", () => {
+  const kernel = world().unit("chosen", { might: 5 }).build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("chosen") });
+  ctx.setTargets("eclipse.chosen-unit", [ctx.ref("chosen")]);
+  const outcome = runInstruction(might, {
+    amount: mightInstruction.args.amount,
+    duration: mightInstruction.args.duration,
+    target: mightInstruction.args.target.value
+  }, {
+    world: ctx,
+    targets: { "eclipse.chosen-unit": [ctx.ref("chosen")] }
+  });
+
+  assert.equal(outcome.result.status, "executed");
+  assert.equal(ctx.continuousEffects.length, 1);
+  const [registration] = ctx.continuousEffects;
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, -4);
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+
+  const layers = createLayerEngine(ctx.objects, ctx.continuousEffects);
+  assert.equal(layers.evaluate(ctx.ref("chosen")).might, 1);
+  assert.equal(layers.expireAt("turn-end").length, 1);
+  assert.equal(layers.evaluate(ctx.ref("chosen")).might, 5);
 });
 
 test("unl-063-219 Eclipse: the two printed sentences are independent, with the Predict bound to the controller", () => {
@@ -225,19 +285,7 @@ test("unl-063-219 Eclipse fail-closed: the top scope refuses to guess deck order
 });
 
 test.todo(
-  "unl-063-219 Eclipse: 'Give a unit -4 [M] this turn' needs the card-facing continuous.might " +
-    "instruction (resolution-time ctx.addContinuous with an end-of-turn duration); contract 3.6's " +
-    "closed GameAction set has no Might-modification action and effect.buff only adds CR 702/703 " +
-    "counters — RIFT-91 follow-up"
-);
-
-test.todo(
   "unl-063-219 Eclipse: the production Finalize/AwaitChoice lifecycle must provision the ordered " +
     "'top card of your Main Deck' pick set for Predict (CR 437.1 / contract 3.6 zoneSlice) — the " +
     "merged chain Finalize surface only locks instruction.targets TargetSpecs"
-);
-
-test.todo(
-  "unl-063-219 Eclipse: [Reaction] (CR 813) needs the continuous.timing consumer and chain canAct " +
-    "wiring (RIFT-85 / RIFT-91) — declared only"
 );

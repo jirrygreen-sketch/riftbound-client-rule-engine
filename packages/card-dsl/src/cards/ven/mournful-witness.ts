@@ -26,10 +26,10 @@ import type { CardProgram } from "../../ir/index.js";
  * status = judge-required（三处缺口均不近似实现）：
  * 1. combat-end 时点没有发射方：combat/ 批次尚未把战斗结束接入事件管线（全仓库没有
  *    combat-end 的 emit 调用，combat/flow.ts 对战斗开始/伤害直接抛 TurnCombatBlockedError），
- *    触发无法进入链（RIFT-120 / 引擎批 4–5）；
+ *    触发无法进入链（combat 事件生产批次）；
  * 2. “a combat that I was in” 需要 combatRole/designation 特征，引擎侧未落地；
- * 3. “+2 [M]” 需要卡牌侧 continuous.might 与图层注册入口（RIFT-91 只合入了图层引擎；
- *    契约 3.6 的封闭 GameAction 集合没有 Might 修改动作）。
+ * 3. “+2 [M]” 的 continuous.might 静态形状与图层求值已合入；本卡仍缺 Empowered
+ *    状态门控的生产消费方。
  * body 的 “empower me” 只用已合入的 effect.empower，golden 用真实解释器与参考内核执行程序
  * 原始 body（含已 Empowered 时“什么都不发生”的 442.1.b/442.1.c 边界），照实记录原语返回结果。
  */
@@ -39,10 +39,10 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处缺口：(1) combat-end 时点（468.7/468.7.b）没有发射方——combat/ 未把战斗结束接入事件管线，" +
-    "全仓库没有 combat-end 的 emit 调用，触发无法进入链（RIFT-120 / 引擎批 4–5）；(2) “a combat that I was in”" +
+    "全仓库没有 combat-end 的 emit 调用，触发无法进入链（combat 事件生产批次）；(2) “a combat that I was in”" +
     "需要 Attacker/Defender designation（323.2、466.2.c.3、468.7.a），契约 3.8 的 ObjectSnapshot.combatRole" +
-    "尚未落地、事件载荷不带角色信息；(3)「I have +2 :rb_might:」需要卡牌侧 continuous.might 与图层注册入口" +
-    "（RIFT-91 只合入了图层引擎）。body 的「empower me」只用已合入的 effect.empower（442.1；来源自身不是目标），" +
+    "尚未落地、事件载荷不带角色信息；(3)「I have +2 :rb_might:」的 continuous.might 静态形状已合入，" +
+    "但 Empowered 状态门控尚无生产消费方。body 的「empower me」只用已合入的 effect.empower（442.1；来源自身不是目标），" +
     "golden 用真实解释器执行并覆盖已 Empowered 时什么都不发生的边界。不近似实现。",
   abilities: [
     {

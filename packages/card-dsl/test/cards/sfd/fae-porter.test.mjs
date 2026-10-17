@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/sfd/fae-porter.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -17,12 +18,23 @@ const [mayPay] = ability.body;
 const body = mayPay.args.body.value;
 const [payInstruction, readInstruction, moveInstruction] = body;
 
-// The reference kernel compares filter values literally, so the friendly-unit
-// placeholder is bound as a Finalize-locked target (the production target
-// pipeline resolves it at Finalize, RIFT-90). The TargetSpec stays in the
-// program and is asserted structurally; the run drops it, the challenge /
-// one-two-punch convention.
-const executableBody = [readInstruction, { ...moveInstruction, targets: undefined }];
+// Use the merged program filter translator, then bind self exactly as the
+// chain query does. Keep the authored body/TargetSpecs intact.
+function controllerContext(kernel) {
+  return new Proxy(kernel, {
+    get(target, key) {
+      if (key === "query") return filter => {
+        const normalized = translateObjectFilter(filter);
+        if (normalized.controller === "self") normalized.controller = target.controller;
+        return target.query(normalized);
+      };
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
+}
+
+const executableBody = [readInstruction, moveInstruction];
 
 test("sfd-125-221 Fae Porter: program validates and keeps its identity", () => {
   const result = validateCardProgram(program);
@@ -35,14 +47,13 @@ test("sfd-125-221 Fae Porter: program validates and keeps its identity", () => {
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("sfd-125-221 Fae Porter: judgeReason names the move-payload, cost and target-normalization gaps", () => {
-  assert.match(program.judgeReason, /toZone\/toKind/);
+test("sfd-125-221 Fae Porter: judgeReason names event subscription and leading cost binding", () => {
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.match(program.judgeReason, /449\.1\/449\.2/);
   assert.match(program.judgeReason, /458/);
   assert.match(program.judgeReason, /163\.1\/163\.2/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /383\.3\.b/);
+  assert.match(program.judgeReason, /TriggerRegistration.cost/);
 });
 
 test("sfd-125-221 Fae Porter: 'when I move to a battlefield' subscribes to object-moved", () => {
@@ -68,7 +79,7 @@ test("sfd-125-221 Fae Porter: the may-shape pays 1 Chaos power, reads \"here\" a
 
   // 163.1/163.2: one Chaos Power; the cost plan owns payability and domain matching.
   assert.equal(payInstruction.op, "cost.pay");
-  assert.deepEqual(payInstruction.args.power, { kind: "constant", value: ["Chaos"] });
+  assert.deepEqual(payInstruction.args.payments, { kind: "constant", value: { power: ["Chaos"] } });
   assert.equal(payInstruction.linkedTo, undefined);
 
   // 359.3.f.1: "the same battlefield" is the source's current Location read at
@@ -137,7 +148,7 @@ test("sfd-125-221 Fae Porter golden: the linked source Location moves the chosen
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("fae") });
   context.setTargets("fae-porter.friendly-unit", [context.ref("ally")]);
 
-  const outcome = resolveChainBody(executableBody, context);
+  const outcome = resolveChainBody(executableBody, controllerContext(context));
 
   assert.equal(outcome.status, "executed");
   assert.deepEqual(outcome.results.map((entry) => entry.result.status), ["executed", "executed"]);
@@ -176,18 +187,50 @@ test("sfd-125-221 Fae Porter golden: a unit already at the source battlefield is
 });
 
 test.todo(
-  "sfd-125-221 Fae Porter: the object-moved timing point carries toZone/toKind and exposes the moved " +
-    "object's identity so source: \"self\" binds Fae Porter (449.1/449.2; a Recall stays excluded per 458) — RIFT-120"
+  "sfd-125-221 Fae Porter: admit object-moved into EVENT_PATTERN_TYPES and bind the moved source/" +
+    "battlefield restriction to the existing producer (449.1/449.2, Recall excluded by 458)"
 );
 
 test.todo(
-  "sfd-125-221 Fae Porter: accepting the may pays 1 Chaos Power through the Finalize optional-additional " +
-    "cost plan before the Move (163.1/163.2, 403.1) — cost.pay has no registered primitive and the cost " +
-    "plan wiring is RIFT-89"
+  "sfd-125-221 Fae Porter: lift leading may/pay into TriggerRegistration.cost/mayAtFinalize " +
+    "and pay before finalization (383.3.a/383.3.b.1), with authoritative Power-pool deduction"
 );
 
-test.todo(
-  "sfd-125-221 Fae Porter: Finalize resolves the TargetSpec's controller: \"controller\" against the " +
-    "ability controller and rejects opponent units (355.9.b, 740.1.a); the reference path used above " +
-    "pre-locks the target, so this wiring is unverified (RIFT-90 / RIFT-120)"
-);
+test("sfd-125-221 Fae Porter golden: the authored sub-effects plan 1 Chaos Power before moving the selected ally", () => {
+  const base = world()
+    .player("A", { power: ["Chaos"] })
+    .unit("fae", { location: { type: "battlefield", id: "field-1" } })
+    .unit("ally", { location: { type: "base", player: "A" } })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("fae") });
+  kernel.setTargets("fae-porter.friendly-unit", [kernel.ref("ally")]);
+  kernel.setAnswers({ "fae-porter.may-pay/optional": true });
+
+  const outcome = resolveChainBody(ability.body, controllerContext(kernel));
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.events.map(event => event.action), ["pay", "move-location"]);
+  const receipt = outcome.linkedValues["fae-porter.may-pay/fae-porter.pay-chaos.payment"];
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.total.power, [{ amount: 1, allowedDomains: ["Chaos"] }]);
+  assert.deepEqual(receipt.actions[0].action.plan.power, ["Chaos"]);
+  assert.deepEqual(kernel.getObject("ally").location, { type: "battlefield", id: "field-1" });
+  // The reference kernel's pay action does not deduct Power. Its real action
+  // and allocator receipt are the evidence here; Finalize remains a TODO.
+});
+
+test("sfd-125-221 Fae Porter golden: the normalized controller target excludes an opponent unit", () => {
+  const base = world()
+    .unit("fae", { location: { type: "battlefield", id: "field-1" } })
+    .unit("enemy", { controller: "B", owner: "B", location: { type: "base", player: "B" } })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("fae") });
+  kernel.setTargets("fae-porter.friendly-unit", [kernel.ref("enemy")]);
+
+  const outcome = resolveChainBody(executableBody, controllerContext(kernel));
+
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.at(-1).result, { status: "ignored", reason: "mistargeted" });
+  assert.deepEqual(kernel.getObject("enemy").location, { type: "base", player: "B" });
+  assert.deepEqual(kernel.events, []);
+});

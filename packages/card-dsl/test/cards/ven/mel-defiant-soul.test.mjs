@@ -51,7 +51,6 @@ test("ven-110-166 Mel: identity, status, judgeReason and verbatim sourceText", (
   // 143.2.a：当前 Might 的数值上限（无谓词消费方）。
   assert.match(program.judgeReason, /Might 谓词/);
   assert.match(program.judgeReason, /143\.2\.a/);
-  assert.match(program.judgeReason, /RIFT-89/);
 });
 
 test("ven-110-166 Mel: [Empower] is declared with its printed non-resource cost named in the reason", () => {
@@ -122,22 +121,14 @@ test("ven-110-166 golden: a stale target makes the banish ignored (359.3.e.7)", 
 });
 
 test.todo(
-  "ven-110-166 Mel: [Empower]'s non-resource cost 'Discard a spell' (827.1.c.1 / 827.1.c.2) needs an Empower " +
-    "KeywordDef and a payable discard payment kind — a spent Hand card is chosen at payment time (355.10.a) and " +
-    "no CardProgram -> cost plan wiring exists (RIFT-89)"
+  "ven-110-166 Mel: [Empower]'s non-resource cost 'Discard a spell' (827.1.c.1 / 827.1.c.2) still needs " +
+    "an Empower KeywordDef and a payable spell-discard cost path"
 );
-
 test.todo(
-  "ven-110-166 Mel: the [Empowered] dependent trigger (828.1.d) needs an Empowered predicate and the " +
-    "increase-direction filter on empowered-changed (442.1.a/442.2.a, RIFT-87)"
+  "ven-110-166 Mel: the [Empowered] dependent trigger (828.1.d) still needs an Empowered predicate and " +
+    "increase-direction consumer for empowered-changed"
 );
-
 test.todo(
-  "ven-110-166 Mel: enforce 'with 3 :rb_might: or less' (143.2.a effective Might) — the frozen ObjectFilter has no " +
-    "Might predicate and the merged filters silently ignore such keys; the golden pins today's fail-open behaviour"
-);
-
-test.todo(
-  "ven-110-166 Mel: register the triggered ability through the CardProgram -> TriggerRegistration path " +
-    "(contract 3.5, RIFT-120)"
+  "ven-110-166 Mel: enforce 'with 3 :rb_might: or less' (143.2.a effective Might) — the frozen ObjectFilter " +
+    "has no Might predicate consumer; the golden pins today's fail-open boundary"
 );

@@ -20,26 +20,23 @@ import type { CardProgram } from "../../ir/index.js";
  * - 424.1 / 424.1.a / 424.1.a.1 / 424.1.b / 424.1.c：Stun 是效果型受限动作；已 Stunned 的
  *   单位不能被再次 Stun；Stunned 单位在战斗伤害步骤不贡献 Might（即不造成战斗伤害）。
  *
- * status: judge-required —— [Shield] 的展开文件已合入（keywords/Shield.ts）且
- * continuous.might 的指令入口已合入（RIFT-258），但两处消费方仍缺：
- * (1) 卡牌 static 能力没有已合入的图层注册路径（RIFT-257），常驻的 +1 Might 在真实对局中
- *     不会注册；(2) Shield 展开的 condition 读 designation === "defender"，而 ObjectSnapshot
- *     没有 designation/combatRole 特征（契约 3.8 增补未落地），layers/engine.ts 的
- *     conditionMatches 也只识别 always/never/type/has-tag/has-keyword，未识别的 compare
- *     条件按恒真处理，会无条件套用 +1 Might。
- * "When I attack, stun an enemy unit here" 的触发与原语已合入，golden 测试真实执行该指令。
+ * status: judge-required —— [Shield] 的展开、continuous.might 图层注册和卡牌 static 生命周期
+ * 已合入，golden 已覆盖 +1 Might 的注册路径；但 Shield 展开的 condition 读取
+ * designation === "defender"，而当前 ObjectSnapshot 只有 combatRole，条件会缺少可读的
+ * Defender 特征。另一个生产接线缺口是攻击效果的 TargetSpec 使用 sameLocationAs: "source"，
+ * programs/filters.ts 尚不接受该字段，故同地点约束不能按声明绑定。
+ * "When I attack, stun an enemy unit here" 的 effect.stun 本体已在解释器中真实执行。
  */
 const leonaDetermined = {
   canonicalCardId: "card.hash-5cbcf053019f85d2ed95e9f9710c31e3286d72d0e93b515699b5b03dc6f9d0e4",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Shield]（814.1.c，未写数值按 814.1.b.3 = 1）的 KeywordDef（814 系列）与 continuous.might 指令（RIFT-258）已合入，但两处消费方仍缺：" +
-    "(1) 卡牌 static 能力没有已合入的图层注册路径（RIFT-257），+1 Might 在真实对局中不会注册；" +
-    "(2) 展开的 condition 读 designation === \"defender\"，而 ObjectSnapshot 没有 designation/combatRole 特征（契约 3.8 增补未落地），" +
-    "layers/engine.ts 的 conditionMatches 只识别 always/never/type/has-tag/has-keyword，未识别的 compare 条件按恒真处理，会无条件套用 +1 Might。" +
-    "「When I attack, stun an enemy unit here」部分（attack-declared + effect.stun + sameLocationAs 锚点）已合入并已执行测试。" +
-    "依赖：RIFT-257 与契约 3.8 combatRole/designation 落地（含图层条件求值）。",
+    "[Shield]（814.1.c，未写数值按 814.1.b.3 = 1）的 KeywordDef 与 continuous.might 图层注册已合入，" +
+    "但展开条件读取 designation === \"defender\"，当前 ObjectSnapshot 只提供 combatRole，缺少可执行的 Defender 特征映射；" +
+    "同一攻击触发中的 TargetSpec 还使用 sameLocationAs: \"source\"，而 programs/filters.ts 的生产翻译器拒绝该字段，" +
+    "所以“here”约束不能按声明绑定。attack-declared、effect.stun 及解释器侧同地点查询已有真实执行证据。" +
+    "依赖：combatRole/designation 条件映射与 TargetSpec sameLocationAs 的生产翻译。",
   sourceText:
     "[Shield] (+1 :rb_might: while I'm a defender.)\n" +
     "When I attack, stun an enemy unit here. (It doesn't deal combat damage this turn.)",

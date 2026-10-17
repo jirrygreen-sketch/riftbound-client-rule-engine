@@ -29,7 +29,7 @@ test("sfd-048-221 Stellacorn Herder: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.match(program.judgeReason, /invalid-event-type/);
   assert.match(program.judgeReason, /fromKind|fromLocationId/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-39/);
   assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });

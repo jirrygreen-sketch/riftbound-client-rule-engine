@@ -36,8 +36,8 @@ import type { CardProgram } from "../../ir/index.js";
  * 3. 移动触发缺可判定载荷：events/action-adapter.ts 为 move-location 发出的 object-moved
  *    事件不带 toZone/toKind/起点终点，事件对象与“来源 = 本卡”的同一性也没有卡牌侧绑定
  *    （同 sfd/noxian-drummer 的判定），因此“我移动到的或出发的那个战场”无法作为目标锚点；
- * 4. “give me +1 [M]” 需要卡牌侧 continuous.might 静态效果的注册/求值入口（RIFT-91 只合入了
- *    图层引擎；契约 3.6 的封闭 GameAction 集合没有 Might 修改动作）。
+ * 4. “give me +1 [M]” 的 continuous.might 原语已随 RIFT-258 合入（golden 真实执行 +1 并经 layers 投影出有效 Might 4→4+1），仍缺 Empowered 门控（见上第 2 条）
+ *    
  * 可执行部分："you may" 的 choice.optional 拒绝分支真实执行（实测 negated/skipped）；
  * 数额读取用描述性 object-property（结算时读不到该特征即按缺信息 ignored，fail-closed），
  * 绝不写死 1 或 2 冒充 Empowered 分支。
@@ -54,9 +54,9 @@ export default {
     "object-property 读取（读不到即按缺信息 ignored，fail-closed），绝不写死 1 或 2 冒充分支；" +
     "(3) “When I move” 缺可判定载荷：move-location 发出的 object-moved 事件不带起点/终点" +
     "（449.1/449.2、458.1 的 Recall 排除与“我移动到的或出发的战场”锚点都无从判定，" +
-    "同 sfd/noxian-drummer 的结论）；(4) “I have +1 :rb_might:” 需要卡牌侧 continuous.might 与图层" +
-    "注册入口（RIFT-91 只合入了图层引擎）。依赖：新的 Empower/Empowered 关键词任务、RIFT-87（条件/谓词）、" +
-    "RIFT-91（layers 接线）与 RIFT-120（移动时点载荷）。“you may” 的 choice.optional 拒绝分支已可真实执行。" +
+    "同 sfd/noxian-drummer 的结论）；(4) “I have +1 :rb_might:” 的 continuous.might 原语已随 RIFT-258 合入（golden 真实执行 +1 并经 layers 投影出有效 Might 4→4+1），仍缺" +
+    "Empowered 门控谓词（442.1.a）。依赖：新的 Empower/Empowered 关键词任务、RIFT-359（条件谓词）、" +
+    "RIFT-120（移动时点载荷）。“you may” 的 choice.optional 拒绝分支已可真实执行。" +
     "不近似实现。",
   abilities: [
     // 印刷费 2 Energy + 1 Fury Power（827.1.c.1）见 judgeReason；不伪造启动能力。

@@ -70,8 +70,8 @@ test("sfd-043-221 Emperor's Divide: identity, ruleset, status and verbatim text"
 test("sfd-043-221 Emperor's Divide: judgeReason names cost.hidden and the 811.1.d.2 restriction", () => {
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /811\.1\.d\.2/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /811\.1\.b/);
+  assert.match(program.judgeReason, /355\.10\.b/);
 });
 
 test("sfd-043-221 Emperor's Divide: [Hidden] and [Action] keywords plus the printed cost", () => {
@@ -178,12 +178,17 @@ test("sfd-043-221 Emperor's Divide golden: choosing zero units is a legal play t
 
 test.todo(
   "sfd-043-221 Emperor's Divide: [Hidden] needs the cost.hidden consumer — the Hide Discretionary Action, the " +
-    "facedown zone and the free facedown play (CR 811.1.b / 811.1.c; RIFT-89 / RIFT-91, the keyword expansion in " +
-    "effects/keywords/Hidden.ts is merged)."
+    "facedown zone and the free facedown play (CR 811.1.b / 811.1.c); no merged primitive consumes cost.hidden " +
+    "even though the keyword expansion in effects/keywords/Hidden.ts is merged."
 );
 
 test.todo(
   "sfd-043-221 Emperor's Divide: 811.1.d.2 restricts a facedown-played spell's targets to the battlefield it was " +
-    "hidden at; that origin-bound targeting restriction needs the target system (RIFT-90) and is not expressible " +
-    "with the current TargetSpec filter."
+    "hidden at; no TargetSpec field carries that origin binding, so it is not expressible with the current filter."
+);
+
+
+test.todo(
+  "sfd-043-221 Emperor's Divide: enforce a single battlefield for the target group at Finalize, then " +
+    "reselect a maximal legal subset if the group separates before resolution (355.11.a/b/b.1; RIFT-357)"
 );

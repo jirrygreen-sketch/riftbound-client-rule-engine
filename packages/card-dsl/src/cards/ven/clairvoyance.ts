@@ -38,7 +38,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    作为可审查的已支持部分，并按第 2 节保持 judge-required。
  * 3. 已支持部分：“Draw 2.” 与 Predict 三件套的结构由 golden 校验；effect.draw 的抽牌与
  *    effect.inspect + effect.recycle + effect.order 的组合在参考内核中按有序 picks 真实执行。
- * 依赖：RIFT-64/RIFT-66（有序牌库顶查询契约与 effect.inspect 接线）、RIFT-91。
+ * 依赖：RIFT-64/RIFT-66（有序牌库顶查询契约与 effect.inspect 接线）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "reaction" },
@@ -128,7 +128,7 @@ export default {
     "本程序按 README 第 4 节把 437.1.a 的三步（inspect → recycle → order，张数按 linked-value 计算）写进 body 作为可审查的已支持部分，" +
     "并按第 2 节保持 judge-required——能写出结构不等于整卡可执行。" +
     "已支持部分：「Draw 2.」是已合入的 effect.draw（414.3），golden 真实执行；Predict 三步在参考内核中按有序 picks 真实执行。" +
-    "依赖：RIFT-64/RIFT-66（有序牌库顶查询契约与 effect.inspect 接线）、RIFT-91（图层/到期批次）。",
+    "依赖：RIFT-64/RIFT-66（有序牌库顶查询契约与 effect.inspect 接线）。",
   abilities,
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +

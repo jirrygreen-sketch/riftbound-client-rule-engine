@@ -19,9 +19,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   815.2 多实例冗余；815.3 是可读取特征。同样只声明关键词，展开（continuous.combat 分配要求）
  *   由 effects/keywords/Tank.ts 负责。括号内是提醒文本（135.2.d.3 无游戏功能），本文件不重复实现。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。两个关键词的 KeywordDef 文件都已合入
- * （RIFT-81 的 Shield、RIFT-264 的 Tank），关键词展开路径与静态能力绑定的卡牌程序接线
- * （RIFT-257：programs/keywords.ts 的 expandProgram + programs/lifecycle.ts 的 static 回调）也已合入。
+ * status 判定（cards/README.md 第 2 节）：judge-required。两个关键词的 KeywordDef、关键词展开
+ * 路径与静态能力绑定均已合入。
  * 整卡仍不可执行的两处缺口（不近似实现）：
  * - 814.1.d 的 Defender designation 虽然已作为 `ObjectSnapshot.combatRole` 进入 HEAD（契约 3.8），
  *   但 layers/engine.ts 的 conditionMatches 仍只识别 always/never/type/has-tag/has-keyword：
@@ -47,8 +46,8 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两个关键词的展开文件（814 的 effects/keywords/Shield.ts、815 的 effects/keywords/Tank.ts）与关键词展开/静态绑定路径" +
-    "（RIFT-257 的 programs/keywords.ts、programs/lifecycle.ts）都已合入，但整卡仍缺两处可执行路径：" +
+    "两个关键词的展开文件（814 的 effects/keywords/Shield.ts、815 的 effects/keywords/Tank.ts）与关键词展开/静态绑定路径都已合入，" +
+    "但整卡仍缺两处可执行路径：" +
     "(1) 814.1.d 的 Defender designation 虽已作为 ObjectSnapshot.combatRole 进入 HEAD（契约 3.8），但 layers/engine.ts 的 " +
     "conditionMatches 只识别 always/never/type/has-tag/has-keyword：Shield 展开里的 " +
     "compare(object-property(self,'designation') eq 'defender') 不被求值，未识别条件按 true 处理，" +

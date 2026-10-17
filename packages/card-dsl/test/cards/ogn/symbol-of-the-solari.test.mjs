@@ -40,6 +40,9 @@ test("symbol-of-the-solari: identity, ruleset, status, judgeReason and printed t
   assert.match(program.judgeReason, /457-460/);
   assert.match(program.judgeReason, /BlockedReplacementError/);
   assert.match(program.judgeReason, /combat-result/);
+  assert.match(program.judgeReason, /tie/);
+  assert.match(program.judgeReason, /attacker/);
+  assert.match(program.judgeReason, /该战场双方单位/);
   assert.equal(
     program.sourceText,
     "If a combat where you are the attacker ends in a tie, recall ALL units instead. " +
@@ -130,7 +133,7 @@ test("symbol-of-the-solari golden: the merged Recall mode fails closed without m
 });
 
 test("symbol-of-the-solari: the merged replacement planner also refuses the Recall body", () => {
-  // RIFT-260's planner plans a replacement body into closed GameActions; a
+  // The merged planner plans a replacement body into closed GameActions; a
   // `mode: recall` effect.move throws BlockedReplacementError there too, so a
   // card-program replacement binding cannot smuggle the Recall past the
   // primitive's refusal either.

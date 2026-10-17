@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/mournful-witness.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL_ID =
   "card.hash-9306105a8f30f0954fec4a0757dc246561b8408b00e76f9d104c939964b55bd0";
@@ -96,13 +97,11 @@ test("ven-028-166 golden: 'empower me' empowers the unit through the interpreter
   });
 });
 
+
 test("ven-028-166 golden: the empower instruction submits one real action with its receipt", () => {
   const kernel = witnessWorld();
   const outcome = runAbilityBody(trigger.body, kernel);
-
   assert.equal(outcome.status, "executed");
-  // The merged primitive submits exactly one empower action and links the
-  // object it actually acted on; the card data adds no second status itself.
   assert.deepEqual(kernel.events.map((event) => event.action), ["empower"]);
   assert.equal(outcome.results[0].result.linkedValues["empowered"].count, 1);
   assert.deepEqual(outcome.results[0].result.linkedValues["empowered"].objects, [
@@ -110,13 +109,27 @@ test("ven-028-166 golden: the empower instruction submits one real action with i
   ]);
 });
 
-test.todo(
-  "ven-028-166 Mournful Witness: the combat-end timing point has no emitter, and 'a combat that I " +
-    "was in' needs the Attacker/Defender designation (CR 468.7.b / 323.2 / 466.2.c.3; contract " +
-    "3.8's ObjectSnapshot.combatRole is not in engine-core's effects/contract.ts yet)"
-);
+test("ven-028-166 golden: the declared +2 Might primitive registers in the arithmetic layer", () => {
+  const kernel = witnessWorld();
+  const instruction = {
+    id: "mournful-witness.might-bonus",
+    op: "continuous.might",
+    args: {
+      mode: { kind: "constant", value: "add" },
+      amount: mightBonus.effect.amount,
+      appliesTo: { kind: "constant", value: "self" }
+    }
+  };
+  const outcome = runAbilityBody([instruction], kernel, undefined, { host: kernel.ref("witness") });
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  assert.equal(kernel.continuousEffects[0].effect.effect.kind, "continuous.might");
+  assert.equal(kernel.continuousEffects[0].effect.effect.amount, 2);
+  assert.equal(createLayerEngine(kernel.objects, kernel.continuousEffects).evaluate(kernel.ref("witness")).might, 4);
+});
 
 test.todo(
-  "ven-028-166 Mournful Witness: '[Empowered][>] I have +2 :rb_might:.' needs the card-side " +
-    "continuous.might primitive and layers registration with the Empowered gate (RIFT-91)"
+  "ven-028-166 Mournful Witness: the combat-end timing point has no emitter, and 'a combat that I " +
+    "was in' needs the Attacker/Defender designation (CR 468.7.b / 323.2 / 466.2.c.3; " +
+    "ObjectSnapshot.combatRole is not in engine-core's effects/contract.ts yet)"
 );

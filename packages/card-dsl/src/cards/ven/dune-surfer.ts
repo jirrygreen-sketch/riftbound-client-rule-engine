@@ -27,9 +27,12 @@ import type { CardProgram } from "../../ir/index.js";
  *    无消费方。
  * 2. [Tank] 自身的分配优先级也未实现（effects/keywords/Tank.ts 文件头记录
  *    continuous.combat 的消费方与致命优先顺序尚未合入），即使忽略落地也没有可忽略对象。
- * 3. 卡程序 static 效果没有注册进图层的入口（RIFT-91 只合入 layers 引擎本身）。
+ * 3. 卡程序 static 效果的注册入口已合入（bindStaticToLayers / attachLifecycle），但
+ *    continuous.ignore-ability 没有 layerFor 映射，绑定会抛 ProgramBindingError 并被
+ *    attachLifecycle 的 onError 吞掉（fail-closed），无法注册进图层。
  * 依赖：ignore-abilities（CR 764–767）的原语与战斗分配消费方、Tank/Backline 的
- * continuous.combat 消费方（RIFT-9 / combat 工作流）、RIFT-91 的卡牌侧注册入口。
+ * continuous.combat 消费方（Tank.ts 记 RIFT-258/259）、continuous.ignore-ability 的
+ * layerFor 映射。
  * 本程序只按 764–767 声明持续忽略形状（作用域 + 地点 + 被指示的玩家），不改写战斗流程，
  * 也不把 [Tank] 当成数值修正。
  */
@@ -42,8 +45,10 @@ export default {
     "视为无效」的持续效果，combat/ 的伤害分配也不查询忽略集合（base-combat-allocation.ts 明确 " +
     "\"No Tank/Backline/other assignment-priority requirement is bound here\"、keywordPriority: \"proven-none\"），" +
     "766/767 的语义无消费方；(2)[Tank] 的 815.1.b 分配优先级本身也未实现（effects/keywords/Tank.ts 文件头记录 " +
-    "continuous.combat 消费方未合入），即使忽略落地也没有可忽略的对象；(3) 卡程序 static 效果没有注册进图层的入口" +
-    "（RIFT-91 只合入 layers 引擎）。依赖 ignore-abilities 原语与战斗分配消费方（RIFT-9 / combat 工作流）、RIFT-91 注册入口。" +
+    "continuous.combat 消费方未合入），即使忽略落地也没有可忽略的对象；(3) 卡程序 static 效果的注册入口已合入" +
+    "（bindStaticToLayers / attachLifecycle），但 continuous.ignore-ability 没有 layerFor 映射，绑定抛 " +
+    "ProgramBindingError 被 onError 吞掉（fail-closed），无法注册进图层。依赖 ignore-abilities 原语与战斗分配消费方、" +
+    "Tank 的 continuous.combat 消费方（Tank.ts 记 RIFT-258/259）、continuous.ignore-ability 的 layerFor 映射。" +
     "本程序只按 CR 764–767（官方单位 Backline 例子）声明作用域、地点与受限玩家，不近似实现分配流程。",
   abilities: [
     {

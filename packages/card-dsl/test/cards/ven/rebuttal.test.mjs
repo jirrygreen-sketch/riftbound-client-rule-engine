@@ -6,6 +6,7 @@ import program from "../../../dist/cards/ven/rebuttal.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import control from "../../../../engine-core/dist/effects/instructions/effect.control.js";
 import counter from "../../../../engine-core/dist/effects/instructions/effect.counter.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -17,10 +18,12 @@ const SOURCE_TEXT =
   "If you do, gain control of it and you may make new choices for it. Otherwise, counter it.";
 
 const [reaction, play] = program.abilities;
-const [mayPayRainbow, counterOtherwise] = play.body;
-const [payRainbow, gainControl, mayRemake] = mayPayRainbow.args.body.value;
+const [paymentBranch] = play.body;
+const [paidMode, counterMode] = paymentBranch.args.modes.value;
+const [payRainbow, gainControl, mayRemake] = paidMode.body;
+const [counterOtherwise] = counterMode.body;
 const [remakeChoices] = mayRemake.args.body.value;
-const [chosenSpell] = mayPayRainbow.targets;
+const [chosenSpell] = paymentBranch.targets;
 
 const chainSpell = (id, owner, energy) => ({
   zone: "chain",
@@ -43,13 +46,19 @@ test("ven-152-166 Rebuttal: program passes validateCardProgram as judge-required
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("ven-152-166 Rebuttal: judgeReason names the printed-cost predicate, the payment receipt and the remake gap", () => {
+test("ven-152-166 Rebuttal: judgeReason names the real branch, printed-cost predicate and remake gap", () => {
   assert.match(program.judgeReason, /206/);
   assert.match(program.judgeReason, /energyMax/);
-  assert.match(program.judgeReason, /163\.2\.b/);
+  assert.match(program.judgeReason, /choice-plan/);
+  assert.match(program.judgeReason, /payments\.power/);
   assert.match(program.judgeReason, /750-755/);
   assert.match(program.judgeReason, /753\.2/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(89|90|120)/);
+  assert.doesNotMatch(program.judgeReason, /cost\.pay 原语虽已注册/);
+  assert.doesNotMatch(program.judgeReason, /没有 \[A\] 付费种类/);
 });
 
 test("ven-152-166 Rebuttal: [Reaction] is declared as a keyword, not re-implemented", () => {
@@ -65,9 +74,9 @@ test("ven-152-166 Rebuttal: the spell target is one finalized chain item with a 
   // 355.9.a.2: "spell" means a finalized object on the Chain. The 206 printed
   // Energy ceiling is kept as a descriptive key: no merged predicate evaluates
   // it, so the group is deliberately not treated as finalizable today.
-  assert.equal(mayPayRainbow.op, "choice.optional");
-  assert.equal(mayPayRainbow.linkedTo, undefined);
-  assert.equal(mayPayRainbow.targets.length, 1);
+  assert.equal(paymentBranch.op, "choice.mode");
+  assert.equal(paymentBranch.linkedTo, undefined);
+  assert.equal(paymentBranch.targets.length, 1);
   assert.deepEqual(chosenSpell, {
     id: "rebuttal.chosen-spell",
     filter: { type: "spell", zone: "chain", energyMax: 4 },
@@ -75,24 +84,32 @@ test("ven-152-166 Rebuttal: the spell target is one finalized chain item with a 
     max: 1,
     selection: "one"
   });
-  assert.equal(mayPayRainbow.picks, undefined);
-  assert.deepEqual(mayPayRainbow.args.prompt, {
+  assert.equal(paymentBranch.picks, undefined);
+  assert.deepEqual(paymentBranch.args.prompt, {
     kind: "constant",
-    value: "Pay :rb_rune_rainbow: to gain control of that spell?"
+    value: "Pay :rb_rune_rainbow: or counter that spell?"
   });
-  assert.equal(mayPayRainbow.args.body.kind, "constant");
-  assert.deepEqual(mayPayRainbow.args.body.value.map((instruction) => instruction.id), [
+  assert.equal(paymentBranch.args.modes.kind, "constant");
+  assert.deepEqual(paymentBranch.args.modes.value.map((mode) => mode.id), [
+    "rebuttal.pays-rainbow",
+    "rebuttal.counter-branch"
+  ]);
+  assert.deepEqual(paidMode.body.map((instruction) => instruction.id), [
     "rebuttal.pay-rainbow",
     "rebuttal.gain-control",
     "rebuttal.may-remake-choices"
   ]);
+  assert.deepEqual(counterMode.body.map((instruction) => instruction.id), [
+    "rebuttal.counter-otherwise"
+  ]);
 });
 
 test("ven-152-166 Rebuttal: paying [A], taking control and remaking choices all sit inside the may body", () => {
-  // Contract 3.9: "you may …" wraps the chosen instructions in body; the card
-  // never uses a bare choice plus a linkedTo follower.
+  // Contract 3.9: the paid mode wraps its body; the payment and follow-up
+  // instructions remain linked so a failed payment cannot reach control.
   assert.equal(payRainbow.op, "cost.pay");
-  assert.deepEqual(payRainbow.args.power, { kind: "constant", value: ["rainbow"] });
+  assert.deepEqual(payRainbow.args.payments, { kind: "constant", value: { power: 1 } });
+  assert.equal(payRainbow.args.power, undefined);
 
   // RIFT-117 merged effect.control: the chain item's control layer is rewritten
   // through the frozen take-control action, rechecking 359.3.e underneath.
@@ -104,6 +121,12 @@ test("ven-152-166 Rebuttal: paying [A], taking control and remaking choices all 
   });
   assert.deepEqual(gainControl.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(gainControl.args.linkKey, { kind: "constant", value: "rebuttal-controlled" });
+  assert.deepEqual(gainControl.condition, {
+    kind: "compare",
+    left: { kind: "linked-value", instructionId: "rebuttal.pay-rainbow", key: "paid" },
+    operator: "eq",
+    right: { kind: "constant", value: true }
+  });
 
   // "you may make new choices for it" is the 750-755 procedure; 752.1 narrows
   // the remake classes and 753 requires remaking all of them.
@@ -120,25 +143,16 @@ test("ven-152-166 Rebuttal: paying [A], taking control and remaking choices all 
   assert.deepEqual(remakeChoices.args.remakeAll, { kind: "constant", value: true });
 });
 
-test("ven-152-166 Rebuttal: the Otherwise branch counters the same chosen chain item under a fail-closed condition", () => {
-  // 426.1-426.3: effect.counter makes the countered card do nothing, clears it
-  // from the chain and refunds no cost. "Otherwise" is the branch on whether the
-  // [A] was paid; no cost receipt is exposed to the body (condition.result is
-  // unmerged), so the condition is a descriptive read that fails closed — it can
-  // never fire the counter when the payment actually happened, and never takes
-  // control when it did not.
+test("ven-152-166 Rebuttal: the two settlement modes are mutually exclusive", () => {
+  // 426.1-426.3: the second mode counters the target; the first mode pays and
+  // gates control on the actual payment receipt. The production adapter still
+  // blocks this choice.mode surface, which is the remaining branch gap.
   assert.equal(counterOtherwise.id, "rebuttal.counter-otherwise");
   assert.equal(counterOtherwise.op, "effect.counter");
   assert.deepEqual(counterOtherwise.args.target, { kind: "constant", value: chosenSpell.id });
   assert.equal(counterOtherwise.linkedTo, undefined);
   assert.equal(counterOtherwise.targets, undefined);
-  assert.equal(counterOtherwise.condition.kind, "not");
-  assert.equal(counterOtherwise.condition.condition.kind, "expression");
-  assert.deepEqual(counterOtherwise.condition.condition.value, {
-    kind: "object-property",
-    object: "source",
-    property: "rebuttal.rainbow-power-paid"
-  });
+  assert.equal(counterOtherwise.condition, undefined);
 });
 
 test("ven-152-166 Rebuttal: the control and counter primitives the card names are the merged registry entries", () => {
@@ -168,6 +182,29 @@ test("ven-152-166 Rebuttal golden: the merged control clause rewrites the chain 
   assert.equal(kernel.getObject("enemy-spell").zone, "chain");
   assert.equal(kernel.getObject("enemy-spell").controller, "A");
   assert.equal(kernel.getObject("enemy-spell").owner, "B");
+});
+
+test("ven-152-166 Rebuttal golden: the original cost.pay args pay one universal Power and expose a receipt", () => {
+  const kernel = world()
+    .player("A", { power: ["Calm"] })
+    .object("rebuttal", {
+      zone: "chain",
+      owner: "A",
+      controller: "A",
+      types: ["spell"],
+      energy: 1,
+      power: []
+    })
+    .build();
+
+  const run = runInstruction(costPay, payRainbow.args, { world: kernel });
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.payment.paid, true);
+  assert.equal(run.linked.payment.total.power.length, 1);
+  assert.equal(run.linked.payment.power.power.length, 1);
+  assert.deepEqual(run.events.map((event) => event.action), ["pay"]);
+  assert.deepEqual(run.linked.payment.actions[0].action.plan.power, ["Calm"]);
 });
 
 test("ven-152-166 Rebuttal golden: the merged counter clause clears the chain item (CR 426.1-426.3)", () => {
@@ -212,17 +249,16 @@ test("ven-152-166 Rebuttal golden: both merged clauses ignore a chain item that 
 test.todo(
   "ven-152-166 Rebuttal: 'a spell with Energy cost no more than :rb_energy_4:' must restrict target legality by the " +
     "printed/copied cost (CR 206 / 206.1, ignoring paid additional costs) — needs a printed-cost target predicate in the " +
-    "target/chain plan (RIFT-90); today the descriptive energyMax key is evaluated by no merged code"
+    "target/chain condition plan (RIFT-359); today the descriptive energyMax key is evaluated by no merged code"
 );
 
 test.todo(
-  "ven-152-166 Rebuttal: 'You may pay :rb_rune_rainbow:. If you do … Otherwise, counter it' needs a resolution-time " +
-    "[A] payment plus a cost receipt the body can read — the six-domain closed Domain set cannot express Universal Power " +
-    "(135.2.e.5.a / 163.2.b) and no merged op binds the paid amount to the following branch (RIFT-89, condition.result)"
+  "ven-152-166 Rebuttal: the payment/counter choice.mode needs the chain Finalize/Resolve choice-plan adapter " +
+  "before the two settlement modes can execute through the production play pipeline"
 );
 
 test.todo(
   "ven-152-166 Rebuttal: 'you may make new choices for it' (CR 750-755) needs chain/target-plan re-selection: remake " +
     "locations/modes/destinations/targets only (752.1), remake all of them (753/753.3), negate when no legal choice exists " +
-    "(753.2), re-trigger targeting effects (754) and ignore resulting to-play costs (755) — RIFT-90/RIFT-120"
+    "(753.2), re-trigger targeting effects (754) and ignore resulting to-play costs (755) — RIFT-357/RIFT-358/RIFT-359"
 );

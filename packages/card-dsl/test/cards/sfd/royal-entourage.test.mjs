@@ -36,6 +36,8 @@ test("sfd-039-221 Royal Entourage: judgeReason names the Legend Zone vocabulary 
   assert.match(program.judgeReason, /ZoneId/);
   assert.match(program.judgeReason, /107\.4/);
   assert.match(program.judgeReason, /choose/);
+  assert.match(program.judgeReason, /assertFinalizationSurface/);
+  assert.match(program.judgeReason, /355\.10\.g/);
 });
 
 test("sfd-039-221 Royal Entourage: card-played self trigger with a two-mode choice (contract 3.9)", () => {
@@ -59,10 +61,10 @@ test("sfd-039-221 Royal Entourage: card-played self trigger with a two-mode choi
   ]);
 });
 
-test("sfd-039-221 Royal Entourage: each mode picks a legend with a resolving non-target choice", () => {
-  // 355.10.g: "Ready your legend." does not target — the legend is chosen as
-  // the ability resolves, which is exactly the `choose` selection that
-  // effect.ready.ts / effect.exhaust.ts document for this printed text.
+test("sfd-039-221 Royal Entourage: the blocked modes retain their non-target choose declarations", () => {
+  // Preserve the existing declarations while judge-required. CR 355.10.g
+  // exempts only legends "you" control; these generic choices need a target
+  // plan review before the card can be marked executable.
   assert.equal(readyInstruction.id, "royal-entourage.ready-legend");
   assert.equal(readyInstruction.op, "effect.ready");
   assert.equal(readyInstruction.args.objects.kind, "constant");
@@ -155,11 +157,11 @@ test.todo(
   "sfd-039-221 Royal Entourage: the Legend Zone must exist in the frozen zone vocabulary (CR 107.4, " +
     "174.2.b) so the resolving choose can anchor a legend in its own zone and the golden can build a " +
     "legal board — the contract change request records ZoneId/ZoneDestination missing legend-zone; the " +
-    "card-played trigger must also reach the chain (CR 383.4.a.2, 420.4.a) — RIFT-89 / RIFT-120"
+    "card-played trigger must also reach the chain (CR 383.4.a.2, 420.4.a)；仍需 Legend Zone 与 Finalize 模式/目标计划"
 );
 
 test("sfd-039-221 Royal Entourage golden: the ready branch executes through the production adapter", () => {
-  // RIFT-257's adapter hands the whole argument object to the primitive schema,
+  // The production adapter hands the whole argument object to the primitive schema,
   // so effect.ready's choose selection really resolves on the merged path.
   const kernel = world()
     .unit("chosen-legend", { types: ["legend"], exhausted: true, owner: "A", controller: "A" })
@@ -208,5 +210,5 @@ test("sfd-039-221 Royal Entourage golden: the exhaust branch executes when the s
 test.todo(
   "sfd-039-221 Royal Entourage: the exhaust branch's Expr-wrapped choose must reach the primitive " +
     "(effect.exhaust parses `choose` as literal shape data, unlike every other argument) so the " +
-    "card's own IR runs unmodified — RIFT-89 follow-up"
+    "card's own IR runs unmodified；仍需 choose 参数适配"
 );

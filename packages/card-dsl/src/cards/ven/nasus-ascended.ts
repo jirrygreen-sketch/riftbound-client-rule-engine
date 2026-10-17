@@ -10,9 +10,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Empowered.)
  *   [Empowered][>] When I conquer, you score 1 point.
  *
- * 复核（RIFT-337）：Deflect 的 KeywordDef 已随 RIFT-84 合入，但 Empower / Empowered
- * 仍缺 KeywordDef（keywords/registry.generated.ts 的 26 个已注册关键词里没有它们），
- * 且 static → layers 的注册方与 target.tax 的卡牌接线仍未合入，见 judgeReason。
+ * 复核：Deflect 的 KeywordDef 已合入，expandProgram 会把它展开为 static target.tax；
+ * Empower / Empowered 仍缺 KeywordDef，且 target.tax 的后续费用消费方仍缺，见 judgeReason。
  *
  * 规则依据（Core Rules v1.5）：
  * - 809 Deflect：Passive Ability 关键词（809.1）；格式 "Deflect [X]"，X 是
@@ -37,8 +36,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   由原语缺省为 ctx.controller。
  *
  * 结构说明：
- * - Conquer Effect 用封闭时点枚举里的 "conquer"（events/timing-points.ts，
- *   ruleRefs 468.5.d/471.1/473.2.a）。
+ * - Conquer Effect 的事件模式使用 "conquered"（events/trigger-spec.ts 的允许值），由
+ *   pipeline-match.ts 映射到封闭的 conquer 时点（468.5.d/471.1/473.2.a）。
  * - filter 用契约 3.6 的符号选择器 { source: "self" } 指向能力来源，不写运行时
  *   ObjectRef，也不写死玩家 id。
  * - 本条依赖能力的 Empowered 门控（828.1.c）随关键词系统落地；本程序不平铺成
@@ -58,8 +57,8 @@ const abilities: Ability[] = [
   {
     kind: "triggered",
     trigger: {
-      at: "conquer",
-      filter: { event: "conquer", filter: { source: "self" } }
+      at: "conquered",
+      filter: { event: "conquered", filter: { source: "self" } }
     },
     optional: false,
     body: [
@@ -80,12 +79,10 @@ export default {
     "「[Empower] 8」与「[Empowered][>]」依赖尚未合入的关键词展开：effects/keywords/ 中没有 " +
     "Empower / Empowered 的 KeywordDef（827.1.c.1 的 cost.activated + effect.empower + " +
     "“Use only if not Empowered” 限制、828.1.c 的 Empowered 状态门控都无实现），ObjectSnapshot / " +
-    "Condition 也没有 Empowered 谓词，RIFT-257 的 expandProgram 会以 “Keyword empower has no " +
+    "Condition 也没有 Empowered 谓词，expandProgram 会以 “Keyword empower has no " +
     "executable KeywordDef” 拒绝（依赖新的 Empower/Empowered 关键词任务与 RIFT-87 条件/谓词）。" +
-    "「[Deflect 2]」的 KeywordDef 已合入（effects/keywords/Deflect.ts，RIFT-84），但展开出的 static " +
-    "target.tax 既没有图层消费者（layers/engine.ts 无该分支），也没有把它接到 target-plan 的 " +
-    "Deflect 附加费上（RIFT-90 的 TargetTaxAdapter 只由调用方提供），且 static 效果进图层的注册方" +
-    "（RIFT-257 的 binder 接线）仍未合入。" +
+    "「[Deflect 2]」的 KeywordDef 已合入，expandProgram 已真实展开为 static target.tax；当前仍缺把 " +
+    "target.tax 接到 target-plan 的 Deflect 附加费消费方（RIFT-360）。" +
     "征服触发的 effect.score 原语已合入并单独可执行；不近似实现缺口的费用改写与状态门控。",
   abilities,
   sourceText:

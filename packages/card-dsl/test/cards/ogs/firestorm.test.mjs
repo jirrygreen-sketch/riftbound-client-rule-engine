@@ -119,6 +119,6 @@ test.todo(
 
 test.todo(
   "Firestorm full chain play: pay 6 energy + 1 Fury power and lock the battlefield at Finalize " +
-    "— the printed cost/Plan path exists (RIFT-89) but the card cannot resolve as printed until the " +
-    "non-target damage set form lands"
+    "— the printed cost is represented, but the card cannot resolve as printed until the non-target " +
+    "damage set form lands"
 );

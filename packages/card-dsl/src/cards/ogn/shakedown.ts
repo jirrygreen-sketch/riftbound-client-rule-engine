@@ -10,8 +10,8 @@ import type { CardProgram } from "../../ir/index.js";
  * Catalog evidence (packages/card-data/data/deck-catalog.json, dataVersion
  * 2026-10-12-official-gallery): energy 2, power 1 (Fury), might null, tags [].
  *
- * Status: judge-required, and the only unresolved point is the rules meaning of
- * "unless":
+ * Status: judge-required. The rules meaning of "unless" remains unresolved, and
+ * the production chain still needs a choice-plan adapter for this body:
  * - [Reaction] (813) is declared as a keyword ability; the keyword registry owns
  *   the timing permission (contract 3.7).
  * - "Choose an enemy unit" is the spell's only target (355.7; 355.10), locked
@@ -37,8 +37,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   undeclared choices are made on resolution), so this is choice.mode, not
  *   choice.optional (contract 3.9).
  *
- * Dependencies: none for execution of the encoded reading; the open item is the
- * official meaning of "unless" for this text.
+ * Dependencies: the official meaning of "unless" and the production Finalize/Resolve
+ * choice-plan adapter for mode choices. The encoded reading is executable in the
+ * reference interpreter, but that does not settle either gap.
  */
 const shakedown = {
   canonicalCardId: "card.hash-ba7c14228a3f1b238f24fea9d3c946f61d32728e8186d24e325cee8bce8302f3",
@@ -50,7 +51,7 @@ const shakedown = {
     "抽牌归能力控制者 190.6.d；选择权不归施法者；选择对目标控制者强制，355.18）。该读法来自" +
     "docs/plans/survey/unclassified-ogn.json 对 ogn-033-298 的工程映射，不是官方裁定，CR v1.5 也没有通用 unless 构造，" +
     "故整卡保持 judge-required（结构已可执行并有 golden 双分支执行测试），拿到裁定后复核即可改状态。" +
-    "另：生产结算链路目前也无法执行该 body —— chain/engine.ts 的 assertFinalizationSurface 对 body 内的 choice.mode 抛 " +
+    "生产结算链路目前也无法执行该 body —— chain/engine.ts 的 assertFinalizationSurface 对 body 内的 choice.mode 抛 " +
     "ChainContractBlockedError（Mode choices require a Finalize/Resolve choice-plan adapter），Finalize/Resolve 的选择计划接线是引擎侧后续。" +
     "涉及的已合入原语：choice.mode（可指定的 chooser）、effect.damage、effect.draw、continuous.timing（Reaction 展开）。",
   sourceText:

@@ -29,9 +29,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    只有 source / target / pick / linked 选择器，没有触发事件对象访问器，也没有读取
  *    另一对象印刷费用的表达式（object-property 读的是当前特征，185.3.a.1 的 token 0
  *    折算也没有位置）。
- * 3. 触发能力本身仍缺 CardProgram → TriggerRegistration 的生产适配器（RIFT-120）。
- * 依赖：trait 层 set-base-might 原语（无已分配任务号）、触发事件对象/印刷费用读取、
- * RIFT-120。不近似实现：不用 Buff counter 或临时 Might 加算代替 Base Might 设值。
+ * 触发能力的 CardProgram → TriggerRegistration 适配器已合入；仍缺上述
+ * trait 层原语与触发事件对象/印刷费用读取。不近似实现：不用 Buff counter
+ * 或临时 Might 加算代替 Base Might 设值。
  */
 
 const abilities: Ability[] = [
@@ -92,16 +92,11 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "(1) Trait-Altering 层的 Base Might 设值没有原语：RIFT-258 的 continuous.might 只生成 " +
-    "arithmetic 层的连续效果（mode \"set\" 仍是 arithmetic 的 set-might，见 " +
-    "layers/ops/index.ts buildMightSpec 与 layers/engine.ts applyArithmetic），143.2.a/478 " +
-    "的 trait 层设值没有卡牌侧入口，程序里的 layer/op 拼写也会被 argsSchema 拒绝。" +
-    "(2) 「that card's Energy cost」需要触发事件的被打出牌引用与印刷费用读取：ResolveContext " +
-    "没有触发事件对象选择器，object-property 读当前特征而非印刷费用（185.3.a.1 的 token 0 折算亦无位置）。" +
-    "(3) 触发能力缺 CardProgram → TriggerRegistration 的生产适配器（RIFT-120）。" +
-    "依赖：trait 层 set-base-might 原语与触发事件对象/印刷费用读取（无已分配任务号）、RIFT-120。" +
-    "不近似实现：不用 Buff counter 或临时 Might 加算代替 Base Might 设值。" +
-    "「you may」已按契约 3.9 用 choice.optional 包住被选指令。",
+    "(1) Trait-Altering 层的 Base Might 设值仍没有卡牌侧原语；continuous.might 的 mode set " +
+    "只生成 arithmetic 层 set-might，不能表达 143.2.a/475 的 trait 层 base Might。" +
+    "(2) 触发事件对象及其印刷 Energy cost 没有可用的 ObjectSelector/Expr 读取路径，" +
+    "因此无法取得 that card's Energy cost（185.3.a.1 的 token 0 折算也无位置）。" +
+    "card-played 触发注册路径已合入；不近似实现。",
   abilities,
   sourceText:
     "When you play a card, you may have my base Might become equal to that card's Energy cost this turn."

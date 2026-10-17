@@ -23,10 +23,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   能把本卡的 became-target 订阅注册进 events/pipeline（golden 实测 spec.at = became-target、
  *   target 过滤解析为 controller: self），不再缺订阅方。
  * - 费用侧仍是缺口："pay :rb_energy_1: and exhaust this" 按 383.3.b 是基础费用，但契约 3.1 的
- *   TriggeredAbility 没有 cost 字段，指令层也没有已注册的 cost.pay 原语
- *   （effects/instructions/registry.generated.ts 只有 effect.* / continuous.*）——golden 实测
- *   执行 choice.optional 接受分支时抛 "Unregistered instruction opcode: cost.pay"。
- *   依赖：RIFT-261（cost.pay / cost.modify 与费用计划接线）。
+ *   TriggeredAbility 没有 cost 字段；已合入的 cost.pay 原语（instructions/cost.pay.ts，
+ *   registry.generated.ts entry10）只接受已结算费用计划形态的 args
+ *   （{ cost/power/nonstandardOrder/payments/linkKey } 键），静态 IR 的 energy:/payments:
+ *   键不是合法参数——golden 实测执行 choice.optional 接受分支时抛
+ *   TypeError: Invalid cost.pay argument: energy。依赖：契约变更请求
+ *   （TriggeredAbility 增加基础费用字段）+ 非 standard 支付的运行时引用接线。
  * - 已可真实执行的部分：became-target 订阅与 effect.draw 本体（golden 用参考内核执行）。
  */
 export default {
@@ -34,14 +36,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "触发侧缺口已收窄：CardProgram → TriggerRegistration 的绑定层（RIFT-257，programs/triggers.ts）已合入，" +
+    "触发侧已合入：CardProgram → TriggerRegistration 的绑定层（RIFT-257，programs/triggers.ts）已合入，" +
     "能把本卡的 became-target 订阅注册进 events/pipeline（golden 实测 spec.at = became-target、" +
     "target 过滤解析为 controller: self）。仍然缺的是费用侧：「you may pay :rb_energy_1: and exhaust this」" +
     "按 CR 383.3.b/383.3.b.1 是该触发能力的基础费用、必须在 Finalize 支付，但契约 3.1 的 TriggeredAbility " +
-    "没有 cost 字段，指令层也没有已注册的 cost.pay 原语（effects/instructions/registry.generated.ts 只有 " +
-    "effect.* / continuous.* 注册项）——golden 实测执行 choice.optional 接受分支时抛 \"Unregistered instruction " +
-    "opcode: cost.pay\"。effect.draw 本体已合入并单独执行；不近似实现（不把横置写成 effect.exhaust，" +
-    "也不把费用写成免费）。依赖：进行中的 RIFT-261（cost.pay / cost.modify 与费用计划接线）。",
+    "没有 cost 字段；已合入的 cost.pay 原语（instructions/cost.pay.ts，registry.generated.ts entry10）" +
+    "只接受已结算费用计划形态的 args（{ cost/power/nonstandardOrder/payments/linkKey } 键），静态 IR 的 " +
+    "energy:/payments: 键不是合法参数——golden 实测执行 choice.optional 接受分支时抛 " +
+    "TypeError: Invalid cost.pay argument: energy。effect.draw 本体已合入并单独执行；不近似实现（不把横置写成 " +
+    "effect.exhaust，也不把费用写成免费）。依赖：契约变更请求（TriggeredAbility 增加基础费用字段）" +
+    "+ 非 standard 支付的运行时引用接线。",
   abilities: [
     {
       kind: "triggered",

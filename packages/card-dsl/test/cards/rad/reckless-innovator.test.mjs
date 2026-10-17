@@ -2,7 +2,7 @@
 // The printed ability is [Accelerate] plus an object-exhausted "choose one" trigger.
 // The structure, the merged effect.draw half of mode two and the token boundary are
 // verified here; the Gold token definition, the exhausted entry override and the
-// in-instruction cost.pay path are still open (see judgeReason and the test.todo
+// success-gated payment body are still open (see judgeReason and the test.todo
 // entries below).
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -14,6 +14,9 @@ import accelerate from "../../../../engine-core/dist/effects/keywords/Accelerate
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-f5202df7168d19f18b45036939808e43056853194542d133c56127959e1b69c1";
@@ -47,7 +50,7 @@ test("rad-105-167 Reckless Innovator: judgeReason names the gaps and the depende
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /143\.4/);
   assert.match(program.judgeReason, /RIFT-120/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /success-gated/);
 });
 
 test("rad-105-167 Reckless Innovator: [Accelerate] is one keyword declaration with a registered KeywordDef", () => {
@@ -94,22 +97,87 @@ test("rad-105-167 Reckless Innovator: the chaos mode pays a Chaos power then dra
   assert.equal(payMode.body.length, 2);
   assert.equal(payChaos.id, "reckless-innovator.pay-chaos");
   assert.equal(payChaos.op, "cost.pay");
-  assert.deepEqual(payChaos.args.power, { kind: "constant", value: ["Chaos"] });
+  assert.deepEqual(payChaos.args.payments, {
+    kind: "constant",
+    value: { energy: 0, power: ["Chaos"] }
+  });
   assert.equal(drawOne.id, "reckless-innovator.draw-one");
   assert.equal(drawOne.op, "effect.draw");
-  assert.deepEqual(drawOne.args.amount, { kind: "constant", value: 1 });
+  assert.deepEqual(drawOne.args.amount, {
+    kind: "constant",
+    value: { kind: "constant", value: 1 }
+  });
   // The draw depends on the payment: without the paid cost it does not resolve.
   assert.equal(drawOne.linkedTo, payChaos.id);
 });
 
 test("rad-105-167 Reckless Innovator: 'Pay :rb_rune_chaos: to draw 1' draws through the merged effect.draw", () => {
   const kernel = world().deck("top-card").build();
-  const run = runInstruction(draw, { amount: drawOne.args.amount }, { world: kernel });
+  const run = runInstruction(draw, { amount: drawOne.args.amount.value }, { world: kernel });
   assert.equal(run.result.status, "executed");
   assert.equal(run.linked.drawn, 1);
   assert.equal(run.linked.drawnTo, "A");
   assert.equal(kernel.player("A").handSize, 1);
   assert.equal(kernel.player("A").deckSize, 0);
+});
+
+// cost.pay is merged: inside a real ability transaction a successful Chaos
+// payment commits and the linked draw resolves, while an unpaid attempt throws
+// before any state change (CR 203.3). These goldens prove the payment and draw
+// halves end to end; the success-gated body form named in judgeReason
+// (cost/kinds/README.md contract change request #2) is still the open piece.
+function payDrawFixture(playerValues = {}) {
+  const kernel = world()
+    .player("A", { energy: 0, power: [], ...playerValues })
+    .hand("source", { types: ["spell"], energy: 0, power: [] })
+    .deck("top-card")
+    .build();
+  return kernel.clone({ sourceSnapshot: kernel.object(kernel.ref("source")) });
+}
+
+function payDrawTransaction(kernel) {
+  let outcome;
+  const definition = {
+    op: "test.cost-ability-transaction",
+    argsSchema: { parse: value => value },
+    execute(context) {
+      outcome = runAbilityBody(payMode.body, context);
+      return { status: "executed", events: [...outcome.events] };
+    }
+  };
+  return { ...runInstruction(definition, {}, { world: kernel }), outcome };
+}
+
+test("rad-105-167 Reckless Innovator golden: the pay mode commits a real Chaos payment then draws in one transaction", () => {
+  const kernel = payDrawFixture({ power: ["Chaos"] });
+  const run = payDrawTransaction(kernel);
+
+  assert.equal(run.outcome.status, "executed");
+  assert.deepEqual(
+    run.outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [
+      ["reckless-innovator.pay-chaos", "executed"],
+      ["reckless-innovator.draw-one", "executed"]
+    ]
+  );
+  assert.equal(kernel.linked("reckless-innovator.pay-chaos.payment").paid, true);
+  assert.equal(kernel.linked("reckless-innovator.draw-one.drawn"), 1);
+  // The source card starts in hand, so the successful draw makes two.
+  assert.equal(kernel.player("A").handSize, 2);
+  assert.equal(kernel.player("A").deckSize, 0);
+});
+
+test("rad-105-167 Reckless Innovator golden: without the Chaos power the payment throws and the transaction rolls back", () => {
+  const kernel = payDrawFixture({ power: [] });
+  const before = kernel.snapshot();
+
+  assert.throws(
+    () => payDrawTransaction(kernel),
+    (error) => error instanceof CostPlanError && error.reason === "cannot-pay-cost"
+  );
+  assert.deepEqual(kernel.snapshot(), before);
+  assert.equal(kernel.linked("reckless-innovator.pay-chaos.payment"), undefined);
+  assert.equal(kernel.linked("reckless-innovator.draw-one.drawn"), undefined);
 });
 
 test("rad-105-167 Reckless Innovator: the Gold token definition and exhausted entry are still blocked", () => {
@@ -163,7 +231,8 @@ test.todo(
 );
 test.todo(
   "rad-105-167 Reckless Innovator: cost.pay primitive for the ':rb_rune_chaos: to draw 1' cost within an " +
-    "instruction (CR 355.10.c.1) — RIFT-261 (in progress)"
+    "instruction (CR 355.10.c.1) is merged and executed in a real transaction above — the open piece is the " +
+    "success-gated payment body (cost/kinds/README.md contract change request #2)"
 );
 test.todo(
   "rad-105-167 Reckless Innovator: Accelerate expansion consumed by the play pipeline (optional [1][C] " +

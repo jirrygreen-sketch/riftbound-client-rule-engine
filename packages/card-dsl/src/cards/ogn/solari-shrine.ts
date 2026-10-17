@@ -33,7 +33,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 触发与其余效果本身都有已合入实现：object-killed 时点 + 敌方 stunned 单位过滤（383.2.c.3.b
  *   的最后已知信息）、可选分支（choice.optional）、效果横置（effect.exhaust）与抽牌
  *   （effect.draw）。golden 测试用解释器 + 参考内核真实执行可选分支的两种选择与失效边界。
- * 依赖：RIFT-21（时点载荷）/ RIFT-120（链与事件单管线）补齐击杀归因字段后复核。
+ * 依赖：事件载荷补齐“包含 Kill 指令的效果及其控制者”这一击杀归因字段后复核。
  */
 const abilities: Ability[] = [
   {
@@ -109,7 +109,7 @@ const program = {
     "（与“你消灭”相反），因此 filter 里既不能写 player: \"self\"（语义会反），也不能假定不存在的" +
     "归因字段。触发点、敌方 stunned 单位过滤（含 383.2.c.3.b 的最后已知信息）、可选分支" +
     "（choice.optional）、效果横置（effect.exhaust）与抽牌（effect.draw）本身都已合入并由 golden" +
-    "真实执行。依赖：object-killed 载荷补齐击杀归因字段（RIFT-21 时点载荷 / RIFT-120 链与事件单管线）。",
+    "真实执行。依赖：object-killed 载荷补齐击杀归因字段。",
   abilities,
   sourceText: "When you kill a stunned enemy unit, you may exhaust this to draw 1."
 } satisfies CardProgram;

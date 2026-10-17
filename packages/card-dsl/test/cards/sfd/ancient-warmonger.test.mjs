@@ -6,6 +6,8 @@ import program from "../../../dist/cards/sfd/ancient-warmonger.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import assault from "../../../../engine-core/dist/effects/keywords/Assault.js";
 import accelerate from "../../../../engine-core/dist/effects/keywords/Accelerate.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-3657fb1a42b929920135ba38e292bf53fa1112a145cf12bb352cd750e3b64e60";
 const SOURCE_TEXT =
@@ -26,13 +28,16 @@ test("sfd-131-221 Ancient Warmonger: program validates and keeps its identity", 
 });
 
 test("sfd-131-221 Ancient Warmonger: judgeReason names the dynamic-grant and designation gaps", () => {
-  assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /addContinuous/);
+  assert.match(program.judgeReason, /grant-keyword|KeywordDef/);
   assert.match(program.judgeReason, /807\.1\.d/);
-  assert.match(program.judgeReason, /combatRole\/designation/);
+  assert.match(program.judgeReason, /count/);
+  assert.match(program.judgeReason, /applyAbility/);
+  assert.match(program.judgeReason, /keywordValue/);
+  assert.match(program.judgeReason, /valueOf/);
+  assert.match(program.judgeReason, /combatRole|designation/);
+  assert.doesNotMatch(program.judgeReason, /staticFilter/);
+  assert.doesNotMatch(program.judgeReason, /conditionMatches/);
   assert.match(program.judgeReason, /805/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /RIFT-89/);
 });
 
 test("sfd-131-221 Ancient Warmonger: [Accelerate] is declared, not expanded", () => {
@@ -85,15 +90,39 @@ test("sfd-131-221 Ancient Warmonger: the printed Assault keyword is NOT declared
   assert.ok(assault.ruleRefs.includes("807.1.c"));
 });
 
+test("sfd-131-221 Ancient Warmonger: production static binding registers the self grant with its nested count", () => {
+  const { engine, kernel } = fixture();
+  const source = kernel.getObject("source");
+  const handle = createEngineStaticBinder(engine).bindStatic(grantedAssault, source);
+
+  const [entry] = engine.layers.registry.list();
+  assert.equal(engine.layers.registry.list().length, 1);
+  assert.equal(entry.effect.layer, "ability");
+  assert.deepEqual(entry.effect.source, source.ref);
+  assert.deepEqual(entry.effect.filter, {
+    objectId: source.ref.id,
+    zone: "board",
+    zoneEntryId: source.ref.zoneEntryId
+  });
+  // appliesTo:self selects the host directly. The count filter belongs to the
+  // dynamic value and never enters staticFilter's target-filter translation.
+  assert.equal(entry.effect.effect.kind, "continuous.grant-keyword");
+  assert.equal(entry.effect.effect.keyword, "assault");
+  assert.deepEqual(entry.effect.effect.value, grantedAssault.effect.value);
+  assert.deepEqual(entry.duration, { type: "permanent" });
+  handle.unbind();
+  assert.equal(engine.layers.registry.list().length, 0);
+});
+
 test.todo(
   "sfd-131-221 Ancient Warmonger: grant [Assault] to this unit at a dynamic value through " +
     "continuous.grant-keyword and the layers engine, active only while it holds the Attacker " +
-    "designation (807.1.c/807.1.d/807.1.d.1, contract 3.8 combatRole) — RIFT-91 layers-continuous, " +
-    "plus the RIFT-81 keyword expansion consumer"
+    "designation (807.1.c/807.1.d/807.1.d.1): needs the ability layer to evaluate the dynamic " +
+    "count, a runtime granted-Assault KeywordDef consumer, and designation/combatRole alignment"
 );
 
 test.todo(
   "sfd-131-221 Ancient Warmonger: the printed [Accelerate] optional additional cost (1 energy + 1 " +
     "Chaos power, 805.1.b/805.1.b.1) and its delayed enter-ready replacement (805.2.b/805.6/805.6.a) " +
-    "need the Finalize optional-additional wiring and the replacement.enter consumer — RIFT-89 / RIFT-91"
+    "need the Finalize optional-additional wiring and the replacement.enter consumer"
 );

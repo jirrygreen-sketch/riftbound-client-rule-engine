@@ -19,10 +19,9 @@ import type { CardProgram } from "../../ir/index.js";
  * 卡牌只声明关键词（契约 3.1/3.7、README 第 5 节）；展开（static
  * continuous.might + designation=defender 条件）由 effects/keywords/Shield.ts 负责。
  *
- * status = judge-required：Shield 展开所需的 continuous.might 指令（RIFT-258）与
- * Shield KeywordDef（RIFT-81）均已合入，但整卡仍不可执行：没有消费方把卡牌静态能力/
- * 关键词展开注册成持续的 continuous.might 效果（卡牌程序绑定 RIFT-257），
- * 且 814.1.d 的 Defender designation 不在 ObjectSnapshot 中。
+ * status = judge-required：Shield 展开所需的 continuous.might 指令与
+ * Shield KeywordDef、卡牌静态能力绑定均已合入，但 Shield KeywordDef 仍以
+ * designation 读取 Defender 状态，而当前 ObjectSnapshot 暴露的是 combatRole。
  */
 const stalwartPoro = {
   canonicalCardId:
@@ -31,14 +30,10 @@ const stalwartPoro = {
   status: "judge-required",
   judgeReason:
     "Shield 的展开文件（effects/keywords/Shield.ts：static continuous.might + " +
-    "compare(object-property(self, 'designation'), eq, 'defender')）与 continuous.might 指令（RIFT-258）已合入，" +
-    "但合并内核缺两处：(1) 没有消费方把卡牌静态能力/关键词展开注册成 continuous 效果" +
-    "（卡牌程序绑定 RIFT-257；ResolveContext.addContinuous 目前只被原语调用，读不到卡牌程序的静态能力）；" +
-    "(2) 814.1.d 的 Defender designation 不在 ObjectSnapshot 特征里" +
-    "（契约 3.8 的 combatRole 增补仍停留在 RIFT-105 分支，未进 HEAD），且 layers/engine.ts 的 " +
-    "conditionMatches 只识别 always/never/type/has-tag/has-keyword，未识别的 compare 条件按 true 处理，" +
-    "会把 +1 Might 无条件套用。缺少的是「卡牌静态能力 → 图层注册」接线与 combatRole 特征，均不属于" +
-    "本卡的 write scope；依赖：RIFT-257、契约 3.8 combatRole 落地。不近似实现。",
+    "compare(object-property(self, 'designation'), eq, 'defender')）与 continuous.might 指令、" +
+    "卡牌静态能力绑定均已合入；但当前 ObjectSnapshot 暴露的战斗特征名是 combatRole，" +
+    "不是 Shield 展开读取的 designation，导致 Defender 条件无法从实时快照求值，+1 Might 不能安全应用。" +
+    "需要统一该特征名称并让条件在图层中按 CR 814.1.d 生效，不近似实现。",
   abilities: [{ kind: "keyword", keyword: "shield" }],
   sourceText: "[Shield] (+1 :rb_might: while I'm a defender.)"
 } satisfies CardProgram;

@@ -72,4 +72,4 @@ test("Fading Memories grant sub-body gives Temporary to a battlefield unit or Ba
   }
 });
 
-test.todo("Fading Memories: disjunctive unit-at-battlefield-or-gear targets (RIFT-359) and live Temporary grant/revocation trigger registration (CR 816.1.b/816.1.c)");
+test.todo("Fading Memories: disjunctive unit-at-battlefield-or-gear target Finalize filtering and live Temporary grant/revocation trigger registration (CR 355.10.b, 816.1.b/816.1.c)");

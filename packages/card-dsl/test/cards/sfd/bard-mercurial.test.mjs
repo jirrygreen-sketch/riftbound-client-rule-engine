@@ -7,6 +7,8 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { normalizeMoveArguments } from "../../../../engine-core/dist/effects/interpreter/locations.js";
+import { queryLocationCandidates } from "../../../../engine-core/dist/target/location/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-d0bb5c231d56b1471ca1416b33625cc0bae9efda10d8be949cbeec564cbf0a70";
@@ -49,8 +51,8 @@ test("sfd-079-221 Bard, Mercurial: judgeReason names the cost, legend-zone, rece
   assert.match(program.judgeReason, /legend-zone/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
   assert.match(program.judgeReason, /170\.11\.c/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /programs\/play\.ts/);
+  assert.match(program.judgeReason, /LocationState/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -112,17 +114,13 @@ test("sfd-079-221 Bard, Mercurial: the play trigger moves any number of the cont
 });
 
 test("sfd-079-221 Bard, Mercurial: 'to an open battlefield' is recorded as a derived destination", () => {
-  // 355.4 / 421.1 / 449.1 / 170.11.c: the destination is one currently open
-  // battlefield, derived from the board state; static IR cannot enumerate it, so
-  // the declared shape keeps effect.move's choose form with a descriptive
-  // option list instead of pinning a battlefield (see judgeReason and the
-  // merged ogn/ride-the-wind precedent).
+  // 170.11.c: open requires both an empty field and no controller.
   assert.deepEqual(moveInstruction.args.to, {
-    kind: "constant",
+    kind: "location",
     value: {
       kind: "choose",
       id: "bard-mercurial.destination",
-      options: ["runtime:open-battlefields"]
+      filter: { type: "battlefield", open: true }
     }
   });
 });
@@ -137,12 +135,12 @@ test("sfd-079-221 Bard, Mercurial golden: with a player-chosen destination the u
     .build();
   kernel.setTargets(TARGET_ID, [kernel.ref("unit-a"), kernel.ref("unit-b")]);
 
-  // The destination is what the acting player chose during the Move's choice
-  // step (355.4); the golden supplies it, exactly like Finalize-locked targets.
-  const body = [{
-    ...moveInstruction,
-    args: { ...moveInstruction.args, to: { kind: "constant", value: battlefield } }
-  }];
+  // The merged location helper receives real battlefield state at its public
+  // boundary. Production still needs to pass this state into the interpreter.
+  kernel.setAnswers({ "bard-mercurial.destination": battlefield });
+  const body = [{ ...moveInstruction, args: normalizeMoveArguments(moveInstruction.args, boundWorld(kernel), {
+    locations: [{ ref: battlefield, controller: null, occupied: false }]
+  }) }];
   const outcome = resolveChainBody(body, boundWorld(kernel));
 
   assert.equal(outcome.status, "executed");
@@ -183,10 +181,10 @@ test("sfd-079-221 Bard, Mercurial golden: choosing no units leaves everyone in p
     .build();
   kernel.setTargets(TARGET_ID, []);
 
-  const body = [{
-    ...moveInstruction,
-    args: { ...moveInstruction.args, to: { kind: "constant", value: battlefield } }
-  }];
+  kernel.setAnswers({ "bard-mercurial.destination": battlefield });
+  const body = [{ ...moveInstruction, args: normalizeMoveArguments(moveInstruction.args, boundWorld(kernel), {
+    locations: [{ ref: battlefield, controller: null, occupied: false }]
+  }) }];
   const outcome = resolveChainBody(body, boundWorld(kernel));
 
   // "any number" includes zero (355.13): the emptied selection makes effect.move
@@ -200,20 +198,32 @@ test("sfd-079-221 Bard, Mercurial golden: choosing no units leaves everyone in p
 });
 
 test.todo(
-  "sfd-079-221 Bard, Mercurial: charge the optional additional cost 'exhaust your legend' through the " +
-    "Finalize cost plan and gate the Move on the 356.4.f.1 paid receipt (cost.additional / cost.pay wiring " +
-    "plus condition.result) — the card-side cost ops are the unmerged RIFT-261"
+  "Bard: collect static cost.additional and bind the paid-decision Condition before the Move (356.2.b/356.4.f.1)"
 );
 test.todo(
-  "sfd-079-221 Bard, Mercurial: the Legend Zone source space (CR 107.4/355.9.a.4) is not in the frozen " +
-    "ZoneId vocabulary, so the exhaust-cost choice cannot enumerate legal legends — contract change request"
+  "Bard: enumerate and exhaust the legend in its real Legend Zone (107.4/355.9.a.4), not a board fixture"
 );
 test.todo(
-  "sfd-079-221 Bard, Mercurial: derive 'an open battlefield' (CR 170.11.c: unoccupied and uncontrolled) " +
-    "into the Move's destination choice (355.4) — no merged reading turns the board state into move.to options"
+  "Bard: supply complete battlefield LocationState from CombatFlow to the production interpreter, including empty uncontrolled fields (170.11.c/355.4)"
 );
 test.todo(
-  "sfd-079-221 Bard, Mercurial: the card-played trigger enters the chain as a Pending item after the unit " +
-    "is played (CR 383.4.a.2/420.4.a) via the CardProgram -> trigger/chain adapter (RIFT-257) on top of the " +
-    "merged chain/event pipeline"
+  "Bard: put the paid play trigger on the chain after additional-cost and receipt binding, retaining the moved-unit target plan (383.4.a.2/420.4.a)"
 );
+
+
+test("Bard, Mercurial: the authored destination offers only unoccupied, uncontrolled battlefields", () => {
+  const field = id => ({ type: "battlefield", id });
+  const kernel = world().unit("bard", { location: { type: "base", player: "A" } }).unit("ally", { location: { type: "base", player: "A" } }).build();
+  const states = [
+    { ref: field("open"), controller: null, occupied: false },
+    { ref: field("occupied"), controller: null, occupied: true },
+    { ref: field("controlled"), controller: "A", occupied: false },
+    { ref: { type: "base", player: "A" }, controller: "A", occupied: false }
+  ];
+  const filter = moveInstruction.args.to.value.filter;
+  assert.deepEqual(queryLocationCandidates(kernel, filter, { locations: states }), [field("open")]);
+  kernel.setAnswers({ "bard-mercurial.destination": field("controlled") });
+  assert.throws(() => normalizeMoveArguments(moveInstruction.args, kernel, { locations: states }), /Invalid location choice answer/);
+  assert.deepEqual(kernel.events, []);
+  assert.deepEqual(kernel.getObject("ally").location, { type: "base", player: "A" });
+});

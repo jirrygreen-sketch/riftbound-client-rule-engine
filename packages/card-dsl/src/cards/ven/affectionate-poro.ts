@@ -27,8 +27,8 @@ import type { CardProgram } from "../../ir/index.js";
  * 2. “a combat that I was in” 需要 Attacker/Defender designation（契约 3.8 的
  *    ObjectSnapshot.combatRole 未落地），事件载荷里也没有可读取的角色信息；
  * 3. “if I haven't been dealt damage this turn” 需要本回合、按对象过滤的事件计数谓词——
- *    HistoryQuery 的封闭集合（scope/action/timingPoint/player/object）与卡牌侧的 Condition
- *    （always/never/compare/all/any/not/expression）之间没有把 history 计数暴露给触发条件的路径，
+ *    HistoryQuery 已有 objectFilter/exclude（本回合按对象过滤的伤害计数可达），但
+ *    卡牌侧 Condition/Requirement（always/never/compare/all/any/not/expression）无法表达 history 计数谓词，
  *    因此该条件以描述性记录保留，绝不写成恒真条件。
  * body 的 “draw 1” 只用已合入的 effect.draw，golden 用真实解释器与参考内核执行程序原始 body
  * （含空牌库的实际抽到 0 张边界）。
@@ -42,8 +42,8 @@ export default {
     "全仓库没有 combat-end 的 emit 调用，触发无法进入链（RIFT-120 / 引擎批 4–5）；(2) “a combat that I was in”" +
     "要求 Attacker/Defender designation（323.2、466.2.c.3、468.7.a），契约 3.8 的 ObjectSnapshot.combatRole" +
     "尚未落地、事件载荷也不带角色信息，无法判定本卡是否参与那次战斗；(3) “if I haven't been dealt damage this turn”" +
-    "需要本回合按对象过滤的伤害事件计数谓词——HistoryQuery 的封闭字段与卡牌侧 Condition 之间没有把 history" +
-    "计数暴露给触发条件的路径，故以描述性条件保留，绝不写成恒真条件。body 的 “draw 1”（414.1/414.3）" +
+    "需要本回合按对象过滤的伤害事件计数谓词——HistoryQuery 已有 objectFilter/exclude（本回合按对象过滤的伤害计数可达），但卡牌侧 Condition/Requirement 无法表达 history 计数谓词，" +
+    "故以描述性条件保留，绝不写成恒真条件。body 的 “draw 1”（414.1/414.3）" +
     "只用已合入的 effect.draw，golden 用真实解释器执行（含空牌库抽到 0 张的边界）。不近似实现。",
   abilities: [
     {

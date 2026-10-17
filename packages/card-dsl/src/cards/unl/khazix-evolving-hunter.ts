@@ -26,17 +26,17 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *
  * status 判定（cards/README.md 第 2 节）：judge-required（按 2026-10-16 合入批次复核）。
  * 四处缺口，均不近似实现：
- * 1. [Hunt] 的 KeywordDef 已合入（effects/keywords/Hunt.ts，RIFT-265），programs/keywords.ts
- *    也会展开它；但展开写的事件拼写是 "conquer"/"hold"，而封闭 EVENT_PATTERN_TYPES 用的是
+ * 1. [Hunt] 的 KeywordDef 与展开已存在，programs/keywords.ts 也会展开它；但展开写的事件拼写是
+ *    "conquer"/"hold"，而封闭 EVENT_PATTERN_TYPES 用的是
  *    "conquered"/"held"（events/trigger-spec.ts + pipeline-match.ts 的 EVENT_NAMES），
  *    registerProgramTriggers 抛 invalid-event-type；conquer 发射也不带征服单位
  *    （turn/flow.ts 的 Score 波只发 player/details），source:"self" 匹配不到（823.1.c.1）。
  * 2. 指令内费用 "spend 3 XP"（740.4.a/740.4.a.2；730.2）没有已注册原语：effects/instructions/
- *    下没有 cost.xp，cost/ 也没有把该支付变成 Finalize 可选选择 + 回执的接线（RIFT-261 仍在进行）。
- *    "you may" 的拒绝路径因此不可执行；golden 只断言声明的形状并保留 test.todo。
+ *    下没有 cost.xp，cost/ 也没有把该支付变成 Finalize 可选选择 + 回执的接线。
+ *    "you may" 的拒绝路径因此不可执行；golden 只断言声明的形状。
  * 3. attack-declared 时点没有生产者：docs/rules/timing-point-producers.md 记为“待后续——需要
  *    Combat start/role designation 的原子 timing wave”，combat/flow.ts 明确抛
- *    combat-start-transaction（RIFT-33/RIFT-124 后续）。
+ *    combat-start-transaction。
  * 4. 两条声明都无法注册：Hunt 的 "conquer"/"hold" 拼写不在封闭词汇表内，攻击触发的 body
  *    又带 sameLocationAs 过滤键（programs/filters.ts 拒绝），registerProgramTriggers 都失败关闭。
  * body 的 effect.damage（动态 Might 数额 + sameLocationAs 锚点）已合入，golden 用链适配器 +
@@ -125,15 +125,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口（已按 2026-10-16 合入批次复核）：(1) [Hunt]（823）的 KeywordDef 已合入（effects/keywords/Hunt.ts，RIFT-265）且 " +
+    "四处缺口（已按 2026-10-16 合入批次复核）：(1) [Hunt]（823）的 KeywordDef 与展开已存在，且 " +
     "programs/keywords.ts 会展开它，但展开写的事件拼写是 \"conquer\"/\"hold\"，封闭 EVENT_PATTERN_TYPES（events/trigger-spec.ts，" +
     "配 pipeline-match.ts 的 EVENT_NAMES 别名）用的是 \"conquered\"/\"held\"，registerProgramTriggers 抛 invalid-event-type；" +
-    "conquer 发射也不带征服单位（turn/flow.ts 的 Score 波只发 player/details），source:\"self\" 匹配不到（823.1.c.1；RIFT-120 后续）。" +
+    "conquer 发射也不带征服单位（turn/flow.ts 的 Score 波只发 player/details），source:\"self\" 匹配不到（823.1.c.1）。" +
     "(2) 指令内费用「spend 3 XP」（740.4.a、740.4.a.2；730.2 的花费方向）仍没有已注册原语：" +
     "effects/instructions/ 下没有 cost.xp，cost/ 也没有把该支付变成 Finalize 可选选择与回执的接线" +
-    "（RIFT-261 仍在进行），\"you may\" 的拒绝路径因此不可执行。" +
+    "\"you may\" 的拒绝路径因此不可执行。" +
     "(3) attack-declared 时点（383.4.e 的 Attack Trigger）没有生产者：docs/rules/timing-point-producers.md 记为待后续，" +
-    "combat/flow.ts 遇到 staged combat 直接抛 combat-start-transaction（RIFT-33/RIFT-124 后续）。" +
+    "combat/flow.ts 遇到 staged combat 直接抛 combat-start-transaction。" +
     "(4) 触发没有可用注册路径：Hunt 展开的 " +
     "\"conquer\"/\"hold\" 拼写不被封闭 EVENT_PATTERN_TYPES 接受，body 的 sameLocationAs 过滤键也被 " +
     "programs/filters.ts 拒绝，registerProgramTriggers 对两者都失败关闭。" +

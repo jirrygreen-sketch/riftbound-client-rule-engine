@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/reluctant-leader.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-9ca2b329f015cf54a163a35cbad76798217d6fae4e4bc9b00b585281c2cb65cf";
@@ -23,10 +25,12 @@ test("ven-121-166 Reluctant Leader: identity, ruleset, status, judgeReason and v
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // 三处缺口：另一对象的触发过滤、临时 Might、触发注册。
+  // 两处缺口：另一对象的触发过滤与 might-changed 管线；+2 Might 已由合入原语执行。
   assert.match(program.judgeReason, /matchesTriggerEvent/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /might-changed/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120|RIFT-9 |RIFT-91/);
+  assert.doesNotMatch(program.judgeReason, /没有注册\s*continuous\.might|continuous\.might 的原语/);
 });
 
 test("ven-121-166 Reluctant Leader: the trigger describes another played unit, not this card's play", () => {
@@ -70,11 +74,31 @@ test("ven-121-166 Reluctant Leader: the body declares a temporary +2 Might, neve
 test.todo(
   "ven-121-166 Reluctant Leader: the 'you play another unit' trigger fires and filters to another unit " +
     "(CR 383.4.a.4) — events/pipeline-match.ts has no 'another object / exclude the host' key and the " +
-    "card-played to card-trigger registration is not wired (RIFT-120)"
+    "program binding layer rejects the other/exclude filter field outright"
 );
 
-test.todo(
-  "ven-121-166 Reluctant Leader: 'give me +2 :rb_might: this turn' applies and expires at end of turn " +
-    "(CR 143.2 / 475-477) — no continuous.might instruction primitive registers through " +
-    "ResolveContext.addContinuous (RIFT-91 follow-up); a Buff counter is never a substitute (CR 702/703)"
-);
+test("ven-121-166 Reluctant Leader golden: +2 Might this turn registers on the host and expires at end of turn", () => {
+  const base = world()
+    .player("A", { energy: 0 })
+    .unit("leader", { might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const kernel = base.clone({
+    controller: "A",
+    sourceSnapshot: base.getObject("leader")
+  });
+
+  const outcome = runAbilityBody([grantMight], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [["reluctant-leader.give-plus-2", "executed"]]
+  );
+  // 143.2 / 143.2.a：一条算术层注册落在宿主自身；317.2.c 在回合结束到期。
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [registration] = kernel.continuousEffects;
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 2);
+  assert.deepEqual(registration.effect.filter.objectId, "leader");
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+});

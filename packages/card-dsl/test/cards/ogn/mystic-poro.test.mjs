@@ -10,8 +10,7 @@ const CANONICAL =
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
-const { runInstruction, world } = await import(new URL("effects/testing/index.js", engineCore));
-const { default: inspect } = await import(new URL("effects/instructions/effect.inspect.js", engineCore));
+const { world } = await import(new URL("effects/testing/index.js", engineCore));
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
 const { keywordDefinitionsById } = await import(new URL("effects/keywords/registry.generated.js", engineCore));
 
@@ -26,12 +25,11 @@ test("ogn-171-298 Mystic Poro: identity, ruleset, status, judgeReason, sourceTex
   assert.equal(mysticPoro.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(mysticPoro.rulesetVersion, "core-1.5");
   assert.equal(mysticPoro.status, "judge-required");
-  // judgeReason must name the missing engine pieces and the dependent tasks
-  // (README section 2: no bare "needs support").
+  // judgeReason must name the current production gap (README section 2: no
+  // bare "needs support").
   assert.match(mysticPoro.judgeReason, /Vision/);
-  // Re-sweep: the Vision KeywordDef is merged (RIFT-83); the remaining gaps
-  // are the keyword/trigger binding (RIFT-257) and the ordered top-card path.
-  assert.match(mysticPoro.judgeReason, /RIFT-257/);
+  // Re-sweep: the keyword/trigger binding is merged; the remaining gap is the
+  // ordered top-card path.
   assert.match(mysticPoro.judgeReason, /picksSpecId/);
   assert.equal(
     mysticPoro.sourceText,
@@ -75,16 +73,15 @@ test("ogn-171-298 Mystic Poro: declared keyword resolves to the merged Vision de
 });
 
 test.todo(
-  "Mystic Poro: the production top-card path — effect.inspect negates in top scope without an ordered " +
-    "picks source (契约 3.6 zoneSlice is not consumed by inspect; only the test kernel's setPicks " +
-    "provides one) and no kernel path expands card keyword abilities into an object-enters-board " +
-    "trigger on the chain (契约 3.5; RIFT-257)"
+  "Mystic Poro: the production top-card path — effect.inspect needs an ordered " +
+    "picks source assembled from the deck-top zone slice (契约 3.6), so the " +
+    "Vision trigger can resolve without a test-only setPicks injection"
 );
 
 test.todo(
   "Mystic Poro: CR 817.2 stacking — two Vision instances trigger separately and each may recycle independently " +
-    "(keywords/Vision.ts declares stacking \"separate\"; execution depends on the keyword -> trigger " +
-    "binding, RIFT-257)"
+    "(keywords/Vision.ts declares stacking \"separate\"; execution depends on the " +
+    "production ordered-picks path)"
 );
 
 test("ogn-171-298 Mystic Poro: the merged Vision expansion executes look-and-maybe-recycle with ordered picks", () => {
@@ -120,25 +117,4 @@ test("ogn-171-298 Mystic Poro: the merged Vision expansion executes look-and-may
   assert.equal(kept.status, "executed");
   assert.deepEqual(keeping.zoneSlice("A", "deck", "top").map(object => object.ref.id), ["top", "second"]);
   assert.equal(kept.results[1].result.linkedValues.recycledCount, 0);
-});
-
-test("ogn-171-298 Mystic Poro: without an ordered picks source the production top scope refuses to guess (negative evidence)", () => {
-  // Locked evidence for the judgeReason: effect.inspect in top scope without
-  // an ordered picksSpecId is negated with reason impossible instead of
-  // inferring the deck top from an unordered query.
-  const kernel = world().deck(["top"], { owner: "A" }).build();
-  const run = runInstruction(
-    inspect,
-    {
-      player: { kind: "literal", value: "A" },
-      zone: { kind: "literal", value: "deck" },
-      scope: { kind: "literal", value: "top" },
-      amount: { kind: "literal", value: 1 },
-      choose: { kind: "literal", value: true },
-      chooseCount: { kind: "literal", value: { min: 0, max: 1 } }
-    },
-    { world: kernel }
-  );
-  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
-  assert.deepEqual(kernel.zoneSlice("A", "deck", "top").map(object => object.ref.id), ["top"]);
 });

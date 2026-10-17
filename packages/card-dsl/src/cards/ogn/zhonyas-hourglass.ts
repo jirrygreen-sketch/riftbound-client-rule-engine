@@ -37,8 +37,6 @@ import type { CardProgram } from "../../ir/index.js";
  *   raw instead instruction body in the frozen IR (validateInstruction accepts
  *   only Expr args while the binding layer requires an instruction array) —
  *   same contract change request as ogn/the-boss.
- * - no merged consumer turns a CardProgram's replacement ability into a
- *   ReplacementRegistration (card-program binding, RIFT-257, in progress).
  * - [Hidden]'s Hide action / facedown play still lack the cost.hidden
  *   consumption path (811.1.b/811.1.c.2; the keyword expansion itself is
  *   merged, RIFT-84).
@@ -58,8 +56,7 @@ const zhonyasHourglass = {
     "「that unit」的绑定已解决：golden 经 RIFT-260 planner 用 { linked: \"replacement.object\" }（REPLACED_EVENT_LINK，355.10.c）把 kill-this 规划到本装备、把 exhausted 状态步骤规划到被拦截单位并真实执行规划出的动作。" +
     "整卡仍不可执行：① 印刷的 \"the next time\" 一次性期限在静态替代形状里没有表示——RIFT-260 的 one-shot 窗口只在 replacement.event wrapper 上，" +
     "而冻结 IR 拼不出该 wrapper 的原始 instead 指令体（validateInstruction 只接受 Expr 参数、绑定层要求原始指令数组），同 ogn/the-boss 的契约变更请求；" +
-    "② 没有已合入的消费方把 CardProgram 的替代能力注册成 ReplacementRegistration（卡牌程序绑定 RIFT-257 进行中）；" +
-    "③ [Hidden] 的 Hide 行动/背面打出仍缺 cost.hidden 消费路径（811.1.b/811.1.c.2；关键词展开本身已合入，RIFT-84）。不近似实现。",
+    "② [Hidden] 的 Hide 行动/背面打出仍缺 cost.hidden 的生产消费路径（811.1.b/811.1.c.2；关键词展开本身已合入）。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     {

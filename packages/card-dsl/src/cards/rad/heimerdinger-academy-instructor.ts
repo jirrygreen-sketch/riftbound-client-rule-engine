@@ -21,16 +21,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   写成对来源的命名谓词（同 fiora-peerless 的 one-on-one 先例），由图层/触发上下文求值。
  *
  * 无法执行的依赖（保持 judge-required）：
- * - 卡牌程序的替代能力→事件管线注册（replacement.event 原语）未合入；当前没有任何
- *   已注册指令或管线读取 CardProgram 的 replacement 能力。这里的 replaces 是规则层的
- *   事件模式（打出衍生物），把它翻译成引擎的"游戏动作级"替代注册（events/pipeline 的
- *   ReplacementRegistration 以 GameAction 匹配）是替代原语的一部分，尚未实现。
+ * - 当前替代绑定能够匹配 card-played 事件，但 replacement planner 没有把 effect.token
+ *   规划成可提交的 GameAction 序列；因此不能完成“创建并打出 Mech token”的替代提交。
  * - "to that same location"：替代动作的目标位置 = 被替代的打出动作将前往的位置。IR 中
  *   没有"被替代事件的 location"选择器；下面的 location 是有意标出的占位常量
  *   （replaced-play-location），必须由替代系统在结算时绑定为被替代打出的目的地——
  *   用来源自身的位置会在这两者不同时给出错误结果，因此这里不用 object-property。
- * - "you may ... instead" 的选择时机（打出前、369.x 的替代选择）依赖替代管线的可选询问；
- *   当前 chain/events 只实现事件层的 replace 注册，未接卡牌程序。
+ * - "you may ... instead" 的打出前可选询问仍没有在该 replacement ability 形状中表达。
  */
 const abilities: Ability[] = [
   {
@@ -65,12 +62,11 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺替代效果的卡牌接线：369.1 的 \"If you would play a unit token ... instead\" 需要" +
-    "replacement.event 原语把 CardProgram 的 replacement 能力注册到 events/pipeline，" +
-    "当前没有任何已注册指令或管线读取卡牌程序的替代能力，\"you may ... instead\" 的打出前" +
-    "选择时机也未实现。另缺 \"to that same location\" 的绑定：IR 没有\"被替代打出动作的" +
-    "目标位置\"选择器，程序里的 location 是有意标注的占位常量（replaced-play-location），" +
-    "不得用来源自身位置近似。依赖：replacement.event 原语与替代管线（关键词/事件批次）。",
+    "替代绑定已能匹配 369.1 的 card-played 事件，但 replacement planner 尚不能把 effect.token " +
+    "规划成创建并打出 Mech token 的 GameAction 序列；\"you may ... instead\" 的打出前可选询问" +
+    "也没有在当前 replacement ability 形状中表达。另缺 \"to that same location\" 的绑定：IR 没有" +
+    "被替代打出动作目的地的动态选择器，程序里的 location 是有意标注的占位常量，不能用来源自身位置近似。" +
+    "依赖：token replacement planner 与动态地点选择（RIFT-357）。",
   abilities,
   sourceText:
     "If you would play a unit token to a location while I'm at a battlefield, you may play a 3 :rb_might: Mech unit token to that same location instead."

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/mushroom-pouch.js";
+import { createProgramBinding, triggerRegistrations } from "../../../../engine-core/dist/programs/index.js";
 
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { world } = await import(new URL("effects/testing/index.js", ENGINE));
@@ -11,6 +12,7 @@ const { default: draw } = await import(new URL("effects/instructions/effect.draw
 
 const [ability] = program.abilities;
 const [drawInstruction] = ability.body;
+const CARD_ID = program.canonicalCardId;
 
 test("mushroom-pouch: passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -30,9 +32,8 @@ test("mushroom-pouch: identity, ruleset, status and specific judgeReason", () =>
   assert.match(program.judgeReason, /Facedown/);
   assert.match(program.judgeReason, /ZoneId/);
   assert.match(program.judgeReason, /beginning-start/);
-  // Re-sweep after RIFT-270: the point now has a producer (turn/flow.ts), so
-  // the remaining trigger-side gap is the CardProgram binding (RIFT-257).
-  assert.match(program.judgeReason, /RIFT-257/);
+  // Re-sweep after RIFT-270: the point and program trigger registration are
+  // present; only the Facedown Zone condition remains.
   assert.match(program.judgeReason, /RIFT-270/);
 });
 
@@ -42,6 +43,29 @@ test("mushroom-pouch: one mandatory beginning-start trigger (CR 315.2.a.1)", () 
   assert.equal(ability.trigger.at, "beginning-start");
   assert.equal(ability.trigger.once, undefined);
   assert.equal(ability.optional, false);
+});
+
+test("mushroom-pouch: the merged program binding registers the beginning-start trigger", () => {
+  const executable = { ...program, status: "executable", judgeReason: undefined };
+  const binding = createProgramBinding({ cardPrograms: [executable] });
+  const kernel = world()
+    .unit("pouch", {
+      cardId: CARD_ID,
+      types: ["unit"],
+      location: { type: "battlefield", id: "battlefield-1" },
+      energy: 3,
+      power: [],
+      might: 2
+    })
+    .build();
+  const source = kernel.getObject("pouch");
+  const registrations = triggerRegistrations(binding.registry, source);
+
+  assert.equal(registrations.length, 1);
+  assert.equal(registrations[0].spec.at, "beginning-start");
+  assert.deepEqual(registrations[0].spec.filter, {});
+  assert.equal(registrations[0].body[0].id, "draw-1");
+  assert.equal(registrations[0].optional, false);
 });
 
 test("mushroom-pouch: the intervening 'if you control a facedown card' clause is a condition, not a target", () => {
@@ -90,8 +114,4 @@ test("mushroom-pouch golden: the Draw 1 half draws one card (CR 414.3)", () => {
 
 test.todo(
   "mushroom-pouch: evaluating 'if you control a facedown card at a battlefield' needs a Facedown Zone scope (107.3.a/107.3.e: a battlefield sub-zone, not a location; ZoneId has no facedown member, and states: 'face-down' cannot be limited to it)."
-);
-
-test.todo(
-  "mushroom-pouch: the turn structure now emits beginning-start for the turn player's Beginning Phase (turn/flow.ts, RIFT-270); the trigger still needs the CardProgram registration path to bind this card's ability (RIFT-257)."
 );

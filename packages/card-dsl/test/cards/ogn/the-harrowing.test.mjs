@@ -23,7 +23,7 @@ test("The Harrowing identity and judge-required status match the printing", () =
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("356.1.b.2"), true);
-  assert.equal(program.judgeReason.includes("RIFT-261"), true);
+  assert.match(program.judgeReason, /CostPlanInput/);
   assert.equal(program.judgeReason.includes("ignore-base"), true);
   assert.equal(
     program.sourceText,
@@ -140,8 +140,8 @@ test("The Harrowing golden: a unit that left the trash before resolution is igno
 test.todo(
   "The Harrowing: a merged consumer must read this card's cost.modify descriptor and have " +
     "Finalize build the ignore-base plan (356.1.b.2: base Energy set to 0, Power still owed; " +
-    "356.1.b.3 keeps later additional costs) for the effect.play handoff; the cost.pay/cost.modify " +
-    "instruction primitives are RIFT-261."
+    "356.1.b.3 keeps later additional costs) for the effect.play handoff, including reading the " +
+    "selected trash card's printed cost."
 );
 
 test.todo(

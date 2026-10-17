@@ -35,7 +35,7 @@ test("ogn-183-298 Stacked Deck: program passes validateCardProgram", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /effect\.inspect/);
   assert.match(program.judgeReason, /zoneSlice|有序/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-358/);
   assert.equal(
     program.sourceText,
     "[Action] (Play on your turn or in showdowns.)\n" +
@@ -159,5 +159,5 @@ test("ogn-183-298 Stacked Deck golden: the top scope refuses to guess deck order
 test.todo(
   "ogn-183-298 Stacked Deck: the ordered 'top 3 of your Main Deck' pick set (face-down cards " +
     "looked at privately, then one to hand) must be provisioned by the production Finalize/AwaitChoice " +
-    "lifecycle rather than by the test kernel; needs the ordered-zone pick lifecycle (RIFT-84/RIFT-90)"
+    "lifecycle rather than by the test kernel; needs the ordered-zone pick lifecycle (RIFT-358)"
 );

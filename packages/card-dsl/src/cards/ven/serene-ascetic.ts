@@ -25,11 +25,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    827.1.c.1 的“3 Energy：Empower me，仅当未 Empowered 时启动”无法展开；
  * 2. 没有 Empowered 状态谓词（442.1.a 的二元状态）——“[Empowered][>]” 的门控
  *    没有可求值形态；
- * 3. “[Deflect] 和 [Shield 3]” 是持续授予关键词：需要卡牌侧的
- *    continuous.grant-keyword 注册/求值路径，且被授予的 Deflect 还需要 target.tax
- *    图层消费方（RIFT-90）与已合入 Deflect/Shield KeywordDef（RIFT-81）接通（RIFT-91）。
- * 依赖：新增 Empower/Empowered 关键词任务、RIFT-87（条件/谓词）、RIFT-90（目标税）、
- * RIFT-91（layers 接线）。本卡不伪造启动能力，也不把依赖能力写成无条件能力。
+ * 3. “[Deflect] 和 [Shield 3]” 是持续授予关键词：programs/statics.ts 的
+ *    createEngineStaticBinder().bindStatic 已能把该声明装进 ability 图层并在快照里
+ *    写出 deflect 1 / shield 3（golden 有执行证据）；被授予的 Deflect 还需要
+ *    target.tax 图层消费方——当前没有模块在对该宿主的 target 声明里读并收取该税。
+ * 依赖：新增 Empower/Empowered 关键词任务、Empowered 状态谓词（RIFT-359 的谓词任务进行中）与
+ * Deflect 目标税消费（RIFT-360 进行中）。本卡不伪造启动能力，也不把依赖能力写成无条件能力。
  */
 const abilities: Ability[] = [
   {
@@ -68,11 +69,12 @@ export default {
     "827.1.c.1 的“3 Energy：Empower me，仅当未 Empowered 时启动”无法展开（827.1.b.1 还要求" +
     "来源不是目标）；(2) 没有 Empowered 状态谓词——442.1.a 的二元状态不在 ObjectSnapshot / " +
     "Condition 里，“[Empowered][>]” 的依赖能力门控（828.1.b.1 / 828.1.c）没有可求值形态；" +
-    "(3) “[Deflect] 和 [Shield 3]” 是持续授予关键词，需要卡牌侧 continuous.grant-keyword 的注册/" +
-    "求值路径，被授予的 Deflect 还需要 target.tax 图层消费方（RIFT-90）与已合入的 Deflect/Shield " +
-    "KeywordDef（809.1.b.3 省略值按 1、814.1.c 的 +3 Might 当防守者）接通（RIFT-91）。" +
-    "依赖新的 Empower/Empowered 关键词任务、RIFT-87（条件/谓词）、RIFT-90（目标税）与 RIFT-91" +
-    "（layers 接线）。不近似实现：不伪造启动能力，不把依赖能力写成无条件能力。",
+    "(3) “[Deflect] 和 [Shield 3]” 是持续授予关键词：programs/statics.ts 的 " +
+    "createEngineStaticBinder().bindStatic 已能把该声明装进 ability 图层，图层快照真实写出 " +
+    "deflect 1 / shield 3（golden 有执行证据）；剩余执行缺口是被授予的 Deflect " +
+    "需要 target.tax 图层消费方（RIFT-360 进行中）。" +
+    "依赖新的 Empower/Empowered 关键词任务、Empowered 状态谓词（RIFT-359 进行中）与 Deflect 目标税消费 " +
+    "（RIFT-360 进行中）。不近似实现：不伪造启动能力，不把依赖能力写成无条件能力。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_3: (:rb_energy_3:: Empower me. Use only if not Empowered.)\n" +

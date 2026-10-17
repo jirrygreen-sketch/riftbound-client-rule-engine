@@ -28,17 +28,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Buff 计数器。本卡没有印刷下限（143.2.c 的“小于 0 按 0 处理”是一般规则），故不写
  *   minimum。
  *
- * status = judge-required。两块依赖，均不近似实现：
+ * status = judge-required。模式选择仍缺生产消费方；模式 1 与模式 2 的效果原语均已合入：
  * 1. 模式 1 的返手目标在程序里已按 355.7/355.9.a.1 声明（effect.zone 已合入）。
- * 2. 模式 2 的临时 Might 修改没有已合入的执行原语：契约 3.6 的封闭 GameAction 集合没有
- *    Might 修改动作，effects/instructions/ 也没有注册通过 ResolveContext.addContinuous
- *    创建 continuous.might 的 op（layers 能求值，卡牌侧无入口），依赖 RIFT-91。
- * 3. 模式列表本身还有生产接线缺口：chain/engine.ts 的 assertFinalizationSurface 对
+ * 2. 模式列表本身还有生产接线缺口：chain/engine.ts 的 assertFinalizationSurface 对
  *    instruction.op === "choice.mode" 直接抛 ChainContractBlockedError（"Mode choices
  *    require a Finalize/Resolve choice-plan adapter"），因此模式选择目前无法在真实链上
  *    落地（同 rad-013-167 Lost to the Sands 的登记）。
- * 已支持部分：模式 1 的 effect.zone 返手在 golden 中用解释器 + 参考内核真实执行；
- * 模式 2 与模式列表的生产接线写 test.todo。
+ * 已支持部分：模式 1 的 effect.zone 返手与模式 2 的 continuous.might 都在 golden 中
+ * 用解释器 + 图层引擎真实执行；模式选择的生产接线写 test.todo。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "reaction" },
@@ -90,13 +87,17 @@ const abilities: Ability[] = [
                 body: [
                   {
                     // "Give an enemy unit -2 Might this turn." — 算术图层的临时 Might
-                    // 修正，end-of-turn 到期；创建该持续效果的 op 尚未合入（见 judgeReason 第 2 点）。
+                    // 算术图层的临时 Might 修正，this-turn 到期。
                     id: "mesmerize.give-minus-2-might",
                     op: "continuous.might",
                     args: {
+                      mode: { kind: "constant", value: "add" },
                       amount: { kind: "constant", value: -2 },
                       duration: { kind: "constant", value: "this-turn" },
-                      target: { kind: "constant", value: "mesmerize.enemy-unit" }
+                      objects: {
+                        kind: "constant",
+                        value: { kind: "target", id: "mesmerize.enemy-unit" }
+                      }
                     },
                     targets: [
                       {
@@ -124,15 +125,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1) 模式 2「Give an enemy unit -2 :rb_might: this turn」是带回合期限的临时 Might 修改，" +
-    "属算术图层（317.2.c 到期）：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，effects/instructions/ 也没有注册通过 " +
-    "ResolveContext.addContinuous 创建 continuous.might 的原语（layers 能求值，卡牌侧无入口），effect.buff 只处理 CR 702 的 " +
-    "Buff 计数，不能近似；本卡没有印刷下限（143.2.c 的“小于 0 按 0 处理”是一般规则），故不写 minimum。" +
-    "(2) 模式列表的生产接线未合入：chain/engine.ts 的 assertFinalizationSurface 对 instruction.op === \"choice.mode\" 直接抛 " +
+    "一处生产缺口，均不近似实现：模式列表的生产接线未合入：chain/engine.ts 的 assertFinalizationSurface 对 instruction.op === \"choice.mode\" 直接抛 " +
     "ChainContractBlockedError（\"Mode choices require a Finalize/Resolve choice-plan adapter\"），355.3 的 Finalize 模式决定尚无 " +
     "链上落地路径（同 rad-013-167 Lost to the Sands 的登记）。已支持部分：模式 1「Return a friendly unit to its owner's hand」" +
     "（416 返手，effect.zone 已合入，目标按 355.7/355.9.a.1 声明）由 golden 真实执行。" +
-    "依赖：RIFT-91（continuous.might 卡牌侧入口与到期）、RIFT-90（Finalize/Resolve 选择计划适配）。" +
+    "continuous.might 的卡侧入口与到期已合入并由本卡测试覆盖；仍依赖 Finalize/Resolve 选择计划适配。" +
     "另见数据问题：本地 catalog 的两个模式之间缺分隔符（\"...owner's hand.Give an enemy...\"），sourceText 逐字保留、未改写数据。",
   abilities,
   sourceText:

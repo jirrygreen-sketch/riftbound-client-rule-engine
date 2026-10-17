@@ -10,8 +10,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   "or ability.)"
  *
  * 规则依据（CR v1.5）：
- * - [Reaction]（813）是许可类关键词，按契约 3.7 只声明；时机许可的消费方属 chain/ 的
- *   canAct 与 continuous.timing 展开（RIFT-85/91）。
+ * - [Reaction]（813）是许可类关键词，按契约 3.7 只声明；KeywordDef 展开为
+ *   continuous.timing，chain/ 的 canAct 消费该许可。
  * - 「Choose one —」是含项目符号的模式选择（355.3），按契约 3.9 用 choice.mode
  *   （count 1、different true），每个模式各带 body。
  * - 模式一「Counter a spell」：被反制的法术是链上目标（355.9.a.2；链项 Pending 状态不是
@@ -28,13 +28,12 @@ import type { CardProgram } from "../../ir/index.js";
  *    原语显式阻断（blockedReason: token-definition-or-abilities-judge-required）。
  * 2. 「Play … token」没有印刷目的地，入场地点是运行期 Location 选择（355.2 / 355.2.a /
  *    440.2.b.1）：合并 IR 没有运行期 Location 选择器，effect.token 只接受运行时 LocationRef、
- *    目标/选择的当前位置或静态候选列表；本卡保留描述性地点标记（依赖 RIFT-90）。
+ *    目标/选择的当前位置或静态候选列表；本卡保留描述性地点标记。
  * 3. 生产链的 Finalize 面还明确阻断嵌套目标与模式选择（chain/engine.ts
  *    assertFinalizationSurface 抛 ChainContractBlockedError），反制模式的目标位于
  *    choice.mode 的分支体内，因此生产打出路径还需解释器的目标选择生命周期适配器。
  * 反制模式只用已合入原语，golden 用参考内核锁定链上目标真实执行。
- * 依赖：effect.token 定义表扩充（187.7 Bird，含 Deflect）、RIFT-90（地点选择与嵌套目标生命周期）、
- * RIFT-85/91（时机许可）。
+ * 依赖：effect.token 定义表扩充（187.7 Bird，含 Deflect）、运行期 Location 选择与嵌套目标生命周期。
  */
 
 /** 描述性地点标记，不是可执行 LocationRef（见 judgeReason 第 2 点）。 */
@@ -48,15 +47,15 @@ const flurryOfFeathers = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1) 187.7 的 1 :rb_might: Bird unit token（无域、1 Might、Bird 标签、带 [Deflect]）" +
+    "三处依赖未合入，均不近似实现：(1) 187.7 的 1 :rb_might: Bird unit token（无域、1 Might、Bird 标签、带 [Deflect]）" +
     "不在 effect.token 的冻结 DEFINITIONS 表（recruit/sand-soldier/mech/reflection/tentacle），且带能力的 token 定义被该原语" +
-    "显式阻断（blockedReason: token-definition-or-abilities-judge-required），[Deflect] 的展开（809）属 RIFT-84/90 批次；" +
+    "显式阻断（blockedReason: token-definition-or-abilities-judge-required），还需要把 [Deflect] 能力写入 token 定义并接入运行时；" +
     "(2)「Play four … tokens」没有印刷目的地，入场地点是运行期 Location 选择（355.2 / 355.2.a / 440.2.b.1），" +
     "合并 IR 没有运行期 Location 选择器，effect.token 只接受运行时 LocationRef / 目标或选择的当前位置 / 静态候选列表，" +
-    "本卡只保留描述性地点标记（依赖 RIFT-90）。(3) 生产链的 Finalize 面阻断嵌套目标与模式选择" +
+    "本卡只保留描述性地点标记。(3) 生产链的 Finalize 面阻断嵌套目标与模式选择" +
     "（chain/engine.ts assertFinalizationSurface 抛 ChainContractBlockedError），反制模式的目标位于 choice.mode 的分支体内，" +
-    "生产打出还需解释器的目标选择生命周期适配器（依赖 RIFT-90 / RIFT-120）。反制模式（426.1-426.3）与 choice.mode" +
-    "（355.3，契约 3.9）本身只用已合入原语，golden 用参考内核锁定链上目标真实执行。",
+    "生产打出还需解释器的目标选择生命周期适配器。反制模式（426.1-426.3）与 choice.mode" +
+    "（355.3，契约 3.9）本身只用已合入原语，Reaction 的 timing 展开与 canAct 路径也已合入；golden 用参考内核锁定链上目标真实执行。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

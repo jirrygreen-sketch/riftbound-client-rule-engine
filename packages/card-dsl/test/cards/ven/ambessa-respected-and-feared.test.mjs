@@ -72,10 +72,7 @@ test("ven-136-166 Ambessa: identity, status, judgeReason and verbatim sourceText
 
 test("ven-136-166 Ambessa: [Empower] plus the Empowered [Assault 2] grant", () => {
   assert.deepEqual(empower, { kind: "keyword", keyword: "empower" });
-  assert.equal(keywordDefinitionsById.get("Empower"), undefined);
-  assert.equal(keywordDefinitionsById.get("Empowered"), undefined);
   // 复核证据：授予用的原语本身已合入（缺的是 Empowered 门控）。
-  assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), true);
   // 807.1.c: Assault 2 is a valued keyword whose expansion is merged; the card
   // only declares the 828.1.b.1 dependent grant of that keyword.
   assert.ok(keywordDefinitionsById.get("Assault"), "the Assault KeywordDef is merged");
@@ -205,4 +202,10 @@ test.todo(
 test.todo(
   "ven-136-166 Ambessa: both [Empowered][>] dependent abilities (828.1.b.1) need an Empowered " +
     "status predicate, including for the Assault 2 grant (RIFT-87)"
+);
+
+test.todo(
+  "ven-136-166 Ambessa: the Empower/Empowered KeywordDefs and the 442.1.a Empowered status " +
+    "predicate are pending — until they land, 827.1.c.1's activation and the 828.1.b.1 gates " +
+    "cannot expand (see judgeReason)"
 );

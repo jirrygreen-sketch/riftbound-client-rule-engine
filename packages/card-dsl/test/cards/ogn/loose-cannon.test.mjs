@@ -58,7 +58,6 @@ test("ogn-251-298 Loose Cannon: identity, status, and verbatim sourceText", () =
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /383\.2\.a\.1/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /beginning-start/);
 });
 
@@ -165,8 +164,8 @@ test("ogn-251-298 Loose Cannon: the trigger's timing point is a registered point
 });
 
 test.todo(
-  "ogn-251-298: register the card's beginning-start trigger from the CardProgram and accept the " +
-    "timing-point-anchored filter spelling (RIFT-257 program binding plus the EventPattern vocabulary — " +
-    "the closed event list does not include timing-point names, so the declared filter cannot be " +
-    "registered as-is); the condition and the draw body already execute through the merged interpreter"
+  "ogn-251-298: accept the timing-point-anchored beginning-start filter in the production " +
+    "EventPattern vocabulary (the closed event list does not include timing-point names, so the " +
+    "declared filter is rejected by registerTrigger); the condition and draw body already execute " +
+    "through the merged interpreter"
 );

@@ -18,12 +18,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   and has no set/query form, so this shape does not execute today (RIFT-9
  *   target.query/target.many set selection); the golden test drives the merged
  *   damage primitive with the card's own amount over the locked set.
- * - "in combat" has no characteristic to read: contract 3.8 item 1 adds
- *   `combatRole: "attacker" | "defender" | null` to ObjectSnapshot, but
- *   neither that field nor an equivalent filter key is merged in
- *   `effects/contract.ts` or the layers' filter vocabulary, so the 740.2.c
- *   test ("occupying a battlefield where combat is ongoing and has a combat
- *   designation") cannot be evaluated.
+ * - ObjectSnapshot already carries combatRole, and the filter vocabulary reads
+ *   it through characteristics, but the combat flow does not yet publish
+ *   attacker/defender designations when Combat starts. The 740.2.c combat-role
+ *   query therefore cannot be evaluated from live game state.
  */
 const cannonBarrage = {
   canonicalCardId: "card.hash-e73ab11687356c6a1a4425ed546ea0a9d32acf12452fea98985aa7f9ba011d35",
@@ -32,9 +30,9 @@ const cannonBarrage = {
   judgeReason:
     "集合不是目标：355.10.d（例 “Kill all units at battlefields” 不取目标）规定 “all enemy units in combat” 由特征程序化选出，" +
     "而 effect.damage 只消费 Finalize 锁定的 TargetSpec（context.targets），没有 355.10.d.1 的 query/集合形式" +
-    "（RIFT-9 target.query/target.many），故不声明 targets、不近似为选择目标（本卡测试用锁定集合真实执行该伤害原语与印刷数额）；" +
-    "同时 “in combat” 无特征可读：契约 3.8 第 1 条才要求 ObjectSnapshot 增加 combatRole（attacker/defender/null），" +
-    "当前 effects/contract.ts 与 layers 过滤器都未合入该字段（740.2.c）。依赖 RIFT-9 集合选择与契约 3.8 落地，不近似实现。",
+    "故不声明 targets、不近似为选择目标（本卡测试用锁定集合真实执行该伤害原语与印刷数额）；" +
+    "同时 ObjectSnapshot 已有 combatRole，ObjectFilter 应通过 characteristics 读取它，但 CombatFlow 在 Combat 开始时" +
+    "尚未发布 attacker/defender designation，740.2.c 的实时集合仍无法求值。仍缺 effect.damage 的集合形态与战斗角色生产方。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
@@ -56,7 +54,7 @@ const cannonBarrage = {
                 filter: {
                   type: "unit",
                   controller: "opponent",
-                  combatRole: ["attacker", "defender"]
+                  characteristics: { combatRole: ["attacker", "defender"] }
                 }
               }
             }

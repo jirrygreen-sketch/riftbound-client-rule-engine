@@ -27,10 +27,9 @@ import type { CardProgram, TargetSpec } from "../../ir/index.js";
  * 2. 仍缺的是关键词授予之后的行为：Shield 的展开（effects/keywords/Shield.ts）是 continuous.might 静态效果
  *    + designation === "defender" 条件，而战斗系统尚未给 ObjectSnapshot 写入 defender 指定；
  *    即使授予已登记，+2 Might 也不会在任何战斗里生效（814.1.d）。
- * 3. CardProgram static 能力 → 图层注册的接线仍未合入（同 rad/packed-amphitheater），
- *    本卡作为 play 正文指令由链执行则不需要该接线。
+ * 3. 本卡是 play 正文指令，CardProgram static 能力的绑定不参与本卡结算。
  *
- * 依赖：RIFT-90（目标计划，本卡已用它锁定战场）、designation 特征与战斗指定（814.1.d）、RIFT-257（卡牌程序 static 注册）。
+ * 依赖：Shield 的 defender designation 特征与图层条件求值（814.1.d）。
  * golden 真实执行战场筛选 + [Shield 2] 授予。
  */
 const forDemacia = {
@@ -43,8 +42,7 @@ const forDemacia = {
     "拿到 Shield 2（814.1.c 的 this turn 用 end-of-turn 期限，317.2.c）。" +
     "(2) 仍未合入的是授予之后的行为：Shield 展开为 continuous.might 静态效果 + designation === \"defender\" 条件，" +
     "而战斗系统不给 ObjectSnapshot 写 defender 指定，因此该 +2 Might 在任何战斗里都不会生效（814.1.d）；" +
-    "另有 CardProgram static → 图层注册接线缺口（同 rad/packed-amphitheater，RIFT-257）。" +
-    "依赖：814.1.d 的 designation 特征与战斗指定、RIFT-257（卡牌程序 static 注册）。" +
+    "依赖：814.1.d 的 designation 特征与战斗指定，以及 Shield 展开条件的图层求值。" +
     "战场按 170 / 170.7 / 355.10.a.1 是目标；受影响单位按 355.10.d 不是目标。[Reaction] 声明本身可校验。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },

@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/ruthless-strike.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-40879a4051400736fda23ede8e39ad9da54a90ec93c7462a8297c7dbf55dee93";
@@ -34,7 +35,10 @@ test("ven-008-166 Ruthless Strike: identity, ruleset, status, judgeReason and ve
   assert.match(program.judgeReason, /356\.4\.f\.1/);
   assert.match(program.judgeReason, /condition\.result/);
   assert.match(program.judgeReason, /158\.2/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  // cost.modify 原语已合入：理由必须点名已合入的通道与仍缺的生产接线，
+  // 不再把原语本身写成缺口。
+  assert.match(program.judgeReason, /cost\.modify/);
+  assert.match(program.judgeReason, /translateCost/);
 });
 
 test("ven-008-166 Ruthless Strike: [Action] keyword and the printed energy-only base cost", () => {
@@ -106,8 +110,85 @@ test("ven-008-166 Ruthless Strike boundary: a unit that left the Board ignores t
   assert.equal(run.events.length, 0);
 });
 
+/**
+ * The merged cost.modify primitive owns the optionalAdditional
+ * channel this card's printed sentence needs: selecting the additional cost
+ * produces a real discard payment, declining it writes declinedAdditional and
+ * pays only the base cost. This exercises the merged channel end to end; it
+ * does not wire the card program's cost into a play action (see judgeReason).
+ */
+test("ven-008-166 Ruthless Strike golden: cost.modify runs the optional additional discard channel", () => {
+  const buildWorld = () => world()
+    .hand("discard-me", { types: ["unit"] })
+    .unit("spell", { types: ["spell"], energy: 3 })
+    .build();
+  const additionalCost = (kernel) => ({
+    id: "ruthless-strike.optional-discard",
+    kind: "additional",
+    cost: {
+      kind: "activated",
+      payments: [{
+        kind: "discard",
+        choice: {
+          id: "ruthless-strike.discard-pick",
+          options: [kernel.ref("discard-me")],
+          min: 1,
+          max: 1,
+          selection: "one"
+        }
+      }]
+    }
+  });
+
+  // 356.2.b.1: the player chooses to pay the optional additional cost.
+  const paid = buildWorld();
+  const paidRun = runInstruction(costModify, {
+    id: "ruthless-strike.plan",
+    cost: { kind: "activated", energy: { kind: "constant", value: 3 } },
+    optionalAdditional: [{ ...additionalCost(paid), selected: true }]
+  }, {
+    world: paid,
+    answers: { "ruthless-strike.plan:pick:ruthless-strike.discard-pick": [paid.ref("discard-me")] }
+  });
+
+  assert.equal(paidRun.result.status, "executed");
+  assert.deepEqual(paidRun.linked.cost.selectedAdditional, [
+    { id: "ruthless-strike.optional-discard", kind: "additional" }
+  ]);
+  assert.deepEqual(paidRun.linked.cost.declinedAdditional, []);
+  assert.deepEqual(
+    paidRun.linked.cost.total.actions.map(action => action.action),
+    [{ type: "discard", object: paid.ref("discard-me") }]
+  );
+  // cost.modify builds the payment plan; the test kernel does not commit its
+  // planned discard until the production play pipeline performs the payment.
+  assert.equal(paid.query({ zone: "hand" }).length, 1);
+  assert.deepEqual(paid.query({ zone: "trash" }), []);
+  assert.deepEqual(paidRun.events, []);
+
+  // 356.2.b: the same choice may be declined; only the base cost is assembled.
+  const declined = buildWorld();
+  const declinedRun = runInstruction(costModify, {
+    id: "ruthless-strike.plan",
+    cost: { kind: "activated", energy: { kind: "constant", value: 3 } },
+    optionalAdditional: [{ ...additionalCost(declined), selected: false }]
+  }, { world: declined });
+
+  assert.equal(declinedRun.result.status, "executed");
+  assert.deepEqual(declinedRun.linked.cost.selectedAdditional, []);
+  assert.deepEqual(declinedRun.linked.cost.declinedAdditional, ["ruthless-strike.optional-discard"]);
+  assert.deepEqual(
+    declinedRun.linked.cost.total.actions.map(action => action.action),
+    []
+  );
+  assert.deepEqual(declinedRun.events, []);
+  assert.equal(declined.query({ zone: "hand" }).length, 1);
+});
+
 test.todo(
-  "ven-008-166 Ruthless Strike: charge the optional additional cost (discard 1, 356.2.b/356.2.b.1) and " +
-    "branch the same Deal action to 5 once the 356.4.f.1 paid receipt exists — needs the RIFT-89 cost " +
-    "plan wiring, a cost-result binding (condition.result) and an instruction-level replacement (CR 158.2)"
+  "ven-008-166 Ruthless Strike: charge the printed optional additional cost inside the play pipeline " +
+    "(356.2.b/356.2.b.1) — programs/play.ts translateCost still rejects additional/additional-cost cost " +
+    "fields on card programs, so the decision never reaches Finalize even though the merged cost.modify " +
+    "optionalAdditional channel executes; the 356.4.f.1 paid receipt still needs a " +
+    "condition.result predicate and the 5-instead-of-3 Deal still needs an instruction-level replacement (CR 158.2)"
 );

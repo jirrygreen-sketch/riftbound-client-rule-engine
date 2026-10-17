@@ -7,7 +7,6 @@ import program from "../../../dist/cards/ogn/startipped-peak.js";
 // production chain adapter (engine-core/src/chain/interpreter-adapter.ts).
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 const enginePipeline = await import("../../../../engine-core/dist/events/pipeline.js");
 
 const CANONICAL = "card.hash-3baf147c819e802d3468d8c30b6fb475909fc861e0dda2bdaa7adba32bfc23e9";
@@ -47,7 +46,7 @@ test("ogn-288-298 Startipped Peak: program validates and is judge-required", () 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /hold/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /battlefieldId/);
   assert.equal(program.sourceText, "When you hold here, you may channel 1 rune exhausted.");
 });
@@ -108,10 +107,6 @@ test("ogn-288-298: declining the option channels nothing and skips the body", ()
   assert.equal(kernel.player("A").runePool.length, 0);
 });
 
-test("ogn-288-298: the trigger filter still carries the unreplaced here placeholder", () => {
-  assert.throws(() => assertTriggerSpec(ability.trigger), /EventPattern 不允许此字段/);
-});
-
 test("ogn-288-298: the hold timing point is emitted by the merged scoring flow with a battlefieldId detail", () => {
   // turn/flow.ts emits "hold" inside the Beginning Scoring Step and carries the
   // held battlefield as details.battlefieldId; the merged pipeline delivers it
@@ -144,8 +139,8 @@ test("ogn-288-298: the hold timing point is emitted by the merged scoring flow w
 });
 
 test.todo(
-  "ogn-288-298: binding the here-anchored hold filter and the card program's triggered ability into " +
-    "the pipeline (RIFT-257) remains pending"
+  "ogn-288-298: normalize the here-anchored hold filter against details.battlefieldId " +
+    "before registering the trigger (RIFT-357)"
 );
 test.todo(
   "ogn-288-298: 431.2 的“exhausted 入场”状态由内核实现——参考测试内核的 channel-rune 不记录符文入场状态" +

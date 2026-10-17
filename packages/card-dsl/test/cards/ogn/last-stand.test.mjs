@@ -73,8 +73,7 @@ test("ogn-069-298 Last Stand judgeReason names the registered halves and the rem
   assert.match(program.judgeReason, /433\.1/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /816/);
-  assert.match(program.judgeReason, /RIFT-265/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /dynamic.*keyword|beginning-start/);
 });
 
 test("ogn-069-298 Last Stand structure: [Action] keyword plus doubling then a linked Temporary grant", () => {
@@ -179,12 +178,7 @@ test("ogn-069-298 Last Stand golden: a target lost before resolution ignores eve
 
 test.todo(
   "Last Stand: granting [Temporary] (816.1.b: kill this at the start of its controller's Beginning Phase, " +
-    "before scoring) needs the RIFT-257 card keyword-to-trigger binding so the merged Temporary KeywordDef " +
-    "(RIFT-265) expansion actually subscribes to beginning-start; 816.2 makes multiple instances redundant and " +
+    "before scoring) needs dynamic keyword-grant trigger registration so the Temporary expansion actually subscribes " +
+    "to beginning-start; 816.2 makes multiple instances redundant and " +
     "124.1 clears temporary modifications on zone change"
-);
-
-test.todo(
-  "Last Stand: [Action] admission (806.1.b) and the linked-target re-verification for both instructions " +
-    "(355.8/359.3.e.14) belong to the chain and target batches (RIFT-90/RIFT-120)"
 );

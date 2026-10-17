@@ -15,8 +15,8 @@ test("ogn-037-298 Immortal Phoenix: program validates and is judge-required", ()
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /429\.5/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /Trash/);
+  assert.match(program.judgeReason, /self-in-trash/);
 });
 
 test("ogn-037-298 Immortal Phoenix: identity, ruleset and exact source text", () => {
@@ -115,9 +115,10 @@ test("ogn-037-298 Immortal Phoenix: playing a stale trash reference is ignored, 
 test.todo(
   'ogn-037-298 Immortal Phoenix: the "when you kill a unit with a spell" trigger attribution ' +
     "(429.5.c/.d) and the trash-zone registration window (385.2) are needed before the trigger can fire " +
-    "for real (RIFT-257 trigger/attribution work)."
+    "for real."
 );
 test.todo(
   "ogn-037-298 Immortal Phoenix: paying :rb_energy_1::rb_rune_fury: to play from the trash through the " +
-    "cost pipeline and asserting the payment events (RIFT-261); cost.pay is not registered in the reference kernel."
+    "cost pipeline and asserting the payment events; cost.pay is available but the card-facing play binding " +
+    "still needs to consume the dynamic self-in-trash target."
 );

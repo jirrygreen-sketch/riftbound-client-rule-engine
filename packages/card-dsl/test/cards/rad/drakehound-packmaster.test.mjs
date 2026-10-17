@@ -31,6 +31,9 @@ test("rad-018-167 Drakehound Packmaster: program validates and has expected iden
   assert.match(program.judgeReason, /RIFT-358/);
   assert.match(program.judgeReason, /356\.1\.b\.1/);
   assert.match(program.judgeReason, /each opponent/);
+  // The reason now pins the merged cost-modify shape: plan actions act on the
+  // source domain and the source spelling stays Weaponmaster-only.
+  assert.match(program.judgeReason, /Weaponmaster/);
 });
 
 test("rad-018-167: reveal, choose-banish, ignore-cost play, recycle-the-rest structure", () => {

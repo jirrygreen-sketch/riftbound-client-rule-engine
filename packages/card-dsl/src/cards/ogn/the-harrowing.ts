@@ -26,11 +26,12 @@ import type { CardProgram } from "../../ir/index.js";
  * Status: judge-required. The cost modification is recorded as a cost.modify
  * descriptor on the play instruction; while it is not a finalized plan the
  * merged primitive reports negated/impossible (contract 3.3). The merged cost
- * pipeline (RIFT-89) can build the ignore-base plan itself —
+ * pipeline can build the ignore-base plan itself —
  * BaseCostModification { kind: "ignore-base", ignore: "energy" } is implemented
  * in cost/cost-plan.ts — but nothing consumes the card's cost.modify descriptor
- * to produce it, and cost.pay/cost.modify instruction primitives (RIFT-261) are
- * not merged. No hand-written FinalizedCostPlan and no approximation by playing
+ * to produce it. The cost.modify primitive is merged, but no producer reads the
+ * selected card's printed cost and passes an ignore-base plan to effect.play.
+ * No hand-written FinalizedCostPlan and no approximation by playing
  * the card for free.
  */
 const theHarrowing = {
@@ -41,10 +42,10 @@ const theHarrowing = {
     "缺「忽略 Energy 费用」的费用计划接线：356.1.b.2 要求把本牌的 Base Energy cost 置 0 而 Power 费用照付——" +
     "已合入的 cost/cost-plan.ts 已实现 BaseCostModification { kind: \"ignore-base\", ignore: \"energy\" }，" +
     "但 ① 没有任何已合入消费方读取卡程序的 cost.modify 描述符并生成本次 Finalize 的费用计划；" +
-    "② cost.pay / cost.modify 指令原语（RIFT-261）未合入，卡程序是静态数据不能自己推导费用。" +
+    "② cost.modify 原语虽然已合入，但它需要调用方提供可计算的 CostPlanInput，当前没有从被选 Trash 单位读取印刷费用并把 ignore-base: energy 接入 effect.play 的生产管线。" +
     "effect.play 只接受已生成的 FinalizedCostPlan（自述 never derives printed costs or implements an ignored-cost rule），" +
     "未 finalized 时按契约 3.3 返回 negated/impossible，不近似实现（不为免费打出、不手写计划）。" +
-    "依赖：RIFT-261（cost.pay/cost.modify）与费用描述符→Finalize 计划的消费接线。",
+    "依赖：被选卡印刷费用读取、cost.modify 描述符到 Finalize 计划的消费接线，以及该计划到 effect.play 的链接。",
   abilities: [
     {
       kind: "play",
@@ -60,7 +61,7 @@ const theHarrowing = {
           args: {
             target: { kind: "constant", value: "the-harrowing.unit" },
             // 356.1.b.2 的费用改写意图（Energy 置 0、Power 照付）；最终必须由费用
-            // 系统在 Finalize 生成 FinalizedCostPlan（RIFT-261），卡牌不结算费用。
+            // 系统在 Finalize 生成 FinalizedCostPlan，卡牌不结算费用。
             cost: { kind: "constant", value: { kind: "cost.modify", ignore: "energy" } }
           },
           targets: [

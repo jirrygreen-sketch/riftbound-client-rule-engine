@@ -21,7 +21,7 @@ test("rad-005-167 Lingering Animus: program validates and has expected identity"
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.sourceText, "I enter ready if a friendly unit or gear died this turn.");
   // README §2: the reason names the still-missing bindings and their owners.
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /matchesEnterAction/);
   assert.match(program.judgeReason, /HistoryQuery/);
 });
 
@@ -84,7 +84,7 @@ test("rad-005-167: the supported entry replacement binds through programs and re
   handle.unbind();
 });
 
-test.todo('Lingering Animus: gate the entry replacement by a friendly unit/gear death this turn, through replacement Condition evaluation (CR 364.3.a/369.3, RIFT-359).');
+test.todo('Lingering Animus: gate the entry replacement by a friendly unit/gear death this turn, through a replacement Condition that can evaluate HistoryQuery (CR 364.3.a/369.3).');
 
 test("Lingering Animus: real kill history already supports historical type and controller", () => {
   const kernel = world().unit("animus").unit("ally").unit("gear", { types: ["gear"] })

@@ -43,7 +43,6 @@ test("unl-204-219 Keeper's Verdict: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /355\.16/);
   assert.match(program.judgeReason, /assertFinalizationSurface/);
   assert.match(program.judgeReason, /choice-plan adapter/);
-  assert.match(program.judgeReason, /RIFT-90/);
 });
 
 test("unl-204-219 Keeper's Verdict: [Action] plus one top-or-bottom mode choice by the unit's owner", () => {
@@ -200,8 +199,29 @@ test("unl-204-219 Keeper's Verdict golden: a stale unit reference is mistargeted
 });
 
 test.todo(
-  "unl-204-219 Keeper's Verdict: let the unit's owner choose top or bottom while the spell resolves through the production chain (CR 355.16/355.17; chain/engine.ts assertFinalizationSurface blocks resolution-time choice.mode - RIFT-90 Finalize/Resolve choice-plan adapter)"
+  "unl-204-219 Keeper's Verdict: the unit's owner chooses top or bottom while the spell resolves through " +
+    "the production chain (CR 355.16/355.17; Finalize/Resolve choice-plan adapter)"
 );
-test.todo(
-  "unl-204-219 Keeper's Verdict: apply the printed [Action] Showdown timing permission through the keyword registry and the chain's canAct (CR 806.1.b; keyword expansion wiring - RIFT-84/RIFT-89)"
-);
+
+test("unl-204-219 Keeper's Verdict golden: the declared Action permits its controller to act with Showdown Focus (CR 806.1.b)", async () => {
+  const { abilitySpeed, expandProgram } = await import("../../../../engine-core/dist/programs/keywords.js");
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+  for (const turnPlayer of ["A", "B"]) {
+    const f = fixture({ turnPlayer, cards: [{ id: "verdict", cardId: CANONICAL_ID, types: ["spell"], energy: 2, power: ["Body", "Order"] }] });
+    const source = f.kernel.getObject("verdict");
+    const expanded = expandProgram(program, source);
+    const speed = abilitySpeed(expanded.abilities, source);
+    assert.equal(speed, "action");
+    assert.equal(expanded.expanded[0].effect.kind, "continuous.timing");
+    assert.deepEqual(expanded.expanded[0].effect.grants, ["showdown"]);
+    assert.equal(f.engine.canAct("A", speed, source.ref, source), turnPlayer === "A");
+
+    f.engine.openShowdown("A");
+    assert.equal(f.engine.canAct("A", speed, source.ref, source), true);
+    assert.equal(f.engine.canAct("A", "normal", source.ref, source), false);
+    assert.equal(f.engine.canAct("B", speed, source.ref, source), false);
+    f.engine.pass("A");
+    assert.equal(f.engine.focus, "B");
+    assert.equal(f.engine.canAct("A", speed, source.ref, source), false);
+  }
+});

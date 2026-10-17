@@ -22,23 +22,11 @@ import type { CardProgram } from "../../ir/index.js";
  * - 828.1.b/[Deflect 3]/[Ganking]：达到三次后获得的两个关键词（809 Deflect、
  *   810 Ganking），由依赖条件 + 关键词授予表达。
  *
- * continuous.might（RIFT-258）与 continuous.grant-keyword（RIFT-258）两句原语已合入，
- * 卡牌能力形态（static + condition）与契约 3.7 一致；但本卡仍 judge-required，
- * 因为静态效果没有可执行的三条链路：
- * 1. 没有 Empower / Empowered 的 KeywordDef，827.1.c.1 的“3 Energy：Empower me”与
- *    827.1.c.5 的“仅当未 Empowered 时启动”无法展开（keywords/registry.generated.ts
- *    的 26 个已注册关键词里没有它们）；
- * 2. 442.1.c.1 的“可被 Empower 三次”是可叠加状态的计数谓词：Empowered 次数不在
- *    ObjectSnapshot，Condition/HistoryQuery 也没有该谓词；effect.empower 的
- *    multiple/limit 参数虽已存在，却没有对象侧许可的读取方，程序里的 empoweredCount
- *    只是描述性记录；
- * 3. 静态能力没有进入 layers 的注册方：RIFT-257 的 attachProgramLifecycle 只把
- *    static/replacement 交给调用方提供的 binder（noopStaticBinder 是缺省值），
- *    engine-core 内没有把 continuous.might / continuous.grant-keyword 的静态数据转成
- *    ctx.addContinuous 注册的实现；且 layers 的 valueOf 不处理 perEmpower / count
- *    形状（会得到 0），condition 也不识别 empoweredCount 这类特征读取。
- * 依赖新的 Empower/Empowered 关键词任务、RIFT-87（条件/谓词）与 RIFT-257（静态效果
- * → layers 的注册接线）。
+ * status 判定（cards/README.md 第 2 节）：judge-required。continuous.might 与
+ * continuous.grant-keyword 原语、静态效果→layers 的注册路径
+ *（programs/statics.ts 的 createEngineStaticBinder，attachProgramLifecycle 缺省
+ * 使用它）都已合入，test.mjs 的 probe 覆盖了三种静态的绑定行为；仍缺的是
+ * Empower KeywordDef、Empowered 计数谓词与 per-Empower 图层求值，见 judgeReason。
  */
 export default {
   canonicalCardId: "card.hash-bc9496bbf6f7cd918c02c302dd1a30bdc473b07744028532891c56fa80672908",
@@ -46,15 +34,17 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处缺口：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，" +
-    "827.1.c.1 的“3 Energy：Empower me”无法展开；(2) 442.1.c.1 的“可被 Empower 三次”需要可叠加" +
-    "状态的计数谓词，Empowered 次数不在 ObjectSnapshot / Condition 里（本程序的 empoweredCount: 3 只" +
-    "是描述性记录）；(3) 三条 static 效果（continuous.might 的 per-Empower 修正与 " +
-    "continuous.grant-keyword 的 [Deflect 3] / [Ganking] 授予）虽有已合入（RIFT-258）的原语与图层引擎，" +
-    "但没有静态效果进入 layers 的注册方：RIFT-257 的 attachProgramLifecycle 只把 static 交给调用方的 " +
-    "binder（缺省 noopStaticBinder），engine-core 内没有将 static 数据转成 ctx.addContinuous 的实现，" +
-    "且 layers 的 valueOf 不处理 perEmpower/count 形状（会得到 0）、condition 不识别 empoweredCount 谓词。" +
-    "依赖新的 Empower/Empowered 关键词任务、RIFT-87（条件/谓词）与 RIFT-257（静态效果→layers 注册接线）。" +
-    "不近似实现。",
+    "expandProgram 对 keyword 声明抛 “Keyword empower has no executable KeywordDef”，" +
+    "827.1.c.1 的“3 Energy：Empower me”无法展开（探针见 test.mjs）；" +
+    "(2) 442.1.c.1 的“可被 Empower 三次”需要可叠加状态的计数谓词：Empowered 次数不在 " +
+    "ObjectSnapshot，Condition 也没有该谓词（condition 求值对未知 object-property 抛 " +
+    "Unsupported condition，静态门条件捕获后恒为 false）；effect.empower 的 multiple/limit " +
+    "参数已存在，但没有对象侧许可的读取方，程序里的 empoweredCount 只是描述性记录（谓词工作" +
+    "在 RIFT-359 进行中）；(3) “+2/每次”没有消费方：静态绑定可把 continuous.might 挂进 " +
+    "layers（programs/statics.ts），但 arithmetic 层只读 amount/value/delta，不读 perEmpower，" +
+    "当前恒加 0；静态 continuous.grant-keyword 可注册 [Deflect 3] / [Ganking] 的 ability 层" +
+    "（探针见 test.mjs），但计数门条件依赖缺口 (2)。" +
+    "依赖新的 Empower/Empowered 关键词任务与 RIFT-359（条件/谓词）。不近似实现。",
   abilities: [
     {
       // 印刷费 3 Energy 见 judgeReason；不伪造启动能力。

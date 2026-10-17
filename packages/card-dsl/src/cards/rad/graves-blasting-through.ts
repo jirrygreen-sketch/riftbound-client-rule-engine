@@ -18,9 +18,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （"Deal damage to all enemy units here" 没有选择动作，"here" 也只是来源位置限制）。
  *   因此本卡**不**把它们写成 TargetSpec/picks（契约 3.9：targets 会触发"成为目标"，
  *   picks 是选择，二者与 each-set 不可互换），而是在 args.appliesTo 里描述该集合
- *   （与 danger-zone 的 each-set 写法同型）；集合解析属目标/集合管线（RIFT-90）。
+ *   （与 danger-zone 的 each-set 写法同型）；集合解析仍属目标/集合管线缺口。
  * - "I don't deal combat damage"：467.2.c 的伤害分配里本单位的 Might 不计入战斗伤害。
- *   RIFT-258 合入了 continuous.combat 原语，但它对任何 flags 都返回
+ *   continuous.combat 原语已合入，但它对任何 flags 都返回
  *   negated(impossible)（文件头自述：图层引擎没有 kind "continuous.combat" 的消费分支），
  *   所以该限制仍无载体；把限制写成触发器或结算时动作属禁止的近似实现。
  */
@@ -61,7 +61,7 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "「I don't deal combat damage」没有已合入的载体：CR v1.5 467.2.c 的战斗伤害分配按单位的 Might 求和" +
-    "伤害，需要抑制本单位战斗伤害贡献的静态限制；continuous.combat 原语已合入（RIFT-258）但图层/战斗端没有" +
+    "伤害，需要抑制本单位战斗伤害贡献的静态限制；continuous.combat 原语已合入但图层/战斗端没有" +
     "消费分支，对任何 flags 都返回 negated(impossible)（文件头自述），故不能把整卡标为可执行。" +
     "两条「When I attack or defend, deal damage equal to my Might to all enemy units here」的另一处缺口是集合形状：" +
     "按 355.10.d 这些单位是程序化集合、不是目标，而 effect.damage 只接受 TargetSpec id，契约缺少" +

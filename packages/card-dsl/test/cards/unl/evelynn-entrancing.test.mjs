@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/evelynn-entrancing.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID =
@@ -127,6 +128,40 @@ test("unl-141-219 Evelynn, Entrancing: the declared keyword ids match the merged
   assert.equal(backline.keyword, registeredBackline.keyword.toLowerCase());
 });
 
+test("unl-141-219 Evelynn, Entrancing: production keyword expansion emits Hidden and Backline static abilities", () => {
+  const source = {
+    ref: { id: "evelynn", zoneEntryId: 1 },
+    cardId: CARD_ID,
+    name: "Evelynn, Entrancing",
+    types: ["unit"],
+    tags: ["Evelynn", "Demon", "Champion"],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "bf-1" },
+    might: 2,
+    energy: 2,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false,
+    combatRole: null
+  };
+  const expanded = expandProgram(program, source);
+  assert.deepEqual(
+    expanded.expanded.map((ability) => [ability.kind, ability.effect.kind]),
+    [
+      ["static", "cost.hidden"],
+      ["static", "continuous.combat"]
+    ]
+  );
+});
+
 test("unl-141-219 Evelynn, Entrancing golden: accepting moves the locked enemy unit to my battlefield", () => {
   // The card's own nested target declaration sits on the Move step, so the interpreter re-selects it.
   // Locking the target through the caller (as Finalize does) and running the body without the nested
@@ -186,9 +221,9 @@ test.todo(
 );
 test.todo(
   "unl-141-219 Evelynn, Entrancing: [Hidden] runtime (CR 811.1.d hide, 811.6 next-turn Reaction and the 0-Energy " +
-    "facedown play) — cost.hidden has no consumer and zones/actions have no Facedown Zone (cost/README.md item 3, RIFT-84)"
+    "facedown play) — cost.hidden has no consumer and zones/actions have no Facedown Zone (cost/README.md item 3)"
 );
 test.todo(
   "unl-141-219 Evelynn, Entrancing: [Backline] damage-assignment ordering (CR 826.3 / 826.4.b) — the continuous.combat " +
-    "consumer is unmerged (RIFT-258/259 and the combat workstream)"
+    "consumer is still missing from the combat allocation workflow"
 );

@@ -29,48 +29,26 @@ import type { CardProgram } from "../../ir/index.js";
  *   ogn/daughter-of-the-void.ts and ven/matriarch-of-war.ts do.
  * - "Use only to play gear or use gear abilities." is a use restriction on the
  *   resources this ability adds (204.4.b.1's restriction family), declared through
- *   ActivatedAbility.restriction; the merged chain has no consumer for a card
- *   restriction yet. The parenthesised sentence is reminder text and not a second
+ *   ActivatedAbility.restriction; translating that custom kind still needs a
+ *   rules adapter. The parenthesised sentence is reminder text and not a second
  *   ability.
  *
- * status (cards/README.md section 2): judge-required, for two reasons.
- * 1. Universal Power has no executable value. The closed Domain union and the
- *    gain-power action cannot express "spendable as any domain" (163.2.b), so the
- *    body instruction is negated(impossible) by the merged primitive rather than
- *    silently gaining one of the six printed domains. This is a contract-level
- *    gap; the golden test locks the negative evidence.
- * 2. The printed use restriction has no consumer: nothing reads a program's
- *    ActivatedAbility.restriction, so the added Power could not be confined to
- *    playing gear or using gear abilities (204.4.b.1 family).
- * The exhaust cost itself is fully supported: cost/plan-values.ts accepts
- * `{ kind: "exhaust", object }` and cost/payment.ts checks that the source is a
- * ready, controlled object on the Board, so the golden test pays it for real.
- * The Legend's own zone is a separate, already-recorded contract gap (CR 107.4.c
- * puts a Champion Legend in the Legend Zone; the frozen ZoneId union has no
- * legend-zone), which the sibling Legends record and which this program does not
- * try to work around.
- * Dependencies: Universal Power support (contract change) and a rules adapter
- * for the custom restriction kind (the merged translateRestriction path only
- * passes through Condition kinds and fails closed otherwise). Nothing is
- * approximated: no domain is chosen for [A],
- * and the restriction is declared rather than dropped.
+ * Current status: judge-required. Universal Power and spending provenance are
+ * unrepresented; the custom resource restriction needs a rules adapter.
+ * programs/activate.ts also emits activated rather than add drafts, so this
+ * card cannot use the chain's Add timing paths. Legend Zone remains unbound.
+ * Exhaust-cost execution on a Board fixture is only partial evidence.
  */
 export default {
   canonicalCardId: "card.hash-4f7b6e74a78c84b04922aadf51f0f8ef02368e59a4158f98eec18e4f301f75fe",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) 任意域（Universal）Power 没有可执行值——135.2.e.5 / 163.2.b 的 [A] " +
-    "必须能当作任一域的 Power 支付，但契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order 六域封闭集合，" +
-    "effect.resources 明确记录 Universal Power 不可表达、绝不用某个域近似，故正文只保留描述性 power: [\"rainbow\"]，" +
-    "原语按 negated(impossible) 拒绝（属契约级缺口，golden 锁定该负证据）；" +
-    "(2) 印刷的「Use only to play gear or use gear abilities.」是所加资源的用途限制（204.4.b.1 的限制家族），" +
-    "但激活限制的翻译路径（programs/play.ts 的 translateRestriction→ChainDraft.restrictions）只透传 Condition 种类的 kind，" +
-    "本卡的自定义 kind 需要规则适配器，无法保证该 Power 只用于打出装备或使用装备能力。" +
-    "已被支持并可真实执行的部分：印刷 :rb_exhaust: 费用（404.1.a / 415.5）在 cost/plan-values.ts 与 cost/payment.ts " +
-    "里是真实可支付的启动费用，golden 会实际支付它；[Reaction] 按 813.1.c.2 / 813.1.d 用 activated.timing = \"reaction\" 声明。" +
-    "另注（非本卡可解）：Champion Legend 的来源区域是 Legend Zone（107.4.c），契约 ZoneId 与参考内核都没有该区域，" +
-    "同批传奇卡记录同一缺口，本程序不绕过。",
+    "Universal Power [A]（135.2.e.5 / 163.2.b）仍无法由 Domain/gain-power 表示或支付；effect.resources 仅接受六域 Power。" +
+    "所加 Power 的用途 restriction（只用于打出 gear 或 gear abilities，204.4.b.1）缺少资源来源/支付用途绑定，" +
+    "programs/play.ts 的 translateRestriction 也拒绝自定义 kind。programs/activate.ts 固定生成 kind=activated，" +
+    "尚未把本能力分到 ChainDraft.kind=add，因此 430.2/430.3 的立即结算与支付期间 Add 路径不能从本卡进入。" +
+    "Legend Zone（107.4.a–d）也不在 ZoneId 中，无法绑定传奇真实来源区域与横置费用。保持 judge-required。",
   abilities: [
     {
       kind: "activated",

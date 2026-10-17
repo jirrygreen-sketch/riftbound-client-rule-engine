@@ -39,7 +39,7 @@ const uncheckedPower = {
     "第二个半段是程序化集合而非目标（355.10.d，其反例正是 “Kill all units at battlefields”）：" +
     "“Deal 12 to ALL units at battlefields” 既指定地点（355.10.b/d）又不是可表达集合——目标系统（target/target-plan.ts）已合入，" +
     "但已合入的 effect.damage 只消费 Finalize 锁定的 TargetSpec id（ctx.targets），没有把 resolution-time 集合/地点交集交给伤害的形态，" +
-    "也没有指令原语可注册该集合；依赖 RIFT-9 清单中的 target.location / target.many 落地与多战场集合的伤害形式。" +
+    "也没有指令原语可注册该集合；当前 effect.damage 只接受 Finalize 锁定的 TargetSpec id，缺少结算期非目标集合的伤害形式。" +
     "“Exhaust all friendly units” 半段用 effect.exhaust 的非目标 picks 集合形式，由 golden 在参考内核上真实执行。" +
     "两半均不声明为 targets、不近似、不手改状态。",
   abilities: [

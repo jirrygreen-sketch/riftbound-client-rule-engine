@@ -31,11 +31,10 @@ test("rad-118-167 Herald of the Emperor: program validates and keeps identity", 
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("rad-118-167 Herald of the Emperor: judgeReason names the Trait-Altering gap and the trigger binding", () => {
+test("rad-118-167 Herald of the Emperor: judgeReason names the Trait-Altering gap", () => {
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /479\.2/);
   assert.match(program.judgeReason, /143\.2\.a\.1/);
-  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-118-167 Herald of the Emperor: 'When you play me' is the self-scoped card-played trigger (383.4.a.1)", () => {
@@ -123,6 +122,6 @@ test.todo(
     "arithmetic layer (479.4)"
 );
 test.todo(
-  "rad-118-167 Herald of the Emperor: the card-played trigger must be registered as a " +
-    "TriggerRegistration so the play effect goes on the chain (CR 383.4.a.2) — RIFT-257"
+  "rad-118-167 Herald of the Emperor: once Base Might has a Trait-Altering primitive, execute the card-played " +
+    "TriggerRegistration through the chain and assert the chosen friendly unit's base Might is 5 until turn end (383.4.a.2)"
 );

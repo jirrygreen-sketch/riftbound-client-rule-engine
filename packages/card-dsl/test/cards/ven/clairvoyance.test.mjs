@@ -64,6 +64,7 @@ test("ven-056-166 Clairvoyance: judgeReason names the ordered deck-top gap and t
   assert.match(program.judgeReason, /picksSpecId/);
   assert.match(program.judgeReason, /RIFT-64\/RIFT-66/);
   assert.match(program.judgeReason, /Predict X/);
+  assert.ok(!/RIFT-91/.test(program.judgeReason));
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 

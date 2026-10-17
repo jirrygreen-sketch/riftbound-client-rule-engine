@@ -37,10 +37,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    blockedReason token-definition-or-abilities-judge-required。
  * 3. “exhausted” 是入场状态改写（143.4 / 185.2.d），create-token 动作与 effect.token
  *    都不支持入场状态；先创建再补横置会多出一次“成为横置”事件，不等价。
- * 4. 模式二的 “Pay :rb_rune_chaos: to draw 1” 是指令内费用（355.10.c.1）：费用计划模块
- *    已能支付 power，但没有指令内 cost.pay 原语（effects/instructions/ 仍无该 op；
- *    RIFT-261 进行中），模式二没有可执行路径。
- * 依赖：RIFT-261（费用种类与 cost.pay）、RIFT-120（卡牌 keyword/费用接线）、
+ * 4. 模式二的 “Pay :rb_rune_chaos: to draw 1” 是指令内费用（355.10.c.1）：cost.pay 原语
+ *    已合入（effects/instructions/cost.pay.ts；CR 203.3 失败必须 throw、调用方必须提供
+ *    事务），golden 已用事务包装真实执行 pay → draw；仍缺 success-gated payment body
+ *    （cost/kinds/README.md 契约变更请求 #2），ready 后语义不能凭 linkedTo 门控。
+ * 依赖：success-gated payment body（契约变更请求）、RIFT-120（卡牌 keyword/费用接线）、
  * RIFT-62/RIFT-63（token 定义与链上生成）。
  */
 const abilities: Ability[] = [
@@ -92,17 +93,27 @@ const abilities: Ability[] = [
                 body: [
                   {
                     // 355.10.c.1：成本内指令的支付部分；混沌符文（Power）支付。
+                    // cost.pay 的主参数是 payments（power 只是修饰选项），无印刷
+                    // 能量时 energy 显式为 0。
                     id: "reckless-innovator.pay-chaos",
                     op: "cost.pay",
                     args: {
-                      power: { kind: "constant", value: ["Chaos"] }
+                      payments: {
+                        kind: "constant",
+                        value: { energy: 0, power: ["Chaos"] }
+                      }
                     }
                   },
                   {
                     id: "reckless-innovator.draw-one",
                     op: "effect.draw",
                     linkedTo: "reckless-innovator.pay-chaos",
-                    args: { amount: { kind: "constant", value: 1 } }
+                    args: {
+                      amount: {
+                        kind: "constant",
+                        value: { kind: "constant", value: 1 }
+                      }
+                    }
                   }
                 ]
               }
@@ -126,8 +137,10 @@ export default {
     "mode \"play\" 返回 negated 与 blockedReason token-definition-or-abilities-judge-required。" +
     "(3) “exhausted” 是 token 入场状态改写（143.4 / 185.2.d），create-token 与 effect.token 都不支持入场状态，" +
     "先创建再补横置会多出一次“成为横置”事件，不等价。(4) “Pay :rb_rune_chaos: to draw 1” 是指令内费用" +
-    "（355.10.c.1），effects/instructions/ 仍无 cost.pay 类原语（RIFT-261 进行中）。" +
-    "依赖：RIFT-261（费用种类与 cost.pay）、RIFT-120、RIFT-62/RIFT-63（token 与链上生成）。",
+    "（355.10.c.1）：cost.pay 原语已合入（CR 203.3 失败必须 throw、调用方必须提供事务），" +
+    "golden 已用事务包装真实执行 pay → draw 并验证不足回滚；仍缺 success-gated payment body" +
+    "（cost/kinds/README.md 契约变更请求 #2）。依赖：success-gated payment body、RIFT-120、" +
+    "RIFT-62/RIFT-63（token 与链上生成）。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_chaos: as an additional cost to have me enter ready.)\n" +

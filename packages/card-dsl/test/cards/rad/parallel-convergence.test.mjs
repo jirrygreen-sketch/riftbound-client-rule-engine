@@ -32,8 +32,8 @@ test("rad-051-167 Parallel Convergence: judgeReason names the missing return-to-
   assert.match(program.judgeReason, /return a friendly unit to its owner's hand/);
   assert.match(program.judgeReason, /355\.1\.a/);
   assert.match(program.judgeReason, /356\.2\.b\.1/);
-  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /Unsupported cost kind: additional/);
+  assert.equal(/RIFT-89|RIFT-261/.test(program.judgeReason), false);
   // The damage half is merged and executed; it must not be presented as a gap.
   assert.match(program.judgeReason, /effect\.damage/);
   assert.match(program.judgeReason, /真实执行证据/);
@@ -120,6 +120,5 @@ test.todo(
   "rad-051-167 Parallel Convergence: collecting the mandatory additional cost 'return a friendly " +
     "unit to its owner's hand' during Finalize needs a return-to-hand cost payment kind and the " +
     "mandatory-additional stage in the cost plan (cost/plan-values.ts readCost accepts only " +
-    "exhaust/discard/recycle/kill/reveal/spend-buff and rejects kind additional) — RIFT-261 " +
-    "(cost.pay / cost.modify) and the RIFT-89 cost pipeline."
+    "exhaust/discard/recycle/kill/reveal/spend-buff and rejects kind additional)."
 );

@@ -15,6 +15,9 @@ import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+
 const CARD_ID = "card.hash-ff9a6c1b5cc8b6c38f2be0c96b63bf7e77ad4fb2c14de333e9f0a2b2ae17ae52";
 const SOURCE_TEXT =
   "[Action] (Play on your turn or in showdowns.)\n" +
@@ -100,8 +103,8 @@ test("sfd-200-221 Arcane Shift: judgeReason names the ignore-cost rule and the m
   assert.match(program.judgeReason, /356\.1\.b\.1/);
   assert.match(program.judgeReason, /356\.1\.b/);
   assert.match(program.judgeReason, /FinalizedCostPlan/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /ignore-base:resources/);
+  assert.match(program.judgeReason, /ctx\.source/);
   // The supported halves must be described as supported, not as blocked.
   assert.match(program.judgeReason, /428\.1/);
   assert.match(program.judgeReason, /359\.3\.e\.14/);
@@ -348,15 +351,46 @@ test("sfd-200-221 Arcane Shift: the 'at a battlefield' restriction matches battl
 });
 
 test.todo(
-  "sfd-200-221 Arcane Shift: materialize the ignore-cost plan (base Energy and base Power set to zero per " +
-    "CR 356.1.b/356.1.b.1, floor 0 per 356.6, without rewriting 356.1.b.3 additional costs) and play the " +
-    "banished card as its owner's Limited Action (420.3/420.3.a) into that player's Base — needs the " +
-    "cost.modify ignore component and its finalized-plan producer (RIFT-261), plus the CardProgram play " +
-    "binding (RIFT-257)"
+  "Arcane Shift: bind the newly banished unit and owner to nested Finalize, convert its ignore-base CostPlan to FinalizedCostPlan, preserve later costs and choose its legal destination (356.1.b.1/.3/420.3)"
 );
 
 test.todo(
-  "sfd-200-221 Arcane Shift: [Action] admission (806.1.b) plus Finalize-time target locking, the Pending-item " +
-    "exclusion for the enemy unit and the became-target notifications belong to the chain and target batches " +
-    "(RIFT-84/RIFT-90/RIFT-120)"
+  "Arcane Shift: verify the entire Action card through Finalize and Resolve after nested ignored-cost play is bound, retaining target locking, Pending exclusions and became-target notifications (806.1.b/355.5)"
 );
+
+
+test("Arcane Shift: the merged ignore-base planner preserves later costs and the banished unit's printed characteristics", () => {
+  const kernel = world().player("A").player("B", { energy: 3 })
+    .unit("unit", { owner: "B", controller: "A", energy: 4, power: ["Mind"] }).build();
+  const banished = runInstruction(banish, banishFriendlyUnit.args, {
+    world: kernel, targets: { [friendlySpec.id]: [kernel.ref("unit")] }
+  });
+  assert.equal(banished.result.status, "executed");
+  const ref = banished.linked.banishedUnitObject;
+  const source = kernel.object(ref);
+  assert.equal(source.owner, "B");
+  // Exercise the payer's real source/controller boundary for the unit. The
+  // missing nested Finalize bridge must provide this binding in production.
+  const payer = kernel.clone({ sourceSnapshot: source, controller: source.owner });
+  const modified = runInstruction(costModify, {
+    id: "arcane-shift.unit-cost",
+    baseModifications: [{ kind: "ignore-base", ignore: "resources" }],
+    mandatoryAdditional: [{ id: "additional", cost: { energy: { kind: "constant", value: 2 } } }],
+    modifiers: [{ kind: "increase", resource: "energy", amount: { kind: "constant", value: 1 } }]
+  }, { world: payer });
+  assert.equal(modified.result.status, "executed");
+  const plan = modified.linked.cost;
+  assert.deepEqual(plan.source, ref);
+  assert.equal(plan.player, "B");
+  assert.equal(plan.printed.energy, 4);
+  assert.equal(plan.total.energy, 3);
+  assert.deepEqual(plan.total.power, []);
+  assert.equal(plan.components.find(component => component.id === "base").cost.energy, 0);
+  const paid = runInstruction(costPay, { cost: { kind: "constant", value: plan } }, { world: payer });
+  assert.equal(paid.result.status, "executed");
+  assert.equal(paid.linked.payment.paid, true);
+  assert.equal(payer.player("B").energy, 0);
+  assert.equal(payer.getObject("unit").zone, "banishment");
+  assert.equal(payer.getObject("unit").energy, 4);
+  assert.deepEqual(payer.getObject("unit").power, ["Mind"]);
+});

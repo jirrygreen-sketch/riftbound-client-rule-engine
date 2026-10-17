@@ -5,6 +5,9 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/rad/lady-of-clockwork.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runInstruction } from "../../../../engine-core/dist/effects/testing/run-instruction.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import mightOp from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 
 const CANONICAL_ID =
   "card.hash-3cd6936ca27659594b605ddc164b8a803fc72df73ac4a16f33b673ecabc1791a";
@@ -30,10 +33,14 @@ test("rad-145-167 Lady of Clockwork: identity, status and verbatim sourceText", 
   // cards README §2: judgeReason names the current cost binding, trait/Might, and
   // choice-driven duration gaps.
   assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /顶层 CostSpec/);
+  assert.match(program.judgeReason, /TriggeredAbility/);
+  assert.match(program.judgeReason, /383\.3\.b\.1/);
   assert.match(program.judgeReason, /trait/);
   assert.match(program.judgeReason, /206/);
   assert.match(program.judgeReason, /Duration/);
+  assert.match(program.judgeReason, /TriggeredAbility|triggers\/optional\/body|费用槽位/);
+  assert.match(program.judgeReason, /isDurationAlias/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-91|RIFT-120|RIFT-257|RIFT-261/);
 });
 
 test("rad-145-167 Lady of Clockwork: Main Phase start trigger for the controller", () => {
@@ -154,7 +161,7 @@ test("rad-145-167 Lady of Clockwork: choosing a gear is a target, so the printed
 test.todo(
   "rad-145-167: pay the 1 Energy at Finalize — needs a triggered-ability top-level CostSpec " +
     "binding (CR 204.3 / 383.3.b / 404.1.b.1); cost.pay exists as an instruction but cannot " +
-    "replace the Finalize base-cost step"
+    "replace the Finalize base-cost step (TriggeredAbility has no cost slot in the merged IR)"
 );
 
 test.todo(
@@ -165,6 +172,58 @@ test.todo(
 
 test.todo(
   "rad-145-167: expire the transformation when this legend chooses another gear — the merged " +
-    "Duration union has no repeat-choice trigger, so the source-bound, choice-driven duration " +
-    "model is still missing (CR 135.4.b / 801.3.a)"
+    "Duration union has no repeat-choice trigger and isDurationAlias rejects this string, so the " +
+    "source-bound, choice-driven duration model is still missing (CR 135.4.b / 801.3.a)"
 );
+
+test("rad-145-167 Lady of Clockwork boundary: in-body payment resolves after the ability is on the chain", () => {
+  // 204.3 / 383.3.b.1: this cost must be paid in order to finalize the ability.
+  // The merged cost.pay instruction can settle a descriptor, but only while the
+  // body resolves - after the ability is already a chain item - so using it
+  // would downgrade the base cost to a resolution effect. The card's own
+  // { energy: 1 } spelling is not even a legal cost.pay descriptor key.
+  const kernel = world()
+    .player("A", { energy: 2 })
+    .object("lady", { cardId: CANONICAL_ID, types: ["legend"] })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("lady") });
+  assert.throws(
+    () => runInstruction(costPay, { energy: { kind: "constant", value: 1 } }, { world: scoped }),
+    /Invalid cost\.pay argument: energy/
+  );
+  assert.equal(scoped.player("A").energy, 2);
+  // A valid descriptor pays immediately inside the resolving body, which is the
+  // wrong time (no Finalize gate): this is the boundary the card must not use.
+  const paid = runInstruction(costPay, { payments: { kind: "constant", value: { energy: 1 } } }, { world: scoped });
+  assert.equal(paid.result.status, "executed");
+  assert.equal(scoped.player("A").energy, 1);
+});
+
+test("rad-145-167 Lady of Clockwork boundary: the transformation declaration is not executable IR", () => {
+  // 133.4.a.2 / 150.4 / 206: becoming a unit Gear needs a trait-layer type
+  // rewrite plus a Might value read from the printed Energy cost. The merged
+  // continuous.might argument schema carries neither addTypes nor the printed
+  // value lookup, and the duration alias is unknown.
+  const args = becomeUnitGear.args;
+  // The printed-energy lookup is not an integer literal, so the declaration
+  // cannot even be normalized into the merged argument schema; dropping
+  // addTypes does not make it parseable either (still 206's dynamic value).
+  assert.throws(() => mightOp.argsSchema.parse(args), /amount must be a safe integer/);
+  assert.throws(
+    () => mightOp.argsSchema.parse({ amount: { kind: "constant", value: 1 }, addTypes: { kind: "constant", value: ["unit"] } }),
+    /Invalid continuous\.might argument: addTypes/
+  );
+  const kernel = world()
+    .player("A", { energy: 2 })
+    .object("lady", { cardId: CANONICAL_ID, types: ["legend"] })
+    .unit("gear-1", { zone: "board", types: ["gear"], controller: "A", energy: 3 })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("lady") });
+  // Even with an integer amount, the merged alias set has no
+  // "until you choose another gear" duration, so the instruction rejects it.
+  assert.throws(
+    () => runInstruction(mightOp, { amount: { kind: "constant", value: 3 }, duration: { kind: "constant", value: "until-you-choose-another-gear-with-me" }, objects: { kind: "constant", value: { kind: "target", id: "lady-of-clockwork.gear" } } }, { world: scoped, targets: { "lady-of-clockwork.gear": [kernel.ref("gear-1")] } }),
+    /duration is not a known alias/
+  );
+  assert.equal(kernel.getObject("gear-1").types.includes("unit"), false);
+});

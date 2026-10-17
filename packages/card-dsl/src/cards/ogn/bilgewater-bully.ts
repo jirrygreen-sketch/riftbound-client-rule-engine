@@ -19,12 +19,11 @@ import type { CardProgram } from "../../ir/index.js";
  * `buffs`（ObjectSnapshot 的真实字段），不发明新的判定方式。
  *
  * status: judge-required —— 依据以下缺口，不近似实现：
- * 1. `continuous.grant-keyword` 原语与图层求值已合入（RIFT-258；本卡测试真实执行并
- *    验证 ability 层的 Ganking 与回合结束到期），但静态 CardProgram 能力还没有绑定
- *    层把它注册成 ContinuousEffectSpec（RIFT-257），条件的 `buffs` 计数也没有求值入口。
- * 2. Ganking 的展开（effects/keywords/Ganking.ts）与 `continuous.movement` 查询已合入，
- *    但生产移动路径（zones/movement.ts / duel 执行器）只读调用方传入的 hasGanking 求值器，
- *    没有从图层 MovementPermissions 派生的接线，因此无法证明实际获得 Ganking（810.1.c、144.4.c）。
+ * 1. `continuous.grant-keyword` 原语、条件的 `buffs` 求值和静态程序绑定都已具备；本卡
+ *    测试真实执行并验证 ability 层的 Ganking 与回合结束到期。
+ * 2. Ganking 的展开与 `continuous.movement` 查询已具备，但生产移动路径仍需要把图层的
+ *    movement permission 派生到标准移动的 `hasGanking` 许可；当前 DuelReadiness 仍由调用方
+ *    提供该布尔值，因此无法证明实际获得 Ganking（810.1.c、144.4.c）。
  * 3. 因此本卡无法在整卡层面证明“被 Buff 时确实获得 Ganking”。
  */
 export default {
@@ -35,9 +34,9 @@ export default {
     "「While I'm buffed, I have [Ganking]」是条件式被动能力（364.3），需要 ability 层把关键词" +
     "授予宿主：continuous.grant-keyword 原语与图层求值已合入（RIFT-258，本卡测试真实执行并验证" +
     "Ganking 授予与回合结束到期），Ganking 的 KeywordDef 与 continuous.movement 规则查询也已合入；" +
-    "但仍缺静态 CardProgram 能力到 ContinuousEffectSpec 的绑定层（RIFT-257，含 condition 的 buffs 求值），" +
-    "且生产移动路径只读调用方传入的 hasGanking 求值器、没有从图层 MovementPermissions 派生的接线，" +
-    "故无法证明整卡实际获得 Ganking（810.1.c、144.4.c）。依赖：RIFT-257 卡牌程序绑定与移动许可派生接线。" +
+    "静态 CardProgram 绑定与 condition 的 buffs 求值已可用，但生产移动路径仍只读调用方传入的 hasGanking、" +
+    "没有从图层 MovementPermissions 派生该许可的接线，" +
+    "故无法证明整卡实际获得 Ganking（810.1.c、144.4.c）。依赖：移动许可到标准移动的派生接线。" +
     "条件的 buffs 计数本身可用 object-property 表达，不近似实现。",
   abilities: [
     {

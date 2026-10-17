@@ -25,9 +25,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（缺口不近似实现）：
  * - 触发条件 "if you spent :rb_energy_4: or more" 无以可求值路径：合并 IR 的
- *   Expr/Condition 只能读对象特征、链接值与对象计数，没有读取"为这张刚打出的法术实际支付
- *   的 Energy 总量"的表达式；契约 3.6 的 HistoryQuery 只有对象/动作/时点/玩家维度
- *   （金额维度缺失），ResolveContext 也没有 spent 入口（依赖 RIFT-89 的费用计划回执）。
+ *   Expr/Condition 只能读对象特征、链接值与对象计数，没有读取“为这张刚打出的法术实际支付
+ *   的 Energy 总量”的表达式；effects/interpreter/history.ts 的 HistoryQuery 只允许
+ *   scope/action/timingPoint/player/object/exclude/objectFilter（没有金额维度），
+ *   但 ResolveContext/history 没有把该 spell 的实际 Energy 支付金额作为触发条件输入。
  *   与 ogn/loose-cannon、unl/virtuoso 的同一缺口口径一致：不把金额条件近似成对象计数或恒真。
  * - [Ganking]（810）的 KeywordDef（effects/keywords/Ganking.ts）与消费侧（RIFT-259 的
  *   continuous.movement 原语、layers/rules/query.ts 的 movement() 查询）都已合入，但两边
@@ -36,14 +37,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   { kind: "movement", permission: { routes: [...] } } —— continuous.movement 指令自己
  *   归一化成 routes 形状，但关键词展开没有走该归一化；实测把展开原样注册进图层后
  *   canGank/battlefieldToBattlefield 仍为 false，只有归一化形状才为 true。
- *   另外仍没有生产方把卡牌 keyword 能力解析成 KeywordDef 并注册进图层（RIFT-257 的
- *   programs/ 适配器没有运行时调用方）。810.1.b 的战场→战场 Standard Move 许可因此未生效。
+ *   programs/lifecycle.ts 已负责把卡牌 keyword 展开并绑定到图层；当前缺口是
+ *   Ganking 展开输出与 movement() 查询所需的 routes 形状不一致，因此绑定后的许可仍然不能被消费。
  *
  * 已合入并真实执行的部分：触发体的 "ready me"（416.1）用 effect.ready 以 "source"
  * 选择器在 golden 中真实执行，并覆盖已就绪单位的 no-op 情况（416.1.b/c）。
  *
- * 依赖：RIFT-89（费用计划的实际支付回执）、Ganking 展开与 continuous.movement 归一化的
- * 对齐、RIFT-257（卡牌程序 → 图层/触发的生产接线）。
+ * 依赖：played-spell 费用金额进入 ResolveContext/history，以及 Ganking 展开与
+ * continuous.movement routes 归一化的对齐。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "ganking" },
@@ -93,18 +94,20 @@ export default {
   status: "judge-required",
   judgeReason:
     "两处依赖未合入：(1) 触发条件「if you spent :rb_energy_4: or more」没有可求值路径——合并 IR 的 Expr/Condition " +
-    "只能读对象特征、链接值与对象计数（count 只数对象、不读金额），契约 3.6 的 HistoryQuery 只有 " +
-    "{ scope, action, timingPoint, player, object }，ResolveContext 也没有 spent / finalized 费用回执入口，" +
-    "因此 383.2.a.1 的触发条件无法求值（依赖 RIFT-89 的费用计划回执）。" +
+    "只能读对象特征、链接值与对象计数（count 只数对象、不读金额），effects/interpreter/history.ts 的 HistoryQuery " +
+    "只允许 { scope, action, timingPoint, player, object, exclude, objectFilter }，没有金额维度，" +
+    "当前 ResolveContext/history 没有把该 spell 的实际 Energy 支付金额作为触发条件输入，因此" +
+    "383.2.a.1 的触发条件无法求值；这不是 cost.pay 原语缺失，而是金额历史/载荷接口缺失。" +
     "(2) [Ganking]（810）的 KeywordDef（effects/keywords/Ganking.ts）与消费侧（RIFT-259 的 continuous.movement " +
     "原语、layers/rules/query.ts 的 movement()）都已合入，但两边形状不通：Ganking 展开输出 " +
     "permission: \"battlefield-to-battlefield\"（标量字段），movement() 只读 continuous.movement 归一化后的 " +
     "permission: { routes: [...] }；实测把展开原样注册进图层后 canGank 仍为 false。" +
-    "另外仍没有生产方把卡牌 keyword 能力解析成 KeywordDef 并注册进图层（RIFT-257 的 programs/ 适配器无运行时调用方）；" +
+    "programs/lifecycle.ts 已负责把卡牌 keyword 展开并绑定到图层，但 Ganking 展开输出与 movement() 查询所需的" +
+    "routes 形状不一致，绑定后的战场到战场许可仍不能被消费；" +
     "810.1.b 的战场→战场 Standard Move 许可因此未生效。" +
     "已合入部分：触发体的 “ready me”（416.1）用 effect.ready 的 ‘source’ 选择器在 golden 中真实执行，" +
-    "并覆盖已就绪单位的 no-op（416.1.b/c）。依赖：RIFT-89（费用回执）、Ganking 展开与 continuous.movement " +
-    "归一化的对齐、RIFT-257（卡牌程序 → 图层/触发的生产接线）。不近似实现。",
+    "并覆盖已就绪单位的 no-op（416.1.b/c）。依赖：金额历史/载荷接口与 Ganking 展开到" +
+    "continuous.movement routes 的归一化对齐。不近似实现。",
   abilities,
   sourceText:
     "[Ganking] (I can move from battlefield to battlefield.)\n" +

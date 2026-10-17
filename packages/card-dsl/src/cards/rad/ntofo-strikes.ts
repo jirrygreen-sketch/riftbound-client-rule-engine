@@ -49,7 +49,7 @@ export default {
     "「deal damage equal to its [Shield]」需要读取关键词数值：ObjectSnapshot.keywords 是 { id, value } 列表，" +
     "814.2 规定多个 Shield 实例相加成单一 Shield Value，而冻结的 Expr 形式只能读快照属性，没有读取关键词数值的表达式，" +
     "已在数据里记下待补的 effect.shield-value（registry 未注册该 op）。" +
-    "依赖：读取关键词数值的表达式/原语（RIFT-81 Shield 关键词后续）。",
+    "依赖：读取 ObjectSnapshot.keyword value 的表达式或原语；不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

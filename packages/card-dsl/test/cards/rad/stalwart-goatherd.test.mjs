@@ -179,11 +179,12 @@ test("rad-083-167 Stalwart Goatherd: effect.kill ignores a gear that left its zo
 
 test.todo(
   "stalwart-goatherd: 'gear with Energy cost 4 or less' target restriction (CR 163.1 / 356.x printed Energy)" +
-    " needs a target-pipeline evaluator for the printed Energy cost; energy:null means no printed value" +
-    " and must never be treated as 0"
+    " has no evaluator anywhere in engine-core (energyLte is not computed), and translateObjectFilter rejects" +
+    " the key as an unsupported filter field; energy:null means no printed value and must never be treated as 0"
 );
 test.todo(
   "stalwart-goatherd: [Shield 2] expansion (+2 Might while defending, stacking sum) through the Shield" +
-    " KeywordDef and the layers consumer — the merged conditionMatches does not evaluate the" +
-    " declaration's 'designation' predicate and ObjectSnapshot exposes combatRole instead"
+    " KeywordDef and the production binders — the expansion predicate reads object-property 'designation'," +
+    " the merged ObjectSnapshot exposes only combatRole, evaluation returns MissingInformation and" +
+    " bindStaticToLayers' catch makes the condition permanently false"
 );

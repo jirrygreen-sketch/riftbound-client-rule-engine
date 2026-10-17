@@ -1,6 +1,8 @@
 import type { Expr, ObjectFilter, ObjectRef, ObjectSnapshot, ResolveContext, Value } from "../contract.js";
 import { queryObjects, resolveObjectSelector, selectorSnapshot } from "./selectors.js";
 import { arithmetic, asValue, MissingInformation } from "./values.js";
+import { resolveLocationSelector } from "./locations.js";
+import type { LocationRef } from "../contract.js";
 
 export interface ExpressionContext {
   readonly context: ResolveContext;
@@ -14,12 +16,22 @@ export interface ExpressionContext {
   linked(instructionId: string, key?: string): Value | undefined;
   canLookBack(ref: ObjectRef): boolean;
   isIgnored(ref: ObjectRef): boolean;
+  locations?: (id: string) => readonly LocationRef[];
 }
 
 export function evaluateExpression(expr: Expr, environment: ExpressionContext): Value {
   switch (expr.kind) {
     case "constant":
     case "literal": return asValue(expr.value);
+    case "location": {
+      const resolved = resolveLocationSelector(expr.value, {
+        context: environment.context,
+        host: environment.host,
+        linked: (id, key) => environment.linked(id, key),
+        locationBindings: environment.locations
+      });
+      return asValue(resolved);
+    }
     case "linked":
     case "linked-value": {
       const value = environment.linked(expr.instructionId, expr.key);

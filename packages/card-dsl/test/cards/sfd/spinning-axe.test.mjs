@@ -16,9 +16,11 @@ import { bindResolveContext } from "../../../../engine-core/dist/events/action-a
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { createProgramBinding, triggerRegistrations } from "../../../../engine-core/dist/programs/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { buildCostPlan, payCostPlan, DUEL_DOMAINS } from "../../../../engine-core/dist/cost/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID =
   "card.hash-800c2a2c210066550ce1c729596dd3e463d221242fece59853f3a3983e3023b4";
@@ -30,7 +32,8 @@ const HOST = { canonicalCardId: CARD_ID };
 
 const [quickDraw, equip, temporary] = program.abilities;
 
-const axeWorld = () => world()
+const axeWorld = (resources = {}) => world()
+  .player("A", resources)
   .object("spinning-axe", {
     name: "Spinning Axe",
     cardId: CARD_ID,
@@ -99,12 +102,13 @@ test("sfd-186-221 Spinning Axe: identity, ruleset, status, judgeReason and verba
   // the dependent work, not a generic "needs support".
   assert.match(program.judgeReason, /Temporary/);
   assert.match(program.judgeReason, /816\.1\.b/);
-  assert.match(program.judgeReason, /163\.2\.b/);
+  assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
+  assert.match(program.judgeReason, /params\.cost/);
   // The Temporary KeywordDef and the CardProgram binding have merged since the
   // original note; the refreshed reason points at the EventPattern vocabulary
-  // (beginning-start), the in-progress cost work and the event source payload.
+  // (beginning-start), the equip payment kind and the event source payload.
   assert.match(program.judgeReason, /RIFT-39/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.equal(program.judgeReason.includes("RIFT-261"), false);
   assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.judgeReason.includes("无已合入 KeywordDef"), false);
 });
@@ -116,8 +120,8 @@ test("sfd-186-221 Spinning Axe: three keyword declarations in printed order", ()
   assert.equal(equip.keyword, "equip");
   // 818.1.c.2: the printed Equip cost is one :rb_rune_rainbow: symbol.
   assert.equal(equip.value, 1);
-  // [A] is Universal Power (135.2.e.5 / 163.2.b); the descriptive spelling
-  // records the printing without narrowing it to one of the six named domains.
+  // [A] is an any-domain cost (135.2.e.5.a); the printed mark must not narrow
+  // it to a single named domain.
   assert.equal(equip.costDomain, "rainbow");
   for (const domain of ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]) {
     assert.equal(equip.costDomain === domain, false);
@@ -236,35 +240,19 @@ test("sfd-186-221 golden: the merged binding layer registers the Quick-Draw card
   const lifted = { ...program, status: "executable" };
   delete lifted.judgeReason;
   const bound = createProgramBinding({ cardPrograms: [lifted] });
-  const registrations = [];
-  bound.registerProgramTriggers(
-    { pipeline: { registerTrigger: (registration) => registrations.push(registration), unregisterTrigger: () => {} } },
-    {
-      ref: { id: "spinning-axe", zoneEntryId: 1 },
-      cardId: CARD_ID,
-      name: "Spinning Axe",
-      types: ["gear"],
-      tags: ["Draven", "Equipment", "Signature"],
-      keywords: [{ id: "Quick-Draw" }, { id: "Equip", value: 1 }, { id: "Temporary" }],
-      owner: "A",
-      controller: "A",
-      zone: "board",
-      location: { type: "base", player: "A" },
-      might: 3,
-      energy: 2,
-      power: null,
-      exhausted: false,
-      damage: 0,
-      stunned: false,
-      buffs: 0,
-      attachedTo: null,
-      faceDown: false,
-      isToken: false
-    }
-  );
+  const { engine, kernel } = fixture({ cards: [{
+    id: "spinning-axe", cardId: CARD_ID, types: ["gear"], might: 3,
+    keywords: [{ id: "Quick-Draw" }, { id: "Equip", value: 1 }, { id: "Temporary" }]
+  }] });
+  engine.commit({ type: "move-zone", object: kernel.ref("spinning-axe"), to: "base", location: { type: "base", player: "A" } });
+  const registrations = triggerRegistrations(bound.registry, kernel.getObject("spinning-axe"));
 
   const quickDraw = registrations.find((registration) => registration.spec.filter.source !== undefined);
   assert.ok(quickDraw, "the Quick-Draw card-played trigger must be registered");
+  // Register the supported Quick-Draw subscription through the real pipeline.
+  // Temporary remains separately blocked on its event vocabulary (see TODO).
+  engine.pipeline.registerTrigger(quickDraw);
+  assert.deepEqual(engine.pipeline.checkpoint().triggers.get(quickDraw.id), quickDraw);
   assert.deepEqual(quickDraw.spec.filter, { event: "card-played", source: { canonicalCardId: CARD_ID } });
   assert.equal(quickDraw.optional, false);
 
@@ -288,13 +276,35 @@ test.todo(
 
 test.todo(
   "sfd-186-221 Spinning Axe: paying the printed Equip cost (one [A] Power, CR 135.2.e.5 / 818.1.c.2) is blocked on " +
-    "the `equip` payment kind in cost/plan-values.ts and on a contract representation for Universal Power " +
-    "(CR 163.2.b; in-progress RIFT-261); the merged cost plan rejects { kind: 'equip' } with reason judge-required"
+    "the Equip printed-cost parameter flow and conversion of its equip placeholder into the existing " +
+    "power payment with all six allowedDomains (CR 135.2.e.5.a)"
 );
+
+test("sfd-186-221 Spinning Axe: each Domain can pay the printed one-Power Equip requirement", () => {
+  // This verifies the supported requirement, not an Equip activation. The
+  // keyword's printed-cost parameter and placeholder conversion remain TODO.
+  for (const domain of DUEL_DOMAINS) {
+    const kernel = axeWorld({ energy: 0, power: [domain] });
+    const context = bindResolveContext(kernel, { source: kernel.getObject("spinning-axe") });
+    const plan = buildCostPlan(context, {
+      id: `axe-equip-requirement:${domain}`,
+      cost: { payments: [{ kind: "power", amount: { kind: "constant", value: equip.value }, allowedDomains: DUEL_DOMAINS }] }
+    });
+    assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: DUEL_DOMAINS }]);
+    assert.equal(plan.total.energy, 0);
+    const receipt = payCostPlan(context, plan);
+    assert.equal(receipt.paid, true);
+    assert.deepEqual(receipt.power.power, [{ requirementIndex: 0, from: domain, amount: 1 }]);
+    assert.deepEqual(receipt.actions.map(entry => entry.action), [{
+      type: "pay", player: "A", plan: { finalized: true, energy: 0, power: [domain] }
+    }]);
+    assert.deepEqual(kernel.events.map(event => event.action), ["pay"]);
+  }
+});
 
 test.todo(
   "sfd-186-221 Spinning Axe: the Quick-Draw play trigger can only fire end-to-end once the card-played event " +
-    "carries this card's identity for EventPattern.source binding and a card-program → TriggerRegistration " +
-    "adapter binds it (the RIFT-257 adapter is merged; chain/engine.ts still emits object/player only, so the " +
-    "source filter from the merged Quick-Draw expansion never matches)"
+    "carries this card's identity for EventPattern.source binding (the RIFT-257 adapter and trigger registration " +
+    "are merged; chain/engine.ts still emits object/player only, so the source filter from the merged " +
+    "Quick-Draw expansion never matches)"
 );

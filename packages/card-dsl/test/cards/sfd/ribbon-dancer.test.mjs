@@ -34,13 +34,13 @@ test("sfd-038-221 Ribbon Dancer: identity, ruleset, status and verbatim text", (
 });
 
 test("sfd-038-221 Ribbon Dancer: judgeReason names the temporary-Might and move-payload gaps", () => {
-  // RIFT-258 merged continuous.might, so the reason must not claim the
+  // continuous.might is merged, so the reason must not claim the
   // Might-modification primitive is missing; the remaining gaps are the
   // move-event destination payload and the relative object anchors.
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /Finalize\/Resolve/);
   assert.match(program.judgeReason, /object-moved/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /449\.1/);
   assert.match(program.judgeReason, /exclude/);
   assert.match(program.judgeReason, /translateObjectFilter/);
   assert.doesNotMatch(program.judgeReason, /没有注册 continuous\.might 的原语/);
@@ -98,7 +98,7 @@ test("sfd-038-221 Ribbon Dancer: the effect is a one-turn Might grant targeted a
 });
 
 test("sfd-038-221 Ribbon Dancer golden: the merged continuous.might primitive registers the end-of-turn arithmetic effect", () => {
-  // RIFT-258 merged continuous.might, so the card's Might clause now runs for
+  // The card's Might clause runs for
   // real through the merged interpreter path: the +1 lands in the arithmetic
   // layer with the end-of-turn duration (478.1.a, 317.1.a / 468.7.c).
   const kernel = world()
@@ -165,11 +165,11 @@ test("sfd-038-221 Ribbon Dancer: the move trigger filter is translated with the 
 test.todo(
   "sfd-038-221 Ribbon Dancer: the object-moved event must carry the destination kind/id so that " +
     "toZone: \"battlefield\" matches only genuine Moves onto a battlefield (449.1/449.2, with " +
-    "458/458.1 excluding Recalls), and the card trigger must reach the pipeline — RIFT-120"
+    "458/458.1 excluding Recalls), and the card trigger must reach the pipeline"
 );
 
 test.todo(
   "sfd-038-221 Ribbon Dancer: programs/filters.ts must translate the relative object anchors " +
     "(exclude: \"source\" for 'another', sameLocationAs), after which Finalize must legalize and " +
-    "re-check 'another friendly unit' at resolution (355.8, 355.9, 359.3.e) — RIFT-257 follow-up / RIFT-90"
+    "re-check 'another friendly unit' at resolution (355.8, 355.9, 359.3.e)"
 );

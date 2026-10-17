@@ -15,7 +15,6 @@ test("sfd-012-221 Battering Ram: validates identity and dynamic discount shape",
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /cards-played-this-turn/);
-  assert.match(program.judgeReason, /RIFT-89/);
   assert.equal(program.sourceText, "I cost :rb_energy_1: less for each card you've played this turn, to a minimum of :rb_energy_1:.");
 });
 
@@ -32,4 +31,4 @@ test("sfd-012-221 Battering Ram: declares a negative history-based Energy discou
   assert.deepEqual(effect.history, { scope: "turn", action: "play", player: "controller" });
 });
 
-test.todo("Battering Ram: supply per-turn play history and minimum-cost discount to the cost planner (RIFT-89)");
+test.todo("Battering Ram: wire the card static continuous.cost-modification into the play cost plan and supply the per-turn play history count (356.4.e minimum semantics)");

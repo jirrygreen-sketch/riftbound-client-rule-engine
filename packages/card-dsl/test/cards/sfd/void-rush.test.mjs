@@ -28,8 +28,8 @@ test("sfd-188-221 Void Rush: program validates, is registered and stays judge-re
   assert.equal(program.status, "judge-required");
   // README section 2: the reason names the concrete current gaps and task numbers.
   assert.match(program.judgeReason, /cost\.modify/);
-  assert.match(program.judgeReason, /366\.2/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /356\.4/);
+  assert.match(program.judgeReason, /RIFT-358/);
   assert.match(program.judgeReason, /LITERAL_FIELDS/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -66,7 +66,7 @@ test("sfd-188-221 Void Rush structure: printed cost, ordered deck-top reveal, op
 test("sfd-188-221 Void Rush structure: the play inside the optional body names the reduced-cost requirement", () => {
   // One optional decision (contract 3.9) whose body holds the play of one
   // revealed card; the printed cost minus 2 is a cost-plan request that only
-  // cost.modify can materialize (see judgeReason).
+  // selected-card Finalize integration must materialize (see judgeReason).
   assert.equal(mayPlay.op, "choice.optional");
   assert.equal(mayPlay.linkedTo, "void-rush.reveal");
   assert.equal(mayPlay.args.body.kind, "constant");
@@ -87,11 +87,11 @@ test("sfd-188-221 Void Rush structure: the play inside the optional body names t
   ]);
 });
 
-test("sfd-188-221 Void Rush structure: the remaining revealed cards move to hand through a non-target pick", () => {
-  // "Draw any you did not play this way": 355.10.e keeps the cards non-targeted,
-  // and the instruction is linked to the optional play (359.3.e.14).
+test("sfd-188-221 Void Rush structure: pending Draw names all remaining revealed refs independently of the optional play", () => {
+  // Pending selected-card Draw intent. It is independent of accepting play.
+  // effect.zone is not Draw; no execution claim is made for this blocked part.
   assert.equal(drawRest.op, "effect.zone");
-  assert.equal(drawRest.linkedTo, "void-rush.may-play");
+  assert.equal(drawRest.linkedTo, undefined);
   assert.deepEqual(drawRest.args.pick, { kind: "constant", value: "void-rush.remaining" });
   assert.deepEqual(drawRest.args.to, { kind: "constant", value: "hand" });
   assert.deepEqual(drawRest.args.amount, { kind: "constant", value: 2 });
@@ -99,7 +99,7 @@ test("sfd-188-221 Void Rush structure: the remaining revealed cards move to hand
   assert.equal(drawRest.picks.length, 1);
   const [remaining] = drawRest.picks;
   assert.equal(remaining.id, "void-rush.remaining");
-  assert.equal(remaining.selection, "up-to");
+  assert.equal(remaining.selection, "all");
   assert.equal(remaining.min, 0);
   assert.equal(remaining.max, 2);
   assert.deepEqual(remaining.options, [
@@ -109,7 +109,7 @@ test("sfd-188-221 Void Rush structure: the remaining revealed cards move to hand
 
 test("sfd-188-221 Void Rush golden: the ordered deck-top reveal executes with a caller-supplied pick", () => {
   const kernel = world().deck(["c1", "c2", "c3"]).build();
-  const topTwo = kernel.zone("A", "deck").slice(0, 2);
+  const topTwo = kernel.zoneSlice("A", "deck", "top", 2).map(object => object.ref);
   // The primitive itself executes the card's authored args when the ordered pick
   // is supplied (the missing producer is the Finalize lifecycle, see judgeReason).
   const run = runInstruction(reveal, { pick: "void-rush.top-two" }, {
@@ -135,13 +135,6 @@ test("sfd-188-221 Void Rush golden: a short deck reveals what is there instead o
   assert.deepEqual(run.linked.revealed, [kernel.ref("only-card")]);
 });
 
-test.todo(
-  "sfd-188-221 Void Rush: play one revealed card with a finalized plan of its printed cost reduced by 2 " +
-    "(CR 366.2 / 349) - effect.play refuses to derive printed costs and cost.modify / cost.pay are unmerged " +
-    "(RIFT-261)."
-);
-
-test.todo(
-  "sfd-188-221 Void Rush: move only the revealed cards that were NOT played this way to hand (395 Linked " +
-    "Abilities / 359.3.e.14 result binding) and supply the ordered deck-top pick through Finalize."
-);
+test.todo("Void Rush: hand the selected revealed card's printed plan with the existing [2] Energy discount to effect.play/Finalize (356.4/420.3)");
+test.todo("Void Rush: bind ordered reveal picks through the real chain adapter (RIFT-358)");
+test.todo("Void Rush: Draw the actual unplayed revealed objects and emit draw events even when optional play is declined (414.1); the pending effect.zone block cannot implement Draw");

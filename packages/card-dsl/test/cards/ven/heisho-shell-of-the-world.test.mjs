@@ -55,7 +55,8 @@ test("ven-158-166 Heisho: one static Ignoring Effect over Deflect for this payme
   // ability directs; this card says "Players", so every player is covered.
   assert.equal(effect.for.player, "any");
   assert.equal(effect.for.spellOrAbility, "chooses-something-here");
-  // 053.3 "here" is this Battlefield; the anchor is unmerged (see judgeReason).
+  // 053.3 "here" is this Battlefield; the sameLocationAs:self anchor is merged
+  // in programs/statics.ts staticFilter and binds to the source location.
   assert.deepEqual(effect.for.location, { sameLocationAs: "self" });
 });
 
@@ -139,16 +140,17 @@ test("ven-158-166 Heisho golden: the merged Deflect tax accepts a real Power pay
 
 test.todo(
   "ven-158-166 Heisho: implement 764-767 'ignoring effects' (treat Deflect as inactive for the cost payment of " +
-    "spells/abilities choosing something here) — the merged engine has no inactive-for-this-procedure ability state, " +
-    "and TargetPlan only receives caller-supplied TaxSpec (RIFT-90 / contract 3.8 item 4)"
+    "spells/abilities choosing something here) — ProgramStaticBinder.layerFor throws 'no layer mapping' for " +
+    "continuous.ignore-abilities and the engine has no inactive-for-this-procedure ability state"
 );
 
 test.todo(
   "ven-158-166 Heisho: scope the waiver to 'something here' — no channel exposes the choosing spell/ability's " +
-    "finalized TargetPlan to a card program, and layers/filter.ts has no sameLocationAs (053.3) anchor (RIFT-91)"
+    "finalized TargetPlan to a card program (the sameLocationAs:self anchor itself is merged in " +
+    "programs/statics.ts staticFilter)"
 );
 
 test.todo(
   "ven-158-166 Heisho: register the card program's static ability as a ContinuousEffectSpec and resolve 190.6 battlefield " +
-    "controller for its abilities — no merged path reads CardProgram abilities into layers/LayerEngine"
+    "controller for its abilities — the static binder rejects continuous.ignore-abilities before any layer read"
 );

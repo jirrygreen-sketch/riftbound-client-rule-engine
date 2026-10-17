@@ -26,7 +26,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   be applied as part of the replaced outcome. "Send it to base" is the
  *   reminder for the Recall itself.
  *
- * Status: judge-required — RIFT-260 merged the card-program replacement binding
+ * Status: judge-required — the card-program replacement binding
  * (replacement/registerReplacement path, `replacement.event` with the
  * next-time-this-turn window, and the `{ linked: "replacement.object" }`
  * replaced-event binding), so the registration half is now reachable; the card
@@ -43,11 +43,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   binding exposes `{ linked: "replacement.object" }`, but this card's "it"
  *   is the previously chosen (355.10.c) unit rather than the event's object,
  *   so the body cannot be bound from the static IR;
- * - the end-of-turn expiry of the installed replacement is not wired for card
- *   programs (the window itself is per-turn one-shot in the binding).
  * The chosen-unit target and the replacement shape are recorded below for
- * review. Tracked under the engine batch-4 replacement/chain work (RIFT-120)
- * and the Recall gap of RIFT-109.
+ * review. The remaining gaps are the Recall action and binding the previously
+ * chosen unit into the replacement body.
  *
  * Data note (not changed here): docs/plans/survey/data-issues-recheck.md
  * records that the S-ORIGINS printing of Highlander spells this as "...would
@@ -61,7 +59,7 @@ const highlanderYi = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "RIFT-260 已合入卡牌程序的替代绑定（replacement.event 的 next-time-this-turn 一次性窗口、" +
+    "卡牌程序的替代绑定已支持 replacement.event 的 next-time-this-turn 一次性窗口、" +
     "{ linked: \"replacement.object\" } 的被替代事件绑定），但本卡的替代体仍不可执行：" +
     "(1) Recall 无法执行也无法近似：effect.move 文档明确 mode \"recall\" 被阻断（封闭 move-location 动作无法区分 Recall 与 Move，CR 457-460），" +
     "绑定本卡替代体会直接抛 BlockedReplacementError，而用普通移动顶替会错误触发 Move 触发（458.1）并改变状态" +
@@ -69,9 +67,8 @@ const highlanderYi = {
     "(2) 替代体里的 \"it\" 指的是先前选择的单位（355.10.c：该指代不是新的目标选择），" +
     "而合并绑定暴露的 replacement.object 是「被替代事件的对象」——本卡被替代的是该单位的死亡事件，" +
     "但静态 IR 没有把「先前选择的单位」绑定进替代体的 ObjectSelector，无法写出不依赖运行时引用的替代体；" +
-    "(3) 卡牌程序登记的替代仍没有回合末到期接线。" +
     "因此不近似实现；“Choose a friendly unit”本身是目标（355.10.c 示例）并且已按 TargetSpec 编码。" +
-    "依赖：RIFT-109（Recall 动作）与替代体的被选单位绑定、替代到期接线（RIFT-120 后续）。",
+    "依赖：Recall 独立动作与替代体的被选单位绑定。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
@@ -89,7 +86,7 @@ const highlanderYi = {
           id: "highlander-yi.register-death-replacement",
           op: "replacement.event",
           args: {
-            event: { kind: "constant", value: "object-killed" },
+            event: { kind: "constant", value: { event: "object-killed" } },
             window: { kind: "constant", value: "next-time-this-turn" },
             // "it": the chosen unit. The choice is made when the spell is
             // finalized (355.5/355.10.c), so the body refers to the declared

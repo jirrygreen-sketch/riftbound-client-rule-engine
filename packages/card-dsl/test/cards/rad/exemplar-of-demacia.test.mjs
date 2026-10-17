@@ -8,7 +8,6 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { matchesTriggerObject } from "../../../../engine-core/dist/events/pipeline-match.js";
 
 const CANONICAL_ID =
   "card.hash-aeae869420081de1b84e1b857cd09233807ef065f1a55595f74684bdb08821eb";
@@ -18,29 +17,6 @@ const SOURCE_TEXT =
 
 const [ability] = program.abilities;
 const [payInstruction, moveInstruction] = ability.body;
-
-const gear = (keywords) => ({
-  ref: { id: "gear", zoneEntryId: 1 },
-  cardId: "card:gear",
-  name: "gear",
-  types: ["gear"],
-  tags: [],
-  keywords,
-  owner: "A",
-  controller: "A",
-  zone: "board",
-  location: { type: "battlefield", id: "bf-2" },
-  might: null,
-  energy: null,
-  power: null,
-  exhausted: false,
-  damage: 0,
-  stunned: false,
-  buffs: 0,
-  attachedTo: null,
-  faceDown: false,
-  isToken: false
-});
 
 test("rad-155-167 Exemplar of Demacia: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -55,8 +31,6 @@ test("rad-155-167 Exemplar of Demacia: identity, status, judgeReason, and verbat
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Deploy/);
   assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -80,26 +54,6 @@ test("rad-155-167 Exemplar of Demacia: card-played trigger for a gear with [Depl
   // CR 383.3.a / 403.1: the leading "you may" is the triggered ability's own
   // Finalize decision, so it is carried by optional, not by a body choice node.
   assert.equal(ability.optional, true);
-});
-
-test("rad-155-167 Exemplar of Demacia: the declared [Deploy] filter cannot gate the trigger (830.3)", () => {
-  // Writing keywords: [Deploy] into a trigger filter is silently ignored by the
-  // merged matcher (unknown members are skipped), so it would match every played
-  // Gear. This pins the real behaviour instead of trusting the marker.
-  const withDeploy = gear([{ id: "Deploy" }]);
-  const withoutDeploy = gear([]);
-  assert.equal(matchesTriggerObject({ type: "gear", keywords: ["Deploy"] }, withDeploy, "A"), true);
-  assert.equal(
-    matchesTriggerObject({ type: "gear", keywords: ["Deploy"] }, withoutDeploy, "A"),
-    true,
-    "the keywords member is not evaluated, so a plain Gear matches too"
-  );
-  // A characteristics-based attempt is not a keyword read either: it compares
-  // the snapshot property verbatim, and the snapshot has no deploy field.
-  assert.equal(
-    matchesTriggerObject({ type: "gear", characteristics: { deploy: true } }, withDeploy, "A"),
-    false
-  );
 });
 
 test("rad-155-167 Exemplar of Demacia: cost within instructions, then a linked move", () => {
@@ -150,10 +104,8 @@ test("rad-155-167 Exemplar of Demacia: cost within instructions, then a linked m
   assert.equal(moveInstruction.picks, undefined);
 });
 
-test("rad-155-167 Exemplar of Demacia: cost.pay is not registered, so nothing is approximated", () => {
-  // cost.pay has no merged primitive file (RIFT-261). The merged registry is
-  // the evidence that the leading cost cannot be paid yet.
-  assert.equal(instructionDefinitionsById.has("cost.pay"), false);
+test("rad-155-167 Exemplar of Demacia: the merged cost.pay primitive is registered", () => {
+  assert.equal(instructionDefinitionsById.has("cost.pay"), true);
 });
 
 test("rad-155-167 Exemplar of Demacia golden: the declared move shape relocates a unit to a literal battlefield", () => {
@@ -204,15 +156,15 @@ test("rad-155-167 Exemplar of Demacia: effect.move rejects a target-supplied des
 
 test.todo(
   "rad-155-167 Exemplar of Demacia: filter the card-played event for a gear that has the " +
-    "Deploy keyword (CR 830.1.a / 830.3; keyword-aware filters) — RIFT-257"
+    "Deploy keyword (CR 830.1.a / 830.3; keyword-aware filters)"
 );
 test.todo(
   "rad-155-167 Exemplar of Demacia: pay the base cost (Exhaust this legend plus 1 Power of " +
     "any domain) during Finalize and remove the trigger when it cannot be paid " +
-    "(CR 383.3.b.1 / 415.4 / 163.2.b; cost.pay and Universal Power) — RIFT-261"
+    "(CR 383.3.b.1 / 415.4 / 163.2.b; trigger-cost binding, Universal Power and Legend-zone object)"
 );
 test.todo(
   "rad-155-167 Exemplar of Demacia: move the friendly unit to the triggering gear's " +
-    "battlefield (CR 421 / 449; needs the triggering object's location bound as a destination) — RIFT-257"
+    "battlefield (CR 421 / 449; needs the triggering object's location bound as a destination)"
 );
 

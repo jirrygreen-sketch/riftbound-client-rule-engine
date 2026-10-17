@@ -18,14 +18,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   就是本条减费的门槛。
  * - 206：判定费用时使用印刷费用；折扣只在支付时生效。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。两处缺口都不近似实现：
- * 1. 没有任何已合入路径把 CardProgram 的 static 减费安装到被施放法术的费用计划上：
- *    cost/cost-plan.ts 的折扣只读调用方传入的 CostDiscount，effects/instructions/ 下没有
- *    cost.modify 原语（RIFT-9 清单要求，属 RIFT-89）。
+ * 复核（2026-10-17，第二轮 M2 覆盖率复核）：cost.modify 原语已合入
+ * （effects/instructions/cost.modify.ts，reduce/increase、minimum、356.4 语义，
+ * 产出冻结费用计划链接），旧缺口「没有 cost.modify 原语」已过时；-2/minimum 的
+ * 费用计划 golden 已真实执行。
+ *
+ * status 判定（cards/README.md 第 2 节）：judge-required。两处当前真实缺口都不近似实现：
+ * 1. 没有任何已合入路径把 CardProgram 的 static continuous.cost-modification 安装到
+ *    被施放法术的费用计划上：programs/statics.ts 的 layerFor() 对 cost-modification 直接抛
+ *    judge-required（无图层映射），cost 系统也不读图层；cost.modify 原语只产链接值，
+ *    不消费卡内 static。
  * 2. 门槛「spells with [Flow] you play from your trash」需要读取“被施放牌此刻的关键词”与
  *    “本次打出使用的来源区域”两个事实：冻结的 ObjectFilter 没有关键词谓词，持续效果的
- *    持续效果也不接收被施放牌的 keyword/source-zone，图层的 conditionMatches 更不求值
- *    expression/compare（RIFT-91 后续）。程序用具名谓词记录该门槛（fail-closed），不把减费
+ *    持续效果也不接收被施放牌的 keyword/source-zone。程序用具名谓词记录该门槛（fail-closed），
+ *    不把减费
  *    放宽成“所有你打出的法术”，也不改写费用。
  */
 const abilities: Ability[] = [
@@ -59,13 +65,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) 没有把 CardProgram 的 static 减费安装到被施放法术费用计划的消费者——" +
-    "cost/cost-plan.ts 的减费只读调用方传入的 CostDiscount，effects/instructions/ 下没有 cost.modify 原语" +
-    "（RIFT-9 清单，属 RIFT-89）；(2) 门槛「spells with [Flow] you play from your trash」需要读取被施放牌此刻的" +
-    "关键词与本次打出的来源区域：冻结 ObjectFilter 没有关键词谓词，持续效果也不接收被施放牌的 " +
-    "keyword/source-zone，图层 conditionMatches 不求值 expression/compare（RIFT-91 后续），因此程序用具名谓词占位，" +
-    "不放宽成「你打出的所有法术」。印刷数值（减 2 Energy、自带最低 1）按 356.4.b/356.4.e 记录在该静态效果上；" +
-    "减费本身与 Flow 的 flow.cost（sourceZone: trash）都属 RIFT-89/RIFT-261 的接线范围。",
+    "两条缺口（复核 2026-10-17，均不近似实现）：(1) 没有把 CardProgram 的 static " +
+    "continuous.cost-modification 安装到被施放法术费用计划的路径——programs/statics.ts 的 layerFor() 对 " +
+    "cost-modification 直接抛 judge-required（无图层映射），cost 系统也不读图层；cost.modify 原语已合入" +
+    "（reduce/increase、minimum、356.4 语义，产出冻结费用计划链接），但它只产链接值、不消费卡内 static；" +
+    "(2) 门槛「spells with [Flow] you play from your trash」需要读取被施放牌此刻的关键词与本次打出的来源区域：" +
+    "冻结 ObjectFilter 没有关键词谓词，持续效果也不接收被施放牌的 keyword/source-zone，因此程序用具名谓词占位，" +
+    "不放宽成「你打出的所有法术」。印刷数值（减 2 Energy、自带最低 1）按 356.4.b/356.4.e 记录在该静态效果上，" +
+    "费用计划 golden 已真实执行。依赖：static → 费用计划安装路径、flow-from-trash 门槛谓词（829.1.c）。",
   abilities,
   sourceText:
     "Spells with [Flow] you play from your trash cost :rb_energy_2: less, to a minimum of :rb_energy_1:."

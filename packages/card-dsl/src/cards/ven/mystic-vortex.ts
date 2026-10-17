@@ -25,19 +25,19 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（缺口均不近似实现）：
  * 1. 没有已合入路径把这笔加费安装到后续那次打出的费用计划上：cost/cost-plan.ts 的
- *    CostPlanInput.increases 只消费调用方传入的组件（356.3），effects/instructions/ 也没有
- *    cost.modify 原语（RIFT-9 清单，属 RIFT-89 费用计划批次）。
+ *    CostPlanInput.increases 只消费调用方传入的组件（356.3）；cost.modify 原语与费用计划
+ *    计算已合入，但仍缺 CardProgram static → 后续 play CostPlan 的消费接线。
  * 2. 门槛「在本战场进行的 Showdown 期间」没有可求值形状：Showdown 状态由 chain 拥有
  *    （chain/engine.ts 的 openShowdown/closeShowdown 与 showdown-open/close 时点），
  *    没有暴露给卡牌程序的查询；Battlefield 的 showdown 身份、以及「本战场是否为该次
  *    Showdown 的地点」也没有通道（layers/filter.ts 的 sameLocationAs 未实现）。
  * 3. 「cards with [Reaction]」是 813.5 的特征谓词，但已合入的过滤器不比较
  *    ObjectSnapshot.keywords（同 ogn/guerilla-warfare-teamo 记录的关键词谓词缺口）；
- *    Hidden 牌按 811.6 获得 Reaction 的部分还依赖 Hidden/facedown 机制（RIFT-84）。
+ *    Hidden 牌按 811.6 获得 Reaction 的部分还依赖 Hidden/facedown 机制。
  * 已支持部分由 golden 在真实费用计划上执行：356.3 的加费把费用从「无 Power 需求」变成
  * 「一条任意域 Power 需求」，且支付准备在 Rune Pool 不足时拒绝这次支付（357.1）。
- * 依赖：RIFT-89（cost.modify 与费用计划接线）、Showdown 状态查询与 sameLocationAs 锚点、
- * 关键词谓词（813.5）与 Hidden（RIFT-84）。
+ * 依赖：CardProgram static → CostPlan 的消费接线、Showdown 状态查询与 sameLocationAs 锚点、
+ * 关键词谓词（813.5）与 Hidden。
  */
 export default {
   canonicalCardId: "card.hash-a4ce11641e7d44ba07514cd00f7c63e4ce2fa82ef76ff2dd5a8391481ba04da9",
@@ -45,15 +45,15 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处缺口，均不近似实现：(1) 没有已合入路径把这笔加费安装到后续那次打出的费用计划上：" +
-    "cost/cost-plan.ts 的 CostPlanInput.increases 只消费调用方传入的组件（356.3），" +
-    "effects/instructions/ 也没有 cost.modify 原语（RIFT-9 清单，属 RIFT-89）；" +
+    "cost/cost-plan.ts 的 CostPlanInput.increases 只消费调用方传入的组件（356.3）；cost.modify 原语已合入，" +
+    "但仍缺 CardProgram static 到后续 play CostPlan 的消费接线；" +
     "(2) 门槛「在本战场进行的 Showdown 期间」不可求值：Showdown 状态由 chain/engine.ts 拥有" +
     "（showdown-open/showdown-close 时点，345/347.2.a/466.2.b），没有暴露给卡牌程序，" +
     "「本战场是该次 Showdown 的地点」也需要未实现的 sameLocationAs 锚点；" +
     "(3) 「cards with [Reaction]」是 813.5 的特征谓词，但已合入的过滤器不比较 ObjectSnapshot.keywords" +
-    "（同 ogn/guerilla-warfare-teemo 的关键词谓词缺口），Hidden 牌按 811.6 获得 Reaction 还依赖 RIFT-84。" +
+    "（同 ogn/guerilla-warfare-teemo 的关键词谓词缺口），Hidden 牌按 811.6 获得 Reaction 还依赖 Hidden/facedown 机制。" +
     "加费本身已由 golden 在真实费用计划上执行（追加一条任意域 Power 需求，135.2.e.5.a/163.2）。" +
-    "依赖：RIFT-89、Showdown 状态查询与 sameLocationAs 锚点、关键词谓词与 RIFT-84（Hidden）。",
+    "依赖：CardProgram static → CostPlan 的消费接线、Showdown 状态查询与 sameLocationAs 锚点、关键词谓词与 Hidden。",
   abilities: [
     {
       kind: "static",
