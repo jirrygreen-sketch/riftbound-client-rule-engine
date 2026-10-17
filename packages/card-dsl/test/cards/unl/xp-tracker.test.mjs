@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/xp-tracker.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
 const CANONICAL_ID =
   "card.hash-bd13577acf2621457b102b04d868bc9c236deec535cbd42baead7bc5fee78ab4";
@@ -20,24 +21,15 @@ test("unl-t08 XP Tracker: program passes validateCardProgram", () => {
 test("unl-t08 XP Tracker: identity, status and verbatim sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(program.status, "judge-required");
+  assert.equal(program.status, "no-ability");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.deepEqual(program.abilities, []);
 });
 
-test("unl-t08 XP Tracker: the reason names the tracking/reminder rules and keeps the ability list empty", () => {
-  // 729.1.a: XP can be tracked with a card or any clear marker — the first line is
-  // the physical tracking instruction, not an ability. 824.1: the Level clause is
-  // reminder text for the dependent keyword implemented by the cards that use it.
-  // 730.2: the spend clause reminds about XP spending, which those cards' costs do.
-  assert.match(program.judgeReason, /729\.1\.a/);
-  assert.match(program.judgeReason, /824\.1/);
-  assert.match(program.judgeReason, /730\.2/);
-  assert.equal(program.judgeReason.includes("no-ability"), true);
+test("unl-t08 XP Tracker: tracking information declares no XP action or Level ability", () => {
+  // CR 729.1.a permits a card to mark the player's XP. The other two lines
+  // describe other cards, not an ability of this tracking aid (730.2 / 824.1).
   assert.deepEqual(program.abilities, []);
+  assert.equal(program.judgeReason, undefined);
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
-
-test.todo(
-  "unl-t08 XP Tracker: no CardProgram ability is authored for this token because all three printed lines are rules reminders about " +
-    "XP tracking (729.1.a), the [Level] dependent keyword (824.1) and XP spending (730.2); the XP actions live in effect.xp / cost.xp, not on this token"
-);

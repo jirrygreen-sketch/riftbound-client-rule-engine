@@ -20,30 +20,24 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “you may”：该替代是可选应用（383.3.e.2 的许可语义作用于替代的“may”，消费者按
  *   370.1 的替代应用规则处理）。
  *
- * status = judge-required（缺口均不近似实现）：
- * - 契约 3.1 的 ReplacementAbility 只有 replaces / with / condition，没有
- *   “once each turn” 的频度字段（TriggerSpec.once 不适用于替代），也没有可选应用字段。
- * - 替代的 with 体必须引用「被替代事件里的那个 token 单位」并同时执行“打出原 token + 打出
- *   一个副本”；冻结的 ObjectSelector（self / source / target / pick / linked）没有事件对象
- *   形态，而且 effect.copy 的 play 模式被显式阻断（copy-action-cannot-create-a-pending-chain-object），
- *   引擎替代管线（events/pipeline.ts）也只支持 replaced / prevented / impossible，
- *   不能把一次 play 改写为两次 play。
- * - “while I'm at a battlefield” 需要在替代应用时读取来源当前位置，替代管线目前不消费
- *   condition 的位置判定（RIFT-91 / RIFT-120）。
- * 依赖：替代管线的事件对象绑定与频度/可选字段（契约变更请求 + RIFT-120）、RIFT-89（play 费用与
- * 打出流程）、RIFT-91（位置判定）。
+ * status = judge-required（2026-10-17 复核）：
+ * 替代绑定已经消费 condition，并支持 { linked: "replacement.object" } 事件对象绑定；
+ * EventPipeline 已能用 actions 数组替代一个动作，也已支持 optional / oncePerTurn 注册。
+ * 真正缺口是卡牌替代声明到每回合重置限次的桥接、来源位置类型谓词（RIFT-359），以及
+ * 原 token + Chain 上的额外副本两次 play 的 planner / copy 支持，并继承 375 的原事件修正。
+ * replacement.event 的 optional 已可声明，但其 window 只有 permanent / next-time-this-turn，
+ * 不等于每回合一次；不把已合入的替代管线、费用、事件对象绑定再次列作缺失依赖。
  */
 const abilities: Ability[] = [
   {
     kind: "replacement",
     // “if you would play a token unit”：替代一个 play 事件，对象是 token 单位。
-    // token: true 是本程序描述“是 token”的过滤维度（与 rally-for-war 的 occupied 同型），
-    // 当前没有消费方求值它（见 judgeReason）。
+    // 使用替代匹配器的 card-played 名称与真实 isToken 特征。
     replaces: {
-      event: "play",
-      filter: { type: "unit", token: true, controller: "self" }
+      event: "card-played",
+      filter: { type: "unit", characteristics: { isToken: true }, controller: "self" }
     },
-    // “while I'm at a battlefield”：来源位置的适用条件；替代管线不消费 condition 的位置判定。
+    // 描述来源位置的意图；尚需可执行的位置类型 Condition（RIFT-359）。
     condition: {
       kind: "expression",
       value: { kind: "constant", value: "source-at-a-battlefield" }
@@ -52,17 +46,16 @@ const abilities: Ability[] = [
       {
         id: "zilean-time-mage.play-token-and-additional-copy",
         // “play that token and an additional copy of it instead”：把一次 token 打出改写为两次
-        // （原 token + 一个副本）。该共同体没有已注册原语：effect.copy 的 play 模式被显式阻断，
-        // 替代管线也不能产生第二次 play；这里保留精确的待接线形状，不近似实现。
+        // （原 token + 一个副本）。事件对象绑定已存在，仍需 planner 的 copy/play 支持。
         op: "replacement.play-with-additional-copy",
         args: {
           original: {
             kind: "constant",
-            value: { triggerEvent: "play", role: "original-token" }
+            value: { linked: "replacement.object" }
           },
           additional: {
             kind: "constant",
-            value: { triggerEvent: "play", role: "additional-copy", copyOf: "original-token" }
+            value: { copyOf: { linked: "replacement.object" } }
           }
         }
       }
@@ -76,14 +69,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处缺口，均不近似实现：(1) 契约 3.1 的 ReplacementAbility 没有「once each turn」频度字段（TriggerSpec.once 不适用于替代，" +
-    "383.3.e/386.1）也没有「you may」的可选应用字段，本程序只能用 replaced 事件形状记录该替代。" +
-    "(2) 替代的 with 体必须引用「被替代事件里的那个 token 单位」并把一次 play 改写为「原 token + 一个副本」两次打出：" +
-    "冻结的 ObjectSelector（self/source/target/pick/linked）没有事件对象形态，effect.copy 的 play 模式被显式阻断" +
-    "（copy-action-cannot-create-a-pending-chain-object），events/pipeline.ts 的替代注册也只支持 replaced/prevented/impossible，" +
-    "无法产生第二次 play；程序保留 replacement.play-with-additional-copy 的精确待接线形状，不用近似实现。" +
-    "(3)「while I'm at a battlefield」需要在替代应用时判定来源当前位置（464.2.b），替代管线不消费 condition 的位置判定。" +
-    "依赖：事件对象绑定与替代频度/可选字段（契约变更请求 + RIFT-120）、RIFT-89（play 费用与打出流程）、RIFT-91（位置判定）。",
+    "仍缺：(1) 383.3.e/386.1 的「Once each turn」卡牌替代声明到每回合重置限次的绑定；" +
+    "EventPipeline.oncePerTurn 已实现，但 ReplacementAbility/bindReplacement 尚无对应桥接，" +
+    "replacement.event 的 next-time-this-turn 只是一回合的一次性窗口，不能替代每回合重置。" +
+    "(2) replacement planner 尚需把「原 token + 额外副本」规划为两次 play，" +
+    "包括 Chain 上创建副本和继承原事件修正（375）；effect.copy 的 play 模式仍 blocked。" +
+    "(3)「while I'm at a battlefield」需来源 LocationRef.type 的可执行 Condition（RIFT-359）；" +
+    "现有描述性常量只是意图记录。事件对象 replacement.object、可选应用与多动作替代本身均已合入。",
   abilities,
   sourceText:
     "Once each turn, if you would play a token unit while I'm at a battlefield, you may play that token " +

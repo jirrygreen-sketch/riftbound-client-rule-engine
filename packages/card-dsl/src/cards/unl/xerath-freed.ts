@@ -19,19 +19,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “Deal 3 to a unit”：单个单位（不限定控制者）是选目标（355.9 / 355.10），
  *   用已合入的 effect.damage（amount 3、target 指向 TargetSpec）提交伤害动作（418）。
  *
- * status = judge-required（2026-10-16 复核）：
- * - RIFT-257 的 programs/activate.ts 现在已经调用 translateRestriction，把卡牌 Restriction 编译进
- *   ChainDraft.restrictions（chain/engine.ts 的 Finalize 会求值），所以“没有消费者”的旧描述已过时。
- *   但当前缺口仍在：(1) 描述性 kind 没有适配器——translateLegalityCondition 只接受直接给出 Condition
- *   的规则对象或 always/never/compare/all/any/not/expression 这些 kind，本卡的 kind 会让 describeActivate
- *   抛 ProgramBindingError(judge-required)（探针确认），fail-closed 而不是近似放行；(2) 即使写成 Condition，
- *   “I'm at a battlefield” 也没有可诚实表达的位置类型谓词：object-property(source, "location") 返回的是
- *   LocationRef 对象本身（不是类型），契约 3.6 的 Expr 没有嵌套 location.type 的读法，而 layers/engine.ts
- *   的 conditionMatches 对未知条件一律返回 true——直接绑定会在 Base 也允许启动。用 TargetSpec/filter 冒充
- *   启动限制会把它错误地变成目标限制，属近似实现，不做。
- * 已合入并可真实执行的部分：1 Fury Power + 横置自身的费用（golden 走 buildCostPlan/payCostPlan 真实支付）、
- * effect.damage 的伤害本体与目标失效分支（golden 用解释器 + 参考内核执行）。
- * 依赖：RIFT-257 后续（Restriction → Condition 适配器与位置类型谓词）、RIFT-90（启动前校验语义）。
+ * status = judge-required（2026-10-17 复核）：仅剩 377.2.b 的战场启动限制。
+ * programs/activate.ts 已消费 Restriction，并交给 Chain Finalize 校验；费用与 effect.damage
+ * 均已合入。当前还需把来源的 LocationRef.type 判定编译成可执行 Condition（RIFT-359）：
+ * object-property(source, "location") 只能读取整个 LocationRef，不能读取嵌套 type；
+ * describeActivate 对本卡描述性 restriction kind 仍会 fail-closed。
+ * golden 直接执行原始 body（保留 TargetSpec），另经 buildCostPlan/payCostPlan 支付印刷费用。
  */
 const abilities: Ability[] = [
   {
@@ -43,7 +36,7 @@ const abilities: Ability[] = [
       payments: [{ kind: "exhaust", object: "self" }]
     },
     // 377.2.b：“Use this ability only while I'm at a battlefield.” —— 启动前置限制。
-    // 保留为限制声明；合并内核没有把卡牌 Restriction 编译进启动校验的消费方（见 judgeReason）。
+    // 位置类型 Condition 的适配尚待 RIFT-359；不能把启动限制改成目标限制。
     restriction: { kind: "use-only-while-source-at-battlefield" },
     body: [
       {
@@ -74,17 +67,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「Use this ability only while I'm at a battlefield.」（377.2.b 的启动前置限制，官方示例即同一句式）仍未可执行，" +
-    "但缺口已从“没有消费者”变为“没有适配器与谓词”：RIFT-257 的 programs/activate.ts 已经调用 translateRestriction，" +
-    "把 Restriction 编译进 ChainDraft.restrictions 并由 chain/engine.ts 的 Finalize 求值，" +
-    "而 translateLegalityCondition 只接受直接给出 Condition 的规则对象或 always/never/compare/all/any/not/expression，" +
-    "本卡的描述性 kind 会让 describeActivate 抛 ProgramBindingError(judge-required)（探针确认，fail-closed）。" +
-    "即使改写成 Condition，“I'm at a battlefield” 也没有可诚实表达的位置类型谓词：" +
-    "object-property(source, \"location\") 返回 LocationRef 对象本身（不是类型），契约 3.6 的 Expr 没有嵌套 location.type 的读法，" +
-    "layers/engine.ts 的 conditionMatches 对未知条件一律返回 true——直接绑定会在 Base 也允许启动（近似实现）。" +
-    "用 TargetSpec/filter 冒充启动限制会把它错误地变成目标限制，不做。" +
-    "已合入并可真实执行的部分：1 Fury Power + 横置自身的印刷费用（buildCostPlan/payCostPlan 真实支付）与 " +
-    "effect.damage 的伤害本体（golden 覆盖目标失效的 ignored 分支）。依赖：RIFT-257 后续（Restriction → Condition 适配器与位置类型谓词）、RIFT-90。",
+    "377.2.b 的「Use this ability only while I'm at a battlefield.」仍需来源位置类型谓词（RIFT-359）：" +
+    "programs/activate.ts 已把 Restriction 交给 Chain Finalize，但本卡的描述性 kind 尚不能编译成 Condition；" +
+    "object-property(source, location) 只返回完整 LocationRef，现有 Expr 无嵌套 type 读取，" +
+    "必须在启动时区分 Base 与任意 Battlefield，不能用目标过滤替代。",
   abilities,
   sourceText:
     ":rb_rune_fury:, :rb_exhaust:: Deal 3 to a unit. Use this ability only while I'm at a battlefield."

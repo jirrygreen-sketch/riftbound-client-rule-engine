@@ -19,33 +19,16 @@ import type { CardProgram } from "../../ir/index.js";
  * - "Some cards can spend XP for powerful effects." 是 730.2 花费方向的提醒；花费动作由那些卡
  *   的费用（cost.xp / 支付计划）执行，本 token 不产生费用或指令。
  *
- * status 判定（README 第 2 节）：judge-required，而不是 no-ability。
- * 理由：三段印刷文本都是**规则提醒与追踪用途说明**（729.1.a 的标记方式、824.1 的 Level 门槛、
- * 730.2 的 XP 花费），没有一段是这张 token 自身的触发式/启动式能力。卡面确有印刷文本，
- * 因此不满足 no-ability 的"经确认没有能力文本"；同时也没有可编码的能力，故按 judge-required
- * 记录，并写明缺的是"提醒文本的归属"。abilities 保持空数组——不把 Level 门槛或 XP 花费
- * 写成这张牌的能力（那属引用它的卡），也不自造追踪指令。
- *
- * 依赖：无（XP 的获得/花费已由 effect.xp 与 cost.xp / 支付计划实现；Level 门槛属各卡自身与
- * 依赖式关键词展开）。
- * 说明（数据问题，不改数据）：本地目录把 unl-t08 记为 cardType "Token"、energy/power/might 全为
- * null——与任务卡一致（null = 无印刷值，绝不写成 0）。effect-coverage 把该印刷标记为
- * judge-required（"outside the explicitly verified compiler coverage"），与本判定一致。
+ * status = no-ability（README 第 2 节，2026-10-17 复核）。
+ * 印刷说明文字不等于能力文本：本卡既不自行获得/花费 XP，也没有 [Level N][>] 的依赖式
+ * 能力。三句只是描述追踪用途和其他卡的行为，不存在尚待执行的能力或上游依赖。
+ * abilities 保持空数组，不创造“追踪”指令；目录的 energy/power/might: null 均保持不变。
  */
 export default {
   canonicalCardId:
     "card.hash-bd13577acf2621457b102b04d868bc9c236deec535cbd42baead7bc5fee78ab4",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "三段原文都是规则提醒 / 追踪用途说明，不是这张 token 自身的能力：" +
-    "(1)「Track gained XP here.」是 729.1.a 允许用卡牌等载体清楚标记 XP 的物理追踪说明；" +
-    "(2)「Some cards get bonuses based on your [Level].」是 824.1 依赖式关键词的提醒（门槛读取属引用它的卡）；" +
-    "(3)「Some cards can spend XP for powerful effects.」是 730.2 XP 花费方向的提醒（花费由那些卡的费用/支付计划执行）。" +
-    "本卡不执行获得 / 花费 XP 的动作，731/731.1 也规定 XP 不是可选目标、可横置或可重置的 Game Object；" +
-    "因此没有可编码的能力，但卡面确有印刷文本，不满足 no-ability 的「经确认没有能力文本」。" +
-    "abilities 保持空数组，不把 Level 门槛或 XP 花费写成这张牌的能力，也不自造追踪指令；" +
-    "不把 energy/power/might 的 null 写成 0。依赖：无（effect.xp 与 cost.xp 已实现相应方向）。",
+  status: "no-ability",
   abilities: [],
   sourceText:
     "Track gained XP here.\n" +

@@ -11,9 +11,6 @@ import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
-import { describeActivate } from "../../../../engine-core/dist/programs/activate.js";
-import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
-import { translateRestriction } from "../../../../engine-core/dist/programs/play.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -24,12 +21,6 @@ const SOURCE_TEXT =
 const [ability] = program.abilities;
 const [dealThree] = ability.body;
 const targetSpec = dealThree.targets[0];
-
-// Finalize locks the damage target; the reference kernel compares filters
-// literally, so the golden supplies the finalized target and drops only the
-// TargetSpec, keeping the card's own instruction and arguments.
-const stripTargets = ({ targets, ...instruction }) => instruction;
-const DAMAGE_BODY = ability.body.map(stripTargets);
 
 function fixture() {
   const base = world()
@@ -52,12 +43,11 @@ test("unl-026-219 Xerath, Freed: identity, status, judgeReason and verbatim sour
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
-  // 377.2.b: the printed "Use this ability only while ..." activation
-  // restriction still has no adapter or honest location predicate.
+  // 377.2.b: the source location must be checked before activation.
   assert.match(program.judgeReason, /377\.2\.b/);
   assert.match(program.judgeReason, /Restriction/);
-  assert.match(program.judgeReason, /translateRestriction/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /LocationRef/);
+  assert.match(program.judgeReason, /RIFT-359/);
 });
 
 test("unl-026-219 Xerath, Freed: 1 Fury Power + Exhaust at Action speed", () => {
@@ -113,7 +103,7 @@ test("unl-026-219 Xerath, Freed golden: the printed 1 Fury + Exhaust cost is rea
 test("unl-026-219 Xerath, Freed golden: the ability deals the printed 3 to the locked unit", () => {
   const kernel = fixture();
   kernel.setTargets(targetSpec.id, [kernel.ref("victim")]);
-  const outcome = resolveChainBody(DAMAGE_BODY, kernel);
+  const outcome = resolveChainBody(ability.body, kernel);
 
   assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
     ["xerath-freed.deal-3", "executed"]
@@ -128,7 +118,7 @@ test("unl-026-219 Xerath, Freed golden: a locked unit that left the Board makes 
   const stale = kernel.ref("victim");
   kernel.perform({ type: "kill", object: stale });
   kernel.setTargets(targetSpec.id, [stale]);
-  const outcome = resolveChainBody(DAMAGE_BODY, kernel);
+  const outcome = resolveChainBody(ability.body, kernel);
 
   assert.equal(outcome.status, "partial");
   assert.deepEqual(outcome.results[0].result, {
@@ -163,29 +153,7 @@ test("unl-026-219 Xerath, Freed: an exhausted source cannot pay the Exhaust cost
   );
 });
 
-test("unl-026-219 Xerath, Freed: RIFT-257's adapter compiles Condition-carrying restrictions and fails closed on this one", () => {
-  // programs/play.ts translateRestriction now feeds ChainDraft.restrictions, which
-  // chain/engine.ts evaluates during Finalize, so the restriction is consumed.
-  // The card's descriptive kind has no adapter, so describeActivate stops with a
-  // judge-required ProgramBindingError instead of silently allowing activation.
-  assert.deepEqual(translateRestriction({ kind: "always" }, "xerath-freed"), [{ kind: "always" }]);
-  const executable = { ...program, status: "executable", judgeReason: undefined };
-  const registry = new ProgramRegistry([executable]);
-  const kernel = fixture();
-  // The reference kernel names fixture objects by id, so bind the card id the
-  // program adapter resolves.
-  const source = { ...kernel.getObject("xerath"), cardId: CANONICAL_ID };
-  assert.throws(
-    () => describeActivate(registry, source, "A", 0),
-    error =>
-      error.name === "ProgramBindingError" &&
-      error.code === "judge-required" &&
-      /use-only-while-source-at-battlefield/.test(error.message)
-  );
-});
-
 test.todo(
-  "unl-026-219 Xerath, Freed: enforce 'Use this ability only while I'm at a battlefield.' (CR 377.2.b) before" +
-    " activation — translateLegalityCondition accepts only Condition-carrying rules or the frozen condition kinds," +
-    " so the declared restriction kind still needs an adapter plus an honest location-type predicate (RIFT-257 follow-up)"
+  "unl-026-219 Xerath, Freed: enforce source-at-battlefield before activation and reject Base without paying " +
+    "the Fury + Exhaust cost (CR 377.2.b; RIFT-359 location-type Condition)"
 );

@@ -21,33 +21,21 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   · 184.1 / 185.2.d："exhausted" 是入场状态改写（与 143.4 的默认横置进场相对），
  *     不是先创建再补一次横置。
  *
- * status = judge-required（2026-10-16 复核：缺口不近似实现）：
- * - 触发条件 "if you assigned 3 or more excess damage" 仍无可求值路径：conquer 时点载荷
- *   （events/timing-points.ts：payloadType "scoring"，未声明 payloadFields）不带本次战斗
- *   分配的超量伤害，ResolveContext 也没有读取伤害分配台账的入口（467.2.c.1 强调 Assigning
- *   与 Dealing 是两件事），契约 3.6 的 history 只按动作次数计数、不能表达金额；本程序的
- *   count subject 只是保留形状（探针：4 个无关对象即让 compare 成立）。
- * - 触发注册还差词汇翻译：RIFT-257 的 programs/triggers.ts 会把卡面 filter 交给
- *   translateTriggerFilter + validateTriggerSpec，而封闭词汇要求 "conquered"/"held"；本卡写的
- *   "conquer" 会在 registerTrigger 抛 TriggerSpecValidationError（探针确认），RIFT-270 的 conquer
- *   波也不带事件对象，383.4.c.2.a 要求的“在场单位”载荷绑定无法验证。
- * - "play two Gold gear tokens exhausted" 仍无可执行路径：effect.token 的冻结定义表没有 gold
- *   （187.5 的 Gold gear token 带自身能力，按该原语文档保持 blocked，探针确认返回
- *   negated/blockedReason 而不是创建替代物）。mode "play" 的链上创建 + 打出本身对已定义 token
- *   可用（golden 用 recruit 真实执行 2 张），但链侧 effect Play 要求被打出对象有已注册的
- *   CardProgram（chain/engine.ts routeAction + describePlay），token 无 cardId，会抛 “Effect Play
- *   requires a card-program for a token”（探针确认）。184.1 / 185.2.d 的入场状态改写同样没有
- *   IR 参数（写入额外键会被 argsSchema 拒绝）。
- *
- * 依赖：RIFT-257 后续（触发词汇翻译与 token 的 play 交接接线）、Gold 定义（187.5）、入场状态
- * 改写、引擎批 4/5 的 conquer 事件载荷与伤害分配回执。
+ * status = judge-required（2026-10-17 复核）：
+ * - conquer 订阅使用封闭事件词汇 conquered，并以 source: self 绑定本单位；卡牌侧可修正
+ *   旧的事件拼写。但 turn/flow.ts 的 conquer 波只携带玩家与 battlefieldId，尚需 383.4.c.2.a
+ *   的在场单位绑定，以及本次战斗 assigned excess damage 金额。count 只数对象，不能作为
+ *   伤害分配金额求值（RIFT-359）；保留下列声明，不把它当作执行证据。
+ * - effect.token 的 Gold 定义及其 187.5 能力、exhausted 入场改写仍需接入；链侧 effect play
+ *   还要求 token 具有可描述的程序。另需把 controller Base 编译为含具体 PlayerId 的 LocationRef；
+ *   effect.token 不会解析下面 location 常量内的 controller 符号。
  */
 const abilities: Ability[] = [
   {
     kind: "triggered",
     trigger: {
       at: "conquer",
-      filter: { event: "conquer", player: "self" },
+      filter: { event: "conquered", filter: { source: "self" }, player: "self" },
       // 383.2.a.1："if you assigned 3 or more excess damage" 是触发条件的一部分。
       // count 表达式保留条件形状；合并 IR 没有伤害分配金额维度，见 judgeReason。
       condition: {
@@ -88,19 +76,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口未合入，均不近似实现：(1) 触发条件「if you assigned 3 or more excess damage」无可求值路径——" +
-    "conquer 时点载荷（timing-points.ts：payloadType \"scoring\"，未声明 payloadFields）不带本次战斗的伤害分配总量/超量，" +
-    "ResolveContext 也没有读取伤害分配台账的入口（467.2.c.1 的 Assigning 与 Dealing 是两件事），契约 3.6 的 history 只按动作计数、" +
-    "不能表达金额；程序里的 count subject 只是保留形状（探针：4 个无关对象即让 compare 成立）。" +
-    "(2) 触发注册还差词汇翻译：RIFT-257 的 programs/triggers.ts 用 translateTriggerFilter + validateTriggerSpec 翻译卡面 filter，" +
-    "封闭词汇要求 \"conquered\"/\"held\"，本卡写的 \"conquer\" 会在 registerTrigger 抛 TriggerSpecValidationError（探针确认），" +
-    "且 RIFT-270 的 conquer 波不带事件对象，383.4.c.2.a 的“在场单位”载荷绑定无法验证。" +
-    "(3) 「play two Gold gear tokens exhausted」无可执行路径：effect.token 的冻结定义表没有 gold" +
-    "（187.5 的 Gold gear token 带自身能力 [Reaction][>] Kill this, [E]: [Add] [A]，按该原语文档保持 blocked，" +
-    "探针确认返回 negated/blockedReason），184.1 / 185.2.d 的“exhausted”入场状态改写没有 IR 参数（写入额外键会被 argsSchema 拒绝），" +
-    "先创建再补一次横置会产生错误的“成为横置”事件；另外链侧 effect Play 要求被打出对象有已注册 CardProgram" +
-    "（chain/engine.ts routeAction + describePlay），token 无 cardId，会抛 “Effect Play requires a card-program for a token”（探针确认）。" +
-    "依赖：RIFT-257 后续（触发词汇翻译与 token play 交接接线）、Gold 定义（187.5）、入场状态改写、引擎批 4/5 的 conquer 事件载荷与伤害分配回执。",
+    "仍缺：(1) 383.4.c.2.a 的本单位在征服战场上参与征服的事件绑定，以及「if you assigned 3 or more excess damage」" +
+    "所需的本次战斗伤害分配金额；turn/flow.ts 的 conquer 波只有玩家与 battlefieldId，" +
+    "count/history 不能读取 assigned excess damage 金额（467.2.c.1–c.4；条件读取依赖 RIFT-359）。" +
+    "(2) effect.token 尚需 Gold gear 的 187.5 定义及其自身能力、184.1/185.2.d 的 exhausted 入场改写；" +
+    "Chain 的 effect Play 还需 token 程序交接，目前 describePlay 要求可注册的 cardId。" +
+    "(3) token 的 controller Base 目的地仍需控制者相对 LocationRef 求值：effect.token 需要具体 PlayerId，" +
+    "不会解析 location 常量里的 controller 符号。",
   abilities,
   sourceText:
     "When I conquer, if you assigned 3 or more excess damage, play two Gold gear tokens exhausted. " +

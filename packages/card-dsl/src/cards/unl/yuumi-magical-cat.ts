@@ -25,22 +25,14 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  * - 135.2.d.1/d.3：括号内 "(It must be assigned combat damage first.)" 是 [Tank] 的提醒
  *   文字，不影响规则，不另写指令。
  *
- * status = judge-required（缺口不近似实现）：
- * - "give … +3 :rb_might: … this turn" 没有可执行路径：契约 3.6 的封闭 GameAction 集合没有
- *   Might 修改动作，effects/instructions/ 下没有 continuous.might / effect.might-modify 原语，
- *   卡程序也没有把该持续效果注册进 layers 的指令入口（LayerEngine 只消费经
- *   ResolveContext.addContinuous 注册的持续效果），"this turn" 的到期同样未接线（RIFT-91）。
- *   程序按契约形状保留 continuous.might 记录意图，不近似用 effect.buff 表达。
- * - "and [Tank] this turn" 需要带期限的关键词授予（801.3.a.2/a.3 的 duration）：
- *   effects/instructions/ 没有 continuous.grant-keyword 原语，静态的 grant-keyword 持续效果
- *   也没有图层消费方（sfd/gem-jammer、sfd/forecaster 记录同一缺口）。
- * - attack-declared / defense-declared 没有发射方：events/action-adapter.ts 只按已提交的游戏
- *   动作派生时点，combat/ 尚未把取得 Attacker/Defender 身份接入事件管线，全仓库没有这两个时点
- *   的 emit 调用（383.4.e.2/f.2 的 Pending Item 路径缺失，RIFT-33/RIFT-120）。
- * 程序只保留结构、目标形状与两处缺口声明；golden 只做校验与结构断言，不为缺口写执行用例。
- *
- * 依赖：RIFT-91（layers-continuous：continuous.might + 期限 + 关键词授予）、
- * RIFT-33/RIFT-120（attack-declared / defense-declared 发射与触发注册）。
+ * status = judge-required（2026-10-17 复核）：
+ * continuous.might / continuous.grant-keyword 及图层期限均已合入；golden 用原始 body 经
+ * resolveChainBody + 测试内核执行，断言 +3、Tank、失效目标与图层到期。仍有三处整卡缺口：
+ * - combat/flow.ts 仍阻断战斗开始事务，尚未发出携带取得身份单位的 attack/defense 时点；
+ * - programs/filters.ts 的目标绑定尚不能翻译 sameLocationAs / exclude 锚点，不能丢弃
+ *   “other / here” 限制（RIFT-359）；
+ * - Tank 已能授予为特征，但 continuous.combat 的 lethal-first 分配要求尚未被战斗消费（815.1.b）。
+ * 两个触发各用 once: per-combat，遵循 383.4.e.2.a / 383.4.f.2.a。
  */
 
 /** "one of your other units here"（两个触发共享同一段印刷效果）。 */
@@ -51,7 +43,7 @@ function grantMightAndTank(): readonly Instruction[] {
   return [
     {
       // 143.2.a / 475："give … +3 [M] this turn" 是算术图层的临时 Might 修正；
-      // 保留形状（见 judgeReason）——合并内核没有可执行路径，不近似用 Buff 表达。
+      // 已合入的算术图层原语；不使用 Buff 计数器替代。
       id: "yuumi-magical-cat.grant-might",
       op: "continuous.might",
       args: {
@@ -67,7 +59,7 @@ function grantMightAndTank(): readonly Instruction[] {
           filter: {
             type: "unit",
             zone: "board",
-            controller: "controller",
+            controller: "self",
             sameLocationAs: "source",
             exclude: "self"
           },
@@ -78,7 +70,7 @@ function grantMightAndTank(): readonly Instruction[] {
       ]
     },
     {
-      // 801.3.a："and [Tank] this turn" 是带期限的关键词授予；保留形状（见 judgeReason）。
+      // 801.3.a：已合入的关键词授予入口；Tank 的分配规则由战斗消费者负责。
       id: "yuumi-magical-cat.grant-tank",
       op: "continuous.grant-keyword",
       args: {
@@ -92,7 +84,7 @@ function grantMightAndTank(): readonly Instruction[] {
           filter: {
             type: "unit",
             zone: "board",
-            controller: "controller",
+            controller: "self",
             sameLocationAs: "source",
             exclude: "self"
           },
@@ -109,14 +101,14 @@ const abilities: Ability[] = [
   {
     // 383.4.e.1："When I attack" 的 Attack Trigger。
     kind: "triggered",
-    trigger: { at: "attack-declared", filter: { event: "attack-declared", filter: { source: "self" } } },
+    trigger: { at: "attack-declared", filter: { event: "attack-declared", filter: { source: "self" } }, once: "per-combat" },
     optional: false,
     body: grantMightAndTank()
   },
   {
     // 383.4.f.1："or defend" 的 Defend Trigger。
     kind: "triggered",
-    trigger: { at: "defense-declared", filter: { event: "defense-declared", filter: { source: "self" } } },
+    trigger: { at: "defense-declared", filter: { event: "defense-declared", filter: { source: "self" } }, once: "per-combat" },
     optional: false,
     body: grantMightAndTank()
   }
@@ -128,16 +120,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：（1）『give … +3 :rb_might: this turn』没有可执行路径：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，" +
-    "effects/instructions/ 下没有 continuous.might / effect.might-modify 原语，卡程序也没有把持续效果注册进 layers 的指令入口" +
-    "（LayerEngine 只消费经 ResolveContext.addContinuous 注册的持续效果），『this turn』的到期（315.4）同样未接线；" +
-    "程序按契约形状保留 continuous.might 记录意图，不近似用 effect.buff 表达（702 的 Buff counter 与本修正语义不同）。" +
-    "（2）『and [Tank] this turn』需要带期限的关键词授予（801.3.a.2/a.3）：没有 continuous.grant-keyword 原语，" +
-    "静态 grant-keyword 持续效果也没有图层消费方。[Tank] 自身的展开文件（815.1）已合入，但战斗分配消费方也缺失。" +
-    "（3）attack-declared / defense-declared 没有发射方：events/action-adapter.ts 只按已提交游戏动作派生时点，" +
-    "combat/ 尚未把取得 Attacker/Defender 身份接入事件管线，全仓库没有这两个时点的 emit 调用（383.4.e.2/f.2 的 Pending Item 路径缺失）。" +
-    "依赖：RIFT-91（layers-continuous：continuous.might + 期限 + 关键词授予）、RIFT-33/RIFT-120（时点发射与触发注册）。" +
-    "本卡所有效果都依赖上述缺口，因此 golden 只做校验、结构断言与缺口 todo，不为缺口写执行用例。",
+    "仍缺：(1) combat/flow.ts 的战斗开始事务与取得 Attacker/Defender 身份的单位时点载荷" +
+    "（383.4.e.2/f.2、466.2.c）；(2) programs/filters.ts 尚不能把目标的 sameLocationAs/exclude 锚点" +
+    "编译进 Finalize，需保留「one of your other units here」的完整限制（RIFT-359）；" +
+    "(3) Tank 的 continuous.combat lethal-first 伤害分配要求尚未接入战斗消费者（815.1.b）。",
   abilities,
   sourceText:
     "When I attack or defend, give one of your other units here +3 :rb_might: and [Tank] this turn. " +
