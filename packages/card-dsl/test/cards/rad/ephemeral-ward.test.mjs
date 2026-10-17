@@ -1,4 +1,3 @@
-
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -8,6 +7,8 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-9ec6311582c4337e549c7a39070aeaf28ae3996142538fa2fb11c3b16cebcf5b";
 const SOURCE_TEXT = "Your units have +2 :rb_might:.\nWhen you play a unit, kill this.";
@@ -51,9 +52,8 @@ test("rad-039-167 Ephemeral Ward: program passes validateCardProgram", () => {
 test("rad-039-167 Ephemeral Ward: identity, ruleset, status, judgeReason and sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -107,7 +107,8 @@ test("rad-039-167 Ephemeral Ward: card-played unit trigger kills the source itse
   assert.equal(triggered.trigger.at, "card-played");
   assert.deepEqual(triggered.trigger.filter, {
     event: "card-played",
-    filter: { type: "unit", player: "controller" }
+    object: { type: "unit" },
+    player: "controller"
   });
   assert.equal(triggered.optional, false);
   assert.equal(triggered.body.length, 1);
@@ -157,15 +158,112 @@ test("rad-039-167 Ephemeral Ward golden: a replacement on the kill negates the i
   assert.equal(scoped.getObject("ephemeral-ward").zone, "board");
 });
 
-test.todo(
-  "rad-039-167 Ephemeral Ward: register the declared static aura as a ContinuousEffectSpec so production " +
-    "applies +2 Might (no merged path reads CardProgram static abilities; registerContinuousEffect has no " +
-    "caller) — RIFT-257 card-program binding"
-);
+function boundScene(turnPlayer = "A", startsOnBoard = true) {
+  const blank = {
+    canonicalCardId: "fixture.empty-play", rulesetVersion: "core-1.5", status: "executable",
+    sourceText: "Synthetic card with an empty play body", abilities: [{ kind: "play", body: [] }]
+  };
+  const binding = createProgramBinding({ cardPrograms: [program, blank] });
+  const f = fixture({ turnPlayer, describePlay: binding.describePlay, cards: [
+    { id: "ward", cardId: CANONICAL, types: ["unit"], energy: 4, power: ["Calm", "Calm"], might: null },
+    { id: "ally", cardId: blank.canonicalCardId, types: ["unit"], might: 3 },
+    { id: "enemy-unit", cardId: blank.canonicalCardId, owner: "B", types: ["unit"], might: 3 },
+    { id: "gear", cardId: blank.canonicalCardId, types: ["gear"], might: null },
+    { id: "spell", cardId: blank.canonicalCardId, types: ["spell"], might: null },
+  ] });
+  const errors = [];
+  const lifecycle = binding.attachLifecycle(f.engine, error => errors.push(error));
+  // Initial board setup uses the real zone action, which also activates the
+  // source's declared statics and triggers through the production lifecycle.
+  if (startsOnBoard) {
+    f.engine.commit({ type: "move-zone", object: f.kernel.ref("ward"), to: "base", location: { type: "base", player: "A" } });
+    f.engine.advance();
+  }
+  const layered = id => {
+    f.engine.layers.setObjects(f.kernel.objects);
+    return f.engine.layers.snapshot(f.kernel.ref(id));
+  };
+  return { ...f, binding, lifecycle, errors, layered };
+}
 
-test.todo(
-  "rad-039-167 Ephemeral Ward: resolve the declared aura's controller scope (\"Your units\") for an " +
-    "arithmetic-layer spec — the card's controller anchor has no merged consumer that turns it into the " +
-    "ability controller's units, so the affected set must be resolved by the RIFT-257 registration adapter"
-);
+test("Ephemeral Ward: bound aura affects your board units and disappears when your unit play kills the ward", () => {
+  const f = boundScene();
+  assert.equal(f.layered("source").might, 4);
+  assert.equal(f.layered("enemy").might, 5);
+  assert.equal(f.layered("ally").might, 3, "a unit in hand does not receive the board aura");
+  assert.equal(f.layered("ward").energy, 4);
+  assert.deepEqual(f.layered("ward").power, ["Calm", "Calm"]);
 
+  f.engine.execute(f.binding.describePlay({ type: "play", object: f.kernel.ref("ally"), player: "A" }, f.kernel.getObject("ally")));
+  assert.equal(f.layered("ally").might, 5, "the newly played friendly unit receives +2 before the trigger resolves");
+  resolveAll(f.engine);
+
+  assert.equal(f.kernel.getObject("ward").zone, "trash");
+  assert.equal(f.layered("source").might, 2);
+  assert.equal(f.layered("ally").might, 3);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-killed" && event.object?.ref.id === "ward").length, 1);
+  assert.deepEqual(f.errors, []);
+  f.lifecycle.detach();
+});
+
+test("Ephemeral Ward: playing your gear or spell leaves the bound ward alive", () => {
+  const f = boundScene();
+  for (const id of ["gear", "spell"]) {
+    f.engine.execute(f.binding.describePlay({ type: "play", object: f.kernel.ref(id), player: "A" }, f.kernel.getObject(id)));
+    resolveAll(f.engine);
+    assert.equal(f.kernel.getObject("ward").zone, "board", id);
+  }
+  assert.equal(f.layered("source").might, 4);
+  assert.deepEqual(f.errors, []);
+  f.lifecycle.detach();
+});
+
+test("Ephemeral Ward: an opponent's unit play leaves the bound ward alive", () => {
+  const f = boundScene("B");
+  f.engine.execute(f.binding.describePlay({ type: "play", object: f.kernel.ref("enemy-unit"), player: "B" }, f.kernel.getObject("enemy-unit")));
+  resolveAll(f.engine);
+  assert.equal(f.kernel.getObject("ward").zone, "board");
+  assert.equal(f.layered("enemy-unit").might, 3);
+  assert.equal(f.layered("source").might, 4);
+  assert.deepEqual(f.errors, []);
+  f.lifecycle.detach();
+});
+
+function playWardScene() {
+  const f = boundScene("A", false);
+  // Seed the initial power pool through the real resource action.
+  f.engine.commit({ type: "gain-power", player: "A", power: ["Calm", "Calm"] });
+  f.engine.advance();
+  const energyBefore = f.kernel.player("A").energy;
+
+  f.engine.commit({ type: "play", object: f.kernel.ref("ward"), player: "A" });
+  f.engine.advance();
+  return { ...f, energyBefore };
+}
+
+test("Ephemeral Ward: playing the ward itself pays printed Energy and triggers its own kill ability", () => {
+  const f = playWardScene();
+  assert.equal(f.kernel.getObject("ward").zone, "board");
+  assert.equal(f.layered("source").might, 4);
+  assert.equal(f.kernel.player("A").energy, f.energyBefore - 4);
+  resolveAll(f.engine);
+
+  assert.equal(f.kernel.getObject("ward").zone, "trash");
+  assert.equal(f.layered("source").might, 2);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-killed" && event.object?.ref.id === "ward").length, 1);
+  assert.deepEqual(f.errors, []);
+  f.lifecycle.detach();
+});
+
+test("Ephemeral Ward: paying printed Power consumes the reference kernel's pool", {
+  // cost/README.md documents this shared test-kernel limitation. Preserve the
+  // correct consumption assertion without replacing payment with a callback.
+  todo: "Reference test-kernel pay ignores Power; requires engine-core integration"
+}, () => {
+  const f = playWardScene();
+  try {
+    assert.deepEqual(f.kernel.player("A").power, []);
+  } finally {
+    f.lifecycle.detach();
+  }
+});

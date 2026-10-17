@@ -36,7 +36,7 @@ test("rad-136-167 Dockside Lock-Up: program validates and has expected identity"
 test("rad-136-167 Dockside Lock-Up: [Deploy] + 打出放逐 + 固守杀死并打出被放逐牌", () => {
   assert.equal(program.abilities.length, 3);
   const [deploy, onPlay, onHold] = program.abilities;
-  // 830 关键词只声明；展开由 effects/keywords/Deploy.ts 负责（不存在）。
+  // CR 830: Deploy is declared once and expanded by the engine.
   assert.deepEqual(deploy, { kind: "keyword", keyword: "deploy" });
 
   // "When you play this, banish a unit here."
@@ -70,7 +70,7 @@ test("rad-136-167 Dockside Lock-Up: [Deploy] + 打出放逐 + 固守杀死并打
   // "When you hold here, kill this to play the banished card, ignoring its cost."
   assert.equal(onHold.kind, "triggered");
   assert.equal(onHold.trigger.at, "hold");
-  assert.deepEqual(onHold.trigger.filter, { self: true });
+  assert.deepEqual(onHold.trigger.filter, { event: "hold", here: true, player: "controller" });
   assert.equal(onHold.optional, false);
   assert.deepEqual(onHold.body.map(instruction => instruction.id), [
     "dockside-lock-up.kill-this",
@@ -168,17 +168,6 @@ test("rad-136-167 Dockside Lock-Up: effect.play 以已定案零费用把被放�
   assert.equal(kernel.player("A").energy, 0);
 });
 
-test.todo(
-  "rad-136-167 Dockside Lock-Up: [Deploy]（830.1.b）的\"只能打到战场\"、830.1.b.3 的不被召回与" +
-    "\"对手在此固守时消灭本卡\"需要 effects/keywords/Deploy.ts 与打出位置校验（关键词工作流）"
-);
-
-test.todo(
-  "rad-136-167 Dockside Lock-Up: 428.3 的\"同一对象放逐的牌\"是跨结算的持久引用；契约 3.6 的 ctx.link" +
-    "只在单次结算作用域内，当前用 PickSpec 命名该引用的来源作为占位（跨结算不可读）"
-);
-
-test.todo(
-  "rad-136-167 Dockside Lock-Up: 204.3 指令内费用与 356.5.a\"忽略全部费用\"的最终费用计划构造" +
-    "（cost.pay 未合入）——程序里已声明 finalized 零计划，但由卡牌程序构造该计划的生产路径缺失"
-);
+test.todo('Dockside Lock-Up: persist banished card identity across play/hold resolutions and exclude tokens (CR 428.3)');
+test.todo('Dockside Lock-Up: Deploy location lifecycle and here-scoped Hold/targets (CR 830.1.b; RIFT-357)');
+test.todo("Dockside Lock-Up: kill-this instruction cost must gate effect.play on successful payment (CR 204.3), with the associated card's Finalize cost override (356.1.b.1)");

@@ -13,7 +13,9 @@ test("rad-125-167 Dune Devourer: program validates and has expected identity", (
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.equal(program.judgeReason.includes("cost.modify"), true);
+  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /RIFT-360/);
   assert.equal(program.judgeReason.includes("Deflect"), true);
   assert.equal(
     program.sourceText,
@@ -36,6 +38,7 @@ test("rad-125-167 Dune Devourer: [Deflect] 声明 + 可选附加费用 + 条件�
   assert.equal(play.kind, "play");
   assert.deepEqual(play.body, []);
   assert.equal(play.cost.kind, "additional");
+  assert.equal(play.cost.optional, true);
   assert.equal(play.cost.payments.length, 1);
   const payment = play.cost.payments[0];
   assert.equal(payment.kind, "kill");
@@ -45,9 +48,7 @@ test("rad-125-167 Dune Devourer: [Deflect] 声明 + 可选附加费用 + 条件�
     min: 1,
     max: 1,
     selection: "one",
-    zone: "board",
-    type: "unit",
-    owner: "controller"
+    filter: { zone: "board", type: "unit", controller: "controller" }
   });
   assert.equal(payment.target, undefined);
 
@@ -72,14 +73,5 @@ test("rad-125-167 Dune Devourer: [Deflect] 展开本体可校验，但卡牌侧�
   assert.equal(program.abilities.filter(ability => ability.kind === "static" && ability.effect.kind === "target.tax").length, 0);
 });
 
-test.todo(
-  "rad-125-167 Dune Devourer: 356.2.b/356.4.f.1 的可选附加费用 \"may kill a friendly unit\" 与" +
-    "\"if you do, I cost 2 less\" 需要 cost.modify/cost.additional 指令与 CardProgram→CostPlanInput 编译器" +
-    "把它接进链在 Finalize 生成的费用计划（依赖 RIFT-89）"
-);
-
-test.todo(
-  "rad-125-167 Dune Devourer: [Deflect] 的 809.1.c 目标追加费用依赖 target.tax 与" +
-    "cost.pay 的无限制域 Power 支付（RIFT-90/RIFT-89），当前 target-plan 的 taxAdapter 只在生产链" +
-    "Finalize 内可用，卡牌程序无法自证可执行"
-);
+test.todo('Dune Devourer: bind optional kill cost and the decision-dependent energy discount at Finalize (CR 356.2.b/356.4.f.1; RIFT-358/359)');
+test.todo('Dune Devourer: register and collect Deflect target tax at Finalize (CR 809.1.c; RIFT-360)');

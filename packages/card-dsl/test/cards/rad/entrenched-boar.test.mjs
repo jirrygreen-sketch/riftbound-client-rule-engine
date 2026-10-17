@@ -1,4 +1,3 @@
-
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -12,6 +11,7 @@ import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/du
 import { restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import restrict from "../../../../engine-core/dist/effects/instructions/continuous.restrict.js";
+import { duelWorld, mainTiming, readinessFor, moveDuelUnitsStandard } from "../../../../engine-core/test/rules/movement/support.mjs";
 
 const CANONICAL =
   "card.hash-83b3503583d3b1c2a4c954330e33aa17c188c4a97ab757da916900476485a9f4";
@@ -97,9 +97,9 @@ test("rad-026-167 Entrenched Boar: identity, status, judgeReason and verbatim so
   assert.equal(program.status, "judge-required");
   // README §2: the reason names each remaining semantic and its owner task.
   assert.match(program.judgeReason, /optional/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /replacement\.event/);
   assert.match(program.judgeReason, /continuous\.restrict/);
-  assert.match(program.judgeReason, /RIFT-259/);
+  assert.match(program.judgeReason, /RIFT-359/);
   // The merged entry replacement must no longer be reported as unmerged.
   assert.doesNotMatch(program.judgeReason, /replacement\.enter 家族/);
   assert.doesNotMatch(program.judgeReason, /RIFT-91/);
@@ -137,8 +137,9 @@ test("rad-026-167 Entrenched Boar: 'I can't move this turn' is linked to the acc
   // "this turn" is the alias the merged op resolves to the end-of-turn duration.
   assert.deepEqual(cannotMove.args.duration, { kind: "constant", value: "this-turn" });
   assert.deepEqual(cannotMove.args.appliesTo, {
-    kind: "constant",
-    value: { type: "unit", object: "self" }
+    kind: "object-property",
+    object: "self",
+    property: "ref"
   });
   // The restriction is conditioned on the accepted choice: it is inside the
   // optional body and linked to the entry rewrite it depends on.
@@ -215,7 +216,7 @@ test("rad-026-167 Entrenched Boar: the movement prohibition registers a real abi
   assert.equal(registered.effect.layer, "ability");
   assert.equal(registered.effect.effect.kind, "restriction");
   assert.equal(registered.effect.effect.restriction, "cannot-move");
-  assert.deepEqual(registered.effect.filter, { type: "unit", object: "self" });
+  assert.deepEqual(registered.effect.filter, scoped.ref("boar"));
   // CR 317.2.c: "this turn" becomes the end-of-turn duration the layers cleanup
   // expires in one batch.
   assert.deepEqual(registered.duration, { type: "end-of-turn" });
@@ -226,19 +227,31 @@ test("rad-026-167 Entrenched Boar: the movement prohibition registers a real abi
   const readable = restrictions(registry, "move", kernel.ref("boar"), kernel.getObject("boar"), "A");
   assert.equal(readable.length, 1);
   assert.equal(readable[0].name, "cannot-move");
-  assert.deepEqual(readable[0].filter, { type: "unit", object: "self" });
+  assert.deepEqual(readable[0].filter, scoped.ref("boar"));
 });
 
-test.todo(
-  "Entrenched Boar: the printed 'you may' decision belongs to the replacement registration itself (368.1) — " +
-    "IR's ReplacementAbility has no optional field, and wrapping the body in choice.optional is rejected at bind " +
-    "time (src/replacement/planner.ts supports no choice.optional opcode), so a declined choice cannot be modelled " +
-    "(RIFT-257 card-program binding)"
-);
+test.todo('Entrenched Boar: atomic optional entry replacement plus new-incarnation movement restriction registration (CR 368.1/369.3/317.2.c; RIFT-359)');
 
-test.todo(
-  "Entrenched Boar: the Move/Recall legality path must consume the registered continuous.restrict prohibition " +
-    "for the source unit (CR 144.1/144.2/054); layers/rules allows it to be listed but no movement check reads it " +
-    "(RIFT-257 / turn-combat wiring)"
-);
-
+test("Entrenched Boar: its declared prohibition blocks only this unit's Standard Move and expires at turn end", () => {
+  const scene = duelWorld();
+  const board = scene.place(scene.place(scene.board, "boar", "A", scene.baseA), "ally", "A", scene.baseA);
+  const kernel = world().base("boar", { might: 2 }).base("ally", { might: 2 }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("boar") });
+  const run = runInstruction(restrict, cannotMove.args, { world: scoped });
+  assert.equal(run.result.status, "executed");
+  const registry = new ContinuousEffectRegistry();
+  for (const entry of scoped.continuousEffects) registry.register(entry.effect, entry.duration);
+  const rules = {
+    registry,
+    refForUnit: unit => scoped.ref(unit.objectId),
+    objectForUnit: unit => scoped.getObject(unit.objectId),
+  };
+  const readiness = readinessFor(board);
+  const request = id => ({ actor: "A", unitUIDs: [id], destinationLocationId: scene.bf1, timing: mainTiming("A") });
+  assert.throws(() => moveDuelUnitsStandard(board, readiness, request("boar"), rules), /prohibited from moving/);
+  const allyMove = moveDuelUnitsStandard(board, readiness, request("ally"), rules);
+  assert.equal(allyMove.board.units.find(unit => unit.objectId === "ally").locationId, scene.bf1);
+  registry.expireAt({ id: "turn-end", player: "A" }, ref => scoped.object(ref));
+  const boarMove = moveDuelUnitsStandard(board, readiness, request("boar"), rules);
+  assert.equal(boarMove.board.units.find(unit => unit.objectId === "boar").locationId, scene.bf1);
+});
