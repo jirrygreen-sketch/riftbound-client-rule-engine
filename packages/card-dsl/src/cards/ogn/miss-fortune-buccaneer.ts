@@ -19,10 +19,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   字段，没有许可字段，故按同类先例（sfd/dauntless-vanguard.ts 的
  *   `play-location-permission` 静态效果）表达两条能力，由 layers/Finalize 消费。
  *
- * status 判定（README 第 2 节）：judge-required。`continuous.location` 与
- * `playLocations` 已有生产查询，CardProgram static 也已有绑定入口，但本卡的声明值仍是
- * `play-location-permission`，不是 `continuous.location` 的可消费 effect 形状；因此 binder
- * 会把它判为 judge-required，且 Finalize 无法从该值推导 170.11.a/b/c 的 open battlefield。
+ * status 判定（README 第 2 节，2026-10-17 复核）：judge-required。三处已实测的当前缺口：
+ * 1. 两条声明用的 effect kind `play-location-permission` 没有静态层映射：programs/statics.ts 的
+ *    layerFor 对其抛 "Static ability kind play-location-permission has no layer mapping"（实测），
+ *    生产 static binder 无法注册任何一条许可。
+ * 2. 即使改写成 `continuous.location`，许可名也只有字符串（layers/rules/query.ts 的
+ *    playLocations 只读 effect.permission 字符串），chain/engine.ts 的 playDestinationIsLegal
+ *    只识别 no-base/no-battlefield 这类具名禁止，不认识 open battlefield（170.11.c）这一状态。
+ * 3. “Friendly units may be played to open battlefields” 需要把许可持续授予控制者的所有友方单位
+ *    （355.2.b）；appliesTo: "friendly-units" 与 relative 玩家在 staticFilter 里没有绑定路径
+ *    （controller: "opponent" 一类相对玩家会被拒绝），Finalize 无法按打出者求值。
+ * 依赖：play-location-permission/continuous.location 的静态图层映射、open battlefield 的
+ * Finalize 目的地判定与友方单位许可的作用域绑定。不近似实现（不把 open 简化为任意战场）。
  */
 const abilities: Ability[] = [
   {
@@ -64,10 +72,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两条能力都是“打出位置许可”的静态持续效果（355.2.b / 170.11.c），但声明使用的 " +
-    "play-location-permission effect kind 没有 continuous.location binder 的消费形状；" +
-    "因此当前 static binding 会将它保留为 judge-required，Finalize 也无法从该值推导 " +
-    "open battlefield（unoccupied 且 uncontrolled）。不近似实现。",
+    "三处已实测的当前缺口：" +
+    "(1) 两条声明用的 effect kind `play-location-permission` 没有静态层映射——programs/statics.ts 的 " +
+    "layerFor 抛 “Static ability kind play-location-permission has no layer mapping”，生产 static binder " +
+    "无法注册任何一条许可。" +
+    "(2) 即便改写成 continuous.location，playLocations 只读 effect.permission 字符串，chain/engine.ts 的 " +
+    "playDestinationIsLegal 只识别 no-base/no-battlefield 这类具名禁止，不认识 open battlefield（170.11.c：" +
+    "unoccupied 且 uncontrolled）这一位置状态，Finalize 无法推导该许可。" +
+    "(3) “Friendly units may be played to open battlefields” 要把许可持续授予控制者的所有友方单位" +
+    "（355.2.b），但 appliesTo: \"friendly-units\" 与 relative 玩家在 staticFilter 没有绑定路径，" +
+    "Finalize 无法按打出者求值。依赖：静态图层映射、open battlefield 目的地判定与友方作用域绑定。不近似实现。",
   abilities,
   sourceText:
     "You may play me to an open battlefield.\nFriendly units may be played to open battlefields."

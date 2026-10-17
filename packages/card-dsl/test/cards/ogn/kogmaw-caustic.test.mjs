@@ -3,11 +3,39 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/kogmaw-caustic.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // card-dsl 对 engine-core 没有依赖边（engine-core 依赖 card-dsl），golden 执行按 workspace
 // 布局直接加载已构建的 engine-core。
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
+const { translateObjectFilter } = await import(new URL("programs/filters.js", engineCore));
+const { instructionDefinitionsById } = await import(new URL("effects/instructions/registry.generated.js", engineCore));
+const { keywordDefinitionsById } = await import(new URL("effects/keywords/registry.generated.js", engineCore));
+const { createProgramBinding } = await import(new URL("programs/index.js", engineCore));
+const { ChainEngine } = await import(new URL("chain/engine.js", engineCore));
+const { bindResolveContext, createActionPipelineHost } = await import(new URL("events/action-adapter.js", engineCore));
+
+/** A real Board unit behind the production chain host (CR 808.1 triggers on death). */
+function boardFixture() {
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .player("B", { energy: 20 })
+    .unit("kogmaw", { cardId: CANONICAL, owner: "A", controller: "A", types: ["unit"], might: 1, zone: "board", location: { type: "battlefield", id: "bf-1" } })
+    .unit("ally", { owner: "A", controller: "A", might: 3, zone: "board", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`Unexpected choice: ${request.id}`); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  return { engine, kernel };
+}
 
 const CANONICAL = "card.hash-0f5741c23c7acda9685575d52a79431b6bad15e2c75415c8ecc902943fae6cd1";
 const SOURCE_TEXT =
@@ -28,7 +56,63 @@ test("kogmaw-caustic: identity, ruleset, status, judgeReason and sourceText", ()
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /trigger\.leave/);
   assert.match(program.judgeReason, /object-killed/);
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /attachProgramLifecycle/);
   assert.equal(program.sourceText, SOURCE_TEXT);
+  assert.equal(cardRegistryById.get(CANONICAL), program);
+});
+
+test("kogmaw-caustic: the Deathknell expansion still references the unregistered trigger.leave op", () => {
+  // CR 808.1: the keyword expansion exists, but its leave subscription has no
+  // merged InstructionDef, so the expanded trigger would throw at resolution.
+  const deathknell = keywordDefinitionsById.get("Deathknell");
+  assert.ok(deathknell, "the Deathknell KeywordDef must be registered");
+  const [expanded] = deathknell.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(expanded.trigger.at, "object-killed");
+  assert.equal(expanded.body[0].op, "trigger.leave");
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+});
+
+test("kogmaw-caustic: a real chain kill still drops the card's own object-killed trigger", () => {
+  // 808.1.d.2: the trigger must be collected as a Pending Item before the card
+  // leaves the Board. The production lifecycle currently unregisters on
+  // object-leaves-board, so a registered program trigger never reaches the
+  // chain on a real Kill (reproduced here through a real fixture).
+  const f = boardFixture();
+  const source = f.kernel.getObject("kogmaw");
+  f.engine.pipeline.registerTrigger({
+    id: "kogmaw-probe",
+    source,
+    controller: "A",
+    spec: { at: "object-killed", filter: {} },
+    body: [{ id: "kogmaw-probe.draw", op: "effect.draw", args: { amount: { kind: "constant", value: 1 } } }]
+  });
+
+  const outcome = f.engine.commit({ type: "kill", object: f.kernel.ref("kogmaw") });
+  assert.equal(outcome.status, "done");
+  assert.deepEqual(f.engine.items.map(item => item.kind), ["triggered"]);
+  // The same registration bound through the production lifecycle is removed by
+  // the leaves-board emission and never enqueues an item.
+  const g = boardFixture();
+  const programAsExecutable = { ...program, status: "executable", judgeReason: undefined };
+  const handle = createProgramBinding({ cardPrograms: [programAsExecutable] }).attachLifecycle(g.engine);
+  g.engine.commit({ type: "kill", object: g.kernel.ref("kogmaw") });
+  assert.deepEqual(g.engine.items.map(item => item.kind), []);
+  handle.detach();
+});
+
+test("kogmaw-caustic: the production trigger translator still refuses the body's sameLocationAs anchor", () => {
+  const error = (() => {
+    try {
+      translateObjectFilter(damage.targets[0].filter);
+      return null;
+    } catch (thrown) {
+      return thrown;
+    }
+  })();
+  assert.ok(error, "the merged translator must still refuse `sameLocationAs` while the gap is open");
+  assert.equal(error.code, "judge-required");
+  assert.match(error.message, /Unsupported filter field sameLocationAs/);
 });
 
 test("kogmaw-caustic: [Deathknell] + object-killed trigger on the host", () => {

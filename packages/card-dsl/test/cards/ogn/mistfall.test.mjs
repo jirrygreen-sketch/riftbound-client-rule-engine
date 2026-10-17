@@ -5,6 +5,12 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ogn/mistfall.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 test("ogn-152-298 Mistfall: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -26,6 +32,76 @@ test("ogn-152-298 Mistfall: identity, version and verbatim source text", () => {
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /trigger-spec\.ts/);
   assert.match(program.judgeReason, /buff-added/);
+  assert.match(program.judgeReason, /cost\.pay requires a valid, payable finalized cost plan|cost\.pay/);
+  assert.match(program.judgeReason, /assertFinalizationSurface|Nested/);
+  assert.equal(cardRegistryById.get(program.canonicalCardId), program);
+});
+
+test("ogn-152-298 Mistfall: the buff-added trigger is still rejected by the closed event list", () => {
+  const [ability] = program.abilities;
+  const translated = translateTriggerFilter(ability.trigger.filter, "mistfall", ability.trigger.at);
+  assert.deepEqual(translated, { event: "buff-added", object: { type: "unit" }, player: "self" });
+  assert.throws(
+    () => assertTriggerSpec({ at: ability.trigger.at, filter: translated }),
+    error => error.name === "TriggerSpecValidationError" && /trigger\.filter\.event/.test(String(error.message))
+  );
+});
+
+test("ogn-152-298 Mistfall: cost.pay still cannot construct the trigger's pay-and-exhaust cost", () => {
+  // 430/415: paying Body Power and exhausting the source is a resolution-time
+  // cost of the trigger. The merged cost.pay only consumes a finalized plan;
+  // the symbolic self-exhaust declaration is not one.
+  const kernel = world()
+    .player("A", { power: ["Body"] })
+    .unit("mistfall", { owner: "A", types: ["gear"], zone: "board", exhausted: false })
+    .build();
+  const coaster = kernel.clone({ controller: "A", sourceSnapshot: kernel.getObject("mistfall") });
+  const [choice] = program.abilities[0].body;
+  const [payInstruction] = choice.args.body.value;
+  assert.throws(
+    () => runInstruction(costPay, payInstruction.args, { world: coaster }),
+    /cost\.pay requires a valid, payable finalized cost plan/
+  );
+  assert.equal(coaster.getObject("mistfall").exhausted, false);
+});
+
+test("ogn-152-298 Mistfall: a nested trigger body target is refused by the production finalize surface", () => {
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .player("B", { energy: 20 })
+    .unit("mistfall", { owner: "A", types: ["gear"], zone: "board" })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`Unexpected choice: ${request.id}`); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const source = kernel.getObject("mistfall");
+  const trigger = program.abilities[0];
+  engine.enqueue({
+    id: "mistfall.probe",
+    controller: "A",
+    source,
+    kind: "triggered",
+    speed: "normal",
+    body: trigger.body,
+    object: source.ref
+  });
+  const error = (() => {
+    try {
+      engine.advance();
+      return null;
+    } catch (thrown) {
+      return thrown;
+    }
+  })();
+  assert.ok(error, "the production finalize surface must still refuse nested target specs");
+  assert.equal(error.name, "ChainContractBlockedError");
+  assert.match(error.message, /Nested\/repeated targets require an interpreter target-selection lifecycle adapter/);
 });
 
 test("ogn-152-298 Mistfall: buff-added trigger with optional pay+exhaust body", () => {

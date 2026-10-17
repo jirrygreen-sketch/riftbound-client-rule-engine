@@ -26,8 +26,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   scoring, kill this"), so the second instruction references the same unit
  *   as the first and is linked to it (359.3.e.14): a lost target ignores both.
  *
- * Status: judge-required — the printed body now executes/registers on merged
- * paths, but the granted keyword has no runtime consumer yet:
+ * Status: judge-required（2026-10-17 复核）— the printed body executes/registers on merged
+ * paths, but the granted keyword and the [Action] permission still have no runtime consumer:
  * - "Double a friendly unit's Might this turn" is captured as the target's
  *   current Might with the merged condition.value value node and added back
  *   through the continuous.might instruction with the
@@ -38,10 +38,16 @@ import type { CardProgram } from "../../ir/index.js";
  * - "Give it [Temporary]" uses continuous.grant-keyword. The ability layer
  *   carries the Temporary keyword, but a dynamically granted keyword is not
  *   re-expanded into a trigger registration, so 816.1.b's "kill this at the
- *   start of your Beginning Phase" trigger never fires. The grant is not
- *   dropped or faked into a direct kill.
- * - [Action] (806) is declared as a keyword ability and its showdown timing
- *   grant is consumed by the chain timing query.
+ *   start of your Beginning Phase" trigger never fires. Measured: the
+ *   Temporary expansion's `beginning-start` spec is rejected by the closed
+ *   EVENT_PATTERN_TYPES list (events/trigger-spec.ts) before any registration,
+ *   and no merged producer re-runs keyword expansion for a dynamic grant. The
+ *   grant is not dropped or faked into a direct kill.
+ * - [Action] (806) is declared as a keyword ability, but its expansion is still
+ *   refused by the production static binder: `programs/statics.ts` throws
+ *   "Unsupported static appliesTo [\"card\",\"activated-ability\"]" for the
+ *   continuous.timing static the KeywordDef produces, so the showdown timing
+ *   grant cannot be registered through a CardProgram.
  */
 const lastStand = {
   canonicalCardId: "card.hash-cfe83e821b0faa83120c2096c34d250fad91786b0aba091191591e6936237f0a",
@@ -52,8 +58,11 @@ const lastStand = {
     "（433.1/433.1.a）后由 continuous.might 以 add + this-turn 期限注册，golden 用生产链适配器执行并断言翻倍、" +
     "end-of-turn 到期与目标丢失边界。整卡仍不可执行：「Give it [Temporary]」的 continuous.grant-keyword" +
     "已能把 Temporary 写进 ability 层，但动态授予的关键词不会重新注册其 beginning-start 触发，且该时点仍不在" +
-    "EVENT_PATTERN_TYPES 闭集内；816.1.b「在控制者 Beginning Phase 开始时消灭它」不会运行。[Action]（806）的" +
-    "showdown timing grant 已由 chain 查询消费。依赖：动态关键词授予后的触发注册与 beginning-start 事件绑定。" +
+    "EVENT_PATTERN_TYPES 闭集内（实测 Temporary 展开的 spec 被 assertTriggerSpec 以 invalid-event-type 拒绝）；" +
+    "816.1.b「在控制者 Beginning Phase 开始时消灭它」不会运行。[Action]（806）的展开是 " +
+    "continuous.timing static，programs/statics.ts 对其 appliesTo: [\"card\", \"activated-ability\"] 抛 " +
+    "\"Unsupported static appliesTo\"（实测），showdown timing grant 无法经 CardProgram 注册。" +
+    "依赖：动态关键词授予后的触发注册、beginning-start 事件词表与 continuous.timing 的静态绑定。" +
     "不近似实现：不把 [Temporary] 省略，也不写成直接消灭。",
   abilities: [
     { kind: "keyword", keyword: "action" },

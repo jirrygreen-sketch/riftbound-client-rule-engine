@@ -9,6 +9,11 @@ const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js"
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
 const { createLayerEngine } = await import(new URL("layers/index.js", engineCore));
 const { matchesObjectFilter } = await import(new URL("layers/filter.js", engineCore));
+const { createProgramBinding, createEngineStaticBinder } = await import(new URL("programs/index.js", engineCore));
+const { keywordDefinitionsById } = await import(new URL("effects/keywords/registry.generated.js", engineCore));
+const { assertTriggerSpec } = await import(new URL("events/trigger-spec.js", engineCore));
+const { ChainEngine } = await import(new URL("chain/engine.js", engineCore));
+const { bindResolveContext, createActionPipelineHost } = await import(new URL("events/action-adapter.js", engineCore));
 
 const CARD_ID = "card.hash-cfe83e821b0faa83120c2096c34d250fad91786b0aba091191591e6936237f0a";
 const SOURCE_TEXT =
@@ -74,6 +79,63 @@ test("ogn-069-298 Last Stand judgeReason names the registered halves and the rem
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /816/);
   assert.match(program.judgeReason, /dynamic.*keyword|beginning-start/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /continuous\.timing/);
+  assert.match(program.judgeReason, /Unsupported static appliesTo/);
+});
+
+test("ogn-069-298 Last Stand: the [Action] expansion is still refused by the production static binder", () => {
+  // 806.1.c: the KeywordDef grants the showdown permission through a
+  // continuous.timing static, which the CardProgram -> layer binder cannot
+  // register (measured), so the card's own speed grant has no production path.
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .player("B", { energy: 20 })
+    .hand("last-stand", { cardId: CARD_ID, owner: "A", controller: "A", types: ["spell"], energy: 3, power: [] })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`Unexpected choice: ${request.id}`); },
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const source = kernel.getObject("last-stand");
+  const actionGrant = binding.inspect(source).abilities.find(ability =>
+    ability.kind === "static" && ability.effect.kind === "continuous.timing"
+  );
+  assert.ok(actionGrant, "[Action] must expand to the declared continuous.timing static");
+  const error = (() => {
+    try {
+      createEngineStaticBinder(engine).bindStatic(actionGrant, source);
+      return null;
+    } catch (thrown) {
+      return thrown;
+    }
+  })();
+  assert.ok(error, "the merged static binder must still refuse the timing grant while the gap is open");
+  assert.equal(error.code, "judge-required");
+  assert.match(error.message, /Unsupported static appliesTo/);
+  assert.deepEqual(engine.layers.registry.list(), []);
+});
+
+test("ogn-069-298 Last Stand: a dynamically granted Temporary cannot register its Beginning Phase trigger", () => {
+  // 816.1.b: the granted keyword's expansion subscribes to beginning-start,
+  // which the closed EVENT_PATTERN_TYPES still rejects before registration, so
+  // the kill-at-Beginning-Phase trigger never becomes a Pending Item.
+  const temporary = keywordDefinitionsById.get("Temporary");
+  const [ability] = temporary.expand({ host: { canonicalCardId: CARD_ID } });
+  assert.equal(ability.trigger.at, "beginning-start");
+  assert.throws(
+    () => assertTriggerSpec(ability.trigger),
+    error => /trigger\.filter\.event/.test(String(error.message)) && error.name === "TriggerSpecValidationError"
+  );
 });
 
 test("ogn-069-298 Last Stand structure: [Action] keyword plus doubling then a linked Temporary grant", () => {
