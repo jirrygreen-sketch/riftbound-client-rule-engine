@@ -21,12 +21,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
  * - "discard 1" 与 "draw 2" 都用已合入的 effect.discard / effect.draw，golden 对这两条真实执行。
- * - 改费半段没有消费方：effects/instructions/ 没有注册 cost.modify 原语，cost/cost-plan.ts 只在调用方
- *   显式提供 CostPlanInput.discounts 时应用折扣（356.4.c 的组件折扣、356.4.f.1 的"已付决定"凭证
- *   都是该管线的职责），且 CostDiscount 没有"仅作用于可选附加费用"与"以支付决定为条件"的维度（RIFT-89）。
+ * - 改费半段没有消费方：effects/instructions/ 仍未注册 cost.modify 原语（RIFT-261 进行中），
+ *   cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts 时应用折扣（356.4.c 的组件折扣、
+ *   356.4.f.1 的"已付决定"凭证都是该管线的职责），且 CostDiscount 的 component 维度目前只在 base/output
+ *   阶段生效——没有"仅作用于可选附加费用"与"以支付决定为条件"的接线；本卡的 static 能力也还没有
+ *   CardProgram → 费用计划的注册路径（RIFT-257）。
  * - "or [A]" 的 Universal Power（163.2.b）无法用封闭 Domain 类型与 CostDiscount.resource 表达；
  *   effect.resources 明确该资源保持 unsupported、绝不用具名域近似。
- * 依赖：RIFT-89（费用计划的附加费用折扣接线）、Universal Power 的契约变更请求。
+ * 依赖：RIFT-261（费用计划的附加费用折扣接线）、RIFT-257（卡牌 static 注册）、Universal Power 的契约变更请求。
  * 不近似实现：不把 [A] 写成某个具名域，也不把改费写成副作用式的额外动作。
  */
 const abilities: Ability[] = [
@@ -79,11 +81,12 @@ const program = {
   judgeReason:
     "改费半段没有消费方：「Optional additional costs you pay cost [1] or [A] less」按 356.2.b / 356.4 / 356.4.c / 356.4.f " +
     "是只作用于可选附加费用组件的折扣（356.4.f.1 的已付凭证是玩家的支付决定），但 effects/instructions/ 没有注册 cost.modify 原语，" +
-    "cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts 时应用，且 CostDiscount 没有「仅作用于可选附加费用」与「以支付决定为条件」的维度（RIFT-89）。" +
+    "cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts 时应用，且 CostDiscount 没有「仅作用于可选附加费用」与「以支付决定为条件」的维度（RIFT-261 进行中）。" +
     "同时「or :rb_rune_rainbow:」的 [A] 是 163.2.b 的 Universal Power：封闭 Domain 类型与 CostDiscount.resource 不表达，" +
     "effect.resources 明确保持 unsupported、不用具名域近似。" +
     "「When you play me, discard 1, then draw 2」两条指令已合入（423.1 / 414.3），golden 对锁定手牌与牌库真实执行，触发接线记 test.todo。" +
-    "依赖：RIFT-89、Universal Power 的契约变更请求。不近似实现。",
+    "依赖：RIFT-261（cost.modify 原语与附加费用折扣接线）、RIFT-257（卡牌 static 注册）、Universal Power 的契约变更请求。" +
+    "不近似实现。",
   abilities,
   sourceText:
     "When you play me, discard 1, then draw 2.\n" +

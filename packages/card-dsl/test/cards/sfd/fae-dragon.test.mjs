@@ -51,7 +51,8 @@ test("sfd-101-221 Fae Dragon: judgeReason names the Gold token and entry-state g
   assert.match(program.judgeReason, /440\.2\.c/);
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /143\.4/);
-  assert.match(program.judgeReason, /RIFT-62/);
+  assert.match(program.judgeReason, /LocationRef/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("sfd-101-221 Fae Dragon: 'When you play me' is a mandatory card-played self trigger", () => {
@@ -187,12 +188,12 @@ test("sfd-101-221 Fae Dragon golden: an already-buffed unit is not buffed again 
 
 test.todo(
   "sfd-101-221 Fae Dragon: create and play the Gold gear token exhausted once the Gold definition " +
-    "(CR 187.5), chain creation (440.2.c / 185.2.a / 350.2 / 354) and the exhausted entry stipulation " +
-    "(184.1 / 185.2.d) are merged (token primitive task, RIFT-62 follow-up)"
+    "(CR 187.5) and the exhausted entry stipulation (184.1 / 185.2.d) are merged (token primitive task); " +
+    "the chain-creation + play hand-off is already merged"
 );
 
 test.todo(
   "sfd-101-221 Fae Dragon: the buff-spent timing point must reach this ability through the card-program " +
-    "trigger registration (702.2.b / 705; RIFT-120 follow-up), and Finalize must resolve the 'friendly units' " +
+    "trigger registration (702.2.b / 705; RIFT-257), and Finalize must resolve the 'friendly units' " +
     "controller anchor and the 0..4 up-to bounds (355.13, RIFT-90)"
 );

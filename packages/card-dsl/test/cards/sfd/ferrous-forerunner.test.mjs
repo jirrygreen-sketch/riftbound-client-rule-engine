@@ -1,7 +1,7 @@
 // Golden test for Ferrous Forerunner (sfd-021-221).
-// Deathknell body is expressed as an explicit object-killed trigger; only the
-// token-creation shape is executable today, so the printed "Play ... tokens"
-// form is asserted against the frozen effect.token play-mode boundary.
+// Deathknell body is expressed as an explicit object-killed trigger; the
+// merged effect.token play path really creates and plays the Mech tokens, while
+// the Deathknell trigger registration is still owned by RIFT-257.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateCardProgram } from "../../../../../packages/card-dsl/dist/ir/index.js";
@@ -17,8 +17,9 @@ test("program passes validateCardProgram and is judge-required", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason ?? "", /440\.2\.c/);
+  assert.match(program.judgeReason ?? "", /LocationRef/);
   assert.match(program.judgeReason ?? "", /RIFT-82/);
+  assert.match(program.judgeReason ?? "", /RIFT-257/);
   assert.match(program.sourceText, /\[Deathknell\]/);
 });
 
@@ -45,21 +46,23 @@ test("body instruction plays two 3-might Mech tokens to the controller base", ()
   });
 });
 
-test("reference kernel: creating the two Mech tokens lands them on the controller base", () => {
-  const testWorld = world().build();
+test("golden: the printed play mode really creates and plays both 3-Might Mech tokens (440.2.c / 185.2.a)", () => {
+  const testWorld = world().player("A").build();
+  const [instruction] = program.abilities[0].body;
+  // "to your base" has no controller-relative spelling for a literal
+  // effect.token location (see judgeReason), so the acting seat substitutes the
+  // printed placeholder; everything else is the card's own argument set.
   const run = runInstruction(
     tokenDef,
-    {
-      token: { kind: "constant", value: "mech" },
-      amount: { kind: "constant", value: 2 },
-      mode: { kind: "constant", value: "create" },
-      location: { kind: "constant", value: { type: "base", player: "A" } },
-      linkKey: { kind: "constant", value: "mechTokens" }
-    },
+    { ...instruction.args, location: { kind: "constant", value: { type: "base", player: "A" } } },
     { world: testWorld }
   );
+
   assert.equal(run.result?.status, "executed");
   assert.equal(run.linked["mechTokens.amount"], 2);
+  // The chain-creation receipts survive the play hand-off.
+  assert.equal(run.linked["mechTokens.createdAmount"], 2);
+  assert.equal(run.linked.mechTokens.objectsComplete, true);
   const tokens = testWorld.objects.filter(object => object.isToken);
   assert.equal(tokens.length, 2);
   for (const token of tokens) {
@@ -67,20 +70,16 @@ test("reference kernel: creating the two Mech tokens lands them on the controlle
     assert.equal(token.might, 3);
     assert.deepEqual(token.location, { type: "base", player: "A" });
   }
-});
-
-test("reference kernel: the printed play-a-new-token form is blocked by the frozen contract", () => {
-  const [instruction] = program.abilities[0].body;
-  const testWorld = world().build();
-  const run = runInstruction(tokenDef, instruction.args, { world: testWorld });
-  assert.equal(run.result?.status, "negated");
-  assert.equal(run.result?.reason, "impossible");
-  // The instruction performs nothing, so no tokens enter play.
-  assert.equal(run.linked["mechTokens.amount"], 0);
-  assert.deepEqual(run.linked["mechTokens.objects"], []);
-  assert.equal(testWorld.objects.filter(object => object.isToken).length, 0);
+  assert.equal(run.events.filter(event => event.action === "play").length, 2);
 });
 
 test.todo(
-  "resolve Ferrous Forerunner Deathknell through the real chain once token play (CR 440.2.c on-chain creation) exists; keyword expansion owned by RIFT-82"
+  "sfd-021-221 Ferrous Forerunner: resolve the Deathknell body through the real chain once the card-program " +
+    "trigger registration lands and trigger.leave is merged (808.1.c; RIFT-82 keyword expansion + RIFT-257 binding)"
+);
+
+test.todo(
+  "sfd-021-221 Ferrous Forerunner: 'to your base' needs a controller-relative LocationRef for effect.token " +
+    "(its literal PlayerId must equal ctx.controller; only a linked/known LocationRef can name that seat) — " +
+    "contract change request"
 );

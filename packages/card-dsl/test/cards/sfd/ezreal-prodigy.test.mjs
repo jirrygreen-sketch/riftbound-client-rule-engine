@@ -29,7 +29,8 @@ test("sfd-149-221 Ezreal, Prodigy: identity, ruleset, status, judgeReason and ve
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /356\.4/);
   assert.match(program.judgeReason, /163\.2\.b/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -131,7 +132,7 @@ test("sfd-149-221 Ezreal, Prodigy golden: the discard primitive alone moves the 
 test.todo(
   "sfd-149-221 Ezreal, Prodigy: apply the declared optional-additional-cost discount during Finalize " +
     "(356.4 / 356.4.c / 356.4.f, with 356.4.f.1's payment decision as the receipt) — the merged cost plan " +
-    "only reads caller-supplied CostPlanInput.discounts and has no component-plus-decision dimension (RIFT-89)"
+    "only reads caller-supplied CostPlanInput.discounts and has no component-plus-decision dimension (RIFT-261)"
 );
 
 test.todo(
@@ -142,5 +143,5 @@ test.todo(
 
 test.todo(
   "sfd-149-221 Ezreal, Prodigy: the card-played trigger reaches this ability through the trigger -> chain " +
-    "pipeline with the source-identity filter evaluated (383.4.a / 420.4.a) — RIFT-120"
+    "pipeline with the source-identity filter evaluated (383.4.a / 420.4.a) — RIFT-257"
 );

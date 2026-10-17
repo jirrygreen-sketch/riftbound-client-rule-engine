@@ -31,6 +31,8 @@ test("sfd-148-221 Draven, Audacious: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /combat-result/);
   assert.match(program.judgeReason, /target\.player/);
   assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-124/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -135,7 +137,7 @@ test("sfd-148-221 Draven, Audacious golden: the death body scores for the linked
 
 test.todo(
   "sfd-148-221 Draven, Audacious: the combat-result timing point (468.3) must be emitted by combat/ and reach " +
-    "this ability through the trigger -> chain pipeline with the winner payload exposed (RIFT-120)"
+    "this ability through the trigger -> chain pipeline with the winner payload exposed (RIFT-124 + RIFT-257)"
 );
 
 test.todo(
@@ -145,8 +147,8 @@ test.todo(
 
 test.todo(
   "sfd-148-221 Draven, Audacious: \"die in combat\" needs the in-combat state at the death event (740.2.c) — " +
-    "contract 3.8's ObjectSnapshot.combatRole is not in engine-core's effects/contract.ts and no payload supplies " +
-    "the combat designation on object-killed (RIFT-120)"
+    "ObjectSnapshot.combatRole exists (contract 3.8 item 1) but no timing point or payload carries the combat " +
+    "designation to object-killed, and the details.inCombat filter has no consumer (RIFT-124)"
 );
 
 test.todo(

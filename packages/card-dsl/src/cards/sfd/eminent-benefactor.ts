@@ -17,15 +17,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "exhausted" 是入场状态规定（184.1 / 185.2.d：效果可以指定 token 以与默认相反的横置/就绪状态进场），
  *   不是事后横置（143.4；effect.exhaust 文件头明确先创建再补横置不等价，会多一次"成为横置"事件）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required——三处依赖未合入，均不近似实现：
- * - Gold 定义（187.5，自带能力的 token）不在 effect.token 的冻结定义表里；该文件明确此类定义保持
- *   blocked/judge-required，对 "gold" 执行会得到 negated / blockedReason: token-definition-or-abilities-judge-required
- *   （与已合入 sfd/trove-golem、sfd/honest-broker、sfd/treasure-hoard 同款缺口）。
- * - "play … tokens" 要求先在链上创建再接手打出（440.2.c / 185.2.a）；冻结的 create-token 只在场上创建，
- *   effect.token 的 mode "play" 对不支持的定义被显式 negated。
- * - "exhausted" 的入场状态改写不被 create-token/play 支持（184.1 / 185.2.d）。
- * - hold 触发的卡牌注册与 Hold 时点载荷（此处不需要额外载荷）属 RIFT-120。
- * 依赖：Gold 定义与链上创建/入场状态（token 原语的后续任务）、RIFT-120（触发注册）。
+ * status 判定（cards/README.md 第 2 节）：judge-required——依赖仍未合入，均不近似实现：
+ * - mode "play" 的链上创建 + 打出路径已合入（effect.token 会先 create-token 到 Chain 再由 play 接手，
+ *   实测 mech/sand-soldier 等定义可执行），但 Gold 定义（187.5，自带 "Kill this, [E]: [Add] [A]" 能力）
+ *   仍不在 DEFINITIONS 表里：对 "gold" 执行得到 negated / blockedReason:
+ *   token-definition-or-abilities-judge-required（与已合入 sfd/trove-golem、sfd/honest-broker、
+ *   sfd/treasure-horde 同款缺口）。
+ * - "exhausted" 的入场状态改写不被 create-token/play 支持：效果没在任何 place 提交横置入场
+ *   （184.1 / 185.2.d；143.4 明确事后 effect.exhaust 不等价）。
+ * - hold 触发的卡牌注册属 RIFT-257（程序绑定仍在进行）。
+ * 依赖：Gold 定义与入场状态（token 原语任务的后续）、RIFT-257（触发注册）。
  */
 const abilities: Ability[] = [
   {
@@ -60,12 +61,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "Gold gear token（CR 187.5，自带「Kill this, [E]: [Add] [A]」能力）不在 effect.token 的冻结定义表里——" +
-    "该文件明确此类定义保持 blocked/judge-required，对「gold」执行会得到 negated/blockedReason: token-definition-or-abilities-judge-required。" +
-    "「play two … tokens」还必须按 440.2.c/185.2.a/350.2/354 先在链上创建再由 play 接手，冻结的 create-token 只在场上创建、" +
-    "effect.token 的 mode「play」对不支持的定义被显式 negated；「exhausted」是入场规定（184.1/185.2.d），create-token/play 不支持改写，" +
-    "事后 effect.exhaust 不等价（143.4）。hold 触发的卡牌注册属 RIFT-120。" +
-    "依赖：Gold 定义与链上创建/入场状态（token 原语任务）、RIFT-120。不近似实现。",
+    "mode \"play\" 的链上创建 + 打出路径已合入（440.2.c/185.2.a），但 Gold 定义（CR 187.5，自带「Kill this, " +
+    "[E]: [Add] [A]」能力）不在 effect.token 的 DEFINITIONS 表里，对「gold」执行会得到 negated/blockedReason: " +
+    "token-definition-or-abilities-judge-required（同 sfd/trove-golem、sfd/honest-broker）。" +
+    "另外「exhausted」之外，程序里的 { type: \"base\", player: \"controller\" } 也只是占位：effect.token 要求字面 " +
+    "PlayerId 等于 ctx.controller，静态 IR 没有相对控制者的 LocationRef 记法（只能经 condition.value + linked-value 读取）。" +
+    "「exhausted」是入场规定（184.1/185.2.d），目前的 create-token/play 不提交横置入场，事后 effect.exhaust 不等价（143.4）。" +
+    "hold 触发的卡牌注册属 RIFT-257。依赖：Gold 定义与入场状态（token 原语任务后续）、RIFT-257。不近似实现。",
   abilities,
   sourceText: "When I hold, play two Gold gear tokens exhausted."
 } satisfies CardProgram;

@@ -73,7 +73,8 @@ test("sfd-197-221 Emperor of the Sands: identity, ruleset, status, judgeReason a
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /054\.2/);
   assert.match(program.judgeReason, /LocationRef/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
 });
 
 test("sfd-197-221 Emperor of the Sands: 'Your Sand Soldiers have [Weaponmaster]' is a static keyword grant", () => {
@@ -218,7 +219,7 @@ test.todo(
 test.todo(
   "sfd-197-221 Emperor of the Sands: the static grant-keyword needs a CardProgram -> LayerEngine registration path, " +
     "the controller: \"controller\" placeholder binding in layers/filter.ts, and the Weaponmaster expansion " +
-    "(821.1.c Equip discount needs cost.modify / cost.pay) — RIFT-91 / RIFT-89"
+    "(821.1.c Equip discount needs cost.modify / cost.pay) — RIFT-257 / RIFT-261"
 );
 test.todo(
   "sfd-197-221 Emperor of the Sands: a Legend has no Legend Zone in contract 3.6's ZoneId (CR 108.3), so the " +
