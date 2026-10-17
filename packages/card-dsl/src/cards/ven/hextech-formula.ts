@@ -25,15 +25,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 括号里的 "(It becomes Empowered if it's not already.)" 是 442.1.c 的提示文字，不构成
  *   第二条能力。
  *
- * status = judge-required（缺口在入场替代与触发的可执行路径，不近似实现）：
- * 1. "This enters exhausted" 需要入场替代的注册与执行：契约 3.1 的 replacement 能力是纯数据，
- *    已合入的 events/pipeline.ts 以 ReplacementRegistration（调用方提供 matches/apply 代码）
- *    注册替代，没有任何路径把 CardProgram 的 replacement 数据接进管线；也没有
- *    replacement.enter 这类面向卡牌 IR 的入场状态原语（同 ogn/iron-ballista、sfd/breakneck-mech
- *    的缺口，依赖 RIFT-120 后续）。
- * 2. 启动能力本身只用已合入结构（cost 的 exhaust 费用 + effect.empower 的 target 选择），
- *    但它的注册路径同样缺失（没有 CardProgram → chain/TriggerRegistration 的接线），
- *    所以整卡不标 executable；其 body 由 golden 以调用方提供的 Finalize 目标真实执行。
+ * status = judge-required（缺口只剩目标过滤的排除锚点，不近似实现）：
+ * 1. "This enters exhausted" 的入场替代已可执行：replacement.enter 原语与生产绑定链
+ *    （programs/index.ts 的 createProgramBinding、programs/statics.ts 的
+ *    createEngineStaticBinder → replacement/bind.ts）已合入，golden 用真实绑定复刻
+ *    ogn/iron-ballista 的入场替代链路（链上 → Board 入场即横置）。
+ * 2. 启动能力的生产绑定也已合入（describeActivate 经 programs/activate.ts 产出
+ *    ChainDraft，Finalize 才会锁定目标并支付 exhaust 费用），effect.empower 原语与
+ *    442.1.c 的"已 Empowered 时什么也不发生"由动作层真实执行。
+ * 3. 剩余缺口："another gear" 的排除锚点 other: true（740.1.a 的 friendly + other 写法）
+ *    没有任何消费方：programs/filters.ts 的 translateObjectFilter 对 other/exclude 直接抛
+ *    ProgramBindingError("judge-required", "Unsupported filter field other")，生产绑定因此
+ *    fail-closed（golden 断言该拒绝）；参考内核的 layers/filter.ts matchesObjectFilter
+ *    同样不消费该字段（恒真）。"a gear" 是 355.7/355.9.a.1 的 Target，缺排除锚点即缺
+ *    整个启动能力，故整卡不标 executable（契约变更请求：目标过滤 other/exclude 锚点）。
  */
 const abilities: Ability[] = [
   {
@@ -98,15 +103,18 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) 『This enters exhausted』是入场状态替代（369.1/369.3；" +
-    "359.2.d 让非单位 Gear 默认就绪入场）：已合入的 events/pipeline.ts 用 ReplacementRegistration" +
-    "（调用方提供 matches/apply 代码）注册替代，没有任何路径把 CardProgram 的 replacement 数据接进管线，" +
-    "也没有面向卡牌 IR 的入场状态原语；effect.exhaust 文档明确『入场即横置不是一次横置动作』" +
-    "（先入场再补横置会多出一次成为横置事件并错过入场替代，对照 805.6），故不近似实现" +
-    "（同 ogn/iron-ballista、sfd/breakneck-mech 的缺口，依赖 RIFT-120 后续）。" +
-    "(2) 启动能力本体只用已合入结构（exhaust 费用 + effect.empower 的 target 选择，355.7/" +
-    "355.9.a.1/442.1），但没有 CardProgram → chain 的注册接线，card-played/启动都不会从卡牌数据发生；" +
-    "golden 以调用方提供的 Finalize 目标真实执行该 body。",
+    "入场替代与启动绑定的可执行路径已合入：replacement.enter 原语与生产绑定链" +
+    "（createProgramBinding / createEngineStaticBinder → replacement/bind.ts）用真实绑定执行" +
+    "『This enters exhausted』（369.1/369.3 的入场状态替代，359.2.d 默认就绪被改写为横置入场，" +
+    "不是一次横置动作）；describeActivate（programs/activate.ts）+ Finalize（chain/engine.ts）" +
+    "真实锁定目标、支付 exhaust 费用并执行 effect.empower（355.7/355.9.a.1/442.1）。" +
+    "剩余缺口：『another gear』的排除锚点 other: true（740.1.a）没有消费方——" +
+    "programs/filters.ts translateObjectFilter 对 other/exclude 抛 ProgramBindingError" +
+    "（judge-required，Unsupported filter field other），生产绑定 fail-closed（golden 断言该拒绝）；" +
+    "layers/filter.ts matchesObjectFilter 也不消费该字段（恒真），参考内核同样无法排除来源自身。" +
+    "『a gear』是 Target，缺排除锚点即缺整个启动能力，故整卡保持 judge-required；" +
+    "契约变更请求：ObjectFilter 的 other/exclude 排除锚点（生产 translateObjectFilter 与解释器目标过滤）。" +
+    "不近似实现（不把『another』近似成『a gear』，也不在卡内伪造来源排除）。",
   abilities,
   sourceText:
     "This enters exhausted.\n" +

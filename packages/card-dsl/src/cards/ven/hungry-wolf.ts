@@ -31,8 +31,8 @@ import type { CardProgram } from "../../ir/index.js";
  *    触发式能力的 condition 也无法作用到启动能力的许可；
  * 2. “only once each turn” 是 386.1 的能力次数限制：activated 能力没有 per-turn
  *    许可字段（TriggerOnce 只作用于触发式能力），Finalize 侧也没有消费方
- *    （RIFT-257 的 translateRestriction 只接受 Condition 形状，描述性 printed-use-limit
- *    会被判为 judge-required）。
+ *    （translateRestriction 只接受 Condition 形状，描述性 printed-use-limit 会被判为
+ *    judge-required）。
  *
  * 已合入部分的执行证据：“Ready me”（effect.ready）与 “+1 :rb_might: this turn”
  * （continuous.might + this-turn 期限）都用真实解释器执行，golden 断言实际事件、
@@ -45,10 +45,10 @@ export default {
   judgeReason:
     "两处缺口：(1) “Use only if you've chosen an enemy unit this turn” 是启动限制：condition.history 的封闭 " +
     "HistoryQuery 只有 scope/action/timingPoint/player/object/exclude/objectFilter，GameAction 集合内没有“选择敌方单位”" +
-    "动作，无法按选择历史计数（RIFT-87 条件/历史管线）；(2) “only once each turn” 是 386.1 的能力次数" +
+    "动作，无法按选择历史计数（条件/历史管线的“选择”动作是真实缺口）；(2) “only once each turn” 是 386.1 的能力次数" +
     "限制，activated 能力没有 per-turn 许可字段（TriggerOnce 只作用于触发式能力），Finalize 侧也没有" +
-    "消费方，RIFT-257 的 translateRestriction 只接受 Condition 形状（描述性 printed-use-limit 会被判为 " +
-    "judge-required）。依赖 RIFT-87（条件/历史）与 RIFT-257（启动能力许可/Finalize 接线）；两处均不近似实现。" +
+    "消费方，translateRestriction 只接受 Condition 形状（描述性 printed-use-limit 会被判为 " +
+    "judge-required）。两处均不近似实现。" +
     "“Ready me” 用已合入的 effect.ready，“+1 :rb_might: this turn” 用 RIFT-258 已合入的 " +
     "continuous.might（this-turn 期限）真实执行。",
   abilities: [

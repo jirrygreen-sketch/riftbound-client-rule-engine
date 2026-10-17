@@ -23,15 +23,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status 判定（cards/README.md 第 2 节）：judge-required，三处缺口均不近似实现：
  * 1. “when I score” 的订阅没有消费方：scoring/ 只把 score 的触发结果作为 flag 交给
- *    turn-executor-v2（turn/flow.ts 组装 emissions），没有把它接进唯一事件管线，也没有把
- *    CardProgram 的 triggered 能力注册成 TriggerRegistration 的生产接线（契约 3.5，RIFT-31/33/120）；
+ *    turn-executor-v2（turn/flow.ts 组装 emissions），没有把它接进唯一事件管线；且已合入的
+ *    score GameAction 只有 {player, amount} 载荷，没有 object/battlefieldId，无法按 473.2
+ *    锚定到宿主所在战场；触发式能力的生产注册（programs/triggers.ts）依赖该时点进入管线。
  *    “我（本战场上的单位）得分” 还需要按 473.2 把 score 事件锚定到宿主所在战场，该锚点同理未接线。
  * 2. “I have +1 :rb_might: for each token unit you control” 需要卡牌侧的 continuous.might 注册入口
- *    与按集合计数求值 amount 的能力（RIFT-91 只交付图层引擎，图层 conditionMatches 也不求值
+ *    与按集合计数求值 amount 的能力（layers/engine.ts 的 valueOf 不求值 count，
  *    count/compare）；“token unit” 的合取谓词同样缺失——已合入过滤器把数组 type 当 OR 处理，
  *    type: "token" 会一并匹配 token gear（如 Gold），因此这里按同批卡（sfd/azir-sovereign、
  *    sfd/renata-glasc-industrialist）的写法只记录 isToken 过滤并在此说明该缺口。
- * 3. card-played 的触发注册同样缺生产接线（同上第 1 点的 RIFT-120）。
+ * 3. card-played 的触发注册依赖已合入的生产链路（programs/triggers.ts
+ *    registerProgramTriggers → events/pipeline.registerTrigger），但它只在卡牌被打出时
+ *    才会绑定（attachProgramLifecycle 在 object-enters-board/chain 时 attach），score 触发
+ *    的注册因此同样卡在第 1 点的 score 管线缺口上。
  * 已支持部分：“play a 1 Might Tentacle unit token” 用已合入的 effect.token（mode "play"，187.10
  * 定义）在 golden 中真实执行，含从链上创建到打出、以及控制器归属与 null 费用的校验。
  */
@@ -116,14 +120,14 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处缺口，均不近似实现：(1)「when I score」的订阅没有消费方：scoring/ 只把 score 的触发结果作为 flag 交给 " +
-    "turn-executor-v2（turn/flow.ts 组装 emissions），未接入唯一事件管线，也没有把 CardProgram 的 triggered 能力" +
-    "注册成 TriggerRegistration 的生产接线（契约 3.5，RIFT-31/33/120）；473.2 要求把该次 Scoring 锚定到宿主所在战场，" +
-    "该锚点同样未接线（card-played 一侧亦缺同一注册接线）。" +
+    "turn-executor-v2（turn/flow.ts 组装 emissions），未接入唯一事件管线；已合入的 score GameAction " +
+    "只有 {player, amount} 载荷（无 object/battlefieldId），473.2 要求把该次 Scoring 锚定到宿主所在战场，" +
+    "该锚点因此无法求值（card-played 一侧的生产注册已合入：programs/triggers.ts → events/pipeline）。" +
     "(2)「I have +1 :rb_might: for each token unit you control」需要卡牌侧 continuous.might 注册入口与按集合计数求值 " +
-    "amount 的能力（RIFT-91 只交付图层引擎，其 conditionMatches 也不求值 count/compare）；「token unit」的合取谓词同样缺失" +
+    "amount 的能力（layers/engine.ts 的 valueOf 不求值 count，图层 conditionMatches 也不求值 count/compare）；「token unit」的合取谓词同样缺失" +
     "——已合入过滤器把数组 type 当 OR，type: \"token\" 会一并匹配 token gear（如 Gold），因此按同批卡" +
     "（sfd/azir-sovereign、sfd/renata-glasc-industrialist）只记录 isToken 过滤。" +
-    "(3) 同上两处的触发注册接线（RIFT-120）。" +
+    "(3) card-played 的触发注册已合入（programs/triggers.ts），但 score 触发依赖第 1 点的 score 管线缺口。" +
     "已支持部分：「play a 1 :rb_might: Tentacle unit token」用已合入的 effect.token（187.10 定义、mode \"play\"）真实执行。",
   abilities,
   sourceText:

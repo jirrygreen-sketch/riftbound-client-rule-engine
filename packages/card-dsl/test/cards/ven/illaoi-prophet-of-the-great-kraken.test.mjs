@@ -33,7 +33,6 @@ test("ven-109-166 Illaoi: identity, status, judgeReason and verbatim sourceText"
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /score/);
   assert.match(program.judgeReason, /473\.2/);
-  assert.match(program.judgeReason, /RIFT-120/);
 });
 
 test("ven-109-166 Illaoi: the two printed triggers are separate, both playing the Tentacle token", () => {
@@ -154,17 +153,18 @@ test("ven-109-166 golden: an opponent's base is not a legal unit Base destinatio
 
 test.todo(
   "ven-109-166 Illaoi: subscribe 'when I score' (470.3 / 473.2) — scoring/ only hands the score trigger flags to " +
-    "turn-executor-v2; nothing emits it into the single event pipeline and no CardProgram triggered ability is " +
-    "registered as a TriggerRegistration (contract 3.5, RIFT-31/33/120), including the battlefield anchor"
+    "turn-executor-v2; nothing emits it into the single event pipeline, and the merged score GameAction carries " +
+    "no object/battlefieldId payload for the 473.2 battlefield anchor"
 );
 
 test.todo(
   "ven-109-166 Illaoi: '+1 :rb_might: for each token unit you control' needs the card-side continuous.might " +
-    "registration plus an arithmetic layer that evaluates a count amount; the merged filter also treats an array " +
-    "type as OR, so 'token unit' currently matches token gear (RIFT-91 follow-up)"
+    "registration plus an arithmetic layer that evaluates a count amount (layers/engine.ts valueOf returns the " +
+    "count expression unchanged); the merged filter also treats an array type as OR, so 'token unit' currently " +
+    "matches token gear"
 );
 
 test.todo(
-  "ven-109-166 Illaoi: register the card-played trigger through the same CardProgram -> TriggerRegistration " +
-    "path (contract 3.5, RIFT-120)"
+  "ven-109-166 Illaoi: the card-played trigger registration path is merged (programs/triggers.ts -> " +
+    "events/pipeline.registerTrigger); the score trigger waits on the same score-pipeline gap as the first todo"
 );

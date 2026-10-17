@@ -12,6 +12,8 @@ import { bindResolveContext } from "../../../../engine-core/dist/events/action-a
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL =
   "card.hash-abc384da043315415efa41d8d39f0cf4edbb77f2cbf021c4b7871cdf8732d768";
@@ -85,7 +87,7 @@ test("ven-062-166 Hextech Formula: identity, ruleset, status, judgeReason and ve
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /replacement/);
   assert.match(program.judgeReason, /359\.2\.d/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /Unsupported filter field other/);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
@@ -205,13 +207,42 @@ test("ven-062-166 Hextech Formula golden: without a finalized legal gear the abi
   assert.deepEqual(kernel.events, []);
 });
 
+function hextechFixture() {
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const f = fixture({
+    describePlay: binding.describePlay,
+    cards: [
+      { id: "hextech-formula", cardId: CANONICAL, types: ["gear"], energy: 2 },
+      { id: "other-gear", cardId: CANONICAL, types: ["gear"], energy: 3 }
+    ]
+  });
+  return { ...f, binding };
+}
+
+test("ven-062-166 Hextech Formula bound program: the other:true target anchor fails the production binding closed", () => {
+  // programs/filters.ts translateObjectFilter throws on the other/exclude
+  // self-exclusion anchors, so describing the activated ability fails closed
+  // before any chain draft is produced.
+  const f = hextechFixture();
+  assert.throws(
+    () => f.binding.describeActivate(f.kernel.getObject("hextech-formula"), "A"),
+    (error) => {
+      assert.equal(error.name, "ProgramBindingError");
+      assert.equal(error.code, "judge-required");
+      assert.match(error.message, /Unsupported filter field other/);
+      return true;
+    }
+  );
+  assert.equal(f.engine.items.length, 0);
+});
+
 test.todo(
-  "ven-062-166 Hextech Formula: \"This enters exhausted\" needs a CardProgram replacement registered against board entry " +
-    "(CR 369.1/369.3, 359.2.d) plus a replacement.enter primitive for card IR - only internal ReplacementRegistration exists " +
-    "and no path turns a card replacement into one (RIFT-120 follow-up, same gap as ogn/iron-ballista)"
+  "ven-062-166 Hextech Formula: contract change request - the other/exclude self-exclusion anchors for object " +
+    "filters (CR 740.1.a) need consumers in programs/filters.ts translateObjectFilter and in the interpreter's " +
+    "matchesObjectFilter target queries before 'Empower another gear' can bind"
 );
 test.todo(
-  "ven-062-166 Hextech Formula: the activated ability must be registered from card data and enter the chain " +
-    "(contract 3.5 CardProgram -> chain wiring, RIFT-120) before the whole card is executable; its body and cost " +
-    "are already exercised above with caller-supplied finalized targets"
+  "ven-062-166 Hextech Formula: once the other:true anchor is consumed, the production binding must select exactly " +
+    "one friendly gear other than the source (CR 355.7/355.9.a.1/740.1.a); the empower body and exhaust cost are " +
+    "already exercised with caller-supplied finalized targets"
 );

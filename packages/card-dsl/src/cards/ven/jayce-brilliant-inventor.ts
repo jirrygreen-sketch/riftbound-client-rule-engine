@@ -24,16 +24,22 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   ObjectFilter 锚点 exclude: "self" 表达。
  * - 416.1 / 416.1.b / 416.1.c：重置用 effect.ready；已就绪对象不会再次被重置。
  *
- * status = judge-required（三处缺口均不近似实现）：
- * 1. 没有已合入的卡牌程序 → 触发注册适配器：CardProgram 的 triggered 能力尚未变成
- *    TriggerRegistration，events 管线因此收不到 card-played 订阅（RIFT-120）；
- * 2. 该管线未接通前，“the first time … each turn” 的 per-turn 频率没有可验证的
- *    消费路径（本卡自身打出时产生的那次 card-played 也一并无订阅方）；
- * 3. “something besides me that's exhausted” 的 PickSpec 没有已合入的解析入口：
- *    非目标选择的选项集由 Finalize 选择管线提供，当前没有读取 PickSpec 并解析
- *    exclude: "self" 与 exhausted 状态过滤的已合入实现（RIFT-90 / 批 5）。
- * 依赖：RIFT-120、RIFT-90。effect.ready 与 choice.optional 本体已合入，golden 用
- * 真实解释器 + 参考内核执行接受/拒绝两条路径。
+ * status = judge-required（缺口均不近似实现）：
+ * 1. 触发注册与消费已合入：registerProgramTriggers 把 CardProgram 的 triggered 能力
+ *    注册成 TriggerRegistration，事件管线扫描 card-played；TriggerSpec.once 的 per-turn
+ *    频率由 pipeline.consume 在 Finalize 消费。探针测试给出 play-me 半真实
+ *    进链的执行证据；
+ * 2. 非目标 pick 没有生产解析入口（RIFT-358 进行中）：effect.ready 的 pick 在解释器里
+ *    读 ctx.picks(id)，生产链路没有人调用 finalizePick / 向玩家提供 PickSpec 的选项集，
+ *    pick 静默解析为空；选择最终由 choice.optional 的 “you may” 承接，不 ready 任何对象；
+ * 3. 触发过滤器翻译不支持 type/isToken：translateTriggerFilter 对嵌套 event filter
+ *    走 else 分支时删除 type，translateObjectFilter 随后拒绝 isToken 并抛
+ *    "Unsupported filter field isToken"，gear 半因此无法注册，并使整张卡的
+ *    触发注册中止（探针测试固定该行为）。
+ * 依赖：RIFT-358（pick 解析管线）与 translateTriggerFilter / translateObjectFilter
+ *    的 type、isToken 支持。
+ * effect.ready 与 choice.optional 本体已合入，golden 用真实解释器 + 参考内核执行
+ * 接受/拒绝两条路径。
  */
 
 /** “ready something besides me that's exhausted”：非目标 pick（355.10.d）。 */
@@ -101,12 +107,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) 没有已合入的卡牌程序 → 触发注册适配器：CardProgram 的 triggered 能力尚未变成 " +
-    "TriggerRegistration，events 管线收不到 card-played 订阅（RIFT-120）；(2) 该管线接通前，" +
-    "「the first time you play a non-token gear each turn」（383.1/383.1.b 的 Nth-Time 触发，" +
-    "per-turn 许可）没有可验证的频率消费路径；(3) 「something besides me that's exhausted」是 " +
-    "355.10.d/355.10.d.1 的非目标 pick：PickSpec 的选项集由 Finalize 选择管线提供，当前没有读取 " +
-    "PickSpec、解析 exclude: \"self\" 与 exhausted 状态过滤的已合入入口（RIFT-90 / 批 5）。" +
+    "三处缺口：(1) 触发注册与消费已合入：registerProgramTriggers 把 CardProgram 的 triggered 能力注册成 " +
+    "TriggerRegistration，事件管线扫描 card-played；TriggerSpec.once 的 per-turn 频率由 pipeline.consume " +
+    "在 Finalize 消费（探针测试给出 play-me 半真实进链的执行证据）；(2) 「something besides me that's " +
+    "exhausted」是 355.10.d/355.10.d.1 的非目标 pick：解释器读 ctx.picks(id)，但生产链路没有人调用 " +
+    "finalizePick / 向玩家提供 PickSpec 的选项集，pick 静默解析为空（RIFT-358 进行中），选择最终由 " +
+    "choice.optional 的 “you may” 承接，不 ready 任何对象；(3) “non-token gear” 的过滤器翻译失败：" +
+    "translateTriggerFilter 对嵌套 event filter 走 else 分支时删除 type，translateObjectFilter 拒绝 " +
+    "isToken 并抛 “Unsupported filter field isToken”，gear 半因此无法注册，并使整张卡的触发注册中止（探针测试）。" +
     "effect.ready 与 choice.optional 本体已合入，golden 用真实解释器 + 参考内核执行接受/拒绝两条路径；" +
     "不近似实现（不把“something besides me”改成来源自身，也不把非目标选择写成 TargetSpec）。",
   abilities,

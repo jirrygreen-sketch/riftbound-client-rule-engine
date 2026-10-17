@@ -19,12 +19,16 @@ import type { CardProgram } from "../../ir/index.js";
  * status = judge-required（与 sfd/boneshiver、rad/nazuman-ntofo 同源缺口）：
  * 1. 卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）尚未合入，印刷的 Equip 费用
  *    也无法送达 KeywordDef.expand（契约 3.8.3 的 params.cost 未实现）；
- * 2. 已合入的 Equip 展开（RIFT-87，effects/keywords/Equip.ts）声明
+ * 2. 费用计划拒绝已合入的 Equip 展开：effects/keywords/Equip.ts 声明
  *    cost.payments [{ kind: "equip" }]，而 cost/plan-values.ts 的 readCost 对未知支付
- *    种类直接 blocked——实测 buildCostPlan 抛 CostPlanError（reason "judge-required"，
- *    message "Unsupported payment kind: equip"）。因此启动费用目前不可支付。
- * 已合入的 effect.attach 本体（818.1.c.2 的附着）由 golden 用真实解释器执行；
- * 这不使整卡可执行。依赖：Equip 费用支付种类（RIFT-89 费用计划后续）与关键词接线。
+ *    种类直接 blocked——buildCostPlan 抛 CostPlanError（reason "judge-required"，
+ *    message "Unsupported payment kind: equip"），因此启动费用目前不可支付；
+ * 3. KeywordDef.expand 的签名只有 value/host，印刷的 Equip 费用（1 个 Body 符文）
+ *    无法送达展开（契约 3.8.3 的 params.cost 未实现）。
+ * 已合入的卡牌程序 → 关键词展开 → 链接线（programs/）与 effect.attach 本体
+ * （818.1.c.2 的附着）由 golden 用真实绑定/解释器执行；这不使整卡可执行。
+ * 依赖：cost/plan-values.ts 的 readCost 注册 "equip" 支付种类，以及契约 3.8.3 的
+ * params.cost（把印刷费用送进 KeywordDef.expand）。
  */
 const equip = {
   // 印刷 "Equip :rb_rune_body:"：1 个符文符号（Body Power）。value 记录印刷符号数，
@@ -40,13 +44,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Equip] 目前无法执行：(1) 卡牌程序 → 关键词展开 → 链的接线（契约 3.5）未合入，" +
-    "印刷费用（1 个 Body 符文，CR 818.1.c/135.2.e.4）也无法送达 KeywordDef.expand，" +
-    "已合入的展开签名只有 value/host（契约 3.8.3 的 params.cost 未实现）；" +
-    "(2) 已合入的 effects/keywords/Equip.ts 展开声明 cost.payments [{ kind: \"equip\" }]，" +
+    "[Equip] 目前无法执行：(1) 费用计划拒绝已合入的 Equip 展开：effects/keywords/Equip.ts 声明 " +
+    "cost.payments [{ kind: \"equip\" }]，" +
     "cost/plan-values.ts 的 readCost 对未知支付种类调用 blocked，实测 buildCostPlan 抛 CostPlanError" +
-    "（reason \"judge-required\"，message \"Unsupported payment kind: equip\"，RIFT-89 费用计划批次）。" +
-    "已合入的 effect.attach 附着本体由 golden 真实执行，但启动费用不可支付，整卡不可执行。" +
+    "（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）；" +
+    "(2) KeywordDef.expand 签名只有 value/host，印刷费用（1 个 Body 符文，CR 818.1.c/135.2.e.4）" +
+    "无法送达展开（契约 3.8.3 的 params.cost 未实现）。" +
+    "已合入的 programs/ 卡牌程序绑定与 effect.attach 附着本体由 golden 真实执行，但启动费用不可支付，整卡不可执行。" +
     "不近似实现（不写成裸 effect.attach 指令绕开 818.1.c.3/c.4 的费用语义）。",
   abilities: [equip],
   sourceText: "Equip :rb_rune_body: (:rb_rune_body:: Attach this to a unit you control.)"

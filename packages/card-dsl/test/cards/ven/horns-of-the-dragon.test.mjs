@@ -34,7 +34,6 @@ test("ven-118-166 Horns of the Dragon: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /815\.1\.b/);
   assert.match(program.judgeReason, /continuous\.combat/);
   assert.match(program.judgeReason, /base-combat-allocation/);
-  assert.match(program.judgeReason, /RIFT-264/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 

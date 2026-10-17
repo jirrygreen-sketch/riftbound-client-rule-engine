@@ -30,10 +30,10 @@ test("ven-051-166 Iterative Design: program passes validateCardProgram with the 
 test("ven-051-166 Iterative Design: judgeReason names the chain-creation wiring, the Flow cost and the Flow replacement", () => {
   assert.match(program.judgeReason, /187\.4/);
   assert.match(program.judgeReason, /440\.2\.c/);
-  assert.match(program.judgeReason, /RIFT-62/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-260/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /assertFinalizationSurface/);
+  assert.match(program.judgeReason, /flow\.cost/);
+  assert.match(program.judgeReason, /leavingInstruction/);
+  assert.match(program.judgeReason, /params\.cost/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -120,14 +120,16 @@ test("ven-051-166 Iterative Design golden: a replaced play negates the instructi
 
 test.todo(
   "ven-051-166 Iterative Design: play from Trash for the 2 Energy + 1 Mind Power Flow cost " +
-    "(829.1.c.1 / 829.1.c.2 alternate cost) and the delayed banish (829.1.b.1) — needs the RIFT-261 " +
-    "cost consumer, RIFT-260 replacement registration and RIFT-89 cost-plan wiring"
+    "(829.1.c.1 / 829.1.c.2 alternate cost) and the delayed banish (829.1.b.1) — the merged Flow expand " +
+    "emits flow.cost plus an object-leaves-chain replacement, but cost/plan-values.ts and chain/engine.ts " +
+    "read neither, and replacement/bind.ts does not consume leavingInstruction"
 );
 
 test.todo(
   "ven-051-166 Iterative Design: the production Chain create-token(to: chain) + play handoff " +
     "(440.2.c / 185.2.a / 350.2 / 354) — effect.token documents the reference-kernel path, but the " +
-    "production Finalize/Resolve wiring is the RIFT-62 follow-up"
+    "production Finalize/Resolve wiring is unmerged (chain/engine.ts assertFinalizationSurface still " +
+    "rejects choice.mode and nested targets)"
 );
 
 test.todo(
