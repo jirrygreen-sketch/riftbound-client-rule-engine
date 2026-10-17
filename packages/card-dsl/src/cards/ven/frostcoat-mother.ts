@@ -24,14 +24,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（缺口均不近似实现）：
  * 1. 没有 Empower / Empowered 的 KeywordDef：827.1.c.1 的起动费用与 “Use only if not
- *    Empowered” 限制、827.1.c.3 的 Empower 费用改写都无执行路径；
+ *    Empowered” 限制没有展开实现；
  * 2. 没有 Empowered 状态谓词（442.1.a），“[Empowered][>]” 的门控没有可求值形态；
- * 3. 没有卡牌侧 continuous.might 的注册/求值入口：契约 3.6 的封闭 GameAction 集合没有
- *    Might 修改动作，effects/instructions 下也没有把持续效果注册进 layers 的原语
- *    （RIFT-91 只合入了图层求值侧；effect.buff 文档明确临时 Might 不属于 Buff 计数器）。
- * 依赖：新增 Empower/Empowered 关键词任务、RIFT-89（费用计划）、RIFT-87（条件/谓词）、
- * RIFT-91（layers 接线）。不近似实现：不把费用改写写成固定整数减免，也不把 +3 Might
- * 写成 Buff 计数器。
+ * 3. continuous.cost-modification 已记录每符文减费形状，但 Empower 关键词/费用消费方仍未
+ *    读取该修改并应用到实际启动费用。
+ * continuous.might 指令和图层求值已合入；本卡的 +3 仍受 Empowered 谓词门控影响。
  */
 const abilities: Ability[] = [
   {
@@ -78,14 +75,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，" +
-    "827.1.c.1 的“12 Energy：Empower me，仅当未 Empowered 时启动”无法展开，827.1.c.3 的 Empower 费用改写" +
-    "（每控制 1 枚符文少 1 Energy，floor 0）也没有消费方（程序以 continuous.cost-modification 记录，见 RIFT-89）；" +
-    "(2) 没有 Empowered 状态谓词——442.1.a 的二元状态不在 ObjectSnapshot / Condition 里，828.1.b / " +
-    "828.1.b.1 的依赖能力门控没有可求值形态；(3) 「+3 :rb_might:」需要卡牌侧 continuous.might 的注册/求值入口" +
-    "（契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，RIFT-91 只合入图层求值侧；effect.buff 的文档明确" +
-    "临时 Might 不进入 Buff 计数器）。依赖新的 Empower/Empowered 关键词任务、RIFT-89（费用计划）、" +
-    "RIFT-87（条件/谓词）与 RIFT-91（layers 接线）。不近似实现费用改写与状态门控。",
+    "缺 Empower / Empowered KeywordDef，827.1.c.1 的启动费用与未 Empowered 限制尚未展开；" +
+    "缺 Empowered 状态谓词（442.1.a/828.1.b.1）；827.1.c.3 的每符文减费尚无 Empower 费用消费方，" +
+    "programs/statics.ts 不能绑定本卡的 continuous.cost-modification 声明。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_12:. This ability costs :rb_energy_1: less for each rune you control. (Pay the cost: Empower me. Use only if not Empowered.)\n" +

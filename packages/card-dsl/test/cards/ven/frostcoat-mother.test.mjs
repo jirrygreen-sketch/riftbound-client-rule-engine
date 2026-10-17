@@ -25,9 +25,8 @@ test("ven-032-166 Frostcoat Mother: identity, status, judgeReason and verbatim s
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /827\.1\.c\.1/);
   assert.match(program.judgeReason, /827\.1\.c\.3/);
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /Empowered/);
+  assert.match(program.judgeReason, /消费方/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -75,10 +74,10 @@ test("ven-032-166 Frostcoat Mother: the [Empowered][>] dependent ability is +3 M
 
 test.todo(
   "ven-032-166 Frostcoat Mother: expand [Empower] 12 with the 827.1.c.3 per-rune cost rewrite and the " +
-    "827.1.c.5 'use only if not Empowered' restriction — no Empower KeywordDef and no cost 'per-rune' consumer (RIFT-89)"
+    "827.1.c.5 'use only if not Empowered' restriction — no Empower KeywordDef and no cost consumer"
 );
 
 test.todo(
   "ven-032-166 Frostcoat Mother: register the Empowered-gated +3 Might (828.1.b.1, 143.2.a) — no card-side " +
-    "continuous.might registration and no Empowered status predicate (RIFT-87/RIFT-91)"
+    "Empowered status predicate"
 );

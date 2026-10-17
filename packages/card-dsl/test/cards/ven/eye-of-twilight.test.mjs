@@ -76,12 +76,9 @@ test("ven-147-166 Eye of Twilight: validateCardProgram passes and identity is ve
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // 复核后的 judgeReason 只保留仍未解决的缺口：[Tank] 的 KeywordDef（RIFT-264）与
-  // continuous.grant-keyword（RIFT-258）都已合入，剩下的只是 815.1.b/815.1.c.2 的
-  // 伤害分配消费方。
+  // 复核后的 judgeReason 只保留 815.1.b/815.1.c.2 的战斗伤害分配消费方。
   assert.match(program.judgeReason, /815\.1\.b/);
   assert.match(program.judgeReason, /continuous\.combat/);
-  assert.match(program.judgeReason, /RIFT-258/);
   assert.doesNotMatch(program.judgeReason, /缺 Tank KeywordDef/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -125,7 +122,7 @@ test("ven-147-166: 'Give a friendly unit [Tank] this turn' is a duration-bounded
   ]);
 });
 
-test("ven-147-166: RIFT-264/258 merged the Tank KeywordDef and the grant primitive", () => {
+test("ven-147-166: the Tank KeywordDef and grant primitive are registered", () => {
   // 复核证据：两条原缺口依赖当前都已合入。
   assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), true);
   const tank = keywordDefinitionsById.get("Tank");
@@ -227,7 +224,7 @@ test("ven-147-166 golden: an already-exhausted legend cannot pay the Exhaust cos
 
 test.todo(
   "ven-147-166: [Tank] must be assigned combat damage first (815.1.b / 815.1.c.2) — the Tank " +
-    "KeywordDef (RIFT-264) expands to continuous.combat, but layers/engine.ts has no branch for it, " +
+    "KeywordDef expands to continuous.combat, but layers/engine.ts has no branch for it, " +
     "continuous.combat returns negated/impossible without a consumer, and combat/ only proves the " +
     "narrow path with keywordPriority: \"proven-none\""
 );
