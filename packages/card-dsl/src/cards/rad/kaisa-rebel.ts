@@ -32,16 +32,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   { kind: "keyword", keyword: "reaction" }。
  *
  * 状态：judge-required。Disarm KeywordDef、continuous.might 与 continuous.grant-keyword
- * 均已合入，生产 static → layers 注册也已可用；缺口收敛为三点（均由测试实证）：
+ * 均已合入，生产 static → layers 注册也已可用；缺口收敛为两点（均由测试实证）：
  * 1. Disarm 展开出的目标过滤器使用 sameLocationAs:"source"，生产触发注册
  *    （programs/filters.ts）的白名单拒绝该字段并抛 judge-required；同时 attack-declared
  *    时点仍没有生产发射方（战斗结算在 combat-start-transaction 处被阻断），因此触发
  *    既无法注册也无法被发出（CR v1.5 831.1.d / 831.1.d.1）。
  * 2. "While I'm in a showdown" 缺少可读状态：ObjectSnapshot 没有 in-showdown 字段，
  *    特征表达式会抛 MissingInformation，生产绑定按 fail-closed 处理（条件恒 false）。
- * 3. continuous.grant-keyword 的候选消费路径只保留 Board 对象（CR v1.5 359.3.e.2 / e.4 /
- *    e.8 家族），而本能力授予的是 chain 上的法术（CR v1.5 813.4 / 813.4.a：条件可以在
- *    链上成立），需要面向 chain 物品的授予消费路径；实测 query 命中后仍全部被丢弃。
+ * static → layers 路径会直接把条件成立的 chain 法术标记为 Reaction；当前只剩上面两项
+ * 生产接线/状态特征缺口，因此保持 judge-required。
  * 不近似实现：不把 Disarm 近似成 effect.buff，也不把"授予你的法术 Reaction"写成
  * 本卡自身的 keyword reaction。
  */
@@ -78,15 +77,13 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "Disarm KeywordDef（RIFT-267）、continuous.might 与 continuous.grant-keyword（RIFT-258）已合入，" +
-    "生产触发注册与 static → layers 绑定也已接通，但整卡仍有三处缺口，均不近似实现：" +
+    "生产触发注册与 static → layers 绑定也已接通，但整卡仍有两处缺口，均不近似实现：" +
     "(1) Disarm 展开的触发目标过滤器使用 sameLocationAs，被生产触发注册的过滤器白名单拒绝，" +
     "且 attack-declared 时点仍没有生产发射方（战斗结算在 combat-start-transaction 处被阻断），" +
     "对应 CR v1.5 831.1.d / 831.1.d.1；" +
     "(2) 条件「While I'm in a showdown」（364.3 / 813.4）缺少可读状态，ObjectSnapshot 没有 in-showdown 字段，" +
     "静态绑定的特征表达式会抛 MissingInformation 并按 fail-closed 处理（条件恒 false）；" +
-    "(3) 条件式授予「your spells have [Reaction]」（813.4 / 813.4.a：条件可以在链上成立）需要面向 chain 物品的授予消费路径，" +
-    "continuous.grant-keyword 目前只保留 Board 对象（359.3.e.2 / 359.3.e.4 / 359.3.e.8 家族），" +
-    "query 命中 chain 上的法术后会全部丢弃。不把 Disarm 写成 effect.buff，" +
+    "不把 Disarm 写成 effect.buff，" +
     "也不把「授予你的法术 Reaction」写成本卡自身的 keyword reaction。另见数据问题：同身份的 rad-sp4-005 印刷文本与 Might 不同。",
   abilities,
   sourceText:
