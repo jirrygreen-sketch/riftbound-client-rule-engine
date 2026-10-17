@@ -1,3 +1,8 @@
+// RIFT-648 template execution evidence: ../templates/empty-648.test.mjs.
+// The template rows drive this program's two triggers through the real chain
+// and event pipeline and record the self-filter and each-set boundaries; the
+// per-card goldens below keep the primitive-level evidence for the parts the
+// harness cannot reach yet (combat-damage suppression, here-set selection).
 import assert from "node:assert/strict";
 import test from "node:test";
 
