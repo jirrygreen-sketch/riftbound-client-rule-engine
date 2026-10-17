@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/sfd/forge-of-the-fluft.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import attach from "../../../../engine-core/dist/effects/instructions/effect.attach.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const BATTLEFIELD = { type: "battlefield", id: "battlefield-1" };
@@ -23,7 +25,11 @@ test("sfd-208-221 Forge of the Fluft: validates, is registered and keeps identit
   );
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.grant-ability/);
-  assert.match(program.judgeReason, /cost\.exhaust/);
+  // The [E] exhaust cost itself is payable through the merged cost plan; the
+  // current gaps are the grant primitive and the granted ability's activation
+  // path, not the cost kind.
+  assert.match(program.judgeReason, /415\.3\.a/);
+  assert.doesNotMatch(program.judgeReason, /cost\.exhaust/);
   assert.equal(
     program.sourceText,
     'While you control this battlefield, friendly legends have ":rb_exhaust:: Attach an Equipment you control to a unit you control."'
@@ -103,11 +109,36 @@ test("sfd-208-221 Forge of the Fluft: the granted Attach body attaches an Equipm
   assert.equal(kernel.getObject("unit-1").might, 1);
 });
 
+test("sfd-208-221 Forge of the Fluft golden: the granted ability's [E] exhaust cost is payable", () => {
+  // 415.3.a / 415.5: the [E] symbol is the "Exhaust this" cost. The merged
+  // cost pipeline accepts the component (kind "exhaust") and paying it really
+  // exhausts the granted ability's host; the goldens execute this half as
+  // isolated evidence for the still-missing grant and activation paths.
+  const kernel = world().unit("legend", { might: 2 }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("legend") });
+  const plan = buildCostPlan(context, {
+    id: "forge-of-the-fluft:granted-ability",
+    cost: { payments: [{ kind: "exhaust" }] }
+  });
+  assert.deepEqual(plan.total.actions.map((action) => action.action.type), ["exhaust"]);
+  assert.equal(plan.total.energy, 0);
+
+  const receipt = payCostPlan(context, plan);
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.actions.map((entry) => [entry.action.type, entry.status]), [
+    ["pay", "done"],
+    ["exhaust", "done"]
+  ]);
+  assert.equal(context.getObject("legend").exhausted, true);
+});
+
 // continuous.grant-ability is not merged, so the legend cannot actually be
 // granted (or activate) the quoted ability; no substitute flow is written.
 test.todo(
   "sfd-208-221 Forge of the Fluft: grant the quoted activated ability to friendly legends (continuous.grant-ability, CR 135.4.b/801.3.a)"
 );
 test.todo(
-  "sfd-208-221 Forge of the Fluft: pay the [E] exhaust cost and activate the granted ability (cost.exhaust, RIFT-89)"
+  "sfd-208-221 Forge of the Fluft: activating a granted ability needs an object-level activation " +
+    "path — programs/activate.ts reads only the card's own expanded activated abilities, so a " +
+    "granted [E]: Attach ability cannot be started or put on the chain"
 );

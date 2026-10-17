@@ -18,24 +18,32 @@ import type { CardProgram } from "../../ir/index.js";
  *   scoring module owns (packages/engine-core/src/scoring/scoring.ts; the
  *   scoring authority never consults card data for such restrictions today).
  *
- * Status rationale (contract 3.1): there is no `continuous.restrict`
- * primitive / scoring-restriction consumer merged, there is no per-player
- * turn-counter condition available to card IR (`condition.history` exposes
- * action/timing-point history, not "this is that player's third turn"), and
- * 190.6.d does not apply because the text names no controller. Writing a
- * trigger, a replacement, or a score-prevention instruction would invent
- * semantics, so the card is judge-required and the static restriction shape
- * below is kept for review only. `continuous.restrict` is a tracked new
- * primitive (docs/plans/survey/ability-templates.md §27).
+ * Status rationale (contract 3.1): judge-required, current gaps:
+ * 1. the merged `continuous.restrict` primitive (RIFT-259) registers the
+ *    prohibition and layers/rules/query.restrictions() can read it, but the
+ *    scoring flow (scoring/scoring.ts) never consults that registry — nothing
+ *    reads a score restriction at Scoring time, and the card-static → layers
+ *    registration path is RIFT-257's binder hook rather than an end-to-end
+ *    consumer;
+ * 2. the printed window "until their third turn" is a per-player turn-count
+ *    predicate: card IR exposes counting via condition.history (action /
+ *    timing-point history) and object filters, but no turn-ordinal vocabulary
+ *    for "that player's third turn", so the window is not evaluable.
+ * Writing a trigger, a replacement, or a score-prevention instruction would
+ * invent semantics, so the static restriction shape below is kept for review
+ * only; the golden executes the merged primitive's registration and the
+ * restriction query as isolated evidence.
  */
 export default {
   canonicalCardId: "card.hash-b6280b20779b152b78ff7c32ddd405d6d7c490bb00b2e8939b821030dffcab90",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 continuous.restrict 静态限制原语与 scoring 消费方（禁止在指定战场计分；470.1/471 的 Scoring 流程属 scoring 模块，现不读取卡牌限制），" +
-    "且 IR 无「某玩家的第三回合」条件：condition.history 只查动作/时点数，没有按玩家回合序数的谓词，" +
-    "无法真实表达 'until their third turn'；不近似实现。",
+    "两处当前缺口：(1) continuous.restrict 原语（RIFT-259）已合入且 layers/rules/query.restrictions() 可读，" +
+    "但 scoring 流程（scoring/scoring.ts）从不查询该注册表——计分时没有任何读取得分限制的调用方，" +
+    "卡牌 static → 图层的注册入口也仍是 RIFT-257 的 binder 钩子而非端到端消费方；" +
+    "(2) 「until their third turn」是按玩家的回合序数窗口：卡牌 IR 只有 condition.history（动作/时点计数）" +
+    "与对象过滤器，没有「某玩家的第三回合」词表，窗口不可求值。不近似实现（不写触发、不写替代、不写禁止计分指令）。",
   sourceText: "Players can't score here until their third turn.",
   abilities: [
     {

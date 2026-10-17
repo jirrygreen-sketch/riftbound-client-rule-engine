@@ -29,7 +29,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   （原语对它返回 negated(impossible)，golden 锁定该负向证据）。
  * - 费用与时机两半本身可执行：kill + exhaust 的 nonstandard 支付、activated.timing =
  *   "reaction" 的声明、以及 430.3 的 Reaction Add 支付窗口都已合入，golden 测试真实
- *   执行费用计划与支付回执。
+ *   执行费用计划与支付回执。费用计划不依赖 RIFT-261：kill/exhaust 都在既有支付种类中。
  * - 另外，Token 的 token 定义表（effect.token 的 frozen 定义）刻意不含 Gold
  *   （"definitions requiring other abilities, including Gold, remain blocked/judge-required"），
  *   因此“造出 Gold”的来源仍属该原语的既有缺口，与本卡自身的程序无关。
@@ -75,8 +75,9 @@ const program = {
     "但契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order 六域封闭集合，effect.resources 明确记录 Universal Power 不可表达、" +
     "绝不近似成某个具体域（本卡以 power: [\"rainbow\"] 保留记号，原语返回 negated(impossible)，golden 锁定该负向证据）。" +
     "依赖：契约变更（Domain 增补 Universal 或新增 gain-universal-power 动作）。" +
-    "费用与时机两半不缺口：kill + exhaust 的 nonstandard 支付（377.1 / 415.5 / 429.6 / 357.2）与 activated.timing = \"reaction\"（813.1.c.2）已由 golden 真实执行；" +
-    "430.3 的 Reaction Add 支付窗口由链侧提供。另记：本地 effect.token 的 frozen 定义表刻意不含 Gold 装备 token（需其它能力的 token 一律 blocked/judge-required），" +
+    "费用与时机两半不缺口：kill + exhaust 的 nonstandard 支付（377.1 / 415.5 / 429.6 / 357.2，属既有支付种类、不依赖 RIFT-261）" +
+    "与 activated.timing = \"reaction\"（813.1.c.2）已由 golden 真实执行；430.3 的 Reaction Add 支付窗口由链侧提供。" +
+    "另记：本地 effect.token 的 frozen 定义表刻意不含 Gold 装备 token（需其它能力的 token 一律 blocked/judge-required），" +
     "因此“造出 Gold”的来源仍属该原语的既有缺口，与本卡程序无关。",
   abilities,
   sourceText:

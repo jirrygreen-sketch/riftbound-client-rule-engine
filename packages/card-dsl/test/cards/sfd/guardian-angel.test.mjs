@@ -53,8 +53,11 @@ test("sfd-051-221 Guardian Angel: identity, ruleset, status, judgeReason and ver
   // The judgeReason names the missing payment path and the real dependencies.
   assert.match(program.judgeReason, /Equip/);
   assert.match(program.judgeReason, /Unsupported payment kind: equip/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /params\.cost/);
+  // The stale RIFT-89/RIFT-120 attributions are replaced by the actual cost
+  // kind batch (RIFT-261) and the missing params.cost assembly path.
+  assert.doesNotMatch(program.judgeReason, /RIFT-120/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The generated registry indexes this exact program object.
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -151,5 +154,5 @@ test("sfd-051-221 Guardian Angel golden: the merged Equip activation cost cannot
   );
 });
 
-test.todo("sfd-051-221 Guardian Angel: paying the printed Calm Equip cost (CR 818.1.b / 818.1.c.3) needs an equipped-cost payment kind in cost/plan-values.ts plus ExpandInput params.cost (contract 3.8 item 3) - RIFT-89 follow-up.");
-test.todo("sfd-051-221 Guardian Angel: the card-program -> keyword expansion -> chain activation wiring (contract 3.5) is not merged - RIFT-120 follow-up; the merged effect.attach body above runs directly, and payCostPlan is only exercised once the cost kind exists.");
+test.todo("sfd-051-221 Guardian Angel: paying the printed Calm Equip cost (CR 818.1.b / 818.1.c.3) needs an Equip payment kind in cost/plan-values.ts plus the KeywordDef.expand params.cost assembly path (contract 3.8 item 3) - RIFT-261 follow-up.");
+test.todo("sfd-051-221 Guardian Angel: assembling the card's KeywordAbility into the expansion (contract 3.5) is not merged; the merged effect.attach body above runs directly, and payCostPlan is only exercised once the cost kind and the params.cost assembly exist.");

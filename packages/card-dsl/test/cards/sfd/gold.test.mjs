@@ -156,5 +156,5 @@ test.todo(
 test.todo(
   "sfd-t03 Gold: the 430.3 window that lets a Reaction Add be activated while costs are being paid is owned by the " +
     "chain (ChainEngine.activateAddDuringPayment); wiring this card's activated Add ability into that window is part " +
-    "of the card-program → chain adapter work (RIFT-120 follow-up)"
+    "of the card-program → chain call-site work (the ChainEngine method is merged; no production caller invokes it)"
 );
