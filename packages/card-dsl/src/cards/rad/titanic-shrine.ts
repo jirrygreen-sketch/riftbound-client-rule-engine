@@ -9,7 +9,7 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * 规则依据（CR v1.5）：
  * - 383.4.a.4："当另一个对象被打出时触发"的能力不是 Play Effect，而是订阅 card-played
- *   时点的普通触发能力（条件包含“你打出一个单位”）。
+ *   时点的普通触发能力（条件包含“你打出一个单位”）。时点由 chain/engine.ts 产生。
  * - 204.1.c / 204.3 / 355.10.c.1："exhaust me to draw 1" 是成本内指令（[do X] to [do Y]）
  *   ——横置自身是费用、抽 1 是效果；费用必须支付，能力才成立。横置作为费用属于
  *   cost.exhaust / 费用计划（415.4/415.5），不是 effect.exhaust。
@@ -17,13 +17,13 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status：judge-required。三处缺口：
  * 1. 成本内指令的费用支付：契约 3.1 的 TriggeredAbility 没有 cost 字段，指令层面也没有
- *    注册的 cost.pay 原语（engine-core instructions 注册表只有 effect.* 与解释器内建的
- *    控制 / 条件节点），行内 cost.pay 会被解释器拒绝为未注册 opcode。
+ *    合并的 cost.pay 原语（RIFT-261 进行中；本 worktree 的 effects/instructions/ 无 cost.*），
+ *    行内 cost.pay 无法被解释器执行。
  * 2. "Might greater than each other unit on the board"：需要把被打出的单位从其
  *    card-played 事件载荷绑定出来（契约 3.6 的 ObjectSelector 没有“事件对象”形式），
  *    并对 Board 上其他单位做数值 Might 比较；events/pipeline-match.ts 的过滤器没有数值
  *    Might 匹配键，condition 也无法对“每个其他单位”逐一比较。
- * 3. 即便条件与费用就绪，也没有卡牌程序 → 触发注册的接线（契约 3.5）。
+ * 3. 即便条件与费用就绪，也没有卡牌程序 → 触发注册的接线（契约 3.5，RIFT-257 进行中）。
  * 不把条件近似成“总是成立”，也不把横置费用写成 effect.exhaust。
  */
 export default {
@@ -32,12 +32,12 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处缺口：(1)「exhaust me to draw 1」是成本内指令（204.1.c/204.3/355.10.c.1）：" +
-    "TriggeredAbility 没有 cost 字段，指令层也没有注册的 cost.pay 原语" +
-    "（engine-core instructions 注册表不含 cost.pay），费用计划与 Finalize 收费管线未接通；" +
+    "TriggeredAbility 没有 cost 字段，指令层的 cost.pay 仍属进行中的 RIFT-261（本 worktree 的" +
+    "effects/instructions/ 没有 cost.* 原语），费用计划与 Finalize 收费管线未接通；" +
     "(2)「Might greater than each other unit on the board」需要从 card-played 事件载荷绑定" +
     "被打出的单位（ObjectSelector 没有事件对象形式），并对 Board 上其他单位做数值 Might 比较" +
     "（events/pipeline-match.ts 的过滤器没有数值 Might 键，condition 也无法逐一比较）；" +
-    "(3) 缺少卡牌程序→触发注册的接线（契约 3.5）。" +
+    "(3) 缺少卡牌程序→触发注册的接线（契约 3.5，RIFT-257 进行中）。" +
     "Draw 1 原语已合入并单独执行；不近似实现条件与横置费用。",
   abilities: [
     {
@@ -53,7 +53,7 @@ export default {
       optional: false,
       body: [
         {
-          // 204.3：成本内指令先支付（横置自身），由费用管线接管；当前无 cost.pay 原语。
+          // 204.3：成本内指令先支付（横置自身），由费用管线接管；cost.pay 属 RIFT-261。
           id: "titanic-shrine.pay-exhaust",
           op: "cost.pay",
           args: {

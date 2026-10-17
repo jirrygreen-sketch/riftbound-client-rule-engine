@@ -7,7 +7,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   When you play me, choose an opponent. You and that player each draw 1.
  *
  * 规则依据（CR v1.5）：
- * - "When you play me"：card-played（383.4.a），filter 指向自身。
+ * - "When you play me"：card-played（383.4.a；时点由 chain/engine.ts 产生，RIFT-270 审计），
+ *   filter 指向自身。
  * - "choose an opponent"：选择一名玩家。CR 355.7/355.9.a 把"玩家"列为可选目标
  *   （"a player or zone"），且 355.10 的豁免都不适用（对手不在非公开区域、不属费用/
  *   触发条件/替代、不是纯程序化集合），所以这是**玩家选择**；契约 3.6 的
@@ -17,9 +18,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "You and that player each draw 1"：414.1/414.3 的 Draw 1。己方抽牌省略 player
  *   （190.6.d 的 "you" 默认 ctx.controller）；"that player" 用 effect.draw 的 pick 参数
  *   读取同一 pick 的 PlayerId，由内核按 355.10.e（由其他玩家参与选定的集合）确认非目标。
- * - 选择玩家的具体管线（把"对手"解析成 PlayerId 集合并锁定）尚无已合入实现：
- *   ChoiceRequest 只有 optional / mode / select-objects / order / number，没有选择玩家
- *   的请求类型；因此整卡保持 judge-required，结构保留。
+ *
+ * status = judge-required：effect.draw 与 card-played 时点已合入，golden 用解释器 +
+ * 参考内核真实执行「双方各抽 1」（pick 由测试内核 provision），但整卡仍不能执行：
+ * - 「把对手集合解析为 PlayerId 并在 Finalize 锁定」没有已合入实现：ChoiceRequest 只有
+ *   optional / mode / select-objects / order / number，契约 3.6 的 targets() 只返回
+ *   ObjectRef[]，没有玩家目标/玩家选择形状；玩家选择的生产路径属未完成的卡牌程序绑定
+ *   （RIFT-257）与目标系统。
+ * 依赖：玩家目标/选择（target.player 或 choice 扩展）与 RIFT-257；
+ * 附带契约变更请求：请为玩家目标/玩家 pick 增补 EffectIR 形状。
  */
 const abilities: Ability[] = [
   {
@@ -65,10 +72,10 @@ const program = {
     "「choose an opponent」是玩家选择（CR v1.5 355.7/355.9.a：玩家可以是目标；355.10 的豁免都不适用），" +
     "但契约 3.6 的 `targets()` 只返回 ObjectRef[]，没有玩家目标形状；ChoiceRequest 也没有选择玩家的请求类型" +
     "（只有 optional/mode/select-objects/order/number），所以「把对手集合解析为 PlayerId 并在 Finalize 锁定」" +
-    "没有已合入实现。这里用非目标 pick（ctx.picks() 允许 PlayerId）+ 动态选项标记保留可审查结构；" +
-    "effect.draw 的 player/pick 与「You draw 1」半段已合入并在 golden 测试中真实执行（pick 绑定 " +
-    "PlayerId 的路径由测试内核 provision）。依赖：玩家目标/选择（target.player 或 choice 扩展）、RIFT-90。" +
-    "附带契约变更请求：请为玩家目标/玩家 pick 增补 EffectIR 形状。",
+    "没有已合入实现，生产接线属未完成的卡牌程序绑定（RIFT-257）。这里用非目标 pick（ctx.picks() 允许 PlayerId）" +
+    "+ 动态选项标记保留可审查结构；effect.draw 的 player/pick 与「You draw 1」半段已合入并在 golden 测试中真实执行" +
+    "（card-played 时点由 chain/engine.ts 产生，pick 绑定 PlayerId 的路径由测试内核 provision）。" +
+    "依赖：玩家目标/选择（target.player 或 choice 扩展）与 RIFT-257。附带契约变更请求：请为玩家目标/玩家 pick 增补 EffectIR 形状。",
   abilities,
   sourceText: "When you play me, choose an opponent. You and that player each draw 1."
 } satisfies CardProgram;

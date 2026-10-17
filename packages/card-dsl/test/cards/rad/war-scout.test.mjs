@@ -1,10 +1,20 @@
+// Golden test for War Scout (rad-008-167).
+//
+// The +2 Might clause is now executable with the merged continuous.might
+// instruction (RIFT-258) and the real layer engine. The Accelerate additional
+// cost and its enter-ready replacement still need the cost.pay / cost.modify
+// pipeline (RIFT-261) and the card-program binding (RIFT-257), so the card
+// stays judge-required.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/war-scout.js";
-import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import accelerate from "../../../../engine-core/dist/effects/keywords/Accelerate.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const MIGHT_BODY = "war-scout.give-plus-2-might";
 const MIGHT_TARGET = "war-scout.unit";
@@ -25,6 +35,8 @@ test("rad-008-167 War Scout: program validates and has expected identity", () =>
   );
   assert.match(program.judgeReason, /Accelerate/);
   assert.match(program.judgeReason, /continuous\.might/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-008-167: keyword declaration plus card-played trigger with a +2 Might effect", () => {
@@ -43,6 +55,7 @@ test("rad-008-167: keyword declaration plus card-played trigger with a +2 Might 
   assert.equal(instruction.op, "continuous.might");
   assert.deepEqual(instruction.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(instruction.args.duration, { kind: "constant", value: "this-turn" });
+  assert.deepEqual(instruction.args.target, { kind: "constant", value: MIGHT_TARGET });
   // “a unit” 是任意单位的目标选择（352/355.9），min=max=1。
   assert.equal(instruction.targets.length, 1);
   const [spec] = instruction.targets;
@@ -53,24 +66,60 @@ test("rad-008-167: keyword declaration plus card-played trigger with a +2 Might 
   assert.equal(spec.selection, "one");
 });
 
-test("rad-008-167: continuous.might is not a registered primitive (no approximation executed)", () => {
-  // 真实执行卡牌 body 会抛“未注册 opcode”，而不是被改写成 Buff counter 之类近似物；
-  // 这条负面证据把“缺口存在”固定下来，TODO 依赖落地后必须换成真实执行断言。
+test("rad-008-167: [Accelerate] resolves to the merged KeywordDef (RIFT-86 cost declaration plus 805.6 replacement)", () => {
+  assert.equal(keywordDefinitionsById.get("Accelerate"), accelerate);
+  const expansion = accelerate.expand({ host: { canonicalCardId: program.canonicalCardId } });
+  assert.deepEqual(expansion.map(ability => ability.kind), ["static", "replacement"]);
+  // 805.1.b：固定 [1][Fury] 的附加费声明（optional 附加费由费用管线收取）。
+  assert.equal(expansion[0].effect.kind, "accelerate.cost");
+  assert.deepEqual(expansion[0].effect.cost.payments.map(payment => payment.kind), ["energy", "power"]);
+  // 805.6：入场替代使用已合入的 effect.ready，替代状态是在场上就绪（不减未经 ready 时点）。
+  assert.equal(expansion[1].replaces.event, "object-enters-board");
+  assert.equal(expansion[1].with[0].op, "effect.ready");
+});
+
+test("rad-008-167: the continuous.might body really grants +2 Might for the turn through the layer engine", () => {
   const kernel = world().unit("war-scout", { might: 2 }).unit("other", { might: 3 }).build();
-  kernel.setTargets(MIGHT_TARGET, [kernel.ref("other")]);
-  assert.throws(
-    () => resolveChainBody(program.abilities[1].body, kernel),
-    /Unregistered instruction opcode: continuous\.might/
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("war-scout") });
+  scoped.setTargets(MIGHT_TARGET, [scoped.ref("other")]);
+  // 用默认解释器注册表执行卡牌原始 body：continuous.might 已注册（RIFT-258），
+  // target 参数在解释器求值后按 TargetSpec id 解析。
+  const outcome = runAbilityBody(program.abilities[1].body, scoped);
+  assert.equal(outcome.status, "executed", JSON.stringify(outcome.results));
+  assert.deepEqual(
+    outcome.results.map(entry => [entry.id, entry.result.status]),
+    [[MIGHT_BODY, "executed"]]
   );
-  assert.equal(kernel.getObject("other").might, 3);
-  assert.equal(kernel.getObject("other").buffs, 0);
+  assert.equal(scoped.continuousEffects.length, 1);
+  const registration = scoped.continuousEffects[0];
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 2);
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+  const engine = createLayerEngine(
+    scoped.listObjects(),
+    scoped.continuousEffects.map(entry => ({ effect: entry.effect, duration: entry.duration }))
+  );
+  // 只有被选中的单位获得 +2；来源本身不受影响。
+  assert.equal(engine.evaluate(scoped.ref("other")).might, 5);
+  assert.equal(engine.evaluate(scoped.ref("war-scout")).might, 2);
+});
+
+test("rad-008-167: an unselected target leaves the Might effect ignored, never silently applied", () => {
+  const kernel = world().unit("war-scout", { might: 2 }).unit("other", { might: 3 }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("war-scout") });
+  scoped.setTargets(MIGHT_TARGET, []);
+  const outcome = runAbilityBody(program.abilities[1].body, scoped);
+  assert.equal(outcome.status, "partial");
+  assert.equal(outcome.results[0].result.status, "ignored");
+  assert.equal(outcome.results[0].result.reason, "mistargeted");
+  assert.equal(scoped.continuousEffects.length, 0);
 });
 
 test.todo(
-  "rad-008-167 War Scout: 临时 Might 修正 “give a unit +2 :rb_might: this turn” 依赖已注册的" +
-    "continuous.might 与图层/期限系统（RIFT-91 layers-continuous）；effect.buff 不覆盖临时 Might（702/703）"
+  "rad-008-167 War Scout: [Accelerate] 的附加费 [1][Fury] 收取与 805.6 入场就绪替代 - 展开已声明，" +
+    "但 cost.pay/cost.modify 与 Finalize 费用计划仍在进行（RIFT-261），卡牌 keyword → 打出管线的绑定属 RIFT-257"
 );
 test.todo(
-  "rad-008-167 War Scout: [Accelerate] 展开（805.1.b 附加费 [1][Fury] 与 805.6 入场就绪替代）" +
-    "依赖 cost.additional / cost.pay 与 replacement.enter 管线（RIFT-89~91）"
+  "rad-008-167 War Scout: card-played 触发端到端（383.4.a）依赖 card-program → TriggerRegistration 的接线（RIFT-257）"
 );

@@ -10,7 +10,8 @@ import type { CardProgram } from "../../ir/index.js";
  *    When you hold here, return this to its owner's hand."
  *
  * 规则依据（CR v1.5）：
- * - 830 / 830.1.b：印刷的 [Deploy]（关键词声明，展开缺口见 judgeReason）。
+ * - 830 / 830.1.b：印刷的 [Deploy]（关键词声明；effects/keywords/Deploy.ts 已合入并展开，
+ *   但消费者缺口见 judgeReason）。
  * - 383.4.a.1："When you play this" 是 Gear 的 Play Effect，对应时点 card-played、
  *   filter 指向自身。
  * - 423 / 423.1.b / 423.4："discard 1" 是效果弃牌（不是费用），由弃牌者按 423.1.a
@@ -21,19 +22,20 @@ import type { CardProgram } from "../../ir/index.js";
  * - 417/124（回手路由）："return this to its owner's hand" 用 effect.zone 的 hand
  *   目的地（return-to-hand），目的地按拥有者路由由内核处理；目标用符号选择器 source。
  *
- * status：judge-required。Deploy 没有 KeywordDef（830.1.b 三项改写未展开），且缺少
- * 卡牌程序 → 触发注册的接线（契约 3.5）。discard 1 / draw 3 / 回手三条指令都已合入，
- * golden 用解释器与参考内核真实执行；不据此宣称整卡可执行。
+ * status：judge-required。Deploy 的 KeywordDef 已合入（effects/keywords/Deploy.ts），但其
+ * continuous.location / hold 触发的消费者仍未接线；且缺少卡牌程序 → 触发注册的接线
+ * （契约 3.5，RIFT-257 进行中）。discard 1 / draw 3 / 回手三条指令都已合入，golden 用
+ * 解释器与参考内核真实执行；不据此宣称整卡可执行。
  */
 export default {
   canonicalCardId: "card.hash-a3ace5aa975d32c702f9be7ba7a0dc4c7ca23449408374628a66fc6dc72cfd58",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) Deploy 关键词没有 KeywordDef（CR 830.1.b：入场地点许可、非单位 Gear 不被清理召回、" +
-    "对手在此固守时消灭此牌都需要展开；调研表 kw-deploy 指向的 continuous.location/" +
-    "continuous.restrict 尚无消费方）。(2) 两条触发（card-played 自身、hold here）没有" +
-    "卡牌程序→TriggerRegistration 的接线（RIFT-120 后续 / 协调任务，契约 3.5），" +
+    "(1) Deploy 的 KeywordDef 已合入（effects/keywords/Deploy.ts，CR 830.1.b：入场地点许可、" +
+    "非单位 Gear 不被清理召回、对手在此固守时消灭此牌），但其 continuous.location 许可/限制与 hold 消灭触发的消费者仍未接入" +
+    "——没有 Finalize 位置校验调用方、清理流程没有非单位 Deploy 召回豁免、hold 时点没有注册方。" +
+    "(2) 两条触发（card-played 自身、hold here）没有卡牌程序→TriggerRegistration 的接线（RIFT-257 进行中，契约 3.5），" +
     "\"hold here\" 的 here 过滤还依赖固守时点的战场身份载荷。" +
     "discard 1、draw 3 与 return-to-hand 三条指令已合入并单独执行；不近似实现 Deploy 与触发接线。",
   abilities: [

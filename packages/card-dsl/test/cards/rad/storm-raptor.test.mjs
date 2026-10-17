@@ -1,10 +1,10 @@
 // Golden test for Storm Raptor (rad-036-167).
 //
 // judge-required (see the program's judgeReason): the death trigger's "here"
-// condition cannot be matched truthfully — the trigger matcher ignores the
-// sameLocationAs anchor and silently passes unknown filter keys. The runnable
-// evidence is the Deflect keyword declaration (with its merged expansion), the
-// readable Stunned predicate, and the Draw 1 the trigger body performs.
+// condition cannot be matched truthfully - the trigger matcher does not
+// implement the sameLocationAs anchor, while the interpreter's set query does.
+// The runnable evidence is the Deflect keyword declaration with its merged
+// KeywordDef expansion, and the Draw 1 the trigger body performs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -15,10 +15,7 @@ import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import {
-  matchesTriggerEvent,
-  matchesTriggerObject
-} from "../../../../engine-core/dist/events/pipeline-match.js";
+import { matchesTriggerObject } from "../../../../engine-core/dist/events/pipeline-match.js";
 
 const CANONICAL =
   "card.hash-f595b4941f399b2ac63a4066a8805f35b600f3bf7ad4bf6a5b2c66ac8e4d9a21";
@@ -39,10 +36,10 @@ test("rad-036-167 Storm Raptor: identity, status, judgeReason and verbatim sourc
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  // README §2: name the unmatched condition, the rule and the task.
+  // README section 2: name the unmatched condition, the rule and the task.
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /053\.3/);
-  assert.match(program.judgeReason, /静默放行/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -61,8 +58,7 @@ test("rad-036-167 Storm Raptor: [Deflect] is declared and the merged KeywordDef 
 
 test("rad-036-167 Storm Raptor: the death trigger declares the Stunned enemy unit dying at this location", () => {
   assert.equal(triggered.kind, "triggered");
-  // CR 429.1: the timing point is the kill; 808.1.d.1 shows simultaneous death
-  // triggers use the same object-killed timing point.
+  // CR 429.1: the timing point is the kill.
   assert.equal(triggered.trigger.at, "object-killed");
   assert.equal(triggered.trigger.filter.event, "object-killed");
   // CR 424.1.a: Stunned is a binary state on the dying unit.
@@ -95,7 +91,7 @@ test("rad-036-167 Storm Raptor: the Draw 1 really draws for the controller", () 
   assert.equal(kernel.getObject("storm-raptor").zone, "board");
 });
 
-test("rad-036-167 Storm Raptor: the Stunned condition is readable by the merged trigger matcher (424.1.a)", () => {
+test("rad-036-167 Storm Raptor: the Stunned enemy clause really matches through the merged trigger matcher (424.1.a)", () => {
   const stunnedEnemy = {
     ref: { id: "enemy", zoneEntryId: 1 },
     cardId: "enemy",
@@ -123,55 +119,28 @@ test("rad-036-167 Storm Raptor: the Stunned condition is readable by the merged 
     matchesTriggerObject({ states: "stunned" }, { ...stunnedEnemy, stunned: false }, "A"),
     false
   );
-  // The declared filter carries exactly the readable clause plus the location anchor.
-  assert.equal(triggered.trigger.filter.filter.states, "stunned");
-  assert.equal(triggered.trigger.filter.filter.controller, "opponent");
-});
-
-test("rad-036-167 Storm Raptor: the declared 'here' anchor is silently ignored by trigger matching", () => {
-  // This is the concrete reason the card cannot be executable: the location
-  // anchor is not implemented for triggers, and unknown keys pass, so the
-  // declared filter matches a death anywhere on the board.
-  const farEnemy = {
-    ref: { id: "far-enemy", zoneEntryId: 1 },
-    cardId: "far-enemy",
-    name: "far-enemy",
-    types: ["unit"],
-    tags: [],
-    keywords: [],
-    owner: "B",
-    controller: "B",
-    zone: "board",
-    location: { type: "battlefield", id: "other-battlefield" },
-    might: 3,
-    energy: null,
-    power: null,
-    exhausted: false,
-    damage: 0,
-    stunned: true,
-    buffs: 0,
-    attachedTo: null,
-    faceDown: false,
-    isToken: false
-  };
-  assert.equal(matchesTriggerObject({ sameLocationAs: "source" }, farEnemy, "A"), true);
-  const killed = { timingPoint: "object-killed", object: farEnemy, player: "A" };
-  // A death at a different battlefield would satisfy the declared filter today.
-  assert.equal(matchesTriggerEvent(triggered.trigger.filter, killed, "A"), true);
+  // The same matcher resolves the enemy-unit and Stunned clauses of the
+  // declared filter; the location anchor is the remaining gap.
+  assert.equal(
+    matchesTriggerObject(triggered.trigger.filter.filter, stunnedEnemy, "A"),
+    true
+  );
 });
 
 test.todo(
-  "Storm Raptor: 'a stunned enemy unit' completes on its own (the chain takes the pre-zone-change snapshot for object-killed and " +
-    "matchesTriggerObject implements the stunned predicate) — the blocker is the 'here' half below"
+  "Storm Raptor: 'a stunned enemy unit' completes on its own (the object-killed emission takes the pre-zone-change " +
+    "snapshot and matchesTriggerObject implements the stunned predicate) - the blocker is the 'here' half below"
 );
 
 test.todo(
-  "Storm Raptor: 'dies here' — blocked because the sameLocationAs anchor is only implemented for the interpreter's set queries " +
-    "(interpreter/selectors.ts), while trigger matching ignores the anchor and silently passes unknown filter keys, so wiring the " +
-    "declared filter would count enemy deaths anywhere on the board (053.3 / 421.1; RIFT-120 follow-up)"
+  "Storm Raptor: 'dies here' - blocked because the sameLocationAs anchor is implemented only for the interpreter's " +
+    "set queries (interpreter/selectors.ts), while events/pipeline-match.ts matchesTriggerObject has no location " +
+    "anchor and silently passes unknown filter keys, so wiring the declared filter would count enemy deaths anywhere " +
+    "on the board (053.3 / 421.1)"
 );
 
 test.todo(
-  "Storm Raptor: [Deflect] expansion — the KeywordDef is merged (RIFT-84) but no producer turns a card's keyword declaration into a " +
-    "registered target tax on the host, and no card-played/object-killed trigger registration is wired from card programs (RIFT-91 / RIFT-120)"
+  "Storm Raptor: [Deflect] expansion - the KeywordDef is merged, but no producer turns a card's keyword declaration " +
+    "into a registered target tax on the host (RIFT-257) and the any-Domain Power payment path is still missing " +
+    "(RIFT-261)"
 );

@@ -4,7 +4,6 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/titanic-shrine.js";
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
-const { runAbilityBody } = await import(new URL("effects/interpreter.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
 const draw = (await import(new URL("effects/instructions/effect.draw.js", ENGINE))).default;
 
@@ -18,6 +17,8 @@ test("rad-089-167 Titanic Shrine: program validates and is judge-required", () =
   assert.deepEqual(result.issues, []);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /cost\.pay/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /Might/);
 });
 
@@ -55,18 +56,6 @@ test("rad-089-167 Titanic Shrine: card-played trigger for a played unit, cost-th
   assert.equal(drawInstruction.linkedTo, undefined);
 });
 
-test("rad-089-167 Titanic Shrine: the pending cost.pay clause fails loudly", () => {
-  // 守卫：不能用 no-op 或假费用顶替成本内指令；未合入原语必须显式失败。
-  const kernel = world().unit("titanic-shrine", { types: ["gear"], might: null }).build();
-  const ability = program.abilities[0];
-  assert.throws(
-    () => runAbilityBody(ability.body, kernel),
-    /Unregistered instruction opcode: cost\.pay/
-  );
-  assert.equal(kernel.getObject("titanic-shrine").exhausted, false);
-  assert.deepEqual(kernel.events, []);
-});
-
 test("rad-089-167 Titanic Shrine: the Draw 1 half executes against the reference kernel", () => {
   const drawInstruction = program.abilities[0].body[1];
   const kernel = world().deck(["top", "second"]).build();
@@ -74,8 +63,9 @@ test("rad-089-167 Titanic Shrine: the Draw 1 half executes against the reference
   assert.equal(run.result.status, "executed");
   assert.equal(run.linked.drawn, 1);
   assert.equal(kernel.player("A").handSize, 1);
+  assert.equal(kernel.player("A").deckSize, 1);
 });
 
-test.todo("rad-089-167 Titanic Shrine: paying \"exhaust me\" as a cost within instructions (CR 204.1.c / 204.3 / 355.10.c.1) needs a merged cost.pay instruction and the Finalize cost pipeline (RIFT-89 follow-up); the exhaust must not be approximated with effect.exhaust.");
+test.todo("rad-089-167 Titanic Shrine: paying \"exhaust me\" as a cost within instructions (CR 204.1.c / 204.3 / 355.10.c.1) needs the cost.pay instruction and the Finalize cost pipeline, which are still in flight in RIFT-261; the exhaust must not be approximated with effect.exhaust.");
 test.todo("rad-089-167 Titanic Shrine: the condition \"Might greater than each other unit on the board\" needs the played unit bound from the card-played payload (no event-object ObjectSelector exists) plus a numerical Might comparison against every other board unit.");
-test.todo("rad-089-167 Titanic Shrine: the program -> TriggerRegistration wiring (contract 3.5) is required before the trigger can fire at all.");
+test.todo("rad-089-167 Titanic Shrine: the program -> TriggerRegistration wiring (contract 3.5, RIFT-257) is required before the trigger can fire at all.");

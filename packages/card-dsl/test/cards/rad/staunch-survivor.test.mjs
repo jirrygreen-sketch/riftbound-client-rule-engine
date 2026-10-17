@@ -1,10 +1,11 @@
 // Golden test for Staunch Survivor (rad-088-167).
 //
-// The whole printed ability is two keywords in one block, so the runnable
-// evidence is the two declarations plus the merged Assault/Shield KeywordDef
-// expansions for this exact card identity. The layer wiring that would add
-// +2 Might while attacking or defending is still missing (see judgeReason and
-// the test.todo entries at the bottom).
+// The printed ability is two keywords in one block. The merged KeywordDefs
+// (Assault / Shield) own their expansions into static continuous.might, and the
+// merged continuous.might instruction registers the +2 with the real layer
+// engine. What is still missing is the card-program -> keyword-expansion ->
+// layers registration (RIFT-257) plus a layers condition evaluator for the
+// attacker/defender designation condition, so the card stays judge-required.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -14,6 +15,9 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import assault from "../../../../engine-core/dist/effects/keywords/Assault.js";
 import shield from "../../../../engine-core/dist/effects/keywords/Shield.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-ef096ceda83997abf3d3e76dcd5774b08b5953e2f94e648a0d5942172d6eac39";
@@ -38,10 +42,7 @@ test("rad-088-167 Staunch Survivor: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /Shield/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /combatRole/);
-  assert.match(program.judgeReason, /designation/);
-  assert.match(program.judgeReason, /conditionMatches/);
-  assert.match(program.judgeReason, /RIFT-81/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -73,7 +74,7 @@ test("rad-088-167 Staunch Survivor: both declared keywords resolve to the merged
   assert.ok(registeredShield.ruleRefs.includes("814.1.c"));
 });
 
-test("rad-088-167 Staunch Survivor: Assault 2 is +2 Might gated on the Attacker designation", () => {
+test("rad-088-167 Staunch Survivor: Assault 2 expands to a +2 Might static effect gated on the attacker role", () => {
   const expansion = assault.expand({ value: program.abilities[0].value, host: HOST });
   assert.equal(expansion.length, 1);
   const [ability] = expansion;
@@ -92,7 +93,7 @@ test("rad-088-167 Staunch Survivor: Assault 2 is +2 Might gated on the Attacker 
   assert.deepEqual(ability.condition.right, { kind: "constant", value: "attacker" });
 });
 
-test("rad-088-167 Staunch Survivor: Shield 2 is +2 Might gated on the Defender designation", () => {
+test("rad-088-167 Staunch Survivor: Shield 2 expands to a +2 Might static effect gated on the defender role", () => {
   const expansion = shield.expand({ value: program.abilities[1].value, host: HOST });
   assert.equal(expansion.length, 1);
   const [ability] = expansion;
@@ -139,21 +140,50 @@ test("rad-088-167 Staunch Survivor: both expansions validate as EffectIR for thi
   assert.equal(expanded.ok, true);
 });
 
+test("rad-088-167 Staunch Survivor: the merged continuous.might instruction really adds +2 in the arithmetic layer", () => {
+  // The KeywordDef expansion's effect runs through the registered
+  // continuous.might instruction: +2 is registered for the resolved unit and
+  // the real LayerEngine applies it to the arithmetic result.
+  const kernel = world().unit("survivor", { might: 2 }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("survivor") });
+  scoped.setTargets("staunch-survivor.self", [scoped.ref("survivor")]);
+  const run = runInstruction(
+    might,
+    {
+      amount: { kind: "constant", value: 2 },
+      duration: { kind: "constant", value: "this-turn" },
+      target: "staunch-survivor.self"
+    },
+    { world: scoped }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.equal(scoped.continuousEffects.length, 1);
+  const registration = scoped.continuousEffects[0];
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 2);
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+  const engine = createLayerEngine(
+    scoped.listObjects(),
+    scoped.continuousEffects.map(entry => ({ effect: entry.effect, duration: entry.duration }))
+  );
+  assert.equal(engine.evaluate(scoped.ref("survivor")).might, 4);
+});
+
 test("rad-088-167 Staunch Survivor: the generated card registry exposes the program under its canonical id", () => {
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
 test.todo(
   "Staunch Survivor: +2 Might exactly while the 2 Might unit holds the Attacker designation and +2 while it " +
-    "holds the Defender designation (CR 807.1.c / 814.1.c) — blocked because no merged producer resolves " +
+    "holds the Defender designation (CR 807.1.c / 814.1.c) - blocked because no merged producer resolves " +
     "a card's keyword abilities into their KeywordDef expansions and registers them through " +
-    "layers/engine.ts (contract 3.5/3.7), because the Attacker/Defender designations are not " +
-    "ObjectSnapshot characteristics (contract 3.8 combatRole; RIFT-105 branch), and because " +
-    "layers/engine.ts conditionMatches does not evaluate the compare predicate (RIFT-91)"
+    "layers/engine.ts (RIFT-257), and because layers/engine.ts conditionMatches does not evaluate the " +
+    "compare predicate on ObjectSnapshot.combatRole"
 );
 
 test.todo(
-  "Staunch Survivor: CR 807.2 / 814.2 (with CR 466.2.c.3) — a second Assault or Shield source sums per keyword, " +
+  "Staunch Survivor: CR 807.2 / 814.2 (with CR 466.2.c.3) - a second Assault or Shield source sums per keyword, " +
     "and role exclusivity keeps the two +2s from stacking in one Combat; keywords already declare " +
     "stacking \"sum\", execution depends on the same card-static-to-layers registration path"
 );

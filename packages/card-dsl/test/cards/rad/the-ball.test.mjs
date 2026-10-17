@@ -41,6 +41,7 @@ test("rad-146-167 The Ball: program validates and has expected identity", () => 
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Deploy/);
   assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-146-167 The Ball: Deploy + Ganking keywords and play/move mode bodies", () => {
@@ -135,16 +136,17 @@ test("rad-146-167 The Ball: a mistargeted damage group makes the whole mode inst
 });
 
 test.todo(
-  "rad-146-167 The Ball: [Deploy] 关键词展开（830.1.b）未合入（关键词批次 RIFT-81~88 / RIFT-91 不含 Deploy）"
+  "rad-146-167 The Ball: [Deploy] 展开（830.1.b）的消费者未合入——continuous.location 的 play-location/限制检查没有" +
+    " Finalize 位置校验调用方，清理流程没有非单位 Deploy 召回豁免，hold 也没有把该关键词展开注册成事件订阅"
 );
 test.todo(
-  "rad-146-167 The Ball: “enemy units here” 的生产链路（Finalize 用 sameLocationAs 锚点重验并在目标全部失效时" +
-    "按 359.3.e.6/e.7 处理）依赖目标系统（RIFT-90）与 here 位置绑定的完整解析"
+  "rad-146-167 The Ball: “enemy units here” 的生产链路——target/target-plan.ts 不读取 sameLocationAs 锚点，" +
+    "需要目标系统把来源所在地点纳入候选过滤（355.10.d / 421.1）"
 );
 test.todo(
   "rad-146-167 The Ball: object-moved 触发端到端（421.1/449.1 移动成功时点 + 来源身份锚定 + Ganking 许可）" +
-    "依赖移动管线与触发管线（RIFT-109 effect.move 之后的移动系统、RIFT-120 事件/链批次）"
+    "依赖卡牌程序 → TriggerRegistration 的接线（RIFT-257）"
 );
 test.todo(
-  "rad-146-167 The Ball: card-played 触发端到端订阅（383.4.a / 407）依赖触发管线（RIFT-33 scenarios-triggers）"
+  "rad-146-167 The Ball: card-played 触发端到端订阅（383.4.a / 407）依赖卡牌程序 → TriggerRegistration 的接线（RIFT-257）"
 );
