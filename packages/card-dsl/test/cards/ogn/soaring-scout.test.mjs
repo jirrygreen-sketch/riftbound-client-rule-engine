@@ -76,8 +76,9 @@ test("ogn-216-298 Soaring Scout golden: the Channel 1 half moves the top rune of
   assert.equal(kernel.player("A").runePool.length, 1);
   assert.equal(kernel.getObject("rune-top").zone, "rune-zone");
   assert.equal(kernel.getObject("rune-next").zone, "rune-deck");
-  // The channel action carries the printed "exhausted" stipulation for the engine
-  // to apply (431.2); the reference kernel records the action as submitted.
+  // The channel action carries the printed "exhausted" stipulation, but the
+  // current reference kernel ignores it when moving the rune into the zone.
+  assert.equal(kernel.getObject("rune-top").exhausted, false);
   const [event] = run.events;
   assert.equal(event.action, "channel-rune");
   assert.equal(event.reason, "channel-rune");
@@ -103,5 +104,6 @@ test.todo(
 
 test.todo(
   "ogn-216-298 Soaring Scout: the channelled rune enters exhausted (CR 431.2) — " +
-    "已合入的 channel-rune 动作忽略 exhausted 规定（符文仍以就绪状态进入），依赖内核补齐 431.2"
+    "effect.channel passes exhausted: true, but the channel-rune action consumer in " +
+    "effects/testing/test-kernel.ts ignores the entry-state field (the rune still enters ready)"
 );

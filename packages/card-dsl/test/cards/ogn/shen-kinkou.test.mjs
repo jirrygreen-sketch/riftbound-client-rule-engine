@@ -4,6 +4,9 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/shen-kinkou.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/index.js";
+import { actionTimings, canAct } from "../../../../engine-core/dist/layers/rules/query.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 // card-dsl has no dependency edge on engine-core (engine-core depends on
 // card-dsl), so golden tests load the built engine through its workspace
 // layout instead of the package name.
@@ -35,7 +38,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.match(program.judgeReason, /815\.1\.b/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /compare/);
-  assert.match(program.judgeReason, /continuous\.timing/);
+  assert.match(program.judgeReason, /appliesTo/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -108,7 +111,7 @@ test("Reaction/Shield declarations match the merged engine keyword registry (CR 
 test("Tank expands to a continuous.combat requirement", () => {
   // 815.1.b ("I must be assigned lethal damage before any other unit with the
   // same controller as me that does not have [Tank] during the Combat Damage
-  // step") now has the merged Tank KeywordDef (RIFT-264), but its expansion is
+  // step") has the merged Tank KeywordDef, but its expansion is
   // a continuous.combat declaration the combat kernels never read (see
   // combat/base-combat-allocation.ts). This assertion documents the exact gap
   // named by judgeReason.
@@ -126,7 +129,7 @@ test("Tank expands to a continuous.combat requirement", () => {
 
 test.todo(
   "[Tank] expansion and combat-damage assignment priority (CR 815.1.b, 815.1.c.1, 815.1.c.2): " +
-    "the Tank KeywordDef is merged (RIFT-264), but combat/ still needs the assignment-priority " +
+    "the Tank KeywordDef is present, but combat/ still needs the assignment-priority " +
     "binding (base-combat-allocation.ts currently binds none) and the continuous.combat consumer"
 );
 
@@ -139,6 +142,32 @@ test.todo(
 
 test.todo(
   "[Reaction] closed-state play permission (CR 813.1.c): the layers/rules canAct query consumes " +
-    "continuous.timing, but nothing registers a card/keyword expansion into the layers registry and " +
-    "chain.canAct() reads only its own state"
+    "continuous.timing, but static binder support for appliesTo: [\"card\", \"activated-ability\"] " +
+    "is still missing from the CardProgram lifecycle"
 );
+
+test("[Reaction] timing grant is consumed by the merged actionTimings/canAct query", () => {
+  const reaction = keywordDef("reaction");
+  const [expanded] = reaction.expand({ host: { canonicalCardId: CANONICAL } });
+  const kernel = world()
+    .object("shen", { cardId: CANONICAL, types: ["unit"], zone: "chain", owner: "A", controller: "A" })
+    .build();
+  const registry = new ContinuousEffectRegistry();
+  registry.register({
+    id: "shen.reaction",
+    source: kernel.ref("shen"),
+    filter: { objectId: "shen", zoneEntryId: kernel.ref("shen").zoneEntryId },
+    effect: expanded.effect
+  }, { type: "permanent" }, 1);
+  assert.deepEqual(actionTimings(registry, kernel.ref("shen"), kernel.getObject("shen"), "A"), ["showdown", "closed-state"]);
+  assert.equal(canAct(registry, {
+    player: "A",
+    turnPlayer: "B",
+    priorityHolder: "A",
+    speed: "reaction",
+    showdown: false,
+    closedState: true,
+    ref: kernel.ref("shen"),
+    object: kernel.getObject("shen")
+  }), true);
+});

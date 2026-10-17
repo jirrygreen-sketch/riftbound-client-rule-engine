@@ -6,10 +6,10 @@ import showstopper from "../../../dist/cards/ogn/showstopper-sett.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
-import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { finalizeTargetPlan } from "../../../../engine-core/dist/target/target-plan.js";
 
 const CANONICAL = "card.hash-b22bcf86e002f1a9a45cb4011a53cb3377c815e03ab16283a99130fec4987f95";
 const BASE = player => ({ type: "base", player });
@@ -34,8 +34,8 @@ test("Showstopper identity, ruleset, status, printed text and judgeReason", () =
     "Buff a friendly unit in your base, then move it to a battlefield. " +
       "(If it doesn't have a buff, it gets a +1 :rb_might: buff.)"
   );
-  // The judgeReason must name the two concrete gaps.
-  assert.match(showstopper.judgeReason, /base/);
+  // The judgeReason must name the remaining concrete gap.
+  assert.match(showstopper.judgeReason, /controller-relative|target\.location/);
   assert.match(showstopper.judgeReason, /355\.4/);
   assert.match(showstopper.judgeReason, /effect\.move/);
   assert.equal(cardRegistryById.get(showstopper.canonicalCardId), showstopper);
@@ -63,7 +63,8 @@ test("Showstopper structure: Buff the base unit, then move that same locked unit
   });
   assert.deepEqual(buffSpec, {
     id: "friendly-unit-in-base",
-    filter: { type: "unit", controller: "self", location: "base", locationPlayer: "self" },
+    filter: { type: "unit", controller: "self" },
+    location: { type: "base", player: "controller" },
     min: 1,
     max: 1,
     selection: "one"
@@ -92,18 +93,27 @@ test("Showstopper structure: Buff the base unit, then move that same locked unit
   });
 });
 
-test("Showstopper: base-type matching includes both bases and exact locations distinguish them", () => {
+test("Showstopper: target.location restricts the friendly unit to the controller's Base", () => {
   const kernel = world()
     .unit("own-base", { owner: "A", location: BASE("A") })
     .unit("enemy-base", { owner: "A", location: BASE("B") })
     .build();
-  const ownBase = kernel.getObject("own-base");
-  const enemyBase = kernel.getObject("enemy-base");
-
-  assert.equal(matchesObjectFilter({ type: "unit", location: "base" }, ownBase), true);
-  assert.equal(matchesObjectFilter({ type: "unit", location: "base" }, enemyBase), true);
-  assert.deepEqual(kernel.query({ type: "unit", location: BASE("A") }).map(object => object.ref.id), ["own-base"]);
-  assert.deepEqual(kernel.query({ type: "unit", location: BASE("B") }).map(object => object.ref.id), ["enemy-base"]);
+  const requirement = {
+    id: buffSpec.id,
+    // finalizeTargetPlan consumes production-normalized controller ids; the
+    // authored "self" spelling is translated by programs/filters.ts in chain.
+    filter: { ...buffSpec.filter, controller: "A" },
+    location: buffSpec.location,
+    min: buffSpec.min,
+    max: buffSpec.max,
+    selection: buffSpec.selection
+  };
+  const ownPlan = finalizeTargetPlan(kernel, requirement, { selected: [kernel.ref("own-base")] });
+  assert.deepEqual(ownPlan.selected.map(ref => ref.id), ["own-base"]);
+  assert.throws(
+    () => finalizeTargetPlan(kernel, requirement, { selected: [kernel.ref("enemy-base")] }),
+    error => error.code === "invalid-target-choice"
+  );
   assert.equal(instructionDefinitionsById.has("effect.move"), true);
 });
 
@@ -212,16 +222,9 @@ test("Showstopper golden: awaiting a concrete destination keeps the unit in base
 });
 
 test.todo(
-  "Showstopper base restriction: express \"a friendly unit in YOUR base\" so the controller-relative base " +
-    "can be matched exactly — the merged location predicate only knows the location type and would also " +
-    "admit a friendly unit sitting in an opponent base (355.9.b; needs a controller-relative location form " +
-    "in the target system, covered by the in-progress condition predicate work RIFT-359)"
-);
-
-test.todo(
   "Showstopper Move Destination: enumerate the runtime-legal battlefield Destinations at Finalize and " +
     "offer the choice to the controller (355.4 / 355.4.a / 449.2 / 451.1), then resolve the Move " +
-    "consequences (Contested 452, Move-triggered Showdown/Combat 453-454, Cleanup 455); this awaits " +
-    "the in-progress location-selection and ordered-pick work RIFT-357/RIFT-358"
+    "consequences (Contested 452, Move-triggered Showdown/Combat 453-454, Cleanup 455); " +
+    "the remaining gap is the card-facing Finalize destination provider"
 );
 

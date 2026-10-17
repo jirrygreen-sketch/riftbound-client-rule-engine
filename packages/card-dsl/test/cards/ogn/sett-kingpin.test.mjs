@@ -24,7 +24,7 @@ test("ogn-240-298 Sett, Kingpin: identity, status and verbatim sourceText", () =
   assert.match(program.judgeReason, /Tank/);
   assert.match(program.judgeReason, /continuous\.combat/);
   assert.match(program.judgeReason, /count/);
-  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /buffed/);
   assert.equal(
     program.sourceText,
     "[Tank] (I must be assigned combat damage first.)\n" +
@@ -34,7 +34,7 @@ test("ogn-240-298 Sett, Kingpin: identity, status and verbatim sourceText", () =
 
 test("ogn-240-298 Sett, Kingpin: [Tank] expands to a continuous.combat effect", () => {
   assert.deepEqual(tank, { kind: "keyword", keyword: "tank" });
-  // CR 815.1.a-c: the Tank KeywordDef is merged (RIFT-264) and expands to one
+  // CR 815.1.a-c: the Tank KeywordDef expands to one
   // static continuous.combat damage-assignment requirement; the combat step has
   // no consumer for it yet, so the declaration cannot take effect.
   const definition = keywordDefinitionsById.get("Tank");
@@ -103,11 +103,12 @@ test("ogn-240-298 Sett, Kingpin: the supported literal arithmetic adds to printe
 
 test.todo(
   "ogn-240-298 Sett, Kingpin: [Tank]'s combat damage assignment requirement (CR 815.1.b/815.1.c, " +
-    "815.2): the Tank KeywordDef is merged (RIFT-264) and expands to continuous.combat, " +
+    "815.2): the Tank KeywordDef expands to continuous.combat, " +
     "but the combat step still needs the continuous.combat consumer that enforces lethal-first " +
     "assignment ordering (combat/base-combat-allocation.ts binds none)"
 );
 test.todo(
   "ogn-240-298 Sett, Kingpin: the per-buffed-unit Might count needs layer arithmetic to evaluate " +
-    "count expressions and a 'buffed' (>=1 Buff) plus same-location filter predicate (CR 702.2.a/702/703)"
+    "count expressions and a 'buffed' (>=1 Buff) filter predicate (CR 702.2.a/702/703); " +
+    "sameLocationAs:self is already resolved by the merged static binder"
 );

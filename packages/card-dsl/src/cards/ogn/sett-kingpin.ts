@@ -18,20 +18,13 @@ import type { CardProgram } from "../../ir/index.js";
  * - 706-711 / 143.2：持续 Might 修正是图层算术层（continuous.might）的职责。
  *
  * status: judge-required —— 两处依赖仍未可执行，均不近似实现：
- * 1. [Tank] 的关键词展开已合入（effects/keywords/Tank.ts，RIFT-264），但展开出的
- *    continuous.combat 没有任何消费方：layers/engine.ts 的 ability/arithmetic 分支不命中
- *    该 kind，combat/ 的伤害指派也不读取它（combat/base-combat-allocation.ts 明确注明
- *    "No Tank/Backline/other assignment-priority requirement is bound here"），
- *    815.1.c 的「先给 Tank 指派致命伤害」因此无法执行；声明关键词仍不产生战斗行为。
- * 2. "I get +1 [M] for each buffed friendly unit at my battlefield" 需要：
- *    (a) 卡牌 static 持续效果进入 layers 算术层的注册路径（目前唯一入口是
- *        continuous.* 指令原语，静态卡牌能力没有注册方）；
- *    (b) 以计数（"buffed" = 至少 1 个 buff 的谓词，加上与我同地点的过滤器）动态求值 amount
- *        （layers 的 valueOf 目前不处理 count，会把结果当成 0）；
- *    (c) "at my battlefield" 的同地点锚点在图层过滤器中的支持（layers/filter.ts 不读
- *        sameLocationAs，也没有 buffed 谓词）。
- * 依赖：continuous.combat 消费方与战斗伤害指派顺序，以及 layers 对动态 count、
- * sameLocationAs 与 buffed 谓词的求值和卡牌 static 注册接线。
+ * 1. [Tank] 的关键词展开为 continuous.combat，但没有任何消费方：combat/ 的伤害指派
+ *    不读取该声明，815.1.c 的「先给 Tank 指派致命伤害」因此无法执行。
+ * 2. "I get +1 [M] for each buffed friendly unit at my battlefield" 的 static 能力已经有
+ *    CardProgram → layers 的绑定入口，sameLocationAs:self 也会解析为来源地点；当前仍缺
+ *    count amount 的图层求值，以及 static filter 对 buffed（至少 1 个 Buff）的谓词支持。
+ * 依赖：continuous.combat 消费方与战斗伤害指派顺序，以及 layers 对动态 count、buffed
+ * 谓词的求值。
  */
 const settKingpin = {
   canonicalCardId: "card.hash-8e8505ab8acf50a1be41bbb00297263ad9415f1e111039591ccbaefedd5a2d00",
@@ -41,11 +34,9 @@ const settKingpin = {
     "[Tank] 的关键词展开已合入（effects/keywords/Tank.ts），但展开出的 continuous.combat " +
     "没有消费方：layers/engine.ts 不命中该 kind，combat/ 的伤害指派也不读取它" +
     "（base-combat-allocation.ts 注明未绑定任何指派优先级），815.1.c 的伤害分配顺序不可执行；" +
-    "「I get +1 [M] for each buffed friendly unit at my battlefield」需要卡牌 static 效果进 layers 算术层的注册路径、" +
-    "以 count 表达式求值 amount（layers 的 valueOf 目前不处理 count，会得到 0）、以及「与我同地点 + buffed（至少 1 个 buff）」" +
-    "的图层过滤器谓词（layers/filter.ts 不读 sameLocationAs，也没有 buffed 谓词）。" +
-    "以上任一缺失都会让效果变成 0 或空声明，故不标 executable。依赖：continuous.combat 消费方/战斗指派、" +
-    "以及 layers 对动态 count、sameLocationAs、buffed 谓词和卡牌 static 注册的支持。",
+    "「I get +1 [M] for each buffed friendly unit at my battlefield」的 static 注册路径与 sameLocationAs:self 已合入，" +
+    "但 layers 的 valueOf 目前不处理 count（会得到 0），static filter 也不接受 buffed 谓词（至少 1 个 Buff）。" +
+    "依赖：continuous.combat 消费方/战斗指派，以及 layers 对动态 count、buffed 谓词的求值。",
   sourceText:
     "[Tank] (I must be assigned combat damage first.)\n" +
     "I get +1 :rb_might: for each buffed friendly unit at my battlefield.",

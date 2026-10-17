@@ -32,7 +32,7 @@ test("ogn-287-298: conquer trigger whose body recycles one rune (417.6 non-targe
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "conquer");
   assert.deepEqual(ability.trigger.filter, {
-    event: "conquer",
+    event: "conquered",
     here: true,
     player: "self"
   });
@@ -126,8 +126,4 @@ test.todo(
   "ogn-287-298: EventPattern 增加战场相对「here」语义并由 host 把载荷 details.battlefieldId " +
     "与来源当前位置比较（替代占位键 here=true），并覆盖得分被替代时征服效果仍触发（470.1）；" +
     "conquer 时点本身已由 turn/flow.ts 发出"
-);
-test.todo(
-  "ogn-287-298: 417.5.a“同一指令回收多张符文时由拥有者决定牌库底顺序”在回收多张时由内核呈现" +
-    "（本卡只有 1 张，依赖内核顺序呈现任务）"
 );

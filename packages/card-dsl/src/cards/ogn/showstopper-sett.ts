@@ -27,15 +27,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   is the same Finalize-time choice the merged Charm (ogn-043-298) records as
  *   an enumerated-at-runtime placeholder.
  *
- * Status: judge-required — two expressions are missing:
- * - "in your base" cannot be restricted exactly. The merged location predicate
- *   only compares a location TYPE string ("base" / "battlefield", see
- *   layers/filter.ts) or an exact LocationRef, which needs the concrete
- *   player id; no merged predicate resolves a controller-relative base, and
- *   the type form would also admit a friendly unit sitting in an opponent's
- *   base. The intended restriction is authored with the descriptive key so it
- *   is reviewable and fail-closed.
- * - the Move Destination ("to a battlefield") cannot be enumerated: 355.4.a
+ * Status: judge-required — the Move Destination ("to a battlefield") cannot
+ * be enumerated: 355.4.a
  *   makes the Destination a Finalize-time choice among the runtime-legal
  *   Locations, but effect.move accepts a static LocationRef, the literal
  *   "controller-base", a static option list of LocationRefs, or an Expr the
@@ -51,10 +44,8 @@ const showstopper = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处表达缺依赖：(1)「in your base」无法精确限制——已合入的位置谓词只按位置类型字符串（base/battlefield，" +
-    "见 layers/filter.ts）或精确 LocationRef 比较，后者需要控制者的玩家 id，已合入代码没有“控制者自己的基地”谓词；" +
-    "只写位置类型会把位于对手基地的己方单位也纳入，因此按描述性键写出（fail-closed，不近似）。" +
-    "(2)「to a battlefield」的目的地无法枚举：355.4/355.4.a 要求移动效果在 Finalize 从运行时合法 Location 中选择，" +
+    "「in your base」已由 target.location 的 controller-relative Base 过滤表达；" +
+    "但「to a battlefield」的目的地仍无法枚举：355.4/355.4.a 要求移动效果在 Finalize 从运行时合法 Location 中选择，" +
     "而 effect.move 只接受静态 LocationRef、字面量 controller-base、静态候选列表，或其自身能求值的 Expr" +
     "（静态 ObjectSelector 只覆盖对象），战场目的地集合没有可写形态；不用固定战场近似。" +
     "Buff 半段（702.2.a/702.3/427.1.c）只用已合入的 effect.buff，由 golden 执行；" +
@@ -76,11 +67,11 @@ const showstopper = {
           targets: [
             {
               id: "friendly-unit-in-base",
-              // "a friendly unit in your base": one targeted unit (355.7).
-              // "in your base" is the descriptive key below — the merged
-              // location predicate cannot express the controller's own base
-              // (see judgeReason).
-              filter: { type: "unit", controller: "self", location: "base", locationPlayer: "self" },
+              // "a friendly unit in your base": the object filter supplies the
+              // friendly unit, while target.location resolves the controller's
+              // own Base at Finalize (355.7 / 355.9.b).
+              filter: { type: "unit", controller: "self" },
+              location: { type: "base", player: "controller" },
               min: 1,
               max: 1,
               selection: "one"
@@ -97,8 +88,8 @@ const showstopper = {
             objects: { kind: "constant", value: { target: "friendly-unit-in-base" } },
             // "to a battlefield" — the Destination is a Finalize-time choice
             // among the runtime-legal Locations (355.4.a). The frozen IR
-            // cannot enumerate them, so this is the merged Charm placeholder
-            // shape: effect.move rejects it instead of inventing a battlefield.
+            // cannot enumerate them, so this remains the merged Charm
+            // placeholder shape instead of inventing a battlefield.
             to: {
               kind: "constant",
               value: {
