@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { DUEL_RULESET_ID, DUEL_COMMAND_PACKET_PROFILE_V3_ACTIONS_1,
+import { DUEL_RULESET_ID, DUEL_COMMAND_PACKET_PROFILE_V3_ACTIONS_1, isJournal,
   type ClientSession, type DuelWireCommandV3Actions1, type ServerToClientMessage } from "@riftbound/protocol";
 import { loadCardCatalogRuntime, validateCatalogDeck } from "../../src/card-catalog.js";
 import { FileRoomStore } from "../../src/file-room-store.js";
@@ -48,7 +48,7 @@ describe("physical Unit P8 FileRoomStore recovery", () => {
       const restore = async () => {
         const oldViews = [view(0), view(1)];
         const archive = room.exportArchive();
-        expect(archive.duelJournal?.schemaVersion).toBe(8);
+        expect(isJournal(archive.journal)).toBe(true);
         if (!store) {
           store = new FileRoomStore(directory, async () => catalog);
           await store.create(room);
@@ -62,7 +62,7 @@ describe("physical Unit P8 FileRoomStore recovery", () => {
         generation++;
         sessions.forEach((session, index) => room.reconnect(session.resumeToken, sends[index]!, connectionId(index)));
         expect([view(0), view(1)]).toEqual(oldViews);
-        expect(room.exportArchive().duelJournal).toEqual(archive.duelJournal);
+        expect(room.exportArchive().journal).toEqual(archive.journal);
       };
       for (const index of [0, 1]) {
         room.submitDeck(sessions[index]!, sockets[index]!.connectionId, room.currentRoomVersion,

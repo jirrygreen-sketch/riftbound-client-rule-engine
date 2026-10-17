@@ -135,7 +135,7 @@ describe('public /ws P4 lifecycle', () => {
     await reached;
     expect(client.messages.some(value => value.type === 'request-result' && value.requestId === 'held-ack')).toBe(false);
     release(); await client.wait('request-result', value => value.requestId === 'held-ack');
-    expect(h.server.rooms.get(h.sessions[0]!.roomId)!.exportArchive().duelJournal?.operations).toHaveLength(1);
+    expect(h.server.rooms.get(h.sessions[0]!.roomId)!.exportArchive().journal?.entries).toHaveLength(1);
   }, 30_000);
 
   it('rolls a failed Main command back and can accept the same command after storage recovers', async () => {

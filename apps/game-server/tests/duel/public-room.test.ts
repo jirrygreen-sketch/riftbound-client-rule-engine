@@ -2,7 +2,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   DUEL_RULESET_ID, isServerMessage, type ClientSession,
-  type DuelCommandMessage, type RoomDeckSubmission, type ServerToClientMessage
+  DUEL_COMMAND_PACKET_PROFILE_V3_ACTIONS_1,
+  type DuelCommandMessageV3Actions1, type RoomDeckSubmission, type ServerToClientMessage
 } from "@riftbound/protocol";
 import { loadCardCatalogRuntime } from "../../src/card-catalog.js";
 import { GameRoom, RoomError } from "../../src/room.js";
@@ -40,11 +41,12 @@ function projection(h: Harness, i: 0 | 1) {
   expect(isServerMessage(m)).toBe(true);
   return m.projection;
 }
-function command(id: string, version: number, selectedUIDs: string[] = []): DuelCommandMessage {
+function command(id: string, version: number, selectedUIDs: string[] = []): DuelCommandMessageV3Actions1 {
   return { type: "duel-command", requestId: `request-${id}`, commandId: id,
+    commandProfile: DUEL_COMMAND_PACKET_PROFILE_V3_ACTIONS_1,
     expectedVersion: version, command: { type: "mulligan", selectedUIDs } };
 }
-function submit(h: Harness, i: 0 | 1, c: DuelCommandMessage) {
+function submit(h: Harness, i: 0 | 1, c: DuelCommandMessageV3Actions1) {
   h.room.submitDuel(h.sessions[i], h.connections[i].connectionId, c, h.send[i]);
   return h.received[i].findLast(m => m.type === "request-result" && m.requestId === c.requestId ||
     m.type === "error" && m.requestId === c.requestId);
@@ -103,17 +105,17 @@ describe("actual public duel room", () => {
     const second = first === 0 ? 1 : 0;
     const invalid = command("shared-id", 0, ["not-your-hand"]);
     expect(submit(h, first, invalid)?.type).toBe("error");
-    expect(h.room.exportArchive().duelSession?.session.receipts).toHaveLength(1);
+    expect(h.room.exportArchive().journal?.entries).toHaveLength(0);
     expect(submit(h, first, invalid)?.type).toBe("error");
-    expect(h.room.exportArchive().duelSession?.session.receipts).toHaveLength(1);
-    expect(submit(h, first, command("shared-id", 0))?.type).toBe("error");
+    expect(h.room.exportArchive().journal?.entries).toHaveLength(0);
+    expect(submit(h, first, command("valid", 0))?.type).toBe("request-result");
     expect(submit(h, second, command("shared-id", 0))?.type).toBe("error");
-    expect(h.room.exportArchive().duelSession?.session.receipts).toHaveLength(2);
+    expect(h.room.exportArchive().journal?.entries).toHaveLength(1);
     expect(submit(h, first, command("valid", 0))?.type).toBe("request-result");
     const earlier = submit(h, first, { ...command("valid", 0), requestId: "retry-later" });
     expect(earlier).toMatchObject({ type: "request-result", duplicate: true, appliedVersion: 1 });
     expect(h.room.roomView().version).toBe(1);
-    expect(h.room.exportArchive().duelSession?.session.receipts).toHaveLength(3);
+    expect(h.room.exportArchive().journal?.entries).toHaveLength(1);
   });
 
   it("requires current bound socket and refuses legacy cross-ruleset commands", async () => {
@@ -124,7 +126,7 @@ describe("actual public duel room", () => {
     const resumed = h.room.reconnect(h.sessions[0].resumeToken, h.send[0], "new-socket");
     expect(resumed?.connectionId).toBe("new-socket");
     expect(() => submit(h, 0, command("old-socket", 0))).toThrowError(/replaced/);
-    expect(h.room.exportArchive().duelSession).toEqual(before.duelSession);
+    expect(h.room.exportArchive().journal).toEqual(before.journal);
   });
 
   it("rejects future event cursor and returns current duel projection rather than fabricated legacy replay", async () => {

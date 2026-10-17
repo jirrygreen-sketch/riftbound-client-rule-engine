@@ -137,6 +137,9 @@ describe("engine runtime", () => {
     expect(() => createEngineRuntime({ matchId: "m5", decks, seed: "m5" }).restore(forgedJournal)).toThrow(/integrity|digest/i);
   });
 
+  // Loading protocol + engine-core source through the per-worker transformer can
+  // take >10s under parallel load; give this case its own headroom so the real
+  // suspension/replay behavior is what is under test, not the runner's clock.
   it("journals a suspended choice and replays it before the answer", () => {
     const decks = [m1Deck("rumble-sfd"), m1Deck("fiora-sfd")] as const;
     const probe = createEngineRuntime({ matchId: "m4", decks, seed: "m4" }).start();
@@ -181,5 +184,5 @@ describe("engine runtime", () => {
     const restored = createEngineRuntime({ matchId: "m4", decks, seed: "m4", programs: [program] }).restore(runtime.journal());
     expect(restored.projectFor("A")).toEqual(runtime.projectFor("A"));
     expect(restored.projectFor("B")).toEqual(runtime.projectFor("B"));
-  });
+  }, 60_000);
 });

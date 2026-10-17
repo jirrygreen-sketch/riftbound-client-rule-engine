@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DUEL_RULESET_ID, DUEL_COMMAND_PACKET_PROFILE_V3_ACTIONS_1,
-  isDuelProjectionV3Actions1, isServerMessage, type ClientSession,
+  isDuelProjectionV3Actions1, isJournal, isServerMessage, type ClientSession,
   type DuelCommandMessageV3Actions1, type ServerToClientMessage } from '@riftbound/protocol';
 import { loadCardCatalogRuntime } from '../../src/card-catalog.js';
 import { GameRoom } from '../../src/room.js';
@@ -56,8 +56,8 @@ describe('public P4 room ownership', () => {
     for (const card of other?.hand ?? []) expect(JSON.stringify(a)).not.toContain(card.uid);
     expect(JSON.stringify(h.messages[0])).not.toContain(h.sessions[1]!.resumeToken);
     const archive = h.room.exportArchive();
-    expect(archive.duelProfile).toBe('p4'); expect(archive.duelSession).toBeUndefined();
-    expect(archive.duelJournal?.operations).toHaveLength(2);
+    expect(isJournal(archive.journal)).toBe(true);
+    expect(archive.journal?.entries).toHaveLength(2);
     expect(a.actions.some(action => action.kind === 'end-turn' && action.enabled)).toBe(true);
   }, 30_000);
 

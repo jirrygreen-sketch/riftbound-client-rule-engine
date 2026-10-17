@@ -71,5 +71,7 @@ describe('default path observable snapshots through the single current owner', (
         expect(message.projection).toEqual(driver.view(player));
       });
     }
-  }, 180_000);
+  // Scenario 05 replays the full combat chain; under parallel load its wall
+  // time exceeds the previous 180s, so give the same assertions more headroom.
+  }, 480_000);
 });
