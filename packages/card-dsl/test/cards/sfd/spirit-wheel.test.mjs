@@ -122,7 +122,7 @@ test("sfd-144-221 Spirit Wheel golden: the printed draw really draws one card th
   assert.deepEqual(run.events.map((event) => event.action), ["draw"]);
 });
 
-test("sfd-144-221 Spirit Wheel: the merged CardProgram binding registers the became-target subscription", () => {
+test("sfd-144-221 Spirit Wheel: the merged CardProgram binding registers through the real ChainEngine pipeline", async () => {
   // RIFT-257 (contract 3.5) is the subscription producer the card was waiting
   // for: registerProgramTriggers must turn the declared triggered ability into a
   // TriggerRegistration on the shared pipeline, keeping the printed
@@ -130,35 +130,17 @@ test("sfd-144-221 Spirit Wheel: the merged CardProgram binding registers the bec
   // placeholder to the ability controller.
   const lifted = { ...program, status: "executable" };
   delete lifted.judgeReason;
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
   const binding = createProgramBinding({ cardPrograms: [lifted] });
-  const registrations = [];
-  const ids = binding.registerProgramTriggers(
-    { pipeline: { registerTrigger: (registration) => registrations.push(registration), unregisterTrigger: () => {} } },
-    {
-      ref: { id: "spirit-wheel", zoneEntryId: 1 },
-      cardId: CANONICAL,
-      name: "Spirit Wheel",
-      types: ["gear"],
-      tags: [],
-      keywords: [],
-      owner: "A",
-      controller: "A",
-      zone: "board",
-      location: { type: "base", player: "A" },
-      might: null,
-      energy: 2,
-      power: null,
-      exhausted: false,
-      damage: 0,
-      stunned: false,
-      buffs: 0,
-      attachedTo: null,
-      faceDown: false,
-      isToken: false
-    }
-  );
+  const f = fixture({
+    cards: [{ id: "spirit-wheel", cardId: CANONICAL, types: ["gear"], energy: 2, power: [] }]
+  });
+  const source = f.kernel.getObject("spirit-wheel");
+  const ids = binding.registerProgramTriggers(f.engine, source);
+  const registrations = [...f.engine.pipeline.checkpoint().triggers.values()];
 
   assert.equal(ids.length, 1);
+  assert.equal(registrations.length, 1);
   assert.equal(registrations[0].spec.at, "became-target");
   assert.deepEqual(registrations[0].spec.filter, {
     event: "became-target",

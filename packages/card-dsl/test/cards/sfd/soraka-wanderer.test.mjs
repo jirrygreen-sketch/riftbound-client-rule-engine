@@ -9,8 +9,7 @@ import heal from "../../../../engine-core/dist/effects/instructions/effect.heal.
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import {
   BlockedReplacementError,
-  planReplacementBody,
-  REPLACED_EVENT_LINK
+  planReplacementBody
 } from "../../../../engine-core/dist/replacement/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -71,7 +70,7 @@ test("sfd-173-221 Soraka, Wanderer: the Might comparison and the heal/exhaust/re
   assert.equal(healInstruction.op, "effect.heal");
   assert.deepEqual(healInstruction.args.objects, {
     kind: "constant",
-    value: { kind: "target", id: "soraka.dying-unit" }
+    value: { linked: "replacement.object" }
   });
   assert.equal(healInstruction.targets.length, 1);
   assert.deepEqual(healInstruction.targets[0].filter, {
@@ -86,7 +85,7 @@ test("sfd-173-221 Soraka, Wanderer: the Might comparison and the heal/exhaust/re
   assert.equal(exhaustInstruction.linkedTo, "soraka.heal-dying-unit");
   assert.deepEqual(exhaustInstruction.args.target, {
     kind: "constant",
-    value: "soraka.dying-unit"
+    value: { linked: "replacement.object" }
   });
 
   assert.equal(recallInstruction.op, "effect.move");
@@ -154,27 +153,11 @@ test("sfd-173-221 Soraka, Wanderer: the merged Backline KeywordDef only declares
   assert.deepEqual(program.abilities[0], { kind: "keyword", keyword: "backline" });
 });
 
-test("sfd-173-221 Soraka, Wanderer: the merged replacement layer binds the event object, not the card's declarative target spelling", () => {
-  // RIFT-260 (replacement/) is the registration path the card was waiting for:
-  // the replaced event's object is bound as { linked: "replacement.object" }.
-  // The card's with body still uses its declarative target selector, so this
-  // golden executes the real planner on a body rewritten to the merged
-  // event-object spelling and asserts the planned actions; it never claims the
-  // shipped body is executable.
-  const shipped = JSON.stringify(replacement.with);
-  // The printed "it" must stay a declarative selector in the card data (never a
-  // baked-in runtime ObjectRef), and the shipped body still names its referent
-  // for review while the binding wiring is missing.
-  assert.equal(shipped.includes("soraka.dying-unit"), true);
-  assert.equal(/zoneEntryId/.test(shipped), false);
-
-  const linked = { linked: REPLACED_EVENT_LINK };
-  const rewritten = JSON.parse(
-    shipped
-      .replaceAll('{"kind":"target","id":"soraka.dying-unit"}', JSON.stringify(linked))
-      .replaceAll('"soraka.dying-unit"', JSON.stringify(linked))
-  ).map(({ targets, ...rest }) => rest);
-
+test("sfd-173-221 Soraka, Wanderer: the original with body plans linked event-object actions", () => {
+  // RIFT-260 (replacement/) resolves the replaced event's object through the
+  // card's own { linked: "replacement.object" } selectors. The supported heal
+  // and exhaust steps are planned from the shipped body itself; Recall remains
+  // blocked because it needs a distinct action (CR 457-460).
   const kernel = world()
     .unit("soraka", { zone: "board", might: 4, location: { type: "battlefield", id: "bf-1" } })
     .unit("ally", { zone: "board", might: 1, damage: 1, location: { type: "battlefield", id: "bf-1" } })
@@ -193,7 +176,7 @@ test("sfd-173-221 Soraka, Wanderer: the merged replacement layer binds the event
 
   // 459/460: heal, then exhaust, are planned in printed order against the
   // replaced event's unit ("it").
-  const planned = planReplacementBody(rewritten.slice(0, 2), planInput, planner);
+  const planned = planReplacementBody(replacement.with.slice(0, 2), planInput, planner);
   assert.deepEqual(planned.map((action) => action.type), ["heal", "exhaust"]);
   assert.deepEqual(planned[0].object, kernel.ref("ally"));
   assert.deepEqual(planned[1].object, kernel.ref("ally"));
@@ -204,7 +187,7 @@ test("sfd-173-221 Soraka, Wanderer: the merged replacement layer binds the event
   // the step must plan that distinct action instead.
   let recallActions = null;
   try {
-    recallActions = planReplacementBody(rewritten.slice(2), planInput, planner);
+    recallActions = planReplacementBody(replacement.with.slice(2), planInput, planner);
   } catch (error) {
     assert.equal(error instanceof BlockedReplacementError, true);
     assert.match(error.message, /mode 'recall' is blocked/);
@@ -215,15 +198,40 @@ test("sfd-173-221 Soraka, Wanderer: the merged replacement layer binds the event
   }
 });
 
+test("sfd-173-221 Soraka, Wanderer: production binding reaches the real Recall blocker", async () => {
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+  const { bindReplacement } = await import("../../../../engine-core/dist/replacement/index.js");
+  const f = fixture({
+    cards: [{ id: "soraka", cardId: CANONICAL, types: ["unit"], energy: 4, power: ["Order"], might: 4 }]
+  });
+  const source = f.kernel.getObject("soraka");
+  assert.throws(
+    () => bindReplacement(replacement, source.ref, {
+      host: {
+        object: ref => f.kernel.object(ref),
+        objects: () => f.kernel.objects,
+        context: () => f.kernel
+      },
+      pipeline: f.engine.pipeline
+    }),
+    error => {
+      assert.equal(error instanceof BlockedReplacementError, true);
+      assert.match(error.message, /mode 'recall' is blocked/);
+      assert.equal(error instanceof RangeError, false);
+      return true;
+    }
+  );
+});
+
 test.todo(
   "sfd-173-221 Soraka, Wanderer: execute the Backline assignment restriction in the combat damage step " +
     "(826.3 / 826.4.b; combat/base-combat-allocation.ts binds no Tank/Backline priority); the replacement " +
-    "registration itself (RIFT-260) is merged, but the with body still needs the event-object selector " +
-    "spelling and the recall action (CR 457-460)"
+    "registration itself and the with-body event-object selector (RIFT-260) are merged, but Recall still needs " +
+    "a distinct action (CR 457-460)"
 );
 
 test.todo(
   "sfd-173-221 Soraka, Wanderer: bind 'if it has less Might than me' to the replaced event's unit so the " +
-    "merged compare/object-property evaluation can run at replacement time (the left operand must read " +
-    "{ linked: 'replacement.object' }, and layers/engine.ts conditionMatches does not evaluate compare)"
+    "merged compare/object-property evaluation can run at replacement matching time (the binding must supply " +
+    "{ linked: 'replacement.object' } to the condition, and layers/engine.ts conditionMatches does not evaluate compare)"
 );
