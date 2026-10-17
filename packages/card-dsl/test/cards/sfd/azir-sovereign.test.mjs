@@ -59,8 +59,8 @@ test("sfd-177-221 Azir, Sovereign: identity, ruleset, status, judgeReason and ve
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /attack-declared/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.equal(
     program.sourceText,
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_order: as an additional cost to have me enter ready.)\n" +
@@ -174,15 +174,19 @@ test("sfd-177-221 Azir, Sovereign: accepting moves the chosen token units to thi
 
 test.todo(
   "sfd-177-221 Azir, Sovereign: the attack-declared timing point must be emitted when the unit gains the " +
-    "Attacker designation and delivered as a pending chain item (383.4.e.2); no module emits it today " +
-    "(RIFT-33 trigger scenarios / RIFT-120)."
+    "Attacker designation and delivered as a pending chain item (383.4.e.2); combat/flow.ts still throws " +
+    "combat-start-transaction, so no module emits it, and the card-program trigger registration that would " +
+    "carry the ability into the chain is the unmerged RIFT-257 binding."
 );
 test.todo(
   "sfd-177-221 Azir, Sovereign: choosing zero token units during Finalize must leave the ability as a legal, " +
     "completed resolution (355.13) instead of the primitive-level mistargeting the moved-target selector " +
-    "produces for an empty locked group; belongs to the Finalize target pipeline (RIFT-90)."
+    "produces for an empty locked group; the merged TargetPlan locks an empty up-to group, but no card " +
+    "program binding reaches Finalize with it (RIFT-257)."
 );
 test.todo(
   "sfd-177-221 Azir, Sovereign: paying the optional Accelerate cost [1][Order] and the enter-ready " +
-    "replacement run through the Finalize cost plan and the replacement pipeline (805 / RIFT-89)."
+    "replacement run through the Finalize cost plan and the replacement pipeline — the Accelerate KeywordDef " +
+    "and the replacement binder are merged (805.2.b / RIFT-260), but the card-side optional-additional " +
+    "collection and cost.pay are the unmerged RIFT-261."
 );

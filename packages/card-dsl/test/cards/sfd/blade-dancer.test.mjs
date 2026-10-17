@@ -42,8 +42,8 @@ test("sfd-195-221 Blade Dancer: identity, ruleset, status, judgeReason and verba
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /RIFT-120/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /RIFT-64/);
   assert.match(program.judgeReason, /Legend Zone/);
   assert.match(program.judgeReason, /rainbow/);
@@ -213,11 +213,12 @@ test("sfd-195-221 Blade Dancer: an already exhausted source cannot pay the exhau
 
 test.todo(
   "sfd-195-221 Blade Dancer: the became-target (383.4.b.2) and conquer (383.4.c.2.b) triggers need a " +
-    "CardProgram -> TriggerRegistration subscriber so they can enter the chain (RIFT-120 chain/events pipeline)"
+    "CardProgram -> TriggerRegistration subscriber so they can enter the chain (RIFT-257) on top of the " +
+    "merged chain/event pipeline; the become-target emission itself is already live"
 );
 test.todo(
   "sfd-195-221 Blade Dancer: :rb_rune_rainbow: (Universal Power, 163.2.b) has no executable value in the closed " +
-    "six-domain set, and cost.pay has no merged instruction file (RIFT-89 cost plan)"
+    "six-domain set, and cost.pay has no merged instruction file (RIFT-261 cost ops)"
 );
 test.todo(
   "sfd-195-221 Blade Dancer: a Legend is not representable as a Board object — contract 3.6's ZoneId has no " +

@@ -20,6 +20,34 @@ const [moveInstruction, controlInstruction, attachInstruction] = playTrigger.bod
 
 const resultFor = (outcome, id) => outcome.results.find(result => result.id === id);
 
+// The printed "your base" is the ability controller's Base (see judgeReason);
+// the frozen IR has no controller-relative LocationRef spelling, so the golden
+// supplies the concrete Base the ability means, exactly like the destination
+// the player chose at Finalize. The move's TargetSpec keeps the reference
+// kernel's literal controller ("B"), because the reference kernel does not
+// resolve the contract "opponent" anchor (RIFT-90's Finalize target pipeline
+// does; the pinning is documented in the chain-adapter golden below).
+const attachInstructionWithConcreteBase = () => [
+  {
+    ...moveInstruction,
+    args: {
+      ...moveInstruction.args,
+      to: { kind: "constant", value: { type: "base", player: "A" } }
+    },
+    targets: [
+      {
+        ...moveInstruction.targets[0],
+        filter: { ...moveInstruction.targets[0].filter, controller: "B" }
+      }
+    ]
+  },
+  // The authored take-control half still runs (its duration is negated as
+  // documented in judgeReason), so the authored link chain stays intact for
+  // the attach instruction below.
+  controlInstruction,
+  attachInstruction
+];
+
 test("sfd-109-221 Akshan, Mischievous: program validates and is registered", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
@@ -34,12 +62,15 @@ test("sfd-109-221 Akshan, Mischievous: identity, ruleset, status and verbatim te
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("sfd-109-221 Akshan, Mischievous: judgeReason names all four gaps with rule and task ids", () => {
+test("sfd-109-221 Akshan, Mischievous: judgeReason names the current cost/destination/control gaps", () => {
+  // The re-review after the RIFT-258..270, 257-not-yet-merged batches: the
+  // Equipment tag gate is closed, the cost/destination/control gaps remain.
   assert.match(program.judgeReason, /356\.2\.b/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /479\.2\.a/);
-  assert.match(program.judgeReason, /array-contains/);
+  assert.doesNotMatch(program.judgeReason, /array-contains/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -146,7 +177,8 @@ test("sfd-109-221 Akshan, Mischievous: control links the moved gear with the whi
 
 test("sfd-109-221 Akshan, Mischievous: the attach links the moved gear onto Akshan itself", () => {
   // 435.1 / 435.1.f-g: Attach the referenced non-Unit to a host; 150.1 makes
-  // Equipment a tag, whose test is the judged part (see judgeReason).
+  // Equipment a tag and the instruction's own condition tests it (see the next
+  // test and the golden below).
   assert.equal(attachInstruction.op, "effect.attach");
   assert.deepEqual(attachInstruction.args.objects, {
     kind: "constant",
@@ -284,8 +316,9 @@ test("sfd-109-221 Akshan, Mischievous golden: the declared trigger body runs thr
 
 test.todo(
   "sfd-109-221 Akshan, Mischievous: charge the optional additional cost (two Body runes) and gate the play " +
-    "effect on the 356.4.f.1 paid receipt — cost.additional / cost-plan wiring plus a cost-result condition " +
-    "(RIFT-89; survey records the missing condition.result)"
+    "effect on the 356.4.f.1 paid receipt — cost.additional / cost.pay and the cost-plan consumer are still " +
+    "pending (RIFT-261), no CardProgram play binding exists (RIFT-257), and the survey records a missing " +
+    "condition.result binding"
 );
 
 test.todo(
@@ -300,13 +333,99 @@ test.todo(
     "non-permanent duration instead of restoring the underlying controller in timestamp order"
 );
 
-test.todo(
-  "sfd-109-221 Akshan, Mischievous: gate 'If it's an Equipment, attach it to me' on the moved gear's tags — " +
-    "Condition has no array-contains operator (only eq/ne/lt/lte/gt/gte/in) and effect.move links no tag " +
-    "snapshot (contract change request; sfd/veiled-temple records the same gap)"
-);
+test("sfd-109-221 Akshan, Mischievous: 'If it's an Equipment' is a real compare/in condition on the moved gear's tags (150.1)", () => {
+  // 150.1 / 150.4: Equipment is a tag on the Gear; the condition reads the
+  // picked (moved) gear's current tags via the interpreter's object-property
+  // expression and tests the scalar "Equipment" against that array with the
+  // merged "in" operator. No tag snapshot has to be linked for this card: the
+  // gear stays the same Board object, so its tags are current at resolution.
+  assert.deepEqual(attachInstruction.condition, {
+    kind: "compare",
+    left: { kind: "constant", value: "Equipment" },
+    operator: "in",
+    right: {
+      kind: "object-property",
+      object: { pick: "akshan-mischievous.attached-gear" },
+      property: "tags"
+    }
+  });
+});
+
+test("sfd-109-221 Akshan, Mischievous golden: the Equipment gate really attaches the moved gear (150.1/435.1)", () => {
+  const built = world()
+    .player("A")
+    .player("B")
+    .unit("akshan", { zone: "board", location: { type: "base", player: "A" } })
+    .unit("enemy-gear", {
+      zone: "board",
+      types: ["gear"],
+      tags: ["Equipment"],
+      owner: "B",
+      controller: "B",
+      location: { type: "battlefield", id: "bf-1" }
+    })
+    .build();
+  const kernel = built.clone({
+    source: built.ref("akshan"),
+    sourceSnapshot: built.getObject("akshan")
+  });
+  kernel.setTargets("akshan-mischievous.enemy-gear", [kernel.ref("enemy-gear")]);
+  kernel.setPicks("akshan-mischievous.attached-gear", [kernel.ref("enemy-gear")]);
+
+  const outcome = resolveChainBody(attachInstructionWithConcreteBase(), kernel);
+
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason]),
+    [
+      ["akshan-mischievous.move-gear", "executed", undefined],
+      // The while-source-in-zone duration is still blocked (479.2.a/482.3).
+      ["akshan-mischievous.take-control", "negated", "impossible"],
+      ["akshan-mischievous.attach-gear", "executed", undefined]
+    ]
+  );
+  assert.equal(kernel.getObject("enemy-gear").attachedTo.id, "akshan");
+  assert.deepEqual(kernel.getObject("enemy-gear").location, { type: "base", player: "A" });
+});
+
+test("sfd-109-221 Akshan, Mischievous golden: a non-Equipment gear is skipped, not attached (150.1/150.5)", () => {
+  const built = world()
+    .player("A")
+    .player("B")
+    .unit("akshan", { zone: "board", location: { type: "base", player: "A" } })
+    .unit("enemy-gear", {
+      zone: "board",
+      types: ["gear"],
+      tags: ["Trinket"],
+      owner: "B",
+      controller: "B",
+      location: { type: "battlefield", id: "bf-1" }
+    })
+    .build();
+  const kernel = built.clone({
+    source: built.ref("akshan"),
+    sourceSnapshot: built.getObject("akshan")
+  });
+  kernel.setTargets("akshan-mischievous.enemy-gear", [kernel.ref("enemy-gear")]);
+  kernel.setPicks("akshan-mischievous.attached-gear", [kernel.ref("enemy-gear")]);
+
+  const outcome = resolveChainBody(attachInstructionWithConcreteBase(), kernel);
+
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason]),
+    [
+      ["akshan-mischievous.move-gear", "executed", undefined],
+      ["akshan-mischievous.take-control", "negated", "impossible"],
+      ["akshan-mischievous.attach-gear", "negated", "skipped"]
+    ]
+  );
+  assert.equal(kernel.getObject("enemy-gear").attachedTo, null);
+  assert.deepEqual(kernel.getObject("enemy-gear").location, { type: "base", player: "A" });
+});
 
 test.todo(
   "sfd-109-221 Akshan, Mischievous: the [Weaponmaster] expansion (821.1.c) must choose an Equipment, pay its " +
-    "Equip cost reduced by [A], and attach it (keywords/Weaponmaster.ts needs cost.modify / cost.pay)"
+    "Equip cost reduced by [A], and attach it — the KeywordDef is merged but its cost.modify / cost.pay " +
+    "instructions are not (RIFT-261), and no consumer binds the declared keyword to a play (RIFT-257)"
 );

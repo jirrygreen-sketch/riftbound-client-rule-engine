@@ -100,7 +100,8 @@ test("sfd-200-221 Arcane Shift: judgeReason names the ignore-cost rule and the m
   assert.match(program.judgeReason, /356\.1\.b\.1/);
   assert.match(program.judgeReason, /356\.1\.b/);
   assert.match(program.judgeReason, /FinalizedCostPlan/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
   // The supported halves must be described as supported, not as blocked.
   assert.match(program.judgeReason, /428\.1/);
   assert.match(program.judgeReason, /359\.3\.e\.14/);
@@ -350,7 +351,8 @@ test.todo(
   "sfd-200-221 Arcane Shift: materialize the ignore-cost plan (base Energy and base Power set to zero per " +
     "CR 356.1.b/356.1.b.1, floor 0 per 356.6, without rewriting 356.1.b.3 additional costs) and play the " +
     "banished card as its owner's Limited Action (420.3/420.3.a) into that player's Base — needs the " +
-    "cost.modify ignore component and its finalized-plan producer (RIFT-89)"
+    "cost.modify ignore component and its finalized-plan producer (RIFT-261), plus the CardProgram play " +
+    "binding (RIFT-257)"
 );
 
 test.todo(

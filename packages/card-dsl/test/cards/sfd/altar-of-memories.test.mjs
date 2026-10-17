@@ -38,12 +38,12 @@ test("sfd-169-221 Altar of Memories: identity, ruleset, status, judgeReason and 
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // README section 2: the reason names the missing trigger subscription and the
-  // missing base-cost payment, each with its dependency.
-  assert.match(program.judgeReason, /TriggerRegistration/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  // README section 2: the reason names the missing trigger registration and the
+  // missing base-cost payment, each with its current dependency.
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /429\.1/);
   assert.match(program.judgeReason, /383\.3\.b/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -177,10 +177,11 @@ test("sfd-169-221 Altar of Memories golden: the chosen hand card goes to the bot
 
 test.todo(
   "sfd-169-221 Altar of Memories: the \"When a friendly unit dies\" trigger needs the " +
-    "card-program -> TriggerRegistration producer (contract 3.5, RIFT-120 follow-up) before it can fire."
+    "card-program -> TriggerRegistration producer (contract 3.5, RIFT-257) before it can fire; " +
+    "the object-killed timing point itself is already emitted by the kill action adapter (429.1)."
 );
 test.todo(
   "sfd-169-221 Altar of Memories: paying \"exhaust me\" as the trigger's base cost (CR 383.3.b/" +
     "383.3.b.1) needs a cost field on TriggeredAbility or a merged cost.pay primitive plus the " +
-    "finalize payment pipeline (RIFT-89 follow-up)."
+    "finalize payment pipeline (RIFT-261)."
 );

@@ -19,19 +19,22 @@ import type { CardProgram } from "../../ir/index.js";
  * - 430.1/430.5: [Add] puts Energy/Power into the Rune Pool; [A] is Universal Power
  *   (135.2.e.5/163.2.b).
  *
- * status: judge-required:
- * 1. no merged primitive performs a resolve-time player-chosen payment and publishes the
- *    actual amount as a linked value; cost.pay is a Finalize-time plan only, so the
- *    "pay any amount ... that much" binding cannot execute (same gap recorded for Bullet
- *    Time, whose CR 204.3 example is Ancient Henge). Writing a fixed amount or splitting
- *    the payment from the Add would be an approximation.
+ * status: judge-required (re-reviewed 2026-10-17):
+ * 1. "Pay any amount of Energy" is a resolve-time Cost within an Instruction (CR
+ *    204.3/204.3.a, whose printed example is this card). No merged primitive performs a
+ *    resolve-time player-chosen payment or publishes the paid amount: cost.pay is a
+ *    Finalize-time plan only and cost.pay-any is not a registered opcode. The
+ *    cost.pay/cost.modify batch is RIFT-261 and is not merged on this branch, and no
+ *    card-program binding turns the declared ability into an 'add' chain item (RIFT-257).
+ *    Writing a fixed amount or splitting the payment from the Add would be an approximation.
  * 2. [A] Universal Power is not representable: the closed Domain union is the six named
  *    domains and effect.resources documents that 163.2.b must never be approximated by a
  *    chosen domain. The program records the descriptive power ["rainbow"], and the merged
  *    primitive answers negated(impossible) — the golden locks that negative evidence.
- * 3. 430.2/430.2.a (Add abilities finalize and resolve immediately without passing
- *    Priority/Focus) and 430.3 (Add Reactions can be activated during cost payment) have
- *    no chain wiring; cost.pay-any is also not a registered opcode.
+ * 3. The 'add' chain kind itself is merged (chain/engine.ts finalizes and resolves it in
+ *    advance/activateAddDuringPayment, and ogn/seal-of-focus drives it), but no module
+ *    turns this card program's activated ability into an 'add' chain item, so 430.2/
+ *    430.2.a's immediate resolution is not reachable for this card (RIFT-257).
  */
 export default {
   canonicalCardId: "card.hash-d07e48aa4c135d7523968d576a0ed10afd4b5574804fc3baa31b2d60b20f46a3",
@@ -40,12 +43,13 @@ export default {
   judgeReason:
     "(1) \"Pay any amount of Energy to [Add] that much [A]\" is a Cost within an Instruction (CR 204.3/204.3.a, whose printed example is this card): " +
     "the amount is chosen as the ability resolves and the Add amount is the amount actually paid, but no merged primitive performs a resolve-time player-chosen " +
-    "payment or publishes the paid amount (cost.pay only consumes a Finalize-time plan; cost.pay-any is not even a registered opcode). " +
-    "(2) [A] Universal Power is not representable — the closed Domain union is the six named domains and effect.resources documents that CR 163.2.b must never be " +
-    "approximated by a chosen domain; the descriptive power [\"rainbow\"] is recorded and the merged primitive answers negated(impossible) as negative evidence. " +
-    "(3) CR 430.2/430.2.a (Add abilities finalize and resolve immediately, without passing Priority/Focus) and 430.3 (Add Reactions may be activated while costs are paid) " +
-    "have no chain wiring. The printed :rb_exhaust: cost itself is payable under the merged cost pipeline and is exercised by the golden test; that partial evidence does not " +
-    "make the resource-adding body executable.",
+    "payment or publishes the paid amount (cost.pay only consumes a Finalize-time plan; cost.pay-any is not a registered opcode). The cost.pay/cost.modify batch " +
+    "is RIFT-261 and is not merged on this branch. (2) [A] Universal Power is not representable — the closed Domain union is the six named domains and " +
+    "effect.resources documents that CR 163.2.b must never be approximated by a chosen domain; the descriptive power [\"rainbow\"] is recorded and the merged " +
+    "primitive answers negated(impossible) as negative evidence. (3) The 'add' chain kind itself is merged (chain/engine.ts resolves it immediately in advance / " +
+    "activateAddDuringPayment, 430.2/430.3; ogn/seal-of-focus exercises it), but no card-program binding turns this program's activated ability into an 'add' " +
+    "chain item, so that immediate resolution is not reachable for this card (RIFT-257). The printed :rb_exhaust: cost itself is payable under the merged cost " +
+    "pipeline and is exercised by the golden test; that partial evidence does not make the resource-adding body executable.",
   abilities: [
     {
       kind: "activated",

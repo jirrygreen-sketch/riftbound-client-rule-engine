@@ -85,8 +85,7 @@ test("sfd-198-221 Arise!: judgeReason names the destination gap and its dependen
   // the dependent work instead of restating "unsupported".
   assert.match(program.judgeReason, /355\.2/);
   assert.match(program.judgeReason, /LocationRef/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-257/);
   // It must not claim a workaround it does not have.
   assert.doesNotMatch(program.judgeReason, /近似实现：/);
 });
@@ -310,11 +309,13 @@ test("sfd-198-221 Arise! golden: a prevented play keeps the tokens that already 
 test.todo(
   "sfd-198-221 Arise!: the played tokens' destination is chosen during each token's Finalize " +
     "(CR 355.2/355.2.a: the controller's Base or a Battlefield they control) — needs a merged " +
-    "location-set reading (target.location) plus the 355.2 play-location selection wiring (RIFT-89/RIFT-90)"
+    "location-set reading (target.location) plus the 355.2 play-location selection wiring and the " +
+    "CardProgram play binding (RIFT-257 / RIFT-261 batches)"
 );
 
 test.todo(
   "sfd-198-221 Arise!: the card's printed 6 energy + 1 Calm power plan is bound from the catalog at " +
-    "Finalize (356.1.c) and paid through the chain's cost plan (RIFT-84/RIFT-89); the program declares no " +
-    "CostSpec instead of restating printed values"
+    "Finalize (356.1.c) and paid through the chain's cost plan; the program declares no " +
+    "CostSpec instead of restating printed values (RIFT-257 play binding; the cost-layer half of " +
+    "RIFT-89/RIFT-84 is merged)"
 );

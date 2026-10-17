@@ -29,6 +29,8 @@ test("sfd-117-221 Ancient Henge: identity, ruleset, status, judgeReason and verb
   assert.match(program.judgeReason, /204\.3/);
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /430\.2/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -98,6 +100,6 @@ test.todo(
     "effect.resources documents that it must never be approximated by a chosen domain."
 );
 test.todo(
-  "sfd-117-221 Ancient Henge: CR 430.2/430.2.a (Add abilities finalize and resolve immediately without passing Priority/Focus) and 430.3 " +
-    "(Add Reactions can be activated while costs are paid) need chain wiring."
+  "sfd-117-221 Ancient Henge: the merged 'add' chain kind (chain/engine.ts advance/activateAddDuringPayment, 430.2/430.3) must be reachable " +
+    "from this card program's activated ability — no CardProgram -> chain binding registers it (RIFT-257)."
 );

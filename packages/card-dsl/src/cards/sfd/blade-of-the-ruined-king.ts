@@ -20,15 +20,17 @@
  *   功能），原文逐字保留，程序不为提示文本生成能力。
  * - 印刷的 3 energy 是 Gear 的打出费用（150.4），不是 Equip 费用。
  *
- * status = judge-required：
+ * status = judge-required（复核 2026-10-17）：
  * - 已合入的 Equip 展开（RIFT-87）只声明 payments: [{ kind: "equip", value: source }]，
  *   cost/plan-values.ts 的 readCost 没有 "equip" 支付种类，1 点 Order Power 这一半无法
  *   计算/支付；契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的
- *   KeywordDef 接口仍没有该参数（印刷费用以扩展字段 costAdditions 记录供审查）。
+ *   KeywordDef 接口虽已声明可选 params（keyword-contract.ts），但卡牌侧没有把关键词参数
+ *   传给展开的调用方，Equip 展开自身也未读取 params.cost（RIFT-261 批次）。
  * - 「Kill a friendly unit」费用本身在已合入的费用管线里可支付（cost/plan-values.ts 的
  *   "kill" 非标准费用 + cost/payment.ts 的 checkAction），golden 用印刷声明的具体引用
  *   真实收取过一次，证明缺的是关键词侧的承载字段与 Equip 费用支付。
- * - 卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）未合入（RIFT-120 后续）。
+ * - 卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）未合入（src/programs/ 的绑定属
+ *   未合入的 RIFT-257）。
  * 与同目录已合入装备程序（long-sword / bf-sword / warmogs-armor / dorans-blade / sacred-shears）
  * 一致：关键词上的 costDomain（以及本卡的 costAdditions）是扩展字段，因此本文件按这些文件的写法用
  * as const 声明，由 golden 的 validateCardProgram 做结构校验（不是用类型断言绕过契约）。
@@ -40,14 +42,15 @@ export default {
   judgeReason:
     "印刷的 [Equip] 费用无法表达也无法支付：(1) 费用同时含 1 点 Order Power（818.1.c.2、135.2.e.4）" +
     "与「Kill a friendly unit」（818.1.c.3 允许的非资源费用），而契约 3.1 的 KeywordAbility 只有 " +
-    "{ keyword, value }，契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的 KeywordDef " +
-    "接口仍无该参数（印刷费用以扩展字段 costAdditions 记录供审查）；(2) 已合入的 Equip 展开（RIFT-87）" +
-    "声明 payments: [{ kind: \"equip\", value: source }]，cost/plan-values.ts 的 readCost 没有 " +
-    "\"equip\" 支付种类，费用计划无法构建；(3) 缺卡牌程序→关键词展开→时点/链的接线（契约 3.5）。" +
+    "{ keyword, value }，契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费；KeywordDef 接口已声明" +
+    "可选 params（keyword-contract.ts），但没有卡牌侧调用方把该费用传进展开，Equip 展开自身也只声明 " +
+    "payments: [{ kind: \"equip\", value: source }]（印刷费用以扩展字段 costAdditions 记录供审查）；" +
+    "(2) cost/plan-values.ts 的 readCost 没有 \"equip\" 支付种类，费用计划无法构建（Equip 费用支持属" +
+    "未合入的 RIFT-261）；(3) 缺卡牌程序→关键词展开→时点/链的接线（契约 3.5，属未合入的 RIFT-257）。" +
     "已可真实执行的部分：「Kill a friendly unit」作为非标准费用可由已合入的费用管线收取" +
     "（cost/plan-values.ts 的 kill 种类 + cost/payment.ts 的 checkAction，CR 429/429.2.a），" +
     "golden 用印刷声明的具体引用真实执行；该选择是费用内的 [do X]、不产生目标（355.10.c.1）。" +
-    "依赖：RIFT-89 之后的 Equip 费用支持与 RIFT-120 的关键词接线。不近似实现。",
+    "依赖：RIFT-261（Equip 费用支持）与 RIFT-257（关键词接线）。不近似实现。",
   abilities: [
     {
       kind: "keyword",

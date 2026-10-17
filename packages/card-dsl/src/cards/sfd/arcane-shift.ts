@@ -37,8 +37,9 @@ import type { CardProgram } from "../../ir/index.js";
  * status 判定（cards/README.md 第 2 节）：judge-required。缺口是 "ignoring its cost" 的费用改写
  * 生产者：冻结的 CostSpec 没有 ignore/替代费用字段，effect.play 明确要求 cost 参数是费用系统产出、
  * 已 Finalize 的 FinalizedCostPlan（该原语既不推导印刷费用、也不实现忽略费用规则），按印刷费用打出
- * 会是错误结算；ResolveContext 也没有把 356.1.b.1 变成费用计划的入口。同一缺口在 Portal Rescue
- * （ogn-102-298）按同样口径记录，依赖 RIFT-89（cost-plan 的忽略/替代费用入口）。
+ * 会是错误结算；ResolveContext 也没有把 356.1.b.1 变成费用计划的入口。该费用改写入口与
+ * cost.modify / cost.pay 属仍在进行的 RIFT-261（分支未合入），卡牌程序接入打出流程属 RIFT-257。
+ * 同一缺口在 Portal Rescue（ogn-102-298）按同样口径记录。
  * banish 半段、由其衍生 owner 的打出、伤害与 "Banish this." 四条指令本身都只用已合入原语，
  * golden 用真实原语执行已支持部分（含 banish 收据换区后的新引用、忽略费用计划被拒绝而非按
  * 印刷费用结算的守卫）。不近似实现。
@@ -53,8 +54,8 @@ const arcaneShift = {
     "也不是 356.1.b.2 的单资源忽略）；冻结的 CostSpec 只有 kind/payments/energy/power/rune/discard，" +
     "没有 ignore/替代费用字段，已合入的 effect.play 又明确要求 cost 参数是费用系统产出、已 Finalize 的 " +
     "FinalizedCostPlan（它不推导印刷费用、也不实现忽略费用规则），ResolveContext 也没有把 " +
-    "356.1.b.1 变成费用计划的入口，按印刷费用打出会错误结算。依赖：RIFT-89（cost-plan 的忽略/替代费用入口）。" +
-    "banish 半段（effect.banish，428.1/428.2）、由收据 owner 决定的打出、" +
+    "356.1.b.1 变成费用计划的入口，按印刷费用打出会错误结算。该忽略/替代费用入口属未合入的 RIFT-261，" +
+    "卡牌程序接入打出流程属 RIFT-257。banish 半段（effect.banish，428.1/428.2）、由收据 owner 决定的打出、" +
     "Deal 3 与本咒语自我放逐（effect.banish + \"self\"）都只用已合入原语并有执行测试；" +
     "打出指令仍保持 linkedTo（359.3.e.14）与结算时读取 owner。不近似实现。",
   abilities: [

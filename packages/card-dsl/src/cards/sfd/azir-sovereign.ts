@@ -34,19 +34,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   condition.value 在结算时读出来源当前位置，再由 effect.move 的 to 经 linked-value
  *   读取（该形状被 effect.move 接受并真实执行）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
  * - attack-declared 时点没有发射方：events/action-adapter.ts 只按已提交的游戏动作派生
- *   时点（move-location/ready/exhaust/… ），combat/ 尚未把取得 Attacker 身份接入事件
- *   管线，全仓库没有 'attack-declared' 的 emit 调用，触发无法进入链（383.4.e.2 的
- *   "进链为 Pending Item" 路径缺失）。
+ *   时点（move-location/ready/exhaust/… ），combat/flow.ts 在 combat-start 事务处显式抛
+ *   TurnCombatBlockedError（角色指定尚未实现），全仓库没有 'attack-declared' 的 emit 调用，
+ *   触发无法进入链（383.4.e.2 的 "进链为 Pending Item" 路径缺失）。
  * - "到本战场"的 Move 目的地读取依赖来源的当前位置（359.3.f.1）；来源已离场/换位时的
- *   回看口径由事件与时点任务确定，当前只有参考内核能执行该原语。
- * - "your token units" 的 controller: "controller" 占位符绑定与 Finalize 的 0 目标
- *   选择路径（355.13）同属目标/选择批次。
- * - [Accelerate] 的展开已合入，但其费用计划消费方（Finalize 的 optionalAdditional）与
- *   真实打出流程的接线仍属费用计划批次（RIFT-89）。
- * 依赖：attack-declared 发射路径（combat → 事件管线，RIFT-33 触发场景 / RIFT-120）、
- * RIFT-89（费用计划接线）。不近似实现（不把 attack 触发改成其它时点，也不手改状态）。
+ *   回看口径由事件与时点任务确定。
+ * - 卡牌程序的触发注册与打出流程绑定仍属未合入的 RIFT-257。
+ * - [Accelerate] 的展开已合入（805.1.b/.b.2），但其可选附加费用在卡牌侧的收取
+ *   （cost.pay / optionalAdditional 接线）仍属未合入的 RIFT-261。
+ * 依赖：attack-declared 发射路径（combat 角色事务）、RIFT-257、RIFT-261。
+ * 不近似实现（不把 attack 触发改成其它时点，也不手改状态）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -118,13 +117,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "attack-declared 时点没有发射方：events/action-adapter.ts 只为已提交游戏动作派生时点，combat/ 尚未把取得 Attacker " +
-    "身份接入事件管线（全仓库无 'attack-declared' 的 emit），触发无法按 383.4.e.2 进入链；" +
-    "Move 目的地「to this battlefield」要按 359.3.f.1 在结算时读取来源当前位置（359.3.f.1 的 referent），" +
-    "来源已离场时的回看口径尚未由事件/时点任务确定；「your token units」的 controller 占位符绑定与" +
-    "Finalize 的零目标选择（355.13）属目标/选择批次（RIFT-90），参考内核按值比较（同批 M1 卡 bubble-bot 同一缺口）；" +
-    "[Accelerate] 的展开已合入，但其费用计划消费方（Finalize 的 optionalAdditional 接线）属 RIFT-89 批次。" +
-    "依赖：attack-declared 发射路径（RIFT-33/RIFT-120）、RIFT-90、RIFT-89。不近似实现。",
+    "attack-declared 时点没有发射方：events/action-adapter.ts 只为已提交游戏动作派生时点，combat/flow.ts 的 " +
+    "combat-start 事务仍显式阻断（contestCombat 抛 TurnCombatBlockedError，Attacker/Defender 角色指定未实现），" +
+    "全仓库无 'attack-declared' 的 emit，触发无法按 383.4.e.2 进入链；Move 目的地「to this battlefield」要按 " +
+    "359.3.f.1 在结算时读取来源当前位置，来源已离场时的回看口径尚未由事件/时点任务确定；卡牌程序的触发注册与" +
+    "打出绑定仍属未合入的 RIFT-257；[Accelerate] 的展开已合入（805.1.b），但其可选附加费用在卡牌侧的收取" +
+    "（cost.pay / Finalize 的 optionalAdditional 接线）属未合入的 RIFT-261。" +
+    "依赖：attack-declared 发射路径（combat 角色事务）、RIFT-257、RIFT-261。不近似实现。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_order: as an additional cost to have me enter ready.)\n" +

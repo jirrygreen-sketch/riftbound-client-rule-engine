@@ -32,7 +32,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "ready it"：it 是触发事件里被选中的那个友方单位（本次 choose 的对象）。静态 IR 不能写运行时
  *   ObjectRef（契约 3.6），这里用 TargetSpec 作占位选择符，与 mistfall/pirates-haven 同型。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
  * 依赖与缺口见 judgeReason；golden 测试用解释器 + 参考内核真实执行已合入的 effect.ready 与
  * 费用计划的 exhaust 支付（不是整卡执行证据）。
  * 不近似实现：不用 effect.exhaust 冒充费用式横置，不把 choose 写成 pick，不选一个域冒充 [A]。
@@ -144,17 +144,18 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "（1）没有已合入的订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration" +
-    "（events/pipeline-types.ts 有类型，注册入口只在 chain/engine.ts 内部；同 darius-executioner/the-dreaming-tree 记录的缺口），" +
-    "became-target（383.4.b.2）与 conquer（383.4.c.2.b）触发都还进不了链，属 RIFT-120（链/事件单管线）与引擎批 4；" +
+    "（events/pipeline-types.ts 有类型，注册入口只在 chain/engine.ts 内部；src/programs/ 的绑定属未合入的 RIFT-257），" +
+    "became-target（383.4.b.2）与 conquer（383.4.c.2.b）触发都还进不了链；" +
     "（2）契约 3.6 的 ZoneId 没有 Legend Zone（CR 108.3），传奇不能表示为 Board 对象，415.5/415.4 的费用式「横置我」" +
     "与「ready me」缺少可执行的宿主表示（费用计划只接受 board/rune-zone 上的对象，cost/payment.ts 的 checkAction；同 ogn/the-boss）；" +
     "（3）「pay :rb_rune_rainbow:」是任意域（Universal）Power（135.2.e.5.b、163.2.b），Domain 是六域封闭集合，" +
     "effect.resources 明确记录 163.2.b 不可表达、绝不选一个域近似；" +
-    "（4）cost.pay 没有已合入的原语文件（RIFT-9 清单内），费用计划的消费方属 RIFT-89；" +
+    "（4）cost.pay / cost.modify 没有已合入的原语文件（effects/instructions/ 只有 effect.* 与 continuous.*），" +
+    "属未合入的 RIFT-261；" +
     "（5）became-target 载荷只带链项控制者（chain/engine.ts 在 Finalize 目标锁定时发射），355.18 允许其他玩家代为做选择时" +
     "「做出选择的玩家」读不出来（RIFT-64 遗留的 targeting 载荷缺口）；" +
     "（6）「ready it」的 it 需要触发事件对象的绑定，契约 3.6 的 ObjectSelector（self/source/target/pick/linked）没有事件对象选择符。" +
-    "依赖：RIFT-120、RIFT-89、RIFT-64，以及 legend-zone 与 Universal Power 的契约表达。不近似实现。",
+    "依赖：RIFT-257、RIFT-261、RIFT-64，以及 legend-zone 与 Universal Power 的契约表达。不近似实现。",
   abilities,
   sourceText:
     "When you choose a friendly unit, you may exhaust me and pay :rb_rune_rainbow: to ready it.\n" +

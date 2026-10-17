@@ -69,8 +69,9 @@ test("sfd-050-221 Azir, Ascendant: identity, ruleset, status, judgeReason and ve
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /activated/);
-  assert.match(program.judgeReason, /RIFT-120/);
-  assert.match(program.judgeReason, /once per turn/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /once-per-turn/);
+  assert.match(program.judgeReason, /usage-limit/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -254,5 +255,5 @@ test.todo(
   "sfd-050-221 Azir, Ascendant: the activated ability must become a launchable chain item with its 1 Calm " +
     "Power cost, [Action] Showdown permission (806.1.c) and the once-per-turn usage limit evaluated at " +
     "Finalize — no merged consumer turns a CardProgram activated ability into a chain item and no " +
-    "usage-limit predicate exists (see the merged rad/black-market record) — RIFT-120"
+    "usage-limit predicate exists (see the merged rad/black-market record) — RIFT-257"
 );
