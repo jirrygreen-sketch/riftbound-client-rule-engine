@@ -33,8 +33,8 @@ test("unl-202-219 Void Assault: identity, status, judgeReason and verbatim sourc
   assert.match(program.judgeReason, /355\.4/);
   assert.match(program.judgeReason, /355\.4\.a/);
   assert.match(program.judgeReason, /451\.1/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /RIFT-358/);
   assert.match(program.judgeReason, /assertFinalizationSurface/);
   // The reminder is the combat procedure, not a third instruction.
   assert.match(program.judgeReason, /466\.2\.c\.1/);
@@ -170,10 +170,10 @@ test("unl-202-219 Void Assault golden: a stale enemy reference is mistargeted in
 });
 
 test.todo(
-  "unl-202-219 Void Assault: offer each Move's destination as a runtime Location choice other than the moved unit's current location (CR 355.4/355.4.a/451.1; effect.move's to only accepts static LocationRef/controller-base/static option lists and target.location is unmerged - RIFT-90/RIFT-91)"
+  "unl-202-219 Void Assault: offer each Move's destination as a runtime Location choice other than the moved unit's current location (CR 355.4/355.4.a/451.1; effect.move's to only accepts static LocationRef/controller-base/static option lists and target.location still needs RIFT-357)"
 );
 test.todo(
-  "unl-202-219 Void Assault: finalize the two separate target specs and their destinations through the production chain (chain/engine.ts assertFinalizationSurface blocks nested targets - RIFT-90 / engine batch 4)"
+  "unl-202-219 Void Assault: finalize the two separate target specs and their destinations through the production chain (chain/engine.ts assertFinalizationSurface blocks nested targets; ordered independent picks still need RIFT-358)"
 );
 test.todo(
   "unl-202-219 Void Assault: emit the Contested/attacker-defender designations and the ensuing Showdown or Combat for the moves (CR 452-455, 466.2.c.1-c.3; the reminder is the combat procedure, not a card instruction - engine turn/combat batches)"

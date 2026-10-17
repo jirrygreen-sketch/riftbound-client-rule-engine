@@ -38,7 +38,6 @@ test("unl-191-219 Wuju Master: identity, status, judgeReason and verbatim source
   // Re-sweep: RIFT-260's replacement binding is merged, so the reason now names
   // the remaining per-object entry window instead of "no consumer".
   assert.match(program.judgeReason, /RIFT-260/);
-  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("unl-191-219 Wuju Master: [Level 6][>] is a static +1 Might layer scoped to your units", () => {
@@ -201,9 +200,4 @@ test.todo(
   "unl-191-219 Wuju Master: bind the [Level N][>] dependent abilities with dynamic Active/Inactive " +
     "re-evaluation (CR 824.1.b.1 / 824.1.c.1 / 824.1.d) — keywords/Level.ts publishes only the " +
     "condition.predicate declaration and no compiler attaches it to this card's dependent text (RIFT-268 follow-up)"
-);
-test.todo(
-  "unl-191-219 Wuju Master: register the declared static/replacement abilities from a CardProgram — " +
-    "programs/statics.ts exposes an unimplemented bindStatic/bindReplacement callback and ResolveContext.addContinuous " +
-    "is reachable only from instructions (RIFT-257 follow-up)"
 );

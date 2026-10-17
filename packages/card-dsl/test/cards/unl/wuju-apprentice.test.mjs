@@ -33,7 +33,6 @@ test("unl-040-219 Wuju Apprentice: identity, status, judgeReason and verbatim so
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /823\.1/);
   assert.match(program.judgeReason, /824\.1/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /RIFT-268/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
@@ -125,7 +124,7 @@ test("unl-040-219 Wuju Apprentice: the [Level 6] dependent ability passes the cl
 test.todo(
   "unl-040-219 Wuju Apprentice: register the merged [Hunt] expansion with the event pipeline — Hunt.ts declares " +
     "event \"conquer\"/\"hold\" while the closed EVENT_PATTERN_TYPES only accepts \"conquered\"/\"held\", so " +
-    "validateTriggerSpec rejects the registration (RIFT-257 follow-up)"
+    "validateTriggerSpec rejects the registration; scoring also does not produce the corresponding events"
 );
 test.todo(
   "unl-040-219 Wuju Apprentice: bind the [Level 6][>] dependent ability (CR 824.1.b.1 / 824.1.c.1 / 824.1.d) — " +

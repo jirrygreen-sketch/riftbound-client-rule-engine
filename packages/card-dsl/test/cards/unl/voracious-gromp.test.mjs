@@ -6,6 +6,7 @@ import program from "../../../dist/cards/unl/voracious-gromp.js";
 // card-dsl 不依赖 engine-core（方向相反），golden 执行按 workspace 布局直接加载已构建的 engine-core。
 import xp from "../../../../engine-core/dist/effects/instructions/effect.xp.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -49,6 +50,17 @@ test("unl-100-219 Voracious Gromp: the expansion's XP primitive is merged", () =
   assert.equal(instructionDefinitionsById.has("effect.xp"), true);
 });
 
+test("unl-100-219 Voracious Gromp: the merged Hunt definition expands value 3 into both trigger bodies", () => {
+  const definition = keywordDefinitionsById.get("Hunt");
+  assert.ok(definition);
+  const expansion = definition.expand({ value: hunt.value, host: { canonicalCardId: CANONICAL_ID } });
+  assert.deepEqual(expansion.map((ability) => ability.trigger.at), ["conquer", "hold"]);
+  assert.deepEqual(expansion.map((ability) => ability.body[0].args.amount), [
+    { kind: "constant", value: 3 },
+    { kind: "constant", value: 3 }
+  ]);
+});
+
 test("unl-100-219 Voracious Gromp golden: the expansion's 'gain 3 XP' half runs through the real primitive", () => {
   // 823.1.c.1 展开为 conquer / hold 触发，body 是「my controller gains X XP」；其中
   // gain-XP 这一步用已合入的 effect.xp（730.1 / 733）真实执行。获得者缺省即 ctx.controller。
@@ -72,11 +84,11 @@ test("unl-100-219 Voracious Gromp golden: the opponent's XP is untouched (732: X
 });
 
 test.todo(
-  "voracious-gromp: effects/keywords/Hunt.ts——把 Hunt 3 展开为 conquer 与 hold（events/timing-points.ts 的两个封闭时点）" +
-    "上各一个以 effect.xp 为 body 的触发能力，并按 823.2 把多来源 Hunt 数值相加合为一个触发"
+  "voracious-gromp: 将 Hunt 展开的 conquer / hold 触发适配到 EventPattern 的 conquered / held 封闭词汇，" +
+    "否则 programs/triggers.ts 的 validateTriggerSpec 会拒绝注册"
 );
 
 test.todo(
-  "voracious-gromp: CardProgram -> trigger 管线——没有订阅方把关键词展开出的 conquer / hold 触发注册进时点/链" +
-    "（契约 3.5；引擎批 4 / RIFT-120 接线），且 scoring/ 侧尚未与 chain/events 单管线打通"
+  "voracious-gromp: 让 scoring 产生 conquer / hold 对应的事件并接入 chain/events 单管线，" +
+    "使已注册的 Hunt 触发能够实际进链"
 );

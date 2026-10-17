@@ -24,7 +24,6 @@ test("unl-129-219 Vicious Snapjaws: identity, status, judgeReason and verbatim s
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /TriggerRegistration/);
   assert.match(program.judgeReason, /429\.1/);
   assert.match(program.judgeReason, /exclude/);
 });
@@ -74,14 +73,3 @@ test("unl-129-219 Vicious Snapjaws golden: the effect really gains 1 XP for the 
   assert.deepEqual(outcome.events.map(event => event.action), ["gain-xp"]);
   assert.equal(kernel.history({ action: "gain-xp", player: "A" }), 1);
 });
-
-test.todo(
-  "unl-129-219 Vicious Snapjaws: register the card-declared object-killed trigger through a card-program -> " +
-    "TriggerRegistration adapter and collect the dying unit's last-known information (383.2.c.3.b / 429.1.a.1.b) — " +
-    "no merged path does this (RIFT-120 follow-up)"
-);
-test.todo(
-  "unl-129-219 Vicious Snapjaws: exclude this card's own death ('another friendly unit', 740.1.a) in the merged " +
-    "trigger matcher — matchesTriggerObject ignores the exclude anchor, so accepting it as implemented would make " +
-    "Vicious Snapjaws' own death grant XP (engine batch 4 event-filter extension)"
-);
