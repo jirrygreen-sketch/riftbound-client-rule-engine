@@ -19,7 +19,8 @@ test("ogn-231-298 Commander Ledros: identity, status and verbatim sourceText", (
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /cost\.sacrifice/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.equal(
     program.sourceText,
     "As you play me, you may kill any number of friendly units as an additional cost. " +
@@ -73,8 +74,9 @@ test("ogn-231-298 Commander Ledros: the discount is one Order power per unit kil
 
 test.todo(
   "ogn-231-298 Commander Ledros: collecting the optional kill additional cost and materializing " +
-    "the per-killed Order discount needs cost.additional / cost.sacrifice plus the cost plan " +
-    "(CR 204.2.a/356.2.b.1/356.4, RIFT-89)"
+    "the per-killed Order discount needs the cost.additional / cost.sacrifice instruction (RIFT-261) " +
+    "plus the CardProgram → cost-plan binding for the declared cost and discount " +
+    "(CR 204.2.a/356.2.b.1/356.4, RIFT-257)"
 );
 test.todo(
   "ogn-231-298 Commander Ledros: [Deflect]'s mandatory target tax (CR 809.1.c/356.2.a.2) needs the " +

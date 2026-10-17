@@ -14,7 +14,8 @@ test("ogn-208-298 Cruel Patron: program validates and has expected identity", ()
   );
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /cost kind|additional/);
   assert.equal(
     program.sourceText,
@@ -53,6 +54,7 @@ test("ogn-208-298 Cruel Patron: a mandatory additional kill cost on the play abi
 
 test.todo(
   "ogn-208-298 Cruel Patron: pay the printed 4 energy plus the mandatory kill cost on a friendly unit " +
-    "(CR 356/357.2, 203.3 rollback) — 已合入的 cost 计划器（RIFT-89）只接受 printed/activated/explicit 的 " +
-    "CostSpec，卡牌程序没有把「印刷基础费用 + 强制附加费用」合并的字段，且 kill 支付需要按 filter 展开的运行时对象集合"
+    "(CR 356/357.2, 203.3 rollback) — 已合入的 cost 计划器（RIFT-89 readCost）只接受 printed/activated/explicit 的 " +
+    "CostSpec，卡牌侧费用绑定（RIFT-257）与 cost.additional 费用种类（RIFT-261）未合入，" +
+    "且 kill 支付需要按 filter 展开的运行时对象集合"
 );

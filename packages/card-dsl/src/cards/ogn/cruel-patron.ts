@@ -27,13 +27,13 @@ const cruelPatron = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺已合入的费用入口与动态对象选择：(1) 已合入的 cost 计划器（RIFT-89）只接受 kind 为 " +
-    "printed/activated/explicit 的 CostSpec，卡面「As an additional cost」无法用它表达" +
-    "（CostPlanError: Unsupported cost kind: additional），且 printed 费用禁止附带 payments，" +
-    "卡牌程序没有把「印刷基础费用 + 强制附加费用」合成一个计划的字段；" +
+    "缺已合入的费用入口与动态对象选择：(1) 已合入的 cost 计划器（RIFT-89）的 readCost 只接受 kind 为 " +
+    "printed/activated/explicit 的 CostSpec（其余 kind 走 blocked），卡面「As an additional cost」" +
+    "没有对应的 CostSpec 种类，且 printed 费用禁止附带 payments，卡牌程序也没有把「印刷基础费用 + 强制附加费用」" +
+    "合成一个计划的字段（卡牌侧费用绑定 RIFT-257，cost.additional 原语 RIFT-261）；" +
     "(2) kill 支付需要精确的运行时 ObjectRef 或枚举出全部合法对象，而契约 3.6 规定静态 IR " +
     "不能出现 ObjectRef，PickSpec.options 又是静态值，因此「一个友方单位」无法落到费用计划。" +
-    "依赖：RIFT-89（费用计划的卡牌侧附加费用形状）、以及费用对象选择的契约扩展；" +
+    "依赖：RIFT-257（CardProgram 费用绑定）、RIFT-261（cost.additional / 费用种类）与费用对象选择的契约扩展；" +
     "不近似实现（不用占位字符串冒充运行时引用，也不把费用消灭写成效果 effect.kill）。",
   abilities: [
     {

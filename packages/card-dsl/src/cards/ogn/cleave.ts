@@ -11,44 +11,38 @@ import type { CardProgram } from "../../ir/index.js";
  * 2026-10-12-official-gallery): energy 1, power null (no printed Power), might
  * null, tags [].
  *
- * Status: judge-required. "Give a unit [Assault 3] this turn" is a
- * duration-bounded keyword grant, and no merged instruction can create one:
- * - The only keyword-grant spelling in the merged code base is a static
- *   ability's ContinuousEffect ("grant-keyword", used by sfd/breakneck-mech.ts,
- *   sfd/gem-jammer.ts and sfd/forecaster.ts). Static abilities are card layer
- *   features evaluated by the layers engine; a resolving spell cannot create one,
- *   and no merged primitive calls ctx.addContinuous for a keyword grant.
- * - continuous.keyword is explicitly outside the RIFT-9 candidate route
- *   (docs/plans/survey/ability-templates.md states that effect.shuffle and
- *   continuous.keyword never enter the candidate route), so the missing
- *   primitive is tracked rather than merely unassigned in this workstream.
- * - The grant must also carry an end-of-turn duration: 317.2.c makes all
- *   "this turn" effects expire simultaneously, which is the timing-driven
- *   duration contract 3.4 assigns to ctx.addContinuous.
- * - Granting Assault additionally pulls the merged Assault expansion
- *   (engine-core/src/effects/keywords/Assault.ts, CR 807): it is a static
- *   continuous.might ability conditioned on the host's attacker designation, and
- *   the merged interpreter's ObjectSnapshot has no "designation" characteristic.
- * The program keeps the intended shape (keyword, value, duration, one target) so
- * the card can be completed without re-deriving it. Nothing is approximated: a
- * Buff counter (CR 702) is a different object state, not a Might modification.
- *
- * Dependencies: a duration-bounded continuous keyword-grant primitive and
- * attacker-designation support for the Assault expansion. RIFT-91
- * (layers-continuous) is already merged.
+ * Status: judge-required.
+ * - "Give a unit [Assault 3] this turn" is a duration-bounded keyword grant and
+ *   the merged `continuous.grant-keyword` instruction (RIFT-258) registers it:
+ *   the op resolves the selected unit and calls ResolveContext.addContinuous
+ *   with an ability-layer keyword effect carrying the printed value 3, with the
+ *   alias duration "end-of-turn" resolved for "this turn" (317.1.a/317.2.c/
+ *   468.7.c; layers/ops `resolveContinuousDuration`) — executed by the golden.
+ * - "a unit" names one game object on the Board and is a Choice, so it is a
+ *   TargetSpec (355.5/355.7/355.9.a.1), not a pick; the target is read through
+ *   the merged target system (RIFT-90) and revalidated at Resolve.
+ * - The granted Assault's functional text (+3 Might while the host is an
+ *   attacker, CR 807.1.c/807.2) still has no executable consumer: the Assault
+ *   KeywordDef exists, but there is no CardProgram keyword → expansion → layers
+ *   binding (RIFT-257), the attacker designation is not part of the layers
+ *   ObjectSnapshot, and layers/engine.ts conditionMatches does not evaluate the
+ *   `compare` condition the expansion carries, so the bonus would either never
+ *   apply or apply unconditionally. The card therefore stays judge-required.
+ * - A Buff counter (CR 702) is a different object state, so nothing is
+ *   approximated through effect.buff.
  */
 const cleave = {
   canonicalCardId: "card.hash-e946abd159c3e001431a6266172cc524d41158117457180e81e85ef7690a4354",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 duration 限定的连续关键词授予原语：没有任何已注册 instruction 能实现「Give a unit [Assault 3] this turn」。" +
-    "已合入代码里唯一的关键词授予形态是 static 能力的 grant-keyword 持续效果（sfd/breakneck-mech.ts、gem-jammer.ts、forecaster.ts），" +
-    "它属于卡牌自身的图层特征，正在结算的法术无法创建，也没有原语调用 ctx.addContinuous 来授予关键词；" +
-    "ability-templates 已把 continuous.keyword 排除在 RIFT-9 候选路线之外。授予还须带 end-of-turn 期限（317.2.c）。" +
-    "此外 Assault 展开（CR 807，effects/keywords/Assault.ts）是条件于宿主 attacker designation 的 static continuous.might，" +
-    "而 designation 尚未进入 ObjectSnapshot。不近似实现（不用 Buff 计数代替 Might 修改）。" +
-    "依赖：duration 限定的连续关键词授予原语 + attacker designation 支持（RIFT-91 已合入）。",
+    "关键词授予原语已合入并可执行（continuous.grant-keyword，RIFT-258；golden 已真实注册 ability 层 " +
+    "Assault 3 与 end-of-turn 期限），但被授予 Assault 的功能文本「+3 :rb_might: while it's an attacker」" +
+    "（807.1.c/807.2）仍没有可执行消费链：Assault 的 KeywordDef 展开是条件于宿主 attacker designation 的 " +
+    "continuous.might，而 (1) 没有把卡牌 keyword 能力展开并注册进图层的绑定（RIFT-257），" +
+    "(2) designation 不在 layers 的 ObjectSnapshot 特征里，(3) layers/engine.ts 的 conditionMatches 不求解 " +
+    "compare 条件（未知 kind 一律按 true），该条件在真实图层计算里既不能生效也不能正确关闭。" +
+    "依赖：RIFT-257（CardProgram 绑定）、designation 谓词与 compare 条件消费方（RIFT-91 后续）。不近似实现（不用 Buff 计数代替 Might 修改）。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "Give a unit [Assault 3] this turn. (+3 :rb_might: while it's an attacker.)",
@@ -66,13 +60,16 @@ const cleave = {
       body: [
         {
           // The granted keyword, its value and the end-of-turn duration are
-          // stated for review; this op is not registered (see judgeReason).
+          // submitted through the merged continuous.grant-keyword primitive;
+          // the selected unit is read with the target selector.
           id: "cleave.grant-assault-3",
           op: "continuous.grant-keyword",
           args: {
             keyword: { kind: "constant", value: "Assault" },
             value: { kind: "constant", value: 3 },
-            duration: { kind: "constant", value: "end-of-turn" }
+            duration: { kind: "constant", value: "end-of-turn" },
+            // 355.10.d / 契约 3.6：目标由已 Finalize 锁定的 TargetSpec 读取。
+            objects: { kind: "constant", value: { kind: "target", id: "cleave.unit" } }
           },
           targets: [
             {
