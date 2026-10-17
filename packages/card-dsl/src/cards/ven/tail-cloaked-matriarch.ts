@@ -36,12 +36,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 2. 442.1.a 的 Empowered 二元状态不在 ObjectSnapshot / Condition 里，empowered-changed 的
  *    载荷也没有增加方向过滤的消费方（同 souls-reflection/covert-informant 的记录，RIFT-87）。
  * 3. “with Energy cost no more than [3] and Power cost no more than [A]” 需要印刷费用上限比较：
- *    冻结的 ObjectFilter 没有费用谓词，已合入过滤器（layers/filter.ts、参考内核）也不读这类键，
- *    写成过滤器会让任意垃圾场单位合法（同 sfd/glasc-mixologist 的记录）。:rb_rune_rainbow: 是
- *    135.2.e.5.a/163.2.b 的 [A] 任意域 Power，六域封闭 Domain 集合无法表达。
+ *    costEnergyLte / costPowerLte 尚无消费方，programs/filters.ts 会拒绝这些描述性键，
+ *    因此还不能执行印刷费用上限筛选（RIFT-359）。[A]（135.2.e.5.a/163.2.b）
+ *    已能通过费用系统的六域 allowedDomains 表达，任意域 Power 费用表示不是缺口。
  * 4. “ignoring its cost” 需要费用管线为**已被选中的那张牌**产出 ignore-base 的 Finalize 计划
- *    （356.1.b.1）；cost/cost-plan.ts 能表达 ignore-base，但没有卡牌程序 → 费用计划的接线
- *    （RIFT-89）。程序把它写成已 Finalize 的零基础费用计划形状（同 glasc-mixologist），
+ *    （356.1.b.1）；cost/cost-plan.ts 能表达 ignore-base，但没有卡牌程序 → 费用计划的接线。
+ *    程序把它写成已 Finalize 的零基础费用计划形状（同 glasc-mixologist），
  *    并把“这个计划必须由费用管线为该目标产出”记在此处。
  * 已支持部分：effect.play 本体（在参考内核里把锁定的垃圾场单位按给定计划打出到基地）在 golden
  * 中真实执行。
@@ -135,8 +135,8 @@ export default {
     "ObjectSnapshot / Condition 里，empowered-changed 载荷也没有增加方向过滤的消费方" +
     "（EVENT_PATTERN_TYPES 无 empowerment 判别值，载荷无 direction 字段）；" +
     "(3)「with Energy cost no more than :rb_energy_3: and Power cost no more than :rb_rune_rainbow:」需要印刷费用上限比较，" +
-    "但冻结的 ObjectFilter 没有费用谓词、已合入过滤器也不读这类键（写成过滤器会让任意垃圾场单位合法）；" +
-    "[A] 任意域 Power（135.2.e.5.a / 163.2.b）在六域封闭 Domain 集合里不可表达（同 sfd/glasc-mixologist）；" +
+    "但 costEnergyLte / costPowerLte 只有描述性记录，尚无印刷费用上限谓词消费方（RIFT-359）；" +
+    "[A] 任意域 Power（135.2.e.5.a / 163.2.b）已能通过费用系统的六域 allowedDomains 表达，不是缺口；" +
     "(4)「ignoring its cost」需要费用管线为被选中的那张牌产出 ignore-base 的 Finalize 计划（356.1.b.1），" +
     "cost/cost-plan.ts 能表达 ignore-base 但没有卡牌 → 计划的接线。" +
     "programs/filters.ts 对 costEnergyLte 等未知过滤字段会直接抛 judge-required，" +

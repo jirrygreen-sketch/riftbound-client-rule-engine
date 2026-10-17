@@ -140,7 +140,7 @@ test("ven-065-166 golden: the trigger condition shape is the conjunction of the 
 test("ven-065-166 golden: the merged history primitive evaluates the three-clause filters (HistoryQuery objectFilter)", () => {
   // 该 golden 显式使用已合入的 condition.history 原语（interpreter/history.ts）验证
   // objectFilter/isToken 维度；它不执行卡内原始条件——原始条件走 count 表达式的
-  // 现场集合查询，见下一个反例。play 动作由内核真实执行并连 object 快照写入
+  // 现场集合查询，见下面按正确规则断言的 TODO。play 动作由内核真实执行并连 object 快照写入
   // history（timingPoint card-played）。
   const playedHistoryQuery = (objectFilter, filterPlayer = "A") => ({
     id: "swain-visionary.conquer-condition",
@@ -161,6 +161,18 @@ test("ven-065-166 golden: the merged history primitive evaluates the three-claus
     .card("played-gear", { owner: "A", zone: "hand", types: ["gear"], isToken: false })
     .card("played-spell", { owner: "A", zone: "hand", types: ["spell"] })
     .build();
+  // 三类牌在手中不等于本回合打出过；已合入的历史原语必须全部返回假。
+  assert.equal(kernel.history({ scope: "turn", action: "play", player: "A" }), 0);
+  for (const objectFilter of [
+    { type: "unit", isToken: false },
+    { type: "gear", isToken: false },
+    { type: "spell" }
+  ]) {
+    const gate = runAbilityBody([playedHistoryQuery(objectFilter)], kernel);
+    assert.equal(gate.status, "executed", JSON.stringify(objectFilter));
+    assert.equal(gate.linkedValues["swain-visionary.conquer-condition.count"], 0);
+    assert.equal(gate.linkedValues["swain-visionary.conquer-condition.value"], false);
+  }
   for (const id of ["played-unit", "played-gear", "played-spell"]) {
     const outcome = kernel.perform({
       type: "play",
@@ -205,14 +217,11 @@ test("ven-065-166 golden: the merged history primitive evaluates the three-claus
   assert.equal(tokenUnitGate.linkedValues["swain-visionary.conquer-condition.value"], false);
 });
 
-test("ven-065-166 golden: the card's original condition does not read play history (fails closed)", () => {
-  // 用卡内原始条件（含 controller:"controller" 占位符，不做内核替换）执行，复现
-  // 触发管线的现场求值路径：count 表达式走集合查询、不读历史。占位符在集合查询
-  // 里不匹配任何真实 playerId，所以打牌前后都 fail-closed 为假。把占位符换成
-  // 真实 playerId 后，三类牌留在手里、playHistory=0 时条件就返回 true（集合查询
-  // 命中当前手牌）——这条「错误 true」证明即使换掉占位符，求值也不读「本回合
-  // 打出过」这一历史事实；打出到棋盘后它同样为 true，但那是棋盘现状与历史巧合，
-  // 不是历史判定。两条路径都不读历史，因此条件不可执行。
+test("ven-065-166 TODO: the original condition is true after all three categories were played this turn", {
+  todo: "CR 383.2.a.1 / RIFT-359: bind the controller and evaluate the card's count condition from play history"
+}, () => {
+  // 原始条件和规则预期都保留；依赖接通后此用例应通过，再移除 TODO。
+  // 不能将当前的 false 作为打出过三类牌之后的正确结果。
   const kernel = world()
     .player("A")
     .card("hand-unit", { owner: "A", zone: "hand", types: ["unit"], isToken: false })
@@ -234,24 +243,28 @@ test("ven-065-166 golden: the card's original condition does not read play histo
   assert.equal(kernel.getObject("hand-spell").zone, "board");
   const playedOutcome = runAbilityBody(predicateBody(conquer.trigger.condition), kernel);
   assert.equal(playedOutcome.status, "executed");
-  assert.equal(playedOutcome.linkedValues["swain-visionary.conquer-condition.value"], false);
+  assert.equal(playedOutcome.linkedValues["swain-visionary.conquer-condition.value"], true);
+});
 
-  // 对照反例：同样的牌留在手里（playHistory = 0），条件应表达「本回合打出过」而
-  // 返回 false——占位符路径 fail-closed 为假，换真值后集合查询命中手牌返回 true，
-  // 两条路径都不读历史。
-  const handKernel = world()
-    .player("A")
-    .card("hand-unit", { owner: "A", zone: "hand", types: ["unit"], isToken: false })
-    .card("hand-gear", { owner: "A", zone: "hand", types: ["gear"], isToken: false })
-    .card("hand-spell", { owner: "A", zone: "hand", types: ["spell"] })
+test("ven-065-166 TODO: the original condition is false when all three categories remain unplayed in hand", {
+  todo: "CR 383.2.a.1 / RIFT-359: count cards played this turn instead of matching the current object set"
+}, () => {
+  // 直接执行卡内原始条件。将测试玩家命名为 controller，让原条件的控制者键能命中，
+  // 从而单独复现现场集合查询误算手牌的问题，不改写条件，也不伪造历史。
+  const base = world()
+    .player("controller")
+    .card("hand-unit", { owner: "controller", zone: "hand", types: ["unit"], isToken: false })
+    .card("hand-gear", { owner: "controller", zone: "hand", types: ["gear"], isToken: false })
+    .card("hand-spell", { owner: "controller", zone: "hand", types: ["spell"] })
     .build();
-  assert.equal(handKernel.history({ scope: "turn", action: "play", player: "A" }), 0);
-  const withPlaceholder = runAbilityBody(predicateBody(conquer.trigger.condition), handKernel);
-  assert.equal(withPlaceholder.status, "executed");
-  assert.equal(withPlaceholder.linkedValues["swain-visionary.conquer-condition.value"], false);
-  const withRealController = runAbilityBody(predicateBody(conditionForKernel()), handKernel);
-  assert.equal(withRealController.status, "executed");
-  assert.equal(withRealController.linkedValues["swain-visionary.conquer-condition.value"], true);
+  const kernel = base.clone({ controller: "controller" });
+  for (const id of ["hand-unit", "hand-gear", "hand-spell"]) {
+    assert.equal(kernel.getObject(id).zone, "hand");
+  }
+  assert.equal(kernel.history({ scope: "turn", action: "play", player: "controller" }), 0);
+  const outcome = runAbilityBody(predicateBody(conquer.trigger.condition), kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.linkedValues["swain-visionary.conquer-condition.value"], false);
 });
 
 test.todo(

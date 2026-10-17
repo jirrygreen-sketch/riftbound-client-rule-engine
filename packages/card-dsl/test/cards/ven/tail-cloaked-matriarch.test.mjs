@@ -54,6 +54,8 @@ test("ven-104-166 Tail-Cloaked Matriarch: identity, status, judgeReason and verb
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /356\.1\.b\.1/);
   assert.match(program.judgeReason, /costEnergyLte/);
+  assert.match(program.judgeReason, /costPowerLte/);
+  assert.match(program.judgeReason, /allowedDomains/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.ok(!/RIFT-89|RIFT-87/.test(program.judgeReason));
 });
@@ -159,8 +161,9 @@ test.todo(
 
 test.todo(
   "ven-104-166 Tail-Cloaked Matriarch: enforce the printed-cost ceilings ('Energy cost no more than 3', " +
-    "'Power cost no more than [A]', 163.2.b) — the frozen ObjectFilter has no cost predicate and the merged " +
-    "filters ignore such keys, so today any trash unit is a legal target"
+    "'Power cost no more than [A]', 163.2.b) — implement costEnergyLte / costPowerLte predicates (RIFT-359) " +
+    "and bind them to target selection; programs/filters.ts currently rejects these descriptive fields; " +
+    "the cost system already expresses [A] with six-domain allowedDomains"
 );
 
 test.todo(
