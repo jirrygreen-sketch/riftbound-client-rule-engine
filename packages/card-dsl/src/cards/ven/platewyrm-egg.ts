@@ -24,9 +24,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 828.1 / 828.1.b / 828.1.b.1 / 828.1.c："If this is [Empowered] … instead" 是
  *   Empowered 状态门控的替换分支：本卡按 Empowered 状态在 1 Energy 与 2 Energy 之间二选一。
  *
- * status = judge-required（缺口均不近似实现）：
- * 1. 入场状态改写：契约 3.4/3.5 的替代族里没有卡牌 IR 可注册的 replacement.enter 原语
- *    （同 ogn/iron-ballista、rad/antagonistic-apparatus 的缺口）。
+ * status = judge-required（复核 2026-10-17；缺口均不近似实现）：
+ * 1. replacement.enter 原语与绑定路径已合入（RIFT-257 批次的 src/replacement/bind.ts，
+ *    处理 ready|exhausted 入场状态并拦截 chain→(base|battlefield) 的入场 move），golden 用
+ *    bindReplacement + 链引擎全链路执行「This enters exhausted.」。
  * 2. 没有 Empower/Empowered KeywordDef：effects/keywords/registry.generated.ts 没有
  *    "empower"/"empowered" 展开（RIFT-81~88 关键词批次不含），827.1.c.1 的启动费用与
  *    "仅当未 Empowered 时启动"限制、828.1.c 的状态门控都无实现路径。
@@ -36,13 +37,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    Finalize/Resolve choice-plan adapter"），且 Empowered 谓词本身未接通。
  * 可执行部分：effect.resources 的 Add 1 / Add 2 Energy 本体（430.1/430.2/430.5）已合入，
  * golden 用真实解释器分别执行两个分支并断言互斥分支不静默加资源。
- * 依赖：replacement.enter 入场替代管线（RIFT-120 的替代注册路径）、新的 Empower/Empowered
- * 关键词任务、RIFT-89/90（费用与选择计划接线）。
+ * 依赖：新的 Empower/Empowered 关键词任务、Empowered 谓词 + instead 运行时形状（RIFT-89/90）。
  */
 const abilities: Ability[] = [
   {
     // "This enters exhausted." — 入场状态改写，不是一次横置动作（369.3、149.1/359.2.d）。
-    // 消费方是入场替代管线（replacement.enter，契约 3.4/3.5），尚未合入。
+    // replacement.enter 原语与注册路径已合入（RIFT-257 批次），执行证据见 judgeReason。
     kind: "replacement",
     replaces: { event: "object-enters-board", filter: { source: "self" } },
     with: [
@@ -96,16 +96,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1)「This enters exhausted.」是入场状态改写（369.3、149.1/359.2.d），" +
-    "契约 3.4/3.5 的替代族没有卡牌 IR 可注册的 replacement.enter 原语与注册路径（同 ogn/iron-ballista 的缺口）。" +
-    "(2) 缺 Empower/Empowered KeywordDef：keywords/registry.generated.ts 没有 \"empower\"/\"empowered\" 展开" +
-    "（RIFT-81~88 关键词批次不含），827.1.c.1 的「1 Energy + 横置：Empower this，仅当未 Empowered 时启动」" +
-    "（415.5）与 828.1.c 的状态门控无执行路径。" +
+    "三处缺口，均不近似实现：(1)「This enters exhausted.」是入场状态改写（369.3、149.1/359.2.d）；" +
+    "replacement.enter 原语与注册路径（src/replacement/bind.ts，RIFT-257 批次）已合入，golden 已用 " +
+    "bindReplacement + 链引擎真实执行 chain→base 入场并被改写为 exhausted；(2) 缺 Empower/Empowered " +
+    "KeywordDef：keywords/registry.generated.ts 没有 \"empower\"/\"empowered\" 展开（RIFT-81~88 关键词批次不含），" +
+    "827.1.c.1 的「1 Energy + 横置：Empower this，仅当未 Empowered 时启动」（415.5）与 828.1.c 的状态门控无执行路径；" +
     "(3)「If this is [Empowered], [Add] :rb_energy_2: instead」是 Empowered 状态门控的替换分支：" +
     "契约 3.4 的条件从句只作用于所在指令，可用的 choice.mode 被 chain/engine.ts 的 assertFinalizationSurface 显式阻断" +
     "（\"Mode choices require a Finalize/Resolve choice-plan adapter\"），Empowered 谓词亦未接通。" +
     "可执行部分：effect.resources 的 Add 1 / Add 2 Energy（430.1/430.2/430.5）由 golden 用真实解释器执行，" +
-    "未 Empowered 状态下不会静默多加资源。依赖：replacement.enter 入场替代管线、新的 Empower/Empowered 关键词任务、RIFT-89/90。",
+    "未 Empowered 状态下不会静默多加资源。依赖：新的 Empower/Empowered 关键词任务、Empowered 谓词 + instead 运行时形状（RIFT-89/90）。",
   abilities,
   sourceText:
     "This enters exhausted.\n" +
