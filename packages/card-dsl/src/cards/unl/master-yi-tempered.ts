@@ -65,9 +65,9 @@ export default {
     "而封闭 EVENT_PATTERN_TYPES（events/trigger-spec.ts）只接受 \"conquered\"/\"held\"，registerProgramTriggers " +
     "实测抛 TriggerSpecValidationError（invalid-event-type）；且 conquer 发射不带对象" +
     "（turn/flow.ts 的 Score 波只发 { timingPoint, player, details }），source:\"self\" 锚点匹配不到征服单位（823.1.c.1）；" +
-    "(2) 本卡的 [Level 6][>] 门槛完全未被求值：条件写作 count(subject: \"controller-xp\", filter: { player: \"controller\" })，" +
-    "该 subject 不是上下文认识的查询，count 退化成普通对象计数并越过阈值——实测 0 / 5 / 6 / 10 XP 都同样授予 " +
-    "[Deflect] 与 [Ganking]，824.1.c.1 / 824.1.d 的 6+ XP 门控与失活都没有实现（注意：不是 fail closed 的未知 compare）；" +
+    "(2) 本卡的 [Level 6][>] 门槛仍无玩家 XP 求值接口：条件写作 count(subject: \"controller-xp\", filter: { player: \"controller\" })，" +
+    "该 subject 不是上下文认识的查询，未保护时 count 退化成对象计数；现以 never 显式阻断待接线分支，防止错误授予 " +
+    "[Deflect] 与 [Ganking]，824.1.c.1 / 824.1.d 的 6+ XP 门控与失活都没有实现（never 只表示 blocked，不证明 Level 已实现）；" +
     "(3) [Level] 自身的展开是 condition.predicate 静态效果，programs/statics.ts 实测以 " +
     "\"Static ability kind condition.predicate has no layer mapping\" 拒绝绑定；" +
     "(4) [Deflect] 的目标税仍未接通：target.tax 在静态绑定里没有图层映射，目标计划也只收调用方提供的 tax；" +
@@ -89,14 +89,21 @@ export default {
         filter: { object: "self" }
       },
       condition: {
-        kind: "compare",
-        left: {
-          kind: "count",
-          subject: "controller-xp",
-          filter: { player: "controller" }
-        },
-        operator: "gte",
-        right: { kind: "constant", value: 6 }
+        // CR 824.1.c/d: pending player XP query; never substitute object count.
+        kind: "all",
+        conditions: [
+          { kind: "never" },
+          {
+            kind: "compare",
+            left: {
+              kind: "count",
+              subject: "controller-xp",
+              filter: { player: "controller" }
+            },
+            operator: "gte",
+            right: { kind: "constant", value: 6 }
+          }
+        ]
       }
     },
     {
@@ -107,14 +114,21 @@ export default {
         filter: { object: "self" }
       },
       condition: {
-        kind: "compare",
-        left: {
-          kind: "count",
-          subject: "controller-xp",
-          filter: { player: "controller" }
-        },
-        operator: "gte",
-        right: { kind: "constant", value: 6 }
+        // CR 824.1.c/d: pending player XP query; never substitute object count.
+        kind: "all",
+        conditions: [
+          { kind: "never" },
+          {
+            kind: "compare",
+            left: {
+              kind: "count",
+              subject: "controller-xp",
+              filter: { player: "controller" }
+            },
+            operator: "gte",
+            right: { kind: "constant", value: 6 }
+          }
+        ]
       }
     }
   ],

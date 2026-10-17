@@ -1,3 +1,4 @@
+// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -38,8 +39,8 @@ test("unl-113-219 Master Yi, Tempered: identity, status, judgeReason and verbati
   // consumer.
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.match(program.judgeReason, /controller-xp/);
-  // Re-checked against the merged sources: the Level gate is ignored (not
-  // fail-closed), Level's own predicate has no layer mapping, and the granted
+  // The authored Level gate is explicitly blocked; the engine still has no
+  // player XP evaluator or layer mapping for Level's own predicate. Granted
   // Ganking shape does not satisfy the movement query.
   assert.match(program.judgeReason, /TriggerSpecValidationError/);
   assert.match(program.judgeReason, /condition\.predicate/);
@@ -56,14 +57,17 @@ test("unl-113-219 Master Yi, Tempered: [Hunt 2] carries its printed Hunt Value",
 test("unl-113-219 Master Yi, Tempered: [Level 6][>] gates both grants on 6 or more XP", () => {
   for (const ability of [deflectGrant, gankingGrant]) {
     assert.equal(ability.kind, "static");
-    assert.equal(ability.condition.kind, "compare");
-    assert.equal(ability.condition.operator, "gte");
-    assert.deepEqual(ability.condition.right, { kind: "constant", value: 6 });
+    assert.equal(ability.condition.kind, "all");
+    assert.deepEqual(ability.condition.conditions[0], { kind: "never" });
+    const pending = ability.condition.conditions[1];
+    assert.equal(pending.kind, "compare");
+    assert.equal(pending.operator, "gte");
+    assert.deepEqual(pending.right, { kind: "constant", value: 6 });
     // 824.1.c / 824.1.c.1 / 824.1.d: the gate is the controller's XP and must
     // re-evaluate as it changes; the shape is retained, not evaluated.
-    assert.equal(ability.condition.left.kind, "count");
-    assert.equal(ability.condition.left.subject, "controller-xp");
-    assert.deepEqual(ability.condition.left.filter, { player: "controller" });
+    assert.equal(pending.left.kind, "count");
+    assert.equal(pending.left.subject, "controller-xp");
+    assert.deepEqual(pending.left.filter, { player: "controller" });
   }
 });
 
@@ -127,7 +131,7 @@ test("unl-113-219 Master Yi, Tempered: the card's own grants are registered as s
   assert.deepEqual(program.abilities.filter(ability => ability.kind === "static").map(ability => [
     ability.effect.kind,
     ability.effect.keyword,
-    ability.condition.right.value
+    ability.condition.conditions[1].right.value
   ]), [
     ["continuous.grant-keyword", "Deflect", 6],
     ["continuous.grant-keyword", "Ganking", 6]
@@ -177,10 +181,9 @@ test("unl-113-219 Master Yi, Tempered: Hunt's conquer/hold spelling is rejected 
   }));
 });
 
-test("unl-113-219 Master Yi, Tempered: the [Level 6][>] gate is ignored, so both keywords are granted at every XP total (CR 824.1.c.1/824.1.d)", () => {
-  // The authored condition reads count(subject: "controller-xp"), which the
-  // context does not know. The count degenerates to a plain object count and
-  // passes the >= 6 threshold, so the grants never deactivate.
+test("unl-113-219 Master Yi, Tempered: the unresolved [Level 6][>] query stays blocked rather than counting objects as XP (CR 824.1.c.1/824.1.d)", () => {
+  // The old count expression read objects, granting Level at zero XP. The
+  // authored never guard blocks that unsupported read until player XP is wired.
   for (const xp of [0, 5, 6, 10]) {
     const f = fixture({
       cards: [{ id: "yi", cardId: CANONICAL_ID, types: ["unit"], energy: 4, power: ["Body"], might: 4 }]
@@ -199,8 +202,8 @@ test("unl-113-219 Master Yi, Tempered: the [Level 6][>] gate is ignored, so both
     assert.equal(f.kernel.player("A").xp, xp);
     assert.deepEqual(
       f.engine.layers.evaluate(source.ref).keywords.map((keyword) => keyword.id),
-      ["Deflect", "Ganking"],
-      `XP ${xp} must not activate the 6+ XP dependent text`
+      [],
+      `XP ${xp}: unresolved player query must remain explicitly blocked`
     );
     ganking.unbind();
     deflect.unbind();

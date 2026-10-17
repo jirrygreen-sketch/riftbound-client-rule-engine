@@ -61,7 +61,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "827.1.c.1 的 5 Energy 印刷费用缺 KeywordAbility.params.cost → expandProgram → Empower.expand 接线；ObjectSnapshot 尚未声明 empowered（442.1.a），统一生产 Empowered 状态适配与 442.1.b/c 的二元状态限制仍需接通；827.1.c.3 的 continuous.cost-modification 尚无 empower-activation-cost → 费用计划接线，控制 4 或更少符文时的减 3 Energy 不能应用。828.1.c 的 continuous.grant-keyword 已用 empowered 比较门控；授予的 Assault 2 仍缺展开与攻击者 designation/combatRole 接线（807.1.c），Deflect 的真实 Power 目标税适配器尚未进入 Chain Finalize，chain/engine.ts 仍把税写为 Energy（809.1.c）。",
+    "827.1.c.1 的 5 Energy 印刷费用缺 KeywordAbility.params.cost → expandProgram → Empower.expand 接线；ObjectSnapshot 尚未声明 empowered（442.1.a），统一生产 Empowered 状态适配与 442.1.b/c 的二元状态限制仍需接通；827.1.c.3 的 continuous.cost-modification 尚无 empower-activation-cost → 费用计划接线，控制 4 或更少符文时的减 3 Energy 不能应用；count.filter.controller:self 尚无相对玩家求值，不能用测试内符号替换证明生产条件已实现。828.1.c 的 continuous.grant-keyword 已用 empowered 比较门控；授予的 Assault 2 仍缺展开与攻击者 designation/combatRole 接线（807.1.c），Deflect 的真实 Power 目标税适配器尚未进入 Chain Finalize，chain/engine.ts 仍把税写为 Energy（809.1.c）。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_5:. This ability costs :rb_energy_3: less if you control 4 or fewer runes. " +

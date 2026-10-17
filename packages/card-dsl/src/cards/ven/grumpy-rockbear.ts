@@ -71,10 +71,14 @@ const abilities: Ability[] = [
       appliesTo: "empower-activation-cost",
       per: "rune-you-control",
       minimum: 0,
-      value: {
-        kind: "count",
-        subject: "runes",
-        filter: { type: "rune", controller: "self", zone: "rune-zone" }
+      amount: {
+        kind: "arithmetic",
+        operator: "neg",
+        operands: [{
+          kind: "count",
+          subject: "runes",
+          filter: { type: "rune", controller: "self", zone: "rune-zone" }
+        }]
       }
     }
   },
@@ -89,8 +93,10 @@ const abilities: Ability[] = [
       ]
     },
     condition: {
-      kind: "expression",
-      value: { kind: "constant", value: "empowered" }
+      kind: "compare",
+      left: { kind: "object-property", object: "self", property: "empowered" },
+      operator: "gte",
+      right: { kind: "constant", value: 1 }
     }
   }
 ];
@@ -100,18 +106,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四条缺口：(1) Empower KeywordDef 已合入，但 CardProgram 的 KeywordAbility 没有每实例 params.cost，" +
-    "programs/keywords.ts 也不透传它；本卡的 12 Energy 与 per-rune 减费无法进入展开，默认占位 " +
-    "cost.kind \"empower\" 会被 translateCost 拒绝，827.1.c.1/827.1.c.3/827.1.c.5 因而仍未接入卡牌费用；" +
-    "(2) 442.1.a 的 Empowered 二元状态不在生产 ObjectSnapshot / Condition 中，layers/engine.ts 的 " +
-    "conditionMatches 对未知 condition kind 落回 true，所以 828.1.c 的 [Empowered][>] 静态效果门控不可求值 " +
-    "（进行中任务 RIFT-359 条件谓词）；(3)「I have [Deflect] and [Shield 3]」的 " +
-    "continuous.grant-keyword 已合入（golden 真实执行），被授予的 Deflect 的目标税消费方（target.tax / " +
-    "TargetTaxAdapter）也已随 RIFT-90 合入；(4) 827.1.c.3 的费用改写静态效果 " +
-    "（continuous.cost-modification, appliesTo \"empower-activation-cost\"）在 programs/statics.ts 的 " +
-    "staticTarget/layerFor 里没有映射，bind 时 fail-closed（实测 Unsupported static appliesTo）。" +
-    "依赖每实例 Empower 费用透传、Empower 费用消费、Empowered 状态谓词；不近似实现费用改写与状态门控，" +
-    "不把依赖能力写成无条件能力。",
+    "827.1.c.1/827.1.c.3/827.1.c.5：KeywordAbility 尚无 params.cost，expandProgram 无法传印刷 12 Energy，且 continuous.cost-modification 的 empower-activation-cost 无静态绑定与费用消费方。逐符文折扣现显式声明负 rune count，但 count.filter.controller:self 尚无相对玩家求值，现会错误计为 0；不把缺失费用变成免费启动。828.1.c 的 Empowered 门控现用 self.empowered 比较，continuous.grant-keyword 可在参考内核随 Empower/Disempower 授予并撤销 Deflect 1 / Shield 3；442.1.a 的生产 ObjectSnapshot 状态契约与二元限制仍缺（RIFT-359）。授予关键词尚未自动重绑定 Shield 的防守者 Might 展开，Deflect 的 Power 税仍需接入 Chain Finalize；子集证据不证明整卡可执行。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_12:. This ability costs :rb_energy_1: less for each rune you control. (Pay the cost: Empower me. Use only if not Empowered.)\n" +

@@ -1,3 +1,4 @@
+// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
 import assert from "node:assert/strict";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
