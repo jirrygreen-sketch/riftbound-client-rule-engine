@@ -18,19 +18,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   475/478 的算术层与期限），属 layers 的 continuous.might；effect.buff 的文件头明确 Buff 计数器
  *   （702/703）不是 Might 修正，两者不可互换。
  *
- * status = judge-required（按 2026-10-16 合入批次复核；缺口不近似实现）：
- * - 「+8 Might this turn」现在可执行：continuous.might（RIFT-258）已合入，按已求值的 8 点算术层
+ * status = judge-required（按当前 HEAD 复核；缺口不近似实现）：
+ * - 「+8 Might this turn」现在可执行：continuous.might 已合入，按已求值的 8 点算术层
  *   修正 + end-of-turn 期限经 ctx.addContinuous 注册（处理见 layers/ops 的 buildMightSpec /
  *   resolveContinuousDuration）。golden 通过链适配器 + 参考内核真实执行 body 并断言图层结果、
  *   到期与目标失效边界。原 body 里的 `layer` 参数已被合并原语 schema 拒绝（Invalid continuous.might
  *   argument: layer），故改写为合并形状；body 仍不是 8 个 Buff 计数。
- * - conquer 触发仍不可注册：Hunt/其它卡同型，turn/flow.ts 的 Score 波发射 conquer 时只带 player/details，
- *   不带征服单位，因此 filter {event:"conquer", filter:{source:"self"}} 经 programs/filters.ts 归一化后
- *   得到 object:{objectId:...}，而事件无 object 可匹配；同时封闭 EVENT_PATTERN_TYPES 拼写为 "conquered"。
- * - 「a friendly unit」的目标过滤仍写占位式 controller: "controller"：chain/engine.ts 的 query 只把
- *   "self"/"opponent" 绑定到能力控制者，"controller" 会按字面比较而选出空集（不留近似目标）。
- * 依赖：conquer 触发的事件对象载荷与 "conquered" 拼写接线（RIFT-120 后续）、
- * chain query 的 controller 占位符绑定（RIFT-257/120 后续）。
+ * - conquer 触发仍不能在生产事件管线中命中：Score 波发射 conquer 时只带 player/details，不带征服单位，
+ *   因此 filter {event:"conquer", filter:{source:"self"}} 经 programs/filters.ts 归一化后的
+ *   object:{objectId:...} 没有可匹配事件对象；同时 EventPattern 的封闭词汇没有 "conquer" 拼写。
+ * - 友方目标已经改用契约支持的 controller: "self"，会在程序目标翻译时绑定能力控制者。
+ * 依赖：conquer 事件的来源对象载荷与事件词汇接线。
  */
 const abilities: Ability[] = [
   {
@@ -45,7 +43,7 @@ const abilities: Ability[] = [
       {
         id: "inviolus-vox.grant-might-8",
         // “give a friendly unit +8 :rb_might: this turn.” —— 本回合到期的临时 Might 修正
-        // （arithmetic 层，见 judgeReason）；没有已注册的原语消费该形状。
+        // （arithmetic 层，见 judgeReason）；结算时由 continuous.might 注册该修正。
         op: "continuous.might",
         args: {
           mode: { kind: "constant", value: "add" },
@@ -63,7 +61,7 @@ const abilities: Ability[] = [
           {
             id: "inviolus-vox.friendly-unit",
             // 355.9 / 355.9.a.1：“a friendly unit” 是由你控制的单个棋盘单位。
-            filter: { type: "unit", controller: "controller", zone: "board" },
+            filter: { type: "unit", controller: "self", zone: "board" },
             min: 1,
             max: 1,
             selection: "one"
@@ -80,18 +78,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "已按 2026-10-16 合入批次复核，两处缺口，均不近似实现：" +
+    "按当前 HEAD 复核，仍有一处缺口，不近似实现：" +
     "(1) conquer 触发仍不可注册：turn/flow.ts 的 Score 波发出 conquer 时只带 player 与 details.battlefieldId、" +
     "不带征服单位，因此 { event: \"conquer\", filter: { source: \"self\" } } 经 programs/filters.ts 归一化后的 " +
     "object:{objectId:宿主} 没有可匹配的事件对象；封闭 EVENT_PATTERN_TYPES（events/trigger-spec.ts）里也没把 " +
-    "conquer 列为可订阅拼写（别名是 \"conquered\"）。" +
-    "(2) 「a friendly unit」的目标过滤仍是 controller: \"controller\" 占位符：chain/engine.ts 的 query 只把 " +
-    "\"self\"/\"opponent\" 绑定到能力控制者，\"controller\" 会按字面比较而选出空集（不放宽成任意单位）。" +
+    "conquer 列为可订阅拼写（只保留 conquered 别名）。" +
     "已合入并已真实执行的部分：「give a friendly unit +8 Might this turn」（143.2.a/475/478）由 " +
-    "continuous.might（RIFT-258）注册 arithmetic 层本回合到期的 +8 修正，golden 经链适配器 + 参考内核断言 " +
+    "continuous.might 注册 arithmetic 层本回合到期的 +8 修正，golden 经链适配器 + 参考内核断言 " +
     "注册、有效 Might、到期与目标失效边界；原 body 的 layer 参数已被合并原语 schema 拒绝，故改成合并形状。" +
     "effect.buff 只放 Buff 计数器（702/703），不是 Might 修正。" +
-    "依赖：conquer 事件对象载荷与 \"conquered\" 拼写接线（RIFT-120 后续）、chain query 的 controller 占位符绑定。",
+    "依赖：conquer 事件的来源对象载荷与事件词汇接线。",
   abilities,
   sourceText: "When I conquer, give a friendly unit +8 :rb_might: this turn."
 } satisfies CardProgram;

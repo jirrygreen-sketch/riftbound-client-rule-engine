@@ -42,12 +42,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   moved unit's departure site, so an ignored move ignores the draw too
  *   (359.3.e.14.a).
  *
- * status = judge-required (README section 2). The Move half is merged and
+ * status = judge-required (README section 2; current HEAD). The Move half is merged and
  * executed; the conditional draw is not approximated.
  *
  * Dependencies: an "alone" (740.2.a) / set-emptiness predicate and a
- * location-valued result read from a previous instruction (RIFT-90 target plan
- * and condition.predicate; the same gap rad/demon-shade records).
+ * location-valued result read from a previous instruction (the current
+ * condition and linked-result contracts still lack both shapes; the same gap
+ * rad/demon-shade records).
  */
 export default {
   canonicalCardId:
@@ -58,12 +59,12 @@ export default {
     "「Then, if there's an enemy unit alone at that battlefield, draw 1」的从句无法求值，两处缺口均不近似实现：" +
     "(1)「alone」按 740.2.a 是「同一地点没有其他友方单位」的判定：冻结的 ObjectFilter 只能逐键比较 " +
     "type/tag/controller/zone/location 与合并的锚点键，没有该谓词；Condition 也没有表达集合为空的形态" +
-    "（rad/demon-shade 记录了「if there are no open battlefields」的同一缺口）。本文件在 condition 里保留未求值的" +
-    "描述性谓词 { kind: \"predicate\" }，golden 断言合并解释器会拒绝它而不是无条件抽牌；" +
+    "（rad/demon-shade 记录了「if there are no open battlefields」的同一缺口）。本文件不写恒真 condition，" +
+    "golden 只执行 Move 与 Draw 原语并保持该门控待接线，而不是无条件抽牌；" +
     "不删掉「alone」冒充无条件抽牌，也不用位置计数替代 740.2.a 的只算友方口径。" +
     "(2)「that battlefield」需要读取上一条 Move 的实际起止地点：冻结 IR 只有对象选择符，合并内核没有“地点值”的链接读取" +
     "（sfd/azir-sovereign 只能读来源自身的位置，命名不了被移单位离开的战场）。" +
-    "依赖：740.2.a 的 alone / 集合空判定谓词与上一条指令的地点结果读取（RIFT-90 target plan 与 condition.predicate）。" +
+    "依赖：740.2.a 的 alone / 集合空判定谓词与上一条指令的地点结果读取；当前 condition 与 linked-result 契约仍缺这两种形态。" +
     "已合入并由 golden 真实执行的部分：effect.move（421.1，enemy unit → controller-base）与 effect.draw（414.1/414.3）；" +
     "两条指令保持 linkedTo（359.3.e.14.a：Move 被 ignored 时抽牌也 ignored）。",
   abilities: [

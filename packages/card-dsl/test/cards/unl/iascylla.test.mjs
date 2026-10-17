@@ -181,12 +181,12 @@ test("unl-050-219 Iascylla golden: the descriptive destination marker is rejecte
 
 test.todo(
   "unl-050-219 Iascylla: register the delayed trigger 'at the start of your next Main Phase' " +
-    "(CR 391.2/391.4, 393) through a card-facing trigger.delayed primitive over " +
-    "ResolveContext.registerDelayedTrigger — RIFT-9 lists the op and no InstructionDef is merged"
+    "(CR 391.2/391.4, 393) through a card-facing trigger.delayed instruction with a one-shot " +
+    "next-main-phase window"
 );
 
 test.todo(
   "unl-050-219 Iascylla: bind 'this battlefield' to the battlefield she held, locked when the " +
-    "delayed trigger is generated (CR 359.3.f.3.b uses this exact card) — needs a trigger-condition " +
-    "referent selector and an event-location destination for effect.move"
+    "delayed trigger is generated (CR 359.3.f.3.b uses this exact card) — depends on the " +
+    "location referent selector work in RIFT-357"
 );
