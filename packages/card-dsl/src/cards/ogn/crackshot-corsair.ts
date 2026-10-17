@@ -10,12 +10,13 @@ import type { CardProgram } from "../../ir/index.js";
  * - “When I attack”：攻击触发（383.4.e；时点 attack-declared，ruleRefs 323.2、383.4.e、
  *   466.2.c），filter 指向自身。
  * - “deal 1 to an enemy unit here”：effect.damage，数额为印刷常数 1；目标是一名与本单位
- *   同地点的敌方单位（355.7 目标；`sameLocationAs: "source"` 锚点由解释器按当前位置解析）。
+ *   同地点的敌方单位（355.7 目标；IR 记录 `sameLocationAs: "source"` 锚点，解释器的
+ *   目标重检路径已有位置语义，但 production target translator 仍未消费该字段）。
  * - 418.6.a：未指定来源的 Deal 动作以描述该动作的游戏效果（本能力，来源即本单位）为来源；
  *   effect.damage 缺省即为 ctx.source.ref，故不另写 source。
  *
- * status: judge-required —— 效果本体（effect.damage + 目标锚点）已合入，但时点本身仍没有
- * 已合入的发射方：`attack-declared` 只出现在封闭枚举 events/timing-points.ts 与
+ * status: judge-required —— effect.damage 本体已合入，目标锚点仍缺 production translator；
+ * 时点本身也没有已合入的发射方：`attack-declared` 只出现在封闭枚举 events/timing-points.ts 与
  * events/trigger-spec.ts；combat/flow.ts 在 combat start/role designation
  * 与 simultaneous damage 事务处仍显式抛出 TurnCombatBlockedError（combat-start-transaction /
  * simultaneous-damage-transaction），docs/rules/timing-point-producers.md 也把
@@ -26,7 +27,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "effect.damage 与目标锚点均已合入，但攻击时点 `attack-declared` 没有已合入的发射方：该 id 只" +
+    "effect.damage 已合入，但 production target translator 仍拒绝 `sameLocationAs`，且攻击时点 `attack-declared` 没有已合入的发射方：该 id 只" +
     "存在于封闭枚举 events/timing-points.ts 与 events/trigger-spec.ts。combat/flow.ts 已有战斗结构，" +
     "但 combat start/role designation（attack-declared/combat-start）与 simultaneous damage 事务仍显式抛出 " +
     "TurnCombatBlockedError（combat-start-transaction / simultaneous-damage-transaction），docs/rules/timing-point-producers.md " +
