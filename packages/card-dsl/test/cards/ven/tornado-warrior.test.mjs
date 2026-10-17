@@ -52,8 +52,8 @@ test("ven-099-166 Tornado Warrior: identity, status, judgeReason and verbatim so
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /391\.2/);
-  assert.match(program.judgeReason, /RIFT-84/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-84|RIFT-87|RIFT-89|RIFT-91/);
 });
 
 test("ven-099-166 Tornado Warrior: [Hidden] plus a card-played play effect gated on 'from face down'", () => {
@@ -170,22 +170,21 @@ test("ven-099-166 golden: the chooser only offers objects on the host's battlefi
 
 test.todo(
   "ven-099-166 Tornado Warrior: [Hidden]'s cost.hidden / facedown play permission has no consumer even though " +
-    "the KeywordDef is merged (811.1.d; RIFT-84/RIFT-89/RIFT-91)"
+    "the KeywordDef is merged (811.1.d); the Hide and facedown play consumer chain is still incomplete"
 );
 
 test.todo(
   "ven-099-166 Tornado Warrior: decide 'play me from face down' (355.9.a.3 / 107.3.e) — the Facedown Zone is " +
-    "absent from OBJECT_FILTER_ZONES and the card-played payload carries no source zone (RIFT-84)"
+    "absent from the current object-filter vocabulary and the card-played payload carries no source zone"
 );
 
 test.todo(
   "ven-099-166 Tornado Warrior: register 'Disempower it at end of turn' as a Delayed Ability (391.2, window " +
-    "this turn, 317.1.a) — ResolveContext.registerDelayedTrigger exists but no card-facing instruction exposes " +
-    "it, so accepting the optional body currently fails at the unregistered trigger.delayed opcode instead of " +
-    "resolving the disempower (RIFT-9/RIFT-89)"
+    "this turn, 317.1.a) — connect the card-facing trigger.delayed shape to ResolveContext.registerDelayedTrigger " +
+    "so the optional body registers the delayed disempower"
 );
 
 test.todo(
-  "ven-099-166 Tornado Warrior: the Empowered state gate for the disempower half (442.1.a) has no predicate in " +
-    "ObjectSnapshot / Condition (RIFT-87)"
+    "ven-099-166 Tornado Warrior: the Empowered state gate for the disempower half (442.1.a) has no predicate in " +
+    "ObjectSnapshot / Condition yet; wire the state predicate into the delayed branch (RIFT-359)"
 );

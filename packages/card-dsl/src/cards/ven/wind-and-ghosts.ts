@@ -22,16 +22,9 @@ import type { CardProgram } from "../../ir/index.js";
  * - "return it to its owner's hand"：区域移动（448.2），目的地是拥有者的手牌；动作层按拥有者路由
  *   （108.1），卡牌不写玩家参数。
  *
- * status = judge-required（两处缺口，均不近似实现）：
- * 1. "with 3 :rb_might: or less" 的 Might 阈值不可执行：冻结的 ObjectFilter 没有 Might 谓词，已合入过滤器
- *    （layers/filter.ts 的 matchesObjectFilter、参考内核的 matchesFilter）只按
- *    type/types/zone/location/controller/owner/states/tags/characteristics 匹配——描述性 mightLte 会被静默忽略，
- *    那会让任意单位都进入"3 或以下"分支（同 sfd-158-221 Sandshifter、ogn-169-298 Gust 的记录）；
- *    143.2.a 的有效 Might 读数与阈值谓词属 RIFT-83/RIFT-91 的 Mighty 类批次。
- * 2. 分支条件里的 Might 比较同样依赖该读数：条件表达式只能读 ObjectSnapshot 的现有字段（读 might 是可行的，
- *    但"3 或以下"的合法性判定必须与目标限制一致，且 143.2.a 要求的是图层计算后的有效 Might，当前 ObjectSnapshot
- *    的 might 由图层引擎提供、条件管线（RIFT-90/91）未接线到卡牌条件）。因此即使分支写得出，也不能声称整卡可执行。
- * 依赖：RIFT-83/RIFT-91（Might 谓词与有效 Might）、RIFT-90（条件/目标计划接线）。
+ * status = judge-required（唯一整卡缺口不近似实现）：
+ * - 分支条件里的 Might 比较依赖 143.2.a 的有效 Might 与条件管线接线。当前条件表达式尚未把图层计算后的
+ *   Might 读数作为卡牌分支谓词的稳定来源，因此不能声称整卡可执行；该条件/谓词工作属于进行中的 RIFT-359。
  * 已合入部分：effect.banish（428.1/428.2）与 effect.zone（448.2 的拥有者手牌路由）本体，golden 用真实原语
  * 分别执行"放逐"与"回到拥有者手牌"两个已支持半段（含目标失效 ignored 与敌方牌回敌方手牌的边界）。
  */
@@ -40,13 +33,10 @@ const windAndGhosts = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1)「with 3 :rb_might: or less」的 Might 阈值不可执行——冻结的 ObjectFilter 没有 Might 谓词，" +
-    "已合入过滤器只按 type/types/zone/location/controller/owner/states/tags/characteristics 匹配，描述性 mightLte 会被静默忽略，" +
-    "从而让任意单位都进入「3 或以下」分支（同 sfd-158-221 Sandshifter / ogn-169-298 Gust），143.2.a 的有效 Might 阈值属 RIFT-83/RIFT-91；" +
-    "(2) 两条分支的 Might 比较同样依赖该读数与卡牌条件管线——没有任何已合入路径把图层计算后的有效 Might 接到 CardProgram 的 condition" +
-    "（RIFT-90/RIFT-91），因此条件分支不能声称已可执行。" +
+    "唯一整卡缺口是两条分支的 Might 比较：143.2.a 要求读取图层计算后的有效 Might，当前没有稳定路径把该读数接到 CardProgram 的 condition，" +
+    "因此条件分支不能声称已可执行（进行中的 RIFT-359）。" +
     "已合入部分：effect.banish（428.1/428.2）与 effect.zone（448.2 的拥有者手牌路由，108.1）本体，golden 用真实原语分别执行两个半段" +
-    "（含目标失效 ignored 与敌方牌回敌方手牌）。依赖：RIFT-83/RIFT-91（Might 谓词与有效 Might）、RIFT-90（条件/目标计划接线）。不近似实现。",
+    "（含目标失效 ignored 与敌方牌回敌方手牌）。依赖：RIFT-359 Might 条件/谓词接线。不近似实现。",
   abilities: [
     // 806.1 / 159.2.a：印刷 [Action]，许可类关键词，展开归 Action.ts。
     { kind: "keyword", keyword: "action" },

@@ -33,9 +33,9 @@ test("ven-100-166 Up from the Deep: identity, ruleset, status and exact source t
 test("ven-100-166 Up from the Deep: judgeReason names the dynamic destination and the Flow gaps", () => {
   assert.match(program.judgeReason, /LocationRef/);
   assert.match(program.judgeReason, /355\.2/);
-  assert.match(program.judgeReason, /RIFT-9/);
+  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /Flow/);
-  assert.match(program.judgeReason, /RIFT-260\/261/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-9|RIFT-260|RIFT-261/);
   assert.match(program.judgeReason, /不近似实现/);
 });
 
@@ -170,13 +170,13 @@ test("ven-100-166 Up from the Deep golden: a prevented play still reports the to
 test.todo(
   "ven-100-166 Up from the Deep: offer the printed destinations (the controller's Base and the battlefields " +
     "they control) at each token's Finalize (CR 355.2 / 355.2.a) — needs a merged reader that turns the " +
-    "controlled-battlefield set into concrete LocationRefs (RIFT-9 target.location) because effect.token's " +
+    "controlled-battlefield set into concrete LocationRefs (RIFT-357 position selection) because effect.token's " +
     "locations list only accepts concrete locations"
 );
 
 test.todo(
   "ven-100-166 Up from the Deep: play this from Trash for its printed Flow cost (:rb_energy_3:) and banish it " +
-    "afterwards (CR 829.1 / 829.1.b / 829.1.c.1) — needs the RIFT-261 alternate-cost consumer and the RIFT-260 " +
-    "replacement registration; the printed Flow cost has no home in KeywordAbility (contract 3.8.3 params.cost " +
+    "afterwards (CR 829.1 / 829.1.b / 829.1.c.1) — needs the Flow alternate-cost and replacement consumers; " +
+    "the printed Flow cost has no home in KeywordAbility (contract 3.8.3 params.cost " +
     "is not merged)"
 );

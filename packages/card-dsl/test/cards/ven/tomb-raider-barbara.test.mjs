@@ -17,7 +17,7 @@ const [disempower, kill] = ability.body;
 
 /**
  * The printed branches are discriminated by the target's Empowered status, which
- * has no merged predicate (442.1.a / 442.2; see judgeReason), so each branch is
+ * remains gated on the pending predicate (442.1.a / 442.2; see judgeReason), so each branch is
  * driven directly with the descriptive expression condition stripped — the same
  * treatment merged goldens give to descriptive condition data. Everything else is
  * the card's own IR (its TargetSpec id, its own args) executed for real.
@@ -62,8 +62,7 @@ test("ven-037-166 Tomb-Raider Barbara: identity, status, judgeReason and verbati
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Empowered/);
   assert.match(program.judgeReason, /442\.1\.a/);
-  assert.match(program.judgeReason, /RIFT-87/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -128,7 +127,7 @@ test("ven-037-166 Tomb-Raider Barbara: 'choose an enemy gear' is one TargetSpec 
 test("ven-037-166 Tomb-Raider Barbara: the two printed branches are mutually exclusive negations", () => {
   // "If it's [Empowered] … Otherwise …" reads one status before and after the same
   // negation, so exactly one branch executes even though the discriminator itself
-  // has no merged predicate (see judgeReason).
+  // remains descriptive until the Empowered predicate is wired (see judgeReason).
   assert.deepEqual(disempower.condition, {
     kind: "expression",
     value: { kind: "constant", value: "target-is-empowered" }
@@ -198,11 +197,6 @@ test("ven-037-166 Tomb-Raider Barbara golden: a gear that left the Board is igno
 
 test.todo(
   "ven-037-166 Tomb-Raider Barbara: evaluate \"if it's [Empowered]\" (442.1.a / 442.2) so the two printed " +
-    "branches discriminate on the chosen gear's status instead of descriptive condition data — no Empowered " +
-    "status predicate exists (RIFT-87)"
-);
-
-test.todo(
-  "ven-037-166 Tomb-Raider Barbara: register the card-played Play Effect as a TriggerRegistration so " +
-    "\"When you play me\" reaches the chain as a Pending item (383.4.a.2) — RIFT-120"
+    "branches discriminate on the chosen gear's status instead of descriptive condition data — wire the Empowered " +
+    "status predicate into CardProgram conditions (RIFT-359)"
 );

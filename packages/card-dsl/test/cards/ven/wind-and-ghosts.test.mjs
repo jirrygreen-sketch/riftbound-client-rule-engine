@@ -49,10 +49,9 @@ test("ven-106-166 Wind and Ghosts: identity, ruleset, status and exact source te
 });
 
 test("ven-106-166 Wind and Ghosts: judgeReason names the Might threshold and condition-wiring gaps", () => {
-  assert.match(program.judgeReason, /mightLte/);
   assert.match(program.judgeReason, /143\.2\.a/);
-  assert.match(program.judgeReason, /RIFT-83\/RIFT-91/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-83|RIFT-90|RIFT-91/);
   assert.match(program.judgeReason, /不近似实现/);
 });
 
@@ -176,13 +175,7 @@ test("ven-106-166 Wind and Ghosts golden: a target that left the Board is ignore
 });
 
 test.todo(
-  "ven-106-166 Wind and Ghosts: enforce the 'Might 3 or less' targeting restriction with effective Might " +
-    "(CR 143.2.a / 355.9.b) — no merged Might predicate exists (RIFT-83/RIFT-91) and unknown filter keys are " +
-    "silently ignored, so any unit would be a legal target"
-);
-
-test.todo(
   "ven-106-166 Wind and Ghosts: decide the branch from the selected unit's layer-computed Might and its " +
     "negation (CR 143.2.a, contract 3.4) — the CardProgram condition pipeline is not wired to the layers " +
-    "engine (RIFT-90/RIFT-91), so neither branch can be claimed executable end to end"
+    "engine (RIFT-359), so neither branch can be claimed executable end to end"
 );

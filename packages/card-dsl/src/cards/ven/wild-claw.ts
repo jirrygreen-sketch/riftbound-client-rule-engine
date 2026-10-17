@@ -27,19 +27,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   442.1.b / 442.1.c 的"已 Empowered 则什么都不发生"由动作层负责（effect.empower 文档记录同一分工）。
  *
  * status = judge-required（三处缺口，均不近似实现）：
- * 1. 缺减费的生产者：effects/instructions/ 没有 cost.modify 原语，冻结的 CostSpec 只有
- *    kind/payments/energy/power/discard，已合入的 effect.play 明确要求 cost 参数是费用系统产出、
- *    已 Finalize 的 FinalizedCostPlan（它不推导印刷费用、也不实现减费）；减费入口属 RIFT-89，
- *    与本仓 ogn-062-298 Reinforce 同一缺口。
+ * 1. 减费的动态费用计划仍无生产者：已合入 cost.modify 可构造修改后的费用计划，但 effect.play 要求
+ *    传入费用系统产出的已 Finalize 的 FinalizedCostPlan；当前卡牌 IR 不能从被选牌读取其印刷费用并完成该计划。
  * 2. "Empower it" 的目标引用没有生产者：effect.play 只把实际打出的张数写进链接值（数字），
  *    没有暴露被打出对象的 Board 新引用；banish 收据里的引用在打出后即失效（124），所以拿不到 "it"。
  *    而且卡牌侧 effect.empower 的 objects 参数只接受 source/target/pick/query/choose/显式引用列表，
  *    不接受契约 3.2 的 { linked: id } 选择器，因此该分支连数据都写不成可执行的"引用前序结果"形态。
  * 3. "a unit or gear from among them" 的类型限制没有消费方：effect.inspect 的结算期 choose 只是对已查看
  *    集合做非目标选择，不读取 PickSpec.filter，因此 unit/gear 限制无法在执行期生效（程序里的 filter 是
- *    描述性记录，与 sfd-158-221 Sandshifter 的 mightLte 同一口径，不能被当成已实现）。
- * 依赖：RIFT-89（cost.modify / 减费与费用计划）、effect.play 的对象收据、effect.empower 的 linked 选择器、
- * effect.inspect 的 choose 过滤（RIFT-9 / RIFT-90）。
+ *    描述性记录，不能被当成已实现）。有序 top picks 的生产与过滤消费仍依赖进行中的 RIFT-358。
+ * 依赖：动态费用计划/FinalizedCostPlan 生产、effect.play 的对象收据与 Empowered 条件路径、RIFT-358 有序 picks 与过滤消费。
  */
 const wildClaw = {
   canonicalCardId: "card.hash-28f97aabe7a3a4dfd6dae43c8b97140d885896c00f5daa8175c00a2e9b0a9d64",
@@ -47,13 +44,11 @@ const wildClaw = {
   status: "judge-required",
   judgeReason:
     "三处缺口：(1)「play it, reducing its Energy cost by :rb_energy_5:」需要按 356.1.c/356.6 在打出该牌时改写其印刷基础费用（Energy -5，且不得低于 0）：" +
-    "effects/instructions/ 没有 cost.modify 原语，冻结的 CostSpec 只有 kind/payments/energy/power/discard，已合入的 effect.play 明确要求 cost 参数是费用系统产出、" +
-    "已 Finalize 的 FinalizedCostPlan（它不推导印刷费用、也不实现减费），减费入口属 RIFT-89（同 ogn-062-298 Reinforce）。" +
+    "已合入的 cost.modify 只能改写费用计划；effect.play 仍要求费用系统产出的已 Finalize 的 FinalizedCostPlan，当前卡牌 IR 没有被选牌印刷费用的动态计划生产者。" +
     "(2)「Then you may do this: Empower it」的 it 没有引用生产者：effect.play 只链接实际打出的张数（数字），没有暴露被打出永久物的 Board 新引用；" +
     "banish 收据里的引用在打出后失效（124），且卡牌侧 effect.empower 的 objects 不接受契约 3.2 的 { linked: id } 选择器，故该分支未写成可执行形态。" +
     "(3)「a unit or gear from among them」的类型限制无消费方：effect.inspect 的结算期 choose 不读取 PickSpec.filter，描述性 filter 键不会被任何已合入过滤器消费" +
-    "（同 sfd-158-221 的 mightLte 口径），因此不能声称该限制已生效。依赖：RIFT-89（减费与费用计划）、effect.play 的对象收据 / effect.empower 的 linked 选择器、" +
-    "effect.inspect 的 choose 过滤（RIFT-9/RIFT-90）。不近似实现。",
+    "因此不能声称该限制已生效。依赖：动态费用计划/FinalizedCostPlan 生产、effect.play 的对象收据与 Empowered 条件路径、RIFT-358 有序 picks 与过滤消费。不近似实现。",
   abilities: [
     {
       kind: "play",

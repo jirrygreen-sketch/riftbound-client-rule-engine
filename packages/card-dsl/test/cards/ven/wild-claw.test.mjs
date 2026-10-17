@@ -63,7 +63,8 @@ test("ven-089-166 Wild Claw: judgeReason names the cost reduction, the 'it' refe
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /356\.1\.c/);
   assert.match(program.judgeReason, /356\.6/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-358/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-9|RIFT-89|RIFT-90/);
   assert.match(program.judgeReason, /effect\.play/);
   assert.match(program.judgeReason, /effect\.empower/);
   assert.match(program.judgeReason, /effect\.inspect/);
@@ -259,8 +260,8 @@ test("ven-089-166 Wild Claw golden: the chosen card is banished and the rest is 
 
 test.todo(
   "ven-089-166 Wild Claw: play the banished card with its Energy cost reduced by :rb_energy_5: and floored " +
-    "at 0 (CR 356.1.c / 356.6) — needs cost.modify / the Finalize cost-plan reduction entry point (RIFT-89); " +
-    "effect.play requires an already-finalized plan and never derives or discounts printed costs itself"
+    "at 0 (CR 356.1.c / 356.6) — cost.modify exists, but the card still needs a dynamic printed-cost producer " +
+    "and the Finalize cost-plan entry point; effect.play requires an already-finalized plan"
 );
 
 test.todo(
@@ -272,5 +273,5 @@ test.todo(
 test.todo(
   "ven-089-166 Wild Claw: restrict the inspected choice to a unit or gear (CR 417.6-style type restriction) — " +
     "effect.inspect's resolve-time choose does not read the PickSpec filter, so the declared filter is descriptive " +
-    "until a choose filter consumer exists"
+    "until the ordered-pick/filter consumer from RIFT-358 is complete"
 );
