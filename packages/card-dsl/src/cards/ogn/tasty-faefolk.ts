@@ -3,14 +3,15 @@ import type { CardProgram, Instruction } from "../../ir/index.js";
 /**
  * Tasty Faefolk (ogn-075-298), printed power null (not zero).
  * CR v1.5 805 / 808 / 431.2-431.3 / 414.1.
- * KeywordAbility has no payload slot. Keep the card-specific instructions as
- * pure data until RIFT-1/82 defines that association; do NOT register a second
- * object-killed trigger beside the Deathknell keyword. No keyword is expanded here.
- * The production chain adapter (resolveChainBody) can execute this raw body;
- * the remaining gap is binding it to the Deathknell trigger payload.
- * Channel and draw are independent instructions, with no linkedTo. The merged
- * effect.channel primitive carries the printed exhausted stipulation to the
- * channel-rune action; the reference kernel records that action for the golden.
+ * KeywordAbility has no payload slot, and programs/keywords.ts does not bind a
+ * card-specific body to Deathknell's trigger.leave skeleton. Keep the body as
+ * pure data and declare the keyword once (CR 808.1.b.1 / 808.2).
+ * resolveChainBody executes the independent channel/draw instructions in order.
+ * effect.channel forwards exhausted:true, but the reference kernel's
+ * channel-rune handler only changes zones; exhausted entry still needs evidence.
+ * Generic entry replacements and the duel Accelerate play paths exist, but
+ * programs/play.ts does not consume accelerate.cost or bind its paid delayed
+ * replacement to this CardProgram (CR 805.2.b / 805.6.a).
  */
 export const deathknellBody = [
   {
@@ -43,7 +44,15 @@ const program = {
   canonicalCardId: "card.hash-bcc76f0b1b3b8dafd184b4a3307e12e03a80d4c9902254de9e30a4f6b0f1aba2",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason: "Accelerate 与 Deathknell 的 KeywordDef 已合入（RIFT-265），effect.channel 与 effect.draw 也已合入并由 golden 驱动；原始 deathknellBody 可通过生产链入口 resolveChainBody 顺序执行，仍有三处生产缺口，均不近似实现：(1) Deathknell 的卡牌专属 payload 与 trigger.leave 展开没有唯一绑定契约，契约 3.1 的 KeywordAbility 无 body/payload 字段，死亡效果只能暂存为纯数据 deathknellBody（CR 808；RIFT-1/82）；(2) Deathknell 展开仍引用未注册的 trigger.leave 原语，死亡触发的离场订阅与替代处理不能执行（CR 808.1.d；RIFT-82）；(3) Accelerate 的附加费用与就绪入场替代仍需 play/Finalize/Replacement 生产端接线（CR 805；RIFT-89/120）。effect.channel 会把 exhausted:true 传入 channel-rune 动作，effect.draw 子效果可执行；整卡保持 judge-required。",
+  judgeReason:
+    "Deathknell 的卡牌专属 payload 与关键词展开仍缺唯一绑定契约：KeywordAbility 无 body/payload 字段，" +
+    "programs/keywords.ts 仅传 keyword/value/host，Deathknell.ts 的触发体仍引用未注册的 trigger.leave，" +
+    "不能把 deathknellBody 绑定为唯一死亡触发并验证离场前 LKI 与被替代死亡的移除（CR v1.5 808.1.b.1/808.1.d.1-3）。" +
+    "Accelerate 的 accelerate.cost 尚未接入 programs/play.ts 的可选附加费用，programs/statics.ts 也无该静态种类的图层映射；" +
+    "仍缺支付 1 Energy + 匹配 Calm 的 1 Power 后才生效的延迟就绪入场替代绑定（805.1.b.1/805.2.b/805.6.a）。" +
+    "replacement/bind.ts 的通用入场替代与 duel/cardplay-unit-v2.ts、cardplay-unit-chain-v4.ts 的 Accelerate 路径不能代替该 CardProgram 接线。" +
+    "effect.channel 已传递 exhausted:true，但 effects/testing/test-kernel.ts 的 channel-rune 处理只迁区、未应用该入场状态，" +
+    "横置补给仍缺实际执行证据（431.2）；原始 channel/draw 顺序与独立抽牌子效果已有执行测试。",
   abilities: [
     {
       kind: "keyword",
