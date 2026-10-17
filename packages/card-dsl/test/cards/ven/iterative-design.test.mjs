@@ -7,6 +7,9 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding, createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL = "card.hash-8bbb12806c358b79644e7b09758a93f6352628f3333f245dd101bc444f171209";
 const SOURCE_TEXT =
@@ -30,7 +33,7 @@ test("ven-051-166 Iterative Design: program passes validateCardProgram with the 
 test("ven-051-166 Iterative Design: judgeReason names the chain-creation wiring, the Flow cost and the Flow replacement", () => {
   assert.match(program.judgeReason, /187\.4/);
   assert.match(program.judgeReason, /440\.2\.c/);
-  assert.match(program.judgeReason, /assertFinalizationSurface/);
+  assert.match(program.judgeReason, /exactly one destination argument/);
   assert.match(program.judgeReason, /flow\.cost/);
   assert.match(program.judgeReason, /leavingInstruction/);
   assert.match(program.judgeReason, /params\.cost/);
@@ -127,15 +130,69 @@ test.todo(
     "also remain incomplete"
 );
 
-test.todo(
-  "ven-051-166 Iterative Design: the production Chain create-token(to: chain) + play handoff " +
-    "(440.2.c / 185.2.a / 350.2 / 354) — effect.token documents the reference-kernel path, but the " +
-    "production Finalize/Resolve wiring is unmerged (chain/engine.ts assertFinalizationSurface still " +
-    "rejects choice.mode and nested targets)"
-);
+test("ven-051-166 Iterative Design probe: effect.token rejects the card's destinationless play form", () => {
+  assert.throws(
+    () => token.argsSchema.parse(playMech.args),
+    /effect\.token requires exactly one destination argument/
+  );
+});
 
-test.todo(
-  "ven-051-166 Iterative Design: a play-effect token whose printed text names no destination still " +
-    "needs an authorable argument — effect.token requires exactly one destination, so the card body " +
-    "fails closed instead of letting the ordinary play procedure (355.2 / 355.2.a) pick the location"
-);
+test("ven-051-166 Iterative Design probe: the merged Flow expansion cannot bind (no flow.cost layer, no replacement banish)", () => {
+  const programWithFlow = { ...program, status: "executable", judgeReason: undefined };
+  const kernel = world().player("A").player("B")
+    .unit("spell", { cardId: program.canonicalCardId, types: ["spell"], zone: "board", energy: 4, power: null, location: { type: "base", player: "A" } })
+    .deck(["A:d"], { owner: "A" }).deck(["B:d"], { owner: "B" })
+    .rune(["A:r"], { owner: "A" }).rune(["B:r"], { owner: "B" })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const binder = createEngineStaticBinder(engine);
+  const binding = createProgramBinding({ cardPrograms: [programWithFlow] });
+  const abilities = binding.inspect(kernel.getObject("spell")).abilities;
+  const flowCost = abilities.find(a => a.kind === "static" && a.effect.kind === "flow.cost");
+  const replacement = abilities.find(a => a.kind === "replacement");
+  assert.ok(flowCost, "Flow expands to a flow.cost static");
+  assert.ok(replacement, "Flow expands to an object-leaves-chain replacement");
+  assert.throws(
+    () => binder.bindStatic(flowCost, kernel.getObject("spell")),
+    error => error.code === "judge-required" && /Static ability kind flow\.cost has no layer mapping/.test(error.message)
+  );
+  assert.throws(
+    () => binder.bindReplacement(replacement, kernel.getObject("spell")),
+    /Unsupported replacement opcode: effect\.banish/
+  );
+});
+
+test("ven-051-166 Iterative Design probe: the production chain cannot dispatch a play for the created token", () => {
+  const kernel = world().player("A").player("B")
+    .deck(["A:d"], { owner: "A" }).deck(["B:d"], { owner: "B" })
+    .rune(["A:r"], { owner: "A" }).rune(["B:r"], { owner: "B" })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const created = engine.commit({
+    type: "create-token",
+    player: "A",
+    token: { cardId: null, name: "Mech", types: ["unit"], tags: ["Mech"], might: 3, energy: null, power: null },
+    to: "chain"
+  });
+  assert.equal(created.status, "done");
+  assert.throws(
+    () => engine.commit({ type: "play", object: created.result, player: "A", location: { type: "base", player: "A" } }),
+    /Play action requires a card-program adapter/
+  );
+});

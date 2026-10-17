@@ -23,41 +23,42 @@ import type { CardProgram } from "../../ir/index.js";
  *   "unless that ability indicates another player does"）。
  *
  * status = judge-required（缺口均不近似实现）：
- * 复核（2026-10-17，第二轮 M2 覆盖率复核）：旧 judgeReason 的「layers/filter.ts 未实现
- * sameLocationAs」已不成立：programs/statics.ts 的 staticFilter 已实现 sameLocationAs:self
- * 锚点（绑定到来源位置）。真实缺口：
- * 1. 缺「忽略能力」的已合入语义与消费方：engine-core 只实现了 GameAction 的替代效果
- *    （契约 3.4 的 replaced/prevented）与图层（copy/trait/ability/arithmetic）：
- *    ProgramStaticBinder.layerFor 对 continuous.ignore-abilities 抛
- *    「has no layer mapping」（实测），也没有任何 "inactive for this procedure"
- *    的运行时状态（764-767），layers/engine.ts 的
- *    ability 层只消费 keyword/timing/movement/text；也没有把"本次支付忽略 Deflect"
- *    传给目标税或费用计划的通道。
- * 2. 目标税消费方已合入：TargetPlan 经 TargetFinalizeOptions.tax /
- *    TargetTaxAdapter 追加 Deflect 税（target/target-plan.ts，golden 已断言），契约 3.8 第 4 条把
- *    "成为目标/目标锁定通知"与目标税的来源归引擎批 4；没有任何已合入代码读取卡牌程序
- *    声明的忽略效果来抑制某次选择的 target.tax。
- * 3. "choosing something here" 需要把该次法术/能力的选择计划与 053.3 的 here 位置作对比，
- *    当前没有把 TargetPlan 暴露给卡牌程序的通道。
- * 依赖：764-767 忽略语义的图层映射与 "inactive for this procedure" 状态、TargetPlan
- * 暴露给卡牌程序的通道（契约 3.8 第 4 条）。不近似实现，不把忽略写成 target.tax 数值 0。
+ * 复核（2026-10-17，RIFT-613 第三轮 M2 覆盖率复核，实测见 test.mjs 的 probe 用例）：
+ * 1. 缺「忽略能力」的执行路径：ProgramStaticBinder.layerFor 对
+ *    continuous.ignore-abilities 仍抛 "Static ability kind continuous.ignore-abilities
+ *    has no layer mapping"（programs/statics.ts 实测）；layers/engine.ts 的 ability 层只
+ *    消费 keyword/timing/movement/text，内核没有任何 "inactive for this procedure"
+ *    的运行时状态（764-767），也没有「本次支付忽略 Deflect」传进目标税或费用计划的通道。
+ * 2. 目标税的生产消费方仍未接线：target/tax/adapter.ts 的 TargetTaxCostAdapter 与
+ *    collectTargetTaxes 已合入，但 chain/engine.ts 的 Finalize 只把 taxAdapter 传给
+ *    finalizeTargetPlan、从不传 tax，且 Deflect 展开出的 target.tax 静态在
+ *    programs/statics.ts 也被拒绝（"Static ability kind target.tax has no layer
+ *    mapping"）；实测一张 1 Energy 法术选择 Deflect 2 单位只支付基础费用，没有任何
+ *    目标税可被本卡抑制。
+ * 3. "choosing something here" 需要把该次法术/能力 Finalize 后的选择计划与 053.3 的 here
+ *    位置作对比；TargetPlan 只在链内部存在，没有暴露给卡牌程序的通道（契约 3.8 第 4 条）。
+ * programs/statics.ts 的 staticFilter 已支持 sameLocationAs:self 锚点，位置锚点本身不是缺口。
+ * 依赖：764-767 忽略语义的图层映射与 inactive-for-procedure 状态、目标税的生产接线
+ * （Deflect 静态绑定 + Chain 传入 tax）、TargetPlan 暴露通道。不近似实现，不把忽略写成
+ * target.tax 数值 0。
  */
 export default {
   canonicalCardId: "card.hash-ff672b8dd077ccd490192a9b17852cd59002a5bbc12aa7153e4ad607915036ee",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 缺 764-767「忽略能力」的已合入语义：内核只实现 GameAction 的替代效果与" +
-    "copy/trait/ability/arithmetic 图层，ProgramStaticBinder.layerFor 对 continuous.ignore-abilities 抛" +
-    "「has no layer mapping」（实测），没有「inactive for this procedure」的运行时状态，" +
-    "layers/engine.ts 的 ability 层也不消费「忽略」类效果，因此本卡的效果没有执行路径；" +
-    "(2) 目标税消费方已合入：TargetPlan 经 TargetFinalizeOptions.tax / TargetTaxAdapter 追加 " +
-    "Deflect 税（809.1.c、356.2.a.2，golden 已断言），契约 3.8 第 4 条把目标税来源与目标锁定通知归引擎批 4，" +
-    "没有任何已合入代码读取卡牌程序的忽略声明来抑制某次选择的 target.tax；" +
-    "(3)「choosing something here」需要把被施放法术/能力的最终选择计划与 053.3 的 here 位置比较，" +
-    "TargetPlan 未暴露给卡牌程序（programs/statics.ts 的 staticFilter 已支持 sameLocationAs:self 锚点，" +
-    "锚点本身不再是缺口）。依赖：764-767 忽略语义的图层映射与 inactive-for-procedure 状态、" +
-    "TargetPlan 暴露通道。不把忽略近似成 target.tax 数值 0。",
+    "三处缺口，均不近似实现（2026-10-17 RIFT-613 复核实测）：(1) ProgramStaticBinder.layerFor 对 " +
+    "continuous.ignore-abilities 抛 \"Static ability kind continuous.ignore-abilities has no layer " +
+    "mapping\"（programs/statics.ts）；layers/engine.ts 的 ability 层只消费 keyword/timing/movement/text，" +
+    "内核没有 764-767 的 \"inactive for this procedure\" 运行时状态，也没有把「本次支付忽略 Deflect」传进" +
+    "目标税或费用计划的通道。(2) 目标税的生产消费方未接线：TargetTaxCostAdapter / collectTargetTaxes 已合入，" +
+    "但 chain/engine.ts 的 Finalize 只传 taxAdapter、从不传 tax，Deflect 展开的 target.tax 静态在 " +
+    "programs/statics.ts 也被拒绝（\"Static ability kind target.tax has no layer mapping\"）；实测 1 Energy " +
+    "法术选择 Deflect 2 单位只付基础费用，不存在可被本卡忽略的 target.tax（809.1.c / 356.2.a.2）。(3) " +
+    "\"choosing something here\" 需要把该次法术/能力 Finalize 后的选择计划与 053.3 的 here 位置比较，" +
+    "TargetPlan 只在链内部存在、没有暴露给卡牌程序的通道（契约 3.8 第 4 条）；programs/statics.ts 的 " +
+    "staticFilter 已支持 sameLocationAs:self 锚点，位置锚点本身不是缺口。依赖：764-767 忽略语义的图层映射与 " +
+    "inactive-for-procedure 状态、目标税生产接线、TargetPlan 暴露通道。不把忽略近似成 target.tax 数值 0。",
   abilities: [
     {
       kind: "static",

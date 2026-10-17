@@ -138,13 +138,16 @@ test.todo(
     "Empowered status gate (CR 828.1.b.1 / 442.1.a) — no Empowered predicate exists"
 );
 
-/** 复核（2026-10-17）负向证据：关键词展开缺失与 Empowered 门控不生效。 */
-test("ven-124-166 Escaped Grayback evidence: expandProgram rejects the missing Empower KeywordDef", () => {
+/** 复核（2026-10-17，RIFT-613）：关键词展开已合入；印刷的 Kill 费用仍未随关键词绑定。 */
+test("ven-124-166 Escaped Grayback evidence: the merged Empower expansion carries no printed Kill cost", () => {
   const kernel = world().unit("grayback", { types: ["unit"], zone: "board", controller: "A" }).build();
-  assert.throws(
-    () => expandProgram(program, kernel.getObject("grayback")),
-    /Keyword empower has no executable KeywordDef/
-  );
+  const expanded = expandProgram(program, kernel.getObject("grayback"));
+  const empowerActivation = expanded.expanded.find(ability => ability.kind === "activated");
+  assert.ok(empowerActivation, "RIFT-593 merged the Empower KeywordDef");
+  // 827.1.c.2: the printed nonstandard Kill payment never reaches the keyword
+  // expansion (KeywordAbility has no params and expandProgram forwards only
+  // value/host), so the cost stays the fail-closed placeholder.
+  assert.deepEqual(empowerActivation.cost, { kind: "empower" });
 });
 
 test("ven-124-166 Escaped Grayback evidence: the Kill cost really pays through the merged cost pipeline", () => {

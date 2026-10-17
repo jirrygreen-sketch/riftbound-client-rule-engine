@@ -93,12 +93,14 @@ function hostFor(programUnderTest, id) {
   return { f, source: f.kernel.getObject(id) };
 }
 
-test("ven-032-166 Frostcoat Mother evidence: expandProgram rejects the missing Empower KeywordDef", () => {
+test("ven-032-166 Frostcoat Mother evidence: the merged Empower expansion carries no printed cost or rune rewrite", () => {
   const { source } = hostFor(program, "frostcoat");
-  assert.throws(
-    () => expandProgram(program, source),
-    /Keyword empower has no executable KeywordDef/
-  );
+  const expanded = expandProgram(program, source);
+  const empowerActivation = expanded.expanded.find(ability => ability.kind === "activated");
+  assert.ok(empowerActivation, "RIFT-593 merged the Empower KeywordDef");
+  // 827.1.c: the printed 12 Energy and the 827.1.c.3 per-rune rewrite never
+  // reach the expansion, which keeps the fail-closed cost placeholder.
+  assert.deepEqual(empowerActivation.cost, { kind: "empower" });
 });
 
 test("ven-032-166 Frostcoat Mother evidence: the cost modification cannot bind and the Empowered gate is unenforced", () => {

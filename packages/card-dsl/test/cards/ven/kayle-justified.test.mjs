@@ -7,6 +7,8 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -34,14 +36,18 @@ test("ven-134-166 Kayle, Justified: identity, status, judgeReason and verbatim s
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /442\.1\.c\.1/);
-  assert.match(program.judgeReason, /empoweredCount/);
+  assert.match(program.judgeReason, /empoweredCount|per-object 许可/);
+  // Merged since the last sweep: the Empower KeywordDef now exists; the cost
+  // carrier and the per-Empower layer consumer are the remaining gaps.
+  assert.match(program.judgeReason, /Unsupported cost kind empower/);
+  assert.match(program.judgeReason, /perEmpower/);
+  assert.doesNotMatch(program.judgeReason, /没有 Empower \/ Empowered 的 KeywordDef/);
   // Merged capabilities must no longer be cited as gaps (RIFT-87/257/258):
   // the static -> layers registration path is merged.
   assert.ok(!/RIFT-(87|257|258)/.test(program.judgeReason),
     "the reason names only current gaps: " + program.judgeReason);
   // Remaining gaps are recorded for the TODO below; this test keeps only
   // positive structure and the merged static registration evidence.
-  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /perEmpower/);
 });
 
@@ -152,8 +158,54 @@ test("ven-134-166 probe: the static binder registers empower-limit, might and th
   assert.deepEqual(evaluated.keywords, []);
 });
 
-test.todo(
-  "ven-134-166 Kayle, Justified: '+2 :rb_might: for each time I'm [Empowered]' and the three-times " +
-    "[Deflect 3] / [Ganking] grant need an Empowered-count predicate (442.1.c.1, RIFT-359) plus " +
-    "a perEmpower consumer in the arithmetic layer and an Empower KeywordDef"
-);
+test("ven-134-166 Kayle probe: the merged Empower expansion loses the printed 3 Energy cost", () => {
+  const kernel = kayleWorld();
+  const binding = createProgramBinding({ cardPrograms: [probeProgram(program.abilities)] });
+  const source = { ...kernel.getObject("kayle"), cardId: CANONICAL_ID };
+  const expanded = binding.inspect(source).abilities;
+  const empowerActivation = expanded.find(ability => ability.kind === "activated");
+  assert.ok(empowerActivation, "the merged Empower KeywordDef expands to an activated ability");
+  // 827.1.c: the printed cost is 3 Energy, but KeywordAbility carries no params
+  // and expandProgram forwards only value/host, so the expansion has none.
+  assert.deepEqual(empowerActivation.cost, { kind: "empower" });
+  assert.throws(
+    () => binding.describeActivate(source, "A", 0),
+    error => error.code === "judge-required" && /Unsupported cost kind empower/.test(error.message)
+  );
+});
+
+test("ven-134-166 Kayle probe: the arithmetic layer ignores perEmpower, so +2/instance never applies", () => {
+  const f = fixture({
+    cards: [{ id: "kayle", cardId: CANONICAL_ID, types: ["unit"], energy: 3, might: 3 }],
+    describePlay: createProgramBinding({ cardPrograms: [probeProgram([mightPerEmpower, keywordGrant])] }).describePlay
+  });
+  const binding = createProgramBinding({ cardPrograms: [probeProgram([mightPerEmpower, keywordGrant])] });
+  binding.attachLifecycle(f.engine);
+  f.engine.commit({ type: "play", object: f.kernel.ref("kayle"), player: "A" });
+  f.engine.advance();
+  resolveAll(f.engine);
+  // perEmpower is not read by applyArithmetic (it reads amount/value/delta).
+  const evaluated = f.engine.layers.evaluate(f.kernel.ref("kayle"));
+  assert.equal(evaluated.might, 3);
+  assert.deepEqual(evaluated.keywords, []);
+  const statics = binding.inspect(f.kernel.getObject("kayle")).abilities.filter(a => a.kind === "static");
+  assert.deepEqual(statics.map(a => a.effect.kind).sort(), ["continuous.grant-keyword", "continuous.might"]);
+  assert.deepEqual(mightPerEmpower.effect.perEmpower, { kind: "constant", value: 2 });
+});
+
+test("ven-134-166 Kayle probe: the three-times Empowered gate reads a characteristic the snapshot does not expose", () => {
+  const kernel = kayleWorld();
+  const context = bindResolveContext(kernel, { source: kernel.getObject("kayle") });
+  const environment = {
+    context,
+    host: kernel.ref("kayle"),
+    linked: () => undefined,
+    canLookBack: () => true,
+    isIgnored: () => false,
+    query: filter => context.query(filter)
+  };
+  assert.throws(
+    () => evaluateCondition(keywordGrant.condition, environment),
+    error => /Unavailable characteristic: empoweredCount/.test(error.message)
+  );
+});

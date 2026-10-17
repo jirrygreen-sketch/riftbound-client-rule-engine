@@ -22,22 +22,28 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   先在链上生成再由 play 动作接手，目的地是控制者的 Base。
  *
  * status = judge-required（缺口均不近似实现）：
- * 复核（2026-10-17，第二轮 M2 覆盖率复核）：旧 judgeReason 的 RIFT-89/RIFT-120/RIFT-81~88
- * 引用已过时，缺口按当前源码重述：
- * 1. 缺 Empower/Empowered KeywordDef：keywords/registry.generated.ts 没有
- *    "empower"/"empowered" 展开的 KeywordDef。
- * 2. 启动费用里的 Disempower 没有付费种类：cost/plan-values.ts 的 readCost 非标准
- *    费用只支持 exhaust/discard/recycle/kill/reveal/spend-buff，kind "disempower"
- *    会被 blocked（同 rad/boy-who-shattered-time、ven/matriarch-of-war 的记录）。
- * 3. "Play a 3 :rb_might: Mech unit token to your base" 的链上生成 + 打出路径：
+ * 复核（2026-10-17，RIFT-613 第三轮 M2 覆盖率复核，实测见 test.mjs 的 probe 用例）：
+ * 1. Empower/Empowered 关键词已合入（effects/keywords/Empower.ts），但本卡的印刷费用是
+ *    横置来源（827.1.c），该费用没有承载通道：KeywordAbility 只有 keyword/value，
+ *    expandProgram 只传 value/host，实测本卡展开出的第二条 activated.cost 是
+ *    { kind: "empower" }，describeActivate 随后以 "Unsupported cost kind empower" 拒绝。
+ *    展开里的 restriction.condition 读 object-property "empowered"，而 ObjectSnapshot
+ *    （effects/contract.ts）不暴露 Empowered 状态——Empower.ts 头部把 "ObjectSnapshot must
+ *    expose the reference kernel's live empowered count" 记为尚未合入的共享集成依赖，
+ *    827.1.c.1 / 442.1.b 的 "Use only if not Empowered" 因此在契约定义的快照上没有读数来源。
+ * 2. 启动费用里的 Disempower 没有付费种类：cost/plan-values.ts 的 readCost 非标准费用只支持
+ *    exhaust/discard/recycle/kill/reveal/spend-buff，实测 buildCostPlan 对本卡的 disempower
+ *    支付抛 CostPlanError（reason "judge-required"，message "Unsupported payment kind:
+ *    disempower"）；443.2/443.2.a 的 Disempower 是受限动作，不能用别的付费种类替换。
+ * 3. "Play a 3 :rb_might: Mech unit token to your base" 的生产链接收方仍未接线：
  *    effect.token 的 mode "play" 在参考内核可执行（链上创建 + play 接手），但生产链的
- *    token 链项接收方（440.2.c/185.2.a）仍未接线（同 sfd/assembly-rig 的判定）：
- *    生产链 routeAction 对 play 动作要求 describePlay 卡牌程序适配器，token 没有
- *    cardId 也就没有绑定。
- * golden 用真实解释器执行 effect.token 的 Mech 定义与打出路径，并断言 Disempower 费用
- * 种类被费用计划拒绝；不近似实现（不用 kill/reveal 等别的费用种类替换 Disempower）。
- * 依赖：新的 Empower/Empowered 关键词任务、RIFT-89（Disempower 费用种类）、
- * RIFT-120 的 token 链项接收方与契约 3.5 接线。
+ *    routeAction 对 play 动作要求绑定的卡牌程序（describePlay），token 没有 cardId，
+ *    实测对已创建到链上的 token 提交 play 抛 "Play action requires a card-program
+ *    adapter"（同 sfd/assembly-rig 的判定）。
+ * golden 用真实解释器执行 effect.token 的 Mech 定义与打出路径，并断言以上缺口：Empower
+ * 展开的费用形状、Disempower 被费用计划拒绝、token-play 在生产链上没有接收方。
+ * 依赖：KeywordAbility 印刷费用参数承载 + expandProgram 转发、生产 ObjectSnapshot 的
+ * Empowered 状态、disempower 付费种类、生产链 token-play 接收方。
  */
 const abilities: Ability[] = [
   {
@@ -82,18 +88,20 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 缺 Empower/Empowered KeywordDef：keywords/registry.generated.ts 没有 " +
-    "\"empower\"/\"empowered\" 展开的 KeywordDef，827.1.c.1 的横置启动费用与" +
-    "「Use only if not Empowered」限制无执行路径（827.1.b.1：来源不是目标）。" +
-    "(2) 启动费用里的「Disempower this」没有付费种类：cost/plan-values.ts 的 readCost 非标准费用只支持 " +
-    "exhaust/discard/recycle/kill/reveal/spend-buff，kind \"disempower\" 会被 blocked（443.2/443.2.a 的 " +
-    "Disempower 是受限动作；同 rad/boy-who-shattered-time 的记录）。" +
-    "(3)「Play a 3 :rb_might: Mech unit token to your base」需要 440.2.c/185.2.a 的链上生成再打出：" +
-    "effect.token 的 mode \"play\" 在参考内核可执行（golden 断言链上创建与 play 事件接手），但生产链的 " +
-    "token 链项接收方仍未接线——routeAction 对 play 动作要求 describePlay 卡牌程序适配器，" +
-    "token 没有 cardId 也就没有绑定（同 sfd/assembly-rig 的判定）。" +
-    "golden 另实测 Disempower 费用种类被费用计划拒绝；不近似实现（不用 kill/reveal 等别的费用种类替换 Disempower）。" +
-    "依赖：新的 Empower/Empowered 关键词任务、disempower 付费种类、生产链 token-play 接收方。",
+    "三处缺口，均不近似实现（2026-10-17 RIFT-613 复核实测）：(1) Empower/Empowered 关键词已合入" +
+    "（effects/keywords/Empower.ts），但横置来源的印刷费用（827.1.c）没有承载通道：KeywordAbility 只有 " +
+    "keyword/value，expandProgram 只传 value/host，实测本卡展开出的 activated.cost 是 { kind: \"empower\" }，" +
+    "describeActivate 以 \"Unsupported cost kind empower\" 拒绝；展开的 restriction.condition 读 " +
+    "object-property \"empowered\"，ObjectSnapshot（effects/contract.ts）不暴露 Empowered 状态" +
+    "（Empower.ts 头部记为未合入的共享集成依赖），827.1.c.1/442.1.b 的「Use only if not Empowered」" +
+    "没有契约定义的读数来源。(2)「Disempower this」没有付费种类：" +
+    "cost/plan-values.ts 的非标准费用只有 exhaust/discard/recycle/kill/reveal/spend-buff，实测 buildCostPlan " +
+    "抛 CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: disempower\"）；" +
+    "443.2/443.2.a 的 Disempower 是受限动作，不用别的付费种类替换。(3)「Play a 3 :rb_might: Mech unit token " +
+    "to your base」的生产链接收方未接线：参考内核可执行链上创建 + play 接手，但生产链 routeAction 对 play " +
+    "要求绑定的卡牌程序（describePlay），token 没有 cardId，实测对已创建到链上的 token 提交 play 抛 " +
+    "\"Play action requires a card-program adapter\"（440.2.c/185.2.a）。依赖 KeywordAbility 印刷费用承载与 " +
+    "expandProgram 转发、生产 ObjectSnapshot 的 Empowered 状态、disempower 付费种类、生产链 token-play 接收方。",
   abilities,
   sourceText:
     "[Empower] — :rb_exhaust: (Pay the cost: Empower this. Use only if not Empowered.)\n" +

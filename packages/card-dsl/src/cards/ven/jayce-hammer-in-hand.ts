@@ -84,12 +84,20 @@ export default {
   judgeReason:
     "触发注册与授予原语都已合入并有探针证据：object-readied 触发经 programs/triggers 注册、" +
     "就绪后进链（probe 见 test.mjs），continuous.grant-keyword 是已注册指令，" +
-    "appliesTo self（355.10.d/g 自我指代）解析为来源对象。仍缺两处：" +
-    "(1) 被选模式进入 Finalize 时 choice.mode 被链适配器拒绝——assertFinalizationSurface 抛 " +
-    "ChainContractBlockedError('Mode choices require a Finalize/Resolve choice-plan adapter')，" +
-    "模式选择无法落到被选 body；(2) 关键词消费方：Deflect 的 target.tax 管线在进行中" +
-    "（RIFT-360），Assault 的战斗加成需要 807.1.d.1 的 designation 攻击方识别、" +
-    "Ganking 需要 810.1.c 的战场移动许可消费方（layers 的 keywords/movement 已能承载授予结果）。" +
+    "appliesTo self（355.10.d/g 自我指代）解析为来源对象。仍缺三处（2026-10-17 RIFT-613 复核实测）：" +
+    "(1) 被选模式进入 Finalize 时 choice.mode 被链适配器拒绝——chain/engine.ts 的 " +
+    "assertFinalizationSurface 抛 ChainContractBlockedError('Mode choices require a " +
+    "Finalize/Resolve choice-plan adapter')，模式选择无法落到被选 body；(2) Assault 的 " +
+    "战斗加成没有消费方：Assault.ts 展开的 static 条件读 object-property \"designation\"，" +
+    "而 ObjectSnapshot 只暴露 combatRole，图层求值对未知属性返回 false（实测绑定后 Might " +
+    "不变），" +
+    "需要 807.1.d.1 的攻击方指定到图层谓词的接线；(3) Deflect 与 Ganking 的消费方仍未完成：" +
+    "Deflect 的 target.tax 静态在 programs/statics.ts 被拒（\"Static ability kind target.tax " +
+    "has no layer mapping\"），Chain 的 Finalize 也只传 taxAdapter、不传 tax；Ganking 的 " +
+    "continuous.movement 可绑定，但展开形状与消费方不一致——Ganking.ts 展开平铺的 permission " +
+    "\"battlefield-to-battlefield\"，layers/rules/query.ts 的 movement() 读嵌套的 permission.routes，" +
+    "实测 movement() 返回 canGank:false / permissions:[]；zones/movement.ts 的 routeBlocked 也只读 " +
+    "restrictions，没有任何生产调用方消费战场间移动许可。" +
     "不近似实现（不把三个模式压成一个，也不把授予写成直接改 Might）。",
   abilities,
   sourceText:
