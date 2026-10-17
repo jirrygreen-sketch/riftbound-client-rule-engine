@@ -27,14 +27,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   740.4.a.2 规定触发能力效果首段的代价在 Finalization 支付。415.5 说明能力里的 :rb_exhaust:
  *   是费用 "Exhaust this/me"，415.4 要求该动作必须能完成才算支付。费用用 cost.pay 的 payments
  *   形状声明（cost/plan-values.ts 已支持 { kind: "exhaust", object: "self" }），不用
- *   effect.exhaust 的结算时状态改变冒充费用。
- * - ":rb_rune_rainbow:" 是任意域（Universal）Power（135.2.e.5.b、163.2.b）。
+ *   effect.exhaust 的结算时状态改变冒充费用。cost.modify 可把该动作和数值 Power
+ *   费用锁进同一个计划，再由 cost.pay 收取。
+ * - ":rb_rune_rainbow:" 是任意域（Universal）Power（135.2.e.5.b、163.2.b）。费用计划的
+ *   domains: [] 已把数值 Power 绑定到六域可支付集合；这里不再把 rainbow 当成 Domain 字符串。
  * - "ready it"：it 是触发事件里被选中的那个友方单位（本次 choose 的对象）。静态 IR 不能写运行时
  *   ObjectRef（契约 3.6），这里用 TargetSpec 作占位选择符，与 mistfall/pirates-haven 同型。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
- * 依赖与缺口见 judgeReason；golden 测试用解释器 + 参考内核真实执行已合入的 effect.ready 与
- * 费用计划的 exhaust 支付（不是整卡执行证据）。
+ * 依赖与缺口见 judgeReason；golden 测试用解释器 + 参考内核真实执行已合入的 effect.ready、
+ * 混合费用计划和能量支付（不是整卡执行证据）。
  * 不近似实现：不用 effect.exhaust 冒充费用式横置，不把 choose 写成 pick，不选一个域冒充 [A]。
  */
 const abilities: Ability[] = [
@@ -65,14 +67,33 @@ const abilities: Ability[] = [
               {
                 // "exhaust me and pay :rb_rune_rainbow:"：740.4.a.2 的代价在 Finalization
                 // 支付，形状是费用计划（415.4/415.5），不是结算时的状态改变。
+                id: "blade-dancer.prepare-cost",
+                op: "cost.modify",
+                args: {
+                  // domains: [] means one Power with any of the six legal domains.
+                  id: { kind: "constant", value: "blade-dancer.prepare-cost" },
+                  domains: { kind: "constant", value: [] },
+                  cost: {
+                    kind: "constant",
+                    value: {
+                      kind: "activated",
+                      payments: [
+                        { kind: "power", amount: { kind: "constant", value: 1 } },
+                        { kind: "exhaust", object: "self" }
+                      ]
+                    }
+                  }
+                }
+              },
+              {
                 id: "blade-dancer.pay-cost",
                 op: "cost.pay",
+                linkedTo: "blade-dancer.prepare-cost",
                 args: {
-                  // [A] 任意域 Power（163.2.b）：六域封闭集合下没有可执行值，保留描述性记号。
-                  power: { kind: "constant", value: ["rainbow"] },
-                  payments: {
-                    kind: "constant",
-                    value: [{ kind: "exhaust", object: "self" }]
+                  cost: {
+                    kind: "linked-value",
+                    instructionId: "blade-dancer.prepare-cost",
+                    key: "cost"
                   }
                 }
               },
@@ -119,9 +140,30 @@ const abilities: Ability[] = [
             kind: "constant",
             value: [
               {
+                id: "blade-dancer.prepare-energy",
+                op: "cost.modify",
+                args: {
+                  id: { kind: "constant", value: "blade-dancer.prepare-energy" },
+                  cost: {
+                    kind: "constant",
+                    value: {
+                      kind: "activated",
+                      energy: { kind: "constant", value: 1 }
+                    }
+                  }
+                }
+              },
+              {
                 id: "blade-dancer.pay-energy",
                 op: "cost.pay",
-                args: { energy: { kind: "constant", value: 1 } }
+                linkedTo: "blade-dancer.prepare-energy",
+                args: {
+                  cost: {
+                    kind: "linked-value",
+                    instructionId: "blade-dancer.prepare-energy",
+                    key: "cost"
+                  }
+                }
               },
               {
                 // "ready me"：缺省选择即能力来源（412.4/416.1，effect.ready 的 source）。
@@ -143,19 +185,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "（1）没有已合入的订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration" +
-    "（events/pipeline-types.ts 有类型，注册入口只在 chain/engine.ts 内部；src/programs/ 的绑定属未合入的 RIFT-257），" +
-    "became-target（383.4.b.2）与 conquer（383.4.c.2.b）触发都还进不了链；" +
-    "（2）契约 3.6 的 ZoneId 没有 Legend Zone（CR 108.3），传奇不能表示为 Board 对象，415.5/415.4 的费用式「横置我」" +
-    "与「ready me」缺少可执行的宿主表示（费用计划只接受 board/rune-zone 上的对象，cost/payment.ts 的 checkAction；同 ogn/the-boss）；" +
-    "（3）「pay :rb_rune_rainbow:」是任意域（Universal）Power（135.2.e.5.b、163.2.b），Domain 是六域封闭集合，" +
-    "effect.resources 明确记录 163.2.b 不可表达、绝不选一个域近似；" +
-    "（4）cost.pay / cost.modify 没有已合入的原语文件（effects/instructions/ 只有 effect.* 与 continuous.*），" +
-    "属未合入的 RIFT-261；" +
-    "（5）became-target 载荷只带链项控制者（chain/engine.ts 在 Finalize 目标锁定时发射），355.18 允许其他玩家代为做选择时" +
-    "「做出选择的玩家」读不出来（RIFT-64 遗留的 targeting 载荷缺口）；" +
-    "（6）「ready it」的 it 需要触发事件对象的绑定，契约 3.6 的 ObjectSelector（self/source/target/pick/linked）没有事件对象选择符。" +
-    "依赖：RIFT-257、RIFT-261、RIFT-64，以及 legend-zone 与 Universal Power 的契约表达。不近似实现。",
+    "当前仍有四处生产缺口，均不近似实现：(1) TriggerRegistration 的绑定器已经存在，但 " +
+    "ProgramRegistry 会拒绝 judge-required 程序；两段印刷费用虽已用 cost.modify/cost.pay 在局部正文中建模，" +
+    "TriggeredAbility 契约没有顶层 CostSpec，无法在 Finalize 的能力费用步骤锁定并原子支付该计划。" +
+    "(2) CR 107.4.c/108.3 的 Legend Zone 不在 effects/contract.ts 的 ZoneId 联合里，" +
+    "cost/payment.ts 只允许 Board 或 rune-zone 的 exhaust 费用，生产环境无法绑定传奇来源。" +
+    "(3) ready it 必须引用 became-target 事件中实际选中的对象；现有 ObjectSelector 只有 self/source/target/pick/linked，" +
+    "没有事件对象选择符，TargetSpec 只能重新选择一个目标。" +
+    "(4) chain/engine.ts 发出的 became-target 事件把 player 设为链项控制者，不保留 355.18 所需的实际选择者字段；" +
+    "跨控制效果无法可靠匹配 player: self。已合入的 cost.modify/cost.pay、Universal Power 数值支付、effect.ready 与 conquer 时点" +
+    "均由 golden 覆盖局部真实执行；不把任何已合入原语再列为缺失。",
   abilities,
   sourceText:
     "When you choose a friendly unit, you may exhaust me and pay :rb_rune_rainbow: to ready it.\n" +
