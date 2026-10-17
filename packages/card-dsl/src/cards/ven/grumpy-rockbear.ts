@@ -44,9 +44,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   指令原语随 RIFT-258 合入（注册表可见），它在 ability 图层建立注册，layers/engine.ts
  *   的 applyAbility 会把它写进 keywords 特征（golden 用真实原语 + 图层引擎断言
  *   Deflect 1 与 Shield 3 真的出现）。
- * - 仍不可执行的是：(a) Empower / Empowered KeywordDef（827.1.c.1 的起动费用、
- *   827.1.c.3 的 Empower 费用改写、827.1.c.5 的「仅未 Empowered 时可起动」）；
- *   (b) 442.1.a 的 Empowered 状态谓词——ObjectSnapshot / Condition 都没有该二元状态，
+ * - Empower KeywordDef 已合入，但仍不可执行的是：(a) CardProgram 的 KeywordAbility 没有每实例
+ *   params.cost，programs/keywords.ts 也不透传它；本卡的 12 Energy 与 per-rune 减费无法进入展开，
+ *   默认占位 cost.kind "empower" 会被 translateCost 拒绝；(b) 442.1.a 的 Empowered 状态谓词——
+ *   生产 ObjectSnapshot / Condition 都没有该二元状态，
  *   layers/engine.ts 的 conditionMatches 对未知 condition kind 落回 true，所以两条静态
  *   效果的门控不可求值，进行中任务 RIFT-359 覆盖条件谓词；(c) 费用改写静态效果
  *   （continuous.cost-modification, appliesTo "empower-activation-cost"）在
@@ -99,17 +100,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四条缺口：(1)「[Empower] 12」与它的费用改写没有 KeywordDef——827.1.c.1 的起动费用、" +
-    "827.1.c.3 的 Empower 费用改写（每枚自己控制的符文减 1，下限 0）、827.1.c.5 的" +
-    "「仅未 Empowered 时可起动」均无实现；(2) 442.1.a 的 Empowered 二元状态不在 " +
-    "ObjectSnapshot / Condition 中，layers/engine.ts 的 conditionMatches 对未知 condition kind " +
-    "落回 true，所以 828.1.c 的 [Empowered][>] 静态效果门控不可求值（进行中任务 RIFT-359 " +
-    "条件谓词）；(3)「I have [Deflect] and [Shield 3]」的 continuous.grant-keyword 已合入（golden 真实执行），" +
-    "被授予的 Deflect 的目标税消费方（target.tax / TargetTaxAdapter）也已随 RIFT-90 合入；" +
-    "(4) 827.1.c.3 的费用改写静态效果（continuous.cost-modification, appliesTo " +
-    "\"empower-activation-cost\"）在 programs/statics.ts 的 staticTarget/layerFor 里没有映射，" +
-    "bind 时 fail-closed（实测 Unsupported static appliesTo）。" +
-    "依赖新的 Empower/Empowered 关键词任务与 Empowered 状态谓词；不近似实现费用改写与状态门控，" +
+    "四条缺口：(1) Empower KeywordDef 已合入，但 CardProgram 的 KeywordAbility 没有每实例 params.cost，" +
+    "programs/keywords.ts 也不透传它；本卡的 12 Energy 与 per-rune 减费无法进入展开，默认占位 " +
+    "cost.kind \"empower\" 会被 translateCost 拒绝，827.1.c.1/827.1.c.3/827.1.c.5 因而仍未接入卡牌费用；" +
+    "(2) 442.1.a 的 Empowered 二元状态不在生产 ObjectSnapshot / Condition 中，layers/engine.ts 的 " +
+    "conditionMatches 对未知 condition kind 落回 true，所以 828.1.c 的 [Empowered][>] 静态效果门控不可求值 " +
+    "（进行中任务 RIFT-359 条件谓词）；(3)「I have [Deflect] and [Shield 3]」的 " +
+    "continuous.grant-keyword 已合入（golden 真实执行），被授予的 Deflect 的目标税消费方（target.tax / " +
+    "TargetTaxAdapter）也已随 RIFT-90 合入；(4) 827.1.c.3 的费用改写静态效果 " +
+    "（continuous.cost-modification, appliesTo \"empower-activation-cost\"）在 programs/statics.ts 的 " +
+    "staticTarget/layerFor 里没有映射，bind 时 fail-closed（实测 Unsupported static appliesTo）。" +
+    "依赖每实例 Empower 费用透传、Empower 费用消费、Empowered 状态谓词；不近似实现费用改写与状态门控，" +
     "不把依赖能力写成无条件能力。",
   abilities,
   sourceText:

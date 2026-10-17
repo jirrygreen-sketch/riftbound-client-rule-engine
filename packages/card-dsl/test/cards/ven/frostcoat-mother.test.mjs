@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/frostcoat-mother.js";
-import { createEngineStaticBinder, expandProgram } from "../../../../engine-core/dist/programs/index.js";
+import { createEngineStaticBinder, expandProgram, translateCost } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
@@ -76,10 +76,23 @@ test("ven-032-166 Frostcoat Mother: the [Empowered][>] dependent ability is +3 M
   });
 });
 
-test.todo(
-  "ven-032-166 Frostcoat Mother: expand [Empower] 12 with the 827.1.c.3 per-rune cost rewrite and the " +
-    "827.1.c.5 'use only if not Empowered' restriction — no Empower KeywordDef and no cost consumer"
-);
+test("ven-032-166 Frostcoat Mother: merged Empower expands, but the printed cost cannot cross the card-program boundary", () => {
+  const { source } = hostFor(program, "frostcoat");
+  const expanded = expandProgram(program, source);
+  const [expandedEmpower] = expanded.expanded;
+  assert.equal(expandedEmpower.kind, "activated");
+  assert.deepEqual(expandedEmpower.cost, { kind: "empower" });
+  assert.deepEqual(expandedEmpower.restriction.condition, {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq",
+    right: { kind: "constant", value: 0 }
+  });
+  assert.throws(
+    () => translateCost(expandedEmpower.cost, "frostcoat.empower", "activate"),
+    /Unsupported cost kind empower/
+  );
+});
 
 test.todo(
   "ven-032-166 Frostcoat Mother: register the Empowered-gated +3 Might (828.1.b.1, 143.2.a) — no card-side " +
@@ -92,14 +105,6 @@ function hostFor(programUnderTest, id) {
   f.engine.commit({ type: "move-zone", object: f.kernel.ref(id), to: "base" });
   return { f, source: f.kernel.getObject(id) };
 }
-
-test("ven-032-166 Frostcoat Mother evidence: expandProgram rejects the missing Empower KeywordDef", () => {
-  const { source } = hostFor(program, "frostcoat");
-  assert.throws(
-    () => expandProgram(program, source),
-    /Keyword empower has no executable KeywordDef/
-  );
-});
 
 test("ven-032-166 Frostcoat Mother evidence: the cost modification cannot bind and the Empowered gate is unenforced", () => {
   const { f, source } = hostFor(program, "frostcoat");

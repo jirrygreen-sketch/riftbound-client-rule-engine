@@ -9,6 +9,8 @@ import { instructionDefinitionsById } from "../../../../engine-core/dist/effects
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { expandProgram, translateCost } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const [empower, costReduction, grantedKeywords] = program.abilities;
 
@@ -126,11 +128,26 @@ test("grumpy-rockbear golden: the [Empowered] clause really grants Deflect 1 and
   assert.equal(evaluated.might, 6);
 });
 
-test.todo(
-  "grumpy-rockbear: [Empower] 12 activation including 827.1.c.3 cost rewrite (12 Energy minus 1 " +
-    "per controlled rune, floor 0) and the 827.1.c.5 'play only if not Empowered' restriction, " +
-    "pending the Empower/Empowered KeywordDefs"
-);
+test("grumpy-rockbear: merged Empower expands, but its printed cost is not carried by KeywordAbility", () => {
+  const f = fixture({
+    cards: [{ id: "grumpy", cardId: program.canonicalCardId, types: ["unit"], might: 6 }]
+  });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("grumpy"), to: "base" });
+  const expanded = expandProgram(program, f.kernel.getObject("grumpy"));
+  const [expandedEmpower] = expanded.expanded;
+  assert.equal(expandedEmpower.kind, "activated");
+  assert.deepEqual(expandedEmpower.cost, { kind: "empower" });
+  assert.deepEqual(expandedEmpower.restriction.condition, {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq",
+    right: { kind: "constant", value: 0 }
+  });
+  assert.throws(
+    () => translateCost(expandedEmpower.cost, "grumpy-rockbear.empower", "activate"),
+    /Unsupported cost kind empower/
+  );
+});
 
 test.todo(
   "grumpy-rockbear: the 827.1.c.3 cost-rewrite static (continuous.cost-modification, appliesTo " +

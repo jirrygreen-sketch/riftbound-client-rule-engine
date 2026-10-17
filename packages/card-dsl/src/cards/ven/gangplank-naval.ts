@@ -28,8 +28,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 旧 judgeReason 的「continuous.might 无原语（RIFT-91）」与「无 replacement 消费方
  *   （RIFT-120）」已不成立：continuous.might 已注册并经 runAbilityBody 真实执行
  *   （arithmetic 图层），ProgramStaticBinder.bindReplacement 也已合入。
- * - 仍不可执行的是：Empower/Empowered KeywordDef；Empowered 状态谓词（进行中任务
- *   RIFT-359）；替代面的 stun 事件在 replacement/pattern.ts 的封闭 ACTION_KINDS 里
+ * - Empower KeywordDef 也已合入，但卡程序的 KeywordAbility 没有每实例 params.cost，
+ *   programs/keywords.ts 不透传本卡印刷的 2 Body Power；展开只能得到 cost.kind "empower" 占位，
+ *   translateCost 会以 Unsupported cost kind 拒绝。
+ * - 仍不可执行的是：Empowered 状态谓词（进行中任务 RIFT-359）；替代面的 stun 事件在 replacement/pattern.ts 的封闭 ACTION_KINDS 里
  *   没有映射、chosenBy 不是可判别键、return-to-hand 与 -Might 修改没有 pattern 形态、
  *   continuous.might 不在 replacement planner 支持的替换指令集里（实测
  *   BlockedReplacementError）。
@@ -88,10 +90,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，827.1.c.1 的" +
-    "“[2 Body Power]：Empower me，仅当未 Empowered 时启动”无法展开（依赖新的 Empower/Empowered 关键词任务）；" +
-    "(2) 没有 Empowered 状态谓词——442.1.a 的二元状态不在 ObjectSnapshot / Condition 里，828.1.b.1 的依赖" +
-    "能力门槛不可求值（进行中任务 RIFT-359 条件谓词）；(3) “give me +3 :rb_might:”的 continuous.might" +
+    "四处缺口：(1) Empower KeywordDef 已合入，但卡程序的 KeywordAbility 没有每实例 params.cost，" +
+    "programs/keywords.ts 不透传本卡印刷的 2 Body Power；展开只能得到 cost.kind \"empower\" 占位，" +
+    "translateCost 会以 Unsupported cost kind 拒绝，827.1.c.1 的真实起动费用与仅未 Empowered 限制因而" +
+    "仍未接入卡牌；(2) 没有 Empowered 状态谓词——442.1.a 的二元状态不在生产 ObjectSnapshot / Condition 里，" +
+    "828.1.b.1 的依赖能力门槛不可求值（进行中任务 RIFT-359 条件谓词）；(3) “give me +3 :rb_might:”的 continuous.might" +
     "指令已合入（runAbilityBody 实测执行并注册 arithmetic 图层），但替代消费方仍未合入这一条替换指令：" +
     "replacement/planner.ts 不支持 op continuous.might（实测 BlockedReplacementError）；" +
     "(4) 369.1 的替代事件面不可执行：event \"stun\" 不在 replacement/pattern.ts 的封闭 ACTION_KINDS 映射里" +
