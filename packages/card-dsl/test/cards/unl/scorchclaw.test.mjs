@@ -5,10 +5,9 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/scorchclaw.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
-import { createLayerEngine, ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL_ID =
   "card.hash-2958889db75762be77762e57c20843ec822b4e17041923975b21d9edc0fd4494";
@@ -33,7 +32,8 @@ test("unl-016-219 Scorchclaw: identity, status, judgeReason and verbatim sourceT
   assert.match(program.judgeReason, /Hunt/);
   assert.match(program.judgeReason, /824\.1/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /battlefieldId/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /condition\.predicate/);
 });
 
@@ -158,75 +158,28 @@ test("unl-016-219 Scorchclaw golden: the Level +1 Might registers a real arithme
   assert.equal(registrations[0].effect.layer, "arithmetic");
 });
 
-test("unl-016-219 Scorchclaw golden: the Level 'enter ready' branch binds a real board-entry replacement (CR 359.2.c / 369.3)", () => {
-  const kernel = world()
-    .unit("scorchclaw", { zone: "hand", types: ["unit"], exhausted: false, power: ["Fury"] })
-    .build();
-  const hostRef = kernel.ref("scorchclaw");
-  const registrations = [];
-  const bound = bindReplacement(levelEnterReady, hostRef, {
-    host: {
-      object: (ref) => kernel.object(ref),
-      objects: () => kernel.objects,
-      context: () => kernel
-    },
-    pipeline: {
-      clock: { turn: 1 },
-      registerReplacement: (registration) => registrations.push(registration)
-    }
-  });
-  assert.equal(registrations.length, 1);
-
-  // The card is played: it moves from Hand to the Chain, which is where the
-  // binding follows the newest incarnation (CR 350.2 / 354).
-  assert.equal(kernel.perform({ type: "move-zone", object: hostRef, to: "chain" }).status, "done");
-  const chainIncarnation = kernel.ref("scorchclaw");
-  assert.equal(kernel.getObject("scorchclaw").exhausted, false);
-  assert.equal(kernel.perform({ type: "exhaust", object: chainIncarnation }).status, "done");
-
-  const entering = {
-    type: "move-zone",
-    object: chainIncarnation,
-    to: "base",
-    location: { type: "base", player: "A" }
-  };
-  assert.equal(bound.registration.matches(entering, entering), true);
-  const applied = bound.registration.apply(entering, entering);
-  assert.equal(applied.status, "replace");
-  // 805.6.a shape: the entry orientation is corrected on the chain-zone
-  // permanent and the move then carries it to the Board.
-  assert.deepEqual(applied.actions.map((action) => action.type), ["ready", "move-zone"]);
-  for (const action of applied.actions) assert.equal(kernel.perform(action).status, "done");
-  const entered = kernel.getObject("scorchclaw");
-  assert.equal(entered.zone, "board");
-  assert.equal(entered.exhausted, false);
-});
-
 test("unl-016-219 Scorchclaw: the generated card registry exposes the program under its canonical id", () => {
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
-test.todo(
-  "unl-016-219 Scorchclaw: expand [Hunt 2] into a Conquer and Hold trigger that gains 2 XP through effect.xp " +
-    "(CR 823.1.b / 823.1.c.1) — effects/keywords/Hunt.ts is merged and its body is executed above; what is still " +
-    "open is the subscription side: conquer/hold timing points do not reach the card trigger registry and RIFT-257 " +
-    "does not register a card's keyword abilities at runtime"
-);
+test("unl-016-219 Scorchclaw golden: a prevented ready body leaves the source exhausted", () => {
+  const base = world().unit("scorchclaw", { exhausted: true }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("scorchclaw") });
+  kernel.addReplacement(action => action.type === "ready" ? "prevented" : null);
+  const outcome = resolveChainBody(levelEnterReady.with, kernel);
+  assert.equal(outcome.results[0].result.status, "negated");
+  assert.equal(kernel.getObject("scorchclaw").exhausted, true);
+  assert.deepEqual(outcome.events.map(event => ({ action: event.action, outcome: event.outcome })), [
+    { action: "ready", outcome: "prevented" }
+  ]);
+});
 
 test.todo(
-  "unl-016-219 Scorchclaw: activate [Level 3][>] (CR 824.1.b.1 / 824.1.c / 824.1.d) with its 3+ XP predicate and " +
-    "dynamic Active/Inactive re-evaluation — effects/keywords/Level.ts publishes a condition.predicate that the layer " +
-    "condition vocabulary (always/never/type/has-tag/has-keyword) does not consume"
+  "unl-016-219 Scorchclaw: preserve the Hunt host unit on real conquer/hold emissions so the self trigger can gain 2 XP (CR 823.1.c.1); the timing points and program subscriptions already exist"
 );
-
 test.todo(
-  "unl-016-219 Scorchclaw: apply the Level +1 Might in the arithmetic layer once the XP gate holds (CR 143.2.a / 475) " +
-    "— the continuous.might registration itself is executed above; no production path registers a card's static " +
-    "abilities into layers (RIFT-257)"
+  "unl-016-219 Scorchclaw: read live controller XP for both Level branches, including changes of controller and XP loss (CR 824.1.b.1/824.1.c/824.1.d; RIFT-359)"
 );
-
 test.todo(
-  "unl-016-219 Scorchclaw: register the Level 'enter ready' board-entry replacement from the card program " +
-    "(CR 359.2.c / 369.3) — bindReplacement consumes the ability above, but nothing registers a card's " +
-    "ReplacementAbility in production (RIFT-257); effect.ready does not substitute for it"
+  "unl-016-219 Scorchclaw: evaluate the XP condition before the entry-orientation replacement in matchesEnterAction (CR 824.1/369.3; RIFT-359)"
 );

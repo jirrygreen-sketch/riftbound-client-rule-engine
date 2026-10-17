@@ -33,7 +33,7 @@ test("unl-164-219 Safety Inspector: identity, status, judgeReason and verbatim s
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /cost\.additional/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /CardProgram → CostPlan/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -189,10 +189,11 @@ test("unl-164-219 Safety Inspector golden: an empty pick is ignored instead of g
 });
 
 test.todo(
-  "unl-164-219 Safety Inspector: per-player fan-out for 'each player must kill one of their units' (355.10.d) — the IR " +
-    "has no per-seat repetition and effect.kill takes a single source (same gap as ogn/whirlwind and sfd/the-papertree)"
+  "unl-164-219 Safety Inspector: fan out each-player kills and let each player choose one of their own units (CR 429.6)"
 );
 test.todo(
-  "unl-164-219 Safety Inspector: gate 'If you paid my additional cost, you don't kill a unit this way' on the cost plan's " +
-    "paid receipt (356.4.f.1) — the frozen IR has no cost-result binding (condition.result) and no CardProgram -> CostPlan wiring"
+  "unl-164-219 Safety Inspector: bind the optional additional-cost decision receipt to the play trigger, exempting only the payer (CR 356.4.f.1)"
+);
+test.todo(
+  "unl-164-219 Safety Inspector: collect the static cost.additional declaration into the CardProgram play cost plan; XP payment and receipts already execute above"
 );

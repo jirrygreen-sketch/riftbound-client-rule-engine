@@ -9,7 +9,6 @@ import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.
 import grant from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
-import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-20160abc2cd3adac87c1b0f03192e12ab9103b22ffbd5a8468e4072e00264025";
@@ -43,9 +42,8 @@ test("unl-165-219 Shadow's Call: program validates and keeps its identity", () =
   assert.match(program.judgeReason, /Temporary/);
   assert.match(program.judgeReason, /816\.1\.b/);
   assert.match(program.judgeReason, /816\.3/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-258/);
-  assert.match(program.judgeReason, /RIFT-265/);
+  assert.match(program.judgeReason, /withoutKeyword/);
+  assert.match(program.judgeReason, /addContinuous/);
 });
 
 test("unl-165-219 Shadow's Call: printed 2 energy, no printed power, and one chosen friendly unit", () => {
@@ -141,7 +139,6 @@ test("unl-165-219 Shadow's Call golden: the merged grant registers Temporary on 
   const chosen = layered.evaluate(context.ref("chosen"));
   assert.deepEqual(chosen.keywords.map((keyword) => keyword.id), ["Temporary"]);
   assert.deepEqual(layered.evaluate(context.ref("other")).keywords, []);
-  assert.deepEqual(layered.evaluate(context.ref("other")).keywords, []);
 });
 
 test("unl-165-219 Shadow's Call golden: the merged Temporary expansion kills the host (CR 816.1.b)", () => {
@@ -162,52 +159,9 @@ test("unl-165-219 Shadow's Call golden: the merged Temporary expansion kills the
   assert.equal(context.getObject("granted").zone, "trash");
 });
 
-test("unl-165-219 Shadow's Call: the 'without [Temporary]' restriction has no keyword dimension in the merged filter", () => {
-  // 816.3 makes "has Temporary" a readable characteristic, but the declared
-  // withoutKeyword key is not a filter dimension in the merged matchers: the
-  // layer matcher accepts a Temporary holder and a plain unit alike, and
-  // dropping the key changes nothing. This is the evidence behind the
-  // judgeReason, which names the missing restriction.
-  const filter = grantTemporary.targets[0].filter;
-  const withoutKey = Object.fromEntries(
-    Object.entries(filter).filter(([key]) => key !== "withoutKeyword")
-  );
-  const kernel = world()
-    .unit("plain", { owner: "A", might: 2, keywords: [] })
-    .unit("temporary", { owner: "A", might: 2, keywords: [{ id: "Temporary" }] })
-    .build();
-  for (const id of ["plain", "temporary"]) {
-    const snapshot = kernel.getObject(id);
-    // 816.3: the whole point of the restriction is that these two differ; the
-    // merged matcher returns the same answer for both because it has no keyword
-    // dimension (the plain unit additionally fails only on the controller
-    // placeholder, which the Finalize target pipeline resolves).
-    assert.equal(
-      matchesObjectFilter(withoutKey, snapshot),
-      matchesObjectFilter(filter, snapshot)
-    );
-  }
-  const plain = kernel.getObject("plain");
-  const temporary = kernel.getObject("temporary");
-  assert.equal(matchesObjectFilter(withoutKey, plain), matchesObjectFilter(withoutKey, temporary));
-  assert.equal(withoutKey.withoutKeyword, undefined);
-});
-
 test.todo(
-  "unl-165-219 Shadow's Call: grant [Temporary] to the chosen unit (CR 816.1.a: a characteristic of the permanent, " +
-    "816.3 referenceable) end-to-end — the merged continuous.grant-keyword primitive and Temporary KeywordDef are " +
-    "executed above and the layer engine reads the granted keyword; what is still open is the card-program -> " +
-    "keyword-expansion -> timing/chain wiring (RIFT-257)"
+  "unl-165-219 Shadow's Call: enforce without Temporary against live keyword characteristics during Finalize and Resolve (CR 355.9.b/816.3)"
 );
-
 test.todo(
-  "unl-165-219 Shadow's Call: the Temporary trigger — kill the permanent at the start of its controller's Beginning " +
-    "Phase, before scoring (CR 816.1.b/816.1.c) — the merged KeywordDef body executes above, but nothing subscribes " +
-    "it to beginning-start for a card program (RIFT-257)"
+  "unl-165-219 Shadow's Call: refresh the host's beginning-start subscription when a continuous effect grants Temporary to an existing permanent (CR 816.1.b/816.1.c); general program lifecycle binding is already merged"
 );
-
-test.todo(
-  "unl-165-219 Shadow's Call: enforce 'without [Temporary]' as a targeting restriction (CR 355.9.b, 816.3) once the " +
-    "filter vocabulary can read keyword characteristics (the merged matchers silently accept any unit)"
-);
-

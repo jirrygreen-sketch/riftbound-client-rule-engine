@@ -126,11 +126,8 @@ test("unl-197-219 Scorn of the Moon golden: a replaced Add reports the actual ad
 });
 
 test.todo(
-  "unl-197-219 Scorn of the Moon: express 'Spend this Energy only during showdowns' — the merged Rune Pool is a " +
-    "single per-player energy count (CR 166.1-166.3 / 167.1) with no per-addition use restriction, the closed " +
-    "gain-energy action has no restriction field, and no payment filter can honour one (contract change request)"
+  "unl-197-219 Scorn of the Moon: track the Energy added by this ability and allow spending it only during showdowns (CR 166.1–166.3/167.1); gain-energy and payment require a per-addition restriction contract"
 );
 test.todo(
-  "unl-197-219 Scorn of the Moon: the Reaction keyword's own expansion (CR 813 / effects/keywords/Reaction.ts) " +
-    "reaching a layers consumer (RIFT-91) — the ability's own reaction timing field is what the chain reads today"
+  "unl-197-219 Scorn of the Moon: classify the card's resource activation as an Add ability and resolve immediately after Finalize without a Priority window (CR 430.2/430.3); the chain Add path already exists"
 );

@@ -36,7 +36,7 @@ test("unl-053-219 Scuttle Crab: identity, status, judgeReason and verbatim sourc
   assert.match(program.judgeReason, /Choose an opponent/);
   assert.match(program.judgeReason, /Facedown Zone/);
   assert.match(program.judgeReason, /107\.3\.a/);
-  assert.match(program.judgeReason, /RIFT-82/);
+  assert.match(program.judgeReason, /trigger\.leave/);
 });
 
 test("unl-053-219 Scuttle Crab: [Deathknell] is declared and its printed effect is authored explicitly (808.1.c)", () => {
@@ -176,17 +176,11 @@ test("unl-053-219 Scuttle Crab golden: 'Gain 1 XP' really marks one XP on the co
 });
 
 test.todo(
-  "unl-053-219 Scuttle Crab: choose an opponent among the controlling player's opponents and bind that seat to " +
-    "the following reveal (CR 355.7/355.9.a) — EffectIR has no player target and ChoiceRequest has no " +
-    "player-selection type"
+  "unl-053-219 Scuttle Crab: choose an opponent as a player target and link that player to reveal/inspect (CR 355.7/355.9.a)"
 );
-
 test.todo(
-  "unl-053-219 Scuttle Crab: look at the chosen player's facedown cards for this turn (CR 128.4, 107.3.a/107.3.f, " +
-    "355.9.a.3) — the contract ZoneId set has no Facedown Zone and no reveal/look expiry field (425.1.a.3)"
+  "unl-053-219 Scuttle Crab: grant access to the chosen opponent's Facedown Zone for the rest of this turn (CR 107.3.a/107.3.f/425.1.a.3)"
 );
-
 test.todo(
-  "unl-053-219 Scuttle Crab: execute the [Deathknell] expansion end to end (CR 808.1.d) — effects/keywords/Deathknell.ts " +
-    "references the unregistered trigger.leave op and no subscriber registers card-program triggers (RIFT-82, RIFT-120)"
+  "unl-053-219 Scuttle Crab: bind the printed Deathknell body to its trigger.leave skeleton and preserve killed-to-Trash filtering and last-known information (CR 808.1.c/808.1.d)"
 );

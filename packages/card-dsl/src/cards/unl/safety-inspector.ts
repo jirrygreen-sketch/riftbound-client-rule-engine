@@ -22,21 +22,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   effect.kill；"each player must kill one of their units" 的受害者是各玩家自己
  *   控制的单位，"若我付了附加费用，我就不这样消灭单位"是同一触发里的条件从句。
  *
- * status = judge-required（缺口不近似实现）:
- * 1. 每条指令的"每个玩家各消灭一个自己的单位"需要按玩家扇出的迭代（355.10.d 的
- *    程序化集合 + 逐玩家选择）：effect.kill 只接受一个 target/picks/self 来源，
- *    IR 没有按玩家枚举的重复结构（ogn/whirlwind、sfd/the-papertree 记录同一缺口），
- *    也没有"该玩家选择自己单位"的双向选择器。
- * 2. "If you paid my additional cost" 的闸门需要读取费用计划的已付回执（356.4.f.1）；
- *    冻结 IR 没有费用结果绑定（调研记为 condition.result），无法用它 gate 本条
- *    kill 指令。
- * 3. 附加费用本身：cost 计划能收 XP（已实测），但没有 CardProgram → CostPlan 的接线，
- *    因此这块也无法端到端执行。
- * golden 里真实执行的是 effect.kill 本体（对被锁定的敌方单位）与 3 XP 的费用
- * 计划支付；其余写 test.todo。
- *
- * 依赖：RIFT-9（cost.additional / cost.sacrifice 与 condition.result）、
- * RIFT-89（费用计划接线与回执）、玩家扇出迭代（RIFT-9 target.player / 批 2）。
+ * status = judge-required：
+ * 三处当前缺口：(1) each player must kill one of their units（CR 429.6）需要逐玩家扇出与各玩家选择自己单位的绑定，
+ * 当前 PickSpec 的 controller:each-player 只是保留形状。(2) If you paid my additional cost（356.4.f.1）需要将费用计划的
+ * 支付决定回执绑定到触发条件；现有 IR 没有该费用结果读取。(3) cost.additional 静态声明尚未接入 CardProgram → CostPlan，
+ * programs/play.ts 的 translateCost 拒绝 additional，describePlay 不收集该静态费用；XP 支付与 card-played 触发注册均已合入。
  */
 const abilities: Ability[] = [
   {
@@ -97,14 +87,10 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) 「each player must kill one of their units」需要按玩家扇出的迭代与「该玩家在自己的单位里选一个」的" +
-    "双向选择：effect.kill 只接受一个 target / picks / self 来源，IR 的 instruction 没有逐玩家重复结构，" +
-    "ObjectFilter 也没有「逐玩家」的取值（ogn/whirlwind、sfd/the-papertree 记录同一缺口），故不能把" +
-    "each player 折成一次单玩家 kill 近似。(2) 「If you paid my additional cost」的闸门需要费用计划的已付回执" +
-    "（356.4.f.1：以玩家决定支付为准）；冻结 IR 没有费用结果绑定（调研记为 condition.result），无法用它 gate 本条 kill。" +
-    "(3) 可选附加费用本身：已合入的 cost 计划能收 3 XP（golden 实测），但没有 CardProgram → CostPlan 的接线。" +
-    "已可执行部分：effect.kill 本体（429.1/429.6）对被锁定单位的真实执行，以及 3 XP 费用计划的支付。" +
-    "依赖：RIFT-9（cost.additional / cost.sacrifice、condition.result）、RIFT-89（费用计划接线与回执）、玩家扇出迭代。不近似实现。",
+    "三处当前缺口：(1) each player must kill one of their units（CR 429.6）需要逐玩家扇出与各玩家选择自己单位的绑定，" +
+    "当前 PickSpec 的 controller:each-player 只是保留形状。(2) If you paid my additional cost（356.4.f.1）需要将费用计划的" +
+    "支付决定回执绑定到触发条件；现有 IR 没有该费用结果读取。(3) cost.additional 静态声明尚未接入 CardProgram → CostPlan，" +
+    "programs/play.ts 的 translateCost 拒绝 additional，describePlay 不收集该静态费用；XP 支付与 card-played 触发注册均已合入。",
   abilities,
   sourceText:
     "You may spend 3 XP as an additional cost to play me.\n" +
