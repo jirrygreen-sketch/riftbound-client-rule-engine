@@ -23,9 +23,9 @@ import type { CardProgram } from "../../ir/index.js";
  * TurnFlow Score wave (payload details.battlefieldId), and the golden drives a
  * real EventPipeline registration to receive it. The ability still cannot run
  * in production because:
- * - no merged subscriber turns a CardProgram's triggered ability into a
- *   TriggerRegistration (card-program binding, RIFT-257, in progress), and
- *   190.6's controller resolution for a Battlefield ability is missing;
+ * - the merged program binding can register ordinary triggered abilities, but
+ *   this Battlefield trigger still needs the source Battlefield's runtime
+ *   location and its 190.6 controller resolved from the conquer event;
  * - 053.3's "here" has no evaluable anchor: the emitted conquer event carries
  *   the Battlefield only as a payload detail (details.battlefieldId) and the
  *   static filter cannot reference the host's runtime location; the here: true
@@ -44,10 +44,10 @@ export default {
     "指令体完全用已合入原语表达并在 golden 中真实执行（effect.discard 数量 1 → effect.draw 数量 1；两条不 linkedTo，对应 359.3.e.11 官方例子" +
     "“Discard 2, then draw 2”：弃牌被否定时抽牌照常结算）；conquer 时点现已由已合入的回合计分流程真实发出" +
     "（turn/flow.ts 的 Score 波，载荷 details.battlefieldId），golden 用真实事件管线注册并收到该事件。阻断只在触发侧：" +
-    "① 没有已合入的订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration（卡牌程序绑定 RIFT-257 进行中），" +
-    "190.6 的战场能力控制者解析缺失；② 053.3 的 here 没有可求值锚点：事件只以 details.battlefieldId 携带战场 id，" +
+    "① 053.3 的 here 没有可求值锚点：事件只以 details.battlefieldId 携带战场 id，" +
+    "需要把注册源 Battlefield 的运行时位置与该载荷绑定，并完成 190.6 的战场能力控制者解析；" +
     "静态 filter 读不到宿主运行时位置，here: true 是等待绑定层归一化的占位键（封闭触发词表没有该字段）；" +
-    "filter 的 event/player 已按封闭词表拼写（conquered / self）。依赖：RIFT-257（触发绑定与 here 归一化）。不近似实现。",
+    "filter 的 event/player 已按封闭词表拼写（conquered / self）。依赖：RIFT-357（运行时位置锚点/选择绑定）与 Battlefield 控制者解析。不近似实现。",
   sourceText: "When you conquer here, discard 1, then draw 1.",
   abilities: [
     {

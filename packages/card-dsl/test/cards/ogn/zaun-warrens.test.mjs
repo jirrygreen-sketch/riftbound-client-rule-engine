@@ -49,7 +49,7 @@ test("Zaun Warrens program validates and is judge-required", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /conquered/);
   assert.match(program.judgeReason, /359\.3\.e\.11/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /battlefieldId/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -156,8 +156,7 @@ test("Zaun Warrens: the conquer timing point is emitted by the merged Score wave
   // turn/flow.ts emits "conquer" inside the Score wave and carries the
   // conquered battlefield as details.battlefieldId; the merged pipeline
   // delivers it to registrations whose spec matches. The card-side gaps are
-  // the CardProgram trigger binding (RIFT-257) and the 053.3 here anchor, not
-  // the emission itself.
+  // the CardProgram's source-location here binding, not the emission itself.
   const host = {
     checkpoint: () => null,
     restore: () => {},
@@ -185,9 +184,8 @@ test("Zaun Warrens: the conquer timing point is emitted by the merged Score wave
 });
 
 test.todo(
-  "Zaun Warrens trigger: bind this CardProgram's triggered ability through the card-program layer (RIFT-257), " +
-    "normalize the 053.3 here referent to the emitted details.battlefieldId, and resolve 190.6's controller " +
-    "of the Battlefield ability"
+  "Zaun Warrens trigger: bind the source Battlefield's 053.3 here referent to the emitted details.battlefieldId " +
+    "and resolve 190.6's controller of the Battlefield ability (RIFT-357 / Battlefield control binding)"
 );
 
 test.todo(
