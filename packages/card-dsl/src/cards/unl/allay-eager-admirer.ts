@@ -28,9 +28,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - static binder 与 continuous.grant-keyword 的生产路径已经存在，但本卡的
  *   `exclude: "self"` 是动态来源相对过滤；`programs/statics.ts` 会拒绝该字段，
  *   因而仍不能把这张卡的完整 aura 注册到 LayerEngine。
- * - Deflect 自身的 target.tax 仍没有生产方：target/target-plan.ts 的 taxSpecs/appendTaxes 只在
- *   调用方显式传入 tax 时才追加，链侧也没有从永久物特征派生 Deflect 税；被授予的关键词还需要在
- *   接收者上再展开一次（两级处理），该消费方同样未合入。
+ * - Deflect 自身的 target.tax 仍没有生产方接线：target/tax/collect.ts 已可按特征求和 Deflect
+ *   并换算成任意域 Power，但生产 static binder 对 target.tax 判
+ *   「Static ability kind target.tax has no layer mapping」并 fail-closed，chain/target-plan
+ *   也不会从永久物特征派生该税；被授予的关键词还需要在接收者上再展开一次（两级处理），该消费方同样未合入。
  * - 已合入的 tax→费用换算按 Energy 记账（chain/engine.ts 把税额写成 energy 形态的 mandatory
  *   additional cost），而 809.1.c.1 要求这笔追加费用始终可用任意域（rainbow）力量支付。
  * 依赖：static 相对过滤（`exclude`）的 binder 支持、target.tax 的自动接线与接收者二次展开、
@@ -82,7 +83,8 @@ const program = {
     "但本卡授予范围的 exclude: \"self\" 是动态来源相对过滤，programs/statics.ts 会拒绝该字段；sameLocationAs 也只在绑定时捕获来源位置，移动后不更新，" +
     "因此完整 aura 仍不能由生产绑定注册进 LayerEngine；golden 只验证原语与图层语义本身。" +
     "(2) 自带的 [Deflect]（809.1.b.3 省略值按 1）虽然展开文件 " +
-    "effects/keywords/Deflect.ts 已合入（static target.tax），但没有任何生产方把永久物上的 target.tax 持续效果接进目标选择：" +
+    "effects/keywords/Deflect.ts 已合入（static target.tax），但生产 static binder 对 target.tax 判" +
+    "「Static ability kind target.tax has no layer mapping」fail-closed，没有任何生产方把永久物上的 target.tax 持续效果接进目标选择：" +
     "target/target-plan.ts 的 taxSpecs/appendTaxes 只在调用方显式传入 tax 时才追加，chain 侧也没有从永久物特征派生 Deflect 税" +
     "（target-plan 只消费调用方显式传入的税）；被授予的 Deflect 还需在接收者上再按 809 展开一次（两级处理），该消费方同样未合入。" +
     "(3) 已合入的 tax→费用换算按 Energy 记账（chain/engine.ts 把税额写成 energy 形态的" +

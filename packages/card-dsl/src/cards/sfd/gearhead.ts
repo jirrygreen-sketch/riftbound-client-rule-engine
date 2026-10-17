@@ -19,16 +19,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   式的倍化——按该 Equipment 的**基础** Might Bonus 再增加等量一份（"base" 明确取印刷值，
  *   而不是当前图层计算结果）。这是附着物侧的持续修正，不是本卡的 Buff 计数（702/703）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，两处当前缺口：
- * - Accelerate 的展开与入场就绪替代已可执行，但可选附加费用 [1][Mind] 没有自动接线：
- *   merged cost 计划只在调用方显式传入 optionalAdditional 时支付 accelerate 组件（golden
- *   以调用方计划作孤立证据），打出流程不会读取关键词展开产生的 accelerate.cost；静态
- *   binder 也没有 cost effect 的层映射。
+ * status 判定（cards/README.md 第 2 节，2026-10-17 逐条实测）：judge-required，两处缺口：
+ * - [Accelerate]（805）的展开已合入：accelerate.cost 与 805.6 的入场就绪替代都会产出，替代
+ *   也经 attachLifecycle 注册。但生产 static binder 对 accelerate.cost 判
+ *   「Static ability kind accelerate.cost has no layer mapping」并 fail-closed，Finalize
+ *   因此从不读取这笔可选附加费用；替代是无条件生效的——未支付 [1][Mind] 的单位也直接就绪入场
+ *   （模板测试 keyword-static-671.test.mjs 的 805.1.b 边界行以 todo 断言“未支付应横置入场”）。
  * - 「Each Equipment attached to me gives double its base Might bonus」需要附着物正确读取其
- *   Might Bonus（137.1–137.3）特征并按 433.1 式倍化：ObjectSnapshot 只有 might/energy/power
- *   等当前特征，没有 Might Bonus 字段，layers 的 continuous.might 也没有「按附着物基础
- *   Might Bonus 附加等量修正」规则（算术层只处理 add/set/multiply），且卡牌 static 能力
- *   → 图层的注册仍无端到端消费方。
+ *   Might Bonus（137.1–137.3、435.1.d）特征并按 433.1 式倍化：ObjectSnapshot 没有 Might
+ *   Bonus 字段（全仓库唯一出现处就是本卡的 amount 占位串），算术层只处理
+ *   add/set/multiply，没有「按附着物基础 Might Bonus 附加等量修正」规则。本卡声明的
+ *   continuous.might 确实注册进 arithmetic 层（模板测试实测 filter 只锁本卡自身），但它是
+ *   无法求值的占位 amount，实测对 Might 的贡献是 0。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -58,12 +60,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处当前缺口：(1) [Accelerate] 的展开与 805.6 入场就绪替代已可执行，但可选附加费用 [1][Mind]（805.1.b/805.1.b.1）没有自动接线：" +
-    "merged cost 计划只在调用方显式传入 optionalAdditional 时支付 accelerate 组件（golden 以调用方计划作孤立证据），" +
-    "Play/Finalize 不读取关键词展开的 accelerate.cost，静态 binder 也没有该 cost effect 的层映射。" +
-    "(2)「Each Equipment attached to me gives double its base Might bonus」需要附着物 Might Bonus 特征（137.1–137.3、435.1.d，" +
-    "137.3.a 仅在 Attached 期间生效）与算术层倍化：ObjectSnapshot 无 Might Bonus 字段，layers 的 continuous.might 也没有" +
-    "「按附着物基础 Might Bonus 附加等量修正」规则，卡牌 static 能力 → 图层注册仍无端到端消费方。不近似实现。",
+    "两处缺口，均实测 fail-closed、不近似实现：" +
+    "(1) [Accelerate]（805.1.b/805.1.b.1）的可选附加费用 [1][Mind] 未被收取：生产 static binder 对关键词展开的 " +
+    "accelerate.cost 判「Static ability kind accelerate.cost has no layer mapping」，Play/Finalize 因此不读这笔费用；" +
+    "已经注册的 805.6 入场就绪替代没有支付前置条件，实测未付 [1][Mind] 的单位同样就绪入场" +
+    "（模板测试 keyword-static-671.test.mjs 的 805.1.b 边界行以 todo 断言“未支付应横置入场”）。" +
+    "(2)「Each Equipment attached to me gives double its base Might bonus」缺附着物 Might Bonus 特征（137.1–137.3、435.1.d，" +
+    "137.3.a 仅在 Attached 期间生效）与算术层倍化：ObjectSnapshot 无 Might Bonus 字段，算术层只处理 add/set/multiply，" +
+    "没有「按附着物基础 Might Bonus 附加等量修正」规则；卡侧 continuous.might 虽注册进 arithmetic 层，但其 amount 是无法求值的占位串，" +
+    "实测对本卡 Might 的贡献为 0。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_mind: as an additional cost to have me enter ready.)\n" +
