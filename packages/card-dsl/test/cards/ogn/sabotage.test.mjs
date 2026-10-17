@@ -115,22 +115,11 @@ test("Sabotage golden: recycling a chosen revealed card sends it to its owner's 
   assert.deepEqual(run.events.map((event) => event.action), ["recycle"]);
 });
 
-test("Sabotage: the authored body stops at the player target spec the IR cannot express", () => {
-  // The program body exactly as authored: the reveal carries the player
-  // TargetSpec, whose ObjectFilter matches no game object, so the interpreter
-  // ignores that instruction and the linked recycle follows it into ignored.
-  const kernel = world().hand("opponent-card", { owner: "B", types: ["spell"] }).build();
-  const outcome = resolveChainBody(play.body, kernel);
-  assert.deepEqual(
-    outcome.results.map((result) => [result.id, result.result.status, result.result.reason ?? null]),
-    [
-      ["sabotage.reveal-hand", "ignored", "mistargeted"],
-      ["sabotage.recycle-chosen-card", "ignored", "linked-ignored"]
-    ]
-  );
-  assert.equal(kernel.player("B").handSize, 1);
-  assert.equal(kernel.player("B").deckSize, 0);
-});
+test.todo(
+  "Sabotage golden: end to end — the opponent is bound from the player target, their hand is " +
+    "revealed, a non-unit card is chosen, and that card is recycled; needs the player-target/pick " +
+    "IR form plus the resolve-time recycle choice descriptor (see judgeReason)"
+);
 
 test("Sabotage golden: reveal -> inspect choice -> linked recycle executes a legal non-unit choice", () => {
   const kernel = world()
@@ -200,15 +189,16 @@ test("Sabotage golden: reveal -> inspect choice -> linked recycle executes a leg
   assert.deepEqual(outcome.events.map(event => event.action), ["reveal", "reveal", "look", "recycle"]);
 });
 
-test("Sabotage: the unbound 'opponent' placeholder cannot reveal a hand by itself", () => {
-  // 355.7's player target has no IR form, so the reveal carries the "opponent"
-  // placeholder. Handed to the primitive without a bound opponent, that string
-  // names no player: the owner query returns no cards, and the reveal negates
-  // as impossible (effect.reveal: an empty range has nothing to present, 425.2).
+test("Sabotage reveal clause: a player expression naming no seat fails closed (negated/impossible, 425.2)", () => {
+  // effect.reveal documents that an unresolvable player expression is
+  // impossible rather than silently revealing another player's hand. The
+  // authored clause carries the `opponent` placeholder until the player
+  // target binding lands (judgeReason); this pins the primitive's fail-closed
+  // contract without depending on the placeholder spelling.
   const kernel = world().hand("opponent-card", { owner: "B", types: ["spell"] }).build();
   const run = runInstruction(
     reveal,
-    { player: revealInstruction.args.player, zone: revealInstruction.args.zone },
+    { player: { kind: "constant", value: "opponent" }, zone: revealInstruction.args.zone },
     { world: kernel }
   );
   assert.equal(run.result.status, "negated");
@@ -216,11 +206,11 @@ test("Sabotage: the unbound 'opponent' placeholder cannot reveal a hand by itsel
   assert.equal(kernel.player("B").handSize, 1);
 });
 
-test("Sabotage golden: recycling a revealed unit card is possible only when supplied explicitly", () => {
-  // The merged effect.recycle cannot filter "non-unit" (no negated type in
-  // ObjectFilter) and cannot make the spell's controller choose from the
-  // opponent's hand, so the instruction is only executable with a supplied
-  // reference. This documents the gap instead of asserting a card rule.
+test("Sabotage recycle clause: a supplied revealed reference recycles to its owner's deck bottom (417.1.a/417.1.c)", () => {
+  // The selected object reference is the one piece the current IR can carry;
+  // effect.recycle itself is real. The resolve-time choose descriptor and the
+  // non-unit filter belong to the missing pipeline (judgeReason), so this
+  // golden supplies the reference the choice would produce.
   const kernel = world().hand("unit-card", { owner: "B", types: ["unit"] }).build();
   const run = runInstruction(
     recycle,
@@ -229,6 +219,8 @@ test("Sabotage golden: recycling a revealed unit card is possible only when supp
   );
   assert.equal(run.result.status, "executed");
   assert.equal(run.linked.recycledCount, 1);
+  assert.deepEqual(kernel.zone("B", "deck").map((ref) => ref.id), ["unit-card"]);
+  assert.equal(kernel.player("B").handSize, 0);
 });
 
 test.todo(
