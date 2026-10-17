@@ -169,7 +169,9 @@ test("ven-059-166 Shock Blast golden: a target that left the Board before resolu
 test.todo(
   "ven-059-166 Shock Blast: 'This costs :rb_energy_2: less' needs the static self cost modification to be " +
     "read by the Finalize cost plan (356.4.b / 356.4.c.2, never below 0) — the continuous.cost-modification " +
-    "declaration has no card-side consumer yet (RIFT-89)"
+    "declaration has no card-side consumer yet: cost.modify and the cost-plan discount evaluation are merged, " +
+    "but programs/statics.ts layerFor() has no cost-modification mapping (fail-closed) and no consumer installs " +
+    "the CardProgram static into CostPlanInput.discounts (RIFT-89)"
 );
 
 test.todo(

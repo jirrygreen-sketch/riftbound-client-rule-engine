@@ -22,17 +22,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   控制者（effect.draw 省略 player / target / pick 时取 ctx.controller）。
  *
  * status = judge-required（缺口均不近似实现）：
- * 1. Hold Effect 的触发没有可执行路径：events/timing-points.ts 里有 "hold" 时点，
- *    events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 也有 "held"（EVENT_NAMES 把它映射到
- *    该时点），但 scoring/ 还没有接入 chain/events 单管线（RIFT-120），没有生产者 emit
- *    hold，也没有已合入订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration；
- *    events/pipeline-match.ts 也不消费内层 filter 锚点（它只读 EventPattern 的
- *    object/source/target/player/fromZone/toZone/amount/details），因此 "I hold" 的同一性
- *    没有消费方；
- * 2. "here" 的判定依赖 808.1.d.3 式的位置信息与 sameLocationAs 锚点：事件匹配器不识别该锚点，
+ * 1. Hold Effect 的触发没有可执行路径：hold 事件的生产者已合入（turn/flow.ts 的
+ *    scheduleScore 以 { timingPoint: "hold", player, details: { battlefieldId } } 发射），
+ *    RIFT-257 的程序触发注册也已合入；但 hold 事件的载荷没有 object 字段，而
+ *    translateTriggerFilter 把内层 source: "self" 锚点解析成 pattern.object = { objectId }，
+ *    matchesTriggerObject 对 object 缺失且 filter 非空返回 false——因此 "I hold" 的同一性
+ *    在当前事件载荷下永不匹配；
+ * 1b. 带条件的触发注册需要 host.testTrigger 适配器（events/pipeline.ts 的 scan 在注册
+ *    带 condition 时要求 host 提供 testTrigger；游戏侧 lifecycle 目前只给出占位实现），
+ *    因此本卡的触发条件没有生产求值路径；
+ * 2. "here" 的判定依赖 053.3 的同地点语义、808.1.d.3 式的位置信息与 sameLocationAs 锚点：事件匹配器不识别该锚点，
  *    条件里的 "here" 只能作为有依据的 IR 形状保留（同 ven-063-166 Nasus, Guardian of Knowledge
  *    与 sfd/corinna-veraza 记录的同一缺口）。
- * 依赖：RIFT-120（scoring → chain/events 的 hold 发射与卡牌触发注册）。条件里的 unit 计数、
+ * 依赖：held 事件的 object 载荷与 host.testTrigger 适配器。条件里的 unit 计数、
  * sameLocationAs / exclude 锚点与 body 的 effect.draw 都已合入，golden 用真实解释器执行。
  */
 const abilities: Ability[] = [
@@ -86,14 +88,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) Hold Effect（383.4.d / 383.4.d.1 / 383.4.d.2.a）的触发没有可执行路径：events/timing-points.ts 定义了 \"hold\" 时点" +
-    "（315.2.b.2 / 471.2 / 473.2.b），events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 也有 \"held\"（EVENT_NAMES 将其映射到该时点），" +
-    "但 scoring/ 未接入 chain/events 单管线（RIFT-120），没有生产者 emit hold，也没有已合入订阅方把 CardProgram 的 triggered ability" +
-    " 注册成 TriggerRegistration；events/pipeline-match.ts 也不消费内层 filter 锚点（只读 EventPattern 的 object/source/target/player/" +
-    "fromZone/toZone/amount/details），因此「I hold」的同一性没有消费方；" +
+    "三处缺口，均不近似实现：(1) Hold Effect（383.4.d / 383.4.d.1 / 383.4.d.2.a）的触发没有可执行路径：hold 事件的生产者已合入" +
+    "（turn/flow.ts 的 scheduleScore 以 { timingPoint: \"hold\", player, details: { battlefieldId } } 发射），RIFT-257 的程序触发注册也已合入，" +
+    "但 hold 事件的载荷没有 object 字段，而 translateTriggerFilter 把内层 source: \"self\" 锚点解析成 pattern.object = { objectId }，" +
+    "matchesTriggerObject 对 object 缺失且 filter 非空返回 false——因此「I hold」的同一性在当前事件载荷下永不匹配；" +
+    "(1b) 带触发条件的注册需要 host.testTrigger 适配器（events/pipeline.ts 的 scan 对带 condition 的注册要求 host 提供 testTrigger，" +
+    "游戏侧 lifecycle 目前只有占位实现），本卡条件没有生产求值路径；" +
     "(2)「if there is exactly one other unit you control here」是 383.2.a.1 的触发条件（非效果条件，规则原文的 Sona 例即此形状），" +
-    "其中 \"here\" 的判定依赖位置信息与契约 3.6 的 sameLocationAs 锚点，而事件/条件匹配器不识别该锚点，只能按有依据的 IR 形状保留" +
-    "（同 ven-063-166、sfd/corinna-veraza 记录的同一缺口）。依赖 RIFT-120（scoring → chain/events 的 hold 发射与卡牌触发注册）。" +
+    "其中 \"here\" 的判定依赖 053.3 的同地点语义、位置信息与契约 3.6 的 sameLocationAs 锚点，而事件/条件匹配器不识别该锚点，只能按有依据的 IR 形状保留" +
+    "（同 ven-063-166、sfd/corinna-veraza 记录的同一缺口）。依赖 held 事件的 object 载荷与 host.testTrigger 适配器。" +
     "条件里的 unit 计数与 sameLocationAs/exclude 锚点、body 的 effect.draw（414.1/414.3）均已合入，golden 用真实解释器执行。",
   abilities,
   sourceText: "When I hold, if there is exactly one other unit you control here, draw 1."

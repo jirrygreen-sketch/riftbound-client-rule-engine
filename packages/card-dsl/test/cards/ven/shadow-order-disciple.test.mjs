@@ -9,6 +9,10 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // layout instead of the package name.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import mill from "../../../../engine-core/dist/effects/instructions/effect.mill.js";
+import continuousMight from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
@@ -54,8 +58,9 @@ test("ven-095-166 Shadow Order Disciple: identity, ruleset, status, judgeReason 
   assert.match(program.judgeReason, /might-modify|Might 修正|Might/);
   assert.match(program.judgeReason, /object-moved/);
   assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /continuous\.might 原语（RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.ok(!/没有指令入口|no continuous\.might instruction exists|effect\.might-modify/.test(program.judgeReason));
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -78,7 +83,7 @@ test("ven-095-166: 'When I move' subscribes to the object-moved movement timing 
 test("ven-095-166: the Burn 1 is a Finalize cost and the Might rider a temporary modification", () => {
   assert.deepEqual(optional.args.body.value.map((instruction) => [instruction.id, instruction.op]), [
     ["shadow-order-disciple.pay-burn-1", "cost.pay"],
-    ["shadow-order-disciple.give-plus-1-might", "effect.might-modify"]
+    ["shadow-order-disciple.give-plus-1-might", "continuous.might"]
   ]);
   // 740.4.a.2 / 441.1：效果首段的 [Burn 1] 是在 Finalization 支付的费用；
   // cost/plan-values.ts 的非标准费用种类没有 burn（RIFT-89），形状如实记录。
@@ -88,15 +93,16 @@ test("ven-095-166: the Burn 1 is a Finalize cost and the Might rider a temporary
   });
   assert.equal(payBurn.targets, undefined);
 
-  // 479.4.e.1 的临时 Might 修正（“this turn” 到期）；op 未注册（见 judgeReason 第 2 条）。
+  // 479.4.e.1 的临时 Might 修正（“this turn” 到期）：continuous.might 原语已合入
+  //（RIFT-91），“me” 用 appliesTo: "self" 的来源简写表达，不是 TargetSpec。
   assert.equal(mightModify.linkedTo, "shadow-order-disciple.pay-burn-1");
   assert.deepEqual(mightModify.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(mightModify.args.duration, { kind: "constant", value: "this-turn" });
-  // “me” 是能力宿主：契约 3.6 的符号选择器，不是 TargetSpec（355.10.d/g）。
-  assert.deepEqual(mightModify.args.object, {
+  assert.deepEqual(mightModify.args.appliesTo, {
     kind: "constant",
-    value: { kind: "source" }
+    value: "self"
   });
+  assert.equal(mightModify.args.object, undefined);
   assert.equal(mightModify.targets, undefined);
 });
 
@@ -131,17 +137,83 @@ test("ven-095-166 golden: declining the may-body burns nothing and grants nothin
   assert.deepEqual(kernel.events, []);
 });
 
+test("ven-095-166 golden: continuous.might really grants +1 Might to the disciple until end of turn", () => {
+  // continuous.might（RIFT-91）是真实合入的指令入口：golden 用卡片自己的 args
+  // 执行它，断言 arithmetic 图层注册、“me” 的 appliesTo: "self" 来源选择、
+  // “this-turn” 的 end-of-turn 到期，以及 layers 引擎中的真实数值变化。
+  const kernel = discipleWorld();
+  const run = runInstruction(continuousMight, mightModify.args, { world: kernel });
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [registration] = kernel.continuousEffects;
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 1);
+  assert.equal(registration.effect.filter.objectId, "disciple");
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+
+  // 479.4.e.1 / 143.2.c：图层引擎求值 2 → 3，回合结束清理后回到 2。
+  const engine = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  assert.equal(engine.evaluate(kernel.ref("disciple")).might, 3);
+  assert.deepEqual(engine.advance({ id: "turn-end" }), [
+    "continuous.might:settlement-1:disciple:1:disciple:1:1"
+  ]);
+  const expired = createLayerEngine(kernel.objects, kernel.continuousEffects.filter(
+    (effect) => effect.id !== registration.id
+  ));
+  assert.equal(expired.evaluate(kernel.ref("disciple")).might, 2);
+});
+
+test("ven-095-166 golden: the 'When I move' self anchor is consumed by the merged binding and event match", () => {
+  // object-moved 生产接线已合入（action-adapter 把 move-location 映射为 object-moved）；
+  // translateTriggerFilter（RIFT-257）把内层 source: "self" 锚点解析成 objectId，
+  // matchesTriggerEvent 再用该锚点过滤真实事件：只有本卡自己的移动匹配。
+  const translated = translateTriggerFilter(ability.trigger.filter, "disciple", "object-moved");
+  assert.deepEqual(translated, {
+    event: "object-moved",
+    object: { objectId: "disciple" }
+  });
+
+  const emission = (objectId) => ({
+    kind: "object-moved",
+    timingPoint: "object-moved",
+    player: "A",
+    object: {
+      ref: { id: objectId, zoneEntryId: 1 },
+      cardId: "card:" + objectId,
+      name: objectId,
+      types: ["unit"],
+      tags: [],
+      keywords: [],
+      owner: "A",
+      controller: "A",
+      zone: "board",
+      location: { type: "battlefield", id: "bf-1" },
+      might: 2,
+      energy: null,
+      power: null,
+      exhausted: false,
+      damage: 0,
+      stunned: false,
+      buffs: 0,
+      attachedTo: null,
+      faceDown: false,
+      isToken: false
+    }
+  });
+  assert.equal(matchesTriggerEvent(translated, emission("disciple"), "A"), true);
+  assert.equal(matchesTriggerEvent(translated, emission("other-unit"), "A"), false);
+});
+
 test.todo(
   "ven-095-166 Shadow Order Disciple: pay the printed [Burn 1] inside the may-body at Finalize (740.4.a.2, 441.1) — " +
-    "cost/plan-values.ts supports no burn payment kind and cost.pay has no merged instruction file (RIFT-89)"
+    "cost.pay is merged but its payments shape accepts only energy/power/xp keys and the burn kind returns " +
+    "cannotPay (CostPlanError) — plan-values.ts has no burn payment kind (RIFT-89)"
 );
 
 test.todo(
-  "ven-095-166 Shadow Order Disciple: 'give me +1 :rb_might: this turn' needs a registered temporary Might modification " +
-    "(479.4.e.1 with the 315.4 / 317.2.c end-of-turn expiry) — no continuous.might instruction exists (RIFT-91)"
-);
-
-test.todo(
-  "ven-095-166 Shadow Order Disciple: the object-moved trigger runs end to end — needs a CardProgram → " +
-    "TriggerRegistration subscriber so card triggers enter the chain (RIFT-120 chain/events pipeline)"
+  "ven-095-166 Shadow Order Disciple: the move → may → pay → +1 Might chain runs end to end — the optional " +
+    "choice reaches cost.pay(burn) at Finalize, which is blocked by the missing burn payment kind (RIFT-89); " +
+    "the continuous.might step and the object-moved binding each carry real execution evidence"
 );

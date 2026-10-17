@@ -121,8 +121,9 @@ test("ven-096-166 golden: the reduction is -2 Energy per counted card", () => {
 
 test.todo(
   "ven-096-166 Shadowblade Lurker: install the static -2 per-card Energy discount on the Finalize cost " +
-    "plan — no merged path turns a CardProgram static continuous.cost-modification into CostPlanInput.discounts " +
-    "and effects/instructions/ has no cost.modify primitive (RIFT-9 list, RIFT-89)"
+    "plan — cost.modify and the cost-plan discount evaluation are merged, but programs/statics.ts layerFor() " +
+    "has no cost-modification mapping for continuous.cost-modification (fail-closed) and no consumer installs " +
+    "the CardProgram static into CostPlanInput.discounts (RIFT-89)"
 );
 
 test.todo(

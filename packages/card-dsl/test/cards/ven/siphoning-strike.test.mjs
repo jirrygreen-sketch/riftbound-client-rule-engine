@@ -105,7 +105,7 @@ test("ven-146-166 Siphoning Strike: program passes validateCardProgram and is ju
 test("ven-146-166 Siphoning Strike: judgeReason names the delayed registration and the identity gap", () => {
   assert.match(program.judgeReason, /391\.2/);
   assert.match(program.judgeReason, /trigger\.delayed/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /RIFT-90/);
   assert.match(program.judgeReason, /不近似实现/);
 });
@@ -277,8 +277,9 @@ test("ven-146-166 Siphoning Strike: direct primitive evidence for both merged ha
 test.todo(
   "ven-146-166 Siphoning Strike: register the spell-created delayed ability \"When it dies this turn, " +
     "channel 1 rune exhausted\" (390/391.2/392) over the locked unit and align it with the object-killed " +
-    "event (429.1/429.2) — needs a card-facing trigger.delayed op and the RIFT-120 registration path; " +
-    "the body's effect.channel is already executable"
+    "event (429.1/429.2) — needs a card-facing trigger.delayed op and a TriggerSpec window for 'the locked " +
+    "object's next death this turn' (frequencyKey has only per-game/per-object/clock scopes); the program " +
+    "trigger registration (RIFT-257) and the body's effect.channel are already executable"
 );
 
 test.todo(

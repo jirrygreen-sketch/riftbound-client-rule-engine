@@ -16,9 +16,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （355.10.d，不是目标）；“your” 指该被动能力的控制者（190.6.d）。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。三处缺口都不近似实现：
- * 1. 没有把卡牌 static 费用改写装进 Finalize 费用计划的消费者：cost/cost-plan.ts 的减费只读
- *    调用方传入的 CostDiscount，effects/instructions/ 下没有 cost.modify 原语（RIFT-9 清单
- *    要求，属 RIFT-89 费用批次）。程序按契约形状声明折扣，不自行改写任何费用。
+ * 1. 没有把卡牌 static 费用改写装进 Finalize 费用计划的消费者：cost.modify 原语与
+ *    cost/cost-plan.ts 的减费求值已合入，但 programs/statics.ts 的 layerFor() 对
+ *    continuous.cost-modification 没有 cost-modification 图层映射（fail-closed 抛
+ *    judge-required），也没有消费方把 CardProgram static 装进 CostPlanInput.discounts。
+ *    程序按契约形状声明折扣，不自行改写任何费用。
  * 2. “cards with my name” 是名称自指：合并过滤器只按字面值比较（layers/filter.ts 的
  *    characteristicsMatch 用 ===，参考内核同理），没有读取宿主当前名称的谓词；382.4 的复制
  *    改名情形同样落在该谓词上。因此 count 的 filter 只记录区域与拥有者，名称条件见本段说明，
@@ -54,12 +56,14 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处缺口，均不近似实现：(1) 没有把卡牌 static 费用改写装进 Finalize 费用计划的消费者——" +
-    "cost/cost-plan.ts 的 CostDiscount 只由调用方传入，effects/instructions/ 下没有 cost.modify 原语" +
-    "（RIFT-9 清单，属 RIFT-89）；(2)「for each card with my name in your trash」的名称自指没有可求值谓词：" +
+    "cost.modify 原语（effects/instructions/cost.modify.ts）与 cost/cost-plan.ts 的减费求值已合入，" +
+    "但 programs/statics.ts 的 layerFor() 对 continuous.cost-modification 没有 cost-modification 映射" +
+    "（fail-closed 抛 judge-required），也没有消费方把 CardProgram static 装进 CostPlanInput.discounts；" +
+    "(2)「for each card with my name in your trash」的名称自指没有可求值谓词：" +
     "合并过滤器（layers/filter.ts 的 characteristics、参考内核 matchesFilter）只做字面相等比较，读不到宿主的当前名称，" +
     "382.4 的改名情形同样无法处理；用字面名字写死会把“同名”变成某一具体牌，因此 count 的 filter 只记录 zone/owner；" +
     "(3) 折扣基数需在费用计划里按集合计数求值（356.4.b/356.4.e），与第 1 点同批。" +
-    "依赖：RIFT-89（cost.modify / 费用计划减费接线）与名称谓词（对象名称的运行时读取）。",
+    "依赖：RIFT-89（static → CostPlanInput.discounts 的接线）与名称谓词（对象名称的运行时读取）。",
   abilities,
   sourceText: "I cost :rb_energy_2: less for each card with my name in your trash."
 } satisfies CardProgram;

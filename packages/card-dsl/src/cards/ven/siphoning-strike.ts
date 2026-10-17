@@ -28,8 +28,8 @@ import type { CardProgram } from "../../ir/index.js";
  *     卡牌可用的 trigger.delayed op，且 TriggerSpec.once 没有「该对象的这一次死亡」窗口；
  *     写成卡自身的触发能力会违反 393（同型记录见 rad/last-caress、rad/hexplosive-minefield）。
  * (2) 结算时对目标未来状态的订阅需要目标引用留存：object-killed 事件的对象与
- *     「that unit」的同一性需要在结算后仍能把锁定的目标引用与死亡事件对齐，
- *     属 RIFT-120 的事件/触发注册接线。
+ *     「that unit」的同一性需要在结算后仍能把锁定的目标引用与死亡事件对齐（程序触发
+ *     注册 RIFT-257 已合入，缺的是上述 op 与一次性窗口）。
  * (3) "instead" 的分支数值：本文件用两条互斥 condition 的 effect.damage 表达 4 / 7
  *     （条件按 count 读符文数），但「同一指令的取值替换」与 359.3.e.14.a 的链接语义
  *     仍依赖 RIFT-90 的条件/链接管线；golden 只执行与真实原语一致的那部分（见测试说明）。
@@ -46,7 +46,7 @@ const siphoningStrike = {
     "虽在契约 3.6 中，但 effects/instructions/ 没有卡牌可用的 trigger.delayed op，" +
     "TriggerSpec.once 也没有「该锁定的这一次死亡」窗口；写成卡自身的触发能力会违反 393" +
     "（同型记录见 rad/last-caress、rad/hexplosive-minefield）。(2) 结算后把锁定的目标引用与" +
-    "object-killed（429.1/429.2）事件的同一性对齐属 RIFT-120 的事件/触发注册接线。" +
+    "object-killed（429.1/429.2）事件的同一性对齐需要上述 op 与一次性窗口（程序触发注册 RIFT-257 已合入）。" +
     "(3)「instead」的取值替换与 359.3.e.14.a 的链接语义依赖 RIFT-90 的条件/链接管线；" +
     "本文件用两条互斥 condition 的 effect.damage 表达 4 / 7（条件读 count 的符文数，431.1/133.5.a.1）。" +
     "已支持部分：effect.damage（418.1.c/418.6.a）与 effect.channel 1 rune exhausted" +

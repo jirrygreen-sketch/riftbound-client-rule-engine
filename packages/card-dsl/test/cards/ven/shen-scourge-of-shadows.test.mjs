@@ -76,7 +76,9 @@ test("ven-042-166 Shen, Scourge of Shadows: identity, status, judgeReason and ve
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /383\.4\.d/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /objectId|pattern\.object/);
+  assert.match(program.judgeReason, /testTrigger/);
+  assert.match(program.judgeReason, /053\.3/);
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -188,9 +190,12 @@ test("ven-042-166 Shen, Scourge of Shadows golden: the printed count gate counts
 });
 
 test.todo(
-  "ven-042-166 Shen, Scourge of Shadows: register the Hold Effect as a TriggerRegistration and emit the " +
-    "hold timing point from scoring (383.4.d.2.a / 471.2) — scoring/ is not bridged to the chain/events " +
-    "pipeline yet and no merged subscriber registers card triggers (RIFT-120)"
+  "ven-042-166 Shen, Scourge of Shadows: register the Hold Effect as a TriggerRegistration (RIFT-257 is merged) " +
+    "and match the printed 'I hold' identity — hold events are emitted by turn/flow.ts with only " +
+    "{ timingPoint, player, details: { battlefieldId } } (no object payload), while translateTriggerFilter binds " +
+    "the inner source: 'self' anchor to pattern.object = { objectId } and matchesTriggerObject returns false " +
+    "when the object is missing; the conditioned registration also needs a production host.testTrigger adapter " +
+    "(events/pipeline.ts scan)"
 );
 
 test.todo(
