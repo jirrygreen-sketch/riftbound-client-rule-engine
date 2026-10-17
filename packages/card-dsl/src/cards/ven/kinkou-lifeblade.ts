@@ -20,9 +20,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “+1 :rb_might:” 是算术图层的 Might 增加（143.2.a、479.4.e.1），不是 Buff 计数器（702/703）。
  * - 810.1：[Ganking] 是 Passive Ability 关键词，单位因此可用标准移动在战场之间移动。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，缺口见 judgeReason；
- * continuous.might 与 continuous.grant-keyword 已合入并保留真实 IR 形状，
- * 但 Empowered 门控与 Ganking 的移动消费仍未完整接线。
+ * status = judge-required。已合入依赖与剩余生产接线已重新核对；
+ * 当前真实缺口以 judgeReason 为准，子效果执行不证明整卡可执行。
  */
 const abilities: Ability[] = [
   {
@@ -32,8 +31,8 @@ const abilities: Ability[] = [
   },
   {
     // [Empowered][>] 的“I have +1 :rb_might:”：算术层 Might 增加（479.4.e.1）。
-    // 依赖能力的门槛是 828.1.c 的 Empowered 状态；442.1.a 的二元状态不在 ObjectSnapshot /
-    // Condition 里，condition 里的 empoweredCount 只是描述性记录（见 judgeReason 第 2 条）。
+    // 828.1.c: use the reference kernel's live empowered field; the public
+    // ObjectSnapshot state contract still needs integration (judgeReason).
     kind: "static",
     effect: {
       kind: "continuous.might",
@@ -47,7 +46,7 @@ const abilities: Ability[] = [
       left: {
         kind: "object-property",
         object: "self",
-        property: "empoweredCount"
+        property: "empowered"
       },
       operator: "gte",
       right: { kind: "constant", value: 1 }
@@ -67,7 +66,7 @@ const abilities: Ability[] = [
       left: {
         kind: "object-property",
         object: "self",
-        property: "empoweredCount"
+        property: "empowered"
       },
       operator: "gte",
       right: { kind: "constant", value: 1 }
@@ -80,13 +79,8 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) keywords/registry.generated.ts 尚未提供 Empower / Empowered 的 KeywordDef，827.1.c.1 的" +
-    "“[2 Energy]：Empower me，仅当未 Empowered 时启动”无法展开（依赖新的 Empower/Empowered 关键词任务，" +
-    "RIFT-83/84 批次不含它们）；(2) Empowered 状态谓词尚未进入引擎——442.1.a 的二元状态不在 ObjectSnapshot / " +
-    "Condition 里，两条 [Empowered][>] 依赖能力（828.1.b.1）的门槛不可求值，程序里的 empoweredCount 只是" +
-    "描述性记录（依赖 RIFT-87 条件/谓词）；(3) “I have +1 :rb_might:” 与 “and [Ganking]” 的原语已合入" +
-    "（continuous.might、continuous.grant-keyword），但 Empowered 门控仍无法求值，且 Ganking 展开的 " +
-    "continuous.movement 许可在 zones/movement.ts 没有消费方（810.1.c / 144.4.c）。不近似实现（不把 +1 Might 写成 Buff 计数器）。",
+    "仍缺：(1) KeywordAbility / programs/keywords.ts 未传 params.cost，无法把印刷的 2 Energy 交给 Empower 展开（827.1.c.1）；" +
+    "(2) ObjectSnapshot 契约未公开 Empowered 状态，continuous.might / continuous.grant-keyword 的 828.1.b.1 门控仍需权威状态与静态层、Ganking 能力重绑定。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_2: (:rb_energy_2:: Empower me. Use only if not Empowered.)\n" +

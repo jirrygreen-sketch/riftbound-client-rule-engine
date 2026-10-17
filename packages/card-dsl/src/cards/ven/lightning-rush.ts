@@ -16,11 +16,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   顺序（契约 3.6 的 zoneSlice），原语明确要求上游提供有序 picksSpecId，缺有序来源时 negated，
  *   不得退回无序 query 近似。
  * - "You may choose a card from among them and draw it"：结算时的可选从句（决策点是结算，不是
- *   Finalize 的首段 may），按契约 3.9 用 choice.optional 把“选牌并把它拿到手牌”整段包进 body。
+ *   Finalize 的首段 may），按契约 3.9 用 choice.optional 把“选牌并抽入手牌”整段包进 body。
  *   被选中的牌在主牌库（非公开区域）→ 355.10.a 不是目标，走非目标 pick（355.7 的 pick/target 区分）。
- *   "draw it" 按 414.1「抽一张牌就是把一张牌从某个区域加入手牌」= 把那张牌移入手牌，因此用
- *   effect.zone（to: "hand"，封闭 GameAction return-to-hand），而不是 effect.draw（后者只会取
- *   牌库顶，不能指定那张牌）；同 sfd-041-221 Apprentice Smith 的口径。
+ *   414.1 / 414.1.a 的 “draw it” 指定被选牌；effect.zone 目前只证明移入手牌，
+ *   尚缺对应 Draw 动作/事件，effect.draw 又只支持数量，故整卡保持 judge-required。
  * - "Put the rest into your trash"：由上一段实际移走的牌以外的同组牌 → effect.zone（to: "trash"）。
  *   「the rest」不是玩家选择：结算时把看过的整组牌作为候选交给原语，已经离开牌库进入手牌的那张
  *   引用已失效（124：换区产生新对象身份），被 effect.zone 按 359.3.e 丢掉，剩下的正是“其余”。
@@ -29,25 +28,19 @@ import type { CardProgram } from "../../ir/index.js";
  * - [Flow]（829）是费用改写关键词（829.1.c 的 "Flow [Cost]"）：印刷费用为 2 Energy + 1 rainbow
  *   Power。Flow KeywordDef 已合入，本卡只声明关键词；Flow 的消费与离链替代仍未接线。
  *
- * status = judge-required（见 judgeReason）：三段指令都用已合入原语表达，golden 借参考内核提供
- * 有序 picks 真实执行；整卡因生产链有序 top-3 pick 生命周期与 Flow 消费/替代接线未合入而保持 judge-required。
+ * status = judge-required。已合入依赖与剩余生产接线已重新核对；
+ * 当前真实缺口以 judgeReason 为准，子效果执行不证明整卡可执行。
  */
 const lightningRush = {
   canonicalCardId: "card.hash-caa60c112cdc9dccc741c15d4bb6d88be761ea9eff1495e0945ebb1a86bc5d74",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入：(1)「Look at the top 3 cards of your Main Deck」是非零 top 查看，契约 3.6 规定牌库顶必须用" +
-    " zoneSlice 的真实区域顺序，已合入的 effect.inspect 只在 top 作用域消费上游提供的有序 picksSpecId，" +
-    "并在缺有序来源时 negated（query 不保证区域内顺序，绝不用它截取近似）；已合入的链 Finalize 只锁定" +
-    " instruction.targets 的 TargetSpec（chain/engine.ts assertFinalizationSurface），没有有序区域 pick 的" +
-    "生产生命周期，因此生产打出时查看范围为空、后续“选一张抽上手 / 其余进弃牌区”都无牌可操作。依赖：有序区域" +
-    " picks / Finalize 生命周期（RIFT-358；同 ogn-183-298 Stacked Deck 缺口）。" +
-    "(2) 印刷的 [Flow] :rb_energy_2::rb_rune_rainbow:（829.1.c.1/.c.2）已有 KeywordDef，但契约 3.1 的" +
-    " KeywordAbility 没有承载印刷 Flow 费用的字段，flow.cost 的备选费用选择与离链放逐替代仍未接线，" +
-    "因此“从弃牌区按其 Flow 费用打出、然后放逐”的许可与替代结算缺失。" +
-    "三段指令本身（effect.inspect 的查看 + 非目标 pick、choice.optional 的可选抽牌、effect.zone 移入弃牌区）" +
-    "只用已合入原语表达并由 golden 真实执行；不近似实现。",
+    "仍缺：(1) KeywordAbility / programs/keywords.ts 未传 params.cost，无法绑定 Flow 的 2 Energy + 1 任意域 Power（829.1.c）；" +
+    "(2) programs/play.ts 未消费 flow.cost 以选择备选费用、许可从 trash 打出，也未关联实付实例的离链放逐及自身指令离链例外（829.1.b.1）；" +
+    "(3) 可选分支里的单牌非目标 pick 仍只有描述性 options，尚未接入 Resolve 选择；" +
+    "(4) effect.zone 只移动到手牌，effect.draw 又只支持数量，缺 414.1 / 414.1.a 的指定牌 Draw 动作/事件；" +
+    "zoneSlice → Finalize → picksSpecId 的查看与 linked 余牌已有执行证据，但不能补齐上述缺口。",
   abilities: [
     // 829.1 / 829.1.c：印刷的 [Flow] 替代费用关键词，只声明不重写展开。
     { kind: "keyword", keyword: "flow" },
@@ -87,11 +80,10 @@ const lightningRush = {
           picks: [
             {
               id: "lightning-rush.viewed",
-              options: ["top-3-cards-of-your-main-deck-in-zone-order"],
-              min: 0,
-              max: 3,
-              selection: "up-to",
-              filter: { owner: "self", zone: "deck" }
+              options: [],
+              ordered: true,
+              selection: "all",
+              zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 3 } }
             }
           ]
         },
@@ -107,8 +99,8 @@ const lightningRush = {
               kind: "constant",
               value: [
                 {
-                  // 414.1："draw it" 就是把那张牌加入手牌；被选牌在主牌库（非公开区域）→ 355.10.a 走
-                  // 非目标 pick，不触发“成为目标”相关触发（355.7 / 契约 3.4）。
+                  // 355.10.a: a private non-target pick. This supported zone
+                  // movement still lacks the chosen-card Draw event (414.1).
                   id: "lightning-rush.draw-chosen-card",
                   op: "effect.zone",
                   args: {
@@ -150,17 +142,14 @@ const lightningRush = {
           picks: [
             {
               id: "lightning-rush.rest",
-              options: [
-                {
-                  kind: "linked-value",
-                  instructionId: "lightning-rush.look-top-three",
-                  key: "viewed"
-                }
-              ],
-              min: 0,
-              max: 3,
-              selection: "up-to",
-              filter: { owner: "self", zone: "deck" }
+              options: [],
+              ordered: true,
+              selection: "all",
+              linked: {
+                kind: "linked-value",
+                instructionId: "lightning-rush.look-top-three",
+                key: "viewed"
+              }
             }
           ]
         }

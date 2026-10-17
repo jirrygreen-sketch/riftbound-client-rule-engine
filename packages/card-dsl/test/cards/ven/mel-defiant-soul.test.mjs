@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/mel-defiant-soul.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import banish from "../../../../engine-core/dist/effects/instructions/effect.banish.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 
 const CANONICAL_ID =
   "card.hash-ac23c451a781cab424bef57b9033b37b366730f18b5699ec3fdfd4a7cb61f807";
@@ -49,7 +50,7 @@ test("ven-110-166 Mel: identity, status, judgeReason and verbatim sourceText", (
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /827\.1\.c\.2/);
   // 143.2.a：当前 Might 的数值上限（无谓词消费方）。
-  assert.match(program.judgeReason, /Might 谓词/);
+  assert.match(program.judgeReason, /mightLte/);
   assert.match(program.judgeReason, /143\.2\.a/);
 });
 
@@ -65,7 +66,7 @@ test("ven-110-166 Mel: the Empowered trigger and its banishing instruction", () 
   assert.equal(triggered.trigger.at, "empowered-changed");
   assert.deepEqual(triggered.trigger.filter, {
     event: "empowered-changed",
-    filter: { player: "self", direction: "increase" }
+    filter: { source: "self", direction: "increase" }
   });
   assert.equal(triggered.optional, false);
 
@@ -122,13 +123,34 @@ test("ven-110-166 golden: a stale target makes the banish ignored (359.3.e.7)", 
 
 test.todo(
   "ven-110-166 Mel: [Empower]'s non-resource cost 'Discard a spell' (827.1.c.1 / 827.1.c.2) still needs " +
-    "an Empower KeywordDef and a payable spell-discard cost path"
+    "the merged Empower KeywordDef to receive params.cost and a spell-filtered hand-cost choice"
 );
 test.todo(
-  "ven-110-166 Mel: the [Empowered] dependent trigger (828.1.d) still needs an Empowered predicate and " +
+  "ven-110-166 Mel: the [Empowered] dependent trigger (828.1.d) still needs an event discriminant and " +
     "increase-direction consumer for empowered-changed"
 );
 test.todo(
   "ven-110-166 Mel: enforce 'with 3 :rb_might: or less' (143.2.a effective Might) — the frozen ObjectFilter " +
-    "has no Might predicate consumer; the golden pins today's fail-open boundary"
+    "has no Might predicate consumer; the primitive golden only proves movement of an already-locked target"
 );
+
+// Resolution-only evidence: no activation or printed-cost payment is claimed.
+test("mel: the merged Empower resolution body checks live state and does not empower twice", () => {
+  const kernel = world().unit("mel", { cardId: CANONICAL_ID }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("mel") });
+  const [expanded] = expandProgram(program, context.source).expanded;
+  assert.equal(expanded.kind, "activated");
+  assert.equal(expanded.timing, "action");
+  assert.equal(expanded.body[0].op, "effect.empower");
+  assert.deepEqual(expanded.restriction.condition, {
+    kind: "compare", left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq", right: { kind: "constant", value: 0 }
+  });
+  const first = runAbilityBody(expanded.body, context, undefined, { host: context.source.ref });
+  assert.equal(first.status, "executed");
+  assert.equal(context.getObject("mel").empowered, 1);
+  const second = runAbilityBody(expanded.body, context, undefined, { host: context.source.ref });
+  assert.equal(second.results[0].result.reason, "skipped");
+  assert.equal(context.getObject("mel").empowered, 1);
+  assert.deepEqual(context.events.map(event => event.action), ["empower"]);
+});
