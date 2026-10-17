@@ -20,11 +20,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   （one-shot）授予，随本回合结束失效。
  *
  * status = judge-required（当前缺口均不近似实现）：
- * 1. continuous.grant-keyword 只接受固定 keyword/value 与 self；本卡需要把 Repeat 授予“本回合
- *    下一张法术”，并在该法术 Finalize 时读取它自己的印刷费用，现有参数面没有这种 one-shot
- *    对象窗口或动态费用表达式。
- * 2. 费用计划没有把这次未来法术的印刷费用生成可选追加费用组件；Repeat 自身的展开只描述
- *    来源自带的 repeat.cost 实例。
+ * 1. 已合入的 continuous.grant-keyword 支持 target/pick/choose/objects/filter 选择器与
+ *    appliesTo:"self"，但选择器只在激活结算时对当前世界求值；「本回合下一张你打出的法术」
+ *    在激活时还不存在，原语没有 one-shot 挂起窗口（例如 card-played 时点的补登记）。
+ * 2. 原语没有 amount 参数，value 只接受非负整数，不能表达 equal-to-its-cost；Finalize 需要
+ *    读取未来法术自己的印刷费用并生成可选 Repeat 追加费用组件（Repeat 展开只携带
+ *    来源自带的 repeat.cost 实例）。
  * :rb_rune_rainbow: 是 Universal Power，现有六域 Domain 集合仍只能保留描述性 `rainbow`。
  */
 export default {
@@ -32,8 +33,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口：(1) continuous.grant-keyword 只接受固定 keyword/value 与 self，无法把 Repeat 授予“本回合下一张法术”" +
-    "的一次性对象窗口；(2) Finalize 尚不能读取未来法术自己的印刷费用并生成可选追加费用，故 amount=equal-to-its-cost " +
+    "当前缺口：(1) 已合入的 continuous.grant-keyword 支持 target/pick/choose/objects/filter 选择器与" +
+    "appliesTo:self，但没有 one-shot 挂起窗口：选择器只在激活结算时对当前世界求值，" +
+    "「本回合下一张你打出的法术」那时还不存在，无法把 Repeat 授予“本回合下一张法术”" +
+    "的一次性对象窗口；(2) 原语没有 amount 参数且 value 只接受非负整数，Finalize 尚不能读取" +
+    "未来法术自己的印刷费用并生成可选 Repeat 追加费用，故 amount=equal-to-its-cost " +
     "没有消费方；(3) :rb_rune_rainbow: 是 Universal Power，六域 Domain 集合只能保留描述性 [\"rainbow\"]。" +
     "本卡的 exhaust 支付和固定关键词授予原语均已合入，不把它们列为缺口。",
   abilities: [
@@ -51,13 +55,14 @@ export default {
       body: [
         {
           // 820.1.b：给「本回合你打出的下一个法术」授予一个 Repeat 实例，其费用等于该法术的费用。
-          // 消费者是关键词授予 / 一次性费用修正管线，当前没有已注册原语（见 judgeReason）。
+          // IR 契约没有动态费用参数；equal-to-its-cost 是描述性标记（见 judgeReason）。
+          // appliesTo:"next-spell-you-play" 同样是印刷形状的描述性标记：原语只接受
+          // appliesTo:"self" 或选择器，且选择器在激活结算时求值，未来的法术那时
+          // 还不存在（见 judgeReason 的 one-shot 挂起窗口缺口）。
           id: "temporal-portal.grant-repeat",
           op: "continuous.grant-keyword",
           args: {
             keyword: { kind: "constant", value: "Repeat" },
-            // 820.1.c 的费用来自该法术自己的印刷文本，而不是一个固定数值。
-            amount: { kind: "constant", value: "equal-to-its-cost" },
             appliesTo: { kind: "constant", value: "next-spell-you-play" },
             duration: { kind: "constant", value: "end-of-turn" }
           }

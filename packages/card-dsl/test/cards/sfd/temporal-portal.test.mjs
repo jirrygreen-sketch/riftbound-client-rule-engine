@@ -68,7 +68,9 @@ test("sfd-078-221 Temporal Portal: the body grants Repeat to the next spell at a
   // 820.1.b/820.1.c：给下一个法术授予一个 Repeat 实例，费用来自该法术自己的印刷文本。
   assert.equal(grantRepeat.op, "continuous.grant-keyword");
   assert.deepEqual(grantRepeat.args.keyword, { kind: "constant", value: "Repeat" });
-  assert.deepEqual(grantRepeat.args.amount, { kind: "constant", value: "equal-to-its-cost" });
+  // The printed "equal to its cost" stays a descriptive marker: the grant
+  // contract has no dynamic-cost argument (judgeReason gap 2).
+  assert.equal(grantRepeat.args.amount, undefined);
   assert.deepEqual(grantRepeat.args.appliesTo, { kind: "constant", value: "next-spell-you-play" });
   assert.deepEqual(grantRepeat.args.duration, { kind: "constant", value: "end-of-turn" });
   assert.equal(grantRepeat.targets, undefined);
@@ -119,6 +121,22 @@ test("sfd-078-221 Temporal Portal: the merged grant-keyword primitive really gra
   assert.equal(bound.continuousEffects[0].effect.effect.kind, "continuous.grant-keyword");
   assert.equal(bound.continuousEffects[0].effect.effect.keyword, "Shield");
   assert.equal(bound.continuousEffects[0].effect.effect.keywordValue, 2);
+});
+
+test("sfd-078-221 Temporal Portal: the resweep grant shape keeps only merged primitive arguments", () => {
+  // Resweep (2026-10): the merged primitive accepts selectors and
+  // appliesTo:"self", but neither the one-shot next-spell window nor the
+  // equal-to-its-cost amount is expressible, so the card keeps descriptive
+  // markers and the engine must reject the removed amount argument.
+  const rejected = grantKeyword.argsSchema.safeParse({
+    keyword: { kind: "constant", value: "Repeat" },
+    amount: { kind: "constant", value: "equal-to-its-cost" },
+    appliesTo: { kind: "constant", value: "next-spell-you-play" },
+    duration: { kind: "constant", value: "end-of-turn" }
+  });
+  assert.equal(rejected.success, false, "the grant contract has no amount argument");
+  assert.match(String(rejected.error), /Invalid continuous.grant-keyword argument: amount/);
+  assert.deepEqual(Object.keys(grantRepeat.args).sort(), ["appliesTo", "duration", "keyword"]);
 });
 
 test.todo(
