@@ -29,11 +29,10 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * 未合入依赖（不近似实现）:
  * - cost/buildCostPlan 已能表达 optionalAdditional（含 discard 支付）与 component 绑定的
- *   discount，但仍没有 CardProgram → CostPlan 的 IR 接线（RIFT-257）：没有已合入组件把
- *   这里的 static 费用声明注册进费用计划，CostDiscount 也没有"仅在该可选附加费用被选择时
- *   才应用"的条件（356.4.f.1 的闸门）。
- * - RIFT-261 的 cost.pay / cost.modify 指令尚未合入，卡面没有可声明它们的 op。
- * 依赖：RIFT-257（卡牌程序→费用管线绑定）、RIFT-261（cost.pay / cost.modify）。
+ *   discount，但 play Finalize 仍没有把这里的 static 费用声明注册进费用计划，CostDiscount
+ *   也没有"仅在该可选附加费用被选择时才应用"的 paid-proof gate（356.4.f.1）。
+ * - cost.pay / cost.modify 原语已存在，但卡面声明还没有接入这条费用管线。
+ * 依赖：CardProgram static cost declarations → play CostPlan/Finalize 的绑定。
  */
 const brazenBuccaneer = {
   canonicalCardId: "card.hash-da18079d11afce4cad1d799fd51de5b0219e0635613cd5a5b4a5f38e1a42aafc",
@@ -42,10 +41,9 @@ const brazenBuccaneer = {
   judgeReason:
     "『you may discard 1 as an additional cost. If you do, reduce my cost by [2]』是可选附加费用 + 由该费用授予的减费" +
     "（CR 356.2.b.1、356.4、356.4.f.1）：buildCostPlan 已能表达 optionalAdditional（discard 支付）与按组件绑定的减费" +
-    "（本卡测试真实执行该费用计划并验证支付后总费用为 4、拒绝时保持 6），但仍缺 CardProgram → CostPlan 的绑定层（RIFT-257），" +
-    "卡面的 static 费用声明不会被生产路径登记；CostDiscount 也没有『仅在该可选附加费用被选择时才应用』的条件（356.4.f.1），" +
-    "卡面声明的已付凭证无法回传；RIFT-261 的 cost.pay / cost.modify 指令亦未合入。" +
-    "依赖：RIFT-257（卡牌程序→费用管线绑定）、RIFT-261（cost.pay / cost.modify）。不近似实现。",
+    "（本卡测试真实执行该费用计划并验证支付后总费用为 4、拒绝时保持 6），但 play Finalize 尚未消费 " +
+    "CardProgram 的 static cost.additional / cost.modify 声明；CostDiscount 也没有『仅在该可选附加费用被选择时才应用』的 " +
+    "paid-proof gate（356.4.f.1），卡面声明的已付凭证无法回传。依赖：static cost declarations → play CostPlan/Finalize 的绑定。不近似实现。",
   abilities: [
     {
       kind: "static",

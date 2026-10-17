@@ -23,11 +23,9 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * 未合入依赖（不近似实现）:
  * - continuous.restrict 原语与 layers/rules 查询已合入（本卡测试真实执行并验证对手
- *   过滤、到期），但 chain 的 canAct / Finalize 都没有读取持续禁止集合，禁止不会
- *   实际拦下打出。
- * - 卡牌程序绑定层未合入（RIFT-257）：触发体不会被生产路径注册执行；该层落地后
- *   才谈得上链的许可消费。
- * 依赖：RIFT-257（卡牌程序绑定）与 chain 的持续禁止许可消费。
+ *   过滤、到期），card-played trigger registration 也已具备；但 chain 的 canAct /
+ *   Finalize 都没有读取持续禁止集合，禁止不会实际拦下打出。
+ * 依赖：chain 的持续禁止许可消费。
  */
 const brynhirThundersong = {
   canonicalCardId: "card.hash-c3d99cfdb7043f9a6d4f6898cda1e76169b34bfb8ba341d7b4189ff2c78fc63d",
@@ -36,8 +34,8 @@ const brynhirThundersong = {
   judgeReason:
     "『opponents can't play cards this turn』是持续限制（CR 400/402–407 的打出许可）：continuous.restrict 原语已合入" +
     "（RIFT-259，本卡测试真实执行并验证对手过滤与回合结束到期），但 chain 的 canAct 与 Finalize 都没有读取持续禁止集合的消费方，" +
-    "禁止不会实际拦下对手的打出；同时缺卡牌程序绑定层（RIFT-257），该触发体在生产路径不会被注册执行。" +
-    "触发时点 card-played（420.4.a）已定义。依赖：RIFT-257 卡牌程序绑定与 chain 的持续禁止许可消费。不近似实现。",
+    "禁止不会实际拦下对手的打出；card-played 触发注册形状已可用，但生产链仍未消费该限制。" +
+    "触发时点 card-played（420.4.a）已定义。依赖：chain 的持续禁止许可消费。不近似实现。",
   abilities: [
     {
       kind: "triggered",

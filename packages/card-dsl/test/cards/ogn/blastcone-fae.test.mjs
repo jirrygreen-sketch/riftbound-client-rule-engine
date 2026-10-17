@@ -18,8 +18,7 @@ test("Blastcone Fae program validates and is judge-required", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /811/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /cost\.hidden/);
   assert.equal(
     program.sourceText,
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +
@@ -93,11 +92,7 @@ test("Blastcone Fae: the printed -2 Might with floor 1 executes through the merg
 });
 
 test.todo(
-  "Blastcone Fae: register the triggered body from the static CardProgram so the -2 Might fires on card-played " +
-    "(RIFT-257 CardProgram -> chain/pipeline binding)"
-);
-
-test.todo(
   "Blastcone Fae [Hidden] (811): Hide for one rainbow rune, play from facedown for 0, plus the 811.1.d.3 targeting " +
-    "restriction that its play effect must choose units at the battlefield it was played to (RIFT-261 cost.hidden/cost.pay / RIFT-90)"
+    "restriction that its play effect must choose units at the battlefield it was played to; wire the Hidden " +
+    "cost/zone consumers and the battlefield-local target restriction"
 );
