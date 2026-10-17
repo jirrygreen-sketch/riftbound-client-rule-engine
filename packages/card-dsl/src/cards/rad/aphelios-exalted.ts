@@ -22,17 +22,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "[Buff] a friendly unit"：427.1（把 Buff counter 放到单位上）、702.2.a、427.3（格式
  *   "Buff [one or more units]"）；effect.buff 的 buff 模式已合入。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。缺口：
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。缺口：
  * 1. "hasn't been chosen this turn" 的跨触发选择记忆需要未注册的 choice.exclusive-once-per-turn
  *    （choice.mode 只有单次结算内的 different=true）；
- * 2. 模式选择发生在触发结算中，而 chain/engine.ts 的 assertFinalizationSurface 对
+ * 2. object-attached 不在 EVENT_PATTERN_TYPES（events/trigger-spec.ts）里，pipeline
+ *    .registerTrigger 的 assertTriggerSpec 会判 invalid-event-type；
+ * 3. 触发载荷不携带附着宿主：events/action-adapter.ts 的 ACTION_TIMINGS 把 attach 映射到
+ *    object-attached，但发射只填 object = 被附着的装备，所以 "to me"（附着到本病源）无法在
+ *    触发过滤里表达。
+ * 4. 模式选择发生在触发结算中，而 chain/engine.ts 的 assertFinalizationSurface 对
  *    choice.mode 直接抛 ChainContractBlockedError（"Mode choices require a Finalize/Resolve
- *    choice-plan adapter"），即生产链路还没有模式选择的接线；
- * 3. object-attached 的触发载荷不携带附着宿主（events/action-adapter.ts 的 attach 分支只填
- *    object = 被附着的装备），所以 "to me"（附着到本病源）无法在触发过滤里表达；
- * 4. "Ready 2 runes" 的 rune-zone 目标合法性在 Finalize 侧还需 target 系统对 rune-zone 的
- *    明确支持（355.9.a.1 说明 "rune" 默认指 Board 上的对象）；
- * 5. 触发订阅还需要 CardProgram → TriggerRegistration 绑定（RIFT-257）。
+ *    choice-plan adapter"），生产链路还没有模式选择的接线。
+ * RIFT-257 的 CardProgram → TriggerRegistration 绑定已合入，不再是缺口；"Ready 2 runes" 的
+ * rune-zone 目标经生产目标翻译（controller → self）在 Finalize 正常锁定两个符文（355.9.a.1
+ * 的默认指称由 IR 显式 zone: "rune-zone" 覆盖），也不再是缺口。
  * 已合入的三条子指令（effect.ready / effect.channel / effect.buff）在 golden 测试里用解释器 +
  * 参考内核真实执行（含 choice.mode 的运行时选择与三个模式的派发）；不近似实现
  * （不删"本回合未选过"限制、不把 rune 的 readying 写成其他动作）。
@@ -139,13 +142,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "五处缺口：(1) 「choose one that hasn't been chosen this turn」需要跨触发的本回合选择记忆，" +
-    "choice.exclusive-once-per-turn 未注册，choice.mode 只保证单次结算内 different=true；" +
-    "(2) 模式选择在触发结算中执行，chain/engine.ts 的 assertFinalizationSurface 对 choice.mode " +
-    "抛 ChainContractBlockedError（缺 Finalize/Resolve choice-plan 接线）；(3) object-attached 载荷" +
-    "不带附着宿主，events/action-adapter.ts 只填 object=被附着的装备，无法表达 「to me」；" +
-    "(4) 「Ready 2 runes」的 rune-zone 目标合法性（355.9.a.1 的 rune 默认指 Board 对象）需要 target " +
-    "系统对 rune-zone 的明确支持；(5) 触发订阅需要 CardProgram → TriggerRegistration 绑定（RIFT-257）。" +
+    "(1) 「choose one that hasn't been chosen this turn」需要跨触发的本回合选择记忆，" +
+    "choice.exclusive-once-per-turn 未注册，choice.mode 只保证单次结算内 different=true。" +
+    "(2) object-attached 不在 EVENT_PATTERN_TYPES（events/trigger-spec.ts），pipeline.registerTrigger " +
+    "的 assertTriggerSpec 判 invalid-event-type，触发无法订阅。" +
+    "(3) object-attached 的发射只填 object = 被附着的装备（events/action-adapter.ts 的 attach 分支），" +
+    "不携带附着宿主，无法表达 「to me」。" +
+    "(4) 模式选择在触发结算中执行，chain/engine.ts 的 assertFinalizationSurface 对 choice.mode 抛 " +
+    "ChainContractBlockedError（缺 Finalize/Resolve choice-plan 接线）。" +
+    "RIFT-257 的 CardProgram → TriggerRegistration 绑定已合入，不再是缺口；「Ready 2 runes」的 " +
+    "rune-zone 目标经生产目标翻译在 Finalize 锁定两个符文，也不再是缺口。" +
     "已合入的 effect.ready / effect.channel（431.2 exhausted）/ effect.buff 三条子指令与 choice.mode " +
     "的解释器派发在 golden 测试中真实执行；不近似实现（不删「本回合未选过」限制）。",
   abilities,

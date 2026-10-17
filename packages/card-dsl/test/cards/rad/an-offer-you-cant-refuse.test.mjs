@@ -21,6 +21,7 @@ test("rad-101-167 An Offer You Can't Refuse: program validates and is judge-requ
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /185\.2\.d/);
   assert.match(program.judgeReason, /Its controller/);
+  assert.match(program.judgeReason, /argsSchema/);
 });
 
 test("rad-101-167 An Offer You Can't Refuse: identity, ruleset, status and verbatim source text", () => {
@@ -78,3 +79,8 @@ test("rad-101-167 An Offer You Can't Refuse: the kill instruction really kills a
 test.todo("rad-101-167 An Offer You Can't Refuse: the Gold gear token definition (CR 187.5, with its own \"[Reaction][>] Kill this, :rb_exhaust:: [Add] :rb_rune_rainbow:.\" ability) must be added to the frozen token table before it can be created.");
 test.todo("rad-101-167 An Offer You Can't Refuse: \"plays a Gold gear token exhausted\" needs the create-token entry-state override (CR 143.4 / 185.2.d); a follow-up effect.exhaust is not equivalent and is deliberately not used.");
 test.todo("rad-101-167 An Offer You Can't Refuse: \"Its controller\" needs the killed gear's controller bound from the kill result as the token's player (no event-object ObjectSelector and no linked-object controller expression are merged).");
+test.todo(
+  "rad-101-167 An Offer You Can't Refuse: the production chain must consume the { type: \"play\" } action " +
+    "(chain/engine.ts requires the caller's describePlay adapter; EngineRuntimeHost returns impossible " +
+    "for play) before the Gold token can be created and played through the real chain"
+);

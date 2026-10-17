@@ -27,18 +27,33 @@ import type { CardProgram } from "../../ir/index.js";
  * - 135.2.d.3: both parenthesised reminders summarise rules already stated by
  *   the keywords; they author no extra instructions.
  *
- * Status: judge-required. The Deploy KeywordDef merged (RIFT-267,
- * effects/keywords/Deploy.ts) and expands 830.1.b into a
- * continuous.location permission plus the opponent-Hold kill trigger, but
- * two consumers are still missing:
- * - the location permission is only recorded: the layers rules query exposes
- *   it (layers/rules/query.ts playLocations) while the Finalize placement
- *   validator and cleanup's non-Unit recall exemption do not read it;
- * - "Friendly units here have [Assault]" is a static ability-layer grant, but
- *   no card-program adapter binds static abilities to the layer registry
- *   (RIFT-257); the merged continuous.grant-keyword primitive has no caller
- *   for a card static ability. The static ability below is the contract 3.1
- *   shape the layers system consumes, retained for review.
+ * Status: judge-required (re-verified 2026-10-17). The Deploy KeywordDef
+ * merged (RIFT-267, effects/keywords/Deploy.ts) and expands 830.1.b into a
+ * continuous.location effect plus the opponent-Hold kill trigger, but three
+ * consumers are still missing:
+ * - the expanded effect is not the shape playLocations reads:
+ *   layers/rules/query.ts playLocations only lifts `permission` / `restriction`
+ *   strings out of the effect, while Deploy carries structured
+ *   `play`/`create`/`destinationRestriction`/`movement`/`cleanup` fields
+ *   (measured: playLocations returns empty permissions/restrictions), and
+ *   programs/statics.ts rejects the effect with "Static ability kind
+ *   continuous.location has no layer mapping";
+ * - the expanded Hold trigger cannot be subscribed: `hold` is not in
+ *   EVENT_PATTERN_TYPES (only `held` is, and events/pipeline-match.ts maps
+ *   `held` to the `hold` timing point), while the expansion's filter also
+ *   carries `here`, which is not an EventPattern field at all (programs/
+ *   filters.ts rejects it). The `hold` emission in turn/flow.ts only carries
+ *   details.battlefieldId.
+ * - "Friendly units here have [Assault]" binds through the merged static
+ *   binder (RIFT-349 createEngineStaticBinder → layers/engine.ts applyAbility),
+ *   but the grant does not reach units at the source battlefield: staticFilter
+ *   registers the source's location snapshot while layers/filter.ts compares
+ *   `filter.location` by object identity, and every read hands back a fresh
+ *   clone (measured: the registered grant matches no unit). Even with the
+ *   anchor resolved, the granted Assault would still not produce Might:
+ *   layers/engine.ts applyKeyword only records the keyword id, so the Assault
+ *   expansion (an arithmetic modifier conditioned on the live Attacker
+ *   designation, which the admitted board does not persist) has no consumer.
  * Not approximated: the grant is not collapsed into a +1 Might arithmetic
  * effect (807.1.c applies only while the unit is an attacker) and the Deploy
  * half is not dropped.
@@ -48,12 +63,19 @@ const bannerOfConquest = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) Deploy KeywordDef 已合入（RIFT-267，effects/keywords/Deploy.ts），把 830.1.b 展开为 " +
-    "continuous.location 许可 + opponent-Hold 消灭触发；但许可只被记录：layers/rules/query.ts 的 " +
-    "playLocations 暴露它，Finalize 的合法位置校验与清理的非单位 Gear 免召回都还不读取。" +
-    "(2)「Friendly units here have [Assault]」是 ability 图层的关键词授予（契约 3.4 图层顺序），" +
-    "已合入的 continuous.grant-keyword 原语没有卡牌静态能力的调用方，也没有 CardProgram → 图层注册的" +
-    "适配器（RIFT-257）。依赖：位置许可消费者、静态授予注册路径（RIFT-257）。" +
+    "(1) Deploy 展开的 continuous.location 效果没有消费者：layers/rules/query.ts 的 playLocations " +
+    "只读取 permission/restriction 字符串，而 Deploy 带结构化 play/create/destinationRestriction/" +
+    "movement/cleanup 字段（实测 permissions/restrictions 均为空），programs/statics.ts 也判 " +
+    "Static ability kind continuous.location has no layer mapping。" +
+    "(2) Deploy 展开的 Hold 触发无法订阅：hold 不在 EVENT_PATTERN_TYPES（只有 held，且 " +
+    "events/pipeline-match.ts 才把 held 映射到 hold 时点），展开的 filter 还带 here，而 here 不是 " +
+    "EventPattern 字段（programs/filters.ts 直接拒绝）；turn/flow.ts 的 hold 发射也只带 " +
+    "details.battlefieldId。" +
+    "(3)「Friendly units here have [Assault]」经已合入的静态绑定（RIFT-349）进入 ability 图层，但授予到不了" +
+    "源战场上的单位：staticFilter 登记源位置快照，而 layers/filter.ts 按位置对象同一性比较，读取又返回新" +
+    "克隆（实测登记的授予匹配不到任何单位）。即便锚点能解析，授予的 Assault 也不会产生 Might：layers/engine.ts " +
+    "的 applyKeyword 只记录关键词 id，Assault 展开（以 Attacker designation 为条件的 arithmetic 修正，" +
+    "而 admitted board 不持久化 designation）没有消费方。" +
     "不近似实现：不把授予折算成 +1 Might 的 arithmetic 效果（807.1.c 只在作为攻击者时生效），也不丢掉 Deploy 半段。",
   abilities: [
     // 830.1：印刷的 [Deploy] 声明；展开由关键词注册表负责（当前没有 Deploy 定义）。

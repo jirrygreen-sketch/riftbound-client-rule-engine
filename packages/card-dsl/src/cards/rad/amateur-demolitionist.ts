@@ -17,26 +17,31 @@ import type { CardProgram } from "../../ir/index.js";
  * - Bomb gear token = CR 187.12（domainless gear token，带 "[Deploy]" 与
  *   "[Deathknell][>] Deal 2 to an enemy unit here and kill all other Bombs you control here."）。
  *
- * status: judge-required（不近似实现）：
- * - effect.token 的定义表（recruit / sand-soldier / mech / reflection / tentacle）不含
- *   Bomb：带自身能力的 token 定义按该原语文件说明保持 blocked（negated + blockedReason
+ * status: judge-required（复核 2026-10-17；不近似实现）：
+ * - effect.token 的冻结定义表（recruit / sand-soldier / mech / reflection / tentacle）不含
+ *   Bomb（CR 187.12 的带 [Deploy] / [Deathknell] 定义）：带自身能力的 token 定义按该
+ *   原语文件说明保持 blocked（实测 negated + blockedReason
  *   "token-definition-or-abilities-judge-required"）。Deploy / Deathknell 的 KeywordDef
  *   已合入（RIFT-267 / RIFT-265），但 token 定义表本身仍是闭集，卡牌侧不能新增定义；
- * - "play" mode 的链上生成 + 打出流程由参照内核与 effect.token 原语承载，但生产打出仍
- *   依赖 Finalize 的费用交接（RIFT-261）与 CardProgram 绑定（RIFT-257）。
+ * - 生产链上的打出还缺接线：chain/engine.ts 对 Play 动作要求调用方提供 describePlay，
+ *   effect.token 的 mode "play" 只能提交 { type: "play" } 动作，而当前 host
+ *   （apps/game-server 的 EngineRuntimeHost）对该动作返回 impossible，所以链上生成 +
+ *   打出的整段只能在参照内核里执行。
+ * RIFT-257 的 CardProgram 绑定与 RIFT-261 的费用种类/cost.pay 已合入，不再是缺口。
  */
 const program = {
   canonicalCardId: "card.hash-19dbd19038a6e261cba3253b41f902ba0a6e7533f33da771cc4fd6b644de55ec",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Bomb gear token 定义缺失：effect.token 的冻结定义表不含 bomb（含自身能力的 token 按原语" +
-    "说明保持 blocked，返回 blockedReason \"token-definition-or-abilities-judge-required\"）；" +
-    "Deploy / Deathknell 的 KeywordDef 虽已合入（RIFT-267 / RIFT-265），卡牌侧仍不能为 Bomb 补" +
-    "定义，且 effect.token 不支持入场状态改写（143.4 / 185.2.d）。mode \"play\" 的链上生成 + " +
-    "打出（440.2.c / 185.2.a）在参照内核可用，但生产打出仍需 Finalize 费用交接（RIFT-261）与" +
-    "CardProgram 绑定（RIFT-257）；战场目的地选择（355.10.b 非目标地点选择）已按 pick 表达。" +
-    "不近似实现。",
+    "(1) Bomb gear token 定义缺失：effect.token 的冻结定义表不含 bomb（CR 187.12 的带自身能力" +
+    "定义按原语说明保持 blocked，返回 blockedReason \"token-definition-or-abilities-judge-required\"）；" +
+    "Deploy / Deathknell 的 KeywordDef 虽已合入（RIFT-267 / RIFT-265），卡牌侧仍不能为 Bomb 补定义。" +
+    "(2) mode \"play\" 的链上生成 + 打出（440.2.c / 185.2.a）缺生产接线：chain/engine.ts 的" +
+    "Play 动作要求调用方提供 describePlay 卡牌程序适配器，而 EngineRuntimeHost 对 { type: \"play\" }" +
+    " 返回 impossible，整段只能在参照内核执行。" +
+    "RIFT-257 的 CardProgram 绑定与 RIFT-261 的费用种类/cost.pay 已合入，不再是缺口；" +
+    "战场目的地选择（355.10.b 非目标地点选择）已按 pick 表达。不近似实现。",
   abilities: [
     {
       kind: "triggered",
