@@ -28,32 +28,21 @@ import type { CardProgram } from "../../ir/index.js";
  *   sfd/royal-guard / sfd/azir-ascendant convention). No controller-relative
  *   LocationRef spelling is needed for the destination any more.
  *
- * Status rationale (contract 3.1): the payment instruction, the trigger, the
- * optional wrapper, the unit target, the return-to-hand zone move, the "here"
- * destination and the Sand Soldier token are each expressible with merged
- * primitives, but the ability as a whole stays judge-required for two wiring
- * gaps that the card program cannot close by itself:
- * - CR 383.3.b/383.3.b.1 pays the 1-energy cost as the triggered ability's base
- *   cost during Finalize. The merged trigger registration keeps its own
- *   TriggerRegistration without a cost slot and ChainEngine.finalize only
- *   prices spell/unit/gear chains, so nothing charges this base cost yet.
- * - "When you conquer here" needs the conquer timing point with the here
- *   restriction; the card-facing trigger-filter translator rejects the
- *   sameLocationAs/here anchors it would have to read.
+ * Status rationale: cost.pay and the zone/token sub-effects are merged. The
+ * authored body demonstrates those primitives, not the full printed timing:
+ * programs/triggers.ts does not lift the leading optional decision into the
+ * existing TriggerRegistration.mayAtFinalize field (383.3.a). CR 205 explicitly
+ * keeps the payment before "If you do" as a game action at resolution, not a
+ * base cost; the unit's return is likewise a targeted effect, not a cost pick.
+ * The program filter translator rejects here/sameLocationAs. The scoring
+ * event's battlefieldId also needs a source-relative here binding.
  */
 export default {
   canonicalCardId: "card.hash-0049ad19b30eb5fd30b02674e302272e9df4b060fbe5a8e672fb9f5bb9c5e417",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "1 能量支付原语已合入（cost.pay，payments: { energy: 1 } 的 finalized record 形状，204.3.a/205/356），" +
-    "payment → return-to-hand → Sand Soldier 的 'If you do' 回执链路有真实执行测试；但整卡仍 judge-required，" +
-    "缺口是接线而非原语：(1) CR 383.3.b/383.3.b.1 要求紧跟 'you may' 的该费用作为触发式能力的基础费用在 " +
-    "Finalize 支付，而卡牌程序 → TriggerRegistration 的注册路径不填 cost 槽位，ChainEngine.finalize 也只对 " +
-    "spell/unit/gear 收取印刷费用，触发链无处收取这笔基础费用（契约 3.1/3.5）。" +
-    "(2) 'When you conquer here' 的触发过滤（conquer 时点 + here 锚点）在卡牌注册层的 translateObjectFilter " +
-    "里被拒（sameLocationAs/here 锚点不在其封闭词表），卡侧无法订阅该时点。" +
-    "不近似实现：不省略能量支付，也不把它写成普通触发体内动作。",
+    "剩余缺口：(1) CR 383.3.a 要求开头的可选决定在 Finalize 处理；TriggerRegistration 已有 mayAtFinalize，但 programs/triggers.ts 未把 choice.optional 提取到该字段。依 CR 205，If you do 前的支付是结算期游戏动作，不是触发能力基础费用；返回手牌也不是费用，不能误报 return-to-hand 支付种类缺失。(2) translateObjectFilter 拒绝目标的 sameLocationAs 与触发的 here；conquer 生产者仅携带 details.battlefieldId，缺与来源战场的相对匹配绑定。事件模式使用已支持的 conquered（管线映射到 conquer），不再将事件名称列为缺口。cost.pay、返回拥有者手牌与 Soldier 创建/play 已有子效果执行证据，整卡仍为 judge-required。",
   sourceText:
     "When you conquer here, you may pay :rb_energy_1: and return a unit you control here to its owner's hand. If you do, play a 2 :rb_might: Sand Soldier unit token here.",
   abilities: [
@@ -61,7 +50,7 @@ export default {
       kind: "triggered",
       trigger: {
         at: "conquer",
-        filter: { event: "conquer", here: true, player: "self" }
+        filter: { event: "conquered", here: true, player: "self" }
       },
       optional: true,
       body: [
@@ -76,11 +65,11 @@ export default {
                 {
                   id: "emperors-dais.pay",
                   op: "cost.pay",
-                  // 204.3.a/205 + 356：1 能量结算支付；能量从控制者的资源池扣除。
+                  // CR 205: a resource-paying game action at resolution, not a base cost.
                   args: {
                     payments: {
                       kind: "constant",
-                      value: [{ kind: "energy", amount: { kind: "constant", value: 1 } }]
+                      value: { energy: 1 }
                     }
                   }
                 },
@@ -124,7 +113,13 @@ export default {
                 {
                   id: "emperors-dais.sand-soldier",
                   op: "effect.token",
-                  linkedTo: "emperors-dais.pay",
+                  linkedTo: "emperors-dais.return-unit",
+                  condition: {
+                    kind: "compare",
+                    left: { kind: "linked-value", instructionId: "emperors-dais.return-unit", key: "moved" },
+                    operator: "eq",
+                    right: { kind: "constant", value: 1 }
+                  },
                   args: {
                     token: { kind: "constant", value: "sand-soldier" },
                     amount: { kind: "constant", value: 1 },

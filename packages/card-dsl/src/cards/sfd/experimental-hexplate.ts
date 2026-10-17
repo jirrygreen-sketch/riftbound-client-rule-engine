@@ -16,8 +16,8 @@ import type { CardProgram } from "../../ir/index.js";
  * status = judge-required：Equip 的启动费用在已合入的费用管线里无法支付。Equip 展开声明
  * `payments: [{ kind: "equip", … }]`，而 cost/plan-values.ts 的 readCost 对未知支付种类
  * 调用 blocked——实测 buildCostPlan 抛 CostPlanError（reason "judge-required"，message
- * "Unsupported payment kind: equip"）；同时缺少卡牌程序 → 关键词展开 → 时点/链的接线
- * （契约 3.5）。不把 Equip 近似成裸 effect.attach 指令（那会绕开 818.1.c.3/c.4
+ * "Unsupported payment kind: equip"）。KeywordDef.params.cost 已存在，但卡牌关键词
+ * 声明不携带该费用，programs/keywords.ts 未传入它，Equip.expand() 也未消费它。不把 Equip 近似成裸 effect.attach 指令（那会绕开 818.1.c.3/c.4
  * 的费用与费用改写语义）。
  *
  * 印刷费用（1 个 Mind 符文，无能量符号）无法按契约记录：3.1 的 KeywordAbility 只有
@@ -30,12 +30,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Equip 的启动费用无法在费用管线支付：已合入的 Equip 展开（RIFT-87）声明 payments: [{ kind: \"equip\" }]，" +
-    "cost/plan-values.ts 的 readCost 对未知支付种类调用 blocked，实测 buildCostPlan 抛 CostPlanError" +
-    "（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）；同时缺少卡牌程序 → 关键词展开 → " +
-    "时点/链的接线（契约 3.5）。印刷 Equip 费用为 1 个 Mind 符文（:rb_rune_mind:，无能量符号）；契约 3.1 的 " +
-    "KeywordAbility 没有承载印刷费用组成的字段（818.1.c.3 的 [A] 声明无法落到契约字段），故只以 value: 1 记录印刷符号数。" +
-    "依赖：Equip 费用支付种类（equip 仍 blocked）与契约 3.5 的关键词/触发接线。不近似实现（不写成裸 effect.attach）。",
+    "Equip 的 effects/keywords/Equip.ts 已合入，但展开仍声明 payments: [{ kind: \"equip\" }]，cost/plan-values.ts 对它返回 CostPlanError(\"judge-required\", \"Unsupported payment kind: equip\")。CR 818.1.c.2/818.1.c.3 的印刷启动费用为 1 Mind Power；契约 3.1 的 KeywordAbility 只有 kind/keyword/value，无法携带费用组成。KeywordDef.expand 的 params.cost 已存在，但 programs/keywords.ts 没有传入它，Equip.expand() 也未读取它；value: 1 仅保留符号数。Attach 子效果有执行证据；仍缺可信的印刷 Equip CostSpec 从卡牌到展开及启动支付的接线。",
   abilities: [
     // 818.1.c：印刷费用为 1 个 Mind 符文（:rb_rune_mind:，无能量符号）；value 记录印刷符号数 1。
     { kind: "keyword", keyword: "equip", value: 1 }

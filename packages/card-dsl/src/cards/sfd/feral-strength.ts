@@ -22,41 +22,29 @@ import type { CardProgram } from "../../ir/index.js";
  *   (820.1.a). Its printed cost is 2 Energy (820.1.c, 820.1.c.1), it may be
  *   paid once for one additional execution (820.1.d, 820.1.c.3), and choices
  *   are re-made for the extra execution (820.2). The printed additional cost
- *   is declared on the play ability in the CostSpec vocabulary the merged
- *   cost planner consumes (cost/plan-values.ts: kind/payments/energy/power/
- *   choice) with an explicit pay/decline decision; the keyword expansion
- *   itself is owned by effects/keywords/Repeat.ts.
+ *   is retained as an additional CostSpec with a pay/decline decision. This
+ *   declaration is not yet translated to the planner's optionalAdditional
+ *   input; keyword expansion is owned by effects/keywords/Repeat.ts.
  * - "Give a unit +2 :rb_might: this turn": the unit is a target (355.7,
  *   355.9.a.1). The clause modifies Effective Might (143.2.a) until the
  *   end-of-turn cleanup expires every "this turn" effect simultaneously
  *   (317.2.c). effect.buff's own header states that temporary Might changes
  *   belong to the layers continuous.might path and never to Buff counters
- *   (702/703 remove/add counters), and no merged instruction registers such an
- *   effect through ResolveContext.addContinuous: RIFT-91 merged the layers
- *   evaluation side, but the card-facing continuous.might opcode is absent.
+ *   (702/703 remove/add counters). continuous.might now registers the actual
+ *   arithmetic-layer effect with an end-of-turn duration.
  *
- * Status: judge-required. Two dependencies are unmerged and not approximated
- * (no Buff-counter substitution, no unconditional Might rewrite):
- * - card-facing continuous.might / effect.might-modify with an end-of-turn
- *   duration (143.2.a, 317.2.c; RIFT-91 follow-up for the instruction op);
- * - Finalize collecting the optional [Repeat] additional cost from the card
- *   program and exposing the paid instance count to the interpreter's repeat
- *   node (820.1.c.1, 820.1.d.1; RIFT-89, plus the wiring noted in
- *   effects/keywords/Repeat.ts).
+ * Status: judge-required only for Repeat integration. programs/play.ts rejects
+ * its additional CostSpec instead of populating CostPlanInput.optionalAdditional.
+ * The paid Repeat count and re-selection must also reach the interpreter
+ * (820.1.c.1/820.1.d.1/820.2). The targeted Might effect is executed and expired
+ * in the golden tests; no Buff counters substitute for it.
  */
 const feralStrength = {
   canonicalCardId: "card.hash-21fa1dc89f8491be1ad8d778109c30c1266a2ee3c7b7b49e5da837edba0103ee",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1)「Give a unit +2 :rb_might: this turn」是临时 Might 修正——" +
-    "契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，effect.buff 文档明确临时 Might 归 layers 的 continuous.might" +
-    "（702/703 的 Buff 计数不是 Might 修改），而 effects/instructions 下没有任何原语通过 ResolveContext.addContinuous 注册该效果；" +
-    "RIFT-91 只合入 layers 求值侧，卡牌侧的 continuous.might 指令 op 仍缺失，" +
-    "143.2.a 的 Effective Might 与 317.2.c 的本回合到期都需要该路径。" +
-    "(2)「[Repeat] :rb_energy_2:」的附加费用已按 CostSpec 声明（kind additional、payments、可选支付 choice），" +
-    "但 Finalize 从卡牌程序收集可选附加费用（820.1.c.1/820.1.d.1）并把已支付实例数接到解释器 repeat 节点的接线未合入" +
-    "（RIFT-89；effects/keywords/Repeat.ts 头部同款说明）。",
+    "continuous.might 已合入：卡面 +2 Might 经解释器注册 arithmetic 图层，this-turn 映射为 end-of-turn（143.2.a/317.2.c），并有真实增益和到期测试。剩余是 Repeat 接线（820.1.c.1/820.1.d.1/820.2）：programs/play.ts 的 translateCost 拒绝 kind: additional 及 optional/keyword 字段，describePlay 未把本卡可选费用送入已有 CostPlanInput.optionalAdditional，也未把已付实例数接到 repeat 节点并重选目标。费用计划本身支持可选附加费用与付费回执；不能因此把卡面 Repeat 标为可执行。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
@@ -82,10 +70,11 @@ const feralStrength = {
       body: [
         {
           // "Give a unit +2 Might this turn" — layers continuous.might 形状；
-          // 卡牌侧指令 op 尚未注册（见 judgeReason）。
+          // TargetSpec locks the chosen unit; the opcode reads that target.
           id: "feral-strength.give-plus-2-might",
           op: "continuous.might",
           args: {
+            objects: { kind: "constant", value: { kind: "target", id: "feral-strength.unit" } },
             amount: { kind: "constant", value: 2 },
             duration: { kind: "constant", value: "this-turn" }
           },

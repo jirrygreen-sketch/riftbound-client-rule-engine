@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/sfd/fae-dragon.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-25827836268ab76ff935741b947b08a906c9a719348a2c911526d1b8321ecce9";
@@ -19,18 +20,21 @@ const [tokenInstruction] = spendTrigger.body;
 
 const resultFor = (outcome, id) => outcome.results.find(result => result.id === id);
 
-/**
- * The reference kernel compares filter values literally, so the contract-layer
- * "controller" anchor (resolved by the Finalize target pipeline, RIFT-90) is
- * pinned to the acting seat for the kernel-facing copy. The program's own
- * filter shape is asserted separately above; nothing else is rewritten.
- */
-const bodyForKernel = seat => [
-  {
-    ...buffInstruction,
-    targets: [{ ...buffSpec, filter: { ...buffSpec.filter, controller: seat } }]
-  }
-];
+// Use the merged program filter translator, then bind self exactly as the
+// chain query does. Keep the authored body/TargetSpecs intact.
+function controllerContext(kernel) {
+  return new Proxy(kernel, {
+    get(target, key) {
+      if (key === "query") return filter => {
+        const normalized = translateObjectFilter(filter);
+        if (normalized.controller === "self") normalized.controller = target.controller;
+        return target.query(normalized);
+      };
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
+}
 
 test("sfd-101-221 Fae Dragon: program validates and is registered", () => {
   const result = validateCardProgram(program);
@@ -52,7 +56,7 @@ test("sfd-101-221 Fae Dragon: judgeReason names the Gold token and entry-state g
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /143\.4/);
   assert.match(program.judgeReason, /LocationRef/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
 });
 
 test("sfd-101-221 Fae Dragon: 'When you play me' is a mandatory card-played self trigger", () => {
@@ -107,8 +111,8 @@ test("sfd-101-221 Fae Dragon: 'When you spend a buff' subscribes to the buff-spe
     kind: "constant",
     value: { type: "base", player: "controller" }
   });
-  // 184.1 / 185.2.d entry stipulation, never a later exhaust (143.4).
-  assert.deepEqual(tokenInstruction.args.entersExhausted, { kind: "constant", value: true });
+  // Exhausted entry (184.1/185.2.d) is a remaining blocker, kept in the TODO.
+  assert.deepEqual(tokenInstruction.args.linkKey, { kind: "constant", value: "goldToken" });
   assert.equal(tokenInstruction.linkedTo, undefined);
 });
 
@@ -121,14 +125,14 @@ test("sfd-101-221 Fae Dragon golden: the buff body places one Buff on every lock
     .build();
   // Finalize locks the chosen subset; the reference kernel compares the
   // filter's raw values (the "controller" anchor belongs to the Finalize
-  // pipeline, RIFT-90), so the golden pins the four-unit maximum explicitly.
+  // pipeline, programs/filters.ts), so the golden pins the four-unit maximum explicitly.
   kernel.setTargets("fae-dragon.friendly-units", [
     kernel.ref("fae-dragon"),
     kernel.ref("ally-1"),
     kernel.ref("ally-2")
   ]);
 
-  const outcome = resolveChainBody(bodyForKernel("A"), kernel);
+  const outcome = resolveChainBody(playTrigger.body, controllerContext(kernel));
   assert.equal(outcome.status, "executed");
   assert.equal(resultFor(outcome, "fae-dragon.buff-up-to-four").result.status, "executed");
   assert.equal(kernel.getObject("fae-dragon").buffs, 1);
@@ -153,7 +157,7 @@ test("sfd-101-221 Fae Dragon golden: exactly four units fit the printed ceiling 
     kernel.ref("u3"),
     kernel.ref("u4")
   ]);
-  const outcome = resolveChainBody(bodyForKernel("A"), kernel);
+  const outcome = resolveChainBody(playTrigger.body, controllerContext(kernel));
   assert.equal(outcome.status, "executed");
   for (const id of ["u1", "u2", "u3", "u4"]) assert.equal(kernel.getObject(id).buffs, 1, id);
   assert.equal(kernel.getObject("u5").buffs, 0);
@@ -165,7 +169,7 @@ test("sfd-101-221 Fae Dragon golden: choosing fewer units is legal (min 0 makes 
     .unit("ally-1", { controller: "A" })
     .build();
   kernel.setTargets("fae-dragon.friendly-units", [kernel.ref("ally-1")]);
-  const outcome = resolveChainBody(bodyForKernel("A"), kernel);
+  const outcome = resolveChainBody(playTrigger.body, controllerContext(kernel));
   assert.equal(outcome.status, "executed");
   assert.equal(kernel.getObject("ally-1").buffs, 1);
   assert.equal(kernel.getObject("fae-dragon").buffs, 0);
@@ -177,7 +181,7 @@ test("sfd-101-221 Fae Dragon golden: an already-buffed unit is not buffed again 
     .unit("fresh-ally", { controller: "A", buffs: 0 })
     .build();
   kernel.setTargets("fae-dragon.friendly-units", [kernel.ref("buffed-ally"), kernel.ref("fresh-ally")]);
-  const outcome = resolveChainBody(bodyForKernel("A"), kernel);
+  const outcome = resolveChainBody(playTrigger.body, controllerContext(kernel));
   // 359.3.e.11: the instruction still does as much as it can — one unit gains
   // its Buff, the already-buffed one is left alone.
   assert.equal(resultFor(outcome, "fae-dragon.buff-up-to-four").result.status, "executed");
@@ -187,13 +191,11 @@ test("sfd-101-221 Fae Dragon golden: an already-buffed unit is not buffed again 
 });
 
 test.todo(
-  "sfd-101-221 Fae Dragon: create and play the Gold gear token exhausted once the Gold definition " +
-    "(CR 187.5) and the exhausted entry stipulation (184.1 / 185.2.d) are merged (token primitive task); " +
-    "the chain-creation + play hand-off is already merged"
+  "sfd-101-221 Fae Dragon: create/play Gold with exhausted entry (187.5/184.1/185.2.d); " +
+    "this needs a Gold definition, an entry override and a relative controller-base token destination"
 );
 
 test.todo(
-  "sfd-101-221 Fae Dragon: the buff-spent timing point must reach this ability through the card-program " +
-    "trigger registration (702.2.b / 705; RIFT-257), and Finalize must resolve the 'friendly units' " +
-    "controller anchor and the 0..4 up-to bounds (355.13, RIFT-90)"
+  "sfd-101-221 Fae Dragon: register buff-spent in the pipeline event-pattern vocabulary and connect " +
+    "the existing action producer to this trigger (702.2.b/705)"
 );

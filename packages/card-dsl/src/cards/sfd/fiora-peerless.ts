@@ -1,4 +1,4 @@
-import type { CardProgram, Instruction } from "../../ir/index.js";
+import type { CardProgram, Condition, Instruction } from "../../ir/index.js";
 
 /**
  * Fiora, Peerless (sfd-110-221) — fiora-sfd (RIFT-95).
@@ -9,9 +9,9 @@ import type { CardProgram, Instruction } from "../../ir/index.js";
  * - 383.4.e / 323.2 / 466.2.c: "When I attack" is the attack-declared
  *   timing point; the same ability fires on defense-declared for "or defend".
  * - 740.2.b: a unit is one on one when it and the enemy unit at the same
- *   location are both alone. The trigger-level condition still has to read
- *   that combat designation pair; nothing in the merged layers/predicate set
- *   exposes it (see status).
+ *   location are both alone. In Duel this is exactly one friendly and one
+ *   enemy board unit at the source location. Existing count/sameLocationAs
+ *   expressions can evaluate that condition; no dedicated opcode is needed.
  * - 433.1 / 433.1.a: "double my Might" is Doubling — increase the numeric
  *   attribute by its CURRENT value. The merged continuous.might instruction
  *   (RIFT-258) registers an arithmetic-layer modification and the merged
@@ -19,18 +19,29 @@ import type { CardProgram, Instruction } from "../../ir/index.js";
  *   body is authored as condition.value (read this unit's Might at
  *   resolution) followed by continuous.might on the source.
  *
- * Status (cards/README.md §2): judge-required. The Might half is executable and
- * the golden test runs it for real (the layered arithmetic engine really
- * doubles the effective Might), but the printed "one on one" gate is not: the
- * merged ObjectSnapshot carries combatRole (contract 3.8 item 1) yet nothing
- * compares the two lone opposing units at one location, and the attack-/
- * defense-declared timing points still have no producer (combat/ throws its
- * combat-start transaction; timing-point-producers.md lists both as 待后续).
- * Depends on RIFT-124 (combat role designation transaction) and the
- * one-on-one predicate. Not approximated: the gate is not dropped and the
- * Might change is not written as a Buff counter (702).
+ * Status: judge-required. The gate and Might body both execute in isolation.
+ * CombatFlow.startCombat still blocks on the atomic role/timing transaction
+ * (466.2), so neither attack-declared nor defense-declared has a producer.
+ * The event host also needs its testTrigger adapter to evaluate this authored
+ * condition when collecting the trigger (383.2, ongoing RIFT-359), rather
+ * than treating the old literal "one-on-one" placeholder as a truthy value.
  */
 const constant = <T,>(value: T) => ({ kind: "constant" as const, value });
+
+// CR 740.2.a/b: each opposing unit must be alone at the same location.
+const oneOnOne: Condition = {
+  kind: "all",
+  conditions: (["self", "opponent"] as const).map(controller => ({
+    kind: "compare",
+    left: {
+      kind: "count",
+      subject: "units",
+      filter: { type: "unit", zone: "board", controller, sameLocationAs: "source" }
+    },
+    operator: "eq",
+    right: constant(1)
+  }))
+};
 
 const doublingBody = (readId: string, applyId: string): Instruction[] => [
   {
@@ -61,9 +72,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The Might half is now executable (continuous.might + end-of-combat duration, 433.1/468.7.c) and is really executed in the golden test, but the printed one-on-one gate (740.2.b) is still missing: no merged predicate compares the two lone opposing units at one location, so the trigger condition cannot be evaluated. " +
-    "The attack-declared/defense-declared timing points also still have no producer — combat/ raises combat-start-transaction and docs/rules/timing-point-producers.md lists attack-declared/defense-declared as 待后续. " +
-    "依赖：RIFT-124（combat 角色判定事务）与 one-on-one 谓词。不近似实现（不丢掉 gate，也不用 Buff 计数冒充 Might 翻倍）。",
+    "one-on-one（740.2.a/740.2.b）现可由同地友方/敌方单位各为 1 的 count 条件表达，已有解释器边界测试；continuous.might 也已真实翻倍并使用 end-of-combat 时长（433.1/468.7.c）。剩余缺口是 CombatFlow.startCombat 的 combat-start-transaction（466.2 的同时角色/时点事务），attack-declared/defense-declared 仍无生产者；事件宿主还需通过 testTrigger 在触发收集时求值此条件（383.2，RIFT-359）。不再将专用 one-on-one opcode 当作必要依赖，整卡保持 judge-required。",
   abilities: [
     {
       kind: "triggered",
@@ -73,10 +82,7 @@ export default {
           event: "attack-declared",
           filter: { source: "self" }
         },
-        condition: {
-          kind: "expression",
-          value: { kind: "constant", value: "one-on-one" }
-        },
+        condition: oneOnOne,
         once: "per-combat"
       },
       optional: false,
@@ -90,10 +96,7 @@ export default {
           event: "defense-declared",
           filter: { source: "self" }
         },
-        condition: {
-          kind: "expression",
-          value: { kind: "constant", value: "one-on-one" }
-        },
+        condition: oneOnOne,
         once: "per-combat"
       },
       optional: false,

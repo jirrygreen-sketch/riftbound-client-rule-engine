@@ -4,7 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/feral-strength.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID = "card.hash-21fa1dc89f8491be1ad8d778109c30c1266a2ee3c7b7b49e5da837edba0103ee";
@@ -35,8 +36,8 @@ test("sfd-034-221 Feral Strength: judgeReason names the Might primitive and the 
   // Contract 3.1 / README §2: the reason must name the missing op/rule and the
   // dependency instead of a generic "not implemented yet".
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /translateCost/);
+  assert.match(program.judgeReason, /820\.2/);
   assert.match(program.judgeReason, /820\.1/);
 });
 
@@ -69,6 +70,7 @@ test("sfd-034-221 Feral Strength: one targeted +2 Might this turn instruction", 
   assert.equal(might.linkedTo, undefined);
   assert.equal(might.condition, undefined);
   // 143.2.a Effective Might + 317.2.c end-of-turn expiry; no printed minimum.
+  assert.deepEqual(might.args.objects, { kind: "constant", value: { kind: "target", id: "feral-strength.unit" } });
   assert.deepEqual(might.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(might.args.duration, { kind: "constant", value: "this-turn" });
   assert.equal(might.args.minimum, undefined);
@@ -90,24 +92,49 @@ test("sfd-034-221 Feral Strength golden: a mistargeted unit ignores the instruct
   kernel.setTargets("feral-strength.unit", [stale]);
   const eventCount = kernel.events.length;
 
-  const outcome = runAbilityBody(play.body, kernel);
+  const outcome = resolveChainBody(play.body, kernel);
 
   // The target left the board before resolution: the instruction is ignored
-  // (contract 3.4) and submits nothing; the unmerged continuous.might op is
-  // never dispatched on this path.
+  // (contract 3.4) and registers no effect on this path.
   assert.equal(outcome.status, "partial");
   assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
   assert.equal(kernel.events.length, eventCount);
+  assert.deepEqual(kernel.continuousEffects, []);
 });
 
 test.todo(
-  "sfd-034-221 Feral Strength: applying '+2 :rb_might: this turn' needs the card-facing continuous.might " +
-    "instruction op registering an arithmetic-layer effect through ResolveContext.addContinuous with an " +
-    "end-of-turn duration (CR 143.2.a / 317.2.c; RIFT-91 layers follow-up) — not approximated with Buff counters."
+  "sfd-034-221 Feral Strength: translate the optional Repeat CostSpec into optionalAdditional at Finalize, " +
+    "then repeat the effect with new choices using the paid receipt (820.1.c.1/820.1.d.1/820.2)"
 );
 
-test.todo(
-  "sfd-034-221 Feral Strength: [Repeat] :rb_energy_2: must be collected at Finalize and the paid instance count " +
-    "fed to the interpreter's repeat node so the effect resolves an additional time with re-made choices " +
-    "(CR 820.1.c.1 / 820.1.d.1 / 820.2; RIFT-89 cost plan plus the wiring named in effects/keywords/Repeat.ts)."
-);
+test("sfd-034-221 Feral Strength golden: the chosen unit gains +2 Might and the effect expires this turn", () => {
+  const base = world()
+    .unit("source", { might: 6 })
+    .unit("chosen", { might: 3, controller: "B" })
+    .unit("unchosen", { might: 4 })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("source") });
+  kernel.setTargets("feral-strength.unit", [kernel.ref("chosen")]);
+
+  const outcome = resolveChainBody(play.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["feral-strength.give-plus-2-might", "executed"]
+  ]);
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [registration] = kernel.continuousEffects;
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 2);
+  assert.equal(registration.effect.filter.objectId, "chosen");
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+  const layers = createLayerEngine(kernel.objects, [{ ...registration, timestamp: 1 }]);
+  assert.equal(layers.evaluate(kernel.ref("chosen")).might, 5);
+  assert.equal(layers.evaluate(kernel.ref("source")).might, 6);
+  assert.equal(layers.evaluate(kernel.ref("unchosen")).might, 4);
+  assert.equal(kernel.getObject("chosen").buffs, 0);
+  assert.deepEqual(outcome.events, []);
+  assert.equal(layers.expireAt("turn-end").length, 1);
+  assert.equal(layers.evaluate(kernel.ref("chosen")).might, 3);
+});

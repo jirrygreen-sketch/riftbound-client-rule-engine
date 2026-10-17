@@ -5,37 +5,28 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/sfd/experimental-hexplate.js";
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { keywordDefinitionsById } = await import(new URL("effects/keywords/registry.generated.js", ENGINE));
-const { instructionDefinitionsById } = await import(new URL("effects/instructions/registry.generated.js", ENGINE));
-const { runAbilityBody } = await import(new URL("effects/interpreter.js", ENGINE));
-const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
+const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", ENGINE));
+const { translateObjectFilter } = await import(new URL("programs/filters.js", ENGINE));
+const { world } = await import(new URL("effects/testing/index.js", ENGINE));
 
 const CARD_ID = "card.hash-f9773189acce6bbb236b5fe609b108079a3b1b13064783ef685543fb56e8e969";
 const EXPECTED_SOURCE = "[Equip] :rb_rune_mind: (:rb_rune_mind:: Attach this to a unit you control.)";
 
 const [equip] = program.abilities;
 
-function referenceKernelBody(body) {
-  return body.map((instruction) => ({
-    ...instruction,
-    args: Object.fromEntries(
-      Object.entries(instruction.args).map(([key, expression]) => [key, { kind: "constant", value: expression }])
-    ),
-    targets: instruction.targets?.map((target) => ({ ...target, filter: { type: "unit" } }))
-  }));
-}
-
-function executeBody(body, kernel, targets) {
-  let outcome;
-  const wrapper = {
-    op: "test.card-keyword-body",
-    argsSchema: { parse: (value) => value },
-    execute(context) {
-      outcome = runAbilityBody(body, context, instructionDefinitionsById);
-      return { status: "executed", events: [...outcome.events] };
+// Preserve the expanded TargetSpec and bind self as the chain query does.
+function controllerContext(kernel) {
+  return new Proxy(kernel, {
+    get(target, key) {
+      if (key === "query") return filter => {
+        const normalized = translateObjectFilter(filter);
+        if (normalized.controller === "self") normalized.controller = target.controller;
+        return target.query(normalized);
+      };
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
     }
-  };
-  const run = runInstruction(wrapper, {}, { world: kernel, targets });
-  return { ...run, outcome };
+  });
 }
 
 function fixture() {
@@ -79,7 +70,7 @@ test("sfd-073-221 Experimental Hexplate: a single valued Mind Equip declaration"
   assert.equal(equip.keyword, "equip");
   // 818.1.c：印刷费用只有一个 Mind 符文符号（无能量符号）。
   assert.equal(equip.value, 1);
-  assert.equal(equip.costDomain, undefined);
+  assert.deepEqual(equip, { kind: "keyword", keyword: "equip", value: 1 });
 });
 
 test("sfd-073-221 Experimental Hexplate: the merged Equip expansion is valid EffectIR for this card", () => {
@@ -120,11 +111,12 @@ test("sfd-073-221 Experimental Hexplate: the merged attach body really attaches 
   const attach = keywordDefinitionsById.get("Equip").expand({ value: equip.value, host: { canonicalCardId: CARD_ID } })[0].body;
   const kernel = fixture();
   const specId = attach[0].targets[0].id;
-  const run = executeBody(referenceKernelBody(attach), kernel, { [specId]: [kernel.ref("ally")] });
-  assert.equal(run.outcome.status, "executed");
+  kernel.setTargets(specId, [kernel.ref("ally")]);
+  const outcome = resolveChainBody(attach, controllerContext(kernel));
+  assert.equal(outcome.status, "executed");
   // 818.1.b.2：所选单位成为 Attach 的 Top-Most Card。
   assert.deepEqual(kernel.getObject("experimental-hexplate").attachedTo, kernel.ref("ally"));
-  assert.deepEqual(run.outcome.events.map((event) => event.action), ["attach"]);
+  assert.deepEqual(outcome.events.map((event) => event.action), ["attach"]);
 });
 
 test("sfd-073-221 Experimental Hexplate: the Equip expansion declares its activation cost as an equip payment", () => {
@@ -133,7 +125,20 @@ test("sfd-073-221 Experimental Hexplate: the Equip expansion declares its activa
 });
 
 test.todo(
-  "sfd-073-221 Experimental Hexplate: paying the printed Equip cost (1 Mind rune, 818.1.c / 818.1.c.3) stays " +
-    "blocked while \"Unsupported payment kind: equip\" is returned by cost plan-values, and the " +
-    "program -> keyword expansion -> chain wiring (contract 3.5) stays unimplemented"
+  "sfd-073-221 Experimental Hexplate: bind the printed Mind Equip cost through KeywordAbility, " +
+    "programs/keywords.ts and Equip.expand(params.cost), then pay it during activation (818.1.c.2/.3)"
 );
+
+test("sfd-073-221 Experimental Hexplate golden: the expanded target excludes an opponent unit", () => {
+  const base = world()
+    .object("hexplate", { types: ["gear"], zone: "board" })
+    .unit("enemy", { controller: "B" })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("hexplate") });
+  kernel.setTargets("equip-target", [kernel.ref("enemy")]);
+  const [activation] = keywordDefinitionsById.get("Equip").expand({ value: equip.value, host: { canonicalCardId: CARD_ID } });
+  const outcome = resolveChainBody(activation.body, controllerContext(kernel));
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.deepEqual(outcome.events, []);
+  assert.equal(kernel.getObject("hexplate").attachedTo, null);
+});

@@ -186,3 +186,9 @@ test.todo(
   "sfd-043-221 Emperor's Divide: 811.1.d.2 restricts a facedown-played spell's targets to the battlefield it was " +
     "hidden at; no TargetSpec field carries that origin binding, so it is not expressible with the current filter."
 );
+
+
+test.todo(
+  "sfd-043-221 Emperor's Divide: enforce a single battlefield for the target group at Finalize, then " +
+    "reselect a maximal legal subset if the group separates before resolution (355.11.a/b/b.1; RIFT-357)"
+);

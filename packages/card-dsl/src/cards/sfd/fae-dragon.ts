@@ -22,17 +22,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "play a Gold gear token exhausted"：440.2.c / 185.2.a / 350.2 / 354（被"打出"的 token 先在
  *   链上创建再由 play 接手）、184.1 / 185.2.d（入场状态改写）、187.5（Gold 的印刷定义）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required —— 第二条能力整体受阻，不近似实现：
- * - Gold gear token（187.5：自带 "[Reaction][>] Kill this, [E]: [Add] [A]"）仍不在 effect.token 的
- *   DEFINITIONS 表里（该文件记录「需要其他能力的定义，含 Gold，保持 blocked/judge-required」）。
- * - 打出新 token 的链上创建 + play 接手（440.2.c / 185.2.a）已合入（其他无能力定义实测可执行），
- *   因此这条不再是缺口。
- * - "exhausted" 是入场规定（184.1 / 185.2.d），创建/打出动作不支持入场状态改写；effect.exhaust
- *   文件头明确事后横置不等价（会多一次「成为横置」事件并错过 143.4）。
- * - "When you spend a buff" 的卡牌程序 → TriggerRegistration 接线仍属 RIFT-257。
- * 第一条能力（card-played 触发 + effect.buff 的 0…4 目标）本身只用已合入原语，golden 真实执行；
- * 但整卡状态按 README 第 2 节以未完成的第二条为准，不做局部宣称。
- * 依赖：Gold 定义与入场状态（token 原语任务）、RIFT-257（触发注册）。
+ * Status: judge-required. The first triggered body's buff primitive executes.
+ * The second still needs the Gold definition (187.5), exhausted entry
+ * (184.1/185.2.d), a buff-spent event-pattern registration, and a relative
+ * controller-base token destination. timing-points.ts/action-adapter.ts already
+ * define/produce buff-spent, but EVENT_PATTERN_TYPES cannot subscribe to it.
+ * The create-on-chain/play handoff (440.2.c/185.2.a) is already merged.
  */
 const abilities: Ability[] = [
   {
@@ -83,8 +78,8 @@ const abilities: Ability[] = [
           mode: { kind: "constant", value: "play" },
           // 记号目的地：Gear token 在控制者 Base 生成（440.2.b.1 的永久物默认）。
           location: { kind: "constant", value: { type: "base", player: "controller" } },
-          // 184.1 / 185.2.d：入场状态规定，绝不是事后横置（143.4）。
-          entersExhausted: { kind: "constant", value: true },
+          // 184.1/185.2.d exhausted entry is blocked; TokenArgs has no entry
+          // override. Do not invent an argument or append effect.exhaust.
           linkKey: { kind: "constant", value: "goldToken" }
         }
       }
@@ -97,18 +92,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "第二条能力「When you spend a buff, play a Gold gear token exhausted.」整体受阻，均不近似实现：" +
-    "(1) Gold gear token（187.5，自带 \"[Reaction][>] Kill this, [E]: [Add] [A]\"）不在 effect.token 的冻结定义表里——" +
-    "该文件明确把需要其他能力的定义（含 Gold）保持 blocked/judge-required；(2) 「play a … token」要求按 " +
-    "440.2.c/185.2.a/350.2/354 先在链上创建再由 play 接手——该路径已合入（no-ability 定义实测可执行），" +
-    "故本条不再构成缺口；" +
-    "(3) 「exhausted」是入场规定（184.1/185.2.d），创建与打出动作不支持入场状态改写，effect.exhaust 文件头" +
-    "明确事后横置不等价（会多一次「成为横置」事件并错过 143.4）。" +
-    "(4) 程序里的 { type: \"base\", player: \"controller\" } 目的地同样是占位：effect.token 要求字面 PlayerId 等于 " +
-    "ctx.controller，静态 IR 没有相对控制者的 LocationRef 记法（只能经 condition.value + linked-value 读取）。" +
-    "第一条能力「buff up to four friendly units」只用已合入的 effect.buff（702.2.a/702.3.a，0…4 的 up-to 目标，355.13）" +
-    "并在 golden 中真实执行；第二条的 buff-spent 时点（events/timing-points.ts，702.2.b/705）订阅形状也已声明，" +
-    "但其卡牌程序注册属 RIFT-257，整卡状态以未完成部分为准。依赖：Gold 定义与入场状态（token 原语任务）、RIFT-257。",
+    "第二条能力仍受阻：(1) Gold（187.5，自带 [Reaction][>] Kill this, [E]: [Add] [A]）不在 effect.token 的可执行定义中；(2) exhausted 是入场规定（184.1/185.2.d），当前 TokenArgs/创建与打出动作没有该入口，事后 effect.exhaust 会产生额外横置事件，不能替代（143.4）；(3) buff-spent 虽在 timing-points.ts/action-adapter.ts 中，但不在 EVENT_PATTERN_TYPES，事件管线不能注册此订阅（702.2.b/705）；(4) effect.token 的 LocationRef 需要实际 PlayerId，没有相对 controller-base 的目的地记法。链上创建/play 路径（440.2.c/185.2.a）与第一条 effect.buff 的 0…4 目标均已合入，后者有真实执行测试。程序绑定本身已存在；仅这些具体缺口保持 judge-required。",
   abilities,
   sourceText:
     "When you play me, buff up to four friendly units. (Give each a +1 :rb_might: buff if it doesn't have one.)\n" +
