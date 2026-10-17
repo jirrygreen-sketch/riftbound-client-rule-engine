@@ -24,7 +24,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - 「gain 2 XP」是已合入的 effect.xp（728–730），获得者是能力控制者（190.6.d）。
  *
  * status = judge-required（已按合入依赖复核，不近似实现）：
- * - 已解决：「Give a friendly unit +3 [M] this turn」由已合入的 continuous.might 原语执行（RIFT-258）：
+ * - 已解决：「Give a friendly unit +3 [M] this turn」由已合入的 continuous.might 原语执行：
  *   它经 ctx.addContinuous 注册 arithmetic 层效果，this-turn 映射为 end-of-turn 期限（317.1.a / 468.7.c），
  *   指令改成用契约 3.6 的 objects 选择器指回自己声明的 TargetSpec（原稿的 layer 参数与 targets-only 形状都不是
  *   已注册原语的 args 形状；layer 由原语固定为 arithmetic，见 effects/instructions/continuous.might.ts）。
@@ -40,7 +40,7 @@ const grimResolve = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) 已解决：「+3 [M] this turn」由已合入的 continuous.might 原语（RIFT-258）经 ctx.addContinuous 注册 arithmetic 层效果，" +
+    "(1) 已解决：「+3 [M] this turn」由已合入的 continuous.might 原语经 ctx.addContinuous 注册 arithmetic 层效果，" +
     "this-turn 映射为 end-of-turn 期限（317.1.a / 468.7.c）；指令用契约 3.6 的 objects 选择器指回自己声明的 TargetSpec，golden 用链适配器真实执行。" +
     "(2) 剩余缺口：「When it wins a combat this turn」是延迟触发能力（CR 390/391.2/392，468.3.a 的胜负判定 + 317.2.c 的窗口）：" +
     "没有卡牌可用的 trigger.delayed opcode（RIFT-9，op 未注册），combat-result 时点也没有被 emit 进唯一事件管线（combat/flow.ts 的结果事务尚未实现），" +
@@ -54,7 +54,7 @@ const grimResolve = {
       body: [
         {
           id: "grim-resolve.grant-3-might",
-          // RIFT-258：已合入的 continuous.might 原语固定 arithmetic 层（没有 layer 参数）；
+          // continuous.might 原语固定 arithmetic 层（没有 layer 参数）；
           // this-turn → end-of-turn 期限（317.1.a / 468.7.c）。objects 用契约 3.6 的选择器
           // 指回本指令声明的 TargetSpec。
           op: "continuous.might",

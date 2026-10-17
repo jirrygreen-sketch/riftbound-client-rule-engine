@@ -88,8 +88,8 @@ test("unl-155-219 Heroic Charge: [Action] plus the printed 3 energy cost", () =>
 });
 
 test("unl-155-219 Heroic Charge: the +1 Might half uses the merged continuous.might shape", () => {
-  // 143.2.a / 317.2.c: a temporary Might modification; RIFT-258 fixes the layer
-  // and takes the merged objects selector.
+  // 143.2.a / 317.2.c: a temporary Might modification; the merged primitive
+  // fixes the layer and takes the objects selector.
   assert.equal(grantMight.op, "continuous.might");
   assert.equal(grantMight.args.layer, undefined);
   assert.deepEqual(grantMight.args.mode, { kind: "constant", value: "add" });
@@ -248,7 +248,7 @@ test.todo(
   "unl-155-219 Heroic Charge: bind the card as-written in a production play — programs/filters.ts " +
     "(translateObjectFilter) rejects the 'sameLocationAs' anchor key (CR 355.10.b), so " +
     "describePlay cannot translate this card's TargetSpecs until the position anchor is wired " +
-    "(RIFT-90 follow-up)"
+    "into production target binding"
 );
 
 test.todo(

@@ -49,7 +49,7 @@ import type { CardProgram } from "../../ir/index.js";
  * golden 用参考内核真实执行横置半段，其余缺口保持 test.todo。
  *
  * 依赖：Replace 行动原语与 Brush 战场 token 定义（契约变更：GameAction/定义表）、
- * RIFT-89（触发能力基础费用接线）、契约补充 legend-zone、引擎批 4（事件载荷绑定）。
+ * 触发能力基础费用字段、契约补充 legend-zone、征服/固守事件载荷绑定。
  */
 const greenFather = {
   canonicalCardId:
@@ -67,7 +67,7 @@ const greenFather = {
     "(4)「exhaust me」按 CR 383.3.b/204.3 是触发能力的基础费用，契约 3.1 的 TriggeredAbility 没有 cost 槽位；且「me」是 Legend Zone 中的传奇" +
     "（CR 107.4.a/107.4.c），契约 ZoneId 没有 legend-zone，cost/payment.ts 的 exhaust 费用只接受 board/rune-zone。" +
     "conquer/hold 时点（由 turn/flow.ts 计分波发出）、effect.exhaust 与解释器路径已合入，golden 真实执行横置半段。" +
-    "依赖：Replace 行动原语与 Brush token 定义（契约变更）、RIFT-89（触发能力基础费用接线）、契约补充 legend-zone、引擎批 4（事件载荷绑定）。",
+    "依赖：Replace 行动原语与 Brush token 定义（契约变更）、TriggeredAbility 基础费用字段、契约补充 legend-zone、征服/固守事件载荷绑定。",
   abilities: [
     {
       kind: "triggered",

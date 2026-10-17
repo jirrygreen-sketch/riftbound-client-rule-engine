@@ -6,6 +6,8 @@ import program from "../../../dist/cards/unl/gemhand-hunter.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { validateCardProgram as validateExpansion } from "../../../dist/index.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import xp from "../../../../engine-core/dist/effects/instructions/effect.xp.js";
 
 const CANONICAL_ID =
   "card.hash-ab13903af22d097efdc5e4e666b4055e6ef532fd5138f05aef5bd99a8ae78a8c";
@@ -30,8 +32,8 @@ test("unl-094-219 Gemhand Hunter: identity, status, judgeReason and verbatim sou
   assert.match(program.judgeReason, /823/);
   assert.match(program.judgeReason, /Level/);
   assert.match(program.judgeReason, /824/);
-  assert.match(program.judgeReason, /RIFT-120/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /controller-xp/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120|RIFT-91/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -45,73 +47,64 @@ test("unl-094-219 Gemhand Hunter: [Hunt] omits its value and [Level 6] carries t
   assert.deepEqual(level, { kind: "keyword", keyword: "level", value: 6 });
 });
 
-test("unl-094-219 Gemhand Hunter: any registered Hunt/Level definitions expand this card's declarations", () => {
-  // These keyword files are owned by the keyword workstreams (RIFT-265 / RIFT-268)
-  // and may land after this shard; the declaration shape is asserted above and
-  // the expansion is only checked once a definition is registered.
+test("unl-094-219 Gemhand Hunter: merged Hunt and Level definitions expand the declarations", () => {
   const huntDefinition = keywordDefinitionsById.get("Hunt");
-  if (huntDefinition !== undefined) {
-    assert.equal(huntDefinition.valued, true);
-    assert.equal(huntDefinition.stacking, "sum");
-    // 823.1.c.1: "on conquer or hold, my controller gains X XP" through
-    // effect.xp, one trigger per timing point.
-    const huntExpansion = huntDefinition.expand({
-      value: hunt.value,
-      host: { canonicalCardId: CANONICAL_ID }
-    });
-    assert.deepEqual(
-      huntExpansion.map(entry => entry.trigger.at),
-      ["conquer", "hold"]
-    );
-    for (const entry of huntExpansion) {
-      assert.equal(entry.kind, "triggered");
-      assert.equal(entry.body[0].op, "effect.xp");
-      // 823.1.c.2: omitted value means gain 1 XP.
-      assert.deepEqual(entry.body[0].args.amount, { kind: "constant", value: 1 });
-    }
-    const validated = validateExpansion({
-      canonicalCardId: CANONICAL_ID,
-      rulesetVersion: EFFECT_IR_V2_RULESET,
-      status: "executable",
-      abilities: huntExpansion,
-      sourceText: SOURCE_TEXT
-    });
-    assert.deepEqual(validated.issues, []);
-    assert.equal(validated.ok, true);
+  assert.ok(huntDefinition, "the merged Hunt KeywordDef is registered");
+  assert.equal(huntDefinition.valued, true);
+  assert.equal(huntDefinition.stacking, "sum");
+  const huntExpansion = huntDefinition.expand({ value: hunt.value, host: { canonicalCardId: CANONICAL_ID } });
+  assert.deepEqual(huntExpansion.map(entry => entry.trigger.at), ["conquer", "hold"]);
+  for (const entry of huntExpansion) {
+    assert.equal(entry.kind, "triggered");
+    assert.equal(entry.body[0].op, "effect.xp");
+    assert.deepEqual(entry.body[0].args.amount, { kind: "constant", value: 1 });
   }
+  const validatedHunt = validateExpansion({
+    canonicalCardId: CANONICAL_ID,
+    rulesetVersion: EFFECT_IR_V2_RULESET,
+    status: "executable",
+    abilities: huntExpansion,
+    sourceText: SOURCE_TEXT
+  });
+  assert.deepEqual(validatedHunt.issues, []);
+  assert.equal(validatedHunt.ok, true);
 
   const levelDefinition = keywordDefinitionsById.get("Level");
-  if (levelDefinition !== undefined) {
-    assert.equal(levelDefinition.valued, true);
-    assert.equal(levelDefinition.stacking, "separate");
-    // 824.1.b.1 / 824.1.c: the expansion publishes the controller-XP >= 6
-    // predicate that makes the dependent ability ("I have +1 [M]") active.
-    const levelExpansion = levelDefinition.expand({
-      value: level.value,
-      host: { canonicalCardId: CANONICAL_ID }
-    });
-    assert.equal(levelExpansion.length, 1);
-    const [predicate] = levelExpansion;
-    assert.equal(predicate.kind, "static");
-    assert.equal(predicate.effect.kind, "condition.predicate");
-    assert.equal(predicate.effect.query, "controller-xp");
-    assert.deepEqual(predicate.effect.threshold, { kind: "constant", value: 6 });
-    const validated = validateExpansion({
-      canonicalCardId: CANONICAL_ID,
-      rulesetVersion: EFFECT_IR_V2_RULESET,
-      status: "executable",
-      abilities: levelExpansion,
-      sourceText: SOURCE_TEXT
-    });
-    assert.deepEqual(validated.issues, []);
-    assert.equal(validated.ok, true);
-  }
+  assert.ok(levelDefinition, "the merged Level KeywordDef is registered");
+  assert.equal(levelDefinition.valued, true);
+  assert.equal(levelDefinition.stacking, "separate");
+  const levelExpansion = levelDefinition.expand({ value: level.value, host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(levelExpansion.length, 1);
+  const [predicate] = levelExpansion;
+  assert.equal(predicate.kind, "static");
+  assert.equal(predicate.effect.kind, "condition.predicate");
+  assert.equal(predicate.effect.query, "controller-xp");
+  assert.deepEqual(predicate.effect.threshold, { kind: "constant", value: 6 });
+  const validatedLevel = validateExpansion({
+    canonicalCardId: CANONICAL_ID,
+    rulesetVersion: EFFECT_IR_V2_RULESET,
+    status: "executable",
+    abilities: levelExpansion,
+    sourceText: SOURCE_TEXT
+  });
+  assert.deepEqual(validatedLevel.issues, []);
+  assert.equal(validatedLevel.ok, true);
+});
+
+test("unl-094-219 Gemhand Hunter golden: the merged Hunt XP instruction executes", () => {
+  const huntDefinition = keywordDefinitionsById.get("Hunt");
+  assert.ok(huntDefinition);
+  const [conquerTrigger] = huntDefinition.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  const kernel = world().player("A", { xp: 2 }).build();
+  const run = runInstruction(xp, conquerTrigger.body[0].args, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.player("A").xp, 3);
+  assert.deepEqual(run.events.map(event => event.action), ["gain-xp"]);
 });
 
 test.todo(
-  "unl-094-219 Gemhand Hunter: fire the Hunt triggers from the real conquer/hold events and gain the XP " +
-    "(CR 823.1.c.1) — scoring emits only triggerScore/triggerMethod flags and there is no keyword→trigger " +
-    "registration (RIFT-120)"
+  "unl-094-219 Gemhand Hunter: attribute the expanded Hunt triggers to the unit that conquered or held — " +
+    "the scoring emission carries player/battlefieldId but no source unit object (CR 823.1.b / 383.4.c.2 / 383.4.d.2)"
 );
 test.todo(
   "unl-094-219 Gemhand Hunter: activate the dependent ability when the controller has 6+ XP (CR 824.1.c / " +
@@ -119,5 +112,5 @@ test.todo(
 );
 test.todo(
   "unl-094-219 Gemhand Hunter: apply 'I have +1 :rb_might:' through the continuous.might arithmetic layer " +
-    "(CR 824.1.b.1 / 143.2.a) — RIFT-91"
+    "(CR 824.1.b.1 / 143.2.a) — the Level dependent-ability binder is still missing"
 );

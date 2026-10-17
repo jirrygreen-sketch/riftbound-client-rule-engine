@@ -71,8 +71,7 @@ test("unl-021-219 Grim Apothecary: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /822\.1/);
   assert.match(program.judgeReason, /play-location-permission/);
   assert.match(program.judgeReason, /Structured location/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-84/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-120/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(84|120|257|264|265|266|267|268)/);
 });
 
 test("unl-021-219 Grim Apothecary: [Ambush] expands through the merged KeywordDef", () => {

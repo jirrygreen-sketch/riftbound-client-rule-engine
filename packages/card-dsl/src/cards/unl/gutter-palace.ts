@@ -35,12 +35,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *     或其控制的战场」。程序里的 locations 是声明式占位，effect.token 会拒绝该形状（fail closed），
  *     绝不落到猜出来的地点。
  * (3) Discard 1 费用要求 Finalize 提供精确的手牌对象引用：cost/plan-values.ts 的 reference 只
- *     接受运行时 ObjectRef，静态 IR 按 README 第 3 节禁止写运行时引用（同 sfd/sky-crusier；
- *     依赖 RIFT-89 费用计划与 RIFT-102 引用收口）。
- * (4) beginning-start 没有已合入发出者（turn/ 阶段流程未发该时点，链层只把它用作清理时钟，
- *     同 rad/mechanical-bandit 记录）；exactly 4 cards in hand 的手牌数量也没有已合入的表达式
- *     读取入口（PlayerSnapshot.handSize 未进入 Expr/Condition，同 ogn/loose-cannon 记录）。
- * (5) 没有订阅方把 CardProgram 的 triggered ability 注册为 TriggerRegistration（契约 3.5）。
+ *     接受运行时 ObjectRef，静态 IR 按 README 第 3 节禁止写运行时引用；当前卡牌启动能力适配器
+ *     尚未把该 PickSpec 选择接入费用计划。
+ * (4) 触发注册和 beginning-start 时点已经存在；剩余的 exact-count 条件需要生产触发宿主提供
+ *     对手牌与战场单位集合的查询，并由同一注册路径消费该条件。
  * effect.win 本体已合入，golden 用解释器真实执行。
  */
 const abilities: Ability[] = [
@@ -143,17 +141,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "五处依赖未合入，均不近似实现：(1)「Play a 1 :rb_might: Bird unit token with [Deflect]」不可执行：CR 187.7 的 Bird 是无域 1 Might、" +
+    "四处依赖未合入，均不近似实现：(1)「Play a 1 :rb_might: Bird unit token with [Deflect]」不可执行：CR 187.7 的 Bird 是无域 1 Might、" +
     "Bird 标签、带 [Deflect]（809）的单位 token，而冻结的 effect.token 定义表只有 recruit / sand-soldier / mech / reflection / tentacle，" +
     "带自身关键词或能力的 token 定义按该原语文件头保持 blocked。" +
     "(2) token 的进入地点未印刷：355.2 要求在该牌的打出流程中选择合法 Location，而冻结 IR 没有运行期 Location 选择器" +
     "（原语清单的 target.location 未合入），静态候选列表无法枚举「控制者 Base 或其控制的战场」；程序里的 locations 只是声明式占位，" +
     "effect.token 会拒绝该形状（fail closed），不落到猜出来的地点。" +
     "(3)「Discard 1」作为费用要求 Finalize 提供精确手牌引用：cost/plan-values.ts 的 reference 只接受运行时 ObjectRef，" +
-    "静态 IR 按 README 第 3 节禁止写运行时引用（同 sfd/sky-crusier；依赖 RIFT-89 费用计划与 RIFT-102 引用收口）。" +
-    "(4) beginning-start 没有已合入发出者（turn/ 阶段流程未发该时点，链层只把它当清理时钟，同 rad/mechanical-bandit），" +
-    "且「exactly 4 cards in hand」的手牌数量没有已合入表达式入口（PlayerSnapshot.handSize 未进入 Expr/Condition，同 ogn/loose-cannon）。" +
-    "(5) 没有订阅方把 CardProgram 的 triggered ability 注册为 TriggerRegistration（契约 3.5、RIFT-120 后续）。" +
+    "静态 IR 按 README 第 3 节禁止写运行时引用；当前卡牌启动能力适配器尚未把该 PickSpec 选择接入费用计划。" +
+    "(4) 触发注册和 beginning-start 时点已经存在，但生产触发宿主仍需提供 exact-count 条件对手牌与战场单位集合的查询，" +
+    "并由同一注册路径消费该条件。" +
     "effect.win 本体已合入，golden 用解释器真实执行。",
   abilities,
   sourceText:

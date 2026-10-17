@@ -179,7 +179,7 @@ test.todo(
 );
 test.todo(
   "unl-193-219 Gloomist: pay the leading 'exhaust me' as the trigger's base cost at Finalize " +
-    "(CR 383.3.b / 204.3 / 415.4-415.5) — TriggeredAbility has no cost slot (RIFT-89)"
+    "(CR 383.3.b / 204.3 / 415.4-415.5) — bind the trigger base cost through the Finalize cost field"
 );
 test.todo(
   "unl-193-219 Gloomist: represent the Legend itself as an exhaust-cost object — the frozen ZoneId has no " +
