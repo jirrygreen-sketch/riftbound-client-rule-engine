@@ -12,7 +12,11 @@ const program = {
   canonicalCardId: "card.hash-46870901290d1c4082f78830943ec1e847b51ec8c511a04a60ad3c97410429df",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason: "缺 Backline 关键词展开及 continuous.combat 末位指派（CR 826；RIFT-91）。effect.damage 的动态 Might 子效果可执行，但其 amount schema 仍要求 Expr，与解释器预求值不兼容；战场限制及相对控制者/地点过滤接线依赖 RIFT-1/120，不能仅凭伤害子测试宣称整卡可执行。",
+  judgeReason:
+    "缺 Backline 展开后的 continuous.combat 末位战斗伤害分配消费方（CR 826）；当前原语只记录持续战斗效果，" +
+    "战斗流程没有读取它来约束分配。activated restriction 的 at-battlefield 形态也没有绑定适配器，" +
+    "程序绑定只接受 Condition 代数。effect.damage 的动态 Might、exhaust 费用和 battlefield 目标本身已有执行证据，" +
+    "但上述两个整卡缺口仍不能把卡标为 executable。",
   abilities: [
     {
       kind: "keyword",

@@ -30,10 +30,9 @@ const dariusTrifarian = {
   status: "judge-required",
   judgeReason:
     "缺“本回合打出第二张牌”的历史计数触发：需要 condition.history / HistoryQuery 暴露「本回合已打出的牌数」" +
-    "（CR v1.5 383.2/383.4 的 Nth-Time 条件在进链前判定），当前解释器只提供 limit 型 history 转发，" +
-    "当前 CardProgram 条件不能读取该历史范围，且触发能力尚需程序绑定层注册；continuous.might 已可通过 appliesTo self " +
-    "注册 end-of-turn +2 Might，effect.ready 也已可直接执行。依赖：RIFT-9/RIFT-33（历史计数与条件语义）、" +
-    "RIFT-257（CardProgram 触发绑定）；费用计划与支付接线仍属 RIFT-261。",
+    "（CR v1.5 383.2/383.4 的 Nth-Time 条件在进链前判定），当前 TriggerSpec 条件不能读取 " +
+    "ResolveContext.history 中本回合已结算的牌数；continuous.might 已可通过 appliesTo self 注册 end-of-turn +2 Might，" +
+    "effect.ready 也已可直接执行。",
   abilities: [
     {
       kind: "triggered",

@@ -19,17 +19,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   card-played），指令体是已合入的 effect.ready 原语（416.1/416.1.c，缺省即"重置
  *   来源"= 重置我）。"ready me" 不改写成 enter-ready 替代：359.2.c 规定单位横置入场，
  *   这里是结算时的 reset 动作。
- *   订阅侧仍缺件：没有任何模块把 CardProgram 的 triggered ability 注册成
- *   TriggerRegistration（383.4.a.2 要求 Play Effect 进链），所以这条触发当前只声明形状。
+ *   触发注册路径已合入；当前剩余问题是 Legion predicate 的历史消费，而不是
+ *   CardProgram triggered ability 的注册。
  * - 第二条「Other friendly units have +1 :rb_might: here.」是 479.4 算术层的持续
  *   修正（479.2.b/479.3.b 的 "have" 指能力授予，Might 数值落在 479.4）：范围是
  *   "other"（排除本源自身）+ "friendly"（740.1.a 同控制者）+ "here"（本源当前
  *   位置，479.4.b 被动能力不做 snapshot，按结算时状态计算）。`here` 用契约 3.6 的
  *   锚点 sameLocationAs: "source" 表达，自身用 exclude: "source" 排除。
- *   但 layers/filter.ts 的 matchesObjectFilter 既不解析 controller: "controller"
- *   占位（按字面量与对象 controller 比较，永不相等），也不实现 sameLocationAs /
- *   exclude 锚点（按未知键忽略），而且没有把卡牌程序的 static 能力注册进
- *   LayerEngine 的路径，所以 +1 Might 与 "here" 范围都暂不可执行。
+ *   但 static binder 会拒绝 exclude: "source"，而 layers/filter.ts 的匹配路径也
+ *   不能表达 other + here 的动态范围，所以 +1 Might 与 "here" 范围都暂不可执行。
  *
  * 整卡 judge-required：Legion 依赖（812.1.c 的按卡排除）与第二条静态修正都还不能
  * 落地；card-played 触发是触发管线（383.4.a.2 要求进链）职责，本卡只声明形状。
@@ -39,14 +37,10 @@ const dariusExecutioner = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Legion]（812.1.b.1）的展开依赖 effects/keywords/Legion.ts（RIFT-82 已合入）里的 condition.predicate，" +
-    "而其历史条件需要按 812.1.c 排除本卡自身——封闭 HistoryQuery（scope/action/timingPoint/player/object）没有按卡身份" +
-    "排除的字段，Legion 文件自己标注为契约级缺口；第二条「Other friendly units have +1 :rb_might: here.」是 479.4 " +
-    "算术层持续修正，但 layers/filter.ts 的 matchesObjectFilter 既不解析 controller 占位（按字面量比较，永不匹配），" +
-    "也不实现 sameLocationAs / exclude 锚点，且没有把卡牌 static 能力注册进 LayerEngine 的路径，因此 +1 Might 与 " +
-    "'here' 范围都无法执行；打出触发的 ready me 结构完整（effect.ready 已合入），但还没有把 CardProgram 的 " +
-    "triggered ability 注册成 TriggerRegistration 的订阅方（383.4.a.2 的 Play Effect 进链），整卡不得因此标记 " +
-    "executable。依赖：RIFT-82（kw-deathknell-legion）、RIFT-91（layers-continuous）、RIFT-257（CardProgram 触发/静态能力绑定）。不近似实现。",
+    "[Legion] 的 condition.predicate 需要历史谓词消费方：当前条件求值器不能读取该静态谓词的 " +
+    "HistoryQuery，也不能按 812.1.c 排除本卡自身；第二条「Other friendly units have +1 :rb_might: here.」的 " +
+    "static binder 会拒绝 exclude: source，且图层过滤器无法表达 479.4 的 other + here 动态范围，因此 +1 Might 光环仍不能执行。" +
+    "ready me 的触发结构和程序注册路径已有执行形状，但上述两个规则缺口仍使整卡保持 judge-required。",
   abilities: [
     { kind: "keyword", keyword: "legion" },
     {
