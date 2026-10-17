@@ -34,6 +34,10 @@ test("unl-121-219 Bewitching Spirit: identity, status, judgeReason and verbatim 
   // unregistered opcode is asserted by a real execution probe below.
   assert.match(program.judgeReason, /ChoiceRequest/);
   assert.match(program.judgeReason, /Unregistered instruction opcode/);
+  // Third-sweep refresh: the recently merged predicate and target-tax batches do
+  // not supply a player-target request, so the reason says so explicitly.
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /RIFT-360/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });

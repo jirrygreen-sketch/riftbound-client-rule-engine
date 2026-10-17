@@ -9,6 +9,7 @@ import token from "../../../../engine-core/dist/effects/instructions/effect.toke
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -39,6 +40,7 @@ test("unl-189-219 Bashful Bloom: identity, status, judgeReason and verbatim sour
   // primitive's parameter boundary is the remaining blocker and is asserted
   // by a real failure probe below.
   assert.match(program.judgeReason, /Invalid effect\.token argument: location/);
+  assert.match(program.judgeReason, /resolveLocationSelector|negated\(impossible\)/);
   assert.match(program.judgeReason, /ready 入场状态字段/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -159,6 +161,29 @@ test("unl-189-219 Bashful Bloom: the declared dynamic token location is still ou
     location: playSprite.args.location
   }, { world: kernel });
   assert.equal(run.result.status, "negated");
+  assert.deepEqual(kernel.objects.filter(object => object.isToken), []);
+});
+
+test("unl-189-219 Bashful Bloom: the authored controller-relative Base is not a LocationRef for create-token (CR 187.2/356.1)", () => {
+  // Evidence for gap (2)/(4) on the production path: the primitive accepts only a
+  // concrete LocationRef, so even the constant spelling the card uses cannot mint
+  // the token. The merged relative resolver knows "controller", but its result is
+  // not wired to this argument boundary.
+  const kernel = world().player("A", { energy: 5 }).build();
+  const outcome = resolveChainBody([{
+    id: "bashful-bloom.play-sprite",
+    op: "effect.token",
+    args: {
+      token: { kind: "constant", value: "mech" },
+      amount: { kind: "constant", value: 1 },
+      mode: { kind: "constant", value: "play" },
+      location: { kind: "constant", value: { type: "base", player: "controller" } }
+    }
+  }], kernel);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status, entry.result.reason]), [
+    ["bashful-bloom.play-sprite", "negated", "impossible"]
+  ]);
   assert.deepEqual(kernel.objects.filter(object => object.isToken), []);
 });
 

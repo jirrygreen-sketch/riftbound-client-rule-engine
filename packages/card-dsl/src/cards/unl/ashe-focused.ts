@@ -4,19 +4,24 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * Ashe, Focused — CR v1.5 383.4.a (Play Effect), 425.3 (reveal),
  * 428.1 (banish), 383.4.d/391.5 (delayed linked hold return).
  *
- * 复核后仍缺两处（均不近似实现）：
+ * 复核后仍缺三处（均不近似实现）：
  * 1. 「choose an opponent」是玩家目标（355.7/355.9.a）。契约 3.6 的 TargetSpec 与
  *    ResolveContext.targets() 只承载 ObjectRef[]，ChoiceRequest 也只有 optional /
  *    mode / select-objects / order / number 五种形状，没有玩家目标请求；因此无法把
  *    选择结果绑定到 effect.reveal.player（对手手牌所有者）与后续弃放逐选择范围。
- * 2. 「When they hold, return it」是 383.4.d / 391.5 的 Delayed Linked Ability。
+ * 2. 现书的第二条 hold 触发连注册都过不了：TriggerSpec 的 EventPattern 封闭词汇拼写是
+ *    "held"（events/trigger-spec.ts 的 EVENT_PATTERN_TYPES），PlayerSelector 只接受
+ *    self / opponent / any / { playerId }，所以 { event:"hold", player:"chosen-opponent" }
+ *    在 assertTriggerSpec 处被拒（实测 TriggerSpecValidationError），programs/triggers.ts
+ *    的 triggerRegistrations 随之整体失败。占位形状本身不是可审查的注册，也不改成会为
+ *    任意对手 hold 误触发的 { event:"held", player:"opponent" }。
+ * 3. 「When they hold, return it」是 383.4.d / 391.5 的 Delayed Linked Ability。
  *    引擎侧入口已合入：ResolveContext.registerDelayedTrigger 会把 delayed:true 的
  *    注册交给 pipeline（events/pipeline.ts 对 delayed 注册跳过 activeZones 过滤，
  *    来源离场仍触发）。缺的是卡牌指令侧的延迟触发声明与「本次 banished 的那一张」
  *    关联窗口：指令集没有 delayed-trigger 写入原语，IR 也没有跨能力读取 effect.banish
  *    的 linkKey 回执的形状，所以无法把返回限定到本次放逐牌，也无法把它绑到所选对手。
- *    本程序第二条触发的 trigger.filter.player 是 "chosen-opponent" 占位，不是已解析的
- *    玩家选择结果；普通在场触发不能替代延迟能力，也不把任意 banishment 目标近似成该牌。
+ *    普通在场触发不能替代延迟能力，也不把任意 banishment 目标近似成该牌。
  */
 const REVEAL_HAND = "ashe-focused.reveal-hand";
 const BANISH_CHOSEN = "ashe-focused.banish-chosen";
@@ -71,8 +76,9 @@ const abilities: Ability[] = [
     // 383.4.d / 391.5：
     // “When they hold, return it to their hand”是绑定同一张牌的 Delayed Linked
     // Ability；registerDelayedTrigger 的生产入口已合入，但卡牌指令侧还没有延迟触发
-    // 声明与本次放逐牌的关联窗口（见 judgeReason 第 2 点），hold 的玩家范围也仍是
-    // 占位（第 1 点）。因此第二条触发只保留可审查形状，不写成无条件近似。
+    // 声明与本次放逐牌的关联窗口（见 judgeReason 第 3 点），hold 的玩家范围也仍是
+    // 占位（第 1 点）。占位形状当前会被 assertTriggerSpec 拒绝（第 2 点），所以它只是
+    // 作者侧记录，不写成无条件近似。
     kind: "triggered",
     trigger: {
       at: "hold",
@@ -115,10 +121,14 @@ const program = {
     "当前缺口（CR v1.5）：(1)「choose an opponent」是玩家目标（355.7/355.9.a）：契约 3.6 的 TargetSpec 与 " +
     "ResolveContext.targets() 只承载 ObjectRef[]，ChoiceRequest 也只有 optional/mode/select-objects/order/number " +
     "五种形状，没有玩家目标请求，故无法把选择结果绑定到 effect.reveal.player、弃放逐的候选范围与后续 hold 条件。" +
-    "(2)「When they hold, return it」需要 383.4.d/391.5 的 Delayed Linked Ability：registerDelayedTrigger 的引擎入口已合入 " +
+    "(2) 第二条 hold 触发的占位形状连注册都过不了：events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 把该时点写作 \"held\"，" +
+    "PlayerSelector 只接受 self/opponent/any/{playerId}，故 { event:\"hold\", player:\"chosen-opponent\" } 在 assertTriggerSpec 抛 " +
+    "TriggerSpecValidationError（实测），programs/triggers.ts 的 triggerRegistrations 整体失败。" +
+    "保留占位以记录印刷语义，不改成会为任意对手 hold 误触发的 { event:\"held\", player:\"opponent\" }。" +
+    "(3)「When they hold, return it」需要 383.4.d/391.5 的 Delayed Linked Ability：registerDelayedTrigger 的引擎入口已合入 " +
     "（events/pipeline.ts 对 delayed 注册跳过 activeZones 过滤，来源离场仍触发，已由 golden 实证），" +
     "但卡牌指令侧没有延迟触发声明原语，IR 也不能跨能力读取本卡 effect.banish 的 linkKey 回执来把返回限定为“本次放逐的那一张”；" +
-    "普通在场 hold 订阅无法满足来源离场仍生效与只响应所选对手。玩家目标契约与延迟声明/关联窗口需上游扩展；" +
+    "普通在场 hold 订阅无法满足来源离场仍生效与只响应所选对手。玩家目标契约、封闭触发词汇与延迟声明/关联窗口需上游扩展；" +
     "不将任意 banishment 目标近似成该牌。",
   abilities,
   sourceText:

@@ -33,11 +33,18 @@ test("unl-208-219 Black Flame Altar: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /staticFilter/);
   assert.match(program.judgeReason, /Unsupported static filter field keywords/);
   assert.match(program.judgeReason, /combatRole/);
-  assert.match(program.judgeReason, /RIFT-359/);
-  // The earlier reason claimed a LocationRef value mismatch; the merged binder
-  // converts sameLocationAs to source.location and the matcher compares it by
-  // value, so that claim is gone.
+  // Third-sweep refresh: RIFT-359's merged predicates do not cover player-side
+  // keyword filtering or defender identity, so the reason names the concrete
+  // missing wirings instead of that task.
+  assert.match(program.judgeReason, /applyLayer/);
+  assert.match(program.judgeReason, /matchesObjectFilter/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-359/);
+  // The reason now names where the reference comparison really sits: the binder
+  // resolves sameLocationAs to source.location, and the *layer application*
+  // path compares that structured value by reference.
   assert.doesNotMatch(program.judgeReason, /按引用比较/);
+  assert.match(program.judgeReason, /走引用比较/);
+  assert.match(program.judgeReason, /layers\/engine\.ts 的 applyLayer/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -111,6 +118,39 @@ test("unl-208-219 Black Flame Altar: the production static binder still rejects 
   assert.deepEqual(f.engine.layers.registry.list(), []);
 });
 
+test("unl-208-219 Black Flame Altar: the resolved here-scope does not match even a unit in the same battlefield (CR 053.3/199.1)", () => {
+  // Evidence for gap (2): dropping the keyword gate would not widen the grant to
+  // "every unit here" either. The binder resolves sameLocationAs:self to a
+  // structured LocationRef, and the layer application path compares structured
+  // location values by reference while only falling back to the location *type*
+  // string, so an object's own location object never satisfies it.
+  const scoped = {
+    kind: "static",
+    effect: {
+      kind: "continuous.grant-keyword",
+      keywords: [{ id: "shield", value: 1 }],
+      layer: "ability",
+      filter: { type: "unit", zone: "board", sameLocationAs: "self" }
+    }
+  };
+  const f = fixture({ cards: [
+    { id: "altar", cardId: CANONICAL, types: ["battlefield"], energy: null, power: null, zone: "board", location: { type: "battlefield", id: "bf-1" } },
+    { id: "here-unit", types: ["unit"], might: 3, zone: "board", location: { type: "battlefield", id: "bf-1" } }
+  ] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("altar"), to: "board", location: { type: "battlefield", id: "bf-1" } });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("here-unit"), to: "board", location: { type: "battlefield", id: "bf-1" } });
+  createEngineStaticBinder(f.engine).bindStatic(scoped, f.kernel.getObject("altar"));
+
+  const entry = f.engine.layers.registry.list()[0];
+  // The binder really did resolve the anchor to the altar's own battlefield.
+  assert.deepEqual(entry.effect.filter.location, { type: "battlefield", id: "bf-1" });
+
+  f.engine.layers.setObjects(f.kernel.objects);
+  const unit = f.kernel.getObject("here-unit");
+  assert.deepEqual(f.engine.layers.evaluate(unit.ref).keywords, [],
+    "a matching structured location must be compared by value before this grant can apply");
+});
+
 test("unl-208-219 Black Flame Altar: the granted Shield's defender clause is still fail-closed (CR 814.1.c/814.1.d)", () => {
   // Evidence for gap (2): Shield expands to a static continuous.might gated on
   // the "designation" characteristic. The merged ObjectSnapshot exposes
@@ -141,6 +181,6 @@ test("unl-208-219 Black Flame Altar: the granted Shield's defender clause is sti
     "the defender bonus must not be claimed while designation is unreadable");
 });
 
-test.todo("black-flame-altar: bind the Temporary keyword gate to the here-scoped unit set (CR 053.3/816.3; RIFT-359)");
+test.todo("black-flame-altar: bind the Temporary keyword gate to the here-scoped unit set (CR 053.3/816.3; needs a keyword filter field and value-based structured location matching in the layer path)");
 
-test.todo("black-flame-altar: expand dynamically granted Shield and bind its defender designation to combatRole (CR 814.1.c/814.1.d; RIFT-359)");
+test.todo("black-flame-altar: expand dynamically granted Shield and bind its defender designation to combatRole (CR 814.1.c/814.1.d; needs granted-keyword re-expansion and a combatRole-based defender condition)");

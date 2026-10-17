@@ -35,10 +35,14 @@ test("unl-t02 Bird: identity, status, judgeReason and verbatim sourceText", () =
   assert.match(program.judgeReason, /RIFT-360/);
   assert.match(program.judgeReason, /Energy/);
   assert.match(program.judgeReason, /plan\.power/);
-  // Current-gap refresh: name the concrete missing mappings and consumers.
+  // Third-sweep refresh: RIFT-360's tax adapter/collector are merged, so the
+  // reason names the two remaining consumers instead of an in-progress task.
   assert.match(program.judgeReason, /target\.tax has no layer mapping/);
   assert.match(program.judgeReason, /engine-runtime\/host\.ts/);
+  assert.match(program.judgeReason, /target\/tax\/adapter\.ts/);
+  assert.match(program.judgeReason, /collectTargetTaxes/);
   assert.match(program.judgeReason, /809\.2/);
+  assert.doesNotMatch(program.judgeReason, /进行中 RIFT-360/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // judge-required 必须写清缺什么接线、依据哪条规则、依赖哪个任务（README 第 2 节）。
 });
