@@ -6,6 +6,7 @@ import program from "../../../dist/cards/unl/vex-mocking.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -50,12 +51,14 @@ test("unl-055-219 Vex, Mocking: 'When you [Stun] an enemy unit' subscribes to un
   assert.equal(stunTrigger.trigger.at, "unit-stunned");
   assert.equal(isTimingPointId("unit-stunned"), true);
   // 412.4/412.5: the ability triggers on a Stun the controller is responsible
-  // for; Vex is not the source of that Stun, so the filter names the event object
-  // (the stunned unit) instead of scoping itself as the source.
+  // for; the timing point supplies the event object to this bare ObjectFilter.
   assert.deepEqual(stunTrigger.trigger.filter, {
-    event: "unit-stunned",
-    object: { type: "unit", zone: "board", controller: "opponent" }
+    type: "unit",
+    zone: "board",
+    controller: "opponent"
   });
+  const validated = validateTriggerSpec(stunTrigger.trigger);
+  assert.equal(validated.ok, true, JSON.stringify(validated.ok ? [] : validated.issues));
   assert.equal(stunTrigger.trigger.condition, undefined);
   assert.equal(stunTrigger.trigger.once, undefined);
   // 383.3.a: the leading "you may" is the trigger's own Finalize decision.
@@ -159,7 +162,7 @@ test.todo(
 
 test.todo(
   "unl-055-219 Vex, Mocking: bind 'that battlefield' to the stunned unit's location (CR 359.3.f.1) — needs an " +
-    "event-object/event-location selector and a location destination for effect.move"
+    "event-location selector and a location destination for effect.move"
 );
 
 test.todo(

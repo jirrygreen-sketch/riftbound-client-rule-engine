@@ -36,7 +36,7 @@ const upstageComedy = {
     "[Repeat]（820.1.a/820.1.c：“Repeat [Cost]” 的可选附加费用，付费后结算时额外执行一次，820.1.d.1/820.2.a）" +
     "没有完整的可执行接线：Repeat.ts 的展开（static repeat.cost）和 effect.repeat 已合入，但卡牌侧仍没有把印刷 additional-cost 接进 Finalize，" +
     "也没有任何已合入路径把“已支付的 Repeat " +
-    "实例数”接到解释器 repeat 指令的 count 上（后续 RIFT-349）；本卡因此不写固定 count 的额外执行（会近似成未付费也重复）。" +
+    "实例数”接到解释器 repeat 指令的 count 上；本卡因此不写固定 count 的额外执行（会近似成未付费也重复）。" +
     "另：印刷参数 :rb_energy_2: 无法挂在 CardProgram 的 KeywordAbility 上（契约 3.1 只有 keyword/value，" +
     "契约 3.8.3 的 params 只覆盖 KeywordDef.expand 入参）。" +
     "“Ready a unit”（416.1–416.3 + 355.9.a.1 的目标选择）本身只用已合入的 effect.ready，" +
