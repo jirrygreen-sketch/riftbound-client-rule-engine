@@ -30,8 +30,8 @@ test("sfd-121-221 Black Market Broker: judgeReason names the facedown-source and
   assert.match(program.judgeReason, /440\.2\.c/);
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /143\.4/);
-  assert.match(program.judgeReason, /RIFT-84/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /OBJECT_FILTER_ZONES/);
+  assert.match(program.judgeReason, /token-play-requires-chain-creation/);
 });
 
 test("sfd-121-221 Black Market Broker: the trigger is card-played, scoped to you and to a facedown source", () => {
@@ -71,12 +71,12 @@ test("sfd-121-221 Black Market Broker: the body declares one Gold token played e
 
 test.todo(
   "sfd-121-221 Black Market Broker: the card-played event carries the pre-play zone so a " +
-    "Facedown Zone source can be detected (355.9.a.3 / 107.3.a / 107.3.e / 422.2.a) — RIFT-84 hidden/facedown " +
-    "support plus RIFT-91 trigger-filter consumption"
+  "Facedown Zone source can be detected (355.9.a.3 / 107.3.a / 107.3.e / 422.2.a) — the hidden/facedown " +
+    "zone vocabulary plus trigger-filter consumption of the payload details"
 );
 
 test.todo(
   "sfd-121-221 Black Market Broker: play the Gold gear token through chain creation plus the hand-off " +
     "play (440.2.c / 185.2.a / 350.2 / 354) with the CR 187.5 Gold definition and its exhausted entry " +
-    "(184.1 / 185.2.d) — RIFT-62 token work / RIFT-82 definition batch"
+    "(184.1 / 185.2.d) — the Gold definition stays outside the frozen token table"
 );

@@ -1,13 +1,36 @@
 import type { CardProgram } from "../../ir/index.js";
 
-/** Armed Assailant (sfd-002-221). */
+/**
+ * Armed Assailant (sfd-002-221).
+ *
+ * sourceText（packages/card-data/data/deck-catalog.json, sfd-002-221，逐字）:
+ *   [Accelerate] / [Weaponmaster] 两条印刷关键词。
+ *
+ * 规则依据（CR v1.5）：
+ * - [Accelerate]（805）：可选附加费用关键词；805.1.b 费用固定 1 energy + 1 power
+ *   （本卡为 Fury 域 [F]，805.1.b.1 要求 power 域与单位域匹配）；805.6/805.6.a 是
+ *   付费后的入场就绪替代。卡内只声明 { kind: "keyword", keyword: "accelerate" }
+ *   （契约 3.7/README 第 5 节），展开由已合入的 effects/keywords/Accelerate.ts 负责。
+ * - [Weaponmaster]（821）：打出本单位时可以 [Equip] 一件自己的装备，且 [Equip]
+ *   费用减 1 个任意 power（821.1.c.3），即使已附带也可重挂（821.1.c.2.a/.2.b）。
+ *
+ * status 判定（cards/README.md 第 2 节）：judge-required，当前真实缺口：
+ * - [Weaponmaster] 的展开 effects/keywords/Weaponmaster.ts 已合入但自身保持
+ *   judge-required：play-effect 的目标层不会绑定符号性 controller filter（TestWorld
+ *   不绑定 self 别名），且 cost.modify 对 reduce-equip-cost 显式判负（821.1.c.3 的
+ *   [A]/[C] symbol provenance 会丢失），cost.pay 与 Attach 的整体收费流程因此缺。
+ * - [Accelerate] 的关键词展开与 accelerate 费用计划已合入，但打出流程 Finalize 的
+ *   optionalAdditional 收取与 805.6 入场就绪替代条件管线仍无消费方。
+ * 依赖：Weaponmaster 展开的相对 controller 目标绑定与 reduce-equip-cost 费用支持、
+ * Finalize Accelerate 接线。不近似实现（不把手写 Equip 收费塞进卡程序）。
+ */
 export default {
   canonicalCardId: "card.hash-8518a281524e1e72c165821192f2957a4ce78725737d98dbb03e70569739aec0",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Accelerate] 的 KeywordDef 已声明 accelerate.cost 与入场替代形状，但缺少把卡牌关键词接入打出费用与 replacement.enter 管线的生产接线（RIFT-89/RIFT-120）；" +
-    "[Weaponmaster] 需要 821.1.c 的 cost.modify、cost.pay 与 Attach 流程，当前没有对应费用原语或卡牌关键词消费方（RIFT-9/RIFT-89）。不近似实现。",
+    "[Accelerate]（805）的关键词展开与 accelerate 费用计划已合入，但把费用接进打出流程 Finalize 的 optionalAdditional 收取与 805.6 入场就绪替代条件管线仍无消费方；" +
+    "[Weaponmaster]（821）的展开 effects/keywords/Weaponmaster.ts 已合入但保持 judge-required：play-effect 的目标层不会绑定符号性 controller filter（TestWorld 不绑定 self 别名），且 cost.modify 对 reduce-equip-cost 显式判负（821.1.c.3 的 [A]/[C] symbol provenance 会丢失），cost.pay 与 Attach 的整体收费流程因此缺。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "accelerate" },
     { kind: "keyword", keyword: "weaponmaster" }

@@ -21,18 +21,23 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   807.1.c 的释义（Assault 在攻击时按每份 +1 Might），不是独立指令。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。三处已合入缺口：
- * - 动态关键词授予没有可执行路径：effects/instructions/ 下没有任何原语注册
- *   continuous.grant-keyword（没有任何已合入指令调用 ResolveContext.addContinuous），
- *   layers/ 也没有把卡程序的 static 能力注册进图层的消费方（契约 3.7/RIFT-91）；
- *   本卡不能只声明一个静态的 assault keyword 冒充，因为数值是动态的。
+ * - 动态关键词授予的指令入口（effects/instructions/continuous.grant-keyword.ts，
+ *   op: continuous.grant-keyword）与 layers/ 的 ability 层消费已合入，但把卡程序的
+ *   static 能力注册进图层的接线（programs/statics.ts 的 engine static binder）不支持
+ *   controller:opponent / sameLocationAs:self 的来源相对 filter（staticFilter 对
+ *   opponent 与非 self 锚点显式抛 judge-required），且 layers 的 conditionMatches
+ *   对未知条件 kind 返回 true，designation 条件会被过度应用。
  * - 授予数值需要「此处敌方单位数」的计数位置：ObjectFilter 有 sameLocationAs 锚点，
  *   能表达「与本卡同在一个战场」，但把该计数作为另一个单位的 Assault 值需要一个表达式位置
- *   读它；且 Assault 的图层按 807.1.d 只在获得 Attacker 身份期间生效，而 ObjectSnapshot
- *   没有 combatRole/designation（契约 3.8 只冻结字段设计），RIFT-91/战斗批次未实现。
- * - [Accelerate] 的展开（effects/keywords/Accelerate.ts）已合入，但其费用计划消费方
- *   （Finalize 的 optionalAdditional 接线）与 805.6 的入场就绪替代管线仍属 RIFT-89/91。
- * 依赖：RIFT-91（layers-continuous 的 continuous.grant-keyword 与 designation）、
- * RIFT-81（kw-assault-shield 的展开）、RIFT-89（费用计划）。
+ *   读它；且 Assault 的图层按 807.1.d 只在获得 Attacker 身份期间生效，而图层
+ *   conditionMatches 目前把未知的 designation 条件 fallthrough 为 true，无法表达
+ *   「仅攻击者身份期间生效」。
+ * - [Accelerate] 的展开（effects/keywords/Accelerate.ts）与费用计划
+ *   （src/cost/kinds/additional.ts 的 accelerate 组件）已合入，但把该费用接进
+ *   链上打出 Finalize 的 optionalAdditional 收取与 805.6 付费后入场就绪替代的
+ *   条件管线仍无消费方。
+ * 依赖：static→图层接线的相对 filter 支持、layers designation 条件求值、
+ * Finalize 的 Accelerate optionalAdditional 收取与入场就绪替代接线。
  * 不近似实现（不把动态数值写成固定 Assault、不把手写展开塞进卡程序）。
  */
 const abilities: Ability[] = [
@@ -40,8 +45,9 @@ const abilities: Ability[] = [
   {
     kind: "static",
     effect: {
-      // 契约 3.7 / RIFT-9 模板中的 continuous.grant-keyword：把 Assault 授予本卡，
-      // 数值为「此处敌方单位数」。该 kind 尚无已注册原语/图层消费者（见 judgeReason）。
+      // 契约 3.7 模板中的 continuous.grant-keyword：把 Assault 授予本卡，
+      // 数值为「此处敌方单位数」。op 与 layers ability 层已合入；卡程序接线
+      // 无法解析这里的相对 filter（见 judgeReason）。
       kind: "continuous.grant-keyword",
       appliesTo: "self",
       keyword: "assault",
@@ -66,16 +72,17 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「I have [Assault] equal to the number of enemy units here」的动态关键词授予没有可执行路径：" +
-    "effects/instructions/ 下没有任何原语注册 continuous.grant-keyword，也没有任何已合入指令调用 " +
-    "ResolveContext.addContinuous（addContinuous 只有说明，无写入方），layers/ 同样没有把卡程序 static " +
-    "能力注册进图层的消费方（RIFT-91）；数值本身又是动态计数（此处敌方单位数），不能用静态的 " +
-    "{ keyword: \"assault\", value: N } 冒充。此外 807.1.d 规定 Assault 只在获得 Attacker 身份期间生效，" +
-    "而 ObjectSnapshot 没有 combatRole/designation（契约 3.8 只冻结字段设计，实现属 RIFT-91/战斗批次），" +
-    "图层无法判定攻击者状态。[Accelerate]（805）的展开 effects/keywords/Accelerate.ts 已合入" +
-    "（accelerate.cost + 805.6 的入场就绪替代），但其费用计划消费方（Finalize 的 optionalAdditional 接线）" +
-    "属 RIFT-89 批次。依赖：RIFT-91（layers-continuous 的 continuous.grant-keyword 与 designation）、" +
-    "RIFT-81（kw-assault-shield 展开）、RIFT-89（费用计划）。不近似实现（动态数值不写成固定 Assault、" +
+    "「I have [Assault] equal to the number of enemy units here」的动态关键词授予有三处当前真实缺口：" +
+    "(1) continuous.grant-keyword 指令原语与 layers ability 层已合入，但把卡程序 static 能力注册进" +
+    "图层的 statics 接线不支持 controller:'opponent' / sameLocationAs:'self' 的来源相对 filter" +
+    "（statics.ts staticFilter 对 opponent 与非 self 锚点抛 judge-required）；" +
+    "(2) layers conditionMatches 对未知条件 kind 返回 true，807.1.d 的「只在攻击者身份期间生效」" +
+    "designation 条件会被无条件过度应用；" +
+    "(3) [Accelerate]（805）的关键词展开与 accelerate 费用计划已合入，但接进打出流程" +
+    "Finalize 的 optionalAdditional 收取与 805.6 入场就绪替代条件的管线仍无消费方。" +
+    "数值本身是动态计数（此处敌方单位数），不能用静态的 { keyword: \"assault\", value: N } 冒充。" +
+    "依赖：static→图层接线的相对 filter 支持、layers designation 条件求值、" +
+    "Finalize Accelerate 接线。不近似实现（动态数值不写成固定 Assault、" +
     "不把关键词展开手写进卡程序）。",
   abilities,
   sourceText:

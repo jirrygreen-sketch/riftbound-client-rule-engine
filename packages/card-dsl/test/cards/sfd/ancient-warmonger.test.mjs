@@ -27,12 +27,10 @@ test("sfd-131-221 Ancient Warmonger: program validates and keeps its identity", 
 
 test("sfd-131-221 Ancient Warmonger: judgeReason names the dynamic-grant and designation gaps", () => {
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /addContinuous/);
   assert.match(program.judgeReason, /807\.1\.d/);
-  assert.match(program.judgeReason, /combatRole\/designation/);
+  assert.match(program.judgeReason, /conditionMatches/);
+  assert.match(program.judgeReason, /staticFilter/);
   assert.match(program.judgeReason, /805/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /RIFT-89/);
 });
 
 test("sfd-131-221 Ancient Warmonger: [Accelerate] is declared, not expanded", () => {
@@ -88,12 +86,12 @@ test("sfd-131-221 Ancient Warmonger: the printed Assault keyword is NOT declared
 test.todo(
   "sfd-131-221 Ancient Warmonger: grant [Assault] to this unit at a dynamic value through " +
     "continuous.grant-keyword and the layers engine, active only while it holds the Attacker " +
-    "designation (807.1.c/807.1.d/807.1.d.1, contract 3.8 combatRole) — RIFT-91 layers-continuous, " +
-    "plus the RIFT-81 keyword expansion consumer"
+    "designation (807.1.c/807.1.d/807.1.d.1): needs the static-to-layers wiring to support " +
+    "opponent/sameLocationAs relative filters and the layers conditionMatches designation evaluation"
 );
 
 test.todo(
   "sfd-131-221 Ancient Warmonger: the printed [Accelerate] optional additional cost (1 energy + 1 " +
     "Chaos power, 805.1.b/805.1.b.1) and its delayed enter-ready replacement (805.2.b/805.6/805.6.a) " +
-    "need the Finalize optional-additional wiring and the replacement.enter consumer — RIFT-89 / RIFT-91"
+    "need the Finalize optional-additional wiring and the replacement.enter consumer"
 );

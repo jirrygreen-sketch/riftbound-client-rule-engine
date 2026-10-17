@@ -32,22 +32,26 @@ import type { CardProgram } from "../../ir/index.js";
  * Status: judge-required. The damage instruction is merged and is executed by
  * the golden test (including a partially stale target set), but two
  * dependencies are unmerged and not approximated:
- * - the 355.11 group requirement "same location" (target plan group coherence
- *   and the legal-subset re-choice of 355.11.b; RIFT-90);
+ * - the 355.11 group requirement "same location" (the merged target plan carries
+ *   kind/group as data but evaluates no group-level coherence and no
+ *   legal-subset re-choice of 355.11.b);
  * - the Finalize collection of the optional [Repeat] additional cost and the
- *   paid-instance to interpreter-repeat wiring (820.1.c.1, 820.1.d.1;
- *   RIFT-89, effects/keywords/Repeat.ts).
+ *   paid-instance to interpreter-repeat wiring (820.1.c.1, 820.1.d.1): the
+ *   Repeat keyword, effect.repeat and the cost-plan optionalAdditional input
+ *   exist, but no code connects the card-declared additional cost to the
+ *   spell-play Finalize or feeds the paid count to the resolution.
  */
 const bellowsBreath = {
   canonicalCardId: "card.hash-effd069140ba0a97aec2b49e85dfc04e38ae3517c75aea5b88e3fcb853a4ea2b",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1)「up to three units at the same location」是 355.11 的分组目标要求" +
+    "两处当前真实缺口，均不近似实现：(1)「up to three units at the same location」是 355.11 的分组目标要求" +
     "（组内单位必须位于同一 Location），现有 target-plan 只有 min/max 与单成员合法性，kind: \"group\" 字段无分组一致性实现，" +
-    "也没有结算时的合法子集重选（355.11.b；RIFT-90）。" +
+    "也没有结算时的合法子集重选（355.11.b）。" +
     "(2)「[Repeat] :rb_energy_1::rb_rune_mind:」的附加费用已按 CostSpec 声明（820.1.c.1），" +
-    "但 Finalize 收取与解释器 repeat 节点的接线未合入（RIFT-89；effects/keywords/Repeat.ts）。" +
+    "Repeat 关键词、effect.repeat 与费用计划的 optionalAdditional 输入都已合入，" +
+    "但没有代码把卡程序声明的附加费用接进法术打出的 Finalize 收取，也没有把已付实例数接到结算。" +
     "effect.damage（418；355.13 的 up to 可含 0 个目标）本体已合入并有 golden 执行测试。",
   abilities: [
     { kind: "keyword", keyword: "action" },
@@ -91,7 +95,7 @@ const bellowsBreath = {
               min: 0,
               max: 3,
               selection: "up-to",
-              // "at the same location" 的分组意图（355.11；组一致性待 RIFT-90）。
+              // "at the same location" 的分组意图（355.11；组一致性缺口见 judgeReason）。
               kind: "group"
             }
           ]

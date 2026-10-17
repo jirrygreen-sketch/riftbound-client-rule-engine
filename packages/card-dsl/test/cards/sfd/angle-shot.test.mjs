@@ -62,7 +62,6 @@ test("sfd-011-221 Angle Shot: judge-required for the unmerged 355.11 same-contro
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /355\.11/);
   assert.match(program.judgeReason, /group/);
-  assert.match(program.judgeReason, /RIFT-90/);
   assert.match(program.judgeReason, /choice\.mode/);
 });
 
@@ -245,16 +244,16 @@ test("sfd-011-221 Angle Shot golden: the unlinked Draw 1 resolves even when the 
 
 test.todo(
   "sfd-011-221 Angle Shot: the 355.11 'same controller' group requirement and the 355.11.b resolution-time " +
-    "legal-subset re-choice need group-level target evaluation in the target system — RIFT-90."
+    "legal-subset re-choice need group-level target evaluation: the merged target plan carries kind/group as data only."
 );
 
 test.todo(
   "sfd-011-221 Angle Shot: the printed [Reaction] Closed-State permission (813, 159.2.b) needs the " +
-    "keyword expansion plus the chain's canAct timing query — RIFT-83 / RIFT-85."
+    "keyword expansion plus the chain's canAct timing query."
 );
 
 test.todo(
   "sfd-011-221 Angle Shot: the detach mode consumes the already-chosen Equipment as its non-target " +
     "selection; the chain must pass the first TargetSpec's locked reference into that pick's option set " +
-    "(436.3) — RIFT-90."
+    "(436.3)."
 );

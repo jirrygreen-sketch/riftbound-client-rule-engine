@@ -27,11 +27,11 @@ test("sfd-003-221 Blood Rush: program passes validateCardProgram", () => {
 
 test("sfd-003-221 Blood Rush: judge-required for the keyword grant and the Repeat cost wiring", () => {
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /continuous\.grant-keyword|addContinuous/);
+  assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /combatRole|designation/);
   assert.match(program.judgeReason, /820\.1\.c\.1/);
-  assert.match(program.judgeReason, /RIFT-86/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /conditionMatches/);
+  assert.match(program.judgeReason, /optionalAdditional/);
 });
 
 test("sfd-003-221 Blood Rush structure: [Action] plus the printed Repeat cost", () => {
@@ -93,25 +93,25 @@ test("sfd-003-221 Blood Rush: the granted Assault 2 expands with the printed val
 });
 
 test.todo(
-  "sfd-003-221 Blood Rush: granting [Assault 2] to the chosen unit for its remainder needs a " +
-    "duration-bounded keyword-grant primitive that registers a continuous effect through " +
-    "ResolveContext.addContinuous (CR 801.3.a / 807.1.c; no merged instruction op) — RIFT-91 follow-up."
+  "sfd-003-221 Blood Rush: executing the merged continuous.grant-keyword op needs the " +
+    "card-to-layers wiring that registers a granted ability layer for its printed duration " +
+    "(820.1.d.1's additional execution would repeat the grant; CR 801.3.a / 807.1.c)."
 );
 
 test.todo(
-  "sfd-003-221 Blood Rush: the granted Assault's +2 Might needs the Attacker designation " +
-    "(contract 3.8 ObjectSnapshot.combatRole; 807.1.d.1) evaluated by the layers condition " +
-    "consumer — RIFT-91 / contract 3.8."
+  "sfd-003-221 Blood Rush: the granted Assault's +2 Might must stay limited to the Attacker " +
+    "designation (807.1.d.1), which needs conditionMatches to evaluate the expansion's " +
+    "designation condition instead of its unknown-kind fallthrough."
 );
 
 test.todo(
   "sfd-003-221 Blood Rush: collecting the optional 1-energy Repeat cost at Finalize, exposing the " +
     "paid count to the effect execution, and re-making choices for the additional execution " +
-    "(820.1.c.1 / 820.1.d.1 / 820.2) need the Repeat cost wiring and the cost plan — " +
-    "RIFT-86 / RIFT-89."
+    "(820.1.c.1 / 820.1.d.1 / 820.2) need the card-to-Finalize optionalAdditional wiring and " +
+    "the paid-instance binding."
 );
 
 test.todo(
   "sfd-003-221 Blood Rush: the printed [Action] Showdown permission (806, 159.2.a) needs the " +
-    "keyword expansion plus the chain's canAct timing query — RIFT-83 / RIFT-85."
+    "keyword expansion plus the chain's canAct timing query."
 );
