@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import play from "../../../../engine-core/dist/effects/instructions/effect.play.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL = "card.hash-3424a772092b9d250c6d4500599a350ba292ea19b57c3ce08f4fccf1289e6478";
 const ability = program.abilities[0];
@@ -24,9 +25,11 @@ test("ogn-226-298 Spectral Matron: identity, status and verbatim sourceText", ()
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // The production filter translator has no printed-cost cap fields (356.1.c).
+  // 当前三处缺口：印刷费用谓词、嵌套目标 Finalize 生命周期、忽略费用计划的接线。
   assert.match(program.judgeReason, /356\.1\.c/);
   assert.match(program.judgeReason, /printedEnergyMax/);
+  assert.match(program.judgeReason, /Nested\/repeated targets|嵌套目标/);
+  assert.match(program.judgeReason, /assertFinalizationSurface/);
   assert.match(program.judgeReason, /cost\.printed/);
   assert.equal(
     program.sourceText,
@@ -152,8 +155,39 @@ test("ogn-226-298 Spectral Matron: declining the may-clause leaves the Trash uni
   assert.deepEqual(kernel.events, []);
 });
 
+test("ogn-226-298 Spectral Matron: the production filter binder rejects the printed-cost cap (current gap)", () => {
+  // 356.1.c 的印刷费用上限在 programs/filters.ts 里没有词表条目；这里真实调用生产
+  // 绑定函数证明整卡目前 fail-closed，而不是靠注释断定。
+  for (const key of ["printedEnergyMax", "printedPowerMax", "printedPowerAnyDomain"]) {
+    assert.throws(
+      () => translateObjectFilter({ type: "unit", zone: "trash", [key]: 1 }),
+      (error) => {
+        assert.equal(String(error.message), "Unsupported filter field " + key);
+        return true;
+      }
+    );
+  }
+});
+
+test("ogn-226-298 Spectral Matron: a forged executable program still fails closed in production binding", () => {
+  // 同一份声明在 executable 形态下也会在生产绑定处失败：这不是 status 抖动能绕过的缺口。
+  const forged = { ...program, status: "executable" };
+  delete forged.judgeReason;
+  assert.equal(validateCardProgram(forged).ok, true);
+  const [spec] = forged.abilities[0].body[0].args.body.value[0].targets;
+  assert.equal(spec.filter.printedEnergyMax, 3);
+  assert.throws(
+    () => translateObjectFilter(spec.filter),
+    (error) => {
+      assert.equal(String(error.message), "Unsupported filter field printedEnergyMax");
+      return true;
+    }
+  );
+});
+
 test.todo(
-  "ogn-226-298 Spectral Matron: the printed-cost cap (Energy <= 3 and Power <= 1 of any domain, " +
-    "CR 356.1.c) needs TargetSpec/ObjectFilter printed-cost fields and a cost.printed instruction " +
-    "that derives the ignore-cost plan from the locked Trash unit before effect.play (CR 355.4/420.3.b.1)"
+  "ogn-226-298 Spectral Matron: TargetSpec/ObjectFilter printed-cost predicates (Energy <= 3 and " +
+    "Power <= 1 of any domain, CR 356.1.c), the nested instruction target's Finalize/Resolve " +
+    "lifecycle, and a cost.printed instruction that derives the ignore-cost plan from the locked " +
+    "Trash unit before effect.play (CR 355.4/420.3.b.1)"
 );

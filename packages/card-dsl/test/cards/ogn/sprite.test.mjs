@@ -8,6 +8,10 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 
 const CANONICAL =
   "card.hash-610cc33146e5be610b1b548bd327d47a44aba21edb081e7669cba4971753ccef";
@@ -25,8 +29,11 @@ test("ogn-274-298 Sprite: identity, ruleset, status, judgeReason, sourceText", (
   assert.match(sprite.judgeReason, /Temporary/);
   assert.match(sprite.judgeReason, /816\.1\.b/);
   assert.match(sprite.judgeReason, /beginning-start/);
-  assert.match(sprite.judgeReason, /keywords\/Temporary\.ts/);
+  assert.match(sprite.judgeReason, /keywords\/Temporary\.ts|Temporary\.ts/);
   assert.match(sprite.judgeReason, /invalid-event-type|事件词表/);
+  // 复核后补充的真实缺口：token 定义与真实绑定路径。
+  assert.match(sprite.judgeReason, /attachProgramLifecycle/);
+  assert.match(sprite.judgeReason, /effect\.token/);
   assert.equal(
     sprite.sourceText,
     "[Temporary] (Kill me at the start of your Beginning Phase, before scoring.)"
@@ -84,7 +91,57 @@ test("ogn-274-298 Sprite: the expansion's kill really executes through the chain
   assert.equal(kernel.getObject("sprite").zone, "trash");
 });
 
+test("ogn-274-298 Sprite: the merged trigger vocabulary rejects the Temporary expansion (current gap)", () => {
+  const [expansion] = temporary.expand({ host: { canonicalCardId: sprite.canonicalCardId } });
+  assert.throws(
+    () => assertTriggerSpec(expansion.trigger),
+    (error) => {
+      assert.equal(error.name, "TriggerSpecValidationError");
+      assert.equal(error.issues.some((issue) => issue.code === "invalid-event-type"), true);
+      return true;
+    }
+  );
+});
+
+test("ogn-274-298 Sprite: a real attachProgramLifecycle cannot register the Temporary trigger", () => {
+  // 真实绑定路径（programs/lifecycle.ts -> registerProgramTriggers -> assertTriggerSpec）
+  // 对 executable 形态的同卡也失败，证明这不是 status 抖动。
+  const forged = { ...sprite, status: "executable" };
+  delete forged.judgeReason;
+  assert.equal(validateCardProgram(forged).ok, true);
+  const state = fixture({
+    cards: [{ id: "sprite", cardId: sprite.canonicalCardId, types: ["unit"], might: 3 }]
+  });
+  const errors = [];
+  const binding = createProgramBinding({ cardPrograms: [forged] });
+  binding.attachLifecycle(state.engine, (error) => errors.push(error));
+  state.engine.commit({
+    type: "move-zone",
+    object: state.kernel.ref("sprite"),
+    to: "board",
+    location: { type: "base", player: "A" }
+  });
+  assert.equal(errors.length >= 1, true);
+  for (const error of errors) {
+    assert.equal(error.name, "TriggerSpecValidationError");
+  }
+});
+
+test("ogn-274-298 Sprite: the frozen token definition table has no sprite definition (current gap)", () => {
+  const receiptRun = runInstruction(token, {
+    token: { kind: "constant", value: "sprite" },
+    amount: { kind: "constant", value: 1 },
+    mode: { kind: "constant", value: "play" },
+    location: { kind: "constant", value: { type: "base", player: "A" } },
+    linkKey: { kind: "constant", value: "sprite" }
+  }, { world: world().build() });
+
+  assert.deepEqual(receiptRun.result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(receiptRun.linked.sprite.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.equal(receiptRun.linked.sprite.amount, 0);
+});
+
 test.todo(
-  "Sprite: the Temporary expansion must be registered as a live trigger when the host exists " +
-    "— blocked on the EventPattern event vocabulary admitting beginning-start"
+  "Sprite: admit beginning-start in the trigger event vocabulary / pipeline binding and add the 187.2 " +
+    "3 Might Fae Sprite token definition so the Temporary trigger can really run (816.1.b/816.1.c)"
 );

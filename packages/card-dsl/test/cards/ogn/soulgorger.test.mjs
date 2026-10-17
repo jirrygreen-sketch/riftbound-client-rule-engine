@@ -3,9 +3,13 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/soulgorger.js";
-const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
-const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
-const { world } = await import(new URL("effects/testing/index.js", engineCore));
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
+import playInstruction from "../../../../engine-core/dist/effects/instructions/effect.play.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-ad456571717d54ed1ac0fa819ef9e14432c36a2fb8c86e3fa5e2c95ac4a7c25f";
 const SOURCE_TEXT =
@@ -21,18 +25,25 @@ function withLockedTargets(body) {
   return body.map(({ targets, picks, ...rest }) => rest);
 }
 
-test("soulgorger: passes validateCardProgram", () => {
+test("soulgorger: passes validateCardProgram and is registered", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
   assert.deepEqual(result.issues, []);
+  assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
 test("soulgorger: identity, ruleset, status, judgeReason and sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  // 当前缺口：嵌套目标没有 Finalize 生命周期 + 缺动态印刷费用投影的接线。
+  assert.match(program.judgeReason, /Nested\/repeated targets|嵌套目标/);
+  assert.match(program.judgeReason, /assertFinalizationSurface/);
+  assert.match(program.judgeReason, /356\.1\.b\.2/);
   assert.match(program.judgeReason, /cost\.printed/);
-  assert.match(program.judgeReason, /finalized|费用计划/);
+  assert.match(program.judgeReason, /effect\.play/);
+  // The reason still states that no finalized plan can be derived.
+  assert.match(program.judgeReason, /finalized|finalize/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -41,7 +52,7 @@ test("soulgorger: the play trigger wraps the play in a choice.optional body (con
   assert.equal(triggered.kind, "triggered");
   assert.equal(triggered.trigger.at, "card-played");
   assert.deepEqual(triggered.trigger.filter, { self: true });
-  // 触发本身是强制的；“you may” 由 choice.optional 承担（355.1）。
+  // 触发本身是强制的；"you may" 由 choice.optional 承担（355.1）。
   assert.equal(triggered.optional, false);
   assert.equal(triggered.body.length, 1);
 
@@ -58,7 +69,7 @@ test("soulgorger: the play trigger wraps the play in a choice.optional body (con
 });
 
 test("soulgorger: the trash unit is a target and the Energy part is ignored (CR 356.1.b.2)", () => {
-  // CR 355.9.a + 108.2.d: Trash 是公开区域，“a unit from your trash” 是被指名的对象 → 目标。
+  // CR 355.9.a + 108.2.d: Trash 是公开区域，"a unit from your trash" 是被指名的对象 → 目标。
   assert.equal(printedCost.targets.length, 1);
   const [spec] = printedCost.targets;
   assert.equal(spec.id, "unit-card-in-trash");
@@ -82,6 +93,45 @@ test("soulgorger: the trash unit is a target and the Energy part is ignored (CR 
   assert.deepEqual(play.args.location, { kind: "constant", value: { type: "base", player: "self" } });
   assert.deepEqual(play.args.linkKey, { kind: "constant", value: "playedUnit" });
   assert.deepEqual(play.targets, [spec]);
+});
+
+test("soulgorger: the production Finalize surface rejects the nested trash target (current gap)", () => {
+  // chain/engine.ts 的 assertFinalizationSurface 要求指令内目标有 Finalize/Resolve
+  // 选择生命周期；这里用真实的 ChainEngine 证明该缺口是当前缺口，而不是注释推测。
+  const forged = { ...program, status: "executable" };
+  delete forged.judgeReason;
+  assert.equal(validateCardProgram(forged).ok, true);
+  const state = fixture({
+    cards: [{ id: "soulgorger", cardId: CANONICAL, types: ["unit"], might: 5 }],
+    choose: () => undefined
+  });
+  state.engine.commit({ type: "move-zone", object: state.kernel.ref("A:deck:1"), to: "trash" });
+  state.engine.advance();
+  const binding = createProgramBinding({ cardPrograms: [forged] });
+  binding.attachLifecycle(state.engine);
+  state.engine.commit({
+    type: "move-zone",
+    object: state.kernel.ref("soulgorger"),
+    to: "board",
+    location: { type: "base", player: "A" }
+  });
+  state.engine.advance();
+  state.engine.emit({
+    timingPoint: "card-played",
+    object: state.kernel.getObject("soulgorger"),
+    player: "A"
+  });
+  assert.equal(state.engine.items.length, 1);
+  assert.equal(state.engine.items[0].status, "pending");
+  assert.throws(
+    () => state.engine.advance(),
+    (error) => {
+      assert.match(String(error.message), /Nested\/repeated targets/);
+      return true;
+    }
+  );
+  // 被锁定的 Trash 单位仍在 Trash：没有近似打出。
+  assert.equal(state.kernel.getObject("A:deck:1").zone, "trash");
 });
 
 test("soulgorger golden: declining the option leaves the trash untouched", () => {
@@ -142,13 +192,60 @@ test("soulgorger golden: accepting plays the chosen trash unit, paying only its 
   // Energy 未支付（被忽略）：0 能量计划不扣资源。
   assert.equal(kernel.player("A").energy, 4);
   assert.deepEqual(outcome.linkedValues["soulgorger.play.playedUnit"], 1);
-  // 打出的支付 + 入场两步都是真实动作；参考内核按 finalized plan 结算（`action.plan`
-  // 只在 perform 的入参里，事件载荷不带计划，见 kernel 的 pay 分支）。
+  // 打出的支付 + 入场两步都是真实动作；参考内核按 finalized plan 结算（plan 只在
+  // perform 的入参里，事件载荷不带计划，见 kernel 的 pay 分支）。
   const actions = kernel.events.map((event) => event.action);
   assert.deepEqual(actions, ["pay", "play"]);
   // 356.1.b.2：Energy 归零、Power 仍为 1 点 Chaos，且参考内核只按 Energy 扣费。
   assert.equal(plan.energy, 0);
   assert.deepEqual(plan.power, ["Chaos"]);
+});
+
+test("soulgorger golden: cost.modify really produces the ignore-Energy plan from a trusted printed projection", () => {
+  // 356.1.b.2 的「忽略 Energy、保留 Power」在已合入的费用原语里是可执行的：
+  // cost.modify 接收调用方给出的印刷投影并按 ignore-base(energy) 改写基础费用。
+  // 这正是本卡仍缺的那一步接线（把 Finalize 锁定的 Trash 对象接成这笔投影）。
+  const kernel = world()
+    .card("trash-unit", { zone: "trash", types: ["unit"], owner: "A", energy: 3, power: ["Chaos"] })
+    .player("A", { energy: 9 })
+    .build();
+  const source = kernel.clone({ sourceSnapshot: kernel.getObject("trash-unit") });
+
+  // runInstruction dispatches the primitive directly, so the primitive's own
+  // evaluated argument shape is used here (the chain adapter wraps these in
+  // constants for a card body).
+  const run = runInstruction(costModify, {
+    id: "soulgorger.probe-plan",
+    cost: { kind: "printed" },
+    printed: { id: "trash-unit", cardType: "Unit", domains: ["Chaos"], energy: 3, power: 1 },
+    baseModifications: [{ kind: "ignore-base", ignore: "energy" }]
+  }, { world: source });
+
+  assert.equal(run.result.status, "executed");
+  // cost.modify links the frozen plan under its default "cost" key.
+  const plan = run.linked.cost;
+  assert.equal(plan.finalized, true);
+  // Energy 基础分量归零、Power 分量保留 1 点 Chaos（356.1.b.2 与 356.6 的下限）。
+  assert.deepEqual(plan.modifications, [{ kind: "ignore-base", ignore: "energy" }]);
+  assert.equal(plan.total.energy, 0);
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Chaos"] }]);
+});
+
+test("soulgorger golden: an unavailable finalized target causes ignored, not a play", () => {
+  const kernel = world()
+    .card("trash-unit", { zone: "trash", types: ["unit"], owner: "A" })
+    .build();
+  const run = runInstruction(
+    playInstruction,
+    {
+      target: "unit-card-in-trash",
+      cost: { kind: "constant", value: { finalized: true, energy: 0, power: [], xp: 0 } }
+    },
+    { world: kernel, targets: { "unit-card-in-trash": [] } }
+  );
+  assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(kernel.getObject("trash-unit").zone, "trash");
+  assert.deepEqual(run.events, []);
 });
 
 test("soulgorger golden: a stale trash target is ignored (CR 359.3.e.6)", () => {
@@ -222,6 +319,6 @@ test("soulgorger golden: a replaced play negates the instruction (contract 3.6 p
 });
 
 test.todo(
-  "soulgorger: generate the 'ignore its Energy cost, still pay its Power cost' plan from the chosen " +
-    "card's trusted printed catalog projection and pass the plan plus played object through the production play path"
+  "soulgorger: produce the ignore-Energy cost plan from the Finalize-locked Trash unit's trusted printed " +
+    "catalog projection, and complete the nested instruction target's Finalize/Resolve lifecycle"
 );
