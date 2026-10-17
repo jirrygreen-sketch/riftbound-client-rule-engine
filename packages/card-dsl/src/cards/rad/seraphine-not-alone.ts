@@ -27,8 +27,6 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   0 / 3 个其他横置单位的正确 Might 结果保留为可运行 TODO。
  * - "for each other exhausted unit you control" 的 per.filter 内的 exclude/other
  *   相对锚点也需要静态计数过滤器消费方，不能以固定 +1 代替。
- * - effect.token 与解释器的参数形状尚未收敛：声明 body 经 runAbilityBody 会抛出
- *   "Invalid effect.token argument"，因此完整触发体结算仍保留 TODO。
  * - 触发注册与生命周期绑定路径已合入（src/programs/triggers.ts / lifecycle.ts，
  *   绑定测试验证两个触发都能注册，且自身横置经真实事件管线产生 Pending 能力）。
  */
@@ -107,9 +105,8 @@ const program = {
     "exclude/other 相对锚点缺少静态计数消费方；正确的 0 / 3 个场景保留为 TODO，不以固定 +1 代替。" +
     "触发注册与生命周期绑定路径已合入（src/programs/triggers.ts / lifecycle.ts），" +
     "绑定测试验证两个触发都能注册，自身横置会产生 Pending 能力。" +
-    "完整触发体还缺 effect.token 与解释器的参数桥：原始 body 经 runAbilityBody 抛出" +
-    " Invalid effect.token argument，保留 TODO。" +
-    "effect.token 的 Recruit 定义（187.1）与 play 模式已合入，黄金测试按声明形状隔离执行其中一个触发。" +
+    "effect.token 的 Recruit 定义（187.1）、play 模式与 chain interpreter adapter 参数桥已合入，" +
+    "两个触发体均有通过 resolveChainBody 的真实 Recruit 执行证据；这里只保留上述变量 Might 缺口。" +
     "不近似实现。",
   abilities,
   sourceText:

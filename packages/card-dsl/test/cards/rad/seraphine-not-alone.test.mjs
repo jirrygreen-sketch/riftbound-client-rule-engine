@@ -4,7 +4,6 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/seraphine-not-alone.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { createProgramBinding, ProgramBindingError } from "../../../../engine-core/dist/programs/index.js";
@@ -12,6 +11,7 @@ import { attachProgramLifecycle } from "../../../../engine-core/dist/programs/li
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL = "card.hash-628d472ac3458206c95d893f3af0ac4bc4561ccd533988196a3c1c20ccd7eb20";
 const BASE = { type: "base", player: "A" };
@@ -26,7 +26,8 @@ test("rad-138-167 Seraphine, Not Alone: program validates and has expected ident
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("continuous.might"), true);
   assert.match(program.judgeReason, /per\(count\)/);
-  assert.match(program.judgeReason, /Invalid effect\.token argument/);
+  assert.match(program.judgeReason, /resolveChainBody/);
+  assert.doesNotMatch(program.judgeReason, /Invalid effect\.token argument/);
   assert.equal(
     program.sourceText,
     "When you play me or when I become exhausted, play a 1 :rb_might: Recruit unit token to your base.\n" +
@@ -151,24 +152,45 @@ test("rad-138-167 Seraphine, Not Alone: 两个触发都按声明形状创建衍�
   }
 });
 
-test("rad-138-167 Seraphine, Not Alone: 解释器通路的 effect.token args 形状差异（记录性断言）", () => {
-  // 契约 3.6 的符号选择器与 Expr 是静态 IR 值；解释器在 dispatch 前会先对整条指令的
-  // args 求值，而 effect.token 的 argsSchema 要求 token/mode 等仍是 Expr（token 原语：
-  // "Invalid effect.token argument"）。这个差异与 Assembly Rig 等已合入卡片的现状一致：
-  // 本卡用 runInstruction 验证 token 定义与交付流程（上面两个用例），解释器+静态
-  // 选择器的整链路执行仍待解释器与令牌原语的参数形状收敛。
-  const kernel = world().unit("seraphine", {}).build();
-  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("seraphine") });
-  assert.throws(
-    () => runAbilityBody(abilities()[0].body, scoped, undefined, { host: kernel.ref("seraphine") }),
-    /Invalid effect\.token argument/
-  );
-  // 声明的静态形状本身是正确的（token/mode 是 constant Expr，位置是占位常量）。
-  const instruction = abilities()[0].body[0];
-  assert.equal(instruction.args.token.kind, "constant");
-  assert.equal(instruction.args.mode.value, "play");
-  assert.deepEqual(instruction.args.locations.value, [{ type: "base", player: "controller" }]);
-});
+function bodyAtControllerBase(ability) {
+  // The static program uses the contract placeholder "controller". The test
+  // context supplies the concrete PlayerId while keeping the original body,
+  // primitive, and chain adapter unchanged.
+  return ability.body.map(instruction => ({
+    ...instruction,
+    args: {
+      ...instruction.args,
+      locations: { kind: "constant", value: [BASE] }
+    }
+  }));
+}
+
+for (const [label, ability] of [
+  ["when played", abilities()[0]],
+  ["when becoming exhausted", abilities()[1]]
+]) {
+  test("rad-138-167 Seraphine, Not Alone: " + label + " trigger resolves Recruit through resolveChainBody", () => {
+    const kernel = world()
+      .unit("seraphine", { owner: "A", controller: "A", location: BASE })
+      .build();
+    const scoped = kernel.clone({
+      source: kernel.ref("seraphine"),
+      sourceSnapshot: kernel.getObject("seraphine")
+    });
+    const outcome = resolveChainBody(bodyAtControllerBase(ability), scoped);
+    assert.equal(outcome.status, "executed");
+    assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+      [ability.body[0].id, "executed"]
+    ]);
+    const [recruit] = scoped.objects.filter(object => object.isToken);
+    assert.equal(recruit.name, "Recruit");
+    assert.equal(recruit.might, 1);
+    assert.deepEqual(recruit.location, BASE);
+    assert.equal(recruit.energy, null);
+    assert.equal(recruit.power, null);
+    assert.deepEqual(scoped.events.map(event => event.action), ["create-token", "play"]);
+  });
+}
 
 test("rad-138-167 Seraphine, Not Alone: per 计数的 \"other exhausted unit\" 集合可被真实查询求值", () => {
   // 参考测试内核的 query 只处理 type/types/tag/tags/controller/owner/zone/location（忽略
@@ -209,11 +231,6 @@ test("rad-138-167 Seraphine, Not Alone: per 计数的 \"other exhausted unit\" �
   // （states: exhausted）与敌方单位（controller）都不计入。
   assert.deepEqual(others.map(object => object.name).sort(), ["ally-exhausted", "ally-exhausted-2"]);
 });
-
-test.todo(
-  "rad-138-167 Seraphine, Not Alone: 两个触发的完整 Recruit 结算需要 effect.token 与解释器的" +
-    "参数桥；原始 body 当前抛出 Invalid effect.token argument，触发注册本身已合入"
-);
 
 function bindingFixture({ exhaustedAllies = 0, executable = true } = {}) {
   // Only the local copy bypasses the card's judge-required admission gate so
