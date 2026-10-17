@@ -27,26 +27,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   the ready instruction: a replaced or negated ready must still draw
  *   (359.3.e.14.b, and 359.3.e.8 for partial target loss).
  *
- * Status: judge-required — every instruction runs on merged primitives, but the
- * card cannot be called executable end to end: the movement system still does
- * not consume the recorded restriction. zones/movement.ts validates a Standard
- * Move from its own board/timing inputs and never reads the layer engine's
- * MovementPermissions, and effect.move documents that path restrictions belong
- * to move-location, which has no continuous-restriction hook either, so the
- * registered "cannot-move" label cannot yet negate a move. CardProgram static
- * ability binding is also still pending (RIFT-257). Dependencies: the movement
- * restriction consumer plus RIFT-257. Not approximated: the restriction is
- * declared through the real primitive and never faked as an allowed move.
+ * Status: executable — every instruction runs on merged primitives, and the
+ * standard-move kernel consumes the recorded MovementPermissions restriction.
+ * The CardProgram play path and Reaction timing are also bound by the current
+ * programs layer. The golden tests execute the body, query the registered
+ * restriction, and prove that a real Standard Move is rejected while the
+ * separate Draw instruction still resolves.
  */
 export default {
   canonicalCardId: "card.hash-2664ce34bf1adce071ce02ab9d89d11c45b42381e2728fbb02be19a2d83e1575",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "三段正文都已有已合入原语并真实执行（effect.ready、continuous.movement 的 restriction 形状、effect.draw；golden 用链解释器适配器 + 图层查询断言就绪、cannot-move 限制与抽 1）。" +
-    "整卡仍不可执行：「It can't move this turn」登记的移动禁止没有消费方——zones/movement.ts 只按自己的 Standard Move 输入校验、从不读图层的 MovementPermissions，" +
-    "effect.move 也明确把路径限制归 move-location，而它同样没有读取持续限制的接口，所以 054/054.1 的禁止（含 451.1 的效果移动）目前无法否定移动。" +
-    "另外卡牌 static/触发能力绑定仍待 RIFT-257。依赖：移动限制消费任务与 RIFT-257。不近似实现。",
+  status: "executable",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

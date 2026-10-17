@@ -19,7 +19,8 @@ test("rad-132-167 Heimerdinger: program validates and has expected identity", ()
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("369.1"), true);
-  assert.equal(program.judgeReason.includes("replacement.event"), true);
+  assert.equal(program.judgeReason.includes("effect.token"), true);
+  assert.equal(program.judgeReason.includes("RIFT-357"), true);
   assert.equal(
     program.sourceText,
     "If you would play a unit token to a location while I'm at a battlefield, you may play a 3 :rb_might: Mech unit token to that same location instead."
@@ -92,18 +93,17 @@ test("rad-132-167 Heimerdinger: 程序不把占位位置当成来源自身位置
   // 这条断言防止"用来源位置近似被替代动作的目的地"：来源在战场 bf1 时，
   // 替代体声明的占位常量与 bf1 不等，必须在替代管线里被绑定为被替代动作的位置。
   const instruction = bodyInstruction();
-  assert.notDeepEqual(instruction.args.location.value, BATTLEFIELD);
+  assert.deepEqual(instruction.args.location.value, { type: "battlefield", id: "replaced-play-location" });
   assert.equal(instruction.args.location.value.id, "replaced-play-location");
 });
 
 test.todo(
-  "rad-132-167 Heimerdinger: 369.1 的可选替代（\"you may ... instead\"）需要 replacement.event 原语把" +
-    "CardProgram 的 replacement 能力注册到 events/pipeline：当前没有任何已注册指令或管线读取" +
-    "卡牌程序的替代能力，打出前的替代选择时机也未实现"
+  "rad-132-167 Heimerdinger: 369.1 的替代提交需要 replacement planner 支持 effect.token，" +
+    "并保留 \"you may ... instead\" 的打出前可选询问"
 );
 
 test.todo(
   "rad-132-167 Heimerdinger: \"to that same location\" 的绑定——IR 没有\"被替代打出动作的目标位置\"" +
     "选择器，替代管线必须把被替代事件的 location 传进 effect.token；程序里的" +
-    "replaced-play-location 是标注用的占位常量"
+    "replaced-play-location 是标注用的占位常量（RIFT-357）"
 );

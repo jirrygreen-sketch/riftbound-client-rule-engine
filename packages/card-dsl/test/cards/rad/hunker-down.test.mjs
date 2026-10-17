@@ -12,6 +12,8 @@ const { default: draw } = await import(new URL("effects/instructions/effect.draw
 const { matchesObjectFilter } = await import(new URL("layers/filter.js", engineCore));
 const { createContinuousEffectRegistry } = await import(new URL("layers/duration.js", engineCore));
 const { movement } = await import(new URL("layers/rules/query.js", engineCore));
+const { selectDuelBattlefields, createDuelBoard, placeDuelUnit } = await import(new URL("duel/battlefields.js", engineCore));
+const { moveDuelUnitsStandard } = await import(new URL("zones/movement.js", engineCore));
 
 const CANONICAL = "card.hash-2664ce34bf1adce071ce02ab9d89d11c45b42381e2728fbb02be19a2d83e1575";
 const [keyword, play] = program.abilities;
@@ -60,13 +62,9 @@ test("rad-034-167 Hunker Down: program passes validateCardProgram and keeps the 
   );
 });
 
-test("rad-034-167 Hunker Down: judge-required names the real remaining gap", () => {
-  assert.equal(program.status, "judge-required");
-  // The restriction op and the layers query exist; what is missing is the
-  // movement consumer and the CardProgram binding.
-  assert.match(program.judgeReason, /continuous\.movement/);
-  assert.match(program.judgeReason, /MovementPermissions/);
-  assert.match(program.judgeReason, /RIFT-257/);
+test("rad-034-167 Hunker Down: the program is executable", () => {
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
 });
 
 test("rad-034-167 Hunker Down: [Reaction], ready, the no-move restriction, then an unlinked draw", () => {
@@ -157,6 +155,39 @@ test("rad-034-167 Hunker Down golden: ready + the cannot-move restriction + draw
   assert.equal(kernel.player("A").handSize, 1);
 });
 
+test("rad-034-167 Hunker Down golden: the Standard Move kernel consumes cannot-move", () => {
+  const kernel = world().unit("ally", { owner: "A", controller: "A" }).build();
+  kernel.setTargets("hunker-down.unit", [kernel.ref("ally")]);
+  const { registry } = runCardBody(kernel);
+  const seats = [
+    { playerId: "A", battlefields: [{ instanceId: "a-1", cardId: "field-1" }, { instanceId: "a-2", cardId: "field-2" }, { instanceId: "a-3", cardId: "field-3" }] },
+    { playerId: "B", battlefields: [{ instanceId: "b-1", cardId: "field-1" }, { instanceId: "b-2", cardId: "field-2" }, { instanceId: "b-3", cardId: "field-3" }] }
+  ];
+  let board = createDuelBoard(selectDuelBattlefields(seats, () => 0));
+  const base = board.bases.find((entry) => entry.ownerPlayerId === "A").locationId;
+  const battlefield = board.battlefields[0].locationId;
+  board = placeDuelUnit(board, { objectId: "ally", controllerPlayerId: "A", locationId: base });
+  const readiness = [{ objectId: "ally", readied: true, hasGanking: false }];
+  assert.throws(
+    () => moveDuelUnitsStandard(
+      board,
+      readiness,
+      {
+        actor: "A",
+        unitUIDs: ["ally"],
+        destinationLocationId: battlefield,
+        timing: { phase: "main", stateOpen: true, turnPlayerId: "A", priorityPlayerId: "A" }
+      },
+      {
+        registry,
+        refForUnit: (unit) => kernel.ref(unit.objectId),
+        objectForUnit: (unit) => kernel.getObject(unit.objectId)
+      }
+    ),
+    /prohibited from moving/
+  );
+});
+
 test("rad-034-167 Hunker Down golden: an already-ready unit is a legal no-op and the draw still happens", () => {
   const kernel = world()
     .deck(["deck-1", "deck-2"])
@@ -226,13 +257,3 @@ test("rad-034-167 Hunker Down golden: effect.draw alone moves the top card to ha
   assert.equal(run.linked.drawn, 1);
   assert.deepEqual(kernel.zone("A", "hand").map((ref) => ref.id), ["deck-1"]);
 });
-
-test.todo(
-  "rad-034-167 Hunker Down: 'It can't move this turn' must actually negate a Standard Move (144.4) " +
-    "and an effect Move (451.1) — zones/movement.ts and move-location still never read the layer " +
-    "engine's MovementPermissions."
-);
-test.todo(
-  "rad-034-167 Hunker Down: the [Reaction] ability and its body need the CardProgram play binding " +
-    "and Finalize cost plan (1 Energy, Closed-State window) — RIFT-257 / RIFT-261."
-);

@@ -33,7 +33,7 @@ test("rad-040-167 Heartening Soul: identity, ruleset, status, judgeReason and so
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.grant-ability/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Legend Zone|ZoneId/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -165,14 +165,10 @@ test("rad-040-167 Heartening Soul golden: the granted +3 Might this turn really 
 
 test.todo(
   "rad-040-167 Heartening Soul: attach the whole activated ability (its [E] cost and duration) to " +
-    "every friendly legend — CR 801.3.a / 135.4.b needs the continuous.grant-ability primitive, " +
-    "which has no file under effects/instructions"
-);
-test.todo(
-  "rad-040-167 Heartening Soul: register the static grant and the card-played trigger through the " +
-    "CardProgram binding so production really grants it (RIFT-257)"
+    "every friendly legend — CR 801.3.a / 135.4.b needs a binding shape that carries a complete " +
+    "activated Ability, including its [E] cost and duration"
 );
 test.todo(
   "rad-040-167 Heartening Soul: target legality for a legend in the Legend Zone (CR 355.9.a.4) needs " +
-    "a ZoneId member for the legend zone (contract change request) plus the RIFT-90 target plan"
+    "a current target/location contract that can bind the Legend Zone"
 );

@@ -14,18 +14,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "Friendly legends have \"[E]: Give a unit +3 [M] this turn.\""：801.3.a
  *   （其他效果可以授予关键词/能力）；这里授予的是一整条激活能力（费用 [E]），
  *   所需原语是 continuous.grant-ability（ability-templates 的 continuous.keyword 同族，
- *   见 RIFT-9 调研的 continuous.grant-ability 新增项，reuseCardIds 含 rad-040-167），
- *   本仓库尚未注册该原语。授予的能力体只含"临时 Might +3"，改用已合入的
+ *   需要把完整激活能力附加给一组对象。授予的能力体只含"临时 Might +3"，改用已合入的
  *   continuous.might + duration "this-turn"（143.2.a / 475，RIFT-258）。
  *
  * status 判定（README 第 2 节）：judge-required。缺口：
  * 1. `continuous.grant-ability`（把完整激活能力附加给一组对象，保留费用与持续期；
- *    135.4.b / 801.3.a）在 effects/instructions/ 仍无文件、指令注册表也没有该 op：
- *    continuous.grant-keyword 只授予关键词 id，无法承载一条带 [E] 费用的激活能力；
- * 2. 没有已合入消费方把 CardProgram 的 static 能力展开成持续效果（layers 只消费经
- *    ResolveContext.addContinuous 注册的 ContinuousEffectSpec；RIFT-257）。
+ *    135.4.b / 801.3.a）仍缺少可消费完整 Ability 的绑定形状：关键词授予不能承载一条
+ *    带 [E] 费用的激活能力；
+ * 2. “friendly legend” 的 Legend Zone 位置绑定尚不在当前 ZoneId/目标选择契约内。
  * 授予能力体本身已改成可执行形状并用真实执行测试覆盖；effect.ready 同样有真实执行证据。
- * 依赖：continuous.grant-ability 原语与 RIFT-257。
+ * 依赖：完整 Ability grant 绑定与 Legend Zone 目标位置契约。
  */
 
 const grantedAbility: Ability = {
@@ -107,12 +105,11 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "「Friendly legends have \"[E]: Give a unit +3 :rb_might: this turn.\"」需要把一条完整激活能力（含 [E] 费用与持续期）附加给一组对象，" +
-    "对应原语 continuous.grant-ability（801.3.a / 135.4.b）仍未合入：effects/instructions/ 没有该文件，指令注册表也无此 op；" +
-    "已合入的 continuous.grant-keyword 只授予关键词 id，无法承载带费用的激活能力体。" +
+    "对应的 continuous.grant-ability 需要把完整激活能力（801.3.a / 135.4.b）附加给每个友方传奇，" +
+    "而当前绑定形状只能注册图层效果或关键词，无法承载带 [E] 费用的激活能力体。" +
     "授予能力体内的临时 Might 修改现已改用已合入的 continuous.might + duration this-turn（143.2.a / 475，RIFT-258），并有真实执行证据。" +
-    "另缺消费方：没有已合入路径把 CardProgram 的 static 能力注册成 ContinuousEffectSpec（layers 只消费 ResolveContext.addContinuous 的注册，RIFT-257）。" +
-    "「ready a friendly legend」用已合入的 effect.ready 并有真实执行证据（355.9.a.4 的目标合法性由目标系统解析，Legend Zone 不在契约 ZoneId 内）。" +
-    "依赖：continuous.grant-ability 原语与 RIFT-257。不近似实现。",
+    "「ready a friendly legend」用已合入的 effect.ready 并有真实执行证据；但 Legend Zone 的位置绑定仍不在当前 ZoneId/目标选择契约内。" +
+    "依赖：完整 Ability grant 绑定与 Legend Zone 目标位置契约。不近似实现。",
   abilities,
   sourceText:
     "When you play me, ready a friendly legend.\n" +

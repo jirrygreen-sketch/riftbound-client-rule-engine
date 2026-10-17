@@ -10,10 +10,6 @@ import program from "../../../dist/cards/rad/hunting-dog.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import deathknell from "../../../../engine-core/dist/effects/keywords/Deathknell.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
-import { createContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
-import { appliedCosts } from "../../../../engine-core/dist/layers/rules/query.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-883ac11e924326f2848f19e337d6d2f7e70dc660d572f974d06708fc1f752353";
 const SOURCE_TEXT =
@@ -39,8 +35,7 @@ test("rad-119-167 Hunting Dog: judgeReason names the Bird definition, the base b
   assert.match(program.judgeReason, /187\.7/);
   assert.match(program.judgeReason, /trigger\.leave/);
   assert.match(program.judgeReason, /809\.1\.c/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /target\.tax/);
 });
 
 test("rad-119-167 Hunting Dog: [Deathknell] is declared as a keyword ability (808.1)", () => {
@@ -80,58 +75,27 @@ test("rad-119-167 Hunting Dog: the body plays a 1 Might Bird token with Deflect 
   assert.equal(playBird.args.keywords, undefined);
 });
 
-test("rad-119-167 Hunting Dog: the merged token definition table still rejects the Bird definition", () => {
-  const kernel = world().build();
-  const run = runInstruction(
-    token,
-    {
-      token: playBird.args.token,
-      amount: playBird.args.amount,
-      mode: playBird.args.mode,
-      // The concrete destination stands in for the unresolved "your base"
-      // referent, so the definition lookup is the only failure left.
-      location: { kind: "constant", value: { type: "base", player: "A" } },
-      linkKey: playBird.args.linkKey
-    },
-    { world: kernel }
-  );
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.equal(run.linked["birdToken.amount"], 0);
-  assert.deepEqual(run.linked["birdToken.objects"], []);
-  assert.equal(
-    run.linked.birdToken.blockedReason,
-    "token-definition-or-abilities-judge-required"
-  );
-  assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
-});
-
-test("rad-119-167 Hunting Dog: the merged Deflect expansion is a static target tax with no consumer", () => {
+test("rad-119-167 Hunting Dog: the merged Deflect expansion is a static target tax", () => {
   const definition = keywordDefinitionsById.get("Deflect");
   assert.ok(definition, "effects/keywords/Deflect.ts must be registered");
   const [expansion] = definition.expand({ value: 1, host: { canonicalCardId: CANONICAL } });
   assert.equal(expansion.kind, "static");
   assert.deepEqual(expansion.effect, { kind: "target.tax", value: { kind: "constant", value: 1 } });
-  // Nothing turns that declaration into a real target tax today: the target
-  // plan only appends taxes supplied by its caller, and the tax is billed in
-  // Energy while 809.1.c.1 requires any-Domain Power (RIFT-90 / RIFT-261).
-  const registry = createContinuousEffectRegistry();
-  assert.deepEqual(appliedCosts(registry, "move"), []);
 });
 
 test.todo(
   "rad-119-167 Hunting Dog: the 1 Might Bird unit token definition with the Bird tag and [Deflect] " +
-    "(CR 187.7) is still absent from the merged effect.token table (RIFT-62)"
+    "(CR 187.7) needs a token definition carrying Bird and Deflect abilities"
 );
 test.todo(
   "rad-119-167 Hunting Dog: 'to your base' needs the resolved ability-controller player bound into " +
-    "the destination LocationRef (the contract ObjectSelector set has no player selector) — RIFT-257"
+    "the destination LocationRef (the contract ObjectSelector set has no player selector)"
 );
 test.todo(
   "rad-119-167 Hunting Dog: the full Deathknell expansion — the trigger.leave subscription and removal " +
-    "from the chain when the death is replaced (CR 808.1.d.1/808.1.d.3) — RIFT-82 follow-up"
+    "from the chain when the death is replaced (CR 808.1.d.1/808.1.d.3)"
 );
 test.todo(
   "rad-119-167 Hunting Dog: [Deflect] as the mandatory target additional cost on the created token " +
-    "(CR 809.1.c) needs the target.tax consumer (RIFT-90) and any-Domain Power payment (RIFT-261)"
+    "(CR 809.1.c) needs the target.tax consumer and any-Domain Power payment"
 );
