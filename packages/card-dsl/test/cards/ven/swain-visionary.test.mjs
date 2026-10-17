@@ -4,6 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/swain-visionary.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -52,7 +53,9 @@ test("ven-065-166 Swain: identity, status, judgeReason and verbatim sourceText",
   assert.match(program.judgeReason, /817\.1\.b/);
   assert.match(program.judgeReason, /383\.2\.a\.1/);
   assert.match(program.judgeReason, /HistoryQuery/);
-  assert.match(program.judgeReason, /RIFT-87/);
+  assert.match(program.judgeReason, /RIFT-357|RIFT-358/);
+  assert.match(program.judgeReason, /objectFilter/);
+  assert.ok(!/RIFT-87/.test(program.judgeReason));
 });
 
 test("ven-065-166 Swain: [Vision] is declared without a value (817.1.b)", () => {
@@ -125,21 +128,89 @@ test("ven-065-166 golden: the body does not score when a non-controller runs it"
 });
 
 test("ven-065-166 golden: the trigger condition shape is the conjunction of the three clauses", () => {
-  // 条件求值本身需要按特征分类的本回合历史（见 judgeReason 第 2 条），这里只用真实
-  // 解释器证明结构可求值：三个子条件的 count 查询在没有任何已打出记录时全为 0。
+  // 参考内核对 count 表达式做的是现场对象查询（evaluate → ctx.query）,合取结构
+  // 仍可被真实解释器求值：棋盘上没有已打出的牌时三条子条件全为 0 ⇒ 条件为假。
   const kernel = world().player("A").build();
   const outcome = resolveChainBody(predicateBody(conditionForKernel()), kernel);
   assert.equal(outcome.status, "executed");
-  // 没有任何已打出的牌时三条 history 均为 0 ⇒ 条件为假（不得误判为真）。
+  // 没有任何已打出的牌时三条查询均为 0 ⇒ 条件为假（不得误判为真）。
   assert.equal(outcome.linkedValues["swain-visionary.conquer-condition.value"], false);
+});
+
+test("ven-065-166 golden: the merged history primitive evaluates the three-clause filters (HistoryQuery objectFilter)", () => {
+  // 卡程序里的 count 表达式由触发管线换成 condition.history 查询（scope/action 相同
+  // + objectFilter）；参考内核对条件谓词做的是现场求值，所以 objectFilter 的执行
+  // 证据用 condition.history 指令直接验证。play 动作由内核真实执行并连 object
+  // 快照写入 history（timingPoint card-played）。
+  const playedHistoryQuery = (objectFilter, filterPlayer = "A") => ({
+    id: "swain-visionary.conquer-condition",
+    op: "condition.history",
+    args: {
+      query: {
+        kind: "constant",
+        value: { scope: "turn", action: "play", player: filterPlayer, objectFilter }
+      },
+      operator: { kind: "constant", value: "gte" },
+      right: { kind: "constant", value: 1 }
+    }
+  });
+
+  const kernel = world()
+    .player("A")
+    .card("played-unit", { owner: "A", zone: "hand", types: ["unit"], isToken: false })
+    .card("played-gear", { owner: "A", zone: "hand", types: ["gear"], isToken: false })
+    .card("played-spell", { owner: "A", zone: "hand", types: ["spell"] })
+    .build();
+  for (const id of ["played-unit", "played-gear", "played-spell"]) {
+    const outcome = kernel.perform({
+      type: "play",
+      player: "A",
+      object: kernel.ref(id),
+      cost: { finalized: true, energy: 0, power: [] }
+    });
+    assert.equal(outcome.status, "done", "play " + id);
+  }
+  for (const objectFilter of [
+    { type: "unit", isToken: false },
+    { type: "gear", isToken: false },
+    { type: "spell" }
+  ]) {
+    const gate = runAbilityBody([playedHistoryQuery(objectFilter)], kernel);
+    assert.equal(gate.status, "executed", JSON.stringify(objectFilter));
+    assert.equal(gate.linkedValues["swain-visionary.conquer-condition.count"], 1);
+    assert.equal(gate.linkedValues["swain-visionary.conquer-condition.value"], true);
+  }
+
+  // 反例：单位记录换成 token 后 isToken: false 过滤把它排除，三件套不齐。
+  const tokenKernel = world()
+    .player("A")
+    .card("token-unit", { owner: "A", zone: "hand", types: ["unit"], isToken: true })
+    .card("played-gear", { owner: "A", zone: "hand", types: ["gear"], isToken: false })
+    .card("played-spell", { owner: "A", zone: "hand", types: ["spell"] })
+    .build();
+  for (const id of ["token-unit", "played-gear", "played-spell"]) {
+    const outcome = tokenKernel.perform({
+      type: "play",
+      player: "A",
+      object: tokenKernel.ref(id),
+      cost: { finalized: true, energy: 0, power: [] }
+    });
+    assert.equal(outcome.status, "done", "play " + id);
+  }
+  const tokenUnitGate = runAbilityBody(
+    [playedHistoryQuery({ type: "unit", isToken: false })],
+    tokenKernel
+  );
+  assert.equal(tokenUnitGate.linkedValues["swain-visionary.conquer-condition.count"], 0);
+  assert.equal(tokenUnitGate.linkedValues["swain-visionary.conquer-condition.value"], false);
 });
 
 test.todo(
   "ven-065-166 Swain, Visionary: [Vision]'s Predict needs the ordered top-deck source for effect.inspect " +
-    "(817.1.b / 437.1; RIFT-83 / RIFT-64) plus the CardProgram → trigger registration adapter (RIFT-120)"
+    "(817.1.b / 437.1) plus the ordered picks prerequisite (RIFT-357 / RIFT-358, in flight)"
 );
 test.todo(
   "ven-065-166 Swain, Visionary: evaluate 'played a non-token unit, a non-token gear, and a spell this turn' " +
-    "at trigger time (CR 383.2.a.1) from an object-filtered per-turn play history — HistoryQuery exposes only " +
-    "scope/action/timingPoint/player/object (RIFT-87; contract 3.8 objectFilter not merged)"
+    "at trigger time (CR 383.2.a.1) — the objectFilter evaluation itself is merged and golden-tested; " +
+    "what stays missing is the CardProgram → trigger registration adapter (RIFT-120)"
 );

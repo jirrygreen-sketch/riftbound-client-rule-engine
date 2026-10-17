@@ -17,9 +17,9 @@ const SOURCE_TEXT =
 const [hidden, mightAbility] = program.abilities;
 const condition = mightAbility.condition;
 
-// The static effect has no merged consumer, but its condition clause is ordinary
-// IR and runs through the merged predicate kernel (the reported gap is kept as
-// test.todo below, never silently approximated).
+// The card-side static registration path is merged (programs/keywords.ts →
+// programs/statics.ts), and the condition clause runs through the merged
+// predicate kernel; remaining gaps stay in test.todo, never approximated.
 const predicate = {
   id: "spiderling.condition-probe",
   op: "condition.predicate",
@@ -70,7 +70,9 @@ test("ven-097-166 Spiderling: identity, status, judgeReason and verbatim sourceT
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /103\.3\.b/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /811\.1\.d/);
+  assert.match(program.judgeReason, /N 倍/);
+  assert.ok(!/RIFT-91|RIFT-89/.test(program.judgeReason));
 });
 
 test("ven-097-166 Spiderling: [Hidden] is declared, not re-implemented (contract 3.7)", () => {
@@ -86,7 +88,7 @@ test("ven-097-166 Spiderling: +1 Might per other same-named unit here", () => {
   assert.equal(mightAbility.effect.appliesTo, "self");
 
   // “for each other unit you control here with my name”：count + sameLocationAs + exclude
-  // 表达 other/here；名称自指见 judgeReason 第 2 点。
+  // 表达 other/here；名称自指与 N 倍缩放见 judgeReason 第 2 点。
   assert.equal(condition.kind, "compare");
   assert.equal(condition.operator, "gte");
   assert.equal(condition.left.kind, "count");
@@ -148,13 +150,13 @@ test("ven-097-166 golden: the condition is binary, so two other units give the s
 
 test.todo(
   "ven-097-166 Spiderling: [Hidden]'s cost.hidden / facedown play permission has no consumer even though the " +
-    "KeywordDef is merged (811.1.d; RIFT-84/RIFT-89/RIFT-91)"
+    "KeywordDef and the hide/play cost plans (cost/kinds/hidden.ts, 811.1.b) are merged — the play permission, " +
+    "facedown zones, Hidden movement and the 811.1.d reaction play stay unwired"
 );
 
 test.todo(
-  "ven-097-166 Spiderling: the card-side continuous.might registration plus the arithmetic-layer predicates " +
-    "(count as amount, 'with my name', sameLocationAs) — layers/engine.ts conditionMatches evaluates only " +
-    "always/never/type/has-tag/has-keyword (RIFT-91 follow-up)"
+  "ven-097-166 Spiderling: 'with my name' self-reference plus N-times amount scaling (count as amount) — " +
+    "the card-side continuous.might registration is merged; the name predicate and per-count amount are not"
 );
 
 test.todo(

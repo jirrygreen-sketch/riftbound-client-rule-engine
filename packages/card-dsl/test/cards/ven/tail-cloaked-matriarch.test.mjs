@@ -53,7 +53,9 @@ test("ven-104-166 Tail-Cloaked Matriarch: identity, status, judgeReason and verb
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /356\.1\.b\.1/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /costEnergyLte/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.ok(!/RIFT-89|RIFT-87/.test(program.judgeReason));
 });
 
 test("ven-104-166 Tail-Cloaked Matriarch: [Empower] is declared, not re-implemented (contract 3.7)", () => {
@@ -151,7 +153,8 @@ test.todo(
 
 test.todo(
   "ven-104-166 Tail-Cloaked Matriarch: the [Empowered] dependent trigger (828.1.d) needs an Empowered status " +
-    "predicate and the increase-direction filter on empowered-changed (442.1.a/442.2.a, RIFT-87)"
+    "predicate and the increase-direction filter on empowered-changed (442.1.a/442.2.a; EVENT_PATTERN_TYPES " +
+    "has no empowerment discriminator and the payload carries no direction field)"
 );
 
 test.todo(
@@ -162,5 +165,6 @@ test.todo(
 
 test.todo(
   "ven-104-166 Tail-Cloaked Matriarch: produce the ignore-base Finalize plan for the chosen card (356.1.b.1) — " +
-    "cost/cost-plan.ts can express ignore-base but no CardProgram -> cost plan wiring exists (RIFT-89)"
+    "cost/cost-plan.ts can express ignore-base but no CardProgram -> cost plan wiring exists; " +
+    "programs/filters.ts also rejects the descriptive costEnergyLte / costPowerLte target keys"
 );
