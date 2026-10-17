@@ -34,6 +34,7 @@ test("rad-038-167 Ahri, Confident: identity, ruleset, status, judgeReason and so
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /attack-declared/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(257|258|267)/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });

@@ -4,13 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/unl/fate-weaver.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { finalizeOrderedPickPlans } from "../../../../engine-core/dist/chain/picks/plan.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-// 测试专用注册表：复刻链式适配器的参数封装/解码，并补上 effect.reveal 的 pick
-// （适配器 LITERAL_FIELDS 缺项，见 judgeReason 第 3 点）。见 support/primitive-harness.mjs。
-import { prepareBody, testRegistry } from "./support/primitive-harness.mjs";
-
-const registry = testRegistry();
 
 const CANONICAL =
   "card.hash-2bf8cfce91a22dad7d6fac1d1346fdddb3ac5cb4e68f17df57409a63ae23f366";
@@ -40,13 +35,9 @@ test("unl-064-219 Fate Weaver: identity, ruleset, status, judgeReason, sourceTex
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // 缺口必须具体：有序牌库顶查看、energy 下限过滤、reveal 的适配器字段。
-  assert.match(program.judgeReason, /picksSpecId/);
-  assert.match(program.judgeReason, /zoneSlice/);
+  // 缺口必须具体：energy 下限过滤与选择集合成员约束。
   assert.match(program.judgeReason, /energy/);
-  assert.match(program.judgeReason, /effect\.reveal/);
-  assert.match(program.judgeReason, /Finalize/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-64|RIFT-66|RIFT-90|RIFT-120|RIFT-257/);
+  assert.match(program.judgeReason, /looked-at/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -88,11 +79,10 @@ test("unl-064-219 Fate Weaver: the look is a top-4 ordered inspect of the contro
   });
   assert.deepEqual(lookedPick, {
     id: "fate-weaver.looked",
-    options: ["top-4-cards-of-your-main-deck-in-zone-order"],
-    min: 4,
-    max: 4,
+    options: [],
+    ordered: true,
     selection: "all",
-    filter: { owner: "self", zone: "deck" }
+    zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 4 } }
   });
 });
 
@@ -139,10 +129,10 @@ test("unl-064-219 Fate Weaver golden: 'draw it' moves the chosen looked card to 
   kernel.setPicks(lookedPick.id, viewed);
   // 被选中的是 third（可执行路径只看集合来源，不实现 energy 下限过滤）。
   kernel.setPicks(chosenPick.id, [viewed[2]]);
-  // 整条 body 按真实作用域执行；可选指令接受。effect.reveal 的 pick 解码用上面的
-  // 测试专用 registry 补齐生产适配器尚未解码的 pick 字段（见 judgeReason）。
+  // 整条 body 按真实作用域执行；可选指令接受。effect.reveal 的 pick 由生产链适配器
+  // 解码并消费已锁定的选择。
   kernel.setAnswers({ "fate-weaver.may-reveal-spell/optional": true });
-  const outcome = runAbilityBody(prepareBody(ability.body), kernel, registry);
+  const outcome = resolveChainBody(ability.body, kernel);
 
   assert.equal(outcome.status, "executed");
   // 解释器按「子指令先、容器后」记录完成顺序（见 effects/interpreter/README.md）。
@@ -200,15 +190,13 @@ test("unl-064-219 Fate Weaver golden: without the ordered top-4 source the look 
 });
 
 test.todo(
-  "unl-064-219 Fate Weaver: the ordered 'top 4 of your Main Deck' pick set must be provisioned by the " +
-    "production Finalize/AwaitChoice lifecycle instead of the test kernel"
-);
-test.todo(
   "unl-064-219 Fate Weaver: the 'spell with Energy cost 4 or more' restriction needs a value-threshold " +
     "member filter (energy >= 4) on the looked set; the frozen ObjectFilter/PickSpec carries static data only"
 );
-test.todo(
-  "unl-064-219 Fate Weaver: effect.reveal's pick argument is not decoded by chain/interpreter-adapter.ts " +
-    "LITERAL_FIELDS, so the reveal step is rejected at dispatch ('pick must be a non-empty id'); the " +
-    "card IR uses the contract 3.2 Expr shape (contract change request filed)"
-);
+
+test("unl-064-219 Fate Weaver: Finalize's ordered plan captures the real top-four deck slice", () => {
+  const kernel = deckedWorld();
+  const [plan] = finalizeOrderedPickPlans(kernel, ability.body);
+  assert.equal(plan.id, "fate-weaver.looked");
+  assert.deepEqual(plan.refs.map((ref) => ref.id), ["top", "second", "third", "fourth"]);
+});

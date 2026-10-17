@@ -29,27 +29,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   （有限行动，439.2），被替代的牌进入 Banishment（439.5），token 可在计分时
  *   Swap Back（439.7）。359.3.f.1「that battlefield」指触发事件里的那个战场。
  *
- * status = judge-required（缺口不近似实现）：
- * - 缺 Replace 行动的可执行路径：契约 3.6 的封闭 GameAction 集合没有 replace，
- *   effects/instructions/ 下也没有对应原语；本程序用未注册的 effect.replace 记录
- *   439.3 的「Replace [X] with [Y]」形状，任何执行路径都会以未注册 opcode 失败
- *   （不近似成 move-zone / create-token / 手改战场）。
- * - 缺 Brush 战场 token 定义：187.8 的 Brush 是「带自身能力的战场 token」，而
- *   effect.token 的冻结定义表（recruit / sand-soldier / mech / reflection / tentacle）
- *   只有无额外能力的单位 token，并明确把需要其他能力的定义保持 blocked；
- *   439.5 的 Banishment 与 439.7 的 Swap Back 追踪同样未合入。
- * - 「that battlefield」需要触发事件（conquer / hold 载荷）中的战场身份：合并
- *   TriggerSpec/EventPattern 只有 object/source/target/player/fromZone/toZone/amount/
- *   details，conquer/hold 的载荷只带 battlefieldId（timing-points.ts 未声明
- *   payloadFields），body 里没有可绑定的战场选择器，本程序保留可审查的占位常量。
- * - 「exhaust me」的基础费用语义与「me」的 Legend Zone 归属同 Gloomist：契约 3.1 的
- *   TriggeredAbility 没有 cost 槽位，ZoneId 也没有 legend-zone（CR 107.4.a/c），
- *   cost/payment.ts 的 exhaust 费用只接受 board / rune-zone 的支付对象。
- * effect.exhaust 的非目标选择形状与 effect.replace 的声明已按现契约编码，
- * golden 用参考内核真实执行横置半段，其余缺口保持 test.todo。
- *
- * 依赖：Replace 行动原语与 Brush 战场 token 定义（契约变更：GameAction/定义表）、
- * 触发能力基础费用字段、契约补充 legend-zone、征服/固守事件载荷绑定。
+ * status = judge-required：
+ * - 缺 CR 439 的 Replace 行动、effect.replace 与 187.8 的 Brush 战场 token，
+ *   包括原战场放逐、关联追踪与 439.7 的 Swap Back；replacement/ 的事件替代并非此行动。
+ * - 缺把 conquer/hold 的 details.battlefieldId 绑定为「that battlefield」的 LocationSelector。
+ * - programs/triggers.ts 未把前置 may/exhaust 转为 Finalize 的 cost / mayAtFinalize（383.3.a/b）；
+ *   另缺 Legend Zone 生命周期：game/lifecycle.ts 把传奇创建在 chain，仅另记 legendZone；
+ *   触发默认在 board 激活，横置费用也只接受 board/rune-zone（107.4.a/c）。
+ * 保留不可执行声明供审查；横置子效果测试不能证明传奇费用与 Replace 已执行。
  */
 const greenFather = {
   canonicalCardId:
@@ -57,17 +44,7 @@ const greenFather = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均不近似实现：(1) 缺 Replace 行动的可执行路径——CR 439.1/439.3 的「Replace [X] with [Y]」是有限行动，" +
-    "契约 3.6 的封闭 GameAction 集合没有 replace，effects/instructions/ 下也没有对应原语；本程序用未注册的 effect.replace 记录形状，" +
-    "任何执行路径都会以未注册 opcode 失败，不近似成 move-zone / create-token / 手改战场。" +
-    "(2) 缺 187.8 的 Brush 战场 token 定义：effect.token 的冻结定义表（recruit/sand-soldier/mech/reflection/tentacle）只有无额外能力的单位 token，" +
-    "并明确把带自身能力的定义保持 blocked；439.5 的 Banishment 与 439.7 的 Swap Back 追踪同样未合入。" +
-    "(3)「that battlefield」需要触发事件载荷里的战场身份：合并 TriggerSpec/EventPattern 只有 object/source/target/player/fromZone/toZone/amount/details，" +
-    "conquer/hold 时点（timing-points.ts）未声明 payloadFields，body 没有可绑定的战场选择器，本程序保留占位常量并标注。" +
-    "(4)「exhaust me」按 CR 383.3.b/204.3 是触发能力的基础费用，契约 3.1 的 TriggeredAbility 没有 cost 槽位；且「me」是 Legend Zone 中的传奇" +
-    "（CR 107.4.a/107.4.c），契约 ZoneId 没有 legend-zone，cost/payment.ts 的 exhaust 费用只接受 board/rune-zone。" +
-    "conquer/hold 时点（由 turn/flow.ts 计分波发出）、effect.exhaust 与解释器路径已合入，golden 真实执行横置半段。" +
-    "依赖：Replace 行动原语与 Brush token 定义（契约变更）、TriggeredAbility 基础费用字段、契约补充 legend-zone、征服/固守事件载荷绑定。",
+    "缺 CR 439.1/439.3 的 Replace 行动与 effect.replace，以及 187.8 的 Brush 战场 token（含自身能力）、439.5 原战场放逐关联与 439.7 Swap Back；replacement/ 的事件替代不能代替此行动。缺将 conquer/hold 载荷 details.battlefieldId 绑定为 that battlefield 的位置选择器。缺 programs/triggers.ts 将前置 may/exhaust 转为 TriggerRegistration.cost / mayAtFinalize 的适配（383.3.a/383.3.b、204.3），以及 Legend Zone 的生命周期与横置费用对象接线（107.4.a/107.4.c）：game/lifecycle.ts 把传奇创建在 chain，仅另记 legendZone 报告，无法满足 board 触发区域及 board/rune-zone 横置费用。",
   abilities: [
     {
       kind: "triggered",

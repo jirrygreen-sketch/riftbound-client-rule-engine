@@ -64,6 +64,13 @@ test("unl-012-219 Lord Broadmane: identity, status, judgeReason and verbatim sou
   assert.match(program.judgeReason, /play-location-permission|appliesTo/);
   assert.doesNotMatch(program.judgeReason, /canAct\(\).*不读取|没有读取 layers\/rules\/query\.ts/);
   assert.match(program.judgeReason, /designation/);
+  // Re-checked against the merged sources: both Ambush declarations are
+  // rejected by the production static binder, and the granted Assault fails
+  // closed instead of degenerating into a permanent +1.
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /Unsupported static appliesTo/);
+  assert.match(program.judgeReason, /evaluateCondition/);
+  assert.doesNotMatch(program.judgeReason, /未识别时按 true|常驻 \+1\.|实测无指定也会 \+2/);
 });
 
 test("unl-012-219 Lord Broadmane: Ambush keyword plus a self play trigger", () => {
@@ -229,6 +236,59 @@ test("unl-012-219 Lord Broadmane: Ambush expansion preserves both static permiss
   assert.equal(expansion[0].effect.kind, "play-location-permission");
   assert.equal(expansion[1].effect.kind, "continuous.timing");
   assert.deepEqual(expansion[1].effect.grants, ["showdown", "closed-state"]);
+});
+
+test("unl-012-219 Lord Broadmane: the production static binder rejects both Ambush declarations (CR 822.1.b)", () => {
+  // The KeywordDef is merged, but neither declaration reaches the layers: the
+  // play-location-permission kind has no layerFor mapping, and the conditional
+  // timing declaration's appliesTo spelling is unsupported.
+  const ambush = keywordDefinitionsById.get("Ambush");
+  const expansion = ambush.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  const f = fixture({
+    cards: [{ id: "broadmane", cardId: CANONICAL_ID, types: ["unit"], energy: 5, power: ["Fury"], might: 5 }]
+  });
+  const source = { ...f.kernel.getObject("broadmane"), cardId: CANONICAL_ID, zone: "board" };
+  const binder = createEngineStaticBinder(f.engine);
+  assert.throws(
+    () => binder.bindStatic(expansion[0], source),
+    (error) => error.name === "ProgramBindingError" && /no layer mapping/.test(error.message)
+  );
+  assert.throws(
+    () => binder.bindStatic(expansion[1], source),
+    (error) => error.name === "ProgramBindingError" && /Unsupported static appliesTo/.test(error.message)
+  );
+  assert.deepEqual(f.engine.layers.registry.list(), []);
+});
+
+test("unl-012-219 Lord Broadmane: the granted Assault fails closed for a declared attacker (CR 807.1.c/807.1.d.1)", () => {
+  // A declared Attacker with the granted Assault keeps its printed Might, so the
+  // grant is real data but not yet executable semantics.
+  const f = fixture({
+    cards: [{ id: "ally", cardId: CANONICAL_ID, types: ["unit"], energy: 1, power: [], might: 3 }]
+  });
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("ally"),
+    to: "board",
+    location: { type: "battlefield", id: "bf-1" }
+  });
+  const source = { ...f.kernel.getObject("ally"), combatRole: "attacker" };
+  f.engine.layers.setObjects([source]);
+  const binder = createEngineStaticBinder(f.engine);
+  const keywordHandle = binder.bindStatic({
+    kind: "static",
+    effect: { kind: "continuous.grant-keyword", keyword: "assault" }
+  }, source);
+  const [assaultExpansion] = keywordDefinitionsById.get("Assault").expand({
+    value: 1,
+    host: { canonicalCardId: CANONICAL_ID }
+  });
+  const mightHandle = binder.bindStatic(assaultExpansion, source);
+  const evaluated = f.engine.layers.evaluate(source.ref);
+  assert.deepEqual(evaluated.keywords, [{ id: "assault", value: undefined }]);
+  assert.equal(evaluated.might, 3);
+  mightHandle.unbind();
+  keywordHandle.unbind();
 });
 
 test.todo(

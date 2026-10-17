@@ -6,6 +6,8 @@ import program from "../../../dist/cards/unl/insightful-investigator.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/index.js";
 
 const CARD_ID =
   "card.hash-c9dc0b3daad63f09feabdf740bc69b2b327719079fe5d68568f0f4680d45abd2";
@@ -42,6 +44,11 @@ test("unl-135-219 Insightful Investigator: identity, status, judgeReason and ver
   assert.match(program.judgeReason, /383\.3\.b/);
   assert.match(program.judgeReason, /结算时可选支付.*可支付性/);
   assert.doesNotMatch(program.judgeReason, /RIFT-9|RIFT-89/);
+  // The reason must name the live registry/payability evidence.
+  assert.match(program.judgeReason, /Unregistered instruction opcode|注册表无该原语/);
+  assert.match(program.judgeReason, /chooser-only|chooser/);
+  assert.match(program.judgeReason, /cannot-pay-cost/);
+  assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
 test("unl-135-219 Insightful Investigator: play trigger with the four printed steps", () => {
@@ -235,6 +242,62 @@ test.todo(
   "unl-135-219 Insightful Investigator: pay 2 XP during resolution and expose whether it was paid (CR 383.3.b / " +
     "204.3.a) — the payment primitive and receipt work; the optional affordability decision and failure recovery remain unbound"
 );
+
+test("unl-135-219 Insightful Investigator: the production interpreter has no target.player opcode", () => {
+  // 355.7 / 355.9.a: the printed "choose an opponent" selects a Player. The merged
+  // instruction registry has no target.player, so the card's own first step throws
+  // instead of silently picking a seat.
+  assert.equal(instructionDefinitionsById.has("target.player"), false);
+  const kernel = world().hand("b1", { owner: "B" }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("b1") });
+  assert.throws(
+    () => resolveChainBody([standalone(chooseOpponent)], context),
+    /Unregistered instruction opcode: target\.player/
+  );
+});
+
+test("unl-135-219 Insightful Investigator: the discard's fallback choice belongs to the discarding opponent", () => {
+  // 204.3.a / 423.1.a: the card says the ability's controller chooses the card, but
+  // effect.discard's own fallback selection asks the discarding player with
+  // chooser-only visibility. That is a different chooser, so it cannot substitute
+  // for the printed pick.
+  const kernel = world().player("A").player("B").hand("b1", { owner: "B" }).hand("b2", { owner: "B" }).build();
+  // The chosen opponent is already locked by the (unimplemented) player choice.
+  kernel.link(OPPONENT_KEY, "B");
+  const requests = [];
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("b1"), controller: "A" });
+  context.choose = question => { requests.push(question); return [question.options[0]]; };
+
+  // The card's own pick has no bound selection, so the fallback path below is the
+  // one that would run for an ordinary hand discard.
+  assert.deepEqual(context.picks("insightful-investigator.revealed-card"), []);
+  const fallback = { ...standalone(discardChosen), args: { ...discardChosen.args, pick: undefined } };
+  delete fallback.args.pick;
+  const outcome = resolveChainBody([fallback], context);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(requests.map(request => [request.type, request.chooser, request.visibility]), [
+    ["select-objects", "B", "chooser-only"]
+  ]);
+  // 423.1: the selected card still leaves that player's hand.
+  assert.deepEqual(context.zone("B", "trash").map(ref => ref.id), ["b1"]);
+});
+
+test("unl-135-219 Insightful Investigator: the merged cost.pay fails closed when 2 XP cannot be paid", () => {
+  // 383.3.b / 203.3: paying 2 XP is part of the instruction, so an unaffordable
+  // payment must abort rather than let the dependent discard and draw run. Only one
+  // XP is available, so the merged planner raises and nothing is spent.
+  const kernel = world().player("A", { xp: 1 }).build();
+  assert.throws(
+    () => runInstruction(costPay, payXp.args, { world: kernel }),
+    error => {
+      assert.ok(error instanceof CostPlanError);
+      assert.equal(error.reason, "cannot-pay-cost");
+      assert.match(error.message, /Insufficient XP/);
+      return true;
+    }
+  );
+  assert.equal(kernel.player("A").xp, 1);
+});
 
 test("unl-135-219 Insightful Investigator golden: the original cost.pay instruction spends exactly 2 XP and returns a receipt", () => {
   const kernel = world().player("A", { xp: 5, energy: 3 }).build();

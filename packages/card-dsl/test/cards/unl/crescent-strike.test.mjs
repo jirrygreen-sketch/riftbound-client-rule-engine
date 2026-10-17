@@ -7,6 +7,7 @@ import damage from "../../../../engine-core/dist/effects/instructions/effect.dam
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 /**
  * chain/engine.ts resolves the static controller spellings before it calls the
@@ -170,12 +171,12 @@ test("unl-072-219 Crescent Strike golden: a stale chosen unit is ignored without
 });
 
 test("unl-072-219 Crescent Strike golden: the printed 'other enemy unit there' set really resolves through the interpreter", () => {
-  // RIFT-329 re-review: the set clause's own predicate is merged — the
-  // interpreter's query layer implements sameLocationAs and exclude (CR
-  // 355.10.b / 359.3.e). The golden evaluates the exact filter this card keeps
-  // for "each other enemy unit there" and shows only the units that clause
-  // should affect; what is still missing is an effect.damage branch that
-  // consumes a non-target set instead of a finalized TargetSpec.
+  // Re-checked 2026-10-17: the interpreter's query layer implements
+  // sameLocationAs and exclude (CR 355.10.b / 359.3.e). The golden evaluates the
+  // exact filter this card keeps for "each other enemy unit there" and shows only
+  // the units that clause should affect; what is still missing is an
+  // effect.damage branch that consumes a non-target set instead of a finalized
+  // TargetSpec.
   const kernel = world()
     .player("A")
     .player("B")
@@ -222,12 +223,55 @@ test("unl-072-219 Crescent Strike golden: the printed 'other enemy unit there' s
   assert.equal(outcome.results[0].result.linkedValues.count, 1);
 });
 
-test.todo(
-  "unl-072-219 Crescent Strike: '1 to each other enemy unit there' needs the non-target set form of effect.damage " +
-  "(CR 355.10.d) — writing the set as a TargetSpec would fire became-target"
-);
+test("unl-072-219 Crescent Strike boundary: effect.damage still accepts only a TargetSpec id, not the printed non-target set (CR 355.10.d)", () => {
+  // Re-probed 2026-10-17: the primitive's arg schema rejects the authored
+  // `objects` descriptor. Re-spelling the set as a TargetSpec would make those
+  // units become targets, which the rules forbid for "each other enemy unit
+  // there", so the card keeps the set descriptor and stays judge-required.
+  assert.deepEqual(Object.keys(dealOneToOthers.args), ["amount", "objects"]);
+  assert.equal(dealOneToOthers.args.target, undefined);
+  assert.throws(
+    () => runInstruction(damage, dealOneToOthers.args, {
+      world: world().unit("enemy", { owner: "B", might: 5 }).build(),
+      targets: { "crescent-strike.enemy-unit": [] }
+    }),
+    (error) => /args\.target must be a TargetSpec id string/.test(error.message)
+  );
+});
 
-test.todo(
-  "unl-072-219 Crescent Strike: the battlefield/unit group choice and the 'there' relation re-check at Finalize/Resolve " +
-  "(CR 355.11; programs/filters.ts still rejects the sameLocationAs target anchor; target.location itself is available)"
-);
+test("unl-072-219 Crescent Strike boundary: the production translator refuses the 'there' target filter (CR 355.11)", () => {
+  // The target-side restriction is authored with the sameLocationAs anchor the
+  // merged interpreter consumes, but the production filter translator used for
+  // play binding refuses the field, and the TargetSpec.location spelling does not
+  // validate as a relative selector. Either way Finalize cannot lock the
+  // battlefield+unit pair, so the printed "there" relation cannot be re-validated.
+  assert.throws(
+    () => translateObjectFilter(unitSpec.filter),
+    (error) => error.code === "judge-required" && /Unsupported filter field sameLocationAs/.test(error.message)
+  );
+  const relative = validateCardProgram({
+    canonicalCardId: "card.crescent-strike-probe",
+    rulesetVersion: EFFECT_IR_V2_RULESET,
+    status: "executable",
+    sourceText: "probe",
+    abilities: [{
+      kind: "play",
+      body: [{
+        id: "probe-damage",
+        op: "effect.damage",
+        args: { amount: dealFour.args.amount, target: { kind: "constant", value: "probe-unit" } },
+        targets: [
+          { id: "probe-battlefield", filter: { type: "battlefield" }, min: 1, max: 1, selection: "one" },
+          {
+            id: "probe-unit",
+            filter: { type: "unit", zone: "board" },
+            location: { kind: "target-location", target: "probe-battlefield" },
+            min: 1, max: 1, selection: "one"
+          }
+        ]
+      }]
+    }]
+  });
+  assert.equal(relative.ok, false);
+  assert.equal(relative.issues.some((issue) => issue.code === "invalid-location-kind"), true);
+});

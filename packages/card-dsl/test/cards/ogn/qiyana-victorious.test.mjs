@@ -31,9 +31,9 @@ test("ogn-155-298 Qiyana, Victorious: judgeReason cites the current Deflect, con
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /809/);
   // The conquer timing point is emitted by the Score wave and the card-program
-  // trigger binding (RIFT-257) is merged; the remaining gaps are the target-tax
-  // production wiring (RIFT-360), the EventPattern source/here vocabulary and
-  // the choice.mode Finalize/Resolve adapter.
+  // trigger binding is merged; the remaining gaps are the target-tax production
+  // wiring, the EventPattern source/here vocabulary and the choice.mode
+  // Finalize/Resolve adapter.
   assert.match(program.judgeReason, /turn\/flow\.ts/);
   // cost.pay/cost.modify are merged; the reason must present the current target-tax
   // producer gap and must not list the merged primitives as missing dependencies.
@@ -42,7 +42,8 @@ test("ogn-155-298 Qiyana, Victorious: judgeReason cites the current Deflect, con
   // The card-program trigger binding is merged; the reason states that instead
   // of listing the binding itself as a missing dependency.
   assert.match(program.judgeReason, /触发注册的卡牌程序绑定已合入/);
-  assert.match(program.judgeReason, /RIFT-360/);
+  assert.match(program.judgeReason, /静态 target\.tax 尚未接入 Finalize 与支付/);
+  assert.ok(!/RIFT-360/.test(program.judgeReason));
   assert.match(program.judgeReason, /assertFinalizationSurface/);
   assert.match(program.judgeReason, /EventPattern/);
 });
@@ -114,7 +115,7 @@ test("ogn-155-298 Qiyana, Victorious: the merged Deflect KeywordDef only emits t
 test.todo(
   "ogn-155-298 Qiyana, Victorious: the Deflect target tax (809.1.c/d) needs a consumer that reads the " +
     "expanded target.tax effect while targets are finalized and folds it into the cost plan and its " +
-    "payment (RIFT-360, in flight); the merged target plan only appends a caller-supplied tax, and the " +
+    "payment; the merged target plan only appends a caller-supplied tax, and the " +
     "merged static binder has no target.tax layer mapping."
 );
 test.todo(

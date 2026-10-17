@@ -42,7 +42,7 @@ test("unl-203-219 Keeper of the Hammer: 'When you hold, gain 1 XP' is one mandat
   // 383.4.d.2.b: a Hold Effect that references the player holding (timing point
   // "hold", emitted by turn/flow.ts's Beginning scoring wave).
   assert.equal(holdGainXp.trigger.at, "hold");
-  assert.deepEqual(holdGainXp.trigger.filter, { event: "hold", player: "self" });
+  assert.deepEqual(holdGainXp.trigger.filter, { event: "held", player: "self" });
   assert.equal(holdGainXp.trigger.condition, undefined);
   assert.equal(holdGainXp.trigger.once, undefined);
   // The printed text has no "may", so the gain is forced.

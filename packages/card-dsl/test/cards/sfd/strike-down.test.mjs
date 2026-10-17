@@ -8,6 +8,8 @@ import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 import strikeDown from "../../../dist/cards/sfd/strike-down.js";
+import { finalizeOrderedPickPlans } from "../../../../engine-core/dist/chain/picks/plan.js";
+import { translateInstructionTargets, translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const [play] = strikeDown.abilities;
 const [damageInstruction, detachInstruction] = play.body;
@@ -50,7 +52,9 @@ test("Strike Down program is structurally valid and judge-required", () => {
   assert.equal(strikeDown.status, "judge-required");
   assert.match(strikeDown.judgeReason, /pick/i);
   assert.match(strikeDown.judgeReason, /object-attribute/);
-  assert.match(strikeDown.judgeReason, /pick|ObjectRef/);
+  assert.match(strikeDown.judgeReason, /ObjectRef/);
+  assert.match(strikeDown.judgeReason, /finalizeOrderedPickPlans/);
+  assert.match(strikeDown.judgeReason, /355\.10/);
   assert.match(strikeDown.judgeReason, /equipped/);
   assert.equal(
     strikeDown.canonicalCardId,
@@ -220,3 +224,42 @@ test.todo(
   "Strike Down full play: production Finalize must fill the non-target pick for an equipped friendly unit and the " +
     "linked detach pick; the current ObjectFilter and pick lifecycle do not provide that complete selection path"
 );
+
+test("Strike Down: the production pick lifecycle locks no plan for either filter-driven pick", () => {
+  // Live evidence for judgeReason (1): finalizeOrderedPickPlans only locks picks
+  // that declare zoneSlice or linked. Both printed picks are filter-driven, so
+  // Finalize produces no bound ObjectRefs for them and the Body cannot run in a
+  // production play.
+  const kernel = world().unit("attacker", { owner: "A", might: 3 }).build();
+  assert.deepEqual(finalizeOrderedPickPlans(kernel, play.body), []);
+  for (const instruction of play.body) {
+    for (const pick of instruction.picks ?? []) {
+      assert.equal(pick.zoneSlice, undefined, `${pick.id} must not pretend to be an ordered slice`);
+      assert.equal(pick.linked, undefined, `${pick.id} must not pretend to be a linked source`);
+      assert.ok(pick.filter, `${pick.id} is a filter-driven pick`);
+    }
+  }
+});
+
+test("Strike Down: the printed equipped restriction has no supported filter field", () => {
+  // Live evidence for judgeReason (2): the production translator rejects the
+  // `equipped` predicate, and dropping it would accept any friendly unit, so the
+  // 355.9.b targeting restriction cannot be expressed.
+  assert.throws(
+    () => translateObjectFilter({ type: "unit", controller: "you", equipped: true }),
+    /Unsupported filter field equipped/
+  );
+  // The pick's own filter is never translated at all, so no production query is
+  // built from it: the pick restriction stays descriptive data.
+  const [damage] = translateInstructionTargets(play.body);
+  assert.equal(damage.picks[0].filter.equipped, true);
+  assert.equal(damage.picks[0].zoneSlice, undefined);
+  assert.throws(
+    () => translateObjectFilter(damage.picks[0].filter),
+    /Unsupported filter field equipped/
+  );
+  // The fields the merged filter does support say nothing about attachments.
+  const accepted = translateObjectFilter({ type: "unit", controller: "you" });
+  assert.equal(accepted.equipped, undefined);
+  assert.equal(accepted.attachedTo, undefined);
+});

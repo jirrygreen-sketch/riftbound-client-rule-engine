@@ -9,6 +9,10 @@ import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 
 const CANONICAL_ID =
   "card.hash-4f9132b39e7882b566918d9e149431cd5ca28810eebc329edb678b0585a346a8";
@@ -38,6 +42,11 @@ test("unl-177-219 Ivern, Friend to All: identity, status, judgeReason and verbat
   assert.match(program.judgeReason, /conquer\/hold|来源对象/);
   assert.equal(conquerCondition.kind, "all");
   assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-90|RIFT-91|RIFT-120/);
+  // The reason must name the live rejections rather than a placeholder.
+  assert.match(program.judgeReason, /choice-plan adapter|Mode choices/);
+  assert.match(program.judgeReason, /注册表无该 opcode|instruction/);
+  assert.match(program.judgeReason, /battlefieldId/);
+  assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
 test("unl-177-219 Ivern, Friend to All: the play-time tag choice is one choice.mode of four tags (355.1)", () => {
@@ -177,6 +186,88 @@ test("unl-177-219 Ivern, Friend to All: both event aliases pass the production t
     assert.equal(translated.event, ability.trigger.at === "conquer" ? "conquered" : "held");
     assert.deepEqual(translated.object, { objectId: "ivern" });
   }
+});
+
+test("unl-177-219 Ivern, Friend to All: the production play binding rejects the play-time mode choice", () => {
+  // 355.1: "As you play me, choose ..." is decided while playing the card, so the
+  // play-time choice belongs to the program's play ability. programs/play.ts
+  // refuses choice.mode outright until a Finalize/Resolve choice-plan adapter
+  // exists, so the tag choice cannot run.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const source = {
+    ref: { id: "ivern", zoneEntryId: 1 },
+    cardId: CANONICAL_ID,
+    name: "ivern",
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "hand",
+    location: null,
+    might: 4,
+    energy: 5,
+    power: ["Calm"],
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  assert.throws(
+    () => binding.describePlay({ type: "play", player: "A", card: source.ref }, source),
+    error => {
+      assert.equal(error.name, "ProgramBindingError");
+      assert.equal(error.code, "judge-required");
+      assert.match(error.message, /Mode choices require a Finalize\/Resolve choice-plan adapter/);
+      return true;
+    }
+  );
+});
+
+test("unl-177-219 Ivern, Friend to All: continuous.add-tag has no registered implementation", () => {
+  // 133.8: "I gain that tag" is a continuous trait-layer write. layers/engine.ts
+  // already writes add-tag/grant-tag when a trait-layer effect is evaluated, but no
+  // CardProgram instruction registers this opcode, so the body step cannot execute.
+  assert.equal(instructionDefinitionsById.has("continuous.add-tag"), false);
+  for (const mode of chooseTag.args.modes.value) {
+    assert.equal(mode.body[0].op, "continuous.add-tag");
+  }
+});
+
+test("unl-177-219 Ivern, Friend to All: the two score subscriptions register but the Score wave carries no unit", () => {
+  // 383.4.c / 383.4.d: both triggers are valid subscriptions (the conquered/held
+  // aliases pass the production schema), yet the real Score wave carries only
+  // player/details.battlefieldId, so the {source: "self"} object filter never
+  // matches and neither ability can fire.
+  const kernel = world()
+    .unit("ivern", { cardId: CANONICAL_ID, types: ["unit"], might: 4, tags: ["Bird"] })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const source = kernel.getObject("ivern");
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  assert.equal(binding.registerProgramTriggers(engine, source).length, 2);
+
+  const fired = [];
+  engine.pipeline.onTrigger = snapshot => fired.push(snapshot);
+  engine.pipeline.emit({ timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" } });
+  engine.pipeline.emit({ timingPoint: "hold", player: "A", details: { battlefieldId: "bf-1" } });
+  assert.equal(fired.length, 0);
 });
 
 test.todo(

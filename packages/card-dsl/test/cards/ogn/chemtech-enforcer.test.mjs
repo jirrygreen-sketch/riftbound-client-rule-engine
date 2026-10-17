@@ -21,11 +21,9 @@ test("chemtech-enforcer: identity, ruleset, status and verbatim sourceText", () 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   // The keyword and trigger bindings exist; the remaining gap is the
-  // unevaluated designation/compare condition in the Assault expansion.
-  assert.match(program.judgeReason, /KeywordDef\.expand/);
-  assert.match(program.judgeReason, /CardProgram.*trigger/);
+  // designation-to-combatRole mapping in the Assault expansion.
   assert.match(program.judgeReason, /designation/);
-  assert.match(program.judgeReason, /conditionMatches|compare/);
+  assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /807/);
   assert.equal(
     program.sourceText,
@@ -114,6 +112,6 @@ test("chemtech-enforcer: the discarded card is observable as turn history when t
 
 test.todo(
   "chemtech-enforcer: Assault 2 keyword expansion (+2 Might while the Attacker designation is held, CR 807) " +
-    "needs the granted KeywordDef expansion to be consumed by layers plus the designation " +
-    "characteristic and compare-condition evaluation in layers"
+    "needs the granted KeywordDef expansion to be consumed by layers plus a designation-to-combatRole " +
+    "mapping for the attacker's active role"
 );

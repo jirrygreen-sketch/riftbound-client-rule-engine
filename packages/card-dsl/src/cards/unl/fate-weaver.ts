@@ -25,19 +25,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   拒绝 reveal 只是那条指令 negated(skipped)，回收照常结算（359.3.e.14）。
  *
  * status = judge-required（缺口不近似实现）：
- * 1. 「按牌库顶顺序取前 4 张」没有已合入的上游有序选择：effect.inspect 的 top 作用域
- *    自身文档要求上游提供有序 picksSpecId，缺有序来源时按契约 negated/impossible 阻断
- *    （query 不保证区域顺序）；当前 zoneSlice 只在部分区域操作中可用，链的 Finalize 也只锁定
- *    instruction.targets 的 TargetSpec（没有有序区域 picks 的生命周期）。
- * 2. 「a spell with Energy cost :rb_energy_4: or more」缺数值下限过滤：ObjectFilter /
+ * 1. 「a spell with Energy cost :rb_energy_4: or more」缺数值下限过滤：ObjectFilter /
  *    TargetSpec / PickSpec 的取值是静态数据，没有「energy ≥ 4」的关系比较写法，
  *    Condition 也不能过滤选择集合的成员。
- * 3. 「reveal … and draw it」的 effect.reveal 用 pick 选择器时，链式适配器
- *    （chain/interpreter-adapter.ts 的 LITERAL_FIELDS）不解码 effect.reveal 的 pick
- *    字段，原语会以 "pick must be a non-empty id" 拒绝派发——卡牌侧按契约 3.2 的
- *    Expr 形状书写，接口不一致已在回复里提交契约变更请求。
+ * 2. 「reveal … and draw it」的 pick 选择仍需在结算时应用上述 Energy 下限；
+ *    effect.reveal 的链适配器字段已合入，卡牌本体与原语可以按已选 pick 执行。
  *
- * 依赖：生产侧有序牌库顶查看与 pick 生命周期、数值过滤、effect.reveal 的适配器字段。
+ * 依赖：数值过滤（energy ≥ 4）与对选择集合成员的运行时约束。
  * golden 用解释器 + 参考内核真实执行已支持部分
  * （有序/空范围两条 look 路径、draw it 的 pick→hand、recycle the rest）。
  */
@@ -46,11 +40,9 @@ const fateWeaver = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1)「按牌库顶顺序取前 4 张」需要上游有序 picksSpecId（effect.inspect 的 top 作用域在缺有序来源时按契约 negated/impossible 阻断；query 不保证区域顺序），" +
-    "当前 zoneSlice 只接进部分 mill/order/recycle 路径，链的 Finalize 也没有有序区域 picks 的生命周期；" +
-    "(2)「a spell with Energy cost :rb_energy_4: or more」缺数值下限过滤：ObjectFilter/TargetSpec/PickSpec 是静态数据，没有 energy ≥ 4 的关系比较，Condition 也不能过滤选择集合成员；" +
-    "(3)「reveal … and draw it」的 effect.reveal 走 pick 时，链式适配器（chain/interpreter-adapter.ts 的 LITERAL_FIELDS）不解码 pick 字段，原语以 \"pick must be a non-empty id\" 拒绝派发（接口不一致，见契约变更请求）。" +
-    "依赖：生产侧有序 picks 与数值过滤、effect.reveal 的适配器字段。look 的有序/空范围两条路径、draw it、recycle the rest 已在 golden 中真实执行。",
+    "两处缺口：(1)「a spell with Energy cost :rb_energy_4: or more」缺数值下限过滤：ObjectFilter/TargetSpec/PickSpec 是静态数据，没有 energy ≥ 4 的关系比较，Condition 也不能过滤选择集合成员；" +
+    "(2) reveal 的 pick 选择必须在结算时应用该 Energy 下限，当前 effect.reveal 只消费已锁定的 pick 集合，不能把任意 looked-at card 当成合法法术。" +
+    "有序牌库顶的 PickSpec.zoneSlice 已由 Finalize 生命周期提供，effect.reveal 的 pick 适配字段也已合入；look 的有序/空范围、draw it、recycle the rest 已在 golden 中真实执行。",
   abilities: [
     {
       kind: "triggered",
@@ -90,11 +82,10 @@ const fateWeaver = {
               id: "fate-weaver.looked",
               // 牌库顶前 4 张（含顺序），由上游按 zoneSlice 的真实区域顺序提供；
               // 这里只描述集合的来源，不从 query 推断顺序。
-              options: ["top-4-cards-of-your-main-deck-in-zone-order"],
-              min: 4,
-              max: 4,
+              options: [],
+              ordered: true,
               selection: "all",
-              filter: { owner: "self", zone: "deck" }
+              zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 4 } }
             }
           ]
         },

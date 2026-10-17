@@ -27,29 +27,34 @@ import type { CardProgram } from "../../ir/index.js";
  * - 「Recycle the rest」是独立语句（417.1.a/417.4/417.6）：回收本次查看的集合，已离区
  *   （进入手牌）的引用按 124 失效并被 effect.recycle 丢弃，剩下的正是其余牌。
  *
- * status = judge-required（README 第 2 节），两处依赖未合入，均不近似实现：
- * 1. 「按牌库顶顺序取前 3 张」的生产选择生命周期缺失：effect.inspect 的 top scope 必须由
- *    上游提供有序 picksSpecId（其文件头明确 query 不保证区域顺序、缺有序来源时
- *    negated/impossible）；已合入的链 Finalize 只锁定 instruction.targets 的 TargetSpec
- *    （chain/engine.ts assertFinalizationSurface），没有有序区域 pick 的锁定路径。
- * 2. [Repeat] 的印刷费用参数、追加费用收取与「已付费实例数 → 额外执行一次」接线未合入：
- *    Repeat.ts 只声明 repeat.cost 静态效果，KeywordAbility 没有承载 :rb_energy_2: 的字段，
- *    消费方与结算端计数读取也缺失。
- * golden 借参考内核提供有序 picks 与选择答案，真实执行 inspect → optional(reveal →
- * zone to hand) → recycle 全链；Repeat 部分写 test.todo。
+ * status = judge-required（README 第 2 节，2026-10-17 逐条对源码复核）：
+ * 1. 「按牌库顶顺序取前 3 张」已由 RIFT-358 合入的有序 pick 生命周期承担：本卡把
+ *    PickSpec 写成显式有序来源（options: []、ordered: true、selection: "all"、
+ *    zoneSlice { zone: "deck", from: "top", count: 3 }），chain Finalize 用
+ *    ctx.zoneSlice 锁定真实牌库顶三张并保序（chain/picks/plan.ts 是唯一顺序权威），
+ *    Resolve 期 effect.inspect 读该锁定集合。
+ * 2. [Repeat] 的印刷费用参数、追加费用收取与「已付费实例数 → 额外执行一次」接线仍未合入：
+ *    programs/play.ts 的 translateCost 对 kind "additional-cost" 直接 judgeRequired
+ *    （"Additional costs are not bound for …"），effects/keywords/Repeat.ts 展开的静态
+ *    repeat.cost 在 programs/statics.ts layerFor 抛 "no layer mapping"（实测），
+ *    契约 3.1 的 KeywordAbility 也没有承载 :rb_energy_2: 的字段，结算端没有把已付费
+ *    实例数接到解释器内建 repeat 节点的读取方。
+ * golden 在真实 ChainEngine 上执行 Finalize 锁定 + Resolve 全链（inspect → optional(reveal
+ * → zone to hand) → recycle）；Repeat 部分写 test.todo。
  */
 const doubleTrouble = {
   canonicalCardId: "card.hash-daadc507f6831def277e2708c2368b3d4b9d91466770b9edea36a47ecbb044c7",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入：(1)「Look at the top 3 cards of your Main Deck」需要按牌库真实顺序的有序 picks——" +
-    "effect.inspect 的 top scope 必须由上游提供有序 picksSpecId（其文件头明确 query 不保证区域内顺序、缺有序来源时 negated/impossible），" +
-    "已合入的链 Finalize 只锁定 instruction.targets 的 TargetSpec，没有有序区域 pick 的锁定路径（同 ogn/stacked-deck 的缺口）。(2) " +
-    "[Repeat] :rb_energy_2: 的印刷费用参数、追加费用收取与「已付费实例数 → 结算时额外执行一次」（CR 820.1.c.1/820.1.d.1/820.2）尚未接线：" +
-    "effects/keywords/Repeat.ts 只声明 repeat.cost 静态效果，KeywordAbility 没有承载该费用参数，费用计划消费方与结算端计数读取也缺失。" +
-    "查看→可选 reveal→draw→recycle 四段只用已合入原语，golden 借参考内核提供有序 picks 与选择答案真实执行；不近似实现。" +
-    "依赖：有序区域 picks / Finalize 生命周期、Repeat 费用收取与 paid-instance 结算接线。",
+    "唯一剩余缺口是「[Repeat] :rb_energy_2:」的可选追加费用与 paid-instance 结算接线（CR 820.1.c.1/820.1.d.1/820.2）：" +
+    "programs/play.ts 的 translateCost 对 kind \"additional-cost\" 直接 judgeRequired（\"Additional costs are not bound for …\"），" +
+    "effects/keywords/Repeat.ts 展开的静态 repeat.cost 在 programs/statics.ts 的 layerFor 抛 ProgramBindingError \"no layer mapping\"（实测），" +
+    "契约 3.1 的 KeywordAbility 也没有承载印刷费用参数的字段，结算端没有把已付费实例数接到解释器内建 repeat 节点，" +
+    "因此卡内不手写重复执行。「Look at the top 3 cards of your Main Deck」已按 RIFT-358 迁移到合并后的有序 pick 生命周期：" +
+    "PickSpec 是显式有序来源（options: []、ordered: true、selection: \"all\"、zoneSlice { zone: \"deck\", from: \"top\", count: 3 }），" +
+    "Finalize 用 ctx.zoneSlice 锁定真实牌库顶三张并保序，Resolve 期 inspect→可选 reveal→draw→recycle 在真实 ChainEngine 上执行。" +
+    "依赖：Repeat 费用收取与 paid-instance 结算接线。",
   abilities: [
     { kind: "keyword", keyword: "repeat" },
     {
@@ -93,13 +98,17 @@ const doubleTrouble = {
           picks: [
             {
               id: "double-trouble.viewed-cards",
-              // 牌库顶前 3 张（含顺序），由上游 zoneSlice 顺序提供；缺有序来源时
-              // effect.inspect 明确阻断而不是用集合查询近似。
-              options: ["dynamic:top-3-cards-of-your-main-deck-in-zone-order"],
-              min: 3,
-              max: 3,
+              // 契约 3.6 / RIFT-358：显式有序来源 = options: []、ordered: true、
+              // selection: "all"，Finalize 按 zoneSlice 锁定真实牌库顶三张并保序；
+              // query 顺序绝不被采用（effect.inspect 缺有序来源时按 impossible 阻断）。
+              options: [],
+              ordered: true,
               selection: "all",
-              filter: { owner: "self", zone: "deck" }
+              zoneSlice: {
+                zone: "deck",
+                from: "top",
+                count: { kind: "constant", value: 3 }
+              }
             }
           ]
         },

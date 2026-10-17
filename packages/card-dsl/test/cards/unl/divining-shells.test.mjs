@@ -55,9 +55,16 @@ test("unl-161-219 Divining Shells: identity, status, judgeReason and verbatim so
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /Vision/);
-  assert.match(program.judgeReason, /object\.id|objectId/);
-  assert.match(program.judgeReason, /有序|top-card/);
+  // The reason must name the verified current gap: the Vision expansion's
+  // host filter field is rejected by the program binder, the expansion pins
+  // player "A", and the expansion's top-card inspect has no ordered source.
+  assert.match(program.judgeReason, /817/);
+  assert.match(program.judgeReason, /object\.id/);
+  assert.match(program.judgeReason, /translateObjectFilter/);
+  assert.match(program.judgeReason, /registerProgramTriggers/);
+  assert.match(program.judgeReason, /picksSpecId|zoneSlice|有序来源/);
+  // The merged-and-verified parts must not be reported as gaps any more.
+  assert.doesNotMatch(program.judgeReason, /尚需绑定到本卡/);
 });
 
 test("unl-161-219 Divining Shells: [Vision] is declared as a keyword only", () => {
@@ -87,6 +94,13 @@ test("unl-161-219 Divining Shells: the might instruction is a targeted end-of-tu
   assert.equal(giveMight.op, "continuous.might");
   assert.deepEqual(giveMight.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(giveMight.args.duration, { kind: "constant", value: "end-of-turn" });
+  // 355.5 / 契约 3.6："Give a unit …" 的对象是本指令自己的 TargetSpec，必须以
+  // target 选择符传给原语；continuous.might 缺省作用于 source，Gear 来源没有
+  // Might，会静默把 +2 挂到错误对象。
+  assert.deepEqual(giveMight.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "divining-shells.unit" }
+  });
   assert.equal(giveMight.linkedTo, undefined);
   // 355.5："a unit" 是被选择的对象 → TargetSpec；不限定控制者。
   assert.deepEqual(giveMight.targets, [
@@ -182,6 +196,12 @@ test("unl-161-219 Divining Shells golden: the activated body registers the tempo
   assert.equal(context.continuousEffects[0].effect.effect.kind, "continuous.might");
   assert.equal(context.continuousEffects[0].effect.effect.amount, 2);
   assert.deepEqual(context.continuousEffects[0].duration, { type: "end-of-turn" });
+  // 355.5：+2 必须落在本指令选定的单位上，而不是来源 Gear 上（来源没有 Might）。
+  assert.deepEqual(context.continuousEffects[0].effect.filter, {
+    objectId: "target-unit",
+    zone: "board",
+    zoneEntryId: context.ref("target-unit").zoneEntryId
+  });
 });
 
 test("unl-161-219 Divining Shells: [Vision] recycles the seen top card through the merged expansion (817.1.b / 437.1)", () => {

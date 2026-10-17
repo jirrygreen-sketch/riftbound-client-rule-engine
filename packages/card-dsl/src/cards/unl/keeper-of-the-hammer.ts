@@ -9,7 +9,8 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * 规则依据（CR v1.5）：
  * - 383.4.d / 383.4.d.1 / 383.4.d.2.b：「When you hold」是 Hold Effect（引用执行
- *   固守的玩家），控制者完成固守时进链，时点用封闭表的 hold（events/timing-points.ts，
+ *   固守的玩家），控制者完成固守时进链，过滤器使用封闭事件别名 held（运行时映射到 hold；
+ *   events/timing-points.ts），
  *   由 turn/flow.ts 的 Beginning 计分波发出，refs 315.2.b.2 / 471.2 / 473.2.b）。
  *   383.4.d.2.c：固守的点数被否定或替代时照常触发。
  * - 728 / 730.1 / 733：「gain 1 XP」是增加玩家已标记的 XP，无上限，用 effect.xp
@@ -57,7 +58,9 @@ const keeperOfTheHammer = {
       trigger: {
         at: "hold",
         // 383.4.d.2.b：「引用执行固守的玩家」的 Hold Effect。
-        filter: { event: "hold", player: "self" }
+        // EventPattern uses the closed `held` spelling; pipeline-match maps it
+        // to the runtime `hold` timing point emitted by scoring.
+        filter: { event: "held", player: "self" }
       },
       // 「gain 1 XP」没有「may」，是强制效果（383.2 的 Effect）。
       optional: false,

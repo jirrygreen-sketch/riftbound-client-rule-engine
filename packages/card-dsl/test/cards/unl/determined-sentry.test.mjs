@@ -52,12 +52,16 @@ test("unl-111-219 Determined Sentry: identity, status, judgeReason and verbatim 
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // 054 / 054.1 (“Can’t beats Can”) is the operative rule; the reason must also
-  // name the singular/plural field mismatch and the remaining effect.move gap.
+  // 054 / 054.1 (“Can’t beats Can”) is the operative rule; the reason must
+  // record the verified query result and the two still-missing production
+  // consumers (the Standard Move rules context and effect.move).
   assert.match(program.judgeReason, /054/);
   assert.match(program.judgeReason, /144\.4\.b/);
-  assert.match(program.judgeReason, /MovementPermissions|zones\/movement/);
-  assert.match(program.judgeReason, /restriction/);
+  assert.match(program.judgeReason, /451\.1/);
+  assert.match(program.judgeReason, /DuelMovementRuleContext/);
+  assert.match(program.judgeReason, /moveDuelUnitsWithMetadata/);
+  assert.match(program.judgeReason, /effect\.move/);
+  assert.match(program.judgeReason, /restrictions?/);
 });
 
 test("unl-111-219 Determined Sentry: one passive movement restriction on the host", () => {
@@ -66,6 +70,9 @@ test("unl-111-219 Determined Sentry: one passive movement restriction on the hos
   assert.equal(ability.condition, undefined);
   assert.equal(ability.effect.kind, "continuous.movement");
   assert.equal(ability.effect.restriction, "move-to-base");
+  // Both spellings are declared: the rule query reads the plural list, the
+  // layer snapshot folds the singular string.
+  assert.deepEqual(ability.effect.restrictions, ["move-to-base"]);
   // 054.1: a prohibition only removes the option; it grants nothing.
   assert.equal(ability.effect.addsPermission, false);
   assert.equal(ability.effect.permission, undefined);
@@ -114,22 +121,27 @@ test("unl-111-219 Determined Sentry golden: the production static binder registe
   const [entry] = f.engine.layers.registry.list();
   assert.equal(entry.effect.effect.kind, "continuous.movement");
   assert.equal(entry.effect.effect.restriction, "move-to-base");
+  assert.deepEqual(entry.effect.effect.restrictions, ["move-to-base"]);
   assert.equal(entry.effect.filter.objectId, "determined-sentry");
   assert.equal(entry.effect.filter.zoneEntryId, source.ref.zoneEntryId);
-  // Standard Move has a MovementPermissions consumer, but the card's singular
-  // `restriction` field is not the plural `restrictions` field that query reads.
+  // 054.1 / 144.4.b: the production static binder's registration really reaches
+  // the rule query the Standard Move consumes.
   const queried = movement(f.engine.layers.registry, source.ref, source, source.controller);
-  assert.deepEqual(queried.restrictions, []);
+  assert.deepEqual(queried.restrictions, ["move-to-base"]);
   assert.equal(queried.canMove, true);
+  // A prohibition only removes the battlefield→base option (054.1); it neither
+  // grants a permission nor flips the baseline flags.
+  assert.deepEqual(queried.permissions, []);
+  assert.equal(queried.canGank, false);
+  // The layer snapshot path keeps its own singular spelling working too.
+  assert.deepEqual(f.engine.layers.evaluate(source.ref).movement.restrictions, ["move-to-base"]);
   handle.unbind();
   assert.equal(f.engine.layers.registry.list().length, 0);
 });
 
 test("unl-111-219 Determined Sentry golden: the movement query consumes its plural restrictions shape", () => {
   // The query is a real Standard Move input path and consumes the normalized
-  // { kind: "movement", restrictions: [...] } shape. The production card
-  // binding above still emits singular `restriction`, so it does not reach this
-  // query until that field mismatch is resolved.
+  // { kind: "movement", restrictions: [...] } shape directly.
   const subject = unit();
   const registry = new ContinuousEffectRegistry();
   registry.register(

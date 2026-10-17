@@ -6,7 +6,10 @@ import program from "../../../dist/cards/unl/loyal-poro.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import { queryObjects } from "../../../../engine-core/dist/effects/interpreter/selectors.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
@@ -36,6 +39,12 @@ test("unl-156-219 Loyal Poro: identity, status, judgeReason and verbatim sourceT
   assert.match(program.judgeReason, /740\.2\.a/);
   assert.match(program.judgeReason, /808\.1\.c\.2/);
   assert.match(program.judgeReason, /object-killed|trigger.leave/);
+  // Re-checked against the merged sources: the trigger condition registers, and
+  // the remaining gap is the un-normalized controller placeholder plus the
+  // unregistered trigger.leave op.
+  assert.match(program.judgeReason, /Unregistered instruction opcode/);
+  assert.match(program.judgeReason, /归一化/);
+  assert.doesNotMatch(program.judgeReason, /已合入 host 都不提供/);
 });
 
 test("unl-156-219 Loyal Poro: [Deathknell] is declared, not re-implemented (contract 3.7)", () => {
@@ -122,14 +131,91 @@ test("unl-156-219 Loyal Poro golden: the object-killed CardProgram trigger regis
   assert.match(ids[0], /^program:poro:1:/);
 });
 
+test("unl-156-219 Loyal Poro: the registered condition still cannot see a friendly unit here (808.1.c.2 / 740.2.a)", () => {
+  // The condition now rides the registration, but its controller placeholder is
+  // not normalized: the reference kernel and the pipeline's
+  // evaluateTriggerCondition both compare it literally, so the same-location
+  // count falls to zero and the condition is false even with a friendly unit
+  // present. Substituting a literal player id is what makes it true.
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const board = fixture({
+    cards: [
+      { id: "poro", cardId: CANONICAL_ID, types: ["unit"], energy: 3, power: [], might: 3 },
+      { id: "friend", types: ["unit"], owner: "A", controller: "A", might: 2 }
+    ]
+  });
+  for (const id of ["poro", "friend"]) {
+    board.engine.commit({
+      type: "move-zone",
+      object: board.kernel.ref(id),
+      to: "board",
+      location: { type: "battlefield", id: "bf-1" }
+    });
+  }
+  const source = { ...board.kernel.getObject("poro"), cardId: CANONICAL_ID, zone: "board" };
+  binding.registerProgramTriggers(board.engine, source);
+  const registrations = [...board.engine.pipeline.triggers.values()]
+    .filter((registration) => registration.source.ref.id === "poro");
+  assert.equal(registrations.length, 2);
+  const conditioned = registrations.find((registration) => registration.spec.condition !== undefined);
+  assert.ok(conditioned, "the 'didn't die alone' clause must be registered as a trigger condition");
+  assert.deepEqual(conditioned.spec.condition.left.filter, {
+    type: "unit",
+    controller: "controller",
+    zone: "board",
+    sameLocationAs: "source",
+    exclude: "source"
+  });
+  // The friendly unit really is here. The anchored set query (the one the
+  // interpreter uses for sameLocationAs/exclude) returns it, so the false
+  // result below can only come from the un-normalized controller placeholder.
+  // The ability's own ResolveContext is rebased on the dying host, exactly as
+  // the trigger scan rebuilds it before evaluating the condition.
+  const scoped = board.host.context(board.kernel.getObject("poro"), "A", "object-killed");
+  const environment = {
+    context: scoped,
+    host: board.kernel.ref("poro"),
+    linked: (key) => scoped.linked(key),
+    canLookBack: () => true,
+    isIgnored: () => false
+  };
+  assert.deepEqual(
+    queryObjects(conditioned.spec.condition.left.filter, environment).map((object) => object.ref.id),
+    []
+  );
+  const anchored = structuredClone(conditioned.spec.condition.left.filter);
+  anchored.controller = "A";
+  assert.deepEqual(
+    queryObjects(anchored, environment).map((object) => object.ref.id),
+    ["friend"]
+  );
+  assert.equal(evaluateCondition(conditioned.spec.condition, environment), false);
+  const literal = structuredClone(conditioned.spec.condition);
+  literal.left.filter.controller = "A";
+  assert.equal(evaluateCondition(literal, environment), true, "a literal player id resolves the count");
+});
+
+test("unl-156-219 Loyal Poro: the [Deathknell] expansion body still references the unregistered trigger.leave op (808.1.d)", () => {
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+  const definition = keywordDefinitionsById.get("Deathknell");
+  const [expansion] = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  const kernel = world().unit("poro", { owner: "A", controller: "A" }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("poro"), controller: "A" });
+  assert.throws(
+    () => resolveChainBody(expansion.body, scoped),
+    /Unregistered instruction opcode: trigger\.leave/
+  );
+});
+
 test.todo(
   "unl-156-219 Loyal Poro: expand [Deathknell] (subscribe object-killed, removal from the chain when " +
     "the death is replaced per 808.1.d.1, last-known information recorded pre-chain per 808.1.d.3) — " +
     "the registered KeywordDef still references the unregistered trigger.leave op"
 );
 test.todo(
-  "unl-156-219 Loyal Poro: evaluate \"didn't die alone\" against the source's last-known location before " +
-    "the trigger is queued (CR 740.2.a, 808.1.c.2, 808.1.d.3) — the event pipeline does not evaluate a " +
-    "CardProgram trigger condition yet and the 'controller' placeholder is not normalized outside the " +
-    "chain query"
+  "unl-156-219 Loyal Poro: normalize the 'controller' player placeholder so the registered condition sees " +
+    "same-location friendly units, and evaluate it against the source's last-known location before the " +
+    "trigger is queued (CR 740.2.a, 808.1.c.2, 808.1.d.3)"
 );

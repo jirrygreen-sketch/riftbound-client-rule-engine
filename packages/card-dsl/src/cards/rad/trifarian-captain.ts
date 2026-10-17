@@ -14,8 +14,8 @@ import type { Ability, CardProgram, Instruction, InstructionBodyExpr } from "../
  * - "look at the top 4 cards of your Main Deck"：look 是私下查看（128.3–128.4），
  *   对应 effect.inspect 的 top 范围；牌库顶必须是真实区域顺序（契约 3.6 的
  *   zoneSlice：query 不保证顺序）。effect.inspect 明确要求 top 范围由上游按序给出
- *   picksSpecId，否则 negated/impossible——本程序按契约提供该 id（trifarian-captain.
- *   top-four），但"谁按牌库顺序提供这 4 张"在生产链上尚未接线。
+ *   picksSpecId；本程序按契约提供该 id（trifarian-captain.top-four），由 Finalize
+ *   的 zoneSlice 锁定真实牌库顺序。
  * - "You may reveal ... and draw it"："you may" 不是效果的第一段（383.3.a.3），
  *   因此由控制者在结算时决定 → 契约 3.9 的 choice.optional，把 reveal + 入手包在 body 里。
  * - "reveal ... and draw it"：reveal 公开该卡（425.1），随后把它置入手牌。此处不是
@@ -24,16 +24,14 @@ import type { Ability, CardProgram, Instruction, InstructionBodyExpr } from "../
  * - "Recycle the rest"：417.1/417.4 的 Recycle（按卡主牌库/符文牌库归位），对应
  *   effect.recycle；"the rest" 是 look 到的 4 张里除去被展示那张的补集。
  *
- * 无法执行的依赖（保持 judge-required）：
- * - 牌库顶按序来源：effect.inspect 在 top 范围需要一个按牌库顺序的 picksSpecId，
- *   该有序来源的生产接线属 RIFT-358（进行中），任何其他读法都会用 query 的顺序
- *   冒充牌库顶（被该原语显式禁止）。
+ * 仍无法执行的依赖（保持 judge-required）：
  * - "a unit or gear with Energy cost no more than 3 and with Power cost no more
  *   than [rainbow]"：ObjectFilter 没有数值比较键（只有精确 characteristics 相等），
  *   Condition 也不能作为集合内的逐项限制（355.9.b 的 targeting restriction），
  *   因此能量的 ≤3 与力量的 ≤1 无法在 IR 中表达。
- * - "the rest" 的集合差（looked 4 张减去被展示那张）没有 IR 运算符：effect.inspect
- *   只链接实际查看张数与引用列表（没有补集），PickSpec 也没有 exclude 语义。
+ *
+ * 牌库顶的 zoneSlice 有序来源已由 RIFT-358 合入；"the rest" 直接消费 lookedCards
+ * 链接，effect.recycle 会丢弃换区后的 stale 引用并留下其余牌（417.4）。
  */
 /** effect.inspect 链接的"已查看引用列表"（pickedKey = lookedCards）。 */
 const lookedCardsOption = () => ({
@@ -99,7 +97,20 @@ const abilities: Ability[] = [
           picksSpecId: { kind: "constant", value: "trifarian-captain.top-four" },
           linkedKey: { kind: "constant", value: "lookedCount" },
           pickedKey: { kind: "constant", value: "lookedCards" }
-        }
+        },
+        picks: [
+          {
+            id: "trifarian-captain.top-four",
+            options: [],
+            ordered: true,
+            selection: "all",
+            zoneSlice: {
+              zone: "deck",
+              from: "top",
+              count: { kind: "constant", value: 4 }
+            }
+          }
+        ]
       },
       {
         id: "trifarian-captain.may-reveal-and-draw",
@@ -116,11 +127,12 @@ const abilities: Ability[] = [
         id: "trifarian-captain.recycle-the-rest",
         op: "effect.recycle",
         args: {
-          // effect.inspect 不产出补集；该键需要上游按 417.6 的"其余"集合写入。
+          // The chosen card becomes stale after moving to hand; effect.recycle
+          // drops it and recycles the remaining looked cards.
           objects: {
             kind: "linked-value",
             instructionId: "trifarian-captain.look-top-four",
-            key: "lookedRest"
+            key: "lookedCards"
           }
         }
       }
@@ -133,13 +145,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺三处：(1) 牌库顶按序来源——effect.inspect 的 top 范围必须由上游按契约 3.6 的" +
-    "zoneSlice 提供有序 picksSpecId，该生产接线属 RIFT-358（进行中），用 query 的顺序冒充牌库顶被原语显式禁止；" +
-    "(2) \"a unit or gear with Energy cost no more than 3 and with Power cost no more than" +
+    "整卡仍缺一处：\"a unit or gear with Energy cost no more than 3 and with Power cost no more than" +
     " [rainbow]\" 是 355.9.b 的目标限制，ObjectFilter 没有数值比较键、Condition 无法对集合逐项" +
-    "施加限制，因此只能作为描述性键记录，不可执行；(3) \"the rest\" 需要 looked 集合减去被展示" +
-    "那张的补集，effect.inspect 只链接张数与引用列表，PickSpec 也没有 exclude 语义。依赖：" +
-    "RIFT-358（有序 picksSpecId 生产接线，进行中）。",
+    "施加限制，因此只能作为描述性键记录，不可执行。牌库顶的 zoneSlice 有序来源与\"the rest\" 的" +
+    "stale 引用过滤均已合入并有执行证据。",
   abilities,
   sourceText:
     "When you play me, look at the top 4 cards of your Main Deck. You may reveal from among them a unit or gear with Energy cost no more than :rb_energy_3: and with Power cost no more than :rb_rune_rainbow: and draw it. Recycle the rest."

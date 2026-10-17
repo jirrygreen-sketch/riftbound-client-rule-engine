@@ -6,6 +6,9 @@ import program from "../../../dist/cards/unl/concentrate.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-faa895f1e7713ee3a12d2dc5921967e2171457086b5582208825c5b0eae45fd6";
@@ -29,11 +32,13 @@ test("unl-091-219 Concentrate: identity, status, judgeReason and verbatim source
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /356\.4/);
-  // The unresolved dependency is static-declaration binding into Finalize.
-  // Cost-plan primitives already exist; their task numbers are not blockers.
-  assert.match(program.judgeReason, /programs\/statics\.ts/);
+  // Re-probed 2026-10-17: the planner applies caller-supplied discounts but no
+  // production path derives them from a card's static effect.
+  assert.match(program.judgeReason, /layerFor/);
+  assert.match(program.judgeReason, /no layer mapping/);
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /824\.1/);
+  assert.match(program.judgeReason, /discounts/);
 });
 
 test("unl-091-219 Concentrate: the two [Level] cost reductions are recorded as static cost.modify shapes", () => {
@@ -90,9 +95,9 @@ test("unl-091-219 Concentrate golden: a short deck still draws as many as possib
 });
 
 test("unl-091-219 Concentrate golden: the merged cost plan really applies a caller-supplied discount (356.4)", () => {
-  // RIFT-329 re-review: cost/plan-values.ts readCost still refuses card-declared
-  // cost.modify fields, but the Finalize-side consumer it needs is merged and
-  // really subtracts the discount from the printed Energy total.
+  // Re-checked 2026-10-17: the Finalize-side consumer really subtracts a
+  // caller-supplied discount from the printed Energy total; what is missing is a
+  // path that derives that input from the card's static cost.modify declaration.
   const kernel = world().player("A", { energy: 5 }).build();
   kernel.addObject({
     ref: { id: "concentrate", zoneEntryId: 1 },
@@ -127,12 +132,41 @@ test("unl-091-219 Concentrate golden: the merged cost plan really applies a call
   assert.deepEqual(plan.discounts.map((entry) => entry.amount), [2]);
 });
 
-test.todo(
-  "unl-091-219 Concentrate: bind the static cost.modify declarations into the Finalize cost plan (CR 356.4) — " +
-    "programs/statics.ts has no cost-plan mapping for card static effects"
-);
+test("unl-091-219 Concentrate boundary: the merged static binder refuses the card's cost.modify declarations (CR 356.4)", () => {
+  // Re-probed 2026-10-17: the production static binder (createEngineStaticBinder,
+  // used by attachProgramLifecycle) has no layer mapping for cost.modify, so the
+  // card's discount declaration cannot reach any Finalize cost plan. This test
+  // drives the real binder instead of asserting the refusal from prose.
+  const board = fixture({
+    cards: [{ id: "concentrate", cardId: program.canonicalCardId, types: ["spell"], energy: 5, power: null, might: null }]
+  });
+  const binder = createEngineStaticBinder(board.engine);
+  for (const ability of [levelSix, levelEleven]) {
+    assert.throws(
+      () => binder.bindStatic(ability, board.kernel.getObject("concentrate")),
+      (error) => error.code === "judge-required" && /cost\.modify/.test(error.message) && /no layer mapping/.test(error.message)
+    );
+  }
+  // Neither declaration registered a continuous effect.
+  assert.equal(board.engine.layers.registry.list().length, 0);
+});
 
-test.todo(
-  "unl-091-219 Concentrate: evaluate the [Level 6]/[Level 11] XP thresholds and pick exactly one 'instead' discount " +
-    "(CR 824.1.b.1 / 824.1.c) — the level-active/controller-xp predicate still has no condition consumer"
-);
+test("unl-091-219 Concentrate boundary: the two [Level] gates are truthy constants, so no 'instead' exclusivity exists (CR 824.1.b.1 / 824.1.c)", () => {
+  // The authored gates are named constant strings; evaluateCondition treats any
+  // expression result as truthy, and nothing in the merged vocabulary reads the
+  // controller's XP. Both conditions therefore evaluate true in the same state,
+  // which is exactly why -2 and -4 cannot be treated as mutually exclusive.
+  const kernel = world().player("A", { xp: 0 }).build();
+  for (const [ability, threshold] of [[levelSix, 6], [levelEleven, 11]]) {
+    const outcome = resolveChainBody([{
+      id: `gate-${threshold}`,
+      op: "condition.value",
+      args: { value: { kind: "constant", value: true } },
+      condition: ability.condition
+    }], kernel.clone());
+    assert.equal(outcome.results[0].result.status, "executed");
+    assert.equal(outcome.results[0].result.linkedValues.value, true);
+  }
+  const zeroXp = program.abilities.slice(0, 2).map((ability) => ability.condition);
+  assert.deepEqual(zeroXp.map((condition) => condition.value.value), ["level-active:6", "level-active:11"]);
+});

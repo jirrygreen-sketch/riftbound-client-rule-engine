@@ -6,6 +6,8 @@ import effectDraw from "../../../../engine-core/dist/effects/instructions/effect
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 
 test("sunken-temple: passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -15,13 +17,18 @@ test("sunken-temple: passes validateCardProgram", () => {
 test("sunken-temple: conquer-with-Mighty structure with pay and draw", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Mighty/);
-  assert.match(program.judgeReason, /mightGte|is-mighty/);
+  assert.match(program.judgeReason, /Might 阈值/);
   assert.match(program.judgeReason, /Might/);
   assert.match(program.judgeReason, /here/);
+  assert.match(program.judgeReason, /Unsupported filter field here/);
+  assert.match(program.judgeReason, /conquering-units/);
   assert.equal(program.abilities.length, 1);
   const ability = program.abilities[0];
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "conquer");
+  // "conquered" is the closed event-vocabulary discriminant; EVENT_NAMES maps
+  // it onto the conquer timing point.
+  assert.equal(ability.trigger.filter.event, "conquered");
   assert.equal(ability.trigger.filter.here, true);
   assert.equal(ability.optional, true);
   // The Might>=5 gate is a trigger condition (CR v1.5 706–709).
@@ -95,3 +102,29 @@ test.todo(
   "sunken-temple: production trigger matching must bind conquer's battlefieldId to the card's here anchor and count only " +
     "the conquering Mighty units; the declared payload and Might thresholds still need those runtime selectors"
 );
+
+test("sunken-temple: the printed here anchor is rejected by the production trigger translator", () => {
+  // Live evidence for judgeReason (1): `here` is not a supported EventPattern
+  // field, so the merged binding path cannot register the trigger at all.
+  const [ability] = program.abilities;
+  assert.equal(ability.trigger.filter.here, true);
+  assert.throws(
+    () => translateTriggerFilter(ability.trigger.filter, "sunken-temple", ability.trigger.at),
+    /Unsupported filter field here/
+  );
+});
+
+test("sunken-temple: neither the count subject nor a Might threshold can select the conquering Mighty units", () => {
+  // Live evidence for judgeReason (2): the merged count expression reads only its
+  // filter (the subject name is decorative here), and the layer matcher ignores
+  // an unknown Might-threshold key, so a 1-Might unit would be counted as Mighty.
+  const kernel = world()
+    .unit("mighty-unit", { controller: "A", might: 6 })
+    .unit("weak-unit", { controller: "A", might: 1 })
+    .build();
+
+  assert.equal(kernel.evaluate({ kind: "count", subject: "conquering-units", filter: { type: "unit" } }), 2);
+  assert.equal(kernel.evaluate({ kind: "count", subject: "conquering-units", filter: { type: "unit", mightGte: 5 } }), 2);
+  assert.equal(matchesObjectFilter({ type: "unit", mightGte: 5 }, kernel.getObject("weak-unit")), true);
+  assert.equal(matchesObjectFilter({ type: "unit", characteristics: { might: 5 } }, kernel.getObject("mighty-unit")), false);
+});

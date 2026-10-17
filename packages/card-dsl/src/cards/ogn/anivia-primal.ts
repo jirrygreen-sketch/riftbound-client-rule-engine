@@ -16,18 +16,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   不存在选择，因此不是目标。该集合因此**没有** TargetSpec：登记成 TargetSpec 会把
  *   它们当作目标（355.9 的目标锁定、754 的"成为目标"触发都随之发生），属于近似实现。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - 时点 "attack-declared" 没有发射方：combat/flow.ts 的宣告事务仍以
- *   combat-start-transaction 显式阻断（CR 466.2），事件管线里没有触发它的路径；
- *   触发绑定本身已合入，本 filter 的嵌套 self 锚点可被翻译与校验。
- * - 无目标集合伤害没有已合入原语：effect.damage 只经 ctx.targets(TargetSpec.id)
- *   读取 Finalize 锁定的目标；把 "all enemy units here" 写成 selection "all" 的
- *   TargetSpec 会在真实链路里把这些单位登记为"成为目标"的目标（355.9 / 754），
- *   属于近似实现，不采用。
- *
- * 下面保留有依据的 IR 形状（攻击触发 + 固定 3 点 + "here" 与 "enemy" 的筛选意图，
- * 集合本身以描述占位串标注、不伪造成 TargetSpec）；golden 测试用参考内核真实执行
- * effect.damage 的固定数额与部分失效场景。
+ * status: judge-required。战斗开启/攻防身份事务仍由 combat-start-transaction
+ * 阻断（466.2）；effect.damage 只接受锁定目标，尚无 enemy + here 的无目标集合入口。
+ * 下方保留固定 3 点与非目标意图。golden 仅执行受支持的伤害子效果，不把测试侧
+ * 提供的引用当成生产查询或攻击触发的证明。
  */
 const abilities: Ability[] = [
   {
@@ -59,15 +51,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺攻击时点的发射路径与无目标集合伤害原语：（1）attack-declared 已在 timing-points.ts " +
-    "定义为封闭枚举成员，但 combat/flow.ts 的宣告事务仍以 combat-start-transaction 显式阻断" +
-    "（CR 466.2），没有模块发射该时点，触发无法进入链；触发绑定本身已合入，" +
-    "本 filter 的嵌套 self 锚点可被 translateTriggerFilter 翻译并通过 assertTriggerSpec；（2）" +
-    "“deal 3 to all enemy units here” 按 355.10.d/355.10.d.1 是无选择的集合伤害、" +
-    "不是目标，而已合入的 effect.damage 只读取 Finalize 锁定的 TargetSpec（没有 " +
-    "query/集合形态），写成 selection \"all\" 的 TargetSpec 会错误登记为“成为目标”" +
-    "（355.9/754）。依赖：战斗宣告事务（RIFT-119/124 之后的 combat 工作流，RIFT-120）、" +
-    "无目标集合伤害形态。不近似实现。",
+    "缺两条执行路径：（1）attack-declared 的真实发射仍由 combat/flow.ts 的 combat-start-transaction 阻断（CR 466.2/383.4.e.2）；（2）effect.damage 仅从 ctx.targets(args.target) 读取锁定目标，缺按 enemy + sameLocationAs:source 在结算时查询的非目标集合入口。all enemy units here 按 CR 355.10.d/355.10.d.1 从不选择单位，不能改成 selection:all 的 TargetSpec 并产生成为目标事件。",
   abilities,
   sourceText: "When I attack, deal 3 to all enemy units here."
 } satisfies CardProgram;

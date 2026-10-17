@@ -7,6 +7,9 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { EVENT_PATTERN_TYPES, validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
 import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
@@ -59,6 +62,10 @@ test("unl-112-219 Irresistible Faefolk: identity, status, judgeReason and verbat
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.match(program.judgeReason, /fromKind|toLocationId/);
   assert.doesNotMatch(program.judgeReason, /RIFT-90|RIFT-91|RIFT-120|RIFT-257|RIFT-270/);
+  // The reason must name the live translator/schema rejections, not a placeholder.
+  assert.match(program.judgeReason, /translateTriggerFilter|movedToBattlefield/);
+  assert.match(program.judgeReason, /invalid-event-type/);
+  assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
 test("unl-112-219 Irresistible Faefolk: 'When I move to a battlefield' keeps the Destination gate as a placeholder", () => {
@@ -172,6 +179,25 @@ test("unl-112-219 Irresistible Faefolk golden: the original move subinstruction 
     { object: kernel.ref("enemy-unit"), from: THERE, to: HERE }
   ]);
   assert.deepEqual(context.getObject("enemy-unit").location, HERE);
+});
+
+test("unl-112-219 Irresistible Faefolk: object-moved exists as a timing point but is outside the EventPattern vocabulary", () => {
+  // 421.1 / 449.2: object-moved is a closed timing point, yet the closed
+  // EventPattern vocabulary has no such spelling, so the production registration
+  // rejects the subscription before the Destination could ever be tested.
+  assert.equal(isTimingPointId("object-moved"), true);
+  assert.equal(EVENT_PATTERN_TYPES.includes("object-moved"), false);
+  assert.throws(
+    () => translateTriggerFilter(ability.trigger.filter, "faefolk", "object-moved"),
+    error => {
+      assert.equal(error.name, "ProgramBindingError");
+      assert.match(error.message, /Unsupported filter field movedToBattlefield/);
+      return true;
+    }
+  );
+  const result = validateTriggerSpec({ at: "object-moved", filter: { event: "object-moved" } });
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.issues.map(issue => issue.code), ["invalid-event-type"]);
 });
 
 test.todo(

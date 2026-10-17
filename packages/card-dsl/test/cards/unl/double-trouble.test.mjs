@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/double-trouble.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { finalizeOrderedPickPlans, orderedPickSpecs } from "../../../../engine-core/dist/chain/picks/plan.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -56,11 +58,18 @@ const decodedBody = (body) =>
     return { ...instruction };
   });
 
-/** Lock the ordered deck-top pick set the caller must provision (contract 3.6). */
+/**
+ * Provision the ordered pick set through the merged production lifecycle
+ * (contract 3.6 / RIFT-358): the card's own zoneSlice source is locked by
+ * chain/picks/plan.ts, which is the sole ordering authority, and the reference
+ * kernel only receives the locked references. Query order is never used.
+ */
 function lockViewed(kernel) {
-  const viewed = kernel.zoneSlice("A", "deck", "top", 3).map((object) => object.ref);
-  kernel.setPicks(viewedPick.id, viewed);
-  return viewed;
+  const context = bindResolveContext(kernel, { source: kernel.getObject("A:deck:1"), controller: "A" });
+  const [plan] = finalizeOrderedPickPlans(context, play.body);
+  assert.equal(plan.id, viewedPick.id);
+  kernel.setPicks(viewedPick.id, plan.refs);
+  return plan.refs;
 }
 
 test("unl-032-219 Double Trouble: program passes validateCardProgram", () => {
@@ -75,9 +84,19 @@ test("unl-032-219 Double Trouble: identity, ruleset, status, judgeReason and ver
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /effect\.inspect/);
-  assert.match(program.judgeReason, /Repeat/);
+  // The reason must keep only the verified current gap: the [Repeat] optional
+  // additional cost and its paid-instance wiring. The top-3 look is now
+  // carried by the merged ordered-pick lifecycle.
+  assert.match(program.judgeReason, /additional-cost/);
+  assert.match(program.judgeReason, /translateCost/);
+  assert.match(program.judgeReason, /repeat\.cost/);
+  assert.match(program.judgeReason, /no layer mapping/);
   assert.match(program.judgeReason, /820\.1\.d\.1/);
+  assert.match(program.judgeReason, /zoneSlice/);
+  assert.match(program.judgeReason, /RIFT-358/);
+  // The already-verified ordered-pick half must not be reported as a gap.
+  assert.doesNotMatch(program.judgeReason, /assertFinalizationSurface/);
+  assert.doesNotMatch(program.judgeReason, /没有有序区域 pick 的锁定路径/);
   assert.equal(cardProgramsById.get(program.canonicalCardId), program);
 });
 
@@ -123,15 +142,19 @@ test("unl-032-219 Double Trouble: the top-3 look reads an ordered pick, never a 
     key: "controller"
   });
   assert.equal(lookInstruction.linkedTo, "double-trouble.bind-controller");
-  // 108.4.e / contract 3.6: deck order comes from zoneSlice through the ordered
-  // pick set; effect.inspect refuses to guess it from an unordered query.
+  // 108.4.e / contract 3.6 / RIFT-358: deck order comes from the card's own
+  // zoneSlice through the ordered pick lifecycle; effect.inspect refuses to
+  // guess it from an unordered query.
   assert.deepEqual(viewedPick, {
     id: "double-trouble.viewed-cards",
-    options: ["dynamic:top-3-cards-of-your-main-deck-in-zone-order"],
-    min: 3,
-    max: 3,
+    options: [],
+    ordered: true,
     selection: "all",
-    filter: { owner: "self", zone: "deck" }
+    zoneSlice: {
+      zone: "deck",
+      from: "top",
+      count: { kind: "constant", value: 3 }
+    }
   });
 });
 
@@ -292,11 +315,27 @@ test("unl-032-219 Double Trouble golden: the top scope refuses to guess deck ord
   );
 });
 
-test.todo(
-  "unl-032-219 Double Trouble: the production Finalize/AwaitChoice lifecycle must provision the " +
-    "ordered 'top 3 of your Main Deck' pick set (face-down cards looked at privately) — the merged " +
-    "chain Finalize surface only locks instruction.targets TargetSpecs (chain/engine.ts)"
-);
+test("unl-032-219 Double Trouble golden: the card's zoneSlice source is locked by the merged ordered-pick lifecycle", () => {
+  // Contract 3.6 / RIFT-358: orderedPickSpecs accepts the card's declaration
+  // (options: [], ordered: true, selection: "all" plus exactly one zoneSlice),
+  // and finalizeOrderedPickPlans locks the real deck-top references in order.
+  // entity. This is the production surface the chain Finalize uses; the
+  // reference kernel only receives the locked list.
+  assert.deepEqual(orderedPickSpecs(play.body).map((spec) => spec.id), [viewedPick.id]);
+  const kernel = deckWorld();
+  const viewed = lockViewed(kernel);
+  assert.deepEqual(
+    viewed.map((ref) => ref.id),
+    ["top-card", "middle-card", "bottom-card"]
+  );
+  // The locked slice keeps its real order, not the deck's later query order.
+  assert.deepEqual(kernel.objectsInZone("A", "deck").map((ref) => ref.id), [
+    "top-card",
+    "middle-card",
+    "bottom-card",
+    "fourth-card"
+  ]);
+});
 
 test.todo(
   "unl-032-219 Double Trouble: paying the [Repeat] 2-energy additional cost and executing the spell's " +

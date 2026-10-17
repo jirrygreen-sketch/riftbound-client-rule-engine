@@ -24,7 +24,7 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  * - "an enemy unit here"：355.7/355.9.a 的目标；"here" 是 359.3.f 的指代，用契约 3.6 的
  *   sameLocationAs: "source" 锚点表达（与已合入的 rad/ezreal-dashing 同型）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（按 2026-10-16 合入批次复核）。
+ * status 判定（cards/README.md 第 2 节）：judge-required（按 2026-10-17 合入批次复核）。
  * 四处缺口，均不近似实现：
  * 1. [Hunt] 的 KeywordDef 与展开已存在，programs/keywords.ts 也会展开它；但展开写的事件拼写是
  *    "conquer"/"hold"，而封闭 EVENT_PATTERN_TYPES 用的是
@@ -38,7 +38,9 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *    Combat start/role designation 的原子 timing wave”，combat/flow.ts 明确抛
  *    combat-start-transaction。
  * 4. 两条声明都无法注册：Hunt 的 "conquer"/"hold" 拼写不在封闭词汇表内，攻击触发的 body
- *    又带 sameLocationAs 过滤键（programs/filters.ts 拒绝），registerProgramTriggers 都失败关闭。
+ *    又带 sameLocationAs 过滤键（programs/filters.ts 拒绝）；虽然 engine-core 的 TargetSpec
+ *    位置解析已有 location-of 运行时能力，但当前 card-dsl 校验仍把该相对位置当作
+ *    LocationFilter 拒绝，不能在本卡内借此绕过 sameLocationAs 缺口。
  * body 的 effect.damage（动态 Might 数额 + sameLocationAs 锚点）已合入，golden 用链适配器 +
  * 参考内核真实执行卡程序原始参数；"pay 3 XP to" 的代价目前只以未注册的 cost.xp 指令形状保留
  * （见 judgeReason 第 2 点），没有近似成其它原语。
@@ -125,7 +127,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口（已按 2026-10-16 合入批次复核）：(1) [Hunt]（823）的 KeywordDef 与展开已存在，且 " +
+    "四处缺口（已按 2026-10-17 合入批次复核）：(1) [Hunt]（823）的 KeywordDef 与展开已存在，且 " +
     "programs/keywords.ts 会展开它，但展开写的事件拼写是 \"conquer\"/\"hold\"，封闭 EVENT_PATTERN_TYPES（events/trigger-spec.ts，" +
     "配 pipeline-match.ts 的 EVENT_NAMES 别名）用的是 \"conquered\"/\"held\"，registerProgramTriggers 抛 invalid-event-type；" +
     "conquer 发射也不带征服单位（turn/flow.ts 的 Score 波只发 player/details），source:\"self\" 匹配不到（823.1.c.1）。" +
@@ -136,7 +138,8 @@ export default {
     "combat/flow.ts 遇到 staged combat 直接抛 combat-start-transaction。" +
     "(4) 触发没有可用注册路径：Hunt 展开的 " +
     "\"conquer\"/\"hold\" 拼写不被封闭 EVENT_PATTERN_TYPES 接受，body 的 sameLocationAs 过滤键也被 " +
-    "programs/filters.ts 拒绝，registerProgramTriggers 对两者都失败关闭。" +
+    "programs/filters.ts 拒绝；engine-core 虽已具备 TargetSpec 的 location-of 运行时解析，当前 card-dsl 校验仍把该相对位置当作 " +
+    "LocationFilter 拒绝，无法在本卡内绕过 sameLocationAs 缺口。" +
     "effect.damage 的动态 Might 数额与 sameLocationAs 锚点已合入并在 golden 中真实执行（卡程序原始参数）。不近似实现。",
   abilities,
   sourceText:

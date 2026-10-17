@@ -36,7 +36,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   dropped from the recycled set by 124 / 359.3.e.4 — that is the merged
  *   mechanics performing "the rest", not an instruction written by this card.
  *
- * Status: judge-required — three remaining gaps:
+ * Status: judge-required — two remaining gaps:
  * - "a unit from among them that has Might up to 1 more than the killed unit"
  *   is a legality bound that compares each candidate's current Might against a
  *   value read from ANOTHER object (the killed unit's last-known Might, 359.3.e.13
@@ -55,15 +55,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   reads context.controller. The source.controller binding below is only a
  *   draft: it is insufficient after a control change and is not executable
  *   evidence for that case. A regression with the correct expectation is TODO.
- * - The ordered top-5 picks production supply is also missing (RIFT-358):
- *   the chain/programs path does not read the
- *   real Main Deck zoneSlice into this stable picksSpecId yet, and query()
- *   cannot promise deck order, so the golden test supplies the locked picks.
- * The golden test executes the cost payment, the kill, the ordered look, the
- * optional wrapper, the banish and the cost-waived play with supplied picks and
- * unchanged source control. The play destination is chosen with LocationExpr
- * and linked into effect.play, without caller argument rewriting. These partial
- * tests do not establish full-card or production program executability.
+ * The golden tests execute the cost payment, the kill, the ordered look through
+ * the production Finalize pick lifecycle, the optional wrapper, the banish and
+ * the cost-waived play with unchanged source control. The play destination is
+ * chosen with LocationExpr and linked into effect.play, without caller argument
+ * rewriting. These partial tests do not establish full-card executability.
  */
 const baitedHook = {
   canonicalCardId: "card.hash-19b79a3d218afe3136508edfe7d9a7b84c7a83965281f09495785275ebd95ebd",
@@ -75,14 +71,12 @@ const baitedHook = {
     "而 ObjectFilter / TargetSpec / PickSpec 的取值是静态数据，没有“与另一对象或链接值做关系比较”的写法，" +
     "condition 从句只作用于整条指令、无法过滤选择集合的成员，因此没有任何已合入拼写能把 Might 超限的候选排除在外；" +
     "按 type: unit 直接选择会静默允许放逐任意 Might 的单位，违反不得近似实现的红线，故按描述性键写出但不作为已执行语义。" +
-    "被杀单位 Might 的读取本身可表达（解释器经 killed 链接引用 + look-back 取值），缺的只是把它用作选择约束（RIFT-359）。" +
+    "被杀单位 Might 的读取本身可表达（解释器经 killed 链接引用 + look-back 取值），缺的只是把它用作选择约束。" +
     "第二处缺口：CR 191.5.b 要求来源控制权变化不改变已入链能力的控制者；effect.inspect.player 必填，" +
     "当前 Expr 没有读取 ResolveContext.controller 玩家标量的形态。condition.value 读取 source.controller 只保留为草稿，" +
     "装备从 A 转交 B 时会错误地把查看者改成 B，不能当作能力控制者绑定或完整执行证据；正确查看 A 牌库的回归保留 TODO。" +
-    "第三处缺口：effect.inspect 的 scope:top 只读取外部 picksSpecId，programs/ 与 chain/ 没有从真实牌库 zoneSlice " +
-    "自动提供保序 top-5 picks 的路径（RIFT-358），query() 不保证牌库顺序，不能用无序查询近似。" +
     "LocationExpr 选择能力控制者的 Base 或所控制战场，再以 linked-value 传给 effect.play.location，已解决未解析的 controller 落点。" +
-    "golden 与链草稿只验证来源控制权未变化、picks 由调用方按稳定 id 提供时的已支持步骤；不代表整卡或生产程序绑定已完成。",
+    "golden 与生产链测试覆盖费用、Kill、真实有序顶五张查看、可选放逐、免费打出和回收；仍不能证明关系过滤或控制权变化场景。",
   abilities: [
     {
       kind: "activated",
@@ -143,12 +137,12 @@ const baitedHook = {
           picks: [
             {
               id: "baited-hook.looked-cards",
-              // Ordered Main Deck slice, supplied by the caller from
-              // ctx.zoneSlice(player, "deck", "top", 5); the query vocabulary
-              // cannot express deck order.
-              options: ["dynamic:top-five-main-deck-cards"],
-              filter: { type: "card" },
-              selection: "all"
+              // Finalize locks the real Main Deck order through zoneSlice; the
+              // chain adapter supplies these references to effect.inspect.
+              options: [],
+              ordered: true,
+              selection: "all",
+              zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 5 } }
             }
           ]
         },

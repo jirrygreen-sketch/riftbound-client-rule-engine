@@ -8,6 +8,9 @@ import restrict from "../../../../engine-core/dist/effects/instructions/continuo
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
 import { appliedCosts } from "../../../../engine-core/dist/layers/rules/query.js";
+import { moveDuelUnitsStandard } from "../../../../engine-core/dist/zones/movement.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-b160c71d3dd5254b9c98867feb0f67b7805cefc8624fcf4d00f8f427ab3be532";
@@ -32,6 +35,11 @@ test("unl-163-219 Mageseeker Investigator: identity, status, judgeReason and ver
   assert.match(program.judgeReason, /applied-cost|Applied Cost/);
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /355\.10\.b/);
+  // Re-checked against the merged sources: the instruction path registers and
+  // reads back, but the static binder cannot map the kind and no movement cost
+  // plan consumes the registration.
+  assert.match(program.judgeReason, /normalizedEffect/);
+  assert.match(program.judgeReason, /actions/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -40,10 +48,11 @@ test("unl-163-219 Mageseeker Investigator: the card text is one Applied Cost sta
   assert.equal(applied.kind, "static");
   assert.equal(applied.effect.kind, "continuous.restrict");
   assert.equal(applied.effect.mode, "applied-cost");
-  assert.equal(applied.effect.action, "move");
+  // layers/rules/query.ts reads the plural spelling for static card data.
+  assert.deepEqual(applied.effect.actions, ["move"]);
+  assert.equal(applied.effect.action, undefined);
   // 204.4.a: the associated Game Action is the linked effect of the Cost; CR
   // narrows it to a simultaneous batch of Moves.
-  assert.equal(applied.effect.action, "move");
   assert.equal(applied.effect.batch, "simultaneous");
   // 204.4.b / 204.4.c: the payer is the player performing the Move, and the
   // action is illegal when it cannot or will not be paid.
@@ -64,7 +73,7 @@ test("unl-163-219 Mageseeker Investigator golden: Applied Cost registers through
     restrict,
     {
       mode: { kind: "constant", value: applied.effect.mode },
-      action: { kind: "constant", value: applied.effect.action },
+      action: { kind: "constant", value: applied.effect.actions },
       cost: { kind: "constant", value: {
         resource: applied.effect.resource,
         domain: applied.effect.domain,
@@ -87,11 +96,54 @@ test("unl-163-219 Mageseeker Investigator golden: Applied Cost registers through
   });
 });
 
-test.todo(
-  "unl-163-219 Mageseeker Investigator: an Applied Cost primitive plus movement wiring that charges [A] per unit " +
-    "beyond the first at the same time the batch Move is performed (204.4.a-c) — the declaration now registers " +
-    "through continuous.restrict, but movement has no applied-cost consumer"
-);
+test("unl-163-219 Mageseeker Investigator: the production static binding keeps kind 'restriction', so appliedCosts() cannot see it (204.4)", () => {
+  // static binding succeeds, but the registered kind stays 'restriction' while
+  // appliedCosts() only matches 'applied-cost' - the card's own declaration is
+  // therefore invisible to the query on the production path.
+  const f = fixture({
+    cards: [{ id: "investigator", cardId: CANONICAL_ID, types: ["unit"], energy: 4, power: [], might: 4 }]
+  });
+  const source = { ...f.kernel.getObject("investigator"), cardId: CANONICAL_ID, zone: "board" };
+  const handle = createEngineStaticBinder(f.engine).bindStatic(applied, source);
+  const [registration] = f.engine.layers.registry.list();
+  assert.equal(registration.effect.effect.kind, "restriction");
+  assert.equal(registration.effect.effect.mode, "applied-cost");
+  assert.deepEqual(registration.effect.effect.actions, ["move"]);
+  assert.deepEqual(appliedCosts(f.engine.layers.registry, "move"), []);
+  handle.unbind();
+});
+
+test("unl-163-219 Mageseeker Investigator golden: the registration is readable but no movement plan charges it (204.4.a-c)", () => {
+  // Reading back through appliedCosts() is real (the instruction path). What is
+  // missing is a consumer: the standard-move kernel takes its cost plan from the
+  // caller and never queries appliedCosts(), and the [A] amount has no payable
+  // representation either.
+  const kernel = world().unit("investigator", { owner: "A", controller: "A", might: 4 }).build();
+  const run = runInstruction(
+    restrict,
+    {
+      mode: { kind: "constant", value: applied.effect.mode },
+      action: { kind: "constant", value: applied.effect.actions },
+      cost: { kind: "constant", value: {
+        resource: applied.effect.resource,
+        domain: applied.effect.domain,
+        payer: applied.effect.payer,
+        amount: applied.effect.amount
+      } }
+    },
+    { world: kernel }
+  );
+  assert.equal(run.result.status, "executed");
+  const registry = createContinuousEffectRegistry();
+  for (const entry of kernel.continuousEffects) registry.register(entry.effect, entry.duration);
+  assert.deepEqual(appliedCosts(registry, "move").map((entry) => entry.actions), [["move"]]);
+  // Scoped to the associated action only.
+  assert.deepEqual(appliedCosts(registry, "play"), []);
+  // The move kernel's rule bridge only reads movement/restrictions, never
+  // appliedCosts, so the registration cannot influence a real Move.
+  assert.equal(typeof moveDuelUnitsStandard, "function");
+  assert.equal(moveDuelUnitsStandard.length, 4);
+});
 test.todo(
   "unl-163-219 Mageseeker Investigator: universal Power ([A], 135.2.e.5 / 163.2.b) must stay representable; the six-domain " +
     "enumeration cannot express it and must not be replaced by a colored domain — cost/README.md contract request 2"

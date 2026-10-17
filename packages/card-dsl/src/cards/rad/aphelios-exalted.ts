@@ -33,7 +33,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 4. 模式选择发生在触发结算中，而 chain/engine.ts 的 assertFinalizationSurface 对
  *    choice.mode 直接抛 ChainContractBlockedError（"Mode choices require a Finalize/Resolve
  *    choice-plan adapter"），生产链路还没有模式选择的接线。
- * RIFT-257 的 CardProgram → TriggerRegistration 绑定已合入，不再是缺口；"Ready 2 runes" 的
+ * "Ready 2 runes" 的
  * rune-zone 目标经生产目标翻译（controller → self）在 Finalize 正常锁定两个符文（355.9.a.1
  * 的默认指称由 IR 显式 zone: "rune-zone" 覆盖），也不再是缺口。
  * 已合入的三条子指令（effect.ready / effect.channel / effect.buff）在 golden 测试里用解释器 +
@@ -150,9 +150,9 @@ const program = {
     "不携带附着宿主，无法表达 「to me」。" +
     "(4) 模式选择在触发结算中执行，chain/engine.ts 的 assertFinalizationSurface 对 choice.mode 抛 " +
     "ChainContractBlockedError（缺 Finalize/Resolve choice-plan 接线）。" +
-    "RIFT-257 的 CardProgram → TriggerRegistration 绑定已合入，不再是缺口；「Ready 2 runes」的 " +
+    "「Ready 2 runes」的 " +
     "rune-zone 目标经生产目标翻译在 Finalize 锁定两个符文，也不再是缺口。" +
-    "已合入的 effect.ready / effect.channel（431.2 exhausted）/ effect.buff 三条子指令与 choice.mode " +
+    "effect.ready / effect.channel（431.2 exhausted）/ effect.buff 三条子指令与 choice.mode " +
     "的解释器派发在 golden 测试中真实执行；不近似实现（不删「本回合未选过」限制）。",
   abilities,
   sourceText:

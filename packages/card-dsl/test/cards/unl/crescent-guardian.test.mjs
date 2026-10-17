@@ -6,10 +6,12 @@ import program from "../../../dist/cards/unl/crescent-guardian.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-// RIFT-260's replacement binding is the merged path this card's entry
-// replacement now reaches; the golden below proves the merge and its limit.
+// The replacement binding is the merged path this card's entry replacement now
+// reaches; the golden below proves the merge and its limit.
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CANONICAL_ID =
   "card.hash-62fb90bb0e876e500de763bb4ffad29e29022a5cbd31d536a7adf6619570bca6";
@@ -33,12 +35,14 @@ test("unl-122-219 Crescent Guardian: identity, status, judgeReason and verbatim 
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /356\.2\.b/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
-  assert.match(program.judgeReason, /replacement\.enter/);
+  assert.match(program.judgeReason, /replacement\/bind\.ts/);
   assert.match(program.judgeReason, /359\.2\.c/);
   assert.match(program.judgeReason, /805\.6\.a/);
-  // replacement.enter/effect.ready is executable; the remaining wiring is the
-  // CardProgram-to-Finalize optional-cost receipt and the history predicate.
-  assert.match(program.judgeReason, /programs\/play\.ts/);
+  // Re-probed 2026-10-17: the replacement body executes, but the static
+  // cost.additional has no binding path and the entry matcher ignores conditions.
+  assert.match(program.judgeReason, /cost\.additional/);
+  assert.match(program.judgeReason, /layerFor/);
+  assert.match(program.judgeReason, /condition\.result/);
   assert.ok(!/RIFT-89/.test(program.judgeReason));
 });
 
@@ -136,11 +140,26 @@ test("unl-122-219 Crescent Guardian golden: an already-ready unit is not readied
   assert.deepEqual(kernel.events, []);
 });
 
-test.todo(
-  "unl-122-219 Crescent Guardian: the optional [C] additional cost is declared at Finalize, charged, and the paid " +
-    "decision is returned as a receipt (CR 356.2.b/356.2.b.1, 356.4.f.1) — cost/cost-plan.ts only consumes " +
-  "caller-supplied optionalAdditional; CardProgram cost.additional is not yet wired into Finalize"
-);
+test("unl-122-219 Crescent Guardian boundary: the static cost.additional has no production binder (CR 356.2.b/356.2.b.1)", () => {
+  // Re-probed 2026-10-17: the planner already pays a caller-supplied optional
+  // component (meditation/frostcoat-cub precedent), but no merged path derives it
+  // from this card's static declaration. programs/play.ts::translateCost only
+  // accepts printed/activated/explicit kinds, and the production static binder
+  // has no layer for cost.additional, so Finalize never charges the 1 Chaos Power
+  // and never produces the paid/declined receipt the entry rewrite has to read.
+  assert.equal(additionalCost.effect.kind, "cost.additional");
+  assert.throws(
+    () => translateCost(additionalCost.effect, "crescent-guardian", "play"),
+    (error) => error.code === "judge-required" && /Unsupported play cost field/.test(error.message)
+  );
+  const board = fixture({
+    cards: [{ id: "guardian", cardId: program.canonicalCardId, types: ["unit"], energy: 4, power: [], might: 4 }]
+  });
+  assert.throws(
+    () => createEngineStaticBinder(board.engine).bindStatic(additionalCost, board.kernel.getObject("guardian")),
+    (error) => error.code === "judge-required" && /cost\.additional/.test(error.message) && /no layer mapping/.test(error.message)
+  );
+});
 test("unl-122-219 Crescent Guardian golden: the supported entry-replacement fragment enters ready (369.3)", () => {
   // bindReplacement accepts the
   // declared shape (a single self-targeted effect.ready on object-enters-board)
@@ -187,22 +206,22 @@ test("unl-122-219 Crescent Guardian golden: the supported entry-replacement frag
   );
 });
 
-test("unl-122-219 Crescent Guardian: RIFT-260 evaluates the declared gate before applying the entry rewrite", () => {
-  // The merged binding evaluates ability.condition with evaluateCondition at
-  // match time. That is the real gate this card's "If you do" has to ride on
-  // once the paid-cost receipt exists; the declaration itself is asserted here.
+test("unl-122-219 Crescent Guardian boundary: the entry matcher ignores any condition, so the declared gate is not consumed (CR 356.4.f.1)", () => {
+  // Re-probed 2026-10-17: replacement/bind.ts matchesEnterAction() returns true
+  // before testCondition() runs. Binding the entry declaration with a `never`
+  // condition still readies the entering unit in the real pipeline, which is the
+  // production proof that this card's "If you do" gate is not evaluated. The
+  // authored condition is asserted separately so it stays reviewable.
   assert.deepEqual(enterReady.condition, {
     kind: "expression",
     value: { kind: "constant", value: "crescent-guardian.additional-cost-was-paid" }
   });
-  // The evaluator treats a constant string as a truthy predicate, so the
-  // condition cannot distinguish paid from declined in merged code yet.
   const board = fixture({
     cards: [{ id: "guardian", cardId: program.canonicalCardId, types: ["unit"], energy: 4, power: [], might: 4 }]
   });
   const host = board.kernel.getObject("guardian");
   const bound = bindReplacement(
-    { replaces: enterReady.replaces, with: enterReady.with, condition: enterReady.condition },
+    { replaces: enterReady.replaces, with: enterReady.with, condition: { kind: "never" } },
     host.ref,
     {
       host: {
@@ -213,12 +232,47 @@ test("unl-122-219 Crescent Guardian: RIFT-260 evaluates the declared gate before
       pipeline: board.engine.pipeline
     }
   );
-  assert.equal(bound.registration.id.length > 0, true);
+  assert.equal(bound.registration.id, "replacement:" + host.ref.id + ":" + host.ref.zoneEntryId);
+  // A real play lands the unit ready even though the bound condition is `never`:
+  // the entry-orientation matcher runs before any condition evaluation.
+  board.engine.execute(board.card("guardian", {
+    kind: "unit",
+    body: [],
+    location: { type: "battlefield", id: "bf-1" }
+  }));
+  resolveAll(board.engine);
+  assert.equal(board.kernel.getObject("guardian").zone, "board");
+  assert.equal(board.kernel.getObject("guardian").exhausted, false);
+  bound.cancel();
 });
-test.todo(
-  "unl-122-219 Crescent Guardian: “If you've played a spell this turn” is evaluated from the turn's played " +
-    "spells — condition.history supports play/objectFilter.type=spell; static cost applicability still needs a history-expression consumer"
-);
+
+test("unl-122-219 Crescent Guardian boundary: the spell-history applicability has no static-cost consumer", () => {
+  // condition.history really counts committed play actions by type (next golden),
+  // but the static cost applicability is a condition on a static ability, and no
+  // merged consumer maps history reads into cost applicability. The authored
+  // placeholder is a named constant string, not a history query, so this test
+  // pins both halves: the working history primitive and the missing adapter.
+  assert.deepEqual(additionalCost.condition, {
+    kind: "expression",
+    value: { kind: "constant", value: "you-played-a-spell-this-turn" }
+  });
+  const kernel = world().player("A").hand("spell", { types: ["spell"], owner: "A" }).build();
+  const counted = resolveChainBody([{
+    id: "spell-count",
+    op: "condition.history",
+    args: { query: { kind: "constant", value: { scope: "turn", action: "play", player: "A", objectFilter: { type: "spell" } } } }
+  }], kernel).linkedValues["spell-count.count"];
+  assert.equal(counted, 0);
+  // A constant-string condition is truthy regardless of that count, so no
+  // production cost step can gate the payment on the printed clause yet.
+  const gate = resolveChainBody([{
+    id: "placeholder-gate",
+    op: "condition.value",
+    args: { value: { kind: "constant", value: true } },
+    condition: additionalCost.condition
+  }], kernel.clone());
+  assert.equal(gate.results[0].result.linkedValues.value, true);
+});
 
 
 test("unl-122-219 Crescent Guardian golden: condition.history distinguishes committed spells by their player and type", () => {

@@ -24,7 +24,7 @@ import type { CardProgram } from "../../ir/index.js";
  *    card-played 事件载荷绑定出来（契约 3.6 的 ObjectSelector 没有“事件对象”形式），
  *    并对 Board 上其他单位做数值 Might 比较；events/pipeline-match.ts 的过滤器没有数值
  *    Might 匹配键，condition 也无法对“每个其他单位”逐一比较。
- * 3. 条件谓词属 RIFT-359（进行中）。
+ * 3. 事件对象绑定与数值 Might 比较仍缺通用 IR/事件过滤消费方。
  * 不把条件近似成“总是成立”，也不把横置费用写成 effect.exhaust。
  */
 export default {
@@ -38,7 +38,7 @@ export default {
     "在 card-played 时点给出“me”的具体 exhaust ObjectRef；(2)「Might greater than each other unit on the board」需要从 card-played " +
     "事件载荷绑定被打出的单位（ObjectSelector 没有事件对象形式），并对 Board 上其他单位做数值 " +
     "Might 比较（events/pipeline-match.ts 的过滤器没有数值 Might 键，condition 也无法逐一比较）；" +
-    "(3) 该条件谓词属 RIFT-359（进行中）。" +
+    "(3) 事件对象绑定与数值 Might 比较仍缺通用 IR/事件过滤消费方。" +
     "Draw 1 原语已合入并单独执行；不近似实现条件与横置费用。",
   abilities: [
     {

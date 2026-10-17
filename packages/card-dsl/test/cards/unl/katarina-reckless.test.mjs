@@ -62,7 +62,7 @@ test("unl-023-219 Katarina, Reckless: identity, status, judgeReason and verbatim
   // event facts instead of a missing adapter.
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.match(program.judgeReason, /GameAction 封闭集合里没有 hide/);
-  assert.match(program.judgeReason, /card-played 事件载荷.*不暴露该特征/);
+  assert.match(program.judgeReason, /Facedown Zone/);
 });
 
 test("unl-023-219 Katarina, Reckless: the hide trigger waits on the card-hidden timing point", () => {
@@ -90,7 +90,7 @@ test("unl-023-219 Katarina, Reckless: the second trigger is one enemy-unit damag
   assert.equal(faceDownTrigger.trigger.at, "card-played");
   assert.deepEqual(faceDownTrigger.trigger.filter, {
     event: "card-played",
-    filter: { fromFaceDown: true },
+    details: { fromFaceDown: true },
     player: "self"
   });
   assert.equal(faceDownTrigger.optional, false);

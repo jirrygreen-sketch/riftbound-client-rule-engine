@@ -23,16 +23,30 @@ import type { CardProgram } from "../../ir/index.js";
  *   但该谓词的消费者与 XP 读取路径仍未合入（文件头注明 keyword→ability 绑定与
  *   玩家 XP 的 Expr 读取都缺失）。
  *
- * Status: judge-required. Current source audit:
- * Draw 2 is executable independently. The static discounts need a Finalize
- * consumer and live XP gating; a named constant string is not that predicate.
+ * Status: judge-required. Re-checked 2026-10-17 against merged source:
+ * Draw 2 executes through the merged effect.draw. Both blockers persist:
+ * (1) cost/plan-types.ts accepts caller-supplied `discounts` and the plan really
+ * subtracts them, but no merged path derives them from a card's static effect —
+ * programs/statics.ts `layerFor` still rejects the cost.modify kind outright
+ * ("Static ability kind cost.modify has no layer mapping"), and chain/engine.ts
+ * Finalize only plans `item.cost` plus caller taxes.
+ * (2) the [Level 6]/[Level 11] gates are constant strings that the merged
+ * Condition vocabulary evaluates as truthy; nothing reads the controller's XP,
+ * so the two "instead" discounts cannot be made exclusive.
  */
 const concentrate = {
   canonicalCardId: "card.hash-faa895f1e7713ee3a12d2dc5921967e2171457086b5582208825c5b0eae45fd6",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 programs/statics.ts 将静态 cost.modify 接入 Finalize discounts 的映射（CR 356.4），以及 Level 6/11 的控制者 XP 条件消费（824.1.b.1/824.1.c）。当前 level-active 常量字符串会被当成真值，不能读取 XP，也不能令 -2 与 -4 的 instead 折扣互斥；不可把两档折扣相加或硬编码其中一档。",
+    "仍缺两段接线（2026-10-17 复核，均不近似实现）：" +
+    "(1) 静态 cost.modify → Finalize discounts（CR 356.4）：费用计划本身已能接受调用方传入的 discounts 并真实扣减印刷能量费，" +
+    "但没有生产消费者从卡牌静态效果生成该输入——programs/statics.ts 的 layerFor 直接拒绝 cost.modify（\"Static ability kind cost.modify has no layer mapping\"），" +
+    "chain/engine.ts 的 Finalize 也只按 item.cost 与调用方 tax 组计划；" +
+    "(2) [Level 6]/[Level 11] 的控制者 XP 门控（CR 824.1.b.1/824.1.c/824.1.c.1）：合并的 Condition 词汇（always/never/compare/all/any/not/expression 及 played-from-*/printed-characteristic/result 谓词）" +
+    "不能读取玩家 XP，卡内的 level-active 常量字符串会被求值为真，因此 -2 与 -4 的 instead 互斥无法判定。" +
+    "已合入并可执行：Draw 2（414.1/414.3）与费用计划的 discounts 扣减路径；不可把两档折扣相加或硬编码其中一档。" +
+    "依赖：静态费用效果的 Finalize 绑定与 Expr/Condition 的 controller-xp 读取。",
   abilities: [
     {
       // 「[Level 6][>] This costs [2] less」的保留形状：折扣在 Finalize 费用计划里

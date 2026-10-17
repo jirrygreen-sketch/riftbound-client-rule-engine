@@ -6,6 +6,8 @@ import program from "../../../dist/cards/unl/hextech-gauntlets.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import attach from "../../../../engine-core/dist/effects/instructions/effect.attach.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL_ID =
   "card.hash-955bd858659e4d3eb8edfd20347a7496c51932de05cafd32fc71d86d94f96e47";
@@ -129,6 +131,31 @@ test("unl-188-219 Hextech Gauntlets: the merged Equip body attaches the Gear to 
   // 435.4.a：附着改变位置，但不是 Move；本原语不提交 move 动作。
   assert.equal(source.events.some(event => event.action === "move-location"), false);
   assert.equal(attachInstruction.op, "effect.attach");
+});
+
+test("unl-188-219 Hextech Gauntlets golden: the original expanded body attaches through the chain interpreter", () => {
+  const [activation] = equipExpansion();
+  const kernel = world()
+    .unit("gauntlets", { types: ["gear"], cardId: CANONICAL_ID, might: 3 })
+    .unit("vi", { might: 5 })
+    .unit("enemy", { owner: "B", controller: "B", might: 5 })
+    .build();
+  const source = kernel.clone({ sourceSnapshot: kernel.getObject("gauntlets") });
+  source.setTargets("equip-target", [source.ref("vi")]);
+  // Adapt the reference kernel's literal player filters to the chain's self binding.
+  const context = bindResolveContext(source, {
+    query: filter => source.query({
+      ...filter,
+      ...(filter.controller === "self" ? { controller: source.controller } : {})
+    })
+  });
+  const outcome = resolveChainBody(activation.body, context);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [["equip-attach", "executed"]]);
+  assert.deepEqual(source.getObject("gauntlets").attachedTo, source.ref("vi"));
+  assert.equal(source.getObject("enemy").attachedTo, null);
+  assert.equal(outcome.linkedValues["equip-attach.attached"].count, 1);
+  assert.deepEqual(outcome.events.map(event => event.action), ["attach"]);
 });
 
 test.todo(

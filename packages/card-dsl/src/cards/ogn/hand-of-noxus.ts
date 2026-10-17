@@ -22,14 +22,15 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status = judge-required：
  * - ResolveContext.history supports turn/action/player/object/exclude queries,
- *   and condition.history / condition.predicate instructions have merged,
- *   but the CardProgram Condition vocabulary has no history/predicate node and
- *   the activated restriction binder cannot consume the Legion gate. The
- *   restriction keeps the printed gate auditable; it is not treated as an
- *   executable comparison.
- * - The ordinary exhaust payment and resource primitive are merged, but the
- *   chain already supports immediate Add, but the activation binder does not classify this resource-adding ability as the
- *   immediate Add window required by 430.2.a/430.3.
+ *   and condition.history / condition.predicate are executable instruction
+ *   opcodes, but the CardProgram Condition vocabulary has no history node and
+ *   count expressions ignore their cards-finalized-this-turn subject. The
+ *   activated restriction binder therefore cannot consume the Legion gate
+ *   before paying the Exhaust cost. The restriction keeps the printed gate
+ *   auditable; it is not treated as an executable comparison.
+ * - The ordinary exhaust payment and resource primitive are merged, and the
+ *   chain has the immediate Add path, but the activation binder does not
+ *   classify this resource-adding ability for the 430.2.a/430.3 window.
  */
 const handOfNoxus = {
   canonicalCardId:
@@ -37,9 +38,10 @@ const handOfNoxus = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Legion 仍缺启动前历史闸门（CR 812.1.b.1 / 812.1.c）：Condition 没有 history/predicate 节点，count 只查询当前对象且忽略 " +
-    "cards-finalized-this-turn 的 subject；translateRestriction 不能在支付启动费用前执行历史指令并读取结果。还缺 describeActivate " +
-    "按资源增加正文识别 kind: add 的桥接：当前固定生成 activated，不能进入 CR 430.2.a 的即时 Add 结算与 430.3 的 Reaction-Add 支付窗口。",
+    "Legion 仍缺启动前历史闸门（CR 812.1.b.1 / 812.1.c）：condition.history / condition.predicate 只作为指令级原语存在，" +
+    "CardProgram Condition 没有 history 节点，且 count 表达式只查询当前对象、忽略 cards-finalized-this-turn 的 subject；" +
+    "translateRestriction 不能在支付启动费用前执行历史指令并读取结果。还缺 describeActivate 按资源增加正文识别 kind: add 的桥接：" +
+    "当前固定生成 activated，不能进入 CR 430.2.a 的即时 Add 结算与 430.3 的 Reaction-Add 支付窗口。",
   abilities: [
     {
       kind: "activated",

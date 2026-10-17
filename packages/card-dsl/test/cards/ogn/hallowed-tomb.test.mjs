@@ -31,6 +31,8 @@ test("ogn-281-298 Hallowed Tomb: identity, ruleset, status and printed text", ()
   assert.match(program.judgeReason, /Champion Zone/);
   assert.match(program.judgeReason, /count\/compare/);
   assert.match(program.judgeReason, /here/);
+  assert.match(program.judgeReason, /programs\/filters\.ts/);
+  assert.ok(!/RIFT-\d+/.test(program.judgeReason));
 });
 
 test("ogn-281-298 Hallowed Tomb: optional hold trigger wrapping the return instruction", () => {

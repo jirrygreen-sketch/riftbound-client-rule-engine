@@ -221,6 +221,5 @@ test.todo(
 
 test.todo(
   "Portal Rescue: [Action] admission (806.1.b) plus Finalize-time target locking and the Resolve-time " +
-    "re-verification of the friendly unit (355.8/355.15, 359.3.e) belong to the chain and target batches " +
-    "(RIFT-90/RIFT-120)"
+    "re-verification of the friendly unit (355.8/355.15, 359.3.e) belong to the chain and target batches"
 );

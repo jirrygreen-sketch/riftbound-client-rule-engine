@@ -20,13 +20,17 @@ import type { CardProgram } from "../../ir/index.js";
  * - "Then, if there's an enemy unit alone at that battlefield, draw 1" is a
  *   conditional instruction whose scope is that one instruction (contract 3.4).
  *   "alone" is defined by 740.2.a: no other friendly unit at the same location.
- *   Condition.compare/count can express a zero comparison; the missing part is
- *   the candidate-relative friendly count and a dynamic departure-location filter.
- *   effect.move already records movements.from, and target.location can read
- *   linked locations. Neither currently feeds that origin into a count filter.
- *   The authored draw remains descriptive; the judge-required registry guard
- *   blocks execution of the incomplete full body. Goldens execute each supported
- *   primitive and the ignored-target linkage, without claiming the gate works.
+ *   Condition.compare/count can express a zero comparison, but the merged
+ *   ObjectFilter vocabulary takes neither a dynamic location value nor a
+ *   candidate-relative friendly count: the anchors it does support
+ *   (sameLocationAs/exclude) hold ObjectSelectors, not the departure LocationRef,
+ *   and programs/filters.ts rejects those anchors for card-facing target filters.
+ *   effect.move does record movements[].from, but resolveLocationSelector's
+ *   linked-location form reads only location/to/destination/there, so the receipt
+ *   yields "Linked value has no runtime location". The authored draw therefore
+ *   stays descriptive and the judge-required registry guard blocks the incomplete
+ *   full body. Goldens execute each supported primitive and the ignored-target
+ *   linkage, without claiming the gate works.
  * - "Draw 1" itself is the merged effect.draw primitive (414.1 / 414.3).
  * - The instruction is `linkedTo` the move: the draw's condition references the
  *   moved unit's departure site, so an ignored move ignores the draw too
@@ -35,8 +39,8 @@ import type { CardProgram } from "../../ir/index.js";
  * status = judge-required (README section 2; current HEAD). The Move half is merged and
  * executed; the conditional draw is not approximated.
  *
- * Dependencies: candidate-relative alone counting and extraction/binding of
- * the move receipt's departure location into the draw condition (740.2.a).
+ * Dependencies: candidate-relative alone counting plus extraction/binding of the
+ * move receipt's departure location into that condition (740.2.a, 740.1.a).
  */
 export default {
   canonicalCardId:
@@ -44,8 +48,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺结算时“有敌方单位 alone at that battlefield”的集合谓词接线（CR 740.2.a）：须对候选敌方单位检查该地点没有其他友方单位（740.1.a 包括同控制者及队友的单位），不能把所有玩家的单位总数当作友方数量。" +
-    "ObjectFilter 缺动态地点 Expr 与候选相关的友方计数适配；还需从 effect.move receipt 的 movements.from 提取起点，并将地点值绑定到后续 count 过滤器。",
+    "仍缺结算时「有敌方单位 alone at that battlefield」的集合谓词接线（CR 740.2.a）：须对候选敌方单位检查该地点没有其他友方单位" +
+    "（740.1.a 包括同控制者及队友的单位），不能把所有玩家的单位总数当作友方数量。" +
+    "ObjectFilter 既没有动态地点值也没有候选相关的友方计数锚点（sameLocationAs/exclude 只接 ObjectSelector，programs/filters.ts 对卡牌目标过滤还直接拒绝这两个锚点）；" +
+    "effect.move receipt 的 movements[].from 是真实起点，但 resolveLocationSelector 的 linked-location 只读 location/to/destination/there，实测对整份 receipt 抛 " +
+    "\"Linked value has no runtime location\"。effect.move（含 controller-base 目的地）与 linked-ignored 传播已有 golden 执行证据。",
   abilities: [
     {
       kind: "play",

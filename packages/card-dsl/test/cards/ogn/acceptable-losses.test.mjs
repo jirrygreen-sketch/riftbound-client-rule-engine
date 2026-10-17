@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/acceptable-losses.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CARD_ID = "card.hash-b3827545fbd7637410bd870c5f9e3d7996c213e335b7df3d7fe6460e05c58891";
 const play = program.abilities.find((ability) => ability.kind === "play");
@@ -19,7 +20,7 @@ test("ogn-179-298 Acceptable Losses: program passes validateCardProgram", () => 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /355\.10\.e/);
   assert.match(program.judgeReason, /412\.1/);
-  assert.match(program.judgeReason, /target\.player/);
+  assert.match(program.judgeReason, /chooser\/controller/);
   assert.equal(
     program.sourceText,
     "[Action] (Play on your turn or in showdowns.)\n" +
@@ -89,8 +90,22 @@ test("ogn-179-298 Acceptable Losses golden: a stale pick leaves the board untouc
   assert.equal(kernel.getObject("returned-gear").zone, "hand");
 });
 
+test("ogn-179-298 Acceptable Losses: the original body consumes a supplied non-target pick and publishes its kill receipt", () => {
+  const kernel = world()
+    .object("chosen-gear", { owner: "A", types: ["gear"], zone: "board" })
+    .object("other-gear", { owner: "B", types: ["gear"], zone: "board" })
+    .build();
+  kernel.setPicks(pickSpec.id, [kernel.ref("chosen-gear")]);
+  // This proves the supported one-player sub-effect, not the missing loop.
+  const outcome = resolveChainBody(play.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results[0].result.linkedValues.killed, [{ id: "chosen-gear", zoneEntryId: 1 }]);
+  assert.deepEqual(outcome.events.map(event => event.action), ["kill"]);
+  assert.equal(kernel.getObject("chosen-gear").zone, "trash");
+  assert.equal(kernel.getObject("other-gear").zone, "board");
+});
+
 test.todo(
-  "ogn-179-298 Acceptable Losses: 'each player' must resolve as one chooser-scoped kill per " +
-    "player in turn order (355.10.e + 412.1 responsibility) — needs a player iteration / " +
-    "per-chooser pick binding (target.player and pick chooser scoping are unmerged)"
+  "ogn-179-298 Acceptable Losses: per-player iteration must bind each chooser's own gear and kill responsibility at resolution (CR 355.10.e/412.1); ordered zoneSlice/linked sources do not supply that scope."
 );

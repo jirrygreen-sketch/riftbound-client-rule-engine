@@ -11,6 +11,8 @@ const { runInstruction, world } = await import(new URL("effects/testing/index.js
 const resources = (await import(new URL("effects/instructions/effect.resources.js", ENGINE))).default;
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", ENGINE));
 const { translateRestriction } = await import(new URL("programs/play.js", ENGINE));
+const { ProgramRegistry } = await import(new URL("programs/registry.js", ENGINE));
+const { describeActivate } = await import(new URL("programs/activate.js", ENGINE));
 
 const CANONICAL_ID = "card.hash-4f7b6e74a78c84b04922aadf51f0f8ef02368e59a4158f98eec18e4f301f75fe";
 const SOURCE_TEXT =
@@ -115,6 +117,41 @@ test("sfd-189-221 Fire Below the Mountain: the printed resource-use restriction 
     return true;
   });
 });
+
+test("sfd-189-221 Fire Below the Mountain: the production activation adapter cannot build an Add draft", () => {
+  // 430.2 / 430.3: a Reaction Add ability finalizes immediately and may be
+  // activated while costs are paid. chain/engine.ts only admits kind "add"
+  // (and only at reaction speed) for that path, while programs/activate.ts
+  // always emits kind "activated" — after the printed restriction already
+  // fails closed. Both halves are asserted instead of treating the Board
+  // exhaust fixture as activation support.
+  const { judgeReason, ...binding } = program;
+  const registry = new ProgramRegistry([{ ...binding, status: "executable" }]);
+  const kernel = world()
+    .unit("fire-below-the-mountain", { cardId: CANONICAL_ID, types: ["legend"], energy: null, power: null, might: null })
+    .build();
+  assert.throws(
+    () => describeActivate(registry, kernel.getObject("fire-below-the-mountain"), "A", 0),
+    error => {
+      assert.equal(error.code, "judge-required");
+      assert.match(error.message, /use-only-to-play-gear-or-gear-abilities/);
+      return true;
+    }
+  );
+  // Even with the restriction satisfied, the adapter emits an activated draft;
+  // there is no merged producer that turns this program into kind "add".
+  assert.equal(callActivateWithNoRestriction(binding), "activated");
+});
+
+/** Mirrors programs/activate.ts's draft kind for this ability without its restriction. */
+function callActivateWithNoRestriction(binding) {
+  const { restriction: _restriction, ...unrestricted } = binding.abilities[0];
+  const registry = new ProgramRegistry([{ ...binding, abilities: [unrestricted], status: "executable" }]);
+  const kernel = world()
+    .unit("fire-below-the-mountain", { cardId: CANONICAL_ID, types: ["legend"], energy: null, power: null, might: null })
+    .build();
+  return describeActivate(registry, kernel.getObject("fire-below-the-mountain"), "A", 0).kind;
+}
 
 test.todo(
   "sfd-189-221 Fire Below the Mountain: represent and spend Universal Power ([A], CR 135.2.e.5 / " +

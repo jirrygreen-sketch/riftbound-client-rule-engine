@@ -25,6 +25,7 @@ test("ogn-231-298 Commander Ledros: identity, status and verbatim sourceText", (
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /routes/);
+  assert.doesNotMatch(program.judgeReason, /转换成 Energy/);
   assert.equal(
     program.sourceText,
     "As you play me, you may kill any number of friendly units as an additional cost. " +

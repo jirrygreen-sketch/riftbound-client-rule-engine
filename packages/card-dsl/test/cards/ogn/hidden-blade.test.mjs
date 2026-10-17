@@ -45,6 +45,9 @@ test("Hidden Blade identity and judge-required status match the printing", () =>
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("811.1.d.2"), true);
   assert.equal(program.judgeReason.includes("cost.hidden"), true);
+  assert.match(program.judgeReason, /facedown/);
+  assert.match(program.judgeReason, /Hide/);
+  assert.ok(!/RIFT-\d+/.test(program.judgeReason));
   assert.equal(
     program.sourceText,
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +

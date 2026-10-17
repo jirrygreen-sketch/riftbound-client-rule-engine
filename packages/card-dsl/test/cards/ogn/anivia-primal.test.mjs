@@ -112,13 +112,8 @@ test("ogn-148-298 Anivia, Primal: with no locked set the primitive mistargets â€
 });
 
 test.todo(
-  "ogn-148-298 Anivia, Primal: the 'attack-declared' timing point needs an emitter from the " +
-    "combat flow (CR v1.5 383.4.e / 347.2.a); combat/flow.ts still blocks the declaration " +
-    "transaction with combat-start-transaction (P0 contract 7.2 batch 5 after RIFT-119/124); " +
-    "the trigger binding itself is merged (RIFT-257)."
+  "ogn-148-298 Anivia, Primal: emit attack-declared from the combat start/designation transaction (CR 466.2/383.4.e.2); combat-start-transaction still blocks that producer."
 );
 test.todo(
-  "ogn-148-298 Anivia, Primal: 'deal N to all enemy units here' needs an untargeted set-damage " +
-    "form (CR v1.5 355.10.d/355.10.d.1) plus a same-location ('here') set anchor; neither exists in " +
-    "the merged primitives (RIFT-9 effect.damage / target.query workstreams)."
+  "ogn-148-298 Anivia, Primal: effect.damage needs a non-target enemy/here set query at resolution (CR 355.10.d/355.10.d.1), without creating TargetSpecs or became-target events."
 );

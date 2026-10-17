@@ -6,6 +6,7 @@ import program from "../../../dist/cards/ogn/kadregrin-the-infernal.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-398b3826ce23339dadae173c5f1fa39994abe8d2eed99f68d1de01806763d379";
 
@@ -16,7 +17,7 @@ test("ogn-038-298 Kadregrin the Infernal: program validates and is judge-require
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Mighty/);
   assert.match(program.judgeReason, /mightGte/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /当前图层 Might >= 5/);
   assert.match(program.judgeReason, /静默忽略/);
 });
 
@@ -93,7 +94,7 @@ test("ogn-038-298 Kadregrin the Infernal: zero qualifying units draws zero cards
 
 test.todo(
   "Kadregrin: apply the Mighty >=5 predicate to every friendly Board candidate using current layered Might; " +
-    "exclude non-Mighty, enemy and off-Board units before the declared count-driven draw (CR 706-711; RIFT-359)"
+    "exclude non-Mighty, enemy and off-Board units before the declared count-driven draw (CR 706-711)"
 );
 
 test("ogn-038-298 Kadregrin the Infernal: the play trigger registers from the CardProgram through the merged binding", () => {
@@ -165,7 +166,7 @@ test("ogn-038-298 Kadregrin the Infernal: the count expression really reads the 
 });
 
 test("ogn-038-298 Kadregrin the Infernal TODO: the declared Mighty threshold decides the draw count", {
-  todo: "CR 707/708/710: apply the Mighty >= 5 predicate to every friendly Board candidate (RIFT-359)"
+  todo: "CR 707/708/710: apply the Mighty >= 5 predicate to every friendly Board candidate"
 }, () => {
   // The correct expectation: 2 friendly units, only 1 of them Mighty -> draw 1. The merged set
   // query ignores the unknown mightGte key, so this fails today; it must pass once the predicate
@@ -178,4 +179,26 @@ test("ogn-038-298 Kadregrin the Infernal TODO: the declared Mighty threshold dec
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("mighty") });
   const amount = program.abilities[0].body[0].args.amount;
   assert.equal(scoped.evaluate(amount), 1);
+});
+
+test("Kadregrin TODO: the original body draws only for friendly Mighty units on the Board", {
+  todo: "707/708/710: consume mightGte in the set query before effect.draw"
+}, () => {
+  const f = fixture({ cards: [
+    { id: "kadregrin", cardId: CARD_ID, types: ["unit"], might: 6 },
+    { id: "below-threshold", types: ["unit"], might: 4 },
+    { id: "enemy-mighty", owner: "B", types: ["unit"], might: 8 },
+    { id: "off-board-mighty", types: ["unit"], might: 5 }
+  ] });
+  for (const id of ["kadregrin", "below-threshold", "enemy-mighty"]) {
+    const object = f.kernel.getObject(id);
+    f.engine.commit({ type: "move-zone", object: object.ref, to: "base", location: { type: "base", player: object.owner } });
+  }
+  f.engine.advance();
+  f.engine.enqueue({ id: "kadregrin-body", kind: "triggered", controller: "A", source: f.kernel.getObject("kadregrin"), body: program.abilities[0].body });
+  f.engine.advance();
+  resolveAll(f.engine);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "card-drawn").length, 1);
+  assert.deepEqual(f.kernel.zone("A", "hand").map(ref => ref.id), ["off-board-mighty", "A:deck:1"]);
+  assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id), ["A:deck:2", "A:deck:3", "A:deck:4"]);
 });

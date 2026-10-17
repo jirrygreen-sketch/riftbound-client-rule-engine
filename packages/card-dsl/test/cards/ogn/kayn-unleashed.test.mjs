@@ -27,6 +27,8 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.match(program.judgeReason, /continuous\.movement/);
   assert.match(program.judgeReason, /moved twice/);
   assert.match(program.judgeReason, /permission\.routes/);
+  assert.match(program.judgeReason, /467\.2\.c\.10/);
+  assert.match(program.judgeReason, /moves-this-turn/);
   assert.equal(
     program.sourceText,
     "[Ganking] (I can move from battlefield to battlefield.)\n" +
@@ -82,7 +84,7 @@ test.todo(
   "Kayn Ganking: adapt Ganking's string permission to the movement rule-query permission.routes array, then execute a battlefield-to-battlefield Standard Move (810.1.b, 144.4.c)"
 );
 test.todo(
-  "Kayn: replacement matching counts this incarnation's Move events in the current turn before preventing damage (375, 438.7; RIFT-359)"
+  "Kayn: replacement matching counts this incarnation's Move events in the current turn before preventing damage (375, 438.7)"
 );
 
 test("Kayn: the card's Ganking static ability really registers through the merged binding", () => {
@@ -141,16 +143,59 @@ test("Kayn TODO: Ganking must open a battlefield-to-battlefield Standard Move (8
 });
 
 test("Kayn TODO: the declared move-count condition counts objects instead of this incarnation's moves", {
-  todo: "375 / 438.7: count this incarnation's Move actions in the current turn when matching the replacement (RIFT-359)"
+  todo: "375 / 438.7: count this incarnation's Move actions in the current turn when matching the replacement"
 }, () => {
-  // Two board objects and zero moves must satisfy "moved twice" = false. The merged
-  // replacement-condition path evaluates the count as a live object-set query, so the
-  // authored condition is true here; the correct expectation stays TODO rather than being
-  // written as the expected behaviour.
+  // This standalone reference-kernel check bypasses the production selector adapter.
+  // It currently counts the two objects; the real binder below resolves object:self
+  // to the host, but still cannot read Move history. Keep both boundaries explicit.
   const kernel = world()
     .unit("kayn", { cardId: CANONICAL, types: ["unit"], might: 5 })
     .unit("other", { owner: "B", types: ["unit"], might: 3 })
     .build();
   assert.equal(kernel.history({ scope: "turn", action: "move-location" }), 0);
   assert.equal(kernel.test(replacement.condition), false);
+});
+
+test("Kayn supported replacement boundary: zero moves cannot prevent damage through the real binder", () => {
+  const f = fixture({ cards: [{ id: "kayn", cardId: CANONICAL, types: ["unit"], might: 5 }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("kayn"), to: "base", location: { type: "base", player: "A" } });
+  f.engine.advance();
+  const source = f.kernel.getObject("kayn");
+  assert.equal(f.kernel.history({ scope: "turn", action: "move-location", object: source.ref }), 0);
+  const handle = createEngineStaticBinder(f.engine).bindReplacement(replacement, source);
+  try {
+    const result = f.engine.commit({ type: "damage", source: f.kernel.ref("enemy"), target: source.ref, amount: 2 });
+    assert.equal(result.status, "done");
+    assert.equal(f.kernel.getObject("kayn").damage, 2);
+  } finally {
+    handle.unbind();
+  }
+});
+
+test("Kayn TODO: two actual effect Moves enable the damage immunity condition", {
+  todo: "Read the source incarnation's Move history when evaluating the replacement condition"
+}, () => {
+  const f = fixture({ cards: [{ id: "kayn", cardId: CANONICAL, types: ["unit"], might: 5 }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("kayn"), to: "base", location: { type: "base", player: "A" } });
+  f.engine.advance();
+  const source = f.kernel.getObject("kayn");
+  const handle = createEngineStaticBinder(f.engine).bindReplacement(replacement, source);
+  try {
+    f.engine.enqueue({ id: "move-kayn-twice", kind: "triggered", controller: "A", source, body: [
+      { id: "first-move", op: "effect.move", args: { to: { kind: "constant", value: { type: "battlefield", id: "battlefield-1" } } } },
+      { id: "second-move", op: "effect.move", args: { to: { kind: "constant", value: { type: "battlefield", id: "battlefield-2" } } } }
+    ] });
+    f.engine.advance();
+    let passes = 0;
+    while (f.engine.items.length) {
+      assert.ok(++passes <= 50, "Move chain must terminate");
+      f.engine.pass(f.engine.priority);
+    }
+    assert.equal(f.kernel.history({ scope: "turn", action: "move-location", object: source.ref }), 2);
+    assert.deepEqual(f.kernel.getObject("kayn").location, { type: "battlefield", id: "battlefield-2" });
+    f.engine.commit({ type: "damage", source: f.kernel.ref("enemy"), target: source.ref, amount: 2 });
+    assert.equal(f.kernel.getObject("kayn").damage, 0);
+  } finally {
+    handle.unbind();
+  }
 });

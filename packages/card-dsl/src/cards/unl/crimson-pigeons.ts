@@ -15,10 +15,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “with another unit” 需要按“攻击者集合中还有另一个由你控制的单位”来求值：本卡用
  *   count + sameLocationAs/exclude 的锚点记录该条件（355.10.d：此类按特征程序化选出的集合不取目标）。
  *
- * Status: judge-required. Current source audit:
- * Static Might binding and sameLocationAs/exclude queries are present.
- * Both the host and another friendly unit must be attackers at the same
- * battlefield; the CardProgram snapshot/layer path still lacks that binding.
+ * Status: judge-required. Re-checked 2026-10-17 against merged source:
+ * the static continuous.might ability binds and evaluates through the production
+ * binder + arithmetic layer (probed), and the interpreter query layer consumes
+ * sameLocationAs/exclude anchors. The blockers are inside the condition itself:
+ * (1) layers/filter.ts (the matcher the static binder and layer engine use) does
+ * not read combatRole, so a defender satisfies `combatRole: attacker` — probed
+ * true; (2) there is no production Attacker designation producer: ObjectSnapshot
+ * carries combatRole and the reference test kernel accepts it, but turn/combat
+ * flow never assigns it, so the host half of the condition has no live data;
+ * (3) layers/filter.ts receives no relative-player resolution — `controller: "controller"`
+ * in a static filter is compared literally, so the "another unit you control"
+ * set is not scoped to the host's controller.
  */
 const abilities: Ability[] = [
   {
@@ -68,7 +76,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 CardProgram 路径的 Attacker designation 快照接线（CR 466.2.c.3/807.1.d）：combat/derived-might.ts 的 canonical 攻击者推导尚未提供给本卡 static 条件。layers/filter.ts 仍忽略 combatRole，且 controller:controller 未解析为能力控制者；sameLocationAs/exclude 锚点本身已可查询。",
+    "仍缺三处（2026-10-17 复核，均不近似实现）：" +
+    "(1) 攻击者身份的匹配消费（CR 466.2.c.3/807.1.d）：layers/filter.ts 的 matchesObjectFilter 不读取 combatRole，" +
+    "静态图层匹配因此把 combatRole: \"attacker\" 当成未知键忽略（实测对 defender 也返回 true）；" +
+    "(2) 攻击者身份的生产来源（CR 740.2.c/466.2.c.3）：ObjectSnapshot 有 combatRole 字段、参考内核也能写入，" +
+    "但 turn/flow.ts 与 combat/flow.ts 从未在攻击/防守指定时赋值，static 条件的 host 半边没有运行期数据；" +
+    "(3) 静态过滤器的相对玩家解析：layers/filter.ts 拿不到能力控制者，filter 里的 controller: \"controller\" 会被字面比较，" +
+    "“another unit you control”不能按宿主控制者限定。" +
+    "已合入并可执行：static continuous.might 的生产绑定与算术图层求值（探针确认可注册），以及解释器 query 层的 sameLocationAs/exclude 锚点。",
   abilities,
   sourceText: "I have +2 :rb_might: while I'm attacking with another unit."
 } satisfies CardProgram;

@@ -7,6 +7,9 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { resolveLocationSelector } from "../../../../engine-core/dist/target/location/ref.js";
+import { queryLocationCandidates } from "../../../../engine-core/dist/target/location/candidates.js";
 
 const CANONICAL_ID =
   "card.hash-8d444ce0c06f1ce192099e9e5c3536c1206c31baf2024d38fce35cd459545efc";
@@ -34,6 +37,11 @@ test("unl-124-219 Isolate: identity, status, judgeReason and verbatim sourceText
   assert.match(program.judgeReason, /740\.2\.a/);
   assert.match(program.judgeReason, /ObjectFilter|movements\.from/);
   assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-90|RIFT-120/);
+  // The reason must name the live gaps: the missing filter anchors and the
+  // linked-location shape that does not read the move receipt's origin.
+  assert.match(program.judgeReason, /sameLocationAs|exclude/);
+  assert.match(program.judgeReason, /linked-location/);
+  assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -149,8 +157,70 @@ test("unl-124-219 Isolate golden: the Draw 1 half runs through the merged primit
   assert.deepEqual(kernel.zone("A", "hand").map((ref) => ref.id), ["top"]);
 });
 
-test.todo(
-  "Isolate: \"if there's an enemy unit alone at that battlefield\" needs the 740.2.a alone predicate (no other " +
-    "friendly unit at the same location) plus extraction of movements.from into a dynamic count filter; " +
-    "compare/count and linked-location are merged, but those candidate-relative and origin-filter adapters remain missing"
-);
+test("unl-124-219 Isolate: the merged target filter has no candidate-relative alone counting", () => {
+  // 740.2.a / 740.1.a: "alone" counts the candidate's own location and friendly
+  // units. programs/filters.ts rejects both merged object-valued anchors, so a
+  // card-declared filter cannot express either half of the predicate.
+  for (const filter of [
+    { type: "unit", zone: "board", controller: "opponent", sameLocationAs: "self" },
+    { type: "unit", zone: "board", controller: "opponent", exclude: "self" }
+  ]) {
+    assert.throws(
+      () => translateObjectFilter(filter),
+      error => {
+        assert.equal(error.name, "ProgramBindingError");
+        assert.match(error.message, /Unsupported filter field (sameLocationAs|exclude)/);
+        return true;
+      }
+    );
+  }
+  // The card keeps its printed gate absent rather than asserting an always-true
+  // condition that would draw even when the battlefield is not cleared.
+  assert.equal(drawInstruction.condition, undefined);
+});
+
+test("unl-124-219 Isolate: the move receipt records the real origin but linked-location cannot read it", () => {
+  // effect.move links { count, objects, movements: [{ object, from, to }] }. The
+  // linked-location selector reads only location/to/destination/there keys, so the
+  // departure site is present in the receipt but unreachable from a condition.
+  const kernel = world()
+    .unit("enemy", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf1" } })
+    .player("B")
+    .build();
+  kernel.setTargets(targetSpec.id, [kernel.ref("enemy")]);
+  const outcome = resolveChainBody([executableMove], kernel);
+  const receipt = outcome.linkedValues["isolate.move-enemy-unit.moved"];
+  assert.deepEqual(receipt.movements, [
+    {
+      object: { id: "enemy", zoneEntryId: 1 },
+      from: { type: "battlefield", id: "bf1" },
+      to: { type: "base", player: "B" }
+    }
+  ]);
+
+  assert.throws(
+    () => resolveLocationSelector(
+      { kind: "linked-location", instructionId: "isolate.move-enemy-unit", key: "moved" },
+      {
+        context: kernel,
+        linked: (id, key) => outcome.linkedValues[key === undefined ? id : `${id}.${key}`]
+      }
+    ),
+    /Linked value has no runtime location/
+  );
+});
+
+test("unl-124-219 Isolate: target.location enumerates every battlefield seen by the context", () => {
+  // 355.10.b / 449.2: the merged location machinery does enumerate the board's
+  // battlefields, which is what a dynamic "that battlefield" filter would need to
+  // compare against; the missing half is feeding the receipt's origin into it.
+  const kernel = world()
+    .unit("enemy", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf1" } })
+    .unit("other", { owner: "A", controller: "A", location: { type: "battlefield", id: "bf2" } })
+    .build();
+  const candidates = queryLocationCandidates(kernel, { type: "battlefield" });
+  assert.deepEqual(candidates, [
+    { type: "battlefield", id: "bf1" },
+    { type: "battlefield", id: "bf2" }
+  ]);
+});

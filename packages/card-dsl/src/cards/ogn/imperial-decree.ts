@@ -18,11 +18,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   positive valid damage, 418.1.e / 418.1.e.1), and "this turn" is the
  *   duration (317.2.c: "3d. All 'this turn' effects expire simultaneously.").
  * - The ResolveContext side is expressible: ctx.registerDelayedTrigger(spec,
- *   body) exists in the frozen contract (3.6) and the reference kernel records
- *   delayed triggers. What is missing is a *card-facing instruction* that
- *   registers the delayed trigger: the instruction registry has no
- *   trigger.delayed / trigger.state op, so no card program can subscribe to damage-dealt for the
- *   rest of the turn. Writing a triggered ability on the card would be wrong:
+ *   body) exists in the frozen contract (3.6), and the chain adapter registers
+ *   a delayed trigger. What is missing is a *card-facing instruction* that maps
+ *   duration and event-object binding into that adapter: the instruction registry
+ *   has no trigger.delayed / trigger.state op, so no card program can subscribe
+ *   to damage-dealt for the rest of the turn. Writing a triggered ability on the card would be wrong:
  *   a card's own triggered ability is a passive ability that exists while the
  *   card is on the board, not a one-shot delayed ability created by its
  *   resolution (391.1 / 393: Delayed Abilities are not associated with Units

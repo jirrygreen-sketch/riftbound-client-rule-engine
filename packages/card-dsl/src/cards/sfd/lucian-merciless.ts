@@ -14,7 +14,10 @@ import type { CardProgram } from "../../ir/index.js";
  * - 383.4.c.2.a applies "I conquer" to each participating Unit. TurnFlow's
  *   player/battlefield conquer emission has no Unit object for the self filter.
  *   The per-turn trigger registration and effect.ready body are merged.
- * Current status: judge-required; isolated ready execution is partial evidence.
+ * Current status: judge-required; the trigger registers through programs/
+ * triggers.ts but the conquer wave never carries Lucian as the event object, so
+ * the pattern can never match a real scoring event. Isolated ready execution is
+ * partial evidence only.
  */
 const lucianMerciless = {
   canonicalCardId: "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef",
@@ -23,11 +26,14 @@ const lucianMerciless = {
   judgeReason:
     "Weaponmaster expansion and cost.modify/cost.pay are merged, but the Equipment source branch still " +
     "blocks with judge-required: no authoritative Equip-cost binding (821.1.c.2), including the original " +
-    "[A]/[C] symbol provenance needed by reduce-equip-cost (821.1.c.3). The conquer producer in turn/flow.ts " +
-    "emits player/details.battlefieldId without participating Unit objects (383.4.c.2.a); programs/filters.ts " +
-    "translates role:self to Lucian's objectId, which has no emitted object to match. effect.ready and " +
+    "[A]/[C] symbol provenance needed by reduce-equip-cost (821.1.c.3), and chain/interpreter-adapter.ts " +
+    "does not decode the constant modifier Exprs in Weaponmaster's own body " +
+    "(TypeError: Invalid cost.modify modifier argument: value). " +
+    "The conquer producer in turn/flow.ts emits player/details.battlefieldId without participating Unit objects " +
+    "(383.4.c.2.a); programs/filters.ts translates role:self to Lucian's objectId, which has no emitted object to match. " +
+    "effect.ready and " +
     "once-per-turn registration exist, but neither isolated execution nor registration proves a real conquer trigger. " +
-    "Weaponmaster's original body also needs chain/interpreter-adapter.ts to decode constant modifier Exprs for cost.modify.",
+    "Registration itself is not the gap: programs/triggers.ts produces the conquer and card-played registrations.",
   abilities: [
     { kind: "keyword", keyword: "weaponmaster" },
     {

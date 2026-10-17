@@ -23,45 +23,22 @@ import type { CardProgram } from "../../ir/index.js";
  *   `killed` receipt, and effect.buff is merged.
  * - "buff me" places the single Buff counter of 702.2.a/702.3; the parenthetical
  *   is reminder text for 702/703 (+1 Might while buffed), not an extra effect.
- *   The target is anchored to the ability host with the contract 3.6 symbolic
- *   "self" selector through the merged `object` filter anchor (the merged
- *   sfd/rumble-hotheaded and sett-brawler shape).
-
- * Status: judge-required. The conquer timing point is emitted by the Score
- * wave (turn/flow.ts Score trigger wave), both instruction primitives are
- * merged and executed by the golden test, and the merged CardProgram trigger
- * binding is available (RIFT-257, programs/triggers.ts, whose
- * translateTriggerFilter resolves this filter's nested
- * `{ filter: { source: 'self' } }` spelling to `{ object: { objectId: host } }`
- * and whose output passes assertTriggerSpec). The remaining gap is the 383.4.c.1 rule
- * itself: the conquered emission carries only
- * `{ player, details: { battlefieldId } }` with no participant object, so no
- * merged EventPattern field can express "this unit was present at the
- * conquering battlefield". A `player: 'self'` pattern would award the trigger
- * to every Adaptatron the controller owns, not the one that conquered, and is
- * rejected as an approximation of 383.4.c.1. A proof test registers the
- * translated filter through validateTriggerSpec and shows that a real
- * conquered emission does not match it. Not approximated — the "if you do"
- * gate is written as a real kill-receipt condition rather than an
- * unconditional buff.
+ *   The target declares the contract 3.6 symbolic "self" through an `object`
+ *   filter anchor; production target translation still rejects that field.
+ *
+ * Status: judge-required. The conquer wave supplies the scoring player and
+ * battlefieldId, but no participant object or dynamic host-location predicate
+ * (383.4.c.2.a). The body also cannot bind its object:self target filter, and
+ * the chain rejects targets nested inside choice.optional before Finalize.
+ * Golden tests exercise the supported body only; they do not bypass these
+ * production trigger and target lifecycle gaps.
  */
 export default {
   canonicalCardId: "card.hash-efa44994f07966ad8095ddd1f56f9c20b1246888b3f037a54a196793f2cb0f4b",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "触发绑定已合入（programs/triggers.ts 经 translateTriggerFilter 把本卡的" +
-    "{ filter: { source: 'self' } } 拼写翻译成 object:{objectId:宿主}，并通过 assertTriggerSpec），" +
-    "效果本体（choice.optional + effect.kill 写 killed 回执 + effect.buff self 锚点）也已合入并有 golden 执行测试。" +
-    "仍缺 383.4.c.1 的自身范围条件：conquered 发射（turn/flow.ts Score 波）载荷只有 { player, details:{ battlefieldId } }、" +
-    "没有参战单位 object，EventPattern 的封闭字段集（event/object/source/target/player/details…）" +
-    "没有任何字段能表达「本单位在征服战场在场」；player:'self' 只能近似成『控制者的每个征服』，" +
-    "会把不相干单位的 Adaptatron 也挂上触发，属近似实现，不采用。" +
-    "证明测试：translateTriggerFilter 产出的 pattern 通过 validateTriggerSpec，" +
-    "但对真实 conquered 发射 matchesTriggerEvent 返回 false。不近似实现。" +
-    "「you may kill a gear. If you do, buff me.」本体用已合入的 choice.optional + effect.kill（写 killed 回执）+ effect.buff（self 锚点）表达，" +
-    "其中「If you do」按 359.3.e.14.b 直接引用该消灭动作、以 killed 回执判定，golden 已覆盖接受/拒绝/死亡被替代三条路径；" +
-    "触发注册路径已合入，但仍缺事件载荷中的自身范围条件。不近似实现。",
+    "仍缺自身征服范围（CR 383.4.c.1/383.4.c.2.a）：turn/flow.ts 的 conquer 波只有 player 与 details.battlefieldId，没有参战单位 object；translateTriggerFilter 的 self 锚点不能关联宿主所在战场与这次征服，player:self 会误触发其它战场的副本。另外 programs/filters.ts 的 translateObjectFilter 拒绝 buff-me 的 object:self 目标锚点；嵌套 choice.optional 内的目标尚无 Finalize 生命周期（chain/engine.ts 只收集顶层目标），不能让解释器在结算时补选目标。",
   abilities: [
     {
       kind: "triggered",

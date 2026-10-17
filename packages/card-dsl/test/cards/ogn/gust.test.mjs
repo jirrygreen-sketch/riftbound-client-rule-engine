@@ -32,6 +32,8 @@ test("ogn-169-298 Gust: program passes validateCardProgram", () => {
   assert.match(program.judgeReason, /Might/);
   assert.match(program.judgeReason, /mightLte/);
   assert.match(program.judgeReason, /TargetRequirement/);
+  assert.match(program.judgeReason, /programs\/filters\.ts/);
+  assert.ok(!/RIFT-\d+/.test(program.judgeReason));
   assert.equal(
     program.sourceText,
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +

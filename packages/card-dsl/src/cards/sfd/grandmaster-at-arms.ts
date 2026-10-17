@@ -41,9 +41,13 @@ import type { Ability, CardProgram, ObjectFilter } from "../../ir/index.js";
  *   rather than picks (355.7).
  *
  * Current status: judge-required. Both cost/attach paths and the production
- * createProgramBinding machinery are merged. Legend Zone (107.4.a–d) still
- * has no ZoneId or source/payment binding. The Board/Base fixture verifies
- * only the supported subpaths, not activation from the Legend's actual zone.
+ * createProgramBinding machinery are merged (describeActivate produces both
+ * drafts with their locked target specs). Legend Zone (107.4.a–d) still has no
+ * ZoneId, and cost/payment.ts only accepts an exhaust payment on a ready
+ * controlled Board or Rune-Zone object (415.4/415.5), so the printed
+ * ":rb_exhaust:" cannot be paid from the Legend's real zone. The Board/Base
+ * fixture verifies only the supported subpaths, not activation from the
+ * Legend's actual zone.
  */
 
 /** Shared TargetSpec ids; each ability declares its own group because targets are ability-local. */
@@ -97,7 +101,8 @@ const grandmasterAtArms = {
   judgeReason:
     "两条能力的 Finalize 费用、Equipment/Unit 目标与 effect.attach 均已合入；createProgramBinding " +
     "已接入 programs/activate.ts，无需再等待启动注册机制。当前缺口是 Legend Zone（107.4.a–d，含 107.4.c）：" +
-    "ZoneId 没有该区域，横置费用与传奇来源活动区域尚无真实绑定。golden 的 board/Base 来源仅验证费用和附着子路径，" +
+    "ZoneId 没有该区域，且 cost/payment.ts 只接受 board/rune-zone 上的横置对象（415.4/415.5），" +
+    "传奇无法在真实区域支付 :rb_exhaust:，也没有对应的来源活动区域绑定。golden 的 board/Base 来源仅验证费用和附着子路径，" +
     "不能作为传奇在真实区域可启动的证据。",
   abilities: [
     attachAbility(

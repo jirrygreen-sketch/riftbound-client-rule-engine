@@ -13,6 +13,9 @@ import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 
 const CANONICAL_ID =
   "card.hash-f11b51df9013e0151586a2443eb2342dba8ad5f6aa01ea4e5f5bb83f35e722df";
@@ -88,6 +91,7 @@ test("unl-027-219 Inviolus Vox: identity, status, judgeReason and verbatim sourc
   // the friendly-unit controller binding.
   assert.match(program.judgeReason, /conquer/);
   assert.match(program.judgeReason, /objectId|征服单位对象/);
+  assert.match(program.judgeReason, /battlefieldId/);
   assert.doesNotMatch(program.judgeReason, /RIFT-90|RIFT-120|RIFT-257|RIFT-258/);
 });
 
@@ -218,10 +222,45 @@ test("unl-027-219 Inviolus Vox golden: a locked friendly unit that left the Boar
   assert.equal(ctx.continuousEffects.length, 0);
 });
 
-test.todo(
-  "unl-027-219 Inviolus Vox: fire 'When I conquer' from the real scoring flow — turn/flow.ts emits conquer" +
-    " with player/details only, so the {source: \"self\"} subscription has no event object to match; the conquered alias is already valid (CR 383.4.c.2.a)"
-);
+test("unl-027-219 Inviolus Vox: the program registers its conquer subscription but the Score wave never carries the unit", () => {
+  // 383.4.c.2.a: the Conquer Effect fires for the unit that conquered, so the
+  // translated {event: "conquered", object: {objectId}} filter needs an event
+  // object. turn/flow.ts publishes the Score wave with player/details only, so the
+  // production registration is accepted but never matches; the same registration
+  // fires as soon as an event carries the object, which isolates the missing
+  // payload instead of the trigger spelling.
+  const kernel = world()
+    .unit("vox", { cardId: CANONICAL_ID, types: ["unit"], might: 8, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const source = kernel.getObject("vox");
+  // The registry guard keeps judge-required programs out of production; the
+  // executable copy only drives the same trigger registration code path.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const ids = binding.registerProgramTriggers(engine, source);
+  assert.equal(ids.length, 1);
+
+  const fired = [];
+  engine.pipeline.onTrigger = snapshot => fired.push(snapshot);
+  engine.pipeline.emit({ timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" } });
+  assert.equal(fired.length, 0);
+
+  // The subscription itself is correct: the same wave with the conquering unit
+  // attached matches it.
+  engine.pipeline.emit({ timingPoint: "conquer", player: "A", object: source, details: { battlefieldId: "bf-1" } });
+  assert.equal(fired.length, 1);
+});
 
 test("unl-027-219 Inviolus Vox: the conquered alias passes the production trigger schema", () => {
   const translated = translateTriggerFilter(conquerTrigger.trigger.filter, "vox", conquerTrigger.trigger.at);

@@ -34,7 +34,7 @@ test("ogn-010-298 Legion Rearguard: judgeReason names the missing wiring and its
   assert.match(program.judgeReason, /Accelerate/);
   assert.match(program.judgeReason, /optionalAdditional/);
   assert.match(program.judgeReason, /805\.1\.b\.1/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /805\.2\.b/);
   assert.match(program.judgeReason, /describePlay/);
   assert.match(program.judgeReason, /accelerate\.cost/);
 });

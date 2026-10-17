@@ -78,7 +78,7 @@ test.todo(
 test.todo(
   "The Waters' Wage: 'play … exhausted' / 'three ready Gold' need a per-token entry-state override " +
     "(CR 143.4 / 185.2.d); effect.token has no entry override, and replacement.enter covers permanent entry " +
-    "orientation only (RIFT-260)"
+    "orientation only"
 );
 
 test.todo(

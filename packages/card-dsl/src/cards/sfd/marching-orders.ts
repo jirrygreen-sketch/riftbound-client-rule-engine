@@ -19,7 +19,8 @@ import type { CardProgram } from "../../ir/index.js";
  * - "[Repeat] :rb_energy_3:" (820.1.c) is an Optional Additional Cost. The
  *   Repeat KeywordDef is merged, but expandProgram passes only keyword/value/
  *   host, not its printed cost. programs/play.ts rejects this additional-cost
- *   CostSpec, so no paid-instance count reaches resolution.
+ *   CostSpec (translateCost: "Unsupported play cost field keyword"), so no
+ *   paid-instance count reaches resolution.
  * - "Choose a friendly unit anywhere and an enemy unit at a battlefield": the
  *   spell's controller chooses both units, so both are Targets (355.7 /
  *   355.9.a.1 / 355.9.b) locked at Finalize (355.5). "Anywhere" adds no
@@ -37,8 +38,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   read amount is not a positive number, and no fixed amount is authored here.
  *
  * Current status: judge-required. Damage, TargetSpec.location and Action speed
- * are supported; the original damage body is executed without removing targets.
- * Repeat's printed-cost/Finalize/paid-instance binding is still missing.
+ * are supported; the golden executes the card's own damage body through the
+ * production adapter. Repeat's printed-cost/Finalize/paid-instance binding is
+ * still missing.
  */
 const marchingOrders = {
   canonicalCardId: "card.hash-7665f836ecbe39043d8dd42f110ad82560fe857373dbf87d7348d347e764617c",
@@ -47,10 +49,12 @@ const marchingOrders = {
   judgeReason:
     "[Repeat] :rb_energy_3:（820.1.c）仍缺卡牌侧 Finalize 接线：Repeat KeywordDef 已合入，" +
     "但 programs/keywords.ts 的 expandProgram 只传 keyword/value/host，未传印刷 Repeat cost；" +
-    "本卡 CostSpec 的 additional-cost 也被 programs/play.ts 的 translateCost 拒绝。" +
+    "本卡 CostSpec 的 additional-cost 也被 programs/play.ts 的 translateCost 拒绝" +
+    "（实测 judge-required: Unsupported play cost field keyword）；" +
     "尚不能收取可选追加费用、记录已付实例并按 820.1.d / 820.2.a 额外执行与重选。" +
-    "伤害正文的两个 TargetSpec、418.6.b.3 的单位来源与结算时 Might 均已合入，golden 已真实执行。" +
-    "[Action] 速度已可推导，但上述费用缺口仍阻断整卡打出。",
+    "伤害正文的两个 TargetSpec、418.6.b.3 的单位来源、355.9.b 的战场限制与结算时 Might 均已合入，" +
+    "golden 已用生产链适配器真实执行（含 355.10.b 与失效目标）。" +
+    "[Action] 速度可由 abilitySpeed 推导，但上述费用缺口仍阻断整卡打出。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

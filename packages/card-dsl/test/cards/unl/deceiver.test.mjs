@@ -4,6 +4,10 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/deceiver.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { translateInstructionTargets, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-6ea8e63a198fef36cfbb65b0e39e0cf0f4206a9abd810a75bf107bcaad25da29";
@@ -33,6 +37,11 @@ test("unl-199-219 Deceiver: identity, status, judgeReason and verbatim sourceTex
   assert.match(program.judgeReason, /TriggeredAbility|Finalize/);
   assert.match(program.judgeReason, /ready|there/);
   assert.match(program.judgeReason, /Temporary/);
+  // The registered event vocabulary and the four live gaps must be named.
+  assert.match(program.judgeReason, /conquered/);
+  assert.match(program.judgeReason, /held/);
+  assert.match(program.judgeReason, /entry override/);
+  assert.match(program.judgeReason, /began-start|beginning-start/);
 });
 
 test("unl-199-219 Deceiver: 'conquer or hold' is two named triggers with the §3.9 may wrapper", () => {
@@ -40,12 +49,14 @@ test("unl-199-219 Deceiver: 'conquer or hold' is two named triggers with the §3
   // 383.4.c.2.b: a Conquer Effect that references the player conquering.
   assert.equal(conquer.kind, "triggered");
   assert.equal(conquer.trigger.at, "conquer");
-  assert.deepEqual(conquer.trigger.filter, { event: "conquer", player: "self" });
+  // TriggerSpec's EVENT_PATTERN_TYPES spells the conquer timing "conquered";
+  // events/pipeline-match.ts maps the conquer timing to that event name.
+  assert.deepEqual(conquer.trigger.filter, { event: "conquered", player: "self" });
   assert.equal(conquer.optional, true);
   // 383.4.d.2.b: a Hold Effect that references the player holding.
   assert.equal(hold.kind, "triggered");
   assert.equal(hold.trigger.at, "hold");
-  assert.deepEqual(hold.trigger.filter, { event: "hold", player: "self" });
+  assert.deepEqual(hold.trigger.filter, { event: "held", player: "self" });
   assert.equal(hold.optional, true);
 
   for (const [may, ids] of [
@@ -215,7 +226,56 @@ test.todo(
   "unl-199-219 Deceiver: bind 'there' from the conquer / hold payload — the sealed timing points declare no " +
     "payloadFields and the IR has no event-object battlefield selector"
 );
+test("unl-199-219 Deceiver: the trigger filter now passes assertTriggerSpec, but the body anchor blocks registration", () => {
+  // 383.4.c.2.b / 383.4.d.2.b: the shipped event vocabulary is "conquered"/"held"
+  // (TriggerSpec EVENT_PATTERN_TYPES; pipeline-match EVENT_NAMES) and the
+  // translated trigger filters really do pass validation. The registration
+  // still fails closed one step later: the body's continuous.grant-keyword
+  // target filter uses `object: { linked: … }`, which
+  // programs/filters.ts translateObjectFilter rejects.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const f = fixture({ cards: [{ id: "deceiver", cardId: CANONICAL_ID, types: ["legend"] }] });
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("deceiver"),
+    to: "battlefield",
+    location: { type: "battlefield", id: "battlefield-1" }
+  });
+  f.engine.advance();
+  const source = f.kernel.getObject("deceiver");
+
+  // The fixed trigger filters are accepted by the production translator.
+  assert.deepEqual(
+    program.abilities.map((ability) =>
+      translateTriggerFilter(ability.trigger.filter, source.ref.id, ability.trigger.at)
+    ),
+    [
+      { event: "conquered", player: "self" },
+      { event: "held", player: "self" }
+    ]
+  );
+  // Both bodies still fail their target-filter translation, so neither
+  // trigger reaches the pipeline. Fail closed — not an approximation.
+  for (const ability of program.abilities) {
+    assert.throws(
+      () => translateInstructionTargets(ability.body),
+      (error) => error.name === "ProgramBindingError" && /Unsupported filter field object/.test(error.message)
+    );
+  }
+  assert.throws(
+    () => triggerRegistrations(binding.registry, source),
+    (error) => error.name === "ProgramBindingError" && /Unsupported filter field object/.test(error.message)
+  );
+  assert.throws(
+    () => binding.registerProgramTriggers(f.engine, source),
+    (error) => error.name === "ProgramBindingError" && /Unsupported filter field object/.test(error.message)
+  );
+});
+
 test.todo(
-  "unl-199-219 Deceiver: give the created token [Temporary] (CR 816.1: kill at the start of the controller's " +
-    "Beginning Phase before scoring) — the KeywordDef is merged, but production trigger registration and layer lifetime are pending"
+  "unl-199-219 Deceiver: give the created token [Temporary] so the granted keyword really registers a " +
+    "beginning-start kill (CR 816.1) — continuous.grant-keyword only writes the ability layer, so a keyword " +
+    "granted during resolution never becomes a registered beginning-start trigger"
 );

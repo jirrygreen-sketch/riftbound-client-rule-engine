@@ -7,6 +7,10 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
 
 const CANONICAL = "card.hash-8a8cf37e4136f085e1b3f5e57e7db30e4b4ddadd4f76bcb5a00d613d15514798";
 const SOURCE_TEXT =
@@ -167,6 +171,60 @@ test("unl-142-219 Heedless Resurrection golden: the merged kill primitive perfor
   assert.deepEqual(run.linked.killed, [{ id: "fodder", zoneEntryId: 1 }]);
   assert.equal(kernel.getObject("fodder").zone, "trash");
   assert.equal(kernel.getObject("enemy").zone, "board");
+});
+
+function additionalCostFixture() {
+  const kernel = world().player("A", { energy: 2, power: ["Chaos"] })
+    .hand("resurrection", { types: ["spell"], cardId: CANONICAL, energy: 2, power: ["Chaos"] })
+    .unit("fodder", { might: 2 })
+    .unit("enemy", { owner: "B", controller: "B", might: 3 })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("resurrection") });
+  const [payment] = costAbility.effect.payments;
+  const selected = context.ref("fodder");
+  context.setPicks(payment.choice.id, [selected]);
+  // The cost planner consumes exact runtime options. Supplying those options
+  // exercises the merged payment subsystem; the card-program binder is still missing.
+  const plan = buildCostPlan(context, {
+    id: "heedless-resurrection.cost-test",
+    cost: translateCost(play.cost, CANONICAL, "play"),
+    domains: ["Chaos"],
+    mandatoryAdditional: [{
+      id: costAbility.effect.id,
+      cost: { payments: [{ ...payment, choice: { ...payment.choice, options: [selected] } }] }
+    }]
+  });
+  return { context, plan, selected };
+}
+
+test("unl-142-219 Heedless Resurrection golden: the cost subsystem pays resources then the non-target kill", () => {
+  const { context, plan, selected } = additionalCostFixture();
+  assert.equal(context.getObject("fodder").zone, "board");
+  assert.equal(context.player("A").energy, 2);
+  assert.equal(plan.components[1].stage, "mandatory-additional");
+  const run = runInstruction(costPay, { cost: { kind: "constant", value: plan } }, { world: context });
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.payment.paid, true);
+  assert.deepEqual(run.linked.payment.actions.map(entry => entry.action.type), ["pay", "kill"]);
+  assert.deepEqual(run.linked.payment.actions[0].action.plan, { finalized: true, energy: 2, power: ["Chaos"] });
+  assert.deepEqual(run.linked.payment.actions[1].action.object, selected);
+  assert.equal(context.player("A").energy, 0);
+  assert.equal(context.getObject("fodder").zone, "trash");
+  assert.equal(context.getObject("enemy").zone, "board");
+  assert.deepEqual(run.events.map(event => event.action), ["pay", "kill"]);
+});
+
+test("unl-142-219 Heedless Resurrection golden: a prevented cost kill rolls back the earlier resource payment", () => {
+  const { context, plan } = additionalCostFixture();
+  context.addReplacement(action => action.type === "kill" ? "prevented" : null);
+  const before = context.snapshot();
+  const linksBefore = context.linkedSnapshot();
+  assert.throws(
+    () => runInstruction(costPay, { cost: { kind: "constant", value: plan } }, { world: context }),
+    error => error instanceof CostPlanError && error.reason === "cannot-pay-cost"
+  );
+  assert.deepEqual(context.snapshot(), before);
+  assert.deepEqual(context.linkedSnapshot(), linksBefore);
 });
 
 test("unl-142-219 Heedless Resurrection golden: a trash unit that already left for the Board is mistargeted (359.3.e.6)", () => {

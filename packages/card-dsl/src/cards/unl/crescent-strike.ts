@@ -21,17 +21,29 @@ import type { CardProgram } from "../../ir/index.js";
  *   （除主目标外的该战场所有敌方单位，玩家对这些单位没有选择），不是目标；
  *   "other" 排除主目标，用 exclude 锚点表达。
  *
- * Status: judge-required. Current source audit:
- * effect.damage supports the chosen unit. The other-enemy set must remain
- * non-targeted. Interpreter query anchors and target.location are available,
- * but the authored relative object filter still lacks a program adapter.
+ * Status: judge-required. Re-checked 2026-10-17 against merged source:
+ * effect.damage really deals 4 to the chosen unit, and the interpreter's query
+ * layer implements sameLocationAs/exclude anchors (golden verifies the exact
+ * filter). Two gaps remain: (1) effect.damage still accepts only `target`
+ * (args.target must name a TargetSpec id), so the non-target "each other enemy
+ * unit there" set cannot be executed and must not be re-spelled as a TargetSpec
+ * (355.10.d / 355.11, became-target would fire); (2) programs/filters.ts
+ * translateObjectFilter rejects both sameLocationAs and exclude, and the IR
+ * validator accepts only concrete or relative location *filter* shapes on
+ * TargetSpec.location, so the battlefield+unit group selection cannot be bound
+ * at Finalize (355.11 "there" re-validation).
  */
 const crescentStrike = {
   canonicalCardId: "card.hash-f7adf9f6506b55f668b24e077add9d1252841ee4cbb74fb432903d6cfc842c88",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 effect.damage 的非目标集合消费：CR 355.10.d 的 each other enemy unit there 不能改成 TargetSpec；该原语仍只接受 target。解释器已能消费 sameLocationAs/exclude 查询锚点，target/location 也已有地点选择与重验，但 programs/filters.ts 的 translateObjectFilter 仍不接受本卡 sameLocationAs 目标过滤器，尚缺战场与单位联合选择的 Finalize 绑定及 CR 355.11 的 there 关系重验。",
+    "仍缺两段接线（2026-10-17 复核，均不近似实现）：" +
+    "(1) effect.damage 的非目标集合消费（CR 355.10.d）：该原语仍要求 args.target 指向 TargetSpec（解析时报 \"args.target must be a TargetSpec id string\"），" +
+    "而 \"each other enemy unit there\" 是按特征程序化选出的集合、玩家不做选择，所以不能改成 TargetSpec（会触发 became-target 并错误地产生目标语义）；" +
+    "(2) 战场与单位的联合选择绑定（CR 355.11）：programs/filters.ts 的 translateObjectFilter 仍拒绝本卡目标过滤器里的 sameLocationAs（\"Unsupported filter field sameLocationAs\"），" +
+    "TargetSpec.location 的 IR 校验也只接受 base/battlefield/any 过滤形状（相对选择器报 invalid-location-kind），因此 \"there\" 关系无法在 Finalize/Resolve 绑定与重验。" +
+    "已合入并可执行：effect.damage 对已锁定单位的伤害、解释器 query 层的 sameLocationAs/exclude 锚点（golden 用本卡的真实过滤器验证）。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

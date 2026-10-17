@@ -29,8 +29,9 @@ test("raging-soul: identity, ruleset, status and verbatim sourceText", () => {
   // The card static binding is merged; the current condition/history and
   // designation gaps are recorded against their real consumers.
   assert.match(program.judgeReason, /programs\/statics\.ts 的 bindStaticToLayers/);
-  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /ctx\.history/);
+  assert.match(program.judgeReason, /条件历史查询未接通/);
+  assert.ok(!/RIFT-359/.test(program.judgeReason));
   assert.ok(!/没有任何已合入消费方把卡牌 static 能力注册进图层/.test(program.judgeReason));
   assert.equal(
     program.sourceText,
@@ -173,19 +174,24 @@ test("raging-soul golden: the production static binder registers both grants and
 });
 
 test("raging-soul TODO: the authored condition must be false on an undiscarded turn", {
-  todo: "CR 364.3.a / RIFT-359: evaluate the count condition from ctx.history({ scope: 'turn', action: 'discard' }) instead of a live set query"
+  todo: "CR 364.3.a: evaluate the count condition from ctx.history({ scope: 'turn', action: 'discard' }) instead of a live set query"
 }, () => {
   // 正确规则：本回合没有弃牌时条件为假。原条件的 count 走现场集合查询、相对玩家占位符
   // 无锚点，当前会把宿主自身算进去而判真；该用例记录规则预期，依赖接通后应转正。
   const kernel = world().unit("raging-soul", { owner: "A", controller: "A", might: 4 }).build();
   assert.equal(kernel.history({ scope: "turn", action: "discard" }), 0);
-  const outcome = runAbilityBody([
-    {
-      id: "raging-soul.gate",
-      op: "condition.predicate",
-      args: { condition: { kind: "constant", value: assaultGrant.condition } }
+  // The authored compare/count condition still lacks a history consumer. Use
+  // the merged history instruction to pin the equivalent rule result until
+  // that consumer can evaluate the CardProgram condition itself.
+  const outcome = runAbilityBody([{
+    id: "raging-soul.gate",
+    op: "condition.history",
+    args: {
+      query: { kind: "constant", value: { scope: "turn", action: "discard" } },
+      operator: { kind: "constant", value: "gte" },
+      right: { kind: "constant", value: 1 }
     }
-  ], kernel);
+  }], kernel);
   assert.equal(outcome.status, "executed");
   assert.equal(outcome.linkedValues["raging-soul.gate.value"], false);
 });

@@ -48,7 +48,7 @@ const portalRescue = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺口（复核 2026-10-17，依赖已变化）：cost.pay/cost.modify 原语与 cost/cost-plan.ts 的 " +
+    "缺口（复核 2026-10-17）：cost.pay/cost.modify 原语与 cost/cost-plan.ts 的 " +
     "BaseCostModification { kind: \"ignore-base\", ignore: \"resources\" }（356.1.b/356.1.b.1，356.6 的下限）均已合入，" +
     "golden 已用真实的 cost.modify 原语执行让计划变成 total { energy: 0, power: [] }；但没有任何已合入消费方把本卡的费用描述符变成 " +
     "effect.play 需要的 FinalizedCostPlan：① 链的生产派发（chain/interpreter-adapter.ts 的 primitiveArgs 只解码 effect.* 的 " +

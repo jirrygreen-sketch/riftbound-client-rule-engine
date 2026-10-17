@@ -9,6 +9,8 @@ import mightPrimitive from "../../../../engine-core/dist/effects/instructions/co
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { LayerEngine } from "../../../../engine-core/dist/layers/engine.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-98fc18fcf30d6dd0b192f1c6ea251dd6a2e6d4a439098c533f77e58a2161074f";
 const c = value => ({ kind: "constant", value });
@@ -16,6 +18,7 @@ const c = value => ({ kind: "constant", value });
 test("ogn-151-298 Lee Sin, Centered: program validates and keeps identity", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.deepEqual(result.issues, []);
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
@@ -39,7 +42,7 @@ test("ogn-151-298 Lee Sin, Centered: printed power is null (no printed value) an
 test("ogn-151-298 Lee Sin, Centered: judgeReason cites the card-program binding, the buffed predicate and the location anchor", () => {
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /characteristics/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /optionalAdditional/);
   assert.match(program.judgeReason, /sameLocationAs|锚点/);
   assert.match(program.judgeReason, /exclude/);
   assert.match(program.judgeReason, /accelerate\.cost/);
@@ -78,7 +81,7 @@ test("ogn-151-298 Lee Sin, Centered: Accelerate is declared, the +2 Might aura i
 });
 
 test("ogn-151-298 Lee Sin, Centered: the aura records the printed filter shape for reviewers", () => {
-  // CR 740.1.a (friendly = same controller), 364.3 (other = exclude the host),
+  // CR 740.1.a (friendly = same controller); printed "other" excludes the host,
   // 359.3.f.2 ("my battlefield" = host location), 702/703 (buffed state).
   assert.deepEqual(Object.keys(program.abilities[1].effect.filter), [
     "type",
@@ -120,7 +123,7 @@ test.todo(
   "ogn-151-298 Lee Sin, Centered: 'Other buffed friendly units at my battlefield have +2 Might.' needs a " +
     "host-location ('my battlefield', 359.3.f.2) anchor the layer filter can match — statics.ts resolves " +
     "sameLocationAs to a structured location that layers/filter.ts never matches — and a dynamic 'other' " +
-    "exclusion (364.3), which staticFilter rejects outright."
+    "exclusion (printed "other"), which staticFilter rejects outright."
 );
 
 test("ogn-151-298 Lee Sin, Centered: the characteristics predicate really identifies a Buffed unit (702.2.a/702.3)", () => {
@@ -140,9 +143,9 @@ test("ogn-151-298 Lee Sin, Centered: the characteristics predicate really identi
 });
 
 test("ogn-151-298 Lee Sin, Centered TODO: the aura must apply +2 Might to other buffed friendlies at my battlefield", {
-  todo: "359.3.f.2 / 364.3: the layer filter must follow the host's location and exclude the host itself"
+  todo: "359.3.f.2 / 478.1: the layer filter must follow the host's location and exclude the host itself"
 }, () => {
-  // The correct expectation follows the printed text: the host is excluded ("other", 364.3) and the
+  // The correct expectation follows the printed text: the host is excluded (printed "other") and the
   // aura only reaches buffed friendlies (702.2.a) at the host's battlefield (359.3.f.2). Today the
   // binder folds sameLocationAs into a STRUCTURED location that layers/filter.ts never matches and
   // rejects exclude: "self" outright, so the aura applies nowhere; the current result is not
@@ -164,9 +167,20 @@ test("ogn-151-298 Lee Sin, Centered TODO: the aura must apply +2 Might to other 
   }, { type: "permanent" });
   layers.setObjects(kernel.objects);
   const might = new Map(layers.evaluateAll().map((object) => [object.ref.id, object.might]));
-  // 364.3: the host itself is excluded; 359.3.f.2: only the host's battlefield; 702.2.a: only buffed units.
+  // Printed "other": the host itself is excluded; 359.3.f.2: only the host's battlefield; 702.2.a: only buffed units.
   assert.equal(might.get("lee"), 6);
   assert.equal(might.get("buffed-here"), 4);
   assert.equal(might.get("buffed-elsewhere"), 2);
   assert.equal(might.get("plain-here"), 2);
+});
+
+test("Lee Sin: the actual static binder blocks the aura's unsupported other anchor", () => {
+  const f = fixture({ cards: [{ id: "lee", cardId: CANONICAL, types: ["unit"], might: 6 }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("lee"), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
+  f.engine.advance();
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(program.abilities[1], f.kernel.getObject("lee")),
+    /Static exclude anchor needs a dynamic relative filter/
+  );
+  assert.deepEqual(f.engine.layers.registry.list(), []);
 });

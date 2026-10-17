@@ -23,30 +23,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   是窗口（317.2.c）。
  * - 「gain 2 XP」是已合入的 effect.xp（728–730），获得者是能力控制者（190.6.d）。
  *
- * status = judge-required（已按合入依赖复核，不近似实现）：
- * - 已解决：「Give a friendly unit +3 [M] this turn」由已合入的 continuous.might 原语执行：
- *   它经 ctx.addContinuous 注册 arithmetic 层效果，this-turn 映射为 end-of-turn 期限（317.1.a / 468.7.c），
- *   指令改成用契约 3.6 的 objects 选择器指回自己声明的 TargetSpec（原稿的 layer 参数与 targets-only 形状都不是
- *   已注册原语的 args 形状；layer 由原语固定为 arithmetic，见 effects/instructions/continuous.might.ts）。
- * - 剩余缺口：「When it wins a combat this turn」是延迟触发能力（CR 390/391.2/392，468.3.a 的胜负判定 +
- *   317.2.c 的窗口）：卡牌侧尚无已注册/消费的 trigger.delayed opcode，combat-result 时点也没有
- *   被 emit 进唯一事件管线（combat/flow.ts 的结果事务尚未实现），"it" 所需的触发事件对象绑定（359.3.f.3）同样缺失。
- *   两个子句共享同一目标（359.3.f.3），但触发时点/延迟窗口未落地。
- * effect.buff 是 702 的 Buff 计数器，不是临时 Might 修正，不用它冒充。「gain 2 XP」本身是已合入的 effect.xp。
- * 依赖：trigger.delayed 的卡牌侧注册/消费、combat-result 的唯一事件管线，以及共享目标的事件对象与 this-turn 窗口绑定。
+ * status = judge-required：
+ * - 缺 trigger.delayed 的注册/解释器消费，以及选中单位的 combat-result 事件对象绑定
+ *   和 this-turn 到期窗口（390/391.2/392、359.3.f.3、317.2.c）。
+ * - combat/flow.ts 没有向唯一事件管线发布 468.3 的 combat-result/unitResults。
+ * 已支持的临时 Might 与 XP 子效果保留执行测试，不把 Buff 计数器当作临时 Might。
  */
 const grimResolve = {
   canonicalCardId: "card.hash-f385047d7a4e0de7205afceb0e18bea608003fce1dfced764451413396098017",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) 已解决：「+3 [M] this turn」由已合入的 continuous.might 原语经 ctx.addContinuous 注册 arithmetic 层效果，" +
-    "this-turn 映射为 end-of-turn 期限（317.1.a / 468.7.c）；指令用契约 3.6 的 objects 选择器指回自己声明的 TargetSpec，golden 用链适配器真实执行。" +
-    "(2) 剩余缺口：「When it wins a combat this turn」是延迟触发能力（CR 390/391.2/392，468.3.a 的胜负判定 + 317.2.c 的窗口）：" +
-    "卡牌侧尚无已注册/消费的 trigger.delayed opcode，combat-result 时点也没有被 emit 进唯一事件管线（combat/flow.ts 的结果事务尚未实现），" +
-    "\"it\" 所需的触发事件对象绑定（359.3.f.3）同样缺失；两个子句共享同一目标但触发时点/延迟窗口未落地。" +
-    "effect.buff 是 702 的 Buff 计数器，不是临时 Might 修正，不用它冒充。「gain 2 XP」本身是已合入的 effect.xp。" +
-    "依赖：trigger.delayed 的卡牌侧注册/消费、combat-result 的唯一事件管线，以及共享目标的事件对象与 this-turn 窗口绑定。",
+    "缺 trigger.delayed 的卡牌注册/解释器消费（CR 390/391.2/392），以及同一选中单位的事件对象绑定（359.3.f.3）和 this-turn 到期窗口（317.2.c）。combat/flow.ts 尚未向唯一事件管线发布 combat-result 的 winnerId/loserId/unitResults，无法按 468.3.a/468.3.c 判定「it wins a combat this turn」并触发 gain 2 XP。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

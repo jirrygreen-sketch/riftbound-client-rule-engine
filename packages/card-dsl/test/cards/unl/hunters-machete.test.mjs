@@ -8,6 +8,8 @@ const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { keywordDefinitionsById } = await import(new URL("effects/keywords/registry.generated.js", ENGINE));
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", ENGINE));
 const { world } = await import(new URL("effects/testing/index.js", ENGINE));
+const { createProgramBinding } = await import(new URL("programs/index.js", ENGINE));
+const { buildCostPlan } = await import(new URL("cost/index.js", ENGINE));
 
 const CANONICAL_ID =
   "card.hash-d2580c0f7a993eb938c0e656fc955d9a10d34e35758dbfed9502de2a75828f9d";
@@ -126,7 +128,113 @@ test("unl-096-219 Hunter's Machete golden: the merged Equip body attaches the Ge
   assert.equal(gear.attachedTo?.id, "ally");
 });
 
+test("unl-096-219 Hunter's Machete: the merged program binding describes the 818.1.c activation as an action-speed attach", () => {
+  // 818.1.b / 818.1.b.2 / 818.1.c.2: the printed Equip is an activated ability that
+  // attaches the Gear; programs/activate.ts builds that activation from the card's
+  // own expansion. The card program is fed as an executable copy because the
+  // registry guard (ProgramRegistry.get) refuses judge-required programs.
+  const kernel = world()
+    .object("gear", {
+      cardId: CANONICAL_ID,
+      types: ["gear"],
+      tags: ["Equipment"],
+      zone: "board",
+      location: { type: "base", player: "A" },
+      energy: 3,
+      power: null,
+      might: 2
+    })
+    .unit("ally", { might: 2 })
+    .build();
+  const source = kernel.getObject("gear");
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+
+  const draft = binding.describeActivate(source, "A");
+  assert.equal(draft.kind, "activated");
+  assert.equal(draft.speed, "action");
+  assert.deepEqual(draft.body.map(step => step.op), ["effect.attach"]);
+  assert.deepEqual(draft.body[0].targets, [{
+    id: "equip-target",
+    // 818.1.b.2 / contract 3.6: the card's relative "you control" stays the
+    // symbolic "self" selector; programs/filters.ts is what resolves it against
+    // the ability controller at Finalize.
+    filter: { type: "unit", controller: "self" },
+    min: 1,
+    max: 1,
+    selection: "one"
+  }]);
+  // 818.1.c: the activation's cost is the printed Equip payment, not the Gear's
+  // 3 Energy play cost. The declared component is carried through unchanged.
+  assert.deepEqual(draft.cost.cost, {
+    kind: "activated",
+    payments: [{ kind: "equip", value: { kind: "constant", value: { kind: "source" } } }]
+  });
+});
+
+test("unl-096-219 Hunter's Machete: the production activation cost still fails closed on the equip payment kind", () => {
+  // 818.1.c / 818.1.c.3: paying the printed cost is part of the activation, so the
+  // real cost planner must be able to price it. cost/plan-values.ts reads the
+  // payments array and blocks the unknown kind, which is why this card stays
+  // judge-required instead of approximating Equip as a bare effect.attach.
+  const kernel = world()
+    .object("gear", {
+      cardId: CANONICAL_ID,
+      types: ["gear"],
+      tags: ["Equipment"],
+      zone: "board",
+      location: { type: "base", player: "A" },
+      energy: 3,
+      power: null,
+      might: 2
+    })
+    .unit("ally", { might: 2 })
+    .build();
+  const source = kernel.getObject("gear");
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const draft = binding.describeActivate(source, "A");
+  const context = kernel.clone({ sourceSnapshot: source });
+
+  assert.throws(
+    () => buildCostPlan(context, { id: "cost:hunters-machete", cost: draft.cost.cost }),
+    error => {
+      assert.equal(error.name, "CostPlanError");
+      assert.equal(error.reason, "judge-required");
+      assert.match(error.message, /Unsupported payment kind: equip/);
+      return true;
+    }
+  );
+  // 150.4 / 818.1.c: the printed 3 Energy play cost and the null Power are untouched;
+  // the card's own Equip declaration still carries the printed Body rune.
+  assert.equal(kernel.getObject("gear").energy, 3);
+  assert.equal(kernel.getObject("gear").power, null);
+  assert.equal(equip.value, 1);
+  assert.equal(equip.costDomain, "Body");
+  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
+});
+
+test("unl-096-219 Hunter's Machete: the merged Equip expansion declares no parameters, so the printed rune has no path in", () => {
+  // Contract 3.8 item 3 wants the printed Equip cost carried through params.cost;
+  // effects/keywords/Equip.ts declares a zero-arity expand, so the card's value and
+  // costDomain cannot reach the payment it produces.
+  const definition = keywordDefinitionsById.get("Equip");
+  assert.equal(definition.expand.length, 0);
+  const [activation] = definition.expand({
+    value: equip.value,
+    costDomain: equip.costDomain,
+    host: { canonicalCardId: CANONICAL_ID }
+  });
+  assert.deepEqual(activation.cost.payments, [
+    { kind: "equip", value: { kind: "constant", value: { kind: "source" } } }
+  ]);
+  // The printed Body rune is neither dropped nor turned into an Energy amount.
+  assert.equal(activation.cost.payments[0].value.value.kind, "source");
+});
+
 test.todo(
-  "unl-096-219 Hunter's Machete: wire the card program through keyword expansion into the activation/chain path " +
-    "with a dedicated Equip payment kind so the 818.1.b.2 top-most attach can be exercised end to end"
+  "unl-096-219 Hunter's Machete: pay the printed Body Equip cost end to end (CR 818.1.c.3) once " +
+    "cost/plan-values.ts understands the equip payment kind and Equip.expand consumes params.cost (contract 3.8 item 3)"
 );

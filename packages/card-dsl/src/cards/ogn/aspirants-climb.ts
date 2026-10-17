@@ -16,24 +16,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   is the Victory Score, a game-mode-level value, not a player's points
  *   (470.1 / 473.1 add points; this text changes the threshold instead).
  *
- * Status rationale (contract §3.1, cards README §2): the frozen effect surface
- * still has no operation that changes the Victory Score. The closed GameAction
- * set (contract §3.6) has `score` and `win` but nothing that raises the win
- * threshold; `effect.score` (RIFT-115) awards points, a different event, and
- * `effect.win` declares a winner. The engine does model the value
- * (scoring/setDuelVictoryScoreForEffect, CR 194.3.a, internal-only), but no
- * card-facing opcode, IR kind or validation shape is merged for it, and
- * inventing one here is exactly the approximation the judge-required rule
- * forbids, so `abilities` stays empty. The RIFT-257 static binding is merged
- * (programs/statics.ts), so a static ability could be bound once a
- * victory-score operation exists.
+ * Status: judge-required. Static binding exists, but no card-facing opcode
+ * or layer rule changes Victory Score. setDuelVictoryScoreForEffect changes
+ * independent scoring state; it does not bind, stack, or remove this static
+ * battlefield effect in TurnFlow. abilities stays empty until that rule
+ * operation and lifecycle exist (194.3.a / 485.3.a).
  */
 export default {
   canonicalCardId: "card.hash-fcad8933f7d202b4257c42152d9db853ca4833cb50e75d63d54ab0462883e34d",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "No merged operation changes the Victory Score: the closed GameAction set (contract 3.6) exposes `score` (point gain, CR 470/473.1) and `win` (CR 195/196) but no victory-threshold change, and no instruction file or IR ability kind exists for CR 194.3.a 'card effects may alter the Victory Score'. The engine models the value internally (scoring/setDuelVictoryScoreForEffect) without a card-facing primitive, so the effect is not encoded rather than approximated with point gain. The static binding is merged (programs/statics.ts); the only dependency is a new victory-score primitive (contract change request).",
+    "缺卡牌可绑定的 Victory Score 连续规则修改（CR 194.3.a/485.3.a）：effect.score 只加玩家分数，effect.win 只宣告胜者；没有可增加获胜阈值的 opcode 或 layer rule，也未接入 TurnFlow 的 victoryScore。scoring/setDuelVictoryScoreForEffect 仅修改独立计分状态，不能提供本战场静态效果的叠加和撤销。The static binding is merged; it still needs a Victory Score rule operation and lifecycle integration.",
   sourceText: "Increase the points needed to win the game by 1.",
   abilities: []
 } satisfies CardProgram;

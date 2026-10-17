@@ -27,9 +27,9 @@ test("unl-097-219 Kinkou Initiate: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /143\.2\.a\.1/);
   assert.match(program.judgeReason, /total Might/);
   assert.match(program.judgeReason, /count/);
-  // The reason names the sum-over-set expression and the rejected exclude anchor.
-  assert.match(program.judgeReason, /programs\/triggers\.ts 注册订阅/);
-  assert.match(program.judgeReason, /exclude/);
+  // The reason names the missing sum-over-set expression; exclude is already
+  // consumed by the interpreter query path.
+  assert.match(program.judgeReason, /sum-over-set|reduce/);
 });
 
 test("unl-097-219 Kinkou Initiate: 'when you play me' trigger is the card-played Play Effect", () => {

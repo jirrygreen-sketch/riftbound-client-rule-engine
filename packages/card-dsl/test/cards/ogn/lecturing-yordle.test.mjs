@@ -30,10 +30,7 @@ test("Lecturing Yordle program validates and is judge-required", () => {
   assert.match(program.judgeReason, /815/);
   assert.match(program.judgeReason, /continuous\.combat/);
   assert.match(program.judgeReason, /combat 分配消费方/);
-  // RIFT-257 is now cited as the merged binding that makes the draw half executable,
-  // not as an outstanding dependency.
-  // RIFT-257 is cited as merged evidence for the draw half, not as an outstanding dependency.
-  assert.match(program.judgeReason, /RIFT-257 程序绑定/);
+  assert.match(program.judgeReason, /keywordPriority=proven-none/);
   assert.equal(
     program.sourceText,
     "[Tank] (I must be assigned combat damage first.)\nWhen you play me, draw 1."
@@ -99,7 +96,7 @@ test("Lecturing Yordle golden: an empty Main Deck draws as much as possible with
 test.todo(
   "Lecturing Yordle [Tank] (815): the unit must be assigned lethal damage before any other unit with the same " +
     "controller that does not have Tank, during the Combat Damage step (815.1.b / 815.1.c.2); the Tank KeywordDef " +
-    "(RIFT-264) expands to a static continuous.combat requirement, but continuous.combat has no combat consumer " +
+    "expands to a static continuous.combat requirement, but continuous.combat has no combat consumer " +
     "(combat/base-combat-allocation.ts binds no assignment priority)"
 );
 

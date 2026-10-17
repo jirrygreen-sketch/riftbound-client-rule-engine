@@ -74,6 +74,8 @@ test("unl-021-219 Grim Apothecary: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /play-location-permission/);
   assert.match(program.judgeReason, /actionTimings|canAct/);
   assert.match(program.judgeReason, /Finalize|playLocations/);
+  assert.match(program.judgeReason, /383\.3\.a/);
+  assert.match(program.judgeReason, /mayAtFinalize/);
   assert.doesNotMatch(program.judgeReason, /Structured location/);
   assert.doesNotMatch(program.judgeReason, /RIFT-(84|120|257|264|265|266|267|268)/);
 });
@@ -104,7 +106,8 @@ test("unl-021-219 Grim Apothecary: the card-played Play Effect uses card-played 
   });
   assert.equal(playedTrigger.trigger.condition, undefined);
   assert.equal(playedTrigger.trigger.once, undefined);
-  // 403.1: the printed "you may" is the instruction's optional wrapper.
+  // Preserve the current declaration; CR 383.3.a's leading may still needs
+  // the production Finalize binding recorded in judgeReason.
   assert.equal(playedTrigger.optional, false);
   assert.equal(playedTrigger.body.length, 1);
 });
@@ -240,6 +243,11 @@ test("unl-021-219 Grim Apothecary golden: the merged effect.zone alone performs 
   assert.deepEqual(run.linked, { moved: 1, movedIds: ["ally"], destination: "hand" });
   assert.equal(kernel.getObject("ally").zone, "hand");
 });
+
+test.todo(
+  "unl-021-219 Grim Apothecary: decide the leading 'you may return' during trigger Finalize (CR 383.3.a) — " +
+    "programs/triggers.ts must populate mayAtFinalize instead of leaving only a Resolve-time choice.optional"
+);
 
 test.todo(
   "unl-021-219 Grim Apothecary: consume [Ambush]'s expansion (CR 822.1.b battlefield-with-your-units play " +

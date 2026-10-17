@@ -26,7 +26,8 @@ test("unl-089-219 Jhin, Meticulous Killer: identity, status, judgeReason and ver
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Energy/);
-  assert.match(program.judgeReason, /费用回执入口/);
+  assert.match(program.judgeReason, /finalized payment receipt/);
+  assert.match(program.judgeReason, /累计实际支付 Energy/);
   assert.match(program.judgeReason, /CardProgram → CostPlan/);
   assert.match(program.judgeReason, /有序顶牌 picks/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);

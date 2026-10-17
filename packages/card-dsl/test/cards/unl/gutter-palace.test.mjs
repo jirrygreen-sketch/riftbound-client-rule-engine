@@ -34,7 +34,7 @@ test("unl-088-219 Gutter Palace: identity, ruleset, status, judgeReason and verb
   assert.match(program.judgeReason, /187\.7/);
   assert.match(program.judgeReason, /effect\.token/);
   assert.match(program.judgeReason, /355\.2/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /argsSchema.*LocationExpr/);
   assert.match(program.judgeReason, /LocationSelector|LocationExpr/);
   assert.match(program.judgeReason, /argsSchema|适配/);
   assert.match(program.judgeReason, /PickSpec/);

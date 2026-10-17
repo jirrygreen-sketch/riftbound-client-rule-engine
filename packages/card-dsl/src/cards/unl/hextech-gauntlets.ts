@@ -32,19 +32,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 那 1 点任意域 Power [A] 与减费文本写在文件头与 judgeReason 中；不写会被校验器拒绝的
  * 扩展字段，也不把 [A] 近似成某个具体域。
  *
- * status = judge-required（缺口不近似实现）：
- * - Equip 的**基础**费用与 keywords/Equip.ts 的展开不匹配：已合入的展开只用
- *   payments: [{ kind: "equip" }]，而 cost/plan-values.ts 的 readCost 对未知支付种类直接
- *   blocked（实测 buildCostPlan 抛 CostPlanError reason "judge-required"、message
- *   "Unsupported payment kind: equip"）。
- * - 印刷参数（3 Energy + 1 [A]）与 818.1.c.4 的减费都没有消费方：减费需要
- *   cost.modify / 折扣阶段并读取 Finalize 目标的有效 Might；
- *   docs/plans/survey/unclassified-unl.md 第 68 行就把本卡列为 mappable 且标注需要
- *   cost.modify + condition.value + effect.attach），当前 CostSpec 没有指向"被选目标的
- *   Might"的表达式，也没有 Equip 费用的参数承载。
- * - 卡牌程序 → 关键词展开 → 启动能力 ChainDraft 的接线已合入并由测试验证；不再把它列为缺口。
- * 依赖：Equip 支付种类、原始费用参数与符号来源、cost.modify 的 Equip 减费绑定；
- * 不近似实现，不改 IR 类型。
+ * status = judge-required：
+ * - keywords/Equip.ts 不读取 value，仍生成 kind:equip 的费用，plan-values.ts 不支持此支付种类。
+ * - KeywordAbility 仍只有 keyword/value，缺印刷 3 Energy + 1 [A] 与费用改写的参数承载。
+ * - 818.1.c.4 的折扣尚未把 Finalize 锁定目标的有效 Might 传入 cost.modify 费用管线。
+ * 关键词激活体的 Attach 子效果有执行测试，不据此宣称 Equip 费用可支付。
  */
 const abilities: Ability[] = [
   {
@@ -63,19 +55,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "Equip 费用（含 818.1.c.4 的按被选单位 Might 减费）无可执行路径：(1) 已合入的 " +
-    "keywords/Equip.ts 展开出的启动费用是 payments: [{ kind: \"equip\" }]，cost/plan-values.ts 的 " +
-    "readCost 对未知支付种类直接 blocked（实测 buildCostPlan 抛 CostPlanError reason " +
-    "\"judge-required\"、message \"Unsupported payment kind: equip\"）；" +
-    "(2) 印刷的 3 Energy + 1 任意域 Power [A]（135.2.e.5.a）没有参数承载：契约 3.1 的 KeywordAbility " +
-    "只有 keyword / value 字段，故只以 value: 3 记录印刷能量符号数，[A] 与减费文本写在文件头" +
-    "（不写会被校验器拒绝的扩展字段，也不把 [A] 近似成某个具体域；见回复的契约变更请求）；" +
-    "(3) 818.1.c.4 的减费需要 cost.modify / 356.4 折扣阶段读取 Finalize 锁定目标的有效 Might " +
-    "（143.2.a / 206；docs/plans/survey/unclassified-unl.md 第 68 行所列 cost.modify + " +
-    "condition.value），当前 CostSpec 没有指向被选目标 Might 的表达式，也没有 Equip 费用的" +
-    "参数消费方。" +
-    "不近似实现，不改 IR 类型。依赖：Equip 支付种类、原始费用参数与符号来源、cost.modify 的 Equip 减费绑定，" +
-    "卡牌程序→关键词展开→启动能力 ChainDraft 的接线已合入。",
+    "缺 Equip 费用参数与消费：keywords/Equip.ts 不读取声明的 value，生成的 payments:[{kind:\"equip\"}] 不被 cost/plan-values.ts 接受。KeywordAbility 只有 keyword/value，无法承载印刷的 3 Energy + 1 任意域 Power [A]（CR 135.2.e.5.a）。缺 818.1.c.4 的 Equip 费用改写绑定：需在 Finalize 将锁定目标的有效 Might（143.2.a/206）传入 cost.modify / 356.4 折扣阶段并应用 356.6 的零下限；当前展开与费用参数均未连接该目标查询。",
   abilities,
   sourceText:
     "[Equip] :rb_energy_3::rb_rune_rainbow:. This ability's Energy cost is reduced " +

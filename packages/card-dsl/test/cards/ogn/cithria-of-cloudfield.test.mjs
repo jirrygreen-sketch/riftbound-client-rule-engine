@@ -24,8 +24,8 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // The reason must name the still-current gaps: the unread nested trigger
-  // The event matcher exists; production filter translation still rejects the
+  // The reason must name the still-current gaps: the event matcher exists, but
+  // production filter translation still rejects the
   // dynamic "another object" exclusion, and effect.buff lacks a host selector.
   assert.match(program.judgeReason, /programs\/filters\.ts/);
   assert.match(program.judgeReason, /other|exclude/);

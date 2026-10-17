@@ -31,16 +31,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   units" (contract 3.2 Expr has no sum/reduce form). The retained `count`
  *   subject/filter records that gap and is not an approximation of the 5-Might
  *   total.
- * - The `card-played` trigger and the draw body do bind: programs/filters.ts
- *   translates `{source: "self"}` to the host object id and
- *   programs/triggers.ts registers the subscription, so the merged halves have
- *   real execution evidence. The gate cannot be attached honestly: the
- *   production filter translator (programs/filters.ts) rejects the `exclude`
- *   anchor used by the retained filter ("Unsupported filter field exclude"), so
- *   the count placeholder would silently count the host itself instead of
- *   failing closed.
- * Dependencies: a sum-over-set Expr plus the `exclude` anchor in the program
- * filter translator. Not approximated.
+ * - The `card-played` trigger, `exclude` selector, and draw body do bind:
+ *   programs/filters.ts translates `{source: "self"}` to the host object id,
+ *   programs/triggers.ts registers the subscription, and the interpreter's
+ *   query path consumes `exclude`. The remaining blocker is the missing
+ *   sum-over-set value expression, so the card stays fail-closed.
+ * Dependencies: a sum-over-set Expr (reduce Effective Might over the selected
+ *   units). Not approximated.
  */
 export default {
   canonicalCardId: "card.hash-578f670d7fdae87fd32e34179e331f901a8f108dcb51c337c971db00b3e3c498",
@@ -53,10 +50,9 @@ export default {
     "contract 3.2 的 Expr 需要新增该值表达式。程序里 count 的 subject " +
     "'other-friendly-units-total-might' 只是该缺口的描述性占位，不近似实现印刷语义。" +
     "已合入并可由 golden 真实执行的部分：card-played 触发（programs/filters.ts 把 {source: \"self\"} 归一化为宿主对象、" +
-    "programs/triggers.ts 注册订阅）与 effect.draw 抽 1 张。" +
-    "条件本身还缺消费方：程序绑定侧的 filter 翻译器（engine-core/src/programs/filters.ts）不接受 retain 的 " +
-    "exclude 锚点（报 Unsupported filter field exclude），因此即使换成 count 也会把宿主自己算进去而不是失败关闭。" +
-    "依赖：sum-over-set 表达式与程序绑定 filter 锚点。不近似实现。",
+    "programs/triggers.ts 注册订阅）、解释器查询对 exclude 的消费，以及 effect.draw 抽 1 张。" +
+    "唯一剩余阻塞是 sum-over-set 表达式：仍没有把其他单位的 Effective Might 求和后与 5 比较的 Expr；" +
+    "保留的 count 形状只记录对象集合，不近似印刷总 Might。依赖：sum-over-set / reduce Effective Might 表达式。",
   abilities: [
     {
       kind: "triggered",

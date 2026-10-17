@@ -28,9 +28,17 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  * - 470.1 / 470.2 / 194.1.c："score 1 point" 是通过效果的得分（Gaining a Point），
  *   已合入的 effect.score 正是该动作。
  *
- * status = judge-required：缺打出期 choice.mode、continuous.add-tag 指令和
- * Score 波的参与单位匹配。标签并集可由四个独立 count>0 条件合取表达，
- * golden 经真实 ChainEngine 执行原始得分 body，覆盖并集命中和缺失边界。
+ * status = judge-required（按当前 HEAD 复核；缺口不近似实现）：
+ * - 打出期的 choice.mode 仍被阻断：programs/play.ts 的 validateSurface 对 body 里的
+ *   choice.mode 直接 judgeRequired（"Mode choices require a Finalize/Resolve choice-plan adapter"），
+ *   实测对可执行副本调用 describePlay 即抛该 ProgramBindingError。
+ * - continuous.add-tag 仍没有注册实现：指令注册表无该 opcode，trait 层本身已有
+ *   add-tag/grant-tag 写入（layers/engine.ts 的 applyTrait），但没有 CardProgram → trait 层的
+ *   结算接线（layerFor 只映射 static 的 trait 层，不是本指令）。
+ * - conquer/hold 的参与单位匹配仍缺：Score 波只有 player/details.battlefieldId，
+ *   { source: "self" } 订阅注册成功但命中 0 次（与 Inviolus Vox 同一缺口）。
+ * 标签并集可由四个独立 count>0 条件合取表达，golden 经真实 ChainEngine 执行原始得分 body，
+ * 覆盖并集命中和缺失边界。
  */
 
 /** Each listed tag must occur on at least one friendly Board unit (133.8). */
@@ -160,9 +168,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺三处：(1) As you play 的 choice.mode 在 programs/play.ts 与 chain/engine.ts 被 Finalize/Resolve choice-plan guard 阻断（CR 355.1）。" +
-    "(2) continuous.add-tag 没有 CardProgram 指令注册与 trait 层写入接线（133.8）；trait 层本身已有 add-tag/grant-tag。" +
-    "(3) conquer/hold 的 Score 波只有 player/details.battlefieldId，缺参与征服/固守单位的对象匹配（383.4.c/383.4.d）。",
+    "仍缺三处：(1) As you play 的 choice.mode 在 programs/play.ts 的 validateSurface 被 judgeRequired 阻断" +
+    "（实测 describePlay 抛 \"Mode choices require a Finalize/Resolve choice-plan adapter\"，CR 355.1）。" +
+    "(2) continuous.add-tag 没有 CardProgram 指令注册与 trait 层写入接线（133.8）：注册表无该 opcode；trait 层本身已有 add-tag/grant-tag。" +
+    "(3) conquer/hold 的 Score 波只有 player/details.battlefieldId，缺参与征服/固守单位的对象匹配" +
+    "（383.4.c/383.4.d）——订阅注册成功后实测在流程形状的波上命中 0 次。" +
+    "四个标签的并集判定、effect.score 本体与两条触发订阅形状已有 golden 执行证据。",
   abilities,
   sourceText:
     "As you play me, choose Bird, Cat, Dog, or Poro. I gain that tag.\n" +

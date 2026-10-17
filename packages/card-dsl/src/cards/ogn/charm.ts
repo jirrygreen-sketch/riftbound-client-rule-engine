@@ -12,23 +12,20 @@ import type { CardProgram } from "../../ir/index.js";
  * declares no speed keyword (CR v1.5 159.2 / 308.1.a: default spell timing).
  *
  * Status: judge-required — the instruction shape is authored, but the Move
- * Destination still cannot be enumerated in the frozen IR:
+ * Destination still cannot be bound to the moving target's runtime candidate set:
  * - "Move an enemy unit" is a Move Effect: the enemy unit is a target
  *   (CR 355.7 / 355.10: an object named by the spell's text on the public
  *   board is Targeted), while the Destination is a separate choice made by
  *   the controller in Make Relevant Choices (CR 355.4 / 355.4.a: "choose a
  *   valid Location as the Move Destination"; a valid Location is one other
  *   than the Unit's current Location where it is allowed to be present).
- * - That Destination is only known at Finalize from the runtime board, and the
- *   merged effect.move still only
- *   accepts a static LocationRef, the literal "controller-base", or a static
- *   option list of LocationRefs in `{ kind: "choose", id, options }` —
- *   ObjectSelector only covers objects, not locations. The target/location
- *   candidate helpers exist, but effect.move's card-facing Finalize path does
- *   not consume them. The destination is therefore declared descriptively as a
- *   pending runtime choice, and legality of that choice (CR 449.2 / 451.1 /
- *   452, now structurally present in combat/flow.ts) has no card-facing
- *   destination provider. Not approximated with a fixed destination.
+ * - That Destination is only known at Finalize from the runtime board. Location
+ *   selectors and candidate queries are merged, but the card-facing effect.move
+ *   path still does not bind a destination selector to the chosen unit, exclude
+ *   its current Location, or enforce the CR 449.2 / 451.1 legal-presence rules.
+ *   The destination is therefore declared descriptively as a pending runtime
+ *   choice, and legality of that choice has no production destination provider.
+ *   Not approximated with a fixed destination.
  * - The Move pipeline itself (Destination restriction checks, Contested on
  *   452, Move-triggered Showdown/Combat on 453-454, Cleanup on 455) belongs to
  *   the turn/combat workstream (contract 7.2 batch 5); effect.move only
@@ -42,12 +39,11 @@ const charm = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Move Destination（目的地）的枚举路径：CR 355.4/355.4.a 要求移动效果在 Finalize 时由控制者从“当前位置之外、" +
-    "且该单位被允许出现”的合法 Location 中选择目的地。已合入的 effect.move 的 to 只接受静态 LocationRef、字面量 " +
-    "controller-base 或静态 LocationRef 候选列表（{ kind: \"choose\", id, options } 的 options 必须在 IR 里写死）；" +
-    "ObjectSelector 只覆盖对象；虽然 target/location 已有候选计算，effect.move 的卡牌侧 Finalize 路径仍没有把这些候选接入，运行期合法集合无法表达。" +
-    "combat/flow.ts 的 Standard Move/Contested 结构也不提供卡牌侧目的地枚举接口。" +
-    "目标半段用已合入的 effect.move 表达并由 golden 真实执行；依赖 effect.move 的地点选择接线与卡牌侧目的地提供方。不近似实现目的地。",
+    "缺 Move Destination（目的地）与移动目标的动态绑定：CR 355.4/355.4.a 要求移动效果在 Finalize 时由控制者从“当前位置之外、" +
+    "且该单位被允许出现”的合法 Location 中选择目的地。LocationSelector 与候选查询已合入，但卡牌侧 effect.move 仍没有把目的地选择绑定到被移动目标、" +
+    "排除其当前位置并接入 CR 449.2/451.1 的合法地点检查；当前 IR 只能保留描述性的 runtime choice。" +
+    "Move 后的 Contested/Showdown/Combat/Cleanup 生产流程也仍属 combat/turn workstream。" +
+    "目标半段用已合入的 effect.move 表达并由 golden 真实执行；依赖动态目的地桥接与 Move pipeline 接线。不近似实现目的地。",
   sourceText: "Move an enemy unit.",
   abilities: [
     {

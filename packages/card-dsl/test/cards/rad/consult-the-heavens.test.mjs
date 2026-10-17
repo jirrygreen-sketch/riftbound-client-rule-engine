@@ -2,8 +2,8 @@
 //
 // judge-required (see the program's judgeReason): the [Reaction] expansion is
 // refused by the merged static binder, the Defender designation still has no
-// producer, and ordered Predict picks still need an upstream provider. The
-// runnable evidence covers both the merged grant and Predict instructions.
+// producer. Predict uses the merged ordered-pick lifecycle, with real chain
+// execution covering both recycle and keep for either controller.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -11,7 +11,6 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/rad/consult-the-heavens.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import inspect from "../../../../engine-core/dist/effects/instructions/effect.inspect.js";
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
@@ -20,6 +19,7 @@ import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 /** Minimal engine so the production static binder can be exercised directly. */
 function binderFor() {
@@ -51,7 +51,7 @@ const SOURCE_TEXT =
   "[Predict]. (Look at the top card of your Main Deck. You may recycle it.)";
 
 const [reaction, play] = program.abilities;
-const [grantShield, predictLook, predictRecycle] = play.body;
+const [grantShield, bindController, predictLook, predictRecycle] = play.body;
 
 test("rad-025-167 Consult the Heavens: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -63,10 +63,12 @@ test("rad-025-167 Consult the Heavens: identity, status, judgeReason and verbati
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  // README §2: the reason names the current gaps — Reaction timing, ordered
-  // deck-top picks and the Defender designation that is not yet a snapshot characteristic.
-  assert.match(program.judgeReason, /RIFT-358/);
+  // README §2: Reaction timing and Defender designation remain blocked;
+  // Predict now has an ordered source consumed by the real chain.
+  assert.match(program.judgeReason, /Reaction/);
+  assert.match(program.judgeReason, /Unsupported static appliesTo/);
   assert.match(program.judgeReason, /zoneSlice/);
+  assert.match(program.judgeReason, /ChainEngine/);
   assert.match(program.judgeReason, /814\.1\.d\.1/);
   assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   // The reported catalog data issue is recorded in the program header, not by
@@ -82,7 +84,7 @@ test("rad-025-167 Consult the Heavens: [Reaction] plus a play body of grant + Pr
   assert.equal(play.kind, "play");
   assert.deepEqual(
     play.body.map((instruction) => instruction.op),
-    ["continuous.grant-keyword", "effect.inspect", "effect.recycle"]
+    ["continuous.grant-keyword", "condition.value", "effect.inspect", "effect.recycle"]
   );
   // CR 813.1.c: Reaction is the closed-state permission keyword.
   assert.equal(reaction.keyword, "reaction");
@@ -113,8 +115,22 @@ test("rad-025-167 Consult the Heavens: the [Shield 2] grant names a unit, a valu
 test("rad-025-167 Consult the Heavens: the [Predict] steps use the merged inspect + recycle primitives", () => {
   assert.equal(predictLook.op, "effect.inspect");
   // CR 437.3.a: Predict without a number looks at one card.
-  assert.deepEqual(predictLook.picks[0].min, 0);
-  assert.deepEqual(predictLook.picks[0].max, 1);
+  assert.deepEqual(predictLook.picks, [{
+    id: "consult-the-heavens.predicted",
+    options: [],
+    ordered: true,
+    selection: "all",
+    zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 1 } }
+  }]);
+  assert.equal(bindController.op, "condition.value");
+  assert.deepEqual(bindController.args, {
+    value: { kind: "object-property", object: "source", property: "controller" },
+    key: { kind: "constant", value: "controller" }
+  });
+  assert.equal(predictLook.linkedTo, bindController.id);
+  assert.deepEqual(predictLook.args.player, {
+    kind: "linked-value", instructionId: bindController.id, key: "controller"
+  });
   assert.deepEqual(predictLook.args.choose, { kind: "constant", value: true });
   assert.deepEqual(predictLook.args.chooseCount, {
     kind: "constant",
@@ -134,29 +150,18 @@ test("rad-025-167 Consult the Heavens: Predict really looks at the top card and 
   // call supplies the top (top-seen) and the first the card beneath it (rest).
   const kernel = world().hand("consult").deck(["rest"]).deck(["top-seen"]).build();
   const top = kernel.zone("A", "deck")[0];
-  // The declared inspect player is the symbolic "controller" placeholder; the
-  // acting player is substituted here (the same convention the merged
-  // callers use, since ResolveContext carries concrete PlayerIds).
-  const args = { ...predictLook.args, player: { kind: "constant", value: "A" } };
-  assert.deepEqual(predictLook.args.player, { kind: "constant", value: "controller" });
-  const looks = runInstruction(
-    inspect,
-    args,
-    {
-      world: kernel,
-      picks: { "consult-the-heavens.predicted": [top] },
-      answers: { "consult-the-heavens.predict": [top] }
-    }
-  );
-  assert.equal(looks.result.status, "executed");
+  kernel.setPicks("consult-the-heavens.predicted", [top]);
+  kernel.setAnswers({ "consult-the-heavens.predict-look/consult-the-heavens.predict": [top] });
+  const looks = resolveChainBody([bindController, predictLook], kernel);
+  assert.equal(looks.status, "executed");
   // CR 437.1: exactly one card was looked at, and the chosen one is the recycle candidate.
-  assert.equal(looks.linked.inspected, 1);
-  assert.deepEqual(looks.linked["consult-the-heavens.predicted"], [top]);
-  assert.deepEqual(looks.linked["consult-the-heavens.recycle"], [top]);
+  assert.equal(looks.linkedValues["consult-the-heavens.predict-look.inspected"], 1);
+  assert.deepEqual(looks.linkedValues["consult-the-heavens.predict-look.consult-the-heavens.predicted"], [top]);
+  assert.deepEqual(looks.linkedValues["consult-the-heavens.predict-look.consult-the-heavens.recycle"], [top]);
 
   const recycled = runInstruction(
     recycle,
-    { objects: { kind: "constant", value: looks.linked["consult-the-heavens.recycle"] } },
+    { objects: { kind: "constant", value: looks.linkedValues["consult-the-heavens.predict-look.consult-the-heavens.recycle"] } },
     { world: kernel }
   );
   assert.equal(recycled.result.status, "executed");
@@ -167,20 +172,14 @@ test("rad-025-167 Consult the Heavens: Predict really looks at the top card and 
 test("rad-025-167 Consult the Heavens: declining to recycle leaves the deck untouched", () => {
   const kernel = world().hand("consult").deck(["rest"]).deck(["top-seen"]).build();
   const top = kernel.zone("A", "deck")[0];
-  const looks = runInstruction(
-    inspect,
-    { ...predictLook.args, player: { kind: "constant", value: "A" } },
-    {
-      world: kernel,
-      picks: { "consult-the-heavens.predicted": [top] },
-      answers: { "consult-the-heavens.predict": [] }
-    }
-  );
-  assert.equal(looks.result.status, "executed");
-  assert.deepEqual(looks.linked["consult-the-heavens.recycle"], []);
+  kernel.setPicks("consult-the-heavens.predicted", [top]);
+  kernel.setAnswers({ "consult-the-heavens.predict-look/consult-the-heavens.predict": [] });
+  const looks = resolveChainBody([bindController, predictLook], kernel);
+  assert.equal(looks.status, "executed");
+  assert.deepEqual(looks.linkedValues["consult-the-heavens.predict-look.consult-the-heavens.recycle"], []);
   const recycled = runInstruction(
     recycle,
-    { objects: { kind: "constant", value: looks.linked["consult-the-heavens.recycle"] } },
+    { objects: { kind: "constant", value: looks.linkedValues["consult-the-heavens.predict-look.consult-the-heavens.recycle"] } },
     { world: kernel }
   );
   // CR 055 / 437.1: choosing not to recycle performs nothing (zero cards moved)
@@ -239,17 +238,8 @@ test("rad-025-167 Consult the Heavens: a stale unit target ignores the grant ins
 });
 
 test("rad-025-167 Consult the Heavens: the whole printed body runs in order through the production chain adapter", () => {
-  // The card's own body (grant, then Predict, then the linked recycle) executed
-  // through the merged production adapter. The deck-top reference is supplied by
-  // the resolving upstream the way contract 3.6 requires (picks + chooser
-  // answer); the card data itself never guesses the top card. The symbolic
-  // "controller" player placeholder is substituted with the concrete player the
-  // way the production Finalize does (ResolveContext carries real PlayerIds), and
-  // the value stays asserted structurally above.
-  const concreteBody = JSON.parse(JSON.stringify(play.body, (_key, value) =>
-    value && typeof value === "object" && value.kind === "constant" && value.value === "controller"
-      ? { kind: "constant", value: "A" }
-      : value));
+  // This adapter-level test supplies picks explicitly; the chain tests below
+  // also cover Finalize's zoneSlice binding without modifying the printed body.
   const kernel = world().unit("hero", { might: 2 }).unit("ally", { might: 3 }).deck(["rest"]).deck(["top-seen"]).build();
   kernel.setTargets("consult-the-heavens.unit", [kernel.ref("ally")]);
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("hero") });
@@ -257,11 +247,12 @@ test("rad-025-167 Consult the Heavens: the whole printed body runs in order thro
   scoped.setPicks("consult-the-heavens.predicted", [top]);
   scoped.setAnswers({ "consult-the-heavens.predict-look/consult-the-heavens.predict": [top] });
 
-  const outcome = resolveChainBody(concreteBody, scoped);
+  const outcome = resolveChainBody(play.body, scoped);
 
   assert.equal(outcome.status, "executed");
   assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
     ["consult-the-heavens.grant-shield", "executed"],
+    ["consult-the-heavens.bind-controller", "executed"],
     ["consult-the-heavens.predict-look", "executed"],
     ["consult-the-heavens.predict-recycle", "executed"]
   ]);
@@ -275,10 +266,6 @@ test("rad-025-167 Consult the Heavens: the whole printed body runs in order thro
 });
 
 test("rad-025-167 Consult the Heavens: declining to recycle performs an empty recycle and keeps the deck order", () => {
-  const concreteBody = JSON.parse(JSON.stringify(play.body, (_key, value) =>
-    value && typeof value === "object" && value.kind === "constant" && value.value === "controller"
-      ? { kind: "constant", value: "A" }
-      : value));
   const kernel = world().unit("hero", { might: 2 }).unit("ally", { might: 3 }).deck(["rest"]).deck(["top-seen"]).build();
   kernel.setTargets("consult-the-heavens.unit", [kernel.ref("ally")]);
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("hero") });
@@ -286,7 +273,7 @@ test("rad-025-167 Consult the Heavens: declining to recycle performs an empty re
   scoped.setPicks("consult-the-heavens.predicted", [top]);
   scoped.setAnswers({ "consult-the-heavens.predict-look/consult-the-heavens.predict": [] });
 
-  const outcome = resolveChainBody(concreteBody, scoped);
+  const outcome = resolveChainBody(play.body, scoped);
 
   assert.equal(outcome.status, "executed");
   assert.equal(outcome.linkedValues["consult-the-heavens.predict-recycle.recycledCount"], 0);
@@ -327,10 +314,65 @@ test("Consult the Heavens: the [Shield 2] expansion does bind, so only the Defen
   assert.equal(typeof handle.unbind, "function");
 });
 
-test.todo(
-  "Consult the Heavens: reading the top card of the Main Deck inside the resolving ability requires the upstream ordered picks " +
-    "(contract 3.6 zoneSlice); the golden supplies the top reference directly, which a production chain run must do (RIFT-358)"
-);
+for (const controller of ["A", "B"]) {
+  for (const shouldRecycle of [true, false]) {
+    test(`Consult the Heavens: ChainEngine ${controller} ${shouldRecycle ? "recycles" : "keeps"} the actual top card (437.1)`, () => {
+      const predictRequests = [];
+      const f = fixture({
+        turnPlayer: controller,
+        cards: [{
+          id: "consult", cardId: CANONICAL, owner: controller, controller,
+          types: ["unit"], energy: 1, power: null, might: null
+        }],
+        choose: request => {
+          if (request.id === "target:consult-the-heavens.unit") return [f.kernel.ref("source")];
+          if (request.id === "consult-the-heavens.predict-look/consult-the-heavens.predict") {
+            predictRequests.push(structuredClone(request));
+            return shouldRecycle ? [...request.options] : [];
+          }
+          throw new Error(`Unexpected choice: ${request.id}`);
+        }
+      });
+      const initialDeck = f.kernel.zone(controller, "deck");
+      const opponent = controller === "A" ? "B" : "A";
+      const opponentDeck = f.kernel.zone(opponent, "deck");
+      const top = initialDeck[0];
+      // The test world retains insertion order for query; only zoneSlice
+      // supplies physical deck order. No setPicks or player substitution.
+      assert.notEqual(f.kernel.query({ owner: controller, zone: "deck" })[0].ref.id, top.id);
+      f.engine.advance();
+      f.engine.execute(f.card("consult", { controller, kind: "unit", body: play.body }));
+
+      assert.equal(f.engine.items.length, 0);
+      assert.equal(f.kernel.getObject("consult").zone, "board");
+      assert.equal(f.kernel.player(controller).energy, 19);
+      assert.equal(f.kernel.getObject("consult").power, null);
+      assert.equal(predictRequests.length, 1);
+      assert.equal(predictRequests[0].chooser, controller);
+      assert.equal(predictRequests[0].visibility, "chooser-only");
+      assert.equal(predictRequests[0].min, 0);
+      assert.equal(predictRequests[0].max, 1);
+      assert.deepEqual(predictRequests[0].options, [top]);
+      assert.equal(f.kernel.linked("consult-the-heavens.predict-look.inspected"), 1);
+      assert.deepEqual(f.kernel.linked("consult-the-heavens.predict-look.consult-the-heavens.predicted"), [top]);
+      assert.deepEqual(f.kernel.linked("consult-the-heavens.predict-look.consult-the-heavens.recycle"), shouldRecycle ? [top] : []);
+      assert.equal(f.kernel.linked("consult-the-heavens.predict-recycle.recycledCount"), shouldRecycle ? 1 : 0);
+      assert.deepEqual(f.kernel.zone(controller, "deck").map(ref => ref.id),
+        (shouldRecycle ? [...initialDeck.slice(1), top] : initialDeck).map(ref => ref.id));
+      assert.deepEqual(f.kernel.zone(opponent, "deck"), opponentDeck);
+      assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref("source")).keywords, [{ id: "shield", value: 2 }]);
+      const events = f.engine.pipeline.events;
+      const finalizeIndex = events.findIndex(event => event.timingPoint === "chain-item-finalize");
+      const lookIndex = events.findIndex(event => event.timingPoint === "cards-looked-at");
+      assert.ok(finalizeIndex >= 0 && lookIndex > finalizeIndex);
+      assert.equal(events[lookIndex].player, controller);
+      assert.equal(events.filter(event => event.timingPoint === "cards-looked-at").length, 1);
+      assert.equal(events.filter(event => event.timingPoint === "card-recycled").length, shouldRecycle ? 1 : 0);
+      // Only the printed unit is targeted; the deck-top pick is never a target.
+      assert.deepEqual(events.filter(event => event.timingPoint === "became-target").map(event => event.target.ref.id), ["source"]);
+    });
+  }
+}
 
 test.todo(
   "Consult the Heavens: data issue (not changed) — the local catalog records printing rad-025-167 as cardType Unit with energy 1 / " +

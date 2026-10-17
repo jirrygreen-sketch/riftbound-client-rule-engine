@@ -21,9 +21,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   按 ogn/nocturne-horrifying 的先例以许可静态能力（play-for-alternate-cost）保留形状。
  *
  * status = judge-required（缺口均不近似实现）：
- * - 条件「本回合为打出法术实际支付了多少 Energy」无可求值路径：合并 IR 的 Expr/Condition 只能读对象
- *   特征、链接值与对象计数（count 只数对象、不读金额），ResolveContext 也没有 spent / finalized
- *   费用回执入口。
+ * - 条件「本回合为打出法术实际支付了多少 Energy」仍无可求值路径：链侧已经把 finalized payment
+ *   receipt 暴露给结算条件，但合并 IR 没有按本回合、按法术累计实际支付 Energy 的谓词或表达式；
+ *   保留的 count 形状只数对象，不读取金额。
  * - 「play me for :rb_rune_mind:」的静态替代费用形状尚没有 CardProgram → CostPlan 的消费方；
  *   [Vision] 的展开已合入，但其 Predict 仍需要调用方注入有序顶牌 picks，且展开中的 player
  *   占位值必须绑定到实际控制者。
@@ -70,9 +70,9 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处缺口，均不近似实现：(1)「If you've spent :rb_energy_4: or more to play a spell this turn」无可求值路径：" +
-    "合并 IR 的 Expr/Condition 只能读对象特征、链接值与对象计数（count 只数对象、不读金额），契约 3.6 的 ResolveContext 也没有 " +
-    "spent / finalized 费用回执入口，因此“为打出法术实际支付了多少 Energy”无法求值。" +
+    "两处缺口，均不近似实现：(1)「If you've spent :rb_energy_4: or more to play a spell this turn」仍无可求值路径：" +
+    "链侧已把 finalized payment receipt 暴露给结算条件，但合并 IR 没有按本回合、按法术累计实际支付 Energy 的谓词或表达式；" +
+    "保留的 count 形状只数对象、不读取金额，因此“为打出法术实际支付了多少 Energy”仍无法求值。" +
     "(2)「you may play me for :rb_rune_mind:」的静态替代费用形状仍没有 CardProgram → CostPlan 的消费方；" +
     "本卡的静态许可（play-for-alternate-cost，1 Mind Power）只保留形状。" +
     "另外 [Vision]（817）虽已声明且 KeywordDef 已合入，但其 Predict 仍要求调用方注入有序顶牌 picks，" +

@@ -20,7 +20,7 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status: judge-required —— 触发条件与宿主选择两项仍无法在已合入实现中表达：
  * 1. “another unit”（与你打出的另一张单位牌）：事件匹配器已经支持顶层
- *    EventPattern，但 programs/filters.ts 在把本卡的嵌套 filter 翻译成运行时过滤器时
+ *    EventPattern，但 programs/filters.ts 在把本卡的 filter 翻译成运行时过滤器时
  *    会拒绝 `other`/`exclude` 动态锚点，仍无法排除宿主并注册生产触发。
  * 2. “buff me” 缺少原语内的宿主选择器：effect.buff 的 `target` 参数只接受 TargetSpec id
  *    （内部读 ctx.targets(target)），没有 effect.ready 的 objects: {kind: "source"} 形式；
@@ -36,7 +36,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "1) 触发条件「你打出另一个单位」无法表达：事件匹配器已支持顶层 EventPattern，但 programs/filters.ts 在翻译本卡内层 filter 时拒绝 " +
+    "1) 触发条件「你打出另一个单位」无法表达：事件匹配器已支持顶层 EventPattern，但 programs/filters.ts 在翻译本卡 filter 时拒绝 " +
     "other/exclude 动态锚点，无法完成 383.4.a.4 要求的“另一个对象”排除。" +
     "2)「buff me」缺少原语内的宿主选择器：effect.buff 的 target 参数只接受 TargetSpec id（内部读 ctx.targets），" +
     "没有 effect.ready 的 objects: {kind: \"source\"} 形式；解释器的 target 过滤（layers/filter.ts）也不消费 {object: \"self\"} 锚点，" +

@@ -21,29 +21,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   the Recruit tag; 185.3.a / 185.3.b: tokens have no costs and no domains
  *   (null characteristics, never 0).
  *
- * Status rationale (contract §3.1, cards README §2): the `hold` timing point is
- * now emitted by the TurnFlow Score wave, and the merged `effect.token`
- * implements the chain-create + play handoff. A condition.value read of
- * `ability-controller-base` supplies the controller-relative destination.
- * The remaining gap is trigger registration: the held emission (turn/flow.ts Score wave)
- *   carries no object for "here" to anchor, the validator's event name is
- *   "held" (not "hold"), and no merged field can express this battlefield's
- *   scope (`here: true` is rejected by events/trigger-spec.ts and by the
- *   binding layer).
- *
- * `condition.value` binds the LocationRef and `effect.token` consumes it through
- * `linked-value`; this is executable for either controller without hard-coding a
- * seat.
+ * Status: judge-required. The hold wave already carries battlefieldId and
+ * the token body executes for either controller. The remaining gap is binding
+ * that event battlefield to this host's identity and current controller;
+ * here:true is not supported, and literal details matching cannot evaluate a
+ * symbolic self anchor. No controller-wide hold approximation is used.
  */
 export default {
   canonicalCardId: "card.hash-235642b62ac009ff34cfa13db7debd2bf1e71c1a9bf411cf5ffab5dfd06e5099",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "唯一缺口是触发无法注册：held 发射（turn/flow.ts Score 波）载荷没有 object 供「here」锚定，" +
-    "校验器事件名是 held（不是 hold），且没有合并字段能表达本战场的范围（here:true 被 events/trigger-spec.ts 与绑定层拒绝）。" +
-    "CR 187.1 的 Recruit 定义、440.2.c 的链上创建 + play 交接，以及通过 condition.value 读取 ability-controller-base 并经 linked-value 传入 effect.token 均已合入并由 A/B 控制者 golden 真实执行。" +
-    "依赖：held 事件的 here 范围载荷与触发注册语义（契约变更请求）。不近似实现。",
+    "缺 held 事件与本战场 here 的动态范围绑定（CR 383.4.d.2.b/190.6.d）：turn/flow.ts 已发出 details.battlefieldId，但没有 battlefield object；programs/filters.ts 拒绝 here:true，事件 details 的字面值匹配也不能把 self 解析为宿主战场身份。只按 player:self 监听会响应控制者在其它战场的固守；需在触发测试时关联 held 战场、宿主及其当前控制者。",
   sourceText: "When you hold here, play a 1 :rb_might: Recruit unit token in your base.",
   abilities: [
     {

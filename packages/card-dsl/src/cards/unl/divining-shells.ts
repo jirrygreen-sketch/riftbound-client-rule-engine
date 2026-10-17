@@ -28,15 +28,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   算术图层），"this turn" 的期限由 317.2.c 的同时到期清理结束；effect.buff 的文件头
  *   明确临时 Might 归 continuous.might，绝不能用 Buff 计数器（702）近似。
  *
- * status = judge-required（缺口不近似实现）：
- * - continuous.might 原语、arithmetic layer 注册和 end-of-turn duration 已合入，启动 body
- *   可以真实登记 +2 Might；不把它近似成 Buff 计数器。
- * - Vision KeywordDef 与 object-enters-board 展开已合入，但生产装配仍需把 `object.id`/
- *   `objectId` 主体过滤绑定到本卡、把展开期固定的 player "A" 注入真实控制者，并提供有序
- *   top-card pick。缺少这些生命周期接线时，Vision 不能整卡标记 executable。
- * 已合入部分由 golden 真实执行：Vision 展开的 look + 可选 recycle（437.1）、启动费用的
- * 费用计划（kill this + [E]，415.4/415.5）与 Might 层效果。依赖：Vision 的生产触发、控制者
- * 注入和有序牌库选择接线；不近似实现。
+ * status = judge-required（2026-10-17 逐条对源码复核；缺口不近似实现）：
+ * - 启动 body 已可执行：continuous.might 原语、arithmetic 图层注册与 end-of-turn duration
+ *   均合入，args.objects 读取本指令自己的 TargetSpec（355.5 / 契约 3.6）后真实登记 +2 Might；
+ *   不把它近似成 Buff 计数器。
+ * - [Action][>] 与 kill this + [E] 费用计划可执行（415.4 / 415.5；golden 真实支付）。
+ * - 剩余缺口是 Vision 的生产装配：KeywordDef 展开出来的 triggered 能力带到注册表时，
+ *   trigger filter `{ objectId: "self", "object.id": "self" }` 被 programs/filters.ts 的
+ *   translateTriggerFilter → translateObjectFilter 以 "Unsupported filter field object.id"
+ *   拒绝（实测），所以该触发无法经 registerProgramTriggers 注册；展开期 player 仍是占位的
+ *   "A" 而不是真实控制者；展开体也没有为 top-card 提供有序来源（picksSpecId "vision-top"
+ *   没有 zoneSlice 绑定，实测在缺 picks 时 inspect 只看到 0 张、recycle 空转）。
+ * 已合入部分由 golden 真实执行：启动 body 的 Might 层效果、启动费用计划，以及经参考内核
+ * 提供有序 pick 的 Vision look + 可选 recycle（437.1）。依赖：Vision 展开的主体过滤/控制者
+ * 注入与有序牌库来源的生产接线；不近似实现。
  */
 const abilities: Ability[] = [
   // 817.1：Vision 只声明关键词，展开（看牌 + 可选回收）归 keywords/Vision.ts。
@@ -63,7 +68,14 @@ const abilities: Ability[] = [
         args: {
           // 143.2.a / 475–477：+2 Might 的算术图层修正；effect.buff 明确不承接它。
           amount: { kind: "constant", value: 2 },
-          duration: { kind: "constant", value: "end-of-turn" }
+          duration: { kind: "constant", value: "end-of-turn" },
+          // 355.5 / 契约 3.6："Give a unit …" 的对象是本指令自己的 TargetSpec，必须显式读取；
+          // continuous.might 缺省作用于 source（本卡是 Gear，might 为 null），会静默把 +2
+          // 挂到来源而不是被选单位。与 ogn/ahri-inquisitive 同形的 target 选择符写法。
+          objects: {
+            kind: "constant",
+            value: { kind: "target", id: "divining-shells.unit" }
+          }
         },
         targets: [
           {
@@ -86,10 +98,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "当前缺口集中在 Vision 的生产装配：Vision KeywordDef 与 object-enters-board 展开已合入，" +
-    "但 `object.id`/`objectId` 主体过滤尚需绑定到本卡，展开期固定 player \"A\" 尚需注入真实控制者，" +
-    "并且 top-card 必须由有序牌库 pick 提供。continuous.might、end-of-turn duration、Vision 的 look/recycle " +
-    "以及 kill this + [E] 费用计划均可执行；不把 Might 改写成 Buff，也不以无序 query 冒充牌库顶牌。",
+    "唯一剩余缺口是 CR 817 Vision 的生产装配：Vision KeywordDef 展开出的 object-enters-board 触发带 filter " +
+    "{ objectId: \"self\", \"object.id\": \"self\" }，而 programs/filters.ts 的 translateObjectFilter 以 " +
+    "\"Unsupported filter field object.id\" 拒绝该字段（实测 registerProgramTriggers 抛 ProgramBindingError），" +
+    "因此该触发目前无法注册；展开期的 player 仍是占位 \"A\" 而不是真实控制者；展开体也没有为 top-card " +
+    "提供有序来源（picksSpecId \"vision-top\" 没有 zoneSlice 绑定，缺有序来源时 inspect 按 437.1/432.1.c 只看 0 张、" +
+    "recycle 空转，实测）。启动侧已全部可执行：args.objects 读取本指令 TargetSpec 后 continuous.might 真实登记 " +
+    "+2 Might（143.2.a/475–477，end-of-turn 到期），kill this + [E] 经费用计划真实支付（415.4/415.5）；" +
+    "不把 Might 改写成 Buff，也不以无序 query 冒充牌库顶牌。依赖：Vision 展开的主体过滤/控制者注入与有序牌库来源接线。",
   abilities,
   sourceText:
     "[Vision] (When you play this, look at the top card of your Main Deck. You may recycle it.)\n" +

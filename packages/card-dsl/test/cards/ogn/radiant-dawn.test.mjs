@@ -30,10 +30,10 @@ test("radiant-dawn identity: canonicalCardId, ruleset, judge-required status and
   assert.match(program.judgeReason, /412\.4/);
   assert.match(program.judgeReason, /412\.5/);
   assert.match(program.judgeReason, /one or more/);
-  assert.match(program.judgeReason, /testTrigger/);
-  // RIFT-257 is merged; the remaining authoring gap is the missing event-name
-  // discriminant plus per-batch grouping, not the program binding.
-  assert.match(program.judgeReason, /卡牌触发绑定已合入/);
+  assert.ok(!/testTrigger/.test(program.judgeReason));
+  // The remaining gap is Stun responsibility plus per-batch grouping, not the
+  // program binding or payload filter.
+  assert.match(program.judgeReason, /卡牌触发绑定与 unit-stunned 载荷过滤已经可以注册/);
   assert.match(program.judgeReason, /per-batch/);
   assert.equal(
     program.sourceText,

@@ -4,6 +4,10 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/master-yi-tempered.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-c32a0493f88b4c947cb3f7806d8ba125b166dd6478a848bb39f1da87aed3ae92";
@@ -33,7 +37,14 @@ test("unl-113-219 Master Yi, Tempered: identity, status, judgeReason and verbati
   // the trigger spelling/object payload, the XP predicate and the target-tax
   // consumer.
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
-  assert.match(program.judgeReason, /PlayerSnapshot\.xp/);
+  assert.match(program.judgeReason, /controller-xp/);
+  // Re-checked against the merged sources: the Level gate is ignored (not
+  // fail-closed), Level's own predicate has no layer mapping, and the granted
+  // Ganking shape does not satisfy the movement query.
+  assert.match(program.judgeReason, /TriggerSpecValidationError/);
+  assert.match(program.judgeReason, /condition\.predicate/);
+  assert.match(program.judgeReason, /permission\.routes/);
+  assert.doesNotMatch(program.judgeReason, /未识别条件按 true/);
 });
 
 test("unl-113-219 Master Yi, Tempered: [Hunt 2] carries its printed Hunt Value", () => {
@@ -142,8 +153,110 @@ test.todo(
   "unl-113-219 Master Yi, Tempered: subscribe Hunt's conquer/hold expansion to the emitted conquered/held events and bind the conquering unit object (CR 823.1.c.1/823.2; current event spellings and score payload do not match)"
 );
 test.todo(
-  "unl-113-219 Master Yi, Tempered: evaluate the merged Level predicate against controller XP and deactivate the dependent grants as XP changes (CR 824.1.c.1/824.1.d; condition.predicate and PlayerSnapshot.xp are not consumed)"
-);
-test.todo(
   "unl-113-219 Master Yi, Tempered: derive Deflect's target tax from the active granted keyword and let the movement workflow consume Ganking's layered permission (CR 809.1.c/810.1.c; target-tax and movement consumers remain open)"
 );
+
+test("unl-113-219 Master Yi, Tempered: Hunt's conquer/hold spelling is rejected by the closed event vocabulary (CR 823.1.c.1)", async () => {
+  const { default: hunt } = await import("../../../../engine-core/dist/effects/keywords/Hunt.js");
+  const [conquer] = hunt.expand({ value: 2, host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(conquer.trigger.at, "conquer");
+  assert.throws(
+    () => assertTriggerSpec({
+      at: conquer.trigger.at,
+      filter: { event: "conquer", filter: { source: "self" } }
+    }),
+    (error) => error.name === "TriggerSpecValidationError" &&
+      error.issues.some((issue) => issue.code === "invalid-event-type")
+  );
+  // The check is specifically on the event spelling inside the filter: the
+  // closed event vocabulary accepts "conquered", so the same registration shape
+  // passes once the word is past-tense.
+  assert.doesNotThrow(() => assertTriggerSpec({
+    at: "conquer",
+    filter: { event: "conquered", object: { type: "unit" } }
+  }));
+});
+
+test("unl-113-219 Master Yi, Tempered: the [Level 6][>] gate is ignored, so both keywords are granted at every XP total (CR 824.1.c.1/824.1.d)", () => {
+  // The authored condition reads count(subject: "controller-xp"), which the
+  // context does not know. The count degenerates to a plain object count and
+  // passes the >= 6 threshold, so the grants never deactivate.
+  for (const xp of [0, 5, 6, 10]) {
+    const f = fixture({
+      cards: [{ id: "yi", cardId: CANONICAL_ID, types: ["unit"], energy: 4, power: ["Body"], might: 4 }]
+    });
+    f.kernel.addPlayer("A", { xp });
+    f.engine.commit({
+      type: "move-zone",
+      object: f.kernel.ref("yi"),
+      to: "board",
+      location: { type: "battlefield", id: "bf-1" }
+    });
+    const source = f.kernel.getObject("yi");
+    const binder = createEngineStaticBinder(f.engine);
+    const deflect = binder.bindStatic(program.abilities[1], source);
+    const ganking = binder.bindStatic(program.abilities[2], source);
+    assert.equal(f.kernel.player("A").xp, xp);
+    assert.deepEqual(
+      f.engine.layers.evaluate(source.ref).keywords.map((keyword) => keyword.id),
+      ["Deflect", "Ganking"],
+      `XP ${xp} must not activate the 6+ XP dependent text`
+    );
+    ganking.unbind();
+    deflect.unbind();
+  }
+});
+
+test("unl-113-219 Master Yi, Tempered: Level's own predicate and Deflect's target tax have no layer mapping (CR 824.1.b / 809.1.c)", async () => {
+  const { default: level } = await import("../../../../engine-core/dist/effects/keywords/Level.js");
+  const { default: deflect } = await import("../../../../engine-core/dist/effects/keywords/Deflect.js");
+  const f = fixture({
+    cards: [{ id: "yi", cardId: CANONICAL_ID, types: ["unit"], energy: 4, power: ["Body"], might: 4 }]
+  });
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("yi"),
+    to: "board",
+    location: { type: "battlefield", id: "bf-1" }
+  });
+  const source = f.kernel.getObject("yi");
+  const binder = createEngineStaticBinder(f.engine);
+  const [predicate] = level.expand({ value: 6, host: { canonicalCardId: CANONICAL_ID } });
+  assert.throws(
+    () => binder.bindStatic(predicate, source),
+    (error) => error.name === "ProgramBindingError" && /no layer mapping/.test(error.message)
+  );
+  const [tax] = deflect.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(tax.effect.kind, "target.tax");
+  assert.throws(
+    () => binder.bindStatic(tax, source),
+    (error) => error.name === "ProgramBindingError" && /no layer mapping/.test(error.message)
+  );
+});
+
+test("unl-113-219 Master Yi, Tempered: the granted Ganking registration does not satisfy the movement query (CR 810.1.c)", async () => {
+  const { default: ganking } = await import("../../../../engine-core/dist/effects/keywords/Ganking.js");
+  const [ability] = ganking.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(ability.effect.permission, "battlefield-to-battlefield");
+  const f = fixture({
+    cards: [{ id: "yi", cardId: CANONICAL_ID, types: ["unit"], energy: 4, power: ["Body"], might: 4 }]
+  });
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("yi"),
+    to: "board",
+    location: { type: "battlefield", id: "bf-1" }
+  });
+  const source = f.kernel.getObject("yi");
+  const handle = createEngineStaticBinder(f.engine).bindStatic(ability, source);
+  // The-shaped permission is registered, but the query reads permission.routes
+  // and therefore still reports no Ganking route.
+  assert.deepEqual(
+    f.engine.layers.registry.list().map((entry) => entry.effect.effect.permission),
+    ["battlefield-to-battlefield"]
+  );
+  const view = movement(f.engine.layers.registry, source.ref, f.engine.layers.evaluate(source.ref), "A");
+  assert.equal(view.canGank, false);
+  assert.equal(view.battlefieldToBattlefield, false);
+  handle.unbind();
+});

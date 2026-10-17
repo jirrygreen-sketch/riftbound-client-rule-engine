@@ -26,11 +26,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   `other`/`exclude` 动态锚点，所以“其他”单位的排除仍没有生产绑定路径。
  *   即使去掉该过滤缺口，静态授予的关键词也不会自动再次进入 KeywordDef.expand。
  * - 被授予的 Assault 还要按 807.1.c/807.2 在接收者上展开为 "+1 [M] while attacker"：
- *   Assault 的 KeywordDef 展开条件读宿主 attacker designation，而 designation 不在
- *   layers 的 ObjectSnapshot 特征里，layers/engine.ts 的 conditionMatches 也不求值
- *   compare 条件（未知 kind 按 true）。
- * 依赖：static filter 的动态排除谓词、授予关键词的二次展开、designation 谓词与 compare
- * 条件消费方。
+ *   Assault 的 KeywordDef 展开条件读宿主 attacker designation，而 layers 的
+ *   ObjectSnapshot 只有 combatRole；攻击者角色尚未映射到该谓词，且授予的 Assault
+ *   也没有在图层绑定时再次展开。
+ * 依赖：static filter 的动态排除谓词、授予关键词的二次展开、designation → combatRole
+ * 映射。
  */
 const captainFarron = {
   canonicalCardId: "card.hash-89422400a305aba2968956c639368704e17bca94d650b959b1c78453e5095fe2",
@@ -40,9 +40,9 @@ const captainFarron = {
     "『Other friendly units here have [Assault]』是 static 持续能力：continuous.grant-keyword 指令原语已合入，" +
     "CardProgram static → layers 绑定已经能登记该效果，sameLocationAs 也能解析；但 programs/statics.ts " +
     "会拒绝 filter 的 other/exclude 动态锚点，无法把“其他”单位注册成正确的受影响集合；授予的关键词也不会自动再次进入 KeywordDef.expand。" +
-    "此外被授予的 Assault 按 807.1.c/807.2 展开为条件于 attacker designation 的 +1 [M]，" +
-    "designation 不在 layers 的 ObjectSnapshot 特征中，layers/engine.ts 的 conditionMatches 也不求值 compare 条件（未知 kind 按 true），" +
-    "展开在真实图层计算中无法只在我攻击时生效。依赖：动态 other/exclude 过滤、授予关键词二次展开、designation 谓词与 compare 条件消费方。不近似实现。",
+    "此外被授予的 Assault 按 807.1.c/807.2 展开为条件于 attacker designation 的 +1 [M]；" +
+    "layers 的 ObjectSnapshot 只有 combatRole，尚未把攻击者角色映射到该谓词，且授予的关键词也不会在图层绑定时再次展开，" +
+    "所以无法只在攻击者状态下生效。依赖：动态 other/exclude 过滤、授予关键词二次展开、designation → combatRole 映射。不近似实现。",
   abilities: [
     {
       kind: "static",

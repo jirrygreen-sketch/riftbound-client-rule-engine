@@ -26,10 +26,22 @@ import type { CardProgram } from "../../ir/index.js";
  * - "Give a unit at a battlefield -4 :rb_might: this turn" 是本回合的临时 Might 修正，
  *   按 479.4（Arithmetic 图层）由 layers/ 消费。
  *
- * Status: judge-required. Current source audit:
- * Draw, damage and temporary Might modes execute independently. Repeat
- * instances need Finalize payment/count binding and shared chosen-mode
- * memory; the production chain still rejects choice.mode/nested targets.
+ * Status: judge-required. Re-checked 2026-10-17 against merged source:
+ * the four modes execute independently through the interpreter (golden: Draw 1,
+ * Deal 2, Deal 3 and the -4 this-turn Might modification), and choice.mode
+ * de-duplicates within one selection request. Still missing:
+ * (1) Repeat's three separately payable components have no binding: the play
+ * ability's additional-cost declaration fails translateCost ("Unsupported play
+ * cost field keyword"), and the keyword's own repeat.cost static effect has no
+ * layer mapping, so Finalize never selects/pays an instance or passes a
+ * paid-instance count into resolution (CR 820.1.c.2/820.1.d.1);
+ * (2) each extra execution must choose a mode not yet chosen in this spell's
+ * earlier executions (CR 820.2.a). The interpreter's `different` flag only
+ * de-duplicates one request, and no per-spell chosen-mode memory is merged;
+ * (3) the production chain still refuses the body before resolution:
+ * programs/play.ts::validateSurface and chain/engine.ts::assertFinalizationSurface
+ * reject choice.mode and nested targets, so neither a Finalize choice plan nor a
+ * Resolve-time mode selection exists for this card.
  */
 
 /**
@@ -60,7 +72,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Repeat 三档独立附加费用到 Finalize optionalAdditional、支付次数到额外执行次数的绑定（CR 820.1.c.2/820.1.d.1）；keywords/Repeat.ts 的 repeat.cost 尚无消费者。缺本法术跨次执行的已选模式集合：choice.mode different 只在单次请求去重（820.2.a）。programs/play.ts 的 validateSurface 与 chain/engine.ts 的 assertFinalizationSurface 仍阻断 choice.mode/嵌套目标，需 Finalize/Resolve choice-plan 适配；continuous.might 的第 4 模式也受这一目标选择缺口限制。",
+    "仍缺三段接线（2026-10-17 复核，均不近似实现）：" +
+    "(1) Repeat 三档独立附加费用的收取与计数（CR 820.1.c.1/820.1.c.2/820.1.d.1）：打出能力的 additional-cost 声明在 programs/play.ts::translateCost 被拒" +
+    "（\"Unsupported play cost field keyword\"），keywords/Repeat.ts 展开的 static repeat.cost 也被 programs/statics.ts 的 layerFor 拒绝（\"no layer mapping\"），" +
+    "Finalize 因此不会选中/收取任一实例，也没有已付实例数传给结算端做额外执行；" +
+    "(2) 跨次执行的已选模式集合（CR 355.3/820.2.a）：解释器内建 choice.mode 的 different 只在同一次请求内去重，" +
+    "没有按本法术保存历次已选模式，\"you haven't already chosen\" 无法判定；" +
+    "(3) 生产链的 choice.mode/嵌套目标闸门：programs/play.ts::validateSurface 与 chain/engine.ts::assertFinalizationSurface 仍直接拒绝 choice.mode 与嵌套 targets，" +
+    "Finalize/Resolve 的 choice-plan 适配不存在；第 4 个 continuous.might 模式同样受该目标选择缺口限制。" +
+    "已合入并可执行：四个模式各自的 effect.draw / effect.damage / continuous.might 本体（golden 逐个真实执行），以及同一次请求内的模式去重。",
   abilities: [
     { kind: "keyword", keyword: "repeat" },
     {

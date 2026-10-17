@@ -19,8 +19,8 @@ import type { CardProgram } from "../../ir/index.js";
  * 卡牌只声明关键词（契约 3.1/3.7、README 第 5 节）；展开（static target.tax）
  * 由 effects/keywords/Deflect.ts 负责。
  *
- * status = judge-required（复核 2026-10-17）：cost.pay / cost.modify 已合入，旧依赖任务
- * 已过时；当前真实缺口是「Deflect → 目标税 → 任意域 Power 支付」的生产接线：
+ * status = judge-required（复核 2026-10-17）：cost.pay / cost.modify 已合入；当前真实
+ * 缺口是「Deflect → 目标税 → 任意域 Power 支付」的生产接线：
  * - TargetPlan 只在调用方显式传入 options.tax 时才追加 Deflect 税
  *   （target/target-plan.ts 的 taxSpecs/appendTaxes），没有已合入消费方从被选永久物的
  *   静态 target.tax 派生该税；
@@ -29,7 +29,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   mapping」，展开结果接不进图层；
  * - chain/engine.ts 的 Finalize 把收到的税记为 Energy mandatoryAdditional，而
  *   809.1.c/809.1.c.1 要求追加费用用任意域 Power 支付。
- * 依赖：目标税生产接线与任意域 Power 收费（RIFT-360，进行中）。
+ * chain/engine.ts 的 Finalize 仍把收到的税记为 Energy mandatoryAdditional，而
+ * target/tax/adapter.ts 的 any-domain Power CostPlan 尚未接入该 Finalize/支付路径。
  */
 const poutyPoro = {
   canonicalCardId:
@@ -38,7 +39,7 @@ const poutyPoro = {
   status: "judge-required",
   judgeReason:
     "Deflect 的展开文件（effects/keywords/Deflect.ts：static target.tax）已合入，" +
-    "cost.pay / cost.modify 也已合入（旧依赖任务已过时）；当前真实缺口是" +
+    "cost.pay / cost.modify 也已合入；当前真实缺口是" +
     "「Deflect → 目标税 → 任意域 Power 支付」生产接线：" +
     "(1) target/target-plan.ts 的 taxSpecs/appendTaxes 只在调用方显式传入 options.tax 时才追加税，" +
     "没有已合入消费方从被选永久物的静态 target.tax 派生该税；" +
@@ -46,7 +47,8 @@ const poutyPoro = {
     "绑定时抛 \"Static ability kind target.tax has no layer mapping\"，" +
     "展开结果接不进图层；(3) chain/engine.ts 的 Finalize 把目标税记为 Energy mandatoryAdditional，" +
     "而 809.1.c/809.1.c.1 要求追加费用用任意域 Power 支付。" +
-    "依赖：RIFT-360 的目标税生产接线与任意域 Power 收费（进行中）；不近似实现" +
+    "chain/engine.ts 的 Finalize 仍把税记为 Energy mandatoryAdditional；target/tax/adapter.ts" +
+    " 的 any-domain Power CostPlan 尚未接入该路径；不近似实现" +
     "（不把 Deflect 写成静态数值、不跳过目标税）。",
   abilities: [{ kind: "keyword", keyword: "deflect" }],
   sourceText:

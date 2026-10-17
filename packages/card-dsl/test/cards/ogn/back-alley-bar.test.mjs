@@ -8,6 +8,7 @@ import move from "../../../../engine-core/dist/effects/instructions/effect.move.
 import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { fixture, settle, move as moveBody } from "../../../../engine-core/test/turn/helpers.mjs";
 
 const [ability] = program.abilities;
 const [instruction] = ability.body;
@@ -38,12 +39,13 @@ test("ogn-277-298 Back-Alley Bar: Move trigger filtered on this battlefield as t
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "triggered");
   // CR 421.1 / 449.1 / 449.2: Move is the location-changing action; the
-  // object-moved timing point carries fromKind/fromLocationId. CR 458.1: a
+  // timing declaration names origin fields, but the emitter still omits them. CR 458.1: a
   // Recall is not a Move, which is why the trigger is not a zone/location
   // change subscription.
   assert.equal(ability.trigger.at, "object-moved");
   assert.deepEqual(ability.trigger.filter, {
     event: "object-moved",
+    object: { type: "unit" },
     details: { fromKind: "battlefield", fromLocationId: "self" }
   });
   assert.equal(ability.optional, false);
@@ -72,8 +74,9 @@ test("ogn-277-298 Back-Alley Bar: the body asks for +1 Might this turn and targe
 
 test("ogn-277-298 Back-Alley Bar: the merged Move primitive performs the move the trigger watches", () => {
   // The Move the trigger fires on is merged (events/action-adapter.ts emits
-  // object-moved for a successful move-location): this asserts the movement
-  // payload the trigger filter reads, including its origin location.
+  // object-moved for a successful move-location). This checks the primitive's
+  // movement receipt, which does contain the origin; the pipeline event's
+  // missing origin fields remain a separate dependency.
   const kernel = world()
     .unit("mover", { zone: "board", location: BATTLEFIELD })
     .build();
@@ -89,6 +92,25 @@ test("ogn-277-298 Back-Alley Bar: the merged Move primitive performs the move th
   assert.deepEqual(run.linked.moved.movements[0].from, BATTLEFIELD);
   assert.deepEqual(run.linked.moved.movements[0].to, OTHER_BATTLEFIELD);
   assert.deepEqual(run.events.map(event => event.action), ["move-location"]);
+});
+
+test("ogn-277-298 Back-Alley Bar: a real Move resolution emits object-moved for the moved unit", () => {
+  const f = fixture({
+    fields: [{ id: "bf1", controller: "A" }, { id: "bf2", controller: null }],
+    setup: builder => builder.unit("mover", { location: { type: "battlefield", id: "bf1" } })
+  });
+  f.flow.start();
+  f.flow.execute(f.draft("move-from-bar", [moveBody("move", { type: "battlefield", id: "bf2" })], {
+    source: f.kernel.getObject("mover")
+  }));
+  settle(f.flow);
+  const moves = f.flow.chain.pipeline.events.filter(event => event.timingPoint === "object-moved");
+  assert.equal(moves.length, 1);
+  assert.equal(moves[0].object.ref.id, "mover");
+  assert.equal(moves[0].player, "A");
+  assert.equal(moves[0].action.type, "move-location");
+  assert.deepEqual(moves[0].action.to, { type: "battlefield", id: "bf2" });
+  assert.deepEqual(f.kernel.getObject("mover").location, { type: "battlefield", id: "bf2" });
 });
 
 test("ogn-277-298 Back-Alley Bar: the merged continuous.might registers +1 for the stand-in and expires at cleanup (RIFT-258)", () => {
@@ -141,13 +163,9 @@ test("ogn-277-298 Back-Alley Bar: a stand-in target that left the Board is ignor
 });
 
 test.todo(
-  "ogn-277-298 Back-Alley Bar: naming the moved unit from the trigger payload needs an " +
-    "event-object ObjectSelector (the frozen set is self/source/target/pick/linked)"
+  "ogn-277-298 Back-Alley Bar: reference the moved unit directly from the trigger payload through ObjectSelector, without creating a target choice (CR 355.10.c)."
 );
 
 test.todo(
-  "ogn-277-298 Back-Alley Bar: the object-moved trigger still cannot register: the card's nested " +
-    "{ event, details } spelling is rejected by events/trigger-spec.ts (object-moved is not in " +
-    "EVENT_PATTERN_TYPES); the origin-location payload and the Recall exclusion (CR 458.1) " +
-    "belong to RIFT-120."
+  "ogn-277-298 Back-Alley Bar: admit object-moved in EventPattern, populate its actual movement origin, and bind that origin to the host battlefield, preserving Recall exclusion (CR 458.1)."
 );

@@ -38,6 +38,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   // combat module.
   assert.match(program.judgeReason, /combat\/flow\.ts/);
   assert.match(program.judgeReason, /TurnCombatBlockedError|combat-start-transaction/);
+  assert.match(program.judgeReason, /sameLocationAs/);
   assert.equal(program.sourceText, "When I attack, deal 1 to an enemy unit here.");
 });
 

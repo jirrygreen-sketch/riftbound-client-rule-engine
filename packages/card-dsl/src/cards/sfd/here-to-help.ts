@@ -31,23 +31,30 @@ import type { CardProgram } from "../../ir/index.js";
  *   at zero). The merged cost planner consumes discounts from its caller
  *   (cost/plan-types.ts CostDiscount) and effect.play requires an
  *   already-finalized FinalizedCostPlan; no merged producer turns a card
- *   program's cost descriptor into that plan.
+ *   program's cost descriptor into that plan. cost.modify builds a plan for
+ *   the ability's own printed cost (or an explicit CostSpec), not for a unit
+ *   read through this card's pick, and effect.play's schema requires
+ *   `finalized: true` — so the -3 reduction cannot be authored as executable
+ *   data here.
  *
  * Current status: judge-required. Hidden's runtime Hide/facedown/free-play
  * consumer and a finalized -3 Energy cost plan for the picked Unit are absent.
- * Location choice is now executable: condition.value captures a LocationExpr
- * and effect.play reads its linked value through the existing primitive schema.
+ * Location choice is already executable: condition.value captures a
+ * LocationExpr and effect.play reads its linked value through the existing
+ * primitive schema, so the golden exercises that path with the card's own
+ * instruction.
  */
 const hereToHelp = {
   canonicalCardId: "card.hash-783f18a4ad28b8126f59f285304bee0b93c1e76fb7a557f8e9fee60bebf1f609",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Hidden] 的展开与 cost.hidden 费用构建/支付已合入，但 Hide 行动、facedown 区域和从 facedown 免费打出" +
-    "尚未接入运行期（811.1.b/811.1.c）。effect.play 需要所选手牌单位的 FinalizedCostPlan；" +
-    "cost.modify 按当前能力来源构建计划，source 分支仅处理 Weaponmaster Equipment，尚无按本卡 pick " +
-    "读取单位权威费用、应用 -3 Energy 并接入该单位打出/Finalize 的绑定（356.4/356.6），不能用本法术的费用替代。" +
-    "LocationSelector 与运行期 Location 选择已合入，本卡通过 condition.value→linked-value 绑定受控战场；不再将其列为依赖。",
+    "[Hidden] 的展开与 cost.hidden 费用构建/支付已合入，但没有消费方：Hide 自由行动、facedown 区域与从 facedown " +
+    "免费打出仍未接入运行期（811.1.b/811.1.c），effects/keywords/Hidden.ts 只声明静态 cost.hidden。" +
+    "effect.play 的原语 schema 要求 cost 为 finalized 的 FinalizedCostPlan（既非本卡 printed 费用，也不接受未完成计划）；" +
+    "cost.modify 只能按能力自身来源或显式 CostSpec 构建计划，没有按本卡 pick 读取所选手牌单位的权威费用、" +
+    "应用 -3 Energy 折扣并接入该单位打出/Finalize 的生产绑定（356.4/356.6），不能用本法术的费用替代。" +
+    "LocationSelector 与运行期受控战场选择已合入并由 golden 执行，不再列为依赖。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },

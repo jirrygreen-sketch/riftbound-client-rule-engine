@@ -7,9 +7,14 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import weaponmaster from "../../../../engine-core/dist/effects/keywords/Weaponmaster.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 
 const CANONICAL = "card.hash-e3c3834ab49461988dec4155b965077754fcd478f5efc15474112568b47083ca";
 const SOURCE_TEXT =
@@ -57,6 +62,53 @@ test("sfd-119-221 Jax, Unrelenting: [Weaponmaster] is declared, not expanded (82
   assert.equal(weaponmaster.stacking, "separate");
   assert.ok(weaponmaster.ruleRefs.includes("821.1.c.2"));
   assert.ok(weaponmaster.ruleRefs.includes("821.1.c.6"));
+});
+
+test("sfd-119-221 Jax, Unrelenting: the merged Weaponmaster expansion still fails closed before paying", () => {
+  // 821.1.c.2/.c.3: cost.modify's Equipment source branch throws judge-required
+  // (no authoritative Equip-cost binding, no original [A]/[C] provenance).
+  // The keyword's own declared instructions are executed against the merged
+  // primitive; nothing is re-implemented here.
+  const { judgeReason, ...binding } = program;
+  const registry = new ProgramRegistry([{ ...binding, status: "executable" }]);
+  const base = world()
+    .player("A", { energy: 5, power: ["Body"] })
+    .unit("jax", { cardId: CANONICAL })
+    .object("blade", { types: ["gear"], tags: ["Equipment"], zone: "board", location: { type: "base", player: "A" }, energy: 1, power: ["Body"] })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("jax") });
+  const [playTrigger] = expandProgram(registry.get(CANONICAL), kernel.getObject("jax")).abilities
+    .filter((ability) => ability.kind === "triggered" && ability.trigger.at === "card-played");
+  assert.ok(playTrigger, "the Weaponmaster keyword must expand to its own play trigger");
+  const [sequence] = playTrigger.body;
+  const [costInstruction, payInstruction, attachInstruction] = sequence.args.body.value;
+  assert.deepEqual([costInstruction.op, payInstruction.op, attachInstruction.op], ["cost.modify", "cost.pay", "effect.attach"]);
+
+  // (1) The merged adapter does not decode the constant modifier metadata, so
+  // the keyword's own cost instruction cannot be parsed through the same
+  // production entry point the chain uses.
+  assert.throws(() => resolveChainBody([costInstruction], kernel), error => {
+    assert.equal(error.name, "TypeError");
+    assert.match(error.message, /Invalid cost\.modify modifier argument: value/);
+    return true;
+  });
+
+  // (2) Even after that decode the Equipment source branch is judge-required:
+  // there is no authoritative Equip-cost binding and no [A]/[C] provenance.
+  const equipmentTarget = { id: "weaponmaster-equipment" };
+  kernel.setTargets(equipmentTarget.id, [kernel.ref("blade")]);
+  assert.throws(
+    () => runInstruction(costModify, {
+      source: costInstruction.args.source.value,
+      modifier: costInstruction.args.modifier.value
+    }, { world: kernel }),
+    error => {
+      assert.equal(error.reason, "judge-required");
+      assert.match(error.message, /821\.1\.c\.2/);
+      return true;
+    }
+  );
+  assert.equal(kernel.getObject("blade").attachedTo, null);
 });
 
 test("sfd-119-221 Jax, Unrelenting: 'when you attach an Equipment to me' subscribes to object-attached", () => {
@@ -163,6 +215,39 @@ test("sfd-119-221 Jax, Unrelenting: a real attach emission identifies Equipment 
   const result = validateTriggerSpec(attachTrigger.trigger);
   assert.equal(result.ok, false);
   assert.ok(result.issues.some(issue => issue.path.includes("event")));
+});
+
+test("sfd-119-221 Jax, Unrelenting: the merged adapter binds the host pattern to this card's object, not the attachment", () => {
+  // "When you attach an Equipment to me": programs/filters.ts maps the printed
+  // `filter: { source: "self" }` spelling onto `object`, but the object-attached
+  // emission carries the Equipment as `object` and has no host field
+  // (topMostCardId stays undefined). The registered pattern therefore binds the
+  // wrong identity and cannot fire for this card.
+  const { judgeReason, ...binding } = program;
+  const registry = new ProgramRegistry([{ ...binding, status: "executable" }]);
+  const base = world().unit("jax", { cardId: CANONICAL }).object("blade", { types: ["gear"], tags: ["Equipment"], zone: "board" }).build();
+  const [registration] = triggerRegistrations(registry, base.getObject("jax")).filter(entry => entry.spec.at === "object-attached");
+  assert.ok(registration, "the merged adapter still registers the object-attached trigger");
+  assert.equal(registration.spec.filter.object.objectId, "jax");
+  assert.equal(registration.spec.filter.target.tags.includes("Equipment"), true);
+
+  const kernel = base.clone({ sourceSnapshot: base.getObject("jax") });
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(),
+    restore: state => kernel.restore(state),
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const { emissions } = host.execute({ type: "attach", object: kernel.ref("blade"), host: kernel.ref("jax") });
+  const attached = emissions.find(event => event.timingPoint === "object-attached");
+  assert.deepEqual(attached.object.ref, kernel.ref("blade"));
+  assert.equal(attached.target, undefined);
+  assert.equal(attached.details?.topMostCardId, undefined);
+  assert.equal(matchesTriggerEvent(registration.spec.filter, {
+    kind: "object-attached", timingPoint: "object-attached", object: attached.object, player: "A"
+  }, "A"), false, "the pattern looks for Jax, but the event carries the Equipment");
 });
 
 test.todo(

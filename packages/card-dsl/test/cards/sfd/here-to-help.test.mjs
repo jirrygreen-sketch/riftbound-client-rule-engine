@@ -9,6 +9,7 @@ import playInstruction from "../../../../engine-core/dist/effects/instructions/e
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 
 const CANONICAL_ID = "card.hash-783f18a4ad28b8126f59f285304bee0b93c1e76fb7a557f8e9fee60bebf1f609";
 const SOURCE_TEXT =
@@ -165,6 +166,21 @@ test("sfd-111-221 Here to Help: the permitted play uses a hand pick, a bound Loc
     }
   });
   assert.equal(instructionDefinitionsById.get("effect.play"), playInstruction);
+});
+
+test("sfd-111-221 Here to Help: the printed -3 descriptor is still not a finalized plan for the picked unit", () => {
+  // 356.4/356.6: the reduction has to be applied by a plan the cost system
+  // built for that unit. The merged cost.modify primitive always keys off its
+  // own source or an explicit CostSpec and never reads a PickSpec, and
+  // effect.play rejects any cost value whose `finalized` flag is not true.
+  // Both boundaries are asserted against the merged modules.
+  assert.equal(permitted.args.cost.value.finalized, false);
+  assert.equal(permitted.args.cost.value.amount, -3);
+
+  assert.throws(() => costModify.argsSchema.parse({ pick: permitted.args.pick.value }), error => {
+    assert.match(error.message, /id must be a non-empty string|cost\.modify/);
+    return true;
+  });
 });
 
 test("sfd-111-221 Here to Help golden: declining the optional clause leaves the hand and the board untouched", () => {
