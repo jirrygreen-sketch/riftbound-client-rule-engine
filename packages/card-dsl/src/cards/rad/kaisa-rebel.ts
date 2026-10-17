@@ -31,17 +31,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   这不是本卡自身带 [Reaction]（本卡是单位，不是法术），因此不能写成
  *   { kind: "keyword", keyword: "reaction" }。
  *
- * 状态：judge-required。缺口：
- * 1. 关键词注册表没有 Disarm 定义（实测 keywordDefinitionsById 无 "disarm"）：展开需要
- *    一次 attack-declared 触发（时点已存在于 events/timing-points.ts）加"给此处一个敌方
- *    单位 -1 Might 本回合"的临时 Might 修改；契约 3.6 的封闭 GameAction 集合没有 might
- *    修改动作，effect.buff 文档明确临时 Might 属 layers 的 continuous.might（未有实现），
- *    且 831.1.d.1 要求把同一单位多个实例合并成一次触发（stacking sum）。
- * 2. 条件式授予"你的法术具有 [Reaction]"需要 continuous.grant-keyword（带条件与
- *    "while I'm in a showdown"的时窗）；该持续效果原语未注册，图层消费方（RIFT-91）
- *    与"是否在 showdown"的可读状态也尚未提供（ObjectSnapshot 无 combat/showdown 字段）。
- * 依赖：Disarm KeywordDef（无已分配任务号）、RIFT-91（layers-continuous）、
- * 契约 3.8（combatRole 等战斗身份特征）。
+ * 状态：judge-required。Disarm KeywordDef、continuous.might 与 continuous.grant-keyword
+ * 均已合入，生产 static → layers 注册也已可用；缺口收敛为三点（均由测试实证）：
+ * 1. Disarm 展开出的目标过滤器使用 sameLocationAs:"source"，生产触发注册
+ *    （programs/filters.ts）的白名单拒绝该字段并抛 judge-required；同时 attack-declared
+ *    时点仍没有生产发射方（战斗结算在 combat-start-transaction 处被阻断），因此触发
+ *    既无法注册也无法被发出（CR v1.5 831.1.d / 831.1.d.1）。
+ * 2. "While I'm in a showdown" 缺少可读状态：ObjectSnapshot 没有 in-showdown 字段，
+ *    特征表达式会抛 MissingInformation，生产绑定按 fail-closed 处理（条件恒 false）。
+ * 3. continuous.grant-keyword 的候选消费路径只保留 Board 对象（CR v1.5 359.3.e.2 / e.4 /
+ *    e.8 家族），而本能力授予的是 chain 上的法术（CR v1.5 813.4 / 813.4.a：条件可以在
+ *    链上成立），需要面向 chain 物品的授予消费路径；实测 query 命中后仍全部被丢弃。
  * 不近似实现：不把 Disarm 近似成 effect.buff，也不把"授予你的法术 Reaction"写成
  * 本卡自身的 keyword reaction。
  */
@@ -55,14 +55,14 @@ const abilities: Ability[] = [
   {
     // 364.3 + 813.4 的条件式授予："While I'm in a showdown, your spells have
     // [Reaction]." 授予对象是控制者的法术，不是本卡；条件是我在 showdown。
-    // op 未注册（见 judgeReason），形状按 3.7 "关键词授予归 continuous.*" 写出，
-    // 供后续关键词/图层批次消费。
+    // 授予对象按 813.4.a 是 chain 上的法术，所以过滤器显式带 zone:"chain"，
+    // 不再依赖旧的 appliesTo:"controller-spells" 写法（生产绑定的 staticTarget
+    // 只接受 self 或省略 appliesTo）。
     kind: "static",
     effect: {
       kind: "continuous.grant-keyword",
       keyword: "reaction",
-      filter: { type: "spell", controller: "controller" },
-      appliesTo: "controller-spells"
+      filter: { type: "spell", controller: "controller", zone: "chain" }
     },
     condition: {
       kind: "expression",
@@ -77,10 +77,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "Disarm KeywordDef（RIFT-267）与 continuous.might、continuous.grant-keyword（RIFT-258）已合入，" +
-    "但整卡仍有两处缺口，均不近似实现：(1) Disarm 的 attack-declared 触发、来源位置绑定与 831.1.d.1 的 stacking sum 尚未接入生产触发注册；" +
-    "(2) 条件式授予「While I'm in a showdown, your spells have [Reaction]」（364.3 / 813.4）需要卡牌 static → layers 注册路径与 showdown 可读状态，" +
-    "ObjectSnapshot 目前没有 in-showdown 字段。依赖：RIFT-91、RIFT-120。不把 Disarm 写成 effect.buff，" +
+    "Disarm KeywordDef（RIFT-267）、continuous.might 与 continuous.grant-keyword（RIFT-258）已合入，" +
+    "生产触发注册与 static → layers 绑定也已接通，但整卡仍有三处缺口，均不近似实现：" +
+    "(1) Disarm 展开的触发目标过滤器使用 sameLocationAs，被生产触发注册的过滤器白名单拒绝，" +
+    "且 attack-declared 时点仍没有生产发射方（战斗结算在 combat-start-transaction 处被阻断），" +
+    "对应 CR v1.5 831.1.d / 831.1.d.1；" +
+    "(2) 条件「While I'm in a showdown」（364.3 / 813.4）缺少可读状态，ObjectSnapshot 没有 in-showdown 字段，" +
+    "静态绑定的特征表达式会抛 MissingInformation 并按 fail-closed 处理（条件恒 false）；" +
+    "(3) 条件式授予「your spells have [Reaction]」（813.4 / 813.4.a：条件可以在链上成立）需要面向 chain 物品的授予消费路径，" +
+    "continuous.grant-keyword 目前只保留 Board 对象（359.3.e.2 / 359.3.e.4 / 359.3.e.8 家族），" +
+    "query 命中 chain 上的法术后会全部丢弃。不把 Disarm 写成 effect.buff，" +
     "也不把「授予你的法术 Reaction」写成本卡自身的 keyword reaction。另见数据问题：同身份的 rad-sp4-005 印刷文本与 Might 不同。",
   abilities,
   sourceText:

@@ -3,13 +3,18 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/kaisa-rebel.js";
+import { ProgramBindingError } from "../../../../engine-core/dist/programs/errors.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import continuousGrantKeyword from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
 
 const CARD_ID =
   "card.hash-9dec9472d1f77a1c3d9249566ca3fa89140e7b6a4efcb6fe375c4fab210d2e87";
@@ -25,7 +30,15 @@ test("rad-063-167 Kai'Sa, Rebel: program validates and is judge-required", () =>
   assert.match(program.judgeReason, /Disarm/);
   assert.match(program.judgeReason, /831\.1\.d/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  // Merged dependencies are no longer cited as missing; the reason names the current gaps only.
+  assert.doesNotMatch(program.judgeReason, /RIFT-91/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120/);
+  // Current real gaps, each backed by a probe below.
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /attack-declared/);
+  assert.match(program.judgeReason, /in-showdown/);
+  assert.match(program.judgeReason, /359\.3\.e\.2/);
+  assert.match(program.judgeReason, /813\.4/);
 });
 
 test("rad-063-167 Kai'Sa, Rebel: sourceText is the verbatim deck-catalog ability text", () => {
@@ -80,13 +93,50 @@ test("rad-063-167 Kai'Sa, Rebel: the merged Disarm expansion registers a tempora
   assert.equal(createLayerEngine(kernel.objects, kernel.continuousEffects).evaluate(kernel.ref("enemy")).might, 2);
 });
 
-test("rad-063-167 Kai'Sa, Rebel: the showdown grant is a conditional static ability, not this card's own [Reaction] (364.3 / 813.4)", () => {
+test("rad-063-167 Kai'Sa, Rebel: production trigger registration rejects the Disarm sameLocationAs filter", () => {
+  // The merged KeywordDef is complete, but programs/filters.ts refuses sameLocationAs
+  // while translating trigger filters, so the authored trigger cannot subscribe (831.1.d).
+  const source = {
+    ref: { id: "kaisa", zoneEntryId: 1 },
+    cardId: CARD_ID,
+    name: "Kai'Sa, Rebel",
+    types: ["unit"],
+    tags: ["Kai'Sa", "The Void", "Champion"],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "bf-1" },
+    might: 5,
+    energy: 5,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const registered = [];
+  const engine = { pipeline: { registerTrigger: registration => registered.push(registration.id), unregisterTrigger: () => {} } };
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  assert.throws(
+    () => binding.registerProgramTriggers(engine, source),
+    error => error instanceof ProgramBindingError && error.code === "judge-required" && /Unsupported filter field sameLocationAs/.test(error.message)
+  );
+  assert.equal(registered.length, 0);
+});
+
+test("rad-063-167 Kai'Sa, Rebel: the showdown grant is a conditional chain-spell static, not this card's own [Reaction] (364.3 / 813.4)", () => {
   assert.equal(grantReaction.kind, "static");
   assert.equal(grantReaction.effect.kind, "continuous.grant-keyword");
-  // 813.1 / 813.5: the granted keyword targets the controller's spells, not this unit.
+  // 813.4.a: the granted keyword targets the controller's spells on the chain, not this unit.
   assert.deepEqual(grantReaction.effect.keyword, "reaction");
-  assert.deepEqual(grantReaction.effect.filter, { type: "spell", controller: "controller" });
-  assert.equal(grantReaction.effect.appliesTo, "controller-spells");
+  assert.deepEqual(grantReaction.effect.filter, { type: "spell", controller: "controller", zone: "chain" });
+  assert.equal(grantReaction.effect.appliesTo, undefined);
   // "While I'm in a showdown" is the condition (364.3), read from the source object.
   assert.deepEqual(grantReaction.condition, {
     kind: "expression",
@@ -102,8 +152,59 @@ test("rad-063-167 Kai'Sa, Rebel: the showdown grant is a conditional static abil
       .filter(ability => ability.kind === "keyword")
       .some(ability => ability.keyword === "reaction"),
     false,
-    "this unit does not itself have [Reaction]; only its controller's spells are granted it (813.4)"
+    "this unit does not itself have [Reaction]; only its controller's chain spells are granted it (813.4)"
   );
+});
+
+test("rad-063-167 Kai'Sa, Rebel: production static binding registers the chain-spell grant with the unresolved showdown condition", () => {
+  // The static -> layers path is merged, so the authored grant binds today; the
+  // in-showdown characteristic is still missing and stays fail-closed (813.4).
+  const base = world().player("A")
+    .unit("kaisa", { controller: "A", owner: "A", might: 5, location: { type: "battlefield", id: "bf-1" } })
+    .card("spell-in-chain", { controller: "A", owner: "A", types: ["spell"], zone: "chain" })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: base.snapshot(), links: base.clone() }),
+    restore: checkpoint => { base.restore(checkpoint.state); base.copyLinkedFrom(checkpoint.links); },
+    objects: () => base.objects,
+    perform: action => base.perform(action),
+    choose: () => { throw new Error("Unexpected choice"); },
+    context: (source, controller, timingPoint) => bindResolveContext(base, { source, controller, timingPoint }),
+    testTrigger: () => true
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const handle = createEngineStaticBinder(engine).bindStatic(grantReaction, base.getObject("kaisa"));
+
+  assert.ok(handle);
+  assert.equal(engine.layers.registry.list().length, 1);
+  const entry = engine.layers.registry.list()[0];
+  assert.deepEqual(entry.effect.filter, { type: "spell", controller: "A", zone: "chain" });
+  assert.equal(entry.effect.effect.keyword, "reaction");
+  assert.equal(typeof entry.effect.effect.condition, "function");
+  assert.equal(entry.effect.effect.condition(base.getObject("spell-in-chain")), false);
+  handle?.unbind();
+  assert.equal(engine.layers.registry.list().length, 0);
+});
+
+test("rad-063-167 Kai'Sa, Rebel: grant-keyword execution drops chain spells because candidates are board-only (359.3.e.2 / e.4 / e.8)", () => {
+  // The real primitive skips every non-board candidate; that is the remaining grant gap
+  // for 813.4.a (Reaction conditions fulfilled on the chain), not a fake resolution.
+  const kernel = world().player("A")
+    .unit("kaisa", { controller: "A", owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .card("spell-in-chain", { controller: "A", owner: "A", types: ["spell"], zone: "chain" })
+    .build();
+  const bound = bindResolveContext(kernel, {
+    source: kernel.getObject("kaisa"),
+    controller: "A",
+    query: filter => kernel.query({ ...filter, ...(filter.controller === "controller" ? { controller: "A" } : {}) })
+  });
+  const outcome = runInstruction(continuousGrantKeyword, {
+    keyword: "reaction",
+    filter: { type: "spell", controller: "controller", zone: "chain" }
+  }, { world: bound, targets: {} });
+  assert.equal(outcome.result.status, "negated");
+  assert.equal(outcome.result.reason, "skipped");
+  assert.equal(bound.continuousEffects.length, 0);
 });
 
 test("rad-063-167 Kai'Sa, Rebel: effect.damage and effect.buff are distinct from Disarm's Might layer", () => {
@@ -141,14 +242,16 @@ test("rad-063-167 Kai'Sa, Rebel: effect.damage is unrelated to the negative-Migh
 test.todo(
   "rad-063-167 Kai'Sa, Rebel: [Disarm] attack trigger gives an enemy unit here -1 Might this " +
     "turn, merging several Disarm instances into one trigger with summed values (831.1.d / " +
-    "831.1.d.1 / 831.2) — attack event registration and multi-source trigger aggregation remain " +
-    "open; the merged KeywordDef and continuous.might execution are covered above"
+    "831.1.d.1 / 831.2) — production trigger registration still rejects sameLocationAs and " +
+    "attack-declared has no producer (combat-start-transaction); the merged KeywordDef, " +
+    "continuous.might execution and the registration rejection are covered above"
 );
 
 test.todo(
-  "rad-063-167 Kai'Sa, Rebel: while this unit is in a showdown, spells its controller plays " +
-    "gain [Reaction] (364.3 / 813.4) — needs continuous.grant-keyword and a readable " +
-    "showdown/combat state (ObjectSnapshot has no such field; contract 3.8 only added combatRole)"
+  "rad-063-167 Kai'Sa, Rebel: while this unit is in a showdown, its controller's spells on " +
+    "the chain gain [Reaction] (364.3 / 813.4 / 813.4.a) — ObjectSnapshot still lacks an " +
+    "in-showdown characteristic and continuous.grant-keyword still consumes board-only " +
+    "candidates (359.3.e.2 / e.4 / e.8); static binding and the board-only skip are covered above"
 );
 
 test.todo(
