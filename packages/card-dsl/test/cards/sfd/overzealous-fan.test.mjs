@@ -19,7 +19,7 @@ const [killSelf, moveAttacker] = mayKill.args.body.value;
 // a world built before the unit exists has no Board source. Pin the source to
 // the Fan for the kill-self runs, and drop the move's TargetSpec to pre-lock the
 // attacker (the challenge / one-two-punch convention; the production target
-// pipeline resolves it at Finalize, RIFT-90). The TargetSpec stays in the
+// pipeline resolves it at Finalize). The TargetSpec stays in the
 // program and is asserted structurally below.
 const withFanAsSource = (kernel) => kernel.clone({ sourceSnapshot: kernel.getObject("fan") });
 
@@ -136,21 +136,21 @@ test("sfd-128-221 Overzealous Fan golden: the kill-self half really kills the so
 test.todo(
   "sfd-128-221 Overzealous Fan: the defense-declared timing point is emitted when this unit gains " +
     "the Defender designation (383.4.f.2, 466.2.c/323.2) — combat/ has no emission path yet " +
-    "(combat/flow.ts throws combat-start-transaction), RIFT-33 / RIFT-124"
+    "(combat/flow.ts throws combat-start-transaction)"
 );
 
 test.todo(
   "sfd-128-221 Overzealous Fan: finalize can reject non-attacking units for \"an attacking unit\" using " +
-    "the 466.2.c Attacker designation (contract 3.8 combatRole; ObjectSnapshot has no such field yet) — RIFT-91 / combat batch"
+    "the 466.2.c Attacker designation (contract 3.8 combatRole; ObjectSnapshot has no such field yet)"
 );
 
 test.todo(
   "sfd-128-221 Overzealous Fan: \"to its base\" resolves the chosen attacker's OWNER's Base (198.1/198.2) " +
-    "as a derived LocationRef instead of controller-base — RIFT-90 destination plan"
+    "as a derived LocationRef instead of controller-base — target.location destination plan"
 );
 
 test.todo(
   "sfd-128-221 Overzealous Fan golden: accepting the may kills the Fan and then moves the chosen " +
     "attacker to its owner's Base; the authored destination is a declared owner-base marker (198.2), " +
-    "so no authentic execution is possible until that LocationRef is resolvable — RIFT-90"
+    "so no authentic execution is possible until that LocationRef is resolvable"
 );

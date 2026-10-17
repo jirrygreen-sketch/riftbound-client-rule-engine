@@ -6,6 +6,7 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { moveDuelUnitsStandard } from "../../../../engine-core/dist/zones/movement.js";
 import {
   createDuelBoard,
@@ -24,8 +25,8 @@ test("sfd-014-221 Minotaur Reckoner: validates identity and the global prohibiti
   assert.equal(cardProgramsById.get(ID), program);
   assert.equal(program.canonicalCardId, ID);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "executable");
-  assert.equal(program.judgeReason, undefined);
+  assert.equal(program.status, "judge-required");
+  assert.match(program.judgeReason, /单数 restriction/);
   assert.equal(program.sourceText, "Units can't move to base.");
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "static");
@@ -50,6 +51,30 @@ test("sfd-014-221 Minotaur Reckoner: the layer engine records the prohibition on
   }]);
   engine.setObjects([object]);
   assert.deepEqual(engine.evaluate(object.ref).movement.restrictions, ["move-to-base"]);
+});
+
+test("sfd-014-221 Minotaur Reckoner: default static binding keeps the original restriction shape pending shared normalization", () => {
+  const source = world()
+    .unit("minotaur", {
+      cardId: ID,
+      location: { type: "battlefield", id: "bf-1" }
+    })
+    .unit("u1", { location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const sourceObject = source.getObject("minotaur");
+  const targetObject = source.getObject("u1");
+  const layers = createLayerEngine([sourceObject, targetObject]);
+  const binder = createEngineStaticBinder({ layers });
+  const handle = binder.bindStatic(ability, sourceObject);
+  const [entry] = layers.registry.list();
+  assert.equal(entry.effect.effect.kind, "continuous.movement");
+  assert.equal(entry.effect.effect.restriction, "move-to-base");
+  assert.equal(entry.effect.effect.restrictions, undefined);
+  // This is the production-path compatibility guard: movement() consumes
+  // normalized restrictions, so the shared engine must normalize the
+  // original instruction before this card can become executable.
+  assert.deepEqual(movement(layers.registry, targetObject.ref, targetObject, "A").restrictions, []);
+  handle.unbind();
 });
 
 function duelBoard() {

@@ -33,9 +33,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - Weaponmaster 的 KeywordDef 与 cost.modify/cost.pay 原语已合入，但
  *   reduce-equip-cost 分支以 judge-required 失败关闭：需要“原始 [A]/[C] 符号”绑定才能
  *   按 821.1.c.2 计算 Equip 费并减 [A]。
- * - 「I have +1 :rb_might: for each friendly gear」可用 continuous.might 的 IR 形状表达，
- *   但静态卡牌能力尚无图层注册入口，且 layers/engine.ts 的 valueOf 不求值 count 表达式；
- *   友方 gear 的动态计数因此不能执行（计数型图层求值缺口）。
+ * - 「I have +1 :rb_might: for each friendly gear」的静态卡牌能力已有通用图层注册入口，
+ *   但 layers/engine.ts 的 valueOf 不求值 count 表达式；友方 gear 的动态计数因此不能执行。
  * 依赖：target-tax 生产接线、计数型图层求值、Equip 原始符号绑定。
  */
 const abilities: Ability[] = [
@@ -43,7 +42,7 @@ const abilities: Ability[] = [
   { kind: "keyword", keyword: "weaponmaster" },
   {
     // 「I have +1 :rb_might: for each friendly gear」— 算术图层的计数型静态修正
-    // （143.2.a、475–478）；没有任何已合入消费方注册或求值它（见 judgeReason），
+    // （143.2.a、475–478）；通用静态注册已合入，count 求值仍待共享图层支持（见 judgeReason），
     // 也绝不用 Buff 计数近似（702/703）。
     kind: "static",
     effect: {
@@ -71,7 +70,8 @@ const program = {
     "链上还把它记成 Energy 常量而非 809.1.c.1 要求的任意域 Power。" +
     "(2) [Weaponmaster] 的 KeywordDef 与 cost.modify/cost.pay 原语已合入，但 reduce-equip-cost 以 judge-required 失败关闭：" +
     "缺少“原始 [A]/[C] 符号”绑定，无法按 821.1.c.2 计算 Equip 费并减 [A]。" +
-    "(3)「I have +1 :rb_might: for each friendly gear」（143.2.a）需要静态卡牌能力注册到图层，且 layers/engine.ts 的 valueOf 不求值 count 表达式，" +
+    "(3)「I have +1 :rb_might: for each friendly gear」（143.2.a）可走通用静态图层注册，" +
+    "但 layers/engine.ts 的 valueOf 不求值 count 表达式，" +
     "无法执行动态友方 gear 计数。绝不把 +1 Might 写成 Buff 计数（702/703 语义不同）。依赖：target-tax 生产接线、计数型图层求值、Equip 原始符号绑定。",
   abilities,
   sourceText:

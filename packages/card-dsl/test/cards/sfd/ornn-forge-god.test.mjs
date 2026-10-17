@@ -67,8 +67,8 @@ test("sfd-085-221 Ornn, Forge God: '+1 Might for each friendly gear' is a counti
 
 test.todo(
   "sfd-085-221 Ornn, Forge God: [Deflect 2] expands to target.tax and appends two any-Domain Power to an " +
-    "opposing spell/ability that chooses this unit (CR 809.1.c/809.1.c.1/809.1.d, 356.2.a.2) — the RIFT-349 " +
-    "static binder has no layer mapping for target.tax and the chain Finalize books taxes as Energy (RIFT-90)"
+    "opposing spell/ability that chooses this unit (CR 809.1.c/809.1.c.1/809.1.d, 356.2.a.2) — target-tax " +
+    "production wiring is missing and the chain Finalize books taxes as Energy"
 );
 test.todo(
   "sfd-085-221 Ornn, Forge God: [Weaponmaster]'s play effect chooses one of the controller's Equipment and " +
@@ -78,6 +78,6 @@ test.todo(
 );
 test.todo(
   "sfd-085-221 Ornn, Forge God: 'I have +1 Might for each friendly gear' requires the merged " +
-    "continuous.might instruction plus a card-static registration path and count-expression evaluation " +
-    "in the arithmetic layer (CR 143.2.a/475-478; card-static layer binding plus RIFT-91 count evaluation) — never a Buff counter"
+    "continuous.might instruction plus count-expression evaluation in the arithmetic layer " +
+    "(CR 143.2.a/475-478; generic card-static layer binding is already present) — never a Buff counter"
 );

@@ -142,5 +142,5 @@ test("sfd-045-221 Not So Fast golden: a Board permanent is never a legal Chain t
 test.todo(
   "sfd-045-221 Not So Fast: 'that chooses a friendly unit or gear' needs the target system to expose a Chain " +
     "item's chosen targets (the became-target record of CR 754) so the restriction can be evaluated at Finalize " +
-    "and rechecked at resolution (RIFT-90); the restriction is declared, not dropped."
+  "and rechecked at resolution; the restriction is declared, not dropped."
 );
