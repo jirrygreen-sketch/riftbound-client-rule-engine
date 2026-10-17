@@ -48,7 +48,8 @@ test("rad-163-167 Hunters' Circle: identity, ruleset, status and exact source te
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /cost\.modify/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /first unit or gear/);
 });
 
@@ -94,13 +95,14 @@ test("rad-163-167 Hunters' Circle: the announced -1 discount really reduces a me
 test.todo(
   "rad-163-167 Hunters' Circle: install the announced -1 energy discount on a later unit/gear play " +
     "made to this Battlefield and assert the finalized plan of that play costs 1 less (356.4) — needs " +
-    "the cost.modify instruction / static cost-discount registration on top of the merged cost plan " +
-    "(RIFT-89 follow-up, same gap as sfd/ornns-forge)"
+    "cost.modify/cost.pay plus the card-static cost binding on top of the merged cost plan " +
+    "(RIFT-261, same gap as sfd/ornns-forge)"
 );
 
 test.todo(
   "rad-163-167 Hunters' Circle: gate the discount to each player's FIRST qualifying play of their " +
     "turn only (a second unit/gear played here the same turn costs full) — needs per-player per-turn " +
-    "one-shot history with a play-location predicate, which Condition/HistoryQuery cannot express"
+    "one-shot history with a play-location predicate, which Condition/HistoryQuery cannot express; " +
+    "the card-static ability also still needs the RIFT-257 binding"
 );
 

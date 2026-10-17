@@ -40,6 +40,7 @@ test("rad-041-167 Hush: judge-required naming the missing Power-cost threshold c
   assert.match(program.judgeReason, /355\.8|355\.17\.b|355\.9\.b/);
   assert.match(program.judgeReason, /filter/);
   assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-041-167 Hush: [Reaction] plus a chain-spell counter with the printed cost restriction recorded", () => {
@@ -128,5 +129,5 @@ test.todo(
 );
 test.todo(
   "rad-041-167 Hush: full chain play (1 Energy + 2 Power, [Reaction] Closed-State window) needs " +
-    "the Finalize cost plan adapter (RIFT-89) and chain admission (RIFT-84/RIFT-85)"
+    "the CardProgram play binding and Finalize cost plan (RIFT-257 / RIFT-261)"
 );

@@ -10,20 +10,22 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "When you play me"：Play Effect，时点 card-played（383.4.a / 420.4.a）。
  * - "ready a friendly legend"：355.9.a.4 的 "Legend" 指 Legend Zone 里的传奇，
  *   355.9.a.1 的默认含义不适用于 Legend；图 355.10 的 "Ready a legend" 示例说明这是
- *   目标（选目标），指令用 effect.ready（416.1）。
+ *   目标（选目标），指令用已合入的 effect.ready（416.1）。
  * - "Friendly legends have \"[E]: Give a unit +3 [M] this turn.\""：801.3.a
  *   （其他效果可以授予关键词/能力）；这里授予的是一整条激活能力（费用 [E]），
  *   所需原语是 continuous.grant-ability（ability-templates 的 continuous.keyword 同族，
  *   见 RIFT-9 调研的 continuous.grant-ability 新增项，reuseCardIds 含 rad-040-167），
- *   本仓库尚未注册该原语。授予的能力体只含"临时 Might +3"，同样受未注册的
- *   continuous.might / continuous.duration（143.2.a / 475）限制。
+ *   本仓库尚未注册该原语。授予的能力体只含"临时 Might +3"，改用已合入的
+ *   continuous.might + duration "this-turn"（143.2.a / 475，RIFT-258）。
  *
  * status 判定（README 第 2 节）：judge-required。缺口：
  * 1. `continuous.grant-ability`（把完整激活能力附加给一组对象，保留费用与持续期；
- *    135.4.b / 801.3.a）未注册；
- * 2. 授予能力体内的 "+3 [M] this turn" 需要已注册的临时 Might 修改原语
- *    （continuous.might + continuous.duration，RIFT-91 之后的原语批次）。
- * effect.ready 已合入，golden 测试用链式解释器 + 参考内核真实执行 "ready a friendly legend"。
+ *    135.4.b / 801.3.a）在 effects/instructions/ 仍无文件、指令注册表也没有该 op：
+ *    continuous.grant-keyword 只授予关键词 id，无法承载一条带 [E] 费用的激活能力；
+ * 2. 没有已合入消费方把 CardProgram 的 static 能力展开成持续效果（layers 只消费经
+ *    ResolveContext.addContinuous 注册的 ContinuousEffectSpec；RIFT-257）。
+ * 授予能力体本身已改成可执行形状并用真实执行测试覆盖；effect.ready 同样有真实执行证据。
+ * 依赖：continuous.grant-ability 原语与 RIFT-257。
  */
 
 const grantedAbility: Ability = {
@@ -36,10 +38,12 @@ const grantedAbility: Ability = {
       op: "continuous.might",
       args: {
         mode: { kind: "constant", value: "add" },
-        layer: { kind: "constant", value: "arithmetic" },
+        objects: {
+          kind: "constant",
+          value: { kind: "target", id: "heartening-soul.granted.unit" }
+        },
         amount: { kind: "constant", value: 3 },
-        duration: { kind: "constant", value: "end-of-turn" },
-        target: { kind: "constant", value: "heartening-soul.granted.unit" }
+        duration: { kind: "constant", value: "this-turn" }
       },
       targets: [
         {
@@ -102,13 +106,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「Friendly legends have \"[E]: Give a unit +3 [M] this turn.\"」需要把一条完整激活能力附加给" +
-    "一组对象（含费用与持续期），801.3.a / 135.4.b 对应原语 continuous.grant-ability 未注册；" +
-    "授予能力体内的临时 Might 修改也需要已注册的 continuous.might + continuous.duration" +
-    "（143.2.a / 475）。依赖：RIFT-91（layers-continuous）与后续 continuous.grant-ability / " +
-    "continuous.might 原语批次。" +
-    "「ready a friendly legend」只用已合入的 effect.ready（355.9.a.4 的目标合法性由目标系统解析，" +
-    "Legend Zone 不在契约 ZoneId 内），golden 测试用链式解释器 + 参考内核真实执行。",
+    "「Friendly legends have \"[E]: Give a unit +3 :rb_might: this turn.\"」需要把一条完整激活能力（含 [E] 费用与持续期）附加给一组对象，" +
+    "对应原语 continuous.grant-ability（801.3.a / 135.4.b）仍未合入：effects/instructions/ 没有该文件，指令注册表也无此 op；" +
+    "已合入的 continuous.grant-keyword 只授予关键词 id，无法承载带费用的激活能力体。" +
+    "授予能力体内的临时 Might 修改现已改用已合入的 continuous.might + duration this-turn（143.2.a / 475，RIFT-258），并有真实执行证据。" +
+    "另缺消费方：没有已合入路径把 CardProgram 的 static 能力注册成 ContinuousEffectSpec（layers 只消费 ResolveContext.addContinuous 的注册，RIFT-257）。" +
+    "「ready a friendly legend」用已合入的 effect.ready 并有真实执行证据（355.9.a.4 的目标合法性由目标系统解析，Legend Zone 不在契约 ZoneId 内）。" +
+    "依赖：continuous.grant-ability 原语与 RIFT-257。不近似实现。",
   abilities,
   sourceText:
     "When you play me, ready a friendly legend.\n" +

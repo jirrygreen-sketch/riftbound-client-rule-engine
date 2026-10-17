@@ -37,6 +37,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   Power cost. "any amount of Power" / universal Power is also not a number
  *   (163.2.b), so "[C] or more" would need the domain-agnostic accounting that
  *   cost/resources.ts keeps separate.
+ * The target-plan workstream (RIFT-90) owns the Finalize-time numeric target
+ * restriction; the counter target also needs the CardProgram play binding
+ * (RIFT-257) before the printed spell can be finalized at all.
  * The instruction therefore records the restriction declaratively (filter +
  * condition) but the card is not executable: without the restriction a player
  * could counter a 0/1-Power spell, which the printed text forbids. Not
@@ -52,7 +55,8 @@ const hush = {
     "是在目标锁定之后求值，只会得到 skipped，无法在 Finalize 阶段阻止 355.8/355.17.b 的非法定案；" +
     "ObjectSnapshot.power 是域列表而非数值 Power 费用（163.2.b 的通用 Power 也不是数字），没有域无关的" +
     "数值口径。effect.counter 已合入并有 golden 执行证据；限制条件仅按 IR 形状记录，不近似实现" +
-    "（不去掉限制，也不硬编码单一域）。依赖：目标系统数值限制（RIFT-90 范围）。",
+    "（不去掉限制，也不硬编码单一域）。另缺卡牌打出绑定：CardProgram 的 play/reaction 能力尚无生产方接入链（RIFT-257）。" +
+    "依赖：RIFT-90（目标系统的数值限制）与 RIFT-257。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

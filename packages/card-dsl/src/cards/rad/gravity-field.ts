@@ -18,49 +18,59 @@ import type { CardProgram } from "../../ir/index.js";
  * - 808.1.c / 429.1：Deathknell 功能上等于「当我死亡时，[Effect]」；本卡的 [Effect]
  *   是 Draw 1（414.3），抽牌者按 190.6.d 隐含为能力控制者。
  *
- * status：judge-required。三处依赖尚未合入，均不近似实现：
- * 1. Deploy 没有已合入的 KeywordDef：effects/keywords/ 的 16 个已注册关键词不含
- *    Deploy，830.1.b 的四项改写（入场地点许可、非单位不被召回、对手固守时消灭）
- *    都没有展开实现。调研表把 kw-deploy 归到 continuous.location / continuous.restrict
- *    （docs/plans/survey/ability-templates.md 第 3 节），两者目前没有消费方。
- * 2. Applied Cost（204.4）没有对应指令原语，也没有读取静态成本声明的移动费用管线；
- *    本程序只按开放形状保留声明（effect 内的 mode/action/cost 是描述性数据）。
- * 3. Deathknell 关键词展开（RIFT-82，effects/keywords/Deathknell.ts）已注册，但其指令体
- *    使用未注册的 op trigger.leave（engine-core 的 instructions 注册表没有该原语），
- *    实测展开体会抛 “Unregistered instruction opcode: trigger.leave”；此外没有
- *    卡牌程序 → 关键词 → 时点/链的接线（契约 3.5）。
- * Draw 1 原语本身已合入，golden 测试单独执行它，但不据此宣称整卡可执行。
+ * status：judge-required。逐条复核后的当前缺口（均不近似实现）：
+ * 1. Deploy 的 KeywordDef 已合入（RIFT-267，effects/keywords/Deploy.ts）：它把 830.1.b
+ *    展开成 static continuous.location（入场地点许可、非单位不被召回）与 hold 触发的
+ *    effect.kill 自身。但展开仍缺消费方：continuous.location 的登记没有任何生产方把
+ *    CardProgram 的 keyword 能力喂进去（卡牌程序绑定 RIFT-257），Finalize 也没有读取
+ *    playLocations() 的位置许可校验；cleanup 侧的“非单位 Gear 不被召回”同样没有接线；
+ *    hold 触发的时点虽然已发出（RIFT-270），但没有订阅路径（RIFT-257）。
+ * 2. Applied Cost（204.4）现在可由已合入的 continuous.restrict（mode "applied-cost"）
+ *    登记，layers/rules/query.ts 的 appliedCosts() 也能按动作名读回（本文件已按该真实
+ *    形状改写，golden 真实执行并断言读回值）；但没有任何消费方把登记到的 applied cost
+ *    接进标准移动的费用计划，rainbow Power 的支付路径也属 RIFT-261（cost.pay）。
+ * 3. Deathknell 关键词展开（RIFT-82）仍未完成：effects/keywords/Deathknell.ts 的指令体
+ *    引用尚未合入的 op trigger.leave，展开体会抛 “Unregistered instruction opcode:
+ *    trigger.leave”（见 engine-core 的 keywords/Deathknell.test.mjs 记录），
+ *    且没有卡牌程序 → 关键词 → 时点/链的接线（契约 3.5，RIFT-257）。
+ * 依赖：RIFT-257（卡牌程序/关键词绑定）、移动费用管线的 applied-cost 消费与 RIFT-261、
+ * events 侧的 hold 订阅。
  */
 export default {
   canonicalCardId: "card.hash-d406d8dc66cee52b94dfb12d6f6e4fc13ed28937147e943fb4c4f4478b6bb58c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入：(1) Deploy 关键词没有 KeywordDef（CR 830.1.b 的入场地点许可、" +
-    "非单位 Gear 不被召回、对手固守时消灭都需要展开；调研表 kw-deploy 指向的 " +
-    "continuous.location/continuous.restrict 尚无消费方）；(2)「Opponents must pay " +
-    ":rb_energy_1::rb_rune_rainbow: to move …」是 Applied Cost（CR 204.4/204.4.b），" +
-    "没有指令原语或读取静态成本声明的移动费用管线（rainbow Power 支付路径也未合入）；" +
-    "(3) Deathknell 展开体（RIFT-82）使用未注册的 op trigger.leave，" +
-    "engine-core instructions 注册表没有该 op，且缺少卡牌程序→关键词→时点/链的接线（契约 3.5）。" +
-    "Draw 1 已单独执行，但局部原语执行不构成整卡证据；不近似实现。",
+    "三处缺口（均不近似实现）：(1) Deploy 的 KeywordDef 已合入（RIFT-267 的 effects/keywords/Deploy.ts：" +
+    "static continuous.location 的入场许可 + hold 触发的 effect.kill 自身），但没有消费方——" +
+    "卡牌 keyword 能力 → 展开的生产绑定仍待 RIFT-257，Finalize 不读取 playLocations() 的位置许可，" +
+    "cleanup 的「非单位 Gear 不被召回」也没有接线，hold 触发虽已有时点产生方（RIFT-270）但无订阅路径。" +
+    "(2)「Opponents must pay :rb_energy_1::rb_rune_rainbow: to move …」是 Applied Cost（CR 204.4/204.4.b），" +
+    "现已按已合入的 continuous.restrict（mode applied-cost）真实登记、layers/rules/query.ts 的 appliedCosts() 能读回（golden 已断言），" +
+    "但没有消费方把该 applied cost 接进标准移动的费用计划，rainbow Power 的支付路径属 RIFT-261（cost.pay）。" +
+    "(3) Deathknell 的展开体（RIFT-82）仍引用未注册的 op trigger.leave，展开会抛 Unregistered instruction opcode，" +
+    "且缺少卡牌程序→关键词→时点/链的接线（契约 3.5）。Draw 1 原语已执行，但不构成整卡证据。" +
+    "依赖：RIFT-257、移动费用管线的 applied-cost 消费与 RIFT-261、events 侧 hold 订阅。",
   abilities: [
-    // 830.1：印刷的 [Deploy] 声明。展开由关键词注册表负责，当前没有 Deploy 定义。
+    // 830.1：印刷的 [Deploy] 声明。展开由已合入的 keywords/Deploy.ts 负责（RIFT-267），
+    // 生产绑定仍待 RIFT-257（见 judgeReason）。
     { kind: "keyword", keyword: "deploy" },
     {
-      // 204.4：Applied Cost。静态声明开放形状：作用于移动动作、支付者为对手、
-      // 费用为 1 能量 + 1 rainbow Power。字段是描述性数据，不是可执行原语调用。
+      // 204.4 / 204.4.b：Applied Cost（"Opponents must pay … to move …"）随关联的
+      // 标准移动一起支付、不进链。该声明由已合入的 continuous.restrict 原语
+      // （mode "applied-cost"，RIFT-259）真实登记，layers/rules/query.ts 的
+      // appliedCosts() 按动作名读回（见 golden）。把支付者与费用内容写进 cost，
+      // 结构上保留印刷语义；移动费用计划侧的消费仍待接线（judgeReason）。
       kind: "static",
       effect: {
         kind: "continuous.restrict",
         mode: "applied-cost",
         action: "move",
-        payers: "opponent",
-        filter: { type: "unit", location: { source: "self" } },
-        cost: { energy: 1, power: ["rainbow"] }
+        cost: { energy: 1, power: ["rainbow"], payers: "opponent" }
       }
     },
-    // 808.1：印刷的 [Deathknell] 声明，展开由 effects/keywords/Deathknell.ts 负责。
+      // 808.1：印刷的 [Deathknell] 声明，展开由 effects/keywords/Deathknell.ts 负责
+      // （展开体仍引用未注册的 trigger.leave，见 judgeReason）。
     { kind: "keyword", keyword: "deathknell" },
     {
       // 808.1.c 的「When I die, [Effect]」本体：Draw 1（414.3）。
