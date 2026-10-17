@@ -1,10 +1,10 @@
 import type { Ability, CardProgram } from "../../ir/index.js";
 
 /**
- * Windsinger — sfd-138-221 (CR v1.5 811.1, 383.3.a, 355.9.b/c).
- * The first you may is a Finalize decision, represented by optional:true.
- * Effective-Might/another target predicates and full Hidden integration remain
- * blocked; returning an already locked unit uses the real return-to-hand action.
+ * Windsinger — sfd-138-221 (CR v1.5 811, 383.3.a, 355.9.b/c, 143.2.a).
+ * Re-verified 2026-10-17 against the merged engine. The first "you may" stays
+ * ability.optional, but the printed May decision only reaches the Finalize
+ * prompt while a card-side mayAtFinalize binding exists.
  */
 const RETURN_TARGET = "windsinger.other-small-unit";
 
@@ -46,7 +46,17 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "(1) 目标的有效 Might 上限 mightLte:3（143.2.a、355.9.b）及 another 的 exclude:source 尚未由 programs/filters.ts 接到生产目标查询，依赖 RIFT-359；不能忽略过滤条件。(2) 首个 you may 按 383.3.a 必须在 Finalize 决定；programs/triggers.ts 的 optional 尚未映射到 mayAtFinalize，不能改成结算期 choice.optional。(3) Hidden 的 cost.hidden 尚未接通 811.1.b 的 Hide、面朝下/下回合解锁及 Reaction 免费打出，也缺 811.1.d.3 的原战场 Play Effect 目标限制。通用 card-played 注册和 effect.zone 回拥有者手牌子效果已存在，不再作为缺口。",
+    "三处当前缺口（复核 2026-10-17），均不近似实现：" +
+    "(1) 目标过滤仍有两条未接通：another 的 Symbolic exclude:\"source\"（355.9.c/740.1.a）被 programs/filters.ts 的 translateObjectFilter 以 \"Unsupported filter field exclude\" 直接拒绝，" +
+    "且目标有效 Might 上限 mightLte:3（143.2.a、355.9.b）没有任何生产消费者——确认 translateObjectFilter 拒绝该字段，" +
+    "layers/filter.ts 的 matchesObjectFilter 也会静默忽略未知键（7 Might 单位同样通过）。不能删掉任一条件（会放过所有战场单位）。" +
+    "(2) 首个 you may 按 383.3.a 应在 Finalize（383.3.a.1/.a.2）决定：TriggerRegistration.mayAtFinalize 与 ChainEngine.finalize 的 Finalize 可选决策已经存在，" +
+    "但 programs/triggers.ts 只把 ability.optional 传给 TriggerRegistration.optional，输出 mayAtFinalize: undefined，因此当前只能退化为触发时选择。" +
+    "(3) Hidden（811.1）展开 static cost.hidden 后没有任何消费方：programs/statics.ts 的 layerFor 对 cost.hidden 抛 " +
+    "\"Static ability kind cost.hidden has no layer mapping\"；cost/kinds/hidden.ts 只做 811.1.b 的计划/支付（Hide 行动没有接入链或回合流程），" +
+    "契约 ZoneId 没有面朝下区域、turn/flow.ts 的隐藏牌清理抛 hidden-cleanup-state，" +
+    "811.1.d.3 的「原战场 Play Effect 目标限制」与下回合 Reaction/免费打出也没有接线。" +
+    "已可执行且有真实证据：card-played 的自我触发注册（programs/triggers.ts）与 effect.zone 的「回到拥有者手牌」动作（已含 stale-reference 边界）。",
   abilities,
   sourceText:
     "Hidden (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +
