@@ -57,7 +57,9 @@ test("sfd-092-221 Combat Chef: judgeReason names the missing cost opcodes and de
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /821\.1\.c\.2/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Equip payment kind/);
 });
 
 test("sfd-092-221 Combat Chef: exactly one unvalued Weaponmaster keyword ability", () => {
@@ -109,6 +111,6 @@ test.todo(
   "sfd-092-221 Combat Chef: on play, choose one of your Equipment, pay its Equip cost " +
     "reduced by [A], then attach it to me even if it is already attached (821.1.c / " +
     "821.1.c.2 / 821.1.c.3) — blocked because cost.modify / cost.pay have no registered " +
-    "InstructionDef and no producer expands a card's keyword ability into the play " +
-    "pipeline (RIFT-89)"
+    "InstructionDef (RIFT-261) and no producer expands a card's keyword ability into the " +
+    "play pipeline (RIFT-257)"
 );

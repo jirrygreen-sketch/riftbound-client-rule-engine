@@ -11,18 +11,20 @@ import type { CardProgram } from "../../ir/index.js";
  *   to repeat this spell's effect.)
  *   Give your Mechs +1 :rb_might: this turn.
  *
- * Status: judge-required — two gaps, neither approximated:
- * - the team buff is a temporary might modification; contract 3.6's closed
- *   GameAction set has no might-modification action, and effect.buff
- *   explicitly leaves temporary Might changes to a layers/ "continuous.might"
- *   effect that the not-yet-implemented layers system (RIFT-83/84) would
- *   consume;
- * - the [Repeat] keyword has no merged KeywordDef (RIFT-86 added only the
- *   effect.repeat instruction primitive), and its additional-cost permission
- *   rewrite (v1.5 820) is not wired; the additional cost (1 energy + 1
- *   rainbow rune) is declared on the play ability as an additionalCost
- *   CostSpec so the intent is reviewable, pending the Repeat KeywordDef /
- *   cost plumbing (RIFT-86).
+ * Status: judge-required — one gap, not approximated:
+ * - the [Repeat] KeywordDef landed with RIFT-86, but its additional-cost
+ *   collection still has no consumer: the Finalize cost plan never reads the
+ *   declared Repeat cost (no accelerate.cost / repeat.cost consumer, no
+ *   cost.pay / cost.additional primitive is registered — RIFT-261 cost
+ *   ops are not merged) and the paid-repeat count is not wired to the
+ *   interpreter's repeat node in the play pipeline (RIFT-257 binding). The
+ *   additional cost (1 energy + 1 rainbow rune) stays declared on the play
+ *   ability as an additionalCost CostSpec so the intent is reviewable.
+ * - The team buff itself is now executable: the merged continuous.might
+ *   primitive (RIFT-258) registers the arithmetic-layer modification over the
+ *   programmatic "your Mechs" set through ctx.addContinuous with the
+ *   end-of-turn duration (317.1.a / 468.7.c), and the golden test drives the
+ *   card's own body through the production chain adapter.
  *
  * "Your Mechs" is an each-set, not a target (v1.5 355.7: "each" is not
  * targeted), so the body instruction carries no TargetSpec.
@@ -32,10 +34,11 @@ const dangerZone = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺临时 Might 修正原语：契约 3.6 封闭 GameAction 集合无 might 修改动作，" +
-    "effect.buff 文档明确临时 Might 归 layers 的 continuous.might（图层系统未实现，依赖 RIFT-83/84）；" +
-    "Repeat 关键词无已合入 KeywordDef（RIFT-86 仅合入 effect.repeat 原语），820 追加费用的支付许可改写未接好；" +
-    "追加费用（1 能量 + 1 彩虹符文）已按契约 3.1 声明为 play 的 additionalCost，待 Repeat 关键词与费用管线接管；不近似实现。",
+    "[Repeat] 追加费用仍无可执行收取路径：Repeat KeywordDef 已随 RIFT-86 合入（effects/keywords/Repeat.ts 输出 repeat.cost 静态能力），" +
+    "但没有消费方把打出的 Repeat 费用接进 Finalize 费用计划（repeat.cost/accelerate.cost 无消费者，effects/instructions/ 也没有已注册的 " +
+    "cost.pay / cost.additional 原语——RIFT-261 的费用指令批次未合入），已付费 Repeat 实例数与解释器 repeat 节点的接线同样缺失" +
+    "（卡牌程序绑定 RIFT-257）。追加费用（1 能量 + 1 彩虹符文，820.1.c.1）已按契约 3.1 声明为 play 的 additionalCost，属待接线声明，不写死第二次结算、不近似实现。" +
+    "「Give your Mechs +1 :rb_might: this turn」半段已可执行：continuous.might 原语（RIFT-258）对 355.10.d 的程序化集合注册 arithmetic 层修正并在回合末到期，golden 已用生产链适配器真实执行。",
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
     "[Repeat] :rb_energy_1::rb_rune_rainbow: (You may pay the additional cost to repeat this spell's effect.)\n" +
@@ -56,14 +59,21 @@ const dangerZone = {
       body: [
         {
           // "Give your Mechs +1 Might this turn" — each-set (no TargetSpec);
-          // described via the layers contract shape, pending the might
-          // primitive / layers system (see judgeReason).
+          // a duration-bounded Might modification over the programmatic set of
+          // the controller's Mech units, registered by the merged
+          // continuous.might primitive (RIFT-258) and expiring at cleanup.
           id: "buff-mechs",
-          op: "effect.might-modify",
+          op: "continuous.might",
           args: {
+            objects: {
+              kind: "literal",
+              value: {
+                kind: "query",
+                filter: { type: "unit", tags: ["Mech"], controller: "self", zone: "board" }
+              }
+            },
             amount: { kind: "literal", value: 1 },
-            duration: { kind: "literal", value: "this-turn" },
-            appliesTo: { kind: "literal", value: { type: "unit", tag: "Mech", controller: "you" } }
+            duration: { kind: "literal", value: "this-turn" }
           }
         }
       ]

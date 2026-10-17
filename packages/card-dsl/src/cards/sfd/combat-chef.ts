@@ -20,11 +20,14 @@ import type { CardProgram } from "../../ir/index.js";
  * 第 5 节）；展开由 engine-core 的 effects/keywords/Weaponmaster.ts 负责，
  * 卡内不重写关键词逻辑。
  *
- * status = judge-required（cards/README.md 第 2 节）：展开文件虽已合入，但其 body
- * 使用的 cost.modify / cost.pay 在 effects/instructions/registry.generated.ts 没有
- * 注册的 InstructionDef，也没有生产方把卡牌上的 keyword 能力接进打出流程，
- * 821.1.c.2 的 Equip 费计算与 821.1.c.3 的 [A] 减费无法执行。缺 RIFT-89
- * （费用计划/支付）与关键词展开接线；不近似实现。
+ * status = judge-required（cards/README.md 第 2 节）：展开文件已合入（RIFT-87），但
+ * - cost.modify / cost.pay 在 effects/instructions/registry.generated.ts 仍没有
+ *   注册的 InstructionDef（该批属 RIFT-261，未合入 HEAD），821.1.c.2 的 Equip 费
+ *   计算与 821.1.c.3 的 [A] 减费无法执行；
+ * - 没有生产方把卡牌上的 keyword 能力展开并接进打出流程（卡牌程序绑定 RIFT-257，
+ *   未合入 HEAD）；
+ * - 已合入的 cost 管线对 Equip 支付种类（payments kind "equip"）仍判 blocked。
+ * 不近似实现。
  */
 const combatChef = {
   canonicalCardId:
@@ -39,8 +42,11 @@ const combatChef = {
     "any producer expand a card's keyword ability into the play pipeline. 821.1.c.2 " +
     "(cost determined as though the Equip ability were activated targeting this unit) " +
     "and 821.1.c.3 (the [A] reduction) therefore cannot be calculated or paid before " +
-    "effect.attach runs. Depends on RIFT-89 (cost planning/payment primitives) and the " +
-    "keyword-expansion wiring; not approximated.",
+    "effect.attach runs, and the merged cost pipeline has no Equip payment kind at all " +
+    "(cost/plan-values.ts readCost supports only the resource and nonstandard kinds " +
+    "merged with RIFT-89). " +
+    "Depends on RIFT-261 (cost.pay / cost.modify instruction ops) and RIFT-257 " +
+    "(card-program keyword expansion into the play pipeline); not approximated.",
   abilities: [{ kind: "keyword", keyword: "weaponmaster" }],
   sourceText:
     "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)"

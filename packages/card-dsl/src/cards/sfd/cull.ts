@@ -17,10 +17,13 @@
  * status = judge-required（缺可支付的费用路径与关键词接线，不近似实现）：
  * - 已合入的 Equip 展开（RIFT-87，effects/keywords/Equip.ts）声明
  *   payments: [{ kind: "equip", value: { kind: "source" } }]，而费用管线
- *   cost/plan-values.ts 的 readCost 没有 "equip" 这一支付种类（RIFT-89 之后的 Equip 费用
- *   支持未落地），Equip 的启动费用因此无法计算/支付；契约 3.8 第 3 条要求 expand 用
- *   params.cost 承载印刷装备费，已合入的 KeywordDef 接口仍没有该参数。
- * - 卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）未合入（RIFT-120 后续）。
+ *   cost/plan-values.ts 的 readCost 没有 "equip" 这一支付种类（Equip 费用属未合入的
+ *   RIFT-261 费用指令批次），Equip 的启动费用因此无法计算/支付；契约 3.8 第 3 条要求
+ *   expand 用 params.cost 承载印刷装备费，已合入的 KeywordDef 接口虽声明了 params
+ *   （keyword-contract.ts），但展开方仍只从 value/host 读取，印刷的 Chaos 符文
+ *   没有传到 expand。
+ * - 卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）未合入（卡牌程序绑定 RIFT-257，
+ *   未合入 HEAD）。
  * - 不把 Equip 降级成裸 effect.attach：那会绕开 818.1.c 的费用与费用改写语义。
  */
 export default {
@@ -31,9 +34,11 @@ export default {
     "印刷的 [Equip] 费用（1 点 Chaos Power，818.1.c.2）目前无法支付：已合入的 Equip 展开" +
     "（RIFT-87，effects/keywords/Equip.ts）声明 payments: [{ kind: \"equip\", value: source }]，" +
     "费用管线 cost/plan-values.ts 的 readCost 没有 \"equip\" 支付种类，启动费用无法计算/支付；" +
-    "契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，KeywordDef 接口仍无该参数，" +
-    "也缺卡牌程序→关键词展开→时点/链的接线（契约 3.5）。依赖：RIFT-89 之后的 Equip 费用支持" +
-    "与 RIFT-120 的关键词接线。不近似实现（不把 Equip 降级成裸 effect.attach）。",
+    "契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的 KeywordDef 虽声明了 params，" +
+    "但 Equip 展开只用 value/host，印刷的 Chaos 符文没有落到 expand 参数上；" +
+    "也缺卡牌程序→关键词展开→时点/链的接线（契约 3.5）。" +
+    "依赖：RIFT-261（Equip 费用支付与 cost.* 指令）、RIFT-257（卡牌程序关键词展开绑定）。" +
+    "不近似实现（不把 Equip 降级成裸 effect.attach）。",
   abilities: [
     { kind: "keyword", keyword: "equip", value: 1, costDomain: "Chaos" }
   ],

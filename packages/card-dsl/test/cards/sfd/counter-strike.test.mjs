@@ -24,6 +24,10 @@ test("Counter Strike program is valid EffectIR v2 data and judge-required", () =
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /replacement\.prevent/);
   assert.match(program.judgeReason, /371\.1/);
+  // The stale "RIFT-86/89 cost" wording must not persist: the remaining gap is
+  // the one-shot damage-prevention replacement form.
+  assert.match(program.judgeReason, /registerReplacement/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89/);
   assert.equal(
     program.sourceText,
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
@@ -84,6 +88,18 @@ test("Counter Strike golden: the targeted unit is a legal damage target while th
   assert.equal(run.result.status, "executed");
   assert.equal(kernel.getObject("shielded").damage, 2);
   assert.deepEqual(run.events.map((event) => event.action), ["damage"]);
+});
+
+test("Counter Strike: the card never approximates the shield with a state or damage rewrite", () => {
+  // Durable data-level guard (independent of which engine pieces are merged):
+  // the one-shot prevention is a replacement effect, so the program may only
+  // declare the shield instruction plus the independent draw; it must not
+  // hand-resolve prevention by dealing negative damage, healing, or mutating
+  // state on its own.
+  const ops = play.body.map((instruction) => instruction.op);
+  assert.deepEqual(ops, ["replacement.prevent", "effect.draw"]);
+  assert.equal(ops.includes("effect.heal"), false);
+  assert.equal(ops.includes("effect.damage"), false);
 });
 
 test("Counter Strike golden: the independent Draw 1 draws one card", () => {

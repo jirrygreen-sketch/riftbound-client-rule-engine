@@ -26,7 +26,6 @@ test("sfd-147-221 Downwell: program passes validateCardProgram", () => {
 test("sfd-147-221 Downwell: judgeReason names the missing non-target set form", () => {
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /effect\.zone/);
-  assert.match(program.judgeReason, /RIFT-9/);
   assert.match(program.judgeReason, /RIFT-90/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -113,6 +112,6 @@ test("sfd-147-221 Downwell fail-closed: the descriptive set descriptor is reject
 test.todo(
   "sfd-147-221 Downwell: 'Return all units and gear to their owners' hands' needs a non-target set form of " +
     "effect.zone (355.10.d/355.10.d.1) — the merged primitive consumes only ctx.targets / ctx.picks. The " +
-    "effect.ready / effect.heal { kind: 'query', filter } descriptor is the intended shape (RIFT-9 target.query, " +
-    "RIFT-90 target system)."
+    "effect.ready / effect.heal { kind: 'query', filter } descriptor is the intended shape; the replacement " +
+    "planner (RIFT-260) likewise maps effect.zone only through its target spelling."
 );
