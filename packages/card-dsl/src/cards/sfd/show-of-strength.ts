@@ -21,18 +21,21 @@ import type { CardProgram } from "../../ir/index.js";
  *   with the kernel.
  *
  * Status is judge-required, with a narrower gap than the original note: the
- * Mighty KeywordDef has since merged (effects/keywords/Mighty.ts, RIFT-264~268
- * keyword batch), but it only publishes a static `condition.predicate` /
- * `condition.value` "is-mighty" shape — no merged query/layer evaluator
- * consumes it, and ObjectFilter has no Might-threshold predicate slot. The
- * count filter's `mightGte: 5` key is silently ignored by every merged filter
- * matcher (layers/filter.ts matchesObjectFilter reads type/zone/controller/
- * owner/tags/characteristics only; programs/filters.ts translateObjectFilter
- * rejects unknown keys outright), so evaluating this amount through the merged
- * query path would count every unit the controller has. The predicate is
- * therefore descriptive and cannot be executed without inventing semantics.
- * The play body itself binds through the merged RIFT-257 adapter, and the
- * count-driven draw executes (golden).
+ * Mighty KeywordDef has since merged (effects/keywords/Mighty.ts), but it only
+ * publishes a static `condition.value` predicate shape — programs/statics.ts's
+ * layerFor has no mapping for `condition.value` (golden: bindStatic throws
+ * ProgramBindingError "Static ability kind condition.value has no layer
+ * mapping"), layers/engine.ts's conditionMatches only resolves
+ * always/never/type/has-tag/has-keyword, and ObjectFilter has no Might-threshold
+ * predicate slot. Every merged filter matcher silently ignores the declared
+ * `mightGte: 5` key (layers/filter.ts matchesObjectFilter reads
+ * type/zone/controller/owner/tags/characteristics only; the reference kernel's
+ * query treats unknown keys as always-true; programs/filters.ts
+ * translateObjectFilter rejects unknown keys outright), so evaluating this
+ * amount through the merged query path would count every unit the controller
+ * has. The predicate is therefore descriptive and cannot be executed without
+ * inventing semantics. The play body itself binds through the merged adapter,
+ * and the count-driven draw executes (golden).
  */
 export default {
   canonicalCardId: "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f",
@@ -42,16 +45,18 @@ export default {
     "The amount expression counts 'your Mighty units' through the count filter " +
     "{ type: 'unit', controller: 'you', mightGte: 5 }. Mighty is CR v1.5 706-708 (a unit is Mighty " +
     "while its Might is 5 or greater). The Mighty KeywordDef has merged (effects/keywords/Mighty.ts), " +
-    "but it only publishes a static condition.predicate / condition.value 'is-mighty' shape: no merged " +
-    "query or layer evaluator consumes that predicate (layers/engine.ts conditionMatches only resolves " +
-    "always/never/type/has-tag/has-keyword), and ObjectFilter has no Might-threshold slot. Every merged " +
+    "but it only publishes a static `condition.value` 'is-mighty' shape: programs/statics.ts's layerFor " +
+    "has no mapping for it (golden: bindStatic throws ProgramBindingError \"Static ability kind " +
+    "condition.value has no layer mapping\"), layers/engine.ts conditionMatches only resolves " +
+    "always/never/type/has-tag/has-keyword, and ObjectFilter has no Might-threshold slot. Every merged " +
     "filter matcher silently ignores the unknown `mightGte` key (layers/filter.ts matchesObjectFilter " +
-    "reads type/zone/controller/owner/tags/characteristics; programs/filters.ts translateObjectFilter " +
-    "rejects unknown keys), so evaluating the declared amount through the merged path would count every " +
-    "unit the controller has — an approximation that is not allowed. The play body binds through the " +
-    "merged RIFT-257 adapter and the count-driven draw itself executes (golden); only the official Mighty " +
-    "predicate binding is missing. Dependencies: RIFT-359 (conditional-predicate batch, in progress) for " +
-    "the ObjectFilter Might-threshold predicate; kw-mighty needs an executable query consumer.",
+    "reads type/zone/controller/owner/tags/characteristics only — golden: a Might-1 unit still " +
+    "satisfies the filter once the controller placeholder is bound — the reference kernel's query " +
+    "treats unknown keys as always-true, and the production translator rejects the key outright with " +
+    "\"Unsupported filter field mightGte\" before any binding), so the declared amount cannot be " +
+    "evaluated through the merged path without approximating the printed predicate. The play body binds " +
+    "through the merged program adapter and the count-driven draw itself executes (golden); only an " +
+    "executable Mighty query consumer is missing (kw-mighty).",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

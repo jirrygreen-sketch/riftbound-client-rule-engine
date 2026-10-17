@@ -107,9 +107,9 @@ test("sfd-186-221 Spinning Axe: identity, ruleset, status, judgeReason and verba
   // The Temporary KeywordDef and the CardProgram binding have merged since the
   // original note; the refreshed reason points at the EventPattern vocabulary
   // (beginning-start), the equip payment kind and the event source payload.
-  assert.match(program.judgeReason, /RIFT-39/);
-  assert.equal(program.judgeReason.includes("RIFT-261"), false);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /beginning-start/);
+  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
+  assert.match(program.judgeReason, /event\.source/);
   assert.equal(program.judgeReason.includes("无已合入 KeywordDef"), false);
 });
 
@@ -231,7 +231,7 @@ test("sfd-186-221 golden: the merged Temporary expansion kills the axe through t
 });
 
 test("sfd-186-221 golden: the merged binding layer registers the Quick-Draw card-played trigger for this card", () => {
-  // Durable contract (RIFT-257 programs/triggers.ts + the merged Quick-Draw
+  // Durable contract (programs/triggers.ts + the merged Quick-Draw
   // KeywordDef): the expansion's card-played trigger must be registered for the
   // axe with its source discriminator bound to this card's printed identity, so
   // it fires for the axe's own play and not for other cards. The production
@@ -270,7 +270,7 @@ test("sfd-186-221 golden: the merged binding layer registers the Quick-Draw card
 
 test.todo(
   "sfd-186-221 Spinning Axe: [Temporary]'s merged expansion (CR 816.1.b/816.1.c) subscribes beginning-start, " +
-    "which the closed EventPattern vocabulary (RIFT-39) still lacks, so pipeline.registerTrigger rejects the " +
+    "which the closed EventPattern vocabulary still lacks, so pipeline.registerTrigger rejects the " +
     "spec; the effect.kill body itself executes (see the golden below)"
 );
 
@@ -304,7 +304,77 @@ test("sfd-186-221 Spinning Axe: each Domain can pay the printed one-Power Equip 
 
 test.todo(
   "sfd-186-221 Spinning Axe: the Quick-Draw play trigger can only fire end-to-end once the card-played event " +
-    "carries this card's identity for EventPattern.source binding (the RIFT-257 adapter and trigger registration " +
+    "carries this card's identity for EventPattern.source binding (the adapter and trigger registration " +
     "are merged; chain/engine.ts still emits object/player only, so the source filter from the merged " +
     "Quick-Draw expansion never matches)"
 );
+
+// Direct evidence for the four recorded gaps, all against merged source.
+test("sfd-186-221 Spinning Axe: the merged pipeline rejects the Temporary beginning-start subscription (CR 816.1.b)", () => {
+  const spec = keywordDefinitionsById.get("Temporary").expand({ host: HOST })[0].trigger;
+  assert.equal(spec.at, "beginning-start");
+  const validation = validateTriggerSpec(spec);
+  assert.equal(validation.ok, false);
+  assert.deepEqual([...new Set(validation.issues.map(issue => issue.code))], ["invalid-event-type"]);
+  // Registration through the real pipeline fails closed with the same reason.
+  const f = fixture({ cards: [{ id: "spinning-axe", cardId: CARD_ID, types: ["gear"], might: 3, keywords: [{ id: "Temporary" }] }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("spinning-axe"), to: "base", location: { type: "base", player: "A" } });
+  assert.throws(() => f.engine.pipeline.registerTrigger({
+    id: "temporary-axe",
+    source: f.kernel.getObject("spinning-axe"),
+    controller: "A",
+    spec,
+    body: [],
+    optional: false
+  }), (error) => {
+    assert.equal(error.name, "TriggerSpecValidationError");
+    return true;
+  });
+});
+
+test("sfd-186-221 Spinning Axe: the merged cost pipeline refuses the Equip payment kind (CR 818.1.b)", () => {
+  const kernel = axeWorld();
+  const context = bindResolveContext(kernel, { source: kernel.getObject("spinning-axe") });
+  assert.throws(
+    () => buildCostPlan(context, {
+      id: "axe-equip-activation",
+      cost: { payments: [{ kind: "equip", value: { kind: "source" } }] }
+    }),
+    (error) => {
+      assert.equal(error.reason, "judge-required");
+      assert.match(error.message, /Unsupported payment kind: equip/);
+      return true;
+    }
+  );
+});
+
+test("sfd-186-221 Spinning Axe: expand receives no printed Equip cost, so the printed cost never reaches params.cost", () => {
+  assert.equal(equip.value, 1);
+  assert.equal(equip.costDomain, "rainbow");
+  assert.equal(Object.hasOwn(equip, "cost"), false);
+  const [activation] = keywordDefinitionsById.get("Equip").expand({ value: equip.value, host: HOST });
+  assert.deepEqual(activation.cost.payments.map(payment => payment.kind), ["equip"]);
+  assert.equal(activation.cost.payments.length, 1);
+});
+
+test("sfd-186-221 Spinning Axe: the real card-played event carries no source identity for the Quick-Draw trigger", () => {
+  // Play the axe through the merged chain and inspect the emitted card-played
+  // event. chain/engine.ts builds it from object/player only, so the merged
+  // Quick-Draw filter's source discriminator can never match.
+  const f = fixture({ cards: [{ id: "spinning-axe", cardId: CARD_ID, types: ["gear"], might: 3, keywords: [{ id: "Quick-Draw" }, { id: "Equip", value: 1 }, { id: "Temporary" }] }] });
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const draft = binding.describePlay({ type: "play", player: "A" }, f.kernel.getObject("spinning-axe"));
+  f.engine.execute(draft);
+  f.engine.pass(f.engine.priority);
+  f.engine.pass(f.engine.priority);
+  const played = f.engine.pipeline.events.filter(event => event.timingPoint === "card-played");
+  assert.equal(played.length, 1);
+  assert.equal(Object.hasOwn(played[0], "source"), false);
+  assert.equal(played[0].object.ref.id, "spinning-axe");
+  assert.equal(matchesTriggerEvent(
+    { event: "card-played", source: { canonicalCardId: CARD_ID } },
+    played[0],
+    "A"
+  ), false);
+});

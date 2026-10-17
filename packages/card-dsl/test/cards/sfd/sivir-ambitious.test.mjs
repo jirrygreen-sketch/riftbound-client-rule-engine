@@ -9,6 +9,9 @@ import { buildCostPlan, payCostPlan, DUEL_DOMAINS } from "../../../../engine-cor
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -37,7 +40,7 @@ test("sfd-120-221 Sivir, Ambitious: judgeReason names the excess-damage, conquer
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /conquer/);
   assert.match(program.judgeReason, /383\.4\.c\.2\.a/);
-  assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /Deflect/);
   assert.match(program.judgeReason, /conquered/);
   assert.match(program.judgeReason, /objectId/);
   assert.match(program.judgeReason, /征服宿主/);
@@ -69,9 +72,14 @@ test("sfd-120-221 Sivir, Ambitious: 'when I conquer after an attack' carries the
   const condition = conquerTrigger.trigger.condition;
   assert.equal(condition.kind, "compare");
   assert.equal(condition.operator, "gte");
-  assert.equal(condition.left.kind, "count");
-  assert.equal(condition.left.subject, "excess-damage-assigned-this-combat");
-  assert.deepEqual(condition.left.filter, { targetController: "opponent", scope: "this-attack" });
+  // The statistic has no evaluable read path, so the condition reads the
+  // declared source characteristic and fails closed instead of approximating
+  // the total with an object count.
+  assert.deepEqual(condition.left, {
+    kind: "object-property",
+    object: "source",
+    property: "excessDamageAssignedThisCombat"
+  });
   assert.deepEqual(condition.right, { kind: "constant", value: 5 });
 
   assert.equal(conquerTrigger.optional, false);
@@ -135,6 +143,75 @@ test.todo(
     "needs the combat-damage assignment statistic (467.2.c.4) — HistoryQuery only returns event counts and the " +
     "conquer payload declares no fields; the conquer timing point itself is emitted by turn/flow.ts"
 );
+
+// Direct evidence for the condition gap: the authored source-characteristic
+// read is not satisfied by any merged evaluator, and the previous count spelling
+// would have been silently satisfied by unrelated objects.
+test("sfd-120-221 Sivir, Ambitious: the excess-damage condition fails closed on the merged evaluator", () => {
+  const kernel = world().unit("dummy", { owner: "A", might: 7 }).build();
+  const environment = {
+    context: bindResolveContext(kernel, { source: kernel.getObject("dummy") }),
+    host: kernel.ref("dummy"),
+    linked: () => undefined,
+    canLookBack: () => true,
+    isIgnored: () => false
+  };
+  assert.throws(
+    () => evaluateCondition(conquerTrigger.trigger.condition, environment),
+    (error) => {
+      assert.match(error.message, /Unavailable characteristic: excessDamageAssignedThisCombat/);
+      return true;
+    }
+  );
+});
+
+test("sfd-120-221 Sivir, Ambitious: an object count cannot stand in for the assigned damage (467.2.c.4)", () => {
+  // Six unrelated objects on the Board satisfy a count-shaped condition, which
+  // is exactly why the authored condition no longer uses count: the amount is
+  // damage, not a number of objects.
+  const kernel = world()
+    .unit("u1", { owner: "A" })
+    .unit("u2", { owner: "A" })
+    .unit("u3", { owner: "A" })
+    .unit("u4", { owner: "A" })
+    .unit("u5", { owner: "A" })
+    .unit("u6", { owner: "A" })
+    .build();
+  const environment = {
+    context: bindResolveContext(kernel, { source: kernel.objects[0] }),
+    host: kernel.objects[0].ref,
+    linked: () => undefined,
+    canLookBack: () => true,
+    isIgnored: () => false
+  };
+  const countSpelling = {
+    kind: "compare",
+    left: { kind: "count", subject: "excess-damage-assigned-this-combat", filter: { scope: "this-attack" } },
+    operator: "gte",
+    right: { kind: "constant", value: 5 }
+  };
+  assert.equal(evaluateCondition(countSpelling, environment), true);
+  // The shipped condition never returns a value for these objects.
+  assert.throws(() => evaluateCondition(conquerTrigger.trigger.condition, environment));
+});
+
+test("sfd-120-221 Sivir, Ambitious: the merged filter translator rejects the this-attack scope spelling", () => {
+  assert.throws(
+    () => translateObjectFilter({ targetController: "opponent", scope: "this-attack" }),
+    (error) => {
+      assert.match(error.message, /Unsupported filter field targetController/);
+      return true;
+    }
+  );
+});
+
+test("sfd-120-221 Sivir, Ambitious: the real conquer payload still carries no host identity", () => {
+  // turn/flow.ts emits the conquer timing point from the scoring step with only
+  // player + details.battlefieldId; the registered object anchor therefore never
+  // matches, which is why the trigger cannot fire end to end (383.4.c.2.a).
+  const scoringPayload = { timingPoint: "conquer", player: "A", details: { battlefieldId: "battlefield-1" } };
+  assert.equal(matchesTriggerEvent({ event: "conquered", object: { objectId: "sivir" } }, scoringPayload, "A"), false);
+});
 
 test("sfd-120-221 Sivir, Ambitious: the conquer alias and nested self anchor register in the real event pipeline", () => {
   // Test the binding surface only. The shipped program remains judge-gated;

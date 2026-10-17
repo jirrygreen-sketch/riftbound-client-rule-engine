@@ -15,8 +15,11 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { createEngineStaticBinder, expandProgram } from "../../../../engine-core/dist/programs/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID =
   "card.hash-963c1bf1475a7d2678d6b10353dd2919b09c2bac0c8a471f44fdf8d090a65c02";
@@ -87,6 +90,56 @@ test("sfd-191-221 Rabadon's Deathcrown: identity, ruleset, status, judgeReason a
   // six-domain allowedDomains payment plan.
   assert.match(program.judgeReason, /Unsupported payment kind: equip/);
   assert.match(program.judgeReason, /params\.cost/);
+  // The [Unique] gap is now the missing keyword layer mapping / deckbuilding
+  // consumer, not a missing continuous.deck primitive.
+  assert.match(program.judgeReason, /continuous\.deck/);
+  assert.match(program.judgeReason, /no layer mapping/);
+});
+
+test("sfd-191-221 Rabadon's Deathcrown: the merged binder rejects [Unique]'s continuous.deck shape (CR 825.3.a)", () => {
+  // 825.3.a: a Unique deck holds only one card of the name. The instruction
+  // primitive exists, but the card-side static binder has no layer mapping for
+  // it, so a keyword would still be unrepresentable today.
+  const { engine, kernel } = fixture({ cards: [{ id: "crown", cardId: CARD_ID, types: ["gear"], might: 3 }] });
+  engine.commit({ type: "move-zone", object: kernel.ref("crown"), to: "base", location: { type: "base", player: "A" } });
+  assert.throws(
+    () => createEngineStaticBinder(engine).bindStatic({
+      kind: "static",
+      effect: { kind: "continuous.deck", mode: "max", name: "Rabadon's Deathcrown" }
+    }, kernel.getObject("crown")),
+    (error) => {
+      assert.equal(error.name, "ProgramBindingError");
+      assert.match(error.message, /continuous\.deck has no layer mapping/);
+      return true;
+    }
+  );
+});
+
+test("sfd-191-221 Rabadon's Deathcrown: the merged cost pipeline refuses the declared Equip payment kind (CR 818.1.b)", () => {
+  const kernel = crownWorld();
+  const context = bindResolveContext(kernel, { source: kernel.getObject("rabadons-deathcrown") });
+  assert.throws(
+    () => buildCostPlan(context, {
+      id: "rabadons-equip-activation",
+      cost: { payments: [{ kind: "equip", value: { kind: "source" } }] }
+    }),
+    (error) => {
+      assert.equal(error.reason, "judge-required");
+      assert.match(error.message, /Unsupported payment kind: equip/);
+      return true;
+    }
+  );
+});
+
+test("sfd-191-221 Rabadon's Deathcrown: expandProgram still stops on the unregistered Unique keyword (kw-unique)", () => {
+  const kernel = crownWorld();
+  assert.throws(
+    () => expandProgram({ ...program, status: "executable", judgeReason: undefined }, kernel.getObject("rabadons-deathcrown")),
+    (error) => {
+      assert.match(error.message, /Keyword unique has no executable KeywordDef/);
+      return true;
+    }
+  );
 });
 
 test("sfd-191-221 Rabadon's Deathcrown: the program keeps the catalog text and invents no Bonus Damage ability", () => {

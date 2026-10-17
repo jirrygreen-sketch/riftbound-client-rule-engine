@@ -7,6 +7,8 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import attach from "../../../../engine-core/dist/effects/instructions/effect.attach.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-63dae663a2ca549dc4704d2814cdc3b2eea4a26845d09029e88d2c8df6ee0013";
@@ -55,9 +57,9 @@ test("sfd-030-221 Skyfall of Areion: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /818\.1\.c\.3/);
   assert.match(program.judgeReason, /params\.cost/);
   // The remaining gap is the cost pipeline’s unsupported equip payment kind;
-  // the keyword definition and CardProgram binding (RIFT-257) are merged.
+  // the keyword definition and CardProgram binding are merged.
   assert.match(program.judgeReason, /Unsupported payment kind: equip/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /payments/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The generated registry indexes this exact program object.
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -140,7 +142,7 @@ test("sfd-030-221 Skyfall of Areion golden: a controlled Unit that left the Boar
 });
 
 test("sfd-030-221 Skyfall of Areion: the merged CardProgram binding builds the activation draft with its Equip payment", () => {
-  // Durable structural guard: the RIFT-257 adapter must keep deriving the
+  // Durable structural guard: the merged program adapter must keep deriving the
   // card's activated ability and carrying its declared Equip payment into the
   // chain cost plan. Whether that cost kind is payable is still unsupported by
   // the cost pipeline and is recorded as a TODO; this locks the binding
@@ -162,3 +164,38 @@ test("sfd-030-221 Skyfall of Areion: the merged CardProgram binding builds the a
 
 test.todo("sfd-030-221 Skyfall of Areion: paying the printed mixed Equip cost (1 Energy + 1 Fury Power, CR 818.1.b / 818.1.c.3) needs the equip payment kind and the printed-cost flow through ExpandInput params.cost (contract 3.8 item 3).");
 test.todo("sfd-030-221 Skyfall of Areion: KeywordAbility -> expand params.cost must carry the mixed printed cost (programs/keywords.ts currently passes value/host only) before verifyFinalize can pay it through the Finalize cost plan.");
+
+test("sfd-030-221 Skyfall of Areion: the merged cost pipeline refuses the Equip payment declaration (CR 818.1.b/818.1.c.3)", () => {
+  // The still-current blocker: the expansion's whole payment component is
+  // unsupported, so even the Energy half of the mixed printed cost cannot be
+  // planned or paid at Finalize.
+  const kernel = equipWorld();
+  const context = bindResolveContext(kernel, { source: kernel.getObject("gear") });
+  assert.throws(
+    () => buildCostPlan(context, {
+      id: "skyfall-equip-activation",
+      cost: { payments: [{ kind: "equip", value: { kind: "source" } }] }
+    }),
+    (error) => {
+      assert.equal(error.reason, "judge-required");
+      assert.match(error.message, /Unsupported payment kind: equip/);
+      return true;
+    }
+  );
+});
+
+test("sfd-030-221 Skyfall of Areion: expand receives no printed cost, so the mixed Equip cost is not carried into params.cost", () => {
+  // programs/keywords.ts passes only value/host, and the card's keyword ability
+  // has no field that could carry the Energy half — the printed mixed cost has
+  // no path into the expansion today.
+  assert.equal(equip.value, 1);
+  assert.equal(equip.costDomain, "Fury");
+  assert.equal(Object.hasOwn(equip, "cost"), false);
+  assert.equal(Object.hasOwn(equip, "energy"), false);
+  const [ability] = expansionFor();
+  assert.deepEqual(ability.cost.payments.map(payment => payment.kind), ["equip"]);
+  // The expansion's payment is the `equip` placeholder, not the printed
+  // 1 Energy + 1 Fury Power plan.
+  assert.equal(ability.cost.payments.length, 1);
+  assert.equal(ability.cost.energy, undefined);
+});

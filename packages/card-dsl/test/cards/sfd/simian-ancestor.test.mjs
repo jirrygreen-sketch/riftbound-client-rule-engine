@@ -5,10 +5,13 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/simian-ancestor.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-971a51eafa8489e035057774061242847cfa0865c5aa2018f634cc048d093610";
 const SOURCE_TEXT = "When you buff me, ready me.";
@@ -31,8 +34,8 @@ test("sfd-047-221 Simian Ancestor: identity, ruleset, status, judgeReason and ve
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /buff-added/);
-  assert.match(program.judgeReason, /RIFT-39/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /TriggerSpecValidationError/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -95,7 +98,7 @@ test("sfd-047-221 Simian Ancestor golden: the merged ready primitive alone readi
 });
 
 test("sfd-047-221 Simian Ancestor golden: the merged binding layer binds the buff-added trigger to the host", () => {
-  // Durable contract (RIFT-257 programs/triggers.ts): the declared
+  // Durable contract (programs/triggers.ts): the declared
   // `{ event: "buff-added", filter: { source: "self" } }` must translate into a
   // filter whose object anchor is this card's host, so "me" in "When you buff
   // me" is the unit itself and never a fresh target choice (355.10.c).
@@ -117,5 +120,47 @@ test("sfd-047-221 Simian Ancestor golden: the merged binding layer binds the buf
 test.todo(
   "sfd-047-221 Simian Ancestor: buff-added must be emitted only when a Buff counter is actually placed " +
     "(427.1.c: a unit that is chosen but already has a counter is not Buffed and must not trigger); the " +
-    "timing point producer already emits it, the remaining dependency is the RIFT-39 EventPattern vocabulary"
+    "timing point producer already emits it (see the pipeline evidence below), the remaining dependency is " +
+    "the EventPattern vocabulary"
 );
+
+// Direct evidence for the one current gap in the judgeReason: the merged
+// binding layer produces the correct host-bound filter, but the closed
+// EventPattern vocabulary rejects the printed event name, so registration on
+// the real pipeline throws instead of silently skipping validation.
+test("sfd-047-221 Simian Ancestor: registerProgramTriggers rejects the buff-added subscription (EventPattern vocabulary)", () => {
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const { engine, kernel } = fixture({ cards: [{ id: "simian", cardId: CARD_ID, types: ["unit"], might: 5 }] });
+  engine.commit({ type: "move-zone", object: kernel.ref("simian"), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
+  assert.throws(
+    () => binding.registerProgramTriggers(engine, kernel.getObject("simian")),
+    (error) => {
+      assert.equal(error.name, "TriggerSpecValidationError");
+      assert.deepEqual([...new Set(error.issues.map(issue => issue.code))], ["invalid-event-type"]);
+      assert.equal(error.issues[0].path, "trigger.filter.event");
+      return true;
+    }
+  );
+  // Fail closed: nothing was half-registered.
+  assert.equal(engine.pipeline.checkpoint().triggers.size, 0);
+});
+
+test("sfd-047-221 Simian Ancestor: the merged action adapter really emits buff-added for a placed Buff counter (427.1)", () => {
+  // 427.1.c: the trigger depends on the counter actually being placed; the
+  // merged adapter emits the timing point exactly for that action outcome.
+  const kernel = world().unit("simian", { might: 5 }).deck(["top"]).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(),
+    restore: state => kernel.restore(state),
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("unexpected choice"); },
+    context: (source, controller, at) => bindResolveContext(kernel, { source, controller, timingPoint: at })
+  });
+  const outcome = host.execute({ type: "buff", object: kernel.ref("simian"), amount: 1 });
+  assert.equal(outcome.outcome.status, "done");
+  assert.deepEqual(outcome.emissions.map(emission => emission.timingPoint), ["buff-added"]);
+  assert.equal(kernel.getObject("simian").buffs, 1);
+});

@@ -17,28 +17,28 @@
  *   tags 为 ["Equipment"]，与 818.1.a 一致。
  *
  * status = judge-required（缺可支付的费用路径，不近似实现）。已合入的部分：KeywordDef.expand 的
- * params（契约 3.8 第 3 条）、Equip KeywordDef（RIFT-87）与 CardProgram 绑定（RIFT-257）——
+ * params（契约 3.8 第 3 条）、Equip KeywordDef 与 CardProgram 绑定——
  * describeActivate 能为本卡给出带 { kind: "equip" } 支付分量的启动草稿，展开体末步的
- * effect.attach 也真实附着（golden 执行）。仍然缺的部分：
+ * effect.attach 也真实附着（golden 执行）。仍然缺的两部分：
  * - 费用管线 cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked：golden 实测
  *   buildCostPlan 抛 CostPlanError（reason "judge-required"，message
  *   "Unsupported payment kind: equip"）；该形状连 818.1.c.3 的 1 energy 部分都表达不了。
  * - 印刷的 1 energy + 1 Fury Power 也还没有从 KeywordAbility 流到 expand 的 params.cost 的调用方
  *   （programs/keywords.ts 的 expandProgram 只传 value/host）。
- * 依赖：Equip 支付种类的费用管线支持（含混合费用）。不近似实现。
+ * 依赖：Equip 支付种类的费用管线支持（含混合费用）与 printed-cost 参数传递。不近似实现。
  */
 export default {
   canonicalCardId: "card.hash-63dae663a2ca549dc4704d2814cdc3b2eea4a26845d09029e88d2c8df6ee0013",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "印刷的 [Equip] 费用是 1 energy + 1 点 Fury Power（818.1.c.3 允许资源与非资源混合），仍无法支付；" +
-    "缺失环节已收窄到费用管线：KeywordDef.expand 的 params（契约 3.8 第 3 条）、Equip KeywordDef（RIFT-87）" +
-    "与 CardProgram 绑定（RIFT-257）都已合入——describeActivate 能返回带着 { kind: \"equip\" } 支付分量的启动草稿，" +
-    "展开体末步 effect.attach 也真实执行。费用管线 cost/plan-values.ts 的 readCost 仍对未知支付种类直接 blocked —— " +
-    "golden 实测 buildCostPlan 抛 CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"），" +
-    "该形状连 1 energy 部分都表达不了；同时印刷费用还没有从 KeywordAbility 流到 expand 的 params.cost 的调用方" +
-    "（programs/keywords.ts 只传 value/host）。依赖：Equip 支付种类的费用管线支持（含混合费用）。不近似实现。",
+    "两处当前缺口，均不近似实现：(1) 印刷的 [Equip] 费用是 1 energy + 1 点 Fury Power（818.1.c.3 允许资源与非资源混合），仍无法支付：" +
+    "已合入的 Equip 展开声明 payments: [{ kind: \"equip\" }]，而 cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked —— " +
+    "golden 实测 buildCostPlan 抛 CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"），该形状连 1 energy 部分都表达不了。" +
+    "(2) 印刷费用还没有从 KeywordAbility 流到 expand 的 params.cost 的调用方（programs/keywords.ts 的 expandProgram 只传 value/host）。" +
+    "已合入且非缺口的部分：KeywordDef.expand 的 params（契约 3.8 第 3 条）、Equip KeywordDef 与 CardProgram 绑定——" +
+    "describeActivate 能返回带着 { kind: \"equip\" } 支付分量的启动草稿，展开体末步 effect.attach 也真实执行（golden）。" +
+    "依赖：Equip 支付种类的费用管线支持（含混合费用）与 printed-cost 参数传递。",
   abilities: [
     { kind: "keyword", keyword: "equip", value: 1, costDomain: "Fury" }
   ],

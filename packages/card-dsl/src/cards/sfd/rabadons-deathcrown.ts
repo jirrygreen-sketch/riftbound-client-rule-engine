@@ -23,19 +23,20 @@ import type { CardProgram } from "../../ir/index.js";
  * 目录原文，不自行加入 Bonus Damage 能力，把该原文差异列入 judgeReason 交裁定。
  *
  * status = judge-required（README 第 2 节；逐项列出，不近似实现）：
- * - [Unique] 无已合入 KeywordDef，也没有 continuous.deck 消费方（effects/keywords/ 注册的
- *   26 个关键词不含 Unique；契约 3.1/3.3 没有构筑期限制的语义位置，只有未定义语义的
- *   deckbuilding?: DeckbuildingDecision[] 形状，卡内自造限制会发明语义）。
+ * - [Unique] 无已合入 KeywordDef（effects/keywords/ registry 的 26 个关键词不含 Unique），
+ *   continuous.deck 原语虽已合入，但 programs/statics.ts 的 layerFor 不映射该 kind
+ *   （实测 bindStatic 抛 ProgramBindingError），CardProgram.deckbuilding 也无构筑期消费方。
  * - [Equip] 的费用管线缺口：印刷的 [A] 任意域 Power 已能由费用计划的六域
  *   allowedDomains 表达（支付时可选择其中任一域，例如 Order）；已合入的 Equip 展开仍声明
  *   payments: [{ kind: "equip" }]，
  *   而 cost/plan-values.ts 的支付种类仍不含 equip（实测 buildCostPlan 抛 CostPlanError
  *   reason "judge-required"、message "Unsupported payment kind: equip"），启动费用无法在
- *   Finalize 支付。
+ *   Finalize 支付。programs/keywords.ts 也未把印刷费用传入 expand 的 params.cost。
  * - 目录原文与 CR 715.4 的 Bonus Damage 描述不一致，需官方勘误/裁定后才能补全能力文本。
  *
- * golden 测试真实执行已合入的 Equip 展开本体（effect.attach 到 Finalize 锁定的你控制的单位）；
- * 其余缺口写成 test.todo。
+ * golden 测试真实执行已合入的 Equip 展开本体（effect.attach 到 Finalize 锁定的你控制的单位），
+ * 并对每个 judgeReason 缺口补上直接执行证据（expandProgram 拒绝 unique、binder 无
+ * continuous.deck 图层映射、费用管线拒绝 equip 支付种类）；其余缺口写成 test.todo。
  */
 const abilities = [
   // 825.1：“[Unique]” 的构筑限制声明；KeywordId 对齐印刷名（小写）。
@@ -51,16 +52,17 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处缺口/疑点，均不近似实现：" +
-    "（1）数据/规则原文不一致——CR v1.5 715.4 的示例把本卡描述为提供 3 点 Bonus Damage（\"the ability has 3 Bonus Damage from Rabadon’s Deathcrown\"，v1.4 4196 同），" +
-    "但本地 deck-catalog（sfd-191-221）的 ability 只有 [Unique] 与 [Equip]，没有任何 Bonus Damage 文本；按证据红线不自行补全，需勘误/裁定。" +
-    "（2）[Unique] 是 825.1/825.3 的 Deck Constraint Permission（825.4：本体无额外效果），但 effects/keywords/ 注册的 26 个关键词不含 Unique，" +
-    "也没有 continuous.deck 的卡牌侧注册消费方；契约 3.1/3.3 没有构筑期限制的语义位置（只有未定义语义的 deckbuilding?: DeckbuildingDecision[] 形状）。" +
-    "（3）[Equip] 的费用管线仍缺接线：印刷的 :rb_rune_rainbow: 任意域 Power 已能由费用计划的六域 allowedDomains 表达，" +
-    "但已合入的 Equip 展开声明 payments: [{ kind: \"equip\" }]，而 cost/plan-values.ts 的支付种类仍不含 equip（实测 buildCostPlan 抛 CostPlanError reason \"judge-required\"、" +
-    "message \"Unsupported payment kind: equip\"），该启动费用目前无法在 Finalize 支付；契约 3.8 第 3 条要求的 " +
-    "KeywordDef.expand params.cost 虽已在接口中，但 Equip.ts 的 expand 仍未读取它（印刷装备费未绑定）。" +
-    "依赖：官方勘误/裁定、关键词展开工作流（kw-unique，continuous.deck）、equip 支付种类与 Equip 的 params.cost 绑定。" +
+    "三处当前缺口，均不近似实现：" +
+    "（1）数据/规则原文不一致仍待裁定：CR v1.5 715.4 的示例把本卡描述为提供 3 点 Bonus Damage（\"the ability has 3 Bonus Damage from Rabadon’s Deathcrown\"），" +
+    "但本地 deck-catalog（sfd-191-221）的 ability 只有 [Unique] 与 [Equip]，没有任何 Bonus Damage 文本；effect.damage 虽已接受 bonus 表达式（712-715 的加总入口），" +
+    "但卡面/勘误没有授予来源，也没有\"你的法术与能力获得 +N Bonus Damage\"的持续授予原语，按证据红线不自行补全。" +
+    "（2）[Unique] 是 825.1/825.3 的 Deck Constraint Permission（825.4：本体无额外效果）：effects/keywords/registry.generated.ts 注册的 26 个关键词不含 Unique，" +
+    "continuous.deck 原语虽已合入但 programs/statics.ts 的 layerFor 没有该 kind 的图层映射（实测 bindStatic 抛 ProgramBindingError \"Static ability kind continuous.deck has no layer mapping\"），" +
+    "CardProgram 的 deckbuilding?: DeckbuildingDecision[] 也没有构筑期消费方，卡内自造限制会发明语义。" +
+    "（3）[Equip] 的启动费用仍无法在 Finalize 支付：印刷的 [A] 任意域 Power 可由 power payment + 六域 allowedDomains 表达，" +
+    "但已合入的 Equip 展开声明 payments: [{ kind: \"equip\", value: { kind: \"source\" } }]，cost/plan-values.ts 的支付种类不含 equip" +
+    "（实测 buildCostPlan 抛 CostPlanError reason \"judge-required\"、message \"Unsupported payment kind: equip\"）；" +
+    "契约 3.8 第 3 条的 KeywordDef.expand params.cost 虽在接口中，programs/keywords.ts 仍未把印刷费用传入 params.cost。" +
     "golden 只把已合入的 Equip attach 本体当真执行证据。",
   abilities,
   sourceText:

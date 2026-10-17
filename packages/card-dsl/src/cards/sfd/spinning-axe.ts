@@ -20,26 +20,26 @@ import type { CardProgram } from "../../ir/index.js";
  *   示例一致：附着时本卡印刷规则文本 Inactive（135.4/718.2/724），故消灭只在未附着时触发。
  *
  * status = judge-required（README 第 2 节，逐项列出缺口，不近似实现）：
- * - [Temporary] 的 KeywordDef 已合入（effects/keywords/Temporary.ts，RIFT-264～268 关键词批次），
- *   展开体的 effect.kill 也真实执行；但展开出的触发订阅 beginning-start，而
- *   EVENT_PATTERN_TYPES 封闭词表仍不含 beginning-start（events/trigger-spec.ts），
- *   events/pipeline.ts 的 registerTrigger 会对该 spec 调 assertTriggerSpec 并抛
- *   TriggerSpecValidationError（invalid-event-type），因此经 CardProgram 绑定层注册会失败。
- *   依赖：RIFT-39 的 EventPattern 词表补齐 beginning-start（时点本身已存在）。
+ * - [Temporary] 的 KeywordDef 已合入（effects/keywords/Temporary.ts），展开体的 effect.kill
+ *   也真实执行；但展开出的触发订阅 beginning-start，而 EVENT_PATTERN_TYPES 封闭词表仍不含
+ *   beginning-start（events/trigger-spec.ts），events/pipeline.ts 的 registerTrigger 会对该
+ *   spec 调 assertTriggerSpec 并抛 TriggerSpecValidationError（invalid-event-type），
+ *   因此经 CardProgram 绑定层注册会失败（golden 实测）。
  * - [Equip] 的费用管线缺口：已合入的 Equip 展开声明 payments: [{ kind: "equip" }]，
  *   而 cost/plan-values.ts 的支付种类只有 energy/power/xp/exhaust/discard/recycle/kill/
- *   reveal/spend-buff，该启动费用无法在 Finalize 支付（当前真实缺口：Equip 支付种类
- *   仍不在已合入费用管线内）。
+ *   reveal/spend-buff（golden 实测 buildCostPlan 抛 "Unsupported payment kind: equip"），
+ *   该启动费用无法在 Finalize 支付。
  * - [A] 费用可以通过 power payment + 六域 allowedDomains 表达并支付（135.2.e.5.a）。
  *   costDomain: "rainbow" 记录印刷费用；仍缺 programs/keywords.ts 到 params.cost 的
  *   印刷费用传递，以及 Equip 展开到现有 power payment 的转换。
  * - Quick-Draw 展开的打出触发依赖 event.source 身份：展开 filter 是
- *   source: { canonicalCardId }，而 chain/engine.ts 的 card-played 事件只带 object/player；
- *   events/pipeline-match.ts 只在 event.source 存在时匹配 source 过滤（RIFT-257 的
- *   EventPattern.source 适配仍未拿到载荷）。
+ *   source: { canonicalCardId }，而 chain/engine.ts 的 card-played 事件只带 object/player
+ *   （golden 在真实链上打出本卡后实测事件键里没有 source）；events/pipeline-match.ts 只在
+ *   event.source 存在时匹配 source 过滤，因此该触发永远不会命中。
  *
  * golden 测试真实执行已合入的两段：Quick-Draw 展开的 effect.attach 本体与 Equip 展开的
- * effect.attach 本体（都以 Finalize 锁定的目标上下文运行）；依赖缺口写成 test.todo。
+ * effect.attach 本体（都以 Finalize 锁定的目标上下文运行），并为每个缺口补上直接执行证据；
+ * 整卡能力仍以 test.todo 标注。
  */
 const abilities = [
   // 819.1.d："[Reaction]" 与 "When you play this, attach it to a Unit you control."。
@@ -56,18 +56,19 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处已确认的依赖缺口，均不近似实现：" +
+    "四处当前缺口，均不近似实现：" +
     "（1）[Temporary] 的 KeywordDef 已合入（effects/keywords/Temporary.ts），816.1.b/816.1.c 的" +
     "触发体用已合入的 effect.kill 真实执行（golden）；但展开出的触发订阅 beginning-start，而 events/trigger-spec.ts 的 " +
     "EVENT_PATTERN_TYPES 封闭词表仍不含 beginning-start，events/pipeline.ts 注册路径会调 assertTriggerSpec 并抛 " +
-    "TriggerSpecValidationError（invalid-event-type）——依赖 RIFT-39 的 EventPattern 词表补齐（时点本身已存在）。" +
+    "TriggerSpecValidationError（invalid-event-type，golden 实测）——需要 EventPattern 词表补齐（时点本身已存在）。" +
     "（2）[Equip] 的印刷 [A] 费用按 CR 135.2.e.5.a 可用任意域 Power 支付；现有 power payment + 六域 allowedDomains 已能表达并支付。" +
     "costDomain: \"rainbow\" 保留印刷记号，但 programs/keywords.ts 只向 expand 传 value/host，尚未传递 params.cost。" +
     "（3）已合入的 Equip 展开声明 payments: [{ kind: \"equip\" }]，而 cost/plan-values.ts 的支付种类不含 equip，" +
-    "尚未将该声明转换为现有 power payment，启动费用目前无法在 Finalize 支付。" +
-    "另外 Quick-Draw 展开（effects/keywords/Quick-Draw.ts）依赖 card-played 事件携带本卡身份：events/pipeline-match.ts 只在 event.source " +
-    "存在时匹配 source 过滤，chain/engine.ts 的 card-played 事件只带 object/player（RIFT-257 的 EventPattern.source 适配）。" +
-    "依赖：RIFT-39（EventPattern 词表补齐 beginning-start）、Equip 印刷费用参数传递与支付种类转换、card-played 事件载荷身份。" +
+    "尚未将该声明转换为现有 power payment，启动费用目前无法在 Finalize 支付（golden 实测 CostPlanError \"Unsupported payment kind: equip\"）。" +
+    "（4）Quick-Draw 展开（effects/keywords/Quick-Draw.ts）依赖 card-played 事件携带本卡身份：events/pipeline-match.ts 只在 event.source " +
+    "存在时匹配 source 过滤，chain/engine.ts 的 card-played 事件只带 object/player——golden 在真实链上打出本卡后取到的事件键里没有 source，" +
+    "登记过的 source: { canonicalCardId } 触发因此永不命中。" +
+    "依赖：EventPattern 词表补齐 beginning-start、Equip 印刷费用参数传递与支付种类转换、card-played 事件载荷身份。" +
     "golden 只把已合入的 Quick-Draw attach 与 Equip attach 本体当真执行证据，不据此宣称整卡可执行。",
   abilities,
   sourceText:
