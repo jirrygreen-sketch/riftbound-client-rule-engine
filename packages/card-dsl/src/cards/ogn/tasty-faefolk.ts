@@ -41,7 +41,7 @@ const program = {
   canonicalCardId: "card.hash-bcc76f0b1b3b8dafd184b4a3307e12e03a80d4c9902254de9e30a4f6b0f1aba2",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason: "Accelerate 与 Deathknell 的 KeywordDef 已合入（RIFT-265），effect.channel 与 effect.draw 也已合入并由 golden 驱动；仍有三处生产缺口，均不近似实现：(1) Deathknell 的卡牌专属 payload 与 trigger.leave 展开没有唯一绑定契约，契约 3.1 的 KeywordAbility 无 body/payload 字段，死亡效果只能暂存为纯数据 deathknellBody（CR 808；RIFT-1/82）；(2) Accelerate 的附加费用与就绪入场替代仍需 Finalize/Replacement 接线（CR 805；RIFT-89/120）；(3) Deathknell 触发注册与原始 body 的解释器接线仍需 RIFT-1/120。effect.channel 会把 exhausted:true 传入 channel-rune 动作，effect.draw 子效果可执行；整卡保持 judge-required。",
+  judgeReason: "Accelerate 与 Deathknell 的 KeywordDef 已合入（RIFT-265），effect.channel 与 effect.draw 也已合入并由 golden 驱动；仍有三处生产缺口，均不近似实现：(1) Deathknell 的卡牌专属 payload 与 trigger.leave 展开没有唯一绑定契约，契约 3.1 的 KeywordAbility 无 body/payload 字段，死亡效果只能暂存为纯数据 deathknellBody（CR 808；RIFT-1/82）；(2) Accelerate 的附加费用与就绪入场替代仍需 Finalize/Replacement 接线（CR 805；RIFT-89/120）；(3) programs/triggers 的触发注册只消费 kind:'triggered' 能力，keyword 展开产出的 Deathknell 骨架不会被注册，payload 也没有消费入口；且已合入的解释器 runAbilityBody 派发前预求值全部 args，而 effect.channel/effect.draw 的 argsSchema 要求未求值的 Expr，该 body 经解释器执行会抛 amount must be an Expr（Expr schema 对齐缺口，CR 808；RIFT-1/82/120）。effect.channel 会把 exhausted:true 传入 channel-rune 动作；整卡保持 judge-required。",
   abilities: [
     {
       kind: "keyword",
