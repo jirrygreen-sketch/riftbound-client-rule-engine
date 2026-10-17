@@ -14,13 +14,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   集合，不选目标、不触发 became-target（355.7、754）。
  * - 418.1.c/418.1.d：伤害分别标记在每个单位上，并且可以同时造成。
  *
- * 状态：judge-required。已合入的 effect.damage 只接受 TargetSpec id 并通过 ctx.targets
- * 读取 Finalize 锁定的目标组，解释器也会把 instruction.targets 一律按目标组处理
- * （进入 became-target 流程）；本卡是 355.10.d 的"无选择集合"，两者不可互换。
- * 缺的是 effect.damage 的"非目标集合"选择符——effect.ready 已有 { kind: "query", filter }
- * 形状可作参照，effect.damage 没有；也没有其它已合入原语能对无选择集合结算伤害。
+ * 状态：judge-required。已合入的 effect.damage（RIFT-107 系列）仍只接受 TargetSpec id
+ * 并通过 ctx.targets 读取 Finalize 锁定的目标组，解释器也会把 instruction.targets
+ * 一律按目标组处理（进入 became-target 流程）；本卡是 355.10.d 的"无选择集合"，
+ * 两者不可互换。缺的是 effect.damage 的"非目标集合"选择符——effect.ready 已有
+ * { kind: "query", filter } 形状可作参照（RIFT-258 系列），effect.damage 没有；
+ * 也没有其它已合入原语能对无选择集合结算伤害（effect.kill/effect.stun/effect.exhaust
+ * 的 choose 形态是"结算期逐对象选择"，仍会提问而非集合结算）。
  * 用 targets + selection "all" 会把非目标集合写成目标组，属被禁止的近似实现。
- * 本文件因此不写 instruction.targets，只把 355.10.d 的集合写进指令参数描述。
+ * 本文件因此不写 instruction.targets，setFilter 是描述性占位、无正式语义。
  */
 export default {
   canonicalCardId: "card.hash-71a433d035b3ceed303ac22a2952e428f4da5dc252f95947d82c3325d1b6f0e1",
@@ -29,11 +31,11 @@ export default {
   judgeReason:
     "缺非目标集合伤害路径：deal 3 to all units at battlefields 按 355.10.d 是按特征程序化" +
     "选出的无选择集合，不选目标、不触发 became-target；已合入的 effect.damage 只接受 " +
-    "TargetSpec id 并经 ctx.targets 读取，解释器又会把 instruction.targets 一律当目标组，" +
+    "TargetSpec id 并经 ctx.targets 读取（RIFT-107 系列原语仍是目标组语义），" +
     "没有 effect.ready 的 { kind: query, filter } 那样针对无选择集合的选择符；" +
     "用 targets 加 selection all 会把非目标集合写成目标组，属禁止的近似实现。" +
-    "依赖：原语批次（effect.damage 的 query 选择符）与 RIFT-120（链/事件单管线）的集合结算。" +
-    "不近似实现。",
+    "指令参数里的 setFilter 是描述性占位、无正式语义（同 rad/avalanche 的批次缺口）。" +
+    "依赖：effect.damage 的 query 选择符原语与批量集合结算（契约变更请求）。不近似实现。",
   abilities: [
     {
       kind: "triggered",

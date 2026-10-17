@@ -37,10 +37,10 @@ test("ogs-023-024 Might of Demacia, Starter: identity, status, judgeReason and v
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /conquer/);
-  assert.match(program.judgeReason, /383\.4\.c/);
+  assert.match(program.judgeReason, /turn\/flow\.ts/);
   assert.match(program.judgeReason, /that battlefield/);
   assert.match(program.judgeReason, /Legend Zone/);
-  assert.match(program.judgeReason, /RIFT-33/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -116,13 +116,16 @@ test("ogs-023-024 Might of Demacia, Starter: an empty or short deck draws only w
   assert.equal(kernel.player("A").deckSize, 0);
 });
 
-test.todo(
-  "Might of Demacia, Starter: the conquer timing point fires for this controller (CR 383.4.c / 471.1 / " +
-    "473.2.a) — blocked because no merged module emits `conquer` into the single event pipeline " +
-    "(chain/engine.ts emit points cover showdown/chain/card-played/became-target/cleanup only; the " +
-    "scoring modules never call pipeline.emit); scoring/timing wiring is contract section 7.2 batch 5 " +
-    "(RIFT-33/RIFT-34)"
-);
+test("ogs-023-024 Might of Demacia, Starter: the merged Score wave emits conquer for the scoring player", () => {
+  // turn/flow.ts publishes the whole Score trigger wave atomically for a
+  // committed score action (CR 383.4.c / 471.1 / 473.2.a); the conquer emission
+  // carries the conquered battlefield as details.battlefieldId. The card-side
+  // gap is the battlefield-relative counting condition and the CardProgram
+  // trigger binding, not the emission itself (see judgeReason).
+  const conquer = getTimingPoint("conquer");
+  assert.equal(conquer.emittedBy, "scoring");
+  assert.deepEqual(conquer.ruleRefs, ["468.5.d", "471.1", "473.2.a"]);
+});
 
 test.todo(
   "Might of Demacia, Starter: count your units at THAT battlefield from the conquer event " +

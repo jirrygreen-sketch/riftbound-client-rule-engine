@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import program from "../../../dist/cards/ogs/master-yi-meditative.js";
 
@@ -26,9 +27,10 @@ test("ogs-004-024 Master Yi, Meditative: program validates and is judge-required
   assert.equal(program.sourceText, "While you have 8+ runes, I have +4 :rb_might:.");
 });
 
-test("ogs-004-024 Master Yi, Meditative: judgeReason names continuous.might and the rune count condition", () => {
+test("ogs-004-024 Master Yi, Meditative: judgeReason names the RIFT-257 binding and the unevaluated compare guard", () => {
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /conditionMatches/);
   assert.match(program.judgeReason, /runes/);
 });
 
@@ -84,8 +86,30 @@ test("ogs-004-024 Master Yi, Meditative: the condition is false below 8 runes", 
   assert.equal(kernel.test(condition), false);
 });
 
+test("ogs-004-024 Master Yi, Meditative: the merged arithmetic layer would add +4 for this declared effect", () => {
+  // The primitive and the arithmetic layer both execute; what is missing is the
+  // production path that registers this card's static ability (RIFT-257) and a
+  // layer condition evaluator for the "8+ runes" guard (see judgeReason). This
+  // golden runs the declared effect shape through the real layer engine to show
+  // the +4 arithmetic half itself is merged.
+  const kernel = world().unit("master-yi-meditative", { might: 4, zone: "board" }).build();
+  const registration = {
+    effect: {
+      id: "probe",
+      layer: "arithmetic",
+      source: kernel.ref("master-yi-meditative"),
+      filter: { objectId: "master-yi-meditative", zone: "board" },
+      effect: { kind: "continuous.might", amount: 4 }
+    },
+    duration: { type: "permanent" },
+    timestamp: 1
+  };
+  const layered = createLayerEngine(kernel.objects, [registration]).evaluate(kernel.ref("master-yi-meditative"));
+  assert.equal(layered.might, 8);
+});
+
 test.todo(
   "ogs-004-024 Master Yi, Meditative: +4 Might enters the arithmetic layer while the controller has " +
-    "8+ runes (CR 143.2, 133.5.a.1, 431.1) — depends on the layers/continuous-effect registration " +
-    "path (RIFT-91) and production condition evaluation (RIFT-89/90)"
+    "8+ runes (CR 143.2, 133.5.a.1, 431.1) — the CardProgram-to-layers registration is RIFT-257 and " +
+    "layers/engine.ts conditionMatches does not evaluate the declared compare/count guard (RIFT-91 follow-up)"
 );

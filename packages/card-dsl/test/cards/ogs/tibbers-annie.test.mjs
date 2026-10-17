@@ -25,6 +25,7 @@ test("ogs-018-024 Tibbers, Annie: judgeReason names the missing non-target set d
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /effect\.damage/);
   assert.match(program.judgeReason, /query/);
+  assert.match(program.judgeReason, /setFilter/);
 });
 
 test("ogs-018-024 Tibbers, Annie: card-played self trigger with a non-target set damage instruction", () => {
@@ -101,6 +102,7 @@ test("ogs-018-024 Tibbers, Annie: an empty battlefield set leaves the instructio
 
 test.todo(
   "ogs-018-024 Tibbers, Annie: 'deal 3 to all units at battlefields' resolves as a non-target set " +
-    "(CR 355.10.d, 418.1.c/418.1.d, 754) — effect.damage has no { kind: 'query', filter } selector " +
-    "like effect.ready, so no write of instruction.targets may stand in for it (RIFT-89/90, RIFT-120)"
+    "(CR 355.10.d, 418.1.c/418.1.d, 754) — effect.damage still reads only ctx.targets(TargetSpec id) " +
+    "and has no { kind: 'query', filter } selector like effect.ready, so instruction.targets must not " +
+    "stand in for it; setFilter remains a descriptive placeholder (same batch gap as rad/avalanche)"
 );

@@ -33,11 +33,10 @@ test("ogs-005-024 Zephyr Sage: identity, status, judgeReason and verbatim source
   // rule and the dependent tasks, not merely say "needs support".
   assert.match(program.judgeReason, /Shield/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /814\.1\.d/);
   assert.match(program.judgeReason, /designation/);
+  assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /conditionMatches/);
-  assert.match(program.judgeReason, /RIFT-81/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -104,10 +103,10 @@ test("ogs-005-024 Zephyr Sage: the generated card registry exposes the program u
 test.todo(
   "Zephyr Sage: +1 Might exactly while the 6 Might unit holds the Defender designation in Combat " +
     "(CR 814.1.c/814.1.d.1) — blocked because no merged producer resolves a card's keyword ability " +
-    "into its KeywordDef expansion and registers it through layers/engine.ts (contract 3.5/3.7), because " +
-    "the Defender designation of CR 814.1.d is not an ObjectSnapshot characteristic (contract 3.8 " +
-    "combatRole; RIFT-105 branch), and because layers/engine.ts conditionMatches does not evaluate the " +
-    "compare predicate, so the condition would be ignored (RIFT-91)"
+    "into its KeywordDef expansion and registers it through layers/engine.ts (contract 3.5/3.7; RIFT-257), " +
+    "because no layer/filter consumer reads the merged combatRole/designation characteristic " +
+    "(contract 3.8), and because layers/engine.ts conditionMatches does not evaluate the compare " +
+    "predicate, so the condition would be ignored (RIFT-91 follow-up)"
 );
 
 test.todo(
