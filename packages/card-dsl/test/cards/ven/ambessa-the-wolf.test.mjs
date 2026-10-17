@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
@@ -33,8 +36,8 @@ test("ven-084-166 Ambessa: identity, ruleset, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /828\.1\.b\.1/);
   assert.match(program.judgeReason, /438\.7/);
-  assert.match(program.judgeReason, /RIFT-87/);
-  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /ObjectSnapshot/);
+  assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /bindReplacement/);
   assert.match(program.judgeReason, /combatRole/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
@@ -54,13 +57,12 @@ test("ven-084-166 Ambessa: the Empowered +3 Might is an arithmetic-layer modific
   assert.equal(mightGrant.effect.layer, "arithmetic");
   assert.equal(mightGrant.effect.appliesTo, "self");
   assert.deepEqual(mightGrant.effect.amount, { kind: "constant", value: 3 });
-  // 828.1.b.1 的依赖门槛：442.1.a 的二元状态不在 ObjectSnapshot / Condition 里，
-  // 这里的 empoweredCount 是描述性记录，不伪造可执行条件（见 judgeReason 第 2 条）。
+  // 828.1.b.1 的依赖门槛读取真实 empowered 计数。
   assert.equal(mightGrant.condition.kind, "compare");
   assert.deepEqual(mightGrant.condition.left, {
     kind: "object-property",
     object: "self",
-    property: "empoweredCount"
+    property: "empowered"
   });
   assert.equal(mightGrant.condition.operator, "gte");
   assert.deepEqual(mightGrant.condition.right, { kind: "constant", value: 1 });
@@ -82,7 +84,7 @@ test("ven-084-166 Ambessa: 'can't be dealt damage unless I'm in combat' is a dam
 
 test("ven-084-166 golden: continuous.might really adds +3 Might through the merged primitive (RIFT-258)", () => {
   // [Empowered][>] I have +3 :rb_might:. - the primitive itself is merged
-  // (RIFT-258); the Empowered gate is the remaining judge-required dependency.
+  // (RIFT-258); the original gated static is exercised separately below.
   // This golden runs the card's own static effect shape through the real
   // interpreter + test kernel, then projects through the layers engine.
   const kernel = world()
@@ -113,17 +115,93 @@ test("ven-084-166 golden: continuous.might really adds +3 Might through the merg
 });
 
 test.todo(
-  "ven-084-166 Ambessa: [Empower] 3 Energy + 1 Body Power activation (827.1.c.1 cost.activated + effect.empower, " +
-    "'Play only if not Empowered') needs an Empower KeywordDef — none is merged (RIFT-83/84)"
+  "ven-084-166 Ambessa: bind printed 3 Energy + 1 Body Power through KeywordAbility.params.cost and expandProgram (827.1.c.1)"
 );
 
 test.todo(
-  "ven-084-166 Ambessa: both [Empowered][>] dependent abilities (828.1.b.1) need an Empowered status predicate " +
-    "(442.1.a) to gate the merged continuous.might primitive (the golden proves the +3 itself executes)"
+  "ven-084-166 Ambessa: integrate live empowered static/replacement gates with authoritative binary state and activation (442.1.a-c / 828.1.b.1)"
 );
 
 test.todo(
-  "ven-084-166 Ambessa: the combat-only damage prevention (438.7) needs the combat-start designation producer " +
-    "(466.2 / contract 3.8) to write the host's attacker/defender combatRole; the replacement filter already " +
-    "matches the host characteristic and must not use damage action.combat"
+  "ven-084-166 Ambessa: combat-start transaction must write attacker/defender combatRole before evaluating the 438.7 prevention exception (466.2)"
 );
+
+// The card remains judge-required: this binds only its supported static clause.
+// State changes use real actions; the original static ability is never rewritten.
+test("ambessa-the-wolf: the dependent static follows live Empower and Disempower actions", () => {
+  const { kernel, engine } = fixture({ cards: [{
+    id: "host", cardId: program.canonicalCardId, types: ["unit"],
+    might: 4, energy: null, power: null
+  }] });
+  assert.equal(engine.commit({
+    type: "move-zone", object: kernel.ref("host"), to: "battlefield",
+    location: { type: "battlefield", id: "bf-gate" }
+  }).status, "done");
+  const binding = createEngineStaticBinder(engine).bindStatic(mightGrant, kernel.getObject("host"));
+  let snapshot = engine.layers.snapshot(kernel.ref("host"));
+  assert.equal(snapshot.might, 4);
+  assert.equal(snapshot.energy, null);
+  assert.equal(snapshot.power, null);
+
+  assert.equal(engine.commit({ type: "empower", object: kernel.ref("host") }).status, "done");
+  snapshot = engine.layers.snapshot(kernel.ref("host"));
+  assert.equal(snapshot.empowered, 1);
+  assert.equal(snapshot.might, 7);
+
+  assert.equal(engine.commit({ type: "disempower", object: kernel.ref("host") }).status, "done");
+  snapshot = engine.layers.snapshot(kernel.ref("host"));
+  assert.equal(snapshot.empowered, 0);
+  assert.equal(snapshot.might, 4);
+  assert.deepEqual(engine.pipeline.events.filter(event => event.timingPoint === "empowered-changed")
+    .map(event => event.action.type), ["empower", "disempower"]);
+  binding.unbind();
+});
+
+test("ambessa-the-wolf: the merged Empower definition expands through the real program adapter", () => {
+  const kernel = world().unit("keyword-host", {
+    cardId: program.canonicalCardId, energy: null, power: null
+  }).build();
+  const { expanded } = expandProgram(program, kernel.getObject("keyword-host"));
+  assert.equal(expanded.length, 1);
+  const [activation] = expanded;
+  assert.equal(activation.kind, "activated");
+  assert.equal(activation.timing, "action");
+  // The missing printed-cost bridge must never turn this into a free activation.
+  assert.deepEqual(activation.cost, { kind: "empower" });
+  assert.deepEqual(activation.restriction, { kind: "empower", condition: {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq", right: { kind: "constant", value: 0 }
+  } });
+  assert.equal(activation.body[0].id, `empower:${program.canonicalCardId}`);
+  assert.equal(activation.body[0].op, "effect.empower");
+  assert.deepEqual(activation.body[0].args, { amount: { kind: "constant", value: 1 } });
+  assert.deepEqual(activation.body[0].condition, activation.restriction.condition);
+  assert.equal(activation.body[0].targets, undefined);
+  assert.equal(program.status, "judge-required");
+});
+
+test("ven-084-166 Ambessa: the actual replacement prevents damage only while Empowered outside combat", () => {
+  const { kernel, engine } = fixture({ cards: [{
+    id: "wolf", cardId: program.canonicalCardId, types: ["unit"], might: 4,
+    energy: null, power: null
+  }] });
+  assert.equal(engine.commit({
+    type: "move-zone", object: kernel.ref("wolf"), to: "battlefield",
+    location: { type: "battlefield", id: "bf-prevention" }
+  }).status, "done");
+  const binding = createEngineStaticBinder(engine).bindReplacement(damagePrevention, kernel.getObject("wolf"));
+  const hit = () => engine.commit({
+    type: "damage", source: kernel.ref("enemy"), target: kernel.ref("wolf"), amount: 1
+  });
+  assert.equal(hit().status, "done");
+  assert.equal(kernel.getObject("wolf").damage, 1);
+  assert.equal(engine.commit({ type: "empower", object: kernel.ref("wolf") }).status, "done");
+  assert.equal(hit().status, "replaced");
+  assert.equal(kernel.getObject("wolf").damage, 1);
+  assert.equal(engine.commit({ type: "disempower", object: kernel.ref("wolf") }).status, "done");
+  assert.equal(hit().status, "done");
+  assert.equal(kernel.getObject("wolf").damage, 2);
+  assert.equal(engine.pipeline.events.filter(event => event.timingPoint === "damage-dealt").length, 2);
+  binding.unbind();
+});

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
@@ -33,7 +36,7 @@ test("ven-078-166 Baccai Witherclaw: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /rb_rune_rainbow/);
   assert.match(program.judgeReason, /727\.1\.b\.3/);
   assert.match(program.judgeReason, /431\.2/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /KeywordAbility\.params\.cost/);
   assert.ok(!/RIFT-82|RIFT-87/.test(program.judgeReason));
 });
 
@@ -42,7 +45,7 @@ test("ven-078-166 Baccai Witherclaw: [Empower] is declared, never faked as an ac
   assert.deepEqual(empower, { kind: "keyword", keyword: "empower" });
   assert.equal(empower.value, undefined);
   // 印刷费 1 Energy + 两个任意域 Power 的支付形状已合入（butcher-of-the-sands 同形），
-  // 但 Empower 本体仍缺 KeywordDef，不伪造启动能力。
+  // 但 KeywordAbility 没有逐实例费用参数，不自行伪造关键词展开。
   assert.equal(program.abilities.filter(ability => ability.kind === "activated").length, 0);
 });
 
@@ -57,7 +60,7 @@ test("ven-078-166 Baccai Witherclaw: the +2 Might half keeps its Empowered gate"
   assert.deepEqual(mightBonus.condition.left, {
     kind: "object-property",
     object: "self",
-    property: "empoweredCount"
+    property: "empowered"
   });
   assert.deepEqual(mightBonus.condition.right, { kind: "constant", value: 1 });
 });
@@ -68,11 +71,10 @@ test("ven-078-166 Baccai Witherclaw: the nested dependent Deathknell trigger kee
   assert.equal(deathknellTrigger.trigger.at, "object-killed");
   assert.deepEqual(deathknellTrigger.trigger.filter, {
     self: true,
-    // 727.1.b.3：只有 Empowered 成立时该 Deathknell 才 Active（描述性门槛）。
-    empowered: true,
     cause: "kill",
     destination: "trash"
   });
+  assert.deepEqual(deathknellTrigger.trigger.condition, mightBonus.condition);
   assert.equal(deathknellTrigger.optional, false);
   assert.equal(deathknellTrigger.trigger.once, undefined);
   // [Empowered] 不作为独立关键词声明，否则会错误表达为“本牌始终拥有 Deathknell”。
@@ -134,16 +136,66 @@ test("ven-078-166 golden: an empty Rune Deck channels zero and still succeeds (4
 });
 
 test.todo(
-  "ven-078-166 Baccai Witherclaw: [Empower] expansion (827.1.c.1: 1 Energy plus two :rb_rune_rainbow: [A] Power, 'use only " +
-    "if not Empowered') needs an Empower KeywordDef; the [A] payment shape itself is merged " +
-    "(two 1-point all-domain Power requirements, butcher-of-the-sands shape)"
+  "ven-078-166 Baccai Witherclaw: bind printed 1 Energy plus two any-domain Power through KeywordAbility.params.cost and expandProgram (827.1.c.1)"
 );
 test.todo(
-  "ven-078-166 Baccai Witherclaw: the 727.1.b.3 nested gate ('active Deathknell exactly while Empowered') needs an " +
-    "Empowered status predicate (442.1.a / 727.1.c.1; RIFT-359); translateTriggerFilter currently keeps the " +
-    "self anchor but drops the trigger's cause/destination/empowered fields until that predicate work lands"
+  "ven-078-166 Baccai Witherclaw: preserve the tested empowered gate at death and bind cause/destination/toZone through the actual killed-event path (727.1.b.3 / 727.1.c.1)"
 );
 test.todo(
-  "ven-078-166 Baccai Witherclaw: the channelled runes must enter exhausted (431.2) — the merged channel-rune action " +
-    "carries the stipulation but the reference kernel enters runes readied"
+  "ven-078-166 Baccai Witherclaw: honor channel-rune.exhausted when entering the rune zone (431.2)"
 );
+
+// The card remains judge-required: this binds only its supported static clause.
+// State changes use real actions; the original static ability is never rewritten.
+test("baccai-witherclaw: the dependent static follows live Empower and Disempower actions", () => {
+  const { kernel, engine } = fixture({ cards: [{
+    id: "host", cardId: program.canonicalCardId, types: ["unit"],
+    might: 4, energy: null, power: null
+  }] });
+  assert.equal(engine.commit({
+    type: "move-zone", object: kernel.ref("host"), to: "battlefield",
+    location: { type: "battlefield", id: "bf-gate" }
+  }).status, "done");
+  const binding = createEngineStaticBinder(engine).bindStatic(mightBonus, kernel.getObject("host"));
+  let snapshot = engine.layers.snapshot(kernel.ref("host"));
+  assert.equal(snapshot.might, 4);
+  assert.equal(snapshot.energy, null);
+  assert.equal(snapshot.power, null);
+
+  assert.equal(engine.commit({ type: "empower", object: kernel.ref("host") }).status, "done");
+  snapshot = engine.layers.snapshot(kernel.ref("host"));
+  assert.equal(snapshot.empowered, 1);
+  assert.equal(snapshot.might, 6);
+
+  assert.equal(engine.commit({ type: "disempower", object: kernel.ref("host") }).status, "done");
+  snapshot = engine.layers.snapshot(kernel.ref("host"));
+  assert.equal(snapshot.empowered, 0);
+  assert.equal(snapshot.might, 4);
+  assert.deepEqual(engine.pipeline.events.filter(event => event.timingPoint === "empowered-changed")
+    .map(event => event.action.type), ["empower", "disempower"]);
+  binding.unbind();
+});
+
+test("baccai-witherclaw: the merged Empower definition expands through the real program adapter", () => {
+  const kernel = world().unit("keyword-host", {
+    cardId: program.canonicalCardId, energy: null, power: null
+  }).build();
+  const { expanded } = expandProgram(program, kernel.getObject("keyword-host"));
+  assert.equal(expanded.length, 1);
+  const [activation] = expanded;
+  assert.equal(activation.kind, "activated");
+  assert.equal(activation.timing, "action");
+  // The missing printed-cost bridge must never turn this into a free activation.
+  assert.deepEqual(activation.cost, { kind: "empower" });
+  assert.deepEqual(activation.restriction, { kind: "empower", condition: {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq", right: { kind: "constant", value: 0 }
+  } });
+  assert.equal(activation.body[0].id, `empower:${program.canonicalCardId}`);
+  assert.equal(activation.body[0].op, "effect.empower");
+  assert.deepEqual(activation.body[0].args, { amount: { kind: "constant", value: 1 } });
+  assert.deepEqual(activation.body[0].condition, activation.restriction.condition);
+  assert.equal(activation.body[0].targets, undefined);
+  assert.equal(program.status, "judge-required");
+});

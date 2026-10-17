@@ -37,7 +37,7 @@ test("ven-002-166 Blade Twirler: identity, ruleset, status, judgeReason and verb
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /target\.player/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /PlayerId/);
   assert.ok(!/不填 toZone/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -119,13 +119,8 @@ test("ven-002-166 Blade Twirler golden: a short Main Deck burns only what is ava
 });
 
 test.todo(
-  "ven-002-166 Blade Twirler: choose a player through the target.player primitive and feed that " +
-    "choice into effect.mill — TargetSpec only describes object filters and PickSpec.options is a " +
-    "static value list, so no merged op can carry a replayable player choice (355.9.a; " +
-    "ability-templates section 4, target.player)"
+  "ven-002-166 Blade Twirler: enumerate current game PlayerIds and provide a replayable non-object target.player producer (355.9.a / 355.10.f)"
 );
 test.todo(
-  "ven-002-166 Blade Twirler: fire on the first successful move each turn — the CardProgram -> " +
-    "TriggerRegistration channel is merged (RIFT-120) and move-location events carry fromZone/toZone, " +
-    "but target.player and the chosen-player -> effect.mill.player consumer are still missing"
+  "ven-002-166 Blade Twirler: resolve the actual first-move trigger through target.player; the existing linked player -> effect.mill consumer is already tested (190.6.d / 441.1)"
 );

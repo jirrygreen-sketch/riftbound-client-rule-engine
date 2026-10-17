@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
@@ -78,8 +79,8 @@ test("ven-001-166 Baccai Sandspinner: identity, ruleset, status, judgeReason and
   assert.match(program.judgeReason, /827\.1\.c\.1/);
   assert.match(program.judgeReason, /continuous\.cost-modification/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-359/);
-  assert.match(program.judgeReason, /RIFT-360/);
+  assert.match(program.judgeReason, /ObjectSnapshot/);
+  assert.match(program.judgeReason, /Chain Finalize/);
   assert.ok(!/RIFT-89|RIFT-90|RIFT-91/.test(program.judgeReason));
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -124,10 +125,12 @@ test("ven-001-166: the Empowered dependent ability grants Deflect 1 and Assault 
     ]
   });
   // 809.1.b.3 的省略值按 1、807.1.b 的印刷值 2 各自保留；卡内不重写展开。
-  // 828.1.c 的门控用显式谓词占位，不手写状态判定。
+  // 828.1.c 的门控使用来源的实时 empowered 计数。
   assert.deepEqual(grantedKeywords.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "empowered" }
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
   });
 });
 
@@ -136,7 +139,7 @@ test("ven-001-166 review evidence: the grant primitive is merged", () => {
 });
 
 test("ven-001-166 golden: the [Empowered] grant shape really registers Deflect 1 and Assault 2 through layers", () => {
-  // 828.1.c 的门控仍未实现（见 judgeReason），但授予原语是合入的：用本卡声明的 static
+  // 本例只测授予原语；来源的 828.1.c 门控在下方独立执行。用本卡声明的 static
   // effect 形状真实执行一次，断言 ability 图层注册与求值结果（grumpy-rockbear 同款 golden）。
   const kernel = world()
     .unit("baccai-sandspinner", { types: ["unit"], zone: "board", owner: "A", controller: "A", might: 6 })
@@ -189,14 +192,51 @@ test("ven-001-166 golden: the '4 or fewer runes' condition really evaluates on t
 });
 
 test.todo(
-  "ven-001-166 Baccai Sandspinner: activate [Empower] 5 and apply the 827.1.c.3 cost rewrite " +
-    "(5 Energy minus 3 under the four-or-fewer-runes condition, floored at 0) with the " +
-    "'use only if not Empowered' restriction — needs the Empower/Empowered KeywordDef and the " +
-    "continuous.cost-modification -> Empower activation consumer"
+  "ven-001-166 Baccai Sandspinner: pass the printed Empower 5 cost and its conditional -3 Energy discount into activation Finalize (827.1.c.1/c.3)"
 );
 test.todo(
-  "ven-001-166 Baccai Sandspinner: while Empowered, grant Deflect 1 and Assault 2 through the " +
-    "layers engine — the grant primitive is merged (golden above), but the 828.1.c gate still needs " +
-    "the empowered status predicate (RIFT-359) and the granted Deflect needs the target.tax " +
-    "consumer (809.1.c / RIFT-360)"
+  "ven-001-166 Baccai Sandspinner: integrate the live empowered grant with granted Assault expansion and Deflect Power tax in Chain Finalize (807.1.c / 809.1.c / 828.1.c)"
 );
+
+test("baccai-sandspinner: the merged Empower definition expands through the real program adapter", () => {
+  const kernel = world().unit("keyword-host", {
+    cardId: program.canonicalCardId, energy: null, power: null
+  }).build();
+  const { expanded } = expandProgram(program, kernel.getObject("keyword-host"));
+  assert.equal(expanded.length, 1);
+  const [activation] = expanded;
+  assert.equal(activation.kind, "activated");
+  assert.equal(activation.timing, "action");
+  // The missing printed-cost bridge must never turn this into a free activation.
+  assert.deepEqual(activation.cost, { kind: "empower" });
+  assert.deepEqual(activation.restriction, { kind: "empower", condition: {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq", right: { kind: "constant", value: 0 }
+  } });
+  assert.equal(activation.body[0].id, `empower:${program.canonicalCardId}`);
+  assert.equal(activation.body[0].op, "effect.empower");
+  assert.deepEqual(activation.body[0].args, { amount: { kind: "constant", value: 1 } });
+  assert.deepEqual(activation.body[0].condition, activation.restriction.condition);
+  assert.equal(activation.body[0].targets, undefined);
+  assert.equal(program.status, "judge-required");
+});
+
+test("baccai-sandspinner: the source gate evaluates the actual empowered state", () => {
+  const kernel = world().unit("gate-host", { energy: null, power: null }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("gate-host") });
+  const body = [{ id: "gate", op: "condition.predicate", args: {
+    condition: { kind: "constant", value: grantedKeywords.condition }
+  } }];
+  const evaluate = () => {
+    const outcome = runAbilityBody(body, context);
+    assert.equal(outcome.status, "executed");
+    return outcome.results[0].result.linkedValues.value;
+  };
+  assert.equal(evaluate(), false);
+  assert.equal(context.perform({ type: "empower", object: context.ref("gate-host") }).status, "done");
+  assert.equal(evaluate(), true);
+  assert.equal(context.perform({ type: "disempower", object: context.ref("gate-host") }).status, "done");
+  assert.equal(evaluate(), false);
+  assert.deepEqual(context.events.map(event => event.action), ["empower", "disempower"]);
+});
