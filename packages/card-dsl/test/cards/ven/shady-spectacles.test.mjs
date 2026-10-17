@@ -9,6 +9,7 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CARD_ID = "card.hash-0b22da1f55c97313d8b71cfe7bc85b5b13ccca85dda9b92eea0b197fde0ed543";
 const SOURCE_TEXT =
@@ -144,7 +145,26 @@ test.todo(
     "(CR 446.1/446.2/446.4.a/479.1/479.1.d) needs the copy layer's trait copy plus an attachment-bound lifetime and an " +
     "attachment-driven registration (RIFT-91); effect.copy mode \"effect\" stays blocked today"
 );
-test.todo(
-  "ven-137-166 Shady Spectacles: the card-program -> keyword expansion -> chain wiring from contract 3.5 must register the " +
-    "Equip activated ability before the whole card is executable"
-);
+test("ven-137-166 Shady Spectacles binding: Equip expands into an activated ChainDraft with its target and cost", () => {
+  const kernel = world().unit("shady-spectacles", {
+    cardId: CARD_ID, types: ["gear"], tags: ["Equipment"], might: 0
+  }).build();
+  // Inspect the merged binding separately from the unsupported copy ability and Equip payment.
+  // This local projection is only a draft inspection, never an executable full-card settlement.
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const source = kernel.getObject("shady-spectacles");
+  const [activation] = binding.activationAbilities(source);
+  const draft = binding.describeActivate(source, "A");
+
+  assert.equal(activation.kind, "activated");
+  assert.equal(draft.kind, "activated");
+  assert.equal(draft.speed, "action");
+  assert.equal(draft.controller, "A");
+  assert.deepEqual(draft.source, source);
+  assert.deepEqual(draft.body, activation.body);
+  assert.deepEqual(draft.body[0].targets, [{
+    id: "equip-target", filter: { type: "unit", controller: "self" }, min: 1, max: 1, selection: "one"
+  }]);
+  assert.deepEqual(draft.cost.cost, activation.cost);
+  assert.deepEqual(draft.cost.cost.payments.map(payment => payment.kind), ["equip"]);
+});

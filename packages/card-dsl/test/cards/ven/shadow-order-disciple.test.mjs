@@ -12,6 +12,9 @@ import mill from "../../../../engine-core/dist/effects/instructions/effect.mill.
 import continuousMight from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -60,6 +63,10 @@ test("ven-095-166 Shadow Order Disciple: identity, ruleset, status, judgeReason 
   assert.match(program.judgeReason, /RIFT-89/);
   assert.match(program.judgeReason, /continuous\.might 原语（RIFT-91/);
   assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /383\.3\.a/);
+  assert.match(program.judgeReason, /740\.4\.a\.2/);
+  assert.match(program.judgeReason, /TriggerRegistration\.cost/);
+  assert.match(program.judgeReason, /mayAtFinalize/);
   assert.ok(!/没有指令入口|no continuous\.might instruction exists|effect\.might-modify/.test(program.judgeReason));
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -74,19 +81,19 @@ test("ven-095-166: 'When I move' subscribes to the object-moved movement timing 
   });
   assert.equal(ability.trigger.condition, undefined);
   assert.equal(ability.trigger.once, undefined);
-  // 403.1 / 契约 3.9：“you may [Burn 1] to …” 的首段是触发能力自身的可选执行。
+  // 383.3.a / 契约 3.9：首段 may 应在 Finalize 决定；body 暂只保留声明，缺口见绑定检查。
   assert.equal(ability.optional, true);
   assert.equal(optional.op, "choice.optional");
   assert.equal(optional.linkedTo, undefined);
 });
 
-test("ven-095-166: the Burn 1 is a Finalize cost and the Might rider a temporary modification", () => {
+test("ven-095-166: the declared leading Burn needs Finalize binding and the Might rider is temporary", () => {
   assert.deepEqual(optional.args.body.value.map((instruction) => [instruction.id, instruction.op]), [
     ["shadow-order-disciple.pay-burn-1", "cost.pay"],
     ["shadow-order-disciple.give-plus-1-might", "continuous.might"]
   ]);
   // 740.4.a.2 / 441.1：效果首段的 [Burn 1] 是在 Finalization 支付的费用；
-  // cost/plan-values.ts 的非标准费用种类没有 burn（RIFT-89），形状如实记录。
+  // body 里的 cost.pay 尚未被绑定为前置费用；即使补支付种类也不能直接在此结算付款。
   assert.deepEqual(payBurn.args.payments, {
     kind: "constant",
     value: [{ kind: "burn", amount: 1 }]
@@ -206,14 +213,45 @@ test("ven-095-166 golden: the 'When I move' self anchor is consumed by the merge
   assert.equal(matchesTriggerEvent(translated, emission("other-unit"), "A"), false);
 });
 
+test("ven-095-166 binding inspection: the leading choice and Burn survive translation inside the settlement body", (t) => {
+  const kernel = world().unit("disciple", { cardId: CANONICAL, might: 2 }).build();
+  // Inspect only the adapter's transformation. The production program remains judge-required;
+  // this local status projection is never registered with a pipeline or used to settle the card.
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const [registration] = triggerRegistrations(registry, kernel.getObject("disciple"));
+
+  assert.deepEqual(registration.source, kernel.getObject("disciple"));
+  assert.deepEqual(registration.spec.filter, { event: "object-moved", object: { objectId: "disciple" } });
+  assert.equal(registration.controller, "A");
+  assert.equal(registration.optional, true);
+  assert.deepEqual(registration.body, ability.body);
+  const [boundChoice] = registration.body;
+  assert.equal(boundChoice.op, "choice.optional");
+  assert.deepEqual(boundChoice.args.body.value[0], payBurn);
+  assert.deepEqual(boundChoice.args.body.value[1], mightModify);
+  // Diagnostics document the current blocker without declaring its missing fields a success
+  // condition: only a future cost/mayAtFinalize extraction can satisfy 383.3 / 740.4.a.2.
+  t.diagnostic(JSON.stringify({
+    cost: registration.cost ?? null,
+    mayAtFinalize: registration.mayAtFinalize ?? null,
+    triggerValidation: validateTriggerSpec(registration.spec)
+  }));
+});
+
 test.todo(
-  "ven-095-166 Shadow Order Disciple: pay the printed [Burn 1] inside the may-body at Finalize (740.4.a.2, 441.1) — " +
+  "ven-095-166 Shadow Order Disciple: pay the printed [Burn 1] through a real cost plan (740.4.a.2, 441.1) — " +
     "cost.pay is merged but its payments shape accepts only energy/power/xp keys and the burn kind returns " +
     "cannotPay (CostPlanError) — plan-values.ts has no burn payment kind (RIFT-89)"
 );
 
 test.todo(
-  "ven-095-166 Shadow Order Disciple: the move → may → pay → +1 Might chain runs end to end — the optional " +
-    "choice reaches cost.pay(burn) at Finalize, which is blocked by the missing burn payment kind (RIFT-89); " +
-    "the continuous.might step and the object-moved binding each carry real execution evidence"
+  "ven-095-166 Shadow Order Disciple: bind the leading may decision and Burn payment into Finalize " +
+    "(383.3.a/383.3.b/740.4.a.2): programs/triggers.ts must produce mayAtFinalize + TriggerRegistration.cost " +
+    "and remove the settlement-time choice/payment; adding the burn kind alone cannot fix this timing"
+);
+
+test.todo(
+  "ven-095-166 Shadow Order Disciple: register and run move → may → pay → +1 Might end to end once " +
+    "the trigger validator accepts the produced object-moved event discriminator (421.1); the movement " +
+    "producer, self-filter translation, and continuous.might execution already exist"
 );

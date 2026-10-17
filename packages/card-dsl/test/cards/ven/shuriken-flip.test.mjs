@@ -9,7 +9,9 @@ import move from "../../../../engine-core/dist/effects/instructions/effect.move.
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { finalizeTargetPlan, queryTargetCandidates, resolveTargetPlan } from "../../../../engine-core/dist/target/target-plan.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-eead7ad848e8aa64f2ca544f7174c4bc3764b8eb661c26cfd050804e8ce278e5";
@@ -29,6 +31,19 @@ const stripTargets = (instruction) => {
   return rest;
 };
 
+// The target plans consume the card's original filters. As in chain/engine.ts,
+// bind relative controllers before matching the reference world's snapshots.
+const targetContext = (kernel) => bindResolveContext(kernel, {
+  query: (filter) => kernel.objects.filter((object) => {
+    if (filter.controller === "opponent" && object.controller === kernel.controller) return false;
+    return matchesObjectFilter({
+      ...filter,
+      ...(filter.controller === "self" ? { controller: kernel.controller } : {}),
+      ...(filter.controller === "opponent" ? { controller: "any" } : {})
+    }, object);
+  })
+});
+
 test("ven-140-166 Shuriken Flip: program passes validateCardProgram and is judge-required", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
@@ -42,7 +57,7 @@ test("ven-140-166 Shuriken Flip: program passes validateCardProgram and is judge
 
 test("ven-140-166 Shuriken Flip: judgeReason names the runtime Location choice and Flow", () => {
   assert.match(program.judgeReason, /355\.4/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /829\.1\.b/);
   assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /不近似实现/);
@@ -122,6 +137,64 @@ test("ven-140-166 Shuriken Flip golden: choosing zero targets deals nothing and 
   assert.equal(kernel.getObject("enemy").damage, 0);
 });
 
+for (const chooseEnemy of [false, true]) {
+  test(`ven-140-166 Shuriken Flip golden: Finalize locks ${chooseEnemy ? 1 : 0} enemy and one friendly target`, () => {
+    const kernel = world()
+      .unit("enemy", { owner: "B", might: 3 })
+      .base("enemy-at-base", { owner: "B", might: 3 })
+      .unit("friendly", { owner: "A", might: 2 })
+      .build();
+    const context = targetContext(kernel);
+    assert.deepEqual(queryTargetCandidates(context, enemySpec), [kernel.ref("enemy")]);
+    assert.deepEqual(queryTargetCandidates(context, friendlySpec), [kernel.ref("friendly")]);
+    const selectedEnemy = chooseEnemy ? [kernel.ref("enemy")] : [];
+    kernel.setAnswers({
+      [`target:${enemySpec.id}`]: selectedEnemy,
+      [`target:${friendlySpec.id}`]: [kernel.ref("friendly")]
+    });
+    const enemyPlan = finalizeTargetPlan(context, enemySpec);
+    const friendlyPlan = finalizeTargetPlan(context, friendlySpec);
+    assert.deepEqual(enemyPlan.selected, selectedEnemy);
+    assert.deepEqual(friendlyPlan.selected, [kernel.ref("friendly")]);
+    assert.equal(resolveTargetPlan(context, friendlyPlan).status, "resolved");
+    const resolvedEnemy = resolveTargetPlan(context, enemyPlan);
+    assert.equal(resolvedEnemy.status, "resolved");
+    kernel.setTargets(enemySpec.id, resolvedEnemy.selected);
+
+    // Only the supported damage instruction runs; the runtime destination of
+    // the independent Move remains pending, and is not substituted here.
+    const outcome = resolveChainBody([dealTwo], context);
+    assert.equal(outcome.status, chooseEnemy ? "executed" : "partial");
+    if (!chooseEnemy) {
+      assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+    }
+    assert.deepEqual(outcome.events.map(event => event.action), chooseEnemy ? ["damage"] : []);
+    assert.equal(kernel.getObject("enemy").damage, chooseEnemy ? 2 : 0);
+    assert.equal(kernel.getObject("enemy-at-base").damage, 0);
+  });
+}
+
+test("ven-140-166 Shuriken Flip golden: Resolve rechecks the locked enemy without retargeting", () => {
+  const kernel = world()
+    .unit("enemy", { owner: "B", might: 3 })
+    .unit("unchosen", { owner: "B", might: 3 })
+    .build();
+  const context = targetContext(kernel);
+  const stale = kernel.ref("enemy");
+  kernel.setAnswers({ [`target:${enemySpec.id}`]: [stale] });
+  const plan = finalizeTargetPlan(context, enemySpec);
+  assert.equal(kernel.perform({ type: "banish", object: stale }).status, "done");
+  const resolution = resolveTargetPlan(context, plan);
+  assert.equal(resolution.status, "ignored");
+  assert.deepEqual(resolution.invalid, [stale]);
+  kernel.setTargets(enemySpec.id, resolution.selected);
+
+  const outcome = resolveChainBody([dealTwo], context);
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.deepEqual(outcome.events, []);
+  assert.equal(kernel.getObject("unchosen").damage, 0);
+});
+
 test("ven-140-166 Shuriken Flip golden: a zero-target damage choice does not suppress the Move", () => {
   // 158.1 sequences the two sentences, but the Move does not reference the damage result, so it
   // is NOT linked to it. With the chain-supplied static destination substituted for the pending
@@ -198,11 +271,12 @@ test("ven-140-166 Shuriken Flip: the 'at a battlefield' restriction matches batt
 test.todo(
   "ven-140-166 Shuriken Flip: 'move a friendly unit' has no printed destination; the resolution-time " +
     "Location choice (355.4/355.4.a/451.1) needs the runtime Location selector in the target/location " +
-    "plan (RIFT-90/RIFT-91)"
+    "plan (RIFT-357)"
 );
 
 test.todo(
   "ven-140-166 Shuriken Flip: play from Trash for the printed Flow cost (3 energy + 1 rainbow rune) " +
-    "and banish the spell when it leaves the Chain by 829.1.b — needs the alternate-cost consumer " +
-    "(RIFT-261) and the replacement registration path (RIFT-260)"
+    "and banish the spell when it leaves the Chain by 829.1.b — carry params.cost into the expansion, " +
+    "consume flow.cost in CostPlanInput.modifications, record the selected Flow instance, and exclude " +
+    "leaves instructed by the spell itself (829.1.b.1); the cost evaluator and replacement binder are merged (RIFT-261 follow-up)"
 );
