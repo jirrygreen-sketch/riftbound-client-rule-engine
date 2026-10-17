@@ -172,6 +172,7 @@ test.todo(
 );
 test.todo(
   "ven-018-166 Rage Amplifier: the +1/+2 Might branches must be registered from the CardProgram's static ability " +
-    "and selected by an evaluable Empowered predicate (828.1.c) - no merged path turns a card static ability into " +
-    "a ContinuousEffectSpec, and conditions/contract.ts's ObjectSnapshot exposes no Empowered state (RIFT-91)"
+    "and selected by an evaluable Empowered predicate (828.1.c) - the static → layers binding entry point is merged " +
+    "(programs/statics.ts createEngineStaticBinder, RIFT-91 batch) and both branches execute in the layer engine, " +
+    "but the empowered predicate itself is still missing (in-flight RIFT-359 condition predicates)"
 );

@@ -78,7 +78,14 @@ function chainFixture({ cards = [] } = {}) {
     cost: { id: `cost:${id}`, cost: { energy: { kind: "constant", value: 0 }, power: { kind: "constant", value: [] } } },
     ...options
   });
-  return { engine, kernel, card };
+  const resolveAll = () => {
+    let count = 0;
+    while (engine.items.length) {
+      if (++count > 50) throw new Error("Nonterminating test chain");
+      engine.pass(engine.priority);
+    }
+  };
+  return { engine, kernel, card, resolveAll };
 }
 
 test("ven-075-166 Platewyrm Egg: program validates and is registered by canonicalCardId", () => {
@@ -246,7 +253,7 @@ test("ven-075-166 Platewyrm Egg golden: \"This enters exhausted.\" really rewrit
   );
 
   f.engine.execute(f.card("platewyrm-egg", { kind: "unit", body: [] }));
-  resolveAll(f.engine);
+  f.resolveAll();
 
   // The entry orientation is exhausted (149.1 / 359.2.d), and the replacement
   // did not also emit a later "became ready" style event for this card.

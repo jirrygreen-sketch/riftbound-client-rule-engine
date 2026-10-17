@@ -77,7 +77,7 @@ test("ven-154-166 Public Execution: judgeReason names the relative-Might target 
   assert.match(program.judgeReason, /355\.9\.b/);
   assert.match(program.judgeReason, /143\.2\.a/);
   assert.match(program.judgeReason, /mightLessThanTarget/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /Flow/);
 });
 
@@ -237,7 +237,8 @@ test("ven-154-166 Public Execution golden: the kill primitive itself refuses a s
 test.todo(
   "ven-154-166 Public Execution: 'an enemy unit with less Might than it' (355.9.b / 143.2.a) must be enforced while the " +
     "targets are chosen, not only at resolve — needs a relative-characteristic target predicate in the target/chain plan " +
-    "(RIFT-90); today the descriptive mightLessThanTarget key is evaluated by no merged code"
+    "(in-flight RIFT-359 condition predicates / RIFT-360 target side); today the descriptive mightLessThanTarget key " +
+    "is evaluated by no merged code"
 );
 
 test.todo(

@@ -21,16 +21,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "I have +1 :rb_might:." 是静态 Might 修正，属 arithmetic 图层（143.2.a、475–477），
  *   不是 Buff 计数器（702/703）。
  *
- * status = judge-required（三处依赖均不近似实现）：
- * 1. effects/keywords/ 没有 Empower/Empowered KeywordDef（RIFT-81~88 批次不含它们），
+ * status = judge-required（复核 2026-10-17；缺口均不近似实现）：
+ * 1. effects/keywords/ 没有 Empower/Empowered KeywordDef（当前注册表只含 Flow 等，
+ *    无 empower/empowered 展开），
  *   827.1.c.1 的起动费用（含 “Discard 1”）与 827.1.c.5 的 “Use only if not Empowered”
  *   限制没有展开路径；卡程序只能按契约 3.1 声明 keyword 能力。
  * 2. cost/ 侧的 discard 费用组件存在（cost/plan-values.ts 支持 kind "discard"），但没有
  *    任何模块把卡程序声明的 Empower 费用接进 Finalize（RIFT-89 费用计划接线）。
- * 3. 828.1.c 的状态门控需要 empowered 谓词（condition.predicate）；当前 Condition 没有该
- *    谓词，layers 也没有把卡程序 static 效果注册进图层的入口（RIFT-91），因此这条 +1 Might
- *    既拿不到门控也进不了图层。
- * 依赖：新增 Empower/Empowered KeywordDef、RIFT-89（费用计划接线）、RIFT-91（图层与谓词）。
+ * 3. 828.1.c 的状态门控需要 empowered 谓词；static → layers 的绑定入口已合入
+ *    （programs/statics.ts 的 createEngineStaticBinder，RIFT-91 批次），golden 用图层引擎
+ *    真实执行本卡声明的 +1 Might（门控谓词仍缺，不能无条件生效）。
+ * 依赖：新增 Empower/Empowered KeywordDef、RIFT-89（费用计划接线）、empowered 谓词
+ *    （进行中 RIFT-359 条件谓词侧）。
  * 本程序不把依赖能力写成无条件能力，也不手写 Empowered 判定。
  */
 const abilities: Ability[] = [
@@ -61,13 +63,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入：(1) 缺 Empower/Empowered 的 KeywordDef（RIFT-81~88 关键词批次不含它们），" +
+    "三处依赖未合入：(1) 缺 Empower/Empowered 的 KeywordDef（当前 keywords/registry.generated.ts " +
+    "没有 empower/empowered 展开），" +
     "827.1.c.1 的「Discard 1：Empower me」起动费用（827.1.c.2 允许非资源费用）与 827.1.c.5 的" +
     "「仅当未 Empowered 时启动」限制都没有展开路径，卡程序按契约 3.1 只能声明 keyword 能力；" +
     "(2) 费用侧虽有 discard 组件（cost/plan-values.ts 的 kind \"discard\"），但没有模块把卡程序声明的 Empower 费用" +
     "接进 Finalize（RIFT-89 费用计划接线）；(3) 828.1.c 的 Dependent Ability 门控需要 empowered 谓词" +
-    "（condition.predicate）与图层注册入口，当前 Condition 没有该谓词、layers 也没有卡程序 static 效果入口（RIFT-91），" +
-    "因此 +1 :rb_might: 既拿不到门控也进不了图层。依赖：新增 Empower/Empowered KeywordDef、RIFT-89、RIFT-91。" +
+    "（进行中 RIFT-359 的条件谓词侧）；static → layers 的绑定入口已合入（programs/statics.ts 的" +
+    " createEngineStaticBinder，RIFT-91 批次），golden 用图层引擎真实执行 +1 :rb_might: 声明，" +
+    "但 Empowered 门控未接通，绝不能写成无条件能力。依赖：新增 Empower/Empowered KeywordDef、" +
+    "RIFT-89、empowered 谓词。" +
     "不把依赖能力写成无条件能力，也不手写 Empowered 判定。不近似实现。",
   abilities,
   sourceText:

@@ -22,10 +22,9 @@ import type { CardProgram } from "../../ir/index.js";
  * - 契约 3.9："you may pay … to draw 1" 是一个可选的支付后抽牌序列，写成
  *   choice.optional 并把两条指令放进 body（不是 choice + linkedTo）。
  *
- * status = judge-required（复核 2026-10-16；缺口均不近似实现）：
- * 1. 缺 cost.pay 执行路径：effects/instructions/ 仍只有 effect.* / continuous.*，
- *    cost.pay / cost.modify 属仍在进行的 RIFT-261（分支未合入），所以
- *    "pay :rb_energy_1:" 这一步没有可执行原语；程序里保留描述性 cost.pay 指令。
+ * status = judge-required（复核 2026-10-17；缺口均不近似实现）：
+ * 1. cost.pay 已合入（RIFT-261，effects/instructions/cost.pay.ts）：本卡的 1 Energy
+ *    支付用 { payments: { energy: 1 } } 形状由 golden 端到端真实执行（能量扣除 + 抽牌）。
  * 2. conquer 时点已由合入的回合/计分流程发出（turn/flow.ts scheduleScore 的 Score
  *    提交波产生 'conquer' + 'score' 发射并带 details.battlefieldId；
  *    engine-core/test/game/lifecycle.test.mjs 断言），RIFT-257 的卡牌程序绑定
@@ -37,17 +36,14 @@ import type { CardProgram } from "../../ir/index.js";
  *    judge-required 拒绝（fail closed），190.6 的战场能力控制者解析同样没有接线。
  * 3. 已支持并真实执行的部分：符文计数触发条件（count + rune-zone，<=4）、
  *    choice.optional 的"可以"语义（拒绝时整条被选指令跳过）与 conquer 时点的真实发射。
- * 依赖：RIFT-261（cost.pay 费用计划接线）、053.3 here 锚点 / 190.6 战场能力绑定。
+ * 依赖：053.3 here 锚点 / 190.6 战场能力绑定。
  */
 export default {
   canonicalCardId: "card.hash-be16710fdfd6fce7243538754b9e041ce61077a17c75b104b7d6dc5dd119ce97",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) 缺 cost.pay 执行路径——effects/instructions/ 仍只有 effect.* / continuous.* 原语，" +
-    "cost.pay / cost.modify 属仍在进行的 RIFT-261（分支未合入），所以「you may pay :rb_energy_1: to draw 1」的支付步" +
-    "没有可执行原语，程序里保留描述性 cost.pay 指令；" +
-    "(2) 触发侧只差 053.3 的「here」锚点：conquer 时点（383.4.c.2.b / 473.2.a）已由合入的回合/计分流程发出" +
+    "两处缺口，均不近似实现：(1) 触发侧只差 053.3 的「here」锚点：conquer 时点（383.4.c.2.b / 473.2.a）已由合入的回合/计分流程发出" +
     "（turn/flow.ts scheduleScore 的 Score 提交波产生 'conquer' + 'score' 发射并带 details.battlefieldId，" +
     "engine-core/test/game/lifecycle.test.mjs 断言），RIFT-257 的卡牌程序绑定（src/programs/triggers.ts）也已能注册 " +
     "CardProgram 的 triggered ability，filter 已改用封闭判别值 \"conquered\"（EVENT_NAMES 映射到 conquer 时点）；" +
@@ -55,8 +51,10 @@ export default {
     "（pipeline-match.ts 的 details 匹配只接受写死的值），程序里的 here 过滤器键会被 " +
     "programs/filters.ts 的 translateTriggerFilter 以 judge-required 拒绝（fail closed，不静默放行），" +
     "190.6 的战场能力控制者解析同样没有接线。" +
-    "已支持部分：触发条件（符文区 rune 计数 <= 4，133.5.a.1 / 431.1）、choice.optional 的「可以」语义与 conquer 时点的" +
-    "真实发射均由 golden 用解释器 + 参考内核真实执行。依赖：RIFT-261（cost.pay 与费用计划）、053.3 here 锚点 / 190.6 战场能力绑定。",
+    "已支持部分：触发条件（符文区 rune 计数 <= 4，133.5.a.1 / 431.1）、choice.optional 的「可以」语义、" +
+    "conquer 时点的真实发射与「pay :rb_energy_1: to draw 1」的端到端执行均由 golden 真实执行——" +
+    "cost.pay 已合入（RIFT-261，effects/instructions/cost.pay.ts），1 Energy 用 payments 形状支付。" +
+    "依赖：053.3 here 锚点 / 190.6 战场能力绑定。",
   abilities: [
     {
       kind: "triggered",
@@ -90,10 +88,11 @@ export default {
               kind: "constant",
               value: [
                 {
-                  // 描述性 cost.pay：费用支付指令仍属在做的 RIFT-261，尚未有已合入原语（见 judgeReason）。
+                  // RIFT-261 已合入 cost.pay（effects/instructions/cost.pay.ts）；
+                  // payments 形状表示 1 Energy 的资源支付，golden 端到端执行。
                   id: "protective-sands.pay",
                   op: "cost.pay",
-                  args: { energy: { kind: "constant", value: 1 } }
+                  args: { payments: { kind: "constant", value: { energy: 1 } } }
                 },
                 {
                   // 414.1 / 414.3：支付后抽 1，抽牌者缺省为能力控制者（190.6.d）。

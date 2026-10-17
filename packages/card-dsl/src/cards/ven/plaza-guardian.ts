@@ -21,14 +21,17 @@ import type { Ability, CardProgram, Expr } from "../../ir/index.js";
  *   按契约 3.7 / README 第 5 节只声明 `{ kind: "keyword", keyword: "deflect" }`，
  *   展开（static target.tax）由 effects/keywords/Deflect.ts 负责。
  *
- * status = judge-required（两处缺口均不近似实现）：
- * 1. 没有卡牌侧的 `continuous.cost-modification` 消费方：engine-core 的费用计划
- *    （cost/buildCostPlan）只在调用方显式给出 discounts 时生效，没有任何已合入路径
- *    读取 CardProgram 的 static 费用改写（cost.modify 也没有 effects/instructions/
- *    下的原语文件）。依赖 RIFT-89（费用计划接线 / cost.modify）。
- * 2. [Deflect] 的展开已合入，但其 `target.tax` 结果没有消费方：目标选择与追加费用
- *    的接线（RIFT-90）未合入，且已合入换算按 Energy 记账而 809.1.c.1 要求任意域
- *    Power。依赖 RIFT-90。
+ * status = judge-required（复核 2026-10-17；缺口均不近似实现）：
+ * 1. cost.modify / buildCostPlan 的折扣原语已合入（RIFT-258/89 批次），折扣点数表达式
+ *    由 golden 真实求值；仍缺的是把这笔折扣安装到打出本卡的费用计划上——没有任何已合入
+ *    路径读取 CardProgram 的 static continuous.cost-modification 并生成 discounts
+ *    （依赖 RIFT-89 的费用计划接线）。
+ * 2. [Deflect] 的链级目标税消费已部分合入：target/target-plan.ts 有 TargetTaxSpec
+ *    （kind 必须 "deflect"）、taxAdapter 与 finalizeTargetPlan → appendTaxes，chain/engine.ts
+ *    的 finalize 会把税变成 mandatoryAdditional Energy 成本；golden 用真实 target 管线断言
+ *    appendTargetTax 收到请求。仍缺：(a) 809.1.c.1 的税是任意域 Power，而链级记账按 Energy
+ *    换算；(b) 没有把 Deflect 关键词自动接线成目标税选项（taxAdapter 由调用方提供），
+ *    相关进行中任务 RIFT-90/RIFT-360。
  * 折扣点数表达式本身可由解释器真实求值，golden 用解释器 + 参考内核断言
  * “你控制的每个 gear 减 1” 的取值，不宣称整卡可执行。
  */
@@ -70,12 +73,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1) 「I cost :rb_energy_1: less for each gear you control」（356.4 / 356.4.b / 356.4.g）" +
-    "缺卡牌侧消费方——engine-core 的 buildCostPlan 只应用调用方显式传入的 discounts，没有任何已合入路径" +
-    "读取 CardProgram 的 continuous.cost-modification，cost.modify 也没有 effects/instructions/ 下的原语文件" +
-    "（依赖 RIFT-89）；(2) [Deflect]（809.1.b.3 省略数值按 1）的展开已合入，但其 target.tax 结果没有消费方：" +
-    "目标选择与追加费用的接线（RIFT-90）未合入，且已合入换算按 Energy 记账而 809.1.c.1 要求任意域 Power。" +
-    "折扣点数表达式（每个你控制的 gear 减 1 Energy）本身可由解释器真实求值，golden 已执行；" +
+    "两处缺口，均不近似实现：(1)「I cost :rb_energy_1: less for each gear you control」（356.4 / 356.4.b / 356.4.g）：" +
+    "cost.modify / buildCostPlan 的折扣原语已合入（RIFT-258/89 批次），折扣点数表达式由解释器真实求值；" +
+    "仍缺把 static continuous.cost-modification 安装到打出本卡的费用计划 discounts 的已合入路径（RIFT-89 接线）；" +
+    "(2) [Deflect]（809.1.b.3 省略数值按 1）的链级目标税消费已部分合入：TargetTaxSpec / taxAdapter / " +
+    "finalizeTargetPlan→appendTaxes 已在 target/target-plan.ts，chain/engine.ts 的 finalize 把税变成 " +
+    "mandatoryAdditional Energy 成本，golden 用真实 target 管线断言 appendTargetTax 收到请求；" +
+    "仍缺 (a) 809.1.c.1 的任意域 Power 记账（当前按 Energy 换算）与 (b) Deflect 关键词→目标税选项的自动接线" +
+    "（taxAdapter 由调用方提供），依赖 RIFT-90/RIFT-360。" +
     "不近似实现（不改写印刷费用、不把 Deflect 写成假目标税）。",
   abilities,
   sourceText:
