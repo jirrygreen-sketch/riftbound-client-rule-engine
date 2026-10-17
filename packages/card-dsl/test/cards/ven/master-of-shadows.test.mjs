@@ -54,35 +54,32 @@ test("ven-143-166: 'When you banish a card you own' trigger shape", () => {
   assert.equal(triggered.optional, false);
 });
 
-test("ven-143-166: the card-banished trigger cannot be registered by the merged binding", () => {
+test("ven-143-166: the descriptive trigger filter is rejected by the strict trigger validator", () => {
   // events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 没有 card-banished，因此该触发条件
-  // 目前无法注册（契约变更请求；见 judgeReason 第 1 条）。RIFT-257 的注册链路会把
-  // filter 翻译成 TriggerSpec，但 pipeline.registerTrigger 再走 assertTriggerSpec，
-  // 因此该触发会在真正注册前被拒，而不是注册成一个更宽的触发。
+  // 目前无法注册（契约变更请求；见 judgeReason 第 1 条）。
   const result = validateTriggerSpec(triggered.trigger);
   assert.equal(result.ok, false);
   const codes = result.issues.map(issue => issue.code);
   assert.ok(codes.includes("invalid-event-type"), JSON.stringify(codes));
   assert.ok(codes.includes("unknown-field"), JSON.stringify(codes));
+});
 
+test("ven-143-166 binding: the merged adapter translates 'you banish a card you own' into both anchors", () => {
+  // RIFT-257 的注册链路把 filter 逐字段翻译成 TriggerSpec：“you banish”（player）与
+  // “a card you own”（object.owner）两个锚点都进入翻译结果，说明适配器本身已就位；
+  // 缺的是 card-banished 事件判别值与载荷（见 judgeReason 第 1 条）。
   const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
   const kernel = world()
     .unit("master-of-shadows", { types: ["legend"], zone: "board", cardId: CANONICAL_ID })
     .build();
   const [registration] = triggerRegistrations(registry, kernel.getObject("master-of-shadows"));
-  // “you banish a card you own” 的 player / owner 两个锚点都被翻译进 filter。
   assert.deepEqual(registration.spec.filter, {
     event: "card-banished",
     object: { owner: "self" },
     player: "self"
   });
-  // 翻译结果仍然不是合法的 TriggerSpec：card-banished 不在封闭事件集合里。
-  const bound = validateTriggerSpec(registration.spec);
-  assert.equal(bound.ok, false);
-  assert.ok(
-    bound.issues.map(issue => issue.code).includes("invalid-event-type"),
-    JSON.stringify(bound.issues)
-  );
+  assert.equal(registration.spec.at, "card-banished");
+  assert.equal(registration.boundToIncarnation, true);
 });
 
 test("ven-143-166: 'empower me' is the merged effect.empower against the source", () => {

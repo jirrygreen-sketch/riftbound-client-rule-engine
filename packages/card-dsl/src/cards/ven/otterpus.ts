@@ -16,7 +16,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   event "score" 表达，不需要额外区分两种方式。
  * - 473.1：Score 时最多 Gained 1 点（本卡文字也只针对 1 点的替代）。
  * - "they draw 1 instead" = effect.draw（414.1/414.3，已合入原语）；"they" 指被
- *   替代的得分者，由替代效果负责把得分者绑定到 draw 的玩家。
+ *   替代的得分者，由替代效果负责把得分者绑定到 draw 的玩家。该绑定本身没有
+ *   载荷选择器（见 judgeReason 第 3 条），因此本卡不能宣称可执行。
  * - "during their first or second turn"：485.7 / 487.7 / 490.7 / 491.7 的
  *   First Turn Process 说明"第一回合"按模式与玩家分别调整，因此这是**每个玩家
  *   各自**的回合序号，而不是全局回合数（PipelineClock.turn 只是全局计数）。

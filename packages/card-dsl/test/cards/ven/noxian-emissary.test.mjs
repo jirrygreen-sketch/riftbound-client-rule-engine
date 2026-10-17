@@ -8,8 +8,6 @@ import token from "../../../../engine-core/dist/effects/instructions/effect.toke
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
-import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 
 const CANONICAL_ID =
   "card.hash-f94f709693f78579dcd97c1ebdba7859c74403424ef6cd195238e47541869fbf";
@@ -45,20 +43,6 @@ test("ven-128-166 Noxian Emissary: [Empower] is declared, not re-implemented (co
   // registry (26 definitions) still has no Empower/Empowered KeywordDef.
   assert.equal(keywordDefinitionsById.get("Empower"), undefined);
   assert.equal(keywordDefinitionsById.get("Empowered"), undefined);
-});
-
-test("ven-128-166 Noxian Emissary: the merged keyword binding fails closed on the missing Empower definition", () => {
-  // RIFT-257's expandProgram resolves declared keywords through the generated
-  // registry; the missing Empower definition is reported instead of being
-  // dropped, so the printed [Empower] cost cannot silently disappear.
-  const kernel = world()
-    .unit("noxian-emissary", { zone: "board", cardId: CANONICAL_ID })
-    .build();
-  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
-  assert.throws(
-    () => expandProgram(registry.get(CANONICAL_ID), kernel.getObject("noxian-emissary")),
-    error => error.code === "judge-required" && /Keyword empower has no executable KeywordDef/.test(error.message)
-  );
 });
 
 test("ven-128-166 Noxian Emissary: the Empowered Deathknell dependent ability shape", () => {

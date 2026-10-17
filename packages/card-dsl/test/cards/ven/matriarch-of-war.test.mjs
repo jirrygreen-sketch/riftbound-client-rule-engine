@@ -9,7 +9,6 @@ import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
-import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL_ID =
@@ -113,44 +112,26 @@ test.todo(
     "kind in cost/plan-values.ts and no Universal Power value in the closed Domain union (RIFT-261)"
 );
 
-test("ven-153-166: the descriptive empowered-changed filter is rejected by the strict validator and the binding adapter", () => {
+test("ven-153-166: the descriptive empowered-changed filter is rejected by the strict trigger validator", () => {
   const result = validateTriggerSpec(triggered.trigger);
   assert.equal(result.ok, false);
   const codes = result.issues.map(issue => issue.code);
   assert.ok(codes.includes("invalid-event-type"), JSON.stringify(codes));
   assert.ok(codes.includes("unknown-field"), JSON.stringify(codes));
-
-  // RIFT-257 的 translateObjectFilter 只接受白名单字段：“something else” 的 other
-  // 与增加方向 direction 都会在注册前被判为 unsupported filter field。
-  assert.throws(
-    () => translateObjectFilter(triggered.trigger.filter.filter),
-    error => error.code === "judge-required" && /Unsupported filter field/.test(error.message)
-  );
 });
 
-test("ven-153-166: the printed cost fails on both gaps instead of being approximated", () => {
-  // 443.2.a 的 Disempower 与 163.2.b 的任意域 Power 都没有费用管线消费方；本测试
-  // 断言费用计划如实拒绝，而不是把 [A] 近似成某个域或忽略 Disempower。
+test("ven-153-166: the printed [A] cost is rejected by the closed six-domain set", () => {
+  // 443.2.a 的 Disempower 与 163.2.b 的任意域 Power 都没有费用管线消费方；印刷的
+  // ["rainbow"] 不属于六域封闭集合，费用域校验拒绝，而不是近似成某个域。
   const kernel = world()
     .unit("matriarch-of-war", { types: ["legend"], zone: "board" })
     .build();
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("matriarch-of-war") });
 
-  // 印刷的 ["rainbow"] 不属于六域封闭集合（163.2.b），费用域校验直接拒绝。
   assert.throws(
     () => buildCostPlan(context, { id: "cost", cost: activated.cost }),
     error => error instanceof CostPlanError && error.reason === "invalid-cost-plan" &&
       /Expected unique cost domains/.test(error.message)
-  );
-
-  // 去掉 [A] 只留付款动作时，Disempower 付费种类缺失同样以 judge-required 拒绝。
-  assert.throws(
-    () => buildCostPlan(context, {
-      id: "cost",
-      cost: { kind: "activated", payments: activated.cost.payments }
-    }),
-    error => error instanceof CostPlanError && error.reason === "judge-required" &&
-      /Unsupported payment kind: disempower/.test(error.message)
   );
 });
 

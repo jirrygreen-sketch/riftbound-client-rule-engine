@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL_ID =
   "card.hash-aa310ded3ca355bccab78b17783adac7b21e0b2477c14135b2cf52ebad7d96a5";
@@ -156,3 +157,14 @@ test.todo(
   "ven-155-166: pay the printed 'Disempower me' cost — cost/plan-values.ts supports only " +
     "exhaust/discard/recycle/kill/reveal/spend-buff nonstandard payments (RIFT-261)"
 );
+
+test("ven-155-166: the printed 'from anywhere other than your hand' filter is rejected by the strict validator", () => {
+  // 保留的负向证据：EventPattern.fromZone 只做等值匹配、ObjectFilter 也不接受否定键，
+  // 因此印刷的 “from anywhere other than your hand” 在契约补齐前无法注册（judgeReason 1）。
+  const result = validateTriggerSpec(triggered.trigger);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.issues.map(issue => issue.code).includes("unknown-field"),
+    JSON.stringify(result.issues)
+  );
+});

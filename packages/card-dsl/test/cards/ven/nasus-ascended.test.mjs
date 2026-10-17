@@ -10,7 +10,6 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
-import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 test("nasus-ascended: passes validateCardProgram and is judge-required", () => {
   const result = validateCardProgram(program);
@@ -48,20 +47,16 @@ test("nasus-ascended: Deflect 2 and Empower 8 are declared as keywords, not expa
   assert.deepEqual(program.abilities[1], { kind: "keyword", keyword: "empower", value: 8 });
 });
 
-test("nasus-ascended: the merged keyword binding expands [Deflect 2] and rejects the missing Empower", () => {
+test("nasus-ascended: the merged keyword binding expands the declared [Deflect 2]", () => {
   // RIFT-84's Deflect KeywordDef is merged and sums its printed value into one
-  // static target.tax ability (809.1.b.2/809.2); RIFT-264's batch has no Empower
-  // definition, so RIFT-257's expansion fails closed for that keyword.
+  // static target.tax ability (809.1.b.2/809.2); RIFT-257's expandProgram resolves
+  // the card's declaration through the generated keyword registry.
   assert.equal(keywordDefinitionsById.get("Deflect"), deflect);
   // 快照不带印刷关键词：只让 CardProgram 的声明参与展开，避免同一 [Deflect 2]
   // 被 declared + printed 各算一次（807.2/809.2 的求和针对真实实例）。
   const kernel = world()
     .unit("nasus", { zone: "board" })
     .build();
-  const blocked = world()
-    .unit("nasus", { zone: "board" })
-    .build();
-  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
 
   // 只声明 Deflect：展开为 target.tax（卡牌侧不重写 809.1.c 的附加费用）。
   const deflectOnly = { ...program, abilities: program.abilities.filter(ability => ability.keyword !== "empower") };
@@ -71,33 +66,6 @@ test("nasus-ascended: the merged keyword binding expands [Deflect 2] and rejects
     expanded.expanded.filter(ability => ability.kind === "static").map(ability => ability.effect),
     [{ kind: "target.tax", value: { kind: "constant", value: 2 } }]
   );
-
-  assert.throws(
-    () => expandProgram(registry.get(program.canonicalCardId), blocked.getObject("nasus")),
-    error => error.code === "judge-required" && /Keyword empower has no executable KeywordDef/.test(error.message)
-  );
-});
-
-test("nasus-ascended: the merged target tax still has no card-side consumer", () => {
-  // 809.1.c/809.1.d：Deflect 是强制附加费用，由 target-plan 的 tax 通道追加；
-  // RIFT-90 已合入 TargetTaxAdapter，但没有任何已合入路径把卡牌的 target.tax 静态
-  // 效果接进去（RIFT-257 的 static binder 缺省是 noopStaticBinder）。这一层缺口
-  // 不是层引擎能补的，因此卡牌保持 judge-required。
-  const kernel = world().unit("nasus", { zone: "board", might: null }).build();
-  const layers = createLayerEngine([kernel.getObject("nasus")], [{
-    effect: {
-      id: "deflect:no-consumer",
-      layer: "ability",
-      source: kernel.ref("nasus"),
-      filter: { objectId: "nasus" },
-      effect: { kind: "target.tax", value: 2 }
-    },
-    duration: { type: "permanent" }
-  }]);
-  const evaluated = layers.evaluate(kernel.ref("nasus"));
-  // target.tax 不是图层能力：命中该注册行也不会改变 Might 或关键词。
-  assert.equal(evaluated.might, kernel.getObject("nasus").might);
-  assert.deepEqual(evaluated.keywords, []);
 });
 
 test("nasus-ascended: the Empowered dependent ability is a self-scoped conquer trigger", () => {

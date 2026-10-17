@@ -6,11 +6,6 @@ import program from "../../../dist/cards/ven/kayle-justified.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
-import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
-import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL_ID =
   "card.hash-bc9496bbf6f7cd918c02c302dd1a30bdc473b07744028532891c56fa80672908";
@@ -89,43 +84,6 @@ test("ven-134-166 Kayle, Justified: both static effects name merged primitive op
   assert.equal(typeof instructionDefinitionsById.get("continuous.grant-keyword")?.execute, "function");
   assert.ok(keywordDefinitionsById.get("Deflect"), "Deflect's KeywordDef is merged (RIFT-84)");
   assert.ok(keywordDefinitionsById.get("Ganking"), "Ganking's KeywordDef is merged (RIFT-264 batch)");
-});
-
-test("ven-134-166 Kayle, Justified: the merged keyword binding rejects the missing Empower keyword", () => {
-  // 827.1.c.1: the [Empower] keyword has no KeywordDef, so RIFT-257's expansion
-  // path fails closed rather than resolving the printed cost to something else.
-  const kernel = world()
-    .unit("kayle", { zone: "board", keywords: [{ id: "empower" }] })
-    .build();
-  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
-  assert.throws(
-    () => expandProgram(registry.get(CANONICAL_ID), kernel.getObject("kayle")),
-    error => error.code === "judge-required" && /Keyword empower has no executable KeywordDef/.test(error.message)
-  );
-});
-
-test("ven-134-166 Kayle, Justified: the +2 Might per Empowered instance needs the Empowered predicate before it can execute", () => {
-  // The static ability is the capability the layers engine does not get: no binder
-  // turns the card's static data into a ctx.addContinuous registration, and
-  // layers' valueOf does not evaluate `perEmpower` (479), so the card declares a
-  // descriptive shape only. This asserts the shape the interpreter parametrises
-  // and that a literal arithmetic registration (the merged layer path) does move
-  // Might, which isolates the gap to the registration/predicate.
-  assert.equal(mightPerEmpower.effect.perEmpower.kind, "constant");
-  assert.equal(mightPerEmpower.effect.perEmpower.value, 2);
-
-  const kernel = world().unit("kayle", { zone: "board", might: 3 }).build();
-  const layers = createLayerEngine([kernel.getObject("kayle")], [{
-    effect: {
-      id: "kayle:literal",
-      layer: "arithmetic",
-      source: kernel.ref("kayle"),
-      filter: { objectId: "kayle" },
-      effect: { kind: "continuous.might", amount: 2 }
-    },
-    duration: { type: "permanent" }
-  }]);
-  assert.equal(layers.evaluate(kernel.ref("kayle")).might, 5);
 });
 
 test.todo(

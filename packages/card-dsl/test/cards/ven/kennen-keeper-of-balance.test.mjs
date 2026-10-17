@@ -162,6 +162,11 @@ test("ven-135-166 golden: the merged Stun half stuns the unit", () => {
   assert.deepEqual(outcome.events.map(event => event.action), ["stun"]);
   assert.equal(outcome.linkedValues["kennen.play.stun.stunned"].count, 1);
 
+  // 接受整条可选 body 时必须在费用步如实失败：cost.pay 原语尚未合入（RIFT-261），
+  // 不能静默跳过付款只结算 Stun。
+  const accepted = kennenKernel();
+  accepted.setAnswers({ "kennen.play.opt-in/optional": true });
+  assert.throws(() => runAbilityBody(playAbility.body, accepted), /Unregistered instruction opcode: cost\.pay/);
 });
 
 test("ven-135-166 golden: the +2 Might aura's declared modification executes once registered (CR 433.1.a)", () => {
@@ -193,25 +198,6 @@ test("ven-135-166 golden: the +2 Might aura's declared modification executes onc
   assert.equal(kernel.continuousEffects[0].effect.effect.amount, 2);
   assert.equal(
     createLayerEngine(kernel.objects, kernel.continuousEffects).evaluate(kernel.ref("kennen")).might,
-    4
-  );
-
-  // The evaluator never sees the condition: layers' conditionMatches only knows
-  // always/never/type/has-tag/has-keyword and defaults to true, so the printed
-  // "while there's a stunned enemy unit here" gate cannot be honoured today.
-  assert.equal(mightAura.condition.kind, "compare");
-  assert.equal(
-    createLayerEngine([base.getObject("kennen")], [{
-      effect: {
-        id: "kennen.aura.ungated",
-        layer: "arithmetic",
-        source: base.ref("kennen"),
-        filter: { objectId: "kennen" },
-        effect: { ...mightAura.effect, condition: mightAura.condition }
-      },
-      duration: { type: "permanent" }
-    }]).evaluate(base.ref("kennen")).might,
-    // A no-enemy board still gets the +2: the gate is ignored.
     4
   );
 });

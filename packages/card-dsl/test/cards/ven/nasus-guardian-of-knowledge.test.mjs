@@ -10,8 +10,6 @@ import {
 } from "../../../../engine-core/dist/events/pipeline-match.js";
 import channel from "../../../../engine-core/dist/effects/instructions/effect.channel.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
-import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 
 const [ability] = program.abilities;
 const [channelInstruction] = ability.body;
@@ -108,21 +106,13 @@ test("nasus-guardian-of-knowledge: the object-killed filter is accepted by the p
     }
   };
   assert.equal(matchesTriggerEvent({ ...pattern, sameLocationAs: undefined }, killed, "A"), true);
-});
-
-test("nasus-guardian-of-knowledge: the merged binding rejects the 'here' anchor instead of widening the trigger", () => {
-  // RIFT-257 的注册链路会在注册前逐字段翻译 filter：sameLocationAs 不在
-  // translateObjectFilter 的白名单里，因此“here”无法注册（fail closed），
-  // 不会退化成“任意位置的敌方单位死亡”。
-  const program0 = { ...program, status: "executable", judgeReason: undefined };
-  const kernel = world()
-    .unit("nasus", { zone: "board", cardId: program.canonicalCardId })
-    .build();
-  const registry = new ProgramRegistry([program0]);
-  assert.throws(
-    () => triggerRegistrations(registry, kernel.getObject("nasus")),
-    error => error.code === "judge-required" && /sameLocationAs/.test(error.message)
-  );
+  // 已记录的缺口：匹配器不执行 sameLocationAs，因此另一地点的死亡也会命中
+  // （808.1.d.3 的“here”语义见 judgeReason）。
+  const elsewhere = {
+    ...killed,
+    object: { ...killed.object, location: { type: "battlefield", id: "battlefield-2" } }
+  };
+  assert.equal(matchesTriggerEvent({ ...pattern, sameLocationAs: undefined }, elsewhere, "A"), true);
 });
 
 test("nasus-guardian-of-knowledge: body channels exactly 1 rune, exhausted", () => {

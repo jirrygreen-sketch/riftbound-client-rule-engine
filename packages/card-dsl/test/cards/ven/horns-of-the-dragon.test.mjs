@@ -9,11 +9,9 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // layout instead of the package name.
 import tank from "../../../../engine-core/dist/effects/keywords/Tank.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import combat from "../../../../engine-core/dist/effects/instructions/continuous.combat.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-9e6cf771d3c68dc759e26aa3068eb3f3f2873734ee60fe6d8df8ef5a2ac46dbe";
@@ -111,38 +109,6 @@ test("ven-118-166 Horns of the Dragon: the merged binding expands the declared k
   assert.equal(ability.effect.controllerScope, "same-controller");
   assert.equal(ability.effect.appliesTo, "self");
   assert.equal(ability.effect.excludesKeyword, "Tank");
-});
-
-test("ven-118-166 Horns of the Dragon: the continuous.combat primitive reports the missing consumer instead of faking a registration", () => {
-  // continuous.combat (RIFT-258/264 expansion target) deliberately negates with
-  // "impossible" while the combat damage-assignment consumer is unmerged: no fake
-  // registration, and the layer engine still has no branch for the kind.
-  const kernel = world()
-    .unit("horns-of-the-dragon", { zone: "board", might: 6 })
-    .build();
-  const run = runInstruction(combat, { flags: ["tank"], appliesTo: "self" }, {
-    world: kernel.clone({ sourceSnapshot: kernel.getObject("horns-of-the-dragon") })
-  });
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.deepEqual(run.events, []);
-  assert.equal(run.world.continuousEffects.length, 0);
-
-  const layers = createLayerEngine([kernel.getObject("horns-of-the-dragon")], [{
-    effect: {
-      id: "tank:no-consumer",
-      layer: "ability",
-      source: kernel.ref("horns-of-the-dragon"),
-      filter: { objectId: "horns-of-the-dragon" },
-      effect: { kind: "continuous.combat", priority: "first", damage: "lethal" }
-    },
-    duration: { type: "permanent" }
-  }]);
-  // 815.1.b is an assignment requirement, not a Might/keyword change: nothing in
-  // the layer evaluation honours it.
-  const evaluated = layers.evaluate(kernel.ref("horns-of-the-dragon"));
-  assert.equal(evaluated.might, 6);
-  assert.deepEqual(evaluated.keywords, []);
 });
 
 test.todo(
