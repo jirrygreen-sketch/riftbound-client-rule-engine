@@ -20,11 +20,17 @@ import type { CardProgram } from "../../ir/index.js";
  * 状态：judge-required。两个能力半边分开判定：
  * 1. "+3 Might this turn" 由已合入的 continuous.might（RIFT-258）承载：带期限的
  *    算术图层修正（CR 143.2），golden 用本程序的 body 经解释器真实执行。
- * 2. 触发条件 "a spell that costs :rb_energy_5: or more" 仍无法表达：card-played
- *    事件（chain/engine.ts）只携带被打出卡牌的 object 快照与 player，没有费用
- *    载荷；EventPattern 的 details 只做标量等值比较，ObjectFilter.characteristics
- *    也只做等值匹配，冻结词汇没有对事件对象特征的数值 ≥ 比较。trigger.filter 里的
- *    energyGte 是描述性占位、无正式语义。生产触发注册依赖 RIFT-257。
+ * 2. 触发条件 "a spell that costs :rb_energy_5: or more" 仍无法表达：
+ *    (a) 事件管线对带 condition 的注册要求宿主提供 testTrigger 适配器
+ *    （events/pipeline.ts 抛 \"Trigger condition adapter required\"，已合入 host
+ *    都不提供），且触发条件里的 count 表达式读不到 card-played 事件载荷；
+ *    (b) card-played 事件（chain/engine.ts）只携带被打出卡牌的 object 快照与
+ *    player，没有费用载荷；EventPattern.details 只做标量等值比较，
+ *    ObjectFilter.characteristics 也只做等值匹配，冻结词汇没有对事件对象特征的
+ *    数值 ≥ 比较；trigger.filter 里的 energyGte 过不了 programs/filters.ts 的
+ *    白名单（translateTriggerFilter 抛 Unsupported filter field energyGte），
+ *    是描述性占位、无正式语义。触发绑定本身（RIFT-257）已合入：golden 对
+ *    filter 的对象等值半边做真实匹配，注册路径由 attachLifecycle 承载。
  */
 export default {
   canonicalCardId: "card.hash-c2754bbf1ee513e71200b5c341447c73af45af5ba81a41efde12ac2d348cbcd8",
@@ -32,11 +38,17 @@ export default {
   status: "judge-required",
   judgeReason:
     "触发条件仍缺表达：\"a spell that costs :rb_energy_5: or more\" 需要读取被打出法术的费用并与 5 " +
-    "比较（CR 355.9/356 的费用与合法性区分），但 card-played 事件只携带被打出卡牌的 object 快照与 player，" +
-    "没有费用载荷；EventPattern.details 只做标量等值比较，ObjectFilter.characteristics 也只做等值匹配，" +
-    "冻结词汇没有对事件对象特征的数值 ≥ 比较。trigger.filter 里的 energyGte 是描述性占位、无正式语义。" +
-    "已合入的 continuous.might（RIFT-258）承载 \"+3 Might this turn\"：golden 用程序自身的 body 真实执行" +
-    "（arithmetic 层注册、end-of-turn 到期）。生产触发注册依赖 RIFT-257；事件载荷的费用比较属契约变更请求。" +
+    "比较（CR 355.9/356 的费用与合法性区分）。当前缺口：(1) 事件管线对带 condition 的注册要求宿主提供 " +
+    "testTrigger 适配器（events/pipeline.ts 抛 \"Trigger condition adapter required\"，已合入 host 都不提供），" +
+    "且触发条件的 count 表达式读不到 card-played 事件载荷；(2) card-played 事件（chain/engine.ts）只携带" +
+    "被打出卡牌的 object 快照与 player，没有费用载荷；EventPattern.details 只做标量等值比较，" +
+    "ObjectFilter.characteristics 也只做等值匹配，冻结词汇没有对事件对象特征的数值 ≥ 比较；" +
+    "trigger.filter 里的 energyGte 过不了 programs/filters.ts 的白名单（translateTriggerFilter 抛 " +
+    "Unsupported filter field energyGte），是描述性占位、无正式语义。" +
+    "已合入的部分：continuous.might（RIFT-258）与卡牌触发绑定（RIFT-257，attachLifecycle/" +
+    "registerProgramTriggers）都已合入，golden 用程序自身的 body 真实执行 +3 Might（arithmetic 层注册、" +
+    "end-of-turn 到期），并用真实 matchesTriggerEvent 验证 filter 的对象等值半边。" +
+    "依赖：事件载荷的费用读数/数值比较与 testTrigger 适配器（契约变更请求）。" +
     "不近似实现（不用无条件 +3 Might 或别的时点代替）。",
   abilities: [
     {

@@ -27,10 +27,11 @@ test("ogs-004-024 Master Yi, Meditative: program validates and is judge-required
   assert.equal(program.sourceText, "While you have 8+ runes, I have +4 :rb_might:.");
 });
 
-test("ogs-004-024 Master Yi, Meditative: judgeReason names the RIFT-257 binding and the unevaluated compare guard", () => {
+test("ogs-004-024 Master Yi, Meditative: judgeReason names the unresolved controller placeholder and the trigger-condition adapter gap", () => {
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /conditionMatches/);
+  assert.match(program.judgeReason, /matchesObjectFilter/);
+  assert.match(program.judgeReason, /controller/);
   assert.match(program.judgeReason, /runes/);
 });
 
@@ -110,6 +111,7 @@ test("ogs-004-024 Master Yi, Meditative: the merged arithmetic layer would add +
 
 test.todo(
   "ogs-004-024 Master Yi, Meditative: +4 Might enters the arithmetic layer while the controller has " +
-    "8+ runes (CR 143.2, 133.5.a.1, 431.1) — the CardProgram-to-layers registration is RIFT-257 and " +
-    "layers/engine.ts conditionMatches does not evaluate the declared compare/count guard (RIFT-91 follow-up)"
+    "8+ runes (CR 143.2, 133.5.a.1, 431.1) — the merged static binding (RIFT-257) resolves the layer " +
+    "query through matchesObjectFilter, which compares the card's symbolic controller: \"controller\" " +
+    "placeholder literally, so the 8+ rune count stays 0 and the guard fails closed (contract change request)"
 );

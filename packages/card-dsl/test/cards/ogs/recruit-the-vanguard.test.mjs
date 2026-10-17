@@ -145,5 +145,5 @@ test.todo(
 test.todo(
   "Recruit the Vanguard full chain play: pay 6 energy, enforce the [Action] Showdown permission, and choose the " +
     "destination during Finalize (355.2) instead of at resolution " +
-    "(依赖 RIFT-89 continuous.timing 接线与 355.2 的打出位置选择)"
+    "(依赖 355.2 的打出位置选择与 [Action] Showdown 权限的 continuous.timing 接线)"
 );

@@ -20,11 +20,10 @@ import type { CardProgram } from "../../ir/index.js";
  * continuous.might + designation=defender 条件）由 effects/keywords/Shield.ts 负责，
  * 卡文件不重复实现，也不写单卡结算代码。
  *
- * status = judge-required：见 judgeReason —— 没有生产方把卡牌的 keyword 能力
- * 解析为 KeywordDef 展开并接入图层（RIFT-257）；Shield 展开读取的 designation
- * 属性没有被图层条件求值器消费（契约 3.8 的 combatRole 已合入快照，但
- * layers/engine.ts conditionMatches 仍只识别 always/never/type/has-tag/has-keyword）；
- * 缺一即不能宣称整卡可执行。
+ * status = judge-required：关键词展开与卡牌程序生命周期已合入，但 Shield 展开读取
+ * designation，而生产 ObjectSnapshot 在战斗中提供 combatRole。当前图层条件求值没有
+ * combatRole → designation 的适配，因此真实防守快照仍按印刷 Might 计算；不能用测试
+ * 手动补写 designation 来宣称整卡可执行。待生产路径完成该映射并有正向执行证据后再升级。
  */
 const zephyrSage = {
   canonicalCardId:
@@ -32,19 +31,11 @@ const zephyrSage = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Shield 的展开文件（effects/keywords/Shield.ts：static continuous.might + " +
-    "compare(object-property(self, 'designation'), eq, 'defender')）已合入，但合并内核仍缺三处执行路径：" +
-    "(1) 没有已合入的生产方把卡牌的 keyword 能力解析为 KeywordDef 展开并注册成 continuous 效果" +
-    "（契约 3.5/3.7）：registerContinuousEffect 没有任何 engine-core/src 调用方，" +
-    "ResolveContext.addContinuous 只被原语调用、读不到 CardProgram.abilities（卡牌程序绑定属 RIFT-257）；" +
-    "(2) Shield 展开读取的 designation 特征未被图层求值：契约 3.8 的 ObjectSnapshot.combatRole 已合入" +
-    "（effects/contract.ts，参考内核可设置），但没有接点把它暴露给过滤/条件谓词，layers/filter.ts 也不读；" +
-    "(3) layers/engine.ts 的 conditionMatches 只识别 always/never/type/has-tag/has-keyword，" +
-    "未识别的 compare 条件按 true 处理，接线完成后 +1 Might 会被无条件套用、无法只在防守时生效。" +
-    "注：duel/shield-description-v1 + createDuelShieldOfficialProgramRegistryV1 + combat/derived-might.ts 对本印刷" +
-    "（ogs-005-024）有精确来源元组识别，但那条路径读卡牌目录来源元组、不消费本 CardProgram 的 keyword 能力，" +
-    "且需显式 opt-in，不能作为整卡执行证据。依赖：RIFT-257（CardProgram 关键词绑定）、" +
-    "RIFT-91 后续（layers 条件求值与 combatRole 谓词接点）。不近似实现。",
+    "Shield 的 KeywordDef 展开与 CardProgram 生命周期绑定已合入（RIFT-257）：" +
+    "effects/keywords/Shield.ts 产生 compare(object-property(self, 'designation'), eq, 'defender')，" +
+    "但生产 ObjectSnapshot 的战斗字段是 combatRole（契约 3.8），当前图层条件求值没有" +
+    " combatRole → designation 的映射，因此真实防守单位仍保持印刷 Might，不能证明 CR 814.1.c " +
+    "的 +1 可执行。保持 judge-required，待生产路径具备该适配与正向执行测试后升级。",
   abilities: [{ kind: "keyword", keyword: "shield" }],
   sourceText: "[Shield] (+1 :rb_might: while I'm a defender.)"
 } satisfies CardProgram;

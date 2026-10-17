@@ -4,6 +4,9 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogs/lux-illuminated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { ProgramBindingError } from "../../../../engine-core/dist/programs/errors.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
@@ -31,8 +34,10 @@ test("ogs-006-024 Lux, Illuminated: program validates and is judge-required", ()
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("ogs-006-024 Lux, Illuminated: judgeReason names the event-payload cost gap and the merged Might primitive", () => {
+test("ogs-006-024 Lux, Illuminated: judgeReason names the current event-payload cost gap and the merged Might/trigger primitives", () => {
   assert.match(program.judgeReason, /energyGte/);
+  assert.match(program.judgeReason, /translateTriggerFilter/);
+  assert.match(program.judgeReason, /testTrigger/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /RIFT-258/);
@@ -65,6 +70,35 @@ test("ogs-006-024 Lux, Illuminated: card-played trigger with the descriptive ene
   assert.deepEqual(grantMight.args.appliesTo, { kind: "constant", value: "self" });
   assert.equal(grantMight.targets, undefined);
   assert.equal(grantMight.linkedTo, undefined);
+});
+
+test("ogs-006-024 Lux, Illuminated: the merged trigger translation resolves the equal-value half of the descriptive energy gate", () => {
+  // The card-played event payload carries no cost, so the numeric energy gate
+  // stays descriptive (judgeReason). The merged translation resolves the
+  // equal-value half: controller is normalized to "self", the object filter
+  // matches a spell played by the source's controller, and the descriptive
+  // energyGte key is rejected by the whitelist (asserted below).
+  const base = world().unit("lux", { zone: "board" }).build();
+  const played = base.getObject("lux");
+  assert.throws(() => translateTriggerFilter(ability.trigger.filter, played.ref.id, "card-played"), (error) => {
+    assert.ok(error instanceof ProgramBindingError);
+    assert.match(error.message, /Unsupported filter field energyGte/);
+    return true;
+  });
+  const pattern = translateTriggerFilter(
+    { type: "spell", controller: "controller" },
+    played.ref.id,
+    "card-played"
+  );
+  // The flat filter is passed through as the pattern's object filter (the
+  // translation only wraps keys like source/self/object into pattern.object).
+  assert.deepEqual(pattern, { type: "spell", controller: "self" });
+  assert.equal(matchesTriggerEvent(pattern, { timingPoint: "card-played", object: { ...played, types: ["spell"] }, player: "A" }, "A"), true);
+  assert.equal(matchesTriggerEvent(pattern, { timingPoint: "card-played", object: { ...played, types: ["gear"] }, player: "A" }, "A"), false);
+  // A flat filter has no pattern.player, so the event player is not compared;
+  // an explicit player selector is what the production pipeline gets from
+  // cards that name the player (like Might of Demacia's player: "self").
+  assert.equal(matchesTriggerEvent({ ...pattern, player: "self" }, { timingPoint: "card-played", object: { ...played, types: ["spell"] }, player: "B" }, "A"), false);
 });
 
 test("ogs-006-024 Lux, Illuminated golden: the body registers +3 Might in the arithmetic layer until end of turn", () => {
@@ -106,5 +140,6 @@ test.todo(
   "ogs-006-024 Lux, Illuminated: the trigger only fires for a played spell whose cost is 5+ energy " +
     "(CR 383.4.a, 420.4.a, 355.9) — the card-played event payload carries no cost and the frozen " +
     "EventPattern/ObjectFilter vocabulary has no numeric >= comparison over an event object's " +
-    "characteristics; production registration is RIFT-257 and the payload comparison is a contract change request"
+    "characteristics; trigger registration with a condition needs a host testTrigger adapter and " +
+    "translateTriggerFilter rejects the descriptive energyGte key (contract change request)"
 );

@@ -21,6 +21,8 @@ import type { CardProgram } from "../../ir/index.js";
  * { kind: "query", filter } 形状可作参照（RIFT-258 系列），effect.damage 没有；
  * 也没有其它已合入原语能对无选择集合结算伤害（effect.kill/effect.stun/effect.exhaust
  * 的 choose 形态是"结算期逐对象选择"，仍会提问而非集合结算）。
+ * 触发半边已可表达：{ self: true } 经 translateTriggerFilter 绑定为 pattern.object =
+ * 来源自身，attachLifecycle/registerProgramTriggers（RIFT-257）可真实注册。
  * 用 targets + selection "all" 会把非目标集合写成目标组，属被禁止的近似实现。
  * 本文件因此不写 instruction.targets，setFilter 是描述性占位、无正式语义。
  */
@@ -35,6 +37,8 @@ export default {
     "没有 effect.ready 的 { kind: query, filter } 那样针对无选择集合的选择符；" +
     "用 targets 加 selection all 会把非目标集合写成目标组，属禁止的近似实现。" +
     "指令参数里的 setFilter 是描述性占位、无正式语义（同 rad/avalanche 的批次缺口）。" +
+    "已合入的部分：{ self: true } 触发过滤可经 translateTriggerFilter 绑定为来源自身，" +
+    "attachLifecycle/registerProgramTriggers（RIFT-257）可真实注册该触发。" +
     "依赖：effect.damage 的 query 选择符原语与批量集合结算（契约变更请求）。不近似实现。",
   abilities: [
     {

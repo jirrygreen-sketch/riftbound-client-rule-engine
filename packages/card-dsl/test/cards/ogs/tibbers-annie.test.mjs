@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { ProgramBindingError } from "../../../../engine-core/dist/programs/errors.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import program from "../../../dist/cards/ogs/tibbers-annie.js";
@@ -26,6 +30,28 @@ test("ogs-018-024 Tibbers, Annie: judgeReason names the missing non-target set d
   assert.match(program.judgeReason, /effect\.damage/);
   assert.match(program.judgeReason, /query/);
   assert.match(program.judgeReason, /setFilter/);
+});
+
+test("ogs-018-024 Tibbers, Annie: the self trigger half translates to a source-bound pattern and the judge-required program stays unbound", () => {
+  // The { self: true } half of the ability is expressible today: the merged
+  // trigger translation binds it to the played source's ref, and only the
+  // played card's own play event matches.
+  const base = world().unit("tibbers-annie", { zone: "board" }).build();
+  const played = base.getObject("tibbers-annie");
+  const pattern = translateTriggerFilter(ability.trigger.filter, played.ref.id, "card-played");
+  assert.deepEqual(pattern.object, { objectId: "tibbers-annie" });
+  assert.equal(matchesTriggerEvent(pattern, { timingPoint: "card-played", object: played, player: "A" }, "A"), true);
+  assert.equal(matchesTriggerEvent(pattern, { timingPoint: "card-played", object: { ...played, ref: { id: "not-tibbers", zoneEntryId: 99 } }, player: "A" }, "A"), false);
+
+  // The damage half is the real gap: the program is judge-required, so the
+  // production registry refuses to hand it out to any lifecycle binder.
+  const registry = new ProgramRegistry([program]);
+  assert.throws(() => registry.get(program.canonicalCardId), (error) => {
+    assert.ok(error instanceof ProgramBindingError);
+    assert.equal(error.code, "judge-required");
+    assert.match(error.message, /deal 3 to all units/);
+    return true;
+  });
 });
 
 test("ogs-018-024 Tibbers, Annie: card-played self trigger with a non-target set damage instruction", () => {
@@ -104,5 +130,6 @@ test.todo(
   "ogs-018-024 Tibbers, Annie: 'deal 3 to all units at battlefields' resolves as a non-target set " +
     "(CR 355.10.d, 418.1.c/418.1.d, 754) — effect.damage still reads only ctx.targets(TargetSpec id) " +
     "and has no { kind: 'query', filter } selector like effect.ready, so instruction.targets must not " +
-    "stand in for it; setFilter remains a descriptive placeholder (same batch gap as rad/avalanche)"
+    "stand in for it; setFilter remains a descriptive placeholder (same batch gap as rad/avalanche); " +
+    "the { self: true } trigger half is merged (RIFT-257)"
 );

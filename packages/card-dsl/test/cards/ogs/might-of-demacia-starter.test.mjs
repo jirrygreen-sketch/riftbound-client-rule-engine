@@ -1,11 +1,10 @@
 // Golden test for Might of Demacia, Starter (ogs-023-024).
 //
 // The card is judge-required: the conquer timing point is never emitted into
-// the single event pipeline, the conquer payload carries no "that battlefield"
-// referent (CR 359.3.f) to count units against, and no producer registers a
-// CardProgram's triggered ability as a pipeline TriggerRegistration. The
-// runnable evidence is validation/identity/structure plus a real execution of
-// the card's own effect.draw body.
+// the single event pipeline carries no "that battlefield" referent (CR 359.3.f)
+// to count units against, and a conditional trigger registration needs a host
+// testTrigger adapter. The runnable evidence is validation/identity/structure
+// plus a real execution of the card's own effect.draw body.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -39,6 +38,7 @@ test("ogs-023-024 Might of Demacia, Starter: identity, status, judgeReason and v
   assert.match(program.judgeReason, /conquer/);
   assert.match(program.judgeReason, /turn\/flow\.ts/);
   assert.match(program.judgeReason, /that battlefield/);
+  assert.match(program.judgeReason, /testTrigger/);
   assert.match(program.judgeReason, /Legend Zone/);
   assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
@@ -130,13 +130,13 @@ test("ogs-023-024 Might of Demacia, Starter: the merged Score wave emits conquer
 test.todo(
   "Might of Demacia, Starter: count your units at THAT battlefield from the conquer event " +
     "(CR 383.2.a.1 trigger condition + 359.3.f referent + 355.10.d automatic selection) — blocked " +
-    "because TimingEmission/PipelineEvent carry no battlefield referent and there is no " +
-    "event-location counting condition; the details payload of the current conquer event has no " +
-    "battlefield id either"
+    "because the count/compare condition reads no event payload, EventPattern has no " +
+    "event-current-battlefield anchor, and a conditional registration needs the host " +
+    "testTrigger adapter (contract change request)"
 );
 
 test.todo(
   "Might of Demacia, Starter: the trigger registers from the Legend Zone (CR 107.4.c / 174.2.b) and " +
-    "enters the chain as a Pending Item — blocked because no producer turns a CardProgram's triggered " +
-    "ability into a pipeline TriggerRegistration and the frozen ZoneId has no legend zone (contract 3.5)"
+    "enters the chain as a Pending Item — blocked because the frozen ZoneId has no legend zone " +
+    "(contract 3.5); the CardProgram trigger binding itself (RIFT-257) is merged"
 );

@@ -15,28 +15,32 @@ import type { CardProgram } from "../../ir/index.js";
  *   Channel 把符文从符文牌库取出放到棋盘），因此按控制者当前在棋盘符文区
  *   （zone: "rune-zone"）的符文数量计数；等价地是"你控制 8 个或更多符文"。
  *
- * 状态：judge-required。缺口有二（continuous.might 本体已在 RIFT-258 合入）：
- * 1. 没有"卡牌静态能力 → 已注册持续效果"的生产装配路径：continuous.might 只能经
- *    指令原语调用 ctx.addContinuous，engine-core/src 不读取 CardProgram.abilities
- *    （卡牌程序绑定属 RIFT-257），layers/engine.ts 收到的注册表里不会出现这张卡的
- *    静态效果。
- * 2. 即使注册落地，守卫条件也求不了值：layers/engine.ts 的 conditionMatches 只识别
- *    always/never/type/has-tag/has-keyword，未识别的 compare 条件按 true 处理，
- *    "8+ runes" 会被静默丢弃、+4 Might 变成无条件（符文计数的 count 读取本身在
- *    参考内核可执行，见 golden）。
+ * 状态：judge-required。缺口有二（continuous.might 本体与卡牌程序绑定 RIFT-257
+ * 均已合入）：
+ * 1. count 条件里的过滤器仍带卡牌侧占位符：filter.controller 写的是 "controller"，
+ *    静态能力接线后的 layers 查询环境（programs/statics.ts abilityEnvironment 的
+ *    query → layers/filter.ts matchesObjectFilter）按字符串精确比较、不解析该
+ *    占位符，"controller" 与任何具体玩家 id 都不相等，\"8+ runes\" 的 count 恒为 0，
+ *    条件 fail-closed 为 false（evaluateCondition 求值为 false 时静态效果不生效）。
+ * 2. 若改为带 condition 的事件触发求值，事件管线要求宿主提供 testTrigger 适配器
+ *    （events/pipeline.ts 抛 "Trigger condition adapter required"，已合入 host 都
+ *    不提供）。符文计数的 count 读取本身在参考内核可执行（见 golden，用具体玩家
+ *    id 替换占位符）。
  */
 export default {
   canonicalCardId: "card.hash-87c4e90c814243a78c356216704a1ec163c6f16ccaba9de6697847335b8f6601",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1) continuous.might 原语（RIFT-258）本身已合入，但没有已合入的生产方" +
-    "把卡牌静态能力注册成持续效果——engine-core/src 不读取 CardProgram.abilities，" +
-    "layers 注册表只收指令原语 ctx.addContinuous 的结果（卡牌程序绑定属 RIFT-257）；" +
-    "(2) 即使注册落地，layers/engine.ts 的 conditionMatches 只识别 always/never/type/" +
-    "has-tag/has-keyword，未识别的 compare 条件按 true 处理，\"8+ runes\" 的守卫会被静默" +
-    "丢弃、+4 Might 变成无条件生效（符文计数条件本身在参考内核可执行，见 golden 的 " +
-    "channel-rune 场景；生产条件求值属 RIFT-91 后续）。依赖：RIFT-257、RIFT-91。不近似实现。",
+    "两处缺口：(1) count 条件的过滤器带卡牌侧占位符：filter.controller 写 \"controller\"，" +
+    "静态能力接线后的 layers 查询环境（programs/statics.ts abilityEnvironment 的 query → " +
+    "layers/filter.ts matchesObjectFilter）按字符串精确比较、不解析该占位符，\"controller\" " +
+    "与任何具体玩家 id 都不相等，\"8+ runes\" 的 count 恒为 0，条件 fail-closed 为 false；" +
+    "(2) 若把该守卫改为带 condition 的事件触发求值，events/pipeline.ts 抛 \"Trigger condition adapter required\"（已合入 host 都不提供 testTrigger 适配器）。" +
+    "已合入的部分：continuous.might（RIFT-258）与卡牌程序绑定（RIFT-257，attachProgramLifecycle/" +
+    "bindStaticToLayers 会经 evaluateCondition 求静态条件）都已合入；golden 用参考内核真实执行 " +
+    "channel-rune 计数（用具体玩家 id 替换占位符后 count/test 为真/假）与 arithmetic 层 +4。" +
+    "依赖：过滤器相对玩家占位符解析（契约变更请求）与事件条件求值适配器。不近似实现。",
   abilities: [
     {
       kind: "static",

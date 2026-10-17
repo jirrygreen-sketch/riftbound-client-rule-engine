@@ -5,7 +5,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
-import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import program from "../../../dist/cards/ogs/vanguard-attendant.js";
 
@@ -19,7 +19,7 @@ function fixture() {
   const kernel = world()
     .player("A", { energy: 20, power: ["Order"] })
     .player("B", { energy: 20 })
-    .hand("vanguard-attendant", { types: ["unit"], energy: 6, power: ["Order"], might: 5 })
+    .hand("vanguard-attendant", { cardId: CANONICAL, types: ["unit"], energy: 6, power: ["Order"], might: 5 })
     .hand("other-unit", { types: ["unit"], energy: 2, power: [], might: 2 })
     .build();
   const host = createActionPipelineHost({
@@ -67,20 +67,15 @@ function play(f, id, draftId) {
   resolveAll(f.engine);
 }
 
-test("ogs-016-024 Vanguard Attendant: program validates and is judge-required", () => {
+test("ogs-016-024 Vanguard Attendant: program validates as executable", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.deepEqual(result.issues, []);
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(program.sourceText, "I enter ready.");
-});
-
-test("ogs-016-024 Vanguard Attendant: judgeReason names the RIFT-257 lifecycle binding, not a missing pipeline", () => {
-  assert.match(program.judgeReason, /bindReplacement/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.doesNotMatch(program.judgeReason, /适配路径未合入/);
 });
 
 test("ogs-016-024 Vanguard Attendant: one replacement ability for entering the board exhausted", () => {
@@ -106,20 +101,13 @@ test("ogs-016-024 Vanguard Attendant: one replacement ability for entering the b
   assert.equal(instruction.linkedTo, undefined);
 });
 
-test("ogs-016-024 Vanguard Attendant golden: the bound replacement enters ready without a ready trigger", () => {
+test("ogs-016-024 Vanguard Attendant golden: the production lifecycle binds the entry replacement; the unit enters ready without a ready trigger", () => {
   const f = fixture();
-  bindReplacement(
-    { replaces: ability.replaces, with: ability.with },
-    f.kernel.ref("vanguard-attendant"),
-    {
-      host: {
-        object: ref => f.kernel.object(ref),
-        objects: () => f.kernel.objects,
-        context: (source, controller) => bindResolveContext(f.kernel, { source, controller })
-      },
-      pipeline: f.engine.pipeline
-    }
-  );
+  // A real ProgramRegistry over this card's executable program; attachLifecycle
+  // is the merged RIFT-257 path that registers the card's replacement
+  // abilities for every game object automatically (contract 3.5).
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const lifecycle = binding.attachLifecycle(f.engine);
 
   play(f, "vanguard-attendant", "play-vanguard");
   assert.equal(f.kernel.getObject("vanguard-attendant").zone, "board");
@@ -129,6 +117,9 @@ test("ogs-016-024 Vanguard Attendant golden: the bound replacement enters ready 
     f.engine.pipeline.events.filter(event => event.timingPoint === "object-readied").length,
     0
   );
+  // The card's own ability IR is unchanged by the expansion pass.
+  assert.deepEqual(binding.inspect(f.kernel.getObject("vanguard-attendant")).abilities, program.abilities);
+  lifecycle.detach();
 });
 
 test("ogs-016-024 Vanguard Attendant golden: without the binding the unit takes the default exhausted entry", () => {
@@ -140,20 +131,10 @@ test("ogs-016-024 Vanguard Attendant golden: without the binding the unit takes 
 
 test("ogs-016-024 Vanguard Attendant golden: a unit with a different identity keeps the default entry", () => {
   const f = fixture();
-  bindReplacement(
-    { replaces: ability.replaces, with: ability.with },
-    f.kernel.ref("vanguard-attendant"),
-    {
-      host: {
-        object: ref => f.kernel.object(ref),
-        objects: () => f.kernel.objects,
-        context: (source, controller) => bindResolveContext(f.kernel, { source, controller })
-      },
-      pipeline: f.engine.pipeline
-    }
-  );
+  const lifecycle = createProgramBinding({ cardPrograms: [program] }).attachLifecycle(f.engine);
   play(f, "other-unit", "play-other");
   assert.equal(f.kernel.getObject("other-unit").exhausted, true);
+  lifecycle.detach();
 });
 
 test("ogs-016-024 Vanguard Attendant: the with-body readies the source through the merged primitive", () => {
@@ -182,9 +163,24 @@ test("ogs-016-024 Vanguard Attendant: an already-ready unit is not readied again
   );
 });
 
-test.todo(
-  "ogs-016-024 Vanguard Attendant: the card-program lifecycle registers this replacement ability " +
-    "into the event pipeline for every game object automatically (contract 3.5) — RIFT-257; the " +
-    "golden binds the same card IR through the merged bindReplacement to prove the declared shape " +
-    "rewrites the entry (CR 143.4, 359.2.c, 369.3, 805.6.a)"
-);
+test("ogs-016-024 Vanguard Attendant: the production lifecycle, not a manual registration, grants the ready entry (RIFT-257)", () => {
+  // The lifecycle handle is what registers the replacement: detaching it
+  // returns a later entry of the same object to the default exhausted path.
+  const f = fixture();
+  const lifecycle = createProgramBinding({ cardPrograms: [program] }).attachLifecycle(f.engine);
+  play(f, "vanguard-attendant", "play-vanguard-1");
+  assert.equal(f.kernel.getObject("vanguard-attendant").exhausted, false);
+
+  lifecycle.detach();
+  f.engine.execute({
+    id: "play-vanguard-2",
+    controller: "A",
+    source: f.kernel.getObject("vanguard-attendant"),
+    kind: "unit",
+    speed: "normal",
+    body: []
+  });
+  resolveAll(f.engine);
+  assert.equal(f.kernel.getObject("vanguard-attendant").zone, "board");
+  assert.equal(f.kernel.getObject("vanguard-attendant").exhausted, true);
+});
