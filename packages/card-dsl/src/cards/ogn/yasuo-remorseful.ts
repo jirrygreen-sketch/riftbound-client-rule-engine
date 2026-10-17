@@ -5,12 +5,19 @@ import type { CardProgram } from "../../ir/index.js";
  * CR v1.5 383.4.e.1-383.4.e.2.a: first attacker designation per combat.
  * CR 418 / 740.1.b: damage uses the source's current Might and targets one enemy here.
  * No printed-Might constant, manual damage action, or single-card resolver is used.
+ * The dynamic amount and once-per-combat trigger are consumed by the merged
+ * interpreter and program trigger binding; the remaining location/attack
+ * producer gaps stay judge-required below.
  */
 const program = {
   canonicalCardId: "card.hash-751e2b1c16ab2529b3d0bf37e5309cfde9a7b41589d08799cf53a9a8ef42e5e8",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason: "effect.damage 已支持动态来源 Might，但 amount schema 要求 Expr，解释器却先求值为数字，原始 body 尚不能贯通。敌方相对控制者及 here 同地点筛选、自身 attack-declared 订阅绑定仍需 RIFT-1/120 的 CardProgram 适配；CR 383.4.e 要求每场战斗首次获得攻击身份才触发。伤害原语测试不构成整卡执行证据。",
+  judgeReason:
+    "effect.damage 的动态来源 Might、attack-declared 订阅与 once: per-combat 绑定均已有合入执行路径；" +
+    "整卡仍不可执行：TargetSpec 的 sameLocationAs: source 位置锚点尚不能通过 programs/filters.ts 的生产绑定，" +
+    "且当前 combat flow 没有把单位首次取得攻击身份的 CR 383.4.e 事件接入该卡的真实触发链。" +
+    "依赖：RIFT-357（运行时位置锚点/选择绑定）与 attack-declared 生产方。不近似实现。",
   abilities: [
     {
       kind: "triggered",

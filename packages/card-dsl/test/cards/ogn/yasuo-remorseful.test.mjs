@@ -7,15 +7,15 @@ import damage from "../../../../engine-core/dist/effects/instructions/effect.dam
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 
-test("ogn-076-298: identity, exact source text, pure data and explicit blocked status", () => {
+test("ogn-076-298: identity, exact source text, pure data and judge-required status", () => {
   const validation = validateCardProgram(program);
   assert.equal(validation.ok, true, JSON.stringify(validation.issues));
   assert.deepEqual(validation.issues, []);
   assert.equal(program.canonicalCardId, "card.hash-751e2b1c16ab2529b3d0bf37e5309cfde9a7b41589d08799cf53a9a8ef42e5e8");
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /amount|here/);
-  assert.match(program.judgeReason, /RIFT-/);
+  assert.match(program.judgeReason, /sameLocationAs|attack-declared/);
+  assert.match(program.judgeReason, /RIFT-357/);
   assert.equal(program.sourceText, "When I attack, deal damage equal to my Might to an enemy unit here.");
   assert.deepEqual(JSON.parse(JSON.stringify(program)), program);
 });
@@ -61,4 +61,7 @@ test("Yasuo golden subeffect: an unavailable finalized target causes ignored, no
   assert.deepEqual(run.events, []);
 });
 
-test.todo("Yasuo: original body and actual attack -> Pending -> Finalize -> Resolve with opponent/here binding, lost targets and once-per-combat reattack guard (CR 383.4.e; RIFT-1/120)");
+test.todo(
+  "Yasuo: resolve the original body from a real attack-declared emission with the source-location target anchor " +
+    "and CR 383.4.e first-attacker-per-combat production event (RIFT-357 plus combat producer work)"
+);

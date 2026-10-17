@@ -44,7 +44,7 @@ test("ogn-205-298 Yasuo, Windrider: program validates and has expected identity"
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /effect\.score/);
   assert.match(program.judgeReason, /470\.2/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /Ganking/);
   assert.match(program.judgeReason, /第 N 次/);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -157,12 +157,6 @@ test.todo(
   "ogn-205-298 Yasuo, Windrider: the trigger condition 'the third time I move in a turn' (383.1.b) needs a " +
     "history predicate in the Condition vocabulary (the merged condition.history is an instruction op, not a " +
     "TriggerSpec condition) and an exactly-once Nth-occurrence shape"
-);
-
-test.todo(
-  "ogn-205-298 Yasuo, Windrider: register this CardProgram's triggered ability through the card-program layer " +
-    "(RIFT-257) and give the object-moved event pattern a closed event name and this-unit payload (the current " +
-    "filter spelling is rejected by the merged trigger-spec validator)"
 );
 
 test.todo(
