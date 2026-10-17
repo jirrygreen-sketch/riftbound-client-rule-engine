@@ -21,26 +21,20 @@ import type { CardProgram } from "../../ir/index.js";
  *   (702: a Buff counter is a distinct object that contributes +1 Might; it is
  *   not a Might value change).
  *
- * Status: judge-required — there is no merged instruction for a temporary
- * continuous Might modification: effects/instructions exposes no opcode that
- * registers `ResolveContext.addContinuous`, so the merged arithmetic layer
- * (RIFT-91) cannot be reached from a card program, and effect.buff only places
- * Buff counters. Approximating +2 Might with Buff counters would change the
- * unit's Buff state and would be wrong for other effects that read it, so the
- * instruction is authored through the layers contract shape and the card stays
- * judge-required. The same gap keeps sfd-097-221 Punch First and ogn-145-298
- * Primal Strength judge-required.
+ * Status: executable — the merged continuous.might primitive (RIFT-258)
+ * registers one arithmetic-layer effect per resolved object through
+ * ResolveContext.addContinuous with the end-of-turn duration (317.1.a /
+ * 468.7.c), so the whole printed ability executes. The friendly units are a
+ * programmatic non-target set (355.10.d / 355.10.d.1) consumed through the
+ * primitive's `objects: { kind: "query" }` form; the golden test drives the
+ * card's own body through the production chain adapter and asserts the real
+ * registrations, the end-of-turn expiry and the empty-set boundary. Using
+ * effect.buff instead would place Buff counters (CR 702) and is never done.
  */
 const decisiveStrikeGaren = {
   canonicalCardId: "card.hash-8ede68abdc12ce7e49e3fb3df89263c308b4405bac8deb070fc67b27cf1b3a30",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "缺临时 Might 修正指令原语：“Give friendly units +2 Might this turn”是带 end-of-turn 期限、" +
-    "作用于“你控制的所有单位”的 continuous.might 持续效果；契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，" +
-    "effect.buff 只放置 Buff 计数（CR 702：Buff 计数不是 Might 修改），effects/instructions 下没有任何指令通过 " +
-    "ResolveContext.addContinuous 注册该持续效果（layers 引擎已能求值算术层，RIFT-91，但没有指令入口）。" +
-    "不近似实现（用 Buff 计数顶替会改变单位的 Buff 状态）。依赖：continuous.might 指令原语（RIFT-91 求值侧已合入，缺指令接线）。",
+  status: "executable",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
@@ -52,10 +46,12 @@ const decisiveStrikeGaren = {
       },
       body: [
         {
-          // "Give friendly units +2 [M] this turn" — described through the
-          // layers contract shape; no merged primitive consumes it yet (see
-          // judgeReason). The units are a programmatic set, not targets
-          // (355.10.d), so the instruction declares no TargetSpec.
+          // "Give friendly units +2 [M] this turn" — the merged
+          // continuous.might primitive registers one arithmetic-layer effect
+          // per matching object with the end-of-turn duration. The units are a
+          // programmatic set, not targets (355.10.d), so the instruction
+          // declares no TargetSpec; "self" is bound to the ability controller
+          // by the chain's Finalize/query wrapper (chain/engine.ts).
           id: "decisive-strike-garen.grant-plus-2-might",
           op: "continuous.might",
           args: {

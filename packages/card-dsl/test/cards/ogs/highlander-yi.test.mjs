@@ -28,8 +28,8 @@ test("ogs-020-024 Highlander, Yi: program passes validateCardProgram and is judg
   assert.match(program.judgeReason, /replacement\.event/);
   assert.match(program.judgeReason, /Recall/);
   assert.match(program.judgeReason, /457-460/);
-  assert.match(program.judgeReason, /RIFT-120/);
   assert.match(program.judgeReason, /RIFT-109/);
+  assert.match(program.judgeReason, /replacement\.object/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -119,8 +119,10 @@ test("ogs-020-024 Highlander, Yi golden: the recall half is blocked, never appro
 
 test.todo(
   "Highlander, Yi: card-level replacement registration (binding the chosen unit into the replaced death, honouring " +
-    "the printed 'the next time' one-shot window and the end-of-turn expiry) needs the engine replacement/chain " +
-    "owner (RIFT-120); the replacement.event opcode is not merged"
+    "the printed 'the next time' one-shot window and the end-of-turn expiry) — RIFT-260 merged the replacement.event " +
+    "binding and its next-time-this-turn window, but the body's 'it' is the previously chosen unit, which the " +
+    "static IR cannot bind (the merged binding exposes only the replaced event's object), and the installed " +
+    "replacement has no end-of-turn expiry wiring for card programs"
 );
 
 test.todo(

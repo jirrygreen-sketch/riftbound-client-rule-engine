@@ -25,9 +25,10 @@ import type { CardProgram } from "../../ir/index.js";
  * continuous.might + designation 条件）由 effects/keywords/Assault.ts 与
  * effects/keywords/Shield.ts 负责，卡文件不重复实现，也不写单卡结算代码。
  *
- * status = judge-required：见 judgeReason —— 没有生产方把卡牌的 keyword 能力解析为
- * KeywordDef 展开并接入图层，且 807.1.d/814.1.d 的 Attacker/Defender designation
- * 不是 ObjectSnapshot 特征；缺一即不能宣称整卡可执行。
+ * status = judge-required：见 judgeReason —— Assault.ts / Shield.ts 的 KeywordDef 展开
+ * 已合入，但没有生产方把卡牌的 keyword 能力解析为 KeywordDef 展开并注册成
+ * continuous 效果（RIFT-257），且展开所读的 designation 特征、比较条件与
+ * 图层求值路径都还接不上；缺一即不能宣称整卡可执行。
  */
 const garenRugged = {
   canonicalCardId:
@@ -35,18 +36,19 @@ const garenRugged = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Assault/Shield 的展开文件（effects/keywords/Assault.ts、effects/keywords/Shield.ts：static " +
-    "continuous.might + compare(object-property(self, 'designation'), eq, 'attacker'/'defender')）已合入，" +
-    "但合并内核缺三处执行路径：(1) 没有生产方把卡牌的 keyword 能力解析为 KeywordDef 展开并注册成 continuous 效果" +
-    "（契约 3.5/3.7）：layers/engine.ts 的 registerContinuousEffect 当前没有任何调用方，" +
-    "ResolveContext.addContinuous 只被原语调用、读不到卡牌程序的关键词能力；" +
-    "(2) 807.1.d/814.1.d 的 Attacker/Defender designation 不是 ObjectSnapshot 特征" +
-    "（契约 3.8 的 combatRole 增补未进当前 HEAD）；(3) layers/engine.ts 的 conditionMatches 只识别 " +
-    "always/never/type/has-tag/has-keyword，未识别的 compare 条件按 true 处理，接线完成后两个 +2 都会被无条件套用、" +
-    "无法分别在攻击/防守时生效。另：本印刷是 Assault 与 Shield 合并提醒的复合文本，" +
-    "duel/assault-description-v1 与 duel/shield-description-v1 的整条能力匹配都将其判为 unknown，" +
-    "窄路径（combat/derived-might.ts）也不覆盖该印刷。依赖：RIFT-81（kw-assault-shield 关键词展开，" +
-    "声明部分已合入）、RIFT-91（layers-continuous 条件与卡牌接线）、契约 3.8 combatRole 落地。不近似实现。",
+    "Assault/Shield 的 KeywordDef 展开（effects/keywords/Assault.ts、Shield.ts：static continuous.might + " +
+    "compare(object-property(self, 'designation'), eq, 'attacker'/'defender')）已合入，" +
+    "但合并内核缺三处执行路径：(1) 没有生产方把 CardProgram 的 keyword 能力解析为 KeywordDef 展开并注册成 " +
+    "continuous 效果（契约 3.5/3.7）：layers/engine.ts 的 registerContinuousEffect 仍无卡牌侧调用方，" +
+    "ResolveContext.addContinuous 只被原语调用（RIFT-257 CardProgram 绑定）；" +
+    "(2) 展开读的是对象属性 'designation'，而 ObjectSnapshot 只有契约 3.8 的 combatRole 字段" +
+    "（807.1.d/814.1.d 的攻击者/防守者指定没有以 designation 特征暴露给解释器）；" +
+    "(3) layers/engine.ts 的 conditionMatches 仍只识别 always/never/type/has-tag/has-keyword，" +
+    "未识别的 compare 条件按 true 处理，接线完成后两个 +2 都会被无条件套用、无法分别在攻击/防守时生效。" +
+    "另：本印刷是 Assault 与 Shield 合并提醒的复合文本，duel/assault-description-v1 与 " +
+    "duel/shield-description-v1 的整条能力匹配都将其判为 unknown，窄路径（combat/derived-might.ts）" +
+    "只覆盖它自有的指定语义、不消费本卡程序。依赖：RIFT-257（CardProgram 绑定）、" +
+    "layers compare 条件消费与 designation 特征暴露。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "assault", value: 2 },
     { kind: "keyword", keyword: "shield", value: 2 }

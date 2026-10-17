@@ -20,26 +20,29 @@ import type { CardProgram } from "../../ir/index.js";
  *   resolve-time query descriptor shape merged primitives use.
  * - The source of the damage is the spell itself (418.6.a).
  *
- * Status: judge-required — the non-target set form of effect.damage is missing:
- * the merged effect.damage only consumes a Finalize-locked TargetSpec
- * (`ctx.targets(specId)`), and neither the DSL nor any merged primitive offers a
- * non-target "damage every member of this set" instruction (effect.ready /
- * effect.heal already accept `{ kind: "query", filter }`; effect.damage does
- * not). Writing the enemy units as a TargetSpec would wrongly make every one of
- * them a target and fire "becomes a target" (355.7, 754), so the set stays a
- * descriptor and the card is not executable. Tracked as the missing
- * target.query/set damage form of RIFT-9; the same gap keeps ogn-133-298
- * Flurry of Blades judge-required.
+ * Status: judge-required — the non-target set form of effect.damage is still
+ * missing: the merged effect.damage (unchanged by RIFT-258/259/260) only
+ * consumes a Finalize-locked TargetSpec (`ctx.targets(specId)`) and rejects an
+ * `objects` argument, while effect.ready / effect.heal already accept
+ * `{ kind: "query", filter }`. Writing the enemy units as a TargetSpec would
+ * wrongly make every one of them a target and fire "becomes a target" (355.7,
+ * 754), so the set stays a descriptor and the card cannot be marked executable.
+ * The battlefield choice itself is routable today (355.10.d's example "Kill
+ * all units at a battlefield" targets the battlefield and the target system
+ * locks it through the normal TargetSpec path). The missing half is only the
+ * damage set that rides on it. Tracked as RIFT-9's non-target damage set; the
+ * same gap keeps ogn-133-298 Flurry of Blades judge-required.
  */
 const firestorm = {
   canonicalCardId: "card.hash-4f827e86263468c7ee54c70750f747df55cb193818954ea93bd73791d1bf837a",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺非目标集合的伤害形态：CR 355.10.d 规定按特征程序化选出、玩家无从选择的单位不是目标" +
+    "缺 effect.damage 的非目标集合形态：CR 355.10.d 规定按特征程序化选出、玩家无从选择的单位不是目标" +
     "（“Kill all units at a battlefield” 不把任何单位选为目标；355.10.d.1 把该例外限定于从不做选择的集合），" +
-    "而被选中的战场本身是目标（355.10.d 示例）。已合入的 effect.damage 只读取 Finalize 锁定的 " +
-    "TargetSpec（ctx.targets(id)），没有 effect.ready / effect.heal 那样的 {kind:'query', filter} 非目标集合分支；" +
+    "被选中的战场本身才是目标。已合入的 effect.damage 仍然只读取 Finalize 锁定的 TargetSpec（ctx.targets(id)），" +
+    "传入 objects 集合会直接抛 “args.target must be a TargetSpec id string”；effect.ready / effect.heal 的" +
+    "{kind:'query', filter} 非目标分支没有扩展到伤害原语（RIFT-258/259/260 未触及 effect.damage）。" +
     "把“该战场的所有敌方单位”写成 TargetSpec 会错误触发成为目标（355.7、754），因此不近似实现。" +
     "依赖：effect.damage 增加非目标集合形态（RIFT-9 target.query；与 ogn-133-298 Flurry of Blades 同一缺口）。",
   abilities: [

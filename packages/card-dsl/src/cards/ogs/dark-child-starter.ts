@@ -25,8 +25,10 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status = judge-required：见 judgeReason。"ready 2 runes" 本身只用已合入的
  * effect.ready（结算期 choose）就能执行，golden 用解释器 + 参考内核跑通；
- * 但整张卡还不能执行，因为没有任何已合入模块把 turn-end 时点送进唯一事件管线，
- * 也没有消费者把卡牌程序的触发能力注册进管线（契约 3.5）。
+ * turn-end 时点也已由合并的回合流程 emit（turn/flow.ts 的 endTurn，RIFT-124
+ * batch 5），但整张卡还不能执行：封闭 EventPattern 词表不接受 turn-end 拼写、
+ * 没有消费者把卡牌程序的触发能力注册进管线（契约 3.5），Legend 的来源区域也
+ * 仍无契约表示。
  */
 const darkChildStarter = {
   canonicalCardId:
@@ -34,21 +36,21 @@ const darkChildStarter = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不属于本卡 write scope：(1) 没有任何已合入模块把 turn-end 时点（CR 317.1.a）" +
-    "送进唯一事件管线：chain/engine.ts 只 emit showdown-open、chain-item-pending/finalize/resolve、" +
-    "card-played、became-target 与 cleanup-start/end，duel/ 的回合模块不调用 pipeline.emit，" +
-    "回合/阶段接线属契约 §7.2 批 5（RIFT-33/RIFT-34）；(2) 没有生产方把卡牌程序的 triggered 能力" +
+    "三处缺口，均不属于本卡 write scope：(1) 没有生产方把卡牌程序的 triggered 能力" +
     "注册为管线的 TriggerRegistration（契约 3.5：管线只消费外部提供的 registration，engine-core src " +
-    "不读取 CardProgram.abilities；describePlay/card-program adapter 尚未合入）。此外 Legend 的来源区域" +
-    "是 Legend Zone（107.4.c），契约 ZoneId（effects/contract.ts）与参考内核都没有该区域，" +
+    "不读取 CardProgram.abilities；RIFT-257 的 card-program adapter 尚未合入）。" +
+    "(2) 契约不一致（与已合入的 ogn/dazzling-aurora、ogn/targons-peak 同类卡一致）：closed " +
+    "EventPattern 词表只列 zone-entered/card-played/conquered 等事件名、没有任何阶段类时点名，" +
+    "engine 的 validateTriggerSpec 会拒绝 event: \"turn-end\"（pipeline.registerTrigger 抛 " +
+    "TriggerSpecValidationError）；运行时按 spec.at 命中时点（pipeline-match 比较 " +
+    "event.kind ?? timingPoint），因此本卡沿用封闭时点拼写并保留该不一致。" +
+    "turn-end 时点本身已由合并的回合流程 emit（turn/flow.ts 的 endTurn，CR 317.1.a；RIFT-124 batch 5），" +
+    "旧 judgeReason 的「没有任何模块 emit」已过时。" +
+    "(3) Legend 的来源区域是 Legend Zone（107.4.c），契约 ZoneId（effects/contract.ts）与参考内核都没有该区域，" +
     "默认 activeZones ['board'] 也覆盖不到 Legend 来源（174.7）。" +
-    "另有一处契约不一致（与已合入的 sfd/dazzling-aurora、ogn/targons-peak 同类卡一致）：closed " +
-    "EventPattern 词表只列 conquered/held/scored 等事件名、没有任何阶段类时点名，engine 的 " +
-    "validateTriggerSpec 会拒绝 event: \"turn-end\"；运行时按 spec.at 命中时点" +
-    "（pipeline-match 比较 event.kind ?? timingPoint），本卡沿用封闭时点拼写。" +
     "「ready 2 runes」的效果本体只用已合入的 effect.ready（结算期 choose + 359.3.e.11 不足则尽可能），" +
     "golden 已用解释器 + 参考内核执行；按 README 第 2 节，整卡保持 judge-required。" +
-    "依赖：批 5 回合/时点接线（RIFT-33/RIFT-34）、契约 3.5 的卡牌触发注册消费者。",
+    "依赖：契约 3.5 的卡牌触发注册消费者（RIFT-257）、EventPattern 时点词表与 Legend 区域契约。",
   abilities: [
     {
       kind: "triggered",

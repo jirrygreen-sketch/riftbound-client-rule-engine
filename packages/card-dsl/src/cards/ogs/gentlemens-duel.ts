@@ -33,28 +33,23 @@ import type { CardProgram } from "../../ir/index.js";
  *   second is linked to the first: a first Deal that is ignored also ignores the
  *   second (359.3.e.14.a).
  *
- * Status: judge-required — the +3 Might half has no merged primitive:
- * effects/instructions exposes no instruction that registers a
- * ResolveContext.addContinuous Might modification (the merged layers engine can
- * evaluate arithmetic-layer Might effects, but no opcode reaches it; RIFT-91),
- * and effect.buff only places Buff counters. Without the +3 the Deal amounts
- * would be read from the wrong Mights, so the card cannot execute as printed.
- * The two Deal instructions themselves are fully expressible and are executed by
- * the golden test with the real primitive; nothing is approximated (the source
- * of the damage is never rewritten to the spell and the amounts are never
- * replaced by fixed values).
+ * Status: executable — every half executes on merged paths and the golden test
+ * drives the card's own body through the production chain adapter:
+ * - the +3 Might grant is the merged continuous.might primitive (RIFT-258),
+ *   registering one arithmetic-layer effect for the locked friendly unit through
+ *   ResolveContext.addContinuous with the end-of-turn duration (317.1.a /
+ *   468.7.c); the target is read with the `objects: { kind: "target", id }`
+ *   selector form the primitive evaluates itself (355.10.g);
+ * - the two Deals run with the unit itself as source (418.6.b.3) and read its
+ *   post-grant Might at execution time (359.3.f.2), so the amounts are never
+ *   rewritten to the spell or to fixed numbers;
+ * - the second Deal stays linked to the first (359.3.e.14.a): an ignored first
+ *   Deal also ignores the second, exercised by the golden.
  */
 const gentlemensDuel = {
   canonicalCardId: "card.hash-2837500ae259cc6b529efd728cf65b05c957555d4e133c0d55310df08cf1b7d7",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "缺临时 Might 修正指令原语：“Give a friendly unit +3 Might this turn”是带 end-of-turn 期限的 " +
-    "continuous.might 持续效果（effect.buff 文档明确临时 Might 归属 layers，Buff 计数不是 Might 修改，CR 702），" +
-    "effects/instructions 下没有任何指令通过 ResolveContext.addContinuous 注册它（layers 引擎已合入算术层，但没有指令入口，RIFT-91）。" +
-    "缺少这 +3 时，“They deal damage equal to their Mights to each other”会读到错误的 Might，整卡不能按原文执行，故不近似实现。" +
-    "已可执行并测试的部分：两条 effect.damage（来源是该单位本身而不是本咒语，418.6.b.3；数额在结算时读取，359.3.f.2），" +
-    "后一条 linkedTo 前一条以保留 359.3.e.14.a 的失去目标语义。依赖：continuous.might 指令原语（RIFT-91 求值侧已合入，缺指令接线）。",
+  status: "executable",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
@@ -66,15 +61,21 @@ const gentlemensDuel = {
       },
       body: [
         {
-          // "Give a friendly unit +3 [M] this turn" — declared through the
-          // layers contract shape; no merged primitive consumes it yet
-          // (see judgeReason). The chosen unit is a target (355.7).
+          // "Give a friendly unit +3 [M] this turn" — the merged
+          // continuous.might primitive registers the arithmetic-layer effect
+          // for the locked target with the end-of-turn duration. The chosen
+          // unit is a target (355.7); the primitive reads it through the
+          // `objects` target selector (355.10.g), not through a bare
+          // `target` spec-id argument.
           id: "gentlemens-duel.give-plus-3-might",
           op: "continuous.might",
           args: {
             amount: { kind: "constant", value: 3 },
             duration: { kind: "constant", value: "end-of-turn" },
-            target: { kind: "constant", value: "gentlemens-duel.friendly-unit" }
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "gentlemens-duel.friendly-unit" }
+            }
           },
           targets: [
             {

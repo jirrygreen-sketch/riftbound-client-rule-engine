@@ -14,6 +14,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import assault from "../../../../engine-core/dist/effects/keywords/Assault.js";
 import shield from "../../../../engine-core/dist/effects/keywords/Shield.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 
 const CANONICAL_ID =
   "card.hash-4cb8d7a21af85e64b1351cadd5764e7d72532c46a93c2c85289c8c4351c33818";
@@ -40,8 +41,7 @@ test("ogs-007-024 Garen, Rugged: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /conditionMatches/);
-  assert.match(program.judgeReason, /RIFT-81/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -62,6 +62,10 @@ test("ogs-007-024 Garen, Rugged: both declared keywords resolve to the merged Ke
   assert.ok(registeredShield, "effects/keywords/Shield.ts must be in the generated registry");
   assert.equal(registeredAssault, assault);
   assert.equal(registeredShield, shield);
+  // RIFT-258 merged the continuous.might instruction that the expansions
+  // register through; the card-side keyword expansion binding (RIFT-257) and
+  // the designation/compare evaluation remain the gaps (see judgeReason).
+  assert.equal(instructionDefinitionsById.has("continuous.might"), true);
   // Card IR uses the lowercase keyword ids; the registry is keyed by printed names.
   assert.equal(program.abilities[0].keyword, registeredAssault.keyword.toLowerCase());
   assert.equal(program.abilities[1].keyword, registeredShield.keyword.toLowerCase());

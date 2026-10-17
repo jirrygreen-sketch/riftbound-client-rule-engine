@@ -4,6 +4,10 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogs/decisive-strike-garen.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID = "card.hash-8ede68abdc12ce7e49e3fb3df89263c308b4405bac8deb070fc67b27cf1b3a30";
 const SOURCE_TEXT =
@@ -12,18 +16,15 @@ const SOURCE_TEXT =
 const [speed, play] = program.abilities;
 const [mighty] = play.body;
 
-test("ogs-024-024 Decisive Strike, Garen: program passes validateCardProgram and is judge-required", () => {
+test("ogs-024-024 Decisive Strike, Garen: program passes validateCardProgram and is executable", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
-  assert.equal(program.status, "judge-required");
+  assert.equal(program.status, "executable");
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // README section 2: name the missing primitive and the dependent task.
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /702/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.equal(program.judgeReason, undefined);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -38,7 +39,7 @@ test("ogs-024-024 Decisive Strike, Garen: [Action] keyword plus the printed 5 en
   });
 });
 
-test("ogs-024-024 Decisive Strike, Garen: the +2 Might body is the unmerged continuous effect", () => {
+test("ogs-024-024 Decisive Strike, Garen: the +2 Might body is the merged continuous.might instruction", () => {
   assert.equal(play.body.length, 1);
   assert.equal(mighty.id, "decisive-strike-garen.grant-plus-2-might");
   assert.equal(mighty.op, "continuous.might");
@@ -73,13 +74,110 @@ test("ogs-024-024 Decisive Strike, Garen: the +2 is not approximated with Buff c
   assert.equal(mighty.args.mode, undefined);
 });
 
-test.todo(
-  "Decisive Strike, Garen: applying +2 Might to every friendly unit in the arithmetic layer and expiring it at " +
-    "the end of the turn needs the continuous.might instruction primitive (RIFT-91)"
-);
+/**
+ * Drive the card's own body through the production chain adapter. The chain's
+ * Finalize/query wrapper binds the filter's "self" placeholder to the item's
+ * controller (chain/engine.ts), so the programmatic friendly-unit set resolves
+ * exactly as printed.
+ */
+const runChain = (options = {}) => {
+  const {
+    friendly = [["ally-bf", 2, { type: "battlefield", id: "bf-1" }], ["ally-base", 3, { type: "base", player: "A" }]],
+    enemy = [["enemy-bf", 4, { type: "battlefield", id: "bf-1" }]],
+    power = ["Order"]
+  } = options;
+  const builder = world()
+    .player("A", { energy: 20, power })
+    .player("B", { energy: 20 })
+    .hand("dsg", { name: "dsg", types: ["spell"], energy: 5, power: ["Order"] });
+  for (const [id, might, location] of friendly) builder.unit(id, { owner: "A", controller: "A", might, location });
+  for (const [id, might, location] of enemy) builder.unit(id, { owner: "B", controller: "B", might, location });
+  const kernel = builder.build();
+  const source = kernel.getObject("dsg");
+  const requests = [];
+  const decide = (request) => {
+    requests.push(request);
+    if (request.type === "select-objects") return [...request.options];
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: decide,
+    context: (sourceSnapshot, controller, timingPoint) => bindResolveContext(kernel, {
+      source: sourceSnapshot, controller, timingPoint, choose: decide
+    }),
+    testTrigger: (registration) => kernel.test(registration.spec.condition)
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  engine.execute({
+    id: "dsg",
+    controller: "A",
+    source,
+    kind: "spell",
+    speed: "action",
+    body: play.body,
+    cost: { id: "dsg:cost", cost: { kind: "printed" } }
+  });
+  while (engine.items.length) engine.pass(engine.priority);
+  return { kernel, engine, requests };
+};
 
-test.todo(
-  "Decisive Strike, Garen full chain play: pay 5 energy + 1 Order power, enforce the [Action] Showdown " +
-    "permission, and apply the continuous effect to every qualifying unit " +
-    "(依赖 RIFT-89 continuous.timing 接线与 RIFT-91 指令入口)"
-);
+test("ogs-024-024 Decisive Strike, Garen golden: +2 Might registers for every friendly unit, wherever it is", () => {
+  const { kernel, engine } = runChain();
+
+  // The real chain charged the printed 5 energy; the printed 1 Order power was
+  // required at Finalize (the reference kernel's pay action models energy/XP).
+  assert.equal(kernel.player("A").energy, 15);
+
+  // 478 / 478.1.a: one arithmetic-layer registration per friendly unit, with
+  // the end-of-turn duration (317.1.a / 468.7.c). "friendly units" has no
+  // location restriction, so Base units are covered too.
+  const registrations = engine.layers.registry.list();
+  assert.deepEqual(registrations.map((entry) => entry.effect.filter.objectId).sort(), ["ally-base", "ally-bf"]);
+  assert.deepEqual(registrations.map((entry) => entry.duration), [{ type: "end-of-turn" }, { type: "end-of-turn" }]);
+  for (const entry of registrations) {
+    assert.equal(entry.effect.layer, "arithmetic");
+    assert.equal(entry.effect.effect.kind, "continuous.might");
+    assert.equal(entry.effect.effect.amount, 2);
+  }
+
+  engine.layers.setObjects(kernel.objects);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-bf")).might, 4);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-base")).might, 5);
+  assert.equal(engine.layers.evaluate(kernel.ref("enemy-bf")).might, 4);
+  // No Buff counter is placed: the Might change is a layer effect (CR 702).
+  assert.equal(kernel.getObject("ally-bf").buffs, 0);
+  assert.equal(kernel.getObject("dsg").zone, "trash");
+});
+
+test("ogs-024-024 Decisive Strike, Garen golden: the +2 expires at the end of the turn (317.1.a)", () => {
+  const { kernel, engine } = runChain();
+  engine.layers.setObjects(kernel.objects);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-bf")).might, 4);
+
+  const expired = engine.layers.advance({ id: "turn-end", player: "A" });
+  assert.equal(expired.length, 2);
+  engine.layers.setObjects(kernel.objects);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-bf")).might, 2);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-base")).might, 3);
+});
+
+test("ogs-024-024 Decisive Strike, Garen golden: an empty friendly set registers nothing and still resolves", () => {
+  // 355.13 / contract 3.3: the empty set is a skipped negation for the
+  // instruction, not a fabricated registration or a substitute target.
+  const { kernel, engine, requests } = runChain({ friendly: [] });
+  assert.deepEqual(requests, []);
+  assert.equal(engine.layers.registry.list().length, 0);
+  assert.equal(kernel.getObject("enemy-bf").might, 4);
+  // The spell still resolved and moved to the trash.
+  assert.equal(kernel.getObject("dsg").zone, "trash");
+});
+
+test("ogs-024-024 Decisive Strike, Garen: the printed 1 Order power is required at Finalize", () => {
+  // 376 / printed cost: casting without the printed Power is not payable; the
+  // card must not silently drop the cost.
+  assert.throws(() => runChain({ power: [] }), /insufficient matching Power/i);
+});

@@ -26,27 +26,28 @@ import type { CardProgram } from "../../ir/index.js";
  *   be applied as part of the replaced outcome. "Send it to base" is the
  *   reminder for the Recall itself.
  *
- * Status: judge-required — four merged pieces are missing, and none of them is
- * approximated:
- * - no merged primitive registers a delayed replacement from a card program:
- *   `ResolveContext` only exposes addContinuous / registerDelayedTrigger, the
- *   replacement registration path lives inside the engine (RIFT-120), and
- *   effects/instructions has no replacement.event opcode;
- * - the printed "the next time" one-occurrence window has no representation:
- *   TriggerSpec.once offers per-turn / per-combat / per-chain / per-game only,
- *   and the end-of-turn expiry of the installed replacement is likewise not
- *   wired for card programs;
+ * Status: judge-required — RIFT-260 merged the card-program replacement binding
+ * (replacement/registerReplacement path, `replacement.event` with the
+ * next-time-this-turn window, and the `{ linked: "replacement.object" }`
+ * replaced-event binding), so the registration half is now reachable; the card
+ * still cannot execute as printed because its replacement body needs a real
+ * Recall and the body's chosen unit cannot be named from the card program:
  * - Recall cannot be performed or approximated: effect.move documents that
  *   mode "recall" is blocked because the frozen move-location action cannot
- *   distinguish a Recall from a Move (457-460), and submitting an ordinary Move
- *   instead would wrongly fire Move triggers (458.1);
+ *   distinguish a Recall from a Move (457-460); binding this card's own
+ *   replacement body fails closed with BlockedReplacementError for exactly that
+ *   mode, and submitting an ordinary Move instead would wrongly fire Move
+ *   triggers (458.1);
  * - the replacement body has no ObjectSelector for the object of the replaced
- *   event, so "it" cannot be bound to the chosen unit inside the replacement
- *   (355.10.c: that referent is not a new target choice).
+ *   event when the replaced object is the chosen unit itself: the merged
+ *   binding exposes `{ linked: "replacement.object" }`, but this card's "it"
+ *   is the previously chosen (355.10.c) unit rather than the event's object,
+ *   so the body cannot be bound from the static IR;
+ * - the end-of-turn expiry of the installed replacement is not wired for card
+ *   programs (the window itself is per-turn one-shot in the binding).
  * The chosen-unit target and the replacement shape are recorded below for
- * review. Tracked under the engine batch-4 replacement/chain work (RIFT-120),
- * the Recall gap of RIFT-109, and the delayed-trigger/@once scope work of
- * RIFT-9/RIFT-89.
+ * review. Tracked under the engine batch-4 replacement/chain work (RIFT-120)
+ * and the Recall gap of RIFT-109.
  *
  * Data note (not changed here): docs/plans/survey/data-issues-recheck.md
  * records that the S-ORIGINS printing of Highlander spells this as "...would
@@ -60,15 +61,17 @@ const highlanderYi = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺延迟替代登记与 Recall：(1) 没有已注册原语消费卡牌程序的替代声明——ResolveContext 只有 " +
-    "addContinuous / registerDelayedTrigger，替代注册在引擎内部（RIFT-120 尚未把 CardProgram 的 replaces/with 转成动作匹配器），" +
-    "effects/instructions 也没有 replacement.event 原语；(2) 印刷的“the next time”一次性窗口没有表示：" +
-    "TriggerSpec.once 只有 per-turn / per-combat / per-chain / per-game，且卡牌程序登记的替代没有回合末到期接线；" +
-    "(3) Recall 无法执行也无法近似：effect.move 文档明确 mode \"recall\" 被阻断（封闭 move-location 动作无法区分 Recall 与 Move，CR 457-460），" +
-    "用普通移动顶替会错误触发 Move 触发（458.1）并改变状态（460.1 要求 Recall 不影响状态，印刷的 exhausted 是本卡写明的例外）；" +
-    "(4) 替代体没有指向“被替代事件对象”的 ObjectSelector，无法把 \"it\" 绑定到所选单位（355.10.c：该指代不是新的目标选择）。" +
+    "RIFT-260 已合入卡牌程序的替代绑定（replacement.event 的 next-time-this-turn 一次性窗口、" +
+    "{ linked: \"replacement.object\" } 的被替代事件绑定），但本卡的替代体仍不可执行：" +
+    "(1) Recall 无法执行也无法近似：effect.move 文档明确 mode \"recall\" 被阻断（封闭 move-location 动作无法区分 Recall 与 Move，CR 457-460），" +
+    "绑定本卡替代体会直接抛 BlockedReplacementError，而用普通移动顶替会错误触发 Move 触发（458.1）并改变状态" +
+    "（460.1 要求 Recall 不影响状态，印刷的 exhausted 是本卡写明的例外）；" +
+    "(2) 替代体里的 \"it\" 指的是先前选择的单位（355.10.c：该指代不是新的目标选择），" +
+    "而合并绑定暴露的 replacement.object 是「被替代事件的对象」——本卡被替代的是该单位的死亡事件，" +
+    "但静态 IR 没有把「先前选择的单位」绑定进替代体的 ObjectSelector，无法写出不依赖运行时引用的替代体；" +
+    "(3) 卡牌程序登记的替代仍没有回合末到期接线。" +
     "因此不近似实现；“Choose a friendly unit”本身是目标（355.10.c 示例）并且已按 TargetSpec 编码。" +
-    "依赖：RIFT-120（替代注册/延迟触发）、RIFT-109（Recall 动作）、RIFT-89（once 作用域）。",
+    "依赖：RIFT-109（Recall 动作）与替代体的被选单位绑定、替代到期接线（RIFT-120 后续）。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

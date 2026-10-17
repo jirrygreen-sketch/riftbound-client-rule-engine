@@ -119,5 +119,6 @@ test.todo(
 
 test.todo(
   "Firestorm full chain play: pay 6 energy + 1 Fury power and lock the battlefield at Finalize " +
-    "(依赖 RIFT-89 费用系统与 RIFT-90 目标锁定)"
+    "— the printed cost/Plan path exists (RIFT-89) but the card cannot resolve as printed until the " +
+    "non-target damage set form lands"
 );
