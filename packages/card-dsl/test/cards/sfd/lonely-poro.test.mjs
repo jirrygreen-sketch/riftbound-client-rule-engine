@@ -1,12 +1,13 @@
+// RIFT-680: layer-1/2 checks (validation, identity, structure). Layer-3 real
+// execution evidence (trigger pipeline row + gap behavior) lives in the
+// parameterized template suite:
+// test/cards/templates/keyword-triggered-object-killed-effect-d-680.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/sfd/lonely-poro.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-ead599cc175549f33e7ce605d2fc97d6e65ce56a91ca97055d06554ed4cea1ae";
 
@@ -85,28 +86,6 @@ test("sfd-036-221 Lonely Poro: the trigger body draws exactly 1 with a single un
   assert.equal(drawInstruction.picks, undefined);
   assert.equal(drawInstruction.linkedTo, undefined);
   assert.equal(drawInstruction.condition, undefined);
-});
-
-test("sfd-036-221 Lonely Poro golden: the printed draw body draws the top card of the deck", () => {
-  const kernel = world().deck(["top-card", "deep-card"]).build();
-  const outcome = resolveChainBody(diedAlone.body, kernel);
-
-  assert.equal(outcome.status, "executed");
-  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
-    ["lonely-poro.draw-1", "executed"]
-  ]);
-  assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["top-card"]);
-  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["deep-card"]);
-  assert.deepEqual(outcome.events.map(event => event.action), ["draw"]);
-});
-
-test("sfd-036-221 Lonely Poro golden: an empty deck draws as much as possible (CR 414.4)", () => {
-  const kernel = world().build();
-  const run = runInstruction(draw, drawInstruction.args, { world: kernel });
-
-  assert.equal(run.result.status, "executed");
-  assert.equal(run.linked.drawn, 0);
-  assert.equal(kernel.player("A").handSize, 0);
 });
 
 test.todo(
