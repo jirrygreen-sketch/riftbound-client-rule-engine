@@ -15,6 +15,8 @@ import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipelin
 import { evaluateExpression } from "../../../../engine-core/dist/effects/interpreter/expr.js";
 import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { evaluateExtendedExpression } from "../../../../engine-core/dist/effects/interpreter/expr-ext/index.js";
+import assault from "../../../../engine-core/dist/effects/keywords/Assault.js";
 
 const CARD_ID = "card.hash-af6a9ff16e9f4f9849e489bb4ab37b18a1f12ed88da4b151ac85c770eb68d8c6";
 const MAY_ID = "vayne-hunter.may-return";
@@ -30,12 +32,29 @@ test("ogn-035-298 Vayne, Hunter: program validates and is judge-required", () =>
   assert.match(program.judgeReason, /battlefield/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /evaluateCondition/);
   assert.match(program.judgeReason, /matchesEnterAction/);
   assert.match(program.judgeReason, /subject/);
   assert.match(program.judgeReason, /TargetSpec|嵌套/);
   assert.match(program.judgeReason, /assertFinalizationSurface/);
   assert.match(program.judgeReason, /payment scope.savepoint/);
   assert.doesNotMatch(program.judgeReason, /RIFT-(83|84|89|90|91|257|258|260|261|359)/);
+});
+
+test("ogn-035-298 Vayne, Hunter: the merged designation extension reads the actual Assault host's combatRole", () => {
+  const [expanded] = assault.expand({ value: program.abilities[0].value, host: { canonicalCardId: CARD_ID } });
+  for (const controller of ["A", "B"]) {
+    for (const combatRole of ["attacker", "defender", null]) {
+      const base = world().unit("vayne", { owner: controller, combatRole, might: 2 }).build();
+      const kernel = base.clone({ controller, sourceSnapshot: base.getObject("vayne") });
+      const actual = evaluateExtendedExpression(expanded.condition.left, {
+        context: kernel, host: kernel.ref("vayne"), linked: key => kernel.linked(key),
+        canLookBack: () => true, isIgnored: () => false
+      });
+      assert.equal(actual, combatRole);
+      assert.equal(actual === expanded.condition.right.value, combatRole === "attacker");
+    }
+  }
 });
 
 test("ogn-035-298 Vayne, Hunter: identity, ruleset and exact source text", () => {

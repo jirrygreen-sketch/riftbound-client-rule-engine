@@ -159,6 +159,21 @@ test("ogn-055-298 Wielder of Water golden: the production static binder does not
   handle?.unbind();
 });
 
+test("ogn-055-298 Wielder of Water golden: a defending lone unit gains +2 for either controller", () => {
+  for (const controller of ["A", "B"]) {
+    const kernel = world()
+      .unit("wielder", { owner: controller, controller, might: 2, combatRole: "defender", location: { type: "battlefield", id: "bf-1" } })
+      .build();
+    const engine = chainEngineFor(kernel);
+    const handle = createEngineStaticBinder(engine).bindStatic(staticAbility, kernel.getObject("wielder"));
+    assert.equal(engine.layers.evaluate(kernel.ref("wielder")).might, 4);
+    assert.equal(engine.items.length, 0);
+    assert.equal(kernel.events.length, 0);
+    handle.unbind();
+    assert.equal(engine.layers.evaluate(kernel.ref("wielder")).might, 2);
+  }
+});
+
 test.todo(
   "ogn-055-298 Wielder of Water: same-location enemy must remain alone under 740.2.a " +
     "(rule-correct expected Might 4); current static binder returns Might 2 because its " +

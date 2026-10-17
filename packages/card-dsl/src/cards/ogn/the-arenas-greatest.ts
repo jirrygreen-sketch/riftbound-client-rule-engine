@@ -18,7 +18,8 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required.
  * TurnFlow produces Beginning events and effect.score executes Gaining Points.
- * Beginning timing can be subscribed with an empty object filter; the blocked
+ * An empty object filter can subscribe to Beginning; the declared event name
+ * is outside EVENT_PATTERN_TYPES. The blocked
  * EventPattern below still records the unsupported oncePerPlayer frequency.
  * It is not consumed as a per-player once-per-game scope, and event-player is
  * not a bound ResolveContext selector.
@@ -28,10 +29,11 @@ const theArenasGreatest = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺每名事件玩家首个 beginning-start 的对局频度绑定（315.2.a.1）；占位 EventPattern 的 " +
-    "oncePerPlayer 未被消费，现有 per-game 频度只按登记/来源计次，不能替代每名事件玩家各一次。" +
-    "还缺 ResolveContext 的触发事件玩家选择器：effect.score 的 event-player 是未绑定字面量，不能执行对 that player 的 " +
-    "Gaining Points（470.1/470.2），也不能改给控制者。不近似实现。",
+    "缺 beginning-start 的每名事件玩家首个 Beginning Phase 绑定（CR 315.2.a.1、383.1.b）：" +
+    "EventPattern 的 EVENT_PATTERN_TYPES 不接受 beginning-start；占位 oncePerPlayer 还会被 programs/filters.ts 拒绝，" +
+    "per-game 频度按登记/来源计次，不能表示每名事件玩家各一次。" +
+    "effect.score 的 event-player 只是未绑定字面量，ResolveContext 没有触发事件玩家选择器，" +
+    "无法把 Gaining Points（470.1/470.2）交给 that player；不能替换成控制者。",
   sourceText: "At the start of each player's first Beginning Phase, that player gains 1 point.",
   abilities: [
     {
@@ -39,7 +41,7 @@ const theArenasGreatest = {
       trigger: {
         at: "beginning-start",
         // oncePerPlayer records the printed frequency; no merged code resolves
-        // it (see judgeReason) and the pipeline ignores the key.
+        // it; the program translator rejects this placeholder key.
         filter: { event: "beginning-start", player: "any", oncePerPlayer: true }
       },
       optional: false,

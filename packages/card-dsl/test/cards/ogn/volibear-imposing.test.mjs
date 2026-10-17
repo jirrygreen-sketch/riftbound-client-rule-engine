@@ -14,6 +14,7 @@ import { triggerRegistrations } from "../../../../engine-core/dist/programs/trig
 import { moveDuelUnitsStandard } from "../../../../engine-core/dist/zones/movement.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { evaluateExtendedExpression } from "../../../../engine-core/dist/effects/interpreter/expr-ext/index.js";
 
 const CANONICAL = "card.hash-b57666e4f1117003af3567a39c4c880bafc5ff8b149545385d26dfe3ad0db3c4";
 
@@ -57,6 +58,7 @@ test("ogn-158-298 Volibear, Imposing: judgeReason names the current keyword and 
   assert.match(program.judgeReason, /814\.1\.c/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /evaluateCondition/);
   assert.match(program.judgeReason, /movedToOtherThanSourceLocation/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.match(program.judgeReason, /requiresMoveTriggers/);
@@ -67,6 +69,22 @@ test("ogn-158-298 Volibear, Imposing: judgeReason names the current keyword and 
   // RIFT-257 (program binding) and RIFT-359 (condition predicates) are merged
   // and must not be reported as current gaps anymore.
   assert.doesNotMatch(program.judgeReason, /RIFT-257|RIFT-264|RIFT-359/);
+});
+
+test("ogn-158-298 Volibear, Imposing: the merged designation extension reads the actual Shield host's combatRole", () => {
+  const [expanded] = keywordDefinitionsById.get("Shield").expand({ value: shield.value, host: { canonicalCardId: CANONICAL } });
+  for (const controller of ["A", "B"]) {
+    for (const combatRole of ["defender", "attacker", null]) {
+      const base = world().unit("volibear", { owner: controller, combatRole, might: 10 }).build();
+      const kernel = base.clone({ controller, sourceSnapshot: base.getObject("volibear") });
+      const actual = evaluateExtendedExpression(expanded.condition.left, {
+        context: kernel, host: kernel.ref("volibear"), linked: key => kernel.linked(key),
+        canLookBack: () => true, isIgnored: () => false
+      });
+      assert.equal(actual, combatRole);
+      assert.equal(actual === expanded.condition.right.value, combatRole === "defender");
+    }
+  }
 });
 
 test("ogn-158-298 Volibear, Imposing: Shield 3 and Tank stay keyword declarations", () => {
@@ -315,6 +333,6 @@ test.todo(
 test.todo(
   "ogn-158-298 Volibear, Imposing: [Shield 3] must add 3 Might only while defending (CR v1.5 " +
     "814.1.c/814.1.d.1); keywords/Shield.ts reads designation, ObjectSnapshot exposes only " +
-    "combatRole, and no merged producer writes the designation, so the production " +
-    "programs/statics binder evaluates the keyword condition as false for a real defender."
+    "combatRole; the merged designation extension must reach the production programs/statics " +
+    "condition evaluator and the atomic combat-role producer must be connected."
 );

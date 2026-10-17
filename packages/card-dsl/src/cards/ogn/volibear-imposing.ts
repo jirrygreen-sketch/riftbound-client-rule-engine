@@ -17,26 +17,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   触发能力；"moves" 对应 421.1 / 449.1 的 Move（时点 "object-moved"，
  *   421.1/449.1/449.2/458），"other than mine" 以来源当前位置为锚点比较。
  *
- * 复核后的边界（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
- * - programs/triggers.ts 已提供 CardProgram → TriggerRegistration 注册，filters.ts
- *   也会转译 { event, filter }；不能再把通用绑定列为未合入依赖。
- * - Shield 展开读取 object-property "designation"，契约的 ObjectSnapshot 只有 combatRole、
- *   没有 designation 的产生方；programs/statics.ts 的条件包装捕获求值异常后返回 false，
- *   实测 combatRole=defender 时 +3 Might 不生效。
- * - Tank 的 continuous.combat damage-assignment/priority:first 已能绑定到 ability 图层，
- *   但 layers/engine.ts 的 applyAbility 不消费该 kind，combat/base-combat-allocation.ts
- *   的 keywordPriority 只接受 "proven-none"，没有 lethal-first 的分配消费方。
- * - 提交 move-location 已由 events/action-adapter.ts 发射 object-moved；但 production
- *   Standard Move（duel/standard-move-executor-v2.ts → duel/cardplay-unit-v2.ts）不向
- *   EventPipeline 发布该时点，且 "object-moved" 不在 EVENT_PATTERN_TYPES，
- *   programs/filters.ts 会拒绝 movedToOtherThanSourceLocation 占位键，
- *   timing-points.ts 声明的 fromKind/fromLocationId/toKind/toLocationId 载荷也没有生产者。
- * - 触发判定还需比较目的战场与来源当前位置，排除 Base（原文）与 Recall（458.1）。
- *   movedToOtherThanSourceLocation 保留为不可执行的占位描述键：programs/filters.ts
- *   拒绝它，TriggerSpec/EventPattern 没有相对位置不等谓词，EventPattern 枚举也未包含
- *   object-moved。不能删掉 "other than mine" 后宣称整卡可执行。
- * golden 真实执行 effect.draw 和原始 body，并验证已提交移动动作的事件发射及位置快照；
- * 这些子路径不构成 Shield、Tank 或完整移动触发的执行证据。
+ * status：judge-required。Shield 的 designation 别名已有扩展求值器，
+ * 但静态条件仍未接通；Tank 缺 lethal-first 的战斗分配消费方。
+ * object-moved 的事件词表、相对目的地谓词、Standard Move 管线接线与
+ * 移动原因载荷仍缺，不能丢弃 other than mine、Base 和 Recall 的限制。
+ * draw、关键词展开与移动事件的已有子路径测试均保留。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "shield", value: 3 },
@@ -66,21 +51,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "复核 2026-10-17，三处缺口仍不可执行，均不近似实现：" +
-    "(1) [Shield 3]（814.1.c/814.1.d.1）的展开条件读 object-property(self, \"designation\")，" +
-    "而契约的 ObjectSnapshot 只有 combatRole、没有 designation 的产生方；programs/statics.ts 捕获求值异常后返回 false，" +
-    "实测 combatRole=defender 时 Might 仍为印刷值 10，防守 +3 不生效。" +
-    "(2) [Tank]（815.1.b/815.1.c.2）已展开并绑定 continuous.combat 到 ability 图层，" +
-    "但 layers/engine.ts 的 applyAbility 不消费该 kind，combat/base-combat-allocation.ts 的 " +
-    "DuelBaseCombatSourceEffectProof.keywordPriority 只接受 \"proven-none\"，没有 lethal-first 的分配消费方。" +
-    "(3) object-moved 触发（383.1；421.1/449.1/449.2）不可注册：\"object-moved\" 不在 events/trigger-spec.ts 的 " +
-    "EVENT_PATTERN_TYPES，assertTriggerSpec 判 invalid-event-type；目的地为战场且不同于来源当前位置的比较谓词也不存在，" +
-    "占位键 movedToOtherThanSourceLocation 会被 programs/filters.ts 的 translateObjectFilter 拒绝；" +
-    "zones/movement.ts 的 Standard Move group 只返回 events/requiresMoveTriggers，" +
-    "production Standard Move（duel/standard-move-executor-v2.ts → duel/cardplay-unit-v2.ts）不向 EventPipeline 发布 object-moved，" +
-    "events/action-adapter.ts 只为直接提交的 move-location 发射且不填充 timing-points.ts 声明的 " +
-    "fromKind/fromLocationId/toKind/toLocationId，无法按 458.1 排除 Recall。" +
-    "effect.draw 本体、Shield/Tank 展开与提交移动的事件发射均有 golden 执行证据，但不覆盖以上三处。",
+    "缺以下生产接线：(1) Shield 3（814.1.c/814.1.d.1）的 designation→combatRole 读取虽有扩展求值器，" +
+    "programs/statics.ts 的条件仍调用基础 evaluateCondition，防守 +3 尚未接通；combat/flow.ts 还缺战斗身份原子事务。" +
+    "(2) Tank（815.1.b/815.1.c.2）的 continuous.combat 缺 lethal-first 分配消费方，" +
+    "combat/base-combat-allocation.ts 的 keywordPriority 只接受 proven-none。" +
+    "(3) object-moved 不在 EVENT_PATTERN_TYPES（invalid-event-type）；" +
+    "目的战场不同于来源当前位置的谓词缺失，movedToOtherThanSourceLocation 占位键被 programs/filters.ts 拒绝。" +
+    "Standard Move 的 requiresMoveTriggers 未经 duel/standard-move-executor-v2.ts → duel/cardplay-unit-v2.ts 发布到 EventPipeline；" +
+    "直接提交 move-location 的生产载荷缺 fromKind/fromLocationId/toKind/toLocationId 与移动原因，" +
+    "无法可靠排除 Base、Recall（458.1）并判断 other than mine。",
   abilities,
   sourceText:
     "[Shield 3] (+3 :rb_might: while I'm a defender.)\n" +
