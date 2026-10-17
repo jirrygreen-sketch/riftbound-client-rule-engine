@@ -1,52 +1,25 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Treasure Trove (ogn-186-298) — Gear, 2 Energy, Chaos.
- *
- * "When this leaves the board, draw 1 and channel 1 rune exhausted.
- *  :rb_rune_chaos:, :rb_exhaust:: Kill this."
- *
- * CR v1.5 anchors:
- * - 383.2.c.3: a triggered ability that triggers on its own source leaving the
- *   board is processed immediately before the zone change. The timing point is
- *   object-leaves-board; the source's last-known information is captured
- *   (383.2.c.3.b). Its effect (draw + channel) is independent of the source's
- *   post-change fate.
- * - 414: "draw 1" is effect.draw. 431 / 431.2: "channel 1 rune exhausted" is
- *   effect.channel with exhausted: true. Both primitives are merged and can
- *   execute.
- * - The second ability costs 1 Chaos Power plus "exhaust this" and kills the
- *   source. The cost plan recycles the source's current Board identity at
- *   Finalize (chain/README), then the effect kills it (429). effect.kill with
- *   self: true is merged; the cost exhaust is a finalized cost-plan payment.
- *
- * Status rationale: the draw, the exhausted channel and the kill-self
- * activation are each expressible with merged code and are exercised by the
- * golden tests below. The leave trigger itself stays judge-required because its
- * self-scoping is not executable end-to-end: the merged pipeline matcher has no
- * event-payload "self" binding (the nested filter in the RIFT-21 payload-filter
- * spelling is ignored by events/pipeline-match.ts, so a registered trigger would
- * match every leave event), and the CardProgram -> TriggerRegistration adapter
- * that binds the source incarnation and its active zone is RIFT-257 (in
- * progress). Partial primitive execution is not full-card evidence, so the card
- * keeps the judged status.
+ * Treasure Trove — CR v1.5 383.2.c.3/383.2.c.3.a–b, 414, 431.2, 429.
+ * Card-program trigger and activated bindings are merged. The remaining gap
+ * is unregistering the source before the deferred leave-event scan completes.
+ * The leave timing uses the action producer's object-left-zone event kind.
  */
 const treasureTrove = {
   canonicalCardId: "card.hash-42b87e27f1b0c57a6160fc790e9257e741e6d8ec2e0f7a846d8aa0f6bcbe04f2",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "离场触发的自身绑定尚不可执行：已合入的触发匹配器（events/pipeline-match.ts）不认识 RIFT-21 的 payload 过滤写法 " +
-    "filter: { role: 'self' }，会把「此牌离场」触发匹配到任意离场事件；CardProgram → TriggerRegistration 的适配器" +
-    "（绑定来源入区序号、activeZones 与 filter，RIFT-257 的 programs/triggers.ts）尚未合入；RIFT-257 的 " +
-    "translateTriggerFilter 会把 role/self/objectId: 'self' 归一化为自身 objectId 锚点，因此整卡依赖 RIFT-257 落地。" +
-    "draw 1、channel 1 exhausted、kill this 三个原语均已合入并各有执行测试，但局部原语执行不构成整卡证据；不近似实现。",
+    "CR 383.2.c.3/383.2.c.3.a–b 的自身离场触发仍受生命周期扫描顺序阻塞：events/pipeline.publish 暂停扫描期间，programs/lifecycle 的 emit 在 object-leaves-board 后立即 detachSource 并注销订阅，随后 drain 已无法扫描到本卡的离场触发。" +
+    "应在离场事件完成扫描并捕获最后已知信息后解绑；不能省略生命周期或手动发出离场事件替代。触发 IR 已对齐真实生产者的 kind object-left-zone。" +
+    "CardProgram 触发/启动绑定、self 归一化、Chaos Power 与 exhaust 费用规划均已合入；draw、channel exhausted 与 kill-self 已有真实执行证据。参考测试内核的 channel-rune 还未消费 exhausted:true（431.2），故当前证据只验证横置入场动作参数与区域迁移，不能声称已验证横置状态；整卡等待离场扫描/解绑顺序与该动作消费修复。",
   abilities: [
     {
       kind: "triggered",
       trigger: {
         at: "object-leaves-board",
-        filter: { event: "object-leaves-board", filter: { role: "self" } }
+        filter: { event: "object-left-zone", filter: { role: "self" } }
       },
       optional: false,
       body: [

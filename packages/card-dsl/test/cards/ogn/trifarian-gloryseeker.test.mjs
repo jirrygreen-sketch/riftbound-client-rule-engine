@@ -9,8 +9,7 @@ const { runAbilityBody } = await import(new URL("effects/interpreter.js", engine
 
 const BUFF_ID = "trifarian-gloryseeker.buff-me";
 
-const bodyForExecution = () =>
-  program.abilities[1].body.map(({ targets, ...rest }) => rest);
+const bodyForExecution = () => program.abilities[1].body;
 
 test("ogn-217-298 Trifarian Gloryseeker: program validates and has expected identity", () => {
   const result = validateCardProgram(program);
@@ -25,7 +24,7 @@ test("ogn-217-298 Trifarian Gloryseeker: program validates and has expected iden
   assert.match(program.judgeReason, /Legion/);
   assert.match(program.judgeReason, /effect\.buff/);
   assert.match(program.judgeReason, /condition\.history/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.equal(
     program.sourceText,
     "[Legion] — When you play me, buff me. (If I don't have a buff, I get a +1 :rb_might: buff. " +
@@ -76,10 +75,10 @@ test("ogn-217-298 Trifarian Gloryseeker: Legion keyword plus the gated card-play
 });
 
 test("ogn-217-298 Trifarian Gloryseeker golden: 'buff me' places one Buff on the source", () => {
-  const kernel = world()
+  const base = world()
     .unit("gloryseeker", { might: 2, location: { type: "battlefield", id: "battlefield-1" } })
     .build();
-  Object.defineProperty(kernel, "source", { value: kernel.getObject("gloryseeker") });
+  const kernel = base.clone({ sourceSnapshot: base.getObject("gloryseeker") });
   kernel.setTargets("self-unit", [kernel.ref("gloryseeker")]);
 
   const outcome = runAbilityBody(bodyForExecution(), kernel);
@@ -93,14 +92,14 @@ test("ogn-217-298 Trifarian Gloryseeker golden: 'buff me' places one Buff on the
 });
 
 test("ogn-217-298 Trifarian Gloryseeker: a unit that already has a Buff is not Buffed again (CR 702.3.a)", () => {
-  const kernel = world()
+  const base = world()
     .unit("gloryseeker", {
       might: 2,
       buffs: 1,
       location: { type: "battlefield", id: "battlefield-1" }
     })
     .build();
-  Object.defineProperty(kernel, "source", { value: kernel.getObject("gloryseeker") });
+  const kernel = base.clone({ sourceSnapshot: base.getObject("gloryseeker") });
   kernel.setTargets("self-unit", [kernel.ref("gloryseeker")]);
 
   const outcome = runAbilityBody(bodyForExecution(), kernel);
@@ -111,21 +110,18 @@ test("ogn-217-298 Trifarian Gloryseeker: a unit that already has a Buff is not B
   assert.equal(kernel.getObject("gloryseeker").buffs, 1);
 });
 
-test.todo(
-  "ogn-217-298 Trifarian Gloryseeker: [Legion] dependent-ability activation (CR 812.1.b.1/812.1.c) — " +
-    "the activation gate must be evaluated as a trigger condition over this turn's finalized cards " +
-    "excluding this card; condition.history is a resolution-time instruction and the trigger condition's " +
-    "count expression does not count history, and the keyword's excluding payload is rejected by the " +
-    "history parser (Unsupported history query field)"
-);
+test("Trifarian Gloryseeker: the merged keyword expansion declares the Legion history predicate", async () => {
+  const { expandProgram, translateTriggerFilter } = await import("../../../../engine-core/dist/programs/index.js");
+  const kernel = world().unit("gloryseeker", { cardId: program.canonicalCardId }).build();
+  const expanded = expandProgram(program, kernel.getObject("gloryseeker"));
+  assert.equal(expanded.expanded.length, 1);
+  assert.equal(expanded.expanded[0].effect.kind, "condition.predicate");
+  assert.equal(expanded.expanded[0].effect.history.scope, "turn");
+  assert.equal(expanded.expanded[0].effect.history.action, "play");
+  assert.deepEqual(translateTriggerFilter(program.abilities[1].trigger.filter, "gloryseeker", "card-played"), {
+    event: "card-played", object: { objectId: "gloryseeker" }
+  });
+});
 
-test.todo(
-  "ogn-217-298 Trifarian Gloryseeker: 'buff me' as a non-target self selection — " +
-    "effect.buff 只从 ctx.targets(TargetSpec id) 读取对象；用 TargetSpec 包装会错误登记成为目标（355.10.d.1），" +
-    "待原语支持 source/pick/query 形式的自身选择器"
-);
-
-test.todo(
-  "ogn-217-298 Trifarian Gloryseeker: bind the card-played CardProgram trigger through the complete " +
-    "program adapter (RIFT-257)"
-);
+test.todo("Trifarian Gloryseeker: evaluate Legion's another-card-Finalized-this-turn history at trigger time and consume condition.predicate (CR 812.1.b.1 / 812.1.c; RIFT-359)");
+test.todo("Trifarian Gloryseeker: bind non-target Buff-self without a TargetSpec or became-target event (CR 355.10.d.1 / 702.2.a; effect.buff selector contract)");

@@ -36,14 +36,14 @@ function unit(id, overrides = {}) {
   };
 }
 
-/** Register the program's declared static effect in the merged layer engine. */
+/** Isolate the declared arithmetic operation from the blocked here filter. */
 function layeredEngine(objects) {
   const engine = createLayerEngine(objects, [
     {
       effect: {
         id: "trifarian-war-camp",
         layer: ability.effect.layer,
-        filter: ability.effect.filter,
+        filter: { type: "unit", zone: "board" },
         effect: ability.effect
       },
       duration: { type: "permanent" },
@@ -61,10 +61,9 @@ test("Trifarian War Camp program validates and is judge-required", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /registerContinuousEffect/);
-  assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /LocationRef/);
+  assert.match(program.judgeReason, /对象引用比较/);
+  assert.match(program.judgeReason, /layers\/filter/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -93,7 +92,7 @@ test("Trifarian War Camp structure: one arithmetic-layer +1 Might static, scoped
   assert.equal(ability.effect.condition, undefined);
 });
 
-test("Trifarian War Camp golden: the equivalent layer registration adds +1 Might through the arithmetic layer", () => {
+test("Trifarian War Camp arithmetic component: +1 Might executes through the arithmetic layer", () => {
   const unitHere = unit("unit-here");
   const enemyHere = unit("enemy-here", { owner: "B", controller: "B", might: 5 });
   const engine = layeredEngine([unitHere, enemyHere]);
@@ -107,14 +106,43 @@ test("Trifarian War Camp golden: the equivalent layer registration adds +1 Might
   assert.deepEqual(engine.evaluate(unitHere.ref).types, ["unit"]);
 });
 
-test.todo(
-  "Trifarian War Camp registration: the card-program lifecycle binder (RIFT-257 programs/statics.ts) " +
-    "must turn this static ability into a ContinuousEffectSpec for layers/LayerEngine, and resolve " +
-    "190.6's controller of the Battlefield ability"
-);
+test("Trifarian War Camp: the production static binder registers the source-relative location and removes its effect", async () => {
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+  const { createEngineStaticBinder } = await import("../../../../engine-core/dist/programs/statics.js");
+  const f = fixture({ cards: [{ id: "camp", cardId: CANONICAL, types: ["battlefield"], energy: null, power: null }] });
+  const here = { type: "battlefield", id: "battlefield-1" };
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("camp"), to: "board", location: here });
+  const source = f.kernel.getObject("camp");
+  const handle = createEngineStaticBinder(f.engine).bindStatic(ability, source);
+  const [entry] = f.engine.layers.registry.list();
+  assert.deepEqual(entry.effect.source, source.ref);
+  assert.equal(entry.effect.layer, "arithmetic");
+  assert.equal(entry.effect.effect.amount, 1);
+  assert.deepEqual(entry.effect.filter, { type: "unit", zone: "board", location: here });
+  assert.deepEqual(entry.duration, { type: "permanent" });
+  handle.unbind();
+  assert.deepEqual(f.engine.layers.registry.list(), []);
+});
 
-test.todo(
-  "Trifarian War Camp scope: the 053.3 'here' referent needs the sameLocationAs anchor in " +
-    "layers/filter.ts so the +1 Might applies only at this " +
-    "Battlefield; the source leaving use must drop the effect immediately (652.2.c)"
-);
+test.todo("Trifarian War Camp: bound here grants +1 only to both players' units at this Battlefield (CR 053.3 / 479.4; layers/filter LocationRef equality)", async () => {
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+  const { createEngineStaticBinder } = await import("../../../../engine-core/dist/programs/statics.js");
+  const f = fixture({ cards: [
+    { id: "camp", cardId: CANONICAL, types: ["battlefield"], energy: null, power: null },
+    { id: "friendly-here", types: ["unit"], might: 2 },
+    { id: "enemy-here", types: ["unit"], owner: "B", controller: "B", might: 4 },
+    { id: "elsewhere", types: ["unit"], might: 6 }
+  ] });
+  for (const id of ["camp", "friendly-here", "enemy-here", "elsewhere"]) {
+    f.engine.commit({ type: "move-zone", object: f.kernel.ref(id), to: "board", location: {
+      type: "battlefield", id: id === "elsewhere" ? "battlefield-2" : "battlefield-1"
+    } });
+  }
+  const handle = createEngineStaticBinder(f.engine).bindStatic(ability, f.kernel.getObject("camp"));
+  try {
+    for (const id of ["friendly-here", "enemy-here", "elsewhere"]) assert.equal(f.kernel.getObject(id).zone, "board");
+    assert.deepEqual(["friendly-here", "enemy-here", "elsewhere"].map(id => f.engine.layers.evaluate(f.kernel.ref(id)).might), [3, 5, 6]);
+  } finally {
+    handle.unbind();
+  }
+});

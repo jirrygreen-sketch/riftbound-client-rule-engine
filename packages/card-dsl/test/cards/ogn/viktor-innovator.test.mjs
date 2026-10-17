@@ -24,8 +24,8 @@ test("Viktor, Innovator identity and judge-required reason", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /opponent's turn/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /continuous\.timing/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /RIFT-357/);
   assert.equal(
     program.sourceText,
     "When you play a card on an opponent's turn, play a 1 :rb_might: Recruit unit token in your base."
@@ -43,7 +43,7 @@ test("structure: card-played trigger whose condition depends on the active playe
     player: "controller"
   });
   // 「on an opponent's turn」必须在触发时比较回合玩家与控制者；冻结 IR 里只能保留
-  // 原文含义的占位谓词（见 judgeReason 与文件末尾 TODO）。
+  // 原文含义的受阻谓词（见 judgeReason）。
   assert.deepEqual(ability.trigger.condition, {
     kind: "expression",
     value: c("active-player-is-opponent-of-controller")
@@ -55,7 +55,7 @@ test("structure: card-played trigger whose condition depends on the active playe
 test("structure: the body creates the Recruit token on the chain, then plays it to your base", () => {
   assert.deepEqual(
     ability.body.map(instruction => instruction.id),
-    ["viktor.play-recruit", "viktor.finish-recruit"]
+    ["viktor.play-recruit"]
   );
 
   const [create] = ability.body;
@@ -68,16 +68,6 @@ test("structure: the body creates the Recruit token on the chain, then plays it 
   assert.deepEqual(create.args.location, c({ type: "base", player: "controller" }));
   assert.deepEqual(create.args.linkKey, c("recruitToken"));
   assert.equal(create.targets, undefined);
-
-  const finish = ability.body[1];
-  assert.equal(finish.op, "effect.play");
-  assert.equal(finish.linkedTo, "viktor.play-recruit");
-  assert.deepEqual(finish.args.object, {
-    kind: "linked-value",
-    instructionId: "viktor.play-recruit",
-    key: "recruitToken.objects"
-  });
-  assert.deepEqual(finish.args.location, c({ type: "base", player: "controller" }));
 });
 
 test("golden: the Recruit token really enters the controller's base as a token", () => {
@@ -91,8 +81,8 @@ test("golden: the Recruit token really enters the controller's base as a token",
       token: create.args.token,
       amount: create.args.amount,
       mode: create.args.mode,
-      // "in your base"：参考内核不接受 controller 占位符（生产选择管线才解析），
-      // 因此像 assembly-rig 的 golden 一样替换为具体玩家基地后执行。
+      // Only exercise the supported token primitive with a concrete base;
+      // binding the authored controller placeholder remains blocked.
       location: c({ type: "base", player: "A" }),
       linkKey: create.args.linkKey
     },
@@ -113,15 +103,29 @@ test("golden: the Recruit token really enters the controller's base as a token",
   assert.deepEqual(run.linked["recruitToken.objects"], [recruit.ref]);
 });
 
-test.todo(
-  "Viktor, Innovator: evaluating the opponent's-turn clause at trigger time (CR 383.2.a.1) needs a " +
-    "turn-ownership predicate in TriggerSpec (continuous.timing only registers speed permissions today) — " +
-    "the frozen ObjectFilter/EventPattern expose only controller/owner selectors and the event player"
-);
-test.todo(
-  "Viktor, Innovator: the card-played trigger needs the CardProgram -> TriggerRegistration binding " +
-    "(RIFT-257); events/pipeline.registerTrigger is only called by trusted kernel adapters. The authored " +
-    "filter.player: \"controller\" is also not a legal engine selector (validateTriggerSpec accepts " +
-    "self/opponent/any/playerId), so the card-program adapter must map it to the event player plus the " +
-    "turn-ownership predicate."
-);
+test("Viktor, Innovator: the runtime-bound token body executes once through the production Expr adapter", async () => {
+  const { resolveChainBody } = await import("../../../../engine-core/dist/chain/interpreter-adapter.js");
+  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  const kernel = world().build().clone({ controller: "B" });
+  // Only the unsupported LocationRef binding is supplied here; the original
+  // body order, mode:play and link key run through the production adapter.
+  const body = ability.body.map(instruction => ({ ...instruction, args: {
+    ...instruction.args, location: c({ type: "base", player: "B" })
+  } }));
+  const outcome = resolveChainBody(body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.events.map(event => event.action), ["create-token", "play"]);
+  assert.equal(kernel.objects.length, 1);
+  const [recruit] = kernel.objects;
+  assert.deepEqual(recruit.location, { type: "base", player: "B" });
+  assert.equal(recruit.might, 1);
+  assert.equal(recruit.energy, null);
+  assert.equal(recruit.power, null);
+  assert.deepEqual(outcome.linkedValues["viktor.play-recruit.recruitToken.objects"], [recruit.ref]);
+  assert.deepEqual(translateTriggerFilter(ability.trigger.filter, "viktor", "card-played"), {
+    event: "card-played", player: "self"
+  });
+});
+
+test.todo("Viktor, Innovator: evaluate opponent-turn ownership at trigger time (CR 383.2.a.1; RIFT-359)");
+test.todo("Viktor, Innovator: resolve the authored controller-base LocationRef from either base or battlefield and schedule token Play through the chain (CR 187.1 / 440.2.c; RIFT-357)");

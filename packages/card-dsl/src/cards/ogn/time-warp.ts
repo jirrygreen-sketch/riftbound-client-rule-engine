@@ -1,36 +1,17 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Time Warp (ogn-122-298) — Spell, 10 energy + 4 Mind power.
- *
- * Printed text:
- *   Take a turn after this one. Banish this.
- *
- * Status: judge-required — the first sentence has no merged write path:
- * - 734/735 define the Additional Turn: the effect inserts a temporary turn
- *   owned by that player into the turn queue after the current one. Contract
- *   3.6's closed GameAction set has no turn-queue action, `turn/` exposes no
- *   queue insertion, and the merged timing points do not include an Additional
- *   Turn boundary; no instruction opcode can produce it. Not approximated by
- *   skipping a phase or reusing a turn-start timing point.
- * - "Banish this." is fully expressible: `effect.banish` with the `"source"`
- *   ObjectSelector (contract 3.6) banishes the spell itself to its owner's
- *   Banishment (428.1-428.5; 418-free since this is not a damage action). The
- *   engine-core primitive test for this card already executes that clause; the
- *   golden test here drives it through the production chain adapter. The two
- *   sentences are independent instructions, so the unmerged first half does
- *   not gate the banish; the card as a whole stays judge-required per README §2.
+ * Time Warp — CR v1.5 734–738 (Additional Turns), 428.1–428.5 (Banish).
+ * Play binding and the independent Banish clause are merged. Inserting and
+ * consuming a temporary turn in the turn queue remains blocked.
  */
 const timeWarp = {
   canonicalCardId: "card.hash-037ac90c7e1ee070f9dea523811caa91e2b1f5c8018e4cc7753149ebb5eba7d7",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺回合队列写入路径：734/735 规定 “take a turn after this one” 由效果在回合队列当前回合之后插入一个该玩家的临时 Additional Turn，" +
-    "而契约 3.6 的封闭 GameAction 集合没有回合队列动作，turn/ 无队列接口、时点枚举也无 Additional Turn 边界，" +
-    "没有任何已合入指令原语可产生它（不得用跳过阶段或复用 turn-start 近似）；take-turn-after-this 的 effect.additional-turn 也只是形状声明。" +
-    "“Banish this.” 仅用已合入的 effect.banish 与 source 选择器，由 golden 测试经生产链适配器真实执行。" +
-    "此外打出本体依赖 RIFT-261（费用/打出结算的卡程序绑定）与 RIFT-257（CardProgram play 能力绑定）。",
+    "CR 734–738 的 Additional Turn 仍缺回合队列插入动作与 turn/ 消费接口：effect.additional-turn 仅为描述 IR，不能在当前回合之后插入临时回合并在完成后恢复原队列。" +
+    "CardProgram play 绑定与费用管线已合入；effect.banish 及 source 选择器已有生产链适配器执行证据。整卡仅受额外回合队列语义阻塞，不以跳过阶段或重复 turn-start 近似。",
   abilities: [
     {
       kind: "play",

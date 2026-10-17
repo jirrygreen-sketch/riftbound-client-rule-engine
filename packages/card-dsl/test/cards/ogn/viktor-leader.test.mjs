@@ -30,10 +30,9 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /non-Recruit/);
   assert.match(program.judgeReason, /excludeTags/);
-  assert.match(program.judgeReason, /LocationRef/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /383\.2\.c\.2/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /pipeline-match/);
+  assert.match(program.judgeReason, /RIFT-357/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -75,23 +74,6 @@ test("structure: the body plays one CR 187.1 Recruit token into the controller's
   assert.equal(playRecruit.picks, undefined);
   assert.equal(playRecruit.linkedTo, undefined);
   assert.equal(playRecruit.condition, undefined);
-});
-
-test("golden execution: the authored controller-base placeholder is not a resolvable location", () => {
-  // effect.token requires `location` to evaluate to a legal LocationRef; a
-  // symbolic { player: "controller" } placeholder must be bound by the
-  // Finalize/pipeline layer. Until then the reference kernel treats it as an
-  // impossible location and performs nothing — this is the documented gap,
-  // never a silent approximation of "into your base".
-  const kernel = world().build();
-  const run = runInstruction(token, playRecruit.args, { world: kernel });
-
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.deepEqual(run.events, []);
-  assert.equal(run.linked["recruitToken.amount"], 0);
-  assert.deepEqual(run.linked["recruitToken.objects"], []);
-  assert.equal(kernel.objects.length, 0);
 });
 
 test("golden execution: with the base bound, one 1-Might Recruit token is created on the Chain and played (CR 187.1, 440.2.c)", () => {
@@ -145,21 +127,24 @@ test("golden execution: a second player's world puts its Recruit token into that
   assert.equal(recruit.controller, "B");
 });
 
-test.todo(
-  "'another non-Recruit unit you control dies' (CR 429.1, 133.8.a, 383.2.c.2): the trigger pipeline must " +
-    "project the dying object into the TriggerSpec filter and the filter vocabulary needs a negative tag " +
-    "dimension for 'non-Recruit' (events/trigger-spec.ts + card-dsl ObjectFilter), and the card-program " +
-    "adapter must map the 'other'/'controller' placeholder keys onto engine selectors (RIFT-257)"
-);
+test("Viktor, Leader: the runtime-bound body executes through the merged token Expr adapter", async () => {
+  const { resolveChainBody } = await import("../../../../engine-core/dist/chain/interpreter-adapter.js");
+  const kernel = world().build().clone({ controller: "B" });
+  const body = trigger.body.map(instruction => ({ ...instruction, args: {
+    ...instruction.args, location: { kind: "constant", value: { type: "base", player: "B" } }
+  } }));
+  const outcome = resolveChainBody(body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.events.map(event => event.action), ["create-token", "play"]);
+  const [recruit] = kernel.objects;
+  assert.equal(recruit.name, "Recruit");
+  assert.equal(recruit.controller, "B");
+  assert.equal(recruit.might, 1);
+  assert.equal(recruit.energy, null);
+  assert.equal(recruit.power, null);
+  assert.deepEqual(recruit.location, { type: "base", player: "B" });
+  assert.deepEqual(outcome.linkedValues["viktor.play-recruit.recruitToken.objects"], [recruit.ref]);
+});
 
-test.todo(
-  "binding the symbolic { type: \"base\", player: \"controller\" } LocationRef at Finalize (CR 349/359.3.f.2) " +
-    "so 'into your base' resolves without substituting a runtime ref into the static IR (effect.token / Finalize " +
-    "work; the merged primitive negates the placeholder as an impossible location)"
-);
-
-test.todo(
-  "running the authored body through runAbilityBody: effect.token's argsSchema parses raw Expr arguments, while the " +
-    "interpreter passes already-evaluated values, so the op only accepts doubly-wrapped constants through the " +
-    "interpreter — a schema/interpreter mismatch to settle in the effect.token contract, not a card-side workaround"
-);
+test.todo("Viktor, Leader: bind other/non-Recruit death filters and exclude the same simultaneous death wave as Viktor (CR 133.8 / 383.2.c.2; RIFT-359)");
+test.todo("Viktor, Leader: bind the authored controller-base LocationRef and finish token Play through the chain (CR 187.1 / 440.2.c; RIFT-357)");
