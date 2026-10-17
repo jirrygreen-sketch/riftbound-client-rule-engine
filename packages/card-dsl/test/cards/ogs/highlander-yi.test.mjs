@@ -4,7 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogs/highlander-yi.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID = "card.hash-65c099c33a6f39283027cbf4532037cbd7fe982a1e896afd5bf5d35e0fc16512";
 const SOURCE_TEXT =
@@ -91,6 +92,29 @@ test("ogs-020-024 Highlander, Yi: the instead-body recalls the unit and applies 
   });
   // "it" is not a new target choice, and the exhaustion follows the recall.
   assert.equal(exhaust.linkedTo, "highlander-yi.recall");
+});
+
+test("ogs-020-024 Highlander, Yi golden: Recall remains blocked rather than approximated as a Move", () => {
+  const kernel = world().unit("friendly", { owner: "A", location: { type: "battlefield", id: "bf-1" } }).build();
+  const run = runInstruction(
+    move,
+    { objects: recall.args.objects, to: recall.args.to, mode: recall.args.mode },
+    {
+      world: kernel,
+      // The replacement names the previously chosen unit through its declared
+      // TargetSpec (355.10.c), so this direct primitive check uses the same
+      // selector binding while preserving the unsupported Recall behavior.
+      targets: { "highlander-yi.chosen-unit": [kernel.ref("friendly")] }
+    }
+  );
+  // 457-460: Recall is a distinct action and effect.move fails closed rather
+  // than silently submitting an ordinary move-location action.
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  assert.match(run.linked.moved.blockedReason, /Recall/);
+  assert.deepEqual(run.events, []);
+  assert.deepEqual(kernel.getObject("friendly").location, { type: "battlefield", id: "bf-1" });
+  assert.equal(kernel.getObject("friendly").exhausted, false);
 });
 
 test.todo(
