@@ -6,6 +6,8 @@ import program from "../../../dist/cards/unl/prepared-neophyte.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { historyCount } from "../../../../engine-core/dist/effects/interpreter/history.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL_ID =
   "card.hash-c745e78b66006751f13b0d22fe0e99f6be02c370c981380ca0ec714e076b0d3b";
@@ -26,8 +28,12 @@ test("unl-004-219 Prepared Neophyte: identity, status, judgeReason and verbatim 
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /HistoryQuery/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  // The stale "no continuous.might primitive / no card static registration" gap is
+  // gone (RIFT-258 + RIFT-257); the reason must name the real remaining gaps.
+  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /conditionMatches/);
+  assert.doesNotMatch(program.judgeReason, /没有 continuous\.might 的文件|无调用方/);
 });
 
 test("unl-004-219 Prepared Neophyte: one conditional static +4 Might ability", () => {
@@ -73,10 +79,31 @@ test("unl-004-219 Prepared Neophyte: the generated card registry exposes the pro
 test.todo(
   "unl-004-219 Prepared Neophyte: read the Energy actually spent to play a spell this turn (CR 383.2 / 206) and compare " +
     "it with the printed 4 — merged Expr/Condition has no spent-amount read, the frozen HistoryQuery counts actions only, " +
-    "and ResolveContext has no finalized cost receipt (RIFT-89)"
+    "and cost/payment.ts receipts never reach ResolveContext"
 );
 
 test.todo(
   "unl-004-219 Prepared Neophyte: apply +4 Might in the arithmetic layer while the conditional passive holds " +
-    "(CR 143.2.a / 475) — no merged card-static registration path or condition evaluation in layers (RIFT-91)"
+    "(CR 143.2.a / 475) — the merged registration path exists, but layers/engine.ts conditionMatches does not " +
+    "evaluate the card's compare condition and treats unknown conditions as true"
 );
+
+test("unl-004-219 Prepared Neophyte golden: the declaration really registers +4 Might in the arithmetic layer", () => {
+  // The card's static effect is the merged continuous.might shape (143.2.a / 475).
+  // Run its executable form through the production chain adapter: the arithmetic
+  // registration and the layer evaluation both really happen; what is missing is
+  // the condition gate in layers/engine.ts, recorded in judgeReason.
+  const kernel = world().unit("neophyte", { might: 1 }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("neophyte"), source: kernel.ref("neophyte") });
+  const outcome = resolveChainBody([{
+    id: "neophyte.might", op: "continuous.might",
+    args: { amount: ability.effect.amount, mode: { kind: "constant", value: ability.effect.mode }, appliesTo: { kind: "constant", value: ability.effect.appliesTo } }
+  }], context);
+
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(context.continuousEffects.length, 1);
+  assert.equal(context.continuousEffects[0].effect.layer, "arithmetic");
+  assert.equal(context.continuousEffects[0].effect.effect.amount, 4);
+  const layers = createLayerEngine(context.objects, context.continuousEffects);
+  assert.equal(layers.evaluate(context.ref("neophyte")).might, 5);
+});

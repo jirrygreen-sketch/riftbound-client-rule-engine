@@ -20,17 +20,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   由 effects/keywords/Tank.ts 负责。括号内是提醒文本（135.2.d.3 无游戏功能），本文件不重复实现。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。两个关键词的 KeywordDef 文件都已合入
- * （RIFT-81 的 Shield、RIFT-264 的 Tank），但整卡仍不可执行：
- * - 没有已合入的生产方把卡牌的 keyword 能力解析成 KeywordDef 展开并注册进图层（契约 3.5/3.7）：
- *   layers 只消费经 ResolveContext.addContinuous 注册的 ContinuousEffectSpec，CardProgram 的
- *   keyword 能力没有消费路径（rad/staunch-survivor、ogn/volibear-imposing 记录同一缺口）。
- * - 814.1.d 的 Defender designation 不是 ObjectSnapshot 特征（契约 3.8 的 combatRole 增补仍在
- *   RIFT-105 分支，未进 HEAD），因此即使展开落地，Shield 的“仅防守时 +2”也无法只在该身份下生效。
- * - 815.1.c 的战斗伤害分配不读取分配优先级要求：combat/base-combat-allocation.ts 明确写着
- *   "No Tank/Backline/other assignment-priority requirement is bound here"，Tank 的全部功能无处执行。
- * - layers/engine.ts 的 conditionMatches 只识别 always/never/type/has-tag/has-keyword，未识别的
- *   compare 条件按 true 处理，展开里的 designation 条件在真实图层计算中恒真（ogn/staunch-survivor 记录）。
- * 依赖：RIFT-91（layers-continuous 条件求值与卡牌接线）、契约 3.8 combatRole 落地、战斗伤害分配工作流（815）。
+ * （RIFT-81 的 Shield、RIFT-264 的 Tank），关键词展开路径与静态能力绑定的卡牌程序接线
+ * （RIFT-257：programs/keywords.ts 的 expandProgram + programs/lifecycle.ts 的 static 回调）也已合入。
+ * 整卡仍不可执行的两处缺口（不近似实现）：
+ * - 814.1.d 的 Defender designation 虽然已作为 `ObjectSnapshot.combatRole` 进入 HEAD（契约 3.8），
+ *   但 layers/engine.ts 的 conditionMatches 仍只识别 always/never/type/has-tag/has-keyword：
+ *   Shield 展开里的 compare(object-property(self,'designation') eq 'defender') 不被求值，
+ *   未识别条件按 true 处理，+2 Might 会在非防守身份下也生效。战斗角色事务本身也还没发出角色
+ *   designation（combat/flow.ts 仍抛 combat-start-transaction，CR 466.2）。
+ * - 815.1.b/815.1.c 的战斗伤害分配不读取分配优先级要求：combat/base-combat-allocation.ts 明确写着
+ *   "No Tank/Backline/other assignment-priority requirement is bound here"，continuous.combat 展开
+ *   （layers/ops/index.ts 的注释也承认）没有图层或战斗消费方，Tank 的全部功能无处执行。
+ * 依赖：layers 的 compare/designation 条件求值与战斗角色 designation 事务、战斗伤害分配工作流（815）。
  * 不近似实现：不把 Shield 写成普通数值加算，也不把 Tank 写成静态数值。
  */
 const abilities: Ability[] = [
@@ -46,14 +47,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两个关键词的展开文件都已合入（814 的 effects/keywords/Shield.ts、815 的 effects/keywords/Tank.ts），但整卡仍缺可执行路径：" +
-    "(1) 没有生产方把卡牌 keyword 能力解析为 KeywordDef 展开并注册进图层（契约 3.5/3.7；layers 只消费 " +
-    "ResolveContext.addContinuous 注册的 ContinuousEffectSpec，CardProgram keyword 无消费路径）。" +
-    "(2) 814.1.d 的 Defender designation 不是 ObjectSnapshot 特征（契约 3.8 的 combatRole 增补仍在 RIFT-105 分支未进 HEAD），" +
-    "Shield 的“当我是防守方 +2 [M]”无法只在该身份下生效；layers/engine.ts 的 conditionMatches 也不识别 compare 条件（按 true 处理），" +
-    "展开里的 designation 条件在真实图层计算中会恒真。(3) 815.1.b/815.1.c 的战斗伤害分配不读取分配优先级要求：" +
-    "combat/base-combat-allocation.ts 明确写着 “No Tank/Backline/other assignment-priority requirement is bound here”，Tank 的全部功能无处执行。" +
-    "依赖：RIFT-91（layers-continuous 条件求值与卡牌接线）、契约 3.8 combatRole 落地、战斗伤害分配工作流（815）。不近似实现。",
+    "两个关键词的展开文件（814 的 effects/keywords/Shield.ts、815 的 effects/keywords/Tank.ts）与关键词展开/静态绑定路径" +
+    "（RIFT-257 的 programs/keywords.ts、programs/lifecycle.ts）都已合入，但整卡仍缺两处可执行路径：" +
+    "(1) 814.1.d 的 Defender designation 虽已作为 ObjectSnapshot.combatRole 进入 HEAD（契约 3.8），但 layers/engine.ts 的 " +
+    "conditionMatches 只识别 always/never/type/has-tag/has-keyword：Shield 展开里的 " +
+    "compare(object-property(self,'designation') eq 'defender') 不被求值，未识别条件按 true 处理，" +
+    "+2 [M] 因此会在非防守身份下也生效；战斗角色 designation 本身也还没有产生方（combat/flow.ts 仍抛 combat-start-transaction，CR 466.2）。" +
+    "(2) 815.1.b/815.1.c 的战斗伤害分配不读取分配优先级要求：combat/base-combat-allocation.ts 明确写着 " +
+    "“No Tank/Backline/other assignment-priority requirement is bound here”，continuous.combat 展开没有图层或战斗消费方，" +
+    "Tank 的全部功能无处执行。依赖：layers 的 compare/designation 条件求值与战斗角色 designation 事务、战斗伤害分配工作流（815）。不近似实现。",
   abilities,
   sourceText:
     "[Shield 2] (+2 :rb_might: while I'm a defender.)\n" +

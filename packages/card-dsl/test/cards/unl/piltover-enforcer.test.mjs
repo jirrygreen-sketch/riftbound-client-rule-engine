@@ -7,6 +7,8 @@ import exhaust from "../../../../engine-core/dist/effects/instructions/effect.ex
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL_ID =
   "card.hash-8e09f40d2b739aa2e5e38a58cb0c9b9a2682ab534807bcc62c90206e763d6856";
@@ -31,7 +33,13 @@ test("unl-187-219 Piltover Enforcer: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /excess damage/);
   assert.match(program.judgeReason, /467\.2\.c/);
   assert.match(program.judgeReason, /404\.1\.b\.1/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  // The conquer timing point is really emitted now (turn/flow.ts Score wave),
+  // and the exhaust/ready primitives plus the program binding are merged; the
+  // reason must reflect the two remaining gaps instead of a blanket RIFT-89.
+  assert.match(program.judgeReason, /turn\/flow\.ts/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.doesNotMatch(program.judgeReason, /依赖 RIFT-89（费用接线）/);
 });
 
 test("unl-187-219 Piltover Enforcer: 'When you conquer' trigger with the excess-damage clause as trigger condition", () => {
@@ -167,5 +175,39 @@ test.todo(
 );
 test.todo(
   "unl-187-219 Piltover Enforcer: pay the leading 'exhaust me' as the trigger's base cost at Finalize (CR 383.3.b / 404.1.b.1 / 415.4–415.5) " +
-    "— TriggeredAbility has no cost field (RIFT-89)"
+    "— TriggeredAbility has no cost field (RIFT-261 series)"
 );
+
+test("unl-187-219 Piltover Enforcer golden: the merged pipeline really emits conquer as a triggerable timing", () => {
+  // turn/flow.ts publishes the conquer timing inside the committed Score action
+  // (one simultaneous group). Drive that emission through the real EventPipeline
+  // with the card's own player-scoped filter: the subscription is reachable,
+  // which is the merged half of this card.
+  const kernel = world().player("A").player("B").unit("vi", { types: ["legend"], controller: "A" }).build();
+  const hits = [];
+  const pipeline = new EventPipeline(createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("no choice"); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  }), ["A", "B"], "A");
+  pipeline.onTrigger = snapshot => hits.push(snapshot.registration.id);
+  pipeline.registerTrigger({
+    id: "piltover-conquer",
+    source: kernel.getObject("vi"),
+    controller: "A",
+    spec: { at: "conquer", filter: { event: "conquered", player: "self" } },
+    body: []
+  });
+  pipeline.emit({ timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" } });
+  assert.deepEqual(hits, ["piltover-conquer"]);
+
+  // The printed clause stays a comparison over the missing damage-assignment
+  // ledger, so the card keeps judge-required instead of treating the count as a
+  // damage sum (467.2.c.1: assigning and dealing are distinct).
+  assert.equal(ability.trigger.condition.left.subject, "excess-damage-assigned-this-combat");
+  assert.deepEqual(ability.trigger.condition.right, { kind: "constant", value: 3 });
+});

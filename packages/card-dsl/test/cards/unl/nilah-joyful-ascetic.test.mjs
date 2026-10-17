@@ -7,6 +7,9 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 
 const CANONICAL_ID =
   "card.hash-b06729f7cdfbc0accaea6ca7e4a0d2414ea996cb784e53eb818963a32a5666d5";
@@ -33,8 +36,14 @@ test("unl-115-219 Nilah, Joyful Ascetic: identity, status, judgeReason and verba
   assert.match(program.judgeReason, /Accelerate/);
   assert.match(program.judgeReason, /Ganking/);
   assert.match(program.judgeReason, /object-moved/);
-  assert.match(program.judgeReason, /449\.1/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  // 449.2 / 458.1: the Standard Move route and the Recall exclusion.
+  assert.match(program.judgeReason, /449\.2/);
+  assert.match(program.judgeReason, /458\.1/);
+  // The stale "no TriggerRegistration adapter" gap is gone (RIFT-257).
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-259/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.doesNotMatch(program.judgeReason, /另缺 CardProgram/);
 });
 
 test("unl-115-219 Nilah, Joyful Ascetic: Accelerate and Ganking stay keyword declarations (805/810)", () => {
@@ -103,10 +112,59 @@ test("unl-115-219 Nilah, Joyful Ascetic golden: a replaced gain is negated and n
 
 test.todo(
   "unl-115-219 Nilah, Joyful Ascetic: [Accelerate] charges [1][C] at Finalize and replaces the exhausted entry " +
-    "(CR 805.1.b, 805.2.b, 805.6; no card-program -> cost-plan/replacement wiring is merged — RIFT-86/RIFT-89)"
+    "(CR 805.1.b, 805.2.b, 805.6) — the merged keyword expansion is not consumed by the card-program -> cost-plan wiring " +
+    "(programs/play.ts rejects additional-cost fields)"
 );
 test.todo(
   "unl-115-219 Nilah, Joyful Ascetic: [Ganking] grants the battlefield-to-battlefield Standard Move permission " +
-    "(CR 810.1.c; continuous.movement has no movement-system consumer) and the object-moved payload must carry the " +
-    "from/to locations and exclude Recalls (449.1/449.2/458.1; RIFT-83, RIFT-120)"
+    "(CR 810.1.c) — movement() is merged but has no movement-system caller, and the object-moved payload must carry the " +
+    "from/to locations and exclude Recalls (449.1/449.2/458.1)"
 );
+
+test("unl-115-219 Nilah, Joyful Ascetic: the 'When I move' subscription is outside the closed trigger vocabulary", () => {
+  // events/trigger-spec.ts freezes EVENT_PATTERN_TYPES; there is no object-moved
+  // member (the alias table maps zone-entered/zone-left instead), and nesting a
+  // `filter` object inside the pattern is rejected too. The card's own spelling
+  // is therefore not registrable, which is the documented gap.
+  const result = validateTriggerSpec(moveTrigger.trigger);
+  assert.equal(result.ok, false);
+  assert.equal(result.issues.some(issue => issue.code === "invalid-event-type"), true);
+  assert.equal(result.issues.some(issue => issue.code === "unknown-field"), true);
+});
+
+test("unl-115-219 Nilah, Joyful Ascetic golden: the merged Ganking expansion really registers the movement permission, but nothing reads it", () => {
+  const gankingDef = keywordDefinitionsById.get("Ganking");
+  assert.ok(gankingDef, "the merged Ganking KeywordDef is registered (CR 810)");
+  assert.equal(gankingDef.stacking, "single");
+  const [expansion] = gankingDef.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expansion.effect.kind, "continuous.movement");
+
+  // Run the merged instruction for real: the continuous effect registers and the
+  // movement() rule query does resolve the permission.
+  const base = world().unit("nilah", { might: 4 }).build();
+  base.setTargets("nilah-movement", [base.ref("nilah")]);
+  const context = base.clone({ sourceSnapshot: base.getObject("nilah"), source: base.ref("nilah") });
+  const outcome = resolveChainBody([{
+    id: "ganking-movement", op: "continuous.movement",
+    args: {
+      permission: { kind: "constant", value: expansion.effect.permission },
+      source: { kind: "constant", value: expansion.effect.source },
+      destination: { kind: "constant", value: expansion.effect.destination },
+      move: { kind: "constant", value: expansion.effect.move },
+      addsPermission: { kind: "constant", value: expansion.effect.addsPermission },
+      // The instruction binds its affected object through a TargetSpec
+      // (registration.ts's bindTarget); the declarative expansion's "self"
+      // spelling is resolved by the caller, which is exactly the plumbing that
+      // has no consumer today.
+      target: { kind: "constant", value: "nilah-movement" }
+    }
+  }], context);
+  assert.equal(outcome.results[0].result.status, "executed");
+  const layers = createLayerEngine(context.objects, context.continuousEffects);
+  const query = movement(layers.registry, context.ref("nilah"), context.getObject("nilah"), "A");
+  // 810.1.b / 144.4.c.1: the battlefield-to-battlefield Standard Move route.
+  assert.equal(query.canGank, true);
+  assert.equal(query.battlefieldToBattlefield, true);
+  // The gap is that no movement system calls this query (grep: zero callers).
+  assert.equal(query.permissions.length, 1);
+});

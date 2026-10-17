@@ -4,6 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/rengar-trophy-hunter.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CANONICAL_ID =
   "card.hash-7af45bc5485b4630b0159d3ebb543753b28e1c439f0bdccf266c500a9d157088";
@@ -30,6 +31,8 @@ test("unl-120-219 Rengar, Trophy Hunter: identity, status, judgeReason and verba
   assert.match(program.judgeReason, /play-location-permission/);
   assert.match(program.judgeReason, /355\.2\.b/);
   assert.match(program.judgeReason, /RIFT-266/);
+  // The stale "no Ambush KeywordDef is merged" wording must be gone.
+  assert.doesNotMatch(program.judgeReason, /没有已合入的 KeywordDef|无 Ambush 文件/);
 });
 
 test("unl-120-219 Rengar, Trophy Hunter: [Ambush] stays a keyword declaration (822.1.a)", () => {
@@ -70,7 +73,8 @@ test("unl-120-219 Rengar, Trophy Hunter: the reminder text is reminder text only
 
 test.todo(
   "unl-120-219 Rengar, Trophy Hunter: [Ambush] adds the battlefield permission and grants [Reaction] while " +
-    "being played there (CR 822.1.b / 822.1.c / 355.2.b) — no Ambush KeywordDef is merged (RIFT-266)"
+    "being played there (CR 822.1.b / 822.1.c / 355.2.b) — the merged Ambush expansion is not consumed by " +
+    "Finalize's placement check or chain.canAct()"
 );
 test.todo(
   "unl-120-219 Rengar, Trophy Hunter: the verb-form permission lets the card be played to a battlefield with " +
@@ -78,4 +82,19 @@ test.todo(
     "(740.1.b) — play-location-permission has no layer/Finalize consumer (same gap as sfd/dauntless-vanguard, " +
     "ogn/sneaky-deckhand)"
 );
+
+test("unl-120-219 Rengar, Trophy Hunter: the merged Ambush KeywordDef really publishes both permissions (822)", () => {
+  const ambushDef = keywordDefinitionsById.get("Ambush");
+  assert.ok(ambushDef, "the merged Ambush KeywordDef is registered (CR 822)");
+  assert.equal(ambushDef.stacking, "single");
+  const expansion = ambushDef.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  // 822.1.b: the keyword form permits a battlefield where the controller has a Unit.
+  assert.equal(expansion[0].effect.kind, "play-location-permission");
+  assert.equal(expansion[0].effect.value.value.battlefield.controller, "controller");
+  // 822.1.c: Reaction while being played to that battlefield.
+  assert.deepEqual(expansion[1].effect.grants, ["showdown", "closed-state"]);
+  // 822.1.d: this card's verb form widens the same permission instead of
+  // restating it, so the card keeps exactly one static declaration.
+  assert.equal(playPermission.effect.kind, "play-location-permission");
+});
 

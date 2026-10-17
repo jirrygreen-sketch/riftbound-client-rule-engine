@@ -10,6 +10,9 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL_ID =
   "card.hash-cc540d8a2bbd62d237f265dc99b08da25c4499af36778a1dc01cf4165c0b9553";
@@ -51,8 +54,15 @@ test("unl-029-219 Red Brambleback: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /conquer effects/);
   assert.match(program.judgeReason, /383\.4\.g\.2/);
   assert.match(program.judgeReason, /Accelerate/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  // The stale "no trigger registration path" gap is gone (RIFT-257) and the
+  // conquer timing point is really emitted; the reason must name the real gaps.
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /turn\/flow\.ts/);
+  assert.match(program.judgeReason, /additional-cost/);
+  // The newly verified gap: the scoring wave carries no conquering-unit attribution.
+  assert.match(program.judgeReason, /payloadFields/);
+  assert.match(program.judgeReason, /sigil-of-the-storm/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120/);
 });
 
 test("unl-029-219 Red Brambleback: [Accelerate] is a bare keyword declaration", () => {
@@ -159,9 +169,50 @@ test.todo(
 );
 test.todo(
   "unl-029-219 Red Brambleback: charge the Accelerate optional additional cost and apply the 805.6 enter-ready" +
-    " replacement (merged keyword expansion not consumed by the card-program -> cost pipeline; RIFT-89)"
+    " replacement — the merged keyword expansion is not consumed by the card-program -> cost/replacement pipeline" +
+    " (programs/play.ts rejects additional-cost fields)"
 );
 test.todo(
   "unl-029-219 Red Brambleback: the conquer trigger is registered and its friendly-unit target is locked at" +
-    " Finalize (RIFT-120 / RIFT-90)"
+    " Finalize — the RIFT-257 registration path exists, but the program is judge-required so the registry refuses" +
+    " it; the card keeps judge-required for the trigger-multiplicity gap recorded in judgeReason"
 );
+
+test("unl-029-219 Red Brambleback golden: the conquer timing is emitted, but its payload cannot bind 'self'", () => {
+  // 383.4.c: "When I conquer" is a Conquer Effect. turn/flow.ts publishes the
+  // conquer timing inside the committed Score wave (one simultaneous group), so
+  // the timing itself exists on merged paths. 383.4.c.2 scopes the ability to
+  // *this* unit, which the card spells `{ source: "self" }`; programs/filters.ts
+  // translates that into an object filter ({ objectId }) and the scoring emission
+  // carries only player + details, so the subscription can never match.
+  const kernel = world().player("A").player("B").unit("brambleback", { controller: "A", cardId: CANONICAL_ID, might: 4 }).build();
+  const hits = [];
+  const pipeline = new EventPipeline(createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("no choice"); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  }), ["A", "B"], "A");
+  pipeline.onTrigger = snapshot => hits.push(snapshot.registration.id);
+
+  // The card's own filter, translated exactly as programs/triggers.ts does: the
+  // source:self anchor becomes an object filter targeting the unit, and the event
+  // name keeps the card's "conquer" spelling (the timing point's id).
+  const translated = translateTriggerFilter(conquerTrigger.trigger.filter, "brambleback", "conquer");
+  assert.deepEqual(translated, { event: "conquer", object: { objectId: "brambleback" } });
+
+  // A player-scoped spelling with the closed-vocabulary name does match...
+  pipeline.registerTrigger({ id: "player-scoped", source: kernel.getObject("brambleback"), controller: "A", spec: { at: "conquer", filter: { event: "conquered", player: "self" } }, body: [] });
+  // ...and the object-scoped spelling is registerable too once the event name is
+  // spelled with the closed vocabulary.
+  pipeline.registerTrigger({ id: "brambleback-conquer", source: kernel.getObject("brambleback"), controller: "A", spec: { at: "conquer", filter: { event: "conquered", object: { objectId: "brambleback" } } }, body: [] });
+  pipeline.emit({ timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" } });
+  assert.deepEqual(hits, ["player-scoped"]);
+
+  // The card's own source-scoped subscription does not fire, because the scoring
+  // payload carries no conquering-unit attribution (the gap in judgeReason).
+  assert.equal(hits.includes("brambleback-conquer"), false);
+});

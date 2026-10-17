@@ -15,17 +15,23 @@ import type { CardProgram } from "../../ir/index.js";
  *   文档明确临时 Might 归 layers 的 continuous.might（CR 702/703 的 Buff 计数
  *   是另一回事），因此需要未合并的原语与到期消费者。
  *
- * status = judge-required：
- * - 缺连续的 Might 修正原语：封闭 GameAction 集合没有 might 修改动作，
- *   effects/instructions/ 下没有 effect.might-modify / continuous.might 文件，
- *   卡牌程序没有把该持续效果注册进 layers/ 的指令入口（ctx.addContinuous 目前
- *   没有原语消费者）；
- * - “this turn” 的期限需要按 CR 315.4 / 清理步骤移除，该期限本身由 layers 的
- *   duration 机制表达，但没有卡牌可用的注册路径（同上）。
- * 本程序保留已支持的触发结构与目标形状；body 的 continuous.might 记录意图，
- * 不近似用 effect.buff 表达（Buff 是 702 的计数器，不是“this turn”修正）。
+ * status = judge-required。自本程序初写后合入的依赖：continuous.might 原语（RIFT-258：
+ * 经 ctx.addContinuous 注册 arithmetic 层效果、end-of-turn 期限按 315.4/468.7.c 到期、
+ * 479.4.b 的印刷下限），以及 CardProgram → TriggerRegistration 绑定（RIFT-257：
+ * card-played 订阅、Finalize 锁定目标、触发生成链项）。body 因此改用该原语的真实
+ * args 形状（args.objects 指向 TargetSpec，契约 3.6 的符号选择器），不再只是记录意图；
+ * golden 用生产链适配器 + 参考内核真实执行“敌方打出不触发 / 己方打出触发 / arithmetic
+ * 注册与到期”，不近似用 effect.buff 表达（Buff 是 702 的计数器）。
  *
- * 依赖：RIFT-91（layers-continuous 的卡牌指令入口）、RIFT-89/90（目标与条件管线）。
+ * 仍不能宣称整卡可执行的一处缺口（不近似实现）：本卡是 Legend，而合并的卡牌程序
+ * 绑定把 card-played 的 activeZones 定为 ['board']（programs/triggers.ts 的 permanent
+ * 分支），对局生命周期却把 Legend 创建在 chain 区并留在那里（game/lifecycle.ts 的
+ * createToken；契约 ZoneId 没有 legend-zone 成员，CR 107.4 的 Legend Zone 未建模）。
+ * 真实对局里这条触发因此匹配不到自己的来源；只有把 Legend 放进 Board 的场景（golden
+ * 的初始局面）能执行。该缺口属共享契约与生命周期，不在本卡可修范围内。
+ *
+ * 依赖：契约 ZoneId 增加 legend-zone 且生命周期把 Legend 放进该区（或
+ * programs/triggers.ts 为 Legend 派生正确的 activeZones）。
  */
 export default {
   canonicalCardId:
@@ -33,12 +39,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺临时 Might 修正的可执行路径：契约 3.6 的封闭 GameAction 集合没有 might 修改动作，" +
-    "effects/instructions/ 下没有 continuous.might / effect.might-modify 原语文件，" +
-    "卡牌程序也没有把该持续效果注册进 layers/ 的指令入口（ctx.addContinuous 目前没有原语消费者）；" +
-    "effect.buff 文档明确临时 Might 归 layers 的 continuous.might（702/703 的 Buff 计数器不是本效果），" +
-    "“this turn” 按 CR 315.4 / 清理步骤移除的期限需要上述注册路径才能落地。" +
-    "依赖 RIFT-91（layers 的卡牌接线）与 RIFT-89/90（目标/条件管线）；触发结构与目标形状已保留，不近似实现。",
+    "副作用与绑定已合入并可真实执行：continuous.might（RIFT-258）按 143.2.a/475 注册 arithmetic 层修正、" +
+    "按 315.4/468.7.c 以 end-of-turn 到期；CardProgram → TriggerRegistration（RIFT-257）建立 card-played 订阅" +
+    "并在 Finalize 锁定目标。仍有的唯一缺口：本卡是 Legend，而合并绑定把 card-played 订阅的 activeZones 定为 " +
+    "['board']（programs/triggers.ts 的 permanent 分支），对局生命周期却把 Legend 创建在 chain 区并留在那里" +
+    "（game/lifecycle.ts 的 createToken；契约 ZoneId 无 legend-zone 成员，CR 107.4 的 Legend Zone 未建模），" +
+    "因此真实对局中该触发永远匹配不到来源，只有把 Legend 放进 Board 的初始局面（golden）能执行。" +
+    "依赖共享契约：ZoneId 增加 legend-zone 并把 Legend 放进该区（或 programs/triggers.ts 为 Legend 派生 activeZones）。" +
+    "不近似实现。",
   abilities: [
     {
       kind: "triggered",
@@ -57,7 +65,14 @@ export default {
           op: "continuous.might",
           args: {
             amount: { kind: "constant", value: 1 },
-            duration: { kind: "constant", value: "end-of-turn" }
+            // 315.4 / 468.7.c：“this turn” 由 layers 的 duration alias 解析为 end-of-turn。
+            duration: { kind: "constant", value: "this-turn" },
+            // 合并原语的选择符：由 Finalize 锁定的目标经 TargetSpec id 读取
+            // （355.10 / 契约 3.6 的 objects 形状）。
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "pridestalker.unit" }
+            }
           },
           targets: [
             {

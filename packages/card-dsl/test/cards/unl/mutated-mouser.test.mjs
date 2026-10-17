@@ -24,10 +24,14 @@ test("unl-036-219 Mutated Mouser: identity, status, judgeReason and verbatim sou
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
+  // The stale "no KeywordDef / no keyword-expansion path" gap is gone
+  // (RIFT-81 + RIFT-264 + RIFT-257); the reason must name the real gaps.
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /conditionMatches/);
   assert.match(program.judgeReason, /814\.1\.d/);
   assert.match(program.judgeReason, /815\.1\.c/);
-  assert.match(program.judgeReason, /combatRole/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.doesNotMatch(program.judgeReason, /未进 HEAD/);
 });
 
 test("unl-036-219 Mutated Mouser: the card only declares Shield 2 and Tank (contract 3.7)", () => {
@@ -67,14 +71,29 @@ test("unl-036-219 Mutated Mouser: the merged Shield and Tank expansions match th
 });
 
 test.todo(
-  "unl-036-219 Mutated Mouser: expand the card's keywords through the KeywordDef registry into layer " +
-    "registrations (contract 3.5/3.7) — no card keyword consumer is merged (RIFT-91)"
-);
-test.todo(
   "unl-036-219 Mutated Mouser: read the Defender designation in the arithmetic layer so Shield 2 applies " +
-    "only while defending (CR 814.1.d/814.1.d.1) — contract 3.8 combatRole is not in HEAD (RIFT-105)"
+    "only while defending (CR 814.1.d/814.1.d.1) — ObjectSnapshot.combatRole exists, but layers/engine.ts " +
+    "conditionMatches does not evaluate the compare condition and no combat designation transaction emits it"
 );
 test.todo(
   "unl-036-219 Mutated Mouser: honour [Tank] when assigning combat damage (CR 815.1.b/815.1.c.1/.c.2) — " +
     "combat/base-combat-allocation.ts records 'No Tank/Backline/other assignment-priority requirement is bound here'"
 );
+
+test("unl-036-219 Mutated Mouser: every declared keyword resolves to a merged KeywordDef (contract 3.5/3.7)", () => {
+  // The card only declares keywords; programs/keywords.ts's expandProgram is the
+  // merged consumer that resolves each declaration through the registry. A
+  // declaration with no KeywordDef throws ProgramBindingError there, so this
+  // pins the card's contract-3.7 surface against the merged registry.
+  for (const ability of program.abilities) {
+    assert.equal(ability.kind, "keyword");
+    const definition = [...keywordDefinitionsById.entries()]
+      .find(([id, def]) => id.toLowerCase() === ability.keyword.toLowerCase()
+        || def.keyword.toLowerCase() === ability.keyword.toLowerCase());
+    assert.ok(definition, `the merged registry must define ${ability.keyword}`);
+  }
+  // 814.1.b.2: the printed Shield Value is 2, carried by the card declaration.
+  assert.equal(shield.value, 2);
+  // 815.1.b / 815.2: Tank carries no value and is redundant in multiples.
+  assert.equal(tank.value, undefined);
+});
