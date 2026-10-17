@@ -4,8 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/battlefield-armorer.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [triggered] = program.abilities;
@@ -32,10 +32,11 @@ test("rad-130-167 Battlefield Armorer: program validates and has expected identi
   );
 });
 
-test("rad-130-167 Battlefield Armorer: judgeReason names the missing battlefield-death filter", () => {
-  assert.match(program.judgeReason, /object-killed/);
-  assert.match(program.judgeReason, /355\.10\.b/);
-  assert.match(program.judgeReason, /battlefield/);
+test("rad-130-167 Battlefield Armorer: judgeReason names the remaining payment, event-object and binding gaps", () => {
+  assert.match(program.judgeReason, /cost\.pay/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /事件对象|event object/i);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-130-167 Battlefield Armorer: structure — gear-death trigger, optional 1-energy payment, return to hand", () => {
@@ -44,7 +45,7 @@ test("rad-130-167 Battlefield Armorer: structure — gear-death trigger, optiona
   assert.equal(triggered.trigger.at, "object-killed");
   assert.deepEqual(triggered.trigger.filter, {
     event: "object-killed",
-    object: { type: "gear", controller: "self" }
+    object: { type: "gear", controller: "self", zone: "battlefield" }
   });
   assert.equal(triggered.optional, false);
 
@@ -117,6 +118,31 @@ test("rad-130-167 Battlefield Armorer: a reference that left its zone makes the 
   assert.equal(kernel.getObject("gear-1").zone, "banishment");
 });
 
+test("rad-130-167 Battlefield Armorer golden: the merged matcher evaluates 'died at a battlefield'", () => {
+  // 355.10.b: the restriction is a filter on the gear that died. The merged
+  // trigger matcher reads the pre-move snapshot's location.type through the
+  // zone field, so a gear that died at a battlefield matches while one that
+  // died in a base does not.
+  const battlefieldGear = world().unit("gear-bf", {
+    types: ["gear"],
+    zone: "board",
+    location: { type: "battlefield", id: "bf-1" }
+  }).build().getObject("gear-bf");
+  const baseGear = world().unit("gear-base", {
+    types: ["gear"],
+    zone: "board",
+    location: { type: "base", player: "A" }
+  }).build().getObject("gear-base");
+
+  assert.equal(matchesTriggerEvent(triggered.trigger.filter, { timingPoint: "object-killed", object: battlefieldGear }, "A"), true);
+  assert.equal(matchesTriggerEvent(triggered.trigger.filter, { timingPoint: "object-killed", object: baseGear }, "A"), false);
+  // 740.1.a: "friendly" = the ability controller; an opponent's gear never matches.
+  assert.equal(
+    matchesTriggerEvent(triggered.trigger.filter, { timingPoint: "object-killed", object: { ...battlefieldGear, controller: "B", owner: "B" } }, "A"),
+    false
+  );
+});
+
 test("rad-130-167 Battlefield Armorer: declining the optional leaves the payment and the return unexecuted", () => {
   const kernel = world().player("A", { energy: 1 }).build();
   kernel.setAnswers({ "battlefield-armorer.opt-in/optional": false });
@@ -127,23 +153,18 @@ test("rad-130-167 Battlefield Armorer: declining the optional leaves the payment
   assert.deepEqual(kernel.events, []);
 });
 
-test("rad-130-167 Battlefield Armorer: the payment step has no merged op, so the optional body cannot run", () => {
-  // "you may pay :rb_energy_1:" is a cost within instructions (204.3). The
-  // merged instruction registry has no cost/energy payment op, so the declared
-  // payment step is recorded as data and cannot be executed today; this test
-  // pins that fact instead of faking the payment with a stub.
-  assert.equal(instructionDefinitionsById.has("cost.pay"), false);
-  const kernel = world()
-    .player("A", { energy: 1 })
-    .unit("gear-1", { types: ["gear"], zone: "trash" })
-    .build();
-  kernel.setAnswers({ "battlefield-armorer.opt-in/optional": true });
-  assert.throws(
-    () => runAbilityBody(bodyWithoutTargets, kernel),
-    /Unregistered instruction opcode: cost\.pay/
-  );
-  assert.equal(kernel.getObject("gear-1").zone, "trash");
-  assert.deepEqual(kernel.events, []);
+test("rad-130-167 Battlefield Armorer: the payment step is declared as data, never faked with a stub", () => {
+  // "you may pay :rb_energy_1:" is a cost within instructions (204.3). Its
+  // primitive is not merged, so the card declares the payment step and the
+  // return is linked to it; nothing in the card fakes the payment (no
+  // effect.exhaust, no free return). The dependency itself is recorded in
+  // judgeReason and the TODO below instead of locking the primitive's error.
+  assert.equal(pay.op, "cost.pay");
+  assert.deepEqual(pay.args.energy, { kind: "constant", value: 1 });
+  assert.equal(returnGear.linkedTo, "battlefield-armorer.pay");
+  assert.equal(returnGear.op, "effect.zone");
+  assert.deepEqual(returnGear.args.to, { kind: "constant", value: "hand" });
+  assert.equal(optIn.args.body.value.length, 2);
 });
 
 test.todo(

@@ -22,11 +22,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   effect.resources 明确记载 “Universal Power (163.2.b) is not representable … never
  *   approximated by a chosen domain”，因此第一段只能声明能量部分，[A] 保持不许称可用；
  * - “The second time I move each turn” 的序数条件：TriggerSpec.once 只有 once 语义，
- *   Condition 无 history 谓词，HistoryQuery 也没有对象范围 + 序数计数；
- * - “you may play that card” 的期限许可原语缺失（同 rad-012-167）。
+ *   已合入的 condition.history 只能得到动作计数（interpreter/history.ts 接受 scope/action/
+ *   timingPoint/player/object，并已转为消费契约 3.8 的 exclude/objectFilter——但「本回合第
+ *   N 次」的序数比较仍需历史谓词），且本卡用 count 占位写法不产生该语义；
+ * - “you may play that card” 的期限化打出许可原语缺失：effect.play-permission 未注册
+ *   （effects/instructions/ 无该文件），打出的费用交接归 RIFT-261；
+ * - 触发订阅还需要 CardProgram → TriggerRegistration 绑定（RIFT-257）。
  *
- * 依赖：RIFT-89~91（cost/continuous 许可与 Universal Power）、RIFT-89/90（历史查询与
- * 序数条件扩展）、RIFT-21/31（移动时点与最后已知信息）。
+ * 依赖：Universal Power 表示（RIFT-261 费用/RIFT-258 资源）、历史序数谓词、
+ * effect.play-permission 原语与 RIFT-257。已合入部分（object-moved 时点、effect.banish
+ * 牌库顶、effect.resources 能量）在 golden 测试真实执行。
  */
 const abilities: Ability[] = [
   {
@@ -101,12 +106,13 @@ const program = {
   judgeReason:
     "三个缺口：(1) Universal Power（[A]，135.2.e.5 / 163.2.b）无可执行表达——契约 3.6 的" +
     "Domain 是六域封闭枚举，effect.resources 文件明确记载 Universal Power 不可表示、" +
-    "不得用任一域近似（依赖 RIFT-89~91 的资源/费用管线）；(2) “The second time I move each " +
-    "turn” 需要按对象范围的本回合移动序数：Condition 无 history 谓词、HistoryQuery 无对象+序数" +
-    "计数（依赖 RIFT-89/90）；(3) “Until your next Ending Phase, you may play that card. " +
-    "(You still pay its costs.)” 需要期限化的打出许可原语，当前未合入（effect.play 只消费已" +
-    "Finalize 的费用计划，Duration 无 “your next Ending Phase” 具名期限）。已合入部分" +
-    "（object-moved 时点、effect.banish 牌库顶、effect.resources 能量）在 golden 测试真实执行。不近似实现。",
+    "不得用任一域近似；(2) “The second time I move each turn” 需要按对象范围的本回合移动序数：" +
+    "condition.history 只提供动作计数（含契约 3.8 的 exclude/objectFilter 消费），没有序数谓词；" +
+    "(3) “Until your next Ending Phase, you may play that card. (You still pay its costs.)” 需要" +
+    "期限化的打出许可原语：effect.play-permission 未注册（effects/instructions/ 无该文件），" +
+    "effect.play 只消费已 Finalize 的费用计划（RIFT-261）。此外触发订阅还需要 CardProgram → " +
+    "TriggerRegistration 绑定（RIFT-257）。已合入部分（object-moved 时点、effect.banish 牌库顶、" +
+    "effect.resources 能量）在 golden 测试真实执行。不近似实现。",
   abilities,
   sourceText:
     "The first time I move each turn, [Add] :rb_energy_1::rb_rune_rainbow:.\n" +

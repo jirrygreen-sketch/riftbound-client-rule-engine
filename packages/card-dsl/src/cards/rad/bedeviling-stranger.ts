@@ -29,8 +29,10 @@ import type { CardProgram } from "../../ir/index.js";
  *    target.location 一族未合入），因此 "there" 无法绑定到被选战场。
  * 2. "If there are 4 or more units there" 这个前置门控需要一个引用「被选战场」的计数
  *    条件；在 (1) 落地前该战场引用不存在，把条件写成任意战场会改变卡牌语义。
- * 3. Hidden 的 cost.hidden 展开没有消费方（RIFT-84）：Hide 动作、facedown 区域与
- *    「下回合以 [Reaction] 从 facedown 打出」都未接入（同 ogn/consult-the-past 声明）。
+ * 3. Hidden 的 cost.hidden 展开（RIFT-84，KeywordDef 已合入）没有消费方：Hide 动作、
+ *    facedown 区域与「下回合以 [Reaction] 从 facedown 打出」都未接入
+ *    （time-point-producers.md 记 card-hidden 待后续）；触发订阅还需要 CardProgram →
+ *    TriggerRegistration 绑定（RIFT-257）。
  * 下面保留有依据的部分：choice.optional 包住的 effect.zone（把战场上的敌方单位移回其拥有者手牌），
  * 目标过滤器写成「战场上的敌方单位」；「there」的收窄与 ≥4 门控是上述 judged 部分，
  * 由 golden 测试与 judgeReason 显式记录。
@@ -43,11 +45,12 @@ export default {
     "三处缺口，均不近似实现：(1) 「choose a battlefield」缺少动态地点选择器——PickSpec.options 只能是静态 Value 列表，" +
     "IR 里没有「当前合法战场集合」的地点选择（target.location 一族未合入），所以 " +
     "「there」无法绑定到被选战场；(2) 「If there are 4 or more units there」的前置门控需要引用被选战场的计数条件，" +
-    "在 (1) 落地前该引用不存在，写成任意战场会改变卡牌语义；(3) Hidden 的 cost.hidden 展开无消费方（RIFT-84）：" +
-    "Hide 动作、facedown 区域与「下回合以 [Reaction] 且忽略基础费用打出」均未合入。" +
+    "在 (1) 落地前该引用不存在，写成任意战场会改变卡牌语义；(3) Hidden 的 cost.hidden 展开（KeywordDef 已合入）" +
+    "没有消费方：Hide 动作、facedown 区域与「下回合以 [Reaction] 且忽略基础费用打出」均未接入；" +
+    "触发订阅还需要 CardProgram → TriggerRegistration 绑定（RIFT-257）。" +
     "已按已合入原语写出的部分：choice.optional 包住 effect.zone（把敌方单位移回其拥有者手牌），" +
-    "目标过滤为「战场上的敌方单位」，「there」的收窄是 judged 部分。依赖：RIFT-84（kw-deflect-hidden）、" +
-    "target.location 一族与战斗场地选择。",
+    "目标过滤为「战场上的敌方单位」，并有真实执行测试；「there」的收窄是 judged 部分。" +
+    "依赖：target.location 一族与战斗场地选择、Hide 动作接线、RIFT-257。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     {

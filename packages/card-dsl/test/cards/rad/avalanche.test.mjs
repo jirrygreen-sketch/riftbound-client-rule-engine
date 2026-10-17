@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/rad/avalanche.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
 const CANONICAL = "card.hash-93ccf4a04222adbd61db565ce07b24bcbe42a6cf03edc5ff3ab1d63feb45bad5";
@@ -22,10 +23,9 @@ test("rad-079-167 Avalanche: program passes validateCardProgram with the catalog
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("rad-079-167 Avalanche: judgeReason names the set-selection damage path", () => {
+test("rad-079-167 Avalanche: judgeReason names the missing batch set damage path", () => {
   assert.match(program.judgeReason, /ctx\.targets/);
   assert.match(program.judgeReason, /355\.10\.d/);
-  assert.match(program.judgeReason, /location/);
   assert.match(program.judgeReason, /target\.many|RIFT-90/);
 });
 
@@ -49,7 +49,9 @@ test("rad-079-167 Avalanche: structure — printed energy 5 plus 2 power, one se
   assert.deepEqual(dealInstruction.args.objects, {
     kind: "constant",
     value: {
-      filter: { type: "unit", location: { type: "base" } },
+      // The evaluated string spelling (object.location.type) the production
+      // filter consumes (layers/rules/query.ts).
+      filter: { type: "unit", location: "base" },
       selection: "all"
     }
   });
@@ -66,18 +68,34 @@ test("rad-079-167 Avalanche: the authored set selector is rejected by the merged
   assert.equal(kernel.getObject("base-unit").damage, 0);
 });
 
-test("rad-079-167 Avalanche: neither the kernel nor the layer filter evaluates a nested location filter", () => {
-  // "in bases" cannot be expressed with the merged filter vocabulary: the
-  // reference kernel matches location as an exact JSON value (so a unit in a
-  // base never matches { type: "base" }), and layers/filter.ts compares
-  // location against a zone-name string. Both directions are asserted so a
-  // future filter change cannot silently make this card look executable.
+test("rad-079-167 Avalanche: the production filter evaluates the 'in bases' restriction", () => {
+  // "in bases" is expressible: the production layer filter compares the
+  // string spelling against object.location.type, so a unit in a Base matches
+  // while a unit at a Battlefield does not. The reference kernel's set query
+  // matches the location object as an exact JSON value, so it is the
+  // production filter — not the kernel — that evaluates this restriction
+  // (same convention as the merged sibling goldens).
   const kernel = world().base("base-unit", { location: { type: "base", player: "A" } }).build();
-  const nestedFilter = dealInstruction.args.objects.value.filter;
-  assert.equal(kernel.query(nestedFilter).length, 0);
-  assert.equal(kernel.query({ type: "unit", location: "base" }).length, 0);
+  const inBases = dealInstruction.args.objects.value.filter;
+  const baseSnapshot = kernel.getObject("base-unit");
+  assert.equal(matchesObjectFilter(inBases, baseSnapshot), true);
+  const battlefieldKernel = world().unit("bf-unit", { location: { type: "battlefield", id: "bf-1" } }).build();
+  assert.equal(matchesObjectFilter(inBases, battlefieldKernel.getObject("bf-unit")), false);
   const snapshot = kernel.getObject("base-unit");
   assert.deepEqual(snapshot.location, { type: "base", player: "A" });
+});
+
+test("rad-079-167 Avalanche: the merged damage primitive still requires a TargetSpec, never a fake target", () => {
+  // The set is not a target (355.10.d): smuggling it in as a TargetSpec would
+  // wrongly emit became-target. The primitive reads ctx.targets(id) only, so
+  // the authored objects selector cannot execute it — the batch set op is the
+  // recorded missing shape.
+  const kernel = world().base("base-unit").build();
+  const args = { amount: dealInstruction.args.amount, objects: dealInstruction.args.objects };
+  assert.throws(() => damage.argsSchema.parse(args), /args\.target must be a TargetSpec id string/);
+  assert.equal(kernel.getObject("base-unit").damage, 0);
+  assert.equal(dealInstruction.targets, undefined);
+  assert.equal(dealInstruction.picks, undefined);
 });
 
 test.todo(

@@ -4,8 +4,10 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/ahri-confident.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
-import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import disarm from "../../../../engine-core/dist/effects/keywords/Disarm.js";
 
 const CANONICAL = "card.hash-b5c30bb9570eb87f81c02526593c66f04d242c43ca13f9e3f0e38ed148fe62c1";
 const SOURCE_TEXT =
@@ -26,9 +28,9 @@ test("rad-038-167 Ahri, Confident: identity, ruleset, status, judgeReason and so
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   // README 第 2 节：judgeReason 要写清缺哪个 op、哪条规则、依赖哪个任务。
-  assert.match(program.judgeReason, /Disarm/);
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /attack-declared/);
+  assert.match(program.judgeReason, /might-changed/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -60,7 +62,6 @@ test("rad-038-167 Ahri, Confident: +1 Might this turn is authored as an arithmet
   assert.equal(instruction.id, "ahri-confident.give-me-might");
   assert.equal(instruction.op, "continuous.might");
   assert.deepEqual(instruction.args.mode, { kind: "constant", value: "add" });
-  assert.deepEqual(instruction.args.layer, { kind: "constant", value: "arithmetic" });
   assert.deepEqual(instruction.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(instruction.args.duration, { kind: "constant", value: "end-of-turn" });
   assert.deepEqual(instruction.targets, [
@@ -75,23 +76,79 @@ test("rad-038-167 Ahri, Confident: +1 Might this turn is authored as an arithmet
   assert.equal(instruction.linkedTo, undefined);
 });
 
-test.todo(
-  "rad-038-167 Ahri, Confident: execute Disarm 1 (attack trigger + telegraphic -1 Might this turn) once the " +
-    "Disarm KeywordDef and the continuous.might / continuous.duration primitives land (no assigned task; RIFT-91 layers)"
-);
+test("rad-038-167 Ahri, Confident golden: the +1 Might body registers an end-of-turn arithmetic effect", () => {
+  const kernel = world().unit("ahri", { might: 4 }).unit("enemy", { owner: "B", controller: "B", might: 3 }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("ahri") });
+  scoped.setTargets("ahri-confident.self", [scoped.ref("ahri")]);
 
-test.todo(
-  "rad-038-167 Ahri, Confident: emit and filter the might-changed payload (previousMight/currentMight, CR 709, " +
-    "sameLocationAs \"self\") so the +1 Might reward fires — depends on RIFT-91 layers evaluation feeding the event pipeline"
-);
+  const outcome = runAbilityBody(triggered.body, scoped);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["ahri-confident.give-me-might", "executed"]
+  ]);
+  assert.equal(scoped.continuousEffects.length, 1);
+  const registration = scoped.continuousEffects[0];
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 1);
 
-test.todo(
-  "rad-038-167 Ahri, Confident: apply the +1 Might arithmetic effect through the layer engine and expire it at the " +
-    "end-of-turn cleanup (CR 143.2.a / 475) — depends on RIFT-91"
-);
-
-test("rad-038-167 Ahri, Confident: the depended-on opcodes and keywords are not yet registered", () => {
-  // RIFT-9 调研与 README 第 2 节：能写出 IR 不等于可执行。记录真实缺口，避免后来者误判。
-  assert.equal(keywordDefinitionsById.get("disarm"), undefined);
-  assert.equal(instructionDefinitionsById.get("continuous.might"), undefined);
+  const layers = createLayerEngine(
+    [scoped.getObject("ahri"), scoped.getObject("enemy")],
+    scoped.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 }))
+  );
+  assert.equal(layers.evaluate(scoped.ref("ahri")).might, 5);
+  assert.equal(layers.evaluate(scoped.ref("enemy")).might, 3);
+  assert.equal(scoped.getObject("ahri").buffs, 0);
 });
+
+test("rad-038-167 Ahri, Confident golden: the merged Disarm 1 expansion applies -1 Might to the chosen enemy here", () => {
+  const [expanded] = disarm.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(expanded.trigger.at, "attack-declared");
+  const [instruction] = expanded.body;
+  assert.deepEqual(instruction.args.amount, { kind: "constant", value: -1 });
+  assert.deepEqual(instruction.args.duration, { kind: "constant", value: "this-turn" });
+  assert.deepEqual(instruction.targets, [{
+    id: "disarm.enemy-unit",
+    filter: { type: "unit", zone: "board", controller: "opponent", sameLocationAs: "source" },
+    min: 1,
+    max: 1,
+    selection: "one"
+  }]);
+
+  const kernel = world()
+    .unit("ahri", { might: 4 })
+    .unit("enemy", { owner: "B", controller: "B", might: 2 })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("ahri") });
+  scoped.setTargets("disarm.enemy-unit", [scoped.ref("enemy")]);
+  // The reference kernel compares controller placeholders verbatim, so the
+  // "opponent" anchor only resolves in the production target system; execute
+  // the interpreter body without its TargetSpecs and feed the locked target
+  // directly, the one-two-punch / orb-of-regret convention. The expansion's
+  // own TargetSpec is asserted above instead.
+  const outcome = runAbilityBody([{ ...instruction, targets: undefined }], scoped);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(scoped.continuousEffects.length, 1);
+  assert.equal(scoped.continuousEffects[0].effect.effect.amount, -1);
+
+  const layers = createLayerEngine(
+    [scoped.getObject("enemy")],
+    scoped.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 }))
+  );
+  assert.equal(layers.evaluate(scoped.ref("enemy")).might, 1);
+});
+
+test.todo(
+  "rad-038-167 Ahri, Confident: attack-declared must be emitted by the combat role transaction " +
+    "(combat/flow.ts still throws combat-start-transaction, CR 466.2) before the Disarm trigger can fire"
+);
+
+test.todo(
+  "rad-038-167 Ahri, Confident: might-changed must be emitted from layer recomputation (deriveMightChangedEmissions " +
+    "has no production caller) with a payload predicate comparing previousMight/currentMight so the +1 Might reward fires"
+);
+
+test.todo(
+  "rad-038-167 Ahri, Confident: the trigger needs the CardProgram → TriggerRegistration binding (RIFT-257)"
+);

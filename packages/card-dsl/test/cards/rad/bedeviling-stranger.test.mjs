@@ -39,7 +39,8 @@ test("rad-107-167 Bedeviling Stranger: judgeReason names the location, gate and 
   assert.match(program.judgeReason, /there/);
   assert.match(program.judgeReason, /4 or more/);
   assert.match(program.judgeReason, /cost\.hidden/);
-  assert.match(program.judgeReason, /RIFT-84/);
+  assert.match(program.judgeReason, /Hide 动作/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-107-167 Bedeviling Stranger: [Hidden] stays one keyword declaration with a registered KeywordDef", () => {
@@ -160,7 +161,12 @@ test.todo(
     "target.location family not merged)"
 );
 test.todo(
-  "rad-107-167 Bedeviling Stranger: [Hidden] expansion — Hide action, facedown zone and the " +
-    "next-turn [Reaction] play ignoring the base cost (CR 811.1.b/811.1.d, cost.hidden) — RIFT-84"
+  "rad-107-167 Bedeviling Stranger: [Hidden] expansion — the KeywordDef is merged but the Hide " +
+    "action, facedown zone and next-turn [Reaction] play ignoring the base cost " +
+    "(CR 811.1.b/811.1.d, cost.hidden) have no consumer"
+);
+test.todo(
+  "rad-107-167 Bedeviling Stranger: the card-played trigger needs the CardProgram → " +
+    "TriggerRegistration binding (RIFT-257)"
 );
 

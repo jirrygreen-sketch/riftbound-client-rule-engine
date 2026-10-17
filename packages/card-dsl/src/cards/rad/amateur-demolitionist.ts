@@ -19,12 +19,11 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status: judge-required（不近似实现）：
  * - effect.token 的定义表（recruit / sand-soldier / mech / reflection / tentacle）不含
- *   Bomb；带自身能力的 token 定义按该原语文件说明保持 blocked
- *   （negated + blockedReason "token-definition-or-abilities-judge-required"），
- *   Bomb 的 Deploy / Deathknell 展开依赖关键词注册表（Deploy 无 KeywordDef）与
- *   事件/替代管线；
- * - "play" mode 的链上生成 + 打出流程需要链管线的 token 接手（RIFT-62/RIFT-66 之后仍在
- *   收敛中）。
+ *   Bomb：带自身能力的 token 定义按该原语文件说明保持 blocked（negated + blockedReason
+ *   "token-definition-or-abilities-judge-required"）。Deploy / Deathknell 的 KeywordDef
+ *   已合入（RIFT-267 / RIFT-265），但 token 定义表本身仍是闭集，卡牌侧不能新增定义；
+ * - "play" mode 的链上生成 + 打出流程由参照内核与 effect.token 原语承载，但生产打出仍
+ *   依赖 Finalize 的费用交接（RIFT-261）与 CardProgram 绑定（RIFT-257）。
  */
 const program = {
   canonicalCardId: "card.hash-19dbd19038a6e261cba3253b41f902ba0a6e7533f33da771cc4fd6b644de55ec",
@@ -32,11 +31,12 @@ const program = {
   status: "judge-required",
   judgeReason:
     "Bomb gear token 定义缺失：effect.token 的冻结定义表不含 bomb（含自身能力的 token 按原语" +
-    "说明保持 blocked，返回 blockedReason \"token-definition-or-abilities-judge-required\"），" +
-    "且 Bomb 的 [Deploy] / [Deathknell] 展开依赖关键词注册表与事件/替代管线" +
-    "（Deploy 无 KeywordDef；依赖 RIFT-83/RIFT-84 与 RIFT-91）。effect.token mode \"play\" " +
-    "（440.2.c / 185.2.a 链上生成 + 打出）由链管线接手，卡牌侧只声明形状；" +
-    "战场目的地选择（355.10.b 非目标地点选择）已按 pick 表达。不近似实现。",
+    "说明保持 blocked，返回 blockedReason \"token-definition-or-abilities-judge-required\"）；" +
+    "Deploy / Deathknell 的 KeywordDef 虽已合入（RIFT-267 / RIFT-265），卡牌侧仍不能为 Bomb 补" +
+    "定义，且 effect.token 不支持入场状态改写（143.4 / 185.2.d）。mode \"play\" 的链上生成 + " +
+    "打出（440.2.c / 185.2.a）在参照内核可用，但生产打出仍需 Finalize 费用交接（RIFT-261）与" +
+    "CardProgram 绑定（RIFT-257）；战场目的地选择（355.10.b 非目标地点选择）已按 pick 表达。" +
+    "不近似实现。",
   abilities: [
     {
       kind: "triggered",

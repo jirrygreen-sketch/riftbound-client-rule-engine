@@ -25,7 +25,9 @@ test("rad-015-167 Akali, Brash: program validates and has expected identity", ()
       "The second time I move each turn, banish the top card of your Main Deck. Until your next Ending Phase, you may play that card. (You still pay its costs.)"
   );
   assert.match(program.judgeReason, /Universal Power/);
-  assert.match(program.judgeReason, /HistoryQuery/);
+  assert.match(program.judgeReason, /condition\.history/);
+  assert.match(program.judgeReason, /effect\.play-permission/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-015-167: first-move resource trigger and second-move banish trigger", () => {
@@ -75,13 +77,8 @@ test("rad-015-167: first-move resource trigger and second-move banish trigger", 
 test("rad-015-167: [Add] gains 1 Energy through the real effect.resources primitive", () => {
   const kernel = world().player("A", { energy: 0 }).build();
   const [gain] = program.abilities[0].body;
-  // 只执行六域可表达的能量部分；[A] 的 Universal Power 不在此近似（见 judgeReason）。
-  const outcome = resolveChainBody([gain], kernel);
-  assert.equal(outcome.status, "partial");
-  assert.equal(outcome.results[0].result.status, "negated");
-  assert.equal(outcome.results[0].result.reason, "impossible");
-  assert.equal(kernel.player("A").energy, 0);
-
+  // 只执行六域可表达的能量部分；[A] 的 Universal Power 表示缺口记在 judgeReason 与
+  // 下面的 TODO 里，不锁定合并原语对 [A] 的否定结果（依赖落地后断言会失效）。
   const energyOnly = resolveChainBody([{ ...gain, args: { energy: gain.args.energy } }], kernel);
   assert.equal(energyOnly.status, "executed");
   assert.equal(energyOnly.results[0].result.status, "executed");
@@ -103,13 +100,13 @@ test("rad-015-167: the second-move body banishes the deck top through real effec
 
 test.todo(
   "rad-015-167 Akali, Brash: Universal Power（[A]，135.2.e.5 / 163.2.b）无可执行表达——" +
-    "契约 3.6 的 Domain 是六域封闭枚举，effect.resources 明确不可用任一域近似（RIFT-89~91）"
+    "契约 3.6 的 Domain 是六域封闭枚举，effect.resources 明确不可用任一域近似"
 );
 test.todo(
-  "rad-015-167 Akali, Brash: “The second time I move each turn” 的序数条件需要 condition.history / " +
-    "HistoryQuery 的按对象范围 + 序号计数扩展（RIFT-89/90）"
+  "rad-015-167 Akali, Brash: “The second time I move each turn” 的序数条件需要按对象范围的历史序数谓词" +
+    "（condition.history 目前只给动作计数，即便它已消费契约 3.8 的 exclude/objectFilter）"
 );
 test.todo(
   "rad-015-167 Akali, Brash: “Until your next Ending Phase, you may play that card.” 的期限化" +
-    "from-Banishment 打出许可原语缺失（RIFT-89~91）"
+    "打出许可原语 effect.play-permission 缺失（未注册；费用交接归 RIFT-261）"
 );

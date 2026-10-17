@@ -4,8 +4,12 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/antagonistic-apparatus.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 
 const ENTER_READY = "antagonistic-apparatus.enter-ready";
 const PLAY_MECH = "antagonistic-apparatus.play-mech";
@@ -24,8 +28,8 @@ test("rad-009-167 Antagonistic Apparatus: program validates and has expected ide
     program.sourceText,
     "I enter ready.\nWhen you play me, play a ready 3 :rb_might: Mech unit token here."
   );
-  assert.match(program.judgeReason, /replacement\.enter/);
   assert.match(program.judgeReason, /entry override|Entry overrides/i);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-009-167: enter-ready replacement plus card-played Mech token body", () => {
@@ -39,54 +43,105 @@ test("rad-009-167: enter-ready replacement plus card-played Mech token body", ()
   assert.equal(replacement.with.length, 1);
   assert.equal(replacement.with[0].id, ENTER_READY);
   assert.equal(replacement.with[0].op, "effect.ready");
+  // 369.3 / 805.6 的 canonical 形状：body 用符号选择器 { kind: "source" }，
+  // 由 replacement planner 绑定被替代事件的对象。
+  assert.deepEqual(replacement.with[0].args, {
+    objects: { kind: "constant", value: { kind: "source" } }
+  });
 
   assert.equal(triggered.kind, "triggered");
   assert.equal(triggered.trigger.at, "card-played");
   assert.deepEqual(triggered.trigger.filter, { self: true });
   assert.equal(triggered.optional, false);
-  assert.equal(triggered.body.length, 1);
-  const [instruction] = triggered.body;
-  assert.equal(instruction.id, PLAY_MECH);
-  assert.equal(instruction.op, "effect.token");
-  assert.deepEqual(instruction.args.token, { kind: "constant", value: "mech" });
-  assert.deepEqual(instruction.args.amount, { kind: "constant", value: 1 });
-  // 新 token 经链上生成后打出（440.2.c / 185.2.a）。
-  assert.deepEqual(instruction.args.mode, { kind: "constant", value: "play" });
-  // “here” 读来源当前位置（420.3.b.2 结算时求值），用契约 3.6 符号选择器 "source"。
-  assert.deepEqual(instruction.args.location, {
+  assert.equal(triggered.body.length, 2);
+  const [readHere, instruction] = triggered.body;
+  assert.equal(readHere.id, "antagonistic-apparatus.read-here");
+  assert.equal(readHere.op, "condition.value");
+  assert.deepEqual(readHere.args.value, {
     kind: "object-property",
     object: "source",
     property: "location"
   });
+  assert.deepEqual(readHere.args.key, { kind: "constant", value: "here" });
+  assert.equal(instruction.id, PLAY_MECH);
+  assert.equal(instruction.op, "effect.token");
+  assert.equal(instruction.linkedTo, "antagonistic-apparatus.read-here");
+  assert.deepEqual(instruction.args.token, { kind: "constant", value: "mech" });
+  assert.deepEqual(instruction.args.amount, { kind: "constant", value: 1 });
+  // 新 token 经链上生成后打出（440.2.c / 185.2.a）。
+  assert.deepEqual(instruction.args.mode, { kind: "constant", value: "play" });
+  // “here” 读来源当前位置（420.3.b.2 结算时求值），经条件指令的链接值交给 token。
+  assert.deepEqual(instruction.args.location, {
+    kind: "linked-value",
+    instructionId: "antagonistic-apparatus.read-here",
+    key: "here"
+  });
 });
 
-test("rad-009-167: enter-ready replacement body resolves against the exhausted source", () => {
+test("rad-009-167: enter-ready replacement body readies the exhausted source through the merged primitive", () => {
   const kernel = world().unit("apparatus", { might: 3, exhausted: true }).build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("apparatus") });
-  const outcome = runAbilityBody(program.abilities[0].with, scoped);
-  assert.equal(outcome.status, "executed");
-  assert.equal(outcome.results[0].result.status, "executed");
+  const run = runInstruction(ready, program.abilities[0].with[0].args, { world: scoped });
+  assert.equal(run.result.status, "executed");
   assert.equal(kernel.getObject("apparatus").exhausted, true);
   assert.equal(scoped.getObject("apparatus").exhausted, false);
 });
 
-test("rad-009-167: the Mech definition lands at the source location (CR 187.4)", () => {
-  // “play” 的链上生成 + 入场改写未合入；测试按 effect.token 文档支持的 create 路径执行同一
-  // 定义与位置表达式，验证 Mech token 的 3 Might / Mech tag / “here” 位置，链路径写 TODO。
-  const kernel = world().unit("apparatus", { might: 3, location: BATTLEFIELD }).build();
-  const instruction = program.abilities[1].body[0];
-  const createOnly = {
-    ...instruction,
-    args: {
-      ...instruction.args,
-      mode: { kind: "constant", value: "create" },
-      location: { kind: "constant", value: BATTLEFIELD }
-    }
+test("rad-009-167 golden: bindReplacement replaces the exhausted entry with a ready entry (CR 369.3 / 805.6)", () => {
+  const kernel = world().player("A", { energy: 20 }).player("B", { energy: 20 })
+    .base("source", { energy: 0, power: [], might: 2 })
+    .hand("apparatus", { energy: 2, power: [], might: 3, types: ["unit"] })
+    .build();
+  const decide = request => {
+    if (request.type === "select-objects" && request.min === request.max && request.options.length === request.min) return [...request.options];
+    if (request.type === "optional") return false;
+    throw new AwaitChoice(request);
   };
-  const outcome = resolveChainBody([createOnly], kernel);
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: decide,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose: decide }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false,
+    describePlay: (action, source) => ({ id: `play:${source.ref.id}`, controller: action.player, source, kind: "unit", speed: "normal", body: [] })
+  });
+
+  const [replacement] = program.abilities;
+  bindReplacement(replacement, kernel.ref("apparatus"), {
+    host: { object: ref => kernel.object(ref), objects: () => kernel.objects, context: (source, controller) => kernel },
+    pipeline: engine.pipeline
+  });
+  engine.execute({ id: "play:apparatus", controller: "A", source: kernel.getObject("apparatus"), kind: "unit", speed: "normal", body: [] });
+  let guard = 0;
+  while (engine.items.length && guard++ < 20) engine.pass(engine.priority);
+
+  assert.equal(kernel.getObject("apparatus").zone, "board");
+  assert.equal(kernel.getObject("apparatus").exhausted, false);
+  assert.equal(engine.pipeline.events.some(event => event.timingPoint === "object-readied"), false);
+});
+
+test("rad-009-167: the Mech definition lands at the source location (CR 187.4)", () => {
+  // 整条 body（含 “here” 的 condition.value 链接）在参照内核真实执行；token 定义表里的
+  // Mech（187.4）落点取来源位置，入场就绪改写属 judgeReason/TODO。
+  const kernel = world().unit("apparatus", { might: 3, location: BATTLEFIELD }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("apparatus") });
+  const [readHere, playMech] = program.abilities[1].body;
+  const createOnly = {
+    ...playMech,
+    args: { ...playMech.args, mode: { kind: "constant", value: "create" } }
+  };
+  const outcome = resolveChainBody([readHere, createOnly], scoped);
   assert.equal(outcome.status, "executed");
-  assert.equal(outcome.results[0].result.status, "executed");
-  const tokens = kernel.query({ zone: "board", type: "unit" }).filter(object => object.isToken);
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["antagonistic-apparatus.read-here", "executed"],
+    [PLAY_MECH, "executed"]
+  ]);
+  const tokens = scoped.query({ zone: "board", type: "unit" }).filter(object => object.isToken);
   assert.equal(tokens.length, 1);
   assert.equal(tokens[0].name, "Mech");
   assert.equal(tokens[0].might, 3);
@@ -96,8 +151,8 @@ test("rad-009-167: the Mech definition lands at the source location (CR 187.4)",
 });
 
 test.todo(
-  "rad-009-167 Antagonistic Apparatus: “I enter ready.” 的入场替代（143.4 + 369.3）依赖" +
-    "replacement.enter 管线（RIFT-83/RIFT-84）"
+  "rad-009-167 Antagonistic Apparatus: the card-program adapter must wire the replacement ability " +
+    "into the match lifecycle at play time (RIFT-257); the merged bindReplacement path is executed in the golden above"
 );
 test.todo(
   "rad-009-167 Antagonistic Apparatus: “play a ready … token here” 的“入场就绪”改写无表达位置" +
@@ -105,5 +160,5 @@ test.todo(
 );
 test.todo(
   "rad-009-167 Antagonistic Apparatus: mode \"play\" 的链上生成 + 打出流程（440.2.c / 185.2.a / " +
-    "350.2 / 354）依赖链管线接线"
+    "350.2 / 354）在生产链上依赖 CardProgram 绑定（RIFT-257）"
 );

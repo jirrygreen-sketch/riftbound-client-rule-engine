@@ -21,15 +21,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   （CR 304）不是该传奇的操控者。
  *
  * status = judge-required（缺口均不近似实现）：
- * - “from face down” 无法在触发过滤里判定：EventPattern/ObjectFilter 的公开词汇只有
- *   states（ready/exhausted/stunned/attached/face-down）与 zone，而 OBJECT_FILTER_ZONES
- *   没有 facedown-zone；card-played 时点的载荷也不携带“该牌从哪个区域打出”的来源信息，
- *   所以“从面朝下打出”没有求值路径（RIFT-84 Hidden/facedown-zone、RIFT-91 触发过滤）。
- *   IR 里用 details.fromFaceDown 声明这个缺失的载荷字段：它是合法的 EventPattern 词汇，
- *   但当前 card-played 事件没有 details，因此触发在合并管线上无法命中（fail-closed，
- *   不会把普通打出的牌误判成面朝下打出）。
+ * - “from face down” 无法在触发过滤里判定：Hide 动作与 Facedown Zone 仍未合入——
+ *   RIFT-84 已合入的 Hidden KeywordDef 只展开 cost.hidden 声明，cost/cost-plan.ts 虽已有
+ *   hide/play 形态的计划构造，但没有消费方提交 Hide 动作把卡放进 Facedown Zone，也没有
+ *   生产者发出 card-hidden，OBJECT_FILTER_ZONES 亦无 facedown-zone；card-played 时点的
+ *   载荷也不携带“该牌从哪个区域打出”的来源信息。IR 里用 details.fromFaceDown 声明这个
+ *   缺失的载荷字段：它是合法的 EventPattern 词汇，但当前 card-played 事件没有 details，
+ *   因此触发在合并管线上无法命中（fail-closed，不会把普通打出的牌误判成面朝下打出）。
  * - “if it's not your turn” 需要读取“当前回合玩家 vs 能力控制者”，IR 的 Expr/Condition
- *   没有该谓词位置（RIFT-87/90）。
+ *   没有该谓词位置（turnPlayer 只存在于图层/回合内部）。
+ * - 触发订阅本身还需要 CardProgram → TriggerRegistration 的绑定层（RIFT-257）。
  * 两条子效果本身（draw 1、discard 1）都只使用已合入原语，但都位于上述无法判定的
  * 触发/条件之下，所以整卡不能标记 executable；golden 校验结构并独立执行已合入原语。
  */
@@ -39,12 +40,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "触发条件 “when you play a card from face down” 没有可求值路径：CR 355.9.a.3 / 107.3.e 的 " +
-    "Facedown Zone 不在 ObjectFilter 的 zone 词汇里（OBJECT_FILTER_ZONES 无 facedown-zone），" +
-    "card-played 时点的载荷也不携带打出前的区域，无法判定该牌是否从面朝下打出（依赖 RIFT-84 的 " +
-    "Hidden/facedown-zone 支持与 RIFT-91 的触发过滤消费）。效果内从句 “if it's not your turn”" +
-    "（CR 304 / 383.2.b / 135.2.b.3）需要比较当前回合玩家与能力控制者，Expr/Condition 没有该谓词" +
-    "位置（RIFT-87/90）。draw 1（effect.draw，414.1）与 discard 1（effect.discard，423.1）本身已合入，" +
+    "触发条件 “when you play a card from face down” 没有可求值路径：Hide 动作、Facedown Zone " +
+    "与 card-hidden 生产者仍未合入（CR 355.9.a.3 / 107.3.e；RIFT-84 的 Hidden KeywordDef 只展开 " +
+    "cost.hidden 声明，cost/cost-plan.ts 的 hide/play 计划没有消费方，OBJECT_FILTER_ZONES 也没有 " +
+    "facedown-zone），card-played 载荷不携带打出前区域，无法判定是否从面朝下打出；" +
+    "“if it's not your turn”（CR 304 / 383.2.b / 135.2.b.3）需要比较当前回合玩家与能力控制者，" +
+    "Expr/Condition 没有该谓词位置；触发订阅还需要 CardProgram → TriggerRegistration 绑定（RIFT-257）。" +
+    "draw 1（effect.draw，414.1）与 discard 1（effect.discard，423.1）已合入并有真实执行测试，" +
     "但都在无法判定的触发/条件之下；整卡保持 judge-required，不近似实现。",
   abilities: [
     {

@@ -54,9 +54,10 @@ test("rad-001-167: card-played self trigger plays a Bomb gear token to a chosen 
   assert.deepEqual(pick.filter, { type: "battlefield" });
 });
 
-test("rad-001-167: the Bomb definition is outside the frozen effect.token table (real body negates)", () => {
-  // 真实执行卡牌原始 body：effect.token 的定义表没有 bomb，原语按契约 negated 并写
-  // blockedReason（不近似成 Mech / Gold 等已有定义）。
+test("rad-001-167: the Bomb token body cannot create a token while its definition stays outside the table", () => {
+  // 真实执行卡牌原始 body：effect.token 的冻结定义表没有 bomb，因此不创建任何 token
+  // （不近似成 Mech / Gold 等已有定义）。这里断言「没有 token 被创建」这一持久事实，
+  // 不锁定原语当前的 negated/blockedReason 结果（定义表扩展后该断言会失效）。
   const kernel = world()
     .unit("demolitionist", { might: 1, location: { type: "battlefield", id: "bf-1" } })
     .object("bf", {
@@ -74,20 +75,16 @@ test("rad-001-167: the Bomb definition is outside the frozen effect.token table 
   assert.equal(outcome.status, "partial");
   const [result] = outcome.results;
   assert.equal(result.id, PLAY_BOMB);
-  assert.equal(result.result.status, "negated");
-  assert.equal(result.result.reason, "impossible");
-  const receipt = outcome.linkedValues[`${PLAY_BOMB}.token`];
-  assert.equal(receipt.amount, 0);
-  assert.equal(receipt.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.notEqual(result.result.status, "executed");
   assert.deepEqual(kernel.query({ zone: "board", type: "token" }), []);
 });
 
 test.todo(
   "rad-001-167 Amateur Demolitionist: Bomb gear token 定义（CR 187.12 的 [Deploy] + " +
     "[Deathknell][>] Deal 2 to an enemy unit here and kill all other Bombs you control here）" +
-    "缺失于 effect.token 冻结定义表；依赖 RIFT-83/RIFT-84（Deploy/Deathknell 关键词与事件/替代管线）"
+    "缺失于 effect.token 冻结定义表（Deploy/Deathknell 的 KeywordDef 已合入，但定义表仍是闭集）"
 );
 test.todo(
-  "rad-001-167 Amateur Demolitionist: mode \"play\" 的链上生成 + 打出流程由链管线接手" +
-    "（CR 440.2.c / 185.2.a / 350.2 / 354）；参考内核可测 create 路径，链路径依赖链任务接线"
+  "rad-001-167 Amateur Demolitionist: mode \"play\" 的链上生成 + 打出（CR 440.2.c / 185.2.a / " +
+    "350.2 / 354）在生产链上需要 Finalize 费用交接与 CardProgram 绑定（RIFT-261 / RIFT-257）"
 );

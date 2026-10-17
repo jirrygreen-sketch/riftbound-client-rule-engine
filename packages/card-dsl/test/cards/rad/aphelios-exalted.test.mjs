@@ -5,6 +5,8 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/aphelios-exalted.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import channel from "../../../../engine-core/dist/effects/instructions/effect.channel.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
@@ -35,6 +37,7 @@ test("rad-179-167 Aphelios, Exalted: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /choice\.exclusive-once-per-turn/);
   assert.match(program.judgeReason, /ChainContractBlockedError/);
   assert.match(program.judgeReason, /object-attached/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -172,17 +175,67 @@ test("rad-179-167 Aphelios, Exalted golden: effect.buff places one buff counter 
   assert.deepEqual(run.events.map((event) => event.action), ["buff"]);
 });
 
-test("rad-179-167 Aphelios, Exalted: the ops this card needs are not registered", () => {
+test("rad-179-167 Aphelios, Exalted: the mode-choice dispatch and its three body ops are merged", () => {
   assert.equal(instructionDefinitionsById.get("choice.exclusive-once-per-turn"), undefined);
   assert.notEqual(instructionDefinitionsById.get("effect.ready"), undefined);
   assert.notEqual(instructionDefinitionsById.get("effect.channel"), undefined);
   assert.notEqual(instructionDefinitionsById.get("effect.buff"), undefined);
 });
 
+test("rad-179-167 Aphelios, Exalted golden: the trigger dispatches the chosen mode and executes its body", () => {
+  const kernel = world().unit("aphelios", { might: 4 }).unit("ally", { might: 2 }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("aphelios") });
+  scoped.setTargets("aphelios-exalted.friendly-unit", [scoped.ref("ally")]);
+  scoped.setAnswers({
+    "aphelios-exalted.choose/mode%3A0": "aphelios-exalted.buff-mode",
+  });
+  // The reference kernel compares controller placeholders verbatim, so the
+  // "controller" anchor only resolves in the production target system; run the
+  // choice with the locked target supplied directly (one-two-punch convention).
+  const bodyWithoutTargets = triggered.body.map(instruction => {
+    if (instruction.op !== "choice.mode") return instruction;
+    const modes = instruction.args.modes.value.map(mode => ({
+      ...mode,
+      body: mode.body.map(({ targets, ...rest }) => rest)
+    }));
+    return { ...instruction, args: { ...instruction.args, modes: { ...instruction.args.modes, value: modes } } };
+  });
+
+  const outcome = runAbilityBody(bodyWithoutTargets, scoped);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["aphelios-exalted.buff-friendly-unit", "executed"],
+    ["aphelios-exalted.choose", "executed"]
+  ]);
+  assert.equal(scoped.getObject("ally").buffs, 1);
+});
+
+test("rad-179-167 Aphelios, Exalted golden: the channel mode channels the top rune exhausted", () => {
+  const kernel = world().unit("aphelios", { might: 4 }).rune(["r1", "r2"]).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("aphelios") });
+  scoped.setAnswers({ "aphelios-exalted.choose/mode%3A0": "aphelios-exalted.channel-mode" });
+
+  const outcome = resolveChainBody(triggered.body, scoped);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  // Mode bodies have independent link scopes, so the channel receipt is
+  // path-qualified (interpreter README).
+  assert.equal(
+    outcome.linkedValues[
+      "aphelios-exalted.choose/aphelios-exalted.channel-mode/0/aphelios-exalted.channel-1-exhausted.channeled"
+    ],
+    1
+  );
+  assert.equal(scoped.getObject("r1").zone, "rune-zone");
+  assert.equal(scoped.getObject("r2").zone, "rune-deck");
+  // 431.2 的 exhausted 入场规定由生产 channel-rune 动作消费；参照内核只建模区域移动，
+  // 因此这里断言参数声明（上方结构测试）与真实区域结果，不假装内核已应用横置。
+  assert.equal(scoped.player("A").runeDeckSize, 1);
+});
+
 test.todo(
   "rad-179-167 Aphelios, Exalted: record the per-turn chosen-mode receipt so each of the three modes can be " +
-    "chosen only once this turn (CR 303 / 319) — choice.exclusive-once-per-turn has no merged implementation " +
-    "(no assigned task; RIFT-9 section 4 lists it for rad-179-167)"
+    "chosen only once this turn (CR 303 / 319) — choice.exclusive-once-per-turn has no merged implementation"
 );
 
 test.todo(
@@ -195,4 +248,8 @@ test.todo(
   "rad-179-167 Aphelios, Exalted: filter object-attached events to this unit as the attach host — " +
     "events/action-adapter.ts only carries the attached Equipment, so 'to me' is not expressible " +
     "(contract change request)"
+);
+
+test.todo(
+  "rad-179-167 Aphelios, Exalted: the trigger needs the CardProgram → TriggerRegistration binding (RIFT-257)"
 );
