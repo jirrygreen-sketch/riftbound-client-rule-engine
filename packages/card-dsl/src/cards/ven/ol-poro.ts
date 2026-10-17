@@ -14,11 +14,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   强制要求，按契约 3.4 归 Requirement（与“只能打到某处”的 Restriction 分开建模）。
  * - “your first, second, or third turns” 是**按玩家**的回合序数：需要“本局中该玩家的第几回合”
  *   这一谓词。冻结的 Condition 只有 always/never/compare/all/any/not/expression，
- *   condition.history 的 HistoryQuery（scope/action/timingPoint/player/object）只计数动作/时点
+ *   condition.history 的 HistoryQuery（含 exclude/objectFilter）只计数动作/时点
  *   次数，没有“某玩家的第 N 回合”范围（同已合入的 sfd/forgotten-monument 的判定）。
  *
  * status = judge-required（两处缺口均不近似实现）：
- * 1. 没有“某玩家第 N 回合”的可求值谓词（context 无回合序数读数；协议/内核也没有把该序数暴露
+ * 1. 没有“某玩家第 N 回合”的可求值谓词（TurnFlow 私有计数尚未暴露
  *    给卡牌侧 Condition）；
  * 2. translateLegalityCondition 没有把自定义的 not-before-own-turn Requirement 转成可执行 Condition；
  *    现有打出计划已能转交标准 requirements/restrictions，但没有这个回合序数适配器。
@@ -30,13 +30,8 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1)「your first, second, or third turns」需要按玩家的回合序数谓词——冻结的 Condition" +
-    "（always/never/compare/all/any/not/expression）与 HistoryQuery 的封闭字段（scope/action/timingPoint/player/object）" +
-    "都只计数动作/时点，没有“某玩家的第 N 回合”范围（同已合入的 sfd/forgotten-monument 判定）；" +
-    "(2) 打出计划虽已转交标准 requirements/restrictions，但 translateLegalityCondition 没有 " +
-    "not-before-own-turn 的回合序数适配器，Finalize 因而仍不能消费这条要求。" +
-    "程序按契约 3.1 的 PlayAbility 记录该 Requirement（空 body，因为该牌没有其它指令），不写成恒真条件、" +
-    "也不把该禁止改成任何近似实现。依赖：回合序数谓词与 not-before-own-turn 的规则适配器。",
+    "两处当前缺口：(1) “your first, second, or third turns”需要每位玩家各自的回合序数。turn/flow.ts 虽在私有 turns 中计数，ResolveContext / Condition 没有该读数；HistoryQuery 的 scope/action/timingPoint/player/object/exclude/objectFilter 仅查询已提交历史，未把玩家回合序数暴露给合法性判断（同 sfd/forgotten-monument 的限制）。" +
+    "(2) translateLegalityCondition 不接受 not-before-own-turn Requirement，缺从上述序数到 Finalize requirements 的规则适配器（420.2.a / 358.2）。保留第 4 个己方回合才可打出的描述性要求；不按全局回合推算，也不改成恒真或恒假。",
   abilities: [
     {
       kind: "play",

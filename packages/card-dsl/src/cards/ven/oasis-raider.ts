@@ -81,9 +81,8 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口是动态 Ganking 的语义展开（810.1.b / 810.1.c）：continuous.grant-keyword 已能向宿主的能力图层授予本回合有效的 Ganking，" +
-    "但 programs/keywords.ts 只在程序绑定时展开声明或快照关键词，没有消费结算中新授予关键词的重展开路径，故不能自动产生对应 continuous.movement 许可。" +
-    "beginning-start 由 TurnFlow 发出，触发注册、符文数量比较、continuous.might 与关键词授予/到期均已可执行；zones/movement.ts 也已消费 movement rule query。",
+    "当前缺口是动态 Ganking 的移动许可消费（810.1.b / 810.1.c）：continuous.grant-keyword 已向宿主能力图层授予本回合有效的 Ganking，但 programs/keywords.ts 只在绑定时展开关键词，未把结算中新授予的关键词转成 continuous.movement，或接入 Standard Move 的 hasGanking 派生。" +
+    "beginning-start、符文数量比较、continuous.might 及关键词授予/到期均有已支持路径；zones/movement.ts 已消费 movement rule query，不能再把通用移动查询列为缺口。",
   abilities,
   sourceText:
     "If you control fewer runes than an opponent at the start of your Beginning Phase, give me " +

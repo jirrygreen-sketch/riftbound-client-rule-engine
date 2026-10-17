@@ -22,7 +22,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - 808.1.c：Deathknell 功能等价于 “When I die, [Effect].”；触发在对象被消灭时
  *   入链（object-killed，429.1.a.1.b），并从换区前的最后已知信息读取
  *   （808.1.d.3）。本程序把该依赖能力写成显式触发能力，并在过滤里保留
- *   `empowered: true` 的依赖门槛。
+ *   `empowered: true` 的描述性依赖门槛（尚未被翻译层消费）。
  * - 187.1：Recruit 是 1 Might 的单位 token；契约 3.6 的 create-token 只允许单位
  *   进入控制者自己的 Base，对应原文 “to your base”。
  *
@@ -30,16 +30,17 @@ import type { CardProgram } from "../../ir/index.js";
  * Empowered 状态还不能由 Condition 或死亡前的最后已知快照查询，因此无法判定
  * 727.1.c.1 / 828.1.b.1 的依赖能力。object-killed 生产、trigger 注册与 LKI 捕获已经存在，
  * 不再把通用 Deathknell 展开的 trigger.leave 缺口当成本显式死亡触发的依赖。
- * effect.token 的 mode play 半段由 golden 真实执行。
+ * effect.token 的 mode play 半段由 golden 在实际 A/B 控制者局面真实执行；
+ * to your base 用已合入的 Expr.location 求值后链接给 token 原语。
  */
 export default {
   canonicalCardId: "card.hash-f94f709693f78579dcd97c1ebdba7859c74403424ef6cd195238e47541869fbf",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口：(1) Empower/Empowered 关键词的展开和印刷的 1 Energy + 1 Order Power 费用绑定仍不可用（827.1.c.1 / 828.1.b.1）。" +
-    "(2) Condition 与 ObjectSnapshot 没有可查询的 Empowered 状态，无法在宿主死亡前的最后已知信息上判定依赖能力是否 Active（442.1.a、727.1.c.1、808.1.d.3）；描述性 empowered:true 不能代替该门控，需 RIFT-359 条件谓词及状态查询支持。" +
-    "object-killed 的事件生产、触发注册和 LKI 捕获已可用，effect.token（mode play）已真实执行；不近似实现。",
+    "当前缺口：(1) Empower / Empowered 尚无 KeywordDef，programs/keywords.ts 无法展开印刷的 1 Energy + 1 Order Power Empower 费用与“仅未 Empowered 时”限制（827.1.c.1 / 828.1.b.1）。" +
+    "(2) effect.empower 动作已存在，但 ObjectSnapshot 未暴露可查询的 Empowered 状态，依赖 Deathknell 无法按死亡前 LKI 判断是否 Active（442.1.a / 727.1.c.1 / 808.1.d.3）；当前 self:true 翻译路径不会消费 empowered:true，不能把它当作生效门控。" +
+    "object-killed、LKI 与 effect.token(mode:play) 已存在；to your base 通过 condition.value 求值 Expr.location，再把真实地点链接给 token 原语，已覆盖实际 A/B 控制者，不再依赖字面玩家 controller。不近似实现。",
   abilities: [
     {
       // 印刷费 1 Energy + 1 Order Power 见 judgeReason；KeywordAbility 没有 params
@@ -59,19 +60,27 @@ export default {
       optional: false,
       body: [
         {
+          id: "noxian-emissary.base-location",
+          op: "condition.value",
+          args: {
+            // token 原语消费 Expr 链接值；地点求值由解释器的既有位置选择器完成。
+            value: { kind: "location", value: "ability-controller-base" }
+          }
+        },
+        {
           id: "noxian-emissary.play-two-recruits",
+          linkedTo: "noxian-emissary.base-location",
           op: "effect.token",
           args: {
             token: { kind: "constant", value: "recruit" },
             amount: { kind: "constant", value: 2 },
             // 440.2.c / 185.2.a：被“打出”的 token 先在链上生成再交给打出流程。
             mode: { kind: "constant", value: "play" },
-            // “to your base”：唯一合法的单位 Base 目的地是控制者自己的 Base；
-            // `player: "controller"` 是由消费方在结算时解析的静态占位符
-            // （静态 IR 不知道运行时 PlayerId）。
+            // “to your base”：消费按实际能力控制者解析的地点，而非字面玩家名。
             location: {
-              kind: "constant",
-              value: { type: "base", player: "controller" }
+              kind: "linked-value",
+              instructionId: "noxian-emissary.base-location",
+              key: "value"
             }
           }
         }

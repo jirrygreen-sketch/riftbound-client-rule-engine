@@ -24,7 +24,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   body 里。
  *
  * status = judge-required：仍缺 play-location-permission 的静态图层映射和打出位置
- * Finalize 消费（355.2.b，RIFT-357）、non-Dragon 的否定标签过滤（133.8），以及
+ * Finalize 消费（355.2.b；位置选择器与 open 候选已合入）、non-Dragon 的否定标签过滤（133.8），以及
  * choice.optional 内嵌套 TargetSpec 的 Finalize 生命周期。
  * effect.zone 回手与 owner 路由已有真实执行证据；不以手动锁定目标证明整卡可执行。
  */
@@ -106,12 +106,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处当前缺口：(1) play-location-permission 缺 programs/statics.ts 的图层映射与打出 " +
-    "Finalize 的位置许可消费（355.2.b；open = 未占据且未控制，170.11.c；RIFT-357）。" +
-    "(2) non-Dragon 需要否定标签过滤（133.8）：当前 ObjectFilter 与 programs/filters.ts " +
-    "只支持正向 tags/tag，描述性的 excludeTags 不能提供合法目标集合，需契约增补。" +
-    "(3) TargetSpec 位于 choice.optional 的 body 内，仍需嵌套目标的 Finalize 锁定与重验。" +
-    "effect.zone 的 hand 目的地与 owner 路由（126/108.7）已由解释器真实执行，测试覆盖接受、拒绝与失效目标；不近似实现。",
+    "三处当前缺口：(1) programs/statics.ts 的 layerFor 仍无法映射 play-location-permission；Chain 的位置查询也未把该静态效果接到“open battlefield”许可（355.2.b / 170.11.c）。LocationSelector、target/location 的 open 候选过滤已合入，缺的是卡牌静态许可到打出 Finalize 的绑定。" +
+    "(2) non-Dragon 的否定标签条件（133.8）未被 programs/filters.ts 的白名单与目标匹配器消费，excludeTags 不能产生合法目标集合。" +
+    "(3) choice.optional 内的 TargetSpec 仍被 chain/engine.ts 的 assertFinalizationSurface 拒绝，缺嵌套目标的 Finalize 锁定与 Resolve 重验。effect.zone 回拥有者手牌（126 / 108.7）的接受、放弃及失效目标已真实执行；不近似实现。",
   abilities,
   sourceText:
     "You may play me to an open battlefield.\n" +
