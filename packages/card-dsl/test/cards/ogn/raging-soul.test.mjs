@@ -8,6 +8,8 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CARD_ID = "card.hash-55958c501a029c3b3b6cc885be9c3637445d707ccf6347d1f0338abd97718571";
 const [assaultGrant, gankingGrant] = program.abilities;
@@ -23,10 +25,13 @@ test("raging-soul: identity, ruleset, status and verbatim sourceText", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-81/);
-  assert.match(program.judgeReason, /RIFT-83/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /conditionMatches/);
+  assert.match(program.judgeReason, /Assault\/Ganking 的 KeywordDef/);
+  // The card static binding is merged; the current condition/history and
+  // designation gaps are recorded against their real consumers.
+  assert.match(program.judgeReason, /programs\/statics\.ts 的 bindStaticToLayers/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /ctx\.history/);
+  assert.ok(!/没有任何已合入消费方把卡牌 static 能力注册进图层/.test(program.judgeReason));
   assert.equal(
     program.sourceText,
     "If you've discarded a card this turn, I have [Assault] and [Ganking]. " +
@@ -141,15 +146,54 @@ test("raging-soul golden: the merged grant-keyword instruction grants both keywo
   }
 });
 
-test.todo(
-  "raging-soul: binding the card's static continuous.grant-keyword abilities into the layer registry " +
-    "(RIFT-257) and evaluating the authored count/history condition against ctx.history — the layer " +
-    "conditionMatches only recognizes always/never/type/has-tag/has-keyword and treats unknown compare " +
-    "conditions as true, so binding today would grant the keywords on an undiscarded turn too"
-);
+test("raging-soul golden: the production static binder registers both grants and the merged layer engine reads them", () => {
+  // RIFT-257/258 are merged: bindStaticToLayers registers this card's static
+  // continuous.grant-keyword abilities as real ContinuousEffectSpec entries and
+  // the layer engine makes the granted keywords readable (807.3 / 810.3).
+  const kernel = world()
+    .unit("raging-soul", { owner: "A", controller: "A", might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const engineHost = {
+    checkpoint: () => kernel.stateForTest(),
+    restore: () => {},
+    objects: () => kernel.objects,
+    context: () => kernel,
+    execute: action => ({ outcome: kernel.perform(action), emissions: [] }),
+    choose: request => kernel.choose(request),
+    perform: action => kernel.perform(action)
+  };
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", host: engineHost, cleanup: () => false });
+  const binder = createEngineStaticBinder(engine);
+  const source = kernel.getObject("raging-soul");
+  for (const ability of program.abilities) binder.bindStatic(ability, source);
+
+  engine.layers.setObjects(kernel.objects);
+  const evaluated = engine.layers.evaluate(kernel.ref("raging-soul"));
+  assert.deepEqual(evaluated.keywords.map(entry => entry.id).sort(), ["assault", "ganking"]);
+});
+
+test("raging-soul TODO: the authored condition must be false on an undiscarded turn", {
+  todo: "CR 364.3.a / RIFT-359: evaluate the count condition from ctx.history({ scope: 'turn', action: 'discard' }) instead of a live set query"
+}, () => {
+  // 正确规则：本回合没有弃牌时条件为假。原条件的 count 走现场集合查询、相对玩家占位符
+  // 无锚点，当前会把宿主自身算进去而判真；该用例记录规则预期，依赖接通后应转正。
+  const kernel = world().unit("raging-soul", { owner: "A", controller: "A", might: 4 }).build();
+  assert.equal(kernel.history({ scope: "turn", action: "discard" }), 0);
+  const outcome = runAbilityBody([
+    {
+      id: "raging-soul.gate",
+      op: "condition.predicate",
+      args: { condition: { kind: "constant", value: assaultGrant.condition } }
+    }
+  ], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.linkedValues["raging-soul.gate.value"], false);
+});
 test.todo(
   "raging-soul: the granted Assault still needs the Attacker designation (807.1.c/807.1.d.1, ObjectSnapshot.combatRole is only frozen in contract 3.8)"
 );
 test.todo(
-  "raging-soul: the granted Ganking permission must reach the Standard Move legality checks (810.1.c, 144.4.c)"
+  "raging-soul: the granted Ganking permission must reach the Standard Move legality checks — the " +
+    "KeywordDef emits a string permission while layers/rules/query.ts movement() reads the normalized " +
+    "permission.routes shape (810.1.c, 144.4.c)"
 );

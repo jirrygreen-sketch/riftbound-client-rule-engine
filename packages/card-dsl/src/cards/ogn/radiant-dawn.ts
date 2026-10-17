@@ -16,21 +16,27 @@ import type { CardProgram } from "../../ir/index.js";
  *   place one Buff counter; 702.3.a: a unit that already has a Buff is not Buffed
  *   again — the primitive reports that no-op as negated/skipped).
  *
- * Status: judge-required. Two trigger semantics are not expressible:
+ * Status: judge-required (re-reviewed 2026-10-17). Two trigger semantics are
+ * not expressible:
  * - "you stun": CR 412.4/412.5 attribute the Stun game action to the player
  *   responsible for it. The stun GameAction carries no player (contract 3.6:
  *   { type: "stun", object }), so the emitted event's player falls back to the
  *   stunned unit's controller (events/action-adapter.ts), i.e. the opponent;
- *   an ability of the stunning player cannot be filtered honestly yet;
+ *   an ability of the stunning player cannot be filtered honestly yet.
  * - "one or more enemy units": the frozen timing point is emitted once per
  *   stunned unit and trigger.state has no batch grouping, so a single Stun
  *   action hitting several enemy units would trigger once per unit instead of
- *   once for the batch. `once` scopes (per-turn/per-combat/...) cannot express
- *   "per batch" either.
- * Additionally, no merged consumer binds a CardProgram's triggered abilities
- * into TriggerRegistrations (RIFT-257), and the event pipeline still needs a
- * host testTrigger adapter for any trigger carrying a condition.
- * The buff body itself is merged and has real execution tests.
+ *   once for the batch. `once` scopes (per-turn/per-phase/per-combat/
+ *   per-showdown/per-chain/per-object/per-game) cannot express "per batch".
+ * The card-program trigger binding (RIFT-257) is merged: programs/triggers.ts
+ * registers ordinary triggered abilities through registerProgramTriggers +
+ * attachProgramLifecycle. This card's authored filter has no event name
+ * ("unit-stunned" is not in the closed EVENT_PATTERN_TYPES vocabulary; the
+ * timing point spells it "unit-stunned" while scripting spells it
+ * "conquered"/"held"), so the emitted event carries the payload object the
+ * binder matches, and the event pipeline still needs a host testTrigger adapter
+ * for a trigger carrying a condition. The buff body itself is merged and has
+ * real execution tests.
  */
 const program = {
   canonicalCardId:
@@ -38,11 +44,15 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "触发条件「When you stun one or more enemy units」缺三项：(1) CR 412.4/412.5 的“由你执行 Stun”责任归因——stun GameAction 不带 player（契约 3.6：{ type: \"stun\", object }），" +
+    "触发条件「When you stun one or more enemy units」缺三项（复核 2026-10-17）：" +
+    "(1) CR 412.4/412.5 的“由你执行 Stun”责任归因——stun GameAction 不带 player（契约 3.6：{ type: \"stun\", object }），" +
     "动作管线发出的 unit-stunned 事件 player 回落到被 Stun 单位的控制者（对手），无法诚实地过滤“你 Stun 的”敌方单位；" +
-    "(2) “one or more” 批次语义——同一次 Stun 命中多个敌方单位只应触发一次，但时点逐单位发出、trigger.state 无批次分组，once 作用域也无 per-batch；" +
-    "(3) 没有任何已合入消费方把 CardProgram 的 triggered 能力登记成 TriggerRegistration（RIFT-257），且带 condition 的触发仍要求 host.testTrigger 适配器。" +
-    "effect.buff 部分已合入（RIFT-119）并有执行测试；整卡保持 judge-required，依赖 Stun 责任归因/批次语义（引擎批 4 的 trigger.state）与 RIFT-257 生产接线。",
+    "(2) “one or more” 批次语义——同一次 Stun 命中多个敌方单位只应触发一次，但时点逐单位发出、trigger.state 无批次分组，" +
+    "once 作用域（per-turn/per-phase/per-combat/per-showdown/per-chain/per-object/per-game）也无 per-batch；" +
+    "(3) 卡牌触发绑定已合入：programs/triggers.ts 的 registerProgramTriggers + attachProgramLifecycle " +
+    "可注册普通 triggered 能力，但本卡 filter 没有事件判别词（closed EVENT_PATTERN_TYPES 无 unit-stunned，" +
+    "conquer/hold 才拼作 conquered/held），带 condition 的触发仍要求 host.testTrigger 适配器。" +
+    "effect.buff 部分已合入并有执行测试；整卡保持 judge-required，依赖 Stun 责任归因/批次语义（引擎批 4 的 trigger.state）。",
   abilities: [
     {
       kind: "triggered",

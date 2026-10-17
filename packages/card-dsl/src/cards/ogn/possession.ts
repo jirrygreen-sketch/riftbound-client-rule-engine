@@ -35,25 +35,28 @@ import type { CardProgram } from "../../ir/index.js";
  *   ("controller-base": the Base of each object's current controller, which
  *   is the new controller once control has been taken).
  *
- * Status: judge-required. The control half now executes through the merged
+ * Status: judge-required. The control half executes through the merged
  * effect.control primitive and is covered by the golden; the recall half is
  * still not executable — the merged effect.move recall path explicitly refuses
  * to fake a Move (it returns negated/impossible with a blockedReason and
- * submits no substitute action). The two instructions stay linked (359.3.e.14:
- * "it" refers to the chosen unit), and the recall keeps the card's own object
- * selector rather than a substitute action.
+ * submits no substitute action) and turn/flow.ts still raises
+ * TurnCombatBlockedError('recall-action') for the Cleanup Recall. The two
+ * instructions stay linked (359.3.e.14: "it" refers to the chosen unit), and
+ * the recall keeps the card's own object selector rather than a substitute
+ * action.
  */
 const possession = {
   canonicalCardId: "card.hash-18e556f7feed1c4774ba2262a9ef50441960dfa08dadbf07fd4011f655b4f544",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Take control of it」半段已可执行：effect.control 原语（RIFT-117）已合入并经 golden 真实执行（控制器变为" +
+    "「Take control of it」半段已可执行：effect.control 原语已合入并经 golden 真实执行（控制器变为" +
     "能力控制者，127.1/188–192）；本卡无印刷期限，用原语的 permanent 默认值，不涉及被阻断的非永久期限。" +
     "「recall it」仍不可执行——已合入的 effect.move 明确标注 Recall 为 BLOCKED（CR 457–460：Recall 不是 Move、" +
-    "不发 Move 事件、不受移动限制、保留伤害与状态），调用 mode:\"recall\" 会返回 negated/impossible 并给出" +
-    "blockedReason，且不得用 move-location 近似（458）。两条指令保持 linkedTo（359.3.e.14 的「it」）。" +
-    "依赖：Recall 独立动作的落地（RIFT-109 后续）。",
+    "不发 Move 事件、不受移动限制、保留伤害与状态），golden 实测 mode:\"recall\" 返回 negated/impossible，" +
+    "链接值的 blockedReason 为 \"Recall requires an action distinct from Move (CR v1.5 457-460)\" 且未提交任何替换动作；" +
+    "turn/flow.ts 的 Cleanup 也对 Recall 抛 TurnCombatBlockedError('recall-action')，不得用 move-location 近似（458）。" +
+    "两条指令保持 linkedTo（359.3.e.14 的「it」）。依赖：Recall 独立动作的落地（相对 Move 的独立动作与执行器）。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

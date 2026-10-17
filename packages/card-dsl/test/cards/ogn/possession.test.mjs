@@ -25,8 +25,10 @@ test("Possession identity and judge-required status match the printing", () => {
   // The control half is now executable (effect.control, RIFT-117); the recall
   // half keeps the card judge-required.
   assert.equal(program.judgeReason.includes("effect.control"), true);
-  assert.equal(program.judgeReason.includes("RIFT-117"), true);
+  assert.equal(program.judgeReason.includes("effect.control 原语已合入"), true);
   assert.equal(program.judgeReason.includes("Recall"), true);
+  assert.match(program.judgeReason, /TurnCombatBlockedError/);
+  assert.match(program.judgeReason, /blockedReason/);
   assert.equal(
     program.sourceText,
     "[Action] (Play on your turn or in showdowns.)\n" +
@@ -152,6 +154,7 @@ test("Possession golden: a stale chosen unit makes the recall observe nothing", 
 test.todo(
   "Possession: a real Recall (457/458: relocate to the new controller's Base, not a Move, no " +
     "Move triggers, ignore movement restrictions, keep damage and statuses) needs a Recall " +
-    "action distinct from move-location (RIFT-109 follow-up); the merged effect.move recall " +
+    "action distinct from move-location (the effect.move primitive is merged); the merged effect.move recall " +
     "path deliberately reports negated/impossible (see judgeReason)."
 );
+

@@ -11,16 +11,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   Choose a friendly unit in your base. Deal damage equal to its Might to all
  *   enemy units at a battlefield, then move your unit there.
  *
- * Status: judge-required. "all enemy units at a battlefield" still cannot be
- * expressed and is not approximated:
+ * Status: judge-required (re-reviewed 2026-10-17). "all enemy units at a
+ * battlefield" still cannot be expressed and is not approximated:
  * - the units are NOT targeted: 355.10.b/355.10.d ("Kill all units at a
  *   battlefield" targets a battlefield, but not any units) make the BATTLEFIELD
  *   the targeted choice, and every enemy unit there is then affected without a
- *   choice. effect.damage consumes only a TargetSpec id, and the merged target
- *   plan resolves collections of board objects with per-member filters; there is
- *   no non-target "all objects at the chosen location" affected set for the
- *   damage primitive, so the battlefield choice plus its derived unit set cannot
- *   be executed. Declaring the units as a TargetSpec would violate 355.10.b.
+ *   choice. effect.damage consumes only a TargetSpec id (`ctx.targets(id)`);
+ *   unlike effect.ready / effect.heal it has no `{ kind: "query", filter }`
+ *   form, and no merged consumer turns the chosen battlefield's LocationRef into
+ *   the set of board objects there (RIFT-357 merged the location-target
+ *   representation itself, not the derived affected set). Declaring the units
+ *   as a TargetSpec would violate 355.10.b.
  * Expressible and covered by real tests: the chosen unit is a normal target
  * (355.7, in your Base, a public zone), and its Might is read at resolution via
  * `object-property` over that target (contract 3.2 Expr); damage is dealt by the
@@ -39,12 +40,14 @@ const stormbringer = {
   judgeReason:
     "缺战场目标与派生受影响集合：按 355.10.b/355.10.d，'all enemy units at a battlefield' 的目标是**战场**而非各单位" +
     "（CR 原文 \"Kill all units at a battlefield\" targets a battlefield, but not any units），选定战场后其上的敌人全部受影响；" +
-    "effect.damage 只接受 TargetSpec id（没有非目标的 query/集合形态），target-plan 也没有「按所选地点派生对象集合」的表示；" +
+    "effect.damage 只经 ctx.targets(id) 接受 TargetSpec id，没有 effect.ready / effect.heal 那样的 " +
+    "{ kind: \"query\", filter } 非目标集合形态，也没有已合入消费方把被选战场的 LocationRef（地点目标表示本身已合入）" +
+    "派生为「其上的敌方单位」集合；" +
     "把单位写成 TargetSpec 会违反 355.10.b 并错误触发成为目标。" +
     "'then move your unit there' 已可执行（condition.value 绑定战场 LocationRef + effect.move 的 linked to），见 golden。" +
     "「其上等于其 Might 的伤害」的取值表达式与「选择我方基地单位」本身也已用 object-property + 目标表达并有执行测试，" +
     "唯独受影响集合无法执行，故整卡保持 judge-required。" +
-    "依赖：355.10.b/355.10.d 的战场目标 + 派生集合消费方（RIFT-90 目标计划与 effect.damage 的非目标集合形态）；不近似实现。",
+    "依赖：effect.damage 的非目标集合形态与「按所选地点派生对象集合」消费方（目标计划后续）；不近似实现。",
   abilities: [
     {
       kind: "play",
