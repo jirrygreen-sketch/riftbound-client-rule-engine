@@ -1,9 +1,10 @@
 // Golden test for Watchful Curator (rad-037-167).
 //
 // judge-required (see the program's judgeReason): granting [Deflect] to your
-// gear needs the unmerged keyword-grant layer and its registration from a card
-// program. The runnable evidence is the declared grant shape plus the real
-// LayerEngine applying a grant-keyword effect to a gear (809.1.c/809.3).
+// gear needs the card-program -> layers registration (RIFT-257). The runnable
+// evidence is the declared grant shape plus the merged continuous.grant-keyword
+// instruction and the real LayerEngine applying the granted keyword, including
+// the CR 809.2 addition to an existing Deflect value.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -12,13 +13,17 @@ import program from "../../../dist/cards/rad/watchful-curator.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { createLayerEngine } from "../../../../engine-core/dist/layers/engine.js";
+import grantKeyword from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
   "card.hash-dc5774a38ed543aac39bd40a45c96e08acddedf25a91e979a8a3576715ec1a5b";
 const SOURCE_TEXT =
   "Your gear have [Deflect]. (Opponents must pay :rb_rune_rainbow: to choose each with a spell or ability.)";
+const GRANT_TARGET = "watchful-curator.gear";
 
 const [grant] = program.abilities;
 
@@ -49,6 +54,45 @@ function boardObject(id, types, values = {}) {
   };
 }
 
+/** Run the card's declared grant through the merged primitive + layer engine. */
+function grantTo({ gearKeywords = [], grantValue = grant.effect.value.value } = {}) {
+  const kernel = world()
+    .object("curator", { types: ["unit"], zone: "board", might: 4 })
+    .object("gear", { types: ["gear"], zone: "board", keywords: gearKeywords })
+    .object("other-gear", { types: ["gear"], zone: "board" })
+    .object("enemy-gear", { types: ["gear"], zone: "board", owner: "B", controller: "B" })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("curator") });
+  scoped.setTargets(GRANT_TARGET, [scoped.ref("gear")]);
+  // 本卡 static 的 effect 未写 target 参数（其范围由 filter 描述、生产接线按匹配集授予）。
+  // 这里按已合入原语的 target 选择路径执行同一 keyword/value/duration 形状。
+  const outcome = runAbilityBody([
+    {
+      id: "watchful-curator.grant-deflect",
+      op: "continuous.grant-keyword",
+      args: {
+        keyword: { kind: "constant", value: grant.effect.keyword },
+        value: { kind: "constant", value: grantValue },
+        target: { kind: "constant", value: GRANT_TARGET }
+      },
+      targets: [
+        {
+          id: GRANT_TARGET,
+          filter: { type: "gear", zone: "board" },
+          min: 1,
+          max: 1,
+          selection: "one"
+        }
+      ]
+    }
+  ], scoped);
+  const engine = createLayerEngine(
+    scoped.listObjects(),
+    scoped.continuousEffects.map(entry => ({ effect: entry.effect, duration: entry.duration }))
+  );
+  return { outcome, scoped, engine };
+}
+
 test("rad-037-167 Watchful Curator: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
@@ -59,11 +103,11 @@ test("rad-037-167 Watchful Curator: identity, status, judgeReason and verbatim s
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  // README §2: name the missing grant consumer, the rules and the task.
-  assert.match(program.judgeReason, /continuous\.keyword/);
+  // README section 2: name the missing consumer, the rules and the task.
+  assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /809\.2/);
   assert.match(program.judgeReason, /809\.3/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -98,66 +142,75 @@ test("rad-037-167 Watchful Curator: the grant scope covers your gear and nothing
   assert.equal(grant.effect.filter.controller, "controller");
 });
 
-test("rad-037-167 Watchful Curator: the merged layer engine really applies the granted keyword (809.3)", () => {
-  const gear = boardObject("gear", ["gear"]);
-  const unit = boardObject("unit", ["unit"], { might: 4 });
-  const engine = createLayerEngine([gear, unit], []);
-  // The card declares the grant; this is the merged consumer that would carry
-  // it once the card→layers registration exists. 809.3 makes the granted
-  // keyword a readable characteristic.
-  engine.addContinuous(
-    {
-      id: "watchful-curator.grant",
-      layer: "ability",
-      filter: { ...grant.effect.filter, controller: { playerId: "A" } },
-      effect: {
-        kind: "grant-keyword",
-        keyword: grant.effect.keyword,
-        // The layer engine reads a resolved numeric keyword value
-        // (keywordValue() accepts numbers); the card layer carries the printed
-        // value in the Expr envelope, so evaluating it is part of the missing
-        // card→layers registration path.
-        value: grant.effect.value.value
-      }
-    },
-    { type: "permanent" }
-  );
-  const evaluated = engine.evaluateAll();
-  const evaluatedGear = evaluated.find((object) => object.ref.id === "gear");
-  const evaluatedUnit = evaluated.find((object) => object.ref.id === "unit");
-  assert.deepEqual(evaluatedGear.keywords, [{ id: "deflect", value: 1 }]);
-  assert.deepEqual(evaluatedUnit.keywords, []);
-  // The sibling enemy gear is untouched, and the source's own types are unchanged.
-  assert.deepEqual(
-    evaluated.filter((object) => object.keywords.length > 0).map((object) => object.ref.id),
-    ["gear"]
-  );
-  // The declaration itself names the lowercase keyword id the engine stores.
-  assert.equal(grant.effect.keyword, "deflect");
-  assert.deepEqual(grant.effect.value, { kind: "constant", value: 1 });
+test("rad-037-167 Watchful Curator: the merged grant primitive really puts Deflect 1 on the gear (809.3)", () => {
+  const { outcome, scoped, engine } = grantTo();
+  assert.equal(outcome.status, "executed", JSON.stringify(outcome.results));
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["watchful-curator.grant-deflect", "executed"]
+  ]);
+  assert.equal(scoped.continuousEffects.length, 1);
+  const registration = scoped.continuousEffects[0];
+  assert.equal(registration.effect.layer, "ability");
+  assert.equal(registration.effect.effect.kind, "continuous.grant-keyword");
+  assert.equal(registration.effect.effect.keyword, "deflect");
+  assert.equal(registration.effect.effect.keywordValue, 1);
+  // 809.3: the granted keyword is a readable characteristic on the gear only.
+  assert.deepEqual(engine.evaluate(scoped.ref("gear")).keywords, [{ id: "deflect", value: 1 }]);
+  assert.deepEqual(engine.evaluate(scoped.ref("other-gear")).keywords, []);
+  assert.deepEqual(engine.evaluate(scoped.ref("enemy-gear")).keywords, []);
+  assert.deepEqual(engine.evaluate(scoped.ref("curator")).keywords, []);
   assert.equal(keywordDefinitionsById.get("Deflect"), deflect);
   // 809.2: additional Deflect sources sum, so the granted value is additive.
   assert.equal(deflect.stacking, "sum");
 });
 
-test("rad-037-167 Watchful Curator: the target-tax consumer exists but has no producer for this grant", () => {
-  // The Deflect expansion produces the target.tax effect the target plan reads;
-  // what is missing is the card-program → layer registration that would put the
-  // granted Deflect onto each gear's keyword characteristic.
-  const [expansion] = deflect.expand({ host: { canonicalCardId: CANONICAL } });
+test("rad-037-167 Watchful Curator: a gear's own Deflect adds up per CR 809.2", () => {
+  const { engine, scoped } = grantTo({ gearKeywords: [{ id: "deflect", value: 1 }] });
+  assert.deepEqual(engine.evaluate(scoped.ref("gear")).keywords, [{ id: "deflect", value: 2 }]);
+});
+
+test("rad-037-167 Watchful Curator: the grant expires with its declared this-turn duration when authored so", () => {
+  // The card's grant is permanent (Pathun's "have" auras persist); a this-turn
+  // grant through the same primitive registers an end-of-turn duration instead.
+  const { scoped } = grantTo();
+  assert.deepEqual(scoped.continuousEffects[0].duration, { type: "permanent" });
+  const temporary = runAbilityBody([
+    {
+      id: "watchful-curator.temporary-grant",
+      op: "continuous.grant-keyword",
+      args: {
+        keyword: { kind: "constant", value: "deflect" },
+        value: { kind: "constant", value: 1 },
+        duration: { kind: "constant", value: "end-of-turn" }
+      },
+      targets: [
+        { id: GRANT_TARGET, filter: { type: "gear", zone: "board" }, min: 1, max: 1, selection: "one" }
+      ]
+    }
+  ], scoped);
+  assert.equal(temporary.results[0].result.status, "executed");
+  const durations = scoped.continuousEffects.map(entry => entry.duration.type);
+  assert.deepEqual(durations, ["permanent", "end-of-turn"]);
+});
+
+test("rad-037-167 Watchful Curator: the Deflect expansion the granted keyword feeds produces target.tax", () => {
+  // The Deflect KeywordDef expands to the target.tax effect the target plan
+  // reads; what is missing is the card-program -> layer registration that
+  // would put the granted Deflect onto each gear's keyword characteristic.
+  const [expansion] = deflect.expand({ value: 1, host: { canonicalCardId: CANONICAL } });
   assert.equal(expansion.effect.kind, "target.tax");
   assert.deepEqual(expansion.effect.value, { kind: "constant", value: 1 });
   assert.equal(grant.effect.kind, "continuous.grant-keyword");
-  assert.notEqual(grant.effect.kind, expansion.effect.kind);
 });
 
 test.todo(
-  "Watchful Curator: 'Your gear have [Deflect]' — blocked because no merged primitive or layer consumer grants a keyword to a " +
-    "matched object set (continuous.keyword has no instruction file and ability-templates.md records that family at 0/0), and no " +
-    "merged path registers a card program's static ability as a ContinuousEffectSpec (RIFT-91)"
+  "Watchful Curator: 'Your gear have [Deflect]' in production - the merged continuous.grant-keyword primitive and the " +
+    "layer engine apply the grant (verified above), but no merged path registers a card program's static ability as a " +
+    "ContinuousEffectSpec (RIFT-257); the target-tax consumer also needs the any-Domain Power payment path (RIFT-261)"
 );
 
 test.todo(
-  "Watchful Curator: 809.2 addition with a gear's own Deflect and 809.3 readable characteristic in production — blocked by the same " +
-    "card→layers registration gap; the layer engine applies grants, but nothing feeds this card's declaration into it (RIFT-91)"
+  "Watchful Curator: 809.2 addition with a gear's own Deflect and 809.3 readable characteristic in production - blocked by " +
+    "the same card->layers registration gap; the layer engine itself already sums grants (verified above) and clears them on " +
+    "a new zone entry"
 );

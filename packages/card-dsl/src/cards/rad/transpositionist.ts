@@ -22,12 +22,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "ignoring its cost"：356.1.b.1 把被忽略的 base Energy cost 与 Power cost 一起置空；
  *   忽略费用必须由费用管线按 356.1.b 的规则生成 finalized 计划（420.3.b.1）。
  *
- * status = judge-required（README 第 2 节）。三处缺口，均不近似实现：
+ * status = judge-required（README 第 2 节）。缺口，均不近似实现：
  * 1. 「ignoring its cost」没有已合入路径：effect.play 要求调用方给出**已 Finalize 的**
  *    费用计划（其文档明确 "this primitive never derives printed costs or implements an
- *    ignored-cost rule"），而按被选单位的印刷费用生成「全忽略」计划需要 CostPlanInput.
- *    ignoreAllCosts 的调用方（cost.ResolveContext 侧）与打出流程接线：静态 IR 不能给出
- *   该计划，写死 {energy:0} 只对 Ignore Energy 成立、会漏掉 356.1.b.1 的 Power 清零。
+ *    ignored-cost rule"），而按被选单位的印刷费用生成「全忽略」计划需要 cost 侧的
+ *    ignoreAllCosts 调用方（cost.ResolveContext 侧）与打出流程接线：静态 IR 不能给出
+ *    该计划，写死 {energy:0} 只对 Ignore Energy 成立、会漏掉 356.1.b.1 的 Power 清零；
+ *    费用指令 cost.pay / cost.modify 与费用计划调用方仍属进行中的 RIFT-261。
  * 2. 「a unit with less Might than that unit had」是 Finalize 时的动态目标过滤：候选牌
  *    在手里（355.10.a 的私有区域，不能当目标 → 用 pick），其资格取决于与被返回单位
  *    最后已知 Might 的比较；已合入的 TargetSpec/PickSpec filter 只有静态等值/集合键，
@@ -37,10 +38,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    己方控制的战场），effect.play 的 location 需要调用方给出具体 LocationRef；静态 IR 给
  *    不出，写死 基地/某个战场都会改变卡牌语义。
  * 已按已合入原语写出的部分（golden 测试真实执行）：effect.zone 把友方单位移回拥有者
- * 手牌 + choice.optional（拒绝即跳过）+ 由条件门控、用 linked 引用刚被选单位最后已知
- * Might 与手牌候选比较的 effect.play 形状。
- * 依赖：RIFT-89（batch3-cost-plan：ignoreAllCosts 的调用方）与 RIFT-90/批 5
- * （动态目标过滤、打出位置与链上结果绑定）。
+ * 手牌 + choice.optional（拒绝即跳过）+ 用 target 选择器的最后已知 Might 做 compare
+ * 门控的 effect.play 形状。依赖：RIFT-261（费用指令与 ignoreAllCosts 调用方）与
+ * 动态目标过滤/打出位置；卡牌程序绑定属 RIFT-257。
  */
 const abilities: Ability[] = [
   {
@@ -117,10 +117,10 @@ const abilities: Ability[] = [
                 picks: [
                   {
                     id: "transpositionist.cheaper-unit",
-                  // 355.10.a：手牌是私有区域，所以这是 pick（非目标选择）而不是 target；
-                  // 「less Might」的跨对象比较是上述 judged 部分。
-                  options: ["dynamic:units-in-controller-hand"],
-                  filter: { type: "unit", zone: "hand", owner: "controller" },
+                    // 355.10.a：手牌是私有区域，所以这是 pick（非目标选择）而不是 target；
+                    // 「less Might」的跨对象比较是上述 judged 部分。
+                    options: ["dynamic:units-in-controller-hand"],
+                    filter: { type: "unit", zone: "hand", owner: "controller" },
                     min: 1,
                     max: 1,
                     selection: "one"
@@ -141,16 +141,16 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处缺口，均不近似实现：(1) 「ignoring its cost」没有已合入路径——effect.play 要求调用方给出已 Finalize 的费用计划，" +
-    "其文档明确不实现 ignored-cost 规则；按 356.1.b.1 生成「base Energy 与 Power 全清零」的计划需要 cost 侧 " +
-    "ignoreAllCosts 的调用方与打出流程接线（RIFT-89），静态 IR 给不出，写死 {energy:0} 只等价于 Ignore Energy；" +
+    "其文档明确不实现 ignored-cost 规则；按 356.1.b.1 生成「base Energy 与 Power 全清零」的计划需要 cost 侧的 " +
+    "ignoreAllCosts 调用方与打出流程接线，cost.pay/cost.modify 与费用计划调用方仍属进行中的 RIFT-261，静态 IR 给不出，" +
+    "写死 {energy:0} 只等价于 Ignore Energy；" +
     "(2) 「a unit with less Might than that unit had」是 Finalize 时的跨对象动态过滤：候选牌在手牌（355.10.a 私有区域 → pick，" +
     "不是 target），其资格取决于与被返回单位最后已知 Might（359.3.e.13/128）的比较，已合入的 filter 只有静态等值/集合键；" +
     "(3) 「Play a unit」的合法位置由 355.2.a/355.2.b 在 Finalize 决定，effect.play 的 location 需要具体 LocationRef，静态 IR 给不出。" +
     "已写出并有 golden 真实执行的部分：effect.zone 把友方单位移回拥有者手牌、choice.optional 的接受/拒绝、" +
-    "以及由 compare 条件门控的 effect.play 形状。依赖：RIFT-89（ignoreAllCosts 调用方）、RIFT-90/批 5（动态过滤与打出位置）。",
+    "以及由 compare 条件门控的 effect.play 形状。依赖：RIFT-261（费用指令与 ignoreAllCosts 调用方）、动态过滤与打出位置、RIFT-257（卡牌程序绑定）。",
   abilities,
   sourceText:
     ":rb_rune_chaos:, :rb_exhaust:: Return a friendly unit to its owner's hand. " +
     "You may play a unit with less Might than that unit had, ignoring its cost."
 } satisfies CardProgram;
-

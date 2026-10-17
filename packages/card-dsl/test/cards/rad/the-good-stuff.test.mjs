@@ -4,7 +4,6 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/the-good-stuff.js";
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
-const { keywordDefinitionsById } = await import(new URL("effects/keywords/registry.generated.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
 const zone = (await import(new URL("effects/instructions/effect.zone.js", ENGINE))).default;
 const discard = (await import(new URL("effects/instructions/effect.discard.js", ENGINE))).default;
@@ -148,9 +147,5 @@ test("rad-106-167 The Good Stuff: an empty hand negates the discard but the draw
   assert.equal(kernel.player("A").deckSize, 1);
 });
 
-test("rad-106-167 The Good Stuff: the Deploy keyword has no merged definition", () => {
-  assert.equal(keywordDefinitionsById.get("Deploy"), undefined);
-});
-
-test.todo("rad-106-167 The Good Stuff: Deploy expansion (CR 830.1.b) needs a keywords/Deploy.ts definition plus the continuous.location/continuous.restrict consumers (\"kw-deploy\" workstream).");
-test.todo("rad-106-167 The Good Stuff: both triggers need the program -> TriggerRegistration adapter (contract 3.5, RIFT-120 follow-up); the \"hold here\" filter additionally needs the hold payload's battlefield identity.");
+test.todo("rad-106-167 The Good Stuff: the merged Deploy KeywordDef (CR 830.1.b) still has no consumers - the continuous.location play-location/restriction checks have no Finalize caller, cleanup has no non-Unit Deploy recall exemption, and the hold kill trigger is not registered.");
+test.todo("rad-106-167 The Good Stuff: both triggers need the program -> TriggerRegistration wiring (contract 3.5, RIFT-257); the \"hold here\" filter additionally needs the hold payload's battlefield identity.");

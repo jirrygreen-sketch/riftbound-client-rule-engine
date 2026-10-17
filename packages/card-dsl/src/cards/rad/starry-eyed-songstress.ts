@@ -20,11 +20,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   不产生目标，因此用非目标选择（PickSpec 形状）描述，而不是 TargetSpec。
  * - 107.4.c / 108.3：“me” 是 Legend Zone 里的这张传奇（Game Object）。
  *
- * status = judge-required：整张卡没有任何已合入的可执行路径，不做近似实现——
- * cost.additional / cost.modify / cost.pay 都没有已合入原语（RIFT-89），被动能力提供的
- * 可选附加费用也没有消费方（356.2.b 的步骤 2 决定属于费用系统），契约 ZoneId 还缺
- * Legend Zone（CR 107.4），传奇自身无法作为可横置的费用对象。下面的 static 只保留
- * 可审查的声明形状，golden 只做校验、结构断言与缺口 todo。
+ * status = judge-required：整张卡没有可执行路径（依赖 RIFT-261、RIFT-257），不做近似
+ * 实现——
+ * - 费用种类与指令（cost.additional / cost.pay / cost.modify，RIFT-261）仍在进行中，
+ *   本 worktree 的 effects/instructions/ 没有 cost.* 原语；也没有消费方读取卡牌声明的
+ *   可选附加费用与 -2 Energy 折扣（356.2.b 的步骤 2 决定属于费用系统）。
+ * - 卡牌 static 能力 → 图层/费用管线注册（RIFT-257）未合入。
+ * - 契约 ZoneId 没有 legend-zone（107.4.c），传奇自身无法作为可横置的费用对象。
+ * 下面的 static 只保留可审查的声明形状，golden 只做校验、结构断言与缺口 todo。
  */
 export default {
   canonicalCardId:
@@ -33,19 +36,20 @@ export default {
   status: "judge-required",
   judgeReason:
     "被动能力授予的可选附加费用没有可执行路径：CR 356.2.b.1 的 Optional Additional Cost 由费用系统在" +
-    "步骤 2 收集，而合并原语里没有 cost.additional / cost.modify / cost.pay（RIFT-89），也没有任何" +
-    "消费方读取卡牌声明的附加费用与减费。“exhaust me” 是费用式横置（CR 415.4 / 415.5，必须能完成），" +
-    "且 “me” 是 Legend Zone 里的传奇（CR 107.4.c），契约 ZoneId 没有 legend-zone，无法作为可横置对象" +
-    "表达；“three friendly units” 按 355.10.c.1 属于费用、不产生目标，这里只保留非目标选择形状；固定" +
-    "减费 -2 Energy（CR 356.4 / 356.4.f）与费用计划同样归 RIFT-89。依赖 RIFT-89（batch3 费用计划）与" +
-    "RIFT-91（持续效果消费）；不近似实现。",
+    "步骤 2 收集，而费用种类与指令（cost.additional / cost.pay / cost.modify）仍在 RIFT-261 进行中——" +
+    "本 worktree 的 effects/instructions/ 没有 cost.* 原语，也没有任何消费方读取卡牌声明的附加费用与减费；" +
+    "卡牌 static 能力接入费用/图层管线的生产者仍待 RIFT-257。“exhaust me” 是费用式横置（CR 415.4 / 415.5，" +
+    "必须能完成），且 “me” 是 Legend Zone 里的传奇（CR 107.4.c），契约 ZoneId 没有 legend-zone，无法作为" +
+    "可横置对象表达；“three friendly units” 按 355.10.c.1 属于费用、不产生目标，这里只保留非目标选择形状；" +
+    "固定减费 -2 Energy（CR 356.4 / 356.4.f）与费用计划同样属 RIFT-261。依赖 RIFT-261（费用计划与费用指令）" +
+    "与 RIFT-257（卡牌程序绑定）；不近似实现。",
   abilities: [
     {
       kind: "static",
       effect: {
         // 363 的 Passive Ability：为“你打出的法术”提供可选附加费用与对应减费。
         // 该 kind 由 RIFT-9 模板（cost-modify / cost-resources）与 ornns-forge 等
-        // 已合入卡牌一致使用；合并内核尚无消费方（见 judgeReason）。
+        // 已合入卡牌一致使用；费用管线的消费方仍待 RIFT-261（见 judgeReason）。
         kind: "cost.modify",
         appliesTo: "play-spell-cost",
         resource: "energy",

@@ -11,9 +11,9 @@ import type { Ability, CardProgram, TriggerSpec } from "../../ir/index.js";
  *   Draw 1. Deal 2 to enemy units here.
  *
  * 规则依据（CR v1.5）：
- * - `[Deploy]`（830）/ `[Ganking]`（810）只声明关键词身份：830.1.b / 810.1.b 的展开分别属于
- *   `effects/keywords/deploy.ts`（未合入）与 `effects/keywords/Ganking.ts`（已合入：展开为
- *   `continuous.movement` 静态许可）。
+ * - `[Deploy]`（830）与 `[Ganking]`（810）只声明关键词身份：两文件的 KeywordDef 都已合入
+ *   （effects/keywords/Deploy.ts、effects/keywords/Ganking.ts），展开分别落在 ability 图层的
+ *   continuous.location（许可/限制/清理豁免/固守消灭触发）与 continuous.movement（移动许可）。
  * - “When you play or move this”：两个触发条件共用同一效果——card-played 时点（383.4.a / 407，
  *   自指用 `self: true`）与 object-moved 时点（421.1 / 449.1，filter 的对象锚点用契约 3.6 的
  *   符号选择器 `"self"`）。各写成一个 triggered ability。
@@ -25,14 +25,14 @@ import type { Ability, CardProgram, TriggerSpec } from "../../ir/index.js";
  *   并用 `sameLocationAs: "source"` 锚点把集合限制在“here”，controller 锚点为 opponent。
  *
  * 缺口（不近似实现，故 judge-required）：
- * - `deploy` 关键词展开未合入（关键词批次 RIFT-81~88 / RIFT-91 不含 Deploy）：830.1.b 的
- *   “只能打到战场”“对手在此固守时消灭”“非单位 Gear 清理不召回”都不生效；
- * - “Deal 2 to enemy units here” 在参考内核里未被 `effect.damage` 实测过（见测试说明），
- *   并依赖目标系统把 `sameLocationAs: "source"`（here 语义）正确解析；
- * - `object-moved` 触发需要移动动作发出该时点（421.1 / 449.1，移动管线）并对来源身份做锚定。
+ * - Deploy 的展开虽然已声明，但消费者未合入：continuous.location 的 play-location/限制检查没有
+ *   Finalize 位置校验调用方，清理流程（turn/flow.ts）对非单位 Gear 的 Deploy 召回豁免与 hold 触发
+ *   注册都仍缺（Deploy.ts 文件头记录同一缺口）。
+ * - “Deal 2 to enemy units here” 的 sameLocationAs 锚点只在解释器集合查询中实现，生产链的
+ *   目标系统（target/target-plan.ts）不读取该锚点；object-moved 触发的注册依赖 RIFT-257。
  *
- * 可执行部分：`[Ganking]` 已合入关键词；`choice.mode` + `effect.draw` 分支已在 golden 中用参考
- * 内核真实执行；damage 分支与 Deploy / object-moved 以 `test.todo` 标注依赖。
+ * 可执行部分：`[Ganking]` 已合入关键词；`choice.mode` + `effect.draw` / `effect.damage` 分支已在
+ * golden 中用解释器 + 参考内核真实执行（含 sameLocationAs 锚点在解释器集合查询中的行为）。
  */
 const modeAbility = (id: string, trigger: TriggerSpec): Ability => ({
   kind: "triggered",
@@ -94,12 +94,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺 [Deploy] 关键词展开（830.1.b：只能打到战场、对手在此固守时消灭、非单位 Gear 清理不召回）；" +
-    "关键词批次 RIFT-81~88 / RIFT-91 不含 Deploy。另 “Deal 2 to enemy units here” 依赖目标系统把 " +
-    "sameLocationAs:\"source\"（here）解析为来源当前所在战场并用 selection:\"all\" 程序化选定全部敌方单位" +
-    "（355.10.d；参考内核只验证 choice.mode/draw 分支与锚点形状，见测试）；object-moved 触发需要移动" +
-    "管线发出该时点（421.1/449.1）并按来源身份锚定。已可执行部分：Ganking 关键词（已合入）、" +
-    "choice.mode + effect.draw 分支；不近似实现。",
+    "缺 [Deploy] 展开的消费者（830.1.b：只能打到战场、对手在此固守时消灭、非单位 Gear 清理不召回）：" +
+    "effects/keywords/Deploy.ts 已合入并声明 continuous.location 与 hold 消灭触发，但 continuous.location " +
+    "的 play-location/限制检查没有 Finalize 位置校验调用方、清理流程（turn/flow.ts）没有非单位 Deploy " +
+    "召回豁免、hold 时点也没有把该关键词展开注册成事件订阅；卡牌程序 → TriggerRegistration/图层注册的" +
+    "生产接线属 RIFT-257（进行中）。" +
+    "另 “Deal 2 to enemy units here” 的 sameLocationAs（here）锚点只在解释器的集合查询里实现" +
+    "（interpreter/selectors.ts），生产目标系统（target/target-plan.ts）不读取该锚点，直接接线会把别处" +
+    "的敌方单位也算进来（355.10.d / 421.1）。object-moved 触发同样依赖 RIFT-257 的注册接线。" +
+    "已可执行部分：Ganking 关键词、choice.mode + effect.draw / effect.damage 分支（golden 真实执行）；不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "deploy" },
     { kind: "keyword", keyword: "ganking" },

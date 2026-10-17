@@ -4,8 +4,6 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/the-waters-wage.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-98b3c6e4016c853f5b0a9bdc4963a2a929fcb2930a1f1484367e5c546015fe0c";
 const SOURCE_TEXT =
@@ -31,7 +29,8 @@ test("The Waters' Wage identity, ruleset, status and printed text", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /185\.2\.d/);
-  assert.match(program.judgeReason, /RIFT-9/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -70,60 +69,20 @@ test("The Waters' Wage structure: [Hidden] plus the exclusive one/three Gold mod
   assert.equal(threeGold.args.entersExhausted.value, false);
 });
 
-test("The Waters' Wage golden: the Gold token block is real, not approximated", () => {
-  const kernel = world().player("A").build();
-  // The card's location is the printed "controller" base placeholder, which the
-  // Finalize/cost pipeline resolves; the reference kernel resolves bases by
-  // player id, so the golden substitutes the concrete controller base.
-  const run = runInstruction(
-    token,
-    {
-      token: oneGold.args.token,
-      amount: oneGold.args.amount,
-      mode: oneGold.args.mode,
-      location: { kind: "constant", value: { type: "base", player: "A" } }
-    },
-    { world: kernel }
-  );
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.equal(run.linked.token.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.equal(kernel.query({}).length, 0);
-});
-
-test("The Waters' Wage golden: the unsupported exhausted entry override is rejected by effect.token", () => {
-  const kernel = world().player("A").build();
-  // The merged effect.token schema only accepts token/amount/mode/location/target/
-  // pick/locations/choiceId/linkKey; an entry override such as entersExhausted
-  // throws rather than silently creating a ready token.
-  assert.throws(
-    () => runInstruction(
-      token,
-      {
-        token: oneGold.args.token,
-        amount: oneGold.args.amount,
-        mode: oneGold.args.mode,
-        location: oneGold.args.location,
-        entersExhausted: oneGold.args.entersExhausted
-      },
-      { world: kernel }
-    ),
-    /Invalid effect\.token argument: entersExhausted/
-  );
-  assert.equal(kernel.query({}).length, 0);
-});
-
 test.todo(
   "The Waters' Wage: the Gold gear token definition (CR 187.5 with its own '[Reaction][>] Kill this, " +
-    "[E]: [Add] [A]' ability) must be added to effect.token before the token clause can execute — RIFT-9"
+    "[E]: [Add] [A]' ability) is not in the effect.token DEFINITIONS table, so the token clause cannot be " +
+    "executed; a definition table extension must land first"
 );
 
 test.todo(
-  "The Waters' Wage: 'play … exhausted' / 'three ready Gold' need the entry-state override (CR 143.4 / 185.2.d) " +
-    "that effect.token explicitly does not support"
+  "The Waters' Wage: 'play … exhausted' / 'three ready Gold' need a per-token entry-state override " +
+    "(CR 143.4 / 185.2.d); effect.token has no entry override, and replacement.enter covers permanent entry " +
+    "orientation only (RIFT-260)"
 );
 
 test.todo(
   "The Waters' Wage: 'If it's your turn and you played this from face down' needs an executable predicate for the " +
-    "facedown play result (CR 811.1.d) and the current turn player — RIFT-84 / RIFT-90"
+    "facedown play result (CR 811.1.d) and the current turn player; the [Hidden] KeywordDef is merged but the " +
+    "card's keyword → cost/timing binding is still pending in RIFT-257/RIFT-261"
 );

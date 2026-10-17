@@ -6,7 +6,7 @@ import program from "../../../dist/cards/rad/zero-point-inflection.js";
 import discard from "../../../../engine-core/dist/effects/instructions/effect.discard.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import score from "../../../../engine-core/dist/effects/instructions/effect.score.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
@@ -32,7 +32,7 @@ test("rad-069-167 Zero Point Inflection: program passes validateCardProgram with
 test("rad-069-167 Zero Point Inflection: judgeReason names the hand-size gate and the printing's type mismatch", () => {
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /hand/);
-  assert.match(program.judgeReason, /RIFT-89\/90/);
+  assert.match(program.judgeReason, /RIFT-257/);
   // The catalog types this printing as a Spell while the text is a permanent.
   assert.match(program.judgeReason, /Spell/);
   assert.match(program.judgeReason, /157/);
@@ -138,31 +138,44 @@ test("rad-069-167 Zero Point Inflection: each instruction of the second ability 
   assert.deepEqual(scored.linked.scored, [{ player: "B", amount: 1 }]);
 });
 
-test("rad-069-167 Zero Point Inflection: the authored body is blocked by an engine-side Expr gap, not approximated", () => {
-  // runAbilityBody evaluates instruction arguments before calling the primitive
-  // schema, but effect.discard / effect.draw / effect.damage / effect.move /
-  // effect.reveal require raw Expr args. Executing the authored body therefore
-  // throws instead of silently running a rewritten instruction sequence, and
-  // no substitute op is used to fake the discard (see the TODO below).
-  const kernel = world().unit("zero-point-inflection", { zone: "board" }).build();
+test("rad-069-167 Zero Point Inflection: the authored discard/kill/score body really resolves end to end", () => {
+  // The 9-other-cards gate is unmerged (judgeReason), but the ability's own
+  // body is real data the merged primitives execute: discard the whole hand,
+  // kill this, then award 1 point to the chosen opponent (423.1/423.5, 429.6,
+  // 194.1.c, 470).
+  const kernel = world().unit("zero-point-inflection", { zone: "board" }).hand("h1").hand("h2").build();
   kernel.addPlayer("B");
   kernel.setPicks("chosen-opponent", ["B"]);
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("zero-point-inflection") });
-  assert.throws(
-    () => runAbilityBody(drawTrigger.body, scoped),
-    /effect\.discard requires an amount Expr/
+
+  const outcome = resolveChainBody(drawTrigger.body, scoped);
+  assert.equal(outcome.status, "executed", JSON.stringify(outcome.results));
+  assert.deepEqual(
+    outcome.results.map(entry => [entry.id, entry.result.status]),
+    [
+      ["zero-point-inflection.discard-hand", "executed"],
+      ["zero-point-inflection.kill-self", "executed"],
+      ["zero-point-inflection.score", "executed"]
+    ]
   );
-  // Nothing was committed by the failed attempt: the source is still on the
-  // board and no point was awarded.
-  assert.equal(scoped.getObject("zero-point-inflection").zone, "board");
-  assert.equal(scoped.player("B").score, 0);
+  assert.equal(scoped.player("A").handCount, 0);
+  assert.deepEqual(
+    scoped.zone("A", "trash").map(ref => ref.id).sort(),
+    ["h1", "h2", "zero-point-inflection"]
+  );
+  assert.equal(scoped.getObject("zero-point-inflection").zone, "trash");
+  assert.equal(scoped.player("B").score, 1);
+  assert.deepEqual(
+    outcome.events.map(event => event.action),
+    ["discard", "discard", "kill", "score"]
+  );
 });
 
 test("rad-069-167 Zero Point Inflection: the second ability's instructions keep their authored order", () => {
   // The body is a 3-step ordered list and each later instruction links to the
   // one before it, so "discard your hand, kill this, and choose an opponent"
-  // is program data rather than interpreter-imposed order. (End-to-end body
-  // execution is blocked by the engine-side Expr gap in the TODO below.)
+  // is program data rather than interpreter-imposed order. The body itself
+  // resolves end to end (see the execution test above).
   assert.deepEqual(
     drawTrigger.body.map(instruction => instruction.id),
     [
@@ -227,8 +240,9 @@ test("rad-069-167 Zero Point Inflection: scoring to an invalid opponent pick is 
 test.todo(
   "rad-069-167 Zero Point Inflection: evaluating 'when you draw 1 or more cards with 9 or more other " +
     "cards in your hand' needs a condition that reads the number of cards drawn by this event and " +
-    "re-reads the hand size after the draw commits; HistoryQuery has scope/action/timingPoint/player/" +
-    "object only and the interpreter rejects other fields — RIFT-89/90."
+    "re-reads the hand size after the draw commits; HistoryQuery carries scope/action/timingPoint/" +
+    "player/object/exclude/objectFilter but no per-event drawn-card payload, and the count filter's " +
+    "owner/controller placeholder normalization plus trigger registration belong to RIFT-257."
 );
 
 test.todo(
@@ -238,8 +252,7 @@ test.todo(
 );
 
 test.todo(
-  "rad-069-167 Zero Point Inflection: runAbilityBody pre-evaluates instruction args while " +
-    "effect.discard/effect.draw/effect.damage/effect.move/effect.reveal require raw Expr args, so the " +
-    "authored body cannot be executed end-to-end; the interpreter/primitive argument convention must be " +
-    "reconciled before the full body has execution evidence (engine-side, not card data)."
+  "rad-069-167 Zero Point Inflection: both triggers (card-played and card-drawn) still need the " +
+    "card-program -> TriggerRegistration wiring (contract 3.5, RIFT-257) before they can fire in " +
+    "production."
 );
