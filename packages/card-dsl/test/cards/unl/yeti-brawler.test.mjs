@@ -4,8 +4,9 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/yeti-brawler.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL_ID =
@@ -31,7 +32,8 @@ test("unl-018-219 Yeti Brawler: identity, status, judgeReason and verbatim sourc
   assert.match(program.judgeReason, /excess damage/);
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /184\.1/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /LocationRef.*PlayerId/);
 });
 
 test("unl-018-219 Yeti Brawler: 'When I conquer' trigger with the excess-damage clause as trigger condition", () => {
@@ -40,7 +42,7 @@ test("unl-018-219 Yeti Brawler: 'When I conquer' trigger with the excess-damage 
   // 383.4.c / 383.4.c.1: "When I conquer" is a Conquer Effect; "self" is the
   // conquering unit's controller.
   assert.equal(ability.trigger.at, "conquer");
-  assert.deepEqual(ability.trigger.filter, { event: "conquer", player: "self" });
+  assert.deepEqual(ability.trigger.filter, { event: "conquered", filter: { source: "self" }, player: "self" });
   // 383.2.a.1: the "if you assigned 3 or more excess damage" clause follows the
   // trigger condition directly and belongs to it; the count shape names the
   // damage-assignment ledger that has no merged evaluation (judgeReason).
@@ -80,81 +82,41 @@ test("unl-018-219 Yeti Brawler: the generated card registry exposes the program 
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
-test("unl-018-219 Yeti Brawler: the declared conquer filter survives the merged adapter's translation unchanged", () => {
-  // RIFT-257's trigger adapter feeds the card filter through
-  // translateTriggerFilter, which returns the declared shape verbatim: the card
-  // filter has no nested object anchor to rewrite, so the translated pattern is
-  // exactly what the registration path validates (the vocabulary gap itself is
-  // recorded in judgeReason and in the todo below).
-  const translated = translateTriggerFilter(ability.trigger.filter, "yeti-brawler", ability.trigger.at);
-  assert.deepEqual(translated, { event: "conquer", player: "self" });
-  // The card's own IR is untouched by the adapter pass.
-  assert.deepEqual(ability.trigger.filter, translated);
-  // 383.4.c.2.a binds the trigger to the unit present at the conquering
-  // battlefield; the emitted conquer wave carries only the scoring payload.
-  assert.equal(ability.trigger.at, "conquer");
-});
+test("unl-018-219 Yeti Brawler: the conquer subscription binds the host unit in the engine event vocabulary", () => {
+  const filter = translateTriggerFilter(ability.trigger.filter, "yeti-brawler", ability.trigger.at);
+  assert.deepEqual(filter, {
+    event: "conquered",
+    object: { objectId: "yeti-brawler" },
+    player: "self"
+  });
+  const validated = validateTriggerSpec({ ...ability.trigger, filter });
+  assert.equal(validated.ok, true, JSON.stringify(validated.issues));
+  assert.deepEqual(validated.issues, []);
 
-test("unl-018-219 Yeti Brawler golden: the merged effect.token really plays defined tokens, but not gold", () => {
-  // The declared amount/mode/location arguments are executable for a token that
-  // has a definition: two Recruit tokens are created on the Chain and played
-  // (440.2.c / 185.2.a). CR 187.5's Gold token is not in the frozen table, so the
-  // primitive negates with the documented blockedReason instead of guessing.
-  const kernel = world().player("A").deck(["A:1", "A:2", "A:3", "A:4"]).build();
-  // The printed controller-base placeholder is a card-data spelling; the
-  // reference kernel resolves the concrete playing player, so the execution
-  // scenario substitutes the concrete base (the same substitution sibling
-  // token-creation goldens use) and swaps in a token the frozen table defines.
-  const defined = runInstruction(
-    token,
-    {
-      ...playGold.args,
-      token: { kind: "constant", value: "recruit" },
-      location: { kind: "constant", value: { type: "base", player: "A" } }
-    },
-    { world: kernel }
-  );
-  assert.equal(defined.result.status, "executed");
-  assert.equal(defined.linked["goldTokens.amount"], 2);
-  assert.equal(defined.linked["goldTokens.createdAmount"], 2);
-  assert.equal(kernel.objects.filter((object) => object.isToken).length, 2);
-
-  const goldKernel = world().player("A").build();
-  const gold = runInstruction(
-    token,
-    {
-      ...playGold.args,
-      location: { kind: "constant", value: { type: "base", player: "A" } }
-    },
-    { world: goldKernel }
-  );
-  assert.equal(gold.result.status, "negated");
-  assert.equal(gold.result.reason, "impossible");
-  assert.equal(gold.linked.goldTokens.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.equal(goldKernel.objects.filter((object) => object.isToken).length, 0);
+  // Test only event matching, not a fabricated conquest or condition receipt.
+  // CR 383.4.c.2.a: another friendly unit's conquest is not this unit's trigger.
+  const kernel = world().unit("yeti-brawler").unit("other-unit").build();
+  const event = { timingPoint: "conquer", player: "A", object: kernel.getObject("yeti-brawler") };
+  assert.equal(matchesTriggerEvent(filter, event, "A"), true);
+  assert.equal(matchesTriggerEvent(filter, { ...event, object: kernel.getObject("other-unit") }, "A"), false);
+  assert.equal(matchesTriggerEvent(filter, { ...event, player: "B" }, "A"), false);
 });
 
 test.todo(
-  "unl-018-219 Yeti Brawler: expose the conquer payload's assigned excess damage (CR 467.2.c.1–c.4: assigning vs dealing) " +
-    "— the scoring payload has no payloadFields and ResolveContext has no damage-assignment ledger; the retained count shape " +
-    "is satisfied by unrelated objects (engine batch 4/5)"
+  "unl-018-219 Yeti Brawler: bind the actual conquering unit and evaluate assigned excess damage >= 3 from " +
+    "the combat assignment receipt (CR 383.4.c.2.a / 467.2.c.1–c.4; RIFT-359 condition read)"
 );
 
 test.todo(
-  "unl-018-219 Yeti Brawler: Gold gear token definition with its printed ability (CR 187.5) — effect.token's frozen table has no gold entry"
+  "unl-018-219 Yeti Brawler: play two Gold gear tokens with the CR 187.5 ability through the production token/Chain handoff"
 );
 
 test.todo(
-  "unl-018-219 Yeti Brawler: chain-create then play of the token through the production chain — chain/engine.ts routeAction " +
-    "requires a registered CardProgram for the played object and tokens have no cardId (RIFT-257 follow-up)"
+  "unl-018-219 Yeti Brawler: carry the exhausted entry modification on both Gold tokens without a separate " +
+    "becomes-exhausted action (CR 184.1 / 185.2.d)"
 );
 
 test.todo(
-  "unl-018-219 Yeti Brawler: exhausted entry override on the created token (CR 143.4 / 184.1 / 185.2.d) — " +
-    "effect.token's argsSchema rejects an extra entry-state argument and create-then-exhaust would add a spurious becomes-exhausted event"
-);
-
-test.todo(
-  "unl-018-219 Yeti Brawler: register the conquer trigger — translateTriggerFilter keeps the card's \"conquer\" spelling and " +
-    "validateTriggerSpec only accepts the closed vocabulary's \"conquered\"/\"held\" (RIFT-257 follow-up)"
+  "unl-018-219 Yeti Brawler: resolve the controller-relative Base destination to a concrete PlayerId " +
+    "before effect.token executes, without hardcoding a fixture player's identity"
 );
