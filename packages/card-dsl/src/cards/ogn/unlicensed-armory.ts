@@ -20,15 +20,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   457–458 规定 Recall 不是 Move、不可被移动限制阻止；459/460 允许 Recall 装备与
  *   永久物并保持状态，本卡额外写明“exhausted”。
  *
- * status = judge-required：
- * - 没有已注册原语消费 `ctx.registerDelayedTrigger` / 注册延迟替代（contract 3.5 的
- *   替代族，仅引擎内部有 registerReplacement），本回合一次性的「下一次死亡」窗口无法登记；
- * - Recall 不能由 effect.move 近似：effect.move 文档明确 mode "recall" 被显式阻断
- *   （“Recall requires an action distinct from Move”，CR 457–460），内核也没有
- *   Recall 动作；
+ * status = judge-required（复核 2026-10-17）：
+ * - 替代注册管线（replacement/bind.ts，RIFT-260）已合入并能绑定
+ *   replacement.event 的一次性窗口；但 IR 里 args.instead 只能写成
+ *   constant 包装的指令数组（card-dsl 校验器只把 body/modes 识别为指令体），
+ *   而 bindReplacement 要求 args.instead 是裸指令数组
+ *   （“replacement.event instead must be an instruction body”），
+ *   两种形状不匹配，本卡的声明在合并管线里绑定会失败——需要替换体形状的契约对齐。
+ * - Recall 不能由 effect.move 近似：effect.move 明确阻断 mode "recall"
+ *   （“Recall requires an action distinct from Move”，CR v1.5 457–460，返回
+ *   negated/impossible 并带 blockedReason），内核也没有 Recall 动作；
  * - 替代里的「you may pay :rb_rune_fury:」需要可选的费用支付（cost.pay 原语尚未合入，
  *   与支付凭证），并且是替代效果内的可选支付。
- * 费用半段（discard 1 + 横置自身）完全可用已合入的费用计划执行，golden 测试真实收取。
+ * 费用半段（discard 1 + 横置自身）完全可用已合入的费用计划执行（golden 以运行期
+ * 选项真实收取；静态 IR 只能写选择占位符，Finalize 期的具体牌由调用方绑定）。
  */
 const abilities: Ability[] = [
   {
@@ -104,13 +109,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺延迟替代登记与 Recall：没有已注册原语消费 ctx.registerDelayedTrigger / 注册“本回合下一次死亡”" +
-    "的延迟替代（契约 3.5 替代族，仅引擎内部有 registerReplacement）；effect.move 文档明确 " +
-    "mode \"recall\" 被显式阻断（Recall 必须是与 Move 不同的动作，CR v1.5 457–460），内核也" +
-    "没有 Recall 动作，不能用普通 move-location 或离区再入场近似；替代内的可选 " +
-    "「you may pay :rb_rune_fury:」需要尚未合入的 cost.pay 原语与支付凭证。费用半段" +
-    "（discard 1 + 横置自身）已用已合入的费用计划真实执行。依赖：RIFT-120（替代注册管线）、" +
-    "RIFT-109（prim-effect-move 的 Recall 支持）、RIFT-89（cost.pay）。",
+    "三处缺口（复核 2026-10-17）：(1) 替代体形状不匹配——替代注册管线（replacement/bind.ts，RIFT-260）已合入，" +
+    "但要求 replacement.event 的 args.instead 是裸指令数组，而 card-dsl 校验器只允许 constant 包装的指令数组" +
+    "（body/modes 之外），本卡按 IR 写的声明在合并管线里绑定会抛 “replacement.event instead must be an instruction body”；" +
+    "(2) effect.move 明确阻断 mode \"recall\"（Recall 必须是与 Move 不同的动作，CR v1.5 457–460；返回 negated/impossible 并带 blockedReason），" +
+    "内核也没有 Recall 动作，不能用普通 move-location 或离区再入场近似；" +
+    "(3) 替代内的可选「you may pay :rb_rune_fury:」需要尚未合入的 cost.pay 原语与支付凭证（RIFT-261）。" +
+    "费用半段（discard 1 + 横置自身）已用已合入的费用计划真实收取（golden 以运行期选项支付，静态 IR 只能写选择占位符）。" +
+    "依赖：替代体形状的契约对齐、RIFT-109（Recall 动作）、RIFT-261（cost.pay）。",
   abilities,
   sourceText:
     "Discard 1, :rb_exhaust:: Choose a friendly unit. The next time it dies this turn, " +

@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/tryndamere-barbarian.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-6ba12b26451c240435ee3952db1009ed8f8cb3d1db061aef3df6e51c359883aa";
 
@@ -10,8 +12,10 @@ test("ogn-034-298 Tryndamere, Barbarian: program validates and is judge-required
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /effect\.score/);
-  assert.match(program.judgeReason, /RIFT-115/);
+  // The score clause is merged (RIFT-115); the remaining gaps are the
+  // excess-damage statistic and the conquering-unit event payload.
+  assert.match(program.judgeReason, /excess damage/);
+  assert.match(program.judgeReason, /RIFT-31\/33/);
 });
 
 test("ogn-034-298 Tryndamere, Barbarian: identity, ruleset and exact source text", () => {
@@ -28,7 +32,9 @@ test("ogn-034-298 Tryndamere, Barbarian: self conquer trigger whose condition co
   const [ability] = program.abilities;
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "conquer");
-  assert.deepEqual(ability.trigger.filter, { event: "conquer", filter: { source: "self" } });
+  // The closed discriminant is "conquered" (EVENT_NAMES maps it to conquer);
+  // object:{objectId:"self"} declares the conquering-unit intent.
+  assert.deepEqual(ability.trigger.filter, { event: "conquered", object: { objectId: "self" } });
   assert.equal(ability.optional, false);
 
   // "if you assigned 5 or more excess damage to enemy units" immediately
@@ -50,13 +56,28 @@ test("ogn-034-298 Tryndamere, Barbarian: self conquer trigger whose condition co
   assert.equal(instruction.linkedTo, undefined);
 });
 
-test.todo(
-  "ogn-034-298 Tryndamere, Barbarian: the conquer trigger body ('score 1 point' through the " +
-    "`score` game action) cannot execute until effect.score lands (RIFT-115); it must not be faked by " +
-    "writing to player score directly."
-);
+test("ogn-034-298 Tryndamere, Barbarian golden: the score clause gains 1 point through effect.score (470.2)", () => {
+  const kernel = world().unit("tryndamere", { might: 8 }).build();
+  const source = kernel.clone({ sourceSnapshot: kernel.getObject("tryndamere") });
+
+  const outcome = runAbilityBody(program.abilities[0].body, source);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [["tryndamere-barbarian.score-1", "executed"]]
+  );
+  // 194.1.c / 470.1: gaining points, distinct from Battlefield Scoring.
+  assert.equal(source.player("A").score, 1);
+  assert.deepEqual(outcome.events.map((event) => event.action), ["score"]);
+  assert.deepEqual(outcome.linkedValues["tryndamere-barbarian.score-1.scored"], [
+    { player: "A", amount: 1 }
+  ]);
+});
+
 test.todo(
   "ogn-034-298 Tryndamere, Barbarian: the 'assigned 5 or more excess damage' trigger condition needs " +
     "the combat-damage assignment statistic (CR 467.2.c.4) exposed on the conquer event or through " +
-    "history (RIFT-31/RIFT-33)."
+    "history (RIFT-31/RIFT-33), and the score payload must carry the conquering unit for the " +
+    "383.4.c.2.a unit-identity binding."
 );

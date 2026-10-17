@@ -28,6 +28,7 @@ test("ogn-218-298 Vanguard Captain: program validates and has expected identity"
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Legion/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "[Legion] — When you play me, play two 1 :rb_might: Recruit unit tokens here. " +
@@ -44,7 +45,13 @@ test("ogn-218-298 Vanguard Captain: Legion keyword plus two linked instructions 
 
   assert.equal(triggered.kind, "triggered");
   assert.equal(triggered.trigger.at, "card-played");
-  assert.deepEqual(triggered.trigger.filter, { event: "card-played", filter: { source: "self" } });
+  // "When you play me": the played card identifies itself by canonical id; the
+  // older { filter: { source: "self" } } spelling is rejected by the engine
+  // validator.
+  assert.deepEqual(triggered.trigger.filter, {
+    event: "card-played",
+    object: { canonicalCardId: program.canonicalCardId }
+  });
   assert.equal(triggered.trigger.condition.kind, "compare");
   assert.equal(triggered.trigger.condition.left.kind, "count");
   assert.equal(triggered.trigger.condition.left.subject, "cards-finalized-this-turn");

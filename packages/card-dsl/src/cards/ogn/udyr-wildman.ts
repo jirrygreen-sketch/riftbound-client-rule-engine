@@ -23,18 +23,23 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 801.3.a："Give me [Ganking] this turn" 是限时关键词授予（Granted Keyword，
  *   810 的 Ganking 权限），需要限时持续效果而非直接改写特征。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - "Choose one you've not chosen this turn" 需要跨多次启动记忆"本回合已选过的模式"
- *   （383.1.b 式的"第 N 次"语义、以及选择记忆账本）；choice.mode 只在**本次结算内**
+ * status 判定（cards/README.md 第 2 节）：judge-required。复核 2026-10-17：
+ * - "Choose one you've not chosen this turn" 需要跨多次启动的本回合选择记忆
+ *   （383.1.b 式的"第 N 次"语义与选择账本）；choice.mode 只在**本次结算内**
  *   保证 different（count/different），没有跨启动的"本回合未选过"过滤，同一次启动也
- *   无法读取历史选择。
- * - "Give me [Ganking] this turn" 需要带 end-of-turn 期限的 continuous.grant-keyword
- *   持续效果（RIFT-91 图层消费者，同 sfd rumble-hotheaded/forecaster 缺口）；并且
- *   Ganking 的连续移动许可（continuous.movement）本身也没有消费方。
+ *   无法读取历史选择。审查还发现 chain/engine.ts 的 assertFinalizationSurface 直接
+ *   拒绝 choice.mode（Mode choices require a Finalize/Resolve choice-plan adapter），
+ *   生产链路径本身还不能结算该指令。
+ * - "Give me [Ganking] this turn" 已由 continuous.grant-keyword（RIFT-258）真实执行：
+ *   golden 经链式适配器 + 图层引擎断言 ability 层注册、关键词 Ganking 与
+ *   end-of-turn 到期。剩余限制是 Ganking 的 continuous.movement 许可在生产
+ *   Standard Move 合法性检查里没有消费方（duel/movement.ts 只接受外部
+ *   deriveGanking 回调），无法证明整卡可执行。
+ * - "Spend my buff:"（702.2.b 的 spend-buff）已用费用计划真实收取（golden）。
  * - "a unit at a battlefield" 的伤害/横置目标在真实链路里可用 TargetSpec 表达，
- *   但触发/启动接线的时点与费用收齐仍属未集成部分；golden 测试用已合入的
- *   effect.damage / effect.stun / effect.ready 原语真实执行对应模式。
- * 依赖：RIFT-91（layers-continuous）、模式选择记忆、Ganking 移动许可消费方。
+ *   对应模式的 effect.damage / effect.stun / effect.ready 已由 golden 真实执行。
+ * 依赖：模式选择记忆账本、choice.mode 的 Finalize/Resolve choice-plan adapter、
+ * Ganking 移动许可消费方（Standard Move 合法性检查）。
  * 不近似实现（不把"本回合未选过"删掉当无限制，也不写死伤害数额）。
  */
 const abilities: Ability[] = [
@@ -138,14 +143,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处语义无已合入实现：（1）“Choose one you've not chosen this turn” 需要跨启动的" +
-    "本回合选择记忆——choice.mode 只在本次结算内做 count/different 去重，没有跨结算" +
-    "读取本回合已选模式的账本（383.1.b 系列对“第 N 次”的裁决），因此无法阻止重复选择" +
-    "已用过的模式。（2）“Give me [Ganking] this turn” 需要带 end-of-turn 期限的 " +
-    "continuous.grant-keyword 持续效果（RIFT-91 layers-continuous；同 sfd rumble-hotheaded/" +
-    "forecaster 的缺口），且 Ganking 的 continuous.movement 许可也没有消费方（zones/movement " +
-    "未读取该许可）。费用（702.2.b 的 spend-buff）与伤害/横置/重置指令已用已合入原语" +
-    "表达并在 golden 测试中真实执行；模式结构与 choose 顺序保留。不近似实现。",
+    "两处触发/启动接线缺口（复核 2026-10-17）：(1)“Choose one you've not chosen this turn” 需要跨启动的本回合选择记忆" +
+    "——choice.mode 只在本次结算内做 count/different 去重，没有跨结算读取本回合已选模式的账本（383.1.b 系列对“第 N 次”的裁决）；" +
+    "并且 chain/engine.ts 的 assertFinalizationSurface 直接拒绝 choice.mode（Mode choices require a Finalize/Resolve choice-plan adapter），" +
+    "生产链路径无法结算该指令。(2)“Give me [Ganking] this turn” 的 continuous.grant-keyword 已可执行（RIFT-258；golden 经链式适配器 + " +
+    "图层引擎断言 ability 层注册、Ganking 关键词与 end-of-turn 到期），剩余限制是 Ganking 的 continuous.movement 许可在生产 Standard Move " +
+    "合法性检查中没有消费方（duel/movement.ts 只接受外部 deriveGanking 回调）。" +
+    "已真实执行：spend-buff 费用（702.2.b，费用计划）、effect.damage / effect.stun / effect.ready 三个模式。依赖：选择记忆账本、" +
+    "choice.mode 的 Finalize/Resolve choice-plan adapter、移动许可消费方。不近似实现。",
   abilities,
   sourceText:
     // 逐字保留 catalog 原文：四个模式之间只有 "."、没有空格或换行（数据疑点已上报，未修改）。

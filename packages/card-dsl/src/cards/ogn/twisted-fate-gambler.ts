@@ -25,23 +25,30 @@ import type { Ability, CardProgram, Condition, Instruction } from "../../ir/inde
  *   （Reflexive Trigger，“Do one of the following”），不是普通的“选一个模式”指令：
  *   条件满足后按条件把对应的一个反身触发作为新的链项入链（389 / 389.1）。本程序按契约
  *   3.9 的可表达形状写成三个由 domain 条件守住的 `sequence` 分支（structure 完整、
- *   互斥、可被解释器逐条求值），但引擎里没有卡牌可用的反身触发构造原语（effects 下
- *   只有 chain/events 的 triggered 注册路径），所以整卡保持 judge-required。
+ *   互斥、可被解释器逐条求值），但引擎里没有卡牌可用的反身触发构造原语；并且
+ *   chain/engine.ts 的 assertFinalizationSurface 直接拒绝 choice.mode
+ *   （“Mode choices require a Finalize/Resolve choice-plan adapter”），反身触发的
+ *   链项构造也没有落线，所以整卡保持 judge-required。
  * - 三个分支的取值/动作：domain 用被展示符文的 `power`（Domain 列表）与常量域比较
  *   （`in`/`eq` 语义等价，程序用 `eq` 与单元素列表，避免把 “基于域” 写成模糊比较）；
  *   “here” 用 359.3.e.13 式的来源当前位置引用（`sameLocationAs: "self"`，本卡的攻击
  *   触发在 attacker 仍在场时求值）；“all other enemy units here” 用 `exclude` 排除被
  *   选中的那一个（355.14 的“other”语义）。
  *
- * status 判定（README 第 2 节）：judge-required。三处缺口：
- * 1. 反身触发（388）没有卡牌侧原语/接线——`choice.mode` 只按玩家选择，不能按 domain 条件
- *    自动入链，也不能把分支变成新的链项；
- * 2. “reveal the top rune … then recycle it” 的**顶张顺序**：reveal/inspect 侧的
- *    zoneSlice 接线未完成（RIFT-66 契约变更只落地在 mill/order/recycle）；
- * 3. `effect.stun` 的参数解码当前通过链式适配器会失败（见 golden 测试里记录的适配器缺口），
- *    证据在 /tmp/RIFT-154-m2-ogn-unit-10/。
+ * status 判定（README 第 2 节）：judge-required。复核 2026-10-17，三处缺口：
+ * 1. 反身触发（388）没有卡牌侧原语/接线——`choice.mode` 只按玩家选择，不能按 domain
+ *    条件自动入链，也不能把分支变成新的链项；链上还直接拒绝 choice.mode
+ *    （assertFinalizationSurface 要求 Finalize/Resolve 的 choice-plan adapter）；
+ * 2. “reveal the top rune … then recycle it” 的**顶张顺序**：effect.reveal 的非手牌
+ *    真子集要求上游按区域顺序给出 ordered picks，zoneSlice 只接进了
+ *    mill/order/recycle/banish（对符文牌库取顶 1 张会抛出
+ *    “a subset of this zone requires upstream ordered picks”）；
+ * 3. `effect.stun` 的参数解码在链式适配器（chain/interpreter-adapter.ts 的
+ *    LITERAL_FIELDS）里没有条目，生产链路径会抛 “effect.stun target must be a spec
+ *    id string”；卡自身的 stun 指令经解释器（runAbilityBody，Finalize 已锁定目标）
+ *    已真实执行。
  * 已合入且可执行的部分（reveal 的顺序无关形式、recycle 的链接值、两个伤害指令、draw、
- * stun 的 primitive 直接调用）都在 golden 测试里真实执行。
+ * 解释器路径的 stun）都在 golden 测试里真实执行。
  */
 
 /** 分支条件：被展示符文的域列表等于给定的单域列表（`eq` 与 `in` 等价，取更严格者）。 */
@@ -197,13 +204,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处缺口：(1) “Do one of the following based on its domain” 是反身触发（CR 388.1/388.1.b、389），" +
-    "条件满足后要把对应的一个分支作为**新的链项**入链，而 effects/ 下没有卡牌可用的反身触发构造原语，" +
-    "choice.mode 只按玩家选择、不按域条件自动入链；(2) “reveal the top rune of your rune deck” 的顶张顺序：" +
-    "effect.reveal 用 query 取候选、不保证区域内顺序，RIFT-66 的 zoneSlice 只接进了 mill/order/recycle，" +
-    "108.5.d 的符文顶张顺序尚未接线；(3) 经链式适配器解码 effect.stun 参数时接口不匹配" +
-    "（证据见 /tmp/RIFT-154-m2-ogn-unit-10/）。依赖：反身触发原语 + RIFT-66 reveal 顶张接线 + effect.stun 适配器修复。" +
-    "可执行部分（recycle 链接值、两条伤害、draw、recycle 顺序无关形式）已在 golden 测试中真实执行。",
+    "三处缺口（复核 2026-10-17）：(1) “Do one of the following based on its domain” 是反身触发（CR 388.1/388.1.b、389），" +
+    "条件满足后要把对应的一个分支作为**新的链项**入链；没有卡牌可用的反身触发构造原语，" +
+    "choice.mode 只按玩家选择、不按域条件自动入链，且 chain/engine.ts 的 assertFinalizationSurface 直接拒绝 choice.mode" +
+    "（Mode choices require a Finalize/Resolve choice-plan adapter）；" +
+    "(2) “reveal the top rune of your rune deck” 的顶张顺序：effect.reveal 的区域真子集要求上游按区域顺序给出 ordered picks，" +
+    "zoneSlice 只接进了 mill/order/recycle/banish（对符文牌库取顶 1 张会抛 “a subset of this zone requires upstream ordered picks”）；" +
+    "(3) effect.stun 的参数解码在链式适配器（chain/interpreter-adapter.ts 的 LITERAL_FIELDS）里没有条目，" +
+    "生产链路径会抛 “effect.stun target must be a spec id string”；卡自身的 stun 指令经解释器（runAbilityBody，Finalize 已锁定目标）已真实执行。" +
+    "依赖：反身触发原语 / choice-plan adapter、区域顺序 picks 接线（RIFT-66 后续）、effect.stun 的适配器解码。" +
+    "可执行部分（recycle 链接值、两条伤害、draw、reveal 顺序无关形式、stun）已在 golden 测试中真实执行。",
   abilities,
   sourceText:
     "When I attack, reveal the top rune of your rune deck, then recycle it. Do one of the " +

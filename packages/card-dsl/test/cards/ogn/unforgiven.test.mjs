@@ -10,6 +10,9 @@ const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { runInstruction, createTestWorld } = await import(
   new URL("effects/testing/index.js", engineCore)
 );
+const { resolveChainBody } = await import(
+  new URL("chain/interpreter-adapter.js", engineCore)
+);
 const moveDefinition = (await import(new URL("effects/instructions/effect.move.js", engineCore)))
   .default;
 
@@ -55,6 +58,7 @@ test("unforgiven identity: canonicalCardId, ruleset, judge-required status and v
   assert.match(program.judgeReason, /355\.4/);
   assert.match(program.judgeReason, /target\.location/);
   assert.match(program.judgeReason, /your base/);
+  assert.match(program.judgeReason, /RIFT-109/);
   assert.equal(
     program.sourceText,
     ":rb_energy_2:, :rb_exhaust:: Move a friendly unit to or from your base."
@@ -87,8 +91,8 @@ test("unforgiven structure: action-speed activated ability, printed cost, one-ta
 // effect.move parses raw IR Exprs (`argsSchema.parse` receives the unevaluated
 // instruction args), so the golden runs the card's own args through
 // runInstruction — the same convention as the merged effect.move tests. Full
-// body execution through runAbilityBody is deferred with the engine-side
-// evaluated-vs-raw argsSchema mismatch recorded in the task reply.
+// body execution through the production chain adapter is covered by the
+// golden below.
 test("unforgiven golden: the mergeable to-base half really moves a battlefield unit to its controller's base", () => {
   const kernel = kernelWithUnit({ location: { type: "battlefield", id: "battlefield-1" } });
   const run = runInstruction(
@@ -100,6 +104,21 @@ test("unforgiven golden: the mergeable to-base half really moves a battlefield u
   assert.deepEqual(kernel.getObject("unit").location, { type: "base", player: "A" });
   assert.equal(run.linked.moved.count, 1);
   assert.deepEqual(run.events.map(event => event.action), ["move-location"]);
+});
+
+test("unforgiven golden: the whole ability body executes through the production chain adapter", () => {
+  const kernel = kernelWithUnit({ location: { type: "battlefield", id: "battlefield-1" } });
+  kernel.setTargets("unit", [kernel.ref("unit")]);
+  const body = ability.body.map(({ targets, ...rest }) => rest);
+
+  const outcome = resolveChainBody(body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status]), [
+    ["unforgiven.move", "executed"]
+  ]);
+  assert.deepEqual(kernel.getObject("unit").location, { type: "base", player: "A" });
+  assert.deepEqual(outcome.events.map((event) => event.action), ["move-location"]);
 });
 
 test("unforgiven golden: a unit already at its base is not moved by the to-base destination", () => {

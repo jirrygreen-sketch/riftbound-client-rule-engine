@@ -22,21 +22,31 @@ import type { CardProgram } from "../../ir/index.js";
  *   再用 effect.zone 的 return-to-hand 形式把我移回拥有者手牌（"my owner's hand"：
  *   effect.zone 的 hand 目的地按拥有者路由，CR 417/124 由内核处理）。
  *
- * status：judge-required。缺："an opponent controls a battlefield" 的 battlefield
- * 控制条件与"enter ready"入场替代的消费管线（replacement.enter 尚未有执行器，
- * effect.ready 明确不参与入场替代）；可选征服体里的成本内付款也需要 cost.modify /
- * 成本内付款许可（383.3.b）的接管。关键词部分（Assault 3）已可结构校验。
- * 不把"enter ready"近似成事后 effect.ready，也不手改费用。
+ * status：judge-required（复核 2026-10-17）。已合入：入场替代注册管线
+ * （replacement/bind.ts，RIFT-260）能绑定「横置进场 → 就绪进场」的状态改写，
+ * golden 断言链区横置后进入战场时被改写为就绪（不是先横置再 effect.ready）。
+ * 仍缺：
+ * - "an opponent controls a battlefield" 的条件没有可求值路径：ObjectSnapshot 里
+ *   battlefield 不是对象，count 的 subject 不参与求值；且 bind 的入场改写匹配
+ *   （matchesEnterAction）在条件检查之前返回，条件尚未被求值；
+ * - 可选征服体里的成本内付款（383.3.b 的 cost.pay）需要费用管线接管支付与回手
+ *   动作的顺序（cost.pay 原语尚未合入，RIFT-261）。
+ * 关键词部分（Assault 3）已可结构校验。不把"enter ready"近似成事后 effect.ready，
+ * 也不手改费用。
  */
 const vayneHunter = {
   canonicalCardId: "card.hash-af6a9ff16e9f4f9849e489bb4ab37b18a1f12ed88da4b151ac85c770eb68d8c6",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「If an opponent controls a battlefield, I enter ready」是入场替代效果（369.3），当前没有 replacement.enter 消费管线；" +
-    "effect.ready 明确排除入场替代路径（不能近似为先横置再重置）。条件「an opponent controls a battlefield」还需要 battlefield 控制状态谓词。" +
-    "「When I conquer, you may pay :rb_energy_1: to return me」中，可选包装可用 choice.optional，但成本内付款（383.3.b 的 cost within instructions）" +
-    "需要费用管线接管支付与回手动作的顺序。依赖：RIFT-91（layers/replacement 消费）、RIFT-89（成本计划与付款）、RIFT-33（征服触发）。",
+    "两处缺口（复核 2026-10-17）：(1)「If an opponent controls a battlefield, I enter ready」的入场改写已由合入的替代注册管线" +
+    "（replacement/bind.ts，RIFT-260）真实执行（golden 断言链区横置进场被改写为就绪，不是先横置再 effect.ready），" +
+    "但条件「an opponent controls a battlefield」没有可求值路径——ObjectSnapshot 里 battlefield 不是对象、count 的 subject 不参与求值，" +
+    "且 bind.ts 的 matchesEnterAction 在条件检查之前返回（入场改写匹配不经过 ability.condition）。" +
+    "(2)「When I conquer, you may pay :rb_energy_1: to return me」的可选包装（choice.optional）已合规，" +
+    "但成本内付款（383.3.b）需要费用管线接管支付与回手动作的顺序，cost.pay 原语尚未合入（RIFT-261）。" +
+    "触发 filter 已改用封闭判别值 \"conquered\" 与 object:{objectId:self} 意图（conquer 载荷的无单位身份缺口见同批复核）。" +
+    "依赖：battlefield 控制谓词 / 入场替代条件求值、RIFT-261（cost.pay 与费用计划）。",
   abilities: [
     { kind: "keyword", keyword: "assault", value: 3 },
     {
@@ -58,14 +68,20 @@ const vayneHunter = {
       with: [
         {
           id: "vayne-hunter.enter-ready",
-          op: "effect.ready",
-          args: {}
+          // 入场状态改写（369.3 / 805.6）：replacement.enter 是合并管线的
+          // 入口形状；不是"先横置再就绪"的一次 effect.ready。
+          op: "replacement.enter",
+          args: {
+            state: { kind: "constant", value: "ready" },
+            zone: { kind: "constant", value: "board" }
+          }
         }
       ]
     },
     {
       kind: "triggered",
-      trigger: { at: "conquer", filter: { event: "conquer", filter: { source: "self" } } },
+      // 封闭判别值 "conquered"；object:{objectId:"self"} 声明「本单位」意图。
+      trigger: { at: "conquer", filter: { event: "conquered", object: { objectId: "self" } } },
       optional: false,
       body: [
         {

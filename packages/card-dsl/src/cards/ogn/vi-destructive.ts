@@ -18,16 +18,24 @@ import type { CardProgram } from "../../ir/index.js";
  *   按单位激活能力的默认时机为 action 速度（159.2；Polite/Reaction 只来自
  *   [Reaction] 关键词）。
  *   - 费用："Recycle 1 from your trash" 是费用中的回收（417.3），使用
- *     CostSpec.payments 的 recycle 支付形状（cost 计划由 RIFT-89 的
+ *     CostSpec.payments 的 recycle 支付形状（由已合入的
  *     buildCostPlan/payCostPlan 消费；选项是控制者 Trash 中的牌）。
  *   - 效果："Give me +1 :rb_might: this turn" 是本回合到期的临时 Might 修正，
  *     属于 continuous.might（effect.buff 只处理 Buff 计数器，不得代用）。
  *
- * status：judge-required。缺："Give me +1 :rb_might: this turn" 的
- * end-of-turn continuous.might 持续效果（图层消费方未合并）；"Recycle X from your
- * trash" 在费用里的对象选择也需要费用管线把 Trash 选择接到 pick/choice（cost 计划
- * 形状已合入，但生产接线未完成）。依赖：RIFT-91（layers-continuous）、
- * RIFT-89（费用计划的 Trash 回收支付接线）。Ganking 关键词部分已可结构校验。
+ * status：judge-required（复核 2026-10-17）。已合入：
+ * - "Give me +1 :rb_might: this turn" 由 continuous.might（RIFT-258）真实执行：
+ *   golden 经生产链适配器 + 图层引擎断言 arithmetic 层注册、有效 Might 与
+ *   end-of-turn 到期；
+ * - "Recycle 1 from your trash" 的费用形状（CostSpec.payments 的 recycle）能由
+ *   buildCostPlan/payCostPlan 收取（golden 以运行期选项支付并断言牌进牌库底）。
+ * 仍缺：
+ * - 静态 IR 只能写费用选择占位符（cost/plan-values.ts 要求每个 option 是精确
+ *   ObjectRef），把 Trash 选择接到生产 pick/choice 的接线未完成（RIFT-261 的
+ *   费用种类/费用计划接线）；
+ * - [Ganking] 的 continuous.movement 许可在生产 Standard Move 合法性检查里
+ *   没有消费方（duel/movement.ts 只接受外部 deriveGanking 回调）。
+ * 依赖：RIFT-261（费用选择的生产接线）、移动许可消费方。
  * 不把临时 Might 落到 effect.buff 上近似。
  */
 const viDestructive = {
@@ -35,11 +43,13 @@ const viDestructive = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺本回合到期的临时 Might 修正（continuous.might 的 end-of-turn 持续效果，图层消费方未合并；" +
-    "effect.buff 只处理 Buff 计数器，不得代用），以及费用内「Recycle 1 from your trash」的对象选择接线" +
-    "（CostSpec.payments 的 recycle 形状已合入，但 buildCostPlan 的 Trash 选择在生产链路未接）。" +
-    "依赖：RIFT-91（layers-continuous）、RIFT-89（费用计划与回收支付）。[Ganking] 关键词展开（RIFT-83）已合入。" +
-    "不近似实现。",
+    "两处生产接线缺口（复核 2026-10-17）：(1)「Recycle 1 from your trash」的费用形状可由 buildCostPlan/payCostPlan 收取" +
+    "（golden 以运行期选项支付），但静态 IR 只能写选择占位符（cost/plan-values.ts 要求每个 option 是精确 ObjectRef），" +
+    "把 Trash 选择接到生产 pick/choice 的接线未完成（RIFT-261）；" +
+    "(2) [Ganking] 的关键词展开（RIFT-83）是 continuous.movement 静态效果，图层引擎能导出 canGank 查询，" +
+    "但生产 Standard Move 合法性检查没有消费方（duel/movement.ts 只接受外部 deriveGanking 回调）。" +
+    "已真实执行：「Give me +1 :rb_might: this turn」由 continuous.might（RIFT-258）注册 end-of-turn arithmetic 层效果（golden 断言有效 Might 与到期）。" +
+    "依赖：RIFT-261（费用选择生产接线）、移动许可消费方。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "ganking" },
     {
@@ -68,7 +78,9 @@ const viDestructive = {
           args: {
             amount: { kind: "constant", value: 1 },
             duration: { kind: "constant", value: "end-of-turn" },
-            target: { kind: "constant", value: "self" }
+            // "me": the ability source, read through the contract 3.6 symbolic
+            // source selector (the merged continuous.might args shape).
+            objects: { kind: "constant", value: { kind: "source" } }
           }
         }
       ]

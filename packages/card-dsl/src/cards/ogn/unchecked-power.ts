@@ -6,8 +6,8 @@ import type { CardProgram } from "../../ir/index.js";
  * Printed text:
  *   Exhaust all friendly units, then deal 12 to ALL units at battlefields.
  *
- * Status: judge-required — the damage half is a programmatically selected set
- * with no merged write path:
+ * Status: judge-required (re-reviewed 2026-10-17) — the damage half is a
+ * programmatically selected set with no merged write path:
  * - "Exhaust all friendly units" is a set, so it is NOT targeted (355.10.d).
  *   It is declared as a non-target pick (contract 3.1 `picks`), and
  *   `effect.exhaust` consumes it with its default amount (every eligible
@@ -21,10 +21,12 @@ import type { CardProgram } from "../../ir/index.js";
  * - "Deal 12 to ALL units at battlefields" is again a set, and 355.10.d's
  *   counter-example is exactly this shape ("Kill all units at battlefields"
  *   does not target anything). It also names a location (355.10.b/355.10.d),
- *   so the set is neither a plain query nor a TargetSpec: the merged
- *   `effect.damage` consumes only a Finalize-locked TargetSpec id, and there is
- *   no merged query/place-intersection form for a multi-battlefield set. The
- *   described instruction carries that unmerged shape and does not execute.
+ *   so the set is neither a plain query nor a TargetSpec: the merged target
+ *   system (target/target-plan.ts) finalizes TargetSpecs, and the merged
+ *   `effect.damage` consumes only a Finalize-locked TargetSpec id
+ *   (ctx.targets), so there is no query/multi-battlefield-set form for the
+ *   damage instruction. The described instruction carries that unmerged shape
+ *   and does not execute.
  * - The "then" ordering is preserved by declaring the damage after the
  *   exhaust; the halves are not `linkedTo` each other because neither
  *   references the other's result (359.3.e.14 links references, not ordering).
@@ -35,10 +37,11 @@ const uncheckedPower = {
   status: "judge-required",
   judgeReason:
     "第二个半段是程序化集合而非目标（355.10.d，其反例正是 “Kill all units at battlefields”）：" +
-    "“Deal 12 to ALL units at battlefields” 既指定地点（355.10.b/d）又不是可表达集合——已合入的 effect.damage 只消费 " +
-    "Finalize 锁定的 TargetSpec，多战场集合没有 query/地点交集形式，也没有指令原语可注册该集合；依赖 RIFT-90 目标系统与 " +
-    "target.location / target.many（RIFT-9）。“Exhaust all friendly units” 半段用 effect.exhaust 的非目标 picks 集合形式，" +
-    "由 golden 在参考内核上真实执行。两半均不声明为 targets、不近似、不手改状态。",
+    "“Deal 12 to ALL units at battlefields” 既指定地点（355.10.b/d）又不是可表达集合——目标系统（target/target-plan.ts）已合入，" +
+    "但已合入的 effect.damage 只消费 Finalize 锁定的 TargetSpec id（ctx.targets），没有把 resolution-time 集合/地点交集交给伤害的形态，" +
+    "也没有指令原语可注册该集合；依赖 RIFT-9 清单中的 target.location / target.many 落地与多战场集合的伤害形式。" +
+    "“Exhaust all friendly units” 半段用 effect.exhaust 的非目标 picks 集合形式，由 golden 在参考内核上真实执行。" +
+    "两半均不声明为 targets、不近似、不手改状态。",
   abilities: [
     {
       kind: "play",

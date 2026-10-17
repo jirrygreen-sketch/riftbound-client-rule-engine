@@ -4,8 +4,10 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/udyr-wildman.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-fa80adfa87e517c318ff696460904b28aeb38024b68666372f0109ecf2757882";
@@ -45,11 +47,11 @@ test("ogn-157-298 Udyr, Wildman: program validates and keeps identity", () => {
   assert.equal(program.sourceText.includes("battlefield.Stun"), true);
 });
 
-test("ogn-157-298 Udyr, Wildman: judgeReason cites the per-turn choice memory and the keyword grant", () => {
+test("ogn-157-298 Udyr, Wildman: judgeReason cites the per-turn choice memory and the movement consumer", () => {
   assert.match(program.judgeReason, /choice\.mode/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-91/);
   assert.match(program.judgeReason, /continuous\.movement/);
+  assert.match(program.judgeReason, /RIFT-258/);
 });
 
 test("ogn-157-298 Udyr, Wildman: 'Spend my buff:' is the activated cost and action timing (377.1 / 381.1)", () => {
@@ -160,15 +162,49 @@ test("ogn-157-298 Udyr, Wildman: the ready mode readies the exhausted source (41
   assert.deepEqual(outcome.events.map(event => event.action), ["ready"]);
 });
 
-test("ogn-157-298 Udyr, Wildman: the Ganking grant op has no registered primitive yet", () => {
+test("ogn-157-298 Udyr, Wildman golden: the Ganking grant registers the end-of-turn keyword (RIFT-258, 801.3.a)", () => {
+  // "Give me [Ganking] this turn": the merged continuous.grant-keyword
+  // primitive registers one ability-layer effect through ctx.addContinuous
+  // with the end-of-turn duration; the layer engine derives the keyword.
   const grant = modeById.get("udyr.ganking-mode").body[0];
-  assert.equal(instructionDefinitionsById.has(grant.op), false);
-  // Every other op the card uses is registered and therefore executable; the
-  // grant op is the only unmerged one (choice.mode is an interpreter control
-  // node, not a registry entry).
-  assert.equal(instructionDefinitionsById.has("effect.damage"), true);
-  assert.equal(instructionDefinitionsById.has("effect.stun"), true);
-  assert.equal(instructionDefinitionsById.has("effect.ready"), true);
+  const kernel = udyrWorld();
+  const outcome = resolveChainBody([grant], kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["udyr.grant-ganking", "executed"]
+  ]);
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [registration] = kernel.continuousEffects;
+  assert.equal(registration.effect.layer, "ability");
+  assert.equal(registration.effect.effect.kind, "continuous.grant-keyword");
+  assert.equal(registration.effect.effect.keyword, "Ganking");
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+  assert.deepEqual(outcome.results[0].result.linkedValues.granted, {
+    count: 1,
+    objects: [kernel.ref("udyr")]
+  });
+
+  const engine = createLayerEngine(kernel.objects, kernel.continuousEffects.map(entry => ({
+    effect: entry.effect, duration: entry.duration, timestamp: 1
+  })));
+  assert.deepEqual(engine.evaluate(kernel.ref("udyr")).keywords.map(entry => entry.id), ["Ganking"]);
+  // 317.1.a: the grant expires with the turn.
+  assert.equal(engine.expireAt("turn-end").length, 1);
+  assert.deepEqual(engine.evaluate(kernel.ref("udyr")).keywords, []);
+});
+
+test("ogn-157-298 Udyr, Wildman golden: 'Spend my buff:' is charged through the merged cost plan (702.2.b)", () => {
+  const kernel = udyrWorld();
+  kernel.addPlayer("A", {});
+  const buffed = kernel.clone({ sourceSnapshot: kernel.getObject("udyr") });
+  // The reference kernel supports buff counters on the source object.
+  buffed.perform({ type: "buff", object: buffed.ref("udyr"), amount: 1 });
+  const plan = buildCostPlan(buffed, { id: "cost:udyr", cost: ability.cost });
+  assert.deepEqual(plan.total.actions.map(entry => entry.action.type), ["spend-buff"]);
+  const receipt = payCostPlan(buffed, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(buffed.getObject("udyr").buffs, 0);
 });
 
 test.todo(
@@ -176,7 +212,7 @@ test.todo(
     "choice.mode's different flag only de-duplicates within one resolution (CR v1.5 383.1.b / 355.5.a)."
 );
 test.todo(
-  "ogn-157-298 Udyr, Wildman: 'Give me [Ganking] this turn' needs an end-of-turn continuous.grant-keyword " +
-    "effect and a consumer for Ganking's continuous.movement permission (CR v1.5 801.3.a / 810; " +
-    "RIFT-91 layers workstream, zones/movement)."
+  "ogn-157-298 Udyr, Wildman: the granted [Ganking] needs a production consumer for its " +
+    "continuous.movement permission in the Standard Move legality check (CR v1.5 801.3.a / 810; " +
+    "duel/movement.ts takes an external deriveGanking callback that nothing wires from the layers engine)."
 );

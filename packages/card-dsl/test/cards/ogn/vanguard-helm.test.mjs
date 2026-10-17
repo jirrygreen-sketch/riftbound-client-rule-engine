@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/vanguard-helm.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [ability] = program.abilities;
@@ -33,7 +34,7 @@ test("vanguard-helm: identity, ruleset, status, judgeReason and printed text", (
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /buffed/);
-  assert.match(program.judgeReason, /TriggerRegistration/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /702\.2\.a/);
   assert.equal(
     program.sourceText,
@@ -51,14 +52,37 @@ test("vanguard-helm: the death trigger subscribes to object-killed with the prin
 
   // "a buffed friendly unit dies": the dying unit is the event object, must be
   // a unit controlled by this ability's controller (740.1.a) and must carry a
-  // Buff counter (702.2.a). The buff predicate has no merged filter spelling;
-  // the characteristics key below is a review marker only — the merged matcher
-  // compares it with ===, which is not 702.2.a's "has a Buff counter".
+  // Buff counter (702.2.a). 702.3 caps a unit at one Buff, so
+  // characteristics:{buffs:1} is the exact predicate the merged matcher
+  // compares with === against the dying unit's snapshot.
   assert.deepEqual(ability.trigger.filter, {
     event: "object-killed",
     object: { type: "unit", characteristics: { buffs: 1 } },
     player: "self"
   });
+});
+
+test("vanguard-helm golden: the merged matcher accepts a buffed dying unit and rejects an unbuffed one (702.2.a / 702.3)", () => {
+  const kernel = world().unit("buffed-ally", { buffs: 1 }).unit("plain-ally").build();
+  const event = (object) => ({
+    timingPoint: "object-killed",
+    eventId: 1,
+    object,
+    player: "A"
+  });
+  assert.equal(
+    matchesTriggerEvent(ability.trigger.filter, event(kernel.getObject("buffed-ally")), "A"),
+    true
+  );
+  assert.equal(
+    matchesTriggerEvent(ability.trigger.filter, event(kernel.getObject("plain-ally")), "A"),
+    false
+  );
+  // "friendly": the dying unit's controller must be the ability controller.
+  assert.equal(
+    matchesTriggerEvent(ability.trigger.filter, { ...event(kernel.getObject("buffed-ally")), player: "B" }, "A"),
+    false
+  );
 });
 
 test("vanguard-helm: the body is one effect.buff targeting exactly one other friendly unit", () => {
@@ -130,7 +154,6 @@ test.todo(
 );
 
 test.todo(
-  "vanguard-helm: a merged 'buffed' trigger predicate (702.2.a: a unit with a Buff counter) instead of " +
-    "the descriptive characteristics key; depends on the same trigger-filter vocabulary extension as " +
-    "ogn-269-298 The Boss and ogn-090-298 Spirits' Refuge"
+  "vanguard-helm: the card-program → TriggerRegistration binding (RIFT-257) that registers this trigger " +
+    "with activeZones and the payload-object binding for the dying unit"
 );
