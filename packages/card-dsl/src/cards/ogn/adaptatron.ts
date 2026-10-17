@@ -50,7 +50,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "触发绑定已合入（RIFT-257，programs/triggers.ts 经 translateTriggerFilter 把本卡的" +
+    "触发绑定已合入（programs/triggers.ts 经 translateTriggerFilter 把本卡的" +
     "{ filter: { source: 'self' } } 拼写翻译成 object:{objectId:宿主}，并通过 assertTriggerSpec），" +
     "效果本体（choice.optional + effect.kill 写 killed 回执 + effect.buff self 锚点）也已合入并有 golden 执行测试。" +
     "仍缺 383.4.c.1 的自身范围条件：conquered 发射（turn/flow.ts Score 波）载荷只有 { player, details:{ battlefieldId } }、" +
@@ -61,7 +61,7 @@ export default {
     "但对真实 conquered 发射 matchesTriggerEvent 返回 false。不近似实现。" +
     "「you may kill a gear. If you do, buff me.」本体用已合入的 choice.optional + effect.kill（写 killed 回执）+ effect.buff（self 锚点）表达，" +
     "其中「If you do」按 359.3.e.14.b 直接引用该消灭动作、以 killed 回执判定，golden 已覆盖接受/拒绝/死亡被替代三条路径；" +
-    "缺的只是可注册的自我范围拼写（触发注册路径已合入）。不近似实现。",
+    "触发注册路径已合入，但仍缺事件载荷中的自身范围条件。不近似实现。",
   abilities: [
     {
       kind: "triggered",

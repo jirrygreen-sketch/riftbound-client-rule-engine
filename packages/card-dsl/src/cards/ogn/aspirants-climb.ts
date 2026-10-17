@@ -33,7 +33,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "No merged operation changes the Victory Score: the closed GameAction set (contract 3.6) exposes `score` (point gain, CR 470/473.1) and `win` (CR 195/196) but no victory-threshold change, and no instruction file or IR ability kind exists for CR 194.3.a 'card effects may alter the Victory Score'. The engine models the value internally (scoring/setDuelVictoryScoreForEffect) without a card-facing primitive, so the effect is not encoded rather than approximated with point gain. The RIFT-257 static binding is merged (programs/statics.ts); the only dependency is a new victory-score primitive (contract change request).",
+    "No merged operation changes the Victory Score: the closed GameAction set (contract 3.6) exposes `score` (point gain, CR 470/473.1) and `win` (CR 195/196) but no victory-threshold change, and no instruction file or IR ability kind exists for CR 194.3.a 'card effects may alter the Victory Score'. The engine models the value internally (scoring/setDuelVictoryScoreForEffect) without a card-facing primitive, so the effect is not encoded rather than approximated with point gain. The static binding is merged (programs/statics.ts); the only dependency is a new victory-score primitive (contract change request).",
   sourceText: "Increase the points needed to win the game by 1.",
   abilities: []
 } satisfies CardProgram;

@@ -4,11 +4,11 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/altar-to-unity.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
-import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { world as testWorld } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [ability] = program.abilities;
-const [instruction] = ability.body;
+const [resolveBase, instruction] = ability.body;
 
 test("ogn-275-298 Altar to Unity: program validates and is registered", () => {
   const result = validateCardProgram(program);
@@ -29,10 +29,9 @@ test("ogn-275-298 Altar to Unity: identity, ruleset, status and printed text", (
     program.sourceText,
     "When you hold here, play a 1 :rb_might: Recruit unit token in your base."
   );
-  // The unresolved part is the controller-relative base destination.
-  assert.match(program.judgeReason, /base/);
-  assert.match(program.judgeReason, /kind:'location'/);
-  assert.match(program.judgeReason, /effect\.token/);
+  // The remaining unresolved part is only the hold/here trigger scope.
+  assert.match(program.judgeReason, /held/);
+  assert.doesNotMatch(program.judgeReason, /kind:'location'/);
 });
 
 test("ogn-275-298 Altar to Unity: mandatory hold trigger playing a CR 187.1 Recruit token", () => {
@@ -46,60 +45,57 @@ test("ogn-275-298 Altar to Unity: mandatory hold trigger playing a CR 187.1 Recr
   assert.deepEqual(ability.trigger.filter, { event: "held", here: true, player: "controller" });
   assert.equal(ability.optional, false);
 
-  assert.equal(ability.body.length, 1);
+  assert.equal(ability.body.length, 2);
+  assert.equal(resolveBase.id, "altar-to-unity.resolve-base");
+  assert.equal(resolveBase.op, "condition.value");
+  assert.deepEqual(resolveBase.args.value, {
+    kind: "location",
+    value: "ability-controller-base"
+  });
+  assert.deepEqual(resolveBase.args.key, { kind: "constant", value: "base" });
   assert.equal(instruction.id, "altar-to-unity.play-recruit");
   assert.equal(instruction.op, "effect.token");
+  assert.equal(instruction.linkedTo, "altar-to-unity.resolve-base");
   assert.deepEqual(instruction.args.token, { kind: "constant", value: "recruit" });
   assert.deepEqual(instruction.args.amount, { kind: "constant", value: 1 });
   // CR 440.2.c / 185.2.a: "play a … token" creates it on the Chain and hands
   // it to the play action.
   assert.deepEqual(instruction.args.mode, { kind: "constant", value: "play" });
   assert.deepEqual(instruction.args.location, {
-    kind: "constant",
-    value: { type: "base", player: "controller" }
+    kind: "linked-value",
+    instructionId: "altar-to-unity.resolve-base",
+    key: "base"
   });
   assert.equal(instruction.targets, undefined);
   assert.equal(instruction.picks, undefined);
 });
 
-test("ogn-275-298 Altar to Unity: the merged primitive plays a 1 Might Recruit token (CR 187.1/440.2.c)", () => {
-  const kernel = world().build();
-  const base = { type: "base", player: "A" };
-  // Substitute only the unresolvable controller-relative base with the
-  // concrete seat the ability's controller occupies; everything else is the
-  // card's own printed token, amount and play mode.
-  const run = runInstruction(
-    token,
-    {
-      ...instruction.args,
-      location: { kind: "constant", value: base }
-    },
-    { world: kernel }
-  );
+test("ogn-275-298 Altar to Unity: A and B controllers each receive the Recruit in their own base", () => {
+  for (const controller of ["A", "B"]) {
+    const kernel = testWorld()
+      .unit("altar", {
+        owner: controller,
+        controller,
+        location: { type: "battlefield", id: "battlefield-1" }
+      })
+      .build()
+      .clone({ controller });
+    const outcome = resolveChainBody(ability.body, kernel);
 
-  assert.equal(run.result.status, "executed");
-  assert.deepEqual(run.events.map(event => event.action), ["create-token", "play"]);
-  const created = kernel.query({ zone: "board", type: "unit" });
-  assert.equal(created.length, 1);
-  const [recruit] = created;
-  assert.equal(recruit.isToken, true);
-  assert.equal(recruit.name, "Recruit");
-  assert.equal(recruit.might, 1);
-  assert.deepEqual(recruit.tags, ["Recruit"]);
-  assert.deepEqual(recruit.location, base);
-  assert.equal(recruit.controller, "A");
-  // CR 185.3.a / 185.3.b: tokens have no costs and no domains — null printed
-  // characteristics, never 0.
-  assert.equal(recruit.energy, null);
-  assert.equal(recruit.power, null);
+    assert.equal(outcome.status, "executed");
+    assert.deepEqual(outcome.events.map(event => event.action), ["create-token", "play"]);
+    const recruits = kernel.query({ zone: "board", type: "unit" }).filter(object => object.isToken);
+    assert.equal(recruits.length, 1);
+    const [recruit] = recruits;
+    assert.equal(recruit.name, "Recruit");
+    assert.equal(recruit.might, 1);
+    assert.deepEqual(recruit.tags, ["Recruit"]);
+    assert.deepEqual(recruit.location, { type: "base", player: controller });
+    assert.equal(recruit.controller, controller);
+    assert.equal(recruit.energy, null);
+    assert.equal(recruit.power, null);
+  }
 });
-
-test.todo(
-  "ogn-275-298 Altar to Unity: playing the token into 'your base' needs a controller-relative " +
-    "LocationRef inside effect.token's own Expr vocabulary: its isExpr has no kind:'location' " +
-    "member (contract change request), while the merged resolveLocationSelector already provides " +
-    "the semantics. The program keeps the printed placeholder spelling until that dependency lands."
-);
 
 test.todo(
   "ogn-275-298 Altar to Unity: the hold trigger still cannot register: the held emission " +

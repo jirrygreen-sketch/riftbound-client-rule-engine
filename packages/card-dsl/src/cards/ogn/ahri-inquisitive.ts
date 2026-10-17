@@ -36,10 +36,10 @@ const ahriInquisitive = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "效果本体已合入并可执行：「give an enemy unit here -2 :rb_might: this turn, to a minimum of 1 :rb_might:」由 RIFT-258 的 continuous.might" +
+    "效果本体已合入并可执行：「give an enemy unit here -2 :rb_might: this turn, to a minimum of 1 :rb_might:」由 continuous.might" +
     "注册 arithmetic 层效果（478/479.4.b：施加时快照印刷下限 1 的逐条钳制），按 this-turn 到期（317.1.a/468.7.c），" +
     "golden 经解释器 + 图层引擎真实执行并断言登记、最低下限、同位置目标合法性（359.3.f）与到期。" +
-    "触发绑定也已合入（RIFT-257，programs/triggers.ts + filters.ts 的 translateTriggerFilter 能把本卡嵌套" +
+    "触发绑定也已合入（programs/triggers.ts + filters.ts 的 translateTriggerFilter 能把本卡嵌套" +
     " { filter: { source: 'self' } } 拼写翻译成 object:{objectId:宿主} 并通过 assertTriggerSpec；" +
     "instruction 目标过滤的 sameLocationAs 锚点仍不被 programs/filters.ts 的绑定翻译路径接受）。" +
     "仍缺：attack-declared / defense-declared 的发射方——combat/flow.ts 的宣告事务仍被 combat-start-transaction 阻断" +

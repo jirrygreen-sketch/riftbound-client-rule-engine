@@ -23,8 +23,8 @@ test("Ava Achiever identity and judge-required reason", () => {
   );
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // cost.pay/cost.modify are merged (RIFT-261); the reason now names the
-  // remaining finalize/pick wiring instead of a missing primitive.
+  // The reason names the remaining finalize/pick wiring instead of a missing
+  // payment primitive.
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /finalized cost plan/);
@@ -66,7 +66,7 @@ test("structure: attack trigger (once per combat) with a single choice.optional 
 
   // ":rb_rune_mind:" = 1 Mind Power（134/163.1）。
   assert.equal(body[0].op, "cost.pay");
-  assert.deepEqual(body[0].args.power, c(["Mind"]));
+  assert.deepEqual(body[0].args.payments, c({ energy: 0, power: ["Mind"] }));
   assert.equal(body[0].linkedTo, undefined);
 
   const play = body[1];
@@ -115,50 +115,45 @@ test("golden: declining the optional payment skips the whole payment/play body",
   assert.equal(kernel.getObject("hidden-card").zone, "hand");
 });
 
-test("golden: choosing to proceed really plays the [Hidden] card with a zero-cost plan", () => {
-  // 效果里两个部分都包在同一 choice.optional 下；被选择执行时才逐条执行，链接只作用
-  // 于显式写了 linkedTo 的那条（055：能做多少做多少）。
+test("golden: choosing to proceed pays 1 Mind and plays the [Hidden] card with a zero-cost plan", () => {
+  // The accepted branch runs both instructions in the program's own
+  // choice.optional body; cost.pay must settle before effect.play.
   const kernel = world()
-    .unit("ava", { might: 4 })
-    .hand("hidden-card", { types: ["unit"], keywords: [{ id: "hidden" }] })
+    .player("A", { power: ["Mind"] })
+    .unit("ava", { might: 4, location: { type: "battlefield", id: "battlefield-1" } })
+    .hand("hidden-card", {
+      types: ["unit"],
+      keywords: [{ id: "hidden" }],
+      energy: 2,
+      power: ["Fury"]
+    })
     .build();
   kernel.setAnswers({ "ava.opt-in/optional": true });
+  kernel.setPicks("ava.hidden-card", [kernel.ref("hidden-card")]);
 
-  // ava.pay 依赖尚未合入的卡面费用指令（RIFT-261），因此这里只把 body 拆到
-  // “pay 之后的 play 指令”为止，验证 effect.play 能真实打出这张 [Hidden] 牌
-  // （356.1.b.1 的零费用计划 + 359.3.f 的 here 位置）。
-  const play = ability.body[0].args.body.value[1];
-  const location = { type: "battlefield", id: "battlefield-1" };
-  // 已注册的原语期望“未求值的 Expr 参数”，因此走 chain 的适配器（resolveChainBody），
-  // 它保留 Expr 包络、由原语自己做 schema 校验与求值。
-  const run = resolveChainBody(
-    [
-      {
-        ...play,
-        linkedTo: undefined,
-        args: { ...play.args, location: c(location) },
-        picks: [
-          {
-            id: "ava.hidden-card",
-            options: ["card-with-hidden-in-controller-hand"],
-            min: 1,
-            max: 1,
-            selection: "one"
-          }
-        ]
-      }
-    ],
-    kernel.clone({ picks: new Map([["ava.hidden-card", [kernel.ref("hidden-card")]]]) })
-  );
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("ava") });
+  const outcome = resolveChainBody(ability.body, context);
 
-  assert.equal(run.results[0].result.status, "executed");
-  assert.equal(run.results[0].result.linkedValues.played, 1);
+  assert.equal(outcome.status, "executed");
+  const payResult = outcome.results.find(result => result.id === "ava.pay");
+  const playResult = outcome.results.find(result => result.id === "ava.play-hidden");
+  assert.equal(payResult.result.status, "executed");
+  assert.equal(playResult.result.status, "executed");
+  assert.deepEqual(payResult.result.linkedValues.payment.total.power, [
+    { amount: 1, allowedDomains: ["Mind"] }
+  ]);
+  assert.equal(payResult.result.events[0].action, "pay");
+  assert.equal(playResult.result.linkedValues.played, 1);
+  assert.equal(context.getObject("hidden-card").zone, "board");
+  assert.deepEqual(context.getObject("hidden-card").location, {
+    type: "battlefield",
+    id: "battlefield-1"
+  });
+  assert.deepEqual(outcome.events.map(event => event.action), ["pay", "play"]);
 });
 
 test.todo(
-  "Ava Achiever: binding the pick filter ({ zone: hand, Hidden }) into concrete resolution-time " +
-    "options, then paying 1 Mind Power and playing the card with a 0/0 finalized cost plan " +
-    "(RIFT-8x pick/finalize wiring; cost.pay / cost.modify with the printed projection are " +
-    "merged per RIFT-261), plus the attack-declared emission (RIFT-120); the trigger binding " +
-    "itself is merged (RIFT-257)."
+  "Ava Achiever: bind the pick filter ({ zone: hand, Hidden }) into concrete " +
+    "resolution-time options, generate the finalized ignore-cost plan from the selected card, " +
+    "and emit the attack-declared trigger (RIFT-8x pick/finalize wiring; RIFT-120 combat declaration)."
 );

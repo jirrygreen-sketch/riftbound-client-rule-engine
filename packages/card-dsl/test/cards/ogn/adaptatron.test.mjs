@@ -50,7 +50,7 @@ test("ogn-056-298 Adaptatron: identity, ruleset, status, judgeReason and source 
   assert.match(program.judgeReason, /383\.4\.c\.1/);
   assert.doesNotMatch(program.judgeReason, /嵌套 \{ event, filter \} 拼写被引擎侧 assertTriggerSpec 拒绝/);
   assert.match(program.judgeReason, /没有参战单位 object/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -67,8 +67,8 @@ test("ogn-056-298 Adaptatron: conquer trigger filtered to self, mandatory trigge
   assert.equal(triggered.trigger.once, undefined);
 });
 
-test("ogn-056-298 Adaptatron: the merged binding registers the self-anchored conquer filter (RIFT-257)", () => {
-  // The merged binding layer (RIFT-257) translates the nested self anchor into
+test("ogn-056-298 Adaptatron: the merged binding registers the self-anchored conquer filter", () => {
+  // The merged binding layer translates the nested self anchor into
   // object:{objectId: host}; the translated pattern passes the engine's own
   // trigger-spec validator, so the spelling no longer blocks registration.
   const translated = translateTriggerFilter(

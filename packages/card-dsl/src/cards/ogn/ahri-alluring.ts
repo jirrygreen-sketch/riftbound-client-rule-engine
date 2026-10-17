@@ -41,9 +41,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "效果本体已合入并可执行：「you score 1 point」用已注册的 effect.score（RIFT-115；194.1.c/470.1-3 的得点，" +
+    "效果本体已合入并可执行：「you score 1 point」用已注册的 effect.score（194.1.c/470.1-3 的得点，" +
     "受让者缺省为能力控制者，golden 真实执行并断言只给控制者加 1 分），hold 时点已由 turn/flow.ts 的 Score 波发射" +
-    "（383.4.d、315.2.b.2/471.2/473.2.b），触发绑定也已合入（RIFT-257，programs/triggers.ts 经 " +
+    "（383.4.d、315.2.b.2/471.2/473.2.b），触发绑定也已合入（programs/triggers.ts 经 " +
     "translateTriggerFilter 把本卡 { filter: { source: 'self' } } 拼写翻译成 object:{objectId:宿主} 并通过 assertTriggerSpec）。" +
     "仍缺 383.4.d.2.a 的自身范围条件：held 发射载荷只有 { player, details:{ battlefieldId } }、没有参战单位 object，" +
     "EventPattern 封闭字段集无法表达「本单位在该战场经历了固守」；player:'self' 只能近似成『控制者的每次固守』，" +
