@@ -8,7 +8,7 @@ export default defineConfig({
   root: rootPath("."),
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts", "test/full-product/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "test/full-product/**/*.test.ts", "test/headless/**/*.test.ts"],
     // File-level imports and dynamic game-server imports contend on Windows when
     // several Vitest workers transform the same workspace sources simultaneously.
     fileParallelism: false,

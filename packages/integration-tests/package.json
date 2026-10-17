@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit --project tsconfig.json",
+    "headless": "node --experimental-strip-types src/headless/cli.ts",
     "test": "vitest run --config vitest.config.ts && vitest run --config test/default-path/vitest.config.ts",
     "typecheck": "tsc --noEmit --project tsconfig.json"
   },

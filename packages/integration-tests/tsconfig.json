@@ -8,5 +8,5 @@
     },
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "test/full-product/**/*.ts", "vitest.config.ts"]
+    "include": ["src/**/*.ts", "src/**/*.d.ts", "test/full-product/**/*.ts", "test/headless/**/*.ts", "vitest.config.ts"]
 }
