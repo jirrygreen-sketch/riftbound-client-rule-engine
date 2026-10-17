@@ -1,3 +1,6 @@
+// Scenario execution evidence: ../templates/static-644.test.mjs (one parameterized row per card).
+// This card stays judge-required; the template row pins the static-binding kind gap and the
+// appliedCosts() miss through the production binder.
 import assert from "node:assert/strict";
 import test from "node:test";
 

@@ -1,3 +1,6 @@
+// Scenario execution evidence: ../templates/static-644.test.mjs (one parameterized row per card).
+// This card stays judge-required; the template row shows the truthy showdown placeholder and the
+// granted-keyword cost that never reaches Finalize.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -27,8 +30,10 @@ test("unl-146-219 Syndra, Transcendent: identity, status, judgeReason and verbat
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /820\.1\.c/);
   assert.match(program.judgeReason, /Finalize/);
-  assert.match(program.judgeReason, /showdown/);
   assert.match(program.judgeReason, /showdown/i);
+  // Re-checked against merged source: the placeholder predicate is handed to the
+  // interpreter and evaluates truthy, so the grant over-applies outside a showdown.
+  assert.match(program.judgeReason, /in-showdown|过度生效/);
 });
 
 test("unl-146-219 Syndra, Transcendent: one static keyword grant scoped to your spells", () => {

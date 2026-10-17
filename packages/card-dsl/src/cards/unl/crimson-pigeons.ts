@@ -20,13 +20,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * binder + arithmetic layer (probed), and the interpreter query layer consumes
  * sameLocationAs/exclude anchors. The blockers are inside the condition itself:
  * (1) layers/filter.ts (the matcher the static binder and layer engine use) does
- * not read combatRole, so a defender satisfies `combatRole: attacker` — probed
- * true; (2) there is no production Attacker designation producer: ObjectSnapshot
- * carries combatRole and the reference test kernel accepts it, but turn/combat
- * flow never assigns it, so the host half of the condition has no live data;
- * (3) layers/filter.ts receives no relative-player resolution — `controller: "controller"`
- * in a static filter is compared literally, so the "another unit you control"
- * set is not scoped to the host's controller.
+ * not read combatRole, so a defender satisfies a combatRole: attacker filter —
+ * probed true; (2) there is no production Attacker designation producer:
+ * ObjectSnapshot carries combatRole and the reference test kernel accepts it,
+ * but turn/combat flow never assigns it, so the host half of the condition has
+ * no live data; (3) the static path has no relative-player resolution — the
+ * binder resolves controller: "controller" once at bind time, but layer
+ * evaluation runs the authored filter through matchesObjectFilter, which
+ * compares the literal "controller" value, so the "another unit you control"
+ * set is not scoped to the host's controller. The merged layer condition is
+ * really evaluated and returns false (the relative set matches no object and
+ * production writes no Attacker designation), so the engine leaves the +2
+ * off instead of over-applying it.
  */
 const abilities: Ability[] = [
   {
@@ -81,9 +86,11 @@ export default {
     "静态图层匹配因此把 combatRole: \"attacker\" 当成未知键忽略（实测对 defender 也返回 true）；" +
     "(2) 攻击者身份的生产来源（CR 740.2.c/466.2.c.3）：ObjectSnapshot 有 combatRole 字段、参考内核也能写入，" +
     "但 turn/flow.ts 与 combat/flow.ts 从未在攻击/防守指定时赋值，static 条件的 host 半边没有运行期数据；" +
-    "(3) 静态过滤器的相对玩家解析：layers/filter.ts 拿不到能力控制者，filter 里的 controller: \"controller\" 会被字面比较，" +
+    "(3) 静态过滤器的相对玩家解析：binder 在绑定时解析一次 controller: \"controller\"，但图层求值走 layers/filter.ts 的" +
+    "matchesObjectFilter，仍按字面值比较，" +
     "“another unit you control”不能按宿主控制者限定。" +
-    "已合入并可执行：static continuous.might 的生产绑定与算术图层求值（探针确认可注册），以及解释器 query 层的 sameLocationAs/exclude 锚点。",
+    "已合入并可执行：static continuous.might 的生产绑定与算术图层求值（探针确认可注册），以及解释器 query 层的 sameLocationAs/exclude 锚点；" +
+    "生产 binder 会把本卡条件包进解释器求值（探针：图层条件返回 false，因此整卡目前不生效而不是错误生效）。RIFT-644 模板行已固定这些行为。",
   abilities,
   sourceText: "I have +2 :rb_might: while I'm attacking with another unit."
 } satisfies CardProgram;

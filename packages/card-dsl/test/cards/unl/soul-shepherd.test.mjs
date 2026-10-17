@@ -1,3 +1,6 @@
+// Scenario execution evidence: ../templates/static-644.test.mjs (one parameterized row per card).
+// This card stays judge-required (frozen controller after take-control); the template row asserts
+// the supported positive path for the controller's token units.
 import assert from "node:assert/strict";
 import test from "node:test";
 
