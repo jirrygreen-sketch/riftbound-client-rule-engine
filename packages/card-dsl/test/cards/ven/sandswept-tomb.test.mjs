@@ -1,3 +1,6 @@
+// Template execution evidence: ../templates/static-645.test.mjs.
+// This card remains judge-required; the template covers lifecycle traversal
+// while the target-plan and cost wiring remain pending.
 import assert from "node:assert/strict";
 import test from "node:test";
 

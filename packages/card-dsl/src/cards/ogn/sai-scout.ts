@@ -13,10 +13,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   (effects/keywords/Vision.ts) subscribes at object-enters-board
  *   and drives effect.inspect + effect.recycle, and the replayed Predict step
  *   executes against a supplied ordered top-of-deck pick (the engine-core
- *   Vision suite is green). What is still missing is the production lifecycle
- *   that supplies that ordered slice: effect.inspect's own contract requires
- *   an upstream ordered picksSpecId for scope "top" and returns
- *   negated/impossible without one.
+ *   Vision suite is green). What is still missing is the production
+ *   assembler: the merged ordered zoneSlice pick source itself (RIFT-66 /
+ *   RIFT-358) cannot help this card because the expanded Vision body declares
+ *   picksSpecId "vision-top" without declaring a corresponding picks source,
+ *   and ctx.picks does not distinguish an unbound pick from an empty one, so
+ *   the ordered top-of-deck binding is still a missing assembly-layer gap.
  * - "You may play me to an open battlefield" grants an additional valid
  *   location during Playing a Card (355.2.a/355.2.b). It is modeled like the
  *   merged sfd Dauntless Vanguard precedent: a static play-location
@@ -32,9 +34,10 @@ export default {
   status: "judge-required",
   judgeReason:
     "两块依赖未合入：(1)[Vision]（817.1.b）的展开已合入并可执行 Predict——engine-core 的 Vision 用例全过，" +
-    "effect.inspect + effect.recycle 在提供有序牌库顶 pick 时真实执行；但生产打出仍缺「按牌库顶顺序取 1 张」的生命周期：" +
-    "effect.inspect 的 scope \"top\" 必须由上游提供有序 picksSpecId（其自身文档明确 query 不保证顺序，缺有序来源时 negated/impossible），" +
-    "链的 Finalize 面只锁定 instruction.targets，没有有序区域 pick 的生命周期；(2)「You may play me to an open battlefield」需要打出位置许可的消费者：" +
+    "effect.inspect + effect.recycle 在提供有序牌库顶 pick 时真实执行；但生产打出仍缺「按牌库顶顺序取 1 张」的装配层供给：" +
+    "Vision 展开 body 只声明 picksSpecId \"vision-top\" 而没有声明对应 picks 来源，已合入的有序 zoneSlice pick 来源" +
+    "（RIFT-66 契约变更随 RIFT-358 落地）帮不到它，且 ctx.picks 不区分未绑定与空集合，" +
+    "生产侧的真实牌库顶绑定与控制者注入仍是装配层缺口；(2)「You may play me to an open battlefield」需要打出位置许可的消费者：" +
     "continuous.location 原语与 layers/rules 的 playLocations 查询已合入，但 programs/statics.ts 的 layerFor() 没有 play-location-permission 映射，" +
     "也没有最终化侧（Make Relevant Choices，CR 355.2.a/355.2.b；open = 无单位且未控制，170.11.c）的放置消费方。不近似实现。",
   abilities: [

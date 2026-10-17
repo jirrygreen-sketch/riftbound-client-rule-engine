@@ -60,9 +60,9 @@ test("ven-095-166 Shadow Order Disciple: identity, ruleset, status, judgeReason 
   assert.match(program.judgeReason, /burn/);
   assert.match(program.judgeReason, /might-modify|Might 修正|Might/);
   assert.match(program.judgeReason, /object-moved/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /continuous\.might 原语（RIFT-91/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /plan-values\.ts/);
+  assert.match(program.judgeReason, /continuous\.might 原语/);
+  assert.match(program.judgeReason, /registerProgramTriggers/);
   assert.match(program.judgeReason, /383\.3\.a/);
   assert.match(program.judgeReason, /740\.4\.a\.2/);
   assert.match(program.judgeReason, /TriggerRegistration\.cost/);
@@ -101,7 +101,7 @@ test("ven-095-166: the declared leading Burn needs Finalize binding and the Migh
   assert.equal(payBurn.targets, undefined);
 
   // 479.4.e.1 的临时 Might 修正（“this turn” 到期）：continuous.might 原语已合入
-  //（RIFT-91），“me” 用 appliesTo: "self" 的来源简写表达，不是 TargetSpec。
+  // “me” 用 appliesTo: "self" 的来源简写表达，不是 TargetSpec。
   assert.equal(mightModify.linkedTo, "shadow-order-disciple.pay-burn-1");
   assert.deepEqual(mightModify.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(mightModify.args.duration, { kind: "constant", value: "this-turn" });
@@ -145,7 +145,7 @@ test("ven-095-166 golden: declining the may-body burns nothing and grants nothin
 });
 
 test("ven-095-166 golden: continuous.might really grants +1 Might to the disciple until end of turn", () => {
-  // continuous.might（RIFT-91）是真实合入的指令入口：golden 用卡片自己的 args
+  // continuous.might 是真实合入的指令入口：golden 用卡片自己的 args
   // 执行它，断言 arithmetic 图层注册、“me” 的 appliesTo: "self" 来源选择、
   // “this-turn” 的 end-of-turn 到期，以及 layers 引擎中的真实数值变化。
   const kernel = discipleWorld();
@@ -174,7 +174,7 @@ test("ven-095-166 golden: continuous.might really grants +1 Might to the discipl
 
 test("ven-095-166 golden: the 'When I move' self anchor is consumed by the merged binding and event match", () => {
   // object-moved 生产接线已合入（action-adapter 把 move-location 映射为 object-moved）；
-  // translateTriggerFilter（RIFT-257）把内层 source: "self" 锚点解析成 objectId，
+  // translateTriggerFilter 把内层 source: "self" 锚点解析成 objectId，
   // matchesTriggerEvent 再用该锚点过滤真实事件：只有本卡自己的移动匹配。
   const translated = translateTriggerFilter(ability.trigger.filter, "disciple", "object-moved");
   assert.deepEqual(translated, {
@@ -241,7 +241,7 @@ test("ven-095-166 binding inspection: the leading choice and Burn survive transl
 test.todo(
   "ven-095-166 Shadow Order Disciple: pay the printed [Burn 1] through a real cost plan (740.4.a.2, 441.1) — " +
     "cost.pay is merged but its payments shape accepts only energy/power/xp keys and the burn kind returns " +
-    "cannotPay (CostPlanError) — plan-values.ts has no burn payment kind (RIFT-89)"
+    "cannotPay (CostPlanError) — plan-values.ts has no burn payment kind"
 );
 
 test.todo(

@@ -1,3 +1,6 @@
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -82,7 +85,10 @@ test("ven-083-166 Rampage: +2 Might body and the two Might-sourced Deal instruct
 
   // 143.2.a / 317.2.c: the +2 is a this-turn layers Might change written with
   // the merged continuous.might instruction; the paid-cost gate still has no
-  // result binding.
+  // complete optional-cost binding.
+  assert.deepEqual(givePlusTwo.condition, {
+    kind: "result", result: "cost.additional", id: "rampage.pay-or-decline"
+  });
   assert.deepEqual(givePlusTwo.args, {
     amount: { kind: "constant", value: 2 },
     duration: { kind: "constant", value: "this-turn" },
@@ -231,7 +237,7 @@ test("ven-083-166 Rampage golden: a chosen unit that left the Board is not dealt
 test.todo(
   "ven-083-166 Rampage: charge the optional :rb_rune_body: additional cost at Finalize (CR 356.2.b / " +
     "356.2.b.1) and gate the +2 on the paid result (356.4.f.1) — needs the card program's cost.additional / " +
-    "CostSpec clause wired into CostPlanInput.optionalAdditional plus a cost-result binding"
+    "CostSpec clause wired into CostPlanInput.optionalAdditional ; condition.result and the chain receipt binding are merged"
 );
 
 test("ven-083-166 Rampage golden: the chosen friendly unit receives a +2 Might arithmetic-layer boost", () => {
@@ -267,6 +273,53 @@ test("ven-083-166 Rampage golden: the chosen friendly unit receives a +2 Might a
 test.todo(
   "ven-083-166 Rampage: give the chosen friendly unit +2 Might this turn and compute both Deal amounts " +
     "from the modified Mights (CR 143.2.a / 317.2.c / 418.6.b.3) — the +2 registration is proven by golden, " +
-    "but the paid-additional-cost result binding (356.4.f.1) is still missing, so the unfired-cost branch must " +
-    "never trigger the +2"
+    "the condition.result gate (356.4.f.1) is proven below, but production optional-cost binding and layered simultaneous damage must " +
+    "still be verified"
 );
+
+for (const [label, selected, discounted] of [
+  ["paid", true, false], ["declined", false, false], ["paid at zero after discount", true, true]
+]) test(`ven-083-166 Rampage regression: original +2 gate reads the genuine ${label} receipt`, () => {
+  const base = world().player("A", { energy: 3, power: ["Body"] })
+    .hand("rampage", { energy: 3, power: null, types: ["spell"] })
+    .unit("friendly", { might: 3 }).unit("enemy", { owner: "B", might: 5 }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("rampage") });
+  kernel.setTargets(FRIENDLY_ID, [kernel.ref("friendly")]);
+  const payment = play.cost.payments[0];
+  // The optional component is passed directly to the real cost planner only to
+  // test its merged receipt consumer. ProgramBinding still cannot author it.
+  const plan = buildCostPlan(kernel, {
+    id: "rampage:golden", cost: { kind: "printed" },
+    optionalAdditional: [{ id: payment.choice.id, kind: "additional", selected,
+      cost: { payments: [{ kind: payment.kind, amount: payment.amount, allowedDomains: payment.allowedDomains }] } }],
+    ...(discounted ? { discounts: [{ id: "discount", component: payment.choice.id,
+      resource: "power", amount: { kind: "constant", value: 1 }, domains: ["Body"] }] } : {})
+  });
+  const receipt = payCostPlan(kernel, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(plan.printed.power, null);
+  assert.equal(plan.total.power.length, selected && !discounted ? 1 : 0);
+  assert.equal(kernel.player("A").energy, 0);
+  const outcome = runAbilityBody([givePlusTwo], finalizedContext(kernel), undefined, { cost: { plan, receipt } });
+  assert.equal(outcome.results[0].result.status, selected ? "executed" : "negated");
+  if (!selected) assert.equal(outcome.results[0].result.reason, "skipped");
+  assert.equal(kernel.continuousEffects.length, selected ? 1 : 0);
+  if (selected) {
+    const [registration] = kernel.continuousEffects;
+    assert.equal(registration.effect.effect.amount, 2);
+    assert.equal(registration.effect.filter.objectId, "friendly");
+    assert.deepEqual(registration.duration, { type: "end-of-turn" });
+  }
+  assert.equal(kernel.getObject("enemy").damage, 0);
+});
+
+function finalizedContext(kernel) {
+  return bindResolveContext(kernel, { query: filter => {
+    const normalized = { ...filter };
+    for (const key of ["controller", "owner"]) {
+      if (normalized[key] === "self" || normalized[key] === "controller") normalized[key] = kernel.controller;
+      if (normalized[key] === "opponent") normalized[key] = kernel.playerIds().find(id => id !== kernel.controller);
+    }
+    return kernel.query(normalized);
+  } });
+}

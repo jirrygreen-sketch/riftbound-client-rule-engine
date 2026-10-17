@@ -105,9 +105,11 @@ test("ven-015-166 Decree of Rage boundary: the primitive marks lethal damage wit
 test("decree-of-rage: the review records the current blockers", () => {
   assert.match(program.judgeReason, /054\.1\/426/);
   assert.match(program.judgeReason, /cannot-be-countered/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /ObjectSnapshot/);
+  assert.match(program.judgeReason, /programs\/statics/);
+  assert.match(program.judgeReason, /chain/);
 });
 
 test.todo("decree-of-rage: 054.1/426: consume cannot-be-countered in the Chain counter action");
 
-test.todo("decree-of-rage: 134: match Calm domain including power:null units (RIFT-359)");
+test.todo("decree-of-rage: 134: expose and filter Calm domain independently of printed power, including power:null units");

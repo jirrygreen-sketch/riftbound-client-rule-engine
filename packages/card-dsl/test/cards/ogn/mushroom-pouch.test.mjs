@@ -3,7 +3,10 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/mushroom-pouch.js";
-import { createProgramBinding, triggerRegistrations } from "../../../../engine-core/dist/programs/index.js";
+import { createProgramBinding, translateTriggerFilter, triggerRegistrations } from "../../../../engine-core/dist/programs/index.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { fixture as turnFixture } from "../../../../engine-core/test/turn/helpers.mjs";
 
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { world } = await import(new URL("effects/testing/index.js", ENGINE));
@@ -28,13 +31,17 @@ test("mushroom-pouch: identity, ruleset, status and specific judgeReason", () =>
     program.sourceText,
     "At the start of your Beginning Phase, if you control a facedown card at a battlefield, draw 1."
   );
-  // The reason must name the missing zone spelling and the timing owner.
+  // The producer and condition fallback are merged, but neither supplies
+  // the card's own-turn filter or the missing Facedown Zone scope.
   assert.match(program.judgeReason, /Facedown/);
   assert.match(program.judgeReason, /ZoneId/);
   assert.match(program.judgeReason, /beginning-start/);
-  // Re-sweep after RIFT-270: the point and program trigger registration are
-  // present; only the Facedown Zone condition remains.
   assert.match(program.judgeReason, /RIFT-270/);
+  // Re-sweep: producing the turn player is insufficient without this filter.
+  assert.match(program.judgeReason, /player: "self"/);
+  assert.match(program.judgeReason, /filter: \{\}/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /evaluateTriggerCondition/);
 });
 
 test("mushroom-pouch: one mandatory beginning-start trigger (CR 315.2.a.1)", () => {
@@ -66,6 +73,64 @@ test("mushroom-pouch: the merged program binding registers the beginning-start t
   assert.deepEqual(registrations[0].spec.filter, {});
   assert.equal(registrations[0].body[0].id, "draw-1");
   assert.equal(registrations[0].optional, false);
+});
+
+test("mushroom-pouch: own-phase matching is supported but its translated event pattern still fails production binding validation", () => {
+  const f = turnFixture({
+    setup: builder => builder.base("pouch", {
+      cardId: CARD_ID, types: ["gear"], energy: 2, power: [], might: null
+    })
+  });
+  // Exercise binding inspection and filter translation on the original
+  // judge-required program; the unresolved Facedown condition is not bypassed.
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const source = f.kernel.getObject("pouch");
+  const [boundAbility] = binding.inspect(source).abilities;
+  // Probe the required player-only filter through the real translator; even
+  // omitting event here cannot avoid the unsupported event spelling it adds.
+  const filter = translateTriggerFilter({ player: "self" }, source.ref.id, boundAbility.trigger.at);
+  assert.deepEqual(filter, { event: "beginning-start", player: "self" });
+  const validation = validateTriggerSpec({ ...boundAbility.trigger, filter });
+  assert.equal(validation.ok, false);
+  assert.deepEqual(validation.issues.map(issue => [issue.path, issue.code]), [
+    ["trigger.filter.event", "invalid-event-type"]
+  ]);
+  assert.throws(
+    () => f.flow.chain.pipeline.registerTrigger({
+      id: "pouch-own-phase", source, controller: source.controller,
+      spec: { ...boundAbility.trigger, filter }, body: boundAbility.body,
+      optional: boundAbility.optional
+    }),
+    { name: "TriggerSpecValidationError", message: /^trigger\.filter\.event:/ }
+  );
+  assert.throws(
+    () => triggerRegistrations(binding.registry, source),
+    { name: "ProgramBindingError", code: "judge-required", message: program.judgeReason }
+  );
+
+  // Keep the gear attached through the later control change (CR 323.6).
+  assert.equal(f.flow.chain.commit({ type: "attach", object: source.ref, host: f.kernel.ref("source") }).status, "done");
+  f.flow.start();
+  const ownBeginning = f.flow.chain.pipeline.events.find(event => event.timingPoint === "beginning-start");
+  assert.ok(ownBeginning);
+  assert.equal(ownBeginning.player, "A");
+  assert.equal(matchesTriggerEvent(filter, ownBeginning, source.controller), true);
+
+  // Commit a real control change, then advance through the normal turn flow.
+  assert.equal(f.flow.chain.commit({ type: "take-control", object: source.ref, player: "B" }).status, "done");
+  f.flow.endTurn("A");
+  const beginnings = f.flow.chain.pipeline.events.filter(event => event.timingPoint === "beginning-start");
+  assert.deepEqual(beginnings.map(event => event.player), ["A", "B"]);
+  const opponentBeginning = beginnings[1];
+  assert.equal(matchesTriggerEvent(filter, opponentBeginning, source.controller), false);
+  const current = f.kernel.getObject("pouch");
+  assert.equal(current.owner, "A");
+  assert.equal(current.controller, "B");
+  assert.equal(matchesTriggerEvent(filter, opponentBeginning, current.controller), true);
+  assert.equal(matchesTriggerEvent(filter, ownBeginning, current.controller), false);
+  const otherPhase = f.flow.chain.pipeline.events.find(event => event.timingPoint === "draw-start" && event.player === "B");
+  assert.ok(otherPhase);
+  assert.equal(matchesTriggerEvent(filter, otherPhase, current.controller), false);
 });
 
 test("mushroom-pouch: the intervening 'if you control a facedown card' clause is a condition, not a target", () => {
@@ -114,4 +179,8 @@ test("mushroom-pouch golden: the Draw 1 half draws one card (CR 414.3)", () => {
 
 test.todo(
   "mushroom-pouch: evaluating 'if you control a facedown card at a battlefield' needs a Facedown Zone scope (107.3.a/107.3.e: a battlefield sub-zone, not a location; ZoneId has no facedown member, and states: 'face-down' cannot be limited to it)."
+);
+
+test.todo(
+  "mushroom-pouch: accept the translated beginning-start player:self event pattern in production trigger validation, then filter the actual card to its controller's Beginning Phase (CR 315.2.a.1)"
 );

@@ -26,7 +26,7 @@ import type { CardProgram } from "../../ir/index.js";
  * 未合入依赖（不近似实现）:
  * - Legion 的 KeywordDef 展开已合入，但展开出的 condition.predicate
  *   静态能力没有消费方把"本回合已 Finalized 与本卡不同的另一张牌"求值；
- * - 812.1.c 的"与本卡不同"需要 HistoryQuery 的按卡身份排除维度；当前
+ * - 812.1.c 的「与本卡不同」需要 HistoryQuery 的按卡身份排除维度；当前
  *   interpreter/history.ts 支持对象引用 `exclude` / `objectFilter`，但 Legion
  *   展开仍发出按 canonical card identity 的 `excluding` 字段，因此闸门无法求值；
  * - CardProgram trigger registration and the nested self/player filter binding

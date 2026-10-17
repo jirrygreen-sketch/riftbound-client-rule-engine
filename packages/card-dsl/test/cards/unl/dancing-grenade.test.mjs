@@ -1,3 +1,5 @@
+// Partial real-chain execution: ../templates/play-effect-damage-659.test.mjs.
+// Replaying the resolving spell and its damage-history bonus remain pending.
 import assert from "node:assert/strict";
 import test from "node:test";
 

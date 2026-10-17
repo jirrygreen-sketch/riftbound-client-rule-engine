@@ -26,13 +26,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   字段（只有 activated/play 带 cost），因此 383.3.b.1 的“付 1 能量才算成立”与拒绝即移出链的
  *   行为无法表达；把付费写进 body 只会在结算时执行，错过 415.4/415.5 与 203.3 的支付校验，
  *   也做不出“付不出则不触发”的负例。
- * - attack-declared 在已合入代码里没有发射路径：combat/ 不发出该时点（同 rad/ezreal-dashing、
+ * - attack-declared 在已合入代码里没有发射路径：combat/flow.ts 的 startCombat 仍抛
+ *   "combat-start-transaction"（攻击/防守角色需要原子的同时时点波次；同 rad/ezreal-dashing、
  *   sfd/lucian-gunslinger 的记录），触发无法在真实内核里被订阅。
+ * - 程序里的 sameLocationAs 目标锚点仍被 programs/filters.ts 的 translateObjectFilter
+ *   拒绝（实测 "Unsupported filter field sameLocationAs"），"here" 没有生产绑定路径。
  * 已合入且被 golden 真实执行的是效果本体：effect.move 把锁定的敌方单位移到它自己的 Base
  * （controller-base 逐对象解析），并验证目标失效时按 359.3.e 被忽略。
  *
- * 依赖：TriggeredAbility 的 Finalize 基础费用契约、RIFT-33（战斗时点发射路径）以及
- * sameLocationAs 目标锚点的生产绑定；不近似实现。
+ * 依赖：TriggeredAbility 的 Finalize 基础费用契约、战斗时点发射路径（combat/flow.ts 的
+ * combat-start-transaction）以及 sameLocationAs 目标锚点的生产绑定；不近似实现。
  */
 export default {
   canonicalCardId:
@@ -45,9 +48,11 @@ export default {
     "383.3.e.2.a/b 的 “you may” 也是在 Finalize 决定的；契约 3.1 的 TriggeredAbility 没有 CostSpec 字段" +
     "（只有 activated/play 带 cost），因此“付 1 能量才成立 / 拒绝即移出链 / 415.4-415.5 的付得出校验”" +
     "都无法表达；把 cost.pay 放进 body 只会在结算时执行。" +
-    "(2) attack-declared 时点（383.4.e）在已合入代码里没有发射方：combat/ 尚未接入事件管线，触发无法被真实订阅" +
-    "（同 rad/ezreal-dashing、sfd/lucian-gunslinger 的记录）。另外，程序目标翻译器当前拒绝 sameLocationAs，" +
-    "所以“here”还没有生产绑定路径。已合入且由 golden 真实执行的是效果本体：effect.move 把" +
+    "(2) attack-declared 时点（383.4.e）在已合入代码里没有发射方：combat/flow.ts 的 startCombat 仍抛 " +
+    "\"combat-start-transaction\"（攻击/防守角色需要原子的同时时点波次），触发无法被真实订阅" +
+    "（同 rad/ezreal-dashing、sfd/lucian-gunslinger 的记录）。另外，programs/filters.ts 的 translateObjectFilter " +
+    "当前拒绝 sameLocationAs（实测 \"Unsupported filter field sameLocationAs\"），所以“here”还没有生产绑定路径。" +
+    "已合入且由 golden 真实执行的是效果本体：effect.move 把" +
     "锁定的敌方单位移到其控制者的 Base（controller-base 逐对象解析），并按 359.3.e 忽略失效目标；不近似实现。",
   abilities: [
     {

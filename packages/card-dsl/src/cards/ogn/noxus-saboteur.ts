@@ -15,8 +15,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   所在位置（421.1）。这类一般许可 / 禁止 / 数量限制由 continuous.restrict 表达。
  *
  * 结构说明: 单个 static 能力，effect.kind = "continuous.restrict"，禁止对象为对手
- * 拥有/控制的、位于本卡所在位置的 Hidden 牌执行 Reveal（operation: "reveal"、
- * forbidden: true、sameLocationAs: "self"、tag: "Hidden"）。按 811.1.a，Hidden 出现在
+ * 控制的、位于本卡所在位置的 Hidden 牌执行 Reveal（actions: ["reveal"]、
+ * sameLocationAs: "self"、keyword: "Hidden"）。按 811.1.a，Hidden 出现在
  * Spell / Unit / Gear 上，所以不按卡型收窄（面朝下时不再是 Hidden，811.5.a）。
  *
  * 未合入依赖（不近似实现）:
@@ -32,8 +32,9 @@ const noxusSaboteur = {
   status: "judge-required",
   judgeReason:
     "『Your opponents' [Hidden] cards can't be revealed here』是持续禁止（CR 425.2.a 的 Reveal 受限动作 + 811.5/811.5.a 的 Hidden 特征）：" +
-    "continuous.restrict 与 static CardProgram 生命周期已合入，但 static filter binder 不能解析相对控制者的 " +
-    "controller: opponent 过滤；rules/query.ts 的限制查询也尚未接到 effect.reveal 的合法性路径，" +
+    "continuous.restrict 与 static CardProgram 生命周期已合入，但 staticTarget 首先拒绝对象形状的 appliesTo，" +
+    "static filter binder 也不能解析相对控制者的 controller: opponent 过滤和 keyword: Hidden 特征。" +
+    "rules/query.ts 的限制查询也尚未接到 effect.reveal 的合法性路径，" +
     "因此实际 Reveal 仍不会被禁止。还需按 811.5.a 区分 facedown 与 Hidden，并落实 425.2.a 的限制消费。不近似实现。",
   abilities: [
     {
@@ -43,10 +44,11 @@ const noxusSaboteur = {
         actions: ["reveal"],
         restriction: "opponent-hidden-cards-cannot-be-revealed-here",
         appliesTo: {
-          tag: "Hidden",
+          keyword: "Hidden",
           controller: "opponent",
           zone: "board",
-          sameLocationAs: "self"
+          sameLocationAs: "self",
+          characteristics: { faceDown: false }
         }
       }
     }

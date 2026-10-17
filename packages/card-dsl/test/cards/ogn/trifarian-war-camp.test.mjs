@@ -1,3 +1,5 @@
+// Scenario evidence: ../templates/static-641.test.mjs (supported paths and explicit binding gaps).
+// Whole-card execution remains pending; the existing component evidence below is retained.
 import assert from "node:assert/strict";
 import test from "node:test";
 

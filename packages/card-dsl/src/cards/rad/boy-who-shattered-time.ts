@@ -13,8 +13,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 827.1.a / 827.1.b / 827.1.c：第一行是 [Empower] 关键词的印刷形态
  *   “Empower [Cost]”，费用为 1 Energy 加上横置来源（415.5）；费用支付完成后来源
  *   本身成为 Empowered（442，827.1.b.1 明确来源不是目标）。关键词只声明、不重写
- *   （卡牌 README 第 5 节）：展开由 effects/keywords/<keyword>.ts 负责，[Empower]
- *   的 KeywordDef（kw-empower）尚未合入。
+ *   （卡牌 README 第 5 节）：展开由 effects/keywords/Empower.ts 负责，KeywordDef
+ *   与 effect.empower 本体已合入；当前阻塞在 KeywordAbility 没有承载契约 3.8.3 的
+ *   params.cost，无法把本卡印刷的 1 Energy + Exhaust 传给展开器。
  * - 377.1 / 404.1.a：第二行冒号之前是费用，所以 “Disempower me” 与横置来源都是
  *   该启动能力的基础费用，必须在 Finalize 支付（204.3），不能改写为结算时的效果。
  *   443.1 / 443.2：Disempower 是移除 Empowered 状态的受限动作，只由游戏效果指示。
@@ -31,11 +32,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   费用计划用空领域列表表达通用 Power，绝不用某个域近似。
  *
  * status = judge-required（逐个保留证据，不近似实现）：
- * - 缺 [Empower] 关键词展开：effects/keywords/ 的已注册关键词（Accelerate、Action、
- *   Ambush、Assault、Backline、Deathknell、Deflect、Deploy、Disarm、Equip、Flow、
- *   Ganking、Hidden、Hunt、Legion、Level、Mighty、Quick-Draw、Reaction、Repeat、
- *   Shield、Show Off、Tank、Temporary、Vision、Weaponmaster）不含 Empower（827），
- *   [Empower] 的 KeywordDef 尚无归属任务号；
+ * - [Empower] 的 KeywordDef、限制条件和 effect.empower 已合入；但
+ *   KeywordAbility 仍只有 keyword/value 字段，不能承载契约 3.8.3 的 params.cost。
+ *   本卡声明因此按默认 cost: { kind: "empower" } 展开，production
+ *   describeActivate 在 Finalize 前以 “Unsupported cost kind empower” fail-closed；
+ *   不能把 value: 1 当作印刷的 1 Energy + Exhaust，也不能在卡文件里重写关键词。
  * - 费用管线不接受 “Disempower me” 作为费用：cost/plan-values.ts 支持的支付种类只有
  *   energy / power / xp / exhaust / discard / recycle / kill / reveal / spend-buff，
  *   kind: "disempower" 会被 readCost 以 judge-required 拒绝（443 的 Disempower 是
@@ -119,15 +120,18 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺 [Empower] 关键词展开（827.1.c 的 “Empower [Cost]”；effects/keywords/ 的已注册关键词不含 Empower，" +
-    "该 KeywordDef 尚无归属任务号）。" +
+    "[Empower] 的 KeywordDef、未 Empowered 限制与 effect.empower 已合入（827.1.c / 442），" +
+    "但 KeywordAbility 仍只有 keyword/value，不能承载契约 3.8.3 的 params.cost；本卡按默认 " +
+    "cost: { kind: \"empower\" } 展开，production describeActivate 实测以 \"Unsupported cost kind empower\" fail-closed，" +
+    "不能把 value: 1 当作印刷的 1 Energy + Exhaust，也不能在卡文件里重写关键词。" +
     "费用管线不接受 “Disempower me” 作为费用：cost/plan-values.ts 支持的支付种类只有 energy / power / xp / " +
     "exhaust / discard / recycle / kill / reveal / spend-buff，kind: \"disempower\" 会被 readCost 以 judge-required 拒绝" +
     "（443 的 Disempower 是受限动作）。cost.modify 原语已合入，但仍缺“本回合下一张打出的单位”窗口的消费方，" +
     "减费值里的 [A]（135.2.e.5 / 163.2.b 任意域 Power）可由空领域的通用 Power 费用计划表达，不选一个域近似。" +
     "“Kill me at end of turn.” 需要 continuous.grant-ability 与回合结束到期（317.1.a / 135.4.b 的临时能力授予与到期），" +
     "已合入的持续效果指令清单里没有 grant-ability。" +
-    "依赖：Empower KeywordDef、下一张单位的费用窗口消费方、grant-ability 持续效果；不近似实现。",
+    "依赖：KeywordAbility → KeywordDef.params.cost 的契约/绑定接线、下一张单位的费用窗口消费方、" +
+    "grant-ability 持续效果；不近似实现。",
   abilities,
   sourceText:
     "[Empower] —  :rb_energy_1:, :rb_exhaust: (Use only if not Empowered.)\n" +

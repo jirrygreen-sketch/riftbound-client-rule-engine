@@ -13,7 +13,7 @@ import type { CardProgram } from "../../ir/index.js";
  * 规则依据（CR v1.5）：
  * - [Deflect]（809.1–809.3）：被动关键词，未印数值时按 809.1.b.3 视为 1，叠加按 809.2
  *   求和。卡内只声明 `{ kind: "keyword", keyword: "deflect" }`；展开（静态 target.tax）
- *   由 effects/keywords/Deflect.ts 负责；target.tax 的静态注册与消费仍待 RIFT-360。
+ *   由 effects/keywords/Deflect.ts 负责；该静态声明在当前内核没有注册/消费路径（见下）。
  * - “When you play me” 是 Play Effect（383.4.a.1/383.4.a.2），时点 card-played、filter
  *   指向自身。
  * - “choose an opponent”：选择的是玩家而不是游戏对象（355.7：指名 Player）。契约 3.6 的
@@ -29,18 +29,25 @@ import type { CardProgram } from "../../ir/index.js";
  *   rad/cataclysm 的 fail-closed 先例写成描述性地点标记：effect.token 只接受具体的
  *   LocationRef，遇到不存在的座位名会 negated，绝不会把 token 造到错误玩家的基地。
  *
- * status = judge-required（缺口不近似实现）：
+ * status = judge-required（2026-10-17 复核；缺口不近似实现）：
  * - effect.token 的冻结定义表（recruit / sand-soldier / mech / reflection / tentacle）
- *   没有 bird；对 "bird" 执行会得到 negated/blockedReason: token-definition-or-abilities-
- *   judge-required。187.7 的 Bird token 必须带 Deflect 关键词，不能拿一个无关键词的近似
- *   token 顶替；
- * - “choose an opponent” 没有已合入的玩家选择原语（target.player），因此“由该对手打出该
- *   token”（440.4 的控制者确定）也无法落地：token 的控制者是效果控制者，与印刷语的
- *   “They play” 不同，不能用“我来打”近似。
- * 可执行的部分是触发结构、选择链与 Deflect 关键词身份；golden 断言这些结构与关键词身份。
+ *   没有 bird；实测对 "bird" 执行得到 negated / blockedReason:
+ *   token-definition-or-abilities-judge-required，且该原语的 ARGUMENTS 集合不含入场状态改写。
+ *   187.7 的 Bird token 必须带 Deflect 关键词，不能拿一个无关键词的近似 token 顶替；
+ * - “choose an opponent” 没有已合入的玩家选择原语：instructionDefinitionsById 无 target.player，
+ *   执行该 op 会抛 Unregistered instruction opcode；ChoiceRequest 的形态也只有
+ *   optional/mode/select-objects/order/number，没有玩家选择。因此“由该对手打出该 token”
+ *   （440.4 的控制者确定）无法落地：token 的控制者是效果控制者，与印刷语的 “They play” 不同，
+ *   不能用“我来打”近似；本卡保留描述性地点标记（player: "chosen-opponent"），实测该值会被
+ *   原语拒绝（negated），不会把 token 造到错误玩家的基地。
+ * - [Deflect] 的静态声明没有注册/消费路径：createEngineStaticBinder（programs/statics.ts）
+ *   对展开出的 static target.tax 抛 "Static ability kind target.tax has no layer mapping"，
+ *   809.1.c.1 的任意域 Power 税也就无从收取。
+ * 可执行的部分是触发结构（card-played self 订阅可注册）、选择链与 Deflect 关键词身份；
+ * golden 断言这些结构、关键词身份与 fail-closed 行为。
  *
- * 依赖：effect.token 的 Bird 定义、target.player 玩家选择原语、RIFT-360（target.tax 的
- * CardProgram static producer/消费）。
+ * 依赖：effect.token 的 Bird 定义、玩家选择原语（target.player 或等价 ChoiceRequest 形态）、
+ * static 关键词展开 → 图层/税额的注册与消费。
  */
 export default {
   canonicalCardId:
@@ -48,15 +55,18 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1) 「a 1 [M] Bird unit token with [Deflect]」需要 CR 187.7 的 Bird 定义（无域、1 Might、" +
+    "三处缺口，均不近似实现：(1) 「a 1 [M] Bird unit token with [Deflect]」需要 CR 187.7 的 Bird 定义（无域、1 Might、" +
     "Bird 标签、带 Deflect），但 effect.token 的冻结定义表只有 recruit/sand-soldier/mech/reflection/tentacle，" +
-    "对 bird 执行会 negated/blockedReason: token-definition-or-abilities-judge-required；不能拿无关键词的近似 " +
+    "实测对 bird 执行得到 negated / blockedReason: token-definition-or-abilities-judge-required；不能拿无关键词的近似 " +
     "token 顶替（187.7 的 Deflect 是印刷关键词，卡的 body 不得自带展开）。" +
-    "(2) 「choose an opponent」是玩家选择（355.7：指名 Player），契约 3.6 的 targets() 只返回 ObjectRef[]、" +
-    "PickSpec.options 是静态值数组，IR 无法静态列出对局中的 PlayerId（缺 target.player 原语，同 mindsplitter / " +
-    "suave-negotiator 的记录），因此 440.4「由该对手打出该 token」的控制者语义无法落地，也不能改成“由我打出”近似。" +
-    "Deflect 关键词本身（809，未印数值按 809.1.b.3 视为 1）在 golden 中断言身份；target.tax 的 CardProgram static producer/消费仍依赖 RIFT-360。" +
-    "依赖：effect.token 的 Bird 定义、target.player 玩家选择原语、RIFT-360（target.tax）。",
+    "(2) 「choose an opponent」是玩家选择（355.7：指名 Player）：instructionDefinitionsById 没有 target.player，" +
+    "执行会抛 Unregistered instruction opcode；ChoiceRequest 只有 optional/mode/select-objects/order/number 形态，" +
+    "PickSpec.options 也要求静态值数组，IR 无法静态列出对局中的 PlayerId。因此 440.4「由该对手打出该 token」的控制者语义无法落地，" +
+    "也不能改成“由我打出”近似；本卡保留描述性地点标记（player \"chosen-opponent\"），实测被原语拒绝（negated），不会造到错误玩家的基地。" +
+    "(3) [Deflect]（809，未印数值按 809.1.b.3 视为 1）的展开只有 effects/keywords/Deflect.ts 的 static target.tax 声明：" +
+    "createEngineStaticBinder 对该 kind 抛 \"Static ability kind target.tax has no layer mapping\"，809.1.c.1 的任意域 Power 税无从收取。" +
+    "触发结构（card-played 自身订阅可注册）与 Deflect 关键词身份在 golden 中断言。" +
+    "依赖：effect.token 的 Bird 定义、玩家选择原语、static 关键词展开 → 图层/税额的注册与消费。",
   abilities: [
     { kind: "keyword", keyword: "deflect" },
     {

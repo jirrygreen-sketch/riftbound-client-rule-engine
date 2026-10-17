@@ -12,42 +12,41 @@ import type { CardProgram } from "../../ir/index.js";
  * Catalog evidence (packages/card-data/data/deck-catalog.json, dataVersion
  * 2026-10-12-official-gallery): energy 8, power 1 (Fury), might null, tags [].
  *
- * Status: judge-required. The damage half is expressible; the cost clause is not:
+ * Status: judge-required. The damage body executes; two cost dependencies remain:
  * - "This spell's Energy cost is reduced by ..." is a discount applied while the
  *   spell is being played, not an instruction that resolves on the chain
  *   (356.4.b: "reduced by [amount]"; 356.4.d orders total-cost discounts after
- *   component discounts). The merged `cost.modify` primitive exists, and the
- *   cost plan can apply a caller-supplied `CostPlanInput.discounts`, but no
- *   Finalize consumer registers a card's static cost modifier into that plan.
- *   The clause is stated in the shape the cost system would consume and is left
- *   unexecuted.
+ *   component discounts). `cost.modify` and `buildCostPlan` apply supplied
+ *   discounts, but `programs/play.ts` only translates the play ability's cost;
+ *   it does not collect this static ability into `CostPlanInput.discounts`.
+ *   `programs/lifecycle.ts` binds statics on Board entry, and the layer binder
+ *   has no cost.modify mapping. This spell needs its own discount during
+ *   Finalize while being played from Hand, not an on-Board layer effect.
  * - The discount amount is an aggregate over a filtered set: "the highest Might
  *   among units you control". The frozen IR has `count` plus arithmetic over
- *   explicit operands, but no aggregate expression kind and no way to make the
- *   operands a dynamic query, so the amount below is a descriptive placeholder
- *   for the missing aggregate rather than an executable expression.
- * - 356.4.e (the official Sky Splitter + Eager Apprentice example) fixes the
- *   ordering and minimum semantics: a discount's own minimum binds only that
- *   discount, and other discounts may still take the cost to 0. 206 / 204.1 also
- *   keep the printed cost unmodified for cost checks. Both are consumer-side
- *   obligations of the same missing wiring.
+ *   explicit operands (including arithmetic.max), but no collection aggregate.
+ *   The amount below remains descriptive metadata, not an executable Expr.
+ *   The future consumer must read current Might for all controlled units on
+ *   Board, including Base, at 356.4.g, without requiring a chosen unit.
  *
- * Dependencies: a card-declarable cost-discount consumer in the Finalize cost
- * plan (the merged applyDiscount still only takes caller-supplied
- * CostPlanInput.discounts) and a maximum-aggregate expression over a filtered set.
+ * Already implemented: buildCostPlan orders component/total discounts, applies
+ * each discount's own minimum (356.4.e, the Sky Splitter + Eager Apprentice
+ * example), floors costs at zero, and preserves printed costs (206 / 204.1).
+ * These numeric planner semantics are not the remaining blockers.
+ *
+ * Dependencies: a Finalize collector for self-discounts active while playing
+ * from Hand, and a filtered maximum of current Might evaluated at 356.4.g.
  */
 const skySplitter = {
   canonicalCardId: "card.hash-94735882304ffe96826dd127aea87fdfaac6f979e3b075524de966b982a9c89f",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「This spell's Energy cost is reduced by the highest Might among units you control」是第 356.4 步的总费用折扣" +
-    "（在打出过程中应用，不是链上结算的指令）；cost.modify 原语与 cost-plan 的 applyDiscount 已存在，" +
-    "但 Finalize 没有把卡牌 static cost.modify 注册进 CostPlanInput.discounts（当前仍只有调用方提供的折扣入口），" +
-    "因此该折扣尚未执行。" +
-    "折扣数额还要求对动态集合取最大值（「units you control 中最高的 Might」），冻结 IR 只有 count 与显式操作数算术，" +
-    "没有集合聚合表达式，故 amount 仅作描述性占位。356.4.e 的折扣下限与 206/204.1 的印刷费用语义由同一消费方承担。" +
-    "依赖：Finalize 对卡牌 static cost.modify 的消费接线与集合 max 聚合表达式。",
+    "缺少第 356.4.a/d/g 步消费本牌 static cost.modify 的 Finalize 接线：" +
+    "programs/play 只翻译 play.cost，未收集 static 折扣到 CostPlanInput.discounts；" +
+    "lifecycle 只在 Board 入区绑定 static，图层 binder 也没有 cost.modify 映射，无法在从 Hand 打出时应用自身折扣。" +
+    "另缺在 356.4.g 对所操控的全部 Board 单位（含基地）当前 Might 取最高值的集合聚合表达式；" +
+    "arithmetic.max 只接受显式 operands，不能对动态查询集合取最大值，故 amount 保持描述性占位。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "This spell's Energy cost is reduced by the highest Might among units you control.\n" +
@@ -55,9 +54,8 @@ const skySplitter = {
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
-      // "This spell's Energy cost is reduced by ...": declared in the shape the
-      // cost system consumes. The `aggregate` amount is descriptive only — no
-      // merged expression kind can express a max over a filtered set.
+      // Descriptive static metadata only: neither the cost collector nor the
+      // filtered aggregate Expr exists. Do not move this into the Resolve body.
       kind: "static",
       effect: {
         kind: "cost.modify",

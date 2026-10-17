@@ -19,10 +19,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   这属于事件/动作层面的分类信息。
  *
  * status = judge-required（复核 2026-10-17，缺口均不近似实现）：
- * 1. replacement.prevent 不在 replacement/planner.ts 的掷骰分支里：planner 的 switch 只认
- *    effect.ready/exhaust/move/zone/damage/draw/heal/resources/buff/counter/kill，实测
+ * 1. replacement.prevent 原语已合入（含 all 预防），但 replacement/planner.ts 仍未消费它：实测
  *    bindReplacement 直接抛 BlockedReplacementError（Unsupported replacement opcode），
- *    因此“prevent all”无法转成伤害事件的 0 值改写；替代生命周期注册本身已经合入。
+ *    因此本卡 replacement 能力的 with body 仍无法执行；原语与替代生命周期注册不是同一入口。
  * 2. 伤害来源分类不可判定：冻结的 damage GameAction 只有 { source, target, amount, combat }，
  *    "spell and ability damage" 与战斗伤害、与其它来源的伤害无从区分（438.1.b 的 source 定义），
  *    层 / 动作层面没有该判别式。
@@ -39,8 +38,8 @@ export default {
   status: "judge-required",
   judgeReason:
     "缺口：(1)「prevent all damage …」（438.1/438.1.b/438.2/438.3.c/438.7 的 Delayed Replacement Effect）" +
-    "的 replacement.prevent 不在 replacement/planner.ts 的支持 opcode 里：实测 bindReplacement 抛 " +
-    "BlockedReplacementError（Unsupported replacement opcode: replacement.prevent），无法把该伤害改写为 0；" +
+    "所需的 replacement.prevent 原语已合入，但 replacement/planner.ts 仍不支持该 opcode：实测 bindReplacement 抛 " +
+    "BlockedReplacementError（Unsupported replacement opcode: replacement.prevent），本卡 replacement 能力的 with body 无法执行；" +
     "(2)「enemy spells and abilities」的来源分类不可判定——冻结的 damage GameAction 只有 " +
     "{ source, target, amount, combat }，缺少法术/能力伤害来源的分类与敌我过滤消费。" +
     "(3) 替代条件里 controller:self 的符文 count 在替代绑定路径上没有相对玩家归一化：实测同一 " +
@@ -77,7 +76,7 @@ export default {
       with: [
         {
           // 438.2/438.3.c：预防全部伤害（Prevent Value "All"）——把该伤害事件改写为 0。
-          // 原语未合入（见 judgeReason 第 1 条）。
+          // 原语已合入；replacement 能力的 with body planner 仍不支持它（见 judgeReason 第 1 条）。
           id: "esteemed-hierophant.prevent-all-damage",
           op: "replacement.prevent",
           args: {

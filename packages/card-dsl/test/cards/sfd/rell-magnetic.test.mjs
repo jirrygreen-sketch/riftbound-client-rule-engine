@@ -17,6 +17,11 @@ test("sfd-024-221 Rell, Magnetic: validates identity and ability structure", () 
   assert.match(program.judgeReason, /Tank/);
   assert.match(program.judgeReason, /effects\/keywords\/Tank\.ts/);
   assert.match(program.judgeReason, /energyLte/);
+  assert.match(program.judgeReason, /base-combat-allocation\.ts/);
+  assert.match(program.judgeReason, /keywordPriority/);
+  assert.match(program.judgeReason, /依赖：continuous\.combat 的战斗伤害分配消费方/);
+  // RIFT-9/89/91 are merged; the reason now names the concrete consumers.
+  assert.doesNotMatch(program.judgeReason, /RIFT-9\/|RIFT-89|RIFT-91/);
   assert.equal(program.sourceText, "[Tank] (I must be assigned combat damage first.)\nWhen I attack, you may play an Equipment with Energy cost no more than :rb_energy_2:, ignoring its cost, and attach it to me.");
 });
 
@@ -35,7 +40,10 @@ test("sfd-024-221 Rell, Magnetic: Tank plus optional attack play", () => {
   assert.equal(play.picks[0].max, 1);
 });
 
-test.todo("Rell: add Tank combat assignment, printed-cost filtering, ignored-cost planning and played-object attachment (RIFT-89/RIFT-91)");
+test.todo(
+  "Rell: add the Tank combat damage-assignment consumer, the printed-cost filter for :rb_energy_2: equipment, " +
+    "and the played-object attachment wiring (CR 815.1.b/.c, 355.2.b; the cost layer itself is merged)"
+);
 // Direct evidence for the Tank and Equipment-play gaps recorded in the
 // judgeReason: the Tank expansion's continuous.combat effect registers in the
 // ability layer but the layer snapshot has no combat-damage consumer, and the
@@ -125,5 +133,11 @@ test("sfd-024-221 Rell, Magnetic: the printed energy cap has no ObjectFilter voc
 
 test.todo(
   "sfd-024-221 Rell, Magnetic: the printed Energy cap (energyLte) needs ObjectFilter vocabulary and a raw-matcher " +
-    "predicate so an Equipment above the cap is excluded before the pick binds (CR 818.1.a; RIFT-221 cost-kind work)"
+    "predicate so an Equipment above the cap is excluded before the pick binds (CR 355.9.b / 356.1.c; " +
+    "no merged filter consumes the key and programs/filters.ts fails closed on it)"
+);
+
+test.todo(
+  "sfd-024-221 Rell, Magnetic: attach the Equipment played by the attack ability to Rell — effect.play links only " +
+    "its played count, so no played-object reference reaches effect.attach's objects selector (CR 355.2.b)"
 );

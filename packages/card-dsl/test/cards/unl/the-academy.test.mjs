@@ -6,6 +6,8 @@ import program from "../../../dist/cards/unl/the-academy.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import repeatDefinition from "../../../../engine-core/dist/effects/keywords/Repeat.js";
+import grantKeyword from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
   "card.hash-3c0bf04f347717e5a304a3188f6fa00eb657fea304747bef8f5c004ecf3679ab";
@@ -133,6 +135,14 @@ test("unl-216-219 The Academy golden: the held pattern retains the source Battle
   assert.equal(translated.event, "held");
   assert.equal(translated.player, "self");
   assert.deepEqual(translated.object, { objectId: "the-academy-source" });
+});
+
+test("unl-216-219 The Academy fail-closed: the delayed recipient descriptor is not accepted by the merged grant instruction", () => {
+  const kernel = world().build();
+  assert.throws(
+    () => runInstruction(grantKeyword, grant.args, { world: kernel }),
+    /continuous\.grant-keyword appliesTo must evaluate to "self"/
+  );
 });
 
 test.todo(

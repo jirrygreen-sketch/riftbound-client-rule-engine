@@ -22,11 +22,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   effect.kill；"each player must kill one of their units" 的受害者是各玩家自己
  *   控制的单位，"若我付了附加费用，我就不这样消灭单位"是同一触发里的条件从句。
  *
- * status = judge-required：
- * 三处当前缺口：(1) each player must kill one of their units（CR 429.6）需要逐玩家扇出与各玩家选择自己单位的绑定，
- * 当前 PickSpec 的 controller:each-player 只是保留形状。(2) If you paid my additional cost（356.4.f.1）需要将费用计划的
- * 支付决定回执绑定到触发条件；现有 IR 没有该费用结果读取。(3) cost.additional 静态声明尚未接入 CardProgram → CostPlan，
- * programs/play.ts 的 translateCost 拒绝 additional，describePlay 不收集该静态费用；XP 支付与 card-played 触发注册均已合入。
+ * status = judge-required（2026-10-17 对源码逐条复核）：
+ * 三处当前缺口：(1) each player must kill one of their units（CR 429.6）需要逐玩家扇出与各玩家选择自己单位的绑定：
+ * layers/filter.ts 的 selectorMatches 只认 any/self/opponent/playerId，controller:"each-player" 实测对任何单位都
+ * 返回 false（neither A's nor B's unit matches），PickSpec 也没有"由各玩家各选一个"的循环。
+ * (2) If you paid my additional cost（356.4.f.1）的回执读取路径存在（condition.result + readAdditionalDecision），
+ * 但没有任何生产方把 Finalize 的 CostPlan/支付回执送进该触发的求值环境：Program triggered 能力没有 cost 字段，
+ * programs/triggers.ts 也不生成 cost/mayAtFinalize，实测无 cost 上下文时 condition.result 抛
+ * "Unavailable condition result: cost.additional"。(3) cost.additional 静态声明仍未接入 CardProgram → CostPlan：
+ * programs/play.ts 的 translateCost 对 kind "additional" 直接 judgeRequired，programs/statics.ts 的 layerFor 也以
+ * "Static ability kind cost.additional has no layer mapping" 拒绝该静态效果（实测）。XP 支付本体与 card-played 触发注册已合入。
  */
 const abilities: Ability[] = [
   {
@@ -87,10 +92,14 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处当前缺口：(1) each player must kill one of their units（CR 429.6）需要逐玩家扇出与各玩家选择自己单位的绑定，" +
-    "当前 PickSpec 的 controller:each-player 只是保留形状。(2) If you paid my additional cost（356.4.f.1）需要将费用计划的" +
-    "支付决定回执绑定到触发条件；现有 IR 没有该费用结果读取。(3) cost.additional 静态声明尚未接入 CardProgram → CostPlan，" +
-    "programs/play.ts 的 translateCost 拒绝 additional，describePlay 不收集该静态费用；XP 支付与 card-played 触发注册均已合入。",
+    "三处当前缺口（均不近似实现）：(1) each player must kill one of their units（CR 429.6）需要逐玩家扇出与各玩家选择自己单位：" +
+    "layers/filter.ts 的 selectorMatches 只认 any/self/opponent/playerId，controller:\"each-player\" 实测对任何单位都返回 false，" +
+    "PickSpec 也没有「由各玩家各选一个」的循环。(2) If you paid my additional cost（356.4.f.1）的回执读取本身已在 " +
+    "condition.result / readAdditionalDecision 中实现，但没有生产方把 Finalize 的 CostPlan/支付回执送进该触发的求值环境" +
+    "（programs/triggers.ts 不生成 cost/mayAtFinalize），实测无 cost 上下文时 condition.result 抛 " +
+    "\"Unavailable condition result: cost.additional\"。(3) cost.additional 静态声明仍未接入 CardProgram → CostPlan：" +
+    "programs/play.ts 的 translateCost 对 kind \"additional\" 直接 judgeRequired，programs/statics.ts 的 layerFor 也以 " +
+    "\"Static ability kind cost.additional has no layer mapping\" 拒绝该静态效果（实测）。XP 支付本体与 card-played 触发注册已合入。",
   abilities,
   sourceText:
     "You may spend 3 XP as an additional cost to play me.\n" +

@@ -20,8 +20,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   声明关键词，不重写展开（印刷费用见 judgeReason）。
  * - 828.1 / 828.1.b / 828.1.c / 828.1.d："When I become [Empowered]" 是依赖能力的
  *   Condition 之一，在来源成为 Empowered 时 Active 并触发；状态变化由动作层在完成后
- *   发出 empowered-changed（events/timing-points.ts，payload 含 previousCount /
- *   currentCount，828.1.c 要求只对增加方向触发）。
+ *   发出 empowered-changed（events/timing-points.ts，需前后状态载荷；828.1.d 要求识别成为 Empowered 的变化）。
  * - 355.7 / 355.9.a / 355.10.e："choose an opponent" 选择的是玩家，玩家可以是目标；
  *   契约 3.6 的 targets() 只返回 ObjectRef[]，所以用非目标 pick（ctx.picks() 允许
  *   PlayerId）表达并声明动态选项集，与已合入 rad/suave-negotiator 同款写法（见
@@ -32,19 +31,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   的基础费用置零后按正常 Play 流程打出；"you may do this" 按契约 3.9 写成
  *   choice.optional 并把被选指令包在 body 里。
  *
- * status = judge-required（四处缺口均不近似实现）：
- * 1. 没有 Empower / Empowered 的 KeywordDef：keywords/registry.generated.ts 只含
- *    RIFT-81~88 批次，827.1.c.1 的启动费用与「仅当未 Empowered」限制、828.1.b.1 的
- *    依赖能力都无展开实现；
- * 2. 没有 Empowered 状态谓词（442.1.a），且 empowered-changed 的 direction 过滤与
- *    previousCount/currentCount 载荷尚未接到 TriggerSpec，触发过滤只能以描述性键记录；
- * 3. 玩家选择没有已合入管线：targets() 只返回 ObjectRef[]，ChoiceRequest 也没有选择
- *    玩家的请求类型，「把对手集合解析为 PlayerId 并在 Finalize 锁定」没有消费方；
- * 4. "ignoring its cost" 需要费用管线生成 finalized 零费计划（356.1.b.1）：EffectIR 的
- *    CostSpec 没有 ignore / 替代费用字段的消费方，已合入的 effect.play 明确要求 cost
- *    参数是费用系统产出、已 Finalize 的计划。
- * golden 用已合入的 effect.mill（RIFT-112）以实例化的 PlayerId 真实执行 "[Burn 3]"，
- * 这是子效果证据而非整卡证据。
+ * status = judge-required。已合入依赖与剩余生产接线已重新核对；
+ * 当前真实缺口以 judgeReason 为准，子效果执行不证明整卡可执行。
  */
 const abilities: Ability[] = [
   {
@@ -60,9 +48,8 @@ const abilities: Ability[] = [
       filter: {
         event: "empowered-changed",
         filter: {
-          // 828.1.d：来源自身成为 Empowered；`direction: "increase"` 是 828.1.c 要求的
-          // 增加方向（empower 与 disempower 共用该时点，443.1），当前载荷不带该字段，
-          // 也没有 Empowered 状态谓词（见 judgeReason）。
+          // CR 828.1.d: this source becomes Empowered. The shared timing
+          // also covers Disempower; direction still needs a consumer.
           source: "self",
           direction: "increase"
         }
@@ -155,18 +142,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均不近似实现：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef" +
-    "（RIFT-81~88 批次不含它们），827.1.c.1 的「6 Energy + 2 Chaos Power：Empower me，仅当未 Empowered 时启动」" +
-    "与 828.1.b.1 的依赖能力都无展开实现；(2) 没有 Empowered 状态谓词（442.1.a）——状态不在 ObjectSnapshot / " +
-    "Condition 里，触发过滤的 direction \"increase\" 只是描述性记录（828.1.c 要求只对增加方向触发，" +
-    "programs/filters.ts 当前拒绝 direction，且 empowered-changed emission 没有 previousCount/currentCount 载荷）；(3) 「choose an opponent」是玩家选择" +
-    "（355.9.a），但契约 3.6 的 targets() 只返回 ObjectRef[]，ChoiceRequest 也没有选择玩家的请求类型，" +
-    "「把对手集合解析为 PlayerId 并在 Finalize 锁定」没有已合入实现（同 suave-negotiator 的缺口）；" +
-    "(4) 「play it, ignoring its cost」需要费用管线生成 finalized 零费计划（356.1.b / 356.1.b.1），" +
-    "CostSpec 的 ignore / 替代费用没有卡牌程序入口，已合入的 effect.play 明确要求 cost 是费用系统产出、" +
-    "已 Finalize 的计划。依赖：新增 Empower/Empowered 关键词任务、CardProgram 的 ignore-cost 计划生成与接线、" +
-    "empowered-changed 的方向/载荷契约与玩家目标/选择的契约增补。「They [Burn 3]」半段用已合入的 effect.mill 真实执行" +
-    "（实例化 PlayerId），golden 覆盖按序烧 3 张与牌库不足的边界。",
+    "仍缺：(1) KeywordAbility / programs/keywords.ts 未传 params.cost，无法把本卡 6 Energy + 2 Chaos Power 交给 Empower 展开（827.1.c.1）；" +
+    "(2) empowered-changed 不在 EVENT_PATTERN_TYPES，事件缺 Empower/Disempower 方向与前后状态，无法只在来源成为 Empowered 时触发（442.2.a / 828.1.d）；" +
+    "(3) choose an opponent 缺玩家目标/选择的 Finalize 绑定（355.9.a），其 trash 也需关联同一被选玩家；" +
+    "(4) effect.play 的忽略基础费用入口仍未接到 buildCostPlan 的 ignore-base（356.1.b.1），常量 finalized 标记不能替代真实费用计划及追加费用处理。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_6::rb_rune_chaos::rb_rune_chaos: (:rb_energy_6::rb_rune_chaos::rb_rune_chaos:: " +

@@ -1,3 +1,5 @@
+// Template execution evidence: ../templates/keyword-replacement-effect-ready-678.test.mjs.
+// Ganking remains blocked; the template's paid ready entry is partial evidence.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -144,7 +146,7 @@ test("ogs-009-024 Master Yi, Honed: [Ganking] keyword plus an enter-ready replac
   const [withInstruction] = replacement.with;
   assert.equal(withInstruction.id, "master-yi-honed.enter-ready");
   assert.equal(withInstruction.op, "effect.ready");
-  // RIFT-260's replacement planner resolves the body selector; "self" must be
+  // The merged replacement planner resolves the body selector; "self" must be
   // an explicit source selector (the empty args form is rejected at bind time).
   assert.deepEqual(withInstruction.args, {
     objects: { kind: "constant", value: { kind: "source" } }
@@ -351,3 +353,9 @@ test("ogs-009-024 Master Yi, Honed golden: a unit without the Ganking static is 
     /needs Ganking/
   );
 });
+
+test.todo(
+  "ogs-009-024 Master Yi, Honed: the lifecycle-expanded Ganking keyword must grant the battlefield-to-battlefield " +
+    "Standard Move (CR 810.1.c/144.4.c.1; RIFT-678 contract change request: normalize the keyword's string " +
+    "permission with movement()'s routes object; instruction-only movement tests are not keyword execution evidence)"
+);

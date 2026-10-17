@@ -1,3 +1,5 @@
+// Scenario evidence: ../templates/keyword-play-effect-kill-682.test.mjs.
+// Main-phase admission only; the untargeted set kill remains blocked below.
 import assert from "node:assert/strict";
 import test from "node:test";
 

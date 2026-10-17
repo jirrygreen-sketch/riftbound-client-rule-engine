@@ -27,24 +27,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   effect.buff（702 的 Buff 计数器）不可代替；两者都是“me”的自我指称，355.10.g 明确不是目标，
  *   因此都不写 TargetSpec（用 TargetSpec 会错误登记“成为目标”与目标税）。
  *
- * status = judge-required（缺口不近似实现）。已合入并可 golden 执行：continuous.might
- * （143.2.a / 475 / 478 的本回合算术层修正，this-turn 到期 315.4）、effect.ready、
- * [Hidden]/[Ganking] 的 KeywordDef（RIFT-264～268）、CardProgram 绑定（RIFT-257），
- * 以及 cost.pay 原语本体（settle 356–357 的 finalized CostPlan，探针验证可真实扣费）。
- *
- * 仍缺三处（不近似实现）：
- * 1. [Hidden]（811.1）的展开虽已合入（effects/keywords/Hidden.ts），但其 static cost.hidden 没有消费方：封闭 GameAction
- *    集合没有 Hide 动作、契约 ZoneId 没有面朝下区域成员，811.1.d 的免费用打出与 811.1.b 的
- *    [A] 隐藏费用因此无处执行（依赖 cost.hidden 消费方，RIFT-261 系列）。
- * 2. “You may pay :rb_rune_fury: as an additional cost to play me.”（356.2.b.1 的可选附加费用）
- *    不可收取：cost.pay 已合入但只支付调用方已 finalize 的 CostPlan，programs/play.ts 的
- *    translateCost 对 additional/additional-cost/optional 字段直接 judgeRequired，没有生产方
- *    在 Finalize 生成含本可选附加费用的计划（cost/ 也只消费调用方传入的 optionalAdditional）。
- * 3. “if you paid the additional cost”（383.2.a.1 的触发条件，凭证见 356.4.f.1）没有费用回执绑定，
- *    与 ogn/meditation、ogn/clockwork-keeper 同一缺口；本程序保留描述性读取，条件 fail-closed。
- * [Ganking] 的 continuous.movement 许可也没有移动系统消费方（movement() 查询已合入，但没有调用方）。
- * 依赖：cost.hidden 消费方（RIFT-261 系列）、附加费用计划与回执的生成/绑定、移动系统接线。
- * 不近似实现。
+ * 2026-10-17 复核：仍为 judge-required，当前缺口见 judgeReason。
+ * 已有原语、关键词定义或通用适配器不代表本卡完整生产路径可执行。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "hidden" },
@@ -54,6 +38,7 @@ const abilities: Ability[] = [
     // 356.2.b / 356.2.b.1："as an additional cost" + "may" = 可选附加费用（Optional Additional Cost）；
     // 本卡印刷没有 Power 费用（catalog power: null，不是 0），这是独立可选组件。
     cost: {
+      id: "pyke-dockside-butcher.additional-cost",
       kind: "additional-cost",
       optional: true,
       power: { kind: "constant", value: ["Fury"] }
@@ -68,15 +53,11 @@ const abilities: Ability[] = [
       // 383.4.a.1：“When you play me” 的 Play Effect。
       filter: { event: "card-played", filter: { source: "self" } },
       // 383.2.a.1："if you paid the additional cost" 是触发条件的一部分。
-      // 356.4.f.1 的费用回执没有绑定，按 Meditation 先例保留描述性读取（fail-closed），
-      // 见 judgeReason，不用无条件执行冒充。
+      // 356.4.f.1：读取本卡这一项费用的支付决定；回执的生产绑定仍缺失。
       condition: {
-        kind: "expression",
-        value: {
-          kind: "object-property",
-          object: "source",
-          property: "pyke.additional-cost-paid"
-        }
+        kind: "result",
+        result: "cost.additional",
+        id: "pyke-dockside-butcher.additional-cost"
       }
     },
     optional: false,
@@ -110,20 +91,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "已合入并可真实执行：continuous.might（RIFT-258）按 143.2.a/475 注册 arithmetic 层修正、按 315.4 以 this-turn " +
-    "到期；effect.ready、[Hidden]/[Ganking] 的 KeywordDef（RIFT-264～268）与 CardProgram 绑定（RIFT-257）已合入；" +
-    "cost.pay 原语本体已合入（settle 356–357 的 finalized CostPlan，探针验证可真实扣费并产生支付回执）。" +
-    "仍缺三处，均不近似实现：" +
-    "(1) [Hidden]（811.1）的展开虽已合入（effects/keywords/Hidden.ts），但其 static cost.hidden 没有消费方——封闭 GameAction 集合没有 " +
-    "Hide 动作、契约 ZoneId 没有面朝下区域成员，811.1.b 的 [A] 隐藏费用与 811.1.d 的从面朝下免费用打出无处执行；" +
-    "(2)「You may pay :rb_rune_fury: as an additional cost to play me.」（356.2.b.1 的可选附加费用）不可收取：" +
-    "cost.pay 只支付调用方已 finalize 的 CostPlan，programs/play.ts 的 translateCost 对 additional/additional-cost/" +
-    "optional 字段直接 judgeRequired，cost/ 也只消费调用方传入的 optionalAdditional，没有在 Finalize 生成含该可选附加费用计划的生产方；" +
-    "(3)「if you paid the additional cost」（383.2.a.1 的触发条件，凭证见 356.4.f.1）没有费用回执绑定——" +
-    "没有表达式能读取 356.4.f.1 的支付决定记录，与 ogn/meditation、ogn/clockwork-keeper 同一缺口，" +
-    "本程序保留描述性读取（fail-closed，不会在未支付时误执行）。" +
-    "另外 [Ganking] 的许可没有移动系统消费方（movement() 已合入但没有调用方）。" +
-    "依赖：cost.hidden 消费方（RIFT-261 系列）、附加费用计划与回执的生成/绑定、移动系统接线。",
+    "缺 Hidden 的 cost.hidden 到 Hide/面朝下状态及免费打出的动作与位置流程（811.1.b/811.1.d）；Hidden 费用计划辅助函数已合入，不能代替该流程。" +
+    "缺可选 additional cost 到 Finalize CostPlan 的翻译（356.2.b.1）：programs/play.ts 的 translateCost 仍拒绝 additional-cost/optional，未生成 optionalAdditional。" +
+    "condition.result 已合入并能读取支付决定，仍缺原始打出费用回执到 card-played 触发条件的传递（356.4.f.1）。" +
+    "缺 Ganking 的 continuous.movement 许可翻译与标准移动消费方（810.1.b/144.4.c.1）：关键词给 permission 字符串，movement() 查询读取 permission.routes。",
   abilities,
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +

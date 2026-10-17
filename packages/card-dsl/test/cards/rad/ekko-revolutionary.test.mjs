@@ -4,6 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/ekko-revolutionary.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -237,3 +238,29 @@ test("rad-021-167 Ekko, Revolutionary: 'I enter ready' really replaces the exhau
 
 test.todo('Ekko, Revolutionary: bind Discard 1 non-target cost candidates and the ignored-base-cost play plan at Finalize (CR 423.3/355.10.c/356.1.b.1)');
 test.todo('Ekko, Revolutionary: bind the Assault designation condition to combatRole attacker (CR 807.1.c/807.1.d.1)');
+
+
+test("Ekko: the merged ignore-base planner retains and pays additional costs and increases (356.1.b.3)", () => {
+  const kernel = world().player("A", { energy: 5 })
+    .unit("ekko", { cardId: CANONICAL, energy: 5, power: ["Fury"], might: 4 }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("ekko") });
+  const plan = buildCostPlan(context, {
+    id: "ekko.ignored-base-proof",
+    cost: { kind: "printed" },
+    baseModifications: [{ kind: "ignore-base", ignore: "resources" }],
+    mandatoryAdditional: [{ id: "additional", cost: { energy: { kind: "constant", value: 2 } } }],
+    increases: [{ id: "increase", cost: { energy: { kind: "constant", value: 1 } } }]
+  });
+  // `base` retains printed costs; the base component records the applied modification.
+  assert.equal(plan.base.energy, 5);
+  assert.deepEqual(plan.base.power, [{ amount: 1, allowedDomains: ["Fury"] }]);
+  assert.equal(plan.components.find(component => component.id === "base").cost.energy, 0);
+  assert.deepEqual(plan.components.find(component => component.id === "base").cost.power, []);
+  assert.equal(plan.total.energy, 3);
+  assert.deepEqual(plan.total.power, []);
+  const receipt = payCostPlan(context, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(receipt.total.energy, 3);
+  assert.equal(context.player("A").energy, 2);
+  assert.deepEqual(receipt.events.map(event => event.action), ["pay"]);
+});

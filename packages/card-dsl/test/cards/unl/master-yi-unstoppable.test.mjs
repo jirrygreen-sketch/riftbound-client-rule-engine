@@ -1,3 +1,8 @@
+// RIFT-668 partial execution / boundaries: ../templates/static-668.test.mjs.
+// Published status stays judge-required; existing component coverage is retained below.
+// Scenario execution evidence: ../templates/static-644.test.mjs (one parameterized row per card).
+// This card stays judge-required; the template row records every static ability's exact
+// fail-closed ProgramBindingError.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -31,6 +36,8 @@ test("unl-059-219 Master Yi, Unstoppable: identity, status, judgeReason and verb
   assert.match(program.judgeReason, /XP/);
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /Untargetable/);
+  assert.match(program.judgeReason, /staticTarget/);
+  assert.match(program.judgeReason, /choose-as-target/);
 });
 
 test("unl-059-219 Master Yi, Unstoppable: each printed [Level N][>] line is one XP-gated dependent ability (824.1.b.1)", () => {
@@ -122,5 +129,5 @@ test.todo(
 
 test.todo(
   "unl-059-219 Master Yi, Unstoppable: make the [Level 16] Untargetable declaration reject illegal target choices " +
-    "(CR 756/757/758, 355.9.b) — the declared restriction still has no target-legality consumer"
+    "(CR 756/757/758, 355.9.b) — adapt the declared scope, opposing chooser and XP gate to the existing target-legality consumer"
 );

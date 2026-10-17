@@ -68,6 +68,8 @@ test("rad-019-167 Firebrand Raider: program validates and has expected identity"
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /continuous\.restrict/);
+  assert.match(program.judgeReason, /turn\/flow\.ts/);
+  assert.match(program.judgeReason, /during: awaken-phase/);
   // The merged entry replacement must not still be described as unmerged.
   assert.doesNotMatch(program.judgeReason, /replacement\.enter 管线未合入/);
 });

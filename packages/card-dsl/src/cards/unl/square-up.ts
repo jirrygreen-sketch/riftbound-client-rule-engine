@@ -16,9 +16,10 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（缺口不近似实现）：
  * - continuous.grant-keyword 已合入，本卡的目标授予可由解释器建立到期的 ability 图层效果；
- *   其后的 Assault attacker designation 谓词仍不能在当前图层条件求值（RIFT-359）。
- * - [Repeat] 的 Discard 1 附加费用以及已支付实例数到打出结算的接线仍缺，不能写固定次数
- *   的额外执行（会把未付费也重复写成事实）。
+ *   其后的 Assault attacker designation 谓词仍不能在当前图层条件求值：Assault 展开读取
+ *   `designation`，而运行时快照只提供 `combatRole`，没有该特征的消费映射。
+ * - [Repeat] 的 Discard 1 附加费用以及已支付实例数到打出结算的接线仍缺；cost-plan 和
+ *   effect.repeat 本体已存在，但 CardProgram 的关键词实例没有接入 Finalize/paid-count。
  * golden 覆盖授予原语真实登记与到期；整卡继续保持 judge-required。
  */
 const squareUp = {
@@ -26,11 +27,10 @@ const squareUp = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1) continuous.grant-keyword 已能建立本回合的 Assault 4 " +
-    "ability 图层授予，但 Assault 展开要求读取 attacker designation（807.1.c/807.1.d.1），当前条件求值仍不消费该谓词（RIFT-359）；" +
-    "(2) [Repeat]（820.1.a/820.1.c，附加费用 Discard 1）的费用声明尚未接入 Finalize，" +
-    "也没有把已支付实例数接到打出结算的 repeat 次数，因此不能写固定次数的额外执行。" +
-    "契约 3.1 的 keyword/value 仍不足以承载 Repeat 的印刷费用，需由 Repeat 费用接线提供该数据。",
+    "两处依赖未接通，均不近似实现：(1) continuous.grant-keyword 已能建立本回合的 Assault 4 " +
+    "ability 图层授予，但 Assault 展开要求读取 attacker designation（807.1.c/807.1.d.1）；运行时快照只提供 combatRole，" +
+    "当前条件求值没有 designation 的消费映射。(2) [Repeat]（820.1.a/820.1.c，附加费用 Discard 1）的费用声明尚未接入 Finalize，" +
+    "也没有把已支付实例数接到打出结算的 repeat 次数；cost-plan 与 effect.repeat 本体已有，缺的是 CardProgram 关键词实例的费用与 paid-count 接线。",
   abilities: [
     { kind: "keyword", keyword: "repeat" },
     {

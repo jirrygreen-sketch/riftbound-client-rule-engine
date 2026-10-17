@@ -1,5 +1,8 @@
 // Golden test for Rek'Sai, Breacher (sfd-029-221).
 //
+// Execution evidence for the real base play/payment path lives in the RIFT-674
+// parameterized template golden:
+// test/cards/templates/keyword-keyword-static-674.test.mjs.
 // The card keeps judge-required: the production static binder translates the
 // grant through staticFilter, whose whitelist rejects the card's descriptive
 // playedFromZoneNot key, the printed "played from anywhere other than a
@@ -85,12 +88,16 @@ test("sfd-029-221 Rek'Sai, Breacher: judgeReason names the current registration,
   assert.match(program.judgeReason, /staticFilter/);
   assert.match(program.judgeReason, /playedFromZoneNot/);
   assert.match(program.judgeReason, /createEngineStaticBinder/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /accelerate\.cost has no layer mapping/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /evaluateCondition/);
   assert.match(program.judgeReason, /Might.*3/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-91|conditionMatches|落到 true/);
+  assert.match(program.judgeReason, /Unsupported static filter field playedFromZoneNot/);
+  // RIFT-257/258/261 are merged; the reason names the concrete consumers that
+  // are still missing instead of an in-progress cost batch.
+  assert.doesNotMatch(program.judgeReason, /RIFT-91|conditionMatches|落到 true|RIFT-261 费用批次/);
+  assert.doesNotMatch(program.judgeReason, /依赖：[^。]*RIFT-(257|258|261)/);
 });
 
 test("sfd-029-221 Rek'Sai, Breacher: [Accelerate] and [Assault] are declared without values", () => {
@@ -194,8 +201,8 @@ test("sfd-029-221 Rek'Sai, Breacher: [Assault] uses designation while the object
 
 test.todo(
   "sfd-029-221 Rek'Sai, Breacher: the card's static continuous.grant-keyword ability cannot pass the production " +
-    "static binder - programs/statics.ts staticFilter rejects playedFromZoneNot with ProgramBindingError(" +
-    "'judge-required', 'Unsupported static filter field playedFromZoneNot') - RIFT-257 follow-up"
+    "static binder — programs/statics.ts staticFilter rejects playedFromZoneNot with ProgramBindingError(" +
+    "'judge-required', 'Unsupported static filter field playedFromZoneNot')"
 );
 test.todo(
   "sfd-029-221 Rek'Sai, Breacher: 'played from anywhere other than a player's hand' needs a play-origin zone " +
@@ -204,7 +211,9 @@ test.todo(
 );
 test.todo(
   "sfd-029-221 Rek'Sai, Breacher: [Accelerate] payment and enter-ready replacement end to end through the cost " +
-    "pipeline and entry replacement (CR 805.1.b, 805.2.b, 805.6.a) - RIFT-261 follow-up"
+    "pipeline and entry replacement (CR 805.1.b, 805.2.b, 805.6.a) — no consumer turns the keyword expansion's " +
+    "accelerate.cost static declaration into CostPlanInput (createEngineStaticBinder throws " +
+    "\"Static ability kind accelerate.cost has no layer mapping\")"
 );
 test.todo(
   "sfd-029-221 Rek'Sai, Breacher: [Assault] needs its compare(object-property(self, designation)) condition aligned " +
@@ -218,6 +227,7 @@ test.todo(
 // placeholder with a judge-required ProgramBindingError.
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { ProgramBindingError } from "../../../../engine-core/dist/programs/errors.js";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
 
 test("sfd-029-221 Rek'Sai, Breacher: the production static binder rejects the grant's playedFromZoneNot placeholder", () => {
   const kernel = world()
@@ -244,5 +254,41 @@ test("sfd-029-221 Rek'Sai, Breacher: the production static binder rejects the gr
       return true;
     }
   );
+});
+
+test("sfd-029-221 Rek'Sai, Breacher: no consumer turns the Accelerate expansion into CostPlanInput", () => {
+  // Evidence for the [Accelerate] cost gap: the merged keyword expansion
+  // declares accelerate.cost, but the production static binder has no layer
+  // mapping for that effect kind and the play-cost translator rejects the
+  // authored additional-cost shape instead of approximating the charge.
+  const kernel = world()
+    .unit("breacher", { might: 3, zone: "board", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const binder = createEngineStaticBinder({
+    layers: createLayerEngine(kernel.objects, []),
+    pipeline: {
+      host: {
+        objects: () => kernel.objects,
+        context: (snapshot) => kernel.clone({ sourceSnapshot: snapshot, source: snapshot.ref })
+      }
+    }
+  });
+  const [declaration] = keywordDefinitionsById.get("Accelerate").expand({ host: { canonicalCardId: CARD_ID } });
+  assert.equal(declaration.kind, "static");
+  assert.equal(declaration.effect.kind, "accelerate.cost");
+  assert.throws(
+    () => binder.bindStatic(declaration, kernel.getObject("breacher")),
+    /Static ability kind accelerate\.cost has no layer mapping/
+  );
+  assert.throws(
+    () => translateCost(declaration.effect.cost, "reksai-breacher.accelerate", "play"),
+    /Unsupported play cost field optional/
+  );
+  // 805.6.a: the merged entry replacement really readies the paid unit when the
+  // cost decision is supplied by a caller (the missing piece is the binding from
+  // the keyword declaration).
+  const [replacement] = keywordDefinitionsById.get("Accelerate").expand({ host: { canonicalCardId: CARD_ID } }).slice(1);
+  assert.equal(replacement.kind, "replacement");
+  assert.deepEqual(replacement.with.map((instruction) => instruction.op), ["effect.ready"]);
 });
 

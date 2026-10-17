@@ -35,18 +35,14 @@ import type { CardProgram } from "../../ir/index.js";
  *    Recall from a Move, so 458.1 would wrongly fire Move triggers and 460.1
  *    would not be honoured; an ordinary Move is not an acceptable substitute.
  * 2. The printed "the next time" one-shot lifetime (an unbounded, not
- *    turn-scoped, single use) has no carrier in the frozen IR. The wrapper that
- *    owns the window, replacement.event, needs a raw instruction array in
- *    args.instead while CardProgram Instruction.args are Expr:
- *    validateCardProgram rejects the bare array with "invalid-expression", and
- *    wrapping it in a constant makes the binder throw BlockedReplacementError
- *    "replacement.event instead must be an instruction body". The static
- *    replacement ability that this card does ship has no window at all, so it
- *    would apply to every qualifying death (measured: the bound registration
- *    matches a second kill too). And the window vocabulary has no unbounded
- *    one-shot either: "next-time-this-turn" is scoped to the turn the ability
- *    was bound in, "permanent" is not one-shot, and any other value is rejected
- *    as "Unsupported replacement.event window value".
+ *    turn-scoped, single use) still has no carrier in the static Replacement
+ *    Ability shape. The merged replacement.event instruction can register a
+ *    bounded "next-time-this-turn" window, but CardProgram static replacements
+ *    are bound directly by programs/lifecycle.ts and have no window field; the
+ *    only available static registration therefore matches a second qualifying
+ *    death as well. The replacement.event primitive also depends on runtime
+ *    replacement dependencies that the ordinary card ResolveContext does not
+ *    provide, and its window vocabulary has no unbounded one-shot.
  * 3. [Hidden]: the keyword declaration expands to { kind: "cost.hidden" }, but
  *    that static effect has no consumer. programs/statics.ts layerFor throws
  *    "Static ability kind cost.hidden has no layer mapping" at bind time, and
@@ -69,10 +65,7 @@ const zhonyasHourglass = {
     "三处当前缺口（复核 2026-10-17），均实测且不近似实现：①缺独立 Recall 动作（457/458/459/460.1）：effect.move 的 mode \"recall\" " +
     "被原语显式阻断（negated/impossible + blockedReason \"Recall requires an action distinct from Move\"），替代 planner 在 bind 时对同一形状抛 " +
     "BlockedReplacementError（\"effect.move mode 'recall' is blocked (CR 457-460): no Recall action exists\"）；封闭 move-location 动作无法区分 Recall 与 Move（458.1 会错误触发移动触发、460.1 保持状态），不能近似为普通移动。" +
-    "②印刷的 \"the next time\"（无回合界的一次性）在冻结 IR 里没有载体：拥有 window 的 replacement.event wrapper 要求 args.instead 是裸指令数组，" +
-    "而 CardProgram 的 Instruction.args 是 Expr——裸数组被 validateCardProgram 以 invalid-expression 拒绝，constant 包装又让绑定层抛 " +
-    "\"replacement.event instead must be an instruction body\"；本卡能写的静态 replacement ability 自身没有 window，实测同一注册会命中第二次死亡（等于把一次性降级成永久替代）。" +
-    "window 词表也没有无界一次性：只有 permanent 与 next-time-this-turn（后者绑定注册回合、跨回合不再武装），其它取值被拒为 \"Unsupported replacement.event window value\"。" +
+    "②印刷的 \"the next time\"（无回合界的一次性）仍没有静态 Replacement Ability 的期限载体：已合入的 replacement.event 只能注册 permanent 或 next-time-this-turn，且普通卡 ResolveContext 未提供其运行时 replacement 依赖；本卡当前只能由 programs/lifecycle.ts 直接绑定静态 replacement，实测同一注册会命中第二次死亡（等于把一次性降级成永久替代），window 词表也没有无界一次性。" +
     "③[Hidden]（811.1.b/811.1.c.2）：关键词展开的 static { kind: \"cost.hidden\" } 没有消费方——programs/statics.ts 的 layerFor 在绑定时抛 " +
     "\"Static ability kind cost.hidden has no layer mapping\"，cost/kinds/hidden.ts 只做计划与支付，Hide 行动、面朝下区域与「下回合起 Reaction/免基础费打出」路径都仍缺。" +
     "已合入并有真实执行证据的部分：「that unit」经替代 planner 的 { linked: \"replacement.object\" }（REPLACED_EVENT_LINK，355.10.c）解析，" +

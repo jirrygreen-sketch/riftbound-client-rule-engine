@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/matriarch-of-war.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
@@ -8,6 +7,7 @@ import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { canPayCostPlan, prepareCostPayment } from "../../../../engine-core/dist/cost/payment.js";
 
 const CANONICAL_ID =
   "card.hash-bf30c710a85c78a9c386b4d6c5d52a3aa4ff1d9d0eba7b82b1ba9ef0917f2b94";
@@ -52,9 +52,11 @@ test("ven-153-166: Disempower + [A] + Exhaust cost and 'Ready a unit'", () => {
   assert.equal(activated.timing, "action");
   // 135.2.e.5.a / 163.2.b: :rb_rune_rainbow: is Power of any Domain ([A]);
   // the six closed domains express the payable union.
-  assert.deepEqual(activated.cost.power, { kind: "constant", value: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] });
+  assert.equal(activated.cost.power, undefined);
   assert.deepEqual(activated.cost.payments, [
     { kind: "disempower", object: "self" },
+    { kind: "power", amount: { kind: "constant", value: 1 },
+      allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] },
     { kind: "exhaust", object: "self" }
   ]);
   assert.equal(activated.body.length, 1);
@@ -101,15 +103,12 @@ test("ven-153-166 golden: 'Ready a unit' readies an exhausted unit through the i
 test("ven-153-166 golden: the printed [A] Power uses all six payable domains", () => {
   const kernel = world().unit("matriarch-of-war", { types: ["legend"], zone: "board" }).build();
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("matriarch-of-war") });
-  const sixDomains = activated.cost.power.value;
+  const power = activated.cost.payments.find(payment => payment.kind === "power");
+  const sixDomains = power.allowedDomains;
   const plan = buildCostPlan(context, {
     id: "matriarch-of-war.power",
     cost: {
-      payments: [{
-        kind: "power",
-        amount: { kind: "constant", value: 1 },
-        allowedDomains: sixDomains
-      }]
+      payments: [power]
     }
   });
   assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: sixDomains }]);
@@ -133,3 +132,25 @@ test("ven-153-166 binding: the merged program registry exposes the two printed a
   assert.equal(resolved.canonicalCardId, CANONICAL_ID);
   assert.deepEqual(resolved.abilities.map(ability => ability.kind), ["triggered", "activated"]);
 });
+
+
+test("Matriarch of War: one Power of any single Domain pays the rainbow component", () => {
+  const power = activated.cost.payments.find(payment => payment.kind === "power");
+  for (const domain of power.allowedDomains) {
+    const kernel = world().player("A", { power: [domain] })
+      .unit("matriarch", { types: ["legend"], cardId: CANONICAL_ID }).build();
+    const context = kernel.clone({ sourceSnapshot: kernel.getObject("matriarch") });
+    const plan = buildCostPlan(context, {
+      id: `matriarch:rainbow:${domain}`, cost: { kind: "explicit", payments: [power] }
+    });
+    assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: power.allowedDomains }]);
+    assert.equal(canPayCostPlan(context, plan), true, domain);
+    assert.deepEqual(prepareCostPayment(context, plan).actions[0].action.plan.power, [domain]);
+  }
+  const empty = world().unit("matriarch", { types: ["legend"] }).build();
+  const context = empty.clone({ sourceSnapshot: empty.getObject("matriarch") });
+  const plan = buildCostPlan(context, { id: "matriarch:no-power", cost: { payments: [power] } });
+  assert.equal(canPayCostPlan(context, plan), false);
+});
+
+test.todo("Matriarch of War: empowering something else repeatedly must keep the legend Empowered only once (CR 442.1.b/.c)");

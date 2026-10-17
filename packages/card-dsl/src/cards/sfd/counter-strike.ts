@@ -18,44 +18,34 @@ import type { CardProgram } from "../../ir/index.js";
  *   unit" is not part of the replacement effect). The unit is therefore
  *   declared as a TargetSpec on the instruction that creates the shield.
  * - "The next time that unit would be dealt damage this turn, prevent it" is
- *   a one-shot prevention replacement effect (367-371; 371.1 counts the
- *   "next time" window, and 467.2.c.10 uses this card as its example of a
+ *   a one-shot prevention replacement effect (369.2; 392 limits its delayed
+ *   window, and 467.2.c.10 uses this card as its example of a
  *   replacement effect that still leaves the unit able to be dealt damage).
- *   The merged replacement binder (RIFT-260) supports damage-kind event
- *   patterns anchored on the action's affected object plus the
- *   "next-time-this-turn" one-shot window, and an empty instead body returns
- *   prevent. Neither merged form fits this card: replacement declarations
- *   bind only as ability-level replacement wrappers
- *   (replacement.enter / replacement.event), while this play body's
- *   replacement.prevent instruction has no binder and fails planning with
- *   BlockedReplacementError; and resolution time has no registration
- *   channel — ResolveContext exposes only addContinuous and
- *   registerDelayedTrigger, not registerReplacement — so the spell cannot
- *   create a one-shot damage shield for its Finalize-locked target while
- *   resolving.
+ *   replacement.prevent now installs that window through EventPipeline and
+ *   accepts a Finalize target selector. The production interpreter does not
+ *   forward its required ResolveContext.replacement runtime extension. Its
+ *   target filter also captures only objectId, not zoneEntryId, so it cannot
+ *   yet distinguish a new incarnation of a unit that left and returned.
  * - "Draw 1." is a second, independent instruction (158.1) and stays
  *   unlinked: 359.3.e.11 keeps the draw when the shield cannot be created.
  *
  * Status: judge-required. The target declaration, the duration and the
- * one-shot lifetime are described; the prevention half is not approximated
- * (no replacement.prevent op, no target-anchored one-shot damage replacement),
- * and the draw half is executed by the golden test.
+ * one-shot lifetime are described; the merged prevention primitive and draw
+ * have execution evidence, but the missing production wiring and incarnation
+ * tracking keep the full card judge-required.
  */
 const counterStrike = {
   canonicalCardId: "card.hash-c6634bd393cadc3a20eda81ee688c8d171d215f7dd6297a92a55a2491f3ec43a",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺针对单个目标单位的一次性防伤替代形态：「The next time that unit would be dealt damage this turn, prevent it」是 CR v1.5 367-371 的" +
-    "一次性预防替代（371.1 的一次计数窗口，467.2.c.10 正是本卡的例子）。已合入的替代绑定（RIFT-260）支持 damage 形态的动作对象锚定与 " +
-    "window: \"next-time-this-turn\" 一次性窗口，空 instead 体也返回 prevent，但两条缺口使本卡不可执行：" +
-    "(1) 该声明形式只能作为 ability-level replacement 能力绑定（bind.ts 只消费 replacement.enter / replacement.event 包装指令），" +
-    "卡牌正文（play body）里的 replacement.prevent 指令没有任何绑定方，计划时抛 BlockedReplacementError；" +
-    "(2) 结算期没有注册通道：ResolveContext 只有 addContinuous / registerDelayedTrigger，没有 registerReplacement，" +
-    "无法在打出结算时为 Finalize 锁定的 TargetSpec 目标建立一次性防伤盾，不近似实现。" +
-    "依赖：针对被锁定目标的伤害预防替代（replacement.prevent 或等价的 replacement.event 目标绑定，替代批次后续）。" +
-    "「Choose a unit」按 355.10.c 的例子是目标选择，" +
-    "「Draw 1」是独立的 effect.draw，两者都已在程序中表达并在金标测试中覆盖。",
+    "replacement.prevent 原语已合入，支持绑定 Finalize 目标、amount: all 与 one-shot-this-turn，" +
+    "并通过 EventPipeline 真正预防第一次匹配伤害（CR v1.5 369.2/392/467.2.c.10）。仍缺：(1) 生产结算接线：" +
+    "ResolveContext.replacement（host + pipeline）仅是原语的运行时扩展，effects/interpreter.ts 的 instructionContext " +
+    "不转发该扩展，原始 play body 经 resolveChainBody 执行仍抛 BlockedReplacementError；需共享契约及解释器/链适配。" +
+    "(2) 目标身份：原语将 TargetSpec 解析成 objectId 筛选，未保留 zoneEntryId，不能满足非 Board 区域变更产生新对象的 124。" +
+    "依赖：替代注册上下文的生产接线与目标入区身份锁定；不近似实现。「Choose a unit」按 355.10.c 是目标，" +
+    "「Draw 1」为独立 effect.draw，原语执行及失效目标不阻止抽牌均有测试。",
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
     "Choose a unit. The next time that unit would be dealt damage this turn, prevent it. Draw 1.",
@@ -71,16 +61,16 @@ const counterStrike = {
       body: [
         {
           // "The next time that unit would be dealt damage this turn,
-          // prevent it" — a one-shot prevention replacement effect. No
-          // merged primitive creates it; the target is the chosen unit
-          // (355.10.c), declared on this instruction the same way 355.8
-          // locks targets as the spell is put on the chain.
+          // prevent it" — the merged primitive must explicitly bind the
+          // chosen unit (355.10.c); omitting target would shield all units.
+          // Production context and incarnation tracking remain blocked.
           id: "counter-strike.prevent",
           op: "replacement.prevent",
           args: {
             event: { kind: "constant", value: "damage" },
             scope: { kind: "constant", value: "one-shot-this-turn" },
-            amount: { kind: "constant", value: "all" }
+            amount: { kind: "constant", value: "all" },
+            target: { kind: "constant", value: { target: "counter-strike.unit" } }
           },
           targets: [
             {

@@ -31,7 +31,7 @@ test("unl-017-219 Square Up: identity, status, judgeReason and verbatim sourceTe
   assert.match(program.judgeReason, /Assault/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /Repeat/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /combatRole/);
 });
 
 test("unl-017-219 Square Up: [Repeat] declared plus a duration-bounded Assault 4 grant to one unit", () => {
@@ -97,7 +97,7 @@ test("unl-017-219 Square Up golden: the printed target receives Assault 4 throug
 test.todo(
   "unl-017-219 Square Up: the granted Assault expands to +4 Might while the unit is an attacker " +
     "(807.1.c / 807.1.d.1) — the current condition evaluator does not consume combatRole/designation " +
-    "(RIFT-359)"
+    "as the Assault designation characteristic"
 );
 test.todo(
   "unl-017-219 Square Up: paying Repeat's printed Discard 1 cost executes the spell's effect one additional time " +

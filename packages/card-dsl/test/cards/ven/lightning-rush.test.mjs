@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/lightning-rush.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-// Card bodies run through the chain's own interpreter adapter — the production
-// entry point that re-wraps Expr arguments for the registered primitives.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+
+// Card bodies run through the chain's own interpreter adapter — the production
+// entry point that re-wraps Expr arguments for the registered primitives.
 
 const CARD_ID = "card.hash-caa60c112cdc9dccc741c15d4bb6d88be761ea9eff1495e0945ebb1a86bc5d74";
 const SOURCE_TEXT =
@@ -68,10 +70,10 @@ test("ven-156-166 Lightning Rush: program passes validateCardProgram as judge-re
   assert.equal(cardRegistryById.get(CARD_ID), program);
 });
 
-test("ven-156-166 Lightning Rush: judgeReason names the ordered top-look and the Flow wiring gaps", () => {
+test("ven-156-166 Lightning Rush: judgeReason names Flow, the subset choice and chosen-card Draw gaps", () => {
   assert.match(program.judgeReason, /zoneSlice/);
   assert.match(program.judgeReason, /picksSpecId/);
-  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /Draw/);
   assert.match(program.judgeReason, /829\.1\.c/);
   assert.match(program.judgeReason, /Flow|flow\.cost/);
   assert.doesNotMatch(program.judgeReason, /RIFT-64|RIFT-66|RIFT-266.*KeywordDef/);
@@ -111,11 +113,10 @@ test("ven-156-166 Lightning Rush: looking at the top three is a private ordered 
   assert.deepEqual(lookTopThree.args.picksSpecId, { kind: "constant", value: VIEWED });
   assert.deepEqual(viewedPick, {
     id: VIEWED,
-    options: ["top-3-cards-of-your-main-deck-in-zone-order"],
-    min: 0,
-    max: 3,
-    selection: "up-to",
-    filter: { owner: "self", zone: "deck" }
+    options: [],
+    ordered: true,
+    selection: "all",
+    zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 3 } }
   });
 });
 
@@ -160,13 +161,10 @@ test("ven-156-166 Lightning Rush: 'put the rest into your trash' reuses the look
   assert.deepEqual(putRestIntoTrash.args.to, { kind: "constant", value: "trash" });
   assert.equal(putRestIntoTrash.args.amount, undefined);
   assert.equal(putRestIntoTrash.targets, undefined);
-  assert.deepEqual(restPick.options, [
-    { kind: "linked-value", instructionId: "lightning-rush.look-top-three", key: "viewed" }
-  ]);
-  assert.equal(restPick.min, 0);
-  assert.equal(restPick.max, 3);
-  assert.equal(restPick.selection, "up-to");
-  assert.deepEqual(restPick.filter, { owner: "self", zone: "deck" });
+  assert.deepEqual(restPick, {
+    id: REST, options: [], ordered: true, selection: "all",
+    linked: { kind: "linked-value", instructionId: "lightning-rush.look-top-three", key: "viewed" }
+  });
 });
 
 test("ven-156-166 Lightning Rush golden: the chosen card goes to hand and the other two to the trash", () => {
@@ -299,12 +297,43 @@ test("ven-156-166 Lightning Rush golden: a prevented look negates the instructio
 });
 
 test.todo(
-  "ven-156-166 Lightning Rush: the ordered 'top 3 of your Main Deck' pick set must be provisioned by the production " +
-    "Finalize/AwaitChoice lifecycle instead of the test kernel; needs the ordered-zone pick lifecycle (RIFT-358)"
+  "ven-156-166 Lightning Rush: the optional single-card pick needs a real Resolve choice and a chosen-card Draw " +
+    "action/event (414.1), rather than just moving a locked reference to hand"
 );
 
 test.todo(
   "ven-156-166 Lightning Rush: the printed [Flow] :rb_energy_2::rb_rune_rainbow: alternate cost and its then-banish " +
     "replacement (829.1.b/829.1.c) need the merged Flow KeywordDef's flow.cost consumer and replacement wiring, " +
-    "and the frozen KeywordAbility still cannot carry the printed Flow cost (contract change request)"
+    "and KeywordAbility still cannot carry the printed Flow cost (contract change request)"
 );
+
+
+test("Lightning Rush body: real Finalize locks deck order and linked rest needs no injected pick", () => {
+  const { engine, kernel, card, answers } = fixture({
+    cards: [{ id: "lightning-rush", cardId: CARD_ID, types: ["spell"], energy: 1 }]
+  });
+  engine.commit({ type: "order-top", player: "A",
+    objects: ["A:deck:3", "A:deck:1", "A:deck:4", "A:deck:2"].map(id => kernel.ref(id)) });
+  engine.advance();
+  engine.execute(card("lightning-rush", { body: play.body }));
+  assert.deepEqual(engine.items[0].pickPlans.map(plan => [plan.id, plan.refs.map(ref => ref.id)]), [
+    [VIEWED, ["A:deck:3", "A:deck:1", "A:deck:4"]]
+  ]);
+  assert.equal(kernel.events.some(event => event.action === "look"), false);
+  engine.pass("A");
+  let request;
+  assert.throws(() => engine.pass("B"), error => {
+    if (!(error instanceof AwaitChoice)) return false;
+    request = error.request;
+    return true;
+  });
+  assert.equal(request.type, "optional");
+  answers.set(request.id, false);
+  resolveAll(engine);
+  assert.deepEqual(ids(kernel, "deck"), ["A:deck:2"]);
+  assert.deepEqual(ids(kernel, "trash"), ["A:deck:3", "A:deck:1", "A:deck:4", "lightning-rush"]);
+  assert.deepEqual(ids(kernel, "hand"), []);
+  assert.equal(kernel.linked("lightning-rush.look-top-three.viewedCount"), 3);
+  const actions = kernel.events.map(event => event.action);
+  assert.equal(actions.filter(action => action === "look").length, 1);
+});

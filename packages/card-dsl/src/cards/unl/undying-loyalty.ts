@@ -32,11 +32,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   layers/filter.ts 与测试内核静默忽略，写成过滤器会放开对垃圾场单位的限制。
  * - :rb_rune_rainbow: 是 163.2.b 的 Universal Power，封闭 Domain 类型与 gain-power 不表达
  *   （effect.resources 明确不近似；已合入程序的同一记录）。
- * - 「ignoring its cost」需要 finalized 零基础费用计划（RIFT-261）。
+ * - 「ignoring its cost」需要 finalized 零基础费用计划；CardProgram 到该计划的生产接线仍缺。
  * golden 用已合入的 effect.play + 显式零费计划对锁定目标真实执行，并单独执行
  * effect.channel 与 effect.draw 无关半段不适用（本卡无其它已合入指令）。
  *
- * 依赖：条件结果读取与 CardProgram→CostPlan 接线（RIFT-261）、印刷费用上限谓词、
+ * 依赖：条件结果读取与 CardProgram→CostPlan 接线、印刷费用上限谓词、
  * Universal Power 的契约变更请求（163.2.b）。
  */
 const abilities: Ability[] = [
@@ -71,7 +71,7 @@ const abilities: Ability[] = [
         op: "effect.play",
         args: {
           target: { kind: "constant", value: "undying-loyalty.unit-in-trash" },
-          // 356.1.b.1：ignoring its cost；计划由费用系统生成（RIFT-261）。
+          // 356.1.b.1：ignoring its cost；计划由费用系统生成。
           cost: {
             kind: "constant",
             value: { finalized: true, energy: 0, power: [], xp: 0 }
@@ -112,8 +112,8 @@ const program = {
     ":rb_rune_rainbow:」是 356.1.c 的印刷费用上限谓词：冻结 ObjectFilter 没有该键，未知键会被 layers/filter.ts 与测试内核静默忽略，" +
     "写成过滤器等于放开选择范围。(3)「:rb_rune_rainbow:」是 163.2.b 的 Universal Power（[A]），封闭 Domain 类型与 gain-power " +
     "不表达；effect.resources 明确记录其 unsupported、绝不用具名域近似。(4)「ignoring its cost」按 356.1.b.1 需要 base Energy/Power 为 0 的 " +
-    "finalized 费用计划，effect.play 从不自行推导印刷费用（RIFT-261）。golden 用已合入的 effect.play + 显式零费计划对锁定目标真实执行；不近似实现。" +
-    "依赖：条件结果读取与 CardProgram→CostPlan 接线（RIFT-261）、印刷费用上限谓词、Universal Power 的契约变更请求。",
+    "finalized 费用计划，effect.play 从不自行推导印刷费用。golden 用已合入的 effect.play + 显式零费计划对锁定目标真实执行；不近似实现。" +
+    "依赖：条件结果读取与 CardProgram→CostPlan 接线、印刷费用上限谓词、Universal Power 的契约变更请求。",
   abilities,
   sourceText:
     "This costs :rb_energy_2: less if you choose a Bird, Cat, Dog, or Poro.\n" +

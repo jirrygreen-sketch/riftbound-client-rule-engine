@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/nocturne-horrifying.js";
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
+const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
 const keywords = await import(new URL("effects/keywords/registry.generated.js", engineCore));
 
@@ -33,7 +34,8 @@ test("nocturne-horrifying: identity, ruleset, status, judgeReason and sourceText
   assert.match(program.judgeReason, /cost\.(printed|modify)/);
   // Re-sweep: replacement registration and the cost.modify instruction are
   // merged; the secret-zone event and Finalize cost/play wiring are not.
-  assert.match(program.judgeReason, /RIFT-260/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-260/);
+  assert.match(program.judgeReason, /LITERAL_FIELDS/);
   assert.match(program.judgeReason, /CostPlan/);
   // The real look action carries an array; the event payload and nested
   // self identity each still need their own production adapter.
@@ -74,12 +76,24 @@ test("nocturne-horrifying: the optional body replaces the base cost and plays th
   assert.equal(optional.linkedTo, undefined);
   assert.deepEqual(optional.args.body.kind, "constant");
 
-  // CR 356.1.a: “play me for [Cost]” 替换 Base Cost；此处是 1 个任意域 Power。
+  // CR 356.1.a: “play me for [Cost]” 替换 Base Cost；此处是一个六域均可支付的 Power。
   assert.equal(modifyCost.op, "cost.modify");
-  assert.deepEqual(modifyCost.args.mode, { kind: "constant", value: "replace" });
-  assert.deepEqual(modifyCost.args.resource, { kind: "constant", value: "power" });
-  assert.deepEqual(modifyCost.args.amount, { kind: "constant", value: 1 });
-  assert.deepEqual(modifyCost.args.domains, { kind: "constant", value: ["rainbow"] });
+  assert.deepEqual(modifyCost.args.id, {
+    kind: "constant",
+    value: "nocturne-horrifying.alternate-cost"
+  });
+  assert.deepEqual(modifyCost.args.cost, {
+    kind: "constant",
+    value: {
+      payments: [
+        {
+          kind: "power",
+          amount: { kind: "constant", value: 1 },
+          allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]
+        }
+      ]
+    }
+  });
   assert.deepEqual(modifyCost.args.linkKey, { kind: "constant", value: "plan" });
 
   // CR 420.3: 游戏效果指示的 Play 是 Limited Action；计划来自上一条指令。
@@ -95,6 +109,35 @@ test("nocturne-horrifying: the optional body replaces the base cost and plays th
     instructionId: "nocturne-horrifying.alternate-cost",
     key: "plan"
   });
+});
+
+test("nocturne-horrifying golden: the current cost.modify shape produces a real alternate CostPlan", () => {
+  // The interpreter can already execute the merged cost primitive. The chain
+  // adapter still rejects this same declaration because it does not unwrap the
+  // primitive's literal id/cost/linkKey fields (the remaining production gap).
+  const base = world()
+    .card("nocturne", { zone: "deck", owner: "A", types: ["unit"], energy: 4, power: ["Chaos"] })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("nocturne") });
+  const outcome = runAbilityBody([modifyCost], kernel);
+  assert.equal(outcome.status, "executed");
+  const plan = outcome.linkedValues["nocturne-horrifying.alternate-cost.plan"];
+  assert.equal(plan.finalized, true);
+  assert.deepEqual(plan.total.energy, 0);
+  assert.deepEqual(plan.total.power, [
+    { amount: 1, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] }
+  ]);
+});
+
+test("nocturne-horrifying evidence: the production chain adapter still rejects cost.modify literals", () => {
+  const base = world()
+    .card("nocturne", { zone: "deck", owner: "A", types: ["unit"], energy: 4, power: ["Chaos"] })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("nocturne") });
+  assert.throws(
+    () => resolveChainBody([modifyCost], kernel),
+    /cost\.modify id must be a non-empty string \(or supply source\)/
+  );
 });
 
 test("nocturne-horrifying golden: declining the option plays nothing", () => {
@@ -144,11 +187,11 @@ test.todo(
 );
 
 test.todo(
-  "nocturne-horrifying: 356.1.a 的替代费用计划生成（已合入 cost.modify），并把有效 " +
-    "Finalize CostPlan 写进 effect.play 的 cost 参数"
+  "nocturne-horrifying: 356.1.a 的 cost.modify 已能在 interpreter 生成有效 CostPlan；" +
+    "仍需 chain adapter 解包 id/cost/linkKey，并把该计划接入从秘密区域打出的 effect.play Finalize 流程"
 );
 
 test.todo(
-  "nocturne-horrifying: 370.1.c.1 的秘密区域同刻替代（RIFT-260 已支持 card-revealed/reveal，look 的 objects→object 载荷与嵌套 objectId:self 来源绑定仍缺）；" +
+  "nocturne-horrifying: 370.1.c.1 的秘密区域同刻替代（现有 replacement.event 可处理 card-revealed/reveal，look 的 objects→object 载荷与来源绑定仍缺）；" +
     "同时复核 CR 370.1.c.1 示例文本与本地 sourceText 的措辞冲突（需要裁定）"
 );

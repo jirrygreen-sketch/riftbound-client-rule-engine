@@ -47,6 +47,8 @@ export default {
     "(2) staticTarget 只接受对象选择符，本卡的授予作用域是 Deal 动作（CR 418.4/418.5、712-715），" +
     "无法只写成对象 filter。effect.damage 的消费端（714 加总、715.2 每目标分别增加、714.2 非正不生效）" +
     "已有执行测试，但没有任何生产消费者把该 static 授予注入每次 Deal，效果种类也没有 opcode。" +
+    "通用测试台实测确认：绑定先被 staticTarget 拒绝（Unsupported static appliesTo " +
+    "\"controller-spells-and-abilities\"，尚未走到 layerFor），且同一场景里 Hextech Ray 只造成印刷的 3 点伤害。" +
     "依赖：continuous.bonus-damage 的 opcode 与 layers 的 action-scope 映射，以及伤害管线的授予消费方。" +
     "不近似实现。",
   abilities: [

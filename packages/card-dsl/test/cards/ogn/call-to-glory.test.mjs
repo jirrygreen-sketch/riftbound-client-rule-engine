@@ -1,3 +1,5 @@
+// Template evidence: ../templates/keyword-play-continuous-might-653.test.mjs.
+// Whole-card scenarios remain blocked; the supported Might body is tested separately.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -9,6 +11,7 @@ import might from "../../../../engine-core/dist/effects/instructions/continuous.
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CARD_ID = "card.hash-9eef9a0508648141992bbe70aa56b64551bbd00d06fd8be401c85dda6f542339";
 const [reaction, play] = program.abilities;
@@ -72,13 +75,27 @@ test("Call to Glory structure: the +3 Might instruction with its single-unit tar
   });
   assert.deepEqual(mightSpec, {
     id: "call-to-glory.unit",
-    filter: { types: "unit" },
+    filter: { types: "unit", zone: "board" },
     min: 1,
     max: 1,
     selection: "one"
   });
   // "Give a unit ..." is a target (355.7), so it is a TargetSpec and never a pick.
   assert.equal(mightInstruction.picks, undefined);
+});
+
+test("Call to Glory target filter excludes unit cards outside the Board (355.9.a.1)", () => {
+  const kernel = world()
+    .unit("friendly", { owner: "A" })
+    .unit("enemy", { owner: "B" })
+    .card("hand-unit", { owner: "A", types: ["unit"], zone: "hand" })
+    .card("trash-unit", { owner: "B", types: ["unit"], zone: "trash" })
+    .card("board-gear", { owner: "A", types: ["gear"], zone: "board" })
+    .build();
+  assert.deepEqual(
+    kernel.query(translateObjectFilter(mightSpec.filter)).map(object => object.ref.id).sort(),
+    ["enemy", "friendly"]
+  );
 });
 
 test("Call to Glory golden: the merged spend-buff payment consumes exactly one buff (702.2.b)", () => {

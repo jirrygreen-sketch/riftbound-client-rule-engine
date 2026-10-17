@@ -1,8 +1,13 @@
+// RIFT-672 execution evidence: ../templates/keyword-static-672.test.mjs (supported paths only).
 import assert from "node:assert/strict";
 import test from "node:test";
-
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/legion-marauder.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-211eca36faf7df8cbf91263292d612607b7b7e515ee1ee6aaeb0003817aff8f8";
@@ -28,7 +33,7 @@ test("ven-074-166 Legion Marauder: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /827\.1\.c\.1/);
   assert.match(program.judgeReason, /827\.1\.c\.2/);
   assert.match(program.judgeReason, /442\.1\.a/);
-  assert.match(program.judgeReason, /RIFT-87/);
+  assert.match(program.judgeReason, /ObjectSnapshot/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.doesNotMatch(program.judgeReason, /RIFT-91 只合入|没有 CardProgram/);
 });
@@ -55,7 +60,7 @@ test("ven-074-166 Legion Marauder: 'I have +1 :rb_might:' is the gated arithmeti
   assert.deepEqual(mightBonus.condition.left, {
     kind: "object-property",
     object: "self",
-    property: "empoweredCount"
+    property: "empowered"
   });
   assert.deepEqual(mightBonus.condition.right, { kind: "constant", value: 1 });
 });
@@ -68,10 +73,49 @@ test("ven-074-166 Legion Marauder: the printed sourceText keeps the em dash verb
 
 test.todo(
   "ven-074-166 Legion Marauder: [Empower] expansion (827.1.c.1 cost + 'use only if not Empowered') and the " +
-    "either-or printed cost (827.1.c.2 'Pay either cost: 1 Energy or 1 Body Power') need an Empower KeywordDef " +
-    "plus a cost carrier on the card ability — none is merged"
+    "either-or printed cost (827.1.c.2 'Pay either cost: 1 Energy or 1 Body Power') need the merged Empower KeywordDef " +
+    "plus the still-missing card keyword-cost carrier and forwarding"
 );
 test.todo(
-  "ven-074-166 Legion Marauder: the +1 Might half needs an Empowered status predicate (442.1.a; RIFT-87) and a " +
+  "ven-074-166 Legion Marauder: the +1 Might half needs an Empowered status contract (442.1.a) and a " +
     "working Empowered gate; the continuous.might primitive and static registration are merged"
 );
+
+// Resolution-only evidence: no activation or printed-cost payment is claimed.
+test("legion-marauder: the merged Empower resolution body checks live state and does not empower twice", () => {
+  const kernel = world().unit("legion-marauder", { cardId: CANONICAL_ID }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("legion-marauder") });
+  const [expanded] = expandProgram(program, context.source).expanded;
+  assert.equal(expanded.kind, "activated");
+  assert.equal(expanded.timing, "action");
+  assert.equal(expanded.body[0].op, "effect.empower");
+  assert.deepEqual(expanded.restriction.condition, {
+    kind: "compare", left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq", right: { kind: "constant", value: 0 }
+  });
+  const first = runAbilityBody(expanded.body, context, undefined, { host: context.source.ref });
+  assert.equal(first.status, "executed");
+  assert.equal(context.getObject("legion-marauder").empowered, 1);
+  const second = runAbilityBody(expanded.body, context, undefined, { host: context.source.ref });
+  assert.equal(second.results[0].result.reason, "skipped");
+  assert.equal(context.getObject("legion-marauder").empowered, 1);
+  assert.deepEqual(context.events.map(event => event.action), ["empower"]);
+});
+
+
+
+test("legion-marauder: the actual static binder follows Empower and Disempower for +1 Might", () => {
+  const { engine, kernel } = fixture();
+  const source = kernel.getObject("source");
+  const binder = createEngineStaticBinder(engine);
+  const handle = binder.bindStatic(mightBonus, source);
+  assert.equal(engine.layers.evaluate(source.ref).might, 2);
+  assert.equal(engine.commit({ type: "empower", object: source.ref }).status, "done");
+  engine.advance();
+  assert.equal(engine.layers.evaluate(source.ref).might, 3);
+  assert.equal(engine.layers.evaluate(source.ref).buffs, 0);
+  assert.equal(engine.commit({ type: "disempower", object: source.ref }).status, "done");
+  engine.advance();
+  assert.equal(engine.layers.evaluate(source.ref).might, 2);
+  handle.unbind();
+});

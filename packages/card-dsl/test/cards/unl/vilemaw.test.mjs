@@ -7,8 +7,12 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -37,6 +41,9 @@ test("unl-060-219 Vilemaw: identity, status, judgeReason and verbatim sourceText
   assert.match(program.judgeReason, /mightLt/);
   assert.match(program.judgeReason, /Ambush/);
   assert.match(program.judgeReason, /383\.4\.d\.2/);
+  // The refreshed reason cites the observed blocked surfaces, not merged tasks.
+  assert.match(program.judgeReason, /relative-player query/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
 });
 
 test("unl-060-219 Vilemaw: [Ambush] is declared as a keyword only (822.1)", () => {
@@ -67,7 +74,80 @@ test("unl-060-219 Vilemaw: the merged trigger adapter registers the hold declara
   const registrations = triggerRegistrations(binding.registry, source);
   assert.equal(registrations.length, 1);
   assert.equal(registrations[0].spec.at, "hold");
-  assert.deepEqual(registrations[0].spec.filter, { event: "hold", object: { objectId: "vilemaw" } });
+  // The event vocabulary spells the matched event "held" (the timing point id is
+  // "hold"); the previous "hold" filter was rejected by validateTriggerSpec.
+  assert.deepEqual(registrations[0].spec.filter, { event: "held", object: { objectId: "vilemaw" } });
+});
+
+test("unl-060-219 Vilemaw gap: the combat-damage static cannot even be registered", () => {
+  // programs/statics.ts resolves source-relative anchors while binding and rejects
+  // the opponent controller outright, so the denial never reaches a layer
+  // registration — one of the three gaps in judgeReason.
+  const f = fixture({ cards: [{ id: "vilemaw", cardId: CANONICAL_ID, types: ["unit"], might: 8 }] });
+  const binder = createEngineStaticBinder(f.engine);
+  assert.throws(
+    () => binder.bindStatic(noCombatDamage, f.kernel.getObject("vilemaw")),
+    /Static controller:opponent filter needs a relative-player query/
+  );
+  assert.deepEqual(f.engine.layers.registry.list(), []);
+});
+
+test("unl-060-219 Vilemaw gap: the layers matcher ignores the mightLt predicate", () => {
+  // The printed restriction must compare each candidate with the source. The
+  // filter vocabulary has no such comparison and the matcher silently ignores the
+  // placeholder key: both a 9-Might and a 1-Might unit match, so this is not a
+  // decidable restriction.
+  const kernel = world().unit("big", { might: 9 }).unit("small", { might: 1 }).build();
+  const filter = { type: "unit", zone: "board", controller: "A", mightLt: { kind: "self" } };
+  assert.equal(matchesObjectFilter(filter, kernel.getObject("big")), true);
+  assert.equal(matchesObjectFilter(filter, kernel.getObject("small")), true);
+});
+
+test("unl-060-219 Vilemaw gap: the real scoring payload carries no participating unit", () => {
+  // 383.4.d.2/.2.a requires the Hold Effect to bind the unit present at the
+  // battlefield. turn/flow.ts emits { player, details: { battlefieldId } }, so the
+  // registered subscription does not match; only an artificial object on the
+  // event would match. Pinned so the gap stays visible.
+  const holdFilter = { event: "held", object: { objectId: "vilemaw" } };
+  const emission = {
+    type: "task-resolved",
+    seq: 1,
+    eventId: 1,
+    turnNumber: 1,
+    activePlayerId: "A",
+    taskId: "pipeline:1",
+    sourceCardId: "",
+    reason: "hold",
+    autoResolved: true,
+    timingPoint: "hold",
+    player: "A",
+    details: { battlefieldId: "bf-1" }
+  };
+  assert.equal(matchesTriggerEvent(holdFilter, emission, "A"), false);
+  const object = {
+    ref: { id: "vilemaw", zoneEntryId: 1 },
+    cardId: CANONICAL_ID,
+    name: "Vilemaw",
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "bf-1" },
+    might: 8,
+    energy: 8,
+    power: 2,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false,
+    combatRole: null
+  };
+  assert.equal(matchesTriggerEvent(holdFilter, { ...emission, object }, "A"), true);
 });
 
 test("unl-060-219 Vilemaw: the combat-damage denial keeps the here/less-Might filter shape (467.2.c, 355.9.b)", () => {
@@ -92,8 +172,10 @@ test("unl-060-219 Vilemaw: 'When I hold, draw 1.' is a hold trigger drawing one 
   assert.equal(holdTrigger.kind, "triggered");
   assert.equal(holdTrigger.trigger.at, "hold");
   assert.equal(isTimingPointId("hold"), true);
+  // The matched event name is the closed-vocabulary spelling "held"; "hold" is
+  // only the timing-point id (validateTriggerSpec rejects the old filter).
   assert.deepEqual(holdTrigger.trigger.filter, {
-    event: "hold",
+    event: "held",
     filter: { source: "self" }
   });
   assert.equal(holdTrigger.optional, false);
@@ -146,8 +228,8 @@ test.todo(
 
 test.todo(
   "unl-060-219 Vilemaw: expand [Ambush] (CR 822.1.b: the battlefield-with-your-units play permission and the " +
-    "Reaction timing while being played there) — Ambush.ts now publishes both declarations, but runtime location " +
-    "selection/Finalize re-check and chain canAct consumption are still missing (RIFT-357)"
+    "Reaction timing while being played there) — Ambush.ts publishes both declarations, but the production static " +
+    "binder rejects both kinds (no layer mapping / unsupported appliesTo) and chain canAct does not read them"
 );
 
 test.todo(

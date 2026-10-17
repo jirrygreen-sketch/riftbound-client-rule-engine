@@ -28,6 +28,7 @@ test("unl-178-219 Poppy, Defender of the Meek: identity, status, judgeReason and
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /356\.2\.b/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
+  assert.match(program.judgeReason, /condition\.result/);
   assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
@@ -70,10 +71,10 @@ test.todo(
     "wire the declared cost.additional and cost.modify components into the CardProgram -> CostPlan path"
 );
 test.todo(
-  "unl-178-219 Poppy, Defender of the Meek: gate the 3-Energy discount on the paid decision (356.4.f.1) by exposing a cost-result binding"
+  "unl-178-219 Poppy, Defender of the Meek: gate the 3-Energy discount on the paid decision (356.4.f.1) by binding the original play decision to grantedBy (condition.result already exists)"
 );
 test.todo(
-  "unl-178-219 Poppy, Defender of the Meek: consume the [Ambush] expansion (822.1.b entry permission + Reaction timing) in Finalize and chain.canAct"
+  "unl-178-219 Poppy, Defender of the Meek: bind [Ambush] location permission and the in-hand conditional Reaction scope (822.1.b/c); chain.canAct already queries timing"
 );
 test.todo(
   "unl-178-219 Poppy, Defender of the Meek: consume [Tank]'s lethal-first combat damage priority (815.1.b) in the combat allocator"

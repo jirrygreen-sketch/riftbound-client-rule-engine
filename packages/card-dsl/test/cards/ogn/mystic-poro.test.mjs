@@ -13,6 +13,7 @@ const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
 const { keywordDefinitionsById } = await import(new URL("effects/keywords/registry.generated.js", engineCore));
+const { createProgramBinding, translateTriggerFilter, triggerRegistrations } = await import(new URL("programs/index.js", engineCore));
 
 test("ogn-171-298 Mystic Poro: program passes validateCardProgram", () => {
   const result = validateCardProgram(mysticPoro);
@@ -28,9 +29,13 @@ test("ogn-171-298 Mystic Poro: identity, ruleset, status, judgeReason, sourceTex
   // judgeReason must name the current production gap (README section 2: no
   // bare "needs support").
   assert.match(mysticPoro.judgeReason, /Vision/);
-  // Re-sweep: the keyword/trigger binding is merged; the remaining gap is the
-  // ordered top-card path.
+  // Ordered source infrastructure is merged; the shared Vision expansion
+  // still needs filter, source declaration and controller migrations.
   assert.match(mysticPoro.judgeReason, /picksSpecId/);
+  assert.match(mysticPoro.judgeReason, /finalizeOrderedPickPlans/);
+  assert.match(mysticPoro.judgeReason, /zoneSlice/);
+  assert.match(mysticPoro.judgeReason, /Unsupported filter field object\.id/);
+  assert.match(mysticPoro.judgeReason, /controller/);
   assert.equal(
     mysticPoro.sourceText,
     "[Vision] (When you play me, look at the top card of your Main Deck. You may recycle it.)"
@@ -72,23 +77,50 @@ test("ogn-171-298 Mystic Poro: declared keyword resolves to the merged Vision de
   assert.equal(ability.optional, false);
 });
 
+test("ogn-171-298 Mystic Poro: production binding keeps the unmigrated Vision trigger judge-required for either controller", () => {
+  const binding = createProgramBinding({ cardPrograms: [mysticPoro] });
+  for (const controller of ["A", "B"]) {
+    const kernel = world()
+      .base("poro", { cardId: CANONICAL, owner: "A", controller, might: 1 })
+      .build();
+    const source = kernel.getObject("poro");
+    // inspect uses the production keyword expander without bypassing the
+    // program's judge-required guard or changing its abilities for the test.
+    const inspection = binding.inspect(source);
+    assert.equal(inspection.program.status, "judge-required");
+    const triggered = inspection.abilities.filter(ability => ability.kind === "triggered");
+    assert.equal(triggered.length, 1);
+    assert.equal(triggered[0].trigger.at, "object-enters-board");
+    assert.throws(
+      () => translateTriggerFilter(triggered[0].trigger.filter, source.ref.id, triggered[0].trigger.at),
+      { name: "ProgramBindingError", code: "judge-required", message: "Unsupported filter field object.id" }
+    );
+    // The normal registry must continue refusing execution of the whole card.
+    assert.throws(
+      () => triggerRegistrations(binding.registry, source),
+      { name: "ProgramBindingError", code: "judge-required", message: mysticPoro.judgeReason }
+    );
+  }
+});
+
 test.todo(
-  "Mystic Poro: the production top-card path — effect.inspect needs an ordered " +
-    "picks source assembled from the deck-top zone slice (契约 3.6), so the " +
-    "Vision trigger can resolve without a test-only setPicks injection"
+  "Mystic Poro: migrate Vision's self-entry filter, declare vision-top with " +
+    "picks.zoneSlice for the merged Finalize path, and bind inspect.player to " +
+    "the actual controller, so both players can Predict without setPicks"
 );
 
 test.todo(
   "Mystic Poro: CR 817.2 stacking — two Vision instances trigger separately and each may recycle independently " +
     "(keywords/Vision.ts declares stacking \"separate\"; execution depends on the " +
-    "production ordered-picks path)"
+    "Vision filter/source/controller migration)"
 );
 
 test("ogn-171-298 Mystic Poro: the merged Vision expansion executes look-and-maybe-recycle with ordered picks", () => {
   // The merged KeywordDef expands to effect.inspect + effect.recycle; with the
-  // ordered top-card pick supplied by the caller (the production binding gap
-  // recorded in judgeReason) the whole Predict body runs against the reference
-  // kernel. This is execution evidence for the merged half of the card.
+  // ordered top-card pick supplied by the caller the Predict body runs against
+  // the reference kernel. The production chain can now supply declared sources;
+  // Vision still needs the migration recorded in judgeReason. This remains
+  // execution evidence for the supported sub-effects only.
   const definition = keywordDefinitionsById.get("Vision");
   assert.ok(definition, "Vision must be registered in the keyword registry");
   const [expansion] = definition.expand({ host: { canonicalCardId: CANONICAL } });

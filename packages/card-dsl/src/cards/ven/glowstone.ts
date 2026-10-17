@@ -42,8 +42,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - continuous.grant-keyword / effect.empower 也已注册，本卡不使用。
  *
  * status = judge-required（缺口均不近似实现）：
- * 1. 缺 Empower/Empowered KeywordDef：keywords/registry.generated.ts 没有
- *    "empower"/"empowered" 展开，尚不能把本卡的两个 [A] 费用绑定为 Empower 启动能力；
+ * 1. Empower KeywordDef 已合入，但卡程序的 KeywordAbility 没有每实例 params.cost，
+ *    programs/keywords.ts 也不透传本卡印刷的两个 [A]；展开只能得到 cost.kind "empower" 占位，
+ *    translateCost 会以 Unsupported cost kind 拒绝，尚不能把本卡的 [A] 费用绑定为 Empower 启动能力；
  *    [A] 的费用表示与支付分配本身已支持。
  * 2. 启动费用里的 Disempower 没有付费种类：cost/plan-values.ts 的 readCost 非标准费用
  *    只支持 exhaust/discard/recycle/kill/reveal/spend-buff。
@@ -146,10 +147,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均不近似实现：(1) 缺 Empower/Empowered KeywordDef：keywords/registry.generated.ts 没有 " +
-    "\"empower\"/\"empowered\" 展开，827.1.c.1 的启动费用与「Use only if not Empowered」限制无执行路径；" +
+    "四处缺口，均不近似实现：(1) Empower KeywordDef 已合入，但卡程序的 KeywordAbility 没有每实例 " +
+    "params.cost，programs/keywords.ts 也不透传本卡印刷的两个 [A]；展开只能得到 cost.kind \"empower\" 占位，" +
+    "translateCost 会以 Unsupported cost kind 拒绝，827.1.c.1 的启动费用与「Use only if not Empowered」限制仍无卡牌费用路径；" +
     "印刷的两个 :rb_rune_rainbow:（任意域 Power [A]，135.2.e.5.a/163.2.b）已可用 kind:power 与六域 " +
-    "allowedDomains 表达并进行支付分配（golden 覆盖），缺口是关键词展开与费用绑定。" +
+    "allowedDomains 表达并进行支付分配（golden 覆盖），缺口是每实例费用透传与 Empower 费用绑定。" +
     "(2) 启动费用里的「Disempower this」没有付费种类：cost/plan-values.ts 的 " +
     "readCost 非标准费用只支持 exhaust/discard/recycle/kill/reveal/spend-buff（443.2.a 的 Disempower 是受限动作）。" +
     "(3)「Choose a player. They gain control of this and recall it」里，Recall 被已合入的 effect.move 的 mode " +
@@ -158,7 +160,8 @@ export default {
     "(4)「At the end of your turn, kill this and deal 5 to all units you control」的「all units you control」是按特征" +
     "程序化选出的集合（355.10.d，从不做选择），effect.damage 只接受 Finalize 锁定的 TargetSpec，没有非目标集合分支" +
     "（turn-end 时点与触发注册本身已合入，programs/triggers.ts 可消费 turn-end 模式）。golden 覆盖身份/结构与 " +
-    "effect.kill(self) 的真实执行。依赖：新的 Empower/Empowered 关键词任务、Recall 独立动作、非目标集合伤害形态。",
+    "effect.kill(self) 的真实执行。依赖：每实例 Empower 费用透传与费用绑定、Disempower 费用种类、" +
+    "Recall 独立动作、玩家选择形态、非目标集合伤害形态。",
   abilities,
   sourceText:
     "[Empower] :rb_rune_rainbow::rb_rune_rainbow: (:rb_rune_rainbow::rb_rune_rainbow:: Empower me. Use only if not Empowered.)\n" +

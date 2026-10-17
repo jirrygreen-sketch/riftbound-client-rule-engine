@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/rift-herald.js";
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { finalizeOrderedPickPlans } from "../../../../engine-core/dist/chain/picks/plan.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -34,12 +36,25 @@ test("unl-179-219 Rift Herald: identity, status, judgeReason and verbatim source
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /zoneSlice|有序/);
+  // The ordered top-3 look is no longer a gap: the merged zone-slice lifecycle
+  // covers it, and the reason now records the three live gaps instead.
   assert.match(program.judgeReason, /trigger\.leave/);
+  assert.match(program.judgeReason, /unit 收窄|按 unit/);
   assert.match(program.judgeReason, /356\.1\.b\.2/);
-  assert.match(program.judgeReason, /LITERAL_FIELDS/);
-  assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /RIFT-82/);
+  assert.match(program.judgeReason, /cost\.modify/);
+  assert.match(program.judgeReason, /zoneSlice/);
+});
+
+test("unl-179-219 Rift Herald: the top-3 look declares the merged ordered zone slice, not a query", () => {
+  // 437.1 / contract 3.6: the card's own ordered source; the finalize lifecycle
+  // locks the real deck top and never infers order from query().
+  assert.deepEqual(topThreePick, {
+    id: "rift-herald.top-three",
+    options: [],
+    ordered: true,
+    selection: "all",
+    zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 3 } }
+  });
 });
 
 test("unl-179-219 Rift Herald: 'When I move to a battlefield' subscribes to object-moved with a battlefield destination", () => {
@@ -81,14 +96,7 @@ test("unl-179-219 Rift Herald: look at the top 3, may reveal and draw one, then 
     key: "controller"
   });
   assert.equal(lookTopThree.linkedTo, "rift-herald.bind-controller");
-  assert.deepEqual(topThreePick, {
-    id: "rift-herald.top-three",
-    options: ["top-3-cards-of-your-main-deck-in-zone-order"],
-    min: 0,
-    max: 3,
-    selection: "all",
-    filter: { owner: "self", zone: "deck" }
-  });
+  // (the ordered source shape itself is asserted in its own test above)
 
   // Contract 3.9: "You may reveal …" wraps the chosen instructions in body.
   assert.equal(mayRevealAndDraw.op, "choice.optional");
@@ -187,13 +195,42 @@ test("unl-179-219 Rift Herald golden: 'Recycle the rest' drops references that a
   assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["first"]);
 });
 
-test.todo(
-  "unl-179-219 Rift Herald: provision the ordered Main-Deck top-3 slice for effect.inspect (437.1/437.3.a, contract 3.6 zoneSlice) — " +
-    "query order is not deck order and no merged primitive turns zoneSlice into an ordered pick (RIFT-64/66 follow-ups)"
-);
+test("unl-179-219 Rift Herald golden: the production chain Finalize locks the real Main Deck top 3 (RIFT-358)", () => {
+  // 437.1 / contract 3.6: chain/picks/plan.ts is the sole ordering authority.
+  const base = world().deck(["first", "second", "third", "fourth"], { owner: "A" }).build();
+  const context = bindResolveContext(base, { source: base.getObject("first"), controller: "A" });
+  const plans = finalizeOrderedPickPlans(context, moveTrigger.body);
+  assert.equal(plans.length, 1);
+  const [plan] = plans;
+
+  // 437.4: exactly the top three of the real Main Deck, in zone order.
+  assert.deepEqual(plan.refs.map(ref => ref.id), ["first", "second", "third"]);
+  assert.deepEqual(plan.refs, base.zoneSlice("A", "deck", "top", 3).map(entry => entry.ref));
+});
+
+test("unl-179-219 Rift Herald golden: declining the reveal after a locked top-3 slice still recycles the looked-at cards", () => {
+  const base = world().deck(["first", "second", "third", "fourth"], { owner: "A" }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("first") });
+  const context = bindResolveContext(base, { source: base.getObject("first"), controller: "A" });
+  const [plan] = finalizeOrderedPickPlans(context, moveTrigger.body);
+  kernel.setPicks(plan.id, plan.refs);
+  kernel.setAnswers({ "rift-herald.may-reveal-and-draw/optional": false });
+
+  const outcome = resolveChainBody(moveTrigger.body, kernel);
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status, entry.result.reason]), [
+    ["rift-herald.bind-controller", "executed", undefined],
+    ["rift-herald.look-top-three", "executed", undefined],
+    ["rift-herald.may-reveal-and-draw", "negated", "skipped"],
+    ["rift-herald.recycle-rest", "executed", undefined]
+  ]);
+  // 417.1.a: all three looked-at cards go to the bottom of the Main Deck, in
+  // the locked slice order; the untouched fourth card stays above them.
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["fourth", "first", "second", "third"]);
+  assert.equal(outcome.linkedValues["rift-herald.recycle-rest.recycledCount"], 3);
+});
 test.todo(
   "unl-179-219 Rift Herald: narrow the looked-at set to unit cards for the optional reveal — ObjectFilter type matching is a per-object test, " +
-    "and chain/interpreter-adapter.ts LITERAL_FIELDS does not decode effect.reveal's pick field (contract change request)"
+    "PickSpec.filter has no consumer for linked sources (effect.reveal reads the already-provided pick set)"
 );
 test.todo(
   "unl-179-219 Rift Herald: generate the finalized zero-Energy / printed-Power cost plan for the chosen hand card (356.1.b.2) — " +
@@ -202,5 +239,6 @@ test.todo(
 );
 test.todo(
   "unl-179-219 Rift Herald: [Deathknell] KeywordDef expansion and its trigger.leave instruction must be " +
-    "registered and connected to the object-killed chain path (CR 808.1.d.1-.3 / RIFT-82)"
+    "registered (effects/instructions/registry.generated.ts has no trigger.leave op) and connected to the " +
+    "object-killed chain path (CR 808.1.d.1-.3)"
 );

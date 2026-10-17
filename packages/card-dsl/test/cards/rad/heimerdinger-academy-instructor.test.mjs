@@ -3,6 +3,10 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/heimerdinger-academy-instructor.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { actionMatchesEventPattern } from "../../../../engine-core/dist/replacement/pattern.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { planReplacementBody } from "../../../../engine-core/dist/replacement/planner.js";
@@ -30,7 +34,7 @@ test("rad-132-167 Heimerdinger: program validates and has expected identity", ()
   assert.match(program.judgeReason, /destination/);
   assert.match(program.judgeReason, /replacement\.event/);
   assert.match(program.judgeReason, /args\.instead/);
-  assert.match(program.judgeReason, /source-at-a-battlefield/);
+  assert.match(program.judgeReason, /ReplacementRegistration\.optional/);
   assert.equal(
     program.sourceText,
     "If you would play a unit token to a location while I'm at a battlefield, you may play a 3 :rb_might: Mech unit token to that same location instead."
@@ -42,11 +46,19 @@ test("rad-132-167 Heimerdinger: 369.1 的可选替代能力声明形状", () => 
   const ability = replacement();
   assert.equal(ability.kind, "replacement");
   // "If you would play a unit token ... instead" → 替代的对象是打出衍生物的事件。
-  assert.deepEqual(ability.replaces, { event: "card-played", object: { type: "token" } });
-  // "while I'm at a battlefield" 用命名谓词表达（同 fiora-peerless 的既有先例）。
+  assert.deepEqual(ability.replaces, {
+    event: "card-played",
+    object: { type: "unit", controller: "self", characteristics: { isToken: true } }
+  });
+  // Bind the source identity before counting objects at battlefields.
   assert.deepEqual(ability.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "source-at-a-battlefield" }
+    kind: "compare",
+    left: {
+      kind: "count", subject: "unit",
+      filter: { object: "source", zone: "board", location: "battlefield" }
+    },
+    operator: "eq",
+    right: { kind: "constant", value: 1 }
   });
 
   assert.equal(ability.with.length, 1);
@@ -216,3 +228,42 @@ test.todo(
     "选择器（替代输入只暴露 replacement.object），替代管线必须把被替代 play 动作的 location 传进 effect.token；" +
     "程序里的 replaced-play-location 是标注用的占位常量；已合入的对象位置选择器不代表 play 动作的目的地"
 );
+
+
+for (const [name, zone, location, expected] of [
+  ["battlefield", "board", BATTLEFIELD, true],
+  ["base beside another battlefield unit", "board", { type: "base", player: "A" }, false],
+  ["hand", "hand", null, false]
+]) test(`Heimerdinger: the source battlefield condition is ${expected} in ${name}`, () => {
+  const kernel = world()
+    .unit("heimerdinger", { cardId: CANONICAL, zone, location, might: 5 })
+    .unit("unrelated", { location: BATTLEFIELD, might: 3 }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("heimerdinger") });
+  const layers = createLayerEngine(kernel.objects);
+  const actual = evaluateCondition(replacement().condition, {
+    context,
+    query: filter => layers.evaluateAll().filter(object => matchesObjectFilter(filter, object)),
+    linked: key => context.linked(key),
+    canLookBack: () => false,
+    isIgnored: () => false
+  });
+  assert.equal(actual, expected);
+});
+
+for (const [name, types, isToken, controller, expected] of [
+  ["friendly unit token", ["unit"], true, "A", true],
+  ["friendly unit card", ["unit"], false, "A", false],
+  ["enemy unit token", ["unit"], true, "B", false],
+  ["friendly gear token", ["gear"], true, "A", false]
+]) test(`Heimerdinger: the replacement event matches ${name}: ${expected}`, () => {
+  const kernel = world().player("B")
+    .unit("heimerdinger", { location: BATTLEFIELD, might: 5 })
+    .card("played", { zone: "chain", owner: controller, controller, types, isToken }).build();
+  const object = kernel.ref("played");
+  const action = { type: "play", object, player: controller, location: BATTLEFIELD };
+  assert.equal(actionMatchesEventPattern({
+    pattern: replacement().replaces, action, target: { object, player: controller },
+    hostRef: kernel.ref("heimerdinger"), controller: "A",
+    snapshotFor: ref => kernel.object(ref)
+  }), expected);
+});

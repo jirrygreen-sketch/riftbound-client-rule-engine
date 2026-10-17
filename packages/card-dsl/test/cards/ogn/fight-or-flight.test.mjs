@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/fight-or-flight.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { abilitySpeed } from "../../../../engine-core/dist/programs/keywords.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 import { buildHiddenCostPlan, payHiddenCostPlan } from "../../../../engine-core/dist/cost/kinds/hidden.js";
@@ -28,6 +29,9 @@ test("ogn-168-298 Fight or Flight: program passes validateCardProgram", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /cost\.hidden/);
+  assert.match(program.judgeReason, /facedown/);
+  assert.match(program.judgeReason, /card-hidden/);
+  assert.match(program.judgeReason, /Champion Zone/);
   assert.equal(
     program.sourceText,
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +
@@ -60,6 +64,17 @@ test("ogn-168-298 Fight or Flight: [Hidden] + [Action] keywords and one battlefi
     max: 1,
     selection: "one"
   });
+});
+
+test("ogn-168-298 Fight or Flight: the merged Action keyword gives the card action speed", () => {
+  const source = world().card("fight-or-flight", {
+    cardId: CARD_ID,
+    types: ["spell"],
+    zone: "hand",
+    energy: 2,
+    power: null
+  }).build().getObject("fight-or-flight");
+  assert.equal(abilitySpeed(program.abilities, source), "action");
 });
 
 test("ogn-168-298 Fight or Flight golden: a unit at a battlefield moves to its base", () => {

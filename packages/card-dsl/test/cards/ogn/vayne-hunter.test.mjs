@@ -71,7 +71,7 @@ test("ogn-035-298 Vayne, Hunter: Assault 3 keyword, conditional enter-ready repl
   // "When I conquer, you may pay :rb_energy_1: to return me to my owner's hand."
   assert.equal(triggered.kind, "triggered");
   assert.equal(triggered.trigger.at, "conquer");
-  assert.deepEqual(triggered.trigger.filter, { event: "conquered", object: { objectId: "self" } });
+  assert.deepEqual(triggered.trigger.filter, { event: "conquered", filter: { source: "self" } });
   assert.equal(triggered.optional, false);
   assert.equal(triggered.body.length, 1);
   const [choice] = triggered.body;
@@ -293,31 +293,23 @@ test("ogn-035-298 Vayne, Hunter: a battle with no opponent battlefield still rew
   assert.deepEqual(registrations[0].apply(entering, entering).actions.map((action) => action.type), ["ready", "move-zone"]);
 });
 
-test("ogn-035-298 Vayne, Hunter: the declared conquer filter cannot bind the conquering unit identity (383.4.c.2.a)", () => {
-  // The declared spelling keeps the literal "self" filter value; it is not
-  // rebound to the host id, so even an event carrying this unit's own object
-  // does not match. The nested spelling that does bind resolves against an
-  // emission the production Score wave never produces with an object.
+test("ogn-035-298 Vayne, Hunter: the merged conquer filter binds self, but production lacks the participant object (383.4.c.2.a)", () => {
+  // The merged source:self event-filter spelling binds to the host id. The
+  // production Score wave still emits only player/details, so it cannot prove
+  // that this particular unit participated in the conquest.
   const kernel = world().unit("vayne", { might: 2 }).build();
   const snapshot = kernel.getObject("vayne");
   const declared = translateTriggerFilter(program.abilities[2].trigger.filter, snapshot.ref.id, "conquer");
-  assert.deepEqual(declared, { event: "conquered", object: { objectId: "self" } });
+  assert.deepEqual(declared, { event: "conquered", object: { objectId: snapshot.ref.id } });
   assert.equal(validateTriggerSpec({ at: "conquer", filter: declared }).ok, true);
   assert.equal(
     matchesTriggerEvent(declared, { timingPoint: "conquer", object: snapshot, player: "A", details: { battlefieldId: "bf-1" } }, "A"),
-    false,
-    "'self' is not rebound to the host id, so the unit's own conquer event still misses"
-  );
-
-  const nested = translateTriggerFilter({ event: "conquered", filter: { source: "self" } }, snapshot.ref.id, "conquer");
-  assert.deepEqual(nested, { event: "conquered", object: { objectId: snapshot.ref.id } });
-  assert.equal(
-    matchesTriggerEvent(nested, { timingPoint: "conquer", object: snapshot, player: "A", details: { battlefieldId: "bf-1" } }, "A"),
-    true
+    true,
+    "source:self is rebound to the host id"
   );
   // The Score wave emits only { player, details: { battlefieldId } }.
   assert.equal(
-    matchesTriggerEvent(nested, { timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" } }, "A"),
+    matchesTriggerEvent(declared, { timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" } }, "A"),
     false,
     "a payload-only conquer emission carries no participant object"
   );

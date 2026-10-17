@@ -1,3 +1,7 @@
+// RIFT-670 single-card golden: validation, identity and key IR structure.
+// Whole-card execution evidence (generic scenario plus static binding outcomes)
+// lives in `test/cards/templates/keyword-static-670.test.mjs`.
+
 import assert from "node:assert/strict";
 import test from "node:test";
 

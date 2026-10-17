@@ -4,9 +4,10 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/tornado-warrior.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import empower from "../../../../engine-core/dist/effects/instructions/effect.empower.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-43f2c7b5027f6a69b6596f2643e18187e455c358ab23449967a934abe533e617";
@@ -52,7 +53,7 @@ test("ven-099-166 Tornado Warrior: identity, status, judgeReason and verbatim so
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /391\.2/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /trigger\.delayed/);
   assert.doesNotMatch(program.judgeReason, /RIFT-84|RIFT-87|RIFT-89|RIFT-91/);
 });
 
@@ -168,6 +169,27 @@ test("ven-099-166 golden: the chooser only offers objects on the host's battlefi
   );
 });
 
+test("ven-099-166 golden: Disempower itself is a safe no-op when the chosen object is not Empowered", () => {
+  const kernel = tornadoKernel();
+  const run = runInstruction(
+    empower,
+    {
+      mode: { kind: "constant", value: "disempower" },
+      objects: { kind: "constant", value: { kind: "target", id: "target" } }
+    },
+    { world: kernel, targets: { target: [kernel.ref("ally")] } }
+  );
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.getObject("ally").empowered, 0);
+  assert.deepEqual(run.events.map(event => event.action), ["disempower"]);
+  assert.deepEqual(run.linked.disempowered, {
+    mode: "disempower",
+    count: 1,
+    objects: [kernel.ref("ally")]
+  });
+});
+
 test.todo(
   "ven-099-166 Tornado Warrior: [Hidden]'s cost.hidden / facedown play permission has no consumer even though " +
     "the KeywordDef is merged (811.1.d); the Hide and facedown play consumer chain is still incomplete"
@@ -182,9 +204,4 @@ test.todo(
   "ven-099-166 Tornado Warrior: register 'Disempower it at end of turn' as a Delayed Ability (391.2, window " +
     "this turn, 317.1.a) — connect the card-facing trigger.delayed shape to ResolveContext.registerDelayedTrigger " +
     "so the optional body registers the delayed disempower"
-);
-
-test.todo(
-    "ven-099-166 Tornado Warrior: the Empowered state gate for the disempower half (442.1.a) has no predicate in " +
-    "ObjectSnapshot / Condition yet; wire the state predicate into the delayed branch (RIFT-359)"
 );

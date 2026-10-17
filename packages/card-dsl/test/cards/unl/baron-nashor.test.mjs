@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/baron-nashor.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import replacementEnter from "../../../../engine-core/dist/effects/instructions/replacement.enter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
@@ -22,6 +23,25 @@ const SOURCE_TEXT =
 const [play, enterThere, untargetable, otherUnits] = program.abilities;
 const [addBaronPit] = play.body;
 const [enterBaronPit] = enterThere.with;
+const constant = value => ({ kind: "constant", value });
+
+function battlefieldSnapshot(overrides = {}) {
+  return {
+    ref: { id: "some-other-battlefield", zoneEntryId: 1 }, cardId: null, name: "Some Other Battlefield",
+    types: ["battlefield"], tags: [], keywords: [], owner: "A", controller: "A", zone: "board",
+    location: null, might: null, energy: null, power: null, exhausted: false, damage: 0,
+    stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: true,
+    ...overrides
+  };
+}
+
+function boardFixture(options = {}) {
+  const f = fixture({ cards: [
+    { id: "baron-nashor", cardId: CANONICAL_ID, types: ["unit"], energy: 1, power: [], zone: "board", location: { type: "battlefield", id: "bf-1" } }
+  ] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("baron-nashor"), to: "board", location: { type: "battlefield", id: options.location ?? "bf-1" } });
+  return f;
+}
 
 test("unl-147-219 Baron Nashor: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -37,15 +57,13 @@ test("unl-147-219 Baron Nashor: identity, status, judgeReason and verbatim sourc
   assert.match(program.judgeReason, /369\.3/);
   assert.match(program.judgeReason, /757/);
   assert.match(program.judgeReason, /continuous\.might/);
-  // Second-sweep refresh: the location selector (RIFT-357) is merged and no
-  // longer the blocker; the remaining gaps are named concretely instead.
+  // Refresh: the location selector is merged and is no longer the blocker; the
+  // remaining gaps are named concretely instead.
   assert.match(program.judgeReason, /matchesObjectFilter/);
-  assert.match(program.judgeReason, /BlockedReplacementError/);
-  assert.match(program.judgeReason, /exclude:source/);
-  // The stale "RIFT-357 is the blocker" wording is gone; the merged selector is
-  // named as merged and the real remaining gaps are stated instead.
-  assert.doesNotMatch(program.judgeReason, /位置选择 RIFT-357|RIFT-357（进行中）/);
-  assert.match(program.judgeReason, /RIFT-357.*已合入/);
+  assert.match(program.judgeReason, /Invalid replacement\.enter argument: location/);
+  assert.match(program.judgeReason, /exclude 锚点/);
+  assert.match(program.judgeReason, /位置选择器已合入/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-357（进行中）/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
@@ -69,36 +87,36 @@ test("unl-147-219 Baron Nashor: the 'not there already' tokenName predicate is s
   // Evidence for gap (1): the author-side key is not part of the merged filter
   // vocabulary, so it cannot distinguish a Baron Pit from any other battlefield
   // and must not be treated as a working existence check.
-  const battlefield = {
-    ref: { id: "some-other-battlefield", zoneEntryId: 1 }, cardId: null, name: "Some Other Battlefield",
-    types: ["battlefield"], tags: [], keywords: [], owner: "A", controller: "A", zone: "board",
-    location: null, might: null, energy: null, power: null, exhausted: false, damage: 0,
-    stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: true
-  };
   const filter = addBaronPit.condition.left.filter;
   assert.deepEqual(filter, { zone: "board", type: "battlefield", tokenName: "Baron Pit" });
-  assert.equal(matchesObjectFilter(filter, battlefield), true,
+  assert.equal(matchesObjectFilter(filter, battlefieldSnapshot()), true,
     "an unrelated battlefield must not satisfy a real Baron Pit existence check");
+  // The key is not consumed by the matcher at all: removing it changes nothing.
+  const withoutKey = { zone: "board", type: "battlefield" };
+  assert.equal(matchesObjectFilter(filter, battlefieldSnapshot()), matchesObjectFilter(withoutKey, battlefieldSnapshot()));
 });
 
-test("unl-147-219 Baron Nashor: the entry replacement needs a state argument, so location/ifCreated are unconsumed (369.3)", () => {
-  // Evidence for gap (2): the production replacement binder rejects the declared
-  // replacement.enter because it only implements the entry-state form.
-  const f = fixture({ cards: [
-    { id: "baron-nashor", cardId: CANONICAL_ID, types: ["unit"], energy: 1, power: [] }
-  ] });
-  assert.throws(() => createEngineStaticBinder(f.engine).bindReplacement(enterThere, f.kernel.getObject("baron-nashor")),
-    /replacement\.enter requires a state argument/);
+test("unl-147-219 Baron Nashor: the entry replacement's location/ifCreated are rejected by the merged primitive (369.3)", () => {
+  // Evidence for gap (2): replacement.enter only accepts
+  // state/exhausts/zone/duration/appliesTo/filter; the declared location and
+  // ifCreated arguments fail the merged schema instead of being ignored.
+  assert.throws(
+    () => replacementEnter.argsSchema.parse({
+      state: constant("ready"),
+      location: enterBaronPit.args.location,
+      ifCreated: enterBaronPit.args.ifCreated
+    }),
+    /Invalid replacement\.enter argument: location/
+  );
+  // The supported subset is accepted, so the card keeps a describable shape.
+  assert.doesNotThrow(() => replacementEnter.argsSchema.parse({ state: constant("ready") }));
 });
 
 test("unl-147-219 Baron Nashor: the declared target restriction cannot distinguish enemy choosers yet (757.1/758.1)", () => {
-  // Evidence for gap (3): the queried restriction is the same for both players,
-  // so the "enemy spells and abilities" scope is not represented and the card
-  // must not claim untargetability.
-  const f = fixture({ cards: [
-    { id: "baron-nashor", cardId: CANONICAL_ID, types: ["unit"], energy: 1, power: [], zone: "board", location: { type: "battlefield", id: "bf-1" } }
-  ] });
-  f.engine.commit({ type: "move-zone", object: f.kernel.ref("baron-nashor"), to: "board", location: { type: "battlefield", id: "bf-1" } });
+  // Evidence for gap (3): the queried restriction is the same for both players
+  // and carries no action list, so the "enemy spells and abilities" scope is
+  // not represented and the card must not claim untargetability.
+  const f = boardFixture();
   const source = f.kernel.getObject("baron-nashor");
   createEngineStaticBinder(f.engine).bindStatic(untargetable, source);
   const forController = restrictions(f.engine.layers.registry, "target", source.ref, source, "A");
@@ -106,17 +124,20 @@ test("unl-147-219 Baron Nashor: the declared target restriction cannot distingui
   assert.equal(forController.length, 1);
   assert.deepEqual(forOpponent, forController);
   assert.deepEqual(forController[0].actions, []);
+  // The authored scope fields stay in the declaration but are not converted
+  // into rule-query inputs.
+  assert.equal(untargetable.effect.chooser, "opponent");
+  assert.equal(untargetable.effect.forbidden, true);
 });
 
 test("unl-147-219 Baron Nashor: the other-friendly-units aura is rejected because it must exclude its own source (479.4/355.10.d)", () => {
   // Evidence for gap (4): programs/statics.ts refuses the exclude anchor, so the
   // +2 Might aura cannot be bound to a live "other friendly units" set.
-  const f = fixture({ cards: [
-    { id: "baron-nashor", cardId: CANONICAL_ID, types: ["unit"], energy: 1, power: [], zone: "board", location: { type: "battlefield", id: "bf-1" } }
-  ] });
-  f.engine.commit({ type: "move-zone", object: f.kernel.ref("baron-nashor"), to: "board", location: { type: "battlefield", id: "bf-1" } });
-  assert.throws(() => createEngineStaticBinder(f.engine).bindStatic(otherUnits, f.kernel.getObject("baron-nashor")),
-    /Static exclude anchor needs a dynamic relative filter/);
+  const f = boardFixture();
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(otherUnits, f.kernel.getObject("baron-nashor")),
+    /Static exclude anchor needs a dynamic relative filter/
+  );
 });
 
 test("unl-147-219 Baron Nashor: 'as you play me' adds the Baron Pit token once", () => {
@@ -143,8 +164,7 @@ test("unl-147-219 Baron Nashor: 'if it's not there already' is an explicit exist
   assert.deepEqual(condition.left.filter, {
     zone: "board",
     type: "battlefield",
-    // tokenName 是描述性占位键（与 reksai-breacher 的 playedFromZoneNot 同一处理）：
-    // 已合入的过滤器词汇没有“按 token 名称查战场”的维度。
+    // tokenName 是描述性占位键：已合入的过滤器词汇没有“按 token 名称查战场”的维度。
     tokenName: "Baron Pit"
   });
 });
@@ -158,7 +178,7 @@ test("unl-147-219 Baron Nashor: 'if you do, I enter there' is an entry replaceme
   });
   assert.equal(enterThere.with.length, 1);
   assert.equal(enterBaronPit.id, "baron-nashor.enter-baron-pit");
-  // replacement.enter 已有状态替代；location/ifCreated 仍待接入（369.3）。
+  // replacement.enter 已支持 state 形态；location/ifCreated 仍被 argsSchema 拒绝（369.3）。
   assert.equal(enterBaronPit.op, "replacement.enter");
   assert.deepEqual(enterBaronPit.args.location, {
     kind: "constant",
@@ -200,6 +220,6 @@ test("unl-147-219 Baron Nashor: the team bonus is an arithmetic-layer +2 Might f
 
 test.todo("baron-nashor: create one Baron Pit battlefield Location during As you play and bind its receipt to the entry destination (CR 187.9/355.1/369.3; needs a Battlefield-token definition, a create-Location action and a cross-phase creation receipt)");
 
-test.todo("baron-nashor: enforce target prohibition for enemy spells/abilities while preserving friendly targeting (CR 757.1/758.1)");
+test.todo("baron-nashor: enforce target prohibition for enemy spells/abilities while preserving friendly targeting (CR 757.1/758.1; needs a chooser-relative action scope on the restriction)");
 
-test.todo("baron-nashor: bind the live other-friendly-unit Might aura while excluding its own source (CR 479.4/355.10.d)");
+test.todo("baron-nashor: bind the live other-friendly-unit Might aura while excluding its own source (CR 479.4/355.10.d; staticFilter rejects the exclude anchor)");

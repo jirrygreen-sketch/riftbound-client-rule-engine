@@ -1,3 +1,8 @@
+// RIFT-668 partial execution / boundaries: ../templates/static-668.test.mjs.
+// Published status stays judge-required; existing component coverage is retained below.
+// Scenario execution evidence: ../templates/static-644.test.mjs (one parameterized row per card).
+// This card stays judge-required; the template row pins the static-binding kind gap and the
+// appliedCosts() miss through the production binder.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -57,6 +62,9 @@ test("unl-163-219 Mageseeker Investigator: the card text is one Applied Cost sta
   // 204.4.b / 204.4.c: the payer is the player performing the Move, and the
   // action is illegal when it cannot or will not be paid.
   assert.equal(applied.effect.payer, "moving-player");
+  // The printed "Opponents" excludes the controller's own simultaneous Moves.
+  // This remains descriptive until Applied Cost consumes relative payers.
+  assert.equal(applied.effect.payerScope, "opponent");
   // 135.2.e.5 / 163.2.b: :rb_rune_rainbow: is Power of any Domain.
   assert.equal(applied.effect.resource, "power");
   assert.equal(applied.effect.domain, "any");

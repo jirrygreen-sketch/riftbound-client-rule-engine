@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/reavers-row.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
 // effect.move declares Expr-typed arguments, so the body runs through the
 // production chain adapter, which preserves the Expr nodes for the primitive's
 // own schema validation (engine-core/src/chain/interpreter-adapter.ts).
@@ -42,7 +43,21 @@ test("ogn-285-298 Reaver's Row: program validates and is judge-required", () => 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /defense-declared/);
   assert.match(program.judgeReason, /combat\/flow\.ts/);
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /Unsupported filter field sameLocationAs/);
   assert.equal(program.sourceText, "When you defend here, you may move a friendly unit here to base.");
+});
+
+test("ogn-285-298: production target translation still rejects the same-location anchor", () => {
+  // The IR shape is accepted, but the production adapter is the remaining
+  // blocker for Finalize: it cannot translate sameLocationAs into the frozen
+  // target query. The execution goldens below deliberately supply a locked
+  // target to exercise the already merged move primitive without hiding this
+  // adapter gap.
+  assert.throws(
+    () => translateInstructionTargets(program.abilities[0].body),
+    /Unsupported filter field sameLocationAs/
+  );
 });
 
 test("ogn-285-298: defend trigger with an optional move wrapped in choice.optional", () => {
@@ -148,7 +163,8 @@ test("ogn-285-298: the trigger names the defense-declared timing point with the 
 });
 
 test.todo(
-  "ogn-285-298: defense-declared 由 combat/ 发出（每场战斗只检查一次，383.4.f.2.a）并进链；here 需要战场相对锚点；" +
-    "Finalize 按 controller \"self\" + sameLocationAs \"self\" 在守方战场上的友方单位中锁定目标" +
+  "ogn-285-298: defense-declared 由 combat/ 发出（每场战斗只检查一次，383.4.f.2.a）并进链；" +
+    "Finalize 还需把 controller \"self\" + sameLocationAs \"self\" 的目标适配接入生产翻译，" +
+    "并在守方战场上的友方单位中锁定目标" +
     "（参考内核按字面值比较过滤器，不解析 PlayerSelector）"
 );

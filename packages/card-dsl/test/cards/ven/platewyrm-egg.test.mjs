@@ -11,6 +11,7 @@ import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CARD_ID = "card.hash-5d0ab54108afb25c366527426f6c46a04e21256d6701bc128d66dd9ce8860f37";
 const SOURCE_TEXT =
@@ -19,9 +20,10 @@ const SOURCE_TEXT =
   "[Reaction][>] :rb_exhaust:: [Add] :rb_energy_1:. If this is [Empowered], [Add] :rb_energy_2: instead.";
 
 const [enterReplacement, empower, activated] = program.abilities;
-const [addOne, addTwo] = activated.body;
+const [branch, addOne, addTwo] = activated.body;
 
-const eggWorld = () => world()
+const eggWorld = () => {
+  const base = world()
   .unit("platewyrm-egg", {
     types: ["gear"],
     might: null,
@@ -31,6 +33,8 @@ const eggWorld = () => world()
   .player("A")
   .player("B")
   .build();
+  return base.clone({ sourceSnapshot: base.getObject("platewyrm-egg") });
+};
 
 /**
  * The same minimal chain fixture shape engine-core's replacement tests use:
@@ -102,6 +106,11 @@ test("ven-075-166 Platewyrm Egg: identity, ruleset, status, judgeReason and verb
   assert.match(program.judgeReason, /replacement\.enter/);
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /828\.1\.c|Empowered/);
+  assert.match(program.judgeReason, /KeywordAbility/);
+  assert.match(program.judgeReason, /params\.cost/);
+  assert.match(program.judgeReason, /ObjectSnapshot/);
+  assert.match(program.judgeReason, /ChainDraft\.kind=activated/);
+  assert.match(program.judgeReason, /430\.2\.a|430\.3/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -120,8 +129,8 @@ test("ven-075-166 Platewyrm Egg: enter-exhausted replacement, Empower keyword an
   assert.deepEqual(enterReplacement.with[0].args.state, { kind: "constant", value: "exhausted" });
 
   // 827.1.c: the printed Empower cost is 1 Energy + exhaust the source; the card
-  // only declares the keyword (expansion belongs to the keyword registry).
-  assert.deepEqual(empower, { kind: "keyword", keyword: "empower", value: 1 });
+  // only declares the non-valued keyword (expansion belongs to the keyword registry).
+  assert.deepEqual(empower, { kind: "keyword", keyword: "empower" });
 
   // 813.1.c.2 / 813.1.d: "[Reaction][>]" rewrites the activation timing.
   assert.equal(activated.kind, "activated");
@@ -133,11 +142,17 @@ test("ven-075-166 Platewyrm Egg: enter-exhausted replacement, Empower keyword an
   });
 
   // 430.5: "[Add] :rb_energy_1:" is one Energy; the printed "instead" branch is
-  // declared with the (unmerged) Empowered gate.
-  assert.equal(activated.body.length, 2);
+  // declared with one saved Empowered predicate and mutually exclusive branches.
+  assert.equal(activated.body.length, 3);
+  assert.equal(branch.op, "condition.predicate");
+  assert.deepEqual(branch.args.condition.value, {
+    kind: "compare", left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "gte", right: { kind: "constant", value: 1 }
+  });
   assert.equal(addOne.id, "platewyrm-egg.add-1");
   assert.deepEqual(addOne.args, { energy: { kind: "constant", value: 1 } });
-  assert.equal(addOne.condition, undefined);
+  assert.deepEqual(addOne.condition, { kind: "not", condition: addTwo.condition });
+  assert.equal(addOne.linkedTo, branch.id);
   assert.equal(addOne.targets, undefined);
   assert.equal(addOne.picks, undefined);
 
@@ -145,9 +160,9 @@ test("ven-075-166 Platewyrm Egg: enter-exhausted replacement, Empower keyword an
   assert.deepEqual(addTwo.args, { energy: { kind: "constant", value: 2 } });
   assert.deepEqual(addTwo.condition, {
     kind: "expression",
-    value: { kind: "constant", value: "is-empowered" }
+    value: { kind: "linked-value", instructionId: branch.id, key: "value" }
   });
-  assert.equal(addTwo.linkedTo, undefined);
+  assert.equal(addTwo.linkedTo, branch.id);
 });
 
 test("ven-075-166 Platewyrm Egg golden: the exhaust cost really exhausts the Gear (415.3.a/415.5)", () => {
@@ -171,21 +186,17 @@ test("ven-075-166 Platewyrm Egg golden: the exhaust cost really exhausts the Gea
 
 test("ven-075-166 Platewyrm Egg golden: the Not-Empowered branch Adds exactly 1 Energy", () => {
   const kernel = eggWorld();
-  // The as-printed Empowered gate is not merged; removing the descriptive gate
-  // executes the printed Not-Empowered branch (1 Energy) without inventing one.
-  const notEmpowered = [{ ...addOne, args: { energy: { kind: "constant", value: 1 } } }];
+  const outcome = resolveChainBody(activated.body, kernel);
 
-  const outcome = resolveChainBody(notEmpowered, kernel);
-
-  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.status, "partial");
   assert.deepEqual(outcome.results.map((result) => [result.id, result.result.status]), [
-    ["platewyrm-egg.add-1", "executed"]
+    [branch.id, "executed"], ["platewyrm-egg.add-1", "executed"], [addTwo.id, "negated"]
   ]);
   // 430.1/430.5: exactly 1 Energy, no Power.
   assert.equal(kernel.player("A").energy, 1);
   assert.deepEqual(kernel.player("A").power, []);
   assert.deepEqual(kernel.events.map((event) => event.action), ["gain-energy"]);
-  assert.deepEqual(outcome.results[0].result.linkedValues.resources, {
+  assert.deepEqual(outcome.results.find(result => result.id === addOne.id).result.linkedValues.resources, {
     player: "A",
     energy: 1,
     power: []
@@ -194,36 +205,31 @@ test("ven-075-166 Platewyrm Egg golden: the Not-Empowered branch Adds exactly 1 
 
 test("ven-075-166 Platewyrm Egg golden: the Empowered branch Adds exactly 2 Energy", () => {
   const kernel = eggWorld();
-  // Once the Empowered predicate lands, the gate selects this branch; the golden
-  // proves the printed amount (2 Energy, no Power) is what the card declares.
-  const empowered = [{ ...addTwo, condition: { kind: "always" } }];
+  assert.equal(kernel.perform({ type: "empower", object: kernel.ref("platewyrm-egg") }).status, "done");
+  const outcome = resolveChainBody(activated.body, kernel);
 
-  const outcome = resolveChainBody(empowered, kernel);
-
-  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map((result) => [result.id, result.result.status]), [
+    [branch.id, "executed"], [addOne.id, "negated"], [addTwo.id, "executed"]
+  ]);
+  assert.deepEqual(outcome.results.find(result => result.id === addOne.id).result, {
+    status: "negated", reason: "skipped", events: []
+  });
   assert.equal(kernel.player("A").energy, 2);
   assert.deepEqual(kernel.player("A").power, []);
-  assert.deepEqual(outcome.results[0].result.linkedValues.resources, {
+  assert.deepEqual(outcome.results.find(result => result.id === addTwo.id).result.linkedValues.resources, {
     player: "A",
     energy: 2,
     power: []
   });
 });
 
-test("ven-075-166 Platewyrm Egg: the 'instead' branch stays gated and is never evaluated as a real predicate", () => {
-  // The printed branch is exclusive. The gate is a descriptive placeholder: the
-  // merged interpreter evaluates constant strings as Truthy, so running the body
-  // verbatim would fire BOTH Adds. That is why the executable scenarios above
-  // strip the placeholder and run one branch at a time, and why this test asserts
-  // the structure instead of asserting a made-up total.
-  assert.equal(activated.body.length, 2);
-  assert.equal(addOne.condition, undefined);
+test("ven-075-166 Platewyrm Egg: the 'instead' branch consumes one shared state snapshot", () => {
+  assert.equal(activated.body.length, 3);
+  assert.deepEqual(addOne.condition, { kind: "not", condition: addTwo.condition });
   assert.deepEqual(addTwo.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "is-empowered" }
+    kind: "expression", value: { kind: "linked-value", instructionId: branch.id, key: "value" }
   });
-  // No merged predicate provides "is-empowered" (see judgeReason 3); the branch
-  // must not be silently dropped, and it must not be run unconditionally either.
   assert.equal(addTwo.args.energy.value, 2);
   assert.notEqual(addTwo.args.energy.value, addOne.args.energy.value);
 });
@@ -274,13 +280,40 @@ test("ven-075-166 Platewyrm Egg golden: a Gear enters ready without the replacem
   assert.equal(f.kernel.getObject("platewyrm-egg").zone, "board");
   assert.equal(f.kernel.getObject("platewyrm-egg").exhausted, false);
 });
+
+test("ven-075-166 Platewyrm Egg: the merged activation adapter exposes Reaction Add as ordinary activated", () => {
+  // The card remains judge-required, so use an executable copy only to inspect
+  // the production adapter's current classification. Empower expansion is
+  // present, but the declared Reaction Add is still returned as activated.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const source = world()
+    .unit("platewyrm-egg", {
+      cardId: CARD_ID,
+      types: ["gear"],
+      zone: "board",
+      location: { type: "base", player: "A" },
+      energy: 3,
+      power: null,
+      might: null
+    })
+    .build()
+    .getObject("platewyrm-egg");
+
+  assert.equal(binding.activationAbilities(source).length, 2);
+  const draft = binding.describeActivate(source, "A", 0);
+  assert.equal(draft.kind, "activated");
+  assert.equal(draft.speed, "reaction");
+  assert.deepEqual(draft.cost.cost, activated.cost);
+  assert.deepEqual(draft.body, activated.body);
+});
+
 test.todo(
-  "ven-075-166 Platewyrm Egg: [Empower] (1 Energy + exhaust, CR 827.1.c.1/415.5) and the Empowered gate for " +
-    "\"If this is [Empowered], [Add] :rb_energy_2: instead\" (CR 828.1.c) need an Empower/Empowered KeywordDef " +
-    "(the RIFT-81~88 batch does not include them) plus the 828.1.b.1 dependent-ability wiring"
+  "ven-075-166 Platewyrm Egg: carry the printed Empower 1 Energy + exhaust through KeywordAbility / " +
+    "programs/keywords.ts params.cost (827.1.c.1/415.5), and expose empowered on the production ObjectSnapshot"
 );
 test.todo(
-  "ven-075-166 Platewyrm Egg: the printed either/or branch has no merged runtime form — contract 3.4 conditions " +
-    "scope to one instruction and choice.mode is blocked by chain/engine.ts assertFinalizationSurface " +
-    "(\"Mode choices require a Finalize/Resolve choice-plan adapter\"), so no branch may be silently dropped"
+  "ven-075-166 Platewyrm Egg: classify the Reaction Add as ChainDraft.kind=add so " +
+    "430.2.a/430.3 immediate resolution and activation during payment use the real Add path"
 );

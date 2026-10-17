@@ -7,6 +7,8 @@ import Deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CANONICAL = "card.hash-f33da6b768e700ee188122bbd6f6aad4f17db64d49c416a3c437ddb6d98ad07b";
 
@@ -16,10 +18,12 @@ test("rad-125-167 Dune Devourer: program validates and has expected identity", (
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /choiceObjects/);
+  assert.match(program.judgeReason, /translateCost/);
+  assert.match(program.judgeReason, /Unsupported play cost field optional/);
   assert.match(program.judgeReason, /optional-additional-cost-paid/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /layerFor/);
+  assert.match(program.judgeReason, /continuous\.cost-modification/);
   assert.equal(program.judgeReason.includes("Deflect"), true);
   assert.equal(
     program.sourceText,
@@ -102,6 +106,35 @@ test("Dune Devourer: the optional kill payment executes once its non-target choi
     assert.deepEqual(scoped.events.map(event => event.action), selected ? ["pay", "kill"] : ["pay"]);
     assert.equal(scoped.events.some(event => event.timingPoint === "became-target"), false);
   }
+});
+
+test("Dune Devourer: production play binding still rejects the optional additional cost", () => {
+  const kernel = world()
+    .hand("devourer", { cardId: CANONICAL, types: ["unit"], energy: 4, power: [] })
+    .unit("friendly", { controller: "A" })
+    .build();
+  const source = kernel.getObject("devourer");
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  assert.throws(
+    () => binding.describePlay({ type: "play", object: source.ref, player: "A" }, source),
+    /Unsupported play cost field optional/
+  );
+});
+
+test("Dune Devourer: merged Deflect and cost-modification declarations still stop at the static binder", () => {
+  const source = world().unit("devourer", { types: ["unit"], controller: "A" }).build().getObject("devourer");
+  const binder = createEngineStaticBinder({});
+  assert.throws(
+    () => binder.bindStatic(program.abilities[2], source),
+    /Static ability kind continuous\.cost-modification has no layer mapping/
+  );
+  const [deflectStatic] = Deflect.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.throws(
+    () => binder.bindStatic(deflectStatic, source),
+    /Static ability kind target\.tax has no layer mapping/
+  );
 });
 
 test.todo('Dune Devourer: bind optional kill cost, friendly-unit choices and the decision-dependent Energy discount at Finalize (CR 356.2.b/356.4.f.1)');

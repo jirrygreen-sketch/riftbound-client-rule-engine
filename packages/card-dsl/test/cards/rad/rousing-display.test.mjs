@@ -4,10 +4,10 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/rousing-display.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import showOff from "../../../../engine-core/dist/effects/keywords/ShowOff.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { describePlay } from "../../../../engine-core/dist/programs/play.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 import { fixture as chainFixture } from "../../../../engine-core/test/chain/helpers.mjs";
@@ -19,7 +19,7 @@ const SOURCE_TEXT =
   "If you showed off, play four to your base instead.disa";
 
 const [keyword, play] = program.abilities;
-const [mode] = play.body;
+const [controllerBase, mode] = play.body;
 const [fourRecruits] = mode.args.modes.value[0].body;
 const [twoRecruits] = mode.args.modes.value[1].body;
 
@@ -46,7 +46,8 @@ test("Rousing Display identity, ruleset, status and printed text (including the 
   assert.match(program.judgeReason, /executable KeywordDef/);
   assert.match(program.judgeReason, /cost\.reveal/);
   assert.match(program.judgeReason, /choice-plan/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /condition\.result/);
+  assert.equal(/RIFT-\d+/.test(program.judgeReason), false);
   assert.equal(program.judgeReason.includes("RIFT-268"), false);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The catalog's trailing "disa" is preserved verbatim (data issue reported
@@ -63,6 +64,9 @@ test("Rousing Display structure: [Show Off] plus the exclusive two/four Recruit 
     kind: "cost.printed",
     energy: { kind: "constant", value: 5 }
   });
+  assert.equal(controllerBase.id, "rousing-display.controller-base");
+  assert.equal(controllerBase.op, "condition.value");
+  assert.deepEqual(controllerBase.args.value, { kind: "location", value: "ability-controller-base" });
 
   assert.equal(mode.op, "choice.mode");
   assert.deepEqual(mode.args.count, { kind: "constant", value: 1 });
@@ -90,25 +94,19 @@ test("Rousing Display structure: [Show Off] plus the exclusive two/four Recruit 
   assert.deepEqual(twoRecruits.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(twoRecruits.args.mode, { kind: "constant", value: "play" });
   assert.equal(twoRecruits.linkedTo, undefined);
+  for (const instruction of [twoRecruits, fourRecruits]) assert.deepEqual(instruction.args.location, {
+    kind: "linked-value", instructionId: controllerBase.id, key: "value"
+  });
 });
 
 test("Rousing Display golden: playing two Recruit tokens puts two 1 Might Recruits in the controller's base", () => {
   const kernel = world().player("A").build();
   const base = { type: "base", player: "A" };
-  const run = runInstruction(
-    token,
-    {
-      token: twoRecruits.args.token,
-      amount: twoRecruits.args.amount,
-      mode: twoRecruits.args.mode,
-      // The printed "to your base" placeholder resolves to the controller's base
-      // during Finalize; the reference kernel resolves bases by player id.
-      location: { kind: "constant", value: base },
-      linkKey: { kind: "constant", value: "recruitTokens" }
-    },
-    { world: kernel }
-  );
-  assert.equal(run.result.status, "executed");
+  // Execute the authored location expression and this mode's raw child body;
+  // this isolates the token subeffect, without claiming a Show Off decision.
+  const outcome = resolveChainBody([controllerBase, twoRecruits], kernel);
+  assert.equal(outcome.results.at(-1).result.status, "executed");
+  assert.deepEqual(outcome.linkedValues[`${controllerBase.id}.value`], base);
   const recruits = kernel.query({ zone: "board", type: "unit" }).filter((object) => object.isToken);
   assert.equal(recruits.length, 2);
   for (const recruit of recruits) {
@@ -120,13 +118,13 @@ test("Rousing Display golden: playing two Recruit tokens puts two 1 Might Recrui
     assert.equal(recruit.energy, null);
     assert.equal(recruit.power, null);
   }
-  assert.equal(run.linked["recruitTokens.amount"], 2);
-  assert.deepEqual(run.events.map((event) => event.action), ["create-token", "play", "create-token", "play"]);
+  assert.equal(outcome.linkedValues[`${twoRecruits.id}.recruitTokens.amount`], 2);
+  assert.deepEqual(outcome.events.map((event) => event.action), ["create-token", "play", "create-token", "play"]);
 });
 
 test.todo(
   "Rousing Display: [Show Off] 'a card with Energy cost 7 or more' needs the Show Off keyword expansion and its " +
-    "locked finalization information — the merged declaration (RIFT-268) has no cost.reveal / objects-shown-off consumer " +
+    "locked finalization information — the merged cost.reveal declaration has no cost.reveal / objects-shown-off consumer " +
     "and no printed Object clause (CR 832.1.c / 832.1.d.1, contract 3.4)"
 );
 
@@ -192,4 +190,34 @@ test("Rousing Display: the choice.mode body stops at the merged chain Finalize g
     (error) => error.status === "blocked" &&
       /Mode choices require a Finalize\/Resolve choice-plan adapter/.test(error.message)
   );
+});
+
+test("Rousing Display golden: the four-Recruit subeffect creates and plays four 1 Might tokens", () => {
+  const kernel = world().player("A").player("B").build().clone({ controller: "B" });
+  const outcome = resolveChainBody([controllerBase, fourRecruits], kernel);
+  assert.equal(outcome.results.at(-1).result.status, "executed");
+  assert.deepEqual(outcome.linkedValues[`${controllerBase.id}.value`], { type: "base", player: "B" });
+  const recruits = kernel.query({ zone: "board", type: "unit" }).filter(object => object.isToken);
+  assert.equal(recruits.length, 4);
+  for (const recruit of recruits) {
+    assert.equal(recruit.name, "Recruit");
+    assert.equal(recruit.might, 1);
+    assert.deepEqual(recruit.tags, ["Recruit"]);
+    assert.deepEqual(recruit.location, { type: "base", player: "B" });
+    assert.equal(recruit.controller, "B");
+    assert.equal(recruit.energy, null);
+    assert.equal(recruit.power, null);
+  }
+  assert.equal(outcome.linkedValues[`${fourRecruits.id}.recruitTokens.amount`], 4);
+  assert.deepEqual(outcome.events.map(event => event.action), Array.from({ length: 4 }, () => ["create-token", "play"]).flat());
+});
+
+test("Rousing Display: Recruit units enter exhausted by default (CR 359.2.c)", {
+  todo: "ReferenceTestKernel token play currently omits default Unit entry state; the production handoff needs verification"
+}, () => {
+  const kernel = world().player("A").build();
+  resolveChainBody([controllerBase, fourRecruits], kernel);
+  const recruits = kernel.query({ zone: "board", type: "unit" }).filter(object => object.isToken);
+  assert.equal(recruits.length, 4);
+  for (const recruit of recruits) assert.equal(recruit.exhausted, true);
 });

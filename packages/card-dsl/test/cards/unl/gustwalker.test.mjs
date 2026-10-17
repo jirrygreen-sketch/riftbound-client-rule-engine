@@ -1,3 +1,4 @@
+// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -52,7 +53,9 @@ test("unl-075-219 Gustwalker: [Hunt 2] is declared with its printed value and is
 test("unl-075-219 Gustwalker: the Level 3 dependent ability is gated on controller XP >= 3", () => {
   for (const ability of [mightAbility, gankingAbility]) {
     assert.equal(ability.kind, "static");
-    assert.deepEqual(ability.condition, {
+    assert.equal(ability.condition.kind, "all");
+    assert.deepEqual(ability.condition.conditions[0], { kind: "never" });
+    assert.deepEqual(ability.condition.conditions[1], {
       kind: "compare",
       left: { kind: "count", subject: "controller-xp", filter: { player: "controller" } },
       operator: "gte",

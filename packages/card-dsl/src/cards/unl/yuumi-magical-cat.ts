@@ -28,10 +28,12 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  * status = judge-required（2026-10-17 复核）：
  * continuous.might / continuous.grant-keyword 及图层期限均已合入；golden 用原始 body 经
  * resolveChainBody + 测试内核执行，断言 +3、Tank、失效目标与图层到期。仍有三处整卡缺口：
- * - combat/flow.ts 仍阻断战斗开始事务，尚未发出携带取得身份单位的 attack/defense 时点；
- * - programs/filters.ts 的目标绑定尚不能翻译 sameLocationAs / exclude 锚点，不能丢弃
- *   “other / here” 限制（RIFT-359）；
- * - Tank 已能授予为特征，但 continuous.combat 的 lethal-first 分配要求尚未被战斗消费（815.1.b）。
+ * - combat/flow.ts 仍在 combat-start-transaction 处阻断战斗开始事务，尚未发出携带取得身份单位的
+ *   attack/defense 时点载荷；
+ * - card-program 目标绑定的 programs/filters.ts → translateObjectFilter 白名单仍拒绝
+ *   sameLocationAs / exclude，Finalize 没有能保留“other / here”限制的动态目标适配；
+ * - Tank 已能授予为特征，但 continuous.combat 当前没有战斗工作流消费者，不能执行
+ *   lethal-first 伤害分配要求（815.1.b）。
  * 两个触发各用 once: per-combat，遵循 383.4.e.2.a / 383.4.f.2.a。
  */
 
@@ -120,10 +122,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺：(1) combat/flow.ts 的战斗开始事务与取得 Attacker/Defender 身份的单位时点载荷" +
-    "（383.4.e.2/f.2、466.2.c）；(2) programs/filters.ts 尚不能把目标的 sameLocationAs/exclude 锚点" +
-    "编译进 Finalize，需保留「one of your other units here」的完整限制（RIFT-359）；" +
-    "(3) Tank 的 continuous.combat lethal-first 伤害分配要求尚未接入战斗消费者（815.1.b）。",
+    "仍缺：(1) combat/flow.ts 在 combat-start-transaction 处阻断战斗开始事务，尚未发出携带 " +
+    "Attacker/Defender 身份单位的 attack/defense 时点载荷（383.4.e.2/f.2、466.2.c）；" +
+    "(2) card-program 目标绑定的 programs/filters.ts → translateObjectFilter 白名单仍拒绝 " +
+    "sameLocationAs/exclude，Finalize 没有能保留「one of your other units here」完整限制的动态目标适配；" +
+    "(3) Tank 的 continuous.combat 当前没有战斗工作流消费者，无法执行 lethal-first 伤害分配要求（815.1.b）。",
   abilities,
   sourceText:
     "When I attack or defend, give one of your other units here +3 :rb_might: and [Tank] this turn. " +

@@ -1,3 +1,5 @@
+// Template execution scenarios: ../templates/play-effect-damage-659.test.mjs.
+// Cost/condition execution below proves supported parts, not full card play.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -16,7 +18,7 @@ const COST_PICK = "shimmering-swimmer.additional-cost";
 const DAMAGE_ID = "shimmering-swimmer.deal-2";
 const DAMAGE_TARGET = "shimmering-swimmer.unit";
 
-const [ability] = program.abilities;
+const [play, ability] = program.abilities;
 const [damageInstruction] = ability.body;
 
 test("rad-014-167 Shimmering Swimmer: program validates and has expected identity", () => {
@@ -33,43 +35,52 @@ test("rad-014-167 Shimmering Swimmer: program validates and has expected identit
     "You may kill a friendly unit or gear as an additional cost to play me.\n" +
       "When you play me, if you paid the additional cost, deal 2 to a unit."
   );
-  // The reason now names only the remaining gap: the play-side additional-cost
-  // translation bridge. The payment predicate is merged and executed below.
-  assert.match(program.judgeReason, /Additional costs are not bound/);
+  assert.match(program.judgeReason, /Unsupported play cost field optional/);
   assert.match(program.judgeReason, /translateCost/);
+  assert.match(program.judgeReason, /card-played/);
+  assert.match(program.judgeReason, /计划\/回执/);
   assert.doesNotMatch(program.judgeReason, /没有 paid\/费用结果谓词/);
 });
 
 test("rad-014-167: play cost declares the optional kill additional cost via a non-target pick", () => {
-  assert.equal(program.abilities.length, 1);
-  assert.equal(ability.kind, "play");
-  assert.equal(ability.cost.kind, "additional");
-  assert.equal(ability.cost.payments.length, 1);
-  const [payment] = ability.cost.payments;
+  assert.equal(program.abilities.length, 2);
+  assert.equal(play.kind, "play");
+  assert.deepEqual(play.body, []);
+  assert.equal(play.cost.kind, "additional");
+  assert.equal(play.cost.optional, true);
+  assert.equal(play.cost.payments.length, 1);
+  const [payment] = play.cost.payments;
   assert.equal(payment.kind, "kill");
   // 费用内的对象选择不是目标（355.10.c），所以是 PickSpec 而不是 TargetSpec。
   assert.equal(payment.choice.id, COST_PICK);
   assert.deepEqual(payment.choice.filter, {
     controller: "controller",
-    type: ["unit", "gear"]
+    type: ["unit", "gear"],
+    zone: "board"
   });
+  assert.deepEqual(payment.choice.options, ["friendly-unit-or-gear"]);
   assert.equal(payment.choice.min, 1);
   assert.equal(payment.choice.max, 1);
   assert.equal(payment.choice.selection, "one");
 });
 
 test("rad-014-167: 'if you paid the additional cost' is the merged result predicate", () => {
+  assert.equal(ability.kind, "triggered");
+  assert.equal(ability.trigger.at, "card-played");
+  assert.deepEqual(ability.trigger.filter, { self: true });
+  assert.equal(ability.optional, false);
   assert.equal(ability.body.length, 1);
   assert.equal(damageInstruction.id, DAMAGE_ID);
   assert.equal(damageInstruction.op, "effect.damage");
   assert.deepEqual(damageInstruction.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(damageInstruction.args.target, { kind: "constant", value: DAMAGE_TARGET });
   // 356.2.b.1: the finalized plan/receipt decides whether the branch runs.
-  assert.deepEqual(damageInstruction.condition, {
+  assert.deepEqual(ability.trigger.condition, {
     kind: "result",
     result: "additional-cost-paid",
     id: COST_PICK
   });
+  assert.equal(damageInstruction.condition, undefined, "383.2.a.1 gates the trigger before targets are chosen");
   assert.equal(damageInstruction.targets.length, 1);
   const [spec] = damageInstruction.targets;
   assert.equal(spec.id, DAMAGE_TARGET);
@@ -119,7 +130,7 @@ test("rad-014-167: the damage instruction deals 2 to a locked unit", () => {
 function planWithOptionalCost({ selected }) {
   const kernel = world()
     .player("A", { energy: 10, power: ["Fury"] })
-    .unit("swimmer", { energy: 3, power: ["Fury"], might: 3 })
+    .unit("swimmer", { energy: 3, power: null, might: 3 })
     .object("victim", {
       name: "victim",
       types: ["gear"],
@@ -133,7 +144,7 @@ function planWithOptionalCost({ selected }) {
   const pickId = "swimmer:cost:pick:" + COST_PICK;
   if (selected) kernel.setAnswers({ [pickId]: [kernel.ref("victim")] });
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("swimmer") });
-  const payment = ability.cost.payments[0];
+  const payment = play.cost.payments[0];
   const plan = buildCostPlan(scoped, {
     id: "swimmer:cost",
     cost: { kind: "printed" },
@@ -154,7 +165,7 @@ function planWithOptionalCost({ selected }) {
 }
 
 function paidConditionValue({ plan, receipt, scoped }) {
-  return evaluateCondition(damageInstruction.condition, {
+  return evaluateCondition(ability.trigger.condition, {
     context: scoped,
     cost: { plan, receipt },
     linked: (key) => scoped.linked(key),
@@ -167,6 +178,8 @@ test("rad-014-167: paying the optional kill cost really kills the chosen gear an
   const { kernel, scoped, plan, receipt } = planWithOptionalCost({ selected: true });
   assert.deepEqual(plan.selectedAdditional, [{ id: COST_PICK, kind: "additional" }]);
   assert.equal(receipt.paid, true);
+  assert.equal(plan.printed.power, null);
+  assert.deepEqual(plan.total.power, []);
   assert.deepEqual(receipt.additional, [{ id: COST_PICK, kind: "additional", paid: true }]);
   assert.equal(scoped.getObject("victim").zone, "trash");
   assert.equal(kernel.getObject("victim").zone, "board", "the reference kernel clone owns the payment");
@@ -182,22 +195,18 @@ test("rad-014-167: declining the optional cost leaves the gear alive and closes 
   assert.equal(paidConditionValue({ plan, receipt, scoped }), false);
 });
 
-test("rad-014-167: the paid-cost gate blocks the damage instruction through the real interpreter", () => {
+test("rad-014-167: the paid-cost predicate gates the trigger, whose original body deals 2", () => {
   const declined = planWithOptionalCost({ selected: false });
-  declined.scoped.setTargets(DAMAGE_TARGET, [declined.scoped.ref("enemy")]);
-  const blocked = resolveChainBody(ability.body, declined.scoped, { cost: { plan: declined.plan, receipt: declined.receipt } });
-  assert.equal(blocked.status, "partial");
-  // The declared result predicate is false, so the branch stays closed: no
-  // damage is dealt. The instruction itself is skipped before dispatch.
-  assert.equal(blocked.results[0].result.status, "negated");
-  assert.equal(blocked.results[0].result.reason, "skipped");
+  assert.equal(paidConditionValue(declined), false);
   assert.equal(declined.scoped.getObject("enemy").damage, 0);
   assert.equal(declined.kernel.getObject("victim").damage, 0);
 
-  // Control: the same instruction with the paid receipt really deals 2 damage.
+  // A supported-body probe, not a substitute for the missing trigger receipt
+  // bridge: test the exact trigger predicate against real payment receipts.
   const paid = planWithOptionalCost({ selected: true });
+  assert.equal(paidConditionValue(paid), true);
   paid.scoped.setTargets(DAMAGE_TARGET, [paid.scoped.ref("enemy")]);
-  const executed = resolveChainBody(ability.body, paid.scoped, { cost: { plan: paid.plan, receipt: paid.receipt } });
+  const executed = resolveChainBody(ability.body, paid.scoped);
   assert.equal(executed.results[0].result.status, "executed");
   assert.equal(paid.scoped.getObject("enemy").damage, 2);
 });
@@ -210,18 +219,18 @@ test("rad-014-167: the production play binding still refuses the declared additi
   delete lifted.judgeReason;
   const binding = createProgramBinding({ cardPrograms: [lifted] });
   const kernel = world()
-    .card("swimmer", { cardId: program.canonicalCardId, types: ["unit"], energy: 3, power: ["Fury"], might: 3, zone: "hand" })
+    .card("swimmer", { cardId: program.canonicalCardId, types: ["unit"], energy: 3, power: null, might: 3, zone: "hand" })
     .build();
   assert.throws(
     () => binding.describePlay(
       { type: "play", object: kernel.ref("swimmer"), player: "A" },
       kernel.getObject("swimmer")
     ),
-    (error) => error.code === "judge-required" && /Additional costs are not bound/.test(error.message)
+    (error) => error.code === "judge-required" && /Unsupported play cost field optional/.test(error.message)
   );
 });
 
 test.todo(
   "rad-014-167 Shimmering Swimmer: 可选附加费用的打出翻译桥——buildCostPlan 已支持 optionalAdditional 且 kill 付款已可支付，" +
-    "但 programs/play.ts 的 translateCost 对 kind:\"additional\" fail-closed，附加费用仍无法进入生产打出费用计划"
+    "但 programs/play.ts 的 translateCost 拒绝 optional 附加费用，且 card-played 触发项未携带原打出付款结果"
 );

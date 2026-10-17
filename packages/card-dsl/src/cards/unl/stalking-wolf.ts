@@ -32,16 +32,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 2. 强制附加费用需要 CardProgram → CostPlan 的接线：已合入 cost 计划能收 kill 组件
  *    （golden 实测：kill 动作按对象执行），但没有组件把卡牌的 static 费用声明接入
  *   打出的 Finalize。
- * 3. "Bird, Cat, Dog, or Poro" 的"四者之一"标签过滤：ObjectFilter 的 tags 是"全部
- *    命中"的合取（layers/filter.ts 的 tags.every 与 pipeline-match.ts 的
- *    tags.every），IR 没有析取标签形态；用单标签近似会只认一种生物（错误语义）。
+ * 3. "Bird, Cat, Dog, or Poro" 的"四者之一"标签过滤：当前 ObjectFilter 只有标签合取，
+ *    `tagsAny` 只是本卡的审查数据，没有运行时析取过滤；用单标签近似会只认一种生物。
  * 4. "You may play me to its battlefield" 的位置许可需要引用该费用消灭单位的原位置，
  *    没有"上一个费用对象的位置"表达式（cost 计划也无此回执）。
  * golden 里真实执行的是 kill 费用组件（经 buildCostPlan/payCostPlan 支付）与
  * effect.kill 本体；其余写 test.todo。
  *
  * 依赖：Ambush location/Reaction 消费方、CardProgram static additional-cost 到 Finalize 的接线、
- * 标签析取与费用对象原位置回执（RIFT-357 及当前费用回执契约）。
+ * 标签析取与费用对象原位置回执。
  */
 const abilities: Ability[] = [
   // 822：Ambush 是 Passive Ability 关键词，卡只声明（展开归关键词批次）。
@@ -90,9 +89,10 @@ const program = {
     "四处缺口：(1) [Ambush] 的 KeywordDef 已合入并展开 822.1.b/c 的 location permission 与 conditional Reaction，" +
     "但 Finalize/Chain 尚未消费这两个声明，不能宣称合法位置与 Reaction 已生效。(2) 强制附加费用（356.2.a / 356.2.a.1）" +
     "需要把 CardProgram 的 static cost.additional 接入打出的 Finalize；已合入费用计划能收 kill 组件，golden 已验证支付动作。" +
-    "(3)「Bird, Cat, Dog, or Poro」的四选一标签过滤仍没有 IR 析取形态；ObjectFilter.tags 是合取，不能用单标签近似。" +
+    "(3)「Bird, Cat, Dog, or Poro」的四选一标签过滤仍没有运行时析取形态；ObjectFilter.tags 是合取，" +
+    "本卡的 tagsAny 只保留审查数据，不能用单标签近似。" +
     "(4)「You may play me to its battlefield」需要保留被费用消灭单位的原所在地点，当前费用回执没有该位置表达式。" +
-    "依赖：Ambush location/Reaction 消费方、additional-cost 到 Finalize 的接线、标签析取与费用对象位置回执（RIFT-357 及当前费用回执契约）。不近似实现。",
+    "依赖：Ambush location/Reaction 消费方、additional-cost 到 Finalize 的接线、标签析取与费用对象位置回执。不近似实现。",
   abilities,
   sourceText:
     "[Ambush] (You may play me as a [Reaction] to a battlefield where you have units.)\n" +

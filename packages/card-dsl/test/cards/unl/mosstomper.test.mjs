@@ -1,3 +1,4 @@
+// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -34,6 +35,7 @@ test("unl-047-219 Mosstomper: identity, status, judgeReason and verbatim sourceT
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /conquered/);
+  assert.match(program.judgeReason, /programs\/filters\.ts/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
@@ -62,7 +64,9 @@ test("unl-047-219 Mosstomper: [Level 3][>]'s [Text] is a static +1 Might and a D
 
   // 824.1.c / 824.1.d：3+ XP 门控的保留形状（合并的 Condition 读不到 PlayerSnapshot.xp）。
   for (const ability of [mightBonus, deflectGrant]) {
-    const condition = ability.condition;
+    assert.equal(ability.condition.kind, "all");
+    assert.deepEqual(ability.condition.conditions[0], { kind: "never" });
+    const condition = ability.condition.conditions[1];
     assert.equal(condition.kind, "compare");
     assert.equal(condition.operator, "gte");
     assert.deepEqual(condition.right, { kind: "constant", value: 3 });
@@ -123,7 +127,7 @@ test("unl-047-219 Mosstomper: the merged Level expansion only publishes the unev
   assert.equal(predicate.kind, "static");
   assert.equal(predicate.effect.kind, "condition.predicate");
   // 824.1.a: the [Level N] threshold is published as a query descriptor; the XP
-  // read itself still has no evaluator (layers/engine.ts conditionMatches).
+  // read itself still has no Expr evaluator; static compare conditions can run.
   assert.equal(predicate.effect.query, "controller-xp");
   assert.equal(predicate.effect.characteristic, "xp");
   assert.deepEqual(predicate.effect.threshold, { kind: "constant", value: 3 });

@@ -4,6 +4,10 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/noxian-emissary.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -33,8 +37,8 @@ test("ven-128-166 Noxian Emissary: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /ObjectSnapshot/);
   assert.match(program.judgeReason, /727\.1\.c\.1/);
-  assert.match(program.judgeReason, /Empowered 状态/);
-  assert.match(program.judgeReason, /location/);
+  assert.match(program.judgeReason, /empowered 计数/);
+  assert.match(program.judgeReason, /Expr\.location/);
 });
 
 test("ven-128-166 Noxian Emissary: [Empower] is declared, not re-implemented (contract 3.7)", () => {
@@ -49,9 +53,14 @@ test("ven-128-166 Noxian Emissary: the Empowered Deathknell dependent ability sh
   assert.equal(deathknellEffect.trigger.at, "object-killed");
   assert.deepEqual(deathknellEffect.trigger.filter, {
     self: true,
-    empowered: true,
     cause: "kill",
     destination: "trash"
+  });
+  assert.deepEqual(deathknellEffect.trigger.condition, {
+    kind: "compare",
+    left: { kind: "object-property", object: "source", property: "empowered" },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
   });
   assert.equal(deathknellEffect.optional, false);
 
@@ -129,5 +138,53 @@ test.todo(
 
 test.todo(
   "ven-128-166 Noxian Emissary: evaluate the Empowered dependent Deathknell gate from the host's " +
-    "pre-death LKI (727.1.c.1 / 808.1.d.3 / 828.1.b.1), using an Empowered state predicate (RIFT-359)"
+    "pre-death LKI (727.1.c.1 / 808.1.d.3 / 828.1.b.1) after the production ObjectSnapshot empowered contract is bound"
+);
+
+test("ven-128-166 Noxian Emissary golden: only an Empowered death queues the original body with pre-death LKI", () => {
+  for (const empowered of [false, true]) {
+    const kernel = world().unit("source", { cardId: CANONICAL_ID, might: 2 }).build();
+    // Use the canonical event-aware evaluator. The legacy chain fixture's optional
+    // testTrigger callback only reads its unbound kernel and cannot evaluate source LKI.
+    const host = createActionPipelineHost({
+      checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+      restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+      objects: () => kernel.objects,
+      perform: action => kernel.perform(action),
+      choose: request => { throw new AwaitChoice(request); },
+      context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+    });
+    const engine = new ChainEngine({
+      turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host,
+      cleanup: chain => {
+        chain.layers.setObjects(kernel.objects);
+        const lethal = chain.layers.evaluateAll().filter(object => object.zone === "board" &&
+          object.types.includes("unit") && object.might !== null && (object.might <= 0 || object.damage >= object.might));
+        for (const object of lethal) chain.commit({ type: "kill", object: object.ref });
+        return lethal.length > 0;
+      }
+    });
+    const f = { engine, kernel };
+    const source = kernel.getObject("source");
+    if (empowered) assert.equal(f.engine.commit({ type: "empower", object: source.ref }).status, "done");
+    f.engine.pipeline.registerTrigger({
+      id: "emissary-death", source: f.kernel.getObject("source"), controller: "A",
+      spec: { ...deathknellEffect.trigger, filter: translateTriggerFilter(deathknellEffect.trigger.filter, source.ref.id, "object-killed") },
+      body: deathknellEffect.body, optional: false, activeZones: ["board"], boundToIncarnation: true
+    });
+    assert.equal(f.engine.commit({ type: "kill", object: source.ref }).status, "done");
+    f.engine.advance();
+    assert.equal(f.kernel.getObject("source").zone, "trash");
+    assert.equal(f.engine.items.length, empowered ? 1 : 0);
+    if (empowered) {
+      assert.equal(f.engine.items[0].status, "finalized");
+      assert.equal(f.engine.items[0].source.empowered, 1);
+      assert.deepEqual(f.engine.items[0].body, deathknellEffect.body);
+    }
+  }
+});
+
+test.todo(
+  "ven-128-166 Noxian Emissary: resolve the Deathknell token plays through the production ProgramBinding; " +
+    "Recruit has cardId:null and the chain requires a real native-token play adapter (440.2.c / 185.2.a)"
 );

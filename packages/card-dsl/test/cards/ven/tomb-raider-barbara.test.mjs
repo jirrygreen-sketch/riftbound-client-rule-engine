@@ -62,7 +62,7 @@ test("ven-037-166 Tomb-Raider Barbara: identity, status, judgeReason and verbati
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Empowered/);
   assert.match(program.judgeReason, /442\.1\.a/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /ObjectSnapshot/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -198,5 +198,5 @@ test("ven-037-166 Tomb-Raider Barbara golden: a gear that left the Board is igno
 test.todo(
   "ven-037-166 Tomb-Raider Barbara: evaluate \"if it's [Empowered]\" (442.1.a / 442.2) so the two printed " +
     "branches discriminate on the chosen gear's status instead of descriptive condition data — wire the Empowered " +
-    "status predicate into CardProgram conditions (RIFT-359)"
+    "status predicate into CardProgram conditions (ObjectSnapshot / Condition)"
 );

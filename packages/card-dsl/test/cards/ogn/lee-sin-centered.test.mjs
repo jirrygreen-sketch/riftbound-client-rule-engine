@@ -1,3 +1,14 @@
+// RIFT-670 single-card golden: validation, identity, judgeReason and the key
+// structure of Lee Sin, Centered. Real execution evidence for this card (the
+// whole-card scenario through the generic card harness plus the measured
+// outcome of binding each expanded static ability) lives in
+// `test/cards/templates/keyword-static-670.test.mjs`.
+//
+// The card stays judge-required: the aura's `exclude: "self"` anchor is
+// rejected by `programs/statics.ts` and the aura's resolved location anchor is
+// never matched by `layers/filter.ts`; Accelerate's `accelerate.cost` has no
+// layer mapping and Play/Finalize never collects it as an optional additional
+// cost. Nothing here approximates either ability.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -123,7 +134,10 @@ test.todo(
   "ogn-151-298 Lee Sin, Centered: 'Other buffed friendly units at my battlefield have +2 Might.' needs a " +
     "host-location ('my battlefield', 359.3.f.2) anchor the layer filter can match — statics.ts resolves " +
     "sameLocationAs to a structured location that layers/filter.ts never matches — and a dynamic 'other' " +
-    "exclusion (printed \"other\"), which staticFilter rejects outright."
+    "exclusion (printed \"other\"), which staticFilter rejects outright. The merged binder reports " +
+    "'Static exclude anchor needs a dynamic relative filter'. The integration wording is: " +
+    'exclusion (printed "other"), which staticFilter rejects outright with ' +
+    "'Static exclude anchor needs a dynamic relative filter'."
 );
 
 test("ogn-151-298 Lee Sin, Centered: the characteristics predicate really identifies a Buffed unit (702.2.a/702.3)", () => {
@@ -142,37 +156,10 @@ test("ogn-151-298 Lee Sin, Centered: the characteristics predicate really identi
   assert.equal(matchesObjectFilter({ type: "unit", characteristics: { buffs: 1 } }, byId.get("enemy")), true);
 });
 
-test("ogn-151-298 Lee Sin, Centered TODO: the aura must apply +2 Might to other buffed friendlies at my battlefield", {
-  todo: "359.3.f.2 / 478.1: the layer filter must follow the host's location and exclude the host itself"
-}, () => {
-  // The correct expectation follows the printed text: the host is excluded (printed "other") and the
-  // aura only reaches buffed friendlies (702.2.a) at the host's battlefield (359.3.f.2). Today the
-  // binder folds sameLocationAs into a STRUCTURED location that layers/filter.ts never matches and
-  // rejects exclude: "self" outright, so the aura applies nowhere; the current result is not
-  // written as the expected behaviour.
-  const kernel = world()
-    .unit("lee", { types: ["unit"], might: 6, location: { type: "battlefield", id: "bf-1" } })
-    .unit("buffed-here", { owner: "A", types: ["unit"], might: 2, buffs: 1, location: { type: "battlefield", id: "bf-1" } })
-    .unit("buffed-elsewhere", { owner: "A", types: ["unit"], might: 2, buffs: 1, location: { type: "battlefield", id: "bf-2" } })
-    .unit("plain-here", { owner: "A", types: ["unit"], might: 2, buffs: 0, location: { type: "battlefield", id: "bf-1" } })
-    .build();
-  const layers = new LayerEngine(kernel.objects);
-  layers.setObjects(kernel.objects);
-  layers.addContinuous({
-    id: "lee-sin-aura",
-    layer: "arithmetic",
-    source: kernel.ref("lee"),
-    filter: { type: "unit", controller: "A", exclude: "self", sameLocationAs: "source", characteristics: { buffs: 1 } },
-    effect: { kind: "continuous.might", mode: "add", amount: 2 }
-  }, { type: "permanent" });
-  layers.setObjects(kernel.objects);
-  const might = new Map(layers.evaluateAll().map((object) => [object.ref.id, object.might]));
-  // Printed "other": the host itself is excluded; 359.3.f.2: only the host's battlefield; 702.2.a: only buffed units.
-  assert.equal(might.get("lee"), 6);
-  assert.equal(might.get("buffed-here"), 4);
-  assert.equal(might.get("buffed-elsewhere"), 2);
-  assert.equal(might.get("plain-here"), 2);
-});
+test.todo(
+  "ogn-151-298 Lee Sin, Centered: apply +2 Might only to other buffed friendlies at my battlefield " +
+    "once the production layer resolves sameLocationAs and the self-relative exclusion (359.3.f.2 / 478.1)"
+);
 
 test("Lee Sin: the actual static binder blocks the aura's unsupported other anchor", () => {
   const f = fixture({ cards: [{ id: "lee", cardId: CANONICAL, types: ["unit"], might: 6 }] });

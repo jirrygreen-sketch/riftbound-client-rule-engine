@@ -1,3 +1,15 @@
+// RIFT-646 single-card golden: validation, identity, judgeReason and the key
+// structure of Gearhead. Real execution evidence for this card (the whole-card
+// scenario through the generic card harness plus the measured outcome of
+// binding each expanded static ability) lives in
+// `test/cards/templates/keyword-static-646.test.mjs`.
+//
+// The card stays judge-required: the self Might modification registers in the
+// arithmetic layer, but `ObjectSnapshot` has no Might Bonus characteristic for
+// attached Equipment and the layer engine has no doubling rule, while
+// Accelerate's `accelerate.cost` has no layer mapping and Play/Finalize never
+// collects it. The merged cost plan still pays it only when a caller supplies
+// `optionalAdditional`. Nothing here approximates either gap.
 import assert from "node:assert/strict";
 import test from "node:test";
 

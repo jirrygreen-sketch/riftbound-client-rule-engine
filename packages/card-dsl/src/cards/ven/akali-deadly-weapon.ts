@@ -1,63 +1,18 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Akali, Deadly Weapon (ven-021-166) — Unit, 3 Energy（无印刷 Power），3 Might,
- * Fury, Ionia/Akali/Champion。
- *
- * sourceText（packages/card-data/data/deck-catalog.json, ven-021-166，逐字）：
- *   [Empower] :rb_energy_2::rb_rune_fury: (:rb_energy_2::rb_rune_fury:: Empower me.
- *   Use only if not Empowered.)
- *   When I move, you may deal 1 to a unit at a battlefield I moved to or from.
- *   If I'm [Empowered], deal 2 instead.
- *   [Empowered][>] I have +1 :rb_might:.
- *
- * 规则依据（CR v1.5）：
- * - 827.1 / 827.1.c.1：[Empower] 是 Activated Ability 关键词，功能等价于
- *   “[2 Energy + 1 Fury Power]：Empower me。仅当未 Empowered 时启动。”按契约 3.7 卡牌只
- *   声明 `{ kind: "keyword", keyword: "empower" }`；印刷费用记录在注释与 judgeReason 里
- *   （KeywordAbility 没有 params 字段，见 RIFT-238 已记录的契约变更请求）。
- * - 421.1 / 449.1 / 449.2 / 458.1：“When I move” 是一次成功 Move 的触发，观察时点是封闭
- *   时点 "object-moved"；458/458.1 规定 Recall 不是 Move、不触发移动类触发。
- * - 383.3.a / 契约 3.9："you may deal 1 …" 是效果正文里的可选决定，把被选的指令包进
- *   `choice.optional` 的 body（不写成 choice + linkedTo 串联）。
- * - 418.1.b/418.1.c："deal 1"="deal 2" 是同一个 Deal 动作的数额替换；"If I'm
- *   [Empowered], deal 2 instead" 以宿主 Empowered 状态为准（442.1.a 的二元状态）。
- * - 355.9.a.1 / 355.9.b / 355.10："a unit at a battlefield I moved to or from" 是控制者选择
- *   的一个对象（未特别说明时 "unit" 指 Board 上的单位），"at a battlefield" 与“我移动到的/
- *   出发的那个战场”都是目标限制，不额外产生目标。
- * - 828.1.a/828.1.b.1：[Empowered][>] 是 Dependent Keyword，整段功能等价于“当我拥有
- *   Empowered 状态时，此牌获得 [Text]”，本条为静态 +1 Might（479 的算术图层）。
- *
- * status = judge-required（四处缺口均不近似实现）：
- * 1. 没有 Empower / Empowered 的 KeywordDef（keywords/registry.generated.ts 没有它们），
- *    827.1.c.1 的启动费用与“仅当未 Empowered 时”限制无法展开；
- * 2. Empowered 状态不在 ObjectSnapshot / Condition 里（442.1.a），828.1.b.1 的依赖能力门槛
- *    与“If I'm Empowered, deal 2 instead”都无法求值；
- * 3. 移动触发缺可判定载荷：events/action-adapter.ts 为 move-location 发出的 object-moved
- *    事件不带 toZone/toKind/起点终点，事件对象与“来源 = 本卡”的同一性也没有卡牌侧绑定
- *    （同 sfd/noxian-drummer 的判定），因此“我移动到的或出发的那个战场”无法作为目标锚点；
- * 4. “give me +1 [M]” 的 continuous.might 原语已随 RIFT-258 合入（golden 真实执行 +1 并经 layers 投影出有效 Might 4→4+1），仍缺 Empowered 门控（见上第 2 条）
- *    
- * 可执行部分："you may" 的 choice.optional 拒绝分支真实执行（实测 negated/skipped）；
- * 数额读取用描述性 object-property（结算时读不到该特征即按缺信息 ignored，fail-closed），
- * 绝不写死 1 或 2 冒充 Empowered 分支。
+ * akali-deadly-weapon — M2 源码复核（2026-10-17）。
+ * CR v1.5 827.1.c.1：Empower 印刷费用为 2 Energy + 1 Fury Power。
+ * 442.1.a/828.1.b.1：依赖能力只在宿主 Empowered 时有效。
+ * Empower KeywordDef 已合入；缺口是逐实例费用参数与生产接线。
+ * 具体规则与剩余阻塞见 judgeReason；局部执行不代表整卡可执行。
  */
 export default {
   canonicalCardId: "card.hash-7b24e8fb2cf27a115102e669fe4fd9219a98b10d2411cc5caf4bb1826db5e3c6",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，" +
-    "827.1.c.1 的“2 Energy + 1 Fury Power：Empower me，仅当未 Empowered 时启动”无法展开；" +
-    "(2) Empowered 状态（442.1.a）不在 ObjectSnapshot / Condition 里，828.1.b.1 的依赖能力门槛与" +
-    "正文的“If I'm [Empowered], deal 2 instead”都没有可求值谓词，因此本程序的伤害数额用描述性 " +
-    "object-property 读取（读不到即按缺信息 ignored，fail-closed），绝不写死 1 或 2 冒充分支；" +
-    "(3) “When I move” 缺可判定载荷：move-location 发出的 object-moved 事件不带起点/终点" +
-    "（449.1/449.2、458.1 的 Recall 排除与“我移动到的或出发的战场”锚点都无从判定，" +
-    "同 sfd/noxian-drummer 的结论）；(4) “I have +1 :rb_might:” 的 continuous.might 原语已随 RIFT-258 合入（golden 真实执行 +1 并经 layers 投影出有效 Might 4→4+1），仍缺" +
-    "Empowered 门控谓词（442.1.a）。依赖：新的 Empower/Empowered 关键词任务、RIFT-359（条件谓词）、" +
-    "RIFT-120（移动时点载荷）。“you may” 的 choice.optional 拒绝分支已可真实执行。" +
-    "不近似实现。",
+    "827.1.c.1 的 2 Energy + 1 Fury Power 印刷费用缺 KeywordAbility.params.cost → expandProgram → Empower.expand 接线；ObjectSnapshot 尚未声明 empowered（442.1.a），统一生产 Empowered 状态适配与 442.1.b/c 的二元状态限制仍需接通；442.1.a/828.1.b.1 的 continuous.might 门控及伤害替换已使用真实 empowered 计数，但 object-moved 的 move-location 事件缺起点/终点 LocationRef，movedToOrFrom 目标过滤也没有生产绑定，无法落实 449.1/449.2 的两个战场范围（458.1 排除 Recall）。",
   abilities: [
     // 印刷费 2 Energy + 1 Fury Power（827.1.c.1）见 judgeReason；不伪造启动能力。
     { kind: "keyword", keyword: "empower" },
@@ -85,13 +40,22 @@ export default {
                   id: "akali.deal-damage-at-moved-battlefield",
                   op: "effect.damage",
                   args: {
-                    // “deal 1 … If I'm Empowered, deal 2 instead”：数额取决于宿主 Empowered
-                    // 状态（442.1.a）。该谓词尚未合入（见 judgeReason 第 2 条），故不做成常量、
-                    // 不用某个固定数额充当分支结果；结算时读不到该特征即按缺信息 ignored。
+                    // 442.1.a：“deal 1 … If I'm Empowered, deal 2 instead”。
+                    // min(1, empowered) 只判断是否拥有该状态，不按可叠加次数增加伤害。
                     amount: {
-                      kind: "object-property",
-                      object: "source",
-                      property: "empoweredReplacementDamage"
+                      kind: "arithmetic",
+                      operator: "add",
+                      operands: [
+                        { kind: "constant", value: 1 },
+                        {
+                          kind: "arithmetic",
+                          operator: "min",
+                          operands: [
+                            { kind: "constant", value: 1 },
+                            { kind: "object-property", object: "self", property: "empowered" }
+                          ]
+                        }
+                      ]
                     },
                     target: {
                       kind: "constant",
@@ -103,7 +67,7 @@ export default {
                       id: "akali.unit-at-moved-battlefield",
                       // “a unit at a battlefield”：实际战场必须是我这次移动的起点或终点。
                       // 该锚点依赖移动时点的起点/终点载荷（449.1/449.2），描述性键
-                      // movedToOrFrom 记录待接线的限制（见 judgeReason 第 3 条）。
+                      // movedToOrFrom 记录待接线的限制（见 judgeReason）。
                       filter: {
                         type: "unit",
                         zone: "board",
@@ -132,11 +96,12 @@ export default {
         amount: { kind: "constant", value: 1 },
         appliesTo: "self"
       },
-      // 828.1.c：依赖能力仅在宿主拥有 Empowered 状态时生效。该门槛没有可求值的谓词，
-      // 以描述性 expression 记录（同已合入的 applied-researchers / grumpy-rockbear）。
+      // 828.1.c：按宿主的实时状态计数判断依赖能力是否有效。
       condition: {
-        kind: "expression",
-        value: { kind: "constant", value: "empowered" }
+        kind: "compare",
+        left: { kind: "object-property", object: "self", property: "empowered" },
+        operator: "gte",
+        right: { kind: "constant", value: 1 }
       }
     }
   ],

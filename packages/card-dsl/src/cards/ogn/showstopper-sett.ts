@@ -23,33 +23,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   follow-up (contract 3.4 / CR 359.3.e).
  * - "to a battlefield" leaves the Destination to the controller among the
  *   runtime-legal Locations (355.4 / 355.4.a: a valid Location is one other
- *   than the unit's current Location where it is allowed to be present), which
- *   is the same Finalize-time choice the merged Charm (ogn-043-298) records as
- *   an enumerated-at-runtime placeholder.
+ *   than the unit's current Location where it is allowed to be present). The
+ *   merged LocationTargetSpec + target-location binding supplies that
+ *   Finalize-time choice without fixing a battlefield.
  *
- * Status: judge-required — the Move Destination ("to a battlefield") cannot
- * be enumerated: 355.4.a
- *   makes the Destination a Finalize-time choice among the runtime-legal
- *   Locations, but effect.move accepts a static LocationRef, the literal
- *   "controller-base", a static option list of LocationRefs, or an Expr the
- *   primitive itself evaluates; nothing can build that option list at
- *   Finalize from the runtime board. Not approximated with a fixed
- *   battlefield.
- * The Buff half uses only merged structures and is executed by the golden test;
- * the Move half is executed there with a caller-supplied Finalize Destination,
- * exactly as the production caller must supply it.
+ * Status: executable (re-reviewed 2026-10-17). The Buff target and the
+ * battlefield Destination are both selected through the merged target/location
+ * resolver, and the Move reads the same locked unit and selected Location.
  */
 const showstopper = {
   canonicalCardId: "card.hash-b22bcf86e002f1a9a45cb4011a53cb3377c815e03ab16283a99130fec4987f95",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "「in your base」已由 target.location 的 controller-relative Base 过滤表达；" +
-    "但「to a battlefield」的目的地仍无法枚举：355.4/355.4.a 要求移动效果在 Finalize 从运行时合法 Location 中选择，" +
-    "而 effect.move 只接受静态 LocationRef、字面量 controller-base、静态候选列表，或其自身能求值的 Expr" +
-    "（静态 ObjectSelector 只覆盖对象），战场目的地集合没有可写形态；不用固定战场近似。" +
-    "Buff 半段（702.2.a/702.3/427.1.c）只用已合入的 effect.buff，由 golden 执行；" +
-    "Move 半段在 golden 中按生产调用方必须提供的方式传入 Finalize 目的地执行。",
+  status: "executable",
   sourceText:
     "Buff a friendly unit in your base, then move it to a battlefield. " +
     "(If it doesn't have a buff, it gets a +1 :rb_might: buff.)",
@@ -82,21 +67,24 @@ const showstopper = {
           id: "move-buffed-unit",
           op: "effect.move",
           linkedTo: "buff-friendly-unit-in-base",
+          locations: [
+            {
+              id: "showstopper.destination",
+              type: "battlefield",
+              min: 1,
+              max: 1,
+              selection: "one"
+            }
+          ],
           args: {
             // "then move it": the same Finalize-locked unit the Buff chose,
             // not a second selection.
             objects: { kind: "constant", value: { target: "friendly-unit-in-base" } },
-            // "to a battlefield" — the Destination is a Finalize-time choice
-            // among the runtime-legal Locations (355.4.a). The frozen IR
-            // cannot enumerate them, so this remains the merged Charm
-            // placeholder shape instead of inventing a battlefield.
+            // "to a battlefield" — the Destination is the runtime Location
+            // selected by the instruction's LocationTargetSpec (355.4.a).
             to: {
-              kind: "constant",
-              value: {
-                kind: "choose",
-                id: "showstopper.destination",
-                options: ["runtime:legal-battlefield-destination"]
-              }
+              kind: "location",
+              value: { kind: "target-location", target: "showstopper.destination" }
             }
           }
         }

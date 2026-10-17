@@ -1,3 +1,4 @@
+// RIFT-672 execution evidence: ../templates/keyword-static-672.test.mjs (supported paths only).
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -15,7 +16,30 @@ const SOURCE_TEXT =
   "Your deck can have any number of cards named Spiderling.";
 
 const [hidden, mightAbility] = program.abilities;
-const condition = mightAbility.condition;
+// Only the supported other/here subfilter is executed in these local probes.
+// The full name expression and count-to-layer consumer remain blocked.
+const { characteristics: _name, ...supportedFilter } = mightAbility.effect.amount.filter;
+const condition = {
+  kind: "compare",
+  left: { ...mightAbility.effect.amount, filter: supportedFilter },
+  operator: "gte",
+  right: { kind: "constant", value: 1 }
+};
+
+test("ven-097-166 Spiderling regression: for each is a count amount, not a binary +1 gate", () => {
+  assert.deepEqual(mightAbility.effect.amount, {
+    kind: "count",
+    subject: "other-units-here-with-my-name",
+    filter: {
+      type: "unit",
+      zone: "board",
+      controller: "controller",
+      sameLocationAs: "self",
+      exclude: "self",
+      characteristics: { name: { kind: "object-property", object: "self", property: "name" } }
+    }
+  });
+});
 
 // The card-side static registration path is merged (programs/keywords.ts →
 // programs/statics.ts), and the condition clause runs through the merged
@@ -84,11 +108,11 @@ test("ven-097-166 Spiderling: +1 Might per other same-named unit here", () => {
   assert.equal(mightAbility.effect.kind, "continuous.might");
   assert.equal(mightAbility.effect.mode, "add");
   assert.equal(mightAbility.effect.layer, "arithmetic");
-  assert.deepEqual(mightAbility.effect.amount, { kind: "constant", value: 1 });
+  assert.equal(mightAbility.effect.amount.kind, "count");
+  assert.equal(mightAbility.condition, undefined, "zero matches naturally gives a zero bonus");
   assert.equal(mightAbility.effect.appliesTo, "self");
 
-  // “for each other unit you control here with my name”：count + sameLocationAs + exclude
-  // 表达 other/here；名称自指与 N 倍缩放见 judgeReason 第 2 点。
+  // This probe covers other/here only; the full amount and name are pinned above.
   assert.equal(condition.kind, "compare");
   assert.equal(condition.operator, "gte");
   assert.equal(condition.left.kind, "count");
@@ -105,11 +129,11 @@ test("ven-097-166 Spiderling: +1 Might per other same-named unit here", () => {
 
 test("ven-097-166 Spiderling: the deckbuilding permission is recorded, not invented", () => {
   // 103.3.b 的默认上限是 3 张同名；本印刷显式覆盖它。构筑强制由未合入的 deck 消费方负责
-  // （见 judgeReason 第 4 点），卡内只保留一条可审查的数据记录。
+  // （见 judgeReason 第 3 点），卡内只保留一条可审查的数据记录。
   assert.deepEqual(program.deckbuilding, [{ kind: "unlimited-copies-of-this-name" }]);
 });
 
-test("ven-097-166 golden: one other friendly unit here satisfies the printed condition", () => {
+test("ven-097-166 golden: one other friendly unit here satisfies the supported other/here subfilter", () => {
   const kernel = spiderKernel({ sameField: 1 });
   const outcome = runAbilityBody([predicate], kernel);
   assert.equal(outcome.status, "executed");
@@ -139,13 +163,16 @@ test("ven-097-166 golden: an enemy unit here is not 'a unit you control'", () =>
   );
 });
 
-test("ven-097-166 golden: the condition is binary, so two other units give the same +1", () => {
-  const one = runAbilityBody([predicate], spiderKernel({ sameField: 1 }));
-  const two = runAbilityBody([predicate], spiderKernel({ sameField: 2 }));
-  assert.equal(one.linkedValues["spiderling.condition-probe.value"], true);
-  assert.equal(two.linkedValues["spiderling.condition-probe.value"], true);
-  // “for each …” 的计数语义（N 个同类单位 → +N）需要按集合大小求值 amount；
-  // 该求值路径未合入（见下方 test.todo），因此这里只断言条件趋同，不宣称 +N 已实现。
+test("ven-097-166 golden: the supported count distinguishes one and two neighbours", () => {
+  const countProbe = {
+    id: "spiderling.count-probe", op: "condition.value",
+    args: { value: condition.left }
+  };
+  for (const count of [0, 1, 2]) {
+    const result = runAbilityBody([countProbe], spiderKernel({ sameField: count }));
+    assert.equal(result.status, "executed");
+    assert.equal(result.linkedValues["spiderling.count-probe.value"], count);
+  }
 });
 
 test.todo(

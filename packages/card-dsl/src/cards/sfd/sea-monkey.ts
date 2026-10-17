@@ -20,21 +20,24 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 702.2.a / 702.3 / 702.3.a："buff me" 放置一个 Buff，已有 Buff 时不放置第二个；括号内是
  *   reminder（703 的 +1 Might 由图层从 Buff 计数派生），不是独立指令。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，缺口仍依赖进行中的 RIFT-261。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
+ * RIFT-261（cost.pay / cost.modify 与费用种类）已合入，RIFT-359 也已提供 356.4.f.1 的
+ * result 谓词；三处当前缺口均不近似实现：
  * - 可选附加费用没有卡牌侧收费入口：cost/cost-plan.ts 的 optionalAdditional 只接受调用方
  *   传入的 OptionalCostInput，programs/play.ts 的 translateCost 对 additional / additional-cost
- *   字段直接判 judge-required，没有任何已合入消费方把 CardProgram 声明的附加费用接进
- *   buildCostPlan。第 1 条因此以描述性的 static cost.additional 形状保留，而不是把它写成
- *   结算期 effect.resources（那会把费用变成效果）。
- * - "if you paid the additional cost" 没有可绑定的支付回执：IR 的 Condition 只有
- *   always/never/compare/all/any/not/expression，没有读取费用计划结果的来源（调研记为
- *   condition.result），RIFT-261 的 finalized 费用回执也还没有链接值入口。第 2 条因此保留
- *   target + effect.buff 的可审查形状，但**不**伪造一个恒真的 condition 来开闸。
+ *   字段直接判 judge-required（实测 "Additional costs are not bound"），对 optional 字段抛
+ *   "Unsupported play cost field optional"，createEngineStaticBinder.bindStatic 对该 effect kind 抛
+ *   "Static ability kind cost.additional has no layer mapping"；第 1 条因此以 static
+ *   cost.additional 形状保留，而不是写成结算期 effect.resources（那会把费用变成效果）。
+ * - "if you paid the additional cost" 的谓词本身已合入（RIFT-359 的 Condition kind "result"，
+ *   effects/interpreter/predicates/result.ts 从 { plan, receipt } 读取支付决定，本卡已按该词汇写
+ *   TriggerSpec.condition）；仍缺的是打出流程把被打出牌的 item.payment 回执送进该 card-played
+ *   触发的 Resolve 输入，真实波次因此抛 MissingInformation（同 sfd/zaun-punk）。
  * - 能力体在合并的 CardProgram 绑定里也仍不可绑定：body target 的 `object: "self"` 锚点被
- *   programs/filters.ts 的 translateObjectFilter 以 "Unsupported filter field object" 拒绝
- *   （RIFT-257 的过滤器适配只接受 objectId / cardId / type / controller 等键）。
- * 依赖：RIFT-261（cost.pay / cost.modify 与费用计划接线、支付回执）、RIFT-257（过滤器适配的
- * self 锚点）。
+ *   programs/filters.ts 的 translateObjectFilter 以 "Unsupported filter field object" 拒绝，
+ *   layers/filter.ts 的 matchesObjectFilter 也不消费 OBJECT_FILTER_ANCHORS 的 self 锚点。
+ * 依赖：CardProgram → CostPlanInput 的附加费用消费方、card-played 触发的费用回执投递，
+ * 以及过滤器适配对 self 锚点（OBJECT_FILTER_ANCHORS）的消费。
  */
 const abilities: Ability[] = [
   {
@@ -59,7 +62,10 @@ const abilities: Ability[] = [
     kind: "triggered",
     trigger: {
       at: "card-played",
-      filter: { event: "card-played", filter: { source: "self" } }
+      filter: { event: "card-played", filter: { source: "self" } },
+      // 383.2.a.1 + 356.4.f.1："if you paid the additional cost" 是触发条件的一部分；
+      // result 谓词读取 finalized { plan, receipt } 的支付决定（与实付量无关）。
+      condition: { kind: "result", result: "additional-cost-paid", id: "sea-monkey.additional-cost" }
     },
     optional: false,
     body: [
@@ -91,19 +97,20 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺口仍属进行中的 RIFT-261（费用种类与 cost.pay / cost.modify）与 RIFT-257（卡牌程序绑定），不近似实现：" +
+    "RIFT-261 与 RIFT-359 已合入，三处当前缺口均不近似实现：" +
     "(1)「You may pay :rb_energy_1: as an additional cost to play me」是 356.2.b/356.2.b.1 的可选附加费用，" +
     "但没有卡牌侧收费入口——cost/cost-plan.ts 的 optionalAdditional 只消费调用方传入的 OptionalCostInput，" +
-    "programs/play.ts 的 translateCost 对 additional / additional-cost 字段直接判 judge-required，" +
+    "programs/play.ts 的 translateCost 对 additional / additional-cost 字段抛 \"Additional costs are not bound\"、对 optional 字段抛 \"Unsupported play cost field optional\"，" +
+    "createEngineStaticBinder.bindStatic 对该 effect kind 抛 \"Static ability kind cost.additional has no layer mapping\"；" +
     "没有代码把 CardProgram 声明的附加费用接进 buildCostPlan；本卡以描述性 static cost.additional 保留形状，" +
     "不把它写成结算期 effect.resources（那会把费用变成效果）。" +
-    "(2)「if you paid the additional cost」没有可绑定的支付回执：356.4.f.1 只看玩家是否做出支付决定，" +
-    "而 Condition（always/never/compare/all/any/not/expression）没有读取费用计划结果的来源" +
-    "（调研记为 condition.result），RIFT-261 的 finalized 费用回执也还没有链接值入口，故不伪造恒真条件开闸。" +
+    "(2)「if you paid the additional cost」的 356.4.f.1 谓词已合入（RIFT-359 的 Condition kind \"result\"），" +
+    "本卡据此写 TriggerSpec.condition，golden 用真实 buildCostPlan/payCostPlan 回执执行已付/未付两支；" +
+    "仍缺的是打出流程把被打出牌的 item.payment 回执送进该 card-played 触发的 Resolve 输入，真实波次抛 MissingInformation（同 sfd/zaun-punk）。" +
     "(3) 能力体在合并的 CardProgram 绑定里仍不可绑定：body target 的 object: \"self\" 锚点被 programs/filters.ts 的 " +
-    "translateObjectFilter 以 \"Unsupported filter field object\" 拒绝（RIFT-257 的过滤器适配只接受 objectId 等键）。" +
+    "translateObjectFilter 以 \"Unsupported filter field object\" 拒绝，layers/filter.ts 的 matchesObjectFilter 也不消费 OBJECT_FILTER_ANCHORS 的 self 锚点。" +
     "effect.buff 本体已合入（702.2.a/702.3.a），golden 用真实原语执行 buff 与「已有 buff 不再放置」边界。" +
-    "依赖：RIFT-261（附加费用与支付回执）、RIFT-257（过滤器 self 锚点）。",
+    "依赖：CardProgram → CostPlanInput 的附加费用消费方、card-played 触发的费用回执投递、过滤器适配对 self 锚点的消费。",
   abilities,
   sourceText:
     "You may pay :rb_energy_1: as an additional cost to play me.\n" +

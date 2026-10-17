@@ -8,6 +8,8 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -40,7 +42,37 @@ test("ven-141-166 Butcher of the Sands: validateCardProgram passes and identity 
   // 复核后：[A] 的支付形状已由合并费用管线支持，旧的「六域封闭集合无法表达」已删除。
   assert.doesNotMatch(program.judgeReason, /无法表达/);
   assert.match(program.judgeReason, /allowedDomains/);
+  // The current, measured form of the restricted-resource gap.
+  assert.match(program.judgeReason, /gain-energy/);
+  assert.match(program.judgeReason, /purpose/);
+  assert.match(program.judgeReason, /continuous\.restrict/);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
+});
+
+test("ven-141-166: the Add Energy body is registrable while the spend restriction has no shape", () => {
+  // The ability costs and body all bind through the production program surface.
+  // This card is judge-required, so the registry needs an executable projection
+  // of the very same program object to exercise that surface; the body, cost and
+  // restriction shapes under test are the card's own.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const kernel = world()
+    .player("A", { power: ["Order", "Fury"] })
+    .unit("butcher", { types: ["legend"], zone: "board", owner: "A", controller: "A", cardId: CANONICAL_ID })
+    .build();
+  const draft = binding.describeActivate(kernel.getObject("butcher"), "A", 0);
+  assert.equal(draft.speed, "reaction");
+  assert.deepEqual(draft.body.map(instruction => instruction.op), ["effect.resources"]);
+
+  // The spend restriction itself would need a purpose-tagged resource shape. The
+  // primitive set has the untagged Add, and no registered op expresses a
+  // restricted resource pool; the card therefore authors no fake restriction.
+  assert.equal(instructionDefinitionsById.has("effect.resources"), true);
+  for (const op of ["effect.restricted-resources", "continuous.spend-limit", "restriction.energy-use"]) {
+    assert.equal(instructionDefinitionsById.has(op), false, op);
+  }
+  assert.equal("restriction" in ability, false);
 });
 
 test("ven-141-166: [Reaction][>] Add ability with the printed two [A] plus Exhaust cost", () => {

@@ -17,7 +17,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   排除本卡自身（355.10）。
  * - 366 / 365.1：战场上永久物的被动能力在 Board 上生效。
  *
- * 结构说明: 单个 static 能力，effect.kind = "continuous.grant-keyword" 把 assault
+ * 结构说明: 单个 static 能力，effect.kind = "continuous.grant-keyword" 把 Assault
  * （无数值 → 807.1.b.3 默认 1）授予同一位置的其他友方单位。
  *
  * 未合入依赖（不近似实现）:
@@ -42,13 +42,14 @@ const captainFarron = {
     "会拒绝 filter 的 other/exclude 动态锚点，无法把“其他”单位注册成正确的受影响集合；授予的关键词也不会自动再次进入 KeywordDef.expand。" +
     "此外被授予的 Assault 按 807.1.c/807.2 展开为条件于 attacker designation 的 +1 [M]；" +
     "layers 的 ObjectSnapshot 只有 combatRole，尚未把攻击者角色映射到该谓词，且授予的关键词也不会在图层绑定时再次展开，" +
-    "所以无法只在攻击者状态下生效。依赖：动态 other/exclude 过滤、授予关键词二次展开、designation → combatRole 映射。不近似实现。",
+    "所以无法只在攻击者状态下生效。此外 here 还受 layers/filter.ts 对 LocationRef 按对象引用而非位置值匹配的缺口影响。" +
+    "依赖：动态 other/exclude 过滤、位置值匹配、授予关键词二次展开、designation → combatRole 映射。不近似实现。",
   abilities: [
     {
       kind: "static",
       effect: {
         kind: "continuous.grant-keyword",
-        keyword: "assault",
+        keyword: "Assault",
         filter: {
           type: "unit",
           controller: "controller",
