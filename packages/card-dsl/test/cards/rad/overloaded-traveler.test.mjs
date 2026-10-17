@@ -5,6 +5,12 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/rad/overloaded-traveler.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-adfd644e08c5d8afc96ca8c90b7a573a5e333bba2b2fb4d364ea5830160dc459";
 const [staticAbility] = program.abilities;
@@ -69,6 +75,11 @@ test("rad-072-167 Overloaded Traveler: judgeReason names the conditional Might, 
   assert.match(program.judgeReason, /\[Deploy\]/);
   assert.match(program.judgeReason, /830\.3/);
   assert.match(program.judgeReason, /143\.2/);
+  // The relative-player anchor is the second rule gap, and the reason must name
+  // the observed wrong result (opposed gear satisfying the clause) instead of
+  // only the keyword predicate.
+  assert.match(program.judgeReason, /has-keyword/);
+  assert.match(program.judgeReason, /object\.controller === object\.controller/);
   // The catalog types this printing as a Spell with Might 2 while the text is a
   // permanent unit's static ability.
   assert.match(program.judgeReason, /Spell/);
@@ -105,6 +116,160 @@ test("rad-072-167 Overloaded Traveler: structure — the friendly-[Deploy]-gear-
   });
   assert.equal(Object.hasOwn(condition.left.filter, "keyword"), false);
   assert.equal(Object.hasOwn(condition.left.filter, "keywords"), false);
+});
+
+/** Bind the card's own static through the merged production static → layers path. */
+function boundStatic() {
+  const kernel = world()
+    .unit("traveler", { controller: "A", owner: "A", might: 2, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("Unexpected choice"); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: () => true
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  createEngineStaticBinder(engine).bindStatic(staticAbility, kernel.getObject("traveler"));
+  return { kernel, engine, entry: engine.layers.registry.list()[0] };
+}
+
+test("rad-072-167 Overloaded Traveler: the authored static really binds and its condition gates the +1 Might", () => {
+  // 143.2 / 479.4.e.1: the card's own declared shape registers through the
+  // merged static → layers binder, so the remaining gaps are exactly the ones
+  // judgeReason lists — not the binding path.
+  const { kernel, engine, entry } = boundStatic();
+  assert.ok(entry);
+  assert.equal(entry.effect.layer, "arithmetic");
+  assert.equal(entry.effect.effect.kind, "continuous.might");
+  assert.equal(typeof entry.effect.effect.condition, "function");
+  // With no gear present the while-clause is false, so Might stays printed.
+  assert.equal(entry.effect.effect.condition(kernel.getObject("traveler")), false);
+  assert.equal(engine.layers.evaluate(kernel.ref("traveler")).might, 2);
+
+  // Now add a friendly gear with Deploy at the same battlefield: the condition
+  // turns true and the layer really applies the +1.
+  const withGear = world()
+    .unit("traveler", { controller: "A", owner: "A", might: 2, location: { type: "battlefield", id: "bf-1" } })
+    .object("gear", { types: ["gear"], controller: "A", owner: "A", zone: "board", location: { type: "battlefield", id: "bf-1" }, energy: null, power: null, keywords: [{ id: "Deploy" }] })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: withGear.snapshot(), links: withGear.clone() }),
+    restore: checkpoint => { withGear.restore(checkpoint.state); withGear.copyLinkedFrom(checkpoint.links); },
+    objects: () => withGear.objects,
+    perform: action => withGear.perform(action),
+    choose: () => { throw new Error("Unexpected choice"); },
+    context: (source, controller, timingPoint) => bindResolveContext(withGear, { source, controller, timingPoint }),
+    testTrigger: () => true
+  });
+  const bound = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  createEngineStaticBinder(bound).bindStatic(staticAbility, withGear.getObject("traveler"));
+  const registered = bound.layers.registry.list()[0];
+  assert.equal(registered.effect.effect.condition(withGear.getObject("traveler")), true);
+  assert.equal(bound.layers.evaluate(withGear.ref("traveler")).might, 3);
+});
+
+test("rad-072-167 Overloaded Traveler: the relative-player clause is unsound in both merged query paths", () => {
+  // The condition needs a source-relative "friendly" query. Neither merged
+  // path provides one, and they fail in opposite directions:
+  // - the production static → layers path resolves controller: "self" through
+  //   layers/filter.ts as object.controller === object.controller, so an opposed
+  //   gear at the same battlefield satisfies the clause and Would apply +1
+  //   Might with no friendly gear present (CR 143.2 + 830.3);
+  // - the interpreter set query compares the string literally to the player id,
+  //   so a real friendly gear does NOT satisfy it (fail-closed).
+  const enemyOnly = world()
+    .unit("traveler", { controller: "A", owner: "A", might: 2, location: { type: "battlefield", id: "bf-1" } })
+    .object("enemy-gear", { types: ["gear"], controller: "B", owner: "B", zone: "board", location: { type: "battlefield", id: "bf-1" }, energy: null, power: null })
+    .build();
+  const enemySource = enemyOnly.getObject("traveler");
+  const enemyEnvironment = {
+    context: bindResolveContext(enemyOnly, { source: enemySource, controller: "A" }),
+    host: enemyOnly.ref("traveler"),
+    isIgnored: () => false,
+    canLookBack: () => false
+  };
+  assert.equal(evaluateCondition(staticAbility.condition, enemyEnvironment), false,
+    "the interpreter path is fail-closed even for a real friendly gear");
+  assert.equal(matchesObjectFilter({ type: "gear", controller: "self" }, enemyOnly.getObject("enemy-gear")), true,
+    "the layer filter treats controller: self as a self-comparison");
+
+  // A literal player id filters correctly, but a printed card program must not
+  // hardcode one — the missing piece is the relative-player anchor.
+  assert.equal(matchesObjectFilter({ type: "gear", controller: "B" }, enemyOnly.getObject("enemy-gear")), true);
+  assert.equal(matchesObjectFilter({ type: "gear", controller: "A" }, enemyOnly.getObject("enemy-gear")), false);
+
+  // Proof of the over-application: a friendly gear does not change the layer
+  // answer for an opposed gear, because the opponent is never identified.
+  const friendlyGear = {
+    ref: { id: "friendly-gear", zoneEntryId: 2 },
+    cardId: null,
+    name: "Hextech Battery",
+    types: ["gear"],
+    tags: [],
+    keywords: [{ id: "Deploy" }],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "bf-1" },
+    might: null,
+    energy: null,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const query = filter => [friendlyGear, enemyOnly.getObject("enemy-gear")].filter(object => matchesObjectFilter(filter, object));
+  assert.equal(query({ type: "gear", controller: "self" }).length, 2,
+    "controller: self matches both the friendly and the opposed gear");
+  assert.equal(query({ type: "gear", controller: "A" }).length, 1,
+    "only an explicit player id distinguishes the controller");
+});
+
+test("rad-072-167 Overloaded Traveler: no merged filter or condition form evaluates the [Deploy] qualifier (830.3)", () => {
+  // 830.3 makes "[Deploy]" a checkable characteristic. The layer filter ignores
+  // unknown keys (a gear without Deploy still matches `keywords`), and the
+  // interpreter's Condition vocabulary has no keyword predicate at all.
+  const { engine } = boundStatic();
+  const plainGear = {
+    ref: { id: "plain-gear", zoneEntryId: 1 },
+    cardId: null,
+    name: "Plain Gear",
+    types: ["gear"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "bf-1" },
+    might: null,
+    energy: null,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  // Unknown filter keys are not rejected and not evaluated: they pass.
+  assert.equal(matchesObjectFilter({ type: "gear", keywords: ["Deploy"] }, plainGear), true);
+  // characteristics compares the list against a scalar, so it fails for the
+  // wrong reason (not because Deploy is absent).
+  assert.equal(matchesObjectFilter({ type: "gear", characteristics: { keywords: ["Deploy"] } }, plainGear), false);
+  assert.equal(
+    engine.layers.evaluateAll().some(object => Object.keys(object).includes("has-keyword")),
+    false,
+    "no evaluable keyword predicate is exposed by the merged layer engine"
+  );
 });
 
 test("rad-072-167 Overloaded Traveler: the declared +1 Might really computes in the merged arithmetic layer", () => {

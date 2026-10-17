@@ -50,6 +50,52 @@ test("rad-148-167 Ntofo Strikes: judgeReason records only the remaining Shield-v
   assert.equal(/RIFT-91/.test(program.judgeReason), false);
 });
 
+test("rad-148-167 Ntofo Strikes: reading `keywords` as an amount is rejected, so the Shield Value read stays missing", () => {
+  // ObjectSnapshot.keywords is a { id, value } list; effect.damage needs a
+  // number. The closest available spelling (object-property "keywords") yields
+  // the array and the primitive negates it as impossible rather than dealing a
+  // wrong amount — which is exactly why effect.shield-value is still pending.
+  const kernel = world()
+    .unit("ally", { might: 4, keywords: [{ id: "Shield", value: 2 }] })
+    .unit("enemy", { owner: "B", might: 5 })
+    .build();
+  const run = runInstruction(
+    damage,
+    {
+      amount: { kind: "object-property", object: { target: "ntofo-strikes.enemy-unit" }, property: "keywords" },
+      target: "ntofo-strikes.enemy-unit"
+    },
+    { world: kernel, targets: { "ntofo-strikes.enemy-unit": [kernel.ref("enemy")] } }
+  );
+  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(kernel.getObject("enemy").damage, 0);
+  // The granted Shield itself is real: the list really carries the value.
+  assert.deepEqual(kernel.getObject("ally").keywords, [{ id: "Shield", value: 2 }]);
+});
+
+test("rad-148-167 Ntofo Strikes: the authored three-instruction body stops at the unregistered Shield-value op", () => {
+  // End-to-end evidence for the declared gap: the grant would execute, but the
+  // whole body is driven to `ignored` by the unregistered read, and the linked
+  // damage cannot fall through to a free 0 or a guessed 2.
+  assert.equal(program.abilities[1].body[1].op, "effect.shield-value");
+  const kernel = world()
+    .unit("ksante", { might: 4, controller: "A", owner: "A" })
+    .unit("enemy", { might: 5, controller: "B", owner: "B" })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("ksante") });
+  scoped.setTargets("ntofo-strikes.friendly-unit", [kernel.ref("ksante")]);
+  scoped.setTargets("ntofo-strikes.enemy-unit", [kernel.ref("enemy")]);
+  const outcome = runAbilityBody(program.abilities[1].body, scoped);
+  assert.deepEqual(outcome.results.map(result => [result.op, result.result.status]), [
+    ["continuous.grant-keyword", "ignored"],
+    ["effect.shield-value", "ignored"],
+    ["effect.damage", "ignored"]
+  ]);
+  // Nothing was actually granted or dealt: the body is not silently settled.
+  assert.equal(scoped.continuousEffects.length, 0);
+  assert.equal(scoped.getObject("enemy").damage, 0);
+});
+
 test("rad-148-167 Ntofo Strikes: structure — Action keyword, Shield grant, Shield-value read, linked damage", () => {
   assert.equal(program.abilities.length, 2);
   assert.deepEqual(speed, { kind: "keyword", keyword: "action" });

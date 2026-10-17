@@ -33,10 +33,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * 状态：judge-required。Disarm KeywordDef、continuous.might 与 continuous.grant-keyword
  * 均已合入，生产 static → layers 注册也已可用；缺口收敛为两点（均由测试实证）：
- * 1. Disarm 展开出的目标过滤器使用 sameLocationAs:"source"，生产触发注册
- *    （programs/filters.ts）的白名单拒绝该字段并抛 judge-required；同时 attack-declared
- *    时点仍没有生产发射方（战斗结算在 combat-start-transaction 处被阻断），因此触发
- *    既无法注册也无法被发出（CR v1.5 831.1.d / 831.1.d.1）。
+ * 1. Disarm 展开出的 body 目标过滤器使用 sameLocationAs:"source"，生产触发注册路径的
+ *    programs/filters.ts translateInstructionTargets 白名单拒绝该字段并抛 judge-required
+ *    （实测 Unsupported filter field sameLocationAs）；同时 attack-declared
+ *    时点仍没有生产发射方（combat/flow.ts 在 combat-start-transaction 抛
+ *    TurnCombatBlockedError），因此触发既无法注册也无法被发出（CR v1.5 831.1.d /
+ *    831.1.d.1）。
  * 2. "While I'm in a showdown" 缺少可读状态：ObjectSnapshot 没有 in-showdown 字段，
  *    特征表达式会抛 MissingInformation，生产绑定按 fail-closed 处理（条件恒 false）。
  * static → layers 路径会直接把条件成立的 chain 法术标记为 Reaction；当前只剩上面两项
@@ -78,11 +80,12 @@ const program = {
   judgeReason:
     "Disarm KeywordDef（RIFT-267）、continuous.might 与 continuous.grant-keyword（RIFT-258）已合入，" +
     "生产触发注册与 static → layers 绑定也已接通，但整卡仍有两处缺口，均不近似实现：" +
-    "(1) Disarm 展开的触发目标过滤器使用 sameLocationAs，被生产触发注册的过滤器白名单拒绝，" +
-    "且 attack-declared 时点仍没有生产发射方（战斗结算在 combat-start-transaction 处被阻断），" +
+    "(1) Disarm 展开的 body 目标过滤器使用 sameLocationAs，被生产触发注册路径的 " +
+    "programs/filters.ts translateInstructionTargets 白名单拒绝（实测 Unsupported filter field sameLocationAs），" +
+    "且 attack-declared 时点仍没有生产发射方（combat/flow.ts 在 combat-start-transaction 抛 TurnCombatBlockedError），" +
     "对应 CR v1.5 831.1.d / 831.1.d.1；" +
     "(2) 条件「While I'm in a showdown」（364.3 / 813.4）缺少可读状态，ObjectSnapshot 没有 in-showdown 字段，" +
-    "静态绑定的特征表达式会抛 MissingInformation 并按 fail-closed 处理（条件恒 false）；" +
+    "静态绑定的特征表达式会抛 MissingInformation 并按 fail-closed 处理（实测条件恒 false、chain 法术未获 Reaction）；" +
     "不把 Disarm 写成 effect.buff，" +
     "也不把「授予你的法术 Reaction」写成本卡自身的 keyword reaction。另见数据问题：同身份的 rad-sp4-005 印刷文本与 Might 不同。",
   abilities,
