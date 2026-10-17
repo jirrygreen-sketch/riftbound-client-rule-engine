@@ -34,12 +34,12 @@ function makeScenario(scenario: Scenario) {
       : scenario.sourceCardId === IDS.vengeance
         ? { energy: 4, power: ["Order"] }
         : scenario.sourceCardId === IDS.incinerate
-          ? { energy: 2, power: ["Fury"] }
+          ? { energy: 2, power: null }
           : scenario.sourceCardId === IDS.hextechRay
             ? { energy: 1, power: ["Fury"] }
             : scenario.sourceCardId === IDS.fallingComet
-              ? { energy: 5, power: ["Mind"] }
-              : { energy: 8, power: ["Mind", "Order"] };
+              ? { energy: 5, power: null }
+              : { energy: 8, power: null };
   const source = world()
     .player("A", { energy: 20, power: [
       "Fury", "Calm", "Mind", "Body", "Chaos", "Order", "Mind", "Mind", "Order", "Order",
@@ -217,6 +217,11 @@ describe("RIFT-341 P4 Spell parity against the new program kernel", () => {
     expect(result.target?.zone).toBe("board");
     expect(result.target?.damage).toBe(amount);
     expect(result.source?.zone).toBe("trash");
+    expect(result.history.history.find(entry => entry.action.type === "pay")?.action.plan).toMatchObject({
+      finalized: true,
+      energy: cardId === IDS.incinerate ? 2 : cardId === IDS.fallingComet ? 5 : 8,
+      power: [],
+    });
     expect(semanticEvents(result.events)).toEqual([
       "object-enters-chain", "became-target", "damage-dealt", "card-played", "object-enters-trash",
     ]);
