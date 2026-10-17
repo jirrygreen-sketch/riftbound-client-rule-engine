@@ -22,11 +22,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   359.2.c 的“横置进场”替换成“就绪进场”。805.6.a（Accelerate 的同型规则）明确这种
  *   入场替代不是先横置再就绪、也不触发“成为就绪”类能力。
  *
- * Status: judge-required. Current source audit:
- * condition.history already supports committed play actions with a spell
- * objectFilter. Static cost applicability still has no history-expression
- * adapter or optional-payment receipt. Entry-ready is a replacement, never
- * an exhausted entry followed by a ready action.
+ * Status: judge-required. Re-checked 2026-10-17 against merged source:
+ * condition.history really counts committed play actions by card type (golden
+ * verified), the replacement binder drives the entry-orientation rewrite
+ * for the host's own Board entry, and the condition.result predicate added with
+ * the condition-predicate batch reads a finalized optional-cost receipt. Still
+ * missing: (1) the static cost.additional declaration has no production
+ * consumer — programs/play.ts never inspects static abilities and the static
+ * binder's layerFor refuses the kind — so Finalize never charges the 1 Chaos
+ * Power or returns the paid/declined receipt; (2) because no receipt reaches the
+ * replacement, its authored gate cannot distinguish paid from declined, and
+ * replacement/bind.ts matches the entry action before evaluating the condition;
+ * (3) the printed "If you've played a spell this turn" applicability is a
+ * history query, and no static-cost condition reads history.
  */
 const abilities: Ability[] = [
   {
@@ -41,8 +49,9 @@ const abilities: Ability[] = [
       stage: "optional-additional",
       payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, domain: "Chaos" }]
     },
-    // 356.2.b.1：该可选费用的适用条件是“你本回合打过法术”；按卡类型区分的历史
-    // 查询已由 condition.history 支持，但静态费用条件还没有历史表达式接线。
+    // 356.2.b.1：该可选费用的适用条件是“你本回合打过法术”。按卡类型区分的历史
+    // 查询已由 condition.history 支持，但没有读取 condition.history 的静态费用
+    // 条件，因此这里保留具名占位（见 judgeReason 第 3 点），不用恒真条件冒充。
     condition: {
       kind: "expression",
       value: { kind: "constant", value: "you-played-a-spell-this-turn" }
@@ -56,6 +65,9 @@ const abilities: Ability[] = [
       event: "object-enters-board",
       filter: { self: true, exhausted: true }
     },
+    // 356.4.f.1 的“If you do”应以支付决定为准。condition.result 已能读费用回执，
+    // 但当前没有路径把本卡 static cost.additional 的支付回执交给 replacement
+    //（见 judgeReason 第 1、2 点），所以不能用该谓词假装已经接通。
     condition: {
       kind: "expression",
       value: { kind: "constant", value: "crescent-guardian.additional-cost-was-paid" }
@@ -76,7 +88,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 programs/play.ts 将静态 cost.additional 接入 Finalize optionalAdditional 和支付决定回执（CR 356.2.b/356.4.f.1），以及把 condition.history 的 play/objectFilter.type=spell 查询接到静态费用适用条件的消费者。condition.history 已能按卡类型查询真实 play 动作，但静态 Condition 仍不能直接读取该历史。replacement.enter 的入场重写（359.2.c/369.3/805.6.a）还需以支付回执开闸；当前 constant 字符串恒真，不能区分支付与拒绝。",
+    "仍缺三段接线（2026-10-17 复核，均不近似实现）：" +
+    "(1) 静态 cost.additional → Finalize optionalAdditional 与支付回执（CR 356.2.b/356.2.b.1）：programs/play.ts 只翻译 play 能力的 cost，" +
+    "不会读取 static 能力；programs/statics.ts 的 layerFor 也拒绝 cost.additional（\"Static ability kind cost.additional has no layer mapping\"），" +
+    "因此 1 点 Chaos Power 追加费不会被收取，也没有回执产生；" +
+    "(2) 入场重写的开闸（CR 356.4.f.1/359.2.c/369.3/805.6.a）：replacement/bind.ts 的 entry 路径在匹配入场动作时先返回、" +
+    "不评估 ability.condition（实测 never 条件仍把横置入场改成就绪），所以即使将来有回执，本卡的门控也不会被消费；" +
+    "(3) 适用条件“If you've played a spell this turn”：condition.history 已能按 action=play 与 objectFilter.type=spell 统计，" +
+    "但没有把该历史查询接到静态费用适用条件的消费者；卡内保留具名占位，不写成恒真条件。" +
+    "已合入并可执行：replacement 的入场朝向重写本体（effect.ready）与 condition.result 的费用回执谓词。",
   abilities,
   sourceText:
     "If you've played a spell this turn, you may pay :rb_rune_chaos: as an additional cost to play me. " +

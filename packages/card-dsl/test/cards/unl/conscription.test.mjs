@@ -8,6 +8,12 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-25d95fca3a71b0c54c47c59f37cb281740cdfe6478a2d0f9c23309aaff471bcd";
 const SOURCE_TEXT =
@@ -49,10 +55,11 @@ test("unl-140-219 Conscription: program validates and keeps its identity", () =>
   assert.match(program.judgeReason, /356\.4\.f\.1/);
   assert.match(program.judgeReason, /mightLte/);
   assert.match(program.judgeReason, /recall/);
-  // Cost primitives and XP payment are merged; the remaining gap is the
-  // CardProgram-to-Finalize wiring, while the Might ceiling still fails closed.
-  assert.match(program.judgeReason, /programs\/play\.ts/);
+  // Re-probed 2026-10-17: the remaining gaps are the card-declaration binding,
+  // the Might ceiling and the missing Recall action.
+  assert.match(program.judgeReason, /translateCost/);
   assert.match(program.judgeReason, /translateObjectFilter/);
+  assert.match(program.judgeReason, /condition\.result/);
 });
 
 test("unl-140-219 Conscription: the optional 5 XP additional cost is recorded as a cost component", () => {
@@ -234,19 +241,83 @@ test("unl-140-219 Conscription golden: the merged cost plan really charges the c
   assert.equal(context.player("A").xp, 2);
 });
 
-test.todo(
-  "unl-140-219 Conscription: charge the optional 5 XP additional cost at Finalize and switch the target range " +
-    "when it was paid (CR 356.2.b/356.2.b.1 payment, 356.4.f.1 paid receipt) — needs the CardProgram-to-Finalize " +
-    "wiring and a cost-result binding, which the frozen IR has no expression for (condition.result)"
-);
+test("unl-140-219 Conscription boundary: the printed cost translates, but the declared cost.additional has no binding path (CR 356.2.b)", () => {
+  // Re-probed 2026-10-17: the printed 5 Energy / 2 Chaos Power half is wired
+  // (translateCost returns the explicit plan input the golden builds and pays),
+  // while the optional 5 XP cost lives on a static ability. programs/play.ts
+  // never inspects static abilities, and the production static binder's layerFor
+  // refuses the cost.additional kind, so Finalize cannot receive the optional
+  // component from this card's own declaration.
+  const translated = translateCost(play.cost, "conscription", "play");
+  assert.deepEqual(translated, {
+    kind: "explicit",
+    energy: { kind: "constant", value: 5 },
+    power: { kind: "constant", value: 2 }
+  });
 
-test.todo(
-  "unl-140-219 Conscription: enforce the 'at a battlefield with 3 :rb_might: or less' targeting restriction at " +
-    "Finalize/Resolve (CR 355.9.b, 143.2.a effective Might) once a Might-threshold target predicate is merged (condition predicate task)"
-);
+  assert.throws(
+    () => translateCost({ ...play.cost, kind: "cost.additional", payments: costAbility.effect.payments }, "conscription", "play"),
+    (error) => error.code === "judge-required" && /Additional costs are not bound/.test(error.message)
+  );
 
-test.todo(
-  "unl-140-219 Conscription: perform the Recall (CR 457-460: relocates to Base, is not a Move, fires no Move " +
-    "triggers, cannot be blocked by movement restrictions) once a Recall action distinct from move-location is merged"
-);
+  const board = fixture({
+    cards: [{ id: "conscription", cardId: program.canonicalCardId, types: ["spell"], energy: 5, power: null, might: null }]
+  });
+  assert.throws(
+    () => createEngineStaticBinder(board.engine).bindStatic(costAbility, board.kernel.getObject("conscription")),
+    (error) => error.code === "judge-required" && /cost\.additional/.test(error.message) && /no layer mapping/.test(error.message)
+  );
+});
+
+test("unl-140-219 Conscription boundary: a paid/declined receipt is readable, but no target range consumes it (CR 356.4.f.1)", () => {
+  // The merged condition.result predicate really distinguishes the optional-cost
+  // decision, yet the card's instead-branch has to switch the *target range*.
+  // target-plan.ts reads only id/filter/location/min/max/selection from a
+  // TargetSpec, so a receipt-gated range has no executed consumer; asserting this
+  // here keeps the card from declaring a gate the engine would silently ignore.
+  const condition = { kind: "result", result: "additional-cost-paid", id: costAbility.effect.id };
+  const paid = { plan: { components: [{ id: costAbility.effect.id, stage: "optional-additional" }], selectedAdditional: [{ id: costAbility.effect.id, kind: "additional" }], declinedAdditional: [] }, receipt: { paid: true, additional: [{ id: costAbility.effect.id, paid: true }] } };
+  const declined = { plan: { components: [{ id: costAbility.effect.id, stage: "optional-additional" }], selectedAdditional: [], declinedAdditional: [costAbility.effect.id] }, receipt: { paid: true, additional: [] } };
+  const kernel = world().player("A", { xp: 7 }).build();
+  const evaluate = (cost) => resolveChainBody([{
+    id: "receipt-gate",
+    op: "condition.value",
+    args: { value: { kind: "constant", value: true } },
+    condition
+  }], kernel.clone(), { cost }).results[0].result;
+  assert.equal(evaluate(paid).status, "executed");
+  assert.deepEqual(evaluate(declined), { status: "negated", reason: "skipped", events: [] });
+  assert.deepEqual(Object.keys(control.targets[0]).filter((key) => key === "condition"), []);
+});
+
+test("unl-140-219 Conscription boundary: the Might ceiling target filter is rejected before Finalize (CR 143.2.a)", () => {
+  // The printed "3 :rb_might: or less" is part of the TargetSpec the production
+  // filter translator has to translate; it still refuses mightLte, so a 7-Might
+  // enemy would be an accepted candidate if the filter were fed through as-is.
+  assert.throws(
+    () => translateObjectFilter(control.targets[0].filter),
+    (error) => error.code === "judge-required" && /Unsupported filter field mightLte/.test(error.message)
+  );
+  assert.equal(control.targets[0].filter.mightLte, 3);
+});
+
+test("unl-140-219 Conscription boundary: the worktree's effect.move still blocks the Recall half (CR 457-460)", () => {
+  // The Recall is a distinct action, not a Move; the merged primitive reports
+  // that boundary instead of relocating the unit, and this card must not
+  // substitute a plain move-location for it.
+  const kernel = enemyAtBattlefield();
+  const run = runInstruction(move, {
+    objects: recall.args.objects,
+    to: recall.args.to,
+    mode: recall.args.mode,
+    linkKey: recall.args.linkKey
+  }, { world: kernel, targets: { "conscription.enemy-unit": [kernel.ref("enemy")] } });
+  assert.deepEqual(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  const receipt = run.linked.recalled;
+  assert.match(String(receipt.blockedReason ?? ""), /Recall requires an action distinct from Move/);
+  assert.equal(receipt.count, 0);
+  assert.equal(kernel.getObject("enemy").zone, "board");
+  assert.deepEqual(kernel.getObject("enemy").location, { type: "battlefield", id: "bf-1" });
+});
 

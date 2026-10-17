@@ -39,6 +39,10 @@ test("unl-148-219 Cursed Sarcophagus: identity, status, judgeReason and verbatim
   assert.match(program.judgeReason, /428\.3\.a/);
   assert.match(program.judgeReason, /Finalize/);
   assert.match(program.judgeReason, /effect\.play/);
+  // Re-probed 2026-10-17: the receipt exists for one resolution but has no
+  // incarnation-scoped persistence for the later activation.
+  assert.match(program.judgeReason, /ResolveContext|linked 作用域/);
+  assert.match(program.judgeReason, /ordered pick plan/);
 });
 
 test("unl-148-219 Cursed Sarcophagus: 'When you play this' subscribes to card-played for this card", () => {
@@ -169,10 +173,43 @@ test("unl-148-219 Cursed Sarcophagus: effect.banish executes the printed banish 
   assert.deepEqual(kernel.zone("A", "trash").map(ref => ref.id), ["gear-a"]);
 });
 
-test.todo(
-  "Cursed Sarcophagus: track the Linked Ability window 'a unit banished with this' (CR 394–398 / 428.3.a) " +
-    "so the activated ability only offers units banished by this card's own effect, not the whole Banishment"
-);
+test("unl-148-219 Cursed Sarcophagus boundary: the banish receipt exists only inside its own resolution, not for a later activation (CR 394-398)", () => {
+  // The play effect writes a real linked receipt, but the link lives on the
+  // ResolveContext/interpreter scope. A second, later ability body resolving on
+  // the same kernel starts with no such link: this is the production shape that
+  // makes "a unit banished with this" unavailable to the activated ability.
+  const kernel = world().unit("fallen", { zone: "trash", types: ["unit"], owner: "A" }).build();
+  kernel.setPicks("cursed-sarcophagus.trash-units", [kernel.ref("fallen")]);
+  const first = runAbilityBody([banishInstruction], kernel);
+  assert.equal(first.status, "executed");
+  const banished = kernel.zone("A", "banishment").map((ref) => ref.id);
+  assert.deepEqual(banished, ["fallen"]);
+  assert.equal(first.linkedValues["cursed-sarcophagus.banish-trash-units.banishedTrashUnitsCount"], 1);
+
+  // A later resolution starts from the same game state but a fresh link scope:
+  // the same instruction id is not present, so the selector fails closed. (The
+  // kernel here is rebuilt from the post-banishment zone state, not cloned, since
+  // TestWorld.clone carries the link map over and would hide this gap.)
+  const later = world().unit("fallen", { zone: "banishment", types: ["unit"], owner: "A" }).build();
+  const second = runAbilityBody([{
+    id: "probe-linked",
+    op: "condition.value",
+    args: {
+      value: {
+        kind: "linked-value",
+        instructionId: "cursed-sarcophagus.banish-trash-units",
+        key: "banishedTrashUnits"
+      }
+    }
+  }], later);
+  assert.equal(second.status, "partial");
+  assert.equal(second.results[0].result.status, "ignored");
+  assert.equal(second.results[0].result.reason, "mistargeted");
+  assert.equal(second.linkedValues["probe-linked.value"], undefined);
+  // The card's own activated pick remains a descriptive runtime selector: the
+  // global Banishment cannot be queried without mixing in other sources.
+  assert.deepEqual(banishedPick.options, ["runtime:units-banished-with-cursed-sarcophagus"]);
+});
 test("Cursed Sarcophagus golden: the authored activation pays the chosen unit's printed energy cost through production Finalize (420.3)", () => {
   // The pick is provisioned externally: this proves payment/play, not the
   // unresolved provenance of units banished with this particular Sarcophagus.
