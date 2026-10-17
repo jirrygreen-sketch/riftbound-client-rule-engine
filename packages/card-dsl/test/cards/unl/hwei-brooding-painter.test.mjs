@@ -1,22 +1,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { validateCardProgram } from "../../../dist/ir/validation.js";
+import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/hwei-brooding-painter.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { registerProgramTriggers } from "../../../../engine-core/dist/programs/triggers.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { TriggerSpecValidationError } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL =
   "card.hash-ffb82a1c4cfcf34e538fde6b389b55d4affeceb3cdb2ba50ada212c3237fe8f2";
 const SOURCE_TEXT =
-  "When I move, draw 1, then discard 1. Then, do the following based on the discarded card's " +
-  "type:\nSpell — Draw 1.Gear — Ready up to 2 runes.Unit — Give me +3 :rb_might: this turn.";
+  "When I move, draw 1, then discard 1. Then, do the following based on the discarded card's type:\n" +
+  "Spell — Draw 1.Gear — Ready up to 2 runes.Unit — Give me +3 :rb_might: this turn.";
 
 const [ability] = program.abilities;
 const [drawOne, discardOne, spellBranch, gearBranch, unitBranch] = ability.body;
-const [discardedPick] = discardOne.picks;
 const [spellDraw] = spellBranch.args.body.value;
 const [gearReady] = gearBranch.args.body.value;
 const [unitModifier] = unitBranch.args.body.value;
@@ -27,16 +31,17 @@ const branchCondition = (type) => ({
   operator: "in",
   right: {
     kind: "object-property",
-    object: { pick: "hwei.discarded" },
+    object: { linked: "hwei.discard-1" },
     property: "types"
   }
 });
 
 /**
- * Resolve the contract-level placeholder the production caller owns: the rune filter's
- * owner: "controller" becomes the ability controller (the reference kernel compares
- * filters by value and does not run finalize-time placeholder resolution). The card IR
- * itself is unchanged; merged precedents call this out the same way in their goldens.
+ * The reference kernel compares filters by value and does not run finalize-time
+ * placeholder resolution. The production chain normalizes the rune pick's
+ * owner: "self" to the ability controller, so the golden applies the same
+ * caller normalization without changing the card IR (merged precedents use the
+ * same pattern).
  */
 const prepareCallerBody = (body, controller) => {
   const clone = structuredClone(body);
@@ -54,38 +59,36 @@ const prepareCallerBody = (body, controller) => {
   return clone;
 };
 
-const hweiWorld = (discarded) => {
+const hweiWorld = () => {
   const kernel = world()
+    .player("A", { energy: 5 })
+    .hand("hand-card", { types: ["spell"] })
     .unit("hwei", { might: 5, location: { type: "battlefield", id: "bf-1" } })
-    .hand("discarded-card", { types: [discarded] })
-    .deck(["deck-top"])
+    .deck(["deck-top", "deck-two"])
     .object("rune-ready", { types: ["rune"], zone: "rune-zone", exhausted: false })
     .object("rune-one", { types: ["rune"], zone: "rune-zone", exhausted: true })
     .object("rune-two", { types: ["rune"], zone: "rune-zone", exhausted: true })
     .object("rune-three", { types: ["rune"], zone: "rune-zone", exhausted: true })
     .build();
-  // Finalize hands the discard pick the card the player chose (RIFT-90 territory).
-  kernel.setPicks(discardedPick.id, [kernel.ref("discarded-card")]);
-  // Bind the resolving source to this card so "me" (object: "self") anchors to it.
   return kernel.clone({ sourceSnapshot: kernel.getObject("hwei") });
 };
 
-test("unl-080-219 Hwei, Brooding Painter: program passes validateCardProgram", () => {
+test("unl-080-219 Hwei, Brooding Painter: program passes validateCardProgram and is registered", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("unl-080-219 Hwei, Brooding Painter: identity, ruleset, status, judgeReason, sourceText", () => {
+test("unl-080-219 Hwei, Brooding Painter: identity, ruleset, judge-required status, sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
-  assert.equal(program.rulesetVersion, "core-1.5");
+  assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  // 四处缺口：Move 归属、弃牌类型读取、continuous.might、触发注册。
   assert.match(program.judgeReason, /object-moved/);
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /388\.1\.b/);
+  assert.match(program.judgeReason, /389\.1/);
+  assert.match(program.judgeReason, /待定 Chain item/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -111,17 +114,11 @@ test("unl-080-219 Hwei, Brooding Painter: draw 1 then discard 1, in printed orde
   );
   assert.deepEqual(drawOne.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(discardOne.args.amount, { kind: "constant", value: 1 });
-  // 弃牌者是能力控制者（190.6.d），且选择是手牌里的非目标 pick（355.10.a）。
+  // The discarder is the ability controller (190.6.d); effect.discard's ordinary
+  // private Hand choice needs no pick when the whole hand is in scope (355.10.a).
   assert.equal(discardOne.args.player, undefined);
-  assert.deepEqual(discardOne.args.pick, { kind: "constant", value: "hwei.discarded" });
-  assert.deepEqual(discardedPick, {
-    id: "hwei.discarded",
-    options: ["chosen-card-from-your-hand"],
-    min: 1,
-    max: 1,
-    selection: "one"
-  });
-  // 两条指令各自独立："draw 1, then discard 1" 的 then 不引用抽牌结果。
+  assert.equal(discardOne.args.pick, undefined);
+  assert.equal(discardOne.picks, undefined);
   assert.equal(discardOne.linkedTo, undefined);
   assert.equal(drawOne.linkedTo, undefined);
 });
@@ -139,30 +136,36 @@ test("unl-080-219 Hwei, Brooding Painter: the three type branches are mutually e
   assert.equal(spellDraw.op, "effect.draw");
   assert.deepEqual(spellDraw.args.amount, { kind: "constant", value: 1 });
 
-  // Gear — Ready up to 2 runes：至多 2 个的非目标选择（min 0 = "up to"）。
+  // Gear — Ready up to 2 runes: at-most-two non-targeting set choice (min 0).
   assert.equal(gearReady.op, "effect.ready");
   assert.deepEqual(gearReady.args.objects.value, {
     kind: "choose",
     id: "hwei-runes",
-    filter: { zone: "rune-zone", type: "rune", owner: "controller" },
+    filter: { zone: "rune-zone", type: "rune", owner: "self" },
     min: 0,
     max: 2
   });
 
-  // Unit — Give me +3 :rb_might: this turn。属连续图层修正（见 judgeReason）。
+  // Unit — Give me +3 :rb_might: this turn: a continuous layer modifier whose
+  // "me" anchor travels through the sequence args (appliesTo: self).
   assert.equal(unitModifier.op, "continuous.might");
   assert.deepEqual(unitModifier.args.amount, { kind: "constant", value: 3 });
   assert.deepEqual(unitModifier.args.duration, { kind: "constant", value: "this-turn" });
-  assert.deepEqual(unitModifier.targets[0].filter, {
-    zone: "board",
-    type: "unit",
-    object: "self"
-  });
-  assert.equal(unitModifier.targets[0].selection, "one");
+  assert.deepEqual(unitBranch.args.appliesTo, { kind: "constant", value: "self" });
+  assert.equal(unitModifier.args.target, undefined);
+  assert.equal(unitModifier.targets, undefined);
 });
 
 test("unl-080-219 Hwei, Brooding Painter golden: a discarded spell draws 1 in its branch", () => {
-  const kernel = hweiWorld("spell");
+  const kernel = hweiWorld();
+  const hand = kernel.zoneSlice("A", "hand", "top");
+  assert.deepEqual(hand.map((object) => object.ref.id), ["hand-card"]);
+
+  // effect.discard with a 2-card hand asks which card leaves; the answer key is
+  // the choice-id path with the player suffix URL-encoded by pathId.
+  kernel.setAnswers({
+    "hwei.discard-1/effect.discard%3AA": [kernel.ref("hand-card")]
+  });
   const outcome = resolveChainBody(prepareCallerBody(ability.body, "A"), kernel);
 
   assert.deepEqual(
@@ -176,20 +179,28 @@ test("unl-080-219 Hwei, Brooding Painter golden: a discarded spell draws 1 in it
       ["hwei.unit-branch", "negated"]
     ]
   );
-  // 弃掉的牌进垃圾场；draw 1 与 Spell 分支的 draw 1 各提交一次抽牌动作。
-  assert.deepEqual(kernel.zone("A", "trash").map((ref) => ref.id), ["discarded-card"]);
-  assert.deepEqual(kernel.zone("A", "hand").map((ref) => ref.id), ["deck-top"]);
+  // The discarded card reaches Trash; draw 1 and the Spell branch's draw 1 each
+  // commit a draw action, and the discard receipt links the pre-discard ref.
+  assert.deepEqual(kernel.zone("A", "trash").map((ref) => ref.id), ["hand-card"]);
+  assert.deepEqual(kernel.zone("A", "hand").map((ref) => ref.id), ["deck-top", "deck-two"]);
   assert.equal(outcome.events.filter((event) => event.action === "draw").length, 2);
   assert.equal(outcome.linkedValues["hwei.discard-1.discarded"].count, 1);
 });
 
 test("unl-080-219 Hwei, Brooding Painter golden: a discarded gear readies up to 2 runes", () => {
-  const kernel = hweiWorld("gear");
+  const base = hweiWorld();
+  const kernel = base;
+  // The gear branch requires a discarded gear card; addObject returns the new
+  // ObjectRef, so keep the kernel reference stable and ignore the returned ref.
+  kernel.addObject(
+    { ...base.getObject("hand-card"), types: ["gear"], ref: { id: "gear-card", zoneEntryId: 1 } },
+    "hand"
+  );
+  const runeOne = kernel.ref("rune-one");
+  const runeTwo = kernel.ref("rune-two");
   kernel.setAnswers({
-    "hwei.gear-branch/hwei.gear-ready-runes/hwei-runes": [
-      kernel.ref("rune-one"),
-      kernel.ref("rune-two")
-    ]
+    "hwei.discard-1/effect.discard%3AA": [kernel.ref("gear-card")],
+    "hwei.gear-branch/hwei.gear-ready-runes/hwei-runes": [runeOne, runeTwo]
   });
   const outcome = resolveChainBody(prepareCallerBody(ability.body, "A"), kernel);
 
@@ -197,10 +208,17 @@ test("unl-080-219 Hwei, Brooding Painter golden: a discarded gear readies up to 
   assert.equal(gearEntry.result.status, "executed");
   assert.equal(kernel.getObject("rune-one").exhausted, false);
   assert.equal(kernel.getObject("rune-two").exhausted, false);
-  // 至多 2 个：第三个仍保持横置；本来就绪的符文不计入。
+  // Up to 2: the third rune stays exhausted; an already-ready rune is not counted.
   assert.equal(kernel.getObject("rune-three").exhausted, true);
   assert.equal(kernel.getObject("rune-ready").exhausted, false);
-  // 解释器把链接值写成「执行路径.键」；路径包含 sequence 分支 id。
+  // The discard receipt keeps the chosen gear card for the branch condition.
+  assert.equal(outcome.linkedValues["hwei.discard-1.discarded"].count, 1);
+  assert.deepEqual(
+    outcome.linkedValues["hwei.discard-1.discarded"].objects.map((ref) => ref.id),
+    ["gear-card"]
+  );
+  // The interpreter writes linked values as "path.key"; the path contains the
+  // sequence branch id.
   assert.equal(
     outcome.linkedValues["hwei.gear-branch/hwei.gear-ready-runes.readied"].count,
     2
@@ -222,51 +240,104 @@ test("unl-080-219 Hwei, Brooding Painter golden: the type readout selects exactl
   for (const [type, expectedBranch] of [
     ["spell", "hwei.spell-branch"],
     ["gear", "hwei.gear-branch"],
-    ["unit", null]
+    ["unit", "hwei.unit-branch"]
   ]) {
-    const kernel = hweiWorld(type);
+    const base = hweiWorld();
+    // addObject returns the new ObjectRef, not the kernel; keep the kernel
+    // reference stable and ignore the returned ref.
+    const kernel = base;
+    kernel.addObject(
+      { ...base.getObject("hand-card"), types: [type], ref: { id: "typed-card", zoneEntryId: 1 } },
+      "hand"
+    );
     kernel.setAnswers({
+      "hwei.discard-1/effect.discard%3AA": [kernel.ref("typed-card")],
       "hwei.gear-branch/hwei.gear-ready-runes/hwei-runes": [kernel.ref("rune-one")]
     });
-    // Unit 分支的卡牌触发接线仍未合入：只跑到前四条指令，验证三条条件互斥。
-    const outcome = resolveChainBody(prepareCallerBody(ability.body.slice(0, 4), "A"), kernel);
+    const outcome = resolveChainBody(prepareCallerBody(ability.body, "A"), kernel);
     const executed = outcome.results
       .filter((entry) => entry.id.endsWith("-branch") && entry.result.status === "executed")
       .map((entry) => entry.id);
-    assert.deepEqual(executed, expectedBranch === null ? [] : [expectedBranch], type);
+    assert.deepEqual(executed, [expectedBranch], type);
+    assert.deepEqual(
+      outcome.linkedValues["hwei.discard-1.discarded"].objects.map((ref) => ref.id),
+      ["typed-card"]
+    );
   }
 });
 
 test("unl-080-219 Hwei, Brooding Painter golden: the Unit branch registers +3 Might for this turn", () => {
-  const kernel = hweiWorld("unit");
-  const hostBound = kernel.clone({ sourceSnapshot: kernel.getObject("hwei") });
-  hostBound.setTargets("hwei.me", [hostBound.ref("hwei")]);
-  const outcome = runAbilityBody([unitModifier], hostBound);
-  assert.equal(outcome.status, "executed");
-  assert.equal(hostBound.continuousEffects.length, 1);
-  const layers = createLayerEngine(hostBound.objects, hostBound.continuousEffects);
-  assert.equal(layers.evaluate(hostBound.ref("hwei")).might, 8);
+  const base = hweiWorld();
+  const kernel = base;
+  kernel.addObject(
+    { ...base.getObject("hand-card"), types: ["unit"], ref: { id: "unit-card", zoneEntryId: 1 } },
+    "hand"
+  );
+  kernel.setAnswers({ "hwei.discard-1/effect.discard%3AA": [kernel.ref("unit-card")] });
+
+  // The full body executes through the merged interpreter path; the continuous
+  // effect lands on the resolving source via args.appliesTo: self.
+  const outcome = resolveChainBody(prepareCallerBody(ability.body, "A"), kernel);
+  assert.equal(outcome.status, "partial");
+  const unitEntry = outcome.results.find((entry) => entry.id === "hwei.unit-give-plus-3");
+  assert.equal(unitEntry.result.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  assert.equal(layers.evaluate(kernel.ref("hwei")).might, 8);
   assert.equal(layers.expireAt("turn-end").length, 1);
-  assert.equal(layers.evaluate(hostBound.ref("hwei")).might, 5);
+  assert.equal(layers.evaluate(kernel.ref("hwei")).might, 5);
 });
 
-test.todo(
-  "unl-080-219 Hwei, Brooding Painter: 'When I move' attribution needs the object-moved payload to " +
-    "carry the moving object / from-to location (449.1/449.2, Recall excluded by 458); today the " +
-    "move-location action carries no source and the declared payload fields stay unset (RIFT-90/RIFT-120)"
-);
-test.todo(
-  "unl-080-219 Hwei, Brooding Painter: 'based on the discarded card's type' needs a supportable read of " +
-    "the discard result; effect.discard links { count, player, objects } and the interpreter's linked " +
-    "selector only resolves plain reference values/arrays, so the card supplies the discarded card " +
-    "through a non-target pick whose membership the production finalize must lock (RIFT-90)"
-);
-test.todo(
-  "unl-080-219 Hwei, Brooding Painter: the Unit branch 'Give me +3 :rb_might: this turn' needs the " +
-    "card-program trigger registration and production source binding; the merged continuous.might " +
-    "execution is covered above (RIFT-91/RIFT-120)"
-);
-test.todo(
-  "unl-080-219 Hwei, Brooding Painter: registering the card's triggered ability as a TriggerRegistration " +
-    "(production chain/event pipeline) is shared wiring tracked by the coordinator (RIFT-120)"
-);
+test("unl-080-219 Hwei, Brooding Painter: translation is correct but trigger registration rejects object-moved", () => {
+  // Lift only the status for the binding probe. This makes ProgramRegistry
+  // reach trigger translation; the production card remains judge-required.
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const registry = new ProgramRegistry([lifted]);
+  const f = fixture({
+    cards: [{ id: "hwei", cardId: CANONICAL, types: ["unit"], owner: "A", controller: "A" }]
+  });
+  const [ability] = program.abilities;
+  const source = f.kernel.getObject("hwei");
+  assert.deepEqual(
+    translateTriggerFilter(ability.trigger.filter, source.ref.id, ability.trigger.at),
+    { event: "object-moved", object: { objectId: "hwei" } }
+  );
+  assert.throws(
+    () => registerProgramTriggers(registry, f.engine, source),
+    error => error instanceof TriggerSpecValidationError &&
+      error.issues.some(issue => issue.code === "invalid-event-type")
+  );
+});
+
+test("unl-080-219 Hwei, Brooding Painter regression: ChainEngine keeps the type branch inline", () => {
+  const f = fixture({
+    cards: [
+      { id: "hwei", cardId: CANONICAL, types: ["unit"], owner: "A", controller: "A", might: 5 },
+      { id: "spell-card", types: ["spell"], owner: "A", controller: "A" }
+    ]
+  });
+  const board = f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("hwei"),
+    to: "board",
+    location: { type: "battlefield", id: "bf-1" }
+  });
+  assert.equal(board.status, "done");
+  f.answers.set("hwei.discard-1/effect.discard%3AA", [f.kernel.ref("spell-card")]);
+  f.engine.enqueue({
+    id: "hwei-trigger-probe",
+    controller: "A",
+    source: f.kernel.getObject("hwei"),
+    kind: "triggered",
+    body: ability.body
+  });
+  f.engine.advance();
+  while (f.engine.items.length) f.engine.pass(f.engine.priority);
+
+  const chainSteps = f.engine.trace.filter(step => step.step === "pending" || step.step === "resolved");
+  assert.deepEqual(chainSteps.map(step => step.step), ["pending", "resolved"]);
+  assert.equal(f.kernel.events.filter(event => event.action === "draw").length, 2);
+});
+

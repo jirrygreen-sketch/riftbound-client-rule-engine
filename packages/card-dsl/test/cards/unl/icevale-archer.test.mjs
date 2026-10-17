@@ -31,7 +31,6 @@ test("unl-065-219 Icevale Archer: identity, ruleset, status, judgeReason, source
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -95,22 +94,3 @@ test("unl-065-219 Icevale Archer golden: the merged continuous.might op applies 
   assert.equal(layers.evaluate(kernel.ref("target")).might, 4);
 });
 
-test.todo(
-  "unl-065-219 Icevale Archer: subscribing at the 'attack-declared' timing point needs its emitter " +
-    "in combat/ (engine batch 5 / RIFT-31, RIFT-33, RIFT-77); today only the closed timing-point " +
-    "enum defines the id"
-);
-test.todo(
-  "unl-065-219 Icevale Archer: 'give a unit here -1 :rb_might: this turn' needs the continuous.might " +
-    "attack-trigger registration and the optional Energy payment wiring; the merged continuous.might " +
-    "execution is covered above (RIFT-89/RIFT-91)"
-);
-test.todo(
-  "unl-065-219 Icevale Archer: the leading optional 1-energy cost (CR 383.3.b) has no field on the " +
-    "frozen triggered ability and no Finalize cost-plan entry (cost.pay is merged; RIFT-89); 'optional: true' " +
-    "only encodes the finalize decision"
-);
-test.todo(
-  "unl-065-219 Icevale Archer: registering the card-played/attack triggers from card programs with " +
-    "the production chain is shared wiring tracked by the coordinator (RIFT-120)"
-);

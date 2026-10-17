@@ -6,6 +6,7 @@ import program from "../../../dist/cards/unl/gustwalker.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 
 const CANONICAL =
   "card.hash-a232dcd643d13b743c5bad3125bacbefc6b2ef53b24aa91708ec80fc13447153";
@@ -28,9 +29,11 @@ test("unl-075-219 Gustwalker: identity, ruleset, status, judgeReason, sourceText
   // 缺口必须具体：Hunt 展开、Level 的 XP 谓词、依赖能力两半的消费方。
   assert.match(program.judgeReason, /conquer\/hold|conquered|EventPattern/);
   assert.match(program.judgeReason, /824\.1/);
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-265/);
+  assert.match(program.judgeReason, /静态绑定可注册/);
+  assert.match(program.judgeReason, /Ganking/);
+  assert.doesNotMatch(program.judgeReason, /823\.2.*未接线/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-91/);
+  assert.doesNotMatch(program.judgeReason, /无卡牌持续效果注册路径/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -89,8 +92,24 @@ test("unl-075-219 Gustwalker: merged Hunt, Level, and Ganking definitions are av
   assert.equal(levelExpansion.effect.kind, "condition.predicate");
   assert.deepEqual(levelExpansion.effect.threshold, { kind: "constant", value: 3 });
 
-  // 810 的 Ganking 展开文件已合入；缺的是卡牌持续效果注册 / 授予路径。
+  // 810 的 Ganking 展开与静态授予路径已合入；剩余缺口是移动规则消费运行时授予。
   assert.equal(keywordDefinitionsById.get("Ganking")?.keyword, "Ganking");
+});
+
+test("unl-075-219 Gustwalker: expandProgram sums declared and printed Hunt values", () => {
+  const kernel = world()
+    .unit("gustwalker", {
+      cardId: CANONICAL,
+      keywords: [{ id: "Hunt", value: 3 }]
+    })
+    .build();
+  const expanded = expandProgram(program, kernel.getObject("gustwalker")).expanded
+    .filter(ability => ability.kind === "triggered");
+  assert.deepEqual(expanded.map(ability => ability.trigger.at), ["conquer", "hold"]);
+  assert.deepEqual(
+    expanded.map(ability => ability.body[0].args.amount),
+    [{ kind: "constant", value: 5 }, { kind: "constant", value: 5 }]
+  );
 });
 
 test("unl-075-219 Gustwalker golden: the merged Hunt body really gains XP", () => {
@@ -102,16 +121,3 @@ test("unl-075-219 Gustwalker golden: the merged Hunt body really gains XP", () =
   assert.equal(kernel.player("A").xp, 2);
 });
 
-test.todo(
-  "unl-075-219 Gustwalker: [Hunt 2] (CR 823.1.c.1) needs a KeywordDef subscribing at conquer/hold and " +
-    "a production event registration that preserves source/controller and aligns conquered/held event spelling; " +
-    "the merged expansion and effect.xp execution are covered above"
-);
-test.todo(
-  "unl-075-219 Gustwalker: [Level 3][>] (CR 824.1.b.1/824.1.c) needs an evaluable 'controller has 3+ XP' " +
-    "predicate and dynamic deactivation; the merged Condition cannot read PlayerSnapshot.xp"
-);
-test.todo(
-  "unl-075-219 Gustwalker: the dependent ability needs continuous.might plus continuous.grant-keyword with " +
-    "a card-program registration path into the layers engine (RIFT-91)"
-);

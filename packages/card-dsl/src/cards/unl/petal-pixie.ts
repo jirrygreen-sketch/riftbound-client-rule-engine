@@ -16,24 +16,22 @@ import type { CardProgram } from "../../ir/index.js";
  * - "+1 … for each" 是数量型动态取值：契约 3.6 的 count 表达式在求值时按当前局面计数。
  *
  * status = judge-required（缺口不近似实现）：
- * 1. continuous.might 原语已经合入，但还没有把卡牌 static 能力注册进图层引擎的适配
- *    路径（RIFT-91 的卡牌接线缺口），本条算术层修正当前不生效。
- * 2. count 的成员过滤无法判定「units with [Temporary]」：已合入的 layers/filter.ts 与
- *    解释器 selectors 的 ObjectFilter 只按 type/controller/zone/location/tags 等匹配，
- *    不含关键词成员判定（hasKeyword 之类的特征读取在过滤路径上不可用）。写成普通友方
+ * 1. "units with [Temporary]" 的成员判定无已合入形态：hasKeyword 不被 staticFilter
+ *    白名单、触发/目标 ObjectFilter 的翻译层或 layers/filter.ts 接受；写成普通友方
  *    单位计数会把没有 Temporary 的单位也算进去，属近似实现，故不写。
- * 依赖：RIFT-91（layers-continuous 的卡牌接线与关键词特征过滤）。
+ * 2. "+1 … for each" 的动态数值依赖 count 表达式按求值时局面取值；静态绑定路径对
+ *    动态 amount 会静默回退为 0（不求值 count），本条修正当前不生效。
+ * 依赖：关键词特征过滤与静态 count 动态求值。
  */
 const petalPixie = {
   canonicalCardId: "card.hash-8338862de653402acc57a72f7e3d56c3cc2489ec52c8f53f9b778f26d23c59bd",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) continuous.might 原语已合入，但还没有把卡牌 static 能力注册进图层引擎的适配路径" +
-    "（RIFT-91 卡牌接线缺口），本条 +1 :rb_might: 的算术层修正当前不生效；" +
-    "(2) count 的成员过滤无法表达「units with [Temporary]」：已合入的 layers/filter.ts 与解释器 ObjectFilter 不含关键词特征判定，" +
-    "只按 type/controller/zone/location/tags 匹配，写成普通友方单位计数会把没有 Temporary 的单位也算进去。" +
-    "依赖：RIFT-91（layers-continuous 接线与关键词特征过滤）。",
+    "两处缺口，均不近似实现：(1) units with [Temporary] 的成员判定无已合入形态：hasKeyword 不被 staticFilter 白名单、" +
+    "触发/目标 ObjectFilter 的翻译层或 layers/filter.ts 接受，写成普通友方单位计数会把没有 Temporary 的单位也算进去；" +
+    "(2) +1 for each 的动态数值依赖 count 表达式按求值时局面取值，静态绑定路径对动态 amount 会静默回退为 0（不求值 count）。" +
+    "依赖：关键词特征过滤与静态 count 动态求值。",
   abilities: [
     {
       kind: "static",

@@ -54,7 +54,6 @@ test("unl-079-219 Diana, Lunari: identity, ruleset, status, judgeReason, sourceT
   assert.match(program.judgeReason, /Predict/);
   assert.match(program.judgeReason, /RIFT-89/);
   assert.match(program.judgeReason, /RIFT-64/);
-  assert.match(program.judgeReason, /RIFT-120/);
   // effect.reveal 的适配器缺口必须写在 judgeReason 里。
   assert.match(program.judgeReason, /LITERAL_FIELDS|pick/);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -269,26 +268,3 @@ test("unl-079-219 Diana, Lunari: merged dependencies are available; trigger cost
   assert.equal(optional.args.prompt.value.includes("Pay 1 energy"), true);
 });
 
-test.todo(
-  "unl-079-219 Diana, Lunari: the leading optional 1-energy cost (CR 383.3.b) needs the cost plan / " +
-    "cost.pay entry at finalize (RIFT-89); the frozen triggered ability has no cost field"
-);
-test.todo(
-  "unl-079-219 Diana, Lunari: [Predict] needs its keyword expansion (effects/keywords/Predict.ts) wiring " +
-    "the top-card look plus the optional recycle through effect.inspect / effect.recycle (437.1)"
-);
-test.todo(
-  "unl-079-219 Diana, Lunari: effect.reveal's pick argument is not decoded by chain/interpreter-adapter.ts " +
-    "LITERAL_FIELDS (dispatch rejects it with 'pick must be a non-empty id'); the golden test supplies " +
-    "test-only decode wiring (contract change request filed)"
-);
-test.todo(
-  "unl-079-219 Diana, Lunari: 'If it's a spell' needs an array-contains condition operator; the merged " +
-    "Condition only has eq/ne/lt/lte/gt/gte/in (in tests left-in-right), so the membership test as authored " +
-    "is not the production rule"
-);
-test.todo(
-  "unl-079-219 Diana, Lunari: the ordered 'top card of your Main Deck' source, the showdown-open emitter " +
-    "subscription, and registering the triggered ability from card programs are shared wiring (RIFT-64, " +
-    "RIFT-90, RIFT-120)"
-);

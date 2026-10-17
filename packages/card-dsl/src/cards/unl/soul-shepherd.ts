@@ -7,30 +7,24 @@ import type { CardProgram } from "../../ir/index.js";
  *   Your token units have +1 :rb_might:.
  *
  * 规则依据（CR v1.5）：
- * - 479.4："Your token units have +1 :rb_might:." 是算术层的持续修正；作用范围是
- *   与能力控制者同一控制者（740.1.a 的 "your"）的 token 单位。
- * - 186 / 440.2：token 由 create-token 游戏动作生成；"token units" 的判定要读对象的
- *   token 特征（ObjectSnapshot.isToken）。
+ * - 479.4：持续修正作用于 "your token units"，即与能力控制者同一控制者（740.1.a 的
+ *   "your"）的 token 单位；修正是算术层的 +1 :rb_might:。
+ * - 186 / 440.2：token 由 create-token 游戏动作生成；"token units" 依据对象快照的
+ *   isToken 特征判定。
  *
- * status = judge-required（缺口不近似实现）：
- * 1. continuous.might 原语已经合入，但还没有把卡牌 static 能力注册进图层引擎的适配
- *    路径（RIFT-91 卡牌接线缺口），本条修正当前不生效。
- * 2. 过滤器无法判定 token：已合入的 layers/filter.ts 的 matchesObjectFilter 不含
- *    isToken 成员判定（实测 { type: "unit", controller: "A", zone: "board", isToken: true }
- *    对非 token 单位仍返回 true）；事件侧 ObjectFilter 白名单同样没有该位。写成普通友方
- *    单位会把非 token 单位也一起加成，属近似实现，故不写。
- * 依赖：RIFT-91（layers-continuous 的卡牌接线与 token 特征过滤）。
+ * status = judge-required（缺口不近似实现）：生产静态绑定在首次进入 Board 时把
+ * controller: "controller" 解析为当时的控制者并固化到 ContinuousEffectSpec；对象之后
+ * 经 take-control 改变控制者时，光环仍作用于原控制者的 token，违反“your token units”
+ * 随当前控制者变化的语义。待共享静态绑定路径按实时控制者重算过滤后再升级。
  */
 const soulShepherd = {
   canonicalCardId: "card.hash-bd9ef27aeff0a310c407d20aaac7113859f60260060aac163b4025ea2e70bf4c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) continuous.might 原语已合入，但还没有把卡牌 static 能力注册进图层引擎的适配路径" +
-    "（RIFT-91 卡牌接线缺口），本条 +1 :rb_might: 当前不生效；" +
-    "(2) 过滤器无法判定 token：layers/filter.ts 的 matchesObjectFilter 不含 isToken 成员判定" +
-    '（实测 { type: "unit", controller: "A", zone: "board", isToken: true } 对非 token 单位仍返回 true），' +
-    "事件侧 ObjectFilter 白名单也没有该位；写成普通友方单位会连非 token 单位一起加成。依赖：RIFT-91。",
+    "生产静态绑定会在首次绑定时把 controller: controller 固化为来源当时的控制者；" +
+    "来源经 take-control 改变控制者后，光环仍作用于原控制者的 token，" +
+    "无法满足 479.4 的 your token units 随当前控制者变化。待共享静态绑定路径修复。",
   abilities: [
     {
       kind: "static",
@@ -41,11 +35,8 @@ const soulShepherd = {
         amount: { kind: "constant", value: 1 },
         filter: {
           zone: "board",
-          type: "unit",
-          controller: "controller",
-          // token 特征判定的缺口见 judgeReason；这里按可审查形状书写，
-          // 不把它当成已生效的限制。
-          isToken: true
+          type: "token",
+          controller: "controller"
         }
       }
     }

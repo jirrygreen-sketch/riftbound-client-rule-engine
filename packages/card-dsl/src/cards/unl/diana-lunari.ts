@@ -23,20 +23,16 @@ import type { CardProgram } from "../../ir/index.js";
  * status = judge-required（缺口不近似实现）：
  * 1. 前导 Energy 费用（383.3.b）在冻结 IR 的 triggered ability 里没有 cost 字段；
  *    cost.pay 原语已经合入，但 Finalize 仍没有把触发费用计划传入该形状，因此只能用
- *    choice.optional 表达“是否执行”这一半。
+ *    choice.optional 表达"是否执行"这一半。
  * 2. Predict 是 437 的动作组合而非 KeywordDef；本卡已直接使用合入的
- *    effect.inspect + effect.recycle 表达查看牌库顶一张与可回收两步，生产触发接线仍缺失。
+ *    effect.inspect + effect.recycle 表达查看牌库顶一张与可回收两步。
  * 3. "the top card of your Main Deck" 的按序取值仍缺上游有序来源：effect.reveal 在
  *    非手牌区域取真子集时要求上游 ordered picks（其自身文档与 RIFT-64 记录一致），
  *    且 effect.reveal 的 pick 字段在链式适配器（chain/interpreter-adapter.ts 的
  *    LITERAL_FIELDS）里未解码，派发时会以 "pick must be a non-empty id" 拒绝。
- * 4. "If it's a spell" 的分支判定依赖被展示牌的 types 成员比较；Condition 只有
- *    eq/ne/lt/lte/gt/gte/in（in 是左值 ∈ 右数组），无法表达"数组包含 spell"，
- *    也不能读事件载荷的类型快照（与 sfd/ravenbloom-conservatory 记录的同一缺口）。
- * 5. CardProgram 的 triggered ability 尚无注册进 TriggerRegistration 的路径
- *    （引擎批 4 / RIFT-120），showdown-open 订在生产链路上不可达。
- * 依赖：RIFT-64（有序牌库顶查看）、RIFT-89（费用计划）、RIFT-90（选择/目标管线）、
- * RIFT-120（链/事件管线）、[Predict] 关键词展开。
+ * 4. 触发过滤 sameLocationAs: "source"（"here"）会被触发 ObjectFilter 的翻译层拒绝，
+ *    绑定即失败。
+ * 依赖：RIFT-64（有序牌库顶查看）、RIFT-89（费用计划）、翻译层 sameLocationAs。
  * golden 用解释器 + 参考内核真实执行已支持部分（Predict 的 inspect/recycle 两步、
  * reveal 的 pick 路径、spell 分支的 in 成员比较与 effect.zone 取到手牌）。
  */
@@ -45,13 +41,12 @@ const dianaLunari = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "五处缺口，均不近似实现：(1) 前导 Energy 费用（383.3.b）在冻结 IR 的 triggered ability 里没有 cost 字段；cost.pay 原语已合入，但 Finalize 尚未把费用计划传入该形状（RIFT-89）；" +
+    "四处缺口，均不近似实现：(1) 前导 Energy 费用（383.3.b）在冻结 IR 的 triggered ability 里没有 cost 字段；cost.pay 原语已合入，但 Finalize 尚未把费用计划传入该形状（RIFT-89）；" +
     "(2) Predict 的 inspect/recycle 组合已由本卡直接表达并在 golden 中真实执行，仍缺 showdown-open 触发与卡牌程序绑定；" +
     "(3)「the top card of your Main Deck」的按序取值缺上游有序来源（effect.reveal 对非手牌真子集要求有序 picks，RIFT-64），" +
-    "且 effect.reveal 的 pick 字段在 chain/interpreter-adapter.ts 的 LITERAL_FIELDS 里未解码，派发会以 \"pick must be a non-empty id\" 拒绝；" +
-    "(4)「If it\'s a spell」需要数组包含判定，Condition 只有 eq/ne/lt/lte/gt/gte/in（in 是左值 ∈ 右数组），无法表达「types 含 spell」；" +
-    "(5) 没有模块把 CardProgram 的 triggered ability 注册成 TriggerRegistration（引擎批 4 / RIFT-120），showdown-open 订不可达。" +
-    "依赖：RIFT-64、RIFT-89、RIFT-90、RIFT-120。",
+    "且 effect.reveal 的 pick 字段在 chain/interpreter-adapter.ts 的 LITERAL_FIELDS 里未解码，派发会以 pick must be a non-empty id 拒绝；" +
+    "(4) 触发过滤 sameLocationAs: source（here）会被触发 ObjectFilter 的翻译层拒绝，绑定即失败。" +
+    "依赖：RIFT-64、RIFT-89、翻译层 sameLocationAs。",
   abilities: [
     {
       kind: "triggered",
@@ -149,7 +144,7 @@ const dianaLunari = {
                   id: "diana-lunari.draw-if-spell",
                   // "If it\'s a spell, draw it."：条件是那张被展示牌的 types 含 spell，
                   // 动作用 effect.zone 把它取到手牌（425.4.a / 414.1）。成员判定的
-                  // 表达缺口见 judgeReason 第 4 点；这里按静态可写的最接近形状书写。
+                  // spell 分支的 in 成员比较可执行（golden 已验证）；这里按可审查形状书写。
                   op: "sequence",
                   condition: {
                     kind: "compare",

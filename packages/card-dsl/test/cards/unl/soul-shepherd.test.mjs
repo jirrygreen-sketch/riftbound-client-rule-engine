@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { validateCardProgram } from "../../../dist/ir/validation.js";
+import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/soul-shepherd.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL =
   "card.hash-bd9ef27aeff0a310c407d20aaac7113859f60260060aac163b4025ea2e70bf4c";
@@ -14,23 +14,23 @@ const SOURCE_TEXT = "Your token units have +1 :rb_might:.";
 const [ability] = program.abilities;
 const { effect } = ability;
 
-test("unl-077-219 Soul Shepherd: program passes validateCardProgram", () => {
+test("unl-077-219 Soul Shepherd: program passes validateCardProgram and is registered", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("unl-077-219 Soul Shepherd: identity, ruleset, status, judgeReason, sourceText", () => {
+test("unl-077-219 Soul Shepherd: identity, ruleset, judge-required status, sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
-  assert.equal(program.rulesetVersion, "core-1.5");
+  assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /isToken/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /take-control/);
+  assert.match(program.judgeReason, /current|当前/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("unl-077-219 Soul Shepherd: a static arithmetic Might aura over your token units", () => {
+test("unl-077-219 Soul Shepherd: a static arithmetic Might aura scoped to your token units", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "static");
   assert.equal(ability.condition, undefined);
@@ -38,44 +38,62 @@ test("unl-077-219 Soul Shepherd: a static arithmetic Might aura over your token 
   assert.equal(effect.mode, "add");
   assert.equal(effect.layer, "arithmetic");
   assert.deepEqual(effect.amount, { kind: "constant", value: 1 });
-  // "Your token units"：friendly（740.1.a 的 your）+ token 特征判定。
+  // 740.1.a: "your" scopes the controller; type "token" is the merged layers
+  // vocabulary for token membership (ObjectSnapshot.isToken).
   assert.deepEqual(effect.filter, {
     zone: "board",
-    type: "unit",
-    controller: "controller",
-    isToken: true
+    type: "token",
+    controller: "controller"
   });
 });
 
-test("unl-077-219 Soul Shepherd golden: the merged continuous.might op registers the supported unit filter", () => {
-  const kernel = world()
-    .unit("soul-shepherd", { might: 3, controller: "A" })
-    .unit("token", { might: 1, controller: "A", isToken: true })
-    .unit("vanilla", { might: 1, controller: "A", isToken: false })
-    .unit("enemy", { might: 1, controller: "B", owner: "B", isToken: true })
-    .build();
-  const context = kernel.clone({ sourceSnapshot: kernel.getObject("soul-shepherd") });
-  const resolvedFilter = { ...effect.filter, controller: "A" };
-  delete resolvedFilter.isToken;
-  const outcome = runAbilityBody([{
-    id: "soul-shepherd.might",
-    op: "continuous.might",
-    args: {
-      amount: effect.amount,
-      filter: { kind: "constant", value: resolvedFilter }
-    }
-  }], context);
-  assert.equal(outcome.status, "executed");
-  const layers = createLayerEngine(context.objects, context.continuousEffects);
-  assert.equal(layers.evaluate(context.ref("token")).might, 2);
-  assert.equal(layers.evaluate(context.ref("vanilla")).might, 2);
-});
+test("unl-077-219 Soul Shepherd regression: production lifecycle pins the first controller after take-control", () => {
+  // Use the exact current IR through the production lifecycle path, with only
+  // the status lifted so ProgramRegistry will bind this judge-required card.
+  // The observed result is the shared binding gap recorded in judgeReason:
+  // controller: "controller" is resolved once when the source enters Board.
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const f = fixture({
+    cards: [
+      { id: "soul-shepherd", cardId: CANONICAL, types: ["unit"], energy: 5, might: 3, owner: "A", controller: "A" },
+      { id: "ally-token", types: ["unit"], isToken: true, might: 1, owner: "A", controller: "A" },
+      { id: "stolen-token", types: ["unit"], isToken: true, might: 1, owner: "B", controller: "B" },
+      { id: "vanilla", types: ["unit"], isToken: false, might: 1, owner: "A", controller: "A" },
+      { id: "enemy-token", types: ["unit"], isToken: true, might: 1, owner: "B", controller: "B" }
+    ]
+  });
+  const lifecycle = binding.attachLifecycle(f.engine);
+  const board = id => f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref(id),
+    to: "board",
+    location: { type: "battlefield", id: "bf-1" }
+  });
+  try {
+    board("ally-token");
+    board("stolen-token");
+    board("vanilla");
+    board("enemy-token");
+    board("soul-shepherd");
+    f.engine.layers.setObjects(f.kernel.objects);
+    assert.deepEqual(
+      ["ally-token", "stolen-token"].map(id => f.engine.layers.evaluate(f.kernel.ref(id)).might),
+      [2, 1]
+    );
 
-test.todo(
-  "unl-077-219 Soul Shepherd: 'Your token units have +1 :rb_might:.' needs the continuous.might layers " +
-    "card-program registration path (RIFT-91); the merged op execution is covered above"
-);
-test.todo(
-  "unl-077-219 Soul Shepherd: the token membership test needs a real isToken filter; today the layers " +
-    "filter ignores the key, so a non-token unit would also receive +1 :rb_might:"
-);
+    const transfer = f.engine.commit({ type: "take-control", object: f.kernel.ref("soul-shepherd"), player: "B" });
+    assert.equal(transfer.status, "done");
+    f.engine.layers.setObjects(f.kernel.objects);
+    // Correct CR 479.4 behavior would be [1, 2]. The current production
+    // lifecycle remains [2, 1], so this regression stays judge-required until
+    // the shared static binding path re-evaluates relative controllers.
+    assert.deepEqual(
+      ["ally-token", "stolen-token"].map(id => f.engine.layers.evaluate(f.kernel.ref(id)).might),
+      [2, 1]
+    );
+  } finally {
+    lifecycle.detach();
+  }
+});
