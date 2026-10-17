@@ -19,8 +19,11 @@ import type { CardProgram } from "../../ir/index.js";
  * 卡牌只声明关键词（契约 3.1/3.7、README 第 5 节）；展开由
  * effects/keywords/Accelerate.ts 负责。
  *
- * status = judge-required：同 Blazing Scorcher —— 关键词展开已合入，但缺少把卡牌
- * keyword 能力接到费用计划/替代管线的消费方（见 judgeReason）。
+ * status = judge-required：Accelerate 展开（静态 accelerate.cost 声明 + 入场就绪的
+ * 替代）与费用计划的 optionalAdditional accelerance 分支、替代管线（RIFT-260）都已合入，
+ * 费用计划的 accelerate 组件由 cost/cost-plan.ts 生成（固定 [1]+1 Power），chain 的就绪
+ * 进场也读 selectedAdditional；缺少的是把卡牌 keyword 能力自动接进打出流程的生产方
+ * （RIFT-257 程序绑定 / RIFT-261 费用原语），见 judgeReason。
  */
 const legionRearguard = {
   canonicalCardId:
@@ -28,12 +31,12 @@ const legionRearguard = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Accelerate 的展开文件（effects/keywords/Accelerate.ts）已合入，但合并内核没有任何生产方把卡牌 " +
-    "keyword 能力接进打出流程：cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，没有由 keyword " +
-    "声明生成 { kind: 'accelerate' } 费用组件的路径；accelerate.cost 静态效果无消费方；" +
-    "chain/engine.ts:357 的就绪进场只读已生成的 cost plan。805.1.b.1（Fury 域力量匹配）与 " +
-    "805.2.b/805.6（延迟替代）因此不生效。缺少的是「卡牌程序 → 费用/替代管线」接线，不属于本卡 " +
-    "write scope；接线落地前不近似实现。",
+    "Accelerate 的展开文件（effects/keywords/Accelerate.ts）与替代管线（RIFT-260）已合入，费用计划的 " +
+    "optionalAdditional[accelerate] 分支也能生成 [1] + 1 Power 的组件（cost/cost-plan.ts）且 chain 就绪进场读 selectedAdditional；" +
+    "但合并内核没有任何生产方把卡牌 keyword 能力接进打出流程：没有由 keyword 声明自动生成 { kind: 'accelerate' } " +
+    "费用组件的路径（卡牌程序绑定 RIFT-257、费用原语 RIFT-261），accelerate.cost 静态效果无消费方，" +
+    "805.1.b.1（Fury 域力量匹配）与 805.2.b/805.6（延迟替代）因此不会自动生效。" +
+    "golden 已用费用计划 + 替代管线真实执行声明出的 Accelerate 流程；缺少的是接线本身，不属于本卡 write scope。",
   abilities: [{ kind: "keyword", keyword: "accelerate" }],
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_fury: as an additional cost to have me enter ready.)"

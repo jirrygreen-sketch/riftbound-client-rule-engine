@@ -19,11 +19,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Recall 是无指令的校正移动）。“its base” 是该单位控制者的 Base（107.1.a），
  *   原语用 `"controller-base"` 表达；`effect.move` 已合入并可由解释器执行。
  *
- * status 判定（README 第 2 节）：judge-required。Tank 关键词没有展开实现
- * （`effects/keywords/` 注册表里没有 Tank.ts，没有 `continuous.combat` 消费方），
- * 而战斗伤害分配是 Tank 的全部功能，缺它就是缺整条能力。依赖：Tank 关键词任务 +
- * combat 分配消费方（`continuous.combat`，见 ability-templates 第 4 节的 kw-tank 行）。
- * Play Effect 本体与 effect.move 已合入，golden 测试真实执行。
+ * status 判定（README 第 2 节）：judge-required。Tank 的 KeywordDef 已合入
+ * （RIFT-264，`effects/keywords/Tank.ts` 展开为 static `continuous.combat` 的
+ * damage-assignment 要求），但 `continuous.combat` 仍没有 combat 消费方：
+ * combat/base-combat-allocation.ts 明确不绑定 assignment-priority，而战斗伤害分配
+ * 就是 Tank 的全部功能。依赖：combat 分配消费方（`continuous.combat`）与
+ * RIFT-257（CardProgram → 关键词展开/layers 注册）。Play Effect 本体与 effect.move
+ * 已合入，golden 测试真实执行。
  */
 const abilities: Ability[] = [
   {
@@ -62,10 +64,11 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "[Tank] 关键词没有展开实现：effects/keywords/ 注册表里没有 Tank.ts，也没有消费 " +
-    "continuous.combat 的战斗伤害分配路径（815.1.b/.c 的“先分配致命伤害”无法落地），" +
-    "而这就是 Tank 的全部功能。依赖：Tank 关键词任务 + combat 分配消费方。" +
-    "Play Effect 本体与 effect.move 均已合入，golden 测试用解释器 + 参考内核真实执行。",
+    "[Tank]（815）的 KeywordDef 已合入（RIFT-264，展开为 static continuous.combat 的致命分配要求），但仍没有消费 " +
+    "continuous.combat 的战斗伤害分配路径（815.1.b/.c 的“先分配致命伤害”无法落地）：combat/base-combat-allocation.ts " +
+    "不绑定 assignment-priority，layers/ops 只登记该 kind；而这就是 Tank 的全部功能。" +
+    "Play Effect 本体与 effect.move 均已合入，golden 测试用解释器 + 参考内核真实执行；" +
+    "触发的能力注册依赖 RIFT-257。依赖：combat 分配消费方（continuous.combat）与 RIFT-257。不近似实现。",
   abilities,
   sourceText:
     "[Tank] (I must be assigned combat damage first.)\n" +

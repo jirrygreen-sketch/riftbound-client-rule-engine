@@ -17,18 +17,20 @@ import type { CardProgram } from "../../ir/index.js";
  *   for the cost to be paid (CR 415.4). The cost-to-effect binding is not a
  *   chain instruction: effect.exhaust's own header states that this scenario
  *   (415.4, naming this card) belongs to cost.exhaust and the finalized cost
- *   plan, not to the effect primitive. The merged cost planner does accept
- *   `exhaust` payments and optional additional components, but the frozen
- *   CostSpec (contract 3.1) can only carry one `discard` PickSpec plus
- *   resource fields — there is no place for an "optional additional exhaust
- *   one friendly unit" component, and the interpreter/card data cannot
- *   observe whether it was paid.
+ *   plan, not to the effect primitive. The merged cost planner accepts
+ *   `exhaust` payments and optional additional components (the golden builds
+ *   and pays the real plan), but the frozen CostSpec (contract 3.1) has no
+ *   field for an "optional additional exhaust one friendly unit" component and
+ *   no merged producer reads the card's `cost.additional` declaration into a
+ *   CostPlanInput.optionalAdditional entry, so the play pathway cannot see it
+ *   (RIFT-257/261).
  * - "If you do, draw 2. Otherwise, draw 1." is the 359.2-style branch on the
- *   cost result: effect.draw x2 and effect.draw x1 are both merged, but the
- *   discriminator needs the paid-cost result (condition.result, 46 identities
- *   in the survey) plus the branch container, which the frozen IR has no
- *   binding for. Not approximated: neither the unconditional draw nor a
- *   guessed draw amount is written as the card's effect.
+ *   cost result: effect.draw x2 and effect.draw x1 are both merged (and both
+ *   execute in the golden), but the discriminator needs the paid-cost result
+ *   (condition.result, 46 identities in the survey) plus the branch container,
+ *   which the frozen IR has no binding for. Not approximated: neither the
+ *   unconditional draw nor a guessed draw amount is written as the card's
+ *   effect.
  */
 const meditation = {
   canonicalCardId: "card.hash-5f2d6f607453430a6a4ce49c58ea5afd8af16815ac3b16ed3cdf9526ba7f074f",
@@ -37,10 +39,12 @@ const meditation = {
   judgeReason:
     "缺“可选追加费用（Optional Additional Cost）”的表达：CR 204.2/356.2.b 与 355.1.a 规定它在 Finalize 的选择阶段决定，" +
     "且按 CR 415.4 必须以“能够完成”为前提（费用式横置属于 cost.exhaust，effect.exhaust 文件头也把这场景划给费用计划）；" +
-    "但冻结的 CostSpec（契约 3.1）只能携带一组 discard PickSpec 与资源字段，没有承载“可选：横置一个友方单位”组件的位置，" +
-    "卡牌数据与解释器也无法读取该费用是否支付。后续“If you do, draw 2. Otherwise, draw 1.”需要按费用结果分支" +
+    "合并的费用计划能构造并支付 exhaust 支付动作与 optional-additional 组件（golden 已验证真实支付），" +
+    "但冻结的 CostSpec（契约 3.1）没有承载“可选：横置一个友方单位”组件的位置，也没有生产方读取本卡的 cost.additional 声明" +
+    "生成 optionalAdditional 条目（RIFT-257/261 程序/费用绑定），打出流程因此看不到这条可选费用。" +
+    "后续“If you do, draw 2. Otherwise, draw 1.”需要按费用结果分支" +
     "（condition.result 一类结果绑定，调研 46 个身份），当前 IR 没有该绑定；effect.draw 本身已合入但分支无法判定。" +
-    "依赖：cost-plan 的可选追加费用组件 + 费用回执结果绑定（RIFT-89；condition.result 属原语清单未合入项）。不近似实现。",
+    "依赖：RIFT-257/261（费用绑定与原语）+ 费用回执结果绑定（condition.result 属原语清单未合入项）。不近似实现。",
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
     "As an additional cost to play this, you may exhaust a friendly unit. " +

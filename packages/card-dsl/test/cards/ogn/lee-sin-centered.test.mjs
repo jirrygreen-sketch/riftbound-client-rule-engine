@@ -3,10 +3,13 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/lee-sin-centered.js";
+import accelerate from "../../../../engine-core/dist/effects/keywords/Accelerate.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { validateObjectFilter } from "../../../../engine-core/dist/events/trigger-spec.js";
+import mightPrimitive from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-98fc18fcf30d6dd0b192f1c6ea251dd6a2e6d4a439098c533f77e58a2161074f";
+const c = value => ({ kind: "constant", value });
 
 test("ogn-151-298 Lee Sin, Centered: program validates and keeps identity", () => {
   const result = validateCardProgram(program);
@@ -31,10 +34,20 @@ test("ogn-151-298 Lee Sin, Centered: printed power is null (no printed value) an
   assert.equal(JSON.stringify(program).includes('"power": 0'), false);
 });
 
-test("ogn-151-298 Lee Sin, Centered: judgeReason cites the layers consumer, the buffed predicate and the location anchor", () => {
+test("ogn-151-298 Lee Sin, Centered: judgeReason cites the card-program binding, the buffed predicate and the location anchor", () => {
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /buffed/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /sameLocationAs/);
+});
+
+test("ogn-151-298 Lee Sin, Centered: the declared Accelerate keyword matches the merged KeywordDef", () => {
+  const registered = keywordDefinitionsById.get("Accelerate");
+  assert.ok(registered, "effects/keywords/Accelerate.ts must be in the generated registry");
+  assert.equal(program.abilities[0].keyword, registered.keyword.toLowerCase());
+  assert.equal(registered.valued, false);
+  assert.equal(registered.stacking, "single");
+  assert.ok(registered.ruleRefs.includes("805.1.b"));
 });
 
 test("ogn-151-298 Lee Sin, Centered: Accelerate is declared, the +2 Might aura is a static effect", () => {
@@ -60,15 +73,9 @@ test("ogn-151-298 Lee Sin, Centered: Accelerate is declared, the +2 Might aura i
   assert.equal(aura.condition, undefined);
 });
 
-test("ogn-151-298 Lee Sin, Centered: the engine's filter vocabulary has no 'buffed' state (702/703)", () => {
-  // CR v1.5 702/703 make Buffs counters; the engine's ObjectState vocabulary is
-  // the closed set used by the trigger/filter validator. "buffed" is therefore a
-  // descriptive placeholder on the aura, not an executable state.
-  const accepted = validateObjectFilter({ type: "unit", states: "exhausted" });
-  assert.equal(accepted.ok, true, JSON.stringify(accepted.issues));
-  const rejected = validateObjectFilter({ type: "unit", states: "buffed" });
-  assert.equal(rejected.ok, false);
-  assert.equal(rejected.issues.some(issue => issue.code === "invalid-object-state"), true);
+test("ogn-151-298 Lee Sin, Centered: the aura records the printed filter shape for reviewers", () => {
+  // CR 740.1.a (friendly = same controller), 364.3 (other = exclude the host),
+  // 359.3.f.2 ("my battlefield" = host location), 702/703 (buffed state).
   assert.deepEqual(Object.keys(program.abilities[1].effect.filter), [
     "type",
     "controller",
@@ -76,11 +83,38 @@ test("ogn-151-298 Lee Sin, Centered: the engine's filter vocabulary has no 'buff
     "sameLocationAs",
     "buffed"
   ]);
+  assert.equal(program.abilities[1].effect.filter.exclude, "self");
+  assert.equal(program.abilities[1].effect.filter.sameLocationAs, "source");
+  assert.equal(program.abilities[1].effect.filter.buffed, true);
+});
+
+test("ogn-151-298 Lee Sin, Centered: the merged continuous.might primitive registers the +2 aura it declares", () => {
+  // The registered primitive is the layer consumer the aura's op declares; the
+  // golden drives the card's own instruction through the interpreter so the
+  // arithmetic-layer registration is the real one, not a hand-built effect.
+  const base = world().unit("elder", { might: 3 }).unit("ally", { might: 2 }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("elder"), source: base.ref("elder") });
+  const elderRef = kernel.ref("elder");
+  const instruction = program.abilities[1].effect;
+  assert.equal(instruction.kind, "continuous.might");
+  assert.equal(instruction.mode, "add");
+  // continuous.might's argsSchema accepts already-evaluated literals (the
+  // interpreter evaluates Expr args before dispatch): pass the card's own
+  // amount value and a locked target id.
+  const run = runInstruction(mightPrimitive, {
+    amount: instruction.amount.value,
+    duration: "end-of-turn",
+    target: "lee-sin-aura"
+  }, { world: kernel, targets: { "lee-sin-aura": [elderRef] } });
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  assert.equal(kernel.continuousEffects[0].effect.effect.kind, "continuous.might");
+  assert.equal(kernel.continuousEffects[0].effect.effect.amount, 2);
 });
 
 test.todo(
   "ogn-151-298 Lee Sin, Centered: 'Other buffed friendly units at my battlefield have +2 Might.' needs the " +
-    "layers consumer for a static continuous.might effect registered from a card program (CR v1.5 364/703; " +
-    "contract 3.4 arithmetic layer, RIFT-91 workstream) plus a buffed predicate and a host-location " +
-    "('my battlefield') anchor."
+    "card-program binding that registers the static continuous.might effect (RIFT-257), plus a buffed " +
+    "predicate in the filter vocabulary (CR 702/703) and a host-location ('my battlefield') anchor in " +
+    "the layer filter."
 );

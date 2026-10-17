@@ -4,6 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/leona-determined.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import shieldDefinition from "../../../../engine-core/dist/effects/keywords/Shield.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import stun from "../../../../engine-core/dist/effects/instructions/effect.stun.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { queryObjects } from "../../../../engine-core/dist/effects/interpreter/selectors.js";
@@ -25,7 +27,8 @@ test("ogn-238-298 Leona, Determined: identity, status and verbatim sourceText", 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /designation/);
   assert.equal(
     program.sourceText,
     "[Shield] (+1 :rb_might: while I'm a defender.)\n" +
@@ -36,6 +39,24 @@ test("ogn-238-298 Leona, Determined: identity, status and verbatim sourceText", 
 test("ogn-238-298 Leona, Determined: [Shield] is declared with its presumed value 1", () => {
   // CR 814.1.b.3: an omitted Shield Value is presumed to be 1.
   assert.deepEqual(shield, { kind: "keyword", keyword: "shield", value: 1 });
+});
+
+test("ogn-238-298 Leona, Determined: the declared Shield keyword matches the merged KeywordDef and its expansion", () => {
+  const registered = keywordDefinitionsById.get("Shield");
+  assert.ok(registered, "effects/keywords/Shield.ts must be in the generated registry");
+  assert.equal(program.abilities[0].keyword, registered.keyword.toLowerCase());
+  assert.equal(registered.valued, true);
+  assert.equal(registered.stacking, "sum");
+  const [expansion] = shieldDefinition.expand({ host: { canonicalCardId: CANONICAL }, value: 1 });
+  assert.equal(expansion.kind, "static");
+  assert.equal(expansion.effect.kind, "continuous.might");
+  assert.equal(expansion.effect.mode, "add");
+  assert.equal(expansion.effect.layer, "arithmetic");
+  assert.deepEqual(expansion.effect.amount, { kind: "constant", value: 1 });
+  // 814.1.d/814.1.d.1: the bonus exists only while the host holds the Defender designation.
+  assert.equal(expansion.condition.kind, "compare");
+  assert.equal(expansion.condition.left.property, "designation");
+  assert.deepEqual(expansion.condition.right, { kind: "constant", value: "defender" });
 });
 
 test("ogn-238-298 Leona, Determined: attack trigger stuns one enemy unit at the same location", () => {
@@ -144,5 +165,7 @@ test("ogn-238-298 Leona, Determined: a stun target that already left the board i
 
 test.todo(
   "ogn-238-298 Leona, Determined: [Shield]'s continuous.might consumer and its Defender " +
-    "designation condition (CR 814.1.c/814.1.d.1) need the layers work (RIFT-91)"
+    "designation condition (CR 814.1.c/814.1.d.1) need the CardProgram-to-layers registration " +
+    "(RIFT-257) and the ObjectSnapshot designation/combatRole characteristic with a layers " +
+    "condition evaluator that reads it"
 );

@@ -4,8 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/malzahar-fanatic.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import resources from "../../../../engine-core/dist/effects/instructions/effect.resources.js";
+import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [action, activated] = program.abilities;
 const c = value => ({ kind: "constant", value });
@@ -26,7 +26,8 @@ test("Malzahar, Fanatic identity, ruleset and judge-required reason", () => {
   // 缺的是 Universal Power 的契约表示与 cost.sacrifice 型非标准费用。
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /Universal/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-257\/261/);
   assert.equal(
     program.sourceText,
     "Kill a friendly unit or gear, :rb_exhaust:: [Action] — [Add] :rb_rune_rainbow::rb_rune_rainbow:. " +
@@ -75,26 +76,75 @@ test("structure: [Add] two Universal Power, kept as Universal and never a named 
   }
 });
 
-test("golden: the merged primitive refuses an unrepresentable Universal Power gain", () => {
-  // effect.resources 文档明确：Universal Power 不在封闭 Domain 类型内，且"never
-  // approximated by a chosen domain"；这里断言实现是 negated impossible 而不是悄悄
-  // 选一个域或加 0。
-  const kernel = world().build();
-  const run = runInstruction(
-    resources,
-    { power: c(["Universal", "Universal"]) },
-    { world: kernel }
-  );
+test("golden: the 'Kill a friendly unit or gear' cost is charged by the merged cost plan (415.4)", () => {
+  // The cost planner's kill payment plus object chooser is the merged path for
+  // the printed cost-within-instructions (355.10.c.1); the card's declared
+  // string placeholder is what still needs the RIFT-257/261 binding.
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .unit("malzahar", { owner: "A" })
+    .unit("fodder", { owner: "A" })
+    .build();
+  const fodder = kernel.ref("fodder");
+  kernel.setPicks("malzahar.fodder", [fodder]);
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("malzahar") });
+  const plan = buildCostPlan(context, {
+    id: "cost:malzahar",
+    cost: {
+      kind: "activated",
+      payments: [
+        { kind: "kill", choice: { id: "malzahar.fodder", options: [fodder], min: 1, max: 1, selection: "one" } },
+        { kind: "exhaust" }
+      ]
+    }
+  });
+  assert.deepEqual(plan.total.actions.map(action => action.action.type), ["kill", "exhaust"]);
+  const receipt = payCostPlan(context, plan);
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay", "kill", "exhaust"]);
+  assert.equal(context.getObject("fodder").zone, "trash");
+  assert.equal(context.getObject("malzahar").exhausted, true);
+});
 
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.deepEqual(run.events, []);
-  assert.deepEqual(kernel.player("A").power, []);
+test("golden: a friendly gear is equally payable by the kill cost (415.4)", () => {
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .unit("malzahar", { owner: "A" })
+    .unit("spare-gear", { owner: "A", types: ["gear"] })
+    .build();
+  const gear = kernel.ref("spare-gear");
+  kernel.setPicks("malzahar.fodder", [gear]);
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("malzahar") });
+  const plan = buildCostPlan(context, {
+    id: "cost:malzahar-gear",
+    cost: {
+      kind: "activated",
+      payments: [{ kind: "kill", choice: { id: "malzahar.fodder", options: [gear], min: 1, max: 1, selection: "one" } }]
+    }
+  });
+  const receipt = payCostPlan(context, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(context.getObject("spare-gear").zone, "trash");
+});
+
+test("golden: a kill cost with no legal candidate cannot be planned, so the activation is unpayable (415.4)", () => {
+  // No controlled board permanent can be killed: the plan cannot be built, so
+  // the activation could never be paid (CR 415.4) - nothing is approximated.
+  const kernel = world().player("A", { energy: 20 }).unit("malzahar", { owner: "A" }).build();
+  assert.throws(() => buildCostPlan(kernel.clone({ sourceSnapshot: kernel.getObject("malzahar") }), {
+    id: "cost:malzahar-empty",
+    cost: {
+      kind: "activated",
+      payments: [{ kind: "kill", choice: { id: "malzahar.fodder", options: [], min: 1, max: 1, selection: "one" } }]
+    }
+  }), /Cost requires an exact object reference|Invalid cost/);
 });
 
 test.todo(
   "Malzahar, Fanatic: charging the 'Kill a friendly unit or gear' cost at Finalize (415.4 / 357.2) needs " +
-    "the cost.sacrifice-style non-standard payment and its object chooser (RIFT-89 batch3-cost-plan)"
+    "the CardProgram/fee binding that resolves the declared 'friendly-unit-or-gear' placeholder into " +
+    "runtime object options and the cost.pay primitive (RIFT-257/RIFT-261); the kill payment and its " +
+    "object chooser already execute through the merged cost plan"
 );
 
 test.todo(

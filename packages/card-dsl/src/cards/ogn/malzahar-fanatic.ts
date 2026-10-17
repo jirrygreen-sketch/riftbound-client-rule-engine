@@ -25,14 +25,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   ("Fury" | "Calm" | "Mind" | "Body" | "Chaos" | "Order") 内；
  *   effect.resources 文档明确写着“Universal Power (163.2.b) is not representable by
  *   the closed Domain type / gain-power action. It remains unsupported, never
- *   approximated by a chosen domain.”（对应实现会 negated impossible）。
- *   因此不能把 [A][A] 近似成任一具体域的两点 Power。
- * - 费用侧的 "Kill a friendly unit or gear" 是 cost.sacrifice 型非标准费用：
- *   费用管线（cost/kill 支付动作）尚未合入（RIFT-89），且“unit or gear”的
- *   二选一费用需要费用选择器支持。
+ *   approximated by a chosen domain.”。
+ *   因此不能把 [A][A] 近似成任一具体域的两点 Power（契约变更请求见最终回复）。
+ * - 费用侧的 "Kill a friendly unit or gear"：cost/kill 支付动作与费用选择器
+ *   （cost-plan 的 nonstandard payments + choiceObjects）已合入，真实支付路径已在
+ *   golden 中执行；缺的是把卡牌数据的字符串占位选项（"friendly-unit-or-gear"）
+ *   解析成运行时对象选项的卡程序/费用绑定（RIFT-257/261），以及费用原语。
  *
- * 依赖：契约变更（Domain 增补 Universal / 或新增 gain-universal-power 动作）+ 
- * RIFT-89（非标准费用收取）。
+ * 依赖：契约变更（Domain 增补 Universal / 或新增 gain-universal-power 动作）+
+ * RIFT-257/261（费用绑定与原语）。
  */
 const malzaharFanatic = {
   canonicalCardId: "card.hash-0821b41b5d117a852897d54edb6109cc048ab5637104799b63924d6edb073ee4",
@@ -42,9 +43,11 @@ const malzaharFanatic = {
     "[Add] :rb_rune_rainbow::rb_rune_rainbow: 是 CR v1.5 163.2.b / 135.2.e.5 的 Universal Power（[A]），" +
     "但契约的封闭 Domain 类型只有六个命名域；effect.resources 文档明确 Universal Power 不可表示" +
     "（never approximated by a chosen domain，实现会 negated impossible），不得近似成任一具体域。" +
-    "费用侧「Kill a friendly unit or gear」（355.10.c 的 cost within instructions）属 cost.sacrifice 型非标准费用，" +
-    "费用管线的收取与二选一费用选择尚未合入（RIFT-89）。" +
-    "依赖：契约变更（Domain 增补 Universal 或新增 gain-universal-power 动作）+ RIFT-89（非标准费用收取）。",
+    "费用侧「Kill a friendly unit or gear」（355.10.c 的 cost within instructions）已能由费用的 kill 支付动作 + " +
+    "对象选择器真实收取（golden 已验证），但卡牌数据的字符串占位选项 " +
+    "\"friendly-unit-or-gear\" 需要 CardProgram/费用绑定把它解析成运行时对象选项（RIFT-257/261），" +
+    "费用原语（cost.pay）同样未合入。" +
+    "依赖：契约变更（Domain 增补 Universal 或新增 gain-universal-power 动作）+ RIFT-257/261。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

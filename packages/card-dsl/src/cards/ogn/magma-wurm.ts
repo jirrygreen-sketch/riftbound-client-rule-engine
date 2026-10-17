@@ -17,46 +17,74 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * 结构说明（本卡标记 judge-required，见下）:
  * - 用一个 replacement 能力（契约 3.1）声明：被替代事件是其他友方单位进入 Board，
- *   替代结果是该单位以就绪状态进场；filter 的 other: true 排除本卡自身。
- * - 注意 effect.ready 自己的文档声明："enter ready 是入场替代，不是事后重置"，本
- *   原语不能用来模拟入场替代（359.2.c、369.3、805.6）。with 体里的 objects 用
- *   "source" 选择符指称"被替代事件中即将进场的单位"——与已合入的 Accelerate 关键词
- *   文件（effects/keywords/Accelerate.ts 的 805.6 入场替代）对同一约定一致：替代
- *   管线把 source 绑定到被替代的进场事件对象（对 Accelerate 而言恰好也是它自己）。
- *   真实执行必须由 replacement.enter 替代管线在进场事件提交前完成，不能靠事后调用
- *   effect.ready；本文件也不把该对象
- *   伪装成 TargetSpec（那会错误地引入目标相关触发，355.7）。
+ *   替代结果是该单位以就绪状态进场；filter 的 other: true 排除本卡自身，
+ *   exhausted: true 只命中默认的横置进场（CR 370.1.b：入场过滤读取被替代事件的状态）。
+ * - 替代体按已合入的 RIFT-260 声明式写法：外层 `replacement.event` 包装常量
+ *   EventPattern + `instead` 指令体，被替代事件对象经 REPLACED_EVENT_LINK
+ *   （"replacement.object"）以契约 3.6 的 `{ linked: "replacement.object" }` 选择符引用；
+ *   不给「进场单位」建 TargetSpec（那会错误地引入目标相关触发，355.7）。
+ * - effect.ready 自己的文档声明 "enter ready 是入场替代，不是事后重置"，因此
+ *   instead 体描述的是同一次入场动作的取向改写（359.2.c、369.3、805.6），
+ *   由替代管线在 move-zone 提交时把就绪动作排在被替代动作之前完成。
  *
- * 未合入依赖 + 契约缺口（不近似实现）:
- * - 没有 replacement.enter 替代管线（RIFT-9 清单；events/pipeline.ts 有替代注册表，
- *   但没有读取 CardProgram replacement 能力并注册的消费方）。
- * - "source" 在替代事件里指称被替代事件对象的绑定规则目前只由 Accelerate 关键词
- *   文件的注释约定，契约 3.6 未把它写进 ObjectSelector 语义；已在最终回复提出契约
- *   变更请求（请明确替代效果内 source 的绑定）。
- * 依赖：RIFT-9（replacement.enter）、RIFT-91、RIFT-120。
+ * 合入后的复核（RIFT-260 replacement 管线）：
+ * - events/pipeline.ts 的替代注册表 + replacement/bind.ts 的 bindReplacement 已合入，
+ *   能按 { replaces.event, filter } 匹配 object-enters-board 的入场 move-zone 动作；
+ *   "Other friendly units" 的 filter（other: true / controller / zone）由
+ *   replacement/pattern.ts 的规范化过滤求值。
+ * - 替代体引用被替代事件对象的绑定由 REPLACED_EVENT_LINK（"replacement.object"）提供，
+ *   因此可以按契约 3.6 的 { linked: "replacement.object" } 选择符给「进场的那个友方单位」
+ *   就绪进场，不再依赖未写入契约的 source 绑定。
+ *
+ * 仍未合入的消费方（不近似实现）：
+ * - 卡牌程序绑定（RIFT-257，src/programs/ 未合入）：没有任何生产方读取 CardProgram 的
+ *   replacement 能力并调用 bindReplacement，所以本卡的替代在真实对局里不会被注册。
+ *   golden 测试用 bindReplacement + 事件管线真实执行替代本身（入场就绪、友方/敌方边界、
+ *   重复触发）。
+ * 依赖：RIFT-257（CardProgram → replacement 注册）。
  */
 const magmaWurm = {
   canonicalCardId: "card.hash-d92b1df4324a20717aaeab68c916883889ea337f917bdf10104e9df82f9a3c19",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "『Other friendly units enter ready』是入场替代效果（CR 369.3；单位默认横置进场 359.2.c）：缺 replacement.enter 替代管线" +
-    "（RIFT-9 清单；events/pipeline.ts 的替代注册表没有 CardProgram 消费方），而 effect.ready 文档明确它只能重置场上对象、不能模拟 enter ready" +
-    "（359.2.c / 369.3 / 805.6）；with 体用 source 选择符指称被替代事件的进场单位（与 Accelerate 关键词文件对 805.6 的约定一致），" +
-    "但该绑定语义未写入契约 3.6，已提交契约变更请求。依赖：RIFT-9（replacement.enter）、RIFT-91、RIFT-120。不近似实现。",
+    "『Other friendly units enter ready』是入场替代效果（CR 369.3；单位默认横置进场 359.2.c）：RIFT-260 的替代管线已合入" +
+    "（replacement/bind.ts 的 bindReplacement 匹配 object-enters-board 的入场 move-zone，替代体用 { linked: \"replacement.object\" } 读取被替代事件对象），" +
+    "golden 已用该管线真实执行入场就绪。仍缺的消费方是 CardProgram → replacement 注册（RIFT-257，src/programs/ 未合入）：" +
+    "没有生产方读取本卡的 replacement 能力并调用 bindReplacement，真实对局不会注册这条替代。依赖：RIFT-257。不近似实现。",
   abilities: [
     {
       kind: "replacement",
       replaces: {
         event: "object-enters-board",
-        filter: { type: "unit", controller: "controller", other: true, zone: "board" }
+        // 143.4 / 359.2.c：只替换「横置进场」这条默认；快照在替代匹配时仍位于 Chain，
+        // 因此过滤条件按入场状态（exhausted: true）而不是 zone: board 表达（CR 370.1.b）。
+        filter: { type: "unit", controller: "controller", other: true, exhausted: true }
       },
       with: [
         {
-          id: "magma-wurm.enter-ready",
-          op: "effect.ready",
+          id: "magma-wurm.register-entry",
+          op: "replacement.event",
           args: {
-            objects: { kind: "constant", value: { kind: "source" } }
+            event: {
+              kind: "constant",
+              value: {
+                event: "object-enters-board",
+                filter: { type: "unit", controller: "controller", other: true, exhausted: true }
+              }
+            },
+            instead: {
+              kind: "constant",
+              value: [
+                {
+                  id: "magma-wurm.enter-ready",
+                  op: "effect.ready",
+                  args: {
+                    objects: { kind: "constant", value: { linked: "replacement.object" } }
+                  }
+                }
+              ]
+            }
           }
         }
       ]

@@ -4,6 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/lecturing-yordle.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import tank from "../../../../engine-core/dist/effects/keywords/Tank.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-d5bee8c48f53404d08ff88d8472305114b39bc2f137cfb3e59c46e99340d0119";
@@ -17,10 +19,26 @@ test("Lecturing Yordle program validates and is judge-required", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Tank/);
   assert.match(program.judgeReason, /815/);
+  assert.match(program.judgeReason, /continuous\.combat/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "[Tank] (I must be assigned combat damage first.)\nWhen you play me, draw 1."
   );
+});
+
+test("Lecturing Yordle: the declared [Tank] keyword matches the merged KeywordDef and its continuous.combat shape", () => {
+  const registered = keywordDefinitionsById.get("Tank");
+  assert.ok(registered, "effects/keywords/Tank.ts must be in the generated registry");
+  assert.equal(program.abilities[0].keyword, registered.keyword.toLowerCase());
+  assert.equal(registered.valued, false);
+  assert.equal(registered.stacking, "single");
+  const [expansion] = tank.expand({ host: { canonicalCardId: program.canonicalCardId } });
+  assert.equal(expansion.kind, "static");
+  assert.equal(expansion.effect.kind, "continuous.combat");
+  assert.equal(expansion.effect.mode, "damage-assignment");
+  assert.equal(expansion.effect.priority, "first");
+  assert.equal(expansion.effect.damage, "lethal");
 });
 
 test("Lecturing Yordle structure: Tank keyword plus a mandatory self card-played draw", () => {
@@ -67,6 +85,11 @@ test("Lecturing Yordle golden: an empty Main Deck draws as much as possible with
 
 test.todo(
   "Lecturing Yordle [Tank] (815): the unit must be assigned lethal damage before any other unit with the same " +
-    "controller that does not have Tank, during the Combat Damage step (815.1.b / 815.1.c.2); needs a Tank KeywordDef and " +
-    "combat assignment binding"
+    "controller that does not have Tank, during the Combat Damage step (815.1.b / 815.1.c.2); the Tank KeywordDef " +
+    "(RIFT-264) expands to a static continuous.combat requirement, but continuous.combat has no combat consumer " +
+    "(combat/base-combat-allocation.ts binds no assignment priority)"
+);
+test.todo(
+  "Lecturing Yordle: the card-played 'When you play me, draw 1' trigger must be registered from the CardProgram " +
+    "(the trigger-spec vocabulary accepts the card-played event; the program-binding adapter is RIFT-257)"
 );

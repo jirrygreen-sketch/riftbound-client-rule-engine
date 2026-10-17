@@ -16,14 +16,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   effect.token 的 mode "play" 已支持该链上创建 + 打出（RIFT-62 合入后不再是阻断项）。
  * - 440.4：新创建对象的控制者是效果控制者，即 "your base" 里的 your = 本卡控制者。
  *
- * status: judge-required —— 两处依赖未合入：
+ * status: judge-required —— 三处依赖未合入：
  * 1. [Deathknell] 的关键词展开不可执行：keywords/Deathknell.ts 的展开体引用未合入的
- *    trigger.leave 原语（该文件自身注明），触发收集到入链的关键词接线尚未完成（RIFT-82）；
- * 2. "into your base" 的目标地点需要把 "controller" 占位解析成当前控制者的 Base：
+ *    trigger.leave 原语（该文件自身注明；effects/instructions/ 没有该 op 的注册文件），
+ *    触发收集到入链的关键词接线尚未完成（RIFT-82）；
+ * 2. 触发注册：没有生产方读取 CardProgram 的 triggered 能力并注册到事件管线
+ *    （RIFT-257）；本卡声明的 object-killed 自引用过滤也需随该批归一化。
+ * 3. "into your base" 的目标地点需要把 "controller" 占位解析成当前控制者的 Base：
  *    合并的 effect.token 只接受具体 LocationRef，遇到 player: "controller" 占位会
  *    negated/impossible（契约 3.6 与 effect.token 文档）。
  * 本卡的 [Deathknell] 效果本体（三个 Recruit token）用已合入的 effect.token 表达，并在 golden
- * 测试中以具体 Base 替换占位后真实执行；上述两点保持 pending，不把占位当可执行。
+ * 测试中以具体 Base 替换占位后真实执行；上述三点保持 pending，不把占位当可执行。
  */
 const machineEvangel = {
   canonicalCardId: "card.hash-17636361767d3b9981692423637f956799fa03a84c22ee687c41f59f2b58aa59",
@@ -32,10 +35,11 @@ const machineEvangel = {
   judgeReason:
     "[Deathknell] 的关键词展开不可执行：keywords/Deathknell.ts 的展开体引用未合入的 trigger.leave 原语" +
     "（808.1.d 的触发收集到入链接线，依赖 RIFT-82）；" +
+    "触发的能力注册也缺生产方（RIFT-257，没有读取 CardProgram triggered 能力并注册到事件管线的路径）；" +
     "「Play three 1 [M] Recruit unit tokens into your base」的目标地点需要把 base 的 " +
     "player controller 占位解析成当前控制者（440.4），合并的 effect.token 只接受具体 LocationRef，" +
     "占位会 negated/impossible。效果本体（187.1 Recruit x3）可用已合入的 effect.token mode play 执行，" +
-    "故仅上述两点保持 judge-required。依赖：RIFT-82、effect.token 的 controller-base 占位解析。",
+    "故仅上述三点保持 judge-required。依赖：RIFT-82、RIFT-257、effect.token 的 controller-base 占位解析。",
   sourceText:
     "[Deathknell] — Play three 1 :rb_might: Recruit unit tokens into your base. (When I die, get the effect.)",
   abilities: [
