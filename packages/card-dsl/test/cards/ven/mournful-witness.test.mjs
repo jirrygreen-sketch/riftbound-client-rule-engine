@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/mournful-witness.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL_ID =
@@ -75,8 +77,10 @@ test("ven-028-166 Mournful Witness: the [Empowered] Might bonus is a gated arith
   assert.deepEqual(mightBonus.effect.amount, { kind: "constant", value: 2 });
   assert.equal(mightBonus.effect.appliesTo, "self");
   assert.deepEqual(mightBonus.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "empowered" }
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
   });
 });
 
@@ -131,5 +135,31 @@ test("ven-028-166 golden: the declared +2 Might primitive registers in the arith
 test.todo(
   "ven-028-166 Mournful Witness: the combat-end timing point has no emitter, and 'a combat that I " +
     "was in' needs the Attacker/Defender designation (CR 468.7.b / 323.2 / 466.2.c.3; " +
-    "ObjectSnapshot.combatRole is not in engine-core's effects/contract.ts yet)"
+    "combatRole exists, but a combat participation record must survive designation removal)"
 );
+
+test("ven-028-166 Mournful Witness golden: repeated combat rewards cannot Empower an already Empowered unit", () => {
+  const kernel = witnessWorld();
+  const first = runAbilityBody(trigger.body, kernel);
+  assert.equal(first.status, "executed");
+  const second = runAbilityBody(trigger.body, kernel);
+  assert.deepEqual(second.results[0].result, { status: "negated", reason: "skipped", events: [] });
+  assert.equal(kernel.getObject("witness").empowered, 1);
+  assert.deepEqual(kernel.events.map(event => event.action), ["empower"]);
+});
+
+test("ven-028-166 Mournful Witness golden: the original static gate adds +2 only while Empowered", () => {
+  const f = fixture();
+  const source = f.kernel.getObject("source");
+  createEngineStaticBinder(f.engine).bindStatic(mightBonus, source);
+  const might = () => {
+    f.engine.layers.setObjects(f.kernel.objects);
+    return f.engine.layers.evaluate(source.ref).might;
+  };
+  assert.equal(might(), 2);
+  assert.equal(f.engine.commit({ type: "empower", object: source.ref }).status, "done");
+  assert.equal(might(), 4);
+  assert.equal(f.engine.layers.evaluate(f.kernel.ref("enemy")).might, 5);
+  assert.equal(f.engine.commit({ type: "disempower", object: source.ref }).status, "done");
+  assert.equal(might(), 2);
+});

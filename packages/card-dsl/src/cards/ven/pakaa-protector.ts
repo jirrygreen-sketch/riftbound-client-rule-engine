@@ -13,22 +13,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Recall 不算 Move，458/458.1），filter 内层锚点用契约 3.6 的 source: "self" 指称本卡。
  * - 425.1 / 425.1.a.2 / 425.3：reveal 公开牌库顶的牌；牌仍在原区域，牌库顺序不变。
  *   契约 3.6 规定读牌库顶必须用 zoneSlice（query 不保证区域顺序），已合入的 effect.reveal
- *   对非手牌真子集明确要求上游提供有序 picks。当前 deck/count:1 路径会拒绝多张牌库的
- *   真子集；zoneSlice/牌库顶 1 张接入卡牌程序仍是缺口，不把 query 顺序近似为牌库顺序。
+ *   对非手牌真子集明确要求上游提供有序 picks。现用 zoneSlice 有序来源，不把 query 顺序近似为牌库顺序；
+ *   结算时来源仍待接线（见 judgeReason）。
  * - “If it's a unit, draw it.”：compare/in 可判断标量 unit 是否属于展示牌的 types 数组。
  *   condition.predicate 在展示后的首个步骤保存布尔结果，两条 sequence 消费该结果，
  *   不交给玩家选择。414.1/414.1.a 的“draw it”走 effect.draw；展示未换区且判别到抽牌
  *   之间没有其它动作，因此抽到的仍是原顶牌，并保留 card-drawn 动作语义。
  * - “Otherwise, put it in your trash”：effect.zone 移动已展示的指定牌；PickSpec 的
- *   options 引用 reveal 的真实结果，当前仍缺 linked options 自动绑定到 ctx.picks 的路径。
+ *   linked 字段引用 reveal 的真实结果，linked PickSpec 由 chain/picks/linked.ts 自动绑定。
  * - “and give me +2 :rb_might: this turn”：临时 Might 修正属 layers 的 continuous.might
  *   （143.2/143.2.a、479），effect.buff 文档明确临时 Might 不进入 Buff 计数器。
  *
- * status = judge-required：仍缺牌库顶 ordered-pick producer（RIFT-358）、effect.reveal
- * 的 pick 解包及 linked PickSpec 自动绑定；类型判别不再依赖新谓词。
- * object-moved 已带移动对象快照，source:self 由 translateTriggerFilter 绑定为 objectId。
- * golden 在单张牌库中执行原始 body；非单位场景提供真实有序读取的锁定 pick，
- * 仅证明已支持部分。测试还覆盖两分支、空展示、第二张牌不受影响、旧引用失效与临时 Might 到期。
+ * 当前执行边界见 judgeReason 与对应 golden；保留所有印刷语义。
  */
 const abilities: Ability[] = [
   {
@@ -42,12 +38,13 @@ const abilities: Ability[] = [
       {
         id: "pakaa-protector.reveal-top",
         op: "effect.reveal",
-        // 多张牌库的真子集会 fail closed；不能把 query 顺序当作牌库顺序。
-        // 该读取仍缺 zoneSlice → reveal 的接线，因此整卡保持 judge-required。
-        args: {
-          zone: { kind: "constant", value: "deck" },
-          count: { kind: "constant", value: 1 }
-        }
+        // 已合入的 producer 按真实区域顺序绑定；Finalize / Resolve 时点差异见 judgeReason。
+        args: { pick: { kind: "constant", value: "pakaa-protector.top-card" } },
+        picks: [{
+          id: "pakaa-protector.top-card",
+          options: [], ordered: true, selection: "all",
+          zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 1 } }
+        }]
       },
       {
         id: "pakaa-protector.branch",
@@ -119,16 +116,12 @@ const abilities: Ability[] = [
                 picks: [
                   {
                     id: "pakaa-protector.revealed-card",
-                    options: [
-                      {
-                        kind: "linked-value",
-                        instructionId: "pakaa-protector.reveal-top",
-                        key: "revealed"
-                      }
-                    ],
-                    min: 1,
-                    max: 1,
-                    selection: "one"
+                    options: [], ordered: true, selection: "all",
+                    linked: {
+                      kind: "linked-value",
+                      instructionId: "pakaa-protector.reveal-top",
+                      key: "revealed"
+                    }
                   }
                 ]
               },
@@ -154,13 +147,7 @@ export default {
   canonicalCardId: "card.hash-f4d87dfb750f0f23070558bd76ae0fba7b17e9097fe44c0034f1eb55e6bb564e",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason:
-    "当前缺口是牌库顶有序读取（425.1；RIFT-358）：effect.reveal 的 deck/count:1 路径对多张牌库的真子集拒绝执行，" +
-    "未把 zoneSlice 的顶牌引用接入卡牌程序；不能用 query 顺序近似牌库顺序。" +
-    "若改用 ordered pick，chain/interpreter-adapter.ts 的 LITERAL_FIELDS 仍只解包 effect.reveal.target、不解包 pick，需同步适配。" +
-    "另缺 effect.zone 的 linked PickSpec 绑定：interpreter.ts 只把 picks 委托给调用方，未求值 linked-value options；非单位测试显式提供锁定选择，不能证明生产绑定。" +
-    "object-moved 的来源绑定、compare/in 类型判别与 condition.predicate 布尔快照已可用，两个 sequence 自动且互斥执行，" +
-    "unit 分支通过 effect.draw 抽到未离开牌库顶的原牌，另一分支通过 effect.zone 与 continuous.might 处理；单张牌库有原始 body 执行证据，仍不宣称完整可执行。",
+  judgeReason: "当前缺口：(1) events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 不含 object-moved，programs/filters.ts 翻译的自身移动事件模式无法注册；已有 object-moved 发射与匹配不等于生产触发绑定（383.1 / 421.1）。(2) 结算时的牌库顶有序读取（425.1 / 414.1.a / 359.3）：chain/picks/plan.ts 的 zoneSlice 只在 Finalize 锁定引用，不能表达本触发 Resolve 时才展示的当前顶牌。若响应改变牌库顶，锁定的 reveal 对象与 effect.draw 抽到的当前顶牌可能不同，不能把旧引用近似为“draw it”。有序 pick、effect.reveal.pick 解包、linked PickSpec 自动绑定均已合入；golden 用原始 body 真实执行多张牌库的两个互斥分支、空牌库、Move 事件匹配和 +2 Might 到期，但在结算时读取来源接通前保持 judge-required。",
   abilities,
   sourceText:
     "When I move, reveal the top card of your Main Deck. If it's a unit, draw it. Otherwise, put it in your trash and give me +2 :rb_might: this turn."

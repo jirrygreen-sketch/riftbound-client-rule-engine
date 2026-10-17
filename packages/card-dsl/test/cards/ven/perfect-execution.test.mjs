@@ -36,7 +36,7 @@ test("ven-012-166 Perfect Execution: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /807\.1\.c/);
   assert.match(program.judgeReason, /combatRole|designation/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /programs\/lifecycle\.ts/);
   assert.match(program.judgeReason, /params\.cost|3\.8\.3/);
   assert.ok(!/RIFT-9 清单|没有已合入原语/.test(program.judgeReason));
 });
@@ -163,6 +163,9 @@ test("ven-012-166 Perfect Execution golden: the grant instruction registers an a
   const evaluated = layers.evaluate(locked);
   assert.deepEqual(evaluated.keywords.map((keyword) => [keyword.id, keyword.value]), [["Assault", 3]]);
   assert.equal(evaluated.might, 2);
+  assert.equal(layers.advance({ id: "turn-end" }).length, 1);
+  assert.deepEqual(layers.evaluate(locked).keywords, []);
+  assert.equal(layers.evaluate(locked).might, 2);
 });
 
 test("ven-012-166 Perfect Execution golden: the original body uses its locked unit target for both effects", () => {
@@ -195,7 +198,7 @@ test("ven-012-166 Perfect Execution golden: the original body uses its locked un
 test.todo(
   "ven-012-166 Perfect Execution: [Assault 3] actually adds +3 Might while the granted unit is an attacker " +
     "(807.1.c / 807.2) — keywords/Assault.ts expands to a designation-eq-attacker condition, but the " +
-    "combatRole-to-designation predicate mapping is not wired into the layer consumer (in-flight RIFT-359)"
+    "combatRole-to-designation predicate mapping is not wired into the layer consumer (dynamic keyword rebinding and the designation mapping remain unconnected)"
 );
 
 test.todo(

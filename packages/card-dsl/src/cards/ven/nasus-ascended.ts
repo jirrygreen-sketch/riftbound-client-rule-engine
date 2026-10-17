@@ -10,8 +10,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Empowered.)
  *   [Empowered][>] When I conquer, you score 1 point.
  *
- * 复核：Deflect 的 KeywordDef 已合入，expandProgram 会把它展开为 static target.tax；
- * Empower / Empowered 仍缺 KeywordDef，且 target.tax 的后续费用消费方仍缺，见 judgeReason。
+ * 复核：Deflect 与 Empower 的 KeywordDef 均已合入；印刷费用与目标税接线仍缺，见 judgeReason。
  *
  * 规则依据（Core Rules v1.5）：
  * - 809 Deflect：Passive Ability 关键词（809.1）；格式 "Deflect [X]"，X 是
@@ -40,8 +39,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   pipeline-match.ts 映射到封闭的 conquer 时点（468.5.d/471.1/473.2.a）。
  * - filter 用契约 3.6 的符号选择器 { source: "self" } 指向能力来源，不写运行时
  *   ObjectRef，也不写死玩家 id。
- * - 本条依赖能力的 Empowered 门控（828.1.c）随关键词系统落地；本程序不平铺成
- *   无条件能力，只在 judgeReason 里登记缺口（见下）。
+ * - 本条依赖能力以 trigger.condition 读取 Empowered 状态（828.1.c），
+ *   在触发扫描时检查，不在结算时重新检查（727.1.c.1.b）。
  */
 const abilities: Ability[] = [
   {
@@ -57,8 +56,14 @@ const abilities: Ability[] = [
   {
     kind: "triggered",
     trigger: {
-      at: "conquered",
-      filter: { event: "conquered", filter: { source: "self" } }
+      at: "conquer",
+      filter: { event: "conquered", filter: { source: "self" } },
+      condition: {
+        kind: "compare",
+        left: { kind: "object-property", object: "self", property: "empowered" },
+        operator: "gte",
+        right: { kind: "constant", value: 1 }
+      }
     },
     optional: false,
     body: [
@@ -75,15 +80,7 @@ export default {
   canonicalCardId: "card.hash-2df5544ffea6f698095320fc6fa4ee6de200fc1053c9c5737ca847fc57e18b35",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason:
-    "「[Empower] 8」与「[Empowered][>]」依赖尚未合入的关键词展开：effects/keywords/ 中没有 " +
-    "Empower / Empowered 的 KeywordDef（827.1.c.1 的 cost.activated + effect.empower + " +
-    "“Use only if not Empowered” 限制、828.1.c 的 Empowered 状态门控都无实现），ObjectSnapshot / " +
-    "Condition 也没有 Empowered 谓词，expandProgram 会以 “Keyword empower has no " +
-    "executable KeywordDef” 拒绝（依赖新的 Empower/Empowered 关键词任务与 RIFT-87 条件/谓词）。" +
-    "「[Deflect 2]」的 KeywordDef 已合入，expandProgram 已真实展开为 static target.tax；当前仍缺把 " +
-    "target.tax 接到 target-plan 的 Deflect 附加费消费方（RIFT-360）。" +
-    "征服触发的 effect.score 原语已合入并单独可执行；不近似实现缺口的费用改写与状态门控。",
+  judgeReason: "当前缺口：(1) Empower 的 KeywordDef 已合入，programs/keywords.ts 仍未传 params.cost，不能绑定印刷的 8 Energy 启动费用（827.1.c.1）。参考内核的 empowered 计数可被 compare 读取，但 ObjectSnapshot 契约尚未声明该特征；征服触发用该条件保留 828.1.c / 727.1.c.1 门槛。(2) Deflect 2 已展开为 target.tax，但 programs/statics.ts 没有该 kind 的映射；target/tax/collect.ts 的显式收集器尚未接入链的默认目标选择，chain/engine.ts 收到目标税后仍将其记为 Energy，未按 809.1.c.1 收取任意域 Power。(3) turn/flow.ts 的 conquer 生产只有 player / battlefieldId，没有单位 object；本卡 source:self 的 383.4.c 征服触发仍缺在场单位匹配接线。effect.score 本体已真实执行，不近似实现。",
   abilities,
   sourceText:
     "[Deflect 2] (Opponents must pay :rb_rune_rainbow::rb_rune_rainbow: to choose me with a spell or ability.)\n" +
