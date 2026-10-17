@@ -6,10 +6,12 @@ import program from "../../../dist/cards/unl/hwei-brooding-painter.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { registerProgramTriggers } from "../../../../engine-core/dist/programs/triggers.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
-import { ProgramBindingError } from "../../../../engine-core/dist/programs/errors.js";
+import { TriggerSpecValidationError } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL =
   "card.hash-ffb82a1c4cfcf34e538fde6b389b55d4affeceb3cdb2ba50ada212c3237fe8f2";
@@ -84,6 +86,9 @@ test("unl-080-219 Hwei, Brooding Painter: identity, ruleset, judge-required stat
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /object-moved/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /388\.1\.b/);
+  assert.match(program.judgeReason, /389\.1/);
+  assert.match(program.judgeReason, /待定 Chain item/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -284,30 +289,55 @@ test("unl-080-219 Hwei, Brooding Painter golden: the Unit branch registers +3 Mi
   assert.equal(layers.evaluate(kernel.ref("hwei")).might, 5);
 });
 
-test("unl-080-219 Hwei, Brooding Painter golden: the move trigger still cannot register through program binding", () => {
-  // programs/triggers.ts translates { source: self } into an event:
-  // object-moved pattern, but events/trigger-spec.ts' EVENT_PATTERN_TYPES
-  // whitelist has no object-moved entry, so registerProgramTriggers throws
-  // before any trigger can subscribe. This is the documented judge-required
-  // gap, not a shape error; the assertion is removed once the whitelist lands.
-  const registry = new ProgramRegistry([program]);
+test("unl-080-219 Hwei, Brooding Painter: translation is correct but trigger registration rejects object-moved", () => {
+  // Lift only the status for the binding probe. This makes ProgramRegistry
+  // reach trigger translation; the production card remains judge-required.
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const registry = new ProgramRegistry([lifted]);
+  const f = fixture({
+    cards: [{ id: "hwei", cardId: CANONICAL, types: ["unit"], owner: "A", controller: "A" }]
+  });
   const [ability] = program.abilities;
-  const source = {
-    ref: { id: "hwei", zoneEntryId: 1 },
-    cardId: CANONICAL,
-    canonicalCardId: CANONICAL,
-    controller: "A",
-    owner: "A",
-    types: ["unit"],
-    zone: "board",
+  const source = f.kernel.getObject("hwei");
+  assert.deepEqual(
+    translateTriggerFilter(ability.trigger.filter, source.ref.id, ability.trigger.at),
+    { event: "object-moved", object: { objectId: "hwei" } }
+  );
+  assert.throws(
+    () => registerProgramTriggers(registry, f.engine, source),
+    error => error instanceof TriggerSpecValidationError &&
+      error.issues.some(issue => issue.code === "invalid-event-type")
+  );
+});
+
+test("unl-080-219 Hwei, Brooding Painter regression: ChainEngine keeps the type branch inline", () => {
+  const f = fixture({
+    cards: [
+      { id: "hwei", cardId: CANONICAL, types: ["unit"], owner: "A", controller: "A", might: 5 },
+      { id: "spell-card", types: ["spell"], owner: "A", controller: "A" }
+    ]
+  });
+  const board = f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("hwei"),
+    to: "board",
     location: { type: "battlefield", id: "bf-1" }
-  };
-  try {
-    registerProgramTriggers(registry, { pipeline: { registerTrigger: () => {} } }, source);
-    assert.fail("registerProgramTriggers should reject the object-moved pattern");
-  } catch (error) {
-    assert.ok(error instanceof ProgramBindingError);
-    assert.equal(error.code, "judge-required");
-  }
+  });
+  assert.equal(board.status, "done");
+  f.answers.set("hwei.discard-1/effect.discard%3AA", [f.kernel.ref("spell-card")]);
+  f.engine.enqueue({
+    id: "hwei-trigger-probe",
+    controller: "A",
+    source: f.kernel.getObject("hwei"),
+    kind: "triggered",
+    body: ability.body
+  });
+  f.engine.advance();
+  while (f.engine.items.length) f.engine.pass(f.engine.priority);
+
+  const chainSteps = f.engine.trace.filter(step => step.step === "pending" || step.step === "resolved");
+  assert.deepEqual(chainSteps.map(step => step.step), ["pending", "resolved"]);
+  assert.equal(f.kernel.events.filter(event => event.action === "draw").length, 2);
 });
 

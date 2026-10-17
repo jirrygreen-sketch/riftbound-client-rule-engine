@@ -23,6 +23,8 @@ import type { CardProgram } from "../../ir/index.js";
  * - 388.1 / 388.1.b / 389.1："do the following based on …" 是按弃牌类型自动选定的
  *   一个分支（不是玩家选模式），写成三个由类型条件守住的 sequence 分支
  *   （互斥、逐条求值），条件读 { linked: "hwei.discard-1" } 回执中的被弃牌 types。
+ *   当前 IR 只能在原能力 body 内执行这些 sequence，尚不能把选中的分支作为新的待定
+ *   Chain item 入链；因此这里只保留可执行的分支形状，整张卡仍为 judge-required。
  * - 414.1：Spell 分支 "Draw 1."
  * - 416.1 / 431.1：Gear 分支 "Ready up to 2 runes." 是对符文区中自己符文的非目标
  *   集合选择（355.10.d 型 "ready all/up to"，min 0 = "up to"）。
@@ -30,26 +32,26 @@ import type { CardProgram } from "../../ir/index.js";
  *   归 continuous.might 图层；"me" 经 args.appliesTo 的 self 锚点。
  *
  * status = judge-required（缺口不近似实现）：
- * 「When I move」的 object-moved 触发不能经程序绑定注册：translateTriggerFilter 把
- * { source: "self" } 翻译为 event: "object-moved" 的 EventPattern，但
- * events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 白名单没有 object-moved，
- * registerProgramTriggers 在 assertTriggerSpec 即抛 TriggerSpecValidationError。
- * body 已全部可执行：effect.draw、effect.discard 的链接回执（hwei.discard-1）、
- * { linked: "hwei.discard-1" } 的类型分支、continuous.might 的 args.appliesTo: "self"，
- * 执行证据见 test/cards/unl/hwei-brooding-painter.test.mjs。
+ * 1. 「When I move」的 object-moved 触发不能经程序绑定注册：translateTriggerFilter 把
+ *    { source: "self" } 翻译为 event: "object-moved" 的 EventPattern，但
+ *    events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 白名单没有 object-moved，
+ *    registerProgramTriggers 在 assertTriggerSpec 即抛 TriggerSpecValidationError。
+ * 2. 388.1.b / 389.1 要求 “do the following” 产生新的待定 Chain item；当前
+ *    sequence 只在原能力内直接结算，真实 ChainEngine 只产生原能力的一次 pending/resolved，
+ *    不能证明分支作为新的链项进入 Chain。
+ * body 的 draw、discard、类型读回与 Might 分支均有真实执行 golden，但这两处缺口
+ * 仍阻止整张卡升级为 executable。
  */
 const hweiBroodingPainter = {
   canonicalCardId: "card.hash-ffb82a1c4cfcf34e538fde6b389b55d4affeceb3cdb2ba50ada212c3237fe8f2",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "一处缺口，不近似实现：'When I move' 的 object-moved 触发不能经程序绑定注册——" +
-    "translateTriggerFilter 把 { source: self } 翻译为 event: object-moved 的 EventPattern，" +
-    "但 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 白名单没有 object-moved，" +
-    "registerProgramTriggers 在 assertTriggerSpec 即抛 TriggerSpecValidationError。" +
-    "body 已全部可执行并由真实执行 golden 覆盖：effect.draw、effect.discard 的链接回执、" +
-    "{ linked: hwei.discard-1 } 的类型分支（解释器从弃牌回执提取被弃牌引用）、" +
-    "continuous.might 的 args.appliesTo: self。",
+    "两处缺口，不近似实现：(1) object-moved 不在 events/trigger-spec.ts 的 " +
+    "EVENT_PATTERN_TYPES 白名单中，registerProgramTriggers 会抛 TriggerSpecValidationError；" +
+    "(2) CR 388.1.b/389.1 要求按类型选出的分支作为新的待定 Chain item，" +
+    "当前 sequence 只在原能力内直接结算。其余 body 形状与 draw/discard/type readout/Might " +
+    "均有真实执行 golden 覆盖。",
   abilities: [
     {
       kind: "triggered",

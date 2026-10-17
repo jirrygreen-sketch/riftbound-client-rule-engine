@@ -4,7 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/soul-shepherd.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL =
@@ -21,11 +21,12 @@ test("unl-077-219 Soul Shepherd: program passes validateCardProgram and is regis
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("unl-077-219 Soul Shepherd: identity, ruleset, executable status, sourceText", () => {
+test("unl-077-219 Soul Shepherd: identity, ruleset, judge-required status, sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(program.status, "executable");
-  assert.equal(program.judgeReason, undefined);
+  assert.equal(program.status, "judge-required");
+  assert.match(program.judgeReason, /take-control/);
+  assert.match(program.judgeReason, /current|当前/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -46,32 +47,53 @@ test("unl-077-219 Soul Shepherd: a static arithmetic Might aura scoped to your t
   });
 });
 
-test("unl-077-219 Soul Shepherd golden: the production static binder gives +1 Might to your token units only", () => {
-  const binding = createProgramBinding({ cardPrograms: [program] });
+test("unl-077-219 Soul Shepherd regression: production lifecycle pins the first controller after take-control", () => {
+  // Use the exact current IR through the production lifecycle path, with only
+  // the status lifted so ProgramRegistry will bind this judge-required card.
+  // The observed result is the shared binding gap recorded in judgeReason:
+  // controller: "controller" is resolved once when the source enters Board.
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
   const f = fixture({
     cards: [
       { id: "soul-shepherd", cardId: CANONICAL, types: ["unit"], energy: 5, might: 3, owner: "A", controller: "A" },
       { id: "ally-token", types: ["unit"], isToken: true, might: 1, owner: "A", controller: "A" },
+      { id: "stolen-token", types: ["unit"], isToken: true, might: 1, owner: "B", controller: "B" },
       { id: "vanilla", types: ["unit"], isToken: false, might: 1, owner: "A", controller: "A" },
       { id: "enemy-token", types: ["unit"], isToken: true, might: 1, owner: "B", controller: "B" }
     ]
   });
+  const lifecycle = binding.attachLifecycle(f.engine);
   const board = id => f.engine.commit({
     type: "move-zone",
     object: f.kernel.ref(id),
     to: "board",
     location: { type: "battlefield", id: "bf-1" }
   });
-  board("ally-token");
-  board("vanilla");
-  board("enemy-token");
-  board("soul-shepherd");
-  const source = f.kernel.getObject("soul-shepherd");
-  const staticAbility = binding.inspect(source).abilities.find(entry => entry.kind === "static");
-  const handle = createEngineStaticBinder(f.engine).bindStatic(staticAbility, source);
-  assert.equal(f.engine.layers.evaluate(f.kernel.ref("ally-token")).might, 2);
-  assert.equal(f.engine.layers.evaluate(f.kernel.ref("vanilla")).might, 1);
-  assert.equal(f.engine.layers.evaluate(f.kernel.ref("enemy-token")).might, 1);
-  handle.unbind();
-  assert.equal(f.engine.layers.evaluate(f.kernel.ref("ally-token")).might, 1);
+  try {
+    board("ally-token");
+    board("stolen-token");
+    board("vanilla");
+    board("enemy-token");
+    board("soul-shepherd");
+    f.engine.layers.setObjects(f.kernel.objects);
+    assert.deepEqual(
+      ["ally-token", "stolen-token"].map(id => f.engine.layers.evaluate(f.kernel.ref(id)).might),
+      [2, 1]
+    );
+
+    const transfer = f.engine.commit({ type: "take-control", object: f.kernel.ref("soul-shepherd"), player: "B" });
+    assert.equal(transfer.status, "done");
+    f.engine.layers.setObjects(f.kernel.objects);
+    // Correct CR 479.4 behavior would be [1, 2]. The current production
+    // lifecycle remains [2, 1], so this regression stays judge-required until
+    // the shared static binding path re-evaluates relative controllers.
+    assert.deepEqual(
+      ["ally-token", "stolen-token"].map(id => f.engine.layers.evaluate(f.kernel.ref(id)).might),
+      [2, 1]
+    );
+  } finally {
+    lifecycle.detach();
+  }
 });
