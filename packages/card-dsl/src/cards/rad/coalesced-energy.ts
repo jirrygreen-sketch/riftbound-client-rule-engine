@@ -31,25 +31,27 @@ import type { CardProgram } from "../../ir/index.js";
  * (keywords/Equip.ts, keywords/Weaponmaster.ts).
  *
  * Status: judge-required. Both instructions are merged and the golden test runs
- * them through the real interpreter + reference kernel, but the trigger itself
- * cannot fire in production yet: the merged chain/events pipeline has no turn
- * driver that emits "turn-end" (the phase/turn structure is P1-3 / "批 5 Turn /
- * Combat / priority-focus" in the contract §7.2 ordering and is not merged;
- * engine-core/src/turn/ still re-exports the legacy duel modules). Until that
- * driver lands, "At the end of your turn" has no emitter, so the card is not
- * executable end-to-end and is not marked executable.
+ * them through the real interpreter + reference kernel, and the "turn-end"
+ * timing point now has a merged emitter (turn/flow.ts emits it in the Ending
+ * Step before cleanup, per docs/rules/timing-point-producers.md). The trigger
+ * still cannot fire in production: no merged consumer registers a CardProgram
+ * triggered ability as a pipeline TriggerRegistration (contract 3.5; RIFT-257
+ * owns src/programs/), so "At the end of your turn" is never subscribed.
  */
 const coalescedEnergy = {
   canonicalCardId: "card.hash-5a4ff9de2d69584e442e29d394392ce09de6bc41ca2d52dadd0958701383a1c1",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺回合流程的时点emit方：turn-end 已在 events/timing-points.ts 声明（CR 317.1.a），" +
-    "但已合入的 chain/events 管线没有回合/阶段驱动去发出该时点（engine-core/src/turn/ 仍只再导出" +
-    "旧 duel 模块；回合与阶段结构属契约 §7.2 的 P1-3「批 5 Turn / Combat / priority-focus」，" +
-    "尚未合入），因此「At the end of your turn」整条触发在生产链路无法触发。" +
-    "body 两条指令（effect.recycle 的 from 形式、effect.channel exhausted）已合入并由 golden " +
-    "测试用真实解释器 + 参考内核执行；不近似实现。",
+    "缺卡牌触发注册：turn-end 时点已有发射方（src/turn/flow.ts 在 Ending Step 进入清理前 emit，" +
+    "CR 317.1.a；见 docs/rules/timing-point-producers.md），body 两条指令（effect.recycle 的 from 形式、" +
+    "effect.channel exhausted）也已合入并由 golden 用真实解释器 + 参考内核执行；" +
+    "但仍没有已合入的消费方把 CardProgram 的 triggered 能力注册成管线的 TriggerRegistration" +
+    "（契约 3.5；管线只消费外部提供的 registration，src/programs/ 属 RIFT-257 仍在进行），" +
+    "因此「At the end of your turn」在生产链路不会真的进链。" +
+    "另注：EventPattern 的封闭词表没有阶段类时点名（validateTriggerSpec 会拒绝 event: \"turn-end\"），" +
+    "运行时按 spec.at 命中时点，本卡沿用封闭时点拼写（与已合入的 ogn/dazzling-aurora 同类卡一致）。" +
+    "依赖：RIFT-257（卡牌程序绑定）。不近似实现。",
   abilities: [
     {
       kind: "triggered",

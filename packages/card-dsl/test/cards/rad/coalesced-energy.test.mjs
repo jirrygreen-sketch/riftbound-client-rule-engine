@@ -22,12 +22,14 @@ test("rad-016-167 Coalesced Energy: program passes validateCardProgram and keeps
   );
 });
 
-test("rad-016-167 Coalesced Energy: judge-required naming the missing turn-end emitter", () => {
+test("rad-016-167 Coalesced Energy: judge-required naming the missing trigger registration", () => {
   assert.equal(program.status, "judge-required");
+  // turn-end now has a merged emitter, so the remaining gap is the CardProgram
+  // triggered-ability registration consumer (contract 3.5 / RIFT-257).
   assert.match(program.judgeReason, /turn-end/);
   assert.match(program.judgeReason, /317\.1\.a/);
-  // The reason must point at the owning workstream, not just "unimplemented".
-  assert.match(program.judgeReason, /批 5|Turn \/ Combat|回合/);
+  assert.match(program.judgeReason, /TriggerRegistration/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-016-167 Coalesced Energy: end-of-turn trigger recycling all runes then channeling 4 exhausted", () => {
@@ -186,10 +188,8 @@ test("rad-016-167 Coalesced Energy golden: a short Rune Deck channels as many as
 });
 
 test.todo(
-  "rad-016-167 Coalesced Energy: the 'At the end of your turn' trigger needs a turn/phase " +
-    "driver that emits the declared 'turn-end' timing point (CR 317.1.a); the merged chain/events " +
-    "core has no turn structure and engine-core/src/turn/ still re-exports the legacy duel modules " +
-    "(contract §7.2 P1-3 batch 5, Turn / Combat / priority-focus)"
+  "rad-016-167 Coalesced Energy: subscribing 'At the end of your turn' needs the CardProgram -> " +
+    "TriggerRegistration consumer (contract 3.5; RIFT-257 src/programs/)"
 );
 test.todo(
   "rad-016-167 Coalesced Energy: the printing is a Unit (4 Might / 4 Energy / 2 Mind Power, " +

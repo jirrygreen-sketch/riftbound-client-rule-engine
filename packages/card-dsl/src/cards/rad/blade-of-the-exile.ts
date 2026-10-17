@@ -13,31 +13,37 @@
  *   本卡整个能力就是这一条 Equip 行，因此程序只声明关键词身份与参数，不重写展开。
  * - 费用 “:rb_rune_rainbow: or exhaust a friendly unit”：135.2.e.5 / 135.2.e.5.a 规定 rainbow 符号
  *   代表“任意领域的一个 Power”，作为费用时可由任意领域的 Power 支付；818.1.c.3 允许 Equip 费同时含
- *   资源费与非资源费。原印刷费用是**二选一**（“rainbow 或 横置一个友方单位”），属于费用层面的选择；
- *   契约 3.1 的 `KeywordAbility` 只有 `{ keyword, value }`，没有承载费用选项的字段，故按已合入的
- *   sfd Equip 卡（long-sword / bf-sword / dorans-blade / sacred-shears / warmogs-armor）同一做法，用
- *   扩展字段 `costDomain` 记录费用，并把两个选项都在 `costAlternatives` 里写全，保证可审查、不被近似
- *   的单一费用覆盖。这是扩展字段用法而非共享契约改动（本卡任务 owns 之外的文件一行未改）。
+ *   资源费与非资源费。原印刷费用是**二选一**（“rainbow 或 横置一个友方单位”），属于费用层面的选择。
  * - 括号内 “Pay the cost: Attach this to a unit you control.” 是提示文本（135.2.d.3 无游戏功能）。
  *
- * 缺口（不近似实现，故 judge-required）：
- * - `Equip` 关键词展开（`effects/keywords/Equip.ts`）当前展开为固定单一费用
- *   `payments: [{ kind: "equip", value: … }]`，无法表达“rainbow Power 或 横置一个友方单位”的二选一
- *   费用，也无法表达 818.1.c.4 / 818.1.c.5 的费用改写；关键词批次 RIFT-87（kw-equip-quick-draw-
- *   weaponmaster）负责 Equip 的 cost.activated / cost.pay 落地；
- * - 非资源费用“exhaust a friendly unit”需要 cost.exhaust（RIFT-9 清单 cost 组的非标准费用），
- *   尚无对应原语文件，且候选单位是费用里的“选择”而非目标（355.10.c / 355.10.c.1）。
+ * status = judge-required（不近似实现）。已合入并复核过的部分：
+ * - effects/keywords/Equip.ts 已注册（818 的展开：action-speed activated 能力 + 818.1.b 的
+ *   effect.attach 到己方单位），它的 body 用已合入的 effect.attach 可真实执行（本卡 golden 已跑通）。
+ * - rainbow Power 可由任意域支付：已合入的费用计划接受 allowedDomains 为六域的 power 费用。
+ *
+ * 仍缺的缺口（依 RIFT-261「费用种类与 cost.pay / cost.modify」与 RIFT-257）：
+ * 1. 候选单位是**费用里的选择**而不是目标（355.10.c / 355.10.c.1）：已合入的 cost/plan-values.ts
+ *    对非标准费用只接受一个精确 ObjectRef（payment.object / payment.objects 会被 reference() 拒绝
+ *    非 {id, zoneEntryId} 的候选列表），没有把 PickSpec 候选集展开成可重放选择的能力；
+ *    实测 kind: "equip" 会被 readCost 以 judge-required 拒绝（"Unsupported payment kind: equip"）。
+ * 2. 因此 Equip.ts 的展开目前只有固定单一 payments 形状，承载不了印刷的“rainbow Power 或横置友方单位”
+ *    二选一，也承载不了 818.1.c.4 / 818.1.c.5 的费用改写。
+ * 3. 展开还缺卡牌程序 → 关键词展开 → 激活/链的绑定（RIFT-257）。
+ * 依赖：RIFT-261（cost.pay / cost.modify 与费用侧对象选择）、RIFT-257（卡牌程序绑定）。
+ * 不近似实现：两个费用选项继续只以扩展字段记录，不把“exhaust a friendly unit”改写成目标或免费效果。
  */
 const program = {
   canonicalCardId: "card.hash-d127ec787d0c328ab80a9aa29a656cd77a9dda6050627ec1bad17db1942c9853",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Equip] 展开无法表达印刷费用的二选一：Equip.ts 只展开单一 payments 费用，而本卡是" +
-    "“任意领域 1 Power（135.2.e.5.a）或 横置一个友方单位”，后者属于 cost.exhaust 非标准费用" +
-    "（RIFT-9 清单 cost 组，尚无原语文件），且候选单位是费用里的选择而非目标（355.10.c/355.10.c.1）。" +
-    "依赖 RIFT-87（kw-equip-quick-draw-weaponmaster 的 cost.activated / cost.pay）与 cost.exhaust " +
-    "支持；不近似实现，两个费用选项均以扩展字段记录。",
+    "[Equip] 展开仍无法表达印刷费用的二选一，且费用侧对象选择未合入：(1) 已合入的 Equip.ts 只展开固定单一 " +
+    "payments 形状（kind: \"equip\"），而本卡是“任意领域 1 Power（135.2.e.5.a）或 横置一个友方单位”；" +
+    "cost/plan-values.ts 的 readCost 对 kind: \"equip\" 直接以 judge-required 拒绝，也没有把 PickSpec 候选集" +
+    "展开成费用选择的路径（非标准费用只接受一个精确 ObjectRef），后者属 RIFT-261 的费用种类/费用侧选择。" +
+    "(2) “exhaust a friendly unit”的候选单位是费用里的选择而非目标（355.10.c / 355.10.c.1）。" +
+    "(3) 展开还缺卡牌程序 → 关键词展开 → 激活/链的绑定（RIFT-257）。" +
+    "依赖：RIFT-261、RIFT-257。不近似实现：两个费用选项继续以扩展字段记录。",
   abilities: [
     {
       kind: "keyword",

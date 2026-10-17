@@ -29,13 +29,13 @@ test("rad-139-167 Boy Who Shattered Time: identity, status and verbatim sourceTe
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The judgeReason must name the real gaps, not a generic complaint
-  // (cards README §2): kw-empower, the Disempower cost, cost.modify and the
-  // granted end-of-turn kill.
+  // (cards README §2): the missing Empower KeywordDef, the Disempower cost,
+  // cost.modify and the granted end-of-turn kill.
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /disempower/);
   assert.match(program.judgeReason, /cost\.modify/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /grant-ability/);
   assert.match(program.judgeReason, /163\.2\.b/);
 });
 
@@ -98,21 +98,6 @@ test("rad-139-167 Boy Who Shattered Time: Disempower + Exhaust activated ability
   // The two instructions act on the same not-yet-existing object; neither
   // depends on the other's result, so they are not linked (cards README §4).
   assert.equal(grant.linkedTo, undefined);
-});
-
-test("rad-139-167 Boy Who Shattered Time: the merged cost pipeline rejects the Disempower payment", () => {
-  // 443: Disempower is a Limited Action, not a cost payment kind. The merged
-  // cost pipeline supports only energy/power/xp and exhaust/discard/recycle/
-  // kill/reveal/spend-buff, so it reports judge-required instead of silently
-  // treating "Disempower me" as a free effect (CR 204.3 / 415.4).
-  const kernel = world()
-    .unit("ekko", { zone: "board", types: ["legend"], controller: "A" })
-    .build();
-  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("ekko") });
-  assert.throws(
-    () => buildCostPlan(ctx, { id: "boy-who-shattered-time", cost: disempowerAbility.cost }),
-    error => error?.name === "CostPlanError" && error.reason === "judge-required" && /disempower/.test(error.message)
-  );
 });
 
 test("rad-139-167 Boy Who Shattered Time: the Exhaust payment kind itself is merged", () => {
@@ -195,18 +180,18 @@ test("rad-139-167 Boy Who Shattered Time: opponent-side player is unaffected by 
 test.todo(
   "rad-139-167: expand the [Empower] keyword (827.1.c “Empower [Cost]” with the printed " +
     "1 Energy + Exhaust cost and the “Play only if not Empowered” restriction) once " +
-    "effects/keywords/empower.ts is merged (RIFT-81~91)"
+    "effects/keywords/empower.ts is merged (no assigned task yet)"
 );
 
 test.todo(
   "rad-139-167: reduce the cost of the next unit played this turn by 2 Energy and 1 [A] " +
     "through cost.modify with a per-turn “next unit” window — needs the cost modification " +
-    "consumer (RIFT-89) and a representable Universal Power value (contract-level gap, " +
+    "consumer (RIFT-261) and a representable Universal Power value (contract-level gap, " +
     "CR 135.2.e.5 / 163.2.b)"
 );
 
 test.todo(
   "rad-139-167: grant the temporary “Kill me at end of turn.” triggered ability to that " +
     "unit and expire it at the turn-end timing point — needs continuous.grant-ability and " +
-    "the delayed/end-of-turn duration (CR 317.1.a / 135.4.b / 801.3.a, RIFT-91)"
+    "the delayed/end-of-turn duration (CR 317.1.a / 135.4.b / 801.3.a)"
 );

@@ -47,8 +47,8 @@ import type { CardProgram } from "../../ir/index.js";
  * - 359.2.b: a Permanent executes all of its rules text from top to bottom, so
  *   the mode list is this Gear's play ability body.
  *
- * Status: judge-required. Mode 2 is fully expressible and executed by the golden
- * test; mode 1 and the mode-list wrapper are not:
+ * Status: judge-required (re-checked). Mode 2 is fully expressible and executed by
+ * the golden test; mode 1 and the target filter are not:
  * - Mode 1's destination is a chosen Battlefield Location (355.4 / 355.4.a) — a
  *   runtime Location choice. The frozen IR has no runtime Location selector:
  *   effect.move's `to` accepts only a static LocationRef, `"controller-base"`,
@@ -60,10 +60,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   and the merged query implementations (layers/filter.ts,
  *   testing/test-kernel.ts) never read one, so the restriction cannot be
  *   evaluated without inventing semantics. The filter records the intended
- *   predicate name for the pending keyword vocabulary.
- * - The Deploy declaration itself has no KeywordDef (effects/keywords/ has no
- *   Deploy file), so 830.1.b's rewrites are unexpanded; that gap is shared by
- *   the whole RAD Device cohort.
+ *   predicate name for the pending keyword vocabulary. (The Deploy KeywordDef
+ *   itself is now merged in effects/keywords/Deploy.ts, but its expansion is a
+ *   program-level layer registration and does not teach ObjectFilter a keyword
+ *   predicate.)
  * - "Look at the top 5 cards of your Main Deck" is a private top-N look.
  *   effect.inspect documents that a non-zero top-N look requires an upstream
  *   ordered picks collection (query does not guarantee deck order; zoneSlice
@@ -72,7 +72,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   falling back to query. The single-card Predict shape (rakelstake /
  *   keywords/Vision) does have a merged path; the 5-card one does not.
  * Dependencies: RIFT-90 (location/target plan), the ordered inspect contract
- * (RIFT-64/RIFT-66 follow-ups), the keyword vocabulary (kw-deploy, 830).
+ * (RIFT-64/RIFT-66 follow-ups), the keyword filter vocabulary (830.3).
  */
 
 /**
@@ -94,12 +94,14 @@ const commandAttack = {
     "（355.4 / 355.4.a），合并 IR 没有运行期 Location 选择器，effect.move 的 to 只接受静态 LocationRef / " +
     "controller-base / 静态候选列表；程序只保留描述性目的地标记，解释器会拒绝该形状而不是把 Gear 移到错误地点。" +
     "(2)「with [Deploy]」没有可求值的过滤谓词：ObjectFilter 没有关键词字段，已合入查询也不读它（layers/filter.ts、" +
-    "testing/test-kernel.ts），过滤里只记录待接线谓词名。(3) Deploy 没有 KeywordDef（CR 830.1.b 的四项改写未展开，" +
-    "与 RAD Device 同批卡同缺口）。(4)「Look at the top 5 cards of your Main Deck」是私下 top-N 查看，" +
+    "testing/test-kernel.ts），过滤里只记录待接线谓词名（Deploy 的 KeywordDef 已合入 effects/keywords/Deploy.ts，" +
+    "但它的展开是程序级图层注册，不会给 ObjectFilter 增加关键词谓词）。(3) 卡牌程序 → 关键词展开 → 图层/触发的绑定" +
+    "仍未合入（RIFT-257 的 src/programs/ 仍在进行），模式 1 的 [Deploy] 限制与 Deploy 自身展开因此都不生效。" +
+    "(4)「Look at the top 5 cards of your Main Deck」是私下 top-N 查看，" +
     "effect.inspect 明确要求上游提供有序 picksSpecId（query 不保证牌库顺序，zoneSlice 未接入查看指令）；" +
     "单张 Predict 形状有已合入路径，5 张的没有。模式 2 的 reveal/draw/recycle 与 choice 包装已按契约 3.9 写出，" +
     "golden 执行其中已合入的部分；不近似实现上述缺口。" +
-    "依赖：RIFT-90（目标/地点计划）、有序查看契约（RIFT-64/RIFT-66 后续）、关键词词汇（kw-deploy，830）。",
+    "依赖：RIFT-90（目标/地点计划）、有序查看契约（RIFT-64/RIFT-66 后续）、RIFT-257（卡牌程序绑定）。",
   abilities: [
     {
       kind: "play",
@@ -153,20 +155,56 @@ const commandAttack = {
                   id: "command-attack.look-for-gear",
                   body: [
                     {
-                      // 「Look at the top 5 cards of your Main Deck」：私下 top-5 查看，
-                      // 需要上游有序 picksSpecId（见 judgeReason 第 4 点）。
+                      // 「your Main Deck」的 you = 本能力控制者（190.6.d）：用
+                      // condition.value 绑定一次，再以 linked-value 读取
+                      // （effect.inspect 的 player 参数要求 PlayerId 表达式，
+                      // 符号选择器不是它接受的形状；同 sfd/called-shot 写法）。
+                      id: "command-attack.bind-controller",
+                      op: "condition.value",
+                      args: {
+                        value: { kind: "object-property", object: "source", property: "controller" },
+                        key: { kind: "constant", value: "controller" }
+                      }
+                    },
+                    {
+                      // 「Look at the top 5 cards of your Main Deck」：私下 top-5 查看。
+                      // 已合入的 effect.inspect 的 top 作用域要求上游按真实牌库顺序提供
+                      // 有序 picksSpecId（契约 3.6 的 zoneSlice 才保序，query 不保序）；
+                      // 本卡声明稳定的有序范围 id，由调用方按 zoneSlice 提供牌库顶 5 张。
+                      // 该范围的生产生命周期（链的 Finalize 只锁定 instruction.targets）
+                      // 仍未接线，见 judgeReason 第 4 点。
                       id: "command-attack.look-top-5",
                       op: "effect.inspect",
+                      linkedTo: "command-attack.bind-controller",
                       args: {
-                        player: { kind: "constant", value: "self" },
+                        player: {
+                          kind: "linked-value",
+                          instructionId: "command-attack.bind-controller",
+                          key: "controller"
+                        },
                         zone: { kind: "constant", value: "deck" },
                         scope: { kind: "constant", value: "top" },
                         amount: { kind: "constant", value: 5 },
+                        picksSpecId: {
+                          kind: "constant",
+                          value: "command-attack.top-five"
+                        },
                         // 「You may reveal a gear from among them and draw it」：
                         // 结算时的可选项（383.3.a.3），按契约 3.9 包进 choice.optional。
                         choose: { kind: "constant", value: false },
                         pickedKey: { kind: "constant", value: "command-attack-looked" }
-                      }
+                      },
+                      picks: [
+                        {
+                          id: "command-attack.top-five",
+                          // 牌库顶 5 张（保序）：由上游按 zoneSlice 顺序提供，不是静态列表。
+                          options: ["dynamic:main-deck-top-five"],
+                          min: 0,
+                          max: 5,
+                          selection: "up-to",
+                          filter: { owner: "self", zone: "deck" }
+                        }
+                      ]
                     },
                     {
                       id: "command-attack.reveal-and-draw-opt",
@@ -202,15 +240,34 @@ const commandAttack = {
                               ]
                             },
                             {
-                              // 414.3：「and draw it」把刚公开的那张抽进手牌；
-                              // 对象来自 reveal 的链接结果（425.4.a 的
-                              // "从已展示的牌中挑选并移动由后续原语处理"）。
+                              // 414.3 / 414.1：「and draw it」把刚公开的那张牌从牌库
+                              // 移入其拥有者手牌（已合入 effect.zone 的 to: "hand"，
+                              // 同 sfd/ornn-blacksmith 的 "draw it" 写法），而不是再抽
+                              // 牌库顶；对象来自 reveal 的链接结果（425.4.a）。
                               id: "command-attack.draw-gear",
-                              op: "effect.draw",
+                              op: "effect.zone",
                               linkedTo: "command-attack.reveal-gear",
                               args: {
+                                pick: { kind: "constant", value: "command-attack.drawn-gear" },
+                                to: { kind: "constant", value: "hand" },
                                 amount: { kind: "constant", value: 1 }
-                              }
+                              },
+                              picks: [
+                                {
+                                  id: "command-attack.drawn-gear",
+                                  // 候选来自刚展示的那张（链接值）。
+                                  options: [
+                                    {
+                                      kind: "linked-value",
+                                      instructionId: "command-attack.reveal-gear",
+                                      key: "revealed"
+                                    }
+                                  ],
+                                  min: 1,
+                                  max: 1,
+                                  selection: "one"
+                                }
+                              ]
                             }
                           ]
                         }
@@ -218,19 +275,16 @@ const commandAttack = {
                       linkedTo: "command-attack.look-top-5"
                     },
                     {
-                      // 417.1 / 417.1.a：「Recycle the rest」把查看集合中
-                      // 未被选走的部分放回拥有者主牌库底。
-                      // 键 command-attack-rest 是待接入的有序查看原语应当产出的
-                      // 「余牌集合」链接值；当前没有任何已合入指令写出该键（见
-                      // judgeReason 第 4 点），因此这条指令在真实内核里会因缺信息
-                      // 被忽略，而不是回收错误的牌。
+                      // 417.1 / 417.1.a：「Recycle the rest」把查看集合中未被选走的
+                      // 部分放回拥有者主牌库底。已被移入手牌的那张引用失效而自动落选
+                      // （124），正好是 "the rest"。
                       id: "command-attack.recycle-rest",
                       op: "effect.recycle",
                       args: {
                         objects: {
                           kind: "linked-value",
                           instructionId: "command-attack.look-top-5",
-                          key: "command-attack-rest"
+                          key: "command-attack-looked"
                         }
                       },
                       linkedTo: "command-attack.look-top-5"

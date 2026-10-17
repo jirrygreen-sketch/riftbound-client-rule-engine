@@ -18,14 +18,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   这一运行期 Location 选择（355.4 / 355.4.a / 451.1）。
  *
  * status = judge-required（不近似实现）：
- * 1. 禁止类持续效果没有消费方：effects/instructions 注册表里没有 continuous.restrict
- *    原语（只有 effect.* 与解释器控制指令），layers/ 目前只消费算术 / 关键词 / 移动图层，
- *    chain 的 canAct 也不读任何禁止声明（依赖 RIFT-91 layers-continuous 与链的许可查询）。
+ * 1. 禁止类持续效果已按契约 3.7 用已合入的 continuous.restrict 指令登记（RIFT-259；
+ *    原语把 restriction/actions 写进 ability 图层，layers/rules/query.ts 的
+ *    restrictions() 能读回「action=play-spell 的禁止」），golden 已真实执行并验证登记结果。
+ *    但整卡仍不可执行：链的时机许可查询 chain/engine.ts canAct 只读 Priority/Showdown/
+ *    回合玩家的状态机，不读已登记的禁止声明，也没有把 355.8 / 806 / 159.2 的「能否打出」
+ *    与 layers/rules/query.ts 的 restrictions() 接线的消费方（RIFT-347 已把规则查询接到
+ *    链目标与移动，尚未覆盖打出/启动许可）——因此这条禁止在真实对局里不会阻止对手打出法术。
  * 2. 目的地不可表达：合并 IR 没有运行期 Location 选择器（target.location 属未合入原语），
  *    effect.move 的 to 只接受静态 LocationRef、controller-base 或静态候选列表；
  *    「occupied enemy battlefield」需要按 170.11.a 在合法战场中筛选并选择。本卡用描述性
  *    目的地标记（不是可执行地点），解释器会拒绝该形状而不是落到错误的地点
- *    （依赖 RIFT-90 目标/目的地计划、RIFT-91 图层过滤）。
+ *    （依赖 RIFT-90 目标/目的地计划）。
  *
  * 两条子句是独立语句（两个句号），不写 linkedTo：禁止部分失败时移动仍按 055 /
  * 359.3.e.11 尽可能执行。
@@ -46,12 +50,14 @@ const cataclysm = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1)「Opponents can't play spells this turn」需要 continuous.restrict " +
-    "这类持续禁止及其消费者——effects/instructions 没有该原语，layers/ 无消费方，chain 的 canAct 也不读禁止声明" +
-    "（依赖 RIFT-91 layers-continuous 与链许可查询）。(2)「to an occupied enemy battlefield」的目的地是运行期 " +
+    "两处依赖未合入，均不近似实现：(1)「Opponents can't play spells this turn」已用已合入的 continuous.restrict " +
+    "登记进 ability 图层（RIFT-259；layers/rules/query.ts 的 restrictions() 能读回该禁止，golden 有真实执行证据），" +
+    "但链的打出/启动许可查询 chain/engine.ts canAct 只读 Priority/Showdown/回合玩家状态机，" +
+    "不消费该禁止声明（355.8 / 806 / 159.2 的许可判定未接线到 layers/rules/query.ts 的 restrictions()；" +
+    "RIFT-347 只把规则查询接到了链目标与移动），因此禁止在真实对局里不生效。(2)「to an occupied enemy battlefield」的目的地是运行期 " +
     "Location 选择（CR 355.4 / 355.4.a / 451.1；occupied 见 170.11.a），合并 IR 没有运行期 Location 选择器" +
     "（target.location 未合入），effect.move 的 to 只接受静态 LocationRef / controller-base / 静态候选列表；" +
-    "本卡只保留描述性目的地标记，解释器会拒绝它而不是落到错误地点（依赖 RIFT-90 / RIFT-91）。" +
+    "本卡只保留描述性目的地标记，解释器会拒绝它而不是落到错误地点（依赖 RIFT-90）。" +
     "被移动的友方单位已按 355.10 / 355.9.a.1 声明为目标。",
   abilities: [
     {
@@ -64,14 +70,16 @@ const cataclysm = {
       },
       body: [
         {
-          // 「Opponents can't play spells this turn」：描述性持续禁止声明，
-          // continuous.restrict 未在 effects/instructions 注册（见 judgeReason）。
+          // 「Opponents can't play spells this turn」（355.8 / 806 / 159.2）：用已合入的
+          // continuous.restrict（RIFT-259）登记 ability 图层的本回合禁止；
+          // appliesTo 是被禁止玩家的对象过滤（190.6.c 的 opponent = 相对能力控制者），
+          // 由 layers/rules/query.ts 的 restrictions() 按 filter 还原成具体玩家。
           id: "cataclysm.no-opponent-spells",
           op: "continuous.restrict",
           args: {
             mode: { kind: "constant", value: "prohibit" },
             action: { kind: "constant", value: "play-spell" },
-            appliesTo: { kind: "constant", value: "opponent" },
+            appliesTo: { kind: "constant", value: { controller: "opponent" } },
             duration: { kind: "constant", value: "this-turn" }
           }
         },

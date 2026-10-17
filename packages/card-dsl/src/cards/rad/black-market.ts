@@ -21,15 +21,18 @@ import type { CardProgram } from "../../ir/index.js";
  * - 383.3.e and its relatives: "may use this ability once on their turn" is a
  *   once-per-turn frequency limit on the activation, not on the effect.
  *
- * Status: judge-required. Two distinct gaps, neither approximated:
+ * Status: judge-required. Re-checked against the merged surface; both gaps hold:
  * - The ability may be activated by ANY player, not only by the Battlefield's
  *   controller (378.2 / 381.3). Neither Ability nor CostSpec nor TargetSpec
  *   carries a per-activator permission, and ChainEngine.canAct only admits the
- *   source controller. Declaring an activated ability would silently restrict
- *   it to the Battlefield's controller.
+ *   source controller (no per-activator admission exists in chain/engine.ts).
+ *   Declaring an activated ability would silently restrict it to the
+ *   Battlefield's controller.
  * - The "once on their turn" usage limit has no merged consumer: Restriction
- *   is a kind-tagged free-form object but nothing reads a usage limit yet, and
- *   trigger.once is a trigger lifetime, not an activation frequency.
+ *   is a kind-tagged free-form object but nothing reads a usage limit yet (the
+ *   merged continuous.restrict op scope is play/move/target prohibitions, not
+ *   activation frequency), and trigger.once is a trigger lifetime, not an
+ *   activation frequency.
  * The cost (two [A] runes) and the "Draw 1" body use merged primitives, so the
  * effect half is described here and executed by the golden test once the
  * activation-permission / usage-limit layer exists.
@@ -39,12 +42,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Each player may use this ability once on their turn (even if they don't control this battlefield)」缺两类已合入支撑：" +
+    "「Each player may use this ability once on their turn (even if they don't control this battlefield)」缺两类支撑：" +
     "（1）378.2 / 381.3 允许非控制者启动的激活许可——activated 能力只由来源控制者启动，" +
-    "成本/目标模型没有「按启动者授予许可」字段，链引擎 canAct 只承认来源控制者；" +
-    "（2）「once on their turn」是按启动者计的一次/回合使用上限，Restriction 目前只是开放的 kind 标签，" +
-    "没有已合入的消费者，trigger.once 属触发生命周期、不能借用为启动许可。" +
-    "效果本体（2 个 [A] 符文费用 + Draw 1，377.1 / 135.2.e.5.a / 414.3）已按 3.1 声明，待许可/上限层落地后复核；不近似实现。",
+    "成本/目标模型没有「按启动者授予许可」字段，链引擎 canAct（chain/engine.ts）也只承认来源控制者的时机，" +
+    "没有按启动者放行的查询；" +
+    "（2）「once on their turn」是按启动者计的一次/回合使用上限：Restriction 目前只是开放的 kind 标签，" +
+    "没有已合入的消费者（RIFT-259 的 continuous.restrict 覆盖 play/move/target 类禁止，不是启动频度），" +
+    "trigger.once 属触发生命周期、不能借用为启动许可。" +
+    "效果本体（2 个 [A] 符文费用 + Draw 1，377.1 / 135.2.e.5.a / 414.3）已按 3.1 声明并有真实执行证据（golden 用已合入费用计划支付 2 符文并跑 Draw 1）；" +
+    "依赖：启动许可与启动频度的消费方（RIFT-257/120 的卡牌→链绑定之后的引擎接线）。不近似实现。",
   sourceText:
     ":rb_rune_rainbow::rb_rune_rainbow:: Draw 1. Each player may use this ability once on their turn (even if they don't control this battlefield).",
   abilities: [
