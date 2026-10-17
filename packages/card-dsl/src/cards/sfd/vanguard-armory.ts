@@ -39,7 +39,7 @@ export default {
     "「Play three 1 :rb_might: Recruit unit tokens. (You may play them to different locations.)」的逐 Token 打出地点无法表达：" +
     "CR 355.2/355.2.a 规定每个被打出的单位各自选择一个合法地点（默认是该玩家的 Base 或该玩家控制的 Battlefield），" +
     "而已合入的 effect.token 只接受单一 location，或 locations + choiceId 的整条指令一次选择，且恰好需要一个目的地参数（实测不写目的地会抛 " +
-    "“effect.token requires exactly one destination argument”）；逐 Token 的地点选择需要 Finalize 的位置选择。" +
+    "“effect.token requires exactly one destination argument”；locations + choiceId 只在 amount 循环前选择一次，amount=3 不能得到三个独立地点）。逐 Token 的地点选择需要 Finalize 的位置选择。" +
     "地点候选集合虽可由 target/location/candidates.ts 生成并产出 LocationRef，但 effect.token 没有逐 token 的 " +
     "Finalize 选择/消费路径；程序不写死基地或某个战场（那会删掉印刷选项）。" +
     "已可真实执行的部分：Exhaust this 费用（204.1.b/415.3.a/415.5，cost/plan-values.ts + cost/payment.ts，含 415.4 的已横置拒绝）" +

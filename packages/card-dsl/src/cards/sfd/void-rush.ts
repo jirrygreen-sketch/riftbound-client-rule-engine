@@ -2,16 +2,17 @@ import type { CardProgram } from "../../ir/index.js";
 
 /**
  * Void Rush — sfd-188-221 (CR v1.5 425.3, 356.4, 420.3, 414.1).
- * Ordinary cost modifiers exist. Selected-card plan handoff, ordered picks and
- * drawing the actual unplayed revealed objects remain blocked. The pending
- * move-to-hand declaration below does not implement Draw and must not execute.
+ * Ordinary cost modifiers and the merged zoneSlice reveal source exist. The
+ * selected-card plan handoff and drawing the actual unplayed revealed
+ * objects remain blocked; the pending move-to-hand declaration below does
+ * not implement Draw and must not execute.
  */
 const voidRush = {
   canonicalCardId: "card.hash-cd92b45de0981074325a5119213251cd97706ab04339f5fe7339e69c8761258a",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) cost.modify 已支持普通 Energy 减费，但所选揭示牌的印刷 CostPlan、[2] 折扣到 effect.play/Finalize 的计划交接仍未绑定；当前 cost-plan-request 仅记录意图，不是可支付计划（356.4、420.3）。(2) 有序牌库顶 picks 依赖 RIFT-358，链适配器 LITERAL_FIELDS 仍未解包 effect.reveal.pick。(3) Draw any you did not play this way 必须对实际剩余揭示对象执行 Draw（414.1）；当前 draw-rest 的 effect.zone 只是不可执行草图，会产生 return-to-hand 而非 draw，effect.draw 的 pick 仅选抽牌者、不接受指定卡集合。需要已揭示对象集合的 Draw 接口；不能用固定抽 2、回手动作或不存在的 condition.result 近似。抽剩余牌独立于是否接受可选打出。",
+    "(1) 原始 IR 的 cost.modify 在 chain/interpreter-adapter.ts 的 LITERAL_FIELDS 未解包字面量 id：本卡的 id 是 constant Expr，resolveChainBody 会在原语看到 Expr 并以“id must be a non-empty string (or supply source)”拒绝；直接原语在收到静态 id 时可冻结 [2] Energy 计划（356.4）。即使补上适配解包，所选揭示牌的印刷费仍无法进入该计划（cost.modify 只读 ctx.source 或显式 printed，无 linked 对象印刷费投影），且应付额在 plan.total，而 effect.play/链 Finalize 只消费扁平 FinalizedCostPlan（finalized/energy/power/xp），所选牌计划→Play 的交接仍缺（420.3）。(2) zoneSlice 有序 picks 与链适配器对 effect.reveal.pick 的解包已合入（链测试已锁定 pickPlans）；judge-required 程序仍不入生产注册表。(3) Draw any you did not play this way 必须对实际剩余揭示对象执行 Draw（414.1）；effect.draw 的 pick 仅选抽牌者、不接受指定卡集合，choice.optional 也只产 value:true 不回链所选引用，未打出集合无 exclude 产生方。不能用固定抽 2、回手动作或不存在的 condition.result 近似。抽剩余牌独立于是否接受可选打出。",
   sourceText:
     "Reveal the top 2 cards of your Main Deck. You may play one of them, reducing its cost by :rb_energy_2:. Draw any you did not play this way.",
   abilities: [
@@ -33,15 +34,35 @@ const voidRush = {
           picks: [
             {
               id: "void-rush.top-two",
-              // The ordered deck-top two of the ability controller; the string is
-              // the descriptive option id of the missing ordered-pick producer
-              // (see judgeReason).
-              options: ["deck-top-two-of-controller"],
-              min: 0,
-              max: 2,
-              selection: "up-to"
+              // The ordered deck-top two of the ability controller (CR
+              // 425.3.a): the merged chain Finalize locks this
+              // source; 432.1.c keeps an under-full deck legal.
+              options: [],
+              ordered: true,
+              selection: "all",
+              zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 2 } }
             }
           ]
+        },
+        {
+          // "reducing its cost by 2" (CR 356.4): a real cost.modify that
+          // freezes a genuine plan. Which card's printed cost the plan must
+          // describe, and how the plan crosses into effect.play/Finalize,
+          // remain the recorded gaps (see judgeReason).
+          id: "void-rush.cost-plan",
+          op: "cost.modify",
+          args: {
+            id: { kind: "constant", value: "void-rush.cost-plan" },
+            modifier: {
+              kind: "constant",
+              value: {
+                kind: "reduce",
+                resource: "energy",
+                amount: { kind: "constant", value: 2 },
+                minimum: { kind: "constant", value: 0 }
+              }
+            }
+          }
         },
         {
           // "You may play one of them, reducing its cost by 2" — one optional
@@ -59,16 +80,14 @@ const voidRush = {
                   op: "effect.play",
                   args: {
                     pick: { kind: "constant", value: "void-rush.played-card" },
-                    // Placeholder for the printed cost minus 2 energy; the
-                    // real selected-card plan must reach the existing cost
-                    // system and effect.play (see judgeReason).
+                    // The [2] discount is real (frozen upstream by
+                    // void-rush.cost-plan, CR 356.4); binding the selected
+                    // card's printed plan into it at Play/Finalize is still
+                    // the recorded gap (see judgeReason).
                     cost: {
-                      kind: "constant",
-                      value: {
-                        kind: "cost-plan-request",
-                        from: "printed",
-                        reduction: { energy: 2 }
-                      }
+                      kind: "linked-value",
+                      instructionId: "void-rush.cost-plan",
+                      key: "cost"
                     }
                   },
                   picks: [
@@ -99,10 +118,10 @@ const voidRush = {
           picks: [
             {
               id: "void-rush.remaining",
-              options: [{ kind: "linked-value", instructionId: "void-rush.reveal", key: "revealed" }],
-              min: 0,
-              max: 2,
-              selection: "all"
+              options: [],
+              ordered: true,
+              selection: "all",
+              linked: { kind: "linked-value", instructionId: "void-rush.reveal", key: "revealed" }
             }
           ]
         }

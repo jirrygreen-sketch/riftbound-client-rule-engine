@@ -29,6 +29,7 @@ test("sfd-099-221 Veteran Poro: program validates, is registered and stays judge
   assert.match(program.judgeReason, /Equip/);
   assert.match(program.judgeReason, /821\.1/);
   assert.match(program.judgeReason, /\[A\]\/\[C\]/);
+  assert.match(program.judgeReason, /reduce-equip-cost/);
   assert.equal(
     program.sourceText,
     "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)"
@@ -44,7 +45,7 @@ test("sfd-099-221 Veteran Poro: exactly one unvalued Weaponmaster keyword abilit
 });
 
 test("sfd-099-221 Veteran Poro: the merged Weaponmaster expansion is structurally valid EffectIR", () => {
-  // RIFT-87 merged the expansion; it renders 821.1.c as a play trigger whose body
+  // The merged Weaponmaster expansion renders 821.1.c as a play trigger whose body
   // pays the chosen Equipment's reduced Equip cost before attaching.
   const [ability] = weaponmasterExpansion();
   assert.equal(ability.kind, "triggered");

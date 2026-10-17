@@ -10,7 +10,7 @@ const wagesOfPain = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "effect.token 的卡牌原语路径仍缺 CR 187.5 的 Gold 定义及内建 [Reaction][>] Kill this, [E]: [Add] [A] 能力；现有 token 创建/打出管线不能用普通无能力 Gear 代替。另缺 184.1/185.2.d 的 exhausted 入场状态覆盖（entersExhausted 尚非受支持参数，事后横置不等价），以及 163.2.b 的 Universal Power 资源来源。Hidden 的 cost.hidden 尚未接通 811.1.b 的 Hide、面朝下/下回合解锁、Reaction 免费打出和 811.1.d.2 的原战场目标限制。effect.damage 子效果已可真实执行；Gold 和 Hidden 不近似实现。",
+    "effect.token 的卡牌原语路径仍缺 CR 187.5 的 Gold 定义及内建 [Reaction][>] Kill this, [E]: [Add] [A] 能力；现有 token 创建/打出管线不能用普通无能力 Gear 代替。Gold 内建能力的 [Add] [A]（135.2.e.5/163.2.b）是 Universal Power 的契约表示缺口——六域封闭 Domain 无法表示任意域，sfd/gold.ts 已证明 Kill+Exhaust 费用半边真实可执行，effect.token.ts 文件头明言需要自带能力（包括 Gold）的 token 定义保持 blocked/judge-required。另缺 184.1/185.2.d 的 exhausted 入场状态覆盖（entersExhausted 尚非受支持参数，事后横置不等价）。Hidden 的 cost.hidden 尚未接通 811.1.b 的 Hide、面朝下/下回合解锁、Reaction 免费打出和 811.1.d.2 的原战场目标限制。effect.damage 子效果已可真实执行；Gold 和 Hidden 不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },

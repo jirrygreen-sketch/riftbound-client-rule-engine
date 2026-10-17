@@ -61,7 +61,8 @@ test("sfd-146-221 Vex, Cheerless: identity, ruleset, status, judgeReason and ver
   assert.match(program.judgeReason, /740\.2\.c/);
   assert.match(program.judgeReason, /continuous\.cost-modification/);
   assert.match(program.judgeReason, /Finalize/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /self-in-combat/);
+  assert.match(program.judgeReason, /CountExpr/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -220,4 +221,4 @@ test("Vex supported modifier subpath: enemy [1][A] increase adds both Energy and
   assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: DUEL_DOMAINS }]);
 });
 
-test.todo("Vex: bind static spell modifiers to Finalize with friendly/enemy relations and the ongoing-combat predicate (740.2.c, RIFT-359)");
+test.todo("Vex: bind static spell modifiers to Finalize with friendly/enemy relations and the ongoing-combat predicate (740.2.c; CountExpr subject support)");

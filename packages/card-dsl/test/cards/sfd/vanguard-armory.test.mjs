@@ -52,6 +52,8 @@ test("sfd-168-221 Vanguard Armory: program validates, is registered and stays ju
   // and the rule it depends on.
   assert.match(program.judgeReason, /355\.2/);
   assert.match(program.judgeReason, /LocationRef/);
+  assert.match(program.judgeReason, /amount=3/);
+  assert.match(program.judgeReason, /choiceId/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 

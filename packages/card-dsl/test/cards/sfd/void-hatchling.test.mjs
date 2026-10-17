@@ -19,7 +19,8 @@ test("sfd-018-221 Void Hatchling: validates identity and replacement structure",
   assert.equal(program.canonicalCardId, ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /picksSpecId/);
+  assert.match(program.judgeReason, /原 reveal 请求/);
   assert.match(program.judgeReason, /replacement/);
   assert.equal(program.sourceText, "If you would reveal cards from a deck, look at the top card first. You may recycle it. Then reveal those cards.");
 });
@@ -27,6 +28,8 @@ test("sfd-018-221 Void Hatchling: validates identity and replacement structure",
 test("sfd-018-221 Void Hatchling: looks at one ordered top-card pick before optional recycle", () => {
   assert.deepEqual(replacement.replaces, { event: "card-revealed", player: "self", filter: { zone: "deck" } });
   assert.equal(look.op, "effect.inspect");
+  assert.deepEqual(look.args.scope, { kind: "constant", value: "top" });
+  assert.deepEqual(look.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(look.args.picksSpecId, { kind: "constant", value: "void-hatchling.top-card" });
   assert.equal(optionalRecycle.op, "choice.optional");
   assert.equal(optionalRecycle.linkedTo, undefined);
@@ -62,4 +65,4 @@ test("Void Hatchling supported primitives: recycle the actual card returned by i
   assert.deepEqual(kernel.events.map(event => event.action), ["look", "recycle"]);
 });
 
-test.todo("Void Hatchling: bind the whole reveal request, original deck owner, initiating player and inspect symbolic source; inspect/recycle inside replacement and resume the request (RIFT-358 ordered picks)");
+test.todo("Void Hatchling: bind the whole reveal request, original deck owner, initiating player and inspect symbolic source; provide the ordered top-card pick to the replacement, then resume the request");
