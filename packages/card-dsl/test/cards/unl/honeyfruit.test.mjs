@@ -24,13 +24,12 @@ test("unl-049-219 Honeyfruit: program validates and is judge-required", () => {
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.deepEqual(result.issues, []);
   assert.equal(program.status, "judge-required");
-  // The replacement primitive and the activation adapter are merged; the
-  // remaining gaps are the replacement registration implementation, the closed
-  // six-domain type for [A], and the [Level N] predicate.
+  // Replacement registration and activation description are merged; the
+  // remaining gaps are Universal Power and the [Level N] predicate.
   assert.match(program.judgeReason, /replacement\.enter/);
   assert.match(program.judgeReason, /rainbow/);
   assert.match(program.judgeReason, /824\.1/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-359/);
 });
 
 test("unl-049-219 Honeyfruit: identity, ruleset, status and the verbatim three-line source text", () => {
@@ -59,7 +58,7 @@ test("unl-049-219 Honeyfruit: 'This enters exhausted.' is an entry rewrite, not 
 });
 
 test("unl-049-219 Honeyfruit golden: the merged replacement pipeline rewrites the board entry", () => {
-  // RIFT-260: replacement.enter is bound through replacement/bind.ts; the entry
+  // replacement.enter is bound through replacement/bind.ts; the entry
   // rewrite happens before the move commits, so no separate becomes-exhausted
   // timing is produced on the Board (CR 143.4 / 359.2.d).
   const kernel = world()
@@ -132,7 +131,7 @@ test("unl-049-219 Honeyfruit: the [Level 6] clause is a dependent-keyword abilit
 });
 
 test("unl-049-219 Honeyfruit: the merged activation adapter describes the Reaction Add ability", () => {
-  // RIFT-257: describeActivate produces the ChainDraft for the Reaction Add
+  // describeActivate produces the ChainDraft for the Reaction Add
   // ability, including its exhaust cost and the declared body.
   const { judgeReason, ...rest } = program;
   const binding = createProgramBinding({ cardPrograms: [{ ...rest, status: "executable" }] });
@@ -165,11 +164,6 @@ test("unl-049-219 Honeyfruit golden: the printed 1 Energy half is granted by the
 });
 
 test.todo(
-  "unl-049-219 Honeyfruit: register the replacement through the card-program lifecycle — " +
-    "replacement/bind.ts is merged, but programs/statics.ts only exposes the bindReplacement " +
-    "callback seam and no merged implementation calls it (RIFT-257 follow-up)"
-);
-test.todo(
   "unl-049-219 Honeyfruit: Universal Power [A] (CR 430.5 / 135.2.e.5 / 163.2.b) has no representation in the " +
     "closed six-domain type — a contract change is required before [Add] :rb_rune_rainbow: can execute"
 );
@@ -177,8 +171,4 @@ test.todo(
   "unl-049-219 Honeyfruit: [Level 6][>] dependent-keyword expansion (CR 824.1.c / 824.1.d) needs an XP predicate " +
     "readable from Condition plus dynamic deactivation — the merged Level KeywordDef emits condition.predicate + " +
     "controller-xp, but layers/engine.ts does not consume it and PlayerSnapshot.xp is not Expr-readable"
-);
-test.todo(
-  "unl-049-219 Honeyfruit: the program -> activation/cost plan -> chain registration (contract 3.5) is required " +
-    "before an exhaust-cost Add ability can be activated in a real game (RIFT-261)"
 );

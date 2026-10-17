@@ -83,10 +83,11 @@ test("unl-027-219 Inviolus Vox: identity, status, judgeReason and verbatim sourc
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /143\.2/);
   assert.match(program.judgeReason, /702/);
-  // The gap is now the trigger subscription, not the Might primitive: the
-  // judgeReason must name that and the merged primitive that already works.
-  assert.match(program.judgeReason, /RIFT-258/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  // The gap is now the conquer event subscription, not the Might primitive or
+  // the friendly-unit controller binding.
+  assert.match(program.judgeReason, /conquer/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES|来源对象/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-90|RIFT-120|RIFT-257|RIFT-258/);
 });
 
 test("unl-027-219 Inviolus Vox: the conquer trigger is a Conquer Effect on self", () => {
@@ -108,7 +109,7 @@ test("unl-027-219 Inviolus Vox: the conquer trigger is a Conquer Effect on self"
 
 test("unl-027-219 Inviolus Vox: +8 Might for the turn is authored in the merged continuous.might shape", () => {
   assert.equal(grantMight.id, "inviolus-vox.grant-might-8");
-  // continuous.might (RIFT-258) is merged: it registers the arithmetic-layer
+  // continuous.might is merged: it registers the arithmetic-layer
   // modification through ctx.addContinuous and must not be approximated with
   // effect.buff (702 Buff counters are a different thing).
   assert.equal(grantMight.op, "continuous.might");
@@ -129,7 +130,7 @@ test("unl-027-219 Inviolus Vox: +8 Might for the turn is authored in the merged 
   // the ability's controller.
   assert.deepEqual(targetSpec, {
     id: "inviolus-vox.friendly-unit",
-    filter: { type: "unit", controller: "controller", zone: "board" },
+    filter: { type: "unit", controller: "self", zone: "board" },
     min: 1,
     max: 1,
     selection: "one"
@@ -218,9 +219,6 @@ test("unl-027-219 Inviolus Vox golden: a locked friendly unit that left the Boar
 
 test.todo(
   "unl-027-219 Inviolus Vox: fire 'When I conquer' from the real scoring flow — turn/flow.ts emits conquer" +
-    " with player/details only, so the {source: \"self\"} subscription has no event object to match (CR 383.4.c.2.a; RIFT-120 follow-up)"
-);
-test.todo(
-  "unl-027-219 Inviolus Vox: lock the friendly-unit target at Finalize from the production chain (CR 355.9; RIFT-90/RIFT-257 follow-up) —" +
-    " the golden supplies the locked target set, and chain/engine.ts's query binds only self/opponent, not the card's controller placeholder"
+    " with player/details only, so the {source: \"self\"} subscription has no event object to match; the EventPattern " +
+    "vocabulary also lacks the card's \"conquer\" spelling (CR 383.4.c.2.a)"
 );

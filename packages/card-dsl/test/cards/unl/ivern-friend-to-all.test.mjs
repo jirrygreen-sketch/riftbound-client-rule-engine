@@ -32,9 +32,9 @@ test("unl-177-219 Ivern, Friend to All: identity, status, judgeReason and verbat
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /choice\.mode/);
   assert.match(program.judgeReason, /continuous\.add-tag/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /conquer\/hold|来源对象/);
   assert.match(program.judgeReason, /并集/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-90|RIFT-91|RIFT-120/);
 });
 
 test("unl-177-219 Ivern, Friend to All: the play-time tag choice is one choice.mode of four tags (355.1)", () => {
@@ -138,11 +138,13 @@ test.todo(
 );
 test.todo(
   "unl-177-219 Ivern, Friend to All: execute the play-time choice.mode of four tags — chain/engine.ts assertFinalizationSurface blocks mode choices " +
-    "pending a Finalize/Resolve choice-plan adapter (RIFT-89/90)"
+    "pending a Finalize/Resolve choice-plan adapter"
 );
 test.todo(
-  "unl-177-219 Ivern, Friend to All: grant the chosen tag to the host (133.8) — no registered continuous.add-tag primitive and no CardProgram -> ContinuousEffectSpec wiring (RIFT-91)"
+  "unl-177-219 Ivern, Friend to All: grant the chosen tag to the host (133.8) — bind the continuous.add-tag body " +
+    "through the CardProgram -> trait-layer adapter"
 );
 test.todo(
-  "unl-177-219 Ivern, Friend to All: reach the conquer/hold timing points from the real scoring flow and register the two CardProgram triggers (engine batch 4/5, RIFT-120)"
+  "unl-177-219 Ivern, Friend to All: reach the conquer/hold timing points from the real scoring flow and register the two CardProgram triggers " +
+    "after the event vocabulary and source-object payload can match conquer/hold"
 );

@@ -28,11 +28,11 @@ test("unl-002-219 Inferna: identity, status, judgeReason and verbatim sourceText
   // README section 2: name the missing keyword, the rule and the dependent task.
   assert.match(program.judgeReason, /Ambush/);
   assert.match(program.judgeReason, /822\.1\.b/);
-  // Both KeywordDefs are merged now, so the reason names the missing consumers
-  // and the unevaluated designation predicate instead of RIFT-84.
-  assert.match(program.judgeReason, /RIFT-266/);
-  assert.match(program.judgeReason, /noopStaticBinder|playLocations/);
+  // Both KeywordDefs and CardProgram static binding are merged; the reason names
+  // the remaining location-permission and designation consumers.
+  assert.match(program.judgeReason, /play-location-permission|Finalize/);
   assert.match(program.judgeReason, /combatRole|designation/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-81|RIFT-91|RIFT-102|RIFT-257|RIFT-259|RIFT-266/);
 });
 
 test("unl-002-219 Inferna: Ambush keyword plus a valued Assault 2 declaration", () => {
@@ -138,13 +138,12 @@ test("unl-002-219 Inferna: the generated card registry exposes the program under
 });
 
 test.todo(
-  "unl-002-219 Inferna: expand [Ambush] (CR 822.1.b/.c) — the battlefield-where-you-control-Units play " +
-    "location and the Reaction permission for that play only; effects/keywords/Ambush.ts is not merged (RIFT-84)"
+  "unl-002-219 Inferna: consume Ambush's battlefield play-location permission (CR 822.1.b/.c) at Finalize " +
+    "and keep its Reaction permission scoped to that play"
 );
 
 test.todo(
   "unl-002-219 Inferna: apply Assault 2 as +2 Might exactly while the unit holds the Attacker designation " +
-    "(CR 807.1.c / 807.1.d.1) — no merged producer resolves a card's keyword abilities into KeywordDef " +
-    "expansions and registers them through layers (RIFT-81 / RIFT-91), and the Attacker designation is not an " +
-    "ObjectSnapshot characteristic (contract 3.8 combatRole)"
+    "(CR 807.1.c / 807.1.d.1) — the static binding is present, but the condition reads designation while " +
+    "ObjectSnapshot exposes combatRole and the Expr path has no designation predicate"
 );

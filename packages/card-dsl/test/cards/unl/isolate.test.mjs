@@ -32,7 +32,8 @@ test("unl-124-219 Isolate: identity, status, judgeReason and verbatim sourceText
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /740\.2\.a/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /condition|linked-result/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-90|RIFT-120/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -151,11 +152,5 @@ test("unl-124-219 Isolate golden: the Draw 1 half runs through the merged primit
 test.todo(
   "Isolate: \"if there's an enemy unit alone at that battlefield\" needs the 740.2.a alone predicate (no other " +
     "friendly unit at the same location) and a location read of the previous instruction's actual result; no merged " +
-    "filter key or Condition form expresses either, so the printed gate stays ungated rather than always true (RIFT-90)"
-);
-
-test.todo(
-  "Isolate: Finalize-time locking of the moved enemy unit plus its became-target event (355.8, 754), the base cost " +
-    "payment and the Move's own timing-point obligations (449.1/458) belong to the chain, the target system and the " +
-    "cost plan (RIFT-89 / RIFT-90 / RIFT-120)"
+    "filter key or Condition form expresses either, so the printed gate stays ungated rather than always true"
 );

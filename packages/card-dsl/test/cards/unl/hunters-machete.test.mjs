@@ -7,8 +7,6 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { keywordDefinitionsById } = await import(new URL("effects/keywords/registry.generated.js", ENGINE));
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", ENGINE));
-const { buildCostPlan } = await import(new URL("cost/cost-plan.js", ENGINE));
-const { CostPlanError } = await import(new URL("cost/plan-types.js", ENGINE));
 const { world } = await import(new URL("effects/testing/index.js", ENGINE));
 
 const CANONICAL_ID =
@@ -35,8 +33,8 @@ test("unl-096-219 Hunter's Machete: identity, ruleset, status, judgeReason and v
   assert.match(program.judgeReason, /equip/);
   assert.match(program.judgeReason, /plan-values/);
   assert.match(program.judgeReason, /CostPlanError/);
-  assert.match(program.judgeReason, /RIFT-89/);
   assert.match(program.judgeReason, /818\.1\.c/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-257/);
   assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
@@ -81,34 +79,14 @@ test("unl-096-219 Hunter's Machete: the merged Equip expansion is valid EffectIR
   }]);
 });
 
-test("unl-096-219 Hunter's Machete: the Equip activation cost is rejected by the merged cost plan", () => {
-  // The real merged failure is the evidence for the judgeReason: readCost calls
-  // blocked() on the unknown payment kind "equip".
-  const kernel = world()
-    .unit("hunters-machete", {
-      types: ["gear"],
-      tags: ["Equipment"],
-      might: 2,
-      energy: 3,
-      power: null,
-      zone: "board",
-      location: { type: "base", player: "A" },
-      controller: "A",
-      owner: "A"
-    })
-    .unit("ally", { types: ["unit"], might: 2, controller: "A", owner: "A" })
-    .build();
-  const context = kernel.clone({ sourceSnapshot: kernel.getObject("hunters-machete") });
+test("unl-096-219 Hunter's Machete: the printed Equip payment remains an explicit keyword cost", () => {
   const definition = keywordDefinitionsById.get("Equip");
   const [activation] = definition.expand({ value: equip.value, host: { canonicalCardId: CANONICAL_ID } });
-
-  assert.throws(
-    () => buildCostPlan(context, { id: "hunters-machete:equip", cost: activation.cost }),
-    error =>
-      error instanceof CostPlanError &&
-      error.reason === "judge-required" &&
-      /Unsupported payment kind: equip/.test(error.message)
-  );
+  assert.deepEqual(activation.cost, {
+    kind: "activated",
+    payments: [{ kind: "equip", value: { kind: "constant", value: { kind: "source" } } }]
+  });
+  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
 });
 
 test("unl-096-219 Hunter's Machete golden: the merged Equip body attaches the Gear once the target is locked", () => {
@@ -149,10 +127,6 @@ test("unl-096-219 Hunter's Machete golden: the merged Equip body attaches the Ge
 });
 
 test.todo(
-  "unl-096-219 Hunter's Machete: pay the printed Equip cost (818.1.c / 818.1.c.3, one Body power) — the merged " +
-    "cost plan rejects the 'equip' payment kind with CostPlanError reason 'judge-required' (RIFT-89 follow-up)"
-);
-test.todo(
   "unl-096-219 Hunter's Machete: wire the card program through keyword expansion into the activation/chain path " +
-    "(contract 3.5) so the 818.1.b.2 top-most attach can be exercised end to end"
+    "with a dedicated Equip payment kind so the 818.1.b.2 top-most attach can be exercised end to end"
 );

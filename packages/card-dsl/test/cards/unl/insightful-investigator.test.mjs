@@ -39,7 +39,8 @@ test("unl-135-219 Insightful Investigator: identity, status, judgeReason and ver
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /target\.player/);
   assert.match(program.judgeReason, /383\.3\.b/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /Finalize\/Resolve|resolution-time/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-9|RIFT-89/);
 });
 
 test("unl-135-219 Insightful Investigator: play trigger with the four printed steps", () => {
@@ -99,7 +100,7 @@ test("unl-135-219 Insightful Investigator: the may node wraps pay, discard and d
   // 383.3.b / 204.3.a: "pay 2 XP to choose a card" is a Cost within Instructions plus its Effect.
   assert.deepEqual(payXp.args.payments, {
     kind: "constant",
-    value: [{ kind: "xp", amount: { kind: "constant", value: 2 } }]
+    value: { xp: 2 }
   });
   assert.equal(payXp.linkedTo, undefined);
   assert.equal(discardChosen.linkedTo, "insightful-investigator.pay-xp");
@@ -175,8 +176,9 @@ test("unl-135-219 Insightful Investigator golden: that opponent discards the cho
   kernel.link(OPPONENT_KEY, "B");
   kernel.setPicks("insightful-investigator.revealed-card", [kernel.ref("b2")]);
 
-  // The may node is accepted by the caller; the pay step itself is the unmerged part (see judgeReason),
-  // so the merged half runs through the chain interpreter as two independent body steps.
+  // The may node is accepted by the caller; the production payment choice is
+  // still the unresolved part (see judgeReason), so the executable half runs
+  // through the chain interpreter as two independent body steps.
   const outcome = resolveChainBody([standalone(discardChosen), standalone(drawOne)], kernel);
   assert.equal(outcome.status, "executed");
   assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
@@ -226,9 +228,10 @@ test("unl-135-219 Insightful Investigator golden: declining the may node leaves 
 
 test.todo(
   "unl-135-219 Insightful Investigator: choose an opponent and lock the player choice at Finalize (CR 355.7) — " +
-    "the merged IR has no target.player primitive or player-choice request type"
+    "provide the target.player player-choice request and bind its result to the following instructions"
 );
 test.todo(
   "unl-135-219 Insightful Investigator: pay 2 XP during resolution and expose whether it was paid (CR 383.3.b / " +
-    "204.3.a) — payCostPlan only runs on a finalized Finalize-time plan (RIFT-89)"
+    "204.3.a) — cost.pay accepts an explicit finalized payment value, but the production Finalize/Resolve flow " +
+    "does not yet bind this resolution-time choice and its payment result"
 );

@@ -15,13 +15,12 @@
  *   与 README 第 5 节卡只声明关键词与印刷数值，费用的 Power 域由 costDomain 记录。
  * - 展开（启动能力、单位目标、attach 本体）属于 effects/keywords/Equip.ts。
  *
- * status = judge-required（README 第 2 节；按「已合入示例」表的复核要求，不沿用同类早期卡的
- * 历史 executable）：Equip 的激活费用无法在合并的费用管线里支付——effects/keywords/Equip.ts
- * 展开出的 cost.payments 是 { kind: "equip", value: ... }，而 cost/plan-values.ts 的 readCost
- * 对未知支付种类直接 blocked(...)，buildCostPlan 会抛 CostPlanError（reason "judge-required"，
- * message "Unsupported payment kind: equip"；同 rad/nazuman-ntofo 的实测记录）。此外还缺
- * 卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）。不把 Equip 近似成一条裸 effect.attach
- * （那会绕开 818.1.c.3 / 818.1.c.4 的费用与费用改写语义）。
+ * status = judge-required（README 第 2 节；按当前源码复核）：Equip 的激活费用仍不能在费用管线里
+ * 支付——effects/keywords/Equip.ts 展开的 cost.payments 是 { kind: "equip", value: ... }，而
+ * cost/plan-values.ts 的 readCost 对该专用支付种类仍 fail closed，buildCostPlan 会抛
+ * CostPlanError（reason "judge-required"、message "Unsupported payment kind: equip"）。Equip
+ * 的 attach 本体与 CardProgram 关键词/激活绑定已经合入；不把 Equip 近似成裸 effect.attach（会绕开
+ * 818.1.c.3 / 818.1.c.4 的费用与费用改写语义）。
  */
 export default {
   canonicalCardId:
@@ -30,10 +29,10 @@ export default {
   status: "judge-required",
   judgeReason:
     "Equip（818.1.c 的印刷费用）的启动费用尚不能在 EffectIR 费用管线里支付：已合入的 Equip 展开（effects/keywords/Equip.ts）声明 " +
-    "payments: [{ kind: \"equip\", value: { kind: \"source\" } }]，而 cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked，" +
-    "实测 buildCostPlan 抛 CostPlanError（reason \"judge-required\"、message \"Unsupported payment kind: equip\"；同 rad/nazuman-ntofo 记录）；" +
-    "同时缺少卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）。" +
-    "依赖：Equip 费用支付种类落地（RIFT-89 费用管线后续）与关键词接线。不近似实现（不把 Equip 改成裸 effect.attach 绕开费用）。",
+    "payments: [{ kind: \"equip\", value: { kind: \"source\" } }]，而 cost/plan-values.ts 的 readCost 对该专用支付种类直接 fail closed，" +
+    "实测 buildCostPlan 抛 CostPlanError（reason \"judge-required\"、message \"Unsupported payment kind: equip\"）。" +
+    "Equip 的关键词展开、attach 本体与程序绑定已经合入；" +
+    "依赖：Equip 专用费用种类的费用计划消费方。不近似实现（不把 Equip 改成裸 effect.attach 绕开费用）。",
   abilities: [
     // 818.1.c：印刷费用为 1 个 Body Power 符号；卡只声明关键词身份、数值与费用域。
     { kind: "keyword", keyword: "equip", value: 1, costDomain: "Body" }

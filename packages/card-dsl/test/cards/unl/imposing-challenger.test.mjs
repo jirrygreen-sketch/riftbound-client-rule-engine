@@ -30,10 +30,12 @@ test("unl-105-219 Imposing Challenger: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /143\.2\.a\.1/);
   assert.match(program.judgeReason, /355\.4/);
   assert.match(program.judgeReason, /449\.2/);
-  // The program binding and event producers are merged; the reason must name
-  // the still-missing payload/anchor and the closed event vocabulary.
-  assert.match(program.judgeReason, /RIFT-270/);
-  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES|object-moved/);
+  // The program binding is merged; the reason must name the remaining movement
+  // payload/position/comparison gaps.
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /movement.*载荷|toLocationId/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-90|RIFT-120|RIFT-257|RIFT-270/);
 });
 
 test("unl-105-219 Imposing Challenger: 'When I move' subscribes to the object-moved timing point", () => {
@@ -151,11 +153,6 @@ test.todo(
   "unl-105-219 Imposing Challenger: resolve 'to a different battlefield' by enumerating Battlefields other than the unit's current location (355.4.a / 449.2) — effect.move accepts only literal LocationRefs, 'controller-base' or a literal option list"
 );
 test.todo(
-  "unl-105-219 Imposing Challenger: trigger on the Destination of the Move ('here' = the event's toLocationId) — events/action-adapter.ts does not populate the declared object-moved payload fields and the merged trigger matcher has no candidate-location vs event-location anchor (engine batch 4)"
-);
-test.todo(
-  "unl-105-219 Imposing Challenger: register the object-moved subscription in production — the closed EVENT_PATTERN_TYPES (events/trigger-spec.ts) has no object-moved spelling and programs/filters.ts drops the nested self anchor, so registerProgramTriggers fails closed (RIFT-120 follow-up)"
-);
-test.todo(
-  "unl-105-219 Imposing Challenger: bind 'an enemy unit here with less Might than me' as a TargetSpec through programs/filters.ts — the retained sameLocationAs/mightLessThan anchors are not supported card-side filter fields (RIFT-257 follow-up)"
+  "unl-105-219 Imposing Challenger: trigger on the Move Destination ('here' = the event's toLocationId) — " +
+    "the movement event still lacks the from/to payload and the production matcher has no location anchor"
 );

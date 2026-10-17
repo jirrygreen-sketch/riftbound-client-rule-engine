@@ -86,11 +86,11 @@ test("unl-112-219 Irresistible Faefolk: identity, status, judgeReason and verbat
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /449\.2/);
   assert.match(program.judgeReason, /action-adapter/);
-  assert.match(program.judgeReason, /RIFT-120/);
   // The program binding is merged, so the reason must name the closed event
-  // vocabulary and the retained anchor rather than a missing adapter.
+  // vocabulary/payload and the retained destination anchor.
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
-  assert.match(program.judgeReason, /RIFT-270/);
+  assert.match(program.judgeReason, /fromKind|toLocationId/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-90|RIFT-91|RIFT-120|RIFT-257|RIFT-270/);
 });
 
 test("unl-112-219 Irresistible Faefolk: 'When I move to a battlefield' keeps the Destination gate as a placeholder", () => {
@@ -231,8 +231,8 @@ test("unl-112-219 Irresistible Faefolk golden: the printed destination is read a
 });
 
 test.todo(
-  "unl-112-219 Irresistible Faefolk: populate the object-moved payload (fromKind / toKind / fromLocationId / toLocationId) and match 'to a battlefield' against the Destination (449.2) — events/action-adapter.ts emits the timing point without those fields (RIFT-270 audit) and the closed EVENT_PATTERN_TYPES has no object-moved spelling"
+  "unl-112-219 Irresistible Faefolk: populate the object-moved payload (fromKind / toKind / fromLocationId / toLocationId) and match 'to a battlefield' against the Destination (449.2) — the action adapter omits those fields and the closed EVENT_PATTERN_TYPES has no object-moved spelling"
 );
 test.todo(
-  "unl-112-219 Irresistible Faefolk: register the object-moved triggered ability as a TriggerRegistration and resolve the {object: \"self\"} anchor in production — programs/triggers.ts exists (RIFT-257) but both the placeholder filter and the event spelling fail closed"
+  "unl-112-219 Irresistible Faefolk: register the object-moved triggered ability in production after the event payload and EventPattern vocabulary accept the Destination gate; the body already resolves the {object: \"self\"} anchor"
 );
