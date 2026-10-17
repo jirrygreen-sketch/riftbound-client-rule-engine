@@ -37,8 +37,12 @@ import type { CardProgram } from "../../ir/index.js";
  * - the battlefield restriction uses TargetSpec.location, which the existing
  *   Finalize target plan already understands (355.10.b).
  * The 356.2.a.1 mandatory-additional-cost posting and return-to-hand payment
- * kind remain blocked. The template scenario in play-effect-damage-659 is
- * pending; the single-card golden proves only the supported damage body.
+ * kind remain blocked. The RIFT-685 template row
+ * (test/cards/templates/play-effect-damage-685.test.mjs) runs the card's own program
+ * through the real chain and shows the whole play rejected at binding time
+ * ("Additional costs are not bound for play:<id>"), while the original damage
+ * body alone resolves through the real target planner and marks 5. Neither
+ * row pays the printed additional cost.
  */
 export default {
   canonicalCardId: "card.hash-84ee715c26888cfa3850f44083e64823f41b5db0dc23a4f0511c4eb127d52175",
@@ -50,7 +54,8 @@ export default {
     "cost/plan-values.ts readCost 也不接受 CostSpec.kind \"additional\"（Unsupported cost kind: additional），" +
     "且 payments 没有 return-to-hand 种类，NonstandardCostAction 也不接受 return-to-hand/move-zone，无法在 Finalize 投放 356.2.a.1 的 mandatory-additional。" +
     "战场限制已改用现有 TargetSpec.location，目标翻译不再是缺口；" +
-    "模板 play-effect-damage-659 的整卡场景仍 pending，单卡伤害证据不代表已支付附加费用。" +
+    "模板 play-effect-damage-685 用本卡自身程序经真实链实测：play 在绑定期即被 Additional costs are not bound for play:<id> 拒绝，" +
+    "而原始伤害 body 经真实目标翻译/Finalize/解析单独结算 5 点；两者都不代表已支付附加费用。" +
     "不近似实现：不用 effect.zone 在结算期补做费用动作。",
   abilities: [
     {
