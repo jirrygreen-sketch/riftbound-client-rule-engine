@@ -182,8 +182,8 @@ test("Block golden: the printed grant registers Shield 3 and Tank in the ability
 
 test.todo(
   "Block: give a unit [Shield 3] for this turn, summing with an existing Shield (CR 814.2 / 814.1.c: +3 Might " +
-    "only while it is a defender) - dynamically granted keywords need re-expansion and the Shield designation " +
-    "condition must bind combatRole (814.1.d)"
+    "only while it is a defender) - dynamically granted keywords need re-expansion, and the Shield defender " +
+    "condition needs a designation characteristic producer (814.1.d)"
 );
 
 test.todo(

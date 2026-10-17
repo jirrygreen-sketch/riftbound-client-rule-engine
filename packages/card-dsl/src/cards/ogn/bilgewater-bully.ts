@@ -21,8 +21,11 @@ import type { CardProgram } from "../../ir/index.js";
  * status: judge-required —— 依据以下缺口，不近似实现：
  * 1. `continuous.grant-keyword` 原语、条件的 `buffs` 求值和静态程序绑定都已具备；本卡
  *    测试真实执行并验证 ability 层的 Ganking 与回合结束到期。
- * 2. 标准移动已能查询 movement 规则，但动态获得的关键词尚未自动展开；Ganking 静态展开的
- *    permission 字符串也未转换成 movement 查询所需的 permission.routes。
+ * 2. 动态授予的关键词只写入 ObjectSnapshot.keywords（layers/engine.ts），没有后续
+ *    KeywordDef 重展开把 Ganking 的 static continuous.movement 许可注册到规则层。
+ *    continuous.movement 指令本身会把 permission 字符串规范化为 permission.routes，
+ *    缺的是把该声明接入 layers/rules/query.ts 的 movement() 与 zones/unit-lifecycle
+ *    的 deriveGanking→hasGanking 派生，并在失去 Buff 时撤销许可。
  * 3. 因此本卡无法在整卡层面证明“被 Buff 时确实获得 Ganking”。
  */
 export default {
@@ -30,10 +33,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺少 continuous.grant-keyword 动态授予 Ganking 后的关键词重展开与撤销；" +
-    "programs/statics.ts 保留的 continuous.movement permission 字符串也未适配 layers/rules/query.ts 所读的 permission.routes。" +
-    "仍需把随 buffs 条件变化的授予接入 movement.canGank 查询或可信 hasGanking 派生" +
-    "（CR 364.3、810.1.c、144.4.c.1），并在失去 Buff 时撤销许可。",
+    "缺少 continuous.grant-keyword 动态授予 Ganking 后的 KeywordDef 重展开与撤销：授予只写入 " +
+    "ObjectSnapshot.keywords，静态 continuous.movement 许可（permission 字符串已由指令规范化为 " +
+    "permission.routes）没有被注册进规则层。仍需把随 buffs 条件变化的授予接入 layers/rules/query.ts 的 " +
+    "movement() 查询或 zones/unit-lifecycle 的可信 hasGanking 派生（CR 364.3、810.1.c、144.4.c.1），" +
+    "并在失去 Buff 时撤销许可。",
   abilities: [
     {
       kind: "static",

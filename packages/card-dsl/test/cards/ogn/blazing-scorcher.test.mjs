@@ -104,6 +104,7 @@ test.todo(
   "Blazing Scorcher: pay [1][Fury] as an optional additional cost while playing me, then have the "
     + "delayed replacement make me enter ready instead of exhausted (CR 805.1.b/805.2.b/805.6, "
     + "805.6.a does not trigger 'becomes ready') — blocked because the card-program play adapter "
-    + "does not yet turn the keyword into an optionalAdditional accelerate component or consume the "
+    + "does not yet turn the keyword into an optionalAdditional accelerate component, gate the "
+    + "805.2.b delayed replacement on the selectedAdditional paid proof, or consume the "
     + "accelerate.cost / enter-ready replacement"
 );

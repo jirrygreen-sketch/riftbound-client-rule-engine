@@ -21,7 +21,9 @@ import type { CardProgram } from "../../ir/index.js";
  * - the body's `continuous.grant-keyword` opcode is merged (RIFT-258) and the
  *   golden test really executes the printed grant through the layers engine;
  * - the activated body and exhaust payment are bindable; what is still missing
- *   is dynamic keyword re-expansion and normalization to movement query routes.
+ *   is dynamic keyword re-expansion into a registered movement rule: the grant
+ *   only writes ObjectSnapshot.keywords, and the movement() query / trusted
+ *   hasGanking derivation never see the static continuous.movement permission.
  * Granting [Ganking] to an enemy unit is legal here (no controller filter), so
  * this is not covered by friendly-only keyword granting either.
  */
@@ -31,10 +33,11 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 continuous.grant-keyword 动态授予 Ganking 后的关键词重展开与到期撤销，" +
-    "以及 Ganking 静态展开的 permission 字符串到 movement 查询 permission.routes 的适配。" +
-    "仍需把授予任意玩家单位的关键词接入 movement.canGank 查询或可信 hasGanking 派生" +
-    "（CR 810.1.c、144.4.c.1），并在回合结束撤销许可；不能用仅授予友方的近似替代。",
+    "缺 continuous.grant-keyword 动态授予 Ganking 后的 KeywordDef 重展开与许可撤销：授予只写入 " +
+    "ObjectSnapshot.keywords，静态 continuous.movement 许可（permission 字符串已由指令规范化为 " +
+    "permission.routes）没有被注册进规则层。仍需把授予任意玩家单位的关键词接入 layers/rules/query.ts 的 " +
+    "movement() 查询或 zones/unit-lifecycle 的可信 hasGanking 派生（CR 810.1.c、144.4.c.1），" +
+    "并在回合结束撤销许可；不能用仅授予友方的近似替代。",
   abilities: [
     {
       kind: "activated",

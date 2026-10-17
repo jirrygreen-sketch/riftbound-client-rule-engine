@@ -133,5 +133,5 @@ test("bounty-hunter golden: the exhaust cost pays and the grant gives any chosen
 
 test.todo(
   "bounty-hunter end-to-end: bind the activated CardProgram ability to the chain so paying the cost runs the " +
-    "granted Ganking, re-expand dynamic keywords, normalize permission.routes and revoke that Standard Move permission at turn end."
+    "granted Ganking, re-expand dynamic keywords into the movement() query and revoke that Standard Move permission at turn end."
 );

@@ -138,6 +138,7 @@ test("golden: the granted Ganking expands to the CR 810 movement permission", ()
 });
 
 test.todo(
-  "Bilgewater Bully: re-expand dynamically granted Ganking, normalize the static permission string into permission.routes, " +
+  "Bilgewater Bully: re-expand dynamically granted Ganking into a registered movement rule " +
+    "(the continuous.movement instruction already normalizes permission strings into permission.routes) " +
     "and revoke the battlefield-to-battlefield Standard Move permission when the Buff is spent"
 );
