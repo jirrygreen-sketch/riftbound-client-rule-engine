@@ -9,7 +9,9 @@ import restrict from "../../../../engine-core/dist/effects/instructions/continuo
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
-import { restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
+import { canAct, restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { abilitySpeed } from "../../../../engine-core/dist/programs/keywords.js";
 
 const CANONICAL_ID =
   "card.hash-0fd730fbefcd79781194c269d2e2a4c9e610d42a403c6f112d892d3bf8f1a3fe";
@@ -200,6 +202,29 @@ test("unl-190-219 Lilting Lullaby golden: a stale chain reference is mistargeted
   assert.deepEqual(run.events, []);
 });
 
+test("unl-190-219 Lilting Lullaby golden: the merged Reaction expansion admits a Closed-State play", () => {
+  const source = world().object("lilting-lullaby", {
+    zone: "hand",
+    types: ["spell"],
+    cardId: CANONICAL_ID
+  }).build().getObject("lilting-lullaby");
+  const definition = keywordDefinitionsById.get("Reaction");
+  assert.ok(definition, "keywords/Reaction.ts must be registered");
+  const [permission] = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(permission.effect.kind, "continuous.timing");
+  assert.deepEqual(permission.effect.grants, ["showdown", "closed-state"]);
+  assert.equal(abilitySpeed(program.abilities, source), "reaction");
+  assert.equal(canAct({
+    player: "A",
+    speed: abilitySpeed(program.abilities, source),
+    showdown: false,
+    closedState: true,
+    turnPlayer: "B",
+    priorityHolder: "A",
+    grants: permission.effect.grants
+  }), true);
+});
+
 test.todo(
   "unl-190-219 Lilting Lullaby: consume the registered this-turn prohibition from the chain's canAct/Finalize timing query (CR 355.8 / 806 / 159.2)"
 );
@@ -207,5 +232,5 @@ test.todo(
   "unl-190-219 Lilting Lullaby: resolve \"Its controller\" as the countered spell's controller referent and expire the prohibition at the end-of-turn timing point (CR 359.3.f.1)"
 );
 test.todo(
-  "unl-190-219 Lilting Lullaby: enforce the printed [Reaction] Closed-State permission and the target legality rules (355.9.a.2 / 355.9.c / contract 3.4 pending-item exclusion) in the production chain"
+  "unl-190-219 Lilting Lullaby: enforce the printed target legality for a finalized Chain spell, including the self-target and pending-item exclusions (355.9.a.2 / 355.9.c / contract 3.4) in the production chain"
 );

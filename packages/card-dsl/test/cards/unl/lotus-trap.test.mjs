@@ -3,6 +3,10 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/lotus-trap.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { abilitySpeed } from "../../../../engine-core/dist/programs/keywords.js";
+import { canAct } from "../../../../engine-core/dist/layers/rules/query.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-4a35c75cbe6c3eeae825ce423a2f3dbbdbbbc76b117a9c54735ebc7a7c7c4290";
@@ -28,7 +32,7 @@ test("unl-013-219 Lotus Trap: identity, status, judgeReason and verbatim sourceT
   assert.match(program.judgeReason, /replacement\.damage-multiplier/);
   assert.match(program.judgeReason, /433\.1\.b/);
   assert.match(program.judgeReason, /hidden/);
-  assert.match(program.judgeReason, /continuous\.timing|Closed State/);
+  assert.doesNotMatch(program.judgeReason, /timing 消费方同样未合入|chain timing consumer is missing/);
 });
 
 test("unl-013-219 Lotus Trap: Hidden + Reaction keywords plus one doubling replacement on a chosen unit", () => {
@@ -68,7 +72,29 @@ test("unl-013-219 Lotus Trap: Hidden + Reaction keywords plus one doubling repla
   ]);
 });
 
+test("unl-013-219 Lotus Trap: the merged Reaction expansion admits a Closed-State play", () => {
+  const source = world().object("lotus-trap", {
+    zone: "hand",
+    types: ["spell"],
+    cardId: CANONICAL_ID
+  }).build().getObject("lotus-trap");
+  const definition = keywordDefinitionsById.get("Reaction");
+  assert.ok(definition, "keywords/Reaction.ts must be registered");
+  const [permission] = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(permission.effect.kind, "continuous.timing");
+  assert.deepEqual(permission.effect.grants, ["showdown", "closed-state"]);
+  assert.equal(abilitySpeed(program.abilities, source), "reaction");
+  assert.equal(canAct({
+    player: "A",
+    speed: abilitySpeed(program.abilities, source),
+    showdown: false,
+    closedState: true,
+    turnPlayer: "B",
+    priorityHolder: "A",
+    grants: permission.effect.grants
+  }), true);
+});
+
 test.todo("unl-013-219 Lotus Trap: replacement.damage-multiplier — double all damage that would be dealt to the chosen unit this turn (CR 433.1.b / 369.1 / 418.1 / 418.5); the survey (docs/plans/survey/unclassified-unl.md item 9) records it as needs-new-primitive");
 test.todo("unl-013-219 Lotus Trap: the [Hidden] expansion must grant the Hide action, the Facedown Zone and the cost-0 facedown play (811 / 107.3 / 422) — cost.hidden has no execution consumer");
-test.todo("unl-013-219 Lotus Trap: the [Reaction] continuous.timing permission must admit the card during Closed States (813.1.c / 309.1.a / 159.2.b.3) — the chain timing consumer is missing");
 

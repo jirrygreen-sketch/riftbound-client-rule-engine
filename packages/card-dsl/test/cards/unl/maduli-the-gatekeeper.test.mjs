@@ -6,6 +6,8 @@ import program from "../../../dist/cards/unl/maduli-the-gatekeeper.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { normalizeMoveArguments } from "../../../../engine-core/dist/effects/interpreter/locations.js";
+import { queryLocationCandidates } from "../../../../engine-core/dist/target/location/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
@@ -64,7 +66,7 @@ test("unl-144-219 Maduli the Gatekeeper: 'I can't be readied' is a static prohib
   assert.equal(cannotBeReadied.condition, undefined);
 });
 
-test("unl-144-219 Maduli the Gatekeeper: 1 Chaos Power base cost with a descriptive destination", () => {
+test("unl-144-219 Maduli the Gatekeeper: 1 Chaos Power base cost with a runtime battlefield selector", () => {
   assert.equal(activated.kind, "activated");
   // 204.1.b: the resource before the ":" is the ability's Base Cost; no [Action]/[Reaction] is printed.
   assert.equal(activated.timing, "action");
@@ -83,14 +85,15 @@ test("unl-144-219 Maduli the Gatekeeper: 1 Chaos Power base cost with a descript
   assert.equal(moveMe.targets, undefined);
   assert.equal(moveMe.picks, undefined);
 
-  // "to an occupied enemy battlefield if …": a descriptive destination marker, never an executable
-  // LocationRef — effect.move rejects it rather than moving the unit somewhere wrong.
+  // 170.11.a / 355.4: the merged LocationExpr selects the occupied battlefield
+  // controlled by the opponent. The Might comparison remains a separate
+  // unresolved condition and is recorded in judgeReason.
   assert.deepEqual(moveMe.args.to, {
-    kind: "constant",
+    kind: "location",
     value: {
-      kind: "destination-selector",
-      filter: { type: "battlefield", occupied: true, controller: "opponent" },
-      condition: "my-might-greater-than-total-enemy-might-there"
+      kind: "choose",
+      id: "maduli-the-gatekeeper.destination",
+      filter: { type: "battlefield", occupied: true, controller: "opponent" }
     }
   });
 });
@@ -115,16 +118,51 @@ test("unl-144-219 Maduli the Gatekeeper golden: a pool without Chaos Power canno
   assert.deepEqual(kernel.player("A").power, ["Mind"]);
 });
 
-test("unl-144-219 Maduli the Gatekeeper golden: a concrete locked destination does move the unit (merged Move evidence)", () => {
-  // Caller-supplied Finalize destination: the merged effect.move half is executable once the runtime
-  // Location selector exists; this golden proves the Move itself, never the missing selection step.
-  const kernel = maduliWorld();
-  const body = [
-    { ...moveMe, args: { ...moveMe.args, to: { kind: "constant", value: { type: "battlefield", id: "bf-2" } } } }
+test("unl-144-219 Maduli the Gatekeeper golden: the merged selector chooses an occupied enemy battlefield before Move", () => {
+  const destination = { type: "battlefield", id: "bf-2" };
+  const kernel = world()
+    .player("A", { power: ["Chaos"] })
+    .unit("maduli", {
+      owner: "A",
+      controller: "A",
+      might: 6,
+      energy: 7,
+      power: 1,
+      location: { type: "battlefield", id: "bf-1" }
+    })
+    .unit("enemy-at-destination", {
+      owner: "B",
+      controller: "B",
+      might: 2,
+      location: destination
+    })
+    .unit("friendly-battlefield", {
+      owner: "A",
+      controller: "A",
+      might: 2,
+      location: { type: "battlefield", id: "bf-3" }
+    })
+    .build();
+  const locations = [
+    { ref: { type: "battlefield", id: "bf-1" }, controller: "A", occupied: true },
+    { ref: destination, controller: "B", occupied: true },
+    { ref: { type: "battlefield", id: "bf-3" }, controller: "A", occupied: true },
+    { ref: { type: "battlefield", id: "bf-4" }, controller: "B", occupied: false }
   ];
-  const outcome = resolveChainBody(body, kernel);
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("maduli"), controller: "A" });
+  assert.deepEqual(
+    queryLocationCandidates(scoped, moveMe.args.to.value.filter, { locations, players: ["A", "B"], opponent: "B" }),
+    [destination]
+  );
+  scoped.setAnswers({ "maduli-the-gatekeeper.destination": destination });
+  const normalized = normalizeMoveArguments(moveMe.args, scoped, {
+    locations,
+    players: ["A", "B"],
+    opponent: "B"
+  });
+  const outcome = resolveChainBody([{ ...moveMe, args: normalized }], scoped);
   assert.equal(outcome.status, "executed");
-  assert.deepEqual(kernel.getObject("maduli").location, { type: "battlefield", id: "bf-2" });
+  assert.deepEqual(scoped.getObject("maduli").location, destination);
   assert.deepEqual(outcome.events.map(event => event.action), ["move-location"]);
 });
 
@@ -150,6 +188,6 @@ test.todo(
 );
 test.todo(
   "unl-144-219 Maduli the Gatekeeper: choose an occupied enemy battlefield at resolution and require my Might to " +
-    "exceed the total Might of enemy units there (CR 170.11.a / 355.4.a / 451.1 / 143.2.a) — the frozen IR has no " +
-    "runtime Location selector and effect.move accepts only static destinations"
+    "exceed the total Might of enemy units there (CR 170.11.a / 355.4.a / 451.1 / 143.2.a) — the LocationExpr " +
+    "selector filters occupancy and controller, but no aggregate Might comparator gates the Move"
 );
