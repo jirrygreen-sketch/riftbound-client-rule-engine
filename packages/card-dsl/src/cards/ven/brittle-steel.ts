@@ -38,8 +38,9 @@ import type { CardProgram } from "../../ir/index.js";
  *        GameAction 没有 leavingInstruction 标记；实测 bindReplacement 对 Flow 展开出的
  *        替代能力抛 “Unsupported replacement opcode: effect.banish”（连被替代事件的动作都
  *        还没进入可绑定集合）。continuous.timing 的“从弃牌堆打出”位置许可也未合并。
- * 已合入并真实执行的部分：「Kill a gear」的 effect.kill（429.1/429.6），golden 用解释器 +
- * 参考内核以 Finalize 锁定的目标真实执行，并覆盖目标失效（359.3.e）分支。
+ * 已合入并真实执行的部分：「Kill a gear」的 effect.kill（429.1/429.6）；RIFT-682 模板
+ * 经真实入链、Finalize 和事件管线从手牌执行原始程序，并用真实 Retreat 使目标失效
+ * （359.3.e）。这不证明 Flow；测试台 pay 动作还不扣 Power，不能充当完整费用证据。
  * 依赖：Flow 声明到费用计划（baseModifications）与替代匹配（object-leaves-chain /
  * leavingInstruction）两侧的生产接线。
  * 无契约变更请求以外的臆造：未在卡里重写 Flow 或放逐逻辑。
@@ -60,8 +61,9 @@ export default {
     "法术自身指示的离链；replacement/pattern.ts 的 ACTION_KINDS 仍没有 object-leaves-chain，闭合的 GameAction 也没有 " +
     "leavingInstruction 标记，bindReplacement 实测对 Flow 替代抛 “Unsupported replacement opcode: effect.banish”；" +
     "continuous.timing 的“从弃牌堆打出”位置许可未合并。" +
-    "已合入并真实执行：「Kill a gear」的 effect.kill（429.1/429.6，355.9.a.1 的 Board Gear 目标）由 golden 以解释器 + " +
-    "参考内核执行。依赖：flow.cost 到费用计划的接线与 object-leaves-chain / leavingInstruction 的替代匹配。",
+    "已合入并真实执行：「Kill a gear」的 effect.kill（429.1/429.6，355.9.a.1 的 Board Gear 目标）由 RIFT-682 模板经原始程序入链、" +
+    "Finalize、事件管线执行，并覆盖真实 Reaction 使目标失效；测试台 pay 仍未扣 Power，不作为完整费用证据。" +
+    "依赖：flow.cost 到费用计划的接线与 object-leaves-chain / leavingInstruction 的替代匹配。",
   abilities: [
     {
       // 829.1.a：Flow 出现在法术上；本卡只声明关键词，展开归 keywords/Flow.ts（见 judgeReason）。

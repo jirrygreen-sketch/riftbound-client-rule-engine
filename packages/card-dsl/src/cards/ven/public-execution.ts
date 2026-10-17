@@ -28,7 +28,7 @@ const publicExecution = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺两段接线：(1) CR 355.9.b/143.2.a 的相对有效 Might 目标限制 mightLessThanTarget 尚未进入 programs/filters.ts 的允许字段或 target/target-plan.ts 合法性谓词；结算期 compare 已支持，但不能替代 Finalize 的目标限制。(2) Flow KeywordDef 与费用计划的 baseModifications.kind=flow 已合入，KeywordDef 接受 params.cost；卡程序 KeywordAbility 和 programs/keywords.ts 仍不传递本卡印刷的 5 Energy + 2 [A]。flow.cost 静态能力没有绑定到 Trash 打出许可及替代费用，829.1.b.1 的 Flow 实例选择回执和自身指令离链例外也未接入延迟放逐；通用 replacement 绑定存在不等于该 Flow 记录已被消费。effect.kill 与结算期相对 Might compare 已有真实执行证据。不近似实现。",
+    "仍缺两段接线：(1) CR 355.9.b/143.2.a 的相对有效 Might 目标限制 mightLessThanTarget 尚未进入 programs/filters.ts 的允许字段或 target/target-plan.ts 合法性谓词；结算期 compare 已支持，但不能替代 Finalize 的目标限制。(2) Flow KeywordDef 与费用计划的 baseModifications.kind=flow 已合入，KeywordDef 接受 params.cost；卡程序 KeywordAbility 和 programs/keywords.ts 仍不传递本卡印刷的 5 Energy + 2 [A]。flow.cost 静态能力没有绑定到 Trash 打出许可及替代费用，829.1.b.1 的 Flow 实例选择回执和自身指令离链例外也未接入延迟放逐；通用 replacement 绑定存在不等于该 Flow 记录已被消费。effect.kill 与结算期相对 Might compare 仅有解释器子效果证据；RIFT-682 保留原始目标限制的整卡场景为 TODO，不能删除限制换取测试台通过。不近似实现。",
   abilities: [
     // 829.1 / 829.1.c：印刷的 [Flow] 替代费用关键词，只声明不重写展开。
     { kind: "keyword", keyword: "flow" },

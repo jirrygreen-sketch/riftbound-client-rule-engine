@@ -20,8 +20,9 @@ import type { CardProgram } from "../../ir/index.js";
  * - CR 412.1 (and its Cull the Weak example, the unit-shaped twin of this
  *   text) fixes responsibility: each player performs and is responsible for
  *   their own kill. That makes the sequence chooser-scoped — the acting
- *   player's own choice, not the caster's — which is what a PickSpec's
- *   chooser field expresses.
+ *   player's own choice, not the caster's. The current PickSpec/Repeat
+ *   contracts cannot express that per-player scope; the body below records
+ *   only the single-player sub-effect and must remain judge-required.
  *
  * Status: judge-required. effect.kill and Action have execution paths, but
  * repeat cannot enumerate players or rebind each player's non-target choice
@@ -34,7 +35,7 @@ const acceptableLosses = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺逐玩家（per-player）结算作用域：CR 355.10.e/412.1 要求各玩家在结算时选择并负责消灭自己控制的一件装备；repeat 只有次数，没有按 turn order 枚举玩家并重绑 chooser/controller 的 body。chain/picks 已支持 zoneSlice/linked 有序来源，但本卡 PickSpec.filter 的候选查询、每位选择者的选择与 effect.kill 的责任玩家仍未接线。",
+    "缺逐玩家（per-player）结算作用域：CR 355.10.e/412.1 要求各玩家在结算时选择并负责消灭自己控制的一件装备；repeat 只有次数，没有枚举玩家并重绑 chooser/controller 的 body。当前 IR 仅保留单玩家子效果，options 的 dynamic 字符串只是未实现候选来源的描述，不能解析为真实对象。chain/picks 的 zoneSlice/linked 有序来源不支持本卡 filter 候选查询、逐玩家选择与 kill 责任归属。RIFT-682 模板只验证主阶段 Action 入链；单玩家原语证据不代表整卡已执行。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
@@ -51,6 +52,7 @@ const acceptableLosses = {
             {
               id: "acceptable-losses.gear",
               // 结算期由「该选择者」从自己的 Gear 中选一件（CR 355.10.e / 412.1）。
+              // Descriptive blocked source, not an executable object choice.
               options: ["dynamic:one-gear-the-choosing-player-controls"],
               min: 1,
               max: 1,

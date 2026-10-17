@@ -1,3 +1,5 @@
+// Scenario evidence: ../templates/keyword-play-effect-kill-682.test.mjs.
+// Original hand-play body and real Reaction invalidation; Flow remains blocked.
 import assert from "node:assert/strict";
 import test from "node:test";
 
