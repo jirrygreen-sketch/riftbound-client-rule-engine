@@ -13,6 +13,7 @@ import { runInstruction } from "../../../../engine-core/dist/effects/testing/ind
 import { createContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
 import { restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
 import restrict from "../../../../engine-core/dist/effects/instructions/continuous.restrict.js";
+import effectReady from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 
 const CARD_ID =
   "card.hash-9f4e7daa818aadec972e97c3f25f231c123fa7f6c5d2b58750be9027cbca870c";
@@ -51,6 +52,12 @@ test("unl-144-219 Maduli the Gatekeeper: identity, status, judgeReason and verba
   assert.match(program.judgeReason, /continuous\.restrict/);
   assert.match(program.judgeReason, /170\.11\.a/);
   assert.match(program.judgeReason, /143\.2\.a/);
+  // Re-checked against the merged sources: the restriction registers and is
+  // queryable, but Ready/Awaken never consult it; the declaration also had to
+  // use the plural spelling the query reads.
+  assert.match(program.judgeReason, /actions/);
+  assert.match(program.judgeReason, /exhausted 置为 false/);
+  assert.doesNotMatch(program.judgeReason, /chain 的 canAct 与 416\/315\.1\.b\.1 的重置流程仍不读取该禁止。/);
 });
 
 test("unl-144-219 Maduli the Gatekeeper: 'I can't be readied' is a static prohibition on this card", () => {
@@ -60,7 +67,9 @@ test("unl-144-219 Maduli the Gatekeeper: 'I can't be readied' is a static prohib
   assert.deepEqual(cannotBeReadied.effect, {
     kind: "continuous.restrict",
     mode: "prohibit",
-    action: "ready",
+    // layers/rules/query.ts reads the plural spelling; the singular form only
+    // exists on the continuous.restrict instruction's own evaluation path.
+    actions: ["ready"],
     appliesTo: "self"
   });
   assert.equal(cannotBeReadied.condition, undefined);
@@ -168,6 +177,8 @@ test("unl-144-219 Maduli the Gatekeeper golden: the merged selector chooses an o
 
 test("unl-144-219 Maduli the Gatekeeper golden: the merged restriction primitive records the ready prohibition", () => {
   const kernel = world().unit("maduli", { might: 6 }).build();
+  // The instruction path is the one that normalizes the singular spelling; it
+  // is what the golden uses to prove the registration shape.
   const run = runInstruction(
     restrict,
     {
@@ -181,6 +192,34 @@ test("unl-144-219 Maduli the Gatekeeper golden: the merged restriction primitive
   const registry = createContinuousEffectRegistry();
   for (const entry of kernel.continuousEffects) registry.register(entry.effect, entry.duration);
   assert.deepEqual(restrictions(registry, "ready").map(entry => entry.actions), [["ready"]]);
+});
+
+test("unl-144-219 Maduli the Gatekeeper: the card's own static registration is queryable but no Ready path consumes it (CR 364.2 / 416)", () => {
+  // The card half really registers: the production static binder writes the
+  // ability-layer restriction and restrictions('ready') reads it back.
+  const kernel = world().player("A", { power: ["Chaos"] }).unit("maduli", { might: 6, exhausted: true }).build();
+  const run = runInstruction(
+    restrict,
+    {
+      mode: { kind: "constant", value: cannotBeReadied.effect.mode },
+      action: { kind: "constant", value: cannotBeReadied.effect.actions },
+      appliesTo: { kind: "constant", value: { objectId: "maduli" } }
+    },
+    { world: kernel }
+  );
+  assert.equal(run.result.status, "executed");
+  const registry = createContinuousEffectRegistry();
+  for (const entry of kernel.continuousEffects) registry.register(entry.effect, entry.duration);
+  assert.deepEqual(restrictions(registry, "ready").map(entry => entry.actions), [["ready"]]);
+
+  // Yet Ready is not gated: the merged effect.ready primitive readies the unit
+  // anyway, which is exactly the missing consumer.
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("maduli"), controller: "A" });
+  const ready = runInstruction(effectReady, {
+    objects: { kind: "constant", value: { kind: "source" } }
+  }, { world: scoped });
+  assert.equal(ready.result.status, "executed");
+  assert.equal(scoped.getObject("maduli").exhausted, false);
 });
 
 test.todo(

@@ -25,19 +25,21 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   · "(+1 :rb_might: while they're attackers.)" 是授予后 Assault 的关键词展开结果
  *     （807.1.c），提醒文本本身不是第三条能力。
  *
- * status = judge-required（按当前合入源码复核；缺口不近似实现）：
- * - [Ambush] 的 KeywordDef 已合入，展开为 play-location-permission 与
- *   continuous.timing 两个静态声明；通用 continuous.timing 的 actionTimings/canAct 查询已合入，
- *   但 Ambush 的条件战场范围仍未接入：Finalize 没有把 play-location-permission 转成地点合法性，
- *   static binder 也不能绑定带 appliesTo: ["card"] 和 location 条件的 continuous.timing。
- * - 「give your other units here [Assault] this turn」的授予本身已可执行：
- *   continuous.grant-keyword 接受 objects/query 选择形状并在 ability 图层登记，
- *   golden 用链适配器 + 图层引擎执行卡程序原始 body。
- * - 授予后的 Assault 不会变成 +1 Might：Assault.ts 展开的条件读 host 的 "designation" 特征，
- *   而 ObjectSnapshot 只提供 combatRole（契约 3.8），layers/engine.ts 的 conditionMatches
- *   不评估 compare 条件、未识别时按 true（exp22 实测：无指定也 +2），因此授予在没有攻击者
- *   判定的情况下不是可执行语义。
- * 依赖：Ambush 条件地点权限的 Finalize/static-binder 接线，以及图层 compare 条件与 designation/combatRole 对齐。
+ * status = judge-required（2026-10-17 按当前合入源码复核，缺口实测，不近似实现）：
+ * 1. [Ambush] 的 KeywordDef 已合入，展开为 play-location-permission 与 conditional
+ *    continuous.timing 两个静态声明；但 programs/statics.ts 的 layerFor 对
+ *    play-location-permission 抛 "no layer mapping"，对第二条的 appliesTo: ["card"] 抛
+ *    "Unsupported static appliesTo"（两条都实测）。Finalize 的 playDestinationIsLegal 只消费
+ *    continuous.location 的 base/battlefield 类别限制，也没有 822.3 的条件战场复核。
+ * 2. 「give your other units here [Assault] this turn」的授予本身已可执行：
+ *    continuous.grant-keyword 接受 objects/query 选择形状并在 ability 图层登记，
+ *    golden 用链适配器 + 图层引擎执行卡程序原始 body（other / here / end-of-turn 三个维度）。
+ * 3. 授予后的 Assault 仍不是可执行语义：Assault.ts 展开的条件读宿主 "designation"，而
+ *    ObjectSnapshot 提供的是 combatRole。programs/statics.ts 把条件包成 evaluateCondition 并
+ *    在 MissingInformation 时返回 false，所以这次不会再把「仅攻击者 +1」误当成常驻 +1——
+ *    但也意味着已声明 attacker 的单位同样拿不到 +1（实测打印 Might 3 的攻击者仍是 3）。
+ * 依赖：play-location-permission 的静态图层/Finalize 接线（含 822.3 复核）与
+ * designation/combatRole 的字段对齐。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "ambush" },
@@ -86,18 +88,18 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现（已按当前合入源码复核）：" +
+    "两处缺口，均不近似实现（2026-10-17 按当前合入源码实测）：" +
     "(1) [Ambush]（822.1.b/822.1.c）的 KeywordDef 已合入（effects/keywords/Ambush.ts），展开为 " +
-    "play-location-permission 与 conditional continuous.timing 静态声明；通用 actionTimings/canAct 时机查询已合入，" +
-    "但 Finalize 没有把 play-location-permission 转成地点合法性，static binder 也不能绑定 appliesTo: [\"card\"] " +
-    "与 location 条件，所以 Ambush 的条件战场范围和该次打出的 Reaction 许可仍未闭合。" +
+    "play-location-permission 与 conditional continuous.timing 两条静态声明；但 programs/statics.ts 的 layerFor " +
+    "对 play-location-permission 抛 \"no layer mapping\"，对第二条的 appliesTo: [\"card\"] 抛 \"Unsupported static appliesTo\"（两条都实测），" +
+    "所以 Ambush 的条件战场范围与该次打出的 Reaction 许可都还没有绑定；Finalize 的 playDestinationIsLegal 只消费 " +
+    "continuous.location 的 base/battlefield 类别限制，也没有 822.3 的即时复核。" +
     "(2) 「give your other units here [Assault] this turn」的 continuous.grant-keyword 已合入，" +
     "golden 用链适配器 + 图层引擎真实执行卡程序 body 并断言 only-other、here、end-of-turn 三个维度；" +
-    "但授予后的 Assault 还不是可执行语义：Assault.ts 展开读宿主 " +
-    "\"designation\"（807.1.d），ObjectSnapshot 只有 combatRole（契约 3.8），且 layers/engine.ts 的 " +
-    "conditionMatches 不评估 compare 条件、未识别时按 true（实测无指定也会 +2 Might），因此现在绑定会把 " +
-    "「仅攻击者 +1」变成常驻 +1。" +
-    "依赖：Ambush 条件地点权限的 Finalize/static-binder 接线，以及图层 compare 条件与 designation/combatRole 对齐。",
+    "但授予后的 Assault 还不是可执行语义：Assault.ts 展开读宿主 \"designation\"（807.1.d），ObjectSnapshot 只有 combatRole（契约 3.8）；" +
+    "programs/statics.ts 的静态绑定把条件包成 evaluateCondition 并在 MissingInformation 时返回 false，" +
+    "所以不会再误判成常驻 +1，但已声明 attacker 的单位同样拿不到 +1（实测打印 Might 3 的攻击者仍是 3）。" +
+    "依赖：play-location-permission 的静态图层/Finalize 接线（含 822.3 复核）与 designation/combatRole 对齐。",
   abilities,
   sourceText:
     "[Ambush] (You may play me as a [Reaction] to a battlefield where you have units.)\n" +

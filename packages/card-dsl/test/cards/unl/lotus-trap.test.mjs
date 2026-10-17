@@ -4,9 +4,14 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/lotus-trap.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { abilitySpeed } from "../../../../engine-core/dist/programs/keywords.js";
 import { canAct } from "../../../../engine-core/dist/layers/rules/query.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-4a35c75cbe6c3eeae825ce423a2f3dbbdbbbc76b117a9c54735ebc7a7c7c4290";
@@ -33,6 +38,10 @@ test("unl-013-219 Lotus Trap: identity, status, judgeReason and verbatim sourceT
   assert.match(program.judgeReason, /433\.1\.b/);
   assert.match(program.judgeReason, /hidden/);
   assert.doesNotMatch(program.judgeReason, /timing 消费方同样未合入|chain timing consumer is missing/);
+  // Re-checked against the merged sources: the op is still unregistered and
+  // Hidden's static kind has no layer mapping.
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /Unregistered instruction opcode/);
 });
 
 test("unl-013-219 Lotus Trap: Hidden + Reaction keywords plus one doubling replacement on a chosen unit", () => {
@@ -95,6 +104,40 @@ test("unl-013-219 Lotus Trap: the merged Reaction expansion admits a Closed-Stat
   }), true);
 });
 
-test.todo("unl-013-219 Lotus Trap: replacement.damage-multiplier — double all damage that would be dealt to the chosen unit this turn (CR 433.1.b / 369.1 / 418.1 / 418.5); the survey (docs/plans/survey/unclassified-unl.md item 9) records it as needs-new-primitive");
-test.todo("unl-013-219 Lotus Trap: the [Hidden] expansion must grant the Hide action, the Facedown Zone and the cost-0 facedown play (811 / 107.3 / 422) — cost.hidden has no execution consumer");
+test("unl-013-219 Lotus Trap: the damage-doubling replacement op is unregistered, so the clause cannot run (CR 433.1.b)", () => {
+  assert.equal(instructionDefinitionsById.has("replacement.damage-multiplier"), false);
+  const kernel = world().unit("chosen", { owner: "A", controller: "A" }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("chosen"), controller: "A" });
+  scoped.setTargets("lotus-trap.unit", [kernel.ref("chosen")]);
+  assert.throws(
+    () => resolveChainBody([doubleDamage], scoped),
+    /Unregistered instruction opcode: replacement\.damage-multiplier/
+  );
+  // Nothing that could double damage is registered, and the damage kernel still
+  // applies exactly the printed amount.
+  assert.deepEqual(scoped.continuousEffects, []);
+  assert.deepEqual(scoped.snapshot().replacements, []);
+  const hit = runInstruction(damage, {
+    amount: { kind: "constant", value: 2 },
+    target: "chosen"
+  }, { world: kernel, targets: { chosen: [kernel.ref("chosen")] } });
+  assert.equal(hit.result.status, "executed");
+  assert.equal(kernel.getObject("chosen").damage, 2);
+});
+
+test("unl-013-219 Lotus Trap: [Hidden]'s static expansion has no layer mapping (CR 811)", async () => {
+  const definition = keywordDefinitionsById.get("Hidden");
+  assert.ok(definition, "keywords/Hidden.ts must be registered");
+  const [hiddenExpansion] = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(hiddenExpansion.effect.kind, "cost.hidden");
+  const f = fixture({
+    cards: [{ id: "lotus-trap", cardId: CANONICAL_ID, types: ["spell"], energy: 2, power: [] }]
+  });
+  const source = { ...f.kernel.getObject("lotus-trap"), cardId: CANONICAL_ID, zone: "hand" };
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(hiddenExpansion, source),
+    (error) => error.name === "ProgramBindingError" && /no layer mapping/.test(error.message)
+  );
+  assert.deepEqual(f.engine.layers.registry.list(), []);
+});
 

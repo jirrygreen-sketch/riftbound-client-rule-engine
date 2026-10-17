@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/lillia-protector-of-dreams.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
+import tank from "../../../../engine-core/dist/effects/keywords/Tank.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
@@ -35,6 +36,11 @@ test("unl-058-219 Lillia, Protector of Dreams: identity, status, judgeReason and
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /815\.1\.c|Tank/);
+  // Re-checked against the merged sources: the granted Tank's rule behaviour
+  // needs a continuous.combat consumer that does not exist yet.
+  assert.match(program.judgeReason, /continuous\.combat/);
+  assert.match(program.judgeReason, /damage-assignment/);
+  assert.match(program.judgeReason, /proven-none|layer/);
 });
 
 test("unl-058-219 Lillia, Protector of Dreams: 'When you play a token unit' is not a Play Effect (383.4.a.4)", () => {
@@ -148,3 +154,56 @@ test.todo(
   "unl-058-219 Lillia, Protector of Dreams: Tank's continuous.combat requirement must be consumed by combat " +
     "damage assignment (CR 815.1.c) before the card can become executable"
 );
+
+test("unl-058-219 Lillia, Protector of Dreams: the granted Tank is a continuous.combat registration no layer or combat kernel reads (CR 815.1.c)", () => {
+  // The card's own static grant is real: the layers engine records Tank on the
+  // controlled token units. What is missing is the consumer of Tank's own
+  // expansion shape, so the granted keyword cannot yet order damage assignment.
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const f = fixture({
+    cards: [
+      { id: "lillia", cardId: CANONICAL_ID, types: ["unit"], energy: 5, power: [], might: 4 },
+      { id: "ally-token", types: ["unit"], isToken: true, might: 3, owner: "A", controller: "A" }
+    ]
+  });
+  for (const id of ["ally-token", "lillia"]) {
+    f.engine.commit({
+      type: "move-zone",
+      object: f.kernel.ref(id),
+      to: "board",
+      location: { type: "battlefield", id: "bf-1" }
+    });
+  }
+  const source = f.kernel.getObject("lillia");
+  const staticAbility = binding.inspect(source).abilities.find((ability) => ability.kind === "static");
+  // One binder instance: it owns the per-incarnation ordinal that keeps
+  // continuous-effect identities unique.
+  const binder = createEngineStaticBinder(f.engine);
+  const handle = binder.bindStatic(staticAbility, source);
+  assert.deepEqual(
+    f.engine.layers.evaluate(f.kernel.ref("ally-token")).keywords,
+    [{ id: "Tank", value: undefined }]
+  );
+  // Tank's own expansion is the unread declarative shape: no layer branch and
+  // no combat consumer.
+  const [tankExpansion] = tank.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(tankExpansion.effect.kind, "continuous.combat");
+  assert.equal(tankExpansion.effect.mode, "damage-assignment");
+  assert.equal(tankExpansion.effect.priority, "first");
+  const tankHandle = binder.bindStatic(tankExpansion, source);
+  const registrations = f.engine.layers.registry.list();
+  assert.equal(registrations.length, 2);
+  assert.deepEqual(registrations.map((entry) => entry.effect.effect.kind), [
+    "continuous.grant-keyword",
+    "continuous.combat"
+  ]);
+  // The layer engine evaluates Might/keyword/trait views only; the combat
+  // registration contributes nothing to the evaluated snapshot.
+  const evaluated = f.engine.layers.evaluate(f.kernel.ref("ally-token"));
+  assert.equal(evaluated.might, 3);
+  assert.deepEqual(evaluated.keywords, [{ id: "Tank", value: undefined }]);
+  tankHandle.unbind();
+  handle.unbind();
+});

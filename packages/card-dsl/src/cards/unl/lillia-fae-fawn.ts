@@ -23,22 +23,25 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Fae 标签、带 [Temporary] 的单位 token；440.2.c / 185.2.a / 350.2 / 354 规定被“打出”的
  *   token 先在链上生成，再由 play 动作接手。
  *
- * status = judge-required（缺口均不近似实现）：
- * - Sprite token 定义（187.2）不在 effect.token 的冻结定义表（recruit / sand-soldier / mech /
- *   reflection / tentacle）内；带自身关键词的 token 定义按原语文档保持 blocked，仍需扩展
- *   token 定义表。
- * - “there” 需要绑定「触发条件记录的来源起点 location」，冻结的 ObjectSelector（self / source /
- *   target / pick / linked）没有“触发事件载荷”形态，程序里以描述性常量保留该字段；属于契约变更请求。
- * - object-moved 事件的 payloadFields（fromKind / fromLocationId / toKind / toLocationId）当前没有被
- *   events/action-adapter.ts 填值，且卡牌程序的 trigger filter 锚点（source: "self"）没有消费方
- *   （events/pipeline-match.ts 只读 EventPattern 顶层 object/source/target/player/fromZone/toZone/
- *   amount/details），因此 Move 自发触发与“是我在移动”的判定都没有接线。
- * - [Temporary]（816）的 KeywordDef、`effect.kill` 展开和 CardProgram 触发注册已经合入；
- *   token 的真实清理仍被 Sprite 定义与“there”事件载荷阻塞。
- * - [Accelerate] 的 KeywordDef、附加费用形状和入场就绪替代已经合入，但
- *   `programs/play.ts` 尚未把卡牌关键词展开接入 Finalize 的 optionalAdditional 选择与收费。
- * 依赖：移动事件载荷与触发绑定、Sprite token 定义、“there”的触发载荷选择器，以及
- * Accelerate 的 CardProgram → Finalize 接线。
+ * status = judge-required（2026-10-17 按当前合入源码复核，四处缺口均实测，不近似实现）：
+ * 1. 本卡的 Move 触发无法注册：abilities/triggers.ts 的 registerProgramTriggers 会以
+ *    assertTriggerSpec 校验 trigger.at/filter，而 EVENT_PATTERN_TYPES 不含 "object-moved"，
+ *    实测抛 TriggerSpecValidationError（trigger.filter.event invalid-event-type）——封闭事件
+ *    词表用的是 "object-enters-board"/"object-leaves-battlefield" 一类时点。
+ * 2. Sprite token 定义（187.2：3 Might、无领域、Fae 标签、带 [Temporary]）不在 effect.token
+ *    的冻结定义表（recruit / sand-soldier / mech / reflection / tentacle）内：实测该指令
+ *    返回 negated/impossible，一个 token 都造不出来。
+ * 3. "there" 要绑定触发条件成立时记录的来源起点 location（359.3.f.3），而冻结的
+ *    ObjectSelector 只有 self / source / target / pick / linked，没有触发事件载荷形态；
+ *    程序以描述性常量保留该字段，属契约变更请求。
+ * 4. [Accelerate]（805）的展开含 static `accelerate.cost`，programs/statics.ts 的 layerFor
+ *    没有该 kind 的图层映射，实测绑定抛 ProgramBindingError，Finalize 也尚未把 CardProgram
+ *    关键词展开接入 optionalAdditional 选择与收费。
+ * 已合入并实测：[Accelerate] 的附加费用形状与入场就绪替代原语（effect.ready）、
+ * [Temporary]（816）的 KeywordDef 与 effect.kill 展开（但它的 beginning-start 触发同样不在
+ * 上述封闭事件词表内，见第 1 点）。
+ * 依赖：object-moved/beginning-start 的封闭事件词表接线（或等价时点）、Sprite token 定义、
+ * "there" 的触发载荷选择器（契约变更请求），以及 accelerate.cost 的图层/Finalize 接线。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -77,17 +80,19 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "四处缺口，均不近似实现：(1) Sprite token 定义（187.2：3 Might、无领域、Fae 标签、带 [Temporary]）不在 effect.token 的冻结定义表" +
-    "（recruit/sand-soldier/mech/reflection/tentacle），带自身关键词的定义按原语文档保持 blocked，仍需扩展 token 定义表。" +
-    "(2)「there」＝触发条件成立时记录的移动前 location（359.3.f.3 以本卡为原文例子）：冻结的 ObjectSelector 只有 self/source/target/pick/linked，" +
+    "四处当前缺口（2026-10-17 实测，均不近似实现）：" +
+    "(1) 本卡的 Move 触发无法注册：programs/triggers.ts 经 events/trigger-spec.ts 的 assertTriggerSpec 校验 trigger.at/filter，" +
+    "而封闭 EVENT_PATTERN_TYPES 不含 \"object-moved\"，实测 registerProgramTriggers 抛 TriggerSpecValidationError" +
+    "（trigger.filter.event invalid-event-type；词表用的是 object-enters-board / object-leaves-battlefield 一类时点）。" +
+    "(2) Sprite token 定义（187.2：3 Might、无领域、Fae 标签、带 [Temporary]）不在 effect.token 的冻结定义表" +
+    "（recruit/sand-soldier/mech/reflection/tentacle），实测该指令对 \"sprite\" 返回 negated/impossible，一个 token 都造不出来。" +
+    "(3)「there」＝触发条件成立时记录的移动前 location（359.3.f.3 以本卡为原文例子）：冻结的 ObjectSelector 只有 self/source/target/pick/linked，" +
     "没有触发事件载荷形态，程序以描述性常量保留该字段并提交契约变更请求。" +
-    "(3) object-moved 触发仍缺事件载荷：events/action-adapter.ts 未为 move-location 填 fromKind/fromLocationId/toKind/toLocationId，" +
-    "因此“there”与来源 self 不能在真实 Move 中绑定。" +
-    "(4) [Temporary]（816）的 KeywordDef、effect.kill 展开和 CardProgram 触发注册已经合入，" +
-    "但 token 仍需先由 Sprite/there 链路真实生成，才能参与 Beginning Phase 的清理。" +
-    "[Accelerate]（805）的 KeywordDef、附加费用形状和入场就绪替代已经合入；" +
-    "programs/play.ts 仍未把该展开接入 Finalize 的 optionalAdditional 选择与收费。依赖：移动事件载荷、Sprite 定义、" +
-    "there 选择器与 Accelerate 的 CardProgram → Finalize 接线。",
+    "(4) [Accelerate]（805）的展开体的 static `accelerate.cost` 在 programs/statics.ts 的 layerFor 里没有图层映射，" +
+    "实测 bindStatic 抛 ProgramBindingError；Finalize 也尚未把 CardProgram 关键词展开接入 optionalAdditional 选择与收费。" +
+    "已合入的是 [Accelerate] 的附加费用形状与 effect.ready 入场就绪替代、[Temporary]（816）的 KeywordDef 与 effect.kill 展开" +
+    "（其 beginning-start 触发同样不在上述封闭事件词表内）。" +
+    "依赖：object-moved/beginning-start 的事件词表接线、Sprite 定义、there 选择器（契约变更请求）与 accelerate.cost 的图层/Finalize 接线。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_mind: as an additional cost to have me enter ready.)\n" +

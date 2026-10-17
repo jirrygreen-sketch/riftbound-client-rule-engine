@@ -25,20 +25,22 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *   属指令级替代；本程序按互斥条件写成两个分支，绝不表达成 "先 draw 1 再补 draw 1"。
  * - 424.1.b / 括注："(When I die, get the effect.)" 是 808.1.c 的提醒文本，不另写指令。
  *
- * status 判定（README 第 2 节）：judge-required —— 三处依赖未合入，均不近似实现：
- * 1. Assault 无可执行消费方：effects/keywords/Assault.ts 的展开读 designation（契约 3.8 的
- *    ObjectSnapshot.combatRole），该特征未合入，layers 的条件求值也不读 compare（同
- *    ogn/petty-officer、ogn/daring-poro 的判定）；Assault 的 KeywordDef 与 CardProgram
- *    展开路径已经合入，但缺少可用的 designation/comparison 消费。
- * 2. Deathknell KeywordDef 仍展开为未注册的 trigger.leave 原语（effects/instructions 无该文件）；
- *    object-killed 的 CardProgram 触发注册已经合入，但 808.1.d.1–d.3 的离场处理与最后已知信息
- *    仍依赖离场指令和事件/链管线。
- * 3. "If it's your Beginning Phase" 需要可求值的阶段状态，"draw 2 instead" 需要指令级替代；
- *    两者都没有已合入的读取/结算入口（回合与阶段状态、367 替代）。
- * golden 只做校验/身份/结构断言、触发注册与 draw 原语的直接执行，缺口以 test.todo 记录。
+ * status 判定（README 第 2 节，2026-10-17 按当前合入源码复核）：judge-required。
+ * 三处缺口均实测，不近似实现：
+ * 1. Assault（807.1.c）的展开读宿主 "designation"，而 ObjectSnapshot 提供 combatRole：
+ *    programs/statics.ts 把条件包成 evaluateCondition 并捕获 MissingInformation 返回 false，
+ *    因此已声明 attacker 的单位也拿不到 +1（实测打印 Might 3 的攻击者仍是 3）。
+ * 2. Deathknell（808.1）的 KeywordDef 展开体仍引用未注册的 trigger.leave
+ *    （registry.generated.ts 只有 42 个 op，无 trigger.* 条目）；解释器对该指令体实测抛
+ *    "Unregistered instruction opcode: trigger.leave"，808.1.d.1 的离场处理与
+ *    808.1.d.2/.d.3 的 last-known 记录仍缺。
+ * 3. "If it's your Beginning Phase"（383.2.a.1）没有可读的阶段特征：卡内占位特征名让
+ *    object-property 求值抛 MissingInformation，解释器把 draw-1 与 draw-2 两条分支都置为
+ *    ignored/mistargeted（实测两条都是 ignored）；367 的 "draw 2 instead" 也要在这之上才能区分。
+ * golden 保留校验/身份/结构断言、触发注册与 draw 原语的真实执行，并断言上述三条实测缺口。
  *
- * 依赖：Assault 的 designation/combat 消费方、Deathknell 的 trigger.leave 离场指令、
- * 以及 Beginning Phase 状态读取与指令级替代入口。
+ * 依赖：Assault 的 designation/combatRole 对齐、Deathknell 的 trigger.leave 离场指令、
+ * 以及可读的回合/阶段状态（含 367 的指令级替代入口）。
  */
 
 /**
@@ -93,15 +95,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入：(1) [Assault]（807.1.c）的展开不可执行——keywords/Assault.ts 读 designation" +
-    "（契约 3.8 的 ObjectSnapshot.combatRole，未合入），layers 的条件求值不识别 compare（同 petty-officer 的判定）；" +
-    "Assault 的 KeywordDef 与 CardProgram 展开路径已经合入，但缺少可用的 designation/comparison 消费。" +
-    "(2) [Deathknell]（808.1）的 KeywordDef 仍展开为未注册的 trigger.leave 原语（effects/instructions 无该文件），" +
-    "object-killed 的 CardProgram 触发注册已经合入，但 808.1.d.1–d.3 的离场处理与最后已知信息仍缺。" +
-    "(3)「If it's your Beginning Phase」需要可求值的阶段状态（当前 IR 没有阶段/回合状态读取入口），" +
-    "「draw 2 instead」是同一效果内的指令级替代（367），没有已合入的替代路径。" +
-    "程序保留两支互斥的 draw 形状与占位特征名（fail closed），不近似实现：不用无条件 draw 2 代替「instead」，" +
-    "也不写成 draw 1 之后补 1 张。Draw 1 本体（414.3）用已合入的 effect.draw 单独执行验证。",
+    "三处当前缺口（2026-10-17 实测，均不近似实现）：" +
+    "(1) [Assault]（807.1.c）的展开读宿主 \"designation\"，而 ObjectSnapshot 提供 combatRole：" +
+    "programs/statics.ts 的静态绑定把条件包成 evaluateCondition 调用并在 MissingInformation 时返回 false，" +
+    "因此已声明 attacker 的单位也拿不到 +1（实测打印 Might 3 的攻击者仍是 3）；需要 designation 与 combatRole 的字段对齐。" +
+    "(2) [Deathknell]（808.1）的 KeywordDef 展开体仍引用未注册的 trigger.leave" +
+    "（effects/instructions/registry.generated.ts 只有 42 个 op，无 trigger.* 条目）；解释器对该指令体实测抛 " +
+    "\"Unregistered instruction opcode: trigger.leave\"，808.1.d.1 的离场处理与 808.1.d.2/.d.3 的 last-known 记录仍缺。" +
+    "(3)「If it's your Beginning Phase」（383.2.a.1）需要一个可读的阶段特征：ObjectSnapshot 没有阶段字段，" +
+    "卡内占位特征名让 compare 抛 MissingInformation，解释器把 draw-1 与 draw-2 两条分支都置为 ignored/mistargeted" +
+    "（实测两条都是 ignored），既不能 draw 1 也不能 draw 2；367 的「draw 2 instead」指令级替代也要在这之上才能区分。" +
+    "Draw 1 本体（effect.draw，414.3）已合入并有真实执行证据。",
   abilities,
   sourceText:
     "[Assault] (+1 :rb_might: while I'm an attacker.)\n" +
