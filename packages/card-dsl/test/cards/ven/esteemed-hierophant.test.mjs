@@ -15,8 +15,8 @@ const [ability] = program.abilities;
 const [prevent] = ability.with;
 
 /**
- * The static prevention cannot execute (no replacement registration), but its
- * condition clause is ordinary IR and runs through the merged predicate kernel.
+ * The prevention planner/source classification and source-relative condition
+ * binding remain blocked; the absolute-player count itself executes below.
  */
 const predicate = {
   id: "esteemed-hierophant.rune-condition",
@@ -65,6 +65,7 @@ test("ven-025-166 Esteemed Hierophant: identity, status, judgeReason and verbati
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /replacement\.prevent/);
   assert.match(program.judgeReason, /438\.7/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /spell and ability damage|spells and abilities/);
 });
 
@@ -122,11 +123,17 @@ test("ven-025-166 golden: an opponent's runes do not satisfy the controller cond
 
 test.todo(
   "ven-025-166 Esteemed Hierophant: 'prevent all damage' (438.1/438.2/438.3.c/438.7) needs a " +
-    "replacement-registration path — ResolveContext only exposes addContinuous and " +
-    "registerDelayedTrigger, and effects/instructions has no replacement.prevent primitive"
+    "replacement.prevent body planner that rewrites a matched damage event to zero; replacement lifecycle " +
+    "registration is already available"
 );
 
 test.todo(
   "ven-025-166 Esteemed Hierophant: 'enemy spells and abilities' needs a damage-source " +
     "classification — the frozen damage GameAction carries only { source, target, amount, combat }"
+);
+
+
+test.todo(
+  "ven-025-166 Esteemed Hierophant: replacement rune-count condition needs source-relative " +
+    "controller:self binding (RIFT-359; 133.5.a.1/431.1)"
 );

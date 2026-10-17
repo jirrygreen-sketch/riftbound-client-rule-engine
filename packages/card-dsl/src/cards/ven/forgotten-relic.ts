@@ -29,28 +29,19 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   continuous.might，按 317.2.c 在本回合结束时同时到期（433.1.a 的算术层调制）；
  *   effect.buff 的文件头明确临时 Might 修正不属于 Buff 计数器（702）。
  *
- * status = judge-required（缺口均不近似实现）：
+ * status = judge-required（当前缺口均不近似实现）：
  * 1. 缺反身触发原语：契约 3.1 的六种 Ability 与已合入指令注册表都没有创建 Reflexive
  *    Pending Item 的形态（388.1/389.1/355.5.b；调研 RIFT-9 记名为 trigger.reflexive，
  *    docs/plans/survey/unclassified-unl.md 的该行正以本卡为例）；且反身链项内的目标
  *    选择被 chain/engine.ts 的 assertFinalizationSurface 阻断（"Nested/repeated targets
  *    require an interpreter target-selection lifecycle adapter"）。
- * 2. 缺"以这种方式烧掉一个单位"的结果条件与绑定：441.1.a 的 burn 事件门（烧掉的牌是
- *    单位）与 "the burned card" 的引用绑定需要条件/结果绑定原语（调研 RIFT-9 的
- *    condition.result："If you do / Paid / This way"，未合入）；卡牌程序没有任何通道
- *    读取所执行的烧牌结果。
- * 3. 缺临时 Might 修正的指令原语：effects/instructions 下没有任何已注册 op 通过
- *    ResolveContext.addContinuous 注册 continuous.might（同 ogn/gentlemens-duel 的判定），
- *    契约 3.6 的封闭 GameAction 集合也没有 Might 修改动作。
- * 4. 没有任何已合入订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration
- *    （契约 3.5），card-played / beginning-start / card-burned 也缺生产链接线。
- * 可执行部分：effect.mill 的 Burn 1 本体（441.1/441.2/441.4，含牌库不足只烧得到的部分）
- * 由 golden 用真实解释器执行；被替代时整条 negated。不近似实现缺失的三块。
- * 依赖：trigger.reflexive 与 condition.result 原语（RIFT-9 清单）、continuous.might 指令
- * 原语（RIFT-91 求值侧已合入，缺卡牌侧入口）、契约 3.5 的卡牌触发注册接线。
+ * 2. effect.mill 已产生 burnedCard / burned / burnedCount 结果；缺的是反身触发按本次
+ *    烧牌结果判断单位（441.1.a），并把旧对象引用携入新链项，供最后已知 Might 读取。
+ * continuous.might 已合入；Burn 1、真实结果链接和目标本体的结构由 golden 验证。
+ * 依赖：trigger.reflexive、结果条件/跨链绑定（调研名 condition.result）及反身目标生命周期。
  */
 // 反身触发把被烧的牌写进该链接键，本体按契约 3.6 的 { linked } 选择器读取它
-// （命名结果记录按写入顺序展开对象绑定）。
+// （必须由真实反身链项携带烧牌结果，不能在卡牌侧伪造绑定）。
 const BURNED_CARD_LINK = "forgotten-relic.burned-card";
 
 /** 反身触发的本体：给出与"被烧的牌"Might 相等的临时 Might 修正。 */
@@ -58,7 +49,7 @@ const giveMightToFriendlyUnit: Instruction = {
   id: "forgotten-relic.give-might",
   // "Give a friendly unit +:rb_might: equal to the burned card's Might this turn." —
   // 金额在结算时读取被烧牌的最后已知 Might（359.3.e.13）；无可用信息时整条指令忽略，
-  // 绝不把 null 变成 0。此 op 尚无已注册实现（见 judgeReason 第 3 条）。
+  // 绝不把 null 变成 0。continuous.might 已合入，烧牌结果需由反身链项携带。
   op: "continuous.might",
   args: {
     amount: {
@@ -67,7 +58,10 @@ const giveMightToFriendlyUnit: Instruction = {
       property: "might"
     },
     duration: { kind: "constant", value: "end-of-turn" },
-    target: { kind: "constant", value: "forgotten-relic.friendly-unit" }
+    objects: {
+      kind: "constant",
+      value: { kind: "target", id: "forgotten-relic.friendly-unit" }
+    }
   },
   targets: [
     {
@@ -149,21 +143,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均不近似实现：(1) 「When you burn a unit this way, do this:」是反身触发（388.1/388.2/389.1/389.2；" +
-    "选择在反身链项 finalize 时进行，355.5.b），而契约 3.1 的六种 Ability 与已合入指令注册表都没有创建 Reflexive " +
-    "Pending Item 的形态（调研 RIFT-9 记名 trigger.reflexive，docs/plans/survey/unclassified-unl.md 该行正以本卡为例）；" +
-    "反身链项内的目标选择也被 chain/engine.ts 的 assertFinalizationSurface 阻断" +
-    "（\"Nested/repeated targets require an interpreter target-selection lifecycle adapter\"）。" +
-    "(2) 「burn a unit this way」的门与「the burned card」的绑定需要结果条件原语：441.1.a 的 burn 事件要由烧牌结果判断" +
-    "被烧的牌是否为单位，并把该引用带入本体（调研 RIFT-9 的 condition.result：「If you do / Paid / This way」，未合入）；" +
-    "卡牌程序没有读取所执行烧牌结果的通道。" +
-    "(3) 「Give a friendly unit +:rb_might: equal to the burned card's Might this turn」是 317.2.c 到期的 " +
-    "continuous.might 临时 Might 修正（433.1.a；effect.buff 文件头明确临时 Might 不入 Buff 计数器，CR 702），" +
-    "effects/instructions 下没有任何已注册 op 通过 ResolveContext.addContinuous 注册它（RIFT-91 求值侧已合入，缺卡牌侧入口）。" +
-    "(4) 没有已合入订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration（契约 3.5），" +
-    "card-played / beginning-start / card-burned 时点的生产链接线同样缺失。" +
-    "可执行部分：effect.mill 的 Burn 1 本体（441.1/441.2/441.4，牌库不足只烧得到的部分；被替代时 negated）由 golden " +
-    "用真实解释器执行。依赖：trigger.reflexive 与 condition.result 原语、continuous.might 指令原语、契约 3.5 触发注册接线。",
+    "缺 trigger.reflexive 创建独立 Pending Item 与其目标 finalize 生命周期（388.1/388.2/389.1/355.5.b）；" +
+    "还缺依据本次 effect.mill 的结果判断烧掉单位，并把 burnedCard 引用携入反身链项的结果条件/跨链绑定" +
+    "（441.1.a/359.3.e.13；调研名 condition.result）。不能用普通顺序指令近似反身触发。",
   abilities,
   sourceText:
     "When you play this or at the start of your Beginning Phase, [Burn 1]. " +

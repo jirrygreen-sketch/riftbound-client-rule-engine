@@ -30,7 +30,7 @@ test("ven-124-166 Escaped Grayback: identity, ruleset, status, judgeReason and v
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /827\.1\.c\.2/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /Empowered/);
 });
 
 test("ven-124-166 Escaped Grayback: [Empower] is declared as a keyword whose cost is a Kill", () => {
@@ -125,12 +125,11 @@ test("ven-124-166 Escaped Grayback golden: the declared +2 Might produces an ari
 
 test.todo(
   "ven-124-166 Escaped Grayback: [Empower] expansion (827.1.c.1: '[Kill a friendly unit]: Empower me, use " +
-    "only if not Empowered') and its activation wiring — no Empower/Empowered KeywordDef is merged and " +
-    "nothing feeds the card's declared nonstandard cost into Finalize (RIFT-89)"
+    "only if not Empowered') and its activation wiring — no Empower/Empowered KeywordDef is available and " +
+    "the keyword expansion does not yet consume the declared nonstandard Kill cost"
 );
 
 test.todo(
   "ven-124-166 Escaped Grayback: the [Empowered] dependent +2 Might reaches the layers behind the " +
-    "Empowered status gate (CR 828.1.b.1 / 442.1.a) — card-side continuous registration is not wired and " +
-    "no Empowered predicate exists (RIFT-91 follow-up)"
+    "Empowered status gate (CR 828.1.b.1 / 442.1.a) — no Empowered predicate exists"
 );

@@ -23,15 +23,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 143.2 / 143.2.a："+2 :rb_might:" 是算术图层的 Might 修正（475–477），不是 702 的
  *   Buff 计数器。
  *
- * status = judge-required（三处缺口，均不近似实现）：
- * 1. 没有 Empower / Empowered 的 KeywordDef（keywords/registry.generated.ts 只含
- *    RIFT-81~88 批次），827.1.c.1 的「[Kill 一个友方单位]：Empower 我，仅当未 Empowered
- *    时启动」没有展开实现；已合入的费用计划确实支持 kind: "kill" 的非标准分量
- *    （cost/plan-values.ts），但没有把卡程序声明的费用接进费用的接线（RIFT-89）；
- * 2. 没有 Empowered 状态谓词（442.1.a）：状态不在 ObjectSnapshot / Condition 里，
- *    静态效果的 condition 只能以显式谓词字符串占位；
- * 3. 卡牌侧没有注册 continuous.might 静态效果的入口（ctx.addContinuous 只有
- *    chain/engine 内部接线；RIFT-91 的 layers 引擎已合入求值骨架）。
+ * status = judge-required（两处 Empower 语义缺口，均不近似实现）：
+ * 1. 没有 Empower / Empowered 的 KeywordDef，827.1.c.1 的「[Kill 一个友方单位]：Empower 我，
+ *    仅当未 Empowered 时启动」没有展开实现，也未绑定印刷的非资源 Kill 费用；
+ * 2. 没有 Empowered 状态谓词（442.1.a）：状态不在 ObjectSnapshot / Condition 里，静态效果的
+ *    condition 只能以显式谓词字符串占位；
  * 关键词授予的 +2 Might 本体用已合入的图层引擎（createLayerEngine）在 golden 中真实
  * 求值：这是「该 declared 静态形状在图层里确实产出 +2」的证据，不是整卡证据。
  */
@@ -65,15 +61,8 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) 没有 Empower / Empowered 的 KeywordDef（keywords/registry.generated.ts 只含 " +
-    "RIFT-81~88 批次），827.1.c.1 的「[Kill a friendly unit]：Empower me，仅当未 Empowered 时启动」" +
-    "没有展开实现；已合入的费用计划支持 kind: \"kill\" 的非标准分量（cost/plan-values.ts，827.1.c.2 的" +
-    "非资源费用），但没有把卡程序声明的费用接进费用计划的接线（RIFT-89）。(2) 没有 Empowered 状态谓词" +
-    "（442.1.a）——状态不在 ObjectSnapshot / Condition 里，静态效果的 condition 只能以显式谓词字符串占位。" +
-    "(3) 卡牌侧没有注册 continuous.might 静态效果的入口（ctx.addContinuous 只有 chain/engine 内部接线；" +
-    "RIFT-91 的 layers 引擎已合入求值骨架），828.1.b.1 的依赖能力因此无法激活。依赖：新增 Empower/Empowered " +
-    "关键词任务、RIFT-89（费用与启动接线）、RIFT-91（图层与卡牌持续效果注册）。不近似实现（不把 +2 " +
-    ":rb_might: 写成 Buff）。golden 用已合入的 createLayerEngine 真实求值声明的 +2 Might 形状。",
+    "缺 Empower / Empowered KeywordDef：827.1.c.1 的启动能力、827.1.c.2 的印刷 Kill 费用及未 Empowered 限制尚未展开绑定；" +
+    "还缺 Empowered 状态谓词（442.1.a/828.1.b.1），不能门控静态 continuous.might。",
   abilities,
   sourceText:
     "[Empower] — Kill a friendly unit (Pay the cost: Empower me. Use only if not Empowered.)\n" +

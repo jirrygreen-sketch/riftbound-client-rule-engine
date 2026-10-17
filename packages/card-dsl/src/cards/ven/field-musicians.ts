@@ -17,28 +17,13 @@ import type { CardProgram } from "../../ir/index.js";
  * - 702 / 703：Buff 是计数器（各 +1 Might、每单位一个），与本卡的 +3 临时修正不是同一机制——
  *   effect.buff 文件头也明确“临时 Might 修改归 continuous.might，不属于本原语”，因此不写成 Buff。
  *
- * status = judge-required（唯一缺口是临时 Might 修正的执行路径）：
- * - 契约 3.6 的封闭 GameAction 集合没有 Might 修改动作（只有 buff 计数与 heal 等），
- *   effects/instructions/ 下也没有注册的 continuous.might / effect.might-modify 原语：
- *   layers 引擎（RIFT-91）能求值算术图层，但没有把结算中的持续效果经
- *   ResolveContext.addContinuous 落地的指令（ctx.addContinuous 目前只有 chain/engine 内部接线），
- *   “this turn” 的到期也没有卡牌侧接线。
- * - 触发结构（383.4.a 的 card-played + 自身 filter）与目标选择（355.5）按契约写出；golden 校验
- *   结构并用参考内核真实求值目标过滤/条件形状，执行场景以待办标注。
- * 不近似实现：不用 effect.buff 的 +1 计数器假造 +3，也不把该修正写成永久的静态能力。
+ * status = executable：card-played 触发、目标选择、continuous.might 原语和本回合结束期限
+ * 都已有生产解释器/图层执行路径；golden 通过真实 body 结算并检查目标与期限。
  */
 export default {
   canonicalCardId: "card.hash-08498917b444057f23afae275c8776d4bff33d47135466ce826cff2b935cea29",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "唯一缺口是「give a unit +3 :rb_might: this turn」没有可执行路径：契约 3.6 的封闭 GameAction 集合没有" +
-    "Might 修改动作，effects/instructions 下也没有注册的 continuous.might / effect.might-modify 原语——" +
-    "layers 引擎（RIFT-91）能求值算术图层与 end-of-turn 期限，但没有把结算中的持续效果经 ctx.addContinuous" +
-    "落地的指令（该入口目前只有 chain/engine 内部接线），「this turn」的到期（315.4/317）也无卡牌侧接线。" +
-    "effect.buff 文件头明确临时 Might 修改归 continuous.might，因此不用 Buff 计数器近似 +3。" +
-    "Play Effect 结构（383.4.a 的 card-played + 自身 filter）与「a unit」的目标选择（355.5/355.7/355.9.a.1）" +
-    "已按契约写出。依赖：continuous.might / effect.might-modify 指令原语与到期接线（RIFT-91）。不近似实现。",
+  status: "executable",
   abilities: [
     {
       kind: "triggered",
@@ -50,14 +35,14 @@ export default {
       body: [
         {
           id: "field-musicians.give-plus-3-might",
-          // 临时 Might +3（算术图层，本回合结束到期）。原语未注册，见 judgeReason。
+          // 临时 Might +3（算术图层，本回合结束到期）。
           op: "continuous.might",
           args: {
             amount: { kind: "constant", value: 3 },
             duration: { kind: "constant", value: "end-of-turn" },
-            target: {
+            objects: {
               kind: "constant",
-              value: "field-musicians.unit"
+              value: { kind: "target", id: "field-musicians.unit" }
             }
           },
           targets: [

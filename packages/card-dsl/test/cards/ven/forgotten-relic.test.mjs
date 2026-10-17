@@ -32,11 +32,9 @@ test("ven-108-166 Forgotten Relic: identity, ruleset, status, judgeReason and ve
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  // The reason must name every real gap: the reflexive trigger, the "this way"
-  // result binding, the temporary Might primitive and the trigger registration.
+  // The reason names the two real gaps: the reflexive trigger and the result binding.
   assert.match(program.judgeReason, /trigger\.reflexive/);
   assert.match(program.judgeReason, /condition\.result/);
-  assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /388\.1/);
   assert.match(program.judgeReason, /355\.5\.b/);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -117,6 +115,9 @@ test("ven-108-166 Forgotten Relic: the 'do this' clause is recorded as a reflexi
       property: "might"
     });
     assert.deepEqual(give.args.duration, { kind: "constant", value: "end-of-turn" });
+    assert.deepEqual(give.args.objects, {
+      kind: "constant", value: { kind: "target", id: "forgotten-relic.friendly-unit" }
+    });
     // The friendly unit is chosen when the reflexive item finalizes (355.5.b).
     assert.deepEqual(give.targets, [{
       id: "forgotten-relic.friendly-unit",
@@ -186,11 +187,9 @@ test("ven-108-166 Forgotten Relic golden: a replaced burn negates the instructio
   assert.deepEqual(deckIds(kernel), ["top", "second"]);
 });
 
-test("ven-108-166 Forgotten Relic: the burned card's Might is read from real information, never coerced from null", () => {
-  // The printed amount is "equal to the burned card's Might". The merged mill
-  // primitive links the burned card's reference; a null Might stays null
-  // (contract: null is not 0), so the layers instruction ignores instead of
-  // dealing 0. This proves the reference the card depends on is actually produced.
+test("ven-108-166 Forgotten Relic: Burn produces a zone-bound reference and an empty Burn links null", () => {
+  // This proves mill produces the reference needed by the reflexive body;
+  // it does not prove cross-chain binding or the later Might grant.
   const kernel = world().deck(["unit-card", "spell-card"]).build();
   const burn = runInstruction(millDefinition, { amount: { kind: "constant", value: 1 } }, { world: kernel });
   assert.equal(burn.result.status, "executed");
@@ -216,15 +215,6 @@ test.todo(
 );
 test.todo(
   "ven-108-166 Forgotten Relic: the \"a unit\" / \"this way\" gate and the burned-card binding need the result-condition " +
-    "primitive (survey condition.result: \"If you do / Paid / This way\") so the reflexive body reads the burn performed by " +
+    "and cross-chain binding (survey condition.result) so the reflexive body reads the burn performed by " +
     "the specific instruction (CR 441.1.a)"
-);
-test.todo(
-  "ven-108-166 Forgotten Relic: \"Give a friendly unit +:rb_might: equal to the burned card's Might this turn\" needs the " +
-    "continuous.might instruction primitive with end-of-turn expiry (CR 317.2.c / 433.1.a) — the layers engine is merged " +
-    "(RIFT-91) but no registered opcode calls ResolveContext.addContinuous for it"
-);
-test.todo(
-  "ven-108-166 Forgotten Relic: the card-played / beginning-start / card-burned subscriptions need the contract 3.5 " +
-    "CardProgram -> TriggerRegistration wiring; no merged consumer reads CardProgram abilities"
 );

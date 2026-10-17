@@ -18,7 +18,7 @@ const [grant] = ability.body;
 
 /**
  * 参考内核按字面值比较 filter，而 IR 里的 "self"/"opponent" 是契约 3.6 的符号选择符；
- * 执行用例把这一处符号绑定到真实玩家 id（与 ven/protective-sands 的既有约定一致）。
+ * 执行用例把这一处符号绑定到真实玩家 id；仅证明比较原语，生产 testTrigger 接线仍见 RIFT-359。
  */
 function substitutePlayers(value, playerId, opponentId) {
   if (Array.isArray(value)) return value.map(item => substitutePlayers(item, playerId, opponentId));
@@ -78,9 +78,9 @@ test("ven-005-166 Forsaken Baccai: identity, ruleset, status, judgeReason and ve
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /exists|存在/);
   assert.match(program.judgeReason, /beginning-start/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -145,18 +145,26 @@ test("ven-005-166 Forsaken Baccai golden: runes still in the Rune Deck are not '
   assert.equal(evaluateCondition(condition, unchanneled), true);
 });
 
-test.todo(
-  "ven-005-166 Forsaken Baccai: fire at the start of the controller's Beginning Phase — no merged " +
-    "module emits beginning-start into the single event pipeline and no subscriber registers a " +
-    "CardProgram triggered ability as a TriggerRegistration (RIFT-120, contract section 7.2 batch 5)"
-);
-test.todo(
-  "ven-005-166 Forsaken Baccai: give +1 Might this turn — the card-side continuous.might primitive " +
-    "with an end-of-turn duration is not merged (RIFT-9 inventory; RIFT-91 merged only the layer " +
-    "evaluator). Never approximated with a Buff counter (702/703)"
-);
+test("ven-005-166 Forsaken Baccai golden: the body registers +1 Might on its host until turn end", () => {
+  // The reference kernel uses the source snapshot to anchor { kind: source }.
+  const sourceWorld = world().unit("baccai", { controller: "A", owner: "A", might: 2 }).build();
+  const context = sourceWorld.clone({ sourceSnapshot: sourceWorld.getObject("baccai") });
+  const outcome = resolveChainBody([grant], context);
+  assert.equal(outcome.status, "executed");
+  assert.equal(context.continuousEffects.length, 1);
+  assert.equal(context.continuousEffects[0].effect.effect.kind, "continuous.might");
+  assert.equal(context.continuousEffects[0].effect.effect.amount, 1);
+  assert.deepEqual(context.continuousEffects[0].duration, { type: "end-of-turn" });
+});
+
 test.todo(
   "ven-005-166 Forsaken Baccai: 'fewer runes than an opponent' in modes with three or more players " +
     "needs an existential quantifier over opponents; Condition/Expr can only compare two count " +
     "expressions, so the program records the two-player comparison (contract change request)"
+);
+
+
+test.todo(
+  "ven-005-166 Forsaken Baccai: beginning-start trigger needs the production testTrigger condition " +
+    "adapter and source-relative self/opponent rune count binding (RIFT-359; 383.2.a.1)"
 );

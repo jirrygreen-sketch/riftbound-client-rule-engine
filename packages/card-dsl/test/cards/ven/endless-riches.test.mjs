@@ -58,7 +58,7 @@ test("ven-022-166 Endless Riches: identity, ruleset, status, judgeReason and ver
   assert.match(program.judgeReason, /444\.1/);
   assert.match(program.judgeReason, /420\.1\.a/);
   assert.match(program.judgeReason, /EventPattern/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120/);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
@@ -130,6 +130,10 @@ test("ven-022-166 Endless Riches: Skip / play-from-trash / trash replacement kee
     notFromZone: "deck"
   });
   assert.equal(trashReplacement.replaces.fromZone, undefined);
+  assert.deepEqual(trashReplacement.with[0].args, {
+    objects: { kind: "constant", value: { linked: "replacement.object" } },
+    linkKey: { kind: "constant", value: "endlessRichesInstead" }
+  });
   assert.deepEqual(trashReplacement.with.map(step => [step.id, step.op]), [
     ["endless-riches.banish-instead", "effect.banish"]
   ]);
@@ -204,13 +208,9 @@ test("ven-022-166 Endless Riches golden: an emptied hand and trash banish zero c
 });
 
 test.todo(
-  "ven-022-166 Endless Riches: the card-played subscription and chain Pending/Finalize/Resolve (contract 3.5) " +
-    "must register this Play Effect before the trigger half executes end to end (RIFT-120 follow-up)"
-);
-test.todo(
   "ven-022-166 Endless Riches: \"Skip your Draw Phase\" (CR 444.1) needs a CardProgram replacement to be registered as an " +
-    "events/pipeline ReplacementRegistration against the turn procedure; no merged path turns a card replacement into a " +
-    "ReplacementRegistration (RIFT-120), and the Draw Phase itself belongs to turn/ (CR 315.4)"
+    "events/pipeline ReplacementRegistration against the turn procedure; the Draw Phase itself belongs to turn/ (CR 315.4) " +
+    "and no matching phase-procedure event is emitted"
 );
 test.todo(
   "ven-022-166 Endless Riches: \"You may play cards from your trash\" (CR 420.1.a) needs a registerable, source-bound play " +
@@ -219,5 +219,6 @@ test.todo(
 );
 test.todo(
   "ven-022-166 Endless Riches: \"from anywhere other than your Main Deck\" needs a negated source-zone match on the replaced " +
-    "event; EventPattern only matches fromZone by equality, so the banish-instead replacement cannot be evaluated (contract change request)"
+    "event; replacement/pattern.ts needs generic object-enters-zone/toZone/notFromZone matching, " +
+    "and the replacement planner needs effect.banish support (contract change request)"
 );

@@ -18,27 +18,21 @@ import type { CardProgram } from "../../ir/index.js";
  *   明确临时 Might 修改归 continuous.might，不是 Buff 计数器（702）。
  * - “this turn” 是本回合期限，由时点驱动的到期处理（315.4 / 清理步骤）。
  *
- * status = judge-required（两处缺口均不近似实现）：
- * 1. 没有已合入的 continuous.might 指令原语：契约 3.6 的封闭 GameAction 集合没有
- *    Might 修改动作，effects/instructions/ 下没有该 op，卡牌程序也没有把结算期持续
- *    效果经 ResolveContext.addContinuous 落地为 ContinuousEffectSpec 的入口
- *    （RIFT-91 只合入了 layers 引擎）。
- * 2. 没有已合入的卡牌程序 → 触发注册适配器：CardProgram 的 triggered 能力尚未变成
- *    TriggerRegistration，events 管线收不到 object-readied 订阅（RIFT-120）。
- * 依赖 RIFT-91 与 RIFT-120；不用 Buff 计数器近似临时 Might，也不把触发改成其它时点。
+ * status = judge-required：ready 生产者、普通触发注册、单次 +2 与回合末到期均可执行。
+ * 同一对象本回合两次从 exhausted 变为 ready 的真实链测试暴露跨结算 ID 冲突：解释器把 settlement counter
+ * 写成指令限定键，下一次结算却读取非限定键，continuous.might 重复注册 settlement-1。
+ * 另一个真实事件回归发现，对已 ready 单位执行 ready 仍生产 object-readied，违反 416.1.c。
+ * 必须修复共享解释器/链路的结算身份及事件生产者的状态变化门控；卡牌不能伪造事件 ID 绕过。
  */
 export default {
   canonicalCardId: "card.hash-864252b4f9e2a925ac4decd2d9c2a4df3025182c727f74f452c8d8f70143d8c9",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1) 「give me +2 :rb_might: this turn」是带本回合期限的临时 Might 修正：契约 3.6 的封闭 " +
-    "GameAction 集合没有 Might 修改动作，effects/instructions/ 下没有 continuous.might / effect.might-modify " +
-    "原语，卡牌程序也没有把结算期持续效果经 ResolveContext.addContinuous 落地为 ContinuousEffectSpec 的入口" +
-    "（RIFT-91 只合入了 layers 引擎；effect.buff 文件头明确临时 Might 归 continuous.might，不能近似为 Buff 计数）；" +
-    "(2) 「When I become ready」订阅 object-readied（416.1/416.1.c/416.2），但没有已合入消费方把 CardProgram 的" +
-    " triggered 能力注册成事件订阅（CardProgram → TriggerRegistration，RIFT-120），触发无法进链。" +
-    "依赖 RIFT-91 与 RIFT-120；不近似实现。",
+    "同一回合再次从 exhausted 变为 ready（416.1/416.2）应再次给予 +2 Might；当前解释器 link 写入指令限定的 settlement counter，" +
+    "后续链项按非限定键读取，导致 continuous.might 重复注册相同 settlement-1 ID 并抛错。" +
+    "缺共享解释器/链路的跨结算唯一注册身份；另缺 events/action-adapter 对 ready 状态实际变化的门控，" +
+    "对已 ready 单位的无效 ready 仍产生 object-readied（违反 416.1.c）。不近似限制每回合触发次数。",
   abilities: [
     {
       kind: "triggered",
@@ -51,7 +45,7 @@ export default {
       body: [
         {
           // 「give me +2 :rb_might: this turn」的有效 IR 形状：arithmetic 图层的
-          // 持续修正与 end-of-turn 期限；尚无原语消费（见 judgeReason 第 1 条）。
+          // 持续修正与 end-of-turn 期限由 continuous.might 和图层到期路径消费。
           id: "fretful-feline.plus-2-might-this-turn",
           op: "continuous.might",
           args: {
@@ -59,7 +53,7 @@ export default {
             amount: { kind: "constant", value: 2 },
             duration: { kind: "constant", value: "this-turn" },
             // “me” 指能力宿主（053.1），用契约 3.6 的符号选择器。
-            object: { kind: "constant", value: { kind: "source" } }
+            objects: { kind: "constant", value: { kind: "source" } }
           }
         }
       ]

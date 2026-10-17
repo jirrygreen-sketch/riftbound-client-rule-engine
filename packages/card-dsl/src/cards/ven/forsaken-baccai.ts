@@ -21,19 +21,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （143.2.a、475–477）；effect.buff 文件头明确临时 Might 修改归 continuous.might，
  *   不是 Buff 计数器（702/703）。"me" 是能力宿主（053.1/355.10.g 的自身指代，不是目标）。
  *
- * status = judge-required（三处依赖均不近似实现）：
- * 1. beginning-start 没有已合入的发出者：链层只把它用于清理时钟，回合/阶段流程未把该时点
- *    发进唯一事件管线，也没有订阅方把 CardProgram 的 triggered ability 注册成
- *    TriggerRegistration（RIFT-120，契约 §7.2 批 5）。
- * 2. "give me +1 :rb_might: this turn" 需要卡牌侧的 continuous.might 指令原语与回合期限：
- *    layers 引擎（RIFT-91）能求值 arithmetic 层与 end-of-turn 期限，但 effects/instructions/
- *    下没有该 op；不能用 effect.buff 计数近似。
- * 3. "fewer runes than an opponent" 的量化在多于两名玩家时不完整：现有 Condition/Expr 只能
- *    比较两个 count（控制者符文数 vs 某一对手的符文数），无法表达 135.x/190.x 语境下
- *    「存在一个符文更多的对手」。本程序按两名玩家的对局形状记录该比较，并在回复中登记该
- *    契约变更请求（多人模式的 exists 量化）。该比较本身可由解释器真实求值。
- * 依赖：RIFT-120（beginning-start 发射与卡牌触发注册）、continuous.might 指令原语
- * （RIFT-9 清单；RIFT-91 求值侧已合入）、多人量化契约变更。
+ * status = judge-required：beginning-start 已有真实生产者，continuous.might 已可执行。
+ * 尚缺生产触发条件适配器对相对玩家 count 的求值接线（RIFT-359）；测试中将 self/opponent
+ * 绑定到 A/B 仅证明数量比较原语。在多人对局中，还缺“存在一个符文更多的对手”的 exists 量化。
  */
 const abilities: Ability[] = [
   {
@@ -61,8 +51,7 @@ const abilities: Ability[] = [
     body: [
       {
         id: "forsaken-baccai.plus-1-might",
-        // 临时 Might 修改（143.2.a/475–477）：卡牌侧 continuous.might 指令未合入
-        // （RIFT-9 清单；RIFT-91 只合入图层求值侧），不使用 effect.buff 近似。
+        // 临时 Might 修改（143.2.a/475–477）：使用已合入的 continuous.might 原语。
         op: "continuous.might",
         args: {
           amount: { kind: "constant", value: 1 },
@@ -80,15 +69,8 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入：(1) beginning-start 时点（315.2.a.1）虽在 events/timing-points.ts 的封闭枚举中，" +
-    "但没有已合入的发出者把该时点发进唯一事件管线，也没有订阅方把 CardProgram 的 triggered ability 注册成 " +
-    "TriggerRegistration（RIFT-120，契约 §7.2 批 5）；" +
-    "(2)「give me +1 :rb_might: this turn」是带回合期限的临时 Might 修改，属算术图层，需要卡牌侧的 " +
-    "continuous.might 指令原语（RIFT-9 清单；RIFT-91 只合入图层求值侧），不能用 Buff 计数（702/703）近似；" +
-    "(3)「fewer runes than an opponent」的量化只在两名玩家时等于「我的符文数 < 对手的符文数」，" +
-    "现有 Condition/Expr 不能表达 3 名及以上玩家时的「存在一个符文更多的对手」，本程序按两对局形状记录比较" +
-    "（见回复的契约变更请求）。触发条件里的符文数量比较（133.5.a.1/431.1）本身由 golden 真实求值。" +
-    "依赖：RIFT-120 与 continuous.might 指令原语。不近似实现。",
+    "beginning-start 的触发条件仍需生产 testTrigger 适配器及 self/opponent 符文 count 绑定（RIFT-359，" +
+    "383.2.a.1/133.5.a.1/431.1）；多人对局还需 exists 对手量化，不能把所有对手的符文总数当作某一对手的数量。",
   abilities,
   sourceText:
     "If you control fewer runes than an opponent at the start of your Beginning Phase, give me " +

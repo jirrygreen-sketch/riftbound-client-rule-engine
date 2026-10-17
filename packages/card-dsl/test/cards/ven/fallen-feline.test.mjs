@@ -6,10 +6,10 @@ import program from "../../../dist/cards/ven/fallen-feline.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import restrict from "../../../../engine-core/dist/effects/instructions/continuous.restrict.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
 import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-e308123735feeaeba45468a3883162bc0278fffe1ef3374615c10a8647de047c";
@@ -35,7 +35,7 @@ test("ven-132-166 Fallen Feline: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /choice\.name/);
   assert.match(program.judgeReason, /continuous\.restrict/);
   assert.match(program.judgeReason, /762\.1/);
-  assert.match(program.judgeReason, /play-spell/);
+  assert.match(program.judgeReason, /appliesTo:opponent/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -50,11 +50,10 @@ test("ven-132-166 Fallen Feline: 'When you play me' is a mandatory card-played s
 test("ven-132-166 Fallen Feline: the naming instruction keeps the printed link for the ban", () => {
   assert.equal(nameInstruction.id, "fallen-feline.name-a-spell");
   // 759/760: the effect instructs the player to name a card; 762 restricts the
-  // legal names. No naming primitive is merged (asserted below).
+  // legal names. The naming primitive remains a real dependency of this card.
   assert.equal(nameInstruction.op, "choice.name");
   assert.deepEqual(nameInstruction.args.kind, { kind: "constant", value: "spell" });
   assert.deepEqual(nameInstruction.args.linkKey, { kind: "constant", value: "namedCard" });
-  assert.equal(instructionDefinitionsById.get("choice.name"), undefined);
 });
 
 test("ven-132-166 Fallen Feline: the play ban is a static restriction gated on being at a battlefield", () => {
@@ -63,45 +62,41 @@ test("ven-132-166 Fallen Feline: the play ban is a static restriction gated on b
   // 合并原语（RIFT-259）没有 cannot-play 这个 mode：未知 mode 会以 negated/impossible
   // 失败关闭，所以程序写成已支持的 prohibit + action "play-spell"（缺口见 judgeReason）。
   assert.equal(playRestriction.effect.mode, "prohibit");
-  assert.equal(playRestriction.effect.action, "play-spell");
+  assert.deepEqual(playRestriction.effect.actions, ["play-spell"]);
   assert.equal(playRestriction.effect.appliesTo, "opponent");
-  assert.deepEqual(playRestriction.effect.subject, {
-    kind: "constant",
-    value: { type: "spell" }
-  });
-  // The banned name comes from the naming instruction's linked value; recorded
-  // descriptively because neither side of the link has a merged consumer.
+  assert.deepEqual(playRestriction.effect.filter, { type: "spell" });
+  // The naming result still needs a persistent host binding and namedFrom consumer.
   assert.deepEqual(playRestriction.effect.namedFrom, {
     instructionId: "fallen-feline.name-a-spell",
     key: "namedCard"
   });
   // “While I'm at a battlefield”: the ability's own condition.
   assert.equal(playRestriction.condition.kind, "compare");
-  assert.equal(playRestriction.condition.operator, "ne");
+  assert.equal(playRestriction.condition.operator, "gte");
+  // Base also has a non-null location: explicitly require the battlefield type.
   assert.deepEqual(playRestriction.condition.left, {
-    kind: "object-property",
-    object: "self",
-    property: "location"
+    kind: "count",
+    subject: "host-at-battlefield",
+    filter: { object: "self", zone: "board", location: "battlefield" }
   });
-  assert.deepEqual(playRestriction.condition.right, { kind: "constant", value: null });
+  assert.deepEqual(playRestriction.condition.right, { kind: "constant", value: 1 });
 });
 
 test("ven-132-166 Fallen Feline: review evidence — continuous.restrict is merged", () => {
   // 复核证据：原 judgeReason 说“没有卡牌侧 continuous.restrict 的注册入口”，
-  // 该 op 与 layers/rules 的查询都已合入（缺的是 canAct 消费方与命名谓词）。
+  // 原语、查询与链消费已合入；整卡仍缺命名持久绑定与 opponent 静态过滤。
   assert.equal(instructionDefinitionsById.has("continuous.restrict"), true);
   assert.equal(typeof restrictions, "function");
 
   // 用本卡声明的 mode/action 驱动真实原语一次，再断言 layers/rules 查询能看到它；
-  // 唯一的替换是把 appliesTo 的 "opponent" 换成参考内核能理解的具体玩家（生产链的
-  // chain/engine.ts 才负责把相对选择符解析成玩家 id，见 judgeReason）。
+  // 这里只验证原语与查询；静态 binder 的 opponent 解析仍是整卡缺口。
   const kernel = world()
     .unit("fallen-feline", { types: ["unit"], zone: "board", owner: "A", controller: "A" })
     .build();
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("fallen-feline") });
   const run = runInstruction(restrict, {
     mode: { kind: "constant", value: playRestriction.effect.mode },
-    action: { kind: "constant", value: playRestriction.effect.action },
+    action: { kind: "constant", value: playRestriction.effect.actions },
     appliesTo: { kind: "constant", value: { controller: "B" } },
     duration: { kind: "constant", value: "while-source-here" }
   }, { world: context });
@@ -117,12 +112,6 @@ test("ven-132-166 Fallen Feline: review evidence — continuous.restrict is merg
   assert.deepEqual(found[0].actions, ["play-spell"]);
 });
 
-test("ven-132-166 golden: running the naming body fails loudly instead of silently doing nothing", () => {
-  const base = world().player("controller").unit("fallen-feline", { controller: "controller" }).build();
-  const kernel = base.clone({ controller: "controller", sourceSnapshot: base.getObject("fallen-feline") });
-  assert.throws(() => runAbilityBody(nameSpell.body, kernel), /Unregistered instruction opcode: choice\.name/);
-});
-
 test.todo(
   "ven-132-166 Fallen Feline: 'name a spell' needs a naming choice primitive (collected name as " +
     "a linked value; 759-762) — no choice.name / effect.name-card op is merged"
@@ -130,6 +119,47 @@ test.todo(
 
 test.todo(
   "ven-132-166 Fallen Feline: 'opponents can't play spells with that name' needs a " +
-    "name predicate read from the naming instruction's linked value plus a chain-side consumer of " +
-    "the registered restriction (chain/engine.ts canAct only checks priority/showdown/turn state)"
+    "persistent host-bound naming result, a namedFrom predicate, static appliesTo:opponent binding, " +
+    "and battlefield-condition consumption by the rule query"
 );
+
+
+test("ven-132-166 Fallen Feline: the real condition distinguishes a battlefield from Base", () => {
+  const f = fixture({ cards: [{ id: "feline", types: ["unit"], might: 3, energy: 2, power: ["Order"] }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("feline"), to: "base" });
+  const probe = () => {
+    f.engine.advance();
+    f.engine.execute(f.draft("location-probe", {
+      id: `location:${f.engine.trace.length}`,
+      source: f.kernel.getObject("feline"),
+      body: [{
+        id: "fallen-feline.location",
+        op: "condition.predicate",
+        args: { condition: { kind: "constant", value: playRestriction.condition } }
+      }]
+    }));
+    resolveAll(f.engine);
+    return f.kernel.linked("fallen-feline.location.value");
+  };
+  assert.equal(probe(), false);
+  f.engine.commit({ type: "move-location", object: f.kernel.ref("feline"), to: { type: "battlefield", id: "battlefield-1" } });
+  assert.equal(probe(), true);
+  f.engine.commit({ type: "move-location", object: f.kernel.ref("feline"), to: { type: "base", player: "A" } });
+  assert.equal(probe(), false);
+});
+
+test("ven-132-166 Fallen Feline: Chain Execute consumes a real registered play-spell restriction", () => {
+  const f = fixture({ cards: [{ id: "spell", types: ["spell"], energy: 1, power: [] }] });
+  const context = f.kernel.clone({ sourceSnapshot: f.kernel.getObject("source") });
+  const run = runInstruction(restrict, {
+    mode: { kind: "constant", value: playRestriction.effect.mode },
+    action: { kind: "constant", value: playRestriction.effect.actions },
+    appliesTo: { kind: "constant", value: { type: "spell", controller: "A" } },
+    duration: { kind: "constant", value: "while-source-here" }
+  }, { world: context });
+  assert.equal(run.result.status, "executed");
+  for (const entry of context.continuousEffects) f.engine.layers.addContinuous(entry.effect, entry.duration);
+  assert.throws(() => f.engine.execute(f.card("spell", { body: [] })), /restricted/);
+  assert.equal(f.kernel.getObject("spell").zone, "hand");
+  assert.equal(f.kernel.player("A").energy, 20);
+});
