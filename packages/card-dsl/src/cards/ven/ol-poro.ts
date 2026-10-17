@@ -24,6 +24,10 @@ import type { CardProgram } from "../../ir/index.js";
  *    现有打出计划已能转交标准 requirements/restrictions，但没有这个回合序数适配器。
  * 本文件按契约 3.1 的 PlayAbility 形状记录该要求（descriptive kind + 常量“第 3 回合为止”），
  * 空 body 表示该牌没有任何指令；不写成恒真的 Condition、也不把该禁止改成任何可执行近似。
+ *
+ * Execution evidence (RIFT-703): test/cards/templates/play-703.test.mjs pins the real
+ * describePlay rejection of this requirement and runs the printed play procedure without
+ * it; test/cards/ven/ol-poro.test.mjs keeps the structure assertions.
  */
 export default {
   canonicalCardId: "card.hash-2ffb19822a72dc6ca4fc7111ad103487e5e4a120251c9b158b1064e31aa11748",

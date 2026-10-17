@@ -1,3 +1,8 @@
+// RIFT-703 execution evidence for the printed play procedure lives in
+// test/cards/templates/play-703.test.mjs (parameter row keyed by this
+// canonicalCardId). The program stays judge-required: the printed
+// conquered-battlefield restriction still has no rules adapter, which is pinned
+// there against the real adapter. Every assertion below is retained.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";

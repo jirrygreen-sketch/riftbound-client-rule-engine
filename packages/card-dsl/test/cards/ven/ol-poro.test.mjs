@@ -1,3 +1,9 @@
+// RIFT-703 execution evidence for the printed play procedure lives in
+// test/cards/templates/play-703.test.mjs (parameter row keyed by this
+// canonicalCardId). The program stays judge-required: the printed
+// not-before-own-turn requirement still has no adapter and no per-player turn
+// ordinal exists, which is pinned there against the real adapter. Every
+// assertion below is retained.
 import assert from "node:assert/strict";
 import test from "node:test";
 

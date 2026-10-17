@@ -23,6 +23,10 @@ import type { CardProgram } from "../../ir/index.js";
  * 但 programs/play.ts 尚未把本声明绑定到 mandatoryAdditional；cost/plan-values.ts 的
  * choiceObjects 仍只读取精确引用，未展开友方单位筛选。Golden 通过真实原语执行已绑定引用的
  * 费用层路径（计划、非目标选择、支付、失败不提交），不作为整卡打出流程已接线的证据。
+ *
+ * Execution evidence (RIFT-703): test/cards/templates/play-703.test.mjs pins the real
+ * describePlay rejection and runs the printed play procedure without the unsupported
+ * cost clause; test/cards/ogn/cruel-patron.test.mjs keeps the cost-layer goldens.
  */
 const cruelPatron = {
   canonicalCardId: "card.hash-ea1f0540f042966387899650fa2fbb3646f2d1d8ad7264dd83eb0fee4bd953de",
