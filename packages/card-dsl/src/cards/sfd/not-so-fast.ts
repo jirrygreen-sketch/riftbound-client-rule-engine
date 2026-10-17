@@ -33,8 +33,8 @@ import type { CardProgram } from "../../ir/index.js";
  * printed restriction cannot be checked yet, so the card is not claimed
  * executable and the restriction is not dropped (that would silently allow
  * countering any enemy Chain item). Dependency: the target system exposing a
- * chain item's chosen targets / a target-history predicate (RIFT-90, with the
- * 754 became-target notifications).
+ * chain item's chosen targets / a target-history predicate, with the merged
+ * 754 became-target notifications made queryable from a card filter.
  */
 const notSoFast = {
   canonicalCardId: "card.hash-33c64673bc887d04d061bcae6dce39ed0eb58011d8102f4f2426e9d43b6a8bdc",
@@ -43,7 +43,7 @@ const notSoFast = {
   judgeReason:
     "目标限制「that chooses a friendly unit or gear」无法求值：355.9.a.2 把 spell/ability 指向链上项，" +
     "但判断该链项是否选择（754 的成为目标记录）了你控制的单位或装备，需要读取该链项的 Finalize 目标计划；" +
-    "契约 3.6/3.8 的目标接口不向卡牌暴露链项已选目标，target-plan 只校验当前对象的 filter 字段（RIFT-90），" +
+    "契约 3.6/3.8 的目标接口不向卡牌暴露链项已选目标，target-plan 只校验当前对象的 filter 字段，" +
     "因此 filter 里的 choosesFriendly 是描述性键、不参与匹配。" +
     "effect.counter（426.1-426.3）与 [Reaction]（813）本体已合入并有 golden 真实执行测试；不近似实现（不省略限制去反制任意链项）。",
   abilities: [
@@ -65,7 +65,7 @@ const notSoFast = {
               id: "not-so-fast.enemy-item",
               // "a spell or ability" = finalized Chain items (355.9.a.2);
               // controller "opponent" is 740.1.b. choosesFriendly is the
-              // descriptive part of the printed restriction (754 / RIFT-90).
+              // descriptive part of the printed restriction (754).
               filter: {
                 type: ["spell", "ability"],
                 zone: "chain",

@@ -48,7 +48,7 @@ test("sfd-058-221 Ornn, Blacksmith: identity, ruleset, status, judgeReason and v
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /结算期/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /生产侧可用/);
   assert.match(program.judgeReason, /hold/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -305,6 +305,6 @@ test.todo(
 test.todo(
   "sfd-058-221 Ornn, Blacksmith: both subscriptions (card-played 383.4.a and hold 383.4.d) must reach the " +
     "chain as Pending items through a CardProgram trigger registration; the hold timing point is " +
-    "emitted and the RIFT-257 program binding is merged, but the hold payload carries no object " +
+    "emitted and the program binding is merged, but the hold payload carries no object " +
     "for the self-scoped filter to match"
 );

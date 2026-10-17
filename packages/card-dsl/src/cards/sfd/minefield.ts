@@ -26,8 +26,8 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The merged effect.mill primitive executes the deck-top-to-trash action, but the card is " +
-    "still judge-required: the RIFT-257 program adapter rejects the printed `here` filter key " +
+    "The merged effect.mill primitive executes the deck-top-to-trash action and the card program " +
+    "binding is merged, but the card is still judge-required: the program adapter rejects the printed `here` filter key " +
     "(Unsupported filter field here), the TriggerSpec vocabulary spells the event 'conquered', " +
     "and the scoring conquer emission carries only player/details with no battlefield object, " +
     "so a battlefield-relative host-location comparison cannot be formed. The supported mill " +

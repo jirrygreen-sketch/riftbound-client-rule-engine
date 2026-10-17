@@ -19,8 +19,8 @@ import type { CardProgram } from "../../ir/index.js";
  * 卡牌只声明关键词（契约 3.1/3.7、README 第 5 节）；展开（static target.tax）由
  * engine-core 的 effects/keywords/Deflect.ts 负责。
  *
- * status = judge-required：Deflect 展开与 RIFT-257/349 卡牌绑定均已合入，但 RIFT-349
- * 的 static 绑定对 target.tax 没有图层映射（Static ability kind target.tax has no layer
+ * status = judge-required：Deflect 展开与卡牌绑定均已合入，但 static 绑定对 target.tax
+ * 没有图层映射（Static ability kind target.tax has no layer
  * mapping），仍缺两层消费方：(1) 没有生产方把永久物 static 的 target.tax 接入目标选择——
  * target/target-plan.ts 只在调用方显式传入 tax 时追加，链的 Finalize 未从图层读取；
  * (2) 该目标税按 809.1.c.1 应可用任意域 Power 支付，链的 Finalize 目前把税记成
@@ -32,13 +32,13 @@ const navoriScout = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The Deflect expansion (effects/keywords/Deflect.ts: static target.tax) and the RIFT-257/349 " +
-    "card binding are merged, but the RIFT-349 static binder has no layer mapping for target.tax, " +
+    "The Deflect expansion (effects/keywords/Deflect.ts: static target.tax) and the " +
+    "card binding are merged, but the static binder has no layer mapping for target.tax, " +
     "so the tax still has no production consumer: " +
     "target/target-plan.ts appends it only from an explicit TargetFinalizeOptions.tax, and the " +
     "chain Finalize never derives it from layers. The chain also books the target tax as an " +
     "Energy constant (chain/engine.ts mandatoryAdditional), while 809.1.c.1 requires any-Domain " +
-    "Power. Depends on RIFT-90 (target tax into TargetPlan); not approximated.",
+    "Power. Depends on the target-tax production wiring (target tax into TargetPlan); not approximated.",
   abilities: [{ kind: "keyword", keyword: "deflect" }],
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)"

@@ -49,8 +49,10 @@ test("sfd-045-221 Not So Fast: identity, ruleset, status and verbatim text", () 
 
 test("sfd-045-221 Not So Fast: judgeReason names the chosen-target restriction gap", () => {
   assert.match(program.judgeReason, /754/);
-  assert.match(program.judgeReason, /RIFT-90/);
   assert.match(program.judgeReason, /355\.9\.a\.2/);
+  // The counter body itself is merged; the reason must stay about the real gap:
+  // reading the chain item's finalized target plan (355.9.a.2 / CR 754).
+  assert.match(program.judgeReason, /Finalize 目标计划/);
 });
 
 test("sfd-045-221 Not So Fast: [Reaction] keyword plus the printed 2 energy + 1 Calm power cost", () => {
@@ -140,5 +142,5 @@ test("sfd-045-221 Not So Fast golden: a Board permanent is never a legal Chain t
 test.todo(
   "sfd-045-221 Not So Fast: 'that chooses a friendly unit or gear' needs the target system to expose a Chain " +
     "item's chosen targets (the became-target record of CR 754) so the restriction can be evaluated at Finalize " +
-    "and rechecked at resolution (RIFT-90); the restriction is declared, not dropped."
+  "and rechecked at resolution; the restriction is declared, not dropped."
 );

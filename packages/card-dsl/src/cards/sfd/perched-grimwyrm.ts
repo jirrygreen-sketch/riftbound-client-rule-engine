@@ -6,8 +6,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "『Play me only to a battlefield you conquered this turn』是打出限制（355.17.b、366.1），但当前没有 CardProgram play restriction 到 Make Relevant Choices/Finalize 的消费方；" +
-    "『you conquered this turn』还需要按回合、按战场记录征服历史的谓词，现有 HistoryQuery/Restriction 没有可执行的战场位置维度。依赖 RIFT-89/RIFT-120 与打出限制接线。",
+    "『Play me only to a battlefield you conquered this turn』是打出限制（355.17.b、366.1），" +
+    "通用 CardProgram play restriction 已接入 Make Relevant Choices/Finalize；当前真实缺口有两处：" +
+    "① 专用的 play-only-to-conquered-battlefield-this-turn restriction 尚无条件适配器；" +
+    "② 『you conquered this turn』需要按回合、按战场记录征服历史的谓词——HistoryQuery 已合入但没有可执行的战场位置维度。" +
+    "依赖：该专用 restriction 适配与按战场的征服历史谓词。不近似实现。",
   abilities: [
     {
       kind: "play",

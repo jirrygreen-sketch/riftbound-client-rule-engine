@@ -69,13 +69,13 @@ test("sfd-055-221 Needlessly Large Yordle: the merged Shield definition owns the
 test.todo(
   "sfd-055-221 Needlessly Large Yordle: [Shield 5] needs the Defender designation as a readable " +
     "characteristic so the expanded continuous.might gate can be evaluated (814.1.d/814.1.d.1; the merged " +
-    "ObjectSnapshot has no designation and layers/engine.ts does not evaluate compare conditions) — RIFT-91"
+    "ObjectSnapshot has no designation and layers/engine.ts does not evaluate compare conditions)"
 );
 
 test.todo(
   "sfd-055-221 Needlessly Large Yordle: [Tank]'s damage-assignment priority (815.1.b/815.1.c.1/.c.2) needs " +
     "the merged Tank KeywordDef's continuous.combat declaration plus combat allocation support; " +
-    "combat/base-combat-allocation.ts binds no Tank or Backline requirement today (RIFT-264 follow-up)"
+    "combat/base-combat-allocation.ts still lacks Tank and Backline consumption"
 );
 
 test.todo(
