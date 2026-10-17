@@ -1,5 +1,7 @@
-// Partial real-chain execution: ../templates/play-effect-damage-659.test.mjs.
-// Replaying the resolving spell and its damage-history bonus remain pending.
+// Template execution evidence: ../templates/play-effect-damage-685.test.mjs.
+// This file keeps validation/identity and the key structural assertions; the
+// real-path rows live in that template suite. The card stays judge-required:
+// replaying the resolving spell and the per-card damage history are absent.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -37,18 +39,20 @@ test("unl-020-219 Dancing Grenade: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /Bonus Damage/);
   assert.match(program.judgeReason, /rainbow/);
   // The reason must name the re-verified current blockers by source, not by
-  // the obsolete \"condition.result\" summary alone.
+  // the obsolete \"condition.result\" summary alone, and point at the template.
   assert.match(program.judgeReason, /effect\.play/);
   assert.match(program.judgeReason, /不递归结算/);
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /Expr 没有历史读取/);
   assert.match(program.judgeReason, /its controller/);
+  assert.match(program.judgeReason, /play-effect-damage-685/);
 });
 
 test("unl-020-219 Dancing Grenade: only the printed Deal 2 instruction is executable, no fabricated replay", () => {
   // The re-play and the Bonus Damage count have no merged producer (see judgeReason), so the
   // body carries the one printed instruction whose primitive is merged; nothing is added that
-  // would encode the missing semantics as fact.
+  // would encode the missing semantics as fact. The real execution rows live in
+  // ../templates/play-effect-damage-685.test.mjs.
   assert.deepEqual(play.cost, {
     kind: "cost.printed",
     energy: { kind: "constant", value: 2 },
@@ -73,54 +77,6 @@ test("unl-020-219 Dancing Grenade: only the printed Deal 2 instruction is execut
   assert.equal(dealTwo.picks, undefined);
 });
 
-test("unl-020-219 Dancing Grenade golden: Deal 2 marks 2 on the locked unit", () => {
-  const kernel = world().unit("target-unit", { might: 5 }).build();
-  const run = runInstruction(
-    damage,
-    { amount: dealTwo.args.amount, target: UNIT },
-    { world: kernel, targets: { [UNIT]: [kernel.ref("target-unit")] } }
-  );
-  assert.equal(run.result.status, "executed");
-  assert.equal(kernel.getObject("target-unit").damage, 2);
-  assert.equal(run.linked.dealt, 2);
-  assert.equal(run.linked.dealtCount, 1);
-  assert.deepEqual(run.events.map(event => event.action), ["damage"]);
-});
-
-test("unl-020-219 Dancing Grenade golden: the merged bonus argument applies positive Bonus Damage per target (714/715.2)", () => {
-  // The printed count has no producer; this locks the merged Bonus Damage arithmetic the
-  // replay clause would feed once the count exists, without asserting any fabricated count.
-  const kernel = world().unit("target-unit", { might: 9 }).build();
-  const run = runInstruction(
-    damage,
-    {
-      amount: dealTwo.args.amount,
-      bonus: { kind: "constant", value: 1 },
-      target: UNIT
-    },
-    { world: kernel, targets: { [UNIT]: [kernel.ref("target-unit")] } }
-  );
-  assert.equal(run.result.status, "executed");
-  assert.equal(kernel.getObject("target-unit").damage, 3);
-  assert.equal(run.linked.dealt, 3);
-});
-
-test("unl-020-219 Dancing Grenade golden: a stale target is ignored instead of redirected", () => {
-  const kernel = world().unit("target-unit", { might: 5 }).build();
-  const stale = kernel.ref("target-unit");
-  assert.equal(kernel.perform({ type: "kill", object: stale }).status, "done");
-  const run = runInstruction(
-    damage,
-    { amount: dealTwo.args.amount, target: UNIT },
-    { world: kernel, targets: { [UNIT]: [stale] } }
-  );
-  assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
-  assert.equal(run.events.length, 0);
-});
-
-test.todo("unl-020-219 Dancing Grenade: 'Its controller may play this spell again for :rb_rune_rainbow:' still needs a resolving-chain-item replay path with the official source and nested-order ruling (CR 158.3 / 420.3)");
-test.todo("unl-020-219 Dancing Grenade: 'for each time this spell has dealt damage this turn' still needs a per-card damage history count, because effect.damage links only one action's dealt/dealtTo/dealtCount");
-
 test("unl-020-219 Dancing Grenade golden: the merged cost plan accepts a domainless 1 Power replay cost", () => {
   // CR 135.2.e.5.a / 163.2.b: domains: [] is the catalog spelling for
   // Universal Power. The cost layer expands it to all six Domains; this proves
@@ -139,3 +95,27 @@ test("unl-020-219 Dancing Grenade golden: the merged cost plan accepts a domainl
   assert.deepEqual(prepareCostPayment(ctx, plan).actions[0].action.plan.power, ["Order"]);
 });
 
+test("unl-020-219 Dancing Grenade golden: a locked target that left the Board is ignored, never redirected", () => {
+  // Card-specific boundary kept here because the scenario harness has no
+  // mid-chain operation that can invalidate a locked target between Finalize
+  // and Resolve. The instruction args are the card's own printed Deal 2.
+  const kernel = world().unit("target-unit", { might: 5 }).build();
+  const stale = kernel.ref("target-unit");
+  assert.equal(kernel.perform({ type: "kill", object: stale }).status, "done");
+  const run = runInstruction(
+    damage,
+    { amount: dealTwo.args.amount, target: UNIT },
+    { world: kernel, targets: { [UNIT]: [stale] } }
+  );
+  assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(run.events.length, 0);
+});
+
+test.todo(
+  "unl-020-219 Dancing Grenade: 'Its controller may play this spell again for :rb_rune_rainbow:' still needs a " +
+    "resolving-chain-item replay path with the official source and nested-order ruling (CR 158.3 / 420.3)"
+);
+test.todo(
+  "unl-020-219 Dancing Grenade: 'for each time this spell has dealt damage this turn' still needs a per-card damage " +
+    "history count, because effect.damage links only one action's dealt/dealtTo/dealtCount"
+);

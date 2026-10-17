@@ -1,12 +1,15 @@
-// Template scenarios: ../templates/play-effect-damage-659.test.mjs (set damage pending).
+// Template execution evidence: ../templates/play-effect-damage-685.test.mjs.
+// This file keeps validation/identity and the key structural assertions; the
+// real-path rows live in that template suite. The card stays judge-required:
+// the characteristic-selected batch damage set has no merged consumer.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/rad/avalanche.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-93ccf4a04222adbd61db565ce07b24bcbe42a6cf03edc5ff3ab1d63feb45bad5";
 const [play] = program.abilities;
@@ -27,6 +30,7 @@ test("rad-079-167 Avalanche: judgeReason names the missing batch set damage path
   assert.match(program.judgeReason, /ctx\.targets/);
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /target\/target-plan/);
+  assert.match(program.judgeReason, /play-effect-damage-685/);
   assert.doesNotMatch(program.judgeReason, /RIFT-90/);
 });
 
@@ -47,13 +51,13 @@ test("rad-079-167 Avalanche: structure — printed energy 5 plus 2 power, one se
   assert.equal(dealInstruction.targets, undefined);
   assert.equal(dealInstruction.picks, undefined);
   assert.equal(dealInstruction.linkedTo, undefined);
+  // The set descriptor uses the merged non-target query shape
+  // ({ kind: "query", filter }), the same one effect.ready / effect.heal read.
   assert.deepEqual(dealInstruction.args.objects, {
     kind: "constant",
     value: {
-      // The evaluated string spelling (object.location.type) the production
-      // filter consumes (layers/rules/query.ts).
-      filter: { type: "unit", location: "base" },
-      selection: "all"
+      kind: "query",
+      filter: { type: "unit", location: "base" }
     }
   });
 });
@@ -71,15 +75,13 @@ test("rad-079-167 Avalanche: the production filter evaluates the 'in bases' rest
   assert.equal(matchesObjectFilter(inBases, baseSnapshot), true);
   const battlefieldKernel = world().unit("bf-unit", { location: { type: "battlefield", id: "bf-1" } }).build();
   assert.equal(matchesObjectFilter(inBases, battlefieldKernel.getObject("bf-unit")), false);
-  const snapshot = kernel.getObject("base-unit");
-  assert.deepEqual(snapshot.location, { type: "base", player: "A" });
+  assert.deepEqual(baseSnapshot.location, { type: "base", player: "A" });
 });
 
 test.todo(
-  "rad-079-167 Avalanche: 'Deal 3 to all units in bases' needs a batch damage path over a " +
-    "characteristic-selected set (target.many semantics, 355.10.d): effect.damage " +
-    "reads ctx.targets(TargetSpec id) only and its argsSchema requires a target string, so the " +
-    "authored objects selector has no consumer."
+  "rad-079-167 Avalanche full printed resolution: 'Deal 3 to all units in bases' needs a batch damage path over a " +
+    "characteristic-selected set (355.10.d) — effect.damage reads ctx.targets(TargetSpec id) only and its " +
+    "argsSchema requires a target string, so the authored query set has no consumer."
 );
 
 test.todo(

@@ -20,8 +20,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   resolve-time query descriptor shape merged primitives use.
  * - The source of the damage is the spell itself (418.6.a).
  *
- * Status: judge-required (re-checked 2026-10-17) — the non-target set form of
- * effect.damage is still missing: the merged effect.damage only
+ * Status: judge-required (re-checked 2026-10-17, RIFT-685 template evidence in
+ * test/cards/templates/play-effect-damage-685.test.mjs) — the non-target set
+ * form of effect.damage is still missing: the merged effect.damage only
  * consumes a Finalize-locked TargetSpec (`ctx.targets(specId)`) and rejects an
  * `objects` argument with "effect.damage args.target must be a TargetSpec id
  * string", while effect.ready / effect.heal already accept
@@ -29,11 +30,13 @@ import type { CardProgram } from "../../ir/index.js";
  * wrongly make every one of them a target and fire "becomes a target" (355.7,
  * 754), so the set stays a descriptor and the card cannot be marked executable.
  * The battlefield choice itself is routable today (355.10.d's example "Kill
- * all units at a battlefield" targets the battlefield; the golden drives the
- * card's own target declaration through the merged interpreter and the locked
- * battlefield really is resolved). The missing half is only the damage set
- * that rides on it. Tracked as RIFT-9's non-target damage set; the same gap
- * keeps ogn-133-298 Flurry of Blades judge-required.
+ * all units at a battlefield" targets the battlefield; the template row drives
+ * the card's own target declaration through the merged chain: the printed cost
+ * pays, the locked battlefield is the only object that becomes a target, and
+ * resolving the body is rejected by the effect.damage args schema — the exact
+ * remaining gate). The missing half is only the damage set that rides on it.
+ * Tracked as RIFT-9's non-target damage set; the same gap keeps ogn-133-298
+ * Flurry of Blades judge-required.
  */
 const firestorm = {
   canonicalCardId: "card.hash-4f827e86263468c7ee54c70750f747df55cb193818954ea93bd73791d1bf837a",
@@ -45,8 +48,9 @@ const firestorm = {
     "被选中的战场本身才是目标。已合入的 effect.damage 仍然只读取 Finalize 锁定的 TargetSpec（ctx.targets(id)），" +
     "传入 objects 集合会直接抛 “args.target must be a TargetSpec id string”；effect.ready / effect.heal 的" +
     "{kind:'query', filter} 非目标分支没有扩展到伤害原语。" +
-    "golden 用本卡的自身 body 经链解释器实测：锁定的战场目标会正常解析，" +
-    "但同一指令的 objects 集合没有消费方——effect.damage 在 parseArgs 阶段就拒绝，" +
+    "模板 play-effect-damage-685 用本卡的自身 body 经真实链实测：6 能量 + 1 Fury Power 已支付、" +
+    "锁定的战场目标会正常解析且只有它是 became-target，" +
+    "但同一指令的 objects 集合没有消费方——结算时 effect.damage 在 parseArgs 阶段就拒绝，" +
     "本卡不会近似实现，也不会把“该战场的所有敌方单位”写成 TargetSpec 去错误触发成为目标（355.7、754）。" +
     "依赖：effect.damage 增加非目标集合形态（RIFT-9 target.query；与 ogn-133-298 Flurry of Blades 同一缺口）。",
   abilities: [

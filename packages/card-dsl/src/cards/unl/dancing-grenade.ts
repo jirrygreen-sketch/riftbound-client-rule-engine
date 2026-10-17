@@ -18,12 +18,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   this turn”：Bonus Damage（418.4/418.5、712–715.2）由 effect.damage 的 bonus 形参承载
  *   （714 多个实例相加、714.1 只能为正）；数量是“本回合本卡已造成伤害的次数”。
  *
- * status = judge-required（2026-10-17 逐条对源码复核；缺口不近似实现）：
+ * status = judge-required（2026-10-17 逐条对源码复核，RIFT-685 模板证据见
+ * test/cards/templates/play-effect-damage-685.test.mjs；缺口不近似实现）：
  * - 重新打出当前结算中的法术没有已合入路径：effect.play 只对某个区域里的对象提交 play
  *   动作（显式覆盖费用时要求 finalized 费用计划；effect.play 的文件头明确它不会递归结算，也不授予额外
  *   许可），不能重放正在结算的链项；来源、嵌套重放顺序与次数归属都需要官方裁定——本地调研
  *   （docs/plans/survey/unclassified-unl.md 第 7 条）明确把本卡判为 judge-required：
  *   158.3 / 418.4 / 418.5 / 420.3 不足以安全落地。
+ *   模板 play-effect-damage-685 已用本卡自身程序经真实链执行 “Deal 2 to a unit” 首段
+ *   （支付 2 能量 + 1 Fury Power、目标锁定期、伤害事件与链接值），并把重打/历史加伤
+ *   两段保留为 TODO；无合法单位目标时的真实 TargetSelectionError 由边界行覆盖。
  * - “本回合本卡造成伤害的次数”没有生产者：effect.damage 只链接单次动作的 dealt / dealtTo /
  *   dealtCount，HistoryQuery 只按动作/时点/对象/objectFilter 计数，没有按“本卡已经造成伤害的
  *   次数”绑定的结果键，Expr 也没有历史读取（ogn/disintegrate 记录同一缺口）。
@@ -51,7 +55,9 @@ const dancingGrenade = {
     "“its controller” 已可由 object-property(target, controller) 表达，effect.play 的 choice.chooser/player 也接受 Expr，" +
     "选择者表达本身不是缺口。费用表达也已具备（实测 domains: [] 的 1 Power 计划展开为六域），" +
     "「Deal 2 to a unit」（418.1 / 355.9.a.1）本身只用已合入的 effect.damage，" +
-    "模板 play-effect-damage-659 真实执行原始 IR 首段及目标离区边界；不构成重打或整卡证据。",
+    "模板 play-effect-damage-685 以本卡自身程序真实执行原始 IR 首段（2 能量 + 1 Fury Power 支付、目标锁定、" +
+    "伤害事件与 dealt/dealtTo/dealtCount 链接值）及无合法目标边界；重打与历史加伤两段在模板中保持 TODO，" +
+    "不构成重打或整卡证据。",
   abilities: [
     {
       kind: "play",
