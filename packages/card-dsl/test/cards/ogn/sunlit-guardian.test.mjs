@@ -17,6 +17,7 @@ const SOURCE_TEXT =
 test("ogn-054-298 Sunlit Guardian: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
+  assert.deepEqual(result.issues, []);
 });
 
 test("ogn-054-298 Sunlit Guardian: identity, ruleset, status, judgeReason and source text", () => {
@@ -26,6 +27,8 @@ test("ogn-054-298 Sunlit Guardian: identity, ruleset, status, judgeReason and so
   assert.match(program.judgeReason, /Shield/);
   assert.match(program.judgeReason, /Tank/);
   assert.match(program.judgeReason, /815/);
+  assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /combat\/derived-might\.ts/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -46,7 +49,8 @@ test("ogn-054-298 Sunlit Guardian: exactly Shield and Tank keyword declarations,
 test("ogn-054-298 Sunlit Guardian: the program adds no invented static effect for the keywords", () => {
   // Guard against approximating the [Shield] +1 Might with a hand-written
   // static ability (the printed value is 1 per 814.1.b.3, but its gate needs the
-  // defender designation of 814.1.d.1, which combat does not yet publish).
+  // defender designation of 814.1.d.1, which this keyword condition still
+  // cannot read from the canonical derived-might service).
   for (const ability of program.abilities) {
     assert.equal(ability.kind, "keyword");
     assert.equal("effect" in ability, false);
@@ -94,13 +98,14 @@ test("ogn-054-298 Sunlit Guardian: [Tank] expands to the continuous.combat damag
 
 test.todo(
   "ogn-054-298 Sunlit Guardian: [Shield] (814) needs designation -> combatRole alignment " +
-    "and combat-produced defender roles; keyword expansion, static registration and compare " +
+    "and an EffectIR role bridge from combat; canonical derived-might already derives defenders, " +
+    "and keyword expansion, static registration and compare " +
     "evaluation are merged"
 );
 
 test.todo(
   "ogn-054-298 Sunlit Guardian: [Tank] (815) needs the combat damage assignment priority " +
-    "(815.1.b/815.1.c.2); the Tank KeywordDef is merged (RIFT-264) but" +
+    "(815.1.b/815.1.c.2); the Tank KeywordDef is merged but " +
     "combat/base-combat-allocation.ts binds no assignment-priority requirement — combat allocation workstream"
 );
 

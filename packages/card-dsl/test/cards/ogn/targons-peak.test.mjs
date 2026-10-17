@@ -7,6 +7,9 @@ import ready from "../../../../engine-core/dist/effects/instructions/effect.read
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture, trigger, settle, move } from "../../../../engine-core/test/turn/helpers.mjs";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL = "card.hash-443bbd81ca54ffdeed5341da932702bf2c62ea4d20d8be07b4fbfc36c4340493";
 const [ability] = program.abilities;
@@ -23,7 +26,7 @@ test("ogn-289-298 Targon's Peak: program validates and is judge-required", () =>
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /conquer/);
   assert.match(program.judgeReason, /trigger\.delayed/);
-  assert.match(program.judgeReason, /conquered/);
+  assert.match(program.judgeReason, /registerDelayedTrigger/);
   assert.match(program.judgeReason, /here/);
   assert.equal(program.sourceText, "When you conquer here, ready 2 runes at the end of this turn.");
 });
@@ -33,7 +36,7 @@ test("ogn-289-298: conquer trigger registering an end-of-turn ready-2-runes dela
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "conquer");
   assert.deepEqual(ability.trigger.filter, {
-    event: "conquer",
+    event: "conquered",
     here: true,
     player: "controller"
   });
@@ -89,6 +92,12 @@ test("ogn-289-298: real TurnFlow movement and showdown produce the conquer wave 
   f.flow.pass("B");
   assert.equal(seen.length, 1);
   assert.equal(seen[0].event.details.battlefieldId, "battlefield-1");
+  const filter = translateTriggerFilter({
+    event: ability.trigger.filter.event, player: ability.trigger.filter.player
+  }, "peak", ability.trigger.at);
+  assert.equal(filter.event, "conquered");
+  assert.equal(matchesTriggerEvent(filter, seen[0].event, "A"), true);
+  assert.equal(matchesTriggerEvent(filter, seen[0].event, "B"), false);
   assert.equal(f.kernel.getObject("source").location.id, "battlefield-1");
   assert.equal(f.flow.battlefields[0].controller, "A");
   assert.equal(f.kernel.player("A").score, 1);
@@ -128,10 +137,25 @@ test("ogn-289-298: the printed ready-2-runes sub-instruction readies the chosen 
 test.todo(
   "ogn-289-298: 带到期窗口的延迟触发注册原语（at: turn-end / this-turn 窗口）落地，" +
     "conquer 结算时不做出符文选择，改由延迟触发 Finalize 选择（CR 391.2/355.5.b）" +
-    "（依赖 RIFT-33 延迟窗口契约变更请求 3 与解释器生命周期契约变更请求 2）"
+    "；内部已支持触发频度及 expiresAt，仍需卡牌指令接入 registerDelayedTrigger 与非目标选择计划"
 );
 test.todo(
   "ogn-289-298: binding the here-anchored conquer filter and the card program's triggered ability into " +
-    "the pipeline still needs conquer -> conquered event normalization and the here anchor; " +
-    "the generic program binder and real conquer emission are merged"
+    "the pipeline still needs the here anchor; conquered already matches the real conquer emission"
 );
+
+test("Targon's Peak: the authored ready sub-body executes through the chain adapter on non-target picks", () => {
+  const kernel = world()
+    .card("rune-a", { zone: "rune-zone", types: ["rune"], exhausted: true })
+    .card("rune-b", { zone: "rune-zone", types: ["rune"], exhausted: true })
+    .card("rune-c", { zone: "rune-zone", types: ["rune"], exhausted: true })
+    .build();
+  kernel.setPicks("targons-peak.runes", [kernel.ref("rune-b"), kernel.ref("rune-c")]);
+  const outcome = resolveChainBody(delay.args.body.value, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.linkedValues["targons-peak.ready.readied"].count, 2);
+  assert.deepEqual(outcome.events.map(event => event.action), ["ready", "ready"]);
+  assert.equal(kernel.getObject("rune-a").exhausted, true);
+  assert.equal(kernel.getObject("rune-b").exhausted, false);
+  assert.equal(kernel.getObject("rune-c").exhausted, false);
+});

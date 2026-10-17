@@ -40,11 +40,11 @@ const symbolOfTheSolari = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) 缺可执行的 Recall：effect.move 的 mode recall 返回 negated/impossible，替代 planner 同样抛 " +
-    "BlockedReplacementError（CR 457-460）；不能用会触发移动触发、受移动限制的普通 Move 代替（458.1/458.3）。(2) 缺战斗清理 " +
-    "3d 的替代接入：468.1.a.2 的 Recall Attackers 流程没有可声明的拦截点，combat-result 时点尚无提交产生方。(3) 当前受阻声明未绑定 " +
-    "740.3.a 的 tie、you are the attacker 与本次战场；ALL units 应是该战场双方单位（355.5.a），而非所有 board 单位。需 " +
-    "Recall 动作及战斗清理替代/战场上下文，不近似实现。",
+    "缺独立 Recall 动作（CR 457-460）：effect.move mode:recall 仍为 negated/impossible，替代 planner 抛 " +
+    "BlockedReplacementError；Recall 必须绕过移动限制、保留伤害/状态且不产生 Move 触发（458.1/458.3/460.1）。" +
+    "还缺 468.1.a.2 战斗清理 3d 的过程替代入口：combat-result 无提交产生方，替代模式也未匹配该事件。" +
+    "受阻声明仍需绑定 740.3.a 的 tie、attacker 与该战场双方单位（355.5.a）；不能用所有 board 单位替代本次战场。" +
+    "不近似实现。",
   abilities: [
     {
       kind: "replacement",

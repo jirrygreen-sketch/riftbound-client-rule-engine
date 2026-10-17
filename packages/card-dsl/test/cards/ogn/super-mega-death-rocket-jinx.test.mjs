@@ -7,6 +7,9 @@ import damage from "../../../../engine-core/dist/effects/instructions/effect.dam
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { fixture, settle, move } from "../../../../engine-core/test/turn/helpers.mjs";
 
 const CARD_ID = "card.hash-a5df5886eb5ce4de01ecdbffd7bd2e4840f75ad0546a27a1428d719100e5f2ad";
 
@@ -61,7 +64,7 @@ test("ogn-252-298 Death Rocket structure: Deal 5 play plus a conquer trigger", (
 
 test("ogn-252-298 Death Rocket structure: optional conquer trigger with the discard-1 cost and return", () => {
   assert.equal(conquer.trigger.at, "conquer");
-  assert.deepEqual(conquer.trigger.filter, { event: "conquer", player: "controller" });
+  assert.deepEqual(conquer.trigger.filter, { event: "conquered", player: "controller" });
   // "you may discard 1 to return this ...": the may is the trigger's optionality
   // (contract 3.1) and the discard is the cost of the clause (355.10.c.1).
   assert.equal(conquer.optional, true);
@@ -143,4 +146,22 @@ test("Death Rocket: the authored play body deals exactly 5 through the chain int
   assert.equal(kernel.getObject("other").damage, 0);
   assert.deepEqual(outcome.events.map(event => event.action), ["damage"]);
   assert.equal(outcome.linkedValues["rocket-damage.dealt"], 5);
+});
+
+test("Death Rocket: the authored conquer pattern matches a real conquest by its controller only", () => {
+  const f = fixture();
+  f.flow.start();
+  f.flow.execute(f.draft("move-to-conquer", [move("move", { type: "battlefield", id: "bf1" })]));
+  settle(f.flow);
+  f.flow.pass("A");
+  f.flow.pass("B");
+  const events = f.flow.chain.pipeline.events.filter(event => event.timingPoint === conquer.trigger.at);
+  assert.equal(events.length, 1);
+  const filter = translateTriggerFilter(conquer.trigger.filter, "rocket", conquer.trigger.at);
+  assert.equal(filter.event, "conquered");
+  assert.equal(filter.player, "self");
+  assert.equal(matchesTriggerEvent(filter, events[0], "A"), true);
+  assert.equal(matchesTriggerEvent(filter, events[0], "B"), false);
+  assert.equal(events[0].details.battlefieldId, "bf1");
+  assert.equal(f.kernel.player("A").score, 1);
 });

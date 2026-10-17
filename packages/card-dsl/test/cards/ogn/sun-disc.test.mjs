@@ -25,6 +25,8 @@ test("ogn-021-298 Sun Disc: program passes validateCardProgram", () => {
   assert.match(program.judgeReason, /replacement\.enter/);
   assert.match(program.judgeReason, /812\.1\.c/);
   assert.match(program.judgeReason, /count.*现存对象/);
+  assert.match(program.judgeReason, /condition\.predicate/);
+  assert.match(program.judgeReason, /query\.player/);
   assert.equal(
     program.sourceText,
     ":rb_exhaust:: [Legion] — The next unit you play this turn enters ready. " +

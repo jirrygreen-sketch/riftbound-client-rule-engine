@@ -43,6 +43,8 @@ test("symbol-of-the-solari: identity, ruleset, status, judgeReason and printed t
   assert.match(program.judgeReason, /tie/);
   assert.match(program.judgeReason, /attacker/);
   assert.match(program.judgeReason, /该战场双方单位/);
+  assert.match(program.judgeReason, /460\.1/);
+  assert.match(program.judgeReason, /3d/);
   assert.equal(
     program.sourceText,
     "If a combat where you are the attacker ends in a tie, recall ALL units instead. " +
@@ -67,8 +69,8 @@ test("symbol-of-the-solari: the replacement body names ALL units and asks for a 
   assert.equal(recall.picks, undefined);
   assert.equal(recall.linkedTo, undefined);
 
-  // "ALL units" is an each-set over both players' boards (355.5.a: an effect
-  // that affects objects by criteria involves no choice), so it is not a target.
+  // The blocked declaration records a non-target set (355.5.a). Its missing
+  // combat battlefield anchor must narrow this broad board filter before use.
   assert.deepEqual(recall.args.objects, {
     kind: "constant",
     value: {

@@ -20,9 +20,9 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required.
  * TurnFlow produces conquer events and program trigger binding is merged.
- * Still missing: conquer -> conquered event normalization, a battlefield-relative
- * here anchor, and a card-facing delayed-trigger instruction with a one-turn
- * expiry. The runes must be chosen when that delayed trigger Finalizes, not
+ * Still missing: a battlefield-relative here anchor, and a card-facing
+ * delayed-trigger instruction registering a one-use end-of-turn ability. The runes
+ * must be chosen when that delayed trigger Finalizes, not
  * when the original conquer trigger resolves.
  */
 const targonsPeak = {
@@ -30,18 +30,17 @@ const targonsPeak = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "conquer 时点已由 TurnFlow 的真实征服/Score 流程产生（CR 473.2.a），CardProgram 触发绑定也已合入；仍缺 trigger " +
-    "filter 的 conquer→conquered 事件适配与战场相对 here 锚点。trigger.delayed 尚无指令实现，内部 " +
-    "registerDelayedTrigger 没有到期窗口参数，不能表达「at the end of this turn」的一次性本回合延迟触发（391.2）。" +
-    "延迟触发还需在其自身 Finalize 时绑定非目标符文选择（355.5.b），不能在征服触发结算时预选。effect.ready 半段有真实执行证据；" +
-    "整卡仍缺延迟注册/到期与选择生命周期，不近似实现。",
+    "缺 conquer 触发的战场相对 here filter 绑定（CR 473.2.a）。trigger.delayed 仍无卡牌指令实现，" +
+    "需通过 registerDelayedTrigger 登记一次性 turn-end 能力（391.2/392），不能直接结算 effect.ready。" +
+    "还缺延迟触发自身 Finalize 时的符文选择计划（355.5.b）：当前描述式 controller-runes pick 没有 Finalize 消费方，" +
+    "不能提前选择或以有序区域切片代替玩家选择。不近似实现。",
   sourceText: "When you conquer here, ready 2 runes at the end of this turn.",
   abilities: [
     {
       kind: "triggered",
       trigger: {
         at: "conquer",
-        filter: { event: "conquer", here: true, player: "controller" }
+        filter: { event: "conquered", here: true, player: "controller" }
       },
       optional: false,
       body: [

@@ -3,6 +3,9 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/swift-scout.js";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 // card-dsl has no dependency edge on engine-core (engine-core depends on
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
@@ -27,6 +30,7 @@ const teemoWorld = () =>
 test("swift-scout program is valid EffectIR v2 data", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
+  assert.deepEqual(result.issues, []);
 });
 
 test("swift-scout identity: canonicalCardId, ruleset, judge-required status and verbatim text", () => {
@@ -148,4 +152,37 @@ test("swift-scout: the authored substitute-cost body cannot pay without energy",
     error => error.name === "CostPlanError" && error.reason === "cannot-pay-cost");
   assert.deepEqual(kernel.snapshot(), before);
   assert.equal(kernel.history({ action: "pay" }), 0);
+});
+
+test("swift-scout: the authored activation pays energy and exhausts the legend before returning an owned Teemo", () => {
+  const f = fixture({ energy: 2, cards: [
+    { id: "legend", types: ["legend"] },
+    { id: "borrowed-teemo", owner: "A", controller: "B", tags: ["Teemo"] },
+    { id: "other", owner: "A", tags: ["Yasuo"] }
+  ] });
+  const { kernel } = f;
+  for (const id of ["legend", "borrowed-teemo", "other"]) {
+    assert.equal(f.engine.commit({ type: "move-zone", object: kernel.ref(id), to: "base", location: { type: "base", player: "A" } }).status, "done");
+  }
+  f.engine.advance();
+  const beforeHand = kernel.player("A").handSize;
+  const ref = kernel.ref("borrowed-teemo");
+  f.engine.execute(f.draft("swift-activation", {
+    source: kernel.getObject("legend"), speed: activated.timing,
+    body: translateInstructionTargets(activated.body),
+    cost: { id: "swift-cost", cost: translateCost(activated.cost, "swift-activation", "activate") }
+  }));
+  assert.equal(f.engine.items[0].payment.paid, true);
+  assert.deepEqual(f.engine.items[0].targetPlans[0].selected, [ref]);
+  assert.equal(kernel.player("A").energy, 1);
+  assert.equal(kernel.getObject("legend").exhausted, true);
+  assert.equal(kernel.getObject("borrowed-teemo").zone, "board");
+  resolveAll(f.engine);
+  assert.equal(kernel.object(ref), null);
+  assert.equal(kernel.getObject("borrowed-teemo").zone, "hand");
+  assert.equal(kernel.player("A").handSize, beforeHand + 1);
+  assert.equal(kernel.player("B").handSize, 0);
+  assert.equal(kernel.getObject("other").zone, "board");
+  assert.equal(kernel.history({ action: "return-to-hand" }), 1);
+  assert.ok(f.engine.trace.some(event => event.step === "resolved" && event.item === "swift-activation"));
 });
