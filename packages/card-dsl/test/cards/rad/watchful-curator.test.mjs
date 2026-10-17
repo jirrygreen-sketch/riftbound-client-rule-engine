@@ -1,5 +1,9 @@
 // Golden test for Watchful Curator (rad-037-167).
 //
+// Scenario execution evidence: ../templates/static-642.test.mjs.
+// This file keeps the validation/identity checks and the key structural
+// assertions; the real execution path for this card lives in that template row.
+//
 // judge-required: the static grant of [Deflect] is executable, but the target-tax
 // production and any-domain Power payment chain is still missing.
 // The production evidence is createEngineStaticBinder().bindStatic registering

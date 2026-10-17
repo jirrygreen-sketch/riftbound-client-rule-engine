@@ -63,6 +63,7 @@ export default {
     "layers/filter.ts 对未知键（keywords）恒真（实测无 Deploy 的 gear 也匹配），characteristics.keywords 则把列表与标量比较；" +
     "解释器的 Expr/Condition 词表也没有关键词谓词（实测 evaluateCondition 抛 Unsupported condition: has-keyword）；" +
     "该谓词属于 RIFT-359 条件/谓词工作流，不能用未知 filter 字段近似。" +
+    "通用测试台实测：带 [Deploy] 的 gear 与不带 [Deploy] 的 gear 同样让来源从 2 变成 3。" +
     "(2) 条件的相对玩家锚点在两条已合并查询路径上都不成立，且失败方向相反：" +
     "layers/filter.ts 把 controller: \"self\" 解析成 object.controller === object.controller，" +
     "实测同战场的敌方 gear 也满足该 clause（会凭空获得 +1 Might）；" +

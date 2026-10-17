@@ -36,7 +36,8 @@ export default {
     "(1) programs/statics.ts 的 staticFilter 拒绝 exclude 锚点，bindStatic 抛 " +
     "\"Static exclude anchor needs a dynamic relative filter\"（golden 实测 ProgramBindingError）；" +
     "(2) sameLocationAs 在绑定时被求值成固定 LocationRef，宿主移动后不会重算" +
-    "（golden 用同形 filter 证明位置被定格），而 CR 053.3/359.3.f.2 要求 here 按求值时的宿主位置重查。" +
+    "（golden 用同形 filter 证明位置被定格），而 CR 053.3/359.3.f.2 要求 here 按求值时的宿主位置重查；" +
+    "通用测试台实测：本卡 static 在绑定阶段即抛上述异常、注册表为空，因此同址友方单位保持在 Might 2。" +
     "解释器集合查询本身已支持 sameLocationAs/exclude 锚点，缺的是静态层的生产消费方。不近似实现。" +
     "依赖：静态层对 source-relative exclude 的消费与宿主位置变化的动态重算。",
   abilities: [
