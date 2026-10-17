@@ -26,7 +26,9 @@ test("ven-023-166 Zed: identity, status, judgeReason and verbatim sourceText", (
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /condition\.result/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(89|90|91|120|257)/);
   assert.match(program.judgeReason, /effect\.token/);
   assert.match(program.judgeReason, /187\.11/);
 });
@@ -99,17 +101,13 @@ test("ven-023-166 Zed: the token identity is the printed Shadow Clone, never a s
 });
 
 test.todo(
-  "ven-023-166 Zed: 'if you paid the additional cost' needs a cost-result binding (survey's " +
-    "condition.result / CR 356.4.f.1) so the Play Effect can be gated honestly"
-);
-
-test.todo(
-  "ven-023-166 Zed: the optional additional discard cost needs a CardProgram → cost-plan wiring " +
-    "(356.2/356.2.a, RIFT-89) plus the runtime hand candidates for the non-target discard pick"
+  "ven-023-166 Zed: the optional additional discard cost needs CardProgram → CostPlan wiring and a " +
+    "paid-cost receipt readable by the Play Effect (356.2/356.2.a/356.4.f.1, RIFT-261)"
 );
 
 test.todo(
   "ven-023-166 Zed: the 0 :rb_might: Shadow Clone token with its own attack ability (CR 187.11) is " +
     "absent from effect.token's frozen definition table (blocked there by design); playing it also " +
-    "needs the Finalize location choice for a played token (355.2/355.2.a, 440.2.b.1)"
+    "needs the Finalize location choice for a played token (355.2/355.2.a, 440.2.b.1), whose legal " +
+    "destination set is the position-selection gap tracked by RIFT-357"
 );
