@@ -1,3 +1,7 @@
+// Whole-card execution evidence (the card-played Play Effect and the gated
+// Draw 1 body through the real chain path) lives in
+// test/cards/templates/triggered-card-played-effect-draw-656.test.mjs. This file
+// keeps validation, identity, structure and the remaining sum-over-set gap.
 import assert from "node:assert/strict";
 import test from "node:test";
 
