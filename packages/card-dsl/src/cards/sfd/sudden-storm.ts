@@ -42,10 +42,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   `object-property(target, "combatRole")` through the merged expression
  *   interpreter.
  *
- * Status: judge-required. The attacker branch is executable through the merged
- * ObjectSnapshot.combatRole characteristic and condition interpreter. [Hidden]
- * remains blocked because its `cost.hidden` declaration still has no consumer
- * that grants Hide, facedown storage, or facedown play permissions.
+ * Status: judge-required (2026-10-17 review). The attacker branch is executable
+ * through the merged ObjectSnapshot.combatRole characteristic and condition
+ * interpreter. [Hidden] remains blocked because its `cost.hidden` declaration
+ * still has no consumer that grants Hide, facedown storage, or facedown play
+ * permissions, and [Action]'s `continuous.timing` expansion does not bind either:
+ * the merged static binder rejects the keyword's
+ * `appliesTo: ["card", "activated-ability"]` form ("Unsupported static appliesTo"),
+ * so the printed Showdown permission has no production consumer yet.
  */
 const TARGET_ID = "sudden-storm.unit-at-battlefield";
 
@@ -67,8 +71,10 @@ export default {
   judgeReason:
     "[Hidden] 的 cost.hidden 声明仍没有消费方：当前链/区域流程没有据此授予 Hide 动作、" +
     "facedown 区域存储或从 facedown 打出的许可（CR 811.1.b/811.1.c/811.6）。" +
+    "[Action] 的 continuous.timing 展开同样未接通：关键词展开使用 appliesTo: [\"card\", \"activated-ability\"]，" +
+    "而 programs/statics.ts 的静态绑定器实测以 Unsupported static appliesTo 拒绝该静态能力（806.1.c 的 Showdown 许可因此无消费方）。" +
     "「If it's attacking」所需的 ObjectSnapshot.combatRole 已在契约中存在，条件解释器会按 attacker " +
-    "分支求值；[Action] 的时机声明也由关键词与链时机查询消费。保持整卡 judge-required，" +
+    "分支求值（golden 实测 2/4 两个互斥分支）。保持整卡 judge-required，" +
     "不把 Hidden 近似成普通打出或公开区域。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },

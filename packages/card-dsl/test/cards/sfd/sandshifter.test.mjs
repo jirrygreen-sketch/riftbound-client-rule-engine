@@ -24,7 +24,11 @@ test("sfd-158-221 Sandshifter: program validates and keeps its identity", () => 
   assert.match(program.judgeReason, /355\.9\.b/);
   assert.match(program.judgeReason, /143\.2\.a/);
   assert.match(program.judgeReason, /TargetPlan/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  // RIFT-359 has merged; it added event/result predicates, not an effective-
+  // Might threshold on ObjectFilter, so it must no longer be listed as the gap.
+  assert.match(program.judgeReason, /RIFT-359 已合入/);
+  assert.match(program.judgeReason, /event-printed-characteristic/);
+  assert.ok(!/依赖：RIFT-359/.test(program.judgeReason), "a merged task must not stay as the dependency");
   assert.doesNotMatch(program.judgeReason, /RIFT-81|RIFT-32\/33/);
   assert.equal(
     program.sourceText,
@@ -94,7 +98,8 @@ test("sfd-158-221 Sandshifter: a unit that left the board makes the kill ignored
 
 test.todo(
   "sfd-158-221 Sandshifter: enforce the '3 :rb_might: or less' target ceiling at Finalize/Resolve " +
-    "(355.9.b / 143.2.a effective-Might predicate) once the RIFT-359 target-query predicate is merged"
+    "(355.9.b / 143.2.a effective-Might predicate) once an effective-Might threshold predicate is " +
+    "merged into ObjectFilter/TargetPlan; RIFT-359's event/result predicates do not cover it"
 );
 
 test("sfd-158-221 Sandshifter: TargetPlan filters are equality-only, so a Might ceiling remains judge-required", () => {
@@ -131,4 +136,36 @@ test("sfd-158-221 Sandshifter: TargetPlan filters are equality-only, so a Might 
     () => translateObjectFilter({ type: "unit", zone: "board", controller: "opponent", mightLte: 3 }),
     /Unsupported filter field mightLte/
   );
+});
+
+test("sfd-158-221 Sandshifter: the RIFT-359 predicate set does not add a Might threshold to target filters", () => {
+  // Live re-verification of the judgeReason: the merged predicates operate on
+  // event payloads and finalized cost/result receipts, so a target requirement
+  // can still not express "effective Might 3 or less". A near-threshold unit is
+  // returned by the only filter shape the translator accepts.
+  const kernel = world()
+    .unit("weak-enemy", { owner: "B", controller: "B", might: 2 })
+    .unit("over-threshold", { owner: "B", controller: "B", might: 4 })
+    .build();
+
+  // The chain normalizes controller/owner "self"/"opponent" before it calls
+  // this matcher, so the card's own filter shape is asserted by translation:
+  // the only accepted spelling is the controller-relative one.
+  assert.deepEqual(
+    translateObjectFilter({ type: "unit", zone: "board", controller: "opponent" }),
+    { type: "unit", zone: "board", controller: "opponent" }
+  );
+  // That accepted filter carries no Might comparison at all, so both the weak
+  // unit and the unit above the printed ceiling satisfy it.
+  const matches = kernel.objects
+    .filter((object) => matchesObjectFilter({ type: "unit", zone: "board" }, object))
+    .map((object) => object.ref.id);
+  assert.deepEqual(matches, ["weak-enemy", "over-threshold"]);
+  for (const key of ["mightLte", "mightGte", "is-mighty"]) {
+    assert.throws(
+      () => translateObjectFilter({ type: "unit", zone: "board", controller: "opponent", [key]: 3 }),
+      /Unsupported filter field/,
+      `${key} must still be rejected by the production translator`
+    );
+  }
 });

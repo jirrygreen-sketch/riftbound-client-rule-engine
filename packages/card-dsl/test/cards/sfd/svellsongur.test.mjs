@@ -8,6 +8,8 @@ const { keywordDefinitionsById } = await import(new URL("effects/keywords/regist
 const { instructionDefinitionsById } = await import(new URL("effects/instructions/registry.generated.js", ENGINE));
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
+const { buildCostPlan } = await import(new URL("cost/cost-plan.js", ENGINE));
+const copy = (await import(new URL("effects/instructions/effect.copy.js", ENGINE))).default;
 
 const CARD_ID = "card.hash-b789f6d844c0da0576802aca0c36d51a7475c3c3c62c21b9ef4092438971fafe";
 const EXPECTED_SOURCE =
@@ -66,6 +68,8 @@ test("sfd-059-221 Svellsongur: program validates and is judge-required", () => {
   assert.match(program.judgeReason, /479\.1/);
   assert.match(program.judgeReason, /copy/);
   assert.match(program.judgeReason, /Equip/);
+  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
+  assert.match(program.judgeReason, /copy-layer-traits-exceptions-and-attachment-duration-unavailable/);
 });
 
 test("sfd-059-221 Svellsongur: identity, ruleset, status and verbatim source text", () => {
@@ -128,3 +132,34 @@ test.todo(
   "sfd-059-221 Svellsongur: while-attached copy of the host unit's effect text needs the copy layer's effect-text " +
     "consumer and attachment lifetime cleanup (CR 479.1/479.1.d)"
 );
+
+test("sfd-059-221 Svellsongur: the Equip activation cost is really blocked in the merged cost pipeline", () => {
+  // Live evidence for judgeReason (1): the printed Equip cost cannot be planned,
+  // so the activated attach ability never reaches the Chain.
+  const [activation] = keywordDefinitionsById.get("Equip").expand({ value: equip.value, host: { canonicalCardId: CARD_ID } });
+  assert.deepEqual(activation.cost.payments.map((payment) => payment.kind), ["equip"]);
+  assert.throws(
+    () => buildCostPlan(fixture(), { id: "cost:svellsongur", cost: activation.cost, printed: { energy: 3, power: ["Calm"] } }),
+    (error) => error.name === "CostPlanError" && /Unsupported payment kind: equip/.test(error.message)
+  );
+});
+
+test("sfd-059-221 Svellsongur: effect.copy mode 'effect' cannot write the attached unit's text today", () => {
+  // Live evidence for judgeReason (2): the merged copy primitive negates the
+  // while-attached text copy with an explicit blocked reason, and the copy layer's
+  // copyable keys do not include text/effectText, so 479.1.d has no consumer.
+  const sourceKernel = fixture();
+  const run = runInstruction(copy, {
+    source: { kind: "constant", value: "self" },
+    mode: { kind: "constant", value: "effect" },
+    onto: { kind: "constant", value: "self" }
+  }, { world: sourceKernel });
+
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  assert.equal(
+    run.linked.copied.blockedReason,
+    "copy-layer-traits-exceptions-and-attachment-duration-unavailable"
+  );
+  assert.equal(sourceKernel.getObject("svellsongur").effectText, undefined);
+});

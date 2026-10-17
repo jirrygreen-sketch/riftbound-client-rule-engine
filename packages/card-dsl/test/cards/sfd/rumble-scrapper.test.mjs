@@ -8,9 +8,18 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 
 const cardId = "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c";
 const program = cardProgramsById.get(cardId);
+
+/** The binding layer refuses judge-required programs; the abilities are unchanged. */
+function liftedProgram() {
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  return lifted;
+}
 
 test("rumble-scrapper program is registered and validates", () => {
   assert.ok(program, "rumble-scrapper must be in the generated card registry");
@@ -27,6 +36,18 @@ test("rumble-scrapper identity, ruleset, status and verbatim text", () => {
     "Your Mechs have +1 :rb_might: (including me).\n" +
       "When I hold, play a 3 :rb_might: Mech unit token to your base."
   );
+});
+
+test("rumble-scrapper: judgeReason states the live Hold-payload gap and the merged parts", () => {
+  // The reason must stay a live re-verification: the merged aura/token paths are
+  // recorded as executable, and the remaining gap is the Hold payload identity.
+  assert.match(program.judgeReason, /scheduleScore/);
+  assert.match(program.judgeReason, /battlefieldId/);
+  assert.match(program.judgeReason, /383\.4\.d\.2\.a/);
+  assert.match(program.judgeReason, /473\.2\.b/);
+  assert.match(program.judgeReason, /matchesTriggerObject/);
+  assert.match(program.judgeReason, /RIFT-120/);
+  assert.ok(!/RIFT-95|RIFT-257|RIFT-258/.test(program.judgeReason), "merged task ids must not remain as gaps");
 });
 
 test("rumble-scrapper structure: static might aura + hold trigger token body", () => {
@@ -47,7 +68,9 @@ test("rumble-scrapper structure: static might aura + hold trigger token body", (
 
   assert.equal(hold.kind, "triggered");
   assert.equal(hold.trigger.at, "hold");
-  assert.equal(hold.trigger.filter.event, "hold");
+  // The closed event vocabulary (EVENT_PATTERN_TYPES) names this discriminant
+  // "held"; the pipeline maps it onto the hold timing point.
+  assert.equal(hold.trigger.filter.event, "held");
   assert.equal(hold.trigger.filter.filter.source, "self");
   assert.equal(hold.optional, false);
   assert.equal(hold.body.length, 2);
@@ -63,6 +86,29 @@ test("rumble-scrapper structure: static might aura + hold trigger token body", (
   // ability controller before the primitive receives its concrete LocationRef.
   assert.equal(instruction.args.mode.value, "play");
   assert.deepEqual(instruction.args.location, { kind: "linked-value", instructionId: "rumble-scrapper.base", key: "value" });
+});
+
+test("rumble-scrapper: the authored Hold filter registers but can never match a real hold emission (383.4.d.2.a)", () => {
+  // Live evidence for judgeReason: the production registration accepts the
+  // closed "held" spelling, but the real emission from turn/flow.ts carries only
+  // player + details.battlefieldId, so the translated object anchor (this card)
+  // is undefined on the event and the matcher returns false.
+  const binding = createProgramBinding({ cardPrograms: [liftedProgram()] });
+  const f = fixture({
+    cards: [{ id: "scrapper", cardId, types: ["unit"], energy: 4, power: [], might: 4, tags: ["Mech"] }]
+  });
+  const source = f.kernel.getObject("scrapper");
+  const ids = binding.registerProgramTriggers(f.engine, source);
+  assert.equal(ids.length, 1);
+  const [registration] = [...f.engine.pipeline.checkpoint().triggers.values()];
+  assert.equal(registration.spec.at, "hold");
+  assert.deepEqual(registration.spec.filter, { event: "held", object: { objectId: "scrapper" } });
+
+  const emitted = { timingPoint: "hold", kind: "hold", player: "A", details: { battlefieldId: "bf1" } };
+  assert.equal(matchesTriggerEvent(registration.spec.filter, emitted, "A"), false);
+  // A Hold by the opposing player cannot match either: the filter's only
+  // identity anchor is this card, which the emission never carries.
+  assert.equal(matchesTriggerEvent(registration.spec.filter, { ...emitted, player: "B" }, "A"), false);
 });
 
 test("rumble-scrapper golden: the merged continuous.might primitive registers the +1 aura layer entry", () => {

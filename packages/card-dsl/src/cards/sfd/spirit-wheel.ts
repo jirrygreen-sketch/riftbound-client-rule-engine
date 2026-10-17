@@ -18,17 +18,20 @@ import type { CardProgram } from "../../ir/index.js";
  *   指令包进 choice.optional 的 body（不用 choice + linkedTo）。
  * - "draw 1"：414.1 / 414.3，抽牌者缺省为能力控制者（190.6.d）。
  *
- * status = judge-required（缺成本内费用原语，不近似实现）：
- * - 触发侧已合入：CardProgram → TriggerRegistration 的绑定层（RIFT-257，programs/triggers.ts）
- *   能把本卡的 became-target 订阅注册进 events/pipeline（golden 实测 spec.at = became-target、
- *   target 过滤解析为 controller: self），不再缺订阅方。
- * - 费用侧仍是缺口："pay :rb_energy_1: and exhaust this" 按 383.3.b 是基础费用，但契约 3.1 的
- *   TriggeredAbility 没有 cost 字段；已合入的 cost.pay 原语（instructions/cost.pay.ts，
- *   registry.generated.ts entry10）只接受已结算费用计划形态的 args
- *   （{ cost/power/nonstandardOrder/payments/linkKey } 键），静态 IR 的 energy:/payments:
- *   键不是合法参数——golden 实测执行 choice.optional 接受分支时抛
- *   TypeError: Invalid cost.pay argument: energy。依赖：契约变更请求
- *   （TriggeredAbility 增加基础费用字段）+ 非 standard 支付的运行时引用接线。
+ * status = judge-required（成本内基础费用仍不可执行，不近似实现）：
+ * - 触发侧已合入：CardProgram → TriggerRegistration 的绑定层把本卡的 became-target
+ *   订阅注册进 events/pipeline（golden 实测 spec.at = became-target、target 过滤解析为
+ *   controller: self）。但 TriggerRegistration.cost / mayAtFinalize 仍是 undefined：
+ *   programs/triggers.ts 不从正文提取前导费用，383.3.a/383.3.e.2 要求「you may」在
+ *   Finalize 决定、383.3.b/404.1.b.1 要求后续费用作为基础费用在该步支付。
+ * - 费用侧仍是缺口：契约 3.1 的 TriggeredAbility 没有 cost 字段；已合入的 cost.pay
+ *   只接受已结算费用计划形态的 args（{ cost/power/nonstandardOrder/payments/linkKey }），
+ *   静态 IR 的 energy: 键被 argsSchema.parse 以 TypeError: Invalid cost.pay argument: energy
+ *   拒绝（golden 实测）。可接受的 payments: { energy: 1 } 只能支付资源：加入 exhaust 语义
+ *   （actions/exhaust 键或非 standard 引用）会走到 payablePlan，实测抛
+ *   CostPlanError("cannot-pay-cost")，因此「and exhaust this」的半段没有可执行的合法拼写。
+ *   把横置降级为结算期 effect.exhaust 会改变 383.3.b 的支付时点（405.2 允许在付费步拒付），
+ *   属近似实现。
  * - 已可真实执行的部分：became-target 订阅与 effect.draw 本体（golden 用参考内核执行）。
  */
 export default {
@@ -36,16 +39,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "触发侧已合入：CardProgram → TriggerRegistration 的绑定层（RIFT-257，programs/triggers.ts）已合入，" +
-    "能把本卡的 became-target 订阅注册进 events/pipeline（golden 实测 spec.at = became-target、" +
-    "target 过滤解析为 controller: self）。仍然缺的是费用侧：「you may pay :rb_energy_1: and exhaust this」" +
-    "按 CR 383.3.b/383.3.b.1 是该触发能力的基础费用、必须在 Finalize 支付，但契约 3.1 的 TriggeredAbility " +
-    "没有 cost 字段；已合入的 cost.pay 原语（instructions/cost.pay.ts，registry.generated.ts entry10）" +
-    "只接受已结算费用计划形态的 args（{ cost/power/nonstandardOrder/payments/linkKey } 键），静态 IR 的 " +
-    "energy:/payments: 键不是合法参数——golden 实测执行 choice.optional 接受分支时抛 " +
-    "TypeError: Invalid cost.pay argument: energy。effect.draw 本体已合入并单独执行；不近似实现（不把横置写成 " +
-    "effect.exhaust，也不把费用写成免费）。依赖：契约变更请求（TriggeredAbility 增加基础费用字段）" +
-    "+ 非 standard 支付的运行时引用接线。",
+    "触发侧已可绑定：programs/triggers.ts 把本卡的 became-target 订阅注册进 events/pipeline（golden 实测 " +
+    "spec.at = became-target、target 过滤解析为 controller: self），并且 TriggerRegistration 已有 cost/mayAtFinalize " +
+    "字段却仍为 undefined——绑定层不从正文提取前导费用与 383.3.a 的 Finalize「you may」决定。" +
+    "仍然缺的是费用侧：「you may pay :rb_energy_1: and exhaust this」按 CR 383.3.b/383.3.b.1/404.1.b.1 是该触发能力的基础费用、" +
+    "必须在 Finalize 支付，但契约 3.1 的 TriggeredAbility 没有 cost 字段；已合入的 cost.pay 只接受已结算费用计划形态的 args" +
+    "（{ cost/power/nonstandardOrder/payments/linkKey } 键），静态 IR 的 energy: 键被 argsSchema 实测拒绝" +
+    "（TypeError: Invalid cost.pay argument: energy），而可接受的 payments: { energy: 1 } 只覆盖资源半段——并入 exhaust 引用后会走到 payablePlan，" +
+    "实测抛 CostPlanError(cannot-pay-cost)，即「and exhaust this」没有合法拼写。effect.draw 本体已合入并单独执行；" +
+    "不近似实现（不把横置改写成结算期 effect.exhaust，也不把费用写成免费）。" +
+    "依赖：契约变更请求（TriggeredAbility 增加基础费用字段）+ programs/triggers.ts 的 cost/mayAtFinalize 提取与 " +
+    "非 standard 支付对象的运行时引用接线。",
   abilities: [
     {
       kind: "triggered",
