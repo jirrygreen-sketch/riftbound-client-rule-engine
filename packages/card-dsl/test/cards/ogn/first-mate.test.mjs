@@ -10,11 +10,16 @@ const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { default: ready } = await import(new URL("effects/instructions/effect.ready.js", engineCore));
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", engineCore));
+const { queryObjects } = await import(new URL("effects/interpreter/selectors.js", engineCore));
+const { translateObjectFilter } = await import(new URL("programs/filters.js", engineCore));
+const { createProgramBinding } = await import(new URL("programs/index.js", engineCore));
+const { fixture } = await import(new URL("../test/chain/helpers.mjs", engineCore));
 
 const CANONICAL = "card.hash-13c281a3bc1e1968da6243959de3a79839c9799f34c472de4e7356dacdbc9078";
 const [playedTrigger] = program.abilities;
 const readyInstruction = playedTrigger.body[0];
 const targetSpec = readyInstruction.targets[0];
+const forged = { ...program, status: "executable", judgeReason: undefined };
 
 /** Run the card's ready instruction with the given locked unit refs. */
 const readyUnits = (kernel, refs) =>
@@ -36,6 +41,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /exclude/);
   assert.match(program.judgeReason, /translateObjectFilter/);
+  assert.match(program.judgeReason, /359\.3\.e\.5/);
   assert.equal(program.sourceText, "When you play me, ready another unit.");
 });
 
@@ -111,3 +117,71 @@ test("golden: the triggered body readies the locked other unit through the real 
   assert.equal(kernel.getObject("other-unit").exhausted, false);
   assert.equal(kernel.getObject("first-mate").exhausted, true);
 });
+
+test("golden: the interpreter resolves exclude:'self' against the host, so 'another unit' is expressible there", () => {
+  // The interpreter's selector layer does understand the anchor: with the host
+  // bound, the source is subtracted and only the other unit remains. This is
+  // what makes the remaining gap a binding gap, not a rules gap.
+  const kernel = world()
+    .unit("first-mate", { exhausted: true })
+    .unit("other-unit", { exhausted: true })
+    .unit("third-unit", { exhausted: true })
+    .build();
+  const source = kernel.getObject("first-mate");
+  const bound = kernel.clone({ source: source.ref, sourceSnapshot: source });
+  const environment = { context: bound, linked: () => undefined, canLookBack: () => true, isIgnored: () => false };
+
+  assert.deepEqual(
+    queryObjects(targetSpec.filter, { ...environment, host: source.ref }).map(object => object.ref.id),
+    ["other-unit", "third-unit"]
+  );
+  // Even without an explicit host the context source stands in, so the card's
+  // own body executes correctly once the targets are locked.
+  assert.deepEqual(
+    queryObjects(targetSpec.filter, environment).map(object => object.ref.id),
+    ["other-unit", "third-unit"]
+  );
+});
+
+test("current gap: the production binder rejects the exclude anchor, so the trigger never registers", () => {
+  // programs/filters.ts translateObjectFilter allows a fixed key set that does
+  // not include the object anchors, and programs/triggers.ts runs it over every
+  // instruction target when a card program is bound.
+  assert.throws(
+    () => translateObjectFilter(targetSpec.filter),
+    error => error instanceof Error && /Unsupported filter field exclude/.test(error.message)
+  );
+
+  const state = fixture({ cards: [{ id: "first-mate", cardId: CANONICAL, types: ["unit"], might: 3 }] });
+  const errors = [];
+  createProgramBinding({ cardPrograms: [forged] }).attachLifecycle(state.engine, error => errors.push(String(error && error.message)));
+  state.engine.commit({ type: "move-zone", object: state.kernel.ref("first-mate"), to: "board", location: { type: "base", player: "A" } });
+
+  assert.deepEqual(errors, ["Unsupported filter field exclude"]);
+  let registered = 0;
+  for (const key of ["triggers", "registrations"]) if (state.engine.pipeline[key] instanceof Map) registered += state.engine.pipeline[key].size;
+  assert.equal(registered, 0);
+  // The same card without the anchor does register, isolating the anchor as the
+  // blocker rather than the trigger shape.
+  const withoutAnchor = {
+    ...forged,
+    abilities: [{
+      ...playedTrigger,
+      body: [{
+        ...readyInstruction,
+        targets: [{ ...targetSpec, filter: { type: "unit", zone: "board" } }]
+      }]
+    }]
+  };
+  const control = fixture({ cards: [{ id: "first-mate", cardId: CANONICAL, types: ["unit"], might: 3 }] });
+  const controlErrors = [];
+  createProgramBinding({ cardPrograms: [withoutAnchor] }).attachLifecycle(control.engine, error => controlErrors.push(String(error && error.message)));
+  control.engine.commit({ type: "move-zone", object: control.kernel.ref("first-mate"), to: "board", location: { type: "base", player: "A" } });
+  assert.deepEqual(controlErrors, []);
+});
+
+test.todo(
+  "First Mate: bind \"another unit\" through the production target pipeline (355.9.b / 359.3.e.5 / 416.1) " +
+    "once programs/filters.ts accepts the exclude anchor, then execute the card-played trigger end to end"
+);
+
