@@ -24,7 +24,7 @@ test("Confront program is structurally valid and judge-required", () => {
   // The judgeReason must name the actual gap (contract 3.1 / README §2).
   assert.match(program.judgeReason, /359\.2\.c/);
   assert.match(program.judgeReason, /805\.6\.a/);
-  assert.match(program.judgeReason, /RIFT-260/);
+  assert.match(program.judgeReason, /现有 replacement\.enter/);
   assert.match(program.judgeReason, /replacement\.enter/);
   // The reason must not claim the whole card is impossible: the draw is named.
   assert.match(program.judgeReason, /effect\.draw/);
@@ -80,7 +80,7 @@ test.todo(
   "Confront: 'Units you play this turn enter ready' needs a resolution-time temporary replacement " +
     "registered for the rest of the turn — 359.2.c units enter exhausted, and 805.6.a is explicit " +
     "that the replacement means the unit does not enter exhausted and then become ready, so " +
-    "effect.ready cannot stand in. RIFT-260's replacement.enter binds only the entering permanent's " +
+    "effect.ready cannot stand in. The existing replacement.enter binding only handles the entering permanent's " +
     "own entry replacement, not a this-turn grant to future units."
 );
 

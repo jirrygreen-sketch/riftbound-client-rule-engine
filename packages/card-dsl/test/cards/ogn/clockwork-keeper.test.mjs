@@ -26,11 +26,10 @@ test("ogn-044-298 Clockwork Keeper: identity, ruleset, status, judgeReason and s
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /356\.2\.b/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
-  // The still-current gaps: no CardProgram cost binding (RIFT-257) and no
-  // cost.pay instruction / receipt (RIFT-261), plus the missing cost-result
-  // condition source.
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  // The still-current gaps: programs/play.ts rejects the CardProgram cost
+  // shape, plus the missing cost-result condition source.
+  assert.match(program.judgeReason, /programs\/play\.ts/);
+  assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /condition\.result/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
@@ -82,8 +81,8 @@ test("ogn-044-298 Clockwork Keeper golden: Draw 1 with an empty deck draws as mu
 test.todo(
   "ogn-044-298 Clockwork Keeper: the optional additional cost cannot be charged from the card: the " +
     "merged cost pipeline consumes only caller-supplied CostPlanInput (cost/cost-plan.ts " +
-    "optionalAdditional), the CardProgram cost binding is unmerged (RIFT-257), and " +
-    "effects/instructions/ has no cost.additional / cost.pay primitive (RIFT-261)"
+    "optionalAdditional), while programs/play.ts rejects the CardProgram additional-cost/optional " +
+    "fields before it can produce that input"
 );
 
 test.todo(

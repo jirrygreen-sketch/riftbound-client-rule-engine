@@ -119,5 +119,5 @@ test.todo(
 );
 test.todo(
   "Crackshot Corsair: Finalize-time locking of 'an enemy unit here' plus the sameLocationAs anchor " +
-    "re-checked at Resolve belongs to the target system (RIFT-90)"
+    "re-checked at Resolve still needs the production target translator to consume sameLocationAs"
 );

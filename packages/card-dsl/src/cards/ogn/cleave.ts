@@ -13,18 +13,18 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required.
  * - "Give a unit [Assault 3] this turn" is a duration-bounded keyword grant and
- *   the merged `continuous.grant-keyword` instruction (RIFT-258) registers it:
+ *   the merged `continuous.grant-keyword` instruction registers it:
  *   the op resolves the selected unit and calls ResolveContext.addContinuous
  *   with an ability-layer keyword effect carrying the printed value 3, with the
  *   alias duration "end-of-turn" resolved for "this turn" (317.1.a/317.2.c/
  *   468.7.c; layers/ops `resolveContinuousDuration`) — executed by the golden.
  * - "a unit" names one game object on the Board and is a Choice, so it is a
  *   TargetSpec (355.5/355.7/355.9.a.1), not a pick; the target is read through
- *   the merged target system (RIFT-90) and revalidated at Resolve.
+ *   the merged target system and revalidated at Resolve.
  * - The granted Assault's functional text (+3 Might while the host is an
  *   attacker, CR 807.1.c/807.2) still has no executable consumer: the Assault
- *   KeywordDef exists, but there is no CardProgram keyword → expansion → layers
- *   binding (RIFT-257), the attacker designation is not part of the layers
+ *   KeywordDef exists, but the granted keyword is not automatically sent through
+ *   its KeywordDef expansion, the attacker designation is not part of the layers
  *   ObjectSnapshot, and layers/engine.ts conditionMatches does not evaluate the
  *   `compare` condition the expansion carries, so the bonus would either never
  *   apply or apply unconditionally. The card therefore stays judge-required.
@@ -36,13 +36,13 @@ const cleave = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "关键词授予原语已合入并可执行（continuous.grant-keyword，RIFT-258；golden 已真实注册 ability 层 " +
+    "关键词授予原语已合入并可执行（continuous.grant-keyword；golden 已真实注册 ability 层 " +
     "Assault 3 与 end-of-turn 期限），但被授予 Assault 的功能文本「+3 :rb_might: while it's an attacker」" +
     "（807.1.c/807.2）仍没有可执行消费链：Assault 的 KeywordDef 展开是条件于宿主 attacker designation 的 " +
-    "continuous.might，而 (1) 没有把卡牌 keyword 能力展开并注册进图层的绑定（RIFT-257），" +
+    "continuous.might，而 (1) 授予的关键词不会自动再次进入 KeywordDef.expand，" +
     "(2) designation 不在 layers 的 ObjectSnapshot 特征里，(3) layers/engine.ts 的 conditionMatches 不求解 " +
     "compare 条件（未知 kind 一律按 true），该条件在真实图层计算里既不能生效也不能正确关闭。" +
-    "依赖：RIFT-257（CardProgram 绑定）、designation 谓词与 compare 条件消费方（RIFT-91 后续）。不近似实现（不用 Buff 计数代替 Might 修改）。",
+    "依赖：授予关键词二次展开、designation 谓词与 compare 条件消费方。不近似实现（不用 Buff 计数代替 Might 修改）。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "Give a unit [Assault 3] this turn. (+3 :rb_might: while it's an attacker.)",

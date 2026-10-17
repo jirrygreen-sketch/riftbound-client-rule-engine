@@ -26,15 +26,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   battlefield-to-battlefield 许可的被动能力。
  *
  * status: judge-required —— 四处依赖未合入，均不近似实现：
- * 1. 可选附加费用 "kill any number of friendly units" 需要 cost.additional / cost.sacrifice
- *    指令原语（把消灭作为费用收取，并记录 "killed this way" 的数量承诺与可选支付决定，RIFT-261）；
- * 2. 按数量减费（每只 1 个 Order 符文）需要卡牌程序 → 费用计划的接线与数量链接
- *    （356.4、RIFT-257）；已合入的 buildCostPlan（RIFT-89）接受 discounts，但只消费调用方传入的输入；
- * 3. [Deflect] 的展开（target.tax）没有读取方：RIFT-90 的 target-plan 已提供 taxAdapter 通道，
- *    但没有任何代码读取卡牌 static 能力声明的 target.tax（卡牌 static 绑定 RIFT-257），
- *    且任意域 Power [A] 的支付路径属 RIFT-261；
- * 4. [Ganking] 的 continuous.movement 展开存在，但卡牌 static 绑定（RIFT-257）与移动系统读取
- *    路径均未接线。
+ * 1. 可选附加费用的 cost kind、kill payment 和 cost.pay 均存在，但 programs/play.ts
+ *    仍拒绝 CardProgram 的 additional-cost/optional 字段，不能把选择与“killed this way”回执
+ *    送入生产费用计划；
+ * 2. 按数量减费（每只 1 个 Order Power）仍缺卡牌程序到费用计划的数量链接；
+ * 3. [Deflect] 的 target.tax 展开存在，target-plan 也能收集 taxAdapter 请求，但没有把卡牌
+ *    static 声明接到目标 Finalize，且当前链路把税转换成 Energy，不能表达无域 Power [A]；
+ * 4. [Ganking] 的 continuous.movement 展开和 static binder 均已存在，但 KeywordDef 使用
+ *    标量 permission，而 movement() 查询要求 normalized permission.routes，当前注册结果无法
+ *    被规则查询消费。
  *
  * 结构：abilities[0] 声明两个关键词；abilities[1] 是 play 能力，其 cost 描述可选附加费用
  * （kill，any number，friendly unit）与折扣（每只 1 个 Order Power）；body 为空——
@@ -45,14 +45,14 @@ const commanderLedros = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处依赖未合入：(1)「you may kill any number of friendly units as an additional cost」缺附加费用指令原语" +
-    "（cost.additional / cost.sacrifice：把消灭作为费用收取并保留「killed this way」的数量承诺，204.2.a / 356.2.b.1，RIFT-261）；" +
+    "四处依赖未合入：(1)「you may kill any number of friendly units as an additional cost」的 cost kind、kill payment 与 cost.pay 已存在，" +
+    "但 programs/play.ts 仍拒绝 CardProgram 的 additional-cost/optional 字段，无法把选择和「killed this way」回执接入生产费用计划（204.2.a / 356.2.b.1）；" +
     "(2)「Reduce my cost by [C] for each killed this way」缺卡牌程序 → 费用计划的接线与数量链接" +
-    "（356.4 折扣；已合入的 buildCostPlan 只消费调用方传入的 discounts，RIFT-257）；" +
-    "(3) [Deflect] 的 target.tax 展开（809.1.c / 356.2.a.2）没有读取方：RIFT-90 的 target-plan 已提供 taxAdapter 通道，" +
-    "但没有任何代码读取卡牌 static 能力声明的 target.tax（卡牌 static 绑定 RIFT-257），任意域 Power [A] 的支付路径属 RIFT-261；" +
-    "(4) [Ganking] 的 continuous.movement 展开存在，但卡牌 static 绑定（RIFT-257）与移动系统读取路径均未接线。" +
-    "依赖：RIFT-257（CardProgram 绑定/费用接线）、RIFT-261（cost.pay 与任意域 Power）。",
+    "（356.4 折扣；buildCostPlan 只消费调用方传入的 discounts）；" +
+    "(3) [Deflect] 的 target.tax 展开（809.1.c / 356.2.a.2）没有接入卡牌 static 的目标 Finalize：target-plan 能收集 taxAdapter 请求，" +
+    "但当前链路把税转换成 Energy，不能表达无域 Power [A]；" +
+    "(4) [Ganking] 的 continuous.movement 展开和 static binder 均已存在，但 KeywordDef 的标量 permission 与 movement() 所需的 normalized permission.routes 不匹配，注册结果无法被规则查询消费。" +
+    "依赖：CardProgram → CostPlanInput/discount 数量链接、target.tax 的无域 Power 支付，以及 Ganking permission 的 routes 归一化。",
   sourceText:
     "As you play me, you may kill any number of friendly units as an additional cost. Reduce my cost by :rb_rune_order: for each killed this way.\n" +
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +

@@ -32,7 +32,7 @@ test("ogn-004-298 Cleave: program validates, is registered and stays judge-requi
   // The grant registers (executed below), but the granted Assault's functional
   // text still has no executable consumer (see judgeReason).
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /二次展开|KeywordDef\.expand/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /conditionMatches|compare/);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -157,6 +157,6 @@ test.todo(
 );
 test.todo(
   "ogn-004-298 Cleave: the granted Assault's +3 Might is computed by the merged Assault " +
-    "KeywordDef (effects/keywords/Assault.ts) once the attacker designation is available " +
+    "KeywordDef (effects/keywords/Assault.ts) once the granted keyword is expanded, the attacker designation is available " +
     "in the layers ObjectSnapshot (CR 807.1.c/807.1.d.1, combat flow)"
 );

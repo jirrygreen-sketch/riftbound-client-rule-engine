@@ -19,17 +19,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   描述性的 target 占位值 "self"，不声明 TargetSpec、不伪造 ObjectRef。
  *
  * status: judge-required —— 触发条件与宿主选择两项仍无法在已合入实现中表达：
- * 1. “another unit”（与你打出的另一张单位牌）：已合入的 matchesTriggerEvent
- *    （events/pipeline-match.ts，RIFT-120）只读取 EventPattern 顶层的 object/source/
- *    target 与其标量键，本卡声明的内层 `filter` 描述性对象不会被消费；它也没有
- *    「另一张牌 / 排除宿主」谓词（ObjectSelector 的 `exclude` 锚点只作用于解释器的
- *    集合查询）。依赖事件管线的“另一对象”触发过滤（后续任务）。
+ * 1. “another unit”（与你打出的另一张单位牌）：事件匹配器已经支持顶层
+ *    EventPattern，但 programs/filters.ts 在把本卡的嵌套 filter 翻译成运行时过滤器时
+ *    会拒绝 `other`/`exclude` 动态锚点，仍无法排除宿主并注册生产触发。
  * 2. “buff me” 缺少原语内的宿主选择器：effect.buff 的 `target` 参数只接受 TargetSpec id
  *    （内部读 ctx.targets(target)），没有 effect.ready 的 objects: {kind: "source"} 形式；
  *    解释器的 target 过滤也不消费 `{ object: "self" }` 锚点（layers/filter.ts 只按
  *    标量键比较），伪造 TargetSpec 会把程序化指定当成选择目标或错选其他单位，
  *    违反 355.10.d，故不写 targets（契约变更请求见任务回复）。
- * 3. card-played 时点由 chain/engine.ts 发射；CardProgram 触发注册属 RIFT-257。
+ * 3. card-played 时点和 CardProgram 触发注册已经存在；它们不能绕过上述过滤器与宿主
+ *    选择缺口。
  * effect.buff 本体（702.2.a / 702.3.a）本身已合入，不近似实现整卡。
  */
 export default {
@@ -37,14 +36,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "1) 触发条件「你打出另一个单位」无法表达：已合入的 matchesTriggerEvent（events/pipeline-match.ts，RIFT-120）只读取 " +
-    "EventPattern 顶层的 object/source/target 与其标量键（player/fromZone/toZone/amount/details），本卡程序里的内层 filter " +
-    "不会被消费；它也没有「另一张牌 / 排除宿主」谓词，ObjectSelector 的 exclude 锚点只作用于解释器集合查询，不作用于触发过滤" +
-    "（383.4.a.4 要求这是“另一个对象被打出”的触发）。依赖事件管线的“另一对象”触发过滤（后续任务）。" +
+    "1) 触发条件「你打出另一个单位」无法表达：事件匹配器已支持顶层 EventPattern，但 programs/filters.ts 在翻译本卡内层 filter 时拒绝 " +
+    "other/exclude 动态锚点，无法完成 383.4.a.4 要求的“另一个对象”排除。" +
     "2)「buff me」缺少原语内的宿主选择器：effect.buff 的 target 参数只接受 TargetSpec id（内部读 ctx.targets），" +
     "没有 effect.ready 的 objects: {kind: \"source\"} 形式；解释器的 target 过滤（layers/filter.ts）也不消费 {object: \"self\"} 锚点，" +
     "伪造 TargetSpec 会错选其他单位或把程序化指定当成选择目标，违反 355.10.d，故不写 targets（契约变更请求见任务回复）。" +
-    "effect.buff 本体（702.2.a / 702.3.a）本身已合入，golden 用真实原语执行 buff 与「已有 buff 不再放置」边界；CardProgram 触发注册属 RIFT-257。不近似实现整卡。",
+    "effect.buff 本体（702.2.a / 702.3.a）本身已合入，golden 用真实原语执行 buff 与「已有 buff 不再放置」边界；触发注册本身已存在。不近似实现整卡。",
   abilities: [
     {
       kind: "triggered",
