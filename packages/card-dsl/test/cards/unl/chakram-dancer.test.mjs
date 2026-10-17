@@ -32,7 +32,6 @@ test("unl-071-219 Chakram Dancer: identity, ruleset, status, judgeReason, source
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Ambush/);
-  assert.match(program.judgeReason, /RIFT-91/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -129,11 +128,3 @@ test("unl-071-219 Chakram Dancer golden: the merged grant-keyword op gives Shiel
   assert.deepEqual(layers.evaluate(kernel.ref("enemy-here")).keywords, []);
 });
 
-test.todo(
-  "unl-071-219 Chakram Dancer: [Ambush] (CR 822.1.b/822.1.c) needs a KeywordDef expanding to the " +
-    "battlefield play-location permission plus the [Reaction] timing; Finalize and Chain consumers remain open"
-);
-test.todo(
-  "unl-071-219 Chakram Dancer: 'give your other units here [Shield] this turn' needs a merged " +
-    "card-program registration path plus the Shield defender consumer (RIFT-91)"
-);

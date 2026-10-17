@@ -21,20 +21,26 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（缺口不近似实现）：
  * 1. [Ambush] 的 KeywordDef（RIFT-266）与 continuous.timing、play-location-permission
- *    声明已合入，但 Finalize 尚未消费战场位置许可，也没有把该许可限定到 Ambush 打出的那一次。
- * 2. 「give your other units here [Shield] this turn」使用已合入的
- *    continuous.grant-keyword（RIFT-258），golden 真实注册 Shield；仍缺卡牌持续效果进入
- *    layers 的生产绑定，以及 Shield 的 defender 条件消费。
- * 依赖：RIFT-91（卡牌静态效果与 Shield 消费）、RIFT-9/RIFT-120（Ambush 位置/时机与接线）。
+ *    声明已合入，但生产侧尚无 Finalize / canAct 消费战场位置许可，也没有把该许可
+ *    限定到 Ambush 打出的那一次 Reaction。
+ * 2. 触发与目标过滤用的 sameLocationAs / exclude（other units here）会被触发
+ *    ObjectFilter 的翻译层（translateObjectFilter）拒绝，绑定即失败；解释器层支持
+ *    这两个锚点，golden 已按真实集合验证。
+ * 3. Shield 授予本身可执行（continuous.grant-keyword，RIFT-258），但 defender 条件
+ *    加成（+1 :rb_might: while defending）没有消费方：designation 不是对象快照字段，
+ *    condition 的未知 kind 会回退为真，写成无条件加成属近似实现，故不写。
  */
 const chakramDancer = {
   canonicalCardId: "card.hash-932827b7cff5b4083f49ad39fa73a27896d400178b231d5a1952c9016f9dbaf3",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Ambush 的 KeywordDef（RIFT-266）与 continuous.timing、play-location-permission 声明已合入，但整卡仍有两处缺口，均不近似实现：(1) Finalize 尚未消费 Ambush 的战场位置许可，也没有把 Reaction 限定到该次打出；" +
-    "(2)「give your other units here [Shield] this turn」使用已合入的 continuous.grant-keyword（RIFT-258），golden 可真实注册 Shield，但卡牌持续效果进入 layers 的生产绑定与 Shield 的 defender 条件消费仍缺失。依赖：RIFT-91、RIFT-9、RIFT-120。" +
-    "目标过滤（controller + other + here）用解释器已支持的 sameLocationAs/exclude 锚点书写，已在 golden 中按真实集合验证。",
+    "三处缺口，均不近似实现：(1) Ambush 的 KeywordDef（RIFT-266）与 continuous.timing、play-location-permission 声明已合入，" +
+    "但生产侧尚无 Finalize / canAct 消费战场位置许可，也没有把该许可限定到 Ambush 打出的那一次 Reaction；" +
+    "(2) 触发与目标过滤的 sameLocationAs / exclude 会被触发 ObjectFilter 的翻译层（translateObjectFilter）拒绝，绑定即失败；" +
+    "解释器层支持这两个锚点，golden 已按真实集合验证；" +
+    "(3) Shield 授予本身可执行（continuous.grant-keyword，RIFT-258），但授予后 defender 条件的 +1 :rb_might: 加成没有消费方：" +
+    "designation 不是对象快照字段，condition 的未知 kind 会回退为真，写成无条件加成属近似实现，故不写。",
   abilities: [
     { kind: "keyword", keyword: "ambush" },
     {

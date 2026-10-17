@@ -28,8 +28,9 @@ test("unl-076-219 Petal Pixie: identity, ruleset, status, judgeReason, sourceTex
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /hasKeyword/);
+  assert.match(program.judgeReason, /staticFilter|layers/);
+  assert.match(program.judgeReason, /回退为 0|count/);
   assert.match(program.judgeReason, /Temporary/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -132,11 +133,3 @@ test("unl-076-219 Petal Pixie golden: the merged continuous.might op registers t
   assert.equal(createLayerEngine(context.objects, context.continuousEffects).evaluate(context.ref("petal-pixie")).might, 6);
 });
 
-test.todo(
-  "unl-076-219 Petal Pixie: '+1 :rb_might: for each' needs the continuous.might layers primitive with a " +
-    "card-program registration path (RIFT-91); the merged op execution is covered above"
-);
-test.todo(
-  "unl-076-219 Petal Pixie: 'units with [Temporary]' needs a keyword/characteristic member filter; the " +
-    "merged ObjectFilter only matches type/controller/zone/location/tags, so the count over-counts"
-);

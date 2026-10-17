@@ -30,7 +30,6 @@ test("unl-075-219 Gustwalker: identity, ruleset, status, judgeReason, sourceText
   assert.match(program.judgeReason, /824\.1/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-265/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -102,16 +101,3 @@ test("unl-075-219 Gustwalker golden: the merged Hunt body really gains XP", () =
   assert.equal(kernel.player("A").xp, 2);
 });
 
-test.todo(
-  "unl-075-219 Gustwalker: [Hunt 2] (CR 823.1.c.1) needs a KeywordDef subscribing at conquer/hold and " +
-    "a production event registration that preserves source/controller and aligns conquered/held event spelling; " +
-    "the merged expansion and effect.xp execution are covered above"
-);
-test.todo(
-  "unl-075-219 Gustwalker: [Level 3][>] (CR 824.1.b.1/824.1.c) needs an evaluable 'controller has 3+ XP' " +
-    "predicate and dynamic deactivation; the merged Condition cannot read PlayerSnapshot.xp"
-);
-test.todo(
-  "unl-075-219 Gustwalker: the dependent ability needs continuous.might plus continuous.grant-keyword with " +
-    "a card-program registration path into the layers engine (RIFT-91)"
-);

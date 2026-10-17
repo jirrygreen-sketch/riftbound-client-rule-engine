@@ -7,30 +7,20 @@ import type { CardProgram } from "../../ir/index.js";
  *   Your token units have +1 :rb_might:.
  *
  * 规则依据（CR v1.5）：
- * - 479.4："Your token units have +1 :rb_might:." 是算术层的持续修正；作用范围是
- *   与能力控制者同一控制者（740.1.a 的 "your"）的 token 单位。
- * - 186 / 440.2：token 由 create-token 游戏动作生成；"token units" 的判定要读对象的
- *   token 特征（ObjectSnapshot.isToken）。
+ * - 479.4：持续修正作用于 "your token units"，即与能力控制者同一控制者（740.1.a 的
+ *   "your"）的 token 单位；修正是算术层的 +1 :rb_might:。
+ * - 186 / 440.2：token 由 create-token 游戏动作生成；"token units" 依据对象快照的
+ *   isToken 特征判定。
  *
- * status = judge-required（缺口不近似实现）：
- * 1. continuous.might 原语已经合入，但还没有把卡牌 static 能力注册进图层引擎的适配
- *    路径（RIFT-91 卡牌接线缺口），本条修正当前不生效。
- * 2. 过滤器无法判定 token：已合入的 layers/filter.ts 的 matchesObjectFilter 不含
- *    isToken 成员判定（实测 { type: "unit", controller: "A", zone: "board", isToken: true }
- *    对非 token 单位仍返回 true）；事件侧 ObjectFilter 白名单同样没有该位。写成普通友方
- *    单位会把非 token 单位也一起加成，属近似实现，故不写。
- * 依赖：RIFT-91（layers-continuous 的卡牌接线与 token 特征过滤）。
+ * 状态：executable。continuous.might 原语、图层注册路径（createEngineStaticBinder）与
+ * layers/filter.ts 的 { type: "token" } 判定均已合入；执行证据见
+ * test/cards/unl/soul-shepherd.test.mjs（token +1、非 token +0、敌方 token +0、
+ * unbind 还原）。
  */
 const soulShepherd = {
   canonicalCardId: "card.hash-bd9ef27aeff0a310c407d20aaac7113859f60260060aac163b4025ea2e70bf4c",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "两处缺口，均不近似实现：(1) continuous.might 原语已合入，但还没有把卡牌 static 能力注册进图层引擎的适配路径" +
-    "（RIFT-91 卡牌接线缺口），本条 +1 :rb_might: 当前不生效；" +
-    "(2) 过滤器无法判定 token：layers/filter.ts 的 matchesObjectFilter 不含 isToken 成员判定" +
-    '（实测 { type: "unit", controller: "A", zone: "board", isToken: true } 对非 token 单位仍返回 true），' +
-    "事件侧 ObjectFilter 白名单也没有该位；写成普通友方单位会连非 token 单位一起加成。依赖：RIFT-91。",
+  status: "executable",
   abilities: [
     {
       kind: "static",
@@ -41,11 +31,8 @@ const soulShepherd = {
         amount: { kind: "constant", value: 1 },
         filter: {
           zone: "board",
-          type: "unit",
-          controller: "controller",
-          // token 特征判定的缺口见 judgeReason；这里按可审查形状书写，
-          // 不把它当成已生效的限制。
-          isToken: true
+          type: "token",
+          controller: "controller"
         }
       }
     }

@@ -7,6 +7,7 @@ import { MissingInformation } from "./values.js";
 function references(value: unknown): ObjectRef[] {
   if (Array.isArray(value)) return value.flatMap(references);
   if (value !== null && typeof value === "object" && "id" in value && "zoneEntryId" in value) return [objectRef(value)];
+  if (value !== null && typeof value === "object") return Object.values(value).flatMap(references);
   return [];
 }
 

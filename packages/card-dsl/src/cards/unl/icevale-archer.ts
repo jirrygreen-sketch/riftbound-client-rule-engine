@@ -25,10 +25,11 @@ import type { CardProgram } from "../../ir/index.js";
  *    events/trigger-spec.ts 的封闭枚举里，combat/（base-combat-allocation、
  *    derived-might）不发射任何时点，战斗流程属引擎批 5（RIFT-31/33/77）。
  * 2. 效果本体 "give a unit -1 :rb_might: this turn" 使用已合入的 continuous.might 原语，
- *    但 attack-declared 触发注册、目标锁定和图层消费路径仍未接线（RIFT-91）。
+ *    但 body 目标过滤的 sameLocationAs（"a unit here"）会被触发目标翻译层拒绝，
+ *    目标锁定在绑定即失败。
  * 3. 前导可选 Energy 费用（383.3.b）在冻结 IR 里没有承载字段（triggered ability
  *    无 cost）；cost.pay 原语已合入，但 Finalize 费用计划入口仍未接线（RIFT-89）。
- * 依赖：RIFT-31/33/77（战斗时点）、RIFT-89（费用计划）、RIFT-91（continuous.might）。
+ * 依赖：RIFT-31/33/77（战斗时点）、RIFT-89（费用计划）、翻译层 sameLocationAs。
  */
 const icevaleArcher = {
   canonicalCardId: "card.hash-cfa683e56408938bf27747d5d9dcb341900100c1cc87f15bd487c270cd7b2dee",
@@ -38,10 +39,10 @@ const icevaleArcher = {
     "三处缺口，均不近似实现：(1) 攻击时点 attack-declared 只存在于封闭枚举（events/timing-points.ts、trigger-spec.ts），" +
     "combat/ 不发射该时点（战斗流程属引擎批 5，RIFT-31/33/77），触发在真实内核中不可达；" +
     "(2) 效果本体「give a unit -1 :rb_might: this turn」使用已合入的 continuous.might 图层修正，" +
-    "但目标锁定与图层消费路径仍未接线（RIFT-91）；" +
+    "但 body 目标过滤的 sameLocationAs（a unit here）会被目标翻译层拒绝，目标锁定在绑定即失败；" +
     "(3) 前导可选 Energy 费用（383.3.b）在冻结 IR 的 triggered ability 里没有 cost 字段，" +
     "cost.pay 原语已合入但 Finalize 费用计划入口未接线（RIFT-89）——本能力只用 optional: true 表达 Finalize 决定，" +
-    "不把费用写成事后指令。依赖：RIFT-31/33/77、RIFT-89、RIFT-91。",
+    "不把费用写成事后指令。依赖：RIFT-31/33/77、RIFT-89、翻译层 sameLocationAs。",
   abilities: [
     {
       kind: "triggered",
