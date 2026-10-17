@@ -28,28 +28,36 @@ import type { CardProgram } from "../../ir/index.js";
  *   target form). 424.1.b (a stunned unit deals no combat damage and is a
  *   defender exception) belongs to the combat layer, not to this card.
  *
- * Status: judge-required. The stun is executable today (the golden test drives
- * the real effect.stun primitive), but the mandatory additional cost cannot be
- * charged: the merged chain Finalize builds cost plans from CostPlanInput and
- * the card-facing path only ever supplies `{ kind: 'printed' }` (chain/engine.ts
- * finalize). There is no merged adapter that turns a card program's printed
- * "as an additional cost" clause into a CostPlanInput.mandatoryAdditional
- * entry, and the card-program play-cost adapter still does not translate this
- * clause into that entry. Making the cost a body instruction instead
- * would resolve it at the wrong time (356.3/356.5) and would let the spell
- * resolve without paying, so that near-implementation is refused.
+ * Status: judge-required (revalidated 2026-10-17). The stun is executable
+ * today (the golden test drives the real effect.stun primitive), but the
+ * mandatory additional cost still cannot be charged on the merged path:
+ * programs/play.ts translateCost only accepts kinds printed/activated/explicit
+ * and explicitly rejects an `additional`/`additional-cost` kind or an
+ * `additional` cost field, so it folds this clause into the *base* cost rather
+ * than CostPlanInput.mandatoryAdditional (356.2.a vs 356.1). chain/engine.ts
+ * finalize does consume `input.mandatoryAdditional` for target taxes, but
+ * nothing produces that entry from a card program. Making the cost a body
+ * instruction instead would resolve it at the wrong time (356.3/356.5) and
+ * would let the spell resolve without paying, so that near-implementation is
+ * refused. The declared payment also keeps cost/plan-values.ts' exact-ObjectRef
+ * requirement: a static placeholder option throws "Cost requires an exact
+ * object reference" during plan construction (RIFT-358 owns the pending
+ * filter/ordered pick shape and is still unmerged).
  */
 const kiBurst = {
   canonicalCardId: "card.hash-9b0c4b851a4af3d330a6b22579433d60ad39e8bb85ccc33f1b28ab2189ce2062",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺「As an additional cost」的落地路径：CR 356.2 要求强制附加费用在费用计划阶段收取，但卡牌侧" +
-    "只有 { kind: 'printed' } 会进入 buildCostPlan（chain/engine.ts finalize），没有已合入的适配器" +
-    "把卡程序的附加费用子句转成 CostPlanInput.mandatoryAdditional，也没有 cost.additional / " +
-    "cost.pay 原语本身已经存在，但卡程序的 additional-cost 子句仍未转换为 Finalize 的 mandatoryAdditional，" +
-    "打出路径由协调任务的 describePlay 适配器持有）。写成 body 指令会在错误时机结算（356.3/356.5）" +
-    "并允许不付费用就结算，故不近似实现。effect.stun 已合入并有 golden 执行证据。",
+    "两处未合入依赖：(1)「As an additional cost to play this, exhaust a friendly unit.」在 356.2.a.1 下" +
+    "是强制附加费用，但 programs/play.ts 的 translateCost 只接受 printed/activated/explicit，且显式拒绝 " +
+    "additional / additional-cost kind 与 additional 字段（“Additional costs are not bound”），" +
+    "因此这条被并入**基础**费用（356.1）而不是 CostPlanInput.mandatoryAdditional；chain/engine.ts 的 finalize " +
+    "确实消费 input.mandatoryAdditional（当前只由 target-tax 生产），但没有把卡牌程序的附加费用子句转成该条目的生产方。" +
+    "写成 body 指令会在错误时机结算（356.3/356.5）并允许不付费用就结算，故不近似实现。" +
+    "(2) 费用内的非目标动态选择（355.10.c.1）仍缺：cost/plan-values.ts 的 choiceObjects 只读取精确 ObjectRef 的 options，" +
+    "静态占位选项在构造费用计划时抛 “Cost requires an exact object reference”，不消费 choice.filter 中的友方就绪单位条件" +
+    "（RIFT-358 的 filter/ordered pick 形状尚未合入）。effect.stun 已合入并有 golden 执行证据。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

@@ -20,20 +20,23 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Priority / Focus，430.3 允许带 Reaction 的 Add 在需要支付资源时启动。
  * - 括号里的提醒文本（430.2.a / 204.4.b.1）不是另一条能力。
  *
- * status = judge-required（逐个保留证据，不近似实现），当前缺口：
+ * status = judge-required（2026-10-17 复核，逐个保留证据，不近似实现），当前缺口：
  * - “Banish a unit or gear from your trash” 作为费用的表达不完整：
  *   cost/plan-values.ts 的 nonstandard 支付种类只有 exhaust / discard / recycle / kill /
- *   reveal / spend-buff，没有 banish；417.6 证明“从 Trash 回收”可以建模为带区域的
- *   选择，但 banish 种类当前仍缺失。把 banish
- *   放进结算正文会把它变成效果而不是费用（355.10.c.1 的 “[do X] to [do Y]” 中 X 是费用，
- *   付不出就不能激活，415.4 同理）。
+ *   reveal / spend-buff，没有 banish（实测 buildCostPlan 抛 “Unsupported payment kind: banish”）；
+ *   417.6 证明“从 Trash 回收”可以建模为带区域的选择，但 banish 种类当前仍缺失。
+ *   把 banish 放进结算正文会把它变成效果而不是费用（355.10.c.1 的
+ *   “[do X] to [do Y]” 中 X 是费用，付不出就不能激活，415.4 同理）。
  * - “[A] 任意域 Power” 不可表达：契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order
  *   六域封闭集合，effect.resources 明确记录 163.2.b 的 Universal Power 不可表达、绝不用
  *   某个域近似；本卡把 [A] 记为描述性的 power: ["rainbow"]，原语对其返回
  *   negated(impossible)。
- * - “Spend this Power only to play units or gear” 是该资源的用途限制：带约束的资源池与
- *   restriction 的消费方（chain/cost 在支付时校验）尚未合入；430.3 的 Add Reaction
- *   支付窗口同样未接线。
+ * - “Spend this Power only to play units or gear” 是该资源的用途限制：内核没有带约束的资源池
+ *   （src 内没有 use-only-to / restricted-power 一类消费键），programs/play.ts 的
+ *   translateRestriction 只把 condition/value 形状转成 Finalize 的合法性 Condition，
+ *   本卡的 descriptive restriction kind 会抛 “needs a rules adapter”；430.3 的 Add
+ *   Reaction 支付窗口虽有 chain/engine.ts 的 activateAddDuringPayment，但没有把本卡的
+ *   Add 能力接入该窗口的生产调用方。
  * - 印刷差异：同身份的 rad-170-167 删去了 “only”（“Spend this Power to play units or
  *   gear.”）。两者语义不同（区域/用途限制），目录未说明应按印刷号分别执行还是按官方
  *   勘误统一；本程序按任务指定的 rad-143-167 原文书写，差异本身不是本卡可裁定的（见
@@ -89,13 +92,17 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处未合入依赖：(1) 缺费用种类的 banish：「Banish a unit or gear from your trash」是 377.1 / 355.10.c.1 的费用" +
+    "(1) 缺费用种类的 banish：「Banish a unit or gear from your trash」是 377.1 / 355.10.c.1 的费用" +
     "（付不出就不能激活，415.4），但 cost/plan-values.ts 的 nonstandard 支付种类只有 exhaust / discard / recycle / kill / " +
-    "reveal / spend-buff，没有 banish；把 banish 放进结算正文会把它变成效果。" +
+    "reveal / spend-buff，没有 banish（实测 buildCostPlan 先抛 “Unsupported payment kind: banish”；即便换成受支持的种类，" +
+    "choice 的静态占位选项也会触发 “Cost requires an exact object reference”）；把 banish 放进结算正文会把它变成效果。" +
     "(2)「[Add] :rb_rune_rainbow:」的 [A] 任意域 Power（135.2.e.5 / 163.2.b）不可表达：契约与内核的 Domain 是六域封闭集合，" +
-    "effect.resources 明确记录 Universal Power 不可表达、绝不用某个域近似，本卡以 power: [\"rainbow\"] 保留记号（原语返回 negated impossible）。" +
-    "(3)「Spend this Power only to play units or gear.」是资源的用途限制：带约束资源池与 restriction 的消费方未合入，" +
-    "430.3 的 Add Reaction 支付窗口也未接线。另外同身份的 rad-170-167 删去了 “only”，两种印刷语义不同且目录未给出按印刷号执行还是" +
+    "effect.resources 明确记录 Universal Power 不可表达、绝不用某个域近似，本卡以 power: [\"rainbow\"] 保留记号（实测原语返回 negated impossible）。" +
+    "(3)「Spend this Power only to play units or gear.」是资源的用途限制：内核没有带约束的资源池（src 内没有 use-only-to / " +
+    "restricted-power 一类消费键），programs/play.ts 的 translateRestriction 只接受 condition/value 形状" +
+    "（本卡的 descriptive kind 会抛 “needs a rules adapter”）；430.3 的 Add Reaction 支付窗口" +
+    "（chain/engine.ts 的 activateAddDuringPayment）没有接入本卡 Add 能力的生产调用方。" +
+    "另外同身份的 rad-170-167 删去了 “only”，两种印刷语义不同且目录未给出按印刷号执行还是" +
     "勘误统一的依据，本卡按任务指定的 rad-143-167 原文书写。已合入并有执行证据：effect.banish 的 Banish 动作与横置费用形状，见 golden。不近似实现。",
   abilities,
   sourceText:
