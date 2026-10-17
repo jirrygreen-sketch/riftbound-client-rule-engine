@@ -33,68 +33,18 @@ import type { CardProgram } from "../../ir/index.js";
  * - 135.2.d.3: the parenthetical is reminder text; it describes the Gold token's
  *   own ability rather than adding one to this card.
  *
- * Status: judge-required (rechecked 2026-10-17). Current gaps, none approximated,
- * each verified against the merged tree:
- * - The Deploy KeywordDef is merged (effects/keywords/Deploy.ts), but its 830.1.b rewrites still
- *   have no consumers: continuous.location has no layer mapping in
- *   programs/statics.ts layerFor (measured: bindStatic throws judge-required
- *   "Static ability kind continuous.location has no layer mapping"), cleanup's
- *   non-Unit recall exemption is absent (turn/flow.ts throws
- *   TurnCombatBlockedError('recall-action') for Cleanup Recall, CR 323.6/458),
- *   and the opponent-Hold kill trigger's here:true filter is rejected by
- *   translateTriggerFilter (measured: "Unsupported filter field here"), so the
- *   Deploy hold clause remains pending.
- * - The Gold token is deliberately absent from effect.token's DEFINITIONS table:
- *   definitions carrying their own abilities (Gold, 187.5) are documented there
- *   as blocked / judge-required, and the primitive returns negated with
- *   blockedReason "token-definition-or-abilities-judge-required". Nothing here
- *   invents a plain gear token in its place.
- * - The "exhausted" entry override has no primitive path: effect.token's docs
- *   state "Entry overrides are not supported" (143.4 / 185.2.d), so playing it
- *   ready would misreport the board, and a later effect.exhaust would be a
- *   separate exhaust action rather than the printed entry state.
- * - The CardProgram -> TriggerRegistration adapter is merged, but the trigger
- *   cannot bind: the "turn-end" event is absent from the engine's
- *   EVENT_PATTERN_TYPES (measured: validateTriggerSpec reports
- *   invalid-event-type even though the timing point exists and turn/flow.ts
- *   emits it), and translateInstructionTargets rejects the body's
- *   `filter: { source: "self" }` TargetSpec (measured: "Unsupported filter field
- *   source"), so the Gold-token body cannot even be translated.
- * - The "you control this battlefield" condition has no evaluated predicate:
- *   the IR Condition kinds (always / never / compare / all / any / not /
- *   expression) carry no battlefield-control query. The condition is recorded as
- *   the pending predicate shape; translating the trigger first drops
- *   `source` from the sibling filter, so the recorded condition never reaches an
- *   evaluator.
- * Dependencies: Deploy's concrete location filter and turn-end event vocabulary,
- * the token definition table (187.5), and the entry-state override.
+ * 2026-10-17 再复核：整卡仍为 judge-required；当前缺口见 judgeReason。
+ * 已合入原语与关键词声明不等于生产链路可执行；局部执行证据见同名单卡测试。
  */
 const resourceExtractor = {
   canonicalCardId: "card.hash-15ed917fed0055c9ae8325c668e501db603af32e4ff58c00dca6ad354739ac93",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口（2026-10-17 复核，均实测，不近似实现）：(1) Deploy 的 KeywordDef 已合入" +
-    "（effects/keywords/Deploy.ts），但 " +
-    "830.1.b 的改写仍无消费方：continuous.location 在 programs/statics.ts 的 layerFor 无图层映射" +
-    "（实测 bindStatic 抛 judge-required「Static ability kind continuous.location has no layer mapping」），" +
-    "Cleanup 不应用非单位 Gear 不召回的豁免（turn/flow.ts 对 Cleanup Recall 抛 " +
-    "TurnCombatBlockedError('recall-action')，CR 323.6/458），hold 触发的 here:true 也被 " +
-    "translateTriggerFilter 拒绝（实测「Unsupported filter field here」）。" +
-    "(2) Gold gear token 定义（CR 187.5，带自身 " +
-    '"[Reaction][>] Kill this, [E]: [Add] [A]"' +
-    " 能力）不在 effect.token 的 DEFINITIONS 表：该原语对带能力的 token 保持 blocked/judge-required，" +
-    "实测返回 negated 且 blockedReason = token-definition-or-abilities-judge-required。" +
-    "(3) exhausted 入场覆盖：effect.token 文档明确不支持 entry overrides（143.4 / 185.2.d），" +
-    '"play ... token exhausted" 与 ready 的差别没有原语路径（先入场再 effect.exhaust 会多出一次横置动作，不是入场状态）。' +
-    "(4) CardProgram → TriggerRegistration 适配器已合入，但触发器绑不上：turn-end 事件不在引擎 " +
-    "EVENT_PATTERN_TYPES 词表内（实测 validateTriggerSpec 返回 invalid-event-type，时点本身存在且 " +
-    "turn/flow.ts 会发出），body 的 TargetSpec 过滤器 source: \"self\" 又被 translateInstructionTargets 拒绝" +
-    "（实测「Unsupported filter field source」），Gold token 的 body 连翻译都过不去；" +
-    "且「if you control this battlefield」没有可求值谓词（Condition 的 always/never/compare/all/any/not/expression " +
-    "都不查询战场控制状态），翻译还会先丢掉 sibling filter 的 source，程序只保留待接线条件形状。" +
-    "依赖：token 定义表（187.5）、入场状态覆盖、turn-end 事件词表与 source 锚点翻译、" +
-    "战场控制谓词（进行中：RIFT-359 条件谓词）。",
+    "Deploy（CR 830.1.b）的展开已存在，但 static continuous.location 在 programs/statics.ts 无图层映射，hold 的 here:true 无过滤适配；非 Unit Gear 的 cleanup recall 豁免仍未接入（830.1.b.3）。" +
+    "Gold gear token 定义（187.5）及 exhausted entry overrides（143.4、185.2.d）仍缺，effect.token 返回 token-definition-or-abilities-judge-required，不能用无能力装备或事后横置替代。" +
+    "CardProgram→TriggerRegistration 已合入，但 turn-end 的 EventPattern 不在 EVENT_PATTERN_TYPES，报 invalid-event-type。" +
+    "condition.result/事件印刷值谓词已合入，缺的仍是「you control this battlefield」的实际控制状态查询与触发/结算复核（364.3）；当前常量字符串是占位，按布尔表达式求值会恒真，绝非有效控制谓词。Gold 目的地已按普通 Gear 规则（359.2.d）改为 ability-controller-base，并由 condition.value 链接给 effect.token；该位置计算可执行，不能据此声称 Gold 已能生成或横置入场。",
   abilities: [
     // 830.1：印刷的 [Deploy] 声明（展开依赖 kw-deploy）。
     { kind: "keyword", keyword: "deploy" },
@@ -119,6 +69,15 @@ const resourceExtractor = {
       optional: false,
       body: [
         {
+          // 359.2.d：条件中的「this battlefield」不指定普通 Gear 的入场位置。
+          // effect.token 的 schema 尚不接受 location Expr，先求值再链接真实基地。
+          id: "resource-extractor.controller-base",
+          op: "condition.value",
+          args: {
+            value: { kind: "location", value: "ability-controller-base" }
+          }
+        },
+        {
           // 440.2.c / 185.2.a / 187.5：链上生成 Gold gear token 再交由 play 接手。
           // Gold 定义缺失与 exhausted 入场覆盖都使该指令 fail-closed（见 judgeReason）。
           id: "resource-extractor.play-gold-token",
@@ -127,21 +86,13 @@ const resourceExtractor = {
             token: { kind: "constant", value: "gold" },
             amount: { kind: "constant", value: 1 },
             mode: { kind: "constant", value: "play" },
-            // 目的地是来源战场（this battlefield，053.3）：token 在该战场生成，
-            // 目的地由来源快照的 location 提供。
-            target: { kind: "constant", value: "resource-extractor.self-battlefield" },
+            location: {
+              kind: "linked-value",
+              instructionId: "resource-extractor.controller-base",
+              key: "value"
+            },
             linkKey: { kind: "constant", value: "goldToken" }
-          },
-          targets: [
-            {
-              id: "resource-extractor.self-battlefield",
-              // 来源自身（符号选择器 self），其 Location 即 this battlefield。
-              filter: { source: "self" },
-              min: 1,
-              max: 1,
-              selection: "one"
-            }
-          ]
+          }
         }
       ]
     }

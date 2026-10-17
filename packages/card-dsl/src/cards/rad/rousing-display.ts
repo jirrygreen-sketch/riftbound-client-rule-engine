@@ -19,54 +19,18 @@ import type { CardProgram } from "../../ir/index.js";
  * - 「If you showed off, play four to your base instead」是取决于 Finalize 展示结果的互斥数量
  *   （832.1.d 的同源链接引用），不是玩家在结算时的新选择。
  *
- * status = judge-required（不近似实现），2026-10-17 按已合入源码逐条实测：
- * 1. 关键词 id 今天写不出来：契约校验器要求小写 symbol id（SYMBOL_PATTERN，不含空格），
- *    而已合入的 KeywordDef 在注册表键与 keyword 字段都写成 \"Show Off\"（effects/keywords/ShowOff.ts），
- *    programs/keywords.ts 的 definitionFor 只做大小写不敏感比较、不归一化空格/连字符差异。
- *    实测 \"show-off\" 通过 validateCardProgram 但 describePlay 抛 judge-required
- *    「Keyword show-off has no executable KeywordDef」；印刷拼写 \"Show Off\" 能展开却被校验器以
- *    「Expected a lowercase keyword id」拒绝。打出流程在关键词展开处就中断，
- *    已合入的 effects/keywords/ShowOff.ts 的 cost.reveal 展开根本产生不了
- *    （需要共享契约层的关键词 id 归一化决定）。
- * 2. 打出体的 choice.mode 结构被 Finalize 拒绝：实测 programs/play.ts 的 validateSurface 与
- *    chain/engine.ts 的 assertFinalizationSurface 都抛 ChainContractBlockedError
- *    「Mode choices require a Finalize/Resolve choice-plan adapter」。
- * 3. 「If you showed off」的判别式没有可执行谓词：合并 Condition 只有 always/never/compare/
- *    all/any/not/expression，没有读取 Finalize 展示结果的谓词，也没有它的链接值生产者；
- *    本卡用 choice.mode 的两个模式（showed-off / not-showed-off）保留结构，与已合入的
- *    ravenbloom-conservatory 处理不可表达分支的写法一致，不冒充可执行决策。
- * 4. cost.reveal / objects-shown-off 的消费方仍缺（全仓库只有 ShowOff.ts 自己提到
- *    cost.reveal），KeywordDef.expand 也仍拿不到印刷的 Object 子句（ShowOffParams.object
- *    无人填），展开里 object 仍是 null。
- *
- * 可执行部分：effect.token 的 play 路径（recruit，187.1）已合入，golden 用参考内核真实执行
- * 「play two 1 Might Recruit unit tokens to your base」；这不足以宣称整卡可执行。
- * 依赖：关键词 slug 与注册表键的一致性、cost.reveal / objects-shown-off 的 Finalize 消费方
- * 与 ShowOffParams 的印刷 Object 子句（无已分配任务号）、Finalize/Resolve choice-plan 适配器、
- * 「If you showed off」判别式谓词（进行中：RIFT-359 条件谓词）。
+ * 2026-10-17 再复核：整卡仍为 judge-required；当前缺口见 judgeReason。
+ * 已合入原语与关键词声明不等于生产链路可执行；局部执行证据见同名单卡测试。
  */
 const rousingDisplay = {
   canonicalCardId: "card.hash-e1dc41d23789b8f4890d5cd59e5dc7e12c0c0d447b2f09fd7acf63729930c55d",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均实测，不近似实现：(1) 关键词 id 今天写不出来：契约校验器要求小写 symbol id" +
-    "（SYMBOL_PATTERN，不含空格），而已合入的 KeywordDef 在注册表键与 keyword 字段都写成 \"Show Off\"" +
-    "（effects/keywords/ShowOff.ts），programs/keywords.ts 的 definitionFor 只做大小写不敏感比较、" +
-    "不归一化空格/连字符差异；实测 \"show-off\" 通过 validateCardProgram 但 describePlay 抛 judge-required" +
-    "「Keyword show-off has no executable KeywordDef」，印刷拼写 \"Show Off\" 能展开却被校验器以" +
-    "「Expected a lowercase keyword id」拒绝。打出流程在关键词展开处就中断，" +
-    "effects/keywords/ShowOff.ts 已合入的 cost.reveal 展开根本产生不了（需要共享契约层的关键词 id 归一化决定）。" +
-    "(2) 打出体的 choice.mode 被 Finalize 拒绝：实测 programs/play.ts 的 validateSurface 与 chain/engine.ts 的 " +
-    "assertFinalizationSurface 都抛 ChainContractBlockedError「Mode choices require a Finalize/Resolve choice-plan adapter」。" +
-    "(3)「If you showed off」的判别式没有可执行谓词：合并 Condition 没有读取 Finalize 展示结果的谓词，也没有产生该链接值的原语；" +
-    "本卡用 choice.mode 的两个模式保留结构（与 ravenbloom-conservatory 处理不可表达分支的写法一致），不把玩家选择冒充为该判别式。" +
-    "(4) cost.reveal / objects-shown-off 的消费方仍缺（全仓库只有 ShowOff.ts 自己提到 cost.reveal），" +
-    "KeywordDef.expand 也仍拿不到印刷的 Object 子句（object 仍为 null）。" +
-    "「play two 1 Might Recruit unit tokens to your base」的 effect.token play 路径已合入并由 golden 真实执行" +
-    "（Recruit 定义 see CR 187.1），但局部执行不构成整卡证据。依赖：关键词 slug 与注册表键的一致性、" +
-    "cost.reveal / objects-shown-off 的 Finalize 消费方与 ShowOffParams 的印刷 Object 子句（无已分配任务号）、" +
-    "Finalize/Resolve choice-plan 适配器、「If you showed off」判别式谓词（进行中：RIFT-359 条件谓词）。",
+    "[Show Off]（CR 832.1）仍缺印刷 Object 条件「Energy cost 7 or more」与每实例标识的参数通道，及 Finalize 对 cost.reveal 的展示选择、objects-shown-off 结果/快照生产。" +
+    "show-off slug 与注册键 Show Off 不一致，programs/keywords.ts 报 no executable KeywordDef；印刷空格拼写又不通过小写 symbol 校验。" +
+    "condition.result 已合入，缺的不是通用「If you showed off」谓词，而是该关键词实际产生的每实例结果。当前 choice.mode 只是两种数量的待迁移结构，不能由玩家任选数量，生产 Finalize 也仍缺 choice-plan adapter。" +
+    "effect.token 的 Recruit play 已可执行（187.1），两张与四张的生成/打出已有真实证据，但参考 TestWorld 的 play 未应用单位默认横置入场（359.2.c），入场状态仍需生产链路验证；这些局部证据不证明 Show Off 及其二/四互斥数量选择已完成。",
   abilities: [
     // 832.1：印刷的 [Show Off]；其对象说明（Energy cost 7 或更高的牌）记录在 judgeReason。
     { kind: "keyword", keyword: "show-off" },
@@ -78,8 +42,16 @@ const rousingDisplay = {
       },
       body: [
         {
-          // 「Play two … If you showed off, play four … instead」：判别式不可表达，
-          // 用两个互斥模式保留结构（见 judgeReason 第 2 点）。
+          // 先将「your base」按能力控制者求值，再交给仅接受既有 Expr 的 token schema。
+          id: "rousing-display.controller-base",
+          op: "condition.value",
+          args: {
+            value: { kind: "location", value: "ability-controller-base" }
+          }
+        },
+        {
+          // 「Play two … If you showed off, play four … instead」：展示结果尚无生产者，
+          // 两个模式仅保留待迁移结构，不代表玩家可以任选数量（见 judgeReason）。
           id: "rousing-display.choose-count",
           op: "choice.mode",
           args: {
@@ -99,8 +71,9 @@ const rousingDisplay = {
                         amount: { kind: "constant", value: 4 },
                         mode: { kind: "constant", value: "play" },
                         location: {
-                          kind: "constant",
-                          value: { type: "base", player: "controller" }
+                          kind: "linked-value",
+                          instructionId: "rousing-display.controller-base",
+                          key: "value"
                         },
                         linkKey: { kind: "constant", value: "recruitTokens" }
                       }
@@ -118,8 +91,9 @@ const rousingDisplay = {
                         amount: { kind: "constant", value: 2 },
                         mode: { kind: "constant", value: "play" },
                         location: {
-                          kind: "constant",
-                          value: { type: "base", player: "controller" }
+                          kind: "linked-value",
+                          instructionId: "rousing-display.controller-base",
+                          key: "value"
                         },
                         linkKey: { kind: "constant", value: "recruitTokens" }
                       }

@@ -11,7 +11,7 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
-import { fixture as chainFixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { fixture as chainFixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL =
   "card.hash-1b896afb48233f602257054e1545c35265f320f21b47acd9ff53e914226707f7";
@@ -40,6 +40,8 @@ test("rad-165-167 Rakelstake: identity, ruleset, status and exact source text", 
   assert.match(program.judgeReason, /event-player/);
   assert.match(program.judgeReason, /per-player/);
   assert.match(program.judgeReason, /destination|地点|here/);
+  assert.match(program.judgeReason, /object.location/);
+  assert.match(program.judgeReason, /registration\+source\+turn/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -196,30 +198,29 @@ test("rad-165-167 Rakelstake: an empty Main Deck predicts nothing without Burn O
 test.todo(
   "rad-165-167 Rakelstake: bind 'they' to the player who played the card (event-player selector, " +
     "contract change request) and gate the trigger to that player's first unit-or-gear play at this " +
-    "Battlefield each turn (per-player once frequency + play-location payload) — the frozen " +
-    "TriggerSpec.once scopes are keyed to one source, and no payload names the play's destination"
+    "Battlefield each turn (per-player once frequency + source-relative play-location filter) — the frozen " +
+    "TriggerSpec.once scopes are keyed to one source, and here is not bound to the played object location"
 );
 
-test("rad-165-167 Rakelstake: the card-played payload carries no play destination", () => {
-  // CR 359 / 407 / 053.3: the closed card-played emission (chain/engine.ts
-  // resolve()) supplies object + player only, so no filter or condition can name
-  // "played here". Combined with the per-source frequency key, the printed
-  // "first time they play a unit or gear here each turn" cannot be scoped.
-  const fixture = chainFixture();
-  const events = [];
-  fixture.engine.pipeline.onEvent = event => events.push(event);
-  fixture.engine.pipeline.emit({
-    timingPoint: "card-played",
-    object: fixture.kernel.getObject("source"),
-    player: "B"
-  });
-  const [event] = events;
+test("rad-165-167 Rakelstake: a real unit play carries destination and provenance in card-played", () => {
+  const fixture = chainFixture({ turnPlayer: "B", cards: [{
+    id: "played-unit", owner: "B", controller: "B", types: ["unit"], energy: 1, power: [], might: 2
+  }] });
+  const location = { type: "battlefield", id: "rakelstake" };
+  fixture.engine.execute(fixture.card("played-unit", { controller: "B", kind: "unit", location, body: [] }));
+  resolveAll(fixture.engine);
+  const event = fixture.engine.pipeline.events.find(event => event.timingPoint === "card-played");
+  assert.ok(event);
   assert.equal(event.timingPoint, "card-played");
   assert.equal(event.player, "B");
-  // Neither the emission nor the recorded event exposes a destination/location.
-  assert.equal("location" in event, false);
-  assert.equal(event.details, undefined);
-  assert.equal(event.object.ref.id, "source");
+  assert.equal(event.object.ref.id, "played-unit");
+  assert.equal(event.object.zone, "board");
+  assert.deepEqual(event.object.location, location);
+  assert.equal(event.fromZone, "hand");
+  assert.equal(event.details.playedFromZone, "hand");
+  assert.equal(event.details.playedFromHand, true);
+  assert.deepEqual(event.details.printed, { energy: 1, power: [], might: 2 });
+  assert.equal(fixture.kernel.player("B").energy, 19);
 });
 
 test("rad-165-167 Rakelstake: the per-turn frequency key is scoped to one registration+source", () => {
