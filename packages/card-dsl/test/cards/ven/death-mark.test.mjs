@@ -18,7 +18,7 @@ const SOURCE_TEXT =
   "[Flow] :rb_energy_1::rb_rune_rainbow::rb_rune_rainbow: (You may play this from your trash for its Flow cost. Then banish it.)";
 
 const [flowKeyword, play] = program.abilities;
-const [burnThree, playShadowClone] = play.body;
+const [burnThree, baseLocation, playShadowClone] = play.body;
 
 const deckIds = (kernel, player = "A") =>
   kernel.zoneSlice(player, "deck", "top").map((object) => object.ref.id);
@@ -36,7 +36,11 @@ test("ven-144-166 Death Mark: program passes validateCardProgram and is judge-re
   assert.equal(cardRegistryById.get(CARD_ID), program);
 });
 
-test("ven-144-166 Death Mark: judgeReason names the token definition, its ability closure and Flow", () => {
+test("ven-144-166 Death Mark: judgeReason names the remaining token closure and Flow gaps", () => {
+  assert.match(program.judgeReason, /187\.11/);
+  assert.match(program.judgeReason, /flow\.cost/);
+  assert.match(program.judgeReason, /attack-declared/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-357/);
 });
 
 test("ven-144-166 Death Mark: [Flow] plus the Burn 3 and Shadow Clone instructions", () => {
@@ -48,6 +52,7 @@ test("ven-144-166 Death Mark: [Flow] plus the Burn 3 and Shadow Clone instructio
   assert.equal(play.cost, undefined);
   assert.deepEqual(play.body.map((instruction) => [instruction.id, instruction.op]), [
     ["death-mark.burn-3", "effect.mill"],
+    ["death-mark.base-location", "condition.value"],
     ["death-mark.play-shadow-clone", "effect.token"]
   ]);
 
@@ -58,21 +63,40 @@ test("ven-144-166 Death Mark: [Flow] plus the Burn 3 and Shadow Clone instructio
   assert.equal(burnThree.picks, undefined);
   assert.equal(burnThree.linkedTo, undefined);
 
+  assert.deepEqual(baseLocation, {
+    id: "death-mark.base-location",
+    op: "condition.value",
+    args: { value: { kind: "location", value: "ability-controller-base" } }
+  });
+
   // "Play a 0 Might Shadow Clone unit token": 440.2.c/185.2.a create on the Chain then play.
   assert.deepEqual(playShadowClone.args, {
     token: { kind: "constant", value: "shadow-clone" },
     amount: { kind: "constant", value: 1 },
     mode: { kind: "constant", value: "play" },
-    location: { kind: "constant", value: { type: "base", player: "controller" } },
+    location: { kind: "linked-value", instructionId: baseLocation.id, key: "value" },
     linkKey: { kind: "constant", value: "shadowClone" }
   });
   // The token is created, not chosen (355.7), so it is never a target.
   assert.equal(playShadowClone.targets, undefined);
   assert.equal(playShadowClone.picks, undefined);
   // The two sentences are independent (158.1): the token play does not reference the burn.
-  assert.equal(playShadowClone.linkedTo, undefined);
+  assert.equal(playShadowClone.linkedTo, baseLocation.id);
   assert.equal(instructionDefinitionsById.get("effect.token"), token);
   assert.equal(keywordDefinitionsById.has("Flow"), true);
+});
+
+test("ven-144-166 Death Mark golden: the location bridge resolves the ability controller's Base", () => {
+  for (const controller of ["A", "B"]) {
+    const source = world().unit("death-mark", { owner: controller, controller }).build();
+    const kernel = source.clone({ controller, sourceSnapshot: source.getObject("death-mark") });
+    const outcome = resolveChainBody([baseLocation], kernel);
+    assert.equal(outcome.status, "executed");
+    assert.deepEqual(
+      outcome.linkedValues[`${baseLocation.id}.value`],
+      { type: "base", player: controller }
+    );
+  }
 });
 
 test("ven-144-166 Death Mark golden: [Burn 3] moves the top 3 cards of the Main Deck to trash in order", () => {
@@ -124,7 +148,5 @@ test("death-mark: the review records the current blockers", () => {
 test.todo("death-mark: 187.11: create and bind the Shadow Clone token with its full attack ability");
 
 test.todo("death-mark: 829.1.b.1: bind the printed Flow cost, chosen Flow instance and delayed chain-exit replacement");
-
-test.todo("death-mark: 440.2.c: supply the controller Base as a legal dynamic token location (RIFT-357)");
 
 test.todo("death-mark: emit attack-declared from actual combat designation changes (383.4.e/f)");
