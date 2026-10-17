@@ -3,9 +3,10 @@
 // status = judge-required (see the program's judgeReason). The merged cost
 // layer can plan and pay the declared kill charge when the caller passes it
 // (cost/cost-plan.ts optionalAdditional + cost/plan-values.ts "kill"), and the
-// merged effect.kill primitive kills the locked gear; what is missing is the
-// CardProgram -> CostPlanInput wiring plus the 356.4.f.1 paid receipt that
-// must gate the second ability.
+// merged effect.kill primitive kills the locked gear. What is missing is the
+// CardProgram -> CostPlanInput wiring, the runtime resolution of the
+// "dynamic:friendly-gear" option list, and the 356.4.f.1 paid receipt that must
+// gate the second ability.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -17,6 +18,7 @@ import { runInstruction, world } from "../../../../engine-core/dist/effects/test
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CARD_ID = "card.hash-5433b0927a4bc2a2f4e5d52590d57b1bec38882780434c5aed6ac38f5eb85c16";
 const SOURCE_TEXT =
@@ -25,6 +27,16 @@ const SOURCE_TEXT =
 
 const [costAbility, playTrigger] = program.abilities;
 const [killInstruction] = playTrigger.body;
+
+function punkWorld() {
+  const base = world()
+    .player("A", { energy: 5 })
+    .unit("punk", { cardId: CARD_ID, zone: "board", energy: 3, power: null, owner: "A", controller: "A" })
+    .unit("friendly-gear", { zone: "board", types: ["gear"], owner: "A", controller: "A", location: { type: "base", player: "A" } })
+    .unit("enemy-gear", { zone: "board", types: ["gear"], owner: "B", controller: "B", location: { type: "base", player: "B" } })
+    .build();
+  return base.clone({ source: base.ref("punk"), sourceSnapshot: base.getObject("punk") });
+}
 
 test("sfd-160-221 Zaun Punk: program validates and keeps its identity", () => {
   const result = validateCardProgram(program);
@@ -38,13 +50,18 @@ test("sfd-160-221 Zaun Punk: program validates and keeps its identity", () => {
 
 test("sfd-160-221 Zaun Punk: identity, status, judgeReason and verbatim sourceText", () => {
   assert.equal(program.status, "judge-required");
-  // README §2: name the current production gaps and the governing rule.
-  assert.match(program.judgeReason, /optionalAdditional/);
+  assert.equal(program.sourceText, SOURCE_TEXT);
+  // README §2: name the current production gaps and the governing rules.
+  assert.match(program.judgeReason, /356\.2\.b/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
   assert.match(program.judgeReason, /static cost\.additional/);
+  assert.match(program.judgeReason, /optionalAdditional/);
+  assert.match(program.judgeReason, /CostPlanInput/);
   assert.match(program.judgeReason, /dynamic:friendly-gear/);
   assert.match(program.judgeReason, /condition\.result/);
-  assert.equal(program.sourceText, SOURCE_TEXT);
+  // The stale "no consumer reads a program cost" claim is gone: the cost
+  // planner and its kill shape are merged, only the three named links are open.
+  assert.match(program.judgeReason, /cost\/plan-values\.ts/);
 });
 
 test("sfd-160-221 Zaun Punk: optional additional cost kills one friendly gear", () => {
@@ -82,6 +99,22 @@ test("sfd-160-221 Zaun Punk: the merged program binding registers the self card-
     event: "card-played",
     object: { objectId: "punk" }
   });
+});
+
+test("sfd-160-221 Zaun Punk: the production play path still does not consume the declared static cost", () => {
+  // Evidence for gap (1): the merged program-bound play draft carries no cost
+  // at all for this card, because describePlay only reads a PlayAbility's own
+  // cost and this card declares its additional cost through a static ability.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const kernel = punkWorld();
+  const draft = binding.describePlay(
+    { type: "play", player: "A", object: kernel.ref("punk") },
+    kernel.getObject("punk")
+  );
+  assert.equal(draft.cost, undefined);
+  assert.deepEqual(draft.body, []);
 });
 
 test("sfd-160-221 Zaun Punk: card-played self trigger kills one gear", () => {
@@ -134,15 +167,9 @@ test("sfd-160-221 Zaun Punk: the merged kill primitive kills a gear at its locat
 test("sfd-160-221 Zaun Punk: the declared payment executes through the merged cost plan (kill a friendly gear)", () => {
   // 356.2.b/356.2.b.1 + 357.1/.2: the charge is a cost component, paid by the
   // controller; 355.10.c keeps it out of the target set. The card's declared
-  // payment shape is what the golden charges here, so the only missing piece is
-  // the CardProgram -> CostPlanInput wiring (see judgeReason).
-  const base = world()
-    .player("A", { energy: 5 })
-    .unit("punk", { zone: "board", energy: 3, owner: "A", controller: "A" })
-    .unit("friendly-gear", { zone: "board", types: ["gear"], owner: "A", controller: "A", location: { type: "base", player: "A" } })
-    .unit("enemy-gear", { zone: "board", types: ["gear"], owner: "B", controller: "B", location: { type: "base", player: "B" } })
-    .build();
-  const kernel = base.clone({ source: base.ref("punk"), sourceSnapshot: base.getObject("punk") });
+  // payment shape is what the golden charges here, so the open links are the
+  // CardProgram -> CostPlanInput wiring and the placeholder resolution.
+  const kernel = punkWorld();
   const friendlyGear = kernel.ref("friendly-gear");
   kernel.setPicks("zaun-punk.friendly-gear", [friendlyGear]);
 
@@ -150,8 +177,7 @@ test("sfd-160-221 Zaun Punk: the declared payment executes through the merged co
   // The card declares its candidate options with a dynamic placeholder
   // ("dynamic:friendly-gear"); the merged cost layer resolves choice options
   // into runtime ObjectRefs, so the caller supplies the resolved option set for
-  // the locked pick. Producing that resolution from a card program is part of
-  // the missing CardProgram -> CostPlanInput wiring (see judgeReason).
+  // the locked pick. Producing that resolution from a card program is gap (2).
   const resolvedPayment = {
     ...payment,
     choice: { ...payment.choice, options: [friendlyGear] }
@@ -185,15 +211,34 @@ test("sfd-160-221 Zaun Punk: the declared payment executes through the merged co
   assert.equal(kernel.getObject("enemy-gear").zone, "board");
 });
 
+test("sfd-160-221 Zaun Punk: the declared placeholder options cannot be charged as written", () => {
+  // Evidence for gap (2): the merged planner requires exact runtime ObjectRefs,
+  // so the static declaration's "dynamic:friendly-gear" option list is rejected
+  // instead of silently selecting (or skipping) the cost.
+  const kernel = punkWorld();
+  const [payment] = costAbility.effect.payments;
+  assert.deepEqual(payment.choice.options, ["dynamic:friendly-gear"]);
+  assert.throws(
+    () => buildCostPlan(kernel, {
+      id: "cost:zaun-punk-raw",
+      cost: { energy: { kind: "constant", value: 3 } },
+      optionalAdditional: [
+        {
+          id: costAbility.effect.id,
+          kind: "additional",
+          selected: true,
+          cost: { payments: [payment] }
+        }
+      ]
+    }),
+    /Cost requires an exact object reference/
+  );
+});
+
 test("sfd-160-221 Zaun Punk: declining the optional cost pays only the base cost", () => {
   // 355.1.a: the controller declares the optional cost; declining skips the
   // component (plan.declinedAdditional) and leaves every gear on the Board.
-  const base = world()
-    .player("A", { energy: 5 })
-    .unit("punk", { zone: "board", energy: 3, owner: "A", controller: "A" })
-    .unit("friendly-gear", { zone: "board", types: ["gear"], owner: "A", controller: "A", location: { type: "base", player: "A" } })
-    .build();
-  const kernel = base.clone({ source: base.ref("punk"), sourceSnapshot: base.getObject("punk") });
+  const kernel = punkWorld();
   const [payment] = costAbility.effect.payments;
   const plan = buildCostPlan(kernel, {
     id: "cost:zaun-punk",
@@ -214,6 +259,36 @@ test("sfd-160-221 Zaun Punk: declining the optional cost pays only the base cost
   assert.equal(receipt.paid, true);
   assert.deepEqual(receipt.additional, []);
   assert.equal(kernel.getObject("friendly-gear").zone, "board");
+});
+
+test("sfd-160-221 Zaun Punk: the frozen Condition vocabulary has no cost-result predicate", () => {
+  // Evidence for gap (3): the IR's closed Condition kind set cannot express
+  // "if you paid the additional cost" (356.4.f.1). Asking the validator to
+  // accept a cost-result gate is rejected outright, which is why the shipped
+  // program keeps an ungated body instead of fabricating an always-true
+  // condition.
+  const gated = {
+    ...program,
+    abilities: [
+      costAbility,
+      {
+        ...playTrigger,
+        trigger: {
+          ...playTrigger.trigger,
+          condition: { kind: "result", result: "cost.paid", id: "zaun-punk.additional-cost" }
+        }
+      }
+    ]
+  };
+  const result = validateCardProgram(gated);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.issues.some(issue => issue.code === "invalid-condition-kind"),
+    JSON.stringify(result.issues)
+  );
+  // The shipped program is ungated, not gated by a fabricated truthy condition.
+  assert.equal(playTrigger.trigger.condition, undefined);
+  assert.equal(killInstruction.condition, undefined);
 });
 
 test.todo(

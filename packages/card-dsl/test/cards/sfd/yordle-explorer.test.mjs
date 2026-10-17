@@ -2,9 +2,12 @@
 //
 // status = judge-required (see the program's judgeReason): the printed-Power
 // cost gate of "with Power cost [[A]][[A]] or more" (CR 135.2.e.5 / 206.1,
-// applied as a 383.2.a.1 trigger condition) still lacks a production payload.
-// EventPattern.details, matching, trigger binding, and the effect.draw body are
-// exercised for real below.
+// applied as a 383.2.a.1 trigger condition) rides on the EventPattern.details
+// payload, and nothing merged derives that fact onto the card-played emission
+// (chain/engine.ts emits object/player only). What IS merged and is exercised
+// for real below: the production trigger adapter forwards details untouched,
+// the registration it produces matches on that payload key, the merged
+// matcher gates on it, and effect.draw executes.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -16,7 +19,11 @@ import {
   validateEventPattern,
   validateTriggerSpec
 } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -42,8 +49,11 @@ test("sfd-100-221 Yordle Explorer: identity, ruleset, status, judgeReason and ve
   assert.match(program.judgeReason, /383\.2\.a\.1/);
   assert.match(program.judgeReason, /206\.1/);
   assert.match(program.judgeReason, /card-played/);
-  assert.match(program.judgeReason, /Unsupported filter field details/);
+  // The remaining gap is the event-payload producer, not the adapter: the
+  // adapter forwards details since RIFT-257 (proved below).
+  assert.match(program.judgeReason, /chain\/engine\.ts/);
   assert.match(program.judgeReason, /printed.*Power cost/);
+  assert.match(program.judgeReason, /printedPowerCostAtLeast/);
   assert.match(program.judgeReason, /fail-closed/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -62,8 +72,10 @@ test("sfd-100-221 Yordle Explorer: a card-played trigger scoped to the controlle
   // The "Power cost 2+" clause rides on the closed EventPattern payload shape
   // (383.2.a.1 + 206.1); see the program's judgeReason for the missing producer.
   assert.deepEqual(ability.trigger.filter.details, { printedPowerCostAtLeast: 2 });
+  // The empty object is the event-mode anchor the production adapter needs to
+  // keep details out of the ObjectFilter translation; it adds no restriction.
+  assert.deepEqual(ability.trigger.filter.object, {});
   assert.equal(ability.trigger.filter.filter, undefined);
-  assert.equal(ability.trigger.filter.object, undefined);
 });
 
 test("sfd-100-221 Yordle Explorer: the trigger filter passes the engine's own EventPattern/TriggerSpec validation", () => {
@@ -155,9 +167,117 @@ test("sfd-100-221 Yordle Explorer golden: an empty deck links the actual drawn c
   assert.equal(outcome.linkedValues["yordle-explorer.draw-1.drawn"], 0);
 });
 
+/**
+ * Production harness for the merged trigger adapter (RIFT-257):
+ * programs/filters.ts translates the card's EventPattern, programs/triggers.ts
+ * turns it into a real TriggerRegistration, and the merged EventPipeline scans
+ * a real card-played emission against it. The registry needs an executable
+ * program to hand out (ProgramRegistry.get refuses judge-required cards), so
+ * the copy below substitutes only the status; the IR and filter under test are
+ * the shipped ones.
+ */
+function productionRegistration() {
+  const registry = new ProgramRegistry([
+    { ...program, status: "executable", judgeReason: undefined }
+  ]);
+  const source = world()
+    .unit("yordle", {
+      cardId: CARD_ID,
+      types: ["unit"],
+      owner: "A",
+      controller: "A",
+      zone: "board",
+      energy: 4,
+      power: null,
+      might: 4
+    })
+    .build()
+    .getObject("yordle");
+  const [registration] = triggerRegistrations(registry, source);
+  return { registration, source };
+}
+
+test("sfd-100-221 Yordle Explorer: the production adapter keeps EventPattern.details instead of rejecting it", () => {
+  // Regression evidence for the removed "Unsupported filter field details"
+  // claim: translateTriggerFilter is the merged production translator and now
+  // preserves the payload predicate verbatim, without widening it.
+  const translated = translateTriggerFilter(ability.trigger.filter, "yordle", "card-played");
+  assert.deepEqual(translated, {
+    event: "card-played",
+    object: {},
+    player: "self",
+    details: { printedPowerCostAtLeast: 2 }
+  });
+});
+
+test("sfd-100-221 Yordle Explorer: the registration the production adapter builds matches only 2+ Power plays", () => {
+  const { registration, source } = productionRegistration();
+  assert.equal(registration.spec.at, "card-played");
+  // The details predicate survives into the real registration; the empty
+  // object anchor adds no filter of its own.
+  assert.deepEqual(registration.spec.filter, {
+    event: "card-played",
+    object: {},
+    player: "self",
+    details: { printedPowerCostAtLeast: 2 }
+  });
+  assert.deepEqual(registration.activeZones, ["board"]);
+  assert.equal(registration.controller, "A");
+  assert.equal(registration.boundToIncarnation, true);
+  assert.equal(registration.source.ref.id, source.ref.id);
+
+  // The registered body is the card's own draw instruction, not a stub.
+  assert.deepEqual(registration.body.map(instruction => instruction.id), [
+    "yordle-explorer.draw-1"
+  ]);
+});
+
+test("sfd-100-221 Yordle Explorer golden: a real card-played wave triggers only for a payload-2+ play", () => {
+  const { registration, source } = productionRegistration();
+  const host = {
+    checkpoint: () => null,
+    restore: () => {},
+    execute: () => ({ outcome: { status: "done", events: [] }, emissions: [] }),
+    context: () => ({}),
+    objects: () => [source],
+    choose: () => {
+      throw new Error("unexpected choose");
+    }
+  };
+
+  const run = details => {
+    const emitted = [];
+    const pipeline = new EventPipeline(host, ["A", "B"], "A");
+    pipeline.onTrigger = snapshot => emitted.push(snapshot);
+    pipeline.registerTrigger(registration);
+    const played = {
+      ...source,
+      ref: { id: "played-card", zoneEntryId: 99 },
+      cardId: "card:played-card",
+      types: ["spell"],
+      zone: "chain",
+      location: null,
+      controller: "A",
+      owner: "A"
+    };
+    pipeline.emit({
+      timingPoint: "card-played",
+      object: played,
+      player: "A",
+      ...(details === undefined ? {} : { details })
+    });
+    return emitted.length;
+  };
+
+  // 206.1's printed threshold: 2 matches, 1 does not, a missing payload fails closed.
+  assert.equal(run({ printedPowerCostAtLeast: 2 }), 1);
+  assert.equal(run({ printedPowerCostAtLeast: 1 }), 0);
+  assert.equal(run(undefined), 0);
+});
+
 test.todo(
-  "sfd-100-221 Yordle Explorer: preserve EventPattern.details through the production trigger adapter and " +
-    "carry the played card's PRINTED (or copied) Power cost so the details predicate fires only for 2+ " +
-    "(CR 135.2.e.5 / 206.1 / 383.2.a.1) — the adapter currently routes details through ObjectFilter and " +
-    "the chain emission does not derive that payload, so the merged filter stays fail-closed"
+  "sfd-100-221 Yordle Explorer: carry the played card's PRINTED (or copied) Power cost onto the " +
+    "card-played emission so the details predicate fires only for 2+ " +
+    "(CR 135.2.e.5 / 206.1 / 383.2.a.1) — chain/engine.ts's resolve still emits object/player only, so the " +
+    "merged registration stays fail-closed until that producer lands"
 );
