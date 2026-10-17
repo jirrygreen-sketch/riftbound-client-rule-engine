@@ -44,9 +44,9 @@ test("rad-023-167 Ziggs, Short-Fused: identity, status, judgeReason and verbatim
   assert.match(program.judgeReason, /187\.12/);
   assert.match(program.judgeReason, /355\.2\.a/);
   assert.match(program.judgeReason, /Bonus Damage/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /RIFT-82/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /CardProgram 绑定（RIFT-257）与 card-played 生产方已合入/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -150,8 +150,8 @@ test.todo(
 
 test.todo(
   "rad-023-167 Ziggs, Short-Fused: playing the Bomb 'to a battlefield' (355.2.a legal locations) " +
-    "needs the Finalize location provider that enumerates the current Battlefields (RIFT-90 " +
-    "target.location); effect.token requires a literal LocationRef, so the static program carries " +
+    "needs the Finalize location provider that enumerates the current Battlefields " +
+    "(in-progress RIFT-357 location selection); effect.token requires a literal LocationRef, so the static program carries " +
     "the documented placeholder"
 );
 

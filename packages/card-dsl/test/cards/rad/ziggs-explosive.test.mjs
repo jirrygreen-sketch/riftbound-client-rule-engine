@@ -63,8 +63,11 @@ test("rad-112-167 Ziggs, Explosive: judgeReason names the current gaps only", ()
   assert.match(program.judgeReason, /Deploy/);
   assert.match(program.judgeReason, /Deathknell/);
   assert.match(program.judgeReason, /defense-declared/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /Finalize/);
+  assert.match(program.judgeReason, /battlefieldId/);
+  assert.match(program.judgeReason, /CardProgram 绑定（RIFT-257）与 card-played 生产方已合入/);
+  assert.doesNotMatch(program.judgeReason, /cleanup 的非单位 Deploy 免召回/);
 });
 
 test("rad-112-167 Ziggs, Explosive: the activated ability costs 1 energy plus exhausting this unit (145.1/377)", () => {
@@ -87,7 +90,7 @@ test("rad-112-167 Ziggs, Explosive: the body declares a played Bomb token to a F
   assert.equal(playBomb.targets, undefined);
   assert.equal(playBomb.picks, undefined);
   // The concrete LocationRef list is runtime data (355.2.a); the static program
-  // carries the placeholder the Finalize location provider replaces (RIFT-90).
+  // carries the placeholder the Finalize location provider replaces (RIFT-357).
   assert.deepEqual(playBomb.args.locations.value, [
     { type: "battlefield", id: "battlefields-from-finalize" }
   ]);
@@ -243,23 +246,24 @@ test.todo(
 
 test.todo(
   "rad-112-167 Ziggs, Explosive: 'Play a Bomb gear token to a battlefield' needs the Finalize " +
-    "location provider that enumerates the current legal Battlefields (355.2.a, RIFT-90 " +
-    "target.location); the static program only carries the documented placeholder list"
+    "location provider that enumerates the current legal Battlefields (355.2.a, " +
+    "in-progress RIFT-357 location selection); the static program only carries the documented placeholder list"
 );
 
 test.todo(
-  "rad-112-167 Ziggs, Explosive: Deploy (830.1.b: Finalize destination validation, non-Unit " +
-    "cleanup recall exemption, battlefield-identity hold trigger) and the Bomb Deathknell body " +
-    "need the trigger.leave primitive that effects/keywords/Deathknell.ts declares plus a 'here' " +
-    "location and mass-kill expansion for 'deal 2 to an enemy unit here and kill all other Bombs " +
-    "you control here' - RIFT-82 / the Deploy consumer work"
+  "rad-112-167 Ziggs, Explosive: Deploy (830.1.b) still needs the continuous.location Finalize " +
+    "destination validator and hold-trigger registration/location-filter adaptation: turn/flow.ts " +
+    "already provides the non-Unit Deploy cleanup exemption and hold/conquer/score events carry " +
+    "battlefieldId, but TriggerSpec cannot bind Deploy's 'here' to event.details.battlefieldId. " +
+    "The Bomb Deathknell body also needs the trigger.leave primitive that effects/keywords/Deathknell.ts " +
+    "declares plus a 'here' location and mass-kill expansion for 'deal 2 to an enemy unit here and " +
+    "kill all other Bombs you control here' - RIFT-82 / the Deploy consumer work"
 );
 
 test.todo(
   "rad-112-167 Ziggs, Explosive: the Defense Trigger cannot enter the chain yet - defense-declared " +
     "has no emitter (events/action-adapter.ts ACTION_TIMINGS omits it; combat/flow.ts throws " +
     "TurnCombatBlockedError('combat-start-transaction'); docs/rules/timing-point-producers.md marks " +
-    "it as pending), and CardProgram abilities need the src/programs/ binding path before chain and " +
-    "event subscription (RIFT-257)"
+    "it as pending)"
 );
 
