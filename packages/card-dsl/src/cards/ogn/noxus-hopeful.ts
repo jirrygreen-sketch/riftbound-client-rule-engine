@@ -23,11 +23,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   （kind: "cost.modify"），condition 用已定义的 history 维度表达 812.1.c 的
  *   "另一张牌"（本回合、排除宿主自身），amount 为减少量 2 Energy。
  *
- * 未合入依赖（不近似实现）:
- * - Legion 的 KeywordDef 与 HistoryQuery.exclude/objectFilter 形状已经合入，参考内核也能
- *   按这些字段计数；生产 ResolveContext 仍没有对 static condition 提供同等的历史对象过滤，
- *   因此 812.1.c 还不能可靠排除宿主自身的 play。
- * - cost.modify 仍没有 static CardProgram → CostPlan 的消费路径：static binder 没有该层类型，
+ * 未合入依赖（2026-10-17 逐条实测，不近似实现）:
+ * - 条件本身还求不出 812.1.c 的历史语义：把印刷 condition 绑到已映射的图层 kind 上实测，
+ *   expr.ts 的 count 只按 filter 查询当前对象集合，不消费 subject
+ *   "cards-finalized-this-turn" 的历史，filter 里的 player 也不是它认识的键，
+ *   于是 `exclude: "self"` 之外的**任意**现存对象都会让计数 ≥ 1：对手手牌、对手战场单位、
+ *   自己的符文都算数（实测各为 1），而条件并不因此正确。真正的 812.1.c 语义
+ *   （本回合被该玩家 Finalized 的、与本卡不同的另一张牌）没有生产求值路径。
+ * - cost.modify 仍没有 static CardProgram → CostPlan 的消费路径：static binder 的 layerFor
+ *   没有该 kind（实测 "Static ability kind cost.modify has no layer mapping"），
  *   费用计划也没有从静态能力收集这项 discount。
  * 保持 judge-required，不近似实现。
  */
@@ -36,10 +40,15 @@ const noxusHopeful = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "『[Legion] — I cost :rb_energy_2: less』的依赖条件是 812.1.c 的『与本卡不同的一张牌本回合被你 Finalized』：" +
-    "Legion 展开与 HistoryQuery.exclude/objectFilter 形状已合入，参考内核也能执行排除；但生产 ResolveContext " +
-    "尚未把历史对象过滤提供给 static condition，812.1.c 仍不能可靠排除宿主自身。cost.modify 也没有 " +
-    "static CardProgram → CostPlan 的消费路径（static binder 与费用计划都不收集该 discount）。不近似实现。",
+    "两处当前缺口（2026-10-17 实测，不近似实现）：" +
+    "(1) 812.1.c 的条件求值不成立：把印刷 condition 绑到已映射的图层 kind 后实测，" +
+    "expr.ts 的 count 只按 filter 查询当前对象集合、不消费 subject \"cards-finalized-this-turn\" 的历史，" +
+    "filter 的 player 也不是它认识的键，于是除 exclude: \"self\" 外的**任意**现存对象" +
+    "（对手手牌、对手战场单位、自己的符文）都会让计数 ≥ 1（实测各为 1），条件与" +
+    "『本回合已被你 Finalized 的、与本卡不同的另一张牌』无关；真实历史语义无生产求值路径。" +
+    "(2) cost.modify 没有 static CardProgram → CostPlan 的消费路径：programs/statics.ts 的 layerFor " +
+    "没有该 kind（实测 \"Static ability kind cost.modify has no layer mapping\"），" +
+    "费用计划也不会从静态能力收集 356.4 的 discount，实测打出仍支付全部印刷费用。",
   abilities: [
     { kind: "keyword", keyword: "legion" },
     {

@@ -1,3 +1,13 @@
+// RIFT-646 single-card golden: validation, identity, judgeReason and the key
+// structure of Gemcraft Seer. Real execution evidence for this card (the
+// whole-card scenario through the generic card harness plus the measured
+// outcome of binding the expanded Vision grant) lives in
+// `test/cards/templates/keyword-static-646.test.mjs`.
+//
+// The card stays judge-required: the Vision expansion's event filter carries
+// `object.id`, which `programs/filters.ts` rejects, and the "other friendly
+// units" grant's `exclude: "self"` anchor is rejected by `programs/statics.ts`.
+// Both failures are recorded as fail-closed in the template row.
 import assert from "node:assert/strict";
 import test from "node:test";
 
