@@ -10,7 +10,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺把 continuous.cost-modification 静态效果按宿主在战场的条件、打出玩家和 spell 类型收集为 Chain Finalize 的 CostPlanInput.discounts。programs/statics.ts 无费用层映射，programs/play.ts 未传递该折扣（CR 356.4.c/356.4.d/356.4.e）；不能把减费放到结算正文中。",
+    "仍缺 continuous.cost-modification 的静态费用收集器：programs/statics.ts 未消费该效果，programs/play.ts 未把宿主当前处于战场、施放者为其控制者且卡牌为 spell 的条件折扣传入 Chain Finalize 的 CostPlanInput.discounts（CR 356.4.a/356.4.d/356.4.e）。cost.modify/cost.pay 已支持减费及每条折扣自己的最低值；剩余缺口是 Finalize 绑定和宿主移动后的条件重验。",
   abilities: [
     {
       kind: "static",

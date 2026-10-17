@@ -94,3 +94,5 @@ test("ogn-232-298 Fiora, Victorious: the three granted KeywordDefs expand to the
 });
 
 test.todo("Fiora, Victorious: expand conditional keyword grants into live Ganking/Shield behaviors and effective-Might checks, and connect Deflect target costs to Finalize (CR 708/710, 809.1.c, 810.1.b, 814.1.c)");
+
+test.todo("Fiora, Victorious: grant keywords after effective Might rises 4 to 5 and revoke them after 5 to 4 through continuous.might (CR 708/710)");

@@ -12,7 +12,7 @@ const ekkoRecurrent = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺 KeywordDef 到现有 Chain 的具体适配：accelerate.cost 尚未转为 Finalize 的 optionalAdditional，入场替代必须由付费结果门控（CR 805.2.b/805.6.a）；Deathknell 展开的 trigger.leave 正文尚未与本卡效果体连接，cause/destination 过滤尚未翻译（CR 808.1.d）。此外 programs/triggers.ts 未把开头「Recycle me」提取为触发基础费用，TriggeredAbility 无 cost 字段；须按 CR 383.3.b/383.3.b.1 在 Finalize 回收 Trash 中当前牌后才结算 ready，不能以 linkedTo 冒充支付成功门控。",
+    "仍缺 KeywordDef 到 Chain 的适配：accelerate.cost 未由 programs/play.ts 转成 optionalAdditional，付费生成的入场就绪替代尚未与关键词展开连接（CR 805.2.b/805.6.a）。Deathknell 展开的 trigger.leave 未与本卡正文连接，cause/destination 过滤未翻译（CR 808.1.d）。programs/triggers.ts 也未把开头「Recycle me」提取为触发基础费用，TriggeredAbility 无 cost 字段；现有 Chain 已支持对 Trash 当前入区对象支付 recycle 费用，但本卡仍须在 Finalize 完成该绑定后才结算 ready（CR 383.3.b/383.3.b.1），不能用 linkedTo 代替费用支付。",
   abilities: [
     { kind: "keyword", keyword: "accelerate" },
     { kind: "keyword", keyword: "deathknell" },

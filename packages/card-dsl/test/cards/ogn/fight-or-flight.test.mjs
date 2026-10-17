@@ -7,6 +7,7 @@ import move from "../../../../engine-core/dist/effects/instructions/effect.move.
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 import { buildHiddenCostPlan, payHiddenCostPlan } from "../../../../engine-core/dist/cost/kinds/hidden.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-ae89acfc3272efb2e11f1ffd438022efc8a49ff3d3e37cfa6ede1a1b15bffca7";
 const play = program.abilities.find((ability) => ability.kind === "play");
@@ -105,6 +106,26 @@ test("ogn-168-298 Fight or Flight golden: a stale target is ignored (359.3.e)", 
 
   assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
   assert.equal(run.events.length, 0);
+});
+
+test("Fight or Flight original Move body locks a battlefield target and uses its controller's base", () => {
+  const f = fixture({ cards: [
+    { id: "controlled-unit", owner: "A", controller: "B", types: ["unit"], might: 3 },
+    { id: "gear-at-battlefield", types: ["gear"] }
+  ] });
+  for (const id of ["controlled-unit", "gear-at-battlefield"]) {
+    f.engine.commit({ type: "move-zone", object: f.kernel.ref(id), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
+  }
+  f.engine.advance();
+  f.engine.execute(f.draft("fight-or-flight-move", { body: play.body }));
+  assert.deepEqual(f.engine.items[0].targetPlans[0].selected, [f.kernel.ref("controlled-unit")]);
+  resolveAll(f.engine);
+  assert.equal(f.kernel.getObject("controlled-unit").owner, "A");
+  assert.equal(f.kernel.getObject("controlled-unit").controller, "B");
+  assert.deepEqual(f.kernel.getObject("controlled-unit").location, { type: "base", player: "B" });
+  assert.deepEqual(f.kernel.getObject("gear-at-battlefield").location, { type: "battlefield", id: "battlefield-1" });
+  assert.deepEqual(f.engine.pipeline.events.filter(event => event.timingPoint === "became-target").map(event => event.object.ref.id), ["controlled-unit"]);
+  assert.deepEqual(f.engine.pipeline.events.filter(event => event.timingPoint === "object-moved").map(event => event.object.ref.id), ["controlled-unit"]);
 });
 
 test.todo("Fight or Flight: Hide/facedown lifecycle, next-turn Reaction and Hidden battlefield target restrictions (CR 811.1.b–d)");

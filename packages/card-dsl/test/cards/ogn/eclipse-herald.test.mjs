@@ -159,3 +159,21 @@ test("Eclipse Herald complete effect body gives Might even when ready is replace
   layers.advance({ id: "turn-end" });
   assert.equal(layers.snapshot(kernel.ref("herald")).might, 7);
 });
+
+test("Eclipse Herald original body readies only its source and grants Might even if already ready", () => {
+  for (const exhausted of [false, true]) {
+    const base = world().unit("herald", { might: 7, exhausted })
+      .unit("other", { might: 3, exhausted: true }).build();
+    const kernel = base.clone({ sourceSnapshot: base.getObject("herald") });
+    const outcome = runAbilityBody(triggered.body, kernel);
+    assert.deepEqual(outcome.results.map(entry => entry.result.status), ["executed", "executed"]);
+    assert.equal(kernel.getObject("herald").exhausted, false);
+    assert.equal(kernel.getObject("other").exhausted, true);
+    assert.deepEqual(outcome.events.map(event => event.action), exhausted ? ["ready"] : []);
+    const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+    assert.equal(layers.snapshot(kernel.ref("herald")).might, 8);
+    assert.equal(layers.snapshot(kernel.ref("other")).might, 3);
+    layers.advance({ id: "turn-end" });
+    assert.equal(layers.snapshot(kernel.ref("herald")).might, 7);
+  }
+});

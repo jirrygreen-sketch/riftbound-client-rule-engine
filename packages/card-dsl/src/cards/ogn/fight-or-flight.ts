@@ -11,7 +11,7 @@ const fightOrFlight = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺 cost.hidden 的 Hide 行动、facedown 区域生命周期及下一回合起的 Reaction 许可接线，并须落实 Hidden 法术的战场目标限制（CR 811.1.b/811.1.c/811.1.d.2）；不能以费用计算代替完整 Hidden 路径。",
+    "仍缺 Hidden KeywordDef 的 cost.hidden 与实际 Hide/facedown 流程绑定：手牌或 Champion Zone、自身回合 Open State、控制且无隐藏牌的战场等 Hide 许可，以及从下一回合起的 Reaction/免基础费打出和隐藏战场目标限制均未接入程序生命周期（CR 811.1.b/811.1.c/811.1.d.2）。buildHiddenCostPlan/payHiddenCostPlan、Action 时机和本卡 Move 已存在；费用支付不能替代上述区域与时机路径。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },

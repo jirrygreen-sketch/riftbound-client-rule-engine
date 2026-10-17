@@ -12,7 +12,7 @@ const facebreaker = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺 cost.hidden 的 Hide 行动与 facedown 区域生命周期、下一回合起 Reaction 许可，以及 Hidden 法术目标限于隐藏战场的规则接线（CR 811.1.b/811.1.c/811.1.d.2）。此外 programs/filters.ts 不翻译第二目标的 sameLocationAs，TargetSpec.location 当前只接受具体或静态位置过滤，Chain Finalize 仍无法把第二目标绑定到第一目标的战场（CR 355.9.b）。",
+    "仍缺 cost.hidden 到 Hide 行动的绑定、facedown 生命周期、下一回合起 Reaction 许可及 Hidden 法术的隐藏战场目标限制（CR 811.1.b/811.1.c/811.1.d.2）；Hidden 费用计划与支付已存在。另缺跨目标 Finalize 绑定：programs/filters.ts 不翻译 sameLocationAs；TargetSpec.location 已支持 target-location，但 Chain Finalize context 未逐项写入先前选择，第二目标仍无法读取第一目标的战场（CR 355.9.b）。chain/interpreter-adapter.ts 的 LITERAL_FIELDS 也未解包 effect.stun 的 target Expr，导致原始正文在 Chain Resolve 被原语参数校验拒绝。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },
@@ -30,7 +30,7 @@ const facebreaker = {
           targets: [
             {
               id: "facebreaker.friendly-unit",
-              filter: { types: "unit", controller: "controller", location: { type: "battlefield" } },
+              filter: { types: "unit", controller: "controller", location: "battlefield" },
               min: 1,
               max: 1,
               selection: "one"

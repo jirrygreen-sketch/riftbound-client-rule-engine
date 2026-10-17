@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 import { buildAdditionalCostPlan, payAdditionalCostPlan, buildRecycleCostPlan, payRecycleCostPlan } from "../../../../engine-core/dist/cost/kinds/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { assessCostPayment } from "../../../../engine-core/dist/cost/payment.js";
 
 const [accelerate, deathknell, triggered] = program.abilities;
 
@@ -100,6 +101,23 @@ test("Ekko supported leading recycle payment acts on the current Trash incarnati
   assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay", "recycle"]);
   assert.equal(kernel.getObject("ekko").zone, "deck");
   assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["top", "bottom", "ekko"]);
+});
+
+test("Ekko supported recycle cost rechecks its locked Trash incarnation before payment", () => {
+  const base = world().card("ekko", { zone: "trash", cardId: program.canonicalCardId, types: ["unit"], might: 5 })
+    .deck("top").build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("ekko") });
+  const plan = buildRecycleCostPlan(kernel, { object: kernel.ref("ekko") }, { id: "recycle-ekko" });
+  assert.equal(assessCostPayment(kernel, plan).payable, true);
+  const before = kernel.ref("ekko");
+  assert.equal(kernel.perform({ type: "banish", object: before }).status, "done");
+  const assessment = assessCostPayment(kernel, plan);
+  assert.equal(assessment.payable, false);
+  assert.equal(assessment.error.reason, "cannot-pay-cost");
+  assert.equal(kernel.getObject("ekko").zone, "banishment");
+  assert.notDeepEqual(kernel.ref("ekko"), before);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["top"]);
+  assert.equal(kernel.events.some(event => event.action === "pay" || event.action === "recycle"), false);
 });
 
 test("Ekko rune-ready sub-body executes unchanged through Chain with controller-relative queries", () => {

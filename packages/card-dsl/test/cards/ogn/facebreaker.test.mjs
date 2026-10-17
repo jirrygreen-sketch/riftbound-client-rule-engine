@@ -13,6 +13,8 @@ import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 import { buildHiddenCostPlan, payHiddenCostPlan } from "../../../../engine-core/dist/cost/kinds/hidden.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-87a99b58ae6328e24ded8a032bff52588b3676f3c2eec58aafc5bafaa7a78aa0";
 const [hidden, action, play] = program.abilities;
@@ -90,7 +92,7 @@ test("Facebreaker structure: Hidden + Action, two stuns, the second anchored to 
   assert.deepEqual(friendlySpec.filter, {
     types: "unit",
     controller: "controller",
-    location: { type: "battlefield" }
+    location: "battlefield"
   });
   assert.equal(friendlySpec.selection, "one");
 
@@ -108,6 +110,35 @@ test("Facebreaker structure: Hidden + Action, two stuns, the second anchored to 
   assert.equal(enemySpec.selection, "one");
   // The anchor is a selector, never a runtime ObjectRef (README §3).
   assert.equal("id" in enemySpec.filter.sameLocationAs, false);
+});
+
+test("Facebreaker friendly target uses the actual Finalize battlefield filter before Stun", () => {
+  const offered = [];
+  const cards = [
+    { id: "friendly-here", types: ["unit"], might: 2 },
+    { id: "friendly-elsewhere", types: ["unit"], might: 2 },
+    { id: "friendly-base", types: ["unit"], might: 2 },
+    { id: "enemy-here", types: ["unit"], might: 2, owner: "B", controller: "B" },
+    { id: "gear-here", types: ["gear"] }
+  ];
+  const f = fixture({ cards, choose: request => {
+    if (request.type !== "select-objects") return undefined;
+    offered.push(request.options.map(ref => ref.id).sort());
+    return [request.options.find(ref => ref.id === "friendly-here")];
+  } });
+  for (const card of cards) {
+    const location = card.id === "friendly-base" ? { type: "base", player: "A" }
+      : { type: "battlefield", id: card.id === "friendly-elsewhere" ? "battlefield-2" : "battlefield-1" };
+    f.engine.commit({ type: "move-zone", object: f.kernel.ref(card.id), to: location.type, location });
+  }
+  f.engine.advance();
+  // Finalize is supported here; Chain's Stun argument adapter, the second target,
+  // and Hidden remain blocked. The existing primitive tests cover actual Stun.
+  f.engine.execute(f.draft("facebreaker-friendly", { body: translateInstructionTargets([stunFriendly]) }));
+  assert.deepEqual(offered, [["friendly-elsewhere", "friendly-here"]]);
+  assert.deepEqual(f.engine.items[0].targetPlans[0].selected, [f.kernel.ref("friendly-here")]);
+  for (const card of cards) assert.equal(f.kernel.getObject(card.id).stunned, false, "Finalize does not resolve Stun");
+  assert.deepEqual(f.engine.pipeline.events.filter(event => event.timingPoint === "became-target").map(event => event.object.ref.id), ["friendly-here"]);
 });
 
 test("Facebreaker golden: both units are stunned and neither takes damage (424.1)", () => {
@@ -211,6 +242,7 @@ test("Facebreaker anchor: the enemy spec matches only a unit at the first target
 
 test.todo("Facebreaker: Hide/facedown lifecycle, next-turn Reaction and Hidden battlefield restrictions (CR 811.1.b–d)");
 test.todo("Facebreaker: bind sameLocationAs across the two Finalize targets (CR 355.9.b)");
+test.todo("Facebreaker: decode effect.stun target Expr in Chain's primitive adapter before resolving the original body");
 
 test("Hidden cost component: hide pays one any-domain Power; later play waives base but retains additional costs", () => {
   const base = world().player("A", { energy: 3, power: ["Mind"] })
