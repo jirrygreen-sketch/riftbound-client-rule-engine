@@ -8,33 +8,33 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "When you play a card with Power cost :rb_rune_rainbow::rb_rune_rainbow: or more, draw 1."
  *
  * 规则依据（Core Rules v1.5）：
- * - 383.1 / 383.4.a："When you play a card …" 是触发能力（383.4.a.4：另一张牌被打出时
+ * - 383.1 / 383.4.a.4："When you play a card …" 是触发能力（383.4.a.4：另一张牌被打出时
  *   触发，不属 Play Effect）；时点用 "card-played"（events/timing-points.ts；
  *   chain/engine.ts 在 spell/unit/gear 结算完成时发射）。"you" 指能力控制者（190.6.d），
- *   故 filter 的 player 用 "self"（events/pipeline-match.ts 的 playerMatches 把 self 与
+ *   故 EventPattern.player 用 "self"（events/pipeline-match.ts 的 playerMatches 把 self 与
  *   能力控制者比较）。
  * - "with Power cost :rb_rune_rainbow::rb_rune_rainbow: or more"：135.2.e.5 /
- *   135.2.e.5.a 说明 :rb_rune_rainbow: 是任意域 Power，因此这是「被派出牌的印刷 Power
- *   cost ≥ 2」这一事件条件的简称；206.1 规定需要判定卡牌费用时读取印刷（或复制）费用。
- *   383.2.a.1 要求把该从句作为触发条件求值，因此它写在 EventPattern.details 载荷键上
- *   （events/trigger-spec.ts 的 EventPattern.details 是「按事件载荷字段匹配」的既有封闭
- *   形状，events/pipeline-match.ts 逐键比较）。同一 EventPattern 上的 object: {} 是事件
- *   模式锚点：programs/filters.ts 的 translateTriggerFilter 只在 object/source/target 之一被
- *   显式给出时才走事件模式，否则会把 details 收进 ObjectFilter 并报 Unsupported filter
- *   field details。details 在真实载荷出现前保持 fail-closed（缺字段即不匹配），不会被放宽
- *   成「任意打出」（206.1/383.2.a.1）。
+ *   135.2.e.5.a 说明 :rb_rune_rainbow: 是任意域 Power，两个即 2 Power；206.1 规定
+ *   需要判定卡牌费用时读取印刷（或复制）的基础费用；383.2.a.1 要求把该从句作为触发条件
+ *   求值，因此它写成 TriggerSpec.condition 的 event-printed 谓词（RIFT-359 合入的
+ *   effects/interpreter/predicates/printed.ts + helpers.ts），由 events/pipeline.ts 在
+ *   card-played 事件载荷上求值。131.3.b：卡牌的 Power cost 段可以不存在（deck-catalog
+ *   用 power: null 表示），此时"2+ Power"应为假而不是缺信息。
+ * - 事件载荷：chain/engine.ts 的 card-played 发射携带被打出牌的 ObjectSnapshot 与
+ *   details.printed（energy/power/might），helpers.ts 的 readPrintedCharacteristic
+ *   从事件对象/载荷读取印刷 Power。
  * - "draw 1"：effect.draw（414.1/414.3），抽牌者缺省为能力控制者。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required——事件条件的费用载荷仍未接通：
- * - 已合入且由 golden 真实执行：card-played 时点、player 绑定、EventPattern.details 的生产
- *   翻译（programs/filters.ts 原样转发 details）、matchesTriggerEvent 的逐键载荷匹配、以及
- *   effect.draw 本体。
- * - 仍缺：card-played 的生产发射（chain/engine.ts 的 resolve）只带 object/player，没有派生
- *   被打出牌的印刷（或复制）Power cost 载荷，因此 details: { printedPowerCostAtLeast: 2 }
- *   在真实发射中 fail-closed。需要的是事件载荷生产者（按 206/206.1 读取印刷/复制费用），
- *   而适配器转发已随 RIFT-257 合入。
- * 依赖：card-played 事件的印刷/复制 Power cost 载荷生产者（206/206.1、383.2.a.1）。
- * 不近似实现。
+ * status 判定（cards/README.md 第 2 节）：judge-required。
+ * - 已合入并由 golden 真实执行：card-played 时点、player: self 绑定（190.6.d）、
+ *   event-printed 印刷 Power 比较、以及 effect.draw 本体。golden 里印刷 2 Power 的牌
+ *   触发放抽 1，印刷 1 Power 的牌不触发。
+ * - 仍缺：被打出牌没有印刷 Power 段（deck-catalog power: null；131.3.b 该段可缺席）时，
+ *   helpers.ts 的 numericPrinted 对 null 抛 MissingInformation
+ *   （"Printed characteristic is unavailable"）；触发扫描因此把正在结算的牌留在 Chain 上
+ *   并向调用方抛错，而不是按 206.1/131.3.b 把"无 Power cost"评价为使 2+ 条件为假。
+ *   需要该谓词为缺失的印刷 Power 给出可比较语义（不得把卡牌数据的 null 改写成 0）。
+ * 依赖：effects/interpreter/predicates/helpers.ts 的缺失印刷特征语义。
  */
 const abilities: Ability[] = [
   {
@@ -44,15 +44,17 @@ const abilities: Ability[] = [
       filter: {
         event: "card-played",
         // 190.6.d："you" 是能力控制者。
-        player: "self",
-        // 事件模式锚点：translateTriggerFilter 需要 object/source/target 之一才会保留
-        // details；空对象不增加任何对象限制（被打出的牌可以是任意卡）。
-        object: {},
-        // 383.2.a.1 的附加条件从句：206.1 要求读印刷（或复制）费用，
-        // 135.2.e.5 的 :rb_rune_rainbow: 表示任意域 Power，故阈值为 ≥2。
-        // 该键属于 EventPattern 的封闭载荷形状，但今天的 card-played
-        // 发射不携带它（见 judgeReason），因此匹配 fail-closed。
-        details: { printedPowerCostAtLeast: 2 }
+        player: "self"
+      },
+      // 383.2.a.1 + 206.1：读被打出牌的印刷（或复制）Power cost，要求 >= 2。
+      // 131.3.b 的"无 Power cost"必须求值为假；当前 helpers.ts 对 null 抛错
+      // （见 judgeReason），故本卡保持 judge-required。
+      condition: {
+        kind: "event-printed",
+        object: "object",
+        characteristic: "power",
+        operator: "gte",
+        right: { kind: "constant", value: 2 }
       }
     },
     optional: false,
@@ -71,13 +73,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "触发时点、player: self 绑定、EventPattern.details 的生产翻译与 matcher、以及 effect.draw 本体均已合入，" +
-    "并由 golden 真实执行（programs/filters.ts 的 translateTriggerFilter 原样转发 details，" +
-    "events/pipeline-match.ts 逐键比较载荷）。仍缺 card-played 事件的印刷/复制 Power cost 载荷：" +
-    "chain/engine.ts 的 resolve 发射只带 object/player，没有按 206/206.1 派生被打出牌的印刷（或复制）Power cost，" +
-    "details: { printedPowerCostAtLeast: 2 } 在真实发射中因此 fail-closed。" +
-    "不能用恒真条件或任意 card-played 近似 206.1/383.2.a.1。" +
-    "依赖：card-played 事件的印刷/复制 Power cost 载荷生产者（206/206.1、383.2.a.1）。",
+    "383.2.a.1 要求把「with Power cost >= 2」作为触发条件求值；已合入并由 golden 真实执行的部分：card-played 发射携带被打出牌的印刷 Energy/Power/Might 快照" +
+    "（chain/engine.ts 的 details.printed 与对象快照），effects/interpreter/predicates/ 的 event-printed 谓词" +
+    "按 206.1 读取该印刷 Power 并比较，effect.draw 本体执行（golden：印刷 2 Power 的牌触发并抽 1，印刷 1 Power 的牌不触发）。" +
+    "仍缺：被打出牌没有印刷 Power 段（deck-catalog power: null；131.3.b 该段可缺席）时，" +
+    "effects/interpreter/predicates/helpers.ts 的 numericPrinted 对 null 抛 MissingInformation" +
+    "（\"Printed characteristic is unavailable\"），触发扫描会把正在结算的牌留在 Chain 上并向调用方抛错，" +
+    "而不是按 206.1/131.3.b 把「无 Power cost」评价为使 2+ 条件为假；" +
+    "需要该谓词对缺失的印刷 Power 给出可比较语义（不得把卡牌数据的 null 改写成 0）。" +
+    "依赖：effects/interpreter/predicates/helpers.ts 的缺失印刷特征语义。",
   abilities,
   sourceText: "When you play a card with Power cost :rb_rune_rainbow::rb_rune_rainbow: or more, draw 1."
 } satisfies CardProgram;
