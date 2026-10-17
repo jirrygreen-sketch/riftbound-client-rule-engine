@@ -72,6 +72,8 @@ test("ogn-162-298 Miss Fortune, Captain: judgeReason cites the move timing and t
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /standard-move-executor-v2/);
   assert.match(program.judgeReason, /finalizePick/);
+  assert.match(program.judgeReason, /zoneSlice/);
+  assert.match(program.judgeReason, /普通 PickSpec|PickSpec/);
   assert.match(program.judgeReason, /accelerate\.cost/);
   assert.match(program.judgeReason, /permission\.routes/);
 });
@@ -204,7 +206,7 @@ test.todo(
     "duel/standard-move-executor-v2 only hands requiresMoveTriggers to the outer caller)."
 );
 test.todo(
-  "ogn-162-298 Miss Fortune, Captain: the non-target pick (355.10.d/355.10.d.1) needs a Finalize " +
-    "selection pipeline that resolves the PickSpec filter and binds ctx.picks; finalizePick has no " +
-    "production caller and effect.ready reads picks that nothing populates for a card program yet."
+  "ogn-162-298 Miss Fortune, Captain: the ordinary non-target PickSpec (355.10.d/355.10.d.1) needs " +
+    "a production Finalize selection pipeline; ordered zoneSlice picks are supported, but finalizePick " +
+    "has no production caller and effect.ready reads picks that nothing populates for this card yet."
 );
