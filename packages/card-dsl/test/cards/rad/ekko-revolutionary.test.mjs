@@ -1,17 +1,20 @@
 // Golden test for Ekko, Revolutionary (rad-021-167).
 //
-// judge-required (see the program's judgeReason): "I enter ready" needs the
-// unmerged entry replacement, the Discard-1 cost needs a filter-based cost
-// selection, and the [Assault] expansion has no card→layers producer. The
-// runnable evidence is the merged banish → play-to-base-ignoring-cost half
-// (428.1 / 420.3 / 356.1.b.1) plus the structural cost declaration.
+// judge-required (see the program's judgeReason): the entry replacement
+// (RIFT-260 / bindReplacement), the Assault KeywordDef (RIFT-81) and the
+// banish -> play-ignoring-cost half are merged and really executed here; what
+// remains is the card-program registration path (RIFT-257), the filter-based
+// Discard-1 cost selection (RIFT-261), and the Attacker designation.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/ekko-revolutionary.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
@@ -38,8 +41,12 @@ test("rad-021-167 Ekko, Revolutionary: identity, status, judgeReason and verbati
   // README §2: the reason names the missing semantics and the owner tasks.
   assert.match(program.judgeReason, /I enter ready|enter ready/);
   assert.match(program.judgeReason, /Discard 1/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  // The enter-ready replacement and Assault expansion are merged (RIFT-260 /
+  // RIFT-81); the remaining owners are the card-program binding (RIFT-257) and
+  // the cost batch (RIFT-261).
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /combatRole/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -77,16 +84,46 @@ test("rad-021-167 Ekko, Revolutionary: the printed activation cost is Discard 1 
   assert.equal(discard.choice.zone, "hand");
 });
 
-test("rad-021-167 Ekko, Revolutionary: the declared Discard cost cannot be built from static IR yet", () => {
-  // CostSpec choices must name exact ObjectRefs at Finalize (cost/plan-values.ts
-  // choiceObjects); a static program can only declare a placeholder, and the
-  // merged cost pipeline rejects it instead of guessing a card.
+test("rad-021-167 Ekko, Revolutionary: the printed activation cost really plans once Finalize locks the discard choice", () => {
+  // 423.3 / 415.4: "Discard 1" is a completable activation cost. The merged
+  // cost pipeline builds it from the card's own CostSpec as soon as the
+  // Finalize step supplies the exact candidate objects (cost/plan-values.ts
+  // choiceObjects requires exact ObjectRefs). The card's printed ChoiceSpec is
+  // kept as declared; only the runtime candidate list, which static IR cannot
+  // know, is bound here the same way the concrete player is bound elsewhere.
   const kernel = world().unit("ekko", { might: 4, energy: 5, power: ["Fury"] }).hand("card-a").build();
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("ekko") });
-  assert.throws(
-    () => buildCostPlan(context, { id: "ekko.activate", cost: activated.cost }),
-    /exact object reference/
-  );
+  context.setAnswers({ "ekko.activate:pick:ekko.discarded-card": [kernel.ref("card-a")] });
+  const discardChoice = activated.cost.payments[0].choice;
+  const costSpec = {
+    ...activated.cost,
+    payments: [
+      {
+        ...activated.cost.payments[0],
+        choice: { ...discardChoice, options: [kernel.ref("card-a")] }
+      }
+    ]
+  };
+
+  const plan = buildCostPlan(context, { id: "ekko.activate", cost: costSpec });
+
+  assert.equal(plan.finalized, true);
+  // 415.3.a / 163.1: one Energy plus one Power of the printed Fury domain.
+  assert.equal(plan.base.energy, 1);
+  assert.deepEqual(plan.base.power, [{ amount: 1, allowedDomains: ["Fury"] }]);
+  // 423.3: the Discard-1 payment is planned against the chosen hand card.
+  assert.deepEqual(plan.base.actions, [
+    {
+      id: "base:payment:0:0",
+      componentId: "base",
+      action: { type: "discard", object: kernel.ref("card-a") }
+    }
+  ]);
+  // The card's own ChoiceSpec (min/max/selection/zone) drives the selection;
+  // the chosen hand card is what the payment consumes.
+  assert.equal(discardChoice.min, 1);
+  assert.equal(discardChoice.max, 1);
+  assert.equal(discardChoice.zone, "hand");
 });
 
 test("rad-021-167 Ekko, Revolutionary: 'Banish me' then 'play me to your base, ignoring my cost'", () => {
@@ -193,21 +230,68 @@ test("rad-021-167 Ekko, Revolutionary: the play step is ignored when the banishe
 });
 
 test.todo(
-  "Ekko, Revolutionary: 'I enter ready' as an entry replacement (369.3 / 359.2.c) — blocked because no merged primitive " +
-    "registers a card's replacement ability as an entry rewrite and effect.ready cannot simulate entering ready (RIFT-9/RIFT-120)"
-);
-
-test.todo(
   "Ekko, Revolutionary: collecting 'Discard 1' as an activation cost with a filter-based (non-target) selection — blocked because " +
-    "CostSpec choices require exact ObjectRefs and cost.discard / cost.pay consumers are unmerged (RIFT-89)"
+    "CostSpec choices require exact ObjectRefs and cost.discard / cost.pay consumers are part of the ongoing RIFT-261 cost batch"
 );
 
 test.todo(
   "Ekko, Revolutionary: [Assault] +1 Might while attacking (807.1.c/.d.1) — the KeywordDef is merged (RIFT-81) but no producer " +
-    "resolves a card's keyword abilities into the layers, and the Attacker designation is not an ObjectSnapshot characteristic (RIFT-91 / contract 3.8)"
+    "resolves a card's keyword abilities into the layers, and the Attacker designation is not an ObjectSnapshot characteristic (RIFT-257 / contract 3.8)"
 );
 
 test.todo(
   "Ekko, Revolutionary: registering the activation (and its chain cost/target lifecycle) from the card program — shared wiring " +
     "tracked by the coordinator (RIFT-1 / RIFT-120 follow-up)"
 );
+
+test("rad-021-167 Ekko, Revolutionary: 'I enter ready' really replaces the exhausted entry through the merged binding", () => {
+  // CR 369.3 / 359.2.c: the unit's default exhausted entry is replaced by a
+  // ready entry, so no separate "becomes ready" timing is produced. The
+  // replacement binding is the merged RIFT-260 path (bindReplacement).
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .player("B", { energy: 20 })
+    .deck(["A:deck:1", "A:deck:2", "A:deck:3", "A:deck:4"])
+    .hand("ekko", { types: ["unit"], energy: 0, power: null, might: 4 })
+    .build();
+  const base = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => {
+      kernel.restore(checkpoint.state);
+      kernel.copyLinkedFrom(checkpoint.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => {
+      throw new Error(`Unexpected choice: ${request.id}`);
+    },
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const host = { ...base, object: ref => kernel.object(ref) };
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  bindReplacement(enterReady, kernel.ref("ekko"), { host, pipeline: engine.pipeline });
+  engine.execute({
+    id: "play-ekko",
+    controller: "A",
+    source: kernel.getObject("ekko"),
+    kind: "unit",
+    speed: "normal",
+    body: []
+  });
+  let guard = 0;
+  while (engine.items.length) {
+    if (++guard > 30) throw new Error("Nonterminating test chain");
+    engine.pass(engine.priority);
+  }
+
+  const played = kernel.getObject("ekko");
+  assert.equal(played.zone, "board");
+  assert.equal(played.exhausted, false);
+  assert.equal(
+    engine.pipeline.events.some(event => event.timingPoint === "object-readied"),
+    false
+  );
+});

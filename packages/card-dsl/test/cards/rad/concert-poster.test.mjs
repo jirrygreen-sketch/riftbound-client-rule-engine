@@ -98,7 +98,7 @@ test("rad-116-167 Concert Poster: declining both triggers skips payment and toke
 test("rad-116-167 Concert Poster: the Recruit token leaf runs through chain create + play (CR 187.1 / 440.2.c)", () => {
   const kernel = world().player("A", { energy: 2 }).build();
   const playInstruction = program.abilities[1].body[0].args.body.value[1];
-  // cost.pay 未合入（judgeReason），此处只执行已合并的 token 叶子；位置占位按具体玩家求值。
+  // cost.pay 仍缺（judgeReason，RIFT-261），此处只执行已合入的 token 叶子；位置占位按具体玩家求值。
   const leaf = { ...playInstruction, linkedTo: undefined };
   const outcome = resolveChainBody(concretize([leaf], "A"), kernel);
   assert.equal(outcome.status, "executed", JSON.stringify(outcome.results));
@@ -129,5 +129,5 @@ test.todo(
 );
 test.todo(
   "rad-116-167 Concert Poster: play/conquer 触发器端到端订阅（card-played / conquer 时点 + here 绑定）" +
-    "依赖触发管线与征服流程（RIFT-33 scenarios-triggers / RIFT-31 scenarios-scoring）"
+    "依赖触发注册（RIFT-257 / RIFT-33 scenarios-triggers）；here 锚点仍不在封闭 EventPattern 词表里"
 );

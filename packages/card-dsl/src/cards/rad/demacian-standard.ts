@@ -10,14 +10,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   When you hold here, you may return this to its owner's hand.
  *
  * 规则依据（CR v1.5）：
- * - `[Deploy]`（830）只声明关键词身份（展开未合入，见下）。
+ * - `[Deploy]`（830）只声明关键词身份；展开属 effects/keywords/Deploy.ts（已合入，RIFT-267），
+ *   卡牌不自行展开（cards/README §5；卡牌侧注册路径见下）。
  * - “When one or more friendly units attack here”：attack-declared 时点（323.2 / 466.2.c / 466.2.c.3；
  *   383.4.e 攻击触发）；`here` 绑定本卡所在战场，`player/controller` 为“你”，`one or more friendly units`
  *   是触发条件而非目标（355.10.c：触发条件里的对象不是目标），故不写 TargetSpec。
  * - “give one of them +2 :rb_might: this turn”＝对触发事件里那些攻击者之一做临时 Might 修改：
  *   按契约 3.6 与 effect.buff 的边界说明，临时 Might 属于 layers 的 `continuous.might`
- *   （数值 2、期限 this-turn），只有该持续效果落地后才能执行；当前 `effects/instructions/` 下没有
- *   可注册的 continuous.might 指令原语（RIFT-9 清单 continuous 组 / RIFT-91 layers-continuous）。
+ *   （数值 2、期限 this-turn）；该指令原语已合入（RIFT-258）并已由 golden 真实执行。
  * - “When you hold here, you may return this to its owner's hand”：hold 时点（315.2.b.2 / 471.2 /
  *   473.2.b）；`choice.optional`（契约 3.9）包住被选指令；返回手牌用冻结的 `effect.zone`，目的地 "hand"
  *   在动作层映射为 `return-to-hand`，归属按对象的 owner 路由（本卡的返回目标是本卡自身，静态 IR 用契约 3.6

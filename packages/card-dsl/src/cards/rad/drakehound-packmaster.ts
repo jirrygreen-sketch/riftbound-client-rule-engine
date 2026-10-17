@@ -20,11 +20,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status: judge-required（不近似实现）：
  * - effect.reveal 不能自己取对手牌库顶：非手牌区域的子集必须由上游“按牌库顺序”的
- *   pick 提供（target.query 有序 pick 融合属 RIFT-90，未合入）；
+ *   pick 提供（有序区域 pick 的锁定/生命周期属 RIFT-90，尚未合入）；
  * - “ignoring its cost” 需要公开打出流程产出 ignore-all-cost 的 Finalize 费用计划
- *   （cost.ignoreAllCosts 在 cost/ 已实现但没有接线到卡牌可声明的原语路径），RIFT-89~91；
+ *   （cost.ignoreAllCosts 在 cost/ 已实现但没有接线到卡牌可声明的原语路径），属 RIFT-261；
  * - “each opponent” 的玩家集合（多人局）没有原语表达（effect.reveal 只接受单个 player）；
- * - “Recycle the rest” 的补集由 exclude 锚点声明，但补集解析需要上游提供完整已展示集合。
+ * - 没有已合入路径把 CardProgram 的 triggered ability 注册成 TriggerRegistration（RIFT-257）。
  *
  * golden 测试真实执行 effect.banish（被选牌入 Banishment）与 effect.recycle（余牌回收），
  * reveal/play 依赖写 test.todo。

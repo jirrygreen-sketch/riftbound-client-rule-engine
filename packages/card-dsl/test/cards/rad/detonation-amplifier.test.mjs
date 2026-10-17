@@ -71,9 +71,11 @@ test("rad-017-167 Detonation Amplifier: identity, ruleset, status and exact sour
 test("rad-017-167 Detonation Amplifier: the judgeReason names the actual merged gaps", () => {
   assert.match(program.judgeReason, /Deploy/);
   assert.match(program.judgeReason, /830\.1\.b/);
-  assert.match(program.judgeReason, /trigger\.leave/);
+  assert.match(program.judgeReason, /Deathknell/);
   assert.match(program.judgeReason, /383\.4\.g\.1/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  // The Deploy KeywordDef itself is merged (RIFT-267); the gap is the card
+  // binding (RIFT-257) plus the trigger-multiplicity interface.
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-017-167 Detonation Amplifier: [Deploy] declared, play effect at card-played, multiplicity declaration", () => {
@@ -165,10 +167,9 @@ test("rad-017-167 Detonation Amplifier golden: declining skips both the kill and
 });
 
 test.todo(
-  "rad-017-167 Detonation Amplifier: expanding [Deploy] (830.1.b) needs a Deploy KeywordDef; the " +
-    "'trigger an additional time' rewrite needs a trigger-collection multiplicity hook in " +
-    "events/ (383.4.g.1; the Deathknell expansion also still references the unmerged " +
-    "trigger.leave op, RIFT-82)."
+  "rad-017-167 Detonation Amplifier: the [Deploy] KeywordDef is merged (effects/keywords/Deploy.ts, RIFT-267); " +
+    "expanding it still needs the card -> keyword -> layers/trigger binding that RIFT-257 owns. The " +
+    "'trigger an additional time' rewrite needs a trigger-collection multiplicity hook in events/ (383.4.g.1)."
 );
 
 test.todo(

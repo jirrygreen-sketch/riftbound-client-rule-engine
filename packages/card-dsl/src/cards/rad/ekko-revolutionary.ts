@@ -32,7 +32,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    `card-in-controller-hand` 会抛 “Cost requires an exact object reference”）；
  *    cost.pay / cost.modify 属仍在进行的 RIFT-261。
  * 3. [Assault] 展开已合入（RIFT-81），但卡牌 keyword 能力 → 展开 → 图层注册的生产方仍缺
- *    （RIFT-91），Attacker designation 也还不是 ObjectSnapshot 特征。
+ *    （RIFT-257/RIFT-91），Attacker designation 也还不是 ObjectSnapshot 特征。
  * “Banish me, then play me to your base, ignoring my cost” 两段本身可用已合入的
  * effect.banish + effect.play（ignoring-cost 以 finalized 零费用计划表达，356.1.b.1）
  * 真实执行，见 golden；chain 的 Finalize 接线仍属共享工作。
