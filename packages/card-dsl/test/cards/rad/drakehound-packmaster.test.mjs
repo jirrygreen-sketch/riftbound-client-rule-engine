@@ -28,7 +28,7 @@ test("rad-018-167 Drakehound Packmaster: program validates and has expected iden
     "When you play me, reveal the top card of each opponent's Main Deck. Choose one and banish it, then play it, ignoring its cost. Recycle the rest."
   );
   assert.match(program.judgeReason, /effect\.reveal/);
-  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /zoneSlice/);
   assert.match(program.judgeReason, /356\.1\.b\.1/);
   assert.match(program.judgeReason, /each opponent/);
   // The reason now pins the merged cost-modify shape: plan actions act on the
@@ -165,5 +165,5 @@ test("rad-018-167: recycling the rest returns the other deck cards to the bottom
   assert.equal(kernel.zone("B", "deck").length, 1);
 });
 
-test.todo('Drakehound Packmaster: ordered top card from each opponent and dynamic choice from the revealed set (RIFT-358)');
+test.todo('Drakehound Packmaster: aggregate one ordered top card per opponent and choose one from the revealed set during Resolve (CR 355.10.c/425.3)');
 test.todo('Drakehound Packmaster: Finalize the selected banished card with ignored base costs through effect.play (CR 356.1.b.1)');

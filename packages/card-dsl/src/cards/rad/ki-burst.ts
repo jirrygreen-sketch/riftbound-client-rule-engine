@@ -41,8 +41,8 @@ import type { CardProgram } from "../../ir/index.js";
  * would let the spell resolve without paying, so that near-implementation is
  * refused. The declared payment also keeps cost/plan-values.ts' exact-ObjectRef
  * requirement: a static placeholder option throws "Cost requires an exact
- * object reference" during plan construction (RIFT-358 owns the pending
- * filter/ordered pick shape and is still unmerged).
+ * object reference" during plan construction. The existing ordered-pick path
+ * does not provide a dynamic candidate selector for cost payments.
  */
 const kiBurst = {
   canonicalCardId: "card.hash-9b0c4b851a4af3d330a6b22579433d60ad39e8bb85ccc33f1b28ab2189ce2062",
@@ -56,8 +56,8 @@ const kiBurst = {
     "确实消费 input.mandatoryAdditional（当前只由 target-tax 生产），但没有把卡牌程序的附加费用子句转成该条目的生产方。" +
     "写成 body 指令会在错误时机结算（356.3/356.5）并允许不付费用就结算，故不近似实现。" +
     "(2) 费用内的非目标动态选择（355.10.c.1）仍缺：cost/plan-values.ts 的 choiceObjects 只读取精确 ObjectRef 的 options，" +
-    "静态占位选项在构造费用计划时抛 “Cost requires an exact object reference”，不消费 choice.filter 中的友方就绪单位条件" +
-    "（RIFT-358 的 filter/ordered pick 形状尚未合入）。effect.stun 已合入并有 golden 执行证据。",
+    "静态占位选项在构造费用计划时抛 “Cost requires an exact object reference”，不消费 choice.filter 中的友方就绪单位条件；" +
+    "现有 ordered-pick 路径只服务正文 picks，费用侧动态候选选择仍未接入。effect.stun 已合入并有 golden 执行证据。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

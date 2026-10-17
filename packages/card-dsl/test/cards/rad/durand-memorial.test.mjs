@@ -30,10 +30,7 @@ test("durand-memorial: judgeReason names the continuous keyword grant and the da
   assert.match(program.judgeReason, /815\.1\.c/);
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /defense-declared/);
-  // RIFT-357's interpreter sameLocationAs anchor is merged; the reason now
-  // records the trigger-side here filter and the Finalize binding as the
-  // remaining gaps instead of the historical selector gap.
-  assert.match(program.judgeReason, /RIFT-357 合入的解释器查询锚点/);
+  assert.match(program.judgeReason, /解释器查询锚点已可执行/);
 });
 
 test("durand-memorial: defense-declared trigger at this battlefield", () => {
@@ -126,3 +123,27 @@ test("durand-memorial: the [Tank] grant really registers through the merged inte
 
 test.todo('Durand Memorial: emit defense-declared with combat roles and bind here/sameLocationAs battlefield scope (CR 466.2.c)');
 test.todo('Durand Memorial: enforce Tank lethal-damage assignment priority (CR 815.1.c.1/815.1.c.2)');
+
+test("Durand Memorial: the original Tank target filter excludes enemies and units at another battlefield", () => {
+  for (const chosen of ["defender", "elsewhere", "enemy"]) {
+    const here = { type: "battlefield", id: "memorial" };
+    const kernel = world().unit("memorial", { types: ["battlefield"], might: null, location: here })
+      .unit("defender", { location: here })
+      .unit("elsewhere", { location: { type: "battlefield", id: "other" } })
+      .unit("enemy", { owner: "B", location: here }).build();
+    kernel.setTargets("durand-memorial.chosen-unit", [kernel.ref(chosen)]);
+    const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("memorial") });
+    const context = bindResolveContext(scoped, {
+      query: filter => scoped.query({ ...filter, ...(filter.controller === "controller" ? { controller: scoped.controller } : {}) })
+    });
+    const outcome = runAbilityBody(trigger.body, context);
+    if (chosen === "defender") {
+      assert.equal(outcome.results[0].result.status, "executed");
+      assert.equal(scoped.continuousEffects.length, 1);
+      assert.equal(scoped.continuousEffects[0].effect.filter.objectId, "defender");
+    } else {
+      assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+      assert.deepEqual(scoped.continuousEffects, []);
+    }
+  }
+});

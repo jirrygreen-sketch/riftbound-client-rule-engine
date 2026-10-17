@@ -4,12 +4,11 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/ekko-revolutionary.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
-import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL =
   "card.hash-8a2cf1027c6f770452bef4d4eacd322301ebafc77620d3a76b855446639089e8";
@@ -31,11 +30,11 @@ test("rad-021-167 Ekko, Revolutionary: identity, status, judgeReason and verbati
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  // README §2: the reason names the missing semantics and the owner tasks.
+  // README §2: the reason names the remaining binding gaps.
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /Discard 1/);
-  assert.match(program.judgeReason, /RIFT-358/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /choiceObjects/);
+  assert.match(program.judgeReason, /condition\.predicate/);
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /356\.1\.b\.1/);
   // The Assault condition gap keeps the designation wording (the expansion
@@ -54,10 +53,10 @@ test("rad-021-167 Ekko, Revolutionary: enter-ready replacement, Assault keyword,
     event: "object-enters-board",
     filter: { source: "self" }
   });
-  assert.equal(enterReady.with[0].op, "effect.ready");
-  assert.deepEqual(enterReady.with[0].args.objects, {
+  assert.equal(enterReady.with[0].op, "replacement.enter");
+  assert.deepEqual(enterReady.with[0].args.state, {
     kind: "constant",
-    value: { kind: "source" }
+    value: "ready"
   });
   // CR 807.1.b.3: a printed [Assault] with no number is Assault 1.
   assert.deepEqual(assaultKeyword, { kind: "keyword", keyword: "assault" });
@@ -211,31 +210,12 @@ test("rad-021-167 Ekko, Revolutionary: 'I enter ready' really replaces the exhau
   // CR 369.3 / 359.2.c: the unit's default exhausted entry is replaced by a
   // ready entry, so no separate "becomes ready" timing is produced. The
   // replacement binding is the merged RIFT-260 path (bindReplacement).
-  const kernel = world()
-    .player("A", { energy: 20 })
-    .player("B", { energy: 20 })
-    .deck(["A:deck:1", "A:deck:2", "A:deck:3", "A:deck:4"])
-    .hand("ekko", { types: ["unit"], energy: 0, power: null, might: 4 })
-    .build();
-  const base = createActionPipelineHost({
-    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
-    restore: checkpoint => {
-      kernel.restore(checkpoint.state);
-      kernel.copyLinkedFrom(checkpoint.links);
-    },
-    objects: () => kernel.objects,
-    perform: action => kernel.perform(action),
-    choose: request => {
-      throw new Error(`Unexpected choice: ${request.id}`);
-    },
-    context: (source, controller, timingPoint) =>
-      bindResolveContext(kernel, { source, controller, timingPoint })
+  const { kernel, engine, host } = fixture({
+    cards: [{ id: "ekko", cardId: CANONICAL, types: ["unit"], energy: 0, power: null, might: 4 }]
   });
-  const host = { ...base, object: ref => kernel.object(ref) };
-  const engine = new ChainEngine({
-    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  bindReplacement(enterReady, kernel.ref("ekko"), {
+    host: { ...host, object: ref => kernel.object(ref) }, pipeline: engine.pipeline
   });
-  bindReplacement(enterReady, kernel.ref("ekko"), { host, pipeline: engine.pipeline });
   engine.execute({
     id: "play-ekko",
     controller: "A",
@@ -244,11 +224,7 @@ test("rad-021-167 Ekko, Revolutionary: 'I enter ready' really replaces the exhau
     speed: "normal",
     body: []
   });
-  let guard = 0;
-  while (engine.items.length) {
-    if (++guard > 30) throw new Error("Nonterminating test chain");
-    engine.pass(engine.priority);
-  }
+  resolveAll(engine);
 
   const played = kernel.getObject("ekko");
   assert.equal(played.zone, "board");
@@ -259,5 +235,5 @@ test("rad-021-167 Ekko, Revolutionary: 'I enter ready' really replaces the exhau
   );
 });
 
-test.todo('Ekko, Revolutionary: bind Discard 1 cost candidates (RIFT-358) and the ignored-base-cost play plan at Finalize (CR 423.3/355.10.c/356.1.b.1)');
-test.todo('Ekko, Revolutionary: Assault condition must consume combatRole attacker designation (CR 807.1.c/807.1.d.1; RIFT-359)');
+test.todo('Ekko, Revolutionary: bind Discard 1 non-target cost candidates and the ignored-base-cost play plan at Finalize (CR 423.3/355.10.c/356.1.b.1)');
+test.todo('Ekko, Revolutionary: bind the Assault designation condition to combatRole attacker (CR 807.1.c/807.1.d.1)');

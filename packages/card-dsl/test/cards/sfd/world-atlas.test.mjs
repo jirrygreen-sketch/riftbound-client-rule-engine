@@ -9,6 +9,10 @@ import { bindResolveContext } from "../../../../engine-core/dist/events/action-a
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { describeActivate, expandProgram } from "../../../../engine-core/dist/programs/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 
 const CARD_ID = "card.hash-2d067a6d3e2dbc9738ed7868ad7bea2727fdc69a8074c639e913e6360798d27c";
 const EXPECTED_SOURCE = "[Equip] :rb_rune_mind: (:rb_rune_mind:: Attach this to a unit you control.)";
@@ -61,11 +65,13 @@ test("sfd-086-221 World Atlas: program validates, is registered and stays judge-
   assert.deepEqual(result.issues, []);
   assert.equal(program.status, "judge-required");
   assert.equal(cardRegistryById.get(CARD_ID), program);
-  // README section 2: the reason states the current gap (transfer + payment kind).
+  // README section 2: the reason states only the current gaps against merged source.
   assert.match(program.judgeReason, /params\.cost/);
-  assert.match(program.judgeReason, /kind:equip/);
+  assert.match(program.judgeReason, /kind: "equip"/);
+  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
   assert.match(program.judgeReason, /Finalize/);
   assert.match(program.judgeReason, /818\.1/);
+  assert.match(program.judgeReason, /818\.2/);
 });
 
 test("sfd-086-221 World Atlas: identity, ruleset, status and verbatim source text", () => {
@@ -98,6 +104,52 @@ test("sfd-086-221 World Atlas: the merged Equip expansion targets a controlled u
   ]);
 });
 
+test("sfd-086-221 World Atlas: production keyword expansion drops the printed Equip cost", () => {
+  // 818.1.c: the printed "Equip [Mind]" is an activation cost. The merged
+  // ExpandInput params.cost entry exists (contract 3.8 item 3), but
+  // programs/keywords.ts only passes value/host, so the expanded ability keeps
+  // the unmapped { kind: "equip" } placeholder instead of a Mind Power cost.
+  const kernel = fixture();
+  const source = kernel.getObject("world-atlas");
+  const { judgeReason: _reason, ...executableProbe } = program;
+  const [activation] = expandProgram({ ...executableProbe, status: "executable" }, source).expanded;
+  assert.equal(activation.kind, "activated");
+  assert.deepEqual(activation.cost, {
+    kind: "activated",
+    payments: [{ kind: "equip", value: { kind: "constant", value: { kind: "source" } } }]
+  });
+  // The authored value/costDomain are descriptive only; no CostSpec/evaluable
+  // payment amount is bound for the printed Mind Power rune.
+  assert.equal(JSON.stringify(activation.cost).includes("Mind"), false);
+  assert.equal(equip.value, 1);
+  assert.equal(equip.costDomain, "Mind");
+});
+
+test("sfd-086-221 World Atlas: the production activate draft still reaches an unsupported payment kind", () => {
+  // 818.1.b/818.1.c.2: the Equip activation must pay its printed cost before
+  // Attach. The real card-program adapter produces the draft, and the merged
+  // cost planner rejects the { kind: "equip" } payment outright, so Finalize
+  // cannot pay the activation.
+  const kernel = fixture();
+  const source = kernel.getObject("world-atlas");
+  const { judgeReason: _reason, ...executableProbe } = program;
+  const draft = describeActivate(new ProgramRegistry([{ ...executableProbe, status: "executable" }]), source, "A");
+  assert.equal(draft.kind, "activated");
+  assert.deepEqual(draft.cost.cost, {
+    kind: "activated",
+    payments: [{ kind: "equip", value: { kind: "constant", value: { kind: "source" } } }]
+  });
+  assert.throws(
+    () => buildCostPlan(productionContext(kernel), {
+      id: "cost:world-atlas-equip",
+      cost: draft.cost.cost,
+      domains: ["Mind"]
+    }),
+    error => error instanceof CostPlanError && error.reason === "judge-required" &&
+      /Unsupported payment kind: equip/.test(error.message)
+  );
+});
+
 test("sfd-086-221 World Atlas golden: the merged attach body really attaches the Gear to a controlled unit", () => {
   const activation = equipActivation();
   const kernel = fixture();
@@ -115,4 +167,8 @@ test("sfd-086-221 World Atlas golden: the merged attach body really attaches the
   assert.equal(outcome.events[0].type, "task-resolved");
 });
 
-test.todo("World Atlas: carry the printed Mind Equip CostSpec through KeywordAbility/params.cost and finalize the actual activation payment (818.1.c)");
+test.todo(
+  "World Atlas: carry the printed Mind Equip CostSpec through KeywordAbility/params.cost and " +
+    "replace the { kind: " + JSON.stringify("equip") + " } payment with the real one Mind Power activation " +
+    "cost so Finalize can pay it (818.1.b/818.1.c; cost/plan-values.ts still blocks the equip kind)"
+);

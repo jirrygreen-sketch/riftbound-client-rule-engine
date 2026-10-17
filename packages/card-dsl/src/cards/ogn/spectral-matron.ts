@@ -23,25 +23,42 @@ import type { CardProgram } from "../../ir/index.js";
  *   除效果另有规定（ignored costs 正属此列）。
  * - 355.4 / 420.3.b.1：被 Play 的单位需要一个合法落点，落点选择属于 Play/Finalize 流程。
  *
- * status: judge-required —— 两处当前实现缺口均不近似实现：
- * 1. "costing no more than [3] and no more than [A]" 是对印刷费用的比较
- *    （356.1.c）。TargetSpec/ObjectFilter 不支持 printedEnergyMax、printedPowerMax 或
- *    printedPowerAnyDomain；生产绑定会拒绝这些字段，不能把上限当成普通特征筛选。
- * 2. "ignoring its cost" 的 finalized 费用计划必须由费用计划系统产出（cost.printed /
- *    ignore-cost 改写）：当前 instruction registry 没有 cost.printed 指令，effect.play
- *    也只接受调用方已经生成的计划，因此本卡的动态计划无法产生。
+ * status: judge-required —— 2026-10-17 复核后的当前真实缺口（均已实测，不近似实现）：
+ * 1. "costing no more than [3] and no more than [A]" 是按印刷费用比较的目标谓词
+ *    （356.1.c）。programs/filters.ts 的 translateObjectFilter 只允许
+ *    objectId/cardId/canonicalCardId/type/controller/owner/zone/location/states/tags/
+ *    characteristics，实测对这些印刷费用上限字段直接抛 ProgramBindingError
+ *    "Unsupported filter field printedEnergyMax"，因此整卡在生产绑定处 fail-closed。
+ *    需要选择管线支持印刷费用谓词（或契约变更）。
+ * 2. choice.optional 体内的指令带 targets，而链的 Finalize 面拒绝嵌套目标：
+ *    chain/engine.ts 的 assertFinalizationSurface 抛 ChainContractBlockedError
+ *    "Nested/repeated targets require an interpreter target-selection lifecycle adapter"。
+ *    需要指令内目标的 Finalize/Resolve 选择生命周期。
+ * 3. "ignoring its cost" 需要一个按被锁定 Trash 对象动态生成的 finalized 计划：
+ *    instruction registry 里没有读取对象印刷费用的指令（无 cost.printed），
+ *    cost.modify 只消费调用方提供的印刷目录投影（printed 参数），effect.play 只接受已
+ *    finalize 的计划，两者之间没有「锁定对象 → 忽略费用计划 → 打出」的接线。
+ *
+ * 已合入且由 golden 真实执行的部分：choice.optional 的接受/拒绝、effect.play 的
+ * 零费用计划打出（Trash → Board）、以及真实程序在生产绑定处的 fail-closed 行为。
  */
 const spectralMatron = {
   canonicalCardId: "card.hash-3424a772092b9d250c6d4500599a350ba292ea19b57c3ce08f4fccf1289e6478",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「costing no more than [3] and no more than [A]」需要按印刷费用比较的目标谓词（356.1.c）：" +
-    "TargetSpec/ObjectFilter 不支持 printedEnergyMax / printedPowerMax / printedPowerAnyDomain，" +
-    "生产绑定会以不支持的 filter 字段拒绝，不能把上限当成普通特征筛选；" +
-    "「ignoring its cost」（356.1.b.1 把 base Energy/Power 设为 0）的 finalized 费用计划必须由费用计划系统产出：" +
-    "当前 instruction registry 没有 cost.printed 指令，effect.play 只接受调用方已经生成的计划，" +
-    "无法从锁定 Trash 单位生成只忽略 Energy、保留 Power 的计划。",
+    "三处当前缺口（复核 2026-10-17，均已实测）：(1)「costing no more than [3] and no more than [A]」" +
+    "需要按印刷费用比较的目标谓词（356.1.c）：programs/filters.ts 的 translateObjectFilter 只允许 " +
+    "objectId/cardId/canonicalCardId/type/controller/owner/zone/location/states/tags/characteristics，" +
+    "实测对 printedEnergyMax 直接抛 ProgramBindingError「Unsupported filter field printedEnergyMax」，" +
+    "整卡在生产绑定处 fail-closed，需要选择管线支持印刷费用谓词（或契约变更）。" +
+    "(2)「选择一张 Trash 单位」是 choice.optional 体内的指令目标，而链的 Finalize 面拒绝嵌套目标——" +
+    "chain/engine.ts 的 assertFinalizationSurface 抛 ChainContractBlockedError「Nested/repeated targets " +
+    "require an interpreter target-selection lifecycle adapter」，需指令内目标的 Finalize/Resolve 选择生命周期。" +
+    "(3)「ignoring its cost」（356.1.b.1：base Energy/Power 置 0）需要按被锁定的 Trash 对象动态生成 finalized " +
+    "计划：instruction registry 中不存在读取对象印刷费用的指令（无 cost.printed——本程序里的 cost.printed 是待合入声明），" +
+    "cost.modify 只消费调用方提供的印刷目录投影，effect.play 只接受已 finalize 的计划；缺「锁定对象 → 忽略费用计划 → 打出」的接线。" +
+    "已合入并由 golden 真实执行：choice.optional 的接受/拒绝、effect.play 的零费用计划打出（Trash → Board）。不近似实现。",
   sourceText:
     "When you play me, you may play a unit costing no more than :rb_energy_3: and no more than :rb_rune_rainbow: from your trash, ignoring its cost.",
   abilities: [
@@ -78,7 +95,7 @@ const spectralMatron = {
                         type: "unit",
                         zone: "trash",
                         owner: "controller",
-                        // 356.1.c 的印刷费用上限；选择管线尚无该谓词（见 judgeReason）。
+                        // 356.1.c 的印刷费用上限；选择管线尚无该谓词（见 judgeReason 第 1 点）。
                         printedEnergyMax: 3,
                         printedPowerMax: 1,
                         printedPowerAnyDomain: true

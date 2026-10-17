@@ -1,8 +1,9 @@
 // Golden test for the Gold gear token (sfd-t03).
 //
 // The activated ability's two real halves — the nonstandard `kill` + `exhaust`
-// cost payment through the merged cost plan, and the Reaction-speed declaration —
-// are executed here. The [A] Universal Power addition and the missing token
+// cost payment through the merged cost plan and the card-program binding
+// (describeActivate + ChainEngine), and the Reaction-speed declaration — are
+// executed here. The [A] Universal Power addition and the missing token
 // definition are the judged gaps (see judgeReason).
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -12,6 +13,11 @@ import program from "../../../dist/cards/sfd/gold.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID =
@@ -60,6 +66,11 @@ test("sfd-t03 Gold: identity, ruleset, status, judgeReason and verbatim sourceTe
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /Universal/);
   assert.match(program.judgeReason, /gain-universal-power/);
+  // The merged payment and timing halves are no longer recorded as gaps; the
+  // golden below drives the real binding and the real payment.
+  assert.match(program.judgeReason, /describeActivate/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-261|未合入 HEAD/);
+  assert.doesNotMatch(program.judgeReason, /golden 实测 buildCostPlan/);
 });
 
 test("sfd-t03 Gold: a reaction-timed activated ability whose cost is 'Kill this, exhaust this'", () => {
@@ -135,6 +146,108 @@ test("sfd-t03 golden: after the kill cost the token leaves the Board, so the abi
     () => payCostPlan(context, buildCostPlan(context, { id: "gold:activated-again", cost: activated.cost })),
     (error) => error.name === "CostPlanError" && error.reason === "cannot-pay-cost"
   );
+});
+
+function goldActivation() {
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .player("B", { energy: 20 })
+    .object("gold", {
+      name: "Gold",
+      cardId: CARD_ID,
+      isToken: true,
+      types: ["gear"],
+      tags: ["Token"],
+      zone: "board",
+      location: { type: "base", player: "A" },
+      // The catalog prints no Energy / Power / Might; null is never rewritten
+      // to 0 (cards README section 2).
+      energy: null,
+      power: null,
+      might: null
+    })
+    .build();
+  const decide = (request) => { throw new AwaitChoice(request); };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: decide,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint, choose: decide }),
+    testTrigger: (registration) => kernel.test(registration.spec.condition)
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  return { binding, engine, kernel };
+}
+
+test("sfd-t03 golden: the card-program binding describes the real activation and the chain pays exhaust + kill", () => {
+  // 377.1 / 357.2: the printed cost is the activation cost, so the merged
+  // describeActivate draft carries it and the chain engine pays it for real.
+  const { binding, engine, kernel } = goldActivation();
+  const source = kernel.getObject("gold");
+  const draft = binding.describeActivate(source, "A", 0);
+  assert.equal(draft.kind, "activated");
+  assert.equal(draft.speed, "reaction");
+  assert.deepEqual(
+    draft.cost.cost.payments.map((payment) => [payment.kind, payment.object]),
+    [["exhaust", "self"], ["kill", "self"]]
+  );
+
+  engine.execute(draft);
+  while (engine.items.length) engine.pass(engine.priority);
+
+  // 415.4 / 429.1 / 429.2: both nonstandard payments really happened and the
+  // token really left the Board for its Trash.
+  assert.deepEqual(kernel.events.map((event) => event.action).filter(Boolean), ["pay", "exhaust", "kill"]);
+  assert.equal(kernel.getObject("gold").zone, "trash");
+  // The body's [A] addition is the judged gap: effect.resources refuses the
+  // descriptive rainbow spelling instead of gaining a domain.
+  assert.deepEqual(kernel.player("A").power, []);
+  assert.equal(kernel.player("A").energy, 20);
+});
+
+test("sfd-t03 golden: a second activation cannot be paid once the token is in the Trash", () => {
+  const { binding, engine, kernel } = goldActivation();
+  engine.execute(binding.describeActivate(kernel.getObject("gold"), "A", 0));
+  while (engine.items.length) engine.pass(engine.priority);
+  assert.equal(kernel.getObject("gold").zone, "trash");
+
+  assert.throws(
+    () => engine.execute(binding.describeActivate(kernel.getObject("gold"), "A", 0)),
+    (error) => error.name === "CostPlanError" && error.reason === "cannot-pay-cost"
+  );
+  assert.deepEqual(kernel.player("A").power, []);
+});
+
+test("sfd-t03 boundary: [A] cannot be paid either, so the gap stays a contract request", () => {
+  // 135.2.e.5 / 163.2.b: [A] is Universal Power. The merged payer rejects the
+  // descriptive spelling outright instead of substituting a domain (cost/README
+  // contract integration request 2).
+  const kernel = world().player("A", { energy: 10, power: ["Calm"] }).player("B", { energy: 10 }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("gold") });
+  // The planner's domain validator is the closed six-domain set too, so it
+  // refuses the descriptive [A] spelling rather than locking a plan whose
+  // composition cannot be represented (plan-values.ts domains(); cost/README
+  // integration request 2 asks for a distinct universal source).
+  assert.throws(
+    () => buildCostPlan(context, {
+      id: "gold:universal",
+      cost: {
+        kind: "activated",
+        payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["rainbow"] }]
+      }
+    }),
+    (error) => error instanceof CostPlanError && error.reason === "invalid-cost-plan"
+  );
+  assert.deepEqual(context.player("A").power, ["Calm"]);
+  assert.equal(context.player("A").energy, 10);
 });
 
 // The Universal Power addition itself is a judged gap: the closed six-domain

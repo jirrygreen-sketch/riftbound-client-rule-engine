@@ -14,25 +14,25 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "When I attack"：383.4.e 的 Attack Trigger，时点 attack-declared（383.4.e.2 规定在
  *   单位取得 Attacker 身份后进链）；filter 用内层 source: "self" 指称本卡。
  * - "deal damage equal to my [Assault]"：伤害数额在结算时读取本卡的 Assault 数值
- *   （807.1.b.2 定义 Assault Value 是可引用特征，807.3）。当前没有表达式可读取某对象
- *   的关键词数值（Expr 无 keyword-value 形态），因此不能静态写出该 amount。
+ *   （807.1.b.2 定义 Assault Value，807.2 要求叠加授予值，807.3 允许引用）。
+ *   effects/interpreter/expr.ts 的 object-property 只读取快照直接属性，不能从 keywords
+ *   数组读取当前 Assault Value；不能用默认值 1 代替结算时数值（359.3.f.2）。
  * - "an enemy unit here"：「enemy」= 对手控制（740.1.b），「here」= 本卡所在地点
- *   （449/421.1），写成 TargetSpec 的 controller/sameLocationAs 过滤（355.9.b）。
+ *   （359.3.f.1/.2），写成 TargetSpec 的 controller/sameLocationAs 过滤（355.9.b）。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
- * - [Assault] 的 KeywordDef 与 expandProgram 展开已合入，生产 static binder 也能登记
- *   continuous.might；但展开条件读取 designation，而 ObjectSnapshot 只提供 combatRole，
- *   条件会因缺少该特征而 fail-closed，攻击期间的 +1 Might 仍不会生效；
+ * - effects/keywords/Assault.ts 与 expandProgram 已合入，programs/statics.ts 的生产
+ *   binder 能登记 continuous.might；但展开条件读取 designation，ObjectSnapshot 提供的
+ *   是 combatRole，条件求值缺少该属性，binder 捕获异常后返回 false，攻击加成未生效；
  * - ``damage equal to my [Assault]`` 需要在结算时读取关键词的 Assault Value
- *   （807.1.b.2/807.3）。Expr 只能读取 ObjectSnapshot 的直接属性，keywords 是数组且没有
- *   keyword-value 选择器；``keywords.assault.value`` 只是保留缺口的描述性路径，不能改成
- *   常量 1 来近似；
- * - attack-declared 已进入时点词表，触发注册器也存在，但 combat/flow.ts 在战斗开启的
- *   原子事务处抛 combat-start-transaction，尚无 Attacker designation 或该时点的生产发射；
- *   正文目标的 sameLocationAs 锚点虽由解释器查询支持，programs/filters.ts 仍拒绝它，
- *   因而生产 TargetSpec 无法绑定“enemy unit here”。
- * 依赖：combatRole/designation 条件映射与 attack-declared 生产路径、关键词数值 Expr、
- * TargetSpec sameLocationAs 的生产翻译。不近似实现。
+ *   （807.1.b.2/807.2/807.3）。``keywords.assault.value`` 只是描述性占位路径；
+ * - CardProgram/ChainEngine 路径中的 combat/flow.ts 在开启战斗/转换 showdown 时分别抛
+ *   combat-start-transaction/showdown-conversion，缺少授予 Attacker 后发射 attack-declared
+ *   并按每场战斗首次取得身份触发的生产路径（383.4.e.2/.2.a、466.2.c.3/.d）；
+ * - sameLocationAs 已由解释器查询和静态效果 binder 支持，但 programs/filters.ts 的
+ *   translateInstructionTargets → translateObjectFilter 仍拒绝该字段，触发 body 的
+ *   TargetSpec 无法进入生产绑定，也就无法按来源结算时的位置重验目标（359.3.f.2）。
+ * 上述缺口仍在；保持 judge-required，不把局部伤害原语测试当成整卡执行证据。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "assault" },
@@ -76,17 +76,18 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "[Assault] 的 KeywordDef/expandProgram 展开和 continuous.might static binder 已合入，" +
-    "但展开条件读取 designation；当前 ObjectSnapshot 只提供 combatRole，生产条件求值会 fail-closed，" +
-    "故 807.1.c/.d.1 的攻击期间 +1 Might 尚未生效。" +
-    "attack-declared 已在时点词表和触发注册器中，但 combat/flow.ts 在战斗开启的原子事务处抛 " +
-    "combat-start-transaction，尚无 Attacker designation 或该时点的生产发射（383.4.e/466.2.c）。" +
-    "正文的 sameLocationAs 查询由解释器支持，programs/filters.ts 的生产翻译器却拒绝该字段，" +
-    "所以 TargetSpec 不能绑定“enemy unit here”（355.9.b/359.3.f）。" +
-    "“damage equal to my [Assault]”还缺关键词数值 Expr：Expr 只能读取 ObjectSnapshot 直接属性，" +
-    "keywords 数组没有 Assault Value 选择器（807.1.b.2/807.3），不能写成常量 1 近似。" +
-    "依赖：combatRole/designation 条件映射与 attack-declared 生产路径、关键词数值 Expr、" +
-    "TargetSpec sameLocationAs 的生产翻译。不近似实现。",
+    "缺 Assault 展开条件与快照特征的映射：effects/keywords/Assault.ts 读取 designation，" +
+    "ObjectSnapshot 提供 combatRole；programs/statics.ts 捕获条件求值异常后返回 false，" +
+    "已合入的 continuous.might binder 因而无法施加攻击加成（807.1.c/807.1.d.1）。" +
+    "缺 CardProgram/ChainEngine 的攻击触发生产路径：combat/flow.ts 仍以 " +
+    "combat-start-transaction/showdown-conversion 阻止战斗开启/转换，尚未在授予 Attacker 后发射 " +
+    "attack-declared 并按每场战斗首次取得身份触发（383.4.e.2/383.4.e.2.a、466.2.c.3/466.2.d）。" +
+    "缺触发 body 的 TargetSpec sameLocationAs 生产翻译：解释器查询与静态效果 binder 已支持它，" +
+    "但 programs/filters.ts 的 translateInstructionTargets → translateObjectFilter 仍拒绝该字段，" +
+    "不能绑定并重验“enemy unit here”（355.9.b/359.3.f.2）。" +
+    "缺关键词数值 Expr：effects/interpreter/expr.ts 的 object-property 只读取快照直接属性，" +
+    "不能从 keywords 数组读取结算时含叠加授予的 Assault Value；keywords.assault.value 仍是占位路径" +
+    "（359.3.f.2、807.1.b.2/807.2/807.3），不能用常量 1 近似。",
   abilities,
   sourceText:
     "[Assault] (+1 :rb_might: while I'm an attacker.)\n" +

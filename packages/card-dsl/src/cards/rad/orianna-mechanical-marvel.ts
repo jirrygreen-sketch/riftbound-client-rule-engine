@@ -23,14 +23,21 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   的用量限制。
  * - "while … you may pay … less to play a gear" 的受益者是本卡控制者打出的 gear。
  *
- * 状态：judge-required。缺口：
- * 1. continuous.cost-modification 尚无费用 Finalize 消费方；当前折扣只能由
- *    CostPlanInput.discounts 调用者显式传入。
- * 2. "Once each turn" 的用量限制需要引擎记录本回合是否已用，当前
- *    ContinuousEffectSpec/Duration 无该字段。
- * 3. 条件"我在 battlefield"需要位置读取，这条本身可用（ObjectSnapshot.location 已存在），
- *    但把它接成持续效果的条件求值仍依赖上述消费方。
- * 依赖：费用 Finalize 消费方与持续效果的 per-turn 使用计数。
+ * 状态：judge-required（2026-10-17 复核，实测缺口，按绑定先后排列）：
+ * 1. 该 static 的 appliesTo 是受益者过滤器（gear，controller），而 statics.ts 的
+ *    staticTarget 只接受 "self"/"source" 或省略。生产绑定先在此处失败
+ *    （实测 Unsupported static appliesTo {"type":"gear","controller":"controller"}），
+ *    因此还要受益者过滤器的相对玩家解析。
+ * 2. 即使去掉受益者过滤器，programs/statics.ts 的 layerFor 也没有
+ *    continuous.cost-modification 的图层映射（实测 ProgramBindingError judge-required:
+ *    Static ability kind continuous.cost-modification has no layer mapping），
+ *    更没有费用 Finalize 消费方；当前折扣只能由 CostPlanInput.discounts 调用者显式传入。
+ * 3. "Once each turn" 的用量限制需要引擎记录本回合是否已用，当前
+ *    ContinuousEffectSpec/Duration 无该字段（events/pipeline.ts 的 once 只作用于 TriggerSpec）。
+ * 4. 条件"我在 battlefield"本身可用（ObjectSnapshot.location 已存在），但把它接成持续
+ *    效果的条件求值仍依赖上述消费方。
+ * 依赖：continuous.cost-modification 的静态图层映射 + 费用 Finalize 消费方、受益者 appliesTo
+ * 解析、持续效果的 per-turn 使用计数。
  * 不近似实现：不把这条写成结算期 effect.resources 或把折扣近似成固定 Energy 减费。
  */
 const abilities: Ability[] = [
@@ -70,9 +77,14 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "2026-10-17 复核：该能力已正确表达为 static 的 continuous.cost-modification，" +
-    "但费用 Finalize 尚无消费方把 1 Energy 与 1 any-domain Power 折扣应用到控制者打出的 gear。" +
+    "但生产静态绑定有两道缺口：" +
+    "(a) 声明的 appliesTo 受益者过滤器（gear，相对控制者）不被 statics.ts 的 staticTarget 接受" +
+    "（实测 Unsupported static appliesTo {\"type\":\"gear\",\"controller\":\"controller\"}），还需受益者过滤器的相对玩家解析；" +
+    "(b) 去掉受益者过滤器后，layerFor 仍没有 continuous.cost-modification 的图层映射" +
+    "（实测 Static ability kind continuous.cost-modification has no layer mapping），" +
+    "费用 Finalize 也尚无消费方为控制者打出的 gear 应用 1 Energy 与 1 any-domain Power 折扣。" +
     "此外，ContinuousEffectSpec/Duration 没有 once-per-turn 使用计数，无法落实同一回合只用一次。" +
-    "while-at-a-battlefield 的位置条件仍需由上述消费方在费用结算时求值；不把折扣近似成结算期资源指令。",
+    "while-at-a-battlefield 的位置条件需由上述消费方在费用结算时求值；不把折扣近似成结算期资源指令。",
   abilities,
   sourceText:
     "Once each turn, while I'm at a battlefield, you may pay :rb_energy_1::rb_rune_rainbow: less to play a gear."

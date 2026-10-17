@@ -169,5 +169,5 @@ test("rad-136-167 Dockside Lock-Up: effect.play 以已定案零费用把被放�
 });
 
 test.todo('Dockside Lock-Up: persist banished card identity across play/hold resolutions and exclude tokens (CR 428.3)');
-test.todo('Dockside Lock-Up: Deploy location lifecycle and here-scoped Hold/targets (CR 830.1.b; RIFT-357)');
+test.todo('Dockside Lock-Up: bind Deploy continuous.location and here/sameLocationAs through production Hold/Finalize (CR 830.1.b/355.5)');
 test.todo("Dockside Lock-Up: kill-this instruction cost must gate effect.play on successful payment (CR 204.3), with the associated card's Finalize cost override (356.1.b.1)");

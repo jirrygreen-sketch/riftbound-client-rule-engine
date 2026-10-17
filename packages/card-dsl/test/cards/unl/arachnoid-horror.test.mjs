@@ -37,6 +37,8 @@ test("unl-117-219 Arachnoid Horror: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /occupied/);
   assert.match(program.judgeReason, /battlefieldId/);
   assert.match(program.judgeReason, /EventPattern/);
+  assert.match(program.judgeReason, /conquer\/hold/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(257|357|359|265)/);
 });
 
 test("unl-117-219 Arachnoid Horror: [Hunt 2] is a valued keyword declaration (823.1.c)", () => {
@@ -116,7 +118,7 @@ test("unl-117-219 Arachnoid Horror golden: a replaced XP gain marks nothing (367
 });
 
 test("unl-117-219 Arachnoid Horror: the merged Hunt KeywordDef expands this card's Hunt 2 into the printed triggers", () => {
-  // RIFT-265 merged effects/keywords/Hunt.ts: 823.1.c.1 turns Hunt into one
+  // The merged effects/keywords/Hunt.ts: 823.1.c.1 turns Hunt into one
   // trigger per timing point whose body is the merged effect.xp primitive, and
   // 823.1.c.3 passes the card's printed value (2) through.
   const huntDef = keywordDefinitionsById.get("Hunt");
@@ -172,7 +174,8 @@ test("unl-117-219 Arachnoid Horror: the trigger translator constructs the two ob
 });
 test.todo(
   "Arachnoid Horror: register the original Hunt expansion in the real pipeline after aligning the " +
-    "conquer/hold filter events with the conquered/held EventPattern vocabulary (823.1.c.1)"
+    "conquer/hold filter events with the conquered/held EventPattern vocabulary (823.1.c.1); " +
+    "the current registration validator rejects the expansion before the alias matcher can run"
 );
 test.todo(
   "unl-117-219 Arachnoid Horror: both play-location permissions reach the Make Relevant Choices location choice " +

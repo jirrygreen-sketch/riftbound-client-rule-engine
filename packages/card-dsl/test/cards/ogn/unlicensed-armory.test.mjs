@@ -20,6 +20,7 @@ test("ogn-023-298 Unlicensed Armory: program passes validateCardProgram", () => 
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
+  assert.match(program.judgeReason, /card-in-controller-hand/);
   assert.match(program.judgeReason, /recall/i);
   assert.match(program.judgeReason, /457/);
   assert.match(program.judgeReason, /replacement\.event instead must be an instruction body/);

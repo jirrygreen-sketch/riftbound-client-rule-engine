@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL =
   "card.hash-d30257c95bd0d16256944f4942f276da6f4e29317a22692f8f2bd04d8b0b5212";
@@ -53,6 +54,7 @@ test("ogn-061-298 Poro Herder: identity, ruleset, status, judgeReason and source
   assert.match(program.judgeReason, /testTrigger/);
   assert.match(program.judgeReason, /controller/);
   assert.match(program.judgeReason, /filter\.object/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -113,6 +115,16 @@ test("ogn-061-298 Poro Herder: buff me targets the host through the self selecto
     }
   ]);
   assert.equal(buffInstruction.linkedTo, undefined);
+});
+
+test("ogn-061-298 Poro Herder: the production instruction-target translator rejects the self-anchored buff filter", () => {
+  // The same reject path the trigger body would hit: the buff target cannot be
+  // bound through the production TriggerRegistration until filter.object:self is
+  // consumed (the judgeReason's third gap).
+  assert.throws(
+    () => translateObjectFilter(buffInstruction.targets[0].filter),
+    /Unsupported filter field object/
+  );
 });
 
 test("ogn-061-298 Poro Herder: draw 1 is a separate sentence, not linked to the buff", () => {

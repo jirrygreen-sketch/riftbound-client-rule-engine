@@ -8,6 +8,8 @@ import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan, assessCostPayment } from "../../../../engine-core/dist/cost/payment.js";
 import { getTimingPoint } from "../../../../engine-core/dist/events/timing-points.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 
 const CARD_ID = "card.hash-c53e9086202d34746759796f864fa5b794a4a294941dad556175a2e226acace5";
 const SOURCE_TEXT =
@@ -27,6 +29,23 @@ test("rad-120-167 Meticulous Restorationist: judgeReason names the event conditi
   assert.match(program.judgeReason, /基础 Energy/);
   assert.match(program.judgeReason, /activeZones: \[board\]/);
   assert.match(program.judgeReason, /trash/);
+  assert.match(program.judgeReason, /fail-closed/);
+});
+
+test("rad-120-167 Meticulous Restorationist boundary: a Trash source still binds activeZones board", () => {
+  // Re-probed 2026-10-17: triggerRegistrations() computes activeZones from the
+  // trigger timing and the permanent's type, not from the source's zone, so the
+  // card-played subscription stays board-only even with the card in Trash.
+  const kernel = world().object("restorationist", {
+    cardId: CARD_ID, owner: "A", controller: "A", types: ["gear"], zone: "trash"
+  }).build();
+  const [registration] = triggerRegistrations(
+    new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]),
+    kernel.getObject("restorationist")
+  );
+  assert.equal(registration.spec.at, "card-played");
+  assert.deepEqual(registration.activeZones, ["board"]);
+  assert.equal(registration.spec.condition, undefined);
 });
 
 test("rad-120-167 Meticulous Restorationist: card-played trigger with an optional play-from-trash body", () => {

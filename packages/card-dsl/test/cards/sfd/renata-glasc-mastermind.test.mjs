@@ -35,7 +35,7 @@ test("sfd-088-221 Renata Glasc, Mastermind: identity, ruleset, status and verbat
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("sfd-088-221 Renata Glasc, Mastermind: judgeReason names the activation-condition gaps", () => {
+test("sfd-088-221 Renata Glasc, Mastermind: judgeReason names the activation-condition gap", () => {
   assert.match(program.judgeReason, /377\.2\.b/);
   assert.match(program.judgeReason, /battlefield/);
   assert.match(program.judgeReason, /107\.1\.b/);
@@ -46,6 +46,8 @@ test("sfd-088-221 Renata Glasc, Mastermind: judgeReason names the activation-con
   assert.match(program.judgeReason, /ChainDraft/);
   assert.match(program.judgeReason, /location\.type/);
   assert.match(program.judgeReason, /启动检查适配/);
+  assert.match(program.judgeReason, /payment receipt/);
+  assert.doesNotMatch(program.judgeReason, /未消费 Power/);
   assert.doesNotMatch(program.judgeReason, /describePlay 未实现/);
 });
 
@@ -209,7 +211,7 @@ test.todo(
 );
 
 for (const [index, ability] of [drawAbility, scoreAbility].entries()) {
-  test(`sfd-088-221 Renata Glasc, Mastermind: real printed cost payment for ability ${index + 1}`, { todo: "reference TestWorld pay does not consume Mind Power; preserve the exact payment postcondition" }, () => {
+  test(`sfd-088-221 Renata Glasc, Mastermind: real printed cost payment for ability ${index + 1}`, () => {
     // This executes the original cost only; the source-location activation
     // restriction still blocks whole-card activation through the registry.
     const energy = index === 0 ? 1 : 4;
@@ -225,7 +227,13 @@ for (const [index, ability] of [drawAbility, scoreAbility].entries()) {
     const paid = runInstruction(costPay, { cost: { kind: "constant", value: modified.linked.cost } }, { world: kernel });
     assert.equal(paid.result.status, "executed");
     assert.equal(kernel.player("A").energy, 0);
-    assert.deepEqual(kernel.player("A").power, []);
+    // The legacy TestWorld pay action does not mutate its Power snapshot, but
+    // the receipt contains the authoritative domain allocation selected by
+    // cost.payment.ts.
+    assert.deepEqual(paid.linked.payment.power.power, [
+      { requirementIndex: 0, from: "Mind", amount: index === 0 ? 1 : 4 }
+    ]);
+    assert.deepEqual(kernel.player("A").power, power);
     assert.equal(kernel.getObject("renata").exhausted, index === 1);
     assert.equal(kernel.getObject("renata").power, null);
     assert.deepEqual(paid.events.map(event => event.action), index === 0 ? ["pay"] : ["pay", "exhaust"]);

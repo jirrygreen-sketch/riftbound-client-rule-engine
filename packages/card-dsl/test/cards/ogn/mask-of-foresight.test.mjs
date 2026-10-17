@@ -160,9 +160,8 @@ test.todo(
 
 test.todo(
   "Mask of Foresight: the “alone” clause is CR v1.5 740.2.a (no other friendly units at the same " +
-    "location). None of the merged conditions (always/never/compare/all/any/not/expression) can " +
-    "express the same-location friendly-unit check as a single predicate; it needs the predicate " +
-    "support anchored on the trigger payload object (740.2.a)."
+    "location). The merged condition grammar has count + compare, but production evaluation still " +
+    "needs the trigger payload object as the same-location query anchor (740.2.a)."
 );
 
 test.todo(

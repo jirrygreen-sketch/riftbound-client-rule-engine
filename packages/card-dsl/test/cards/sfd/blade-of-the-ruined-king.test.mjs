@@ -11,6 +11,7 @@ const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { keywordDefinitionsById } = await import(new URL("effects/keywords/registry.generated.js", ENGINE));
 const { buildCostPlan, CostPlanError } = await import(new URL("cost/index.js", ENGINE));
 const { payCostPlan } = await import(new URL("cost/payment.js", ENGINE));
+const { createProgramBinding } = await import(new URL("programs/index.js", ENGINE));
 const { world } = await import(new URL("effects/testing/index.js", ENGINE));
 
 const CANONICAL = "card.hash-f9c6d6052ec4552cfcfc53a0e584e07cb232189ed89b277126630202cc188050";
@@ -60,7 +61,7 @@ test("sfd-178-221 Blade of the Ruined King: identity, ruleset, status, judgeReas
   assert.match(program.judgeReason, /programs\/keywords\.ts/);
   assert.match(program.judgeReason, /ProgramRegistry/);
   assert.match(program.judgeReason, /355\.10\.c\.1/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-(257|261)/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(257|261|89|90|91|109)/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -199,6 +200,39 @@ test("sfd-178-221 Blade of the Ruined King: the merged Equip cost fails closed o
       /Unsupported payment kind: equip/.test(error.message)
   );
   assert.equal(context.getObject("blade-of-the-ruined-king").attachedTo, null);
+});
+
+test("sfd-178-221 Blade of the Ruined King: the shipped program cannot reach activation Finalize", () => {
+  // The refreshed judgeReason names ProgramRegistry as the production entry
+  // that refuses a judge-required program, so the card cannot be activated at
+  // all until the Equip cost carrier and payment kind exist.
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const inspected = binding.inspect(bladeWorld().getObject("blade-of-the-ruined-king"));
+  assert.equal(inspected.program, program);
+  assert.throws(
+    () => binding.activationAbilities(bladeWorld().getObject("blade-of-the-ruined-king")),
+    (error) => error.name === "ProgramBindingError" && error.code === "judge-required"
+  );
+});
+
+test("sfd-178-221 Blade of the Ruined King: an Equip expansion with the printed cost still fails closed", () => {
+  // Contract 3.8 item 3 would let the printed cost travel through
+  // KeywordDef.params.cost. The merged Equip.expand ignores params entirely,
+  // so the payment kind is the same unsupported "equip" for every input.
+  const definition = keywordDefinitionsById.get("Equip");
+  assert.ok(definition);
+  const withPrintedCost = definition.expand({
+    value: equip.value,
+    host: { canonicalCardId: CANONICAL },
+    params: { cost: { kind: "activated", power: { kind: "constant", value: 1 } } }
+  });
+  assert.deepEqual(withPrintedCost[0].cost.payments.map((payment) => payment.kind), ["equip"]);
+  assert.throws(
+    () => buildCostPlan(bladeWorld(), { id: "cost:blade", cost: withPrintedCost[0].cost }),
+    (error) => error instanceof CostPlanError &&
+      error.reason === "judge-required" &&
+      /Unsupported payment kind: equip/.test(error.message)
+  );
 });
 
 test.todo(

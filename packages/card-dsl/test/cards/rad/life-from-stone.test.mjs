@@ -10,6 +10,7 @@ const { default: channel } = await import(new URL("effects/instructions/effect.c
 const { default: draw } = await import(new URL("effects/instructions/effect.draw.js", engineCore));
 
 const { buildCostPlan } = await import(new URL("cost/cost-plan.js", engineCore));
+const { translateCost } = await import(new URL("programs/play.js", engineCore));
 const { payCostPlan } = await import(new URL("cost/payment.js", engineCore));
 const { abilitySpeed } = await import(new URL("programs/keywords.js", engineCore));
 
@@ -36,6 +37,25 @@ test("rad-029-167 Life from Stone: judge-required naming the missing additional-
   assert.match(program.judgeReason, /mandatoryAdditional/);
   assert.match(program.judgeReason, /choiceObjects/);
   assert.match(program.judgeReason, /translateCost/);
+  // Re-probed 2026-10-17: the placeholder option still throws at plan build,
+  // and RIFT-358's ordered picks do not cover a filtered board cost pick.
+  assert.match(program.judgeReason, /Cost requires an exact object reference/);
+  assert.match(program.judgeReason, /RIFT-358/);
+});
+
+test("rad-029-167 Life from Stone boundary: the declared cost placeholder is rejected by the real planner", () => {
+  // The card's cost.printed payment choice only names "ready-friendly-unit";
+  // cost/plan-values.ts maps choice.options through reference(), which requires
+  // an exact ObjectRef, so the production plan cannot even be built (355.10.c.1).
+  const kernel = world().player("A", { energy: 1 })
+    .hand("spell", { types: ["spell"], energy: 1, power: null })
+    .unit("ally", { exhausted: false }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("spell") });
+  const translated = translateCost(play.cost, "life-from-stone", "play");
+  assert.throws(
+    () => buildCostPlan(scoped, { id: "life:cost", cost: translated }),
+    /Cost requires an exact object reference/
+  );
 });
 
 test("rad-029-167 Life from Stone: [Reaction], a mandatory exhaust cost, then Draw 1 and channel 1 exhausted", () => {

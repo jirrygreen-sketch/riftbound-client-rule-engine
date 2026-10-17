@@ -8,7 +8,10 @@ import { bindResolveContext } from "../../../../engine-core/dist/events/action-a
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import grantKeyword from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
 
 const CANONICAL = "card.hash-02d796287ee81a01d4db75cbc8913926d5faa0dda54e2bf07f4412ef09acf073";
 
@@ -33,6 +36,9 @@ test("ogn-063-298 Spirit's Refuge: program passes validateCardProgram", () => {
   assert.match(program.judgeReason, /809/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /已有 Deflect|否定关键词/);
+  // 复核后新增的真实缺口证据：图层映射缺失与 Energy 记账错位。
+  assert.match(program.judgeReason, /target\.tax has no layer mapping/);
+  assert.match(program.judgeReason, /809\.1\.c\.1/);
   assert.equal(
     program.sourceText,
     "When you play this, buff a friendly unit. (If it doesn't have a buff, it gets a " +
@@ -225,8 +231,104 @@ test("Spirit's Refuge golden: no friendly unit with a Buff makes the grant a ski
   assert.equal(base.continuousEffects.length, 0);
 });
 
+test("Spirit's Refuge: the production static binder rejects Deflect's target.tax expansion (current gap)", () => {
+  // effects/keywords/Deflect.ts 只声明 static target.tax；生产 static binder 的 layerFor
+  // 没有该 kind 的映射。这里用 executable 形态的同形状程序走真实 attachLifecycle，
+  // 证明该缺口当前存在（不是猜测）。
+  const forged = {
+    canonicalCardId: "card.hash-spirits-refuge-probe",
+    rulesetVersion: "core-1.5",
+    status: "executable",
+    sourceText: "probe",
+    abilities: [{ kind: "static", effect: { kind: "target.tax", value: { kind: "constant", value: 1 } } }]
+  };
+  const state = fixture({ cards: [{ id: "probe", cardId: forged.canonicalCardId, types: ["gear"] }] });
+  const errors = [];
+  const binding = createProgramBinding({ cardPrograms: [forged] });
+  binding.attachLifecycle(state.engine, (error) => errors.push(String(error && error.message)));
+  state.engine.commit({
+    type: "move-zone",
+    object: state.kernel.ref("probe"),
+    to: "board",
+    location: { type: "base", player: "A" }
+  });
+  assert.deepEqual(errors, ["Static ability kind target.tax has no layer mapping"]);
+  assert.deepEqual(state.engine.layers.registry.list(), []);
+});
+
+test("Spirit's Refuge golden: granting Deflect to a unit that already has it sums (809.2), it does not skip", () => {
+  // 「if they didn't already」要求的语义是“已有则不再授予”；已合入的授予按 809.2 求和，
+  // 所以直接授予会得到与印刷文本相反的数值。这是当前缺口，不是本卡可执行的证明。
+  for (const [existing, expected] of [[null, 1], [1, 2], [2, 3]]) {
+    const base = world()
+      .unit("host", { types: ["gear"], zone: "board", owner: "A", controller: "A", might: null })
+      .unit("buffed-ally", {
+        might: 2,
+        buffs: 1,
+        owner: "A",
+        controller: "A",
+        ...(existing === null ? {} : { keywords: [{ id: "Deflect", value: existing }] })
+      })
+      .build();
+    const context = bindResolveContext(base, {
+      source: base.getObject("host"),
+      sourceSnapshot: base.getObject("host")
+    });
+    const run = runInstruction(grantKeyword, {
+      keyword: "Deflect",
+      value: 1,
+      objects: { kind: "target", id: "buffed-ally" }
+    }, { world: context, targets: { "buffed-ally": [base.ref("buffed-ally")] } });
+
+    assert.equal(run.result.status, "executed");
+    const layers = createLayerEngine(base.objects, base.continuousEffects);
+    assert.deepEqual(layers.evaluate(base.ref("buffed-ally")).keywords, [
+      { id: "Deflect", value: expected }
+    ]);
+  }
+});
+
+test("Spirit's Refuge golden: the granted Deflect really reaches the ability layer for buffed friendly units only", () => {
+  // 已合入部分：grant-keyword + Buff 特征过滤真的把 Deflect 授予有 buff 的友方单位。
+  const base = world()
+    .unit("host", { types: ["gear"], zone: "board", owner: "A", controller: "A", might: null })
+    .unit("buffed-ally", { might: 2, buffs: 1, owner: "A", controller: "A" })
+    .unit("plain-ally", { might: 2, buffs: 0, owner: "A", controller: "A" })
+    .build();
+  const productionQuery = (filter) => base.objects.filter((object) => matchesObjectFilter(
+    Object.fromEntries(Object.entries(filter).map(([key, value]) =>
+      [key, (key === "controller" || key === "owner") && value === "controller" ? "A" : value])),
+    object
+  ));
+  const context = bindResolveContext(base, {
+    source: base.getObject("host"),
+    sourceSnapshot: base.getObject("host"),
+    query: productionQuery
+  });
+  // The card's declared static effect is a grant over the written filter; the
+  // body form below is the instruction the layer binder consumes for it.
+  const run = runAbilityBody([{
+    id: "spirits-refuge.grant-deflect",
+    op: "continuous.grant-keyword",
+    args: {
+      keyword: { kind: "constant", value: deflectGrant.effect.keyword },
+      value: deflectGrant.effect.value,
+      objects: { kind: "constant", value: { kind: "query", filter: deflectGrant.effect.filter } }
+    }
+  }], context);
+
+  assert.equal(run.results[0].result.status, "executed");
+  assert.deepEqual(run.results[0].result.linkedValues.granted, {
+    count: 1,
+    objects: [base.ref("buffed-ally")]
+  });
+  const layers = createLayerEngine(base.objects, base.continuousEffects);
+  assert.deepEqual(layers.evaluate(base.ref("buffed-ally")).keywords, [{ id: "Deflect", value: 1 }]);
+  assert.deepEqual(layers.evaluate(base.ref("plain-ally")).keywords, []);
+});
+
 test.todo(
-  "Spirit's Refuge: the remaining work after static continuous.grant-keyword binding is an evaluable " +
-    "'if they didn't already' keyword predicate (809.2) and a target-tax adapter that makes " +
-    "Deflect's Power payment affect opponent target choices (809.1.c)."
+  "Spirit's Refuge: an evaluable 'if they didn't already' keyword predicate (809.2), a layer mapping / " +
+    "target-pipeline consumer for Deflect's target.tax, and the 809.1.c.1 any-domain Power payment " +
+    "instead of the chain's Energy mandatoryAdditional"
 );

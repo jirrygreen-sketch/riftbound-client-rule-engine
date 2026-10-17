@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/orianna-mechanical-marvel.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CARD_ID =
   "card.hash-d4ef90d20d4782edbcabe8cd157c2b6565e5c53b930df73f688bd58c0289d3a1";
@@ -20,6 +21,11 @@ test("rad-068-167 Orianna, Mechanical Marvel: program validates and is judge-req
   assert.match(program.judgeReason, /continuous\.cost-modification/);
   assert.match(program.judgeReason, /Finalize/);
   assert.match(program.judgeReason, /once-per-turn/);
+  // The production static binder rejects this kind outright; the reason must
+  // record that and the unsupported beneficiary appliesTo shape.
+  assert.match(program.judgeReason, /layerFor/);
+  assert.match(program.judgeReason, /Static ability kind continuous\.cost-modification has no layer mapping/);
+  assert.match(program.judgeReason, /staticTarget/);
 });
 
 test("rad-068-167 Orianna, Mechanical Marvel: sourceText is the verbatim deck-catalog ability text", () => {
@@ -93,11 +99,77 @@ test("rad-068-167 Orianna, Mechanical Marvel: the +1 Energy / +1 Power discount 
   assert.deepEqual(plan.total.power[0].allowedDomains, ["Fury"]);
 });
 
+function oriannaFixture() {
+  const engine = () => ({
+    layers: { registry: { list: () => [] }, addContinuous: () => {}, removeContinuous: () => {}, currentTimingPoint: "main-start" },
+    pipeline: { host: {} }
+  });
+  return {
+    engine,
+    source: {
+      ref: { id: "orianna", zoneEntryId: 1 },
+      cardId: CARD_ID,
+      name: "Orianna, Mechanical Marvel",
+      types: ["unit"],
+      tags: [],
+      keywords: [],
+      owner: "A",
+      controller: "A",
+      zone: "board",
+      location: { type: "battlefield", id: "bf-1" },
+      might: 5,
+      energy: 5,
+      power: null,
+      exhausted: false,
+      damage: 0,
+      stunned: false,
+      buffs: 0,
+      attachedTo: null,
+      faceDown: false,
+      isToken: false
+    }
+  };
+}
+
+test("rad-068-167 Orianna, Mechanical Marvel: the production static binder refuses the declared beneficiary filter", () => {
+  // staticTarget() only accepts self/source or an omitted appliesTo. The printed
+  // beneficiary is a gear filter with a relative controller (366.2 / 366.2.a),
+  // so binding stops here before any layer mapping is consulted.
+  const { engine, source } = oriannaFixture();
+  assert.throws(
+    () => createEngineStaticBinder(engine()).bindStatic(costModification, source),
+    error => error.code === "judge-required" &&
+      /Unsupported static appliesTo \{"type":"gear","controller":"controller"\}/.test(error.message)
+  );
+  assert.equal(engine().layers.registry.list().length, 0);
+});
+
+test("rad-068-167 Orianna, Mechanical Marvel: with the beneficiary filter removed, layerFor still has no cost-modification mapping", () => {
+  // Isolating the second gap: even a self-applied static of this kind cannot
+  // reach the layer registry, because layerFor has no continuous.cost-modification
+  // branch. That is why no Finalize consumer can ever see this effect.
+  const { engine, source } = oriannaFixture();
+  const { appliesTo, ...withoutBeneficiary } = costModification.effect;
+  void appliesTo;
+  for (const effect of [
+    withoutBeneficiary,
+    { ...costModification.effect, appliesTo: { kind: "constant", value: "self" } }
+  ]) {
+    assert.throws(
+      () => createEngineStaticBinder(engine()).bindStatic({ ...costModification, effect }, source),
+      error => error.code === "judge-required" &&
+        /Static ability kind continuous\.cost-modification has no layer mapping/.test(error.message)
+    );
+  }
+  assert.equal(engine().layers.registry.list().length, 0);
+});
+
 test.todo(
-  "rad-068-167 Orianna, Mechanical Marvel: consume the continuous cost modification at Finalize " +
+  "rad-068-167 Orianna, Mechanical Marvel: bind and consume the continuous cost modification " +
     "(1 Energy + 1 any-domain Power less for a gear the controller plays, once each turn, while " +
-    "the source is at a battlefield) — needs a Finalize reader for continuous.cost-modification " +
-    "and a per-turn use counter on continuous effects"
+    "the source is at a battlefield) — needs a staticTarget beneficiary-filter adapter, a " +
+    "layerFor mapping for continuous.cost-modification, a Finalize reader for it, and a " +
+    "per-turn use counter on continuous effects"
 );
 
 test.todo(

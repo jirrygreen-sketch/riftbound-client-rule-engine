@@ -15,50 +15,53 @@ import type { CardProgram } from "../../ir/index.js";
  * - "[Repeat] :rb_rune_chaos:" (820.1.c) is an Optional Additional Cost. The
  *   frozen KeywordAbility (contract 3.1) carries no printed cost, and the merged
  *   play binding rejects additional-cost outright (programs/play.ts
- *   translateCost calls judgeRequired for additional-cost), so this declaration
- *   is not executed here.
+ *   translateCost calls judgeRequired for additional-cost), Repeat.ts's
+ *   repeat.cost static has no layer mapping, and no merged consumer ties the
+ *   paid instance count to the interpreter's repeat node, so this declaration is
+ *   not executed here.
  * - "Look at the top 2 cards of your Main Deck" is a private look (128.3-128.4)
- *   over the deck's real order. Reading the deck top must use the zoneSlice
- *   contract (3.6), and the merged effect.inspect deliberately negates
- *   (negated/impossible) when the ordered upstream set is missing instead of
- *   guessing order from query(); the ordered PickSpec declares that upstream
- *   range. "your Main Deck" is the caster's deck (190.6.d), bound once with
+ *   over the deck's real order. Merged RIFT-358 ordered picks give the
+ *   instruction an explicit source binding: the PickSpec carries
+ *   zoneSlice { zone: "deck", from: "top", count: 2 } and Finalize locks the
+ *   ordered ObjectRef list before the look resolves (chain/picks/plan.ts reads
+ *   zoneSlice as the sole ordering authority; query order is never used).
+ *   "your Main Deck" is the caster's deck (190.6.d), bound once with
  *   condition.value and read back as a linked value because effect.inspect's
  *   argument schema accepts an Expr but not a symbolic object selector.
- * - "Draw one and recycle the other": the chosen card moves from the Main Deck
- *   to the Hand (the draw action's own result, 414.1) and the other goes to the
- *   bottom of its owner's Main Deck (417.1, 417.1.a, 417.4). Neither card is
- *   targeted: the two candidates are in a Secret zone and are chosen by the
- *   looking player (355.10.a), so they are picks, never TargetSpecs.
- *   The moved card drops out of the looked list (stale reference; 124), which
- *   is exactly "the other".
+ * - "Draw one and recycle the other": the one-of-two decision is the
+ *   instruction's own private subset choice (effect.inspect choose +
+ *   chooseCount { min: 1, max: 1 }; contract 3.6 keeps subset choices in the
+ *   resolving instruction). The chosen card then moves from the Main Deck to the
+ *   Hand (414.1) through the linked ordered pick, and the other goes to the
+ *   bottom of its owner's Main Deck (417.1, 417.1.a, 417.4) because the card
+ *   already moved has a stale reference (124) and drops out of the looked list.
+ *   Neither card is targeted: the candidates are in a Secret zone and are chosen
+ *   by the looking player (355.10.a), so they are picks, never TargetSpecs.
  * - Both still-deck cards keep their identity: effect.inspect does not move
  *   them (432.1.c / 425-style look), the pick moves one, recycle moves the
  *   rest.
  *
- * Status (cards/README.md §2): judge-required — the look/draw/recycle body uses
- * only merged primitives and is executed by the golden test with a caller-
- * supplied ordered deck-top range, but no merged producer turns "the top 2
- * cards" into that range (the chain's Finalize surface locks instruction
- * targets only, and picks have no ordered-region lifecycle), and the [Repeat]
- * additional cost is rejected by the merged play binding. Neither gap is
- * approximated.
+ * Status (cards/README.md §2): judge-required — the look/draw/recycle body is
+ * fully expressible on merged primitives and the merged ordered-pick lifecycle
+ * (RIFT-358), and the golden drives it through the real ChainEngine (Finalize
+ * locks the deck-top slice, Resolve makes the private one-of-two choice), but
+ * the printed [Repeat] optional additional cost still has no executable
+ * collection path. That gap is not approximated.
  */
 const calledShot = {
   canonicalCardId: "card.hash-80891ed8d25bcc7b7a458d0779163e739b738892493c56f163344772ecf1eea2",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入：(1)「Look at the top 2 cards of your Main Deck」需要上游按真实牌库顺序提供的有序 picksSpecId：" +
-    "effect.inspect 自行规定非零 top 查看必须有有序来源（缺来源时 negated/impossible，绝不截取 query() 的顺序，契约 3.6 的 zoneSlice 才保序），" +
-    "而链的 Finalize（chain/engine.ts assertFinalizationSurface）只锁定 instruction.targets 的 TargetSpec，没有有序区域 pick 的生命周期；" +
-    "本文件声明了稳定的有序范围 id，由调用方按 zoneSlice 提供牌库顶两张。" +
-    "(2)「[Repeat] :rb_rune_chaos:」的可选追加费用没有绑定路径：冻结的 KeywordAbility（契约 3.1）不承载印刷费用，" +
-    "已合入的卡牌程序 play 绑定（programs/play.ts translateCost）对 additional-cost 直接 judgeRequired" +
-    "（\"Additional costs are not bound for ...\"），没有把已付费实例数接到 effect.repeat 额外执行上的路径，故只声明形状，" +
-    "不写死第二次结算。" +
-    "look → 入手 1 张（effect.zone，414.1/414.3）→ 回收其余（effect.recycle，417.1）三段只用已合入原语，golden 已借测试内核的有序 picks 真实执行。" +
-    "依赖：有序区域 picks / Finalize 生命周期、additional-cost 绑定与 Repeat 费用管线。",
+    "唯一剩余缺口是「[Repeat] :rb_rune_chaos:」的可选追加费用：play 绑定 programs/play.ts 的 translateCost 对 kind \"additional-cost\" 直接" +
+    "judgeRequired（\"Additional costs are not bound for ...\"），effects/keywords/Repeat.ts 展开的静态 repeat.cost 也没有图层映射" +
+    "（programs/statics.ts layerFor 抛 ProgramBindingError \"no layer mapping\"，lifecycle 仅捕获为绑定失败），" +
+    "且没有把已付费实例数接到解释器内建 repeat 节点的消费方；820.1.c 的印刷费用在契约 3.1 的 KeywordAbility 上也无处承载。" +
+    "look/draw/recycle 三段已用合并后的能力表达并真实执行：effect.inspect 的 top 作用域按 RIFT-358 的" +
+    " PickSpec zoneSlice {zone:\"deck\",from:\"top\",count:2} 在 Finalize 锁定保序引用（chain/picks/plan.ts，query 顺序绝不被采用），" +
+    "二选一由同一指令的私有子集选择（choose + chooseCount {min:1,max:1}）在结算期做出，入手的一张经 linked 有序 pick 走 effect.zone" +
+    "（414.1），另一张因引用失效（124）留在列表里由 effect.recycle 回收（417.1/417.1.a；432.1.c 短牌库只看可看的张数）。" +
+    "golden 用真实 ChainEngine（Finalize 锁定 + Resolve 选择）执行该 body；不写死第二次结算、不近似实现追加费用。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
@@ -97,18 +100,30 @@ const calledShot = {
             scope: { kind: "constant", value: "top" },
             amount: { kind: "constant", value: 2 },
             picksSpecId: { kind: "constant", value: "called-shot.top-two" },
+            // 355.10.a / 契约 3.6：两张牌里选一张是查看者自己的私有子集选择，
+            // 由本指令在结算期通过 choose 做出，不写进 PickSpec（有序来源自身
+            // 只做「全部」绑定）。
+            choose: { kind: "constant", value: true },
+            chooseCount: { kind: "constant", value: { min: 1, max: 1 } },
+            choiceId: { kind: "constant", value: "called-shot.draw-choice" },
             linkedKey: { kind: "constant", value: "lookedCount" },
-            pickedKey: { kind: "constant", value: "looked" }
+            pickedKey: { kind: "constant", value: "looked" },
+            choosePicksKey: { kind: "constant", value: "chosen" }
           },
           picks: [
             {
               id: "called-shot.top-two",
-              // 主牌库顶两张（保序）：由上游 zoneSlice 顺序提供，不是静态列表。
-              options: ["dynamic:main-deck-top-two"],
-              min: 2,
-              max: 2,
+              // 契约 3.6 / RIFT-358：显式有序来源 = options: []、ordered: true、
+              // selection: "all"，Finalize 按 zoneSlice 锁定真实牌库顶两张并保序；
+              // 子集选择在结算期的 effect.inspect 里完成。
+              options: [],
+              ordered: true,
               selection: "all",
-              filter: { owner: "self", zone: "deck" }
+              zoneSlice: {
+                zone: "deck",
+                from: "top",
+                count: { kind: "constant", value: 2 }
+              }
             }
           ]
         },
@@ -126,16 +141,15 @@ const calledShot = {
           picks: [
             {
               id: "called-shot.drawn-card",
-              options: [
-                {
-                  kind: "linked-value",
-                  instructionId: "called-shot.look-top-two",
-                  key: "looked"
-                }
-              ],
-              min: 1,
-              max: 1,
-              selection: "one"
+              // 查看结果里被选中的那一张（有序实际结果，RIFT-358 linked 来源）。
+              options: [],
+              ordered: true,
+              selection: "all",
+              linked: {
+                kind: "linked-value",
+                instructionId: "called-shot.look-top-two",
+                key: "chosen"
+              }
             }
           ]
         },

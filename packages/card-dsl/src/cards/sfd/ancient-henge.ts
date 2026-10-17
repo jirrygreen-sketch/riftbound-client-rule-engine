@@ -26,9 +26,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "CR 204.3/204.3.a 的 “Pay any amount of Energy” 在 Resolve 时选择并支付，缺可选金额/支付成功作用域及实付量链接；cost.pay 可收取已锁定计划，但 cost.pay-any 仍无实现。" +
-    "[A] Universal Power（135.2.e.5/163.2.b）缺独立资源表示，effect.resources 不能将 rainbow 当作某个有色域。" +
-    "programs/activate.ts 将所有启动能力标为 activated，尚未把本能力识别为 add 链项，无法落实 430.2/430.2.a 的立即结算及不可响应。",
+    "CR 204.3/204.3.a 的 “Pay any amount of Energy” 在 Resolve 时选择并支付：已注册原语表（effects/instructions/registry.generated.ts）里没有 cost.pay-any，" +
+    "现有 cost.pay 只接受已锁定的 Finalize 计划（payments 形式的数组也不是它的可支付计划形状），没有「任意金额询问 + 成功作用域 + 实付量链接」这条路径，故本卡首条指令无法执行。" +
+    "[A] Universal Power（135.2.e.5/163.2.b）缺独立资源表示：effect.resources 只接受已关闭的 Domain 集合，rainbow 会被判为 impossible，绝不用某个有色域近似。" +
+    "programs/activate.ts 把本能力描述为 activated 链项（kind: \"activated\"），而 430.2/430.2.a 要求 add 能力立即结算且在支付期间不可被响应；没有消费者按 add 处理该 draft。",
   abilities: [
     {
       kind: "activated",

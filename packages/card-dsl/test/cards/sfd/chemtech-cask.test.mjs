@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/chemtech-cask.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
@@ -125,6 +126,43 @@ test("sfd-063-221 Chemtech Cask: an unfulfilled Gold play preserves the gear and
   assert.deepEqual(bound.objects.filter((object) => object.isToken).map((object) => object.ref.id), []);
   assert.deepEqual(bound.objects, before);
   assert.deepEqual(bound.events, []);
+});
+
+test("sfd-063-221 Chemtech Cask: the authored cost-within-instruction array is rejected by the merged payments parser", () => {
+  // 204.1.c / 204.3 / 355.10.c.1: "exhaust me" is a cost within instructions.
+  // The card declares the nonstandard payment array; cost.pay's payments parser
+  // only accepts the { energy, power, xp } descriptor form, so the authored
+  // shape fails closed with cannot-pay-cost, and the exhaust is never
+  // approximated with effect.exhaust.
+  const kernel = world().player("A")
+    .unit("cask", { types: ["gear"], zone: "board", location: { type: "base", player: "A" } })
+    .build();
+  const bound = kernel.clone({ sourceSnapshot: kernel.getObject("cask") });
+
+  assert.throws(
+    () => resolveChainBody([payExhaust], bound),
+    (error) => {
+      assert.equal(error.name, "CostPlanError");
+      assert.equal(error.reason, "cannot-pay-cost");
+      return true;
+    }
+  );
+  assert.equal(bound.getObject("cask").exhausted, false);
+  assert.deepEqual(bound.objects.filter((object) => object.isToken), []);
+});
+
+test("sfd-063-221 Chemtech Cask: the merged trigger vocabulary cannot express a turn-ownership condition", () => {
+  // 383.2.a / 315.2.a: the trigger must compare the event's turn player with
+  // the ability controller. EventPattern exposes only event/kind/object/
+  // source/target/player/fromZone/toZone/amount/details, and the pipeline's
+  // matcher compares the event player only, so the card declares no condition
+  // instead of approximating it as always-true.
+  assert.equal(ability.trigger.condition, undefined);
+  assert.deepEqual(Object.keys(ability.trigger.filter).sort(), ["event", "object", "player"]);
+  const base = { timingPoint: "card-played", kind: "card-played", eventId: 1 };
+  // The declared filter really matches only the controller's own spell play.
+  assert.equal(matchesTriggerEvent(ability.trigger.filter, { ...base, object: spell("A"), player: "A" }, "A"), true);
+  assert.equal(matchesTriggerEvent(ability.trigger.filter, { ...base, object: spell("A"), player: "B" }, "A"), false);
 });
 
 test.todo(

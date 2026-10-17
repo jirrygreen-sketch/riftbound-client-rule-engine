@@ -26,19 +26,20 @@ import type { CardProgram } from "../../ir/index.js";
  * example names this card). Its leading discard cost must be paid before
  * Finalize (383.3.b/b.1), rather than while resolving the body (423.3/423.4).
  * cost.pay and discard CostPlans exist; triggered-cost extraction and trash
- * activation-zone declarations do not. The source return and conquer event
- * normalization also remain unbound. The blocked IR records printed intent.
+ * activation-zone declarations do not. The source return remains unbound.
+ * The conquer event uses the supported conquered pattern. The blocked body
+ * records printed intent without moving payment into resolution.
  */
 const superMegaDeathRocket = {
   canonicalCardId: "card.hash-a5df5886eb5ce4de01ecdbffd7bd2e4840f75ad0546a27a1428d719100e5f2ad",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 trash 自述区域的触发声明（CR 385.1/385.2）：programs/triggers.ts 已合入，但 Spell 默认 activeZones 为 " +
-    "chain，卡牌能力没有声明 trash 生效区域的字段。discard 1 是 423.3 的领先费用，必须按 383.3.b/383.3.b.1 在 Finalize " +
-    "前支付；cost.pay 与 discard CostPlan 已合入，TriggeredAbility 却没有费用声明，程序绑定也不提取 body 的领先费用，" +
-    "不能以结算时支付或 effect.discard（423.4）代替。当前 cost.discard 仅是受阻占位。effect.zone 只收 target/pick，" +
-    "source/self 非目标移区仍无入口；conquer 事件名也需适配 EventPattern 的 conquered。Deal 5 半段已有真实执行证据。不近似实现。",
+    "缺 trash 自述区域的触发声明与程序绑定（CR 385.1/385.2）：Spell 的 conquer 触发仍默认 activeZones:chain，" +
+    "TriggeredAbility 无区域字段。discard 1 作为领先费用必须在 Finalize 前支付（383.3.b/383.3.b.1、423.3）；" +
+    "虽有 TriggerRegistration.cost 与 discard CostPlan，TriggeredAbility 仍无费用声明，programs/triggers.ts 也不提取领先费用。" +
+    "cost.discard 仅为占位，不能改为结算期 cost.pay/effect.discard。effect.zone 只收 target/pick，仍缺 source/self " +
+    "非目标返回选择器绑定；dynamic:this-card-in-trash 不是可执行选择。不近似实现。",
   abilities: [
     {
       kind: "play",
@@ -61,7 +62,7 @@ const superMegaDeathRocket = {
       // your hand." The may is optionality. These blocked placeholders record
       // the leading cost (must move to Finalize) and the source return.
       kind: "triggered",
-      trigger: { at: "conquer", filter: { event: "conquer", player: "controller" } },
+      trigger: { at: "conquer", filter: { event: "conquered", player: "controller" } },
       optional: true,
       body: [
         {

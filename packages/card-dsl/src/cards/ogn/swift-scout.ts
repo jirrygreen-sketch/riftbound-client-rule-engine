@@ -35,11 +35,10 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Hide 费用替代仍缺拦截入口（CR 811.1.b/c）：GameAction 已有 pay，cost.pay 也能支付 1 能量，cost/kinds/hidden.ts " +
-    "可规划 Hide 费用；但 replacement/pattern.ts 不接受 pay/hide/cost-payment 匹配，没有完整 Hide 行动与 " +
-    "facedown 生命周期，故无法把该支付接入本卡的可选替代。第二句仍缺 Champion Zone（108.3/355.9.a.5）：ZoneId 与 " +
-    "ObjectFilter.zone 无此区域，当前目标声明只覆盖 board。effect.zone 的 owner 手牌路由与 board 返回半段已可执行；不近似实现 " +
-    "Champion Zone 或 Hide。",
+    "Hide 的可选费用替代仍缺 replacement/pattern.ts 的 Hide/pay/cost-payment 拦截及可选替代声明（CR 811.1.b/c）；" +
+    "with 中 cost.pay 支付 1 能量不能替代原 Hide 费用，替代 planner 也不消费该支付指令。仍缺完整 Hide/facedown 行动生命周期。" +
+    "返回能力仍缺 Champion Zone 对象到 EffectIR ZoneId/ObjectFilter.zone 的桥接（108.3/355.9.a.5）：canonical 对局虽有 " +
+    "champion-zone，当前 TargetSpec 仍只能覆盖 board。不得把 Champion Zone 单位当作 board 单位或直接绕过目标与费用。不近似实现。",
   abilities: [
     {
       kind: "replacement",

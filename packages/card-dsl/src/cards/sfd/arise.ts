@@ -34,8 +34,9 @@ const arise = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "355.2/355.2.a 的 token 打出地点仍缺 Finalize 选择到 effect.token 的绑定：target/location 已能枚举 LocationRef，但解释器只为 effect.move 归一化 LocationExpr，effect.token.location/locations 仍只接受具体引用，不能静态写死玩家的选择。" +
-    "生产 programs/play.ts 的 token 打出交接也不能为新建 token 的 cardId 提供能力为空的可打出程序（effect.token 定义不携带 CardProgram）；需要把创建、每次打出的合法地点/费用及 440.2.c 的链处理接通。",
+    "355.2/355.2.a 的 token 打出地点仍未绑定：target/location 已能枚举 LocationRef，但解释器只为 effect.move 归一化 LocationExpr，" +
+    "effect.token.location/locations 只接受具体运行时引用（{\"type\":\"location\"} 形式会被 \"Invalid effect.token argument: location\" 拒绝），卡程序又不能写死玩家的选择。" +
+    "生产打出流程也缺 token 程序：effect.token 的 CardProgram 不携带能力，programs/play.ts 的 token 打出交接（describePlay → registry.get）会以 unknown-program 失败，创建/每次打出的合法地点、费用与 440.2.c 的链处理尚未接通。",
   abilities: [
     {
       kind: "play",

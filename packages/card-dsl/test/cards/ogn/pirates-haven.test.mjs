@@ -24,6 +24,7 @@ test("ogn-143-298 Pirate's Haven: identity, version and verbatim source text", (
     "When you ready a friendly unit, give it +1 :rb_might: this turn."
   );
   assert.match(program.judgeReason, /事件对象选择器/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("ogn-143-298 Pirate's Haven: object-readied trigger structure", () => {

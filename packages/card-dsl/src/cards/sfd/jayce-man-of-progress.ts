@@ -16,15 +16,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "a friendly gear" 是 Board 上受本能力控制者控制的 gear（355.9.a.1、190.6.d），用
  *   controller: "self"（Finalize/query 包装归一化，同 sfd/guardian-of-the-passage 的注释）。
  *   消灭本体交给已合入的 effect.kill（429）。
- * - "If you do"（359.3.e.14.b）：直接引用前一条指令执行的游戏动作，需要动作回执。
+ * - "If you do"（359.3.e.14.b）：直接引用前一条指令执行的游戏动作；
+ *   effect.kill 已提供 killed 链接值（消灭 0 个时为空数组），解释器的
+ *   linked 表达式与 compare 条件可读取并判断——已按该回执闸门改写 IR。
  * - "you may play a gear ... from hand this turn, ignoring its Energy cost"：420.3 的效果式打出
  *   （355.10.a/420.3.c：手牌中的牌由玩家在结算时选择）；"ignoring its Energy cost" 按 356.1.b.2
  *   只把 Base Energy cost 置 0、Power 仍然照付（印刷提示 (You must still pay its Power cost.) 亦然）；
  *   "this turn" 是本回合一次性的后续打出许可（回合末到期的持续许可窗口）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-16），四处依赖仍未合入，均不近似实现：
- * - 「If you do」需要前一条 kill 的动作回执（condition.result 类缺口），冻结 IR 无该绑定；
- *   不加恒真条件、也不把 kill 改写成费用。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17），三处依赖仍未合入，均不近似实现：
+ * - 「If you do」的动作回执已合入并接线：effect.kill 提供 killed 链接值（无消灭时
+ *   为空数组），may-play 节点用 linkedTo: "jayce.kill-friendly-gear" + compare/
+ *   linked 条件读取该回执；真实链验证——kill 成功时后续 may-play 被询问，
+ *   killed 为空数组（或目标失效使回执不可用）时后续不执行。
  * - 「play a gear ... from hand this turn」是**本回合稍后**的一次性许可窗口：ObjectFilter 没有
  *   greatest/last-created 量词，TargetSpec 必须锁定 Finalize 时已存在的对象（355.5），手牌中的牌
  *   在触发结算时尚未由玩家选定；Duration 词汇（permanent/end-of-turn/end-of-combat/while-source-in-zone）
@@ -33,11 +37,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （356.1.b.2）：effect.play 只接受已 finalize 的计划、从不推导印刷费用；RIFT-257 的
  *   programs/play.ts translateCost 也对卡面的 cost 字段转 judge-required（discount/ignore 等键被拒），
  *   没有卡牌程序入口，而且计划必须在被选牌确定之后才能生成（RIFT-261 费用种类/费用计划批次）。
- * - 「a gear with Energy cost no more than :rb_energy_7:」需要印刷费用上限比较（206）：冻结 ObjectFilter
+ * - 「a gear with Energy cost no more than :rb_energy_7:」需要印刷费用上限比较（206）：ObjectFilter
  *   没有费用谓词、已合入过滤器会静默忽略未知键（同 sfd/sandshifter、sfd/pickpocket 的缺口）。
  * effect.kill 与 choice.optional 已合入，golden 用锁定目标真实执行 kill 半段（接受/拒绝/目标失效），
  * 并用真实管道验证触发注册的形状。
- * 依赖：RIFT-261（费用种类与 ignore-cost 接线）、RIFT-90（印刷费用谓词与结果绑定）、
+ * 依赖：RIFT-261（费用种类与 ignore-cost 接线）、RIFT-90（印刷费用谓词）、
  * 一次性许可窗口（RIFT-91 后续）。
  */
 const abilities: Ability[] = [
@@ -60,11 +64,20 @@ const abilities: Ability[] = [
                 args: { target: { kind: "constant", value: "jayce.friendly-gear" } }
               },
               {
-                // 「If you do, you may play a gear ...」：动作回执闸门与「本回合稍后的一次性打出许可」
-                // 都未合入（见 judgeReason）；保留 420.3 的效果式打出形状与
+                // 「If you do, you may play a gear ...」：回执闸门已接线（linkedTo +
+                // compare/linked 读 effect.kill 的 killed 链接值；killed 为空数组或
+                // 目标失效时不执行）。「本回合稍后的一次性打出许可」仍缺（见
+                // judgeReason）；保留 420.3 的效果式打出形状与
                 // 356.1.b.2 的「只忽略 Energy 费」费用计划形状。
                 id: "jayce.may-play-gear-from-hand",
                 op: "choice.optional",
+                linkedTo: "jayce.kill-friendly-gear",
+                condition: {
+                  kind: "compare",
+                  left: { kind: "linked", instructionId: "jayce.kill-friendly-gear", key: "killed" },
+                  operator: "ne",
+                  right: { kind: "constant", value: [] }
+                },
                 args: {
                   prompt: { kind: "constant", value: "Play a gear from your hand, ignoring its Energy cost?" },
                   body: {
@@ -127,14 +140,18 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "四处依赖仍未合入，均不近似实现：(1)「If you do」是 359.3.e.14.b 的直接引用游戏动作条件（调研记为 condition.result）：冻结 IR 没有动作回执绑定，" +
-    "后续打出指令无法按 kill 实际发生开闸；不加恒真条件，也不把 kill 改写成费用。" +
-    "(2)「play a gear with Energy cost no more than :rb_energy_7: from hand this turn」需要 206 的印刷费用上限比较（冻结 ObjectFilter 无费用谓词，未知键被静默忽略，同 sfd/sandshifter），" +
+    "「If you do」（359.3.e.14.b）的动作回执已合入并接线：" +
+    "effect.kill 提供 killed 链接值（无消灭时为空数组），may-play 节点以 linkedTo: " +
+    "jayce.kill-friendly-gear 加 compare/linked 条件读取该回执；真实链验证 kill 成功时" +
+    "后续 may-play 被询问；接受 may-kill 但真实替代将 gear 移回手牌时，" +
+    "kill 被否定且不出现后续打出询问；拒绝或目标失效也不执行后续。" +
+    "仍缺印刷费用过滤、许可窗口与费用计划，不近似实现：" +
+    "「play a gear with Energy cost no more than :rb_energy_7: from hand this turn」需要 206 的印刷费用上限比较（ObjectFilter 无费用谓词，未知键被静默忽略，同 sfd/sandshifter），" +
     "以及「本回合稍后」的一次性许可窗口：ObjectFilter 没有 greatest/last-created 量词，TargetSpec 必须锁定 Finalize 时已存在的对象（355.5），Duration 也没有 one-shot「本回合的下一张」期限（同 rad/firelights-hideout 的缺口）。" +
-    "(3)「ignoring its Energy cost」按 356.1.b.2 只把 Base Energy 置 0、Power 照付（印刷提示亦然）：effect.play 只接受已 finalize 的计划、从不推导印刷费用，" +
+    "「ignoring its Energy cost」按 356.1.b.2 只把 Base Energy 置 0、Power 照付（印刷提示亦然）：effect.play 只接受已 finalize 的计划、从不推导印刷费用，" +
     "RIFT-257 的 translateCost 对卡面 cost 字段直接转 judge-required、cost/ 也没有 ignore-base 的卡牌程序入口，且计划必须在被选牌确定后才生成（RIFT-261）。" +
-    "effect.kill 与 choice.optional 已合入，golden 用锁定目标真实执行 kill 半段（接受/拒绝/目标失效三分支）。" +
-    "依赖：RIFT-261（费用种类与 ignore-cost）、RIFT-90（印刷费用谓词与结果绑定）、一次性许可窗口（RIFT-91 后续）。",
+    "effect.kill、choice.optional 与 killed 回执均已合入，golden 用锁定目标真实执行 kill 半段（接受/拒绝/目标失效三分支）并验证回执闸门。" +
+    "依赖：RIFT-261（费用种类与 ignore-cost）、RIFT-90（印刷费用谓词）、一次性许可窗口（RIFT-91 后续）。",
   abilities,
   sourceText:
     "When you play me, you may kill a friendly gear. If you do, you may play a gear with Energy cost no more than :rb_energy_7: from hand this turn, ignoring its Energy cost. (You must still pay its Power cost.)"

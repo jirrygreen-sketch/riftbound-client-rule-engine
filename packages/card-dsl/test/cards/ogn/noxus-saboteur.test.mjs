@@ -6,6 +6,8 @@ import program from "../../../dist/cards/ogn/noxus-saboteur.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import restrict from "../../../../engine-core/dist/effects/instructions/continuous.restrict.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CARD_ID = "card.hash-e5d5e81a865437ba16c7a9dd066d67dc5f437867e4ec858ae5245045cc548caf";
 const [restriction] = program.abilities;
@@ -72,7 +74,22 @@ test("noxus-saboteur: continuous.restrict registers the printed reveal prohibiti
   assert.deepEqual(kernel.continuousEffects[0].effect.filter, restriction.effect.appliesTo);
 });
 
+test("noxus-saboteur: the static binder refuses the relative opponent controller filter", () => {
+  const kernel = world()
+    .unit("noxus-saboteur", { cardId: program.canonicalCardId, location: { type: "base", player: "A" } })
+    .build();
+  const source = kernel.getObject("noxus-saboteur");
+  const layers = createLayerEngine([source]);
+  const binder = createEngineStaticBinder({ layers });
+  assert.throws(
+    () => binder.bindStatic(program.abilities[0], source),
+    /Unsupported static appliesTo \{"tag":"Hidden","controller":"opponent","zone":"board","sameLocationAs":"self"\}/
+  );
+  assert.deepEqual(layers.registry.list(), []);
+});
+
 test.todo(
   "noxus-saboteur: resolve the relative opponent filter in the static binder and consume " +
-    "continuous.restrict from Reveal legality, including the 811.5.a facedown/Hidden distinction"
+    "continuous.restrict from Reveal legality, including the 811.5.a facedown/Hidden distinction " +
+    "(the binder currently rejects controller:opponent and effect.reveal does not query continuous.restrict)"
 );

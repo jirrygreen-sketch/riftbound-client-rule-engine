@@ -12,8 +12,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - 425 / 425.1：Reveal 是受限动作（425.2.a / 491.8.f.1 只能在效果指示时执行）；
  *   本能力是对该动作的持续禁止。
  * - 364.1 / 364.3："can't be revealed" 是持续生效的被动能力（陈述句）；"here" 指本卡
- *   所在位置（421.1）。按 RIFT-9 原语清单，这类一般许可 / 禁止 / 数量限制归
- *   continuous.restrict（依赖 condition.predicate）。
+ *   所在位置（421.1）。这类一般许可 / 禁止 / 数量限制由 continuous.restrict 表达。
  *
  * 结构说明: 单个 static 能力，effect.kind = "continuous.restrict"，禁止对象为对手
  * 拥有/控制的、位于本卡所在位置的 Hidden 牌执行 Reveal（operation: "reveal"、

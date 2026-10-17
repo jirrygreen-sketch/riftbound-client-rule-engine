@@ -29,13 +29,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   references the granted object).
  *
  * Status: judge-required. 2026-10-17 recheck: the keyword-grant half is now
- * merged and executable (`continuous.grant-keyword` + Shield KeywordDef), so
- * that gap is deleted. One gap remains, not approximated:
+ * merged and executable (`continuous.grant-keyword` + Shield KeywordDef) and
+ * is proven by the golden test, so that gap is deleted. One gap remains, not
+ * approximated:
  * - no expression reads a keyword's value: ObjectSnapshot.keywords is a list of
  *   { id, value } entries (814.1.b.2 Shield Value, 814.2 summed instances) and
  *   the frozen Expr forms only read snapshot properties, so "damage equal to
- *   its [Shield]" has no expression form. The pending effect.shield-value op
- *   records the missing read.
+ *   its [Shield]" has no expression form. Reading `keywords` as an amount is
+ *   not interchangeable: it yields the list, and effect.damage requires a
+ *   number. The pending effect.shield-value op records the missing read.
  * The damage instruction's target structure (one enemy unit, 355.7) and its
  * linkage to the grant are expressed.
  */
@@ -48,6 +50,7 @@ export default {
     "不再列为缺口。当前只剩一处缺口，不近似实现：" +
     "「deal damage equal to its [Shield]」需要读取关键词数值：ObjectSnapshot.keywords 是 { id, value } 列表，" +
     "814.2 规定多个 Shield 实例相加成单一 Shield Value，而冻结的 Expr 形式只能读快照属性，没有读取关键词数值的表达式，" +
+    "把 keywords 当 amount 读只能得到列表（effect.damage 需要数值，实测 negated/impossible），" +
     "已在数据里记下待补的 effect.shield-value（registry 未注册该 op）。" +
     "依赖：读取 ObjectSnapshot.keyword value 的表达式或原语；不近似实现。",
   abilities: [

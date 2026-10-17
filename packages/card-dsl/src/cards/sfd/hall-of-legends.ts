@@ -11,9 +11,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   timing point is emitted by the merged scoring wave (turn/flow.ts, with the
  *   battlefieldId detail).
  * - "you may pay [1 energy]" is a cost within an instruction paid at
- *   resolution (204.3.a, 205); the 383.3.b question (base cost when the paid
- *   clause directly follows "you may" at the start of the effect) applies
- *   here too and has no TriggeredAbility cost slot.
+ *   resolution (204.3 / 204.3.a, 205); the merged cost.pay primitive pays it
+ *   through its `payments` record. 383.3.b's base-cost question (the paid
+ *   clause directly follows a leading "you may") has no TriggeredAbility cost
+ *   slot in contract 3.1 and no Finalize-time collection consumer
+ *   (programs/triggers.ts does not lift a leading optional payment into
+ *   TriggerRegistration.cost / mayAtFinalize), so the payment still happens on
+ *   resolution exactly as the printed text reads it here.
  * - "your legend" does NOT target: 355.10.g makes a legend "you" control an
  *   exception to targeting ("Ready your legend" is the rulebook's own
  *   example). The legend is chosen at resolution, so it is a non-target
@@ -23,32 +27,33 @@ import type { CardProgram } from "../../ir/index.js";
  *   (174.6-174.8, 415.3.a), and 416.1.b/416.1.c make readying an already-ready
  *   object a no-op.
  *
- * Status rationale (cards/README.md §2): judge-required. The conquer trigger
- * is emitted, the optional wrapper and the effect.ready primitive (including
- * its resolution-time choose) are merged and executed by the golden, but the
- * 1-energy payment is not: effects/instructions/ has no cost.pay primitive
- * (RIFT-261 owns the cost.pay / cost.modify batch), so "you may pay [1]" has
- * no executable path and the whole optional chain cannot be declared
- * executable. The "here" anchor is also still unrepresentable: the program
- * binding rejects the filter field (translateObjectFilter throws "Unsupported
- * filter field here"), so the trigger cannot bind to this battlefield's
- * location. Nothing is approximated by free readying or a fabricated payment.
+ * Status rationale (cards/README.md section 2): judge-required. The effect is
+ * fully executable and the golden drives it end to end through the production
+ * chain adapter: the 1 Energy payment through cost.pay, the resolution-time
+ * "your legend" choose inside effect.ready, the pay/decline branches and the
+ * already-ready no-op. What still blocks the whole card is the trigger: the
+ * closed EventPattern vocabulary has no battlefield-relative "here" anchor for
+ * conquer. events/trigger-spec.ts rejects the extra field
+ * ("EventPattern does not allow this field"), and programs/filters.ts's
+ * translateTriggerFilter throws "Unsupported filter field here" while
+ * turn/flow.ts publishes the identity only as details.battlefieldId. Nothing is
+ * approximated by free readying, a fabricated payment, or a widened trigger.
  */
 export default {
   canonicalCardId: "card.hash-e4adbb3b6a16047a000e20a54481f947239754cc236a48b06ad0cebcbfd7ed57",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「you may pay :rb_energy_1: to ready your legend」的支付无法真实执行：1 能量是结算期费用" +
-    "（204.3.a/205；383.3.b 的基础费用问题也适用），但 effects/instructions/ 没有 cost.pay 原语" +
-    "（结算期费用支付属 RIFT-261 批次，未合入），整条可选结算链不能标记 executable。" +
-    "触发侧：conquer 时点已由 turn/flow.ts 的计分 wave 发出（details.battlefieldId），但卡牌程序绑定" +
-    "（RIFT-257 已合入）的过滤器翻译不接受 \"here\" 字段（translateObjectFilter 抛 \"Unsupported filter field here\"），" +
-    "本卡无法锚定到自己所在的战场。" +
-    "已可真实执行的部分：choice.optional 本体与 effect.ready 的非目标 choose 形状（355.10.g：" +
-    "「your legend」不选中目标），golden 经 chain/interpreter-adapter.ts 的生产适配器执行就绪动作" +
-    "（含已就绪无操作的 416.1.c 分支）。契约 3.1 的 TriggeredAbility 也没有 cost 槽位承载 383.3.b 的费用。" +
-    "依赖：RIFT-261（cost.pay）、conquer 触发的 \"here\" 锚点载荷。不近似实现（不做免费 ready，也不伪造支付）。",
+    "唯一剩余缺口是 conquer 触发的 \"here\" 锚点：events/trigger-spec.ts 的封闭 EventPattern 词表没有" +
+    "战场相对锚点（额外字段直接以 unknown-field 拒绝），programs/filters.ts 的 translateTriggerFilter 也抛" +
+    " \"Unsupported filter field here\"；turn/flow.ts 的计分 wave 只把身份放在 details.battlefieldId，" +
+    "没有任何已合入路径把它接成过滤器，本卡因此无法锚定到自己所在的战场（383.4.c / 473.2.a）。" +
+    "效果本身已可真实执行：choice.optional 与结算期 1 能量支付走已合入的 cost.pay payments 记录（204.3 / 204.3.a），" +
+    "effect.ready 的非目标 choose 形状选择本卡控制者的 legend（355.10.g），golden 经 chain/interpreter-adapter.ts " +
+    "的生产适配器执行支付+就绪、declined 与已就绪无操作（416.1.c）三个分支，并实测不可支付时抛 " +
+    "CostPlanError(cannot-pay-cost) 而非免费就绪。383.3.b 的 Finalize 基础费用槽位仍不存在于契约 3.1 的" +
+    " TriggeredAbility，programs/triggers.ts 也未把前导可选支付提升为 TriggerRegistration.cost/mayAtFinalize。" +
+    "依赖：conquer 触发的 battlefield \"here\" 锚点载荷与其过滤器翻译。不近似实现（不做免费 ready，也不伪造支付）。",
   sourceText: "When you conquer here, you may pay :rb_energy_1: to ready your legend.",
   abilities: [
     {
@@ -68,12 +73,15 @@ export default {
               kind: "constant",
               value: [
                 {
-                  // 204.3.a/205: the printed payment inside the resolving body.
-                  // No merged primitive executes it yet (RIFT-261); the pending
-                  // op fails closed rather than readying for free.
+                  // 204.3 / 204.3.a: the printed payment inside the resolving
+                  // body, paid by the merged cost.pay `payments` record (1
+                  // Energy). A failed payment throws CostPlanError and never
+                  // becomes a free ready.
                   id: "hall-of-legends.pay",
                   op: "cost.pay",
-                  args: { energy: { kind: "constant", value: 1 }, power: { kind: "constant", value: [] } }
+                  args: {
+                    payments: { kind: "constant", value: { energy: 1 } }
+                  }
                 },
                 {
                   id: "hall-of-legends.ready",

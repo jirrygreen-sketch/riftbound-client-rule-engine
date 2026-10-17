@@ -4,6 +4,9 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/dune-devourer.js";
 import Deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-f33da6b768e700ee188122bbd6f6aad4f17db64d49c416a3c437ddb6d98ad07b";
 
@@ -13,11 +16,8 @@ test("rad-125-167 Dune Devourer: program validates and has expected identity", (
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /RIFT-358/);
-  assert.match(program.judgeReason, /RIFT-359/);
-  // RIFT-388/389 confirmed the merged target-tax primitive is unreachable:
-  // Deflect's static binding fails at layerFor, so the reason records that
-  // gap instead of the historical RIFT-360 dependency.
+  assert.match(program.judgeReason, /choiceObjects/);
+  assert.match(program.judgeReason, /optional-additional-cost-paid/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /layerFor/);
   assert.equal(program.judgeReason.includes("Deflect"), true);
@@ -77,5 +77,32 @@ test("rad-125-167 Dune Devourer: [Deflect] 展开本体可校验，但卡牌侧�
   assert.equal(program.abilities.filter(ability => ability.kind === "static" && ability.effect.kind === "target.tax").length, 0);
 });
 
-test.todo('Dune Devourer: bind optional kill cost and the decision-dependent energy discount at Finalize (CR 356.2.b/356.4.f.1; RIFT-358/359)');
-test.todo('Dune Devourer: register and collect Deflect target tax at Finalize (CR 809.1.c; RIFT-360)');
+test("Dune Devourer: the optional kill payment executes once its non-target choice is locked", () => {
+  for (const selected of [true, false]) {
+    const kernel = world().player("A", { energy: 6 })
+      .hand("devourer", { types: ["unit"], energy: 4, power: [] })
+      .unit("friendly").unit("enemy", { owner: "B" }).build();
+    const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("devourer") });
+    const [payment] = program.abilities[1].cost.payments;
+    const locked = { ...payment, choice: { ...payment.choice, options: [scoped.ref("friendly")] } };
+    scoped.setPicks(payment.choice.id, [scoped.ref("friendly")]);
+    // Only the base and kill payment components are exercised. The production
+    // additional-cost/discount adapter remains pending below.
+    const plan = buildCostPlan(scoped, {
+      id: "devourer-kill-component", cost: { kind: "printed" },
+      optionalAdditional: [{ id: "kill-friendly", kind: "additional", selected, cost: { payments: [locked] } }]
+    });
+    const receipt = payCostPlan(scoped, plan);
+    assert.equal(receipt.paid, true);
+    assert.equal(scoped.player("A").energy, 2);
+    assert.equal(scoped.getObject("friendly").zone, selected ? "trash" : "board");
+    assert.equal(scoped.getObject("enemy").zone, "board");
+    assert.equal(scoped.getObject("devourer").zone, "hand");
+    assert.deepEqual(receipt.additional, selected ? [{ id: "kill-friendly", kind: "additional", paid: true }] : []);
+    assert.deepEqual(scoped.events.map(event => event.action), selected ? ["pay", "kill"] : ["pay"]);
+    assert.equal(scoped.events.some(event => event.timingPoint === "became-target"), false);
+  }
+});
+
+test.todo('Dune Devourer: bind optional kill cost, friendly-unit choices and the decision-dependent Energy discount at Finalize (CR 356.2.b/356.4.f.1)');
+test.todo('Dune Devourer: bind Deflect target.tax through the program static layer and collect it at Finalize (CR 809.1.c)');

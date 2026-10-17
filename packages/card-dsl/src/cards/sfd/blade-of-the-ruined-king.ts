@@ -21,9 +21,10 @@
  * - 印刷的 3 energy 是 Gear 的打出费用（150.4），不是 Equip 费用。
  *
  * status = judge-required（复核 2026-10-17）：
- * - Equip 展开只声明 payments: [{ kind: "equip", value: source }]，
- *   cost/plan-values.ts 的 readCost 对该种类直接抛出 "Unsupported payment kind: equip"；
- *   1 点 Order Power 和 Kill 费用因此还不能进入可支付的 Equip 计划。
+ * - Equip 展开只声明 payments: [{ kind: "equip", value: { kind: "source" } }]，
+ *   cost/plan-values.ts 的 readCost 对该种类直接 blocked("Unsupported payment kind: equip")，
+ *   buildCostPlan 实测抛 CostPlanError（reason "judge-required"）；1 点 Order Power 和
+ *   Kill 费用因此还不能进入可支付的 Equip 计划。
  * - 契约 3.8 第 3 条的 KeywordDef.params.cost 接口已经存在，但 programs/keywords.ts
  *   只传 value/host，Equip.expand() 也没有读取 params.cost；本卡的 costDomain/costAdditions
  *   仍是审查用扩展字段，不能改变展开费用。
@@ -31,7 +32,8 @@
  *   "kill" 非标准费用 + cost/payment.ts 的 checkAction），golden 用印刷声明的具体引用
  *   真实收取过一次，证明缺的是关键词侧的承载字段与 Equip 费用支付。
  * - activated ability 的生产绑定已存在，但在上述 Equip 费用和参数传递缺口消除前，
- *   ProgramRegistry 会按 judge-required 状态拒绝本卡，无法进入真实 activation Finalize。
+ *   ProgramRegistry.get 会按 judge-required 状态拒绝本卡（activationAbilities 实测抛
+ *   ProgramBindingError），无法进入真实 activation Finalize。
  * 与同目录已合入装备程序（long-sword / bf-sword / warmogs-armor / dorans-blade / sacred-shears）
  * 一致：关键词上的 costDomain（以及本卡的 costAdditions）是扩展字段，因此本文件按这些文件的写法用
  * as const 声明，由 golden 的 validateCardProgram 做结构校验（不是用类型断言绕过契约）。
@@ -42,15 +44,18 @@ export default {
   status: "judge-required",
   judgeReason:
     "印刷的 [Equip] 费用仍有两处当前缺口，均不近似实现：(1) Equip.expand() 生成的 " +
-    "payments: [{ kind: \"equip\", value: source }] 在 cost/plan-values.ts 的 readCost 中被明确拒绝，" +
-    "实测错误为 Unsupported payment kind: equip；因此 1 点 Order Power（818.1.c.2、135.2.e.4）" +
+    "payments: [{ kind: \"equip\", value: { kind: \"source\" } }] 在 cost/plan-values.ts 的 readCost 中被明确拒绝，" +
+    "实测抛 CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）；" +
+    "因此 1 点 Order Power（818.1.c.2、135.2.e.4）" +
     "与 Kill a friendly unit（818.1.c.3）还不能组成可支付的 Equip 计划。" +
     "(2) 虽然 KeywordDef.params.cost 已在 keyword-contract.ts 声明，programs/keywords.ts 只向 " +
-    "expand 传 value/host，Equip.expand() 也不消费该参数；本卡的 costDomain/costAdditions 只能保留" +
+    "expand 传 value/host，Equip.expand() 也不消费该参数（实测传入 params.cost 后展开仍是同一个 equip 支付种类）；" +
+    "本卡的 costDomain/costAdditions 只能保留" +
     "印刷审计信息，不能进入 activated ability 的费用。已合入并由 golden 真实执行的部分是 " +
     "Kill 费用：cost/plan-values.ts 的 kill 种类和 cost/payment.ts 的 checkAction 会真实消灭所选友方单位，" +
-    "且该费用选择是 355.10.c.1 的非目标 pick。ProgramRegistry/activation 绑定会在上述缺口存在时按 " +
-    "judge-required 拒绝整卡；不把裸 effect.attach 当成 Equip 完成。",
+    "且该费用选择是 355.10.c.1 的非目标 pick。ProgramRegistry.get 会在上述缺口存在时按 " +
+    "judge-required 拒绝整卡（实测 activationAbilities 抛 ProgramBindingError/代码 judge-required），" +
+    "无法进入真实 activation Finalize；不把裸 effect.attach 当成 Equip 完成。",
   abilities: [
     {
       kind: "keyword",

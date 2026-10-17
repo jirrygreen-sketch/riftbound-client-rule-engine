@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/eminent-benefactor.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-817b13977c7d2a024cbbd611deceb4cb9fc4c925146ad3da8e575aee8d77325f";
@@ -101,3 +102,49 @@ test.todo(
   "sfd-152-221 Eminent Benefactor: queue the original Gold body only when this unit is present at the held battlefield " +
     "(383.4.d.2.a); bind the hold player/battlefieldId to the unit's location instead of requiring event.object"
 );
+
+test("sfd-152-221 Eminent Benefactor: the merged token primitive still refuses the Gold entry stipulation and relative base", () => {
+  // The refreshed judgeReason must be reproducible against merged source.
+  const kernel = world().player("A").build();
+  // 184.1 / 185.2.d: the entry-exhausted stipulation is not an accepted argument.
+  assert.throws(
+    () => runInstruction(token, playGold.args, { world: kernel }),
+    (error) => error instanceof TypeError && /Invalid effect\.token argument: entersExhausted/.test(error.message)
+  );
+  // A relative-controller Base must be resolved by the primitive; it only
+  // accepts a constant LocationRef, so the selector expression is refused.
+  assert.throws(
+    () => runInstruction(
+      token,
+      {
+        token: { kind: "constant", value: "gold" },
+        amount: { kind: "constant", value: 1 },
+        mode: { kind: "constant", value: "play" },
+        location: { kind: "location", value: { kind: "relative", relation: "ability-controller-base" } }
+      },
+      { world: kernel }
+    ),
+    (error) => error instanceof TypeError && /Invalid effect\.token argument: location/.test(error.message)
+  );
+  // 187.5: Gold is still absent from the merged token definitions.
+  const gold = runInstruction(
+    token,
+    { token: { kind: "constant", value: "gold" }, amount: { kind: "constant", value: 1 }, mode: { kind: "constant", value: "play" }, location: { kind: "constant", value: { type: "base", player: "A" } }, linkKey: { kind: "constant", value: "g" } },
+    { world: world().player("A").build() }
+  );
+  assert.equal(gold.result.status, "negated");
+  assert.equal(gold.result.reason, "impossible");
+  assert.equal(gold.linked.g.blockedReason, "token-definition-or-abilities-judge-required");
+});
+
+test("sfd-152-221 Eminent Benefactor: the merged hold payload still carries no object for the source:self filter", () => {
+  // 383.4.d.2.a: a real Hold must identify this unit at the held battlefield.
+  assert.equal(
+    matchesTriggerEvent(
+      { event: "hold", filter: { source: "self" } },
+      { timingPoint: "hold", kind: "scoring", player: "A", details: { battlefieldId: "bf-1" } },
+      "A"
+    ),
+    false
+  );
+});

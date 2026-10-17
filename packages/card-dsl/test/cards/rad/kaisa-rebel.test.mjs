@@ -6,6 +6,7 @@ import program from "../../../dist/cards/rad/kaisa-rebel.js";
 import { ProgramBindingError } from "../../../../engine-core/dist/programs/errors.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -92,8 +93,9 @@ test("rad-063-167 Kai'Sa, Rebel: the merged Disarm expansion registers a tempora
 });
 
 test("rad-063-167 Kai'Sa, Rebel: production trigger registration rejects the Disarm sameLocationAs filter", () => {
-  // The merged KeywordDef is complete, but programs/filters.ts refuses sameLocationAs
-  // while translating trigger filters, so the authored trigger cannot subscribe (831.1.d).
+  // The merged KeywordDef is complete, but the *body* target filter still carries
+  // sameLocationAs, which programs/filters.ts translateInstructionTargets refuses
+  // while translating a trigger body, so the trigger cannot subscribe (831.1.d).
   const source = {
     ref: { id: "kaisa", zoneEntryId: 1 },
     cardId: CARD_ID,
@@ -126,6 +128,17 @@ test("rad-063-167 Kai'Sa, Rebel: production trigger registration rejects the Dis
     error => error instanceof ProgramBindingError && error.code === "judge-required" && /Unsupported filter field sameLocationAs/.test(error.message)
   );
   assert.equal(registered.length, 0);
+
+  // The event-side filter alone *is* translatable: it is the expanded body's
+  // target anchor that blocks registration, not the attack-declared pattern.
+  assert.deepEqual(
+    translateTriggerFilter(
+      { event: "attack-declared", filter: { source: "self" } },
+      "kaisa",
+      "attack-declared"
+    ),
+    { event: "attack-declared", object: { objectId: "kaisa" } }
+  );
 });
 
 test("rad-063-167 Kai'Sa, Rebel: the showdown grant is a conditional chain-spell static, not this card's own [Reaction] (364.3 / 813.4)", () => {
@@ -152,6 +165,39 @@ test("rad-063-167 Kai'Sa, Rebel: the showdown grant is a conditional chain-spell
     false,
     "this unit does not itself have [Reaction]; only its controller's chain spells are granted it (813.4)"
   );
+});
+
+test("rad-063-167 Kai'Sa, Rebel: the authored in-showdown condition is fail-closed, so chain spells get no Reaction (364.3 / 813.4)", () => {
+  // ObjectSnapshot has no in-showdown characteristic, so the feature expression
+  // throws MissingInformation and the production static binding catches it as
+  // false. A spell on the chain therefore receives no Reaction from this card.
+  const base = world().player("A")
+    .unit("kaisa", { controller: "A", owner: "A", might: 5, location: { type: "battlefield", id: "bf-1" } })
+    .card("spell-in-chain", { controller: "A", owner: "A", types: ["spell"], zone: "chain" })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: base.snapshot(), links: base.clone() }),
+    restore: checkpoint => { base.restore(checkpoint.state); base.copyLinkedFrom(checkpoint.links); },
+    objects: () => base.objects,
+    perform: action => base.perform(action),
+    choose: () => { throw new Error("Unexpected choice"); },
+    context: (source, controller, timingPoint) => bindResolveContext(base, { source, controller, timingPoint }),
+    testTrigger: () => true
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  createEngineStaticBinder(engine).bindStatic(grantReaction, base.getObject("kaisa"));
+  const entry = engine.layers.registry.list()[0];
+  assert.equal(typeof entry.effect.effect.condition, "function");
+  assert.equal(entry.effect.effect.condition(base.getObject("spell-in-chain")), false);
+  assert.deepEqual(engine.layers.evaluate(base.ref("spell-in-chain")).keywords, []);
+  // Sanity check the other half: without the unreadable condition the same
+  // registered effect really does grant Reaction, so the gap is exactly the
+  // missing characteristic, not the static → layers path.
+  const unconditional = createLayerEngine([base.getObject("spell-in-chain")], [{
+    effect: { ...entry.effect, effect: { ...entry.effect.effect, condition: undefined } },
+    duration: { type: "permanent" }
+  }]);
+  assert.deepEqual(unconditional.evaluate(base.ref("spell-in-chain")).keywords, [{ id: "reaction", value: undefined }]);
 });
 
 test("rad-063-167 Kai'Sa, Rebel: production static binding grants Reaction to a chain spell when the condition is true", () => {
@@ -240,6 +286,6 @@ test.todo(
 
 test.todo(
   "rad-063-167 Kai'Sa, Rebel: printing diff — rad-sp4-005 (same canonicalCardId) prints 4 Might " +
-    "and omits the reminder text; ability-templates.json records blockers " +
+    "and omits the reminder text; docs/plans/survey/ability-templates.json records blockers " +
     "[non-reminder-printing-difference, printing-stat-type-or-tag-difference] — card-data task"
 );

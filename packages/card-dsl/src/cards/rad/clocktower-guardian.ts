@@ -18,93 +18,126 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   该永久物被消灭并送入 Trash（808.1.d，时点 object-killed）；808.1.d.2 要求在
  *   卡牌进入 Trash **之前**作为 Pending Item 入链。
  * - "Banish the top card of your Main Deck"（428.1 的 Banish 是把牌放入 Banishment）：
- *   牌库顶是隐藏信息，effect.banish 的 zone 选择形式（{ zone: "deck", player,
- *   from: "top" }）按真实区域内顺序取顶，符合 RIFT-66 契约（牌库顶只能用 zoneSlice）。
+ *   牌库顶是隐藏信息，effect.banish 的 zone 选择形式（{ zone: "deck", from: "top" }）
+ *   默认读取能力控制者，并按真实区域内顺序取顶。
  * - "You may play it, ignoring its Energy cost"：420.3 的 Limited Play Effect；
  *   356.1.b.2 明确"ignoring its Energy cost"只把 Base Energy cost 置零、其余费用仍适用。
  *
  * 状态：judge-required。缺口（复核 2026-10-17）：
  * 1. [Predict 3] 没有关键词展开——KeywordDef 注册表（engine-core effects/keywords/
- *    registry.generated.ts）无 Predict；现有 Vision 只内联 Predict 1 的两步。按
- *    README 第 5 节不在卡里手写同一套逻辑，本卡的三步 body 只是等价结构 + golden。
+ *    registry.generated.ts）无 Predict；现有 Vision 只内联 Predict 1。按 README 第 5 节
+ *    不在卡里手写同一套逻辑，本卡的四步 body 只是等价结构 + golden。
  * 2. [Deathknell] 的关键词展开（keywords/Deathknell.ts）body 引用 trigger.leave op，
  *    该 op 不在已生成指令注册表（effects/instructions/registry.generated.ts），
  *    解释器遇未知 op 阻断；808.1.d.2 的「进 Trash 前入链」时序没有消费方。因此展开
  *    还不能执行；本程序把 Deathknell 的 [Effect] 用等价的 object-killed 触发写出来
  *    （808.1.c 的"功能等价"），并保留 keyword 声明。
- * The finalized zero-Energy plan for "ignoring its Energy cost" is already
- * consumed by effect.play; the golden covers that path.
+ * effect.play 已能消费调用方提供的 finalized zero-Energy plan；golden 只覆盖该原语
+ * 形状，不能替代从被放逐牌生成动态费用计划的缺口。
  * 依赖：Predict KeywordDef 展开；trigger.leave op 消费
  * 与 object-killed 离场入链时序消费方。
  * 不近似实现：不把"ignoring its Energy cost"当作忽略全部费用，也不用手写 Predict 冒充关键词。
  */
 
 /** 437.1 / 437.1.a：看顶 X 张、可回收任意张、其余任意顺序放回。 */
-const predictThree: Instruction = {
-  // 牌库顶顺序由上游按真实区域内顺序提供（RIFT-66 契约：只能用 zoneSlice，
-  // 不能从 query 的返回顺序推断），因此范围走 picks。
-  id: "clocktower-guardian.predict-look",
-  op: "effect.inspect",
-  args: {
-    // "your Main Deck" = 能力控制者的主牌库；EffectIR 没有控制者字面量，
-    // 运行装配层在结算时绑定实际 PlayerId（同 rad/consult-the-heavens 的写法）。
-    player: { kind: "constant", value: "controller" },
-    zone: { kind: "constant", value: "deck" },
-    scope: { kind: "constant", value: "picks" },
-    picksSpecId: { kind: "constant", value: "clocktower-guardian.predict-range" },
-    choose: { kind: "constant", value: true },
-    chooseCount: { kind: "constant", value: { min: 0, max: 3 } },
-    pickedKey: { kind: "constant", value: "clocktower-guardian.predicted" },
-    choosePicksKey: { kind: "constant", value: "clocktower-guardian.recycle" }
+const predictThree: readonly Instruction[] = [
+  {
+    // "your Main Deck" = 能力控制者的主牌库；先绑定实际 PlayerId，避免把
+    // controller 当作字面玩家名称传给 effect.inspect。
+    id: "clocktower-guardian.bind-controller",
+    op: "condition.value",
+    args: {
+      value: { kind: "object-property", object: "source", property: "controller" },
+      key: { kind: "constant", value: "controller" }
+    }
   },
-  picks: [
-    {
-      id: "clocktower-guardian.predict-range",
-      options: ["top-3-cards-of-controller-main-deck-in-zone-order"],
-      min: 0,
-      max: 3,
-      selection: "up-to"
+  {
+    // 437.1 / 437.3 / 437.4：看顶 3 张；牌库不足时由 ordered zoneSlice 尽可能提供。
+    id: "clocktower-guardian.predict-look",
+    op: "effect.inspect",
+    linkedTo: "clocktower-guardian.bind-controller",
+    args: {
+      player: {
+        kind: "linked-value",
+        instructionId: "clocktower-guardian.bind-controller",
+        key: "controller"
+      },
+      zone: { kind: "constant", value: "deck" },
+      scope: { kind: "constant", value: "top" },
+      amount: { kind: "constant", value: 3 },
+      picksSpecId: { kind: "constant", value: "clocktower-guardian.predict-range" },
+      choose: { kind: "constant", value: true },
+      chooseCount: { kind: "constant", value: { min: 0, max: 3 } },
+      choiceId: { kind: "constant", value: "clocktower-guardian.predict" },
+      pickedKey: { kind: "constant", value: "clocktower-guardian.predicted" },
+      choosePicksKey: { kind: "constant", value: "clocktower-guardian.recycle" }
+    },
+    picks: [
+      {
+        id: "clocktower-guardian.predict-range",
+        options: [],
+        ordered: true,
+        selection: "all",
+        zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 3 } }
+      }
+    ]
+  },
+  {
+    // 417.1.c：回收的牌放到其拥有者主牌库底部；未选择时链接值为空数组。
+    id: "clocktower-guardian.recycle-predicted",
+    op: "effect.recycle",
+    linkedTo: "clocktower-guardian.predict-look",
+    args: {
+      objects: {
+        kind: "linked-value",
+        instructionId: "clocktower-guardian.predict-look",
+        key: "clocktower-guardian.recycle"
+      }
     }
-  ]
-};
-
-const predictRecycle: Instruction = {
-  // 417.1.c：回收的牌放到其拥有者主牌库底部；未选择时链接值为空数组。
-  id: "clocktower-guardian.recycle-predicted",
-  op: "effect.recycle",
-  linkedTo: "clocktower-guardian.predict-look",
-  args: {
-    objects: {
-      kind: "linked-value",
-      instructionId: "clocktower-guardian.predict-look",
-      key: "clocktower-guardian.recycle"
+  },
+  {
+    // 437.1.a：其余按任意顺序放回牌库顶；已回收的牌从顶端余数中排除。
+    id: "clocktower-guardian.replace-predicted",
+    op: "effect.order",
+    linkedTo: "clocktower-guardian.recycle-predicted",
+    args: {
+      destination: { kind: "constant", value: "top" },
+      count: {
+        kind: "arithmetic",
+        operator: "sub",
+        operands: [
+          { kind: "constant", value: 3 },
+          {
+            kind: "linked-value",
+            instructionId: "clocktower-guardian.recycle-predicted",
+            key: "recycledCount"
+          }
+        ]
+      },
+      chooseOrder: { kind: "constant", value: true }
     }
   }
-};
-
-const predictReorder: Instruction = {
-  // 437.1.a：其余按任意顺序放回牌库顶。
-  id: "clocktower-guardian.replace-predicted",
-  op: "effect.order",
-  linkedTo: "clocktower-guardian.predict-look",
-  args: {
-    destination: { kind: "constant", value: "top" },
-    cardsPick: { kind: "constant", value: "clocktower-guardian.predicted" },
-    chooseOrder: { kind: "constant", value: true }
-  }
-};
+];
 
 const deathknellBody: readonly Instruction[] = [
   {
-    // 428.1 / RIFT-66：牌库顶是隐藏信息，用 zone 选择按真实区域内顺序取顶。
+    id: "clocktower-guardian.deathknell-bind-controller",
+    op: "condition.value",
+    args: {
+      value: { kind: "object-property", object: "source", property: "controller" },
+      key: { kind: "constant", value: "controller" }
+    }
+  },
+  {
+    // 428.1：牌库顶是隐藏信息，用 zone 选择按真实区域内顺序取顶。
     id: "clocktower-guardian.banish-top",
     op: "effect.banish",
     args: {
       objects: {
         kind: "constant",
-        // 428.1 / RIFT-66：牌库顶是隐藏信息，用 zone 选择按真实区域内顺序取顶；
-        // player "controller" 由运行装配层绑定实际 PlayerId。
-        value: { zone: "deck", player: "controller", from: "top" }
+        // 428.1：省略 player 时由原语使用 ctx.controller，避免把 controller
+        // 当作字面 PlayerId；from: top 通过 zoneSlice 读取真实牌库顺序。
+        value: { zone: "deck", from: "top" }
       },
       amount: { kind: "constant", value: 1 },
       linkKey: { kind: "constant", value: "banished-card" }
@@ -138,6 +171,11 @@ const deathknellBody: readonly Instruction[] = [
                   // 356.1.b.2：Energy 置零；Power 仍按印刷值支付，故不写 ignore。
                   energy: 0
                 }
+              },
+              player: {
+                kind: "linked-value",
+                instructionId: "clocktower-guardian.deathknell-bind-controller",
+                key: "controller"
               }
             }
           }
@@ -158,7 +196,7 @@ const abilities: Ability[] = [
       filter: { event: "card-played", filter: { source: "self" } }
     },
     optional: false,
-    body: [predictThree, predictRecycle, predictReorder]
+    body: predictThree
   },
   {
     kind: "triggered",
@@ -167,7 +205,7 @@ const abilities: Ability[] = [
       filter: { event: "hold", filter: { source: "self" } }
     },
     optional: false,
-    body: [predictThree, predictRecycle, predictReorder]
+    body: predictThree
   },
   {
     // 808.1.c 的等价展开：自身被消灭时执行 Deathknell 的 [Effect]。
@@ -187,12 +225,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处缺口（复核 2026-10-17）：(1) [Predict 3] 没有关键词展开——KeywordDef 注册表无 predict，" +
-    "现有 Vision 只内联 Predict 1 的两步；" +
-    "按 README 第 5 节不在卡里手写同一套看顶/回收/放回展开；(2) [Deathknell] 的关键词展开产出 trigger.leave 订阅指令，" +
-    "该 op 不在已生成指令注册表，解释器遇未知 op 阻断，808.1.d.2 的「进 Trash 前入链」时序无消费方。" +
-    "Predict 三步、Deathknell 的 Banish 半段以及 finalized zero-Energy plan for effect.play 已按 437 / 428 / 420.3 写出并由 golden 覆盖。" +
-    "依赖：Predict 关键词展开；trigger.leave op 消费与 object-killed 离场入链时序。" +
+    "三处缺口（复核 2026-10-17）：(1) [Predict 3] 没有关键词展开——KeywordDef 注册表无 Predict，" +
+    "现有 Vision 只内联 Predict 1；按 README 第 5 节不在卡里手写同一套看顶/回收/放回展开。" +
+    "(2) [Deathknell] 的关键词展开产出 trigger.leave 订阅指令，该 op 不在已生成指令注册表，" +
+    "解释器遇未知 op 阻断，808.1.d.2 的「进 Trash 前入链」时序无消费方。" +
+    "(3) effect.play 只消费已 Finalize 的费用计划，尚无从被放逐牌生成「仅忽略 Energy、保留其余费用」的动态计划。" +
+    "Predict 四步、Deathknell 的 Banish 半段以及 finalized zero-Energy plan 的原语形状已按 437 / 428 / 420.3 写出并由 golden 覆盖。" +
+    "依赖：Predict 关键词展开；trigger.leave op 消费与 object-killed 离场入链时序；被放逐牌到 ignore-Energy 费用计划的生产接线。" +
     "不近似实现：不把「ignore Energy cost」当成忽略全部费用。",
   abilities,
   sourceText:

@@ -19,12 +19,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   其 Energy cost 是印刷费用特征（163.1 的 Energy 数值）。185.3.a.1：token 无费用但
  *   在各类用途上按 0 处理。
  *
- * status 判定（README 第 2 节，2026-10-17 复核）：judge-required。当前缺口：
+ * status 判定（README 第 2 节，2026-10-17 复核）：judge-required。card-played 触发
+ * 本身已被 programs/filters.ts 接受（实测 filter { event: "card-played", player:
+ * "controller" } → { event: "card-played", player: "self" }），可注册；当前缺口：
  * 1. Base Might 设值属 Trait-Altering 层（143.2.a / 475-478），而 RIFT-258 合入的
  *    continuous.might 指令只写 arithmetic 层的连续效果：它的 mode "set" 生成 kind
  *    "set-might" 的 arithmetic 注册（layers/ops/index.ts buildMightSpec），
  *    layers/engine.ts 的 set 分支仍在 applyArithmetic 内——没有任何 op 生成 trait
- *    层注册，EffectIR 里写 layer: "trait" 会被 continuous.might 的 argsSchema 拒绝。
+ *    层注册，实测 EffectIR 里写 layer: "trait" 会被 continuous.might 的 argsSchema
+ *    拒绝（Invalid continuous.might argument: layer），registry 也没有
+ *    continuous.base-might。
  * 2. "that card's Energy cost" 需要触发事件的被打出牌引用与其印刷费用：ResolveContext
  *    只有 source / target / pick / linked 选择器，没有触发事件对象访问器，也没有读取
  *    另一对象印刷费用的表达式（object-property 读的是当前特征，185.3.a.1 的 token 0
@@ -32,6 +36,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 触发能力的 CardProgram → TriggerRegistration 适配器已合入；仍缺上述
  * trait 层原语与触发事件对象/印刷费用读取。不近似实现：不用 Buff counter
  * 或临时 Might 加算代替 Base Might 设值。
+ *
+ * 2026-10-17 IR 改写（等价语义）：内层原来自造 { type: "unit", object: "self" }
+ * target，生产目标翻译器会拒绝该锚点（实测 programs/filters.ts translateObjectFilter
+ * 抛 Unsupported filter field object），而且 chain Finalize 的 assertFinalizationSurface
+ * 也不接受嵌套指令自带 target。"me" 在契约里是能力宿主本身，改用已合入的 canonical
+ * 写法 appliesTo: "self"（同 RIFT-480 对 ahri-confident 的处理），语义不变。
  */
 
 const abilities: Ability[] = [
@@ -66,17 +76,10 @@ const abilities: Ability[] = [
                   layer: { kind: "constant", value: "trait" },
                   source: { kind: "constant", value: "played-card-energy-cost" },
                   duration: { kind: "constant", value: "end-of-turn" },
-                  target: { kind: "constant", value: "piltovan-guidebot.self" }
-                },
-                targets: [
-                  {
-                    id: "piltovan-guidebot.self",
-                    filter: { type: "unit", object: "self" },
-                    min: 1,
-                    max: 1,
-                    selection: "one"
-                  }
-                ]
+                  // "me" 是能力宿主本身；appliesTo "self" 是契约的 canonical 绑定
+                  // （解释器直接绑定来源，不需要 targets，也不触发嵌套目标生命周期）。
+                  appliesTo: { kind: "constant", value: "self" }
+                }
               }
             ]
           }
@@ -93,10 +96,12 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "(1) Trait-Altering 层的 Base Might 设值仍没有卡牌侧原语；continuous.might 的 mode set " +
-    "只生成 arithmetic 层 set-might，不能表达 143.2.a/475 的 trait 层 base Might。" +
+    "只生成 arithmetic 层 set-might，不能表达 143.2.a/475 的 trait 层 base Might" +
+    "（实测 layer: \"trait\" 被连续原语 argsSchema 拒绝、registry 无 continuous.base-might）。" +
     "(2) 触发事件对象及其印刷 Energy cost 没有可用的 ObjectSelector/Expr 读取路径，" +
     "因此无法取得 that card's Energy cost（185.3.a.1 的 token 0 折算也无位置）。" +
-    "card-played 触发注册路径已合入；不近似实现。",
+    "card-played 触发注册路径已合入（实测 filter 可绑定为 event card-played / player self）；" +
+    "\"me\" 已按契约改写为 appliesTo self（不再用被拒绝的自造 target 锚点）；不近似实现。",
   abilities,
   sourceText:
     "When you play a card, you may have my base Might become equal to that card's Energy cost this turn."

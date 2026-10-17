@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { attachProgramLifecycle } from "../../../../engine-core/dist/programs/lifecycle.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { describePlay } from "../../../../engine-core/dist/programs/play.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/jayce-man-of-progress.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
@@ -67,6 +73,8 @@ test("sfd-084-221 Jayce, Man of Progress: judgeReason names the receipt, cost, w
   assert.match(program.judgeReason, /206/);
   assert.match(program.judgeReason, /356\.1\.b\.2/);
   assert.match(program.judgeReason, /355\.5/);
+  assert.match(program.judgeReason, /killed/);
+  assert.match(program.judgeReason, /linkedTo/);
   assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /translateCost/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
@@ -104,9 +112,21 @@ test("sfd-084-221 Jayce, Man of Progress: the may-kill wraps the kill plus the m
   assert.equal(killInstruction.linkedTo, undefined);
 });
 
+test("sfd-084-221 Jayce, Man of Progress: the play node is gated on the kill's 'killed' receipt (359.3.e.14.b)", () => {
+  // effect.kill links the destroyed objects as "killed" (an empty array when
+  // nothing was destroyed); the may-play node reads that receipt and runs only
+  // when something was actually killed.
+  assert.equal(mayPlay.linkedTo, KILL_ID);
+  assert.deepEqual(mayPlay.condition, {
+    kind: "compare",
+    left: { kind: "linked", instructionId: KILL_ID, key: "killed" },
+    operator: "ne",
+    right: { kind: "constant", value: [] }
+  });
+});
+
 test("sfd-084-221 Jayce, Man of Progress: the play half records the printed ceilings, the pick and the ignored-Energy plan", () => {
   assert.equal(mayPlay.op, "choice.optional");
-  assert.equal(mayPlay.linkedTo, undefined);
   assert.deepEqual(mayPlay.args.body.value.map((instruction) => instruction.id), [PLAY_ID]);
 
   assert.equal(playInstruction.op, "effect.play");
@@ -115,8 +135,9 @@ test("sfd-084-221 Jayce, Man of Progress: the play half records the printed ceil
   assert.deepEqual(playInstruction.args.pick, { kind: "constant", value: "jayce.gear-in-hand" });
   assert.equal(playInstruction.args.location, undefined);
   assert.equal(playInstruction.linkedTo, undefined);
-  // "this turn" is a one-shot permission window; the frozen IR has no such
-  // duration, so the play instruction is not gated by an invented condition.
+  // The receipt gate lives on the may-play node (see judgeReason); the play
+  // instruction itself stays unconditional — the "this turn" one-shot window
+  // is still the unmerged dependency, not a condition on this node.
   assert.equal(playInstruction.condition, undefined);
 
   // 356.1.b.2: "ignoring its Energy cost" sets only the base Energy to zero and
@@ -168,6 +189,92 @@ test("sfd-084-221 Jayce, Man of Progress golden: accepting the may-kill kills th
   assert.equal(kernel.getObject("friendly-gear").zone, "trash");
   // "a friendly gear": the opponent's gear was never a legal target.
   assert.equal(kernel.getObject("enemy-gear").zone, "board");
+});
+
+test("sfd-084-221 Jayce, Man of Progress chain golden: the killed receipt gates the may-play offer", () => {
+  const base = world().player("A", { energy: 10 }).player("B")
+    .hand("jayce", { cardId: CARD_ID, types: ["unit"], might: 4, energy: 0, power: [] })
+    .unit("friendly-gear", { types: ["gear"], owner: "A", controller: "A" }).build();
+  const runScenario = ({ acceptKill, acceptPlay, replaceKill = false }) => {
+    const kernel = base.clone();
+    const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+    const answers = [];
+    const decide = (request) => {
+      answers.push(request);
+      if (request.type === "optional") return String(request.prompt).includes("Kill") ? acceptKill : acceptPlay;
+      if (request.type === "select-objects") {
+        return request.options.slice(0, request.min ?? 1);
+      }
+      throw new Error(`unexpected choice ${JSON.stringify(request)}`);
+    };
+    const host = createActionPipelineHost({
+      checkpoint: () => kernel.snapshot(),
+      restore: (state) => kernel.restore(state),
+      objects: () => kernel.objects,
+      perform: (action) => kernel.perform(action),
+      choose: (request) => decide({ ...request, scope: "host" }),
+      context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose: decide })
+    });
+    const engine = new ChainEngine({
+      turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host,
+      describePlay: (action, source) => describePlay(registry, action, source),
+      cleanup: (chain) => {
+        chain.layers.setObjects(kernel.objects);
+        let changed = false;
+        for (const object of chain.layers.evaluateAll()) {
+          if (object.zone === "board" && object.types.includes("unit") && object.might !== null &&
+              (object.might <= 0 || object.damage >= object.might)) {
+            chain.commit({ type: "kill", object: object.ref });
+            changed ||= kernel.getObject(object.ref.id)?.ref.zoneEntryId !== object.ref.zoneEntryId;
+          }
+        }
+        return changed;
+      }
+    });
+    if (replaceKill) {
+      // Bind an actual replacement to the pipeline: the attempted kill returns
+      // the gear to hand instead. No TestWorld replacement callback is used.
+      bindReplacement({
+        replaces: { event: "object-killed", filter: { objectId: "friendly-gear" } },
+        with: [{
+          id: "return-gear-instead", op: "effect.zone",
+          args: {
+            target: { kind: "constant", value: { linked: "replacement.object" } },
+            to: { kind: "constant", value: "hand" }
+          }
+        }]
+      }, kernel.ref("jayce"), {
+        host: { object: (ref) => kernel.object(ref), objects: () => kernel.objects, context: host.context },
+        pipeline: engine.pipeline
+      });
+    }
+    attachProgramLifecycle(engine, registry, undefined, (error) => { throw error; });
+    engine.execute(describePlay(registry, { type: "play", object: kernel.ref("jayce"), player: "A" }, kernel.getObject("jayce")));
+    while (engine.items.length) engine.pass(engine.priority);
+    return { kernel, answers, engine };
+  };
+
+  // A completed kill offers the may-play choice; declining it there stops the play.
+  const accepted = runScenario({ acceptKill: true, acceptPlay: false });
+  assert.equal(accepted.kernel.getObject("friendly-gear").zone, "trash");
+  assert.ok(accepted.answers.some((request) => request.type === "optional" && /Play a gear/.test(request.prompt)));
+
+  // "If you do": without a kill there is no play offer at all.
+  const declined = runScenario({ acceptKill: false, acceptPlay: false });
+  assert.equal(declined.kernel.getObject("friendly-gear").zone, "board");
+  assert.ok(!declined.answers.some((request) => request.type === "optional" && /Play a gear/.test(request.prompt)));
+
+  // Accept the outer may-kill, then negate the kill through the real
+  // replacement binder. Without the receipt gate the inner may-play WOULD be
+  // asked here, which distinguishes this case from declining the outer may.
+  const replaced = runScenario({ acceptKill: true, acceptPlay: false, replaceKill: true });
+  assert.ok(replaced.answers.some((request) => request.type === "optional" && /Kill a friendly gear/.test(request.prompt)));
+  assert.equal(replaced.kernel.getObject("friendly-gear").zone, "hand");
+  assert.ok(replaced.engine.pipeline.events.some((event) => event.timingPoint === "object-enters-hand" && event.object.ref.id === "friendly-gear"));
+  assert.ok(!replaced.kernel.events.some((event) => event.action === "kill"));
+  assert.ok(!replaced.engine.pipeline.events.some((event) => event.timingPoint === "object-killed"));
+  assert.ok(!replaced.answers.some((request) => request.type === "optional" && /Play a gear/.test(request.prompt)),
+    "a replaced kill must not offer the subsequent play");
 });
 
 test("sfd-084-221 Jayce, Man of Progress golden: declining leaves every gear on the Board", () => {
@@ -228,10 +335,6 @@ test("sfd-084-221 Jayce, Man of Progress golden: the merged play primitive plays
   assert.equal(kernel.getObject("steraks-gage").zone, "board");
 });
 
-test.todo(
-  "sfd-084-221 Jayce, Man of Progress: gate the play on the kill receipt ('If you do', CR 359.3.e.14.b) " +
-    "once the frozen IR has an action-result binding (condition.result)"
-);
 test.todo(
   "sfd-084-221 Jayce, Man of Progress: enforce 'a gear with Energy cost no more than 7' as a working " +
     "printed-cost restriction (CR 206; the ObjectFilter has no cost predicate — RIFT-90)"

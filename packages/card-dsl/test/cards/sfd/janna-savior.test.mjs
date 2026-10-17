@@ -6,6 +6,14 @@ import program from "../../../dist/cards/sfd/janna-savior.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { ProgramBindingError } from "../../../../engine-core/dist/programs/errors.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -20,44 +28,63 @@ const [reaction, ability] = program.abilities;
 const [healHere, moveEnemyHome] = ability.body;
 
 /**
- * Emulates the production query path for the goldens below: the chain's query
- * wrapper binds the controller placeholder (chain/engine.ts normalizes "self")
- * and asks the layers filter for the rest. The merged program binding
- * (RIFT-257) rejects the sameLocationAs anchor before this point (see
- * judgeReason), so the anchor comparison is performed here for the golden
- * scenario; this proves the effect bodies, not the binding of the anchor.
+ * Emulates the production query wrapper for the goldens below: the chain's
+ * query (chain/engine.ts) normalizes only the "self" placeholder and rejects
+ * opponents, then defers the remaining fields — including the sameLocationAs
+ * anchor — to the interpreter's runtime queryObjects, which performs the real
+ * location comparison (see the chain goldens below).
  */
 function productionContext(kernel) {
   const query = (filter) => {
     const normalized = { ...filter };
     for (const key of ["controller", "owner"]) {
-      if (normalized[key] === "self" || normalized[key] === "controller") normalized[key] = kernel.controller;
+      if (normalized[key] === "self") normalized[key] = kernel.controller;
     }
-    return kernel.objects.filter((object) => {
-      for (const key of ["controller", "owner"]) {
-        if (normalized[key] === "opponent" && object[key] === kernel.controller) return false;
-      }
-      const resolved = { ...normalized };
-      if (resolved.controller === "opponent") resolved.controller = "any";
-      if (resolved.sameLocationAs === "self" || resolved.sameLocationAs === "source") {
-        resolved.location = kernel.source.location?.type ?? null;
-        delete resolved.sameLocationAs;
-      }
-      return matchesObjectFilter(resolved, object);
-    });
+    if (normalized.controller === "opponent" || normalized.owner === "opponent") {
+      const key = normalized.controller === "opponent" ? "controller" : "owner";
+      normalized[key] = "any";
+      return kernel.objects.filter((object) => object[key] !== kernel.controller && matchesObjectFilter(normalized, object));
+    }
+    return kernel.objects.filter((object) => matchesObjectFilter(normalized, object));
   };
   return bindResolveContext(kernel, { query });
 }
 
 const jannaWorld = () => world()
-  .unit("janna", { might: 3, location: BATTLEFIELD })
-  .unit("ally-here", { might: 2, location: BATTLEFIELD, damage: 2, owner: "A", controller: "A" })
+  .unit("janna", { cardId: CARD_ID, might: 3, location: BATTLEFIELD })
+  .unit("ally-here", { might: 3, location: BATTLEFIELD, damage: 2, owner: "A", controller: "A" })
   .unit("ally-far", { might: 2, location: OTHER_BATTLEFIELD, damage: 1, owner: "A", controller: "A" })
   .unit("enemy-here", { might: 2, location: BATTLEFIELD, owner: "B", controller: "B" })
   .unit("enemy-elsewhere", { might: 2, location: OTHER_BATTLEFIELD, owner: "B", controller: "B" })
   .build();
 
 const boundWorld = (kernel) => kernel.clone({ source: kernel.ref("janna"), sourceSnapshot: kernel.getObject("janna") });
+
+function chainFor(kernel) {
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(),
+    restore: (state) => kernel.restore(state),
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: (request) => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  return new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host,
+    cleanup: (engine) => {
+      engine.layers.setObjects(kernel.objects);
+      let changed = false;
+      for (const object of engine.layers.evaluateAll()) {
+        if (object.zone === "board" && object.types.includes("unit") && object.might !== null &&
+            (object.might <= 0 || object.damage >= object.might)) {
+          engine.commit({ type: "kill", object: object.ref });
+          changed ||= kernel.getObject(object.ref.id)?.ref.zoneEntryId !== object.ref.zoneEntryId;
+        }
+      }
+      return changed;
+    }
+  });
+}
 
 test("sfd-053-221 Janna, Savior: program validates and is registered by canonicalCardId", () => {
   const result = validateCardProgram(program);
@@ -72,7 +99,7 @@ test("sfd-053-221 Janna, Savior: identity, ruleset, status, judgeReason and verb
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /translateObjectFilter|filters\.ts/);
-  assert.match(program.judgeReason, /canAct/);
+  assert.match(program.judgeReason, /Unsupported static appliesTo/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -105,7 +132,7 @@ test("sfd-053-221 Janna, Savior: the heal is an each-set of your units here, not
       filter: {
         type: "unit",
         zone: "board",
-        controller: "controller",
+        controller: "self",
         sameLocationAs: "self"
       }
     }
@@ -179,13 +206,61 @@ test("sfd-053-221 Janna, Savior golden: an already undamaged board heals nothing
   assert.deepEqual(outcome.events.map((event) => event.action), ["move-location"]);
 });
 
+test("sfd-053-221 Janna, Savior chain golden: the original heal instruction heals only your units here", () => {
+  const kernel = jannaWorld();
+  const engine = chainFor(kernel);
+  // Execute only the supported heal instruction, unchanged. This exercises
+  // ChainEngine's real query wrapper without claiming full-card binding.
+  engine.enqueue({
+    id: "janna-supported-heal", kind: "triggered", controller: "A",
+    source: kernel.getObject("janna"), body: [healHere]
+  });
+  engine.advance();
+  while (engine.items.length) engine.pass(engine.priority);
+  assert.equal(kernel.getObject("ally-here").damage, 0);
+  assert.equal(kernel.getObject("ally-far").damage, 1);
+  assert.deepEqual(kernel.getObject("enemy-here").location, BATTLEFIELD);
+  assert.deepEqual(kernel.getObject("enemy-elsewhere").location, OTHER_BATTLEFIELD);
+  assert.equal(kernel.events.filter((event) => event.action === "heal").length, 1);
+  assert.ok(engine.trace.some((event) => event.step === "resolved" && event.item === "janna-supported-heal"));
+});
+
+test("sfd-053-221 Janna, Savior: only the unchanged move TargetSpec rejects sameLocationAs at binding", () => {
+  const kernel = jannaWorld();
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  assert.deepEqual(translateInstructionTargets([healHere]), [healHere]);
+  assert.throws(() => translateInstructionTargets([moveEnemyHome]), {
+    name: "ProgramBindingError", code: "judge-required", message: "Unsupported filter field sameLocationAs"
+  });
+  // Keep the full program's original filters when testing trigger registration.
+  assert.throws(() => triggerRegistrations(registry, kernel.getObject("janna")), {
+    name: "ProgramBindingError", code: "judge-required", message: "Unsupported filter field sameLocationAs"
+  });
+});
+
+test("sfd-053-221 Janna, Savior: the real Reaction expansion has an independent static binding gap", () => {
+  const kernel = jannaWorld();
+  const engine = chainFor(kernel);
+  const source = kernel.getObject("janna");
+  const [timing] = expandProgram(program, source).expanded;
+  assert.equal(timing.effect.kind, "continuous.timing");
+  assert.deepEqual(timing.effect.appliesTo, ["card", "activated-ability"]);
+  assert.throws(() => createEngineStaticBinder(engine).bindStatic(timing, source), (error) => {
+    assert.ok(error instanceof ProgramBindingError);
+    assert.equal(error.code, "judge-required");
+    assert.equal(error.message, 'Unsupported static appliesTo ["card","activated-ability"]');
+    return true;
+  });
+});
+
 test.todo(
   "sfd-053-221 Janna, Savior: the card's own binding must accept the 'here' anchor — the merged " +
-    "programs/filters.ts translateObjectFilter reports Unsupported filter field sameLocationAs for the heal " +
-    "query and the move target, so the TriggerRegistration cannot be installed (RIFT-257 translation surface)"
+    "programs/filters.ts translateObjectFilter rejects sameLocationAs only on the move TargetSpec; " +
+    "the unchanged heal query translates and executes independently"
 );
 
 test.todo(
-  "sfd-053-221 Janna, Savior: [Reaction]'s continuous.timing permission (813.1.c) must be consumed by the " +
-    "chain's canAct query (P0 contract 3.5) — chain/engine.ts canAct still decides from the passed speed alone"
+  "sfd-053-221 Janna, Savior: [Reaction]'s continuous.timing permission (813.1.c) reaches the chain's " +
+    "actionTimings/canActByRules consumers (P0 contract 3.5) — programs/statics.ts staticTarget rejects " +
+    "the expansion's appliesTo: [card, activated-ability], so Closed State permission still lacks binding"
 );

@@ -25,6 +25,7 @@ test("ogn-290-298 The Arena's Greatest: program validates and is judge-required"
   assert.match(program.judgeReason, /event-player/);
   assert.match(program.judgeReason, /EventPattern/);
   assert.match(program.judgeReason, /oncePerPlayer/);
+  assert.match(program.judgeReason, /per-game/);
   assert.equal(
     program.sourceText,
     "At the start of each player's first Beginning Phase, that player gains 1 point."
@@ -82,8 +83,8 @@ test("ogn-290-298: prevented Gaining Points negates the instruction without awar
   assert.deepEqual(outcome.linkedValues[`${score.id}.scored`], []);
 });
 test.todo(
-  "ogn-290-298: beginning-start 已由 TurnFlow 发出，程序绑定也已合入；仍缺 EventPattern 阶段事件适配、" +
-    "每名玩家对局一次频度与事件玩家选择器，不能用控制者代替 that player"
+  "ogn-290-298: beginning-start 已由 TurnFlow 发出；仍缺每名玩家对局一次频度与事件玩家选择器，" +
+    "占位 EventPattern 未绑定这些语义，不能用控制者代替 that player"
 );
 
 test("The Arena's Greatest: real turn progression produces Beginning events for A, B, then A", () => {

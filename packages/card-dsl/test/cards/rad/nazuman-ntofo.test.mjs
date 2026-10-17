@@ -3,10 +3,15 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/nazuman-ntofo.js";
+import { describeDuelEquipV1 } from "../../../dist/duel/equip-description-v1.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { keywordDefinitionsById } = await import(new URL("effects/keywords/registry.generated.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
 const attach = (await import(new URL("effects/instructions/effect.attach.js", ENGINE))).default;
+const { buildCostPlan } = await import(new URL("cost/index.js", ENGINE));
+const { createProgramBinding } = await import(new URL("programs/index.js", ENGINE));
+const { readFile } = await import("node:fs/promises");
 
 const CARD_ID = "card.hash-bbba13a99fc64b76e1aea5bf99acad154b4526f0661f19a3ac11162fced5801a";
 const EXPECTED_SOURCE =
@@ -35,8 +40,77 @@ test("rad-071-167 Nazuman Ntofo: judgeReason names the Equip cost kind and the k
   assert.match(program.judgeReason, /Unsupported payment kind: equip/);
   assert.match(program.judgeReason, /not-equipment-tag/);
   assert.match(program.judgeReason, /card-data/);
+  assert.match(program.judgeReason, /describeDuelEquipV1/);
+  assert.match(program.judgeReason, /describeActivate/);
   assert.equal(/RIFT-257|RIFT-261/.test(program.judgeReason), false);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
+});
+
+test("rad-071-167 Nazuman Ntofo: production describeActivate really builds the Equip activation's cost plan", () => {
+  // 818.1.c.2: the merged expansion is an activated ability whose printed cost
+  // component is kind "equip"; the production adapter renders it as
+  // kind "activated" with the equip payment intact.
+  const source = {
+    ref: { id: "nazuman", zoneEntryId: 1 },
+    cardId: CARD_ID,
+    name: "Nazuman Ntofo",
+    types: ["gear"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "base", player: "A" },
+    might: null,
+    energy: 1,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const draft = binding.describeActivate(source, "A", 0);
+  assert.equal(draft.kind, "activated");
+  assert.equal(draft.speed, "action");
+  assert.equal(draft.cost.cost.kind, "activated");
+  assert.deepEqual(draft.cost.cost.payments.map(payment => payment.kind), ["equip"]);
+  assert.deepEqual(draft.body.map(step => [step.id, step.op]), [["equip-attach", "effect.attach"]]);
+
+  // The payment kind is still unpayable: the frozen cost plan rejects it, so the
+  // activation cannot pass Finalize even though everything else is bound.
+  const kernel = world().object("nazuman", {
+    types: ["gear"], controller: "A", owner: "A", zone: "board",
+    location: { type: "base", player: "A" }, energy: 1, power: null, might: null
+  }).build();
+  assert.throws(
+    () => buildCostPlan(kernel, { id: "equip-activation", cost: { kind: "activated", payments: [{ kind: "equip", value: { kind: "source" } }] } }),
+    error => error.name === "CostPlanError" && /Unsupported payment kind: equip/.test(error.message)
+  );
+});
+
+test("rad-071-167 Nazuman Ntofo: the catalog printing is still refused Equipment admission (card-data issue)", async () => {
+  // 818.1.a requires the Gear's Equipment tag. The local catalog row for this
+  // canonical identity records tags: [], so the duel admission reports the
+  // data problem instead of a cost. This is a card-data issue, not a program
+  // change; the row is read, never rewritten.
+  const catalog = JSON.parse(await readFile(
+    new URL("../../../../card-data/data/deck-catalog.json", import.meta.url),
+    "utf8"
+  ));
+  const row = catalog.cards.find(card => card.id === "rad-071-167");
+  assert.ok(row, "the rad-071-167 printing must exist in the local catalog");
+  assert.equal(row.canonicalCardId, CARD_ID);
+  assert.deepEqual(row.tags, []);
+  const description = describeDuelEquipV1(row);
+  assert.equal(description.status, "unknown");
+  assert.equal(description.reason, "not-equipment-tag");
+  assert.equal(cardRegistryById.get(CARD_ID), program);
 });
 
 test("rad-071-167 Nazuman Ntofo: single non-valued-free Equip declaration carrying the printed 1 energy symbol", () => {

@@ -65,9 +65,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "（1）combat-result、attack-declared 与 defense-declared 缺战斗结果/宣言发射及自身胜方、攻防身份过滤绑定（CR 468.3、407）；" +
-    "（2）effect.token 尚无 Gold 的完整定义与能力（187.5），不支持 entersExhausted 入场规定（184.1、185.2.d）；" +
-    "（3）token 的 location 不解析 { type: \"base\", player: \"controller\" } 相对控制者 LocationRef，需运行时目的地绑定。",
+    "（1）combat-result、attack-declared 与 defense-declared 缺战斗结果/宣言发射及自身胜方、攻防身份过滤绑定" +
+    "（CR 468.3、407）：本包 ChainEngine/combat flow 上没有这些时点的生产者，实测提交战斗相关动作不会发出对应事件；" +
+    "（2）effect.token 尚无 Gold 的完整定义与能力（187.5）：对 \"gold\" 实测 negated 且 blockedReason 为 " +
+    "token-definition-or-abilities-judge-required；同时不支持 entersExhausted 入场规定（184.1、185.2.d）——" +
+    "该参数不在 ARGUMENTS 集合内，schema 实测抛 \"Invalid effect.token argument: entersExhausted\"；" +
+    "（3）token 的 location 只接受常量 LocationRef，不解析 location 表达式（实测抛 " +
+    "\"Invalid effect.token argument: location\"），因此 { type: \"base\", player: \"controller\" } " +
+    "无法绑定为运行时相对控制者目的地。",
   abilities,
   sourceText:
     "When I win a combat, play a Gold gear token exhausted.\n" +

@@ -25,6 +25,23 @@ test("rad-005-167 Lingering Animus: program validates and has expected identity"
   assert.match(program.judgeReason, /HistoryQuery/);
 });
 
+test("rad-005-167 Lingering Animus boundary: a never-condition still readies the entry, so the condition is not consumed", () => {
+  // Re-probed 2026-10-17: replacement/bind.ts matchesEnterAction() returns true
+  // before testCondition() runs, so the entry-orientation replacement fires even
+  // for a condition that evaluates to false. This is the production evidence
+  // that the card's historical if-clause cannot be consumed as a Condition yet.
+  const f = fixture({ cards: [{ id: "animus", types: ["unit"], might: 2, exhausted: true }] });
+  const handle = createEngineStaticBinder(f.engine).bindReplacement(
+    { ...program.abilities[0], condition: { kind: "never" } },
+    f.kernel.getObject("animus")
+  );
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("animus"), to: "chain" });
+  const outcome = f.engine.commit({ type: "move-zone", object: f.kernel.ref("animus"), to: "base", location: { type: "base", player: "A" } });
+  assert.equal(outcome.status, "replaced");
+  assert.equal(f.kernel.getObject("animus").exhausted, false);
+  handle.unbind();
+});
+
 test("rad-005-167: board-entry replacement readies the entering unit (CR 369.3)", () => {
   assert.equal(program.abilities.length, 1);
   const [ability] = program.abilities;

@@ -23,17 +23,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   effect.draw 只提交封闭的 draw GameAction，牌库顺序与 Burn Out 由内核负责。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
- * - replacement 绑定（RIFT-260，src/replacement/）已合入：自指向 effect.ready 的静态
- *   replaces 体会被识别成入场取向声明，并在 Chain 区永久物换到 Board 前改写取向。
+ * - src/replacement/ 的入场取向绑定已合入：自指向 effect.ready 的静态 replaces 体会被识别成
+ *   入场取向声明，并在 Chain 区永久物换到 Board 前改写取向。
  * - 但这条入场取向路径不求值 ability.condition：replacement/bind.ts 的 matchesEnterAction
- *   在 testCondition 之前就返回 true，所以「If you have two or fewer cards in your hand」
- *   的闸门无法生效（场上的单位一律就绪入场）。条件求值本身也不是本卡的问题：手牌计数用已合入的
+ *   在 testCondition 之前就返回 true。实测（3 张手牌、condition 为真/为假两种情况都试过）单位
+ *   一律以 ready 入场，手牌 ≤ 2 的闸门不生效。条件求值本身不是本卡的问题：手牌计数用已合入的
  *   count + chain/engine.ts 的 owner/「self」归一化即可；缺的是把 condition 接进入场取向匹配。
- * - hold 时点与通用触发注册已合入，但 turn/flow.ts 只发出 player/battlefieldId，
- *   programs/filters.ts 把 source: "self" 翻译为 event.object，无法识别驻守该战场的单位。
- *   golden 测试对已支持的 effect.draw 体做真实执行，不代表 383.4.d.2.a 的触发已可执行。
- * 依赖：RIFT-260 的入场取向条件求值补齐及单位 Hold 事件/位置过滤绑定。不近似实现（不把 enter ready
- * 写成事后 effect.ready，也不把「手牌 ≤ 2」写成常量或干脆删掉）。
+ * - hold 时点与通用触发注册已合入，但 turn/flow.ts 只发出 player/battlefieldId（details 里没有
+ *   对象），programs/filters.ts 把 source: "self" 翻译为 event.object，实测匹配返回 false，
+ *   无法识别驻守该战场的单位。golden 对已支持的 effect.draw 体做真实执行，不代表 383.4.d.2.a 已可执行。
+ * 不近似实现（不把 enter ready 写成事后 effect.ready，也不把「手牌 ≤ 2」写成常量或删掉）。
  */
 const abilities: Ability[] = [
   {
@@ -79,13 +78,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "入场替代已由 RIFT-260 合入（src/replacement/ 把自指向 effect.ready 的 replaces 体识别为入场取向声明，" +
+    "入场替代绑定已合入（src/replacement/ 把自指向 effect.ready 的 replaces 体识别为入场取向声明，" +
     "在 Chain 区永久物换到 Board 前改写取向），但该路径不求值 ability.condition：replacement/bind.ts 的 " +
-    "matchesEnterAction 先于 testCondition 命中，于是「If you have two or fewer cards in your hand」的闸门" +
-    "无法生效——手牌 3 张时单位仍以就绪状态入场。条件本身可用已合入的 count + chain/engine.ts 的 owner 归一化" +
-    "表达（owner: \"self\"），缺的是入场取向匹配把 condition 纳入判定（RIFT-260 后续）。" +
-    "另缺单位 Hold 的事件/位置过滤绑定（CR 383.4.d.2.a）：turn/flow.ts 的 hold 仅含 player/battlefieldId，" +
-    "programs/filters.ts 却把 source: \"self\" 绑定到 event.object，无法判定本单位驻守了该战场。",
+    "matchesEnterAction 先于 testCondition 返回 true，于是「If you have two or fewer cards in your hand」的闸门" +
+    "无法生效——实测手牌 3 张时单位仍以 ready 入场。条件本身可用已合入的 count + chain/engine.ts 的 owner 归一化" +
+    "表达（owner: \"self\"），缺的是入场取向匹配把 condition 纳入判定。" +
+    "另缺单位 Hold 的事件/位置过滤绑定（CR 383.4.d.2.a）：turn/flow.ts 的 hold 仅含 player 与 details.battlefieldId，" +
+    "payload 没有对象，programs/filters.ts 却把 source: \"self\" 绑定到 event.object，实测匹配为 false，" +
+    "无法判定本单位驻守了该战场。",
   abilities,
   sourceText:
     "If you have two or fewer cards in your hand, I enter ready.\n" +

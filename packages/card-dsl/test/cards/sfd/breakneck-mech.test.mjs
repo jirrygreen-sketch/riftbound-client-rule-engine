@@ -11,6 +11,7 @@ import { createContinuousEffectRegistry } from "../../../../engine-core/dist/lay
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab";
@@ -53,6 +54,37 @@ const bindDeps = (kernel, pipeline) => ({
   pipeline
 });
 
+/**
+ * The condition evaluator's environment over the reference kernel, with the
+ * chain's own "self" controller normalization (chain/engine.ts) so the declared
+ * count filter is evaluated exactly as it is at Finalize/Resolve time.
+ */
+function conditionEnvironment(kernel, hostId) {
+  const context = bindResolveContext(kernel, {
+    source: kernel.getObject(hostId),
+    controller: "A",
+    timingPoint: "chain-item-finalize",
+    query: (filter) => {
+      const normalized = { ...filter };
+      for (const key of ["controller", "owner"]) {
+        if (normalized[key] === "self") normalized[key] = "A";
+      }
+      return kernel.objects.filter((object) => matchesObjectFilter({
+        ...normalized,
+        ...(normalized.controller === "opponent" ? { controller: "any" } : {}),
+        ...(normalized.owner === "opponent" ? { owner: "any" } : {})
+      }, object) && !(normalized.controller === "opponent" && object.controller === "A"));
+    }
+  });
+  return {
+    context,
+    host: kernel.ref(hostId),
+    linked: () => undefined,
+    canLookBack: () => true,
+    isIgnored: () => false
+  };
+}
+
 test("breakneck-mech program is registered and validates", () => {
   assert.ok(program, "breakneck-mech must be exported");
   const result = validateCardProgram(program);
@@ -70,9 +102,13 @@ test("breakneck-mech judgeReason names the current Deflect, Ganking and entry-co
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /permission\.routes/);
   assert.match(program.judgeReason, /matchesEnterAction/);
-  assert.match(program.judgeReason, /tag\/other|tag \/ other/);
   assert.match(program.judgeReason, /attachProgramLifecycle/);
   assert.match(program.judgeReason, /createEngineStaticBinder/);
+  assert.match(program.judgeReason, /layerFor/);
+  // The tag/other count-filter gap was fixed in this resweep, so the reason
+  // records the repair instead of still claiming the counting is broken.
+  assert.match(program.judgeReason, /已修/);
+  assert.match(program.judgeReason, /exclude/);
   assert.ok(!/unmerged KeywordDef|keywords registry is empty/.test(program.judgeReason));
   assert.ok(!/RIFT-257|CardProgram binding|未合入/.test(program.judgeReason));
 });
@@ -108,11 +144,13 @@ test("breakneck-mech structure: static grant + enter-ready replacement", () => {
   assert.equal(enterReady.with[0].targets, undefined);
   assert.equal(enterReady.condition.kind, "compare");
   assert.equal(enterReady.condition.left.kind, "count");
+  // Engine vocabulary: a tag list plus the contract 3.6 "self" exclusion
+  // anchor; the singular tag/other keys were never read by layers/filter.ts.
   assert.deepEqual(enterReady.condition.left.filter, {
-    tag: "Mech",
-    controller: "controller",
+    tags: ["Mech"],
+    controller: "self",
     zone: "board",
-    other: true
+    exclude: "self"
   });
   assert.equal(enterReady.condition.operator, "gte");
   assert.deepEqual(enterReady.condition.right, { kind: "constant", value: 1 });
@@ -283,12 +321,13 @@ test("breakneck-mech golden: the entry replacement turns the default exhausted e
   assert.equal(withCard.readyTiming, false);
 });
 
-test("breakneck-mech golden: the entry rewrite is gated by the declared 'another Mech' count", () => {
+test("breakneck-mech golden: 'if you control another Mech' really counts the other Mechs", () => {
   // "if you control another Mech" is a programmatic object count, never a
-  // choice (355.10.d), and `other: true` excludes the entering Mech itself.
-  // The declaration is asserted here; the merged entry-orientation match does
-  // not consult the ability condition yet (see the todo below), so the golden
-  // does not claim the gate is enforced at match time.
+  // choice (355.10.d). The declaration uses the engine's own vocabulary — a
+  // `tags` list plus the contract 3.6 `exclude: "self"` anchor — because
+  // layers/filter.ts has no singular tag/other keys. The merged condition
+  // evaluator is driven here over the production query normalization, so the
+  // count really discriminates "another Mech" from "no other Mech".
   const condition = enterReady.condition;
   assert.equal(condition.kind, "compare");
   assert.equal(condition.operator, "gte");
@@ -296,11 +335,24 @@ test("breakneck-mech golden: the entry rewrite is gated by the declared 'another
   assert.equal(condition.left.kind, "count");
   assert.equal(condition.left.subject, "objects");
   assert.deepEqual(condition.left.filter, {
-    tag: "Mech",
-    controller: "controller",
+    tags: ["Mech"],
+    controller: "self",
     zone: "board",
-    other: true
+    exclude: "self"
   });
+
+  const withOther = world().player("A").player("B")
+    .unit("mech", { tags: ["Mech"], might: 2, controller: "A" })
+    .unit("other-mech", { tags: ["Mech"], might: 3, controller: "A" })
+    .unit("enemy-mech", { tags: ["Mech"], might: 3, owner: "B", controller: "B" })
+    .build();
+  const withoutOther = world().player("A").player("B")
+    .unit("mech", { tags: ["Mech"], might: 2, controller: "A" })
+    .unit("enemy-mech", { tags: ["Mech"], might: 3, owner: "B", controller: "B" })
+    .build();
+
+  assert.equal(evaluateCondition(condition, conditionEnvironment(withOther, "mech")), true);
+  assert.equal(evaluateCondition(condition, conditionEnvironment(withoutOther, "mech")), false);
 });
 
 test.todo(
@@ -319,9 +371,4 @@ test.todo(
   "breakneck-mech: evaluate the replacement condition on the entry path — replacement/bind.ts " +
     "matchesEnterAction returns before testCondition, so 'if you control another Mech' never gates the " +
     "entry rewrite (CR 371.1)"
-);
-
-test.todo(
-  "breakneck-mech: give the condition's count query a consumer for the singular tag/other keys — " +
-    "layers/filter.ts silently ignores 'tag' and 'other', so 'another Mech' cannot be counted correctly"
 );

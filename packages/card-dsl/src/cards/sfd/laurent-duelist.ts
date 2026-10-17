@@ -11,7 +11,7 @@ import type { CardProgram } from "../../ir/index.js";
  * effects/keywords/Assault.ts 负责，已合入并经 RIFT-257 的 expandProgram 解析
  * （golden 验证展开形状）。
  *
- * 仍缺（复核 2026-10-16）：展开里的条件读 ObjectSnapshot 的 designation 特征
+ * 仍缺（复核 2026-10-17）：展开里的条件读 ObjectSnapshot 的 designation 特征
  * （compare(object-property(self, "designation") eq "attacker")），但该特征没有
  * 任何生产方写入——combat/flow.ts 的战斗角色事务尚未实现（明确抛
  * combat-start-transaction，combatRole 字段在契约里但无人赋值），图层求值也没有

@@ -22,14 +22,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   frozen move-location action cannot distinguish a Recall from a Move, and
  *   the primitive refuses to approximate one with the other.
  * - 163.2.b / 135.2.e.5: :rb_rune_rainbow: is Universal Power ("any Domain").
- *   The frozen Domain set and `cost.pay` have no executable Universal Power
- *   value; the neighbouring merged program ven/matriarch-of-war records the
- *   same gap with a descriptive "rainbow" spelling.
+ *   The merged cost model represents three Universal Power symbols as one
+ *   three-Power payment whose allowedDomains are the six duel domains.
  * - 204.3 / 204.4: "may pay … to heal/exhaust/recall instead" is a cost inside
  *   a replacement effect, decided by the unit's controller when the
  *   replacement would apply.
  *
- * Status: judge-required (re-reviewed 2026-10-17) — RIFT-260's replacement layer
+ * Status: judge-required (re-reviewed 2026-10-17) — the replacement layer
  * is now merged, which changes the shape of the gaps rather than removing them:
  * 1. `bindReplacement` does turn a card ReplacementAbility into a pipeline
  *    registration and does expose the replaced event's object as
@@ -45,15 +44,16 @@ import type { CardProgram } from "../../ir/index.js";
  * 2. "during combat" needs a combat discriminator on the replaced death
  *    event; the closed timing payload exposes no "during combat" flag and the
  *    frozen Condition set cannot read one.
- * 3. the Recall is blocked (457-460) and the three-rune Universal Power
- *    payment has no executable value under the frozen Domain/cost model.
+ * 3. the Recall is blocked (457-460); the three-rune Universal Power value is
+ *    representable in the ordinary cost model but is not yet accepted by the
+ *    replacement planner's payment path.
  * The golden test executes the merged halves (effect.heal clears the marked
  * damage, effect.exhaust sets the state) and binds the replacement through the
- * real RIFT-260 layer to record exactly where the body stops; recall and payment
+ * real pipeline to record exactly where the body stops; recall and payment
  * stay `test.todo`.
  *
  * Dependencies: replacement-body optional/payment and full-heal planning,
- * a combat-death discriminator, the Recall action, and Universal Power payment.
+ * a combat-death discriminator, and the Recall action.
  */
 export default {
   canonicalCardId: "card.hash-8a6701849fc591215d101121138ec91bc46da22693dc4c35b90fbfe6c36f0155",
@@ -68,10 +68,9 @@ export default {
     "替代 planner 对省略 heal amount 还默认映射 amount:1，而 419.1 的不定量 Heal 应清除全部标记伤害。" +
     "(2)「during combat」需要在被替代的死亡事件上判别战斗期，封闭时点载荷没有战斗期标志，Condition 也没有读取它的路径；" +
     "(3)「recall it」是 457-460 的 Recall——effect.move 的 mode recall 被原语显式阻断（封闭 move-location 动作无法区分 Recall 与 Move，" +
-    "不得用普通移动近似），而 :rb_rune_rainbow:×3 是 163.2.b/135.2.e.5 的 Universal Power，封闭 Domain 集合与费用管线没有可执行的任意域 Power 值" +
-    "（同 ven/matriarch-of-war 的缺口）。已支持部分：effect.heal 与 effect.exhaust 在 golden 里用真实原语执行，" +
+    "不得用普通移动近似）；:rb_rune_rainbow:×3（Universal Power）已可在普通费用模型中用三点、六域 allowedDomains 表达，但仍未接入替代体的付款计划。已支持部分：effect.heal 与 effect.exhaust 在 golden 里用真实原语执行，" +
     "替代的绑定也在 golden 里通过真实 pipeline 验证支持的子计划。" +
-    "依赖：replacement planner 可接受的替代体可选/支付形状（契约变更请求）、Recall 动作（457-460）与任意域 Power 费用值（163.2.b）。",
+    "依赖：replacement planner 可接受的替代体可选/支付形状（契约变更请求）、不定量 Heal 的完整规划、Recall 动作（457-460）与战斗死亡判别。",
   sourceText:
     "If a unit here would die during combat, its controller may pay " +
     ":rb_rune_rainbow::rb_rune_rainbow::rb_rune_rainbow: to heal it, exhaust it, and recall it instead.",
@@ -96,12 +95,11 @@ export default {
               value: [
                 {
                   // The printed Universal Power cost (3 × :rb_rune_rainbow:).
-                  // "rainbow" is the merged descriptive spelling; the frozen
-                  // cost model has no executable Universal Power value (see
-                  // judgeReason).
+                  // A numeric Power payment uses all six duel domains as its
+                  // allowedDomains set, so three symbols remain three Power.
                   id: "altar-of-blood.pay",
                   op: "cost.pay",
-                  args: { power: { kind: "constant", value: ["rainbow", "rainbow", "rainbow"] } }
+                  args: { power: { kind: "constant", value: 3 } }
                 },
                 {
                   id: "altar-of-blood.heal",

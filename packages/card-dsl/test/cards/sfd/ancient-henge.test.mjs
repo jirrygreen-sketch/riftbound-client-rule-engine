@@ -10,6 +10,10 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import { runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
+import resources from "../../../../engine-core/dist/effects/instructions/effect.resources.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { describeActivate } from "../../../../engine-core/dist/programs/activate.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 
 const CARD_ID = "card.hash-d07e48aa4c135d7523968d576a0ed10afd4b5574804fc3baa31b2d60b20f46a3";
 const SOURCE_TEXT =
@@ -103,6 +107,47 @@ test.todo(
 test.todo(
   "Ancient Henge: classify the activated program as an add ChainKind so 430.2/430.3 resolve immediately without reactions"
 );
+
+test("sfd-117-221 Ancient Henge: cost.pay cannot consume the declared payments array", () => {
+  // 204.3/204.3.a: "Pay any amount of Energy" is chosen at resolution. The
+  // merged payer only accepts an already finalized plan, so the authored
+  // resolve-time cost descriptor cannot be paid as written, and there is no
+  // cost.pay-any primitive in the registry.
+  const kernel = world().player("A", { energy: 3 }).build();
+  assert.equal(instructionDefinitionsById.has("cost.pay-any"), false);
+  assert.throws(() => runInstruction(costPay, {
+    payments: { kind: "constant", value: [{ kind: "amount", object: "self" }] }
+  }, { world: kernel }), error => error.reason === "cannot-pay-cost");
+  assert.equal(kernel.player("A").energy, 3);
+});
+
+test("sfd-117-221 Ancient Henge: Universal Power is not a closed Domain and stays impossible", () => {
+  // 135.2.e.5/163.2.b: [A] is Universal Power. The merged resource primitive
+  // accepts only the six closed Domains, so a rainbow request is impossible
+  // rather than being approximated by a colored domain.
+  const kernel = world().player("A").build();
+  const run = runInstruction(resources, {
+    power: { kind: "constant", value: ["rainbow"] }
+  }, { world: kernel });
+  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
+  assert.deepEqual(kernel.player("A").power, []);
+});
+
+test("sfd-117-221 Ancient Henge: the activation draft is not an add chain item", () => {
+  // 430.2/430.2.a: an Add ability resolves immediately and cannot be reacted to.
+  // The merged activation binding emits kind "activated" for this ability, so
+  // nothing treats it as an add item.
+  const kernel = world().unit("ancient-henge", {
+    cardId: CARD_ID, types: ["gear"], might: null, zone: "board", location: { type: "base", player: "A" }
+  }).build();
+  const { judgeReason, ...executable } = program;
+  const registry = new ProgramRegistry([{ ...executable, status: "executable" }]);
+  const draft = describeActivate(registry, kernel.getObject("ancient-henge"), "A", 0);
+  // chain/engine.ts books an activated draft as kind "activated"; nothing
+  // reclassifies it as the add kind that 430.2 requires.
+  assert.equal(draft.kind, "activated");
+  assert.equal(draft.speed, "reaction");
+});
 
 
 test("Ancient Henge: the merged payer reports an explicit Energy payment and aborts without enough Energy", () => {

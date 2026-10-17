@@ -21,6 +21,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   永久物并保持状态，本卡额外写明“exhausted”。
  *
  * status = judge-required（复核 2026-10-17）：
+ * - 费用计划本体已合入，但静态 CardProgram 的
+ *   `card-in-controller-hand` 选择占位符仍没有 Finalize 期的控制者手牌
+ *   ref 绑定；费用 golden 通过调用方显式提供运行期选择来隔离验证费用语义。
  * - 替代注册管线（replacement/bind.ts）已合入并能绑定
  *   replacement.event 的一次性窗口；但 IR 里 args.instead 只能写成
  *   constant 包装的指令数组（card-dsl 校验器只把 body/modes 识别为指令体），
@@ -109,12 +112,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处缺口（复核 2026-10-17）：(1) 替代体形状不匹配——替代注册管线（replacement/bind.ts）已合入，" +
+    "四处缺口（复核 2026-10-17）：(1) 静态 CardProgram 的 card-in-controller-hand 选择占位符没有 Finalize 期的控制者手牌 ref 绑定，" +
+    "生产费用流只能由调用方另行提供运行期选择；(2) 替代体形状不匹配——替代注册管线（replacement/bind.ts）已合入，" +
     "但要求 replacement.event 的 args.instead 是裸指令数组，而 card-dsl 校验器只允许 constant 包装的指令数组" +
     "（body/modes 之外），本卡按 IR 写的声明在合并管线里绑定会抛 “replacement.event instead must be an instruction body”；" +
-    "(2) effect.move 明确阻断 mode \"recall\"（Recall 必须是与 Move 不同的动作，CR v1.5 457–460；返回 negated/impossible 并带 blockedReason），" +
+    "(3) effect.move 明确阻断 mode \"recall\"（Recall 必须是与 Move 不同的动作，CR v1.5 457–460；返回 negated/impossible 并带 blockedReason），" +
     "内核也没有 Recall 动作，不能用普通 move-location 或离区再入场近似；" +
-    "(3) 替代内的可选「you may pay :rb_rune_fury:」需要替代窗口内的可选 cost.pay 计划与支付凭证；" +
+    "(4) 替代内的可选「you may pay :rb_rune_fury:」需要替代窗口内的可选 cost.pay 计划与支付凭证；" +
     "费用半段（discard 1 + 横置自身）已用已合入的费用计划真实收取（golden 以运行期选项支付，静态 IR 只能写选择占位符）。" +
     "依赖：替代体形状的契约对齐、Recall 动作与 cost.pay 支付凭证。",
   abilities,

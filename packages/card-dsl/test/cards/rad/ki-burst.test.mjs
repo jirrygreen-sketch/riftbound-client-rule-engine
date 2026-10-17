@@ -33,7 +33,7 @@ test("rad-028-167 Ki Burst: judge-required naming the missing additional-cost pa
   // The current gap is the card-facing producer, not the plan type. programs/
   // play.ts rejects additional kinds and folds this clause into the base cost.
   assert.match(program.judgeReason, /translateCost/);
-  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /费用侧动态候选选择仍未接入/);
   assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-91|RIFT-257|RIFT-261/);
 });
 
@@ -143,8 +143,8 @@ test("rad-028-167 Ki Burst boundary: the additional exhaust is folded into the b
   assert.equal(translated.payments[0].kind, "exhaust");
 
   // The exhaust pick is still selection-shaped: cost/plan-values.ts only accepts
-  // exact ObjectRefs, so the declared option name cannot build a plan (RIFT-358
-  // owns the filter/ordered pick shape and is still unmerged).
+  // exact ObjectRefs, so the declared option name cannot build a plan. The
+  // existing ordered-pick path does not provide cost-side dynamic candidates.
   const kernel = world().player("A", { energy: 3 }).unit("caster", { types: ["spell"], energy: 1 }).unit("ready-friendly", { might: 2 }).build();
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("caster") });
   assert.throws(

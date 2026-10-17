@@ -8,6 +8,7 @@ import inspect from "../../../../engine-core/dist/effects/instructions/effect.in
 import order from "../../../../engine-core/dist/effects/instructions/effect.order.js";
 import play from "../../../../engine-core/dist/effects/instructions/effect.play.js";
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
@@ -15,8 +16,8 @@ const CARD_ID =
   "card.hash-9acbf5e3c7be24dcd9c72b8ec614e8dd1d7ef60d52c6394559ece574843ccdaf";
 
 const [deathknell, played, held, dying] = program.abilities;
-const [look, recycleChosen, replaceRest] = played.body;
-const [banishTop, mayPlay] = dying.body;
+const [bindController, look, recycleChosen, replaceRest] = played.body;
+const [deathknellBindController, banishTop, mayPlay] = dying.body;
 const [playBanished] = mayPlay.args.body.value;
 
 test("rad-067-167 Clocktower Guardian: program validates and is judge-required", () => {
@@ -26,7 +27,7 @@ test("rad-067-167 Clocktower Guardian: program validates and is judge-required",
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /trigger\.leave/);
-  assert.match(program.judgeReason, /finalized zero-Energy plan/);
+  assert.match(program.judgeReason, /动态计划/);
   assert.match(program.judgeReason, /Predict/);
 });
 
@@ -57,22 +58,55 @@ test("rad-067-167 Clocktower Guardian: 'when you play me OR when I hold' becomes
 });
 
 test("rad-067-167 Clocktower Guardian: [Predict 3] looks at exactly the top three in deck order (437.1 / 437.3)", () => {
+  assert.equal(bindController.op, "condition.value");
+  assert.deepEqual(bindController.args.value, {
+    kind: "object-property",
+    object: "source",
+    property: "controller"
+  });
+  assert.deepEqual(bindController.args.key, { kind: "constant", value: "controller" });
+  assert.equal(look.linkedTo, "clocktower-guardian.bind-controller");
+  assert.deepEqual(look.args.player, {
+    kind: "linked-value",
+    instructionId: "clocktower-guardian.bind-controller",
+    key: "controller"
+  });
   assert.equal(look.op, "effect.inspect");
   assert.deepEqual(look.args.zone, { kind: "constant", value: "deck" });
+  assert.deepEqual(look.args.scope, { kind: "constant", value: "top" });
+  assert.deepEqual(look.args.amount, { kind: "constant", value: 3 });
   assert.deepEqual(look.args.picksSpecId, {
     kind: "constant",
     value: "clocktower-guardian.predict-range"
   });
   assert.deepEqual(look.args.chooseCount, { kind: "constant", value: { min: 0, max: 3 } });
+  assert.deepEqual(look.args.choiceId, { kind: "constant", value: "clocktower-guardian.predict" });
   assert.equal(look.picks.length, 1);
-  assert.equal(look.picks[0].min, 0);
-  assert.equal(look.picks[0].max, 3);
-  assert.equal(look.picks[0].selection, "up-to");
+  assert.deepEqual(look.picks[0], {
+    id: "clocktower-guardian.predict-range",
+    options: [],
+    ordered: true,
+    selection: "all",
+    zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 3 } }
+  });
   // Recycled cards go to the deck bottom; the rest is reordered on top (437.1.a).
   assert.equal(recycleChosen.op, "effect.recycle");
   assert.equal(recycleChosen.linkedTo, "clocktower-guardian.predict-look");
   assert.equal(replaceRest.op, "effect.order");
+  assert.equal(replaceRest.linkedTo, "clocktower-guardian.recycle-predicted");
   assert.deepEqual(replaceRest.args.destination, { kind: "constant", value: "top" });
+  assert.deepEqual(replaceRest.args.count, {
+    kind: "arithmetic",
+    operator: "sub",
+    operands: [
+      { kind: "constant", value: 3 },
+      {
+        kind: "linked-value",
+        instructionId: "clocktower-guardian.recycle-predicted",
+        key: "recycledCount"
+      }
+    ]
+  });
   assert.deepEqual(replaceRest.args.chooseOrder, { kind: "constant", value: true });
 });
 
@@ -83,14 +117,20 @@ test("rad-067-167 Clocktower Guardian: the Deathknell effect is a self-death tri
     event: "object-killed",
     filter: { source: "self" }
   });
-  assert.equal(dying.body.length, 2);
+  assert.equal(dying.body.length, 3);
+  assert.equal(deathknellBindController.op, "condition.value");
+  assert.deepEqual(deathknellBindController.args.value, {
+    kind: "object-property",
+    object: "source",
+    property: "controller"
+  });
 });
 
-test("rad-067-167 Clocktower Guardian: 'Banish the top card of your Main Deck' reads the deck top in zone order (428.1 / RIFT-66)", () => {
+test("rad-067-167 Clocktower Guardian: 'Banish the top card of your Main Deck' reads the deck top in zone order (428.1)", () => {
   assert.equal(banishTop.op, "effect.banish");
   assert.deepEqual(banishTop.args.objects, {
     kind: "constant",
-    value: { zone: "deck", player: "controller", from: "top" }
+    value: { zone: "deck", from: "top" }
   });
   assert.deepEqual(banishTop.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(banishTop.args.linkKey, { kind: "constant", value: "banished-card" });
@@ -107,6 +147,11 @@ test("rad-067-167 Clocktower Guardian: 'You may play it, ignoring its Energy cos
 
   assert.equal(playBanished.op, "effect.play");
   assert.equal(playBanished.linkedTo, "clocktower-guardian.banish-top");
+  assert.deepEqual(playBanished.args.player, {
+    kind: "linked-value",
+    instructionId: "clocktower-guardian.deathknell-bind-controller",
+    key: "controller"
+  });
   assert.deepEqual(playBanished.args.object, {
     kind: "linked-value",
     instructionId: "clocktower-guardian.banish-top",
@@ -173,19 +218,48 @@ test("rad-067-167 Clocktower Guardian: the Predict 3 body executes against the r
     order,
     {
       destination: { kind: "constant", value: "top" },
-      cardsPick: { kind: "constant", value: "clocktower-guardian.predicted" },
+      count: { kind: "constant", value: 1 },
       chooseOrder: { kind: "constant", value: true }
     },
-    {
-      world: kernel,
-      picks: { "clocktower-guardian.predicted": [range[1]] },
-      answers: { "effect.order:top:A": [range[1]] }
-    }
+    { world: kernel }
   );
   assert.equal(reordered.result.status, "executed");
   assert.equal(reordered.linked.ordered, 1);
   const deckIds = kernel.zoneSlice("A", "deck", "top").map(object => object.ref.id);
   assert.equal(deckIds[0], range[1].id, "the kept card goes back on top in the chosen order");
+});
+
+test("rad-067-167 Clocktower Guardian: the printed Predict body binds its controller and resolves in order (437.1)", () => {
+  const kernel = world()
+    .unit("clocktower-guardian", { owner: "A", controller: "A", zone: "board", might: 8 })
+    .deck(["top", "second", "third", "fourth"])
+    .build();
+  const source = kernel.getObject("clocktower-guardian");
+  const scoped = kernel.clone({ sourceSnapshot: source });
+  const range = kernel.zoneSlice("A", "deck", "top", 3).map(object => object.ref);
+  scoped.setPicks("clocktower-guardian.predict-range", range);
+  scoped.setAnswers({
+    "clocktower-guardian.predict-look/clocktower-guardian.predict": [range[0], range[2]]
+  });
+
+  const outcome = resolveChainBody(played.body, scoped);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map(result => [result.id, result.result.status]),
+    [
+      ["clocktower-guardian.bind-controller", "executed"],
+      ["clocktower-guardian.predict-look", "executed"],
+      ["clocktower-guardian.recycle-predicted", "executed"],
+      ["clocktower-guardian.replace-predicted", "executed"]
+    ]
+  );
+  assert.equal(outcome.linkedValues["clocktower-guardian.bind-controller.controller"], "A");
+  assert.equal(outcome.linkedValues["clocktower-guardian.predict-look.inspected"], 3);
+  assert.deepEqual(outcome.linkedValues["clocktower-guardian.recycle-predicted.recycledCount"], 2);
+  // The unselected second card remains on top; the two selected cards recycle to
+  // the bottom in the kernel's actual recycle action order.
+  assert.deepEqual(scoped.zone("A", "deck").map(ref => ref.id), ["second", "fourth", "top", "third"]);
 });
 
 test("rad-067-167 Clocktower Guardian: effect.banish really banishes the deck top and links it (428.1)", () => {
@@ -233,6 +307,31 @@ test("rad-067-167 Clocktower Guardian: the optional play half could move the ban
   assert.deepEqual(kernel.getObject("banished-card").location, { type: "base", player: "A" });
 });
 
+test("rad-067-167 Clocktower Guardian: the Deathknell effect body binds its controller and can execute banish plus optional play", () => {
+  const kernel = world()
+    .unit("clocktower-guardian", { owner: "A", controller: "A", zone: "board", might: 8 })
+    .deck(["top-card", "second-card"])
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("clocktower-guardian") });
+  scoped.setAnswers({ "clocktower-guardian.may-play/optional": true });
+
+  const outcome = resolveChainBody(dying.body, scoped);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map(result => [result.id, result.result.status]),
+    [
+      ["clocktower-guardian.deathknell-bind-controller", "executed"],
+      ["clocktower-guardian.banish-top", "executed"],
+      ["clocktower-guardian.play-banished", "executed"],
+      ["clocktower-guardian.may-play", "executed"]
+    ]
+  );
+  assert.equal(outcome.linkedValues["clocktower-guardian.deathknell-bind-controller.controller"], "A");
+  assert.equal(scoped.getObject("top-card").zone, "board");
+  assert.equal(scoped.getObject("second-card").zone, "deck");
+});
+
 test.todo(
   "rad-067-167 Clocktower Guardian: [Predict 3] as a reusable keyword expansion (437) — the Predict " +
     "KeywordDef has no registered Predict expansion; the existing Vision keyword inlines only Predict 1"
@@ -241,4 +340,9 @@ test.todo(
 test.todo(
   "rad-067-167 Clocktower Guardian: [Deathknell] trigger.leave must enter the chain before the " +
     "permanent reaches Trash (808.1.d.2); the leave-trigger consumer and event ordering remain open"
+);
+
+test.todo(
+  "rad-067-167 Clocktower Guardian: generate a dynamic finalized cost plan from the banished card that " +
+    "zeros only Base Energy while retaining its other costs (356.1.b.2 / 420.3)"
 );

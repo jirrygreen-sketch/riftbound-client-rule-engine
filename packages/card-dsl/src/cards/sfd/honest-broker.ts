@@ -20,27 +20,30 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - Gold gear token = CR 187.5 (a domainless gear token that carries its own
  *   printed "[Reaction][>] Kill this, [E]: [Add] [A]" ability).
  *
- * Status: judge-required — the ability cannot be executed with merged code,
+ * Status: judge-required. The ability cannot be executed with merged code,
  * and nothing is approximated:
  * - the Gold definition is absent from effect.token's frozen DEFINITIONS table;
  *   that file documents that "definitions requiring other abilities, including
  *   Gold, remain blocked/judge-required" (187.5). Playing a NEW token requires
  *   chain creation plus the hand-off play (440.2.c, 185.2.a, 350.2, 354);
- *   the frozen create-token action creates only on the Board and effect.token
- *   negates mode "play" with blockedReason
- *   "token-play-requires-chain-creation".
+ *   the merged play mode really does the chain-creation handoff (the golden
+ *   drives a definition the frozen table has), and the missing Gold definition
+ *   negates the same instruction with blockedReason
+ *   "token-definition-or-abilities-judge-required".
  * - the "exhausted" entry is a creation/entry stipulation (184.1, 185.2.d),
- *   not a later exhaust: create-token/play support no entry override, and
- *   effect.exhaust's own boundary notes that add-on exhaustion would add a
- *   second "becomes exhausted" event and miss entry replacement (143.4).
+ *   not a later exhaust: create-token/play support no entry override —
+ *   effect.token's argument schema rejects the authored `entersExhausted`
+ *   outright ("Invalid effect.token argument") — and effect.exhaust's own
+ *   boundary notes that add-on exhaustion would add a second "becomes
+ *   exhausted" event and miss entry replacement (143.4).
  * - the [Deathknell] expansion body references the unmerged trigger.leave
  *   primitive (packages/engine-core/src/effects/keywords/Deathknell.ts), so the
  *   keyword's own instruction is not executable either; the card's explicit
- *   object-killed trigger does bind through the merged card-program binding
- *   (RIFT-257), but resolving its body hits the missing Gold definition first.
+ *   object-killed trigger does bind through the merged card-program binding,
+ *   but resolving its body hits the missing Gold definition first.
  * Dependencies: the Gold token definition plus the chain-creation/entry-state
- * work of the token primitive task, trigger.leave (RIFT-82 boundary), and the
- * cost-waived play handoff.
+ * work of the token primitive task, trigger.leave, and the cost-waived play
+ * handoff.
  */
 const abilities: Ability[] = [
   {
@@ -56,16 +59,50 @@ const abilities: Ability[] = [
     optional: false,
     body: [
       {
+        // 359.2.d: a Non-Unit Gear enters the Board at the player's Base, so the
+        // destination is the ability controller's Base (not a choice). The
+        // merged location provider resolves the relative base into a concrete
+        // LocationRef for the linked token instruction (the merged
+        // sfd/deserts-call and sfd/guards shape).
+        id: "honest-broker.choose-location",
+        op: "condition.value",
+        locations: [
+          {
+            id: "honest-broker.token-location",
+            type: "base",
+            player: "controller",
+            min: 1,
+            max: 1,
+            selection: "one"
+          }
+        ],
+        args: {
+          value: {
+            kind: "location",
+            value: { kind: "target-location", target: "honest-broker.token-location" }
+          },
+          key: { kind: "constant", value: "location" }
+        }
+      },
+      {
         id: "honest-broker.play-gold-token",
         op: "effect.token",
+        linkedTo: "honest-broker.choose-location",
         args: {
           token: { kind: "constant", value: "gold" },
           amount: { kind: "constant", value: 1 },
           // 440.2.c / 185.2.a: a played token is created on the Chain first.
           mode: { kind: "constant", value: "play" },
-          // Nominal gear-token destination; "exhausted" is the entry stipulation
-          // below (184.1/185.2.d), never a later exhaust (143.4).
-          location: { kind: "constant", value: { type: "base", player: "controller" } },
+          location: {
+            kind: "linked-value",
+            instructionId: "honest-broker.choose-location",
+            key: "location"
+          },
+          // The printed "exhausted" is a creation/entry stipulation (184.1 /
+          // 185.2.d), never a later exhaust (143.4). No merged token path carries
+          // an entry override, so the reviewed record keeps the stipulation named
+          // here and the primitive fails closed on it ("Invalid effect.token
+          // argument") instead of a silent entry as ready.
           entersExhausted: { kind: "constant", value: true },
           linkKey: { kind: "constant", value: "goldToken" }
         }
@@ -81,14 +118,15 @@ const program = {
   judgeReason:
     "Gold gear token（CR 187.5）不在 effect.token 的冻结定义表里——该文件明确 Gold 等自带能力的定义保持 " +
     "blocked/judge-required；「Play a Gold gear token」还要求按 440.2.c/185.2.a/350.2/354 先在链上创建再接手打出，" +
-    "effect.token 的 mode \"play\" 已合入（链上创建 + play 接手，RIFT-257 后的 goldens 已用该路径执行），" +
+    "effect.token 的 mode \"play\" 已合入（链上创建 + play 接手，golden 用本卡自己的指令形状以表中已有的定义执行该路径），" +
     "但 Gold 定义缺失使创建直接以 blockedReason: token-definition-or-abilities-judge-required negated。" +
-    "「exhausted」是入场规定（184.1/185.2.d），create-token/play 不支持入场状态改写；" +
+    "「exhausted」是入场规定（184.1/185.2.d），create-token/play 不支持入场状态改写：effect.token 的参数 schema " +
+    "直接以 \"Invalid effect.token argument: entersExhausted\" 拒绝手工加的入场覆盖字段；" +
     "effect.exhaust 文档明确事后横置不等价（会多一次「成为横置」事件并错过 143.4 的入场处理），故不近似。" +
-    "[Deathknell] 展开体引用的 trigger.leave 原语未合入（effects/keywords/Deathknell.ts 只声明 op id）；" +
-    "已合入部分：本卡显式声明的 object-killed 触发与 [Deathknell] 关键词展开都能经卡牌程序绑定" +
-    "（RIFT-257）注册（golden 断言注册成功），阻止执行的是 Gold 定义与入场状态。" +
-    "依赖：Gold token 定义与入场状态（token primitive 任务/RIFT-62 后续）、RIFT-82（kw-deathknell 的 trigger.leave）。",
+    "[Deathknell] 展开体引用的 trigger.leave 原语仍未注册（effects/keywords/Deathknell.ts 只声明 op id）；" +
+    "已合入部分：本卡显式声明的 object-killed 触发与 [Deathknell] 关键词展开都能经卡牌程序绑定注册" +
+    "（golden 用真实 EventPipeline 断言注册成功），阻止执行的是 Gold 定义与入场状态。" +
+    "依赖：Gold token 定义（含其内建 [Reaction][>] 能力）与入场状态改写、trigger.leave 原语。",
   abilities,
   sourceText: "[Deathknell] — Play a Gold gear token exhausted. (When I die, get the effect.)"
 } satisfies CardProgram;

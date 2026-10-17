@@ -17,7 +17,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   位置状态判定（359.3.f.1 referent 的口径：从触发时刻的来源位置读取）。
  * - "draw 1"：414.3/414.1.a；已合入的 effect.draw 只提交 draw GameAction。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-16）。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
  * - 已合入：RIFT-258/259 的 registration 后，RIFT-257 的 triggerRegistrations 能把本卡
  *   显式 triggered ability 翻译并安装（golden 证明安装成功）；effect.draw 本体真实执行。
  * - 仍缺（两处已实证的缺口）：

@@ -27,13 +27,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   owner/zone/location/states/tags/characteristics，没有 keywords 成员；ObjectSnapshot 虽有
  *   keywords 数组，但触发器过滤读不到它——写入未知成员会被静默忽略（整个过滤器退化成
  *   「任何被打出的装备」），不能作为条件使用；当前触发过滤没有关键词特征读取。
- * - 费用没有可执行路径：当前触发能力费用接口不能消费 cost.pay，[A]（任意域 Power，
- *   163.2.b / 135.2.e.5）在六域封闭的 Domain 集合里无法表达，且契约 ZoneId 没有
+ * - 费用计划已能用 payments 的 allowedDomains 六域列表表达 [A]（135.2.e.5.a），
+ *   但触发能力注册未把 cost.pay 正文接入 Finalize 的基础费用；契约 ZoneId 也没有
  *   Legend Zone（CR 107.4），传奇自身无法作为可横置的费用对象。
- * - “that battlefield” 的目的地缺口已缩小：effect.move 的 to 支持 target.location（从已锁定的
- *   目标读取 LocationRef）。但要指向“被打出装备所在的战场”，需要一个锁定该装备位置的目标；
- *   card-played 事件载荷不出现在 IR 的目标词汇里（ObjectSelector 只有 self/source/target/pick/linked），
- *   所以本卡仍把目的地写成描述性标记，等待事件物体位置绑定。
+ * - “that battlefield” 的地点适配已合入：LocationExpr / target-location 可读取已绑定目标的
+ *   LocationRef。仍缺的是把 card-played 事件物体的位置绑定到本能力；不能把非目标的
+ *   触发装备另设为玩家选择的目标来替代该事实，故目的地仍保留描述性标记。
  * golden 真实执行已有原语的部分（移动的 to/objects 形状可校验；无可独立执行的正文指令）。
  */
 export default {
@@ -47,12 +46,15 @@ export default {
     "（当前过滤器没有关键词特征读取），因此不能作为条件。" +
     "（2）效果开头 “you may exhaust me and pay :rb_rune_rainbow:” 按 CR 383.3.b.1 是触发能力的基础费用、" +
     "必须在 Finalize 支付（415.4 / 415.5），但触发能力注册没有把正文里的 cost.pay 转成基础费用计划；" +
-    "[A]（任意域 Power，CR 163.2.b / 135.2.e.5）在六域封闭的 Domain 集合里不可表达；契约 ZoneId 也没有 Legend Zone" +
+    "TriggerRegistration.cost 字段存在但 programs/triggers.ts:32-40 不填（TriggeredAbility IR 也没有 cost 字段，" +
+    "ir/types.ts:393-398）；" +
+    "[A] 的费用要求已可用 payments 的 allowedDomains 六域列表表达并支付（CR 135.2.e.5.a），" +
+    "缺口是触发费用接线而非通用 Power 支付；契约 ZoneId 也没有 Legend Zone" +
     "（CR 107.4），传奇自身无法作为横置费用的对象。" +
-    "（3）“that battlefield” 没有可执行目的地：effect.move 的 to 只接受字面 LocationRef / controller-base / 字面地点选项，" +
-    "不接受 target/pick 描述符；事件物体的位置绑定与 to 的地点来源形式仍缺。" +
+    "（3）“that battlefield” 仍缺触发事件物体的位置绑定：LocationExpr / target-location 及 effect.move 的地点适配已合入，" +
+    "可读取已绑定目标或地点选择的 LocationRef，但尚未把 card-played 事件中的装备位置绑定到本能力；不能用额外选择目标近似替代。" +
     "被移动的友方单位是目标（CR 355.10 / 355.9.a.1），结构已按此声明。" +
-    "依赖触发能力基础费用接线、Universal Power/Legend 费用对象，以及事件物体的关键词与位置绑定。",
+    "依赖触发能力基础费用接线、Legend 费用对象，以及事件物体的关键词与位置绑定。",
   abilities: [
     {
       kind: "triggered",
@@ -79,8 +81,8 @@ export default {
           // cost.pay 已合入，但当前触发能力费用接口不能消费该基础费用；此处只保留可审查的声明。
           op: "cost.pay",
           args: {
-            // [A]：任意域 Power（135.2.e.5 / 163.2.b）。六域封闭集合下不可表达，
-            // 保留与 danger-zone / daughter-of-the-void 一致的描述性记号。
+            // [A]（135.2.e.5.a）可用 payments.allowedDomains 六域列表支付；
+            // 触发基础费用尚未接线，此处保留原描述性记号，不在正文结算时收费。
             power: { kind: "constant", value: ["rainbow"] },
             payments: { kind: "constant", value: [{ kind: "exhaust", object: "self" }] }
           }

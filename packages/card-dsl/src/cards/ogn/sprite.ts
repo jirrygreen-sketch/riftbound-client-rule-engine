@@ -24,24 +24,33 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status 判定（README 第 2 节）：Temporary 的 KeywordDef 已合入
  * （effects/keywords/Temporary.ts：816.1.b 展开为 beginning-start 的
- * 「kill this」触发，effect.kill 已合入），但整张卡仍不可执行：
+ * 「kill this」触发，effect.kill 已合入），但整张卡仍不可执行（复核
+ * 2026-10-17，缺口均已实测）：
  * 1. 展开出的触发无法进入管线：TriggerSpec/EventPattern 的封闭事件词表
  *    （events/trigger-spec.ts 的 EVENT_PATTERN_TYPES）不含 beginning-start，
- *    pipeline.registerTrigger 的 assertTriggerSpec 会拒绝该事件名；
- * 2. 关键词展开虽然已有程序绑定入口，但 beginning-start 仍无法通过触发
- *    事件词表和注册校验进入实时事件管线。
+ *    对展开结果直接调用 assertTriggerSpec 会抛 TriggerSpecValidationError
+ *    （invalid-event-type），因此 pipeline.registerTrigger 无法登记该触发；
+ * 2. 关键词展开已有程序绑定入口（programs/keywords.ts 的 expandProgram），
+ *    但 registerProgramTriggers 在真实 attachProgramLifecycle 下仍以同一
+ *    校验失败，beginning-start 无法进入实时事件管线；
+ * 3. 本卡是 token 身的卡面（187.2 的 3 Might Sprite），而 effect.token 的冻结
+ *    定义表不含 sprite，因此“作为 token 被产生”这一侧也没有可执行定义——
+ *    本文件只负责它自身的 Temporary 关键词声明。
  */
 const sprite = {
   canonicalCardId: "card.hash-610cc33146e5be610b1b548bd327d47a44aba21edb081e7669cba4971753ccef",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Temporary 的 KeywordDef 已合入（effects/keywords/Temporary.ts：816.1.b 展开为" +
-    "「在控制者 Beginning Phase 开始时（beginning-start，计分前）kill this」的触发，effect.kill 已合入），" +
-    "但整卡仍不可执行：(1) beginning-start 时点本身已由回合流程发出（turn/flow.ts 的 enter/emit），" +
-    "但 TriggerSpec 的事件词表（events/trigger-spec.ts 的 EVENT_PATTERN_TYPES）不含该阶段时点，" +
-    "registerTrigger 的 assertTriggerSpec 会以 invalid-event-type 拒绝该展开的 filter；(2) 因而" +
-    "beginning-start 仍无法进入实时事件管线。不近似实现。",
+    "Temporary 的 KeywordDef 已合入（effects/keywords/Temporary.ts：816.1.b 展开为「在控制者 Beginning Phase " +
+    "开始时（beginning-start，计分前）kill this」的触发，effect.kill 已合入），但整卡仍不可执行（复核 " +
+    "2026-10-17，均已实测）：(1) TriggerSpec 的事件词表（events/trigger-spec.ts 的 EVENT_PATTERN_TYPES）不含 " +
+    "beginning-start，对展开结果调用 assertTriggerSpec 会抛 TriggerSpecValidationError（invalid-event-type），" +
+    "因此 pipeline.registerTrigger 无法登记该触发；时点本身已由 turn/flow.ts 发出（enter/emit），缺的是事件词表/绑定适配。" +
+    "(2) 关键词展开的程序绑定入口（programs/keywords.ts 的 expandProgram）已合入，但真实 attachProgramLifecycle 下 " +
+    "registerProgramTriggers 仍以同一校验失败，beginning-start 进不了实时事件管线。" +
+    "(3) 本卡是 187.2 的 3 Might Sprite token 卡面，而 effect.token 的冻结定义表不含 sprite，token 产生侧也没有可执行定义。" +
+    "依赖：beginning-start 的触发事件词表/管线接线与 sprite token 定义。不近似实现。",
   abilities: [{ kind: "keyword", keyword: "temporary" }],
   sourceText:
     "[Temporary] (Kill me at the start of your Beginning Phase, before scoring.)"

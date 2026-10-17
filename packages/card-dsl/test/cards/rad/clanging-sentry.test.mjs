@@ -46,7 +46,7 @@ const FRIENDLY_MECHS = {
  * merged continuous.grant-keyword primitive consumes Expr-valued arguments, so
  * the static effect's fields are wrapped as constants here (the production
  * CardProgram -> layer registration consumer that would do this wiring is the
- * dynamic keyword-consumption gap recorded in judgeReason and the todo below).
+ * dynamic keyword-consumption gaps recorded in judgeReason and the TODOs below).
  */
 function grantInstruction(id) {
   return {
@@ -193,6 +193,11 @@ test("rad-055-167 Clanging Sentry golden: the merged Disarm expansion deals -1 M
 });
 
 test.todo(
-  "rad-055-167 Clanging Sentry: expand the granted Disarm into its 831.1.d attack trigger on the " +
-    "attack-declared timing point through a dynamic grant-keyword consumer"
+  "rad-055-167 Clanging Sentry: dynamically consume a grant-keyword Disarm registration by " +
+    "expanding and registering its 831.1.d attack trigger on attack-declared"
+);
+
+test.todo(
+  "rad-055-167 Clanging Sentry: produce the attack-declared timing event from the combat flow " +
+    "without the current combat-start-transaction block"
 );

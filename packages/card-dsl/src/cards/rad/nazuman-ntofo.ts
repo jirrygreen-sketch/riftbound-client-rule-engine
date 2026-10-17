@@ -14,10 +14,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   能量符号数 1；费用里没有 Power，因此不写 costDomain。
  *
  * status = judge-required（2026-10-17 复核）。已合入的 Equip 展开与 effect.attach
- * 有真实执行证据，但 payment kind "equip" 仍被 cost/plan-values.ts 拒绝
- * （Unsupported payment kind: equip）。本地目录 tags 为空也会使 duel Equip admission
- * 报告 not-equipment-tag；这是 card-data 数据问题，不在本卡任务范围修复。
- * 不把 Equip 近似成裸 effect.attach，也不修改 energy:null/power:null 等印刷数据。
+ * 有真实执行证据（production describeActivate 已能生成 kind "activated" 的 Equip 费用计划），
+ * 但 payment kind "equip" 仍被 cost/plan-values.ts readCost 拒绝
+ * （实测 CostPlanError: Unsupported payment kind: equip），因此 Finalize 无法支付该费用。
+ * 本地目录 tags 为空也会使 duel Equip admission 报告 not-equipment-tag
+ * （describeDuelEquipV1 实测 status unknown / not-equipment-tag）；这是 card-data 数据问题，
+ * 不在本卡任务范围修复。不把 Equip 近似成裸 effect.attach，也不修改
+ * energy:null/power:null 等印刷数据。
  *
  * 数据提示（本任务不改数据）：本地 deck-catalog 中本印刷 tags 为空数组，而 CR 818.1.a
  * 规定 Equip 出现在带 Equipment 标签的 Gear 上（同批其他 Equip 卡均带 Equipment 标签）。
@@ -28,10 +31,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "2026-10-17 复核：Equip 的展开与 effect.attach 已有真实执行证据；当前缺口是费用管线" +
-    "拒绝展开声明的 payments: [{ kind: \"equip\" }]，cost/plan-values.ts readCost 实测抛出" +
-    "CostPlanError（Unsupported payment kind: equip）。本地 card-data 还把本印刷 tags 记为空数组，" +
-    "duel Equip admission 会报告 not-equipment-tag；这是数据问题，不在本卡任务范围修复。" +
+    "2026-10-17 复核：Equip 的展开、effect.attach 与 production describeActivate 的 " +
+    "kind \"activated\" 费用计划均已有真实执行证据；当前缺口是费用管线的付款种类：" +
+    "cost/plan-values.ts readCost 拒绝展开声明的 payments: [{ kind: \"equip\" }]，实测抛出 " +
+    "CostPlanError（Unsupported payment kind: equip），故 Finalize 无法支付 818.1.c.3 的印刷费用。" +
+    "本地 card-data 还把本印刷 tags 记为空数组，describeDuelEquipV1 实测返回未知 not-equipment-tag；" +
+    "这是数据问题，不在本卡任务范围修复。" +
     "不把 Equip 近似成裸 effect.attach。",
   abilities: [
     // 818.1.c："[费用]: Attach this to a unit you control."。印刷费用为 1 能量、无 Power，
