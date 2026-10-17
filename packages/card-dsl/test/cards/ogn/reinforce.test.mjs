@@ -54,12 +54,13 @@ test("ogn-062-298 Reinforce identity, ruleset, status and printed text", () => {
   assert.equal(cardRegistryById.get(CARD_ID), program);
 });
 
-test("ogn-062-298 Reinforce judgeReason names the cost.modify gap and RIFT-89", () => {
+test("ogn-062-298 Reinforce judgeReason names the cost.modify gap and RIFT-261", () => {
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /356\.1\.c/);
   assert.match(program.judgeReason, /356\.6/);
   assert.match(program.judgeReason, /FinalizedCostPlan/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /picksSpecId/);
 });
 
 test("ogn-062-298 Reinforce structure: no speed keyword, look -> may(banish -> play) -> recycle", () => {
@@ -304,10 +305,11 @@ test("ogn-062-298 Reinforce golden: the merged play primitive refuses the unfina
 test.todo(
   "Reinforce: materialize the reduced cost plan (printed base cost of the banished card minus 5 Energy, " +
     "never below 0 per CR 356.1.c/356.6) and play it out of Banishment as a Limited Action (420.3/420.3.a) - " +
-    "needs the cost.modify discount component and the finalized plan producer (RIFT-89)"
+    "needs the cost.modify discount component and the finalized plan producer (RIFT-261)"
 );
 
 test.todo(
-  "Reinforce: the ordered deck-top provider for effect.inspect's non-zero top scope (contract 3.6 " +
-    "zoneSlice) and the card-played/chain wiring for the resolving spell (RIFT-66 follow-up / RIFT-120)"
+  "Reinforce: the ordered deck-top provider for effect.inspect's non-zero top scope in the production " +
+    "lifecycle (contract 3.6 zoneSlice; the chain Finalize surface only locks instruction.targets) and the " +
+    "card-program play wiring (RIFT-257)"
 );

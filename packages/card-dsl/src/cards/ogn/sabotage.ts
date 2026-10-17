@@ -45,7 +45,8 @@ const sabotage = {
     "是结算时在已展示手牌里做非目标选择再回收（417.1.a、425.4）：已合入的 effect.recycle 只有 target / objects" +
     "（已选定引用）/ from{zone,owner,amount}，from 由区域拥有者选择且没有卡牌过滤；ObjectFilter 没有“非单位”的否定形态，" +
     "effect.stun / effect.exhaust 的结算期 choose 描述符在 effect.recycle 上尚未实现。" +
-    "依赖：玩家目标/绑定表达式（target.player）、effect.recycle 结算期 choose + 非单位过滤。",
+    "reveal 与 recycle 子步骤已有执行测试（把对手绑定为具体玩家后）；依赖：玩家目标/绑定表达式（target.player）、" +
+    "effect.recycle 结算期 choose + 非单位过滤。整卡保持 judge-required，不近似实现。",
   abilities: [
     {
       kind: "play",

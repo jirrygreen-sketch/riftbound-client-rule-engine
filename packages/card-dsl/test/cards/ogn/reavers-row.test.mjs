@@ -8,7 +8,7 @@ import program from "../../../dist/cards/ogn/reavers-row.js";
 // own schema validation (engine-core/src/chain/interpreter-adapter.ts).
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { getTimingPoint, isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
 
 const CANONICAL = "card.hash-50eea6ceaf8ca3375c963141d772172c81248799d0edc1429deefe6b8b1862e0";
 const HERE = { type: "battlefield", id: "battlefield-1" };
@@ -41,7 +41,8 @@ test("ogn-285-298 Reaver's Row: program validates and is judge-required", () => 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /defense-declared/);
-  assert.match(program.judgeReason, /RIFT-33/);
+  assert.match(program.judgeReason, /combat\/flow\.ts/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, "When you defend here, you may move a friendly unit here to base.");
 });
 
@@ -133,14 +134,23 @@ test("ogn-285-298: declining the option moves nothing and skips the body", () =>
   assert.deepEqual(scoped.getObject("here-ally").location, HERE);
 });
 
-test("ogn-285-298: the trigger filter still carries the unreplaced here placeholder", () => {
-  // Evidence for the judgeReason: the engine rejects the placeholder key, so
-  // the defend trigger cannot yet run through the real trigger pipeline.
-  assert.throws(() => assertTriggerSpec(ability.trigger), /EventPattern 不允许此字段/);
+test("ogn-285-298: the trigger names the defense-declared timing point with the here placeholder", () => {
+  // 383.4.f.2: "When you defend here" is a Defend Trigger at the closed
+  // defense-declared timing point. The battlefield-relative spelling has no
+  // evaluable form in the closed EventPattern vocabulary yet, so the declared
+  // filter carries the documented `here` placeholder (see judgeReason); the
+  // golden states the declaration instead of asserting a rejection that would
+  // break as soon as the vocabulary lands.
+  assert.equal(isTimingPointId("defense-declared"), true);
+  assert.equal(ability.trigger.filter.event, "defense-declared");
+  assert.equal(ability.trigger.filter.here, true);
+  assert.equal(ability.trigger.filter.player, "controller");
+  assert.deepEqual(getTimingPoint("defense-declared").ruleRefs, ["323.2", "383.4.f", "466.2.c"]);
 });
 
 test.todo(
-  "ogn-285-298: defense-declared 由 combat/ 发出（每场战斗只检查一次，383.4.f.2.a）并进链，" +
+  "ogn-285-298: defense-declared 由 combat/ 发出（每场战斗只检查一次，383.4.f.2.a）并进链；here 需要战场相对锚点；" +
+    "卡牌 triggered ability 注册成实时触发依赖 RIFT-257——" +
     "Finalize 按 controller \"self\" + sameLocationAs \"self\" 在守方战场上的友方单位中锁定目标" +
-    "（参考内核按字面值比较过滤器，不解析 PlayerSelector；依赖 RIFT-33 与契约 §7.2 批 5）"
+    "（参考内核按字面值比较过滤器，不解析 PlayerSelector）"
 );

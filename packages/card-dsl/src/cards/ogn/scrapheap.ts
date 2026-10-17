@@ -30,10 +30,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   card-program adapter (the kernel defaults to ['board']), so this trigger
  *   would be registered in Board and never fire from Trash.
  * - The merged matcher (events/pipeline-match.ts) reads only the top-level
- *   event-pattern keys object/source/target/player; the RIFT-21 payload-filter
- *   spelling filter: { role: 'self' } used below is ignored, so all three
+ *   event-pattern keys object/source/target/player; the nested
+ *   filter: { role: 'self' } spelling used below is rejected by
+ *   assertTriggerSpec (unknown-field) and ignored by the matcher, so all three
  *   triggers would match every qualifying event instead of this card's own
- *   incarnation. The binding adapter is the same RIFT-120 follow-up.
+ *   incarnation. The binding adapter is the RIFT-257 card-program binding
+ *   (RIFT-21 payload-filter follow-up).
  * The IR below keeps all three triggers plus their draw-1 bodies; both gaps are
  * judged, and partial primitive execution is not full-card evidence.
  */
@@ -44,9 +46,10 @@ const scrapheap = {
   judgeReason:
     "两处触发匹配缺口：(1)「When this is discarded」按 CR 423.1.b 在弃置发生后执行，依 385 其区域上下文是换区后的区域（Trash）并需自述该上下文，" +
     "但契约 3.1 的 TriggerSpec/CardProgram 没有 active-zone 字段，TriggerRegistration.activeZones（pipeline-types.ts）默认 ['board'] " +
-    "且只能由尚未合入的 card-program → TriggerRegistration 适配器提供（RIFT-120 后续接线），合入内核会把它注册在 Board，弃置时永远不会触发；" +
-    "(2) 已合入的触发匹配器（events/pipeline-match.ts）只读 event-pattern 的顶层 object/source/target/player，" +
-    "RIFT-21 payload 过滤写法 filter: { role: 'self' } 会被忽略，三个触发都会匹配任意同类事件而非本牌自身。" +
+    "且只能由尚未合入的 card-program → TriggerRegistration 适配器提供（RIFT-257 绑定），合入内核会把它注册在 Board，弃置时永远不会触发；" +
+    "(2) 三个触发沿用嵌套写法 filter: { role: 'self' }：已合入的触发匹配器（events/pipeline-match.ts）只读 event-pattern 的顶层 " +
+    "object/source/target/player，assertTriggerSpec 也以 unknown-field 拒绝该键，匹配器会忽略它，三个触发都会匹配任意同类事件而非本牌自身" +
+    "（RIFT-21 payload 过滤接线）。" +
     "played（board）与 killed（383.2.c.3.b last-known）两个触发以及 effect.draw 均已可执行并单独测试；整卡不可执行，不近似实现。",
   abilities: [
     {

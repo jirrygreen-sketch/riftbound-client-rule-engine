@@ -34,19 +34,21 @@ import type { CardProgram } from "../../ir/index.js";
  *   re-stating printed values.
  *
  * Status: judge-required — both instructions are expressible with merged
- * primitives and are executed in the golden test, but the card as a whole is
- * not executable: choosing the Move destination is a Finalize-time choice for
- * the spell's controller (355.4 / 355.4.a). The chain's current Finalize
- * surface only finalizes "instruction.targets" TargetSpecs and blocks
- * nested/repeated targets (chain/engine.ts assertFinalizationSurface), and the
- * interpreter's "effect.move" destination argument is a fixed Expr
- * (controller-base, a LocationRef, or a { kind: "choose" } location list).
- * No merged selection lifecycle turns "any legal Location other than the
- * current one" into a concrete destination, and hard-coding one would invent a
- * choice the card does not make. That lifecycle is the chain/target Finalize
- * work (RIFT-84 / RIFT-90); until it lands the card stays judge-required and
- * the golden test supplies the destination the acting player chose, the same
- * way it supplies Finalize-locked targets.
+ * primitives and are executed in the golden test, and the [Action] timing
+ * grant is now consumed by the merged layers/rules query (RIFT-259:
+ * actionTimings / canAct decide the off-turn Showdown admission from the
+ * registration). The card as a whole is still not executable: choosing the
+ * Move destination is a Finalize-time choice for the spell's controller
+ * (355.4 / 355.4.a). The chain's current Finalize surface only finalizes
+ * "instruction.targets" TargetSpecs and blocks nested/repeated targets
+ * (chain/engine.ts assertFinalizationSurface), and the interpreter's
+ * "effect.move" destination argument is a fixed Expr (controller-base, a
+ * LocationRef, or a { kind: "choose", options } location list) with no merged
+ * provider turning "any legal Location other than the current one" into that
+ * list. That lifecycle is the chain/target Finalize work (RIFT-84 / RIFT-90);
+ * until it lands the card stays judge-required and the golden test supplies
+ * the destination the acting player chose, the same way it supplies
+ * Finalize-locked targets.
  */
 const rideTheWind = {
   canonicalCardId: "card.hash-2df39111dd690c251a044601ce12b0c17ee57b43f9d29ce2de47654b25a9110c",
@@ -56,7 +58,8 @@ const rideTheWind = {
     "缺「Move 目标地点」的 Finalize 选择生命周期：CR 355.4/355.4.a 要求由法术控制者选择该单位当前地点以外的合法 Location，" +
     "而链的 Finalize 目前只处理 instruction.targets 的 TargetSpec，且禁止嵌套/重复目标（chain/engine.ts assertFinalizationSurface），" +
     "解释器侧 effect.move 的 to 只是固定 Expr（controller-base / LocationRef / { kind: choose } 列表）：没有已合入机制把「除当前地点外的任意合法地点」变成该 Expr，" +
-    "写死一个地点就是替玩家发明选择。Move 与 ready 两条指令本身只用已合入原语表达并有执行测试；依赖 RIFT-84/RIFT-90 的地点选择与 Finalize 生命周期。",
+    "写死一个地点就是替玩家发明选择。另一处旧缺口已解决：[Action] 时机许可现由 layers/rules query 消费（RIFT-259，actionTimings/canAct 可判定 off-turn Showdown 许可）。" +
+    "Move 与 ready 两条指令本身只用已合入原语表达并有执行测试（含 359.3.e.14.b 的 Move 被 negate 后 ready 仍执行）；依赖 RIFT-84/RIFT-90 的地点选择与 Finalize 生命周期。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

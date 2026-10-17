@@ -23,7 +23,7 @@ test("scrapyard-champion: identity, ruleset, status and verbatim sourceText", ()
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /812\.1\.c/);
   assert.match(program.judgeReason, /HistoryQuery/);
-  assert.match(program.judgeReason, /RIFT-82/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "[Legion] — When you play me, discard 2, then draw 2. (Get the effect if you've played another card this turn.)"
@@ -126,5 +126,6 @@ test.todo(
     "exclude/objectFilter) before the trigger can be honestly evaluated"
 );
 test.todo(
-  "scrapyard-champion: Legion expansion (RIFT-82) and the trigger -> chain wiring for card programs (RIFT-120) are unmerged"
+  "scrapyard-champion: the trigger -> chain wiring for card programs (RIFT-257) is unmerged; the Legion expansion " +
+    "(RIFT-82) itself is merged but its condition.predicate has no evaluating consumer"
 );

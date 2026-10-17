@@ -3,7 +3,13 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/rebuke.js";
+import action from "../../../../engine-core/dist/effects/keywords/Action.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
+import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/index.js";
+import { actionTimings, canAct } from "../../../../engine-core/dist/layers/rules/query.js";
+import { finalizeTargetPlan, resolveTargetPlan } from "../../../../engine-core/dist/target/target-plan.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
@@ -23,14 +29,46 @@ const returnWithLockedTarget = (kernel, ref) =>
     { world: kernel, targets: { [targetSpec.id]: [ref] } }
   );
 
-test("ogn-172-298 Rebuke: program passes validateCardProgram", () => {
+/**
+ * chain/engine.ts resolves the static controller/owner spellings before it
+ * calls the production matcher, and the layers filter matcher reads
+ * location: "battlefield" as the Location *type*. The reference kernel's own
+ * query compares filter values literally, so the goldens below go through the
+ * same normalization the production chain applies (the merged switcheroo /
+ * facebreaker goldens use this exact helper).
+ */
+const chainQuery = (kernel, controller) => (value) => {
+  const normalized = { ...value };
+  for (const key of ["controller", "owner"]) {
+    if (normalized[key] === "self") normalized[key] = controller;
+  }
+  return kernel.query({}).filter((object) => {
+    for (const key of ["controller", "owner"]) {
+      if (normalized[key] === "opponent" && object[key] === controller) return false;
+    }
+    return matchesObjectFilter({
+      ...normalized,
+      ...(normalized.controller === "opponent" ? { controller: "any" } : {}),
+      ...(normalized.owner === "opponent" ? { owner: "any" } : {})
+    }, object);
+  });
+};
+
+const chainContext = (kernel, controller) => new Proxy(kernel, {
+  get(target, key) {
+    if (key === "query") return chainQuery(target, controller);
+    const value = Reflect.get(target, key);
+    return typeof value === "function" ? value.bind(target) : value;
+  }
+});
+
+test("ogn-172-298 Rebuke: program passes validateCardProgram and is executable", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /continuous\.timing/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(
     program.sourceText,
     "[Action] (Play on your turn or in showdowns.)\n" +
@@ -87,9 +125,79 @@ test("ogn-172-298 Rebuke golden: a stale battlefield target is ignored (359.3.e.
   assert.equal(kernel.getObject("departing-unit").zone, "trash");
 });
 
-test.todo(
-  "ogn-172-298 Rebuke: the 359.3.e.9 Rebuke example — a target that moved to its Base after " +
-    "finalization must be Mistargeted by the location re-check — needs the TargetPlan resolve " +
-    "re-check (RIFT-90); the [Action] Showdown permission needs the continuous.timing consumer " +
-    "(RIFT-91) and the play adapter (RIFT-84/85)"
-);
+test("ogn-172-298 Rebuke: the declared [Action] grant is consumed by the merged timing query (806.1.c / RIFT-259)", () => {
+  // The card only names the keyword (contract 3.7); the keyword registry owns
+  // the expansion and the layers/rules query decides the admission.
+  const [grant] = action.expand({ host: { canonicalCardId: CARD_ID } });
+  assert.equal(grant.effect.kind, "continuous.timing");
+
+  const kernel = world().object("rebuke", { zone: "chain", types: ["spell"], owner: "A", controller: "A" }).build();
+  const registry = new ContinuousEffectRegistry();
+  registry.register({ id: "rebuke-action", source: kernel.ref("rebuke"), filter: {}, effect: grant.effect }, { type: "permanent" }, 1);
+  assert.deepEqual(actionTimings(registry, kernel.ref("rebuke"), kernel.getObject("rebuke"), "A"), ["showdown"]);
+
+  const base = { player: "A", speed: "action", closedState: false, priorityHolder: "A", ref: kernel.ref("rebuke"), object: kernel.getObject("rebuke") };
+  // Showdown during the opponent's turn: the printed [Action] permission allows it.
+  assert.equal(canAct(registry, { ...base, showdown: true, turnPlayer: "B", focusHolder: "A" }), true);
+  // Outside a Showdown on the opponent's turn: still not playable.
+  assert.equal(canAct(registry, { ...base, showdown: false, turnPlayer: "B" }), false);
+  // The controller's own open turn remains playable.
+  assert.equal(canAct(registry, { ...base, showdown: false, turnPlayer: "A" }), true);
+});
+
+test("ogn-172-298 Rebuke golden: the card body returns the unit to its owner's hand through the chain adapter", () => {
+  const kernel = world()
+    .unit("human-unit", { owner: "B", controller: "B", might: 2, location: { type: "battlefield", id: "battlefield-1" } })
+    .build();
+  kernel.setTargets(targetSpec.id, [kernel.ref("human-unit")]);
+  const outcome = resolveChainBody(play.body, chainContext(kernel, "A"));
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status]), [
+    ["rebuke.return-unit", "executed"]
+  ]);
+  assert.equal(kernel.getObject("human-unit").zone, "hand");
+  assert.deepEqual(kernel.zone("B", "hand").map((ref) => ref.id), ["human-unit"]);
+  assert.deepEqual(outcome.events.map((event) => event.action), ["return-to-hand"]);
+});
+
+test("ogn-172-298 Rebuke golden: the 359.3.e.9 example — moving to Base after Finalize Mistargets the locked unit", () => {
+  // Rebuke's own rules example: the chosen unit leaves the battlefield (here it
+  // moves to its Base) when Rebuke resolves, so the choice is Mistargeted and
+  // the return instruction does not execute.
+  const kernel = world()
+    .unit("mover", { owner: "B", controller: "B", location: { type: "battlefield", id: "battlefield-1" } })
+    .build();
+  const context = chainContext(kernel, "A");
+
+  const plan = finalizeTargetPlan(context, {
+    id: targetSpec.id,
+    filter: targetSpec.filter,
+    min: targetSpec.min,
+    max: targetSpec.max,
+    selection: targetSpec.selection
+  }, { selected: [kernel.ref("mover")] });
+  assert.deepEqual(plan.selected.map((ref) => ref.id), ["mover"]);
+  assert.equal(resolveTargetPlan(context, plan).status, "resolved");
+
+  kernel.perform({ type: "move-location", object: kernel.ref("mover"), to: { type: "base", player: "B" } });
+  const resolution = resolveTargetPlan(context, plan);
+  assert.equal(resolution.status, "ignored");
+  assert.equal(resolution.reason, "mistargeted");
+  assert.deepEqual(resolution.selected, []);
+
+  // The re-verified (empty) target set drives the real instruction: it is
+  // ignored as mistargeted and the unit stays in its Base.
+  const run = runInstruction(
+    zone,
+    {
+      target: returnInstruction.args.target.value,
+      to: returnInstruction.args.to,
+      amount: returnInstruction.args.amount
+    },
+    { world: kernel, targets: { [targetSpec.id]: [...resolution.selected] } }
+  );
+  assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
+  assert.deepEqual(kernel.getObject("mover").location, { type: "base", player: "B" });
+  assert.deepEqual(kernel.zone("B", "hand"), []);
+});
