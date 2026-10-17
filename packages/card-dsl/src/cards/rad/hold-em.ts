@@ -32,16 +32,16 @@ import type { CardProgram } from "../../ir/index.js";
  * golden test, but the printed discount cannot be installed or gated yet:
  * - the card-static cost modification has no consumer: cost/cost-plan.ts only
  *   applies discounts supplied by the caller in CostPlanInput.discounts, and
- *   the card program → Finalize cost-plan binding plus cost.modify/cost.pay are
- *   the RIFT-261 workstream;
+ *   the current static-program binder does not translate this effect into that
+ *   per-play cost plan;
  * - the gate needs an event history with an object filter ("a unit or gear")
  *   and the play destination ("to a battlefield"). HistoryQuery (contract 3.8)
  *   carries `objectFilter` and is reachable only through the
  *   `condition.history` instruction, which cannot gate a static cost effect;
  *   the play destination is still not part of the query. The gate below stays
  *   a descriptive constant that must not be executed.
- * Dependencies: RIFT-261 (cost.modify/cost.pay and the card-static cost
- * binding) plus a play-destination history predicate for the discount gate.
+ * Dependencies: a CardProgram-static-to-CostPlan discount binding plus a
+ * play-destination history predicate for the discount gate.
  * Not approximated: the discount is declared, never silently applied.
  */
 export default {
@@ -50,12 +50,12 @@ export default {
   status: "judge-required",
   judgeReason:
     "「Give a unit +3 :rb_might: this turn」已可执行（continuous.might 的 arithmetic 图层 + end-of-turn 期限，RIFT-258；golden 用解释器 + 图层引擎真实执行）。" +
-    "整卡仍不可执行：「This costs :rb_energy_2: less if you've played a unit or gear to a battlefield this turn」需要两件未合入的支撑——" +
+    "整卡仍不可执行：「This costs :rb_energy_2: less if you've played a unit or gear to a battlefield this turn」需要两件当前缺口——" +
     "(1) 把卡牌 static 减费安装进打出时的费用计划：cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts 时应用折扣，" +
-    "卡牌 static 能力 → Finalize 费用计划绑定与 cost.modify/cost.pay 仍待 RIFT-261；" +
+    "当前 static-program binder 尚未把该效果翻译成每次打出的费用计划；" +
     "(2) 减费条件的事件历史表达：「本回合把单位或装备打到战场」需要带对象过滤（单位/装备）与落点（战场）的 HistoryQuery；" +
     "契约 3.8 的 objectFilter 只经 condition.history 指令可达，无法门控 static 费用效果，落点谓词也仍缺失，故减费条件只能写成描述性常量（不得执行）。" +
-    "依赖：RIFT-261 与打出落点历史谓词。不近似实现。",
+    "依赖：CardProgram-static-to-CostPlan 绑定与打出落点历史谓词。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

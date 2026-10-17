@@ -24,26 +24,21 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 809.1：Deflect 是目标附加费用的被动关键词（松鼠文本给出 809.1.c 的提醒）。
 
  * status = judge-required（README 第 2 节）。逐条复核后的当前缺口，均不近似实现：
- * 1. Bird token 定义（187.7，带 Deflect 关键词）仍不在 effect.token 的定义表内：
- *    已合入的原语在那个 id 上返回 negated(impossible) + blockedReason
- *    token-definition-or-abilities-judge-required（golden 断言该真实结果），
- *    不会凭卡面文本替 token 造出 Deflect。
+ * 1. Bird token 定义（187.7，带 Deflect 关键词）仍不在 effect.token 的定义表内；
+ *    需要把该带能力的 token 定义与能力展开纳入 token 执行路径，不能凭卡面文本近似造出 Deflect。
  * 2. 「Play a … token」的链上创建 + 打出交接在参考内核已可用（create-token to chain +
  *    play），但「to your base」的静态 IR 无法表达：LOCATION 只接受字面 LocationRef，
  *    而 base 的 player 必须等于结算时的能力控制者 id；卡面写的是 "your base"，
  *    契约 3.6 的 ObjectSelector 没有玩家选择器，故 without a binding 值只能是
  *    描述性数据（不硬编码具体玩家）。
- * 3. Deathknell 关键词的展开体（RIFT-82 的 effects/keywords/Deathknell.ts）仍引用
- *    未注册的 op trigger.leave，展开会抛 Unregistered instruction opcode；
- *    808.1.d.1 的「死亡被替代则移出链」也需要 chain/events 侧处理，且没有卡牌程序 →
- *    关键词 → 时点/链的接线（RIFT-257）。
- * 4. Deflect 的展开（RIFT-84 的 keywords/Deflect.ts 已合入 static target.tax）没有消费方：
- *    target/target-plan.ts 的目标税只来自调用方显式传入，809.1.c.1 的「任意域 Power」
- *    支付也属 RIFT-261。
+ * 3. Deathknell 关键词的展开体仍引用 trigger.leave，且 808.1.d.1 的死亡替代链处理尚未
+ *    接入当前事件路径。
+ * 4. Deflect 的展开是 static target.tax，但目标选择仍需要把该税接入费用适配器，并按
+ *    809.1.c.1 支付任意域 Power。
  * 下面保留有依据的形状：关键词声明 + object-killed 自发触发 + effect.token（mode play、
- * 目的地写法）；golden 执行 187.7 语义可验证的 token 请求路径与 blocked 路径，其余 test.todo。
- * 依赖：RIFT-62（token 定义表扩展）、RIFT-257（卡牌/关键词绑定与 base 绑定）、
- * RIFT-90（目标税消费）、RIFT-261（费用支付）。
+ * 目的地写法）；其余依赖保持 judge-required。
+ * 依赖：Bird/Bomb 类 token 定义与能力展开、动态基地绑定、Deathknell 事件路径、Deflect
+ * 目标税费用适配器。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "deathknell" },
@@ -79,15 +74,13 @@ export default {
   status: "judge-required",
   judgeReason:
     "四处缺口，均不近似实现：(1) Bird token 定义（187.7，1 Might、Bird 标签、带 [Deflect]）仍不在 effect.token 的定义表内，" +
-    "原语在该 id 上返回 negated(impossible, blockedReason token-definition-or-abilities-judge-required)（golden 断言该真实结果）。" +
+    "需要把带能力的 token 定义与能力展开纳入 token 执行路径。" +
     "(2)「Play a … token to your base」的目的地无法用静态 IR 表达：effect.token 的 location 只接受字面 LocationRef，" +
     "base 的 player 必须等于结算时的能力控制者 id，而契约 3.6 的 ObjectSelector 没有玩家选择器（" +
     "链上创建 + play 交接本身在参考内核已可用，440.2.c/185.2.a/350.2/354）。" +
-    "(3) Deathknell 的展开体（RIFT-82）仍引用未注册的 op trigger.leave，展开会抛 Unregistered instruction opcode；" +
-    "808.1.d.1 的「死亡被替代则移出链」需要 chain/events 侧处理，且缺卡牌程序→关键词→时点/链接线（RIFT-257）。" +
-    "(4) Deflect 的展开（RIFT-84 的 static target.tax）没有消费方：target/target-plan.ts 的目标税只来自调用方显式传入（RIFT-90），" +
-    "809.1.c.1 的任意域 Power 支付属 RIFT-261。已写出的形状：deathknell 关键词声明 + object-killed 自发触发 + effect.token。" +
-    "依赖：RIFT-62（token 定义表）、RIFT-257、RIFT-90、RIFT-261。",
+    "(3) Deathknell 的展开体仍引用 trigger.leave，且 808.1.d.1 的死亡替代链处理尚未接入当前事件路径。" +
+    "(4) Deflect 的展开是 static target.tax，但目标选择仍需要接入费用适配器，并按 809.1.c.1 支付任意域 Power。" +
+    "已写出的形状：deathknell 关键词声明 + object-killed 自发触发 + effect.token。",
   abilities,
   sourceText:
     "[Deathknell][>] Play a 1 :rb_might: Bird unit token with [Deflect] to your base. " +
