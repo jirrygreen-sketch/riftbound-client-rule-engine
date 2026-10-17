@@ -36,7 +36,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   dropped from the recycled set by 124 / 359.3.e.4 — that is the merged
  *   mechanics performing "the rest", not an instruction written by this card.
  *
- * Status: judge-required — two gaps, neither approximated:
+ * Status: judge-required — three remaining gaps:
  * - "a unit from among them that has Might up to 1 more than the killed unit"
  *   is a legality bound that compares each candidate's current Might against a
  *   value read from ANOTHER object (the killed unit's last-known Might, 359.3.e.13
@@ -50,25 +50,20 @@ import type { CardProgram } from "../../ir/index.js";
  * - The look-up of the killed unit's Might itself is expressible (the interpreter
  *   reads it through the killed instruction's linked reference with look-back);
  *   only its use as a selection constraint is missing.
- * - Second gap: contract 3.6 requires the
- *   looking player to be written as an ObjectSelector expression ("your Main
- *   Deck" = the ability controller, 190.6.d), and the interpreter's expression
- *   evaluator resolves that form. The merged `effect.inspect` argsSchema, however,
- *   still validates `object-property.object` as a runtime `ObjectRef` rather than
- *   a selector (effect.resources already accepts selectors), so dispatching this
- *   instruction through the merged chain adapter throws before it can evaluate.
- *   The selector form is authored because it is what the contract requires; the
- *   schema mismatch is reported as a contract-change request instead of being
- *   sidestepped with a hard-coded player id.
- * - Third gap: an activated ability still needs the RIFT-257 CardProgram
- *   binding (describeActivate) before the cost plan, targets and body execute
- *   through the production chain; the merged cost plan itself rejects the
- *   historical `kind: "cost.printed"` spelling (only `"printed"` is accepted),
- *   which is why the cost declared here is `kind: "activated"` with its printed
- *   components.
+ * - CR 191.5.b keeps the ability controller unchanged when the source changes
+ *   control. effect.inspect requires a player Expr, but no current scalar Expr
+ *   reads context.controller. The source.controller binding below is only a
+ *   draft: it is insufficient after a control change and is not executable
+ *   evidence for that case. A regression with the correct expectation is TODO.
+ * - The ordered top-5 picks production supply is also missing (RIFT-358):
+ *   the chain/programs path does not read the
+ *   real Main Deck zoneSlice into this stable picksSpecId yet, and query()
+ *   cannot promise deck order, so the golden test supplies the locked picks.
  * The golden test executes the cost payment, the kill, the ordered look, the
- * optional wrapper, the banish and the cost-waived play for real; the constrained
- * candidate selection is a test.todo.
+ * optional wrapper, the banish and the cost-waived play with supplied picks and
+ * unchanged source control. The play destination is chosen with LocationExpr
+ * and linked into effect.play, without caller argument rewriting. These partial
+ * tests do not establish full-card or production program executability.
  */
 const baitedHook = {
   canonicalCardId: "card.hash-19b79a3d218afe3136508edfe7d9a7b84c7a83965281f09495785275ebd95ebd",
@@ -80,13 +75,14 @@ const baitedHook = {
     "而 ObjectFilter / TargetSpec / PickSpec 的取值是静态数据，没有“与另一对象或链接值做关系比较”的写法，" +
     "condition 从句只作用于整条指令、无法过滤选择集合的成员，因此没有任何已合入拼写能把 Might 超限的候选排除在外；" +
     "按 type: unit 直接选择会静默允许放逐任意 Might 的单位，违反不得近似实现的红线，故按描述性键写出但不作为已执行语义。" +
-    "被杀单位 Might 的读取本身可表达（解释器经 killed 链接引用 + look-back 取值），缺的只是把它用作选择约束。" +
-    "第二处缺口：契约 3.6 要求“your Main Deck”的查看者写成 ObjectSelector 表达式（190.6.d 的能力控制者），解释器的表达式求值器能解析该形态，" +
-    "但已合入的 effect.inspect argsSchema 仍把 object-property/object-attribute 的 object 校验为运行时 ObjectRef 而非选择器" +
-    "（effect.resources 已接受选择器），经链式适配器派发会在求值前抛错；按契约写选择器形态并提交契约变更请求，不用硬编码玩家 id 绕过。" +
-    "第三处缺口：启动能力仍需 RIFT-257 的 CardProgram 绑定（describeActivate）才能让费用计划、目标与 body 经生产链执行。" +
-    "费用（1 能量 + 1 Order Power + 横置）、Kill、按牌库真实顺序查看顶 5 张、choice.optional、banish 与零费用计划的 play " +
-    "都只用已合入原语，已由 golden 真实执行（look 的 player 由调用方按求值后的值提供）。",
+    "被杀单位 Might 的读取本身可表达（解释器经 killed 链接引用 + look-back 取值），缺的只是把它用作选择约束（RIFT-359）。" +
+    "第二处缺口：CR 191.5.b 要求来源控制权变化不改变已入链能力的控制者；effect.inspect.player 必填，" +
+    "当前 Expr 没有读取 ResolveContext.controller 玩家标量的形态。condition.value 读取 source.controller 只保留为草稿，" +
+    "装备从 A 转交 B 时会错误地把查看者改成 B，不能当作能力控制者绑定或完整执行证据；正确查看 A 牌库的回归保留 TODO。" +
+    "第三处缺口：effect.inspect 的 scope:top 只读取外部 picksSpecId，programs/ 与 chain/ 没有从真实牌库 zoneSlice " +
+    "自动提供保序 top-5 picks 的路径（RIFT-358），query() 不保证牌库顺序，不能用无序查询近似。" +
+    "LocationExpr 选择能力控制者的 Base 或所控制战场，再以 linked-value 传给 effect.play.location，已解决未解析的 controller 落点。" +
+    "golden 与链草稿只验证来源控制权未变化、picks 由调用方按稳定 id 提供时的已支持步骤；不代表整卡或生产程序绑定已完成。",
   abilities: [
     {
       kind: "activated",
@@ -99,13 +95,24 @@ const baitedHook = {
       timing: "action",
       body: [
         {
+          // Descriptive draft only: source.controller is not the controller of
+          // an already-chained ability after a source control change (191.5.b).
+          // No current scalar Expr reads context.controller for inspect.player;
+          // this gap blocks the card and has a correct-expectation TODO test.
+          id: "baited-hook.bind-viewer",
+          op: "condition.value",
+          args: {
+            value: { kind: "object-property", object: "source", property: "controller" }
+          }
+        },
+        {
           id: "baited-hook.kill-friendly-unit",
           op: "effect.kill",
           args: { target: { kind: "constant", value: "baited-hook.killed-unit" } },
           targets: [
             {
               id: "baited-hook.killed-unit",
-              filter: { type: "unit", controller: "controller", zone: "board" },
+              filter: { type: "unit", controller: "self", zone: "board" },
               min: 1,
               max: 1,
               selection: "one"
@@ -126,14 +133,7 @@ const baitedHook = {
           // Main Deck. Linking them would suppress the look under 3.4.
           op: "effect.inspect",
           args: {
-            // "your Main Deck": the looking player is the ability controller
-            // (190.6.d). Contract 3.6 requires a selector here, and "self" is the
-            // host; the caller resolves it to a PlayerId. The merged effect.inspect
-            // argsSchema still validates object-property's `object` as a runtime
-            // ObjectRef instead of a selector (effect.resources already accepts
-            // selectors), so this Expr shape is reported as a contract-change
-            // request rather than sidestepped with a hard-coded player id.
-            player: { kind: "object-attribute", object: "self", attribute: "controller" },
+            player: { kind: "linked-value", instructionId: "baited-hook.bind-viewer", key: "value" },
             zone: { kind: "constant", value: "deck" },
             scope: { kind: "constant", value: "top" },
             amount: { kind: "constant", value: 5 },
@@ -187,15 +187,39 @@ const baitedHook = {
                   ]
                 },
                 {
+                  // CR 355.2.a: choose the ability controller's Base or one of
+                  // their controlled Battlefields. Evaluate the LocationExpr
+                  // before handing a linked concrete LocationRef to effect.play,
+                  // whose primitive schema does not accept LocationExpr itself.
+                  id: "baited-hook.choose-play-location",
+                  op: "condition.value",
+                  linkedTo: "baited-hook.banish-unit",
+                  condition: {
+                    kind: "compare",
+                    left: { kind: "linked-value", instructionId: "baited-hook.banish-unit", key: "banishedUnitCount" },
+                    operator: "gt",
+                    right: { kind: "constant", value: 0 }
+                  },
+                  args: {
+                    value: {
+                      kind: "location",
+                      value: {
+                        kind: "choose",
+                        id: "baited-hook.play-location",
+                        filter: { controller: "controller" }
+                      }
+                    }
+                  }
+                },
+                {
                   id: "baited-hook.play-banished",
                   // "and play it, ignoring its cost": a Limited Play Effect
                   // (420.3.a). effect.play requires an already-finalized cost plan
                   // (this primitive never derives printed costs or implements the
                   // ignored-cost rule itself), so the ignored cost is submitted as
                   // a finalized zero plan for the 420.3.b.1 form. The destination
-                  // is the Finalize choice of 355.2 (a unit's valid Location);
-                  // the caller supplies it, and effect.play's location argument is
-                  // left to that choice rather than pinned to a false constant.
+                  // is the preceding choice of a valid unit Location (355.2),
+                  // already resolved relative to the ability's controller.
                   op: "effect.play",
                   linkedTo: "baited-hook.banish-unit",
                   args: {
@@ -204,13 +228,11 @@ const baitedHook = {
                       instructionId: "baited-hook.banish-unit",
                       key: "banishedUnitObject"
                     },
-                    // The played unit enters a valid Location chosen at Finalize
-                    // (355.2: the controller's Base or a Battlefield they
-                    // control). That choice is not enumerable from static card
-                    // data, so this is the descriptive controller-base
-                    // placeholder the caller resolves, exactly as the sibling
-                    // token/play cards record their destination (see judgeReason).
-                    location: { kind: "constant", value: { type: "base", player: "controller" } },
+                    location: {
+                      kind: "linked-value",
+                      instructionId: "baited-hook.choose-play-location",
+                      key: "value"
+                    },
                     cost: { kind: "constant", value: { finalized: true, energy: 0, power: [], xp: 0 } },
                     linkKey: { kind: "constant", value: "played" }
                   }

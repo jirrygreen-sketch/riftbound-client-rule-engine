@@ -10,34 +10,24 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { describePlay } from "../../../../engine-core/dist/programs/play.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import pitCrew from "../../../dist/cards/ogn/pit-crew.js";
 
 const [ability] = program.abilities;
-const [killInstruction, lookInstruction, optionalInstruction, recycleInstruction] = ability.body;
-const [banishInstruction, playInstruction] = optionalInstruction.args.body.value;
+const CANONICAL_ID = program.canonicalCardId;
+const [viewerInstruction, killInstruction, lookInstruction, optionalInstruction, recycleInstruction] = ability.body;
+const [banishInstruction, playLocationInstruction, playInstruction] = optionalInstruction.args.body.value;
 
 // The golden run drives the body the way the production caller must:
 // - TargetSpec declarations are dropped because the interpreter itself selects
 //   and re-verifies targets (reselectTargets defaults to true); the Finalize-locked
 //   answers arrive through the kernel's answer map, exactly as the chain does.
-// - The look's `player` is supplied as the already-resolved controller value: the
-//   card IR carries the contract-3.6 selector form, but the merged effect.inspect
-//   argsSchema still validates that position as a runtime value (see judgeReason
-//   and the contract-change request), so the caller resolves the selector first.
-const callerBody = ability.body.map(({ targets, ...instruction }) => {
-  if (instruction.op === "effect.inspect") {
-    return { ...instruction, args: { ...instruction.args, player: { kind: "constant", value: "A" } } };
-  }
-  if (instruction.op === "choice.optional") {
-    // The nested play records the printed controller-base placeholder; the
-    // caller resolves it to the concrete player base, exactly as the merged
-    // token/token-play goldens do for the same printed placeholder.
-    const body = instruction.args.body.value.map(entry => entry.op === "effect.play"
-      ? { ...entry, args: { ...entry.args, location: { kind: "constant", value: { type: "base", player: "A" } } } }
-      : entry);
-    return { ...instruction, args: { ...instruction.args, body: { kind: "constant", value: body } } };
-  }
-  return instruction;
-});
+// Arguments and nested bodies stay exactly as authored, including locations.
+const callerBody = ability.body.map(({ targets, ...instruction }) => instruction);
 
 /** A cost.pay stand-in that drives the real merged cost plan + payment pipeline. */
 const costProbe = {
@@ -84,7 +74,8 @@ function runHook({ killedUnit = "ally", banishedIndex = 2, accept = true, boardU
   if (banishedIndex !== null) context.setPicks("baited-hook.banished-unit", [looked[banishedIndex].ref]);
   context.setAnswers({
     "baited-hook.kill-friendly-unit/target:baited-hook.killed-unit": [locked],
-    "baited-hook.may-banish-and-play/optional": accept
+    "baited-hook.may-banish-and-play/optional": accept,
+    "baited-hook.may-banish-and-play/baited-hook.choose-play-location/baited-hook.play-location": { type: "base", player: "A" }
   });
   return { kernel: context, looked, outcome: resolveChainBody(callerBody, context) };
 }
@@ -105,11 +96,12 @@ test("baited-hook: identity, ruleset, status, judgeReason and printed text", () 
   // The gap is the "Might up to 1 more than the killed unit" legality bound.
   assert.match(program.judgeReason, /Might/);
   assert.match(program.judgeReason, /killed unit/);
-  // The second gap: the merged effect.inspect schema rejects selector-valued
-  // Expr arguments, so the caller must resolve the player expression.
   assert.match(program.judgeReason, /effect\.inspect/);
-  // The third gap: the activated ability still needs the RIFT-257 binding.
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /191\.5\.b/);
+  assert.match(program.judgeReason, /ResolveContext\.controller/);
+  assert.match(program.judgeReason, /TODO/);
   assert.equal(
     program.sourceText,
     ":rb_energy_1::rb_rune_order:, :rb_exhaust:: Kill a friendly unit. Look at the top 5 cards of your Main Deck. " +
@@ -130,6 +122,7 @@ test("baited-hook: the printed cost is 1 energy + 1 Order power + the exhaust sy
   });
   // The cost is declared, never executed as a body instruction (contract 3.5).
   assert.deepEqual(ability.body.map(instruction => instruction.op), [
+    "condition.value",
     "effect.kill",
     "effect.inspect",
     "choice.optional",
@@ -146,7 +139,7 @@ test("baited-hook: \"Kill a friendly unit\" is one target, not a pick", () => {
   assert.equal(killInstruction.targets.length, 1);
   const [target] = killInstruction.targets;
   assert.equal(target.id, "baited-hook.killed-unit");
-  assert.deepEqual(target.filter, { type: "unit", controller: "controller", zone: "board" });
+  assert.deepEqual(target.filter, { type: "unit", controller: "self", zone: "board" });
   assert.equal(target.min, 1);
   assert.equal(target.max, 1);
   assert.equal(target.selection, "one");
@@ -163,12 +156,11 @@ test("baited-hook: the look reads the top 5 of the Main Deck through an ordered 
   assert.deepEqual(lookInstruction.args.scope, { kind: "constant", value: "top" });
   assert.deepEqual(lookInstruction.args.amount, { kind: "constant", value: 5 });
   assert.deepEqual(lookInstruction.args.picksSpecId, { kind: "constant", value: "baited-hook.looked-cards" });
-  // "your Main Deck": the looking player is the ability controller (190.6.d),
-  // written with the contract-3.6 selector form, never a hard-coded player id.
+  // The symbolic binding remains a draft: the linked source controller is
+  // insufficient for CR 191.5.b. The control-change TODO checks the intended
+  // ability-controller semantics instead of asserting that draft is correct.
   assert.deepEqual(lookInstruction.args.player, {
-    kind: "object-attribute",
-    object: "self",
-    attribute: "controller"
+    kind: "linked-value", instructionId: "baited-hook.bind-viewer", key: "value"
   });
   // The ordered references (not the count) feed the following instructions.
   assert.deepEqual(lookInstruction.args.pickedKey, { kind: "constant", value: "looked" });
@@ -176,6 +168,15 @@ test("baited-hook: the look reads the top 5 of the Main Deck through an ordered 
   assert.equal(lookInstruction.picks.length, 1);
   assert.equal(lookInstruction.picks[0].id, "baited-hook.looked-cards");
   assert.equal(lookInstruction.picks[0].selection, "all");
+  // Preserve the authored binding's structure without claiming it reads the
+  // immutable ability controller. These goldens do not rewrite inspect.player.
+  assert.equal(viewerInstruction.op, "condition.value");
+  assert.deepEqual(viewerInstruction.args.value, {
+    kind: "object-property", object: "source", property: "controller"
+  });
+  assert.deepEqual(lookInstruction.args.player, {
+    kind: "linked-value", instructionId: "baited-hook.bind-viewer", key: "value"
+  });
 });
 
 test("baited-hook: \"You may …\" is a choice.optional wrapping the chosen instructions (contract 3.9)", () => {
@@ -185,7 +186,7 @@ test("baited-hook: \"You may …\" is a choice.optional wrapping the chosen inst
   assert.equal(optionalInstruction.args.body.kind, "constant");
   assert.deepEqual(
     optionalInstruction.args.body.value.map(instruction => instruction.id),
-    ["baited-hook.banish-unit", "baited-hook.play-banished"]
+    ["baited-hook.banish-unit", "baited-hook.choose-play-location", "baited-hook.play-banished"]
   );
 });
 
@@ -208,6 +209,27 @@ test("baited-hook: the banish is a non-target pick and the play is a cost-waived
     kind: "linked-value",
     instructionId: "baited-hook.banish-unit",
     key: "banishedUnitObject"
+  });
+  assert.equal(playLocationInstruction.op, "condition.value");
+  assert.equal(playLocationInstruction.linkedTo, "baited-hook.banish-unit");
+  assert.deepEqual(playLocationInstruction.condition, {
+    kind: "compare",
+    left: { kind: "linked-value", instructionId: "baited-hook.banish-unit", key: "banishedUnitCount" },
+    operator: "gt",
+    right: { kind: "constant", value: 0 }
+  });
+  assert.deepEqual(playLocationInstruction.args.value, {
+    kind: "location",
+    value: {
+      kind: "choose",
+      id: "baited-hook.play-location",
+      filter: { controller: "controller" }
+    }
+  });
+  assert.deepEqual(playInstruction.args.location, {
+    kind: "linked-value",
+    instructionId: "baited-hook.choose-play-location",
+    key: "value"
   });
   // "ignoring its cost" — a Finalized zero plan, never a derived printed cost
   // (420.3.b.1); effect.play never derives costs itself.
@@ -347,11 +369,186 @@ test("baited-hook golden: a killed unit that left the board before resolution ma
 test.todo(
   "baited-hook: 'a unit … that has Might up to 1 more than the killed unit' as a selection legality " +
     "bound (each candidate's current Might compared with the killed unit's last-known Might, " +
-    "359.3.e.13 / contract 3.6 lastKnown); no merged filter value can relate two objects or a " +
+    "359.3.e.13 / contract 3.6 lastKnown / RIFT-359); no merged filter value can relate two objects or a " +
     "linked value, so the descriptive mightUpTo key on the pick is not enforced — see judgeReason."
 );
-test.todo(
-  "baited-hook: the activated ability's production binding (RIFT-257 describeActivate) must " +
-    "generate the Finalize cost plan, the kill target and the look picks; the golden drives the " +
-    "card's own body through the merged chain adapter with caller-supplied locked sets instead."
-);
+function chainHook({ accept = true, destination = { type: "base", player: "A" }, battlefields = false } = {}) {
+  // This tests supported steps, with unchanged source control and externally
+  // supplied ordered picks. The judge-required Hook is not registered as an
+  // executable program. Played Pit Crew cards use the production program binder.
+  const builder = world()
+    .player("A", { energy: 20, power: ["Order"] })
+    .player("B", { energy: 20 })
+    .base("baited-hook", { types: ["gear"], energy: 3, power: null, might: null, location: { type: "base", player: "A" }, cardId: CANONICAL_ID })
+    .unit("ally", { might: 2 })
+    .deck(["d1", "d2", "d3", "d4", "d5", "d6"], {
+      cardId: pitCrew.canonicalCardId, types: ["unit"], energy: 3, power: null, might: 3
+    })
+    .deck(["b1", "b2"], { owner: "B" });
+  if (battlefields) {
+    for (const [id, owner] of [["friendly-field", "A"], ["enemy-field", "B"]]) {
+      builder.object(id, { types: ["battlefield"], zone: "board", owner, controller: owner, location: null, might: null });
+      builder.unit(`${id}-guard`, { owner, location: { type: "battlefield", id } });
+    }
+  }
+  const kernel = builder.build();
+  const looked = kernel.zoneSlice("A", "deck", "top", 5);
+  kernel.setPicks("baited-hook.looked-cards", looked.map(object => object.ref));
+  kernel.setPicks("baited-hook.banished-unit", [looked[2].ref]);
+  kernel.setTargets("baited-hook.killed-unit", [kernel.ref("ally")]);
+  kernel.setAnswers({
+    "baited-hook.kill-friendly-unit/target:baited-hook.killed-unit": [kernel.ref("ally")],
+    "baited-hook.may-banish-and-play/optional": accept
+  });
+
+  const requests = [];
+  const actions = [];
+  const playActions = [];
+  const decide = (request) => {
+    requests.push(request);
+    if (request.type === "optional") return accept;
+    if (request.type === "select-objects" && request.id === "target:baited-hook.killed-unit") {
+      return request.options.filter(ref => ref.id === "ally");
+    }
+    if (request.type === "mode" && request.id.endsWith("baited-hook.play-location")) return destination;
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => { actions.push(structuredClone(action)); return kernel.perform(action); },
+    choose: decide,
+    context: (sourceSnapshot, controller, timingPoint) => bindResolveContext(kernel, {
+      source: sourceSnapshot, controller, timingPoint, choose: decide,
+      setPicks: kernel.setPicks.bind(kernel),
+      setTargets: kernel.setTargets.bind(kernel),
+      setAnswers: kernel.setAnswers.bind(kernel)
+    }),
+    testTrigger: (registration) => kernel.test(registration.spec.condition)
+  });
+  const registry = new ProgramRegistry([pitCrew]);
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host,
+    cleanup: () => false,
+    describePlay: (action, source) => {
+      playActions.push(structuredClone(action));
+      return describePlay(registry, action, source);
+    }
+  });
+
+  engine.execute({
+    id: "baited-hook:activate",
+    controller: "A",
+    source: kernel.getObject("baited-hook"),
+    kind: "activated",
+    speed: "action",
+    body: ability.body,
+    cost: { id: "baited-hook:cost", cost: ability.cost }
+  });
+  return { engine, kernel, requests, actions, playActions, looked };
+}
+
+function resolveAll(engine) {
+  engine.advance();
+  for (let passes = 0; engine.items.length; passes++) {
+    assert.ok(passes < 20, "the chain must finish without skipping priority");
+    engine.pass(engine.priority);
+  }
+}
+
+test("baited-hook chain: supported steps preserve play parameters with supplied picks and unchanged source control", () => {
+  const { engine, kernel, playActions } = chainHook();
+  resolveAll(engine);
+
+  assert.equal(kernel.player("A").energy, 19);
+  assert.equal(kernel.getObject("baited-hook").exhausted, true);
+  assert.equal(kernel.getObject("ally").zone, "trash");
+  assert.equal(kernel.getObject("d3").zone, "board");
+  assert.deepEqual(kernel.getObject("d3").location, { type: "base", player: "A" });
+  assert.equal(kernel.getObject("d3").controller, "A");
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["d6", "d1", "d2", "d4", "d5"]);
+  assert.equal(playActions.length, 1);
+  assert.deepEqual(playActions[0].location, { type: "base", player: "A" });
+  assert.equal(engine.items.length, 0);
+});
+
+test("baited-hook chain: the chosen controlled battlefield reaches the production play binder unchanged (CR 355.2.a)", () => {
+  const destination = { type: "battlefield", id: "friendly-field" };
+  const { engine, kernel, requests, playActions } = chainHook({ destination, battlefields: true });
+  resolveAll(engine);
+
+  const choices = requests.filter(request => request.id.endsWith("baited-hook.play-location"));
+  assert.equal(choices.length, 1);
+  assert.equal(choices[0].chooser, "A");
+  assert.deepEqual(choices[0].options, [{ type: "base", player: "A" }, destination]);
+  assert.equal(playActions.length, 1);
+  assert.equal(playActions[0].player, "A");
+  assert.deepEqual(playActions[0].location, destination);
+  assert.equal(kernel.getObject("d3").zone, "board");
+  assert.deepEqual(kernel.getObject("d3").location, destination);
+  assert.equal(kernel.player("A").energy, 19);
+  assert.equal(kernel.getObject("ally").zone, "trash");
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["d6", "d1", "d2", "d4", "d5"]);
+});
+
+test("baited-hook: the play location uses the ability controller when the source belongs to B", () => {
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .base("baited-hook", { types: ["gear"], controller: "B" })
+    .deck("candidate", { types: ["unit"], might: 3 })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("baited-hook"), controller: "A" });
+  context.setPicks("baited-hook.banished-unit", [context.ref("candidate")]);
+  context.setAnswers({
+    "baited-hook.choose-play-location/baited-hook.play-location": { type: "base", player: "A" }
+  });
+  const outcome = resolveChainBody([banishInstruction, playLocationInstruction], context);
+  assert.equal(outcome.status, "executed");
+  assert.equal(context.getObject("candidate").zone, "banishment");
+  assert.deepEqual(outcome.results[1].result.linkedValues.value, { type: "base", player: "A" });
+});
+
+test("baited-hook: no banished unit skips the play location choice and the play", () => {
+  const kernel = world().base("baited-hook", { types: ["gear"] }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("baited-hook") });
+  context.setPicks("baited-hook.banished-unit", []);
+  // There is no location answer: an attempted choice would raise AwaitChoice.
+  const outcome = resolveChainBody([banishInstruction, playLocationInstruction, playInstruction], context);
+  assert.equal(outcome.results[0].result.status, "negated");
+  assert.equal(outcome.results[0].result.reason, "impossible");
+  assert.equal(outcome.results[1].result.status, "negated");
+  assert.equal(outcome.results[1].result.reason, "skipped");
+  assert.equal(outcome.results[2].result.status, "ignored");
+  assert.deepEqual(outcome.events, []);
+});
+
+test("baited-hook chain: changing source control preserves the finalized ability controller (CR 191.5.b)", () => {
+  const { engine, kernel } = chainHook({ accept: false });
+  assert.equal(engine.items.length, 1);
+  assert.equal(engine.items[0].status, "finalized");
+  assert.equal(engine.items[0].controller, "A");
+  assert.equal(engine.commit({ type: "take-control", object: kernel.ref("baited-hook"), player: "B" }).status, "done");
+  assert.equal(kernel.getObject("baited-hook").controller, "B");
+  assert.equal(engine.items[0].controller, "A");
+});
+
+test("baited-hook chain: A still looks at A's top five after B takes control of the source (CR 191.5.b)", {
+  todo: "effect.inspect.player requires a scalar ability-controller Expr; reading source.controller is insufficient"
+}, () => {
+  const { engine, kernel, actions, looked } = chainHook({ accept: false });
+  assert.equal(engine.commit({ type: "take-control", object: kernel.ref("baited-hook"), player: "B" }).status, "done");
+  assert.equal(engine.items[0].controller, "A");
+  resolveAll(engine);
+
+  const looks = actions.filter(action => action.type === "look");
+  assert.equal(looks.length, 1);
+  assert.equal(looks[0].player, "A");
+  assert.deepEqual(looks[0].objects, looked.map(object => object.ref));
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["d6", "d1", "d2", "d3", "d4", "d5"]);
+  assert.deepEqual(kernel.zone("B", "deck").map(ref => ref.id), ["b1", "b2"]);
+});
