@@ -1,3 +1,15 @@
+// Golden test for Honest Broker (sfd-155-221).
+// The Deathknell declaration, the authored exhausted-Gold death trigger and the
+// location binding are verifiable; the Gold definition, the entry stipulation
+// and the Deathknell expansion remain judged (see judgeReason).
+//
+// Template-level execution evidence lives in
+// test/cards/templates/keyword-triggered-object-killed-conditio-679.test.mjs
+// (RIFT-679, README 4.1): the authored trigger finalizes through the generic
+// scenario harness with its body carried verbatim, and the resolve-time
+// boundary shows effect.token rejecting "entersExhausted". This file keeps the
+// validation, structure and fail-closed dependency assertions for the same
+// canonical identity.
 import assert from "node:assert/strict";
 import test from "node:test";
 

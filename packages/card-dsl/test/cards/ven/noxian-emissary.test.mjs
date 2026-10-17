@@ -1,3 +1,17 @@
+// Golden test for Noxian Emissary (ven-128-166).
+// The Empower keyword declaration, the Empowered-gated object-killed trigger
+// and the two-Recruit token body are verifiable; the printed Empower cost and
+// the native-token play handoff remain judged (see judgeReason).
+//
+// Template-level execution evidence lives in
+// test/cards/templates/keyword-triggered-object-killed-conditio-679.test.mjs
+// (RIFT-679, README 4.1): a real effect.empower action flips the pre-death
+// state and the harness queues the authored two-Recruit body with
+// source.empowered === 1; a boundary row shows the token play failing closed
+// on the missing native-token program. The authored Empowered trigger gate is
+// asserted here, where the event-aware evaluator reads the pre-death LKI.
+// This file keeps the validation, structure and fail-closed dependency
+// assertions for the same canonical identity.
 import assert from "node:assert/strict";
 import test from "node:test";
 

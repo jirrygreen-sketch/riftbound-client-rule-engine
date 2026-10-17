@@ -23,7 +23,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "to your base" = 控制者的基地（182/183 的归属与控制；443.2 的 token 归属）。
  * - 809.1：Deflect 是目标附加费用的被动关键词（松鼠文本给出 809.1.c 的提醒）。
 
- * status = judge-required（README 第 2 节，2026-10-17 复核）。逐条复核后的当前缺口（均实测），不近似实现：
+ * status = judge-required（README 第 2 节，2026-10-17 复核，测试台证据见
+ * test/cards/templates/keyword-triggered-object-killed-conditio-679.test.mjs）。逐条复核后的当前缺口（均实测），不近似实现：
  * 1. Bird token 定义（187.7，带 Deflect 关键词）仍不在 effect.token 的定义表内；
  *    bird 请求实测 negated 且 blockedReason = token-definition-or-abilities-judge-required；
  *    需要把该带能力的 token 定义与能力展开纳入 token 执行路径，不能凭卡面文本近似造出 Deflect。
@@ -32,6 +33,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * schema，不把相对玩家写进字面 LocationRef，也不硬编码具体玩家。
  * 2. Deathknell 关键词的展开体仍引用 trigger.leave，而 instructionDefinitionsById
  *    无该 op，需要接通正文订阅与 808.1.d.1 的死亡替代链移除。
+ *    另外 programs/lifecycle.ts 把 detach 挂在 object-leaves-board / object-killed 那一拍：
+ *    pipeline 扫完 object-leaves-board 后立刻注销注册，到 object-killed 时已无订阅
+ *    （实测 kill 提交后订阅从 2 条降到 1 条，object-killed 扫描无命中），所以真实 kill 动作
+ *    不会把已绑定的死亡订阅入链；测试台行只能用其声明的 trigger 操作发时点。
  * 3. Deflect 的展开是 static target.tax，尚无静态绑定：programs/statics.ts 的层映射
  *    对该 kind 抛 no layer mapping；目标计划已有税适配接口，但 ChainEngine 仍把税按
  *    Energy 计入（实测 costPlan.total.energy 多 1、power 为空），需要按 809.1.c.1
@@ -84,7 +89,8 @@ export default {
     "三处当前缺口（实测），均不近似实现：(1) Bird token 定义（187.7，1 Might、Bird 标签、带 [Deflect]）仍不在 effect.token 的定义表内，" +
     "bird 请求 negated（token-definition-or-abilities-judge-required），需要把带能力的 token 定义与能力展开纳入 token 执行路径。" +
     "(2) Deathknell 的展开体仍引用未注册的 trigger.leave（instructionDefinitionsById 无该 op），" +
-    "需接通正文订阅及 808.1.d.1 的死亡替代链移除。" +
+    "需接通正文订阅及 808.1.d.1 的死亡替代链移除；programs/lifecycle.ts 又把 detach 挂在 object-leaves-board/object-killed 一拍，" +
+    "pipeline 扫完 object-leaves-board 即注销注册（实测 kill 提交后订阅数由 2 降到 1，object-killed 扫描无命中），真实 kill 动作无法把已绑定的死亡订阅入链。" +
     "(3) Deflect 的 static target.tax 无程序静态绑定（layerFor 抛 no layer mapping）；目标计划虽有税适配接口，" +
     "ChainEngine 当前仍把税计入 Energy（实测 total.energy 增加、power 为空），还需按 809.1.c/809.1.c.1 计入任意域 Power 附加费用。",
   abilities,

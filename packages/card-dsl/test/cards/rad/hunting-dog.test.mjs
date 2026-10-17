@@ -2,6 +2,13 @@
 // The Deathknell declaration, the object-killed trigger and the token request
 // shape and controller-relative base binding are verifiable; the Bird
 // definition and Deathknell/Deflect consumers remain judged (see judgeReason).
+//
+// Template-level execution evidence lives in
+// test/cards/templates/keyword-triggered-object-killed-conditio-679.test.mjs
+// (RIFT-679, README 4.1): the authored death trigger binds and resolves through
+// the generic scenario harness and the 187.7 Bird request negates with the
+// frozen-definition blocked reason. This file keeps the validation, structure
+// and fail-closed dependency assertions for the same canonical identity.
 import assert from "node:assert/strict";
 import test from "node:test";
 
