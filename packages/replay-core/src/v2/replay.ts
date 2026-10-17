@@ -3,7 +3,7 @@ import {
   canonicalJournalJson,
   type JournalEntry,
   type JournalHeader,
-} from "../../../protocol/dist/journal-v1.js";
+} from "@riftbound/protocol";
 import {
   concede,
   createMatch,
