@@ -67,7 +67,7 @@ const program = {
   judgeReason:
     "「dies here」的位置条件无法如实判定，不近似实现：053.3 说明 “here” 是 Battlefields 的自我指称，" +
     "本卡是单位，按 421.1 读作“本单位当前所在的位置”；该条件需要把被消灭对象的位置与来源单位的位置比较。" +
-    "触发注册的生产链已合入（programs/triggers.ts 经 attachProgramLifecycle 注册，RIFT-257 未合入的结论过时），" +
+    "触发注册的生产链已合入（programs/triggers.ts 经 attachProgramLifecycle 注册），" +
     "但 translateTriggerFilter/translateObjectFilter 的白名单不含 sameLocationAs，绑定期实测抛 " +
     "Unsupported filter field sameLocationAs；events/pipeline-match.ts 的 matchesTriggerObject 也不实现该锚点、" +
     "且对未识别的过滤器键静默放行，任何接线都会把别处死亡的敌方单位也算成 “dies here”。" +

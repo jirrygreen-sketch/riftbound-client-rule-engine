@@ -35,7 +35,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "被动能力授予的可选附加费用没有可执行路径：cost.modify / cost.pay 原语已合入（RIFT-261 结论过时），" +
+    "被动能力授予的可选附加费用没有可执行路径：cost.modify / cost.pay 原语已合入，" +
     "但消费方缺失——programs/statics.ts 的 layerFor 不映射 cost.modify，卡牌 static 绑定实测抛 " +
     "「Static ability kind cost.modify has no layer mapping」；cost/cost-plan.ts 只应用调用方显式传入的 " +
     "discounts，没有从卡牌 static 读取 optional additional cost（356.2.b.1 的步骤 2）或 -2 Energy 减费的入口。" +
@@ -47,8 +47,8 @@ export default {
       kind: "static",
       effect: {
         // 363 的 Passive Ability：为“你打出的法术”提供可选附加费用与对应减费。
-        // 该 kind 由 RIFT-9 模板（cost-modify / cost-resources）与 ornns-forge 等
-        // 已合入卡牌一致使用；费用管线的消费方仍待 RIFT-261（见 judgeReason）。
+        // 该 kind 与 cost-modify / cost-resources 模板及 ornns-forge 等已合入卡牌
+        // 一致使用；费用管线的消费方仍缺（见 judgeReason）。
         kind: "cost.modify",
         appliesTo: "play-spell-cost",
         resource: "energy",

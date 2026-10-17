@@ -43,8 +43,8 @@ const staunchSurvivor = {
   status: "judge-required",
   judgeReason:
     "Assault/Shield 关键词的整卡可执行路径（CR 807.1.c/807.1.d.1、814.1.c/814.1.d.1）仍缺一环：" +
-    "KeywordDef 展开（static continuous.might）与卡牌程序绑定（programs/keywords.ts → lifecycle/statics）已合入" +
-    "（RIFT-257 未合入的结论过时），但 807.1.d/814.1.d 的 Attacker/Defender 判别式读的是 object-property " +
+    "KeywordDef 展开（static continuous.might）与卡牌程序绑定（programs/keywords.ts → lifecycle/statics）已合入，" +
+    "但 807.1.d/814.1.d 的 Attacker/Defender 判别式读的是 object-property " +
     "\"designation\"，而合并的 ObjectSnapshot 只暴露 combatRole：解释器求值返回 MissingInformation，" +
     "bindStaticToLayers 的条件包装捕获异常后恒返回 false，两个 +2 永不生效、无法分别在攻击/防守时生效。" +
     "依赖：keywords/Assault.ts 与 keywords/Shield.ts 的 designation/combatRole 判别式修正（engine-core 范围外）；" +

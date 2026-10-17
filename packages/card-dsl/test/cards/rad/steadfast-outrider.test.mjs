@@ -19,8 +19,8 @@ test("rad-128-167 Steadfast Outrider: program validates and has expected identit
   assert.equal(program.judgeReason.includes("continuous.might"), true);
   assert.equal(program.judgeReason.includes("Tank"), true);
   assert.match(program.judgeReason, /controller/);
-  assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /exclude/);
+  assert.match(program.judgeReason, /queryObjects\(\)/);
+  assert.match(program.judgeReason, /proven-none/);
   assert.equal(
     program.sourceText,
     "[Tank] (I must be assigned combat damage first.)\n" +
@@ -161,7 +161,7 @@ test("rad-128-167 Steadfast Outrider: 原 IR 的 self static 能力能通过生�
 
 test.todo(
   "rad-128-167 Steadfast Outrider: \"I have +2 Might\" 的原 IR static 能力可由生产绑定注册；" +
-    "剩余缺口是绑定后的条件查询未解析 controller:controller，且查询适配器未消费 sameLocationAs/exclude 相对锚点"
+    "sameLocationAs/exclude 已由 queryObjects() 消费，剩余缺口是绑定后的条件查询未解析 controller:controller"
 );
 
 test.todo(
