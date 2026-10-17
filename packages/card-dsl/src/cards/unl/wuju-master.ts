@@ -26,7 +26,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - “Your units enter ready”引用被替代事件的单位，不能 ready Legend 来源。
  *   replacement.object 是已公开的替代对象链接，但当前 entry binder 只接受 source/self
  *   取向体，拒绝该对象选择符；需要 RIFT-260 后续的按对象入场窗口与条件求值。
- * - test/cards/templates/static-replacement-effect-ready-663.test.mjs 保留真实路径候选及边界；
+ * - test/cards/templates/static-replacement-effect-ready-677.test.mjs 保留真实路径候选及边界；
  *   单卡 golden 仍执行已支持的 Might 子效果，均不作为整卡 executable 证据。
  */
 export default {
@@ -42,7 +42,7 @@ export default {
     "(2) RIFT-260 后续需要按对象的入场朝向替代窗口（CR 143.4/359.2.c/369.3）：已修 with 的目标为 " +
     "{ linked: replacement.object }，指进入的友方单位而非 Legend 本身。当前 replacement/bind.ts 的 entry-body 检查 " +
     "只接受 source/self，因而拒绝该目标（Unsupported entry body target value），且自身入场路径仍跳过 ability.condition。" +
-    "执行证据：test/cards/templates/static-replacement-effect-ready-663.test.mjs；整卡与 XP/友方入场边界仍阻塞，不近似实现。",
+    "执行证据：test/cards/templates/static-replacement-effect-ready-677.test.mjs；整卡与 XP/友方入场边界仍阻塞，不近似实现。",
   abilities: [
     {
       kind: "static",

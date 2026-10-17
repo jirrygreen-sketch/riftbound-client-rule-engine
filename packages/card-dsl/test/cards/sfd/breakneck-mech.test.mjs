@@ -1,4 +1,6 @@
-// Scenario execution evidence: ../templates/static-replacement-effect-ready-663.test.mjs (supported parts only).
+// Scenario execution evidence: ../templates/static-replacement-effect-ready-677.test.mjs
+// (one row per card; the printed expectations the merged engine cannot produce
+// yet are reported there as TODO rows, never as a pass).
 import assert from "node:assert/strict";
 import test from "node:test";
 

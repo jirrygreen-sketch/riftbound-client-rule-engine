@@ -1,4 +1,6 @@
-// Scenario execution evidence: ../templates/static-replacement-effect-ready-663.test.mjs (entry fragment; costs blocked).
+// Scenario execution evidence: ../templates/static-replacement-effect-ready-677.test.mjs
+// (one row per card; the printed expectations the merged engine cannot produce
+// yet are reported there as TODO rows, never as a pass).
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -45,7 +47,9 @@ test("unl-035-219 Monch: the -2 energy discount is declared as a gated cost modi
   assert.equal(costModification.effect.kind, "continuous.cost-modification");
   assert.equal(costModification.effect.resource, "energy");
   assert.deepEqual(costModification.effect.amount, { kind: "constant", value: -2 });
-  assert.equal(costModification.effect.appliesTo, "self-play-cost");
+  // RIFT-677: "self" is the merged self-scope spelling (same as sfd/void-drone);
+  // the remaining gap is the missing Finalize consumer, not the scope spelling.
+  assert.equal(costModification.effect.appliesTo, "self");
   assert.equal(costModification.effect.filter, undefined);
 });
 

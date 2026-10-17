@@ -11,13 +11,14 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *   的单位不会被再次 Stun。对手控制的判定用既有 ObjectFilter 的 controller: "opponent"，
  *   状态用 trigger-spec 的 states 键（与 ogn/solari-shrine、ogn/dune-drake 同款写法）。
  * - “I cost :rb_energy_2: less”：356.4 的减费在 Finalize 构建费用计划时应用（356.4.a 允许由
- *   任何卡或效果应用），属于打出费用的静态改写。
+ *   任何卡或效果应用），属于打出费用的静态改写；作用域按已合入词汇写作 appliesTo: "self"
+ *   （同 sfd/void-drone、sfd/battering-ram、sfd/production-surge）。
  * - “enter ready”：单位默认横置入场（143.4 / 359.2.c），369.3 的官方示例（Master Yi, Honed
  *   “I enter ready.”）说明这是入场替代效果，把「横置入场」替换为「就绪入场」；按契约 3.1 的
  *   replacement 形状表达，不能用事后的 effect.ready 近似（effect.ready 文档明确不参与入场替代，
  *   会产生多余的“成为就绪”事件）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（按 2026-10-17 合入批次复核）。
+ * status 判定（cards/README.md 第 2 节）：judge-required（按 2026-10-17 合入批次复核；RIFT-677 再核）。
  * - 减费没有可执行路径：cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts 时应用折扣，
  *   没有任何已合入路径把卡牌的静态/持续减费装进这次打出的费用计划；programs/play.ts 的 translateCost
  *   明确对 additional/discount 字段 judgeRequired，静态 cost.modify 尚未接入费用计划
@@ -51,7 +52,9 @@ const abilities: Ability[] = [
       kind: "continuous.cost-modification",
       resource: "energy",
       amount: { kind: "constant", value: -2 },
-      appliesTo: "self-play-cost"
+      // 356.4.a：折扣作用于本牌自己的打出费用，用合并词汇的 "self"（同 sfd/void-drone），
+      // 不写引擎不认识的合成 token。
+      appliesTo: "self"
     },
     condition: OPPONENT_STUNNED_UNIT
   },
@@ -86,7 +89,9 @@ const program = {
     "本卡的 replacement filter 已按绑定器契约使用 self 形状。" +
     "已修正旧评估：旧的图层 compare 缺口已过时：createEngineStaticBinder 会用 evaluateCondition 包装条件；" +
     "仍需将同一“对手控制着 Stunned 单位”条件用于 Finalize 减费及入场替代（CR 364.3.a/424.1.a）。" +
-    "执行证据：test/cards/templates/static-replacement-effect-ready-663.test.mjs；真实入场支持部分通过，费用与反例仍阻塞。" +
+    "已修（RIFT-677）：折扣作用域原写作合成 token appliesTo: \"self-play-cost\"，programs/statics.ts 的 staticTarget 以 \"Unsupported static appliesTo\" 先行拒绝，" +
+    "把费用消费方缺失掩盖成过滤器拼写问题；现按已合入词汇写作 \"self\"（同 sfd/void-drone），真实缺口回到 layerFor 的 continuous.cost-modification 无映射。" +
+    "执行证据：test/cards/templates/static-replacement-effect-ready-677.test.mjs；真实入场支持部分通过，费用与反例仍阻塞。" +
     "依赖：费用计划减费安装、entry replacement 的条件求值。",
   abilities,
   sourceText: "If an opponent controls a stunned unit, I cost :rb_energy_2: less and enter ready."
