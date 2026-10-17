@@ -30,11 +30,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   无法读取历史选择。审查还发现 chain/engine.ts 的 assertFinalizationSurface 直接
  *   拒绝 choice.mode（Mode choices require a Finalize/Resolve choice-plan adapter），
  *   生产链路径本身还不能结算该指令。
- * - "Give me [Ganking] this turn" 已由 continuous.grant-keyword（RIFT-258）真实执行：
+ * - "Give me [Ganking] this turn" 已由 continuous.grant-keyword 真实执行：
  *   golden 经链式适配器 + 图层引擎断言 ability 层注册、关键词 Ganking 与
- *   end-of-turn 到期。剩余限制是 Ganking 的 continuous.movement 许可在生产
- *   Standard Move 合法性检查里没有消费方（duel/movement.ts 只接受外部
- *   deriveGanking 回调），无法证明整卡可执行。
+ *   end-of-turn 到期；layers/rules/query.ts 与 zones/movement.ts 现在会消费
+ *   该 movement 许可来判定 battlefield-to-battlefield 的 Standard Move。
  * - "Spend my buff:"（702.2.b 的 spend-buff）已用费用计划真实收取（golden）。
  * - "a unit at a battlefield" 的伤害/横置目标在真实链路里可用 TargetSpec 表达，
  *   对应模式的 effect.damage / effect.stun / effect.ready 已由 golden 真实执行。
@@ -143,14 +142,12 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处触发/启动接线缺口（复核 2026-10-17）：(1)“Choose one you've not chosen this turn” 需要跨启动的本回合选择记忆" +
+    "一处模式接线缺口（复核 2026-10-17）：“Choose one you've not chosen this turn” 需要跨启动的本回合选择记忆" +
     "——choice.mode 只在本次结算内做 count/different 去重，没有跨结算读取本回合已选模式的账本（383.1.b 系列对“第 N 次”的裁决）；" +
     "并且 chain/engine.ts 的 assertFinalizationSurface 直接拒绝 choice.mode（Mode choices require a Finalize/Resolve choice-plan adapter），" +
-    "生产链路径无法结算该指令。(2)“Give me [Ganking] this turn” 的 continuous.grant-keyword 已可执行（RIFT-258；golden 经链式适配器 + " +
-    "图层引擎断言 ability 层注册、Ganking 关键词与 end-of-turn 到期），剩余限制是 Ganking 的 continuous.movement 许可在生产 Standard Move " +
-    "合法性检查中没有消费方（duel/movement.ts 只接受外部 deriveGanking 回调）。" +
-    "已真实执行：spend-buff 费用（702.2.b，费用计划）、effect.damage / effect.stun / effect.ready 三个模式。依赖：选择记忆账本、" +
-    "choice.mode 的 Finalize/Resolve choice-plan adapter、移动许可消费方。不近似实现。",
+    "生产链路径无法结算该指令。continuous.grant-keyword、Ganking 的 movement 查询与 Standard Move 合法性消费均已接通。" +
+    "已真实执行：spend-buff 费用（702.2.b，费用计划）、effect.damage / effect.stun / effect.ready 三个模式，以及 Ganking 的限时授予。" +
+    "依赖：跨启动的选择记忆账本、choice.mode 的 Finalize/Resolve choice-plan adapter。不近似实现。",
   abilities,
   sourceText:
     // 逐字保留 catalog 原文：四个模式之间只有 "."、没有空格或换行（数据疑点已上报，未修改）。

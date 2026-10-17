@@ -19,7 +19,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   战场 Scoring 是两件事；官方文本用 "Score X points" 指获得点数（470.2）。
  *
  * status：judge-required。复核 2026-10-17：
- * - 已合入：「score 1 point」由 effect.score（RIFT-115）真实执行（golden 断言
+ * - 已合入：「score 1 point」由 effect.score 真实执行（golden 断言
  *   score 动作、玩家点数 +1 与链接凭证）；conquer 时点由 turn/flow.ts 的 Score
  *   波发出。触发拼写改用封闭判别值 "conquered"。
  * - 仍缺：「assigned 5 or more excess damage to enemy units」的条件统计。excess
@@ -44,7 +44,7 @@ const tryndamereBarbarian = {
     "而 count 表达式的 subject 在 expr.ts 里不参与求值、未知 filter 键被忽略会过度满足（CR 467.2.c.4 的 excess 定义）；" +
     "(2)「When I conquer」的 383.4.c.2.a 单位身份没有事件对象可绑定：conquer 的 score 动作只带 player，" +
     "filter 的 object:{objectId:self} 只能声明意图、没有可绑定载荷。" +
-    "已合入部分：「score 1 point」由 effect.score（RIFT-115）真实执行，conquer 时点由 turn/flow.ts 的 Score 波发出。" +
+    "已合入部分：「score 1 point」由 effect.score 真实执行，conquer 时点由 turn/flow.ts 的 Score 波发出。" +
     "依赖：RIFT-31/33（战斗伤害分配统计与单位身份载荷）。不近似为固定条件或直接改点数。",
   abilities: [
     {

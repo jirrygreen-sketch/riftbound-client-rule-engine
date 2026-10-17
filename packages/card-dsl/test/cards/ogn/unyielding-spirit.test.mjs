@@ -89,6 +89,6 @@ test.todo(
 
 test.todo(
   "Unyielding Spirit cast: pays 1 Energy + 1 Body power and [Reaction] closed-state timing " +
-    "is enforced (依赖 RIFT-261 费用管线生产接线与 continuous.timing 的链上时机消费)"
+    "is enforced (依赖费用管线的生产接线与 continuous.timing 的链上时机消费)"
 );
 

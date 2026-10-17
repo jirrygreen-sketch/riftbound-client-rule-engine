@@ -16,7 +16,7 @@ import type { Ability, CardProgram, Condition, Instruction } from "../../ir/inde
  *   （未指明张数时是该区域当前全部牌；这里指明 1 张）、108.5.d（符文牌库顺序是秘密信息，
  *   所以必须按区域顺序取顶）。`effect.reveal` 已合入，但它读候选时用 `ctx.query`——
  *   reveal 的原语注释与 interpreter 契约都写明 `query` 不保证区域内顺序，严格“牌库顶”
- *   需要上游提供有序选择（RIFT-66 的 zoneSlice 只接进了 inspect/mill/order/recycle）。
+ *   需要上游把已有的 zoneSlice 接成卡牌侧 ordered pick（当前 CardProgram PickSpec 与链 Finalize 尚未提供该生产者）。
  *   因此“顶 1 张”在 reveal 里目前只能由调用方按顺序给出候选，属于待接线部分。
  * - “then recycle it”：417.1.b（符文回收进符文牌库）、417.1.c（无论谁被指示执行，都回收
  *   到牌主自己的牌库）、417.6（未指名的集合形式）。本程序用 `effect.recycle` 的
@@ -212,7 +212,7 @@ const program = {
     "zoneSlice 只接进了 mill/order/recycle/banish（对符文牌库取顶 1 张会抛 “a subset of this zone requires upstream ordered picks”）；" +
     "(3) effect.stun 的参数解码在链式适配器（chain/interpreter-adapter.ts 的 LITERAL_FIELDS）里没有条目，" +
     "生产链路径会抛 “effect.stun target must be a spec id string”；卡自身的 stun 指令经解释器（runAbilityBody，Finalize 已锁定目标）已真实执行。" +
-    "依赖：反身触发原语 / choice-plan adapter、区域顺序 picks 接线（RIFT-66 后续）、effect.stun 的适配器解码。" +
+    "依赖：反身触发原语 / choice-plan adapter、区域顺序 ordered-pick 生产接线、effect.stun 的适配器解码。" +
     "可执行部分（recycle 链接值、两条伤害、draw、reveal 顺序无关形式、stun）已在 golden 测试中真实执行。",
   abilities,
   sourceText:

@@ -56,9 +56,9 @@ test("unforgiven identity: canonicalCardId, ruleset, judge-required status and v
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /355\.4/);
-  assert.match(program.judgeReason, /target\.location/);
+  assert.match(program.judgeReason, /effect\.move/);
   assert.match(program.judgeReason, /your base/);
-  assert.match(program.judgeReason, /RIFT-109/);
+  assert.match(program.judgeReason, /LocationSelector/);
   assert.equal(
     program.sourceText,
     ":rb_energy_2:, :rb_exhaust:: Move a friendly unit to or from your base."
@@ -152,9 +152,8 @@ test("unforgiven golden: a stale target ignores the whole instruction (CR 359.3.
 });
 
 test.todo(
-  "unforgiven from-base half: Finalize-time legal Battlefield set (CR 355.4/451.1) and the " +
-    "direction derived from the unit's current location; needs RIFT-9 target.location and the " +
-    "P2 batch-6 card-program wiring."
+  "unforgiven from-base half: pass the dynamic legal Battlefield set to effect.move and derive " +
+    "the destination direction from the selected unit's current location (CR 355.4/451.1)."
 );
 
 test.todo(
