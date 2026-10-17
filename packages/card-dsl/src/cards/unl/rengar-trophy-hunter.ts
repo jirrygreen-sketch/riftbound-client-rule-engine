@@ -23,12 +23,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （sfd/rengar-pouncing 的 static + ContinuousEffect、ogn/sneaky-deckhand 的
  *   play-location-permission、sfd/dauntless-vanguard）表达。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。三处缺口，均不近似实现：
- * 1. [Ambush]（822）没有已合入的 KeywordDef：合法位置许可（822.1.b/822.1.c、355.2.b）
- *    与“被 Ambush 打出期间具有 [Reaction]”的时机改写都没有消费方（effects/keywords/
- *    下没有 Ambush 文件，chain 的时机许可不读图层），依赖 RIFT-266。
+ * status 判定（cards/README.md 第 2 节）：judge-required。自本程序初写后合入的依赖：
+ * Ambush 的 KeywordDef（RIFT-266，keywords/Ambush.ts 发布 play-location-permission 与
+ * continuous.timing 两条声明）。
+ *
+ * 仍缺三处（不近似实现）：
+ * 1. [Ambush] 的两条展开都没有消费方：play-location-permission / continuous.timing 的
+ *    图层注册不改变 Finalize 的合法位置校验，chain.canAct() 也不读图层的时机授予。
  * 2. 本卡的 static play-location-permission 没有消费方：该 effect kind 在 engine-core 内
- *    只出现在卡数据里，layers 引擎不处理打出位置许可，Finalize 的合法位置校验也不读它。
+ *    只出现在卡数据与连续效果注册里，Finalize 的合法位置校验不读它。
  * 3. "where there are enemy units" 需要“该战场存在敌方单位”的谓词：已合入的 ObjectFilter
  *    锚点没有位置占用/敌我计数维度，本程序用 battlefield: { enemyUnits: true } 的占位键
  *    保留印刷作用域，不把它当成已可求值。
@@ -68,13 +71,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) [Ambush]（822）没有已合入的 KeywordDef：合法位置许可（822.1.b/822.1.c、355.2.b）与" +
-    "“被 Ambush 打出期间具有 [Reaction]”的时机改写都无消费方（effects/keywords/ 下没有 Ambush 文件，chain 的时机许可不读图层），依赖 RIFT-266。" +
+    "三处缺口，均不近似实现：(1) [Ambush] 的 KeywordDef 已合入（RIFT-266），但它发布的两条声明仍无消费方：" +
+    "合法位置许可（822.1.b/822.1.c、355.2.b）不改变 Finalize 的合法位置校验，“被 Ambush 打出期间具有 [Reaction]”的 " +
+    "continuous.timing 授予也不被 chain.canAct() 读取。" +
     "(2)「I can [Ambush] to a battlefield where there are enemy units」（822.1.d 的动词形态，规则原文的例子就是本卡）" +
     "是 static play-location-permission（349、355.2.b），但该 effect kind 在 engine-core 内只出现在卡数据里，" +
     "layers 引擎不处理打出位置许可，Finalize 的合法位置校验也不读它。" +
     "(3)「where there are enemy units」需要“该战场存在敌方单位”的谓词：已合入的 ObjectFilter 锚点没有位置占用/敌我计数维度，" +
-    "本程序用占位键记录该条件，不求值。依赖：RIFT-266（kw-ambush-flow）、打出位置许可消费方与 Finalize 位置校验接线。不近似实现。",
+    "本程序用占位键记录该条件，不求值。依赖：打出位置许可的 Finalize 接线与 continuous.timing 的时机消费方。",
   abilities,
   sourceText:
     "[Ambush] (You may play me as a [Reaction] to a battlefield where you have units.)\n" +

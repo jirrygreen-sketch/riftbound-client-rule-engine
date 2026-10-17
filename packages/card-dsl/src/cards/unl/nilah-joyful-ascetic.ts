@@ -22,17 +22,22 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "gain 1 XP"：728 / 729 / 730.1（获得 XP 就是增加该玩家标记的 XP），用已合入的
  *   effect.xp；获得者缺省为能力控制者（ctx.controller，190.6.d 的隐含 you）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。三处缺口，均不近似实现：
- * 1. [Accelerate]（805）与 [Ganking]（810）的 KeywordDef 已合入（effects/keywords/
- *    Accelerate.ts、Ganking.ts），但没有运行时消费方把卡牌的 keyword 能力展开并注册：
- *    cost/cost-plan.ts 只消费调用方传入的 optionalAdditional（accelerate 就绪入场在
- *    chain/engine.ts 只读已生成的费用计划），layers 也不读 Ganking 的
- *    continuous.movement 许可，移动系统没有该许可的读取入口。
- * 2. "When I move" 的触发载荷不完整：events/action-adapter.ts 只为 move-location 动作
- *    发 object-moved，Standard Move / Ganking 的战场间移动还没接入唯一事件管线，事件也不
- *    携带起点终点与“是本次 Move 的对象”这一事实（449.2、458.1 的 Recall 排除），因此无法
- *    诚实订阅（同 ogn/miss-fortune-captain、sfd/corinna-veraza）。
- * 3. 缺 CardProgram → TriggerRegistration 适配器（RIFT-120 后续），触发能力没有注册路径。
+ * status 判定（cards/README.md 第 2 节）：judge-required。自本程序初写后合入的依赖：
+ * Accelerate/Ganking 的 KeywordDef（RIFT-264～268）、continuous.movement 指令与
+ * movement() 规则查询（RIFT-259）、CardProgram → TriggerRegistration 适配器
+ * （RIFT-257）。
+ *
+ * 仍缺三处（不近似实现）：
+ * 1. [Accelerate]（805）的展开虽已合入，但没有消费方把卡牌的 keyword 能力接进 Finalize
+ *    的费用计划：cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，chain/engine.ts
+ *    只读已生成的计划（programs/play.ts 对 additional-cost 类字段直接判 judge-required 失败）。
+ * 2. [Ganking] 的 continuous.movement 许可没有移动系统消费方：movement() 查询已合入，但没有调用方，
+ *    Standard Move 流程也不读该许可。
+ * 3. "When I move" 的订阅不可注册：events/trigger-spec.ts 的封闭 EVENT_PATTERN_TYPES
+ *    没有 object-moved 事件名（只有 zone-entered/zone-left 等别名），本卡的
+ *    `{ event: "object-moved", filter: { source: "self" } }` 会被 validateTriggerSpec
+ *    直接拒绝（invalid-event-type + unknown-field）；Standard Move 的战场间移动也还没接入
+ *    唯一事件管线（449.2、458.1 的 Recall 排除）。（同 ogn/miss-fortune-captain、sfd/corinna-veraza）
  * body 的 gain 1 XP（effect.xp，730.1）已合入，golden 用解释器 + 参考内核真实执行。
  */
 const abilities: Ability[] = [
@@ -62,13 +67,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Accelerate]（805）与 [Ganking]（810）的展开文件已合入，但没有运行时消费方把卡牌的 keyword 能力展开并注册：" +
-    "cost/cost-plan.ts 只消费调用方传入的 optionalAdditional（accelerate 的就绪入场在 chain/engine.ts 只读已生成的费用计划），" +
-    "layers 不读 Ganking 的 continuous.movement 许可、移动系统也没有该许可的读取入口（依赖 RIFT-86、RIFT-83/91）。" +
-    "“When I move”缺触发载荷与发射路径：events/action-adapter.ts 只为 move-location 动作发 object-moved，" +
-    "zones/movement 的 Standard Move / Ganking 战场间移动未接入唯一事件管线，事件也不携带起点终点与“本次 Move 的对象”这一事实" +
-    "（449.1/449.2；458.1 的 Recall 不是 Move），因此该触发无法诚实订阅（同 ogn/miss-fortune-captain）。" +
-    "另缺 CardProgram → TriggerRegistration 适配器（RIFT-120 后续）。gain 1 XP（effect.xp，730.1）已合入并在 golden 中真实执行。不近似实现。",
+    "Accelerate/Ganking 的 KeywordDef（RIFT-264～268）、continuous.movement 指令与 movement() 查询（RIFT-259）、" +
+    "卡牌程序绑定（RIFT-257）已合入，但仍有三处缺口，均不近似实现：" +
+    "(1) [Accelerate]（805）没有消费方把卡牌 keyword 能力接进 Finalize 费用计划：cost/cost-plan.ts 只消费调用方传入的 " +
+    "optionalAdditional，chain/engine.ts 只读已生成的计划（programs/play.ts 对 additional-cost 类字段直接判 judge-required 失败）。" +
+    "(2) [Ganking] 的 continuous.movement 许可没有移动系统消费方：movement() 已合入但没有调用方，Standard Move 流程也不读它。" +
+    "(3) “When I move”的订阅不可注册：events/trigger-spec.ts 的封闭 EVENT_PATTERN_TYPES 没有 object-moved 事件名，" +
+    "本卡的 `{ event: \"object-moved\", filter: { source: \"self\" } }` 会被 validateTriggerSpec 直接拒绝" +
+    "（invalid-event-type + unknown-field），Standard Move 的战场间移动也尚未接入唯一事件管线（449.2、458.1）。" +
+    "gain 1 XP（effect.xp，730.1）已合入并在 golden 中真实执行。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_body: as an additional cost to have me enter ready.)\n" +

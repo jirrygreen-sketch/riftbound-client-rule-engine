@@ -24,14 +24,17 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  * - "ready me and gain 3 XP" 是同一效果里的两个并列指令（055 / 359.3.e.11：能做什么做什么），
  *   互不引用，因此两条指令都不写 linkedTo。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。三处缺口，均不近似实现：
+ * status 判定（cards/README.md 第 2 节）：judge-required。自本程序初写后合入的依赖：
+ * CardProgram → TriggerRegistration 适配器（RIFT-257）、effect.ready / effect.xp。
+ *
+ * 仍缺两处（不近似实现）：
  * 1. [Deflect] 的展开文件（effects/keywords/Deflect.ts）已合入，但没有生产方把永久物的
  *    target.tax 持续效果接进目标选择与费用计划（target/target-plan.ts 只在调用方显式传入
- *    tax 时追加，链的 Finalize 不读图层），且已合入的税→费用换算按 Energy 记账，而
- *    809.1.c.1 要求任意域的 Power（同 sfd/navori-scout；依赖 RIFT-84、RIFT-89/90）。
+ *    tax 时追加，链的 Finalize 不读图层；layers/rules/query.ts 也没有读取 target.tax 的
+ *    查询），且已合入的税→费用换算按 Energy 记账，而 809.1.c.1 要求任意域的 Power
+ *    （同 sfd/navori-scout）。
  * 2. 触发条件的求值需要当前 Victory Score（194.3/194.3.a）：ResolveContext 只暴露各自
  *    score（PlayerSnapshot.score），没有 victoryScore 读数，硬编码 8 就是臆造。
- * 3. 缺 CardProgram → TriggerRegistration 适配器（RIFT-120 后续），触发能力没有注册路径。
  * body 的 ready 与 gain 3 XP 已合入（effect.ready / effect.xp），golden 用解释器 + 参考内核
  * 真实执行，并覆盖已经就绪时的无操作（416.1.b/416.1.c）。
  */
@@ -77,14 +80,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) [Deflect] 的展开文件已合入，但没有生产方把永久物的 target.tax 持续效果接进目标选择与费用计划" +
-    "（target/target-plan.ts 只在调用方显式传入 tax 时追加，链的 Finalize 不读图层），且已合入的税→费用换算按 Energy 记账，" +
-    "809.1.c.1 要求可用任意域支付的 Power（同 sfd/navori-scout；依赖 RIFT-84、RIFT-89/90）。" +
+    "卡牌程序绑定（RIFT-257）、effect.ready（416.1）与 effect.xp（730.1）已合入并在 golden 中真实执行；" +
+    "仍有两处缺口，均不近似实现：(1) [Deflect] 的展开文件已合入，但没有生产方把永久物的 target.tax 持续效果接进目标选择与费用计划" +
+    "（target/target-plan.ts 只在调用方显式传入 tax 时追加，链的 Finalize 不读图层，layers/rules/query.ts 也没有 target.tax 查询），" +
+    "且已合入的税→费用换算按 Energy 记账，809.1.c.1 要求可用任意域支付的 Power（同 sfd/navori-scout）。" +
     "(2) 触发条件「an opponent's score is within 3 points of the Victory Score」需要当前 Victory Score" +
     "（194.3 默认 8、194.3.a 允许被游戏模式或卡牌效果改变；485.3.a 可为任意正数）：ResolveContext/PlayerSnapshot 只有各自 score，" +
     "没有 victoryScore 读数，硬编码 8 就是臆造，因此本程序用命名谓词保留条件而不求值。" +
-    "(3) 缺 CardProgram → TriggerRegistration 适配器（RIFT-120 后续），触发能力没有注册路径。" +
-    "ready me（416.1）与 gain 3 XP（730.1）已合入并在 golden 中真实执行；两条指令是并列句，不写 linkedTo（359.3.e.11）。不近似实现。",
+    "两条正文指令是并列句，不写 linkedTo（359.3.e.11）。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +

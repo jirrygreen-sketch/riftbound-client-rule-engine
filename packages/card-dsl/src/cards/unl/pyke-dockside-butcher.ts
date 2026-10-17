@@ -27,15 +27,24 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   effect.buff（702 的 Buff 计数器）不可代替；两者都是“me”的自我指称，355.10.g 明确不是目标，
  *   因此都不写 TargetSpec（用 TargetSpec 会错误登记“成为目标”与目标税）。
  *
- * status = judge-required（缺口不近似实现）：
- * - [Hidden] 的展开需要 cost.hidden（Hide 动作、面朝下区域规则与免费用打出）与机内 Facedown Zone，
- *   两者都未合入（RIFT-89）；[Ganking] 的 continuous.movement 许可也缺移动系统消费方（RIFT-91）。
- * - 可选附加费用不可收取：已合入 cost/ 只消费调用方传入的费用计划，没有 CardProgram → CostPlan 的接线，
- *   effects/instructions/ 下也没有 cost.additional / cost.pay 原语（RIFT-89）。
- * - “if you paid the additional cost” 的费用回执没有绑定（356.4.f.1；Meditation/Clockwork Keeper 记录同一缺口），
- *   本程序按 Meditation 先例把条件写成描述性读取（fail-closed 的 ignored，不会误执行）。
- * 已合入并可真实执行的部分：effect.ready（ready me），golden 用解释器 + 参考内核执行。
- * 依赖：RIFT-89（cost.hidden / 可选附加费用与回执）、RIFT-91（layers-continuous、移动许可）、RIFT-84（Hidden 展开）。
+ * status = judge-required。自本程序初写后合入的依赖：continuous.might 指令（RIFT-258：
+ * arithmetic 层 + this-turn/end-of-turn 期限）、continuous.movement 指令与 movement() 规则
+ * 查询（RIFT-259）、Hidden/Ganking 的 KeywordDef（RIFT-264～268）、CardProgram 绑定
+ * （RIFT-257）。因此 “give me +2 [M] this turn” 改用该原语的真实 args 形状
+ * （objects 指向来源自身、duration this-turn），golden 用生产链适配器 + 参考内核真实执行。
+ *
+ * 仍缺三处（不近似实现）：
+ * 1. [Hidden]（811.1）的展开虽已合入，但其 static `cost.hidden` 没有消费方：封闭 GameAction
+ *    集合没有 Hide 动作、契约 ZoneId 没有面朝下区域成员，811.1.d 的免费用打出与 811.1.b 的
+ *    [A] 隐藏费用因此无处执行（依赖 cost.hidden 消费方，RIFT-261 系列）。
+ * 2. “You may pay :rb_rune_fury: as an additional cost to play me.”（356.2.b.1 的可选附加费用）
+ *    不可收取：programs/play.ts 的 translateCost 对 additional/additional-cost/optional 字段
+ *    直接 judgeRequired 失败，cost/ 也只消费调用方传入的 optionalAdditional（RIFT-261 未合入；
+ *    本 worktree 里 RIFT-261 分支尚未进入 HEAD）。
+ * 3. “if you paid the additional cost”（383.2.a.1 的触发条件，凭证见 356.4.f.1）没有费用回执绑定，
+ *    与 ogn/meditation、ogn/clockwork-keeper 同一缺口；本程序保留描述性读取，条件 fail-closed。
+ * [Ganking] 的 continuous.movement 许可也没有移动系统消费方（movement() 查询已合入，但没有调用方）。
+ * 依赖：RIFT-261（cost.hidden / 可选附加费用与回执）、movement() 的移动系统接线。不近似实现。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "hidden" },
@@ -84,12 +93,11 @@ const abilities: Ability[] = [
         id: "pyke-dockside-butcher.grant-might-2",
         op: "continuous.might",
         args: {
-          mode: { kind: "constant", value: "add" },
-          layer: { kind: "constant", value: "arithmetic" },
           amount: { kind: "constant", value: 2 },
           duration: { kind: "constant", value: "this-turn" },
-          // "me" 是自我指称（355.10.g），不是目标。
-          target: { kind: "constant", value: "self" }
+          // "me" 是自我指称（355.10.g），不是目标：合并原语的选择符经 objects
+          // 指向能力来源自身（契约 3.6 的 ObjectSelector；layer 固定为 arithmetic）。
+          objects: { kind: "constant", value: { kind: "source" } }
         }
       }
     ]
@@ -102,15 +110,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处缺口，均不近似实现：(1) [Hidden]（811.1）的展开需要 cost.hidden（Hide 动作、面朝下区域规则与从面朝下免费用打出）" +
-    "与机内 Facedown Zone，两者都未合入（RIFT-89）；[Ganking] 的 continuous.movement 许可也缺移动系统消费方（RIFT-91）。" +
-    "(2)「You may pay :rb_rune_fury: as an additional cost to play me.」是 356.2.b.1 的可选附加费用，但已合入 cost/ " +
-    "只消费调用方传入的费用计划，没有 CardProgram → CostPlan 的接线，effects/instructions/ 下也没有 cost.additional / " +
-    "cost.pay 原语（RIFT-89）。(3)「if you paid the additional cost」（383.2.a.1 的触发条件部分，凭证见 356.4.f.1）" +
-    "没有费用回执绑定——与 ogn/meditation、ogn/clockwork-keeper 记录同一缺口；本程序保留描述性读取，条件 fail-closed，" +
-    "不会在未支付时误执行。「give me +2 :rb_might: this turn」是 arithmetic 层的本回合临时 Might 修正，" +
-    "没有已注册的 continuous.might 指令入口（RIFT-91），不能用 Buff 计数器代替。" +
-    "已可真实执行的部分：effect.ready（ready me），golden 用解释器 + 参考内核执行。依赖：RIFT-89、RIFT-91、RIFT-84。",
+    "已合入并可真实执行：continuous.might（RIFT-258）按 143.2.a/475 注册 arithmetic 层修正、按 315.4 以 this-turn " +
+    "到期；effect.ready 与 Ganking 的 continuous.movement / movement() 查询（RIFT-259）也已合入。仍缺三处，均不近似实现：" +
+    "(1) [Hidden]（811.1）的展开虽已合入（RIFT-264～268），但其 static cost.hidden 没有消费方——封闭 GameAction 集合没有 " +
+    "Hide 动作、契约 ZoneId 没有面朝下区域成员，811.1.b 的 [A] 隐藏费用与 811.1.d 的从面朝下免费用打出无处执行；" +
+    "(2)「You may pay :rb_rune_fury: as an additional cost to play me.」（356.2.b.1 的可选附加费用）不可收取：" +
+    "programs/play.ts 的 translateCost 对 additional/additional-cost/optional 字段直接判 judge-required 失败，" +
+    "cost/ 也只消费调用方传入的 optionalAdditional（RIFT-261 未进 HEAD）；" +
+    "(3)「if you paid the additional cost」（383.2.a.1 的触发条件，凭证见 356.4.f.1）没有费用回执绑定——" +
+    "与 ogn/meditation、ogn/clockwork-keeper 同一缺口，本程序保留描述性读取（fail-closed，不会在未支付时误执行）。" +
+    "另外 [Ganking] 的许可没有移动系统消费方（movement() 已合入但没有调用方）。依赖：RIFT-261、movement() 的移动系统接线。",
   abilities,
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +

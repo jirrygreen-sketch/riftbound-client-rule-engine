@@ -56,9 +56,13 @@ test("unl-024-219 Rengar, Unseen: identity, status, judgeReason and verbatim sou
   assert.match(program.judgeReason, /Assault/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /continuous\.movement/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  // The stale "no KeywordDef consumer / combatRole not in ObjectSnapshot" wording
+  // is gone (RIFT-257/258 and contract 3.8 landed); the reason must name the real
+  // remaining pipeline gaps.
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /combatRole/);
+  assert.doesNotMatch(program.judgeReason, /尚未进入实际 ObjectSnapshot/);
 });
 
 test("unl-024-219 Rengar, Unseen: four keyword declarations in printed order", () => {
@@ -123,18 +127,19 @@ test("unl-024-219 Rengar, Unseen: every ability is a bare keyword declaration (c
 
 test.todo(
   "unl-024-219 Rengar, Unseen: charge the Accelerate optional additional cost (CR 805.1.b: [1][Fury]) in the" +
-    " Finalize cost plan and apply the 805.6 enter-ready replacement (RIFT-89; the merged keyword expansion is" +
+    " Finalize cost plan and apply the 805.6 enter-ready replacement (the merged keyword expansion is" +
     " not consumed by the card-program -> cost/replacement pipeline)"
 );
 test.todo(
   "unl-024-219 Rengar, Unseen: apply Assault 2 in the arithmetic layer only while this unit holds the Attacker" +
-    " designation (CR 807.1.c/.d, contract 3.8 combatRole; RIFT-91)"
+    " designation (CR 807.1.c/.d) — ObjectSnapshot.combatRole exists (contract 3.8 other half), but no combat" +
+    " designation transaction emits it and layers/engine.ts does not evaluate the compare condition"
 );
 test.todo(
   "unl-024-219 Rengar, Unseen: append the Deflect 1 target tax when an opponent chooses this unit (CR 809.1.c;" +
-    " RIFT-90 target tax + RIFT-89 cost.pay merge)"
+    " the target tax has no query and the tax adapter only reads caller-supplied options)"
 );
 test.todo(
   "unl-024-219 Rengar, Unseen: let the movement system read the Ganking continuous.movement permission" +
-    " (CR 810.1.b / 144.4.c.1; RIFT-91)"
+    " (CR 810.1.b / 144.4.c.1 — movement() is merged but has no caller)"
 );

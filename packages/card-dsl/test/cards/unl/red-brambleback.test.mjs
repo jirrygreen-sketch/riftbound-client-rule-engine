@@ -10,6 +10,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL_ID =
   "card.hash-cc540d8a2bbd62d237f265dc99b08da25c4499af36778a1dc01cf4165c0b9553";
@@ -51,8 +52,15 @@ test("unl-029-219 Red Brambleback: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /conquer effects/);
   assert.match(program.judgeReason, /383\.4\.g\.2/);
   assert.match(program.judgeReason, /Accelerate/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  // The stale "no trigger registration path" gap is gone (RIFT-257) and the
+  // conquer timing point is really emitted; the reason must name the real gaps.
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /turn\/flow\.ts/);
+  assert.match(program.judgeReason, /additional-cost/);
+  // The newly verified gap: the scoring wave carries no conquering-unit attribution.
+  assert.match(program.judgeReason, /payloadFields/);
+  assert.match(program.judgeReason, /sigil-of-the-storm/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120/);
 });
 
 test("unl-029-219 Red Brambleback: [Accelerate] is a bare keyword declaration", () => {
@@ -159,9 +167,29 @@ test.todo(
 );
 test.todo(
   "unl-029-219 Red Brambleback: charge the Accelerate optional additional cost and apply the 805.6 enter-ready" +
-    " replacement (merged keyword expansion not consumed by the card-program -> cost pipeline; RIFT-89)"
+    " replacement — the merged keyword expansion is not consumed by the card-program -> cost/replacement pipeline" +
+    " (programs/play.ts rejects additional-cost fields)"
 );
 test.todo(
   "unl-029-219 Red Brambleback: the conquer trigger is registered and its friendly-unit target is locked at" +
-    " Finalize (RIFT-120 / RIFT-90)"
+    " Finalize — the RIFT-257 registration path exists, but the program is judge-required so the registry refuses" +
+    " it; the card keeps judge-required for the trigger-multiplicity gap recorded in judgeReason"
+);
+
+test("unl-029-219 Red Brambleback: the card's `source: self` anchor translates to the conquering unit's object filter", () => {
+  // 383.4.c.2 scopes the ability to *this* unit. programs/filters.ts is the merged
+  // translation the registration path uses: the source anchor becomes an object
+  // filter on the unit. Binding that filter to a real conquer emission is the
+  // separate gap recorded below.
+  const translated = translateTriggerFilter(conquerTrigger.trigger.filter, "brambleback", "conquer");
+  assert.deepEqual(translated, {
+    event: "conquer",
+    object: { objectId: "brambleback" }
+  });
+});
+
+test.todo(
+  "unl-029-219 Red Brambleback: a real conquer emission binds the conquering unit (CR 383.4.c.2) — the scoring " +
+    "wave in turn/flow.ts publishes only player + battlefieldId, so the translated object filter has no " +
+    "conquering-unit attribution to match (timing-points.ts declares no payloadFields for conquer)"
 );

@@ -10,6 +10,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL_ID =
   "card.hash-29fe440bf64648cf3c6845485b73efbd8c2cae11e1cf26c7b3bb6a355351ebae";
@@ -44,9 +45,10 @@ test("unl-028-219 Pyke, Dockside Butcher: identity, status, judgeReason and verb
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /cost\.hidden/);
-  assert.match(program.judgeReason, /cost\.additional/);
+  assert.match(program.judgeReason, /additional cost/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-258/);
 });
 
 test("unl-028-219 Pyke, Dockside Butcher: [Hidden] and [Ganking] keyword declarations", () => {
@@ -101,9 +103,14 @@ test("unl-028-219 Pyke, Dockside Butcher: the Play Effect gates on the paid rece
   assert.equal(grantMight.op, "continuous.might");
   assert.deepEqual(grantMight.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(grantMight.args.duration, { kind: "constant", value: "this-turn" });
-  // "me" is a self-reference (355.10.g), so no TargetSpec is written.
+  // "me" is a self-reference (355.10.g), so no TargetSpec is written; the merged
+  // primitive selects the ability source through the contract 3.6 objects form.
   assert.equal(grantMight.targets, undefined);
-  assert.deepEqual(grantMight.args.target, { kind: "constant", value: "self" });
+  assert.deepEqual(grantMight.args.objects, {
+    kind: "constant",
+    value: { kind: "source" }
+  });
+  assert.equal(grantMight.args.target, undefined);
 });
 
 test("unl-028-219 Pyke, Dockside Butcher golden: 'ready me' readies the exhausted source", () => {
@@ -128,17 +135,53 @@ test("unl-028-219 Pyke, Dockside Butcher golden: an already-ready source is a no
 
 test.todo(
   "unl-028-219 Pyke, Dockside Butcher: charge the optional additional cost (CR 356.2.b.1: [Fury]) in Finalize and" +
-    " bind the 356.4.f.1 paid receipt so 'if you paid the additional cost' is a real trigger condition (RIFT-89)"
+    " bind the 356.4.f.1 paid receipt so 'if you paid the additional cost' is a real trigger condition"
 );
 test.todo(
   "unl-028-219 Pyke, Dockside Butcher: [Hidden] expansion (CR 811.1: Hide for [A], facedown zone restrictions and" +
-    " the free play from facedown) — needs cost.hidden and the facedown zone (RIFT-89 / RIFT-84)"
+    " the free play from facedown) — the merged cost.hidden declaration has no consumer and the contract ZoneId has no facedown member"
 );
 test.todo(
   "unl-028-219 Pyke, Dockside Butcher: [Ganking] continuous.movement permission (CR 810.1.b / 144.4.c.1) is read" +
-    " by the movement system (RIFT-91)"
+    " by the movement system — movement() is merged but has no caller"
 );
-test.todo(
-  "unl-028-219 Pyke, Dockside Butcher: apply +2 Might in the arithmetic layer for the turn (CR 143.2.a / 475;" +
-    " no continuous.might instruction is merged — RIFT-91)"
-);
+test("unl-028-219 Pyke, Dockside Butcher golden: +2 Might registers in the arithmetic layer for the turn", () => {
+  const kernel = fixture({ exhausted: true });
+  const outcome = resolveChainBody([grantMight], kernel);
+
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [registration] = kernel.continuousEffects;
+  // 143.2.a / 475 / 478: Might modifications live in the arithmetic layer.
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 2);
+  // 315.4: the printed "this turn" resolves to the end-of-turn expiry.
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+  // 355.10.g: "me" is the ability's source, registered by object identity.
+  assert.equal(registration.effect.filter.objectId, "pyke");
+
+  const might = createLayerEngine(kernel.objects, kernel.continuousEffects).evaluate(kernel.ref("pyke")).might;
+  assert.equal(might, 4);
+});
+
+test("unl-028-219 Pyke, Dockside Butcher golden: the +2 expires at end of turn (317.1.a / 468.7.c)", () => {
+  const kernel = fixture({ exhausted: false });
+  resolveChainBody([grantMight], kernel);
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  assert.equal(layers.evaluate(kernel.ref("pyke")).might, 4);
+
+  assert.equal(layers.expireAt("turn-end").length, 1);
+  assert.equal(layers.evaluate(kernel.ref("pyke")).might, 2);
+});
+
+test("unl-028-219 Pyke, Dockside Butcher golden: a source that left the Board is ignored (359.3.e.6)", () => {
+  const base = world().unit("pyke", { might: 2, zone: "board" }).build();
+  const stale = base.ref("pyke");
+  base.perform({ type: "move-zone", object: stale, to: "trash" });
+  const kernel = base.clone({ sourceSnapshot: base.getObject("pyke") });
+
+  const outcome = resolveChainBody([grantMight], kernel);
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(kernel.continuousEffects.length, 0);
+});

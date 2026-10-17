@@ -6,6 +6,7 @@ import program from "../../../dist/cards/unl/nidalee-cat-form.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CANONICAL_ID =
   "card.hash-6c0a37aa2f3f705ccf4e2649f8890740556c17ff53525e6e45bd44c6c16e9bd5";
@@ -28,13 +29,15 @@ test("unl-114-219 Nidalee, Cat Form: identity, status, judgeReason and verbatim 
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
-  // The reason must name the missing keyword expansion, the missing combat-result
-  // producer and the missing trigger registration path.
+  // The stale "no Ambush KeywordDef" gap is gone (RIFT-266) and the card-program
+  // binding is merged too (RIFT-257); the reason must name the real gaps.
   assert.match(program.judgeReason, /Ambush/);
   assert.match(program.judgeReason, /822/);
+  assert.match(program.judgeReason, /RIFT-266/);
+  assert.doesNotMatch(program.judgeReason, /没有 Ambush 文件|没有已合入的 KeywordDef/);
   assert.match(program.judgeReason, /combat-result/);
   assert.match(program.judgeReason, /468\.3/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
 });
 
 test("unl-114-219 Nidalee, Cat Form: [Ambush] stays a keyword declaration (822)", () => {
@@ -104,9 +107,28 @@ test("unl-114-219 Nidalee, Cat Form golden: an empty Main Deck gains no card but
 
 test.todo(
   "unl-114-219 Nidalee, Cat Form: [Ambush] adds the battlefield permission and grants [Reaction] while " +
-    "being played there (CR 822.1.b / 822.1.c / 355.2.b) — no Ambush KeywordDef is merged (RIFT-266)"
+    "being played there (CR 822.1.b / 822.1.c / 355.2.b) — the merged Ambush expansion is not consumed by " +
+    "Finalize's placement check or chain.canAct()"
 );
 test.todo(
   "unl-114-219 Nidalee, Cat Form: combat-result must reach the ability through the combat -> chain pipeline and " +
-    "bind “I win” from 468.3.a/468.3.c (RIFT-33 / RIFT-120; docs/rules/timing-point-producers.md lists the timing as 待后续)"
+    "bind “I win” from 468.3.a/468.3.c — combat/flow.ts still throws combat-start-transaction and "
+    + "docs/rules/timing-point-producers.md lists the timing as 待后续"
+);
+
+test("unl-114-219 Nidalee, Cat Form: the merged Ambush KeywordDef publishes the two printed permissions", () => {
+  const ambushDef = keywordDefinitionsById.get("Ambush");
+  assert.ok(ambushDef, "the merged Ambush KeywordDef is registered (CR 822)");
+  const expansion = ambushDef.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  // 822.2: multiple Ambush instances are redundant.
+  assert.equal(ambushDef.stacking, "single");
+  // 822.1.b/822.1.c: the placement permission plus the conditional Reaction grant.
+  assert.deepEqual(expansion.map(ability => ability.effect.kind), ["play-location-permission", "continuous.timing"]);
+  assert.equal(expansion[1].effect.location.battlefield.controller, "controller");
+});
+
+test.todo(
+  "unl-114-219 Nidalee, Cat Form: register the combat-result subscription (CR 468.3.a/468.3.c) — the card's " +
+    "recorded `result: \"win\"` scope needs the combat-result timing to be part of the closed EventPattern " +
+    "vocabulary in events/trigger-spec.ts and to be emitted with a unitResults payload"
 );
