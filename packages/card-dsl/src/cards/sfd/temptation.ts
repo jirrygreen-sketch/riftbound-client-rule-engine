@@ -12,8 +12,11 @@ import type { CardProgram } from "../../ir/index.js";
  * Rules evidence (Core Rules v1.5):
  * - "[Repeat] :rb_energy_2:" (820.1.c) is an Optional Additional Cost: the
  *   printed component is declared on the play ability's CostSpec in the merged
- *   sfd/danger-zone / sfd/frigid-touch shape (356.2.b.1) and has no merged
- *   collector (RIFT-86/RIFT-89).
+ *   sfd/danger-zone / sfd/frigid-touch shape (356.2.b.1). The merged program
+ *   binding (RIFT-257) does not collect it: programs/play.ts translateCost
+ *   rejects kind "additional-cost" and the detached `keyword`/`additional`
+ *   fields, so describePlay throws (verified by the golden). Cost-plan
+ *   optionalAdditional exists but has no card-program producer (RIFT-261).
  * - "Move an enemy unit" is an effect Move (451, not the Standard Move of 144
  *   and not a Recall of 457/458): the named unit is chosen by the spell's
  *   controller in the public Board zone, so it is a Target (355.7 /
@@ -34,6 +37,9 @@ import type { CardProgram } from "../../ir/index.js";
  * Status (cards/README.md §2): judge-required. Both clauses are blocked by
  * missing dependencies; nothing is approximated (no fixed destination is
  * substituted, and the printed [Repeat] cost is not executed twice by hand).
+ * The CardProgram binding itself (RIFT-257) is merged; the remaining gaps are
+ * the runtime Location destination (RIFT-90) and the Repeat additional-cost
+ * collector (RIFT-261).
  */
 
 /**
@@ -60,9 +66,9 @@ const temptation = {
     "而冻结 IR 无法枚举运行期 Location（target.location 未合入），effect.move 的 to 只接受静态 LocationRef / " +
     "controller-base / 静态合法候选列表；本卡只保留描述性目的地标记，原语会拒绝它而不是落到错误地点。" +
     "同时“存在同一控制者的单位”这一地点占用限制需要按 Location 查询占用者的谓词，合并过滤器词表没有该形态。" +
-    "(2)「[Repeat] :rb_energy_2:」的可选追加费用没有收取/计数路径（Repeat 关键词展开 RIFT-86 / 费用计划 RIFT-89；" +
-    "冻结的 KeywordAbility IR 不承载印刷费用），已按已合入 sfd/frigid-touch 的形状声明在 play 的 CostSpec 上，属待接线声明。" +
-    "被移动的敌方单位按 355.7 / 355.9.a.1 / 355.9.b 声明为目标，effect.move 本身已合入。依赖：RIFT-90（目标/目的地计划）、RIFT-86 / RIFT-89。",
+    "(2)「[Repeat] :rb_energy_2:」的可选追加费用没有收取/计数路径：卡牌程序绑定（RIFT-257）已合入，但 programs/play.ts 的 translateCost " +
+    "对 additional-cost 与 keyword/additional 字段直接 judgeRequired（golden 在 describePlay 上实测抛错），费用计划里的 optionalAdditional 没有卡牌产出方（RIFT-261）。" +
+    "被移动的敌方单位按 355.7 / 355.9.a.1 / 355.9.b 声明为目标，effect.move 本身已合入。依赖：RIFT-90（目标/目的地计划）、RIFT-261（Repeat 追加费用）。",
   abilities: [
     {
       kind: "play",

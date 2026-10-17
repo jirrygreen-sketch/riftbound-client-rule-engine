@@ -10,6 +10,7 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import channel from "../../../../engine-core/dist/effects/instructions/effect.channel.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+const enginePipeline = await import("../../../../engine-core/dist/events/pipeline.js");
 
 const CANONICAL =
   "card.hash-4d3a916ba4eb2379af2f90b22c56765b66af29ff69411c03a17ac2e8789cf6c0";
@@ -33,13 +34,13 @@ test("sfd-219-221 The Papertree: identity, ruleset, status and verbatim source t
   // Build-time codegen over src/cards/**; the golden proves the identity is
   // actually registered (one identity, one file).
   assert.equal(cardProgramsById.get(CANONICAL), program);
-  // Both named dependencies: the unemitted hold timing point and the missing
-  // per-player iteration (see judgeReason).
+  // Both named dependencies: the currently unemittable "here" anchor and the
+  // missing per-player iteration (see judgeReason).
   assert.match(program.judgeReason, /hold/);
-  assert.match(program.judgeReason, /RIFT-31/);
-  assert.match(program.judgeReason, /RIFT-33/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /effect\.channel/);
   assert.match(program.judgeReason, /each player/);
+  assert.match(program.judgeReason, /battlefieldId/);
 });
 
 test("sfd-219-221: hold trigger that channels 1 exhausted rune (431.1/431.2)", () => {
@@ -169,8 +170,58 @@ test("sfd-219-221: the trigger filter still carries the unreplaced here placehol
   assert.throws(() => assertTriggerSpec(ability.trigger), /EventPattern 不允许此字段/);
 });
 
+test("sfd-219-221: the hold timing point really reaches a registered trigger through the merged pipeline", () => {
+  // hold 已由回合/计分流程发出（turn/flow.ts scheduleScore），载荷 details.battlefieldId
+  // 指明固守的战场；这里用已合入的 EventPipeline 验证该事件能命中一个不带 here 的注册，
+  // 说明剩余缺口只是 here 锚点与逐玩家迭代，而不是时点本身。
+  const { EventPipeline } = enginePipeline;
+  const source = {
+    ref: { id: "the-papertree", zoneEntryId: 1 },
+    cardId: CANONICAL,
+    name: "The Papertree",
+    types: ["battlefield"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "battlefield-1" },
+    might: null,
+    energy: null,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const host = {
+    checkpoint: () => null,
+    restore: () => {},
+    execute: () => ({ outcome: { status: "done", events: [] }, emissions: [] }),
+    context: () => ({}),
+    objects: () => [source],
+    choose: () => { throw new Error("unexpected choose"); }
+  };
+  const pipeline = new EventPipeline(host, ["A", "B"], "A");
+  const seen = [];
+  pipeline.onTrigger = (snapshot) => seen.push(snapshot);
+  pipeline.registerTrigger({
+    id: "test.papertree.hold",
+    source,
+    controller: "A",
+    spec: { at: "hold", filter: { event: "held", player: "self" } },
+    body: []
+  });
+  pipeline.emit({ timingPoint: "hold", player: "A", details: { battlefieldId: "battlefield-1" } });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].event.details.battlefieldId, "battlefield-1");
+});
+
 test.todo(
-  "sfd-219-221: hold 由 scoring/ 发出并进链，Battlefield 能力按控制者注册触发（RIFT-31/RIFT-33）"
+  "sfd-219-221: the here anchor on the hold event needs a payload-location selector; the hold emission and the RIFT-257 trigger binding are merged"
 );
 test.todo(
   "sfd-219-221: 「each player channels」的逐玩家迭代/逐席位选择原语（RIFT-9 target.player）落地后，" +

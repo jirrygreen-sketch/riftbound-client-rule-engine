@@ -6,6 +6,8 @@ import program from "../../../dist/cards/sfd/temporal-portal.js";
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { keywordDefinitionsById } = await import(new URL("effects/keywords/registry.generated.js", ENGINE));
 const { world } = await import(new URL("effects/testing/index.js", ENGINE));
+const { runInstruction } = await import(new URL("effects/testing/index.js", ENGINE));
+const grantKeyword = (await import(new URL("effects/instructions/continuous.grant-keyword.js", ENGINE))).default;
 const { buildCostPlan, payCostPlan } = await import(new URL("cost/index.js", ENGINE));
 
 const CARD_ID = "card.hash-bb98faffa9506df8c98b1086bec2cbd71a7dd9f4c677d8e31dc335ebfa6e61d5";
@@ -38,7 +40,8 @@ test("sfd-078-221 Temporal Portal: program validates and is judge-required", () 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Repeat/);
   assert.match(program.judgeReason, /next-spell|一次性/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /equal to its cost|印刷费用/);
 });
 
@@ -98,14 +101,36 @@ test("sfd-078-221 Temporal Portal: the merged Repeat definition only carries a s
   ]);
 });
 
+test("sfd-078-221 Temporal Portal: the merged grant-keyword primitive really grants a fixed keyword to the source", () => {
+  // 说明缺口只在「未来法术 / 动态费用」这一形态，而不是授予本身：同一原语对
+  // keyword + 非负整数 value 的调用真实注册 ability 图层效果。
+  const kernel = world().unit("portal", { types: ["gear"], might: null }).build();
+  const bound = kernel.clone({ source: kernel.ref("portal"), sourceSnapshot: kernel.getObject("portal") });
+  const run = runInstruction(grantKeyword, {
+    keyword: { kind: "constant", value: "Shield" },
+    value: { kind: "constant", value: 2 },
+    duration: { kind: "constant", value: "end-of-turn" }
+  }, { world: bound });
+
+  assert.equal(run.result.status, "executed");
+  // One ability-layer grant is registered for the source (Shield 2 does not
+  // exist on the Gear yet, so no arithmetic companion is emitted).
+  assert.equal(bound.continuousEffects.length, 1);
+  assert.deepEqual(bound.continuousEffects[0].duration, { type: "end-of-turn" });
+  assert.equal(bound.continuousEffects[0].effect.layer, "ability");
+  assert.equal(bound.continuousEffects[0].effect.effect.kind, "continuous.grant-keyword");
+  assert.equal(bound.continuousEffects[0].effect.effect.keyword, "Shield");
+  assert.equal(bound.continuousEffects[0].effect.effect.keywordValue, 2);
+});
+
 test.todo(
   "sfd-078-221 Temporal Portal: granting a Repeat instance to the NEXT spell played this turn (CR 820.1.b/820.1.c) needs " +
-    "a merged keyword-grant primitive plus the one-shot \"next spell\" duration (RIFT-89 cost plan, RIFT-91 layers); " +
-    "the declared continuous.grant-keyword instruction has no registered consumer and Duration has no next-spell lifetime"
+    "the one-shot next-spell duration and a pending-spell binding on top of the merged continuous.grant-keyword primitive " +
+    "(RIFT-258/RIFT-91 follow-up); the declared amount/appliesTo forms are rejected by the primitive's schema"
 );
 test.todo(
   "sfd-078-221 Temporal Portal: \"equal to its cost\" needs the future spell's own printed cost read at Finalize (CR 206) " +
-    "to build the optional additional-cost component (RIFT-89); no expression can read a not-yet-played object's printed cost"
+    "to build the optional additional-cost component (RIFT-261); no expression can read a not-yet-played object's printed cost"
 );
 test.todo(
   "sfd-078-221 Temporal Portal: the printed :rb_rune_rainbow: cost is Universal Power [A] (CR 135.2.e.5.a / 163.2.b); the " +

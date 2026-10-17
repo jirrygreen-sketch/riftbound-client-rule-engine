@@ -10,6 +10,8 @@ const { keywordDefinitionsById } = await import(new URL("effects/keywords/regist
 const { instructionDefinitionsById } = await import(new URL("effects/instructions/registry.generated.js", ENGINE));
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
+const { translateTriggerFilter } = await import(new URL("programs/filters.js", ENGINE));
+const { assertTriggerSpec } = await import(new URL("events/trigger-spec.js", ENGINE));
 
 const CARD_ID = "card.hash-b9ee923133a3002010f175ddd77b690a710fa21bed8ffaefa29904a936c710ca";
 const EXPECTED_SOURCE =
@@ -69,7 +71,8 @@ test("sfd-056-221 Sterak's Gage: program validates and is judge-required", () =>
   assert.match(program.judgeReason, /equip/);
   assert.match(program.judgeReason, /CostPlanError|Unsupported payment kind/);
   assert.match(program.judgeReason, /Quick-Draw/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
 });
 
 test("sfd-056-221 Sterak's Gage: identity, ruleset, status and verbatim source text", () => {
@@ -145,13 +148,28 @@ test("sfd-056-221 Sterak's Gage: the Equip expansion declares its activation cos
   assert.deepEqual(activation.cost.payments.map((payment) => payment.kind), ["equip"]);
 });
 
+test("sfd-056-221 Sterak's Gage: the RIFT-257 binding translates the Quick-Draw trigger, which then passes the closed trigger validation", () => {
+  // RIFT-257 已合入：translateTriggerFilter 能把 Quick-Draw 展开的 source 锚点翻译成
+  // EventPattern，且 card-played 在封闭词表内，说明附着触发的注册路径已经存在；
+  // 未解决的只是 continuous.timing 静态许可的消费方与 equip 费用。
+  const expansion = keywordDefinitionsById.get("Quick-Draw").expand({ host: { canonicalCardId: CARD_ID } });
+  const spec = {
+    at: expansion[1].trigger.at,
+    filter: translateTriggerFilter(expansion[1].trigger.filter, "steraks", expansion[1].trigger.at)
+  };
+  assert.doesNotThrow(() => assertTriggerSpec(spec));
+});
+
 test.todo(
   "sfd-056-221 Sterak's Gage: paying the printed Equip cost (1 Calm rune, 818.1.c / 818.1.c.3) needs the " +
-    "\"equip\" payment kind in cost plan-values (RIFT-89 follow-up) plus the program -> keyword expansion -> chain wiring " +
-    "(contract 3.5)"
+    "\"equip\" payment kind in cost plan-values (RIFT-261)"
 );
 test.todo(
-  "sfd-056-221 Sterak's Gage: Quick-Draw's expansion (inherent Reaction timing plus the card-played attach trigger, " +
-    "CR 819.1.b-d) needs the continuous.timing layer consumer (RIFT-91) and the program -> TriggerRegistration adapter " +
-    "(contract 3.5) before it can fire"
+  "sfd-056-221 Sterak's Gage: Quick-Draw's inherent Reaction timing (CR 819.1.b/819.1.c) needs chain/engine.ts's " +
+    "canAct to consume the card static continuous.timing registrations; the layer-side actionTimings query alone is " +
+    "not read by the chain"
+);
+test.todo(
+  "sfd-056-221 Sterak's Gage: the Quick-Draw card-played attach trigger is bound by RIFT-257, but the card stays " +
+    "judge-required until the timing permission and the equip cost both execute"
 );
