@@ -15,19 +15,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “Units don't ready during the Awaken Phase.”：Awaken 阶段常规重置（315.1.b）的静态限制，
  *   属 continuous.restrict（effect.ready 文件明确本原语不实现该限制）。
  *
- * status: judge-required（不近似实现）：
- * - “I enter ready.” 的入场替代已可用：RIFT-260 的绑定把单一 self 目标 effect.ready 体识别为
- *   entry-orientation 声明，golden 用真实事件管线执行并断言“就绪进场、无 object-readied 时点”。
- * - “Other units enter ready.” 仍未解决：它作用于其他单位的入场，需要替代体引用“被替代事件的对象”，
- *   而卡牌 IR 只能按 TargetSpec/pick/linked 选择器表达；把它写成 self 目标会被绑定层拒绝，
- *   写成 choice.optional 等包装也会被替代规划器拒绝；当前替代体不能把带
- *   replacement.object 的正文写成可绑定的 replacement.event 形状。
- * - “Units don't ready during the Awaken Phase.” 用已合入的 continuous.restrict 记录，但没有消费者：
- *   Awaken 阶段（315.1.b）的就绪流程不查图层限制；CardProgram 的 static/replacement 生命周期绑定已存在，
- *   当前缺口是 Awaken 就绪流程消费该 restriction。
- * - “ready all enemy units” 本身已可执行（effect.ready + query），golden 测试真实执行该指令。
- *
- * 依赖：替代体正文的事件对象绑定与 Awaken 就绪流程的 restriction 消费。
+ * Firebrand Raider — CR v1.5 369.3 (entry replacements), 383.4.a (play effect),
+ * 355.10.d (non-target “all”), 315.1.b (Awaken readiness).
+ * Self entry and readying enemy units have partial execution evidence.
+ * Other-unit entry and the Awaken-only prohibition remain blocked; see judgeReason.
  */
 const abilities: Ability[] = [
   {
@@ -96,19 +87,7 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：" +
-    "(1) “Other units enter ready.”（365.1 的其他单位入场改写）无法绑定：本卡的静态 replaces 声明" +
-    "（filter: { type: unit, other: true, exhausted: true }，正文 linked replacement.object）在真实绑定层实测抛 " +
-    "BlockedReplacementError「Unsupported entry body target value: {kind: linked, key: replacement.object}」——" +
-    "绑定层（replacement/bind.ts）把单条 effect.ready 正文当作入场朝向声明在 bind 时求值，" +
-    "constant 包装的 linked 选择器无法在 bind 时求值；而能绑定 replacement.object 的 replacement.event 声明" +
-    "需要 instead 指令数组，IR 的 Expr 包装形状不可表达（且静态路径会丢入场动作，违反 CR 370.1.b.1）。" +
-    "(2) “Units don't ready during the Awaken Phase.” 已用 continuous.restrict 记录（RIFT-259），" +
-    "但 Awaken 阶段（315.1.b）的常规就绪流程不读图层限制；CardProgram 的 static/replacement 生命周期绑定已存在，" +
-    "当前缺口是 Awaken 就绪流程消费该 restriction。" +
-    "已可执行并真实执行的两段：“I enter ready.”（RIFT-260 的 entry-orientation 替代，" +
-    "golden 断言就绪进场且无 object-readied 时点）与“When you play me, ready all enemy units.”" +
-    "（effect.ready + 非目标 query，355.10.d）。",
+    "CR 369.3 / 370.1.b.1：“Other units enter ready”缺其他入场对象的朝向替代绑定；replacement/bind.ts 把单条 effect.ready 的 constant linked replacement.object 当作入场声明在 bind 时求值并拒绝，replacement.enter 又只绑定宿主。replacement.event 的 args.instead 只读裸指令数组，与 IR 的 Expr 参数冲突。CR 315.1.b：“Units don't ready during the Awaken Phase”缺阶段限制消费；turn/flow.ts 的 Awaken 就绪任务未查询 continuous.restrict，静态登记本身也需保留 during: awaken-phase 的适用范围，不能变成全时段禁止就绪。",
   abilities,
   sourceText:
     "I enter ready.\nWhen you play me, ready all enemy units.\nOther units enter ready.\n" +
