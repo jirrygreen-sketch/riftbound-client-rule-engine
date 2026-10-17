@@ -16,13 +16,13 @@
  * - 印刷 Might 0 是 Gear 的印刷特征（150.1/150.2），保持原值，不改写。
  *
  * status = judge-required（缺可支付的费用路径与关键词/触发接线，不近似实现）：
- * - 已合入的 Equip 展开（RIFT-87，effects/keywords/Equip.ts）声明
+ * - 已合入的 Equip 展开（effects/keywords/Equip.ts）声明
  *   payments: [{ kind: "equip", value: { kind: "source" } }]，而费用管线
  *   cost/plan-values.ts 的 readCost 没有 "equip" 这一支付种类（实测 buildCostPlan 抛
- *   "Unsupported payment kind: equip"；RIFT-261），
+ *   "Unsupported payment kind: equip"），
  *   Equip 的启动费用因此无法计算/支付；契约 3.8 第 3 条要求 expand 用
  *   params.cost 承载印刷装备费，已合入的 KeywordDef 接口仍没有该参数。
- * - 卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）未合入（RIFT-257）。
+ * - 卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）未合入。
  * - 不把 Equip 降级成裸 effect.attach：那会绕开 818.1.c 的费用与费用改写语义。
  */
 export default {
@@ -31,12 +31,12 @@ export default {
   status: "judge-required",
   judgeReason:
     "印刷的 [Equip] 费用（1 点 Order Power，818.1.c.2）目前无法支付：已合入的 Equip 展开" +
-    "（RIFT-87，effects/keywords/Equip.ts）声明 payments: [{ kind: \"equip\", value: source }]，" +
+    "（effects/keywords/Equip.ts）声明 payments: [{ kind: \"equip\", value: source }]，" +
     "费用管线 cost/plan-values.ts 的 readCost 没有 \"equip\" 支付种类（实测 buildCostPlan 抛 " +
     "\"Unsupported payment kind: equip\"），启动费用无法计算/支付；" +
     "契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，KeywordDef 接口仍无该参数，" +
-    "也缺卡牌程序→关键词展开→时点/链的接线（契约 3.5，RIFT-257）。依赖：RIFT-261 的 Equip 费用支持" +
-    "与 RIFT-257 的关键词接线。不近似实现（不把 Equip 降级成裸 effect.attach）。",
+    "也缺卡牌程序→关键词展开→时点/链的接线（契约 3.5）。依赖：equip 支付种类仍 blocked，" +
+    "契约 3.5 的关键词接线未合入。不近似实现（不把 Equip 降级成裸 effect.attach）。",
   abilities: [
     { kind: "keyword", keyword: "equip", value: 1, costDomain: "Order" }
   ],

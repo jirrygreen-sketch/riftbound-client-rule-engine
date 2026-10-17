@@ -30,12 +30,14 @@ import type { CardProgram } from "../../ir/index.js";
  * - cost.hidden still has no consumer: nothing grants the Hide Discretionary
  *   Action, maintains a facedown zone, or allows the free facedown play
  *   (811.1.b-811.1.c). The keyword expansion is merged
- *   (effects/keywords/Hidden.ts), the consumer side is RIFT-89 / RIFT-91.
+ *   (effects/keywords/Hidden.ts), but no merged primitive consumes cost.hidden
+ *   yet — the Hide Discretionary Action, the facedown zone and the free
+ *   facedown play (CR 811.1.b-811.1.c) all have no owning instruction.
  * - 811.1.d.2: when this spell is played from facedown, every chosen unit must
  *   be located at the battlefield it was played from. That is an origin-bound
  *   targeting restriction the current TargetSpec cannot express (the filter can
- *   only say "a unit at a battlefield", 355.10.b); the origin restriction
- *   belongs to the target system (RIFT-90).
+ *   only say "a unit at a battlefield", 355.10.b) and no TargetSpec field
+ *   carries the hidden-at origin, so 811.1.d.2 stays unexpressible.
  * The printed Move clause itself only uses merged pieces and is executed by
  * the golden test through the interpreter and the reference kernel.
  */
@@ -45,10 +47,10 @@ const emperorsDivide = {
   status: "judge-required",
   judgeReason:
     "两处依赖未合入，均不近似实现：(1)[Hidden]（811）的展开已合入（keywords/Hidden.ts），" +
-    "但它依赖的 cost.hidden 消费方——Hide 行动、facedown 区域与从 facedown 免费打出——还没有实现（811.1.b/811.1.c；RIFT-89/RIFT-91）。" +
+    "但没有任何已合入原语消费 cost.hidden——Hide 行动、facedown 区域与从 facedown 免费打出都无归属指令（811.1.b/811.1.c）。" +
     "(2) 811.1.d.2 要求从 facedown 打出时所有被选单位都位于它被隐藏的战场，这是来源绑定的目标限制；" +
     "现有 TargetSpec filter 只能表达「unit 位于某个 battlefield」（355.10.b），无法表达「与隐藏来源同一战场」，" +
-    "该来源限制属目标系统（RIFT-90）。正文的 effect.move（355.12/355.13 的 any number → min 0；107.1.c 的 controller-base）" +
+    "该来源限制的 TargetSpec 字段不存在（811.1.d.2 不可表达）。正文的 effect.move（355.12/355.13 的 any number → min 0；107.1.c 的 controller-base）" +
     "已用已合入原语并由 golden 真实执行。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },

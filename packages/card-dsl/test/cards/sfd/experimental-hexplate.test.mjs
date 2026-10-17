@@ -63,8 +63,8 @@ test("sfd-073-221 Experimental Hexplate: program validates and is judge-required
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /equip/);
   assert.match(program.judgeReason, /CostPlanError/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Unsupported payment kind/);
+  assert.match(program.judgeReason, /818\.1\.c\.3/);
 });
 
 test("sfd-073-221 Experimental Hexplate: identity, ruleset, status and verbatim source text", () => {
@@ -133,7 +133,7 @@ test("sfd-073-221 Experimental Hexplate: the Equip expansion declares its activa
 });
 
 test.todo(
-  "sfd-073-221 Experimental Hexplate: paying the printed Equip cost (1 Mind rune, 818.1.c / 818.1.c.3) needs the " +
-    "\"equip\" payment kind in cost plan-values plus the any-Domain Power payment path (RIFT-261), and the " +
-    "program -> keyword expansion -> chain wiring (contract 3.5, RIFT-257)"
+  "sfd-073-221 Experimental Hexplate: paying the printed Equip cost (1 Mind rune, 818.1.c / 818.1.c.3) stays " +
+    "blocked while \"Unsupported payment kind: equip\" is returned by cost plan-values, and the " +
+    "program -> keyword expansion -> chain wiring (contract 3.5) stays unimplemented"
 );

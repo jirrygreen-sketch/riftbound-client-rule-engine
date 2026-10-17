@@ -50,8 +50,8 @@ test("sfd-153-221 Eye of the Herald: identity, ruleset, status, judgeReason and 
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Equip/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Unsupported payment kind/);
+  assert.match(program.judgeReason, /params\.cost/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -127,11 +127,11 @@ test("sfd-153-221 Eye of the Herald golden: a chosen Unit that left the Board is
 });
 
 test.todo(
-  "sfd-153-221 Eye of the Herald: paying the printed Order Equip cost (818.1.b / 818.1.c.2) needs " +
-    "the \"equip\" cost-payment kind in cost/plan-values.ts plus ExpandInput params.cost " +
-    "(contract 3.8 item 3) - RIFT-261."
+  "sfd-153-221 Eye of the Herald: paying the printed Order Equip cost (818.1.b / 818.1.c.2) stays " +
+    "blocked while \"Unsupported payment kind: equip\" is returned by cost/plan-values.ts, and " +
+    "ExpandInput params.cost (contract 3.8 item 3) is still missing."
 );
 test.todo(
   "sfd-153-221 Eye of the Herald: the card-program -> keyword expansion -> chain activation wiring " +
-    "(contract 3.5) is not merged - RIFT-257."
+    "(contract 3.5) is not merged."
 );
