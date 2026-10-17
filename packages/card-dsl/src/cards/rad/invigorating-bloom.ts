@@ -27,8 +27,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 1. “Exhaust a friendly [Mighty] unit” 是费用内的非目标选择（355.10.c.1），但 CostSpec 的
  *    choice 仍只接受逐项列出的精确 ObjectRef：cost/plan-values.ts 的 choiceObjects 对静态
  *    占位选项直接抛 “Cost requires an exact object reference”，Finalize 不会按 board 候选
- *    生成选项。RIFT-358（进行中）把正文 picks 的 ordered/zoneSlice 变成 Finalize 时候选，
- *    费用侧没有对应的 filter/query 形状。
+ *    生成选项。正文 picks 的 ordered/zoneSlice 已有 Finalize 候选路径，费用侧仍没有对应的
+ *    filter/query 形状。
  * 2. [Mighty] 谓词：Mighty 已由 effects/keywords/Mighty.ts 展开为 condition.value 的静态
  *    描述（706–711），但过滤词汇里没有“当前 Might ≥ 5”的谓词（programs/filters.ts 的
  *    translateObjectFilter 直接拒绝 mightGte；characteristics.might 只是字面相等，费用侧
@@ -121,8 +121,8 @@ const program = {
   judgeReason:
     "(1)「Exhaust a friendly [Mighty] unit」是费用内的非目标选择（355.10.c.1 明确不计为目标），" +
     "但 CostSpec 的 choice 仍只接受逐项列出的精确 ObjectRef：cost/plan-values.ts 的 choiceObjects 对静态占位选项" +
-    "抛 \"Cost requires an exact object reference\"，Finalize 不按 board 候选生成选项；RIFT-358（进行中）只把正文 picks 的 " +
-    "ordered/zoneSlice 变成 Finalize 时候选，费用侧没有 filter/query 形状（同 Garbage Grabber ogn-099-298）。" +
+    "抛 \"Cost requires an exact object reference\"，Finalize 不按 board 候选生成选项；正文 picks 的 " +
+    "ordered/zoneSlice 已有 Finalize 候选路径，但费用侧没有 filter/query 形状（同 Garbage Grabber ogn-099-298）。" +
     "(2) 过滤词汇没有「场上单位当前 Might ≥ 5」谓词：effects/keywords/Mighty.ts 已把 706–711 描述为 condition.value，" +
     "programs/filters.ts 的 translateObjectFilter 拒绝 mightGte，layers/filter.ts 忽略未知键、characteristics.might 只做字面相等；" +
     "710 要求按含图层结果的当前 Might 判定，费用选择在 Finalize 阶段无法求值（同 Show of Strength sfd-106-221）。" +

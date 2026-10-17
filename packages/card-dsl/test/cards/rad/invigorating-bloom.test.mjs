@@ -47,7 +47,7 @@ test("rad-035-167 Invigorating Bloom: identity, status, judgeReason and verbatim
   // README §2: name the remaining missing pieces precisely.
   assert.match(program.judgeReason, /355\.10\.c\.1/);
   assert.match(program.judgeReason, /精确 ObjectRef/);
-  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /费用侧没有 filter\/query 形状/);
   assert.match(program.judgeReason, /710/);
   assert.match(program.judgeReason, /cardType Unit/);
   // The old reason cited cost/plan-values.ts as a *filter* gap and claimed the
@@ -196,7 +196,7 @@ test("rad-035-167 Invigorating Bloom boundary: the Mighty-unit cost half is not 
 
 test.todo(
   "Invigorating Bloom: 'Exhaust a friendly [Mighty] unit' as a cost — blocked because CostSpec choices require exact " +
-    "ObjectRefs (cost/plan-values.ts choiceObjects; RIFT-358 covers body picks only) and the filter vocabulary has no " +
+    "ObjectRefs (cost/plan-values.ts choiceObjects; body picks already have an ordered/zoneSlice path) and the filter vocabulary has no " +
     "current-Might>=5 predicate for CR 710; needs a filter-shaped object cost and a current-Might predicate in the " +
     "cost selector"
 );
