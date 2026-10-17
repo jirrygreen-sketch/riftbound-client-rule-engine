@@ -10,9 +10,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   [Action] (Play on your turn or in showdowns.)
  *   Give friendly units +5 :rb_might: this turn.
  *
- * Status: judge-required. The temporary Might instruction and its layers
- * consumer are merged; the remaining gap is binding this card program into
- * the complete play/cost path (RIFT-257 / RIFT-261).
+ * Status: executable. The temporary Might instruction and its layers consumer
+ * are merged, and the play body resolves through the production interpreter
+ * adapter with the controller-relative filter.
  *
  * "friendly units" is a criteria-based set (each/all), not a choice: no unit is
  * chosen, so nothing is targeted (355.5.a/355.10.d) and no TargetSpec is written.
@@ -20,10 +20,7 @@ import type { CardProgram } from "../../ir/index.js";
 const grandStrategem = {
   canonicalCardId: "card.hash-c93cf1fcde5c50351fa2b80cc594925df51669816b5ce25ba223e27376c47b3a",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "continuous.might 与 continuous.duration 已能注册并由 layers 消费；当前缺卡牌程序到 play/cost 的完整绑定与费用支付（RIFT-257 / RIFT-261），" +
-    "以及 [Action] 的完整行动准入链。不能把 +5 Might 近似写成 Buff。",
+  status: "executable",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
@@ -37,9 +34,12 @@ const grandStrategem = {
           args: {
             amount: { kind: "literal", value: 5 },
             duration: { kind: "literal", value: "this-turn" },
-            filter: {
+            objects: {
               kind: "constant",
-              value: { type: "unit", controller: "controller", zone: "board" }
+              value: {
+                kind: "query",
+                filter: { type: "unit", controller: "self", zone: "board" }
+              }
             }
           }
         }

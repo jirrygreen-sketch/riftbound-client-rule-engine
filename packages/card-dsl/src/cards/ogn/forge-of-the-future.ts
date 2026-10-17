@@ -63,7 +63,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   (417.6), so that part is not the obstacle.
  * The golden tests execute the play-token half, the "kill this" cost payment,
  * and the currently supported controller-Trash recycle path for real; the
- * plural-zone and player-chosen-shortfall semantics remain a test.todo.
+ * plural-zone and player-chosen-shortfall semantics remain documented in the
+ * judgeReason until the recycle selection contract can express them.
  */
 const forgeOfTheFuture = {
   canonicalCardId: "card.hash-6f281c2d37b0aff601bde72fa6b91be879ad2c992845d19dca912d60e4808343",

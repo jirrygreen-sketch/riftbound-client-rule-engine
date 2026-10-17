@@ -34,8 +34,8 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /other/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /exclude/);
+  assert.match(program.judgeReason, /translateObjectFilter/);
   assert.equal(program.sourceText, "When you play me, ready another unit.");
 });
 
@@ -111,8 +111,3 @@ test("golden: the triggered body readies the locked other unit through the real 
   assert.equal(kernel.getObject("other-unit").exhausted, false);
   assert.equal(kernel.getObject("first-mate").exhausted, true);
 });
-
-test.todo(
-  "First Mate: the card-played timing must be bound to this CardProgram's triggered ability " +
-    "through the complete program adapter (RIFT-257)"
-);

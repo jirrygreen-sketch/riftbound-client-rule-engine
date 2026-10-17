@@ -22,19 +22,20 @@ import type { CardProgram } from "../../ir/index.js";
  * - 190.6.a / 190.6.d: "you" is this battlefield's Controller, which is also
  *   the player who makes the choice and controls the ability.
  *
- * Status rationale (contract §3.1, cards README §2): the defend trigger, the
- * one-unit target, and the bounded continuous.grant-keyword instruction are
- * expressible and executable. The card remains judge-required because the
- * card-program trigger binding is still pending in RIFT-257, and Shield's
- * defender-conditioned Might consumer is not yet connected to the complete
- * combat designation path.
+ * Status rationale (contract §3.1, cards README §2): the one-unit target and
+ * bounded continuous.grant-keyword instruction are executable in isolation.
+ * The card remains judge-required because the current trigger binder rejects
+ * the `here` vocabulary, and Shield's defender-conditioned Might consumer
+ * still uses `designation` while the combat layer exposes `combatRole`.
  */
 export default {
   canonicalCardId: "card.hash-cba0d858c9e26ac8298f585d8f5060e6fe140167286cfa137e3afdd3aa6acdf8",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "continuous.grant-keyword 已能把 [Shield 2] 注册到所选单位并保留 end-of-combat duration；当前仍缺卡牌程序触发绑定（RIFT-257）以及 Shield 展开中 defender 条件到战斗 designation / Might 图层的完整消费链（CR 814.1.c/814.1.d.1）。",
+    "continuous.grant-keyword 已能把 [Shield 2] 注册到所选单位并保留 end-of-combat duration；" +
+    "但当前 trigger binder 拒绝 defense-declared 过滤器中的 here 字段，且 Shield 展开条件读取 designation，" +
+    "而战斗图层提供的是 combatRole，故 CR 814.1.c/814.1.d.1 的 defender 条件尚未形成可执行消费链。",
   sourceText:
     "When you defend here, choose a unit. It gains [Shield 2] this combat. (+2 :rb_might: while it's a defender.)",
   abilities: [
