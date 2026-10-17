@@ -58,7 +58,9 @@ export default {
   status: "judge-required",
   judgeReason:
     "仍缺：(1) KeywordAbility / programs/keywords.ts 未传 params.cost，无法绑定 Empower 的 1 Energy 或 1 Body Power 二选一费用（827.1.c.1 / 827.1.c.2）；" +
-    "(2) ObjectSnapshot 契约未公开 Empowered 状态，continuous.might 的 442.1.a / 828.1.b.1 门控仍需权威状态接线。",
+    "(2) ObjectSnapshot 契约未公开 Empowered 状态，continuous.might 的 442.1.a / 828.1.b.1 门控仍需权威状态接线。" +
+    "RIFT-672 模板通过真实付费打出与效果链验证 +1 静态门控及撤销，并确认缺失费用的启动失败闭合；" +
+    "不把效果赋予的 Empowered 当作本卡二选一启动费用的执行证据。",
   abilities,
   sourceText:
     "[Empower] \u2014 :rb_energy_1: or :rb_rune_body: (Pay either cost: Empower me. Use only if " +

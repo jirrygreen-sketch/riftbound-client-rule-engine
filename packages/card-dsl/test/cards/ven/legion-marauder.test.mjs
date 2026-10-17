@@ -1,3 +1,4 @@
+// RIFT-672 execution evidence: ../templates/keyword-static-672.test.mjs (supported paths only).
 import assert from "node:assert/strict";
 import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";

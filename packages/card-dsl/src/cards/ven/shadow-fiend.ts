@@ -11,7 +11,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * 规则依据（Core Rules v1.5）：
  * - 827.1 / 827.1.c / 827.1.c.1：Empower 是启动能力关键词，印刷费用由费用部分的
- *   :rb_energy_2::rb_rune_fury: 给出（1 能量 + 1 个 Fury Power；135.2.e.4 的域符号即
+ *   :rb_energy_2::rb_rune_fury: 给出（2 能量 + 1 个 Fury Power；135.2.e.4 的域符号即
  *   Power，135.2.b.5.b 的能量符号是 Energy）；功能等价于「该费用：Empower this。仅当未
  *   Empowered 时启动」。827.1.b.1 规定来源本身不是该能力的目标。
  * - 827.1.c.3 / 206.1：Empower 费用可以被卡面文本改写；本卡没有改写文本，费用就是印刷值。
@@ -54,7 +54,9 @@ export default {
     "三处缺口（对应 827.1.c.1、807.1.c）：(1) Empower KeywordDef 已注册并支持未 Empowered 限制，但 KeywordAbility / programs/keywords.ts 不传递本卡的 " +
     "2 Energy + 1 Fury Power CostSpec，无法建立完整启动费用计划；(2) 828.1.c 门控已改用 self.empowered >= 1，" +
     "参考内核可求值，但生产 ObjectSnapshot 尚未声明 live empowered 计数；(3) continuous.grant-keyword 与 " +
-    "programs/statics.ts 的 ability 图层绑定（bindStatic）已合入并有 Assault 3 快照证据，仍需生产门控状态接线。不近似实现。",
+    "programs/statics.ts 的 ability 图层绑定（bindStatic）已合入；RIFT-672 模板通过真实效果链验证原始门控的 Assault 3 授予与撤销，" +
+    "但授予后的关键词没有随图层变化重新展开绑定，Assault 展开读取的 designation 与公开 combatRole 仍不一致，" +
+    "807.1.c 的攻击者 +3 尚无完整执行路径。仍需生产门控状态接线，不近似实现。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_2::rb_rune_fury: (:rb_energy_2::rb_rune_fury:: Empower me. Use only if not Empowered.)\n" +

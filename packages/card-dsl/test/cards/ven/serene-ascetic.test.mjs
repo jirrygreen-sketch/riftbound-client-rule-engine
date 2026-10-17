@@ -1,3 +1,4 @@
+// RIFT-672 execution evidence: ../templates/keyword-static-672.test.mjs (supported paths only).
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -39,10 +40,10 @@ test("ven-030-166 Serene Ascetic: identity, status, judgeReason and verbatim sou
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
-test("ven-030-166 Serene Ascetic: [Empower] 3 is declared with its printed cost, never re-implemented", () => {
-  // 827.1.c.1: the keyword carries the printed 3 Energy activation cost; the
-  // expansion belongs to the keyword registry (contract 3.7 / README section 5).
-  assert.deepEqual(empower, { kind: "keyword", keyword: "empower", value: 3 });
+test("ven-030-166 Serene Ascetic: the 3 Energy Empower cost is not a numeric keyword value", () => {
+  // 827.1.c.1: Empower takes a CostSpec, not a numeric keyword value.
+  // KeywordAbility cannot carry it yet; the source text and judgeReason retain it.
+  assert.deepEqual(empower, { kind: "keyword", keyword: "empower" });
   assert.equal(empower.params, undefined);
 });
 
