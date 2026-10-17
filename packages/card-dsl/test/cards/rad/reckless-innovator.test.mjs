@@ -1,8 +1,9 @@
 // Golden test for Reckless Innovator (rad-105-167).
 // The printed ability is [Accelerate] plus an object-exhausted "choose one" trigger.
-// Today only the structure, the merged effect.draw half of mode two and the token
-// boundary are verifiable; the Gold token definition, the exhausted entry override
-// and cost.pay are not merged (see judgeReason and the test.todo entries below).
+// The structure, the merged effect.draw half of mode two and the token boundary are
+// verified here; the Gold token definition, the exhausted entry override and the
+// in-instruction cost.pay path are still open (see judgeReason and the test.todo
+// entries below).
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -45,8 +46,8 @@ test("rad-105-167 Reckless Innovator: judgeReason names the gaps and the depende
   assert.match(program.judgeReason, /Gold/);
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /143\.4/);
-  assert.match(program.judgeReason, /RIFT-86/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-261/);
 });
 
 test("rad-105-167 Reckless Innovator: [Accelerate] is one keyword declaration with a registered KeywordDef", () => {
@@ -111,7 +112,7 @@ test("rad-105-167 Reckless Innovator: 'Pay :rb_rune_chaos: to draw 1' draws thro
   assert.equal(kernel.player("A").deckSize, 0);
 });
 
-test("rad-105-167 Reckless Innovator: the Gold token definition and exhausted entry stay blocked", () => {
+test("rad-105-167 Reckless Innovator: the Gold token definition and exhausted entry are still blocked", () => {
   const kernel = world().build();
   const run = runInstruction(
     token,
@@ -134,6 +135,21 @@ test("rad-105-167 Reckless Innovator: the Gold token definition and exhausted en
     "token-definition-or-abilities-judge-required"
   );
   assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
+
+  // [Accelerate]'s KeywordDef (RIFT-266 series) is merged and expands to the
+  // cost declaration plus the enter-ready replacement; the card-side consumer
+  // remains the open RIFT-120 wiring named in judgeReason.
+  const definition = keywordDefinitionsById.get("Accelerate");
+  assert.equal(definition?.keyword, "Accelerate");
+  const expansion = definition.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.deepEqual(expansion.map((ability) => ability.kind), ["static", "replacement"]);
+  assert.equal(expansion[0].effect.kind, "accelerate.cost");
+  assert.equal(expansion[1].replaces.event, "object-enters-board");
+  assert.deepEqual(expansion[1].replaces.filter, {
+    self: true,
+    cardId: CANONICAL,
+    exhausted: true
+  });
 });
 
 test.todo(
@@ -147,10 +163,11 @@ test.todo(
 );
 test.todo(
   "rad-105-167 Reckless Innovator: cost.pay primitive for the ':rb_rune_chaos: to draw 1' cost within an " +
-    "instruction (CR 355.10.c.1) — RIFT-89"
+    "instruction (CR 355.10.c.1) — RIFT-261 (in progress)"
 );
 test.todo(
   "rad-105-167 Reckless Innovator: Accelerate expansion consumed by the play pipeline (optional [1][C] " +
-    "additional cost plus the delayed enter-ready replacement, CR 805.2.b/805.6) — RIFT-86/RIFT-89"
+    "additional cost plus the delayed enter-ready replacement, CR 805.2.b/805.6) — RIFT-86's KeywordDef is " +
+    "merged but the card-side accelerate.cost declaration still has no consumer — RIFT-120"
 );
 

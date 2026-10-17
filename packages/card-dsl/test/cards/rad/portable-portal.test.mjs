@@ -4,8 +4,10 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/portable-portal.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
+import grantKeyword from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CARD_ID = "card.hash-c23ae2a28f5e64f8b56146faf62b3012c3c1902a3ebdd597858ac9d76f814fdc";
 const SOURCE_TEXT =
@@ -23,7 +25,8 @@ test("rad-087-167 Portable Portal: validates, identity and source text", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /830\.1\.b/);
-  assert.match(program.judgeReason, /cost\.pay/);
+  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -137,15 +140,61 @@ test("rad-087-167 Portable Portal: effect.ready is a no-op on an already ready u
   assert.deepEqual(run.events, []);
 });
 
+test("rad-087-167 Portable Portal: the merged Ganking grant lands on the chosen friendly unit", () => {
+  // 810 / contract 3.7: the card declares static continuous.grant-keyword for
+  // "Friendly units here have [Ganking]". RIFT-258 merged the op and the layers
+  // consumer. The reference kernel's set query compares filter scalars literally
+  // and does not evaluate the sameLocationAs anchor, so Finalize's locked choice
+  // is supplied as an explicit selection (the merged goldens' documented device)
+  // while the recorded program filter is asserted in the structure test above;
+  // wiring the CardProgram static into production is the open RIFT-120 gap (see
+  // judgeReason).
+  const grant = program.abilities[2].effect;
+  const targetId = "portable-portal.unit-here";
+  const kernel = world()
+    .unit("portal", { zone: "board", location: { type: "battlefield", id: "bf-1" } })
+    .unit("unit-here", { zone: "board", location: { type: "battlefield", id: "bf-1" } })
+    .unit("unit-elsewhere", { zone: "board", location: { type: "battlefield", id: "bf-2" } })
+    .build();
+  const source = kernel.getObject("portal");
+  const scoped = kernel.clone({ sourceSnapshot: source, source: source.ref });
+
+  const run = runInstruction(
+    grantKeyword,
+    {
+      keyword: { kind: "constant", value: grant.keyword },
+      duration: { kind: "constant", value: "permanent" },
+      objects: { kind: "constant", value: { kind: "target", id: targetId } }
+    },
+    { world: scoped, targets: { [targetId]: [scoped.ref("unit-here")] } }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(run.linked.granted.objects.map((ref) => ref.id), ["unit-here"]);
+
+  const engine = createLayerEngine(
+    scoped.objects,
+    scoped.continuousEffects.map((entry, index) => ({
+      effect: entry.effect, duration: entry.duration, timestamp: index + 1
+    }))
+  );
+  assert.deepEqual(
+    engine.evaluate(scoped.ref("unit-here")).keywords.map((keyword) => keyword.id),
+    ["Ganking"]
+  );
+  assert.deepEqual(engine.evaluate(scoped.ref("unit-elsewhere")).keywords, []);
+  assert.deepEqual(engine.evaluate(scoped.ref("portal")).keywords, []);
+});
+
 test.todo(
-  "portable-portal: [Deploy] expansion (CR 830.1.b play-only-to-a-battlefield permission and the " +
-    "'when an opponent holds here, kill this' trigger) through a Deploy KeywordDef"
+  "rad-087-167 Portable Portal: the merged Deploy expansion's continuous.location permission and " +
+    "'when an opponent holds here, kill this' trigger still need Finalize/cleanup/trigger consumers (CR 830.1.b, RIFT-120)"
 );
 test.todo(
-  "portable-portal: the ':rb_rune_body:' Power payment (CR 356.7 / 357) needs the cost.pay pipeline" +
-    " (no cost.pay primitive file is merged), so the ready branch cannot be honestly charged yet"
+  "rad-087-167 Portable Portal: the ':rb_rune_body:' in-instruction Power payment (355.10.c.1) needs the " +
+    "cost.pay instruction path — RIFT-261 (in progress); the ready branch cannot be honestly charged yet"
 );
 test.todo(
-  "portable-portal: 'Friendly units here have [Ganking]' continuous grant through layers (RIFT-91) and the" +
-    " Ganking keyword expansion (RIFT-83)"
+  "rad-087-167 Portable Portal: the static 'Friendly units here have [Ganking]' continuous.grant-keyword " +
+    "(op merged by RIFT-258, Ganking expansion by RIFT-83) needs the CardProgram static -> layers registration " +
+    "path — RIFT-120/RIFT-257"
 );

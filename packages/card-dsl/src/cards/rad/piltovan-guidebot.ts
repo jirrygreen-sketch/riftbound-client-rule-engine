@@ -19,16 +19,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   其 Energy cost 是印刷费用特征（163.1 的 Energy 数值）。185.3.a.1：token 无费用但
  *   在各类用途上按 0 处理。
  *
- * status 判定（README 第 2 节）：judge-required。缺口：
- * 1. Trait 层 Base Might 设值没有已注册的卡牌侧原语（continuous.base-might /
- *    set-base-might；LayerEngine 的 set-might 分支属 arithmetic 层，且只消费
- *    ResolveContext.addContinuous 注册的 ContinuousEffectSpec，CardProgram static 未接线）；
- * 2. "that card's Energy cost" 需要把触发事件中被打出的牌引用带进结算上下文：
- *    ResolveContext 只有 source / target / pick / linked 这些选择器，没有"触发事件对象"
- *    访问器与印刷费用读取（cost.printed 亦未注册）；
- * 3. "this turn" 的到期处理依赖持续效果期限（RIFT-91 的 layers/continuous 与后续原语批次）。
- * 依赖：RIFT-91（layers-continuous）+ 触发体上下文/印刷费用读取接线（无已分配任务号）。
- * 不近似实现：不用 Buff counter 或临时 Might 加算代替 Base Might 设值。
+ * status 判定（README 第 2 节，2026-10-17 复核）：judge-required。当前缺口：
+ * 1. Base Might 设值属 Trait-Altering 层（143.2.a / 475-478），而 RIFT-258 合入的
+ *    continuous.might 指令只写 arithmetic 层的连续效果：它的 mode "set" 生成 kind
+ *    "set-might" 的 arithmetic 注册（layers/ops/index.ts buildMightSpec），
+ *    layers/engine.ts 的 set 分支仍在 applyArithmetic 内——没有任何 op 生成 trait
+ *    层注册，EffectIR 里写 layer: "trait" 会被 continuous.might 的 argsSchema 拒绝。
+ * 2. "that card's Energy cost" 需要触发事件的被打出牌引用与其印刷费用：ResolveContext
+ *    只有 source / target / pick / linked 选择器，没有触发事件对象访问器，也没有读取
+ *    另一对象印刷费用的表达式（object-property 读的是当前特征，185.3.a.1 的 token 0
+ *    折算也没有位置）。
+ * 3. 触发能力本身仍缺 CardProgram → TriggerRegistration 的生产适配器（RIFT-120）。
+ * 依赖：trait 层 set-base-might 原语（无已分配任务号）、触发事件对象/印刷费用读取、
+ * RIFT-120。不近似实现：不用 Buff counter 或临时 Might 加算代替 Base Might 设值。
  */
 
 const abilities: Ability[] = [
@@ -89,12 +92,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「my base Might becomes equal to that card's Energy cost this turn」需要三处未合入支持：" +
-    "(1) Trait-Altering 层的 Base Might 设值原语（143.2.a/475；continuous.base-might 未注册，" +
-    "LayerEngine 只消费 ResolveContext.addContinuous 注册的持续效果，CardProgram static 未接线）；" +
-    "(2) 触发事件中被打出的牌引用与其印刷 Energy cost 的读取（ResolveContext 没有触发事件对象访问器，" +
-    "cost.printed 亦未注册）；(3) 本回合结束的持续期限处理（RIFT-91 的 layers/continuous 与后续原语批次）。" +
-    "依赖：RIFT-91（layers-continuous）与触发体上下文 / 印刷费用读取接线（无已分配任务号）。" +
+    "(1) Trait-Altering 层的 Base Might 设值没有原语：RIFT-258 的 continuous.might 只生成 " +
+    "arithmetic 层的连续效果（mode \"set\" 仍是 arithmetic 的 set-might，见 " +
+    "layers/ops/index.ts buildMightSpec 与 layers/engine.ts applyArithmetic），143.2.a/478 " +
+    "的 trait 层设值没有卡牌侧入口，程序里的 layer/op 拼写也会被 argsSchema 拒绝。" +
+    "(2) 「that card's Energy cost」需要触发事件的被打出牌引用与印刷费用读取：ResolveContext " +
+    "没有触发事件对象选择器，object-property 读当前特征而非印刷费用（185.3.a.1 的 token 0 折算亦无位置）。" +
+    "(3) 触发能力缺 CardProgram → TriggerRegistration 的生产适配器（RIFT-120）。" +
+    "依赖：trait 层 set-base-might 原语与触发事件对象/印刷费用读取（无已分配任务号）、RIFT-120。" +
     "不近似实现：不用 Buff counter 或临时 Might 加算代替 Base Might 设值。" +
     "「you may」已按契约 3.9 用 choice.optional 包住被选指令。",
   abilities,

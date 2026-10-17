@@ -4,7 +4,6 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/piltovan-guidebot.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 
 const CANONICAL = "card.hash-615e60700f249a984f869bffcbf2ce12e1b4090a85115e2a97fc5432e1df1fc0";
 const SOURCE_TEXT =
@@ -20,13 +19,15 @@ test("rad-057-167 Piltovan Guidebot: program passes validateCardProgram", () => 
   assert.equal(result.ok, true);
 });
 
-test("rad-057-167 Piltovan Guidebot: identity, ruleset, status, judgeReason and sourceText", () => {
+test("rad-057-167 Piltovan Guidebot: identity, ruleset, judgeReason and sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /base Might/);
+  assert.match(program.judgeReason, /Base Might/);
   assert.match(program.judgeReason, /143\.2\.a/);
   assert.match(program.judgeReason, /Energy cost/);
+  assert.equal(program.judgeReason.includes("trait 层"), true);
+  assert.match(program.judgeReason, /RIFT-120/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -75,22 +76,18 @@ test("rad-057-167 Piltovan Guidebot: the base-Might set is authored as a trait-l
   ]);
 });
 
-test("rad-057-167 Piltovan Guidebot: the base-Might op is not registered", () => {
-  assert.equal(instructionDefinitionsById.get("continuous.base-might"), undefined);
-});
-
 test.todo(
-  "rad-057-167 Piltovan Guidebot: set the Base Might in the trait-altering layer and read 'that card's Energy cost' from " +
-    "the triggering card-played event (CR 143.2.a; the ResolveContext has no trigger-event accessor and cost.printed is " +
-    "unmerged — RIFT-91 follow-up, no assigned task for the trait-layer set primitive)"
+  "rad-057-167 Piltovan Guidebot: set the Base Might in the trait-altering layer (CR 143.2.a/475-478) — the merged " +
+    "continuous.might only offers the arithmetic layer (mode set -> set-might inside applyArithmetic), so a trait-layer " +
+    "set primitive has no assigned task number"
 );
 
 test.todo(
-  "rad-057-167 Piltovan Guidebot: expire the Base Might set at the end-of-turn cleanup (CR 475 / 318) — depends on " +
-    "RIFT-91 continuous.duration"
+  "rad-057-167 Piltovan Guidebot: read 'that card's Energy cost' from the triggering card-played event — the " +
+    "ResolveContext has no trigger-event object selector and no expression reads another object's printed cost"
 );
 
 test.todo(
-  "rad-057-167 Piltovan Guidebot: emit the card-played event with the played card identity so the trigger can read it " +
-    "(CR 420.4.a) — depends on RIFT-120 chain/event integration"
+  "rad-057-167 Piltovan Guidebot: register the triggered ability as a TriggerRegistration so it fires from the real " +
+    "card-played flow (CR 420.4.a) — RIFT-120"
 );

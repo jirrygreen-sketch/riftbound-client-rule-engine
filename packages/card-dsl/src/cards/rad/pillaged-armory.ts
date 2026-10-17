@@ -19,25 +19,32 @@ import type { CardProgram } from "../../ir/index.js";
  *   也不是 Might 修改）：给一个你控制的单位放置一个 Buff counter；已有 Buff 的单位
  *   不再放置（702.3.a）。用已合入的 effect.buff，目标为一个友方 Board 单位。
  *
- * status：judge-required。两个缺口：
- * 1. Deploy 没有已合入的 KeywordDef（effects/keywords/ 不含 Deploy），830.1.b 的
- *    入场地点 / 召回 / 对手固守时消灭三项改写都未展开（kw-deploy 指向的
- *    continuous.location / continuous.restrict 尚无消费方）。
- * 2. 两条触发都没有可执行接线：没有卡牌程序 → TriggerRegistration 的适配器，
- *    "conquer here" 的 here 过滤也依赖征服时点携带战场身份（契约 3.5 / RIFT-120 后续）。
- * effect.buff 本体（含已有 Buff 不再放置）已合入并由 golden 真实执行；不据此宣称整卡可执行。
+ * status：judge-required（2026-10-17 复核后更新）。具体缺口：
+ * 1. Deploy 的 KeywordDef（RIFT-267 的 effects/keywords/Deploy.ts）已合入，但它的
+ *    continuous.location 静态声明与 hold 触发都还没有生产消费方：Finalize 的
+ *    合法打出位置校验、Cleanup 的“非单位 Gear 不召回”分支与 830.1.b 的“对手在此
+ *    固守时消灭”触发注册都未接线（layers/rules/query.ts 提供 playLocations 查询，
+ *    但没有主机调用；chain/engine.ts 的 cleanup 也不消费）。
+ * 2. 两条触发能力没有“CardProgram → TriggerRegistration”的生产适配器（RIFT-120
+ *    后续）："when you conquer here" 的 here 过滤还需要 conquer 载荷中的战场身份
+ *    （turn/flow.ts 已发 details.battlefieldId，但触发系统读不到该字段与来源绑定）。
+ * effect.buff 本体（含已有 Buff 不再放置）已合入并由 golden 真实执行；
+ * Deploy 的 kill body 也在引擎既有测试里执行，但整卡仍需上述接线。
  */
 export default {
   canonicalCardId: "card.hash-c3300d4c2699318874a04e6169dc566f6c3e88300d3f2ccd920a1edf3352d84a",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) Deploy 关键词没有 KeywordDef（CR 830.1.b：入场地点许可、非单位 Gear 不被清理召回、" +
-    "对手在此固守时消灭此牌都需要展开；调研表 kw-deploy 指向的 continuous.location/" +
-    "continuous.restrict 没有消费方）。(2) 两条触发能力没有可执行接线：缺少卡牌程序→" +
-    "TriggerRegistration 的适配器（RIFT-120 后续 / 协调任务），" +
-    "\"when you conquer here\" 的 here 过滤还需要征服时点携带战场身份（契约 3.5）。" +
-    "effect.buff 本身已合入并单独执行（含 702.3.a 的已有 Buff 不再放置）；不近似实现。",
+    "(1) Deploy 的展开（RIFT-267，effects/keywords/Deploy.ts：continuous.location 的" +
+    "830.1.b 地点许可/仅可打到战场/非单位 Gear 不召回 + hold 触发消灭）已合入，但" +
+    "消费方未接线：Finalize 不读 continuous.location、Cleanup 不消费该静态声明、" +
+    "hold 触发也没有从关键词展开注册进事件管线（RIFT-120 / 契约 §7.2 批 5）。" +
+    "(2) 两条触发能力仍没有 CardProgram → TriggerRegistration 的生产适配器" +
+    "（RIFT-120）：\"when you conquer here\" 的 here 过滤还需要把 conquer 载荷的" +
+    "战场身份绑定到触发注册（turn/flow.ts 已发 details.battlefieldId）。" +
+    "effect.buff 本体（含 702.3.a 的已有 Buff 不再放置）已合入并由 golden 真实执行；" +
+    "不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "deploy" },
     {

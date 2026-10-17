@@ -33,9 +33,11 @@ import type { CardProgram } from "../../ir/index.js";
  * - 135.2.d.3: the parenthetical is reminder text; it describes the Gold token's
  *   own ability rather than adding one to this card.
  *
- * Status: judge-required. Three merged gaps, none approximated:
- * - Deploy has no KeywordDef (effects/keywords/ has no Deploy file), so
- *   830.1.b's rewrites are unexpanded (shared with the RAD Device cohort).
+ * Status: judge-required (rechecked 2026-10-17). Current gaps, none approximated:
+ * - The Deploy KeywordDef is merged (RIFT-267), but its 830.1.b rewrites still
+ *   have no consumers: Finalize does not read continuous.location, cleanup does
+ *   not apply the non-Unit "not recalled" exemption, and the opponent-Hold kill
+ *   trigger is never registered into the event pipeline (RIFT-120).
  * - The Gold token is deliberately absent from effect.token's DEFINITIONS table:
  *   definitions carrying their own abilities (Gold, 187.5) are documented there
  *   as blocked / judge-required, and the primitive returns negated with
@@ -46,29 +48,30 @@ import type { CardProgram } from "../../ir/index.js";
  *   ready would misreport the board, and a later effect.exhaust would be a
  *   separate exhaust action rather than the printed entry state.
  * - The trigger has no registration path (no CardProgram -> TriggerRegistration
- *   adapter, RIFT-120 follow-up), and the "you control this battlefield"
- *   condition has no evaluated predicate: the IR Condition kinds (always / never
- *   / compare / all / any / not / expression) carry no battlefield-control
- *   query. The condition is recorded as the pending predicate shape.
- * Dependencies: kw-deploy (830), the token definition table (187.5 / RIFT-9),
- * the entry-state override, and RIFT-120 trigger registration.
+ *   adapter, RIFT-120), and the "you control this battlefield" condition has no
+ *   evaluated predicate: the IR Condition kinds (always / never / compare / all /
+ *   any / not / expression) carry no battlefield-control query. The condition is
+ *   recorded as the pending predicate shape.
+ * Dependencies: RIFT-120 (Deploy consumers + trigger registration), the token
+ * definition table (187.5 / RIFT-9), and the entry-state override.
  */
 const resourceExtractor = {
   canonicalCardId: "card.hash-15ed917fed0055c9ae8325c668e501db603af32e4ff58c00dca6ad354739ac93",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均不近似实现：(1) Deploy 没有 KeywordDef（CR 830.1.b 的四项改写未展开，与 RAD Device 同批卡同缺口）。" +
+    "四处缺口（2026-10-17 复核，均不近似实现）：(1) Deploy 的 KeywordDef 已合入（RIFT-267），但 " +
+    "830.1.b 的改写仍无消费方：Finalize 不读 continuous.location 的打出位置许可、Cleanup 不应用" +
+    "非单位 Gear 不召回的豁免、hold 触发消灭也没有注册进事件管线（RIFT-120）。" +
     "(2) Gold gear token 定义（CR 187.5，带自身 " +
     '"[Reaction][>] Kill this, [E]: [Add] [A]"' +
-    " 能力）不在 effect.token 的 DEFINITIONS 表：该原语文档明确带能力的 token 保持 blocked/judge-required，" +
-    "实测返回 negated 且 blockedReason = token-definition-or-abilities-judge-required（依赖 RIFT-9 token 定义表）。" +
+    " 能力）不在 effect.token 的 DEFINITIONS 表：该原语对带能力的 token 保持 blocked/judge-required，" +
+    "实测返回 negated 且 blockedReason = token-definition-or-abilities-judge-required。" +
     "(3) exhausted 入场覆盖：effect.token 文档明确不支持 entry overrides（143.4 / 185.2.d），" +
     '"play ... token exhausted" 与 ready 的差别没有原语路径（先入场再 effect.exhaust 会多出一次横置动作，不是入场状态）。' +
-    "(4) 触发没有注册路径（缺 CardProgram → TriggerRegistration 适配器，RIFT-120 后续），" +
+    "(4) 触发没有注册路径（缺 CardProgram → TriggerRegistration 适配器，RIFT-120），" +
     "且「if you control this battlefield」没有可求值谓词（Condition 的 always/never/compare/all/any/not/expression " +
-    "都不查询战场控制状态）；程序只保留待接线条件形状。依赖：kw-deploy（830）、token 定义表（187.5 / RIFT-9）、" +
-    "入场状态覆盖、RIFT-120 触发注册。",
+    "都不查询战场控制状态）；程序只保留待接线条件形状。依赖：RIFT-120、token 定义表（187.5 / RIFT-9）、入场状态覆盖。",
   abilities: [
     // 830.1：印刷的 [Deploy] 声明（展开依赖 kw-deploy）。
     { kind: "keyword", keyword: "deploy" },

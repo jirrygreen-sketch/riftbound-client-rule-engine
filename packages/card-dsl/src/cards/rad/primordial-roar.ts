@@ -28,29 +28,39 @@ import type { CardProgram } from "../../ir/index.js";
  *   (355.10.a: cards revealed from hand are private; a unit picked from the
  *   board is a pick, not a target).
  *
- * Status: judge-required. Missing pieces:
- * - no merged keyword definition declares [Show Off]: effects/keywords/ has no
- *   ShowOff.ts and nothing expands it, so the keyword ability below cannot be
- *   expanded;
- * - the Show Off choice (decline or show; reveal from hand and/or pick from the
- *   board; lock the characteristics) is the cost.reveal / condition.result
- *   template work and has no merged instruction; the descriptive
- *   `effect.show-off` op records the shape and the two link keys it must
- *   produce (the shown object and its locked Might);
- * - reading the damaged unit's current Might with object-property would use the
+ * Status: judge-required (rechecked 2026-10-17). Current gaps:
+ * - RIFT-268 merged effects/keywords/ShowOff.ts, but its expansion is a static
+ *   `cost.reveal` declaration with no consumer: chain Finalize does not read it,
+ *   no instruction and no op produce the shown-off link, and nothing captures the
+ *   locked characteristic at the `objects-shown-off` timing point (832.1.c.2,
+ *   832.1.d.1). RIFT-261 owns the cost.pay/kind work still in progress.
+ * - `effect.show-off` is still not a registered instruction op (RIFT-269 merged
+ *   Predict/Burn/Add; Show Off's Finalize choice is not among them), so the
+ *   program's Show Off instruction cannot execute; the descriptive op and its
+ *   link keys are kept as reviewable structure only.
+ * - `KeywordDef.expand` has no card-side parameter channel for the printed
+ *   [Object] clause (contract 3.8.3 params is not carried by KeywordAbility),
+ *   so "a unit" cannot be handed to the keyword expansion.
+ * - Reading the damaged unit's current Might with object-property would use the
  *   post-change value and is explicitly not equivalent to 832.1.d.1, so the
  *   amount stays a linked locked value and is not executed.
+ * The damage instruction itself executes with the locked value supplied (golden
+ * covers it); nothing is approximated.
  */
 export default {
   canonicalCardId: "card.hash-8b6deb587569a3df7032c50ff6c443facba501038a4e6e1fb77f5aedbedb57cf",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 [Show Off] 关键词实现：effects/keywords/ 没有 ShowOff.ts，registry 也不展开该关键词（832.1 是 Passive Ability 关键词）；" +
-    "“As you play this, you may reveal a unit from hand or pick a friendly unit”属 Finalize 阶段的可选展示选择（832.1.c/832.1.c.2），" +
-    "需要 cost.reveal / condition.result 一类模板与原语（RIFT-89/90），当前没有已合入原语产出被展示对象的链接值。" +
-    "伤害半段“deal damage equal to that unit's Might”必须读取展示时锁定的 Might（832.1.d.1：之后的变化不考虑），" +
-    "用 object-property 现读当前 Might 不等价，故该指令不执行、不近似实现。",
+    "[Show Off] 仍不可执行：(1) RIFT-268 的 effects/keywords/ShowOff.ts 只发布 static " +
+    "cost.reveal 声明，没有消费方——chain Finalize 不读它，832.1.c.2 的展示选择、" +
+    "832.1.d.1 在 objects-shown-off 锁定特征、以及产出的展示链接值都没有实现（RIFT-261 " +
+    "进行中的 cost.pay/费用种类与 RIFT-120 接线）。(2) effect.show-off 仍不是已注册指令 op" +
+    "（RIFT-269 合入的是 Predict/Burn/Add），因此程序里保留的展示指令无法执行。" +
+    "(3) KeywordDef.expand 没有卡牌侧的印刷 [Object] 参数通道（契约 3.8.3 的 params 未被 " +
+    "KeywordAbility 承载），\"a unit\" 无法传给关键词展开。伤害半段必须读取展示时锁定的 Might" +
+    "（832.1.d.1：之后变化不考虑），object-property 现读当前 Might 不等价；golden 在锁定值" +
+    "给定时真实执行该伤害指令，不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "show-off", value: 1 },
     {

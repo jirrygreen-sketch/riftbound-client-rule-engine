@@ -18,19 +18,25 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   count=1 / different=true，不能承载"本回合未选过"这一跨触发历史，故整卡 judge-required。
  * - "[Buff] me"：Buffs（702）——effect.buff mode "buff" 放在自身（702.2.a、702.3.a）。
  * - "Spend my buff to [Stun] an enemy unit" / "Spend my buff to ready me"：
- *   "[do X] to [do Y]" 是**指令内费用**（355.10.c.1 / 404.1.b.1），费用未支付时 Y 不得结算；
- *   RIFT-9 为 rad-043-167 规划的 `effect.spend-buff` 原语（把 Buff counter 作为支付/消耗，
- *   消费成功后才执行后续分支）未注册。已合入的 effect.buff mode "spend" 只描述"消耗一个
- *   Buff"这一动作，本身不是费用：按契约 3.4，negated 的指令其后续链接指令仍会尽可能执行，
- *   因此不能把 `effect.buff(spend)` + linkedTo 当作"支付失败则不 Stun / 不 Ready"。
+ *   "[do X] to [do Y]" 是**指令内费用**（355.10.c.1 / 404.1.b.1），费用未支付时 Y 不得结算。
+ *   费用计划确实支持 spend-buff 支付（cost/plan-values.ts 与 cost/payment.ts 的
+ *   spend-buff 分支，检查 Buff 数量并提交 spend-buff 动作），但没有把它作为“指令内费用”
+ *   接进卡牌 body 的指令原语（effects/instructions/ 无 cost.pay/effect.spend-buff 门控）。
+ *   已合入的 effect.buff mode "spend" 只描述"消耗一个 Buff"这一动作，本身不是费用：
+ *   按契约 3.4，negated 的指令其后续链接指令仍会尽可能执行，因此不能把
+ *   `effect.buff(spend)` + linkedTo 当作"支付失败则不 Stun / 不 Ready"。
  *   不把 spend-buff 降级成普通 Might 修改（702.2.b.1 的"没有 Buff 就不能消耗"语义会丢失）。
  * - [Stun] 与 ready：424（Stunned 状态；424.1.a.1 已 Stunned 不再重复）与 416.1（Ready）；
  *   两者原语 effect.stun / effect.ready 已合入。
  *
- * status 判定（README 第 2 节）：judge-required。缺口：`choice.exclusive-once-per-turn`
- * （本回合未选过的分支记录）与费用式 `effect.spend-buff`（Buff 支付门控），依赖无已分配任务号，
- * 属 RIFT-9 调研第 4 节列出的新增原语；分支结构已按契约 3.9 用 choice.mode 完整写出，
- * 已合入的 effect.buff / effect.stun / effect.ready 在 golden 测试里用解释器 + 参考内核真实执行。
+ * status 判定（README 第 2 节，2026-10-17 复核）：judge-required。缺口：
+ * - `choice.exclusive-once-per-turn`（本回合未选过的分支记录，303 / 319）：IR 的 choice.mode
+ *   只在单次结算内保证 count=1 / different=true，不能承载跨触发的回合历史（无已分配任务号）。
+ * - 指令内 Buff 支付门控：费用计划能支付 spend-buff，但没有把支付结果绑定到指令链的
+ *   cost.pay 类原语（RIFT-261 进行中）；已合入的 effect.buff mode "spend" 不构成门控。
+ * - 触发能力仍缺 CardProgram → TriggerRegistration 的生产适配器（RIFT-120）。
+ * 分支结构已按契约 3.9 用 choice.mode 完整写出，已合入的 effect.buff / effect.stun /
+ * effect.ready 在 golden 测试里用解释器 + 参考内核真实执行。
  */
 
 const MYSELF = "riven-broken-blade.self";
@@ -165,16 +171,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺两个 RIFT-9 调研第 4 节列出、尚无已分配任务号的原语：" +
-    "(1) choice.exclusive-once-per-turn——「choose one that hasn't been chosen this turn」需要把三个" +
-    "模式分支绑定到同一回合历史收据并限制每个分支本回合最多选一次（303 / 319），IR 的 choice.mode " +
-    "只在单次结算内保证 count=1 / different=true，不能表达跨触发的回合历史；" +
-    "(2) effect.spend-buff——「Spend my buff to [Stun]/ready」的「[do X] to [do Y]」是指令内费用" +
-    "（355.10.c.1 / 404.1.b.1），需要把 Buff counter 作为支付并只在消费成功后执行后续分支；" +
-    "已合入的 effect.buff mode \"spend\" 只是消耗动作，按契约 3.4 的 negated 语义它不构成对后续" +
-    "链接指令的费用门控（不把 spend-buff 降级为普通 Might 修改，见文件头注释）。" +
-    "依赖：continuous.might / layers 无关；已合入的 effect.buff / effect.stun / effect.ready 由 golden " +
-    "测试用解释器 + 参考内核真实执行。",
+    "三处缺口（2026-10-17 复核，均不近似实现）：(1) 「choose one that hasn't been chosen this turn」" +
+    "需要跨触发的回合历史收据（303 / 319）；IR 的 choice.mode 只在单次结算内保证 count=1/different=true，" +
+    "没有 choice.exclusive-once-per-turn 之类原语（无已分配任务号）。" +
+    "(2) 「Spend my buff to [Stun]/ready」的「[do X] to [do Y]」是指令内费用（355.10.c.1/404.1.b.1）：" +
+    "费用计划模块已能校验并提交 spend-buff 支付，但没有把该支付绑定进指令链的 cost.pay 类原语" +
+    "（RIFT-261 进行中）；已合入的 effect.buff mode \"spend\" 只是消耗动作，按契约 3.4 的 negated 语义" +
+    "不构成对后续链接指令的费用门控（不把 spend-buff 降级为普通 Might 修改，见文件头注释）。" +
+    "(3) 触发能力缺 CardProgram → TriggerRegistration 的生产适配器（RIFT-120）。" +
+    "已合入的 effect.buff / effect.stun / effect.ready 由 golden 测试用解释器 + 参考内核真实执行。",
   abilities,
   sourceText:
     "When I become exhausted, choose one that hasn't been chosen this turn —\n" +

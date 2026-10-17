@@ -4,7 +4,6 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/riven-broken-blade.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -58,7 +57,9 @@ test("rad-043-167 Riven, Broken Blade: identity, ruleset, status, judgeReason an
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /choice\.exclusive-once-per-turn/);
-  assert.match(program.judgeReason, /effect\.spend-buff/);
+  assert.match(program.judgeReason, /cost\.pay/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-120/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -173,14 +174,6 @@ test("rad-043-167 Riven, Broken Blade golden: without a Buff the spend is a lega
   assert.equal(scoped.getObject("riven").buffs, 1);
 });
 
-test("rad-043-167 Riven, Broken Blade: the two new ops this card needs are not registered", () => {
-  assert.equal(instructionDefinitionsById.get("choice.exclusive-once-per-turn"), undefined);
-  assert.equal(instructionDefinitionsById.get("effect.spend-buff"), undefined);
-  assert.notEqual(instructionDefinitionsById.get("effect.buff"), undefined);
-  assert.notEqual(instructionDefinitionsById.get("effect.stun"), undefined);
-  assert.notEqual(instructionDefinitionsById.get("effect.ready"), undefined);
-});
-
 test.todo(
   "rad-043-167 Riven, Broken Blade: record the per-turn chosen-mode receipt so each mode can be chosen only once this " +
     "turn (CR 303 / 319) — choice.exclusive-once-per-turn has no merged implementation (no assigned task)"
@@ -188,10 +181,11 @@ test.todo(
 
 test.todo(
   "rad-043-167 Riven, Broken Blade: make spending the Buff an in-instruction cost ([do X] to [do Y], CR 355.10.c.1 / " +
-    "404.1.b.1) so a failed spend blocks the Stun / ready branch — effect.spend-buff has no merged implementation"
+    "404.1.b.1) so a failed spend blocks the Stun / ready branch — the cost plan pays spend-buff but no " +
+    "in-instruction cost.pay path is merged (RIFT-261, in progress)"
 );
 
 test.todo(
   "rad-043-167 Riven, Broken Blade: wire the object-exhausted trigger to the real exhaust action events (CR 415.1.b) " +
-    "so 'When I become exhausted' fires from production play — depends on RIFT-120"
+    "so 'When I become exhausted' fires from production play — RIFT-120"
 );

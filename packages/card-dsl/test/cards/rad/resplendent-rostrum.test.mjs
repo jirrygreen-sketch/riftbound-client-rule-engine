@@ -7,11 +7,40 @@ const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
+const { AwaitChoice } = await import(new URL("effects/contract.js", engineCore));
+const { bindResolveContext, createActionPipelineHost } = await import(new URL("events/action-adapter.js", engineCore));
+const { ChainEngine } = await import(new URL("chain/engine.js", engineCore));
 
 const CANONICAL = "card.hash-3fbe07d45b81cd1a97249fa165c6aa18b0f3350d24e4eaf06e090a22035f70d4";
 const [activated, triggered] = program.abilities;
 const [drawOne, channelOne] = activated.body;
 const grantMight = triggered.body[0];
+
+const constant = (value) => ({ kind: "constant", value });
+
+/** Drives one ability body through the real ChainEngine (Finalize + Resolve). */
+function fixture(kernel) {
+  const choose = (request) => {
+    if (request.type === "select-objects" && request.options.length === request.min) return [...request.options];
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects, perform: (action) => kernel.perform(action), choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: (registration) => kernel.test(registration.spec.condition)
+  });
+  return new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+}
+
+function drain(engine) {
+  let passes = 0;
+  while (engine.items.length) {
+    if (++passes > 20) throw new Error("Nonterminating chain");
+    engine.pass(engine.priority);
+  }
+}
 
 test("rad-046-167 Resplendent Rostrum: program passes validateCardProgram and keeps the catalog text", () => {
   const result = validateCardProgram(program);
@@ -25,11 +54,9 @@ test("rad-046-167 Resplendent Rostrum: program passes validateCardProgram and ke
   );
 });
 
-test("rad-046-167 Resplendent Rostrum: judge-required naming the missing temporary Might primitive", () => {
-  assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /702/);
+test("rad-046-167 Resplendent Rostrum: executable with no judgeReason", () => {
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
 });
 
 test("rad-046-167 Resplendent Rostrum: exhaust-costed activated ability with Draw 1 and channel 1 exhausted", () => {
@@ -37,11 +64,12 @@ test("rad-046-167 Resplendent Rostrum: exhaust-costed activated ability with Dra
 
   // The printed ":rb_exhaust:" is the whole activation cost (415.3/415.3.a is
   // the Limited-Action description; the cost itself is the merged cost planner's
-  // nonstandard "exhaust" payment). No Energy/Power is printed on this ability.
+  // nonstandard "exhaust" payment, CostSpec.kind "activated"). No Energy/Power
+  // is printed on this ability.
   assert.equal(activated.kind, "activated");
   assert.equal(activated.timing, "action");
   assert.deepEqual(activated.cost, {
-    kind: "cost.activated",
+    kind: "activated",
     payments: [{ kind: "exhaust" }]
   });
   assert.equal(activated.restriction, undefined);
@@ -71,11 +99,17 @@ test("rad-046-167 Resplendent Rostrum: the become-exhausted trigger grants +3 Mi
 
   assert.equal(triggered.body.length, 1);
   assert.equal(grantMight.id, "resplendent-rostrum.grant-might");
-  // No merged primitive performs a temporary Might modification; recorded with
-  // the layers/continuous-effect shape (see judgeReason).
+  // RIFT-258 merged the card-facing continuous.might instruction; `objects`
+  // carries the Finalize-locked TargetSpec through the chain interpreter.
   assert.equal(grantMight.op, "continuous.might");
+  assert.deepEqual(grantMight.args.mode, { kind: "constant", value: "add" });
   assert.deepEqual(grantMight.args.amount, { kind: "constant", value: 3 });
   assert.deepEqual(grantMight.args.duration, { kind: "constant", value: "end-of-turn" });
+  assert.deepEqual(grantMight.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "resplendent-rostrum.unit" }
+  });
+  assert.equal(grantMight.args.target, undefined);
   assert.deepEqual(grantMight.targets, [
     {
       id: "resplendent-rostrum.unit",
@@ -110,33 +144,77 @@ test("rad-046-167 Resplendent Rostrum golden: the activated body draws 1 and cha
   assert.deepEqual(kernel.zone("A", "rune-zone").map((ref) => ref.id), ["rune-1"]);
 });
 
-test("rad-046-167 Resplendent Rostrum: the Might-grant op is not registered, so the trigger cannot resolve", () => {
-  const kernel = world().unit("ally", { owner: "A", might: 2 }).build();
-  kernel.setTargets("resplendent-rostrum.unit", [kernel.ref("ally")]);
-  // The reference kernel compares filter scalars literally, so the production
-  // "self" selector is substituted with the concrete controller for this run.
-  const body = [{
-    ...grantMight,
-    targets: [{
-      ...grantMight.targets[0],
-      filter: { ...grantMight.targets[0].filter, controller: "A" }
-    }]
-  }];
-  assert.throws(
-    () => runAbilityBody(body, kernel),
-    /Unregistered instruction opcode: continuous\.might/
-  );
+test("rad-046-167 Resplendent Rostrum golden: the activated ability pays the exhaust cost and channels exhausted", () => {
+  const kernel = world().player("A", { energy: 0 })
+    .unit("resplendent-rostrum", {
+      types: ["gear"], might: null, energy: 8, power: ["Calm"], zone: "board",
+      location: { type: "base", player: "A" }
+    })
+    .deck(["top-card"])
+    .rune(["rune-1"])
+    .build();
+  const engine = fixture(kernel);
+
+  engine.execute({
+    id: "resplendent-rostrum:activate", controller: "A",
+    source: kernel.getObject("resplendent-rostrum"), kind: "activated", speed: "action",
+    cost: { id: "resplendent-rostrum:cost", cost: activated.cost },
+    body: activated.body
+  });
+  drain(engine);
+
+  // 415.5: the [E] payment really exhausted the Gear as a cost.
+  assert.equal(kernel.getObject("resplendent-rostrum").exhausted, true);
+  assert.equal(kernel.player("A").handSize, 1);
+  assert.equal(kernel.player("A").runeDeckSize, 0);
+  assert.equal(kernel.player("A").runePool.length, 1);
+  // 431.2: the printed "exhausted" stipulation is passed to the channel action
+  // (the reference kernel records the committed action; the production kernel
+  // applies the entry state).
+  const channelAction = kernel.stateForTest().history
+    .map((entry) => entry.action)
+    .find((action) => action.type === "channel-rune");
+  assert.deepEqual(channelAction, { type: "channel-rune", player: "A", amount: 1, exhausted: true });
+  assert.deepEqual(kernel.events.map((event) => event.action).filter(Boolean), ["pay", "exhaust", "draw", "channel-rune"]);
+});
+
+test("rad-046-167 Resplendent Rostrum golden: the trigger grants +3 Might this turn through the merged layers", () => {
+  const kernel = world()
+    .unit("resplendent-rostrum", {
+      types: ["gear"], might: null, energy: 8, power: ["Calm"], zone: "board",
+      location: { type: "base", player: "A" }
+    })
+    .unit("ally", { might: 2, zone: "board" })
+    .build();
+  const engine = fixture(kernel);
+
+  engine.enqueue({
+    id: "trigger:resplendent-rostrum", controller: "A",
+    source: kernel.getObject("resplendent-rostrum"), kind: "triggered", body: triggered.body
+  });
+  engine.advance();
+  drain(engine);
+
+  const registration = engine.layers.registry.snapshot();
+  assert.equal(registration.length, 1);
+  assert.equal(registration[0].effect.layer, "arithmetic");
+  assert.equal(registration[0].effect.effect.kind, "continuous.might");
+  assert.equal(registration[0].effect.effect.amount, 3);
+  assert.deepEqual(registration[0].duration, { type: "end-of-turn" });
+
+  engine.layers.setObjects(kernel.objects);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally")).might, 5);
+
+  // 317.2.c: the grant expires with the end-of-turn batch.
+  engine.emit({ timingPoint: "turn-end" });
+  engine.layers.setObjects(kernel.objects);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally")).might, 2);
 });
 
 test.todo(
-  "rad-046-167 Resplendent Rostrum: 'give a friendly unit +3 Might this turn' needs a " +
-    "temporary-Might primitive (continuous.might with an end-of-turn duration); effect.buff only " +
-    "covers CR 702 Buff counters and no card-facing primitive registers a continuous.might effect " +
-    "through ctx.addContinuous (RIFT-91 layers-continuous)"
-);
-test.todo(
-  "rad-046-167 Resplendent Rostrum: the activated ability's exhaust cost (415.3/415.3.a) and the " +
-    "Gear's printed 8 Energy + 1 Calm Power need the Finalize cost plan adapter (RIFT-89)"
+  "rad-046-167 Resplendent Rostrum: the object-exhausted trigger firing from the real exhaust action " +
+    "and the CardProgram -> TriggerRegistration wiring (RIFT-120); the golden enqueues the card's own " +
+    "trigger body through the real ChainEngine above"
 );
 test.todo(
   "rad-046-167 Resplendent Rostrum: data issue — the official RAD-046/167 image shows a GEAR " +
