@@ -27,7 +27,7 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required. Re-checked against the merged surface: the draw body is
  * merged and executable, and [Deploy] now has a merged KeywordDef
- * (effects/keywords/Deploy.ts, RIFT-264 batch). The trigger still cannot be
+ * (effects/keywords/Deploy.ts). The trigger still cannot be
  * honestly declared or run:
  * 1. here needs the source-Battlefield identity in the trigger filter. The
  *    merged EventPattern/ObjectFilter vocabulary has no location anchor
@@ -40,10 +40,11 @@ import type { CardProgram } from "../../ir/index.js";
  *    card-played and became-target, combat/flow.ts still throws
  *    combat-start-transaction for the result transaction, and the producer
  *    audit (docs/rules/timing-point-producers.md) records combat-result as
- *    "待后续" (contract section 7.2 batch 5, RIFT-33). The trigger could not be
+ *    "待后续" (contract section 7.2 batch 5). The trigger could not be
  *    placed on the chain regardless of its filter.
- * 3. There is no CardProgram -> TriggerRegistration adapter, so the ability is
- *    not registered at all (RIFT-257 owns src/programs/).
+ * 3. The [Deploy] hold trigger also needs the source-Battlefield anchor and its
+ *    location/cleanup consumers; the merged program lifecycle is present, but
+ *    this trigger still fails closed on the unresolved `here` filter (RIFT-357).
  * The structure below keeps the printed trigger, its timing point and the draw
  * body for review; the golden test validates the data and executes the draw
  * instruction in isolation. Not approximated: the win condition is not widened
@@ -55,15 +56,15 @@ const blossomingDreamroot = {
   status: "judge-required",
   judgeReason:
     "三处缺口，均不近似实现：(0) [Deploy] 的 KeywordDef 已合入（effects/keywords/Deploy.ts），" +
-    "但其展开依赖的 hold 时点归属由 scoring 提供、卡牌侧仍需 RIFT-257 的程序绑定。" +
+    "但其展开依赖的 hold 时点归属由 scoring 提供，且 Deploy 的来源战场锚点仍需 RIFT-357 的位置接线。" +
     "(1)「here」需要来源战场身份进入触发 filter，" +
     "但已合入的 EventPattern/ObjectFilter 词汇没有位置锚点（events/trigger-spec.ts 的允许字段白名单不含 " +
     "here/sameLocationAs，引擎侧 assertTriggerSpec 同样拒绝），程序按同类战场卡保留 here: true 占位（053.3）。" +
     "(2) 没有任何已合入模块把 combat-result 时点（CR 468.3/468.3.a，时点定义见 events/timing-points.ts）" +
     "emit 进唯一事件管线：chain/engine.ts 只产生 chain-item-*/cleanup-*/showdown-*/card-played/became-target，" +
-    "combat/flow.ts 的胜负/结果事务仍是 combat-start-transaction 阻断，RIFT-270 的时点产生方审计把 combat-result 列为「待后续」" +
-    "（契约 §7.2 批 5、RIFT-33）。(3) 缺 CardProgram → TriggerRegistration 适配器（RIFT-257 的 src/programs/ 仍在进行），" +
-    "触发能力根本没有注册路径。draw 1（414.3）本身已合入并由 golden 单独执行；" +
+    "combat/flow.ts 的胜负/结果事务仍是 combat-start-transaction 阻断，时点产生方审计把 combat-result 列为「待后续」" +
+    "（契约 §7.2 批 5）。(3) [Deploy] 的 hold 展开仍会被来源战场锚点的验证拒绝，" +
+    "需要进行中的 RIFT-357 位置接线。draw 1（414.3）本身已合入并由 golden 单独执行；" +
     "不把 win a combat 放宽为战斗结束或无条件抽牌。",
   abilities: [
     // 830.1：印刷的 [Deploy] 声明（展开由 effects/keywords/Deploy.ts 负责，

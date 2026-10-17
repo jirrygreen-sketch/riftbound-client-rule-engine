@@ -20,17 +20,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   443.1 / 443.2：Disempower 是移除 Empowered 状态的受限动作，只由游戏效果指示。
  * - “Reduce the cost of the next unit you play this turn by
  *   :rb_energy_2::rb_rune_rainbow:” 是本回合“下一张打出的单位”的费用改写
- *   （cost-modify 模板；356.4 的折扣阶段），需要费用计划消费方（RIFT-261 的费用种类与
- *   cost.pay / cost.modify）与
- *   “下一个打出的单位”这一窗口的绑定。
+ *   （356.4 的折扣阶段）。cost.modify 已合入，但仍没有把折扣绑定到“下一张单位”的
+ *   后续 Finalize 窗口；[A] Power 可由费用计划的空领域列表表达，不能因此选定某个领域。
  * - “and give it "Kill me at end of turn."” 把一条带来源关联的触发能力临时附加给
  *   那个单位（317.1.a 的回合结束时点；135.4.b / 801.3.a 的授予边界），需要
  *   continuous.grant-ability。该对象在结算时还不存在（它是本回合之后被打出的单位），
  *   所以两条指令都只能用描述窗口的常量，不能声明 TargetSpec（355.5/355.8 要求
  *   目标在把链项放上链时就合法存在）。
  * - 135.2.e.5 / 163.2.b：减费值里的 :rb_rune_rainbow: 是 [A]（任意域）Power；
- *   契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order 六域封闭集合，
- *   effect.resources 明确记录 [A] 不可表达、绝不用某个域近似。
+ *   费用计划用空领域列表表达通用 Power，绝不用某个域近似。
  *
  * status = judge-required（逐个保留证据，不近似实现）：
  * - 缺 [Empower] 关键词展开：effects/keywords/ 的已注册关键词（Accelerate、Action、
@@ -42,13 +40,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   energy / power / xp / exhaust / discard / recycle / kill / reveal / spend-buff，
  *   kind: "disempower" 会被 readCost 以 judge-required 拒绝（443 的 Disempower 是
  *   受限动作，不在费用管线里）；golden 锁定该拒绝证据；
- * - “下一张打出的单位”的减费窗口与 cost.modify 原语未合入
- *   （cost/ 目录只有 cost-plan / payment / plan-types / plan-values / printed-costs /
- *   resources，scripts 的 op 注册表无 cost.modify；RIFT-261 仍在进行）；
+ * - “下一张打出的单位”的减费窗口没有 cost.modify 的消费方；原语只为一个已知费用计划
+ *   生成折扣后的 FinalizedCostPlan；
  * - “Kill me at end of turn.” 的临时能力授予与回合结束到期需要 continuous.grant-ability
- *   与延迟触发（RIFT-259 的持续效果指令只提供 might / grant-keyword / keyword / combat /
+ *   与延迟触发（现有持续效果指令只提供 might / grant-keyword / keyword / combat /
  *   movement / timing / restrict / location / deck，没有 grant-ability）；
- * - [A] 通用 Power 在六域封闭集合里没有可执行值（契约级缺口）。
+ * - [A] 通用 Power 的数值本身已可由费用计划表达；真正缺的是把它绑定到下一张单位的费用窗口。
  */
 const abilities: Ability[] = [
   {
@@ -76,8 +73,8 @@ const abilities: Ability[] = [
     body: [
       {
         id: "boy-who-shattered-time.reduce-next-unit",
-        // cost.modify 模板（356.4；RIFT-9 原语清单，尚未合入）：对本回合下一张打出的
-        // 单位应用 -2 Energy 与 -1 [A]；window 是描述窗口的常量，不是对象引用。
+        // cost.modify 的已合入折扣形状仍无法承载“下一张单位”的延迟窗口；这里保留
+        // 描述性参数，避免把折扣错误地应用到本能力来源的费用计划。
         op: "cost.modify",
         args: {
           appliesTo: { kind: "constant", value: "next-unit-played-this-turn" },
@@ -126,11 +123,11 @@ const program = {
     "该 KeywordDef 尚无归属任务号）。" +
     "费用管线不接受 “Disempower me” 作为费用：cost/plan-values.ts 支持的支付种类只有 energy / power / xp / " +
     "exhaust / discard / recycle / kill / reveal / spend-buff，kind: \"disempower\" 会被 readCost 以 judge-required 拒绝" +
-    "（443 的 Disempower 是受限动作）。减费侧缺 cost.modify 与 “本回合下一张打出的单位” 窗口的绑定（RIFT-261），" +
-    "减费值里的 [A]（135.2.e.5 / 163.2.b 任意域 Power）在六域封闭集合里没有可执行值，不选一个域近似。" +
+    "（443 的 Disempower 是受限动作）。cost.modify 原语已合入，但仍缺“本回合下一张打出的单位”窗口的消费方，" +
+    "减费值里的 [A]（135.2.e.5 / 163.2.b 任意域 Power）可由空领域的通用 Power 费用计划表达，不选一个域近似。" +
     "“Kill me at end of turn.” 需要 continuous.grant-ability 与回合结束到期（317.1.a / 135.4.b 的临时能力授予与到期），" +
     "已合入的持续效果指令清单里没有 grant-ability。" +
-    "依赖：Empower KeywordDef、RIFT-261（cost.pay / cost.modify）、grant-ability 持续效果；不近似实现。",
+    "依赖：Empower KeywordDef、下一张单位的费用窗口消费方、grant-ability 持续效果；不近似实现。",
   abilities,
   sourceText:
     "[Empower] —  :rb_energy_1:, :rb_exhaust: (Use only if not Empowered.)\n" +

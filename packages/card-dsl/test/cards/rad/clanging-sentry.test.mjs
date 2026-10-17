@@ -46,7 +46,7 @@ const FRIENDLY_MECHS = {
  * merged continuous.grant-keyword primitive consumes Expr-valued arguments, so
  * the static effect's fields are wrapped as constants here (the production
  * CardProgram -> layer registration consumer that would do this wiring is the
- * RIFT-257 gap recorded in judgeReason and the todos below).
+ * dynamic keyword-consumption gap recorded in judgeReason and the todo below).
  */
 function grantInstruction(id) {
   return {
@@ -80,11 +80,10 @@ test("rad-055-167 Clanging Sentry: identity, ruleset, status, judgeReason and so
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // The reason must name the actual remaining gap — the CardProgram -> layer
-  // registration consumer (RIFT-257) — not the already-merged grant instruction
-  // or the Disarm KeywordDef.
+  // The reason must name the actual remaining gap — dynamic Disarm trigger
+  // consumption — not the already-merged static binder or grant instruction.
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /动态/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -148,7 +147,7 @@ test("rad-055-167 Clanging Sentry golden: a grant adds onto a Disarm value the u
 test("rad-055-167 Clanging Sentry golden: the merged Disarm expansion deals -1 Might this turn", () => {
   // 831.1.d: the granted Disarm expands (keywords/Disarm.ts) to "when the host
   // attacks, give an enemy unit there -1 [M] this turn". Its own instruction
-  // runs unchanged on the merged continuous.might primitive (RIFT-258).
+  // runs unchanged on the merged continuous.might primitive.
   const disarm = keywordDefinitionsById.get("Disarm");
   assert.equal(disarm.stacking, "sum");
   const [expanded] = disarm.expand({ host: { canonicalCardId: CANONICAL } });
@@ -190,18 +189,6 @@ test("rad-055-167 Clanging Sentry golden: the merged Disarm expansion deals -1 M
 });
 
 test.todo(
-  "rad-055-167 Clanging Sentry: register the printed static grant through the CardProgram -> " +
-    "ContinuousEffectSpec consumer so production actually gives friendly Mechs Disarm " +
-    "(ResolveContext.addContinuous is only reached by primitives today; RIFT-257 src/programs/)"
-);
-
-test.todo(
   "rad-055-167 Clanging Sentry: expand the granted Disarm into its 831.1.d attack trigger on the " +
-    "attack-declared timing point, which needs the same program-binding path (RIFT-257)"
-);
-
-test.todo(
-  "rad-055-167 Clanging Sentry: 831.2's official example — two Clanging Sentries leave a Mech " +
-    "with Disarm 2 — needs the layered snapshot of the first grant to be visible when the second " +
-    "grant resolves, which only the CardProgram -> layer registration consumer supplies (RIFT-257)"
+    "attack-declared timing point through a dynamic grant-keyword consumer"
 );

@@ -62,7 +62,7 @@ test("black-market: body is one unlinked Draw 1 for the ability controller", () 
 test("black-market: the two-[A] rune cost plans and pays through the merged cost system", () => {
   // 135.2.e.5.a: [A] can be paid by Power of any Domain, so two differently
   // domained runes cover the requirement. The payment path is the merged cost
-  // plan (RIFT-89's buildCostPlan); only the any-player permission and the usage limit stay
+  // plan; only the any-player permission and the usage limit stay
   // judged on the card program itself.
   const kernel = world().player("A", { power: ["Fury", "Calm"] }).build();
   const plan = buildCostPlan(kernel, { id: "black-market:ability", cost: ability.cost });

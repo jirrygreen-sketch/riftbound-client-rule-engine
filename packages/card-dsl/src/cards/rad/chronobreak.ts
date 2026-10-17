@@ -38,7 +38,10 @@ import type { CardProgram } from "../../ir/index.js";
  * - "its owner plays ... or to their base" needs a per-object chooser (the
  *   owner, a runtime PlayerId) with a per-object destination choice; the merged
  *   effect.play accepts one player and one location for the whole selection, and
- *   its cost must already be a FinalizedCostPlan (no ignore-cost rewrite).
+ *   its cost must already be a FinalizedCostPlan (no ignore-cost rewrite). The
+ *   merged surface also has no effect.play-back producer/consumer for this
+ *   per-object handoff; location selection and ordered picks are still in
+ *   progress (RIFT-357 / RIFT-358).
  */
 export default {
   canonicalCardId: "card.hash-2875b065844462e761acfeb152cf2feea180924a496740b05903caac24a3d795",
@@ -47,13 +50,14 @@ export default {
   judgeReason:
     "三处未合入依赖：(1)「pay any amount of Power」是可变数额的强制附加费用（204.2.a、135.2.b.5 的 X），" +
     "cost/plan-types.ts 只建模固定 CostAmount 组件与折扣，没有可变 X，也没有把已支付的 X 绑定给结算指令的接口" +
-    "（变量费用属 RIFT-261 的费用种类扩展）；" +
+    "（费用计划当前没有可变 X 的绑定）；" +
     "(2)「its owner plays that unit back to the same location」需要记录被放逐单位放逐前的位置，" +
     "而 Banish 按 428 移到放逐区、按 124 产生新的对象身份，旧位置不可回读；" +
     "(3)「its owner plays … or to their base, ignoring its cost」需要逐对象的 owner 选择者与逐对象的目的地选择，" +
-    "已合入的 effect.play 只接受单一 player 与单一 location，且 cost 必须是已 Finalize 的费用计划（无 ignore-cost 改写，356.1.b.1）。" +
+    "已合入的 effect.play 只接受单一 player 与单一 location，且 cost 必须是已 Finalize 的费用计划（无 ignore-cost 改写，356.1.b.1）；" +
+    "本卡所需的 effect.play-back 逐对象生产/消费路径尚不存在，目的地与顺序选择依赖进行中的 RIFT-357 / RIFT-358。" +
     "Banish 指令本体（effect.banish，数额取自链接值）已在 golden 测试中真实执行。" +
-    "依赖：RIFT-261（可变费用 / ignore-cost 改写）、RIFT-90（逐对象选择与目的地计划）；不近似实现。",
+    "不近似实现。",
   abilities: [
     {
       kind: "play",

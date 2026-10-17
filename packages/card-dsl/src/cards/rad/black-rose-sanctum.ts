@@ -19,7 +19,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   effect.token with mode "play" rather than a direct Board creation.
  * - 383.3.e.1: "the first time each turn" is a frequency limit on the trigger.
  *
- * Status: judge-required. Re-checked against the merged surface; all three gaps hold:
+ * Status: judge-required. Re-checked against the merged surface; three gaps remain:
  * - The token goes to "their base" — the base of the player who controlled the
  *   dying unit, which is NOT the ability's controller. effect.token refuses
  *   any unit Base other than the ability controller's
@@ -33,11 +33,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   per-turn / per-combat / per-chain / per-game for one registration, so
  *   encoding once: "per-turn" would wrongly allow only one trigger per turn
  *   across both players instead of one per player.
- * - Playing the new token still needs the create-token "chain" destination and
- *   the finalized cost plan (185.3.a.1 treats a token's cost as 0) that the
- *   merged cost system owes (RIFT-261 / RIFT-257 cost kinds and program
- *   binding); the reference kernel models the handoff, the production flow does
- *   not.
+ * - The source-Battlefield "here" anchor is not in the trigger filter vocabulary,
+ *   so the dying object cannot be restricted to this Battlefield (RIFT-357).
  * The trigger and the intended body stay recorded so the shape is reviewable.
  */
 export default {
@@ -48,10 +45,9 @@ export default {
     "「they play a 1 [M] Recruit unit token to their base」三处缺口：" +
     "（1）Token 目的地是每个死亡单位控制者的基地（\"their base\"），不是能力控制者的基地；" +
     "effect.token 明确只允许能力控制者的基地作为单位 Token 目的地，frozen create-token 动作的 player 是创建者、不是目的地玩家；" +
-    "（2）「For each player, the first time each turn」是按玩家计的每回合首触发上限，TriggerSpec.once 只有单个注册的 per-turn/per-combat/per-chain/per-game，" +
+    "（2）触发过滤中的 \"here\" 需要来源战场锚点，当前 EventPattern/ObjectFilter 没有该运行期位置选择（RIFT-357）；" +
+    "（3）「For each player, the first time each turn」是按玩家计的每回合首触发上限，TriggerSpec.once 只有单个注册的 per-turn/per-combat/per-chain/per-game，" +
     "写成 once:\"per-turn\" 会把两名玩家整体限成每回合一次，属错误近似；" +
-    "（3）新 Token 的「打出」仍需 create-token(to:chain) + 已 Finalize 的费用计划（440.2.c / 185.2.a / 185.3.a.1），" +
-    "属 RIFT-261（费用种类）与 RIFT-257（卡牌程序绑定）的接线；参考内核已能跑通该 handoff，生产链路还没有。" +
     "Trigger 与效果形状（Recruit 187.1、mode: play、controller-base 占位）已保留供审查；golden 已验证 Recruit 定义与“play 模式到控制者基地”的真实执行，不近似实现。",
   sourceText:
     "For each player, the first time each turn a non-token unit they control dies here, they play a 1 :rb_might: Recruit unit token to their base.",
@@ -64,14 +60,14 @@ export default {
           event: "object-killed",
           // "a non-token unit they control dies here" — the dying object
           // filter names any player's unit (375.10-style unit reference).
-          object: { type: "unit", controller: "any" },
-          // "here", the non-token restriction and the per-player window are
-          // descriptive keys the merged EventPattern cannot express: it has no
-          // source-battlefield anchor (here), no token exclusion (nonToken),
-          // and no per-player frequency (perPlayerFrequency). They are kept so
-          // the intended condition is reviewable, not as executable semantics.
+          object: {
+            type: "unit",
+            controller: "any",
+            characteristics: { isToken: false }
+          },
+          // "here" and the per-player window remain descriptive keys; the
+          // non-token predicate itself uses the merged characteristics field.
           here: true,
-          nonToken: true,
           perPlayerFrequency: "once-per-turn"
         }
       },

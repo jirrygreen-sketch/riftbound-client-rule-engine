@@ -19,10 +19,9 @@ test("rad-150-167 Blade of the Exile: program validates and has expected identit
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // The reason must name the still-open cost work, not the already-merged
-  // Equip KeywordDef.
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  // The reason must name the still-open Equip cost binding, not the
+  // already-merged KeywordDef or program binding.
+  assert.match(program.judgeReason, /kind: "equip"/);
   assert.match(program.judgeReason, /355\.10\.c/);
 });
 
@@ -108,10 +107,6 @@ test("rad-150-167 Blade of the Exile: the rainbow Power option is payable by any
 test.todo(
   "rad-150-167 Blade of the Exile: the printed two-way cost choice — rainbow Power OR exhaust a " +
     "friendly unit — needs cost-side alternative payments plus the non-target cost selection of a " +
-    "friendly unit (CR 818.1.c.3 / 355.10.c / 355.10.c.1); RIFT-261 owns cost.pay / cost.modify"
-);
-
-test.todo(
-  "rad-150-167 Blade of the Exile: activating the Equip ability in production needs the " +
-    "CardProgram -> keyword expansion -> chain binding (RIFT-257)"
+  "friendly unit (CR 818.1.c.3 / 355.10.c / 355.10.c.1); the merged cost planner still " +
+  "has no authoritative Equip-cost binding"
 );
