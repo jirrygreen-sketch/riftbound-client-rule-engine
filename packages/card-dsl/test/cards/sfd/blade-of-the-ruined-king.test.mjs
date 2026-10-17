@@ -56,9 +56,11 @@ test("sfd-178-221 Blade of the Ruined King: identity, ruleset, status, judgeReas
   // blocked equip payment kind and what is already executable.
   assert.match(program.judgeReason, /params\.cost/);
   assert.match(program.judgeReason, /costAdditions/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
+  assert.match(program.judgeReason, /programs\/keywords\.ts/);
+  assert.match(program.judgeReason, /ProgramRegistry/);
   assert.match(program.judgeReason, /355\.10\.c\.1/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(257|261)/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -183,14 +185,28 @@ test("sfd-178-221 Blade of the Ruined King: the merged Equip expansion is valid 
   assert.equal(expansion[0].timing, "action");
 });
 
+test("sfd-178-221 Blade of the Ruined King: the merged Equip cost fails closed on the unsupported payment kind", () => {
+  const definition = keywordDefinitionsById.get("Equip");
+  assert.ok(definition);
+  const [activation] = definition.expand({ value: equip.value, host: { canonicalCardId: CANONICAL } });
+  const context = bladeWorld();
+
+  assert.throws(
+    () => buildCostPlan(context, { id: "blade-of-the-ruined-king:equip", cost: activation.cost }),
+    (error) =>
+      error instanceof CostPlanError &&
+      error.reason === "judge-required" &&
+      /Unsupported payment kind: equip/.test(error.message)
+  );
+  assert.equal(context.getObject("blade-of-the-ruined-king").attachedTo, null);
+});
+
 test.todo(
   "sfd-178-221 Blade of the Ruined King: the printed mixed Equip cost (1 Order Power + Kill a " +
-    "friendly unit, CR 818.1.c.2/818.1.c.3) needs a caller that passes contract 3.8 item 3's " +
-    "ExpandInput params.cost from the card, and an Equip expansion that reads it so both halves " +
-    "are declared (RIFT-261 batch)."
+    "friendly unit, CR 818.1.c.2/818.1.c.3) needs the card's cost passed through KeywordDef.expand " +
+    "params.cost and consumed by Equip.expand so both halves survive activation."
 );
 test.todo(
-  "sfd-178-221 Blade of the Ruined King: paying the printed Equip cost needs the \"equip\" " +
-    "payment kind in cost/plan-values.ts (RIFT-261 batch) plus the card-program -> keyword " +
-    "expansion -> chain wiring (contract 3.5, RIFT-257)."
+  "sfd-178-221 Blade of the Ruined King: add an Equip payment kind to cost/plan-values.ts and consume the " +
+    "result in activation Finalize; the current merged activation binding intentionally fails closed."
 );
