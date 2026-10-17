@@ -86,3 +86,5 @@ test("Ember Monk supported Might primitive stacks separate settlements until tur
   layers.advance({ id: "turn-end" });
   assert.equal(layers.snapshot(kernel.ref("monk")).might, 4);
 });
+
+test.todo("Ember Monk: retain Hidden origin on card-played and translate the fromHidden trigger filter (CR 811/412.4)");
