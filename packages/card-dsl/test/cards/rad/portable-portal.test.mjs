@@ -12,6 +12,8 @@ import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import deploy from "../../../../engine-core/dist/effects/keywords/Deploy.js";
 
@@ -21,6 +23,7 @@ const SOURCE_TEXT =
   "When you play this, you may pay :rb_rune_body: to ready a unit here.\n" +
   "Friendly units here have [Ganking]. (They can move from battlefield to battlefield.)";
 const TARGET_ID = "portable-portal.unit-here";
+const PAY_ID = "portable-portal.pay-body";
 const READY_ID = "portable-portal.ready";
 const MAY_ID = "portable-portal.may";
 
@@ -71,23 +74,25 @@ test("rad-087-167 Portable Portal: 'you may pay … to ready a unit here' is cho
   assert.equal(may.op, "choice.optional");
   assert.equal(may.linkedTo, undefined);
   assert.equal(may.args.body.kind, "constant");
-  assert.deepEqual(may.args.body.value.map(instruction => instruction.id), [READY_ID]);
+  assert.deepEqual(may.args.body.value.map(instruction => instruction.id), [PAY_ID, READY_ID]);
 
-  const [readyInstruction] = may.args.body.value;
+  const [paymentInstruction, readyInstruction] = may.args.body.value;
   assert.equal(readyInstruction.op, "effect.ready");
-  assert.equal(readyInstruction.linkedTo, undefined);
+  assert.equal(paymentInstruction.op, "cost.pay");
+  assert.deepEqual(paymentInstruction.args.payments, { kind: "constant", value: { energy: 0, power: ["Body"] } });
+  assert.equal(readyInstruction.linkedTo, PAY_ID);
   assert.deepEqual(readyInstruction.args.objects, {
     kind: "constant",
     value: { kind: "target", id: TARGET_ID }
   });
   assert.deepEqual(readyInstruction.args.amount, { kind: "constant", value: 1 });
   // "a unit here" is an explicit choice (355.5), so it is a TargetSpec; "here"
-  // is the source's location restriction (sameLocationAs: self), never a
+  // is the source's location restriction (sameLocationAs:self), never a
   // separate battlefield target (355.10.b / 355.10.d).
   assert.deepEqual(readyInstruction.targets, [
     {
       id: TARGET_ID,
-      filter: { type: "unit", controller: "controller", zone: "board", sameLocationAs: "self" },
+      filter: { type: "unit", zone: "board", sameLocationAs: "self" },
       min: 1,
       max: 1,
       selection: "one"
@@ -95,15 +100,13 @@ test("rad-087-167 Portable Portal: 'you may pay … to ready a unit here' is cho
   ]);
 });
 
-test("rad-087-167 Portable Portal: accepting the optional performs the ready instruction", () => {
+test("rad-087-167 Portable Portal: the ready subeffect readies the locked unit here", () => {
   const [may] = program.abilities[1].body;
-  assert.equal(may.args.body.value.length, 1);
-  const [readyInstruction] = may.args.body.value;
+  assert.equal(may.args.body.value.length, 2);
+  const [, readyInstruction] = may.args.body.value;
 
-  // The reference kernel cannot evaluate the symbolic controller/here filter
-  // placeholders of the TargetSpec, so Finalize's locked choice is supplied to
-  // the real effect.ready primitive directly (same split as veiled-temple);
-  // the acceptance path itself is the declared choice.optional body.
+  // Isolate the ready primitive; the full authored optional body is also run
+  // transactionally below, including the Power payment request.
   const kernel = world()
     .unit("portal", { zone: "board", location: { type: "battlefield", id: "bf-1" } })
     .unit("unit-here", { zone: "board", location: { type: "battlefield", id: "bf-1" }, exhausted: true })
@@ -160,7 +163,7 @@ test("rad-087-167 Portable Portal: the merged Ganking grant lands on the chosen 
   // and does not evaluate the sameLocationAs anchor, so Finalize's locked choice
   // is supplied as an explicit selection (the merged goldens' documented device)
   // while the recorded program filter is asserted in the structure test above;
-  // wiring the CardProgram static into production is the open RIFT-120 gap (see
+  // the remaining production gap is its structured LocationRef filter (see
   // judgeReason).
   const grant = program.abilities[2].effect;
   const targetId = "portable-portal.unit-here";
@@ -246,14 +249,11 @@ test("rad-087-167 Portable Portal: the merged Deploy expansion cannot bind (stat
   );
 });
 
-test("rad-087-167 Portable Portal: the in-instruction Power payment has no cost.pay instruction", () => {
-  // CR 355.10.c.1 / 203.3: the cost.pay primitive is merged, but the program
-  // declares no payment instruction and there is no success-gated body, so the
-  // ready half cannot be gated on a committed payment.
+test("rad-087-167 Portable Portal: the optional body declares the real Power payment before ready", () => {
   assert.equal(instructionDefinitionsById.has("cost.pay"), true);
   const [may] = program.abilities[1].body;
-  const bodyIds = [may, ...may.args.body.value].map(instruction => instruction.op);
-  assert.equal(bodyIds.includes("cost.pay"), false);
+  assert.deepEqual(may.args.body.value.map(instruction => instruction.op), ["cost.pay", "effect.ready"]);
+  assert.equal(may.args.body.value[1].linkedTo, PAY_ID);
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /success-gated/);
 });
@@ -302,10 +302,75 @@ test("rad-087-167 Portable Portal: the production static grant installs but neve
 });
 
 test("rad-087-167 Portable Portal: the sameLocationAs TargetSpec is rejected by the merged translator", () => {
-  // CR 053.3 / RIFT-90: the authored "here" anchor cannot reach the chain either,
-  // because programs/filters.ts whitelists filter fields without sameLocationAs.
   assert.throws(
     () => translateInstructionTargets(program.abilities[1].body),
     (error) => error.code === "judge-required" && /Unsupported filter field sameLocationAs/.test(error.message)
   );
+});
+
+function optionalWorld(power = ["Body"], owner = "A") {
+  const kernel = world().player("A", { energy: 0, power })
+    .unit("portal", { location: { type: "battlefield", id: "bf-1" } })
+    .unit("unit-here", { owner, controller: owner, location: { type: "battlefield", id: "bf-1" }, exhausted: true })
+    .unit("unit-elsewhere", { location: { type: "battlefield", id: "bf-2" }, exhausted: true }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("portal") });
+  scoped.setTargets(TARGET_ID, [scoped.ref("unit-here")]);
+  return scoped;
+}
+
+function runOptionalTransaction(kernel, accepted) {
+  let outcome;
+  const run = runInstruction({
+    op: "test.portable-portal-body",
+    argsSchema: { parse: value => value },
+    execute(context) {
+      outcome = resolveChainBody(program.abilities[1].body, context);
+      return outcome.results.at(-1).result;
+    }
+  }, {}, { world: kernel, answers: { [`${MAY_ID}/optional`]: accepted } });
+  return { run, outcome };
+}
+
+for (const owner of ["A", "B"]) test(`rad-087-167 Portable Portal regression: Body payment request precedes readying a ${owner}-controlled unit here`, () => {
+  const kernel = optionalWorld(["Body"], owner);
+  const { run, outcome } = runOptionalTransaction(kernel, true);
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    [PAY_ID, "executed"], [READY_ID, "executed"], [MAY_ID, "executed"]
+  ]);
+  // The reference pay action emits the locked Power plan but does not yet
+  // consume its pool. Assert the real request/receipt; judgeReason records the
+  // missing resource-consumption evidence instead of expecting that defect.
+  const payment = outcome.results.find(entry => entry.id === PAY_ID).result.linkedValues.payment;
+  assert.deepEqual(payment.actions[0].action.plan.power, ["Body"]);
+  assert.equal(payment.paid, true);
+  assert.equal(kernel.getObject("unit-here").exhausted, false);
+  assert.equal(kernel.getObject("unit-elsewhere").exhausted, true);
+  assert.deepEqual(outcome.events.map(event => event.action), ["pay", "ready"]);
+});
+
+test("rad-087-167 Portable Portal: declining the printed payment leaves resources and units intact", () => {
+  const kernel = optionalWorld();
+  const { outcome } = runOptionalTransaction(kernel, false);
+  assert.deepEqual(outcome.events, []);
+  assert.deepEqual(kernel.player("A").power, ["Body"]);
+  assert.equal(kernel.getObject("unit-here").exhausted, true);
+  assert.equal(kernel.linked(`${PAY_ID}.payment`), undefined);
+});
+
+test("rad-087-167 Portable Portal: failed Body payment rolls back without readying a unit", () => {
+  const kernel = optionalWorld([]);
+  const before = kernel.snapshot();
+  assert.throws(() => runOptionalTransaction(kernel, true), error =>
+    error instanceof CostPlanError && error.reason === "cannot-pay-cost");
+  assert.deepEqual(kernel.snapshot(), before);
+  assert.equal(kernel.linked(`${PAY_ID}.payment`), undefined);
+});
+
+test("rad-087-167 Portable Portal: paying the Body cost consumes the Power pool", {
+  todo: "ReferenceTestKernel pay currently deducts Energy/XP only; real Power consumption evidence is still required"
+}, () => {
+  const kernel = optionalWorld();
+  runOptionalTransaction(kernel, true);
+  assert.deepEqual(kernel.player("A").power, []);
 });
