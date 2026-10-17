@@ -6,7 +6,7 @@ import type { PipelineEvent, TimingEmission } from "../../../events/pipeline-typ
 import { ChainEngine } from "../../../chain/engine.js";
 import { createProgramBinding } from "../../../programs/index.js";
 import type { ProgramSource } from "../../../programs/registry.js";
-import { type TestWorld, world } from "../test-kernel.js";
+import { TestWorld, world } from "../test-kernel.js";
 import type {
   CardScenario,
   CardScenarioResult,
@@ -56,7 +56,7 @@ function objectConfig(object: ScenarioObject, owner: PlayerId, zone: ZoneId): Pa
   return {
     owner,
     controller: object.controller ?? owner,
-    cardId: object.cardId ?? object.program?.canonicalCardId ?? null,
+    cardId: object.cardId === undefined ? object.program?.canonicalCardId ?? null : object.cardId,
     name: object.name ?? object.id,
     types: object.types ?? ["unit"],
     tags: object.tags ?? [],
@@ -65,9 +65,10 @@ function objectConfig(object: ScenarioObject, owner: PlayerId, zone: ZoneId): Pa
     location: object.location === undefined
       ? (zone === "board" ? DEFAULT_LOCATION : null)
       : object.location,
+    combatRole: object.combatRole ?? null,
     might: object.might === undefined ? 1 : object.might,
     energy: object.energy === undefined ? 0 : object.energy,
-    power: object.power === undefined ? [] : object.power as readonly Domain[],
+    power: object.power === undefined ? [] : object.power,
     exhausted: object.exhausted ?? false,
     damage: object.damage ?? 0,
     stunned: object.stunned ?? false,
@@ -116,13 +117,22 @@ function makeWorld(scenario: CardScenario, program: CardProgram): { kernel: Test
     const owner = object.owner ?? zoneInfo?.owner ?? "A";
     const zone = zoneInfo?.zone ?? object.zone ?? "deck";
     (zoneObjects.get(zone) ?? zoneObjects.set(zone, []).get(zone)!).push(Object.assign({}, object, { owner, zone }));
-    if (zone === "board" && (object.program || object.cardId === program.canonicalCardId)) boardProgramIds.push(object.id);
+    if (zone === "board" && object.cardId !== null && (object.program || object.cardId === program.canonicalCardId)) boardProgramIds.push(object.id);
   }
   for (const [zone, entries] of zoneObjects) {
     const ordered = zone === "deck" || zone === "rune-deck" ? [...entries].reverse() : entries;
     for (const object of ordered) builder.object(object.id, objectConfig(object, object.owner ?? "A", zone));
   }
-  return { kernel: builder.build(), boardProgramIds };
+  // WorldBuilder defaults null Might to 1. Seed the declared null into the
+  // initial world before creating the chain or executing any lifecycle/actions.
+  const initial = builder.build();
+  const state = initial.snapshot();
+  for (const object of objects) {
+    if (object.might !== null) continue;
+    const configured = state.objects.get(object.id)!;
+    state.objects.set(object.id, { ...configured, might: null });
+  }
+  return { kernel: new TestWorld({ state, sourceSnapshot: initial.source }), boardProgramIds };
 }
 
 function normalizeChoice(request: ChoiceRequest<unknown>, value: ScenarioChoiceValue, kernel: TestWorld): unknown {
@@ -345,7 +355,7 @@ export function runCardScenario(program: CardProgram, scenario: CardScenario): C
     },
     describePlay: binding.describePlay,
   });
-  binding.attachLifecycle(engine);
+  binding.attachLifecycle(engine, error => { throw error; });
   addInitialProgramObjects(kernel, engine, boardProgramIds);
   // Setup transitions establish lifecycle registrations; they are not scenario actions.
   const initialEventCount = engine.pipeline.events.length;

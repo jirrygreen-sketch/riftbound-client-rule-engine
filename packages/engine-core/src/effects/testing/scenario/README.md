@@ -36,7 +36,9 @@ result.asserts();
 
 ## 场景格式
 
-`players` 可设置 `energy`、`power`、`xp`、`score`，并用 `zones` 给牌库和手牌提供顺序。`objects` 是物理对象列表：`id` 是场景引用，`owner`/`controller`、`zone`、`location`、`types`、`tags`、`might`、`energy`、`power`、`exhausted` 等字段对应 `ObjectSnapshot`。对象可以通过 `cardId` 绑定程序，也可以在 JS 场景里直接写 `program`；后者会自动加入本次运行的程序注册表。`energy: null` 和 `power: null` 会原样保留，表示没有印刷费用。
+`players` 可设置 `energy`、`power`、`xp`、`score`，并用 `zones` 给牌库和手牌提供顺序。`objects` 是物理对象列表：`id` 是场景引用，`owner`/`controller`、`zone`、`location`、`combatRole`、`types`、`tags`、`might`、`energy`、`power`、`exhausted` 等字段对应 `ObjectSnapshot`。对象可以通过 `cardId` 绑定程序，也可以在 JS 场景里直接写 `program`；后者会自动加入本次运行的程序注册表，只有省略 `cardId` 时才会以程序的 canonical ID 填充它。显式 `cardId: null` 保持无卡牌身份。`might: null` 表示无 Might，`energy: null` 和 `power: null` 表示没有印刷费用，均原样保留；省略时仍默认 `might: 1`、`energy: 0`、`power: []`。测试台通过 `TestWorld` 的初始状态接口保留无 Might 特征，发生在链创建与任何操作之前。
+
+程序校验、生命周期绑定（包括初始棋盘对象和后来打出的对象）及执行错误会直接抛出原始错误，保留原因与错误码；不会返回成功的场景结果。缺少选择答案时才会挂起等待 `choose`，场景结束仍未回答则失败。合法的 `ignored` / `negated` 指令结果继续遵循解释器语义。
 
 `phase`、`turnOrder`、`turnPlayer` 和 `priority` 描述初始链环境。主阶段空链时优先权必须属于当前回合玩家；省略 `priority` 时由 `turnPlayer` 推导。
 
