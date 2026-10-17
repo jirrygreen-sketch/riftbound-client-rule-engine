@@ -10,6 +10,8 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
 import { canAct, restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { abilitySpeed } from "../../../../engine-core/dist/programs/keywords.js";
 
@@ -43,8 +45,13 @@ test("unl-190-219 Lilting Lullaby: identity, status, judgeReason and verbatim so
   // The unresolved part is the prohibition's consumer and the referent that
   // names the player it applies to.
   assert.match(program.judgeReason, /continuous\.restrict/);
-  assert.match(program.judgeReason, /continuous\.restrict/);
   assert.match(program.judgeReason, /359\.3\.f\.1/);
+  // Re-checked against the merged sources: the consumer exists, the remaining
+  // gap is the dynamic player referent the primitive cannot accept.
+  assert.match(program.judgeReason, /appliesTo must be an object filter/);
+  assert.match(program.judgeReason, /actionIsRestricted/);
+  assert.match(program.judgeReason, /Action is restricted by a continuous rule/);
+  assert.doesNotMatch(program.judgeReason, /尚未读取本回合 restriction|尚未消费/);
   // The counter half cites the rule entries that make the chain spell a legal
   // target and exclude self-targeting and pending items.
   assert.match(program.judgeReason, /426\.1/);
@@ -132,20 +139,23 @@ test("unl-190-219 Lilting Lullaby golden: the counter half really runs through t
   assert.deepEqual(outcome.events.map((event) => event.action), ["counter"]);
 });
 
-test("unl-190-219 Lilting Lullaby golden: the prohibition clause carries the reviewed declarative shape only", () => {
-  // Whether the prohibition is executable depends on the unmerged
-  // continuous.restrict consumer (judgeReason), so this test only pins the
-  // declared shape and leaves the execution evidence to the TODO below; no
-  // no-op closure stands in for the effect.
-  assert.equal(bodyWithoutTargetSpecs[1].op, "continuous.restrict");
-  assert.deepEqual(bodyWithoutTargetSpecs[1].args.action, {
-    kind: "constant",
-    value: "play-spell"
-  });
-  assert.deepEqual(bodyWithoutTargetSpecs[1].args.duration, {
-    kind: "constant",
-    value: "this-turn"
-  });
+test("unl-190-219 Lilting Lullaby golden: the dynamic player referent is refused, so the prohibition never registers", () => {
+  // continuous.restrict requires an ObjectFilter for appliesTo. The card's
+  // "Its controller" referent evaluates to a player id string, and the merged
+  // primitive rejects it, so the whole clause (and the counter that precedes it
+  // in the same body) fails to resolve as authored.
+  const kernel = world()
+    .unit("spell", { owner: "B", controller: "B", types: ["spell"], zone: "chain" })
+    .unit("source", { owner: "A", controller: "A" })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("source"), controller: "A" });
+  scoped.setTargets("lilting-lullaby.spell", [kernel.ref("spell")]);
+  assert.throws(
+    () => resolveChainBody(bodyWithoutTargetSpecs, scoped),
+    (error) => error instanceof TypeError &&
+      /continuous\.restrict appliesTo must be an object filter/.test(error.message)
+  );
+  assert.deepEqual(scoped.continuousEffects, []);
 });
 
 test("unl-190-219 Lilting Lullaby golden: the merged restriction primitive registers a one-turn spell prohibition", () => {
@@ -168,6 +178,76 @@ test("unl-190-219 Lilting Lullaby golden: the merged restriction primitive regis
   assert.equal(found.length, 1);
   assert.deepEqual(found[0].actions, ["play-spell"]);
   assert.deepEqual(found[0].filter, { controller: "B", zone: "board" });
+});
+
+test("unl-190-219 Lilting Lullaby golden: the chain refuses the prohibited player's spell once the restriction is registered", () => {
+  // The consumer that was missing is merged now: actionIsRestricted queries
+  // layers/rules/query.ts at execute() time. With a literal controller filter
+  // (the shape the card cannot yet author) the prohibited player's play is
+  // refused, while the identical play is legal without the registration.
+  function fixtureForProhibition(withRestriction) {
+    const kernel = world()
+      .player("A", { energy: 20 })
+      .player("B", { energy: 20 })
+      .unit("source", { owner: "A", controller: "A", might: 2 })
+      .card("spell", { owner: "A", controller: "A", zone: "hand", types: ["spell"], energy: 1, power: [] })
+      .build();
+    if (withRestriction) {
+      const registered = runInstruction(
+        restrict,
+        {
+          mode: { kind: "constant", value: "prohibit" },
+          action: { kind: "constant", value: "play-spell" },
+          appliesTo: { kind: "constant", value: { controller: "A" } },
+          duration: { kind: "constant", value: "this-turn" }
+        },
+        { world: kernel, source: kernel.getObject("source"), controller: "A" }
+      );
+      assert.equal(registered.result.status, "executed");
+    }
+    const host = createActionPipelineHost({
+      checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+      restore: (checkpoint) => {
+        kernel.restore(checkpoint.state);
+        kernel.copyLinkedFrom(checkpoint.links);
+      },
+      objects: () => kernel.objects,
+      perform: (action) => kernel.perform(action),
+      choose: (request) => { throw new Error(`AwaitChoice ${request.id}`); },
+      context: (source, controller, timingPoint) =>
+        bindResolveContext(kernel, { source, controller, timingPoint })
+    });
+    const engine = new ChainEngine({
+      turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+    });
+    for (const entry of kernel.continuousEffects) engine.layers.addContinuous(entry.effect, entry.duration);
+    return { engine, kernel };
+  }
+
+  const unrestricted = fixtureForProhibition(false);
+  unrestricted.engine.execute({
+    id: "play:lullaby:control",
+    controller: "A",
+    source: unrestricted.kernel.getObject("spell"),
+    kind: "spell",
+    speed: "normal",
+    body: []
+  });
+  assert.equal(unrestricted.engine.items.length, 1, "without a registration the play reaches the chain");
+
+  const prohibited = fixtureForProhibition(true);
+  assert.throws(
+    () => prohibited.engine.execute({
+      id: "play:lullaby:prohibited",
+      controller: "A",
+      source: prohibited.kernel.getObject("spell"),
+      kind: "spell",
+      speed: "normal",
+      body: []
+    }),
+    /Action is restricted by a continuous rule/
+  );
+  assert.equal(prohibited.engine.items.length, 0);
 });
 
 test("unl-190-219 Lilting Lullaby golden: a countered spell keeps its printed cost unrefunded", () => {

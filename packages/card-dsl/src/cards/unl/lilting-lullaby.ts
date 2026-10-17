@@ -17,14 +17,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   属 chain 的时机许可查询（355.8 / 806 / 159.2）与到期时点；ability-templates 把
  *   "不能 / 必须 / 仅可" 归到 continuous.restrict / continuous.permission 一类。
  *
- * status = judge-required（不近似实现）：
- * 1. "can't play spells this turn" 的 `continuous.restrict` 原语和 restriction 查询已经合入，
- *    但“其控制者”的动态引用仍不能被该指令求值，且 chain 的 canAct/Finalize 尚未消费本回合
- *    restriction；因此不能把声明当成已生效的禁止。
- * 2. "Its controller" 要被禁止的玩家由目标法术的控制者决定：程序用
- *    object-property({ target }) 的 controller 表达（359.3.f.1 的 referent 读取），但需要
- *    持续禁止的消费者（第 1 点）才能落地。
- * 3. Counter 半段本身只用已合入的 effect.counter；golden 用真实原语在参考内核上执行
+ * status = judge-required（2026-10-17 按当前合入源码复核，缺口已实测，不近似实现）：
+ * 1. 禁止的消费方已经合入：layers/rules/query.ts 的 restrictions() 能读回注册的
+ *    play-spell 禁止，chain/engine.ts 的 actionIsRestricted 在 execute() 时查询它并拒绝
+ *    （实测：注册 controller: <玩家> 的禁止后，该玩家打出法术抛
+ *    "Action is restricted by a continuous rule"，对手不受影响）。
+ * 2. 剩余缺口是「Its controller」这个动态 referent：本卡用
+ *    object-property({ target }, "controller") 表达被禁止的玩家，而 continuous.restrict 的
+ *    appliesTo 必须是对象过滤器；解释器把该表达式求值成玩家 id 字符串后，原语实测抛
+ *    TypeError "continuous.restrict appliesTo must be an object filter"，整个结算体都不落地
+ *    （scoped.continuousEffects 为空）。把该玩家写死成字面值是可行的，但那不是卡面语义，
+ *    所以不近似实现。
+ * 3. Counter 半段只用已合入的 effect.counter；golden 用真实原语在参考内核上执行
  *    （链上法术被反制并清出链），局部执行不构成整卡证据。
  */
 
@@ -43,10 +47,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺持续禁止的动态引用与消费方：(1) “Its controller can't play spells this turn” 是本回合对该玩家的打出禁止，" +
-    "continuous.restrict 原语与 restriction 查询已经合入，但当前指令不能把 object-property(target.controller) " +
-    "解析成 appliesTo 过滤器，且 chain 的 canAct/Finalize 尚未读取本回合 restriction。" +
-    "(2) 被禁止的玩家是 “Its controller”，由目标法术的控制者在结算时读取（359.3.f.1 的 referent），需要第 1 点的持续效果才能落地。" +
+    "剩余唯一缺口是「Its controller」的动态引用（2026-10-17 实测）：" +
+    "(1) 禁止的消费方已合入——layers/rules/query.ts 的 restrictions() 能读回注册的 play-spell 禁止，" +
+    "chain/engine.ts 的 actionIsRestricted 在 execute() 时查询并拒绝（注册后该玩家打出法术抛 " +
+    "\"Action is restricted by a continuous rule\"，对手不受影响）。" +
+    "(2) 但本卡用 object-property({ target }, \"controller\") 表达被禁止的玩家（359.3.f.1 的 referent），" +
+    "而 continuous.restrict 的 appliesTo 必须是对象过滤器：解释器把该表达式求值成玩家 id 字符串后，" +
+    "原语实测抛 TypeError \"continuous.restrict appliesTo must be an object filter\"，整个结算体都不落地。" +
+    "把该玩家写死成字面值可以跑通，但那样表达的不是卡面语义，所以不近似实现。" +
     "counter 半段（effect.counter，426.1–426.3）与目标合法性（355.9.a.2 链上法术、355.9.c 不能以自己为目标、契约 3.4 排除 Pending 链项）" +
     "已合入，golden 用参考内核真实执行反制；局部执行不构成整卡证据。",
   abilities: [

@@ -4,8 +4,10 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/leblanc-fragmented.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import assaultKeyword from "../../../../engine-core/dist/effects/keywords/Assault.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -32,8 +34,16 @@ test("unl-172-219 LeBlanc, Fragmented: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /Assault/);
   assert.match(program.judgeReason, /807\.1/);
   assert.match(program.judgeReason, /trigger\.leave/);
-  assert.match(program.judgeReason, /trigger\.leave/);
   assert.match(program.judgeReason, /Beginning Phase/);
+  // Re-checked against the merged sources: the Assault gap is now the
+  // designation/combatRole field mismatch (conditions are evaluated and fail
+  // closed), the Deathknell gap is the unregistered trigger.leave op, and the
+  // Beginning-Phase gap is the missing readable phase characteristic.
+  assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /MissingInformation/);
+  assert.match(program.judgeReason, /383\.2\.a\.1/);
+  assert.match(program.judgeReason, /Unregistered instruction opcode/);
+  assert.doesNotMatch(program.judgeReason, /layers 的条件求值也不读 compare|未识别条件按 true/);
 });
 
 test("unl-172-219 LeBlanc, Fragmented: [Assault] and [Deathknell] are declared, never expanded in the card", () => {
@@ -118,14 +128,66 @@ test("unl-172-219 LeBlanc, Fragmented golden: the Beginning-Phase branch draws 2
   assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["c1", "c2"]);
 });
 
-test("unl-172-219 LeBlanc, Fragmented golden: the phase placeholder fails closed, so draw 2 never fires spuriously", () => {
-  // The Beginning-Phase characteristic has no merged reader: the reference kernel
-  // evaluates the placeholder property to null, so the compare is false. The
-  // draw-1 branch therefore remains the resolvable default and the 'instead'
-  // branch cannot fire without the missing phase state.
-  const kernel = world().unit("leblanc").build();
+test("unl-172-219 LeBlanc, Fragmented golden: the unreadable phase characteristic turns both draw branches into ignored instructions", () => {
+  // 383.2.a.1: the printed "If it's your Beginning Phase" needs a readable
+  // phase characteristic. ObjectSnapshot has no phase field, so the authored
+  // placeholder property raises MissingInformation while the condition is
+  // evaluated; the interpreter classifies that as ignored/mistargeted. Neither
+  // branch resolves, so the card cannot draw at all until the phase state is
+  // readable (the 'draw 2 instead' wording of 367 is a second, separate gap).
+  const kernel = world().deck(["top", "second"], { owner: "A" }).unit("leblanc").build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("leblanc"), controller: "A" });
+  const outcome = resolveChainBody(triggered.body, scoped);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason]),
+    [
+      ["leblanc-fragmented.draw-1", "ignored", "mistargeted"],
+      ["leblanc-fragmented.draw-2", "ignored", "mistargeted"]
+    ]
+  );
+  assert.deepEqual(scoped.zone("A", "hand"), []);
+  // The reference kernel resolves the same unreadable property to null, which
+  // is why the placeholder alone is not evidence of a working predicate.
   assert.equal(kernel.test(drawTwo.condition), false);
-  assert.equal(kernel.test(drawOne.condition), true);
+});
+
+test("unl-172-219 LeBlanc, Fragmented: merging [Assault] leaves an Attacker without the +1 Might (807.1.c/807.1.d.1)", () => {
+  // The KeywordDef reads the host "designation" characteristic; ObjectSnapshot
+  // exposes combatRole instead, so the production static binder catches the
+  // unavailable property and returns false. A declared Attacker therefore keeps
+  // its printed Might.
+  const [expansion] = assaultKeyword.expand({ value: 1, host: { canonicalCardId: CANONICAL_ID } });
+  const f = fixture({
+    cards: [{ id: "leblanc", cardId: CANONICAL_ID, types: ["unit"], energy: 3, power: ["Order"], might: 3 }]
+  });
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("leblanc"),
+    to: "board",
+    location: { type: "battlefield", id: "bf-1" }
+  });
+  const source = { ...f.kernel.getObject("leblanc"), combatRole: "attacker" };
+  f.engine.layers.setObjects([source]);
+  const handle = createEngineStaticBinder(f.engine).bindStatic(expansion, source);
+  const [registration] = f.engine.layers.registry.list();
+  assert.equal(registration.effect.effect.amount, 1);
+  // The binder evaluated the unresolved condition once and stored a closed
+  // predicate, which is exactly why the missing characteristic fails closed.
+  assert.equal(typeof registration.effect.effect.condition, "function");
+  assert.equal(f.engine.layers.evaluate(source.ref).might, 3);
+  handle.unbind();
+});
+
+test("unl-172-219 LeBlanc, Fragmented: the [Deathknell] expansion body still needs the unregistered trigger.leave op (808.1.d)", () => {
+  const definition = keywordDefinitionsById.get("Deathknell");
+  const [expansion] = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  const kernel = world().unit("leblanc", { owner: "A", controller: "A" }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("leblanc"), controller: "A" });
+  assert.throws(
+    () => resolveChainBody(expansion.body, scoped),
+    /Unregistered instruction opcode: trigger\.leave/
+  );
 });
 
 test("unl-172-219 LeBlanc, Fragmented golden: CardProgram triggers register through the merged binding", () => {
@@ -143,7 +205,7 @@ test("unl-172-219 LeBlanc, Fragmented golden: CardProgram triggers register thro
 
 test.todo(
   "unl-172-219 LeBlanc, Fragmented: read the controller's Beginning Phase at resolution (383.2.a.1/367) " +
-    "so the 'draw 2 instead' branch can be evaluated instead of the fail-closed placeholder"
+    "so the draw branches stop resolving as ignored instructions and 'draw 2 instead' can be distinguished"
 );
 test.todo(
   "unl-172-219 LeBlanc, Fragmented: [Deathknell] keyword expansion (808.1.d.1 replaced death leaves the chain, " +

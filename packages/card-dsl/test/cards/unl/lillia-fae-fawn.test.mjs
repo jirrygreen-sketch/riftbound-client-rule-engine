@@ -5,9 +5,14 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/lillia-fae-fawn.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import effectToken from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import effectReady from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
+import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-e7fb971d15005249a31882c5cfd8d34fe0a7c9bc54b39b4b466e719f4798f333";
@@ -33,7 +38,15 @@ test("unl-082-219 Lillia, Fae Fawn: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /Sprite/);
   assert.match(program.judgeReason, /187\.2/);
   assert.match(program.judgeReason, /359\.3\.f\.3/);
-  assert.match(program.judgeReason, /token 定义表|token definition/i);
+  assert.match(program.judgeReason, /冻结定义表|token definition/i);
+  // Re-checked against the merged sources: the Move trigger is rejected by the
+  // closed event vocabulary, the Sprite definition is still missing, "there"
+  // still has no trigger-payload selector, and accelerate.cost has no layer
+  // mapping.
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /TriggerSpecValidationError/);
+  assert.match(program.judgeReason, /accelerate\.cost/);
+  assert.match(program.judgeReason, /ProgramBindingError/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -100,24 +113,77 @@ test("unl-082-219 Lillia, Fae Fawn: merged Accelerate and Temporary definitions 
   assert.equal(token.getObject("sprite").zone, "trash");
 });
 
-test.todo(
-  "unl-082-219 Lillia, Fae Fawn: register the 3 Might Sprite definition (CR 187.2: domainless, Fae tag, " +
-    "Temporary) in the effect.token table — the current token definition table has no Sprite entry"
-);
+test("unl-082-219 Lillia, Fae Fawn: the Move trigger is rejected by the closed event vocabulary (CR 421.1 / 449.1-2)", () => {
+  // The card authors the intent with the object-moved timing point, but
+  // EVENT_PATTERN_TYPES (events/trigger-spec.ts) does not contain it, so the
+  // production registration path cannot subscribe this trigger.
+  const translated = translateTriggerFilter(ability.trigger.filter, "lillia");
+  assert.equal(translated.event, "object-moved");
+  assert.throws(
+    () => assertTriggerSpec({ at: ability.trigger.at, filter: translated }),
+    (error) => error.name === "TriggerSpecValidationError" &&
+      error.issues.some((issue) => issue.code === "invalid-event-type")
+  );
+  const f = fixture({
+    cards: [{ id: "lillia", cardId: CANONICAL_ID, types: ["unit"], energy: 3, power: ["Mind"], might: 3 }]
+  });
+  const source = { ...f.kernel.getObject("lillia"), cardId: CANONICAL_ID, zone: "board" };
+  // Inspecting the authored program still applies its status guard, so the
+  // trigger registration is exercised through the lifted copy used by the
+  // other goldens in this file.
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  assert.throws(
+    () => createProgramBinding({ cardPrograms: [lifted] }).registerProgramTriggers(f.engine, source),
+    (error) => error.name === "TriggerSpecValidationError" &&
+      error.issues.some((issue) => issue.code === "invalid-event-type")
+  );
+});
+
+test("unl-082-219 Lillia, Fae Fawn: no Sprite token can be created (CR 187.2)", () => {
+  // The frozen effect.token definition table has no Sprite entry, so the printed
+  // play of a 3 Might domainless Fae Sprite with [Temporary] is impossible.
+  const kernel = world()
+    .unit("lillia", { owner: "A", controller: "A", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const run = runInstruction(effectToken, playSprite.args, { world: kernel });
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  assert.deepEqual(run.linked.spriteToken.objects, []);
+  assert.equal(run.linked["spriteToken.amount"], 0);
+  // The contrast case: a defined token with a concrete location really plays.
+  const contrast = world()
+    .unit("lillia", { owner: "A", controller: "A", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const defined = runInstruction(effectToken, {
+    token: { kind: "constant", value: "recruit" },
+    amount: { kind: "constant", value: 1 },
+    mode: { kind: "constant", value: "play" },
+    location: { kind: "constant", value: { type: "battlefield", id: "bf-1" } }
+  }, { world: contrast });
+  assert.equal(defined.result.status, "executed");
+  assert.equal(defined.linked["token.amount"], 1);
+});
+
+test("unl-082-219 Lillia, Fae Fawn: [Accelerate]'s static cost declaration has no layer mapping (CR 805.1.b)", () => {
+  const definition = keywordDefinitionsById.get("Accelerate");
+  const [costAbility] = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(costAbility.effect.kind, "accelerate.cost");
+  const f = fixture({
+    cards: [{ id: "lillia", cardId: CANONICAL_ID, types: ["unit"], energy: 3, power: ["Mind"], might: 3 }]
+  });
+  const source = { ...f.kernel.getObject("lillia"), cardId: CANONICAL_ID, zone: "board" };
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(costAbility, source),
+    (error) => error.name === "ProgramBindingError" && /no layer mapping/.test(error.message)
+  );
+});
 test.todo(
   "unl-082-219 Lillia, Fae Fawn: bind 'there' to the location recorded by the trigger condition " +
     "(CR 359.3.f.3) — the frozen ObjectSelector set has no trigger-payload form (contract change request)"
 );
 test.todo(
-  "unl-082-219 Lillia, Fae Fawn: fire the object-moved trigger from the real Move flow with the " +
-    "fromKind/fromLocationId payload and the self anchor (CR 421.1 / 449.1-2)"
-);
-test.todo(
   "unl-082-219 Lillia, Fae Fawn: the [Temporary] keyword expansion kills the Sprite at its controller's " +
-    "Beginning Phase start before scoring (CR 816.1.b) — the keyword expansion and kill body are merged, but the " +
-    "Sprite/there path cannot yet create a real token to register"
-);
-test.todo(
-  "unl-082-219 Lillia, Fae Fawn: pay the [Accelerate] additional cost at Finalize and enter ready " +
-    "(CR 805.1.b / 805.6) — programs/play.ts has no CardProgram → Finalize optionalAdditional wiring"
+    "Beginning Phase start before scoring (CR 816.1.b) — the keyword expansion and kill body are merged, but its " +
+    "beginning-start timing is outside the closed event vocabulary and the Sprite/there path cannot create a real token"
 );
