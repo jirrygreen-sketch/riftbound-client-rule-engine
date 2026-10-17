@@ -6,6 +6,7 @@ import program from "../../../dist/cards/unl/brush.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CANONICAL_ID =
   "card.hash-8624ca0fcb3cd60db66cadac14c3f88e0dc422d1061843d35d39845b60616015";
@@ -73,6 +74,11 @@ test("unl-t03 Brush: identity, status, judgeReason and verbatim sourceText", () 
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /439\.7/);
   assert.match(program.judgeReason, /RIFT-91/);
+  // RIFT-329 re-review: the score/conquer/hold wave is emitted (RIFT-270) and
+  // the registration adapter exists (RIFT-257); what the reason still names is
+  // the here vocabulary inside that adapter.
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-270/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -106,6 +112,7 @@ test("unl-t03 Brush: the merged arithmetic layer really applies the declared +1 
   // unit goes to 3 through the real arithmetic sublayer (479.4).
   const battlefield = unit("brush", {
     name: "Brush",
+    cardId: program.canonicalCardId,
     types: ["battlefield"],
     tags: ["Token"],
     isToken: true
@@ -115,6 +122,38 @@ test("unl-t03 Brush: the merged arithmetic layer really applies the declared +1 
     { effect: spec(battlefield.ref), duration: { type: "permanent" }, timestamp: 1 }
   ]);
   assert.equal(engine.evaluate(here.ref).might, 3);
+});
+
+test("unl-t03 Brush golden: RIFT-257's binding expands the declared keyword-free program and exposes its statics", () => {
+  // RIFT-329 re-review: the production binding really does read this CardProgram
+  // (RIFT-257). The static Might ability keeps its declared arithmetic-layer
+  // shape, and the layer engine above proves that shape is executable — the
+  // missing piece is only the card-static registration path itself.
+  const executable = {
+    canonicalCardId: program.canonicalCardId,
+    rulesetVersion: program.rulesetVersion,
+    status: "executable",
+    abilities: program.abilities,
+    sourceText: program.sourceText
+  };
+  const binding = createProgramBinding({ cardPrograms: [executable] });
+  const battlefield = unit("brush", {
+    name: "Brush",
+    cardId: program.canonicalCardId,
+    types: ["battlefield"],
+    tags: ["Token"],
+    isToken: true
+  });
+  const inspected = binding.inspect(battlefield);
+  assert.equal(inspected.program.canonicalCardId, program.canonicalCardId);
+  assert.deepEqual(
+    inspected.abilities.map((ability) => ability.kind),
+    ["static", "triggered"]
+  );
+  const [staticAbility] = inspected.abilities;
+  assert.equal(staticAbility.effect.kind, "continuous.might");
+  assert.equal(staticAbility.effect.layer, "arithmetic");
+  assert.deepEqual(staticAbility.effect.amount, { kind: "constant", value: 1 });
 });
 
 test("unl-t03 Brush: score trigger with the optional swap-back wrapped in the choice body", () => {
@@ -187,5 +226,7 @@ test.todo(
 
 test.todo(
   "unl-t03 Brush: emit the score timing point from scoring/ into the chain/events pipeline and " +
-    "register this CardProgram's triggered ability with the 053.3 'here' filter (RIFT-31/RIFT-33, RIFT-120)"
+    "register this CardProgram's triggered ability with the 053.3 'here' filter — the score wave is " +
+    "emitted by turn/flow.ts (RIFT-270) and RIFT-257 registers triggers, but programs/filters.ts " +
+    "refuses the EventPattern 'here' field and 190.6.d battlefield-controller binding is missing"
 );

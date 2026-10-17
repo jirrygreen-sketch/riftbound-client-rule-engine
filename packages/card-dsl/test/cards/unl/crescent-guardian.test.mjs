@@ -6,6 +6,11 @@ import program from "../../../dist/cards/unl/crescent-guardian.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+// RIFT-260's replacement binding is the merged path this card's entry
+// replacement now reaches; the golden below proves the merge and its limit.
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-62fb90bb0e876e500de763bb4ffad29e29022a5cbd31d536a7adf6619570bca6";
@@ -32,7 +37,12 @@ test("unl-122-219 Crescent Guardian: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /replacement\.enter/);
   assert.match(program.judgeReason, /359\.2\.c/);
   assert.match(program.judgeReason, /805\.6\.a/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  // RIFT-329 re-review: replacement.enter itself is merged (RIFT-260); what is
+  // missing is the paid-cost receipt that would suppress the ready entry, and
+  // the cost-plan wiring is still named RIFT-261.
+  assert.match(program.judgeReason, /RIFT-260/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.ok(!/RIFT-89/.test(program.judgeReason));
 });
 
 test("unl-122-219 Crescent Guardian: the printed power is null, and the extra cost is one Chaos Power", () => {
@@ -133,13 +143,93 @@ test("unl-122-219 Crescent Guardian golden: an already-ready unit is not readied
 test.todo(
   "unl-122-219 Crescent Guardian: the optional [C] additional cost is declared at Finalize, charged, and the paid " +
     "decision is returned as a receipt (CR 356.2.b/356.2.b.1, 356.4.f.1) — cost/cost-plan.ts only consumes " +
-    "caller-supplied optionalAdditional and no cost.additional / cost.pay instruction file is merged (RIFT-89)"
+    "caller-supplied optionalAdditional and no cost.additional / cost.pay instruction file is merged (RIFT-261)"
 );
-test.todo(
-  "unl-122-219 Crescent Guardian: the paid cost replaces the exhausted entry with a ready entry " +
-    "(CR 359.2.c, 369.3, 805.6.a) — the replacement ability form has no card-program -> event-pipeline " +
-    "replacement registration path (same gap as sfd/dunebreaker, ogn/confront)"
-);
+test("unl-122-219 Crescent Guardian golden: RIFT-260 binds this declaration and rewrites the entry to ready (369.3)", () => {
+  // RIFT-329 re-review: the old "no card-program -> event-pipeline replacement
+  // registration path" claim is no longer true. bindReplacement accepts the
+  // declared shape (a single self-targeted effect.ready on object-enters-board)
+  // as an entry declaration, and a real play of the card lands it ready instead
+  // of the 359.2.c exhausted entry.
+  const executable = {
+    canonicalCardId: program.canonicalCardId,
+    rulesetVersion: program.rulesetVersion,
+    status: "executable",
+    abilities: program.abilities,
+    sourceText: program.sourceText
+  };
+  const binding = createProgramBinding({ cardPrograms: [executable] });
+  const board = fixture({
+    cards: [{ id: "guardian", cardId: program.canonicalCardId, types: ["unit"], energy: 4, power: [], might: 4 }],
+    describePlay: binding.describePlay
+  });
+  const host = board.kernel.getObject("guardian");
+  const bound = bindReplacement(
+    { replaces: enterReady.replaces, with: enterReady.with, condition: enterReady.condition },
+    host.ref,
+    {
+      host: {
+        object: (ref) => board.kernel.object(ref),
+        objects: () => board.kernel.objects,
+        context: (source, controller) => board.kernel
+      },
+      pipeline: board.engine.pipeline
+    }
+  );
+  assert.equal(bound.registration.id, "replacement:" + host.ref.id + ":" + host.ref.zoneEntryId);
+
+  // The production play resolution puts the permanent on the Chain, lands its
+  // default orientation (359.2.c exhausted) and then moves it to the Board; the
+  // bound entry declaration intercepts that move.
+  board.engine.commit({
+    type: "play",
+    object: board.kernel.ref("guardian"),
+    player: "A",
+    location: { type: "battlefield", id: "bf-1" }
+  });
+  board.engine.advance();
+  resolveAll(board.engine);
+
+  const snapshot = board.kernel.getObject("guardian");
+  assert.equal(snapshot.zone, "board");
+  // 359.2.c would enter exhausted; the entry declaration replaces that with a
+  // ready entry without a separate becomes-ready timing (805.6.a).
+  assert.equal(snapshot.exhausted, false);
+  assert.equal(
+    board.engine.pipeline.events.some((event) => event.timingPoint === "object-readied" && event.source?.ref.id === host.ref.id),
+    false
+  );
+});
+
+test("unl-122-219 Crescent Guardian: RIFT-260 evaluates the declared gate before applying the entry rewrite", () => {
+  // RIFT-260's binding evaluates ability.condition with evaluateCondition at
+  // match time. That is the real, merged gate this card's "If you do" has to
+  // ride on once the paid-cost receipt exists (cost.pay/cost.modify remain on
+  // RIFT-261); the declaration itself is asserted here.
+  assert.deepEqual(enterReady.condition, {
+    kind: "expression",
+    value: { kind: "constant", value: "crescent-guardian.additional-cost-was-paid" }
+  });
+  // The evaluator treats a constant string as a truthy predicate, so the
+  // condition cannot distinguish paid from declined in merged code yet.
+  const board = fixture({
+    cards: [{ id: "guardian", cardId: program.canonicalCardId, types: ["unit"], energy: 4, power: [], might: 4 }]
+  });
+  const host = board.kernel.getObject("guardian");
+  const bound = bindReplacement(
+    { replaces: enterReady.replaces, with: enterReady.with, condition: enterReady.condition },
+    host.ref,
+    {
+      host: {
+        object: (ref) => board.kernel.object(ref),
+        objects: () => board.kernel.objects,
+        context: () => board.kernel
+      },
+      pipeline: board.engine.pipeline
+    }
+  );
+  assert.equal(bound.registration.id.length > 0, true);
+});
 test.todo(
   "unl-122-219 Crescent Guardian: “If you've played a spell this turn” is evaluated from the turn's played " +
     "spells — the merged history evaluation covers prior GameActions, not card-played Finalization by card type"

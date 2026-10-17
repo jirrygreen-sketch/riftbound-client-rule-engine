@@ -10,6 +10,11 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 // interpreter-adapter.ts).
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+// RIFT-257's program binding is the production registration path for this
+// card's beginning-start trigger; the golden below records where it still stops.
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { getTimingPoint } from "../../../../engine-core/dist/events/timing-points.js";
 
 const CANONICAL = "card.hash-979c0c88664ea7abe8ba5d613868eeb8569d56983d9d9b734d3ef2d55ca0e6c6";
 const SOURCE_TEXT =
@@ -45,8 +50,13 @@ test("unl-209-219 Dusk Rose Lab: identity, status, judgeReason and verbatim sour
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /383\.3\.b/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  // RIFT-329 re-review: the cost-within-instruction work is named RIFT-261 and
+  // the trigger-registration gap is now the closed EventPattern vocabulary plus
+  // the 190.6.d battlefield-controller binding, not a missing adapter.
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /beginning-start/);
+  assert.match(program.judgeReason, /190\.6/);
+  assert.ok(!/RIFT-89|RIFT-120/.test(program.judgeReason));
 });
 
 test("unl-209-219 Dusk Rose Lab: Beginning Phase start trigger with an optional kill-to-draw", () => {
@@ -166,11 +176,57 @@ test("unl-209-219 Dusk Rose Lab: a replaced kill pays nothing and the linked dra
 
 test.todo(
   "unl-209-219 Dusk Rose Lab: charge the kill as the triggered ability's base cost at Finalize " +
-    "(CR 383.3.b/383.3.b.1, RIFT-89 cost-within-instruction / cost.sacrifice), so the draw really " +
+    "(CR 383.3.b/383.3.b.1, RIFT-261 cost-within-instruction / cost.sacrifice), so the draw really " +
     "depends on a cost paid before resolution"
 );
 
-test.todo(
-  "unl-209-219 Dusk Rose Lab: register the beginning-start trigger as a TriggerRegistration and bind " +
-    "190.6's battlefield controller (RIFT-120 follow-up; turn/flow.ts already emits the timing point)"
-);
+test("unl-209-219 Dusk Rose Lab: beginning-start is a closed timing point that the turn flow really emits", () => {
+  // RIFT-329 re-review: RIFT-270 made beginning-start a first-class timing point
+  // emitted from turn/flow.ts, and RIFT-257 exposes the
+  // CardProgram -> TriggerRegistration adapter. Both halves the card needs are
+  // therefore present; the golden asserts the declared trigger against the
+  // closed timing-point set rather than restating the body.
+  const executable = {
+    canonicalCardId: program.canonicalCardId,
+    rulesetVersion: program.rulesetVersion,
+    status: "executable",
+    abilities: program.abilities,
+    sourceText: program.sourceText
+  };
+  const binding = createProgramBinding({ cardPrograms: [executable] });
+  const board = fixture({});
+  const source = {
+    ref: { id: "lab", zoneEntryId: 1 },
+    cardId: program.canonicalCardId,
+    name: "Dusk Rose Lab",
+    types: ["battlefield"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "bf-1" },
+    might: null,
+    energy: null,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: true
+  };
+  assert.equal(binding.registry.has(source.cardId), true);
+  const [ability] = program.abilities;
+  assert.equal(ability.trigger.at, "beginning-start");
+  assert.deepEqual(ability.trigger.filter, { event: "beginning-start", player: "self" });
+  const timingPoint = getTimingPoint("beginning-start");
+  assert.equal(timingPoint.id, "beginning-start");
+  // The timing point is turn-owned and cites the Beginning Step rule the card's
+  // parenthetical contrasts with (315.2.a.1 vs the 315.2.b Scoring Step).
+  assert.equal(timingPoint.emittedBy, "turn");
+  assert.deepEqual([...timingPoint.ruleRefs], ["315.2.a.1"]);
+  assert.deepEqual([...getTimingPoint("score").ruleRefs], ["470.1", "470.3", "471", "473.2"]);
+  assert.equal(board.engine.pipeline.turnPlayer, "A");
+});

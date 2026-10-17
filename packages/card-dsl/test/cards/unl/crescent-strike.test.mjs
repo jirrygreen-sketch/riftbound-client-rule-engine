@@ -5,6 +5,40 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/crescent-strike.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+
+/**
+ * chain/engine.ts resolves the static controller spellings before it calls the
+ * production matcher: 'self' becomes the ability controller and 'opponent'
+ * excludes that player's objects. The reference kernel compares filter values
+ * literally, so the golden below applies the same normalization the production
+ * chain does (the merged siphon-power / smoke-screen goldens use this helper).
+ */
+const chainQuery = (kernel, controller) => (value) => {
+  const normalized = { ...value };
+  for (const key of ["controller", "owner"]) {
+    if (normalized[key] === "self") normalized[key] = controller;
+  }
+  return kernel.query({}).filter((object) => {
+    for (const key of ["controller", "owner"]) {
+      if (normalized[key] === "opponent" && object[key] === controller) return false;
+    }
+    return matchesObjectFilter({
+      ...normalized,
+      ...(normalized.controller === "opponent" ? { controller: "any" } : {}),
+      ...(normalized.owner === "opponent" ? { owner: "any" } : {})
+    }, object);
+  });
+};
+
+const chainContext = (kernel, controller) => new Proxy(kernel, {
+  get(target, key) {
+    if (key === "query") return chainQuery(target, controller);
+    const value = Reflect.get(target, key);
+    return typeof value === "function" ? value.bind(target) : value;
+  }
+});
 
 const CANONICAL_ID =
   "card.hash-f7adf9f6506b55f668b24e077add9d1252841ee4cbb74fb432903d6cfc842c88";
@@ -133,6 +167,59 @@ test("unl-072-219 Crescent Strike golden: a stale chosen unit is ignored without
 
   assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
   assert.equal(run.events.length, 0);
+});
+
+test("unl-072-219 Crescent Strike golden: the printed 'other enemy unit there' set really resolves through the interpreter", () => {
+  // RIFT-329 re-review: the set clause's own predicate is merged — the
+  // interpreter's query layer implements sameLocationAs and exclude (CR
+  // 355.10.b / 359.3.e). The golden evaluates the exact filter this card keeps
+  // for "each other enemy unit there" and shows only the units that clause
+  // should affect; what is still missing is an effect.damage branch that
+  // consumes a non-target set instead of a finalized TargetSpec.
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .unit("chosen-bf", { types: ["battlefield"], cardId: "card:bf", location: { type: "battlefield", id: "bf-1" } })
+    .unit("main-target", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" } })
+    .unit("other-here", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy-elsewhere", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-2" } })
+    .unit("friendly-here", { owner: "A", controller: "A", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const context = kernel.clone({ source: kernel.ref("chosen-bf"), sourceSnapshot: kernel.getObject("chosen-bf") });
+  context.setTargets("crescent-strike.battlefield", [kernel.ref("chosen-bf")]);
+  context.setTargets("crescent-strike.enemy-unit", [kernel.ref("main-target")]);
+  const contextWithChainQuery = chainContext(context, "A");
+
+  const outcome = resolveChainBody(
+    [
+      {
+        id: "count-other-enemies-there",
+        op: "condition.value",
+        args: {
+          value: {
+            kind: "count",
+            subject: "other-enemies-there",
+            filter: {
+              type: "unit",
+              zone: "board",
+              controller: "opponent",
+              sameLocationAs: { target: "crescent-strike.battlefield" },
+              exclude: { target: "crescent-strike.enemy-unit" }
+            }
+          },
+          key: { kind: "constant", value: "count" }
+        }
+      }
+    ],
+    contextWithChainQuery
+  );
+
+  // Exactly one "other" enemy unit sits at the chosen Battlefield: the main
+  // target is excluded, the enemy at the other Battlefield is out of scope and
+  // the friendly unit is excluded by controller. The second filter is the
+  // literal one this card declares for the 1-damage clause.
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.linkedValues.count, 1);
 });
 
 test.todo(

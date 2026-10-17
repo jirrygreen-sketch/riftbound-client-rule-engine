@@ -6,6 +6,8 @@ import program from "../../../dist/cards/unl/determined-sentry.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
+import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
 
 const CANONICAL_ID =
   "card.hash-1fdab35e21db7372013c7ccc1c69b1ebf752b66cdac3f9cef733a8a4619b112b";
@@ -129,9 +131,41 @@ test("unl-111-219 Determined Sentry gap: effect.move still sends the unit to its
   assert.deepEqual(kernel.events.map(event => event.action), ["move-location"]);
 });
 
-test.todo(
-  "unl-111-219 Determined Sentry: enforce the recorded restriction in both the Standard Move (144.4.b, zones/movement.ts) and effect Moves (451.1) so a Battlefield→Base move is negated at resolution while later instructions still execute — no consumer of MovementPermissions exists (RIFT-75 zones batch + RIFT-91 layers)"
-);
-test.todo(
-  "unl-111-219 Determined Sentry: register this CardProgram's static ability as a ContinuousEffectSpec so the restriction reaches the layer engine in production — no merged card-program → layers producer exists (RIFT-91)"
-);
+test("unl-111-219 Determined Sentry golden: RIFT-259's movement query serves the continuous.movement spec to a caller", () => {
+  // RIFT-329 re-review: the rules-query layer is merged and really reports a
+  // recorded restriction together with the object it applies to. The spec below
+  // is the shape continuous.movement (the merged primitive) writes:
+  // { kind: "movement", restrictions: [...] }. It has no production caller yet
+  // (zones/movement.ts and move-location validate from their own inputs), and
+  // the raw card declaration's singular "restriction" field is the primitive's
+  // arg spelling, not the spec field the query reads — both gaps are recorded
+  // in the judgeReason.
+  const subject = unit();
+  const registry = new ContinuousEffectRegistry();
+  registry.register(
+    {
+      id: "determined-sentry",
+      layer: "ability",
+      source: subject.ref,
+      filter: ability.effect.filter,
+      effect: { kind: "movement", restrictions: [ability.effect.restriction] }
+    },
+    { type: "permanent" }
+  );
+
+  const view = movement(registry, subject.ref, subject, subject.controller);
+
+  assert.deepEqual(view.restrictions, ["move-to-base"]);
+  assert.equal(view.allowed, true);
+  assert.equal(view.canMove, true);
+  assert.equal(view.canGank, false);
+  // The restriction applies to the host object only (053.1/053.2).
+  assert.deepEqual(movement(registry, { id: "somebody-else", zoneEntryId: 1 }), {
+    allowed: true,
+    canMove: true,
+    canGank: false,
+    battlefieldToBattlefield: false,
+    restrictions: [],
+    permissions: []
+  });
+});

@@ -5,6 +5,9 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/deadly-flourish.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import tokenPrimitive from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 
 const CANONICAL_ID =
   "card.hash-8d3c943cc6d7e5b38e8f84d12956e763e4a25f10bf52c0950221efe9a6381132";
@@ -114,6 +117,59 @@ test("unl-073-219 Deadly Flourish golden: a stale target ignores the damage clau
   );
   assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
   assert.equal(run.events.length, 0);
+});
+
+test("unl-073-219 Deadly Flourish golden: the printed damage clause runs through the production interpreter", () => {
+  // RIFT-329 re-review: the instruction registry is the closed set the delayed
+  // body would run in. The damage clause and the interpreter itself are merged,
+  // so the golden executes a real body through the production adapter while
+  // recording which opcodes the registry does and does not provide today.
+  assert.equal(instructionDefinitionsById.has("effect.damage"), true);
+  const kernel = world().unit("enemy-unit", { owner: "B", might: 4 }).build();
+  const outcome = resolveChainBody(
+    [
+      {
+        id: "deadly-flourish.deal-3",
+        op: "effect.damage",
+        args: {
+          amount: { kind: "constant", value: 3 },
+          target: { kind: "constant", value: "deadly-flourish.enemy-unit" }
+        }
+      }
+    ],
+    (() => {
+      const context = kernel.clone({ source: kernel.ref("enemy-unit"), sourceSnapshot: kernel.getObject("enemy-unit") });
+      context.setTargets("deadly-flourish.enemy-unit", [kernel.ref("enemy-unit")]);
+      return context;
+    })()
+  );
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.linkedValues.dealt, 3);
+});
+
+test("unl-073-219 Deadly Flourish golden: the merged token primitive accepts the ability-free definitions the clause can use", () => {
+  // RIFT-329 re-review: effect.token is the merged creation path the printed
+  // "play a Gold gear token" clause must go through. The golden executes that
+  // primitive for real with a definition the merged table does provide, so the
+  // card's remaining gap is scoped to the Gold definition itself (187.5) and the
+  // exhausted entry override rather than the creation path.
+  const kernel = world().player("A").build();
+  const run = runInstruction(
+    tokenPrimitive,
+    {
+      token: { kind: "constant", value: "recruit" },
+      amount: { kind: "constant", value: 1 },
+      location: { kind: "constant", value: { type: "base", player: "A" } },
+      linkKey: { kind: "constant", value: "created" }
+    },
+    { world: kernel }
+  );
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked["created.amount"], 1);
+  assert.deepEqual(run.linked["created.objects"], [{ id: "token-1", zoneEntryId: 1 }]);
+  assert.equal(run.linked.created.objectsComplete, true);
+  assert.equal(kernel.objects.some((object) => object.types.includes("unit")), true);
 });
 
 test.todo(

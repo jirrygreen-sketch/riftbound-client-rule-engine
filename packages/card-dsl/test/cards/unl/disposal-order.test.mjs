@@ -7,6 +7,7 @@ import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 
 const CANONICAL_ID =
   "card.hash-ae826439bb4605b7d72d3b0b431548f77c4cde681a949dd0e613036488b554c0";
@@ -134,6 +135,24 @@ test("unl-103-219 Disposal Order golden: the merged recycle-from-trash form recy
   assert.equal(run.linked.recycledCount, 1);
   assert.deepEqual(kernel.objectsInZone("A", "trash").map((ref) => ref.id), ["t2"]);
   assert.deepEqual(kernel.objectsInZone("A", "deck").map((ref) => ref.id), ["t1"]);
+});
+
+test("unl-103-219 Disposal Order golden: the drawn-mode choice plus Draw 1 really execute through the proxy chain body", () => {
+  // RIFT-329 re-review: the choice.mode structure and the Draw 1 mode execute
+  // through the real interpreter with the production adapter's registry, so the
+  // reason's remaining mode-adapter gap is scoped to the chain's own Finalize
+  // surface rather than the interpreter.
+  const kernel = world().player("A").deck(["top-card", "next-card"]).build();
+  kernel.setAnswers({ "disposal-order.choose-mode/mode%3A0": "disposal-order.draw-mode" });
+
+  const outcome = resolveChainBody(executableBody, kernel);
+
+  assert.deepEqual(outcome.linkedValues["disposal-order.choose-mode.value"], ["disposal-order.draw-mode"]);
+  assert.equal(kernel.player("A").handSize, 1);
+  assert.deepEqual(kernel.zone("A", "hand").map((ref) => ref.id), ["top-card"]);
+  // The two modes' own primitives are both registered instructions.
+  assert.equal(instructionDefinitionsById.has("effect.draw"), true);
+  assert.equal(instructionDefinitionsById.has("effect.recycle"), true);
 });
 
 test.todo(

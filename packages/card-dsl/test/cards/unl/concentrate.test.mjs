@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/concentrate.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 
 const CANONICAL_ID =
   "card.hash-faa895f1e7713ee3a12d2dc5921967e2171457086b5582208825c5b0eae45fd6";
@@ -28,8 +29,13 @@ test("unl-091-219 Concentrate: identity, status, judgeReason and verbatim source
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /356\.4/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  // RIFT-329 re-review: the cost-discount consumer and the XP predicate are
+  // still missing, and the dependency now names RIFT-261 (the cost.pay /
+  // cost.modify workstream) instead of the historical RIFT-89 label.
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /824\.1/);
+  assert.ok(!/RIFT-89/.test(program.judgeReason));
 });
 
 test("unl-091-219 Concentrate: the two [Level] cost reductions are recorded as static cost.modify shapes", () => {
@@ -85,9 +91,48 @@ test("unl-091-219 Concentrate golden: a short deck still draws as many as possib
   assert.equal(kernel.player("A").handSize, 1);
 });
 
+test("unl-091-219 Concentrate golden: the merged cost plan really applies a caller-supplied discount (356.4)", () => {
+  // RIFT-329 re-review: cost/plan-values.ts readCost still refuses card-declared
+  // cost.modify fields, but the Finalize-side consumer it needs is merged and
+  // really subtracts the discount from the printed Energy total.
+  const kernel = world().player("A", { energy: 5 }).build();
+  kernel.addObject({
+    ref: { id: "concentrate", zoneEntryId: 1 },
+    cardId: program.canonicalCardId,
+    name: "Concentrate",
+    types: ["spell"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "chain",
+    location: null,
+    might: null,
+    energy: 5,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  }, "chain");
+  const context = kernel.clone({ source: kernel.ref("concentrate"), sourceSnapshot: kernel.getObject("concentrate") });
+  const plan = buildCostPlan(context, {
+    id: "cost:concentrate",
+    cost: { kind: "explicit", energy: { kind: "constant", value: 5 } },
+    discounts: [{ id: "level-6", resource: "energy", amount: { kind: "constant", value: 2 } }]
+  });
+  assert.equal(plan.finalized, true);
+  assert.equal(plan.total.energy, 3);
+  assert.deepEqual(plan.discounts.map((entry) => entry.amount), [2]);
+});
+
 test.todo(
   "unl-091-219 Concentrate: apply the printed Energy cost discount in the Finalize cost plan (CR 356.4) — " +
-    "cost/plan-values.ts readCost blocks card-declared discounts; only CostPlanInput.discounts applies them (RIFT-89)"
+    "cost/plan-values.ts readCost blocks card-declared discounts and instructions/ has no cost.modify / " +
+    "cost.pay file; only a caller-supplied CostPlanInput.discounts applies them (RIFT-261)"
 );
 
 test.todo(

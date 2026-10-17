@@ -22,19 +22,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   359.2.c 的“横置进场”替换成“就绪进场”。805.6.a（Accelerate 的同型规则）明确这种
  *   入场替代不是先横置再就绪、也不触发“成为就绪”类能力。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。三处缺口，均不近似实现：
- * 1. 可选附加费用的收取与回执没有已合入路径：cost/cost-plan.ts 只消费调用方传入的
- *    optionalAdditional，没有代码把卡牌程序声明的费用接进费用计划；effects/instructions/
- *    下也没有 cost.additional / cost.pay 文件（RIFT-89 batch3-cost-plan，同 ogn/clockwork-keeper、
- *    ogn/brazen-buccaneer）。"If you do" 需要 356.4.f.1 的支付决定回执，冻结 IR 没有
- *    费用结果绑定（调研记为 condition.result），条件性的入场替代无法判定。
- * 2. "I enter ready" 是入场替代（359.2.c / 369.3；805.6.a 明确不是先横置再就绪），需要
- *    replacement.enter 的接线与执行：契约 3.1 的 replacement 能力到事件管线替代注册
- *    还没有适配路径（同 sfd/dunebreaker、ogn/confront），effect.ready 原语的文件头也明确它
- *    不参与入场替代，不能拿来近似。
- * 3. "你本回合打过法术" 的历史计数只覆盖效果动作（解释器的 history 范围按
- *    GameAction/timingPoint/player/object 过滤），而“打出法术”是 card-played 时点上的
- *    Finalize 结果，需要按卡类型区分（本回合打出的法术数量）；该维度尚无已合入的求值路径。
+ * status 判定（cards/README.md 第 2 节）：judge-required（RIFT-329 复核）。三处缺口，均不近似实现：
+ * 1. 可选附加费用仍没有收取与回执路径：cost/cost-plan.ts 只消费调用方传入的
+ *    optionalAdditional，没有代码把卡牌程序声明的费用接进费用计划；instructions/ 下也没有
+ *    cost.additional / cost.pay 文件（RIFT-261，同 ogn/clockwork-keeper、ogn/brazen-buccaneer）。
+ *    "If you do" 需要 356.4.f.1 的支付决定回执，冻结 IR 没有费用结果绑定（调研记为
+ *    condition.result）；RIFT-260 的 replacement/bind.ts 只在 apply 时用 testCondition 求值，
+ *    本卡 condition 的 constant 字符串永远为真，无法承担这个闸门。
+ * 2. "I enter ready" 的入场替代形状已可绑定（RIFT-260 的 replacement.enter / 静态自指
+ *    effect.ready 会绑定成 entry declaration，同 Accelerate 的写法），但费用未付时无法抑制
+ *    它：绑定面没有费用回执可供判断（同上一点），因此“先横置再就绪”“无条件就绪”这两条
+ *    近似都违反 359.2.c / 369.3 / 805.6.a；effect.ready 原语文件头也明确它不参与入场替代。
+ * 3. 适用条件「you've played a spell this turn」需要按卡类型区分本回合打出的法术：
+ *    解释器的 history 只统计已提交的 GameAction（且 card-played 是 Finalize 结果，不是
+ *    GameAction），没有按卡类型区分的求值路径。
  * 本卡没有已合入的指令原语，因此没有执行类 golden 用例；golden 只做校验、身份与结构断言。
  *
  * 契约变更请求：请为可选附加费用的支付决定增加卡牌可见的回执/结果绑定形状
@@ -88,14 +89,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) 可选附加费用（356.2.b/356.2.b.1；204.2）没有收取与回执路径：cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，" +
-    "没有代码把卡牌程序声明的费用接进费用计划，effects/instructions/ 下也没有 cost.additional / cost.pay 文件（RIFT-89；同 ogn/clockwork-keeper、ogn/brazen-buccaneer）；" +
-    "356.4.f.1 的「If you do」以“玩家决定支付”为凭证（与实际数额无关），冻结 IR 没有费用结果绑定（调研记为 condition.result），条件性的入场替代无法判定。" +
-    "(2)「I enter ready」是入场替代（359.2.c、369.3；805.6.a 明确不是先横置再就绪，也不触发成为就绪类能力），" +
-    "需要 replacement.enter 的接线与执行，而契约 3.1 的 replacement 能力到事件管线替代注册尚无适配路径（同 sfd/dunebreaker、ogn/confront）；" +
-    "effect.ready 文件头明确不参与入场替代，不能用来近似。" +
+    "三处缺口：(1) 可选附加费用（356.2.b/356.2.b.1；204.2）仍没有收取与回执路径：cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，" +
+    "没有代码把卡牌程序声明的费用接进费用计划，instructions/ 下也没有 cost.additional / cost.pay 文件（RIFT-261；同 ogn/clockwork-keeper、ogn/brazen-buccaneer）；" +
+    "356.4.f.1 的「If you do」以“玩家决定支付”为凭证（与实际数额无关），冻结 IR 没有费用结果绑定（调研记为 condition.result）。" +
+    "(2)「I enter ready」的入场替代形状已能绑定（RIFT-260 的 replacement.enter / 静态自指 effect.ready 会绑定成 entry declaration，同 Accelerate），" +
+    "但 replacement/bind.ts 只在 apply 时用 testCondition 求值，本卡 condition 的 constant 字符串恒为真，费用未付时无法抑制就绪入场，" +
+    "因此不能用“先横置再就绪”或“无条件就绪”近似（359.2.c、369.3；805.6.a 明确不是先横置再就绪，也不触发成为就绪类能力）。" +
     "(3) 适用条件「you've played a spell this turn」需要按卡类型区分本回合打出法术的历史计数，已合入的 history 求值只覆盖效果动作范围，尚无该维度。" +
-    "依赖：RIFT-89（可选附加费用与回执）、引擎批 4 的入场替代管线。不近似实现。",
+    "依赖：RIFT-261（可选附加费用与支付回执）。不近似实现。",
   abilities,
   sourceText:
     "If you've played a spell this turn, you may pay :rb_rune_chaos: as an additional cost to play me. " +
