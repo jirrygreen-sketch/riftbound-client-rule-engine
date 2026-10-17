@@ -20,10 +20,13 @@ import type { CardProgram } from "../../ir/index.js";
  * - 424.1 / 424.1.a / 424.1.a.1 / 424.1.b / 424.1.c：Stun 是效果型受限动作；已 Stunned 的
  *   单位不能被再次 Stun；Stunned 单位在战斗伤害步骤不贡献 Might（即不造成战斗伤害）。
  *
- * status: judge-required —— [Shield] 的展开文件已合入（keywords/Shield.ts），但其消费者未合入：
- * 该文件自身注明 "continuous.might ... 尚无已注册原语或图层求值器消费它"，且 Shield 的
- * condition（读 designation === "defender"）当前无法被解释器/图层求值；卡牌程序的 static 效果
- * 也没有进入 layers 的接线。整张卡因此不能标 executable。
+ * status: judge-required —— [Shield] 的展开文件已合入（keywords/Shield.ts）且
+ * continuous.might 的指令入口已合入（RIFT-258），但两处消费方仍缺：
+ * (1) 卡牌 static 能力没有已合入的图层注册路径（RIFT-257），常驻的 +1 Might 在真实对局中
+ *     不会注册；(2) Shield 展开的 condition 读 designation === "defender"，而 ObjectSnapshot
+ *     没有 designation/combatRole 特征（契约 3.8 增补未落地），layers/engine.ts 的
+ *     conditionMatches 也只识别 always/never/type/has-tag/has-keyword，未识别的 compare
+ *     条件按恒真处理，会无条件套用 +1 Might。
  * "When I attack, stun an enemy unit here" 的触发与原语已合入，golden 测试真实执行该指令。
  */
 const leonaDetermined = {
@@ -31,11 +34,12 @@ const leonaDetermined = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Shield]（814.1.c，未写数值按 814.1.b.3 = 1）的展开文件已合入，但其消费者未合入：" +
-    "keywords/Shield.ts 自身注明 continuous.might 尚无已注册原语/图层求值器消费它，" +
-    "且其 condition（Defender designation 读取）当前无法求值，卡牌 static 效果也没有进 layers 的接线；" +
+    "[Shield]（814.1.c，未写数值按 814.1.b.3 = 1）的 KeywordDef（814 系列）与 continuous.might 指令（RIFT-258）已合入，但两处消费方仍缺：" +
+    "(1) 卡牌 static 能力没有已合入的图层注册路径（RIFT-257），+1 Might 在真实对局中不会注册；" +
+    "(2) 展开的 condition 读 designation === \"defender\"，而 ObjectSnapshot 没有 designation/combatRole 特征（契约 3.8 增补未落地），" +
+    "layers/engine.ts 的 conditionMatches 只识别 always/never/type/has-tag/has-keyword，未识别的 compare 条件按恒真处理，会无条件套用 +1 Might。" +
     "「When I attack, stun an enemy unit here」部分（attack-declared + effect.stun + sameLocationAs 锚点）已合入并已执行测试。" +
-    "依赖：RIFT-91（layers-continuous：continuous.might 与 designation 条件求值）。",
+    "依赖：RIFT-257 与契约 3.8 combatRole/designation 落地（含图层条件求值）。",
   sourceText:
     "[Shield] (+1 :rb_might: while I'm a defender.)\n" +
     "When I attack, stun an enemy unit here. (It doesn't deal combat damage this turn.)",

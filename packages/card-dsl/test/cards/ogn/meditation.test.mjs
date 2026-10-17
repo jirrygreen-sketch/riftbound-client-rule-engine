@@ -4,10 +4,9 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import meditation from "../../../dist/cards/ogn/meditation.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import exhaust from "../../../../engine-core/dist/effects/instructions/effect.exhaust.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-5f2d6f607453430a6a4ce49c58ea5afd8af16815ac3b16ed3cdf9526ba7f074f";
@@ -27,6 +26,7 @@ test("Meditation identity, ruleset, status and printed text", () => {
   assert.equal(meditation.status, "judge-required");
   assert.match(meditation.judgeReason, /415\.4/);
   assert.match(meditation.judgeReason, /CostSpec/);
+  assert.match(meditation.judgeReason, /RIFT-257\/261/);
   assert.equal(cardRegistryById.get(meditation.canonicalCardId), meditation);
   assert.equal(
     meditation.sourceText,
@@ -91,21 +91,80 @@ test("Meditation golden: the Draw 2 and Draw 1 halves each draw through effect.d
   assert.deepEqual(declined.zone("A", "hand").map(ref => ref.id), ["a"]);
 });
 
-test("Meditation interpreter: the result branch fails closed instead of guessing a draw", () => {
-  // "If you do" reads whether the optional additional cost was paid; no
-  // merged ResolveContext path exposes that receipt, so the characteristic
-  // read is unavailable and both conditional draws are ignored. Neither draw
-  // happens by accident and nothing is approximated.
-  assert.equal(instructionDefinitionsById.has("condition.result"), false);
-  const kernel = world().deck(["a", "b", "c"], { owner: "A" }).build();
-  const outcome = runAbilityBody(play.body, kernel);
-  assert.deepEqual(outcome.results.map(result => result.id), ["draw-2-if-paid", "draw-1-otherwise"]);
-  assert.deepEqual(outcome.results.map(result => result.result), [
-    { status: "ignored", reason: "mistargeted" },
-    { status: "ignored", reason: "mistargeted" }
-  ]);
-  assert.equal(kernel.player("A").handSize, 0);
-  assert.equal(kernel.player("A").deckSize, 3);
+test("Meditation golden: the merged cost plan accepts and pays the optional additional exhaust (204.2/415.4)", () => {
+  // The merged planner's optional-additional component + the exhaust payment
+  // action is the executable half of the printed cost; the golden pays the
+  // real plan and asserts the chosen friendly unit ends exhausted.
+  const kernel = world()
+    .player("A", { energy: 10 })
+    .unit("meditation", { types: ["spell"], owner: "A" })
+    .unit("friendly-unit", { owner: "A" })
+    .build();
+  const friendly = kernel.ref("friendly-unit");
+  kernel.setPicks("meditation.exhaust-choice", [friendly]);
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("meditation") });
+  const plan = buildCostPlan(context, {
+    id: "cost:meditation",
+    cost: { kind: "explicit", energy: { kind: "constant", value: 2 } },
+    optionalAdditional: [{
+      id: "meditation.exhaust",
+      kind: "additional",
+      selected: true,
+      cost: { payments: [{ kind: "exhaust", choice: { id: "meditation.exhaust-choice", options: [friendly], min: 1, max: 1, selection: "one" } }] }
+    }]
+  });
+  assert.deepEqual(plan.selectedAdditional, [{ id: "meditation.exhaust", kind: "additional" }]);
+  assert.deepEqual(plan.total.actions.map(action => action.action.type), ["exhaust"]);
+  const receipt = payCostPlan(context, plan);
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay", "exhaust"]);
+  assert.equal(context.getObject("friendly-unit").exhausted, true);
+  assert.deepEqual(receipt.additional, [{ id: "meditation.exhaust", kind: "additional", paid: true }]);
+});
+
+test("Meditation golden: declining the additional cost charges only the base cost and exhausts nothing", () => {
+  const kernel = world()
+    .player("A", { energy: 10 })
+    .unit("meditation", { types: ["spell"], owner: "A" })
+    .unit("friendly-unit", { owner: "A" })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("meditation") });
+  const plan = buildCostPlan(context, {
+    id: "cost:meditation-decline",
+    cost: { kind: "explicit", energy: { kind: "constant", value: 2 } },
+    optionalAdditional: [{ id: "meditation.exhaust", kind: "additional", selected: false, cost: { payments: [{ kind: "exhaust" }] } }]
+  });
+  assert.deepEqual(plan.selectedAdditional, []);
+  assert.deepEqual(plan.declinedAdditional, ["meditation.exhaust"]);
+  const receipt = payCostPlan(context, plan);
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay"]);
+  assert.equal(context.getObject("friendly-unit").exhausted, false);
+});
+
+test("Meditation golden: an optional additional cost that cannot be completed aborts the payment (415.4)", () => {
+  // CR 415.4 requires the cost action to be completable; an exhausted friendly
+  // unit cannot be exhausted again, so paying the selected component fails and
+  // the Finalize transaction would abort rather than play for free.
+  const kernel = world()
+    .player("A", { energy: 10 })
+    .unit("meditation", { types: ["spell"], owner: "A" })
+    .unit("friendly-unit", { owner: "A", exhausted: true })
+    .build();
+  const friendly = kernel.ref("friendly-unit");
+  kernel.setPicks("meditation.exhaust-choice", [friendly]);
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("meditation") });
+  const plan = buildCostPlan(context, {
+    id: "cost:meditation-blocked",
+    cost: { kind: "explicit", energy: { kind: "constant", value: 2 } },
+    optionalAdditional: [{
+      id: "meditation.exhaust",
+      kind: "additional",
+      selected: true,
+      cost: { payments: [{ kind: "exhaust", choice: { id: "meditation.exhaust-choice", options: [friendly], min: 1, max: 1, selection: "one" } }] }
+    }]
+  });
+  assert.throws(() => payCostPlan(context, plan), error => error.reason === "cannot-pay-cost");
 });
 
 test("Meditation golden: the printed exhaust payment is a real exhaust of a friendly unit (CR 415.4)", () => {
@@ -126,7 +185,9 @@ test("Meditation golden: the printed exhaust payment is a real exhaust of a frie
 test.todo(
   "Meditation optional additional cost: declare and pay \"you may exhaust a friendly unit\" during " +
     "Finalize (CR 204.2 / 356.2.b / 355.1.a) and fail the play when it cannot be completed (CR 415.4) " +
-    "- needs an optional-additional exhaust component in the Frozen CostSpec (RIFT-89)"
+    "- the merged planner pays a constructed optional-additional exhaust component (golden), but no " +
+    "producer reads the card's cost.additional declaration into CostPlanInput.optionalAdditional " +
+    "(RIFT-257/RIFT-261)"
 );
 
 test.todo(

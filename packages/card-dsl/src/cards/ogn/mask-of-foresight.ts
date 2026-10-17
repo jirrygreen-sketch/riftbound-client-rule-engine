@@ -16,14 +16,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   never to this primitive”（Buff 是 702 的 counter，不是 Might 数值改变）。
  *
  * status = judge-required：
- * - 缺少 continuous.might 的消费者（layers/ 已有算术层实现，但没有把
- *   continuous.might 指令/持续效果按卡牌程序注册进图层的原语路径），临时 Might
- *   无法在已合入代码里落地；
- * - “alone” 谓词（740.2.a：同位置无其他友方单位）需要 condition.predicate /
- *   condition.value 的财物化判定，当前 merged 的 condition 只有
- *   always/never/compare/all/any/not/expression，没有可表达“同位置无其他友方单位”的谓词；
- * - 触发载荷需要指出“攻击/防守的那个单位”是谁（触发对象绑定），才能在 body 里给
- *   “it” +1 Might；这一载荷-链接路径未合入。
+ * - continuous.might 指令入口已合入（RIFT-258，登记进算术层并带 end-of-turn 期限），
+ *   golden 已用它真实注册 +1 Might；缺的是触发注册/用例接线——attack-declared /
+ *   defense-declared 的时点由 combat/（RIFT-124 的 combat-start 事务）产生，
+ *   而把 trigger 载荷（“攻击/防守的那个单位”）绑定到 body “it” 的路径与
+ *   CardProgram 触发注册都未合入（RIFT-257）；
+ * - “alone” 谓词（740.2.a：同位置无其他友方单位）需要扫描同位置友方单位数的谓词，
+ *   当前 merged 的 condition 只有 always/never/compare/all/any/not/expression，
+ *   没有直接表达“同位置无其他友方单位”的谓词（可用 count + compare 组合，但需要
+ *   触发载荷对象作为锚点，见上一条）。
  * 不近似实现：不给 Buff counter，也不写固定数额的 damage/might 近似。
  */
 const abilities: Ability[] = [
@@ -104,13 +105,12 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺三处支撑：① 临时 Might 修正需要 continuous.might 的图层消费路径（契约 3.4/3.5；" +
-    "layers/ 已有算术层但没有把卡牌程序的 continuous.might 注册进图层的原语），effect.buff " +
-    "文档明确临时 Might 变化归 continuous.might、不是 Buff counter（702）；② “alone” 需要 " +
-    "CR v1.5 740.2.a 的同位置无其他友方单位谓词，已合入的 condition 只有 always/never/" +
-    "compare/all/any/not/expression，没有该谓词；③ 触发载荷到 body “it” 的对象绑定（给触发单位" +
-    "而非任意单位加成）没有已合入的链接路径。依赖：RIFT-91（layers-continuous）、RIFT-33" +
-    "（scenarios-triggers 的触发载荷绑定）。不近似实现：不用 Buff counter，也不写固定加成。",
+    "缺两处支撑：① 触发注册与载荷绑定——continuous.might 指令原语已合入（RIFT-258，算术层 + end-of-turn 期限，golden 已真实注册），" +
+    "但 attack-declared / defense-declared 的时点产生方在 combat/（RIFT-124 的 combat-start 事务），" +
+    "且把触发载荷（“攻击/防守的那个单位”）绑定到 body “it” 的路径与 CardProgram 触发注册未合入（RIFT-257）；" +
+    "② “alone” 谓词（CR v1.5 740.2.a：同位置无其他友方单位）在当前 condition 词汇（always/never/" +
+    "compare/all/any/not/expression）中没有直接表达，需要以触发载荷单位为锚点的同位置友方计数。" +
+    "依赖：RIFT-257（触发注册与载荷绑定）与 740.2.a 谓词/combat 时点接线。不近似实现：不用 Buff counter，也不写固定加成。",
   abilities,
   sourceText: "When a friendly unit attacks or defends alone, give it +1 :rb_might: this turn."
 } satisfies CardProgram;

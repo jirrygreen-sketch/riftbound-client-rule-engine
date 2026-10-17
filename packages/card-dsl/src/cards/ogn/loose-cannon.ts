@@ -18,15 +18,20 @@ import type { CardProgram } from "../../ir/index.js";
  * - 135.2.b.3 / 135.2.b.5.b / 359.3.f.2：效果内的条件在指令结算时检查，作用于其后的
  *   指令；手牌数量是公开信息（108.7.e），不是隐藏信息。
  * - 414.1 / 414.3：“Draw 1” 是 effect.draw；190.6.d 隐含 "you" = 能力控制者。
+ *   手牌张数用 count 表达式读取（手牌对象按 filter 计数），count 由解释器求值。
  *
  * status = judge-required：
- * - 手牌数量在合并原语里不可读：Expr 没有读取 PlayerSnapshot.handSize 的位置；
- *   count 表达式只做 ctx.query 的对象计数（没有手牌对象可数，且手牌内容属私有信息），
- *   PlayerSnapshot 也没有暴露给 Condition/Expr 的路径。因此 “one or fewer cards in
- *   your hand” 的求值（包含应在触发时还是结算时检查）没有可执行实现；
- * - “one or fewer” 关系（≤1）可写成 compare lte，但左侧取值缺口是阻塞点。
- * 依赖：RIFT-87/90（条件管线）、RIFT-89（表达式/玩家特征读取）。draw 部分已可用，
- * golden 用解释器实际执行该子效果。
+ * - 条件从句（383.2.a.1 的 CR 点名）本身可以用 count + compare lte 表达，手牌内容
+ *   在合并内核里也是可数的对象集合（TestWorld 与生产 query 都按 filter 计数），
+ *   golden 已真实执行“≤1 张手牌才抽 1”的分支；
+ * - 但触发注册仍在 CardProgram 绑定缺口里：`beginning-start` 的 TriggerSpec 过滤词汇
+ *   不接受卡牌写的 `{ event: "beginning-start", player: "self" }`（trigger-spec.ts 的
+ *   EventPattern 只列事件类名，时点类名不属于 EVENT_PATTERN_TYPES），且没有生产方把
+ *   本卡的 triggered 能力注册到事件管线（RIFT-257）。
+ * - “you” 的收件人（190.6.d）在条件里写死为能力控制者；跨玩家的 filter 归一化
+ *   （controller: "self" → 当前玩家）由 chain/engine.ts 的 query 包装完成，属既有路径。
+ * 依赖：RIFT-257（触发注册与 EventPattern 词汇扩展）。draw 部分已可用，golden 用
+ * 解释器实际执行该子效果。
  */
 const looseCannon = {
   canonicalCardId:
@@ -34,11 +39,10 @@ const looseCannon = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺手牌数量读取：108.7.c / 108.7.e 的面朝下手牌内容属私有信息、手牌张数是公开信息，但合并 IR 的 count 表达式只做对象集合" +
-    "计数，PlayerSnapshot.handSize 没有进入 Expr/Condition 的路径，无法表达 “one or fewer cards " +
-    "in your hand”。该从句按 383.2.a.1（CR 点名 Loose Cannon）属于效果而不是触发条件，" +
-    "在指令结算时检查（135.2.b.3 / 359.3.f.2）；求值路径未合并前不近似实现。" +
-    "依赖 RIFT-87/90（条件管线）与 RIFT-89（玩家特征/表达式读取）；effect.draw 子效果已可用。",
+    "条件从句（383.2.a.1 的 CR 点名，属效果而不是触发条件，结算时检查 135.2.b.3 / 359.3.f.2）已可用：count（手牌 filter）+ compare lte " +
+    "由解释器真实求值，golden 覆盖 0/1/2 张手牌。仍缺的是触发注册：卡牌声明的 { event: \"beginning-start\", player: \"self\" } " +
+    "不在 trigger-spec.ts 的封闭 EventPattern 词汇里（EVENT_PATTERN_TYPES 只列事件类名，时点类名不是合法事件类型；空 filter 可注册但无法表达 \"your Beginning Phase\"），" +
+    "且没有生产方把本卡的 triggered 能力注册到事件管线（RIFT-257）。依赖：RIFT-257（触发注册与 EventPattern 词汇扩展）。不近似实现。",
   abilities: [
     {
       kind: "triggered",
@@ -55,11 +59,12 @@ const looseCannon = {
           condition: {
             kind: "compare",
             left: {
-              // “one or fewer cards in your hand”：手牌数量。count 表达式只做对象集合计数，
-              // 且 filter 里 “controller” 占位符（=能力控制者）没有解析路径；保留描述性形状。
+              // “one or fewer cards in your hand”：手牌数量（108.7.e 公开信息）。
+              // “you” 是能力控制者（190.6.d），用 PlayerSelector "self"；
+              // chain/engine.ts 的 query 包装把它归一化为当前玩家。
               kind: "count",
               subject: "cards-in-your-hand",
-              filter: { zone: "hand", controller: "controller" }
+              filter: { zone: "hand", controller: "self" }
             },
             operator: "lte",
             right: { kind: "constant", value: 1 }

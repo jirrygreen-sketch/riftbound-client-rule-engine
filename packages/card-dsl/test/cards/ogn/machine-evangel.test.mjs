@@ -6,7 +6,6 @@ import program from "../../../dist/cards/ogn/machine-evangel.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import deathknell from "../../../../engine-core/dist/effects/keywords/Deathknell.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -26,6 +25,7 @@ test("ogn-239-298 Machine Evangel: identity, status and verbatim sourceText", ()
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /trigger\.leave/);
   assert.match(program.judgeReason, /RIFT-82/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "[Deathknell] — Play three 1 :rb_might: Recruit unit tokens into your base. (When I die, get the effect.)"
@@ -62,27 +62,13 @@ test("ogn-239-298 Machine Evangel: the effect plays three 1-Might Recruit tokens
   assert.equal(tokenInstruction.linkedTo, undefined);
 });
 
-test("ogn-239-298 Machine Evangel: the Deathknell expansion it depends on still references an unmerged primitive", () => {
+test("ogn-239-298 Machine Evangel: the Deathknell expansion produces the death trigger skeleton whose body is the trigger.leave reference", () => {
+  // The keyword expands to the trigger skeleton and references the leave
+  // subscription op; the effect body itself is authored on the card.
   const expansion = deathknell.expand({ host: { canonicalCardId: CANONICAL } });
   assert.equal(expansion.length, 1);
   assert.equal(expansion[0].trigger.at, "object-killed");
   assert.equal(expansion[0].body[0].op, "trigger.leave");
-  assert.equal(
-    instructionDefinitionsById.has("trigger.leave"),
-    false,
-    "trigger.leave must still be unmerged for this card's judgeReason to hold"
-  );
-});
-
-test("ogn-239-298 Machine Evangel: the declared controller-base placeholder is rejected by effect.token", () => {
-  const kernel = world().build();
-  const run = runInstruction(token, tokenInstruction.args, { world: kernel });
-
-  // The merged create-token/play path only accepts a concrete LocationRef; the declared
-  // "player: controller" placeholder fails closed rather than landing in the wrong base.
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.equal(kernel.objects.length, 0);
 });
 
 test("ogn-239-298 Machine Evangel: three Recruits land in the playing player's base once located", () => {
@@ -129,7 +115,8 @@ test("ogn-239-298 Machine Evangel: the effect body executes through the ability 
 
 test.todo(
   "ogn-239-298 Machine Evangel: registering the [Deathknell] trigger needs the completed " +
-    "Deathknell expansion (trigger.leave, CR 808.1.d/429.1.a.1.b, RIFT-82)"
+    "Deathknell expansion (trigger.leave, CR 808.1.d/429.1.a.1.b, RIFT-82) plus CardProgram trigger " +
+    "registration (RIFT-257)"
 );
 test.todo(
   "ogn-239-298 Machine Evangel: resolving 'into your base' (CR 440.4) needs effect.token to " +

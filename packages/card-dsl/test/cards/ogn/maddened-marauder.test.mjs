@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/maddened-marauder.js";
+import tank from "../../../../engine-core/dist/effects/keywords/Tank.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
@@ -32,7 +34,23 @@ test("maddened-marauder: identity, ruleset, status, judgeReason and sourceText",
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /tank/i);
   assert.match(program.judgeReason, /continuous\.combat/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
+});
+
+test("maddened-marauder: the declared [Tank] keyword matches the merged KeywordDef and its continuous.combat shape", () => {
+  const registered = keywordDefinitionsById.get("Tank");
+  assert.ok(registered, "effects/keywords/Tank.ts must be in the generated registry");
+  assert.equal(program.abilities[0].keyword, registered.keyword.toLowerCase());
+  assert.equal(registered.valued, false);
+  assert.equal(registered.stacking, "single");
+  const [expansion] = tank.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(expansion.kind, "static");
+  assert.equal(expansion.effect.kind, "continuous.combat");
+  assert.equal(expansion.effect.mode, "damage-assignment");
+  assert.equal(expansion.effect.priority, "first");
+  assert.equal(expansion.effect.damage, "lethal");
+  assert.equal(expansion.effect.excludesKeyword, "Tank");
 });
 
 test("maddened-marauder: [Tank] keyword declaration and play trigger", () => {
@@ -118,5 +136,6 @@ test("maddened-marauder golden: a target that left the battlefield is ignored (C
 
 test.todo(
   "maddened-marauder: [Tank] 的战斗伤害分配约束（815.1.b/.c）依赖 Tank 关键词展开与 combat 的 " +
-    "continuous.combat 消费方（见 ability-templates 第 4 节 kw-tank 行）"
+    "continuous.combat 消费方（KeywordDef 已合入 RIFT-264，combat/base-combat-allocation.ts 仍不绑定 assignment-priority），" +
+    "以及把卡牌关键词注册进该管线的程序绑定（RIFT-257）"
 );

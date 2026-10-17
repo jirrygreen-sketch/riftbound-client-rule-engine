@@ -20,16 +20,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   被 Buff"这一状态）。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
- * - continuous.might 静态效果的消费方（图层系统按契约 3.4 计算）尚未合入：
- *   layers/engine.ts 的 arithmetic 图层只接受通过 ContinuousEffectSpec 注册的
- *   effect（id/layer/source/filter/effect），而卡程序的 static 能力没有把自身注册成
- *   ContinuousEffectSpec 的已合入路径（同 sfd rumble-hotheaded / forecaster 的
- *   continuous.grant-keyword 缺口）。
- * - "buffed" 需要可过滤状态：ObjectFilter 的 states 只列 ready/exhausted/stunned/
- *   attached/face-down（trigger-spec.ts 第 55 行），buffs 不是可过滤特征。
- * - "at my battlefield" 是随来源位置变化的过滤器锚点（sameLocationAs），需要在图层
- *   评估时把宿主位置作为锚点解析（continuing-effect 的 filter 目前只按对象特征匹配）。
- * 依赖：图层持续效果接线（contract 3.4 / RIFT-91 系列）与 buffed 谓词。不近似实现
+ * - continuous.might 的指令入口已合入（RIFT-258，图层算术层会消费通过
+ *   ResolveContext.addContinuous 注册的效果），但卡牌 static 能力没有把它注册成
+ *   ContinuousEffectSpec 的已合入路径：登记面仍由解释器/原语在结算时调用，
+ *   卡程序绑定（RIFT-257）未合入，本卡的常驻光环在真实对局中不会生效。
+ * - "buffed" 需要可过滤状态：ObjectFilter/states 只列 ready/exhausted/stunned/
+ *   attached/face-down（trigger-spec.ts），buffs 计数不在可过滤特征里。
+ * - "at my battlefield" 是随来源位置变化的过滤器锚点：解释器（queryObjects）已解析
+ *   sameLocationAs/exclude，但图层引擎的 filter 只按对象特征匹配（layers/filter.ts），
+ *   还没有把宿主位置作为常驻效果锚点的求值路径。
+ * 依赖：RIFT-257（CardProgram → 图层注册）与 buffed 谓词/图层位置锚点。不近似实现
  * （不用 continuous.grant-keyword 或 Buff 计数替代 Might 修正）。
  */
 const abilities: Ability[] = [
@@ -57,14 +57,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "持续 Might 修正无法执行：（1）continuous.might 作为静态能力需要图层系统把它注册/" +
-    "消费为 ContinuousEffectSpec（contract 3.4 的 arithmetic 图层），当前 layers/engine.ts " +
-    "只评估外部注册的持续效果，卡程序 static 能力没有已合入的接线路径（同 sfd " +
-    "rumble-hotheaded 的 continuous 缺口）。（2）“buffed” 不是可过滤状态：ObjectFilter 的 " +
-    "states 只支持 ready/exhausted/stunned/attached/face-down，buffs 计数不在可过滤特征里" +
-    "（702/703 的 Buff 状态因此无法作为 filter 条件）。（3）“at my battlefield” 需要以宿主" +
-    "当前位置为锚点的 filter（sameLocationAs），图层侧尚未解析该锚点。依赖：图层持续效果" +
-    "接线（RIFT-91 系列）与 buffed 谓词。Accelerate 只按 805 声明。不近似实现。",
+    "持续 Might 修正仍不可执行：（1）continuous.might 指令原语已合入（RIFT-258，arithmetic 层按契约 3.4 求值），" +
+    "但卡程序 static 能力没有已合入的注册路径（RIFT-257；登记只能由解释器/原语在结算时通过 ResolveContext.addContinuous 触发），" +
+    "本卡的常驻光环在真实对局中不会注册。（2）“buffed” 不是可过滤状态：ObjectFilter/states 只支持 " +
+    "ready/exhausted/stunned/attached/face-down，buffs 计数不在可过滤特征里（702/703 的 Buff 状态无法作为 filter 条件）。" +
+    "（3）“at my battlefield” 需要以宿主当前位置为锚点的 filter（sameLocationAs），解释器已解析该锚点，" +
+    "但图层引擎的 filter 尚未解析（layers/filter.ts 只匹配对象特征）。依赖：RIFT-257 与 buffed 谓词、图层位置锚点。" +
+    "Accelerate 只按 805 声明。不近似实现。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_body: as an additional cost to have me enter ready.)\n" +

@@ -23,10 +23,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （pick）；`effect.discard` 的 `pick` + `player` 正是这个形状，且 423.1.a 规定弃牌由
  *   执行者选择。`effect.discard` 已合入。
  *
- * status 判定（README 第 2 节）：judge-required。缺口是玩家选择原语 `target.player`
- * （ability-templates 第 4 节 target.player 行：“each player 与 choose opponent 不等价”），
- * 以及把该选择结果作为 `effect.reveal` / `effect.discard` 的 player 参数传递的链接值形状。
- * 后续两个指令已合入，golden 测试用链接值直接绑定对手并真实执行展示 + 弃牌两步。
+ * status 判定（README 第 2 节）：judge-required。缺口仍是玩家选择原语：玩家不是游戏
+ * 对象，TargetSpec 只描述对象过滤器（契约 3.6）、PickSpec.options 是静态值数组，
+ * 已合入的指令面没有承载「在所有对手中选一个玩家」的重放式选项集合与选择结果形状
+ * （ability-templates 第 4 节 target.player 行：“each player 与 choose opponent 不等价”）。
+ * 后续两个指令（effect.reveal 展示该玩家整手 + effect.discard 从其手牌 pick）已合入，
+ * golden 测试用链接值直接绑定对手玩家并真实执行这两步；把 target.player 的选择结果接进
+ * 这两个 player 参数属玩家选择原语落地后的工作。
  */
 const abilities: Ability[] = [
   {
@@ -97,7 +100,8 @@ const program = {
     "本程序声明的 target.player 在 effects/instructions/ 里没有实现文件" +
     "（ability-templates 第 4 节 target.player 行：each player 与 choose opponent 不等价）。" +
     "后续的 effect.reveal（show opponent's hand）+ effect.discard（pick 玩家手牌）均已合入；" +
-    "golden 测试用链接值直接绑定对手玩家，真实执行这两步。依赖：target.player 原语落地。",
+    "golden 测试用链接值直接绑定对手玩家，真实执行这两步。" +
+    "依赖：target.player 玩家选择原语落地（含触发注册/CardProgram 绑定 RIFT-257）。",
   abilities,
   sourceText:
     "When you play me, choose an opponent. They reveal their hand. Choose a card from it, " +
