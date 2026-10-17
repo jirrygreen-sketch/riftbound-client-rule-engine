@@ -37,6 +37,8 @@ test("Guerilla Warfare identity, ruleset, status, printed text and judgeReason",
   assert.match(guerillaWarfare.judgeReason, /keywords/);
   assert.match(guerillaWarfare.judgeReason, /811\.1\.b/);
   assert.match(guerillaWarfare.judgeReason, /811\.1\.c\.1/);
+  assert.match(guerillaWarfare.judgeReason, /translateObjectFilter/);
+  assert.ok(!/RIFT-\d+/.test(guerillaWarfare.judgeReason));
   assert.equal(cardRegistryById.get(guerillaWarfare.canonicalCardId), guerillaWarfare);
 });
 
@@ -49,7 +51,7 @@ test("Guerilla Warfare has no speed keyword on this printing", () => {
   assert.equal(play.cost, undefined);
 });
 
-test("Guerilla Warfare structure: an up-to-two return, then the unmerged Hide cost waiver", () => {
+test("Guerilla Warfare structure: an up-to-two return, then the pending Hide cost waiver", () => {
   assert.equal(play.body.length, 2);
 
   // "Return up to two cards with [Hidden] from your trash to your hand."
@@ -69,8 +71,9 @@ test("Guerilla Warfare structure: an up-to-two return, then the unmerged Hide co
     selection: "up-to"
   });
 
-  // "You can hide cards ignoring costs this turn." — an unmerged cost waiver
-  // with the printed end-of-turn duration.
+  // "You can hide cards ignoring costs this turn." — a cost waiver whose
+  // cross-action Hide consumer is still pending, with the printed end-of-turn
+  // duration.
   assert.equal(waiverInstruction.id, "hide-ignoring-costs");
   assert.equal(waiverInstruction.op, "cost.modify");
   assert.deepEqual(waiverInstruction.args, {

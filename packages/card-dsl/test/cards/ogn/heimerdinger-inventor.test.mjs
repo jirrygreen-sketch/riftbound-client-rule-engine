@@ -25,7 +25,9 @@ test("Heimerdinger, Inventor identity and judge-required reason", () => {
   assert.match(program.judgeReason, /479\.3/);
   assert.match(program.judgeReason, /continuous\.grant-abilities/);
   assert.match(program.judgeReason, /動態|动态/);
+  assert.match(program.judgeReason, /programs\/statics\.ts/);
   assert.match(program.judgeReason, /activationAbilities\/describeActivate/);
+  assert.ok(!/RIFT-\d+/.test(program.judgeReason));
   assert.equal(
     program.sourceText,
     "I have all :rb_exhaust: abilities of all friendly legends, units, and gear."
