@@ -24,11 +24,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   continuous.grant-keyword 持续效果（契约 3.4：关键词授予落在 ability 图层）。
  *   reminder 括号是 Ganking 的释义（810.1.b），不是独立指令。
  *
- * status = judge-required（不近似实现）：
- * 1. 目的地不可表达：没有运行期 Location 选择器（target.location 未合入），effect.move 的 to
- *    只接受静态 LocationRef / controller-base / 静态候选列表；"open battlefield" 需要按
- *    170.11.c 在合法战场中筛选并选择。本卡把目的地写成描述性标记，解释器会拒绝该形状而不是
- *    落到错误地点（依赖 RIFT-357）。
+ * status = judge-required（2026-10-17 第三轮复核，不近似实现）：
+ * 1. 目的地已按 RIFT-357 的合并形状改写为运行期 Location 选择
+ *    （Expr kind "location" → kind "choose"，filter { type: battlefield, open: true }），
+ *    170.11.c 的 open 谓词与 355.4/355.4.a 的选择语义都已有实现；仍缺的是**候选来源**：
+ *    target/location/candidates.ts 的 allRefs 只从「某个对象当前所在地点」、已知玩家的 Base
+ *    和调用方显式传入的 LocationState 收集候选，**没有任何已合入调用方传入 locations**
+ *    （interpreter.ts 的 prepareLocations / normalizeMoveArguments 都只传 players/opponent/linked），
+ *    因此无单位驻守的战场根本不会出现在候选里（170.11.c 的 open 战场正是这种情况），
+ *    Location 选择会以 "Location choice has no options" 阻断。golden 用真实解释器断言了该现状：
+ *    被单位占据的战场不会通过 open 过滤，也就无法被选中。
  * 2. [Ganking] 的本回合授予用的 continuous.grant-keyword 已合入（RIFT-258，ability 层注册 +
  *    end-of-turn 到期）；缺的是 810.1.c 移动许可的消费方。
  * 3. 「if there are no open battlefields」是没有对象的集合谓词：现有 compare（eq/ne/lt/lte/gt/
@@ -38,16 +43,17 @@ import type { CardProgram } from "../../ir/index.js";
  *    该 Finalize 顺序属于目标与模式选择计划（RIFT-358）；两个分支各自声明一个友方
  *    单位目标，只有被执行的模式会结算。
  *
- * 复核（2026-10-17 第二轮复核）：continuous.grant-keyword 与 CardProgram 绑定路径均已合入；
- * 运行期地点、集合空判定、Finalize 顺序和 Ganking 移动许可消费仍未形成完整执行链。
+ * 复核（2026-10-17 第三轮复核）：continuous.grant-keyword 与 CardProgram 绑定路径均已合入；
+ * open 战场候选来源、集合空判定、Finalize 顺序和 Ganking 移动许可消费仍未形成完整执行链。
  *
  * 数据问题（不改数据）："battlefield.Give" 缺空格/换行，两个功能子句被粘在一起；sourceText
  * 按逐字要求保留原样。
  */
 
-/** 描述性目的地标记，不是可执行 LocationRef（见 judgeReason 第 1 点）。 */
+/** 「an open battlefield」＝170.11.c 的运行期 Location 选择（filter 已有可求值谓词）。 */
 const OPEN_BATTLEFIELD = {
-  kind: "destination-selector",
+  kind: "choose",
+  id: "demon-shade.open-battlefield",
   filter: { type: "battlefield", occupied: false, controlled: false }
 } as const;
 
@@ -56,9 +62,12 @@ const demonShade = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均不近似实现：(1)「an open battlefield」（CR 170.11.c）是运行期 Location 选择" +
-    "（355.4 / 355.4.a / 451.1），合并 IR 没有运行期 Location 选择器，effect.move 的 to 只接受静态 " +
-    "LocationRef / controller-base / 静态候选列表，本卡只保留描述性目的地标记（依赖 RIFT-357）。" +
+    "四处当前缺口（2026-10-17 第三轮复核），均不近似实现：" +
+    "(1) 目的地已按 RIFT-357 的合并形状写成运行期 Location 选择（Expr kind \"location\"，" +
+    "170.11.c 的 open 过滤 { type: battlefield, open: true }，355.4 / 355.4.a / 451.1），" +
+    "但候选来源仍未接线：target/location/candidates.ts 的 allRefs 只从对象当前地点、玩家 Base 与调用方传入的 " +
+    "LocationState 收集候选，合并的调用方（interpreter.ts prepareLocations / normalizeMoveArguments）都不传 locations，" +
+    "因此没有被单位占据的战场（170.11.c 的 open 战场）根本不在候选里，Location 选择会以 \"Location choice has no options\" 阻断。" +
     "(2)「Give it [Ganking] this turn」的 continuous.grant-keyword 已合入（RIFT-258，ability 层注册 + " +
     "end-of-turn 到期）并有真实执行测试；缺的是 810.1.c 的移动许可消费方。(3)「if there are no open battlefields」" +
     "是没有对象的集合谓词，现有 compare（eq/ne/lt/lte/gt/gte/in）无法对集合表达空判定（依赖 RIFT-359 的 " +
@@ -96,8 +105,8 @@ const demonShade = {
                           kind: "constant",
                           value: { target: "demon-shade.moved-unit" }
                         },
-                        // 描述性标记：运行期 "open battlefield" 选择未合入（见 judgeReason 第 1 点）。
-                        to: { kind: "constant", value: OPEN_BATTLEFIELD },
+                        // 运行期 "open battlefield" 选择（170.11.c）；候选来源缺口见 judgeReason 第 1 点。
+                        to: { kind: "location", value: OPEN_BATTLEFIELD },
                         amount: { kind: "constant", value: 1 }
                       },
                       targets: [
