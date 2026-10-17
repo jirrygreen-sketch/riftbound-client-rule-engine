@@ -11,21 +11,25 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "When you use an activated ability"（400/402/405–407）：使用启动能力是与打出卡牌同一套流程的
  *   Activate 步骤；封闭时点 ability-activated 的语义即「启动能力完成合法打出流程后发出；
  *   取消或未成功完成费用及合法性检查不算使用能力」（timing-points.ts，ruleRefs 400/402/405/406/407）。
- *   filter 用 EventPattern 的 player: "self" 表达「你使用」（= 启动该能力的玩家，能力控制者）。
+ *   RIFT-270 已合入纯派生产生方 deriveAbilityActivatedEmission（events/producers/
+ *   ability-activation.ts）：完整能力启动取得 committed 结果后产生该时点。filter 用 EventPattern
+ *   的 player: "self" 表达「你使用」（= 启动该能力的玩家，能力控制者）。
  * - "of a gear"：被使用的能力来源必须是 gear。EventPattern.source 是 ObjectFilter，指向事件载荷的
  *   来源对象（timing-points.ts 的 payloadFields: sourceId），故写 source: { type: "gear" }。
  * - "give me +1 :rb_might: this turn"：本回合到期的临时 Might 修正，属算术图层（143.2.a、475–478）；
- *   "me" 是能力宿主，用符号选择器 "self"。effect.buff 文件头明确临时 Might 修改归 continuous.might，
- *   绝不能写成 Buff 计数（702/703：Buff 是每单位限一个的 +1 计数器，语义不同）。
+ *   "me" 是能力宿主。已合入的 continuous.might 原语（RIFT-258）经 ResolveContext.addContinuous
+ *   登记 arithmetic 层效果，并按 317.1.a/468.7.c 把 "this-turn" 解析为 end-of-turn 期限。
+ *   绝不能写成 Buff 计数（702/703：Buff 是每单位限一个的 +1 计数器，语义不同），也不用
+ *   applyTo 之外的旧式 object 参数（已合入 argsSchema 会拒绝）。用 appliesTo: "self" 表达宿主。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，两处依赖未合入，均不近似实现：
- * - 触发订阅无接线：ability-activated（400/402/405–407）在 timing-points.ts 里只有**定义**，
- *   全仓库没有任何 emit 调用（events/action-adapter.ts 的 ACTION_TIMINGS 只为已提交的游戏动作
- *   派生时点，启动能力的 Pending/Finalize/Resolve 属 chain/），也没有把 CardProgram 的 triggered
- *   ability 注册成 events 的 TriggerRegistration 的适配器（RIFT-120）。
- * - 效果本体无原语：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，effects/instructions/ 下
- *   没有任何通过 ResolveContext.addContinuous 注册连续效果的指令（layers 只提供求值侧，RIFT-91）。
- * 依赖：RIFT-120（启动能力时点发射与卡牌触发注册）、RIFT-9/RIFT-91（连续 Might 修改原语与图层注册）。
+ * status 判定（cards/README.md 第 2 节）：judge-required，触发订阅仍缺生产接线，不近似实现：
+ * - ability-activated 的纯派生器已合入（RIFT-270），但没有已合入调用方：全仓库除该文件自身与
+ *   timing-points 定义外没有任何地方调用 deriveAbilityActivatedEmission（chain/engine.ts 的
+ *   activateAddDuringPayment / execute 只发出 card-played 与链时点），因此该时点在生产中仍不会
+ *   进入事件管线；chain 也没有把「已经 committed 的启动能力结果」交给该派生器的接线（RIFT-257
+ *   的 programs/activate.ts 只生成 ChainDraft，不产生启动回执）。同型缺口见 ven/curator-of-the-sands。
+ * - 效果本体本身已可执行：golden 用解释器 + 图层引擎真实执行 continuous.might 的登记与生效值。
+ * 依赖：启动能力时点产生方的调用接线（RIFT-270 的 producers 接入 chain）与启动回执（RIFT-257 后续）。
  */
 const abilities: Ability[] = [
   {
@@ -40,13 +44,14 @@ const abilities: Ability[] = [
     body: [
       {
         // 「give me +1 :rb_might: this turn」— 算术图层的临时 Might 修正（143.2.a、475–478），
-        // 声明为连续效果形状；没有任何已合入指令注册它（见 judgeReason）。绝不用 Buff 近似。
+        // 经已合入的 continuous.might 原语登记，期限为本回合结束；绝不用 Buff 近似。
         id: "prize-of-progress.give-plus-1-might",
         op: "continuous.might",
         args: {
           amount: { kind: "constant", value: 1 },
           duration: { kind: "constant", value: "this-turn" },
-          object: { kind: "constant", value: "self" }
+          // 宿主自身：appliesTo 简写（continuous.might 的已合入参数，与显式选择参数互斥）。
+          appliesTo: { kind: "constant", value: "self" }
         }
       }
     ]
@@ -58,15 +63,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1) 触发订阅无接线：ability-activated（400/402/405–407）在 timing-points.ts 里只有定义，" +
-    "全仓库没有任何 emit 调用（events/action-adapter.ts 只为已提交的游戏动作派生时点，启动能力的 Pending/Finalize/Resolve 属 chain/），" +
-    "也没有把 CardProgram 的 triggered ability 注册成 events 的 TriggerRegistration 的适配器（RIFT-120）。" +
-    "(2)「give me +1 :rb_might: this turn」是带 end-of-turn 期限的临时 Might 修正（143.2.a、475–478）：" +
-    "契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，effects/instructions/ 下没有通过 ResolveContext.addContinuous " +
-    "注册 continuous.might 的指令，layers 只提供求值侧（RIFT-91）；effect.buff 的计数语义不同（702/703），不近似。" +
-    "依赖：RIFT-120（启动能力时点发射与卡牌触发注册）、RIFT-9/RIFT-91（连续 Might 修改原语与图层注册）。",
+    "触发订阅缺生产接线，不近似实现：ability-activated 的纯派生器已合入（RIFT-270，events/producers/ability-activation.ts 的 " +
+    "deriveAbilityActivatedEmission，只对 committed 结果产生时点），但没有已合入调用方——全仓库除该文件与 timing-points 定义外没有任何地方调用它， " +
+    "chain/engine.ts 只发射 card-played 与链时点，也没有把「已 committed 的启动能力结果」交给派生器的接线；RIFT-257 的 programs/activate.ts " +
+    "只生成 ChainDraft、不产生启动回执。因此该触发仍无法进入链（同型缺口见 ven/curator-of-the-sands）。" +
+    "效果本体已可执行：「give me +1 :rb_might: this turn」由已合入的 continuous.might（RIFT-258）登记 arithmetic 层效果， " +
+    "appliesTo self + this-turn 期限（143.2.a、317.1.a/468.7.c），golden 用解释器 + 图层引擎真实执行并断言生效 Might。 " +
+    "依赖：RIFT-270 派生器接入 chain 的调用接线与 RIFT-257 的启动回执。绝不用 Buff 计数近似（702/703）。",
   abilities,
   sourceText: "When you use an activated ability of a gear, give me +1 :rb_might: this turn."
 } satisfies CardProgram;
 
 export default program;
+

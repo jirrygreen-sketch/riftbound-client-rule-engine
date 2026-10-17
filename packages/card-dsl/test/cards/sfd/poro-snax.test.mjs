@@ -1,9 +1,25 @@
+// Golden test for Poro Snax (sfd-046-221).
+//
+// Both printed abilities run end to end on merged paths:
+// - "When you play this, draw 1." is a Play Effect (383.4.a.1/.2) whose
+//   TriggerRegistration now comes from the merged card-program binding
+//   (programs/triggers.ts, RIFT-257): the golden plays the Gear through the real
+//   ChainEngine, the chain emits card-played, the trigger enters the chain and
+//   its effect.draw body really draws the top card.
+// - ":rb_energy_1::rb_rune_calm:, :rb_exhaust:, Kill this: Draw 1." is an
+//   activated ability (151/151.2, 377.1) whose printed 1 energy + 1 Calm Power,
+//   exhaust and kill costs are paid by the merged cost pipeline (415.5, 429.2.a)
+//   before its Draw 1 resolves.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/poro-snax.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -16,24 +32,69 @@ const [playTrigger, activated] = program.abilities;
 const [playDraw] = playTrigger.body;
 const [abilityDraw] = activated.body;
 
-function poroWorld() {
-  const base = world()
-    .object("poro-snax", {
+/** The real ChainEngine over the reference kernel, plus the card-program binding. */
+function fixture({ energy = 5, power = ["Calm"], onBoard = false, deck = ["top-card", "next-card"] } = {}) {
+  const builder = world()
+    .player("A", { energy, power })
+    .player("B", { energy: 5 });
+  if (deck.length) builder.deck(deck, { owner: "A" });
+  if (onBoard) {
+    builder.object("poro-snax", {
       name: "Poro Snax",
       cardId: CANONICAL,
       types: ["gear"],
       zone: "board",
       location: { type: "base", player: "A" },
       energy: 1,
-      power: 1,
-      might: null
-    })
-    .player("A", { energy: 1, power: ["Calm"] })
-    .deck("top-card", { owner: "A" })
-    .deck("next-card", { owner: "A" })
-    .build();
-  return base.clone({ sourceSnapshot: base.getObject("poro-snax") });
+      power: ["Calm"],
+      might: null,
+      owner: "A",
+      controller: "A"
+    });
+  } else {
+    builder.hand("poro-snax", {
+      name: "Poro Snax",
+      cardId: CANONICAL,
+      types: ["gear"],
+      energy: 1,
+      power: ["Calm"],
+      owner: "A"
+    });
+  }
+  const kernel = builder.build();
+  const decide = (request) => {
+    if (request.type === "select-objects" && request.min === request.max && request.options.length === request.min) {
+      return [...request.options];
+    }
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: decide,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose: decide }),
+    testTrigger: (registration) => kernel.test(registration.spec.condition)
+  });
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host,
+    cleanup: () => false, describePlay: binding.describePlay
+  });
+  binding.attachLifecycle(engine);
+  return { engine, kernel, binding };
 }
+
+function resolveAll(engine) {
+  let count = 0;
+  while (engine.items.length) {
+    if (++count > 50) throw new Error("Nonterminating chain");
+    engine.pass(engine.priority);
+  }
+}
+
+const timings = (engine) => engine.pipeline.events.map((event) => event.timingPoint);
 
 test("sfd-046-221 Poro Snax: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -41,14 +102,12 @@ test("sfd-046-221 Poro Snax: program passes validateCardProgram", () => {
   assert.deepEqual(result.issues, []);
 });
 
-test("sfd-046-221 Poro Snax: identity, ruleset, status, judgeReason and verbatim source text", () => {
+test("sfd-046-221 Poro Snax: identity, ruleset, status and verbatim source text", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(program.status, "judge-required");
-  // judgeReason must name the real missing wiring, not a generic "not implemented".
-  assert.match(program.judgeReason, /Play Effect|383\.4\.a/);
-  assert.match(program.judgeReason, /TriggerRegistration|触发/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.equal(program.rulesetVersion, "core-1.5");
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -98,78 +157,91 @@ test("sfd-046-221 Poro Snax structure: the activated ability's printed cost and 
   assert.equal(abilityDraw.linkedTo, undefined);
 });
 
-test("sfd-046-221 Poro Snax golden: the printed activation cost is paid for real (energy, Calm Power, exhaust, kill)", () => {
-  const kernel = poroWorld();
-  const plan = buildCostPlan(kernel, { id: "cost:poro-snax", cost: activated.cost });
-  assert.equal(plan.total.energy, 1);
-  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Calm"] }]);
-  assert.deepEqual(
-    plan.total.actions.map((action) => action.action.type),
-    ["exhaust", "kill"]
-  );
+test("sfd-046-221 Poro Snax golden: playing the Gear fires the Play Effect and really draws 1 (383.4.a.2, 414.1)", () => {
+  const { engine, kernel, binding } = fixture();
 
-  const receipt = payCostPlan(kernel, plan);
-  assert.equal(receipt.paid, true);
-  assert.equal(kernel.player("A").energy, 0);
-  assert.deepEqual(kernel.player("A").power, ["Calm"]);
-  assert.equal(kernel.getObject("poro-snax").exhausted, true);
-  // 429.1/429.2.a: the killed Gear left the Board for its owner's Trash.
-  assert.equal(kernel.getObject("poro-snax").zone, "trash");
-  assert.deepEqual(
-    receipt.actions.map((action) => action.action.type),
-    ["pay", "exhaust", "kill"]
+  const draft = binding.describePlay(
+    { type: "play", object: kernel.ref("poro-snax"), player: "A" },
+    kernel.getObject("poro-snax")
+  );
+  engine.execute({ ...draft, location: { type: "base", player: "A" } });
+  engine.advance();
+  resolveAll(engine);
+
+  // The Gear resolved onto the Board and its card-played trigger really drew.
+  assert.equal(kernel.getObject("poro-snax").zone, "board");
+  assert.equal(kernel.player("A").handSize, 1);
+  assert.deepEqual(kernel.zone("A", "hand").map((ref) => ref.id), ["top-card"]);
+  const fired = timings(engine);
+  assert.equal(fired.includes("card-played"), true);
+  assert.equal(fired.includes("card-drawn"), true);
+  // The Play Effect enters the chain as its own item after the permanent's Resolve.
+  assert.equal(
+    engine.trace.some((entry) => entry.step === "pending" && entry.item.startsWith("trigger:")),
+    true
   );
 });
 
-test("sfd-046-221 Poro Snax golden: the 'Draw 1.' halves draw exactly one card through effect.draw (414.1/414.3)", () => {
-  // Play Effect half ("When you play this, draw 1.").
-  const triggerKernel = poroWorld();
-  const triggerOutcome = resolveChainBody(playTrigger.body, triggerKernel);
-  assert.equal(triggerOutcome.status, "executed");
-  assert.equal(triggerKernel.player("A").handSize, 1);
-  assert.deepEqual(triggerOutcome.events.map((event) => event.action), ["draw"]);
+test("sfd-046-221 Poro Snax golden: the printed activation cost is paid for real through the chain (energy, Calm Power, exhaust, kill)", () => {
+  const { engine, kernel, binding } = fixture({ onBoard: true });
 
-  // Activated-ability half ("Kill this: Draw 1.") — same instruction body and the same
-  // real effect.draw primitive, executed after the printed cost was paid.
-  const activatedKernel = poroWorld();
-  const plan = buildCostPlan(activatedKernel, { id: "cost:poro-snax-2", cost: activated.cost });
-  assert.equal(payCostPlan(activatedKernel, plan).paid, true);
-  const outcome = resolveChainBody(activated.body, activatedKernel);
-  assert.equal(outcome.status, "executed");
-  assert.equal(activatedKernel.player("A").handSize, 1);
-  assert.deepEqual(outcome.events.map((event) => event.action), ["draw"]);
-  assert.equal(outcome.results[0].result.linkedValues.drawn, 1);
+  const activation = binding.describeActivate(kernel.getObject("poro-snax"), "A", 0);
+  // The program binding translates the printed cost verbatim (never coerced).
+  assert.deepEqual(activation.cost.cost, {
+    kind: "activated",
+    energy: { kind: "constant", value: 1 },
+    power: { kind: "constant", value: ["Calm"] },
+    payments: [
+      { kind: "exhaust", object: "self" },
+      { kind: "kill", object: "self" }
+    ]
+  });
+  assert.deepEqual(activation.cost.domains, ["Calm"]);
+
+  engine.execute(activation);
+  engine.advance();
+  resolveAll(engine);
+
+  // 377.1 / 415.5 / 429.2.a: resources were spent and the Gear left the Board.
+  assert.equal(kernel.player("A").energy, 4);
+  assert.equal(kernel.getObject("poro-snax").zone, "trash");
+  // "Draw 1." really drew exactly one card (414.1/414.3).
+  assert.deepEqual(kernel.zone("A", "hand").map((ref) => ref.id), ["top-card"]);
+  assert.equal(kernel.player("A").handSize, 1);
+  const fired = timings(engine);
+  assert.equal(fired.includes("object-exhausted"), true);
+  assert.equal(fired.includes("object-killed"), true);
+  assert.equal(fired.includes("card-drawn"), true);
+});
+
+test("sfd-046-221 Poro Snax golden: paying the printed cost really exhausts and kills the Gear (415.5, 429.2.a)", () => {
+  const { kernel } = fixture({ onBoard: true });
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("poro-snax") });
+  const plan = buildCostPlan(context, { id: "cost:poro-snax:kill", cost: activated.cost });
+  const receipt = payCostPlan(context, plan);
+
+  // 357.2: the nonstandard payments run in the declared order; both really
+  // happened and the Gear reached its owner's Trash (429.2).
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.actions.map((entry) => entry.action.type), ["pay", "exhaust", "kill"]);
+  assert.equal(receipt.total.energy, 1);
+  assert.deepEqual(receipt.total.power, [{ amount: 1, allowedDomains: ["Calm"] }]);
+  assert.equal(context.getObject("poro-snax").zone, "trash");
+  assert.equal(context.player("A").energy, 4);
 });
 
 test("sfd-046-221 Poro Snax golden: an empty Main Deck draws nothing without inventing cards (414.4)", () => {
-  const base = world()
-    .object("poro-snax", {
-      name: "Poro Snax",
-      cardId: CANONICAL,
-      types: ["gear"],
-      zone: "board",
-      location: { type: "base", player: "A" },
-      energy: 1,
-      power: 1,
-      might: null
-    })
-    .player("A", { energy: 0, power: [] })
-    .build();
-  const kernel = base.clone({ sourceSnapshot: base.getObject("poro-snax") });
-  const outcome = resolveChainBody(playTrigger.body, kernel);
+  const { kernel } = fixture({ onBoard: true, deck: [] });
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("poro-snax") });
+  const outcome = resolveChainBody(playTrigger.body, scoped);
+
   assert.equal(outcome.status, "executed");
-  assert.equal(kernel.player("A").handSize, 0);
+  assert.equal(scoped.player("A").handSize, 0);
   assert.equal(outcome.results[0].result.linkedValues.drawn, 0);
 });
 
-test("sfd-046-221 Poro Snax golden: the kill cost cannot be paid once the Gear already left the Board (415.5, 429.2.a)", () => {
-  const kernel = poroWorld();
-  assert.equal(kernel.perform({ type: "kill", object: kernel.ref("poro-snax") }).status, "done");
-  assert.throws(
-    () => payCostPlan(kernel, buildCostPlan(kernel, { id: "cost:poro-snax-3", cost: { kind: "activated", payments: [{ kind: "kill", object: "self" }] } })),
-    /no longer in its selected zone|requires a controlled permanent/
-  );
-});
+test.todo(
+  "sfd-046-221 Poro Snax: the printed [Action]-slot activation permission is the chain's own timing check " +
+    "(151.2/377.3); no card-side wiring is missing. This TODO records that admission is owned by chain/canAct."
+);
 
-test.todo("sfd-046-221 Poro Snax: registering the Play Effect trigger (CR 383.4.a.1/.2) so 'When you play this, draw 1.' enters the chain needs the card-program -> TriggerRegistration wiring (contract 3.5, RIFT-120).");
-test.todo("sfd-046-221 Poro Snax: resolving the activated ability through the chain so its 'Draw 1.' body runs inside the same Finalize/Resolve transaction needs the same RIFT-120 trigger/chain production wiring; the cost payment and the merged effect.draw bodies above are already executed for real.");

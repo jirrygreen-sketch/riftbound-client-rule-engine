@@ -21,12 +21,20 @@ import type { CardProgram } from "../../ir/index.js";
  * - "Draw 1." is the second, independent instruction of the same spell (158.1:
  *   spells resolve top to bottom) and is not linked to the delayed trigger.
  *
- * Status: judge-required. The delay registration itself is not executable: no
- * `trigger.delayed` instruction is registered, and the "this turn" lifetime
- * needs the continuous duration support tracked as RIFT-91. The buff body uses
- * only merged primitives and the draw is a plain effect.draw, so the golden
- * test exercises those parts directly instead of pretending the registration
- * works.
+ * Status: judge-required. The delay registration itself is not executable:
+ * - No `trigger.delayed` instruction is registered. `ResolveContext.
+ *   registerDelayedTrigger(at, body)` exists in the frozen contract (3.6) and
+ *   ChainEngine implements it (chain/engine.ts registers a pipeline trigger
+ *   with `delayed: true`), but there is no opcode a card body can call, so a
+ *   spell cannot create the delayed ability from its own data.
+ * - That contract entry also carries no lifetime: `registerDelayedTrigger(at,
+ *   body)` has no window parameter and TriggerRegistration.expiresAt is never
+ *   set for it, so "this turn" (382/392) cannot be expressed. Even the merged
+ *   continuous durations cannot stand in, because a delayed trigger is not a
+ *   ContinuousEffectSpec.
+ * The buff body uses only merged primitives and the draw is a plain effect.draw,
+ * so the golden test exercises those parts directly instead of pretending the
+ * registration works.
  */
 const rallyTheTroops = {
   canonicalCardId: "card.hash-3e2b0e6be550a6ea91eaca662301cad701e40cd382c25c86b966e45b6858b678",
@@ -34,8 +42,11 @@ const rallyTheTroops = {
   status: "judge-required",
   judgeReason:
     "缺 trigger.delayed 原语与「本回合」到期窗口：「When a friendly unit is played this turn, buff it」是 CR v1.5 392/393 的延迟触发，" +
-    "按 355.5.b 其目标在延迟触发 Finalize 时才选择，到期窗口需要 continuous.duration（未实现，依赖 RIFT-91 的 layers-continuous）；" +
-    "effects/instructions/ 没有 trigger.delayed 的已注册实现，registerDelayedTrigger 也不带期限。" +
+    "按 355.5.b 其目标在延迟触发 Finalize 时才选择。" +
+    "(1) effects/instructions/ 没有 trigger.delayed 的已注册实现——契约 3.6 的 ResolveContext.registerDelayedTrigger(at, body) 已由 " +
+    "chain/engine.ts 实现（以 delayed:true 注册管线触发），但没有卡牌可调用的 opcode，卡牌数据无法自行创建该延迟能力。" +
+    "(2) 该契约入口不带期限（只有 at 与 body 两个参数，TriggerRegistration.expiresAt 对延迟触发从不设置），382/392 的「本回合」窗口无法表达；" +
+    "延迟触发也不是 ContinuousEffectSpec，已合入的 continuous.duration 不能替代。" +
     "buff 本体（effect.buff，702.2.a）与独立的 Draw 1（effect.draw）用已合入原语表达并在金标测试中直接执行；" +
     "整卡因延迟触发注册缺失保持 judge-required，不近似实现。",
   sourceText:

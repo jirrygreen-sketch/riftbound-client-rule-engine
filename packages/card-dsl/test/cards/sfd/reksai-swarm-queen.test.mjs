@@ -21,8 +21,11 @@ test("sfd-170-221 Rek'Sai, Swarm Queen: program validates and keeps its identity
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /ordered picks/);
-  assert.match(program.judgeReason, /array-contains/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-66/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  // The type gate is expressible; the gap is the missing object list on
+  // effect.play's receipt.
+  assert.match(program.judgeReason, /played 计数|linkKey/);
   assert.equal(
     program.sourceText,
     "When I attack, you may reveal the top 2 cards of your Main Deck. You may play one. Then " +
@@ -149,6 +152,7 @@ test.todo(
 
 test.todo(
   "sfd-170-221 Rek'Sai, Swarm Queen: gate the second 'you may play it here' entry-location choice on " +
-    "'if the played card is a unit' — Condition has no array-contains operator for the played card's " +
-    "types, and 355.2.b location permission is not expressible (contract change request)"
+    "'if the played card is a unit' — the compare/in test itself is merged, but effect.play's link receipt " +
+    "only records the played count (number), so there is no linked object whose types could be tested; " +
+    "the 355.2.b location permission then has no gate to open"
 );

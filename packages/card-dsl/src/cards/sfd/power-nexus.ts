@@ -28,33 +28,41 @@ import type { CardProgram } from "../../ir/index.js";
  *   gaining points as "Score X points"), distinct from Scoring a Battlefield;
  *   effect.score is the merged primitive for that gain.
  *
- * Status: judge-required. Two merged gaps, neither approximated:
- * 1. `hold` is declared in the closed timing-point enum (emittedBy
- *    "scoring") but nothing emits it into the single event pipeline:
- *    scoring/scoring.ts returns triggerScore/triggerMethod flags that
- *    turn-executor-v2 consumes, and the chain/pipeline emit sites cover only
- *    chain / card-played / showdown / cleanup / became-target. The trigger
- *    therefore cannot enter the chain (RIFT-31/RIFT-33 and contract 7.2 batch
- *    5); the filter's `here: true` is the sibling-battlefield placeholder for
- *   053.3 that the engine trigger-spec validator rejects.
- * 2. There is no `cost.pay` instruction file under effects/instructions/
- *    (`cost.pay` is a RIFT-9 inventory op; no opcode submits the declared
- *    payment), so the accepted branch cannot execute. The golden test pins the
- *    unregistered opcode and executes only the merged Score half rather than
- *    approximating the payment.
+ * Status: judge-required. Two current gaps, neither approximated:
+ * 1. The `hold` producer is merged (turn/flow.ts's Score wave emits `hold` with
+ *    { player, details: { battlefieldId } }), but the ability still cannot be
+ *    registered or matched: the filter's `here: true` is the 053.3
+ *    sibling-battlefield placeholder and the merged trigger-spec validator
+ *    rejects that field (EventPattern allows only event/type/kind, object,
+ *    source, target, player, fromZone, toZone, amount, details). EventPattern
+ *    and ObjectFilter have no battlefield-relative anchor for a Battlefield's
+ *    own Hold Effect (CR 383.4.d.2.a), and a static program cannot know the
+ *    runtime battlefield id carried by `details.battlefieldId`. The merged
+ *    card-program binding (RIFT-257) rejects unknown filter fields fail-closed,
+ *    so the trigger never reaches the chain.
+ * 2. There is still no `cost.pay` instruction file under effects/instructions/
+ *    (the RIFT-261 cost-kind / cost.pay batch is not merged in this worktree,
+ *    and the generated instruction registry has no cost.* opcode), so the
+ *    accepted branch cannot submit the declared four [A] Power payment. The
+ *    golden test executes the merged Score half and the declined branch rather
+ *    than approximating the payment.
  */
 export default {
   canonicalCardId: "card.hash-37ce210574e7c91a9622befdf13147021c67804d234496c259e656e10217be0e",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Two merged gaps. (1) The hold timing point (383.4.d / 471.2 / 473.2.b) is never emitted into the single event pipeline: " +
-    "scoring/scoring.ts only returns triggerScore/triggerMethod flags for turn-executor-v2, so the trigger cannot be put on the chain " +
-    "(RIFT-31/RIFT-33, contract 7.2 batch 5); the filter's here:true is the 053.3 sibling placeholder that assertTriggerSpec rejects. " +
-    "(2) No cost.pay instruction file exists under effects/instructions/ (RIFT-9 inventory op, RIFT-89 batch3-cost-plan plumbing), " +
-    "so the accepted branch cannot submit the four [A] Power payment; the cost plan reader can read the declared payment " +
-    "(135.2.e.5/135.2.e.5.a, all six Domains allowed) but no opcode performs it. The merged Score half (470.1/470.2, effect.score) " +
-    "is executed by the golden test; the payment is not approximated.",
+    "Two current gaps, neither approximated. (1) The ability cannot be registered or matched: the hold producer is merged " +
+    "(turn/flow.ts's Score wave emits hold with { player, details: { battlefieldId } }), but the filter's here:true is the " +
+    "053.3 sibling-battlefield placeholder and the merged trigger-spec validator rejects that field (EventPattern allows " +
+    "event/type/kind, object, source, target, player, fromZone, toZone, amount and details only). Neither EventPattern nor " +
+    "ObjectFilter has a battlefield-relative \"this Battlefield\" anchor for a Battlefield's own Hold Effect (CR 383.4.d.2.a), " +
+    "and a static card program cannot know the runtime battlefield id that details.battlefieldId carries; the merged card-program " +
+    "binding (RIFT-257) rejects the unknown field fail-closed, so the trigger never reaches the chain. " +
+    "(2) No cost.pay instruction file exists under effects/instructions/ (the RIFT-261 cost-kind / cost.pay batch is not merged in " +
+    "this worktree and the generated instruction registry has no cost.* opcode), so the accepted branch cannot submit the declared " +
+    "four [A] Power payment; the cost plan reader understands the declaration (135.2.e.5/135.2.e.5.a, all six Domains allowed) but no " +
+    "opcode performs it. The merged Score half (470.1/470.2, effect.score) and the declined branch are executed by the golden test.",
   abilities: [
     {
       kind: "triggered",

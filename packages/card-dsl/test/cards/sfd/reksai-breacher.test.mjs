@@ -1,13 +1,62 @@
+// Golden test for Rek'Sai, Breacher (sfd-029-221).
+//
+// The card keeps judge-required: the card's static Accelerate grant has no
+// production layer-registration path, the printed "played from anywhere other
+// than a player's hand" has no play-origin predicate, and the Accelerate entry
+// replacement/Assault attacker condition have no consumers. The grant itself is
+// exercised for real through the merged continuous.grant-keyword primitive and
+// the merged layer engine.
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { validateCardProgram } from "../../../dist/ir/validation.js";
+import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/reksai-breacher.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CARD_ID = "card.hash-6eb6345b70c561ae3d2ed335eb50fdd0958d942af912aaceba44ad0038813815";
 
 const [accelerate, assault, grant] = program.abilities;
+
+const c = (value) => ({ kind: "constant", value });
+
+/**
+ * chain/engine.ts resolves the static controller/owner spellings before it
+ * calls the production matcher: 'self' becomes the ability controller and
+ * 'opponent' excludes that player's objects. The reference kernel compares
+ * filter values literally, so the goldens go through the same normalization the
+ * production chain applies (the merged siphon-power / switcheroo goldens use
+ * this exact helper).
+ */
+const chainQuery = (kernel, controller) => (filter) => kernel.query({}).filter((object) => {
+  for (const key of ["controller", "owner"]) {
+    if (filter[key] === "opponent" && object[key] === controller) return false;
+  }
+  return matchesObjectFilter({
+    ...filter,
+    ...(filter.controller === "self" ? { controller } : {}),
+    ...(filter.controller === "opponent" ? { controller: "any" } : {}),
+    ...(filter.owner === "opponent" ? { owner: "any" } : {})
+  }, object);
+});
+
+const productionContext = (kernel) => new Proxy(kernel, {
+  get(target, key) {
+    if (key === "query") return chainQuery(target, target.source.controller);
+    const value = Reflect.get(target, key);
+    return typeof value === "function" ? value.bind(target) : value;
+  }
+});
+
+const layerAfter = (kernel) =>
+  createLayerEngine(
+    kernel.objects,
+    kernel.continuousEffects.map((entry) => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 }))
+  );
 
 test("sfd-029-221 Rek'Sai, Breacher: program validates and is registered", () => {
   const result = validateCardProgram(program);
@@ -28,11 +77,12 @@ test("sfd-029-221 Rek'Sai, Breacher: identity, ruleset, status and verbatim text
   );
 });
 
-test("sfd-029-221 Rek'Sai, Breacher: judgeReason names the keyword-grant and play-origin gaps", () => {
+test("sfd-029-221 Rek'Sai, Breacher: judgeReason names the current registration, predicate and condition gaps", () => {
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-9/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /来源区域|played from anywhere/);
+  assert.match(program.judgeReason, /staticBinder/);
+  assert.match(program.judgeReason, /playedFromZoneNot/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /designation/);
 });
 
 test("sfd-029-221 Rek'Sai, Breacher: [Accelerate] and [Assault] are declared without values", () => {
@@ -60,25 +110,103 @@ test("sfd-029-221 Rek'Sai, Breacher: the third ability is a static Accelerate gr
   assert.equal(grant.condition, undefined);
 });
 
-test.todo(
-  "sfd-029-221 Rek'Sai, Breacher: the continuous.grant-keyword static ability needs a consumer that " +
-    "registers CardProgram statics into layers and expands the granted Accelerate on each recipient " +
-    "(RIFT-9 continuous.keyword, RIFT-91 layers-continuous)"
-);
+test("sfd-029-221 Rek'Sai, Breacher golden: the merged grant primitive really gives a matching friendly unit Accelerate", () => {
+  const kernel = world()
+    .unit("rekai", { owner: "A", controller: "A", might: 3 })
+    .unit("friendly-poro", { owner: "A", controller: "A", might: 2, types: ["unit"], tags: ["Poro"] })
+    .unit("enemy-poro", { owner: "B", controller: "B", might: 2, types: ["unit"], tags: ["Poro"] })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("rekai") });
+  const bound = productionContext(context);
+
+  // The executed filter uses only vocabulary the merged matcher understands
+  // (the card's descriptive playedFromZoneNot key has no semantics, so the
+  // golden exercises the grant against an explicit tag filter).
+  // The grant instruction runs through the same production adapter the merged
+  // program binding uses, over the chain-normalized query.
+  const outcome = resolveChainBody(
+    [{ id: "grant", op: "continuous.grant-keyword",
+      args: { keyword: c("accelerate"), filter: { type: "unit", controller: "self", tags: ["Poro"] } } }],
+    bound
+  );
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(context.continuousEffects.map((entry) => entry.effect.filter.objectId), ["friendly-poro"]);
+  assert.equal(context.continuousEffects[0].effect.layer, "ability");
+  assert.equal(context.continuousEffects[0].effect.effect.keyword, "accelerate");
+  const layers = layerAfter(context);
+  // 478.1.a ability layer: only the matching friendly unit gains the keyword.
+  assert.deepEqual(layers.evaluate(context.ref("friendly-poro")).keywords, [{ id: "accelerate", value: undefined }]);
+  assert.deepEqual(layers.evaluate(context.ref("rekai")).keywords, []);
+  assert.deepEqual(layers.evaluate(context.ref("enemy-poro")).keywords, []);
+});
+
+test("sfd-029-221 Rek'Sai, Breacher: the descriptive play-origin key is not part of the merged matcher", () => {
+  // The grant primitive accepts the card's filter shape, but the merged layer
+  // matcher (layers/filter.ts matchesObjectFilter) has no play-origin
+  // vocabulary, so a filter carrying only that key matches every friendly unit.
+  // The card therefore cannot mean "played from anywhere other than a hand"
+  // today (judgeReason) — the golden documents the real behaviour.
+  const kernel = world()
+    .unit("rekai", { owner: "A", controller: "A", might: 3 })
+    .unit("friendly-unit", { owner: "A", controller: "A", might: 2 })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("rekai") });
+  const bound = productionContext(context);
+
+  const outcome = resolveChainBody(
+    [{ id: "grant", op: "continuous.grant-keyword",
+      args: {
+        keyword: c("accelerate"),
+        filter: { type: "unit", controller: "self", zone: "board", playedFromZoneNot: "hand" }
+      } }],
+    bound
+  );
+
+  assert.equal(outcome.status, "executed");
+  const layers = layerAfter(context);
+  // Both friendly units are granted: the origin restriction never applies.
+  assert.deepEqual(context.continuousEffects.map((entry) => entry.effect.filter.objectId).sort(), [
+    "friendly-unit",
+    "rekai"
+  ]);
+  assert.deepEqual(layers.evaluate(context.ref("friendly-unit")).keywords, [{ id: "accelerate", value: undefined }]);
+});
+
+test("sfd-029-221 Rek'Sai, Breacher: [Assault]'s expansion carries an unevaluatable attacker condition", () => {
+  const definition = keywordDefinitionsById.get("Assault");
+  assert.ok(definition, "the merged Assault KeywordDef must be registered");
+  const [expansion] = definition.expand({ value: undefined, host: { canonicalCardId: CARD_ID } });
+  assert.equal(expansion.kind, "static");
+  assert.equal(expansion.effect.kind, "continuous.might");
+  // Assault's expansion carries the value as an Expr (contract 3.2).
+  assert.deepEqual(expansion.effect.amount, { kind: "constant", value: 1 });
+  // 807.1.b.3: the omitted value presumes Assault 1.
+  assert.deepEqual(expansion.condition, {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "designation" },
+    operator: "eq",
+    right: { kind: "constant", value: "attacker" }
+  });
+});
 
 test.todo(
-  "sfd-029-221 Rek'Sai, Breacher: 'played from anywhere other than a player's hand' needs a " +
-    "play-origin zone predicate (the frozen ObjectFilter vocabulary has type/controller/owner/zone/" +
-    "states/tags/characteristics but no origin-zone-of-play match); the `playedFromZoneNot` key above " +
-    "is a descriptive placeholder with no consumer"
+  "sfd-029-221 Rek'Sai, Breacher: the card's static continuous.grant-keyword ability needs a production layer " +
+    "registration path (programs/lifecycle.ts only calls bindStatic when the caller supplies a staticBinder, and " +
+    "no production caller does) - RIFT-257 follow-up"
+);
+test.todo(
+  "sfd-029-221 Rek'Sai, Breacher: 'played from anywhere other than a player's hand' needs a play-origin zone " +
+    "predicate; the frozen ObjectFilter/matcher vocabulary (layers/filter.ts) has type/controller/owner/zone/" +
+    "states/tags/characteristics but no origin-zone-of-play match"
+);
+test.todo(
+  "sfd-029-221 Rek'Sai, Breacher: [Accelerate] payment and enter-ready replacement end to end through the cost " +
+    "pipeline and entry replacement (CR 805.1.b, 805.2.b, 805.6.a) - RIFT-261 follow-up"
+);
+test.todo(
+  "sfd-029-221 Rek'Sai, Breacher: [Assault] needs the layers engine to evaluate the compare(designation) " +
+    "condition; layers/engine.ts conditionMatches falls through to true for unknown condition kinds, which would " +
+    "grant +1 Might unconditionally - RIFT-91 follow-up"
 );
 
-test.todo(
-  "sfd-029-221 Rek'Sai, Breacher: [Accelerate] payment and enter-ready replacement end-to-end through " +
-    "the cost pipeline and entry replacement (CR 805.1.b, 805.2.b, 805.6.a) — RIFT-86 / RIFT-89 / RIFT-91"
-);
-
-test.todo(
-  "sfd-029-221 Rek'Sai, Breacher: [Assault] (+1 Might while the host is an attacker) — the KeywordDef " +
-    "exists but no consumer expands CardProgram keyword abilities into layers (RIFT-81 / RIFT-91)"
-);

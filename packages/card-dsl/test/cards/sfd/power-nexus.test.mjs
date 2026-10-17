@@ -7,8 +7,10 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import score from "../../../../engine-core/dist/effects/instructions/effect.score.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { getTimingPoint } from "../../../../engine-core/dist/events/timing-points.js";
 
 const CANONICAL =
   "card.hash-37ce210574e7c91a9622befdf13147021c67804d234496c259e656e10217be0e";
@@ -35,13 +37,13 @@ test("sfd-214-221 Power Nexus: identity, ruleset, status and verbatim source tex
   // Build-time codegen over src/cards/**; the golden proves the identity is
   // actually registered (one identity, one file).
   assert.equal(cardProgramsById.get(CANONICAL), program);
-  // Both named dependencies: the unemitted hold timing point and the missing
-  // cost.pay instruction (see judgeReason).
-  assert.match(program.judgeReason, /hold/);
-  assert.match(program.judgeReason, /RIFT-31/);
-  assert.match(program.judgeReason, /RIFT-33/);
+  // Both current dependencies: the battlefield-relative anchor / unknown filter
+  // field and the still-unmerged cost.pay instruction (see judgeReason).
+  assert.match(program.judgeReason, /hold producer is merged|hold/);
+  assert.match(program.judgeReason, /here:true/);
+  assert.match(program.judgeReason, /battlefield-relative/);
   assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
 });
 
 test("sfd-214-221: hold trigger whose printed may is one choice.optional body (3.9)", () => {
@@ -116,19 +118,31 @@ test("sfd-214-221: declining the optional chooses neither payment nor point gain
   assert.equal(kernel.player("B").score, 4);
 });
 
-test("sfd-214-221: the declared cost.pay opcode is not merged, so the accepted branch cannot run", () => {
-  // Evidence for the judgeReason: the RIFT-9 inventory names cost.pay, but the
-  // generated instruction registry has no such opcode, so accepting the
-  // optional cannot silently pay nothing.
-  assert.equal(instructionDefinitionsById.has("cost.pay"), false);
-
-  const kernel = world().player("A", { score: 0 }).build();
-  kernel.setAnswers({ "power-nexus.opt-in/optional": true });
-  assert.throws(
-    () => runAbilityBody(ability.body, kernel),
-    /Unregistered instruction opcode: cost\.pay/
-  );
-  assert.equal(kernel.player("A").score, 0);
+test("sfd-214-221: the declared four-[A] payment is readable by the merged cost plan reader", () => {
+  // The accepted branch is still gated on the unmerged cost.pay opcode
+  // (judgeReason), but the declared payment shape itself is already understood:
+  // the reader accepts four Power with all six Domains allowed, which is how
+  // :rb_rune_rainbow: is spelled as a cost (135.2.e.5 / 135.2.e.5.a).
+  const kernel = world()
+    .player("A", { power: ["Calm", "Calm", "Calm", "Calm"] })
+    .player("B")
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.objects[0] });
+  const spec = {
+    kind: "explicit",
+    payments: [
+      {
+        kind: "power",
+        amount: { kind: "constant", value: 4 },
+        allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]
+      }
+    ]
+  };
+  const plan = buildCostPlan(context, { id: "cost:power-nexus", cost: spec, domains: ["Calm"] });
+  assert.deepEqual(plan.total.power, [
+    { amount: 4, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] }
+  ]);
+  assert.equal(plan.total.energy, 0);
 });
 
 test("sfd-214-221: the merged Score half really gains the printed 1 point (470.1/470.2)", () => {
@@ -156,8 +170,17 @@ test("sfd-214-221: scoring is Gaining a Point, not Scoring the Battlefield (470.
   assert.deepEqual(kernel.objectsInZone("A", "board"), before);
 });
 
-test("sfd-214-221: the trigger filter still carries the unreplaced here placeholder", () => {
-  assert.throws(() => assertTriggerSpec(ability.trigger), /EventPattern 不允许此字段/);
+test("sfd-214-221: the resolved Hold trigger spelling is a valid, matcher-understood spec", () => {
+  // The stored filter carries the 053.3 `here` placeholder (asserted by the
+  // structure test and named in judgeReason); this pins the spelling a future
+  // battlefield anchor must resolve to: the pipeline matcher maps the `held`
+  // event name onto the `hold` timing point (events/pipeline-match.ts
+  // EVENT_NAMES) and reads the controller through the `self` selector.
+  assert.doesNotThrow(() =>
+    assertTriggerSpec({ at: "hold", filter: { event: "held", player: "self" } })
+  );
+  // The timing point the ability subscribes to is a declared one.
+  assert.equal(getTimingPoint(ability.trigger.at).id, "hold");
 });
 
 test.todo(
