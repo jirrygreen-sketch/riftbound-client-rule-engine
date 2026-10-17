@@ -64,6 +64,14 @@ test("play-origin predicates use the event's from-zone fact", () => {
   assert.equal(evaluateCondition({ kind: "played-from-zone", object: "object", zone: "trash" }, environment), false);
   assert.equal(evaluateCondition({ kind: "played-from-zone", object: "object", zone: "hand" }, environment), true);
   assert.equal(evaluateCondition({ kind: "playedFromHand", object: "object" }, environment), true);
+
+  const roleSpecific = {
+    ...event("hand", 2),
+    source: { ...source, ref: { id: "source", zoneEntryId: 4 }, zone: "trash", fromZone: "trash" }
+  };
+  const roleEnvironment = contextFor(kernel, roleSpecific, paid);
+  assert.equal(evaluateCondition({ kind: "played-from-hand", object: "source" }, roleEnvironment), false);
+  assert.equal(evaluateCondition({ kind: "played-from-zone", object: "source", zone: "trash" }, roleEnvironment), true);
 });
 
 test("printed event-object predicates compare copied/printed Power without reading current Power", () => {
@@ -86,6 +94,18 @@ test("result predicates use the optional-cost decision, even when its payment wa
   assert.equal(evaluateCondition({ kind: "result", result: "additional-cost-paid", id: "boost" }, contextFor(kernel, event(), paid)), true);
   assert.equal(evaluateCondition({ kind: "result", result: "additional-cost-paid", id: "boost" }, contextFor(kernel, event(), declined)), false);
   assert.equal(evaluateCondition({ kind: "result", result: "additional-cost-paid" }, contextFor(kernel, event(), paid)), true);
+
+  const mandatory = {
+    plan: {
+      components: [{ id: "tax", stage: "mandatory-additional" }],
+      selectedAdditional: [],
+      declinedAdditional: []
+    },
+    receipt: { paid: true, additional: [] }
+  };
+  assert.equal(evaluateCondition({ kind: "result", result: "cost.additional", id: "tax" }, contextFor(kernel, event(), mandatory)), true);
+  assert.equal(evaluateCondition({ kind: "result", result: "cost.additional" }, contextFor(kernel, event(), mandatory)), true);
+  assert.equal(evaluateCondition({ kind: "result", result: "cost.additional" }, contextFor(kernel, event(), { paid: true, additional: [] })), false);
 });
 
 test("a trigger-style conjunction gates an instruction on origin, printed cost, and payment result", () => {

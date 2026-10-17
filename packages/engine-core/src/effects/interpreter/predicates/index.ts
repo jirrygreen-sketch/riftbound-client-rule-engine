@@ -4,7 +4,7 @@ import { evaluatePrintedCharacteristic } from "./printed.js";
 import { evaluateResult } from "./result.js";
 import type { PredicateContext } from "./types.js";
 
-export type { ConditionEventPayload, ConditionCostResult, PredicateContext } from "./types.js";
+export type { ConditionEventPayload, ConditionCostPlan, ConditionPaymentReceipt, ConditionCostResult, PredicateContext } from "./types.js";
 export { evaluatePlayedFromHand, evaluatePlayedFromZone } from "./play-origin.js";
 export { evaluatePrintedCharacteristic } from "./printed.js";
 export { evaluateResult } from "./result.js";

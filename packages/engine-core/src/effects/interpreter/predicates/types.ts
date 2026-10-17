@@ -15,8 +15,29 @@ export interface ConditionEventPayload {
   readonly [key: string]: unknown;
 }
 
+/**
+ * The finalized cost facts visible to a resolving ability.  Chain supplies
+ * both halves: the plan describes which components exist, while the receipt
+ * proves that the whole plan was paid.  Keeping them separate prevents an
+ * empty receipt list from being mistaken for a successful payment decision.
+ */
+export interface ConditionCostPlan {
+  readonly components?: readonly Readonly<Record<string, unknown>>[];
+  readonly selectedAdditional?: readonly Readonly<Record<string, unknown>>[];
+  readonly declinedAdditional?: readonly string[];
+  readonly [key: string]: unknown;
+}
+
+export interface ConditionPaymentReceipt {
+  readonly paid?: boolean;
+  readonly additional?: readonly Readonly<Record<string, unknown>>[];
+  readonly [key: string]: unknown;
+}
+
 /** The subset of a finalized cost result needed by condition.result. */
 export interface ConditionCostResult {
+  readonly plan?: ConditionCostPlan;
+  readonly receipt?: ConditionPaymentReceipt;
   readonly selectedAdditional?: readonly Readonly<Record<string, unknown>>[];
   readonly declinedAdditional?: readonly string[];
   readonly additional?: readonly Readonly<Record<string, unknown>>[];

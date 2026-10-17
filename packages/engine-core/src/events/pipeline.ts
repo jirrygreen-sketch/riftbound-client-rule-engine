@@ -3,6 +3,22 @@ import { getTimingPoint } from './timing-points.js';
 import { matchesTriggerEvent } from './pipeline-match.js';
 import { assertTriggerSpec } from './trigger-spec.js';
 import type { ActionExecution, PipelineClock, PipelineEvent, PipelineHost, ReplacementRegistration, TimingEmission, TriggerRegistration, TriggerSnapshot } from './pipeline-types.js';
+import { evaluateCondition } from '../effects/interpreter/condition.js';
+import { MissingInformation } from '../effects/interpreter/values.js';
+
+function evaluateTriggerCondition(host: PipelineHost, registration: TriggerRegistration, event: PipelineEvent, source: ObjectSnapshot): boolean {
+  const condition = registration.spec.condition;
+  if (condition === undefined) return true;
+  const context = host.context(source, registration.controller, event.timingPoint);
+  return evaluateCondition(condition as unknown as import("@riftbound/card-dsl").Condition, {
+    context,
+    event,
+    linked: key => context.linked(key),
+    canLookBack: () => true,
+    isIgnored: () => false,
+    query: filter => context.query(filter)
+  });
+}
 
 export class EventPipeline {
   readonly clock: PipelineClock = { turn: 1, phase: 1, combat: 0, showdown: 0, chain: 0 };
@@ -118,8 +134,18 @@ export class EventPipeline {
       const controller = registration.delayed ? registration.controller : captured.controller;
       if (!matchesTriggerEvent(registration.spec.filter, event, controller)) continue;
       if (registration.spec.condition) {
-        if (!this.host.testTrigger) throw new Error('Trigger condition adapter required');
-        if (!this.host.testTrigger(registration, event, captured)) continue;
+        if (this.host.testTrigger) {
+          try {
+            if (!this.host.testTrigger(registration, event, captured)) continue;
+          } catch (error) {
+            // Older host adapters evaluated only the live object context.  A
+            // predicate that needs the immutable event payload can therefore
+            // surface MissingInformation; retry through the canonical event-
+            // aware evaluator instead of dropping the trigger wave.
+            if (!(error instanceof MissingInformation)) throw error;
+            if (!evaluateTriggerCondition(this.host, registration, event, captured)) continue;
+          }
+        } else if (!evaluateTriggerCondition(this.host, registration, event, captured)) continue;
       }
       const frequencyKey = this.frequencyKey(registration, captured);
       if (frequencyKey !== null && this.consumed.has(frequencyKey)) continue;

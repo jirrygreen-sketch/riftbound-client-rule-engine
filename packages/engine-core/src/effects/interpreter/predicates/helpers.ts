@@ -38,18 +38,25 @@ export function readOrigin(context: PredicateContext, role: string): string {
   const event = context.event as import("./types.js").ConditionEventPayload | undefined;
   const object = eventObject(context, role);
   const details = record(event?.details);
+  const roleDetails = record(details?.[role]);
   const candidates = [
-    event?.playedFromHand === true ? "hand" : undefined,
-    event?.playedFromZone,
-    event?.fromZone,
+    // The event-level provenance fields describe the event object only.  They
+    // must never answer a source/target query for a different event role.
+    role === "object" && event?.playedFromHand === true ? "hand" : undefined,
+    role === "object" ? event?.playedFromZone : undefined,
+    role === "object" ? event?.fromZone : undefined,
     object.playedFromHand === true ? "hand" : undefined,
     object.playedFromZone,
     object.playedFrom,
     object.fromZone,
-    details?.playedFromHand === true ? "hand" : undefined,
-    details?.playedFromZone,
-    details?.playedFrom,
-    details?.fromZone
+    role === "object" && details?.playedFromHand === true ? "hand" : undefined,
+    role === "object" ? details?.playedFromZone : undefined,
+    role === "object" ? details?.playedFrom : undefined,
+    role === "object" ? details?.fromZone : undefined,
+    roleDetails?.playedFromHand === true ? "hand" : undefined,
+    roleDetails?.playedFromZone,
+    roleDetails?.playedFrom,
+    roleDetails?.fromZone
   ];
   const origin = candidates.find(value => typeof value === "string" && value.length > 0);
   if (typeof origin !== "string") throw new MissingInformation("Event payload has no play-origin zone");
@@ -82,19 +89,21 @@ export function readPrintedCharacteristic(
   const event = context.event as import("./types.js").ConditionEventPayload | undefined;
   const object = eventObject(context, role);
   const details = record(event?.details);
+  const roleDetails = record(details?.[role]);
   const names = characteristic === "energy"
     ? ["energy", "energyCost"]
     : characteristic === "power" ? ["power", "powerCost"] : ["might", "mightValue"];
   const prefixed = characteristic === "energy"
     ? ["printedEnergy", "printedEnergyCost"]
     : characteristic === "power" ? ["printedPower", "printedPowerCost"] : ["printedMight", "printedMightValue"];
-  for (const container of [object, details]) {
+  const containers = role === "object" ? [object, details] : [object, roleDetails];
+  for (const container of containers) {
     for (const name of prefixed) {
       const candidate = own(container, name);
       if (candidate.found) return numericPrinted(candidate.value);
     }
   }
-  for (const container of [object, details]) {
+  for (const container of containers) {
     for (const key of ["printed", "printedCost"]) {
       const nestedValue = own(container, key);
       if (!nestedValue.found) continue;
@@ -141,33 +150,58 @@ export function readResultValue(context: PredicateContext, result: string, id?: 
 }
 
 function readCostResult(cost: PredicateContext["cost"], result: string, id?: string, key?: string): unknown {
-  const receipt = cost as import("./types.js").ConditionCostResult | undefined;
-  if (!receipt) return undefined;
-  const direct = lookup(receipt, result.replace(/^cost\./, ""));
-  if (direct !== undefined && id === undefined && key === undefined) return direct;
-
+  const input = cost as import("./types.js").ConditionCostResult | undefined;
+  if (!input) return undefined;
+  const receipt = input.receipt ?? input;
+  const plan = input.plan;
   const componentId = id ?? key;
-  const additionalLists = [receipt.selectedAdditional, receipt.additional, receipt.optionalAdditional];
-  const isAdditionalResult = /^(?:cost\.)?(?:additional|optional-additional|additional-cost)(?:\.|-|$)/.test(result)
-    || result === "additional-cost-paid" || result === "optional-additional-paid";
-  if (isAdditionalResult) {
-    if (componentId !== undefined) {
-      for (const list of additionalLists) {
-        const match = list?.find(entry => entry.id === componentId);
-        if (match) return match.paid === undefined ? (match.selected === undefined ? true : match.selected) : match.paid;
-      }
-      if (receipt.declinedAdditional?.includes(componentId)) return false;
-      if (additionalLists.some(list => list !== undefined)) return false;
-    } else {
-      const selected = receipt.selectedAdditional ?? receipt.additional ?? receipt.optionalAdditional;
-      if (selected !== undefined) return selected.length > 0;
-    }
-  }
+  const normalized = result.replace(/^cost\./, "");
+  const isAdditionalResult = /^(?:additional|optional-additional|additional-cost)(?:\.|-|$)/.test(normalized)
+    || normalized === "additional-cost-paid" || normalized === "optional-additional-paid";
+  if (isAdditionalResult) return readAdditionalDecision(plan, receipt, componentId);
 
-  const path = result.replace(/^cost\./, "");
-  const value = lookup(receipt, path);
+  const direct = lookup(receipt, normalized);
+  if (direct !== undefined && id === undefined && key === undefined) return direct;
+  const value = lookup(receipt, normalized);
   if (value !== undefined) return key === undefined ? value : lookup(value, key);
   return undefined;
+}
+
+function readAdditionalDecision(
+  plan: import("./types.js").ConditionCostPlan | undefined,
+  receipt: import("./types.js").ConditionPaymentReceipt,
+  componentId?: string
+): boolean | undefined {
+  const legacy = receipt as import("./types.js").ConditionCostResult;
+  const paid = receipt.paid === true || (receipt.paid === undefined &&
+    ((legacy.selectedAdditional?.length ?? 0) > 0 || (legacy.additional?.length ?? 0) > 0));
+  const selected = plan?.selectedAdditional ?? legacy.selectedAdditional ?? [];
+  const declined = new Set(plan?.declinedAdditional ?? legacy.declinedAdditional ?? []);
+  const receiptAdditional = receipt.additional ?? legacy.additional ?? [];
+  const components = (plan?.components ?? []).filter(component =>
+    component.stage === "optional-additional" || component.stage === "mandatory-additional"
+  );
+  const mandatoryIds = new Set(components
+    .filter(component => component.stage === "mandatory-additional")
+    .map(component => typeof component.id === "string" ? component.id : ""));
+
+  if (componentId !== undefined) {
+    if (declined.has(componentId)) return false;
+    const optional = selected.some(entry => entry.id === componentId) ||
+      receiptAdditional.some(entry => entry.id === componentId);
+    if (optional || mandatoryIds.has(componentId)) {
+      const entry = [...selected, ...receiptAdditional].find(item => item.id === componentId);
+      if (entry && typeof entry.paid === "boolean") return entry.paid;
+      return paid;
+    }
+    // A cost plan/receipt was supplied and this id is absent from both.  It
+    // is a known false rather than a truthy empty-list fallback.
+    if (plan !== undefined || receiptAdditional.length > 0) return false;
+    return undefined;
+  }
+
+  if (!paid) return false;
+  return selected.length > 0 || receiptAdditional.length > 0 || mandatoryIds.size > 0;
 }
 
 export function sourceSnapshot(context: PredicateContext): ObjectSnapshot {
