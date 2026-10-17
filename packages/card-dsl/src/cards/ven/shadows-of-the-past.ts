@@ -17,27 +17,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   区域移动动作（448.2），动作层按拥有者路由（108.1 / 123），卡牌不写玩家参数——与本仓
  *   ogn-170-298 Morbid Return、ogn-169-298 Gust 的写法一致。
  *
- * status = judge-required。缺口是一处、且不近似实现："from trashes"（复数、跨玩家）的候选集合读数
- * 没有生产者。已合入的 effect.zone 只接受 target（经 Finalize 目标计划锁定）或 pick（ctx.picks 的
- * 已选定引用）；TargetSpec.filter 的目标计划按控制器/拥有者字段过滤，契约 3.6 的 PlayerSelector
- * 只有 "self"/"opponent"/"any" 这类相对选择，而"任一玩家的废牌堆"需要跨玩家集合（355.9.a 允许，
- * 但 target/ 的候选枚举按 filter 逐对象匹配，没有"所有玩家的该区域"这一锚点）；同时"up to 2"要求
- * 目标数量在 Finalize 由选择者决定（355.13），已合入的 TargetSpec up-to 支持这一点，缺的只是跨玩家
- * 集合来源。依赖：RIFT-90（目标计划的跨玩家/区域集合与候选枚举）。golden 用已锁定目标真实执行
- * "废牌堆 → 拥有者手牌"的区域移动（含敌方牌回到敌方手牌的拥有者路由与失效引用 ignored 两个边界）。
+ * status = executable。目标计划直接以 { type: "unit", zone: "trash" } 查询全体对象；
+ * 不限定 owner/controller 就能枚举双方弃牌区，不需要额外的跨玩家集合锚点。golden 通过真实
+ * Finalize/Resolve 目标计划选择 0/1/2 张，执行原始 body，并验证各自拥有者的手牌路由、
+ * 部分/全部目标失效以及空弃牌区仍可选择 0 张（355.13 / 359.3.e）。
  */
 const shadowsOfThePast = {
   canonicalCardId: "card.hash-66b8b9aff7c3cbf41b72ad3e4354a07d6905da96adb60bde378d1638b8f87b6d",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "一处缺口：「up to 2 units from trashes」（355.12/355.13 的两个可选目标、355.9.a 允许跨玩家的 Trash 作为目标，" +
-    "108.2.d 说明 Trash 是公开信息）没有候选集合来源——已合入的 effect.zone 只消费 Finalize 锁定的 target 或 ctx.picks " +
-    "的已选定引用，而 TargetSpec.filter 的候选枚举按逐对象字段匹配（controller/owner 只有 self/opponent/any 这类相对选择），" +
-    "没有「所有玩家的该区域」这一锚点把全体玩家的 Trash 合成一个候选集合。目标数量本身已可表达（selection up-to、min 0、max 2，" +
-    "355.13 允许选 0 个并照常打出）。依赖：RIFT-90（目标计划的跨玩家/区域候选枚举）。" +
-    "golden 用已锁定目标真实执行「Trash → 拥有者手牌」的 effect.zone 移动（含敌方牌回到敌方手牌的 108.1 拥有者路由与失效引用 ignored），" +
-    "但缺跨玩家候选来源时整卡不可执行。不近似实现（不改写成只取自己的 Trash）。",
+  status: "executable",
   abilities: [
     {
       kind: "play",
@@ -61,8 +49,7 @@ const shadowsOfThePast = {
             {
               id: "shadows-of-the-past.units-in-trashes",
               // "units from trashes"：公开区域里的单位牌（355.9.a/355.10.a），"up to 2"（355.13）
-              // 用 selection "up-to" / min 0 / max 2；不带 controller 限制，但跨玩家的候选集合
-              // 尚无生产者（见 judgeReason）。
+              // 用 selection "up-to" / min 0 / max 2；不限制 owner/controller，候选覆盖双方弃牌区。
               filter: { type: "unit", zone: "trash" },
               min: 0,
               max: 2,

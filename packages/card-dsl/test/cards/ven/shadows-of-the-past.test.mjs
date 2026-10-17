@@ -5,6 +5,9 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/shadows-of-the-past.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { finalizeTargetPlan, queryTargetCandidates, resolveTargetPlan } from "../../../../engine-core/dist/target/target-plan.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-66b8b9aff7c3cbf41b72ad3e4354a07d6905da96adb60bde378d1638b8f87b6d";
@@ -35,17 +38,25 @@ test("ven-103-166 Shadows of the Past: identity, ruleset, status and exact sourc
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CARD_ID), program);
 });
 
-test("ven-103-166 Shadows of the Past: judgeReason names the cross-player candidate-set gap", () => {
-  assert.match(program.judgeReason, /up to 2/);
-  assert.match(program.judgeReason, /355\.9\.a/);
-  assert.match(program.judgeReason, /355\.13/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /不近似实现/);
+test("ven-103-166 Shadows of the Past golden: the target plan enumerates units in both players' trashes", () => {
+  const kernel = world()
+    .card("friendly-fallen", { owner: "A", zone: "trash", types: ["unit"] })
+    .card("enemy-fallen", { owner: "B", zone: "trash", types: ["unit"] })
+    .card("trashed-spell", { owner: "B", zone: "trash", types: ["spell"] })
+    .card("trashed-gear", { owner: "A", zone: "trash", types: ["gear"] })
+    .card("unit-in-hand", { owner: "B", zone: "hand", types: ["unit"] })
+    .unit("unit-on-board")
+    .build();
+
+  assert.deepEqual(queryTargetCandidates(kernel, unitsSpec), [
+    kernel.ref("friendly-fallen"), kernel.ref("enemy-fallen")
+  ]);
 });
 
 test("ven-103-166 Shadows of the Past: printed 3 Energy + 1 Chaos Power cost and one zone instruction", () => {
@@ -74,7 +85,7 @@ test("ven-103-166 Shadows of the Past: printed 3 Energy + 1 Chaos Power cost and
   // 355.12 / 355.13: "up to 2" may choose any number including zero, so the
   // TargetSpec is selection "up-to" with min 0 and max 2; 355.9.a / 355.10.a
   // make a unit card in a Public Trash a target (no controller restriction is
-  // printed, but the cross-player candidate set has no producer).
+  // printed, so both players' trashes are queried).
   assert.deepEqual(unitsSpec, {
     id: "shadows-of-the-past.units-in-trashes",
     filter: { type: "unit", zone: "trash" },
@@ -132,9 +143,108 @@ test("ven-103-166 Shadows of the Past golden: a target that left its zone is ign
   assert.equal(kernel.getObject("recycled").zone, "deck");
 });
 
-test.todo(
-  "ven-103-166 Shadows of the Past: enumerate unit cards across every player's Trash at Finalize and let " +
-    "the caster choose any number up to 2 (CR 355.9.a / 355.10.a / 355.13) — needs a cross-player zone " +
-    "candidate reader in the target plan; TargetSpec filters only match per-object controller/owner " +
-    "selectors and no merged anchor spans \"all players' Trash\" (RIFT-90)"
-);
+for (const selectedIds of [[], ["enemy-fallen"], ["friendly-fallen", "enemy-fallen"]]) {
+  test(`ven-103-166 Shadows of the Past golden: Finalize chooses ${selectedIds.length} and the original body returns them`, () => {
+    const kernel = world()
+      .card("friendly-fallen", { owner: "A", zone: "trash", types: ["unit"] })
+      .card("enemy-fallen", { owner: "B", zone: "trash", types: ["unit"] })
+      .build();
+    const selected = selectedIds.map(id => kernel.ref(id));
+    kernel.setAnswers({ [`target:${unitsSpec.id}`]: selected });
+
+    const plan = finalizeTargetPlan(kernel, unitsSpec);
+    assert.deepEqual(plan.selected, selected);
+    assert.equal(plan.lockedAt, "finalize");
+    const resolution = resolveTargetPlan(kernel, plan);
+    assert.equal(resolution.status, "resolved");
+    assert.deepEqual(resolution.invalid, []);
+    kernel.setTargets(unitsSpec.id, resolution.selected);
+    const outcome = resolveChainBody(play.body, kernel);
+
+    // ExecutionOutcome summarizes non-executed instructions as partial; the
+    // instruction result below carries the precise ignored/mistargeted state.
+    assert.equal(outcome.status, selectedIds.length ? "executed" : "partial");
+    assert.deepEqual(outcome.events.map(event => event.action), selectedIds.map(() => "return-to-hand"));
+    for (const [id, owner] of [["friendly-fallen", "A"], ["enemy-fallen", "B"]]) {
+      assert.equal(kernel.getObject(id).zone, selectedIds.includes(id) ? "hand" : "trash");
+      assert.deepEqual(kernel.zone(owner, "hand").map(ref => ref.id), selectedIds.includes(id) ? [id] : []);
+    }
+    if (selectedIds.length) {
+      assert.deepEqual(outcome.linkedValues[`${returnUnits.id}.movedIds`], selectedIds);
+    } else {
+      assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+    }
+  });
+}
+
+test("ven-103-166 Shadows of the Past golden: a lost target is rechecked without replacing it with a new candidate", () => {
+  const kernel = world()
+    .card("friendly-fallen", { owner: "A", zone: "trash", types: ["unit"] })
+    .card("enemy-fallen", { owner: "B", zone: "trash", types: ["unit"] })
+    .card("left-behind", { owner: "B", zone: "trash", types: ["unit"] })
+    .build();
+  const selected = [kernel.ref("friendly-fallen"), kernel.ref("enemy-fallen")];
+  kernel.setAnswers({ [`target:${unitsSpec.id}`]: selected });
+  const plan = finalizeTargetPlan(kernel, unitsSpec);
+  assert.equal(kernel.perform({ type: "recycle", object: selected[1] }).status, "done");
+
+  const resolution = resolveTargetPlan(kernel, plan);
+  assert.equal(resolution.status, "partial");
+  assert.deepEqual(resolution.selected, [selected[0]]);
+  assert.deepEqual(resolution.invalid, [selected[1]]);
+  kernel.setTargets(unitsSpec.id, resolution.selected);
+  const outcome = resolveChainBody(play.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.events.map(event => event.action), ["return-to-hand"]);
+  assert.deepEqual(outcome.linkedValues[`${returnUnits.id}.movedIds`], ["friendly-fallen"]);
+  assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["friendly-fallen"]);
+  assert.deepEqual(kernel.zone("B", "hand"), []);
+  assert.equal(kernel.getObject("enemy-fallen").zone, "deck");
+  assert.equal(kernel.getObject("left-behind").zone, "trash");
+});
+
+test("ven-103-166 Shadows of the Past golden: all locked targets leaving makes the original body ignored", () => {
+  const kernel = world().card("fallen", { zone: "trash", types: ["unit"] }).build();
+  const stale = kernel.ref("fallen");
+  kernel.setAnswers({ [`target:${unitsSpec.id}`]: [stale] });
+  const plan = finalizeTargetPlan(kernel, unitsSpec);
+  assert.equal(kernel.perform({ type: "recycle", object: stale }).status, "done");
+  const resolution = resolveTargetPlan(kernel, plan);
+  assert.equal(resolution.status, "ignored");
+  assert.deepEqual(resolution.invalid, [stale]);
+  kernel.setTargets(unitsSpec.id, resolution.selected);
+
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.deepEqual(outcome.events, []);
+  assert.equal(kernel.getObject("fallen").zone, "deck");
+});
+
+test("ven-103-166 Shadows of the Past golden: an empty trash can finalize with zero targets", () => {
+  const kernel = world().player("A").player("B").build();
+  kernel.setAnswers({ [`target:${unitsSpec.id}`]: [] });
+  const plan = finalizeTargetPlan(kernel, unitsSpec);
+  assert.deepEqual(plan.selected, []);
+  assert.equal(resolveTargetPlan(kernel, plan).status, "resolved");
+  kernel.setTargets(unitsSpec.id, plan.selected);
+
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.deepEqual(outcome.events, []);
+});
+
+test("ven-103-166 Shadows of the Past: the executable program binds its own body and printed cost for play", () => {
+  const kernel = world().hand("shadows", {
+    cardId: CARD_ID, types: ["spell"], energy: 3, power: ["Chaos"]
+  }).build();
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const source = kernel.getObject("shadows");
+  const draft = binding.describePlay({ type: "play", player: "A", object: source.ref }, source);
+
+  assert.equal(draft.kind, "spell");
+  assert.deepEqual(draft.body, play.body);
+  assert.deepEqual(draft.cost.cost, { kind: "explicit", energy: play.cost.energy, power: play.cost.power });
+  assert.deepEqual(draft.cost.domains, ["Chaos"]);
+});

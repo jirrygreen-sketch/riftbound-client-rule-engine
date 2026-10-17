@@ -22,15 +22,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   会让移动被 linked-ignored 连坐，凭空发明条件）。
  * - [Flow]（829）同其他卡：只声明关键词身份，展开归 keywords/Flow.ts。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。三处依赖未合入，均不近似实现：
+ * status 判定（cards/README.md 第 2 节）：judge-required。剩余两处阻塞，不近似实现：
  * (1) 没有运行期 Location 选择器：355.4/355.4.a 要求结算时选定目的地，而 effect.move 的
  *     `to` 只接受静态 LocationRef / "controller-base" / 静态候选列表；本文件保留描述性
  *     目的地标记，解释器会拒绝该形状而不是移动到一个编造的地点（同型记录见
- *     rad/sirens-song、rad/demon-shade；依赖 RIFT-90/RIFT-91）。
- * (2) 两条指令的目标 Finalize 生命周期（"up to one" 的 0 选择、目标锁定与结算重验）
- *     属 RIFT-90 的目标批次；卡程序只声明结构与 158.1 的顺序。
- * (3) [Flow] 的备选费用与延迟替代路径未合入（829.1.b/829.1.c；依赖 RIFT-261 与 RIFT-260）。
- * golden 用真实原语执行已支持的伤害半段与 linkedTo 的结果引用语义；未合入部分用 test.todo 记录。
+ *     rad/sirens-song、rad/demon-shade；进行中任务 RIFT-357）。
+ * (2) [Flow] 的印刷费用尚不能从 KeywordAbility 传入 expand 的 params.cost，展开的 flow.cost
+ *     也未接入可选的 CostPlanInput.modifications。费用求值与替代绑定本身已合入，缺的是
+ *     本卡的 Flow 费用选择收据及 829.1.b.1 排除自身指令离链的接线（RIFT-261 后续）。
+ * 目标 Finalize/Resolve（含 0 选择、锁定与重验）已合入；golden 通过目标计划和原始伤害
+ * body 真实执行。两个语句相互独立；运行期目的地与 Flow 的端到端路径仍用 test.todo 记录。
  */
 
 /** 描述性目的地标记，不是可执行 LocationRef（见 judgeReason 第 1 点）。 */
@@ -44,13 +45,15 @@ const shurikenFlip = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1)「then move a friendly unit」没有印刷目的地，目的地按 " +
+    "两处阻塞，均不近似实现：(1)「then move a friendly unit」没有印刷目的地，目的地按 " +
     "355.4/355.4.a/451.1 在结算时选择，但合并 IR 没有运行期 Location 选择器；effect.move 的 to " +
     "只接受静态 LocationRef / controller-base / 静态候选列表，本卡只保留描述性目的地标记" +
     "（解释器会拒绝该形状而不是移动到编造的地点；同型记录见 rad/sirens-song、rad/demon-shade；" +
-    "依赖 RIFT-90/RIFT-91）。(2) 两条指令的目标 Finalize 生命周期（up-to 的 0 选择与结算重验）" +
-    "属 RIFT-90 目标批次（结构已表达）。(3) [Flow]（829.1.b/829.1.c）的备选费用与延迟替代" +
-    "需要 RIFT-261（费用消费方）与 RIFT-260（替代注册/排序），没有卡牌侧生产者。" +
+    "进行中：RIFT-357）。(2) [Flow]（829.1.b/829.1.c）的印刷费用无法经 KeywordAbility 传入 " +
+    "KeywordDef.expand 的 params.cost；programs/keywords.ts 只传 value/host，展开的 flow.cost " +
+    "也没有进入 CostPlanInput.modifications 的消费方。费用求值与替代绑定本身已合入，但仍缺 " +
+    "Flow 费用选择收据及 829.1.b.1 排除法术自身指令离链的接线（RIFT-261 后续）。" +
+    "目标 Finalize/Resolve 生命周期（up-to 的 0 选择、目标锁定与结算重验）已合入，有目标计划执行证据。" +
     "伤害半段（418.1.c/418.6.a，up to one 可为零：355.13）与目标限制" +
     "（355.10.b 的 at a battlefield）只用已合入的 effect.damage，golden 用真实解释器 + 参考内核执行。",
   abilities: [

@@ -20,11 +20,6 @@ const TARGET_ID = "siphoning-strike.unit";
 const [play] = program.abilities;
 const [dealFour, dealSevenInstead, delayedChannel] = play.body;
 
-const stripTargets = (instruction) => {
-  const { targets, ...rest } = instruction;
-  return rest;
-};
-
 /**
  * Mirrors chain/engine.ts's query normalization of "self"/"opponent" so the card's own
  * count filter (controller: "self") is what executes; nothing else is rewritten.
@@ -45,9 +40,8 @@ function chainKernel(kernel) {
               opponents.push(playerKey);
             }
           }
-          return target
-            .query(kernelFilter)
-            .filter((object) => opponents.every((playerKey) => object[playerKey] !== target.controller));
+          return target.objects.filter((object) => matchesObjectFilter(kernelFilter, object)
+            && opponents.every((playerKey) => object[playerKey] !== target.controller));
         };
       }
       const value = Reflect.get(target, key);
@@ -57,38 +51,20 @@ function chainKernel(kernel) {
 }
 
 const runeWorld = (count) => {
-  const kernel = world()
-    .unit("victim", { owner: "B", controller: "B", might: 5 })
-    .build();
+  const builder = world().unit("victim", { owner: "B", controller: "B", might: 5 });
   // The rune zone is on player A (self); 431.1 / 133.5.a.1 count the runes actually there.
   for (let index = 0; index < count; index += 1) {
-    kernel.addObject(
-      {
-        ref: { id: "rune-" + index, zoneEntryId: 1 },
-        cardId: "card:rune-" + index,
-        name: "rune-" + index,
-        types: ["rune"],
-        tags: [],
-        keywords: [],
-        owner: "A",
-        controller: "A",
-        zone: "rune-zone",
-        location: null,
-        might: null,
-        energy: null,
-        power: null,
-        exhausted: false,
-        damage: 0,
-        stunned: false,
-        buffs: 0,
-        attachedTo: null,
-        faceDown: false,
-        isToken: false
-      },
-      "rune-zone"
-    );
+    builder.card("rune-" + index, {
+      types: ["rune"],
+      owner: "A",
+      controller: "A",
+      zone: "rune-zone",
+      might: null,
+      energy: null,
+      power: null
+    });
   }
-  return kernel;
+  return builder.build();
 };
 
 test("ven-146-166 Siphoning Strike: program passes validateCardProgram and is judge-required", () => {
@@ -105,8 +81,8 @@ test("ven-146-166 Siphoning Strike: program passes validateCardProgram and is ju
 test("ven-146-166 Siphoning Strike: judgeReason names the delayed registration and the identity gap", () => {
   assert.match(program.judgeReason, /391\.2/);
   assert.match(program.judgeReason, /trigger\.delayed/);
-  assert.match(program.judgeReason, /RIFT-120/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /6 与 7 符文边界/);
   assert.match(program.judgeReason, /不近似实现/);
 });
 
@@ -178,7 +154,7 @@ test("ven-146-166 Siphoning Strike golden: 6 runes deal exactly 4 (the 'instead'
   const kernel = runeWorld(6);
   kernel.setTargets(TARGET_ID, [kernel.ref("victim")]);
 
-  const outcome = resolveChainBody([stripTargets(dealFour), { ...dealSevenInstead }], chainKernel(kernel));
+  const outcome = resolveChainBody([dealFour, dealSevenInstead], chainKernel(kernel));
 
   assert.equal(outcome.status, "partial");
   // The second branch's condition is false, so it is skipped (contract 3.4: a condition
@@ -195,7 +171,7 @@ test("ven-146-166 Siphoning Strike golden: 7 runes deal 7 instead (431.1 rune co
   const kernel = runeWorld(7);
   kernel.setTargets(TARGET_ID, [kernel.ref("victim")]);
 
-  const outcome = resolveChainBody([stripTargets(dealFour), { ...dealSevenInstead }], chainKernel(kernel));
+  const outcome = resolveChainBody([dealFour, dealSevenInstead], chainKernel(kernel));
 
   assert.equal(outcome.status, "partial");
   // 431.1 / 133.5.a.1: the rune-zone count is 7, so only the "instead" branch applies.
@@ -277,12 +253,7 @@ test("ven-146-166 Siphoning Strike: direct primitive evidence for both merged ha
 test.todo(
   "ven-146-166 Siphoning Strike: register the spell-created delayed ability \"When it dies this turn, " +
     "channel 1 rune exhausted\" (390/391.2/392) over the locked unit and align it with the object-killed " +
-    "event (429.1/429.2) — needs a card-facing trigger.delayed op and the RIFT-120 registration path; " +
-    "the body's effect.channel is already executable"
-);
-
-test.todo(
-  "ven-146-166 Siphoning Strike: the 'instead' value replacement and the 359.3.e.14.a link semantics " +
-    "between the two damage branches — needs the RIFT-90 condition/link pipeline; until then only one " +
-    "of the two mutually exclusive conditions can be true"
+    "event (429.1/429.2) — needs a card-facing trigger.delayed op and a TriggerSpec window for 'the locked " +
+    "object's next death this turn' (frequencyKey has only per-game/per-object/clock scopes); the program " +
+    "trigger registration (RIFT-257) and the body's effect.channel are already executable"
 );

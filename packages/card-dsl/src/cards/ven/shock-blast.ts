@@ -24,8 +24,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（缺口均不近似实现）：
  * 1. 减费没有可执行路径：(a) continuous.cost-modification 的静态声明没有卡牌侧消费方——
- *    cost/cost-plan.ts 的 CostDiscount 只接受调用方传入的 CostDiscount，没有从 CardProgram
- *    的 static 效果读取，也没有 cost.modify 原语（依赖 RIFT-89）；(b) “你控制某物是
+ *    cost.modify 原语与 cost/cost-plan.ts 的减费求值已合入，但 programs/statics.ts 的
+ *    layerFor() 对 continuous.cost-modification 没有 cost-modification 映射（fail-closed
+ *    抛 judge-required），也没有消费方把 CardProgram static 装进 CostPlanInput.discounts
+ *    （依赖 RIFT-89 的接线）；(b) “你控制某物是
  *    [Empowered]” 的谓词没有已合入实现：Contract 的 Condition 没有 empowered 谓词，
  *    layers/engine.ts 的 conditionMatches 只识别 always/never/type/has-tag/has-keyword，
  *    Empowered 状态也不是 ObjectSnapshot 特征（同 ven/055-166 applied-researchers 的登记）。
@@ -95,8 +97,9 @@ export default {
   judgeReason:
     "减费没有可执行路径，均不近似实现：(1)「This costs :rb_energy_2: less」是 356.4.b 的减费、按 356.4.a 由本牌提供、" +
     "在 Finalize 的费用计算折扣步骤套用（356.4.c.2 保证该分量不为负），但 continuous.cost-modification 的静态声明没有卡牌侧消费方：" +
-    "cost/cost-plan.ts 的 CostDiscount 只接受调用方传入的 CostDiscount，没有从 CardProgram 的 static 效果读取，也没有 cost.modify " +
-    "指令原语（RIFT-89）。(2) 门槛「if you control something that's [Empowered]」没有已合入谓词：契约的 Condition 没有 empowered 谓词，" +
+    "cost.modify 原语（effects/instructions/cost.modify.ts）与 cost/cost-plan.ts 的减费求值已合入，但 programs/statics.ts 的 " +
+    "layerFor() 对 continuous.cost-modification 没有 cost-modification 映射（fail-closed 抛 judge-required），也没有消费方把 " +
+    "CardProgram static 装进 CostPlanInput.discounts（RIFT-89 的接线缺口）。(2) 门槛「if you control something that's [Empowered]」没有已合入谓词：契约的 Condition 没有 empowered 谓词，" +
     "layers/engine.ts 的 conditionMatches 只识别 always/never/type/has-tag/has-keyword，Empowered（828.2 的可检查特征）也不是 " +
     "ObjectSnapshot 特征；程序里只保留具名描述门槛，绝不写成恒真条件或近似成“你控制某个单位”。" +
     "已支持部分：「Deal 4 to a unit at a battlefield」是已合入的 effect.damage（418.1）且目标限制按 355.9.b 声明，golden 真实执行" +
