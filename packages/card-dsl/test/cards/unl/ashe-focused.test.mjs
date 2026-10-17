@@ -8,6 +8,7 @@ import banish from "../../../../engine-core/dist/effects/instructions/effect.ban
 import reveal from "../../../../engine-core/dist/effects/instructions/effect.reveal.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -62,7 +63,12 @@ test("unl-169-219 Ashe, Focused: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /355\.7/);
   assert.match(program.judgeReason, /391\.5/);
   assert.match(program.judgeReason, /registerDelayedTrigger/);
-  assert.match(program.judgeReason, /关联窗口/);
+  // Second-sweep refresh: the delayed engine entry is merged (pipeline skips the
+  // activeZones filter for delayed registrations); the remaining gap is the card
+  // command side declaration plus the banished-incarnation window.
+  assert.match(program.judgeReason, /events\/pipeline\.ts/);
+  assert.match(program.judgeReason, /linkKey/);
+  assert.doesNotMatch(program.judgeReason, /已有引擎入口/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The judgeReason must name the concrete missing pieces (contract 3.1).
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
@@ -211,6 +217,38 @@ test("unl-169-219 Ashe, Focused golden: the returned card comes back from Banish
   assert.deepEqual(kernel.zone("B", "hand").map(ref => ref.id), ["banished-card"]);
 });
 
+test("unl-169-219 Ashe, Focused: the merged delayed-trigger entry still fires after the source left the board (391.5)", () => {
+  // The card cannot yet declare this trigger itself (see judgeReason), but the
+  // engine entry the delay needs is real: a registration marked delayed skips the
+  // activeZones filter in events/pipeline.ts, so the source leaving the Board does
+  // not cancel it. This pins that half of the dependency before the command-side
+  // declaration lands.
+  const f = fixture({ cards: [{ id: "ashe", types: ["unit"], energy: 1, power: [] }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("ashe"), to: "board", location: { type: "battlefield", id: "bf-1" } });
+  const source = f.kernel.getObject("ashe");
+  f.engine.pipeline.registerTrigger({
+    id: "delayed:1",
+    source,
+    controller: "A",
+    delayed: true,
+    // EventPatternType spells the scoring event "held" (trigger-spec.ts); the
+    // TriggerSpec timing point itself is "hold".
+    spec: { at: "hold", filter: { event: "held" } },
+    body: [{ id: "return-banished", op: "effect.draw", args: { amount: { kind: "constant", value: 1 } } }]
+  });
+  // 359.3.e.13 / “even if I'm no longer on the board”: the source leaves first.
+  f.engine.commit({ type: "move-zone", object: source.ref, to: "hand" });
+  assert.equal(f.kernel.getObject("ashe").zone, "hand");
+
+  f.engine.emit({ timingPoint: "hold", player: "A" });
+
+  assert.equal(f.engine.items.length, 1);
+  // The pending trigger item carries the registration of the delayed ability;
+  // its body is what resolves after the source is long gone.
+  assert.deepEqual(f.engine.items[0].body.map(step => step.id), ["return-banished"]);
+  assert.equal(f.engine.items[0].trigger.registration.delayed, true);
+});
+
 test.todo("ashe-focused: lock a chosen opponent as a player target and bind reveal/banish/hold to that player (CR 355.7/355.9.a)");
 
-test.todo("ashe-focused: declare a delayed linked hold return with the exact banished incarnation, surviving source exit (CR 391.5/391.5.a)");
+test.todo("ashe-focused: declare the delayed linked hold return from card data with the exact banished incarnation (CR 391.5/391.5.a) — the engine entry that survives source exit is covered above");

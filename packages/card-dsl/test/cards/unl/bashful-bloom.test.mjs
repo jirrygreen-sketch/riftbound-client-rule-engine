@@ -35,7 +35,11 @@ test("unl-189-219 Bashful Bloom: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /programs\/activate/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  // Second-sweep refresh: the location selector itself is merged; the token
+  // primitive's parameter boundary is the remaining blocker and is asserted
+  // by a real failure probe below.
+  assert.match(program.judgeReason, /Invalid effect\.token argument: location/);
+  assert.match(program.judgeReason, /ready 入场状态字段/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -125,6 +129,37 @@ test("unl-189-219 Bashful Bloom: mode \"play\" really creates on the Chain and h
     ["play", "card-played"]
   ]);
   assert.equal(kernel.objects.find(object => object.isToken).zone, "board");
+});
+
+test("unl-189-219 Bashful Bloom: the frozen token table still has no Sprite definition (CR 187.2)", () => {
+  // Evidence for gap (1): the merged primitive reports the missing definition
+  // instead of minting something else.
+  const kernel = world().player("A", { energy: 5 }).build();
+  const run = runInstruction(token, {
+    token: { kind: "constant", value: "sprite" },
+    amount: { kind: "constant", value: 1 },
+    mode: { kind: "constant", value: "play" },
+    location: { kind: "constant", value: { type: "base", player: "A" } }
+  }, { world: kernel });
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  assert.deepEqual(kernel.objects.filter(object => object.isToken), []);
+});
+
+test("unl-189-219 Bashful Bloom: the declared dynamic token location is still outside the primitive's Expr vocabulary (RIFT-357 boundary)", () => {
+  // Evidence for gap (2)/(4): the card authors a relative location selector
+  // (type base, player controller) that the merged LocationExpr resolver can
+  // evaluate, but effect.token's frozen schema has no location expression kind
+  // and the chain adapter passes it through unchanged.
+  const kernel = world().player("A", { energy: 5 }).build();
+  const run = runInstruction(token, {
+    token: { kind: "constant", value: "mech" },
+    amount: { kind: "constant", value: 1 },
+    mode: { kind: "constant", value: "play" },
+    location: playSprite.args.location
+  }, { world: kernel });
+  assert.equal(run.result.status, "negated");
+  assert.deepEqual(kernel.objects.filter(object => object.isToken), []);
 });
 
 test.todo("bashful-bloom: define the Sprite token with 3 Might, Fae, Temporary and null costs (CR 187.2)");
