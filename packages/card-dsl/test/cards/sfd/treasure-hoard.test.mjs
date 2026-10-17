@@ -20,8 +20,8 @@ test("treasure-hoard: optional conquer structure with pay, token and play", () =
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Gold gear token/);
   assert.match(program.judgeReason, /187\.5/);
-  assert.match(program.judgeReason, /RIFT-357/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /details\.battlefieldId/);
+  assert.match(program.judgeReason, /programs\/filters\.ts/);
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "conquer");
@@ -47,6 +47,7 @@ test("treasure-hoard: optional conquer structure with pay, token and play", () =
   assert.deepEqual(body[1].args.mode, { kind: "constant", value: "play" });
   assert.deepEqual(body[1].args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(body[1].args.linkKey, { kind: "constant", value: "goldToken" });
+  assert.deepEqual(body[1].args.location, { kind: "location", value: "ability-controller-base" });
   // effect.token mode "play" performs the play itself (440.2.c); no separate
   // effect.play is authored for the printed "play a … token".
   assert.equal(body.some((instruction) => instruction.op === "effect.play"), false);
@@ -96,5 +97,6 @@ test.todo("treasure-hoard: Gold gear token definition with its own activated abi
 test.todo("treasure-hoard: exhausted entry override on the created token (143.4/185.2.d)");
 test.todo(
   "treasure-hoard: resolve the conquer event's battlefield identity into the printed 'here' anchor " +
-    "(RIFT-357/RIFT-359); the Energy payment is already executable through cost.pay."
+    "(details.battlefieldId -> location filter; programs/filters.ts currently rejects the unresolved field); " +
+    "the Energy payment is already executable through cost.pay."
 );

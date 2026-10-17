@@ -11,9 +11,8 @@ const CANONICAL = "card.hash-6e0d0c7e82324687174e1c1585a9fdba369a29e517e743eb601
 const [ability] = program.abilities;
 const [instruction] = ability.body;
 
-// The instruction's consumed arguments, with the playing player's concrete base
-// substituted for the printed "controller" placeholder (the reference kernel
-// resolves the playing player itself).
+// The reference primitive still needs a concrete runtime LocationRef, so the
+// golden substitutes the playing player's Base for the contract LocationExpr.
 const { entersExhausted, ...consumedArgs } = instruction.args;
 const saturatingArgs = {
   ...consumedArgs,
@@ -31,6 +30,7 @@ test("sfd-174-221 Trove Golem: program validates, is registered and keeps its id
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /token-definition-or-abilities-judge-required/);
+  assert.match(program.judgeReason, /LocationExpr/);
   assert.equal(
     program.sourceText,
     "When you play me, play four Gold gear tokens exhausted."
@@ -51,8 +51,8 @@ test("sfd-174-221 Trove Golem: card-played self trigger plays four Gold tokens",
   assert.deepEqual(instruction.args.amount, { kind: "constant", value: 4 });
   assert.deepEqual(instruction.args.mode, { kind: "constant", value: "play" });
   assert.deepEqual(instruction.args.location, {
-    kind: "constant",
-    value: { type: "base", player: "controller" }
+    kind: "location",
+    value: "ability-controller-base"
   });
   assert.deepEqual(instruction.args.entersExhausted, { kind: "constant", value: true });
   assert.equal(instruction.linkedTo, undefined);
@@ -92,8 +92,8 @@ test("sfd-174-221 Trove Golem golden: the card's own chain-create + play shape r
 test.todo(
   "sfd-174-221 Trove Golem: create and play four Gold gear tokens exhausted once the Gold definition " +
     "(CR 187.5) and the entry-state stipulation (184.1 / 185.2.d) are merged; the chain-create + play " +
-    "handoff itself is already merged and executed above; the controller-relative Base marker still needs " +
-    "the location resolver (RIFT-357)."
+    "handoff itself is already merged and executed above; effect.token still needs to consume the " +
+    "contract LocationExpr ability-controller-base as a runtime LocationRef."
 );
 
 test.todo(

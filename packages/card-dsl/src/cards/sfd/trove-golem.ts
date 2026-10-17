@@ -51,8 +51,10 @@ const abilities: Ability[] = [
           // 440.2.c / 185.2.a: played tokens are created on the Chain first.
           mode: { kind: "constant", value: "play" },
           // Gear tokens are created/played at their controller's Base (440.2.b.1
-          // for permanents; the effect names no other location).
-          location: { kind: "constant", value: { type: "base", player: "controller" } },
+          // for permanents; the effect names no other location). The relative
+          // selector is contract-valid, while effect.token still lacks its
+          // runtime LocationExpr consumer.
+          location: { kind: "location", value: "ability-controller-base" },
           // 184.1/185.2.d entry stipulation — never a later exhaust (143.4).
           entersExhausted: { kind: "constant", value: true },
           linkKey: { kind: "constant", value: "goldTokens" }
@@ -73,7 +75,8 @@ const program = {
     "(2)「exhausted」是入场状态规定（184.1/185.2.d），create-token/play 不支持改写；事后 effect.exhaust 不等价（143.4，effect.exhaust 文件头亦如此说明）。" +
     "已可真实执行：卡自身的 token/amount/mode/location 形状在已合入定义上会真实执行 create-token → play 四次" +
     "（golden 以此证明形状与 440.2.c 路径可用，且入场状态为默认 ready）；印刷的「exhausted」入场以 test.todo 记录，不按 ready 静默通过。" +
-    "此外，程序中的 controller-relative Base marker 仍需要位置解析（RIFT-357）。不近似实现。",
+    "此外，effect.token 的参数解析器尚未消费 LocationExpr/relative selector " +
+    "（`ability-controller-base`）并解析成运行时 LocationRef。不近似实现。",
   abilities,
   sourceText: "When you play me, play four Gold gear tokens exhausted."
 } satisfies CardProgram;
