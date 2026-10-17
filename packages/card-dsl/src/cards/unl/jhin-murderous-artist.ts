@@ -22,7 +22,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Power；430.2.a 规定 Add 能力结算时不传递 Priority/Focus，但该窗口属链/费用管线。
  * - 括号里的提醒句不是独立能力（430 附近的提醒文本口径）。
  *
- * status = judge-required（按 2026-10-16 合入批次复核；缺口不近似实现）：
+ * status = judge-required（按 2026-10-17 合入批次复核；缺口不近似实现）：
  * - [A]（任意域 Power，135.2.e.5 / 163.2.b）不可表达：契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order
  *   六域封闭集合，effect.resources 的文件头明确记录 Universal Power 不可表达、绝不用某个域近似；
  *   本卡把 [A] 记为描述性的 power: [rainbow]（与已合入 ogn/daughter-of-the-void 同一记法），原语对其返回
@@ -69,7 +69,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处缺口，均不近似实现（已按 2026-10-16 合入批次复核）：" +
+    "三处缺口，均不近似实现（已按 2026-10-17 合入批次复核）：" +
     "(1) [Add] :rb_rune_rainbow: 的 [A] 任意域 Power 不可表达：契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order " +
     "六域封闭集合，effect.resources 的文件头明确记录 163.2.b 的 Universal Power 不可表达、绝不用某个域近似；" +
     "本卡以描述性 power: [rainbow] 保留记号，原语对其返回 negated(impossible)，golden 锁定该失败证据而不是选一个域冒充。" +
