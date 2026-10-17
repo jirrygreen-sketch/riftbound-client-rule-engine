@@ -9,6 +9,10 @@ const { runInstruction, world } = await import(new URL("effects/testing/index.js
 const { default: channel } = await import(new URL("effects/instructions/effect.channel.js", engineCore));
 const { default: draw } = await import(new URL("effects/instructions/effect.draw.js", engineCore));
 
+const { buildCostPlan } = await import(new URL("cost/cost-plan.js", engineCore));
+const { payCostPlan } = await import(new URL("cost/payment.js", engineCore));
+const { abilitySpeed } = await import(new URL("programs/keywords.js", engineCore));
+
 const CANONICAL = "card.hash-0b434d5de4e3431420a6dddfc3ed5c57570643467c671f4efae850ed1f9905ea";
 const [keyword, play] = program.abilities;
 const [drawInstruction, channelInstruction] = play.body;
@@ -30,9 +34,8 @@ test("rad-029-167 Life from Stone: judge-required naming the missing additional-
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /356\.2/);
   assert.match(program.judgeReason, /mandatoryAdditional/);
-  assert.match(program.judgeReason, /431\.2/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /choiceObjects/);
+  assert.match(program.judgeReason, /RIFT-358/);
 });
 
 test("rad-029-167 Life from Stone: [Reaction], a mandatory exhaust cost, then Draw 1 and channel 1 exhausted", () => {
@@ -49,10 +52,7 @@ test("rad-029-167 Life from Stone: [Reaction], a mandatory exhaust cost, then Dr
     min: 1,
     max: 1,
     selection: "one",
-    zone: "board",
-    type: "unit",
-    controller: "self",
-    states: "ready"
+    filter: { zone: "board", type: "unit", controller: "self", states: "ready" }
   });
 
   assert.deepEqual(play.body.map((instruction) => instruction.id), [
@@ -119,14 +119,31 @@ test("rad-029-167 Life from Stone golden: the two body instructions each run on 
   assert.deepEqual(channeled.events.map((event) => event.action), ["channel-rune"]);
 });
 
-test.todo(
-  "rad-029-167 Life from Stone: CR 356.2 charges 'As an additional cost to play this, exhaust a " +
-    "friendly unit' during Finalize together with the printed 1 Energy; no merged adapter maps a " +
-    "card program's additional-cost clause into CostPlanInput.mandatoryAdditional (the chain only " +
-    "supplies { kind: 'printed' }), and no cost.additional / cost.pay primitive exists (cost kinds " +
-    "and cost.pay / cost.modify: RIFT-261; card-program binding: RIFT-257)"
-);
-test.todo(
-  "rad-029-167 Life from Stone: the [Reaction] Closed-State play window (CR 813.1.c) and the " +
-    "chain admission for a Reaction spell need chain wiring (RIFT-84/RIFT-85 scope)"
-);
+test.todo('Life from Stone: Finalize preserves the mandatory additional exhaust component under ignore-base/ignore-all (CR 356.2/356.5), with filtered non-target cost picks (RIFT-358).');
+
+test("Life from Stone: the merged cost planner really pays a bound mandatory exhaust cost", () => {
+  const kernel = world().player("A", { energy: 1 })
+    .hand("spell", { types: ["spell"], energy: 1, power: null })
+    .unit("ally", { exhausted: false }).deck("card").rune("rune").build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("spell") });
+  // Runtime references belong to the cost owner, not to the static CardProgram.
+  // This verifies the planner/payment half; the card's filtered binding stays TODO.
+  const payment = play.cost.payments[0];
+  scoped.setPicks(payment.choice.id, [scoped.ref("ally")]);
+  const plan = buildCostPlan(scoped, {
+    id: "life:cost", cost: { kind: "printed" },
+    mandatoryAdditional: [{ id: "exhaust-ally", cost: { payments: [{
+      ...payment, choice: { ...payment.choice, options: [scoped.ref("ally")] }
+    }] } }]
+  });
+  assert.deepEqual(plan.components.map(component => component.stage), ["base", "mandatory-additional"]);
+  assert.equal(plan.total.energy, 1);
+  assert.equal(abilitySpeed(program.abilities, scoped.source), "reaction");
+  const receipt = payCostPlan(scoped, plan);
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay", "exhaust"]);
+  assert.equal(scoped.player("A").energy, 0);
+  assert.equal(scoped.getObject("ally").exhausted, true);
+  assert.equal(scoped.player("A").handSize, 1);
+  assert.equal(scoped.player("A").runeDeckSize, 1);
+});

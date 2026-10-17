@@ -1,51 +1,22 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Lost to the Sands (rad-013-167) — Spell, 3 Energy + 1 Fury Power, Fury.
- *
- * Printed text (packages/card-data/data/deck-catalog.json):
- *   [Action] (Play on your turn or in showdowns.)
- *   Choose one —
- *   Deal 4 to a unit at a battlefield.Kill a gear.
- *
- * ⚠ 数据问题（不在本任务修改范围）：目录 sourceText 把两个 bullet 合并成
- * "battlefield.Kill"（缺分隔符），但官方卡面是两条独立模式；本程序按官方卡面把
- * 两条模式分别建模，sourceText 仍逐字使用目录原文（见任务回复的数据问题清单）。
- *
- * Rules evidence (Core Rules v1.5):
- * - 806 [Action] / 159.2.a default spell timing: declared as the merged
- *   { kind: "keyword", keyword: "action" } (keywords/Action.ts).
- * - 355.3: a spell with a bulleted list of modes chooses at Finalize; the mode
- *   header "Choose one —" is the contract 3.9 structure `choice.mode`
- *   (count 1, different true), not a target.
- * - "Deal 4 to a unit at a battlefield": effect.damage with a TargetSpec whose
- *   filter keeps the unit at a battlefield (355.9.b example: "a unit at a
- *   battlefield" is a targeting restriction). The battlefield itself is not a
- *   target (355.10.b).
- * - "Kill a gear": effect.kill with a TargetSpec over a gear on the Board
- *   (355.9.a.1 makes "gear" mean an object on the Board unless stated
- *   otherwise; 429.6 formats Kill).
- *
- * Status: judge-required. The primitives are merged (effect.damage,
- * effect.kill, choice.mode) and the golden test executes both modes against the
- * reference kernel, but the production chain still refuses mode-bearing cards:
- * ChainEngine.finalize calls assertFinalizationSurface, which throws
- * ChainContractBlockedError for any `choice.mode` instruction (chain/engine.ts,
- * contract 3.9 "users of choice.mode need the choice-plan adapter"). Placing the
- * mode choice at Finalize (355.3) is the missing engine piece, so the card is
- * not executable end to end.
+ * Lost to the Sands — CR v1.5 806, 355.3, 355.9.b, 429.6.
+ * The catalog joins the two mode bullets as "battlefield.Kill"; sourceText is
+ * retained verbatim. The interpreter executes both original mode bodies with
+ * the production layer filter. Finalize still needs a mode choice plan and
+ * targets for the selected mode: programs/play.ts validateSurface and
+ * chain/engine.ts assertFinalizationSurface reject choice.mode. Printed costs
+ * and Action timing are supported and are not missing dependencies.
  */
 export default {
   canonicalCardId: "card.hash-ebc16c621c62d012f80adc1a2faa4b87722a2ea924309743bafb7b413e043f1c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处未合入依赖：(1) choice.mode 已在解释器实现并有 golden 执行证据，但生产链仍显式阻断：" +
-    "ChainEngine.finalize 的 assertFinalizationSurface 对任何 choice.mode 抛 ChainContractBlockedError" +
-    "（链与事件核心的 Finalize/Resolve 选择计划适配器尚未合入），CR 355.3 要求模式在 Finalize 决定，" +
-    "当前没有该时机的选择计划落地路径。(2) 完整打出（3 Energy + 1 Fury Power 费用与 [Action] 时机）还依赖" +
-    "Finalize 的费用计划适配器（费用种类 / cost.pay：RIFT-261，卡程序绑定：RIFT-257）。" +
-    "两条模式的原语本身已合入并用真实内核执行（见 golden 测试）。不近似实现。",
+    "缺 CR 355.3 的模式 Finalize/Resolve 选择计划：programs/play.ts validateSurface 与 chain/engine.ts " +
+    "assertFinalizationSurface 仍拒绝 choice.mode；必须先在 Finalize 选择模式，再只锁定该模式的目标并在 Resolve 重验，" +
+    "不能把模式选择推迟到解释器结算。两条模式中的嵌套目标还需要目标生命周期适配；[Action]、印刷费用计划及 effect.damage/effect.kill 本体不属于缺口。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

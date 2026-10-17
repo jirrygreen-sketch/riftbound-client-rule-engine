@@ -1,54 +1,23 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Life from Stone (rad-029-167) — Spell, 1 Energy, no printed Power, Calm.
- *
- * Printed text:
- *   [Reaction] (Play any time, even before spells and abilities resolve.)
- *   As an additional cost to play this, exhaust a friendly unit.
- *   Draw 1 and channel 1 rune exhausted.
- *
- * Rules evidence (Core Rules v1.5):
- * - 813 [Reaction] is a Permissive keyword (merged keywords/Reaction.ts); the
- *   card only declares it.
- * - "As an additional cost to play this, exhaust a friendly unit." — 356.2
- *   (mandatory additional cost, no "may") charged during the cost plan;
- *   355.10.c.1: a cost clause is not a target. Declared on the play ability's
- *   CostSpec as an "exhaust" payment with a non-targeting PickSpec over the
- *   controller's ready units — the merged cost planner's accepted shape for
- *   nonstandard object costs. Already-exhausted units are excluded because
- *   415.1.b forbids exhausting them again, so they could never pay 356.2's
- *   "must be able to be done" requirement.
- * - "Draw 1 and channel 1 rune exhausted." — one sentence with two joined
- *   actions: effect.draw (414.1) and effect.channel with the printed exhausted
- *   stipulation (431.1/431.2, "Channel 1 rune exhausted" is 431.2's own example).
- *   The channel is linked to the draw because "and" keeps them one clause.
- *   431.3 covers a short Rune Deck (channel as many as possible).
- *
- * Status: judge-required. Draw + channel are merged and executed for real in the
- * golden test, but the mandatory additional cost has no card-facing charging
- * path: chain Finalize builds cost plans from CostPlanInput and only ever
- * supplies `{ kind: 'printed' }` for a card's printed cost (chain/engine.ts),
- * so a card program's additional-cost clause is never turned into
- * mandatoryAdditional. No cost.additional / cost.pay primitive is merged
- * either — cost kinds and cost.pay / cost.modify are RIFT-261, and the
- * CardProgram cost binding is RIFT-257. Moving the cost into the body would
- * resolve it at the wrong time (356.3/356.5), so that near-implementation is
- * refused.
+ * Life from Stone — CR v1.5 356.2.a.1, 355.10.c.1, 414.1, 431.2/431.3.
+ * Reaction and the draw/channel body are supported. The remaining boundary is
+ * translating this mandatory additional, non-target exhaust cost into Finalize:
+ * programs/play.ts translates the whole CostSpec as an explicit base cost,
+ * while cost/plan-values.ts requires runtime ObjectRefs in choice.options and
+ * does not consume a static choice.filter. Keep the card judge-required until
+ * the additional-cost component and filtered pick are bound (RIFT-358).
  */
 const lifeFromStone = {
   canonicalCardId: "card.hash-0b434d5de4e3431420a6dddfc3ed5c57570643467c671f4efae850ed1f9905ea",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺「As an additional cost」的落地路径：CR 356.2 要求强制附加费用在费用计划阶段收取，但卡牌侧" +
-    "只有 { kind: 'printed' } 会进入 buildCostPlan（chain/engine.ts finalize），没有已合入的适配器" +
-    "把卡程序的附加费用子句转成 CostPlanInput.mandatoryAdditional，也没有 cost.additional / " +
-    "cost.pay 原语（费用种类与 cost.pay / cost.modify 属 RIFT-261，卡程序绑定属 RIFT-257，" +
-    "打出路径由协调任务的 describePlay 适配器持有）。写成 body 指令会在错误时机结算（356.3/356.5）" +
-    "并允许不付费用就结算，故不近似实现。" +
-    "Draw 1（effect.draw）与 channel 1 rune exhausted（effect.channel，CR 431.2）已合入并有" +
-    "golden 执行证据；依赖：RIFT-261 + RIFT-257。",
+    "缺 CR 356.2.a.1 的强制附加费用绑定：programs/play.ts translateCost 把带 payments 的 cost.printed 转为 explicit " +
+    "基础费用，未把横置费用分离为 mandatoryAdditional，无法保持 356.5 的基础费用/全部费用豁免区别。" +
+    "另缺费用的非目标动态选择（355.10.c.1）：cost/plan-values.ts choiceObjects 只读取精确 ObjectRef 的 options，不消费 " +
+    "choice.filter 中的友方就绪单位条件（RIFT-358）。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
@@ -68,10 +37,7 @@ const lifeFromStone = {
               min: 1,
               max: 1,
               selection: "one",
-              zone: "board",
-              type: "unit",
-              controller: "self",
-              states: "ready"
+              filter: { zone: "board", type: "unit", controller: "self", states: "ready" }
             }
           }
         ]

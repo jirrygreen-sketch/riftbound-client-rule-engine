@@ -1,11 +1,7 @@
 // Golden test for Mordekaiser, Twice Slain (rad-020-167).
 //
-// The card is judge-required (see the program's judgeReason). The merged
-// dependencies — the Accelerate / Assault KeywordDefs, continuous.might, and
-// the RIFT-260 replacement layer with its optional replacement.event window —
-// are executed as evidence below. The remaining gaps are the within-cost
-// "kill a friendly unit" selection, Recall, and the card-level replacement
-// registration plus its once-per-turn window.
+// Supported bodies and keyword costs are tested independently. Recall,
+// card-level optional/frequency metadata and Accelerate payment gating stay judged.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -17,7 +13,7 @@ import assault from "../../../../engine-core/dist/effects/keywords/Assault.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { buildAdditionalCostPlan, payAdditionalCostPlan } from "../../../../engine-core/dist/cost/kinds/additional.js";
 
 const CANONICAL =
   "card.hash-f7168f36176ada340afa90fee63698e923fee7c44c455b65ba0fa4cf1b747c7e";
@@ -44,15 +40,12 @@ test("rad-020-167 Mordekaiser, Twice Slain: identity, status, judgeReason and ve
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("rad-020-167 Mordekaiser, Twice Slain: judgeReason names the remaining gaps and drops the merged ones", () => {
+test("rad-020-167 Mordekaiser, Twice Slain: judgeReason names selection, Recall, metadata and Accelerate gating", () => {
   assert.match(program.judgeReason, /355\.10\.c\.1/);
-  assert.match(program.judgeReason, /planInstruction/);
-  assert.match(program.judgeReason, /recall/i);
-  assert.match(program.judgeReason, /RIFT-257/);
-  // The merged dependencies must not be presented as gaps any more.
-  assert.match(program.judgeReason, /KeywordDef 与 continuous\.might 已合入/);
-  assert.equal(/RIFT-120/.test(program.judgeReason), false);
-  assert.equal(/RIFT-91/.test(program.judgeReason), false);
+  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /Recall/);
+  assert.match(program.judgeReason, /optional\/oncePerTurn/);
+  assert.match(program.judgeReason, /accelerate\.cost/);
 });
 
 test("rad-020-167 Mordekaiser, Twice Slain: Accelerate + Assault 3 declared in printed order", () => {
@@ -118,8 +111,7 @@ test("rad-020-167 Mordekaiser, Twice Slain: 'kill a friendly unit' is a non-targ
   assert.deepEqual(pick.filter, {
     type: "unit",
     zone: "board",
-    controller: "controller",
-    other: true
+    controller: "self"
   });
 });
 
@@ -153,10 +145,8 @@ test("rad-020-167 Mordekaiser, Twice Slain: kill + heal + exhaust really resolve
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("mordekaiser") });
   scoped.setPicks("mordekaiser.friendly-unit", [scoped.ref("ally")]);
 
-  // Drop the declared TargetSpec and drive the three merged primitives; the
-  // recall instruction is excluded because its op is declared but blocked.
-  const body = replacement.with.slice(0, 3).map(({ targets, picks, ...rest }) => rest);
-  const outcome = runAbilityBody(body, scoped);
+  // Execute the original supported prefix, preserving every pick and link.
+  const outcome = runAbilityBody(replacement.with.slice(0, 3), scoped);
 
   assert.equal(outcome.status, "executed");
   assert.deepEqual(
@@ -176,40 +166,34 @@ test("rad-020-167 Mordekaiser, Twice Slain: kill + heal + exhaust really resolve
 });
 
 test("rad-020-167 Mordekaiser, Twice Slain: an already-exhausted source stays exhausted with no extra action (415.1.c)", () => {
-  const kernel = world().unit("mordekaiser", { might: 5, exhausted: true }).build();
+  const kernel = world().unit("mordekaiser", { might: 5, damage: 3, exhausted: true })
+    .unit("ally", { might: 2 }).build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("mordekaiser") });
-  // Only the exhaust step runs here, so the printed linkedTo is dropped: the
-  // interpreter rejects a link to an instruction that is not in this body.
-  const outcome = runAbilityBody([{ ...exhaustInstruction, linkedTo: undefined }], scoped);
-  assert.equal(outcome.results[0].result.status, "executed");
-  assert.equal(outcome.results[0].result.linkedValues["exhausted"].alreadyExhausted, 1);
+  scoped.setPicks("mordekaiser.friendly-unit", [scoped.ref("ally")]);
+  const outcome = runAbilityBody(replacement.with.slice(0, 3), scoped);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[2].result.status, "executed");
+  assert.equal(outcome.results[2].result.linkedValues["exhausted"].alreadyExhausted, 1);
+  assert.deepEqual(outcome.events.map(event => event.action), ["kill", "heal"]);
   assert.equal(scoped.getObject("mordekaiser").exhausted, true);
 });
 
-test("rad-020-167 Mordekaiser, Twice Slain: the recall step is still blocked by the frozen action set (457-460)", () => {
-  const kernel = world().unit("mordekaiser", { might: 5 }).build();
-  const sourceRef = kernel.ref("mordekaiser");
-  const run = runInstruction(
-    move,
-    {
-      objects: { kind: "constant", value: "source" },
-      to: { kind: "constant", value: "controller-base" },
-      mode: { kind: "constant", value: "recall" }
-    },
-    { world: kernel.clone({ sourceSnapshot: kernel.getObject("mordekaiser") }) }
-  );
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  // The receipt names the missing distinct Recall action and performs nothing.
-  assert.match(run.linked.moved.blockedReason, /Recall requires an action distinct from Move/);
-  assert.equal(run.linked.moved.count, 0);
-  assert.deepEqual(run.linked.moved.objects, []);
-  // The program names the same step for the same symbolic source.
-  assert.deepEqual(recallInstruction.args.objects, { kind: "constant", value: "source" });
-  assert.equal(sourceRef.zoneEntryId, 1);
+test("rad-020-167 Mordekaiser, Twice Slain: the supported prefix heals and exhausts the source without moving it", () => {
+  const kernel = world().unit("mordekaiser", { might: 5, damage: 3 })
+    .unit("ally", { might: 2 }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("mordekaiser") });
+  const before = scoped.getObject("mordekaiser");
+  scoped.setPicks("mordekaiser.friendly-unit", [scoped.ref("ally")]);
+  const outcome = runAbilityBody(replacement.with.slice(0, 3), scoped);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.events.map(event => event.action), ["kill", "heal", "exhaust"]);
+  assert.equal(scoped.getObject("mordekaiser").damage, 0);
+  assert.equal(scoped.getObject("mordekaiser").exhausted, true);
+  assert.deepEqual(scoped.getObject("mordekaiser").location, before.location);
+  assert.deepEqual(scoped.getObject("mordekaiser").ref, before.ref);
 });
 
-test("rad-020-167 Mordekaiser, Twice Slain: the recall step is declared with the frozen move spelling the planner refuses", () => {
+test("rad-020-167 Mordekaiser, Twice Slain: the Recall intent remains declared for the distinct action adapter", () => {
   // 457-460: Recall is not a Move. The program records the intent with the
   // move spelling plus mode "recall"; the merged replacement planner documents
   // that this exact mode is blocked (README "Supported planned opcodes" lists
@@ -235,31 +219,39 @@ test("rad-020-167 Mordekaiser, Twice Slain: the within-cost kill stays a non-tar
   assert.deepEqual(killInstruction.picks[0].filter, {
     type: "unit",
     zone: "board",
-    controller: "controller",
-    other: true
+    controller: "self"
   });
 
   // The pick still resolves through the merged interpreter for the static body.
   const kernel = world().unit("mordekaiser", { might: 5 }).unit("ally", { might: 2 }).build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("mordekaiser") });
   scoped.setPicks("mordekaiser.friendly-unit", [scoped.ref("ally")]);
-  const run = runAbilityBody([{ ...killInstruction, linkedTo: undefined }], scoped);
+  const run = runAbilityBody([killInstruction], scoped);
   assert.equal(run.results[0].result.status, "executed");
   assert.equal(scoped.getObject("ally").zone, "trash");
 });
 
-test.todo(
-  "Mordekaiser, Twice Slain: 'kill a friendly unit' as a within-instruction cost selection (355.10.c.1) — blocked because " +
-    "the merged replacement planner accepts only an object-selector spelling for effect.kill and CostSpec choices require " +
-    "exact ObjectRefs (cost/plan-values.ts choiceObjects)"
-);
+test.todo('Mordekaiser, Twice Slain: select and pay a friendly-unit sacrifice inside the replacement, with payment failure gating (CR 355.10.c.1, RIFT-358).');
+test.todo('Mordekaiser, Twice Slain: execute Recall as a distinct relocation preserving statuses and bypassing movement restrictions (CR 457-460).');
+test.todo('Mordekaiser, Twice Slain: bind the replacement optional/oncePerTurn fields and connect Accelerate selected costs to entry orientation (CR 805.2.b).');
 
-test.todo(
-  "Mordekaiser, Twice Slain: 'recall me instead' as a real Recall (457-460) — blocked because effect.move and the " +
-    "replacement planner both refuse mode \"recall\" (the frozen move-location action cannot distinguish Recall from Move)"
-);
-
-test.todo(
-  "Mordekaiser, Twice Slain: register the card-level replacement and model its 'Once each turn' window — " +
-    "bindReplacement needs a caller-supplied pipeline/host and no merged path reads a CardProgram replacement ability (RIFT-257)"
-);
+test("Mordekaiser, Twice Slain: Accelerate costs really lock and pay the additional Fury Power", () => {
+  const kernel = world().player("A", { energy: 8, power: ["Fury", "Fury"] })
+    .hand("mordekaiser", { types: ["unit"], energy: 7, power: ["Fury"], might: 5 }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("mordekaiser") });
+  const [costAbility] = accelerate.expand({ host: HOST });
+  const plan = buildAdditionalCostPlan(scoped, { id: "morde:accelerate", cost: { kind: "printed" }, domains: scoped.source.power }, [{
+    id: "accelerate", kind: "accelerate", selected: true,
+    cost: { payments: costAbility.effect.cost.payments }
+  }]);
+  assert.equal(plan.total.energy, 8);
+  assert.deepEqual(plan.total.power, [
+    { amount: 1, allowedDomains: ["Fury"] }, { amount: 1, allowedDomains: ["Fury"] }
+  ]);
+  const receipt = payAdditionalCostPlan(scoped, plan);
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.additional, [{ id: "accelerate", kind: "accelerate", paid: true }]);
+  assert.deepEqual(receipt.actions[0].action.plan.power, ["Fury", "Fury"]);
+  assert.equal(scoped.player("A").energy, 0);
+  assert.equal(scoped.getObject("mordekaiser").zone, "hand");
+});
