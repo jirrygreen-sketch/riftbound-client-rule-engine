@@ -1,3 +1,5 @@
+// Full-card scenario: ../templates/keyword-play-effect-kill-682.test.mjs (TODO).
+// The interpreter cases here prove only kill/compare, not Finalize or Flow.
 import flowDefinition from "../../../../engine-core/dist/effects/keywords/Flow.js";
 import { buildCostPlan, payCostPlan, DUEL_DOMAINS } from "../../../../engine-core/dist/cost/index.js";
 import assert from "node:assert/strict";
