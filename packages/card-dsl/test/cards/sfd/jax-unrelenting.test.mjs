@@ -6,7 +6,8 @@ import program from "../../../dist/cards/sfd/jax-unrelenting.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import weaponmaster from "../../../../engine-core/dist/effects/keywords/Weaponmaster.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-e3c3834ab49461988dec4155b965077754fcd478f5efc15474112568b47083ca";
 const SOURCE_TEXT =
@@ -37,6 +38,9 @@ test("sfd-119-221 Jax, Unrelenting: judgeReason names the Weaponmaster and attac
   assert.match(program.judgeReason, /object-attached/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.match(program.judgeReason, /topMostCardId/);
+  assert.match(program.judgeReason, /Finalize/);
+  assert.match(program.judgeReason, /204\.1\.c/);
+  assert.match(program.judgeReason, /TriggeredAbility/);
 });
 
 test("sfd-119-221 Jax, Unrelenting: [Weaponmaster] is declared, not expanded (821 / contract 3.7)", () => {
@@ -73,7 +77,7 @@ test("sfd-119-221 Jax, Unrelenting: 'when you attach an Equipment to me' subscri
   assert.equal(attachTrigger.optional, false);
 });
 
-test("sfd-119-221 Jax, Unrelenting: the may-shape wraps pay 1 energy then draw 1 (contract 3.9)", () => {
+test("sfd-119-221 Jax, Unrelenting: the may-shape records the deferred payment and draw (contract 3.9)", () => {
   assert.deepEqual(attachTrigger.body.map((instruction) => instruction.id), ["jax-unrelenting.may-pay"]);
   assert.equal(mayPay.op, "choice.optional");
   assert.deepEqual(mayPay.args.prompt, {
@@ -86,6 +90,8 @@ test("sfd-119-221 Jax, Unrelenting: the may-shape wraps pay 1 energy then draw 1
     "jax-unrelenting.draw-1"
   ]);
 
+  // Structural placeholder only: the payment is a trigger base cost and is
+  // not executable until the Finalize binding described in judgeReason lands.
   assert.equal(payInstruction.op, "cost.pay");
   assert.deepEqual(payInstruction.args, { payments: { kind: "constant", value: { energy: 1 } } });
   assert.equal(payInstruction.linkedTo, undefined);
@@ -107,6 +113,8 @@ test("sfd-119-221 Jax, Unrelenting golden: declining the may leaves the board an
   const kernel = world().deck(["top"]).build();
   kernel.setAnswers({ "jax-unrelenting.may-pay/optional": false });
 
+  // Declining the optional choice does not enter the descriptive cost.pay body.
+  // Finalize payment remains a separate contract gap (see the TODO below).
   const outcome = resolveChainBody(attachTrigger.body, kernel);
 
   assert.deepEqual(outcome.results.map((entry) => entry.id), ["jax-unrelenting.may-pay"]);
@@ -117,31 +125,28 @@ test("sfd-119-221 Jax, Unrelenting golden: declining the may leaves the board an
   assert.equal(kernel.player("A").deckSize, 1);
 });
 
-test("sfd-119-221 Jax, Unrelenting golden: accepting the may pays 1 Energy through cost.pay and draws 1", () => {
-  // cost.pay's args.payments accepts a plain finalized plan and pays it through
-  // the real cost pipeline (cost/payment.ts); the linked draw only runs because
-  // the payment executed (contract 3.9 / 414.1).
-  const kernel = world().player("A", { energy: 2 }).deck(["top"]).build();
-  kernel.setAnswers({ "jax-unrelenting.may-pay/optional": true });
+test("sfd-119-221 Jax, Unrelenting golden: the supported draw body executes independently", () => {
+  // The 1 Energy payment is a trigger base cost and must be offered at
+  // Finalize. This test covers only the already-merged effect.draw half; it
+  // deliberately does not treat direct Resolve-time cost.pay as card support.
+  const kernel = world().deck(["top", "second"]).build();
+  const run = runInstruction(draw, drawInstruction.args, { world: kernel });
 
-  const outcome = resolveChainBody(attachTrigger.body, kernel);
-
-  assert.equal(outcome.status, "executed");
-  assert.deepEqual(outcome.results.map((entry) => entry.id), [
-    "jax-unrelenting.pay-1",
-    "jax-unrelenting.draw-1",
-    "jax-unrelenting.may-pay"
-  ]);
-  assert.deepEqual(outcome.results.map((entry) => entry.result.status), [
-    "executed",
-    "executed",
-    "executed"
-  ]);
-  assert.deepEqual(outcome.events.map((event) => event.action), ["pay", "draw"]);
-  assert.equal(kernel.player("A").energy, 1);
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.drawn, 1);
   assert.equal(kernel.player("A").handSize, 1);
-  assert.equal(kernel.player("A").deckSize, 0);
+  assert.equal(kernel.player("A").deckSize, 1);
+  assert.deepEqual(kernel.zone("A", "hand").map((ref) => ref.id), ["top"]);
+  assert.deepEqual(run.events.map((event) => event.action), ["draw"]);
 });
+
+test.todo(
+  "sfd-119-221 Jax, Unrelenting: the optional 1 Energy trigger base cost must be selected and paid " +
+    "at Finalize (CR 204.1.c / 403.1 / 404.1.b.1), before the body resolves — TriggeredAbility has no " +
+    "cost field and programs/triggers.ts does not populate TriggerRegistration.cost/mayAtFinalize; " +
+    "the descriptive body cost.pay must not be used as a Resolve-time substitute. Add a real ChainEngine " +
+    "Finalize/Resolve test when the contract binding exists."
+);
 
 test.todo(
   "sfd-119-221 Jax, Unrelenting: [Weaponmaster] expands through effects/keywords/Weaponmaster.ts — the " +

@@ -29,7 +29,7 @@ test("sfd-185-221 Glorious Executioner: identity, ruleset, status, judgeReason a
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /combat-result/);
   assert.match(program.judgeReason, /winnerId/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
 });
 
 test("sfd-185-221 Glorious Executioner: one combat-result trigger whose body is Draw 1", () => {

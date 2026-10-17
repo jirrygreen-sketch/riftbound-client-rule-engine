@@ -48,8 +48,8 @@ import type { CardProgram } from "../../ir/index.js";
  *    status and the trigger vocabulary above, so this trigger still cannot be
  *    subscribed today.
  * The body (effect.draw, amount 1) is merged and is executed by the golden test.
- * Dependencies: RIFT-120/combat flow (combat-result emission), a winner predicate
- * for the combat-result payload plus the `combat-result` discriminator in
+ * Dependencies: combat flow (combat-result emission), a winner predicate for
+ * the combat-result payload plus the combat-result discriminator in
  * EVENT_PATTERN_TYPES; the status gate then still keeps the binding judge-required.
  * Nothing is approximated: the filter is not relaxed to "any combat" and the
  * trigger is not moved to a different timing point.
@@ -72,7 +72,7 @@ export default {
     "绝不被当作已求值谓词）；(3) 触发注册机制本身已合入（engine-core programs/triggers.ts 与其 " +
     "registerProgramTriggers 消费方），但按程序 status 门禁 + 上述词表缺口，该触发今天仍无法被订阅。" +
     "效果本体 effect.draw（数量 1，抽取者为能力控制者 190.6.d）已合入并由 golden 执行。" +
-    "依赖：RIFT-120 / combat 流程的 combat-result 发射、胜负载荷谓词、以及 combat-result 的词表成员；" +
+    "依赖：combat 流程的 combat-result 发射、胜负载荷谓词、以及 combat-result 的词表成员；" +
     "在这些落地后 status 门禁仍会保持本卡 judge-required。" +
     "不把过滤放宽成「任意战斗」，也不把触发挪到别的时点。",
   abilities: [
