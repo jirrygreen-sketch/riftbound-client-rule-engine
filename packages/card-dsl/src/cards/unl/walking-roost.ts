@@ -13,7 +13,7 @@ import type { CardProgram } from "../../ir/index.js";
  * 规则依据（CR v1.5）：
  * - [Deflect]（809.1–809.3）：被动关键词，未印数值时按 809.1.b.3 视为 1，叠加按 809.2
  *   求和。卡内只声明 `{ kind: "keyword", keyword: "deflect" }`；展开（静态 target.tax）
- *   由 effects/keywords/Deflect.ts 负责，目标税由 RIFT-90 的目标管线收取。
+ *   由 effects/keywords/Deflect.ts 负责；target.tax 的静态注册与消费仍待 RIFT-360。
  * - “When you play me” 是 Play Effect（383.4.a.1/383.4.a.2），时点 card-played、filter
  *   指向自身。
  * - “choose an opponent”：选择的是玩家而不是游戏对象（355.7：指名 Player）。契约 3.6 的
@@ -39,8 +39,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   “They play” 不同，不能用“我来打”近似。
  * 可执行的部分是触发结构、选择链与 Deflect 关键词身份；golden 断言这些结构与关键词身份。
  *
- * 依赖：RIFT-84（kw-deflect 展开已合入、Hide 族未定）、RIFT-9/父任务（target.player 玩家
- * 选择原语与 effect.token 的 Bird 定义）、RIFT-90（target.tax 收取 Deflect 附加费用）。
+ * 依赖：effect.token 的 Bird 定义、target.player 玩家选择原语、RIFT-360（target.tax 的
+ * CardProgram static producer/消费）。
  */
 export default {
   canonicalCardId:
@@ -55,8 +55,8 @@ export default {
     "(2) 「choose an opponent」是玩家选择（355.7：指名 Player），契约 3.6 的 targets() 只返回 ObjectRef[]、" +
     "PickSpec.options 是静态值数组，IR 无法静态列出对局中的 PlayerId（缺 target.player 原语，同 mindsplitter / " +
     "suave-negotiator 的记录），因此 440.4「由该对手打出该 token」的控制者语义无法落地，也不能改成“由我打出”近似。" +
-    "Deflect 关键词本身（809，未印数值按 809.1.b.3 视为 1）在 golden 中断言身份；目标税收取依赖 RIFT-90。" +
-    "依赖：effect.token 的 Bird 定义、target.player 玩家选择原语、RIFT-90（target.tax）。",
+    "Deflect 关键词本身（809，未印数值按 809.1.b.3 视为 1）在 golden 中断言身份；target.tax 的 CardProgram static producer/消费仍依赖 RIFT-360。" +
+    "依赖：effect.token 的 Bird 定义、target.player 玩家选择原语、RIFT-360（target.tax）。",
   abilities: [
     { kind: "keyword", keyword: "deflect" },
     {

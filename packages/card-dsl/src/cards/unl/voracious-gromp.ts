@@ -22,11 +22,11 @@ import type { CardProgram } from "../../ir/index.js";
  * effect.xp）由 engine-core 的关键词注册表负责（契约 3.7）；卡文件不手写同一套展开逻辑，
  * 也不自行推进链或优先权。
  *
- * status = judge-required（README 第 2 节：所需关键词依赖尚不可执行）：
- * effects/keywords/ 没有 Hunt 定义（已合入的关键词不含 Hunt），因此 Hunt 值 3 无法
- * 展开为 conquer/hold 触发；并且没有 CardProgram→时点/链的触发注册（契约 3.5），
- * 即使展开体存在也进不了链。effect.xp 原语（730.1/733）本身已合入，golden 用参考内核
- * 真实执行「gain 3 XP」这一步；局部原语执行不构成整卡证据，见 judgeReason 与 test.todo。
+ * status = judge-required（README 第 2 节：关键词触发接线尚不可执行）：
+ * effects/keywords/Hunt.ts 已合入并能把 Hunt 值 3 展开为 conquer/hold 两个 effect.xp 触发；
+ * 但 programs/triggers.ts 翻译 TriggerSpec 时只接受 EVENT_PATTERN_TYPES 的 conquered/held，
+ * 因而当前展开结果会在适配器校验阶段被拒绝，且 scoring 尚未生产 conquer/hold 事件。effect.xp
+ * 原语（730.1/733）本身已合入，golden 用参考内核真实执行「gain 3 XP」这一步。
  */
 export default {
   canonicalCardId:
@@ -34,13 +34,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 [Hunt 3] 的关键词展开与触发接线，均不近似实现：(1) effects/keywords/ 没有 Hunt 定义，" +
-    "823.1.c.1 需要把 Hunt 值展开为 conquer 与 hold 两个时点订阅、以 effect.xp 为 body 的触发能力，" +
-    "并按 823.2 把多来源 Hunt 数值相加合为一个触发（stacking 由 KeywordDef 声明）；" +
-    "(2) 没有 CardProgram→时点/链的触发注册（契约 3.5），conquer / hold（events/timing-points.ts 的 " +
-    "scoring 类时点）没有任何订阅方把本卡的触发能力注册进单管线（引擎批 4 / RIFT-120 接线）。" +
-    "effect.xp 原语本身已合入，golden 用参考内核真实执行「gain 3 XP」这一步；依赖关键词工作流（新增 " +
-    "keywords/Hunt.ts）与引擎批 4 的触发/事件管线。",
+    "Hunt 的 KeywordDef 与展开已合入，但触发接线仍不可执行：(1) effects/keywords/Hunt.ts 已按 823.1.c.1 " +
+    "把 Hunt 值展开为 conquer 与 hold 两个 effect.xp 触发，并按 823.2 以 stacking:sum 合并数值；" +
+    "(2) programs/triggers.ts 翻译 TriggerSpec 时只接受 EVENT_PATTERN_TYPES 的 conquered/held，" +
+    "而展开结果仍写 conquer/hold，validateTriggerSpec 会拒绝注册；scoring 也尚未生产对应事件。" +
+    "effect.xp 原语本身已合入，golden 用参考内核真实执行「gain 3 XP」这一步；依赖 conquered/held 词汇接线与 scoring 事件生产。",
   abilities: [
     // 823.1：印刷的 [Hunt 3]；展开由关键词注册表负责，卡文件只声明关键词与数值。
     { kind: "keyword", keyword: "hunt", value: 3 }

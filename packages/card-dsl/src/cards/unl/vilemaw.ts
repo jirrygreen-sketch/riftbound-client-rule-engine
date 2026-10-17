@@ -23,23 +23,22 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   body 是已合入的 effect.draw（414.1/414.3，抽牌者按 190.6.d 隐含为能力控制者）。
  *
  * status = judge-required（缺口不近似实现）：
- * - "Enemy units here with less Might than me don't deal combat damage." 无可执行形态：
+ * - "Enemy units here with less Might than me don't deal combat damage." 仍无可执行形态：
  *   （a）契约 3.6 的封闭 GameAction 集合没有"禁止/改写某单位造成的战斗伤害"的动作，
- *   也没有 continuous.combat 的卡牌侧注册入口（LayerEngine 只消费经
- *   ResolveContext.addContinuous 注册的持续效果）；（b）"with less Might than me" 是
+ *   continuous.combat 也没有战斗结算消费方（LayerEngine 的静态 binder 只能登记声明）；（b）"with less Might than me" 是
  *   候选单位与来源的关系比较：ObjectFilter 的取值是静态数据，没有与另一对象比较 Might
  *   的写法，condition 从句只作用于整条指令、不能过滤集合成员；程序用 mightLt 占位键
  *   记录该谓词（合并匹配器不读该键，sfd/sandshifter、ogn/kadregrin-the-infernal 记录
  *   同一静默忽略行为），因此该过滤绝不能当作已求值语义。
- * - [Ambush] 没有已合入的 KeywordDef（effects/keywords/ 无 Ambush 文件），822.1.b 的
- *   合法打出地点改写与 Reaction 许可都未落地（rad/evelynn-consuming 记录同一缺口）。
+ * - [Ambush] 的 KeywordDef 已合入并展开为 play-location-permission 与条件 Reaction 两个静态声明；
+ *   但 822.1.b 的运行期地点选择、Finalize 重检和 Reaction/canAct 消费仍未接线（RIFT-357 的地点选择路径）。
  * - hold 触发缺少"本卡参与该次固守"的时点载荷：383.4.d.2/.2.a 要求 Hold Effect 绑定
- *   固守时在场的那个单位，而 hold 时点（scoring 发出）只带战场与玩家；同时没有订阅方把
- *   卡程序的 triggered ability 注册进管线（RIFT-120）。
+ *   固守时在场的那个单位，而 hold 时点（scoring 发出）只带战场与玩家；触发注册适配器虽已合入，
+ *   但缺少能匹配本卡参与者的 hold 载荷。
  * golden 对已合入的 effect.draw 子句做真实执行，其余保持 todo。
  *
- * 依赖：continuous.combat 的卡牌侧接线与属性关系比较谓词（RIFT-91 与战斗批次）、
- * Ambush 关键词（RIFT-84）、hold 载荷与触发注册（RIFT-31/33、RIFT-120）。
+ * 依赖：combat-damage assignment 消费方与关系比较谓词、RIFT-357 的 Ambush 地点/Reaction 消费、
+ * hold 参与者载荷。
  */
 
 const abilities: Ability[] = [
@@ -89,16 +88,17 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处缺口，均不近似实现：（1）『Enemy units here with less Might than me don't deal combat damage.』无可执行形态：" +
-    "契约 3.6 的封闭 GameAction 集合没有禁止/改写某单位造成战斗伤害的动作，也没有 continuous.combat 的卡牌侧注册入口" +
-    "（LayerEngine 只消费经 ResolveContext.addContinuous 注册的持续效果）；" +
+    "契约 3.6 的封闭 GameAction 集合没有禁止/改写某单位造成战斗伤害的动作，combat flow 也没有 continuous.combat 的消费方" +
+    "（静态 binder 只能登记声明）；" +
     "且『with less Might than me』是候选单位与来源的关系比较，ObjectFilter 的取值是静态数据、没有与另一对象比较 Might 的写法，" +
     "condition 从句只作用于整条指令、不能过滤集合成员；程序用 mightLt 占位键记录该谓词，合并匹配器不读该键" +
     "（sfd/sandshifter、ogn/kadregrin-the-infernal 记录同一静默忽略行为），绝不能当作已求值语义。" +
-    "（2）[Ambush]（822）没有已合入的 KeywordDef：822.1.b 的合法打出地点改写与 Reaction 许可都未落地（rad/evelynn-consuming 同缺口）。" +
+    "（2）[Ambush] 的 KeywordDef 已合入并展开为 play-location-permission 与条件 Reaction 两个静态声明，但 822.1.b 的运行期地点选择、" +
+    "Finalize 重检与 Reaction/canAct 消费仍未接线（RIFT-357）。" +
     "（3）hold 触发缺少『本卡参与该次固守』的时点载荷（383.4.d.2/.2.a 要求绑定固守时在场的那个单位，" +
-    "而 hold 时点只带战场与玩家），也没有订阅方把卡程序触发注册进管线（RIFT-120）。" +
-    "依赖：continuous.combat 的卡牌侧接线与属性关系比较谓词（RIFT-91 与战斗批次）、Ambush 关键词（RIFT-84）、" +
-    "hold 载荷与触发注册（RIFT-31/33、RIFT-120）。effect.draw 本体已合入，golden 对『draw 1』子句做真实执行。",
+    "而 hold 时点只带战场与玩家）；触发注册适配器已合入，但当前载荷仍无法匹配本卡参与者。" +
+    "依赖：combat-damage assignment 消费方与关系比较谓词、RIFT-357 的 Ambush 地点/Reaction 消费、hold 参与者载荷。" +
+    "effect.draw 本体已合入，golden 对『draw 1』子句做真实执行。",
   abilities,
   sourceText:
     "[Ambush] (You may play me as a [Reaction] to a battlefield where you have units.)\n" +

@@ -99,5 +99,5 @@ test.todo(
 );
 test.todo(
   "unl-130-219 Walking Roost: charge the Deflect additional cost when an opponent chooses this unit (CR 809.1.c, " +
-    "target.tax) — RIFT-90"
+    "target.tax) — the merged static producer/consumer still needs RIFT-360"
 );

@@ -30,8 +30,6 @@ test("unl-108-219 Wily Newtfish: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /144\.4\.c/);
-  // Re-sweep: the old "no producer" claim is replaced by the accurate current gap.
-  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("unl-108-219 Wily Newtfish: the conditional passive ability keeps its XP-of-this-turn gate shape", () => {
@@ -132,6 +130,7 @@ test.todo(
     "always/never/type/has-tag/has-keyword, returning true for everything else"
 );
 test.todo(
-  "unl-108-219 Wily Newtfish: register the declared static ability as a ContinuousEffectSpec honouring the XP gate — " +
-    "contract 3.6 addContinuous is reachable only from instructions and programs/statics.ts exposes an unimplemented bindStatic callback (RIFT-257 follow-up)"
+  "unl-108-219 Wily Newtfish: make the production static binder honour the XP gate — " +
+    "programs/statics.ts and attachProgramLifecycle can register the ContinuousEffectSpec, but Condition/LayerEngine " +
+    "cannot evaluate the controller's XP history and must not activate the effect unconditionally"
 );

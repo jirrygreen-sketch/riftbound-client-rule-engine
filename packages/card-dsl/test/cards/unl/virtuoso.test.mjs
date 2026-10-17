@@ -34,7 +34,6 @@ test("unl-181-219 Virtuoso: identity, status, judgeReason and verbatim sourceTex
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /spent/);
-  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /383\.2\.a\.1/);
   assert.match(program.judgeReason, /394/);
 });
@@ -218,7 +217,7 @@ test("unl-181-219 Virtuoso: the four-banish tail is guarded per instruction, not
 test.todo(
   "unl-181-219 Virtuoso: evaluate 'if you spent [4] or more' from the finalized cost plan receipt (CR 383.2.a.1) — " +
     "chain/engine.ts stores the payCostPlan receipt on ChainItem.payment, but ResolveContext has no spent/finalized-cost " +
-    "reader and cost kinds + cost.pay/cost.modify are still in progress (RIFT-261)"
+    "reader; the cost plan and cost.pay/cost.modify primitives are merged, but the receipt is not exposed to Expr/Condition"
 );
 test.todo(
   "unl-181-219 Virtuoso: bind 'banish it' to the triggering spell object at trigger time (CR 383.2.c.3.b / 359.3.f.3) — " +

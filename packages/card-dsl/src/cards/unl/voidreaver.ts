@@ -31,7 +31,8 @@ import type { CardProgram, Instruction } from "../../ir/index.js";
  *   （effect.move 文件头的边界说明）。
  *
  * status = judge-required（缺口不近似实现）：
- * - 没有发射方发出 combat-result：「when you win a combat」的时点虽在封闭表里定义
+ * - 「when you win a combat」的时点虽在 timing-points.ts 中定义，但 EventPattern 的封闭词表仍不接受
+ *   `combat-result`，且没有发射方把该结果接入事件管线：
  *   （468.3.a），但已合入的 combat/turn 流程没有把它接入事件管线——combat/flow.ts
  *   只发 control-established / control-lost / contested-applied，且 start-combat 与
  *   伤害分配仍以 TurnCombatBlockedError 保持 blocked（"combat-start-transaction"、
@@ -46,8 +47,8 @@ import type { CardProgram, Instruction } from "../../ir/index.js";
  *   legend-zone，cost/payment.ts 的 exhaust 支付只接受 board / rune-zone 的对象
  *   （与其他传奇的既有口径一致）。
  *
- * 依赖：战斗结果 → 事件管线的 combat-result 发射接线（引擎批 4 / RIFT-33 场景触发、
- * RIFT-120 单管线）、契约补充 legend-zone。
+ * 依赖：combat-result 的 EventPattern 词汇与战斗结果事件生产接线（引擎批 4 / RIFT-33 场景触发）、
+ * 契约补充 legend-zone。
  */
 const buffUnit: Instruction = {
   id: "voidreaver-1.buff-unit",
@@ -109,13 +110,14 @@ const voidreaver = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "触发侧没有发射方：「When you win a combat」的时点 combat-result 虽在封闭表里定义（CR 468.3.a / 468.3.b，" +
+    "触发侧有两层缺口：「When you win a combat」的时点 combat-result 虽在 timing-points.ts 定义，但 EventPattern 的封闭词表不接受该事件名；" +
+    "同时没有发射方把结果接入事件管线（CR 468.3.a / 468.3.b，" +
     "payloadFields 含 winnerId/loserId），但已合入的流程没有生产者发出它——combat/flow.ts 只发 control-established / control-lost / contested-applied，" +
     "start-combat 与伤害分配仍以 TurnCombatBlockedError 保持 blocked（combat-start-transaction、simultaneous-damage-transaction），" +
     "duel/engagement-executor-v2.ts 的 settleCombatResult 只在 duel 分支内部判定结果；没有任何模块 emit combat-result，触发无法进链。" +
     "另「me」是 Legend Zone 中的传奇（CR 107.4.a / 107.4.c），契约 ZoneId 没有 legend-zone，cost/payment.ts 的 exhaust 支付只接受 board / rune-zone 的对象。" +
     "两条启动能力的费用（cost/plan-values.ts 的 xp + exhaust 支付）、effect.buff 与 effect.move 正文原语都已合入，golden 用真实费用计划与参考内核执行。" +
-    "依赖：战斗结果 → 事件管线的 combat-result 发射接线（引擎批 4 / RIFT-33、RIFT-120）与契约补充 legend-zone。",
+    "依赖：combat-result 的 EventPattern 词汇与战斗结果事件生产接线（引擎批 4 / RIFT-33）以及契约补充 legend-zone。",
   abilities: [
     {
       kind: "triggered",

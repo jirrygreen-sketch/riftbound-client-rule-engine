@@ -22,13 +22,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   属 452–455 的流程，由内核负责。
  *
  * status = judge-required（不近似实现）：
- * 1. 目的地是运行期 Location 选择（355.4 / 355.4.a / 451.1），合并 IR 没有运行期
- *    Location 选择器（target.location 未合入）；effect.move 的 to 只接受静态 LocationRef /
+ * 1. 目的地是运行期 Location 选择（355.4 / 355.4.a / 451.1），合并 IR 仍没有运行期
+ *    Location 选择器（target.location 仍待 RIFT-357）；effect.move 的 to 只接受静态 LocationRef /
  *    controller-base / 静态候选列表，写死一个战场就是替玩家发明选择（与
- *    rad/sirens-song、ogn/ride-the-wind 的判定一致，依赖 RIFT-90 / RIFT-91）。
+ *    rad/sirens-song、ogn/ride-the-wind 的判定一致，依赖 RIFT-357）。
  * 2. 两次 Move 的 Finalize 选择（各自一个目的地）需要目标/目的地计划的顺序与重选支持；
  *    链的 Finalize 面目前只处理 instruction.targets 的 TargetSpec，并阻断嵌套目标
- *    （chain/engine.ts assertFinalizationSurface），依赖 RIFT-90。
+ *    （chain/engine.ts assertFinalizationSurface），依赖 RIFT-357 / RIFT-358。
  *
  * 可执行部分：effect.move 本身已合入；golden 用参考内核真实执行两条移动（含
  * "friendly / enemy 各自为目标" 的结构断言与调用方锁定的目的地）。
@@ -46,10 +46,10 @@ export default {
   status: "judge-required",
   judgeReason:
     "两处依赖未合入，均不近似实现：(1) 原文没有印刷目的地，每个 Move 的目的地按 CR 355.4 / 355.4.a / 451.1 在 Finalize 由控制者选择，" +
-    "合并 IR 没有运行期 Location 选择器（target.location 未合入），effect.move 的 to 只接受静态 LocationRef / controller-base / 静态候选列表；" +
+    "合并 IR 仍没有运行期 Location 选择器（target.location 仍待 RIFT-357），effect.move 的 to 只接受静态 LocationRef / controller-base / 静态候选列表；" +
     "本卡只保留描述性目的地标记，解释器会拒绝该形状而不是把单位移到错误地点（与 rad/sirens-song、ogn/ride-the-wind 同一缺口）。" +
     "(2) 两次 Move 各自的目的地选择属于目标/目的地计划，链 Finalize 面目前只处理 instruction.targets 的 TargetSpec 并阻断嵌套目标" +
-    "（chain/engine.ts assertFinalizationSurface），依赖 RIFT-90 / RIFT-91。" +
+    "（chain/engine.ts assertFinalizationSurface），依赖 RIFT-357 / RIFT-358。" +
     "两次移动的被移动单位已按 355.7 / 355.9.a.1 / 355.10 声明为目标（friendly / enemy 各自的过滤条件），两条指令互相独立不写 linkedTo；" +
     "括号里的 attacker reminder 是 466.2.c.1–c.3 的流程结果，由内核负责，不当作本卡指令。effect.move 本身已合入，golden 真实执行两条移动。",
   abilities: [

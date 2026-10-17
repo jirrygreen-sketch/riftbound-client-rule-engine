@@ -249,14 +249,10 @@ test("unl-201-219 Voidreaver golden: insufficient XP fails the whole cost before
 
 test.todo(
   "unl-201-219 Voidreaver: emit the combat-result timing point from the combat flow so 'When you win a combat' " +
-    "can trigger (CR 468.3.a-468.4) — the merged combat/flow.ts emits only control/contested timings and " +
-    "start-combat plus damage assignment stay TurnCombatBlockedError (engine batch 4 / RIFT-33 / RIFT-120)"
+    "can trigger (CR 468.3.a-468.4) — EventPattern's closed vocabulary still rejects combat-result, and the merged " +
+    "combat/flow.ts emits only control/contested timings while start-combat plus damage assignment stay TurnCombatBlockedError"
 );
 test.todo(
   "unl-201-219 Voidreaver: represent the Legend itself as an exhaust-cost object — the frozen ZoneId has no " +
     "legend-zone and cost/payment.ts only accepts board / rune-zone payers (CR 107.4.a/107.4.c)"
-);
-test.todo(
-  "unl-201-219 Voidreaver: the card-program -> ChainDraft adapter for the two activated abilities (cost plan + " +
-    "finalized targets + body) and the trigger -> chain registration for the combat-win ability (RIFT-120)"
 );

@@ -4,6 +4,9 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/vilemaw.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -39,6 +42,32 @@ test("unl-060-219 Vilemaw: identity, status, judgeReason and verbatim sourceText
 test("unl-060-219 Vilemaw: [Ambush] is declared as a keyword only (822.1)", () => {
   assert.deepEqual(ambush, { kind: "keyword", keyword: "ambush" });
   assert.equal(ambush.value, undefined);
+});
+
+test("unl-060-219 Vilemaw: the merged Ambush definition expands its two static permissions", () => {
+  const definition = keywordDefinitionsById.get("Ambush");
+  assert.ok(definition);
+  assert.equal(definition.valued, false);
+  const expansion = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.deepEqual(expansion.map((ability) => ability.kind), ["static", "static"]);
+  assert.equal(expansion[0].effect.kind, "play-location-permission");
+  assert.equal(expansion[1].effect.kind, "continuous.timing");
+  assert.deepEqual(expansion[1].effect.grants, ["showdown", "closed-state"]);
+});
+
+test("unl-060-219 Vilemaw: the merged trigger adapter registers the hold declaration", () => {
+  const { judgeReason, ...rest } = program;
+  const binding = createProgramBinding({ cardPrograms: [{ ...rest, status: "executable" }] });
+  const source = {
+    ref: { id: "vilemaw", zoneEntryId: 1 }, cardId: CANONICAL_ID, name: "Vilemaw", types: ["unit"],
+    tags: [], keywords: [], owner: "A", controller: "A", zone: "board",
+    location: { type: "battlefield", id: "bf-1" }, might: 8, energy: 8, power: 2, exhausted: false,
+    damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false, combatRole: null
+  };
+  const registrations = triggerRegistrations(binding.registry, source);
+  assert.equal(registrations.length, 1);
+  assert.equal(registrations[0].spec.at, "hold");
+  assert.deepEqual(registrations[0].spec.filter, { event: "hold", object: { objectId: "vilemaw" } });
 });
 
 test("unl-060-219 Vilemaw: the combat-damage denial keeps the here/less-Might filter shape (467.2.c, 355.9.b)", () => {
@@ -106,8 +135,8 @@ test("unl-060-219 Vilemaw golden: an empty Main Deck draws 0 without inventing a
 
 test.todo(
   "unl-060-219 Vilemaw: stop enemy units here with less Might than Vilemaw from contributing combat damage " +
-    "(CR 467.2.a/b/467.2.c) — the closed GameAction set has no combat-damage denial and no card-side " +
-    "continuous.combat registration (RIFT-91, combat batch)"
+    "(CR 467.2.a/b/467.2.c) — the closed GameAction set has no combat-damage denial and combat flow has no " +
+    "continuous.combat consumer"
 );
 
 test.todo(
@@ -117,12 +146,12 @@ test.todo(
 
 test.todo(
   "unl-060-219 Vilemaw: expand [Ambush] (CR 822.1.b: the battlefield-with-your-units play permission and the " +
-    "Reaction timing while being played there) — no Ambush KeywordDef is merged (RIFT-84) and chain canAct does not " +
-    "read such a permission"
+    "Reaction timing while being played there) — Ambush.ts now publishes both declarations, but runtime location " +
+    "selection/Finalize re-check and chain canAct consumption are still missing (RIFT-357)"
 );
 
 test.todo(
   "unl-060-219 Vilemaw: fire 'When I hold' when Vilemaw is the unit present at the held battlefield " +
-    "(CR 383.4.d.2/383.4.d.2.a) — the hold payload carries only the battlefield and player, and no subscriber " +
-    "registers card-program triggers (RIFT-31/33, RIFT-120)"
+    "(CR 383.4.d.2/383.4.d.2.a) — the trigger adapter is present, but the hold payload carries only the " +
+    "battlefield and player, so it cannot bind the participating unit"
 );

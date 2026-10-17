@@ -18,21 +18,16 @@ import type { CardProgram } from "../../ir/index.js";
  * - “gain 1 XP”：effect.xp 已合入（730.1 / 733；获得者缺省为能力控制者，190.6.d）。
  *
  * status = judge-required（缺口不近似实现）：
- * - 缺「card-played / object-killed 等事件 → TriggerRegistration」的注册适配器：
- *   合并内核里没有任何路径用卡牌程序声明的 TriggerSpec 注册触发器（ogn/wraith-of-echoes
- *   的 golden 必须由测试 harness 手工 registerTrigger 才能跑），也没有按 383.2.c.3.b /
- *   429.1.a.1.b 用离场前最后已知信息收集该死亡单位的路径，因此“another friendly unit dies”
- *   这条订阅在已合入代码里不可达；
- * - “another” 的排除没有已合入消费者：events/pipeline-match.ts 的 matchesTriggerObject
+ * - card-program → TriggerRegistration 适配器与 object-killed 的死亡前快照路径已经合入；
+ *   但本卡的「another」排除没有已合入消费者：events/pipeline-match.ts 的 matchesTriggerObject
  *   只读 objectId/cardId/type/controller/owner/zone/location/states/tags/characteristics，
- *   未知键（包括 exclude）被静默忽略；测试内核的 matchesFilter 亦然。把 exclude: "self"
+ *   而 programs/filters.ts 在翻译阶段也拒绝 exclude；测试内核的 matchesFilter 亦然。把 exclude: "self"
  *   当成已实现会让「本卡自身死亡」也触发 +1 XP，属于把错误行为当预期，故整卡保持
  *   judge-required（结构性声明保留给评审，绝不当作可执行过滤）。
  * 触发效果本体 effect.xp（1 XP）已合入，golden 用解释器 + 参考内核真实执行那 1 点 XP；
  * 整卡仍因上述订阅/过滤缺口保持 judge-required。
  *
- * 依赖：RIFT-120 后续（card-program → TriggerRegistration 适配器、object-killed 的最后已知
- * 信息收集）、事件管线的另一对象/排除过滤（引擎批 4）。
+ * 依赖：事件管线对 exclude/another 锚点的翻译与消费（引擎批 4）。
  */
 export default {
   canonicalCardId:
@@ -40,16 +35,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 card-program → TriggerRegistration 的订阅适配器：合并代码里没有任何路径用卡牌程序声明的 " +
-    "TriggerSpec/body 注册触发器（ogn/wraith-of-echoes 的 golden 也只能由测试 harness 手工 registerTrigger），" +
-    "也没有按 383.2.c.3.b / 429.1.a.1.b 在换区前收集被消灭单位最后已知信息的路径，因此 " +
-    "「When another friendly unit dies」在已合入内核里不可达。" +
-    "触发过滤的「另一个」同样无消费者：events/pipeline-match.ts 的 matchesTriggerObject 只读 " +
-    "objectId/cardId/type/controller/owner/zone/location/states/tags/characteristics，未知键（含 exclude 锚点）" +
-    "被静默忽略（测试内核的 matchesFilter 亦然），若按已实现对待会让本卡自身死亡也触发 +1 XP，" +
-    "因此排除本卡自身的过滤在已合入代码里不可判定。" +
+    "card-program → TriggerRegistration 适配器与 429.1.a.1.b 所需的 object-killed 死亡前快照路径已经合入；但触发过滤的「另一个」" +
+    "仍无可执行消费者：programs/filters.ts 在翻译阶段拒绝 exclude，events/pipeline-match.ts 的 matchesTriggerObject " +
+    "也只读 objectId/cardId/type/controller/owner/zone/location/states/tags/characteristics，测试内核的 matchesFilter 亦然。" +
+    "若把 exclude: \"self\" 当成已实现，本卡自身死亡也会触发 +1 XP，因此 383.4.a.4 / 740.1.a 的排除条件仍不可判定。" +
     "触发效果本体 effect.xp（730.1，1 XP）已合入，golden 用解释器 + 参考内核真实执行该 1 点 XP。" +
-    "依赖：RIFT-120 后续（触发注册适配器、object-killed 最后已知信息）与引擎批 4 的事件过滤扩展。",
+    "依赖：事件管线对 exclude/another 锚点的翻译与消费（引擎批 4）。",
   abilities: [
     {
       kind: "triggered",
