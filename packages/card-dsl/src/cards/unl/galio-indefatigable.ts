@@ -26,15 +26,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   combat/base-combat-allocation.ts 明确写着 "No Tank/Backline/other
  *   assignment-priority requirement is bound here"，因此 467.2.a/467.2.b 的 Might
  *   汇总不会读这条限制（rad/ezreal-dashing、rad/graves-blasting-through 记录同一缺口）。
- * - [Deflect] / [Tank] 的展开文件已合入，但把持续效果接进目标税与战斗伤害分配顺序的
- *   生产接线未合入（ogn/pouty-poro 的金测试与 judgeReason 记录同一缺口：
- *   target.tax → TargetPlan 税 → 任意域 Power 支付，以及伤害分配的 Tank 顺序）。
+ * - [Deflect] / [Tank] 的展开文件已合入，Deflect 税的派生与换算也已合入
+ *   （target/tax/collect.ts 按 809.1.c.1 的任意域 Power 计费），但生产接线未合入：
+ *   target-plan 只在调用方显式传 tax 时追加（taxAdapter 没有 ChainEngine 生产调用方），
+ *   链引擎 Finalize 仍把目标税按 Energy 附加费记账（chain/engine.ts 的
+ *   mandatoryAdditional → energy），伤害分配也不读 Tank 顺序
+ *   （ogn/pouty-poro 的金测试与 judgeReason 记录同一缺口）。
  * 不近似实现（不把"不造成战斗伤害"写成触发器，也不改写 Might 数值）。
  *
  * golden 用已合入的 Deflect KeywordDef 展开与 TargetPlan 的 target.tax 路径真实执行
  * 目标税分支（ogn/pouty-poro 同型），关键词声明与原文逐字校验；其余写 test.todo。
  *
- * 依赖：RIFT-83/RIFT-91（持续效果接线）、RIFT-90（目标税与任意域 Power 支付）、
+ * 依赖：RIFT-83/RIFT-91（持续效果接线）、RIFT-90（目标税生产接线）、
  * 战斗伤害贡献抑制（467 流程）。
  */
 const abilities: Ability[] = [
@@ -64,12 +67,15 @@ const program = {
     "两处缺口：(1)「I don't deal combat damage.」没有已合入的消费方：467.2.a / 467.2.b 按单位 Might 汇总战斗伤害，" +
     "抑制本单位贡献需要战斗系统读取 continuous.combat 限制；仓库里 combat/base-combat-allocation.ts 明确写着" +
     "「No Tank/Backline/other assignment-priority requirement is bound here」，图层只算特征、不接战斗限制" +
-    "（rad/ezreal-dashing、rad/graves-blasting-through 记录同一缺口）。(2) [Deflect]（809）与 [Tank]（815）的 KeywordDef " +
-    "展开文件已合入，但生产接线未合入：target.tax 持续效果没有被任何生产方接进目标选择（target-plan 只在调用方显式传 tax 时追加，" +
-    "而且已合入的 tax→费用换算按 Energy 记账而 809.1.c.1 要求任意域 Power），伤害分配也不读 Tank 顺序（ogn/pouty-poro、" +
-    "sfd/xin-zhao-vigilant 的 judgeReason 记录同一缺口）。" +
-    "golden 用已合入的 Deflect 展开与 TargetPlan 的 tax 路径真实执行目标税分支。不近似实现（不把伤害限制写成触发器，也不改 Might 数值）。" +
-    "依赖：RIFT-83/RIFT-91（持续效果接线）、RIFT-90（目标税与任意域 Power 支付）、战斗伤害贡献抑制。",
+    "（rad/ezreal-dashing、rad/graves-blasting-through 记录同一缺口）。" +
+    "(2) [Deflect]（809）与 [Tank]（815）的 KeywordDef 展开文件已合入，Deflect 税的派生与换算也已合入" +
+    "（target/tax/collect.ts 的 deflectAmount/deflectCost 按 809.1.c.1 的任意域 Power 计费），" +
+    "但生产接线未合入：target-plan 只在调用方显式传 tax 时追加（taxAdapter 没有 ChainEngine 生产调用方），" +
+    "链引擎 Finalize 仍把目标税按 Energy 附加费记账（chain/engine.ts 的 mandatoryAdditional → energy），" +
+    "伤害分配也不读 Tank 顺序（ogn/pouty-poro、sfd/xin-zhao-vigilant 的 judgeReason 记录同一缺口）。" +
+    "golden 用已合入的 Deflect 展开与 TargetPlan 的 tax 路径真实执行目标税分支。不近似实现" +
+    "（不把伤害限制写成触发器，也不改 Might 数值）。" +
+    "依赖：RIFT-83/RIFT-91（持续效果接线）、RIFT-90（目标税生产接线）、战斗伤害贡献抑制。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +
