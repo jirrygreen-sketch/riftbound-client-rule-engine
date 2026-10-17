@@ -9,6 +9,7 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
 import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL =
   "card.hash-6096f8a7ac4a9de3a47f4b906c5922677655ef6d2b97f64352b7057c63cafa87";
@@ -131,21 +132,39 @@ test("cosmic-vista: without the here anchor the hold trigger would translate, so
   assertTriggerSpec({ at: "hold", filter: translated });
 });
 
-test("cosmic-vista: a conditional trigger still needs the host.testTrigger adapter", () => {
-  // 383.2.a.1: the empty-Rune-Deck clause is a TriggerSpec.condition. The
-  // merged pipeline throws for any conditional registration when the host
-  // supplies no testTrigger adapter (only some parity tests inject one).
-  const kernel = world().unit("battlefield", { types: ["battlefield"] }).build();
-  const host = {
-    checkpoint: () => ({}),
-    restore: () => {},
+test("cosmic-vista: a non-empty Rune Deck prevents the conditional hold trigger (383.2.a.1)", {
+  todo: 'Trigger-condition fallback does not normalize owner: "self" in host.context.query; the count is incorrectly zero (events/pipeline.ts, 383.2.a.1)'
+}, () => {
+  // 383.2.a.1: the empty-Rune-Deck clause is a TriggerSpec.condition. Since
+  // RIFT-359 the pipeline calls host.testTrigger when supplied and otherwise
+  // falls back to evaluateTriggerCondition through host.context. On that
+  // fallback the production host's query compares owner: "self" literally
+  // against player ids (apps/game-server engine-runtime/host.ts does not
+  // normalize symbolic owner/controller selectors; only chain/engine.ts does,
+  // and it does not feed trigger-condition evaluation), so "your Rune Deck"
+  // counts 0 even while a rune sits in A's Rune Deck. Preserve the correct
+  // no-trigger expectation as a runnable TODO until that engine gap is fixed.
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .unit("battlefield", { types: ["battlefield"] })
+    .rune(["rune-in-deck"], { owner: "A" })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => {
+      kernel.restore(checkpoint.state);
+      kernel.copyLinkedFrom(checkpoint.links);
+    },
     objects: () => kernel.objects,
-    execute: (action) => ({ outcome: kernel.perform(action), emissions: [] }),
-    context: () => { throw new Error("No context needed"); },
+    perform: (action) => kernel.perform(action),
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint }),
     choose: (request) => { throw new Error(`Unexpected choice: ${request.id}`); }
-  };
+  });
   const pipeline = new EventPipeline(host, ["A", "B"], "A");
-  pipeline.onTrigger = () => {};
+  const fired = [];
+  pipeline.onTrigger = (snapshot) => fired.push(snapshot.registration.id);
   pipeline.registerTrigger({
     id: "cosmic-vista",
     source: kernel.getObject("battlefield"),
@@ -157,8 +176,8 @@ test("cosmic-vista: a conditional trigger still needs the host.testTrigger adapt
     },
     body: trigger.body
   });
-  assert.throws(
-    () => pipeline.emit({ timingPoint: "hold", player: "A" }),
-    /Trigger condition adapter required/
-  );
+  assert.equal(kernel.player("A").runeDeckSize, 1);
+  // A rune is in A's Rune Deck, so 383.2.a.1 forbids the trigger.
+  pipeline.emit({ timingPoint: "hold", player: "A" });
+  assert.deepEqual(fired, []);
 });
