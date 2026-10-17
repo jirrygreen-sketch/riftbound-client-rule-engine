@@ -10,6 +10,8 @@ import damage from "../../../../engine-core/dist/effects/instructions/effect.dam
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import combat from "../../../../engine-core/dist/effects/instructions/continuous.combat.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
+import { fixture as turnFixture, settle } from "../../../../engine-core/test/turn/helpers.mjs";
 
 const CANONICAL = "card.hash-7f839c473b5043b9c00abbc5b251e23126eb2b7a039e3edd56d07d54734b7288";
 const SOURCE_TEXT =
@@ -19,6 +21,30 @@ const SOURCE_TEXT =
 
 const [attackTrigger, defendTrigger, combatRestriction, actionKeyword, activated] = program.abilities;
 const attackInstruction = attackTrigger.body[0];
+
+function activationScenario(power) {
+  const f = turnFixture({
+    fields: [{ id: "bf-1", controller: "A" }, { id: "bf-2", controller: "B" }],
+    setup: builder => builder.unit("ezreal", {
+      cardId: CANONICAL, energy: 4, power: ["Mind"], might: 3,
+      location: { type: "battlefield", id: "bf-1" }
+    })
+  });
+  f.flow.start();
+  assert.equal(f.flow.phase, "main");
+  if (power.length) f.flow.chain.commit({ type: "gain-power", player: "A", power });
+  f.flow.chain.commit({ type: "gain-power", player: "B", power: ["Mind"] });
+  // Exercise this supported ability using the actual card cost/timing/body.
+  // Keep the full program judge-required; do not bypass ProgramRegistry's gate
+  // by relabeling the card executable or supplying a fabricated registry.
+  const id = "ezreal-dashing:activate";
+  const draft = {
+    id, controller: "A", source: f.kernel.getObject("ezreal"), kind: activated.kind,
+    speed: activated.timing, body: activated.body,
+    cost: { id: `cost:${id}`, cost: translateCost(activated.cost, id, "activate") }
+  };
+  return { ...f, draft };
+}
 
 test("rad-180-167 Ezreal, Dashing: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -206,9 +232,63 @@ test.todo(
     "workflow (CR 383.4.e/.f) — combat/flow.ts still throws combat-start-transaction for the role designation " +
     "transaction (RIFT-270 audit marks it 待后续)"
 );
-test.todo(
-  "rad-180-167 Ezreal, Dashing: invoke the activated ability through the production Finalize/Resolve path, " +
-    "including payment of its declared Mind Power base cost; the cost shape is expressible and the move body " +
-    "executes through the merged primitive, but this test file only exercises the body directly"
-);
+test("rad-180-167 Ezreal, Dashing golden: production Finalize validates and records the card's Mind payment before Resolve moves it to base", () => {
+  const { kernel, flow, draft } = activationScenario(["Mind", "Body"]);
+  const original = kernel.ref("ezreal");
+  flow.execute(draft);
+
+  const [item] = flow.chain.items;
+  assert.equal(item.status, "finalized");
+  assert.equal(item.kind, activated.kind);
+  assert.equal(item.speed, activated.timing);
+  assert.equal(item.costPlan.total.energy, 0);
+  assert.deepEqual(item.costPlan.total.power, [{ amount: 1, allowedDomains: ["Mind"] }]);
+  assert.equal(item.payment.paid, true);
+  assert.deepEqual(item.payment.actions.map(entry => entry.action), [{
+    type: "pay", player: "A", plan: { finalized: true, energy: 0, power: ["Mind"] }
+  }]);
+  assert.deepEqual(item.payment.power.power, [{ requirementIndex: 0, from: "Mind", amount: 1 }]);
+  assert.deepEqual(kernel.player("B").power, ["Mind"]);
+  assert.deepEqual(kernel.getObject("ezreal").location, { type: "battlefield", id: "bf-1" });
+  assert.equal(kernel.events.some(event => event.action === "move-location"), false);
+
+  settle(flow);
+  assert.equal(flow.chain.items.length, 0);
+  assert.deepEqual(kernel.getObject("ezreal").location, { type: "base", player: "A" });
+  assert.deepEqual(kernel.ref("ezreal"), original);
+  assert.deepEqual(kernel.events.filter(event => ["pay", "move-location"].includes(event.action)).map(event => event.action), ["pay", "move-location"]);
+  assert.deepEqual(flow.chain.trace.filter(event => event.item === draft.id && ["finalized", "resolved"].includes(event.step)).map(event => event.step), ["finalized", "resolved"]);
+});
+
+for (const power of [[], ["Body"]]) {
+  test(`rad-180-167 Ezreal, Dashing golden: Finalize rejects movement with ${power.length ? "only wrong-domain Power" : "no Power"}`, () => {
+    const { kernel, flow, draft } = activationScenario(power);
+    const before = kernel.snapshot();
+    // TurnFlow performs a normal cleanup before admitting any discretionary
+    // action. Compare game events separately from those cleanup timings.
+    const gameEvents = () => flow.chain.pipeline.events.filter(event => !event.timingPoint?.startsWith("cleanup-"));
+    const events = gameEvents();
+    assert.throws(() => flow.execute(draft), error =>
+      error.name === "CostPlanError" && error.reason === "cannot-pay-cost"
+    );
+
+    assert.deepEqual(kernel.snapshot(), before);
+    assert.deepEqual(gameEvents(), events);
+    assert.equal(flow.chain.items.length, 0);
+    assert.deepEqual(kernel.getObject("ezreal").location, { type: "battlefield", id: "bf-1" });
+    assert.deepEqual(kernel.player("A").power, power);
+    assert.deepEqual(kernel.player("B").power, ["Mind"]);
+    assert.equal(kernel.events.some(event => ["pay", "move-location"].includes(event.action)), false);
+    assert.equal(flow.chain.trace.some(event => event.item === draft.id && event.step === "resolved"), false);
+  });
+}
+
+test("rad-180-167 Ezreal, Dashing: a paid Finalize must debit Mind Power from the live resource pool", {
+  todo: "effects/testing/test-kernel.ts pay ignores plan.power; requires an engine-core fix outside this card's scope"
+}, () => {
+  const { kernel, flow, draft } = activationScenario(["Mind", "Body"]);
+  flow.execute(draft);
+  assert.equal(flow.chain.items[0].payment.paid, true);
+  assert.deepEqual(kernel.player("A").power, ["Body"]);
+});
 

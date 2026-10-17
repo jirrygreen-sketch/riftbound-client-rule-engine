@@ -7,6 +7,10 @@ import program from "../../../dist/cards/rad/exemplar-of-demacia.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { DUEL_DOMAINS } from "../../../../engine-core/dist/cost/resources.js";
+import { normalizeMoveArguments } from "../../../../engine-core/dist/effects/interpreter/locations.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -66,8 +70,8 @@ test("rad-155-167 Exemplar of Demacia: cost within instructions, then a linked m
   // may", so it is the triggered ability's base cost and is paid at Finalize.
   assert.equal(payInstruction.op, "cost.pay");
   assert.equal(payInstruction.linkedTo, undefined);
-  // [A] stays the descriptive rainbow marker: the closed six-domain Domain set
-  // cannot represent Universal Power (CR 163.2.b / 135.2.e.5).
+  // [A] remains a descriptive marker until trigger costs are bound. The cost
+  // planner already represents its requirement with all six allowedDomains.
   assert.deepEqual(payInstruction.args.power, { kind: "constant", value: ["rainbow"] });
   assert.deepEqual(payInstruction.args.payments, {
     kind: "constant",
@@ -109,11 +113,8 @@ test("rad-155-167 Exemplar of Demacia: the merged cost.pay primitive is register
 });
 
 test("rad-155-167 Exemplar of Demacia golden: the declared move shape relocates a unit to a literal battlefield", () => {
-  // effect.move's `to` accepts only a literal LocationRef / controller-base / a
-  // choice of literal locations (its own destination() validator), so a
-  // target-supplied location cannot be used for "that battlefield". This golden
-  // runs the card's own objects/amount shape with the literal destination to
-  // prove the move half executes once the destination is bound.
+  // Run the card's own objects/amount shape once a concrete destination has
+  // been supplied. Binding the triggering gear's location is still pending.
   const kernel = world()
     .unit("ally", { might: 2, location: { type: "base", player: "A" } })
     .unit("gear", { types: ["gear"], location: { type: "battlefield", id: "bf-2" } })
@@ -135,24 +136,52 @@ test("rad-155-167 Exemplar of Demacia golden: the declared move shape relocates 
   assert.equal(run.linked.moved.count, 1);
 });
 
-test("rad-155-167 Exemplar of Demacia: effect.move rejects a target-supplied destination today", () => {
-  // "that battlefield" would have to come from the triggered object's location,
-  // but the merged destination() validator only takes literal LocationRefs; a
-  // target descriptor is rejected when the instruction resolves.
-  const kernel = world().unit("ally", { might: 2, location: { type: "base", player: "A" } }).build();
-  assert.throws(
-    () => runInstruction(
-      move,
-      {
-        objects: { kind: "constant", value: { target: "unit" } },
-        to: { kind: "constant", value: { kind: "target", id: "bf" } },
-        amount: { kind: "constant", value: 1 }
-      },
-      { world: kernel, targets: { unit: [kernel.ref("ally")], bf: [kernel.ref("ally")] } }
-    ),
-    /effect.move to must be a location, controller-base, or location choice/
-  );
+test("rad-155-167 Exemplar of Demacia golden: LocationExpr reads an already-bound gear's battlefield through the production adapter", () => {
+  // This supplies an existing binding to exercise the location adapter only;
+  // it does not add a target to the card or bind the real card-played event.
+  const battlefield = { type: "battlefield", id: "bf-2" };
+  const kernel = world()
+    .unit("ally", { might: 2, location: { type: "base", player: "A" } })
+    .unit("gear", { types: ["gear"], location: battlefield })
+    .build();
+  kernel.setTargets("exemplar-of-demacia.friendly-unit", [kernel.ref("ally")]);
+  kernel.setTargets("bound-gear", [kernel.ref("gear")]);
+  const args = normalizeMoveArguments({
+    ...moveInstruction.args,
+    to: { kind: "location", value: { kind: "target-location", target: "bound-gear" } }
+  }, kernel);
+  const run = runInstruction(move, args, { world: kernel });
+
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(kernel.getObject("ally").location, battlefield);
+  assert.deepEqual(kernel.getObject("gear").location, battlefield);
+  assert.equal(run.linked.moved.count, 1);
+  assert.deepEqual(kernel.events.map(event => event.action), ["move-location"]);
 });
+
+for (const domain of DUEL_DOMAINS) {
+  test(`rad-155-167 Exemplar of Demacia golden: the [A] requirement validates and allocates ${domain} Power (CR 135.2.e.5.a)`, () => {
+    // Only the resource requirement, allocation and pay action are exercised.
+    // Trigger Finalize and the Legend exhaust object still need binding. The
+    // reference pay host does not prove Power balance debiting (see Ezreal).
+    const kernel = world().player("A", { power: [domain] }).unit("source").build();
+    const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("source") });
+    const plan = buildCostPlan(scoped, {
+      id: "exemplar-of-demacia:any-power",
+      cost: { payments: [{
+        kind: "power", amount: { kind: "constant", value: payInstruction.args.power.value.length },
+        allowedDomains: DUEL_DOMAINS
+      }] }
+    });
+    const receipt = payCostPlan(scoped, plan);
+
+    assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: DUEL_DOMAINS }]);
+    assert.equal(receipt.paid, true);
+    assert.deepEqual(receipt.actions[0].action.plan.power, [domain]);
+    assert.deepEqual(receipt.power.power, [{ requirementIndex: 0, from: domain, amount: 1 }]);
+    assert.deepEqual(scoped.events.map(event => event.action), ["pay"]);
+  });
+}
 
 test.todo(
   "rad-155-167 Exemplar of Demacia: filter the card-played event for a gear that has the " +
@@ -161,7 +190,7 @@ test.todo(
 test.todo(
   "rad-155-167 Exemplar of Demacia: pay the base cost (Exhaust this legend plus 1 Power of " +
     "any domain) during Finalize and remove the trigger when it cannot be paid " +
-    "(CR 383.3.b.1 / 415.4 / 163.2.b; trigger-cost binding, Universal Power and Legend-zone object)"
+    "(CR 383.3.b.1 / 415.4 / 135.2.e.5.a; trigger-cost binding and Legend-zone object; any-domain payment already works)"
 );
 test.todo(
   "rad-155-167 Exemplar of Demacia: move the friendly unit to the triggering gear's " +

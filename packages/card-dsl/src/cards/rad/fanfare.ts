@@ -47,7 +47,8 @@ export default {
     "且 chain/engine.ts 已实现（把延迟触发注册进事件管线），但 effects/instructions/ 没有把它暴露成 opcode" +
     "（trigger.delayed 模板未合入，故本卡用未注册的描述性 op trigger.delayed 记录形状）；" +
     "TriggerSpec.once（events/trigger-spec.ts）只支持 per-turn / per-phase / per-combat / per-showdown / per-chain / per-object / per-game，" +
-    "无法表达“本回合接下来三次打出单位”；本回合到期需要让卡牌侧延迟注册传递 expiresAt（TriggerRegistration 有该字段，但 registerDelayedTrigger 当前不接受期限）。" +
+    "无法表达“本回合接下来三次打出单位”；本回合到期需要让卡牌侧延迟注册传递 expiresAt（TriggerRegistration 有该字段，" +
+    "事件管线也会在到期时点清掉带 expiresAt 的触发，events/pipeline.ts:78，但 chain/engine.ts:280 的延迟注册不透传该期限）。" +
     "不近似实现（不用立即抽 1、也不用永久“每当你打出单位”触发代替）。",
   abilities: [
     {

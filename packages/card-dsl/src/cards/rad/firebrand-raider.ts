@@ -97,10 +97,12 @@ const program = {
   status: "judge-required",
   judgeReason:
     "两处缺口，均不近似实现：" +
-    "(1) “Other units enter ready.”（365.1 的其他单位入场改写）需要替代体指向“被替代事件的对象”，" +
-    "合并 IR 的对象选择器只有 self/source/target/pick/linked；绑定层只在 replacement.event 声明里暴露 " +
-    "replacement.object 链接值，而带有该正文的替代会被规划器拒绝（replacement.event 的 instead 必须是" +
-    "指令数组，IR 的 Expr 包装形状不可表达），故无法诚实订阅。" +
+    "(1) “Other units enter ready.”（365.1 的其他单位入场改写）无法绑定：本卡的静态 replaces 声明" +
+    "（filter: { type: unit, other: true, exhausted: true }，正文 linked replacement.object）在真实绑定层实测抛 " +
+    "BlockedReplacementError「Unsupported entry body target value: {kind: linked, key: replacement.object}」——" +
+    "绑定层（replacement/bind.ts）把单条 effect.ready 正文当作入场朝向声明在 bind 时求值，" +
+    "constant 包装的 linked 选择器无法在 bind 时求值；而能绑定 replacement.object 的 replacement.event 声明" +
+    "需要 instead 指令数组，IR 的 Expr 包装形状不可表达（且静态路径会丢入场动作，违反 CR 370.1.b.1）。" +
     "(2) “Units don't ready during the Awaken Phase.” 已用 continuous.restrict 记录（RIFT-259），" +
     "但 Awaken 阶段（315.1.b）的常规就绪流程不读图层限制；CardProgram 的 static/replacement 生命周期绑定已存在，" +
     "当前缺口是 Awaken 就绪流程消费该 restriction。" +

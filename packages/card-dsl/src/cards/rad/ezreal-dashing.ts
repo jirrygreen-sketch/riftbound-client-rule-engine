@@ -32,7 +32,9 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *    把限制写成触发器属于禁止的近似实现。
  * 2. attack-declared / defense-declared 没有产出方：docs/rules/timing-point-producers.md 记为「待后续」，
  *    combat/flow.ts 的角色事务未实现（CombatFlow 抛 combat-start-transaction）；
- * 3. 启动能力的 Mind Power 费用需要由 ActivatedAbility 的费用计划在 Finalize 消费；该卡的 cost 结构已可表达。
+ * 3. 启动费用已通过 translateCost 接入生产 Finalize，golden 用本卡原始 cost/timing/body
+ *    验证支付校验、支付动作及其后的移动，以及无 Mind Power 时拒绝入链、保持原位置；
+ *    但参考内核 pay 忽略 plan.power，尚缺 live Rune Pool 扣减的执行证据，不能声称余额已扣。
  * 已合入的 effect.damage（动态 Might 数额 + sameLocationAs 锚点）与 effect.move（controller-base）
  * 在 golden 测试里用解释器 + 参考内核真实执行。不近似实现（不把战斗伤害限制写成触发器，也不省略）。
  */
@@ -127,7 +129,11 @@ const program = {
     "该原语对任何 flags 都返回 negated(impossible)（文件头自述），所以限制无法生效；" +
     "(2) attack-declared / defense-declared 没有产出方：timing-points.ts 已定义，但 combat/flow.ts 的" +
     "角色事务未实现（抛 combat-start-transaction），docs/rules/timing-point-producers.md 记为「待后续」；" +
-    "(3) ActivatedAbility 的 Mind Power 费用与启动链路已能由费用计划表达；" +
+    "(3) 启动费用的校验和支付动作已接线——programs/activate.ts:26-29 把 ActivatedAbility.cost " +
+    "转成费用计划，golden 以本卡的 cost/timing/body 验证生产 Finalize 的 Mind 支付计划、支付回执及 Resolve 移动，" +
+    "以及无 Power 或只有错误域 Power 时拒绝移动；但 effects/testing/test-kernel.ts 的 pay 分支忽略 plan.power，" +
+    "仍缺 live Rune Pool 的 Power 扣减适配及执行证据（CR 357），不能把支付回执视为余额扣减证明；" +
+    "整卡注册仍受 judge-required 状态门控。已可执行的部分：" +
     "已合入的 effect.damage（动态 Might 数额、359.3.f.2 here 指代用 sameLocationAs 锚点）" +
     "与 effect.move（controller-base）在 golden 测试中真实执行；不近似实现（不把战斗伤害限制写成触发器或结算时动作）。",
   abilities,
