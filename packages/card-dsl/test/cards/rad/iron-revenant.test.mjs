@@ -1,11 +1,13 @@
+// RIFT-654 template execution evidence: ../templates/activated-activated-effect-resources-654.test.mjs
+// (printed Exhaust cost through the real chain plus the exhausted-source boundary). The card stays
+// judge-required for the banish payment kind, Universal Power, the resource-use restriction and
+// the Legend Zone asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/iron-revenant.js";
 import banish from "../../../../engine-core/dist/effects/instructions/effect.banish.js";
-import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
-import { translateCost, translateRestriction } from "../../../../engine-core/dist/programs/play.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -37,6 +39,7 @@ test("rad-143-167 Iron Revenant: identity, status and verbatim sourceText", () =
   // The merged restriction path, not a missing op, is the current gap.
   assert.match(program.judgeReason, /translateRestriction|needs a rules adapter/);
   assert.match(program.judgeReason, /activateAddDuringPayment/);
+  assert.match(program.judgeReason, /107\.4/);
   assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-91|RIFT-120|RIFT-257|RIFT-261/);
 });
 
@@ -102,60 +105,12 @@ test("rad-143-167 Iron Revenant: the Banish action itself is merged and moves th
   assert.deepEqual(scoped.zone("A", "banishment").map(ref => ref.id), ["dead-unit"]);
 });
 
-test("rad-143-167 Iron Revenant boundary: the printed Banish cost has no payable plan today", () => {
-  // The cost layer keeps its closed nonstandard payment vocabulary, so the
-  // declared Banish payment cannot be planned; the card stays judge-required
-  // until a banish kind exists (CR 377.1 / 355.10.c.1 / 415.4). The kind check
-  // runs before object selection, so the card's own declaration fails on the
-  // missing kind.
-  const translated = translateCost(ability.cost, "iron-revenant.cost", "activate");
-  assert.equal(translated.payments[0].kind, "banish");
-  const kernel = world()
-    .player("A", { energy: 3 })
-    .unit("revenant", { types: ["legend"], might: 4 })
-    .unit("trashed-unit", { zone: "trash", types: ["unit"], owner: "A" })
-    .build();
-  const context = kernel.clone({ sourceSnapshot: kernel.getObject("revenant") });
-  assert.throws(
-    () => buildCostPlan(context, { id: "iron-revenant.plan", cost: translated }),
-    /Unsupported payment kind: banish/i
-  );
-  // The second gap is shape-level and shows up on any supported kind: branch
-  // selection offers describe-only option names, while the planner only accepts
-  // exact ObjectRefs chosen at Finalize (355.10.c.1).
-  assert.throws(
-    () => buildCostPlan(context, {
-      id: "iron-revenant.plan",
-      cost: {
-        kind: "activated",
-        payments: [{
-          kind: "recycle",
-          amount: { kind: "constant", value: 1 },
-          choice: {
-            id: "iron-revenant.banished-card",
-            options: ["unit-or-gear-in-controller-trash"],
-            min: 1, max: 1, selection: "one", zone: "trash", type: ["unit", "gear"], owner: "controller"
-          }
-        }]
-      }
-    }),
-    /exact object reference/i
-  );
-  // The real Banish action stays available and leaves the trash untouched when
-  // no plan could be paid.
-  assert.equal(kernel.zone("A", "trash").length, 1);
-  assert.deepEqual(kernel.zone("A", "banishment"), []);
-});
-
-test("rad-143-167 Iron Revenant boundary: the declared use restriction has no Finalize adapter", () => {
-  // programs/play.ts translateRestriction only forwards a Condition/value
-  // shape, so the descriptive kind this card prints cannot become an
-  // enforceable Finalize condition yet.
-  assert.throws(
-    () => translateRestriction(ability.restriction, program.canonicalCardId),
-    /needs a rules adapter/i
-  );
-});
+// The previous "Banish cost has no payable plan" and "use restriction has no
+// Finalize adapter" goldens asserted that the missing dependencies are still
+// missing, so they would break the moment those dependencies land (cards README
+// section 4.1 / RIFT-189 precedent). The current gaps stay recorded in
+// judgeReason and in test.todo; the merged Banish action keeps its own positive
+// golden above.
 
 test.todo(
   "rad-143-167: [A] Universal Power is not executable — 135.2.e.5.b / 163.2.b require Power " +

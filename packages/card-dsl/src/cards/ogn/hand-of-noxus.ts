@@ -21,16 +21,23 @@ import type { CardProgram } from "../../ir/index.js";
  *   HistoryQuery 的 exclude 维度（契约 3.8 第 2 条），由关键词展开提供谓词。
  *
  * status = judge-required：
- * - ResolveContext.history supports turn/action/player/object/exclude queries,
- *   and condition.history / condition.predicate are executable instruction
- *   opcodes, but the CardProgram Condition vocabulary has no history node and
- *   count expressions ignore their cards-finalized-this-turn subject. The
- *   activated restriction binder therefore cannot consume the Legion gate
- *   before paying the Exhaust cost. The restriction keeps the printed gate
- *   auditable; it is not treated as an executable comparison.
+ * - [Legion] is declared as the keyword per the cards README section 5, like
+ *   every other Legion card. Its merged expansion (effects/keywords/Legion.ts)
+ *   publishes a condition.predicate static carrying the 812.1.c history
+ *   payload (excluding the host canonical identity), but that payload still
+ *   has no consumer; the closed Condition vocabulary has no history node and
+ *   count expressions ignore their cards-finalized-this-turn subject. Because
+ *   ActivatedAbility has no condition slot, the printed gate is additionally
+ *   kept as a restriction so the pre-cost Legion check stays auditable; it is
+ *   not treated as an executable comparison.
  * - The ordinary exhaust payment and resource primitive are merged, and the
  *   chain has the immediate Add path, but the activation binder does not
  *   classify this resource-adding ability for the 430.2.a/430.3 window.
+ * - Legend Zone (107.4.a-d): the frozen ZoneId/ZoneDestination unions have no
+ *   legend-zone, and the cost payer accepts only board/rune-zone exhaust hosts
+ *   (415.4/415.5), so the printed Exhaust cost cannot cite the legend's real
+ *   zone in production; golden execution uses a Board fixture as partial
+ *   evidence only.
  */
 const handOfNoxus = {
   canonicalCardId:
@@ -38,11 +45,17 @@ const handOfNoxus = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Legion 仍缺启动前历史闸门（CR 812.1.b.1 / 812.1.c）：condition.history / condition.predicate 只作为指令级原语存在，" +
-    "CardProgram Condition 没有 history 节点，且 count 表达式只查询当前对象、忽略 cards-finalized-this-turn 的 subject；" +
-    "translateRestriction 不能在支付启动费用前执行历史指令并读取结果。还缺 describeActivate 按资源增加正文识别 kind: add 的桥接：" +
-    "当前固定生成 activated，不能进入 CR 430.2.a 的即时 Add 结算与 430.3 的 Reaction-Add 支付窗口。",
+    "[Legion] 已按 cards README §5 声明为 keyword（展开已合入）：effects/keywords/Legion.ts 发布 condition.predicate 静态谓词并携带 " +
+    "CR 812.1.c 的按 canonicalCardId 排除载荷，但该载荷仍没有消费方，CardProgram 的封闭 Condition 词汇没有 history 节点，" +
+    "count 表达式也只查询当前对象、忽略 cards-finalized-this-turn 的 subject；ActivatedAbility 没有条件槽位，" +
+    "translateRestriction 不能在支付启动费用前执行历史指令并读取结果（本卡的 value+condition 组合仍抛 “combines condition and value without an adapter”），" +
+    "因此印刷闸门另以 restriction 保留可审查形状。还缺 describeActivate 按资源增加正文识别 kind: add 的桥接：" +
+    "当前固定生成 activated，不能进入 CR 430.2.a 的即时 Add 结算与 430.3 的 Reaction-Add 支付窗口。" +
+    "另缺 CR 107.4.a–d 的 Legend Zone：ZoneId/ZoneDestination 没有 legend-zone，费用支付只接受 board/rune-zone 的横置对象（415.4/415.5），" +
+    "传奇无法在真实区域支付 :rb_exhaust:；golden 的 Board 装置只是部分证据。",
   abilities: [
+    // 812.1/812.1.a/812.3：Legion 按 §5 声明为关键词，展开与依赖能力正文由引擎侧负责。
+    { kind: "keyword", keyword: "legion" },
     {
       kind: "activated",
       timing: "reaction",

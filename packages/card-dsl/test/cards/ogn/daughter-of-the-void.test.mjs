@@ -1,3 +1,7 @@
+// RIFT-654 template execution evidence: ../templates/activated-activated-effect-resources-654.test.mjs
+// (printed [Reaction] + Exhaust cost through the real chain, plus the exhausted-source and
+// no-invented-Domain [A] boundaries). The card stays judge-required for the Universal Power
+// representation, the resource-use restriction and the Legend Zone asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -5,10 +9,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ogn/daughter-of-the-void.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
-import resources from "../../../../engine-core/dist/effects/instructions/effect.resources.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-
-import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-d1376b95989d72f123c2e7fbde3eab74d70c047906b489ce0e076e7e25c757c2";
@@ -37,6 +38,7 @@ test("ogn-247-298 Daughter of the Void: identity, status, and verbatim sourceTex
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /use-only-to-play-spells/);
   assert.match(program.judgeReason, /430\.2/);
+  assert.match(program.judgeReason, /107\.4/);
 });
 
 test("ogn-247-298 Daughter of the Void: [Reaction] activation with the printed Exhaust cost", () => {
@@ -81,19 +83,6 @@ test("ogn-247-298 Daughter of the Void: the Exhaust cost is payable under the me
   assert.deepEqual(receipt.actions.map(action => action.action.type), ["pay", "exhaust"]);
 });
 
-test("ogn-247-298 Daughter of the Void: [A] Universal Power is negated by the merged primitive, never guessed", () => {
-  // 135.2.e.5.b / 163.2.b: [A] must be spendable as Power of any Domain.
-  // effect.resources documents that Universal Power is not representable and
-  // must never be approximated by a chosen domain; the golden locks that
-  // negative evidence.
-  const kernel = world().player("A", { energy: 2, power: ["Fury"] }).build();
-  const run = runInstruction(resources, add.args, { world: kernel });
-  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
-  assert.deepEqual(kernel.player("A").power, ["Fury"]);
-  assert.equal(kernel.player("A").energy, 2);
-  assert.deepEqual(run.events, []);
-});
-
 test.todo(
   "ogn-247-298: represent and spend Universal Power ([A], CR 163.2.b / 135.2.e.5.b) — the closed " +
     "Domain union and gain-power action have no universal value (contract change request)"
@@ -105,13 +94,3 @@ test.todo(
 );
 
 
-test("Daughter of the Void: the original Add body preserves resources when Universal Power is impossible", () => {
-  const initial = world().unit("daughter", { types: ["legend"] }).player("A", { energy: 2, power: ["Mind"] }).build();
-  const kernel = initial.clone({ sourceSnapshot: initial.getObject("daughter") });
-  const result = resolveChainBody(ability.body, kernel);
-  assert.equal(result.status, "partial");
-  assert.deepEqual(result.results[0].result, { status: "negated", reason: "impossible", events: [] });
-  assert.equal(kernel.player("A").energy, 2);
-  assert.deepEqual(kernel.player("A").power, ["Mind"]);
-  assert.deepEqual(result.events, []);
-});
