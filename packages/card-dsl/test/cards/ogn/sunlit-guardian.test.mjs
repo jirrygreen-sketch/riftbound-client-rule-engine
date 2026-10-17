@@ -4,6 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/sunlit-guardian.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CANONICAL =
@@ -44,7 +46,7 @@ test("ogn-054-298 Sunlit Guardian: exactly Shield and Tank keyword declarations,
 test("ogn-054-298 Sunlit Guardian: the program adds no invented static effect for the keywords", () => {
   // Guard against approximating the [Shield] +1 Might with a hand-written
   // static ability (the printed value is 1 per 814.1.b.3, but its gate needs the
-  // defender designation of 814.1.d.1, which is not merged).
+  // defender designation of 814.1.d.1, which combat does not yet publish).
   for (const ability of program.abilities) {
     assert.equal(ability.kind, "keyword");
     assert.equal("effect" in ability, false);
@@ -58,8 +60,8 @@ test("ogn-054-298 Sunlit Guardian: [Shield] expands to the defender-gated +1 Mig
   // 814.1.b.3: the omitted Shield Value is 1; 814.1.c makes it "while I am a
   // defender, I have +1 [M]". The merged KeywordDef expands to a static
   // continuous.might gated on the defender designation (814.1.d.1), but the
-  // designation is not a merged ObjectSnapshot characteristic and the layers
-  // engine does not evaluate the compare condition, so it cannot register.
+  // expansion reads designation while ObjectSnapshot exposes combatRole.
+  // The program static binder evaluates compare; combat role wiring is pending.
   const shield = keywordDefinitionsById.get("Shield");
   assert.ok(shield, "the merged Shield KeywordDef must be registered");
   assert.equal(shield.valued, true);
@@ -69,8 +71,8 @@ test("ogn-054-298 Sunlit Guardian: [Shield] expands to the defender-gated +1 Mig
   assert.equal(ability.effect.kind, "continuous.might");
   assert.deepEqual(ability.effect.amount, { kind: "constant", value: 1 });
   assert.equal(ability.effect.appliesTo, "self");
-  // The gate reads the defender designation (contract 3.8 combatRole), which the
-  // frozen ObjectSnapshot has no field for.
+  // Keep the actual expansion visible: its designation property has not been
+  // migrated to the merged combatRole characteristic.
   assert.equal(ability.condition.kind, "compare");
   assert.deepEqual(ability.condition.left, {
     kind: "object-property",
@@ -91,9 +93,9 @@ test("ogn-054-298 Sunlit Guardian: [Tank] expands to the continuous.combat damag
 });
 
 test.todo(
-  "ogn-054-298 Sunlit Guardian: [Shield] (814) needs the keyword expansion registered into the " +
-    "layers engine (RIFT-257) plus the defender designation characteristic (contract 3.8 " +
-    "combatRole, not yet in engine-core's effects/contract.ts) and a layers compare evaluator"
+  "ogn-054-298 Sunlit Guardian: [Shield] (814) needs designation -> combatRole alignment " +
+    "and combat-produced defender roles; keyword expansion, static registration and compare " +
+    "evaluation are merged"
 );
 
 test.todo(
@@ -101,3 +103,13 @@ test.todo(
     "(815.1.b/815.1.c.2); the Tank KeywordDef is merged (RIFT-264) but" +
     "combat/base-combat-allocation.ts binds no assignment-priority requirement — combat allocation workstream"
 );
+
+test("Sunlit Guardian: program keyword expansion includes both merged static definitions", () => {
+  const kernel = world().unit("guardian", { cardId: CANONICAL }).build();
+  const expanded = expandProgram(program, kernel.getObject("guardian"));
+  assert.deepEqual(expanded.declared, program.abilities);
+  assert.equal(expanded.expanded.length, 2);
+  assert.deepEqual(expanded.expanded.map(ability => ability.effect.kind), ["continuous.might", "continuous.combat"]);
+  assert.deepEqual(expanded.expanded[0].effect.amount, { kind: "constant", value: 1 });
+  assert.equal(expanded.expanded[1].effect.priority, "first");
+});

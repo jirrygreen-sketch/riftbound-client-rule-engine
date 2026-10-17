@@ -9,6 +9,10 @@ import program from "../../../dist/cards/ogn/stormclaw-ursine.js";
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { default: channel } = await import(new URL("effects/instructions/effect.channel.js", engineCore));
 const { keywordRegistryById } = await import(new URL("effects/keywords/registry.generated.js", engineCore));
+const { bindResolveContext } = await import(new URL("events/action-adapter.js", engineCore));
+const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
+const { translateTriggerFilter } = await import(new URL("programs/filters.js", engineCore));
+const { assertTriggerSpec } = await import(new URL("events/trigger-spec.js", engineCore));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", engineCore));
 
 const CANONICAL = "card.hash-c18b4d77a6fdbfcd9607beb0b7cb54e7133f47d1442f38f5e6dc0c7c5b88a769";
@@ -133,7 +137,40 @@ test.todo(
     "(RIFT-264) but nothing consumes the continuous.combat declaration — " +
     "combat/base-combat-allocation.ts explicitly binds no Tank requirement"
 );
-test.todo(
-  "Stormclaw Ursine: the played trigger (card-played timing, already emitted by chain/engine.ts) " +
-    "still needs the CardProgram -> TriggerRegistration binding (RIFT-257) to enter the chain from a real play"
-);
+test("Stormclaw Ursine: the merged program filter binder resolves the played source", () => {
+  const filter = translateTriggerFilter(playedTrigger.trigger.filter, "ursine", playedTrigger.trigger.at);
+  assert.deepEqual(filter, { event: "card-played", object: { objectId: "ursine" } });
+  assert.doesNotThrow(() => assertTriggerSpec({ at: playedTrigger.trigger.at, filter }));
+});
+
+for (const controller of ["A", "B"]) {
+  test(`Stormclaw Ursine: the authored body submits exhausted channeling for controller ${controller}`, () => {
+    const initial = world().unit("ursine", { owner: controller })
+      .rune(["own-top", "own-bottom"], { owner: controller })
+      .rune("opponent-rune", { owner: controller === "A" ? "B" : "A" }).build();
+    const kernel = initial.clone({ controller, sourceSnapshot: initial.getObject("ursine") });
+    const submitted = [];
+    const context = bindResolveContext(kernel, {
+      perform: action => { submitted.push(action); return kernel.perform(action); }
+    });
+    const outcome = resolveChainBody(playedTrigger.body, context);
+    assert.equal(outcome.status, "executed");
+    assert.deepEqual(submitted, [{ type: "channel-rune", player: controller, amount: 1, exhausted: true }]);
+    assert.equal(outcome.linkedValues["stormclaw.channel.channeled"], 1);
+    assert.deepEqual(outcome.events.map(event => event.action), ["channel-rune"]);
+    assert.equal(kernel.getObject("own-top").zone, "rune-zone");
+    assert.equal(kernel.getObject("own-bottom").zone, "rune-deck");
+    assert.equal(kernel.getObject("opponent-rune").zone, "rune-deck");
+    assert.equal(kernel.player(controller).runeDeckSize, 1);
+  });
+}
+
+test("Stormclaw Ursine: channeled rune must actually enter exhausted (CR 431.2)", {
+  todo: "effects/testing/test-kernel.ts channel-rune currently ignores action.exhausted; engine fix outside this card scope"
+}, () => {
+  const kernel = world().rune("top-rune").build();
+  const outcome = resolveChainBody(playedTrigger.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.getObject("top-rune").zone, "rune-zone");
+  assert.equal(kernel.getObject("top-rune").exhausted, true);
+});

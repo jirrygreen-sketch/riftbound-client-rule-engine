@@ -7,6 +7,7 @@ import program from "../../../dist/cards/ogn/swift-scout.js";
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
+const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
 const { runInstruction, world } = await import(
   new URL("effects/testing/index.js", engineCore)
 );
@@ -37,7 +38,7 @@ test("swift-scout identity: canonicalCardId, ruleset, judge-required status and 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /811\.1/);
   assert.match(program.judgeReason, /Champion Zone/);
-  assert.match(program.judgeReason, /RIFT-260/);
+  assert.match(program.judgeReason, /replacement\/pattern\.ts/);
   assert.equal(
     program.sourceText,
     "You may pay :rb_energy_1: to hide a card with [Hidden] instead of :rb_rune_rainbow:.\n" +
@@ -54,7 +55,7 @@ test("swift-scout structure: Hide-cost replacement with the printed 1-energy sub
   assert.equal(hideCost.with.length, 1);
   assert.equal(hideCost.with[0].id, "swift-scout.substitute-hide-cost");
   assert.equal(hideCost.with[0].op, "cost.pay");
-  assert.deepEqual(hideCost.with[0].args.energy, { kind: "constant", value: 1 });
+  assert.deepEqual(hideCost.with[0].args.payments, { kind: "constant", value: { energy: 1 } });
 });
 
 test("swift-scout structure: action-speed activated ability, 1 energy + exhaust, Teemo target", () => {
@@ -120,13 +121,31 @@ test("swift-scout golden: a locked Teemo that left the board is ignored (CR 359.
 
 test.todo(
   "swift-scout Hidden-cost replacement: intercept the Hide Discretionary Action cost payment " +
-    "(CR 811.1.b/c, 422.1) and pay 1 energy instead of the rainbow rune; RIFT-260's replacement " +
-    "binding matches only closed GameAction events, and no cost-payment/hide event exists in " +
-    "either vocabulary, so a cost-payment hook is still missing."
+    "(CR 811.1.b/c, 422.1) and pay 1 energy instead of the rainbow rune; GameAction pay exists, " +
+    "but replacement patterns cannot match pay/hide/cost-payment and the Hide lifecycle is pending."
 );
 
 test.todo(
   "swift-scout Champion Zone half: target a Teemo unit you own in the Champion Zone or on the " +
     "board (CR 355.9.a.5, 108.3); the contract ZoneId / ObjectFilter.zone have no Champion Zone " +
-    "and owner-zone routing for that zone is a contract change request."
+    "so the Champion Zone target half remains a contract change request; owner hand routing works."
 );
+
+test("swift-scout: the authored substitute-cost body pays exactly one energy", () => {
+  const kernel = world().player("A", { energy: 2 }).build();
+  const outcome = resolveChainBody(hideCost.with, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.player("A").energy, 1);
+  assert.equal(kernel.player("B").energy, 0);
+  assert.deepEqual(outcome.events.map(event => event.action), ["pay"]);
+  assert.equal(outcome.linkedValues["swift-scout.substitute-hide-cost.payment"].paid, true);
+});
+
+test("swift-scout: the authored substitute-cost body cannot pay without energy", () => {
+  const kernel = world().build();
+  const before = kernel.snapshot();
+  assert.throws(() => resolveChainBody(hideCost.with, kernel),
+    error => error.name === "CostPlanError" && error.reason === "cannot-pay-cost");
+  assert.deepEqual(kernel.snapshot(), before);
+  assert.equal(kernel.history({ action: "pay" }), 0);
+});
