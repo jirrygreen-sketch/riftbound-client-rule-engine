@@ -1,3 +1,6 @@
+// RIFT-643: static|| execution evidence is consolidated in ../templates/static-643.test.mjs.
+// This file retains the card's identity, status, sourceText, and key IR guards.
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
@@ -35,7 +38,16 @@ test("ornns-forge: static cost-modify structure", () => {
   assert.equal(ability.effect.duration, "per-turn-first-play");
   assert.equal(ability.effect.appliesTo, "play-cost");
   assert.deepEqual(ability.effect.filter, { type: "gear", controller: "controller", isToken: false });
-  assert.deepEqual(ability.condition, { kind: "always" });
+  assert.deepEqual(ability.condition, {
+    kind: "compare",
+    left: {
+      kind: "count",
+      subject: "objects",
+      filter: { object: "self", controller: "self" }
+    },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
+  });
 });
 
 test("ornns-forge golden: the merged cost.modify primitive applies the authored -1 Energy to a real plan", () => {
