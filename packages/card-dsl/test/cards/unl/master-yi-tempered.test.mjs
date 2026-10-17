@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/master-yi-tempered.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CANONICAL_ID =
   "card.hash-c32a0493f88b4c947cb3f7806d8ba125b166dd6478a848bb39f1da87aed3ae92";
@@ -23,10 +25,16 @@ test("unl-113-219 Master Yi, Tempered: identity, status, judgeReason and verbati
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /823\.1\.c\.1/);
   assert.match(program.judgeReason, /824\.1/);
   assert.match(program.judgeReason, /Deflect/);
   assert.match(program.judgeReason, /Ganking/);
+  // The merged keyword definitions are named as such; the remaining gaps are
+  // the trigger spelling/object payload, the XP predicate and the missing
+  // card-static registration.
+  assert.match(program.judgeReason, /RIFT-265/);
+  assert.match(program.judgeReason, /RIFT-268/);
 });
 
 test("unl-113-219 Master Yi, Tempered: [Hunt 2] carries its printed Hunt Value", () => {
@@ -63,17 +71,82 @@ test("unl-113-219 Master Yi, Tempered: Ganking is granted to the host", () => {
   assert.deepEqual(gankingGrant.effect.filter, { object: "self" });
 });
 
-test("unl-113-219 Master Yi, Tempered: the merged keyword registry has no Hunt or Level entry", async () => {
+test("unl-113-219 Master Yi, Tempered: the merged keyword registry now provides Hunt and Level", async () => {
   const { keywordDefinitionsById } = await import(
     "../../../../engine-core/dist/effects/keywords/registry.generated.js"
   );
-  assert.equal(keywordDefinitionsById.has("Hunt"), false);
-  assert.equal(keywordDefinitionsById.has("Level"), false);
-  // The two keywords this card needs for its grants are already merged, which is
-  // why the judgeReason points at the grant-registration and XP-predicate gaps
-  // rather than at missing Deflect/Ganking definitions.
+  // RIFT-265 and RIFT-268 merged these definitions, so the card's remaining
+  // gaps are the subscription spelling/object payload and the unevaluated XP
+  // predicate, not the missing KeywordDefs.
+  assert.equal(keywordDefinitionsById.has("Hunt"), true);
+  assert.equal(keywordDefinitionsById.has("Level"), true);
   assert.equal(keywordDefinitionsById.has("Deflect"), true);
   assert.equal(keywordDefinitionsById.has("Ganking"), true);
+});
+
+test("unl-113-219 Master Yi, Tempered: Hunt 2 expands to the conquer/hold XP triggers (823.1.c.1)", async () => {
+  const { default: hunt } = await import("../../../../engine-core/dist/effects/keywords/Hunt.js");
+  const expansion = hunt.expand({ value: hunt.value ?? program.abilities[0].value, host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expansion.length, 2);
+  assert.deepEqual(expansion.map(ability => ability.trigger.at), ["conquer", "hold"]);
+  assert.deepEqual(expansion.map(ability => ability.body[0].op), ["effect.xp", "effect.xp"]);
+  // 823.2: the printed Hunt Value 2 flows through the keyword's own expansion,
+  // so the card does not restate the XP gain.
+  assert.deepEqual(expansion.map(ability => ability.body[0].args.amount), [
+    { kind: "constant", value: 2 },
+    { kind: "constant", value: 2 }
+  ]);
+});
+
+test("unl-113-219 Master Yi, Tempered: the Hunt expansion's event spelling is outside the closed vocabulary", async () => {
+  // Evidence for the remaining gap: the closed EVENT_PATTERN_TYPES spells the
+  // scoring events "conquered"/"held" (events/trigger-spec.ts, with the
+  // EVENT_NAMES aliases in events/pipeline-match.ts), so programs/triggers.ts
+  // rejects Hunt's own "conquer"/"hold" filters before any subscription exists.
+  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  const { validateTriggerSpec } = await import("../../../../engine-core/dist/events/trigger-spec.js");
+  const { default: hunt } = await import("../../../../engine-core/dist/effects/keywords/Hunt.js");
+  const expansion = hunt.expand({ value: program.abilities[0].value, host: { canonicalCardId: CANONICAL_ID } });
+
+  for (const ability of expansion) {
+    const translated = translateTriggerFilter(ability.trigger.filter, "yi");
+    const result = validateTriggerSpec({ at: ability.trigger.at, filter: translated });
+    assert.equal(result.ok, false);
+    assert.equal(result.issues[0].code, "invalid-event-type");
+    // The registrable alias for the same event is the closed spelling.
+    const alias = { conquer: "conquered", hold: "held" }[ability.trigger.at];
+    assert.equal(validateTriggerSpec({ at: ability.trigger.at, filter: translateTriggerFilter({ event: alias, filter: { source: "self" } }, "yi") }).ok, true);
+  }
+});
+
+test("unl-113-219 Master Yi, Tempered: the Level expansion publishes a predicate no merged evaluator consumes", async () => {
+  const { createLayerEngine } = await import("../../../../engine-core/dist/layers/index.js");
+  const { default: level } = await import("../../../../engine-core/dist/effects/keywords/Level.js");
+  const { world } = await import("../../../../engine-core/dist/effects/testing/index.js");
+  const [predicate] = level.expand({ value: 6, host: { canonicalCardId: CANONICAL_ID } });
+  // 824.1.a: [Level 6][>] publishes a condition.predicate static effect.
+  assert.equal(predicate.kind, "static");
+  assert.equal(predicate.effect.kind, "condition.predicate");
+  assert.deepEqual(predicate.effect.threshold, { kind: "constant", value: 6 });
+
+  // layers/engine.ts applyAbility only handles keyword / timing / movement /
+  // text kinds, so the predicate changes nothing; the card's own grants are
+  // therefore not gated by the controller's XP in the merged layer path.
+  const kernel = world().unit("yi", { owner: "A", controller: "A", might: 4, location: { type: "battlefield", id: "bf-1" } }).build();
+  const engine = createLayerEngine(kernel.objects, [
+    {
+      effect: {
+        id: "level-predicate",
+        layer: "ability",
+        source: kernel.ref("yi"),
+        filter: { objectId: "yi" },
+        effect: predicate.effect
+      },
+      duration: { type: "permanent" },
+      timestamp: 1
+    }
+  ]);
+  assert.deepEqual(engine.evaluate(kernel.ref("yi")).keywords, []);
 });
 
 test("unl-113-219 Master Yi, Tempered: the Deflect expansion is a target tax the merged target plan can bill", async () => {

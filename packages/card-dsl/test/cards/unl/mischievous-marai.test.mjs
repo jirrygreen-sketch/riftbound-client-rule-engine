@@ -92,6 +92,10 @@ test("unl-003-219 Mischievous Marai: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /811\.1\.b/);
   assert.match(program.judgeReason, /card-played/);
   assert.match(program.judgeReason, /RIFT-89/);
+  // The program binding is merged, so the reason must name the missing
+  // play-location payload and the missing static registration path.
+  assert.match(program.judgeReason, /noopStaticBinder/);
+  assert.match(program.judgeReason, /details/);
 });
 
 test("unl-003-219 Mischievous Marai: Hidden keyword plus a self play trigger dealing 2", () => {
@@ -210,6 +214,57 @@ test("unl-003-219 Mischievous Marai: the primitive itself reports the full targe
 
 test("unl-003-219 Mischievous Marai: the generated card registry exposes the program under its canonical id", () => {
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
+});
+
+test("unl-003-219 Mischievous Marai: the trigger registers, but needs a play-location detail nothing emits", async () => {
+  // Evidence for the remaining gap: programs/filters.ts + programs/triggers.ts
+  // (RIFT-257) accept the subscription, and the closed matcher only fires when
+  // the card-played event carries details.playedTo = "battlefield". The merged
+  // chain only emits { object, player } for card-played (chain/engine.ts), so
+  // the printed "to a battlefield" condition never matches instead of being
+  // widened to "played anywhere" (which would also fire at a Base).
+  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  const { validateTriggerSpec } = await import("../../../../engine-core/dist/events/trigger-spec.js");
+  const { matchesTriggerEvent } = await import("../../../../engine-core/dist/events/pipeline-match.js");
+
+  const translated = translateTriggerFilter(triggered.trigger.filter, "marai");
+  assert.deepEqual(translated.details, { playedTo: "battlefield" });
+  assert.equal(validateTriggerSpec({ at: "card-played", filter: translated }).ok, true);
+
+  const source = {
+    ref: { id: "marai", zoneEntryId: 1 },
+    cardId: CANONICAL_ID,
+    name: "marai",
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "bf-1" },
+    might: 2,
+    energy: 2,
+    power: ["Fury"],
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const mergedEvent = { timingPoint: "card-played", player: "A", object: source };
+  assert.equal(matchesTriggerEvent(translated, mergedEvent, "A"), false);
+  // The same subscription does match an event that carries the detail, which is
+  // why the gap is the payload and not the trigger spelling.
+  assert.equal(matchesTriggerEvent(translated, { ...mergedEvent, details: { playedTo: "battlefield" } }, "A"), true);
+});
+
+test("unl-003-219 Mischievous Marai: Hidden's cost.hidden expansion has no merged consumer", async () => {
+  const { default: hidden } = await import("../../../../engine-core/dist/effects/keywords/Hidden.js");
+  const [expansion] = hidden.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expansion.kind, "static");
+  assert.deepEqual(expansion.effect, { kind: "cost.hidden" });
 });
 
 test.todo(

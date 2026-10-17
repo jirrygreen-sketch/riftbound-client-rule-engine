@@ -25,18 +25,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   · "(+1 :rb_might: while they're attackers.)" 是授予后 Assault 的关键词展开结果
  *     （807.1.c），提醒文本本身不是第三条能力。
  *
- * status = judge-required（缺口不近似实现）：
- * - [Ambush] 没有 KeywordDef（effects/keywords/ 下无 Ambush.ts），822.1.b/.c 的合法打出
- *   位置与 Reaction 许可没有展开实现；不能用 [Reaction] 关键词冒充（822.1.b 的 Reaction
- *   只在以 Ambush 方式打出的那一次成立，而 813.1.c 的 [Reaction] 是整张牌的常驻许可）。
- * - 关键词授予没有已注册原语：effects/instructions/ 下没有 continuous.grant-keyword
- *   （或 continuous.keyword）文件，也没有任何消费者把 CardProgram 的 static 能力注册进
- *   layers（registerContinuousEffect 无调用方），因此本条指令当前无法执行；授予后的 Assault
- *   展开还需 807.1.d 的 Attacker designation（不是 ObjectSnapshot 特征，契约 3.8 combatRole
- *   未进 HEAD）。
- *
- * 依赖：RIFT-84（kw-* 展开批次中的 Ambush）、RIFT-81 / RIFT-91（关键词授予与图层接线）、
- * 契约 3.8 的 combatRole 落地、RIFT-120（卡牌触发注册）。
+ * status = judge-required（按 2026-10-16 合入批次复核；缺口不近似实现）：
+ * - [Ambush] 的 KeywordDef 已合入（RIFT-266），展开为 play-location-permission 与
+ *   continuous.timing 两个静态声明；但两者都没有消费方：programs/statics.ts 缺省
+ *   noopStaticBinder（没有把 CardProgram static 注册成图层效果的路径），
+ *   layers/rules/query.ts 的 playLocations() 没有调用方，chain.canAct() 也不读取图层时机许可。
+ * - 「give your other units here [Assault] this turn」的授予本身已可执行：
+ *   continuous.grant-keyword（RIFT-258）接受 objects/query 选择形状并在 ability 图层登记，
+ *   golden 用链适配器 + 图层引擎执行卡程序原始 body。
+ * - 授予后的 Assault 不会变成 +1 Might：Assault.ts 展开的条件读 host 的 "designation" 特征，
+ *   而 ObjectSnapshot 只提供 combatRole（契约 3.8），layers/engine.ts 的 conditionMatches
+ *   不评估 compare 条件、未识别时按 true（exp22 实测：无指定也 +2），因此授予在没有攻击者
+ *   判定的情况下不是可执行语义。
+ * 依赖：卡牌 static → layers 的注册与 playLocations/canAct 消费方（RIFT-257/259 后续）、
+ * 图层 compare 条件与 designation/combatRole 对齐（RIFT-91 后续）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "ambush" },
@@ -51,23 +53,26 @@ const abilities: Ability[] = [
     body: [
       {
         id: "lord-broadmane.grant-assault",
-        // 801.3.a 的关键词授予（带 end-of-turn 期限）；原语未注册，见 judgeReason。
+        // 801.3.a 的关键词授予（带 end-of-turn 期限），由已合入的 continuous.grant-keyword 执行。
         op: "continuous.grant-keyword",
         args: {
           keyword: { kind: "constant", value: "assault" },
           // 807.1.b.3：印刷省略数值 → Assault Value 1；不写 value 以免与缺省值冲突。
           duration: { kind: "constant", value: "end-of-turn" },
           // 355.10.d："your other units here" 是程序化集合、不是目标；集合锚点与
-          // 排除自身写进 filter（355.9.c 的 "other"，053.3 的 "here"）。
-          // args 里的值一律是 Expr（契约 3.2），filter 是 ObjectFilter 常量。
-          filter: {
+          // 排除自身写进 query 过滤（355.9.c 的 "other"，053.3 的 "here"）。
+          // 合并原语的选择形状是 objects 描述符；裸 filter 会被当 Expr 求值而失败。
+          objects: {
             kind: "constant",
             value: {
-              zone: "board",
-              type: "unit",
-              controller: "self",
-              exclude: "self",
-              sameLocationAs: "self"
+              kind: "query",
+              filter: {
+                zone: "board",
+                type: "unit",
+                controller: "self",
+                exclude: "self",
+                sameLocationAs: "self"
+              }
             }
           }
         }
@@ -82,16 +87,19 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入：(1) [Ambush]（822）没有已合入的 KeywordDef——effects/keywords/ 下无 Ambush.ts，" +
-    "822.1.b/.c 的“可打到你有单位的战场”位置改写与仅在该次打出时成立的 Reaction 许可没有展开实现；" +
-    "不能用 [Reaction] 关键词冒充（813.1.c 的 Reaction 是整张牌的常驻许可，与 822.1.b 的一次性许可不同）。" +
-    "(2) 「give your other units here [Assault] this turn」需要卡牌侧的关键词授予原语与期限：" +
-    "effects/instructions/ 下没有 continuous.grant-keyword / continuous.keyword 文件，也没有任何消费者把 " +
-    "CardProgram 的 static 能力注册进 layers（registerContinuousEffect 无调用方），本条指令当前无法执行；" +
-    "授予后的 Assault 展开还需要 807.1.d 的 Attacker designation，而它不是 ObjectSnapshot 特征" +
-    "（契约 3.8 combatRole 未进 HEAD）。" +
-    "依赖：RIFT-84（kw-* 展开批次中的 Ambush）、RIFT-81 / RIFT-91（关键词授予与图层接线）、" +
-    "契约 3.8 的 combatRole 落地、RIFT-120（卡牌触发注册）。不近似实现。",
+    "两处缺口，均不近似实现（已按 2026-10-16 合入批次复核）：" +
+    "(1) [Ambush]（822.1.b/822.1.c）的 KeywordDef 已合入（effects/keywords/Ambush.ts，RIFT-266），展开为 " +
+    "play-location-permission 与 continuous.timing 静态声明，但两者都没有消费方：programs/statics.ts 缺省 " +
+    "noopStaticBinder（没有把卡牌 static 能力注册成图层效果的入口），layers/rules/query.ts 的 playLocations() " +
+    "无调用方，chain.canAct()（813.1.c 的时机许可查询）也不读取图层。" +
+    "(2) 「give your other units here [Assault] this turn」的 continuous.grant-keyword（RIFT-258）已合入，" +
+    "golden 用链适配器 + 图层引擎真实执行卡程序 body 并断言 only-other、here、end-of-turn 三个维度；" +
+    "但授予后的 Assault 还不是可执行语义：Assault.ts 展开读宿主 " +
+    "\"designation\"（807.1.d），ObjectSnapshot 只有 combatRole（契约 3.8），且 layers/engine.ts 的 " +
+    "conditionMatches 不评估 compare 条件、未识别时按 true（实测无指定也会 +2 Might），因此现在绑定会把 " +
+    "「仅攻击者 +1」变成常驻 +1。" +
+    "依赖：卡牌 static → layers 注册与 playLocations/canAct 消费方（RIFT-257/259 后续）、" +
+    "图层 compare 条件与 designation/combatRole 对齐（RIFT-91 后续）。",
   abilities,
   sourceText:
     "[Ambush] (You may play me as a [Reaction] to a battlefield where you have units.)\n" +

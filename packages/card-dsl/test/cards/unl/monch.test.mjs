@@ -5,7 +5,9 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/monch.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-f6fc6f5dbe6ceebe1e128bfe16a67f81a7cc149370db212b7fbda2bbd71599e4";
@@ -28,9 +30,12 @@ test("unl-035-219 Monch: identity, status, judgeReason and verbatim sourceText",
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /356\.4/);
   assert.match(program.judgeReason, /cost\.modify/);
-  assert.match(program.judgeReason, /replacement\.enter/);
+  assert.match(program.judgeReason, /replacement\/bind\.ts/);
   assert.match(program.judgeReason, /369\.3/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  // The replacement binding (RIFT-260) is merged; the reason must name the
+  // missing card-static registration and the object-filter shape instead.
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-260/);
 });
 
 test("unl-035-219 Monch: the -2 energy discount is declared as a gated cost modification (CR 356.4)", () => {
@@ -96,6 +101,102 @@ test("unl-035-219 Monch golden: a source that already entered ready is not readi
   assert.equal(run.result.status, "executed");
   assert.equal(run.linked.readied.count, 0);
   assert.deepEqual(run.events, []);
+});
+
+test("unl-035-219 Monch golden: the merged replacement layer binds the declared entry replacement", () => {
+  // RIFT-260's bindReplacement accepts this card's { replaces, with } shape and
+  // intercepts the board-entry move, correcting the orientation before the
+  // permanent lands (CR 369.3 / 805.6). The binding is created with the real
+  // chain fixture; the card's own declared body drives it.
+  const f = fixture({ cards: [{ id: "monch", types: ["unit"], energy: 1, power: [], might: 6 }] });
+  const bound = bindReplacement(
+    { replaces: enterReady.replaces, with: enterReady.with },
+    f.kernel.ref("monch"),
+    {
+      host: {
+        object: ref => f.kernel.object(ref),
+        objects: () => f.kernel.objects,
+        context: (source, controller) => f.kernel.clone({ sourceSnapshot: source, controller })
+      },
+      pipeline: f.engine.pipeline
+    }
+  );
+  assert.equal(bound.registration.id, "replacement:monch:1");
+
+  f.engine.execute(f.card("monch", { kind: "unit", body: [] }));
+  resolveAll(f.engine);
+  const entered = f.kernel.getObject("monch");
+  assert.equal(entered.zone, "board");
+  assert.equal(entered.exhausted, false);
+  // 805.6.a: the substitution never becomes a "becomes ready" event.
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "object-readied"), false);
+});
+
+test("unl-035-219 Monch golden: the merged entry path ignores the printed condition entirely", () => {
+  // Evidence for the remaining gap: replacement/bind.ts's registration.matches
+  // returns true from matchesEnterAction without ever calling testCondition, so
+  // the printed "If an opponent controls a stunned unit" gate is skipped on the
+  // merged entry path. The same declared body with `never` still enters ready.
+  const f = fixture({ cards: [{ id: "monch", types: ["unit"], energy: 1, power: [], might: 6 }] });
+  bindReplacement(
+    { replaces: enterReady.replaces, condition: { kind: "never" }, with: enterReady.with },
+    f.kernel.ref("monch"),
+    {
+      host: {
+        object: ref => f.kernel.object(ref),
+        objects: () => f.kernel.objects,
+        context: (source, controller) => f.kernel.clone({ sourceSnapshot: source, controller })
+      },
+      pipeline: f.engine.pipeline
+    }
+  );
+  f.engine.execute(f.card("monch", { kind: "unit", body: [] }));
+  resolveAll(f.engine);
+  const entered = f.kernel.getObject("monch");
+  assert.equal(entered.zone, "board");
+  assert.equal(entered.exhausted, false);
+});
+
+test("unl-035-219 Monch: the printed condition is an opponent-scoped stunned-unit count", () => {
+  const condition = enterReady.condition;
+  assert.equal(condition.kind, "compare");
+  assert.equal(condition.left.kind, "count");
+  assert.deepEqual(condition.left.filter, {
+    type: "unit",
+    zone: "board",
+    controller: "opponent",
+    states: "stunned"
+  });
+  // The card's replaces filter uses the inner-source spelling, which the
+  // merged object-filter matcher does not read as "this card enters".
+  assert.deepEqual(enterReady.replaces.filter, { source: "self", exhausted: true });
+});
+
+test("unl-035-219 Monch: layer conditions still treat an unrecognised compare as true", async () => {
+  // Evidence for judgeReason item (3): both the cost modification and the
+  // replacement share this condition, and layers/engine.ts conditionMatches
+  // only recognises always/never/type/has-tag/has-keyword.
+  const { createLayerEngine } = await import("../../../../engine-core/dist/layers/index.js");
+  const kernel = world()
+    .unit("monch", { owner: "A", controller: "A", might: 6, location: { type: "base", player: "A" } })
+    .build();
+  const engine = createLayerEngine(kernel.objects, [
+    {
+      effect: {
+        id: "monch-discount",
+        layer: "ability",
+        source: kernel.ref("monch"),
+        filter: { objectId: "monch" },
+        effect: { kind: "continuous.cost-modification", resource: "energy", amount: -2 },
+        condition: costModification.condition
+      },
+      duration: { type: "permanent" },
+      timestamp: 1
+    }
+  ]);
+  // The condition is never evaluated (no stunned unit exists in this world),
+  // yet the layer keeps the effect: unrecognised conditions are treated as true.
+  assert.equal(engine.evaluate(kernel.ref("monch")).might, 6);
 });
 
 test.todo(

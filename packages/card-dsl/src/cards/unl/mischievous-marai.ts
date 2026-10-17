@@ -22,14 +22,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "here" 是 053.3 的位置限定（比较时用契约 3.6 的 sameLocationAs 锚点指向来源，
  *   已合入的 ObjectFilter 锚点语义见 effects/interpreter/README.md）。
  *
- * status = judge-required（缺口不近似实现）：
- * - [Hidden] 的 KeywordDef 已合入，但展开出的 static cost.hidden 没有消费方：Hide 行动
+ * status = judge-required（按 2026-10-16 合入批次复核；缺口不近似实现）：
+ * - [Hidden] 的 KeywordDef 已合入，但展开出的 static cost.hidden 没有消费方：programs/statics.ts
+ *   缺省 noopStaticBinder（没有把卡牌 static 注册进图层的路径），Hide 行动
  *   （支付 [A] 进入 Facedown Zone）与"忽略基础费用 + [Reaction]"的从面朝下打出
  *   （811.1.b / 811.1.d.1）在 cost/ 与 zones/ 中没有接线（cost/README.md 第 3 条同款记录，
  *   与 teemo-scout、wages-of-pain、fox-fire-ahri 同一口径）。
- * - 触发条件 "play me to a battlefield" 需要打出事件携带"该牌进入的是 Battlefield"这一载荷：
- *   chain/engine.ts 发出的 card-played 事件带 object/player，但没有位置载荷，EventPattern
- *   也没有位置匹配字段，不能把"打到战场"放宽成"以任意位置打出"（那会在打到基地时错误触发）。
+ * - 触发条件 "play me to a battlefield"：card-played 事件的 details 里没有打出位置载荷，
+ *   chain/engine.ts 只发 { object, player }（events/timing-points.ts 声明的 payloadFields 未填），
+ *   EventPattern 也没有位置匹配字段；因此 [event, object, player, details.playedTo] 这一订阅
+ *   经 programs/filters.ts 归一化后仍带 details.playedTo，pipeline-match 会拿不存在的事件细节比较而永不命中，
+ *   不能把"打到战场"放宽成"以任意位置打出"（那会在打到基地时错误触发）。
  *
  * 已合入并真实执行的部分：触发体的 effect.damage（418.1.c）用印刷数额 2、对手控制的
  * Board 单位与 sameLocationAs 锚点在 golden 中真实执行，并覆盖部分失效（359.3.e.8）。
@@ -91,16 +94,18 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入：(1) [Hidden]（811）的 KeywordDef（effects/keywords/Hidden.ts，static cost.hidden）已合入，" +
-    "但没有消费方：811.1.b / 811.1.c 的 Hide 行动（支付 [A] 把此牌面朝下藏在你控制的战场）与从面朝下打出" +
-    "（811.1.b 的忽略基础费用 + [Reaction]、811.1.d.1 的只能打回该战场；本例费用为 :rb_energy_0:）在 cost/ 与 zones/ 中都没有接线（cost/README.md 第 3 条：zones/actions 尚不支持" +
-    "Champion/Facedown 区域与 Hide，需父任务契约与集成）。" +
+    "两处缺口，均不近似实现（已按 2026-10-16 合入批次复核）：" +
+    "(1) [Hidden]（811）的 KeywordDef（effects/keywords/Hidden.ts，static cost.hidden）已合入，" +
+    "但没有消费方：programs/statics.ts 缺省 noopStaticBinder（卡牌 static → layers 无注册路径），" +
+    "811.1.b / 811.1.c 的 Hide 行动（支付 [A] 把此牌面朝下藏在你控制的战场）与从面朝下打出" +
+    "（811.1.b 的忽略基础费用 + [Reaction]、811.1.d.1 的只能打回该战场；本例费用为 :rb_energy_0:）在 cost/ 与 zones/ " +
+    "中都没有接线（cost/README.md 第 3 条：zones/actions 尚不支持 Champion/Facedown 区域与 Hide）。" +
     "(2) 触发条件 “When you play me to a battlefield” 需要打出事件携带打出位置：chain/engine.ts 的 card-played 事件" +
-    "只带 object/player，EventPattern 也没有位置匹配字段，因此不能诚实订阅；把条件放宽为“打到任意位置”会在" +
-    "打到基地（143.4 允许）时错误触发，不采用。" +
-    "已合入部分：触发体的 effect.damage（418.1.c 印刷 2 点、740.1.b 的 enemy 与 053.3 的 here 写成 " +
-    "sameLocationAs 锚点）在 golden 中用参考内核真实执行。依赖：RIFT-84 / RIFT-89（cost.hidden 与 Facedown Zone 接线）、" +
-    "RIFT-120（卡牌触发注册）与 card-played 的位置载荷。",
+    "只带 object/player，details 里没有位置载荷（timing-points.ts 声明的 payloadFields 未填），EventPattern 也没有位置匹配字段，" +
+    "因此该订阅归一化后仍带 details.playedTo 而永不命中；把条件放宽为“打到任意位置”会在打到基地（143.4 允许）时错误触发，不采用。" +
+    "已合入部分：card-played 触发注册（programs/filters.ts + programs/triggers.ts，RIFT-257）与触发体的 effect.damage" +
+    "（418.1.c 印刷 2 点、740.1.b 的 enemy 与 053.3 的 here 写成 sameLocationAs 锚点）在 golden 中用链适配器 + 参考内核真实执行。" +
+    "依赖：cost.hidden 与 Facedown Zone 的 Hide/打出接线（RIFT-89 后续）与 card-played 的位置载荷（RIFT-120 后续）。",
   abilities,
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +

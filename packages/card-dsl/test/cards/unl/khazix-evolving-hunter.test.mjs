@@ -35,12 +35,48 @@ test("unl-119-219 Kha'Zix, Evolving Hunter: identity, status, judgeReason and ve
   assert.match(program.judgeReason, /740\.4\.a/);
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /RIFT-120/);
+  // Hunt's KeywordDef is merged (RIFT-265); the remaining Hunt gap is the
+  // conquer/hold event spelling and payload, not a missing definition.
+  assert.match(program.judgeReason, /RIFT-265/);
 });
 
 test("unl-119-219 Kha'Zix, Evolving Hunter: [Hunt] omits the value, which is Hunt 1 (823.1.c.2)", () => {
   assert.equal(program.abilities.length, 2);
   assert.deepEqual(hunt, { kind: "keyword", keyword: "hunt" });
   assert.equal(hunt.value, undefined);
+});
+
+test("unl-119-219 Kha'Zix, Evolving Hunter: the merged Hunt definition expands to the 1 XP conquer/hold triggers", async () => {
+  const { default: huntDefinition } = await import("../../../../engine-core/dist/effects/keywords/Hunt.js");
+  const expansion = huntDefinition.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  // 823.1.c.1/.c.2: "When I conquer or hold, gain 1 XP" from the omitted value.
+  assert.deepEqual(expansion.map(ability => ability.trigger.at), ["conquer", "hold"]);
+  assert.deepEqual(expansion.map(ability => ability.body[0].args.amount), [
+    { kind: "constant", value: 1 },
+    { kind: "constant", value: 1 }
+  ]);
+});
+
+test("unl-119-219 Kha'Zix, Evolving Hunter: neither Hunt nor the attack trigger can register today", async () => {
+  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  const { translateInstructionTargets } = await import("../../../../engine-core/dist/programs/filters.js");
+  const { validateTriggerSpec } = await import("../../../../engine-core/dist/events/trigger-spec.js");
+  // (a) Hunt authors the timing-point id as the event name; the closed
+  // vocabulary spells the same event "conquered".
+  const huntFilter = validateTriggerSpec({
+    at: "conquer",
+    filter: translateTriggerFilter({ event: "conquer", filter: { source: "self" } }, "khazix")
+  });
+  assert.equal(huntFilter.ok, false);
+  assert.equal(huntFilter.issues[0].code, "invalid-event-type");
+
+  // (b) attack-declared is a valid spelling, but the declared body carries the
+  // 359.3.f "here" anchor (sameLocationAs) inside a TargetSpec, and the program
+  // binding's instruction translator rejects that card-side anchor.
+  assert.throws(
+    () => translateInstructionTargets(attackTrigger.body),
+    error => error.code === "judge-required" && /Unsupported filter field sameLocationAs/.test(error.message)
+  );
 });
 
 test("unl-119-219 Kha'Zix, Evolving Hunter: 'When I attack' is an attack-declared trigger on the source (383.4.e)", () => {

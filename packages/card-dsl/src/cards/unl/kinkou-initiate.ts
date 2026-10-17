@@ -23,13 +23,25 @@ import type { CardProgram } from "../../ir/index.js";
  *   board units the controller controls aside from the host, and "total Might"
  *   sums their Effective Might.
  *
- * Status: judge-required. The printed gate needs the sum of a filtered set's
- * Might, which the frozen Expr algebra cannot produce: `count` counts matching
- * objects and `object-property` reads one object's characteristic, and no
- * merged form returns Σ Might of "your other units" (contract 3.2 Expr has no
- * sum/reduce). The retained `count` subject/filter records that gap and is not
- * an approximation of the 5-Might total; the draw primitive itself is merged
- * and executed for real by the golden test.
+ * Status: judge-required. Re-checked against the merged instruction, program-
+ * binding and continuous-effect batches (RIFT-257/258/259, 2026-10-16):
+ * - The printed gate still needs the sum of a filtered set's Might. `count`
+ *   counts matching objects and `object-property` reads one object's
+ *   characteristic; no merged Expr returns Σ Effective Might of "your other
+ *   units" (contract 3.2 Expr has no sum/reduce form). The retained `count`
+ *   subject/filter records that gap and is not an approximation of the 5-Might
+ *   total.
+ * - The `card-played` trigger and the draw body do bind: programs/filters.ts
+ *   translates `{source: "self"}` to the host object id and
+ *   programs/triggers.ts registers the subscription, so the merged halves have
+ *   real execution evidence. The gate cannot be attached honestly: the
+ *   production filter translator (programs/filters.ts) rejects the `exclude`
+ *   anchor used by the retained filter ("Unsupported filter field exclude"), so
+ *   the count placeholder would silently count the host itself instead of
+ *   failing closed.
+ * Dependencies: a sum-over-set Expr plus the `exclude` anchor in the program
+ * filter translator (RIFT-9 expression inventory, RIFT-257 follow-up). Not
+ * approximated.
  */
 export default {
   canonicalCardId: "card.hash-578f670d7fdae87fd32e34179e331f901a8f108dcb51c337c971db00b3e3c498",
@@ -41,7 +53,11 @@ export default {
     "但冻结的 Expr 只有 count（计数）与 object-property（读单个对象特征），没有 sum-over-set / reduce 形式；" +
     "contract 3.2 的 Expr 需要新增该值表达式（RIFT-9 表达式清单）。程序里 count 的 subject " +
     "'other-friendly-units-total-might' 只是该缺口的描述性占位，不近似实现印刷语义。" +
-    "抽牌原语 effect.draw 已合入并有执行测试。",
+    "已合入并可由 golden 真实执行的部分：card-played 触发（programs/filters.ts 把 {source: \"self\"} 归一化为宿主对象、" +
+    "programs/triggers.ts 注册订阅，RIFT-257）与 effect.draw 抽 1 张。" +
+    "条件本身还缺消费方：程序绑定侧的 filter 翻译器（engine-core/src/programs/filters.ts）不接受 retain 的 " +
+    "exclude 锚点（报 Unsupported filter field exclude），因此即使换成 count 也会把宿主自己算进去而不是失败关闭。" +
+    "依赖：sum-over-set 表达式（RIFT-9）与程序绑定 filter 锚点（RIFT-257 后续）。不近似实现。",
   abilities: [
     {
       kind: "triggered",

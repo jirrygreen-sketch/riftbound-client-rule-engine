@@ -28,6 +28,10 @@ test("unl-097-219 Kinkou Initiate: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /143\.2\.a\.1/);
   assert.match(program.judgeReason, /total Might/);
   assert.match(program.judgeReason, /count/);
+  // The trigger/draw half now binds (RIFT-257); the reason must name the
+  // sum-over-set expression and the rejected exclude anchor.
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /exclude/);
 });
 
 test("unl-097-219 Kinkou Initiate: 'when you play me' trigger is the card-played Play Effect", () => {
@@ -104,8 +108,58 @@ test("unl-097-219 Kinkou Initiate: the retained sum-of-Might gate does not evalu
   assert.notEqual(counted, totalMight);
 });
 
+test("unl-097-219 Kinkou Initiate golden: the card-played trigger registers through the merged program binding", async () => {
+  // programs/filters.ts normalises {source: "self"} to the host object filter
+  // and programs/triggers.ts registers the subscription; both halves of the
+  // Play Effect are therefore merged.
+  const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const f = fixture({ cards: [{ id: "initiate", cardId: CANONICAL_ID, types: ["unit"], energy: 3, power: [], might: 3 }], describePlay: binding.describePlay });
+  const snapshot = { ...f.kernel.getObject("initiate"), cardId: CANONICAL_ID, zone: "board" };
+
+  const ids = binding.registerProgramTriggers(f.engine, snapshot);
+  assert.equal(ids.length, 1);
+  assert.match(ids[0], /^program:initiate:1:/);
+});
+
+test("unl-097-219 Kinkou Initiate: the retained count gate is not the printed Might sum", async () => {
+  // Evidence for the remaining gap: the merged instruction path really runs the
+  // card's own body, but the retained "count" placeholder is not the printed
+  // sum-of-Effective-Might gate. Two of the controller's other units make
+  // count = 2 while their total Might is 1 + 4 = 5, so the same world passes a
+  // Might sum and fails the count: the gate cannot be bound honestly.
+  const { resolveChainBody } = await import("../../../../engine-core/dist/chain/interpreter-adapter.js");
+  const { translateInstructionTargets } = await import("../../../../engine-core/dist/programs/filters.js");
+  const kernel = world()
+    .unit("initiate", { owner: "A", controller: "A", might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .unit("weak-ally", { owner: "A", controller: "A", might: 1, location: { type: "battlefield", id: "bf-1" } })
+    .unit("strong-ally", { owner: "A", controller: "A", might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .deck(["top", "second"])
+    .build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("initiate"), controller: "A" });
+
+  // 143.2.a.1: the printed gate is the sum of Effective Might over the filtered
+  // set, which is exactly the printed threshold here.
+  const totalMight = kernel
+    .query({ type: "unit", zone: "board", controller: "A" })
+    .filter(unit => unit.ref.id !== "initiate")
+    .reduce((sum, unit) => sum + unit.might, 0);
+  assert.equal(totalMight, 5);
+  // The merged Expr can only count the set, and the count is 2.
+  assert.equal(ctx.test(drawInstruction.condition), false);
+
+  const outcome = resolveChainBody(translateInstructionTargets(ability.body), ctx);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(
+    [outcome.results[0].result.status, outcome.results[0].result.reason],
+    ["negated", "skipped"]
+  );
+  assert.equal(ctx.player("A").handSize, 0);
+});
+
 test.todo(
   "unl-097-219 Kinkou Initiate: evaluate 'your other units have total Might 5 or more' " +
     "as a sum of Effective Might over the filtered set (143.2.a.1) — the frozen Expr algebra has " +
-    "no sum-over-set form (contract 3.2 Expr); depends on the expression/`condition.predicate` workstream (RIFT-9 expression inventory, RIFT-89/90 condition pipeline)"
+    "no sum-over-set form (contract 3.2 Expr); depends on the expression condition pipeline (RIFT-9 expression inventory)"
 );

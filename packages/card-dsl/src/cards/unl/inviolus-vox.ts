@@ -18,14 +18,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   475/478 的算术层与期限），属 layers 的 continuous.might；effect.buff 的文件头明确 Buff 计数器
  *   （702/703）不是 Might 修正，两者不可互换。
  *
- * status = judge-required（缺口不近似实现）：
- * - effects/instructions/ 与关键词注册表都没有注册 continuous.might（或等价临时 Might 修改）原语：
- *   契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，也没有任何指令通过 ResolveContext.addContinuous
- *   注册该持续效果（RIFT-91 只合入了 layers 的求值侧），因此 golden 实测 runAbilityBody 对该 op 抛
- *   “Unregistered instruction opcode”。
- * - 触发本身没有 CardProgram → TriggerRegistration 的注册路径（RIFT-120）。
- * 结构（时点、filter、目标形状、数额与期限）保留并做结构校验，不把 +8 Might 近似成 8 个 Buff 计数。
- * 依赖：RIFT-91（layers-continuous 的卡牌指令入口）、RIFT-120（触发注册）。
+ * status = judge-required（按 2026-10-16 合入批次复核；缺口不近似实现）：
+ * - 「+8 Might this turn」现在可执行：continuous.might（RIFT-258）已合入，按已求值的 8 点算术层
+ *   修正 + end-of-turn 期限经 ctx.addContinuous 注册（处理见 layers/ops 的 buildMightSpec /
+ *   resolveContinuousDuration）。golden 通过链适配器 + 参考内核真实执行 body 并断言图层结果、
+ *   到期与目标失效边界。原 body 里的 `layer` 参数已被合并原语 schema 拒绝（Invalid continuous.might
+ *   argument: layer），故改写为合并形状；body 仍不是 8 个 Buff 计数。
+ * - conquer 触发仍不可注册：Hunt/其它卡同型，turn/flow.ts 的 Score 波发射 conquer 时只带 player/details，
+ *   不带征服单位，因此 filter {event:"conquer", filter:{source:"self"}} 经 programs/filters.ts 归一化后
+ *   得到 object:{objectId:...}，而事件无 object 可匹配；同时封闭 EVENT_PATTERN_TYPES 拼写为 "conquered"。
+ * - 「a friendly unit」的目标过滤仍写占位式 controller: "controller"：chain/engine.ts 的 query 只把
+ *   "self"/"opponent" 绑定到能力控制者，"controller" 会按字面比较而选出空集（不留近似目标）。
+ * 依赖：conquer 触发的事件对象载荷与 "conquered" 拼写接线（RIFT-120 后续）、
+ * chain query 的 controller 占位符绑定（RIFT-257/120 后续）。
  */
 const abilities: Ability[] = [
   {
@@ -44,9 +49,15 @@ const abilities: Ability[] = [
         op: "continuous.might",
         args: {
           mode: { kind: "constant", value: "add" },
-          layer: { kind: "constant", value: "arithmetic" },
           amount: { kind: "constant", value: 8 },
-          duration: { kind: "constant", value: "this-turn" }
+          duration: { kind: "constant", value: "this-turn" },
+          // 355.9/355.9.a.1：单个由你控制的棋盘单位。continuous.might 的 objects
+          // 选择描述符只接受已求值的选择形状（target/pick/query/choose/refs），
+          // 裸的 target 字符串不是契约 3.2 的 Expr，因此用 { kind: "target", id }。
+          objects: {
+            kind: "constant",
+            value: { kind: "target", id: "inviolus-vox.friendly-unit" }
+          }
         },
         targets: [
           {
@@ -69,13 +80,18 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「give a friendly unit +8 :rb_might: this turn.」是需要 arithmetic 层本回合到期的临时 Might 修正（143.2.a/475/478），" +
-    "但没有可执行路径：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，effects/instructions/ 与关键词注册表都没有 " +
-    "continuous.might（或等价临时 Might 修改）原语，也没有任何指令通过 ResolveContext.addContinuous 注册该持续效果" +
-    "（RIFT-91 只合入 layers 求值侧），golden 实测 runAbilityBody 对该 op 抛 Unregistered instruction opcode。" +
-    "effect.buff 只放 Buff 计数器（702/703），不是 Might 修正，不得代替。" +
-    "此外 conquer 触发没有 CardProgram → TriggerRegistration 的注册路径（RIFT-120）。" +
-    "依赖：RIFT-91（layers-continuous 的指令入口）、RIFT-120（触发注册）。不近似实现，不用 8 个 Buff 顶替 +8 Might。",
+    "已按 2026-10-16 合入批次复核，两处缺口，均不近似实现：" +
+    "(1) conquer 触发仍不可注册：turn/flow.ts 的 Score 波发出 conquer 时只带 player 与 details.battlefieldId、" +
+    "不带征服单位，因此 { event: \"conquer\", filter: { source: \"self\" } } 经 programs/filters.ts 归一化后的 " +
+    "object:{objectId:宿主} 没有可匹配的事件对象；封闭 EVENT_PATTERN_TYPES（events/trigger-spec.ts）里也没把 " +
+    "conquer 列为可订阅拼写（别名是 \"conquered\"）。" +
+    "(2) 「a friendly unit」的目标过滤仍是 controller: \"controller\" 占位符：chain/engine.ts 的 query 只把 " +
+    "\"self\"/\"opponent\" 绑定到能力控制者，\"controller\" 会按字面比较而选出空集（不放宽成任意单位）。" +
+    "已合入并已真实执行的部分：「give a friendly unit +8 Might this turn」（143.2.a/475/478）由 " +
+    "continuous.might（RIFT-258）注册 arithmetic 层本回合到期的 +8 修正，golden 经链适配器 + 参考内核断言 " +
+    "注册、有效 Might、到期与目标失效边界；原 body 的 layer 参数已被合并原语 schema 拒绝，故改成合并形状。" +
+    "effect.buff 只放 Buff 计数器（702/703），不是 Might 修正。" +
+    "依赖：conquer 事件对象载荷与 \"conquered\" 拼写接线（RIFT-120 后续）、chain query 的 controller 占位符绑定。",
   abilities,
   sourceText: "When I conquer, give a friendly unit +8 :rb_might: this turn."
 } satisfies CardProgram;

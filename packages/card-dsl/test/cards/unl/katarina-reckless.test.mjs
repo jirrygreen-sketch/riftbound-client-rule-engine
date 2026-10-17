@@ -59,6 +59,10 @@ test("unl-023-219 Katarina, Reckless: identity, status, judgeReason and verbatim
   assert.match(program.judgeReason, /422\.1/);
   assert.match(program.judgeReason, /811\.1\.d/);
   assert.match(program.judgeReason, /RIFT-120/);
+  // The registration path (RIFT-257) is merged; the reason must name the two
+  // blocked event facts instead of a missing adapter.
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /RIFT-89/);
 });
 
 test("unl-023-219 Katarina, Reckless: the hide trigger waits on the card-hidden timing point", () => {
@@ -106,6 +110,45 @@ test("unl-023-219 Katarina, Reckless: the second trigger is one enemy-unit damag
   });
   assert.equal(dealTwo.picks, undefined);
   assert.equal(dealTwo.linkedTo, undefined);
+});
+
+test("unl-023-219 Katarina, Reckless: the card-hidden subscription is outside the closed event vocabulary", async () => {
+  // Evidence for the remaining gap: events/timing-points.ts defines card-hidden,
+  // but the closed EVENT_PATTERN_TYPES (events/trigger-spec.ts) does not list it,
+  // so programs/triggers.ts throws before any subscription exists; and nothing
+  // in the merged event producers emits it (there is no Hide GameAction).
+  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  const { validateTriggerSpec } = await import("../../../../engine-core/dist/events/trigger-spec.js");
+  const translated = translateTriggerFilter(hideTrigger.trigger.filter, "katarina");
+  const result = validateTriggerSpec({ at: hideTrigger.trigger.at, filter: translated });
+  assert.equal(result.ok, false);
+  assert.equal(result.issues[0].code, "invalid-event-type");
+
+  // The from-face-down provenance is also not part of the merged filter vocabulary.
+  const { translateObjectFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  assert.throws(
+    () => translateObjectFilter({ type: "unit", fromFaceDown: true }),
+    error => error.code === "judge-required" && /Unsupported filter field fromFaceDown/.test(error.message)
+  );
+});
+
+test("unl-023-219 Katarina, Reckless: the card-played trigger registers through the merged program binding", async () => {
+  const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const f = fixture({ cards: [{ id: "katarina", cardId: CANONICAL_ID, types: ["unit"], energy: 1, power: [], might: 5 }], describePlay: binding.describePlay });
+
+  // The face-down spelling is rejected, so only inspect the safe registration
+  // surface: the two trigger registrations the card declares are seen by the
+  // binding, and the card-played one carries the host object anchor.
+  const abilities = binding.inspect({ ...f.kernel.getObject("katarina"), cardId: CANONICAL_ID, zone: "board" }).abilities;
+  const faceDown = abilities.find(ability => ability.kind === "triggered" && ability.trigger.at === "card-played");
+  assert.ok(faceDown);
+  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  assert.throws(
+    () => translateTriggerFilter(faceDown.trigger.filter, "katarina"),
+    error => error.code === "judge-required" && /Unsupported filter field fromFaceDown/.test(error.message)
+  );
 });
 
 test("unl-023-219 Katarina, Reckless golden: 'ready me' readies the exhausted source", () => {

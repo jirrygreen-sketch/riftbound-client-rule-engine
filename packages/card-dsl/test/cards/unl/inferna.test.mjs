@@ -28,8 +28,11 @@ test("unl-002-219 Inferna: identity, status, judgeReason and verbatim sourceText
   // README section 2: name the missing keyword, the rule and the dependent task.
   assert.match(program.judgeReason, /Ambush/);
   assert.match(program.judgeReason, /822\.1\.b/);
-  assert.match(program.judgeReason, /RIFT-84/);
-  assert.match(program.judgeReason, /combatRole/);
+  // Both KeywordDefs are merged now, so the reason names the missing consumers
+  // and the unevaluated designation predicate instead of RIFT-84.
+  assert.match(program.judgeReason, /RIFT-266/);
+  assert.match(program.judgeReason, /noopStaticBinder|playLocations/);
+  assert.match(program.judgeReason, /combatRole|designation/);
 });
 
 test("unl-002-219 Inferna: Ambush keyword plus a valued Assault 2 declaration", () => {
@@ -42,7 +45,12 @@ test("unl-002-219 Inferna: Ambush keyword plus a valued Assault 2 declaration", 
   assert.deepEqual(program.abilities[1], { kind: "keyword", keyword: "assault", value: 2 });
 });
 
-test("unl-002-219 Inferna: the declared Assault keyword resolves to the merged KeywordDef", () => {
+test("unl-002-219 Inferna: the declared Ambush and Assault keywords resolve to merged KeywordDefs", () => {
+  const ambush = keywordDefinitionsById.get("Ambush");
+  assert.ok(ambush, "effects/keywords/Ambush.ts must be in the generated keyword registry");
+  // 822.1 / 822.1.a: Ambush is a Passive Ability keyword on Units with no value.
+  assert.equal(ambush.valued, false);
+  assert.ok(ambush.ruleRefs.includes("822.1.b"));
   const registered = keywordDefinitionsById.get("Assault");
   assert.ok(registered, "effects/keywords/Assault.ts must be in the generated keyword registry");
   assert.equal(registered, assault);
@@ -52,6 +60,46 @@ test("unl-002-219 Inferna: the declared Assault keyword resolves to the merged K
   assert.equal(registered.stacking, "sum");
   assert.ok(registered.ruleRefs.includes("807.1.c"));
   assert.ok(registered.ruleRefs.includes("807.1.d.1"));
+});
+
+test("unl-002-219 Inferna: the merged program binding expands both keywords for this identity", async () => {
+  const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const source = {
+    ref: { id: "inferna", zoneEntryId: 1 },
+    cardId: CANONICAL_ID,
+    name: "inferna",
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "bf-1" },
+    might: 1,
+    energy: 2,
+    power: ["Fury"],
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const expanded = binding.inspect(source).abilities;
+  // 822.1: Ambush expands to the play-location permission plus the Reaction
+  // permission; 807.1.c: Assault expands to the attacker-gated static Might.
+  assert.equal(expanded.filter(ability => ability.kind === "keyword").length, 2);
+  const statics = expanded.filter(ability => ability.kind === "static");
+  assert.equal(statics.length, 3);
+  assert.deepEqual(
+    statics.map(ability => ability.effect.kind).sort(),
+    ["continuous.might", "continuous.timing", "play-location-permission"]
+  );
+  const might = statics.find(ability => ability.effect.kind === "continuous.might");
+  assert.deepEqual(might.effect.amount, { kind: "constant", value: 2 });
+  assert.deepEqual(might.condition.left.property, "designation");
 });
 
 test("unl-002-219 Inferna: the Assault 2 expansion is +2 Might gated on the Attacker designation", () => {
