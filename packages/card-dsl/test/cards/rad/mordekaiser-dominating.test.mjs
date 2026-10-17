@@ -32,7 +32,7 @@ test("rad-137-167 Mordekaiser, Dominating: program validates and has expected id
   assert.equal(program.judgeReason.includes("383.3.b"), true);
   assert.match(program.judgeReason, /TriggeredAbility 没有 cost 字段/);
   assert.match(program.judgeReason, /TriggerRegistration.cost/);
-  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /PickSpec\.filter/);
   assert.equal(program.sourceText, "When you play me or when I attack, you may discard 1 to kill a unit or gear.");
 });
 
@@ -152,4 +152,4 @@ test("rad-137-167 Mordekaiser, Dominating: the merged discard cost pays before t
   assert.deepEqual(scoped.events.map(event => event.action), ["pay", "discard", "kill"]);
 });
 
-test.todo('Mordekaiser, Dominating: declare and bind the leading discard as TriggerRegistration.cost, including its non-target hand selection, before Finalize of both optional triggers (CR 383.3.b, RIFT-358).');
+test.todo('Mordekaiser, Dominating: declare and bind the leading discard as TriggerRegistration.cost, including its non-target hand selection, before Finalize of both optional triggers (CR 383.3.b).');

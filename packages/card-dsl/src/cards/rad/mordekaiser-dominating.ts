@@ -44,7 +44,7 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "缺 CR 383.3.b/383.3.b.1 的触发基础费用绑定：TriggeredAbility 没有 cost 字段，programs/triggers.ts 未把「discard " +
-    "1」传入已有 TriggerRegistration.cost → ChainEngine Finalize；费用的手牌非目标选择还需动态 picks（RIFT-358）。" +
+    "1」传入已有 TriggerRegistration.cost → ChainEngine Finalize；费用的手牌非目标选择还需让费用规划消费 PickSpec.filter 并绑定运行时引用。" +
     "cost/kinds/discard.ts 与费用计划付款已存在，不能将弃牌写成 body 效果或在测试中额外包 choice.optional 来假装已支付该费用。",
   abilities,
   sourceText: "When you play me or when I attack, you may discard 1 to kill a unit or gear."

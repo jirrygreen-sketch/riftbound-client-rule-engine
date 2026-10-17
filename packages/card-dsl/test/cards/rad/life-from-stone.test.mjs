@@ -35,7 +35,7 @@ test("rad-029-167 Life from Stone: judge-required naming the missing additional-
   assert.match(program.judgeReason, /356\.2/);
   assert.match(program.judgeReason, /mandatoryAdditional/);
   assert.match(program.judgeReason, /choiceObjects/);
-  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /translateCost/);
 });
 
 test("rad-029-167 Life from Stone: [Reaction], a mandatory exhaust cost, then Draw 1 and channel 1 exhausted", () => {
@@ -119,7 +119,7 @@ test("rad-029-167 Life from Stone golden: the two body instructions each run on 
   assert.deepEqual(channeled.events.map((event) => event.action), ["channel-rune"]);
 });
 
-test.todo('Life from Stone: Finalize preserves the mandatory additional exhaust component under ignore-base/ignore-all (CR 356.2/356.5), with filtered non-target cost picks (RIFT-358).');
+test.todo('Life from Stone: Finalize preserves the mandatory additional exhaust component under ignore-base/ignore-all (CR 356.2/356.5), with filtered non-target cost picks from PickSpec.filter.');
 
 test("Life from Stone: the merged cost planner really pays a bound mandatory exhaust cost", () => {
   const kernel = world().player("A", { energy: 1 })

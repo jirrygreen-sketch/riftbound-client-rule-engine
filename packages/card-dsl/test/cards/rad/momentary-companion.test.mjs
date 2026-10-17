@@ -23,7 +23,7 @@ test("rad-095-167 Momentary Companion: validates, identity and source text", () 
 });
 
 test("rad-095-167 Momentary Companion: judgeReason names turn, Hidden permissions and dynamic keyword triggers", () => {
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /回合玩家\/控制者条件/);
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /连续授予关键词/);
   assert.match(program.judgeReason, /beginning-start/);
@@ -45,7 +45,7 @@ test("rad-095-167 Momentary Companion: [Hidden] keyword plus the card-played tri
 
 test("rad-095-167 Momentary Companion: the unbound turn condition stays an explicit judged dependency", () => {
   assert.match(program.judgeReason, /回合玩家\/控制者条件/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /回合玩家\/控制者条件/);
   assert.equal(program.status, "judge-required");
 });
 
@@ -139,6 +139,6 @@ test("rad-095-167 Momentary Companion: the grant is not approximated with a buff
   assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), true);
 });
 
-test.todo('Momentary Companion: compare turn player with controller when card-played triggers (RIFT-359), before granting Temporary.');
+test.todo('Momentary Companion: compare turn player with controller when card-played triggers, before granting Temporary.');
 test.todo('Momentary Companion: consume cost.hidden in actual Hide/facedown play permissions and zero base cost (CR 811).');
 test.todo('Momentary Companion: after the continuous Temporary grant, install its self-kill trigger at the controller Beginning Phase before scoring (CR 816.1.b).');
