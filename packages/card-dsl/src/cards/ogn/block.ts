@@ -23,17 +23,15 @@ import type { CardProgram } from "../../ir/index.js";
  * Status: judge-required — the two keyword halves and the timed grant are
  * merged (Tank's KeywordDef at RIFT-264, Shield's at the earlier keyword batch,
  * continuous.grant-keyword at RIFT-258), but the whole card still cannot run:
- * - the play body and timed grant are bindable, but Hidden/Action keyword
- *   permissions still lack their production consumers;
+ * - Action timing is consumed by the play adapter; Hidden still lacks its
+ *   Hide/facedown action and zone integration;
  * - [Tank]'s expansion is a continuous.combat effect and the combat damage
  *   assignment path has no consumer for it (base-combat-allocation.ts records
  *   "No Tank/Backline/other assignment-priority requirement is bound here"),
  *   so the printed assignment order is not enforced;
- * - Shield's expansion is conditional on the Defender designation
- *   (814.1.d, 466.2.c.3) handed out by the Combat flow.
- * Granting a permanent Shield while leaving Tank and the expiry unsupported
- * would report a wrong board state, so the grant stays unexecutable as a
- * whole. Not approximated: the [Tank] half is not dropped, and the Shield
+ * - dynamically granted Shield/Tank are not re-expanded; Shield's expansion
+ *   reads designation while ObjectSnapshot exposes combatRole (814.1.d).
+ * Not approximated: the [Tank] half is not dropped, and the Shield
  * value is not baked into a Might change (814.1.c: Shield is +X Might only
  * while the unit is a defender).
  */
@@ -42,15 +40,10 @@ const block = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "“Give a unit [Shield 3] and [Tank] this turn”的单个关键词与授予原语都已合入：Tank 的 KeywordDef（RIFT-264，815）、" +
-    "Shield 的 KeywordDef（814，带数值叠加）、continuous.grant-keyword（RIFT-258，end-of-turn 期限；本卡测试真实执行并验证" +
-    "Shield 3 与 Tank 在 ability 层的注册和到期清理）。仍缺三处：" +
-    "(1) Hidden/Action 的关键词许可没有完整的生产消费者，尤其是 cost.hidden 的 Hide/facedown 路径；" +
-    "(2) Tank 展开为 continuous.combat，战斗伤害指派路径没有消费方（combat/base-combat-allocation.ts 明确未绑定指派优先级），815.1.b/815.1.c.2 不生效；" +
-    "(3) Shield 展开依赖 combat 流程赋予的 Defender 身份（814.1.d / 466.2.c.3）。" +
-    "依赖：Hidden/Action 许可消费者、continuous.combat 的 combat 指派消费者与 combat 身份流程。" +
-    "不近似实现：不丢掉 [Tank] 半段，也不把 Shield 直接折算成 Might 修改（814.1.c 只在作为防守者时 +X Might）。" +
-    "[Hidden]/[Action] 仅为关键词声明（811/806），facedown 许可依赖 cost.hidden 与区域消费者。",
+    "缺 Hidden 的 Hide/Facedown Zone 行动、控制权与下回合解锁接线；cost.hidden 费用规划不提供这些许可（CR 811.1.b/c），" +
+    "以及 811.1.d.2 的背面法术本战场目标限制。continuous.grant-keyword 动态授予 Shield/Tank 后尚未重展开；" +
+    "Shield 读取 designation 而 ObjectSnapshot 暴露 combatRole，仍需把合并后的 Shield 值接到 Defender 条件（814.1.c/d、814.2）。" +
+    "Tank 的 continuous.combat 致死优先指派也无战斗消费者（815.1.b/c.2）。",
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +
     "[Action] (Play on your turn or in showdowns.)\n" +
@@ -66,11 +59,12 @@ const block = {
           // "Give a unit [Shield 3] and [Tank] this turn" — one duration-bound
           // keyword grant over the ability's target (355.7). Both keyword
           // halves stay visible; the grant runs through the merged
-          // continuous.grant-keyword primitive, while the card-program binding
-          // and the combat consumer remain open (see judgeReason).
+          // continuous.grant-keyword primitive; keyword re-expansion and combat
+          // consumption remain open (see judgeReason).
           id: "grant-shield-3-and-tank",
           op: "continuous.grant-keyword",
           args: {
+            objects: { kind: "constant", value: { kind: "target", id: "granted-unit" } },
             // 814.1.b.2: Shield carries its Shield Value (3); Tank is unvalued
             // (815.1). The object-array form is the one that keeps the value:
             // continuous.grant-keyword ignores `value` when `keywords` is given.
@@ -80,7 +74,7 @@ const block = {
           targets: [
             {
               id: "granted-unit",
-              filter: { type: "unit" },
+              filter: { type: "unit", zone: "board" },
               min: 1,
               max: 1,
               selection: "one"

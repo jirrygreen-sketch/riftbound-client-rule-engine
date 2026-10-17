@@ -6,6 +6,7 @@ import program from "../../../dist/cards/ogn/blitzcrank-impassive.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { normalizeMoveArguments } from "../../../../engine-core/dist/effects/interpreter/locations.js";
 
 
 test("ogn-067-298: identity, exact source text, pure data and explicit blocked status", () => {
@@ -37,7 +38,7 @@ test("Blitzcrank: Tank, battlefield-only play trigger and correctly nested optio
   assert.equal(mayMove.args.body.value.length, 1);
   assert.equal(moveEnemy.op, "effect.move");
   assert.deepEqual(moveEnemy.args.objects.value, { target: "enemy-unit" });
-  assert.deepEqual(moveEnemy.args.to, { kind: "object-property", object: "source", property: "location" });
+  assert.deepEqual(moveEnemy.args.to, { kind: "location", value: "source-location" });
   assert.equal(moveEnemy.args.amount.value, 1);
   assert.deepEqual(moveEnemy.targets, [{ id: "enemy-unit", filter: { type: "unit", zone: "board", controller: "opponent" }, min: 1, max: 1, selection: "one" }]);
   assert.equal(mayMove.linkedTo, undefined);
@@ -66,15 +67,12 @@ test("Blitzcrank golden subeffect: declining the original optional body performs
   assert.deepEqual(kernel.getObject("enemy").location, { type: "base", player: "B" });
 });
 
-test("Blitzcrank golden subeffect: real Move primitive brings the finalized enemy to the source location", () => {
-  const kernel = world().unit("blitz", { might: 5, location: HERE }).base("enemy", { owner: "B", exhausted: true }).build();
+test("Blitzcrank golden subeffect: the production location adapter and Move primitive move the finalized enemy here", () => {
+  const base = world().unit("blitz", { might: 5, location: HERE }).base("enemy", { owner: "B", exhausted: true }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("blitz") });
   const enemy = kernel.ref("enemy");
-  // The primitive's pre-evaluation schema currently requires a runtime-ref Expr.
-  // Bind the real source ref only at this runtime boundary; static IR stays symbolic.
-  const run = runInstruction(move, {
-    ...moveEnemy.args,
-    to: { ...moveEnemy.args.to, object: kernel.ref("blitz") }
-  }, { world: kernel, targets: { "enemy-unit": [enemy] } });
+  const args = normalizeMoveArguments({ primitiveArgs: moveEnemy.args }, kernel).primitiveArgs;
+  const run = runInstruction(move, args, { world: kernel, targets: { "enemy-unit": [enemy] } });
   assert.equal(run.result.status, "executed");
   assert.equal(run.linked.moved.count, 1);
   assert.deepEqual(run.linked.moved.objects, [enemy]);

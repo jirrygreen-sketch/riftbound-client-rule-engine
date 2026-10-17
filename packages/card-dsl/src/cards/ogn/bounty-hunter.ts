@@ -21,8 +21,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - the body's `continuous.grant-keyword` opcode is merged (RIFT-258) and the
  *   golden test really executes the printed grant through the layers engine;
  * - the activated body and exhaust payment are bindable; what is still missing
- *   is the bridge from the granted Ganking movement permission to the production
- *   movement path's hasGanking input.
+ *   is dynamic keyword re-expansion and normalization to movement query routes.
  * Granting [Ganking] to an enemy unit is legal here (no controller filter), so
  * this is not covered by friendly-only keyword granting either.
  */
@@ -32,12 +31,10 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Give a unit [Ganking] this turn」所需的持续关键词授予已可用：continuous.grant-keyword 原语（RIFT-258，含 end-of-turn 期限）与" +
-    "Ganking 的 KeywordDef（stacking single）均已合入，本卡测试真实执行该指令并验证目标获得 Ganking、回合结束到期。" +
-    "activated 能力与 exhaust 支付已可绑定，但仍无法把授予后的 Ganking 派生给生产移动路径的 hasGanking，" +
-    "故“支付横置、给任意单位 Ganking 并能实际战场间移动”的整卡链路不可执行。" +
-    "目标为印刷原文 “a unit”（CR 355.9.a.1：未另作说明时指 Board 上的单位），过滤器不带控制者限制，不按 friendly-only 近似实现。" +
-    "依赖：移动许可到标准移动的派生接线。",
+    "缺 continuous.grant-keyword 动态授予 Ganking 后的关键词重展开与到期撤销，" +
+    "以及 Ganking 静态展开的 permission 字符串到 movement 查询 permission.routes 的适配。" +
+    "仍需把授予任意玩家单位的关键词接入 movement.canGank 查询或可信 hasGanking 派生" +
+    "（CR 810.1.c、144.4.c.1），并在回合结束撤销许可；不能用仅授予友方的近似替代。",
   abilities: [
     {
       kind: "activated",
@@ -48,6 +45,7 @@ const program = {
           id: "bounty-hunter.grant-ganking",
           op: "continuous.grant-keyword",
           args: {
+            objects: { kind: "constant", value: { kind: "target", id: "bounty-hunter.unit" } },
             keyword: { kind: "constant", value: "Ganking" },
             duration: { kind: "constant", value: "end-of-turn" }
           },

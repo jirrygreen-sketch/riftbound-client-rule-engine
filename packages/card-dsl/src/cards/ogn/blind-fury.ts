@@ -18,18 +18,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   opponent. The merged effect.reveal takes a single player expression and has
  *   no each-opponent iteration; the iteration over the opponent set is the
  *   card's obligation and has no primitive. Reveal also picks its
- *   candidates with ctx.query, which the contract documents as not guaranteeing
- *   zone order, so "the top card" is not ordered by the merged primitive
- *   (the ResolveContext has zoneSlice for this purpose, but effect.reveal does
- *   not use it yet).
+ *   candidates with ctx.query and rejects a proper deck subset; an ordered
+ *   zoneSlice-to-reveal-pick adapter is still needed for the actual top card.
  * - "Choose one and banish it" is a choice made during resolution from the cards
  *   revealed this way (355.18: choices not listed in 355 are made on
  *   resolution). The merged picks are finalized before resolution
  *   (finalizePick in engine-core/src/target/target-plan.ts) and effect.reveal
  *   links only the revealed references, not a resolution-time selection plan, so
  *   the choice-timing adapter is missing. The intended shape below uses a
- *   PickSpec over the linked revealed set; effect.banish and effect.play are
- *   merged and are exercised directly by the golden tests.
+ *   PickSpec over the linked revealed set; the golden tests execute the merged
+ *   banish primitive, without claiming the subsequent ignoring-cost play.
  * - "play it, ignoring its cost": ignoring a printed cost sets the base Energy
  *   and Power costs to zero (356.1.b.1), and further additional costs or
  *   increases still apply afterwards (356.1.b.3). effect.play documents that it
@@ -55,14 +53,11 @@ const blindFury = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三个缺口：(1) 「Each opponent reveals the top card of their Main Deck」需要按对手逐个绑定的循环，" +
-    "已合入的 effect.reveal 只接受单个 player 表达式，且候选顺序来自 ctx.query（不保证区域内顺序），牌库顶语义需改用 ctx.zoneSlice；" +
-    "(2) 「Choose one and banish it」是结算时从本次展示的集合中做选择（355.18），已合入的 picks 在 Finalize 前锁定" +
-    "（target-plan finalizePick），effect.reveal 只链接展示到的引用、不产出结算期选择计划，缺 condition.result / 结算期选择原语；" +
-    "(3) 「play it, ignoring its cost」是把印刷基础 Energy/Power 费置零（356.1.b.1，追加费用仍按 356.1.b.3 继续计算），" +
-    "effect.play 文档明确既不推导印刷费用也不实现 ignore-cost 规则，只接受已 finalize 的费用计划；cost/cost-plan.ts 能表达 ignore-base 改写，" +
-    "但没有 play/effect adapter 把本卡指令接成该费用计划。" +
-    "「Then recycle the rest」可表达：effect.recycle 丢弃已失效引用，故回收展示集合即回收其余牌（417.1.c 各自回各自牌库），该步有 golden 执行测试。",
+    "缺少：(1) 按对手逐个绑定的 each-opponent 执行与 zoneSlice 牌库顶引用到 effect.reveal pick 的适配；" +
+    "effect.reveal 对非手牌的真子集会拒绝，不能依赖 ctx.query 顺序。" +
+    "(2) 从本次 linked revealed 集合在结算时选择一张（CR 355.18）的适配；finalizePick 锁于 Finalize，" +
+    "解释器只转发外部 picks，effect.banish 的 choose 只支持过滤查询，尚不能限定到本次展示集合。" +
+    "(3) effect.play 到嵌套打出 Finalize 费用计划的 ignore-base 适配（356.1.b.1），同时保留追加费用与增费（356.1.b.3）。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "Each opponent reveals the top card of their Main Deck. Choose one and banish it, then play it, ignoring its cost. Then recycle the rest.",

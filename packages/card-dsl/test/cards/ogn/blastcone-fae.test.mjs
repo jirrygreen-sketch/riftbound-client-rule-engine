@@ -6,6 +6,7 @@ import program from "../../../dist/cards/ogn/blastcone-fae.js";
 import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL = "card.hash-5babb90d79192ee6ca892489ae07370b086c015b0a2db49d665b82be90f4fcc9";
 
@@ -45,6 +46,7 @@ test("Blastcone Fae structure: Hidden keyword plus the printed self-play debuff"
   const [instruction] = triggered.body;
   assert.equal(instruction.id, "blastcone-fae.give-minus-2");
   assert.equal(instruction.op, "continuous.might");
+  assert.deepEqual(instruction.args.objects, { kind: "constant", value: { kind: "target", id: "blastcone-fae.unit" } });
   assert.deepEqual(instruction.args.amount, { kind: "constant", value: -2 });
   assert.deepEqual(instruction.args.minimum, { kind: "constant", value: 1 });
   assert.deepEqual(instruction.args.duration, { kind: "constant", value: "end-of-turn" });
@@ -57,6 +59,30 @@ test("Blastcone Fae structure: Hidden keyword plus the printed self-play debuff"
     max: 1,
     selection: "one"
   });
+});
+
+test("Blastcone Fae original trigger body modifies only the locked target and ignores a departed target", () => {
+  for (const departed of [false, true]) {
+    const base = world().unit("fae", { might: 2 }).unit("target", { owner: "B", might: 4 }).build();
+    const kernel = base.clone({ sourceSnapshot: base.getObject("fae") });
+    const target = kernel.ref("target");
+    kernel.setTargets("blastcone-fae.unit", [target]);
+    if (departed) kernel.perform({ type: "return-to-hand", object: target });
+    const outcome = resolveChainBody(program.abilities[1].body, kernel);
+    assert.equal(outcome.results[0].result.status, departed ? "ignored" : "executed");
+    assert.deepEqual(outcome.events, []);
+    const layers = createLayerEngine(kernel.objects, kernel.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 })));
+    assert.equal(layers.evaluate(kernel.ref("fae")).might, 2);
+    if (departed) {
+      assert.equal(outcome.results[0].result.reason, "mistargeted");
+      assert.equal(kernel.continuousEffects.length, 0);
+    } else {
+      assert.deepEqual(outcome.results[0].result.linkedValues.affected.objects, [target]);
+      assert.equal(layers.evaluate(target).might, 2);
+      layers.advance({ id: "turn-end" });
+      assert.equal(layers.evaluate(target).might, 4);
+    }
+  }
 });
 
 test("Blastcone Fae: the printed -2 Might with floor 1 executes through the merged continuous.might (478.1.c, 317.1.a)", () => {

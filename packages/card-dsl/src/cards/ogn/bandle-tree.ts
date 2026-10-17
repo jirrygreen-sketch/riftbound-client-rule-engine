@@ -25,8 +25,9 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status rationale (contract §3.1, cards README §2): the raised occupancy
  * limit is a continuous restriction, and the merged continuous.restrict
- * primitive plus static-program binder can register it. The card stays
- * judge-required because the Hide/facedown path still has no consumer for the
+ * primitive can register a numeric cap, while the static-program binder only
+ * preserves this declaration and does not normalize its cap/location fields.
+ * The card stays judge-required because the Hide/facedown path has no consumer for the
  * raised Facedown Zone maximum: cost.hidden and the occupancy check are not
  * connected to a playable Hide action, so "an additional card here" cannot be
  * enforced even after the restriction is registered.
@@ -38,7 +39,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Raising the Facedown Zone occupancy limit (CR 107.3.b) is expressible as continuous.restrict and can be registered by the static-program binder, but no Hide/facedown consumer reads the raised maximum. The cost.hidden path and the Facedown Zone occupancy check are not connected to a playable Hide action, so the extra-slot permission cannot execute. The ability grants no discount and does not make cards without Hidden hideable. Dependency: the Hide action's facedown-zone occupancy consumer.",
+    "Missing the battlefield-scoped Facedown Zone capacity consumer for continuous.restrict (CR 107.3.b.1): programs/statics.ts does not translate this static amount/location declaration into the numeric cap read by Hide. cost.hidden only plans/pays costs; Hide, facedown occupancy/control checks and next-turn unlocking still lack a connected action/zone path (422.2.a, 811.1.b). The additional slot must preserve Hidden eligibility and its normal cost.",
   sourceText: "You may hide an additional card here.",
   abilities: [
     {

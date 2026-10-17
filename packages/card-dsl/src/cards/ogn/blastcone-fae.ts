@@ -32,11 +32,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Hidden 仍有一处依赖未接通；「give a unit -2 [M] this turn, to a minimum of 1 [M]」已改用已注册的 continuous.might 原语" +
-    "（RIFT-258：带符号增减、印刷下限 478.1.c、回合结束到期；本卡测试真实执行该指令并验证 -2 后钳到 1 及到期），" +
-    "触发体的 card-played 注册形状已可用；[Hidden]（811）的展开仍不可执行：cost.hidden 的 Hide 行动、" +
-    "背面打出与 Facedown Zone 路径没有接入生产流程；811.1.d.3 的「背面永久物的打出效果只能选其被打出战场上的单位」" +
-    "也没有目标系统消费者。依赖：Hidden 的费用/区域消费者与背面打出目标限制。不近似实现。",
+    "Hidden 缺 Hide/Facedown Zone 行动、控制权与下回合解锁接线（CR 422.2.a、811.1.b/c）；" +
+    "cost.hidden 的费用规划与支付不提供这些区域/时机许可。还缺 811.1.d.3 的来源于背面打出的历史信息与目标消费，" +
+    "使 continuous.might 打出触发只在从 Hidden 打出时限制到该战场上的单位；普通打出的目标不能被同样收窄。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     {
@@ -51,6 +49,7 @@ export default {
           id: "blastcone-fae.give-minus-2",
           op: "continuous.might",
           args: {
+            objects: { kind: "constant", value: { kind: "target", id: "blastcone-fae.unit" } },
             amount: { kind: "constant", value: -2 },
             duration: { kind: "constant", value: "end-of-turn" },
             minimum: { kind: "constant", value: 1 }

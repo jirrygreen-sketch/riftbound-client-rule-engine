@@ -32,13 +32,10 @@ const blazingScorcher = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Accelerate 的展开文件（effects/keywords/Accelerate.ts：accelerate.cost 静态费用声明 + " +
-    "object-enters-board 入场替代）与 cost/cost-plan.ts 对 { kind: 'accelerate' } 组件的收取" +
-    "（含 805.1.b.1 的域匹配力量）均已合入，本卡测试真实执行展开后的就绪进场替代体；" +
-    "但卡牌程序仍没有生产接线把 keyword 生成 optionalAdditional accelerate 组件，" +
-    "accelerate.cost 静态效果也没有可由打出流程消费的注册入口，" +
-    "chain/engine.ts 的就绪进场只读调用方已生成的 cost plan，805.2.b 的延迟替代因此不生效。" +
-    "缺少的是「卡牌程序 → 费用/替代管线」接线；接线落地前不近似实现。",
+    "Accelerate 的 accelerate.cost 静态声明仍未由 programs/play.ts 转成 optionalAdditional accelerate 组件，" +
+    "无法在打出 Finalize 中询问并支付 [1][Fury]（CR 805.1.b.1）。还缺 selectedAdditional 支付凭证控制的延迟替代注册" +
+    "（805.2.b），以及 805.6.a 不产生 becomes-ready 触发的就绪进场接线；单独执行 effect.ready 不证明这些语义。" +
+    "依赖：卡牌程序到费用/替代管线的适配。",
   abilities: [{ kind: "keyword", keyword: "accelerate" }],
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_fury: as an additional cost to have me enter ready.)"
