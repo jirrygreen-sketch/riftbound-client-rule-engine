@@ -2,8 +2,9 @@
 //
 // The +2 Might clause is now executable with the merged continuous.might
 // instruction (RIFT-258) and the real layer engine. [Accelerate] itself is
-// merged, but the optional [1][Fury] additional cost has no Finalize
-// optionalAdditional consumer yet, so the card stays judge-required.
+// merged, but no play flow writes the optional [1][Fury] additional cost into
+// Finalize optionalAdditional / selectedAdditional yet, so the card stays
+// judge-required.
 import assert from "node:assert/strict";
 import test from "node:test";
 

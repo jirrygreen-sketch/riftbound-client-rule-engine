@@ -218,5 +218,7 @@ test.todo(
   "rad-060-167 The Empyrean: show off a card (reveal from hand and/or pick a friendly one, lock its " +
     "Power cost) still needs a combined hand+board selection (832.1.c.3) and a display snapshot in " +
     "the link value (832.1.d.1); both are contract-change requests, not a keyword-registry gap. " +
+    "The merged ShowOff.ts expansion also awaits the cost.reveal / Finalize choice pipeline, " +
+    "an objects-shown-off snapshot consumer, and a per-instance condition.result link (832.2); " +
     "[Predict] (437.1 / 437.3) also has no KeywordDef to orchestrate look/recycle/reorder."
 );

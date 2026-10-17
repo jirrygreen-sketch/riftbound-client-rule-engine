@@ -84,5 +84,6 @@ test.todo(
 test.todo(
   "The Waters' Wage: 'If it's your turn and you played this from face down' needs an executable predicate for the " +
     "facedown play result (CR 811.1.d) and the current turn player. The [Hidden] KeywordDef and cost.hidden are merged, " +
-    "but no hidden-play / Hide cost pipeline consumes them yet, and the next-turn Reaction permission is also unwired."
+    "but cost/kinds/hidden.ts only locks the Hide plan and payment: hidden-play permission, facedown free-play " +
+    "consumption and the next-turn Reaction permission (continuous.timing) are still unwired."
 );
