@@ -88,7 +88,7 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "CR 355.10.c：缺各对手主牌库顶真实有序集合及结算时从展示集合选择一张的动态 picks（RIFT-358 进行中）；effect.reveal 的单个 player 参数也不能遍历 each opponent。CR 356.1.b.1：cost.modify/cost.pay 已合入，但只基于 ctx.source 建计划（计划里的 kill/discard/recycle/exhaust/reveal/spend-buff 动作都作用于 source 域），source 参数目前只服务 Weaponmaster 的加速形；缺以刚被放逐的其他牌为计划来源并衔接 effect.play 的忽略基础费用 Finalize 适配。不能使用常量 finalized 零计划替代该流程。",
+    "CR 355.10.c/425.3：zoneSlice 有序来源及 reveal 结果到 linked picks 的桥接已可用；仍缺遍历 each opponent、汇集每位对手牌库顶一张并在结算时从展示集合非目标选择一张的适配，现有 effect.reveal 单个 player 与描述性 options 不能表达该流程。CR 356.1.b.1：缺以刚被放逐的其他牌为来源、保留附加费用与其他调整并衔接 effect.play 的忽略基础费用 Finalize 计划。cost.modify 仍以 ctx.source 建计划，source 参数只有 Weaponmaster 的专用形状；不能用常量 finalized 零计划替代。",
   abilities,
   sourceText:
     "When you play me, reveal the top card of each opponent's Main Deck. Choose one and banish it, then play it, ignoring its cost. Recycle the rest."

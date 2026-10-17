@@ -31,7 +31,7 @@ test("rad-081-167 Elnuk Herd: validates, identity and registry entry", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /playedFromFaceDown/);
   assert.match(program.judgeReason, /811\.1\.d/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /历史来源事实到 recycle 条件的绑定/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardProgramsById.get(CARD_ID), program);
 });
@@ -161,5 +161,5 @@ test("Elnuk Herd: the original Might target filter excludes this source and enem
   }
 });
 
-test.todo('Elnuk Herd: bind Hidden Hide/reaction/ignored-base-cost lifecycle and facedown play provenance to the recycle condition (CR 811.1.d; RIFT-359)');
+test.todo('Elnuk Herd: bind Hidden Hide/reaction/ignored-base-cost lifecycle and facedown play provenance to the recycle condition (CR 811.1.d)');
 test.todo('Elnuk Herd: translate exclude:self target scope through production Finalize (another friendly unit)');

@@ -25,8 +25,8 @@ test("rad-061-167 Ekko, Ingenious: program validates and is judge-required", () 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /return-to-hand/);
   assert.match(program.judgeReason, /mandatory additional/);
-  assert.match(program.judgeReason, /RIFT-358/);
-  assert.match(program.judgeReason, /RIFT-358 进行中/);
+  assert.match(program.judgeReason, /choiceObjects/);
+  assert.match(program.judgeReason, /有序 zoneSlice\/linked picks 不会补齐费用选择/);
   assert.match(program.judgeReason, /continuous\.movement/);
   assert.match(program.judgeReason, /zones\/movement\.ts/);
 });
@@ -94,7 +94,7 @@ test("rad-061-167 Ekko, Ingenious: the intended cost move is expressible by effe
   assert.deepEqual(run.events.map(event => event.action), ["return-to-hand"]);
 });
 
-test.todo('Ekko, Ingenious: collect return-to-hand as a mandatory additional play cost, using a friendly-unit non-target choice (CR 356.2/355.10.c; RIFT-358)');
+test.todo('Ekko, Ingenious: bind mandatory additional return-to-hand payment and friendly-unit non-target cost choices (CR 356.2/355.10.c)');
 test.todo('Ekko, Ingenious: normalize the Ganking static permission to the movement query route shape (CR 810.1.b)');
 
 test("Ekko, Ingenious: the movement primitive executes the expanded Ganking permission and the Standard Move consumer reads it", () => {
