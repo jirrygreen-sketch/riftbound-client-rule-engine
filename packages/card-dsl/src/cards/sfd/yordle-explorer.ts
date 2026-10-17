@@ -21,24 +21,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   形状，events/pipeline-match.ts 逐键比较）。
  * - "draw 1"：effect.draw（414.1/414.3），抽牌者缺省为能力控制者。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required——费用载荷尚不存在：
- * - 触发时点、player 绑定与 effect.draw 本体的可执行证据都在 golden 里；缺的是
- *   PipelineEvent 的载荷：card-played 的发射（chain/engine.ts）只带被打出的对象与玩家，
- *   TimingEmission/PipelineEvent 没有印刷（或复制）费用的字段，因此
- *   details: { printedPowerCostAtLeast: 2 } 在今天的生产发射里永远匹配不到
- *   （fail-closed，不会误触发任意抽牌）。这不是可近似的东西：把条件放宽成
- *   「任意打出」会直接违反 206.1/383.2.a.1，故不实现。
- * - 之前的 powerCostGte 嵌套描述性键已删除：programs/filters.ts 的
- *   translateObjectFilter 只接受封闭的对象过滤键，该键会在 CardProgram →
- *   TriggerRegistration 的绑定期被 judge-required 拒绝；Condition 的 Expr 也没有
- *   「事件对象的印刷费用」读数（object-property 只读 self/source/target/pick/linked，
- *   而刚被打出的牌不是本能力的这些锚点）。
- * - 绑定侧还差一步：卡牌程序适配层（programs/filters.ts 的 translateTriggerFilter）
- *   目前把顶层 details 当作 Unsupported filter field 拒绝，不会把它转发进
- *   TriggerRegistration 的 EventPattern；该转发属仍在进行的 RIFT-257。
- * 依赖：card-played 事件的印刷费用载荷与 details 谓词消费（206/206.1 的 cost 谓词，
- * RIFT-120 后续/协调任务），以及卡牌程序 → 触发注册的生产接线（RIFT-257）。
- * 不近似实现。
+ * status 判定（cards/README.md 第 2 节）：judge-required——费用载荷与事件适配仍有缺口：
+ * - card-played 时点、player 绑定、EventPattern.details 的 matcher、以及 effect.draw 本体都有
+ *   真实执行证据。当前生产适配器在翻译带 details 的 EventPattern 时仍把 details 送入
+ *   ObjectFilter，报 Unsupported filter field details，不能把该触发注册进生产链。
+ * - 即使适配器保留 details，card-played 的生产发射（chain/engine.ts）也没有派生并携带被打出
+ *   牌的印刷（或复制）Power cost；details: { printedPowerCostAtLeast: 2 } 必须在真实载荷中
+ *   保持 fail-closed，不能放宽成「任意打出」（206.1/383.2.a.1）。
+ * 依赖：生产触发适配器正确转发 EventPattern.details，以及 card-played 事件的印刷/复制
+ * Power cost 载荷生产者（206/206.1、383.2.a.1）。不近似实现。
  */
 const abilities: Ability[] = [
   {
@@ -72,19 +63,12 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "触发条件「with Power cost :rb_rune_rainbow::rb_rune_rainbow: or more」无法判定：383.2.a.1 要求该从句在触发时求值，" +
-    "206.1/135.2.e.5 规定阈值为被派出牌的印刷（或复制）Power cost ≥ 2；它已按 EventPattern.details 的封闭载荷形状写在 " +
-    "details: { printedPowerCostAtLeast: 2 }，但 card-played 的生产发射（chain/engine.ts）只带对象与玩家，" +
-    "TimingEmission/PipelineEvent 没有印刷费用字段，故该键永远匹配不到（fail-closed）。" +
-    "冻结 Condition 的 Expr 也没有「事件对象印刷费用」读数（object-property 只读 self/source/target/pick/linked，" +
-    "刚被打出的牌不是本能力的这些锚点），CountExpr 的 filter 同样不接受费用谓词；" +
-    "旧的嵌套 powerCostGte 描述性键已删除——programs/filters.ts 的 translateObjectFilter 不接受该键，" +
-    "会在 CardProgram → TriggerRegistration 绑定期被 judge-required 拒绝。绑定侧还差一步：" +
-    "translateTriggerFilter 目前把顶层 details 当作 Unsupported filter field 拒绝，" +
-    "不会把它转发进 TriggerRegistration 的 EventPattern（RIFT-257 进行中）。" +
-    "触发时点（card-played）、player: self 绑定与 effect.draw 本体都已合入并由 golden 真实执行；" +
-    "但不把条件近似成恒真（那会违反 206.1/383.2.a.1）。" +
-    "依赖：card-played 的印刷费用载荷与 details 谓词（RIFT-120 后续/协调任务）与卡牌程序 → 触发注册的生产接线（RIFT-257）。",
+    "触发时点、player: self 绑定、EventPattern.details matcher 与 effect.draw 本体均已由 golden 真实执行，" +
+    "但当前生产适配器翻译带 details 的 EventPattern 时仍把 details 送入 ObjectFilter，报 Unsupported filter field details，" +
+    "因此该触发尚不能注册进生产链；即使适配器修正，card-played 的生产发射（chain/engine.ts）也只带对象与玩家，" +
+    "没有派生被打出牌的印刷/复制 Power cost，details: { printedPowerCostAtLeast: 2 } 仍会在真实发射中 fail-closed。" +
+    "不能用恒真条件或任意 card-played 近似 206.1/383.2.a.1。依赖：EventPattern.details 的生产适配与 card-played 印刷/复制" +
+    "Power cost 载荷生产者。",
   abilities,
   sourceText: "When you play a card with Power cost :rb_rune_rainbow::rb_rune_rainbow: or more, draw 1."
 } satisfies CardProgram;
