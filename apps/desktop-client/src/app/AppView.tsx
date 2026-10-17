@@ -30,6 +30,7 @@ import { deckTotalCount } from "../decks/library";
 import { writeCatalogServerUrl } from "../decks/ui-preferences";
 import { PlayableMatchBoard } from "../full-product/PlayableMatchBoard";
 import { DuelMatchBoard } from "../full-product/DuelMatchBoard";
+import { V2MatchBoard } from "../full-product/v2/V2MatchBoard";
 import { toPlayableConnectionStatus } from "../full-product/transport";
 import { normalizeCardServerUrl } from "../net/CardCatalogClient";
 import { DECK_ZONE_LABELS, DECK_ZONE_ORDER } from "./deck-policy";
@@ -135,6 +136,9 @@ export function AppView({
   currentDeckZones,
   currentDeckName,
   gate,
+  v2UiEnabled,
+  setV2UiEnabled,
+  v2Match,
   handleSelectDeck,
   handleSaveAsNamed,
   importDeck,
@@ -149,6 +153,9 @@ export function AppView({
     viewerPlayerId={session?.playerId ?? null} connected={status === "connected" && handshakeReady && roomId !== null}
     pending={chatPending ?? false} onSend={sendChat} error={chatError ?? null} />;
   const controls = <div className="match-local-controls">
+    <button className="button" type="button" onClick={() => setV2UiEnabled(!v2UiEnabled)}>
+      {v2UiEnabled ? "切换回旧对局界面" : "使用协议 v2 对局界面"}
+    </button>
     <MatchControls settings={displaySettings} onChange={changeDisplaySettings}
       onGoHome={() => setActiveTab("home")} onGoRoom={() => setActiveTab("room")}
       onConcede={duelProjection === null && projection !== null ? concede : undefined}
@@ -416,6 +423,17 @@ export function AppView({
           />
           )}
         </main>
+      ) : v2UiEnabled ? (
+        <main className="table-shell">
+          {controls}
+          <V2MatchBoard
+            state={v2Match.state}
+            pendingCommandIds={v2Match.pendingCommandIds}
+            transportError={v2Match.error}
+            onCommand={v2Match.sendCommand}
+          />
+          {roomId ? chat : null}
+        </main>
       ) : duelProjection !== null ? (
         <main className="table-shell">
           {duelCatalog.status === "loading" ? (
@@ -500,7 +518,7 @@ export function AppView({
         </main>
       )}
 
-      {activeTab === "game-table" && duelProjection === null && !fullProductEnabled ? (
+      {activeTab === "game-table" && !v2UiEnabled && duelProjection === null && !fullProductEnabled ? (
         <footer className="bottom-rail">
           <ActionBar
             selectedCard={selectedCard}
@@ -514,7 +532,7 @@ export function AppView({
         </footer>
       ) : null}
 
-      {activeTab === "game-table" && duelProjection === null ? (
+      {activeTab === "game-table" && !v2UiEnabled && duelProjection === null ? (
         <aside className="side-rail">
           {controls}
           {roomId ? chat : null}

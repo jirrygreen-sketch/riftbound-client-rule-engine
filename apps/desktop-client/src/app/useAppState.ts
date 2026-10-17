@@ -54,6 +54,8 @@ import {
 import { createUiBootstrap, type UiBootstrap } from "./ui-bootstrap";
 import { DECK_ZONE_LABELS, DECK_ZONE_ORDER, DEFAULT_DRAFT_NAME, allowedZonesFor, isCardAbilityImplemented, buildCardLimits } from "./deck-policy";
 import { mergeEvents } from "./events";
+import { useV2Match } from "../hooks/useV2Match";
+import { readV2UiEnabled, writeV2UiEnabled } from "../full-product/v2-ui-switch";
 
 type AppTab = AppPage;
 
@@ -107,6 +109,10 @@ export function useAppState() {
   // address and the named deck they were actually using.
   const [bootstrap] = useState<UiBootstrap>(() => createUiBootstrap());
   const preferenceStorage = bootstrap.storage;
+  const [v2UiEnabled, setV2UiEnabledState] = useState(() => readV2UiEnabled(preferenceStorage));
+  const setV2UiEnabled = useCallback((enabled: boolean): void => {
+    if (writeV2UiEnabled(preferenceStorage, enabled)) setV2UiEnabledState(enabled);
+  }, [preferenceStorage]);
   const [profile, setProfile] = useState(() => readPlayerProfile(preferenceStorage));
   const [displaySettings, setDisplaySettings] = useState(() => readDisplaySettings(preferenceStorage));
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -194,6 +200,13 @@ export function useAppState() {
     retryCatalog
   } = useCardCatalog({ serverUrl: catalogServerUrl, retryToken,
     constructedRegion: roomView?.constructedRegion ? {regionCode:roomView.constructedRegion.regionCode,eventDate:roomView.constructedRegion.eventDate} : null });
+
+  const v2Match = useV2Match({
+    enabled: v2UiEnabled && activeTab === "game-table",
+    serverUrl: activeServerUrl,
+    roomId,
+    session: session ? { playerId: session.playerId, resumeToken: session.resumeToken } : null
+  });
 
   const libraryStorage: DeckLibraryStorage | null = bootstrap.storage;
   const [library, setLibrary] = useState<DeckLibrary>(bootstrap.library);
@@ -671,7 +684,10 @@ export function useAppState() {
     currentDeckTotal,
     currentDeckZones,
     currentDeckName,
-    gate
+    gate,
+    v2UiEnabled,
+    setV2UiEnabled,
+    v2Match
   };
 }
 
