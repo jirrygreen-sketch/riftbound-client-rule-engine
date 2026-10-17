@@ -35,7 +35,7 @@ const acceptableLosses = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺逐玩家（per-player）结算作用域：CR 355.10.e/412.1 要求各玩家在结算时选择并负责消灭自己控制的一件装备；repeat 只有次数，没有枚举玩家并重绑 chooser/controller 的 body。当前 IR 仅保留单玩家子效果，options 的 dynamic 字符串只是未实现候选来源的描述，不能解析为真实对象。chain/picks 的 zoneSlice/linked 有序来源不支持本卡 filter 候选查询、逐玩家选择与 kill 责任归属。RIFT-682 模板只验证主阶段 Action 入链；单玩家原语证据不代表整卡已执行。",
+    "缺逐玩家（per-player）结算作用域：CR 355.10.e/412.1 要求各玩家在结算时选择并负责消灭自己控制的一件装备；repeat 只有次数，没有枚举玩家并重绑 chooser/controller 的 body。当前 IR 仅保留单玩家子效果，options 的 dynamic 字符串只是未实现候选来源的描述，不能解析为真实对象。chain/picks 的 zoneSlice/linked 有序来源不支持本卡 filter 候选查询、逐玩家选择与 kill 责任归属。RIFT-682/RIFT-701 模板只验证主阶段 Action 入链与 1 能量支付（became-target 事件数 0）；单玩家原语证据不代表整卡已执行。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

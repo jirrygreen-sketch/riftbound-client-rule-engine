@@ -1,5 +1,9 @@
 // Scenario evidence: ../templates/keyword-play-effect-kill-682.test.mjs.
 // Original hand-play body and real Reaction invalidation; Flow remains blocked.
+// RIFT-701 group evidence: ../templates/keyword-play-effect-kill-701.test.mjs
+// (original hand play: Finalize locks one enemy gear, effect.kill really kills
+// it and publishes its killed link, plus the no-legal-target boundary); the
+// Flow cost/banish wiring (829.1.b/829.1.c) stays recorded in judgeReason.
 import assert from "node:assert/strict";
 import test from "node:test";
 
