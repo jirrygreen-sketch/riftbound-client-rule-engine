@@ -35,46 +35,22 @@ import type { CardProgram } from "../../ir/index.js";
  *   lifetime (it lasts as long as the condition holds), not a Buff counter
  *   (702) and not a one-shot effect.
  *
- * Status: judge-required (2026-10-17 recheck). The named-in-memory static
- * ability still needs three pieces, none of them approximated:
- * - no merged producer registers a CardProgram static ability as a
- *   ContinuousEffectSpec: `registerContinuousEffect` and `LayerEngine.addContinuous`
- *   have no caller that reads a card program, so a card file cannot register its
- *   own while-conditional +1 Might (the same gap sfd/rumble-scrapper,
- *   ogn/trifarian-war-camp and ven/kinkou-temple record; RIFT-91 follow-up).
- *   The instruction layer is present (continuous.might, RIFT-258) but the
- *   card-program-to-layers wiring is not.
- * - no merged filter evaluates the [Deploy] keyword qualifier: the reference
- *   kernel's filter matching ignores unknown keys, `layers/filter.ts` can only
- *   test keywords through `characteristics` field equality (which cannot test
- *   an array) or through the continuous-effect `has-keyword` condition, and
- *   `condition.predicate` only consumes Condition objects. The authored filter
- *   therefore keeps the canonical type/controller/sameLocationAs keys and adds
- *   no key that nothing would evaluate; the keyword qualifier is part of the
- *   count subject and of this reason (keyword-predicate work).
- * - the printing's card type disagrees with its rules text (data problem,
- *   reported not fixed).
- *
- * Note (recheck): `condition.predicate` itself IS merged as an interpreter opcode
- * (effects/interpreter.ts evaluates a Condition object), but that does not help
- * here: the [Deploy] qualifier filters the counted set, it is not a standalone
- * Condition on the source.
+ * Status: judge-required (2026-10-17 recheck). The merged program lifecycle and
+ * continuous.might binding are available. The remaining gaps are the [Deploy]
+ * keyword predicate and source-relative friendly/same-location set query
+ * (RIFT-359), plus the catalog's Spell/Unit mismatch.
  */
 export default {
   canonicalCardId: "card.hash-adfd644e08c5d8afc96ca8c90b7a573a5e333bba2b2fb4d364ea5830160dc459",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "2026-10-17 复核后仍有三处缺口，均不近似实现：" +
-    "(1) 没有已合入路径把 CardProgram 的 static 能力注册成 ContinuousEffectSpec（registerContinuousEffect / LayerEngine.addContinuous " +
-    "没有读取卡牌程序的调用方，卡牌文件无法自行注册随条件存续的 +1 Might；同 sfd/rumble-scrapper、ogn/trifarian-war-camp、ven/kinkou-temple）。" +
-    "指令半段已合入（continuous.might，RIFT-258），缺的是卡牌程序→图层的接线（RIFT-91 后续）。" +
-    "(2) 没有已合入的过滤器路径求值 [Deploy] 关键词谓词（830.3 说明 Deploy 是可被检查的特征）：参考内核忽略未知键；" +
-    "layers/filter.ts 只能通过 characteristics 字段等值（无法测数组）或 continuous 效果的 has-keyword 条件；" +
-    "condition.predicate 已合入但只消费独立 Condition，不能替代对集合的过滤，因此 filter 只写 type/controller/sameLocationAs，" +
-    "[Deploy] 限定记录在 count.subject 与本文中。" +
-    "(3) 卡牌数据问题：目录把该印刷标为 Spell 且 might=2，但文本是永久物单位的静态能力（\"I have +1 Might\"、\"my battlefield\"），" +
-    "Spell 结算后进弃牌堆且没有 Might（CR 1.5 157/351.2、143.2）；本任务不改数据、不推断真实卡型。",
+    "2026-10-17 复核后仍有两处规则缺口与一处数据问题：" +
+    "(1) continuous.might 的静态绑定路径已合入，但查询条件仍无法在集合过滤中求值 " +
+    "[Deploy] 关键词谓词（CR 830.3）；该谓词属于 RIFT-359 条件/谓词工作流，不能用未知 filter 字段近似。" +
+    "(2) 条件还需要把 friendly 与 sameLocationAs 的相对来源语义交给该查询路径。" +
+    "(3) card-data 把本印刷标为 Spell 且 might=2，但文本是永久 Unit 的静态 Might 能力（CR 143.2）；" +
+    "本任务不修改该数据问题。依赖 RIFT-359；不近似实现。",
   abilities: [
     {
       kind: "static",
@@ -99,7 +75,7 @@ export default {
           subject: "friendly-gears-with-deploy-at-my-battlefield",
           filter: {
             type: "gear",
-            controller: "you",
+            controller: "self",
             sameLocationAs: "self"
           }
         },

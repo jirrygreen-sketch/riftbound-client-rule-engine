@@ -69,19 +69,8 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "触发条件里的“here”无法可靠判定：契约 3.6 的 ObjectFilter 有 sameLocationAs 锚点，" +
-    "但 triggerRegistrations → translateTriggerFilter → translateObjectFilter 只接受白名单字段，" +
-    "sameLocationAs 会被判为 unsupported filter field " +
-    "而拒绝注册（fail closed，不会退化成“任意位置”），同时时点事件 filter 的运行时匹配走 " +
-    "events/pipeline-match.ts 的 matchesTriggerEvent / matchesTriggerObject，它只识别 " +
-    "objectId/cardId/type/controller/owner/" +
-    "zone/states/tags/characteristics，不识别 sameLocationAs，也没有把“事件对象的 location 与来源 " +
-    "location 比较”的路径；" +
-    "同时 808.1.d.3 要求先记录来源位置再处理触发，死亡事件虽携带 last-known 快照，却没有把该位置交给" +
-    "卡牌条件的通道。“Once each turn”的 per-turn 寿命（383.3.e.1、契约 TriggerSpec.once，" +
-    "frequencyKey 已消费）与 effect.channel 1 rune exhausted（431.1/431.2.a，已合入）本身可用；" +
-    "不近似实现：不用“任意敌方单位死亡”替代“这里”，也不放宽 once-per-turn。" +
-    "依赖：事件匹配器的 sameLocationAs/位置锚点扩展（契约变更请求）。",
+    "当前缺口是死亡触发的“here”位置锚点（383.2.c.3.b / 808.1.d.3）：translateObjectFilter 仍拒绝 sameLocationAs，events/pipeline-match.ts 的 matchesTriggerEvent / matchesTriggerObject 也没有比较事件对象 location 与来源位置的路径。" +
+    "解释器的集合查询与静态图层虽已支持 sameLocationAs，但未接入事件触发过滤，不能用任意位置的敌方单位死亡替代。TriggerSpec.once 的 per-turn 消费与 effect.channel 的 amount:1 / exhausted:true 动作载荷已可用；参考内核尚忽略 channel-rune.exhausted，横置入场仍缺执行证据。",
   abilities,
   sourceText: "Once each turn, when an enemy unit here dies, channel 1 rune exhausted."
 } satisfies CardProgram;

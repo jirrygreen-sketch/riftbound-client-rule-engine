@@ -26,24 +26,19 @@ import type { CardProgram } from "../../ir/index.js";
  * 在结算时读出来源控制者，再以 linked-value 交给 effect.inspect（190.6.d 的隐含 “you”；
  * 与已合入 ogn/stacked-deck 同一写法，避免把玩家 id 硬编码进卡数据）。
  *
- * status = judge-required（README 第 2 节）：Predict 半段只用已合入原语并有真实执行测试，
- * 但临时 Might 修正没有可执行路径——契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，
- * effects/instructions/ 也没有注册 continuous.might 原语（图层求值侧属 RIFT-91，把结算中的
- * 持续效果经 ResolveContext.addContinuous 落地的指令仍未合入）；同时生产环境的
- * 「按牌库顶顺序取前 1 张」仍需有序区域 picks 的 Finalize 生命周期。不近似实现。
- * 依赖：continuous.might 指令原语 + end-of-turn 期限（RIFT-91 后续）、有序区域 picks 生命周期、RIFT-89/90。
+ * status = judge-required（README 第 2 节）：临时 Might 修正已由 continuous.might 原语真实登记并
+ * 由图层求值，Predict 半段也只用已合入原语；但生产环境的「按牌库顶顺序取前 1 张」仍需有序区域
+ * picks 的 Finalize/AwaitChoice 生命周期，缺少该生命周期时整卡不能宣称可执行。不近似实现。
  */
 const eclipse = {
   canonicalCardId: "card.hash-de24e677d5541604808bbe583f958d702c8e2067e5a554af3d856ceac17c6354",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "临时 Might 修正无执行路径：「Give a unit -4 :rb_might: this turn」属算术图层的 continuous.might（143.2.a / 143.2.c / 317.2.c），" +
-    "契约 3.6 的封闭 GameAction 没有 Might 修改动作，effects/instructions/ 也没有注册 continuous.might 原语" +
-    "（effect.buff 明确只管 702/703 的 Buff 计数器，不用它近似 Might；图层求值侧 RIFT-91 已合入，缺的是把结算中的持续效果经 " +
-    "ResolveContext.addContinuous 落地的指令）；此外生产环境的「按牌库顶顺序取前 1 张」（437.1 / 契约 3.6 zoneSlice）仍需有序区域 " +
-    "picks 的 Finalize 生命周期（同 ogn/stacked-deck 的缺口）。Predict 半段（effect.inspect + effect.recycle）只用已合入原语并有真实执行测试；" +
-    "「[Predict]」按 437.3.a 省略数值即 X = 1，不按关键词展开处理。依赖：continuous.might 指令原语、有序区域 picks 生命周期、RIFT-89/90。",
+    "生产环境的「按牌库顶顺序取前 1 张」（437.1 / 契约 3.6 zoneSlice）仍缺有序区域 picks 的 Finalize/AwaitChoice 生命周期，" +
+    "所以 Predict 在正式打出路径上无法取得牌库顶的保序集合，整卡不能宣称可执行。Give -4 Might 已由 continuous.might 原语经 " +
+    "ResolveContext.addContinuous 真实登记，this-turn 期限由图层清理处理；Predict 半段（effect.inspect + effect.recycle）也有真实执行测试。" +
+    "「[Predict]」按 437.3.a 省略数值即 X = 1，不按关键词展开处理。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

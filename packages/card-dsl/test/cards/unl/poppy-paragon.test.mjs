@@ -36,9 +36,7 @@ test("unl-116-219 Poppy, Paragon: identity, status, judgeReason and verbatim sou
   assert.match(program.judgeReason, /194\.3/);
   // The reason must refuse to hard-code the default Victory Score of 8.
   assert.match(program.judgeReason, /硬编码 8 就是臆造/);
-  // The stale "no TriggerRegistration adapter" gap is gone (RIFT-257).
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.doesNotMatch(program.judgeReason, /缺 CardProgram → TriggerRegistration 适配器/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+|缺 CardProgram → TriggerRegistration 适配器/);
 });
 
 test("unl-116-219 Poppy, Paragon: [Deflect] stays a keyword declaration without a printed value (809.1.b.3)", () => {
@@ -154,22 +152,20 @@ test("unl-116-219 Poppy, Paragon golden: a lost source negates the ready half bu
 
 test.todo(
   "unl-116-219 Poppy, Paragon: [Deflect] taxes opponents' targeting with one any-domain Power " +
-    "(CR 809.1.c/809.1.c.1) — no producer wires the target.tax layer effect into TargetPlan/costs and the merged " +
-    "tax conversion bills Energy and no target.tax query exists (same gap as sfd/navori-scout)"
+    "(CR 809.1.c/809.1.c.1) by wiring the target.tax layer effect into TargetPlan/costs with any-domain Power"
 );
 test.todo(
   "unl-116-219 Poppy, Paragon: evaluate “an opponent's score is within 3 points of the Victory Score” against the " +
-    "live Victory Score (CR 194.3/194.3.a) — no victoryScore read path exists and the default 8 must not be hard-coded"
+    "live Victory Score (CR 194.3/194.3.a) through a victoryScore read path"
 );
 test.todo(
   "unl-116-219 Poppy, Paragon: the target.tax layer effect is read when an opponent chooses this unit " +
-    "(CR 809.1.c/809.1.c.1) — no target.tax query exists in layers/rules/query.ts and the Finalize tax adapter " +
-    "is only fed by caller-supplied TargetFinalizeOptions.tax"
+    "(CR 809.1.c/809.1.c.1) by adding a target.tax query and feeding the Finalize tax adapter from layers"
 );
 
 test("unl-116-219 Poppy, Paragon: every deck-level dependency of the trigger is merged", () => {
   // 383.4.a.1: "When you play me" is a Play Effect, so the merged card-played
-  // timing and the RIFT-257 registration path cover the subscription itself. The
+  // timing and the card-program registration path cover the subscription itself. The
   // remaining gaps are the evaluated Victory-Score condition and the Deflect tax,
   // both recorded in judgeReason rather than approximated here.
   assert.equal(playTrigger.trigger.at, "card-played");

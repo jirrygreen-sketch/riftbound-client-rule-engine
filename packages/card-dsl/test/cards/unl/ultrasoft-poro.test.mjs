@@ -32,7 +32,7 @@ test("unl-160-219 Ultrasoft Poro: identity, status, judgeReason and verbatim sou
   assert.match(program.judgeReason, /187\.7/);
   assert.match(program.judgeReason, /effect\.token/);
   assert.match(program.judgeReason, /355\.2/);
-  assert.match(program.judgeReason, /RIFT-62/);
+  assert.match(program.judgeReason, /RIFT-90/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -108,10 +108,6 @@ test("unl-160-219 Ultrasoft Poro golden: an already-exhausted host cannot pay th
 test.todo(
   "unl-160-219 Ultrasoft Poro: add the CR 187.7 1 [M] Bird token (domainless unit token, 1 Might, Bird tag, " +
     "[Deflect]) to the frozen effect.token definition table"
-);
-test.todo(
-  "unl-160-219 Ultrasoft Poro: the chain-create-then-play path for mode \"play\" (185.2.a / 440.2.c / 350.2 / 354) " +
-    "— RIFT-62"
 );
 test.todo(
   "unl-160-219 Ultrasoft Poro: Finalize provides the legal play locations for two NEW Unit tokens (355.2 / 355.2.a) " +

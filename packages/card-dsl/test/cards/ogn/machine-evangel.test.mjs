@@ -24,8 +24,8 @@ test("ogn-239-298 Machine Evangel: identity, status and verbatim sourceText", ()
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /trigger\.leave/);
-  assert.match(program.judgeReason, /RIFT-82/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /cause/);
+  assert.match(program.judgeReason, /controller-base/);
   assert.equal(
     program.sourceText,
     "[Deathknell] — Play three 1 :rb_might: Recruit unit tokens into your base. (When I die, get the effect.)"
@@ -114,9 +114,9 @@ test("ogn-239-298 Machine Evangel: the effect body executes through the ability 
 });
 
 test.todo(
-  "ogn-239-298 Machine Evangel: registering the [Deathknell] trigger needs the completed " +
-    "Deathknell expansion (trigger.leave, CR 808.1.d/429.1.a.1.b, RIFT-82) plus CardProgram trigger " +
-    "registration (RIFT-257)"
+  "ogn-239-298 Machine Evangel: registering the [Deathknell] trigger needs an executable " +
+    "trigger.leave instruction and a trigger adapter that accepts the expansion's cause / " +
+    "destination filter (CR 808.1.d/429.1.a.1.b)"
 );
 test.todo(
   "ogn-239-298 Machine Evangel: resolving 'into your base' (CR 440.4) needs effect.token to " +

@@ -27,7 +27,7 @@ test("Block identity, ruleset, status and printed text", () => {
   assert.equal(block.status, "judge-required");
   assert.match(block.judgeReason, /Tank/);
   assert.match(block.judgeReason, /815/);
-  assert.match(block.judgeReason, /RIFT-257/);
+  assert.match(block.judgeReason, /cost\.hidden|continuous\.combat/);
   assert.equal(cardRegistryById.get(block.canonicalCardId), block);
   assert.equal(
     block.sourceText,
@@ -134,15 +134,16 @@ test("Block golden: the printed grant registers Shield 3 and Tank in the ability
 
 test.todo(
   "Block: give a unit [Shield 3] for this turn, summing with an existing Shield (CR 814.2 / 814.1.c: +3 Might " +
-    "only while it is a defender) - needs a duration-bound keyword grant and the Combat Defender designation (466.2.c.3)"
+    "only while it is a defender) - the grant is executable; the Combat Defender designation and conditional " +
+    "layers consumer remain (466.2.c.3)"
 );
 
 test.todo(
   "Block: give that unit [Tank] for this turn so it must be assigned lethal combat damage first (CR 815.1.b / " +
-    "815.1.c.2) - needs the kw-tank keyword implementation (RIFT-83 keyword scope) plus the combat damage step"
+    "815.1.c.2) - the Tank KeywordDef is merged; the combat damage step still needs its continuous.combat consumer"
 );
 
 test.todo(
   "Block [Hidden]: hide for [A] and play from the facedown zone for [0] (CR 811.1.b / 811.1.c.2) - " +
-    "needs the Hidden cost/zone workstream (RIFT-84)"
+    "needs the cost.hidden, Hide action, and facedown-zone consumers"
 );

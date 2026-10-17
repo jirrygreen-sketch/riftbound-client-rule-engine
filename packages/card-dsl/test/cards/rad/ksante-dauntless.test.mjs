@@ -5,6 +5,13 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/ksante-dauntless.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import mightOp from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
+import { translateInstructionTargets, translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import Shield from "../../../../engine-core/dist/effects/keywords/Shield.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CANONICAL = "card.hash-5d66044d59f3bf4f17b4143a7229c8e12673e34e92591de0005f64fad8dd2a82";
 const SOURCE_TEXT =
@@ -26,8 +33,11 @@ test("rad-045-167 K'Sante, Dauntless: identity, ruleset, status, judgeReason and
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /Shield Value/);
+  assert.match(program.judgeReason, /Shield 值/);
   assert.match(program.judgeReason, /arithmetic/);
+  assert.match(program.judgeReason, /designation|combatRole/);
+  assert.match(program.judgeReason, /sameLocationAs|source-location/);
+  assert.doesNotMatch(program.judgeReason, /continuous\.grant-keyword 的 value 是新增一则带值关键词/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -93,8 +103,78 @@ test("rad-045-167 K'Sante, Dauntless: both bodies declare doubling the Shield of
   }
 });
 
-test.todo(
-  "rad-045-167 K'Sante, Dauntless: double the chosen unit's Shield value for the rest of the turn (814.2) and " +
-    "expire it at the end-of-turn cleanup — needs a continuous instruction that multiplies a keyword value " +
-    "rather than changing Might directly"
-);
+test("rad-045-167 K'Sante, Dauntless boundary: the multiply form is not an executable continuous.might argument", () => {
+  // 814.1.b/814.2: doubling the target's Shield Value needs an arithmetic-layer
+  // multiplier over the keyword value. The merged continuous.might accepts only
+  // add/set, so the declared multiply mode is rejected at parse and at runtime.
+  assert.equal(mightOp.argsSchema.safeParse({
+    amount: { kind: "constant", value: 2 },
+    mode: { kind: "constant", value: "multiply" },
+    objects: { kind: "constant", value: { kind: "target", id: "ksante-dauntless.unit-here" } }
+  }).success, true, "the static shape still parses as a declaration");
+
+  const kernel = world().unit("ksante", { might: 4 }).unit("ally", { might: 2 }).build();
+  assert.throws(
+    () => runInstruction(
+      mightOp,
+      {
+        amount: { kind: "constant", value: 2 },
+        mode: { kind: "constant", value: "multiply" },
+        objects: { kind: "constant", value: { kind: "target", id: "ksante-dauntless.unit-here" } }
+      },
+      { world: kernel, targets: { "ksante-dauntless.unit-here": [kernel.ref("ally")] } }
+    ),
+    /mode must evaluate to "add" or "set"/
+  );
+  assert.throws(
+    () => mightOp.argsSchema.parse({
+      amount: { kind: "constant", value: 2 },
+      layer: { kind: "constant", value: "arithmetic" },
+      objects: { kind: "constant", value: { kind: "target", id: "ksante-dauntless.unit-here" } }
+    }),
+    /Invalid continuous\.might argument: layer/
+  );
+});
+
+test("rad-045-167 K'Sante, Dauntless boundary: the 'here' target filter is not expressible with the merged vocabularies", () => {
+  // "a unit you control here" (383.4.e/464.2.b). Body target filters reject the
+  // sameLocationAs anchor, and the card-side validator does not accept the
+  // RIFT-357 relative location selectors that the engine-side resolver knows.
+  assert.throws(
+    () => translateInstructionTargets(attackAbility.body),
+    /Unsupported filter field sameLocationAs/
+  );
+  // The merged program filter translation normalizes the relative player
+  // anchors, which is why the sameLocationAs anchor - not the controller - is
+  // what the card cannot express today.
+  assert.deepEqual(
+    translateObjectFilter({ type: "unit", controller: "controller", zone: "board" }),
+    { type: "unit", controller: "self", zone: "board" }
+  );
+  const relativeSelector = { ...attackInstruction.targets[0], filter: { type: "unit", zone: "board" }, location: "source-location" };
+  assert.equal(relativeSelector.location, "source-location");
+  assert.equal(attackInstruction.targets[0].filter.sameLocationAs, "self");
+});
+
+test("rad-045-167 K'Sante, Dauntless boundary: the [Shield] expansion leaves the printed Might unchanged", () => {
+  // 814.1.c: the defender bonus reads `designation`, which the merged
+  // ObjectSnapshot does not provide (it exposes combatRole); binding therefore
+  // produces no Might change rather than an invented +1.
+  const expansion = Shield.expand({ value: undefined, host: { canonicalCardId: CANONICAL } });
+  assert.deepEqual(expansion[0].condition.left, {
+    kind: "object-property", object: "self", property: "designation"
+  });
+  const kernel = world().unit("ksante", { might: 4, combatRole: "defender" }).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`unexpected choice ${request.id}`); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  createEngineStaticBinder(engine).bindStatic(expansion[0], kernel.getObject("ksante"));
+  engine.layers.setObjects(kernel.objects);
+  assert.equal(engine.layers.evaluate(kernel.ref("ksante")).might, 4);
+});

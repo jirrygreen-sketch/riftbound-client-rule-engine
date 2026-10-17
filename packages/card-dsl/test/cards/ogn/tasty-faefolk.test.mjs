@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program, { deathknellBody } from "../../../dist/cards/ogn/tasty-faefolk.js";
 import channel from "../../../../engine-core/dist/effects/instructions/effect.channel.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 
@@ -89,7 +90,58 @@ test("Tasty Faefolk golden subeffect: Draw 1 moves the actual top Main Deck card
 });
 
 test.todo("Tasty Faefolk: bind the payload to exactly one Deathknell expansion, preserve LKI and suppress replaced deaths (CR 808; RIFT-1/82/120)");
-test.todo("Tasty Faefolk: original ordered channel/draw body through interpreter, including negated channel followed by independent draw (RIFT-1/120 Expr schema alignment)");
+
+test("Tasty Faefolk: resolveChainBody executes the original ordered deathknellBody", () => {
+  const kernel = world()
+    .unit("faefolk", { might: 6, power: null })
+    .rune(["rune-1", "rune-2", "rune-3"])
+    .deck(["top-card", "next-card"])
+    .build();
+  const outcome = resolveChainBody(deathknellBody, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["channel-runes", "executed"],
+    ["draw-card", "executed"]
+  ]);
+  assert.equal(outcome.linkedValues["channel-runes.channeled"], 2);
+  assert.equal(outcome.linkedValues["draw-card.drawn"], 1);
+  assert.equal(kernel.getObject("rune-1").zone, "rune-zone");
+  assert.equal(kernel.getObject("rune-2").zone, "rune-zone");
+  assert.equal(kernel.getObject("rune-3").zone, "rune-deck");
+  assert.equal(kernel.getObject("top-card").zone, "hand");
+  assert.equal(kernel.getObject("next-card").zone, "deck");
+  assert.equal(kernel.player("A").handSize, 1);
+  assert.deepEqual(kernel.events.map(event => event.action), ["channel-rune", "draw"]);
+  assert.deepEqual(kernel.stateForTest().history.map(entry => entry.action), [
+    { type: "channel-rune", player: "A", amount: 2, exhausted: true },
+    { type: "draw", player: "A", amount: 1 }
+  ]);
+});
+
+test("Tasty Faefolk: resolveChainBody keeps Draw 1 independent when channel is replaced", () => {
+  const kernel = world()
+    .unit("faefolk", { might: 6, power: null })
+    .rune(["rune-1", "rune-2"])
+    .deck(["top-card"])
+    .build();
+  kernel.addReplacement(action => action.type === "channel-rune" ? "replaced" : null);
+  const outcome = resolveChainBody(deathknellBody, kernel);
+
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["channel-runes", "negated"],
+    ["draw-card", "executed"]
+  ]);
+  assert.equal(outcome.results[0].result.reason, "replaced");
+  assert.equal(outcome.linkedValues["draw-card.drawn"], 1);
+  assert.equal(kernel.getObject("rune-1").zone, "rune-deck");
+  assert.equal(kernel.getObject("rune-2").zone, "rune-deck");
+  assert.equal(kernel.getObject("top-card").zone, "hand");
+  assert.equal(kernel.player("A").handSize, 1);
+  assert.deepEqual(kernel.events.map(event => event.action), ["channel-rune", "draw"]);
+});
+
 test.todo("Tasty Faefolk: actual optional Accelerate 1 energy + matching Calm power cost and enter-ready replacement without object-readied (CR 805; RIFT-89/120)");
 
 test("Tasty Faefolk golden subeffect: empty Rune Deck channels zero without negating", () => {

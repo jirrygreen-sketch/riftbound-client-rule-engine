@@ -35,12 +35,10 @@ import type { CardProgram } from "../../ir/index.js";
  * 2. "If you paid the additional cost"（356.4.f.1）需要费用结果回执；冻结 IR 没有费用结果绑定
  *    （调研记为 condition.result），所以 +2 的门控写不出来——本卡按 sfd-160-221 Zaun Punk 的
  *    同口径不伪造恒真条件，只把指令写成待接线数据。
- * 3. 缺临时 Might 修正的卡牌侧指令原语：effects/instructions/ 只有 effect.* 文件，没有
- *    continuous.might（continuous.* 指令批次属 RIFT-258，未合入本基线；RIFT-91 只合入图层求值侧），
- *    契约 3.6 的封闭 GameAction 集合也没有 Might 修改动作；effect.buff 只做 Buff 计数（702/703），
- *    不得近似。由于本条缺失，"+2 之后按各自 Might 互相造成伤害"也无法完整结算（省略 +2 会得到
- *    错误的伤害数额），整卡因此不可执行；伤害半边只用已合入原语，golden 用真实原语单独执行。
- * 依赖：RIFT-89（可选追加费用与费用回执）、continuous.might 指令原语（RIFT-258 / RIFT-91）。
+ * 3. "give the friendly unit +2 :rb_might: this turn" 可用已合入的 continuous.might（targets 形状）
+ *    表达：243.2.a 的有效 Might 读数、317.2.c 在回合结束 3d 步骤同时到期，属 arithmetic 图层
+ *    （478 / 478.1.a）。未付出的卡牌仍不得触发 +2（见 judgeReason 第 2 条）。
+ * 依赖：卡牌可选追加费用到 CostPlanInput.optionalAdditional 的接线与费用结果回执。
  */
 const rampage = {
   canonicalCardId: "card.hash-9c6aa95845a73edcec9a9568deba187100fbe690f0a6dfcc010810f04e6a9245",
@@ -48,15 +46,12 @@ const rampage = {
   status: "judge-required",
   judgeReason:
     "三处缺口：(1) 可选追加费用（356.2.b/356.2.b.1，1 点 Body Power）只有 CostSpec 数据、没有收取路径——" +
-    "已合入的 buildCostPlan 只消费调用方传入的 optionalAdditional，没有任何适配器把卡牌程序的这条子句转成 " +
-    "CostPlanInput.optionalAdditional（chain/engine.ts finalize 对卡牌只给 { kind: 'printed' }，同 rad-028-167 Ki Burst）；" +
     "(2)「If you paid the additional cost」（356.4.f.1）需要费用结果回执，冻结 IR 没有费用结果绑定（调研记为 condition.result），" +
     "故 +2 的门控写不出来（按 sfd-160-221 Zaun Punk 同口径不伪造恒真条件）；" +
-    "(3) 缺临时 Might 修正的卡牌侧指令原语——effects/instructions/ 没有 continuous.might（continuous.* 指令批次属 RIFT-258，" +
-    "未合入本基线；RIFT-91 只合入图层求值侧），契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，effect.buff 只做 Buff 计数（702/703）。" +
-    "因第 (3) 条，「+2 后按各自 Might 互相造成伤害」无法完整结算（省略 +2 会按未修正 Might 计算，属近似），整卡不可执行；" +
-    "伤害半边（418.6.b.3 的 source/amount 形状）只用已合入原语，golden 用真实原语单独执行。" +
-    "依赖：RIFT-89（可选追加费用与费用回执）、continuous.might 指令原语（RIFT-258 / RIFT-91）。不近似实现。",
+    "已合入的 buildCostPlan 只消费调用方传入的 optionalAdditional（chain/engine.ts finalize 对卡牌只给 { kind: 'printed' }，同 rad-028-167 Ki Burst）；" +
+    "(3)「give the friendly unit +2 :rb_might: this turn」已用合入的 continuous.might（targets 形状，479.4.e.1）表达，" +
+    "golden 用真实解释器注册算术层并校验 end-of-turn 期限，但因为第 (2) 条费用回执缺口，未付费分支仍不得触发 +2。" +
+    "依赖：卡牌可选追加费用到 CostPlanInput.optionalAdditional 的接线与费用结果回执。不近似实现。",
   abilities: [
     {
       kind: "play",
@@ -85,8 +80,8 @@ const rampage = {
         {
           id: "rampage.give-friendly-plus-2",
           // "If you paid the additional cost, give the friendly unit +2 Might this turn"：带期限的
-          // 临时 Might 修正（317.2.c 到期）；op 未注册（见 judgeReason 第 3 条），门控也缺回执
-          // （第 2 条），故这条指令不参与 golden 执行。
+          // 临时 Might 修正（317.2.c 到期）；continuous.might 已合入，费用门控缺回执
+          // （见 judgeReason 第 2 条），golden 用真实解释器单独执行该注册。
           op: "continuous.might",
           args: {
             amount: { kind: "constant", value: 2 },

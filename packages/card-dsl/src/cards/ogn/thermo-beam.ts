@@ -35,7 +35,7 @@ import type { CardProgram } from "../../ir/index.js";
  * executable.
  *
  * Dependencies: an untargeted each/all set selection consumed by effect.kill
- * (RIFT-9 target.many; 355.10.d, 355.5) — an extension of the merged primitive,
+ * (355.10.d, 355.5) — an extension of the merged primitive,
  * not a card-local implementation. The merged effect.kill still accepts only
  * target / picks / self: true and rejects an `objects` query at its schema, so
  * nothing changed for this card with the later op batches.
@@ -49,7 +49,7 @@ const thermoBeam = {
     "不算目标），但已合入的 effect.kill 只能从 TargetSpec（ctx.targets）、PickSpec（ctx.picks）或来源自身解析对象" +
     "（args 只接受 target/picks/self/count/reason）。用 selection: all 的 TargetSpec 会走目标锁定管线并发出" +
     "became-target 事件（与 355.10.d 冲突），用 PickSpec 又要求控制者逐张选择（与 355.5 冲突），两者都不是如实编码。" +
-    "缺的是 effect.kill 可消费的无目标 each/all 集合选择（RIFT-9 target.many）；已合入的其他原语集合形态（effect.ready/effect.heal 的 " +
+    "缺的是 effect.kill 可消费的无目标 each/all 集合选择；已合入的其他原语集合形态（effect.ready/effect.heal 的 " +
     "{ kind: \"query\", filter }）不能平移到 effect.kill，权当近似。不近似实现。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +

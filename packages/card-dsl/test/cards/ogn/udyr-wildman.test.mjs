@@ -50,8 +50,8 @@ test("ogn-157-298 Udyr, Wildman: program validates and keeps identity", () => {
 test("ogn-157-298 Udyr, Wildman: judgeReason cites the per-turn choice memory and the movement consumer", () => {
   assert.match(program.judgeReason, /choice\.mode/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /continuous\.movement/);
-  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /choice-plan adapter/);
+  assert.match(program.judgeReason, /Ganking/);
 });
 
 test("ogn-157-298 Udyr, Wildman: 'Spend my buff:' is the activated cost and action timing (377.1 / 381.1)", () => {
@@ -162,7 +162,7 @@ test("ogn-157-298 Udyr, Wildman: the ready mode readies the exhausted source (41
   assert.deepEqual(outcome.events.map(event => event.action), ["ready"]);
 });
 
-test("ogn-157-298 Udyr, Wildman golden: the Ganking grant registers the end-of-turn keyword (RIFT-258, 801.3.a)", () => {
+test("ogn-157-298 Udyr, Wildman golden: the Ganking grant registers the end-of-turn keyword (801.3.a)", () => {
   // "Give me [Ganking] this turn": the merged continuous.grant-keyword
   // primitive registers one ability-layer effect through ctx.addContinuous
   // with the end-of-turn duration; the layer engine derives the keyword.
@@ -210,9 +210,4 @@ test("ogn-157-298 Udyr, Wildman golden: 'Spend my buff:' is charged through the 
 test.todo(
   "ogn-157-298 Udyr, Wildman: 'Choose one you've not chosen this turn' needs per-turn choice memory; " +
     "choice.mode's different flag only de-duplicates within one resolution (CR v1.5 383.1.b / 355.5.a)."
-);
-test.todo(
-  "ogn-157-298 Udyr, Wildman: the granted [Ganking] needs a production consumer for its " +
-    "continuous.movement permission in the Standard Move legality check (CR v1.5 801.3.a / 810; " +
-    "duel/movement.ts takes an external deriveGanking callback that nothing wires from the layers engine)."
 );

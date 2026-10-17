@@ -64,12 +64,17 @@ test("breakneck-mech program is registered and validates", () => {
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("breakneck-mech judgeReason names the CardProgram binding and the target.tax gap", () => {
-  assert.match(program.judgeReason, /RIFT-257/);
+test("breakneck-mech judgeReason names the current Deflect, Ganking and entry-condition gaps", () => {
   assert.match(program.judgeReason, /Deflect/);
   assert.match(program.judgeReason, /Ganking/);
   assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /permission\.routes/);
+  assert.match(program.judgeReason, /matchesEnterAction/);
+  assert.match(program.judgeReason, /tag\/other|tag \/ other/);
+  assert.match(program.judgeReason, /attachProgramLifecycle/);
+  assert.match(program.judgeReason, /createEngineStaticBinder/);
   assert.ok(!/unmerged KeywordDef|keywords registry is empty/.test(program.judgeReason));
+  assert.ok(!/RIFT-257|CardProgram binding|未合入/.test(program.judgeReason));
 });
 
 test("breakneck-mech structure: static grant + enter-ready replacement", () => {
@@ -299,29 +304,24 @@ test("breakneck-mech golden: the entry rewrite is gated by the declared 'another
 });
 
 test.todo(
-  "breakneck-mech: install the static grant-keyword ability into the layer registry from the card program " +
-    "(contract 3.5 / RIFT-257); no production consumer registers CardProgram static abilities yet, so the " +
-    "Deflect/Ganking grant never reaches the layers in a real game"
+  "breakneck-mech: derive the granted Deflect target.tax registration into a TargetTaxSpec the target " +
+    "plan consumes (today only caller-supplied options.tax / taxAdapter exists, and chain/engine.ts " +
+    "collects taxes without reading the layers)"
 );
 
 test.todo(
-  "breakneck-mech: bind the board-entry replacement from card-played before the entry move and re-evaluate " +
-    "'if you control another Mech' at match time (RIFT-257); today only engine-core's own tests bind it"
+  "breakneck-mech: reconcile the Ganking expansion with the rules query — Ganking.ts emits " +
+    "continuous.movement with a plain permission string while layers/rules/query.ts reads " +
+    "permission.routes, so the granted keyword yields no battlefield-to-battlefield route (CR 810.1.c)"
 );
 
 test.todo(
-  "breakneck-mech: the granted Deflect expands to target.tax, which still has no target-legality or " +
-    "additional-cost consumer (CR 809; the target plan only collects tax requests through a caller-supplied adapter)"
+  "breakneck-mech: evaluate the replacement condition on the entry path — replacement/bind.ts " +
+    "matchesEnterAction returns before testCondition, so 'if you control another Mech' never gates the " +
+    "entry rewrite (CR 371.1)"
 );
 
 test.todo(
-  "breakneck-mech: the merged Ganking expansion declares continuous.movement with a plain permission " +
-    "string, while the merged rules query reads continuous.movement.permission.routes; the granted Ganking " +
-    "therefore reports no battlefield-to-battlefield route until that shape is reconciled (CR 810.1.c)"
-);
-
-test.todo(
-  "breakneck-mech: the merged entry-orientation match (replacement/bind.ts matchesEnterAction) returns before " +
-    "the ability condition is tested, so 'if you control another Mech' is not enforced on the entry path; " +
-    "the condition must gate the entry rewrite in the production binding (CR 371.1, RIFT-257)"
+  "breakneck-mech: give the condition's count query a consumer for the singular tag/other keys — " +
+    "layers/filter.ts silently ignores 'tag' and 'other', so 'another Mech' cannot be counted correctly"
 );

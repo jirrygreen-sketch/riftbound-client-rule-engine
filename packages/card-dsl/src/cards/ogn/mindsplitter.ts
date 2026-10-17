@@ -101,7 +101,7 @@ const program = {
     "（ability-templates 第 4 节 target.player 行：each player 与 choose opponent 不等价）。" +
     "后续的 effect.reveal（show opponent's hand）+ effect.discard（pick 玩家手牌）均已合入；" +
     "golden 测试用链接值直接绑定对手玩家，真实执行这两步。" +
-    "依赖：target.player 玩家选择原语落地（含触发注册/CardProgram 绑定 RIFT-257）。",
+    "依赖：target.player 玩家选择原语落地，并把选择结果接入后续 player 参数。",
   abilities,
   sourceText:
     "When you play me, choose an opponent. They reveal their hand. Choose a card from it, " +

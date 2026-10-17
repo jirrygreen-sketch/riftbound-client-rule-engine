@@ -18,19 +18,20 @@ import type { CardProgram } from "../../ir/index.js";
  * - "When I conquer, you may pay :rb_energy_1: to return me to my owner's hand."
  *   （383.3.a、383.4.c）："you may pay ... to return me" 是可选效果；按契约 3.9，
  *   "可以……"必须写成 choice.optional 并把被选指令包进 body（不是 choice +
- *   linkedTo）。body 内先支付 1 能量（cost.pay 形状，由费用管线在 Finalize 收取），
+ *   linkedTo）。body 内先支付 1 能量（cost.pay 的 payments 形状），
  *   再用 effect.zone 的 return-to-hand 形式把我移回拥有者手牌（"my owner's hand"：
  *   effect.zone 的 hand 目的地按拥有者路由，CR 417/124 由内核处理）。
  *
  * status：judge-required（复核 2026-10-17）。已合入：入场替代注册管线
- * （replacement/bind.ts，RIFT-260）能绑定「横置进场 → 就绪进场」的状态改写，
+ * （replacement/bind.ts）能绑定「横置进场 → 就绪进场」的状态改写，
  * golden 断言链区横置后进入战场时被改写为就绪（不是先横置再 effect.ready）。
  * 仍缺：
  * - "an opponent controls a battlefield" 的条件没有可求值路径：ObjectSnapshot 里
  *   battlefield 不是对象，count 的 subject 不参与求值；且 bind 的入场改写匹配
  *   （matchesEnterAction）在条件检查之前返回，条件尚未被求值；
- * - 可选征服体里的成本内付款（383.3.b 的 cost.pay）需要费用管线接管支付与回手
- *   动作的顺序（cost.pay 原语尚未合入，RIFT-261）。
+ * - 可选征服体的 cost.pay 与回手指令已经能在解释器中按顺序执行，但生产链仍缺
+ *   嵌套 choice.optional 里的 TargetSpec 生命周期，且支付失败时缺少只跳过该可选体的
+ *   payment scope/savepoint；当前链路不能安全完成这段触发。
  * 关键词部分（Assault 3）已可结构校验。不把"enter ready"近似成事后 effect.ready，
  * 也不手改费用。
  */
@@ -39,14 +40,14 @@ const vayneHunter = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口（复核 2026-10-17）：(1)「If an opponent controls a battlefield, I enter ready」的入场改写已由合入的替代注册管线" +
-    "（replacement/bind.ts，RIFT-260）真实执行（golden 断言链区横置进场被改写为就绪，不是先横置再 effect.ready），" +
+    "两处缺口（复核 2026-10-17）：(1)「If an opponent controls a battlefield, I enter ready」的入场改写已由替代注册管线" +
+    "真实执行（golden 断言链区横置进场被改写为就绪，不是先横置再 effect.ready），" +
     "但条件「an opponent controls a battlefield」没有可求值路径——ObjectSnapshot 里 battlefield 不是对象、count 的 subject 不参与求值，" +
     "且 bind.ts 的 matchesEnterAction 在条件检查之前返回（入场改写匹配不经过 ability.condition）。" +
-    "(2)「When I conquer, you may pay :rb_energy_1: to return me」的可选包装（choice.optional）已合规，" +
-    "但成本内付款（383.3.b）需要费用管线接管支付与回手动作的顺序，cost.pay 原语尚未合入（RIFT-261）。" +
-    "触发 filter 已改用封闭判别值 \"conquered\" 与 object:{objectId:self} 意图（conquer 载荷的无单位身份缺口见同批复核）。" +
-    "依赖：battlefield 控制谓词 / 入场替代条件求值、RIFT-261（cost.pay 与费用计划）。",
+    "(2)「When I conquer, you may pay :rb_energy_1: to return me」的 cost.pay 与回手指令已能在解释器中真实执行，" +
+    "但生产链的 assertFinalizationSurface 拒绝 choice.optional 内嵌的 TargetSpec，且支付失败时没有只跳过该可选体的" +
+    " payment scope/savepoint。触发 filter 已改用封闭判别值 \"conquered\" 与 object:{objectId:self} 意图（conquer 载荷的无单位身份缺口见同批复核）。" +
+    "依赖：battlefield 控制谓词 / 入场替代条件求值、生产链嵌套目标生命周期与可选支付回滚。",
   abilities: [
     { kind: "keyword", keyword: "assault", value: 3 },
     {
@@ -95,7 +96,7 @@ const vayneHunter = {
                 {
                   id: "vayne-hunter.pay-1",
                   op: "cost.pay",
-                  args: { energy: { kind: "constant", value: 1 } }
+                  args: { payments: { kind: "constant", value: { energy: 1 } } }
                 },
                 {
                   id: "vayne-hunter.return-to-hand",

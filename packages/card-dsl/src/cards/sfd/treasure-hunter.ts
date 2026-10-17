@@ -21,7 +21,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * source: "self" 绑定与 Recall 排除已经由事件对象和触发过滤器消费；当前仍有三处
  * token 侧缺口：Gold 定义（187.5，自带 "[Reaction][>] Kill this, [E]: [Add] [A]"）
  * 不在 effect.token 的冻结定义表里，entry exhausted override 未接入，且 token 的
- * controller-relative Base marker 仍需要位置选择/解析（RIFT-357）。
+ * controller-relative Base 已有 LocationSelector 表达式；但 effect.token
+ * 尚未消费 LocationExpr/relative selector，仍不能把它解析成运行时 LocationRef。
  */
 const abilities: Ability[] = [
   {
@@ -42,7 +43,7 @@ const abilities: Ability[] = [
           mode: { kind: "constant", value: "play" },
           // 名义上的装备 token 目的地；"exhausted" 是入场规定（184.1/185.2.d），
           // 从不写成事后的 effect.exhaust（143.4）。
-          location: { kind: "constant", value: { type: "base", player: "controller" } },
+          location: { kind: "location", value: "ability-controller-base" },
           entersExhausted: { kind: "constant", value: true },
           linkKey: { kind: "constant", value: "goldToken" }
         }
@@ -61,7 +62,8 @@ const program = {
     "不在 effect.token 的冻结定义表里（该文件明确 Gold 等自带能力的定义保持 blocked/judge-required）；" +
     "mode \"play\" 按 440.2.c/185.2.a 的链上创建与打出接手已合入；但「exhausted」是入场规定（184.1/185.2.d），" +
     "不能用事后 effect.exhaust（143.4）近似；" +
-    "当前 create-token/play 不支持入场状态改写，且程序中的 controller-relative Base marker 尚无位置解析（RIFT-357），故不近似。",
+    "当前 create-token/play 不支持入场状态改写，且 effect.token 的参数解析器尚未消费 " +
+    "LocationExpr/relative selector（`ability-controller-base`）并解析成运行时 LocationRef，故不近似。",
   abilities,
   sourceText: "When I move, play a Gold gear token exhausted."
 } satisfies CardProgram;

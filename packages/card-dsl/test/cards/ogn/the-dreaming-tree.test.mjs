@@ -21,9 +21,9 @@ test("The Dreaming Tree program validates and is judge-required", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /383\.4\.b/);
-  assert.match(program.judgeReason, /TriggerRegistration/);
+  assert.match(program.judgeReason, /触发注册路径已存在/);
   assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /testTrigger/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -101,8 +101,8 @@ test("The Dreaming Tree golden: an unbound chooser negates the draw instead of d
 
 test.todo(
   "The Dreaming Tree trigger payload binding: 'they draw 1' must resolve the choosing " +
-    "player's controller from the became-target event, and the trigger must be registered " +
-    "as a TriggerRegistration (383.4.b.2) through the card-program trigger binding (RIFT-257)"
+    "player's controller from the became-target event (383.4.b.2); the existing trigger " +
+    "registration path also needs to bind the event payload into the body"
 );
 
 test.todo(

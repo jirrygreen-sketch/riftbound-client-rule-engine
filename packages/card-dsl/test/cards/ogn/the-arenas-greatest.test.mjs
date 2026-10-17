@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/the-arenas-greatest.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/turn/helpers.mjs";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL = "card.hash-23d43dc5325dcaca58f58415a7f9046b3d280f3c40d261f5aa7ddbfa1bf72770";
@@ -22,7 +23,8 @@ test("ogn-290-298 The Arena's Greatest: program validates and is judge-required"
   assert.match(program.judgeReason, /470\.1/);
   assert.match(program.judgeReason, /beginning-start/);
   assert.match(program.judgeReason, /event-player/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /EventPattern/);
+  assert.match(program.judgeReason, /oncePerPlayer/);
   assert.equal(
     program.sourceText,
     "At the start of each player's first Beginning Phase, that player gains 1 point."
@@ -80,6 +82,19 @@ test("ogn-290-298: prevented Gaining Points negates the instruction without awar
   assert.deepEqual(outcome.linkedValues[`${score.id}.scored`], []);
 });
 test.todo(
-  "ogn-290-298: beginning-start 已由 turn/ 发出，但把本卡触发能力绑定进管线（RIFT-257）仍缺；" +
-    "每位玩家的第一个 Beginning Phase 只触发一次还需 each-player-once 频度 + 事件玩家选择器（契约变更请求）"
+  "ogn-290-298: beginning-start 已由 TurnFlow 发出，程序绑定也已合入；仍缺 EventPattern 阶段事件适配、" +
+    "每名玩家对局一次频度与事件玩家选择器，不能用控制者代替 that player"
 );
+
+test("The Arena's Greatest: real turn progression produces Beginning events for A, B, then A", () => {
+  const { flow, kernel } = fixture();
+  flow.start();
+  flow.endTurn("A");
+  flow.endTurn("B");
+  const beginnings = flow.chain.pipeline.events.filter(event => event.timingPoint === "beginning-start");
+  assert.deepEqual(beginnings.map(event => [event.player, event.turnNumber]), [["A", 1], ["B", 2], ["A", 3]]);
+  assert.equal(flow.phase, "main");
+  assert.equal(flow.turnPlayer, "A");
+  assert.equal(kernel.player("A").handCount, 2);
+  assert.equal(kernel.player("B").handCount, 1);
+});

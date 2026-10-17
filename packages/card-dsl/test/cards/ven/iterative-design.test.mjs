@@ -30,10 +30,10 @@ test("ven-051-166 Iterative Design: program passes validateCardProgram with the 
 test("ven-051-166 Iterative Design: judgeReason names the chain-creation wiring, the Flow cost and the Flow replacement", () => {
   assert.match(program.judgeReason, /187\.4/);
   assert.match(program.judgeReason, /440\.2\.c/);
-  assert.match(program.judgeReason, /RIFT-62/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-260/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /assertFinalizationSurface/);
+  assert.match(program.judgeReason, /flow\.cost/);
+  assert.match(program.judgeReason, /leavingInstruction/);
+  assert.match(program.judgeReason, /params\.cost/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -48,8 +48,9 @@ test("ven-051-166 Iterative Design: printed energy 4, absent power, and a parame
   assert.equal(Object.hasOwn(play.cost, "power"), false);
 
   // 829.1.c is "Flow [Cost]"; the printed 2 Energy + 1 Mind Power are keyword
-  // parameters, and contract 3.1's KeywordAbility has no field for them (3.8.3
-  // is not merged). They are recorded in judgeReason, never as value / cost.
+  // parameters. KeywordDef.expand/Flow.ts can read params.cost, but the frozen
+  // KeywordAbility has no standard params field and expandProgram does not forward
+  // a card-side cost, so this declaration remains parameterless.
   assert.deepEqual(flow, { kind: "keyword", keyword: "flow" });
 });
 
@@ -120,14 +121,17 @@ test("ven-051-166 Iterative Design golden: a replaced play negates the instructi
 
 test.todo(
   "ven-051-166 Iterative Design: play from Trash for the 2 Energy + 1 Mind Power Flow cost " +
-    "(829.1.c.1 / 829.1.c.2 alternate cost) and the delayed banish (829.1.b.1) — needs the RIFT-261 " +
-    "cost consumer, RIFT-260 replacement registration and RIFT-89 cost-plan wiring"
+    "(829.1.c.1 / 829.1.c.2 alternate cost) and the delayed banish (829.1.b.1) — Flow.ts reads " +
+    "params.cost, but KeywordAbility has no standard cost field and expandProgram passes only value/host; " +
+    "the Flow cost/replacement consumers in cost/plan-values.ts, chain/engine.ts, and replacement/bind.ts " +
+    "also remain incomplete"
 );
 
 test.todo(
   "ven-051-166 Iterative Design: the production Chain create-token(to: chain) + play handoff " +
     "(440.2.c / 185.2.a / 350.2 / 354) — effect.token documents the reference-kernel path, but the " +
-    "production Finalize/Resolve wiring is the RIFT-62 follow-up"
+    "production Finalize/Resolve wiring is unmerged (chain/engine.ts assertFinalizationSurface still " +
+    "rejects choice.mode and nested targets)"
 );
 
 test.todo(

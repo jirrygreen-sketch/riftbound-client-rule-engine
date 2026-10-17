@@ -27,7 +27,7 @@ test("herald identity: canonicalCardId, ruleset, judge-required status and verba
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /355\.2/);
-  assert.match(program.judgeReason, /target\.location/);
+  assert.match(program.judgeReason, /RIFT-357/);
   assert.equal(
     program.sourceText,
     ":rb_energy_1:, :rb_exhaust:: Play a 1 :rb_might: Recruit unit token."
@@ -97,6 +97,6 @@ test("herald golden: the Recruit token definition and play path work through the
 
 test.todo(
   "herald default destination: at Finalize choose the controller's Base or a Battlefield they " +
-    "control (CR 355.2/355.2.a, 440.2.b.1, 420.3.b.2); needs the RIFT-9 target.location legal " +
-    "location set (RIFT-9), CardProgram activation binding (RIFT-257), and cost payment wiring (RIFT-261)."
+    "control (CR 355.2/355.2.a, 440.2.b.1, 420.3.b.2); needs a runtime legal-location set for " +
+    "the controller's Base and controlled Battlefields (RIFT-357)."
 );

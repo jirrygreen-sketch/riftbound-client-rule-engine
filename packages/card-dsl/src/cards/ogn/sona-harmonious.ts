@@ -7,12 +7,18 @@ import type { CardProgram } from "../../ir/index.js";
  * does not by itself stop the effect. The printed four runes are targets (355.10).
  * Data discrepancy: the CR example says up to 4; this program retains catalog text and
  * mandatory four-target structure until that discrepancy is resolved.
+ * The current trigger adapter also cannot validate a phase timing such as
+ * `turn-end` inside EventPattern while preserving the controller filter.
  */
 const program = {
   canonicalCardId: "card.hash-dfe8783713db3f1121fbe8f02d18a936119747140a56f3207d218839b579f070",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason: "本地印刷原文为 ready 4，CR v1.5 383.2.a.1 的 Sona 示例为 ready up to 4，数量选择口径存在数据差异，保留原文等待复核。已合入 effect.ready；自身在战场的触发时判定、己方 turn-end 与 friendly rune 过滤绑定依赖 RIFT-1/120，不能把该条件改成结算时条件。",
+  judgeReason:
+    "本地印刷原文为 ready 4，CR v1.5 383.2.a.1 的 Sona 示例为 ready up to 4，数量选择口径存在数据差异，" +
+    "保留原文等待规则/数据复核。effect.ready 与战场存在条件的 IR 形状已合入并有真实执行证据；" +
+    "但当前 EventPattern 的封闭事件词表不接受 turn-end 这类阶段时点，无法同时表达“你的回合”过滤，" +
+    "因此不能把触发注册宣称为可执行。",
   abilities: [
     {
       kind: "triggered",

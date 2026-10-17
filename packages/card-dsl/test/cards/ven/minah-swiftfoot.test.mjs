@@ -40,7 +40,6 @@ test("ven-111-166 Minah Swiftfoot: identity, status, judgeReason and verbatim so
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /each-player/);
   assert.match(program.judgeReason, /object-moved/);
-  assert.match(program.judgeReason, /RIFT-120/);
 });
 
 test("ven-111-166 Minah Swiftfoot: the Move trigger names the source and its destination", () => {
@@ -124,8 +123,8 @@ test("ven-111-166 golden: an empty hand makes the discard half negated, not sile
   assert.equal(run.linked.discarded.count, 0);
 });
 
+
 test("ven-111-166 golden: choosing a mode asks for exactly the two printed modes (contract 3.9)", async () => {
-  // 模式选择本身的数据形状由解释器真实解析：请求 id 与选项顺序都在此固定。
   const { runAbilityBody } = await import("../../../../engine-core/dist/effects/interpreter.js");
   const kernel = world().player("A").build();
   assert.throws(
@@ -145,22 +144,13 @@ test("ven-111-166 golden: choosing a mode asks for exactly the two printed modes
 
 test.todo(
   "ven-111-166 Minah Swiftfoot: iterate 'each player' (355.10.d) — the merged IR runs one body under a single " +
-    "ResolveContext, effect.discard/effect.draw accept one PlayerId (an array negates), and the frozen opcode list " +
-    "has no player-set enumeration or per-seat repetition (ability-templates target.player is unmerged)"
+    "ResolveContext, effect.discard/effect.draw accept one PlayerId, and the frozen opcode list has no player-set " +
+    "enumeration or per-seat repetition"
 );
-
 test.todo(
-  "ven-111-166 Minah Swiftfoot: decide 'When I move to a battlefield' — the object-moved emission for move-location " +
-    "does not fill toZone/toKind (timing-points payloadFields) and events/pipeline-match.ts does not read the card " +
-    "filter's inner source anchor (RIFT-120)"
+  "ven-111-166 Minah Swiftfoot: decide 'When I move to a battlefield' — move-location object-moved events do not " +
+    "fill toZone/toKind (timing-points payloadFields), so the destination predicate cannot be matched"
 );
-
 test.todo(
-  "ven-111-166 Minah Swiftfoot: run the finalized choice.mode selection through the chain (immediate resolution is " +
-    "missing from the production Finalize/Resolve path; RIFT-9 / batch 4)"
-);
-
-test.todo(
-  "ven-111-166 Minah Swiftfoot: register the triggered ability through the CardProgram -> TriggerRegistration path " +
-    "(contract 3.5, RIFT-120)"
+  "ven-111-166 Minah Swiftfoot: run the finalized choice.mode selection through the current Finalize/Resolve path"
 );

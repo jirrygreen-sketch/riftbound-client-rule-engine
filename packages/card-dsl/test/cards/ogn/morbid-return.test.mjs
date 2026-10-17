@@ -6,6 +6,8 @@ import program from "../../../dist/cards/ogn/morbid-return.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-6d8e159513836dafac8b110c3107086e5b6f6971b99ba6ddfb0e749be264be76";
 const play = program.abilities.find((ability) => ability.kind === "play");
@@ -28,12 +30,7 @@ test("ogn-170-298 Morbid Return: program passes validateCardProgram", () => {
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /continuous\.timing/);
-  // Re-sweep: the [Action] expansion is merged; the blocking gaps are the
-  // layers/canAct consumer and the CardProgram play binding (RIFT-257).
-  assert.match(program.judgeReason, /actionTimings/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.equal(program.status, "executable");
   assert.equal(
     program.sourceText,
     "[Action] (Play on your turn or in showdowns.)\n" +
@@ -106,9 +103,27 @@ test("ogn-170-298 Morbid Return golden: a target that left its zone is ignored (
   assert.equal(kernel.getObject("recycled-card").zone, "deck");
 });
 
-test.todo(
-  "ogn-170-298 Morbid Return: the printed [Action] play permission (806.1.c / 159.2.a timing " +
-    "grant, a Showdown play) and the printed-cost payment need a consumer of the continuous.timing " +
-    "grant (chain canAct does not read layers/rules actionTimings) and a CardProgram -> ChainDraft " +
-    "play adapter (RIFT-257)"
-);
+test("ogn-170-298 Morbid Return golden: the executable program builds an Action ChainDraft and returns the target", () => {
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const f = fixture({
+    cards: [
+      { id: "spell", cardId: CARD_ID, types: ["spell"], energy: 2, power: [] },
+      { id: "fallen", owner: "A", types: ["unit"], energy: 1, power: [], might: 2 }
+    ],
+    describePlay: binding.describePlay
+  });
+  f.kernel.perform({ type: "move-zone", object: f.kernel.ref("fallen"), to: "trash" });
+  const draft = binding.describePlay(
+    { type: "play", object: f.kernel.ref("spell"), player: "A" },
+    f.kernel.getObject("spell")
+  );
+  assert.equal(draft.speed, "action");
+  assert.equal(draft.body[0].op, "effect.zone");
+
+  f.engine.commit({ type: "play", object: f.kernel.ref("spell"), player: "A" });
+  f.engine.advance();
+  resolveAll(f.engine);
+  assert.equal(f.kernel.getObject("fallen").zone, "hand");
+  assert.equal(f.kernel.getObject("spell").zone, "trash");
+  assert.equal(f.kernel.player("A").energy, 18);
+});

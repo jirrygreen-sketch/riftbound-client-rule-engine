@@ -4,6 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/black-market-broker.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-d7a7aec53d72022d855ed2a7d4b387ece5fe5cdc5097de61bdb909825242b5dd";
 const SOURCE_TEXT = "When you play a card from face down, play a Gold gear token exhausted.";
@@ -30,8 +32,9 @@ test("sfd-121-221 Black Market Broker: judgeReason names the facedown-source and
   assert.match(program.judgeReason, /440\.2\.c/);
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /143\.4/);
-  assert.match(program.judgeReason, /RIFT-84/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /OBJECT_FILTER_ZONES/);
+  assert.match(program.judgeReason, /exhausted/);
+  assert.doesNotMatch(program.judgeReason, /token-play-requires-chain-creation/);
 });
 
 test("sfd-121-221 Black Market Broker: the trigger is card-played, scoped to you and to a facedown source", () => {
@@ -71,12 +74,31 @@ test("sfd-121-221 Black Market Broker: the body declares one Gold token played e
 
 test.todo(
   "sfd-121-221 Black Market Broker: the card-played event carries the pre-play zone so a " +
-    "Facedown Zone source can be detected (355.9.a.3 / 107.3.a / 107.3.e / 422.2.a) — RIFT-84 hidden/facedown " +
-    "support plus RIFT-91 trigger-filter consumption"
+  "Facedown Zone source can be detected (355.9.a.3 / 107.3.a / 107.3.e / 422.2.a) — the hidden/facedown " +
+    "zone vocabulary and source-zone payload are still needed"
 );
 
 test.todo(
-  "sfd-121-221 Black Market Broker: play the Gold gear token through chain creation plus the hand-off " +
-    "play (440.2.c / 185.2.a / 350.2 / 354) with the CR 187.5 Gold definition and its exhausted entry " +
-    "(184.1 / 185.2.d) — RIFT-62 token work / RIFT-82 definition batch"
+  "sfd-121-221 Black Market Broker: the supported token-play path still needs the CR 187.5 Gold " +
+    "definition and an exhausted-entry stipulation (184.1 / 185.2.d) for this card"
 );
+
+test("sfd-121-221 Black Market Broker: mode play performs chain creation and hand-off for a defined token", () => {
+  const kernel = world().build();
+  const run = runInstruction(
+    token,
+    {
+      token: { kind: "constant", value: "mech" },
+      amount: { kind: "constant", value: 1 },
+      mode: { kind: "constant", value: "play" },
+      location: { kind: "constant", value: { type: "base", player: "A" } },
+      linkKey: { kind: "constant", value: "token" }
+    },
+    { world: kernel }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(run.events.map((event) => event.action), ["create-token", "play"]);
+  assert.equal(run.linked.token.createdAmount, 1);
+  assert.equal(run.linked.token.amount, 1);
+  assert.equal(kernel.getObject(run.linked.token.objects[0].id).zone, "board");
+});

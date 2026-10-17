@@ -4,6 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/the-academy.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import repeatDefinition from "../../../../engine-core/dist/effects/keywords/Repeat.js";
 
 const CANONICAL =
   "card.hash-3c0bf04f347717e5a304a3188f6fa00eb657fea304747bef8f5c004ecf3679ab";
@@ -33,9 +35,9 @@ test("unl-216-219 The Academy: judgeReason names the one-shot window, base cost 
   assert.match(program.judgeReason, /one-shot|next spell/);
   assert.match(program.judgeReason, /204\.1\.a/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /registerContinuousEffect/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /attachLifecycle/);
+  assert.match(program.judgeReason, /FinalizedCostPlan/);
+  assert.match(program.judgeReason, /here|Battlefield/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -44,13 +46,14 @@ test("unl-216-219 The Academy: a hold trigger at this Battlefield for its contro
   assert.equal(ability.kind, "triggered");
   // 383.4.d / 471.2 / 473.2.b: a Hold Effect put on the chain when the
   // controller of the triggering source has held; 053.3 supplies "here" and
-  // 190.6.d makes "you" the Battlefield's controller. Sibling battlefield
-  // programs keep this placeholder spelling while the pipeline is unmerged.
+  // 190.6.d makes "you" the Battlefield's controller. "held" is the closed
+  // EVENT_PATTERN_TYPES spelling for the hold timing point and "self" is the
+  // accepted player selector; the here-binding is the remaining gap.
   assert.equal(ability.trigger.at, "hold");
   assert.deepEqual(ability.trigger.filter, {
-    event: "hold",
-    here: true,
-    player: "controller"
+    event: "held",
+    filter: { source: "self" },
+    player: "self"
   });
   assert.equal(ability.trigger.once, undefined);
   assert.equal(ability.trigger.condition, undefined);
@@ -98,26 +101,38 @@ test("unl-216-219 The Academy: the card is not a Repeat spell itself", () => {
 });
 
 test("unl-216-219 The Academy: the merged Repeat definition is the printed optional additional cost", () => {
-  return import("../../../../engine-core/dist/effects/keywords/Repeat.js").then(
-    ({ default: repeat }) => {
-      assert.equal(repeat.keyword, "Repeat");
-      assert.equal(repeat.valued, false);
-      assert.equal(repeat.stacking, "separate");
-      assert.ok(repeat.ruleRefs.includes("820.1"));
-      assert.ok(repeat.ruleRefs.includes("820.1.a"));
-      assert.ok(repeat.ruleRefs.includes("820.1.c"));
-      // "equal to its base cost" is per-instance cost data of the spell that
-      // carries Repeat (820.1.c); the keyword definition is the single place
-      // that turns it into an ability, and no cost is invented here.
-      const expanded = repeat.expand({
-        host: { canonicalCardId: CANONICAL },
-        cost: { kind: "additional-cost", source: "base-cost-of-that-spell" }
-      });
-      assert.equal(expanded.length, 1);
-      assert.equal(expanded[0].kind, "static");
-      assert.equal(expanded[0].effect.kind, "repeat.cost");
-    }
-  );
+  // The merged KeywordDef is the single place that turns [Repeat] into the
+  // printed optional additional cost (820.1); the grant only names it.
+  assert.equal(repeatDefinition.keyword, "Repeat");
+  assert.equal(repeatDefinition.valued, false);
+  assert.equal(repeatDefinition.stacking, "separate");
+  assert.ok(repeatDefinition.ruleRefs.includes("820.1"));
+  assert.ok(repeatDefinition.ruleRefs.includes("820.1.a"));
+  assert.ok(repeatDefinition.ruleRefs.includes("820.1.c"));
+  // "equal to its base cost" is per-instance cost data of the spell that
+  // carries Repeat (820.1.c); the keyword definition is the single place
+  // that turns it into an ability, and no cost is invented here.
+  const expanded = repeatDefinition.expand({
+    host: { canonicalCardId: CANONICAL },
+    cost: { kind: "additional-cost", source: "base-cost-of-that-spell" }
+  });
+  assert.equal(expanded.length, 1);
+  assert.equal(expanded[0].kind, "static");
+  assert.equal(expanded[0].effect.kind, "repeat.cost");
+});
+
+
+test("unl-216-219 The Academy golden: the held pattern retains the source Battlefield anchor", async () => {
+  // The event name is closed vocabulary, while the nested source:self filter
+  // preserves CR 053.3 "here" for the registration layer.
+  const pattern = ability.trigger.filter;
+  assert.equal(pattern.event, "held");
+  assert.deepEqual(pattern.filter, { source: "self" });
+  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  const translated = translateTriggerFilter(pattern, "the-academy-source");
+  assert.equal(translated.event, "held");
+  assert.equal(translated.player, "self");
+  assert.deepEqual(translated.object, { objectId: "the-academy-source" });
 });
 
 test.todo(
@@ -128,14 +143,14 @@ test.todo(
 
 test.todo(
   "unl-216-219 The Academy: build the granted Repeat's additional cost from the base cost of that " +
-    "later spell (CR 204.1.a, 206, 356.1, 820.1.c.1) — cost.modify / cost.additional are not merged " +
-    "primitives and effects/keywords/Repeat.ts documents that its payment is not wired into " +
-    "Finalize yet (RIFT-89)"
+    "later spell (CR 204.1.a, 206, 356.1, 820.1.c.1) — cost.modify and ignoreAllCosts are merged, " +
+    "but the delayed grant still lacks a finalized FinalizedCostPlan path that reads this spell's printed " +
+    "base cost and offers the optional additional payment to Finalize"
 );
 
 test.todo(
-  "unl-216-219 The Academy: grant the keyword through a merged continuous.grant-keyword consumer " +
-    "(registerContinuousEffect has no caller; engine-core never reads CardProgram abilities) and " +
-    "register the hold trigger via CardProgram TriggerRegistration (CR 190.6.a/190.6.d, RIFT-33 / " +
-    "RIFT-91 / contract §7.2 batch 5)"
+  "unl-216-219 The Academy: execute the delayed grant and hold trigger in the production room " +
+    "(CR 190.6.a/190.6.d, 053.3) — createProgramBinding.attachLifecycle already registers supplied " +
+    "programs, but the hold emission lacks the source/Battlefield binding and the default room does not " +
+    "inject this CardProgram; the next-spell window remains unresolved"
 );

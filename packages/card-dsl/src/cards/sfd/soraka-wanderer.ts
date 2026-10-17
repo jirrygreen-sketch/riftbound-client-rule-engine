@@ -37,11 +37,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - the replacement registration path has landed (RIFT-260 replacement/):
  *   bindReplacement turns a card ReplacementAbility into an event-pipeline
  *   registration, and the replaced event's object is addressable as
- *   { linked: "replacement.object" } (CR 355.10.c "it"). This card's with body
- *   still spells it as a declarative { target: "soraka.dying-unit" } selector,
- *   which makes replacement/planner.ts's selectorRef recurse until the stack
- *   overflows (RangeError) instead of binding; the body needs the event-object
- *   selector spelling.
+ *   { linked: "replacement.object" } (CR 355.10.c "it"). This card's with
+ *   body uses that event-object selector spelling directly; the remaining
+ *   replacement-time condition binding and Recall action are still blocked.
  * - the Might-comparison gap remains, but it is narrower than "the IR has no
  *   expression": evaluation exists (effects/interpreter/condition.ts evaluates
  *   compare/object-property against live snapshots). What is missing is a
@@ -95,20 +93,14 @@ const abilities: Ability[] = [
         id: "soraka.heal-dying-unit",
         op: "effect.heal",
         args: {
-          // The replaced event's unit; not a target (355.10.c), so the selector
-          // id stays declarative until the event-object selector lands.
-          // effect.heal reads its selection as { kind: "target", id }.
-          objects: {
-            kind: "constant",
-            value: { kind: "target", id: "soraka.dying-unit" }
-          },
+          // The replaced event's unit; not a target (355.10.c), so the planner
+          // resolves the event-object link at replacement application time.
+          objects: { kind: "constant", value: { linked: "replacement.object" } },
           linkKey: { kind: "constant", value: "healed" }
         },
-        // Declarative stand-in for the replaced event's unit, kept so the with
-        // body has a single named referent ("it", 355.10.c) and so the Might
-        // comparison below validates. The unit is NOT a target choice the
-        // replacement makes; the real binding comes from the replaced event
-        // once the event-object selector lands (see judgeReason).
+        // The condition's declarative selector needs a named target in the
+        // frozen CardProgram validator. Replacement planning ignores this
+        // choice and resolves the printed "it" through replacement.object.
         targets: [
           {
             id: "soraka.dying-unit",
@@ -132,7 +124,7 @@ const abilities: Ability[] = [
           // 460.1 exception stated by this card: the recalled unit is exhausted,
           // so the state change is authored explicitly (as in the merged
           // Zhonya's Hourglass program).
-          target: { kind: "constant", value: "soraka.dying-unit" }
+          target: { kind: "constant", value: { linked: "replacement.object" } }
         }
       },
       {
@@ -140,7 +132,7 @@ const abilities: Ability[] = [
         op: "effect.move",
         linkedTo: "soraka.exhaust-dying-unit",
         args: {
-          objects: { kind: "constant", value: { target: "soraka.dying-unit" } },
+          objects: { kind: "constant", value: { linked: "replacement.object" } },
           // A Recall returns the permanent to its Base (457); the merged
           // primitive accepts "recall" but returns negated/impossible with a
           // blockedReason instead of substituting a Move (458/458.3).
@@ -161,12 +153,11 @@ const program = {
     "原始四处缺口中的两处已由合入工作收窄，仍不近似实现：(1) [Backline]（826）的 KeywordDef 已合入（effects/keywords/Backline.ts，关键词批次 RIFT-264~268），" +
     "但战斗伤害步骤仍未绑定 Tank/Backline 的分配优先级（combat/base-combat-allocation.ts 明确 “No Tank/Backline/other assignment-priority requirement is bound here”），" +
     "826.3/826.4.b 仍不可执行；(2) 替代注册路径已合入（RIFT-260 的 replacement/：bindReplacement 把卡牌 ReplacementAbility 注册为事件管线替代，" +
-    "被替代事件对象以 { linked: \"replacement.object\" } 绑定），但本卡 with 体仍把它写成声明性的 { target: \"soraka.dying-unit\" } 选择符——`forEach` 计划器在解析该选择符时" +
-    "无限递归（RangeError），无法完成绑定；需要把 with 体改写成事件对象链接选择符。(3)「if it has less Might than me」需要在替代时比较两个对象的有效 Might（143.2.a）：" +
-    "compare/object-property 求值本身已合入（effects/interpreter/condition.ts），缺口是替代时的对象绑定——左操作数要读被替代事件单位（同一个 { linked: \"replacement.object\" }），" +
+    "被替代事件对象以 { linked: \"replacement.object\" } 绑定），本卡 with 体已直接使用该事件对象链接选择符，golden 可经真实 planner 规划 heal/exhaust 两步；(3)「if it has less Might than me」需要在替代时比较两个对象的有效 Might（143.2.a）：" +
+    "compare/object-property 求值本身已合入（effects/interpreter/condition.ts），但 CardProgram 条件校验器不允许把替代专用的 { linked: \"replacement.object\" } 当作条件链接（只能引用此前 instruction），生产匹配也未向 condition 提供该事件对象；" +
     "而 layers/engine.ts 的 conditionMatches 仍不求值 compare，静态/图层路线也带不了它。(4) 即使绑定到对象，effect.move 的 recall 模式仍被显式阻断" +
     "（“Recall requires an action distinct from Move”，458/458.3），且不得用普通移动近似（Recall 不是 Move）。" +
-    "依赖：战斗分配批次（826）、替代事件对象选择符绑定（RIFT-260 的 with 体接线）、Recall 动作（457-460）与 Might 比较的替代时对象绑定（见契约变更请求）。",
+    "依赖：战斗分配批次（826）、Recall 动作（457-460）与 Might 比较的替代时对象绑定（见契约变更请求）。",
   abilities,
   sourceText:
     "I must be assigned combat damage last.\n" +

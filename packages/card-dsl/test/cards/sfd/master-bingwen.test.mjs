@@ -12,6 +12,10 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import weaponmaster from "../../../../engine-core/dist/effects/keywords/Weaponmaster.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { matchesTriggerObject } from "../../../../engine-core/dist/events/pipeline-match.js";
+import modify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 
 const CARD_ID =
   "card.hash-7a011777b95befa4fad1e25df22ffc8e9707030c4927ee2c5297fb8128a01ef4";
@@ -105,10 +109,47 @@ test("sfd-127-221 Master Bingwen golden: declining to choose an Equipment leaves
   assert.deepEqual(kernel.events, []);
 });
 
+test("sfd-127-221 Master Bingwen golden: both the body adapter and Equip-cost primitive fail before payment or reattachment", () => {
+  const base = world()
+    .player("A", { energy: 9, power: ["Body"] })
+    .unit("master-bingwen", { might: 6 })
+    .unit("old-host")
+    .object("blade", { types: ["gear"], tags: ["Equipment"], zone: "board", energy: 1, power: null })
+    .build();
+  assert.equal(base.perform({ type: "attach", object: base.ref("blade"), host: base.ref("old-host") }).status, "done");
+  const kernel = base.clone({ sourceSnapshot: base.getObject("master-bingwen") });
+  kernel.setTargets("weaponmaster-equipment", [kernel.ref("blade")]);
+  const context = bindResolveContext(kernel, {
+    query: filter => kernel.objects.filter(object => matchesTriggerObject(filter, object, kernel.controller))
+  });
+  const before = kernel.events.length;
+  // The original body first hits an Expr/literal argument adaptation gap.
+  assert.throws(() => resolveChainBody(expansion.body, context), {
+    name: "TypeError", message: /Invalid cost\.modify modifier argument: value/
+  });
+  // Check the real primitive separately with its own literal metadata schema;
+  // this is partial evidence, never a replacement for the original body.
+  const [costStep] = choiceSequence.args.body.value;
+  assert.throws(() => runInstruction(modify, {
+    source: costStep.args.source,
+    modifier: costStep.args.modifier.value
+  }, { world: kernel, targets: { "weaponmaster-equipment": [kernel.ref("blade")] } }), error => {
+    assert.equal(error.reason, "judge-required");
+    assert.match(error.message, /authoritative Equip-cost binding/);
+    assert.match(error.message, /821\.1\.c\.2/);
+    return true;
+  });
+  assert.deepEqual(kernel.getObject("blade").attachedTo, kernel.ref("old-host"));
+  assert.equal(kernel.player("A").energy, 9);
+  assert.deepEqual(kernel.player("A").power, ["Body"]);
+  assert.equal(kernel.getObject("blade").power, null);
+  assert.equal(kernel.events.length, before);
+});
+
 test.todo(
   "sfd-127-221 Master Bingwen: on play, choose one of your Equipment, pay its Equip cost " +
     "reduced by [A], then attach it to me even if it is already attached (821.1.c / " +
     "821.1.c.2 / 821.1.c.3) — the Weaponmaster expansion is present, but its " +
-    "cost.modify reduce-equip-cost branch fails closed until the original [A]/[C] symbol " +
-    "binding exists"
+    "cost.modify Equipment source branch needs the authoritative Equip-cost binding as well as " +
+    "the original [A]/[C] symbol provenance"
 );

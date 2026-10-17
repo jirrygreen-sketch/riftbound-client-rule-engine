@@ -4,6 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/swain-visionary.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -52,7 +53,9 @@ test("ven-065-166 Swain: identity, status, judgeReason and verbatim sourceText",
   assert.match(program.judgeReason, /817\.1\.b/);
   assert.match(program.judgeReason, /383\.2\.a\.1/);
   assert.match(program.judgeReason, /HistoryQuery/);
-  assert.match(program.judgeReason, /RIFT-87/);
+  assert.match(program.judgeReason, /RIFT-357|RIFT-358/);
+  assert.match(program.judgeReason, /objectFilter/);
+  assert.ok(!/RIFT-87/.test(program.judgeReason));
 });
 
 test("ven-065-166 Swain: [Vision] is declared without a value (817.1.b)", () => {
@@ -125,21 +128,153 @@ test("ven-065-166 golden: the body does not score when a non-controller runs it"
 });
 
 test("ven-065-166 golden: the trigger condition shape is the conjunction of the three clauses", () => {
-  // 条件求值本身需要按特征分类的本回合历史（见 judgeReason 第 2 条），这里只用真实
-  // 解释器证明结构可求值：三个子条件的 count 查询在没有任何已打出记录时全为 0。
+  // 参考内核对 count 表达式做的是现场对象查询（evaluate → ctx.query）,合取结构
+  // 仍可被真实解释器求值：棋盘上没有已打出的牌时三条子条件全为 0 ⇒ 条件为假。
   const kernel = world().player("A").build();
   const outcome = resolveChainBody(predicateBody(conditionForKernel()), kernel);
   assert.equal(outcome.status, "executed");
-  // 没有任何已打出的牌时三条 history 均为 0 ⇒ 条件为假（不得误判为真）。
+  // 没有任何已打出的牌时三条查询均为 0 ⇒ 条件为假（不得误判为真）。
+  assert.equal(outcome.linkedValues["swain-visionary.conquer-condition.value"], false);
+});
+
+test("ven-065-166 golden: the merged history primitive evaluates the three-clause filters (HistoryQuery objectFilter)", () => {
+  // 该 golden 显式使用已合入的 condition.history 原语（interpreter/history.ts）验证
+  // objectFilter/isToken 维度；它不执行卡内原始条件——原始条件走 count 表达式的
+  // 现场集合查询，见下面按正确规则断言的 TODO。play 动作由内核真实执行并连 object 快照写入
+  // history（timingPoint card-played）。
+  const playedHistoryQuery = (objectFilter, filterPlayer = "A") => ({
+    id: "swain-visionary.conquer-condition",
+    op: "condition.history",
+    args: {
+      query: {
+        kind: "constant",
+        value: { scope: "turn", action: "play", player: filterPlayer, objectFilter }
+      },
+      operator: { kind: "constant", value: "gte" },
+      right: { kind: "constant", value: 1 }
+    }
+  });
+
+  const kernel = world()
+    .player("A")
+    .card("played-unit", { owner: "A", zone: "hand", types: ["unit"], isToken: false })
+    .card("played-gear", { owner: "A", zone: "hand", types: ["gear"], isToken: false })
+    .card("played-spell", { owner: "A", zone: "hand", types: ["spell"] })
+    .build();
+  // 三类牌在手中不等于本回合打出过；已合入的历史原语必须全部返回假。
+  assert.equal(kernel.history({ scope: "turn", action: "play", player: "A" }), 0);
+  for (const objectFilter of [
+    { type: "unit", isToken: false },
+    { type: "gear", isToken: false },
+    { type: "spell" }
+  ]) {
+    const gate = runAbilityBody([playedHistoryQuery(objectFilter)], kernel);
+    assert.equal(gate.status, "executed", JSON.stringify(objectFilter));
+    assert.equal(gate.linkedValues["swain-visionary.conquer-condition.count"], 0);
+    assert.equal(gate.linkedValues["swain-visionary.conquer-condition.value"], false);
+  }
+  for (const id of ["played-unit", "played-gear", "played-spell"]) {
+    const outcome = kernel.perform({
+      type: "play",
+      player: "A",
+      object: kernel.ref(id),
+      cost: { finalized: true, energy: 0, power: [] }
+    });
+    assert.equal(outcome.status, "done", "play " + id);
+  }
+  for (const objectFilter of [
+    { type: "unit", isToken: false },
+    { type: "gear", isToken: false },
+    { type: "spell" }
+  ]) {
+    const gate = runAbilityBody([playedHistoryQuery(objectFilter)], kernel);
+    assert.equal(gate.status, "executed", JSON.stringify(objectFilter));
+    assert.equal(gate.linkedValues["swain-visionary.conquer-condition.count"], 1);
+    assert.equal(gate.linkedValues["swain-visionary.conquer-condition.value"], true);
+  }
+
+  // 反例：单位记录换成 token 后 isToken: false 过滤把它排除，三件套不齐。
+  const tokenKernel = world()
+    .player("A")
+    .card("token-unit", { owner: "A", zone: "hand", types: ["unit"], isToken: true })
+    .card("played-gear", { owner: "A", zone: "hand", types: ["gear"], isToken: false })
+    .card("played-spell", { owner: "A", zone: "hand", types: ["spell"] })
+    .build();
+  for (const id of ["token-unit", "played-gear", "played-spell"]) {
+    const outcome = tokenKernel.perform({
+      type: "play",
+      player: "A",
+      object: tokenKernel.ref(id),
+      cost: { finalized: true, energy: 0, power: [] }
+    });
+    assert.equal(outcome.status, "done", "play " + id);
+  }
+  const tokenUnitGate = runAbilityBody(
+    [playedHistoryQuery({ type: "unit", isToken: false })],
+    tokenKernel
+  );
+  assert.equal(tokenUnitGate.linkedValues["swain-visionary.conquer-condition.count"], 0);
+  assert.equal(tokenUnitGate.linkedValues["swain-visionary.conquer-condition.value"], false);
+});
+
+test("ven-065-166 TODO: the original condition is true after all three categories were played this turn", {
+  todo: "CR 383.2.a.1 / RIFT-359: bind the controller and evaluate the card's count condition from play history"
+}, () => {
+  // 原始条件和规则预期都保留；依赖接通后此用例应通过，再移除 TODO。
+  // 不能将当前的 false 作为打出过三类牌之后的正确结果。
+  const kernel = world()
+    .player("A")
+    .card("hand-unit", { owner: "A", zone: "hand", types: ["unit"], isToken: false })
+    .card("hand-gear", { owner: "A", zone: "hand", types: ["gear"], isToken: false })
+    .card("hand-spell", { owner: "A", zone: "hand", types: ["spell"] })
+    .build();
+  for (const id of ["hand-unit", "hand-gear", "hand-spell"]) {
+    const outcome = kernel.perform({
+      type: "play",
+      player: "A",
+      object: kernel.ref(id),
+      cost: { finalized: true, energy: 0, power: [] }
+    });
+    assert.equal(outcome.status, "done", "play " + id);
+  }
+  assert.equal(kernel.history({ scope: "turn", action: "play", player: "A" }), 3);
+  assert.equal(kernel.getObject("hand-unit").zone, "board");
+  assert.equal(kernel.getObject("hand-gear").zone, "board");
+  assert.equal(kernel.getObject("hand-spell").zone, "board");
+  const playedOutcome = runAbilityBody(predicateBody(conquer.trigger.condition), kernel);
+  assert.equal(playedOutcome.status, "executed");
+  assert.equal(playedOutcome.linkedValues["swain-visionary.conquer-condition.value"], true);
+});
+
+test("ven-065-166 TODO: the original condition is false when all three categories remain unplayed in hand", {
+  todo: "CR 383.2.a.1 / RIFT-359: count cards played this turn instead of matching the current object set"
+}, () => {
+  // 直接执行卡内原始条件。将测试玩家命名为 controller，让原条件的控制者键能命中，
+  // 从而单独复现现场集合查询误算手牌的问题，不改写条件，也不伪造历史。
+  const base = world()
+    .player("controller")
+    .card("hand-unit", { owner: "controller", zone: "hand", types: ["unit"], isToken: false })
+    .card("hand-gear", { owner: "controller", zone: "hand", types: ["gear"], isToken: false })
+    .card("hand-spell", { owner: "controller", zone: "hand", types: ["spell"] })
+    .build();
+  const kernel = base.clone({ controller: "controller" });
+  for (const id of ["hand-unit", "hand-gear", "hand-spell"]) {
+    assert.equal(kernel.getObject(id).zone, "hand");
+  }
+  assert.equal(kernel.history({ scope: "turn", action: "play", player: "controller" }), 0);
+  const outcome = runAbilityBody(predicateBody(conquer.trigger.condition), kernel);
+  assert.equal(outcome.status, "executed");
   assert.equal(outcome.linkedValues["swain-visionary.conquer-condition.value"], false);
 });
 
 test.todo(
   "ven-065-166 Swain, Visionary: [Vision]'s Predict needs the ordered top-deck source for effect.inspect " +
-    "(817.1.b / 437.1; RIFT-83 / RIFT-64) plus the CardProgram → trigger registration adapter (RIFT-120)"
+    "(817.1.b / 437.1) plus the ordered picks prerequisite (RIFT-357 / RIFT-358, in flight)"
 );
 test.todo(
   "ven-065-166 Swain, Visionary: evaluate 'played a non-token unit, a non-token gear, and a spell this turn' " +
-    "at trigger time (CR 383.2.a.1) from an object-filtered per-turn play history — HistoryQuery exposes only " +
-    "scope/action/timingPoint/player/object (RIFT-87; contract 3.8 objectFilter not merged)"
+    "at trigger time (CR 383.2.a.1) — the trigger pipeline evaluates spec.condition as a live set query " +
+    "(host.testTrigger → kernel.test), not from play history; no merged path evaluates the three-clause " +
+    "'played … this turn' condition (HistoryQuery/condition.history is merged as an independent primitive " +
+    "but is not wired into the card's count condition)"
 );

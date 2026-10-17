@@ -25,7 +25,10 @@ test("ven-036-166 Sandstone Chimera: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /315\.3\.b/);
   assert.match(program.judgeReason, /431\.4\.a/);
   assert.match(program.judgeReason, /turn\/flow\.ts/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  // The restrict primitive and the static binder are merged; the remaining gap
+  // is the turn-flow consumer and the conditional-landing path.
+  assert.match(program.judgeReason, /continuous\.restrict/);
+  assert.match(program.judgeReason, /statics\.ts/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -66,10 +69,13 @@ test("ven-036-166 Sandstone Chimera: the restriction applies to players, not onl
 
 test.todo(
   "ven-036-166 Sandstone Chimera: clamp the Channel Phase amount to 1 (315.3.b / 431.4.a) — turn/flow.ts " +
-    "computes the channel count from the rune deck alone and no merged consumer reads a channel restriction"
+    "computes the channel count from the rune deck alone and no merged turn-flow consumer reads a channel " +
+    "restriction; the continuous.restrict primitive and the static binding are merged, but no layer " +
+    "read exposes them to the turn flow"
 );
 
 test.todo(
   "ven-036-166 Sandstone Chimera: evaluate \"While I'm at a battlefield\" (363.2.a) — the location predicate " +
-    "has no continuous-effect landing path and no card-program to ContinuousEffectSpec producer exists (RIFT-91)"
+    "has no consumer on the turn-flow side; the static binding installs restriction rows through the merged static binder, " +
+    "but nothing evaluates the conditional landing during the Channel Phase"
 );

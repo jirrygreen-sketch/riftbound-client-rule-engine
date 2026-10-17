@@ -18,7 +18,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "Increase its Might to 5"；475 / 479.2 定义图层顺序。
  * - "this turn" = end-of-turn 期限，由时点驱动的期限清理负责（契约 3.5）。
 
- * status = judge-required（README 第 2 节）。缺口（均不近似实现）：
+ * status = judge-required（README 第 2 节）。缺口：
  * 1. 没有已注册的「把 Base Might 设为 N（本回合）」原语：已合入的
  *    effects/instructions/continuous.might.ts 无论 mode "add" 还是 "set" 都注册
  *    layer: "arithmetic" 的效果（mode "set" 写 kind "set-might"，engine.ts 的
@@ -26,14 +26,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    Base Might 设值（479.2 的 Base Might 行）没有对应的指令原语
  *    （continuous.trait / set-base-might 都没有文件），把 Base Might 当有效 Might
  *    处理会改变 143.2.a.1 与 479.2/479.4 的分层语义。
- * 2. card-played 触发没有已合入订阅方：events/ 的 EventPipeline 有 registerTrigger，
- *    但没有已合入模块把 CardProgram 的 triggered ability 转成 TriggerRegistration
- *    （卡牌程序绑定，RIFT-257 进行中）。
  * 下面保留有依据的形状：card-played 自发触发 + 目标式（己方单位）的
  * continuous.base-might 指令与本回合期限；golden 测试做结构断言，并单独用已合入原语
  * 做对照执行（continuous.might 的 arithmetic 设值真实生效、并在回合末到期），
  * 不把它当作本卡的 Base Might 语义。
- * 依赖：Trait-Altering 图层的 Base Might 设值原语与 RIFT-257。
+ * 依赖：Trait-Altering 图层的 Base Might 设值原语。
  */
 const abilities: Ability[] = [
   {
@@ -70,13 +67,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) 缺少「把 Base Might 设为 5（本回合）」的 Trait-Altering 图层原语：已合入的 continuous.might " +
+    "当前缺口，不近似实现：缺少「把 Base Might 设为 5（本回合）」的 Trait-Altering 图层原语：已合入的 continuous.might " +
     "（无论 mode add 还是 set）都注册 layer arithmetic 的效果（mode set 写 kind set-might，由 layers/engine.ts 的 applyArithmetic 消费），" +
     "属 479.4 的算术图层，而卡面按 143.2.a.1 / 479.2 改的是 Base Might，两者语义不同；" +
-    "effects/instructions/ 下没有 continuous.trait / set-base-might 等 Trait-Altering 设值原语。(2) card-played 触发没有已合入订阅方：" +
-    "EventPipeline 提供 registerTrigger，但没有模块把 CardProgram 的 triggered ability 转成 TriggerRegistration（卡牌程序绑定 RIFT-257 进行中）。" +
+    "当前仍缺把 Base Might 设值注册到 Trait-Altering 图层的指令与消费方。" +
     "已写出的形状：card-played 自发触发 + 目标式（己方单位）continuous.base-might 指令 + this-turn 期限；golden 单独用已合入原语做对照执行。" +
-    "依赖：Trait-Altering 图层的 Base Might 设值原语与 RIFT-257。",
+    "依赖：Trait-Altering 图层的 Base Might 设值语义。",
   abilities,
   sourceText: "When you play me, choose a friendly unit. Its base Might becomes 5 this turn."
 } satisfies CardProgram;

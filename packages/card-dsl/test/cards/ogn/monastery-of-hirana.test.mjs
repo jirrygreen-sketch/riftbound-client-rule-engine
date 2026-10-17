@@ -51,13 +51,13 @@ test("ogn-282-298 Monastery of Hirana: identity, ruleset, status and printed tex
   // deck-catalog.json (ogn-282-298) carries this text verbatim; CR 383.1 uses
   // this exact printing as its example of a triggered ability.
   assert.equal(program.sourceText, "When you conquer here, you may spend a buff to draw 1.");
-  // Re-sweep: RIFT-270 emits conquer/hold/score from turn/flow's scoring wave;
-  // the remaining gaps are the cost-within-instructions plan (RIFT-261) and the
-  // CardProgram trigger/cost binding (RIFT-257).
+  // Re-sweep: the scoring wave and program trigger registration are merged;
+  // the remaining gaps are the Finalize-locked instruction cost and the
+  // location anchor for "here".
   assert.match(program.judgeReason, /383\.3\.b/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /details\.battlefieldId/);
+  assert.match(program.judgeReason, /RIFT-357/);
 });
 
 test("ogn-282-298 Monastery of Hirana: optional conquer trigger with the §3.9 body-wrapped shape", () => {
@@ -230,14 +230,13 @@ test("ogn-282-298 Monastery of Hirana: accepting executes spend-then-draw throug
 test.todo(
   "ogn-282-298 Monastery of Hirana: the buff payment as a Finalize-locked cost (CR 355.10.c.1/357) " +
     "so the player can decline even when a buff is available; TriggeredAbility has no cost field and " +
-    "cost.pay is still unregistered (RIFT-261), since merged effect.buff only reports 'skipped' " +
-    "after the fact"
+    "cost.pay's spend-buff instruction still lacks a TriggeredAbility Finalize adapter, so merged " +
+    "effect.buff only reports 'skipped' after the fact"
 );
 
 test.todo(
-  "ogn-282-298 Monastery of Hirana: the conquer timing point (emitted by turn/flow's scoring wave, " +
-    "RIFT-270) reaching this ability through the card-program trigger registration (RIFT-257): the " +
-    "binding layer must translate the event spelling and bind here to the scoring payload's " +
-    "details.battlefieldId"
+  "ogn-282-298 Monastery of Hirana: bind the conquer trigger's `here` anchor to the scoring " +
+    "payload details.battlefieldId (RIFT-357), so only a conquer at the hosted battlefield can " +
+    "offer the spend-then-draw ability"
 );
 

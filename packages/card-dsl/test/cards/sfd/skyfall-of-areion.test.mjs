@@ -54,9 +54,9 @@ test("sfd-030-221 Skyfall of Areion: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /Equip/);
   assert.match(program.judgeReason, /818\.1\.c\.3/);
   assert.match(program.judgeReason, /params\.cost/);
-  // The remaining gap is the in-progress cost work (RIFT-261); the keyword
-  // definition and CardProgram binding (RIFT-257) are merged.
-  assert.match(program.judgeReason, /RIFT-261/);
+  // The remaining gap is the cost pipeline’s unsupported equip payment kind;
+  // the keyword definition and CardProgram binding (RIFT-257) are merged.
+  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
   assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The generated registry indexes this exact program object.
@@ -142,9 +142,9 @@ test("sfd-030-221 Skyfall of Areion golden: a controlled Unit that left the Boar
 test("sfd-030-221 Skyfall of Areion: the merged CardProgram binding builds the activation draft with its Equip payment", () => {
   // Durable structural guard: the RIFT-257 adapter must keep deriving the
   // card's activated ability and carrying its declared Equip payment into the
-  // chain cost plan. Whether that cost kind is payable is owned by the
-  // in-progress RIFT-261 cost work and is recorded as a TODO; this locks the
-  // binding contract that must hold forever.
+  // chain cost plan. Whether that cost kind is payable is still unsupported by
+  // the cost pipeline and is recorded as a TODO; this locks the binding
+  // contract that must hold forever.
   const source = equipWorld().getObject("gear");
   // ProgramRegistry refuses judge-required programs, so bind a copy with the
   // status lifted for this scenario only; the shipped program stays
@@ -160,5 +160,5 @@ test("sfd-030-221 Skyfall of Areion: the merged CardProgram binding builds the a
   assert.deepEqual(draft.body.map((step) => [step.id, step.op]), [["equip-attach", "effect.attach"]]);
 });
 
-test.todo("sfd-030-221 Skyfall of Areion: paying the printed mixed Equip cost (1 Energy + 1 Fury Power, CR 818.1.b / 818.1.c.3) needs the equip payment kind and the printed-cost flow through ExpandInput params.cost (contract 3.8 item 3) - in-progress RIFT-261.");
-test.todo("sfd-030-221 Skyfall of Areion: KeywordAbility -> expand params.cost must carry the mixed printed cost (programs/keywords.ts currently passes value/host only) before verifyFinalize can pay it through the Finalize cost plan - RIFT-261.");
+test.todo("sfd-030-221 Skyfall of Areion: paying the printed mixed Equip cost (1 Energy + 1 Fury Power, CR 818.1.b / 818.1.c.3) needs the equip payment kind and the printed-cost flow through ExpandInput params.cost (contract 3.8 item 3).");
+test.todo("sfd-030-221 Skyfall of Areion: KeywordAbility -> expand params.cost must carry the mixed printed cost (programs/keywords.ts currently passes value/host only) before verifyFinalize can pay it through the Finalize cost plan.");

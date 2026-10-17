@@ -5,6 +5,10 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/resonating-strike.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import continuousMight from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-fa3fca39f51f36c4a7eaf70e836d2271f5e26b7994a64cbafa1b79ec0ea7dad7";
@@ -34,7 +38,9 @@ test("ven-034-166 Resonating Strike: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /355\.11/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /811/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(89|90|120)/);
 });
 
 test("ven-034-166 Resonating Strike: both printed keywords are declared only", () => {
@@ -94,6 +100,7 @@ test("ven-034-166 Resonating Strike: printed cost, the two Finalize choices and 
   assert.equal(mightInstruction.linkedTo, "resonating-strike.move-unit");
   assert.deepEqual(mightInstruction.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(mightInstruction.args.duration, { kind: "constant", value: "this-turn" });
+  assert.deepEqual(mightInstruction.args.target, { kind: "constant", value: unitSpec.id });
   assert.deepEqual(mightInstruction.targets, [unitSpec]);
 });
 
@@ -114,7 +121,7 @@ test("ven-034-166 Resonating Strike golden: the merged Move really relocates the
       amount: moveInstruction.args.amount,
       linkKey: moveInstruction.args.linkKey
     },
-    { world: kernel, targets: { [unitSpec.id]: [locked] } }
+    { world: kernel, targets: { [unitSpec.id]: [locked], ally: [locked] } }
   );
 
   assert.equal(run.result.status, "executed");
@@ -123,24 +130,58 @@ test("ven-034-166 Resonating Strike golden: the merged Move really relocates the
   assert.deepEqual(run.events.map(event => event.action), ["move-location"]);
 });
 
+test("ven-034-166 Resonating Strike golden: +2 Might this turn registers on the moved unit", () => {
+  const kernel = world()
+    .unit("ally", { zone: "board", location: { type: "base", player: "A" } })
+    .build();
+  const locked = kernel.ref("ally");
+  kernel.setTargets(unitSpec.id, [locked]);
+
+  // Execute the card's own Expr arguments through the merged primitive. The
+  // test supplies only the finalized TargetSpec binding; it does not replace
+  // the card's target argument with a hand-written runtime object selector.
+  const context = bindResolveContext(kernel, {
+    query: filter => {
+      const normalized = { ...filter };
+      for (const key of ["controller", "owner"]) {
+        if (normalized[key] === "self" || normalized[key] === "controller") normalized[key] = kernel.controller;
+      }
+      return kernel.objects.filter(object => matchesObjectFilter(normalized, object));
+    }
+  });
+
+  // The Move link is removed only to isolate this already merged instruction;
+  // all args and the TargetSpec are the card's originals.
+  const run = runAbilityBody([{ ...mightInstruction, linkedTo: undefined }], context);
+
+  assert.equal(run.results[0].result.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [registration] = kernel.continuousEffects;
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 2);
+  assert.deepEqual(registration.effect.filter.objectId, "ally");
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+});
+
 test.todo(
   "ven-034-166 Resonating Strike: move the chosen unit to the chosen battlefield (355.4/355.4.a) — the " +
     "runtime Location selector is unmerged; effect.move only takes static LocationRefs / controller-base / " +
-    "static candidate lists (RIFT-90 target/location plan)"
+    "static candidate lists (RIFT-357 location plan)"
 );
 
 test.todo(
   "ven-034-166 Resonating Strike: enforce 'a unit you control at a different location' as a 355.11 group " +
     "restriction over both targets, and the 190 battlefield-control predicate for 'a battlefield you control' " +
-    "— the merged target plan and filter vocabulary have neither (RIFT-90)"
+    "— the merged target plan and filter vocabulary have neither (RIFT-357/RIFT-359)"
 );
 
 test.todo(
-  "ven-034-166 Resonating Strike: give the moved unit +2 Might this turn — continuous.might has no merged " +
-    "instruction primitive (RIFT-9 inventory; RIFT-91 merged only the layer evaluation side)"
+  "ven-034-166 Resonating Strike: give the moved unit +2 Might this turn — the +2 arithmetic registration is " +
+    "proven by golden, but its linked placement behind the Move needs the destination/group-restriction plan first"
 );
 
 test.todo(
   "ven-034-166 Resonating Strike: [Hidden] (811) — the Hide action, the facedown zone, free play from facedown " +
-    "(RIFT-89) and the 811.1.d.2 target narrowing all lack a consumer for the merged cost.hidden expansion"
+    "and the 811.1.d.2 target narrowing all lack a consumer for the merged cost.hidden expansion"
 );

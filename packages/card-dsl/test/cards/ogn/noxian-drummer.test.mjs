@@ -37,7 +37,7 @@ test("ogn-222-298 Noxian Drummer: object-moved trigger with read-here then a lin
   // 421.1 / 449.1 / 449.2: a Move is defined by origin and destination;
   // 458.1 excludes Recalls from move triggers.
   assert.equal(ability.trigger.at, "object-moved");
-  assert.deepEqual(ability.trigger.filter, { event: "object-moved", toZone: "battlefield" });
+  assert.deepEqual(ability.trigger.filter, { event: "object-moved", objectId: "self", toZone: "battlefield" });
   assert.equal(ability.optional, false);
   assert.equal(ability.trigger.once, undefined);
   assert.equal(ability.trigger.condition, undefined);
@@ -106,8 +106,7 @@ test("ogn-222-298 Noxian Drummer golden: the effect body plays a 1-Might Recruit
 
 test.todo(
   "ogn-222-298 Noxian Drummer: object-moved trigger filter — the pipeline now emits the point " +
-    "(RIFT-270), but the card cannot statically express 'this card moved' (event identity is a " +
-    "runtime objectId; needs the CardProgram registration binding, RIFT-257) and the emitted event " +
-    "does not fill toZone, so the toZone: 'battlefield' filter never matches; the duel Standard Move " +
+    "(RIFT-270), the program binding now expresses 'this card moved' through objectId: 'self', but " +
+    "the emitted event does not fill toZone, so the toZone: 'battlefield' filter never matches; the duel Standard Move " +
     "result is not submitted to the pipeline yet"
 );

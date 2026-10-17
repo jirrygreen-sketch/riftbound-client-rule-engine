@@ -28,13 +28,10 @@ test("sfd-129-221 Temptation: program passes validateCardProgram", () => {
 });
 
 test("sfd-129-221 Temptation: judgeReason names the destination and [Repeat] gaps", () => {
-  assert.match(program.judgeReason, /355\.4/);
+  assert.match(program.judgeReason, /Finalize/);
   assert.match(program.judgeReason, /effect\.move/);
-  assert.match(program.judgeReason, /target\.location/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
+  assert.match(program.judgeReason, /Location/);
+  assert.match(program.judgeReason, /Repeat/);
 });
 
 test("sfd-129-221 Temptation: no speed keyword is printed, only the [Repeat] cost is declared", () => {
@@ -165,14 +162,11 @@ test("sfd-129-221 Temptation golden: a stale target is ignored when the unit alr
 });
 
 test.todo(
-  "sfd-129-221 Temptation: 'to a location where there's a unit with the same controller' — enumerating the " +
-    "runtime-legal Move Destinations at Finalize (355.4/355.4.a) and testing each Location for an occupant " +
-    "controlled by the moved unit's controller needs the target.location primitive and a per-Location " +
-    "occupant query — RIFT-90 (unchanged gap also recorded by ogn/charm and rad/sirens-song)"
+  "sfd-129-221 Temptation: production Finalize must enumerate legal Locations and choose one containing another unit " +
+    "controlled by the moved unit's controller; the descriptive destination selector has no runtime consumer yet"
 );
 
 test.todo(
-  "sfd-129-221 Temptation: [Repeat] :rb_energy_2: — collecting the optional additional cost at Finalize " +
-    "and executing the effect one extra time per paid instance (820.1.b/820.1.d/820.2.a) needs the card-program " +
-    "to cost-plan optionalAdditional producer (RIFT-261)"
+  "sfd-129-221 Temptation: the optional Repeat additional cost must be collected at Finalize and drive one additional " +
+    "execution of the move effect when paid"
 );

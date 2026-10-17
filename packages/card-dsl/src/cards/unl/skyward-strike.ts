@@ -30,7 +30,8 @@ import type { CardProgram } from "../../ir/index.js";
  * 2. 6+ XP 谓词不可求值：合并 IR 的 Condition 只有 always/never/expression/compare/all/any/not，
  *    读取 PlayerSnapshot.xp 没有进入 Expr/谓词的路径（同 unl/wuju-master 的记录）；
  *    kw-level 的依赖式展开与 824.1.c.1/.d 的动态失活同样未合入。
- * 依赖：RIFT-90（目标/目的地计划）、RIFT-89/90（XP 条件与谓词管线）、kw-level 展开。
+ * 依赖：RIFT-357（目标/目的地计划）、RIFT-359（XP 条件与谓词管线）、kw-level 展开，
+ * 以及 effect.stun 的生产链 literal 解码。
  */
 
 /** 描述性目的地标记，不是可执行 LocationRef（见 judgeReason 第 1 点）。 */
@@ -46,10 +47,10 @@ const skywardStrike = {
   judgeReason:
     "两处依赖未合入，均不近似实现：(1)「Move an enemy unit」没有印刷目的地——目的地按 CR 355.4 / 355.4.a / 451.1 在" +
     "结算时选择，合并 IR 没有运行期 Location 选择器（target.location 未合入），effect.move 的 to 只接受静态 LocationRef / " +
-    "controller-base / 静态候选列表；本卡只保留描述性目的地标记（依赖 RIFT-90）。(2)「[Level 6][>] [Stun] an enemy unit」" +
+    "controller-base / 静态候选列表；本卡只保留描述性目的地标记（依赖 RIFT-357）。(2)「[Level 6][>] [Stun] an enemy unit」" +
     "是 824.1 的依赖式关键词：6+ XP 谓词在合并 IR 里没有可求值路径（Condition 只有 always/never/expression/compare/" +
     "all/any/not，PlayerSnapshot.xp 未进入 Expr；同 unl/wuju-master），kw-level 的展开与 824.1.c.1/.d 的动态失活也未合入" +
-    "（依赖 RIFT-89/90 与 kw-level）。Stun 本体（424.1）声明的目标是敌方单位；reminder 的 “doesn't deal combat damage" +
+    "（依赖 RIFT-359 与 kw-level）。Stun 本体（424.1）声明的目标是敌方单位；reminder 的 “doesn't deal combat damage" +
     " this turn” 是 424.1.b/424.1.a.2 的状态结果，不写成独立指令。",
   abilities: [
     {

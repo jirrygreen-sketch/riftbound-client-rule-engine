@@ -214,8 +214,7 @@ test.todo(
 );
 
 test.todo(
-  "For Demacia!: register a CardProgram static ability as a ContinuousEffectSpec so a battlefield/legend " +
-    "static grant reaches the layers engine without an instruction — same gap as rad/packed-amphitheater " +
-    "(registerContinuousEffect has no caller) — RIFT-257"
+  "For Demacia!: resolve the printed play body through the production target/chain path, including locking the " +
+    "chosen battlefield before the friendly-unit set is evaluated; current golden coverage invokes the body with " +
+    "that battlefield target already locked"
 );
-

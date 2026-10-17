@@ -31,10 +31,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   combat-start 事务会抛 TurnCombatBlockedError（CR 466.2）；(2) “a battlefield
  *   you control” 的控制状态不在事件载荷（只有 combatId/battlefieldId/attackerId/
  *   defenderId，需 details 维度）中；(3) “it” 需要一个事件对象选择器（383.2.c.3.b /
- *   359.3.f.3），ObjectSelector 只有 self/source/target/pick/linked；卡牌触发绑定
- *   属 RIFT-257。
+ *   359.3.f.3），ObjectSelector 只有 self/source/target/pick/linked；当前程序绑定
+ *   已能注册该触发，仍缺事件物体到目标的运行时锁定。
  * 依赖：攻击/战斗时点产生方（RIFT-124 后续 combat 事务）、触发事件物体选择器
- * （RIFT-257/契约）与 attack-declared 载荷的战场控制状态。
+ * 与 attack-declared 载荷的战场控制状态。
  */
 const nineTailedFox = {
   canonicalCardId:
@@ -48,7 +48,7 @@ const nineTailedFox = {
     "RIFT-270 审计把 attack-declared/defense-declared/combat-start 标为「待后续」；" +
     "(2) attack-declared 载荷（combatId/battlefieldId/attackerId/defenderId）不带“该战场由你控制”的控制状态，触发过滤无从判定；" +
     "(3) “it” 需要触发事件物体选择器（383.2.c.3.b / 359.3.f.3），合并 ObjectSelector 只有 self/source/target/pick/linked。" +
-    "依赖：combat 事务的时点产生方、载荷控制状态维度与事件物体选择器；卡牌触发绑定属 RIFT-257。不近似实现。",
+    "依赖：combat 事务的时点产生方、载荷控制状态维度与事件物体选择器。不近似实现。",
   abilities: [
     {
       kind: "triggered",

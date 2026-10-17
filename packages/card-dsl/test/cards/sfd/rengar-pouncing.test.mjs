@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/sfd/rengar-pouncing.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 import { abilitySpeed, expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 
 const CARD_ID = "card.hash-11c2deae61a7e5098515aef9a7b5595b0b6430fc0efebc22147404611ccebbc9";
@@ -33,15 +34,14 @@ test("sfd-025-221 Rengar, Pouncing: identity, ruleset, status and verbatim text"
 test("sfd-025-221 Rengar, Pouncing: judgeReason names the keyword-expansion and play-location gaps", () => {
   assert.match(program.judgeReason, /Reaction/);
   assert.match(program.judgeReason, /Assault 2|Assault/);
-  assert.match(program.judgeReason, /RIFT-81/);
-  assert.match(program.judgeReason, /81\/85\/91/);
+  assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /攻击方/);
   assert.match(program.judgeReason, /打出位置|Finalize 位置校验/);
-  // RIFT-257 merged expandProgram/abilitySpeed, so the accurate remaining gap
-  // is the missing layer registration consumer (ProgramStaticBinder is still a
-  // caller-supplied callback), not the absence of keyword expansion.
-  assert.match(program.judgeReason, /ProgramStaticBinder/);
+  // Default static binding and Reaction timing work; Assault field alignment
+  // and the attacking Battlefield permission remain blocked.
+  assert.match(program.judgeReason, /createEngineStaticBinder/);
   assert.match(program.judgeReason, /designation/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /playDestinationIsLegal/);
   assert.doesNotMatch(program.judgeReason, /没有运行时消费方把卡牌程序的 keyword 能力展开并注册进图层：chain\.canAct\(\)/);
 });
 
@@ -71,7 +71,7 @@ test("sfd-025-221 Rengar, Pouncing: the third ability is a static play-location 
   assert.equal(permission.condition, undefined);
 });
 
-test("sfd-025-221 Rengar, Pouncing: RIFT-257 expands the declared keywords and derives Reaction speed", () => {
+test("sfd-025-221 Rengar, Pouncing: the merged binder expands the declared keywords and derives Reaction speed", () => {
   // Evidence for the corrected judgeReason: expandProgram already turns the
   // declared keyword abilities into executable Ability values (Assault -> a
   // static continuous.might with its attacker condition, Reaction -> a timing
@@ -108,8 +108,8 @@ test("sfd-025-221 Rengar, Pouncing: RIFT-257 expands the declared keywords and d
   assert.deepEqual(timingGrant.effect.grants, ["showdown", "closed-state"]);
   assert.equal(abilitySpeed(expanded.abilities, source), "reaction");
 
-  // The whole card still needs a production consumer for these static grants;
-  // the expansion itself is complete and validated.
+  // The declarations expand correctly; this does not prove the blocked
+  // attacking Battlefield permission or Assault condition.
   assert.equal(expanded.declared.length, 3);
   assert.ok(expanded.expanded.length >= 2);
 
@@ -128,29 +128,64 @@ test("sfd-025-221 Rengar, Pouncing: RIFT-257 expands the declared keywords and d
     right: { kind: "constant", value: "attacker" }
   });
 
-  // ... and the produced object shapes are still not executable as printed:
-  // a real card static registration consumer is still a caller-supplied
-  // ProgramStaticBinder callback (programs/statics.ts noop by default), and the
-  // `designation` characteristic the condition reads is not on ObjectSnapshot
-  // (contract 3.8 declares combatRole instead; layers conditionMatches returns
-  // true for the unhandled compare shape, which would grant +2 unconditionally).
+  // The default static binder now evaluates compare conditions, but this
+  // expansion still reads designation rather than the snapshot's combatRole.
   assert.equal(typeof assault.condition.left, "object");
 });
 
 test.todo(
   "sfd-025-221 Rengar, Pouncing: the expanded Assault condition must read a real attacker " +
-    "designation (807.1.d.1) and be evaluated by the layer engine, and a production consumer must " +
-    "register card statics into the continuous-effect registry — RIFT-81 / RIFT-91 follow-up"
+    "designation (807.1.d.1), aligned with combatRole through the default static binder"
 );
 
-test.todo(
-  "sfd-025-221 Rengar, Pouncing: [Reaction] timing permission (813.1.c, closed-state play) — the " +
-    "expansion is a continuous.timing static ability and chain.canAct() (contract 3.5) does not read " +
-    "layer permissions yet — RIFT-85 / chain timing workstream"
-);
+
 
 test.todo(
   "sfd-025-221 Rengar, Pouncing: 'a battlefield you're attacking' is accepted as a play destination " +
-    "by Finalize once the static play-location-permission consumer and an attacker-battlefield " +
-    "predicate land (349, 355.17.b) — RIFT-32 / RIFT-90"
+    "by Finalize with a hand-zone static permission adapter and attacker-battlefield predicate (349, 355.17.b)"
 );
+
+
+test("sfd-025-221 Rengar, Pouncing: printed Reaction speed allows a real response on the opponent's turn", { todo: "reference TestWorld pay does not consume Fury Power; preserve the exact printed payment assertion" }, () => {
+  // Isolate the supported Reaction clause. This draft does not register the
+  // blocked Assault or attacking-battlefield permission, and plays to base.
+  const { engine, kernel, draft, card } = fixture({ cards: [{
+    id: "rengar", cardId: CARD_ID, owner: "B", controller: "B", energy: 3,
+    power: ["Fury"], might: 3, tags: ["Cat", "Rengar", "Ixtal", "Champion"]
+  }] });
+  engine.commit({ type: "gain-power", player: "B", power: ["Fury"] });
+  engine.advance();
+  engine.execute(draft("opponent-draw", { speed: "normal" }));
+  engine.pass("A");
+  assert.equal(engine.priority, "B");
+  const source = kernel.getObject("rengar");
+  const expanded = expandProgram(program, source);
+  const speed = abilitySpeed(expanded.abilities, source);
+  assert.equal(speed, "reaction");
+  assert.equal(engine.canAct("B", speed, source.ref, source), true);
+  engine.execute(card("rengar", { kind: "unit", controller: "B", speed, body: [] }));
+  assert.equal(kernel.player("B").energy, 17);
+  assert.deepEqual(kernel.player("B").power, []);
+  assert.equal(engine.items.length, 2);
+  resolveAll(engine);
+  assert.equal(kernel.getObject("rengar").zone, "board");
+  assert.deepEqual(kernel.getObject("rengar").location, { type: "base", player: "B" });
+  assert.equal(kernel.player("A").handSize, 1);
+  assert.equal(engine.trace.filter(event => event.step === "resolved").length, 2);
+});
+
+
+test("sfd-025-221 Rengar, Pouncing: Reaction timing is accepted in a real closed chain", () => {
+  const { engine, kernel, draft } = fixture({ cards: [{ id: "rengar", cardId: CARD_ID, owner: "B", controller: "B", energy: 3, power: ["Fury"], might: 3 }] });
+  engine.execute(draft("reaction-timing-probe", { speed: "normal" }));
+  engine.pass("A");
+  const source = kernel.getObject("rengar");
+  const expanded = expandProgram(program, source);
+  const speed = abilitySpeed(expanded.abilities, source);
+  assert.equal(speed, "reaction");
+  assert.equal(engine.items.length, 1);
+  assert.equal(engine.priority, "B");
+  assert.equal(engine.canAct("B", speed, source.ref, source), true);
+  assert.equal(engine.canAct("B", "action", source.ref, source), false);
+  assert.equal(engine.canAct("B", "normal", source.ref, source), false);
+});

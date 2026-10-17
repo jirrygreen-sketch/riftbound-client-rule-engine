@@ -54,7 +54,6 @@ test("ven-160-166 Mystic Vortex: identity, ruleset, status and exact source text
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /ObjectSnapshot\.keywords/);
   assert.match(program.judgeReason, /Showdown/);
-  assert.match(program.judgeReason, /RIFT-89/);
   // The golden must prove the new program reaches the shared generated index,
   // not just the file system (scripts/gen-registries.mjs builds it from src/cards/**).
   assert.equal(cardProgramsById.get(program.canonicalCardId), program);
@@ -137,8 +136,8 @@ test("ven-160-166 Mystic Vortex golden: a reaction card with no Power to pay the
 });
 
 test.todo(
-  "ven-160-166 Mystic Vortex: install the +1 [A] increase on the affected play's cost plan (356.3) — no cost.modify " +
-    "instruction file and no merged path turns a CardProgram's static cost modification into CostPlanInput.increases (RIFT-89)"
+  "ven-160-166 Mystic Vortex: install the +1 [A] increase on the affected play's cost plan (356.3) — cost.modify " +
+    "is present, but no merged path turns a CardProgram static cost modification into CostPlanInput.increases"
 );
 
 test.todo(
@@ -149,5 +148,5 @@ test.todo(
 
 test.todo(
   "ven-160-166 Mystic Vortex: evaluate 'cards with [Reaction]' (813.5 characteristic) — the merged filter has no keyword " +
-    "predicate, and the Hidden remainder (811.6: Hidden cards gain Reaction) needs the Hidden/facedown machinery (RIFT-84)"
+    "predicate, and the Hidden remainder (811.6: Hidden cards gain Reaction) needs the Hidden/facedown machinery"
 );

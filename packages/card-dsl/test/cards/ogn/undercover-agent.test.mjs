@@ -20,8 +20,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /trigger\.leave/);
-  assert.match(program.judgeReason, /RIFT-82/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /payload/);
   assert.equal(
     program.sourceText,
     "[Deathknell] — Discard 2, then draw 2. (When I die, get the effect.)"
@@ -87,7 +86,6 @@ test("golden: with one card in hand the discard does as much as possible and the
 
 test.todo(
   "Deathknell keyword expansion: subscribe at object-killed, capture last-known info before the trash move, " +
-    "and drop the trigger when the death is replaced (808.1.d). The expansion body still references the " +
-    "trigger.leave primitive that RIFT-82/RIFT-120 must register, and the card-program → " +
-    "TriggerRegistration expansion path (RIFT-257) is the other half."
+    "drop the trigger when the death is replaced (808.1.d), and bind this card's discard/draw body " +
+    "as the keyword payload. The expansion body still references the unregistered trigger.leave primitive."
 );

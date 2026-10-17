@@ -24,12 +24,16 @@ import type { Ability, CardProgram, TriggerSpec } from "../../ir/index.js";
  *   选定，不构成目标，所以用 `selection: "all"` 的目标规范承载“此处所有敌方单位”（损坏集合），
  *   并用 `sameLocationAs: "source"` 锚点把集合限制在“here”，controller 锚点为 opponent。
  *
- * 缺口（不近似实现，故 judge-required）：
- * - Deploy 的展开虽然已声明，但消费者未合入：continuous.location 的 play-location/限制检查没有
- *   Finalize 位置校验调用方，清理流程（turn/flow.ts）对非单位 Gear 的 Deploy 召回豁免与 hold 触发
- *   注册都仍缺（Deploy.ts 文件头记录同一缺口）。
- * - “Deal 2 to enemy units here” 的 sameLocationAs 锚点只在解释器集合查询中实现，生产链的
- *   目标系统（target/target-plan.ts）不读取该锚点；object-moved 触发的注册依赖 RIFT-257。
+ * 缺口（不近似实现，故 judge-required；触发注册与 keyword 展开的生产绑定链已合入）：
+ * - Deploy 的展开声明 continuous.location 与 hold 触发，但 continuous.location 没有
+ *   layerFor 映射（programs/statics.ts 绑定卡牌 static 时抛 judge-required），也没有
+ *   Finalize 位置校验调用方；hold 触发的 { here: true } 过滤器会被
+ *   translateTriggerFilter/translateObjectFilter 拒绝（Unsupported filter field here）。
+ *   turn/flow.ts 的清理召回已有 Deploy 豁免（约 319 行），无需卡侧近似。
+ * - “Deal 2 to enemy units here” 的 sameLocationAs 锚点只在解释器集合查询中实现，
+ *   生产链的 translateObjectFilter 白名单拒绝该键（绑定即失败）；choice.mode 还会被
+ *   programs/play.ts 的 validateSurface 拒绝（“Mode choices require a Finalize/Resolve
+ *   choice-plan adapter”），两个 card-played/object-moved 触发都过不了 Play 管线绑定。
  *
  * 可执行部分：`[Ganking]` 已合入关键词；`choice.mode` + `effect.draw` / `effect.damage` 分支已在
  * golden 中用解释器 + 参考内核真实执行（含 sameLocationAs 锚点在解释器集合查询中的行为）。
@@ -94,14 +98,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺 [Deploy] 展开的消费者（830.1.b：只能打到战场、对手在此固守时消灭、非单位 Gear 清理不召回）：" +
-    "effects/keywords/Deploy.ts 已合入并声明 continuous.location 与 hold 消灭触发，但 continuous.location " +
-    "的 play-location/限制检查没有 Finalize 位置校验调用方、清理流程（turn/flow.ts）没有非单位 Deploy " +
-    "召回豁免、hold 时点也没有把该关键词展开注册成事件订阅；卡牌程序 → TriggerRegistration/图层注册的" +
-    "生产接线属 RIFT-257（进行中）。" +
+    "缺 [Deploy] 展开的消费者（830.1.b：只能打到战场、对手在此固守时消灭、非单位 Gear 清理不召回）：触发注册" +
+    "（programs/triggers.ts 经 attachProgramLifecycle）与 keyword 展开（programs/keywords.ts）已合入" +
+    "（RIFT-257 未合入的结论过时），但 Deploy 展开的 continuous.location 没有 layerFor 映射（卡牌 static 绑定" +
+    "实测抛 judge-required），也没有 Finalize 位置校验调用方；hold 触发的 { here: true } 过滤器会被 " +
+    "translateTriggerFilter/translateObjectFilter 拒绝（Unsupported filter field here）。turn/flow.ts 的清理召回" +
+    "已有 Deploy 豁免。" +
     "另 “Deal 2 to enemy units here” 的 sameLocationAs（here）锚点只在解释器的集合查询里实现" +
-    "（interpreter/selectors.ts），生产目标系统（target/target-plan.ts）不读取该锚点，直接接线会把别处" +
-    "的敌方单位也算进来（355.10.d / 421.1）。object-moved 触发同样依赖 RIFT-257 的注册接线。" +
+    "（interpreter/selectors.ts），生产 translateObjectFilter 拒绝该键（绑定即失败），直接接线会把别处" +
+    "的敌方单位也算进来（355.10.d / 421.1）；choice.mode 会被 programs/play.ts 的 validateSurface 拒绝" +
+    "（需要 Finalize/Resolve choice-plan 适配器），两个 card-played/object-moved 触发都过不了 Play 管线绑定。" +
     "已可执行部分：Ganking 关键词、choice.mode + effect.draw / effect.damage 分支（golden 真实执行）；不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "deploy" },

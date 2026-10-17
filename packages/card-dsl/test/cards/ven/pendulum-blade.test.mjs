@@ -145,6 +145,17 @@ test("ven-011-166 Pendulum Blade golden: a controlled Unit that left the Board i
   assert.equal(kernel.getObject("pendulum-blade").attachedTo, null);
 });
 
+test("ven-011-166 Pendulum Blade golden: the expanded target filter rejects an opposing unit", () => {
+  const kernel = equipWorld();
+  const [expansion] = expansionFor();
+  kernel.setTargets("equip-target", [kernel.ref("enemy-unit")]);
+  const outcome = resolveChainBody(expansion.body, kernel);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.deepEqual(outcome.events, []);
+  assert.equal(kernel.getObject("pendulum-blade").attachedTo, null);
+});
+
 test("ven-011-166 Pendulum Blade: the activation entry keeps the real card blocked until its Equip cost is supported", () => {
   const registry = new ProgramRegistry([program]);
   assert.throws(

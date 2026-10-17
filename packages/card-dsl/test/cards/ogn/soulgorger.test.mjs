@@ -32,8 +32,7 @@ test("soulgorger: identity, ruleset, status, judgeReason and sourceText", () => 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /cost\.printed/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /finalized|费用计划/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -224,5 +223,5 @@ test("soulgorger golden: a replaced play negates the instruction (contract 3.6 p
 
 test.todo(
   "soulgorger: generate the 'ignore its Energy cost, still pay its Power cost' plan from the chosen " +
-    "card's printed cost (356.1.b.2; cost.printed 未合入，RIFT-261) and assert the Power payment"
+    "card's trusted printed catalog projection and pass the plan plus played object through the production play path"
 );

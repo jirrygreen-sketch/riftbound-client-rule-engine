@@ -26,8 +26,9 @@ test("unl-089-219 Jhin, Meticulous Killer: identity, status, judgeReason and ver
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Energy/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-64/);
+  assert.match(program.judgeReason, /费用回执入口/);
+  assert.match(program.judgeReason, /CardProgram → CostPlan/);
+  assert.match(program.judgeReason, /有序顶牌 picks/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -75,18 +76,20 @@ test("unl-089-219 Jhin, Meticulous Killer: the declared keyword resolves to the 
 });
 
 test.todo(
-  "unl-089-219 Jhin, Meticulous Killer: read the Energy actually spent on the spell played this turn " +
-    "(CR 383.2.a.1 / 355.1) — no finalized cost receipt is exposed to Expr/Condition (RIFT-89)"
+  "unl-089-219 Jhin, Meticulous Killer: evaluate the Energy actually paid to play a spell this turn " +
+    "from its finalized cost receipt (CR 383.2.a.1 / 355.1; receipt predicate)"
 );
 test.todo(
-  "unl-089-219 Jhin, Meticulous Killer: generate the 1 Mind Power alternate cost plan for 'play me for [C]' " +
-    "(CR 356.1.a) — no cost primitive or CardProgram → CostPlan wiring (RIFT-89)"
+  "unl-089-219 Jhin, Meticulous Killer: choosing the alternate play cost generates and pays a 1 Mind Power " +
+    "CostPlan (CR 356.1.a; play-for-alternate-cost adapter)"
 );
 test.todo(
-  "unl-089-219 Jhin, Meticulous Killer: Vision's Predict binds the ordered top card (CR 437.1 / 817.1.b) — " +
-    "effect.inspect needs the contract 3.6 zoneSlice picks source (RIFT-64)"
+  "unl-089-219 Jhin, Meticulous Killer: Vision's Predict binds the ordered top card " +
+    "(CR 437.1 / 817.1.b) — effect.inspect still needs production injection of the ordered top-card picks " +
+    "and a binding for the keyword's controller"
 );
 test.todo(
-  "unl-089-219 Jhin, Meticulous Killer: fire the Vision trigger from the real Board-entry flow (CR 817.1.c) — " +
-    "needs keyword→trigger registration (RIFT-120)"
+  "unl-089-219 Jhin, Meticulous Killer: fire the Vision trigger from the real Board-entry flow " +
+    "(CR 817.1.c) — the keyword expansion exists, but the Board-entry producer and trigger registration " +
+    "must deliver the resolved controller and source"
 );

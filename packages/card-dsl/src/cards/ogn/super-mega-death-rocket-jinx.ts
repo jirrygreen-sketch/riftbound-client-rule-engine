@@ -16,39 +16,29 @@ import type { CardProgram } from "../../ir/index.js";
  *   Board, 418.1.c/418.6.a) and is executable; it is covered by a real test.
  * - The second sentence is a triggered ability whose "you may" is the optionality
  *   of the whole clause (contract 3.1 `triggered.optional`): "[discard 1] to
- *   [return this]" makes the discard a COST paid inside the instruction
- *   (355.10.c.1), and the return is the effect (423.3 vs 423.4 for the cost/effect
+ *   [return this]" makes the discard a leading COST paid before Finalize
+ *   (383.3.b/b.1), and the return is the effect (423.3 vs 423.4 for the cost/effect
  *   distinction).
  *
- * Status: judge-required. The conquer ability cannot be executed with merged
- * pieces:
- * - the ability functions from the Trash (CR 366.1: passive/triggered abilities of
- *   cards outside the Board self-describe their context). The card IR has no
- *   activation-zone field for an ability: `TriggerSpec` carries only
- *   at/filter/condition/once, and the trigger pipeline defaults a source's active
- *   zone to `board` (events/pipeline.ts), so "from your trash" cannot be declared;
- * - there is still no `cost.discard` instruction opcode (the cost plan supports a
- *   discard *payment* through buildCostPlan, but no registered primitive consumes
- *   it from an ability body; effect.discard is the effect-discard form of 423.4
- *   and must not stand in for the cost of 423.3);
- * - "return this ... to your hand" references the ability's own source card while
- *   it sits in the Trash. effect.zone only accepts `target`/`pick` ids
- *   (TargetSpec/PickSpec), so contract 3.6's symbolic `source`/`self` selector has
- *   no path into a zone-moving primitive.
+ * Status: judge-required.
+ * Deal 5 to a unit is executable as a targeted play effect (355.7/418.1).
+ * The optional conquer ability functions from trash (385.1/385.2, whose
+ * example names this card). Its leading discard cost must be paid before
+ * Finalize (383.3.b/b.1), rather than while resolving the body (423.3/423.4).
+ * cost.pay and discard CostPlans exist; triggered-cost extraction and trash
+ * activation-zone declarations do not. The source return and conquer event
+ * normalization also remain unbound. The blocked IR records printed intent.
  */
 const superMegaDeathRocket = {
   canonicalCardId: "card.hash-a5df5886eb5ce4de01ecdbffd7bd2e4840f75ad0546a27a1428d719100e5f2ad",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "从弃牌堆起作用的触发能力缺声明位：CR 366.1 的自述区域在卡程序里没有字段" +
-    "（TriggerSpec 只有 at/filter/condition/once，events/pipeline.ts 的触发源区域默认 ['board']），无法声明「在 trash 中生效」；" +
-    "缺已注册的 cost.discard 指令原语：费用模块能以 buildCostPlan 规划 discard 支付，但没有原语供能力 body 调用" +
-    "（423.3 的费用式弃牌不能用 423.4 的 effect.discard 代替）；" +
-    "「return this ... to your hand」指向来源卡自身，而 effect.zone 只接受 target/pick 的 id，" +
-    "契约 3.6 的 source/self 选择器没有进入移区原语的路径。" +
-    "Deal 5 部分已用 effect.damage 表达并有执行测试。依赖：RIFT-257（CardProgram 触发绑定）、" +
-    "RIFT-261（cost.discard 指令化）与 trash 自述区域的触发注册。不近似实现。",
+    "缺 trash 自述区域的触发声明（CR 385.1/385.2）：programs/triggers.ts 已合入，但 Spell 默认 activeZones 为 " +
+    "chain，卡牌能力没有声明 trash 生效区域的字段。discard 1 是 423.3 的领先费用，必须按 383.3.b/383.3.b.1 在 Finalize " +
+    "前支付；cost.pay 与 discard CostPlan 已合入，TriggeredAbility 却没有费用声明，程序绑定也不提取 body 的领先费用，" +
+    "不能以结算时支付或 effect.discard（423.4）代替。当前 cost.discard 仅是受阻占位。effect.zone 只收 target/pick，" +
+    "source/self 非目标移区仍无入口；conquer 事件名也需适配 EventPattern 的 conquered。Deal 5 半段已有真实执行证据。不近似实现。",
   abilities: [
     {
       kind: "play",
@@ -68,8 +58,8 @@ const superMegaDeathRocket = {
     },
     {
       // "When you conquer, you may discard 1 to return this from your trash to
-      // your hand." The may is the trigger's optionality; the body is the cost
-      // (missing primitive) followed by the return (needs a source selector).
+      // your hand." The may is optionality. These blocked placeholders record
+      // the leading cost (must move to Finalize) and the source return.
       kind: "triggered",
       trigger: { at: "conquer", filter: { event: "conquer", player: "controller" } },
       optional: true,

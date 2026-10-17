@@ -36,8 +36,8 @@ import type { CardProgram } from "../../ir/index.js";
  * 已合入且被 golden 真实执行的是效果本体：effect.move（friendly/enemy 无关的移动原语）把锁定的
  * 敌方单位移到“我当下的战场”（先用 condition.value 锁定 my battlefield 再移动，符合 355.4）。
  *
- * 依赖：RIFT-84（Hidden 展开已合入、Hide 运行时未接线）、RIFT-9/父任务（位置否定锚点与
- * 事件载荷的 fromFaceDown）、RIFT-33（战斗时点与区域状态）、RIFT-91（layers）。
+ * 依赖：card-played 事件的 fromFaceDown 与回合归属字段、ObjectFilter 的位置否定锚点、
+ * cost.hidden 的 Hide/Facedown 运行时、以及 continuous.combat 的战斗分配消费者。
  */
 export default {
   canonicalCardId:
@@ -52,8 +52,8 @@ export default {
     "other than mine、ogn/ride-the-wind 的记录），因此不能诚实地过滤出“别处”的单位。" +
     "(3) [Hidden] 的运行时不可用：cost.hidden 没有消费方，zones/actions 不支持 Facedown Zone 与 Hide" +
     "（cost/README.md 第 3 条），811.1.d 的藏牌、811.6 的后续打出与 0 能量打出都无法落地。" +
-    "(4) [Backline] 的展开（continuous.combat，826.3/826.4.b 的伤害指派顺序）在 effects/instructions/ " +
-    "没有已注册实现。已合入且由 golden 真实执行的是效果本体 effect.move：先按 355.4 锁定“我当下的战场”" +
+    "(4) [Backline] 的展开（continuous.combat，826.3/826.4.b 的伤害指派顺序）虽已注册，但战斗分配没有消费者。" +
+    "已合入且由 golden 真实执行的是效果本体 effect.move：先按 355.4 锁定“我当下的战场”" +
     "（condition.value），再把锁定的敌方单位移过去；拒绝时整条可选指令被跳过。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },

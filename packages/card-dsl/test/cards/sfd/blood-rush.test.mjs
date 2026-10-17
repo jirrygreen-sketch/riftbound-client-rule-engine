@@ -5,6 +5,12 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/blood-rush.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import assault from "../../../../engine-core/dist/effects/keywords/Assault.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { abilitySpeed } from "../../../../engine-core/dist/programs/keywords.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-01042b9eeb52d036e7ddeb7a52f785ab5acaf5fc08d6923554a753376d2b7529";
 const SOURCE_TEXT =
@@ -27,11 +33,12 @@ test("sfd-003-221 Blood Rush: program passes validateCardProgram", () => {
 
 test("sfd-003-221 Blood Rush: judge-required for the keyword grant and the Repeat cost wiring", () => {
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /continuous\.grant-keyword|addContinuous/);
+  assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /combatRole|designation/);
   assert.match(program.judgeReason, /820\.1\.c\.1/);
-  assert.match(program.judgeReason, /RIFT-86/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /KeywordDef|consumer|expand/);
+  assert.match(program.judgeReason, /optionalAdditional/);
+  assert.doesNotMatch(program.judgeReason, /non-combat|unconditionally/);
 });
 
 test("sfd-003-221 Blood Rush structure: [Action] plus the printed Repeat cost", () => {
@@ -60,6 +67,11 @@ test("sfd-003-221 Blood Rush structure: the Assault 2 grant on one chosen unit",
   // it's an attacker" is 807.1.c's functional text, not a second ability).
   assert.deepEqual(grant.args.keyword, { kind: "constant", value: "Assault" });
   assert.deepEqual(grant.args.value, { kind: "constant", value: 2 });
+  assert.deepEqual(grant.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "blood-rush.unit" }
+  });
+  assert.deepEqual(grant.args.duration, { kind: "constant", value: "permanent" });
   assert.equal(grant.linkedTo, undefined);
 
   // "a unit": one Board unit, no controller restriction printed (355.9.a.1).
@@ -92,26 +104,75 @@ test("sfd-003-221 Blood Rush: the granted Assault 2 expands with the printed val
   });
 });
 
+test("sfd-003-221 Blood Rush: the original body grants Assault 2 to the chosen unit for its Board existence", () => {
+  const kernel = world()
+    .object("spell", { zone: "chain", types: ["spell"], cardId: CANONICAL })
+    .unit("chosen", { owner: "B", controller: "B", might: 3 })
+    .build();
+  const chosen = kernel.ref("chosen");
+  kernel.setTargets("blood-rush.unit", [chosen]);
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].id, grant.id);
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [entry] = kernel.continuousEffects;
+  assert.equal(entry.effect.layer, "ability");
+  assert.equal(entry.effect.filter.objectId, "chosen");
+  assert.equal(entry.effect.filter.zoneEntryId, chosen.zoneEntryId);
+  assert.deepEqual(entry.duration, { type: "permanent" });
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  assert.deepEqual(layers.snapshot(chosen).keywords, [{ id: "Assault", value: 2 }]);
+  assert.deepEqual(layers.snapshot(kernel.ref("spell")).keywords, []);
+  // 801.3.a.3 gives an unspecified-duration grant the target's zone lifetime.
+  assert.deepEqual(layers.expireAt("turn-end"), []);
+  assert.deepEqual(layers.snapshot(chosen).keywords, [{ id: "Assault", value: 2 }]);
+  assert.equal(kernel.perform({ type: "return-to-hand", object: chosen }).status, "done");
+  layers.setObjects(kernel.objects);
+  assert.equal(kernel.object(chosen), null);
+  assert.deepEqual(layers.snapshot(kernel.ref("chosen")).keywords, []);
+});
+
+test("sfd-003-221 Blood Rush: the production binder evaluates Assault's condition outside combat", () => {
+  const { engine, kernel } = fixture();
+  const source = kernel.getObject("source");
+  assert.equal(source.combatRole, null);
+  const [expansion] = assault.expand({ value: 2, host: { canonicalCardId: CANONICAL } });
+  const handle = createEngineStaticBinder(engine).bindStatic(expansion, source);
+  const [entry] = engine.layers.registry.list();
+  assert.equal(typeof entry.effect.effect.condition, "function");
+  assert.equal(entry.effect.effect.amount, 2);
+  // The real binder evaluates the IR condition; the layers fallback for an
+  // unwrapped condition object is not used. CR 807.1.d.1 gives no Might here.
+  assert.equal(engine.layers.snapshot(source.ref).might, source.might);
+  handle.unbind();
+  assert.equal(engine.layers.registry.list().length, 0);
+});
+
 test.todo(
-  "sfd-003-221 Blood Rush: granting [Assault 2] to the chosen unit for its remainder needs a " +
-    "duration-bounded keyword-grant primitive that registers a continuous effect through " +
-    "ResolveContext.addContinuous (CR 801.3.a / 807.1.c; no merged instruction op) — RIFT-91 follow-up."
+  "sfd-003-221 Blood Rush: runtime granted keywords still need a KeywordDef consumer that " +
+    "expands the registered Assault 2 into its printed conditional Might effect (807.1.c)."
 );
 
 test.todo(
-  "sfd-003-221 Blood Rush: the granted Assault's +2 Might needs the Attacker designation " +
-    "(contract 3.8 ObjectSnapshot.combatRole; 807.1.d.1) evaluated by the layers condition " +
-    "consumer — RIFT-91 / contract 3.8."
+  "sfd-003-221 Blood Rush: the Assault expansion's designation condition must consume the " +
+    "ObjectSnapshot combatRole feature (807.1.d.1 / contract 3.8) before the granted +2 Might " +
+    "can be proven in and out of Combat."
 );
 
 test.todo(
   "sfd-003-221 Blood Rush: collecting the optional 1-energy Repeat cost at Finalize, exposing the " +
     "paid count to the effect execution, and re-making choices for the additional execution " +
-    "(820.1.c.1 / 820.1.d.1 / 820.2) need the Repeat cost wiring and the cost plan — " +
-    "RIFT-86 / RIFT-89."
+    "(820.1.c.1 / 820.1.d.1 / 820.2) need the card-to-Finalize optionalAdditional wiring and " +
+    "the paid-instance binding."
 );
 
-test.todo(
-  "sfd-003-221 Blood Rush: the printed [Action] Showdown permission (806, 159.2.a) needs the " +
-    "keyword expansion plus the chain's canAct timing query — RIFT-83 / RIFT-85."
-);
+test("sfd-003-221 Blood Rush: the declared Action keyword supplies Showdown timing", () => {
+  const { engine, kernel } = fixture({ turnPlayer: "B" });
+  const source = kernel.getObject("source");
+  const speed = abilitySpeed(program.abilities, source);
+  assert.equal(speed, "action");
+  engine.openShowdown("A");
+  assert.equal(engine.canAct("A", speed, source.ref, source), true);
+  assert.equal(engine.canAct("A", "normal", source.ref, source), false);
+});

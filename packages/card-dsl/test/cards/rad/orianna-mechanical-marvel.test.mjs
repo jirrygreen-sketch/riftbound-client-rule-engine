@@ -5,7 +5,6 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/orianna-mechanical-marvel.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 
 const CARD_ID =
   "card.hash-d4ef90d20d4782edbcabe8cd157c2b6565e5c53b930df73f688bd58c0289d3a1";
@@ -19,8 +18,8 @@ test("rad-068-167 Orianna, Mechanical Marvel: program validates and is judge-req
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.cost-modification/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /Finalize/);
+  assert.match(program.judgeReason, /once-per-turn/);
 });
 
 test("rad-068-167 Orianna, Mechanical Marvel: sourceText is the verbatim deck-catalog ability text", () => {
@@ -62,11 +61,6 @@ test("rad-068-167 Orianna, Mechanical Marvel: 'while I'm at a battlefield' is th
   });
 });
 
-test("rad-068-167 Orianna, Mechanical Marvel: no continuous.cost-modification instruction is registered", () => {
-  // The concrete dependency, asserted so the judge-required status is reproducible.
-  assert.equal(instructionDefinitionsById.has("continuous.cost-modification"), false);
-});
-
 test("rad-068-167 Orianna, Mechanical Marvel: the merged cost pipeline only takes caller-supplied discounts", () => {
   // A discount applied by the caller works (RIFT-89's existing API) ...
   const kernel = world().unit("orianna", { might: 5 }).build();
@@ -102,8 +96,8 @@ test("rad-068-167 Orianna, Mechanical Marvel: the +1 Energy / +1 Power discount 
 test.todo(
   "rad-068-167 Orianna, Mechanical Marvel: consume the continuous cost modification at Finalize " +
     "(1 Energy + 1 any-domain Power less for a gear the controller plays, once each turn, while " +
-    "the source is at a battlefield) — needs continuous.cost-modification plus a layers/cost " +
-    "reader (RIFT-89, RIFT-91) and a per-turn use counter on continuous effects"
+    "the source is at a battlefield) — needs a Finalize reader for continuous.cost-modification " +
+    "and a per-turn use counter on continuous effects"
 );
 
 test.todo(

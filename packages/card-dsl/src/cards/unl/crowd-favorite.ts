@@ -29,33 +29,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   { object: "self" } in the target filter (sett-brawler spelling), never a
  *   runtime ObjectRef.
  *
- * Status: judge-required. The Hunt half still cannot execute end to end:
- * effects/keywords/Hunt.ts is merged (823.1.c.1 expansion into a conquer and a
- * hold trigger with effect.xp, 823.1.c.2 default 1, 823.2 summing) and
- * programs/keywords.ts expands it. Registration still fails: the expansion
- * the expansion spells its trigger event "conquer"/"hold", while the closed EventPattern
- * vocabulary (events/trigger-spec.ts EVENT_PATTERN_TYPES, enforced by
- * assertTriggerSpec in EventPipeline.registerTrigger) only accepts
- * "conquered"/"held"/"scored"; registerProgramTriggers therefore throws before
- * any subscription exists. Even with the accepted spelling, the scoring wave
- * (turn/flow.ts:102) carries only the scoring player and
- * `details.battlefieldId`, so the expansion's `{ source: "self" }` object filter
- * has no object to bind and the here/“I conquered” attribution is missing.
- * The activated half (2 XP -> effect.buff) uses only merged cost/payment and
- * effect.buff code and is executed for real by the golden test.
+ * Status: judge-required. Current source audit:
+ * Hunt expands and XP payment/Buff execute independently. Its conquer/hold
+ * event spelling disagrees with EventPattern, and the scoring emission has
+ * no conquering/holding unit identity for the self filter.
  */
 export default {
   canonicalCardId: "card.hash-204eccc6166c5de77fb944367f972c5488c896a4054343aae4b3c15ca9b01b0f",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Hunt] 的展开已合入（effects/keywords/Hunt.ts：823.1.c.1 的 conquer/hold 两个 effect.xp 触发，823.1.c.2 省略值按 1、823.2 相加），" +
-    "programs/keywords.ts 也会展开声明；但注册这步就走不通：展开体写的事件名是 \"conquer\"/\"hold\"，" +
-    "而封闭 EventPattern 词汇（events/trigger-spec.ts 的 EVENT_PATTERN_TYPES，EventPipeline.registerTrigger 经 assertTriggerSpec 强制）只接受 \"conquered\"/\"held\"/\"scored\"，" +
-    "registerProgramTriggers 会在订阅建立前抛错。即便换成合法拼写，计分波（turn/flow.ts:102）也只带计分玩家与 details.battlefieldId，" +
-    "展开体的 { source: \"self\" } 对象过滤器没有可绑定的对象，190.6 的「我征服」归属仍然缺失。" +
-    "启动能力一半（Spend 2 XP → [Buff] me）只用已合入的费用管线（xp 付费种类，728/730.2）与 effect.buff（427.1/702.2.a/702.3），" +
-    "golden 用真实费用计划与解释器执行。依赖：Hunt 展开的事件拼写与 EventPattern/计分载荷的来源单位绑定（823.1.c.1）。",
+    "缺 Hunt 触发注册与计分单位归属接线（CR 823.1.c.1/823.2）：Hunt.ts 展开为 conquer/hold，但 events/trigger-spec.ts 的 EventPattern 只接受 conquered/held/scored，registerProgramTriggers 无法完成订阅。turn/flow.ts 的计分波只有 player 与 details.battlefieldId，没有 source:self 过滤器所需的征服/坚守单位对象，无法确定谁应获得 Hunt XP。",
   abilities: [
     { kind: "keyword", keyword: "hunt" },
     {

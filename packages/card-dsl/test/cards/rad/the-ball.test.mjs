@@ -136,17 +136,19 @@ test("rad-146-167 The Ball: a mistargeted damage group makes the whole mode inst
 });
 
 test.todo(
-  "rad-146-167 The Ball: [Deploy] 展开（830.1.b）的消费者未合入——continuous.location 的 play-location/限制检查没有" +
-    " Finalize 位置校验调用方，清理流程没有非单位 Deploy 召回豁免，hold 也没有把该关键词展开注册成事件订阅"
+  "rad-146-167 The Ball: [Deploy] 展开（830.1.b）的消费者未合入——continuous.location 没有 layerFor 映射" +
+    "（卡牌 static 绑定抛 judge-required），也没有 Finalize 位置校验调用方；hold 触发的 { here: true } 过滤器" +
+    "会被 translateTriggerFilter/translateObjectFilter 拒绝（turn/flow.ts 的清理召回已有 Deploy 豁免）"
 );
 test.todo(
-  "rad-146-167 The Ball: “enemy units here” 的生产链路——target/target-plan.ts 不读取 sameLocationAs 锚点，" +
-    "需要目标系统把来源所在地点纳入候选过滤（355.10.d / 421.1）"
+  "rad-146-167 The Ball: “enemy units here” 的生产链路——translateObjectFilter 拒绝 sameLocationAs 锚点" +
+    "（绑定即失败），需要目标系统把来源所在地点纳入候选过滤（355.10.d / 421.1）"
 );
 test.todo(
-  "rad-146-167 The Ball: object-moved 触发端到端（421.1/449.1 移动成功时点 + 来源身份锚定 + Ganking 许可）" +
-    "依赖卡牌程序 → TriggerRegistration 的接线（RIFT-257）"
+  "rad-146-167 The Ball: object-moved 触发端到端（421.1/449.1 移动成功时点 + 来源身份锚定 + Ganking 许可）——" +
+    "触发注册已合入，但 choice.mode 会被 programs/play.ts 的 validateSurface 拒绝（需要 choice-plan 适配器）"
 );
 test.todo(
-  "rad-146-167 The Ball: card-played 触发端到端订阅（383.4.a / 407）依赖卡牌程序 → TriggerRegistration 的接线（RIFT-257）"
+  "rad-146-167 The Ball: card-played 触发端到端订阅（383.4.a / 407）——触发注册已合入，" +
+    "剩余缺口是 choice.mode 的 Finalize/Resolve 适配器"
 );

@@ -25,8 +25,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    effect.resources 会 negated）；要真正"加 1 点可支付任意领域的 Power"，需要内核在
  *    加资源时选择领域，或新增万能 Power 的表示——两者都不存在，属契约缺口
  *    （见最终回复的契约变更请求）。
- * 2. 430.2.a 的"立即结算、不传递 Priority 与 Focus"属链/优先权接线，未合入。
- * 依赖：契约缺口（万能 Power 表示）与链批次的 Add 立即结算接线。
+ * 2. 430.2.a 的"立即结算、不传递 Priority 与 Focus"属链/优先权接线；参考内核只记录
+ *    gain-power 动作，没有该立即 finalize 的路径。
+ * 依赖：契约缺口（万能 Power 表示）与链的 Add 立即结算接线。
  * 不近似实现：不把 [A] 近似成某一个具体领域（那会凭空限制可支付的费用），
  *   也不改写成 effect.channel / effect.draw。
  */
@@ -62,7 +63,8 @@ const program = {
     "[Add] :rb_rune_rainbow: 的 rainbow 符号（135.2.e.5 的 [A]，可支付任意领域的 Power）在封闭 Domain 类型里没有表示：" +
     "contract 3.6 与 effect.resources 的 DOMAINS 都只有六域（实测把 rainbow 传给 effect.resources 会被 negated），" +
     "要真正加 1 点「可支付任意领域」的 Power，需要内核在加资源时选择领域或新增万能 Power 表示，属契约缺口（见最终回复的契约变更请求）；" +
-    "另外 430.2 / 430.2.a 的「Add 能力立即 finalize 并结算、不传递 Priority 与 Focus」属链/优先权接线，尚未合入。" +
+    "另外 430.2 / 430.2.a 的「Add 能力立即 finalize 并结算、不传递 Priority 与 Focus」属链/优先权接线，" +
+    "参考内核只记录 gain-power 动作（timingPoint 是环境主阶段时点），没有该立即结算路径。" +
     "golden 用六域之一的 gain-power 在测试内核里验证了同一原语路径（effect.resources 成功给 Rune Pool 加 1 点 Power、并链接实际增加量），" +
     "但该等价行为不覆盖 [A] 的领域自由度。不近似实现：不把 [A] 写成某个具体领域（那会凭空限制可支付的费用）。",
   abilities,

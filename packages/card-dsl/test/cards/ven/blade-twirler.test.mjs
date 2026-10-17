@@ -38,6 +38,7 @@ test("ven-002-166 Blade Twirler: identity, ruleset, status, judgeReason and verb
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /target\.player/);
   assert.match(program.judgeReason, /RIFT-120/);
+  assert.ok(!/不填 toZone/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -124,7 +125,7 @@ test.todo(
     "ability-templates section 4, target.player)"
 );
 test.todo(
-  "ven-002-166 Blade Twirler: fire on the first successful move each turn — events/action-adapter.ts " +
-    "does not fill toZone/toKind for move-location and no subscriber turns a CardProgram triggered " +
-    "ability into a TriggerRegistration (RIFT-120)"
+  "ven-002-166 Blade Twirler: fire on the first successful move each turn — the CardProgram -> " +
+    "TriggerRegistration channel is merged (RIFT-120) and move-location events carry fromZone/toZone, " +
+    "but target.player and the chosen-player -> effect.mill.player consumer are still missing"
 );

@@ -1,11 +1,13 @@
 // Golden test for Staunch Survivor (rad-088-167).
 //
 // The printed ability is two keywords in one block. The merged KeywordDefs
-// (Assault / Shield) own their expansions into static continuous.might, and the
+// (Assault / Shield) own their expansions into static continuous.might, the
 // merged continuous.might instruction registers the +2 with the real layer
-// engine. What is still missing is the card-program -> keyword-expansion ->
-// layers registration (RIFT-257) plus a layers condition evaluator for the
-// attacker/defender designation condition, so the card stays judge-required.
+// engine, and the production binders (programs/keywords.ts -> lifecycle -> statics)
+// resolve card keyword abilities. What is still missing is the designation
+// predicate in the keyword expansions: it reads object-property "designation",
+// the merged ObjectSnapshot exposes only combatRole, and the binder's catch makes
+// the condition permanently false, so the card stays judge-required.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -42,7 +44,7 @@ test("rad-088-167 Staunch Survivor: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /Shield/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /combatRole/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /designation/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -176,14 +178,14 @@ test("rad-088-167 Staunch Survivor: the generated card registry exposes the prog
 
 test.todo(
   "Staunch Survivor: +2 Might exactly while the 2 Might unit holds the Attacker designation and +2 while it " +
-    "holds the Defender designation (CR 807.1.c / 814.1.c) - blocked because no merged producer resolves " +
-    "a card's keyword abilities into their KeywordDef expansions and registers them through " +
-    "layers/engine.ts (RIFT-257), and because layers/engine.ts conditionMatches does not evaluate the " +
-    "compare predicate on ObjectSnapshot.combatRole"
+    "holds the Defender designation (CR 807.1.c / 814.1.c) - the production binders are merged, but the " +
+    "keyword expansion predicates read object-property 'designation' while ObjectSnapshot exposes only " +
+    "combatRole; interpreter evaluation returns MissingInformation and bindStaticToLayers' catch makes " +
+    "the condition permanently false (keywords/Assault.ts + keywords/Shield.ts)"
 );
 
 test.todo(
   "Staunch Survivor: CR 807.2 / 814.2 (with CR 466.2.c.3) - a second Assault or Shield source sums per keyword, " +
     "and role exclusivity keeps the two +2s from stacking in one Combat; keywords already declare " +
-    "stacking \"sum\", execution depends on the same card-static-to-layers registration path"
+    "stacking \"sum\"; execution also depends on the designation predicate fix"
 );

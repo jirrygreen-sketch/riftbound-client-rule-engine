@@ -9,6 +9,11 @@ import { bindResolveContext } from "../../../../engine-core/dist/events/action-a
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
+import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
+import { buildAdditionalCostPlan } from "../../../../engine-core/dist/cost/kinds/additional.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+
 const CARD_ID = "card.hash-f83c5d61c7ea4a0d2c54ba2c2a17020893a7a3b5a90d16003fe815b2b61c5c12";
 const BATTLEFIELD = { type: "battlefield", id: "battlefield-1" };
 const BASE = { type: "base", player: "A" };
@@ -59,8 +64,8 @@ test("sfd-177-221 Azir, Sovereign: identity, ruleset, status, judgeReason and ve
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /attack-declared/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /Finaliz/);
+  assert.match(program.judgeReason, /optionalAdditional/);
   assert.equal(
     program.sourceText,
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_order: as an additional cost to have me enter ready.)\n" +
@@ -173,20 +178,47 @@ test("sfd-177-221 Azir, Sovereign: accepting moves the chosen token units to thi
 });
 
 test.todo(
-  "sfd-177-221 Azir, Sovereign: the attack-declared timing point must be emitted when the unit gains the " +
-    "Attacker designation and delivered as a pending chain item (383.4.e.2); combat/flow.ts still throws " +
-    "combat-start-transaction, so no module emits it, and the card-program trigger registration that would " +
-    "carry the ability into the chain is the unmerged RIFT-257 binding."
+  "Azir, Sovereign: emit attack-declared from the real Attacker designation transaction (383.4.e.2/466.2.c), not an injected event"
 );
 test.todo(
-  "sfd-177-221 Azir, Sovereign: choosing zero token units during Finalize must leave the ability as a legal, " +
-    "completed resolution (355.13) instead of the primitive-level mistargeting the moved-target selector " +
-    "produces for an empty locked group; the merged TargetPlan locks an empty up-to group, but no card " +
-    "program binding reaches Finalize with it (RIFT-257)."
+  "Azir, Sovereign: finalize nested up-to token targets, including a legal empty group, before resolving the optional body (355.13)"
 );
 test.todo(
-  "sfd-177-221 Azir, Sovereign: paying the optional Accelerate cost [1][Order] and the enter-ready " +
-    "replacement run through the Finalize cost plan and the replacement pipeline — the Accelerate KeywordDef " +
-    "and the replacement binder are merged (805.2.b / RIFT-260), but the card-side optional-additional " +
-    "collection and cost.pay are the unmerged RIFT-261."
+  "Azir, Sovereign: connect accelerate.cost collection and its paid decision to the entry replacement without a becomes-ready trigger (805.2.b/805.6.a)"
 );
+
+
+test("Azir, Sovereign: the source referent follows a real move before the trigger body resolves", () => {
+  const kernel = boundWorld(azirWorld());
+  const destination = { type: "battlefield", id: "battlefield-2" };
+  const moved = runInstruction(move, {
+    objects: { kind: "constant", value: "self" }, to: { kind: "constant", value: destination }
+  }, { world: kernel });
+  assert.equal(moved.result.status, "executed");
+  kernel.setTargets(TARGET_ID, [kernel.ref("token-a")]);
+  kernel.setAnswers({ [`${MAY_ID}/optional`]: true });
+  const outcome = resolveChainBody(body(), productionContext(kernel));
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.linkedValues[`${MAY_ID}/${READ_ID}.here`], destination);
+  assert.deepEqual(kernel.getObject("token-a").location, destination);
+  assert.deepEqual(kernel.getObject("token-b").location, BASE);
+});
+
+test("Azir, Sovereign: Accelerate's merged planner records paid and declined decisions with Order allocation", () => {
+  for (const selected of [false, true]) {
+    const base = world().player("A", { energy: 5, power: ["Order"] })
+      .hand("azir", { types: ["unit"], energy: 4, power: null }).build();
+    const kernel = base.clone({ sourceSnapshot: base.getObject("azir") });
+    const plan = buildAdditionalCostPlan(kernel, { id: "azir.play", cost: { kind: "printed" }, domains: ["Order"] }, [
+      { id: "azir.accelerate", kind: "accelerate", selected }
+    ]);
+    assert.equal(plan.printed.power, null);
+    assert.equal(plan.total.energy, selected ? 5 : 4);
+    const run = runInstruction(costPay, { cost: { kind: "constant", value: plan } }, { world: kernel });
+    assert.equal(run.result.status, "executed");
+    assert.deepEqual(run.linked.payment.additional, selected ? [{ id: "azir.accelerate", kind: "accelerate", paid: true }] : []);
+    assert.deepEqual(run.linked.payment.power.power, selected ? [{ requirementIndex: 0, from: "Order", amount: 1 }] : []);
+    assert.equal(kernel.player("A").energy, selected ? 0 : 1);
+    assert.equal(kernel.getObject("azir").zone, "hand");
+  }
+});

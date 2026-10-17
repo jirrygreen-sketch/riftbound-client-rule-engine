@@ -20,13 +20,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   并按 `ignore: "energy"` 生成计划）。
  * - 381 / 420.3.b：打出位置仍走正常流程（默认控制者的 Base）。
  *
- * status 判定（README 第 2 节）：judge-required。缺口：
- * 1. `cost.printed` 原语未合入（effects/instructions/ 无对应文件；费用种类与
- *    cost.pay / cost.modify 仍属尚在进行的 RIFT-261），无法从被选中的
- *    Trash 卡读印刷费用并生成“忽略 Energy、保留 Power”的 finalized cost plan；
- * 2. `effect.play` 已合入，但它只接受调用方给的 `FinalizedCostPlan`，本身不实现
- *    356.1.b.2 的忽略费用规则；把两者接起来的链接值形状（计划来自上一条指令）也没有
- *    消费方，卡牌程序与费用绑定依赖 RIFT-257。
+ * status 判定（README 第 2 节）：judge-required。`cost.printed` 仍不是已注册的
+ * instruction，`cost.modify` 只能从调用方提供的 printed catalog projection 建计划，
+ * 不能从本卡锁定的 Trash 对象动态读取其印刷费用；因此无法生成“忽略 Energy、保留
+ * Power”的 finalized cost plan。`effect.play` 仍只接受调用方给出的计划，并只链接成功
+ * 次数，没有把被打出的对象或动态计划作为后续可消费的结果。
  * golden 测试真实执行两半：可选包装的接受/拒绝（choice.optional + effect.play 的
  * 调用方计划），以及“stale 目标 / 被替代”两个边界。
  */
@@ -114,8 +112,9 @@ const program = {
   judgeReason:
     "缺 cost.printed 原语：effects/instructions/ 没有该文件，无法读取被选中 Trash 单位的印刷费用并按 " +
     "356.1.b.2 生成“忽略 Energy、保留 Power”的 finalized cost plan；effect.play 虽然已合入，" +
-    "但它只接受调用方给出的 FinalizedCostPlan，本身不实现忽略费用规则，两者之间的链接值接线也不存在。" +
-    "费用种类与 cost.pay / cost.modify 仍属尚在进行的 RIFT-261，卡牌程序与费用绑定依赖 RIFT-257。" +
+    "但它只接受调用方给出的 FinalizedCostPlan，本身不实现忽略费用规则，两者之间的动态接线也不存在。" +
+    "当前 cost.modify/cost.pay 只消费调用方已有的费用计划，不能从锁定卡牌的印刷目录投影生成该计划；" +
+    "effect.play 也只接受 finalized 计划并链接成功次数，缺少计划与被打出对象的结果接线。" +
     "可选的 choice.optional 包装与 effect.play 的执行路径已合入，golden 测试真实执行接受/拒绝与 stale / replaced 边界。",
   abilities,
   sourceText:

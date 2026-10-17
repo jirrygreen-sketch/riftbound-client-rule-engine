@@ -10,7 +10,7 @@ const program = {
   canonicalCardId: "card.hash-28133bb22a32a90c2f06d32acb4d895d0867ae822e8e802eb227f80405c2ea6f",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason: "缺 Tank 关键词展开与 continuous.combat（CR 815），Shield 展开仍引用 designation 而当前 ObjectSnapshot 仅有 combatRole（CR 814）。Other friendly units here 的 continuous.keyword 需要相对控制者、同地点和排除自身的图层绑定；依赖 RIFT-1/83/91 的关键词/图层接线，不在卡文件重写 Shield 或 Tank。",
+  judgeReason: "Tank 关键词定义已存在，但 combat 图层没有消费 Tank 的伤害优先分支（CR 815）；Shield 展开需要 defender 时的 Might 修正，而当前 ObjectSnapshot 使用 combatRole、不是 designation（CR 814）。Other friendly units here 的 continuous.keyword 还需要按宿主控制者、同地点并排除宿主的动态相对筛选；现有 static binder 会拒绝 exclude/other 过滤。",
   abilities: [
     {
       kind: "keyword",

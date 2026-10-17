@@ -19,7 +19,10 @@ import type { CardProgram } from "../../ir/index.js";
  * - “Give a unit at a battlefield -2 Might this turn” 是临时 Might 修正，归 layers 的
  *   continuous.might（effect.buff 边界注释明确临时 Might 不进入 Buff 计数器）。
  *
- * status = judge-required（复核 2026-10-16；三处缺口均不近似实现）：
+ * 复核（2026-10-17，第二轮 M2 覆盖率复核）：触发体 empower me（effect.empower）与
+ * 临时 -2 Might（continuous.might + 图层引擎 + turn-end 到期）都已有 golden 执行证据。
+ *
+ * status = judge-required（当前真实缺口，均不近似实现）：
  * 1. 触发的两项过滤无法表达：封闭时点 empowered-changed 存在且可触发，但
  *    events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 没有 empowerment 事件判别值
  *    （validateTriggerSpec 会拒绝 event: "empowered-changed"），事件载荷/EventPattern
@@ -39,7 +42,8 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) “When you empower something else” 的触发器过滤不可表达——封闭时点 " +
+    "两条缺口（复核 2026-10-17；empower 体与 -2 Might 图层 golden 均已真实执行，不再列缺口）：" +
+    "(1) “When you empower something else” 的触发器过滤不可表达——封闭时点 " +
     "empowered-changed（442.2.a）的载荷/EventPattern 没有增加方向（empower 与 disempower " +
     "共用该时点，443.1），也没有排除宿主自身的 “something else” 键（events/trigger-spec.ts " +
     "的 ObjectFilter 只允许 objectId/cardId/type/controller/owner/zone/location/states/tags/" +
@@ -48,9 +52,9 @@ export default {
     "action-adapter 填充；(2) “Disempower me” 作为费用" +
     "需要 disempower 付费种类（443.2.a），cost/plan-values.ts 的非标准费用仍只支持 " +
     "exhaust/discard/recycle/kill/reveal/spend-buff（仍在进行的 RIFT-261 尚未合入 disempower）；" +
-    "(3) “-2 :rb_might: this turn” 所需的 continuous.might 指令原语已由 RIFT-258 合入，golden 用真实" +
-    "解释器 + 图层引擎执行（end-of-turn 到期的 arithmetic 注册、实际 -2）；整卡仍被触发过滤与 " +
-    "disempower 费用阻断，保持 judge-required。依赖事件载荷/过滤器扩展（契约变更请求）、" +
+    "整卡仍被触发过滤与 disempower 费用阻断，保持 judge-required。“-2 :rb_might: this turn” 的 " +
+    "continuous.might 原语已合入，golden 用真实解释器 + 图层引擎执行（end-of-turn 到期的 " +
+    "arithmetic 注册、实际 -2）。依赖事件载荷/过滤器扩展（契约变更请求）、" +
     "RIFT-261（disempower 付费种类）。不近似实现。",
   abilities: [
     {

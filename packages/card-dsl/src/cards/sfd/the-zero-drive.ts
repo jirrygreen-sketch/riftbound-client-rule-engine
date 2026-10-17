@@ -23,21 +23,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   "[Deathknell][>] Banish me." ability is linked with the activated ability.
  *
  * status: judge-required. Nothing below is approximated:
- * 1. the Equip activation cannot execute: the CardProgram -> keyword-expansion
- *    -> chain wiring is merged (RIFT-257; the golden drives describeActivate),
- *    but the printed cost cannot reach KeywordDef.expand (contract 3.8.3
- *    params.cost is not implemented) and the merged expansion's payments
- *    [{ kind: "equip" }] is still blocked by cost/plan-values.ts readCost
- *    ("Unsupported payment kind: equip", RIFT-261).
- * 2. the activated cost's "Banish this" is a banish-as-cost payment; readCost's
- *    nonstandard kinds are exhaust/discard/recycle/kill/reveal/spend-buff, so
- *    "banish" is blocked.
- * 3. "Play all units banished with this" has no merged Linked Ability tracker
- *    (CR 394-398), and the ignored-cost play needs the per-card finalized
- *    zero-cost plan that effect.play documents as caller-owned (RIFT-89).
- * 4. "Use only if unattached" is a Restriction with no consumer mapping a
- *    CardProgram restriction onto chain legality.
- *
+ * 1. Equip cannot execute because the printed Equip cost cannot be passed through
+ *    the current keyword expansion call and the resulting `equip` payment is
+ *    rejected by cost/plan-values.ts.
+ * 2. The activated cost's "Banish this" is a banish-as-cost payment; the cost
+ *    reader has no banish payment branch.
+ * 3. "Play all units banished with this" needs a Linked Ability tracker that
+ *    produces the pick set, plus a production path that supplies the finalized
+ *    zero-cost plan for each play. The effect.play primitive itself is merged.
+ * 4. "Use only if unattached" still needs a consumer mapping the declared
+ *    Restriction onto chain legality.
+
  * Data note (reported, not edited): the local deck-catalog sourceText contains
  * only the Equip and activated-ability lines; CR v1.5 396/398 additionally quotes
  * "[Deathknell][>] Banish me." for this card. Per the task rules the catalog text
@@ -57,18 +53,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) [Equip] cannot execute: the card-program -> keyword-expansion -> chain wiring is merged (RIFT-257; the golden drives " +
-    "describeActivate and inspect real expansions), but the printed Equip cost (1 Energy + 1 Mind Power, CR 818.1.c) cannot reach " +
-    "KeywordDef.expand because the merged signature only carries value/host (contract 3.8.3 params.cost is not implemented), " +
-    "and the merged effects/keywords/Equip.ts cost.payments [{ kind: \"equip\" }] is rejected by cost/plan-values.ts readCost " +
-    "(\"Unsupported payment kind: equip\", RIFT-261). " +
-    "(2) The activated cost \"[3][Mind], Banish this\" needs a banish-as-cost payment; readCost's nonstandard kinds are " +
-    "exhaust/discard/recycle/kill/reveal/spend-buff, so \"banish\" is blocked (RIFT-261). " +
-    "(3) \"Play all units banished with this, ignoring their costs\" is a Linked Ability scope (CR 394-398) with no merged tracker, " +
-    "and the ignored-cost play must be given a finalized zero-cost plan per card (CR 356.1.b.1; plan generation is RIFT-261). " +
-    "(4) \"Use only if unattached\" has no consumer that turns a CardProgram Restriction into chain legality. " +
-    "Data note: the local catalog sourceText lacks the \"[Deathknell][>] Banish me.\" line that CR v1.5 396/398 attributes to this card; " +
-    "the text is not edited and no line is invented. The merged effect.attach and effect.play sub-effects are exercised by the golden test.",
+    "当前有四处真实缺口：(1) Equip 的印刷费用尚不能通过关键词展开调用传入，且展开后的 payments: [{ kind: \"equip\" }] " +
+    "会被 cost/plan-values.ts 拒绝；(2) 启动费用中的 Banish this 没有 banish-as-cost 支付分支；" +
+    "(3) CR 394–398 的“all units banished with this”需要 Linked Ability tracker 产生 pick 集合，并由生产打出流程" +
+    "为每张牌提供 finalized zero-cost plan，effect.play 本体已经合入；(4) Use only if unattached 的 Restriction 仍没有链合法性消费方。" +
+    "Data note: local catalog sourceText lacks the Deathknell line quoted by CR 396/398; sourceText is kept verbatim and not invented.",
   abilities: [
     equip,
     {
@@ -96,7 +85,7 @@ export default {
             pick: { kind: "constant", value: "the-zero-drive.banished-units" },
             // CR 356.1.b.1: ignoring costs sets the base Energy/Power costs to
             // zero. effect.play accepts only an already-finalized plan, so the
-            // zero plan is submitted by the caller; generating it is RIFT-89.
+            // zero plan is submitted by the caller; generating it is owned by the play Finalize cost path.
             cost: { kind: "constant", value: { finalized: true, energy: 0, power: [] } },
             linkKey: { kind: "constant", value: "played" }
           },

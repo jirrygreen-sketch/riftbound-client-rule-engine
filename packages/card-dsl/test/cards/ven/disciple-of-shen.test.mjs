@@ -65,11 +65,14 @@ test("ven-117-166 Disciple of Shen: identity, ruleset, status, judgeReason and v
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // [Hidden] 无消费方、授予侧无卡牌注册入口。
+  // [Hidden] 无结算消费方；授予侧注册入口已合入，但条件选择符不解析。
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /Facedown Zone/);
+  assert.match(program.judgeReason, /Hide 动作与打出流程接线/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-359/);
 });
 
 test("ven-117-166 Disciple of Shen: [Hidden] is declared as a bare keyword (contract 3.7)", () => {
@@ -135,7 +138,7 @@ test("ven-117-166 golden: an enemy unit here is not 'a unit you control'", () =>
 });
 
 test("ven-117-166 golden: the declared Grant-Keyword adds Shield 3 to the layered keyword list", () => {
-  // RIFT-91 的 layers 引擎对 ability 层识别 grant 类 kind 并追加工关键词；这里用该卡
+  // layers 引擎对 ability 层识别 grant 类 kind 并追加关键词；这里用该卡
   // 声明的 keyword/value 形状做真实求值，证明“授予 Shield 3”的 declared 形状在图层里
   // 有实际产出。它不证明 828/814 的门控与卡牌注册路径已接通（见 judgeReason）。
   const kernel = world()
@@ -173,12 +176,12 @@ test("ven-117-166 golden: the declared Grant-Keyword adds Shield 3 to the layere
 
 test.todo(
   "ven-117-166 Disciple of Shen: [Hidden]'s Hide action, the facedown zone, the later [Reaction] and the " +
-    "0-Energy play (CR 811.1.d / 811.5 / 811.6) have no runtime — the KeywordDef is merged but records that " +
-    "cost.hidden / cost.pay / effect.zone / continuous.timing are unmerged (RIFT-89)"
+    "0-Energy play (CR 811.1.d / 811.5 / 811.6) need facedown-zone/Hide integration and later-play permissions; " +
+    "cost.hidden has no layerFor mapping, while cost.pay, effect.zone and buildHiddenCostPlan already exist"
 );
 
 test.todo(
   "ven-117-166 Disciple of Shen: the conditional Shield 3 grant reaches the layers with an honest " +
-    "'exactly one other unit you control here' predicate — card-side continuous registration is not wired and " +
-    "layers/engine.ts conditionMatches returns true for every compare/count condition (RIFT-91 follow-up)"
+    "'exactly one other unit you control here' predicate — bindStaticToLayers exists but the " +
+    "controller：“controller” selector is not parsed by layers/filter.ts (RIFT-359)"
 );

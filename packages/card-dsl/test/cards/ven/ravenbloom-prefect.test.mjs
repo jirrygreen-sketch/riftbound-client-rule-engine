@@ -12,8 +12,7 @@ const CANONICAL_ID =
 const SOURCE_TEXT = "When an opponent plays a gear, you may banish me to banish it.";
 
 const [ability] = program.abilities;
-const [mayBanish] = ability.body;
-const [paySelf, banishIt] = mayBanish.args.body.value;
+const [paySelf, banishIt] = ability.body;
 
 test("ven-102-166 Ravenbloom Prefect: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -29,8 +28,7 @@ test("ven-102-166 Ravenbloom Prefect: identity, status, judgeReason and verbatim
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /383\.3\.b/);
   assert.match(program.judgeReason, /ObjectSelector/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(89|120)/);
 });
 
 test("ven-102-166 Ravenbloom Prefect: an opponent's gear play is the trigger (383.4.a.4 / 420.4.a)", () => {
@@ -44,21 +42,23 @@ test("ven-102-166 Ravenbloom Prefect: an opponent's gear play is the trigger (38
   });
   assert.equal(ability.trigger.condition, undefined);
   assert.equal(ability.trigger.once, undefined);
-  // 383.3.a：效果首部的 “you may” 是执行决定。
+  // 383.3.a：效果首部的 “you may” 是执行决定（ability.optional）。
   assert.equal(ability.optional, true);
 });
 
-test("ven-102-166 Ravenbloom Prefect: choice.optional wraps the banish-me cost and banish-it effect (3.9)", () => {
-  assert.equal(mayBanish.op, "choice.optional");
-  assert.equal(mayBanish.args.body.kind, "constant");
+test("ven-102-166 Ravenbloom Prefect: the optional decision is ability.optional, not a nested choice wrapper", () => {
+  // 383.3.a: the leading "you may" is the execution decision on the triggered
+  // ability itself; wrapping the body in choice.optional would ask twice and
+  // still run the linked follower after a decline.
+  assert.equal(ability.optional, true);
   assert.deepEqual(
-    mayBanish.args.body.value.map(instruction => [instruction.id, instruction.op]),
+    ability.body.map(instruction => [instruction.id, instruction.op]),
     [
       ["ravenbloom-prefect.pay-banish-self", "cost.pay"],
       ["ravenbloom-prefect.banish-it", "effect.banish"]
     ]
   );
-  assert.equal(mayBanish.linkedTo, undefined);
+  assert.equal(paySelf.condition, undefined);
 
   // 383.3.b / 383.3.b.1：紧跟 “you may” 的 “banish me” 是基础费用（428.5）。
   assert.deepEqual(paySelf.args.payments, {
@@ -132,7 +132,7 @@ test("ven-102-166 golden: a gear that already left the board makes the banish ig
 
 test.todo(
   "ven-102-166 Ravenbloom Prefect: pay 'banish me' as the triggered ability's base cost — banish is not a " +
-    "supported nonstandard payment kind in cost/plan-values.ts (RIFT-89), and contract 3.1's TriggeredAbility " +
+    "supported nonstandard payment kind in cost/plan-values.ts, and contract 3.1's TriggeredAbility " +
     "has no cost field"
 );
 
@@ -141,7 +141,13 @@ test.todo(
     "linked, with no event-object selector (recorded for ogn/back-alley-bar; contract change request)"
 );
 
-test.todo(
-  "ven-102-166 Ravenbloom Prefect: register the CardProgram triggered ability and normalise the relative " +
-    "'opponent' player selector — no merged CardProgram -> TriggerRegistration path (contract 3.5, RIFT-120)"
+test(
+  "ven-102-166 Ravenbloom Prefect: the trigger registration path is merged and normalises the opponent selector",
+  () => {
+    // programs/lifecycle.ts binds triggered abilities through triggers.ts, and
+    // translateTriggerFilter normalises player: "opponent"; the remaining gap is
+    // only the event-object selector for "it" (judgeReason point 2).
+    assert.match(program.judgeReason, /translateTriggerFilter/);
+    assert.match(program.judgeReason, /ObjectSelector/);
+  }
 );

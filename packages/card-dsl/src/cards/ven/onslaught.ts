@@ -26,11 +26,8 @@ const onslaught = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Flow]（829.1）的消费链仍不完整：Flow.ts 已声明 alternate-cost、从 Trash 打出的许可和离链时的 " +
-    "banish replacement，但当前费用管线没有选择/记录 Flow 实例，链也没有消费该离链 replacement；印刷的 " +
-    "4 Energy Flow 费用还没有从卡牌 KeywordAbility 通过 params.cost 传给 KeywordDef.expand。" +
-    "continuous.might 已注册到 ResolveContext.addContinuous，+6 Might 的 arithmetic 图层效果（143.2.a、" +
-    "317.2.c、478.1.a）可真实执行；effect.buff 不作替代。不近似实现。",
+    "[Flow]（829.1）的消费链仍有具体缺口：programs/keywords.ts 未把印刷的 4 Energy Flow 费用通过 params.cost 传给展开，programs/statics.ts 也不能映射 Flow.ts 产生的 flow.cost，缺少从 Trash 打出、选择并记录独立 Flow 费用实例的绑定。" +
+    "Flow 的离链 replacement 还使用描述性的 flow-cost-selected 与 leavingInstruction:false，未接到已支付实例及链退出原因，不能正确执行 829.1.b / 829.1.b.1。通用费用计划、replacement 注册与 continuous.might 已合入；+6 Might 的 arithmetic 效果及回合结束到期（143.2.a / 317.2.c）有真实执行证据，不用 effect.buff 代替，不近似实现。",
   abilities: [
     // 829.1.c：印刷 "[Flow] :rb_energy_4:"；费用本身归 Flow.ts 的展开（见 judgeReason）。
     { kind: "keyword", keyword: "flow" },

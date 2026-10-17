@@ -19,37 +19,16 @@ import type { CardProgram } from "../../ir/index.js";
  * - 430.1/430.5: [Add] puts Energy/Power into the Rune Pool; [A] is Universal Power
  *   (135.2.e.5/163.2.b).
  *
- * status: judge-required (re-reviewed 2026-10-17):
- * 1. "Pay any amount of Energy" is a resolve-time Cost within an Instruction (CR
- *    204.3/204.3.a, whose printed example is this card). No merged primitive performs a
- *    resolve-time player-chosen payment or publishes the paid amount: cost.pay is a
- *    Finalize-time plan only and cost.pay-any is not a registered opcode. The
- *    cost.pay/cost.modify batch is RIFT-261 and is not merged on this branch, and no
- *    card-program binding turns the declared ability into an 'add' chain item (RIFT-257).
- *    Writing a fixed amount or splitting the payment from the Add would be an approximation.
- * 2. [A] Universal Power is not representable: the closed Domain union is the six named
- *    domains and effect.resources documents that 163.2.b must never be approximated by a
- *    chosen domain. The program records the descriptive power ["rainbow"], and the merged
- *    primitive answers negated(impossible) — the golden locks that negative evidence.
- * 3. The 'add' chain kind itself is merged (chain/engine.ts finalizes and resolves it in
- *    advance/activateAddDuringPayment, and ogn/seal-of-focus drives it), but no module
- *    turns this card program's activated ability into an 'add' chain item, so 430.2/
- *    430.2.a's immediate resolution is not reachable for this card (RIFT-257).
+ * 当前复核：保持 judge-required；具体未接通路径见 judgeReason。
  */
 export default {
   canonicalCardId: "card.hash-d07e48aa4c135d7523968d576a0ed10afd4b5574804fc3baa31b2d60b20f46a3",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) \"Pay any amount of Energy to [Add] that much [A]\" is a Cost within an Instruction (CR 204.3/204.3.a, whose printed example is this card): " +
-    "the amount is chosen as the ability resolves and the Add amount is the amount actually paid, but no merged primitive performs a resolve-time player-chosen " +
-    "payment or publishes the paid amount (cost.pay only consumes a Finalize-time plan; cost.pay-any is not a registered opcode). The cost.pay/cost.modify batch " +
-    "is RIFT-261 and is not merged on this branch. (2) [A] Universal Power is not representable — the closed Domain union is the six named domains and " +
-    "effect.resources documents that CR 163.2.b must never be approximated by a chosen domain; the descriptive power [\"rainbow\"] is recorded and the merged " +
-    "primitive answers negated(impossible) as negative evidence. (3) The 'add' chain kind itself is merged (chain/engine.ts resolves it immediately in advance / " +
-    "activateAddDuringPayment, 430.2/430.3; ogn/seal-of-focus exercises it), but no card-program binding turns this program's activated ability into an 'add' " +
-    "chain item, so that immediate resolution is not reachable for this card (RIFT-257). The printed :rb_exhaust: cost itself is payable under the merged cost " +
-    "pipeline and is exercised by the golden test; that partial evidence does not make the resource-adding body executable.",
+    "CR 204.3/204.3.a 的 “Pay any amount of Energy” 在 Resolve 时选择并支付，缺可选金额/支付成功作用域及实付量链接；cost.pay 可收取已锁定计划，但 cost.pay-any 仍无实现。" +
+    "[A] Universal Power（135.2.e.5/163.2.b）缺独立资源表示，effect.resources 不能将 rainbow 当作某个有色域。" +
+    "programs/activate.ts 将所有启动能力标为 activated，尚未把本能力识别为 add 链项，无法落实 430.2/430.2.a 的立即结算及不可响应。",
   abilities: [
     {
       kind: "activated",

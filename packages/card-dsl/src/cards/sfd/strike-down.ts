@@ -6,7 +6,7 @@
  *   enemy unit. Then detach an Equipment from it.
  *
  * Status: judge-required — the printed rule text is now expressible, but the
- * print is still gated by unmerged paths:
+ * print is still gated by unresolved pick and predicate paths:
  * - the damage SOURCE and the amount both read the picked unit
  *   (CR 418.6.b.3): contract 3.6/3.2's object-attribute selector accepts
  *   `{ pick: "picked-unit" }` (effects/interpreter/selectors.ts
@@ -18,14 +18,10 @@
  * - modelling the pick as a TargetSpec would wrongly trigger became-target
  *   effects (v1.5 355.10: "choose" is not a target), so the chosen unit stays a
  *   picks entry;
- * - the whole ability still needs the merged CardProgram binding surface to
- *   accept a play body whose instructions carry pick selectors: the chain
- *   Finalize only locks instruction targets (chain/engine.ts
- *   assertFinalizationSurface), so a production play has no path that fills
- *   the pick's ObjectRefs (contract 3.6 pick lifecycle / RIFT-90), and the
- *   printed "equipped friendly unit" restriction needs an equipped predicate
- *   that the merged ObjectFilter (layers/filter.ts matchesObjectFilter) does
- *   not have.
+ * - the chain Finalize still locks only instruction targets. A production play
+ *   has no path that fills the pick's ObjectRefs (ordered/non-target pick
+ *   lifecycle), and the printed "equipped friendly unit" restriction needs an
+ *   equipped predicate that the merged ObjectFilter does not have.
  *
  * Speed: this printing's ability line has no [Action]/[Reaction] keyword, so
  * the program declares no speed keyword; default spell timing (v1.5 159.2)
@@ -36,17 +32,13 @@ const strikeDown = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Choose an equipped friendly unit. It deals damage equal to its Might to an enemy unit.」已改用已合入的表达式与原语：" +
-    "effect.damage 的 amount/source 都接受 object-attribute 表达式，object 选择器 { pick: \"picked-unit\" } 由 " +
-    "effects/interpreter/selectors.ts 的 resolveObjectSelector 解析（amount 读 might、source 读 ref），" +
-    "golden 用参考内核真实执行了这条伤害指令（3 Might 造成 3 点伤害）。仍不能标 executable 的当前缺口：" +
-    "(1) 生产链 Finalize 只为 instruction.targets 生成 TargetPlan（chain/engine.ts 的 assertFinalizationSurface 明确" +
-    "「Nested/repeated targets require an interpreter target-selection lifecycle adapter」），没有为 picks 填充 ObjectRef 的" +
-    "生命周期，卡牌绑定后「Choose an equipped friendly unit」这一非目标选择在生产打出时没有候选（RIFT-90 的 pick 生命周期）；" +
-    "(2) 印刷限制「equipped friendly unit」需要 ObjectFilter 的已装备谓词，而合并词表（layers/filter.ts 的 matchesObjectFilter）" +
-    "没有 equipped，只支持对象自身的 states: [\"attached\"]；" +
-    "(3) 打出该法术的卡牌程序绑定（RIFT-257）已可用于 describePlay，但在 pick 生命周期落地前整卡仍不可执行。" +
-    "把 Choose 误建成 TargetSpec 会错误触发成为目标效果（v1.5 355.10），故不近似实现；detach 半段用已合入的 effect.detach 表达。",
+    "「Choose an equipped friendly unit. It deals damage equal to its Might to an enemy unit.」已用 " +
+    "object-attribute 表达式表达，effect.damage 的 amount/source 都读取 pick 结果，golden 通过参考内核真实执行；" +
+    "effect.detach 也已合入并按 linkedTo 处理。仍不能标 executable 的当前缺口：(1) Chain Finalize 只为 " +
+    "instruction.targets 生成 TargetPlan，没有为 picks 填充 ObjectRef 的生产生命周期（有序/非目标 pick）；" +
+    "(2)「equipped friendly unit」需要 ObjectFilter 的 equipped 谓词，当前过滤器没有该字段；" +
+    "(3) detach 的 Equipment 选择同样依赖该 pick 生命周期。把 Choose 误建成 TargetSpec 会错误触发成为目标效果（v1.5 355.10），" +
+    "故不近似实现。",
   sourceText:
     "Choose an equipped friendly unit. It deals damage equal to its Might to an enemy unit. Then detach an Equipment from it.",
   abilities: [

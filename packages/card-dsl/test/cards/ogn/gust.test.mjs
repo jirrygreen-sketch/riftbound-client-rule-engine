@@ -30,7 +30,7 @@ test("ogn-169-298 Gust: program passes validateCardProgram", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Might/);
   assert.match(program.judgeReason, /mightLte/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.equal(
     program.sourceText,
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
@@ -95,6 +95,6 @@ test("ogn-169-298 Gust golden: a stale reference is ignored (359.3.e.6-e.8)", ()
 test.todo(
   "ogn-169-298 Gust: a unit still on the board but no longer at a battlefield must be Mistargeted " +
     "by the 359.3.e.9 Location re-check at resolution, and the 'Might 3 or less' cap must gate " +
-    "Finalize targeting — both need the TargetPlan resolve re-check (RIFT-90) plus a Might " +
-    "predicate (RIFT-90)"
+    "Finalize targeting — ordinary target locking/revalidation is merged, but the Might comparison " +
+    "still needs the condition-predicate path (RIFT-359)"
 );

@@ -7,6 +7,7 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { abilitySpeed, expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -33,7 +34,9 @@ test("unl-061-219 Downstage Dramatics: identity, ruleset, status, judgeReason an
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Repeat/);
   assert.match(program.judgeReason, /820\.1\.d\.1/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /programs\/play\.ts/);
+  assert.match(program.judgeReason, /paid-instance count/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-85|RIFT-89|RIFT-91|RIFT-120|RIFT-257/);
   assert.equal(cardProgramsById.get(program.canonicalCardId), program);
 });
 
@@ -50,6 +53,38 @@ test("unl-061-219 Downstage Dramatics: [Reaction] plus the [Repeat] additional c
     keyword: "repeat",
     energy: { kind: "constant", value: 2 }
   });
+});
+
+test("unl-061-219 Downstage Dramatics: the merged Reaction keyword expands and derives reaction speed", () => {
+  const source = {
+    ref: { id: "downstage", zoneEntryId: 1 },
+    cardId: CANONICAL_ID,
+    name: "Downstage Dramatics",
+    types: ["spell"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "hand",
+    location: null,
+    might: null,
+    energy: 2,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const expanded = expandProgram(program, source);
+  const timingGrant = expanded.expanded.find(
+    (ability) => ability.kind === "static" && ability.effect.kind === "continuous.timing"
+  );
+  assert.ok(timingGrant);
+  assert.deepEqual(timingGrant.effect.grants, ["showdown", "closed-state"]);
+  assert.equal(abilitySpeed(expanded.abilities, source), "reaction");
 });
 
 test("unl-061-219 Downstage Dramatics: the body is exactly one unconditional Draw 1", () => {
@@ -102,12 +137,6 @@ test("unl-061-219 Downstage Dramatics golden: an empty Main Deck draws as many a
 });
 
 test.todo(
-  "unl-061-219 Downstage Dramatics: paying the [Repeat] 2-energy additional cost and executing Draw 1 " +
-    "one extra time (CR 820.1.c.1 / 820.1.d.1 / 820.3) needs the cost-plan consumer (RIFT-89) and the " +
-    "resolution-side paid-count reader (RIFT-91); the body must not be hard-coded to a second draw"
-);
-
-test.todo(
-  "unl-061-219 Downstage Dramatics: [Reaction] (CR 813) needs the continuous.timing consumer and chain " +
-    "canAct wiring (RIFT-85 / RIFT-91) — declared only, like the merged ogn/consult-the-past"
+  "unl-061-219 Downstage Dramatics: translate the Repeat CostSpec through programs/play.ts into " +
+    "cost-plan optionalAdditional and pass the paid-instance count to resolution (CR 820.1.c.1 / 820.1.d.1 / 820.3)"
 );

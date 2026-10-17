@@ -4,7 +4,7 @@ import type { CardProgram } from "../../ir/index.js";
  * Meticulous Restorationist — CR v1.5 383.3.a, 206.1, 420.3/420.4.
  * Leading "you may" is represented once, by triggered.optional. The supported
  * body plays the source with an Order Power override. Full card execution still
- * requires the event object's base Energy threshold (RIFT-359) and a trigger
+ * requires the event object's base Energy threshold and a trigger
  * active while this card is in Trash. programs/triggers.ts currently binds
  * permanent card-played triggers only on the Board.
  */
@@ -13,8 +13,8 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺 CR 206.1 的触发事件对象费用条件（RIFT-359）：需要在 card-played 时读取被打出牌的基础 Energy 并判断 >=7，当前 Condition/Expr " +
-    "没有该事件对象绑定。另缺从 Trash 生效的触发范围：programs/triggers.ts 给永久物的 card-played 触发固定 activeZones: [board]，" +
+    "缺 CR 206.1 的触发事件对象费用条件：需要在 card-played 时读取被打出牌的基础 Energy 并判断 >=7，当前 Condition/Expr " +
+    "没有该事件对象绑定，且 PipelineHost.testTrigger 没有默认的事件条件适配。另缺从 Trash 生效的触发范围：programs/triggers.ts 给永久物的 card-played 触发固定 activeZones: [board]，" +
     "TriggeredAbility 没有声明 trash 活动区域的字段；programs/lifecycle.ts 也未在进入 trash 时安装该订阅。必须保留「from your " +
     "trash」与 383.3.a 的一次可选决定。",
   abilities: [

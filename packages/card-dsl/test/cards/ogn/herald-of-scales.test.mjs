@@ -46,9 +46,9 @@ test("structure: static Energy discount on the controller's Dragons with a minim
 test.todo(
   "Herald of Scales: feed the static continuous.cost-modification into the cost plan's discount " +
     "step (CR 356.4/356.4.b/356.4.c/356.4.e) so Dragon Energy costs drop by 2 down to a minimum of 1 " +
-    "— cost.cost-plan.ts only accepts CostDiscount inputs; card-program cost.modify and static ability binding remain pending (RIFT-257 / RIFT-261)"
+    "— cost.cost-plan.ts only accepts explicit CostDiscount inputs and has no bridge from this static ability"
 );
 test.todo(
   "Herald of Scales: the passive ability must apply while the card sits on the board (CR 366.2/366.2.a) " +
-    "and not stack per Dragon; the static ability registration side remains pending (RIFT-257)"
+    "and not stack per Dragon; the static ability registration and cost-plan bridge remain pending"
 );

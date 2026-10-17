@@ -24,14 +24,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   所以这里用结构化占位而不是伪造一个近似过滤器）。
  *
  * status = judge-required（两处缺口，均不近似实现）：
- * 1. 没有已合入路径把 CardProgram 的 static 费用改写送进 Finalize 费用计划：
- *    cost/cost-plan.ts 的折扣只读调用方传入的 CostDiscount，effects/instructions/ 也
- *    没有 cost.modify / cost.printed 原语（RIFT-9 清单要求，属 RIFT-89 费用计划批次）。
+ * 1. cost.modify / cost.pay 原语（effects/instructions/）与 buildCostPlan 的折扣
+ *    计划均已合入，但没有已合入路径把 CardProgram 的 static 费用改写送进 Finalize
+ *    费用计划：buildCostPlan 只读调用方传入的 CostDiscount；bindStaticToLayers 把
+ *    continuous.cost-modification 存入图层时直接 judge-required（layerFor 无该 kind 的
+ *    映射），layers/rules/query.ts 也没有把它变成 CostDiscount 的查询。
  * 2. 条件不可诚实求值：需要「我控制的某个战场上有恰好 2 个单位」这一计数谓词，其中
  *    计数锚点是**该战场对象的位置**；冻结的 ObjectFilter 锚点（sameLocationAs 等）只能
  *    从已选对象取位置，没有「按被遍历战场对象自己的位置筛衍生物」的形式，count 也没
- *    有它自己的过滤结果绑定，因此按现状写出的任何过滤器都会作用到错误的集合（RIFT-91
- *    的图层条件谓词 + 契约增补）。
+ *    有它自己的过滤结果绑定，因此按现状写出的任何过滤器都会作用到错误的集合
+ *    （RIFT-359 的图层条件谓词 + 契约增补）。
  */
 const abilities: Ability[] = [
   {
@@ -68,15 +70,18 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) 没有已合入路径把 CardProgram 的 static 费用改写安装到这次打出的费用计划上：" +
-    "cost/cost-plan.ts 的折扣只读调用方传入的 CostDiscount，effects/instructions/ 也没有 cost.modify / " +
-    "cost.printed 原语（RIFT-9 清单要求，属 RIFT-89 费用计划批次）；356.4.f 的“折扣可减附加费”与本卡的" +
+    "两处缺口，均不近似实现：(1) cost.modify / cost.pay 原语与 buildCostPlan 的折扣计划均已合入，" +
+    "但没有已合入路径把 CardProgram 的 static 费用改写安装到这次打出的费用计划上：" +
+    "cost/cost-plan.ts 的折扣只读调用方传入的 CostDiscount；bindStaticToLayers 把 " +
+    "continuous.cost-modification 存入图层时直接 judge-required（实测错误信息：Static ability kind " +
+    "continuous.cost-modification has no layer mapping），" +
+    "layers/rules/query.ts 也没有把它变成 CostDiscount 的查询；356.4.f 的“折扣可减附加费”与本卡的" +
     "2 Energy + 1 Order Power 分量按 356.4.b/356.4.c 分别声明。(2) 「if you control a battlefield with exactly two " +
     "units there」不可诚实求值：需要「该战场对象自身位置上有恰好 2 个单位」这一计数谓词，而冻结的 ObjectFilter" +
     "锚点只能从已选对象取位置（sameLocationAs/exclude 等），没有“按被遍历战场对象自己的位置筛选其上的单位”" +
-    "的形式，counter 也没有自身过滤结果绑定；静态 IR 里只写得出战场侧的正向过滤（type battlefield + controller），" +
-    "单位计数与“there”锚点留在 subject 说明里，不作为已可执行的近似（契约增补请求见回复）。依赖：RIFT-89" +
-    "（cost.modify 与费用计划接线）、RIFT-91 后续（图层/条件谓词）、契约的地点锚点增补。",
+    "的形式，count 也没有自身过滤结果绑定；静态 IR 里只写得出战场侧的正向过滤（type battlefield + controller），" +
+    "单位计数与“there”锚点留在 subject 说明里，不作为已可执行的近似（契约增补请求见回复）。依赖：" +
+    "RIFT-359（图层条件谓词）与契约的地点锚点增补。",
   abilities,
   sourceText:
     "I cost :rb_energy_2::rb_rune_order: less if you control a battlefield with exactly two units there."

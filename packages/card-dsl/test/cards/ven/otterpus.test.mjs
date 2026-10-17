@@ -6,6 +6,8 @@ import program from "../../../dist/cards/ven/otterpus.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 
 const [replacement] = program.abilities;
@@ -85,22 +87,25 @@ test("otterpus golden: the merged replacement binder turns the card's pattern in
     .unit("otterpus", { zone: "board", cardId: program.canonicalCardId })
     .deck(["top", "next"])
     .build();
-  const registrations = [];
-  const host = {
-    object: ref => kernel.object(ref),
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
     objects: () => kernel.objects,
-    context: () => kernel
-  };
-  bindReplacement(replacement, kernel.ref("otterpus"), {
-    host,
-    pipeline: {
-      clock: { turn: 1 },
-      registerReplacement: registration => registrations.push(registration)
-    }
+    perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const pipeline = new EventPipeline(host, ["A", "B"], "A");
+  const { registration } = bindReplacement(replacement, kernel.ref("otterpus"), {
+    host: {
+      object: ref => kernel.object(ref),
+      objects: () => kernel.objects,
+      context: (source, controller) => host.context(source, controller, "score")
+    },
+    pipeline
   });
 
-  assert.equal(registrations.length, 1);
-  const [registration] = registrations;
+  assert.throws(() => pipeline.registerReplacement(registration), /Duplicate replacement/);
   const score = { type: "score", player: "A", amount: 1 };
   assert.equal(registration.matches(score, score), true);
   // 替代结果是一条真实的 draw 动作，而不是伪造的额外得分。
@@ -118,4 +123,9 @@ test.todo(
 test.todo(
   "otterpus: evaluate 'during their first or second turn' per scoring player (485.7/487.7/490.7/" +
     "491.7 First Turn Process) once a per-player turn predicate exists in Condition/HistoryQuery"
+);
+
+test.todo(
+  "otterpus: commit a structural score-to-draw replacement through TurnFlow's real conquer/hold scoring " +
+    "transaction, preserving control and the score ledger (470.1 / 471); replaced-scoring remains blocked"
 );

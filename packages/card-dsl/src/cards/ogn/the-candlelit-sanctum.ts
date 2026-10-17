@@ -36,9 +36,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   named; the program offers the linked "looked" refs and relies on the
  *   recycled ones going stale (359.3.e.4), which the golden exercises both ways;
  * - the conquer timing point is now really emitted (TurnFlow schedules the
- *   Score wave, combat/flow.ts commits the conquer), but no merged subscriber
- *   turns a CardProgram's triggered ability into a TriggerRegistration
- *   (RIFT-257, in progress), and the trigger filter keeps the sibling
+ *   Score wave, combat/flow.ts commits the conquer), but the trigger filter keeps the sibling
  *   battlefield spelling (here: true / player: "controller") for the 053.3
  *   referent, which the merged translateTriggerFilter/trigger-spec layer does
  *   not resolve.
@@ -55,9 +53,9 @@ export default {
     "没有把牌库顶两张解析成有序引用；缺该来源时 effect.inspect 的 top 作用域按 impossible 明确阻断（占位 pick 会静默变成看 0 张，故不写假占位）；" +
     "② “Put those you don't back in any order”（437.1.a）是对结算时才揭晓的“看过但未回收”集合做排序选择，而 effect.order 的非目标选择来自 Finalize 锁定的 PickSpec（359.3.e.9 重选），" +
     "只能排序指令已能命名的集合；本程序提供“看过的引用”，已回收者按陈旧引用丢弃（359.3.e.4），真正的“看过减已回收”余集仍不可表达；" +
-    "③ conquer 时点已由 TurnFlow 的 Score 波真实发出（combat/flow.ts 提交 conquer），但没有已合入订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration（RIFT-257 进行中）；" +
-    "④ filter 的 here: true / player: controller 是同类战场卡占位（053.3 的 here 指代），已合入的 translateTriggerFilter/trigger-spec 不解析这两个键。" +
-    "依赖：有序区域 picks 的 Finalize 生命周期、RIFT-257（卡牌触发绑定与 here 指代）。不近似实现。",
+    "③ conquer 时点已由 TurnFlow 的 Score 波真实发出（combat/flow.ts 提交 conquer），但 filter 的 here: true / player: controller 是同类战场卡占位（053.3 的 here 指代），" +
+    "已合入的 translateTriggerFilter/trigger-spec 层仍不解析该位置锚点；该接线属于 RIFT-357 的进行中范围。" +
+    "依赖：RIFT-358 的有序区域 picks Finalize 生命周期、结算时动态 remainder，以及 RIFT-357 的 here 指代归一化。不近似实现。",
   sourceText:
     "When you conquer here, look at the top two cards of your Main Deck. " +
     "You may recycle one or both of them. Put those you don't back in any order.",

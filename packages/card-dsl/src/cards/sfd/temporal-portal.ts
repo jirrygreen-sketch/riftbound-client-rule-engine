@@ -19,43 +19,23 @@ import type { CardProgram } from "../../ir/index.js";
  *   （“equal to its cost”，按 206 取该牌的印刷费用）；这是对**下一次**法术打出的一次性
  *   （one-shot）授予，随本回合结束失效。
  *
- * status = judge-required（复核后的当前缺口，均不近似实现）：
- * 1. continuous.grant-keyword 原语、ability 图层消费与 Repeat KeywordDef 已合入
- *    （RIFT-258 与关键词批），但该原语只接受 keyword/keywords + 非负整数 value
- *    与 "self" 的 appliesTo；本卡声明的 amount="equal-to-its-cost" 与
- *    appliesTo="next-spell-you-play" 都不在它的参数面内（golden 实测
- *    Invalid continuous.grant-keyword argument: amount），因此声明仍是
- *    fail-closed 的描述性数据，而不是可执行 IR。
- * 2. “the next spell you play this turn” 的一次性窗口没有落地：Duration 只有 permanent /
- *    end-of-turn / end-of-combat / while-source-in-zone / until，没有 one-shot 的
- *    “下一张法术”期限，也没有把该授予绑定到本回合下一次 Finalize 的费用修正管线
- *    （对照 ogn 的 Raging Firebrand 同源判断，RIFT-261 费用管线）。
- * 3. “equal to its cost” 需要在该法术 Finalize 时读取它自己的印刷费用（206：一律用印刷
- *    或复制来的费用）并生成一个金额等于该费用的可选附加费用组件；契约的数值表达式没有
- *    「未来被打出对象的印刷费用」这一读数，费用计划也只能由调用方在 Finalize 传入
- *    （RIFT-261）。Repeat 自身的展开（effects/keywords/Repeat.ts）只声明该来源自带的
- *    repeat.cost 实例，不负责「授予未来法术」。
- * 此外 :rb_rune_rainbow: 是任意域 Power（163.2.b 的 Universal Power），六域封闭 Domain
- * 集合无法表达，本卡以描述性 ["rainbow"] 记录（同 Matriarch of War / Gravity Field 的处理）。
- * 依赖：RIFT-261（费用计划与一次性费用修正）、RIFT-258/RIFT-91 后续（授予原语对
- * one-shot 期限与动态费用的扩展）。不近似为常驻 Repeat 或固定数值。
+ * status = judge-required（当前缺口均不近似实现）：
+ * 1. continuous.grant-keyword 只接受固定 keyword/value 与 self；本卡需要把 Repeat 授予“本回合
+ *    下一张法术”，并在该法术 Finalize 时读取它自己的印刷费用，现有参数面没有这种 one-shot
+ *    对象窗口或动态费用表达式。
+ * 2. 费用计划没有把这次未来法术的印刷费用生成可选追加费用组件；Repeat 自身的展开只描述
+ *    来源自带的 repeat.cost 实例。
+ * :rb_rune_rainbow: 是 Universal Power，现有六域 Domain 集合仍只能保留描述性 `rainbow`。
  */
 export default {
   canonicalCardId: "card.hash-bb98faffa9506df8c98b1086bec2cbd71a7dd9f4c677d8e31dc335ebfa6e61d5",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处当前缺口：(1) continuous.grant-keyword 原语（RIFT-258）与 Repeat KeywordDef 已合入，但该原语只接受 keyword/keywords + " +
-    "非负整数 value 与 self 的 appliesTo；本卡声明的 amount=equal-to-its-cost 与 appliesTo=next-spell-you-play 不在其参数面内" +
-    "（golden 实测 Invalid continuous.grant-keyword argument: amount），声明仍是 fail-closed 的描述性数据。" +
-    "(2)「the next spell you play this turn」的一次性窗口没有落地——" +
-    "Duration 只有 permanent / end-of-turn / end-of-combat / while-source-in-zone / until，没有 next-spell 的 one-shot 期限，" +
-    "也没有把该授予绑定到本回合下一次 Finalize 的费用修正管线（同 Raging Firebrand，RIFT-89 后续）；" +
-    "(3)「equal to its cost」需要在该法术 Finalize 时读取它自己的印刷费用（206）并生成金额等于该费用的可选附加费用组件，" +
-    "现有表达式没有「未来被打出对象的印刷费用」读数，费用计划也只能由调用方在 Finalize 传入。此外 :rb_rune_rainbow: 是" +
-    "任意域 Power [A]（135.2.e.5.a / 163.2.b），六域封闭 Domain 集合无法表达，仅以描述性 [\"rainbow\"] 记录。" +
-    "Repeat 的展开（effects/keywords/Repeat.ts）只声明该来源自带的 repeat.cost 实例，不负责授予未来法术。" +
-    "依赖：RIFT-261（费用计划与一次性费用修正）、RIFT-258/RIFT-91 后续（授予原语对 one-shot 期限与动态费用的扩展）。不近似实现。",
+    "当前缺口：(1) continuous.grant-keyword 只接受固定 keyword/value 与 self，无法把 Repeat 授予“本回合下一张法术”" +
+    "的一次性对象窗口；(2) Finalize 尚不能读取未来法术自己的印刷费用并生成可选追加费用，故 amount=equal-to-its-cost " +
+    "没有消费方；(3) :rb_rune_rainbow: 是 Universal Power，六域 Domain 集合只能保留描述性 [\"rainbow\"]。" +
+    "本卡的 exhaust 支付和固定关键词授予原语均已合入，不把它们列为缺口。",
   abilities: [
     {
       // 151.2：Gear 启动式能力在控制者 Main Phase 执行；契约 3.1 用 activated.timing 记录。

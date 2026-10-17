@@ -4,6 +4,13 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/jarvan-iv-martial-paragon.js";
 import channel from "../../../../engine-core/dist/effects/instructions/effect.channel.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { translateObjectFilter, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { actionTimings } from "../../../../engine-core/dist/layers/rules/query.js";
+import action from "../../../../engine-core/dist/effects/keywords/Action.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
@@ -23,6 +30,14 @@ test("rad-091-167 Jarvan IV, Martial Paragon: validates, identity and source tex
   assert.match(program.judgeReason, /keyword/);
   assert.match(program.judgeReason, /canAct/);
   assert.match(program.judgeReason, /830\.3/);
+  // Point at the merged binder/query behaviour that actually rejects the grant.
+  assert.match(program.judgeReason, /translateObjectFilter|staticFilter/);
+  assert.match(program.judgeReason, /appliesTo/);
+  assert.doesNotMatch(program.judgeReason, /静态绑定器拒绝 keyword 过滤字段，无法选出/);
+  // The Deploy location consumer remains a real gap, but the reason must no
+  // longer rest on a missing binder entry point.
+  assert.match(program.judgeReason, /Deploy 展开/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -112,3 +127,82 @@ test.todo(
   "jarvan-iv-martial-paragon: evaluate the “has [Deploy]” predicate (CR 830.3) in filters — " +
     "the static binder and trigger condition still cannot evaluate keyword and sameLocationAs filters"
 );
+
+/** Bind one static ability from this card through the production binder. */
+function bindStaticAbility(kernel, ability, sourceId = "jarvan") {
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`unexpected choice ${request.id}`); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const binder = createEngineStaticBinder(engine);
+  return { engine, bind: () => binder.bindStatic(ability, kernel.getObject(sourceId)) };
+}
+
+test("rad-091-167 Jarvan IV, Martial Paragon boundary: the merged binder rejects the “has [Deploy]” filter field", () => {
+  // CR 830.3: whether a card has Deploy is a checkable characteristic. The
+  // merged filter vocabulary has no field for it, so the grant cannot be bound
+  // honestly: layers/filter.ts silently ignores an unknown key (which would
+  // widen the grant to every gear) and the program binder rejects it outright.
+  const grant = program.abilities[0];
+  const ignored = [
+    { ref: { id: "deploy-gear", zoneEntryId: 1 }, types: ["gear"], tags: [], zone: "board", controller: "A", owner: "A" },
+    { ref: { id: "plain-gear", zoneEntryId: 2 }, types: ["gear"], tags: [], zone: "board", controller: "A", owner: "A" }
+  ];
+  assert.deepEqual(
+    ignored.filter(object => matchesObjectFilter({ type: "gear", keyword: "Deploy" }, object)).map(object => object.ref.id),
+    ["deploy-gear", "plain-gear"],
+    "an unknown keyword filter key still matches every gear"
+  );
+  assert.throws(() => translateObjectFilter(grant.effect.filter), /Unsupported filter field keyword/);
+
+  const kernel = world().unit("jarvan", { might: 4 }).unit("friendly-gear", { types: ["gear"], might: null }).build();
+  const { bind } = bindStaticAbility(kernel, grant);
+  assert.throws(bind, /Unsupported static filter field keyword/);
+});
+
+test("rad-091-167 Jarvan IV, Martial Paragon boundary: the Action expansion's appliesTo cannot bind to an object", () => {
+  // 806.1.c: the Action permission is the keyword's own expansion
+  // (continuous.timing with grants ["showdown"]); the merged static binder only
+  // accepts appliesTo "self", so a granted Action cannot reach a gear object.
+  const expansion = action.expand({ host: { canonicalCardId: program.canonicalCardId } });
+  assert.deepEqual(expansion[0].effect.grants, ["showdown"]);
+  assert.deepEqual(expansion[0].effect.appliesTo, ["card", "activated-ability"]);
+
+  const kernel = world().unit("jarvan", { might: 4 }).unit("friendly-gear", { types: ["gear"], might: null }).build();
+  const granted = {
+    kind: "static",
+    effect: { ...expansion[0].effect, appliesTo: "self" }
+  };
+  const { engine, bind } = bindStaticAbility(kernel, granted, "friendly-gear");
+  bind();
+  engine.layers.setObjects(kernel.objects);
+  const gear = engine.layers.evaluate(kernel.ref("friendly-gear"));
+  // The self-form binds, but the permission lands in the timing layer only;
+  // the keyword-form Action the card grants would write object.keywords, which
+  // the timing query never reads (hence the canAct gap in judgeReason).
+  assert.deepEqual(actionTimings(engine.layers.registry, kernel.ref("friendly-gear"), gear, "A"), ["showdown"]);
+});
+
+test("rad-091-167 Jarvan IV, Martial Paragon boundary: the trigger condition's count cannot exclude non-Deploy gear", () => {
+  // 383.2 / 830.3: the gate counts friendly gear with [Deploy] here. The merged
+  // trigger filter translation rejects the same predicate, so the condition
+  // cannot be evaluated safely against the merged query path.
+  const condition = program.abilities[1].trigger.condition;
+  assert.equal(condition.left.kind, "count");
+  assert.equal(condition.left.filter.keyword, "Deploy");
+  assert.throws(
+    () => translateObjectFilter(condition.left.filter),
+    /Unsupported filter field keyword/
+  );
+  // The trigger filter itself still compiles (384.4.c style source binding),
+  // which is why the conquer trigger shape is kept as the executable half.
+  assert.deepEqual(
+    translateTriggerFilter(program.abilities[1].trigger.filter, "jarvan", "conquer"),
+    { event: "conquer", object: { objectId: "jarvan" } }
+  );
+});

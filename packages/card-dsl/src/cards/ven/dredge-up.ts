@@ -15,23 +15,23 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   替换基础费用的 alternate cost。卡侧只声明 keyword（契约 3.7、README 第 5 节），
  *   展开由 effects/keywords/Flow.ts 负责，本文件不重写该逻辑。
  *   印刷的 Flow 费用是 2 Energy；它无法写进 keyword 声明——契约 3.1 的 KeywordAbility
- *   只有 keyword / value 两个字段，契约 3.8 第 3 条要求的 expand params.cost 尚未落到
- *   已合入的 KeywordDef / KeywordAbility 接口（同 ven/defender-of-tomorrow 的登记），
+ *   只有 keyword / value 两个字段。KeywordDef.expand 的 params.cost 已支持，Flow.expand
+ *   也会读取它，但 expandProgram 只传 value / host，没有从卡声明传递印刷费用的接线；
  *   因此印刷费用只记录在本注释与 judgeReason 里，不伪造第二条普通费用，也不写 value
  *   （Flow 的数值不是张数或点数，829.1.c）。
  *
  * status = judge-required（缺口均不近似实现）：
- * 1. Flow 展开的两个消费方尚未合入（effects/keywords/Flow.ts 的文件头已登记）：
- *    - flow.cost 需要费用管线（RIFT-261）暴露可选择的替代费用、保留 null 印刷费用并
- *      记录实际支付的是哪一个独立 Flow 实例（829.1.c.3）；
- *    - replacement.event 需要替代效果的注册/排序路径（RIFT-260），且必须区分“正常离链”
- *      与“由该法术自身指示的离开”（829.1.b.1）；
- *    - 从垃圾场打出的位置许可、链项已 finalize 状态与 continuous.timing 未合入
- *      （RIFT-89 费用计划接线）。
+ * 1. 通用费用规划与替代绑定已合入，缺口是 Flow 专用接线：
+ *    - buildCostPlan 已支持 flow 备选费用与 baseChoices，但 flow.cost 声明未接到 Finalize，
+ *      印刷费用参数未传入展开，实际支付的独立 Flow 实例无回执（829.1.c.1/.c.3）；
+ *    - programs/statics.ts 已接入 bindReplacement，但替代匹配器 ACTION_KINDS 不含
+ *      object-leaves-chain，flow-cost-selected 仍是字符串常量，没有绑定实付实例、
+ *      已 finalize 状态或 leavingInstruction（829.1.b.1）；
+ *    - 从垃圾场打出的许可未接入打出流程。
  *    能写出声明不等于可执行（README 第 2 节），因此保持 judge-required。
  * 2. 已支持部分："Draw 1." 由 golden 用解释器 + 参考内核真实执行；Flow 的替代费用、
  *    垃圾场打出许可与延迟放逐写 test.todo。
- * 依赖：RIFT-261（费用消费者/替代费用）、RIFT-260（替代效果注册与排序）、RIFT-89（费用计划接线）。
+ * 依赖：Flow 费用参数传递、flow.cost→Finalize、实付实例回执、垃圾场许可和离链匹配。
  */
 const abilities = [
   // 829.1.c：格式为 "Flow [Cost]"；印刷费用 2 Energy 记在文件头与 judgeReason（见上）。
@@ -59,12 +59,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Flow 的替代费用与延迟放逐没有可执行路径（effects/keywords/Flow.ts 文件头自述的依赖仍未合入）：" +
-    "(1) flow.cost 需要费用管线（RIFT-261）暴露可选择的替代费用、保留 null 印刷费用，并记录实际支付的是哪一个独立 " +
-    "Flow 实例（829.1.c.1 的 alternate cost、829.1.c.3 的多实例）；(2) 829.1.b.1 的延迟替代效果需要替代效果的注册与排序路径" +
-    "（RIFT-260），且必须区分正常离链与“由该法术自身指示的离开”；(3) 从垃圾场打出的位置许可、链项已 finalize 状态与 " +
-    "continuous.timing 亦未合入（RIFT-89 费用计划接线）。印刷的 Flow 费用是 2 Energy（829.1.c），但契约 3.1 的 KeywordAbility 只有 " +
-    "keyword / value 字段，契约 3.8 第 3 条的 expand params.cost 未落到已合入接口，故该费用只记录在注释与 judgeReason，不写成第二条普通费用、也不放进 value。" +
+    "Flow 的通用能力已支持：KeywordDef.expand.params.cost、buildCostPlan 的 flow/baseChoices 与 " +
+    "programs/statics.ts → bindReplacement 均已合入。仍缺 Flow 专用接线：" +
+    "(1) 印刷 Flow 费用是 2 Energy（829.1.c），KeywordAbility 只有 keyword / value 字段，expandProgram 只传 value / host，" +
+    "没有把费用传给已支持的 params.cost；flow.cost 静态声明未接入 Finalize 的备选费用输入，也没有实付实例回执" +
+    "（829.1.c.1 的 alternate cost、829.1.c.3 的多实例）。费用保留在注释与 judgeReason，不写成第二条普通费用或 value。" +
+    "(2) 829.1.b.1 的离链替代：匹配器 ACTION_KINDS 不含 object-leaves-chain，flow-cost-selected 仍是字符串常量，" +
+    "没有绑定已 finalize、实付 Flow 实例或 leavingInstruction，不能区分正常离链与“由该法术自身指示的离开”；" +
+    "(3) 从垃圾场打出的许可尚未接入打出流程。" +
     "已支持部分：「Draw 1.」由已合入的 effect.draw 真实执行（golden 覆盖），Flow 的替代费用与放逐、以及垃圾场打出许可写 test.todo。" +
     "按 README 第 2 节保持 judge-required（能写出声明不等于可执行）。",
   abilities,

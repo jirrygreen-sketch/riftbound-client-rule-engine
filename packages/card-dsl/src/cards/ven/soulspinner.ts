@@ -20,17 +20,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   （`{ kind: "keyword", keyword: "ambush" }`，无印刷数值），展开属于
  *   effects/keywords/Ambush.ts（已合入，RIFT-266）。
  *
- * status 判定（README 第 2 节，复核 2026-10-16）：judge-required。
+ * 复核（2026-10-17，第二轮 M2 覆盖率复核）：continuous.timing 图层查询已接入
+ * chain.canAct（actionTimings → canActByRules），keyword static 也已有生产注册入口
+ * （programs/keywords.ts → programs/statics.ts），早前这两条缺口已过时。
+ *
+ * status 判定（README 第 2 节）：judge-required。
  * Ambush 的展开是两条 static 声明（play-location-permission 与
- * continuous.timing）；RIFT-258/259 已提供 continuous.timing 图层的查询实现
- * （layers/rules/query.ts 的 canAct 读注册表），RIFT-257 也提供了 keyword 展开
- * 的入口（programs/keywords.ts），但两个消费方仍未接通：
+ * continuous.timing）；当前真实缺口是：
  * 1. play-location-permission：engine-core/src 下只有卡牌数据与 Ambush.ts 自己
  *    声明它，Finalize 的合法打出位置校验（822.1.c / 822.3）没有读取方；
- * 2. chain.canAct()（chain/engine.ts，契约 3.5 的时机许可查询）本身只读
- *    phase / showdown / priority，不接受图层注册表，822.1.b 的条件 [Reaction]
- *    无法生效；也没有生产方把 CardProgram 的 keyword 能力展开并注册进图层。
- * 依赖：打出位置校验接线、chain.canAct 读取图层时机许可、keyword static 注册。
+ * 2. permitted.battlefield 的对象形条件（occupied: true / controller:
+ *    "controller"）没有求值方：Ambush.ts 只声明该形状，Finalize 侧没有读取方。
+ * 依赖：打出位置校验接线（822.1.c / 822.3）与 occupied-battlefield 条件求值。
  * 不近似实现（不把许可写成默认打出位置，也不把它改成无条件的 Reaction）。
  */
 export default {
@@ -42,10 +43,10 @@ export default {
     "play-location-permission 与 static continuous.timing），但两个消费方未合入：" +
     "(1) play-location-permission 在 engine-core/src 下只有 Ambush.ts 声明，Finalize 的合法打出位置校验" +
     "（822.1.c / 822.3）没有读取方；" +
-    "(2) chain.canAct()（chain/engine.ts，契约 3.5 的时机许可查询）只读 phase/showdown/priority、不接受图层注册表，" +
-    "822.1.b 的条件 Reaction 无法生效；RIFT-258/259 的 continuous.timing 图层查询（layers/rules/query.ts）目前只有测试消费，" +
-    "没有生产方把 CardProgram 的 keyword 能力展开并注册进图层（RIFT-257 只提供展开入口）。" +
-    "依赖：打出位置校验接线、chain.canAct 读取图层时机许可、keyword static 注册。" +
+    "(2) permitted.battlefield 的对象形条件（occupied: true / controller: controller，822.1.b）没有求值方，" +
+    "Ambush.ts 只声明该形状。chain.canAct 的图层时机消费（continuous.timing grants）与 keyword static 的" +
+    "生产注册入口均已合入，不再列为缺口。" +
+    "依赖：打出位置校验接线、occupied-battlefield 条件求值。" +
     "不近似实现（不改成默认打出位置或无条件的 Reaction）。",
   abilities: [{ kind: "keyword", keyword: "ambush" }],
   sourceText: "[Ambush] (You may play me as a [Reaction] to a battlefield where you have units.)"

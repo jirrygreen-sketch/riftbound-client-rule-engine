@@ -8,26 +8,11 @@ import program from "../../../dist/cards/sfd/lucian-merciless.js";
 // layout instead of the package name.
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
-const { createTestWorld } = await import(new URL("effects/testing/index.js", engineCore));
+const { world } = await import(new URL("effects/testing/index.js", engineCore));
 
 const lucianWorld = ({ exhausted } = {}) => {
-  const kernel = createTestWorld();
-  kernel.addObject(
-    {
-      ref: { id: "lucian", zoneEntryId: 1 },
-      owner: "A",
-      zone: "board",
-      exhausted,
-      might: 3,
-      types: ["unit"]
-    },
-    "board"
-  );
-  // The reference kernel's default source is a synthetic "source" object;
-  // point it at lucian so "ready me" (effect.ready with no args) resolves
-  // against the unit itself.
-  Object.defineProperty(kernel, "source", { value: kernel.getObject("lucian") });
-  return kernel;
+  const base = world().unit("lucian", { exhausted, might: 3 }).build();
+  return base.clone({ sourceSnapshot: base.getObject("lucian") });
 };
 
 test("program passes validateCardProgram", () => {
@@ -43,6 +28,8 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /[Ww]eaponmaster/);
+  assert.match(program.judgeReason, /authoritative Equip-cost binding/);
+  assert.match(program.judgeReason, /383\.4\.c\.2\.a/);
   assert.ok(program.sourceText.includes("[Weaponmaster]"));
   assert.ok(program.sourceText.includes("The first time I conquer each turn, ready me."));
 });
@@ -93,8 +80,8 @@ test("conquer trigger body on an already-ready source is a no-op (CR 416.1.c)", 
 
 test.todo(
   "Weaponmaster expansion: on play, choose one of your Equipment, pay its Equip cost reduced by " +
-    "[A], attach it to me (CR 821.1.c; cost.modify rejects reduce-equip-cost until the cost " +
-    "plan carries the original [A]/[C] symbol binding for 821.1.c.2)"
+    "[A], attach it to me (CR 821.1.c.2/.c.3; cost.modify's Equipment source branch needs " +
+    "the authoritative Equip-cost binding and original [A]/[C] symbol provenance)"
 );
 
 test.todo(

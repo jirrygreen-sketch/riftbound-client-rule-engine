@@ -32,8 +32,8 @@ export default {
     "（effects/keywords/Equip.ts）声明 payments: [{ kind: \"equip\", value: source }]，" +
     "费用管线 cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked —— buildCostPlan " +
     "抛 CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）；" +
-    "契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，但卡牌程序 → 关键词展开的调用方" +
-    "尚未传该参数，印刷的 Calm 符文到不了 KeywordDef.expand。已合入的 effect.attach 本体由 golden" +
+    "契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，但合并的卡牌程序绑定（programs/keywords.ts expandProgram）" +
+    "只传 { value, host }，不传 params.cost，印刷的 Calm 符文到不了 KeywordDef.expand。已合入的 effect.attach 本体由 golden" +
     "真实执行，但该半段不足以让启动可执行。依赖：Equip 费用支付种类、params.cost 接线。" +
     "不近似实现（不把 Equip 降级成裸 effect.attach）。",
   abilities: [

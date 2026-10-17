@@ -6,8 +6,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "『I cost [2] less to play from anywhere other than your hand』需要把卡牌 static 费用改写接入 CostPlan（缺 cost.modify 与 CardProgram→CostPlan 接线，RIFT-89），" +
-    "并需要在打出时按来源区域判断『不是手牌』（not-hand）；当前 CostDiscount/费用消费方没有该区域门控。不能把减费无条件应用到手牌打出。",
+    "continuous.cost-modification 尚未接入 Finalize 的 CostPlan（programs/statics.ts 的 layerFor 没有该 kind 映射）。cost.modify 已能执行 Energy 减费及零下限；尚需费用消费方保留打出前来源区域，并按 fromZone: not-hand 门控本卡的 [2] 折扣（356.4）。进入 chain 后的当前区域不能代替来源区域，不能给从手牌打出也减费。",
   abilities: [
     {
       kind: "static",

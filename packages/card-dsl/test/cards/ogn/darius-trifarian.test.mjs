@@ -15,8 +15,6 @@ test("ogn-027-298 Darius, Trifarian: program validates and is judge-required", (
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
 });
 
 test("ogn-027-298 Darius, Trifarian: identity, ruleset and exact source text", () => {
@@ -116,6 +114,6 @@ test("ogn-027-298 Darius, Trifarian: the full body registers Might on self and r
 
 test.todo(
   "ogn-027-298 Darius, Trifarian: the 'you play your second card in a turn' history count " +
-    "(cards-finalized-this-turn with exclude self) still needs the history condition and " +
-    "RIFT-257 CardProgram trigger binding; the Might and ready body now has execution evidence."
+    "(cards-finalized-this-turn with exclude self) still needs a TriggerSpec history-condition " +
+    "adapter; the Might and ready body now has execution evidence."
 );

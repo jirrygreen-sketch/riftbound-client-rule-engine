@@ -33,26 +33,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   条件时启动。契约 3.1 把 Requirement/Restriction 与费用分开，本卡用 Restriction 声明。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
- * - "played an Equipment this turn" 无法判定：HistoryQuery（effects/contract.ts）只有
- *   scope/action/timingPoint/player/object 五个维度，没有按被打出卡牌的类型/标签过滤的能力，
- *   也没有"本回合打出的装备"这一谓词；chain Finalize 虽会 test 调用方传入的 conditions，
- *   但契约 3.1 的 Restriction 形状没有被卡牌程序供给该条件，054.2 的门因此不可执行。
- * - "to your base" 的目的地无法命名：effect.token 的 location 只接受字面
- *   { type: "base", player: <PlayerId> } 且要求等于 ctx.controller，静态 IR 没有相对控制者的
- *   LocationRef 记法（effect.move 有 "controller-base"，effect.token 没有；已知 LocationRef
- *   只能经 condition.value + linked-value 读取）；硬编码席位会把 token 放进错误玩家的基地。
- * - 契约 3.6 的 ZoneId 没有 Legend Zone（CR 108.3）：传奇不能表示为 Board 对象，415.5/415.4 的
- *   "横置我" 费用缺少可执行宿主（费用计划只接受 board/rune-zone 上的对象，cost/payment.ts 的
- *   checkAction；同 ogn/the-boss）。
- * - CardProgram 的 static 能力注册进 LayerEngine 的路径仍属 RIFT-257（src/programs/ 进行中）；
- *   同时 layers/filter.ts 的 selectorMatches 不解析 controller: "controller" 占位（按字面量比较，
- *   永不等于控制者），而 [Weaponmaster] 自身的展开（effects/keywords/Weaponmaster.ts）也标注为
- *   judge-required（821.1.c 的 Equip 减费需要 cost.modify / cost.pay，RIFT-261）。
- * 依赖：RIFT-257（静态/触发能力注册）、RIFT-261（cost.modify / Equip 费用），以及 legend-zone
- * 与相对控制者 LocationRef 的契约表达。
- * golden 测试真实执行 effect.token 的 sand-soldier play 形状（把不可解析的 base 占位换成
- * 控制者自己的席位）与费用计划的 energy+exhaust 收费（把宿主放在 Board 上）；两者都不是整卡证据。
- * 不近似实现（不按 tag Shurima 过滤，不用 effect.exhaust 冒充费用，不硬编码席位）。
+ * - HistoryQuery 已支持 objectFilter 并可计数本回合打出的 Equipment；但 condition.history
+ *   目前是 body 指令，不是 Condition/Expr，不能供给启动前的 Restriction（054.2，RIFT-359）。
+ * - effect.token 不解析相对控制者的 Base LocationRef，不能在静态 IR 硬编码玩家席位。
+ * - ZoneId 没有 Legend Zone（107.4），而费用支付只接受 board/rune-zone 的横置对象；
+ *   静态绑定和横置费用测试使用 Board 宿主，只证明各自支持的部分。
+ * - programs/statics.ts 已能把原始 grant-keyword 注册进 ability 图层，并绑定相对控制者。
+ *   Weaponmaster 仍缺权威 Equip 费用与原始 [A] 符号来源，cost.modify 不会近似折扣（821.1.c.2/c.3）。
+ * 不把部分能力的执行证据当作整卡已可执行。
  */
 const abilities: Ability[] = [
   {
@@ -80,7 +68,7 @@ const abilities: Ability[] = [
       payments: [{ kind: "exhaust", object: "self" }]
     },
     // "Use only if you've played an Equipment this turn."（054.2 的 only 限制）：保留为限制声明，
-    // 见 judgeReason——HistoryQuery 没有按类型/标签过滤"本回合打出的装备"的维度。
+    // 见 judgeReason——历史查询已合入，但尚不能作为启动前的 Condition/Expr。
     restriction: {
       kind: "use-only-if",
       value: { kind: "constant", value: "played-an-equipment-this-turn" }
@@ -112,18 +100,11 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "（1）「Use only if you've played an Equipment this turn」不可判定：HistoryQuery（effects/contract.ts）只有 " +
-    "scope/action/timingPoint/player/object 五个维度，没有按被打出卡的类型/标签过滤「本回合打出的装备」的谓词，" +
-    "卡牌 Restriction 也没有把该条件供给 Finalize 的路径（chain 只 test 调用方传入的 conditions），054.2 的 only 门无法执行；" +
-    "（2）「to your base」的目的地无法命名：effect.token 的 location 只接受字面 { type: \"base\", player: <PlayerId> } 且要求等于 " +
-    "ctx.controller，静态 IR 没有相对控制者的 LocationRef 记法（effect.move 有 \"controller-base\"，effect.token 没有），硬编码席位会把 token 放进错误玩家的基地；" +
-    "（3）契约 3.6 的 ZoneId 没有 Legend Zone（CR 108.3），传奇不能表示为 Board 对象，415.5/415.4 的费用式「横置我」缺少可执行宿主" +
-    "（费用计划只接受 board/rune-zone 上的对象，cost/payment.ts 的 checkAction；同 ogn/the-boss）；" +
-    "（4）把 CardProgram 的 static 能力注册进 LayerEngine 的路径仍属 RIFT-257（src/programs/ 进行中），" +
-    "layers/filter.ts 的 selectorMatches 也不解析 controller: \"controller\" 占位（按字面量比较，永不等于控制者），" +
-    "[Weaponmaster] 自身的展开（effects/keywords/Weaponmaster.ts）也标注 judge-required（821.1.c 的 Equip 减费需要 cost.modify / cost.pay，RIFT-261）。" +
-    "依赖：RIFT-257、RIFT-261，以及 legend-zone 与相对控制者 LocationRef 的契约表达。" +
-    "不近似实现（不按 tag Shurima 过滤 Sand Soldier，不用 effect.exhaust 冒充费用，不硬编码席位）。",
+    "（1）HistoryQuery 已支持 objectFilter 查询 Equipment 打出记录，但 condition.history 仅为 body 指令，" +
+    "不能作为启动前 Restriction 的 Condition/Expr（054.2，条件谓词 RIFT-359）；" +
+    "（2）effect.token 需要相对控制者的 Base LocationRef 绑定，当前只接受实际 PlayerId；" +
+    "（3）ZoneId 尚无 Legend Zone（CR 107.4），横置费用只接受 board/rune-zone 宿主（415.4/415.5）；" +
+    "（4）Weaponmaster 仍缺权威 Equip 费用绑定与原始 [A] 符号来源，cost.modify 无法计算 821.1.c.2/c.3 的准确减费。",
   abilities,
   sourceText:
     "Your Sand Soldiers have [Weaponmaster].\n" +

@@ -20,11 +20,12 @@ import type { CardProgram } from "../../ir/index.js";
  * 第 5 节）；展开由 engine-core 的 effects/keywords/Weaponmaster.ts 负责，
  * 卡内不重写关键词逻辑。
  *
- * status = judge-required（cards/README.md 第 2 节）：Weaponmaster 展开、keyword
- * registry 与 cost.modify / cost.pay 原语均已合入，但 cost.modify 的
- * reduce-equip-cost 分支在以 judge-required 失败关闭——它需要“原始 [A]/[C] 符号”
- * 绑定才能按 821.1.c.2 计算 Equip 费并按 821.1.c.3 减 [A]，当前 CostPlan 无法区分，
- * 因此 821.1.c.2/.c.3 仍无法执行；不近似实现。
+ * Current status: judge-required. The Weaponmaster keyword, targeting,
+ * cost.modify/cost.pay and effect.attach are merged. The Equipment source
+ * branch blocks before payment at missing authoritative Equip-cost binding
+ * (821.1.c.2); reduce-equip-cost also requires original [A]/[C] provenance
+ * (821.1.c.3). The chain interpreter adapter also passes the constant modifier
+ * Expr to a literal metadata schema. A play cost cannot substitute for Equip cost.
  */
 const masterBingwen = {
   canonicalCardId:
@@ -32,11 +33,12 @@ const masterBingwen = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The Weaponmaster KeywordDef, keyword expansion, and the merged cost.modify/cost.pay " +
-    "primitives are merged, but cost.modify fails closed with judge-required for " +
-    "reduce-equip-cost: the cost plan cannot distinguish the original [A] symbol from [C], so " +
-    "821.1.c.2 (cost determined as though the Equip ability were activated) and 821.1.c.3 (the " +
-    "[A] reduction) still cannot be calculated before effect.attach runs; not approximated.",
+    "Weaponmaster expansion and cost.modify/cost.pay are merged. The actual cost.modify Equipment source " +
+    "branch still fails closed with judge-required before payment: the chosen card's authoritative Equip-cost " +
+    "binding for this host is missing (821.1.c.2), not merely the discount arithmetic. The original body also " +
+    "hits a chain/interpreter-adapter.ts argument gap: constant modifier Exprs are not decoded for cost.modify. reduce-equip-cost also " +
+    "requires original [A]/[C] symbol provenance for the [A]-only reduction (821.1.c.3). The card's play cost " +
+    "cannot substitute for Equip cost; attach alone does not prove the full play effect.",
   abilities: [{ kind: "keyword", keyword: "weaponmaster" }],
   sourceText:
     "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)"

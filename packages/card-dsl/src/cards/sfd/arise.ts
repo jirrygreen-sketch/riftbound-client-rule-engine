@@ -27,32 +27,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   这些 token 不是被卡牌选择的对象，因此不写 TargetSpec / PickSpec。就绪本身是 effect.ready
  *   的 { type: "ready", object } 动作（416.1）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。缺口是打出地点的 Finalize 选择：
- * - effect.token 只接受具体 LocationRef 列表（locations 项必须是 { type: base, player } 或
- *   { type: battlefield, id }），ResolveContext 只暴露对象查询，没有任何已合入读数把
- *   "这个 token 可被合法打出的地点集合"（355.2/355.2.a 的基地或你控制的战场）解析成
- *   LocationRef；写死一个地点就是替玩家发明选择（355.2 的选择属该 token 的 Finalize）。
- *   同一缺口在 OGS "Recruit the Vanguard"（ogs-015-024）已按同样口径记为 judge-required。
- *   打出流程本身也没有卡牌程序消费方把该 play 能力接入链（RIFT-257）。
- * - count 计数、token 定义、create-on-chain + play 交接与 ready 两段本身都已合入，golden
- *   用真实原语执行（调用方给出该 token 已选定的基地地点），不近似实现。
- * 依赖：location 集合读数（ability-templates.md target.location）、355.2 打出地点选择的
- * Finalize 接线与卡牌程序打出绑定（RIFT-257 / RIFT-261 批次）。
+ * 当前复核：保持 judge-required；具体未接通路径见 judgeReason。
  */
 const arise = {
   canonicalCardId: "card.hash-390865ebc7ca61e906a68cd399d7f1300d7ddcba26677e93cbba334e99b8dee9",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺打出地点的 Finalize 选择：CR 355.2/355.2.a 规定单位 token 的合法打出去处是控制者基地或控制者控制的战场，" +
-    "由该次打出的 Finalize 选择；已合入的 effect.token 只接受具体 LocationRef 列表（base(player) / battlefield(id)），" +
-    "而 ResolveContext 只提供对象查询，没有任何已合入读数把该 token 的合法地点集合解析成 LocationRef" +
-    "（同缺口见 OGS ogs-015-024 Recruit the Vanguard）；卡程序写死一个地点等于替玩家发明选择（355.2），" +
-    "且打出流程也没有卡牌程序消费方把该 play 能力接入链（RIFT-257）。" +
-    "effect.token 的 count 数量（for each Equipment you control，150/150.1/150.5 + 359.3.e.11）、" +
-    "create-on-chain + play 交接（440.2.c/185.2.a，RIFT-62）与 effect.ready 的就绪半段（416.1，linkedTo 取 token 收据）" +
-    "均已合入，golden 用真实原语执行（调用方提供该 token 已选定的基地地点）。" +
-    "依赖：location 集合读数（target.location）与 355.2 打出地点选择/DTO 绑定的 Finalize 接线（RIFT-257 / RIFT-261 批次）。不近似实现。",
+    "355.2/355.2.a 的 token 打出地点仍缺 Finalize 选择到 effect.token 的绑定：target/location 已能枚举 LocationRef，但解释器只为 effect.move 归一化 LocationExpr，effect.token.location/locations 仍只接受具体引用，不能静态写死玩家的选择。" +
+    "生产 programs/play.ts 的 token 打出交接也不能为新建 token 的 cardId 提供能力为空的可打出程序（effect.token 定义不携带 CardProgram）；需要把创建、每次打出的合法地点/费用及 440.2.c 的链处理接通。",
   abilities: [
     {
       kind: "play",

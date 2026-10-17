@@ -4,6 +4,11 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/last-caress.js";
 import buffInstructionDef from "../../../../engine-core/dist/effects/instructions/effect.buff.js";
+import locationInstruction from "../../../../engine-core/dist/effects/instructions/continuous.location.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { playLocations } from "../../../../engine-core/dist/layers/rules/query.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [speed, play] = program.abilities;
@@ -36,7 +41,9 @@ test("rad-154-167 Last Caress: judgeReason names the permission, delayed-op and 
   assert.match(program.judgeReason, /355\.2\.b/);
   assert.match(program.judgeReason, /801\.3\.a/);
   assert.match(program.judgeReason, /393/);
-  assert.match(program.judgeReason, /next/);
+  assert.match(program.judgeReason, /once-per-qualifying-event/);
+  assert.match(program.judgeReason, /playDestinationIsLegal/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120|RIFT-257|RIFT-260/);
 });
 
 test("rad-154-167 Last Caress: structure — Reaction keyword, play-location grant, delayed Buff", () => {
@@ -130,14 +137,50 @@ test("rad-154-167 Last Caress: a unit that already has a Buff is not buffed agai
 test.todo(
   "rad-154-167 Last Caress: 'The next unit you play this turn can be played to any battlefield' " +
     "needs a play-location permission created by the resolving spell (CR 355.2.b / 801.3.a) with a " +
-    "one-shot 'next unit' window; the merged continuous.location op records the permission but no " +
-    "Finalize placement consumer reads its names, and a static ability on the card would violate 393"
+    "one-shot 'next unit' window; the merged continuous.location op records the permission but " +
+    "chain/engine.ts playDestinationIsLegal reads only restriction names, and a static ability on the " +
+    "card would violate 393"
 );
 
 test.todo(
   "rad-154-167 Last Caress: 'When you play it, [Buff] it' needs a card-created delayed trigger " +
     "(CR 391.2 / 420.4.a) whose window is the single next qualifying unit play; ResolveContext." +
     "registerDelayedTrigger exists (contract 3.6) and chain/engine.ts registers delayed triggers, but " +
-    "effects/instructions/ has no card-facing op and TriggerSpec.once has no once-per-qualifying-event " +
-    "lifetime"
+    "effects/instructions/ registers no trigger.delayed op and TriggerSpec.once has no " +
+    "once-per-qualifying-event lifetime"
 );
+
+test("rad-154-167 Last Caress boundary: the recorded declarations cannot reach the merged schemas", () => {
+  // The printed effect needs a resolving-spell permission (355.2.b / 801.3.a).
+  // The recorded continuous.location declaration carries an `once` argument the
+  // merged op rejects, and trigger.delayed is not a registered instruction, so
+  // neither half can be bound as written.
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
+  assert.throws(
+    () => locationInstruction.argsSchema.parse(grantLocation.args),
+    /Invalid continuous\.location argument: once/
+  );
+  // The permission the op can record still has no consumer that widens a play
+  // destination: playDestinationIsLegal only looks at restriction names.
+  const kernel = world().unit("caster", { might: 3 }).unit("next-unit", { types: ["unit"] }).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`unexpected choice ${request.id}`); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  engine.layers.addContinuous({
+    id: "last-caress.probe-permission",
+    layer: "ability",
+    source: kernel.ref("next-unit"),
+    filter: { objectId: "next-unit", zoneEntryId: kernel.ref("next-unit").zoneEntryId },
+    effect: { kind: "location", permission: "any-battlefield" }
+  }, { type: "end-of-turn" });
+  assert.deepEqual(
+    playLocations(engine.layers.registry, kernel.ref("next-unit"), kernel.getObject("next-unit"), "A").permissions.map(entry => entry.name),
+    ["any-battlefield"]
+  );
+});

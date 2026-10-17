@@ -34,7 +34,7 @@ test("The Grand Plaza program validates and is judge-required", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /effect\.win/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /testTrigger/);
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -117,6 +117,6 @@ test.todo(
 
 test.todo(
   "The Grand Plaza hold trigger: the Beginning scoring step now emits the hold event " +
-    "(TurnFlow's Score wave), so the remaining gap is binding this CardProgram's triggered " +
-    "ability as a TriggerRegistration (RIFT-257) with the 053.3 'here' referent"
+    "(TurnFlow's Score wave), so the remaining gap is normalizing the 053.3 'here' referent " +
+    "and resolving the Battlefield controller before registration (RIFT-357)"
 );

@@ -22,8 +22,8 @@ import type { CardProgram } from "../../ir/index.js";
  * - 355.9 / 355.10 / 359.3.e.7：单个 “a friendly unit” 是被选目标，结算时目标失效则 ignored。
  *
  * status = judge-required（复核 2026-10-16；四处缺口均不近似实现）：
- * 1. 仍缺 [Empower] 关键词展开：effects/keywords/ 没有 Empower KeywordDef（RIFT-264~268 的
- *    关键词批次仍不含它），827.1.c.1 的启动费用与 “Use only if not Empowered” 限制都没有
+ * 1. 仍缺 [Empower] 关键词展开：effects/keywords/ 注册表当前没有 Empower KeywordDef，
+ *    827.1.c.1 的启动费用与 “Use only if not Empowered” 限制都没有
  *    可执行展开；按 README 第 5 节本卡只声明关键词，不手写展开。印刷费用里的 [A] 也无法在
  *    六域封闭 Domain 集合中表达（163.2.b；effect.resources 已记录「绝不用某个域近似」）。
  * 2. 仍缺「If it's your turn」的回合归属谓词：Condition / Expr / TriggerSpec 都没有
@@ -42,8 +42,8 @@ const rogueAssassin = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口：(1) 缺已合入的 [Empower] KeywordDef——effects/keywords/ 没有 Empower 展开" +
-    "（RIFT-264~268 关键词批次仍不含它），827.1.c.1 的「3 能量 + 1 [A]：Empower this。仅当未 Empowered 时启动」" +
+    "四处缺口：(1) 缺 [Empower] KeywordDef——effects/keywords/ 注册表当前没有 Empower 展开，" +
+    "827.1.c.1 的「3 能量 + 1 [A]：Empower this。仅当未 Empowered 时启动」" +
     "与 827.1.b.1 的「来源不是目标」都无执行路径；费用里的 :rb_rune_rainbow: 是任意域 Power [A]" +
     "（135.2.e.5.a、163.2.b），六域封闭 Domain 集合无法表达。" +
     "(2) 缺「If it's your turn」的回合归属谓词：Condition/Expr 没有 active-player / turn-owner 测试" +

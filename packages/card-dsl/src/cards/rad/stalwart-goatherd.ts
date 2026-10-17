@@ -18,14 +18,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - kill 是 429 的消灭动作，已合入 effect.kill 原语（429.1.a.1 的 Kill Instruction）。
  *   "Energy cost 4 or less" 的判定需要一个按印刷 Energy 费用筛选目标的求值器
  *   （ObjectSnapshot.energy 是印刷值，null = 无印刷值，CR 163.1/356.x）；
- *   ObjectFilter 没有该谓词，目标管线（target/target-plan.ts）只按 type/zone/location
- *   与调用方 isLegal 过滤，故选卡保持 judge-required，不把该条件近似成无条件消灭 gear。
- * - [Shield 2] 的 KeywordDef（RIFT-81 批的 keywords/Shield.ts）已注册，展开为
- *   static continuous.might，但它的 defender 判别式写的是
+ *   engine-core 里 energyLte 没有任何求值实现，而 programs/filters.ts 的
+ *   translateObjectFilter 白名单也不含它——绑定 "kill gear with Energy cost 4 or
+ *   less" 的目标约束会直接抛 judge-required，故选卡保持 judge-required，
+ *   不把该条件近似成无条件消灭 gear。
+ * - [Shield 2] 的 KeywordDef（RIFT-81 批的 keywords/Shield.ts）已注册并经
+ *   programs/keywords.ts / lifecycle / statics 接入生产绑定，展开为
+ *   static continuous.might；但它的 defender 判别式写的是
  *   object-property(self, "designation") 比较 "defender"，而合并的 ObjectSnapshot
- *   暴露的是 combatRole（无 designation 字段），且 layers/engine.ts 的
- *   conditionMatches 只认 kind: type/has-tag/has-keyword（未知 kind 一律返回 true）。
- *   把该展开原样注册进图层会让 +2 Might 对攻方与场外对象同样生效，故不据此宣称可执行。
+ *   只暴露 combatRole（无 designation 字段）。解释器表达式求值返回
+ *   MissingInformation，bindStaticToLayers 的条件包装捕获异常后恒返回 false，
+ *   +2 Might 永不生效。该判别式属 engine-core 的 keywords/Shield.ts（范围外）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "shield", value: 2 },
@@ -74,15 +77,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处缺口：(1)「a gear with Energy cost :rb_energy_4: or less」的目标筛选没有求值器：ObjectFilter 没有" +
-    "印刷 Energy 费用的谓词（ObjectSnapshot.energy 是印刷值，null = 无印刷值，CR 163.1/356.x 不得当 0），" +
-    "target/target-plan.ts 只按 type/zone/location 与调用方 isLegal 过滤，故不能安全地挑出该 gear，" +
-    "不用无条件消灭 gear 近似。(2) [Shield 2] 的 KeywordDef 已合入（RIFT-81），但其展开的判别式写 " +
-    "object-property(self, \"designation\") == \"defender\"，而合并的 ObjectSnapshot 只暴露 combatRole，" +
-    "且 layers/engine.ts 的 conditionMatches 只识别 kind: type/has-tag/has-keyword（未知 kind 返回 true），" +
-    "原样注册会让 +2 Might 对攻方与场外对象同样生效。" +
-    "kill 原语（effect.kill）与 383.3.a 的可选结构（choice.optional，契约 3.9）已合入并由 golden 真实执行。" +
-    "依赖：目标限制的印刷费用求值器、图层条件的 combatRole/designation 谓词（RIFT-91 范围）。",
+    "两处缺口：(1)「a gear with Energy cost :rb_energy_4: or less」的筛选没有求值器：engine-core 全部源码里 " +
+    "energyLte 没有任何求值实现（ObjectSnapshot.energy 是印刷值，null = 无印刷值，CR 163.1/356.x 不得当 0），" +
+    "且 programs/filters.ts 的 translateObjectFilter 白名单不含该键、绑定该目标约束实测抛 " +
+    "Unsupported filter field energyLte（judge-required），故不能安全地挑出该 gear，" +
+    "不用无条件消灭 gear 近似。(2) [Shield 2] 的 KeywordDef 已合入并经 programs/keywords.ts → " +
+    "lifecycle/statics 接入生产绑定，但其展开的判别式写 object-property(self, \"designation\") == \"defender\"，" +
+    "而合并的 ObjectSnapshot 只暴露 combatRole：解释器求值返回 MissingInformation，" +
+    "bindStaticToLayers 的条件包装捕获异常后恒返回 false，+2 Might 永不生效；" +
+    "该判别式属 engine-core 的 keywords/Shield.ts（范围外）。" +
+    "kill 原语（effect.kill）与 383.3.a 的可选结构（choice.optional，契约 3.9）已合入并由 golden 真实执行。",
   abilities,
   sourceText:
     "[Shield 2] (+2 :rb_might: while I'm a defender.)\n" +

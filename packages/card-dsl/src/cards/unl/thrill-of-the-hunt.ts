@@ -23,13 +23,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   置零（356.6 的 0 下限、356.1.b.3 保留后续附加费用）。
  *
  * status = judge-required（不近似实现，与 ogn/portal-rescue 同一缺口）：
- * 1. "ignoring its cost" 缺费用改写生产者：已合入的 effect.play 明确要求 cost 参数是
- *    费用系统产出、已 Finalize 的 FinalizedCostPlan，它不推导印刷费用、也不实现忽略
- *    费用规则，因此按印刷费用打出会错误（依赖 RIFT-89）。
+ * 1. "ignoring its cost" 缺费用改写生产者：cost.modify + ignoreAllCosts（356.5 总改写）
+ *    已合入，但 effect.play 仍明确要求 cost 参数是费用系统产出、已 Finalize 的
+ *    FinalizedCostPlan；没有已合入通路把本指令的描述性 cost.modify 计划冻结成
+ *    finalized plan 喂给 effect.play，按印刷费用打出会错误（进行中，见 judgeReason）。
  * 2. "to any battlefield" 缺运行期 Location 选择器：契约 3.6 的 ObjectSelector 只有
  *    self/source/target/pick/linked，effect.play 的 location 只接受 base/battlefield
  *    字面量，本卡保留描述性目的地标记，解释器会拒绝该形状（fail-closed）而不是落到
- *    错误地点（依赖 RIFT-90 / RIFT-91）。
+ *    错误地点（进行中，见 judgeReason）。
  * 3. 打出者是"its owner"：程序用 banish 目标的最后已知 owner 表达（359.3.e.13），
  *    该表达式本身已可求值，但只有第 1、2 点解决后才能整卡执行。
  */
@@ -46,8 +47,8 @@ export default {
   status: "judge-required",
   judgeReason:
     "两处依赖未合入，均不近似实现：(1) “ignoring its cost” 缺费用改写生产者：CR 356.1.b / 356.1.b.1 把该牌的基础 Energy 与基础 Power 费用置零" +
-    "（356.6 的 0 下限、356.1.b.3 保留后续附加费用），而冻结的 CostSpec 没有 ignore/替代费用字段，已合入的 effect.play 明确要求 cost 参数是" +
-    "费用系统产出、已 Finalize 的 FinalizedCostPlan，它不推导印刷费用、也不实现忽略费用规则（依赖 RIFT-89）。" +
+    "（356.6 的 0 下限、356.1.b.3 保留后续附加费用）；cost.modify 原语与 ignoreAllCosts（356.5 总改写）已合入，但 effect.play 仍明确要求 cost 参数是" +
+    "费用系统产出、已 Finalize 的 FinalizedCostPlan，没有已合入通路把本指令的描述性 cost.modify 计划冻结成 finalized plan 喂给 effect.play（进行中）。" +
     "(2) “to any battlefield” 是运行期 Location 选择（355.4 / 355.4.a）：合并 IR 没有运行期 Location 选择器，effect.play 的 location 只接受 " +
     "base/battlefield 字面量，本卡只保留描述性目的地标记，解释器会拒绝这个形状而不是把单位放到错误地点（依赖 RIFT-90 / RIFT-91）。" +
     "banish 半段（effect.banish，428.1）与打出者 “its owner” 的最后已知读取（359.3.e.13）可用，golden 真实执行 banish 并断言 play 半段按 fail-closed 被否定。",

@@ -16,7 +16,8 @@ test("ogn-036-298 Vi, Destructive: program validates and is judge-required", () 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /continuous\.movement/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /permission\.routes|pick\/choice|Trash/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-261/);
 });
 
 test("ogn-036-298 Vi, Destructive: identity, ruleset and exact source text", () => {
@@ -139,10 +140,11 @@ test("ogn-036-298 Vi, Destructive golden: the Recycle 1 from trash cost is charg
 
 test.todo(
   "ogn-036-298 Vi, Destructive: pay the 'Recycle 1 from your trash' cost through buildCostPlan/payCostPlan " +
-    "from the card's own static cost — the printed options placeholder cannot name the runtime trash cards " +
-    "(RIFT-261 cost-choice enumeration); the plan itself is golden-backed with the Finalize-time candidates."
+    "from the card's own static cost through production activation Finalize — the printed options placeholder " +
+    "cannot name the runtime trash cards; the plan itself is golden-backed with Finalize-time candidates."
 );
 test.todo(
-  "ogn-036-298 Vi, Destructive: the granted [Ganking] movement permission needs a production consumer in " +
-    "the Standard Move legality check (duel/movement.ts takes an external deriveGanking callback)."
+  "ogn-036-298 Vi, Destructive: adapt the merged Ganking expansion's string permission to the " +
+    "permission.routes shape consumed by layers/rules/query.ts, then prove Standard Move accepts " +
+    "battlefield-to-battlefield movement through that registered route."
 );

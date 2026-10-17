@@ -7,6 +7,11 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // card-dsl has no dependency edge on engine-core (engine-core depends on
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { isTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 // resolveChainBody is the production card-body entry point
 // (chain/engine.ts resolveChainBody(item.body, context)); it wraps primitive arg
@@ -38,12 +43,12 @@ test("sfd-169-221 Altar of Memories: identity, ruleset, status, judgeReason and 
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // README section 2: the reason names the missing trigger registration and the
-  // missing base-cost payment, each with its current dependency.
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /429\.1/);
+  // README section 2: the remaining gap is the trigger base cost at Finalize,
+  // including the CardProgram declaration and its locked payment plan.
+  assert.match(program.judgeReason, /programs\/triggers\.ts/);
+  assert.match(program.judgeReason, /Finalize/);
   assert.match(program.judgeReason, /383\.3\.b/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /TriggeredAbility/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -176,12 +181,40 @@ test("sfd-169-221 Altar of Memories golden: the chosen hand card goes to the bot
 });
 
 test.todo(
-  "sfd-169-221 Altar of Memories: the \"When a friendly unit dies\" trigger needs the " +
-    "card-program -> TriggerRegistration producer (contract 3.5, RIFT-257) before it can fire; " +
-    "the object-killed timing point itself is already emitted by the kill action adapter (429.1)."
+  "Altar of Memories: register and finalize the friendly-death ability with its exhaust base cost (429.1/383.3.b.1); trigger translation already works"
 );
 test.todo(
-  "sfd-169-221 Altar of Memories: paying \"exhaust me\" as the trigger's base cost (CR 383.3.b/" +
-    "383.3.b.1) needs a cost field on TriggeredAbility or a merged cost.pay primitive plus the " +
-    "finalize payment pipeline (RIFT-261)."
+  "Altar of Memories: carry CardProgram trigger cost into the existing TriggerRegistration.cost and Finalize transaction (383.3.b.1/415.4/415.5)"
 );
+
+
+test("Altar of Memories: the merged trigger translator preserves friendly-death filtering", () => {
+  const translated = translateTriggerFilter(ability.trigger.filter, "altar", ability.trigger.at);
+  assert.deepEqual(translated, { event: "object-killed", object: { type: "unit", controller: "self" } });
+  assert.equal(isTriggerSpec({ at: ability.trigger.at, filter: translated }), true);
+});
+
+test("Altar of Memories: a locked exhaust plan pays through cost.pay, while an exhausted source cannot pay", () => {
+  for (const exhausted of [false, true]) {
+    const base = world().unit("altar", { types: ["gear"], exhausted }).deck(["top", "bottom"]).build();
+    const kernel = base.clone({ sourceSnapshot: base.getObject("altar") });
+    const plan = buildCostPlan(kernel, {
+      id: "altar.exhaust", cost: { kind: "activated", payments: payExhaust.args.payments.value }
+    });
+    if (exhausted) {
+      const before = kernel.snapshot();
+      assert.throws(() => runInstruction(costPay, { cost: { kind: "constant", value: plan } }, { world: kernel }),
+        error => error.reason === "cannot-pay-cost");
+      assert.deepEqual(kernel.snapshot(), before);
+      assert.deepEqual(kernel.events, []);
+    } else {
+      const run = runInstruction(costPay, { cost: { kind: "constant", value: plan } }, { world: kernel });
+      assert.equal(run.result.status, "executed");
+      assert.equal(run.linked.payment.paid, true);
+      assert.deepEqual(run.linked.payment.actions.map(entry => entry.action.type), ["pay", "exhaust"]);
+      assert.equal(kernel.getObject("altar").exhausted, true);
+      assert.equal(kernel.player("A").handSize, 0);
+      assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["top", "bottom"]);
+    }
+  }
+});

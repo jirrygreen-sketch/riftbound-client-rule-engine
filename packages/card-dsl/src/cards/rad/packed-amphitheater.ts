@@ -20,49 +20,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   740.1.a: this includes attackers (Combat does not remove the unit from the
  *   location).
  *
- * Status (cards/README.md §2): judge-required (2026-10-17 recheck). The merged
- * layers engine really performs the arithmetic (the golden test evaluates
- * continuous.might with mode add and observes Might 3 → 4, and a same-location
- * probe confirms the "here" anchor is ignored), but the card is not executable
- * because its ability can never be registered as written:
- * 1. no merged path turns a CardProgram's static ability into a
- *    ContinuousEffectSpec registered with LayerEngine: registerContinuousEffect /
- *    LayerEngine.addContinuous have no caller that reads a card program, and
- *    engine-core never reads card-program abilities (the same gap sfd/rumble-
- *    scrapper and ogn/trifarian-war-camp record). A card file cannot register its
- *    own effect at runtime (RIFT-91 follow-up).
- * 2. the "here" scope anchor is not honored by the merged object filter:
- *    layers/filter.ts matchesObjectFilter implements objectId/cardId/type/zone/
- *    location/controller/owner/state/tags/characteristics but no sameLocationAs,
- *    so the declared filter would add +1 Might to Champion units at every
- *    Battlefield. The golden test demonstrates exactly that over-application,
- *    which is why the card must not be marked executable.
- * 3. the Champion predicate depends on the object's traits carrying the
- *    Champion marker (133.7.a); the catalog knows the printing kind, but no
- *    merged snapshot producer is proven to put it into ObjectSnapshot.types for
- *    a unit on the board (the game/lifecycle.ts path only tags legend/champion
- *    tokens for the Legend/Champion Zone).
- * Dependencies: the RIFT-91 follow-up that registers card-program static
- * abilities and implements the sameLocationAs/here filter anchor, plus the
- * champion-marker trait mapping.
+ * Status (cards/README.md §2): executable (2026-10-17 recheck). The merged
+ * program lifecycle binds static card abilities into LayerEngine, resolves the
+ * sameLocationAs anchor relative to the source, and board snapshots carry the
+ * Champion supertype. The golden exercises the production binding path and
+ * verifies same-location and Champion filtering.
  */
 export default {
   canonicalCardId: "card.hash-7e95acea2b29696bcdb29e7def854dacdbb55f72f5160fb4bc3e9c872950af6e",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "2026-10-17 复核后仍有三处缺口，均不近似实现：" +
-    "(1) 没有已合入路径把 CardProgram 的 static 能力注册成 layers/LayerEngine 的 ContinuousEffectSpec：" +
-    "registerContinuousEffect / LayerEngine.addContinuous 没有读取卡牌程序的调用方，engine-core 源码从不读取卡牌程序能力，" +
-    "卡牌文件无法在运行时自行注册（同 sfd/rumble-scrapper、ogn/trifarian-war-camp；RIFT-91 后续）。" +
-    "(2) 「here」锚点未被已合入过滤器支持：layers/filter.ts 的 matchesObjectFilter 实现了 " +
-    "objectId/cardId/type/zone/location/controller/owner/state/tags/characteristics，但没有 sameLocationAs，" +
-    "声明中的 filter 会把 +1 Might 加到所有战场上的 Champion 单位（golden 用真实 LayerEngine 复现了这一过度应用）。" +
-    "(3) Champion 谓词依赖对象特征携带 Champion 标记（133.7.a）：目录与服务器 trusted type resolver 知道印刷类型，" +
-    "但没有任何已合入快照生产者被证明把该标记写进 Board 单位的 ObjectSnapshot.types（game/lifecycle.ts 只为 " +
-    "Legend/Champion Zone 的 token 打 legend/champion 标记）。" +
-    "层算术本身已合入（479.4 arithmetic 层、479.4.e.1 正增加先算），golden 已真实执行 Might 3→4；" +
-    "依赖：RIFT-91 后续的卡牌 static 注册与 sameLocationAs/here 过滤器锚点、champion 标记特征映射。不近似实现。",
+  status: "executable" as const,
   sourceText: "Champion units here have +1 :rb_might:.",
   abilities: [
     {

@@ -40,8 +40,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   placeholder string (test-kernel.ts matchesFilter) and does not resolve
  *   `self`/`controller`; only the ChainEngine's ResolveContext query normalizes
  *   them, and trigger conditions do not go through that query.
- * - no merged consumer binds a CardProgram's triggered ability into a
- *   TriggerRegistration at all (RIFT-257 card-program binding).
+ * - the production trigger body translator still rejects the self-anchored
+ *   target filter (`filter.object: "self"`), so the buff target cannot yet be
+ *   bound through the production trigger path even though TriggerRegistration
+ *   binding itself is present.
  * Not approximated: counting every Poro on the board (including the opponent's)
  * would implement a different ability than the printed "you control a Poro".
  */
@@ -53,8 +55,8 @@ export default {
     "触发条件求值链未接通：「if you control a Poro」按 383.2.a.1 属触发条件（进链前判定），但 (1) 合入的事件管线对带 condition 的触发要求宿主提供 " +
     "testTrigger 适配器（events/pipeline.ts 抛 Trigger condition adapter required），只有 engine-core 的测试 helper（test/chain/helpers.mjs、test/turn/helpers.mjs）安装它，" +
     "生产/服务端没有任何实现；(2) 条件里 count 过滤器的控制者占位符（controller/self）在该路径上没有解析方——参考内核 matchesFilter 按原样比较字符串，" +
-    "只有 ChainEngine 的 ResolveContext query 会归一化占位符，而触发条件不经过这条 query；(3) 没有任何已合入消费方把 CardProgram 的 triggered 能力绑定成 " +
-    "TriggerRegistration（RIFT-257）。依赖：RIFT-257（卡牌触发绑定）与生产侧触发条件适配器/占位符解析。" +
+    "只有 ChainEngine 的 ResolveContext query 会归一化占位符，而触发条件不经过这条 query；(3) 生产触发体翻译器拒绝 buff 目标的 " +
+    "filter.object: \"self\"，因此自身目标还不能绑定到生产 TriggerRegistration。依赖：生产侧触发条件适配器、占位符解析与自指目标过滤翻译。" +
     "不近似实现——把场上任意 Poro（含对手的）都算作条件满足会实现成另一张卡。" +
     "buff me 与 draw 1 本体（effect.buff、effect.draw）已合入并在 golden 中真实执行。",
   abilities: [

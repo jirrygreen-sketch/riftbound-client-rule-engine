@@ -17,21 +17,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   the cost-payment event with the printed substitute cost 1 energy;
  * - the second sentence is an activated ability at action speed: cost = 1
  *   energy + exhaust this legend; "a Teemo unit you own" is a target
- *   restricted by owner/controller/tag ("Teemo", CR 143.1 tags), drawn from
+ *   restricted by owner/tag ("Teemo", CR 143.1 tags), drawn from
  *   the Champion Zone or the Board (CR 355.9.a.5: "unit in the Champion Zone"
  *   refers to a unit in the Champion Zone; 355.9.a.1: "unit" otherwise means a
  *   Board unit). "Put ... into your hand" is the return-to-hand game action.
  *
- * Status: judge-required:
- * - the Hide-cost replacement needs a replacement hook over cost payment: the
- *   merged RIFT-260 binding matches closed GameAction events (move-zone, kill,
- *   ready, damage, play, reveal...), and neither the EventPattern vocabulary nor
- *   the closed GameAction set has a cost-payment/hide action (CR 422.1), so the
- *   substitute cost cannot be enforced and the ability stays declarative;
- * - the return instruction needs a zone-set target (Champion Zone + Board is
- *   not one of the Zones named in the contract's ZoneId; CR 108.3 Champion
- *   Zones are distinct) — the march of Champion-zone support belongs to the
- *   parent contract; nothing is approximated.
+ * Status: judge-required.
+ * cost.pay can pay the printed substitute of one energy. GameAction already
+ * includes pay, but replacement/pattern.ts does not match a Hide-cost payment
+ * and there is no complete Hide action/facedown lifecycle.
+ * Returning an owned Teemo from the board works, including owner hand routing;
+ * the Champion Zone is still absent from ZoneId/ObjectFilter.zone.
  */
 const program = {
   canonicalCardId:
@@ -39,10 +35,11 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "第一句是 Hide 费用的替代改写（CR 811.1.b/c：Hidden 卡的 Hide 印刷费为 [A]，本卡允许改付 1 能量）：需要能拦截“支付 Hide 费用”的替代钩子；" +
-    "RIFT-260 的替代绑定只匹配封闭 GameAction 事件（move-zone/kill/ready/damage/play/reveal 等），EventPattern 与 GameAction 集合都没有费用支付/Hide 动作（CR 422.1），因此替代费用无法强制执行，只能保留声明。" +
-    "第二句需要“Champion Zone 或 Board”的跨区域目标集合：契约 ZoneId 与 ObjectFilter.zone 均无 Champion Zone（CR 108.3），effect.zone 只按 target/pick 的单一目的地结算；champion 区域与 owner 路由是契约缺口，不近似实现。" +
-    "依赖：费用支付时点的替代接入（RIFT-260 后续）、Hide 行动与 Champion Zone 的契约扩展（见回复的契约变更请求）。",
+    "Hide 费用替代仍缺拦截入口（CR 811.1.b/c）：GameAction 已有 pay，cost.pay 也能支付 1 能量，cost/kinds/hidden.ts " +
+    "可规划 Hide 费用；但 replacement/pattern.ts 不接受 pay/hide/cost-payment 匹配，没有完整 Hide 行动与 " +
+    "facedown 生命周期，故无法把该支付接入本卡的可选替代。第二句仍缺 Champion Zone（108.3/355.9.a.5）：ZoneId 与 " +
+    "ObjectFilter.zone 无此区域，当前目标声明只覆盖 board。effect.zone 的 owner 手牌路由与 board 返回半段已可执行；不近似实现 " +
+    "Champion Zone 或 Hide。",
   abilities: [
     {
       kind: "replacement",
@@ -62,7 +59,7 @@ const program = {
         {
           id: "swift-scout.substitute-hide-cost",
           op: "cost.pay",
-          args: { energy: { kind: "constant", value: 1 } }
+          args: { payments: { kind: "constant", value: { energy: 1 } } }
         }
       ]
     },

@@ -25,7 +25,7 @@
  *   "Unsupported payment kind: equip"）；该形状连 818.1.c.3 的 1 energy 部分都表达不了。
  * - 印刷的 1 energy + 1 Fury Power 也还没有从 KeywordAbility 流到 expand 的 params.cost 的调用方
  *   （programs/keywords.ts 的 expandProgram 只传 value/host）。
- * 依赖：RIFT-261（cost.pay / cost.modify 与 Equip 费用计划接线，含混合费用）。不近似实现。
+ * 依赖：Equip 支付种类的费用管线支持（含混合费用）。不近似实现。
  */
 export default {
   canonicalCardId: "card.hash-63dae663a2ca549dc4704d2814cdc3b2eea4a26845d09029e88d2c8df6ee0013",
@@ -38,8 +38,7 @@ export default {
     "展开体末步 effect.attach 也真实执行。费用管线 cost/plan-values.ts 的 readCost 仍对未知支付种类直接 blocked —— " +
     "golden 实测 buildCostPlan 抛 CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"），" +
     "该形状连 1 energy 部分都表达不了；同时印刷费用还没有从 KeywordAbility 流到 expand 的 params.cost 的调用方" +
-    "（programs/keywords.ts 只传 value/host）。依赖：进行中的 RIFT-261（cost.pay / cost.modify 与含混合费用的 " +
-    "Equip 费用计划接线）。不近似实现。",
+    "（programs/keywords.ts 只传 value/host）。依赖：Equip 支付种类的费用管线支持（含混合费用）。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "equip", value: 1, costDomain: "Fury" }
   ],

@@ -33,7 +33,7 @@ test("ven-010-166 Consuming Curse: identity, ruleset, status, judgeReason and ve
   assert.match(program.judgeReason, /132/);
   assert.match(program.judgeReason, /name/);
   assert.match(program.judgeReason, /713|Bonus Damage/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-91/);
 });
 
 test("ven-010-166 Consuming Curse: [Action] keyword, energy-only cost and one 2-damage instruction", () => {
@@ -118,5 +118,5 @@ test("ven-010-166 Consuming Curse boundary: a replaced deal grants no Bonus Dama
 test.todo(
   "ven-010-166 Consuming Curse: count the controller's trash by the CR 132 card name (132.3: different " +
     "printings/languages share the name) and feed 1 Bonus Damage per such card into this Deal action — the " +
-    "merged filter vocabulary has no name predicate and no Bonus Damage grant consumer (RIFT-91)"
+    "merged filter vocabulary has no name predicate and no Bonus Damage grant consumer"
 );

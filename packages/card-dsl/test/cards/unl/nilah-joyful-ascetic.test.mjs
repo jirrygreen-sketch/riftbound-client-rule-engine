@@ -38,9 +38,7 @@ test("unl-115-219 Nilah, Joyful Ascetic: identity, status, judgeReason and verba
   // 449.2 / 458.1: the Standard Move route and the Recall exclusion.
   assert.match(program.judgeReason, /449\.2/);
   assert.match(program.judgeReason, /458\.1/);
-  // The stale "no TriggerRegistration adapter" gap is gone (RIFT-257).
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-259/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.doesNotMatch(program.judgeReason, /另缺 CardProgram/);
 });
@@ -111,22 +109,16 @@ test("unl-115-219 Nilah, Joyful Ascetic golden: a replaced gain is negated and n
 
 test.todo(
   "unl-115-219 Nilah, Joyful Ascetic: [Accelerate] charges [1][C] at Finalize and replaces the exhausted entry " +
-    "(CR 805.1.b, 805.2.b, 805.6) — the merged keyword expansion is not consumed by the card-program -> cost-plan wiring " +
-    "(programs/play.ts rejects additional-cost fields)"
-);
-test.todo(
-  "unl-115-219 Nilah, Joyful Ascetic: [Ganking] grants the battlefield-to-battlefield Standard Move permission " +
-    "(CR 810.1.c) — movement() is merged but has no movement-system caller, and the object-moved payload must carry the " +
-    "from/to locations and exclude Recalls (449.1/449.2/458.1)"
+    "(CR 805.1.b, 805.2.b, 805.6) by feeding the merged keyword expansion into the CardProgram cost plan"
 );
 
 test.todo(
   "unl-115-219 Nilah, Joyful Ascetic: register the 'When I move' subscription (CR 421.1/449.1) — the move " +
-    "payload needs the object-moved timing in the closed EventPattern vocabulary of events/trigger-spec.ts, " +
-    "its from/to location fields and the 458.1 Recall exclusion"
+    "payload needs the object-moved timing in the closed EventPattern vocabulary, its from/to location fields, " +
+    "and the 458.1 Recall exclusion"
 );
 
-test("unl-115-219 Nilah, Joyful Ascetic golden: the merged Ganking expansion really registers the movement permission, but nothing reads it", () => {
+test("unl-115-219 Nilah, Joyful Ascetic golden: the merged Ganking expansion registers a movement permission consumed by Standard Move", () => {
   const gankingDef = keywordDefinitionsById.get("Ganking");
   assert.ok(gankingDef, "the merged Ganking KeywordDef is registered (CR 810)");
   assert.equal(gankingDef.stacking, "single");
@@ -147,9 +139,8 @@ test("unl-115-219 Nilah, Joyful Ascetic golden: the merged Ganking expansion rea
       move: { kind: "constant", value: expansion.effect.move },
       addsPermission: { kind: "constant", value: expansion.effect.addsPermission },
       // The instruction binds its affected object through a TargetSpec
-      // (registration.ts's bindTarget); the declarative expansion's "self"
-      // spelling is resolved by the caller, which is exactly the plumbing that
-      // has no consumer today.
+      // registration.ts's bindTarget resolves the declarative expansion's "self"
+      // spelling through the caller.
       target: { kind: "constant", value: "nilah-movement" }
     }
   }], context);
@@ -159,6 +150,6 @@ test("unl-115-219 Nilah, Joyful Ascetic golden: the merged Ganking expansion rea
   // 810.1.b / 144.4.c.1: the battlefield-to-battlefield Standard Move route.
   assert.equal(query.canGank, true);
   assert.equal(query.battlefieldToBattlefield, true);
-  // The gap is that no movement system calls this query (grep: zero callers).
+  // Standard Move reads this query through moveDuelUnitsStandard.
   assert.equal(query.permissions.length, 1);
 });

@@ -67,7 +67,6 @@ test("rad-019-167 Firebrand Raider: program validates and has expected identity"
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /continuous\.restrict/);
   // The merged entry replacement must not still be described as unmerged.
   assert.doesNotMatch(program.judgeReason, /replacement\.enter 管线未合入/);
@@ -219,10 +218,8 @@ test("rad-019-167: 'ready all enemy units' readies only opponents' units", () =>
 });
 
 test("rad-019-167: the Awaken prohibition is legal IR and readable by the rules query", () => {
-  // The declared static effect cannot register itself (no CardProgram -> layer
-  // registration path), so the golden drives the same declared shape through a
-  // registration the merged engine accepts, proving the prohibition is legal IR
-  // and readable; the turn flow consuming it is still missing (todo below).
+  // Drive the declared shape through the merged rules query. The turn flow's
+  // Awaken ready task still needs to consume this prohibition (todo below).
   const kernel = world().unit("unit", { exhausted: true }).build();
   const registry = new ContinuousEffectRegistry();
   registry.register(
@@ -247,11 +244,11 @@ test("rad-019-167: the Awaken prohibition is legal IR and readable by the rules 
 test.todo(
   "rad-019-167 Firebrand Raider: 'Other units enter ready' (365.1) needs a replacement body that can name the " +
     "replaced event's object; the binder only exposes replacement.object inside a replacement.event body, and " +
-    "the IR cannot express that body's instead form (an instruction array) — RIFT-257 card-program binding"
+    "the IR cannot express that body's instead form (an instruction array)"
 );
 test.todo(
   "rad-019-167 Firebrand Raider: 'Units don't ready during the Awaken Phase' (315.1.b) must be consumed by the " +
     "Awaken ready flow through the registered continuous.restrict prohibition; the turn flow currently readies " +
-    "every exhausted permanent without consulting the layers rules — RIFT-257 registration + turn wiring"
+    "every exhausted permanent without consulting the layers rules"
 );
 

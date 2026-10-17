@@ -21,7 +21,7 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status = judge-required：费用门槛（“costs [5] or more”）仍没有已合入的求值路径——
  * 管线的 TriggerRegistration/PipelineEvent 不携带被打出牌的印刷费用或费用计划，
- * 也没有 "cost-gte" 型谓词过滤器（RIFT-258/259 的持续效果指令不覆盖费用读值）。
+ * 也没有 "cost-gte" 型谓词过滤器（现有持续效果指令不覆盖费用读值）。
  * 触发结构（card-played + 主体 effect.draw）都可执行；但不能在没有费用信息时把门槛
  * 近似成“任意法术”，因此整卡保持 judge-required，golden 只执行已支持的部分
  * （见 judgeReason 与 test.todo）。
@@ -35,15 +35,14 @@ const ladyOfLuminosityStarter = {
     "费用门槛「costs :rb_energy_5: or more」仍无法求值：触发过滤器的封闭形状（契约 3.5、" +
     "events/trigger-spec.ts 的 ObjectFilter / EventPattern）只按对象特征、区域、事件载荷与" +
     "amount/details 过滤，PipelineEvent（pipeline-types.ts）不带被打出牌的印刷费用或费用计划，" +
-    "也没有 206 所要求的「印刷/复制费用 ≥ 5 Energy」谓词（RIFT-258/259 合入的持续效果指令" +
+    "也没有 206 所要求的「印刷/复制费用 ≥ 5 Energy」谓词（现有持续效果指令" +
     "不覆盖费用读值；sfd/sunken-temple.ts 与 sfd/show-of-strength.ts 记录同一判定）。" +
     "触发时点 card-played（chain/engine.ts 已 emit）与效果 effect.draw 都已合入，" +
     "但在拿不到费用时把门槛放宽成「任意法术」就是近似实现，按红线不做。" +
-    "另有两点非本卡 write scope 的接线缺口：没有任何生产方把卡牌程序的 triggered " +
-    "能力注册为管线 registration（契约 3.5；RIFT-257 的 card-program adapter）；Legend " +
-    "的来源区域是 Legend Zone（CR 107.4.c），契约 ZoneId 与参考内核都没有该区域" +
+    "另有一处非本卡 write scope 的接线缺口：Legend 的来源区域是 Legend Zone（CR 107.4.c），" +
+    "当前契约 ZoneId 与参考内核都没有该区域" +
     "（默认 activeZones 为 ['board']）。" +
-    "依赖：206 的印刷费用谓词（cost-gte / condition.value）、RIFT-257 卡牌触发注册消费者。" +
+    "依赖：206 的印刷费用谓词（cost-gte / condition.value）与 Legend Zone 契约。" +
     "不近似实现。",
   abilities: [
     {

@@ -8,6 +8,8 @@ const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { buildCostPlan } = await import(new URL("cost/cost-plan.js", ENGINE));
 const { payCostPlan } = await import(new URL("cost/payment.js", ENGINE));
 const { world } = await import(new URL("effects/testing/index.js", ENGINE));
+const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", ENGINE));
+const { createLayerEngine } = await import(new URL("layers/index.js", ENGINE));
 
 const CANONICAL_ID =
   "card.hash-507e1a3735db5fb2eaf2f03eb1f87ec27cf10682ba26b203f5b753db41e3eb00";
@@ -25,7 +27,6 @@ test("unl-138-219 The List: program passes validateCardProgram", () => {
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
 });
-
 test("unl-138-219 The List: identity, ruleset, status, judgeReason and verbatim sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
@@ -37,6 +38,7 @@ test("unl-138-219 The List: identity, ruleset, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /namedTag/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /setTargets/);
   assert.match(program.judgeReason, /702/);
   assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
@@ -71,8 +73,9 @@ test("unl-138-219 The List: the activated ability is action-speed, exhausts itse
   assert.equal(activated.body.length, 1);
   assert.equal(giveMight.id, "the-list.give-minus-2-might");
   // 143.2.a / 315.4 / 475-477: a temporary arithmetic Might modification, never a
-  // Buff counter (702 / 703 is a different game object). No merged primitive
-  // consumes this op yet (see judgeReason point 3).
+  // Buff counter (702 / 703 is a different game object). The merged
+  // continuous.might primitive registers it in the arithmetic layer (see
+  // judgeReason point 3); the named-tag restriction still has no consumer.
   assert.equal(giveMight.op, "continuous.might");
   assert.deepEqual(giveMight.args.amount, { kind: "constant", value: -2 });
   assert.deepEqual(giveMight.args.duration, { kind: "constant", value: "end-of-turn" });
@@ -112,6 +115,37 @@ test("unl-138-219 The List golden: the exhaust cost is payable through the merge
   assert.equal(context.getObject("the-list").exhausted, true);
 });
 
+test("unl-138-219 The List golden: continuous.might registers the -2 Might modification on the locked target", () => {
+  const kernel = world()
+    .unit("the-list", { types: ["gear"], zone: "board", location: { type: "base", player: "A" }, controller: "A", owner: "A" })
+    .unit("target-unit", { zone: "board", controller: "A", owner: "A", might: 4, tags: ["Poro"] })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("the-list") });
+  // The named-tag restriction has no consumer yet (judgeReason point 2), so the
+  // executable half of this ability is covered with the Finalize-locked target:
+  // the same setTargets path a real target lock would feed.
+  context.setTargets("the-list.unit", [kernel.ref("target-unit")]);
+  const outcome = resolveChainBody(activated.body, context);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map(entry => [entry.id, entry.result.status]),
+    [["the-list.give-minus-2-might", "executed"]]
+  );
+  assert.equal(context.continuousEffects.length, 1);
+  const [registration] = context.continuousEffects;
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, -2);
+  assert.equal(registration.duration.type, "end-of-turn");
+  assert.deepEqual(registration.effect.filter.objectId, "target-unit");
+  const engine = createLayerEngine(
+    context.objects,
+    context.continuousEffects.map(entry => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 }))
+  );
+  const snapshot = engine.evaluate(kernel.ref("target-unit"));
+  assert.equal(snapshot.might, 2);
+});
+
 test.todo(
   "unl-138-219 The List: add the 'name a tag' choice op (CR 355.1 / 763 / 763.1) — no name / choose-name " +
     "primitive exists in contract 3.1 / 3.9 or in the merged op set (contract change request)"
@@ -119,9 +153,4 @@ test.todo(
 test.todo(
   "unl-138-219 The List: evaluate 'the named tag' on a target (CR 355.9.b) — ObjectFilter is a static " +
     "conjunction and Condition only compares scalars, so the runtime-named tag cannot restrict the target yet"
-);
-test.todo(
-  "unl-138-219 The List: apply -2 Might for this turn through the arithmetic layer with end-of-turn expiry " +
-    "(CR 143.2.a / 315.4 / 475-477) — no continuous.might instruction is merged (RIFT-91), and a Buff counter " +
-    "would be a different game object (702 / 703)"
 );

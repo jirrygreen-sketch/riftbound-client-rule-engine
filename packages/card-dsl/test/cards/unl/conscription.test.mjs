@@ -51,7 +51,7 @@ test("unl-140-219 Conscription: program validates and keeps its identity", () =>
   assert.match(program.judgeReason, /recall/);
   // Cost primitives and XP payment are merged; the remaining gap is the
   // CardProgram-to-Finalize wiring, while the Might ceiling still fails closed.
-  assert.match(program.judgeReason, /RIFT-349/);
+  assert.match(program.judgeReason, /programs\/play\.ts/);
   assert.match(program.judgeReason, /translateObjectFilter/);
 });
 
@@ -237,7 +237,7 @@ test("unl-140-219 Conscription golden: the merged cost plan really charges the c
 test.todo(
   "unl-140-219 Conscription: charge the optional 5 XP additional cost at Finalize and switch the target range " +
     "when it was paid (CR 356.2.b/356.2.b.1 payment, 356.4.f.1 paid receipt) — needs the CardProgram-to-Finalize " +
-    "wiring (RIFT-349 follow-up) and a cost-result binding, which the frozen IR has no expression for (condition.result)"
+    "wiring and a cost-result binding, which the frozen IR has no expression for (condition.result)"
 );
 
 test.todo(
@@ -247,6 +247,6 @@ test.todo(
 
 test.todo(
   "unl-140-219 Conscription: perform the Recall (CR 457-460: relocates to Base, is not a Move, fires no Move " +
-    "triggers, cannot be blocked by movement restrictions) once a Recall action distinct from move-location is merged (RIFT-109 follow-up)"
+    "triggers, cannot be blocked by movement restrictions) once a Recall action distinct from move-location is merged"
 );
 

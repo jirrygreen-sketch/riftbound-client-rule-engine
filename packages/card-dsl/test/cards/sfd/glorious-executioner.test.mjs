@@ -9,6 +9,7 @@ const { getTimingPoint, isTimingPointId } = await import(new URL("events/timing-
 const { matchesTriggerEvent } = await import(new URL("events/pipeline-match.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
 const draw = (await import(new URL("effects/instructions/effect.draw.js", ENGINE))).default;
+const { validateTriggerSpec } = await import(new URL("events/trigger-spec.js", ENGINE));
 
 const CANONICAL_ID = "card.hash-fe2db2b592e71d47e736d643538a15fe129a6cb0b7aab53bd27572177b88671b";
 const SOURCE_TEXT = "When you win a combat, draw 1. (You win if only your units remain after combat.)";
@@ -82,6 +83,16 @@ test("sfd-185-221 Glorious Executioner: the trigger names the combat-result timi
     matchesTriggerEvent(ability.trigger.filter, { timingPoint: "combat-end", details: { winnerId: "self" } }, "A"),
     false
   );
+});
+
+test("sfd-185-221 Glorious Executioner: the declared winner filter is still rejected by production trigger validation", () => {
+  const result = validateTriggerSpec(ability.trigger);
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some(issue => issue.path.includes("event")));
+  // The descriptive 'self' value is not a comparison to controller A.
+  assert.equal(matchesTriggerEvent(ability.trigger.filter, {
+    timingPoint: "combat-result", details: { winnerId: "A" }
+  }, "A"), false);
 });
 
 test("sfd-185-221 Glorious Executioner: the Draw 1 body executes through the reference kernel", () => {

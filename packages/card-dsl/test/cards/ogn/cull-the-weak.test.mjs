@@ -23,9 +23,6 @@ test("Cull the Weak identity and judge-required status match the printing", () =
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("355.10.e"), true);
-  assert.equal(program.judgeReason.includes("RIFT-9"), true);
-  assert.equal(program.judgeReason.includes("RIFT-257"), true);
-  assert.equal(program.judgeReason.includes("RIFT-261"), true);
   assert.equal(program.sourceText, "Each player kills one of their units.");
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -109,11 +106,10 @@ test("Cull the Weak golden: an empty pick list leaves the board untouched", () =
 test.todo(
   "Cull the Weak: the per-seat choice — every player (including the caster) chooses one of " +
     "their own units on resolution and each choice is killed — needs the roster-wide player " +
-    "selection/repetition primitive (RIFT-9 target.player) and its resolution-time choice " +
-    "handling."
+    "roster-wide player iteration, one resolution-time pick per player, and repeated kill execution."
 );
 
 test.todo(
-  "Cull the Weak: Finalize/Resolve timing for the table-wide pick and 355.18's " +
-    "resolution-time choices belong to the target/pick system (RIFT-90)."
+  "Cull the Weak: bind the table-wide resolution-time pick so every player chooses one " +
+    "of their own units before the repeated effect.kill instructions execute."
 );

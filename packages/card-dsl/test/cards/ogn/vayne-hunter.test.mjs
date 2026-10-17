@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/vayne-hunter.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -15,9 +16,9 @@ test("ogn-035-298 Vayne, Hunter: program validates and is judge-required", () =>
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /RIFT-260/);
-  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /battlefield/);
+  assert.match(program.judgeReason, /TargetSpec|嵌套|payment scope/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(260|261)/);
 });
 
 test("ogn-035-298 Vayne, Hunter: identity, ruleset and exact source text", () => {
@@ -70,7 +71,9 @@ test("ogn-035-298 Vayne, Hunter: Assault 3 keyword, conditional enter-ready repl
     ["vayne-hunter.pay-1", "cost.pay"],
     ["vayne-hunter.return-to-hand", "effect.zone"]
   ]);
-  assert.deepEqual(body[0].args, { energy: { kind: "constant", value: 1 } });
+  assert.deepEqual(body[0].args, {
+    payments: { kind: "constant", value: { energy: 1 } }
+  });
   assert.equal(body[1].linkedTo, "vayne-hunter.pay-1");
   assert.deepEqual(body[1].args.to, { kind: "constant", value: "hand" });
   assert.deepEqual(body[1].targets, [
@@ -95,7 +98,7 @@ test("ogn-035-298 Vayne, Hunter: declining the optional pay leaves the board unc
 
 test("ogn-035-298 Vayne, Hunter golden: the merged entry replacement rewrites the exhausted entry to ready (369.3)", () => {
   // "If an opponent controls a battlefield, I enter ready." — the merged
-  // replacement registration (RIFT-260) binds the entry-orientation rewrite;
+  // replacement registration binds the entry-orientation rewrite;
   // the rewrite is applied to the chain-zone permanent so the move carries it
   // to the Board (no separate becomes-ready timing happens on Board).
   const kernel = world()
@@ -154,6 +157,35 @@ test("ogn-035-298 Vayne, Hunter: the return-to-hand instruction returns the chos
   assert.deepEqual(run.events.map((event) => event.action), ["return-to-hand"]);
 });
 
+test("ogn-035-298 Vayne, Hunter golden: accepting the optional payment charges Energy before returning Vayne", () => {
+  const base = world()
+    .player("A", { energy: 1 })
+    .unit("vayne", {
+      zone: "board",
+      location: { type: "battlefield", id: "battlefield-1" },
+      might: 2
+    })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("vayne") });
+  kernel.setAnswers({ [`${MAY_ID}/optional`]: true });
+  kernel.setTargets("vayne-hunter.self", [kernel.ref("vayne")]);
+
+  const outcome = resolveChainBody([program.abilities[2].body[0]], kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [
+      ["vayne-hunter.pay-1", "executed"],
+      ["vayne-hunter.return-to-hand", "executed"],
+      [MAY_ID, "executed"]
+    ]
+  );
+  assert.equal(kernel.player("A").energy, 0);
+  assert.deepEqual(kernel.zone("A", "hand").map((ref) => ref.id), ["vayne"]);
+  assert.deepEqual(outcome.events.map((event) => event.action), ["pay", "return-to-hand"]);
+});
+
 test.todo(
   "ogn-035-298 Vayne, Hunter: the entry rewrite runs, but the printed 'an opponent controls a " +
     "battlefield' condition has no evaluable predicate (battlefields are not ObjectSnapshot objects, the " +
@@ -161,7 +193,7 @@ test.todo(
     "effect.ready must not be used to approximate the entry rewrite."
 );
 test.todo(
-  "ogn-035-298 Vayne, Hunter: accepting the optional pay must charge 1 energy before the return-to-hand " +
-    "instruction runs (cost-within-instructions, 383.3.b) through the cost/Finalize pipeline (RIFT-261); " +
-    "the reference kernel does not register cost.pay."
+  "ogn-035-298 Vayne, Hunter: production Chain Finalize must support the nested TargetSpec inside " +
+    "choice.optional and give cost.pay a payment scope/savepoint so an unpayable optional body is skipped " +
+    "without aborting the enclosing trigger (383.3.b)."
 );

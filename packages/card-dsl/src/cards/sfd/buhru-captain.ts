@@ -35,7 +35,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   模板，正是这一未定点的记录。本卡按印刷的 "or" 写成 choice.mode，不擅自增加第三选项，
  *   也不把 "or" 压成单一分支；裁定与链接线到位后再复核状态。
  * - filter 的 "self" 锚点与 Finalize/Resolve 选择生命周期属事件/目标管线。
- * 依赖：choice.mode 的 Finalize/Resolve 选择计划接线（RIFT-120 后续）、卡牌程序 → 链绑定（RIFT-257）。
+ * 依赖：链的 Finalize/Resolve 对 choice.mode 的选择计划生命周期、目标锚点与触发器绑定。
  */
 const abilities: Ability[] = [
   {
@@ -105,15 +105,15 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "两处缺口：(1) 效果本体的三段都已合入（choice.mode 的二选一形状 + effect.draw + effect.buff，" +
-    "golden 已真实执行两条分支与「已有 buff 不再放置」边界），但链侧对 choice.mode 有明确阻断：" +
+    "golden 已真实执行两条分支与「已有 buff 不再放置」边界），但链侧对 choice.mode 仍有明确阻断：" +
     "chain/engine.ts 的 assertFinalizationSurface 对 body 内任何 choice.mode 抛 ChainContractBlockedError" +
-    "（\"Mode choices require a Finalize/Resolve choice-plan adapter\"），整卡经链真实结算目前不可执行" +
-    "（RIFT-120 后续的 Finalize/Resolve 选择计划接线）；" +
+    "（\"Mode choices require a Finalize/Resolve choice-plan adapter\"），程序绑定层的 validateSurface 对 play 路径同样" +
+    " judgeRequired，整卡经链真实结算目前不可执行（缺 Finalize/Resolve 选择计划生命周期）；" +
     "(2)「you may draw 1 or buff me」的规则读法未定：CR v1.5 的 355.3 只把带项目符号的模式列表定义为" +
     "模式选择，没有条文说明前置的 \"may\" 是否允许玩家整体拒绝（choice.optional 包住 choice.mode）。" +
     "调研清单（docs/plans/survey/ability-templates.json 对 sfd-091-221）同时记下 optional 与 mode 两个模板。" +
     "本卡按印刷的 \"or\" 只写两个互斥模式，不增加第三选项、也不把二选一压成单分支；拿到裁定与链接线后复核。" +
-    "触发的 { source: \"self\" } 锚点绑定与 Finalize/Resolve 目标重验依赖 RIFT-120 与卡牌程序 → 链绑定（RIFT-257）。",
+    "触发的 { source: \"self\" } 锚点绑定与 Finalize/Resolve 目标重验依赖目标锚点绑定与卡牌程序 → 链触发接线。",
   abilities,
   sourceText:
     "When you play me, you may draw 1 or buff me. (To buff a unit, give it a +1 :rb_might: buff if it doesn't already have one.)"

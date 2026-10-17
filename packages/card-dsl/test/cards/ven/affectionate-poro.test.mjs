@@ -55,8 +55,8 @@ test("ven-024-166 Affectionate Poro: one combat-end trigger filtered to self", (
 
 test("ven-024-166 Affectionate Poro: the damage clause is a descriptive trigger condition", () => {
   // "if I haven't been dealt damage this turn" needs a turn-scoped, object-filtered
-  // damage-event count. HistoryQuery exposes scope/action/timingPoint/player/object
-  // but no card-side Condition can read it, so the gate stays descriptive rather
+  // "if I haven't been dealt damage this turn" needs a turn-scoped, object-filtered
+  // damage-event count. HistoryQuery already has objectFilter/exclude, but the
   // than being written as an always-true condition that would fire every combat.
   assert.deepEqual(ability.trigger.condition, {
     kind: "expression",
@@ -122,6 +122,6 @@ test.todo(
 
 test.todo(
   "ven-024-166 Affectionate Poro: 'if I haven't been dealt damage this turn' needs a turn-scoped " +
-    "damage-event predicate (HistoryQuery currently stops at action/timingPoint/player/object and " +
-    "no card-side Condition can read it)"
+    "damage-event predicate (HistoryQuery already has objectFilter/exclude, but card-side " +
+    "Condition/Requirement cannot express history count predicates)"
 );

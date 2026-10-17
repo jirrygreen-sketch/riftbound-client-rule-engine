@@ -8,6 +8,13 @@ const { runInstruction, world } = await import(new URL("effects/testing/index.js
 const buff = (await import(new URL("effects/instructions/effect.buff.js", ENGINE))).default;
 const deploy = (await import(new URL("effects/keywords/Deploy.js", ENGINE))).default;
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", ENGINE));
+const { ProgramRegistry } = await import(new URL("programs/registry.js", ENGINE));
+const { triggerRegistrations } = await import(new URL("programs/triggers.js", ENGINE));
+const { matchesTriggerEvent } = await import(new URL("events/pipeline-match.js", ENGINE));
+const { createEngineStaticBinder } = await import(new URL("programs/statics.js", ENGINE));
+const { bindResolveContext, createActionPipelineHost } = await import(new URL("events/action-adapter.js", ENGINE));
+const { ChainEngine } = await import(new URL("chain/engine.js", ENGINE));
+const { playLocations } = await import(new URL("layers/rules/query.js", ENGINE));
 
 const CARD_ID = "card.hash-c3300d4c2699318874a04e6169dc566f6c3e88300d3f2ccd920a1edf3352d84a";
 const EXPECTED_SOURCE =
@@ -23,7 +30,9 @@ test("rad-073-167 Pillaged Armory: program validates and is judge-required", () 
   assert.match(program.judgeReason, /Deploy/);
   assert.match(program.judgeReason, /TriggerRegistration/);
   assert.match(program.judgeReason, /RIFT-267/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /layerFor|continuous\.location/);
+  assert.match(program.judgeReason, /Unsupported filter field here/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120/);
 });
 
 test("rad-073-167 Pillaged Armory: identity, ruleset, status and verbatim source text", () => {
@@ -141,5 +150,67 @@ test("rad-073-167 Pillaged Armory: the merged Deploy expansion and its kill body
   assert.equal(kernel.getObject("pillaged-armory").zone, "trash");
 });
 
-test.todo("rad-073-167 Pillaged Armory: the Deploy expansion's continuous.location play-location permission, the non-Unit cleanup recall exemption and the opponent-Hold kill trigger still need consumers (CR 830.1.b, RIFT-120).");
-test.todo("rad-073-167 Pillaged Armory: both triggers need the program -> TriggerRegistration adapter (contract 3.5, RIFT-120 follow-up) and a conquer payload that carries \"here\" before they can fire for real.");
+test.todo("rad-073-167 Pillaged Armory: the Deploy expansion's continuous.location play-location permission, the non-Unit cleanup recall exemption and the opponent-Hold kill trigger still need consumers (CR 830.1.b; layer mapping, Finalize placement, cleanup recall and the hold here-predicate).");
+test.todo("rad-073-167 Pillaged Armory: \"when you conquer here\" needs a conquer payload whose battlefield identity can be bound to the source before that trigger can fire for real (CR 383.4.c / 830.3).");
+
+/** Kernel + chain engine exercising the production static binder and trigger adapter. */
+function productionEngine(kernel) {
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`unexpected choice ${request.id}`); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  return new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+}
+
+test("rad-073-167 Pillaged Armory boundary: the Deploy location declaration has no layer mapping", () => {
+  // 830.1.b grants the play/create permission; effects/keywords/Deploy.ts is
+  // merged, but the production binder has no layer for continuous.location, so
+  // the declaration never reaches the layers that Finalize/cleanup would read.
+  const expansion = deploy.expand({ host: { canonicalCardId: program.canonicalCardId } });
+  assert.equal(expansion[0].effect.kind, "continuous.location");
+  assert.equal(expansion[0].effect.cleanup.recall, "unit-only");
+  const kernel = world().object("gear", { cardId: program.canonicalCardId, types: ["gear"], might: null, energy: 1, power: null }).build();
+  const engine = productionEngine(kernel);
+  const binder = createEngineStaticBinder(engine);
+  assert.throws(
+    () => binder.bindStatic(expansion[0], kernel.getObject("gear")),
+    /continuous\.location has no layer mapping/
+  );
+  assert.deepEqual(playLocations(engine.layers.registry, kernel.ref("gear"), kernel.getObject("gear"), "A"), { permissions: [], restrictions: [] });
+});
+
+test("rad-073-167 Pillaged Armory: 'When you play this' fires for its own controller only", () => {
+  // 383.4.a.1: the Play Effect compiles through the merged trigger adapter and
+  // matches the source card's own card-played event for the controller (the
+  // buff body itself is executed for real in the cases above).
+  const [, onPlay] = program.abilities;
+  const kernel = world().object("gear", { cardId: program.canonicalCardId, types: ["gear"], might: null, energy: 1, power: null, controller: "A" }).build();
+  const registration = triggerRegistrations(
+    new ProgramRegistry([{ canonicalCardId: program.canonicalCardId, rulesetVersion: "core-1.5", status: "executable", sourceText: program.sourceText, abilities: [onPlay] }]),
+    kernel.getObject("gear")
+  )[0];
+  assert.equal(registration.spec.at, "card-played");
+  assert.deepEqual(registration.spec.filter, { event: "card-played", object: { objectId: "gear" }, player: "self" });
+  const ownPlay = { timingPoint: "card-played", kind: "card-played", player: "A", object: kernel.getObject("gear") };
+  assert.equal(matchesTriggerEvent(registration.spec.filter, ownPlay, "A"), true);
+  assert.equal(matchesTriggerEvent(registration.spec.filter, { ...ownPlay, player: "B" }, "A"), false);
+});
+
+test("rad-073-167 Pillaged Armory boundary: 'when you conquer here' cannot be registered yet", () => {
+  // 383.4.c.1 / 830.3: the conquer trigger is gated on "here"; the merged
+  // trigger filter translation rejects the here field, and the conquer payload's
+  // battlefieldId is not bound to the source, so this trigger stays unregistered.
+  const [, , onConquer] = program.abilities;
+  const kernel = world().object("gear", { cardId: program.canonicalCardId, types: ["gear"], might: null, energy: 1, power: null, controller: "A" }).build();
+  assert.throws(
+    () => triggerRegistrations(
+      new ProgramRegistry([{ canonicalCardId: program.canonicalCardId, rulesetVersion: "core-1.5", status: "executable", sourceText: program.sourceText, abilities: [onConquer] }]),
+      kernel.getObject("gear")
+    ),
+    /Unsupported filter field here/
+  );
+});

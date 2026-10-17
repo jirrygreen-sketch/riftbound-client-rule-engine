@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/jayce-brilliant-inventor.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-68f65f2c819cd1b15484ed93f4ae25ec20c4d71f4e4bd05d3a48672d492f5408";
@@ -18,7 +20,7 @@ const gearChoice = firstGear.body[0];
 const playReady = playChoice.args.body.value[0];
 const gearReady = gearChoice.args.body.value[0];
 
-/** 参考内核里的宿主：把 source 指向本卡，让 exclude: "source" 解析到被测试对象。 */
+/** 参考内核里的宿主：把 source 指向本卡，让 exclude: "self" 解析到被测试对象。 */
 function jayceWorld() {
   const kernel = world()
     .unit("jayce", { exhausted: false })
@@ -40,10 +42,11 @@ test("ven-068-166 Jayce: identity, status, judgeReason and verbatim sourceText",
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /TriggerRegistration/);
-  assert.match(program.judgeReason, /RIFT-120/);
   assert.match(program.judgeReason, /per-turn/);
   assert.match(program.judgeReason, /PickSpec/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(89|90|91|120|257|258|87)/);
+  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /Unsupported filter field isToken/);
 });
 
 test("ven-068-166 Jayce: the printed 'or' becomes two independent card-played triggers", () => {
@@ -164,16 +167,101 @@ test("ven-068-166 golden: an already-ready locked object is not readied again (4
   assert.equal(kernel.events.length, before);
 });
 
-test.todo(
-  "ven-068-166 Jayce, Brilliant Inventor: subscribe both card-played triggers and resolve the {source: \"self\"} " +
-    "anchor (383.4.a) — no merged module turns a CardProgram triggered ability into a TriggerRegistration (RIFT-120)"
-);
-test.todo(
-  "ven-068-166 Jayce, Brilliant Inventor: the per-turn Nth-Time window (383.1.b) for 'the first time you play a " +
-    "non-token gear each turn' needs the trigger registration pipeline to consume TriggerSpec.once (RIFT-120)"
-);
-test.todo(
-  "ven-068-166 Jayce, Brilliant Inventor: 'something besides me that's exhausted' is a non-target pick " +
-    "(355.10.d/355.10.d.1) — the Finalize selection pipeline that resolves the PickSpec filter and binds ctx.picks " +
-    "is unmerged (RIFT-90 / batch 5)"
-);
+const GEAR_CARD_ID = "card.hash-0000000000000000000000000000000000000000000000000000000000000001";
+
+/** 只保留指定触发能力的 executable 探针程序（canonicalCardId 不变）。 */
+function probeProgram(abilities) {
+  return {
+    ...program,
+    status: "executable",
+    judgeReason: undefined,
+    abilities
+  };
+}
+
+const playMeProbe = probeProgram([playMe]);
+/** 带注册程序、无触发能力的普通 gear：打出动作本身必须可用。 */
+const realGearProbe = {
+  canonicalCardId: GEAR_CARD_ID,
+  rulesetVersion: program.rulesetVersion,
+  status: "executable",
+  abilities: [],
+  sourceText: "probe gear"
+};
+
+test("ven-068-166 probe: the play-me trigger registers and fires through the production binding", () => {
+  const binding = createProgramBinding({ cardPrograms: [playMeProbe] });
+  const errors = [];
+  const requests = [];
+  const f = fixture({
+    cards: [
+      { id: "jayce", cardId: CANONICAL_ID, types: ["unit"], energy: 6, might: 6 },
+      { id: "gear-token", cardId: GEAR_CARD_ID, types: ["gear"], isToken: true, energy: 0 },
+      { id: "real-gear", cardId: GEAR_CARD_ID, types: ["gear"], energy: 1 }
+    ],
+    describePlay: binding.describePlay,
+    choose: request => {
+      requests.push(request);
+      return true;
+    }
+  });
+  // 参考内核返回副本，状态修改必须经 kernel.perform。
+  f.kernel.perform({ type: "exhaust", object: f.kernel.ref("source") });
+  f.kernel.perform({ type: "exhaust", object: f.kernel.ref("enemy") });
+  binding.attachLifecycle(f.engine, error => errors.push(error));
+  f.engine.commit({ type: "play", object: f.kernel.ref("jayce"), player: "A" });
+  f.engine.advance();
+  resolveAll(f.engine);
+  assert.deepEqual(errors, []);
+  const triggerItems = f.engine.trace.filter(
+    event => event.step === "pending" && String(event.item).startsWith("trigger:")
+  );
+  assert.equal(triggerItems.length, 1, "the play-me trigger fires on Jayce's own play");
+  assert.ok(
+    requests.some(request => request.type === "optional"),
+    "the play-me trigger asked the optional 'you may' question"
+  );
+  // PickSpec has no production resolver (RIFT-358): ctx.picks stays empty and the
+  // optional body readies nothing — the honest partial state until that lands.
+  assert.equal(f.kernel.getObject("source").exhausted, true);
+  assert.equal(f.kernel.getObject("enemy").exhausted, true);
+});
+
+test("ven-068-166 probe: the gear-half trigger filter fails to bind on isToken", () => {
+  const binding = createProgramBinding({
+    cardPrograms: [probeProgram([playMe, firstGear]), realGearProbe]
+  });
+  const errors = [];
+  const f = fixture({
+    cards: [
+      { id: "jayce", cardId: CANONICAL_ID, types: ["unit"], energy: 6, might: 6 },
+      { id: "real-gear", cardId: GEAR_CARD_ID, types: ["gear"], energy: 1 }
+    ],
+    describePlay: binding.describePlay,
+    choose: () => true
+  });
+  binding.attachLifecycle(f.engine, error => errors.push(error));
+  // Jayce 进入 board 时注册触发：gear 半的 isToken 过滤器在这里失败。
+  f.engine.commit({ type: "play", object: f.kernel.ref("jayce"), player: "A" });
+  f.engine.advance();
+  resolveAll(f.engine);
+  assert.ok(errors.length >= 2, "attachment retries on later emissions and keeps failing");
+  assert.equal(
+    errors.filter(error => /Unsupported filter field isToken/.test(error.message)).length,
+    errors.length,
+    "every attachment attempt fails on the same isToken field"
+  );
+  // 打出普通 gear 本身可用，但 gear 半注册失败使整张卡的触发注册中止：
+  // 连 play-me 半也没有进链（triggerRegistrations 的 flatMap 在 gear 半抛错）。
+  f.engine.commit({ type: "play", object: f.kernel.ref("real-gear"), player: "A" });
+  f.engine.advance();
+  resolveAll(f.engine);
+  assert.equal(
+    f.engine.trace.filter(
+      event => event.step === "pending" && String(event.item).startsWith("trigger:")
+    ).length,
+    0,
+    "the whole card's trigger registration aborts; neither half reaches the chain"
+  );
+  assert.ok(f.kernel.getObject("real-gear"), "the gear play itself succeeds");
+});

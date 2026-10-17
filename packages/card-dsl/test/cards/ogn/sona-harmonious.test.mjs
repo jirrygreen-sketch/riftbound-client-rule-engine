@@ -15,7 +15,7 @@ test("ogn-073-298: identity, exact source text, pure data and explicit blocked s
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /383.2.a.1|up to 4/);
-  assert.match(program.judgeReason, /RIFT-/);
+  assert.match(program.judgeReason, /EventPattern|事件词表|turn-end/);
   assert.equal(program.sourceText, "While I'm at a battlefield, ready 4 friendly runes at the end of your turn.");
   assert.deepEqual(JSON.parse(JSON.stringify(program)), program);
 });
@@ -70,5 +70,5 @@ test("Sona golden subeffect: no surviving finalized rune targets means ignored",
   assert.deepEqual(run.events, []);
 });
 
-test.todo("Sona: resolve ready-4 vs up-to-4 source discrepancy against CR 383.2.a.1 before accepting optional fewer-rune selection (RIFT-1 data/rules coordination)");
-test.todo("Sona: actual turn-end trigger, friendly filter and trigger-time battlefield test; moving her after trigger must not cancel readying (RIFT-1/120 CardProgram adapter)");
+test.todo("Sona: resolve ready-4 vs up-to-4 source discrepancy against CR 383.2.a.1 before accepting optional fewer-rune selection");
+test.todo("Sona: resolve the printed four-rune wording against the CR up-to-four example and admit a controller-scoped turn-end trigger in the EventPattern contract");

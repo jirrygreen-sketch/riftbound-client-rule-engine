@@ -31,21 +31,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   `exhaust | discard | recycle | kill | reveal | spend-buff`, so "return a
  *   friendly unit to its owner's hand" has no payment kind either.
  * The 355.1.a / 356.2.b.1 mandatory-additional-cost posting and the
- * return-to-hand payment kind (cost.pay / cost.modify, RIFT-261; the RIFT-89
- * cost pipeline) are the remaining dependencies.
+ * return-to-hand payment kind in the cost pipeline are the remaining dependencies.
  */
 export default {
   canonicalCardId: "card.hash-84ee715c26888cfa3850f44083e64823f41b5db0dc23a4f0511c4eb127d52175",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "2026-10-17 复核：伤害半段「Deal 5 to a unit at a battlefield」用已合入的 effect.damage + 目标过滤表达，" +
-    "并有真实执行证据，不再列为缺口。仍缺的是强制附加费用：" +
-    "(1) cost/plan-values.ts readCost 不接受 CostSpec.kind \"additional\"（实测 buildCostPlan 抛 " +
-    "CostPlanError \"Unsupported cost kind: additional\"），355.1.a/356.2.b.1 的 mandatory-additional 阶段没有投放点；" +
-    "(2) 费用计划把非资源费用冻结为 exhaust/discard/recycle/kill/reveal/spend-buff，" +
-    "「return a friendly unit to its owner's hand」没有支付种类（cost.pay / cost.modify，RIFT-261；RIFT-89 费用管线）。" +
-    "不近似实现（不用 effect.zone 在结算期补做费用动作）。",
+    "2026-10-17 复核：伤害半段已用 effect.damage 真实执行（已有真实执行证据）；仍缺“return a friendly unit to its owner's hand”" +
+    "强制附加费用的费用管线。" +
+    "cost/plan-values.ts readCost 不接受 CostSpec.kind \"additional\"（Unsupported cost kind: additional），" +
+    "且 payments 没有 return-to-hand 种类，无法在 Finalize 投放 355.1.a/356.2.b.1 的 mandatory-additional。" +
+    "不近似实现：不用 effect.zone 在结算期补做费用动作。",
   abilities: [
     {
       kind: "play",

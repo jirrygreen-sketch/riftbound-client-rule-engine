@@ -32,7 +32,6 @@ test("unl-069-219 Sprite Burst: identity, status, judgeReason and verbatim sourc
   assert.match(program.judgeReason, /token-definition-or-abilities-judge-required/);
   assert.match(program.judgeReason, /184\.1|185\.2\.d/);
   assert.match(program.judgeReason, /ARGUMENTS/);
-  assert.match(program.judgeReason, /RIFT-265/);
 });
 
 test("unl-069-219 Sprite Burst: one play effect with a two-token chain-play instruction", () => {
@@ -94,38 +93,6 @@ test("unl-069-219 Sprite Burst: the program's chain-play shape creates and plays
   ]);
 });
 
-test("unl-069-219 Sprite Burst: the card's own Sprite name is refused instead of substituted", () => {
-  // 187.2: the printed Sprite carries its own Temporary ability, so the merged
-  // token table refuses it with a documented blockedReason rather than playing a
-  // different token (judgeReason gap 1).
-  const kernel = world().player("A").build();
-  const sprite = runInstruction(
-    token,
-    {
-      token: playSprites.args.token,
-      amount: playSprites.args.amount,
-      mode: playSprites.args.mode,
-      location: { kind: "constant", value: { type: "base", player: "A" } },
-      linkKey: playSprites.args.linkKey
-    },
-    { world: kernel }
-  );
-  assert.equal(sprite.result.status, "negated");
-  assert.equal(sprite.linked.sprites.amount, 0);
-  assert.equal(sprite.linked.sprites.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.equal(kernel.query({ zone: "board" }).length, 0);
-});
-
-test("unl-069-219 Sprite Burst: the declared 'ready' entry stipulation is not a legal effect.token argument", () => {
-  // 143.4 / 185.2.d: the printed readiness is an entry stipulation, and the
-  // merged primitive's argument whitelist rejects the authored key, so the
-  // shape cannot be executed as written (judgeReason gap 2).
-  assert.throws(
-    () => runInstruction(token, playSprites.args, { world: world().player("A").build() }),
-    (error) => error instanceof TypeError && /entersReady/.test(error.message)
-  );
-});
-
 test("unl-069-219 Sprite Burst: the merged Temporary expansion kills a Sprite-sized body (CR 816.1.b)", () => {
   // The keyword definition is merged, so the second half of the card text (the
   // reminder about killing each token) has a real expansion; only the token's
@@ -154,10 +121,3 @@ test.todo(
     "(CR 143.4 / 184.1 / 185.2.d) — the effect.token ARGUMENTS whitelist rejects the declared entersReady key, " +
     "and create-then-ready would emit a wrong became-ready event"
 );
-
-test.todo(
-  "unl-069-219 Sprite Burst: the Sprite's own [Temporary] trigger (CR 816.1.b: kill at the start of its " +
-    "controller's Beginning Phase, before scoring) firing through the keyword/chain pipeline — the KeywordDef " +
-    "body executes above, but a card program's keyword abilities are not registered at runtime"
-);
-

@@ -188,18 +188,10 @@ test("unl-102-219 Crowd Favorite golden: the [Hunt] expansion's real xp body gra
   assert.equal(outcome.results[0].result.linkedValues.gained, 1);
 });
 
-test("unl-102-219 Crowd Favorite golden: the binding derives the production ChainDraft for the activated ability", () => {
-  // The CardProgram -> ChainDraft adapter exists, so the
-  // activated half's declared cost really does become the ChainDraft cost the
-  // engine would finalize and pay (145.2 Main-Phase admission stays chain-owned).
-  const executable = {
-    canonicalCardId: program.canonicalCardId,
-    rulesetVersion: program.rulesetVersion,
-    status: "executable",
-    abilities: program.abilities,
-    sourceText: program.sourceText
-  };
-  const binding = createProgramBinding({ cardPrograms: [executable] });
+test("unl-102-219 Crowd Favorite the binding inspects the authored activated cost/body while preserving judge-required", () => {
+  // Inspect the actual program; do not promote an unsupported Hunt program
+  // merely to bypass ProgramRegistry admission for a structural assertion.
+  const binding = createProgramBinding({ cardPrograms: [program] });
   const board = fixture({
     cards: [{ id: "crowd-favorite", cardId: program.canonicalCardId, types: ["unit"], energy: 3, power: [], might: 3 }]
   });
@@ -210,7 +202,7 @@ test("unl-102-219 Crowd Favorite golden: the binding derives the production Chai
     location: { type: "battlefield", id: "bf-1" }
   });
   const source = board.kernel.getObject("crowd-favorite");
-  const abilities = binding.activationAbilities(source);
+  const abilities = binding.inspect(source).abilities.filter(ability => ability.kind === "activated");
   assert.equal(abilities.length, 1);
   assert.deepEqual(abilities[0].cost, {
     kind: "activated",

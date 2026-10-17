@@ -17,14 +17,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （392 延迟能力、143.4 / 359.2.c 单位横置进场、805.6 的就绪进场替代）：需要为
  *   「本回合你打出的下一个单位」注册一个直到回合结束的入场替代。
  *
- * status = judge-required（按当前已合入状态复核）：
- * - 指令注册表仍没有任何 opcode 消费 `ctx.registerDelayedTrigger`，RIFT-260 的
- *   replacement.enter 也只处理「已经登记到事件管线的入场移动」——把「本回合你打出的下一个单位」
- *   登记成入场替代的入口仍然缺失，且 RIFT-260 的 bindReplacement 只接受已在 body 里的
- *   with 体，没有可供卡牌数据使用的「下一个单位」窗口（RIFT-257 的程序绑定也未合入）；
- * - Legion 条件谓词依赖 812.1.c 的按卡身份排除（engine 的 HistoryQuery 目前只有
- *   scope/action/timingPoint/player/object，没有 exclude/objectFilter）与关键词展开接线。
- * 横置费用本身用已合入的 cost.exhaust 费用计划，golden 测试真实执行费用收取。
+ * Status: judge-required.
+ * Exhaust payment, program binding and history exclude/objectFilter are merged.
+ * Still missing: an activated body that installs a one-use, this-turn delayed
+ * entry replacement, and a Legion condition that actually consumes play history.
+ * replacement.enter is a replacement-binding body shape, not a registered
+ * instruction that installs the next-unit window.
  */
 const abilities: Ability[] = [
   {
@@ -64,14 +62,12 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺「本回合你打出的下一个单位就绪进场」的登记路径：契约 3.6 的 ResolveContext 有 registerDelayedTrigger，" +
-    "但指令注册表没有任何 opcode 消费它；RIFT-260 的 replacement.enter 只处理已登记到事件管线的入场移动，" +
-    "且 bindReplacement 只吃 body 内的 with 体，没有卡牌数据可用的「下一个单位」窗口，RIFT-257 的 CardProgram 程序绑定也未合入。" +
-    "（392 延迟被动能力、143.4/359.2.c 单位横置进场、805.6 就绪进场替代。）" +
-    "Legion 条件还需要 812.1.c 的按卡身份排除：engine 的 HistoryQuery 只有 scope/action/timingPoint/player/object，" +
-    "契约 3.8 的 exclude/objectFilter 未落地，关键词展开也没有运行时接线。" +
-    "横置费用（cost.exhaust 费用计划）已可执行并有 golden。依赖：RIFT-257、RIFT-260 后续（延迟/入场替代窗口）、" +
-    "HistoryQuery 消费方。不近似实现。",
+    "缺「本回合你打出的下一个单位就绪进场」的延迟被动登记路径（392、143.4/359.2.c、805.6）：replacement.enter 仅由替代绑定器解析 with " +
+    "体，不是启动能力 body 可调用的注册指令；缺一次性 next-unit-you-play 匹配、消费与回合到期窗口，registerDelayedTrigger " +
+    "也不能替代此被动入场替代。Legion（812.1.b.1/812.1.c）仍缺声明式条件消费打出历史的路径：" +
+    "HistoryQuery.exclude/objectFilter 与 condition.history 指令已合入，但当前 count 表达式只查询现存对象，不消费 " +
+    "cards-finalized-this-turn subject；也不能将未绑定的 controller 当作历史玩家。cost.exhaust、程序绑定与关键词展开已合入，" +
+    "横置费用有真实执行证据。不近似实现。",
   abilities,
   sourceText:
     ":rb_exhaust:: [Legion] — The next unit you play this turn enters ready. " +

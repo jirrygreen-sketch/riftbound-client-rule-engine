@@ -41,13 +41,12 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   程序用链接值键 rest 记录该集合，没有任何已合入指令写出该键（缺信息 → 该指令
  *   被忽略，不会回收错误的牌）。
  * - 选择“a unit from among them”的非目标 pick 带 filter { type: "unit" }（printing 限制），
- *   但已合入的 pick 解析（目标计划 / RIFT-90）只按 TargetPlan 的 Finalize 选项集锁定，
- *   不消费作用于链接集合的 filter 谓词；程序保留 filter 形状，不写成无过滤选择。
- * - 生产链路的「有序牌库顶 picks」提供方（RIFT-66 契约的 zoneSlice 语义接入查看指令）
- *   仍未接线，属调用方义务；golden 用参考内核按真实顺序绑定 picks 后执行。
+ *   但当前 Finalize 只锁定候选集合，不消费作用于链接集合的过滤谓词；程序保留 filter 形状，
+ *   不写成无过滤选择。
+ * - 生产链路的「有序牌库顶 picks」仍需要调用方把 zoneSlice 顺序注入 effect.inspect；golden
+ *   用参考内核按真实顺序绑定 picks 后执行。
  *
- * 依赖：RIFT-90（pick 的 Finalize 选项集与 filter 谓词）、RIFT-66 后续（有序牌库顶
- * 提供方）、展示快照条件与集合差表达式；不近似实现。
+ * 依赖：链接集合上的过滤谓词、有序 picks 注入、展示快照条件与集合差表达式；不近似实现。
  */
 
 /** 已看过 3 张的链接键（effect.inspect 写入）。 */
@@ -234,9 +233,8 @@ export default {
     "（2）“Recycle the rest” 需要「看过集合 − 被选走的牌」的差集，合并 IR 没有集合运算；程序用链接值键 rest 记录该集合，" +
     "没有任何已合入指令写出该键，该指令会因缺信息被忽略，而不是回收错误的牌。" +
     "（3）“a unit from among them” 的非目标 pick 带 filter { type: \"unit\" }（印刷限制），" +
-    "但已合入的 pick 解析（目标计划）不消费作用于链接集合的 filter 谓词，只按 Finalize 锁定选项集；" +
-    "另外生产链路的「有序牌库顶 picks」提供方（RIFT-66 契约的 zoneSlice 语义接入查看指令）仍未接线。" +
-    "依赖：RIFT-90（pick 的 Finalize 选项集与 filter 谓词）、RIFT-66 后续（有序牌库顶提供方）、展示快照条件与集合差表达式。" +
+    "但当前 Finalize 只锁定选项集、不消费作用于链接集合的 filter 谓词；另外生产链路仍需调用方把 zoneSlice 顺序注入 effect.inspect。" +
+    "依赖：链接集合过滤谓词、有序 picks 注入、展示快照条件与集合差表达式。" +
     "effect.inspect（含上游有序 picks）、effect.reveal、effect.zone（draw it）与 effect.buff 本体均已合入，" +
     "golden 用解释器 + 参考内核真实执行这些部分。",
   abilities,

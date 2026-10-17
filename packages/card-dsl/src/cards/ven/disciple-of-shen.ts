@@ -24,17 +24,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   ability 的 condition（契约 3.4：条件只作用于所属能力）。
  *
  * status = judge-required（两处缺口，均不近似实现）：
- * 1. [Hidden] 的 KeywordDef 已合入，但没有消费方：Hidden.ts 自身记录 cost.hidden /
- *    cost.pay / effect.zone / continuous.timing 均未合入，cost/README.md 第 3 条也明确
- *    zones/actions 尚不支持 Facedown Zone 与 Hide，811.1.d/811.5 的藏牌、811.6 的后续
- *    [Reaction] 与 0 能量打出都无执行路径（RIFT-89）。
- * 2. 条件授予侧不可执行：卡牌侧没有注册 continuous.grant-keyword / continuous.might
- *    静态效果的入口（ctx.addContinuous 只有 chain/engine 内部接线），且 layers/engine.ts
- *    的 conditionMatches 只识别 always/never/type/has-tag/has-keyword，compare/count
- *    一律返回 true——「exactly one other unit you control here」无法被诚实求值
- *    （RIFT-91 的 layers 引擎已合入求值骨架，条件谓词与卡牌注册路径未接通）。
- * 条件形状本身用已合入的 condition.predicate 在 golden 中真实求值（恰好 1 个为真、0 个
- * 与 2 个为假、异地的友方单位不计入）。
+ * 1. [Hidden] 的 KeywordDef、cost.pay、effect.zone 与 buildHiddenCostPlan 已合入；仍缺
+ *    Facedown Zone / Hide 动作及打出流程接线，不能用通用支付和移区代替。
+ *    cost.hidden 没有 layerFor 映射，
+ *    绑定会抛 ProgramBindingError 并被 attachLifecycle 的 onError 吞掉（fail-closed）。
+ *    811.1.d/811.5 的藏牌、811.6 的后续 [Reaction] 与 0 能量打出都无执行路径。
+ * 2. 条件授予侧不可执行：静态效果注册入口已合入（bindStaticToLayers /
+ *    attachLifecycle），但本卡条件里的 controller：“controller” 选择符在
+ *    layers/filter.ts 的 selectorMatches 中不被解析（只会做字面字符串比较），生产路径
+ *    里计数恒为 0、条件恒假（RIFT-359）。「exactly one other unit you control here」
+ *    无法被诚实求值。下方的 condition.predicate golden 只证明条件 IR 形状可由解释器
+ *    求值；它能通过，是因为测试内核的玩家 id 字面叫 "controller"，并不代表生产链路。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "hidden" },
@@ -73,15 +73,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) [Hidden] 的 KeywordDef 已合入（effects/keywords/Hidden.ts，811.1）但没有消费方——" +
-    "该文件自述 cost.hidden / cost.pay / effect.zone / continuous.timing 均未合入，cost/README.md 第 3 条明确 " +
-    "zones/actions 尚不支持 Facedown Zone 与 Hide，811.1.d/811.5 的藏牌、811.6 的后续 [Reaction] 与 " +
-    "0 能量打出都无执行路径（RIFT-89）。(2) 「I have [Shield 3] while I'm at a battlefield with exactly one " +
-    "other unit you control」的授予侧不可执行：卡牌侧没有注册 continuous.grant-keyword / continuous.might 静态效果的" +
-    "入口（ctx.addContinuous 只有 chain/engine 内部接线），且 layers/engine.ts 的 conditionMatches 只识别 " +
-    "always/never/type/has-tag/has-keyword，compare/count 一律返回 true——814.1.c 的“恰好一个其它友方单位在此”" +
-    "无法被诚实求值（RIFT-91 只合入了图层求值骨架）。依赖：RIFT-89（Hidden 的 Hide 路径与费用）、" +
-    "RIFT-91 后续（图层条件谓词与卡牌持续效果注册）。条件形状本身用已合入的 condition.predicate 真实求值。",
+    "两处缺口，均不近似实现：(1) [Hidden] 的 KeywordDef 已合入（effects/keywords/Hidden.ts，811.1），" +
+    "cost.pay / effect.zone 已注册，buildHiddenCostPlan 已支持 Hide 与后续打出的资源费用；仍缺 Facedown Zone、" +
+    "Hide 动作与打出流程接线，且 cost.hidden 无 layerFor 映射，绑定抛 ProgramBindingError " +
+    "被 attachLifecycle 的 onError 吞掉；811.1.d/811.5 的藏牌、811.6 的后续 [Reaction] 与 " +
+    "0 能量打出都无执行路径。(2) 「I have [Shield 3] while I'm at a battlefield with exactly one " +
+    "other unit you control」的授予侧不可执行：continuous.grant-keyword 静态效果注册入口（bindStaticToLayers / " +
+    "attachLifecycle）已合入，但 " +
+    "condition.filter 的 controller：“controller” 选择符在 layers/filter.ts 的 selectorMatches 中不被解析，" +
+    "生产路径里计数恒 0、条件恒假——814.1.c 的“恰好一个其它友方单位在此”无法被诚实求值（RIFT-359）。" +
+    "依赖：Hidden 的 Facedown/Hide、后续 [Reaction] 与免费打出接线，以及 RIFT-359（条件谓词）。" +
+    "golden 中的 condition.predicate 只覆盖解释器路径，且测试内核的玩家 id 恰好字面叫 “controller”。",
   abilities,
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +

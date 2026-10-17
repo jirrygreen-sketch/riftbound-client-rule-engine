@@ -156,5 +156,5 @@ test("tideturner: the merged trigger adapter binds only this card's play event",
   });
 });
 
-test.todo("Tideturner: Hidden Hide/Facedown Zone and next-turn Reaction/0 Energy play (CR 811.1.b–d / 811.5; location integration RIFT-357)");
+test.todo("Tideturner: Hidden Hide/Facedown Zone and next-turn Reaction/0 Energy play (CR 811.1.b–d / 811.5; cost.hidden / continuous.timing lifecycle)");
 test.todo("Tideturner: Finalize the optional nested friendly-unit targets through the real chain before the original swap body resolves (CR 355.5 / 355.12; assertFinalizationSurface)");

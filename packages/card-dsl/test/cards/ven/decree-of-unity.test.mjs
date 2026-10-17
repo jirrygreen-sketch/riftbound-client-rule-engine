@@ -34,7 +34,8 @@ test("ven-131-166 Decree of Unity: judgeReason names the missing domain predicat
   // CR 134 domain of an object lives in ObjectSnapshot.power; the merged matchers do not read it.
   assert.match(program.judgeReason, /134/);
   assert.match(program.judgeReason, /power/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-90/);
   assert.match(program.judgeReason, /不近似实现/);
 });
 
@@ -136,5 +137,5 @@ test("ven-131-166 Decree of Unity: direct primitive evidence for the kill half",
 test.todo(
   "ven-131-166 Decree of Unity: the target filter must evaluate the Chaos domain (134, " +
     "ObjectSnapshot.power) so only Chaos units/gear are legal — needs the domain predicate in the " +
-    "target predicate vocabulary (RIFT-90); until then the declared power: [\"Chaos\"] has no consumer"
+    "target predicate vocabulary (RIFT-359); until then the declared power: [\"Chaos\"] has no consumer"
 );

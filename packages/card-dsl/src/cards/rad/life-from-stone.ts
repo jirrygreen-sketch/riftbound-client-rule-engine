@@ -4,10 +4,11 @@ import type { CardProgram } from "../../ir/index.js";
  * Life from Stone — CR v1.5 356.2.a.1, 355.10.c.1, 414.1, 431.2/431.3.
  * Reaction and the draw/channel body are supported. The remaining boundary is
  * translating this mandatory additional, non-target exhaust cost into Finalize:
- * programs/play.ts translates the whole CostSpec as an explicit base cost,
- * while cost/plan-values.ts requires runtime ObjectRefs in choice.options and
+ * programs/play.ts translates the whole CostSpec as an explicit base cost, so
+ * ignore-base/ignore-all cannot preserve the mandatory component separately;
+ * cost/plan-values.ts also requires runtime ObjectRefs in choice.options and
  * does not consume a static choice.filter. Keep the card judge-required until
- * the additional-cost component and filtered pick are bound (RIFT-358).
+ * both bindings are present.
  */
 const lifeFromStone = {
   canonicalCardId: "card.hash-0b434d5de4e3431420a6dddfc3ed5c57570643467c671f4efae850ed1f9905ea",
@@ -17,7 +18,7 @@ const lifeFromStone = {
     "缺 CR 356.2.a.1 的强制附加费用绑定：programs/play.ts translateCost 把带 payments 的 cost.printed 转为 explicit " +
     "基础费用，未把横置费用分离为 mandatoryAdditional，无法保持 356.5 的基础费用/全部费用豁免区别。" +
     "另缺费用的非目标动态选择（355.10.c.1）：cost/plan-values.ts choiceObjects 只读取精确 ObjectRef 的 options，不消费 " +
-    "choice.filter 中的友方就绪单位条件（RIFT-358）。",
+    "choice.filter 中的友方就绪单位条件。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

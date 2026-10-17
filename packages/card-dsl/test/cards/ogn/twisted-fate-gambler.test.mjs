@@ -50,7 +50,7 @@ test("twisted-fate-gambler: identity, ruleset, status, judgeReason and sourceTex
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /388/);
-  assert.match(program.judgeReason, /RIFT-66/);
+  assert.match(program.judgeReason, /ordered-pick/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 

@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/dragon-form.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-ace1c75d6848b5ce9e834068a2b6255d8f82c7ccf918d3063e5a31698ccdacb6";
 const SOURCE_TEXT =
@@ -26,13 +28,17 @@ test("ven-116-166 Dragon Form: program passes validateCardProgram and is judge-r
 });
 
 test("ven-116-166 Dragon Form: judgeReason names the trait layer setting, the duration and Flow", () => {
-  // 143.2.a trait-altering set + RIFT-91 layers, and the unmerged Flow cost consumer.
+  // 143.2.a trait-altering set and the remaining Flow parameter/receipt/matching integration.
   assert.match(program.judgeReason, /143\.2\.a/);
   assert.match(program.judgeReason, /continuous\.base-might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /set-might/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-9\d/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /829\.1\.b/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-260/);
+  assert.match(program.judgeReason, /KeywordDef\.expand\.params\.cost/);
+  assert.match(program.judgeReason, /实付实例回执/);
+  assert.match(program.judgeReason, /object-leaves-chain/);
   // 143.2.c.1: the actual Might value is not clamped, so no printed floor is invented.
   assert.match(program.judgeReason, /143\.2\.c\.1/);
   assert.match(program.judgeReason, /不近似实现/);
@@ -71,20 +77,47 @@ test("ven-116-166 Dragon Form: [Flow] keyword plus one trait-layer base-Might se
 
 test("ven-116-166 Dragon Form: the [Flow] keyword the card declares is a registered definition", () => {
   // Positive-only check: the card's keyword declaration names a real registry entry
-  // (the unmerged half is its cost consumer, recorded in judgeReason and the todos).
+  // (remaining parameter/receipt/matching integration is recorded in judgeReason and the todos).
   assert.equal(keywordDefinitionsById.has("Flow"), true);
   assert.equal(keywordDefinitionsById.get("Flow").valued, false);
   assert.equal(keywordDefinitionsById.get("Flow").stacking, "separate");
 });
 
+test("ven-116-166 Dragon Form golden: an explicitly supplied Flow parameter expands and plans the printed 3 Energy alternate cost", () => {
+  // Tests the merged keyword/planner APIs; expandProgram still needs to pass this printed parameter.
+  const cost = { energy: { kind: "constant", value: 3 } };
+  const expanded = keywordDefinitionsById.get("Flow").expand({
+    host: { canonicalCardId: CARD_ID },
+    params: { cost }
+  });
+  const flowCost = expanded.find(ability => ability.kind === "static").effect;
+  assert.equal(flowCost.kind, "flow.cost");
+  assert.equal(flowCost.sourceZone, "trash");
+  assert.deepEqual(flowCost.cost, cost);
+  const kernel = world()
+    .player("A", { energy: 4 })
+    .card("dragon-form", { zone: "trash", types: ["spell"], energy: 3, power: null })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("dragon-form") });
+  const plan = buildCostPlan(context, {
+    id: "dragon-form.flow",
+    cost: { kind: "printed" },
+    baseModifications: [{ kind: "flow", id: "dragon-form.flow-instance", cost: flowCost.cost }]
+  });
+  assert.equal(plan.total.energy, 3);
+  assert.deepEqual(plan.total.power, []);
+  assert.equal(payCostPlan(context, plan).paid, true);
+  assert.equal(context.player("A").energy, 1);
+});
+
 test.todo(
   "ven-116-166 Dragon Form: execute 'Its base Might becomes 5 this turn' in the trait-altering " +
     "layer (143.2.a) with an end-of-turn expiry (317.2.c/318) — needs the continuous.base-might " +
-    "instruction plus its layers consumer (RIFT-91)"
+    "instruction plus its layers consumer (continuous.might's set is the arithmetic layer, not the trait layer)"
 );
 
 test.todo(
   "ven-116-166 Dragon Form: play from Trash for the printed Flow cost and banish the spell when it " +
-    "leaves the Chain by 829.1.b (not by its own execution, 829.1.b.1) — needs the alternate-cost " +
-    "consumer (RIFT-261) and the replacement registration path (RIFT-260)"
+    "leaves the Chain by 829.1.b (not by its own execution, 829.1.b.1) — needs printed Flow-cost parameter " +
+    "passing, a selected-instance receipt, Trash play permission and object-leaves-chain replacement matching"
 );

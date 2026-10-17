@@ -26,7 +26,10 @@ test("ven-004-166 Dune Surfer: identity, ruleset, status, judgeReason and verbat
   assert.match(program.judgeReason, /766\/767/);
   assert.match(program.judgeReason, /base-combat-allocation/);
   assert.match(program.judgeReason, /815\.1\.b/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /layerFor/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-9\d/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -62,9 +65,10 @@ test.todo(
 test.todo(
   "ven-004-166 Dune Surfer: the ignored [Tank] assignment requirement itself (815.1.b/815.1.c.1/.c.2) " +
     "must be enforced by combat damage assignment — keywords/Tank.ts states the continuous.combat " +
-    "consumer is not merged, so there is nothing to ignore yet (RIFT-9 / combat workstream)"
+    "consumer is not merged (Tank.ts records RIFT-258/259), so there is nothing to ignore yet"
 );
 test.todo(
-  "ven-004-166 Dune Surfer: register the card-program static effect into the layers engine " +
-    "(RIFT-91 merged the layer evaluator but has no card-side registration entry point)"
+  "ven-004-166 Dune Surfer: register the card-program static effect into the layers engine — " +
+    "bindStaticToLayers exists but continuous.ignore-ability has no layerFor mapping, so binding " +
+    "fails closed via attachLifecycle's swallowed ProgramBindingError"
 );

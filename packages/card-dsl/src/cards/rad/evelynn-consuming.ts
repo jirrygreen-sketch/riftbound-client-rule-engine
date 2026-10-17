@@ -28,7 +28,7 @@ const abilities: Ability[] = [
     kind: "triggered",
     trigger: {
       at: "card-played",
-      filter: { event: "card-played", filter: { fromFaceDown: true } }
+      filter: { event: "card-played", player: "self", details: { fromFaceDown: true } }
     },
     optional: false,
     body: [
@@ -62,9 +62,9 @@ const program = {
     "两处缺口仍未合入：" +
     "(1) 「When you play a card from face down」需要「该牌此前在面朝下区域」的事实（CR v1.5 811.1.d 与 355.10.a.1 的 Facedown Zone）：" +
     "card-played 事件载荷与 ObjectSnapshot 都不暴露该特征，而 events/trigger-spec.ts 的 EventPattern 与 pipeline-match 的 " +
-    "matchesTriggerObject 都会忽略未知的 filter 成员，写成 filter 会被静默放宽成「任何牌被打出」，不能诚实订阅（依赖卡牌程序触发绑定 RIFT-257 与 Facedown 事实载荷）。" +
+    "matchesTriggerObject 都会忽略未知的 filter 成员，写成 filter 会被静默放宽成「任何牌被打出」，不能诚实订阅（缺 card-played 事件的 fromFaceDown 载荷与 Facedown 事实）。" +
     "(2) [Ambush]（822）的 KeywordDef 已合入，但其展开仍是描述性静态数据：822.1.b 的合法打出位置需要 Finalize 的位置选择消费方、" +
-    "Reaction 许可需要 chain canAct 读取 continuous.timing（Ambush.ts 自述未合入），卡牌程序→触发/许可注册属 RIFT-257。" +
+    "Reaction 许可需要 chain canAct 读取 continuous.timing（Ambush.ts 自述未合入），Finalize 的位置许可与 Reaction canAct 消费方仍缺。" +
     "已解决并真实执行的两段：「ready me」（effect.ready，416）与「give me +1 :rb_might: this turn」" +
     "（continuous.might + appliesTo self + end-of-turn 期限，RIFT-258/317.2.c，golden 用参考内核 + layers 引擎执行）。不近似实现。",
   abilities,

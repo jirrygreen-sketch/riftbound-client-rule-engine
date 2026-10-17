@@ -29,12 +29,10 @@ test("unl-114-219 Nidalee, Cat Form: identity, status, judgeReason and verbatim 
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
-  // The stale "no Ambush KeywordDef" gap is gone (RIFT-266) and the card-program
-  // binding is merged too (RIFT-257); the reason must name the real gaps.
+  // The reason names the current placement, combat-result, and event-payload gaps.
   assert.match(program.judgeReason, /Ambush/);
   assert.match(program.judgeReason, /822/);
-  assert.match(program.judgeReason, /RIFT-266/);
-  assert.doesNotMatch(program.judgeReason, /没有 Ambush 文件|没有已合入的 KeywordDef/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+|没有 Ambush 文件|没有已合入的 KeywordDef/);
   assert.match(program.judgeReason, /combat-result/);
   assert.match(program.judgeReason, /468\.3/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
@@ -54,7 +52,7 @@ test("unl-114-219 Nidalee, Cat Form: winning a combat is a combat-result trigger
   // 468.3.a: the win belongs to a player; 468.3.c: units at the battlefield
   // inherit their controller's result, so the ability is filtered to itself and
   // to the winning side. The result key is the placeholder recorded in the
-  // judgeReason (no merged EventPattern binding exists yet).
+  // judgeReason records the pending closed EventPattern binding.
   assert.deepEqual(combatWin.trigger.filter, {
     event: "combat-result",
     filter: { source: "self", result: "win" }
@@ -107,13 +105,11 @@ test("unl-114-219 Nidalee, Cat Form golden: an empty Main Deck gains no card but
 
 test.todo(
   "unl-114-219 Nidalee, Cat Form: [Ambush] adds the battlefield permission and grants [Reaction] while " +
-    "being played there (CR 822.1.b / 822.1.c / 355.2.b) — the merged Ambush expansion is not consumed by " +
-    "Finalize's placement check or chain.canAct()"
+    "being played there (CR 822.1.b / 822.1.c / 355.2.b) by wiring the placement permission into Finalize"
 );
 test.todo(
   "unl-114-219 Nidalee, Cat Form: combat-result must reach the ability through the combat -> chain pipeline and " +
-    "bind “I win” from 468.3.a/468.3.c — combat/flow.ts still throws combat-start-transaction and "
-    + "docs/rules/timing-point-producers.md lists the timing as 待后续"
+    "bind “I win” from 468.3.a/468.3.c through the combat cleanup producer"
 );
 
 test("unl-114-219 Nidalee, Cat Form: the merged Ambush KeywordDef publishes the two printed permissions", () => {
@@ -129,6 +125,5 @@ test("unl-114-219 Nidalee, Cat Form: the merged Ambush KeywordDef publishes the 
 
 test.todo(
   "unl-114-219 Nidalee, Cat Form: register the combat-result subscription (CR 468.3.a/468.3.c) — the card's " +
-    "recorded `result: \"win\"` scope needs the combat-result timing to be part of the closed EventPattern " +
-    "vocabulary in events/trigger-spec.ts and to be emitted with a unitResults payload"
+    "recorded `result: \"win\"` scope needs the timing and unitResults payload in the closed EventPattern vocabulary"
 );

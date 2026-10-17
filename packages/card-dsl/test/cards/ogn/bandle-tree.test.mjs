@@ -30,8 +30,7 @@ test("ogn-278-298 Bandle Tree: identity, ruleset, status and printed text", () =
   assert.equal(program.sourceText, "You may hide an additional card here.");
   assert.match(program.judgeReason, /continuous\.restrict/);
   assert.match(program.judgeReason, /cost\.hidden/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /Facedown Zone|facedown/i);
 });
 
 test("ogn-278-298 Bandle Tree: one static ability raising this battlefield's facedown limit", () => {
@@ -75,12 +74,11 @@ test("ogn-278-298 Bandle Tree golden: the +1 Facedown Zone cap registers through
 });
 
 test.todo(
-  "ogn-278-298 Bandle Tree: bind the static CardProgram restriction to the layer pipeline (RIFT-257) and enforce " +
-    "the raised Facedown Zone maximum in the Hide action (CR 422.1/422.2.a, 811.1.b; the Hide cost/zone work is " +
-    "RIFT-261 cost.hidden)"
+  "ogn-278-298 Bandle Tree: enforce the raised Facedown Zone maximum in the Hide action " +
+    "(CR 422.1/422.2.a, 811.1.b) through the cost.hidden and occupancy consumers"
 );
 
 test.todo(
   "ogn-278-298 Bandle Tree: hiding an extra card must grant no discount and must not let cards " +
-    "without Hidden be hidden (RIFT-40 triage of the same printing)"
+    "without Hidden be hidden (CR 422.2.a / 811.1.b)"
 );

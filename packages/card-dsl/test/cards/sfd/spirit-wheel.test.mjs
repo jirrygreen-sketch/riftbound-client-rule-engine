@@ -34,11 +34,15 @@ test("sfd-144-221 Spirit Wheel: identity, ruleset, status, judgeReason and verba
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   // README section 2: the reason names the missing subscription and the missing
-  // cost-within-instructions payment, with the real task numbers.
+  // base-cost payment support, with the real gaps.
   assert.match(program.judgeReason, /TriggerRegistration/);
   assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /383\.3\.b/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  // The cost.pay primitive has merged since the original note; the refreshed
+  // reason names the TriggeredAbility cost field and the runtime payment
+  // reference instead of the old in-progress batch number.
+  assert.match(program.judgeReason, /TriggeredAbility/);
+  assert.match(program.judgeReason, /Invalid cost\.pay argument/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -104,8 +108,9 @@ test("sfd-144-221 Spirit Wheel golden: declining the optional performs neither t
 
 test("sfd-144-221 Spirit Wheel golden: the printed draw really draws one card through the reference kernel", () => {
   // The supported half of the body: 414.1/414.3 draws one card from the top of
-  // the controller's Main Deck. The cost half needs the unmerged cost-within-
-  // instructions primitive (see judgeReason), so it is not faked here.
+  // the controller's Main Deck. The cost half needs the TriggeredAbility cost
+  // field and the runtime payment reference (see judgeReason), so it is not
+  // faked here.
   const kernel = world().deck(["top", "second"]).build();
   const run = runInstruction(draw, { amount: drawInstruction.args.amount }, { world: kernel });
 
@@ -117,7 +122,7 @@ test("sfd-144-221 Spirit Wheel golden: the printed draw really draws one card th
   assert.deepEqual(run.events.map((event) => event.action), ["draw"]);
 });
 
-test("sfd-144-221 Spirit Wheel: the merged CardProgram binding registers the became-target subscription", () => {
+test("sfd-144-221 Spirit Wheel: the merged CardProgram binding registers through the real ChainEngine pipeline", async () => {
   // RIFT-257 (contract 3.5) is the subscription producer the card was waiting
   // for: registerProgramTriggers must turn the declared triggered ability into a
   // TriggerRegistration on the shared pipeline, keeping the printed
@@ -125,35 +130,17 @@ test("sfd-144-221 Spirit Wheel: the merged CardProgram binding registers the bec
   // placeholder to the ability controller.
   const lifted = { ...program, status: "executable" };
   delete lifted.judgeReason;
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
   const binding = createProgramBinding({ cardPrograms: [lifted] });
-  const registrations = [];
-  const ids = binding.registerProgramTriggers(
-    { pipeline: { registerTrigger: (registration) => registrations.push(registration), unregisterTrigger: () => {} } },
-    {
-      ref: { id: "spirit-wheel", zoneEntryId: 1 },
-      cardId: CANONICAL,
-      name: "Spirit Wheel",
-      types: ["gear"],
-      tags: [],
-      keywords: [],
-      owner: "A",
-      controller: "A",
-      zone: "board",
-      location: { type: "base", player: "A" },
-      might: null,
-      energy: 2,
-      power: null,
-      exhausted: false,
-      damage: 0,
-      stunned: false,
-      buffs: 0,
-      attachedTo: null,
-      faceDown: false,
-      isToken: false
-    }
-  );
+  const f = fixture({
+    cards: [{ id: "spirit-wheel", cardId: CANONICAL, types: ["gear"], energy: 2, power: [] }]
+  });
+  const source = f.kernel.getObject("spirit-wheel");
+  const ids = binding.registerProgramTriggers(f.engine, source);
+  const registrations = [...f.engine.pipeline.checkpoint().triggers.values()];
 
   assert.equal(ids.length, 1);
+  assert.equal(registrations.length, 1);
   assert.equal(registrations[0].spec.at, "became-target");
   assert.deepEqual(registrations[0].spec.filter, {
     event: "became-target",
@@ -165,11 +152,11 @@ test("sfd-144-221 Spirit Wheel: the merged CardProgram binding registers the bec
 
 test("sfd-144-221 Spirit Wheel: accepting the optional never draws without a real payment", () => {
   // 383.3.b/383.3.b.1: the printed "pay 1 energy and exhaust this" is the
-  // ability's base cost. Whether the cost opcode is registered yet or not, the
-  // durable requirement is that accepting the optional never draws for free:
-  // either the payment really happens (energy spent, wheel exhausted) or the
-  // attempt fails closed with no card drawn. This keeps passing once the
-  // in-progress RIFT-261 cost work lands.
+  // ability's base cost. Whether the static IR spelling is accepted yet or
+  // not, the durable requirement is that accepting the optional never draws
+  // for free: either the payment really happens (energy spent, wheel
+  // exhausted) or the attempt fails closed with no card drawn. This keeps
+  // passing once the payment runtime lands.
   const kernel = world().player("A", { energy: 3 }).deck(["d1", "d2"]).build();
   kernel.setAnswers({ [OPTIONAL_ID]: true });
 
@@ -177,8 +164,8 @@ test("sfd-144-221 Spirit Wheel: accepting the optional never draws without a rea
   try {
     outcome = runAbilityBody(ability.body, kernel);
   } catch (error) {
-    // Fail-closed path while cost.pay / the Finalize cost plan are unmerged
-    // (RIFT-261): the interpreter must reject the whole attempt.
+    // Fail-closed path while the static IR spelling is not a legal cost.pay
+    // argument: the interpreter must reject the whole attempt.
     assert.match(String(error && error.message), /cost\.pay|payment|cost plan/i);
     // Nothing was approximated: no card was drawn and the energy was untouched.
     assert.equal(kernel.player("A").handSize, 0);
@@ -197,6 +184,6 @@ test("sfd-144-221 Spirit Wheel: accepting the optional never draws without a rea
 
 test.todo(
   "sfd-144-221 Spirit Wheel: paying \"1 energy and exhaust this\" as the trigger's base cost " +
-    "(CR 383.3.b/383.3.b.1) needs a cost field on TriggeredAbility or a merged cost.pay " +
-    "primitive plus the finalize payment pipeline (in-progress RIFT-261)."
+    "(CR 383.3.b/383.3.b.1) needs the TriggeredAbility cost field and the runtime payment " +
+    "reference (non-standard exhaust) recorded as a contract change request."
 );

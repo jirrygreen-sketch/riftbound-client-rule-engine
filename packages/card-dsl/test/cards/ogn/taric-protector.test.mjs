@@ -13,7 +13,8 @@ test("ogn-074-298: identity, exact source text, pure data and explicit blocked s
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Tank|designation/);
-  assert.match(program.judgeReason, /RIFT-/);
+  assert.match(program.judgeReason, /combat 图层/);
+  assert.match(program.judgeReason, /static binder.*exclude\/other/);
   assert.equal(program.sourceText, "[Shield] (+1 :rb_might: while I'm a defender.)\n[Tank] (I must be assigned combat damage first.)\nOther friendly units here have [Shield].");
   assert.deepEqual(JSON.parse(JSON.stringify(program)), program);
 });
@@ -33,5 +34,5 @@ test("Taric: grant Shield only to other friendly units sharing the host's locati
   assert.equal(grant.effect.filter.zone, "board");
 });
 
-test.todo("Taric: Shield defender Might, Tank damage priority and summed granted Shield (CR 814/815; RIFT-83/91 keyword consumers)");
-test.todo("Taric: real continuous.keyword aura updates for friendly/enemy/other-location units and moving/removing the host (RIFT-1/91 layer filter/host binding)");
+test.todo("Taric: Shield defender Might, Tank damage priority and summed granted Shield (CR 814/815; continuous.combat consumers)");
+test.todo("Taric: real continuous.keyword aura updates for friendly/enemy/other-location units and moving/removing the host (dynamic relative filter and static binder support)");

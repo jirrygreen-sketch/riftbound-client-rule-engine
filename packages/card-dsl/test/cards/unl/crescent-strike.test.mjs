@@ -229,5 +229,5 @@ test.todo(
 
 test.todo(
   "unl-072-219 Crescent Strike: the battlefield/unit group choice and the 'there' relation re-check at Finalize/Resolve " +
-  "(CR 355.11; relative location/condition selector work tracked by RIFT-357/RIFT-359)"
+  "(CR 355.11; programs/filters.ts still rejects the sameLocationAs target anchor; target.location itself is available)"
 );

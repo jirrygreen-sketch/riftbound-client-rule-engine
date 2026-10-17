@@ -66,6 +66,7 @@ test("rad-142-167 Hexplosive Minefield: judgeReason names the delayed op, the de
   assert.match(program.judgeReason, /390/);
   assert.match(program.judgeReason, /440\.2\.c/);
   assert.match(program.judgeReason, /187\.12/);
+  assert.match(program.judgeReason, /RIFT-357/);
 });
 
 test("rad-142-167 Hexplosive Minefield: structure — Action keyword, any-number kill, delayed token play", () => {
@@ -176,11 +177,11 @@ test("rad-142-167 Hexplosive Minefield: choosing zero Bomb tokens is legal and k
 
 test.todo(
   "rad-142-167 Hexplosive Minefield: 'At end of turn, play that many Bomb tokens' needs the card-facing " +
-    "delayed-ability op (CR 390 / 391.2 / 393) that registers a turn-end trigger with the killed count " +
-    "(RIFT-9 trigger.delayed); a card-owned triggered ability would be wrong under 393"
+    "delayed-ability binding (CR 390 / 391.2 / 393) that registers a turn-end trigger with the killed count; " +
+    "a card-owned triggered ability would be wrong under 393"
 );
 test.todo(
   "rad-142-167 Hexplosive Minefield: playing NEW Bomb tokens to a single battlefield needs a " +
     "resolution-time battlefield destination (CR 440.2.c / 185.2.a / 350.2 / 354 / 355.9.a.4) and the " +
-    "Bomb gear token definition with its Deploy + Deathknell abilities (CR 187.12) — RIFT-62 / RIFT-90"
+    "Bomb gear token definition with its Deploy + Deathknell abilities (CR 187.12) — RIFT-357"
 );

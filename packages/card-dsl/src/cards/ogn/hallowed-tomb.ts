@@ -24,9 +24,9 @@ import type { CardProgram } from "../../ir/index.js";
  * - 103.3.a.3: Chosen Champion status follows the specific card chosen during
  *   deck building, not a characteristic of the printing.
  *
- * Status rationale (contract §3.1, cards README §2): three separate gaps, none
+ * Status rationale (contract §3.1, cards README §2): four separate gaps, none
  * approximated:
- * - the frozen ZoneId / ZoneDestination vocabulary has no champion-zone member
+ * - the EffectIR engine ZoneId / ZoneDestination vocabulary has no champion-zone member
  *   (GameAction `move-zone` lists hand/deck-top/deck-bottom/trash/banishment/
  *   base/battlefield; effect.zone's destination list is the same set), so the
  *   return destination cannot be named. effect.exhaust.ts already records the
@@ -37,15 +37,19 @@ import type { CardProgram } from "../../ir/index.js";
  *   evaluated (the nearest spelling, a count over zone "champion-zone", uses a
  *   zone outside the frozen vocabulary).
  *
- * The trigger, the optional wrapper and the intended destination are kept so
- * the missing contract pieces stay auditable; nothing here executes today.
+ * - the hold filter's `here` relation has no adapter that binds the scoring
+ *   event's battlefield identity to this source.
+ * The trigger, optional wrapper and intended destination stay explicit so the
+ * missing contract pieces remain auditable; nothing here executes today.
  */
 export default {
   canonicalCardId: "card.hash-92c11a0988b326e10a408e7574612b504d23ae5df1697436070ec33c5d1e6a70",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The Champion Zone does not exist in the frozen zone vocabulary: GameAction move-zone / effect.zone accept only hand, deck-top, deck-bottom, trash, banishment, base, battlefield, rune-deck, rune-zone and chain (CR 108.3 champion-zone is missing; effect.exhaust.ts records the same contract gap for legend-zone/champion-zone). ObjectFilter also has no Chosen Champion predicate for CR 103.3.a.3, and Condition has no zone-emptiness test for the printed 'if it is empty' (CR 108.3.c.1). The hold timing point exists, but CardProgram triggered-ability registration is still missing (RIFT-257). Dependencies: a contract change adding champion-zone to ZoneId/ZoneDestination, a chosen-champion object predicate, a zone-emptiness condition, and the RIFT-257 trigger binding.",
+    "The Champion Zone exists in duel state but is absent from the EffectIR engine ZoneId/ZoneDestination contract, so effect.zone cannot name it (CR 108.3). " +
+    "ObjectFilter also has no Chosen Champion predicate for CR 103.3.a.3, and the closed Condition vocabulary has no zone-emptiness test for the printed 'if it is empty' (CR 108.3.c.1). " +
+    "The hold filter's `here` relation also lacks an adapter that binds the scoring event's battlefield identity to this source. The hold timing point and trigger registration path exist; these zone, predicate, and event-binding consumers remain missing.",
   sourceText:
     "When you hold here, you may return your Chosen Champion from your trash to your Champion Zone if it is empty.",
   abilities: [

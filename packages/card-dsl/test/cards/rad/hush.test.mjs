@@ -39,8 +39,8 @@ test("rad-041-167 Hush: judge-required naming the missing Power-cost threshold c
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /355\.8|355\.17\.b|355\.9\.b/);
   assert.match(program.judgeReason, /filter/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Finalize|锁定前/);
+  assert.match(program.judgeReason, /powerCost|Power/);
 });
 
 test("rad-041-167 Hush: [Reaction] plus a chain-spell counter with the printed cost restriction recorded", () => {
@@ -125,9 +125,9 @@ test.todo(
     "Finalize-time targeting restriction; the merged filter pipeline (layers/filter.ts) has no " +
     "numeric comparator, an instruction condition is evaluated only after targets lock " +
     "(yielding skipped, not an illegal finalize per 355.8/355.17.b), and ObjectSnapshot.power is a " +
-    "domain list rather than a numeric Power cost (RIFT-90 scope)"
+    "domain list rather than a numeric Power cost"
 );
 test.todo(
-  "rad-041-167 Hush: full chain play (1 Energy + 2 Power, [Reaction] Closed-State window) needs " +
-    "the CardProgram play binding and Finalize cost plan (RIFT-257 / RIFT-261)"
+  "rad-041-167 Hush: after the Power-cost target threshold is enforceable at Finalize, execute full CardProgram " +
+    "Reaction play in Closed State, pay 1 Energy + 2 Power, and counter only a legal 2-or-more-Power spell"
 );

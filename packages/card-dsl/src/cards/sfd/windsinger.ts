@@ -1,45 +1,10 @@
 import type { Ability, CardProgram } from "../../ir/index.js";
 
 /**
- * Windsinger (sfd-138-221) — Unit, Chaos, Ionia.
- * energy 2, power: none printed, Might 1.
- *
- * sourceText（packages/card-data/data/deck-catalog.json, sfd-138-221，逐字，含换行）:
- *   "Hidden (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n"
- *   "When you play me, you may return another unit at a battlefield with 3 :rb_might: or less to its owner's hand."
- *
- * 规则依据（CR v1.5）：
- * - [Hidden]（811.1）：Hide 前提关键词。按契约 3.7 只声明关键词，展开（static cost.hidden）
- *   由已合入的 effects/keywords/Hidden.ts 负责，卡牌不重写。
- * - "When you play me"：383.4.a / 383.4.a.1 的 Play Effect（420.4.a 在打出动作完成后进链），
- *   时点 card-played，filter 用内层锚点 source: "self" 指称本卡（与已合入的 sfd/trove-golem、
- *   sfd/sandshifter、ogn/the-good-stuff 同型）。
- * - "you may …"（403.1、383.3.e.2）：效果首段是 "you may"，契约 3.9 要求把被选指令包进
- *   choice.optional 的 body；355.12 要求 may-action 的所有选择随该动作一起做，因此 TargetSpec
- *   挂在 choice.optional 节点上随 Finalize 锁定（与已合入的 sfd/disarming-rake 同型）。
- * - "another unit at a battlefield"：355.7/355.9.a.1 规定玩家要选的对象是目标；
- *   "another" 排除来源自身（355.9.c，用符号选择器 exclude: "source"——契约 3.6 的对象锚点，
- *   与已合入的 sfd/ribbon-dancer 同型），"at a battlefield" 是位置限制（355.10.b，写
- *   location: "battlefield"）。
- * - "to its owner's hand"：区域移动用封闭 GameAction return-to-hand，经 effect.zone
- *   （to: "hand"）提交，拥有者路由由内核负责（契约 3.6；448.2 的换区不是 Move）。
- *
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - "with 3 :rb_might: or less" 是 143.2.a 的有效 Might 上限目标限制（355.9.b 的同类示例是
- *   "a unit with Might 4 or greater"），但冻结的 ObjectFilter 没有 Might 谓词、也没有消费者读取：
- *   layers/filter.ts 的 matchesObjectFilter 只按 objectId/cardId/type/zone/location/controller/
- *   owner/states/tags/characteristics 匹配，未知键（程序里的 mightLte）会被静默忽略——
- *   把它当已实现会让本卡能回手任意单位（同 sfd/sandshifter 的同一缺口）。
- * - card-played 触发无法绑定：programs/filters.ts 的 translateObjectFilter 对 TargetSpec 的
- *   `exclude` 锚点直接 fail-closed（实测 registerProgramTriggers 抛
- *   ProgramBindingError judge-required “Unsupported filter field exclude”），而「another」
- *   正是靠该锚点排除来源；触发注册还依赖 RIFT-257 后续的绑定消费方。
- * - [Hidden] 的展开（static cost.hidden）没有消费方：Hide 行动、面朝下区与从面朝下打出的免费许可
- *   都未接线（RIFT-89；effects/keywords/Hidden.ts 文件头记录同一依赖）。
- * 已可真实执行：回手半段（effect.zone 的 return-to-hand，含目标失效 ignored 与无合法目标两种边界），
- * golden 用参考内核真实执行。依赖：Might 阈值谓词（RIFT-81~91 的 Mighty 类过滤 + RIFT-32/33 图层与目标查询场景）、
- * programs/filters.ts 的 exclude 锚点、RIFT-89（cost.hidden / Hide 路径）、RIFT-257 后续（触发注册）。
- * 不近似实现：不省略 "another" 排除，不省略 Might 上限，也不用直接改区域代替 return-to-hand。
+ * Windsinger — sfd-138-221 (CR v1.5 811.1, 383.3.a, 355.9.b/c).
+ * The first you may is a Finalize decision, represented by optional:true.
+ * Effective-Might/another target predicates and full Hidden integration remain
+ * blocked; returning an already locked unit uses the real return-to-hand action.
  */
 const RETURN_TARGET = "windsinger.other-small-unit";
 
@@ -51,47 +16,24 @@ const abilities: Ability[] = [
       at: "card-played",
       filter: { event: "card-played", filter: { source: "self" } }
     },
-    // 403.1 的 "you may" 是效果层的可选包装（契约 3.9），触发本身是非可选的。
-    optional: false,
+    optional: true,
     body: [
       {
-        id: "windsinger.may-return",
-        op: "choice.optional",
+        id: "windsinger.return-to-hand",
+        op: "effect.zone",
         args: {
-          prompt: {
-            kind: "constant",
-            value: "Return another unit at a battlefield with 3 Might or less to its owner's hand?"
-          },
-          body: {
-            kind: "constant",
-            value: [
-              {
-                id: "windsinger.return-to-hand",
-                op: "effect.zone",
-                args: {
-                  target: { kind: "constant", value: RETURN_TARGET },
-                  to: { kind: "constant", value: "hand" },
-                  amount: { kind: "constant", value: 1 }
-                }
-              }
-            ]
-          }
+          target: { kind: "constant", value: RETURN_TARGET },
+          to: { kind: "constant", value: "hand" },
+          amount: { kind: "constant", value: 1 }
         },
         targets: [
           {
             id: RETURN_TARGET,
-            // Might 上限只有描述性：355.9.b / 143.2.a 需要有效 Might 读取与阈值谓词，
-            // 现有过滤器会静默忽略 mightLte（见 judgeReason），绝不能当作已生效的限制。
             filter: {
-              type: "unit",
-              zone: "board",
-              location: "battlefield",
-              exclude: "source",
-              mightLte: 3
+              type: "unit", zone: "board", location: "battlefield",
+              exclude: "source", mightLte: 3
             },
-            min: 1,
-            max: 1,
-            selection: "one"
+            min: 1, max: 1, selection: "one"
           }
         ]
       }
@@ -104,16 +46,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "(1)「another unit at a battlefield with 3 :rb_might: or less」的 Might 上限无法求值：冻结的 ObjectFilter 没有 Might 谓词，" +
-    "已合入的过滤器（layers/filter.ts 的 matchesObjectFilter、测试内核的 matchesQueryFilter）只按 type/zone/controller/tags/characteristics " +
-    "等字段匹配，未知键（程序里的 mightLte）会被静默忽略——把它当已实现会让 Windsinger 能回手任意单位；355.9.b 的「单位 Might ≥ 4」类限制" +
-    "需要 143.2.a 的有效 Might 读取与阈值谓词（RIFT-81~91 / RIFT-32/33）。" +
-    "(2) card-played 触发当前无法绑定：programs/filters.ts 的 translateObjectFilter 对 TargetSpec 的 `exclude` 锚点直接 fail-closed" +
-    "（实测 registerProgramTriggers 抛 ProgramBindingError judge-required，message “Unsupported filter field exclude”），" +
-    "而「another」正依赖该锚点排除来源（355.9.c）；触发注册的绑定消费方也属 RIFT-257 后续。" +
-    "(3) [Hidden]（811.1）的展开只声明 cost.hidden 静态效果，Hide 动作、面朝下区与从面朝下打出的许可都没有消费方（RIFT-89，" +
-    "effects/keywords/Hidden.ts 文件头同款依赖）。" +
-    "effect.zone 的 trash/hand 回手段与 355.12 的 may 选择形状均已合入并由 golden 真实执行（锁定目标的回手、失效目标 ignored、无合法目标）。不近似实现。",
+    "(1) 目标的有效 Might 上限 mightLte:3（143.2.a、355.9.b）及 another 的 exclude:source 尚未由 programs/filters.ts 接到生产目标查询，依赖 RIFT-359；不能忽略过滤条件。(2) 首个 you may 按 383.3.a 必须在 Finalize 决定；programs/triggers.ts 的 optional 尚未映射到 mayAtFinalize，不能改成结算期 choice.optional。(3) Hidden 的 cost.hidden 尚未接通 811.1.b 的 Hide、面朝下/下回合解锁及 Reaction 免费打出，也缺 811.1.d.3 的原战场 Play Effect 目标限制。通用 card-played 注册和 effect.zone 回拥有者手牌子效果已存在，不再作为缺口。",
   abilities,
   sourceText:
     "Hidden (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +

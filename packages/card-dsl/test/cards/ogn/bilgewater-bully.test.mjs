@@ -35,8 +35,8 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /continuous\.movement/);
+  assert.match(program.judgeReason, /hasGanking/);
   assert.equal(
     program.sourceText,
     "While I'm buffed, I have [Ganking]. (I can move from battlefield to battlefield.)"
@@ -119,7 +119,6 @@ test("golden: the granted Ganking expands to the CR 810 movement permission", ()
 });
 
 test.todo(
-  "Bilgewater Bully: register the conditional static grant from the CardProgram (buffs >= 1) and derive " +
-    "hasGanking for the production movement path from the layered movement permissions (RIFT-257) so the " +
+  "Bilgewater Bully: derive hasGanking for the production movement path from the layered movement permissions so the " +
     "battlefield-to-battlefield Standard Move is legal only while buffed"
 );

@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import * as keywordRegistry from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CANONICAL = "card.hash-cb1f129544dcf370595e85fa0b8df2f0620b5cb3bd0199a5a8700160557bfb5f";
@@ -29,7 +30,7 @@ test("teemo-scout: identity, ruleset, status, judgeReason and sourceText", () =>
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /Hidden/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /cost\.hidden/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -105,7 +106,13 @@ test("teemo-scout: the Hidden keyword expands to the static cost.hidden effect (
 });
 
 test.todo(
-  "teemo-scout: [Hidden] 的藏牌与后续 [Reaction] / 0 能量打出（811.1.d / 811.5）依赖 Hide 的" +
-    "面向区域契约（cost.hidden 消费方；封闭 GameAction 无 Hide、ZoneId 无 Facedown Zone、" +
-    "card-hidden 无产生方）与 RIFT-257 的关键词展开注册"
+  "teemo-scout: [Hidden] 藏牌、忽略基础费用与次回合 [Reaction]（811.1.b/d、811.6）" +
+    "仍缺 cost.hidden 的 Hide/facedown 生命周期消费方与 card-hidden 产生方；关键词展开和程序绑定已合入"
 );
+
+test("teemo-scout: the program binder expands Hidden and retains the authored play trigger", () => {
+  const kernel = world().unit("teemo", { cardId: CANONICAL }).build();
+  const expanded = expandProgram(program, kernel.getObject("teemo"));
+  assert.deepEqual(expanded.expanded, [{ kind: "static", effect: { kind: "cost.hidden" } }]);
+  assert.deepEqual(expanded.abilities.find(ability => ability.kind === "triggered"), triggered);
+});

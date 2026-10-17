@@ -34,13 +34,15 @@ test("unl-005-219 Revna the Lorekeeper: identity, status, judgeReason and verbat
   assert.match(program.judgeReason, /energy_4|Energy/);
   assert.match(program.judgeReason, /383\.2\.a\.1/);
   assert.match(program.judgeReason, /Ganking/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  // The Ganking half is no longer "no KeywordDef": the expansion exists and so do
-  // the continuous.movement consumers; the remaining gap is the shape mismatch
-  // plus the missing card-program -> layers registration (RIFT-257).
+  // The Ganking expansion and movement consumer are merged; the remaining gap is
+  // their routes-shape mismatch after lifecycle binding.
   assert.match(program.judgeReason, /continuous\.movement/);
   assert.match(program.judgeReason, /routes/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  // Second-sweep refresh proof: the HistoryQuery field whitelist is named as the
+  // real expression gap instead of a generic unmerged-history claim.
+  assert.match(program.judgeReason, /HistoryQuery/);
+  assert.match(program.judgeReason, /amount|金额/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-257|没有生产方/);
 });
 
 test("unl-005-219 Revna the Lorekeeper: Ganking keyword plus a card-played spell trigger", () => {
@@ -138,7 +140,7 @@ test("unl-005-219 Revna the Lorekeeper: the merged movement() reader consumes a 
     ["battlefield-to-battlefield"]
   ]);
   // The Ganking expansion and the consumer describe the same route; the gap is
-  // the declaration spelling, which is recorded in judgeReason and below.
+  // the routes-shape mismatch is recorded in judgeReason and below.
   const [expansion] = ganking.expand({ host: { canonicalCardId: CANONICAL_ID } });
   assert.equal(expansion.effect.kind, "continuous.movement");
   assert.equal(expansion.effect.permission, "battlefield-to-battlefield");
@@ -177,17 +179,12 @@ test("unl-005-219 Revna the Lorekeeper: the generated card registry exposes the 
 test.todo(
   "unl-005-219 Revna the Lorekeeper: evaluate 'if you spent :rb_energy_4: or more' against the Energy actually paid for " +
     "the played spell (CR 383.2.a.1) — merged Expr/Condition has no spent-amount read and the frozen HistoryQuery counts " +
-    "actions, not amounts (RIFT-89 cost receipt)"
+    "actions, not amounts; ResolveContext/history has no played-spell payment amount"
 );
 
 test.todo(
   "unl-005-219 Revna the Lorekeeper: grant the battlefield-to-battlefield Standard Move from the merged Ganking " +
     "expansion (CR 810.1.b / 810.1.c.1, 144.4.c) once the KeywordDef's scalar permission/source/destination/move " +
-    "declaration reaches movement()'s normalized permission.routes reader and RIFT-257 registers a card's keyword " +
-    "abilities through layers"
-);
-
-test.todo(
-  "unl-005-219 Revna the Lorekeeper: fire the card-played spell trigger from the real chain flow (CR 383.4.a.4 / 420.4.a) — " +
-    "the CardProgram -> TriggerRegistration adapter is the RIFT-120 follow-up"
+    "declaration reaches movement()'s normalized permission.routes reader; the keyword expansion and lifecycle " +
+    "registration are already present"
 );

@@ -4,7 +4,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
 const abilities: Ability[] = [
   {
     kind: "replacement",
-    replaces: { event: "card-revealed", filter: { source: "self", zone: "deck" } },
+    replaces: { event: "card-revealed", player: "self", filter: { zone: "deck" } },
     with: [
       {
         id: "void-hatchling.look-top-card",
@@ -52,8 +52,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "『If you would reveal cards from a deck』需要 replacement.enter/reveal 的卡牌程序注册（RIFT-120），且『those cards』必须绑定被替代 Reveal 事件实际要展示的对象集合；当前 ObjectSelector 没有替代事件对象选择符。" +
-    "look at the top card 还需要上游用 zoneSlice 提供有序牌库顶 pick（RIFT-66 后续接线）；可选 recycle 体保留为真实原语结构，最终 reveal 与事件对象绑定未近似实现。",
+    "card-revealed 替代仍缺整次 reveal 意图（发起玩家、原牌库拥有者、原请求数量）的绑定和恢复执行：当前 reveal action 逐对象发出，replacement.object 只绑定单个被替代对象，不能表达先查看/可选回收后再按原请求展示。现有 replacement 注册已合入，但 replacement/planner.ts 不支持 effect.inspect、choice.optional、effect.recycle 组成的替代体（425.1/425.3、417.1）。effect.inspect 的参数 schema 仍只接受运行时 ObjectRef 的 object-property，尚未接通 source 选择器；source.controller 也不能代替原 reveal 的牌库拥有者；有序 picks 依赖 RIFT-358。当前 EventPattern 的 player:self 仅记录发起玩家意图，尚需对象事件路径实际匹配该 player。不近似实现。",
   abilities,
   sourceText: "If you would reveal cards from a deck, look at the top card first. You may recycle it. Then reveal those cards."
 } satisfies CardProgram;

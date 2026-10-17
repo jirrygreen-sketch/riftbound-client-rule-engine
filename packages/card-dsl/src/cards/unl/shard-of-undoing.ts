@@ -30,10 +30,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "each opponent" 的扇出缺原语：effect.kill 每一条指令只读取一个 picks 集合，没有
  *   按对手逐个绑定"由该对手选择并支付"的循环（与 ogn/kings-edict、rad/suave-negotiator
  *   的 target.player / 多玩家选择缺口同源）。
- * - 卡牌程序 → 触发注册的接线（契约 3.5）同样未合入。
+ * - 通用 CardProgram → TriggerRegistration 接线已合入，但本卡的阶段字段仍无法通过
+ *   programs/filters.ts 绑定；不能把它删掉或误当作无条件触发。
  * 已合入部分由 golden 真实执行：effect.kill 消费 picks（429.1.a.1 / 429.6）。
  * 依赖：阶段窗口谓词 / 事件载荷扩展（契约变更请求）、多玩家逐对手选择原语（RIFT-9
- * target.player 家族）、契约 3.5 触发接线；不近似实现。
+ * target.player 家族）；不近似实现。
  */
 const abilities: Ability[] = [
   {
@@ -44,11 +45,11 @@ const abilities: Ability[] = [
         event: "object-killed",
         // "a friendly unit"：死亡者由本能力控制者控制（383.1 的触发条件）。
         object: { type: "unit", controller: "self" },
-        // "during your Beginning Phase" 与 "the first time … each turn" 是描述性键：
-        // 前者等阶段窗口谓词，后者需要按触发玩家计的每回合一次（见 judgeReason）。
+        // "during your Beginning Phase" 仍等待阶段窗口谓词；每回合一次由 TriggerSpec.once
+        // 表达，不能把它错误地折叠为 Beginning Phase 开始时刻。
         duringPhase: "beginning",
-        firstTimeEachTurn: true
-      }
+      },
+      once: "per-turn"
     },
     optional: false,
     body: [
@@ -89,9 +90,9 @@ const program = {
     "本阶段后续时点造成的死亡，写成无条件 once: \"per-turn\" 又会把其它阶段的死亡算进来，两者都是错误近似。" +
     "(2)「each opponent」缺逐对手扇出：effect.kill 每条指令只读一个 picks 集合，没有按对手逐个绑定" +
     "「由该对手选择并消灭」的循环（与 ogn/kings-edict、rad/suave-negotiator 的玩家选择缺口同源）。" +
-    "(3) 卡牌程序→触发注册的接线（契约 3.5）未合入。已合入部分由 golden 真实执行：effect.kill 消费 picks" +
-    "（429.1.a.1 / 429.6）。依赖：阶段窗口谓词 / 事件载荷扩展（契约变更请求）、多玩家逐对手选择原语" +
-    "（RIFT-9 target.player 家族）、契约 3.5 触发接线；不近似实现。",
+    "(3) 通用 CardProgram→TriggerRegistration 接线已合入，但该阶段字段仍不能绑定；不能把它删掉或误当作无条件触发。" +
+    "已合入部分由 golden 真实执行：effect.kill 消费 picks（429.1.a.1 / 429.6）。依赖：阶段窗口谓词 / " +
+    "事件载荷扩展（契约变更请求）、多玩家逐对手选择原语（RIFT-9 target.player 家族）；不近似实现。",
   abilities,
   sourceText:
     "The first time a friendly unit dies during your Beginning Phase each turn, " +

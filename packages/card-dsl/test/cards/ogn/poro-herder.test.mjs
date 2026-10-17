@@ -51,8 +51,8 @@ test("ogn-061-298 Poro Herder: identity, ruleset, status, judgeReason and source
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /383\.2\.a\.1/);
   assert.match(program.judgeReason, /testTrigger/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /controller/);
+  assert.match(program.judgeReason, /filter\.object/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -191,5 +191,6 @@ test.todo(
   "ogn-061-298 Poro Herder: the Trigger Condition needs a production evaluator — the event " +
     "pipeline requires a host testTrigger adapter for conditional triggers (only engine-core's " +
     "test helpers install one), the condition filter's controller placeholder has no resolver on " +
-    "that path, and no merged consumer binds CardProgram triggered abilities at all (RIFT-257)."
+    "that path, and the production trigger body translator still rejects the self-anchored " +
+    "buff target filter (filter.object: \"self\")."
 );

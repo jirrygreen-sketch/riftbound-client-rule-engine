@@ -56,13 +56,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处当前缺口：(1) 'during their first or second turn' 需要**每个玩家各自**的回合序号（485.7/487.7/490.7/491.7 的 " +
-    "First Turn Process 会按模式与先后手调整），contract 的 HistoryQuery 只有 turn/combat/game 三种 scope， " +
-    "Condition 也没有该谓词，因此无法判定条件；(2) 'they draw 1 instead' 的 draw 需要绑定被替代事件的" +
-    "得分者，而 replacement/planner.ts 的 effect.draw 只接受 args.target、缺省取 planner.controller，" +
-    "没有“被替代事件的玩家”载荷选择器（现状会把 draw 记到能力控制者名下）。替换的 with 本体 effect.draw " +
-    "与 replacement registration 已合入，可单独执行验证；" +
-    "不近似实现（不改写全局回合计数、不把替代降级成额外抽 1 张）。",
+    "三处当前缺口：(1) “during their first or second turn”需要每位得分玩家的回合序数（485.7 / 487.7 / 490.7 / 491.7）。TurnFlow 的私有 turns 未暴露给 Condition / HistoryQuery，不能用全局回合计数或常量字符串代替谓词。" +
+    "(2) “they draw 1 instead”需要被替代事件的得分者；replacement/planner.ts 的 effect.draw 只读取 args.target、缺省取 controller，ReplacementPlanInput 只绑定 replacement.object，未绑定事件玩家。" +
+    "(3) turn/flow.ts 在实际征服/固守计分事务中拒绝把 score 替换为 draw（TurnCombatBlockedError:replaced-scoring），还缺结构性 Score 替代与计分账本的一致提交。通用 replacement 注册和 draw 本体已可执行，不把规划结果或额外抽牌当作实际计分替代。",
   abilities,
   sourceText:
     "If a player would score 1 point from conquering or holding during their first or second turn, they draw 1 instead."

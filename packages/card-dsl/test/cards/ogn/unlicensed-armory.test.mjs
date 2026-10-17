@@ -23,7 +23,7 @@ test("ogn-023-298 Unlicensed Armory: program passes validateCardProgram", () => 
   assert.match(program.judgeReason, /recall/i);
   assert.match(program.judgeReason, /457/);
   assert.match(program.judgeReason, /replacement\.event instead must be an instruction body/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /cost\.pay/);
   assert.equal(
     program.sourceText,
     "Discard 1, :rb_exhaust:: Choose a friendly unit. The next time it dies this turn, " +
@@ -169,23 +169,23 @@ test("Unlicensed Armory golden: with nothing in hand the discard payment is not 
 test.todo(
   "Unlicensed Armory: paying the printed “Discard 1” needs the Finalize-time hand pick bound into " +
     "the cost plan (the static card cost can only name the choice, never the runtime hand cards); " +
-    "Assembly Rig (sfd-019-221) carries the same gap, owned by RIFT-261."
+    "the production Finalize cost flow still has no controller-hand choice binding."
 );
 
 test.todo(
   "Unlicensed Armory: the “next time it dies this turn” delayed replacement needs a delayed " +
     "replacement registration (contract 3.5 replacement family) plus the instead-body shape " +
-    "alignment: the merged replacement/bind.ts (RIFT-260) requires a raw instruction array while " +
+    "alignment: the replacement binder requires a raw instruction array while " +
     "the card IR only validates constant-wrapped bodies outside body/modes."
 );
 
 test.todo(
   "Unlicensed Armory: the instead-body recalls the chosen unit exhausted. effect.move mode " +
-    "\"recall\" is explicitly blocked (CR v1.5 457–460: a Recall is not a Move) and the frozen " +
-    "move-location action cannot distinguish the two, so the Recall needs RIFT-109 to add it."
+    "\"recall\" is explicitly blocked (CR v1.5 457–460: a Recall is not a Move) and the " +
+    "move-location action cannot distinguish the two, so a distinct Recall action is still needed."
 );
 
 test.todo(
   "Unlicensed Armory: the optional :rb_rune_fury: payment inside the replacement needs cost.pay " +
-    "(no such primitive is merged; RIFT-261) plus the paid/declined receipt the replacement reads."
+    "with a finalized optional payment plan plus the paid/declined receipt the replacement reads."
 );

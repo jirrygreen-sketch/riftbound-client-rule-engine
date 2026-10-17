@@ -12,7 +12,7 @@ test("ogn-034-298 Tryndamere, Barbarian: program validates and is judge-required
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.equal(program.status, "judge-required");
-  // The score clause is merged (RIFT-115); the remaining gaps are the
+  // The score clause is merged; the remaining gaps are the
   // excess-damage statistic and the conquering-unit event payload.
   assert.match(program.judgeReason, /excess damage/);
   assert.match(program.judgeReason, /RIFT-31\/33/);

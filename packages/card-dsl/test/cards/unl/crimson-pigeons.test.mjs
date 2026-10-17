@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/crimson-pigeons.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
 const CANONICAL_ID =
@@ -42,14 +44,17 @@ test("unl-154-219 Crimson Pigeons: one static +2 Might modifier scoped to itself
 
 test("unl-154-219 Crimson Pigeons: the 'attacking with another unit' clause is an explicit condition", () => {
   // 364.3 的条件式被动能力；807.1.d / 466.2.c.3 的攻击者身份与 740.2.c 的 in combat 定义。
-  assert.equal(ability.condition.kind, "compare");
-  assert.equal(ability.condition.operator, "gte");
-  assert.deepEqual(ability.condition.right, { kind: "constant", value: 1 });
-  assert.equal(ability.condition.left.kind, "count");
-  assert.equal(ability.condition.left.subject, "other-attacking-units");
+  assert.equal(ability.condition.kind, "all");
+  assert.equal(ability.condition.conditions.length, 2);
+  const [, withAnotherAttacker] = ability.condition.conditions;
+  assert.equal(withAnotherAttacker.kind, "compare");
+  assert.equal(withAnotherAttacker.operator, "gte");
+  assert.deepEqual(withAnotherAttacker.right, { kind: "constant", value: 1 });
+  assert.equal(withAnotherAttacker.left.kind, "count");
+  assert.equal(withAnotherAttacker.left.subject, "other-attacking-units");
   // “another unit”：同位置的另一个己方单位（355.9.c 的 another、740.1.a 的 friendly），
   // 且由战斗身份限定为攻击者；锚点只用契约 3.6 的符号选择器。
-  assert.deepEqual(ability.condition.left.filter, {
+  assert.deepEqual(withAnotherAttacker.left.filter, {
     type: "unit",
     controller: "controller",
     zone: "board",
@@ -66,9 +71,10 @@ test("unl-154-219 Crimson Pigeons: the attack set is queried by location, not by
   assert.equal(ability.picks, undefined);
   assert.equal(ability.effect.appliesTo, "self");
   // 同一位置上的“另一个单位”必须在判定时排除宿主自身（355.9.c 的 another 惯例）。
-  assert.equal(ability.condition.left.filter.exclude, "self");
-  assert.equal(ability.condition.left.filter.sameLocationAs, "self");
-  // judgeReason 记录该条件不可诚实求值的原因（combatRole 缺席 + 图层条件未接线）。
+  const [, withAnotherAttacker] = ability.condition.conditions;
+  assert.equal(withAnotherAttacker.left.filter.exclude, "self");
+  assert.equal(withAnotherAttacker.left.filter.sameLocationAs, "self");
+  // judgeReason 记录 CardProgram 快照与图层查询仍缺的接线。
   assert.match(program.judgeReason, /layers\/filter\.ts/);
 });
 
@@ -82,3 +88,27 @@ test.todo(
   "placeholder inside the layer filter (CR 355.9.c / 359.3.f) — sameLocationAs/exclude query anchors " +
   "are present, but combatRole and controller-relative static filtering still need complete consumption"
 );
+
+test("unl-154-219 Crimson Pigeons golden: the printed self-attack gate rejects a defender or an undesignated host", () => {
+  assert.equal(ability.condition.kind, "all");
+  const [selfAttacking] = ability.condition.conditions;
+  assert.deepEqual(selfAttacking, {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "combatRole" },
+    operator: "eq",
+    right: { kind: "constant", value: "attacker" }
+  });
+  for (const combatRole of ["attacker", "defender", null]) {
+    const initial = world().unit("pigeons", { might: 3, combatRole }).build();
+    const kernel = initial.clone({ sourceSnapshot: initial.getObject("pigeons") });
+    const outcome = resolveChainBody([{
+      id: "check-self-attacking",
+      op: "condition.predicate",
+      args: { condition: { kind: "constant", value: selfAttacking } }
+    }], kernel);
+    assert.equal(outcome.status, "executed");
+    assert.equal(outcome.linkedValues["check-self-attacking.value"], combatRole === "attacker");
+    assert.equal(kernel.getObject("pigeons").might, 3);
+    assert.deepEqual(outcome.events, []);
+  }
+});

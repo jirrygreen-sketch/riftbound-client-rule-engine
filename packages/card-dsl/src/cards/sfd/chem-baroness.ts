@@ -34,7 +34,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   要求 create-token(to: chain) + 交给 play 流程的完整路径。
  * - "exhausted" 是 143.4/185.2.d 的入场状态规定；合并的 effect.token 明确记录"Entry overrides are not
  *   supported"，create-token 不接受入场状态，事后补 effect.exhaust 不等价（原语文档已写明）。
- * - 费用式 "exhaust me" 依赖 legend-zone 表达与 RIFT-89 的费用计划消费方（契约 3.6 的 ZoneId 没有
+ * - 费用式 "exhaust me" 依赖 legend-zone 表达与触发点费用计划接线（契约 3.6 的 ZoneId 没有
  *   Legend Zone，CR 108.3；同 ogn/the-boss）。
  * - "an ally"（491.8.e 的 Teammate）没有已合入的队友关系读法：ResolveContext 只暴露 player/query，
  *   没有 team/ally 概念（"ally" 在整个 cards 目录只有 732 条的注释提及）。
@@ -44,9 +44,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   [Add] 的产出量按持有者与条件改写。既没有 continuous-effect 的"资源产出加成"图层/谓词，也没有把
  *   CardProgram 的 static 能力注册进 LayerEngine 的路径（同 ogn/darius-executioner），且 :rb_rune_rainbow:
  *   这类 [A] 的 Universal Power 在六域封闭集合下不可表达（163.2.b）——本卡只加 1 Energy，不受该条限制。
- * 依赖：RIFT-89（费用计划消费方）、RIFT-91（layers-continuous 静态/持续效果注册）、RIFT-120（链与
- * 事件单管线、卡程序能力接线），以及 legend-zone、Victory Score 读数、Teammate(ally) 关系、
- * Gold token 定义与入场状态表达的契约补充。
+ * 依赖：费用计划的触发点接线、modify-resource-ability 的图层读者与持续效果形状，以及 legend-zone、
+ * Victory Score 读数、Teammate(ally) 关系、Gold token 定义与入场状态表达的契约补充。
  * golden 测试用解释器 + 参考内核真实执行已合入的 effect.token 部分形状（把 Gold 定义与 base 占位换成
  * 可执行值）与费用计划的 exhaust 收费；这些都不是整卡证据。
  * 不近似实现（不用另一个 token 定义冒充 Gold，不硬编码 8 分，不把 ally 当成自己）。
@@ -138,11 +137,17 @@ const program = {
     "effect.token 的冻结定义表按设计保持 blocked/judge-required，表内只有 recruit/sand-soldier/mech/reflection/tentacle；" +
     "（2）「exhausted」是 143.4/185.2.d 的入场状态规定，但合并的 create-token 明确不支持入场改写（effect.token：Entry overrides are not supported），" +
     "事后补 effect.exhaust 不等价（会多产生一次「成为横置」事件并错过入场替代）；" +
-    "（3）费用式「exhaust me」（415.4/415.5）依赖 legend-zone 表达（契约 3.6 的 ZoneId 无 Legend Zone，CR 108.3）与 RIFT-89 的费用计划消费方；" +
+    "（3）费用式「exhaust me」（415.4/415.5）依赖 legend-zone 表达（契约 3.6 的 ZoneId 无 Legend Zone，CR 108.3）；" +
+    "cost.pay 原语已注册，但其 payments 参数只接受 { energy, power, xp } 形状，本卡声明的裸数组 " +
+    "[{ kind: \"exhaust\", object: \"self\" }] 会被 paymentsPlan 拒绝（CostPlanError cannot-pay-cost）——" +
+    "buildCostPlan/payCostPlan 已能支付直接构造的 exhaust 计划（见 golden），缺的是 cost.pay 对非资源支付数组的解包与触发点接线；" +
     "（4）「an ally」是 491.8.e 的 Teammate 关系（740.1.a 的 friendly 含 teammates），ResolveContext 没有队友关系读法，无法把队友的 Hold 与自己的 Hold 合并判定；" +
     "（5）「within 3 points of the Victory Score」需要当前 Victory Score（194.3/194.3.a，默认可被游戏模式改），ResolveContext 只暴露各自 score、没有 victoryScore，硬编码 8 就是臆造；" +
-    "（6）「your Gold [Add] an additional :rb_energy_1:」是改写 [Add] 产出的条件持续效果，没有 continuous-effect 的资源产出加成形状，也没有把 CardProgram 的 static 能力注册进 LayerEngine 的路径（同 ogn/darius-executioner）。" +
-    "依赖：RIFT-89、RIFT-91（layers/持续效果消费）、RIFT-120，以及 legend-zone、Victory Score 读数、Teammate(ally) 关系、Gold token 定义与入场状态的契约补充。不近似实现。",
+    "（6）「your Gold [Add] an additional :rb_energy_1:」是改写 [Add] 产出的条件持续效果：programs/statics.ts 的 layerFor 对 " +
+    "modify-resource-ability 没有映射，绑定会抛 ProgramBindingError（static ability kind has no layer mapping），" +
+    "也没有资源产出加成的持续效果形状。" +
+    "依赖：cost.pay 非资源支付数组形状、modify-resource-ability 图层读者，以及 legend-zone、Victory Score 读数、" +
+    "Teammate(ally) 关系、Gold token 定义与入场状态的契约补充。不近似实现。",
   abilities,
   sourceText:
     "When you or an ally hold, you may exhaust me to play a Gold gear token exhausted.\n" +

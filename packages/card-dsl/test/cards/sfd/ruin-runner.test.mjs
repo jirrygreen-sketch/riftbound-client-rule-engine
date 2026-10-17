@@ -8,6 +8,8 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/index.js";
 import { restrictions } from "../../../../engine-core/dist/layers/rules/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 import { finalizeTargetPlan } from "../../../../engine-core/dist/target/index.js";
 
 const CARD_ID = "card.hash-4c33c3a92166927cee28b4acd0740603992c27aa8567488dee47edd7288ae1a1";
@@ -33,13 +35,13 @@ test("sfd-105-221 Ruin Runner: judgeReason names the untargetability consumer ga
   assert.match(program.judgeReason, /758/);
   assert.match(program.judgeReason, /continuous\.restrict/);
   assert.match(program.judgeReason, /target\/target-plan\.ts/);
-  // RIFT-259 merged the primitive and the rules-query helpers; the accurate
-  // gap is the missing consumer and the missing chooser/source-category keys.
-  assert.match(program.judgeReason, /RIFT-259/);
+  // Generic static and target consumers exist. The card still needs its
+  // enemy chooser and spell/ability source-category adapter.
+  assert.match(program.judgeReason, /ChainEngine\.targetIsLegal/);
   assert.match(program.judgeReason, /restrictions\(\)/);
   assert.match(program.judgeReason, /chooser/);
   assert.match(program.judgeReason, /sources/);
-  assert.match(program.judgeReason, /RIFT-90\/RIFT-91/);
+  assert.match(program.judgeReason, /Finalize\/Resolve/);
   assert.doesNotMatch(program.judgeReason, /effects\/instructions\/ 没有 continuous\.restrict 原语/);
 });
 
@@ -70,21 +72,19 @@ test("sfd-105-221 Ruin Runner: the untargetability is a whole-object eligibility
 test.todo(
   "sfd-105-221 Ruin Runner: the untargetability declaration must be consumed by target legality so an " +
     "opponent's spell or ability cannot choose this unit on the board (757/757.1, 758, 355.9.b) — " +
-    "continuous.restrict is merged but target/target-plan.ts never reads its registry, and no " +
-    "chooser/source-category keys exist on ObjectFilter or TargetSpec (RIFT-90 / RIFT-91)"
+    "the chain calls restriction queries, but chooser/source-category conditions need an adapter"
 );
 
 test.todo(
   "sfd-105-221 Ruin Runner: re-check untargetability on resolution so a unit that becomes untargetable " +
-    "after being targeted mistargets (758.1, 758.2 / 758.2.a, 359.3.e.5) — same consumer gap " +
-    "(RIFT-90 / RIFT-91)"
+    "after being targeted mistargets (758.1, 758.2 / 758.2.a, 359.3.e.5), using the enemy spell/ability conditions"
 );
 
 test("sfd-105-221 Ruin Runner: the merged continuous.restrict primitive registers the prohibition", () => {
-  // RIFT-259 merged the primitive: it registers an ability-layer restriction
+  // The merged primitive registers an ability-layer restriction
   // whose restriction name and action list are queryable through the merged
-  // rules helpers. The claim in the judgeReason is only about the missing
-  // consumer, not about the absence of the primitive.
+  // rules helpers. The card still needs its enemy chooser and source-category
+  // conditions, beyond this generic primitive registration.
   const kernel = world().unit("ruin-runner", { owner: "A", controller: "A", might: 5 }).build();
   const outcome = resolveChainBody(
     [{
@@ -115,12 +115,10 @@ test("sfd-105-221 Ruin Runner: the merged continuous.restrict primitive register
   assert.equal(query[0].name, "untargetable");
 });
 
-test("sfd-105-221 Ruin Runner: target legality never consults the restriction registry", () => {
-  // Evidence for the judgeReason: finalizeTargetPlan decides legality from the
-  // spec filter plus the caller-supplied isPending/isLegal hooks only. An
-  // untargetability restriction registered for the host changes nothing, and
-  // its "chooser is the opponent" / "source is a spell or ability" dimensions
-  // still have no key on ObjectFilter or TargetSpec.
+test("sfd-105-221 Ruin Runner: a standalone target plan accepts an explicitly legal unit selection", () => {
+  // Standalone target plans use caller-supplied legality hooks. ChainEngine
+  // now supplies the generic restriction hook; enemy source-category
+  // restrictions still need an adapter for the printed card.
   const kernel = world()
     .unit("ruin-runner", { owner: "A", controller: "A", might: 5 })
     .build();
@@ -137,3 +135,34 @@ test("sfd-105-221 Ruin Runner: target legality never consults the restriction re
 });
 
 
+
+
+test("sfd-105-221 Ruin Runner: generic target restrictions reach chain Finalize and resolution", () => {
+  // Exercise the merged hooks independently. This generic restriction is
+  // deliberately unconditional; it is not the card's enemy-only declaration.
+  const restriction = {
+    kind: "static", effect: { kind: "continuous.restrict", actions: ["target"], restriction: "untargetable", appliesTo: "self" }
+  };
+  for (const stage of ["finalize", "resolve"]) {
+    const f = fixture();
+    const source = f.kernel.getObject("source");
+    const draft = f.draft(`target-hook-${stage}`, { body: [{
+      id: "probe.hit", op: "effect.damage", args: { target: { kind: "constant", value: "victim" }, amount: { kind: "constant", value: 1 } },
+      targets: [{ id: "victim", filter: { objectId: source.ref.id, type: "unit", zone: "board" }, min: 1, max: 1 }]
+    }] });
+    if (stage === "finalize") {
+      const handle = createEngineStaticBinder(f.engine).bindStatic(restriction, source);
+      assert.throws(() => f.engine.execute(draft), error => error.code === "no-legal-targets");
+      assert.equal(f.kernel.getObject("source").damage, 0);
+      handle.unbind();
+    } else {
+      f.engine.execute(draft);
+      assert.deepEqual(f.engine.items[0].targetPlans[0].selected, [source.ref]);
+      const handle = createEngineStaticBinder(f.engine).bindStatic(restriction, source);
+      resolveAll(f.engine);
+      assert.equal(f.kernel.getObject("source").damage, 0);
+      assert.equal(f.engine.trace.filter(event => event.step === "resolved").length, 1);
+      handle.unbind();
+    }
+  }
+});

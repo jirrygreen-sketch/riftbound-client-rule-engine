@@ -32,7 +32,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /zoneSlice/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /关键词成员/);
   assert.match(program.judgeReason, /Facedown/);
   assert.equal(program.sourceText, printedSourceText);
 });
@@ -211,13 +211,13 @@ test("golden: the damage half cannot deal a guessed amount while the [Hidden] co
 
 test.todo(
   "Teemo, Strategist: 'for each card with [Hidden]' needs a count over the linked revealed set with a " +
-    "keyword predicate; neither count-over-linked-set nor a keyword filter key exists in the frozen " +
-    "filter contract (RIFT-9 primitive list / RIFT-90 target workstream)"
+    "keyword-membership predicate (811.5); object.linked already scopes count to the revealed set, " +
+    "but the Hidden membership filter and produced damage amount are still missing"
 );
 test.todo(
   "Teemo, Strategist: [Hidden] expansion — Hide cost (811.1.b), next-turn [Reaction] and the facedown " +
-    "play permission ('played from [Hidden]', 811.1.d.3) — keywords/Hidden.ts expands it, but no Hide " +
-    "action/facedown zone/consumer and no CardProgram→layers registration exist (RIFT-257 + Hide contract)"
+    "play permission ('played from [Hidden]', 811.1.b/d, 811.6) — keyword/program expansion is merged, " +
+    "but the Hide/facedown lifecycle and trusted playedFrom event binding remain missing"
 );
 test.todo(
   "Teemo, Strategist: printed text is the pre-errata version; the official correction (S-ORIGINS " +
@@ -225,3 +225,21 @@ test.todo(
     "revealing. The data fix belongs to card-data, not to this program " +
     "(docs/plans/survey/data-issues-recheck.md ogn-121-298)"
 );
+
+test("Teemo, Strategist: merged count scopes to the real reveal link without counting other zones", () => {
+  const kernel = world().deck(["revealed-a", "revealed-b", "revealed-c"], { owner: "A" })
+    .hand("hand-card").deck("opponent-card", { owner: "B" }).build();
+  const outcome = resolveChainBody([
+    defend.body[0],
+    { id: "probe.count", op: "condition.value", args: {
+      value: { kind: "count", filter: { object: { linked: "teemo.reveal" } } }
+    } }
+  ], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.linkedValues["probe.count.value"], 3);
+  assert.equal(outcome.linkedValues["teemo.reveal.revealedCount"], 3);
+  assert.deepEqual(outcome.events.map(event => event.action), ["reveal", "reveal", "reveal"]);
+  assert.equal(kernel.player("A").deckSize, 3);
+  assert.equal(kernel.player("A").handSize, 1);
+  assert.equal(kernel.player("B").deckSize, 1);
+});

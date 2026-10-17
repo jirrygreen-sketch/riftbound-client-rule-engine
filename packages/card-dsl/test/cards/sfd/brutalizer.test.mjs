@@ -158,4 +158,3 @@ test("sfd-042-221 Brutalizer golden: the merged Equip activation carries its pri
 });
 
 test.todo("sfd-042-221 Brutalizer: paying the printed Calm Equip cost (CR 818.1.b / 818.1.c.3) needs an equipped-cost payment kind in cost/plan-values.ts plus ExpandInput params.cost (contract 3.8 item 3).");
-test.todo("sfd-042-221 Brutalizer: the card-program -> keyword expansion -> chain activation wiring (contract 3.5) is not merged; the merged effect.attach body above runs directly, and payCostPlan is only exercised once the cost kind exists.");

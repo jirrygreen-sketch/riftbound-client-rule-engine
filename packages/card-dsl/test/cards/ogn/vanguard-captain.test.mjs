@@ -28,7 +28,7 @@ test("ogn-218-298 Vanguard Captain: program validates and has expected identity"
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Legion/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /testTrigger/);
   assert.equal(
     program.sourceText,
     "[Legion] — When you play me, play two 1 :rb_might: Recruit unit tokens here. " +
@@ -143,5 +143,5 @@ test("ogn-218-298 Vanguard Captain golden: tokens land in the controller base wh
 
 test.todo(
   "ogn-218-298 Vanguard Captain: [Legion] dependent-ability activation (CR 812.1.b.1/812.1.c) — " +
-    "需要 condition.history/predicate 的卡牌侧实现与按卡身份排除字段（契约 3.8 已登记、实现未落地），依赖 RIFT-82"
+    "需要触发条件历史查询、按卡身份排除字段与生产 testTrigger 适配器"
 );

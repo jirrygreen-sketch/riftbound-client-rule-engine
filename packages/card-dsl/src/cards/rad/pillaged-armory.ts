@@ -21,13 +21,17 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status：judge-required（2026-10-17 复核后更新）。具体缺口：
  * 1. Deploy 的 KeywordDef（RIFT-267 的 effects/keywords/Deploy.ts）已合入，但它的
- *    continuous.location 静态声明与 hold 触发都还没有生产消费方：Finalize 的
- *    合法打出位置校验、Cleanup 的“非单位 Gear 不召回”分支与 830.1.b 的“对手在此
- *    固守时消灭”触发注册都未接线（layers/rules/query.ts 提供 playLocations 查询，
- *    但没有主机调用；chain/engine.ts 的 cleanup 也不消费）。
- * 2. 两条触发能力没有“CardProgram → TriggerRegistration”的生产适配器（RIFT-120
- *    后续）："when you conquer here" 的 here 过滤还需要 conquer 载荷中的战场身份
- *    （turn/flow.ts 已发 details.battlefieldId，但触发系统读不到该字段与来源绑定）。
+ *    continuous.location 静态声明绑不进图层：programs/statics.ts 的 layerFor 抛
+ *    “Static ability kind continuous.location has no layer mapping”。Finalize 的
+ *    合法打出位置校验（chain/engine.ts 的 playDestinationIsLegal）只读限制名、不消费
+ *    any-battlefield 一类许可；Cleanup 的“非单位 Gear 不召回”分支（830.1.b.3）在
+ *    turn/flow.ts 里仍统一按 recall-action 抛 blocked；830.1.b 的“对手在此固守时消灭”
+ *    注册也因 hold 过滤（830.3 的 here 谓词）被拒而未接线。
+ * 2. TriggerRegistration 生产适配器已合入（programs/triggers.ts）："When you play this"
+ *    编译成 {event:\"card-played\", object:{objectId}, player:\"self\"} 并对真实 card-played
+ *    事件判定为 true（golden 有执行证据）。但 "when you conquer here" 的 here 过滤仍被
+ *    programs/filters.ts 拒绝（实测 “Unsupported filter field here”），conquer 载荷虽带
+ *    details.battlefieldId（turn/flow.ts），触发系统没有把该战场身份与来源绑定的谓词。
  * effect.buff 本体（含已有 Buff 不再放置）已合入并由 golden 真实执行；
  * Deploy 的 kill body 也在引擎既有测试里执行，但整卡仍需上述接线。
  */
@@ -37,12 +41,15 @@ export default {
   status: "judge-required",
   judgeReason:
     "(1) Deploy 的展开（RIFT-267，effects/keywords/Deploy.ts：continuous.location 的" +
-    "830.1.b 地点许可/仅可打到战场/非单位 Gear 不召回 + hold 触发消灭）已合入，但" +
-    "消费方未接线：Finalize 不读 continuous.location、Cleanup 不消费该静态声明、" +
-    "hold 触发也没有从关键词展开注册进事件管线（RIFT-120 / 契约 §7.2 批 5）。" +
-    "(2) 两条触发能力仍没有 CardProgram → TriggerRegistration 的生产适配器" +
-    "（RIFT-120）：\"when you conquer here\" 的 here 过滤还需要把 conquer 载荷的" +
-    "战场身份绑定到触发注册（turn/flow.ts 已发 details.battlefieldId）。" +
+    "830.1.b 地点许可/仅可打到战场/非单位 Gear 不召回 + hold 触发消灭）已合入但消费方未接线：" +
+    "static 绑定抛 “Static ability kind continuous.location has no layer mapping”（programs/statics.ts 的 layerFor）；" +
+    "Finalize 的 playDestinationIsLegal 只读限制名、不消费 any-battlefield 一类许可；" +
+    "Cleanup 对非单位 Gear 仍统一按 recall-action 抛 blocked（turn/flow.ts，830.1.b.3 未落地）；" +
+    "hold 触发的 here 过滤被 programs/filters.ts 拒绝。" +
+    "(2) TriggerRegistration 生产适配器已合入（programs/triggers.ts），\"When you play this\" 能编译成 " +
+    "{event:\"card-played\", object:{objectId}, player:\"self\"} 并匹配真实 card-played 事件（golden 有执行证据）；" +
+    "但 \"when you conquer here\" 的 here 过滤仍抛 “Unsupported filter field here”，" +
+    "conquer 载荷虽带 details.battlefieldId（turn/flow.ts），触发系统没有把该战场身份与来源绑定的谓词。" +
     "effect.buff 本体（含 702.3.a 的已有 Buff 不再放置）已合入并由 golden 真实执行；" +
     "不近似实现。",
   abilities: [

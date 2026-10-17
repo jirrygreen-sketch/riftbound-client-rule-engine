@@ -32,7 +32,7 @@ test("mindsplitter: identity, ruleset, status, judgeReason and sourceText", () =
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /target\.player/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /玩家选择原语/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -104,7 +104,7 @@ test("mindsplitter golden: revealing the opponent's hand lists every card in han
     .hand("b2", { owner: "B" })
     .hand("a1", { owner: "A" })
     .build();
-  // target.player 未合入，用链接值直接绑定被选中的对手（揭示 / 弃牌两步的真实执行）。
+  // target.player 尚未实现，用链接值直接绑定被选中的对手（揭示 / 弃牌两步的真实执行）。
   kernel.link("mindsplitter.choose-opponent.chosenOpponent", "B");
 
   const outcome = resolveChainBody([standalone(reveal)], kernel);
@@ -156,6 +156,6 @@ test("mindsplitter golden: a stale pick negates the discard instruction (CR 423.
 test.todo(
   "mindsplitter: “choose an opponent” 需要玩家选择原语 target.player + 重放式选项集合" +
     "（ability-templates 第 4 节 target.player 行）；target.player 落地后把选择结果接进 " +
-    "effect.reveal / effect.discard 的 player 参数（含触发注册与 CardProgram 绑定 RIFT-257），" +
+    "effect.reveal / effect.discard 的 player 参数，" +
     "并断言选择与投影"
 );

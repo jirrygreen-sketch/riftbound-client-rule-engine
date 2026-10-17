@@ -25,6 +25,59 @@ export interface ObjectRef {
   readonly zoneEntryId: number;
 }
 
+/** A board location identity. The engine binds player-relative selectors to this shape. */
+export type LocationRef =
+  | { readonly type: "base"; readonly player: string }
+  | { readonly type: "battlefield"; readonly id: string };
+
+/** A player-relative location reference evaluated by the resolving ability. */
+export type RelativeLocationKind =
+  | "ability-controller-base"
+  | "controller-base"
+  | "opponent-base"
+  | "source-location"
+  | "target-location"
+  | "target-controller-base"
+  | "target-owner-base";
+
+/** Symbolic locations are static IR values; concrete LocationRefs are runtime values. */
+export type LocationSelector =
+  | LocationRef
+  | RelativeLocationKind
+  | { readonly kind: "relative"; readonly relation: RelativeLocationKind; readonly target?: string }
+  | { readonly kind: "location-of"; readonly object: ObjectSelector }
+  | { readonly kind: "location-selector"; readonly locationOf: ObjectSelector }
+  | { readonly kind: "target-location"; readonly target: string }
+  | { readonly kind: "target-controller-base"; readonly target: string }
+  | { readonly kind: "target-owner-base"; readonly target: string }
+  | { readonly kind: "source-location" }
+  | { readonly kind: "linked-location"; readonly instructionId: string; readonly key?: string }
+  | { readonly kind: "choose"; readonly id: string; readonly options?: readonly LocationSelector[]; readonly filter?: LocationFilter };
+
+/** Location state predicates used by target.location. */
+export interface LocationFilter {
+  readonly type?: "base" | "battlefield" | "any";
+  readonly kind?: "base" | "battlefield" | "any";
+  readonly player?: string | "controller" | "opponent";
+  readonly owner?: string | "controller" | "opponent" | null;
+  readonly controller?: string | "controller" | "opponent" | "uncontrolled" | null;
+  readonly occupied?: boolean;
+  readonly open?: boolean;
+  readonly controlled?: boolean;
+  readonly contested?: boolean;
+  readonly hasUnits?: boolean;
+  readonly [key: string]: Value | undefined;
+}
+
+/** A target.location declaration. Location choices are public game-object choices. */
+export interface LocationTargetSpec extends LocationFilter {
+  readonly id: string;
+  readonly min?: number;
+  readonly max?: number | null;
+  readonly selection?: "one" | "any" | "all" | "up-to";
+  readonly [key: string]: Value | undefined;
+}
+
 /** Static IR names objects symbolically; the interpreter binds zone identities. */
 export type ObjectSelector =
   | "self"
@@ -51,6 +104,12 @@ export interface ConstantExpr<T = Value> {
 export interface LiteralExpr<T = Value> {
   readonly kind: "literal";
   readonly value: T;
+}
+
+/** An explicitly typed destination/location expression. */
+export interface LocationExpr {
+  readonly kind: "location";
+  readonly value: LocationSelector;
 }
 
 /** An expression that reads a property from a rules object. */
@@ -105,6 +164,7 @@ export type ArithmeticExpr = { readonly kind: "arithmetic" } & (
 export type Expr =
   | ConstantExpr
   | LiteralExpr
+  | LocationExpr
   | ObjectPropertyExpr
   | ObjectAttributeExpr
   | LinkedValueExpr
@@ -179,6 +239,8 @@ export type Condition =
 export interface TargetSpec {
   readonly id: string;
   readonly filter: ObjectFilter;
+  /** Existing object-target location filter or a symbolic location reference. */
+  readonly location?: LocationSelector | LocationFilter;
   readonly min?: number;
   readonly max?: number | null;
   readonly selection?: "one" | "any" | "all" | "up-to";
@@ -291,6 +353,7 @@ export interface Instruction {
   readonly args: Readonly<Record<string, Expr>>;
   readonly targets?: readonly TargetSpec[];
   readonly picks?: readonly PickSpec[];
+  readonly locations?: readonly LocationTargetSpec[];
   readonly linkedTo?: string;
   readonly condition?: Condition;
 }

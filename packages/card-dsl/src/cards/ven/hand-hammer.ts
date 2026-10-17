@@ -16,15 +16,25 @@ import type { CardProgram } from "../../ir/index.js";
  * - 135.2.e.4 / 163.2.b：印刷的 :rb_rune_calm: 是 1 点 Calm Power（本卡无能量费用）。
  *
  * status = judge-required（缺可支付的费用路径与关键词接线，不近似实现）：
- * 1. 没有已合入路径把 CardProgram 的 keyword 能力接进 effects/keywords/Equip.ts 并
- *    在链上形成启动能力（契约 3.5 的卡牌程序 → 关键词展开 → 时点/链接线）；契约 3.8.3
- *    要求的 KeywordDef.expand 印刷费用入口（params.cost）尚未实现，已合入的 expand
- *    只接受 value / host，印刷的 1 Calm Power 无法传进去。
+ * 复核（2026-10-17，第二轮 M2 覆盖率复核）：
+ * - 旧 judgeReason 的「describeActivate 接线全缺（契约 3.5）」与「RIFT-89/RIFT-120」
+ *   已不成立：ProgramBinding.createProgramBinding + ChainEngine.describeActivate
+ *   已把本卡的 Equip 展开注册成链上启动能力（实测返回 action 速度的 cost draft，
+ *   payments equip 原样传递）；expandProgram 已接受 value/host，只是不透传
+ *   KeywordDef 接口里已声明的 params.cost（effects/keyword-contract.ts 有形、
+ *   programs/keywords.ts 展开器不传）。
+ * - 真实缺口只剩付费路径：
+ * 1. 契约 3.8.3 在 KeywordDef 接口里声明的 params.cost 还不能从卡程序透传给展开器
+ *    （expandProgram 只传 value/host），印刷的 1 Calm Power 无法传进去。
  * 2. 已合入的 Equip 展开声明 cost.payments: [{ kind: "equip", value: source }]，
  *    cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked —— golden 实测
  *    buildCostPlan 抛 CostPlanError（reason "judge-required"，message
  *    "Unsupported payment kind: equip"）。
- * 依赖：RIFT-89 之后的 Equip 费用支付支持与 RIFT-120 的关键词/触发接线。
+ *    cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked —— golden 实测
+ *    buildCostPlan 抛 CostPlanError（reason "judge-required"，message
+ *    "Unsupported payment kind: equip"）；生产链 finalize 同样抛
+ *    ChainContractBlockedError（实测 describeActivate 成功后 chain.execute 失败）。
+ * 依赖：expandProgram 的 params.cost 透传、Equip 费用支付支持。
  * 已合入的 effect.attach 半段由 golden 用真实原语执行；费用不可支付，故整卡不标 executable。
  */
 /**
@@ -45,15 +55,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Equip] 的印刷费用（1 点 Calm Power，818.1.c / 135.2.e.4）目前不可支付，且关键词无法接线：" +
-    "(1) 没有已合入路径把 CardProgram 的 keyword 能力经 effects/keywords/Equip.ts 展开后注册为链上的启动能力" +
-    "（契约 3.5 的卡牌程序→关键词→时点/链接线未合入），契约 3.8.3 要求的 KeywordDef.expand 输入 " +
-    "params.cost 也还没有落进已合入的 KeywordDef 签名，印刷费用无法传给展开；" +
-    "(2) 已合入的 Equip 展开声明 cost.payments: [{ kind: \"equip\", value: source }]，" +
-    "cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked：golden 实测 buildCostPlan 抛 " +
-    "CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）。" +
-    "依赖 RIFT-89 之后的 Equip 费用支付支持与 RIFT-120 的关键词接线；不近似实现" +
-    "（不把 Equip 降级成裸 effect.attach）。已合入的 effect.attach 半段由 golden 真实执行。",
+    "[Equip] 的印刷费用（1 点 Calm Power，818.1.c / 135.2.e.4）目前不可支付，且印刷费用无法传给展开；" +
+    "两处缺口均不近似实现：(1) 契约 3.8.3 在 KeywordDef 接口里声明的 params.cost 还不能从卡程序透传——" +
+    "programs/keywords.ts 的 expandProgram 只传 value/host（effects/keyword-contract.ts 的接口有 params.cost 形、" +
+    "展开器不读），印刷的 1 Calm Power 进不了 KeywordDef.expand；(2) 已合入的 Equip 展开声明 " +
+    "cost.payments: [{ kind: \"equip\", value: source }]，cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked：" +
+    "golden 实测 buildCostPlan 抛 CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"），" +
+    "生产链 finalize 同样抛 ChainContractBlockedError（ProgramBinding + ChainEngine.describeActivate 已把本卡展开注册成" +
+    "链上启动能力并返回 cost draft，实测 chain.execute 在付费时失败）。不近似实现（不把 Equip 降级成裸 effect.attach）。" +
+    "已合入的 effect.attach 半段由 golden 真实执行。依赖：expandProgram 的 params.cost 透传、Equip 费用支付支持。",
   abilities: [equip],
   sourceText:
     "[Equip] :rb_rune_calm: (:rb_rune_calm:: Attach this to a unit you control.)"

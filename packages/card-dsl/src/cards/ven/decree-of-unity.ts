@@ -22,7 +22,7 @@ import type { CardProgram } from "../../ir/index.js";
  * 已合入的过滤器匹配器（layers/filter.ts matchesObjectFilter、events/pipeline-match.ts）只读取
  * 固定键（type/types/zone/location/controller/owner/states/tags/characteristics），不读取 
  * power/domain，因此 filter 里的 power: ["Chaos"] 没有消费方，不能把任意敌方 unit/gear 当作
- * 「Chaos」目标结算（依赖 RIFT-90 的目标谓词词表）。
+ * 「Chaos」目标结算（依赖 RIFT-359 的条件/目标谓词词表）。
  * 不近似实现：不把 Chaos 写成标签、不用 type 之外的捷径，也不省略该限制。
  */
 const decreeOfUnity = {
@@ -34,7 +34,7 @@ const decreeOfUnity = {
     "已合入的过滤器匹配器（layers/filter.ts matchesObjectFilter、events/pipeline-match.ts）只读取 " +
     "type/types/zone/location/controller/owner/states/tags/characteristics 等固定键，不读取 power/domain，" +
     "因此 filter 里的 power: [\"Chaos\"] 没有消费方，Finalize 无法按领域限制目标合法性（355.9.b；" +
-    "依赖 RIFT-90 的目标谓词词表）。不近似实现：不把 Chaos 写成标签或类型，也不省略该限制" +
+    "依赖 RIFT-359 的条件/目标谓词词表）。不近似实现：不把 Chaos 写成标签或类型，也不省略该限制" +
     "（省略会把「any enemy unit or gear」错误地当成合法目标）。" +
     "kill 半段（429.1.a.1/429.2.a/429.2.b）与恒为真的目标声明（355.7/355.9.a.1/355.10）本身" +
     "只用已合入的 effect.kill，golden 用真实解释器 + 参考内核执行该半段。",

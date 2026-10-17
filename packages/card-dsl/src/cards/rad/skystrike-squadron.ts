@@ -20,19 +20,22 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   数值相加；809.3 是可引用特征。按 README 第 5 节只声明关键词，展开属
  *   effects/keywords/Deflect.ts（已产出 target.tax 形状）。
  *
- * 状态：judge-required。缺口：
+ * 状态：judge-required。费用原语与生产绑定链均已合入，但下面三处是当前真实缺口：
  * 1. 附加费用"return a friendly gear to its owner's hand"没有收费路径：费用管线接受的
- *    付款种类为 energy/xp/power 与 exhaust/discard/recycle/kill/reveal/spend-buff，
- *    return-to-hand 不在其中（buildCostPlan 实测抛 CostPlanError: judge-required），
- *    与 ekko-ingenious 同一缺口（RIFT-89）。
+ *    付款种类只有 energy/xp/power 与 exhaust/discard/recycle/kill/reveal/spend-buff
+ *    （cost/plan-values.ts 的 blocked 路径实测返回 "Unsupported payment kind:
+ *    return-to-hand"）；而 programs/play.ts 的 translateCost 在翻译 Play 程序时首先
+ *    拒绝 kind: "additional-cost"、optional 与 discounts 字段（judgeRequired），
+ *    附加费用在"卡牌程序 → 费用计划"的生产绑定层就被挡住。
  * 2. "If you do, I cost [2] less" 需要条件式费用改写（356.4.c 的 component discount）
- *    与持续折扣消费方；cost/plan-values.ts 只接受调用方显式传入的 discounts，没有从
- *    持续效果读取折扣的入口（RIFT-89）。
- * 3. [Deflect] 的展开（target.tax）已存在，但没有任何调用方把 tax 传给
- *    finalizeTargetPlan（target-plan 的 options.tax 由调用者提供；chain/engine.ts 只装
- *    taxAdapter、不提供 tax 来源），因此"以我为目标要多付 1 点任意领域 Power"在实际
- *    目标选择时不会生效（RIFT-90 batch3-target-plan 的接线收尾）。
- * 依赖：RIFT-89（batch3-cost-plan）、RIFT-90（batch3-target-plan）。
+ *    与"已支付该附加费"的检测消费方；cost/cost-plan.ts 只从调用方显式传入的
+ *    input.discounts 应用折扣，没有读取卡牌声明或费用支付历史的入口。
+ * 3. [Deflect] 的 KeywordDef 展开为 target.tax，但 programs/statics.ts 的 layerFor
+ *    没有 target.tax 映射；原 IR 在生产绑定时直接抛
+ *    "Static ability kind target.tax has no layer mapping"，所以税效果尚未注册。
+ *    即使补上该映射，chain/engine.ts finalize 还会把收集到的 TargetTaxRequest（只有 amount: number）
+ *    写成 mandatoryAdditional 的 { energy: amount } 常量（plan-values 不接受 Power
+ *    域约束以外的强制加项形状），809.1.c.1 的"任意领域 Power"税无法如实收取。
  * 不近似实现：不把附加费用写成结算期 effect.zone，也不把"少 2 Energy"近似成无条件减费，
  *   也不在本卡手写 target tax。
  */
@@ -86,12 +89,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "附加费用「return a friendly gear to its owner's hand」没有收费路径：cost 管线接受的付款种类为 energy/xp/power 与 " +
-    "exhaust/discard/recycle/kill/reveal/spend-buff，return-to-hand 不在其中（buildCostPlan 实测抛 CostPlanError: judge-required），属 RIFT-89；" +
-    "「If you do, I cost :rb_energy_2: less」还需要 356.4.c 的条件式 component discount 与持续折扣消费方，" +
-    "cost/plan-values.ts 只接受调用方显式传入的 discounts（同为 RIFT-89）。" +
-    "[Deflect 1]（809.1）的展开（target.tax）已存在，但没有任何调用方把 tax 传给 finalizeTargetPlan" +
-    "（chain/engine.ts 只装 taxAdapter、不提供 tax 来源），实际目标选择时不会收取「任意领域 1 Power」的额外费用，属 RIFT-90（batch3-target-plan）的接线收尾。" +
+    "附加费用「return a friendly gear to its owner's hand」没有收费路径：programs/play.ts 的 translateCost " +
+    "实测拒绝 kind: \"additional-cost\"、optional 与 discounts 字段（judgeRequired），且 cost/plan-values.ts 的 " +
+    "blocked 路径实测返回 Unsupported payment kind: return-to-hand（费用管线只支持 energy/xp/power 与 " +
+    "exhaust/discard/recycle/kill/reveal/spend-buff）；" +
+    "「If you do, I cost :rb_energy_2: less」还需要 356.4.c 的条件式 component discount 与「该附加费已支付」" +
+    "的检测消费方，cost/cost-plan.ts 只从调用方显式传入的 discounts 应用折扣。" +
+    "[Deflect 1]（809.1）的 KeywordDef 展开为 target.tax，但 programs/statics.ts 的 layerFor 没有该 kind 的映射，" +
+    "原 IR 生产绑定实测直接抛 Static ability kind target.tax has no layer mapping；即使补上映射，chain/engine.ts finalize " +
+    "还会把收集到的 TargetTaxRequest（只有 amount: number）写成 mandatoryAdditional 的 { energy: amount } 常量，" +
+    "809.1.c.1 的「任意领域 1 Power」税无法如实收取。" +
     "不近似实现：不把附加费用写成结算期 effect.zone、不把它当成无条件减费、也不在本卡手写 target tax。",
   abilities,
   sourceText:

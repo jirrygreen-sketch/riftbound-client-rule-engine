@@ -29,10 +29,9 @@ test("unl-091-219 Concentrate: identity, status, judgeReason and verbatim source
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /356\.4/);
-  // RIFT-329 re-review: the cost-discount consumer and the XP predicate are
-  // still missing, and the dependency now names RIFT-261 (the cost.pay /
-  // cost.modify workstream) instead of the historical RIFT-89 label.
-  assert.match(program.judgeReason, /RIFT-349/);
+  // The unresolved dependency is static-declaration binding into Finalize.
+  // Cost-plan primitives already exist; their task numbers are not blockers.
+  assert.match(program.judgeReason, /programs\/statics\.ts/);
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /824\.1/);
 });
@@ -130,7 +129,7 @@ test("unl-091-219 Concentrate golden: the merged cost plan really applies a call
 
 test.todo(
   "unl-091-219 Concentrate: bind the static cost.modify declarations into the Finalize cost plan (CR 356.4) — " +
-    "programs/statics.ts has no cost-plan mapping for card static effects (RIFT-349 follow-up)"
+    "programs/statics.ts has no cost-plan mapping for card static effects"
 );
 
 test.todo(

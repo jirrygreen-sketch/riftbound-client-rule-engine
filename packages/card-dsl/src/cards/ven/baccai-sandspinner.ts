@@ -29,22 +29,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   括号内文字是提醒文本，不构成额外能力。
  *
  * status = judge-required（四处依赖都不近似实现）：
- * 1. effects/keywords/ 没有 Empower/Empowered 的 KeywordDef（RIFT-81~88 的关键词
- *    批次不含它们）：827.1.c.1 的启动费用与 827.1.c.5 的 “Use only if not Empowered”
- *    限制都没有展开路径，卡程序按契约 3.1 只能声明 keyword 能力。
+ * 1. effects/keywords/ 没有 Empower/Empowered 的 KeywordDef（注册表里无该条目）：
+ *    827.1.c.1 的启动费用与 827.1.c.5 的 “Use only if not Empowered” 限制都没有展开
+ *    路径，programs/keywords.ts 的 expandProgram 在缺 KeywordDef 时直接 judge-required。
  * 2. 费用改写没有消费方：cost/cost-plan.ts 只在调用方显式传入 discounts 时应用折扣，
  *    没有任何模块读取卡程序的 continuous.cost-modification 并把它接到 Empower 起动
- *    费用上（RIFT-89）。
- * 3. 828.1.c 的状态门控需要 empowered 谓词（condition.predicate）与关键词系统判断
- *    能力是否 Active；当前 Condition 没有该谓词。
- * 4. “I have [Deflect] and [Assault 2]” 是 continuous.grant-keyword 图层授予：
- *    effects/instructions/ 没有该原语（RIFT-9 清单的 continuous.keyword），layers 也
- *    没有把卡程序 static 效果注册进图层的入口（RIFT-91）；被授予的 Deflect 还需要
- *    809.1.c 的目标税接线（RIFT-90）。
- * 依赖：新增 Empower/Empowered KeywordDef、RIFT-89（费用计划与减费接线）、RIFT-90
- * （Deflect 目标税）、RIFT-91（layers-continuous 卡牌侧入口）。
- * 已支持部分：本卡印刷的 “4 or fewer runes” 计数条件（133.5.a.1/431.1）由 golden 用
- * 真实解释器 + 参考内核求值；其余依赖保持 test.todo。不近似实现。
+ *    费用上。
+ * 3. 828.1.c 的状态门控需要 empowered 谓词：ObjectSnapshot 没有该字段，测试内核的
+ *    empowered 计数也不进入快照，condition.predicate 无法求值（RIFT-359）。
+ * 4. “I have [Deflect] and [Assault 2]” 的授予原语 continuous.grant-keyword 已合入，
+ *    但 Empower/Empowered 本体仍缺 KeywordDef，被授予的 Deflect 还需要 809.1.c 的
+ *    目标税（target.tax 未注册，RIFT-360）。
+ * 已支持部分：授予原语用 grumpy-rockbear 同款 golden 真实执行；印刷的 “4 or fewer
+ * runes” 计数条件（133.5.a.1/431.1）由真实解释器 + 参考内核求值。其余依赖保持
+ * test.todo。不近似实现。
  */
 const abilities: Ability[] = [
   {
@@ -98,15 +96,18 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处依赖未合入：(1) 缺 Empower/Empowered 的 KeywordDef（RIFT-81~88 关键词批次不含它们），" +
-    "827.1.c.1 的「5 Energy：Empower me」起动费用、827.1.c.5 的「仅当未 Empowered 时启动」限制都无展开路径；" +
+    "四处依赖未合入：(1) 缺 Empower/Empowered 的 KeywordDef（effects/keywords/ 注册表无该条目），" +
+    "827.1.c.1 的「5 Energy：Empower me」起动费用、827.1.c.5 的「仅当未 Empowered 时启动」限制都无展开路径" +
+    "（programs/keywords.ts 的 expandProgram 在缺 KeywordDef 时直接 judge-required）；" +
     "(2) 827.1.c.3/206.1 的费用改写没有消费方——cost/cost-plan.ts 只在调用方显式传入 discounts 时应用折扣，" +
-    "没有模块把卡程序的 continuous.cost-modification 接到 Empower 起动费用上（RIFT-89）；" +
-    "(3) 828.1.c 的 Dependent Ability 门控需要 empowered 谓词（condition.predicate），当前 Condition 没有该谓词；" +
-    "(4)「I have [Deflect] and [Assault 2]」需要 continuous.grant-keyword 图层授予，effects/instructions/ 没有该原语" +
-    "（RIFT-9 清单的 continuous.keyword），layers 也没有卡程序 static 效果的注册入口（RIFT-91）；" +
-    "被授予的 Deflect 还缺 809.1.c 的目标税接线（RIFT-90）。" +
-    "已支持部分：印刷的「4 or fewer runes」计数条件（133.5.a.1/431.1）由 golden 真实求值。不近似实现。",
+    "没有模块把卡程序的 continuous.cost-modification 接到 Empower 起动费用上；" +
+    "(3) 828.1.c 的 Dependent Ability 门控需要 empowered 谓词——ObjectSnapshot 没有该字段、" +
+    "测试内核的 empowered 计数不进入快照，condition.predicate 无法求值（RIFT-359）；" +
+    "(4)「I have [Deflect] and [Assault 2]」的 continuous.grant-keyword 原语已合入并由 golden 真实执行，" +
+    "但 Empower/Empowered 本体仍缺 KeywordDef，被授予的 Deflect 还缺 809.1.c 的目标税" +
+    "（target.tax 未注册，RIFT-360）。" +
+    "已支持部分：印刷的「4 or fewer runes」计数条件（133.5.a.1/431.1）与授予原语的 ability 图层注册" +
+    "由 golden 真实求值。不近似实现。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_5:. This ability costs :rb_energy_3: less if you control 4 or fewer runes. " +

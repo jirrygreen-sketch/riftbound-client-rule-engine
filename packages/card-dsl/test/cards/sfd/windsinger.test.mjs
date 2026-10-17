@@ -16,8 +16,7 @@ const TARGET_ID = "windsinger.other-small-unit";
 const BATTLEFIELD = { type: "battlefield", id: "battlefield-1" };
 
 const [hidden, triggered] = program.abilities;
-const [mayReturn] = triggered.body;
-const [returnToHand] = mayReturn.args.body.value;
+const [returnToHand] = triggered.body;
 
 // The card's return half is driven with a Finalize-locked target - exactly the
 // shape the production chain hands to the primitive.
@@ -48,8 +47,9 @@ test("sfd-138-221 Windsinger: identity, ruleset, status, judgeReason and verbati
   assert.match(program.judgeReason, /mightLte/);
   assert.match(program.judgeReason, /355\.9\.b/);
   assert.match(program.judgeReason, /exclude/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /811\.1\.d\.3/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /383\.3\.a/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -64,31 +64,26 @@ test("sfd-138-221 Windsinger: Hidden keyword declared, never re-expanded in the 
   assert.deepEqual(triggered.trigger.filter, { event: "card-played", filter: { source: "self" } });
   assert.equal(triggered.trigger.condition, undefined);
   assert.equal(triggered.trigger.once, undefined);
-  // 403.1: the printed "you may" is the instruction-level optional wrapper, not
-  // a separate trigger-level decision, so the ability itself is mandatory.
-  assert.equal(triggered.optional, false);
+  assert.deepEqual(triggered.trigger, { at: "card-played", filter: { event: "card-played", filter: { source: "self" } } });
+  // 383.3.a: the leading "you may" is a trigger decision at Finalize.
+  assert.equal(triggered.optional, true);
 });
 
-test("sfd-138-221 Windsinger: contract 3.9 may-shape with the return target on the may node", () => {
-  assert.deepEqual(triggered.body.map((instruction) => instruction.id), ["windsinger.may-return"]);
-  assert.equal(mayReturn.op, "choice.optional");
-  assert.deepEqual(mayReturn.args.prompt, {
-    kind: "constant",
-    value: "Return another unit at a battlefield with 3 Might or less to its owner's hand?"
-  });
-  assert.equal(mayReturn.args.body.kind, "constant");
-  assert.deepEqual(mayReturn.args.body.value.map((instruction) => instruction.id), [
-    "windsinger.return-to-hand"
-  ]);
-  // Contract 3.9 forbids the choice + linkedTo spelling.
-  assert.equal(mayReturn.linkedTo, undefined);
+test("sfd-138-221 Windsinger: the Finalize may keeps a single direct return and its target", () => {
+  assert.deepEqual(triggered.body.map((instruction) => instruction.id), ["windsinger.return-to-hand"]);
+  assert.equal(triggered.body.length, 1);
+  assert.equal(triggered.optional, true);
+  // The former resolution-time prompt is represented by the leading printed may
+  // and optional:true; there is no second optional decision during resolution.
+  assert.match(program.sourceText, /When you play me, you may return another unit/);
+  assert.equal(returnToHand.linkedTo, undefined);
 
   // 355.7 / 355.12: "another unit at a battlefield" is chosen, so it is a target
   // locked together with the may-action. "another" excludes the source (355.9.c)
   // through the symbolic exclude selector; "at a battlefield" is a location
   // restriction (355.10.b). The Might cap stays descriptive (see judgeReason).
-  assert.equal(mayReturn.targets.length, 1);
-  const [target] = mayReturn.targets;
+  assert.equal(returnToHand.targets.length, 1);
+  const [target] = returnToHand.targets;
   assert.equal(target.id, TARGET_ID);
   assert.deepEqual(target.filter, {
     type: "unit",
@@ -100,7 +95,7 @@ test("sfd-138-221 Windsinger: contract 3.9 may-shape with the return target on t
   assert.equal(target.min, 1);
   assert.equal(target.max, 1);
   assert.equal(target.selection, "one");
-  assert.equal(mayReturn.picks, undefined);
+  assert.equal(returnToHand.picks, undefined);
 
   // The body moves the chosen unit to its owner's hand through the closed
   // return-to-hand action (448.2: a zone change, not a Move).
@@ -108,8 +103,17 @@ test("sfd-138-221 Windsinger: contract 3.9 may-shape with the return target on t
   assert.deepEqual(returnToHand.args.target, { kind: "constant", value: TARGET_ID });
   assert.deepEqual(returnToHand.args.to, { kind: "constant", value: "hand" });
   assert.deepEqual(returnToHand.args.amount, { kind: "constant", value: 1 });
+  assert.deepEqual(returnToHand.args, {
+    target: { kind: "constant", value: TARGET_ID },
+    to: { kind: "constant", value: "hand" },
+    amount: { kind: "constant", value: 1 }
+  });
   assert.equal(returnToHand.linkedTo, undefined);
-  assert.equal(returnToHand.targets, undefined);
+  assert.deepEqual(returnToHand.targets, [{
+    id: TARGET_ID,
+    filter: { type: "unit", zone: "board", location: "battlefield", exclude: "source", mightLte: 3 },
+    min: 1, max: 1, selection: "one"
+  }]);
 });
 
 test("sfd-138-221 Windsinger golden: the locked unit goes to its OWNER's hand, not the caster's (108.1)", () => {
@@ -152,9 +156,7 @@ test("sfd-138-221 Windsinger golden: no legal target leaves the return with noth
   assert.deepEqual(run.events, []);
 });
 
-test("sfd-138-221 Windsinger: the merged Hidden expansion exists but has no consumer", () => {
-  // RIFT-84 merged cost.hidden as a static effect; nothing consumes it (no Hide
-  // action, no facedown zone), which is the gap the judgeReason records.
+test("sfd-138-221 Windsinger: Hidden expands through the real keyword registry", () => {
   const definition = keywordDefinitionsById.get("Hidden");
   assert.ok(definition, "effects/keywords/Hidden.ts must be registered");
   const [expansion] = definition.expand({ host: { canonicalCardId: CARD_ID } });
@@ -162,18 +164,6 @@ test("sfd-138-221 Windsinger: the merged Hidden expansion exists but has no cons
   assert.equal(expansion.effect.kind, "cost.hidden");
 });
 
-test.todo(
-  "sfd-138-221 Windsinger: enforce the '3 :rb_might: or less' return ceiling at Finalize/Resolve " +
-    "(355.9.b / 143.2.a effective-Might predicate) once a Might filter predicate is merged (RIFT-81~91)."
-);
-
-test.todo(
-  "sfd-138-221 Windsinger: teach programs/filters.ts the contract 3.6 `exclude`/`here` anchors (and register the " +
-    "trigger through the CardProgram binding) so the printed 'another' restriction can be bound honestly " +
-    "(RIFT-257 follow-up)."
-);
-
-test.todo(
-  "sfd-138-221 Windsinger: the [Hidden] expansion (811.1) needs the cost.hidden / Hide path consumer: the " +
-    "Hide Discretionary Action, the facedown zone, and the free play from facedown for [A] (RIFT-89)."
-);
+test.todo("Windsinger: bind effective Might <=3 and exclude:source in the production target filter (RIFT-359)");
+test.todo("Windsinger: map the leading optional trigger to mayAtFinalize (383.3.a)");
+test.todo("Windsinger: complete Hide/next-turn Reaction play and the original-battlefield Play Effect restriction (811.1.b/811.1.d.3)");

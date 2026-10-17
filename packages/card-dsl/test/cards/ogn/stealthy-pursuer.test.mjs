@@ -19,7 +19,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /fromLocationId/);
   assert.match(program.judgeReason, /ObjectSelector/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /object-moved/);
   assert.equal(
     program.sourceText,
     "When a friendly unit moves from my location, I may be moved with it."
@@ -54,7 +54,7 @@ test("body records the follow-up Move of self with its payload-derived destinati
 test.todo(
   "match 'moves from my location' against the object-moved payload's fromLocationId/fromKind compared with " +
     "the host's current location; the closed ObjectFilter has only sameLocationAs (current locations) and the " +
-    "EventPattern vocabulary does not admit object-moved (RIFT-90 plus the contract change request)"
+    "EventPattern vocabulary and matcher still need the object-moved event and its host-relative from-location predicate"
 );
 test.todo(
   "move Stealthy Pursuer to the moved unit's destination: the IR needs an event-payload selector for " +

@@ -104,10 +104,10 @@ test("rad-147-167 Pride of Nazumah: the dynamic Shield read is not representable
 });
 
 test("rad-147-167 Pride of Nazumah: a fixed Assault value does execute through the merged grant", () => {
-  // The merged continuous.grant-keyword op (RIFT-258) is what the card will run
-  // once a readable keyword-value expression exists; proving the grant lands
-  // keeps the remaining gap precisely on the dynamic value read and the Legend
-  // Zone cost, not on the keyword mechanics.
+  // The merged continuous.grant-keyword op is what the card will run once a
+  // readable keyword-value expression exists; proving the grant lands keeps the
+  // remaining gap precisely on the dynamic value read and the Legend Zone cost,
+  // not on the keyword mechanics.
   const kernel = world()
     .unit("ally", { might: 2, keywords: [{ id: "Shield", value: 2 }] })
     .build();

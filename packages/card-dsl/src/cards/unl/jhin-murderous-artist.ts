@@ -27,16 +27,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   六域封闭集合，effect.resources 的文件头明确记录 Universal Power 不可表达、绝不用某个域近似；
  *   本卡把 [A] 记为描述性的 power: [rainbow]（与已合入 ogn/daughter-of-the-void 同一记法），原语对其返回
  *   negated(impossible)——golden 锁定这条失败证据，而不是选一个域冒充。
- * - [Deflect]（809.1.c 的目标税）/[Ganking]（810.1.b 的战场间移动许可）的 KeywordDef 都已合入
- *   （RIFT-84/RIFT-83 批次），programs/keywords.ts 也会展开它们；但展开结果都是 static 声明，没有消费方：
- *   programs/statics.ts 缺省 noopStaticBinder，Deflect 的 target.tax 只有目标计划自带的调用方 tax，
- *   continuous.movement 许可也没有移动系统读取（zones/movement.ts 不读图层）。
+ * - [Deflect]（809.1.c 的目标税）/[Ganking]（810.1.b 的战场间移动许可）的 KeywordDef 都已合入，
+ *   programs/keywords.ts 也会展开它们；静态绑定已存在，但 target.tax 没有映射到目标计划的消费方，
+ *   而 Ganking 的 permission 形状仍没有被移动规则查询消费。
  * - object-moved 触发缺注册路径：programs/filters.ts 把 {source:"self"} 归一化为宿主 object 过滤器，
  *   但封闭 EVENT_PATTERN_TYPES 没有 "object-moved"（别名是 zone-entered/zone-left），registerProgramTriggers
  *   抛 invalid-event-type；且 move-location 的发射不带 timing-points.ts 声明的起止地点载荷。
  * 可真实执行的部分：Add 的 1 Energy 半段（effect.resources 的 energy 参数）与关键词声明的结构校验。
- * 依赖：通用 Power 表达（契约变更）、卡牌 static → layers/目标税/移动消费方（RIFT-257/90/259 后续）、
- * object-moved 触发拼写与载荷（RIFT-120 后续）。
+ * 依赖：通用 Power 表达（契约变更）、target.tax / movement permission 消费方、
+ * object-moved 触发拼写与移动事件载荷。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "deflect" },
@@ -74,14 +73,12 @@ const program = {
     "(1) [Add] :rb_rune_rainbow: 的 [A] 任意域 Power 不可表达：契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order " +
     "六域封闭集合，effect.resources 的文件头明确记录 163.2.b 的 Universal Power 不可表达、绝不用某个域近似；" +
     "本卡以描述性 power: [rainbow] 保留记号，原语对其返回 negated(impossible)，golden 锁定该失败证据而不是选一个域冒充。" +
-    "(2) [Deflect]/[Ganking] 的 KeywordDef 已合入（effects/keywords/Deflect.ts、Ganking.ts），programs/keywords.ts 会展开；" +
-    "但展开结果是 static 声明，没有消费方：programs/statics.ts 缺省 noopStaticBinder（卡牌 static → layers 无入口），" +
-    "目标计划只收调用方传入的 tax（没有从已授予关键词派生 target.tax 的路径），continuous.movement 许可也没有移动系统读取。" +
+    "(2) [Deflect]/[Ganking] 的 KeywordDef 已合入且卡牌 static 已有绑定路径；但 target.tax 尚未接入目标计划的额外费用，" +
+    "Ganking 的 continuous.movement permission 形状也尚未被移动规则查询消费。" +
     "(3) object-moved 触发无法注册：封闭 EVENT_PATTERN_TYPES（events/trigger-spec.ts）不含 \"object-moved\"，" +
     "registerProgramTriggers 因此抛 invalid-event-type；move-location 的发射也不带 timing-points.ts 声明的起止地点载荷。" +
     "已可真实执行的部分：effect.resources 的 1 Energy 半段（golden 覆盖）。" +
-    "依赖：通用 Power 表达（契约变更）、卡牌 static → layers/目标税/移动消费方（RIFT-257/90/259 后续）、" +
-    "object-moved 触发拼写与载荷（RIFT-120 后续）。",
+    "依赖：通用 Power 表达（契约变更）、target.tax / movement permission 消费方、object-moved 触发拼写与移动事件载荷。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +

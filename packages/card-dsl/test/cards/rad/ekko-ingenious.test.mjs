@@ -26,6 +26,7 @@ test("rad-061-167 Ekko, Ingenious: program validates and is judge-required", () 
   assert.match(program.judgeReason, /return-to-hand/);
   assert.match(program.judgeReason, /mandatory additional/);
   assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /RIFT-358 进行中/);
   assert.match(program.judgeReason, /continuous\.movement/);
   assert.match(program.judgeReason, /zones\/movement\.ts/);
 });

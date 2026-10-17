@@ -68,12 +68,12 @@ test("applied-researchers: the Power component is 1 Power of any Domain without 
   assert.equal(powerDiscount.effect.minimum, undefined);
 });
 
-test("applied-researchers: the Empower keyword and the cost-modification op are still unmerged", () => {
-  assert.equal(keywordDefinitionsById.get("Empower"), undefined);
-  assert.equal(keywordDefinitionsById.get("Empowered"), undefined);
-  // static 分支不是靠某个缺失原语：continuous.cost-modification 不在 instructions 注册表里，
-  // 费用侧也没有读它的折扣通道（见 judgeReason）。
-  assert.equal(instructionDefinitionsById.has("continuous.cost-modification"), false);
+test("applied-researchers: the declared discount components carry the 356.4.e shape", () => {
+  // 缺口形状（见 judgeReason 与下方 TODO）：continuous.cost-modification 不是指令
+  // （static 效果走 bindStatic），费用计划侧也没有读它的折扣通道。
+  assert.equal(powerDiscount.effect.resource, "power");
+  assert.equal(energyDiscount.effect.resource, "energy");
+  assert.equal(energyDiscount.effect.minimum, 1);
 });
 
 test("applied-researchers: the merged cost plan applies a caller-supplied discount of exactly this shape", () => {
@@ -139,4 +139,10 @@ test.todo(
     "of 1 Energy' from the CardProgram static effect into buildCostPlan as a CostDiscount " +
     "(356.4.a-d ordering, 356.4.e per-discount minimum) — RIFT-257's static binding and a merged " +
     "cost-modification consumer are still missing"
+);
+
+test.todo(
+  "applied-researchers: the Empower/Empowered KeywordDefs and the card-side static-to-CostPlan " +
+    "discount channel are pending — until the keyword task and the discount-channel task land, the " +
+    "827.1.c.1 activation and the 828.1.c gate cannot expand (see judgeReason)"
 );

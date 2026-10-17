@@ -9,6 +9,11 @@ import { bindResolveContext } from "../../../../engine-core/dist/events/action-a
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
+import { translateCost, translateRestriction } from "../../../../engine-core/dist/programs/play.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import { runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
+
 const CARD_ID = "card.hash-80f8e3cfb1efb8fa92d35b79b1509e929ecc65f84dfa4f899f2dd62f6019be4e";
 const SOURCE_TEXT =
   ":rb_rune_calm:: [Action] — Choose a unit you control. Move me to its location and it to my original location. " +
@@ -69,7 +74,7 @@ test("sfd-050-221 Azir, Ascendant: identity, ruleset, status, judgeReason and ve
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /activated/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /translateRestriction/);
   assert.match(program.judgeReason, /once-per-turn/);
   assert.match(program.judgeReason, /usage-limit/);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -252,8 +257,23 @@ test("sfd-050-221 Azir, Ascendant golden: a mistargeted chosen unit ignores the 
 });
 
 test.todo(
-  "sfd-050-221 Azir, Ascendant: the activated ability must become a launchable chain item with its 1 Calm " +
-    "Power cost, [Action] Showdown permission (806.1.c) and the once-per-turn usage limit evaluated at " +
-    "Finalize — no merged consumer turns a CardProgram activated ability into a chain item and no " +
-    "usage-limit predicate exists (see the merged rad/black-market record) — RIFT-257"
+  "Azir, Ascendant: bind the usage-limit/once-per-turn restriction to a real turn usage counter at Finalize, preserving Action timing and the 1 Calm Power cost (383.3.e/806.1.c)"
 );
+
+
+test("Azir, Ascendant: the merged activation translator and payer preserve the one Calm Power cost", () => {
+  const base = world().player("A", { power: ["Calm", "Mind"] })
+    .unit("azir", { might: 6, power: ["Calm"], location: BATTLEFIELD }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("azir") });
+  const cost = translateCost(ability.cost, CARD_ID, "activate");
+  const plan = buildCostPlan(kernel, { id: "azir.activation", cost });
+  assert.equal(plan.total.energy, 0);
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Calm"] }]);
+  const run = runInstruction(costPay, { cost: { kind: "constant", value: plan } }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(run.linked.payment.power.power, [{ requirementIndex: 0, from: "Calm", amount: 1 }]);
+  assert.deepEqual(run.linked.payment.actions[0].action.plan.power, ["Calm"]);
+  assert.deepEqual(kernel.getObject("azir").location, BATTLEFIELD);
+  assert.throws(() => translateRestriction(ability.restriction, CARD_ID),
+    error => error.code === "judge-required" && /usage-limit/.test(error.message));
+});

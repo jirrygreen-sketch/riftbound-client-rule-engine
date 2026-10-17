@@ -24,13 +24,13 @@ import type { CardProgram } from "../../ir/index.js";
  * - 条件从句（383.2.a.1 的 CR 点名）本身可以用 count + compare lte 表达，手牌内容
  *   在合并内核里也是可数的对象集合（TestWorld 与生产 query 都按 filter 计数），
  *   golden 已真实执行“≤1 张手牌才抽 1”的分支；
- * - 但触发注册仍在 CardProgram 绑定缺口里：`beginning-start` 的 TriggerSpec 过滤词汇
- *   不接受卡牌写的 `{ event: "beginning-start", player: "self" }`（trigger-spec.ts 的
- *   EventPattern 只列事件类名，时点类名不属于 EVENT_PATTERN_TYPES），且没有生产方把
- *   本卡的 triggered 能力注册到事件管线（RIFT-257）。
+ * - 但触发声明仍不能通过生产绑定：`beginning-start` 的 TriggerSpec 过滤词汇不接受卡牌写的
+ *   `{ event: "beginning-start", player: "self" }`（trigger-spec.ts 的 EventPattern 只列
+ *   事件类名，时点类名不属于 EVENT_PATTERN_TYPES）。CardProgram 触发注册路径已经存在，
+ *   只是该过滤器在 registerTrigger 时被拒绝。
  * - “you” 的收件人（190.6.d）在条件里写死为能力控制者；跨玩家的 filter 归一化
  *   （controller: "self" → 当前玩家）由 chain/engine.ts 的 query 包装完成，属既有路径。
- * 依赖：RIFT-257（触发注册与 EventPattern 词汇扩展）。draw 部分已可用，golden 用
+ * 依赖：EventPattern 对 timing-point 过滤的契约/生产适配。draw 部分已可用，golden 用
  * 解释器实际执行该子效果。
  */
 const looseCannon = {
@@ -40,9 +40,9 @@ const looseCannon = {
   status: "judge-required",
   judgeReason:
     "条件从句（383.2.a.1 的 CR 点名，属效果而不是触发条件，结算时检查 135.2.b.3 / 359.3.f.2）已可用：count（手牌 filter）+ compare lte " +
-    "由解释器真实求值，golden 覆盖 0/1/2 张手牌。仍缺的是触发注册：卡牌声明的 { event: \"beginning-start\", player: \"self\" } " +
-    "不在 trigger-spec.ts 的封闭 EventPattern 词汇里（EVENT_PATTERN_TYPES 只列事件类名，时点类名不是合法事件类型；空 filter 可注册但无法表达 \"your Beginning Phase\"），" +
-    "且没有生产方把本卡的 triggered 能力注册到事件管线（RIFT-257）。依赖：RIFT-257（触发注册与 EventPattern 词汇扩展）。不近似实现。",
+    "由解释器真实求值，golden 覆盖 0/1/2 张手牌。仍缺的是触发过滤器绑定：卡牌声明的 { event: \"beginning-start\", player: \"self\" } " +
+    "不在 trigger-spec.ts 的封闭 EventPattern 词汇里（EVENT_PATTERN_TYPES 只列事件类名，时点类名不是合法事件类型；空 filter 无法表达 \"your Beginning Phase\"），" +
+    "因此 registerTrigger 会拒绝该声明。依赖：EventPattern 对 timing-point 过滤的契约/生产适配。不近似实现。",
   abilities: [
     {
       kind: "triggered",

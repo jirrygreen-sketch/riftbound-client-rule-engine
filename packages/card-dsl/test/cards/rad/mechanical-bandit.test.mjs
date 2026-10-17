@@ -22,7 +22,7 @@ test("rad-111-167 Mechanical Bandit: program validates and is judge-required", (
 });
 
 test("rad-111-167 Mechanical Bandit: judgeReason records ordered picks and per-player collection bindings", () => {
-  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /each-player/);
   assert.match(program.judgeReason, /effect\.reveal/);
   assert.match(program.judgeReason, /arithmetic\.min/);
   assert.match(program.judgeReason, /null 不是 0/);
@@ -102,7 +102,7 @@ test("rad-111-167 Mechanical Bandit: \"Recycle the rest\" would go through effec
   assert.deepEqual(kernel.zone("A", "deck").map((ref) => ref.id), ["d2", "d1"]);
 });
 
-test.todo('Mechanical Bandit: each player supplies an ordered top-of-Main-Deck pick, with short/empty decks handled (CR 425.3, RIFT-358).');
+test.todo('Mechanical Bandit: each player supplies an ordered top-of-Main-Deck pick, with short/empty decks handled (CR 425.3).');
 test.todo('Mechanical Bandit: compare the revealed cards base Energy including ties and absent printed costs, draw only your matching card and recycle the actual remainder (CR 206.1/414.1/417.1).');
 
 test("Mechanical Bandit: the translated Beginning trigger matches only its controller's phase", async () => {

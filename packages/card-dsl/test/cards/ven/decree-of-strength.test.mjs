@@ -36,7 +36,9 @@ test("ven-085-166 Decree of Strength: judgeReason names the player target, recyc
   assert.match(program.judgeReason, /effect\.recycle/);
   assert.match(program.judgeReason, /355\.18/);
   assert.match(program.judgeReason, /417\.1\.a/);
-  assert.match(program.judgeReason, /RIFT-9/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-9[^0-9]/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-90/);
   assert.match(program.judgeReason, /不近似实现/);
 });
 
@@ -137,12 +139,12 @@ test("ven-085-166 Decree of Strength golden: an empty opponent hand reveals noth
 test.todo(
   "ven-085-166 Decree of Strength: choose an opponent as a player target and bind it into the following " +
     "reveal (CR 355.7 / 355.9.a) — needs the IR player-target form and a binding expression that feeds " +
-    "effect.reveal's `player` argument (RIFT-9 target.player / RIFT-90 target plan)"
+    "effect.reveal's `player` argument; the in-flight RIFT-357/358/360 work does not add it"
 );
 
 test.todo(
   "ven-085-166 Decree of Strength: choose a Mind card from the revealed hand on resolution and have its " +
     "owner recycle it (CR 355.18 / 417.1.a / 417.1.c) — needs a resolve-time non-target choose descriptor " +
-    "on effect.recycle plus a predicate for \"the card's Domain includes Mind\"; neither the descriptive " +
-    "choose descriptor nor the domain filter has a merged consumer"
+    "on effect.recycle plus the Mind-domain predicate in the target predicate vocabulary (RIFT-359); " +
+    "neither the descriptive choose descriptor nor the domain filter has a merged consumer"
 );

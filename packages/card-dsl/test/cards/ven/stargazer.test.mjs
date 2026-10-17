@@ -59,7 +59,9 @@ test("ven-098-166 Stargazer: identity, status, judgeReason and verbatim sourceTe
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /356\.4\.e/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /layerFor/);
+  assert.match(program.judgeReason, /829\.1\.c/);
+  assert.ok(!/RIFT-89|RIFT-91/.test(program.judgeReason));
 });
 
 test("ven-098-166 Stargazer: one static -2 Energy discount with its own floor of 1", () => {
@@ -129,12 +131,12 @@ test("ven-098-166 golden: without the discount the same spell keeps its printed 
 
 test.todo(
   "ven-098-166 Stargazer: install the static discount on the Finalize cost plan of the Flow spell being " +
-    "played — no merged path turns a CardProgram static continuous.cost-modification into CostPlanInput.discounts " +
-    "and effects/instructions/ has no cost.modify primitive (RIFT-9 list, RIFT-89)"
+    "played — the merged cost.modify primitive only links a plan; programs/statics.ts layerFor() throws " +
+    "judge-required for continuous.cost-modification and the cost system does not read layers"
 );
 
 test.todo(
   "ven-098-166 Stargazer: evaluate 'spells with [Flow] you play from your trash' (829.1.c) — the frozen " +
     "ObjectFilter has no keyword predicate, the continuous effect receives neither the played card's keywords nor " +
-    "the source zone of that play, and the Flow expansion's flow.cost is itself unmerged (RIFT-261/RIFT-89)"
+    "the source zone of that play"
 );

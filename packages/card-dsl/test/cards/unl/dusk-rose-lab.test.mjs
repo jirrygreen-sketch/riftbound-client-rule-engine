@@ -10,8 +10,8 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 // interpreter-adapter.ts).
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-// RIFT-257's program binding is the production registration path for this
-// card's beginning-start trigger; the golden below records where it still stops.
+// The program binding is the production registration path for this card's
+// beginning-start trigger; the golden below records where it still stops.
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { getTimingPoint } from "../../../../engine-core/dist/events/timing-points.js";
@@ -50,13 +50,13 @@ test("unl-209-219 Dusk Rose Lab: identity, status, judgeReason and verbatim sour
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /383\.3\.b/);
-  // RIFT-329 re-review: the cost-within-instruction work is named RIFT-261 and
-  // the trigger-registration gap is now the closed EventPattern vocabulary plus
-  // the 190.6.d battlefield-controller binding, not a missing adapter.
+  // The cost-within-instruction gap is the cost.sacrifice/finalize path; the
+  // trigger-registration gap is the closed EventPattern vocabulary plus the
+  // 190.6.d battlefield-controller binding, not a missing adapter.
   assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /beginning-start/);
   assert.match(program.judgeReason, /190\.6/);
-  assert.ok(!/RIFT-89|RIFT-120/.test(program.judgeReason));
+  assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-90|RIFT-91|RIFT-120|RIFT-257/);
 });
 
 test("unl-209-219 Dusk Rose Lab: Beginning Phase start trigger with an optional kill-to-draw", () => {
@@ -181,11 +181,10 @@ test.todo(
 );
 
 test("unl-209-219 Dusk Rose Lab: beginning-start is a closed timing point that the turn flow really emits", () => {
-  // RIFT-329 re-review: RIFT-270 made beginning-start a first-class timing point
-  // emitted from turn/flow.ts, and RIFT-257 exposes the
-  // CardProgram -> TriggerRegistration adapter. Both halves the card needs are
-  // therefore present; the golden asserts the declared trigger against the
-  // closed timing-point set rather than restating the body.
+  // beginning-start is a first-class timing point emitted from turn/flow.ts,
+  // and the CardProgram -> TriggerRegistration adapter is present. The golden
+  // asserts the declared trigger against the closed timing-point set rather
+  // than restating the body.
   const executable = {
     canonicalCardId: program.canonicalCardId,
     rulesetVersion: program.rulesetVersion,

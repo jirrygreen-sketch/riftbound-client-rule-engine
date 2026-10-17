@@ -12,6 +12,10 @@ const { default: draw } = await import(new URL("effects/instructions/effect.draw
 const { matchesObjectFilter } = await import(new URL("layers/filter.js", engineCore));
 const { createContinuousEffectRegistry } = await import(new URL("layers/duration.js", engineCore));
 const { movement } = await import(new URL("layers/rules/query.js", engineCore));
+const { selectDuelBattlefields, createDuelBoard, placeDuelUnit } = await import(new URL("duel/battlefields.js", engineCore));
+const { moveDuelUnitsStandard } = await import(new URL("zones/movement.js", engineCore));
+const { createProgramBinding, abilitySpeed } = await import(new URL("programs/index.js", engineCore));
+const { fixture, resolveAll } = await import("../../../../engine-core/test/chain/helpers.mjs");
 
 const CANONICAL = "card.hash-2664ce34bf1adce071ce02ab9d89d11c45b42381e2728fbb02be19a2d83e1575";
 const [keyword, play] = program.abilities;
@@ -60,13 +64,13 @@ test("rad-034-167 Hunker Down: program passes validateCardProgram and keeps the 
   );
 });
 
-test("rad-034-167 Hunker Down: judge-required names the real remaining gap", () => {
+test("rad-034-167 Hunker Down: judge-required names the remaining effect-Move restriction gap", () => {
   assert.equal(program.status, "judge-required");
-  // The restriction op and the layers query exist; what is missing is the
-  // movement consumer and the CardProgram binding.
   assert.match(program.judgeReason, /continuous\.movement/);
   assert.match(program.judgeReason, /MovementPermissions/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /effect\.move/);
+  assert.match(program.judgeReason, /move-location/);
+  assert.match(program.judgeReason, /054\.1|451/);
 });
 
 test("rad-034-167 Hunker Down: [Reaction], ready, the no-move restriction, then an unlinked draw", () => {
@@ -157,6 +161,108 @@ test("rad-034-167 Hunker Down golden: ready + the cannot-move restriction + draw
   assert.equal(kernel.player("A").handSize, 1);
 });
 
+test("rad-034-167 Hunker Down golden: the Standard Move kernel consumes cannot-move", () => {
+  const kernel = world().unit("ally", { owner: "A", controller: "A" }).build();
+  kernel.setTargets("hunker-down.unit", [kernel.ref("ally")]);
+  const { registry } = runCardBody(kernel);
+  const seats = [
+    { playerId: "A", battlefields: [{ instanceId: "a-1", cardId: "field-1" }, { instanceId: "a-2", cardId: "field-2" }, { instanceId: "a-3", cardId: "field-3" }] },
+    { playerId: "B", battlefields: [{ instanceId: "b-1", cardId: "field-1" }, { instanceId: "b-2", cardId: "field-2" }, { instanceId: "b-3", cardId: "field-3" }] }
+  ];
+  let board = createDuelBoard(selectDuelBattlefields(seats, () => 0));
+  const base = board.bases.find((entry) => entry.ownerPlayerId === "A").locationId;
+  const battlefield = board.battlefields[0].locationId;
+  board = placeDuelUnit(board, { objectId: "ally", controllerPlayerId: "A", locationId: base });
+  const readiness = [{ objectId: "ally", readied: true, hasGanking: false }];
+  assert.throws(
+    () => moveDuelUnitsStandard(
+      board,
+      readiness,
+      {
+        actor: "A",
+        unitUIDs: ["ally"],
+        destinationLocationId: battlefield,
+        timing: { phase: "main", stateOpen: true, turnPlayerId: "A", priorityPlayerId: "A" }
+      },
+      {
+        registry,
+        refForUnit: (unit) => kernel.ref(unit.objectId),
+        objectForUnit: (unit) => kernel.getObject(unit.objectId)
+      }
+    ),
+    /prohibited from moving/
+  );
+  assert.equal(board.units[0].locationId, base);
+  assert.equal(readiness[0].readied, true);
+
+  registry.expireAt({ id: "turn-end" }, ref => kernel.object(ref));
+  const moved = moveDuelUnitsStandard(
+    board,
+    readiness,
+    {
+      actor: "A",
+      unitUIDs: ["ally"],
+      destinationLocationId: battlefield,
+      timing: { phase: "main", stateOpen: true, turnPlayerId: "A", priorityPlayerId: "A" }
+    },
+    {
+      registry,
+      refForUnit: (unit) => kernel.ref(unit.objectId),
+      objectForUnit: (unit) => kernel.getObject(unit.objectId)
+    }
+  );
+  assert.equal(movement(registry, kernel.ref("ally"), kernel.getObject("ally")).canMove, true);
+  assert.equal(moved.board.units[0].locationId, battlefield);
+  assert.equal(moved.readiness[0].readied, false);
+  assert.equal(moved.group.exhaustedCount, 1);
+});
+
+test("rad-034-167 Hunker Down supported chain: Reaction finalizes for 1 Energy in Closed State and resolves its original body", () => {
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const f = fixture({
+    energy: 2,
+    cards: [{ id: "hunker", cardId: CANONICAL, types: ["spell"], energy: 1, power: null }]
+  });
+  const source = f.kernel.getObject("hunker");
+  const inspected = binding.inspect(source);
+  const supportedPlay = inspected.abilities.find(ability => ability.kind === "play");
+  assert.deepEqual(supportedPlay.body, play.body);
+  const speed = abilitySpeed(inspected.abilities, source);
+  assert.equal(speed, "reaction");
+
+  // Only the supported body is submitted to the real chain. The CardProgram
+  // remains judge-required until effect Moves consume its restriction.
+  f.engine.commit({ type: "exhaust", object: f.kernel.ref("source") });
+  f.engine.advance();
+  f.engine.execute(f.draft("older"));
+  assert.equal(f.engine.turnState, "neutral-closed");
+  f.engine.execute(f.card("hunker", { speed, body: supportedPlay.body }));
+
+  const item = f.engine.items.at(-1);
+  assert.equal(item.source.cardId, CANONICAL);
+  assert.equal(item.status, "finalized");
+  assert.equal(item.costPlan.total.energy, 1);
+  assert.deepEqual(item.costPlan.total.power, []);
+  assert.equal(item.payment.paid, true);
+  assert.equal(f.kernel.player("A").energy, 1);
+  assert.equal(f.kernel.getObject("hunker").zone, "chain");
+  assert.equal(f.kernel.getObject("hunker").power, null);
+
+  f.engine.pass("A");
+  f.engine.pass("B");
+  assert.equal(f.engine.items.length, 1);
+  assert.equal(f.engine.items[0].id, "older");
+  assert.equal(f.kernel.getObject("hunker").zone, "trash");
+  assert.equal(f.kernel.getObject("source").exhausted, false);
+  assert.deepEqual(f.kernel.zone("A", "hand").map(ref => ref.id), ["A:deck:1"]);
+  assert.equal(movement(f.engine.layers.registry, f.kernel.ref("source"), f.kernel.getObject("source")).canMove, false);
+  assert.deepEqual(
+    f.engine.pipeline.events.filter(event => ["object-readied", "card-drawn"].includes(event.timingPoint)).map(event => event.timingPoint),
+    ["object-readied", "card-drawn"]
+  );
+  resolveAll(f.engine);
+});
+
 test("rad-034-167 Hunker Down golden: an already-ready unit is a legal no-op and the draw still happens", () => {
   const kernel = world()
     .deck(["deck-1", "deck-2"])
@@ -228,11 +334,10 @@ test("rad-034-167 Hunker Down golden: effect.draw alone moves the top card to ha
 });
 
 test.todo(
-  "rad-034-167 Hunker Down: 'It can't move this turn' must actually negate a Standard Move (144.4) " +
-    "and an effect Move (451.1) — zones/movement.ts and move-location still never read the layer " +
-    "engine's MovementPermissions."
+  "rad-034-167 Hunker Down: an effect Move must preserve the readied unit's location while cannot-move is active " +
+    "(054.1 / 451); move-location still needs to consume the same continuous restriction as Standard Move"
 );
 test.todo(
-  "rad-034-167 Hunker Down: the [Reaction] ability and its body need the CardProgram play binding " +
-    "and Finalize cost plan (1 Energy, Closed-State window) — RIFT-257 / RIFT-261."
+  "rad-034-167 Hunker Down: admit the complete CardProgram through describePlay only after effect-Move restriction " +
+    "consumption is available; preserve the 1 Energy Finalize cost and Closed-State Reaction execution"
 );

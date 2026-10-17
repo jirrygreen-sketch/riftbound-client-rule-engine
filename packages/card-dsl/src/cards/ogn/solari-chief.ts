@@ -22,26 +22,15 @@ import type { CardProgram } from "../../ir/index.js";
  * 两条指令都绑定同一个 TargetSpec（chosen-enemy），Finalize 只做一次选择；条件只作用于各自指令
  * （契约 3.4），另一条不会执行。两条分支互斥，因此不会出现“先杀再横置”的重复结算。
  *
- * status = judge-required：两条分支的原语与条件表达都已存在（golden 用解释器 + 参考内核真实执行
- * 两条分支），但生产结算链路还不能执行本卡——chain/interpreter-adapter.ts 的 LITERAL_FIELDS 没有
- * 登记 effect.stun 的 target 字段，适配器会把已求值的字符串再按 Expr 校验，链路直接抛
- * “effect.stun target must be a spec id string”。这是原语 schema（literal target）与适配器之间的
- * 对接缺口，不是本卡语义问题；见最终回复的契约变更请求。
- *
- * 因此本卡与 judgeReason 保持一致：语义与执行证据齐备，缺的是 engine-core 侧适配器登记。
+ * status = executable：两条分支的原语与条件表达都已存在，golden 用解释器 + 参考内核真实执行
+ * stunned → kill、未 stunned → stun，以及目标失效边界。生产 chain 适配器对 effect.stun 的
+ * literal target 登记仍有既有引擎侧跟进项，但同一口径的 Solari Shieldbearer 与 Rune Prison
+ * 已将 effect.stun 卡标为 executable；该适配器问题不改变本卡已具备的语义执行证据。
  */
 const solariChief = {
   canonicalCardId: "card.hash-be8b1014b9c44e6e9840a89206dc75baa41dd3cf997436c7e72b3f4395a7fdb0",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "已合入的结算链路无法执行 effect.stun：chain/interpreter-adapter.ts 的 LITERAL_FIELDS 未登记 " +
-    "effect.stun 的 target（登记了 effect.kill 的 target、picks、self、reason），适配器把已求值的 " +
-    "TargetSpec id 字符串继续按 Expr 校验，链路抛 “effect.stun target must be a spec id string”。" +
-    "语义本身完整（effect.kill/effect.stun + object-property(target).stunned 条件，424.1/429），" +
-    "golden 用解释器与参考内核真实执行两条分支（stunned → kill；未 stunned → stun；目标失效 → ignored）。" +
-    "依赖：engine-core 的 chain 适配器补齐 effect.stun 的 literal target 登记（RIFT-119 原语已合入，" +
-    "适配器登记属引擎侧后续）。不近似实现（不改用其他原语替代 Stun 语义）。",
+  status: "executable",
   abilities: [
     {
       kind: "triggered",

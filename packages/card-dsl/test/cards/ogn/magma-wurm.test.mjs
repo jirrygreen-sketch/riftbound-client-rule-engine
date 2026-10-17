@@ -15,7 +15,7 @@ const ENTER_READY = ENTRY.args.instead.value[0];
 const c = value => ({ kind: "constant", value });
 
 /**
- * RIFT-257 adapter duty: the card DSL wraps every argument in an Expr
+ * Production adapter duty: the card DSL wraps every argument in an Expr
  * (validateExpr rejects raw values), while replacement/bind.ts reads
  * `replacement.event.instead` as the raw instruction body. The unwrap below
  * covers exactly that one declared literal field; `event` stays Expr-wrapped
@@ -90,7 +90,7 @@ test("magma-wurm: identity, ruleset, status and verbatim sourceText", () => {
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Expr-wrapped/);
   assert.match(program.judgeReason, /369\.3/);
   assert.match(program.judgeReason, /359\.2\.c/);
   assert.match(program.judgeReason, /replacement\.object/);
@@ -180,7 +180,7 @@ test("magma-wurm golden: the replacement stays live and readies each friendly en
 
 test.todo(
   "magma-wurm: register the declared replacement from the CardProgram in the production lifecycle " +
-    "(RIFT-257 program binding must unwrap the DSL's Expr-wrapped instead body into the binder's raw " +
+    "(production binding must unwrap the DSL's Expr-wrapped instead body into the binder's raw " +
     "instruction-body field; event stays Expr-wrapped because the binder evaluates it); the golden " +
     "drives the binder directly today"
 );

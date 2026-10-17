@@ -92,10 +92,10 @@ test("ogn-247-298 Daughter of the Void: [A] Universal Power is negated by the me
 
 test.todo(
   "ogn-247-298: represent and spend Universal Power ([A], CR 163.2.b / 135.2.e.5.b) — the closed " +
-    "Domain union and gain-power action have no universal value (contract change request, RIFT-261)"
+    "Domain union and gain-power action have no universal value (contract change request)"
 );
 
 test.todo(
   "ogn-247-298: enforce “Use only to play spells” and reserve the resource for spell payment " +
-    "(restriction consumption, RIFT-91) plus the 430.3 Reaction-Add window during payment (RIFT-261)"
+    "(restriction consumption) plus the 430.3 Reaction-Add window during payment"
 );

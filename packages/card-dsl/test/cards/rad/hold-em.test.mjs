@@ -33,7 +33,7 @@ test("rad-070-167 Hold 'Em: judgeReason names the cost-plan wiring and the histo
   // cards README section 2: the reason must name the missing primitive/rule and
   // the dependency task instead of a stale description.
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /CostPlanInput\.discounts|static-program binder/);
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /objectFilter/);
 });
@@ -60,7 +60,7 @@ test("rad-070-167 Hold 'Em: the discount is declared but its gate stays descript
 
   // The gate is a turn-scoped event history over plays of a unit or gear to a
   // battlefield. It stays descriptive constant data because a static cost
-  // effect has no cost-plan consumer (RIFT-261) and the play destination is not
+  // effect has no cost-plan consumer and the play destination is not
   // part of HistoryQuery — no merged condition silently approximates it.
   assert.equal(discount.condition.kind, "expression");
   const gate = discount.condition.value;
@@ -149,6 +149,6 @@ test("rad-070-167 Hold 'Em golden: a lost unit target ignores the Might instruct
 
 test.todo(
   "rad-070-167 Hold 'Em: applying the printed -2 energy discount to the finalized cost plan of a card " +
-    "played after a unit/gear went to a battlefield this turn needs cost.modify/cost.pay plus the " +
-    "card-static cost binding (RIFT-261) and a play-destination history predicate."
+    "played after a unit/gear went to a battlefield this turn needs a CardProgram-static-to-CostPlan " +
+    "discount binding and a play-destination history predicate."
 );

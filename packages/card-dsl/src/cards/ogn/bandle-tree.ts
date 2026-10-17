@@ -25,14 +25,11 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status rationale (contract §3.1, cards README §2): the raised occupancy
  * limit is a continuous restriction, and the merged continuous.restrict
- * primitive (RIFT-259) can register it. Two things remain missing, so the
- * card stays judge-required:
- * - no merged producer binds a static CardProgram ability into a
- *   ContinuousEffectSpec (RIFT-257 CardProgram binding);
- * - the generic Hide / facedown zone path (cost.hidden, and the facedown
- *   zone maximum-occupancy consumer) has no merged instruction or consumer
- *   (RIFT-261 cost workstream), so "an additional card here" cannot be
- *   enforced even once the restriction is registered.
+ * primitive plus static-program binder can register it. The card stays
+ * judge-required because the Hide/facedown path still has no consumer for the
+ * raised Facedown Zone maximum: cost.hidden and the occupancy check are not
+ * connected to a playable Hide action, so "an additional card here" cannot be
+ * enforced even after the restriction is registered.
  * The ability keeps the static-effect shape the contract reserves for it, so
  * a later consumer can pick it up without re-deriving the rules.
  */
@@ -41,7 +38,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Raising the Facedown Zone occupancy limit (CR 107.3.b) needs a continuous restriction: the continuous.restrict primitive (RIFT-259) is merged and can register the limit, but no merged producer binds a static CardProgram ability into a ContinuousEffectSpec (RIFT-257), and the local consumer that would read the raised maximum for the Facedown Zone does not exist. The generic Hide path also still needs cost.hidden plus facedown-zone occupancy handling (RIFT-261), so the extra-slot permission cannot execute. The ability grants no discount and does not make cards without Hidden hideable. Dependencies: RIFT-257 CardProgram binding and RIFT-261 cost.hidden.",
+    "Raising the Facedown Zone occupancy limit (CR 107.3.b) is expressible as continuous.restrict and can be registered by the static-program binder, but no Hide/facedown consumer reads the raised maximum. The cost.hidden path and the Facedown Zone occupancy check are not connected to a playable Hide action, so the extra-slot permission cannot execute. The ability grants no discount and does not make cards without Hidden hideable. Dependency: the Hide action's facedown-zone occupancy consumer.",
   sourceText: "You may hide an additional card here.",
   abilities: [
     {

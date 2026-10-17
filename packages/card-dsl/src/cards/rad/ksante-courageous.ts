@@ -19,15 +19,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "channel 1 rune"：431.1/431.2 的 channel 动作，已合入 effect.channel 原语；
  *   未写 exhausted 参数即默认就绪进场（431.2 规定未注明时符文就绪）。
  *
- * status = judge-required（逐个缺口写出证据，不近似实现）：
+ * status = judge-required（2026-10-17 复核，逐个缺口写出证据，不近似实现）：
  * 1. [Accelerate] 的展开（805.1.b 附加费 [1][Body]、805.6 入场就绪替代）已写成
- *    accelerate.cost 静态效果 + replacement，但没有消费方：没有卡牌 keyword 能力接入
- *    Finalize 费用计划（optionalAdditional）的卡牌侧生产路径。
- * 2. [Shield 2] 的 KeywordDef 展开、静态绑定和 combatRole 判定路径已经合入。
+ *    accelerate.cost 静态效果 + replacement，但没有消费方：programs/statics.ts 的 layerFor
+ *    对 accelerate.cost 抛 “Static ability kind accelerate.cost has no layer mapping”，
+ *    programs/play.ts 也只从 CostPlanInput 读 optionalAdditional，没有把卡牌 keyword 能力
+ *    接入 Finalize 费用计划的卡牌侧生产路径。（replacement 本体可绑定，golden 有执行证据。）
+ * 2. [Shield 2] 的 KeywordDef 展开已合入；但展开条件读 object-property(self, "designation")，
+ *    而 ObjectSnapshot 只有 combatRole（实测 defender 时 Might 不增加），防守时的 +2 尚未生效。
  * 3. hold 触发缺少「本卡在固守的战场上」的时点载荷：383.4.d.2/.2.a 要求 Hold Effect 绑定
- *    固守时在场的那个单位（时点 hold 由 scoring 发出，载荷只带战场/玩家，不含在场单位快照，
- *    events/pipeline-match.ts 也只读 object/source/target/player/fromZone/toZone/amount/details，
- *    不读卡程序 filter 里的内层 source: "self"），当前触发管线无法判定是本卡参与固守。
+ *    固守时在场的那个单位。触发注册本身可用（filter 编译成 objectId 形式的 {event:"hold", object:{objectId}}），
+ *    但时点 hold 由 scoring 发出，载荷只带 battlefieldId/playerId（events/timing-points.ts 的 payloadFields），
+ *    实测该 filter 对带载荷的真实 hold 事件判定为 false，因此本卡永远无法判定自己参与固守。
  * 已合入并已有执行证据的部分：effect.channel（431）——golden 用解释器 + 参考内核真实执行
  * 该 channel（含 431.3 的空符文牌库边界）。
  * 当前缺口是 Accelerate 静态费用到打出 Finalize 的 optionalAdditional 适配，以及 hold
@@ -61,11 +64,14 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "三处未合入依赖：(1) [Accelerate] 展开（805.1.b 的附加费 [1][Body] 与 805.6 入场就绪替代）虽已写在 " +
-    "effects/keywords/Accelerate.ts，但没有消费方把卡牌 keyword 能力接入 Finalize 费用计划（optionalAdditional）与入场替代，" +
-    "但当前没有适配器把该静态费用声明接入打出 Finalize 的 optionalAdditional。(2) [Shield 2]（814）的 KeywordDef 展开、" +
-    "静态绑定和 combatRole 判定路径已经合入。(3) hold 触发缺少" +
-    "「本卡在固守的战场上」的载荷：383.4.d.2/.2.a 要求 Hold Effect 绑定固守时在场的单位，而 hold 时点（turn/flow.ts 的 scoring）" +
-    "只带战场/玩家，events/pipeline-match.ts 也不读卡程序 filter 里的内层 source: self，无法判定本卡参与固守。" +
+    "effects/keywords/Accelerate.ts，但 accelerate.cost 静态效果绑定即抛 “Static ability kind accelerate.cost has no layer mapping”" +
+    "（programs/statics.ts 的 layerFor），programs/play.ts 也只从 CostPlanInput 读 optionalAdditional，没有卡牌侧生产方" +
+    "把该静态费用声明接入打出 Finalize；805.6 的入场就绪替代本体可绑定（golden 有执行证据）。" +
+    "(2) [Shield 2]（814）的 KeywordDef 展开已合入，但条件读 object-property(self, \"designation\")，" +
+    "ObjectSnapshot 只有 combatRole：解释器抛 MissingInformation、生产绑定器按 false 处理（实测 defender 时 Might 不增加）。" +
+    "(3) hold 触发缺少「本卡在固守的战场上」的载荷：383.4.d.2/.2.a 要求 Hold Effect 绑定固守时在场的单位，" +
+    "而 hold 时点（turn/flow.ts 的 scoring）只带 battlefieldId/playerId（events/timing-points.ts 的 payloadFields 不含 object），" +
+    "实测注册出的 {event:\"hold\", object:{objectId}} filter 对真实 hold 事件判定为 false，无法判定本卡参与固守。" +
     "已合入并有执行证据：effect.channel（431.1/431.2，含 431.3 空符文牌库边界），见 golden。不近似实现。",
   abilities,
   sourceText:

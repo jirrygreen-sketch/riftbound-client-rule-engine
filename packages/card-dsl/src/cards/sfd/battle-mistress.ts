@@ -28,24 +28,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "enemy" 用 740.1.b（一方是另一方的对手）表达为 controller: "opponent"。"ready me" 用已合入的
  *   effect.ready，缺省选择即能力来源（412.4/416.1）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
- * - "recycle a rune" 的触发缺少可判定载荷与注册路径：events/trigger-spec.ts 的封闭
- *   EVENT_PATTERN_TYPES 没有 card-recycled 项（assertTriggerSpec 会拒绝该事件名），且该时点逐张
- *   发出、没有"你负责的这次回收"的批次谓词（ogn/karma-channeler 记录同一缺口）；"a rune" 需要
- *   对象类型过滤，而 417.1.b 的符文回收在合并载荷里只有 fromZone/toZone 字段。
- * - Gold token 定义不在 effect.token 的冻结定义表里（文件头记录：需要自身能力的定义包括 Gold 保持
- *   blocked/judge-required）；"exhausted" 是 143.4/185.2.d 的入场状态规定，create-token 明确不支持
- *   入场改写，事后补 effect.exhaust 不等价。
- * - 费用式 "exhaust me" 依赖 legend-zone 表达（契约 3.6 的 ZoneId 无 Legend Zone，CR 108.3）与
- *   卡牌侧的收费入口（cost.pay / cost.modify 属未合入的 RIFT-261）；没有把 CardProgram 的 triggered
- *   ability 注册成 TriggerRegistration 的订阅方（RIFT-257；同 darius-executioner/the-dreaming-tree）。
- * - "one or more enemy units die" 的批次与责任归因同样缺失：object-killed 逐单位发出，载荷 player
- *   是被消灭对象的控制者（events/action-adapter.ts），trigger.state 无批次分组，once 作用域也无 per-batch
- *   （ogn/radiant-dawn 记录同一缺口）；因此"一次战斗同时死两个敌方单位"会触发两次而不是一次。
- * 依赖：RIFT-257（链与事件单管线的卡程序触发注册）、RIFT-261（费用计划消费方），以及 legend-zone 与
- * Gold token 定义/入场状态的契约补充、object-killed 的批次与责任归因。
- * golden 测试用解释器 + 参考内核真实执行已合入的 effect.ready 与费用计划的 exhaust 收费；整卡仍不可执行。
- * 不近似实现（不用另一个 token 定义冒充 Gold，不把批次触发写成逐单位触发）。
+ * 当前复核：保持 judge-required；具体未接通路径见 judgeReason。
  */
 const abilities: Ability[] = [
   {
@@ -135,16 +118,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "（1）「When you recycle a rune」缺可判定载荷与注册路径：events/trigger-spec.ts 的封闭 EVENT_PATTERN_TYPES 没有 card-recycled 项" +
-    "（assertTriggerSpec 会拒绝该事件名），该时点逐张发出且没有「你负责的这次回收」批次谓词，「a rune」的类型过滤（185.1 符文不是卡）也无消费方（同 ogn/karma-channeler）；" +
-    "（2）Gold token 定义缺失：187.5 的 Gold 是带自身能力（\"Kill this, [E]: [Add] [A]\"）的 gear token，effect.token 的冻结定义表按设计保持 blocked/judge-required；" +
-    "（3）「exhausted」是 143.4/185.2.d 的入场状态规定，但 create-token 明确不支持入场改写（effect.token），事后补 effect.exhaust 不等价；" +
-    "（4）费用式「exhaust me」（415.4/415.5）依赖 legend-zone 表达（契约 3.6 的 ZoneId 无 Legend Zone，CR 108.3）与卡牌侧收费入口（cost.pay 属未合入的 RIFT-261）；" +
-    "（5）没有已合入的订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration（未合入的 RIFT-257；同 darius-executioner/the-dreaming-tree）；" +
-    "（6）「one or more enemy units die」缺批次与责任归因：object-killed 逐单位发出且载荷 player 是被消灭对象的控制者（events/action-adapter.ts），" +
-    "trigger.state 无批次分组、once 作用域无 per-batch（同 ogn/radiant-dawn），一次战斗同时消灭两个敌方单位会触发两次而不是一次，370.1.a.2/383.1.b 的同时事件语义无法表达。" +
-    "依赖：RIFT-257、RIFT-261，以及 legend-zone 与 Gold token 定义/入场状态的契约补充、object-killed 的批次与责任归因。" +
-    "effect.ready 与费用计划的 exhaust 支付已合入并单独测试；整卡不可执行，不近似实现。",
+    "card-recycled 的 EventPattern 判别仍不在 events/trigger-spec.ts 封闭词汇中；动作适配器虽产生该时点，programs/triggers.ts 无法注册本卡带 rune/player 过滤的事件。" +
+    "Gold（187.5）含自身能力，仍不在 effect.token 定义表；143.4/185.2.d 的 exhausted 入场覆盖也未被 create-token 支持，不能事后 exhaust 代替。" +
+    "开头 “you may exhaust me to” 的基础费用缺 CardProgram TriggeredAbility 的 cost 字段，programs/triggers.ts 未转交给已有 TriggerRegistration.cost 的 Finalize 消费（383.3.b.1/415.4/415.5），且付款对象仍缺 legend-zone 支持（107.4）。" +
+    "“one or more enemy units die” 缺同一游戏动作的死亡批次聚合；object-killed 按对象分组，无法按 370.1.a.2 对同时死亡只触发一次。",
   abilities,
   sourceText:
     "When you recycle a rune, you may exhaust me to play a Gold gear token exhausted.\n" +

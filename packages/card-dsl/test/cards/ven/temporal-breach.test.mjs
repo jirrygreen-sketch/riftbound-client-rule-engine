@@ -37,12 +37,13 @@ test("ven-066-166 Temporal Breach: program passes validateCardProgram with the c
 test("ven-066-166 Temporal Breach: judgeReason names the Hidden cost gaps and the three play-back gaps", () => {
   assert.match(program.judgeReason, /811\.1/);
   assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
-  assert.match(program.judgeReason, /RIFT-89/);
   assert.match(program.judgeReason, /428/);
   assert.match(program.judgeReason, /124/);
   assert.match(program.judgeReason, /effect\.play/);
   assert.match(program.judgeReason, /356\.1\.b\.1/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /effect\.play-back/);
+  assert.match(program.judgeReason, /cost\/kinds\/hidden\.ts/);
+  assert.ok(!/RIFT-89|RIFT-90|RIFT-91/.test(program.judgeReason));
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -157,13 +158,13 @@ test("ven-066-166 Temporal Breach golden: banishing is the Banish action, not Ki
 
 test.todo(
   "ven-066-166 Temporal Breach: [Hidden]'s Hide action, the [A] hide payment and the [0] facedown play " +
-    "(CR 811.1.b / 811.1.d) — the merged keyword only declares static cost.hidden; the cost/zone/timing " +
-    "consumers are RIFT-89 / RIFT-91"
+    "(CR 811.1.b / 811.1.d) — the hide/play cost plans are merged (cost/kinds/hidden.ts), but the play " +
+    "permission, facedown zones, Hidden movement and reaction play stay unwired"
 );
 
 test.todo(
   "ven-066-166 Temporal Breach: 'its owner plays it to the same location, ignoring its cost' needs the " +
     "pre-banish location (428 + 124 make the old reference unusable), a per-object owner chooser and a " +
     "zero-cost FinalizedCostPlan (356.1.b.1) — effect.play takes one player, one location and an " +
-    "already-finalized plan, and no card-program ignore-cost entry point exists (RIFT-89 / RIFT-90)"
+    "already-finalized plan, and no card-program ignore-cost entry point exists"
 );
