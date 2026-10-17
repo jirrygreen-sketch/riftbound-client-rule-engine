@@ -63,7 +63,7 @@ export default {
     "合并过滤器（layers/filter.ts 的 characteristics、参考内核 matchesFilter）只做字面相等比较，读不到宿主的当前名称，" +
     "382.4 的改名情形同样无法处理；用字面名字写死会把“同名”变成某一具体牌，因此 count 的 filter 只记录 zone/owner；" +
     "(3) 折扣基数需在费用计划里按集合计数求值（356.4.b/356.4.e），与第 1 点同批。" +
-    "依赖：RIFT-89（static → CostPlanInput.discounts 的接线）与名称谓词（对象名称的运行时读取）。",
+    "依赖：static → CostPlanInput.discounts 的接线与名称谓词（对象名称的运行时读取）。",
   abilities,
   sourceText: "I cost :rb_energy_2: less for each card with my name in your trash."
 } satisfies CardProgram;

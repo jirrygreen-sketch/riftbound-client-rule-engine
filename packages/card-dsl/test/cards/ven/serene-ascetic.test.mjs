@@ -35,7 +35,7 @@ test("ven-030-166 Serene Ascetic: identity, status, judgeReason and verbatim sou
   // The static binder is merged; the remaining execution gap is the
   // Deflect target-tax consumer and the Empowered gate predicate.
   assert.match(program.judgeReason, /bindStatic/);
-  assert.match(program.judgeReason, /RIFT-360/);
+  assert.match(program.judgeReason, /target\.tax/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -60,11 +60,12 @@ test("ven-030-166 Serene Ascetic: the [Empowered][>] dependent ability grants De
       { id: "shield", value: 3 }
     ]
   });
-  // 442.1.a / 828.1.c: the 828.1.b.1 gate is the Empowered status, which has no
-  // merged predicate; the descriptive expression keeps the printed scope.
+  // 442.1.a / 828.1.c: the 828.1.b.1 gate reads the source's live Empowered count.
   assert.deepEqual(granted.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "empowered" }
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
   });
 });
 
@@ -113,17 +114,17 @@ test("ven-030-166 Serene Ascetic golden: the production static binder installs D
 });
 
 test.todo(
-  "ven-030-166 Serene Ascetic: expand [Empower] 3 (827.1.c.1: '3 Energy: Empower me, use only if " +
-    "not Empowered', 827.1.b.1 source is not a target) — no Empower KeywordDef is registered"
+  "ven-030-166 Serene Ascetic: pass the printed 3 Energy Empower cost through KeywordAbility/programs/keywords.ts " +
+    "params.cost; the registered Empower KeywordDef already supplies the not-Empowered restriction"
 );
 
 test.todo(
-  "ven-030-166 Serene Ascetic: evaluate the 828.1.b.1 Empowered gate (442.1.a / 442.2) — ObjectSnapshot " +
-    "and Condition expose no Empowered status predicate"
+  "ven-030-166 Serene Ascetic: evaluate the 828.1.b.1 Empowered gate (442.1.a / 442.2) — the IR uses " +
+    "self.empowered >= 1, but production ObjectSnapshot does not expose the live empowered count"
 );
 
 test.todo(
   "ven-030-166 Serene Ascetic: register the Empowered-gated Deflect/Shield grant as a ContinuousEffectSpec " +
     "and bill the Deflect target tax (809.1.c / 814.1.c) — the static binder installs the grant, " +
-    "but no merged consumer bills the Deflect target tax on choices against the host (RIFT-360, in flight)"
+    "but programs/statics.ts has no target.tax layer mapping and no consumer attaches the tax to target Finalize"
 );
