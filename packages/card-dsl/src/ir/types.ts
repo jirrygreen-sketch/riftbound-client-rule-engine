@@ -147,6 +147,44 @@ export interface CountExpr {
   readonly filter?: ObjectFilter;
 }
 
+/** A single player; never infer opponents from objects visible on the Board. */
+export type PlayerSelector =
+  | "controller"
+  | { readonly id: string }
+  | { readonly controllerOf: ObjectSelector }
+  | { readonly ownerOf: ObjectSelector }
+  | { readonly pick: string };
+
+/** Numeric player facts available through ResolveContext's read capabilities. */
+export type PlayerProperty =
+  | "points" | "score" | "energy" | "xp"
+  | "handSize" | "handCount" | "deckSize" | "deckCount"
+  | "runeDeckSize" | "runeDeckCount" | "trashSize" | "trashCount";
+
+/** Read a current player fact. Omitted player means the ability controller. */
+export interface PlayerPropertyExpr {
+  readonly kind: "player-property";
+  readonly player?: PlayerSelector;
+  readonly property: PlayerProperty;
+}
+
+/** Number of turns begun in the game, including the current turn (0 before it). */
+export interface TurnNumberExpr {
+  readonly kind: "turn-number";
+}
+
+/** Number of turns begun by one player, including their current turn, if any. */
+export interface PlayerTurnCountExpr {
+  readonly kind: "player-turn-count";
+  readonly player?: PlayerSelector;
+}
+
+/** Current Attacker/Defender designation, or null outside those designations. */
+export interface ObjectDesignationExpr {
+  readonly kind: "object-designation";
+  readonly object: ObjectSelector;
+}
+
 /** A literal instruction body; its contents are executed only by a control node. */
 export type InstructionBodyExpr = ConstantExpr<readonly Instruction[]> | LiteralExpr<readonly Instruction[]>;
 
@@ -170,6 +208,10 @@ export type Expr =
   | LinkedValueExpr
   | LinkedExpr
   | CountExpr
+  | PlayerPropertyExpr
+  | TurnNumberExpr
+  | PlayerTurnCountExpr
+  | ObjectDesignationExpr
   | ArithmeticExpr
   | InstructionBodyExpr;
 

@@ -199,6 +199,21 @@ function validateExpr(value: unknown, path: string, context: ValidationContext):
   } else if (kind === "object-attribute") {
     valid = validateObjectSelector(value.object, `${path}.object`, context) && valid;
     valid = validateString(value.attribute, `${path}.attribute`, context, "Expected an attribute name.") && valid;
+  } else if (kind === "object-designation") {
+    valid = validateObjectSelector(value.object, `${path}.object`, context) && valid;
+  } else if (kind === "player-property" || kind === "player-turn-count") {
+    if (hasOwn(value, "player")) {
+      valid = validatePlayerSelector(value.player, `${path}.player`, context) && valid;
+    }
+    if (kind === "player-property" && (typeof value.property !== "string" || !PLAYER_PROPERTIES.has(value.property))) {
+      addIssue(context, `${path}.property`, "invalid-player-property", "Expected a supported numeric player property.");
+      valid = false;
+    }
+  } else if (kind === "turn-number") {
+    if (hasOwn(value, "player")) {
+      addIssue(context, `${path}.player`, "invalid-turn-number-player", "Global turn-number has no player; use player-turn-count.");
+      valid = false;
+    }
   } else if (kind === "linked" || kind === "linked-value") {
     valid = validateString(value.instructionId, `${path}.instructionId`, context, "Expected a linked instruction id.") && valid;
     if (hasOwn(value, "key")) {
@@ -233,11 +248,35 @@ function validateExpr(value: unknown, path: string, context: ValidationContext):
       });
     }
   } else {
-    addIssue(context, `${path}.kind`, "invalid-expression-kind", "Expected constant, object property, linked value, count, or arithmetic.");
+    addIssue(context, `${path}.kind`, "invalid-expression-kind", "Expected a supported value expression.");
     valid = false;
   }
   context.activeObjects.delete(value);
   return valid;
+}
+
+const PLAYER_PROPERTIES = new Set([
+  "points", "score", "energy", "xp", "handSize", "handCount", "deckSize", "deckCount",
+  "runeDeckSize", "runeDeckCount", "trashSize", "trashCount"
+]);
+
+function validatePlayerSelector(value: unknown, path: string, context: ValidationContext): boolean {
+  if (value === "controller") return true;
+  if (!isRecord(value) || Object.keys(value).length !== 1) {
+    addIssue(context, path, "invalid-player-selector", "Expected controller or exactly one id, controllerOf, ownerOf, or pick selector.");
+    return false;
+  }
+  if (hasOwn(value, "id")) return validateString(value.id, `${path}.id`, context, "Expected a player id.");
+  if (hasOwn(value, "controllerOf")) return validateObjectSelector(value.controllerOf, `${path}.controllerOf`, context);
+  if (hasOwn(value, "ownerOf")) return validateObjectSelector(value.ownerOf, `${path}.ownerOf`, context);
+  if (hasOwn(value, "pick")) {
+    if (!validateString(value.pick, `${path}.pick`, context, "Expected a player pick id.", SYMBOL_PATTERN)) return false;
+    if (context.pickIds.has(value.pick)) return true;
+    addIssue(context, `${path}.pick`, "unresolved-pick", `No pick specification named "${value.pick}" exists in this ability.`);
+    return false;
+  }
+  addIssue(context, path, "invalid-player-selector", "Expected controller or exactly one id, controllerOf, ownerOf, or pick selector.");
+  return false;
 }
 
 function validateObjectSelector(value: unknown, path: string, context: ValidationContext): boolean {
@@ -687,7 +726,7 @@ function validateTaggedRuleObject(
   let valid = validateString(value.kind, `${path}.kind`, context, `Expected a ${label} kind.`, SYMBOL_PATTERN);
   if (hasOwn(value, "filter")) valid = validateFilter(value.filter, `${path}.filter`, context) && valid;
   for (const [key, item] of Object.entries(value)) {
-    if (isRecord(item) && ["constant", "literal", "location", "object-property", "object-attribute", "linked", "linked-value", "count", "arithmetic"].includes(String(item.kind))) {
+    if (isRecord(item) && ["constant", "literal", "location", "object-property", "object-attribute", "linked", "linked-value", "count", "arithmetic", "player-property", "turn-number", "player-turn-count", "object-designation"].includes(String(item.kind))) {
       valid = validateExpr(item, `${path}.${key}`, context) && valid;
     }
   }
