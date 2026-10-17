@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/gravity-field.js";
+import { fixture as turnFixture } from "../../../../engine-core/test/turn/helpers.mjs";
 // card-dsl has no dependency edge on engine-core (engine-core depends on
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
@@ -174,15 +175,36 @@ test("rad-062-167 Gravity Field: the merged Deathknell expansion declares its tr
   assert.deepEqual(expansion[0].body.map((step) => step.op), ["trigger.leave"]);
 });
 
+test("rad-062-167 Gravity Field golden: non-unit Deploy gear stays at its battlefield through real turn cleanups (830.1.b.3)", () => {
+  const battlefield = { type: "battlefield", id: "bf1" };
+  const { kernel, flow } = turnFixture({
+    setup: builder => builder.unit("gravity-field", {
+      cardId: CARD_ID, types: ["gear"], might: null, energy: 5, power: ["Calm"],
+      location: battlefield, keywords: [{ id: deploy.keyword }]
+    })
+  });
+  const original = kernel.ref("gravity-field");
+  flow.start();
+  assert.equal(flow.phase, "main");
+  flow.endTurn("A");
+  assert.equal(flow.turnPlayer, "B");
+  assert.equal(flow.phase, "main");
+  assert.deepEqual(kernel.ref("gravity-field"), original);
+  assert.equal(kernel.getObject("gravity-field").zone, "board");
+  assert.deepEqual(kernel.getObject("gravity-field").location, battlefield);
+  assert.ok(flow.chain.pipeline.events.some(event => event.timingPoint === "cleanup-start"));
+  assert.equal(kernel.events.some(event => event.object?.id === "gravity-field"), false);
+});
+
 test.todo(
-  "rad-062-167 Gravity Field: Deploy's continuous.location permission and cleanup recall exemption " +
+  "rad-062-167 Gravity Field: Deploy's continuous.location permission " +
     "(CR 830.1.b) need a consumer — the Deploy expansion still cannot bind its " +
     "continuous.location/host battlefield data, and Finalize does not enforce the full location rule"
 );
 test.todo(
   "rad-062-167 Gravity Field: the applied cost (CR 204.4/204.4.b) must be charged when a unit is " +
-    "moved to this battlefield — the move cost plan still has no applied-cost consumer and rainbow " +
-    "Power payment still needs the standard move cost consumer"
+    "moved to this battlefield — the standard move cost plan still has no applied-cost consumer; " +
+    "the general any-domain Power payment is already supported"
 );
 test.todo(
   "rad-062-167 Gravity Field: the Deathknell expansion needs trigger.leave plus the program -> " +
