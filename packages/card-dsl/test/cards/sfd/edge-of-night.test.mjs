@@ -121,8 +121,8 @@ test("sfd-139-221 Edge of Night golden: the printed attach instruction really at
   // system locked). Selecting that host is the production target pipeline's
   // job: the reference kernel's scalar query does not resolve the frozen
   // PlayerSelector spelling (controller: "self", 740.1.a) or the
-  // sameLocationAs "here" scope, which is part of the target-translation gap recorded in
-  // judgeReason. The printed args themselves are used unchanged.
+  // sameLocationAs "here" scope; both gaps are reproduced in the judgeReason
+  // evidence tests above. The printed args themselves are used unchanged.
   const run = runInstruction(
     attach,
     { host: attachOnPlay.args.host },

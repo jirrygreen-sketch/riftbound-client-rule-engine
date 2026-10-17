@@ -204,7 +204,7 @@ test("sfd-027-221 Dunebreaker: the merged hold payload still carries no object f
 test.todo(
   "sfd-027-221 Dunebreaker: the entry-orientation matcher must evaluate the ability condition " +
     "(\"If you have two or fewer cards in your hand\", 369.3) before rewriting the entry state — " +
-    "a 3-card hand must enter exhausted; replacement/bind.ts must include condition in matchesEnterAction (RIFT-260 follow-up)"
+    "a 3-card hand must enter exhausted; replacement/bind.ts must include condition in matchesEnterAction"
 );
 
 test.todo(
