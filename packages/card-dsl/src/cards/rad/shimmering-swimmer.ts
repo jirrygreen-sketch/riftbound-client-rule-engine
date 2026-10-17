@@ -17,14 +17,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （356.2.b.1 的费用承诺；Contract 3.9 用条件包住指令而不是改写成 choice）；
  * - "deal 2 to a unit"：TargetSpec 单个单位、effect.damage 固定 2（418.1.c）。
 
- * status: judge-required（不近似实现）：
- * - 费用计划（cost.plan / buildCostPlan）与 Finalize 的接线仍在 RIFT-89~91；
- * - “if you paid the additional cost” 的结果条件在契约里有 condition.result 语义位（模板表
- *   46 行）但 IR 无对应可求值 Condition（Condition 只有 always/never/compare/all/any/not/
- *   expression，没有 paid/permission 谓词），属于依赖缺口。
+ * status: judge-required（不近似实现），按 RIFT-258/259/260/261 批次复核：
+ * - 可选附加费用的收取路径仍在进行：buildCostPlan 支持 optionalAdditional
+ *   （cost/cost-plan.ts）且 cost.kinds 有 additional/sacrifice 包装，但 cost.kinds/README.md
+ *   记明「Finalize 消费 CostPlan 的接线仍归协调者」，本 HEAD 未合入；
+ * - “if you paid the additional cost” 的结果条件在调研里记为 condition.result（模板表 46 行），
+ *   但合并 Condition 只有 always/never/compare/all/any/not/expression，既没有 paid/费用结果
+ *   谓词，也没有把费用收据写进链接值的原语；程序用一个 fail-closed 的占位 subject 记录该
+ *   判别式，绝不把「未支付」默认成支付。
  *
  * 已合入部分的执行证据：effect.kill（kill 费用）与 effect.damage 在 golden 测试里用真实
  * 解释器执行；条件与费用计划写成 test.todo。
+ * 依赖：RIFT-261（费用种类与 cost.pay/cost.modify 的 Finalize 接线）、RIFT-257（打出流程绑定）。
  */
 const abilities: Ability[] = [
   {
@@ -85,13 +89,13 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两个依赖缺口：(1) 费用计划（buildCostPlan / Finalize 附加费用）仍在 RIFT-89~91：" +
-    "kill 付款（cost/payment.ts 的 kill 分支）与 356.2.b 可选附加费用的收取未进公开" +
-    "打出流程；(2) “if you paid the additional cost” 无可用条件谓词：契约 3.1/3.9 与模板表" +
-    "（condition.result）要求可追踪费用凭证，但当前 Condition 只有" +
-    "always/never/compare/all/any/not/expression，没有 paid/费用结果谓词，也没有把费用收据" +
-    "写进链接值的原语，依赖 RIFT-89/90。已在 play.cost 声明 kill 附加费用、用非目标 pick" +
-    "（355.10.c）与 effect.damage（418.1.c）写出可审查形状；不近似实现。",
+    "两个缺口，均不近似实现：(1) 费用计划与 Finalize 的接线仍在进行——buildCostPlan 支持 optionalAdditional、" +
+    "cost/payment.ts 支持 kill 付款，但 cost/kinds/README.md 记明 Finalize 消费 CostPlan 的接线属协调者，" +
+    "本 HEAD 未合入（RIFT-261）。(2) “if you paid the additional cost” 无可用条件谓词：合并 Condition 只有" +
+    "always/never/compare/all/any/not/expression，没有 paid/费用结果谓词，也没有把费用收据写进链接值的原语，" +
+    "程序用一个 fail-closed 的占位 subject（不存在的 zone）记录该判别式，绝不把未支付默认成支付。" +
+    "已在 play.cost 声明 kill 附加费用、用非目标 pick（355.10.c）与 effect.damage（418.1.c）写出可审查形状；" +
+    "effect.kill 与 effect.damage 两段由 golden 真实执行。依赖：RIFT-261、RIFT-257。",
   abilities,
   sourceText:
     "You may kill a friendly unit or gear as an additional cost to play me.\n" +

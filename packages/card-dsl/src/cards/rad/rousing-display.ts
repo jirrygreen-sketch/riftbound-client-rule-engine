@@ -19,31 +19,35 @@ import type { CardProgram } from "../../ir/index.js";
  * - 「If you showed off, play four to your base instead」是取决于 Finalize 展示结果的互斥数量
  *   （832.1.d 的同源链接引用），不是玩家在结算时的新选择。
  *
- * status = judge-required（不近似实现）：
- * 1. Show Off 没有 KeywordDef：effects/keywords/ 的 16 个已注册关键词不含 Show Off。按契约 3.4，
- *    展示时要把被引用的特征值锁定进链接值（Show Off 行），调研表把 kw-show-off 归到
- *    cost.reveal / condition.result（依赖 RIFT-9 原语清单与 RIFT-89 费用计划）。
- * 2. 「If you showed off」的判别式没有可执行谓词：合并 Condition 只有 always/never/compare/all/
- *    any/not/expression，没有读取 Finalize 展示结果的谓词，也没有 cost.reveal 指令；本卡用
- *    choice.mode 的两个模式（showed-off / not-showed-off）保留完整结构，与已合入的
+ * status = judge-required（不近似实现），按 RIFT-268 合入后的状态复核：
+ * 1. Show Off 的 KeywordDef 已合入（effects/keywords/ShowOff.ts，RIFT-268）：展开为
+ *    static { kind: "cost.reveal" } 声明。但该声明的消费方仍缺——全仓库只有它自己提到
+ *    cost.reveal（chain/cost 管线不读该 effect kind），objects-shown-off 时点也没有
+ *    Finalize 消费者把展示结果锁进链接值；KeywordDef.expand 也仍拿不到印刷的 Object 子句
+ *    （ShowOffParams.object 无人填），展开里 object 仍是 null。
+ * 2. 「If you showed off」的判别式没有可执行谓词：合并 Condition 只有 always/never/compare/
+ *    all/any/not/expression，没有读取 Finalize 展示结果的谓词，也没有它的链接值生产者；
+ *    本卡用 choice.mode 的两个模式（showed-off / not-showed-off）保留完整结构，与已合入的
  *    ravenbloom-conservatory 处理不可表达分支的写法一致，不冒充可执行决策。
  *
  * 可执行部分：effect.token 的 play 路径（recruit，187.1）已合入，golden 用参考内核真实执行
  * 「play two 1 Might Recruit unit tokens to your base」；这不足以宣称整卡可执行。
- * 依赖：RIFT-9（Show Off / cost.reveal）、RIFT-89（费用计划）、RIFT-91（图层与链接值）。
+ * 依赖：cost.reveal / objects-shown-off 的 Finalize 消费方与 ShowOffParams 的印刷 Object 子句
+ * （RIFT-261 范围）、RIFT-257（卡牌程序到打出流程的绑定）。
  */
 const rousingDisplay = {
   canonicalCardId: "card.hash-e1dc41d23789b8f4890d5cd59e5dc7e12c0c0d447b2f09fd7acf63729930c55d",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1) Show Off（CR 832）没有 KeywordDef（effects/keywords 的 16 个关键词不含它），" +
-    "按契约 3.4 展示时要把被引用特征锁进链接值，调研表把 kw-show-off 归到 cost.reveal / condition.result" +
-    "（依赖 RIFT-9 与 RIFT-89）。(2)「If you showed off」的判别式没有可执行谓词：合并 Condition 没有读取 " +
-    "Finalize 展示结果的谓词，也没有 cost.reveal 指令；本卡用 choice.mode 的两个模式保留结构（与 " +
-    "ravenbloom-conservatory 处理不可表达分支的写法一致），不把玩家选择冒充为该判别式。" +
+    "两处缺口，均不近似实现：(1) Show Off 的 KeywordDef 已合入（RIFT-268），展开为 static cost.reveal 声明，" +
+    "但该声明的消费方仍缺：chain/cost 管线不读 cost.reveal，objects-shown-off 时点也没有 Finalize 消费者把展示结果" +
+    "锁进链接值（CR 832.1.c–c.4、832.1.d），KeywordDef.expand 也仍拿不到印刷的 Object 子句（object 仍为 null）。" +
+    "(2)「If you showed off」的判别式没有可执行谓词：合并 Condition 没有读取 Finalize 展示结果的谓词，也没有产生该链接值的原语；" +
+    "本卡用 choice.mode 的两个模式保留结构（与 ravenbloom-conservatory 处理不可表达分支的写法一致），不把玩家选择冒充为该判别式。" +
     "「play two 1 Might Recruit unit tokens to your base」的 effect.token play 路径已合入并由 golden 真实执行" +
-    "（Recruit 定义 see CR 187.1），但局部执行不构成整卡证据。",
+    "（Recruit 定义 see CR 187.1），但局部执行不构成整卡证据。依赖：cost.reveal / objects-shown-off 的 Finalize 消费方与" +
+    "ShowOffParams 的印刷 Object 子句（RIFT-261 范围）、RIFT-257。",
   abilities: [
     // 832.1：印刷的 [Show Off]；其对象说明（Energy cost 7 或更高的牌）记录在 judgeReason。
     { kind: "keyword", keyword: "show-off" },

@@ -7,6 +7,8 @@ import program from "../../../dist/cards/rad/ruined-monastery.js";
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
@@ -32,9 +34,26 @@ test("rad-166-167 Ruined Monastery: identity, ruleset, status and exact source t
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /conquer/);
-  assert.match(program.judgeReason, /RIFT-76/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /here/);
+  assert.match(program.judgeReason, /battlefieldId/);
   assert.equal(program.sourceText, SOURCE_TEXT);
+});
+
+test("rad-166-167 Ruined Monastery: the trigger filter is accepted by the engine trigger vocabulary", () => {
+  const result = validateTriggerSpec(ability.trigger);
+  assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  // The merged pipeline maps the declared spelling onto the conquer timing point
+  // that TurnFlow's Score wave really emits.
+  assert.equal(
+    matchesTriggerEvent(ability.trigger.filter, {
+      eventId: 1,
+      timingPoint: "conquer",
+      player: "A",
+      details: { battlefieldId: "bf-1" }
+    }, "A"),
+    true
+  );
 });
 
 test("rad-166-167 Ruined Monastery: optional body wraps both printed actions in order", () => {
@@ -42,12 +61,14 @@ test("rad-166-167 Ruined Monastery: optional body wraps both printed actions in 
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.optional, true);
   assert.equal(ability.trigger.at, "conquer");
-  // 053.3 "here" + 190.6.d "you"; the sibling battlefield programs keep this
-  // placeholder spelling while the trigger pipeline is unmerged.
+  // 190.6.d "you": the conquer event's player is this ability's controller.
+  // The engine's closed event spelling is "conquered" (EVENT_PATTERN_TYPES),
+  // which pipeline-match maps onto the conquer timing point. The printed 053.3
+  // "here" restriction has no host-relative anchor in that vocabulary and is
+  // stated in judgeReason instead of being written as an unevaluable field.
   assert.deepEqual(ability.trigger.filter, {
-    event: "conquer",
-    here: true,
-    player: "controller"
+    event: "conquered",
+    player: "self"
   });
   assert.equal(ability.trigger.once, undefined);
 

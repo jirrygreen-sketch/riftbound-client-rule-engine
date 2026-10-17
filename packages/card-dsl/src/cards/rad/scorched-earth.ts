@@ -19,28 +19,29 @@ import type { CardProgram } from "../../ir/index.js";
  *   controller for each target's amount at resolution; the golden test drives
  *   it against the reference kernel.
 
- * Status: judge-required. Two pieces of the printed text are not covered by
+ * Status: judge-required, re-reviewed. The damage split itself is the merged
+ * effect.damage divide mode (CR 355.14.e) and the golden test drives it against
+ * the reference kernel. Two pieces of the printed text are still not covered by
  * merged code:
  * - "at a single battlefield" is a group constraint (all Targets must share
- *   one battlefield). The frozen TargetSpec carries the merged `group` field
- *   (TargetRequirement.kind/group) but target/ has no enforcement path: nothing
- *   checks that the chosen members share a location, so a player could split
- *   the damage across two battlefields. This is the `target.many` / group
- *   targeting primitive in RIFT-9's list, not merged (RIFT-90 scope).
+ *   one battlefield). TargetRequirement carries the group field
+ *   (target/target-plan.ts) but no consumer enforces it: nothing checks that
+ *   the chosen members share a location, so a player could split the damage
+ *   across two battlefields. This is the group-targeting primitive, still
+ *   missing (RIFT-90 scope).
  * - 355.14.h (controller drops Targets when the available damage at
  *   resolution is smaller than the number of Targets) has no implementation:
  *   effect.damage computes each amount's bound as remaining - (slots left - 1)
  *   and negates on an illegal answer instead of letting the controller reduce
  *   the Target set.
- * Both are recorded here instead of being approximated; the damage-splitting
- * half itself only uses the merged effect.damage primitive.
+ * Both are recorded here instead of being approximated.
  */
 const scorchedEarth = {
   canonicalCardId: "card.hash-0de7fdfddfced7ff6b7fcdb3da2d93eb7c6f6531565882598b1ff5fa0d827fa0",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺「同一战场」分组约束的落地：CR 355.14.a/b 要求把伤害分配目标限定在同一战场，" +
+    "缺「同一战场」分组约束的落地：CR 355.14.a/b 要求把伤害分配目标限定在同一战场（355.14.c 的 5 个上限已写进 IR 的 max: 5），" +
     "但 target/ 只有 TargetRequirement.group 字段而没有组约束的执行路径（target.many，" +
     "RIFT-90 范围），当前可把伤害分到两个不同战场；另 CR 355.14.h（结算时可用伤害少于目标数" +
     "时由控制者裁撤目标）没有实现，effect.damage 只会在非法答案时整条否定。" +

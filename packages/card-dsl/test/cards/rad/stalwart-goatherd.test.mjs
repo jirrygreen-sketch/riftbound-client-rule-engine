@@ -4,6 +4,9 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/stalwart-goatherd.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
+import shield from "../../../../engine-core/dist/effects/keywords/Shield.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 
@@ -24,8 +27,9 @@ test("rad-083-167 Stalwart Goatherd: validates, identity and source text", () =>
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /energyLte/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /Energy cost/);
+  assert.match(program.judgeReason, /designation/);
+  assert.match(program.judgeReason, /combatRole/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -61,6 +65,72 @@ test("rad-083-167 Stalwart Goatherd: 'you may kill a gear' is a choice.optional 
       selection: "one"
     }
   ]);
+});
+
+test("rad-083-167 Stalwart Goatherd: [Shield 2] resolves to the merged Shield definition", () => {
+  assert.deepEqual(program.abilities[0], { kind: "keyword", keyword: "shield", value: 2 });
+  const definition = keywordDefinitionsById.get("Shield");
+  assert.equal(definition, shield);
+  assert.equal(definition.valued, true);
+  assert.equal(definition.stacking, "sum");
+  const expansion = definition.expand({ value: 2, host: { canonicalCardId: CARD_ID } });
+  assert.equal(expansion.length, 1);
+  assert.equal(expansion[0].kind, "static");
+  assert.equal(expansion[0].effect.kind, "continuous.might");
+  assert.equal(expansion[0].effect.amount.value, 2);
+  // 814.1.c: the +X is gated on the Defender designation.
+  assert.deepEqual(expansion[0].condition, {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "designation" },
+    operator: "eq",
+    right: { kind: "constant", value: "defender" }
+  });
+});
+
+test("rad-083-167 Stalwart Goatherd: the Shield expansion registers +2 Might in the arithmetic layer", () => {
+  // 814.1.c / 814.2: the expansion is a single arithmetic-layer Might
+  // modification carrying the summed Shield Value. This test covers the merged
+  // arithmetic registration; the declaration's defender gate is the part named
+  // in judgeReason (see the TODO below).
+  const definition = keywordDefinitionsById.get("Shield");
+  const expansion = definition.expand({ value: 2, host: { canonicalCardId: CARD_ID } });
+  const host = {
+    ref: { id: "goatherd", zoneEntryId: 1 },
+    cardId: CARD_ID,
+    name: "stalwart-goatherd",
+    types: ["unit"],
+    tags: [],
+    keywords: [{ id: "Shield", value: 2 }],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "bf-1" },
+    combatRole: "defender",
+    might: 2,
+    energy: 4,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const engine = createLayerEngine(new Map([[host.ref.id + ":" + host.ref.zoneEntryId, host]]));
+  engine.register(
+    {
+      id: "goatherd:shield",
+      layer: "arithmetic",
+      source: host.ref,
+      filter: { objectId: "goatherd" },
+      effect: expansion[0].effect
+    },
+    { type: "permanent" }
+  );
+  // The arithmetic registration is the merged half: the host's 2 Might is
+  // increased by the declared Shield Value 2.
+  assert.equal(engine.evaluate(host.ref).might, 4);
 });
 
 test("rad-083-167 Stalwart Goatherd: accepting the optional kills the locked gear through effect.kill", () => {
@@ -109,10 +179,11 @@ test("rad-083-167 Stalwart Goatherd: effect.kill ignores a gear that left its zo
 
 test.todo(
   "stalwart-goatherd: 'gear with Energy cost 4 or less' target restriction (CR 163.1 / 356.x printed Energy)" +
-    " needs the target pipeline to evaluate an energyLte filter (RIFT-90 batch3-target-plan);" +
-    " energy:null means no printed value and must never be treated as 0"
+    " needs a target-pipeline evaluator for the printed Energy cost; energy:null means no printed value" +
+    " and must never be treated as 0"
 );
 test.todo(
   "stalwart-goatherd: [Shield 2] expansion (+2 Might while defending, stacking sum) through the Shield" +
-    " KeywordDef and the layers continuous.might consumer (RIFT-81 / RIFT-91)"
+    " KeywordDef and the layers consumer — the merged conditionMatches does not evaluate the" +
+    " declaration's 'designation' predicate and ObjectSnapshot exposes combatRole instead"
 );

@@ -21,24 +21,31 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 386 / 386.1 / 377.2.b："Use this ability only once each turn." 是启动能力的每回合
  *   使用次数限制，写成 ActivatedAbility.restriction（契约 3.1）。
  *
- * status = judge-required（README 第 2 节）。三处缺口，均不近似实现：
- * 1. "give me +1 [M] this turn" 需要临时 Might 修改（continuous.might + end-of-turn
- *    期限，RIFT-91 layers-continuous 未合入）；effect.buff 明确不含临时 Might 修改
- *    （703 的 Buff 只各自 +1 且是计数器，不是本句的效果）。
- * 2. "Exhaust a friendly unit" 作为费用需要一个可解析到运行时对象的费用选择：
- *    CostSpec 的 choice 是 PickSpec，其 options 只能是静态 Value，费用管线
- *    （cost/plan-values.ts 的 choiceObjects）要求选项是具体 ObjectRef —— 静态 IR 给不出
- *    「当前场上某个友方单位」的引用（同 sfd/assembly-rig 记录的费用选择缺口）。
- * 3. "Use this ability only once each turn"（386/386.1）没有消费方：ActivatedAbility.
- *    restriction 只是数据，chain/cost 不读每回合使用次数；把限制写成触发条件会改变
- *    「限制激活」与「触发条件」的区别（355.17 的强制要求与限制分离）。
- * 另外「another friendly unit becomes exhausted」的 object-exhausted 时点由事件管线
- * 按 exhaust 动作发出（events/action-adapter.ts），但没有已合入订阅方把 CardProgram 的
- * 触发能力注册成 TriggerRegistration。
- * 已按已合入原语写出的部分：object-exhausted 触发 + 目标式的 effect.ready 体
- * （属性选择 "a unit"、转发给已合入的 416.1 语义），golden 测试真实执行 effect.ready。
- * 依赖：RIFT-91（layers-continuous 的临时 Might 与期限）、RIFT-89（费用计划与费用对象
- * 选择）、RIFT-120（chain/events 触发注册与每回合限制消费方）。
+ * status = judge-required（README 第 2 节）。RIFT-258 合入后逐条复核：
+ * 1. "give me +1 [M] this turn" **已可执行**——continuous.might 已注册
+ *    （effects/instructions/continuous.might.ts），layers/ops/index.ts 的
+ *    resolveContinuousDuration 把 "this-turn" 映射为 end-of-turn 到期，
+ *    buildMightSpec 为每个解析对象注册 arithmetic 图层 spec；golden 通过真实
+ *    解释器 + 测试内核执行整条触发体并检查注册结果与到期时点。
+ * 2. "Exhaust a friendly unit" 作为费用仍缺可解析到运行时对象的费用选择：
+ *    cost/plan-values.ts 的 choiceObjects/paymentObjects 只接受 PickSpec.options 中的
+ *    具体 { id, zoneEntryId }（或 Expr 求值出的具体引用），filter/zone/type/controller
+ *    只是数据、planner 不据此查询，静态 IR 给不出「当前场上某个友方单位」的引用。
+ *    费用种类与 cost.pay/cost.modify（RIFT-261）在本 HEAD 尚未合入。
+ * 3. "Use this ability only once each turn"（386/386.1）仍没有消费方：
+ *    ActivatedAbility.restriction 只是数据，chain/ 与 cost/ 不读每回合使用次数
+ *    （chain/engine.ts 只校验 ChainItem.requirements/restrictions 上的 Condition，
+ *    没有任何已合入代码把卡牌的 usage-limit 转成该 Condition）；
+ *    把带 restriction 的启动能力接进来属正在进行的 RIFT-257。
+ * 触发侧同样依赖 RIFT-257：object-exhausted 时点已由事件管线按 exhaust 动作发出
+ * （events/action-adapter.ts 的 ACTION_TIMINGS），但没有已合入订阅方把 CardProgram 的
+ * triggered ability 转成 TriggerRegistration；本卡过滤器用的 exclude 锚点与
+ * controller: "controller" 选择器也不在引擎 trigger-spec 词表内（无 exclude 锚点、
+ * PlayerSelector 无 "controller"），注册 fail-closed 而不是静默过度触发。
+ * 已按已合入原语写出的部分：object-exhausted 触发 + 目标式的 continuous.might 效果 +
+ * 目标式的 effect.ready 体（属性选择 "a unit"、转发给已合入的 416.1 语义），
+ * golden 测试真实执行这两段。
+ * 依赖：RIFT-261（费用对象选择）、RIFT-257（触发注册与每回合使用次数消费方）。
  */
 const abilities: Ability[] = [
   {
@@ -50,8 +57,8 @@ const abilities: Ability[] = [
     optional: false,
     body: [
       {
-        // 143.2.a.1 / 475：本回合 +1 Might 属算术图层；continuous.might 未合入
-        // （RIFT-91），此指令只保留印刷语义（见 judgeReason 第 1 点）。
+        // 143.2.a.1 / 475：本回合 +1 Might 属算术图层，由 continuous.might 注册
+        // （RIFT-258；layers/ops/index.ts 的 buildMightSpec + resolveContinuousDuration）。
         id: "riven.grant-plus-one",
         op: "continuous.might",
         args: {
@@ -78,7 +85,7 @@ const abilities: Ability[] = [
       payments: [
         {
           // 415.3.a / 415.5：横置一个友方单位作为费用。费用对象必须在 Finalize 前
-          // 选定（355.5）；静态 IR 无法给出运行时引用，故 options 是缺口标记
+          // 选定（355.5）；本 HEAD 的费用管线只接受具体引用，故 options 是缺口标记
           // （见 judgeReason 第 2 点），不是可执行语义。
           kind: "exhaust",
           choice: {
@@ -128,15 +135,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 「give me +1 [M] this turn」需要临时 Might 修改（continuous.might + end-of-turn 期限），" +
-    "RIFT-91 layers-continuous 未合入，effect.buff 明确不含临时 Might（703 的 Buff 是计数器）；" +
-    "(2) 「Exhaust a friendly unit」作为费用需要能解析到运行时对象的费用选择：CostSpec 的 choice 是 PickSpec，" +
-    "options 只能是静态 Value，而费用管线（cost/plan-values.ts choiceObjects）要求选项是具体 ObjectRef，静态 IR 给不出；" +
-    "(3) 「Use this ability only once each turn」（386/386.1）没有消费方：ActivatedAbility.restriction 只是数据，" +
-    "chain/cost 不读每回合使用次数。另：object-exhausted 时点由事件管线按 exhaust 动作发出，但没有已合入订阅方把 " +
-    "CardProgram 的触发能力注册成 TriggerRegistration。已写出的可执行部分：object-exhausted 触发 + 目标式 effect.ready " +
-    "（416.1；golden 真实执行）。依赖：RIFT-91（layers-continuous）、RIFT-89（费用计划与费用对象选择）、" +
-    "RIFT-120（触发注册与每回合限制消费方）。",
+    "两处缺口，均不近似实现：(1) 「Exhaust a friendly unit」作为费用需要能解析到运行时对象的费用选择：" +
+    "cost/plan-values.ts 的 choiceObjects/paymentObjects 只接受 PickSpec.options 中的具体 { id, zoneEntryId }，" +
+    "filter/zone/type/controller 只是数据、planner 不据此查询，静态 IR 给不出「当前场上某个友方单位」的引用；" +
+    "费用种类与 cost.pay/cost.modify（RIFT-261）在本 HEAD 尚未合入。(2) 「Use this ability only once each turn」" +
+    "（386/386.1）没有消费方：ActivatedAbility.restriction 只是数据，chain/ 与 cost/ 不读每回合使用次数，" +
+    "也没有已合入代码把它转成 chain/engine.ts 校验的 Requirement/Restriction Condition（RIFT-257）。" +
+    "触发侧同样依赖 RIFT-257：object-exhausted 时点已有生产者（events/action-adapter.ts），但没有已合入订阅方把 " +
+    "CardProgram 的 triggered ability 转成 TriggerRegistration；本卡过滤器用的 exclude 锚点与 controller: \"controller\" " +
+    "选择器也不在引擎 trigger-spec 的 ObjectFilter 词表内，注册会 fail-closed，不会静默过度触发。" +
+    "已可执行部分：「give me +1 [M] this turn」经 continuous.might（RIFT-258）注册 arithmetic 图层效果并在回合结束到期，" +
+    "golden 用真实解释器 + 测试内核执行整条触发体。依赖：RIFT-261、RIFT-257。",
   abilities,
   sourceText:
     "When another friendly unit becomes exhausted, give me +1 :rb_might: this turn.\n" +

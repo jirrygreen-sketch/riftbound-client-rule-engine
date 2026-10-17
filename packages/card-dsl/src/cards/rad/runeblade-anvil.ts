@@ -10,24 +10,34 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * 规则依据（CR v1.5）：
  * - "When you play this"：Play Effect（383.4.a）→ 时点 card-played、filter 自身；
- *   "when this leaves the board" 是离开 Board 触发（383.2.c.3），对应已定义时点
- *   object-leaves-board，需要最后已知信息（383.2.c.3.b）与离场前收集；
+ *   "when this leaves the board" 是离开 Board 触发（383.2.c.3），对应时点
+ *   object-leaves-board（events/action-adapter.ts 的 zoneTimings 已产生），
+ *   需要最后已知信息（383.2.c.3.b）与离场前收集；
  * - "banish the top card of your Main Deck"：牌库顶必须按区域真实顺序取（契约 3.6
  *   zoneSlice；query 不保证顺序），effect.banish 的 zone 选择（{zone:"deck", from:"top"}）
  *   已合入；
  * - ":rb_energy_2::rb_rune_chaos:, :rb_exhaust:: Kill this." 是启动能力（400 起）：
  *   费用 2 能量 + 1 Chaos Power + 横置自身，效果 Kill this（429.1.a.1）。
+ * - "you may play that card" 是游戏效果给出的打出许可（355.4/420.3 的 Play 流程由
+ *   效果指令发起），需要一条「指定区域的对象在指定期限内可被打出」的许可通道；
+ *   已合入的 continuous.* 原语只覆盖速度、落点、移动与限制/要求，effect.play 只结算
+ *   已 Finalize 的费用计划，二者都不建立该许可。
 
- * status: judge-required（不近似实现）：
+ * status: judge-required（不近似实现），按合入后的 continuous.* / cost.* 复核：
  * - “Until your next Ending Phase, you may play that card. (You still pay its costs.)”
- *   需要一个带期限的“可打出该牌”许可（从 Banishment 打出、比照 811/812 的
- *   hidden/alternative play 许可）。当前契约 3.6/3.1 没有该许可原语：
- *   effect.play 只消费已 Finalize 的费用计划，continuous.timing 没有“从 Banishment
- *   打出”的时机/来源改写，Duration 也没有“your next Ending Phase”的具名期限表达；
- * - 离场触发（object-leaves-board）与启动能力的 Kill this 已合入，卡牌侧只声明形状。
+ *   仍缺一个带具名期限的“从 Banishment 可打出该牌”许可。已合入的 continuous.timing
+ *   只登记速度许可，continuous.location 只登记落点许可，continuous.restrict 只登记
+ *   限制/要求——都不改写可打出区域；effect.play 只消费已 Finalize 的费用计划
+ *   （effects/instructions/effect.play.ts），并不建立许可。
+ *   layers/duration.ts 的 Duration 也只有 permanent / end-of-turn / end-of-combat /
+ *   while-source-in-zone / until(at, player)，没有“your next Ending Phase”具名期限。
+ *   程序保留 effect.play-permission 形状；该 opcode 未注册，解释器会 fail-closed。
+ * - 牌库顶放逐（zoneSlice top，417/428）与启动能力的 Kill this（429.1.a.1）已合入，
+ *   卡牌侧只声明形状，golden 真实执行这两段。
+ * - 离场触发（object-leaves-board，383.2.c.3）时点已由 events/action-adapter.ts 的
+ *   zoneTimings 产生；触发整体注册依赖 RIFT-257。
  *
- * 依赖：RIFT-89~91（cost.* 与 continuous.* 许可管线）、RIFT-21/31（离场触发与
- * 最后已知信息）。
+ * 依赖：RIFT-257（触发注册）、RIFT-261（费用/许可管线仍未提供 from-Banishment 打出许可）。
  */
 const abilities: Ability[] = [
   {
@@ -115,14 +125,16 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺“带期限的打出许可”原语： “Until your next Ending Phase, you may play that card. " +
-    "(You still pay its costs.)” 需要把刚被放逐的牌标成可在指定期限内从 Banishment 打出" +
-    "（费用照付），当前契约 3.6/3.1 没有该原语——effect.play 只接受已 Finalize 的费用计划，" +
-    "continuous.timing 不表达“从 Banishment 打出”，Duration 也没有 \"your next Ending Phase\" " +
-    "的具名期限（依赖 RIFT-89~91 的 cost/continuous 许可管线）。牌库顶放逐" +
-    "（zoneSlice top，417/428）与启动能力 Kill this（429.1.a.1）已按已合入原语声明；" +
-    "离场触发（object-leaves-board，383.2.c.3）依赖 RIFT-21/31 的最后已知信息与离场收集。" +
-    "不近似实现。",
+    "缺「带具名期限的打出许可」：\"Until your next Ending Phase, you may play that card. " +
+    "(You still pay its costs.)\" 需要把刚被放逐的牌标成可在指定期限内从 Banishment 打出（费用照付）。" +
+    "已合入的 continuous.timing 只登记速度许可、continuous.location 只登记落点许可、continuous.restrict 只登记限制/要求，" +
+    "都不改写可打出区域；effect.play 只消费已 Finalize 的费用计划，不建立许可。" +
+    "layers/duration.ts 的 Duration 也没有 \"your next Ending Phase\" 具名期限" +
+    "（只有 permanent / end-of-turn / end-of-combat / while-source-in-zone / until(at, player)）。" +
+    "程序保留 effect.play-permission 形状（该 opcode 未注册，解释器 fail-closed），不近似实现。" +
+    "牌库顶放逐（zoneSlice top，417/428）与启动能力 Kill this（429.1.a.1）已按已合入原语声明；" +
+    "离场触发（object-leaves-board，383.2.c.3）的时点已由事件管线产生，但触发注册依赖 RIFT-257。" +
+    "依赖：RIFT-257、RIFT-261。",
   abilities,
   sourceText:
     "When you play this or when this leaves the board, banish the top card of your Main Deck. Until your next Ending Phase, you may play that card. (You still pay its costs.)\n" +

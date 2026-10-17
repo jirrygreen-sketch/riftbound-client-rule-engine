@@ -5,6 +5,8 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/rousing-display.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import showOff from "../../../../engine-core/dist/effects/keywords/ShowOff.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-e1dc41d23789b8f4890d5cd59e5dc7e12c0c0d447b2f09fd7acf63729930c55d";
@@ -29,8 +31,9 @@ test("Rousing Display identity, ruleset, status and printed text (including the 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Show Off/);
-  assert.match(program.judgeReason, /RIFT-9/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-268/);
+  assert.match(program.judgeReason, /cost\.reveal/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The catalog's trailing "disa" is preserved verbatim (data issue reported
   // in the task reply; card-data must not be edited here).
@@ -57,6 +60,12 @@ test("Rousing Display structure: [Show Off] plus the exclusive two/four Recruit 
   assert.equal(mode.linkedTo, undefined);
   assert.equal(mode.args.modes.value[0].body.length, 1);
   assert.equal(mode.args.modes.value[1].body.length, 1);
+  // [Show Off] is declared only; the expansion belongs to the keyword registry.
+  assert.equal(keywordDefinitionsById.get("Show Off"), showOff);
+  const expansion = showOff.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(expansion.length, 1);
+  assert.equal(expansion[0].kind, "static");
+  assert.equal(expansion[0].effect.kind, "cost.reveal");
 
   // Recruit is CR 187.1 (1 Might, Recruit tag); "play … to your base" uses the
   // chain-create + play handoff (440.2.c / 185.2.a).
@@ -103,10 +112,11 @@ test("Rousing Display golden: playing two Recruit tokens puts two 1 Might Recrui
 
 test.todo(
   "Rousing Display: [Show Off] 'a card with Energy cost 7 or more' needs the Show Off keyword expansion and its " +
-    "locked finalization information (CR 832.1.c / 832.1.d.1, contract 3.4) — RIFT-9 / RIFT-89"
+    "locked finalization information — the merged declaration (RIFT-268) has no cost.reveal / objects-shown-off consumer " +
+    "and no printed Object clause (CR 832.1.c / 832.1.d.1, contract 3.4)"
 );
 
 test.todo(
   "Rousing Display: 'If you showed off' needs the executable predicate for the finalization result; the two " +
-    "choice.mode branches currently record the structure only — RIFT-9 / RIFT-89"
+    "choice.mode branches currently record the structure only — RIFT-261 / RIFT-257"
 );

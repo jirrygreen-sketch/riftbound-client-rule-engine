@@ -26,8 +26,9 @@ test("rad-014-167 Shimmering Swimmer: program validates and has expected identit
     "You may kill a friendly unit or gear as an additional cost to play me.\n" +
       "When you play me, if you paid the additional cost, deal 2 to a unit."
   );
-  assert.match(program.judgeReason, /附加费用/);
+  assert.match(program.judgeReason, /optionalAdditional/);
   assert.match(program.judgeReason, /paid/);
+  assert.match(program.judgeReason, /RIFT-261/);
 });
 
 test("rad-014-167: play cost declares the optional kill additional cost via a non-target pick", () => {
@@ -114,9 +115,9 @@ test("rad-014-167: the damage instruction deals 2 to a locked unit", () => {
   assert.equal(run.linked.dealtCount, 1);
 });
 
-test("rad-014-167: the un-executable condition skips the damage when the cost is unpaid", () => {
+test("rad-014-167: the paid-cost gate stays closed until the cost receipt exists", () => {
   // 条件求值依赖 “paid” 凭证：占位 subject + 不存在的 zone 在参考内核里计为 0，
-  // 因此指令按“未支付”路径被 skipped（不结算伤害）。支付路径需要 RIFT-89/90 的凭证管线。
+  // 因此指令按“未支付”路径被 skipped（不结算伤害），绝不把未支付默认成支付。
   const kernel = world().unit("enemy", { owner: "B", might: 4 }).build();
   kernel.setTargets(DAMAGE_TARGET, [kernel.ref("enemy")]);
   const outcome = resolveChainBody(program.abilities[0].body, kernel);
@@ -128,9 +129,10 @@ test("rad-014-167: the un-executable condition skips the damage when the cost is
 
 test.todo(
   "rad-014-167 Shimmering Swimmer: 可选附加费用（356.2.b 的 kill 付款）在 Finalize 的费用计划中" +
-    "收取与记账，依赖 RIFT-89~91（cost.plan / buildCostPlan 接线）"
+    "收取与记账——buildCostPlan 已支持 optionalAdditional、cost/payment.ts 已支持 kill 付款，" +
+    "但 Finalize 消费 CostPlan 的接线属协调者，依赖 RIFT-261"
 );
 test.todo(
   "rad-014-167 Shimmering Swimmer: “if you paid the additional cost” 的费用凭证条件" +
-    "（condition.result）缺少可用谓词，依赖 RIFT-89/90"
+    "（condition.result）缺少可用谓词与把费用收据写进链接值的原语，依赖 RIFT-261"
 );

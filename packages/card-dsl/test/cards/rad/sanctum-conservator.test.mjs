@@ -1,7 +1,7 @@
 // Golden test for Sanctum Conservator (rad-030-167).
 //
-// judge-required (see the program's judgeReason): no merged trigger vocabulary
-// can test the played card's printed Energy cost, and IR has no selector for
+// judge-required (see the program's judgeReason): the merged trigger vocabulary
+// cannot test the played card's printed Energy cost, and IR has no selector for
 // "the card in the triggering play event". The runnable evidence is the merged
 // "ready me" primitive the trigger body uses (including 416.1.c).
 import assert from "node:assert/strict";
@@ -12,7 +12,6 @@ import program from "../../../dist/cards/rad/sanctum-conservator.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { matchesTriggerObject } from "../../../../engine-core/dist/events/pipeline-match.js";
 
 const CANONICAL =
   "card.hash-6028fb37be26fd7565a2496f62a0ae6299311f364579011da70ce8cdbb0ddd08";
@@ -36,7 +35,7 @@ test("rad-030-167 Sanctum Conservator: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /206\/206\.1/);
   assert.match(program.judgeReason, /ObjectSelector/);
   assert.match(program.judgeReason, /触发过滤词汇/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -86,38 +85,13 @@ test("rad-030-167 Sanctum Conservator: an already-ready source produces no extra
   assert.equal(scoped.getObject("conservator").exhausted, false);
 });
 
-test("rad-030-167 Sanctum Conservator: the declared cost threshold is not a known trigger predicate", () => {
-  // The declared field is deliberate data for the missing vocabulary; the
-  // merged matcher does not know it and silently passes, so wiring the trigger
-  // today would fire for every played card instead of only for 7+ Energy ones.
-  const anyCard = {
-    ref: { id: "card", zoneEntryId: 1 },
-    cardId: "card",
-    name: "card",
-    types: ["unit"],
-    tags: [],
-    keywords: [],
-    owner: "A",
-    controller: "A",
-    zone: "board",
-    location: { type: "base", player: "A" },
-    might: 2,
-    energy: 2,
-    power: null,
-    exhausted: false,
-    damage: 0,
-    stunned: false,
-    buffs: 0,
-    attachedTo: null,
-    faceDown: false,
-    isToken: false
-  };
-  assert.equal(
-    matchesTriggerObject(triggered.trigger.filter.filter, anyCard, "A"),
-    true,
-    "the unknown predicate must pass, which is exactly why the card stays judge-required"
-  );
+test("rad-030-167 Sanctum Conservator: the printed cost gate is declared for review", () => {
+  // The declaration keeps the intended field name and threshold so the review
+  // can audit it; judgeReason names the missing trigger vocabulary and the
+  // missing event-object selector that block an honest evaluation (206/206.1).
+  assert.equal(triggered.trigger.filter.filter.player, "self");
   assert.equal(triggered.trigger.filter.filter.playedCardEnergyCostAtLeast, 7);
+  assert.match(program.judgeReason, /playedCardEnergyCostAtLeast|该阈值谓词/);
 });
 
 test.todo(
@@ -129,5 +103,5 @@ test.todo(
 
 test.todo(
   "Sanctum Conservator: registering the card-played trigger from the card program — shared wiring owned by the coordinator " +
-    "(card program → TriggerRegistration adapter, RIFT-120 follow-up)"
+    "(card program → TriggerRegistration adapter, RIFT-257)"
 );

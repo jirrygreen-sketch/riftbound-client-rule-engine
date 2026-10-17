@@ -14,16 +14,19 @@ import type { CardProgram } from "../../ir/index.js";
  *   history 计数由 context.history 提供，契约 3.6）；原文没有印刷目的地，目的地按 355.4 /
  *   355.4.a 在结算时选择（451.1）。
  *
- * status = judge-required（不近似实现）：
- * 1. 目的地是运行期 Location 选择（355.4 / 355.4.a / 451.1），合并 IR 没有运行期
- *    Location 选择器（target.location 未合入），effect.move 的 to 只接受静态 LocationRef /
- *    controller-base / 静态候选列表；本卡用描述性目的地标记，解释器会拒绝该形状而不是
- *    落到错误地点（依赖 RIFT-90 / RIFT-91）。
- * 2. 「that moved this turn」需要移动历史谓词：condition.history 只能作为指令/触发条件
- *    （契约 3.6 的 HistoryQuery），目标过滤器没有 moved-this-turn 谓词，无法在 Finalize
- *    用它限制目标合法性（355.9.b）；上下文里的过滤器词汇未同步该谓词（依赖 RIFT-90）。
+ * status = judge-required（不近似实现），按 RIFT-258/259 复核：
+ * 1. 目的地仍是运行期选择（355.4 / 355.4.a / 451.1）：effect.move 的 to 只接受静态
+ *    LocationRef、controller-base 或静态候选列表（effects/instructions/effect.move.ts 的
+ *    destination()），没有把「满足 451.1 合法性限制的其他可落点」求值进 IR 的通道；
+ *    本卡保留描述性目的地标记，解释器会拒绝该形状而不是落到错误地点。
+ * 2. 「that moved this turn」需要移动历史谓词：HistoryQuery（契约 3.6 / 3.8）可用于指令
+ *    与触发条件，但目标过滤器没有 moved-this-turn 谓词，无法在 Finalize 用它限制目标
+ *    合法性（355.9.b）；object-moved 时点本身已由 events/action-adapter.ts 发出，
+ *    缺的是把该历史接进 TargetSpec filter 的谓词词汇。
+ * 3. [Reaction] 关键词（keywords/Reaction.ts）与 effect.move 原语本身已合入，
+ *    被移动的敌方单位按 355.10 / 355.9.a.1 声明为目标。
  *
- * 依赖：RIFT-90（目标/目的地计划）、RIFT-91（layers-continuous）。golden 只做校验、结构断言与 todo。
+ * 依赖：目标过滤器的移动历史谓词、运行期 Location 选择通道（RIFT-90 范围）。
  */
 
 /** 描述性目的地标记，不是可执行 LocationRef（见 judgeReason 第 1 点）。 */
@@ -37,12 +40,13 @@ const sirensSong = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1) 没有印刷目的地——目的地按 CR 355.4 / 355.4.a / 451.1 在结算时选择，" +
-    "合并 IR 没有运行期 Location 选择器；effect.move 的 to 只接受静态 LocationRef / controller-base / " +
-    "静态候选列表，本卡只保留描述性目的地标记（依赖 RIFT-90 / RIFT-91）。(2)「an enemy unit that moved this turn」" +
-    "的目标合法性需要移动历史谓词（CR 449 / 355.9.b），condition.history 只能作为指令或触发条件，" +
-    "目标过滤器没有 moved-this-turn 谓词。被移动的敌方单位已按 355.10 / 355.9.a.1 声明为目标；" +
-    "[Reaction] 关键词与 effect.move 原语本身已合入。",
+    "两处缺口，均不近似实现：(1) 没有印刷目的地——目的地按 CR 355.4 / 355.4.a / 451.1 在结算时选择，" +
+    "effect.move 的 to 只接受静态 LocationRef、controller-base 或静态候选列表，" +
+    "没有把「满足 451.1 合法性限制的其他可落点」求值进 IR 的通道，本卡只保留描述性目的地标记" +
+    "（解释器 fail-closed，不会落到错误地点）。(2)「an enemy unit that moved this turn」的目标合法性" +
+    "需要移动历史谓词（CR 449 / 355.9.b）：HistoryQuery 只作用于指令/触发条件，" +
+    "目标过滤器没有 moved-this-turn 谓词（object-moved 时点本身已由事件管线发出）。" +
+    "被移动的敌方单位已按 355.10 / 355.9.a.1 声明为目标；[Reaction] 关键词与 effect.move 原语本身已合入。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

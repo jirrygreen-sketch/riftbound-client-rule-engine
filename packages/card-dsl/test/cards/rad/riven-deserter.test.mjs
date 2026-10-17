@@ -1,14 +1,17 @@
 // Golden test for Riven, Deserter (rad-114-167).
-// The object-exhausted trigger shape, the activated cost structure and the merged
-// effect.ready body are verifiable; temporary Might, the object-valued exhaust cost
-// and the once-per-turn restriction have no merged consumer.
+// The object-exhausted trigger shape, the +1 Might registration, the activated
+// cost structure and the merged effect.ready body are verifiable through the real
+// interpreter and layer engine; the object-valued exhaust cost and the
+// once-per-turn restriction are the parts still named in judgeReason.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/riven-deserter.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -34,11 +37,10 @@ test("rad-114-167 Riven, Deserter: program validates and keeps identity", () => 
 
 test("rad-114-167 Riven, Deserter: judgeReason names temporary Might, the exhaust cost and the usage limit", () => {
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /CostSpec/);
+  assert.match(program.judgeReason, /choiceObjects/);
   assert.match(program.judgeReason, /386/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-114-167 Riven, Deserter: the first ability is an object-exhausted trigger excluding this unit (415.1)", () => {
@@ -135,7 +137,7 @@ test("rad-114-167 Riven, Deserter: the ready body resets an exhausted unit and i
   assert.deepEqual(skipped.linked.readied, { count: 0, objects: [] });
 });
 
-test("rad-114-167 Riven, Deserter: the object-exhausted trigger body runs through the interpreter", () => {
+test("rad-114-167 Riven, Deserter: the object-exhausted trigger body registers +1 Might this turn", () => {
   // The reference kernel binds "self" to the context source, so the unit is
   // installed as the source snapshot (same convention as the merged Sett golden).
   const base = world()
@@ -144,27 +146,63 @@ test("rad-114-167 Riven, Deserter: the object-exhausted trigger body runs throug
     .build();
   const scoped = base.clone({ sourceSnapshot: base.getObject("riven") });
   scoped.setTargets("riven.self", [base.ref("riven")]);
-  // continuous.might is unregistered, so the trigger body cannot execute: the
-  // interpreter rejects the opcode rather than silently approximating it.
-  assert.throws(
-    () => runAbilityBody(exhaustTrigger.body, scoped),
-    /Unregistered instruction opcode: continuous\.might/
-  );
-  assert.equal(scoped.getObject("riven").might, 5);
+
+  const outcome = runAbilityBody(exhaustTrigger.body, scoped);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["riven.grant-plus-one", "executed"]
+  ]);
+  // 143.2.a.1 / 475: one arithmetic-layer registration for the resolved host.
+  assert.equal(scoped.continuousEffects.length, 1);
+  const [registration] = scoped.continuousEffects;
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 1);
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+  assert.deepEqual(outcome.linkedValues["riven.grant-plus-one.affected"], {
+    count: 1,
+    objects: [base.ref("riven")]
+  });
+  // The exhausted ally is not the affected object; the body never touches it.
   assert.equal(scoped.getObject("ally").exhausted, false);
 });
 
-test.todo(
-  "rad-114-167 Riven, Deserter: 'give me +1 Might this turn' applied in the Arithmetic layer and expiring at " +
-    "end of turn (CR 143.2.a.1/475) — continuous.might is not merged (RIFT-91)"
-);
+test("rad-114-167 Riven, Deserter: the +1 Might registration really raises the layered Might and expires at turn end", () => {
+  const base = world().unit("riven", { might: 5 }).build();
+  const scoped = base.clone({ sourceSnapshot: base.getObject("riven") });
+  scoped.setTargets("riven.self", [base.ref("riven")]);
+  const outcome = runAbilityBody(exhaustTrigger.body, scoped);
+  assert.equal(outcome.status, "executed");
+
+  const riven = scoped.getObject("riven");
+  const engine = createLayerEngine(new Map([[`${riven.ref.id}:${riven.ref.zoneEntryId}`, riven]]));
+  for (const entry of scoped.continuousEffects) engine.register(entry.effect, entry.duration);
+
+  assert.equal(engine.evaluate(riven.ref).might, 6);
+  // CR 317.1.a / 317.2.c: "this turn" expires at the turn-end timing point.
+  const expired = engine.expireAt("turn-end", "A");
+  assert.equal(expired.length, 1);
+  assert.equal(engine.evaluate(riven.ref).might, 5);
+});
+
+test("rad-114-167 Riven, Deserter: the +1 Might body is the merged continuous.might primitive", () => {
+  const kernel = world().unit("riven", { might: 5 }).build();
+  const run = runInstruction(
+    might,
+    { amount: grantMight.args.amount, duration: grantMight.args.duration, target: "riven.self" },
+    { world: kernel.clone({ sourceSnapshot: kernel.getObject("riven") }), targets: { "riven.self": [kernel.ref("riven")] } }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.affected.count, 1);
+});
+
 test.todo(
   "rad-114-167 Riven, Deserter: 'Exhaust a friendly unit' as a cost selecting a runtime object (CR 415.3.a, " +
-    "355.5) — CostSpec picks carry static options, so the cost system cannot resolve an on-board unit reference " +
-    "(RIFT-89)"
+    "355.5) — the cost planner only accepts concrete PickSpec options (RIFT-261)"
 );
 test.todo(
   "rad-114-167 Riven, Deserter: 'Use this ability only once each turn' enforced (CR 386/386.1) — the " +
-    "activation limit has no consumer in chain/cost; card triggers also have no registration yet (RIFT-120)"
+    "activation limit needs a chain/cost consumer, and the card-played trigger needs the RIFT-257 registration"
 );
 

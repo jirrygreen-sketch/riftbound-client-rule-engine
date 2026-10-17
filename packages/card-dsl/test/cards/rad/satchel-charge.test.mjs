@@ -5,7 +5,6 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/satchel-charge.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
@@ -29,7 +28,8 @@ test("Satchel Charge identity, ruleset, status and printed text", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /187\.12/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /LocationRef/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The generated registry indexes the program by this exact identity.
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -98,37 +98,36 @@ test("Satchel Charge golden: the Move half moves one friendly unit through the m
   assert.deepEqual(run.events.map((event) => event.action), ["move-location"]);
 });
 
-test("Satchel Charge golden: the Bomb play is blocked, not approximated", () => {
-  assert.equal(instructionDefinitionsById.get("effect.token"), token);
+test("Satchel Charge golden: the merged token play path really plays a defined token", () => {
+  // effect.token's play path (440.2.c / 185.2.a: create on the Chain, then play)
+  // is the merged half this card relies on. Recruit stands in for the Bomb so the
+  // play handoff itself has execution evidence; the Bomb definition (187.12) is
+  // the part named in judgeReason.
   const kernel = world().player("A").build();
-  // The merged effect.token definition table (recruit / sand-soldier / mech /
-  // reflection / tentacle) has no Bomb, and tokens carrying their own abilities
-  // stay blocked; mode "play" through the chain is separate evidence.
   const run = runInstruction(
     token,
     {
-      token: { kind: "constant", value: "bomb" },
+      token: { kind: "constant", value: "recruit" },
       amount: { kind: "constant", value: 1 },
       mode: { kind: "constant", value: "play" },
       location: { kind: "constant", value: { type: "base", player: "A" } }
     },
     { world: kernel }
   );
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  // The linked receipt is written by effect.token; assert the actual block key.
-  assert.equal(run.linked.token.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.deepEqual(run.linked.token.objects, []);
-  assert.equal(run.linked.token.amount, 0);
-  assert.equal(kernel.query({}).length, 0);
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.token.amount, 1);
+  assert.deepEqual(run.events.map((event) => event.action), ["create-token", "play"]);
+  assert.equal(kernel.query({ type: "unit", zone: "board" }).filter((object) => object.isToken).length, 1);
 });
 
 test.todo(
   "Satchel Charge: the Bomb gear token definition (CR 187.12, [Deploy] + its Deathknell ability) " +
-    "must be added to effect.token before 'play a Bomb gear token' can execute — RIFT-9 token definitions"
+    "must be added to effect.token before 'play a Bomb gear token' can execute — tokens carrying " +
+    "their own abilities stay blocked with receipts naming the missing definition"
 );
 
 test.todo(
   "Satchel Charge: the printed destination is a runtime location choice ('to a battlefield', 355.4 / 451.1) " +
-    "and needs the runtime Location selector plus move restrictions — RIFT-90 / RIFT-91"
+    "and needs an IR channel that evaluates the legal destinations (effect.move 'to' and effect.token " +
+    "'location' only accept static LocationRefs or static candidate lists)"
 );
