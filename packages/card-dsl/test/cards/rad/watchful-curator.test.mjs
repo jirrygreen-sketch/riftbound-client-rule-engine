@@ -1,9 +1,9 @@
 // Golden test for Watchful Curator (rad-037-167).
 //
-// executable: the whole card is one static grant of [Deflect] to your gear.
-// The production evidence is the ProgramRegistry accepting the program and
-// createProgramBinding().bindStatic registering the grant as a
-// ContinuousEffectSpec; the runnable evidence is the merged
+// judge-required: the static grant of [Deflect] is executable, but the target-tax
+// production and any-domain Power payment chain is still pending RIFT-360.
+// The production evidence is createEngineStaticBinder().bindStatic registering
+// the grant as a ContinuousEffectSpec; the runnable evidence is the merged
 // continuous.grant-keyword instruction and the real LayerEngine applying the
 // granted keyword, including the CR 809.2 addition to an existing Deflect value.
 import assert from "node:assert/strict";
@@ -19,8 +19,6 @@ import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js"
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
-import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CANONICAL =
@@ -106,9 +104,10 @@ test("rad-037-167 Watchful Curator: program passes validateCardProgram", () => {
 test("rad-037-167 Watchful Curator: identity, status, judgeReason and verbatim sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(program.status, "executable");
-  // README section 2: executable programs carry no judgeReason.
-  assert.equal(program.judgeReason, undefined);
+  assert.equal(program.status, "judge-required");
+  assert.match(program.judgeReason, /options\.tax/);
+  assert.match(program.judgeReason, /任意域 Power/);
+  assert.match(program.judgeReason, /RIFT-360/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -195,18 +194,12 @@ test("rad-037-167 Watchful Curator: the grant expires with its declared this-tur
 });
 
 test("rad-037-167 Watchful Curator: the Deflect expansion the granted keyword feeds produces target.tax", () => {
-  // The Deflect KeywordDef expands to the target.tax effect the target plan
-  // reads; what is missing is the card-program -> layer registration that
-  // would put the granted Deflect onto each gear's keyword characteristic.
+  // The Deflect KeywordDef expands to target.tax. The remaining production gap
+  // is wiring that expansion into target-plan options.tax and the payment chain.
   const [expansion] = deflect.expand({ value: 1, host: { canonicalCardId: CANONICAL } });
   assert.equal(expansion.effect.kind, "target.tax");
   assert.deepEqual(expansion.effect.value, { kind: "constant", value: 1 });
   assert.equal(grant.effect.kind, "continuous.grant-keyword");
-});
-
-test("rad-037-167 Watchful Curator: the ProgramRegistry accepts the program and returns it for .get", () => {
-  const registry = new ProgramRegistry([program]);
-  assert.equal(registry.get(CANONICAL), program);
 });
 
 test("rad-037-167 Watchful Curator: the production static binder registers the grant for the layer engine", () => {
@@ -239,3 +232,9 @@ test("rad-037-167 Watchful Curator: the production static binder registers the g
   assert.deepEqual(layerEngine.evaluate(gear.ref).keywords, [{ id: "deflect", value: 1 }]);
   assert.deepEqual(layerEngine.evaluate(enemyGear.ref).keywords, []);
 });
+
+test.todo(
+  "rad-037-167 Watchful Curator: selecting granted-Deflect gear must append its target.tax " +
+    "automatically, require an any-domain Power payment per CR 809.1.c/809.1.c.1, and reject " +
+    "Finalize/Resolve when the opponent cannot pay; this production path depends on RIFT-360."
+);

@@ -25,7 +25,7 @@ import type { CardProgram } from "../../ir/index.js";
  * status：judge-required。Deploy 的 KeywordDef 与触发注册（programs/triggers.ts 的
  * registerProgramTriggers）都已合入；剩余缺口：
  * 1. Deploy 的 continuous.location 消费：playLocations 查询（src/layers/rules/query.ts）
- *   只读位置名称字符串，不消费 KeywordDef 的结构化 location 字段，没有 Finalize 位置校验调用方；
+ *   只读位置名称字符串，现有 Finalize 流程尚未消费 KeywordDef 的结构化 location 字段；
  * 2. hold 触发的 'here:true' 过滤：programs/filters.ts 明确禁止该键，固守时点也没有
  *    战场身份载荷，无法绑定“此战场”；
  * 3. 对手 hold 时消灭此牌（Deploy 文案第二段）仍无对应消费方。
@@ -39,8 +39,8 @@ export default {
   judgeReason:
     "Deploy 的 KeywordDef（effects/keywords/Deploy.ts，CR 830.1.b）与卡牌程序→触发注册" +
     "（programs/triggers.ts，契约 3.5）都已合入；当前缺口：(1) continuous.location 消费——" +
-    "playLocations 查询（src/layers/rules/query.ts）只读位置名称字符串，不消费 KeywordDef 的结构化 location 字段，" +
-    "没有 Finalize 位置校验调用方；(2) 'hold here' 的 here 过滤键被 programs/filters.ts 禁止，" +
+    "playLocations 查询（src/layers/rules/query.ts）只读位置名称字符串，现有 Finalize 流程尚未消费 " +
+    "KeywordDef 的结构化 location 字段；(2) 'hold here' 的 here 过滤键被 programs/filters.ts 禁止，" +
     "固守时点也没有战场身份载荷，无法绑定“此战场”；(3) 对手 hold 时消灭此牌的 Deploy 副能力没有消费方。" +
     "discard 1、draw 3 与 return-to-hand 三条指令已合入并单独执行；不近似实现上述缺口。",
   abilities: [

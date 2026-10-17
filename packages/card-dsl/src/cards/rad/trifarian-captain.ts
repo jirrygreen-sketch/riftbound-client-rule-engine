@@ -26,7 +26,7 @@ import type { Ability, CardProgram, Instruction, InstructionBodyExpr } from "../
  *
  * 无法执行的依赖（保持 judge-required）：
  * - 牌库顶按序来源：effect.inspect 在 top 范围需要一个按牌库顺序的 picksSpecId，
- *   该有序来源的生产接线属 RIFT-357（进行中），任何其他读法都会用 query 的顺序
+ *   该有序来源的生产接线属 RIFT-358（进行中），任何其他读法都会用 query 的顺序
  *   冒充牌库顶（被该原语显式禁止）。
  * - "a unit or gear with Energy cost no more than 3 and with Power cost no more
  *   than [rainbow]"：ObjectFilter 没有数值比较键（只有精确 characteristics 相等），
@@ -134,12 +134,12 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "缺三处：(1) 牌库顶按序来源——effect.inspect 的 top 范围必须由上游按契约 3.6 的" +
-    "zoneSlice 提供有序 picksSpecId，该生产接线属 RIFT-357（进行中），用 query 的顺序冒充牌库顶被原语显式禁止；" +
+    "zoneSlice 提供有序 picksSpecId，该生产接线属 RIFT-358（进行中），用 query 的顺序冒充牌库顶被原语显式禁止；" +
     "(2) \"a unit or gear with Energy cost no more than 3 and with Power cost no more than" +
     " [rainbow]\" 是 355.9.b 的目标限制，ObjectFilter 没有数值比较键、Condition 无法对集合逐项" +
     "施加限制，因此只能作为描述性键记录，不可执行；(3) \"the rest\" 需要 looked 集合减去被展示" +
     "那张的补集，effect.inspect 只链接张数与引用列表，PickSpec 也没有 exclude 语义。依赖：" +
-    "RIFT-357（有序 picksSpecId 生产接线，进行中）。",
+    "RIFT-358（有序 picksSpecId 生产接线，进行中）。",
   abilities,
   sourceText:
     "When you play me, look at the top 4 cards of your Main Deck. You may reveal from among them a unit or gear with Energy cost no more than :rb_energy_3: and with Power cost no more than :rb_rune_rainbow: and draw it. Recycle the rest."
