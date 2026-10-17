@@ -1,9 +1,12 @@
+// Scenario evidence: ../templates/static-641.test.mjs (supported paths and explicit binding gaps).
+// Whole-card execution remains pending; the existing component evidence below is retained.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/captain-farron.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CARD_ID = "card.hash-89422400a305aba2968956c639368704e17bca94d650b959b1c78453e5095fe2";
 const [aura] = program.abilities;
@@ -37,7 +40,8 @@ test("captain-farron: a single static aura grants Assault to other friendly unit
   assert.equal(aura.condition, undefined);
   assert.equal(aura.effect.kind, "continuous.grant-keyword");
   // 807.1.b.3: the printed grant carries no value, so Assault is presumed 1.
-  assert.equal(aura.effect.keyword, "assault");
+  assert.equal(aura.effect.keyword, "Assault");
+  assert.ok(keywordDefinitionsById.has(aura.effect.keyword), "granted keyword must use its registered identity");
   assert.equal(aura.effect.value, undefined);
   assert.deepEqual(aura.effect.filter, {
     type: "unit",
