@@ -24,6 +24,7 @@ test("ogn-215-298 Petty Officer: identity, ruleset, status, judgeReason, sourceT
   assert.match(pettyOfficer.judgeReason, /designation/);
   assert.match(pettyOfficer.judgeReason, /combatRole/);
   assert.match(pettyOfficer.judgeReason, /compare/);
+  assert.doesNotMatch(pettyOfficer.judgeReason, /RIFT-\d+/);
   assert.equal(pettyOfficer.sourceText, "[Assault] (+1 :rb_might: while I'm an attacker.)");
 });
 

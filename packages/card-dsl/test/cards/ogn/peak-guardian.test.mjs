@@ -8,6 +8,9 @@ const { world } = await import(new URL("effects/testing/index.js", engineCore));
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
 const { queryObjects } = await import(new URL("effects/interpreter/selectors.js", engineCore));
 const { queryTargetCandidates } = await import(new URL("target/target-plan.js", engineCore));
+const { translateTriggerFilter, translateObjectFilter } = await import(
+  new URL("programs/filters.js", engineCore)
+);
 
 const SELF_ID = "peak-guardian.buff-me";
 const OTHERS_ID = "peak-guardian.buff-others-here";
@@ -46,7 +49,9 @@ test("ogn-223-298 Peak Guardian: program validates and has expected identity", (
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /battlefield/);
   assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /object: self/);
   assert.match(program.judgeReason, /目标适配器/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.equal(
     program.sourceText,
     "When you play me, buff me. Then, if I am at a battlefield, buff all other friendly units there. " +
@@ -135,6 +140,25 @@ test("ogn-223-298 Peak Guardian: TargetSpec.location gates the peer set to battl
   );
 });
 
+test("ogn-223-298 Peak Guardian: trigger-side binding works while instruction target translation rejects the self anchor", () => {
+  const [ability] = program.abilities;
+  // The merged translateTriggerFilter accepts the "When you play me" pattern and
+  // binds the event object to this source ref (383/420.4.a trigger side).
+  assert.deepEqual(
+    translateTriggerFilter(ability.trigger.filter, "peak-guardian-source", "card-played"),
+    { event: "card-played", object: { objectId: "peak-guardian-source" } }
+  );
+  // The buff-me instruction target uses the object:"self" anchor, which the
+  // production instruction-target translator still rejects; the peer filter's
+  // sameLocationAs anchor is rejected for the same reason.
+  for (const target of ability.body.flatMap((instruction) => instruction.targets ?? [])) {
+    assert.throws(
+      () => translateObjectFilter(target.filter),
+      /Unsupported filter field (object|exclude|sameLocationAs)/
+    );
+  }
+});
+
 test("ogn-223-298 Peak Guardian golden: 'buff me' places one Buff, and a second Buff is not placed (CR 702.3.a)", () => {
   const fresh = world()
     .unit("peak-guardian", { might: 5, location: { type: "battlefield", id: "battlefield-1" } })
@@ -213,6 +237,6 @@ test("ogn-223-298 Peak Guardian: peers that left the same location before resolu
 
 test.todo(
   "ogn-223-298 Peak Guardian: production target translation must consume the merged " +
-    "sameLocationAs/exclude anchors together with TargetSpec.location: battlefield so the peer " +
-    "set is empty when the source is at a base"
+    "object: self plus the sameLocationAs/exclude anchors together with " +
+    "TargetSpec.location: battlefield so the peer set is empty when the source is at a base"
 );

@@ -19,6 +19,10 @@ test("Overt Operation program is structurally valid and judge-required", () => {
   assert.equal(overtOperation.status, "judge-required");
   assert.match(overtOperation.judgeReason, /355\.10\.d/);
   assert.match(overtOperation.judgeReason, /effect\.buff/);
+  assert.match(overtOperation.judgeReason, /ChainContractBlockedError/);
+  assert.match(overtOperation.judgeReason, /\{kind:'query'\}/);
+  assert.doesNotMatch(overtOperation.judgeReason, /RIFT-\d+/);
+  assert.doesNotMatch(overtOperation.judgeReason, /chain\/README\.md/);
   assert.equal(overtOperation.rulesetVersion, "core-1.5");
   assert.equal(
     overtOperation.canonicalCardId,
@@ -201,7 +205,7 @@ test.todo(
     "friendly unit exactly once with its buff spend bound to that same unit (702.2.b, 416.1). " +
     "The merged repeat control repeats one body with default target reselection and no " +
     "per-object binding, and the chain blocks nested targets until the interpreter " +
-    "target-selection lifecycle adapter exists (chain/README.md 契约变更请求 2)"
+    "target-selection lifecycle adapter exists (ChainContractBlockedError)"
 );
 
 test.todo(

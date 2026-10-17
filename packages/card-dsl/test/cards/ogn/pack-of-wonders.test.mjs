@@ -27,6 +27,8 @@ test("ogn-181-298 Pack of Wonders: identity, version and verbatim source text", 
   assert.match(program.judgeReason, /facedown/);
   assert.match(program.judgeReason, /exclude/);
   assert.match(program.judgeReason, /811\.5\.a/);
+  assert.doesNotMatch(program.judgeReason, /契约变更请求/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("ogn-181-298 Pack of Wonders: exhaust-cost activated ability returning a friendly gear/unit to hand", () => {

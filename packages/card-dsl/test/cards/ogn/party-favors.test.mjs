@@ -36,6 +36,9 @@ test("ogn-071-298 Party Favors judgeReason names the multi-player chooser gap", 
   assert.match(program.judgeReason, /choose/);
   assert.match(program.judgeReason, /chooser/);
   assert.match(program.judgeReason, /多玩家选择/);
+  assert.match(program.judgeReason, /choice\.each-other-player/);
+  assert.match(program.judgeReason, /未注册/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("ogn-071-298 Party Favors structure: one each-other-player choice node then two gated clauses", () => {

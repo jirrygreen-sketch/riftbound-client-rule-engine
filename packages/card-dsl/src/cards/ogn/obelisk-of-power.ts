@@ -32,7 +32,7 @@ const obeliskOfPower = {
   status: "judge-required",
   judgeReason:
     "两处缺口：(1) “each player's first Beginning Phase” 是每名玩家对局内一次的频度，契约与 TriggerSpec.once 只有 " +
-    "per-turn/per-phase/per-combat/per-showdown/per-chain/per-object/per-game，无法表达；" +
+    "per-turn/per-phase/per-combat/per-showdown/per-chain/per-object/per-game 作用域，无法表达逐玩家 once；" +
     "(2) 接收者是事件玩家 “that player”，而 effect.channel 只能取能力控制者或求值为 PlayerId 的表达式，" +
     "IR 没有事件玩家选择器；程序中的 \"event-player\" 是缺选择器的占位值，不可执行。" +
     "beginning-start 时点、trigger 注册与 effect.channel 原语本身已合入；仍缺「每名玩家首次」的 " +

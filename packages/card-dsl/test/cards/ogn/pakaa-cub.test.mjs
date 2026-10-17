@@ -26,7 +26,7 @@ test("ogn-135-298 Pakaa Cub: identity, status, and verbatim sourceText", () => {
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("ogn-135-298 Pakaa Cub: judgeReason names the missing wiring and its tasks", () => {
+test("ogn-135-298 Pakaa Cub: judgeReason names the current Hide action and facedown-zone wiring gaps", () => {
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /buildHiddenCostPlan/);
@@ -34,6 +34,7 @@ test("ogn-135-298 Pakaa Cub: judgeReason names the missing wiring and its tasks"
   assert.match(program.judgeReason, /811\.1\.d\.1/);
   assert.match(program.judgeReason, /Hide/);
   assert.match(program.judgeReason, /面朝下区域/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("ogn-135-298 Pakaa Cub: exactly one unvalued Hidden keyword ability", () => {

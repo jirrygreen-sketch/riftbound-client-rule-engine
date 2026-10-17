@@ -35,8 +35,8 @@ const peakGuardian = {
     "「if I am at a battlefield」已用 TargetSpec.location: { type: \"battlefield\" } 与 " +
     "sameLocationAs: \"self\" 表达（359.3.f.2 的 referent 在执行时检查）；来源在基地时，第二条 " +
     "TargetSpec 没有合法对象，因此不会给基地上的其它单位加 Buff。当前剩余缺口是程序目标适配器仍拒绝并未消费 " +
-    "sameLocationAs/exclude 的动态锚点，" +
-    "因此这条集合查询还不能进入生产结算路径。依赖：目标适配器对 sameLocationAs/exclude 的支持。" +
+    "目标过滤的 object: self 与 sameLocationAs/exclude 动态锚点，" +
+    "因此这条集合查询还不能进入生产结算路径。依赖：目标适配器对 object: self 与 sameLocationAs/exclude 的支持。" +
     "「buff me」与 702.3.a 的「已有 Buff 不再获得」边界，以及同位置其它友方单位的 Buff 集合行为，" +
     "均已有 golden 执行证据。",
   abilities: [
