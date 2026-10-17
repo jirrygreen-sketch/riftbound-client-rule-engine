@@ -23,10 +23,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   忽略费用必须由费用管线按 356.1.b 的规则生成 finalized 计划（420.3.b.1）。
  *
  * status = judge-required（README 第 2 节）。缺口，均不近似实现：
- * 1. 「ignoring its cost」没有生产路径：费用指令 cost.pay / cost.modify 已合入，但
- *    cost.modify 的 ignoreAllCosts 只能由打出/激活流程传入 source 参数，当前唯一调用方
- *    是 Weaponmaster；为选定手牌单位生成「印刷 Energy 与 Power 全清零」的 Finalize 计划
- *    仍没有打出侧调用方（effect.play 本身只消费已 Finalize 计划，不实现 ignored-cost 规则）。
+ * 1. 「ignoring its cost」是 356.1.b.1 的 base 忽略：应使用已合入的 ignore-base/resources
+ *    修改（附加费照收），并把该计划绑定到被选定的手牌单位、随其打出动作一起消费；
+ *    effect.play 只接受已 Finalize 的 cost 覆盖，静态 IR 无法生成"以选定手牌对象为
+ *    source 的费用计划"这个打出期中间值（effect.play 本身不实现 ignored-cost 规则）。
  * 2. 「a unit with less Might than that unit had」是 Finalize 时的动态目标过滤：候选牌
  *    在手里（355.10.a 的私有区域，不能当目标 → 用 pick），其资格取决于与被返回单位
  *    最后已知 Might 的比较；已合入的 TargetSpec/PickSpec filter 只有静态等值/集合键，
@@ -37,7 +37,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    不出，写死 基地/某个战场都会改变卡牌语义。
  * 已按已合入原语写出的部分（golden 测试真实执行）：effect.zone 把友方单位移回拥有者
  * 手牌 + choice.optional（拒绝即跳过）+ 用 target 选择器的最后已知 Might 做 compare
- * 门控的 effect.play 形状。依赖：ignoreAllCosts 的打出侧调用方、动态目标过滤与打出位置。
+ * 门控的 effect.play 形状。依赖：ignore-base/resources 计划到选定手牌对象的绑定与
+ * 打出整合、动态目标过滤与打出位置。
  */
 const abilities: Ability[] = [
   {
@@ -107,7 +108,7 @@ const abilities: Ability[] = [
                 args: {
                   pick: { kind: "constant", value: "transpositionist.cheaper-unit" },
                   // 356.1.b.1 的 "ignoring its cost"：需要由费用管线按被选单位的印刷
-                  // 费用生成 ignoreAllCosts 计划（见 judgeReason 第 1 点）；静态 IR 只
+                  // 费用生成 ignore-base/resources 计划（见 judgeReason 第 1 点）；静态 IR 只
                   // 声明“已 Finalize 的零计划”形状，不声称覆盖 Power 清零。
                   cost: { kind: "constant", value: { finalized: true, energy: 0, power: [], xp: 0 } }
                 },
@@ -137,16 +138,18 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 「ignoring its cost」没有生产路径——cost.pay / cost.modify 已合入，" +
-    "但 cost.modify 的 ignoreAllCosts 只能由打出/激活流程传入 source 参数，当前唯一生产调用方是" +
-    " Weaponmaster 的目标选择器形式（cost.modify.ts 头部注记）；" +
-    "按 356.1.b.1 为选定手牌单位生成「base Energy 与 Power 全清零」的 Finalize 计划仍没有打出侧调用方" +
-    "（effect.play 只消费已 Finalize 计划，不实现 ignored-cost 规则），静态 IR 也给不出该计划；" +
+    "三处缺口，均不近似实现：(1) 「ignoring its cost」是 356.1.b.1 的 base 忽略——" +
+    "cost.pay / cost.modify 已合入：ignoreAllCosts 可无 source 执行（cost-plan 测试 356.5.a），" +
+    "Weaponmaster 的 source 形态反而阻断；本卡按规则应对应 ignore-base/resources" +
+    "（附加费照收，356.1.b.3 测试），它作为 CostPlanInput 修改项也已合入；" +
+    "缺的是把按选定手牌单位生成的 ignore-base 计划绑定到该对象、并随其打出动作一起消费的" +
+    "打出侧整合——effect.play 只接受已 Finalize 的 cost 覆盖，不实现 ignored-cost 规则，" +
+    "静态 IR 也给不出这个打出期中间值；" +
     "(2) 「a unit with less Might than that unit had」是 Finalize 时的跨对象动态过滤：候选牌在手牌（355.10.a 私有区域 → pick，" +
     "不是 target），其资格取决于与被返回单位最后已知 Might（359.3.e.13/128）的比较，已合入的 filter 只有静态等值/集合键；" +
     "(3) 「Play a unit」的合法位置由 355.2.a/355.2.b 在 Finalize 决定，effect.play 的 location 需要具体 LocationRef，静态 IR 给不出。" +
     "已写出并有 golden 真实执行的部分：effect.zone 把友方单位移回拥有者手牌、choice.optional 的接受/拒绝、" +
-    "以及由 compare 条件门控的 effect.play 形状。依赖：ignoreAllCosts 的打出侧调用方、动态过滤与打出位置。",
+    "以及由 compare 条件门控的 effect.play 形状。依赖：ignore-base/resources 计划到选定手牌对象的绑定与打出整合、动态过滤与打出位置。",
   abilities,
   sourceText:
     ":rb_rune_chaos:, :rb_exhaust:: Return a friendly unit to its owner's hand. " +

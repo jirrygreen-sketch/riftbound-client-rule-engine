@@ -1,7 +1,8 @@
 // Golden test for Transpositionist (rad-115-167).
 // The return half, the optional wrapper and the linked-Might comparison are the
 // verifiable parts; the ignored-cost plan, the dynamic "less Might" filter and the
-// play location stay judge-required (see judgeReason).
+// play location stay judge-required (see judgeReason); the ignored cost maps to the
+// merged ignore-base/resources modification, not a source-parameter form.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -76,8 +77,8 @@ test("rad-115-167 Transpositionist: judgeReason names the ignored-cost, dynamic-
   assert.match(program.judgeReason, /356\.1\.b\.1/);
   assert.match(program.judgeReason, /355\.10\.a/);
   assert.match(program.judgeReason, /355\.2\.a/);
-  assert.match(program.judgeReason, /ignoreAllCosts/);
-  assert.match(program.judgeReason, /Weaponmaster/);
+  assert.match(program.judgeReason, /ignore-base\/resources/);
+  assert.match(program.judgeReason, /356.1.b.3/);
 });
 
 test("rad-115-167 Transpositionist: the activated ability pays one Chaos power plus exhausting this unit (145.1/377)", () => {
@@ -187,11 +188,10 @@ test("rad-115-167 Transpositionist: declining the optional play still returns th
 });
 
 test.todo(
-  "rad-115-167 Transpositionist: 'ignoring its cost' producing a finalized plan that clears both the base " +
-    "Energy and the Power cost (CR 356.1.b.1) - cost.pay/cost.modify are merged, but the cost.modify " +
-    "ignoreAllCosts path currently has only the Weaponmaster target-selector caller (cost.modify.ts header); " +
-    "no play-side caller generates the " +
-    "plan for a selected hand unit, and effect.play implements no ignored-cost rule itself."
+  "rad-115-167 Transpositionist: 'ignoring its cost' binding an ignore-base/resources plan (CR 356.1.b.1, " +
+    "additional costs still charged per 356.1.b.3) to the selected hand unit and consuming it with that " +
+    "unit's play - cost.pay/cost.modify are merged and ignoreAllCosts runs without a source, but effect.play " +
+    "only accepts an already-finalized cost override and generates no per-selection ignored-cost plan itself."
 );
 test.todo(
   "rad-115-167 Transpositionist: 'a unit with less Might than that unit had' as a Finalize-time dynamic filter " +

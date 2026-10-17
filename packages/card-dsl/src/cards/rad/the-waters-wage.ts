@@ -22,7 +22,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   （契约 3.9），判别式的缺口见 judgeReason 第 3 点，不写成 linkedTo 串联。
  *
  * status = judge-required（不近似实现；Hidden.ts 头部列出的 cost.hidden / Hide 动作、
- * facedown 免费打出与 continuous.timing 的 Reaction 许可消费（RIFT-89 / RIFT-91）仍未合入）：
+ * facedown 免费打出与 continuous.timing 的 Reaction 许可消费仍未合入）：
  * 1. Gold token 定义缺失：effect.token 的 DEFINITIONS 表不含 gold，带自身能力的 token
  *    被显式阻断（blockedReason: token-definition-or-abilities-judge-required）。依赖 token
  *    定义表扩充（CR 187.5）。
@@ -37,7 +37,7 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * 依赖：token 定义表扩充。另：src/cost/kinds/hidden.ts 已合入，但只锁定 Hide 计划与
  *   付款；隐藏打出权限、facedown 免费打出的消费与隐藏次回合 Reaction 许可仍归
- *   zone/timing/费用管线（RIFT-89 / RIFT-91）。
+ *   zone/timing/费用管线。
  * golden 只做校验与结构断言，并对已合入的 token 原语做真实执行边界（非黄金定义被显式 negated）。
  */
 const theWatersWage = {
@@ -55,8 +55,7 @@ const theWatersWage = {
     "（811.1.d）需要读取打出方式与当前回合玩家的可执行谓词，合并 Condition 没有该谓词（context.test 只求值 IR 条件），" +
     "因此两个数量分支只保留 choice.mode 结构，不写成可求值条件。" +
     "另：[Hidden] 的 KeywordDef 与 cost.hidden 原语（src/cost/kinds/hidden.ts）都已合入，但后者只锁定 Hide 计划与付款；" +
-    "隐藏打出权限、facedown 免费打出的消费方与隐藏次回合 Reaction 许可（continuous.timing）仍缺" +
-    "（RIFT-89 / RIFT-91）。不近似实现上述缺口。",
+    "隐藏打出权限、facedown 免费打出的消费方与隐藏次回合 Reaction 许可（continuous.timing）仍缺。不近似实现上述缺口。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     {

@@ -34,7 +34,7 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   选择（437.1.a）叠加在同一批已看卡上，[Predict] 也还没有 KeywordDef 统一编排。
  * 因此只写出有依据的骨架（play 能力 + Predict 的 reject/reorder 结构），
  * 不把 Show Off 近似成"随便展示一张"或把 Power cost 近似成固定张数。
- * 依赖：cost.reveal / Finalize 展示与合法性管线（RIFT-261）、objects-shown-off
+ * 依赖：cost.reveal / Finalize 展示与合法性管线、objects-shown-off
  * 快照消费（832.1.d.1）、condition.result 的逐实例链接值，以及
  * [Predict] KeywordDef（437.1 / 437.3 的编排）与 ShowOff 的 Object 参数扩展；
  * 其中「展示快照 + 手牌/场上合成选项选择」是本任务最终回复里的契约变更请求。
@@ -157,7 +157,7 @@ export default {
   judgeReason:
     "缺 Show Off / [Predict] 的 Finalize 与结算链路（CR 832.1 / 437；以已合入的" +
     " effects/keywords/ShowOff.ts 头部依赖清单为准）：(1) cost.reveal / Finalize" +
-    " 展示与合法性管线未合入（RIFT-261），832.1.c.3 要求把「从手牌展示」与「从友方" +
+    " 展示与合法性管线未合入，832.1.c.3 要求把「从手牌展示」与「从友方" +
     "场上拾取」合成同一组展示对象，现有 PickSpec 只有固定 options，无法表达这种合成选项；" +
     "(2) objects-shown-off 时点已在 events/timing-points.ts 注册，但没有链上链接/快照" +
     "消费方，832.1.d.1 要求读取展示那一刻锁定的 Power cost，effect.reveal 只链接引用与" +
