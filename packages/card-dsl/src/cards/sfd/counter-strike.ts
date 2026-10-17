@@ -21,14 +21,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   a one-shot prevention replacement effect (367-371; 371.1 counts the
  *   "next time" window, and 467.2.c.10 uses this card as its example of a
  *   replacement effect that still leaves the unit able to be dealt damage).
- *   The merged replacement binder (RIFT-260) has no form for this: it
- *   supports static replacements plus replacement.event over the closed
- *   GameAction set, but replacement.prevent is not a supported opcode
- *   (BlockedReplacementError at bind time), and replacement.event anchors on
- *   a player or an action-carried object filter — the replaced damage event's
- *   object is the damage target, not a plan-time binding the card can name,
- *   so "that unit" (the unit locked by this spell's TargetSpec) cannot be
- *   written as a re-playable subscription.
+ *   The merged replacement binder (RIFT-260) supports damage-kind event
+ *   patterns anchored on the action's affected object plus the
+ *   "next-time-this-turn" one-shot window, and an empty instead body returns
+ *   prevent. Neither merged form fits this card: replacement declarations
+ *   bind only as ability-level replacement wrappers
+ *   (replacement.enter / replacement.event), while this play body's
+ *   replacement.prevent instruction has no binder and fails planning with
+ *   BlockedReplacementError; and resolution time has no registration
+ *   channel — ResolveContext exposes only addContinuous and
+ *   registerDelayedTrigger, not registerReplacement — so the spell cannot
+ *   create a one-shot damage shield for its Finalize-locked target while
+ *   resolving.
  * - "Draw 1." is a second, independent instruction (158.1) and stays
  *   unlinked: 359.3.e.11 keeps the draw when the shield cannot be created.
  *
@@ -43,11 +47,12 @@ const counterStrike = {
   status: "judge-required",
   judgeReason:
     "缺针对单个目标单位的一次性防伤替代形态：「The next time that unit would be dealt damage this turn, prevent it」是 CR v1.5 367-371 的" +
-    "一次性预防替代（371.1 的一次计数窗口，467.2.c.10 正是本卡的例子）；已合入的替代绑定（RIFT-260）没有防伤形态——" +
-    "replacement.prevent 不在支持的 opcode 列表内（绑定时抛 BlockedReplacementError），replacement.event 只能按玩家或动作自带对象过滤锚定，" +
-    "无法把「被打的是本卡 Finalize 锁定的那个目标」写成可重放的替换订阅；契约 3.6 的封闭 GameAction 集合也没有 prevent 动作，" +
-    "替代必须在动作执行前拦截，而 ResolveContext 的结算期注册通道只有 addContinuous / registerDelayedTrigger，没有 registerReplacement，" +
-    "卡牌正文无法在结算时建立这个盾，不近似实现。" +
+    "一次性预防替代（371.1 的一次计数窗口，467.2.c.10 正是本卡的例子）。已合入的替代绑定（RIFT-260）支持 damage 形态的动作对象锚定与 " +
+    "window: \"next-time-this-turn\" 一次性窗口，空 instead 体也返回 prevent，但两条缺口使本卡不可执行：" +
+    "(1) 该声明形式只能作为 ability-level replacement 能力绑定（bind.ts 只消费 replacement.enter / replacement.event 包装指令），" +
+    "卡牌正文（play body）里的 replacement.prevent 指令没有任何绑定方，计划时抛 BlockedReplacementError；" +
+    "(2) 结算期没有注册通道：ResolveContext 只有 addContinuous / registerDelayedTrigger，没有 registerReplacement，" +
+    "无法在打出结算时为 Finalize 锁定的 TargetSpec 目标建立一次性防伤盾，不近似实现。" +
     "依赖：针对被锁定目标的伤害预防替代（replacement.prevent 或等价的 replacement.event 目标绑定，替代批次后续）。" +
     "「Choose a unit」按 355.10.c 的例子是目标选择，" +
     "「Draw 1」是独立的 effect.draw，两者都已在程序中表达并在金标测试中覆盖。",
