@@ -13,7 +13,7 @@ test("ogn-078-298: identity, exact source text, pure data and explicit blocked s
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /effect.buff|427.1.b.2/);
-  assert.match(program.judgeReason, /RIFT-/);
+  assert.match(program.judgeReason, /ObjectSnapshot|combatRole/);
   assert.equal(program.sourceText, "[Shield] (+1 :rb_might: while I'm a defender.)\n:rb_exhaust:: Buff me. (I get a +1 :rb_might: buff.)\nI can have any number of buffs.");
   assert.deepEqual(JSON.parse(JSON.stringify(program)), program);
 });
@@ -38,9 +38,9 @@ test("Lee Sin: explicitly declare an unlimited self Buff capacity, rather than a
   assert.equal(permission.kind, "static");
   assert.deepEqual(permission.effect, { kind: "continuous.restrict", action: "buff", filter: { object: "self" }, maximum: null });
   assert.equal(permission.condition, undefined);
-  assert.match(program.judgeReason, /snapshot.buffs > 0/);
+  assert.match(program.judgeReason, /已有 Buff|702\.3\.a/);
 });
 
-test.todo("Lee Sin: first self Buff via non-target ObjectSelector, with real exhaust payment; effect.buff currently requires a TargetSpec id (RIFT-1/83/120)");
-test.todo("Lee Sin: second and subsequent Buffs through the same primitive after consuming unlimited-Buff permission; current unconditional skip must be removed upstream (CR 427.1.b.2; RIFT-83/91)");
-test.todo("Lee Sin: Shield defender Might, using combatRole rather than nonexistent designation (CR 814; RIFT-1/83/91)");
+test.todo("Lee Sin: first self Buff via a non-target ObjectSelector, with real exhaust payment; effect.buff currently requires a TargetSpec id");
+test.todo("Lee Sin: second and subsequent Buffs through the same primitive after consuming unlimited-Buff permission; current unconditional skip must be removed upstream (CR 427.1.b.2)");
+test.todo("Lee Sin: Shield defender Might using the ObjectSnapshot combatRole predicate (CR 814)");
