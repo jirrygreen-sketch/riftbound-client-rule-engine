@@ -16,17 +16,36 @@ import type { CardProgram } from "../../ir/index.js";
  * - 430 / 415: "pay :rb_rune_body:" spends one Body Power from the Rune Pool,
  *   "exhaust this" is a cost on the source Gear (415.4/415.5).
  * - 416: "ready it" readies the unit that was buffed.
+ *
+ * status 判定（2026-10-17 复核）：judge-required。四处已实测的当前缺口：
+ * 1. events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 闭集没有 buff-added，CardProgram 触发注册
+ *    （pipeline.registerTrigger → assertTriggerSpec）以 invalid-event-type 失败（实测）。
+ * 2. “支付 1 Body Power 并横置此牌” 是触发结算期的费用，但 TriggeredAbility 没有 cost 字段
+ *    （ir/types.ts），而 cost.pay 只消费已锁定的计划：实测把 `payments: [{ kind: "exhaust", object: "self" }]`
+ *    交给原语会抛 "cost.pay requires a valid, payable finalized cost plan"，生产 Finalize 也不会给触发
+ *    装配这笔附加费用。
+ * 3. 「ready it」的 it 必须绑定 buff-added 事件里的被 Buff 单位，契约 3.6 的 ObjectSelector 没有
+ *    触发事件对象选择器；当前 IR 用一个新的 TargetSpec 表达，但 chain/engine.ts 的
+ *    assertFinalizationSurface 对嵌套 targets 抛 "Nested/repeated targets require an interpreter
+ *    target-selection lifecycle adapter"（实测），触发体的目标无法经 Finalize 锁定。
+ * 4. 参考内核与生产 interpreter 都不提供“事件对象”取值，golden 只能真实执行 ready 半段。
+ * 依赖：buff-added 事件词表、触发费用装配与事件对象选择器。不近似实现。
  */
 const mistfall = {
   canonicalCardId: "card.hash-83ac5caa691e1d4ec728f3caba4e472ea1ca03749ff89db2ca5f1af82cf49020",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍有三处缺口，不近似实现：（1）events/trigger-spec.ts 的 EventPattern 类型闭集没有 buff-added，" +
-    "因此 CardProgram 触发注册会在校验阶段失败；（2）cost.pay 的 payments 数组只能消费已结算的直接支付计划，" +
-    "不能从“支付 1 Body Power 并横置此牌”生成触发费用；（3）「ready it」的 it 必须绑定 buff-added 事件中的被 Buff 单位，" +
-    "契约 3.6 的 ObjectSelector 没有触发事件对象选择器。buff-added 时点与 effect.ready 原语已合入，" +
-    "golden 真实执行 ready 半段；整卡仍不可执行。",
+    "四处已实测的当前缺口：（1）events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 闭集没有 buff-added，" +
+    "CardProgram 触发注册（pipeline.registerTrigger → assertTriggerSpec）以 invalid-event-type 失败。" +
+    "（2）“支付 1 Body Power 并横置此牌” 是触发结算期的费用，但 TriggeredAbility 没有 cost 字段（ir/types.ts），" +
+    "cost.pay 只消费已锁定的计划：实测把 payments: [{ kind: \"exhaust\", object: \"self\" }] 交给原语抛 " +
+    "“cost.pay requires a valid, payable finalized cost plan”，生产 Finalize 也不给触发装配附加费用。" +
+    "（3）「ready it」的 it 必须绑定 buff-added 事件里的被 Buff 单位，契约 3.6 的 ObjectSelector 没有触发事件" +
+    "对象选择器；当前 IR 用新的 TargetSpec 表达，但 chain/engine.ts 的 assertFinalizationSurface 对嵌套 targets 抛 " +
+    "“Nested/repeated targets require an interpreter target-selection lifecycle adapter”（实测），触发体目标" +
+    "无法经 Finalize 锁定。（4）参考内核与生产 interpreter 都不提供“事件对象”取值，golden 只真实执行 ready 半段。" +
+    "buff-added 时点与 effect.ready 原语已合入；整卡仍不可执行。不近似实现。",
   abilities: [
     {
       kind: "triggered",

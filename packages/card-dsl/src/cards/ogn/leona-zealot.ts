@@ -6,16 +6,35 @@ import type { CardProgram } from "../../ir/index.js";
  * CR 359.2.c / 805.6.a: enter ready is replacement, not a ready action afterward.
  * The arithmetic effect is continuous, not a Buff or a temporary stun trigger.
  * Its printed minimum of 1 is an explicit card constraint; do not use a zero clamp.
- * Player-query and replacement.enter declarations are blocked pending their consumers.
+ *
+ * status 判定（2026-10-17 复核）：judge-required。两处已实测的当前缺口：
+ * 1. 入场就绪替代的 condition 需要读取各对手分数与当前 Victory Score（194.3.a / 359.2.c）：
+ *    CountExpr 的 subject 是自由字符串，生产/参考求值只把它当集合计数（不解释
+ *    players/scoreAtLeast/victory-score 谓词），因此该条件在任何分数下都恒真——不能据此
+ *    把入场就绪当成已验证语义（会固定在错误分数上）。
+ * 2. 持续 -8 Might 的静态绑定：programs/statics.ts 的 staticFilter 对 controller: "opponent"
+ *    抛 "Static controller:opponent filter needs a relative-player query"，对 stunned 等标量也
+ *    抛 "Unsupported static filter field"；layers/engine.ts 的 conditionMatches 只识别内联 predicate，
+ *    参考内核的 test() 不解释 excludes/sameLocationAs 锚点。minimum:1 的逐条钳制也只有
+ *    layers/ops 的 applyMightMinimums helper，图层引擎本身只做终值 0 钳制（实测 -8 后为 0）。
+ * 已合入并发可验证：replacement.enter 的绑定路径（state: "ready" 形状真实改写 chain→board 入场，
+ * golden 断言入场后 ready 且不产生 object-readied 事件）。
+ * 依赖：玩家分数谓词、动态静态过滤绑定与逐条 minimum 钳制的图层消费。不固定 Victory Score 为 8。
  */
 const program = {
   canonicalCardId: "card.hash-da797609bf7c16ecdf7c10aed579c7d786c25395e580819421a8f380186df025",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason: "replacement.enter 已有绑定路径，但该替代的 condition 仍依赖读取各对手分数及当前 Victory Score 的玩家谓词（CR 194.3.a / 359.2.c），" +
-    "当前 evaluateCondition 无 players/scoreAtLeast/victory-score 求值，不能把入场就绪模拟为无条件 effect.ready。" +
-    "持续 -8 Might 的 stunned/enemy/here 过滤及 minimum:1 钳制也无法从 CardProgram 静态绑定到图层（CR 478）：" +
-    "静态 binder 不支持 relative opponent 与 same-location 动态对象过滤。依赖：玩家分数谓词与动态静态过滤绑定；不固定 Victory Score 为 8。",
+  judgeReason: "两处已实测的当前缺口：(1) 入场就绪替代的 condition 依赖各对手分数与当前 Victory Score 的玩家谓词" +
+    "（194.3.a / 359.2.c）：CountExpr.subject 是自由字符串，生产与参考求值只把它当集合计数，不解释 " +
+    "players/scoreAtLeast/victory-score，条件在任何分数下恒真，不能把入场就绪当作已验证语义（会固定在错误分数上）。" +
+    "(2) 持续 -8 Might 的静态绑定：programs/statics.ts 的 staticFilter 对 controller: \"opponent\" 抛 " +
+    "\"Static controller:opponent filter needs a relative-player query\"，对 stunned 等标量抛 " +
+    "\"Unsupported static filter field\"；layers/engine.ts 的 conditionMatches 只识别内联 predicate，" +
+    "参考内核 test() 不解释 exclude/sameLocationAs 锚点；minimum:1 的逐条钳制只有 layers/ops 的 " +
+    "applyMightMinimums helper，图层引擎本身只做终值 0 钳制（实测 -8 后为 0）。" +
+    "已合入并发可验证：replacement.enter 的 state: \"ready\" 形状真实改写 chain→board 入场（golden 断言）。" +
+    "依赖：玩家分数谓词、动态静态过滤绑定与逐条 minimum 钳制的图层消费；不固定 Victory Score 为 8。",
   abilities: [
     {
       kind: "replacement",
@@ -50,14 +69,10 @@ const program = {
           id: "enter-ready",
           op: "replacement.enter",
           args: {
-            objects: {
-              kind: "constant",
-              value: "self"
-            },
-            exhausted: {
-              kind: "constant",
-              value: false
-            }
+            // CR 369.3 / 359.2.c: the merged replacement.enter declaration
+            // takes the entry orientation as `state` (the same shape used by
+            // ogn/sun-disc, ogn/iron-ballista, ven/platewyrm-egg).
+            state: { kind: "constant", value: "ready" }
           }
         }
       ]

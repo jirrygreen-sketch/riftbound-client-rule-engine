@@ -19,15 +19,21 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   没有可做的选择），因此用 `selection: "all"`、`min: 0`，不是 “up to”。
  * - 伤害来源缺省即本效果（418.6.a），原语 `effect.damage` 已合入并可由解释器执行。
  *
- * status 判定（README 第 2 节）：judge-required。缺的是 Deathknell 关键词展开的运行时：
- * `effects/keywords/Deathknell.ts` 展开出的 object-killed 能力仍引用未注册的
- * `trigger.leave` 原语；object-killed 上“死亡被替代则移出链 / 换区前保存最后已知信息”的
- * 808.1.d.1–d.3 流程也没有卡牌可用路径。即使该触发路径补齐，生产目标翻译还会拒绝
- * 正文所需的 `sameLocationAs` 锚点。显式正文的 effect.damage 已可执行，但不能把它当作
- * 已经完成 Deathknell 的替代实现。
- * 效果正文本身（effect.damage + sameLocationAs 锚点在来源最后已知地点）已合入并在
- * golden 中真实执行。依赖：`trigger.leave` 原语落地与完整的 object-killed/LKI 处理。
- * 关键词展开可用之前，本卡不得按 “explicit trigger 能跑” 记 executable。
+ * status 判定（README 第 2 节，2026-10-17 复核）：judge-required。三处已实测的当前缺口：
+ * 1. `effects/keywords/Deathknell.ts` 的展开体引用 `trigger.leave`，而该 op 没有已合入的
+ *    InstructionDef（effects/instructions/registry.generated.ts 无 trigger.* 条目）：展开的触发
+ *    一旦结算就抛 Unregistered instruction opcode（CR 808.1）。
+ * 2. 生产触发生命周期（programs/lifecycle.ts 的 attachProgramLifecycle）在 `object-leaves-board`
+ *    发射时即 unregister 该宿主的注册，而一次 Kill 的 `object-killed` 在 leaves-board 之后才
+ *    扫描：真实链上复现“注册成功、kill 后触发不进链”（CR 808.1.d.2 的“换区前入链”未完成）；
+ *    808.1.d.1（死亡被替代则移出链）同属该管线。
+ * 3. 生产目标翻译 programs/filters.ts 的 translateObjectFilter 对正文所需的 `sameLocationAs`
+ *    锚点抛 ProgramBindingError（实测 “Unsupported filter field sameLocationAs”），即使前置缺口
+ *    补齐，正文的目标也无法经 CardProgram 绑定到 Finalize。
+ * 已合入并发可验证的部分：object-killed 事件携带离场前的最后已知快照（808.1.d.3 的 LKI 读取），
+ * 解释器按 `sameLocationAs: "source"` 求值的正文（effect.damage）在 golden 中真实执行。
+ * 依赖：trigger.leave 原语、死亡触发的生命周期送达与 sameLocationAs 目标绑定。
+ * 显式正文可执行不能当作 Deathknell 已完成的替代实现，不近似实现。
  */
 const abilities: Ability[] = [
   {
@@ -66,12 +72,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "Deathknell 关键词展开不可执行：effects/keywords/Deathknell.ts 展开出的触发能力使用 " +
-    "未注册的 trigger.leave 原语，" +
-    "object-killed 触发收集、808.1.d.1 死亡被替代时移出链、808.1.d.3 换区前记录最后已知信息" +
-    "也都没有卡牌可用路径；生产目标翻译还不接受正文的 sameLocationAs 锚点。" +
-    "依赖：trigger.leave 原语、完整的 object-killed/LKI 处理与 sameLocationAs 目标绑定。" +
-    "效果正文本身的 effect.damage 已合入，golden 测试用解释器 + 参考内核真实执行。不近似实现。",
+    "三处已实测的当前缺口：(1) effects/keywords/Deathknell.ts 的展开体引用 trigger.leave，而该 op 在 " +
+    "effects/instructions/registry.generated.ts 中没有已合入的 InstructionDef，展开的触发结算会抛 " +
+    "Unregistered instruction opcode（CR 808.1）；(2) 生产触发生命周期 programs/lifecycle.ts 的 " +
+    "attachProgramLifecycle 在 object-leaves-board 发射时即取消该宿主的注册，而 Kill 的 object-killed " +
+    "在 leaves-board 之后才扫描——真实链上复现“注册成功、kill 后触发不进链”，808.1.d.2 的“换区前入链”" +
+    "与 808.1.d.1 的“死亡被替代则移出链”都未完成；(3) programs/filters.ts 的 translateObjectFilter " +
+    "对正文的 sameLocationAs 锚点抛 ProgramBindingError（实测），正文目标无法经 CardProgram 绑定到 Finalize。" +
+    "已合入并发可验证：object-killed 事件携带离场前的最后已知快照（808.1.d.3 的 LKI），解释器按 " +
+    "sameLocationAs: \"source\" 求值的 effect.damage 正文在 golden 中真实执行。" +
+    "依赖：trigger.leave 原语、死亡触发的生命周期送达与 sameLocationAs 目标绑定。不近似实现。",
   abilities,
   sourceText:
     "[Deathknell] — Deal 4 to all units at my battlefield. (When I die, get the effect.)"

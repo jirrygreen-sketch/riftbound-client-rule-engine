@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/kinkou-monk.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // card-dsl has no dependency edge on engine-core (engine-core depends on
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
@@ -11,6 +12,8 @@ const { default: buff } = await import(new URL("effects/instructions/effect.buff
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", engineCore));
 const { matchesObjectFilter } = await import(new URL("layers/filter.js", engineCore));
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
+const { translateObjectFilter } = await import(new URL("programs/filters.js", engineCore));
+const { queryTargetCandidates } = await import(new URL("target/target-plan.js", engineCore));
 
 const CANONICAL = "card.hash-0090d6c57ba7da68b80e9f14bdad99780bc1a22b8d69745d43c32f5af9185f9a";
 const [playedTrigger] = program.abilities;
@@ -65,10 +68,43 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   assert.match(program.judgeReason, /exclude/);
   assert.match(program.judgeReason, /355\.7/);
   assert.match(program.judgeReason, /programs\/filters\.ts/);
+  assert.match(program.judgeReason, /layers\/filter\.ts/);
+  assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.equal(
     program.sourceText,
     "When you play me, buff up to two other friendly units. (Each one that doesn't have a buff gets a +1 :rb_might: buff.)"
   );
+});
+
+test("Kinkou Monk: the production filter translator still refuses the declared exclude anchor", () => {
+  // The real gap behind judge-required: the interpreter executes `exclude`
+  // (golden below), but the CardProgram -> registration translator has no
+  // binding for it, so the card's own trigger cannot be registered.
+  const error = (() => {
+    try {
+      translateObjectFilter(targetSpec.filter);
+      return null;
+    } catch (thrown) {
+      return thrown;
+    }
+  })();
+  assert.ok(error, "the merged translator must still refuse `exclude` while the gap is open");
+  assert.equal(error.name, "ProgramBindingError");
+  assert.equal(error.code, "judge-required");
+  assert.match(error.message, /Unsupported filter field exclude/);
+});
+
+test("Kinkou Monk: the Finalize candidate query still offers the source itself (355.7)", () => {
+  // The other real gap: Finalize candidate selection goes through the layer
+  // filter, which ignores OBJECT_FILTER_ANCHORS; `other friendly units`
+  // therefore lists the host as a legal candidate before resolution re-checks it.
+  const kernel = world()
+    .unit("monk", { owner: "A", controller: "A", might: 4 })
+    .unit("ally", { owner: "A", controller: "A" })
+    .unit("enemy", { owner: "B", controller: "B" })
+    .build();
+  const context = chainContext(kernel, "A");
+  assert.deepEqual(queryTargetCandidates(context, targetSpec).map(ref => ref.id), ["monk", "ally"]);
 });
 
 test("structure: played trigger with an up-to-two other friendly units target", () => {

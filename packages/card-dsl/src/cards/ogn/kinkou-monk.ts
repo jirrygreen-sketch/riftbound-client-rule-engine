@@ -20,22 +20,30 @@ import type { CardProgram } from "../../ir/index.js";
  *   原语自身的 chooseUpTo 文档以本卡为例，但目标已在 Finalize 由 TargetSpec 选好，
  *   故这里不再叠加运行期二次选择）。
  *
- * status: judge-required —— production binding still has one real gap:
- * Finalize's candidate query does not consume the `exclude` anchor. The
- * interpreter re-checks a locked selection correctly (the golden covers that
- * boundary), but `programs/filters.ts` rejects the anchor while translating
- * the registered trigger body, so the production trigger cannot be bound
- * without broadening the target/filter contract.
- * effect.buff 本体已合入，golden 测试以真实原语 + 解释器执行 body 的目标形态与排除边界。
+ * status: judge-required（2026-10-17 复核）—— effect.buff 本体已合入，golden 以真实原语 +
+ * 解释器执行 body 的目标形态与排除边界；仍缺的生产链路是两处已实测的 `exclude` 锚点缺口：
+ * - programs/filters.ts 的 translateObjectFilter 在翻译注册的触发体时对 `exclude` 抛
+ *   ProgramBindingError（judge-required，“Unsupported filter field exclude”），因此本卡触发
+ *   经 createProgramBinding/registerProgramTriggers 注册时无法绑定；
+ * - target/target-plan.ts 的 Finalize 候选查询走 context.query → layers/filter.ts，而
+ *   matchesObjectFilter 不消费 OBJECT_FILTER_ANCHORS，来源自身会成为合法候选（355.7 的
+ *   “other” 限制失效）；解释器在锁定目标重验时才会执行 exclude。“up to two” 的合法 0 选择
+ *   仍依赖该候选集正确。
+ * 依赖：CardProgram → TargetSpec 的 `exclude` 锚点绑定与 Finalize 候选查询对
+ * OBJECT_FILTER_ANCHORS 的消费。不近似实现（不放行未知锚点，也不把 “other” 改成计数近似）。
  */
 export default {
   canonicalCardId: "card.hash-0090d6c57ba7da68b80e9f14bdad99780bc1a22b8d69745d43c32f5af9185f9a",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "effect.buff 本体已合入（702.2.a/702.3.a），解释器在锁定目标重验时也会执行 exclude；" +
-    "但生产 CardProgram binding 仍不能表达这张卡的 other 限制：programs/filters.ts 在翻译注册触发体时拒绝 exclude，" +
-    "而 Finalize 候选查询也没有消费该锚点。若放行未知锚点，来源会错误地进入合法候选集（355.7）。不近似实现。",
+    "effect.buff 本体已合入（702.2.a/702.3.a），解释器在锁定目标重验时也会执行 exclude（golden 已覆盖），" +
+    "但仍有两处已实测的生产缺口：(1) programs/filters.ts 的 translateObjectFilter 在翻译注册触发体时对 " +
+    "`exclude` 抛 ProgramBindingError（judge-required），本卡触发经 registerProgramTriggers 无法注册；" +
+    "(2) Finalize 候选查询（target/target-plan.ts legalCandidates → context.query → layers/filter.ts 的 " +
+    "matchesObjectFilter）不消费 OBJECT_FILTER_ANCHORS，来源自身会成为合法候选，“other friendly units” " +
+    "（355.7）在 Finalize 阶段失效；该候选集也是 “up to two”（355.13）合法 0 选择的来源。" +
+    "依赖：exclude 锚点的生产绑定与 Finalize 候选查询消费。不近似实现（不放行未知锚点、不用计数近似 “other”）。",
   abilities: [
     {
       kind: "triggered",

@@ -4,8 +4,34 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/kraken-hunter.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-763d40ad13566634b64cc2de5da621393c0cf40858bb36abd9052e741aba4c2f";
+
+/** A real chain engine so the production static binder and cost planner run. */
+function engineFor() {
+  const kernel = world()
+    .player("A", { energy: 20, power: ["Body"] })
+    .player("B", { energy: 20 })
+    .unit("kraken", { cardId: CANONICAL, owner: "A", controller: "A", types: ["unit"], might: 5, buffs: 2, combatRole: "attacker" })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`Unexpected choice: ${request.id}`); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  return { engine, kernel };
+}
 
 test("ogn-150-298 Kraken Hunter: program validates and keeps identity", () => {
   const result = validateCardProgram(program);
@@ -13,6 +39,7 @@ test("ogn-150-298 Kraken Hunter: program validates and keeps identity", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.equal(
     program.sourceText,
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_body: as an additional cost to have me enter ready.)\n" +
@@ -24,8 +51,13 @@ test("ogn-150-298 Kraken Hunter: program validates and keeps identity", () => {
 test("ogn-150-298 Kraken Hunter: judgeReason cites the variable additional cost and linked discount", () => {
   assert.match(program.judgeReason, /spend-buff/);
   assert.match(program.judgeReason, /optionalAdditional/);
-  assert.match(program.judgeReason, /cost\.pay \/ cost\.modify/);
+  assert.match(program.judgeReason, /payCostPlan/);
+  // Restored from the pre-resweep assertion /cost\.pay \/ cost\.modify/, split
+  // because the refreshed reason names the merged primitives separately.
+  assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /356\.4\.c/);
+  assert.match(program.judgeReason, /accelerate\.cost/);
+  assert.match(program.judgeReason, /designation/);
 });
 
 test("ogn-150-298 Kraken Hunter: Accelerate and Assault stay keyword declarations only", () => {
@@ -68,6 +100,79 @@ test("ogn-150-298 Kraken Hunter: the merged Accelerate KeywordDef declares the o
   assert.equal(cost.effect.cost.optional, true);
   assert.equal(replacement.kind, "replacement");
   assert.equal(replacement.replaces.event, "object-enters-board");
+});
+
+test("ogn-150-298 Kraken Hunter: the expanded accelerate.cost still has no static layer mapping", () => {
+  const { engine, kernel } = engineFor();
+  const source = kernel.getObject("kraken");
+  const expanded = createProgramBinding({ cardPrograms: [program] }).inspect(source).abilities;
+  const accelerateCost = expanded.find(ability => ability.kind === "static" && ability.effect.kind === "accelerate.cost");
+  assert.ok(accelerateCost, "[Accelerate] must expand to the declared accelerate.cost static");
+  const error = (() => {
+    try {
+      createEngineStaticBinder(engine).bindStatic(accelerateCost, source);
+      return null;
+    } catch (thrown) {
+      return thrown;
+    }
+  })();
+  assert.ok(error, "the merged static binder must still refuse accelerate.cost while the gap is open");
+  assert.equal(error.code, "judge-required");
+  assert.match(error.message, /accelerate\.cost has no layer mapping/);
+  assert.deepEqual(engine.layers.registry.list(), []);
+});
+
+test("ogn-150-298 Kraken Hunter: the expanded Assault Might is inert because designation has no producer", () => {
+  const { engine, kernel } = engineFor();
+  const source = kernel.getObject("kraken");
+  const assault = createProgramBinding({ cardPrograms: [program] }).inspect(source).abilities
+    .find(ability => ability.kind === "static" && ability.effect.kind === "continuous.might");
+  const handle = createEngineStaticBinder(engine).bindStatic(assault, source);
+  const registered = engine.layers.registry.list()[0];
+  // The bundled condition evaluates against `designation`, which no merged
+  // producer writes; the snapshot only carries combatRole (contract 3.8).
+  assert.equal(registered.effect.effect.condition(kernel.getObject("kraken")), false);
+  assert.equal(kernel.getObject("kraken").combatRole, "attacker");
+  assert.equal(Object.hasOwn(kernel.getObject("kraken"), "designation"), false);
+  assert.equal(engine.layers.evaluate(kernel.ref("kraken")).might, 5);
+  handle.unbind();
+});
+
+test("ogn-150-298 Kraken Hunter: a fixed-count spend-buff is buildable but a paid-count discount is not", () => {
+  const base = world()
+    .player("A", { energy: 20, power: ["Body"] })
+    .unit("kraken", { cardId: CANONICAL, owner: "A", controller: "A", types: ["unit"], might: 5, buffs: 2 })
+    .build();
+  const context = base.clone({ controller: "A", sourceSnapshot: base.getObject("kraken") });
+  const source = context.getObject("kraken");
+  const cost = { id: "kraken.probe", cost: { energy: { kind: "constant", value: 3 } } };
+  // A fixed amount is expressible; the printed "any number" is not, and the
+  // per-buff discount cannot read that amount back through a linked value.
+  const plan = buildCostPlan(context, {
+    ...cost,
+    optionalAdditional: [{
+      id: "kraken.buffs",
+      kind: "additional",
+      selected: true,
+      cost: { payments: [{ kind: "spend-buff", objects: [source.ref], amount: { kind: "constant", value: 2 } }] }
+    }],
+    discounts: [{ id: "kraken.per-buff", resource: "power", amount: { kind: "constant", value: 1 } }]
+  });
+  assert.deepEqual(plan.total.actions.map(action => action.action.type), ["spend-buff"]);
+
+  const error = (() => {
+    try {
+      buildCostPlan(context, {
+        ...cost,
+        discounts: [{ id: "kraken.per-buff", resource: "power", amount: { kind: "linked-value", instructionId: "cost.pay", key: "spentCount" } }]
+      });
+      return null;
+    } catch (thrown) {
+      return thrown;
+    }
+  })();
+  assert.ok(error, "a paid-count discount must still be rejected while the gap is open");
+  assert.match(error.message, /Discount must be a nonnegative safe integer/);
 });
 
 test.todo(
