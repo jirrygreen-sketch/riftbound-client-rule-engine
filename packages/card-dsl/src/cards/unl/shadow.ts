@@ -23,11 +23,16 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *   单位 → 选目标；424.1 / 424.1.a：Stun 是效果型受限动作，effect.stun 已合入。
  *   括注 "(It doesn't deal combat damage this turn.)" 是 424.1.b 的提醒文本。
  *
- * status = judge-required：
- * 两处当前缺口：(1) If you play me to a battlefield（CR 143.4/359.2.c/369.3）需要打出时选择的入场位置；
- * 替代条件上下文没有读取该目的地的入口，replacement/bind.ts 的 matchesEnterAction 分支也未检查 ability.condition（RIFT-359）。
- * (2) enemy unit attacking here 的 sameLocationAs/combatRole 过滤尚未贯通：ObjectSnapshot 已有 combatRole，
- * 解释器已支持 sameLocationAs，但 programs/filters.ts 拒绝这两个目标过滤字段，chain/ 的图层过滤也不读取 combatRole。
+ * status = judge-required（2026-10-17 对源码逐条复核）：
+ * 两处当前缺口：(1) If you play me to a battlefield（CR 143.4/359.2.c/369.3）读不出"本次打出的目的地"：
+ * replacement/bind.ts 的 matchesEnterAction 分支只校验 replaces.filter，不检查 ability.condition；
+ * 该条件用的 object-property(self, "shadow.played-to-battlefield") 也不在 ObjectSnapshot 特征里，
+ * 实测把本卡的替代绑定到真实入场流程时，进入 Base 与进入战场都会 matches()（无法区分），
+ * 因此直接绑定就是错误近似。(2) enemy unit attacking here 的过滤仍未贯通：ObjectSnapshot 已有 combatRole，
+ * 解释器与层 filter 支持 sameLocationAs，但 programs/filters.ts 的 translateObjectFilter 白名单拒绝
+ * sameLocationAs 与 combatRole（实测 "Unsupported filter field sameLocationAs"），
+ * 且 layers/filter.ts 的 characteristicsMatch 直接读对象属性、不区分"仅当目标确实持有 Attacker designation"，
+ * 把 combatRole 塞进 characteristics 也匹配不到（实测三个单位全 false）。
  * Action 启动、替代绑定与 [A] 费用均已有可用接口；[A] 按 135.2.e.5.a 表示为允许六域支付的一个 Power 费用，
  * 不需要把任意域费用误当成新增 Universal Power 资源。
  */
@@ -120,10 +125,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处当前缺口：(1) If you play me to a battlefield（CR 143.4/359.2.c/369.3）需要打出时选择的入场位置；" +
-    "替代条件上下文没有读取该目的地的入口，replacement/bind.ts 的 matchesEnterAction 分支也未检查 ability.condition（RIFT-359）。" +
+    "两处当前缺口：(1) If you play me to a battlefield（CR 143.4/359.2.c/369.3）读不出「本次打出的目的地」：" +
+    "replacement/bind.ts 的 matchesEnterAction 分支只校验 replaces.filter、不检查 ability.condition，" +
+    "程序里用的 object-property(self, \"shadow.played-to-battlefield\") 也不在 ObjectSnapshot 特征中；" +
+    "实测把该替代绑到真实入场流程时，进入 Base 与进入战场都会 matches()，无法区分，直接绑定即错误近似。" +
     "(2) enemy unit attacking here 的 sameLocationAs/combatRole 过滤尚未贯通：ObjectSnapshot 已有 combatRole，" +
-    "解释器已支持 sameLocationAs，但 programs/filters.ts 拒绝这两个目标过滤字段，chain/ 的图层过滤也不读取 combatRole。" +
+    "解释器已支持 sameLocationAs，但 programs/filters.ts 的 translateObjectFilter 白名单拒绝这两个字段" +
+    "（实测 \"Unsupported filter field sameLocationAs\"）；把 combatRole 改放进 characteristics 也匹配不到，" +
+    "layers/filter.ts 的 characteristicsMatch 直接按对象属性取值（实测三个单位全 false）。" +
     "Action 启动、替代绑定与 [A] 费用均已有可用接口；[A] 按 135.2.e.5.a 表示为允许六域支付的一个 Power 费用，" +
     "不需要把任意域费用误当成新增 Universal Power 资源。",
   abilities,

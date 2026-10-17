@@ -24,11 +24,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   按唯一可完成的顺序写 exhaust → kill。
  * - 151 / 151.2：Gear 启动能力默认在控制者 Main Phase 的 Open State 执行。
  *
- * status = judge-required：
- * 当前缺口是 Predict 2（CR 437.1.a/437.4）的有序范围绑定：effect.inspect 的 scope:top 只读取外部 picksSpecId，
- * programs/ 与 chain/ 没有从真实牌库 zoneSlice 自动提供这组 top-2 picks 的路径（RIFT-358），不能用无序 query 近似。
- * 149.1/359.2.d 的 replacement.enter 与卡牌替代绑定已合入；查看者已通过 condition.value 绑定来源控制者，
- * 再由 effect.inspect 读取 linked-value，避免其旧 argsSchema 对符号 object-property 的限制。
+ * status = executable（2026-10-17 按合并源码逐项复核）：
+ * - Predict 2 的有序范围由已合入的 RIFT-358 生命周期承担：PickSpec 写显式有序来源
+ *   （options: []、ordered: true、selection: "all"、zoneSlice { zone: "deck", from: "top",
+ *   count: 2 }），chain Finalize 调 chain/picks/plan.ts 的 finalizeOrderedPickPlans，
+ *   用 ctx.zoneSlice 读真实牌库顶并保序（该文件是唯一顺序权威，ring/query 从不推断顺序），
+ *   结算期 effect.inspect 经 ResolveContext.picks 读回锁定集合。
+ * - 入场横置改写（149.1 / 359.2.d）由 replacement.enter 与卡牌替代绑定承担；
+ *   费用（1 Energy + exhaust 自身 + kill 自身）由已合入的费用计划支付；
+ *   查看→回收→排序→抽 1→+1 XP 五步都走已合入原语。
+ * 各能力对应的执行证据见 test/cards/unl/scryers-bloom.test.mjs。
  */
 const abilities: Ability[] = [
   {
@@ -72,7 +77,7 @@ const abilities: Ability[] = [
           player: { kind: "linked-value", instructionId: "scryers-bloom.viewer", key: "value" },
           zone: { kind: "constant", value: "deck" },
           scope: { kind: "constant", value: "top" },
-          // 437.1.a：牌库顶 2 张的保序来源由上游按该稳定 id 提供（契约 3.6）。
+          // 437.1.a：牌库顶 2 张的保序来源——由本卡的 PickSpec 声明，Finalize 锁定。
           picksSpecId: { kind: "constant", value: "scryers-bloom.predict-top-2" },
           amount: { kind: "constant", value: 2 },
           choose: { kind: "constant", value: true },
@@ -80,7 +85,19 @@ const abilities: Ability[] = [
           choiceId: { kind: "constant", value: "scryers-bloom.predict" },
           pickedKey: { kind: "constant", value: "predict-looked-at" },
           choosePicksKey: { kind: "constant", value: "predict-recycle" }
-        }
+        },
+        picks: [
+          {
+            id: "scryers-bloom.predict-top-2",
+            // 契约 3.6 / RIFT-358：显式有序来源 = options: []、ordered: true、
+            // selection: "all"；Finalize 用 ctx.zoneSlice 锁定真实牌库顶并保序，
+            // query 顺序绝不被采用（缺有序来源时 effect.inspect 按 impossible 阻断）。
+            options: [],
+            ordered: true,
+            selection: "all",
+            zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 2 } }
+          }
+        ]
       },
       {
         // 417.1.b / 417.4：回收所选（选择 0 张是成功的 no-op）；读取查看步骤的选择结果。
@@ -137,12 +154,7 @@ export default {
   canonicalCardId:
     "card.hash-12391b1b0c8fa259528e28974f6a47bd51892b5b66931b7c3529759298d8deb7",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "当前缺口是 Predict 2（CR 437.1.a/437.4）的有序范围绑定：effect.inspect 的 scope:top 只读取外部 picksSpecId，" +
-    "programs/ 与 chain/ 没有从真实牌库 zoneSlice 自动提供这组 top-2 picks 的路径（RIFT-358），不能用无序 query 近似。" +
-    "149.1/359.2.d 的 replacement.enter 与卡牌替代绑定已合入；查看者已通过 condition.value 绑定来源控制者，" +
-    "再由 effect.inspect 读取 linked-value，避免其旧 argsSchema 对符号 object-property 的限制。",
+  status: "executable",
   abilities,
   sourceText:
     "This enters exhausted.\n" +

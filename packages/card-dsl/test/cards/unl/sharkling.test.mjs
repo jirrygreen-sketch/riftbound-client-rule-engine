@@ -13,6 +13,17 @@ import { bindReplacement } from "../../../../engine-core/dist/replacement/index.
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { fixture as turnFixture } from "../../../../engine-core/test/turn/helpers.mjs";
+
+/** Drain the merged chain until it blocks; used to reach the combat gate. */
+function settleTurn(flow) {
+  let budget = 0;
+  while (flow.chain.items.length) {
+    if (++budget > 100) throw new Error("Nonterminating test chain");
+    flow.pass(flow.chain.priority);
+  }
+  flow.advance();
+}
 
 const CANONICAL_ID =
   "card.hash-a9d231899d6f3cc46b5f8d00320977ba937b799647d39e1c0b6ccf4ddb83b162";
@@ -37,6 +48,7 @@ test("unl-006-219 Sharkling: identity, status, judgeReason and verbatim sourceTe
   assert.match(program.judgeReason, /optionalAdditional/);
   assert.match(program.judgeReason, /play producer|替代生命周期/);
   assert.match(program.judgeReason, /designation/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
   assert.match(program.judgeReason, /conditionMatches/);
 });
 
@@ -234,6 +246,50 @@ test("unl-006-219 Sharkling: the generated card registry exposes the program und
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
+test("unl-006-219 Sharkling: the merged combat flow never designates an attacker, so Assault's gate is unreachable", () => {
+  // 807.1.d.1: Assault applies only while the unit holds the Attacker
+  // designation (CR 461). The merged combat flow stages Combat and then blocks
+  // with "combat-start-transaction" before any role assignment, so no real
+  // designation exists for the layer gate to read.
+  const f = turnFixture({
+    fields: [{ id: "bf1", controller: "B" }, { id: "bf2", controller: null }],
+    setup: (w) => w.unit("defender", { owner: "B", location: { type: "battlefield", id: "bf1" } })
+  });
+  f.flow.start();
+  f.flow.execute(f.draft("move-to-enemy", [{ id: "move", op: "effect.move", args: { to: { kind: "constant", value: { type: "battlefield", id: "bf1" } } } }]));
+  assert.throws(
+    () => settleTurn(f.flow),
+    (error) => error.status === "blocked" && error.code === "combat-start-transaction"
+  );
+  assert.equal(f.flow.battlefields[0].staged, "combat");
+  // No attacker designation event is ever emitted for this combat.
+  assert.equal(f.flow.chain.pipeline.events.filter(event => event.timingPoint === "attack-declared").length, 0);
+  assert.equal(f.kernel.getObject("source").combatRole, null);
+});
+
+test("unl-006-219 Sharkling: the merged layer engine ignores the designation gate and applies Assault 4 anyway", () => {
+  // The remaining blocker on the layers side: conditionMatches only understands
+  // always/never/type/has-tag/has-keyword and treats an unknown kind as true,
+  // so the authored compare(designation) gate cannot be bound without making
+  // the +4 unconditional -- which this card must not do.
+  const [ability] = assault.expand({ value: program.abilities[1].value, host: HOST });
+  const kernel = world().unit("idle", { owner: "A", might: 3, combatRole: null }).build();
+  const snapshot = kernel.getObject("idle");
+  const layered = createLayerEngine([snapshot], [{
+    effect: {
+      id: "assault-4",
+      layer: "arithmetic",
+      source: snapshot.ref,
+      filter: { objectId: "idle" },
+      effect: ability.effect,
+      condition: ability.condition
+    },
+    duration: { type: "permanent" }
+  }]).evaluate(snapshot.ref);
+  assert.equal(snapshot.combatRole, null);
+  assert.equal(layered.might, 7);
+});
+
 test.todo(
   "unl-006-219 Sharkling: pay the optional Accelerate cost [1][Fury] during the play and let the unit enter " +
     "ready instead of exhausted (CR 805.1.b.1 / 805.2.b / 805.6) — the merged cost plan and bindReplacement both " +
@@ -243,7 +299,7 @@ test.todo(
 
 test.todo(
   "unl-006-219 Sharkling: apply Assault 4 as +4 Might exactly while the unit holds the Attacker designation " +
-    "(CR 807.1.c / 807.1.d.1) — the merged layer engine applies the Might modification unconditionally because the " +
-    "compare(designation) gate is outside its condition vocabulary and the Attacker designation is not produced by a " +
-    "merged combat transaction (RIFT-124); the designation condition is also outside the current layer condition vocabulary"
+    "(CR 807.1.c / 807.1.d.1) — both halves are now pinned by executable evidence above: the merged layer engine " +
+    "applies the Might modification unconditionally (an unknown condition kind is treated as true), and the merged " +
+    "combat transaction blocks at combat-start-transaction before any Attacker designation exists"
 );
