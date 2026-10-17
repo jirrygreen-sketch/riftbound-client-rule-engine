@@ -67,6 +67,10 @@ test("sfd-118-221 Boneshiver: the merged Equip body attaches this gear to the ch
   const activation = equipActivation();
   assert.equal(activation.kind, "activated");
   assert.equal(activation.timing, "action");
+  assert.deepEqual(activation.cost, {
+    kind: "activated",
+    payments: [{ kind: "equip", value: { kind: "constant", value: { kind: "source" } } }]
+  });
   const expanded = validateCardProgram({
     canonicalCardId: CARD_ID,
     rulesetVersion: EFFECT_IR_V2_RULESET,

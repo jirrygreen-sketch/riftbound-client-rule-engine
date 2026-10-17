@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import repeat from "../../../../engine-core/dist/effects/keywords/Repeat.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID = "card.hash-effd069140ba0a97aec2b49e85dfc04e38ae3517c75aea5b88e3fcb853a4ea2b";
@@ -78,6 +79,45 @@ test("sfd-080-221 Bellows Breath: up-to-three unit targets with the same-locatio
     kind: "group"
   });
   assert.equal(instructionDefinitionsById.get("effect.damage"), damage);
+});
+
+test("sfd-080-221 Bellows Breath: the merged Repeat keyword and interpreter repeat body execute the damage once", () => {
+  const repeatAbilities = repeat.expand({
+    host: { canonicalCardId: CANONICAL_ID },
+    cost: {
+      energy: 1,
+      power: [{ amount: 1, allowedDomains: ["Mind"] }]
+    }
+  });
+  assert.equal(repeatAbilities.length, 1);
+  assert.equal(repeatAbilities[0].effect.kind, "repeat.cost");
+  assert.deepEqual(repeatAbilities[0].effect.cost, {
+    energy: 1,
+    power: [{ amount: 1, allowedDomains: ["Mind"] }]
+  });
+
+  // Repeat's paid-instance count is not wired from Finalize for this card,
+  // but the merged interpreter primitive can execute the real Bellows Breath
+  // damage body. Its resolution-time target choice is supplied explicitly.
+  const kernel = world().unit("one").unit("two").build();
+  const repeated = [{
+    id: "bellows-breath.repeat",
+    op: "repeat",
+    args: {
+      count: { kind: "constant", value: 1 },
+      body: { kind: "constant", value: play.body }
+    }
+  }];
+  kernel.setAnswers({
+    "bellows-breath.repeat/0/bellows-breath.deal-1/target%3Abellows-breath.units": [kernel.ref("one")]
+  });
+
+  const outcome = resolveChainBody(repeated, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results.at(-1).id, "bellows-breath.repeat");
+  assert.equal(outcome.results.at(-1).result.linkedValues.count, 1);
+  assert.equal(kernel.getObject("one").damage, 1);
+  assert.equal(kernel.getObject("two").damage, 0);
 });
 
 test("sfd-080-221 Bellows Breath golden: 1 damage is dealt to each of the three chosen units", () => {

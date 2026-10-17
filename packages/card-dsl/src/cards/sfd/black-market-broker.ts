@@ -18,7 +18,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   先在链上生成再由打出流程接手（350.2/354）；184.1 / 185.2.d 允许效果规定该
  *   token 以横置状态入场。Gold gear token 的印刷定义见 187.5。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。两处已合入缺口：
+ * status 判定（cards/README.md 第 2 节）：judge-required。两处当前真实缺口：
  * - 触发条件 "from face down" 无法在触发过滤里判定：EventPattern/ObjectFilter 的公开
  *   词汇只有 states（ready/exhausted/stunned/attached/face-down）与 zone，而
  *   OBJECT_FILTER_ZONES（events/trigger-spec.ts）没有 facedown-zone；card-played 事件

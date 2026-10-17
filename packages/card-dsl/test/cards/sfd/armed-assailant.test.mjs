@@ -5,6 +5,7 @@ import program from "../../../dist/cards/sfd/armed-assailant.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import accelerate from "../../../../engine-core/dist/effects/keywords/Accelerate.js";
 import weaponmaster from "../../../../engine-core/dist/effects/keywords/Weaponmaster.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const ID = "card.hash-8518a281524e1e72c165821192f2957a4ce78725737d98dbb03e70569739aec0";
 
@@ -39,4 +40,39 @@ test("sfd-002-221 Armed Assailant: merged keyword expansions exist and stay unex
   assert.ok(weaponmaster.ruleRefs.includes("821.1.c.3"));
   assert.ok(weaponmaster.ruleRefs.includes("821.1.c.2.a"));
   assert.equal(program.abilities.every((ability) => ability.kind === "keyword"), true);
+});
+
+test("sfd-002-221 Armed Assailant: merged Accelerate and Weaponmaster expansions preserve their executable bodies", () => {
+  const host = { canonicalCardId: ID };
+  assert.equal(keywordDefinitionsById.get("Accelerate"), accelerate);
+  assert.equal(keywordDefinitionsById.get("Weaponmaster"), weaponmaster);
+
+  const [accelerateCost, readyReplacement] = accelerate.expand({ host });
+  assert.equal(accelerateCost.effect.kind, "accelerate.cost");
+  assert.deepEqual(accelerateCost.effect.cost, {
+    kind: "additional-cost",
+    optional: true,
+    payments: [
+      { kind: "energy", amount: { kind: "constant", value: 1 } },
+      { kind: "power", amount: { kind: "constant", value: 1 } }
+    ]
+  });
+  assert.equal(readyReplacement.with[0].op, "effect.ready");
+
+  const [weaponmasterTrigger] = weaponmaster.expand({ host });
+  assert.equal(weaponmasterTrigger.trigger.at, "card-played");
+  const [choice] = weaponmasterTrigger.body;
+  assert.equal(choice.op, "sequence");
+  assert.deepEqual(choice.targets[0], {
+    id: "weaponmaster-equipment",
+    filter: { type: "gear", controller: "self", tags: ["Equipment"] },
+    min: 0,
+    max: 1,
+    selection: "up-to"
+  });
+  assert.deepEqual(choice.args.body.value.map((instruction) => instruction.id), [
+    "weaponmaster-cost",
+    "weaponmaster-pay",
+    "weaponmaster-attach"
+  ]);
 });

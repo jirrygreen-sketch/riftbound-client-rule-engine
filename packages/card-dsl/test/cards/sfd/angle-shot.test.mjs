@@ -10,6 +10,8 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import attach from "../../../../engine-core/dist/effects/instructions/effect.attach.js";
 import detach from "../../../../engine-core/dist/effects/instructions/effect.detach.js";
+import { abilitySpeed } from "../../../../engine-core/dist/programs/keywords.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-0aa655446cb6202a49e06ffc288e4168bfbedf9b8c922547654f678c148c63d4";
@@ -62,6 +64,7 @@ test("sfd-011-221 Angle Shot: judge-required for the unmerged 355.11 same-contro
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /355\.11/);
   assert.match(program.judgeReason, /group/);
+  assert.match(program.judgeReason, /choice-plan|validateSurface/);
   assert.match(program.judgeReason, /choice\.mode/);
 });
 
@@ -240,6 +243,19 @@ test("sfd-011-221 Angle Shot golden: the unlinked Draw 1 resolves even when the 
   assert.equal(byId["angle-shot.mode"].status, "executed");
   assert.equal(byId["angle-shot.draw"].status, "executed");
   assert.equal(kernel.player("A").handSize, 1);
+});
+
+test("sfd-011-221 Angle Shot: the merged Reaction keyword admits the card during a closed state", () => {
+  const f = fixture({ turnPlayer: "B" });
+  const source = f.kernel.getObject("source");
+  const speed = abilitySpeed(program.abilities, source);
+  assert.equal(speed, "reaction");
+  f.engine.openShowdown("A");
+  assert.equal(f.engine.canAct("A", speed, source.ref, source), true);
+  f.engine.execute(f.draft("pending", { controller: "A", speed: "reaction" }));
+  assert.equal(f.engine.turnState, "showdown-closed");
+  assert.equal(f.engine.canAct("A", speed, source.ref, source), true);
+  assert.equal(f.engine.canAct("A", "normal", source.ref, source), false);
 });
 
 test.todo(

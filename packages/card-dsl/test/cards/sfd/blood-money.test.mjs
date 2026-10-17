@@ -37,6 +37,8 @@ test("Blood Money program is valid EffectIR v2 data and judge-required", () => {
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /143\.4/);
   assert.match(program.judgeReason, /185\.2\.d/);
+  assert.match(program.judgeReason, /locationType/);
+  assert.match(program.judgeReason, /mightAtMost/);
   assert.equal(
     program.sourceText,
     "[Action] (Play on your turn or in showdowns.)\n" +

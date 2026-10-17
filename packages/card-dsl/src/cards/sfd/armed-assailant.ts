@@ -16,20 +16,24 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status 判定（cards/README.md 第 2 节）：judge-required，当前真实缺口：
  * - [Weaponmaster] 的展开 effects/keywords/Weaponmaster.ts 已合入，生产链的目标查询
- *   可绑定 controller:self；剩余费用缺口是 cost.modify 对 reduce-equip-cost 显式判负
- *   （821.1.c.3 的 [A]/[C] symbol provenance 会丢失），阻断后续 cost.pay 与 Attach。
- * - [Accelerate] 的关键词展开与 accelerate 费用计划已合入，但打出流程 Finalize 的
- *   optionalAdditional 收取与 805.6 入场就绪替代条件管线仍无消费方。
- * 依赖：Weaponmaster 的 reduce-equip-cost 费用支持、
- * Finalize Accelerate 接线。不近似实现（不把手写 Equip 收费塞进卡程序）。
+ *   可绑定 controller:self；但 cost.modify 对 reduce-equip-cost 仍按 821.1.c.3 判为
+ *   judge-required，因为当前费用计划丢失 Equip 原始 [A]/[C] symbol provenance，阻断
+ *   后续 cost.pay 与 Attach。
+ * - [Accelerate] 的 KeywordDef 已展开出 accelerate.cost 与入场替代；替代绑定器能消费
+ *   effect.ready，但 programs/statics.ts 没有 accelerate.cost 的图层映射，且
+ *   programs/play.ts / Finalize 没有收集 optionalAdditional。
+ * 依赖：Weaponmaster 的 Equip 原始费用绑定、Accelerate 静态费用到 Finalize 的接线。
+ * 不近似实现（不把手写 Equip 收费塞进卡程序）。
  */
 export default {
   canonicalCardId: "card.hash-8518a281524e1e72c165821192f2957a4ce78725737d98dbb03e70569739aec0",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Accelerate]（805）的关键词展开与 accelerate 费用计划已合入，但把费用接进打出流程 Finalize 的 optionalAdditional 收取与 805.6 入场就绪替代条件管线仍无消费方；" +
-    "[Weaponmaster]（821）的展开 effects/keywords/Weaponmaster.ts 与生产链的 controller:self 目标绑定已合入；剩余缺口是 cost.modify 对 reduce-equip-cost 显式判负（821.1.c.3 的 [A]/[C] symbol provenance 会丢失），阻断后续 cost.pay 与 Attach。不近似实现。",
+    "[Accelerate]（805）的 KeywordDef 已展开出 accelerate.cost 与入场替代，替代绑定器能消费 effect.ready，" +
+    "但 programs/statics.ts 没有 accelerate.cost 的图层映射，programs/play.ts / Finalize 也没有收集 optionalAdditional；" +
+    "[Weaponmaster]（821）的展开与 controller:self 目标绑定已合入，但 cost.modify 对 reduce-equip-cost 仍因 821.1.c.3 的 " +
+    "[A]/[C] symbol provenance 缺失而判 judge-required，阻断后续 cost.pay 与 Attach。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "accelerate" },
     { kind: "keyword", keyword: "weaponmaster" }

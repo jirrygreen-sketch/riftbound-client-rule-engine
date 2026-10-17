@@ -3,6 +3,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/battering-ram.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const ID = "card.hash-cf0a755fb6b4deccfb2863c8b92871864f69bfbf69522b1c4d98870a89afc0c4";
 
@@ -29,6 +31,39 @@ test("sfd-012-221 Battering Ram: declares a negative history-based Energy discou
   });
   assert.deepEqual(effect.minimum, { kind: "constant", value: 1 });
   assert.deepEqual(effect.history, { scope: "turn", action: "play", player: "controller" });
+});
+
+test("sfd-012-221 Battering Ram: the merged cost planner applies the printed per-discount minimum", () => {
+  // The card-to-Finalize history count is still missing, so this test supplies
+  // a resolved count while exercising the real cost planner. A discount of 5
+  // against a 3-Energy cost must stop at the printed minimum of 1 (356.4.e),
+  // rather than reducing the component to zero.
+  const kernel = world().player("A", { energy: 3 }).build();
+  const plan = buildCostPlan(kernel, {
+    id: "cost:battering-ram",
+    cost: { kind: "explicit", energy: { kind: "constant", value: 3 } },
+    discounts: [
+      {
+        id: "battering-ram.discount",
+        resource: "energy",
+        amount: { kind: "constant", value: 5 },
+        minimum: { kind: "constant", value: 1 }
+      }
+    ]
+  });
+
+  assert.equal(plan.total.energy, 1);
+  assert.deepEqual(plan.discounts, [
+    {
+      id: "battering-ram.discount",
+      component: null,
+      resource: "energy",
+      amount: 5,
+      minimum: 1,
+      before: 3,
+      after: 1
+    }
+  ]);
 });
 
 test.todo("Battering Ram: wire the card static continuous.cost-modification into the play cost plan and supply the per-turn play history count (356.4.e minimum semantics)");
