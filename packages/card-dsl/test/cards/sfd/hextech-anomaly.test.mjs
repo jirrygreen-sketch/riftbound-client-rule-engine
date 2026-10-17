@@ -38,7 +38,8 @@ test("sfd-083-221 Hextech Anomaly: program validates and is judge-required", () 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /204\.3/);
   assert.match(program.judgeReason, /Universal Power|任意域/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
 test("sfd-083-221 Hextech Anomaly: identity, ruleset, status and verbatim source text", () => {
@@ -105,7 +106,7 @@ test("sfd-083-221 Hextech Anomaly: the exhaust half of the printed cost is reall
 
 test.todo(
   "sfd-083-221 Hextech Anomaly: the resolve-time any-amount payment of CR 204.3/204.3.a needs a merged instruction " +
-    "primitive that lets the controller choose the amount and publishes the amount actually paid (RIFT-89); " +
+    "primitive that lets the controller choose the amount and publishes the amount actually paid (RIFT-261); " +
     "cost.pay only covers Finalize cost plans today"
 );
 test.todo(
@@ -115,5 +116,5 @@ test.todo(
 );
 test.todo(
   "sfd-083-221 Hextech Anomaly: the activated-ability -> chain wiring (contract 3.5) and the 430.3 window that lets a " +
-    "Reaction Add start while costs are being paid are not merged (RIFT-89/120)"
+    "Reaction Add start while costs are being paid are not merged (RIFT-261/120)"
 );

@@ -17,14 +17,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 该减费由本卡作为 Passive Ability 授予，属 366.2 一类在可打出区域始终生效的改费能力。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
- * - 没有消费方把 CardProgram 的 static 改费效果接进 Finalize 的费用计划：effects/instructions/ 下
- *   没有注册 cost.modify / cost.pay 原语，cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts
- *   时应用折扣，且 CostPlanInput/CostDiscount 没有"仅当该法术以本卡为目标时"的维度
- *   （RIFT-89 费用计划接线 + RIFT-90 目标管线）。
+ * - 没有消费方把 CardProgram 的 static 改费效果接进 Finalize 的费用计划：卡牌程序绑定
+ *   （RIFT-257）只对 static 能力回调 bindStatic，默认 noopStaticBinder（programs/statics.ts），
+ *   没有把 continuous.cost-modification 注册进 layers 或费用计划；effects/instructions/ 下
+ *   没有注册 cost.modify / cost.pay 原语，cost/cost-plan.ts 只在调用方显式提供
+ *   CostPlanInput.discounts 时应用折扣（结算期费用支付/改费属 RIFT-261 批次），
+ *   且 CostPlanInput/CostDiscount 没有"仅当该法术以本卡为目标时"的维度
+ *   （RIFT-90 目标管线）。
  * - "or [A]" 的 Universal Power（163.2.b）无法用封闭 Domain 类型与 CostDiscount.resource 表达；
  *   effect.resources 明确记录 [A] 保持 unsupported、绝不用具名域近似（与 sfd/glasc-mixologist 同款缺口）。
  * - 打印文本里的 "or" 还需要支付者在这两个资源之间做选择，费用计划的 discount 形状没有该选择位。
- * 依赖：RIFT-89（cost.modify / 费用计划接线）、RIFT-90（目标条件折扣）、Universal Power 的契约变更请求。
+ * 依赖：RIFT-261（cost.modify / 费用计划接线）、RIFT-90（目标条件折扣）、Universal Power 的契约变更请求。
  * 不近似实现：不把 [A] 写成某个具名域，也不在卡层直接改写打出费用。
  */
 const abilities: Ability[] = [
@@ -53,13 +56,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺把本卡 static 改费效果接进 Finalize 费用计划的消费者：effects/instructions/ 没有注册 cost.modify / cost.pay 原语，" +
-    "cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts 时应用折扣（356.4 / 356.4.c / 356.4.d 的组件与总价顺序、" +
-    "356.4.e 的每条折扣自带最低值都由该管线负责），且 CostPlanInput/CostDiscount 没有「仅当该法术以本卡为目标」的维度" +
-    "（355.6 的 choose = Targeting，需要 RIFT-90 的目标条件）。" +
+    "缺把本卡 static 改费效果接进 Finalize 费用计划的消费者：卡牌程序绑定（RIFT-257）对 static 能力只走 " +
+    "bindStatic 回调，默认 noopStaticBinder（programs/statics.ts）不注册 continuous.cost-modification；" +
+    "effects/instructions/ 也没有注册 cost.modify / cost.pay 原语，cost/cost-plan.ts 只在调用方显式提供 " +
+    "CostPlanInput.discounts 时应用折扣（356.4 / 356.4.c / 356.4.d 的组件与总价顺序、356.4.e 的每条折扣自带最低值" +
+    "都由该管线负责；结算期费用支付/改费属 RIFT-261 批次），且 CostPlanInput/CostDiscount 没有" +
+    "「仅当该法术以本卡为目标」的维度（355.6 的 choose = Targeting，需要 RIFT-90 的目标条件）。" +
     "同时「or :rb_rune_rainbow:」的 [A] 是 163.2.b 的 Universal Power：封闭 Domain 类型与 CostDiscount.resource 不表达，" +
     "effect.resources 明确保持 unsupported、绝不用具名域近似；打印文本的二选一还需要费用计划的支付者选择位，当前没有。" +
-    "依赖：RIFT-89（费用计划接线）、RIFT-90（目标条件折扣）、Universal Power 的契约变更请求。不近似实现。",
+    "依赖：RIFT-261（费用计划接线）、RIFT-90（目标条件折扣）、Universal Power 的契约变更请求。不近似实现。",
   abilities,
   sourceText: "Your spells that choose me cost :rb_energy_1: or :rb_rune_rainbow: less."
 } satisfies CardProgram;

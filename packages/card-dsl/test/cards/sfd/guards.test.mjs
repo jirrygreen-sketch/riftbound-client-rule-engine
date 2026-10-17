@@ -4,25 +4,35 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/guards.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+
+const CANONICAL = "card.hash-96f6071389124163d72b59b25dca5a642f1cd93402158c5237be9ba305f9dd44";
 
 const [, play] = program.abilities;
 const tokenInstruction = play.body[0];
 const choiceInstruction = play.body[1];
 
+// The card's own argument shape, with only the unwired "choose a legal
+// location at Finalize" placeholder replaced by one concrete location (the
+// golden proves the merged chain-creation + play handoff, not the missing
+// location provider).
+const concreteArgs = {
+  ...tokenInstruction.args,
+  locations: { kind: "constant", value: [{ type: "base", player: "A" }] }
+};
+
 test("Guards! program is valid EffectIR v2 data and judge-required", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
-  assert.equal(
-    program.canonicalCardId,
-    "card.hash-96f6071389124163d72b59b25dca5a642f1cd93402158c5237be9ba305f9dd44"
-  );
+  assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /440\.2\.c/);
+  assert.match(program.judgeReason, /355\.2\.a/);
   assert.match(program.judgeReason, /cost\.pay/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.equal(
     program.sourceText,
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +
@@ -75,20 +85,75 @@ test("Guards! structure: Hidden keyword, chain-played Sand Soldier, optional pai
   });
 });
 
-test("Guards! golden: the unmerged chain-play path is negated, not silently created on the Board", () => {
-  // The merged create-token action only creates directly on the Board, so
-  // mode "play" must be refused with the documented blockedReason; a silent
-  // Board creation would be a different card text.
-  const kernel = world().build();
-  const run = runInstruction(token, tokenInstruction.args, { world: kernel });
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.equal(run.events.length, 0);
-  assert.equal(kernel.query({ zone: "board" }).length, 0);
+test("Guards! golden: the merged token primitive creates the Sand Soldier on the Chain and plays it", () => {
+  // The card's own shape minus the unwired location placeholder: the merged
+  // play mode creates on the Chain and hands the new ObjectRef to the play
+  // action (440.2.c / 185.2.a / 350.2 / 354).
+  const kernel = world().player("A", { energy: 10 }).player("B", { energy: 10 }).build();
+  const run = runInstruction(token, concreteArgs, { world: kernel });
+
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(run.events.map((event) => event.action), ["create-token", "play"]);
+  const created = kernel.query({ zone: "board", type: "unit" }).filter(object => object.isToken);
+  assert.equal(created.length, 1);
+  assert.equal(created[0].name, "Sand Soldier");
+  assert.equal(created[0].might, 2);
+  // 185.3.a: a token carries null Energy / Power, never zero.
+  assert.equal(created[0].energy, null);
+  assert.equal(created[0].power, null);
+  assert.deepEqual(run.linked["sandSoldier.createdAmount"], 1);
+  assert.equal(run.linked["sandSoldier.objects"].length, 1);
+});
+
+test("Guards! the token instruction declares the Finalize-time location placeholder (355.2.a)", () => {
+  // The legal destinations are runtime data: the authored argument is the
+  // documented placeholder, and the golden above executes the same shape with
+  // a concrete location.
+  assert.deepEqual(tokenInstruction.args.locations, {
+    kind: "constant",
+    value: ["dynamic:legal-unit-locations"]
+  });
+  assert.equal(tokenInstruction.args.location, undefined);
+});
+
+test("Guards! golden: declining the optional ready leaves the played Sand Soldier exhausted", () => {
+  // The whole printed body runs through the production adapter with the card's
+  // own instructions: the token is really created and played, and the optional
+  // decision is answered as declined through the interpreter.
+  const kernel = world()
+    .player("A", { energy: 10 })
+    .player("B", { energy: 10 })
+    .base("guards-source", { owner: "A" })
+    .build();
+  const bound = kernel.clone({
+    source: kernel.ref("guards-source"),
+    sourceSnapshot: kernel.getObject("guards-source")
+  });
+  bound.setAnswers({ "guards.may-ready/optional": false });
+  const body = [{ ...tokenInstruction, args: concreteArgs }, choiceInstruction];
+  const outcome = resolveChainBody(body, bound);
+
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(
+    outcome.results.map(entry => [entry.id, entry.result.status, entry.result.reason]),
+    [
+      ["guards.play-sand-soldier", "executed", undefined],
+      ["guards.may-ready", "negated", "skipped"]
+    ]
+  );
+  const created = bound.query({ zone: "board", type: "unit" }).filter(object => object.isToken);
+  assert.equal(created.length, 1);
+  // Without the payment the token keeps the entry state; the paid ready is the
+  // part whose cost.pay primitive is still unmerged (judgeReason).
+  assert.equal(outcome.events.filter(event => event.action === "play").length, 1);
 });
 
 test.todo(
-  "Guards! full play: the Sand Soldier token is created on the Chain and played to a legal " +
-    "location chosen at Finalize (440.2.c / 185.2.a / 350.2 / 354 / 355.2.a), then the optional " +
-    ":rb_rune_order: payment readies it (依赖 cost.pay 与链上 token 创建/打出管线、目标位置提供方)"
+  "Guards! full play: resolve \"dynamic:legal-unit-locations\" into the 355.2.a legal locations at Finalize " +
+    "(the Battlefield/Base set the playing player may choose) once a target/location provider exists"
+);
+test.todo(
+  "Guards! paid ready: pay one Order rune inside the resolving body (204.3 Cost within Instructions) and ready " +
+    "the linked Sand Soldier through cost.pay — depends on RIFT-261 (cost.pay / cost.modify) and the " +
+    "cost-payment batch"
 );

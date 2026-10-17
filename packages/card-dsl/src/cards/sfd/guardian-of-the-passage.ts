@@ -20,22 +20,24 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   挂在 choice.optional 节点上（已合入的 ogn/salvage 同型）。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
- * - effect.zone 的 trash→hand 半段与 choice.optional 都已合入并有执行测试，但
- *   TargetSpec.filter 的 `owner: "controller"`（=「your trash」）绑定依赖卡牌程序触发/目标
- *   注册层做 self/opponent 归一化：已合入的归一化只存在于 chain/engine.ts 的 query 包装与
- *   生产链路径，`resolveChainBody`（参考内核路径）不做归一化，所以 golden 必须以字面 id
- *   预置目标集才能执行；触发 filter 的内层锚点（source: "self"）同样没有消费方
- *   （events/pipeline-match.ts 只读 EventPattern 的 object/source/target/player/fromZone/
- *   toZone/amount/details）。
- * - 依赖：RIFT-120（事件/链把卡牌程序触发注册进管线并把被固守对象与宿主同一性暴露给
- *   注册层）、目标 Finalize 的 owner 归一化接线。
+ * - 效果体本身可执行：choice.optional（契约 3.9）与 effect.zone 的 trash→hand 半段
+ *   都走已合入原语，golden 经 chain/interpreter-adapter.ts 的生产适配器真实执行
+ *   （含 declined 分支）。
+ * - 触发不可命中：hold 时点已由回合/计分流程发出（turn/flow.ts 的 scheduleScore,
+ *   details.battlefieldId），但卡牌程序绑定（RIFT-257）把本卡的 filter 翻译为
+ *   `{ event: "held", object: { objectId: <host ref> } }`，而真实 hold 发射没有 object
+ *   载荷（events/pipeline-match.ts 的 matchesTriggerObject 对 undefined object 只在过滤器
+ *   为空时命中），因此 filter 永远不匹配（封闭事件词表里的 held 名称本身已由翻译器支持）。
+ *   此外 TargetSpec 的 `owner: "controller"`（=「your trash」）在 chain 的生产 query 包装里
+ *   归一化为 `owner: "self"`（chain/engine.ts），golden 已按该归一化执行目标合法性。
+ * - 依赖：RIFT-120 后续（hold 事件载荷携带被固守对象/宿主身份，使 source: "self" 锚点可判定）。
  * 不近似实现：不把「你的垃圾场」写成无 owner 过滤（那会允许对手垃圾场的卡），也不用
- * 手改区域的方式代替 effect.zone。
+ * 手改区域的方式代替 effect.zone；也不把 hold 触发删掉只留效果体。
  */
 const abilities: Ability[] = [
   {
     kind: "triggered",
-    trigger: { at: "hold", filter: { event: "hold", filter: { source: "self" } } },
+    trigger: { at: "hold", filter: { event: "held", filter: { source: "self" } } },
     optional: false,
     body: [
       {
@@ -80,13 +82,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「return a unit or gear from your trash to your hand」的 effect.zone 半段（trash→hand，355.10.a、108.2.d）与 choice.optional " +
-    "（403.1、契约 3.9）都已合入并有执行测试，但 TargetSpec 的 owner: \"controller\"（= 「your trash」）与触发 filter 的内层锚点 " +
-    "source: \"self\" 都依赖卡牌程序触发/目标注册层的归一化：已合入的归一化只存在于 chain/engine.ts 的生产链 query 包装，" +
-    "events/pipeline-match.ts 只读 EventPattern 的 object/source/target/player/fromZone/toZone/amount/details，" +
-    "参考内核路径（resolveChainBody）不做归一化，因此触发无法命中、目标合法性无法在 Finalize 判定。" +
-    "依赖：RIFT-120（卡牌程序触发注册 + 被固守对象/宿主同一性 + 目标 owner 归一化接线）。不近似实现" +
-    "（不省略 owner 过滤，也不用直接改区域代替 effect.zone）。",
+    "效果体已可执行：「return a unit or gear from your trash to your hand」的 effect.zone 半段（trash→hand，" +
+    "355.10.a、108.2.d）与 choice.optional（403.1、契约 3.9）都只用已合入原语，golden 经 " +
+    "chain/interpreter-adapter.ts 的生产适配器真实执行（含 declined 分支与 owner 归一化后的目标合法性）。" +
+    "整卡仍不可执行：hold 时点已由 turn/flow.ts 的 score wave 发出（details.battlefieldId），但发射不带 " +
+    "object 载荷，而卡牌程序绑定（RIFT-257 已合入）会把本卡 filter 翻译成 { event: \"held\", " +
+    "object: { objectId: <host> } }——events/pipeline-match.ts 的 matchesTriggerObject 对 " +
+    "undefined object 只在过滤器为空时命中，故触发永远不命中（原文的 source: \"self\" 锚点正是要靠该载荷）。" +
+    "依赖：RIFT-120 后续（hold 事件载荷携带被固守对象/宿主身份）。不近似实现（不省略 owner 过滤，" +
+    "也不用直接改区域代替 effect.zone）。",
   abilities,
   sourceText: "When I hold, you may return a unit or gear from your trash to your hand."
 } satisfies CardProgram;

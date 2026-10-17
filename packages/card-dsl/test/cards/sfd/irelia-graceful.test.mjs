@@ -23,7 +23,9 @@ test("sfd-141-221 Irelia, Graceful: identity, ruleset, status, judgeReason and v
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /356\.4/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /noopStaticBinder/);
+  assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -45,11 +47,20 @@ test("sfd-141-221 Irelia, Graceful: one static cost reduction scoped to spells t
   assert.deepEqual(effect.appliesTo, { type: "spell", object: "self" });
 });
 
-test.todo(
-  "sfd-141-221 Irelia, Graceful: apply the declared discount during Finalize for spells that target this " +
-    "unit (356.4 / 356.4.c; 355.6 choose = Targeting) — needs the card static effect -> CostPlanInput.discounts " +
-    "wiring plus a per-target discount dimension (RIFT-89 / RIFT-90)"
-);
+test("sfd-141-221 Irelia, Graceful: the declared discount shape matches the cost-plan vocabulary it must reach", () => {
+  // The static effect is authored in the shape the merged cost plan already
+  // understands for discounts (cost/plan-types.ts CostDiscount: resource +
+  // amount + component order, 356.4/356.4.c), so the remaining gap is the
+  // card-static -> CostPlanInput.discounts wiring, not the shape itself. The
+  // judgeReason names that consumer (bindStatic / RIFT-261) and the two
+  // dimensions the current shape cannot carry (per-target scope, [A]).
+  assert.equal(ability.kind, "static");
+  assert.equal(ability.effect.stage, "discount");
+  assert.equal(ability.effect.resource, "energy");
+  assert.deepEqual(ability.effect.amount, { kind: "constant", value: 1 });
+  assert.deepEqual(ability.effect.alternative, { resource: "power", universal: true, amount: 1 });
+  assert.deepEqual(ability.effect.appliesTo, { type: "spell", object: "self" });
+});
 
 test.todo(
   "sfd-141-221 Irelia, Graceful: represent and charge the '[A]' (163.2.b Universal Power) alternative, and let " +

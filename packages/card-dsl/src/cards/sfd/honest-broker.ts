@@ -35,10 +35,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   second "becomes exhausted" event and miss entry replacement (143.4).
  * - the [Deathknell] expansion body references the unmerged trigger.leave
  *   primitive (packages/engine-core/src/effects/keywords/Deathknell.ts), so the
- *   keyword's trigger subscription is not executable either.
- * Dependencies: RIFT-82 (kw-deathknell / trigger.leave), the chain-creation and
- * entry-state token work of the token primitive task, and the card→keyword
- * expansion wiring (RIFT-81~91 keyword batch).
+ *   keyword's own instruction is not executable either; the card's explicit
+ *   object-killed trigger does bind through the merged card-program binding
+ *   (RIFT-257), but resolving its body hits the missing Gold definition first.
+ * Dependencies: the Gold token definition plus the chain-creation/entry-state
+ * work of the token primitive task, trigger.leave (RIFT-82 boundary), and the
+ * cost-waived play handoff.
  */
 const abilities: Ability[] = [
   {
@@ -79,12 +81,14 @@ const program = {
   judgeReason:
     "Gold gear token（CR 187.5）不在 effect.token 的冻结定义表里——该文件明确 Gold 等自带能力的定义保持 " +
     "blocked/judge-required；「Play a Gold gear token」还要求按 440.2.c/185.2.a/350.2/354 先在链上创建再接手打出，" +
-    "而冻结的 create-token 只在场上创建、effect.token 的 mode \"play\" 被显式 negated" +
-    "（blockedReason: token-play-requires-chain-creation）。" +
+    "effect.token 的 mode \"play\" 已合入（链上创建 + play 接手，RIFT-257 后的 goldens 已用该路径执行），" +
+    "但 Gold 定义缺失使创建直接以 blockedReason: token-definition-or-abilities-judge-required negated。" +
     "「exhausted」是入场规定（184.1/185.2.d），create-token/play 不支持入场状态改写；" +
     "effect.exhaust 文档明确事后横置不等价（会多一次「成为横置」事件并错过 143.4 的入场处理），故不近似。" +
-    "[Deathknell] 展开体引用的 trigger.leave 原语未合入（effects/keywords/Deathknell.ts 只声明 op id）。" +
-    "依赖：RIFT-82（kw-deathknell）、token 链上创建与入场状态（RIFT-62 后续）、关键词/触发接线（RIFT-81~91）。",
+    "[Deathknell] 展开体引用的 trigger.leave 原语未合入（effects/keywords/Deathknell.ts 只声明 op id）；" +
+    "已合入部分：本卡显式声明的 object-killed 触发与 [Deathknell] 关键词展开都能经卡牌程序绑定" +
+    "（RIFT-257）注册（golden 断言注册成功），阻止执行的是 Gold 定义与入场状态。" +
+    "依赖：Gold token 定义与入场状态（token primitive 任务/RIFT-62 后续）、RIFT-82（kw-deathknell 的 trigger.leave）。",
   abilities,
   sourceText: "[Deathknell] — Play a Gold gear token exhausted. (When I die, get the effect.)"
 } satisfies CardProgram;

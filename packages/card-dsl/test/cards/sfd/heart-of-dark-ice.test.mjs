@@ -4,10 +4,11 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/heart-of-dark-ice.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CANONICAL = "card.hash-fb2b68d85d71603dc36df01e06a5cedb3afd2385f4545e34f533a975f5db9ffa";
 const SOURCE_TEXT = ":rb_exhaust:: Give a unit +3 :rb_might: this turn.";
@@ -16,38 +17,72 @@ const [activated] = program.abilities;
 const [mightInstruction] = activated.body;
 const targetSpec = mightInstruction.targets[0];
 
-function heartWorld() {
-  const base = world()
-    .object("heart-of-dark-ice", {
-      name: "Heart of Dark Ice",
+/**
+ * Production drives a card's activated ability through the chain: the
+ * program binding turns the CardProgram into a ChainDraft, then ChainEngine
+ * finalizes (targets + costs) and resolves the body through the interpreter
+ * adapter. The golden builds exactly that path on the reference kernel: the
+ * host Port owns state, choices and the action pipeline, and
+ * `createProgramBinding({ cardPrograms: [program] })` supplies describeActivate.
+ */
+function heartFixture({ units = ["chosen-unit", "enemy-unit"] } = {}) {
+  const builder = world()
+    .player("A", { energy: 20 })
+    .player("B", { energy: 20 })
+    .base("heart-of-dark-ice", {
+      owner: "A",
       cardId: CANONICAL,
       types: ["gear"],
-      zone: "board",
       location: { type: "base", player: "A" },
       energy: 3,
-      power: 1,
+      power: ["Calm"],
       might: null
-    })
-    .unit("chosen-unit", { might: 2 })
-    .unit("enemy-unit", { owner: "B", might: 2 })
-    .build();
-  return base.clone({ sourceSnapshot: base.getObject("heart-of-dark-ice") });
+    });
+  if (units.includes("chosen-unit")) builder.unit("chosen-unit", { owner: "A", might: 2 });
+  if (units.includes("enemy-unit")) builder.unit("enemy-unit", { owner: "B", might: 2 });
+  const kernel = builder.build();
+  const requests = [];
+  const decide = (request) => {
+    requests.push(request);
+    // The Finalize target request offers both Board units (355.7); the golden
+    // picks the first legal candidate to keep the scenario deterministic.
+    if (request.type === "select-objects" && request.options.length >= request.min) {
+      return [...request.options].slice(0, request.min);
+    }
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: decide,
+    context: (sourceSnapshot, controller, timingPoint) => bindResolveContext(kernel, {
+      source: sourceSnapshot, controller, timingPoint, choose: decide
+    }),
+    testTrigger: (registration) => kernel.test(registration.spec.condition)
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  return { kernel, engine, binding, requests };
 }
 
-test("sfd-052-221 Heart of Dark Ice: program passes validateCardProgram", () => {
+function activateHeart(fixture) {
+  const draft = fixture.binding.describeActivate(fixture.kernel.getObject("heart-of-dark-ice"), "A");
+  fixture.engine.execute(draft);
+  let guard = 0;
+  while (fixture.engine.items.length && guard++ < 20) fixture.engine.pass(fixture.engine.priority);
+  return draft;
+}
+
+test("sfd-052-221 Heart of Dark Ice: program validates and is executable", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.deepEqual(result.issues, []);
-});
-
-test("sfd-052-221 Heart of Dark Ice: identity, ruleset, status, judgeReason and verbatim source text", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(program.status, "judge-required");
-  // judgeReason must name the concrete missing opcode/semantics (contract 3.1).
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /GameAction/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -65,15 +100,21 @@ test("sfd-052-221 Heart of Dark Ice structure: one action-speed activated abilit
 
   assert.equal(activated.body.length, 1);
   assert.equal(mightInstruction.id, "heart-of-dark-ice.give-plus-3-might");
-  // "Give a unit +3 Might this turn" is a temporary Might modification, which belongs to
-  // the layers' continuous.might effect — not to effect.buff (Buff counters, CR 702/703).
+  // "Give a unit +3 Might this turn" is a temporary Might modification on the
+  // arithmetic layer (143.2.a/475-478), never an effect.buff counter (702/703).
   assert.equal(mightInstruction.op, "continuous.might");
   assert.deepEqual(mightInstruction.args.amount, { kind: "constant", value: 3 });
   assert.deepEqual(mightInstruction.args.duration, { kind: "constant", value: "this-turn" });
   assert.equal(mightInstruction.picks, undefined);
   assert.equal(mightInstruction.linkedTo, undefined);
+  // Contract 3.6: the object position carries the symbolic target selector,
+  // never a runtime ObjectRef.
+  assert.deepEqual(mightInstruction.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "heart-of-dark-ice.unit" }
+  });
 
-  // "a unit" — exactly one Board unit, chosen by the controller (355.7/355.10).
+  // "a unit" — exactly one Board unit chosen by the controller (355.7/355.10).
   assert.equal(mightInstruction.targets.length, 1);
   assert.deepEqual(targetSpec, {
     id: "heart-of-dark-ice.unit",
@@ -84,59 +125,54 @@ test("sfd-052-221 Heart of Dark Ice structure: one action-speed activated abilit
   });
 });
 
-test("sfd-052-221 Heart of Dark Ice golden: the exhaust-self activation cost is paid for real (415.3.a/415.5)", () => {
-  const kernel = heartWorld();
-  const plan = buildCostPlan(kernel, { id: "cost:heart-of-dark-ice", cost: activated.cost });
-  assert.equal(plan.total.energy, 0);
-  assert.deepEqual(plan.total.power, []);
+test("sfd-052-221 Heart of Dark Ice golden: the real chain pays the exhaust cost and registers +3 Might", () => {
+  const fixture = heartFixture();
+  const draft = activateHeart(fixture);
+
+  // The printed cost flows through the card program's own CostSpec: nothing is
+  // hand-built and the chain's Finalize really exhausts the Gear (415.3.a/415.5).
+  assert.deepEqual(draft.cost.cost.payments, [{ kind: "exhaust", object: "self" }]);
+  assert.equal(fixture.kernel.getObject("heart-of-dark-ice").exhausted, true);
+  // The Finalize TargetPlan chose the only candidate; 355.7's target lock is real.
   assert.deepEqual(
-    plan.total.actions.map((action) => action.action.type),
-    ["exhaust"]
+    fixture.requests.filter(request => request.id === `target:${targetSpec.id}`).length,
+    1
   );
 
-  const receipt = payCostPlan(kernel, plan);
-  assert.equal(receipt.paid, true);
-  assert.deepEqual(
-    receipt.actions.map((action) => action.action.type),
-    ["pay", "exhaust"]
-  );
-  assert.equal(kernel.getObject("heart-of-dark-ice").exhausted, true);
-  // The printed 3 energy / 1 Calm Power play cost is untouched by the ability cost.
-  assert.equal(kernel.getObject("heart-of-dark-ice").energy, 3);
-  assert.equal(kernel.getObject("heart-of-dark-ice").power, 1);
+  // The continuous.might effect landed on the arithmetic layer through the
+  // chain's ResolveContext.addContinuous, and only the chosen unit is affected.
+  assert.equal(fixture.engine.layers.evaluate(fixture.kernel.ref("chosen-unit")).might, 5);
+  assert.equal(fixture.engine.layers.evaluate(fixture.kernel.ref("enemy-unit")).might, 2);
+  // No Buff counter was placed (702/703 semantics are different).
+  assert.equal(fixture.engine.layers.evaluate(fixture.kernel.ref("chosen-unit")).buffs, 0);
+  // The real action wave shows the paid exhaust and the resolved chain item.
+  assert.ok(fixture.engine.pipeline.events.some(event => event.timingPoint === "object-exhausted"));
+  assert.ok(fixture.engine.pipeline.events.some(event => event.timingPoint === "chain-item-resolve"));
+  assert.ok(fixture.engine.pipeline.events.some(event => event.timingPoint === "became-target"));
 });
 
-test("sfd-052-221 Heart of Dark Ice golden: the Might half has no merged primitive and fails loudly (no Buff substitute)", () => {
-  // The only merged Might primitive is effect.buff, which places Buff counters (CR 702/703)
-  // and must never stand in for a temporary Might change.
-  assert.equal(instructionDefinitionsById.has("continuous.might"), false);
-  assert.equal(instructionDefinitionsById.has("effect.buff"), true);
+test("sfd-052-221 Heart of Dark Ice golden: the +3 expires at end of turn (317.1.a/468.7.c)", () => {
+  const fixture = heartFixture();
+  activateHeart(fixture);
+  assert.equal(fixture.engine.layers.evaluate(fixture.kernel.ref("chosen-unit")).might, 5);
 
-  const kernel = heartWorld();
-  kernel.setTargets(targetSpec.id, [kernel.ref("chosen-unit")]);
+  // TurnPhaseLayers expires "this turn" effects when the turn ends.
+  const expired = fixture.engine.layers.expireAt("turn-end");
+  assert.equal(expired.length, 1);
+  assert.equal(fixture.engine.layers.evaluate(fixture.kernel.ref("chosen-unit")).might, 2);
+});
+
+test("sfd-052-221 Heart of Dark Ice golden: an activation with no legal unit fails Finalize without changing state", () => {
+  const fixture = heartFixture({ units: [] });
+  const draft = fixture.binding.describeActivate(fixture.kernel.getObject("heart-of-dark-ice"), "A");
   assert.throws(
-    () => runAbilityBody(activated.body, kernel),
-    /Unregistered instruction opcode: continuous.might/
+    () => fixture.engine.execute(draft),
+    (error) => {
+      assert.equal(error.code, "no-legal-targets");
+      return true;
+    }
   );
-  // Real evidence that nothing was silently approximated: no Buff counter, no damage,
-  // and the chosen unit keeps its printed Might.
-  assert.equal(kernel.getObject("chosen-unit").buffs, 0);
-  assert.equal(kernel.getObject("chosen-unit").might, 2);
-  assert.equal(kernel.getObject("chosen-unit").damage, 0);
+  // The activation did not happen: the Gear stays ready and nothing was layered.
+  assert.equal(fixture.kernel.getObject("heart-of-dark-ice").exhausted, false);
+  assert.equal(fixture.engine.layers.registry.list().length, 0);
 });
-
-test("sfd-052-221 Heart of Dark Ice golden: a target that left the Board is ignored before any Might change (CR 359.3.e.6)", () => {
-  const kernel = heartWorld();
-  const stale = kernel.ref("chosen-unit");
-  assert.equal(kernel.perform({ type: "kill", object: stale }).status, "done");
-  kernel.setTargets(targetSpec.id, [stale]);
-
-  const outcome = runAbilityBody(activated.body, kernel);
-  assert.equal(outcome.status, "partial");
-  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
-  assert.equal(outcome.events.length, 0);
-  assert.equal(kernel.getObject("chosen-unit").might, 2);
-});
-
-test.todo("sfd-052-221 Heart of Dark Ice: '+3 Might this turn' needs the continuous.might instruction primitive / layers wiring (CR 143.2, 475, 478) - RIFT-91 follow-up; no card or cost code may approximate it with Buff counters.");
-test.todo("sfd-052-221 Heart of Dark Ice: the program -> activated ability -> chain activation wiring (contract 3.5) is not merged (RIFT-120 follow-up); the exhaust cost above is already executed through the real cost pipeline.");

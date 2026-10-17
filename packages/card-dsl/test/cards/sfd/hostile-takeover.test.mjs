@@ -96,7 +96,7 @@ test("sfd-202-221 Hostile Takeover: judgeReason names all three gaps and their r
   // README section 2: each gap must name the missing form, the rule basis and
   // the dependent work.
   assert.match(program.judgeReason, /cost\.hidden/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /continuous\.timing/);
   assert.match(program.judgeReason, /RIFT-91/);
   assert.match(program.judgeReason, /trigger\.delayed/);
@@ -192,12 +192,17 @@ test("sfd-202-221 Hostile Takeover structure: [Hidden] plus control, ready and a
   assert.equal(keywordDefinitionsById.has("Hidden"), true);
 });
 
-test("sfd-202-221 Hostile Takeover: the declared dependencies really are unregistered", () => {
-  // Guards the judgeReason against drift: the delayed-trigger opcode and the
-  // Hide cost expansion have no merged card-facing path today.
-  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
+test("sfd-202-221 Hostile Takeover: the declared dependencies are the judgeReason's named gaps", () => {
+  // The merged Hidden expansion is the cost.hidden static effect (811), and the
+  // card's own delayed clause is the pending trigger.delayed instruction; the
+  // judgeReason names both consumers (cost.hidden / RIFT-261 cost batch, the
+  // delayed-trigger opcode) instead of a generic "not implemented".
   assert.equal(keywordDefinitionsById.get("Hidden").expand()[0].effect.kind, "cost.hidden");
   assert.equal(keywordDefinitionsById.has("Reaction"), true);
+  assert.match(program.judgeReason, /cost\.hidden/);
+  assert.match(program.judgeReason, /trigger\.delayed/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
 test("sfd-202-221 Hostile Takeover golden: control changes the unit and then readies it", () => {
@@ -347,7 +352,7 @@ test("sfd-202-221 Hostile Takeover: the 'at a battlefield' restriction matches b
 
 test.todo(
   "sfd-202-221 Hostile Takeover: the [Hidden] half — Hide now for :rb_rune_rainbow: and the facedown play " +
-    "for :rb_energy_0: with its later Reaction timing — depends on cost.hidden (RIFT-89) and the " +
+    "for :rb_energy_0: with its later Reaction timing — depends on cost.hidden (RIFT-261) and the " +
     "continuous.timing consumer (RIFT-91)"
 );
 

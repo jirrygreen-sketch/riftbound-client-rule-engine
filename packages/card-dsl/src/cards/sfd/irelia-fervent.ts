@@ -14,31 +14,35 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  * - "When you choose ... me"：383.4.b 的 Targeting Effect——Conditions 里包含「某个
  *   Game Object 成为目标」；383.4.b.1 的常见措辞正是 "When you choose me …"，
  *   383.4.b.2 规定它在法术/能力指定合适目标后作为 Pending Item 进链。对应封闭时点
- *   became-target（events/timing-points.ts，ruleRefs 355.6/754）。
+ *   became-target（events/timing-points.ts，ruleRefs 355.6/754）；chain/engine.ts 的
+ *   TargetPlan finalize 会发出该事件并带 object/target/source/player 载荷。
  * - "or ready me"：「or」在这里是两个触发条件的并列，不是二选一的效果模式
  *   （355.11 的 "or" 只针对效果的并列模式；触发条件的 "or" 是并列订阅）。因此写成两条
  *   triggered 能力，分别订阅 became-target 与 object-readied（416/412.4 的 "becomes
  *   ready" 时点），两条共用同一效果体。
  * - "give me +1 :rb_might: this turn"：带回合期限的临时 Might 修改，属算术图层
  *   （continuous.might，143.2.a/475–477）；effect.buff 文件头明确临时 Might 修改归
- *   continuous.might，不是 Buff 计数器（702/703）。"me" 指能力宿主，用契约 3.6 的
- *   符号选择器 "self"。
+ *   continuous.might，不是 Buff 计数器（702/703）。"me" 是能力宿主，用 continuous.might
+ *   的 appliesTo: "self" 简写（契约 3.6 的符号选择器）。
  * - 427.1.c 的注意点："When you buff me" 类措辞依赖「真的被 Buff」；本卡的
  *   "choose" 是 Targeting Effect（触发于成为目标），"ready" 是 Ready 动作，两者的
  *   实际发生由时点发出方判定，卡不重复实现。
+ * - 触发过滤器的锚点写"指称本卡"的可翻译拼写：objectId: "self" 由卡牌程序绑定
+ *   （RIFT-257）翻译成 object: { objectId: <host ref> }，player: "self" 由事件匹配器
+ *   解析为「该能力控制者」（events/pipeline-match.ts 的 playerMatches）。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
- * - 临时 Might 修改在结算期没有可执行路径：契约 3.6 的封闭 GameAction 集合没有
- *   Might 修改动作，effects/instructions/ 下也没有注册的 continuous.might 原语
- *   （层引擎能求值 arithmetic 层与回合期限，但没有把结算期的持续效果经
- *   ResolveContext.addContinuous 落地的指令）；不能近似为 effect.buff 计数。
- * - became-target 与 object-readied 时点已定义，但没有已合入消费方把 CardProgram 的
- *   triggered 能力注册成事件订阅（RIFT-120），两条触发都无法进链。
- * - [Deflect] 的展开（static target.tax）已合入，但没有生产方把永久物上的 target.tax
- *   接进目标选择与追加费用，且已合入换算按 Energy 记账而 809.1.c.1 要求任意域 Power
- *   （与 ogn/pouty-poro 同一记录）。
- * 依赖：continuous.might 指令原语（RIFT-9 清单；RIFT-91 的图层求值侧已合入）、
- * RIFT-120（转移/就绪时点的卡牌触发注册）、RIFT-90/RIFT-89（Deflect 目标税）。
+ * - 临时 Might 修改与两条触发都已可执行：continuous.might（RIFT-258）经
+ *   ResolveContext.addContinuous 注册 arithmetic 图层效果并按 this-turn 到期，
+ *   卡牌程序绑定（RIFT-257）把两条 triggered 能力注册成真实订阅；golden 用真实
+ *   ChainEngine 执行 became-target（TargetPlan finalize 的实际发射形状）与
+ *   object-readied（真实 ready 动作），断言 +1 有效 Might、非 Buff、回合结束到期与
+ *   敌方指定不触发。
+ * - 整卡仍不可执行：[Deflect] 的展开（static target.tax）已合入，但没有生产方把
+ *   永久物上的 target.tax 接进目标选择与追加费用（chain/engine.ts 只把调用方显式
+ *   传入的 tax 变成 mandatoryAdditional），且已合入换算按 Energy 记账而 809.1.c.1
+ *   要求任意域 Power（与 ogn/pouty-poro 同一记录，RIFT-90/RIFT-89）。
+ * 依赖：RIFT-90（target.tax 的目标选择/追加费用接线）、RIFT-89/261（任意域 Power 支付）。
  * 不近似实现（不用 Buff 计数代替临时 Might，也不把触发条件改成其它时点）。
  */
 /** 两条触发（choose / ready）的同一印文效果："give me +1 :rb_might: this turn"。 */
@@ -47,7 +51,9 @@ const grantMight = (id: string): Instruction => ({
   op: "continuous.might",
   args: {
     amount: { kind: "constant", value: 1 },
-    duration: { kind: "constant", value: "this-turn" }
+    duration: { kind: "constant", value: "this-turn" },
+    // "me" 是能力宿主：appliesTo 的符号简写，不写运行时 ObjectRef。
+    appliesTo: { kind: "constant", value: "self" }
   }
 });
 
@@ -56,14 +62,14 @@ const abilities: Ability[] = [
   {
     kind: "triggered",
     // 383.4.b：Targeting Effect（"When you choose me …"），时点 became-target。
-    trigger: { at: "became-target", filter: { event: "became-target", target: { source: "self" } } },
+    trigger: { at: "became-target", filter: { event: "became-target", objectId: "self", player: "self" } },
     optional: false,
     body: [grantMight("irelia-fervent.choose-plus-1-might")]
   },
   {
     kind: "triggered",
-    // 416/412.4："becomes ready" 时点 object-readied，filter 指向本卡自身。
-    trigger: { at: "object-readied", filter: { event: "object-readied", filter: { source: "self" } } },
+    // 416/412.4："becomes ready" 时点 object-readied，锚点指向本卡自身。
+    trigger: { at: "object-readied", filter: { event: "object-readied", objectId: "self", player: "self" } },
     optional: false,
     body: [grantMight("irelia-fervent.ready-plus-1-might")]
   }
@@ -74,15 +80,17 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处依赖未合入：(1)「give me +1 :rb_might: this turn」是带回合期限的临时 Might 修改，属算术图层：" +
-    "契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，effects/instructions/ 下没有注册的 continuous.might 原语" +
-    "（layers 能求值 arithmetic 层与 end-of-turn/this-turn 期限，但没有把结算期持续效果经 ResolveContext.addContinuous 落地的指令；" +
-    "effect.buff 文件头明确临时 Might 归 continuous.might，不能近似为 Buff 计数）。" +
-    "(2) Checking Effect 的两条订阅（became-target，383.4.b/754；object-readied，416/412.4）时点已定义，" +
-    "但没有已合入消费方把 CardProgram 的 triggered 能力注册成事件订阅（CardProgram → TriggerRegistration，RIFT-120），触发无法进链。" +
-    "(3)[Deflect] 的展开（static target.tax）已合入，但没有生产方把永久物上的 target.tax 接进目标选择与追加费用，" +
-    "且已合入换算按 Energy 记账而 809.1.c.1 要求任意域 Power（同 ogn/pouty-poro，RIFT-90/RIFT-89）。" +
-    "依赖：continuous.might 指令原语（RIFT-9 清单；RIFT-91 的图层求值侧已合入）、RIFT-120、RIFT-90/RIFT-89。不近似实现。",
+    "仅剩一处缺口：[Deflect]（809）的展开（static target.tax）已合入，但没有生产方把永久物上的 " +
+    "target.tax 接进目标选择与追加费用（chain/engine.ts 只把调用方显式传入的 tax 变成 " +
+    "mandatoryAdditional），且已合入换算按 Energy 记账而 809.1.c.1 要求任意域 Power" +
+    "（同 ogn/pouty-poro，RIFT-90/RIFT-89）。" +
+    "其余已可执行并有真实执行测试：" +
+    "(1)「give me +1 :rb_might: this turn」用已合入的 continuous.might（RIFT-258）经 " +
+    "ResolveContext.addContinuous 注册 arithmetic 图层效果、appliesTo: \"self\" 指称宿主并按 " +
+    "this-turn 到期（317.1.a/468.7.c），绝不用 Buff 计数近似（702/703）；" +
+    "(2) 两条触发（became-target，383.4.b；object-readied，416/412.4）经卡牌程序绑定" +
+    "（RIFT-257）注册为真实订阅，golden 用真实 ChainEngine 执行 became-target 发射与真实 " +
+    "ready 动作。依赖：RIFT-90、RIFT-89/261。不近似实现。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +
