@@ -98,9 +98,10 @@ test("rad-026-167 Entrenched Boar: identity, status, judgeReason and verbatim so
   // README §2: the reason names the remaining entry transaction gap.
   assert.match(program.judgeReason, /optional/);
   assert.match(program.judgeReason, /replacement\.event/);
-  assert.match(program.judgeReason, /replacement\.event\/replaces\.event 的 optional/);
+  assert.match(program.judgeReason, /可选声明未传入 ReplacementRegistration\.optional/);
   assert.match(program.judgeReason, /continuous\.restrict/);
   assert.match(program.judgeReason, /condition\.predicate/);
+  assert.match(program.judgeReason, /args\.instead.*Expr/);
   // The merged entry replacement must no longer be reported as unmerged.
   assert.doesNotMatch(program.judgeReason, /replacement\.enter 家族/);
   assert.doesNotMatch(program.judgeReason, /RIFT-91/);
