@@ -23,7 +23,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   打出程序的 KeywordDef.expand/Finalize，因此仍不能向咒语传递可支付实例。
  * - 被授予的 Repeat 需要携带印刷费用（820.1.c）；当前 grant 结果没有把 cost 参数接到
  *   Repeat 的 additional-cost/payment 与已支付次数。
- * 依赖：showdown 状态谓词（RIFT-359）与 layer-granted Repeat 的费用/Finalize/paid-count 接线。
+ * 依赖：showdown 状态谓词与 layer-granted Repeat 的费用/Finalize/paid-count 接线。
  */
 const abilities: Ability[] = [
   {
@@ -62,7 +62,7 @@ export default {
     "打出程序的 KeywordDef.expand/Finalize，不能向咒语传递可支付实例；" +
     "(3) 被授予的 Repeat 实例要携带印刷费用（820.1.c），当前 grant 结果没有把 cost 参数接到" +
     "Repeat 的 additional-cost/payment 与已支付次数。" +
-    "依赖：showdown 状态谓词（RIFT-359）与 layer-granted Repeat 的费用/Finalize/paid-count 接线；不近似实现（不把授予写成 Syndra 自己的关键词，" +
+    "依赖：showdown 状态谓词与 layer-granted Repeat 的费用/Finalize/paid-count 接线；不近似实现（不把授予写成 Syndra 自己的关键词，" +
     "也不把 Showdown 条件省略成无条件授予）。",
   abilities,
   sourceText:
