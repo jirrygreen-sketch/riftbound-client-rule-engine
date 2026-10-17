@@ -1,7 +1,7 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Plundering Poro (sfd-069-221) — rumble-sfd (RIFT-95).
+ * Plundering Poro (sfd-069-221) — rumble-sfd.
  *
  * "When I conquer, play a Gold gear token exhausted."
  *

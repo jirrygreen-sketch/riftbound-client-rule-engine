@@ -76,7 +76,7 @@ test("sfd-069-221 Plundering Poro structure: conquer trigger filtered to this un
 });
 
 test("sfd-069-221 Plundering Poro golden: the merged token play pipeline really creates and plays a supported token", () => {
-  // RIFT-62's play mode is merged: a NEW token is created on the Chain and then
+  // The merged play mode creates a NEW token on the Chain and then
   // handed to `play`. The card's own body is blocked on the Gold definition
   // (which carries a printed ability, CR 187.5), so the golden exercises the
   // merged half with a definition that is in the frozen table and keeps the

@@ -52,17 +52,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Your Equipment each give [Assault]」目前只被声明，尚无已合入路径让它生效，故不声称可执行：" +
-    "(1) 没有调用方把 CardProgram 的 static 能力注册成 layers/LayerEngine 的 ContinuousEffectSpec" +
-    "（registerContinuousEffect 无调用方，engine-core 从不读取 CardProgram.abilities；同 ogn/windswept-hillock、" +
-    "ogn/trifarian-war-camp、rad/packed-amphitheater 记录的同一缺口，属 RIFT-91 后续接线）；" +
-    "(2) 没有消费方把被授予的关键词展开成 KeywordDef——layers/engine.ts 的 applyKeyword 只写入关键词特征，" +
-    "没有任何已合入路径读取被授予的 Assault 并产出 effects/keywords/Assault.ts 定义的「作为攻击者 +X [M]」" +
-    "算术静态效果（807.1.c），所以印刷的 +1 Might 不会发生（RIFT-81 的展开消费）；" +
-    "(3) 「you」占位符未绑定：layers/filter.ts 的选择符只认 self/opponent/any 与 playerId 对象，" +
-    "`controller: \"controller\"` 当前匹配不到任何对象（fail-closed：不会错误授予对手的 Equipment，" +
-    "但也不会到达控制者的 Equipment），绑定到能力控制者属于占位符绑定工作（chain/engine.ts 只归一化 self/opponent）。" +
-    "依赖 RIFT-91 与 RIFT-81；不近似实现（不写成单卡专用结算，也不改成数值修正）。",
+    "「Your Equipment each give [Assault]」的本体（按能力控制者过滤 board 上的 Equipment 并授予 Assault）" +
+    "已能经 engine-core programs/statics 的绑定执行：golden 经 createProgramBinding + attachLifecycle 实证" +
+    "己方 Equipment 得到 Assault、对手 Equipment 与无 Equipment 标签的 Gear 不受，detach 后消失；" +
+    "仍判 judge-required 的当前缺口：" +
+    "(1) 没有消费方把被授予的关键词展开成 KeywordDef——layers/engine.ts 只写入关键词特征，" +
+    "没有任何已合入路径读取被授予的 Assault 并产出 effects/keywords/Assault.ts 定义的" +
+    "「作为攻击者 +X [M]」算术静态效果（807.1.c），所以印刷的 +1 Might 不会发生；" +
+    "(2) 718.3 的 Attached 卡 Effect Text 追加到 Top-Most 卡的传播没有可执行桥接，" +
+    "被授予的 Assault 因此到不了该 Equipment 所装备的单位；" +
+    "(3) 生产端把卡牌程序生命周期接线到对局的端到端路径尚未合入（golden 只在测试内核内绑定）。" +
+    "不近似实现（不写成单卡专用结算，也不改成数值修正）。",
   abilities: [
     {
       kind: "static",
