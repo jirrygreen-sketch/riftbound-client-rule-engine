@@ -15,27 +15,27 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “ready me.”：416.1 的就绪动作；effect.ready 的缺省选择就是能力来源（"ready me"），
  *   已合入。
  *
- * status = judge-required（见 judgeReason），按合入后的触发过滤/选择器词表与
- * src/programs/*（触发注册）复核：
- * - card-played 时点已由 chain/engine.ts 在链项结算完成时真实发出；
- * - 但引擎的 TriggerSpec/EventPattern 词表里仍没有“被写出卡牌的印刷能量费用阈值”，
- *   且 ObjectSelector 只有 self / source / target / pick / linked，均指本能力自身或显式选择，
- *   不能指被触发事件里的那张牌（事件载荷也不暴露该对象），因此无法如实判定 7+；
- *   改写为“本单位/来源”上的条件会得到错误的语义，不能近似。程序用一个未在引擎词表内的
- *   描述性键记录门槛（声明即缺口的形状），注册时会 fail-closed 而不是对每张牌都触发。
- * - golden 真实执行可执行半段：“ready me”的 effect.ready（含 416.1.c 已就绪时无额外事情）。
- * 依赖：事件对象选择器/费用阈值的契约扩展（把「被触发事件里的那张牌」暴露给条件表达式）。
+ * status = executable（2026-10-17 复核）：已合入的事件对象印刷特征谓词
+ * （Condition kind "event-printed"）和 chain/engine.ts 的 card-played 印刷快照
+ * { energy, power, might } 接到同一条 Play Effect 事件上；触发条件现在直接读取
+ * 被打出牌的印刷 Energy 并与 7 比较。生产链执行证据覆盖 >=7 触发与 6 不触发两侧。
+ * 事件载荷缺少印刷 energy 时，event-printed 谓词抛 MissingInformation（fail-closed），
+ * 不会把缺失值当作 0。
  */
 const abilities: Ability[] = [
   {
     kind: "triggered",
     trigger: {
       at: "card-played",
-      // “you play a card” — 由本控制者打出的牌（不是本单位自己）；"with Energy cost 7 or
-      // more" 是对被写出卡牌印刷费用的阈值过滤（206/206.1）。
-      filter: {
-        event: "card-played",
-        filter: { player: "self", playedCardEnergyCostAtLeast: 7 }
+      // “you play a card” — 由本控制者打出的牌（不是本单位自己）。
+      filter: { event: "card-played", player: "self" },
+      // “with Energy cost 7 or more” — 读事件对象的印刷 Energy（206/206.1）。
+      condition: {
+        kind: "event-printed",
+        object: "object",
+        characteristic: "energy",
+        operator: "gte",
+        right: { kind: "constant", value: 7 }
       }
     },
     optional: false,
@@ -53,17 +53,8 @@ const abilities: Ability[] = [
 const program = {
   canonicalCardId:
     "card.hash-6028fb37be26fd7565a2496f62a0ae6299311f364579011da70ce8cdbb0ddd08",
-  rulesetVersion: "core-1.5" as const,
-  status: "judge-required" as const,
-  judgeReason:
-    "触发条件无法如实判定：CR 206/206.1 规定“卡牌的费用”一律取印刷（或被复制）费用，因此本能力要检查被打出卡牌的印刷能量费用 ≥ 7，" +
-    "但引擎的触发过滤词汇（events/trigger-spec.ts 的 ObjectFilter/EventPattern）没有该阈值谓词，" +
-    "也没有把「被打出事件里的那张牌」暴露给条件表达式的选择器（契约 3.6 的 ObjectSelector 只有 self / source / target / pick / linked，" +
-    "全部指本能力自身或显式选择，不能指被触发事件的对象）；把它改写成对来源/本单位条件的检查会得到错误语义，故不近似实现，" +
-    "程序里只在触发过滤器中记录该门槛的声明形状（引擎词表不认识该键，注册 fail-closed）。" +
-    "另：CardProgram → TriggerRegistration 的绑定路径已合入（src/programs/triggers.ts），但该触发" +
-    "翻译其过滤器时因未知键 fail-closed（见绑定测试），仍不能注册。" +
-    "可执行半段：effect.ready 的 “ready me”（416.1，已就绪时按 416.1.c 无额外事情），golden 真实执行；不据此宣称整卡可执行。",
+  rulesetVersion: "core-1.5",
+  status: "executable",
   abilities,
   sourceText: "When you play a card with Energy cost :rb_energy_7: or more, ready me."
 } satisfies CardProgram;

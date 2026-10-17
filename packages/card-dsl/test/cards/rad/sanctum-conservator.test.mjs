@@ -1,9 +1,10 @@
 // Golden test for Sanctum Conservator (rad-030-167).
 //
-// judge-required (see the program's judgeReason): the merged trigger vocabulary
-// cannot test the played card's printed Energy cost, and IR has no selector for
-// "the card in the triggering play event". The runnable evidence is the merged
-// "ready me" primitive the trigger body uses (including 416.1.c).
+// executable: the merged event-object printed-characteristic
+// condition (CR 206/206.1) and chain/engine.ts publishes the played card's
+// printed Energy on the card-played event. The trigger condition reads that
+// printed snapshot directly; the >=7 and 6 cases run through the real
+// production play binding and the source really readies.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -12,16 +13,50 @@ import program from "../../../dist/cards/rad/sanctum-conservator.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL =
   "card.hash-6028fb37be26fd7565a2496f62a0ae6299311f364579011da70ce8cdbb0ddd08";
 const SOURCE_TEXT =
   "When you play a card with Energy cost :rb_energy_7: or more, ready me.";
+const BIG = "card.probe.sanctum-conservator.big";
+const SMALL = "card.probe.sanctum-conservator.small";
+const NO_COST = "card.probe.sanctum-conservator.no-cost";
 
 const [triggered] = program.abilities;
 const [readyInstruction] = triggered.body;
+
+const emptyProgram = (canonicalCardId, sourceText) => ({
+  canonicalCardId,
+  rulesetVersion: "core-1.5",
+  status: "executable",
+  abilities: [],
+  sourceText
+});
+
+function board({ cards }) {
+  const binding = createProgramBinding({
+    cardPrograms: [program, emptyProgram(BIG, "probe big"), emptyProgram(SMALL, "probe small"), emptyProgram(NO_COST, "probe no cost")]
+  });
+  const game = fixture({ cards, describePlay: binding.describePlay });
+  binding.attachLifecycle(game.engine, (error) => { throw error; });
+  game.engine.commit({ type: "play", object: game.kernel.ref("conservator"), player: "A" });
+  game.engine.advance();
+  resolveAll(game.engine);
+  return game;
+}
+
+const conservatorCard = {
+  id: "conservator",
+  cardId: CANONICAL,
+  types: ["unit"],
+  energy: 5,
+  power: [],
+  might: 5
+};
 
 test("rad-030-167 Sanctum Conservator: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -29,29 +64,32 @@ test("rad-030-167 Sanctum Conservator: program passes validateCardProgram", () =
   assert.equal(result.ok, true);
 });
 
-test("rad-030-167 Sanctum Conservator: identity, status, judgeReason and verbatim sourceText", () => {
+test("rad-030-167 Sanctum Conservator: identity, executable status and verbatim sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(program.status, "judge-required");
-  // README §2: name the missing filter/payload vocabulary, the rule and the task.
-  assert.match(program.judgeReason, /206\/206\.1/);
-  assert.match(program.judgeReason, /ObjectSelector/);
-  assert.match(program.judgeReason, /触发过滤词汇/);
-  assert.match(program.judgeReason, /fail-closed/);
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("rad-030-167 Sanctum Conservator: one card-played trigger filtered to the controller's plays", () => {
+test("rad-030-167 Sanctum Conservator: one card-played trigger with the printed-Energy condition", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(triggered.kind, "triggered");
   // CR 383.4.a / 383.4.a.4: this watches another card being played, not its own entry.
   assert.equal(triggered.trigger.at, "card-played");
-  assert.equal(triggered.trigger.filter.event, "card-played");
-  assert.equal(triggered.trigger.filter.filter.player, "self");
-  // CR 206: "a card with Energy cost 7 or more" reads the printed Energy cost.
-  assert.equal(triggered.trigger.filter.filter.playedCardEnergyCostAtLeast, 7);
+  assert.deepEqual(triggered.trigger.filter, { event: "card-played", player: "self" });
+  // CR 206: "a card with Energy cost 7 or more" reads the printed Energy cost of
+  // the played event object, never the amount actually paid.
+  assert.deepEqual(triggered.trigger.condition, {
+    kind: "event-printed",
+    object: "object",
+    characteristic: "energy",
+    operator: "gte",
+    right: { kind: "constant", value: 7 }
+  });
   assert.equal(triggered.optional, false);
+  assert.equal(program.judgeReason, undefined);
 });
 
 test("rad-030-167 Sanctum Conservator: the body is exactly 'ready me'", () => {
@@ -87,40 +125,84 @@ test("rad-030-167 Sanctum Conservator: an already-ready source produces no extra
   assert.equal(scoped.getObject("conservator").exhausted, false);
 });
 
-test("rad-030-167 Sanctum Conservator: the printed cost gate is declared for review", () => {
-  // The declaration keeps the intended field name and threshold so the review
-  // can audit it; judgeReason names the missing trigger vocabulary and the
-  // missing event-object selector that block an honest evaluation (206/206.1).
-  assert.equal(triggered.trigger.filter.filter.player, "self");
-  assert.equal(triggered.trigger.filter.filter.playedCardEnergyCostAtLeast, 7);
-  assert.match(program.judgeReason, /playedCardEnergyCostAtLeast|该阈值谓词/);
+test("rad-030-167 Sanctum Conservator: binding registers the trigger with the merged condition", () => {
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const kernel = world()
+    .card("conservator", { cardId: CANONICAL, types: ["unit"], energy: 5, power: [], zone: "hand" })
+    .build();
+  binding.inspect({ cardId: CANONICAL, keywords: [] });
+  const [registration] = triggerRegistrations(binding.registry, kernel.getObject("conservator"));
+  assert.equal(registration.spec.at, "card-played");
+  assert.deepEqual(registration.spec.filter, { event: "card-played", player: "self" });
+  assert.deepEqual(registration.spec.condition, {
+    kind: "event-printed",
+    object: "object",
+    characteristic: "energy",
+    operator: "gte",
+    right: { kind: "constant", value: 7 }
+  });
+  assert.deepEqual(registration.activeZones, ["board"]);
 });
 
-test.todo(
-  "Sanctum Conservator: the printed-Energy-cost threshold on the played card (CR 206/206.1) — blocked because the frozen " +
-    "trigger filter vocabulary has no cost predicate and, decisively, IR's ObjectSelector cannot name the card in the triggering " +
-    "play event (self/source/target/pick/linked all refer to the ability itself or an explicit choice); the declaration keeps the " +
-    "intended field name (playedCardEnergyCostAtLeast) instead of approximating the check on the source"
-);
+test("rad-030-167 Sanctum Conservator: playing a 7-Energy card really readies it through the production chain", () => {
+  const game = board({
+    cards: [conservatorCard, { id: "big", cardId: BIG, types: ["unit"], energy: 7, power: [], might: 2 }]
+  });
+  assert.equal(game.kernel.getObject("conservator").zone, "board");
+  // Own play: the played card is the conservator itself (printed Energy 5), so
+  // the condition is false and no ready happens.
+  assert.equal(game.kernel.getObject("conservator").exhausted, true);
 
-test("rad-030-167 Sanctum Conservator: the trigger translator fail-closes on the unknown printed-cost key", () => {
-  // The shipped program stays judge-required. The merged src/programs binding
-  // accepts the trigger at the registry level but cannot translate its filter:
-  // playedCardEnergyCostAtLeast (CR 206/206.1) is not in the trigger-spec
-  // ObjectFilter vocabulary, so registering it throws instead of silently
-  // registering a trigger that would fire on every play.
-  const executable = { ...program, status: "executable" };
-  delete executable.judgeReason;
-  const binding = createProgramBinding({ cardPrograms: [executable] });
-  const kernel = world()
-    .card("conservator", { cardId: CANONICAL, types: ["unit"], energy: 2, power: [], zone: "hand" })
-    .build();
+  assert.equal(game.engine.commit({ type: "play", object: game.kernel.ref("big"), player: "A" }).status, "done");
+  game.engine.advance();
+  resolveAll(game.engine);
 
-  // Control evidence: the binding inspects the program without throwing, so
-  // the failure below comes from the printed-cost filter key alone.
-  binding.inspect({ cardId: CANONICAL, keywords: [] });
+  const played = game.engine.pipeline.events.filter((event) => event.timingPoint === "card-played");
+  assert.deepEqual(played.map((event) => event.object.ref.id), ["conservator", "big"]);
+  assert.equal(game.engine.items.length, 0);
+  assert.equal(game.kernel.getObject("conservator").exhausted, false);
+});
+
+test("rad-030-167 Sanctum Conservator: a 6-Energy card does not trigger the printed-Energy gate", () => {
+  const game = board({
+    cards: [conservatorCard, { id: "small", cardId: SMALL, types: ["unit"], energy: 6, power: [], might: 2 }]
+  });
+  assert.equal(game.kernel.getObject("conservator").exhausted, true);
+  assert.equal(game.engine.commit({ type: "play", object: game.kernel.ref("small"), player: "A" }).status, "done");
+  game.engine.advance();
+  resolveAll(game.engine);
+  assert.equal(game.engine.items.length, 0, "no trigger is created below the printed-Energy threshold");
+  assert.equal(game.kernel.getObject("conservator").exhausted, true);
+});
+
+test("rad-030-167 Sanctum Conservator: a card without a printed Energy cost is never coerced to 0", () => {
+  const game = board({
+    cards: [conservatorCard, { id: "nullcard", cardId: NO_COST, types: ["unit"], energy: null, power: null, might: 2 }]
+  });
+  assert.equal(game.kernel.getObject("conservator").exhausted, true);
+  // A direct card-played event for a card with no printed Energy cost must
+  // fail closed inside the condition rather than compare null as 0. This drives
+  // the real matcher against a real event payload with energy: null.
+  const game2 = board({ cards: [conservatorCard] });
+  const source = game2.kernel.getObject("conservator");
+  const event = {
+    timingPoint: "card-played",
+    kind: "card-played",
+    eventId: 99,
+    object: { ...source, ref: { id: "nullcard", zoneEntryId: 3 }, zone: "chain", energy: null },
+    source,
+    player: "A",
+    details: { printed: { energy: null, power: null, might: 2 } }
+  };
   assert.throws(
-    () => triggerRegistrations(binding.registry, kernel.getObject("conservator")),
-    (error) => error.code === "judge-required"
+    () => evaluateCondition(triggered.trigger.condition, {
+      context: game2.kernel,
+      event,
+      linked: (key) => game2.kernel.linked(key),
+      canLookBack: () => true,
+      isIgnored: () => false
+    }),
+    (error) => /Printed characteristic|printed .* characteristic/i.test(error.message)
   );
+  assert.equal(game2.kernel.getObject("conservator").exhausted, true);
 });

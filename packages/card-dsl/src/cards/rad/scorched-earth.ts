@@ -18,17 +18,16 @@ import type { CardProgram } from "../../ir/index.js";
  * - effect.damage's `divide: true` mode (CR 355.14.e) is merged and asks the
  *   controller for each target's amount at resolution; the golden test drives
  *   it against the reference kernel.
-
- * Status: judge-required, re-reviewed. The damage split itself is the merged
- * effect.damage divide mode (CR 355.14.e) and the golden test drives it against
- * the reference kernel. Two pieces of the printed text are still not covered by
- * merged code:
+ *
+ * Status: judge-required, re-reviewed 2026-10-17. Two pieces of the printed
+ * text are still not covered by merged code:
  * - "at a single battlefield" is a group constraint (all Targets must share
- *   one battlefield). TargetRequirement carries the group field
- *   (target/target-plan.ts) but no consumer enforces it: nothing checks that
- *   the chosen members share a location, so a player could split the damage
- *   across two battlefields. This is the group-targeting primitive: target/
- *   carries the field but has no group-consuming execution path.
+ *   one battlefield). TargetRequirement carries kind/group
+ *   (target/target-plan.ts) but no consumer enforces it: legalCandidates() only
+ *   filters each candidate individually through matchesRequirement(), so a
+ *   player can split the damage across two battlefields. This is the
+ *   group-targeting primitive: target/ carries the field but has no
+ *   group-consuming execution path.
  * - 355.14.h (controller drops Targets when the available damage at
  *   resolution is smaller than the number of Targets) has no implementation:
  *   effect.damage computes each amount's bound as remaining - (slots left - 1)
@@ -42,10 +41,9 @@ const scorchedEarth = {
   status: "judge-required",
   judgeReason:
     "缺「同一战场」分组约束的落地：CR 355.14.a/b 要求把伤害分配目标限定在同一战场（355.14.c 的 5 个上限已写进 IR 的 max: 5），" +
-    "但 target/ 只有 TargetRequirement.group 字段而没有组约束的执行路径（target.many），" +
-    "当前可把伤害分到两个不同战场；另 CR 355.14.h（结算时可用伤害少于目标数" +
-    "时由控制者裁撤目标）没有实现，effect.damage 只会在非法答案时整条否定。" +
-    "effect.damage 的 divide 分配本身已合入，golden 测试用真实内核执行该半段。不近似实现。",
+    "但 target/ 只有 TargetRequirement.group 字段而没有组约束的执行路径：target-plan.ts 的 legalCandidates() 只对每个候选单独走 matchesRequirement()，" +
+    "当前可把伤害分到两个不同战场；另 CR 355.14.h（结算时可用伤害少于目标数时由控制者裁撤目标）没有实现，" +
+    "effect.damage 只会在非法答案时整条否定。effect.damage 的 divide 分配本身已合入，golden 测试用真实内核执行该半段。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

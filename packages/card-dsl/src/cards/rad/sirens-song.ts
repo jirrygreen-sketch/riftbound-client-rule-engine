@@ -14,17 +14,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   history 计数由 context.history 提供，契约 3.6）；原文没有印刷目的地，目的地按 355.4 /
  *   355.4.a 在结算时选择（451.1）。
  *
- * status = judge-required（不近似实现），按已合入的 Reaction、effect.move 与 LocationExpr
- * 复核：
- * 1. 目的地是运行期选择（355.4 / 355.4.a / 451.1）：LocationExpr 已能让 effect.move
- *    求值可用候选地点，但合并的候选来源没有注入空战场，因此所有合法落点仍未形成完整生产链；
- *    本卡保留该边界，不落到错误地点。
- * 2. 「that moved this turn」需要移动历史谓词：HistoryQuery（契约 3.6 / 3.8）可用于指令
- *    与触发条件，但目标过滤器没有 moved-this-turn 谓词，无法在 Finalize 用它限制目标
- *    合法性（355.9.b）；object-moved 时点本身已由 events/action-adapter.ts 发出，
- *    缺的是把该历史接进 TargetSpec filter 的谓词词汇。
- * 3. [Reaction] 关键词（keywords/Reaction.ts）与 effect.move 原语本身已合入，
- *    被移动的敌方单位按 355.10 / 355.9.a.1 声明为目标。
+ * status = judge-required（2026-10-17 复核），两处缺口均实测：
+ * 1. 「that moved this turn」需要目标过滤器的移动历史谓词：HistoryQuery 可用于指令/触发
+ *    条件，但 TargetSpec.filter 没有 moved-this-turn 谓词（355.9.b）；实际经
+ *    programs/filters.ts 翻译该目标时抛 ProgramBindingError「Unsupported filter field
+ *    movedThisTurn」，整条 play 绑定 fail-closed。object-moved 时点本身已由事件管线发出。
+ * 2. 目的地是运行期选择（355.4 / 355.4.a / 451.1）：LocationExpr 已合入，但候选来源只在
+ *    已知对象/显式注入的地点中生成（实测：空世界没有任何战场候选，bf-1 被占据时 bf-2 这种
+ *    空战场也不出现），完整合法落点尚未形成生产链。
+ * 3. [Reaction] 关键词与 effect.move 原语本身已合入；被移动的敌方单位按 355.10 /
+ *    355.9.a.1 声明为目标，Move 半段以显式目的地真实执行，移动历史可由内核观察。
  *
  * 依赖：目标过滤器的移动历史谓词与完整的运行期 Location 候选来源。
  */
@@ -42,10 +41,12 @@ const sirensSong = {
   status: "judge-required",
   judgeReason:
     "两处缺口，均不近似实现：(1) 没有印刷目的地——已按 CR 355.4 / 355.4.a / 451.1 写成" +
-    "LocationExpr 运行期选择，但候选来源没有注入空战场，所有合法落点尚未形成完整生产链。" +
-    "(2)「an enemy unit that moved this turn」的目标合法性" +
-    "需要移动历史谓词（CR 449 / 355.9.b）：HistoryQuery 只作用于指令/触发条件，" +
-    "目标过滤器没有 moved-this-turn 谓词（object-moved 时点本身已由事件管线发出）。" +
+    "LocationExpr 运行期选择，但候选来源只在已知对象/显式注入的地点中生成（实测空世界无任何战场候选、" +
+    "bf-1 被占据时 bf-2 也不出现），所有合法落点尚未形成完整生产链。" +
+    "(2)「an enemy unit that moved this turn」的目标合法性需要移动历史谓词（CR 449 / 355.9.b）：" +
+    "HistoryQuery 只作用于指令/触发条件，目标过滤器没有 moved-this-turn 谓词；" +
+    "programs/filters.ts 翻译该目标时实测抛 ProgramBindingError「Unsupported filter field movedThisTurn」，" +
+    "整条 play 绑定 fail-closed（object-moved 时点本身已由事件管线发出）。" +
     "被移动的敌方单位已按 355.10 / 355.9.a.1 声明为目标；[Reaction] 关键词与 effect.move 原语本身已合入。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
