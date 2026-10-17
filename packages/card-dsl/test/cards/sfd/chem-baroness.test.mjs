@@ -6,6 +6,8 @@ import program from "../../../dist/cards/sfd/chem-baroness.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -49,15 +51,26 @@ test("sfd-201-221 Chem-Baroness: 'when you or an ally hold' is a Hold Effect for
   assert.equal(program.abilities.length, 2);
   assert.equal(holdTrigger.kind, "triggered");
   // 383.4.d / 383.4.d.1: the conditional clause is the Hold; the closed timing
-  // point is `hold` (CR 315.2.b.2 / 471.2 / 473.2.b).
+  // point is `hold` (CR 315.2.b.2 / 471.2 / 473.2.b). The event word must be
+  // "held": TriggerSpec's vocabulary has no "hold" pattern, and
+  // events/pipeline-match maps the hold timing point to "held".
   assert.equal(holdTrigger.trigger.at, "hold");
-  assert.deepEqual(holdTrigger.trigger.filter, { event: "hold", player: "self" });
+  assert.deepEqual(holdTrigger.trigger.filter, { event: "held", player: "self" });
   assert.equal(holdTrigger.trigger.once, undefined);
   assert.equal(holdTrigger.trigger.condition, undefined);
   // 403.1 / 383.3.a: the leading "you may" is the triggered ability's own
   // optionality; 3.9 wraps the chosen instructions in choice.optional.
   assert.equal(holdTrigger.optional, true);
   assert.equal(holdTrigger.body.length, 1);
+});
+
+test("sfd-201-221 Chem-Baroness: the hold trigger filter survives the production registration path", () => {
+  // The program binding translates the declared filter and the pipeline
+  // validates it against the closed TriggerSpec vocabulary; the old "hold"
+  // spelling was rejected here.
+  const translated = translateTriggerFilter(holdTrigger.trigger.filter, "chem-baroness", "hold");
+  assert.deepEqual(translated, { event: "held", player: "self" });
+  assert.doesNotThrow(() => assertTriggerSpec({ at: "hold", filter: translated }));
 });
 
 test("sfd-201-221 Chem-Baroness: the may-body pays the exhaust cost then plays a Gold token", () => {
@@ -150,6 +163,43 @@ test("sfd-201-221 Chem-Baroness: an unfulfilled Gold play preserves the legend a
   assert.deepEqual(kernel.objects.filter((object) => object.isToken).map((object) => object.ref.id), []);
   assert.deepEqual(kernel.objects, before);
   assert.deepEqual(kernel.events, []);
+});
+
+test("sfd-201-221 Chem-Baroness: the declared cost.pay shape is rejected by the merged payments parser", () => {
+  // CR 415.4/415.5: "exhaust me" is the trigger's cost. The card declares the
+  // nonstandard payment array; cost.pay's payments parser only accepts the
+  // { energy, power, xp } descriptor form, so the authored shape fails closed
+  // with cannot-pay-cost instead of silently skipping the cost.
+  const kernel = legendWorld();
+  assert.throws(
+    () => resolveChainBody([payExhaust], kernel),
+    (error) => {
+      assert.equal(error.name, "CostPlanError");
+      assert.equal(error.reason, "cannot-pay-cost");
+      return true;
+    }
+  );
+  // Nothing was paid and no Gold token was created by the failed attempt.
+  assert.equal(kernel.getObject("chem-baroness").exhausted, false);
+  assert.deepEqual(kernel.objects.filter((object) => object.isToken), []);
+});
+
+test("sfd-201-221 Chem-Baroness: the Victory Score and ally facts are absent from the merged context", () => {
+  // 194.3/194.3.a: "within 3 points of the Victory Score" needs the current
+  // Victory Score; 491.8.e: "an ally" is the Teammate relation. Neither is on
+  // the frozen PlayerSnapshot/ResolveContext, so the condition cannot be
+  // evaluated and is never hard-coded to the default 8.
+  const kernel = legendWorld();
+  const snapshot = kernel.player("A");
+  assert.equal("victoryScore" in snapshot, false);
+  assert.equal("score" in snapshot, true);
+  assert.equal(snapshot.score, 0);
+  assert.equal("team" in snapshot, false);
+  assert.equal("ally" in snapshot, false);
+  assert.deepEqual(goldBonus.condition, {
+    kind: "expression",
+    value: { kind: "constant", value: "your-score-within-3-of-victory-score" }
+  });
 });
 
 test("sfd-201-221 Chem-Baroness: 'your Gold [Add] an additional :rb_energy_1:' is a conditional static effect", () => {

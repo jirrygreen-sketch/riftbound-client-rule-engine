@@ -81,10 +81,11 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1)「you and each opponent may play a Gold gear token exhausted」是由多玩家分别做出的可选决定" +
+    "复核 2026-10-17，三处依赖未合入，均不近似实现：(1)「you and each opponent may play a Gold gear token exhausted」是由多玩家分别做出的可选决定" +
     "（355.10.e/355.18 的非目标结算期选择）：契约 3.6 的 choose 每次只支持一个 chooser、choice.mode 的 chooser 是单个静态 id，" +
     "IR 也没有「其他玩家席位列表」的 Expr 或按席位重复的控制结构（同 ogn/party-favors 记录的 target.player 缺口），" +
-    "更无法表达「For each opponent who did」的逐席位结果计数（无选择结果绑定）。" +
+    "更无法表达「For each opponent who did」的逐席位结果计数（无选择结果绑定）；" +
+    "本卡记录形状用的 choice.each-player 也不在指令注册表里（所以该 op 无执行路径）。" +
     "(2) Gold gear token（CR 187.5，domainless gear token，自带 Reaction/Kill/[E]: [Add] [A] 能力）不在 effect.token 的冻结定义表，" +
     "该原语对带自身能力的定义返回 blockedReason \"token-definition-or-abilities-judge-required\"；「play ... exhausted」还需" +
     "440.2.c/185.2.a 的链上创建 + 打出接手与 184.1/185.2.d 的入场状态改写（argsSchema 不接受入场状态参数）。" +

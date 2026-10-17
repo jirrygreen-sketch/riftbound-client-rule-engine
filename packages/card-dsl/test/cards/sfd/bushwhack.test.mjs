@@ -5,6 +5,10 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/bushwhack.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+
 const CANONICAL = "card.hash-ee775877b722c8156c89940004f522bef67be48c96cbc0ae9175061e38ad6c56";
 const SOURCE_TEXT =
   "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +
@@ -29,6 +33,44 @@ test("sfd-004-221 Bushwhack: judge-required for Hidden, the entry replacement an
   assert.match(program.judgeReason, /replacement\.enter/);
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /Entry overrides are not supported/);
+});
+
+test("sfd-004-221 Bushwhack: [Hidden] expands through the merged keyword registry", () => {
+  // 811.1.b / contract 3.7: the card only declares the keyword; the expansion
+  // lives in effects/keywords/Hidden.ts. The primitive/zone work that would
+  // execute the Hide action is the remaining dependency (see judgeReason).
+  assert.equal(keywordDefinitionsById.has("Hidden"), true);
+  const definition = keywordDefinitionsById.get("Hidden");
+  assert.equal(definition.stacking, "single");
+  assert.deepEqual(definition.expand({ host: { canonicalCardId: CANONICAL } }), [
+    { kind: "static", effect: { kind: "cost.hidden" } }
+  ]);
+  assert.ok(definition.ruleRefs.includes("811.1.b"));
+});
+
+test("sfd-004-221 Bushwhack: an unfulfilled Gold play preserves the board and creates no substitute token", () => {
+  // The declared Gold definition is exercised exactly as authored. The token
+  // has no merged definition, so nothing is created and no substitute token
+  // stands in for it; the receipt keeps the actual count.
+  const kernel = world().player("A")
+    .unit("cask", { types: ["gear"], zone: "board", location: { type: "base", player: "A" } })
+    .build();
+  const bound = kernel.clone({ sourceSnapshot: kernel.getObject("cask") });
+  const before = bound.objects;
+  const run = runInstruction(token, {
+    token: { kind: "constant", value: "gold" },
+    amount: { kind: "constant", value: 1 },
+    mode: { kind: "constant", value: "play" },
+    location: { kind: "constant", value: { type: "base", player: "A" } },
+    linkKey: { kind: "constant", value: "goldToken" }
+  }, { world: bound });
+
+  assert.deepEqual(run.result.events, []);
+  assert.equal(run.linked.goldToken.amount, 0);
+  assert.deepEqual(run.linked["goldToken.objects"], []);
+  assert.deepEqual(bound.objects.filter((object) => object.isToken).map((object) => object.ref.id), []);
+  assert.deepEqual(bound.objects, before);
+  assert.deepEqual(bound.events, []);
 });
 
 test("sfd-004-221 Bushwhack structure: [Hidden], the entry-ready stipulation and the Gold token", () => {

@@ -157,4 +157,30 @@ test("sfd-042-221 Brutalizer golden: the merged Equip activation carries its pri
   assert.deepEqual(expansion.body.map((step) => step.op), ["effect.attach"]);
 });
 
+test("sfd-042-221 Brutalizer: the printed Calm Equip cost fails closed in the merged cost pipeline", () => {
+  // CR 818.1.c.2: "Equip [Cost]" is functionally "[Cost]: Attach this gear to a
+  // unit you control". The expansion declares exactly that payment component;
+  // the cost pipeline has no "equip" payment kind, so the plan fails closed
+  // instead of quietly charging the card's 2 Energy play cost as its Equip cost.
+  const kernel = equipWorld();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("gear") });
+  const [expansion] = expansionFor();
+
+  assert.throws(
+    () => buildCostPlan(context, { id: "cost:brutalizer", cost: expansion.cost }),
+    (error) => {
+      assert.equal(error.name, "CostPlanError");
+      assert.equal(error.reason, "judge-required");
+      assert.match(error.message, /Unsupported payment kind: equip/);
+      return true;
+    }
+  );
+  // The printed Calm rune is recorded as data and never rewritten to 0 or to
+  // the card's Energy play cost.
+  assert.equal(equip.value, 1);
+  assert.equal(equip.costDomain, "Calm");
+  assert.equal(kernel.getObject("gear").energy, 2);
+  assert.equal(kernel.getObject("gear").power, null);
+});
+
 test.todo("sfd-042-221 Brutalizer: paying the printed Calm Equip cost (CR 818.1.b / 818.1.c.3) needs an equipped-cost payment kind in cost/plan-values.ts plus ExpandInput params.cost (contract 3.8 item 3).");

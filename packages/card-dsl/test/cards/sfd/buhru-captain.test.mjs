@@ -39,12 +39,17 @@ test("sfd-091-221 Buhru Captain: identity, ruleset, status and verbatim text", (
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
+  // The reading of the leading "may" is settled by CR 383.3.a.3: the reason
+  // states the resolved rule rather than leaving the question open.
+  assert.match(program.judgeReason, /383\.3\.a\.3/);
+  assert.match(program.judgeReason, /optional: true/);
+  assert.doesNotMatch(program.judgeReason, /尚无可依条目|读法未定/);
 });
 
 test("sfd-091-221 Buhru Captain: judgeReason names the choice.mode chain block and the may-or reading", () => {
   assert.match(program.judgeReason, /choice\.mode/);
   assert.match(program.judgeReason, /assertFinalizationSurface/);
-  assert.match(program.judgeReason, /355\.3/);
+  assert.match(program.judgeReason, /383\.3\.a/);
   assert.match(program.judgeReason, /Finalize\/Resolve/);
   assert.match(program.judgeReason, /validateSurface/);
   assert.ok(!/RIFT-\d+/.test(program.judgeReason));
@@ -52,13 +57,15 @@ test("sfd-091-221 Buhru Captain: judgeReason names the choice.mode chain block a
 
 test("sfd-091-221 Buhru Captain: card-played self trigger with a one-of-two mode choice", () => {
   // 383.4.a / 420.4.a: "When you play me" is a Play Effect that fires once the
-  // play action completes. 403.1: the printed "you may" belongs to the effect,
-  // so the ability itself is mandatory and the choice lives in the body.
+  // play action completes. 383.3.a/383.3.a.3/403.1: the printed "you may" is
+  // the first part of the effect, so it is the ability's own finalization
+  // decision and is carried by the trigger-level optional flag; the printed
+  // "or" is the ability's own mode choice made under 403.2.
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "card-played");
   assert.deepEqual(ability.trigger.filter, { event: "card-played", filter: { source: "self" } });
-  assert.equal(ability.optional, false);
+  assert.equal(ability.optional, true);
   assert.equal(ability.trigger.condition, undefined);
   assert.equal(ability.trigger.once, undefined);
 
@@ -185,12 +192,6 @@ test.todo(
   "sfd-091-221 Buhru Captain: the choice.mode branch must survive the chain's Finalize/Resolve choice-plan " +
     "adapter — chain/engine.ts assertFinalizationSurface throws ChainContractBlockedError for any body " +
     "choice.mode, and the play binding's validateSurface rejects it too"
-);
-
-test.todo(
-  "sfd-091-221 Buhru Captain: rule on the 'you may draw 1 or buff me' reading — whether the leading 'may' " +
-    "lets the controller decline the whole effect (choice.optional around choice.mode) or the printed 'or' is " +
-    "only a mode choice; CR v1.5 355.3 covers bulleted mode lists and does not settle this phrasing"
 );
 
 test.todo(

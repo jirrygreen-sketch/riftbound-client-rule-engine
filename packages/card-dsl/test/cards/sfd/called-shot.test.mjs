@@ -5,6 +5,10 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/called-shot.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-80891ed8d25bcc7b7a458d0779163e739b738892493c56f163344772ecf1eea2";
@@ -17,12 +21,13 @@ const [speed, play] = program.abilities;
 const [bindInstruction, lookInstruction, drawInstruction, recycleInstruction] = play.body;
 const [topTwoPick] = lookInstruction.picks;
 const [drawnPick] = drawInstruction.picks;
+const DRAW_CHOICE = "called-shot.look-top-two/called-shot.draw-choice";
 
 /**
- * effect.inspect 的 top 作用域要求上游按真实牌库顺序提供有序 picks（契约 3.6 的
- * zoneSlice 才是保序读取）；参考内核用 setPicks 提供该有序范围，与已合入
- * ogn/stacked-deck、ven/apprentice-mage 的既有做法一致。两个 pick 都由 Finalize 锁定：
- * 牌库顶两张（有序，供查看）与其中被抽走的那一张（供入手）。
+ * effect.inspect 的 top 作用域要求按真实牌库顺序提供有序 picks（契约 3.6 的
+ * zoneSlice 才是保序读取）。RIFT-358 已把该来源接入生产链路：卡片自己声明
+ * zoneSlice，Finalize 用 zoneSlice 锁定有序引用；参考内核的 setPicks 只负责把同一份
+ * 锁定结果喂给解释器，不猜顺序。
  */
 const deckedKernel = (deckSize = 3) => {
   const deck = ["top-card", "second-card", "third-card"].slice(0, deckSize);
@@ -30,6 +35,59 @@ const deckedKernel = (deckSize = 3) => {
   const topTwo = kernel.zoneSlice("A", "deck", "top", 2).map((object) => object.ref);
   kernel.setPicks(topTwoPick.id, topTwo);
   return { kernel, topTwo };
+};
+
+/**
+ * 生产链路径：卡片 body 经 translateInstructionTargets 进入真实 ChainEngine，
+ * Finalize 用契约 3.6 的 zoneSlice 锁定有序牌库顶，Resolve 里 effect.inspect
+ * 通过 choose/chooseCount 做出「两张里选一张」的私有选择。
+ */
+function chainFixture(deck = ["d1", "d2", "d3", "d4"]) {
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .player("B", { energy: 20 })
+    .deck(deck, { owner: "A" })
+    .hand("called-shot", { cardId: CANONICAL, types: ["spell"], energy: 0, power: [], might: null })
+    .build();
+  const answers = new Map();
+  const requests = [];
+  const decide = (request) => {
+    requests.push(request);
+    if (answers.has(request.id)) return answers.get(request.id);
+    if (request.type === "select-objects" && request.min === request.max && request.options.length === request.min) {
+      return [...request.options];
+    }
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: decide,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose: decide })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  return {
+    kernel,
+    engine,
+    answers,
+    requests,
+    draft: () => ({
+      id: "play-called-shot",
+      controller: "A",
+      source: kernel.getObject("called-shot"),
+      kind: "spell",
+      speed: "normal",
+      body: translateInstructionTargets(play.body)
+    })
+  };
+}
+
+const resolveAll = (engine) => {
+  engine.advance();
+  let guard = 0;
+  while (engine.items.length && guard++ < 20) engine.pass(engine.priority);
 };
 
 test("sfd-122-221 Called Shot: program passes validateCardProgram", () => {
@@ -42,13 +100,18 @@ test("sfd-122-221 Called Shot: program passes validateCardProgram", () => {
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("sfd-122-221 Called Shot: judgeReason names both current engine gaps", () => {
-  assert.match(program.judgeReason, /effect\.inspect/);
-  assert.match(program.judgeReason, /zoneSlice/);
-  assert.match(program.judgeReason, /assertFinalizationSurface/);
+test("sfd-122-221 Called Shot: judgeReason records the executable body and the [Repeat] gap", () => {
+  // The ordered-pick dependency merged (RIFT-358), so the reason must record
+  // the executed look/draw/recycle evidence and only the still-broken
+  // [Repeat] additional cost.
   assert.match(program.judgeReason, /additional-cost/);
-  assert.match(program.judgeReason, /820\.1\.c|Repeat/);
-  assert.ok(!/RIFT-\d+/.test(program.judgeReason));
+  assert.match(program.judgeReason, /translateCost/);
+  assert.match(program.judgeReason, /repeat\.cost/);
+  assert.match(program.judgeReason, /820\.1\.c/);
+  assert.match(program.judgeReason, /zoneSlice/);
+  assert.match(program.judgeReason, /RIFT-358/);
+  assert.doesNotMatch(program.judgeReason, /assertFinalizationSurface/);
+  assert.ok(!/RIFT-\d+/.test(program.judgeReason.replace(/RIFT-358/g, "")));
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -89,8 +152,9 @@ test("sfd-122-221 Called Shot: look at the top 2, draw one, recycle the other", 
   });
   assert.deepEqual(bindInstruction.args.key, { kind: "constant", value: "controller" });
 
-  // 128.3-128.4 / 432.1.c: a private look over the deck's real order; the
-  // ordered range id names the upstream zoneSlice-provided picks.
+  // 128.3-128.4 / 432.1.c: a private look over the deck's real order. The
+  // ordered range is this card's own zoneSlice source, locked by the merged
+  // ordered-pick lifecycle (contract 3.6 / RIFT-358).
   assert.deepEqual(lookInstruction.args.scope, { kind: "constant", value: "top" });
   assert.deepEqual(lookInstruction.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(lookInstruction.args.player, {
@@ -102,15 +166,35 @@ test("sfd-122-221 Called Shot: look at the top 2, draw one, recycle the other", 
     kind: "constant",
     value: "called-shot.top-two"
   });
-  assert.equal(lookInstruction.args.choose, undefined);
+  // 355.10.a: "draw one" is the looking player's own private subset choice, so
+  // it stays with the resolving instruction (contract 3.6; the ordered source
+  // only binds the whole slice).
+  assert.deepEqual(lookInstruction.args.choose, { kind: "constant", value: true });
+  assert.deepEqual(lookInstruction.args.chooseCount, {
+    kind: "constant",
+    value: { min: 1, max: 1 }
+  });
+  assert.deepEqual(lookInstruction.args.choiceId, {
+    kind: "constant",
+    value: "called-shot.draw-choice"
+  });
+  assert.deepEqual(lookInstruction.args.choosePicksKey, {
+    kind: "constant",
+    value: "chosen"
+  });
   assert.equal(lookInstruction.linkedTo, "called-shot.bind-controller");
+  // Contract 3.6 / RIFT-358: an ordered source is options: [], ordered: true,
+  // selection: "all" with exactly one zoneSlice source and no filter/bounds.
   assert.deepEqual(topTwoPick, {
     id: "called-shot.top-two",
-    options: ["dynamic:main-deck-top-two"],
-    min: 2,
-    max: 2,
+    options: [],
+    ordered: true,
     selection: "all",
-    filter: { owner: "self", zone: "deck" }
+    zoneSlice: {
+      zone: "deck",
+      from: "top",
+      count: { kind: "constant", value: 2 }
+    }
   });
 
   // "Draw one": one of the looked-at cards moves to the Hand (414.1). The
@@ -126,18 +210,18 @@ test("sfd-122-221 Called Shot: look at the top 2, draw one, recycle the other", 
   });
   assert.equal(drawInstruction.targets, undefined);
   assert.equal(drawInstruction.linkedTo, "called-shot.look-top-two");
+  // The drawn card is the actual selected result of the look, read as a linked
+  // ordered source (RIFT-358); the unselected card stays in the looked list.
   assert.deepEqual(drawnPick, {
     id: "called-shot.drawn-card",
-    options: [
-      {
-        kind: "linked-value",
-        instructionId: "called-shot.look-top-two",
-        key: "looked"
-      }
-    ],
-    min: 1,
-    max: 1,
-    selection: "one"
+    options: [],
+    ordered: true,
+    selection: "all",
+    linked: {
+      kind: "linked-value",
+      instructionId: "called-shot.look-top-two",
+      key: "chosen"
+    }
   });
 
   // "and recycle the other": 417.1 / 417.1.a keeps the leftover card on the
@@ -154,8 +238,12 @@ test("sfd-122-221 Called Shot: look at the top 2, draw one, recycle the other", 
 });
 
 test("sfd-122-221 Called Shot golden: the drawn card goes to hand and the other to the deck bottom", () => {
+  // Contract 3.6 / RIFT-358: the look's private one-of-two choice writes the
+  // "chosen" result, and the draw instruction reads it as a linked ordered
+  // source. The ordered deck-top slice is provisioned from the kernel's real
+  // zone order (Finalize owns it in production).
   const { kernel, topTwo } = deckedKernel();
-  kernel.setPicks(drawnPick.id, [topTwo[0]]);
+  kernel.setAnswers({ [DRAW_CHOICE]: [topTwo[0]] });
 
   const outcome = resolveChainBody(play.body, kernel);
 
@@ -176,6 +264,7 @@ test("sfd-122-221 Called Shot golden: the drawn card goes to hand and the other 
     "second-card"
   ]);
   assert.deepEqual(outcome.linkedValues["called-shot.look-top-two.lookedCount"], 2);
+  assert.deepEqual(outcome.linkedValues["called-shot.look-top-two.chosen"], [topTwo[0]]);
   assert.equal(outcome.linkedValues["called-shot.recycle-the-other.recycledCount"], 1);
   assert.deepEqual(outcome.events.map((event) => event.action), [
     "look",
@@ -186,7 +275,7 @@ test("sfd-122-221 Called Shot golden: the drawn card goes to hand and the other 
 
 test("sfd-122-221 Called Shot golden: choosing the other card swaps the two destinations", () => {
   const { kernel, topTwo } = deckedKernel();
-  kernel.setPicks(drawnPick.id, [topTwo[1]]);
+  kernel.setAnswers({ [DRAW_CHOICE]: [topTwo[1]] });
 
   const outcome = resolveChainBody(play.body, kernel);
 
@@ -198,15 +287,11 @@ test("sfd-122-221 Called Shot golden: choosing the other card swaps the two dest
   ]);
 });
 
-test("sfd-122-221 Called Shot golden: without the ordered deck-top range nothing is looked at", () => {
-  // The card names its ordered range, but no upstream provider filled it: the
-  // look range is empty, so it looks at zero cards and never falls back to the
-  // unordered set query (contract 3.6; the same reading the merged
-  // ogn/stacked-deck golden records). The follow-ups have nothing to act on and
-  // the deck is never reordered by a guessed slice.
-  // The ordered deck-top range is absent: neither pick is provisioned, exactly
-  // the state the production Finalize surface would leave (it locks instruction
-  // targets only).
+test("sfd-122-221 Called Shot golden: an unfilled ordered range looks at nothing and never guesses order", () => {
+  // Contract 3.6: the ordered deck-top slice is the only ordering authority. If
+  // nothing locked it, the look must not fall back to the unordered set query;
+  // with the printed mandatory one-of-two choice impossible it is negated
+  // (432.1.c.1), and the deck is left exactly as it was.
   const kernel = world().player("A").deck(["top-card", "second-card"], { owner: "A" }).build();
 
   const outcome = resolveChainBody(play.body, kernel);
@@ -215,14 +300,12 @@ test("sfd-122-221 Called Shot golden: without the ordered deck-top range nothing
     outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason ?? null]),
     [
       ["called-shot.bind-controller", "executed", null],
-      ["called-shot.look-top-two", "executed", null],
+      ["called-shot.look-top-two", "negated", "impossible"],
       ["called-shot.draw-one", "ignored", "mistargeted"],
-      ["called-shot.recycle-the-other", "executed", null]
+      ["called-shot.recycle-the-other", "ignored", "mistargeted"]
     ]
   );
-  assert.equal(outcome.linkedValues["called-shot.look-top-two.lookedCount"], 0);
-  assert.deepEqual(outcome.linkedValues["called-shot.look-top-two.looked"], []);
-  assert.equal(outcome.linkedValues["called-shot.recycle-the-other.recycledCount"], 0);
+  assert.equal(outcome.linkedValues["called-shot.look-top-two.lookedCount"], undefined);
   assert.deepEqual(kernel.objectsInZone("A", "hand"), []);
   assert.deepEqual(kernel.objectsInZone("A", "deck").map((ref) => ref.id), [
     "top-card",
@@ -231,27 +314,99 @@ test("sfd-122-221 Called Shot golden: without the ordered deck-top range nothing
   assert.deepEqual(outcome.events, []);
 });
 
-test("sfd-122-221 Called Shot golden: an empty Main Deck looks at nothing without burning out", () => {
+test("sfd-122-221 Called Shot golden: a short Main Deck looks at what is there without burning out", () => {
   // 432.1.c: looking at more cards than the deck holds looks at as many as
-  // possible and never Burns Out. With an empty deck the ordered range is
-  // empty, the look executes with 0, and both follow-ups have nothing to act on.
-  const kernel = world().player("A").build();
-  kernel.setPicks(topTwoPick.id, []);
+  // possible and never Burns Out. With one card the look executes over that
+  // single card, the choice still takes it, and "the other" has nothing left to
+  // recycle (417.4 shortfall).
+  const { kernel, topTwo } = deckedKernel(1);
+  kernel.setAnswers({ [DRAW_CHOICE]: [topTwo[0]] });
 
   const outcome = resolveChainBody(play.body, kernel);
 
-  assert.equal(outcome.results[1].result.status, "executed");
-  assert.equal(outcome.linkedValues["called-shot.look-top-two.lookedCount"], 0);
-  assert.equal(outcome.results[2].result.status, "ignored");
-  assert.equal(kernel.player("A").handSize, 0);
-  assert.equal(kernel.player("A").deckSize, 0);
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason ?? null]),
+    [
+      ["called-shot.bind-controller", "executed", null],
+      ["called-shot.look-top-two", "executed", null],
+      ["called-shot.draw-one", "executed", null],
+      ["called-shot.recycle-the-other", "ignored", "mistargeted"]
+    ]
+  );
+  assert.equal(outcome.linkedValues["called-shot.look-top-two.lookedCount"], 1);
+  assert.deepEqual(kernel.objectsInZone("A", "hand").map((ref) => ref.id), ["top-card"]);
+  assert.deepEqual(kernel.objectsInZone("A", "deck"), []);
+  // 432.2: no Burn Out happened, so nobody gained a point.
+  assert.equal(kernel.player("A").score, 0);
+  assert.equal(kernel.player("B").score, 0);
 });
 
-test.todo(
-  "sfd-122-221 Called Shot: the ordered 'top 2 cards of your Main Deck' pick set must be provisioned by " +
-    "the production Finalize/AwaitChoice lifecycle instead of the test kernel (contract 3.6 zoneSlice; the " +
-    "chain's assertFinalizationSurface locks instruction targets only)"
-);
+test("sfd-122-221 Called Shot golden: the real chain locks the deck top at Finalize and resolves the look", () => {
+  // The production path: the card body goes through the chain's interpreter
+  // adapter, Finalize locks the declared zoneSlice into ordered references, and
+  // Resolve performs the private one-of-two choice before the linked draw and
+  // recycle instructions run.
+  const f = chainFixture(["d1", "d2", "d3", "d4"]);
+  f.engine.execute(f.draft());
+  f.engine.advance();
+
+  // Finalize locked the real top two in zone order, before any look happened.
+  const locked = f.engine.items[0].pickPlans;
+  assert.deepEqual(locked.map((plan) => [plan.id, plan.refs.map((ref) => ref.id)]), [
+    ["called-shot.top-two", ["d1", "d2"]]
+  ]);
+  assert.equal(
+    f.engine.pipeline.events.filter((event) => event.timingPoint === "cards-looked-at").length,
+    0
+  );
+
+  const request = (() => {
+    try {
+      f.engine.pass("A");
+      f.engine.pass("B");
+    } catch (error) {
+      assert.ok(error instanceof AwaitChoice, String(error));
+      return error.request;
+    }
+    throw new Error("the look's one-of-two choice must be requested during Resolve");
+  })();
+
+  assert.equal(request.id, DRAW_CHOICE);
+  assert.equal(request.type, "select-objects");
+  assert.equal(request.visibility, "chooser-only");
+  assert.equal(request.chooser, "A");
+  assert.deepEqual(request.options.map((ref) => ref.id), ["d1", "d2"]);
+  assert.equal(request.min, 1);
+  assert.equal(request.max, 1);
+
+  f.answers.set(request.id, [request.options[1]]);
+  f.engine.pass("B");
+
+  assert.deepEqual(f.kernel.zone("A", "hand").map((ref) => ref.id), ["d2"]);
+  // RIFT-358 / CR 124: the card that left drops out of the locked list, so
+  // "the other" recycles to the bottom of its owner's Main Deck.
+  assert.deepEqual(f.kernel.zoneSlice("A", "deck", "top").map((object) => object.ref.id), [
+    "d3",
+    "d4",
+    "d1"
+  ]);
+  assert.equal(f.kernel.linked("called-shot.look-top-two.lookedCount"), 2);
+  assert.deepEqual(f.kernel.linked("called-shot.look-top-two.chosen"), [request.options[1]]);
+  assert.equal(f.kernel.linked("called-shot.recycle-the-other.recycledCount"), 1);
+  // The look is emitted at Resolve, the drawn card really lands in Hand (the
+  // zone-entry emission of the return-to-hand action, 108.7.b/414.1), and the
+  // other is recycled (417.1).
+  assert.deepEqual(
+    f.engine.pipeline.events
+      .filter((event) => ["cards-looked-at", "object-enters-hand", "card-recycled"].includes(event.timingPoint))
+      .map((event) => [event.timingPoint, event.object?.ref.id ?? null]),
+    [
+      ["cards-looked-at", null],
+      ["object-enters-hand", "d2"],
+      ["card-recycled", "d1"]
+    ]
+  );
+});
 
 test.todo(
   "sfd-122-221 Called Shot: [Repeat] :rb_rune_chaos: — collecting the optional additional cost at Finalize " +
