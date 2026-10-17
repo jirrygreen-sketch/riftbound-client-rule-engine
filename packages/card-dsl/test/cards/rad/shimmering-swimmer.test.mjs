@@ -28,7 +28,7 @@ test("rad-014-167 Shimmering Swimmer: program validates and has expected identit
   );
   assert.match(program.judgeReason, /optionalAdditional/);
   assert.match(program.judgeReason, /paid/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /translateCost|Additional costs are not bound/);
 });
 
 test("rad-014-167: play cost declares the optional kill additional cost via a non-target pick", () => {
@@ -130,9 +130,9 @@ test("rad-014-167: the paid-cost gate stays closed until the cost receipt exists
 test.todo(
   "rad-014-167 Shimmering Swimmer: 可选附加费用（356.2.b 的 kill 付款）在 Finalize 的费用计划中" +
     "收取与记账——buildCostPlan 已支持 optionalAdditional、cost/payment.ts 已支持 kill 付款，" +
-    "但 Finalize 消费 CostPlan 的接线属协调者，依赖 RIFT-261"
+    "但 programs/play.ts 的 translateCost 对 kind:\"additional\" fail-closed，附加费用翻译桥尚未接进打出流程"
 );
 test.todo(
   "rad-014-167 Shimmering Swimmer: “if you paid the additional cost” 的费用凭证条件" +
-    "（condition.result）缺少可用谓词与把费用收据写进链接值的原语，依赖 RIFT-261"
+    "（condition.result）缺少可用谓词与把费用收据写进链接值的原语"
 );

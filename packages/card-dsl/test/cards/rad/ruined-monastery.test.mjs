@@ -10,6 +10,9 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL =
   "card.hash-71ba0d1fe11d64b565b797f33a69b572a821f2e6f56b0643eae299ca2c9a9d5d";
@@ -34,7 +37,7 @@ test("rad-166-167 Ruined Monastery: identity, ruleset, status and exact source t
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /conquer/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /宿主相对|host-relative/);
   assert.match(program.judgeReason, /here/);
   assert.match(program.judgeReason, /battlefieldId/);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -177,7 +180,43 @@ test.todo(
 
 test.todo(
   "rad-166-167 Ruined Monastery: the conquer trigger runs end to end (Conquer Effect → chain) " +
-    "— needs scoring → chain/events conquer emission and CardProgram TriggerRegistration " +
-    "(RIFT-76/RIFT-120, contract §7.2 batch 5) plus 190.6 Battlefield-controller resolution"
+    "— the conquer emission is merged; what is missing is the host-relative here filter " +
+    "and 190.6 Battlefield-controller resolution"
 );
+
+test("rad-166-167 Ruined Monastery: the conquer trigger really binds through the merged program registry", () => {
+  // The shipped program stays judge-required; the in-memory copy proves that the
+  // merged src/programs path can turn this triggered ability into a real
+  // TriggerRegistration. Only the host-relative "here" filter and 190.6
+  // battlefield-controller resolution are missing (see judgeReason).
+  const executable = { ...program, status: "executable" };
+  delete executable.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [executable] });
+  const { engine, kernel } = fixture({
+    cards: [{ id: "monastery", cardId: CANONICAL, types: ["battlefield"], energy: null, power: [] }]
+  });
+  const board = () => engine.commit({ type: "move-zone", object: kernel.ref("monastery"), to: "board" });
+  board();
+  engine.pipeline.emit({ timingPoint: "object-enters-board", object: kernel.getObject("monastery") });
+
+  const registrations = triggerRegistrations(binding.registry, kernel.getObject("monastery"));
+  assert.equal(registrations.length, 1);
+  const [registration] = registrations;
+  assert.equal(registration.spec.at, "conquer");
+  assert.equal(registration.optional, true);
+  assert.deepEqual(registration.activeZones, ["board"]);
+  assert.equal(registration.id.startsWith("program:monastery:"), true);
+
+  // The registered filter matches the conquer event's controller (190.6.d
+  // resolves "you" to the controller; the host-relative part is the missing gap).
+  const conqueredByA = {
+    eventId: 1,
+    timingPoint: "conquer",
+    player: "A",
+    details: { battlefieldId: "bf-1" }
+  };
+  const conqueredByB = { ...conqueredByA, player: "B" };
+  assert.equal(matchesTriggerEvent(registration.spec.filter, conqueredByA, "A"), true);
+  assert.equal(matchesTriggerEvent(registration.spec.filter, conqueredByB, "A"), false);
+});
 

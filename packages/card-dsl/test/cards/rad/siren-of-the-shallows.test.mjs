@@ -30,8 +30,7 @@ test("Siren of the Shallows identity, ruleset, status and printed text", () => {
   assert.equal(program.status, "judge-required");
   // The judgeReason must name the missing keyword expansions and their tasks.
   assert.match(program.judgeReason, /Disarm/);
-  assert.match(program.judgeReason, /RIFT-267/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /continuous\.movement/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
@@ -51,7 +50,7 @@ test("Siren of the Shallows structure: [Disarm] and [Ganking] declared, no inven
 });
 
 test("Siren of the Shallows structure: the declared keywords resolve to the merged expansions", () => {
-  // Both KeywordDefs are registered after RIFT-83 (Ganking) and RIFT-267 (Disarm).
+  // Both KeywordDefs are registered in the merged keyword registry.
   assert.equal(keywordDefinitionsById.get("Ganking"), ganking);
   assert.equal(keywordDefinitionsById.get("Disarm"), disarm);
   const gankingExpansion = ganking.expand({ host: { canonicalCardId: CANONICAL } });
@@ -143,11 +142,12 @@ test("Siren of the Shallows execution: the [Ganking] expansion registers a conti
 test.todo(
   "Siren of the Shallows: the [Disarm] attack trigger must fire from a real attack-declared emission — " +
     "no producer emits attack-declared yet (combat/flow.ts blocks the role transaction) and the " +
-    "CardProgram -> keyword -> TriggerRegistration binding is RIFT-257"
+    "keyword expansion's sameLocationAs trigger filter cannot be translated yet"
 );
 
 test.todo(
   "Siren of the Shallows: [Ganking] must reach MovementPermissions.canGank — the expansion writes an " +
     "effect.permission string while layers/rules/query.ts reads effect.permission.routes, and the " +
-    "card program -> keyword -> layer binding is RIFT-257"
+    "card program -> keyword -> layer binding has no consumer for the keyword spelling"
 );
+

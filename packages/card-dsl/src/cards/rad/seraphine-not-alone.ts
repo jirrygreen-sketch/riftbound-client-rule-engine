@@ -22,11 +22,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   原文的"每个"应写在 per（每个其他横置单位 +1）。
  *
  * 无法执行的依赖（保持 judge-required）：
- * - continuous.might 的图层消费方（RIFT-91）未合入，静态能力目前只作为 IR 存在。
- * - "when I become exhausted" 的触发时点本身在封闭枚举中（object-exhausted），但把
- *   CardProgram 的 triggered 能力注册到该时点的事件管线接线未合入（同 mournful-spirit）。
- * - "for each other exhausted unit you control" 的 other/controller 锚点需要生产链
- *   解析（参考内核只在显式 host 绑定时解析）。
+ * - continuous.might 的图层消费方只读标量加值：layers/engine.ts 的 numberValue 只读
+ *   amount/value/delta，continuous.might 的 per(count) 计数没有图层消费路径（绑定测试
+ *   实证：0 个其他横置单位也无条件 +1）。
+ * - "for each other exhausted unit you control" 的 exclude/other 相对锚点需要静态
+ *   过滤器消费方（把 filter 写进 effect.filter 会被 src/programs/statics.ts 判为
+ *   "Static exclude anchor …" 的 judge-required，绑定测试实证）。
+ * - 触发注册与生命周期绑定路径已合入（src/programs/triggers.ts / lifecycle.ts，
+ *   绑定测试验证两个触发都能注册）；把绑定接进完整游戏对局仍属生产集成。
  */
 const otherExhaustedUnits = {
   type: "unit",
@@ -97,13 +100,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺 continuous.might 的图层消费方（RIFT-91）：\"I have +1 Might for each other exhausted" +
-    " unit you control\" 是持续的变量 Might 加值，当前没有已注册指令或图层写入路径消费" +
-    "卡牌程序里的 continuous.might，\"for each\" 的 per 计数也无人读取。另缺卡牌触发能力" +
-    "→事件管线的注册接线：\"when I become exhausted\" 订阅 object-exhausted（415.1），" +
-    "当前 CardProgram 的 triggered 能力不会被注册到 events/pipeline。effect.token 的 Recruit" +
-    "定义（187.1）与 play 模式已合入，黄金测试按声明形状隔离执行其中一个触发。" +
-    "依赖：RIFT-91、批 4（触发管线接线）。",
+    "缺 continuous.might 的变量图层消费方：\"I have +1 Might for each other exhausted" +
+    " unit you control\" 是持续的变量 Might 加值，而 layers/engine.ts 的 numberValue 只读" +
+    "标量（amount/value/delta），continuous.might 的 per(count) 计数无人读取——绑定测试实证" +
+    "0 个其他横置单位也无条件 +1。\"for each other\" 的 exclude/other 相对锚点也没有" +
+    "静态过滤器消费方（把 filter 写进 effect.filter 会被 src/programs/statics.ts 判为" +
+    "judge-required，绑定测试实证）。触发注册与生命周期绑定路径已合入（src/programs/triggers.ts /" +
+    " lifecycle.ts，绑定测试验证两个触发都能注册）；把绑定接进完整游戏对局仍属生产集成。" +
+    "effect.token 的 Recruit 定义（187.1）与 play 模式已合入，黄金测试按声明形状隔离执行其中一个触发。" +
+    "不近似实现。",
   abilities,
   sourceText:
     "When you play me or when I become exhausted, play a 1 :rb_might: Recruit unit token to your base.\n" +

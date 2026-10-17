@@ -114,8 +114,9 @@ export default {
           // the controller's own Main Deck. No player argument: the revealing
           // player defaults to ctx.controller, which is what "your Main Deck"
           // means (a literal "controller" string is not a PlayerId). The
-          // reference must come from the ordered deck top (RIFT-66 upstream
-          // ordered query, unmerged); the link key "revealed" is
+          // reference must come from the ordered deck top (the merged zoneSlice
+          // provides the ordered read, but no merged producer hands effect.reveal
+          // the deck-top refs); the link key "revealed" is
           // effect.reveal's own merged contract.
           id: "scrutinizing-scope.reveal-top",
           op: "effect.reveal",

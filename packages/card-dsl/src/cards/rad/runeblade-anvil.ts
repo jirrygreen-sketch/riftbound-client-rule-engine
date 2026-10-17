@@ -23,7 +23,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   已合入的 continuous.* 原语只覆盖速度、落点、移动与限制/要求，effect.play 只结算
  *   已 Finalize 的费用计划，二者都不建立该许可。
 
- * status: judge-required（不近似实现），按合入后的 continuous.* / cost.* 复核：
+ * status: judge-required（不近似实现），按合入后的 continuous.* / cost.* 与
+ * src/programs/*（触发注册）复核：
  * - “Until your next Ending Phase, you may play that card. (You still pay its costs.)”
  *   仍缺一个带具名期限的“从 Banishment 可打出该牌”许可。已合入的 continuous.timing
  *   只登记速度许可，continuous.location 只登记落点许可，continuous.restrict 只登记
@@ -35,9 +36,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 牌库顶放逐（zoneSlice top，417/428）与启动能力的 Kill this（429.1.a.1）已合入，
  *   卡牌侧只声明形状，golden 真实执行这两段。
  * - 离场触发（object-leaves-board，383.2.c.3）时点已由 events/action-adapter.ts 的
- *   zoneTimings 产生；触发整体注册依赖 RIFT-257。
+ *   zoneTimings 产生；CardProgram 触发的注册路径也已合入（src/programs/triggers.ts，
+ *   绑定测试验证两个触发都能注册），整卡仍因打出的具名期限许可缺口保持 judge-required。
  *
- * 依赖：RIFT-257（触发注册）、RIFT-261（费用/许可管线仍未提供 from-Banishment 打出许可）。
+ * 依赖：from-Banishment 打出许可原语与 "your next Ending Phase" 具名期限。
  */
 const abilities: Ability[] = [
   {
@@ -133,8 +135,9 @@ const program = {
     "（只有 permanent / end-of-turn / end-of-combat / while-source-in-zone / until(at, player)）。" +
     "程序保留 effect.play-permission 形状（该 opcode 未注册，解释器 fail-closed），不近似实现。" +
     "牌库顶放逐（zoneSlice top，417/428）与启动能力 Kill this（429.1.a.1）已按已合入原语声明；" +
-    "离场触发（object-leaves-board，383.2.c.3）的时点已由事件管线产生，但触发注册依赖 RIFT-257。" +
-    "依赖：RIFT-257、RIFT-261。",
+    "离场触发（object-leaves-board，383.2.c.3）的时点已由事件管线产生，" +
+    "CardProgram 触发的注册路径也已合入（src/programs/triggers.ts），绑定测试验证两个触发都能注册。" +
+    "不近似实现。",
   abilities,
   sourceText:
     "When you play this or when this leaves the board, banish the top card of your Main Deck. Until your next Ending Phase, you may play that card. (You still pay its costs.)\n" +

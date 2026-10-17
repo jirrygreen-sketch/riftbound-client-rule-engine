@@ -28,7 +28,6 @@ test("Satchel Charge identity, ruleset, status and printed text", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /187\.12/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /LocationRef/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The generated registry indexes the program by this exact identity.

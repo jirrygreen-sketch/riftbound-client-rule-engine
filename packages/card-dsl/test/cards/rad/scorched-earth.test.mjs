@@ -114,7 +114,7 @@ test("rad-006-167 Scorched Earth boundary: a stale target set ignores the instru
 test.todo(
   "rad-006-167 Scorched Earth: the 'at a single battlefield' group constraint (CR 355.14.a) " +
     "needs target-group enforcement; TargetRequirement carries kind/group but target/ never " +
-    "checks that the chosen members share one location (target.many, RIFT-90 scope)"
+    "checks that the chosen members share one location (target.many)"
 );
 test.todo(
   "rad-006-167 Scorched Earth: 355.14.h (fewer available damage than targets at resolution " +

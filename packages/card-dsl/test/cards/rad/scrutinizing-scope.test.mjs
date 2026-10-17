@@ -221,7 +221,7 @@ test.todo(
 
 test.todo(
   "rad-064-167 Scrutinizing Scope: 'Reveal the top card of your Main Deck' needs the ordered deck-top " +
-    "reference supplied to effect.reveal as an upstream ordered pick; zoneSlice (RIFT-66) provides the " +
+    "reference supplied to effect.reveal as an upstream ordered pick; the merged zoneSlice provides the " +
     "ordered read, but effect.reveal reads ctx.query and no merged producer hands it the deck-top refs."
 );
 
