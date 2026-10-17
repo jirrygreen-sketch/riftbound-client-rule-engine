@@ -23,23 +23,27 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "to your base" = 控制者的基地（182/183 的归属与控制；443.2 的 token 归属）。
  * - 809.1：Deflect 是目标附加费用的被动关键词（松鼠文本给出 809.1.c 的提醒）。
 
- * status = judge-required（README 第 2 节）。四处缺口，均不近似实现：
- * 1. Bird token 定义（187.7，带 Deflect 关键词）不在已冻结的 effect.token 定义表内；
- *    原语返回 blockedReason token-definition-or-abilities-judge-required，不会凭卡面
- *    文本替 token 造出 Deflect。
- * 2. 「Play a … token」需要链上生成 + 打出管线：effect.token 的 mode "play" 路径在参考
- *    内核里可用（create-token to chain + play），但生产链（chain/effect.play 的
- *    FinalizedCostPlan 交接）与 token 定义表仍未合入。
- * 3. Deathknell 的完整展开未合入：effects/keywords/Deathknell.ts 的指令体引用
- *    trigger.leave（无该 op 文件），且 808.1.d.1 的「死亡被替代则移出链」需要
- *    chain/events 侧处理。
- * 4. Deflect 展开（809.1.c 的目标附加费用）需要 target.tax 与 cost.pay 管线（RIFT-90/
- *    RIFT-89），当前没有消费方。
+ * status = judge-required（README 第 2 节）。逐条复核后的当前缺口，均不近似实现：
+ * 1. Bird token 定义（187.7，带 Deflect 关键词）仍不在 effect.token 的定义表内：
+ *    已合入的原语在那个 id 上返回 negated(impossible) + blockedReason
+ *    token-definition-or-abilities-judge-required（golden 断言该真实结果），
+ *    不会凭卡面文本替 token 造出 Deflect。
+ * 2. 「Play a … token」的链上创建 + 打出交接在参考内核已可用（create-token to chain +
+ *    play），但「to your base」的静态 IR 无法表达：LOCATION 只接受字面 LocationRef，
+ *    而 base 的 player 必须等于结算时的能力控制者 id；卡面写的是 "your base"，
+ *    契约 3.6 的 ObjectSelector 没有玩家选择器，故 without a binding 值只能是
+ *    描述性数据（不硬编码具体玩家）。
+ * 3. Deathknell 关键词的展开体（RIFT-82 的 effects/keywords/Deathknell.ts）仍引用
+ *    未注册的 op trigger.leave，展开会抛 Unregistered instruction opcode；
+ *    808.1.d.1 的「死亡被替代则移出链」也需要 chain/events 侧处理，且没有卡牌程序 →
+ *    关键词 → 时点/链的接线（RIFT-257）。
+ * 4. Deflect 的展开（RIFT-84 的 keywords/Deflect.ts 已合入 static target.tax）没有消费方：
+ *    target/target-plan.ts 的目标税只来自调用方显式传入，809.1.c.1 的「任意域 Power」
+ *    支付也属 RIFT-261。
  * 下面保留有依据的形状：关键词声明 + object-killed 自发触发 + effect.token（mode play、
- * 目的地控制者基地）；golden 测试真实执行 187.7 语义可验证的 token 创建路径与
- * effect.token 的 blocked 路径，其余写 test.todo。
- * 依赖：RIFT-62/RIFT-63（token 与链上生成）、RIFT-82（kw-deathknell-legion）、
- * RIFT-84（kw-deflect-hidden 的 target.tax 同批）、生产打出管线（契约 §7.2 批 4/5）。
+ * 目的地写法）；golden 执行 187.7 语义可验证的 token 请求路径与 blocked 路径，其余 test.todo。
+ * 依赖：RIFT-62（token 定义表扩展）、RIFT-257（卡牌/关键词绑定与 base 绑定）、
+ * RIFT-90（目标税消费）、RIFT-261（费用支付）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "deathknell" },
@@ -74,14 +78,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均不近似实现：(1) Bird token 定义（187.7，1 Might、Bird 标签、带 [Deflect]）不在已冻结的 " +
-    "effect.token 定义表内，原语返回 blockedReason token-definition-or-abilities-judge-required，" +
-    "不会凭卡面替 token 造出 Deflect；(2) 「Play a … token」需要链上生成 + 生产打出管线交接 " +
-    "（440.2.c/185.2.a/350.2/354），参考内核可用但生产链未合入；(3) Deathknell 展开未完成：" +
-    "effects/keywords/Deathknell.ts 的指令体引用尚未合入的 trigger.leave，808.1.d.1 的「死亡被替代则移出链」" +
-    "也需要 chain/events 侧处理；(4) Deflect 展开（809.1.c 的目标附加费用）需要 target.tax 与 cost.pay 管线（RIFT-90/RIFT-89）。" +
-    "已写出的形状：deathknell 关键词声明 + object-killed 自发触发 + effect.token（mode play、目的地控制者基地）。" +
-    "依赖：RIFT-62/RIFT-63（token 与链上生成）、RIFT-82（kw-deathknell-legion）、RIFT-84（target.tax）、契约 §7.2 批 4/5 打出管线。",
+    "四处缺口，均不近似实现：(1) Bird token 定义（187.7，1 Might、Bird 标签、带 [Deflect]）仍不在 effect.token 的定义表内，" +
+    "原语在该 id 上返回 negated(impossible, blockedReason token-definition-or-abilities-judge-required)（golden 断言该真实结果）。" +
+    "(2)「Play a … token to your base」的目的地无法用静态 IR 表达：effect.token 的 location 只接受字面 LocationRef，" +
+    "base 的 player 必须等于结算时的能力控制者 id，而契约 3.6 的 ObjectSelector 没有玩家选择器（" +
+    "链上创建 + play 交接本身在参考内核已可用，440.2.c/185.2.a/350.2/354）。" +
+    "(3) Deathknell 的展开体（RIFT-82）仍引用未注册的 op trigger.leave，展开会抛 Unregistered instruction opcode；" +
+    "808.1.d.1 的「死亡被替代则移出链」需要 chain/events 侧处理，且缺卡牌程序→关键词→时点/链接线（RIFT-257）。" +
+    "(4) Deflect 的展开（RIFT-84 的 static target.tax）没有消费方：target/target-plan.ts 的目标税只来自调用方显式传入（RIFT-90），" +
+    "809.1.c.1 的任意域 Power 支付属 RIFT-261。已写出的形状：deathknell 关键词声明 + object-killed 自发触发 + effect.token。" +
+    "依赖：RIFT-62（token 定义表）、RIFT-257、RIFT-90、RIFT-261。",
   abilities,
   sourceText:
     "[Deathknell][>] Play a 1 :rb_might: Bird unit token with [Deflect] to your base. " +

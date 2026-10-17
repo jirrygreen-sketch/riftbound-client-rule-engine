@@ -3,22 +3,45 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/hexplosive-minefield.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 
 const [speed, play] = program.abilities;
 const [killInstruction, delayedPlay] = play.body;
 const targetId = killInstruction.targets[0].id;
-const bodyWithoutTargets = play.body.map(({ targets, ...rest }) => rest);
+
+/**
+ * The chain Finalize wrapper resolves the contract's "self" controller
+ * placeholder and asks layers/filter.ts (chain/engine.ts). Bind the same
+ * production query so the card's own filter really matches.
+ */
+function productionQuery(kernel, controller = kernel.controller) {
+  return (filter) => {
+    const normalized = { ...filter };
+    for (const key of ["controller", "owner"]) {
+      if (normalized[key] === "self") normalized[key] = controller;
+    }
+    return kernel.objects.filter((object) => {
+      for (const key of ["controller", "owner"]) {
+        if (normalized[key] === "opponent" && object[key] === controller) return false;
+      }
+      const resolved = { ...normalized };
+      if (resolved.controller === "opponent") resolved.controller = "any";
+      return matchesObjectFilter(resolved, object);
+    });
+  };
+}
 
 const bombKernel = () =>
   world()
     .player("A")
-    .unit("bomb-1", { types: ["gear"], tags: ["Bomb"], isToken: true })
-    .unit("bomb-2", { types: ["gear"], tags: ["Bomb"], isToken: true })
-    .unit("plain-gear", { types: ["gear"] })
-    .unit("enemy-bomb", { owner: "B", types: ["gear"], tags: ["Bomb"], isToken: true })
+    .unit("bomb-1", { types: ["gear"], tags: ["Bomb"], isToken: true, owner: "A", controller: "A" })
+    .unit("bomb-2", { types: ["gear"], tags: ["Bomb"], isToken: true, owner: "A", controller: "A" })
+    .unit("plain-gear", { types: ["gear"], owner: "A", controller: "A" })
+    .unit("enemy-bomb", { owner: "B", controller: "B", types: ["gear"], tags: ["Bomb"], isToken: true })
     .build();
 
 test("rad-142-167 Hexplosive Minefield: program validates and has expected identity", () => {
@@ -38,7 +61,7 @@ test("rad-142-167 Hexplosive Minefield: program validates and has expected ident
   );
 });
 
-test("rad-142-167 Hexplosive Minefield: judgeReason names the delayed trigger, destination and Bomb definition gaps", () => {
+test("rad-142-167 Hexplosive Minefield: judgeReason names the delayed op, the destination and the Bomb definition gaps", () => {
   assert.match(program.judgeReason, /trigger\.delayed/);
   assert.match(program.judgeReason, /390/);
   assert.match(program.judgeReason, /440\.2\.c/);
@@ -59,15 +82,15 @@ test("rad-142-167 Hexplosive Minefield: structure — Action keyword, any-number
   // allowed (355.13), Bomb gear tokens controlled by the ability controller.
   assert.equal(killInstruction.op, "effect.kill");
   assert.deepEqual(killInstruction.args.target, { kind: "constant", value: targetId });
-  assert.equal(killInstruction.targets.length, 1);
-  assert.deepEqual(killInstruction.targets[0].filter, {
-    type: "gear",
-    tags: ["Bomb"],
-    controller: "self"
-  });
-  assert.equal(killInstruction.targets[0].min, 0);
-  assert.equal(killInstruction.targets[0].max, null);
-  assert.equal(killInstruction.targets[0].selection, "up-to");
+  assert.deepEqual(killInstruction.targets, [
+    {
+      id: targetId,
+      filter: { type: "gear", tags: ["Bomb"], controller: "self" },
+      min: 0,
+      max: null,
+      selection: "up-to"
+    }
+  ]);
 
   // "At end of turn, play that many Bomb tokens to a single battlefield." — a
   // delayed ability created by this spell (390 / 391.2): window this turn
@@ -116,6 +139,26 @@ test("rad-142-167 Hexplosive Minefield: 'Kill any number of friendly Bomb tokens
   );
 });
 
+test("rad-142-167 Hexplosive Minefield golden: the card's own kill instruction runs through the chain adapter", () => {
+  // The card's own body, with only the Finalize-locked target binding supplied:
+  // the merged production adapter executes the real effect.kill instruction and
+  // the "controller: self" filter resolves through the chain's query wrapper.
+  const kernel = bombKernel().clone({ sourceSnapshot: bombKernel().getObject("plain-gear") });
+  kernel.setTargets(targetId, [kernel.ref("bomb-1"), kernel.ref("bomb-2")]);
+  const context = bindResolveContext(kernel, { query: productionQuery(kernel, "A") });
+
+  const outcome = resolveChainBody([killInstruction], context);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["hexplosive-minefield.kill-bombs", "executed"]
+  ]);
+  assert.equal(kernel.getObject("bomb-1").zone, "trash");
+  assert.equal(kernel.getObject("bomb-2").zone, "trash");
+  assert.equal(kernel.getObject("enemy-bomb").zone, "board");
+  assert.deepEqual(outcome.events.map(event => event.action), ["kill", "kill"]);
+});
+
 test("rad-142-167 Hexplosive Minefield: choosing zero Bomb tokens is legal and kills nothing (355.13)", () => {
   const kernel = bombKernel();
   const run = runInstruction(kill, { target: targetId }, {
@@ -131,38 +174,13 @@ test("rad-142-167 Hexplosive Minefield: choosing zero Bomb tokens is legal and k
   assert.deepEqual(run.events, []);
 });
 
-test("rad-142-167 Hexplosive Minefield: the delayed half has no merged op, so it cannot silently succeed", () => {
-  // The card's own body reaches the delayed instruction only after the kill
-  // instruction executed; the merged registry has no trigger.delayed op, so a
-  // resolution that got that far fails loudly instead of silently claiming the
-  // delayed play happened.
-  const kernel = bombKernel();
-  kernel.setTargets(targetId, [kernel.ref("bomb-1"), kernel.ref("bomb-2")]);
-  assert.throws(
-    () => runAbilityBody(bodyWithoutTargets, kernel),
-    /Unregistered instruction opcode: trigger\.delayed/
-  );
-  // The kill half really did run before the unresolved delayed instruction.
-  assert.equal(kernel.getObject("bomb-1").zone, "trash");
-  assert.equal(kernel.getObject("bomb-2").zone, "trash");
-  // No merged code path registered the turn-end delayed play.
-  assert.deepEqual(kernel.delayedTriggers, []);
-  assert.equal(instructionRegistry.has("trigger.delayed"), false);
-});
-
-const instructionRegistry = await import(
-  "../../../../engine-core/dist/effects/instructions/registry.generated.js"
-).then(module => module.instructionDefinitionsById);
-
 test.todo(
   "rad-142-167 Hexplosive Minefield: 'At end of turn, play that many Bomb tokens' needs the card-facing " +
     "delayed-ability op (CR 390 / 391.2 / 393) that registers a turn-end trigger with the killed count " +
     "(RIFT-9 trigger.delayed); a card-owned triggered ability would be wrong under 393"
 );
-
 test.todo(
-  "rad-142-167 Hexplosive Minefield: playing NEW Bomb tokens to a single battlefield needs chain creation " +
-    "plus a resolution-time battlefield destination (CR 440.2.c / 185.2.a / 350.2 / 354), and the Bomb gear " +
-    "token definition with its Deploy + Deathknell abilities (CR 187.12); effect.token blocks the play path " +
-    "and has no bomb definition (RIFT-62 / RIFT-90)"
+  "rad-142-167 Hexplosive Minefield: playing NEW Bomb tokens to a single battlefield needs a " +
+    "resolution-time battlefield destination (CR 440.2.c / 185.2.a / 350.2 / 354 / 355.9.a.4) and the " +
+    "Bomb gear token definition with its Deploy + Deathknell abilities (CR 187.12) — RIFT-62 / RIFT-90"
 );

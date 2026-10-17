@@ -24,7 +24,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （“Play a unit from your hand to a battlefield” doesn’t target a battlefield）。
  *
  * status = judge-required（逐个保留证据，不近似实现）：
- * - 缺 187.12 Bomb gear token 定义：effect.token 的冻结定义表只有 recruit /
+ * - 187.12 Bomb gear token 定义仍未合入：effect.token 的已实现定义表只有 recruit /
  *   sand-soldier / mech / reflection / tentacle，并明确记录“需要其他能力（含 Gold）
  *   的定义保持 blocked / judge-required”。Bomb 带 [Deploy] 与 [Deathknell] 两条
  *   能力，属于同一类被显式排除的定义；golden 锁定 effect.token 在该定义上返回
@@ -32,11 +32,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “to a battlefield” 的合法地点无法由冻结 IR 生成：effect.token 的 location 必须
  *   求值为字面 LocationRef（{type:"battlefield", id}），options 形式（locations +
  *   choiceId）要求作者侧提供完整的合法地点列表，而 IR 的 Expr 没有“当前所有战场”
- *   这样的集合表达式（355.2.a 的合法位置由规则流程产生）。
+ *   这样的集合表达式（355.2.a 的合法位置由规则流程产生）；地点选择属 RIFT-90 目标
+ *   计划与 RIFT-257 卡牌绑定的后续。
  * - 括号里的 [Deploy] / [Deathknell] 是同一 token 能力的提醒文本，不是本卡的
- *   另一条独立能力；展开由 token 定义与 830 / 808 关键词负责。
- * 依赖：effect.token 的定义表扩展与链上创建 + 打出交接（RIFT-81~91）、[Deploy] 与
- * [Deathknell] 关键词展开。
+ *   另一条独立能力；展开由 token 定义与 830 / 808 关键词负责（Deploy 的 KeywordDef
+ *   已合入，Deathknell 的展开体仍引用未注册的 trigger.leave）。
+ * 已可执行并有真实证据：印刷的 1 Energy + 1 [A] Power + Exhaust 费用由已合入的
+ * 费用计划构建并支付（符费用与控制器任意域 Power 匹配，见 golden）。
+ * 依赖：effect.token 的定义表扩展（RIFT-62）、地点选择（RIFT-90）、RIFT-257。
  */
 const abilities: Ability[] = [
   {
@@ -85,12 +88,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺 187.12 的 Bomb gear token 定义：effect.token 的冻结定义表只有 recruit / sand-soldier / mech / reflection / " +
+    "缺 187.12 的 Bomb gear token 定义：effect.token 的已实现定义表只有 recruit / sand-soldier / mech / reflection / " +
     "tentacle，并明确把“需要其他能力的定义”（Bomb 带 [Deploy] 与 [Deathknell]）保持 blocked / judge-required，" +
-    "原语在该定义上返回 negated(impossible, token-definition-or-abilities-judge-required)。" +
+    "原语在该 id 上返回 negated(impossible, blockedReason token-definition-or-abilities-judge-required)（golden 断言）。" +
     "打出位置 “to a battlefield” 同样不可表达：effect.token 的 location 必须求值为字面 LocationRef，" +
-    "locations + choiceId 需要作者侧给出完整合法地点列表，而冻结 IR 没有“当前所有战场”的集合表达式（355.2.a）。" +
-    "依赖 effect.token 定义表扩展与链上创建 + 打出交接（RIFT-81~91）、[Deploy]（830）与 [Deathknell]（808）展开；不近似实现。",
+    "locations + choiceId 需要作者侧给出完整合法地点列表，而冻结 IR 没有“当前所有战场”的集合表达式（355.2.a；属 RIFT-90 目标计划与 RIFT-257 卡牌绑定的后续）。" +
+    "已可执行并有真实证据：1 Energy + 1 [A] Power + Exhaust 的费用由已合入的费用计划构建并支付。" +
+    "依赖：effect.token 定义表扩展（RIFT-62）、RIFT-90、RIFT-257；不近似实现。",
   abilities,
   sourceText:
     ":rb_energy_1::rb_rune_rainbow:, :rb_exhaust:: Play a Bomb gear token to a battlefield. " +

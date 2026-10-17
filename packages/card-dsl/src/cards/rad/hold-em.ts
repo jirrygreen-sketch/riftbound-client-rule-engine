@@ -18,45 +18,53 @@ import type { CardProgram } from "../../ir/index.js";
  * Rules reading (CR v1.5):
  * - [Action] (806) is declared as a keyword ability; the timing permission
  *   itself is owned by the keyword registry and the chain.
- * - "This costs :rb_energy_2: less if ..." is a cost modification of this
- *   card (356.x cost stages 5.1: the discount is applied while the plan is
- *   built), gated on an event history: "you've played a unit or gear to a
- *   battlefield this turn".
  * - "Give a unit +3 :rb_might: this turn" is a temporary Might modification
- *   with an end-of-turn duration (layers arithmetic, continuous.might; not a
- *   Buff counter, see CR 702 and effect.buff's stated boundary). "a unit" is a
- *   target (355.9.b); "this turn" is the duration of the modification.
+ *   with an end-of-turn duration: the merged layers arithmetic effect
+ *   `continuous.might` (RIFT-258) with duration "this-turn". It is not a Buff
+ *   counter (CR 702; effect.buff keeps that boundary). "a unit" is a target
+ *   (355.9.b); "this turn" is the duration of the modification.
+ * - "This costs :rb_energy_2: less if ..." is a cost modification of this card
+ *   (356.x cost stages 5.1: the discount is applied while the plan is built),
+ *   gated on an event history: "you've played a unit or gear to a battlefield
+ *   this turn".
  *
- * Status: judge-required. Two gaps:
- * - no merged instruction performs a temporary Might modification; the layers
- *   consumer (continuous.might) is unmerged (RIFT-91), so the body uses that
- *   descriptive, unregistered op;
- * - the discount gate needs an event history with an object filter ("a unit or
- *   gear") and the play destination ("to a battlefield"). `HistoryQuery`
- *   (contract 3.8) only has scope / action / timingPoint / player / object plus
- *   the proposed `exclude` and `objectFilter`, and the interpreter's
- *   history.ts rejects unknown fields, so neither the unit-or-gear filter nor
- *   "to a battlefield" can be stated yet (RIFT-89/90). The gate below is a
- *   descriptive constant that must not be executed.
+ * Status: judge-required — the Might clause is executable and covered by the
+ * golden test, but the printed discount cannot be installed or gated yet:
+ * - the card-static cost modification has no consumer: cost/cost-plan.ts only
+ *   applies discounts supplied by the caller in CostPlanInput.discounts, and
+ *   the card program → Finalize cost-plan binding plus cost.modify/cost.pay are
+ *   the RIFT-261 workstream;
+ * - the gate needs an event history with an object filter ("a unit or gear")
+ *   and the play destination ("to a battlefield"). HistoryQuery (contract 3.8)
+ *   carries `objectFilter` and is reachable only through the
+ *   `condition.history` instruction, which cannot gate a static cost effect;
+ *   the play destination is still not part of the query. The gate below stays
+ *   a descriptive constant that must not be executed.
+ * Dependencies: RIFT-261 (cost.modify/cost.pay and the card-static cost
+ * binding) plus a play-destination history predicate for the discount gate.
+ * Not approximated: the discount is declared, never silently applied.
  */
 export default {
   canonicalCardId: "card.hash-6241ef3881abbc30d79cdaf37ca912ade70c601045279aed082fc727f4ace85c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺临时 Might 修正原语：“Give a unit +3 :rb_might: this turn”需要 continuous.might（图层 arithmetic，" +
-    "end-of-turn 期限）；effect.buff 只加 CR 702 的 Buff 计数，不能代替 Might 值修改，layers 消费者未合入（依赖 RIFT-91）。" +
-    "另缺减费条件的事件历史表达：“你本回合把单位或装备打到战场”需要带对象过滤（单位/装备）与落点（战场）的 " +
-    "HistoryQuery；当前 HistoryQuery 只有 scope/action/timingPoint/player/object 且 history.ts 拒绝未知字段" +
-    "（契约 3.8 的 objectFilter 尚未落地，依赖 RIFT-89/90），故减费条件只能写成描述性常量，不得执行。不近似实现。",
+    "「Give a unit +3 :rb_might: this turn」已可执行（continuous.might 的 arithmetic 图层 + end-of-turn 期限，RIFT-258；golden 用解释器 + 图层引擎真实执行）。" +
+    "整卡仍不可执行：「This costs :rb_energy_2: less if you've played a unit or gear to a battlefield this turn」需要两件未合入的支撑——" +
+    "(1) 把卡牌 static 减费安装进打出时的费用计划：cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts 时应用折扣，" +
+    "卡牌 static 能力 → Finalize 费用计划绑定与 cost.modify/cost.pay 仍待 RIFT-261；" +
+    "(2) 减费条件的事件历史表达：「本回合把单位或装备打到战场」需要带对象过滤（单位/装备）与落点（战场）的 HistoryQuery；" +
+    "契约 3.8 的 objectFilter 只经 condition.history 指令可达，无法门控 static 费用效果，落点谓词也仍缺失，故减费条件只能写成描述性常量（不得执行）。" +
+    "依赖：RIFT-261 与打出落点历史谓词。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
       // "This costs :rb_energy_2: less if you've played a unit or gear to a
       // battlefield this turn." — an energy discount on this card, applied
       // while the cost plan is built. The condition is descriptive only: the
-      // history query it needs is not expressible yet (see judgeReason), and a
-      // wrong gate would silently apply or drop the discount.
+      // static cost binding and the history query it needs are not expressible
+      // yet (see judgeReason), and a wrong gate would silently apply or drop
+      // the discount.
       kind: "static",
       effect: {
         kind: "continuous.cost-modification",
@@ -88,11 +96,12 @@ export default {
       },
       body: [
         {
-          // "Give a unit +3 Might this turn" — one positive temporary Might
-          // modification; the layers op is not registered yet (judgeReason).
+          // "Give a unit +3 Might this turn": one positive temporary Might
+          // modification in the arithmetic layer, expiring at end of turn.
           id: "hold-em.give-plus-3-might",
           op: "continuous.might",
           args: {
+            objects: { kind: "constant", value: { kind: "target", id: "unit" } },
             amount: { kind: "constant", value: 3 },
             duration: { kind: "constant", value: "this-turn" }
           },

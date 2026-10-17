@@ -4,9 +4,10 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/heartening-soul.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL = "card.hash-b955ee21fd32d4a00aae0761a6d7f8f66eb03094edf676a34c3e87639045aae1";
 const SOURCE_TEXT =
@@ -16,7 +17,7 @@ const SOURCE_TEXT =
 const [readyTrigger, grantStatic] = program.abilities;
 const [readyInstruction] = readyTrigger.body;
 const grantedBody = grantStatic.effect.ability.body;
-const grantedInstruction = grantedBody[0];
+const [grantedInstruction] = grantedBody;
 
 /** Strip instruction-level TargetSpecs: Finalize locks those in production. */
 const executableBody = readyTrigger.body.map(({ targets, ...rest }) => rest);
@@ -32,8 +33,7 @@ test("rad-040-167 Heartening Soul: identity, ruleset, status, judgeReason and so
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.grant-ability/);
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -66,7 +66,7 @@ test("rad-040-167 Heartening Soul: play trigger readies one friendly legend (CR 
   assert.equal(readyInstruction.linkedTo, undefined);
 });
 
-test("rad-040-167 Heartening Soul: the granted legend ability is an exhaust-cost activation granting +3 Might", () => {
+test("rad-040-167 Heartening Soul: the granted legend ability is an exhaust-cost +3 Might this turn", () => {
   assert.equal(grantStatic.kind, "static");
   assert.equal(grantStatic.effect.kind, "continuous.grant-ability");
   assert.deepEqual(grantStatic.effect.filter, { type: "legend", controller: "controller" });
@@ -76,9 +76,15 @@ test("rad-040-167 Heartening Soul: the granted legend ability is an exhaust-cost
   assert.equal(granted.timing, "action");
   assert.deepEqual(granted.cost, { payments: [{ kind: "exhaust" }] });
   assert.equal(grantedBody.length, 1);
+  // The granted body now uses the merged layers arithmetic op with the printed
+  // "this turn" duration (143.2.a / 317.2.c), never a Buff counter (702).
   assert.equal(grantedInstruction.op, "continuous.might");
   assert.deepEqual(grantedInstruction.args.amount, { kind: "constant", value: 3 });
-  assert.deepEqual(grantedInstruction.args.duration, { kind: "constant", value: "end-of-turn" });
+  assert.deepEqual(grantedInstruction.args.duration, { kind: "constant", value: "this-turn" });
+  assert.deepEqual(grantedInstruction.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "heartening-soul.granted.unit" }
+  });
   assert.deepEqual(grantedInstruction.targets, [
     {
       id: "heartening-soul.granted.unit",
@@ -122,23 +128,51 @@ test("rad-040-167 Heartening Soul golden: a stale legend target is ignored (CR 3
   assert.deepEqual(outcome.events, []);
 });
 
-test("rad-040-167 Heartening Soul: neither the grant op nor the Might grant op is registered", () => {
-  assert.equal(instructionDefinitionsById.get("continuous.grant-ability"), undefined);
-  assert.equal(instructionDefinitionsById.get("continuous.might"), undefined);
-  assert.notEqual(instructionDefinitionsById.get("effect.ready"), undefined);
+test("rad-040-167 Heartening Soul golden: the granted +3 Might this turn really applies through the layers engine", () => {
+  // The granted body is the shape every friendly legend receives once
+  // continuous.grant-ability can carry it; bind the target exactly as Finalize
+  // would and run the body through the chain interpreter adapter.
+  const base = world()
+    .unit("legend", { owner: "A", types: ["legend"] })
+    .unit("unit", { owner: "A", controller: "A", might: 2 })
+    .build();
+  const kernel = base.clone({
+    sourceSnapshot: base.getObject("legend"),
+    targets: new Map([["heartening-soul.granted.unit", [base.ref("unit")]]])
+  });
+
+  const outcome = resolveChainBody(grantedBody, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [["heartening-soul.granted.give-might", "executed"]]
+  );
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [registration] = kernel.continuousEffects;
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 3);
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+
+  // 143.2.a Effective Might: 2 + 3 = 5 while the granted ability's effect lasts;
+  // 317.2.c: the end-of-turn cleanup restores 2.
+  const layers = createLayerEngine(kernel.objects, [{ ...registration, timestamp: 1 }]);
+  assert.equal(layers.evaluate(kernel.ref("unit")).might, 5);
+  layers.advance({ id: "turn-end" });
+  assert.equal(layers.evaluate(kernel.ref("unit")).might, 2);
 });
 
 test.todo(
-  "rad-040-167 Heartening Soul: attach the whole activated ability (with its [E] cost and end-of-turn duration) to " +
-    "every friendly legend — CR 801.3.a / 135.4.b continuous.grant-ability has no merged consumer (no assigned task)"
+  "rad-040-167 Heartening Soul: attach the whole activated ability (its [E] cost and duration) to " +
+    "every friendly legend — CR 801.3.a / 135.4.b needs the continuous.grant-ability primitive, " +
+    "which has no file under effects/instructions"
 );
-
 test.todo(
-  "rad-040-167 Heartening Soul: resolve the granted '+3 Might this turn' through the arithmetic layer and expire it at " +
-    "the end-of-turn cleanup (CR 143.2.a / 475) — depends on RIFT-91"
+  "rad-040-167 Heartening Soul: register the static grant and the card-played trigger through the " +
+    "CardProgram binding so production really grants it (RIFT-257)"
 );
-
 test.todo(
-  "rad-040-167 Heartening Soul: target legality for a legend in the Legend Zone (CR 355.9.a.4) needs a ZoneId member " +
-    "for the legend zone (contract change request) plus the RIFT-90 target plan"
+  "rad-040-167 Heartening Soul: target legality for a legend in the Legend Zone (CR 355.9.a.4) needs " +
+    "a ZoneId member for the legend zone (contract change request) plus the RIFT-90 target plan"
 );

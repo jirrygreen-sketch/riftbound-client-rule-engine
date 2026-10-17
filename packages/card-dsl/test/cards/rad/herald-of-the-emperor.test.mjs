@@ -1,15 +1,17 @@
 // Golden test for Herald of the Emperor (rad-118-167).
-// The play trigger and the target selection are fixed; the base-Might set has no
-// merged primitive and the trigger has no registration path (see judgeReason).
+// The play trigger and the target selection are fixed; the printed Base Might
+// set has no Trait-Altering primitive and the trigger has no production
+// registration path (see judgeReason). The merged arithmetic equivalent is
+// executed separately as a contrast, never as this card's semantics.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/herald-of-the-emperor.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL = "card.hash-f31c457784f7a2bda7271b96edb7702e948e7047187f0226e77144f06ba40ce1";
 const SOURCE_TEXT = "When you play me, choose a friendly unit. Its base Might becomes 5 this turn.";
@@ -21,6 +23,7 @@ const [friendlyUnit] = setBaseMight.targets;
 test("rad-118-167 Herald of the Emperor: program validates and keeps identity", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.deepEqual(result.issues, []);
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
@@ -28,13 +31,11 @@ test("rad-118-167 Herald of the Emperor: program validates and keeps identity", 
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("rad-118-167 Herald of the Emperor: judgeReason names the base-Might primitive and the trigger registration", () => {
+test("rad-118-167 Herald of the Emperor: judgeReason names the Trait-Altering gap and the trigger binding", () => {
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /continuous\.duration/);
+  assert.match(program.judgeReason, /479\.2/);
   assert.match(program.judgeReason, /143\.2\.a\.1/);
-  assert.match(program.judgeReason, /registerTrigger/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-118-167 Herald of the Emperor: 'When you play me' is the self-scoped card-played trigger (383.4.a.1)", () => {
@@ -72,49 +73,56 @@ test("rad-118-167 Herald of the Emperor: 'choose a friendly unit' is a single fr
   });
 });
 
-test("rad-118-167 Herald of the Emperor: the base-Might instruction has no merged opcode yet", () => {
+test("rad-118-167 Herald of the Emperor contrast: the merged arithmetic set-Might op is a different layer (479.2 vs 479.4)", () => {
+  // The card needs the Trait-Altering layer; the merged continuous.might op
+  // registers layer "arithmetic" for both add and set. Running the arithmetic
+  // set makes the difference explicit instead of pretending the card is done:
+  // the printed "base Might becomes 5" is NOT this effect.
   const base = world()
-    .unit("herald", { might: 3 })
-    .unit("ally", { might: 2 })
+    .unit("herald", { owner: "A", controller: "A", might: 3 })
+    .unit("ally", { owner: "A", controller: "A", might: 2 })
     .build();
-  const scoped = base.clone({ sourceSnapshot: base.getObject("herald") });
-  scoped.setTargets("herald.friendly-unit", [base.ref("ally")]);
-  // Two honest facts: the opcode has no registered primitive, and the reference
-  // kernel matches the symbolic filter keys by exact value, so its own target
-  // preparation finds no candidate and the instruction is ignored — nothing
-  // pretends the base-Might set happened.
-  assert.equal(instructionDefinitionsById.has("continuous.base-might"), false);
-  assert.equal(instructionDefinitionsById.has("continuous.might"), false);
-  const outcome = runAbilityBody(playTrigger.body, scoped);
-  assert.equal(outcome.status, "partial");
-  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status, entry.result.reason]), [
-    ["herald.set-base-might", "ignored", "mistargeted"]
-  ]);
-  assert.deepEqual(outcome.events, []);
-  assert.throws(
-    () =>
-      runAbilityBody(
-        [
-          {
-            id: "herald.opcode-probe",
-            op: "continuous.base-might",
-            args: { amount: { kind: "constant", value: 5 } }
-          }
-        ],
-        scoped
-      ),
-    /Unregistered instruction opcode: continuous\.base-might/
-  );
-  assert.equal(scoped.getObject("ally").might, 2);
+  const kernel = base.clone({
+    sourceSnapshot: base.getObject("herald"),
+    targets: new Map([["herald.friendly-unit", [base.ref("ally")]]])
+  });
+  const body = [
+    {
+      id: "herald.arithmetic-contrast",
+      op: "continuous.might",
+      args: {
+        mode: { kind: "constant", value: "set" },
+        objects: { kind: "constant", value: { kind: "target", id: "herald.friendly-unit" } },
+        amount: { kind: "constant", value: 5 },
+        duration: { kind: "constant", value: "this-turn" }
+      }
+    }
+  ];
+
+  const outcome = resolveChainBody(body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [registration] = kernel.continuousEffects;
+  // 479.4 arithmetic layer, not the 479.2 Trait-Altering Base Might the card
+  // actually changes — which is exactly why the card stays judge-required.
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "set-might");
+  assert.equal(registration.effect.effect.value, 5);
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+
+  const layers = createLayerEngine(kernel.objects, [{ ...registration, timestamp: 1 }]);
+  assert.equal(layers.evaluate(kernel.ref("ally")).might, 5);
+  layers.advance({ id: "turn-end" });
+  assert.equal(layers.evaluate(kernel.ref("ally")).might, 2);
 });
 
 test.todo(
-  "rad-118-167 Herald of the Emperor: 'its base Might becomes 5 this turn' applied in the Trait-Altering layer " +
-    "and expiring at end of turn (CR 143.2.a.1/475/479.2) — the continuous.might (base-Might) and " +
-    "continuous.duration primitives are not merged (RIFT-91)"
+  "rad-118-167 Herald of the Emperor: 'its base Might becomes 5 this turn' needs a Trait-Altering " +
+    "layer primitive (CR 479.2 Base Might / 143.2.a.1) — continuous.might only registers the " +
+    "arithmetic layer (479.4)"
 );
 test.todo(
-  "rad-118-167 Herald of the Emperor: the card-played trigger registered as a TriggerRegistration so the play " +
-    "effect goes on the chain (CR 383.4.a.2; contract §7.2 batch 4/5) — RIFT-120"
+  "rad-118-167 Herald of the Emperor: the card-played trigger must be registered as a " +
+    "TriggerRegistration so the play effect goes on the chain (CR 383.4.a.2) — RIFT-257"
 );
-

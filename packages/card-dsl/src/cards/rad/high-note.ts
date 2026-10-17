@@ -18,29 +18,35 @@ import type { CardProgram } from "../../ir/index.js";
  * - [Reaction] (813) is declared as a keyword ability; its timing expansion
  *   (Reaction.ts + chain admission) belongs to the keyword registry and chain.
  * - "Give a unit –:rb_might: this turn" is a temporary Might modification with
- *   an end-of-turn duration, i.e. the layers arithmetic effect
- *   (continuous.might, contract 3.4/3.6). It is not a Buff counter (702).
+ *   an end-of-turn duration: the merged layers arithmetic effect
+ *   `continuous.might` (contract 3.4/3.6, RIFT-258), duration "this-turn" →
+ *   end-of-turn expiry. It is not a Buff counter (702).
  * - The amount "equal to the number of exhausted units you control" is read
- *   when the effect resolves (contract 3.6: the value is evaluated at call
- *   time); `states: "exhausted"` is the exhausted condition of 415.2.
+ *   when the effect resolves (contract 3.6: value expressions are evaluated at
+ *   call time). The merged `continuous.might` schema takes the evaluated
+ *   integer, so the count is computed by the merged `condition.value`
+ *   arithmetic node and handed over as a linked value — the same read-then-use
+ *   pattern the merged sfd/azir-sovereign and ogn/noxian-drummer programs use.
+ * - "you control" is the ability controller (190.6.d), spelled with the
+ *   contract selector "self" (chain/engine.ts normalizes it to the item's
+ *   controller and layers/filter.ts matches it); `states: "exhausted"` is the
+ *   exhausted condition of 415.2. Per contract 3.6, `count` queries all
+ *   matching objects.
  * - "a unit" is a target (355.9.b/355.10: the instruction chooses one unit and
  *   no exception applies), so it is a TargetSpec, not a pick.
  *
- * Status: judge-required. Missing implementation: no merged instruction
- * performs a temporary Might modification. `effect.buff` only adds/removes
- * CR 702 Buff counters and explicitly leaves temporary Might changes to
- * `continuous.might`; the layers consumer is unmerged (RIFT-91), so the
- * instruction below uses the descriptive op `continuous.might`.
+ * Status: executable. Both instructions run on merged code: the count node
+ * evaluates through the production query binding and `continuous.might`
+ * registers the negative arithmetic-layer modification with its end-of-turn
+ * duration. The golden test runs the card's own body through the chain
+ * interpreter adapter with the production query wrapper and asserts the
+ * computed -N, the layers result, the end-of-turn expiry, the zero-count no-op
+ * and the lost-target branch.
  */
 export default {
   canonicalCardId: "card.hash-94a6c9fbd1c07987c118b3c37993744abe6442237b9355dfa3faf6771ca2da54",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "缺临时 Might 修正的已合入原语：“Give a unit –:rb_might: this turn”需要带 end-of-turn 期限的 " +
-    "continuous.might（图层 arithmetic，契约 3.4/3.6）；effect.buff 只处理 CR 702 的 Buff 计数，不能代替 " +
-    "Might 值修正，layers 消费者未合入（依赖 RIFT-91）。数值“你控制的已横置单位数”按 415.2 以结算时 " +
-    "count 查询（states: exhausted）取值，但该持续效果当前无法执行。不近似实现。",
+  status: "executable",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
@@ -51,22 +57,37 @@ export default {
       },
       body: [
         {
-          // "Give a unit –Might this turn equal to the number of exhausted
-          // units you control": one negative temporary Might modification.
-          // The negated count is evaluated at resolution time (contract 3.6).
-          id: "high-note.give-minus-might",
-          op: "continuous.might",
+          // "equal to the number of exhausted units you control": read the
+          // count while the effect resolves (contract 3.6) and negate it, so
+          // the Might instruction consumes an evaluated integer.
+          id: "high-note.count-exhausted",
+          op: "condition.value",
           args: {
-            amount: {
-              kind: "arithmetic",
-              operator: "neg",
-              operands: [
+            operands: {
+              kind: "constant",
+              value: [
                 {
                   kind: "count",
                   subject: "exhausted-units-you-control",
-                  filter: { type: "unit", controller: "you", states: "exhausted" }
+                  filter: { type: "unit", controller: "self", states: "exhausted" }
                 }
               ]
+            },
+            operator: { kind: "constant", value: "neg" },
+            key: { kind: "constant", value: "value" }
+          }
+        },
+        {
+          // "Give a unit –Might this turn": one negative temporary Might
+          // modification in the arithmetic layer, expiring at end of turn.
+          id: "high-note.give-minus-might",
+          op: "continuous.might",
+          args: {
+            objects: { kind: "constant", value: { kind: "target", id: "unit" } },
+            amount: {
+              kind: "linked-value",
+              instructionId: "high-note.count-exhausted",
+              key: "value"
             },
             duration: { kind: "constant", value: "this-turn" }
           },
