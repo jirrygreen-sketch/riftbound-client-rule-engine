@@ -14,11 +14,12 @@ import type { CardProgram } from "../../ir/index.js";
  * - 418.6.a：未指定来源的 Deal 动作以描述该动作的游戏效果（本能力，来源即本单位）为来源；
  *   effect.damage 缺省即为 ctx.source.ref，故不另写 source。
  *
- * status: judge-required —— 效果本体（effect.damage + 目标锚点）已合入，但时点本身没有
- * 已合入的发射方：blackbox 中 `attack-declared` 只出现在封闭枚举 events/timing-points.ts
- * 与 events/trigger-spec.ts，战斗模块（packages/engine-core/src/combat/）当前只有伤害分配与
- * 派生 Might，没有任何流程发射该时点（combat/ 不在本任务 owns；属引擎批 5 战斗流程）。
- * 触发无法在真实内核中发生，故不标 executable。
+ * status: judge-required —— 效果本体（effect.damage + 目标锚点）已合入，但时点本身仍没有
+ * 已合入的发射方：`attack-declared` 只出现在封闭枚举 events/timing-points.ts 与
+ * events/trigger-spec.ts；RIFT-124 合入的 combat/flow.ts 在 combat start/role designation
+ * 与 simultaneous damage 事务处仍显式抛出 TurnCombatBlockedError（combat-start-transaction /
+ * simultaneous-damage-transaction），docs/rules/timing-point-producers.md 也把
+ * attack-declared/defense-declared 记为「待后续」。触发无法在真实内核中发生，故不标 executable。
  */
 export default {
   canonicalCardId: "card.hash-4acf60426320c2884ae76dd73b385b04731efa6ca356ff3cbaba1c02983837c1",
@@ -26,9 +27,11 @@ export default {
   status: "judge-required",
   judgeReason:
     "effect.damage 与目标锚点均已合入，但攻击时点 `attack-declared` 没有已合入的发射方：该 id 只" +
-    "存在于封闭枚举 events/timing-points.ts 与 events/trigger-spec.ts，packages/engine-core/src/combat/" +
-    "（base-combat-allocation、derived-might）不发射任何时点，战斗流程/时点发射属引擎批 5（RIFT-31/33 等" +
-    "场景与触发任务）。触发在真实内核中不会发生，故整卡保持 judge-required，不把「能写出声明」当作可执行。",
+    "存在于封闭枚举 events/timing-points.ts 与 events/trigger-spec.ts。RIFT-124 合入的 combat/flow.ts 已有战斗结构，" +
+    "但 combat start/role designation（attack-declared/combat-start）与 simultaneous damage 事务仍显式抛出 " +
+    "TurnCombatBlockedError（combat-start-transaction / simultaneous-damage-transaction），docs/rules/timing-point-producers.md " +
+    "亦把 attack-declared/defense-declared 记为「待后续」；战斗角色的原子时点波尚未实现。" +
+    "触发在真实内核中不会发生，故整卡保持 judge-required，不把「能写出声明」当作可执行。",
   abilities: [
     {
       kind: "triggered",

@@ -30,6 +30,9 @@ test("Charm identity, ruleset, status and printed text", () => {
   assert.match(charm.judgeReason, /Destination/);
   assert.match(charm.judgeReason, /355\.4/);
   assert.match(charm.judgeReason, /effect\.move/);
+  // The still-current gap is the runtime-legal destination enumeration, not the
+  // primitive's existence.
+  assert.match(charm.judgeReason, /target\.location/);
   // The generated registry indexes this program by canonicalCardId.
   assert.equal(cardRegistryById.get(charm.canonicalCardId), charm);
 });
@@ -114,28 +117,24 @@ test("Charm golden: a stale target is ignored when the unit already left the boa
   assert.equal(run.events.length, 0);
 });
 
-test("Charm fails closed: the placeholder Destination is rejected by effect.move, never guessed", () => {
-  // The card's own args must NOT be silently accepted with some substitute
-  // destination: effect.move only takes a real LocationRef, "controller-base",
-  // or a static list of LocationRefs (CR 355.4.a's runtime choice has no IR
-  // form yet), so executing the card's literal args throws instead of moving
-  // the unit to an invented Destination.
-  const kernel = world().battlefield("enemy-unit", { owner: "B" }).build();
-  assert.throws(
-    () =>
-      runInstruction(move, moveInstruction.args, {
-        world: kernel,
-        targets: { "enemy-unit": [kernel.ref("enemy-unit")] }
-      }),
-    /effect\.move to must be a location, controller-base, or location choice/
-  );
-  assert.deepEqual(kernel.getObject("enemy-unit").location, battlefield);
+test("Charm structure: the destination is declared as a runtime choice placeholder, not a fixed location", () => {
+  // CR 355.4.a requires the controller to choose a legal Destination made from
+  // the runtime board; until that enumeration exists the IR only marks the
+  // pending choice. The card must never pick a Destination for the player, so
+  // the placeholder is asserted here and the real selection stays a TODO.
+  assert.equal(moveInstruction.args.to.kind, "constant");
+  assert.deepEqual(moveInstruction.args.to.value, {
+    kind: "choose",
+    id: "charm.destination",
+    options: ["runtime:valid-move-destination"]
+  });
 });
 
 test.todo(
   "Charm Destination: enumerate the runtime-legal Move Destinations at Finalize and offer the " +
-    "choice to the controller (CR 355.4 / 355.4.a / 449.2) - needs the target.location primitive and " +
-    "the Move pipeline (contract 7.2 batch 5 Turn/Combat; no merged task number)"
+    "choice to the controller (CR 355.4 / 355.4.a / 449.2) - needs a runtime destination provider " +
+    "(the target.location family) so the { kind: \"choose\", options } list holds real LocationRefs; " +
+    "RIFT-124's movement structure only accepts a caller-supplied destination"
 );
 
 test.todo(

@@ -34,7 +34,10 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /attack-declared/);
-  assert.match(program.judgeReason, /combat\//);
+  // The gap is the blocked combat role/timing transaction, not a missing
+  // combat module.
+  assert.match(program.judgeReason, /combat\/flow\.ts/);
+  assert.match(program.judgeReason, /TurnCombatBlockedError|combat-start-transaction/);
   assert.equal(program.sourceText, "When I attack, deal 1 to an enemy unit here.");
 });
 
@@ -104,14 +107,15 @@ test("golden: a target that left its zone before resolution is ignored, not redi
   assert.equal(run.events.length, 0);
 });
 
-test("dependency evidence: attack-declared is a frozen timing point with no merged emitter", () => {
+test("dependency evidence: attack-declared is a frozen timing point whose combat-role transaction is blocked", () => {
   assert.ok(TIMING_POINT_IDS.includes("attack-declared"));
 });
 
 test.todo(
   "Crackshot Corsair: the attack trigger only becomes reachable when the combat flow emits " +
-    "attack-declared (CR 383.4.e / 466.2.c) — engine batch 5 combat (packages/engine-core/src/combat/ " +
-    "currently emits no timing points)"
+    "attack-declared (CR 383.4.e / 466.2.c) — combat/flow.ts still throws " +
+    "TurnCombatBlockedError at the combat-start-transaction (role designation) and " +
+    "simultaneous-damage transaction points"
 );
 test.todo(
   "Crackshot Corsair: Finalize-time locking of 'an enemy unit here' plus the sameLocationAs anchor " +

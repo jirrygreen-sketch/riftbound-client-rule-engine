@@ -24,8 +24,13 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  // The reason must name the still-current gaps: the unread nested trigger
+  // filter / missing "another object" predicate and the missing host selector
+  // inside effect.buff.
   assert.match(program.judgeReason, /matchesTriggerEvent/);
+  assert.match(program.judgeReason, /exclude/);
   assert.match(program.judgeReason, /355\.10\.d/);
+  assert.match(program.judgeReason, /objects: \{kind: "source"\}/);
   assert.equal(
     program.sourceText,
     "When you play another unit, buff me. (If I don't have a buff, I get a +1 :rb_might: buff.)"
@@ -83,9 +88,10 @@ test("golden: a host that already has a buff is not buffed again (CR 702.3/702.3
 });
 
 test.todo(
-  "Cithria of Cloudfield: 'you play another unit' needs a trigger filter that excludes the host and " +
-    "scopes to units played by the controller; events/pipeline-match.ts matchesTriggerEvent has no " +
-    "such key and ObjectSelector.exclude only applies to set queries (engine batch 4 / RIFT-90)"
+  "Cithria of Cloudfield: 'you play another unit' needs a trigger-filter predicate that excludes the " +
+    "host and scopes to units played by the controller; matchesTriggerEvent reads the EventPattern's " +
+    "top-level object/source/target keys and does not consume the nested filter spelling, and " +
+    "ObjectSelector.exclude only applies to interpreter set queries"
 );
 test.todo(
   "Cithria of Cloudfield: 'buff me' needs a host-selector form inside effect.buff (contract change " +

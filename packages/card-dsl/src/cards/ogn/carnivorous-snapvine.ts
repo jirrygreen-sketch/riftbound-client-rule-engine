@@ -3,31 +3,33 @@ import type { Ability, CardProgram } from "../../ir/index.js";
 /**
  * Carnivorous Snapvine (ogn-149-298) — Unit（能量 5，力量 2，Might 6，Body；Shadow Isles）。
  *
- * 原文："When you play me, choose an enemy unit at a battlefield. We deal damage
- * equal to our Mights to each other."
+ * sourceText（packages/card-data/data/deck-catalog.json, ogn-149-298，逐字）：
+ *   "When you play me, choose an enemy unit at a battlefield. We deal damage
+ *    equal to our Mights to each other."
  *
  * 规则依据（CR v1.5）：
  * - 383.4.a / 383.4.a.1："When you play me…" 是 Play Effect（时点 card-played，
  *   359/407），在与本卡 FINAL 后进入链。
- * - 355.10 / 355.9.a.1："an enemy unit at a battlefield" 是选择型引用 → 目标
- *   （TargetSpec），合法性在 Finalize 锁定、Resolve 重验（359.3.e）。
+ * - 355.5 / 355.7 / 355.9.a.1 / 355.10："choose an enemy unit at a battlefield"
+ *   在 Finalize 时选择一个具体 Game Object，是目标（用一个 TargetSpec 表达），
+ *   合法性在 Finalize 锁定、Resolve 重验（359.3.e）。
  * - 418.6.b.3 例 Challenge（"They deal damage equal to their Mights to each
- *   other."）：伤害来源是**被选中的单位**而不是法术/能力本身；两名单位各自造成
- *   等于自身 Might 的伤害。
- * - "our Mights" 在第 2 次结算时读取两单位当时的 Might（359.3.f.2：指令执行时
- *   检查引用信息；Stupefy 例说明读取的是当时值）。
+ *   other."）：伤害来源是**被选中的单位**而不是法术/能力本身（"The damage that
+ *   Challenge causes to be dealt is dealt by the chosen units"），418.6.b.4 由该
+ *   单位的控制者负责；两名单位各自造成等于自身 Might 的伤害。本卡与 Challenge 的
+ *   文本同型，沿用其已合入且可执行的写法：`property: "ref"` 读取已声明的
+ *   ObjectSnapshot.ref 字段（契约 3.6），`property: "might"` 在结算时读取当时值。
+ * - 303.2：Game Action 从不真正同时发生；370.1.a.2 的对比例子正是"两条 kill 指令"。
+ *   两条 Deal 指令各自结算，双方在任何 Cleanup 之前都已受到伤害，指令顺序不改变
+ *   结果（与 ogn/challenge.ts 的既有可执行实现一致）。两条指令互不 linkedTo
+ *   （359.3.e.14：只有直接引用前序动作结果时才链接）。
+ * - 359.3.e.7 / e.13：被选单位在结算前离场时，读取它的指令被 ignored，而不是回退到
+ *   最后已知信息。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - 以被选单位为伤害来源需要把"目标对象的引用"与"该对象当时的 Might"分别交给
- *   effect.damage 的 source/amount。ObjectSelector 只提供 {target}/{pick}/{linked}/
- *   self/source；以目标为选择符的 object-property 只能读特征（如 might），读不到
- *   运行时 ObjectRef；"对象→引用"没有已合入表达式（sfd Strike Down 的
- *   "picked-unit.might" 缺口同源）。
- * - 两次互相伤害的先后/同时性与"第一个单位被消灭时第二个是否仍读取最后已知信息"
- *   由 359.3.e.13（同一条指令内的动作造成的离区回看）处理，属原语+解释器语义，
- *   本卡不能自己拆成两条指令冒充同时结算。
- * 依赖：ObjectSelector/Expr 的"选择符→引用"读取（picked/target ref）与一条指令内
- * 双方互伤的同时性模型；不近似实现（不写死双方 Might 数值、不拆成两条指令）。
+ * status: executable —— 效果本体（effect.damage + 运行时引用读取 + Might 读取）
+ * 全部由已合入原语执行；golden 用生产链适配器（resolveChainBody）真实提交两条
+ * damage，断言两条动作的 source 引用、双方实际伤害值与目标失效边界。触发到链的
+ * CardProgram 绑定属引擎级接线（RIFT-257），不是本卡语义缺口。
  */
 const abilities: Ability[] = [
   {
@@ -39,7 +41,41 @@ const abilities: Ability[] = [
     optional: false,
     body: [
       {
-        id: "snapvine.reciprocal-damage",
+        // "We deal ... to each other" 的第一段：本卡以自身 Might 对被选单位造成伤害
+        // （418.6.b.3：伤害由被选中的单位造成）。
+        id: "snapvine-deals",
+        op: "effect.damage",
+        args: {
+          amount: {
+            kind: "object-property",
+            object: "self",
+            property: "might"
+          },
+          source: {
+            kind: "object-property",
+            object: "self",
+            property: "ref"
+          },
+          target: { kind: "constant", value: "snapvine.enemy-unit" }
+        },
+        targets: [
+          {
+            id: "snapvine.enemy-unit",
+            // "an enemy unit at a battlefield"：355.9.b 的目标限制。"at a
+            // battlefield" 是地点限制，用已合入图层匹配器（layers/filter.ts）的
+            // location-type 词表拼写，由生产查询路径在 Finalize 与 Resolve 复验
+            // （与已可执行的 ogn/blast-of-power 同写法）。
+            filter: { type: "unit", controller: "opponent", location: "battlefield" },
+            min: 1,
+            max: 1,
+            selection: "one"
+          }
+        ]
+      },
+      {
+        // 第二段：被选单位以自身 Might 对本卡造成伤害；amount/source 都从同一
+        // 目标选择符读取，引用失效时按 359.3.e.7 忽略本条。
+        id: "enemy-deals",
         op: "effect.damage",
         args: {
           amount: {
@@ -56,8 +92,10 @@ const abilities: Ability[] = [
         },
         targets: [
           {
-            id: "snapvine.enemy-unit",
-            filter: { type: "unit", controller: "opponent", location: { type: "battlefield" } },
+            id: "snapvine.self",
+            // "me" 是宿主自身，由特征程序化选中、从不做选择（355.10.d.1）；契约
+            // 3.6 的 "self" 锚点由解释器在运行时绑定宿主（同 sfd/sea-monkey）。
+            filter: { object: "self", type: "unit", zone: "board" },
             min: 1,
             max: 1,
             selection: "one"
@@ -71,16 +109,7 @@ const abilities: Ability[] = [
 const program = {
   canonicalCardId: "card.hash-0198949b45425f8cf47078623d6647cf083dc1971553ed77552f307b6ca7031a",
   rulesetVersion: "core-1.5" as const,
-  status: "judge-required" as const,
-  judgeReason:
-    "以被选单位为伤害来源的互伤不能诚实表达（418.6.b.3 例 Challenge）：ObjectSelector " +
-    "只有 self/source/{target}/{pick}/{linked}，以目标为锚的 object-property 只能读特征" +
-    "（可读 might），读不到运行时 ObjectRef，因此 effect.damage 的 source 无法指向被选" +
-    "单位（与 sfd Strike Down 的 picked-unit 引用缺口同源）。另外" +
-    "“WE deal damage … to each other” 是同一 Deal 动作的双向伤害，其相互同时性/先后与" +
-    "一方被消灭后另一方读取最后已知 Might（359.3.e.13）属原语与解释器语义，" +
-    "把一条指令拆成两条会改变结算，属近似实现。依赖：选择符→引用的表达式读取与" +
-    "单指令互伤模型。不实现近似版。",
+  status: "executable" as const,
   abilities,
   sourceText:
     "When you play me, choose an enemy unit at a battlefield. We deal damage equal to our Mights to each other."

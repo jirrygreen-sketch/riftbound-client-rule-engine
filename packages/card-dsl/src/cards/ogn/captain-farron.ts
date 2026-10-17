@@ -21,21 +21,27 @@ import type { CardProgram } from "../../ir/index.js";
  * （无数值 → 807.1.b.3 默认 1）授予同一位置的其他友方单位。
  *
  * 未合入依赖（不近似实现）:
- * - 没有 continuous.grant-keyword 原语：effects/instructions/ 只有 effect.* 文件，
- *   KeywordDef 枚举里也没有"授予关键词"的展开（RIFT-9 的 continuous.keyword 缺口）。
- * - layers（RIFT-91）只消费已注册的 ContinuousEffectSpec，没有 CardProgram static
- *   能力 → 图层注册的消费方；被授予的 Assault 也需要"先授予、再按 807 展开"的两级
- *   处理，combined 展开目前不可执行。
- * 依赖：RIFT-9（continuous.keyword）、RIFT-81、RIFT-91。
+ * - 关键词语句：continuous.grant-keyword 指令原语已合入（RIFT-258），但它只在结算期
+ *   （instruction executor）注册图层效果；本卡是 static 持续能力，需要 CardProgram
+ *   static 能力 → 图层注册的消费方（RIFT-257 卡牌程序绑定），目前没有该接线。
+ * - 被授予的 Assault 还要按 807.1.c/807.2 在接收者上展开为 "+1 [M] while attacker"：
+ *   Assault 的 KeywordDef 展开条件读宿主 attacker designation，而 designation 不在
+ *   layers 的 ObjectSnapshot 特征里，layers/engine.ts 的 conditionMatches 也不求值
+ *   compare 条件（未知 kind 按 true）。
+ * 依赖：RIFT-257（CardProgram static 能力绑定）、designation 谓词与 compare 条件消费方
+ * （RIFT-91 后续）。
  */
 const captainFarron = {
   canonicalCardId: "card.hash-89422400a305aba2968956c639368704e17bca94d650b959b1c78453e5095fe2",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "『Other friendly units here have [Assault]』需要 continuous.grant-keyword 持续效果把未带数值的 Assault（807.1.b.3 视为 1）授予同一位置的其他友方单位：" +
-    "effects/instructions/ 没有该原语（RIFT-9 的 continuous.keyword 缺口），layers（RIFT-91）也没有 CardProgram static 能力 → 图层注册的消费方，" +
-    "且被授予的 Assault 还需按 807.1.c/807.2 在接收者上展开（两级处理）。依赖：RIFT-9（continuous.keyword）、RIFT-81、RIFT-91。不近似实现。",
+    "『Other friendly units here have [Assault]』是 static 持续能力：continuous.grant-keyword 指令原语虽已合入（RIFT-258），" +
+    "但它是结算期指令，只在 execute() 里注册图层效果；本卡需要在图层注册卡牌 static 能力（含 filter 的 sameLocationAs/other 锚点），" +
+    "而该 CardProgram static → layers 绑定尚未合入（RIFT-257）。" +
+    "此外被授予的 Assault 按 807.1.c/807.2 展开为条件于 attacker designation 的 +1 [M]，" +
+    "designation 不在 layers 的 ObjectSnapshot 特征中，layers/engine.ts 的 conditionMatches 也不求值 compare 条件（未知 kind 按 true），" +
+    "展开在真实图层计算中无法只在我攻击时生效。依赖：RIFT-257（CardProgram static 能力绑定）、designation 谓词与 compare 条件消费方（RIFT-91 后续）。不近似实现。",
   abilities: [
     {
       kind: "static",

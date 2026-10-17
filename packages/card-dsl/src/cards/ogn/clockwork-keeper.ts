@@ -21,16 +21,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   use this very card as the example). "If you do, draw 1" therefore keys off
  *   the decision/receipt, not off any resource delta.
  *
- * Status: judge-required. Two merged gaps, neither approximated:
- * - there is no instruction primitive or wiring that charges an Optional
- *   Additional Cost: the merged cost pipeline only consumes CostPlanInput
- *   supplied by its caller (cost/cost-plan.ts `optionalAdditional`), no code
- *   turns a card program's declared cost into such an input, and
- *   effects/instructions/ contains no cost.additional / cost.pay file
- *   (RIFT-89, batch3-cost-plan).
+ * Status: judge-required. Two gaps, neither approximated:
+ * - The merged cost pipeline (RIFT-89) accepts Optional Additional Costs, but
+ *   only as caller-supplied CostPlanInput (`optionalAdditional`); nothing turns
+ *   a card program's declared cost into that input (the CardProgram binding is
+ *   RIFT-257), and effects/instructions/ still has no cost.additional /
+ *   cost.pay instruction (RIFT-261).
  * - "If you do" needs the paid/declined receipt at resolution (356.4.f.1); the
  *   frozen IR has no cost-result binding (the survey lists it as
- *   condition.result, 46 identities) so the conditional draw cannot be gated.
+ *   condition.result) so the conditional draw cannot be gated.
  * The single effect.draw (414.3) half is merged and is executed by the golden
  * test.
  */
@@ -39,18 +38,21 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「As you play me, you may pay :rb_rune_calm: as an additional cost. If you do, draw 1.」需要可选追加费用的收取与回执：" +
-    "355.1.a/356.2.b/356.2.b.1 规定该费用在打出流程的 Finalize 决定并支付，而已合入的 cost/ 只消费调用方传入的 optionalAdditional，" +
-    "没有任何代码把卡牌程序声明的费用接进费用计划，effects/instructions/ 也没有 cost.additional / cost.pay 原语（RIFT-89 batch3-cost-plan）；" +
-    "356.4.f.1 的「If you do」以「玩家决定支付」为凭证（与实付数额无关），冻结 IR 没有费用结果绑定（调研记为 condition.result，46 个身份），" +
-    "因此条件抽牌无法判定。依赖：RIFT-89（可选追加费用与回执/结果绑定）。不近似实现，不用无条件 draw 冒充。" +
+    "「As you play me, you may pay :rb_rune_calm: as an additional cost. If you do, draw 1.」需要可选追加费用的卡牌侧收取与回执：" +
+    "355.1.a/356.2.b/356.2.b.1 规定该费用在打出流程的 Finalize 决定并支付。已合入的 cost/（RIFT-89）虽接受 Optional Additional Cost，" +
+    "但只消费调用方传入的 CostPlanInput.optionalAdditional：没有把卡牌程序声明的费用接进费用计划的绑定（RIFT-257），" +
+    "effects/instructions/ 也仍没有 cost.additional / cost.pay 指令原语（RIFT-261）；" +
+    "356.4.f.1 的「If you do」以「玩家决定支付」为凭证（与实付数额无关），冻结 IR 没有费用结果绑定（调研记为 condition.result），" +
+    "因此条件抽牌无法判定。依赖：RIFT-257（CardProgram 费用绑定）、RIFT-261（cost.pay 原语与支付回执）。不近似实现，不用无条件 draw 冒充。" +
     "Draw 1 本体（effect.draw，414.3）已合入并在 golden 中真实执行。",
   abilities: [
     {
       kind: "play",
       // "as an additional cost" + "may" = Optional Additional Cost
       // (356.2.b.1); one Calm rune of Power. Declared so reviewers can see the
-      // printed component, pending the RIFT-89 consumer and the paid receipt.
+      // printed component, pending the RIFT-257 CardProgram cost binding and
+      // the RIFT-261 cost.additional / cost.pay instruction, plus the paid
+      // receipt the conditional draw needs.
       cost: {
         kind: "additional-cost",
         optional: true,
