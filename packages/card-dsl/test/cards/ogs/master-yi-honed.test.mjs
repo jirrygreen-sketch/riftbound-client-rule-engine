@@ -144,7 +144,7 @@ test("ogs-009-024 Master Yi, Honed: [Ganking] keyword plus an enter-ready replac
   const [withInstruction] = replacement.with;
   assert.equal(withInstruction.id, "master-yi-honed.enter-ready");
   assert.equal(withInstruction.op, "effect.ready");
-  // RIFT-260's replacement planner resolves the body selector; "self" must be
+  // The merged replacement planner resolves the body selector; "self" must be
   // an explicit source selector (the empty args form is rejected at bind time).
   assert.deepEqual(withInstruction.args, {
     objects: { kind: "constant", value: { kind: "source" } }

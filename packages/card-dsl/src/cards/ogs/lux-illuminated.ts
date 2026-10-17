@@ -1,61 +1,52 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Lux, Illuminated (ogs-006-024) — Unit, 6 energy / 1 power (Mind), Might 5.
+ * Lux, Illuminated (ogs-006-024).
+ * CR v1.5 206 explicitly cites Lux: compare the played spell's printed/copied
+ * Energy cost, irrespective of cost increases, reductions or ignored costs.
+ * The card-played event supplies details.printed; event-printed tests >= 5 in
+ * the trigger condition (383.2.a.1), with an explicit spell/player filter.
+ * continuous.might supplies +3 in the arithmetic layer until turn expiration
+ * (143.2, 478.1.a, 317.1.a).
  *
- * sourceText (deck-catalog.json, ogs-006-024, verbatim):
- *   "When you play a spell that costs :rb_energy_5: or more, give me +3
- *   :rb_might: this turn."
- *
- * 规则依据（CR v1.5）：
- * - "When you play me ..." 类的 Play Effect（383.4.a / 383.4.a.1）在打出完成后
- *   进链（420.4.a）；本卡是"当你打出法术时"，触发时点为 card-played，事件对象
- *   是打出的法术（不是本卡自身）。
- * - "a spell that costs :rb_energy_5: or more"：需要读取被打出法术的费用并与 5
- *   比较（355.9/356 的费用与合法性区分）。
- * - "give me +3 :rb_might: this turn"：带本回合期限的 Might 修正，属算术图层
- *   （continuous.might）而非 Buff（effect.buff 文件头明确临时 Might 归
- *   continuous.might）。
- *
- * 状态：judge-required。两个能力半边分开判定：
- * 1. "+3 Might this turn" 由已合入的 continuous.might（RIFT-258）承载：带期限的
- *    算术图层修正（CR 143.2），golden 用本程序的 body 经解释器真实执行。
- * 2. 触发条件 "a spell that costs :rb_energy_5: or more" 仍无法表达：
- *    (a) 事件管线对带 condition 的注册要求宿主提供 testTrigger 适配器
- *    （events/pipeline.ts 抛 \"Trigger condition adapter required\"，已合入 host
- *    都不提供），且触发条件里的 count 表达式读不到 card-played 事件载荷；
- *    (b) card-played 事件（chain/engine.ts）只携带被打出卡牌的 object 快照与
- *    player，没有费用载荷；EventPattern.details 只做标量等值比较，
- *    ObjectFilter.characteristics 也只做等值匹配，冻结词汇没有对事件对象特征的
- *    数值 ≥ 比较；trigger.filter 里的 energyGte 过不了 programs/filters.ts 的
- *    白名单（translateTriggerFilter 抛 Unsupported filter field energyGte），
- *    是描述性占位、无正式语义。触发绑定本身（RIFT-257）已合入：golden 对
- *    filter 的对象等值半边做真实匹配，注册路径由 attachLifecycle 承载。
+ * Remaining judge gaps (both are engine paths, not card semantics):
+ * 1. The program registry rejects judge-required programs, so the production
+ *    lifecycle cannot bind this trigger from a Board source until the card is
+ *    executable as a whole.
+ * 2. "When you play a spell..." applies on every qualifying play in the turn,
+ *    but the chain interpreter's continuous.might settlement counter is
+ *    written under an instruction-qualified key and read back unqualified
+ *    (continuous.might:settlement-1 collision), so a second registration in
+ *    one turn throws "Continuous effect already registered" (same shared
+ *    interpreter defect recorded on ven/fretful-feline). The golden records
+ *    the real gate, payment and first grant, plus the second-play collision.
  */
 export default {
   canonicalCardId: "card.hash-c2754bbf1ee513e71200b5c341447c73af45af5ba81a41efde12ac2d348cbcd8",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "触发条件仍缺表达：\"a spell that costs :rb_energy_5: or more\" 需要读取被打出法术的费用并与 5 " +
-    "比较（CR 355.9/356 的费用与合法性区分）。当前缺口：(1) 事件管线对带 condition 的注册要求宿主提供 " +
-    "testTrigger 适配器（events/pipeline.ts 抛 \"Trigger condition adapter required\"，已合入 host 都不提供），" +
-    "且触发条件的 count 表达式读不到 card-played 事件载荷；(2) card-played 事件（chain/engine.ts）只携带" +
-    "被打出卡牌的 object 快照与 player，没有费用载荷；EventPattern.details 只做标量等值比较，" +
-    "ObjectFilter.characteristics 也只做等值匹配，冻结词汇没有对事件对象特征的数值 ≥ 比较；" +
-    "trigger.filter 里的 energyGte 过不了 programs/filters.ts 的白名单（translateTriggerFilter 抛 " +
-    "Unsupported filter field energyGte），是描述性占位、无正式语义。" +
-    "已合入的部分：continuous.might（RIFT-258）与卡牌触发绑定（RIFT-257，attachLifecycle/" +
-    "registerProgramTriggers）都已合入，golden 用程序自身的 body 真实执行 +3 Might（arithmetic 层注册、" +
-    "end-of-turn 到期），并用真实 matchesTriggerEvent 验证 filter 的对象等值半边。" +
-    "依赖：事件载荷的费用读数/数值比较与 testTrigger 适配器（契约变更请求）。" +
-    "不近似实现（不用无条件 +3 Might 或别的时点代替）。",
+    "依赖已合入：card-played 事件的 details.printed 快照、event-printed >= 比较条件、" +
+    "spell/player 触发过滤（383.2.a.1）与 continuous.might 的 this-turn 到期注册" +
+    "（143.2/478.1.a/317.1.a）均有真实执行证据。当前缺口是引擎路径而非卡语义：" +
+    "（1）registry.get 拒绝 judge-required 程序，生产 lifecycle 无法从 Board 源绑定该触发；" +
+    "（2）同一回合第二次触发重复授予 +3 时，链解释器的 continuous.might settlement 计数" +
+    "写入指令限定键、读取非限定键，第二次注册撞 continuous.might:settlement-1 抛 " +
+    "\"Continuous effect already registered\"（与 ven/fretful-feline 同一共享解释器缺陷）。" +
+    "不近似限制每回合触发次数。",
   abilities: [
     {
       kind: "triggered",
       trigger: {
         at: "card-played",
-        filter: { type: "spell", controller: "controller", energyGte: 5 }
+        filter: { event: "card-played", object: { type: "spell" }, player: "self" },
+        condition: {
+          kind: "event-printed",
+          object: "object",
+          characteristic: "energy",
+          operator: "gte",
+          right: { kind: "constant", value: 5 }
+        }
       },
       optional: false,
       body: [

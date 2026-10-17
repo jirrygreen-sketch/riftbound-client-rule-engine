@@ -1,45 +1,21 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Tibbers, Annie (ogs-018-024) — Unit, 8 energy / 2 power (Fury/Chaos), Might 7.
- *
- * sourceText (deck-catalog.json, ogs-018-024, verbatim):
- *   "When you play me, deal 3 to all units at battlefields."
- *
- * 规则依据（CR v1.5）：
- * - 383.4.a："When you play me" 是 Play Effect（打出完成后进链，420.4.a）；时点用
- *   card-played，filter 指向本卡。
- * - 355.10.d：按特征程序化选出的对象不算目标；"Kill all units at battlefields"
- *   明确 "doesn't target anything"，因此"deal 3 to all units at battlefields" 是无选择
- *   集合，不选目标、不触发 became-target（355.7、754）。
- * - 418.1.c/418.1.d：伤害分别标记在每个单位上，并且可以同时造成。
- *
- * 状态：judge-required。已合入的 effect.damage（RIFT-107 系列）仍只接受 TargetSpec id
- * 并通过 ctx.targets 读取 Finalize 锁定的目标组，解释器也会把 instruction.targets
- * 一律按目标组处理（进入 became-target 流程）；本卡是 355.10.d 的"无选择集合"，
- * 两者不可互换。缺的是 effect.damage 的"非目标集合"选择符——effect.ready 已有
- * { kind: "query", filter } 形状可作参照（RIFT-258 系列），effect.damage 没有；
- * 也没有其它已合入原语能对无选择集合结算伤害（effect.kill/effect.stun/effect.exhaust
- * 的 choose 形态是"结算期逐对象选择"，仍会提问而非集合结算）。
- * 触发半边已可表达：{ self: true } 经 translateTriggerFilter 绑定为 pattern.object =
- * 来源自身，attachLifecycle/registerProgramTriggers（RIFT-257）可真实注册。
- * 用 targets + selection "all" 会把非目标集合写成目标组，属被禁止的近似实现。
- * 本文件因此不写 instruction.targets，setFilter 是描述性占位、无正式语义。
+ * Tibbers, Annie (ogs-018-024).
+ * CR v1.5 383.4.a/420.4.a: self card-played trigger.
+ * CR 355.10.d: "all units at battlefields" is an automatic non-target set,
+ * so instruction.targets must not turn this into targeting (355.7, 754).
+ * effect.damage still only reads TargetSpec groups; setFilter is descriptive,
+ * not an executable selector. Non-target collection damage and simultaneous
+ * application (418.1.c/418.1.d) remain blockers. The source-bound trigger and
+ * isolated targeted-damage primitive tests do not establish full-card support.
  */
 export default {
   canonicalCardId: "card.hash-71a433d035b3ceed303ac22a2952e428f4da5dc252f95947d82c3325d1b6f0e1",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺非目标集合伤害路径：deal 3 to all units at battlefields 按 355.10.d 是按特征程序化" +
-    "选出的无选择集合，不选目标、不触发 became-target；已合入的 effect.damage 只接受 " +
-    "TargetSpec id 并经 ctx.targets 读取（RIFT-107 系列原语仍是目标组语义），" +
-    "没有 effect.ready 的 { kind: query, filter } 那样针对无选择集合的选择符；" +
-    "用 targets 加 selection all 会把非目标集合写成目标组，属禁止的近似实现。" +
-    "指令参数里的 setFilter 是描述性占位、无正式语义（同 rad/avalanche 的批次缺口）。" +
-    "已合入的部分：{ self: true } 触发过滤可经 translateTriggerFilter 绑定为来源自身，" +
-    "attachLifecycle/registerProgramTriggers（RIFT-257）可真实注册该触发。" +
-    "依赖：effect.damage 的 query 选择符原语与批量集合结算（契约变更请求）。不近似实现。",
+    "缺 effect.damage 非目标集合伤害路径：deal 3 to all units at battlefields 按 CR 355.10.d 是自动集合选择，不应声明 TargetSpec 或触发 became-target。当前 effect.damage 只经 ctx.targets(TargetSpec id) 读取对象，setFilter 未被消费；还需按 CR 418.1.c/418.1.d 同时应用该集合的伤害。依赖：非目标 query 选择符与同时集合伤害结算（契约变更请求）。",
   abilities: [
     {
       kind: "triggered",

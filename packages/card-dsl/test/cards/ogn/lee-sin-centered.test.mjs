@@ -123,7 +123,7 @@ test.todo(
   "ogn-151-298 Lee Sin, Centered: 'Other buffed friendly units at my battlefield have +2 Might.' needs a " +
     "host-location ('my battlefield', 359.3.f.2) anchor the layer filter can match — statics.ts resolves " +
     "sameLocationAs to a structured location that layers/filter.ts never matches — and a dynamic 'other' " +
-    "exclusion (printed "other"), which staticFilter rejects outright."
+    "exclusion (364.3), which staticFilter rejects outright."
 );
 
 test("ogn-151-298 Lee Sin, Centered: the characteristics predicate really identifies a Buffed unit (702.2.a/702.3)", () => {
