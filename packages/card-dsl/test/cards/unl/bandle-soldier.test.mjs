@@ -27,11 +27,12 @@ test("unl-151-219 Bandle Soldier: identity, status, judgeReason and verbatim sou
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /824\.1/);
   assert.match(program.judgeReason, /369\.3/);
-  assert.match(program.judgeReason, /RIFT-260|入场替代/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /controller-xp/);
+  assert.equal(program.sourceText, SOURCE_TEXT);
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
 test("unl-151-219 Bandle Soldier: [Level 3] is a valued Level keyword ability (CR 824.1.a)", () => {
@@ -51,7 +52,7 @@ test("unl-151-219 Bandle Soldier: [Level 3] is a valued Level keyword ability (C
 
 test("unl-151-219 Bandle Soldier: the dependent ability is an entry replacement, not a later ready", () => {
   // 369.3（以 Master Yi, Honed 的 “I enter ready” 为例）与 143.4 / 359.2.c：
-  // 单位默认横置进场，本句替代进场方式；effect.ready 文件头明确不参与入场替代。
+  // 单位默认横置进场，本句替代进场方式；replacement binder 已消费此 effect.ready 形式。
   assert.equal(enterReadyAbility.kind, "replacement");
   assert.deepEqual(enterReadyAbility.replaces, {
     event: "object-enters-board",
@@ -64,10 +65,10 @@ test("unl-151-219 Bandle Soldier: the dependent ability is an entry replacement,
   assert.equal(enterReady.linkedTo, undefined);
 });
 
-test("unl-151-219 Bandle Soldier: the 3-XP gate is an explicit predicate placeholder, not always", () => {
+test("unl-151-219 Bandle Soldier: the 3-XP gate remains an unbound descriptive placeholder", () => {
   // 824.1.b.1 / 824.1.c：Dependent Ability 只在控制者有 3+ XP 时生效。
   // XP 不是 ObjectSnapshot 特征，Condition 也没有读取它的形态（见 judgeReason），
-  // 因此卡内用 expression 谓词记录门槛，绝不写成 always 或省略条件。
+  // 此 expression 只记录意图；非空字符串会被视为 true，不能证明 XP 门槛已执行。
   assert.deepEqual(enterReadyAbility.condition, {
     kind: "expression",
     value: { kind: "constant", value: "level-active:3" }
@@ -105,14 +106,4 @@ test("unl-151-219 Bandle Soldier golden: an already-ready source stays untouched
   assert.deepEqual(run.events, []);
 });
 
-test.todo(
-  "unl-151-219 Bandle Soldier: bind the [Level 3][>] dependent ability to the level-active predicate so " +
-    "the replacement applies only while the controller has 3+ XP and deactivates immediately below 3 " +
-    "(CR 824.1.b.1 / 824.1.c / 824.1.c.1 / 824.1.d) — no card-side dependent-ability binding and no XP " +
-    "condition consumer are merged"
-);
-test.todo(
-  "unl-151-219 Bandle Soldier: register the enter-ready board-entry replacement so the unit enters ready " +
-    "instead of entering exhausted (CR 143.4 / 359.2.c / 369.3) — no card-program replacement " +
-    "registration path (RIFT-260)"
-);
+test.todo("bandle-soldier: bind the Level dependent replacement to live controller XP at 2/3 and deactivate below 3 (CR 824.1; RIFT-359)");

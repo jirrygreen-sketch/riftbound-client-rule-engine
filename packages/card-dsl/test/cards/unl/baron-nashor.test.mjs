@@ -27,13 +27,14 @@ test("unl-147-219 Baron Nashor: identity, status, judgeReason and verbatim sourc
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /187\.9/);
   assert.match(program.judgeReason, /369\.3/);
   assert.match(program.judgeReason, /757/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-62/);
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /exclude:source/);
+  assert.equal(program.sourceText, SOURCE_TEXT);
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
 test("unl-147-219 Baron Nashor: 'as you play me' adds the Baron Pit token once", () => {
@@ -75,7 +76,7 @@ test("unl-147-219 Baron Nashor: 'if you do, I enter there' is an entry replaceme
   });
   assert.equal(enterThere.with.length, 1);
   assert.equal(enterBaronPit.id, "baron-nashor.enter-baron-pit");
-  // with 只接受 Instruction[]，而“改变入场地点”没有已注册原语：按 replacement.enter 家族声明意图。
+  // replacement.enter 已有状态替代；location/ifCreated 仍待接入（369.3）。
   assert.equal(enterBaronPit.op, "replacement.enter");
   assert.deepEqual(enterBaronPit.args.location, {
     kind: "constant",
@@ -115,23 +116,8 @@ test("unl-147-219 Baron Nashor: the team bonus is an arithmetic-layer +2 Might f
   assert.equal(otherUnits.condition, undefined);
 });
 
-test.todo(
-  "unl-147-219 Baron Nashor: the Baron Pit battlefield token definition and board placement " +
-    "(CR 187.9) — effect.token's frozen DEFINITIONS table has no battlefield-token entry and " +
-    "create-token can only place into an existing LocationRef"
-);
-test.todo(
-  "unl-147-219 Baron Nashor: register the 'If you do, I enter there' board-entry replacement so " +
-    "the unit enters at the created Baron Pit instead of the original play location (CR 369.3) — " +
-    "no card-program replacement registration path and no replacement.enter InstructionDef"
-);
-test.todo(
-  "unl-147-219 Baron Nashor: enforce the Untargetable restriction against enemy spells and " +
-    "abilities (CR 757 / 757.1 / 758, 758.1 re-check on resolution) — continuous.restrict has no " +
-    "consumer in the target legality path"
-);
-test.todo(
-  "unl-147-219 Baron Nashor: apply +2 Might in the arithmetic layer to the controller's other " +
-    "units (CR 479.4, 355.10.d) — no card-program static-to-layers registration path and the " +
-    "layer condition matcher does not evaluate compare/count conditions"
-);
+test.todo("baron-nashor: create one Baron Pit battlefield Location during As you play and bind its receipt to the entry destination (CR 187.9/355.1/369.3; RIFT-357)");
+
+test.todo("baron-nashor: enforce target prohibition for enemy spells/abilities while preserving friendly targeting (CR 757.1/758.1)");
+
+test.todo("baron-nashor: bind the live other-friendly-unit Might aura while excluding its own source (CR 479.4/355.10.d)");

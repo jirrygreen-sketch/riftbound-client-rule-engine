@@ -1,41 +1,10 @@
 import type { Ability, CardProgram } from "../../ir/index.js";
 
 /**
- * Baron Nashor (unl-147-219) — Unit, Chaos, tag The Void. energy 10, power 3, Might 12.
- *
- * sourceText（packages/card-data/data/deck-catalog.json, unl-147-219，逐字）：
- *   As you play me, add the Baron Pit battlefield token to the board if it's not there
- *   already. If you do, I enter there. (It has "Units can move here from anywhere.")
- *   I can't be chosen by enemy spells and abilities.
- *   Other friendly units have +2 :rb_might:.
- *
- * 规则依据（CR v1.5）：
- * - 355.1 / 355.1.a：“As you play me …” 是打出这张牌时作出的动作/决定，属打出流程的
- *   “as you play” 部分；369.3 直接以本卡为“替代单位进场方式”的官方例子，说明最后一句
- *   “If you do, I enter there.” 是替代效果，把“在原本的打出位置进场”替换成“在 Baron Pit 进场”
- *   （契约 3.5 把替代建模为 replacement 能力，在动作执行前拦截）。
- * - 187.9：Baron Pit 是无域战场 token，自带 “Units can move here from anywhere.”；
- *   “add … to the board if it's not there already” 是打出时的 token 创建加“已存在则不再创建”。
- * - 757 / 757.1 / 758：“I can't be chosen by enemy spells and abilities” 正是 757.1 描述的
- *   Untargetable 被动能力形式（757.2 的官方例子即 Ruin Runner 的同句），是持续禁止，
- *   由目标合法性检查消费（758.1 的结算时重验属 target 系统）。
- * - “Other friendly units have +2 :rb_might:” 是算术层（479.4）的持续 Might 修正；
- *   集合按特征程序化选出（355.10.d：不取目标），“other” 排除宿主（740.1.a 的 friendly 定义）。
- *
- * status = judge-required（缺口不近似实现）：
- * - 187.9 的 Baron Pit **战场** token 不在 effect.token 的冻结 DEFINITIONS 表里，且“把战场 token
- *   放到棋盘上”没有原语语义：create-token 的目的地是 LocationRef（base / 既有 battlefield），
- *   无法表达“创建一个新战场”，本卡声明的 location 会被 argsSchema 直接拒绝。
- * - 369.3 的 “If you do, I enter there” 是入场替代：没有把 CardProgram 的 replacement 能力注册进
- *   替代的消费方（事件管线只以动作匹配器注册替代），with 体引用的 replacement.enter 也没有已注册的
- *   InstructionDef；事后用 effect.move 冒充会产生一次真实移动事件且落在错误位置，故不近似。
- * - “I can't be chosen by enemy spells and abilities” 是 757/758 的 Untargetable 持续禁止：
- *   缺 continuous.restrict 与目标合法性的消费方（目标管线只消费调用方传入的过滤器与 tax）。
- * - “Other friendly units have +2 [M]” 是 479.4 算术层的 continuous.might 静态修正：
- *   没有卡牌 static 能力 → 图层注册的消费方，layers 的 conditionMatches 也只识别
- *   always/never/type/has-tag/has-keyword。
- * 依赖：RIFT-62 后续（战场 token 定义与放置）、RIFT-260（replacement 绑定）、
- * RIFT-259/91（continuous.restrict / continuous.might 消费）、RIFT-90（目标合法性）。
+ * Baron Nashor — CR v1.5 355.1/369.3 (as you play/entry replacement),
+ * 187.9 (Baron Pit), 757.1/758.1 (enemy targeting prohibition),
+ * 479.4/355.10.d (other friendly units +2 Might).
+ * static/replacement 绑定与规则查询已合入，卡牌特有的剩余边界见 judgeReason。
  */
 const abilities: Ability[] = [
   {
@@ -51,8 +20,7 @@ const abilities: Ability[] = [
           amount: { kind: "constant", value: 1 },
           // “add … to the board”：直接创建到棋盘（440.2），不是链上打出。
           mode: { kind: "constant", value: "create" },
-          // 战场 token 的放置：LocationRef 只能命名 base 或既有 battlefield，无法表达“新战场”，
-          // 该项会被 effect.token 的 argsSchema 拒绝（见 judgeReason）。
+          // LocationRef 能命名既有战场；创建一个新战场仍缺动作与定义（187.9）。
           location: { kind: "constant", value: { type: "battlefield", id: "baron-pit" } },
           linkKey: { kind: "constant", value: "baronPit" }
         },
@@ -82,8 +50,7 @@ const abilities: Ability[] = [
     with: [
       {
         id: "baron-nashor.enter-baron-pit",
-        // 契约 3.1 的 replacement.with 只接受 Instruction[]，而“改变入场地点”没有已注册的原语：
-        // 按 replacement.enter 家族声明该改写意图（与 ogn/iron-ballista 的入场状态改写同一处理）。
+        // replacement.enter 已支持 state；location/ifCreated 仍是未消费的地点改写意图。
         op: "replacement.enter",
         args: {
           location: { kind: "constant", value: { type: "battlefield", id: "baron-pit" } },
@@ -134,18 +101,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口（均不近似实现）：(1) 187.9 的 Baron Pit 战场 token 不在 effect.token 的冻结 DEFINITIONS 表里，" +
-    "且“把战场 token 放到棋盘上”没有原语语义——create-token 的目的地是 LocationRef（base / 既有 battlefield），" +
-    "无法表达“创建一个新战场”，本卡声明的 location 会被 argsSchema 直接拒绝。" +
-    "(2) 369.3 的“If you do, I enter there”是入场替代：没有把 CardProgram 的 replacement 能力注册进替代的消费方" +
-    "（事件管线只以动作匹配器注册替代），with 体引用的 replacement.enter 也没有已注册的 InstructionDef；" +
-    "不用事后 effect.move 冒充（会多出一次真实移动事件，且会落在错误位置）。" +
-    "(3) “I can't be chosen by enemy spells and abilities”是 757.1 的 Untargetable（757/758）：" +
-    "缺 continuous.restrict 与目标合法性的消费方，目标管线只消费调用方传入的过滤器与 tax。" +
-    "(4) “Other friendly units have +2 :rb_might:”是 479.4 算术层的 continuous.might 静态修正：" +
-    "没有卡牌 static 能力 → 图层注册的入口，layers 的 conditionMatches 也只识别 always/never/type/has-tag/has-keyword。" +
-    "依赖：RIFT-62 后续（战场 token 定义与放置）、RIFT-260（replacement 绑定）、" +
-    "RIFT-259/91（continuous.restrict / continuous.might 消费）、RIFT-90（目标合法性）。",
+    "当前缺口（CR v1.5）：(1) effect.token 仍缺 187.9 的 Baron Pit 战场定义及创建新 Location 的动作；tokenName 存在性谓词也没有查询消费方。(2) 355.1/355.1.a 的 As you play 决策不能等同于链结算时的 play.body；369.3 的入场地点替代还需本次创建回执跨阶段关联。替代注册已合入，但 replacement.enter 仅支持 state，不消费 location/ifCreated（位置选择 RIFT-357）。(3) continuous.restrict 与 Finalize/Resolve 目标规则查询已合入；当前 static 形状的 operation/forbidden/chooser 不能转换为仅禁止敌方法术与能力的 actions/作用者条件（757.1/758.1），不可改成所有玩家均不能选择。(4) continuous.might 与 static 图层绑定已合入，但 programs/statics.ts 拒绝 exclude:source，仍不能对「其他友方单位」动态排除本源（479.4/355.10.d）。",
   abilities,
   sourceText:
     "As you play me, add the Baron Pit battlefield token to the board if it's not there already. If you do, I enter there. " +

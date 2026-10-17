@@ -6,6 +6,8 @@ import program from "../../../dist/cards/unl/black-flame-altar.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import grant from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-c4cfa13109f9e65730089b31964d83518df125baae9a5cb10592187c82a44c56";
 const SOURCE_TEXT =
@@ -24,14 +26,12 @@ test("unl-208-219 Black Flame Altar: identity, status, judgeReason and verbatim 
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /Temporary/);
-  // RIFT-265 merged the Temporary KeywordDef, so the reason must name the real
-  // remaining gaps (the static registration path and the layer filter).
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-265/);
-  assert.doesNotMatch(program.judgeReason, /没有 Temporary\.ts/);
+  assert.match(program.judgeReason, /createEngineStaticBinder/);
+  assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
 test("unl-208-219 Black Flame Altar: one static ability-layer keyword grant scoped to units here", () => {
@@ -39,7 +39,7 @@ test("unl-208-219 Black Flame Altar: one static ability-layer keyword grant scop
   assert.equal(ability.kind, "static");
   assert.equal(ability.condition, undefined);
 
-  // 476/477: granting a keyword changes what the objects are, which is the
+  // 479.3: granting a keyword changes the abilities of the object in the
   // ability layer of the contract §3.4 order (copy → trait → ability →
   // arithmetic).
   assert.equal(ability.effect.kind, "continuous.grant-keyword");
@@ -49,8 +49,8 @@ test("unl-208-219 Black Flame Altar: one static ability-layer keyword grant scop
   assert.deepEqual(ability.effect.keywords, [{ id: "shield", value: 1 }]);
 
   // 053.3/199.1: "here" is this Battlefield; 816.3: "with [Temporary]" is a
-  // keyword-characteristic gate. Neither anchor/predicate is implemented by
-  // the merged layer filter, which is exactly the judged gap.
+  // keyword-characteristic gate. Static binding translates the location anchor;
+  // keyword filtering and value-based LocationRef matching remain incomplete.
   assert.deepEqual(ability.effect.filter, {
     type: "unit",
     zone: "board",
@@ -59,41 +59,29 @@ test("unl-208-219 Black Flame Altar: one static ability-layer keyword grant scop
   });
 });
 
-test("unl-208-219 Black Flame Altar: the granted Shield is real EffectIR the merged layer engine applies", () => {
-  // The registration path is the gap, not the grant: RIFT-258's ability layer
-  // reads effect.keywords and adds them to the object. Feed the card's own
-  // declared specification through the merged layers engine to prove the IR is
-  // executable once a binder supplies it.
-  const objects = [
-    {
-      ref: { id: "temporary-unit", zoneEntryId: 1 }, cardId: null, name: "Temporary Unit", types: ["unit"],
-      tags: [], keywords: [{ id: "Temporary" }], owner: "A", controller: "A", zone: "board",
-      location: { type: "battlefield", id: "bf-1" }, combatRole: null, might: 3, energy: null, power: null,
-      exhausted: false, damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false,
-      counters: {}, empowered: false
-    }
-  ];
-  const registration = {
-    effect: {
-      id: "test.black-flame-altar",
-      layer: "ability",
-      filter: { objectId: "temporary-unit", zone: "board", zoneEntryId: 1 },
-      effect: { kind: ability.effect.kind, keywords: ability.effect.keywords }
-    },
-    duration: { type: "permanent" }
-  };
-  const layers = createLayerEngine(objects, [registration]);
-  const evaluated = layers.evaluate(objects[0].ref);
-  assert.deepEqual(
-    evaluated.keywords.map(keyword => [keyword.id, keyword.value]),
-    [["Temporary", undefined], ["shield", 1]]
-  );
+test("Black Flame Altar: the real grant instruction registers Shield 1 in the ability layer", () => {
+  // Only the grant is executable here. The printed static gate and subsequent
+  // Shield expansion remain distinct unresolved parts of the card.
+  const kernel = world()
+    .unit("temporary-unit", { keywords: [{ id: "Temporary" }], might: 3 })
+    .unit("other-unit", { might: 3 })
+    .build();
+  const run = runInstruction(grant, {
+    target: "grant-recipient", keywords: { kind: "constant", value: ability.effect.keywords }
+  }, { world: kernel, targets: { "grant-recipient": [kernel.ref("temporary-unit")] } });
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  assert.deepEqual(layers.evaluate(kernel.ref("temporary-unit")).keywords.map(keyword => [keyword.id, keyword.value]), [
+    ["Temporary", undefined], ["shield", 1]
+  ]);
+  assert.deepEqual(layers.evaluate(kernel.ref("other-unit")).keywords, []);
 });
 
 test("unl-208-219 Black Flame Altar: the Temporary KeywordDef is merged and keeps this card's gate meaningful", () => {
   // CR 816.1/816.3: RIFT-265 merged effects/keywords/Temporary.ts, so
   // "with [Temporary]" is now a real registry characteristic; what is missing is
-  // the filter predicate in the layer matcher and the card static registration.
+  // the filter predicate and the dynamically granted keyword expansion.
   const temporary = keywordDefinitionsById.get("Temporary");
   assert.ok(temporary, "effects/keywords/Temporary.ts must be registered");
   assert.equal(temporary.valued, false);
@@ -103,15 +91,6 @@ test("unl-208-219 Black Flame Altar: the Temporary KeywordDef is merged and keep
   assert.equal(expanded.trigger.at, "beginning-start");
 });
 
-test.todo(
-  "unl-208-219 Black Flame Altar: register the static ability as a ContinuousEffectSpec (RIFT-257 ProgramStaticBinder) " +
-    "and implement the 053.3 sameLocationAs anchor plus a keyword predicate in the layer filter, so the " +
-    "[Temporary]-gated Shield grant applies to units here and nowhere else (the layer matcher reads neither anchor, " +
-    "so the printed gate cannot be evaluated today)"
-);
+test.todo("black-flame-altar: bind the Temporary filter and match source-relative LocationRef by value (CR 053.3/816.3; RIFT-359)");
 
-test.todo(
-  "unl-208-219 Black Flame Altar: consume the Shield expansion (keywords/Shield.ts, 814.1.c: +1 Might " +
-    "while the unit is a defender) so the granted keyword really reaches the arithmetic layer — the layer " +
-    "engine does not evaluate the result's defender designation"
-);
+test.todo("black-flame-altar: expand dynamically granted Shield and bind its defender designation to combatRole (CR 814.1.c/814.1.d; RIFT-359)");
