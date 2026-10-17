@@ -48,7 +48,8 @@ test("unl-062-219 Dramatic Visionary: identity, status, judgeReason and verbatim
   assert.match(program.judgeReason, /trigger\.leave/);
   assert.match(program.judgeReason, /808\.1\.d\.1/);
   assert.match(program.judgeReason, /effect\.inspect/);
-  assert.match(program.judgeReason, /RIFT-82/);
+  assert.match(program.judgeReason, /keywords\/Deathknell\.ts/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120|RIFT-257/);
 });
 
 test("unl-062-219 Dramatic Visionary: [Deathknell] keyword plus the object-killed effect body", () => {
@@ -253,13 +254,8 @@ test("unl-062-219 Dramatic Visionary: a non-zero top scope without an ordered pi
 
 test.todo(
   "dramatic-visionary: [Deathknell] keyword expansion (订阅 object-killed、808.1.d.1 死亡被替代时把触发移出链、" +
-    "808.1.d.3 / 429.1.a.1.b 换区前记录最后已知信息并作为 Pending Item 入链) —— effects/keywords/Deathknell.ts 的" +
-    "展开体引用未合入的 trigger.leave 原语，依赖 RIFT-82"
-);
-
-test.todo(
-  "dramatic-visionary: CardProgram -> trigger 管线——没有订阅方把 808.1.c 的 object-killed 触发注册进时点/链" +
-    "（契约 3.5；引擎批 4 / RIFT-120 接线）"
+    "808.1.d.3 / 429.1.a.1.b 换区前记录最后已知信息并作为 Pending Item 入链) —— " +
+    "effects/keywords/Deathknell.ts 的展开体仍引用未注册的 trigger.leave 原语"
 );
 
 test.todo(

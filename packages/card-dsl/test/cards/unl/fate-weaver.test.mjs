@@ -42,10 +42,11 @@ test("unl-064-219 Fate Weaver: identity, ruleset, status, judgeReason, sourceTex
   assert.equal(program.status, "judge-required");
   // 缺口必须具体：有序牌库顶查看、energy 下限过滤、reveal 的适配器字段。
   assert.match(program.judgeReason, /picksSpecId/);
-  assert.match(program.judgeReason, /RIFT-66/);
+  assert.match(program.judgeReason, /zoneSlice/);
   assert.match(program.judgeReason, /energy/);
   assert.match(program.judgeReason, /effect\.reveal/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /Finalize/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-64|RIFT-66|RIFT-90|RIFT-120|RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -139,7 +140,7 @@ test("unl-064-219 Fate Weaver golden: 'draw it' moves the chosen looked card to 
   // 被选中的是 third（可执行路径只看集合来源，不实现 energy 下限过滤）。
   kernel.setPicks(chosenPick.id, [viewed[2]]);
   // 整条 body 按真实作用域执行；可选指令接受。effect.reveal 的 pick 解码用上面的
-  // 测试专用 registry 补齐（生产缺口见 judgeReason 第 3 点与 test.todo）。
+  // 测试专用 registry 补齐生产适配器尚未解码的 pick 字段（见 judgeReason）。
   kernel.setAnswers({ "fate-weaver.may-reveal-spell/optional": true });
   const outcome = runAbilityBody(prepareBody(ability.body), kernel, registry);
 
@@ -168,21 +169,6 @@ test("unl-064-219 Fate Weaver golden: 'draw it' moves the chosen looked card to 
   assert.equal(outcome.linkedValues["fate-weaver.recycle-rest.recycledCount"], 3);
 });
 
-test("unl-064-219 Fate Weaver golden: without the ordered top-4 source the look range stays empty and nothing is guessed", () => {
-  const kernel = deckedWorld();
-  kernel.setAnswers({ "fate-weaver.may-reveal-spell/optional": false });
-  const outcome = resolveChainBody(ability.body, kernel);
-
-  // 缺有序来源：effect.inspect 不截取 query 近似，范围为空；随后的可选指令没有可选项。
-  assert.equal(outcome.linkedValues["fate-weaver.look-top-4.lookedCount"], 0);
-  assert.deepEqual(outcome.linkedValues["fate-weaver.look-top-4.looked"], []);
-  assert.deepEqual(kernel.zone("A", "hand"), []);
-  assert.deepEqual(
-    kernel.zone("A", "deck").map((ref) => ref.id),
-    ["top", "second", "third", "fourth", "fifth"]
-  );
-});
-
 test("unl-064-219 Fate Weaver golden: declining the may skips only that instruction and still recycles", () => {
   const kernel = deckedWorld();
   const viewed = orderedTop(kernel);
@@ -198,9 +184,24 @@ test("unl-064-219 Fate Weaver golden: declining the may skips only that instruct
   assert.equal(outcome.linkedValues["fate-weaver.recycle-rest.recycledCount"], 4);
 });
 
+test("unl-064-219 Fate Weaver golden: without the ordered top-4 source the look range stays empty and nothing is guessed", () => {
+  const kernel = deckedWorld();
+  kernel.setAnswers({ "fate-weaver.may-reveal-spell/optional": false });
+  const outcome = resolveChainBody(ability.body, kernel);
+
+  // 缺有序来源：effect.inspect 不截取 query 近似，范围为空；随后的可选指令没有可选项。
+  assert.equal(outcome.linkedValues["fate-weaver.look-top-4.lookedCount"], 0);
+  assert.deepEqual(outcome.linkedValues["fate-weaver.look-top-4.looked"], []);
+  assert.deepEqual(kernel.zone("A", "hand"), []);
+  assert.deepEqual(
+    kernel.zone("A", "deck").map((ref) => ref.id),
+    ["top", "second", "third", "fourth", "fifth"]
+  );
+});
+
 test.todo(
   "unl-064-219 Fate Weaver: the ordered 'top 4 of your Main Deck' pick set must be provisioned by the " +
-    "production Finalize/AwaitChoice lifecycle instead of the test kernel (RIFT-64 / RIFT-66 / RIFT-90)"
+    "production Finalize/AwaitChoice lifecycle instead of the test kernel"
 );
 test.todo(
   "unl-064-219 Fate Weaver: the 'spell with Energy cost 4 or more' restriction needs a value-threshold " +
@@ -210,8 +211,4 @@ test.todo(
   "unl-064-219 Fate Weaver: effect.reveal's pick argument is not decoded by chain/interpreter-adapter.ts " +
     "LITERAL_FIELDS, so the reveal step is rejected at dispatch ('pick must be a non-empty id'); the " +
     "card IR uses the contract 3.2 Expr shape (contract change request filed)"
-);
-test.todo(
-  "unl-064-219 Fate Weaver: registering the card-played play effect with the production chain " +
-    "(trigger registration from card programs) is shared wiring tracked by the coordinator (RIFT-120)"
 );

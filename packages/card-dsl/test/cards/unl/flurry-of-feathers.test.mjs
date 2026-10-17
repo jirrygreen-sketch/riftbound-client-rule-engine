@@ -8,6 +8,7 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import counter from "../../../../engine-core/dist/effects/instructions/effect.counter.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { abilitySpeed, expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -66,6 +67,38 @@ test("unl-044-219 Flurry of Feathers: [Reaction] plus the printed cost and a con
     ["flurry-of-feathers.counter-mode", "flurry-of-feathers.bird-tokens-mode"]
   );
   assert.equal(chooseOne.linkedTo, undefined);
+});
+
+test("unl-044-219 Flurry of Feathers: the merged Reaction keyword expands and derives reaction speed", () => {
+  const source = {
+    ref: { id: "flurry", zoneEntryId: 1 },
+    cardId: CANONICAL_ID,
+    name: "Flurry of Feathers",
+    types: ["spell"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "hand",
+    location: null,
+    might: null,
+    energy: 4,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const expanded = expandProgram(program, source);
+  const timingGrant = expanded.expanded.find(
+    (ability) => ability.kind === "static" && ability.effect.kind === "continuous.timing"
+  );
+  assert.ok(timingGrant);
+  assert.deepEqual(timingGrant.effect.grants, ["showdown", "closed-state"]);
+  assert.equal(abilitySpeed(expanded.abilities, source), "reaction");
 });
 
 test("unl-044-219 Flurry of Feathers: 'Counter a spell' targets one finalized chain spell", () => {
@@ -162,12 +195,6 @@ test.todo(
 
 test.todo(
   "unl-044-219 Flurry of Feathers: the tokens' entry location is the runtime Location choice of " +
-    "355.2 / 355.2.a / 440.2.b.1; no runtime Location selector is merged (RIFT-90), so the card keeps " +
+    "355.2 / 355.2.a / 440.2.b.1; no runtime Location selector is merged, so the card keeps " +
     "a descriptive marker and today's play path is blocked rather than pinning a wrong location"
-);
-
-test.todo(
-  "unl-044-219 Flurry of Feathers: [Reaction] (CR 813) needs the continuous.timing consumer and chain " +
-    "canAct wiring (RIFT-85 / RIFT-91) to be playable at Closed State — declared only, like the merged " +
-    "ogn/consult-the-past"
 );

@@ -31,7 +31,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   impossible kill must not draw; the draw reads the kill's own receipt.
  * - 414.1 / 414.3: "draw 1" is effect.draw for the implicit "you" (190.6.d).
  *
- * Status: judge-required (re-reviewed for RIFT-329) — two remaining gaps,
+ * Status: judge-required — two remaining gaps,
  * neither approximated:
  * 1. The kill is the triggered ability's base cost (383.3.b), but no merged
  *    primitive charges a cost-inside-an-instruction at Finalize:
@@ -42,7 +42,7 @@ import type { CardProgram } from "../../ir/index.js";
  *    precedent for the same "may pay X to get Y" wording) records the printed
  *    cost/effect linkage but does not put the kill at its 383.3.b finalize
  *    timing.
- * 2. RIFT-257 added programs/triggers.ts, which turns a CardProgram's
+ * 2. The program binding turns a CardProgram's
  *    triggered ability into a TriggerRegistration, but registration still
  *    throws for this card: `beginning-start` is a valid timing point
  *    (events/timing-points.ts) yet absent from the closed EventPattern
@@ -70,7 +70,7 @@ export default {
     "的 you may 之后）规定为该触发能力的 base cost，必须在 finalize 支付；instructions/registry.generated.ts 里没有任何 cost 类指令" +
     "（cost.sacrifice / cost.pay / cost.modify 仍在 RIFT-261），没有在 finalize 收取「指令内费用」的路径。" +
     "本程序按已合入的 ogn/monastery-of-hirana 同型写法把消灭写成结算期 effect.kill + 条件抽牌，保留印刷的 cost→effect 链接，" +
-    "但不宣称已满足 383.3.b 的 finalize 时机。(2) RIFT-257 的 programs/triggers.ts 已能把 CardProgram 的 triggered ability 注册成 TriggerRegistration，但本卡的注册会直接抛错：" +
+    "但不宣称已满足 383.3.b 的 finalize 时机。(2) programs/triggers.ts 已能把 CardProgram 的 triggered ability 注册成 TriggerRegistration，但本卡的注册会直接抛错：" +
     "beginning-start 是合法时点（events/timing-points.ts），却不在封闭 EventPattern 词汇内（events/trigger-spec.ts 的 EVENT_PATTERN_TYPES，EventPipeline.registerTrigger 经 assertTriggerSpec 强制）；" +
     "另外注册的 controller 取来源快照的 controller，而本引擎里战场对象是 token，其 controller 不等于战场控制者，190.6.d 的 player: \"self\" 闸门即使词汇放开也无法正确挂到本来源。" +
     "已支持部分：消灭（非目标 picks，355.10.c.1）与抽牌（414.1/414.3，读消灭的 killed 回执，359.3.e.14.b）都是已合入原语，" +

@@ -27,9 +27,8 @@ import type { CardProgram } from "../../ir/index.js";
  * status = judge-required（缺口不近似实现）：
  * 1. 「按牌库顶顺序取前 4 张」没有已合入的上游有序选择：effect.inspect 的 top 作用域
  *    自身文档要求上游提供有序 picksSpecId，缺有序来源时按契约 negated/impossible 阻断
- *    （query 不保证区域顺序）；RIFT-66 只把 zoneSlice 接进了 mill / order / recycle，
- *    链的 Finalize 也只锁定 instruction.targets 的 TargetSpec（无有序区域 picks 的
- *    生命周期，RIFT-90）。
+ *    （query 不保证区域顺序）；当前 zoneSlice 只在部分区域操作中可用，链的 Finalize 也只锁定
+ *    instruction.targets 的 TargetSpec（没有有序区域 picks 的生命周期）。
  * 2. 「a spell with Energy cost :rb_energy_4: or more」缺数值下限过滤：ObjectFilter /
  *    TargetSpec / PickSpec 的取值是静态数据，没有「energy ≥ 4」的关系比较写法，
  *    Condition 也不能过滤选择集合的成员。
@@ -38,8 +37,8 @@ import type { CardProgram } from "../../ir/index.js";
  *    字段，原语会以 "pick must be a non-empty id" 拒绝派发——卡牌侧按契约 3.2 的
  *    Expr 形状书写，接口不一致已在回复里提交契约变更请求。
  *
- * 依赖：RIFT-64 / RIFT-66（有序牌库顶查看）、RIFT-90（pick 生命周期与选择过滤）、
- * effect.reveal 的适配器字段。golden 用解释器 + 参考内核真实执行已支持部分
+ * 依赖：生产侧有序牌库顶查看与 pick 生命周期、数值过滤、effect.reveal 的适配器字段。
+ * golden 用解释器 + 参考内核真实执行已支持部分
  * （有序/空范围两条 look 路径、draw it 的 pick→hand、recycle the rest）。
  */
 const fateWeaver = {
@@ -48,10 +47,10 @@ const fateWeaver = {
   status: "judge-required",
   judgeReason:
     "三处缺口：(1)「按牌库顶顺序取前 4 张」需要上游有序 picksSpecId（effect.inspect 的 top 作用域在缺有序来源时按契约 negated/impossible 阻断；query 不保证区域顺序），" +
-    "RIFT-66 的 zoneSlice 只接进 mill/order/recycle，链的 Finalize 也没有有序区域 picks 的生命周期（RIFT-90）；" +
+    "当前 zoneSlice 只接进部分 mill/order/recycle 路径，链的 Finalize 也没有有序区域 picks 的生命周期；" +
     "(2)「a spell with Energy cost :rb_energy_4: or more」缺数值下限过滤：ObjectFilter/TargetSpec/PickSpec 是静态数据，没有 energy ≥ 4 的关系比较，Condition 也不能过滤选择集合成员；" +
     "(3)「reveal … and draw it」的 effect.reveal 走 pick 时，链式适配器（chain/interpreter-adapter.ts 的 LITERAL_FIELDS）不解码 pick 字段，原语以 \"pick must be a non-empty id\" 拒绝派发（接口不一致，见契约变更请求）。" +
-    "依赖：RIFT-64/66、RIFT-90、effect.reveal 的适配器字段。look 的两条路径、draw it、recycle the rest 已在 golden 中真实执行。",
+    "依赖：生产侧有序 picks 与数值过滤、effect.reveal 的适配器字段。look 的有序/空范围两条路径、draw it、recycle the rest 已在 golden 中真实执行。",
   abilities: [
     {
       kind: "triggered",
