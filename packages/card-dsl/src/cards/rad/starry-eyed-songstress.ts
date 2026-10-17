@@ -20,13 +20,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   不产生目标，因此用非目标选择（PickSpec 形状）描述，而不是 TargetSpec。
  * - 107.4.c / 108.3：“me” 是 Legend Zone 里的这张传奇（Game Object）。
  *
- * status = judge-required：整张卡没有可执行路径（依赖 RIFT-261、RIFT-257），不做近似
- * 实现——
- * - 费用种类与指令（cost.additional / cost.pay / cost.modify，RIFT-261）仍在进行中，
- *   本 worktree 的 effects/instructions/ 没有 cost.* 原语；也没有消费方读取卡牌声明的
- *   可选附加费用与 -2 Energy 折扣（356.2.b 的步骤 2 决定属于费用系统）。
- * - 卡牌 static 能力 → 图层/费用管线注册（RIFT-257）未合入。
- * - 契约 ZoneId 没有 legend-zone（107.4.c），传奇自身无法作为可横置的费用对象。
+ * status = judge-required：整张卡没有可执行路径，不做近似实现——
+ * - cost.modify / cost.pay 原语（effects/instructions/）已合入，但本卡的声明形状没有
+ *   消费方：programs/statics.ts 的 layerFor 不映射 cost.modify，绑定卡牌 static 时实测
+ *   抛 "Static ability kind cost.modify has no layer mapping"；cost/cost-plan.ts 只应用
+ *   调用方显式传入的 discounts，没有从卡牌 static 读取附加费用或减费的入口。
+ * - 传奇自身在 Legend Zone（107.4.c），契约 ZoneId 没有 legend-zone，无法作为可横置的
+ *   费用对象。
  * 下面的 static 只保留可审查的声明形状，golden 只做校验、结构断言与缺口 todo。
  */
 export default {
@@ -35,14 +35,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "被动能力授予的可选附加费用没有可执行路径：CR 356.2.b.1 的 Optional Additional Cost 由费用系统在" +
-    "步骤 2 收集，而费用种类与指令（cost.additional / cost.pay / cost.modify）仍在 RIFT-261 进行中——" +
-    "本 worktree 的 effects/instructions/ 没有 cost.* 原语，也没有任何消费方读取卡牌声明的附加费用与减费；" +
-    "卡牌 static 能力接入费用/图层管线的生产者仍待 RIFT-257。“exhaust me” 是费用式横置（CR 415.4 / 415.5，" +
-    "必须能完成），且 “me” 是 Legend Zone 里的传奇（CR 107.4.c），契约 ZoneId 没有 legend-zone，无法作为" +
-    "可横置对象表达；“three friendly units” 按 355.10.c.1 属于费用、不产生目标，这里只保留非目标选择形状；" +
-    "固定减费 -2 Energy（CR 356.4 / 356.4.f）与费用计划同样属 RIFT-261。依赖 RIFT-261（费用计划与费用指令）" +
-    "与 RIFT-257（卡牌程序绑定）；不近似实现。",
+    "被动能力授予的可选附加费用没有可执行路径：cost.modify / cost.pay 原语已合入（RIFT-261 结论过时），" +
+    "但消费方缺失——programs/statics.ts 的 layerFor 不映射 cost.modify，卡牌 static 绑定实测抛 " +
+    "「Static ability kind cost.modify has no layer mapping」；cost/cost-plan.ts 只应用调用方显式传入的 " +
+    "discounts，没有从卡牌 static 读取 optional additional cost（356.2.b.1 的步骤 2）或 -2 Energy 减费的入口。" +
+    "“exhaust me” 是费用式横置（CR 415.4 / 415.5，必须能完成），且 “me” 是 Legend Zone 里的传奇（CR 107.4.c），" +
+    "契约 ZoneId 没有 legend-zone，无法作为可横置对象表达；“three friendly units” 按 355.10.c.1 属于费用、" +
+    "不产生目标，这里只保留非目标选择形状。不近似实现。",
   abilities: [
     {
       kind: "static",

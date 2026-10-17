@@ -119,7 +119,7 @@ test("rad-059-167 Supernova: effect.draw draws exactly 2 for the controller (414
 
 test.todo(
   "rad-059-167 Supernova: full chain play (printed cost payment, Action timing, resolution order) " +
-    "— depends on the coordinator's chain/cost integration (RIFT-89/RIFT-120); " +
+    "— depends on the coordinator's chain/cost integration; " +
     "also blocked on the catalog cardType fix (Spell vs Unit) so this text is either a play " +
     "ability (420.1) or a play effect (383.4.a) — card-data task, not this workstream"
 );

@@ -26,8 +26,8 @@ test("rad-151-167 Starry-Eyed Songstress: identity, status, judgeReason, and ver
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /cost\.(additional|modify|pay)/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /layerFor/);
+  assert.match(program.judgeReason, /legend-zone/);
   assert.match(program.judgeReason, /legend-zone/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
@@ -68,17 +68,16 @@ test("rad-151-167 Starry-Eyed Songstress: optional additional cost is exhaust me
   assert.equal(exhaustUnits.choice.owner, "controller");
 });
 
-// The whole card stays blocked: cost.additional / cost.pay / cost.modify are
-// still in flight (RIFT-261), no consumer reads a card's static cost declaration
-// and the contract ZoneId has no legend zone, so there is no honest execution
-// scenario to run here.
+// The whole card stays blocked: cost.modify has no layer mapping in
+// programs/statics.ts and no consumer reads the card's static cost declaration
+// or the legend's additional cost; the contract ZoneId has no legend zone, so
+// there is no honest execution scenario to run here.
 test.todo(
   "rad-151-167 Starry-Eyed Songstress: offer the optional additional cost in the cost plan's " +
     "step 2 and apply the fixed -2 Energy discount to the spell's cost (CR 356.2.b.1 / 356.4.f; " +
-    "cost.additional + cost.modify, RIFT-261)"
+    "cost.modify/cost.pay primitives are merged, but no consumer reads the card's static declaration)"
 );
 test.todo(
   "rad-151-167 Starry-Eyed Songstress: exhaust the legend in the Legend Zone (CR 107.4.c / 415.4; " +
-    "contract ZoneId needs legend-zone) and bind the card's static cost ability into the cost/layer " +
-    "pipeline (RIFT-257)"
+    "contract ZoneId needs legend-zone) after cost.modify gets a layer mapping and a cost-plan consumer"
 );

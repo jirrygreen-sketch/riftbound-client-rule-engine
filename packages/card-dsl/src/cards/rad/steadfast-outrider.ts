@@ -9,8 +9,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    I have +2 :rb_might:."
  *
  * 规则依据（CR v1.5）：
- * - [Tank]（815）：同 party-crasher 的说明；effects/keywords/Tank.ts 未合入，
- *   且战斗伤害分配的 Tank 优先级未绑定。
+ * - [Tank]（815）：KeywordDef（effects/keywords/Tank.ts）已合入并展开为
+ *   continuous.combat，但战斗分配（combat/base-combat-allocation.ts）的分配消费方
+ *   仍是 keywordPriority: "proven-none"，815.1.c 的 Tank 优先级未绑定。
  * - "While there are 2 or more other friendly units and/or gear at my battlefield"：
  *   持续效果的条件（135.x 条件从句作用域由契约 3.9 维护：条件只作用于所属能力）。
  *   "my battlefield" = 本单位的 Location（198.2 位置是永久物特征），
@@ -23,10 +24,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   continuous.might（mode add、layer arithmetic、appliesTo self）。
  *
  * 无法执行的依赖（保持 judge-required）：
- * - continuous.might 没有已注册的消费指令/图层写入路径（RIFT-91 layers/continuous），
- *   静态能力目前只作为 IR 存在（Assault.ts 自述同一缺口）。
- * - equal-location/exclude 锚点在参考内核需显式 host 绑定，生产链（触发/静态能力的
- *   host 绑定）尚未接线；条件里的 controller: "controller" 占位符由生产链解析。
+ * - 生产绑定链已合入（programs/statics.ts 的 bindStaticToLayers + lifecycle），且本能力
+ *   的 appliesTo: "self" 直接绑定自身目标，不经过 staticFilter；原 IR 的 static 能力可以
+ *   成功注册。剩余缺口在绑定后的条件求值：layers 条件查询没有把 controller: "controller"
+ *   解析为来源控制者，且查询适配器不消费 sameLocationAs / exclude 这类相对锚点，导致
+ *   “other friendly ... at my battlefield”不能按印刷语义筛选。
+ * - continuous.might 的图层算术消费方（layers/engine.ts 的 applyArithmetic）已合入
+ *   （RIFT-91 结论过时）。
  */
 const othersAtMyBattlefieldFilter = {
   type: ["unit", "gear"],
@@ -71,13 +75,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺 continuous.might 的图层消费方：\"I have +2 Might\" 需要一个持续的 Might 加值" +
-    "（契约 3.4 的 arithmetic 层），当前没有已注册指令或图层写入路径消费卡牌程序里的" +
-    "continuous.might（依赖 RIFT-91，Assault/Shield 展开自述同一缺口）。" +
-    "\"other friendly units and/or gear at my battlefield\" 需要生产链解析" +
-    "controller 占位符与 sameLocationAs/exclude 锚点的 host 绑定（参考内核需显式 host）。" +
-    "[Tank] 还缺 effects/keywords/Tank.ts 与 815.1.c 的伤害分配优先级（combat/" +
-    "base-combat-allocation.ts 显式未绑定）。依赖：关键词工作流（Tank 815）、RIFT-91。",
+    "「I have +2 Might」的 continuous.might 图层算术消费方与生产绑定链（programs/statics.ts + lifecycle）" +
+    "均已合入（RIFT-91 结论过时），且 appliesTo: \"self\" 使原 IR 的 static 能力可以成功注册；" +
+    "剩余缺口在绑定后的条件查询：layers 条件环境没有把 controller: \"controller\" 解析为来源控制者，" +
+    "查询适配器也不消费 sameLocationAs / exclude 这类相对锚点，因而 740.1 的 \"other friendly ... at my battlefield\"" +
+    "不能按印刷语义筛选。" +
+    "[Tank] 的 KeywordDef 已合入并展开 continuous.combat，但 815.1.c 的伤害分配优先级缺消费方：" +
+    "combat/base-combat-allocation.ts 的分配仍是 keywordPriority: proven-none。" +
+    "依赖：条件查询适配器对 controller 占位符与相对 location/exclude 锚点的求值，以及 Tank 分配消费方；不近似实现。",
   abilities,
   sourceText:
     "[Tank] (I must be assigned combat damage first.)\n" +

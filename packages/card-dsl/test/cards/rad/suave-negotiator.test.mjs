@@ -19,7 +19,7 @@ test("rad-099-167 Suave Negotiator: validates, identity and source text", () => 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /355\.9\.a/);
   assert.match(program.judgeReason, /ChoiceRequest/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /dynamic:opponent-players/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -116,6 +116,6 @@ test.todo(
     " (contract change request: add a player pick/target form)"
 );
 test.todo(
-  "suave-negotiator: card-played trigger end-to-end through the production chain, resolving the opponent pick at" +
-    " Finalize (RIFT-257 card-program trigger binding / production trigger registration)"
+  "suave-negotiator: card-played trigger end-to-end through the production chain, resolving the" +
+    " dynamic:opponent-players pick at Finalize (trigger registration is merged; the player-pick shape is the gap)"
 );
