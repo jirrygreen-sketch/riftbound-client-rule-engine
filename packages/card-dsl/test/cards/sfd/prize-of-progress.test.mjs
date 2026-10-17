@@ -65,8 +65,7 @@ test("sfd-075-221 Prize of Progress: program validates and is registered", () =>
 test("sfd-075-221 Prize of Progress: judgeReason names the current missing caller and the merged body", () => {
   assert.match(program.judgeReason, /ability-activated/);
   assert.match(program.judgeReason, /deriveAbilityActivatedEmission/);
-  assert.match(program.judgeReason, /RIFT-270/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /producers|programs\/activate/);
   // The Might primitive and its end-of-turn duration are merged now, so the
   // reason must not keep claiming a missing primitive.
   assert.match(program.judgeReason, /continuous\.might/);
@@ -98,7 +97,7 @@ test("sfd-075-221 Prize of Progress: the subscription target is a declared timin
 });
 
 test("sfd-075-221 Prize of Progress: the merged producer emits ability-activated only for a committed activation", () => {
-  // RIFT-270 merged the pure producer; the gap is that nothing calls it yet
+  // The merged pure producer has no production caller yet
   // (judgeReason). The golden asserts the producer's own contract so the
   // remaining wiring is unambiguous.
   const committed = deriveAbilityActivatedEmission({
@@ -170,8 +169,8 @@ test("sfd-075-221 Prize of Progress golden: the body registers +1 Might on itsel
 });
 
 test.todo(
-  "sfd-075-221 Prize of Progress: the merged deriveAbilityActivatedEmission (RIFT-270) needs a chain caller that " +
+  "sfd-075-221 Prize of Progress: the merged deriveAbilityActivatedEmission needs a chain caller that " +
     "hands it every committed activation result, so the ability-activated timing really enters the pipeline " +
-    "(CR 400/402/405-407); RIFT-257's programs/activate.ts currently only builds a ChainDraft"
+    "(CR 400/402/405-407); programs/activate.ts currently only builds a ChainDraft"
 );
 

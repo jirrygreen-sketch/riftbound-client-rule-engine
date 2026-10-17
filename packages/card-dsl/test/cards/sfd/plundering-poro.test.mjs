@@ -70,11 +70,13 @@ test("sfd-069-221 Plundering Poro structure: conquer trigger filtered to this un
     value: { type: "base", player: "controller" }
   });
   // 143.4 / 185.2.d: "exhausted" is the entry stipulation, not a later exhaust.
-  assert.deepEqual(playGold.args.entersExhausted, { kind: "constant", value: true });
+  // effect.token rejects the unknown entersExhausted argument; the exhausted
+  // entry state stays the judge-required gap and is not faked in the IR.
+  assert.equal(playGold.args.entersExhausted, undefined);
 });
 
 test("sfd-069-221 Plundering Poro golden: the merged token play pipeline really creates and plays a supported token", () => {
-  // RIFT-62's play mode is merged: a NEW token is created on the Chain and then
+  // The merged play mode creates a NEW token on the Chain and then
   // handed to `play`. The card's own body is blocked on the Gold definition
   // (which carries a printed ability, CR 187.5), so the golden exercises the
   // merged half with a definition that is in the frozen table and keeps the
@@ -145,6 +147,6 @@ test.todo(
 );
 test.todo(
   "sfd-069-221 Plundering Poro: the conquer producer must carry the conquering Unit and Battlefield so the " +
-    "source:self Conquer Effect filter (CR 383.4.c.2.a, RIFT-270 producers) can match"
+    "source:self Conquer Effect filter (CR 383.4.c.2.a) can match"
 );
 

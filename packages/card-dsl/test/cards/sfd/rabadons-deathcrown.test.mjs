@@ -3,8 +3,9 @@
 // The catalog ability is [Unique] + [Equip] only; the merged Equip expansion's
 // attach body is executed for real through the production interpreter adapter
 // with a Finalize-locked target. The Unique deck constraint, the `equip` payment
-// kind, the [A] Universal Power representation and the CR 715.4 source-text
-// discrepancy are the judged gaps (see judgeReason).
+// kind, the Equip cost binding and the CR 715.4 source-text discrepancy are the
+// judged gaps (see judgeReason). Universal Power is representable by the
+// six-domain allowedDomains payment plan.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -82,7 +83,8 @@ test("sfd-191-221 Rabadon's Deathcrown: identity, ruleset, status, judgeReason a
   assert.match(program.judgeReason, /Bonus Damage/);
   assert.match(program.judgeReason, /Unique/);
   // The Equip payment kind and the ExpandInput params.cost binding are the
-  // still-current dependencies; the keyword registry count was refreshed to 26.
+  // still-current dependencies; Universal Power is already represented by the
+  // six-domain allowedDomains payment plan.
   assert.match(program.judgeReason, /Unsupported payment kind: equip/);
   assert.match(program.judgeReason, /params\.cost/);
 });
@@ -143,6 +145,7 @@ test.todo(
 
 test.todo(
   "sfd-191-221 Rabadon's Deathcrown: paying the printed Equip cost (one [A] Power, CR 135.2.e.5 / 818.1.c.2) is " +
-    "blocked on the `equip` payment kind in cost/plan-values.ts and on a contract representation for Universal Power " +
-    "(CR 163.2.b), and on Equip.ts reading the printed cost from ExpandInput params.cost (contract 3.8 item 3)"
+    "blocked on the `equip` payment kind in cost/plan-values.ts and on Equip.ts reading the printed cost from " +
+    "ExpandInput params.cost (contract 3.8 item 3); the Universal Power portion is already representable via " +
+    "six-domain allowedDomains"
 );

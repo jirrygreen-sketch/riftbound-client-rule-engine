@@ -100,7 +100,9 @@ test("sfd-074-221 Pickpocket: the kill and the Gold play keep their declared sha
   assert.equal(tokenInstruction.op, "effect.token");
   assert.deepEqual(tokenInstruction.args.token, { kind: "constant", value: "gold" });
   assert.deepEqual(tokenInstruction.args.mode, { kind: "constant", value: "play" });
-  assert.deepEqual(tokenInstruction.args.entersExhausted, { kind: "constant", value: true });
+  // effect.token rejects the unknown entersExhausted argument; the entry state
+  // is the recorded judge-required gap, so no invented key is declared.
+  assert.equal(tokenInstruction.args.entersExhausted, undefined);
 });
 
 test("sfd-074-221 Pickpocket golden: accepting the may kills the locked gear (CR 429)", () => {
@@ -168,7 +170,7 @@ test.todo(
 );
 test.todo(
   "sfd-074-221 Pickpocket: gate the Gold token play on the kill receipt ('If you do', CR 359.3.e.14.b) once " +
-    "the frozen IR has an action-result binding (condition.result) and the CardProgram play binding is available (RIFT-257)"
+    "the frozen IR has an action-result binding (condition.result) and the CardProgram play binding is available"
 );
 test.todo(
   "sfd-074-221 Pickpocket: play a Gold gear token exhausted — CR 187.5 Gold definition and " +

@@ -7,8 +7,8 @@ import program from "../../../dist/cards/sfd/petricite-monument.js";
 import temporary from "../../../../engine-core/dist/effects/keywords/Temporary.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-// The production static binder (RIFT-349) is the path that turns the printed
-// static ability into a live layer effect; the golden exercises it directly.
+// The production static binder is the path that turns the printed static
+// ability into a live layer effect; the golden exercises it directly.
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -31,7 +31,7 @@ test("sfd-104-221 Petricite Monument: identity, ruleset, status, judgeReason and
   assert.match(program.judgeReason, /816\.1\.b/);
   assert.match(program.judgeReason, /Temporary/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /target\.tax/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -106,5 +106,5 @@ test.todo(
 );
 test.todo(
   "sfd-104-221 Petricite Monument: the granted [Deflect] layer value is live, but the target.tax " +
-    "reader (RIFT-90) and any-Domain Power tax booking (809.1.c.1) are still missing."
+    "reader and any-Domain Power tax booking (809.1.c.1) are still missing."
 );
