@@ -43,6 +43,7 @@ test("ogn-237-298 King's Edict judgeReason names the chooser order and per-spell
   assert.match(program.judgeReason, /非目标选择/);
   assert.match(program.judgeReason, /未注册/);
   assert.match(program.judgeReason, /Unregistered instruction opcode/);
+  assert.match(program.judgeReason, /dynamic:units-chosen-for-this-spell/);
 });
 
 test("ogn-237-298 King's Edict structure: other-player choice node then a linked non-target kill", () => {

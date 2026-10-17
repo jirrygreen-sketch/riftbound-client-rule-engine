@@ -29,6 +29,8 @@ test("ogn-236-298 Karthus, Eternal: identity, status and verbatim sourceText", (
   assert.match(program.judgeReason, /卡牌正文尚未接到死亡触发/);
   // The Deathknell body binding gap is still described in those words.
   assert.match(program.judgeReason, /Deathknell 展开体/);
+  assert.match(program.judgeReason, /808\.3/);
+  assert.match(program.judgeReason, /staticTarget/);
   assert.equal(program.sourceText, "Your [Deathknell] effects trigger an additional time.");
 });
 

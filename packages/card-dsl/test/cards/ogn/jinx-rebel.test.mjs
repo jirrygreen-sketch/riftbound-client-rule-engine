@@ -30,6 +30,7 @@ test("ogn-202-298 Jinx, Rebel: program validates and has expected identity", () 
   assert.match(program.judgeReason, /批次/);
   assert.match(program.judgeReason, /card-discarded/);
   assert.match(program.judgeReason, /batchId/);
+  assert.match(program.judgeReason, /独立注册 id/);
   assert.equal(
     program.sourceText,
     "When you discard one or more cards, ready me and give me +1 :rb_might: this turn."
@@ -166,14 +167,14 @@ function fixture({ hand = ["h1"], amounts = [1], deck = ["d1", "d2", "d3"] } = {
   });
   const source = kernel.getObject("jinx");
   const ids = binding.registerProgramTriggers(engine, source);
-  for (const amount of amounts) {
+  for (const [index, amount] of amounts.entries()) {
     engine.enqueue({
-      id: `discard-${amount}`,
+      id: `discard-${index}-${amount}`,
       kind: "triggered",
       controller: "A",
       source,
       body: [{
-        id: `discard-${amount}`,
+        id: `discard-${index}-${amount}`,
         op: "effect.discard",
         args: { amount: { kind: "constant", value: amount }, choiceId: { kind: "constant", value: `pick-${amount}` } }
       }]
@@ -247,4 +248,16 @@ test("ogn-202-298 Jinx, Rebel TODO: one trigger per discard batch keeps the sum 
     separate.engine.items.filter((item) => String(item.id).startsWith("trigger")).length,
     2
   );
+});
+
+test("Jinx TODO: two separate one-card discards resolve two independent Might bonuses in one turn", {
+  todo: "317.2.c: repeated resolutions of the same continuous.might instruction need distinct registration ids"
+}, () => {
+  const { kernel, engine } = fixture({ hand: ["h1", "h2"], amounts: [1, 1] });
+  drain(engine);
+  assert.deepEqual(kernel.zone("A", "trash").map(ref => ref.id), ["h1", "h2"]);
+  assert.equal(engine.pipeline.events.filter(event => event.timingPoint === "card-discarded").length, 2);
+  assert.equal(engine.trace.filter(entry => entry.step === "resolved" && entry.item.startsWith("trigger:")).length, 2);
+  assert.equal(engine.layers.registry.list().length, 2);
+  assert.equal(engine.layers.snapshot(kernel.ref("jinx")).might, 7);
 });
