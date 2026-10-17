@@ -100,9 +100,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "可选附加费用（356.2.b/356.2.b.1）尚未由 programs/play.ts 从 static cost.additional 收集进 Finalize；356.4.f.1 的支付决定收据也没有 CardProgram Condition 绑定。" +
-    "“exhaust your legend” 缺 effects/contract.ts ZoneId 与 cost/payment.ts 的 legend-zone 付款对象支持（107.4.b/c、355.9.a.4），不能以基地中的传奇冒充。" +
-    "开放战场谓词（170.11.c）已可表达，但生产解释器未收到完整战场 LocationState：空战场不在 context.query 的对象 location 中，需把 CombatFlow 的控制/占用状态传入地点候选查询，才能覆盖所有开放地点。",
+    "可选附加费用（356.2.b/356.2.b.1）未接通：静态 cost.additional 在 programs/statics.ts 的 layerFor 没有图层映射（\"Static ability kind cost.additional has no layer mapping\"），" +
+    "programs/play.ts 的 translateCost 对 additional/additional-cost 字段直接 judgeRequired，故该声明进不了 Finalize 的 optionalAdditional；356.4.f.1 的支付决定回执也没有 CardProgram Condition 可读。" +
+    "“exhaust your legend” 缺付款对象支持：effects/contract.ts 的封闭 ZoneId 没有 legend-zone，cost.payment/TestWorld.zoneSlice 都不接受该区域（107.4.b/c、355.9.a.4），不能以基地中的传奇冒充。" +
+    "开放战场谓词（170.11.c）已可表达，但生产解释器未收到完整战场 LocationState：由 context.query 推导时空战场不产生候选（只有调用方补 LocationState 时 open 过滤才命中），需把 CombatFlow 的控制/占用状态传进地点候选查询。",
   abilities,
   sourceText:
     "You may exhaust your legend as an additional cost to play me.\n" +

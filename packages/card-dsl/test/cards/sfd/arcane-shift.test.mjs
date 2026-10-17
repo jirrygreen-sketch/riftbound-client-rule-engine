@@ -358,6 +358,57 @@ test.todo(
   "Arcane Shift: verify the entire Action card through Finalize and Resolve after nested ignored-cost play is bound, retaining target locking, Pending exclusions and became-target notifications (806.1.b/355.5)"
 );
 
+test("Arcane Shift: a finalized ignore-cost plan really plays the banished unit, so only the producer is missing", () => {
+  // 356.1.b.1 / 356.1.b.3 / 420.3: once a caller supplies the banished unit's
+  // finalized ignore-base plan as its owner, play succeeds and the unit enters
+  // its play destination. The card's own descriptor is not such a plan.
+  const base = world().player("A").player("B", { energy: 4, power: ["Mind"] })
+    .unit("unit", {
+      owner: "B", controller: "A", types: ["unit"], energy: 4, power: ["Mind"],
+      location: { type: "battlefield", id: "bf-1" }
+    })
+    .build();
+  const caster = base.clone({ controller: "A", sourceSnapshot: base.getObject("unit") });
+  const banished = runInstruction(banish, banishFriendlyUnit.args, {
+    world: caster,
+    targets: { [friendlySpec.id]: [caster.ref("unit")] }
+  });
+  assert.equal(banished.result.status, "executed");
+  const ref = banished.linked.banishedUnitObject;
+  // 428.1 / 124: the receipt carries the post-banish incarnation, owned by B.
+  assert.equal(caster.object(ref).zone, "banishment");
+  assert.equal(caster.object(ref).owner, "B");
+
+  const payer = caster.clone({ sourceSnapshot: caster.object(ref), controller: "B" });
+  const modified = runInstruction(costModify, {
+    id: "arcane-shift.unit-cost",
+    baseModifications: [{ kind: "ignore-base", ignore: "resources" }]
+  }, { world: payer });
+  assert.equal(modified.result.status, "executed");
+  assert.equal(modified.linked.cost.finalized, true);
+  assert.equal(modified.linked.cost.printed.energy, 4);
+  assert.equal(modified.linked.cost.total.energy, 0);
+
+  const played = runInstruction(play, {
+    object: { kind: "constant", value: ref },
+    player: { kind: "constant", value: "B" },
+    location: { kind: "constant", value: { type: "base", player: "B" } },
+    cost: { kind: "constant", value: modified.linked.cost }
+  }, { world: payer });
+  assert.equal(played.result.status, "executed");
+  // 124: the play gives the card a new zone-entry identity, so read the object
+  // back by id instead of the stale banished reference.
+  const entered = payer.objects.find(object => object.ref.id === "unit");
+  assert.equal(entered.ref.zoneEntryId > ref.zoneEntryId, true);
+  assert.equal(entered.zone, "board");
+  assert.deepEqual(entered.location, { type: "base", player: "B" });
+  // 356.1.b.1 only zeroes the base costs: the printed 4 Energy stays unpaid and
+  // the card's own characteristics are untouched.
+  assert.equal(payer.player("B").energy, 4);
+  assert.equal(entered.energy, 4);
+  assert.deepEqual(entered.power, ["Mind"]);
+});
+
 
 test("Arcane Shift: the merged ignore-base planner preserves later costs and the banished unit's printed characteristics", () => {
   const kernel = world().player("A").player("B", { energy: 3 })

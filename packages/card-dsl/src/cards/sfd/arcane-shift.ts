@@ -41,9 +41,10 @@ const arcaneShift = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "“its owner plays it, ignoring its cost” 仍缺从 effect.banish 收据的新引用及 owner（428.1/359.3.e.14）到嵌套打出 Finalize 的绑定。" +
-    "356.1.b/356.1.b.1 的 ignore-base:resources 算法已在费用层实现，但 cost.modify 的普通计划以 ctx.source 为源，不能为被放逐单位绑定其费用、所有者及合法打出地点；不得计算本咒语的费用来代替。" +
-    "effect.play 需要已 Finalize 的 FinalizedCostPlan，尚无消费方把该单位的完整 CostPlan 转换并传入，同时保留 356.1.b.3 的附加费用/增费；当前描述性 cost.modify 记录不是可支付计划。",
+    "“its owner plays it, ignoring its cost” 还缺从 effect.banish 收据（新引用 + owner，428.1/359.3.e.14）到嵌套打出 Finalize 的生产绑定：" +
+    "356.1.b/356.1.b.1 的 ignore-base:resources 算法已在费用层实现（cost/plan-types.ts 会同时清零 base Energy 与 Power，356.1.b.3 的附加费用/增费再叠加），" +
+    "也已能把直接绑定了 sourceSnapshot 的 cost.modify 计划真实支付（cost.modify 的普通计划仍以 ctx.source 为源），但没有消费方按被放逐单位（owner 为打出者、地点为其合法打出地点）构建该 FinalizedCostPlan 并交给 effect.play。" +
+    "effect.play 只接受已 Finalize 的计划：当前卡面写入的描述性 cost.modify 记录（finalized: false）会被判 impossible，不得在卡程序里直接算费用或用本咒语费用代替。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

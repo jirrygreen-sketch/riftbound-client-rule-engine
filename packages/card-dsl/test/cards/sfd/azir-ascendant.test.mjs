@@ -10,6 +10,7 @@ import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 import { translateCost, translateRestriction } from "../../../../engine-core/dist/programs/play.js";
+import { TRIGGER_ONCE_SCOPES } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import { runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -259,6 +260,16 @@ test("sfd-050-221 Azir, Ascendant golden: a mistargeted chosen unit ignores the 
 test.todo(
   "Azir, Ascendant: bind the usage-limit/once-per-turn restriction to a real turn usage counter at Finalize, preserving Action timing and the 1 Calm Power cost (383.3.e/806.1.c)"
 );
+
+test("Azir, Ascendant: the once-per-turn usage limit has no rules adapter, so the activation cannot be finalized", () => {
+  // 377.2.b: a condition on using an Activated Ability must be true to activate.
+  // The merged translator refuses the declared usage-limit restriction; the only
+  // per-turn frequency mechanism in the engine is TriggerSpec.once, which counts
+  // trigger registrations rather than activation uses.
+  assert.throws(() => translateRestriction(ability.restriction, CARD_ID),
+    error => error.code === "judge-required" && /usage-limit needs a rules adapter/.test(error.message));
+  assert.deepEqual(TRIGGER_ONCE_SCOPES, ["per-turn", "per-phase", "per-combat", "per-showdown", "per-chain", "per-object", "per-game"]);
+});
 
 
 test("Azir, Ascendant: the merged activation translator and payer preserve the one Calm Power cost", () => {

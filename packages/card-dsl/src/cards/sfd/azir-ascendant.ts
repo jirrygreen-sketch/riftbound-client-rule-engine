@@ -173,8 +173,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "“Use only once per turn” 的 usage-limit/once-per-turn 限制仍无每回合使用次数谓词或计数接线；programs/play.ts 的 translateRestriction/translateLegalityCondition 对该描述性 kind 返回 judge-required（383.3.e）。" +
-    "不能绕过限制只执行 activated 交换/附着 body，也不能以触发能力的 once:per-turn 冒充启动能力次数限制。",
+    "本卡是 activated 能力（timing: action，1 点 Calm Power，377.1/806.1.c），唯一剩余缺口是“Use only once per turn”的使用上限：" +
+    "card 声明的 restriction { kind: \"usage-limit\", scope: \"once-per-turn\" } 经 programs/play.ts 的 translateRestriction → translateLegalityCondition 直接 judgeRequired" +
+    "（\"restriction ... kind usage-limit needs a rules adapter\"），链里也没有每回合使用次数谓词或计数（chain/clock 只有 TriggerSpec.once 的 per-turn 频率键，语义是触发次数，不是 377.2.b 的启动许可条件）。" +
+    "两条 Move 交换与可选 Attach 本体已由已合入原语真实执行（golden 覆盖换位、附着、拒绝与失目标），但缺使用上限就不能宣称整卡可执行，也不用触发频率冒充启动限制。",
   abilities,
   sourceText:
     ":rb_rune_calm:: [Action] — Choose a unit you control. Move me to its location and it to my original location. " +

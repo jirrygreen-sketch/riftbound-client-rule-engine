@@ -118,10 +118,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "card-recycled 的 EventPattern 判别仍不在 events/trigger-spec.ts 封闭词汇中；动作适配器虽产生该时点，programs/triggers.ts 无法注册本卡带 rune/player 过滤的事件。" +
-    "Gold（187.5）含自身能力，仍不在 effect.token 定义表；143.4/185.2.d 的 exhausted 入场覆盖也未被 create-token 支持，不能事后 exhaust 代替。" +
-    "开头 “you may exhaust me to” 的基础费用缺 CardProgram TriggeredAbility 的 cost 字段，programs/triggers.ts 未转交给已有 TriggerRegistration.cost 的 Finalize 消费（383.3.b.1/415.4/415.5），且付款对象仍缺 legend-zone 支持（107.4）。" +
-    "“one or more enemy units die” 缺同一游戏动作的死亡批次聚合；object-killed 按对象分组，无法按 370.1.a.2 对同时死亡只触发一次。",
+    "card-recycled 仍不在 events/trigger-spec.ts 的封闭 EVENT_PATTERN_TYPES 中：action-adapter 确实为 recycle 发该时点，但本卡的事件过滤器过不了 validateTriggerSpec（invalid-event-type），programs/triggers.ts 无法注册。" +
+    "187.5 的 Gold（带自身印刷能力的 gear token）不在 effect.token 的定义表：以 \"gold\" 请求会以 impossible + token-definition-or-abilities-judge-required 结束；143.4/185.2.d 的 exhausted 入场覆盖也没有参数（argsSchema 只接受 token/amount/mode/location/target/pick/locations/choiceId/linkKey），不能事后 exhaust 代替。" +
+    "开头 “you may exhaust me to” 的基础费用无声明处：TriggeredAbility 没有 cost 字段，programs/triggers.ts 也不填 TriggerRegistration.cost（383.3.b.1/415.4/415.5）；付款对象另缺 legend-zone（107.4）——effects/contract.ts 的封闭 ZoneId 与 cost.payments 都不接受该区域。" +
+    "“one or more enemy units die” 缺同一游戏动作的死亡批次聚合：object-killed 按对象各自发出（payload 的 simultaneousGroup 用对象 ref.id），没有按 370.1.a.2 合并同时死亡的批 id 供触发去重。",
   abilities,
   sourceText:
     "When you recycle a rune, you may exhaust me to play a Gold gear token exhausted.\n" +

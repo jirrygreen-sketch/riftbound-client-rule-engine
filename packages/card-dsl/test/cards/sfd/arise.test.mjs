@@ -15,6 +15,7 @@ import { runInstruction, world } from "../../../../engine-core/dist/effects/test
 import { queryLocationCandidates } from "../../../../engine-core/dist/target/location/index.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-390865ebc7ca61e906a68cd399d7f1300d7ddcba26677e93cbba334e99b8dee9";
 const SOURCE_TEXT =
@@ -317,6 +318,37 @@ test.todo(
 test.todo(
   "Arise!: verify the whole spell and token plays through production Finalize after token location/program binding, retaining printed 6 Energy and 1 Calm Power (356.1.c)"
 );
+
+
+test("Arise!: the authored token instruction cannot take a LocationExpr destination (355.2/355.2.a)", () => {
+  // Finalize owns the play-location choice, so the card must not pin one. The
+  // merged primitive only takes concrete runtime references; a symbolic
+  // LocationExpr is rejected by its argument schema.
+  const kernel = world().player("A").build();
+  assert.throws(() => runInstruction(token, {
+    ...playTokens.args,
+    location: { kind: "location", value: "ability-controller-base" },
+    amount: { kind: "constant", value: 1 }
+  }, { world: kernel }), error => error instanceof TypeError && /Invalid effect\.token argument: location/.test(error.message));
+  assert.equal(kernel.query({}).filter(object => object.isToken).length, 0);
+});
+
+test("Arise!: the merged play binding cannot supply a program for a created token (440.2.c/185.2.a)", () => {
+  // A played token is created on the Chain and then played, but the Program
+  // registry is keyed by canonicalCardId and effect.token carries no program,
+  // so the production play handoff fails with unknown-program instead of
+  // inventing an ability-less program.
+  const f = fixture({});
+  f.engine.execute(f.draft("arise", {
+    body: [{ ...playTokens, args: tokenArgs({ kind: "constant", value: 1 }) }],
+    kind: "spell",
+    speed: "normal"
+  }));
+  assert.throws(() => resolveAll(f.engine), /requires a card-program adapter/);
+  // Nothing entered the Board: the failure happens while the token play is
+  // routed, never by fabricating a token program.
+  assert.equal(f.kernel.query({ zone: "board" }).filter(object => object.isToken).length, 0);
+});
 
 
 test("Arise!: the merged location query supplies only its controller's base or controlled battlefields", () => {

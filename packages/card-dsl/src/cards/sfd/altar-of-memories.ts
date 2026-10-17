@@ -31,9 +31,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "CR 383.3.b/383.3.b.1 将开头的 “you may exhaust me to” 视为触发能力基础费用，必须在 Finalize 支付（415.4/415.5）。" +
-    "TriggeredAbility 没有 cost 字段，programs/triggers.ts 生成的 TriggerRegistration/ChainDraft 也未携带该费用；当前 body 内 cost.pay 的 payments 数组不是其支持的锁定费用计划。" +
-    "缺触发费用的 Finalize 选择、可支付性检查及事务消费；不能在 Resolve 才横置，也不能只凭 optional 接受就免费抽牌。",
+    "CR 383.3.b/383.3.b.1 把开头的 “you may exhaust me to draw 1” 视为该触发能力的基础费用，必须在 Finalize 支付（415.4/415.5/405.2）：" +
+    "contract.ts 的 TriggeredAbility 没有 cost 字段，卡程序无法声明这条费用；programs/triggers.ts 生成的 TriggerRegistration 从不填 TriggerRegistration.cost，" +
+    "链的 finalize 因此拿不到锁定计划（chain/engine.ts 只在 item.cost 存在时调用 buildCostPlan），而 body 里 cost.pay 的 payments 数组并不是它支持的锁定计划形状（已注册的 cost.pay 只接受 finalized 计划）。" +
+    "缺触发费用的 Finalize 选择、可支付性检查与事务消费：既不能在 Resolve 才横置，也不能只凭 optional 被接受就免费抽牌。",
   abilities: [
     {
       kind: "triggered",
