@@ -14,6 +14,7 @@ export {
   ENGINE_RUNTIME_JOURNAL_VERSION,
   ENGINE_RUNTIME_RULESET_VERSION,
   RuntimeJournalWriter,
+  assertRuntimeJournal,
   canonicalJson,
   digest,
   isRuntimeJournal,

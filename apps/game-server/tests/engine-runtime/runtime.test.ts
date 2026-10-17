@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { isV2Projection, type V2Command } from "../../../../packages/protocol/dist/v2/index.js";
-import { createEngineRuntime, type EngineRuntimeDeck } from "../../src/engine-runtime/index.js";
+import { createEngineRuntime, projectionDigest, type EngineRuntimeDeck } from "../../src/engine-runtime/index.js";
 
 type M1Card = {
   readonly zone: "legend" | "champion" | "mainDeck" | "battlefields" | "runes";
@@ -110,6 +110,31 @@ describe("engine runtime", () => {
     const restored = createEngineRuntime(options).restore(journal);
     expect(restored.projectFor("A")).toEqual(runtime.projectFor("A"));
     expect(restored.projectFor("B")).toEqual(runtime.projectFor("B"));
+    expect(runtime.journal().head.stateDigest).toBe(projectionDigest(runtime.projectFor(null)));
+  });
+
+  it("restores setup mulligans from journal metadata and rejects forged actors", () => {
+    const decks = [m1Deck("rumble-sfd"), m1Deck("fiora-sfd")] as const;
+    const opening = createEngineRuntime({ matchId: "m5-probe", decks, seed: "m5" }).start();
+    const selected = opening.projectFor("A").zones.find(zone => zone.zone === "hand" && zone.ownerPlayerId === "A")?.objects?.[0]?.cardId;
+    expect(selected).toBeTruthy();
+    const runtime = createEngineRuntime({ matchId: "m5", decks, seed: "m5", mulligans: [[selected!], []] }).start();
+    const restored = createEngineRuntime({ matchId: "m5", decks, seed: "m5" }).restore(runtime.journal());
+    expect(restored.projectFor("A")).toEqual(runtime.projectFor("A"));
+    expect(restored.projectFor("B")).toEqual(runtime.projectFor("B"));
+
+    const opponentCard = runtime.projectFor("B").objects.find(object => object.zone === "hand" && object.ownerPlayerId === "B");
+    expect(opponentCard?.objectId).toBeTruthy();
+    const forged = runtime.submit("A", { type: "move", commandId: "forged", stateVersion: 0, objectId: opponentCard!.objectId, to: { zone: "base", playerId: "A" } });
+    expect(forged.receipt.status).toBe("rejected");
+    const invalid = runtime.submit("C", { type: "unknown", commandId: "invalid", stateVersion: 0 } as never);
+    expect(invalid.receipt.status).toBe("rejected");
+    expect(isV2Projection(invalid.projection)).toBe(true);
+
+    runtime.submit(runtime.projectFor(null).activePlayerId, { type: "pass", commandId: "integrity", stateVersion: 0 });
+    const forgedJournal = structuredClone(runtime.journal()) as any;
+    forgedJournal.entries[0].result = { accepted: false };
+    expect(() => createEngineRuntime({ matchId: "m5", decks, seed: "m5" }).restore(forgedJournal)).toThrow(/integrity|digest/i);
   });
 
   it("journals a suspended choice and replays it before the answer", () => {

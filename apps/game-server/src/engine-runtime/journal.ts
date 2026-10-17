@@ -26,6 +26,12 @@ export interface RuntimeJournalHeader {
     readonly uidSeed: string | null;
     readonly creator: string;
   };
+  /** Setup choices are part of the deterministic createMatch input. */
+  readonly setup?: {
+    readonly firstPlayer?: 0 | 1;
+    readonly battlefieldChoice?: readonly [number | null, number | null];
+    readonly mulligans: readonly [readonly string[], readonly string[]];
+  };
 }
 
 export interface RuntimeJournalHead {
@@ -83,6 +89,11 @@ export interface RuntimeJournalInput {
   readonly privateStateDigest: string;
 }
 
+export interface RuntimeJournalAppendInput extends Omit<RuntimeJournalEntry, "kind" | "seq" | "integrity"> {
+  readonly stateDigest?: string;
+  readonly privateStateDigest?: string;
+}
+
 export function canonicalJson(value: unknown): string {
   if (value === null) return "null";
   if (typeof value === "string" || typeof value === "boolean" || typeof value === "number") return JSON.stringify(value);
@@ -99,7 +110,10 @@ export class RuntimeJournalWriter {
   private value: RuntimeJournal;
 
   constructor(input: RuntimeJournalInput | RuntimeJournal) {
-    if (isRuntimeJournal(input)) this.value = structuredClone(input);
+    if (isRuntimeJournal(input)) {
+      assertRuntimeJournal(input);
+      this.value = structuredClone(input);
+    }
     else {
       const header = {
         format: ENGINE_RUNTIME_JOURNAL_FORMAT,
@@ -120,10 +134,11 @@ export class RuntimeJournalWriter {
 
   snapshot(): RuntimeJournal { return structuredClone(this.value); }
 
-  append(input: Omit<RuntimeJournalEntry, "kind" | "seq" | "integrity">): RuntimeJournalEntry {
+  append(input: RuntimeJournalAppendInput): RuntimeJournalEntry {
     const parentDigest = this.value.integrity.currentDigest;
     const seq = this.value.entries.length + 1;
-    const base = { kind: "entry" as const, seq, ...structuredClone(input) };
+    const { stateDigest, privateStateDigest, ...entryInput } = input;
+    const base = { kind: "entry" as const, seq, ...structuredClone(entryInput) };
     const currentDigest = digest({ ...base, integrity: { parentDigest, currentDigest: "0".repeat(64) } });
     const entry = { ...base, integrity: { parentDigest, currentDigest } };
     const head = {
@@ -133,8 +148,8 @@ export class RuntimeJournalWriter {
       roomVersion: entry.roomVersion,
       parentJournalDigest: parentDigest,
       journalDigest: "0".repeat(64),
-      stateDigest: digest(entry.result),
-      privateStateDigest: digest({ entry, prior: this.value.head.privateStateDigest }),
+      stateDigest: stateDigest ?? digest(entry.result),
+      privateStateDigest: privateStateDigest ?? digest({ entry, prior: this.value.head.privateStateDigest }),
     };
     const integrity = {
       ...this.value.integrity,
@@ -155,4 +170,42 @@ export function isRuntimeJournal(value: unknown): value is RuntimeJournal {
   return candidate.header?.format === ENGINE_RUNTIME_JOURNAL_FORMAT && candidate.header.formatVersion === 1 &&
     candidate.header.rulesetVersion === ENGINE_RUNTIME_RULESET_VERSION && Array.isArray(candidate.entries) &&
     candidate.head !== undefined && candidate.integrity !== undefined;
+}
+
+/** Validate the digest chain before a journal is used for authoritative replay. */
+export function assertRuntimeJournal(value: unknown): asserts value is RuntimeJournal {
+  if (!isRuntimeJournal(value)) throw new TypeError("Invalid engine runtime journal");
+  const zero = "0".repeat(64);
+  const journal = value;
+  if (journal.integrity.revision !== journal.entries.length ||
+      journal.integrity.protectedHeadReference.revision !== journal.integrity.revision ||
+      journal.integrity.protectedHeadReference.nonce !== journal.integrity.nonce ||
+      journal.head.journalDigest !== journal.integrity.currentDigest ||
+      journal.head.parentJournalDigest !== journal.integrity.parentDigest) {
+    throw new TypeError("Engine runtime journal head integrity mismatch");
+  }
+  for (const [index, entry] of journal.entries.entries()) {
+    if (entry.seq !== index + 1 || entry.integrity.parentDigest === entry.integrity.currentDigest) {
+      throw new TypeError(`Engine runtime journal entry ${index + 1} sequence mismatch`);
+    }
+    const expectedEntryDigest = digest({
+      ...entry,
+      integrity: { parentDigest: entry.integrity.parentDigest, currentDigest: zero },
+    });
+    if (entry.integrity.currentDigest !== expectedEntryDigest) {
+      throw new TypeError(`Engine runtime journal entry ${index + 1} integrity mismatch`);
+    }
+  }
+  if (journal.entries.length === 0 && journal.integrity.revision !== 0) {
+    throw new TypeError("Empty engine runtime journal has a nonzero revision");
+  }
+  const expectedJournalDigest = digest({
+    header: journal.header,
+    head: { ...journal.head, journalDigest: zero },
+    entries: journal.entries,
+    integrity: { ...journal.integrity, currentDigest: zero },
+  });
+  if (journal.head.journalDigest !== expectedJournalDigest) {
+    throw new TypeError("Engine runtime journal digest mismatch");
+  }
 }

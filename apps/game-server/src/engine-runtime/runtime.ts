@@ -3,8 +3,8 @@ import { createMatch, concede, type Match, type MatchDeck } from "../../../../pa
 import { createActionPipelineHost } from "../../../../packages/engine-core/dist/events/action-adapter.js";
 import { createProgramBinding, type ProgramBinding } from "../../../../packages/engine-core/dist/programs/index.js";
 import type { ChoiceRequest, GameAction, ObjectRef, PlayerId } from "../../../../packages/engine-core/dist/effects/contract.js";
-import type { V2ChoiceAnswer, V2Command, V2Projection } from "../../../../packages/protocol/dist/v2/index.js";
-import { ENGINE_RUNTIME_RULESET_VERSION, RuntimeJournalWriter, type RuntimeJournal, type RuntimeJournalEntry, digest } from "./journal.js";
+import { isV2Command, type V2ChoiceAnswer, type V2Command, type V2Projection } from "../../../../packages/protocol/dist/v2/index.js";
+import { assertRuntimeJournal, ENGINE_RUNTIME_RULESET_VERSION, RuntimeJournalWriter, canonicalJson, type RuntimeJournal, type RuntimeJournalEntry, digest } from "./journal.js";
 import { EngineRuntimeHost, type RuntimeCard } from "./host.js";
 import { projectRuntime, projectionDigest } from "./projection.js";
 
@@ -63,6 +63,10 @@ interface SeenCommand {
   readonly playerId: string;
   readonly command: V2Command;
   readonly receipt: RuntimeReceipt;
+}
+
+function canonicalCommand(command: V2Command): string {
+  return canonicalJson(command);
 }
 
 class MatchRuntime implements EngineRuntime {
@@ -126,6 +130,21 @@ class MatchRuntime implements EngineRuntime {
         rosterDigest: digest(seats), trustedDeckDigest: digest({ seats, decks: normalizedDecks }),
         seed: String(this.runtimeOptions.seed ?? this.match.seed), seats, createdAt: this.runtimeOptions.createdAt ?? new Date(0).toISOString(),
         creation: { entropy: [], deterministicSeed: String(this.runtimeOptions.seed ?? this.match.seed), uidSeed: null, creator: "game-server" },
+        setup: {
+          ...(this.runtimeOptions.firstPlayer === undefined ? {} : {
+            firstPlayer: this.runtimeOptions.firstPlayer === "B" || this.runtimeOptions.firstPlayer === 1 ? 1 : 0,
+          }),
+          ...(this.runtimeOptions.battlefieldChoice === undefined ? {} : {
+            battlefieldChoice: [
+              this.runtimeOptions.battlefieldChoice[0] ?? null,
+              this.runtimeOptions.battlefieldChoice[1] ?? null,
+            ] as const,
+          }),
+          mulligans: [
+            [...(this.runtimeOptions.mulligans?.[0] ?? [])],
+            [...(this.runtimeOptions.mulligans?.[1] ?? [])],
+          ] as const,
+        },
       }, stateDigest: this.stateDigest(), privateStateDigest: this.privateStateDigest(),
     });
     return this;
@@ -133,9 +152,11 @@ class MatchRuntime implements EngineRuntime {
 
   submit(playerId: PlayerId, command: V2Command): RuntimeSubmitResult {
     this.requireStarted();
+    if (!isV2Command(command)) return this.rejected(command, playerId, "Invalid protocol v2 command");
+    if (!Object.hasOwn(this.host!.playerNames(), playerId)) return this.rejected(command, playerId, "Unknown player");
     const prior = this.seen.get(command.commandId);
     if (prior) {
-      if (prior.playerId !== playerId || JSON.stringify(prior.command) !== JSON.stringify(command)) return this.rejected(command, playerId, "commandId was already used for a different command");
+      if (prior.playerId !== playerId || canonicalCommand(prior.command) !== canonicalCommand(command)) return this.rejected(command, playerId, "commandId was already used for a different command");
       const duplicate = { ...prior.receipt, status: "duplicate" as const };
       this.appendJournal(playerId, command, duplicate, duplicate.result ?? { accepted: true }, true);
       return { receipt: duplicate, projection: this.projectFor(playerId) };
@@ -191,10 +212,29 @@ class MatchRuntime implements EngineRuntime {
   }
 
   restore(journal: RuntimeJournal): EngineRuntime {
+    assertRuntimeJournal(journal);
     if (journal.header.matchId !== this.runtimeOptions.matchId) throw new Error("Journal matchId does not match runtime");
     const options = this.runtimeOptions;
     this.match = null; this.host = null; this.binding = null; this.journalWriter = null; this.stateVersion = 0; this.pending = null; this.seen.clear();
-    this.runtimeOptions = { ...options, seed: journal.header.seed, createdAt: journal.header.createdAt };
+    const setup = journal.header.setup;
+    this.runtimeOptions = {
+      ...options,
+      seed: journal.header.seed,
+      createdAt: journal.header.createdAt,
+      ...(setup ? {
+        mulligans: [
+          [...setup.mulligans[0]],
+          [...setup.mulligans[1]],
+        ] as const,
+        ...(setup.firstPlayer === undefined ? {} : { firstPlayer: setup.firstPlayer }),
+        ...(setup.battlefieldChoice === undefined ? {} : {
+          battlefieldChoice: [
+            setup.battlefieldChoice[0] ?? undefined,
+            setup.battlefieldChoice[1] ?? undefined,
+          ] as const,
+        }),
+      } : {}),
+    };
     this.start();
     for (const entry of journal.entries) {
       if (entry.duplicate) continue;
@@ -233,6 +273,7 @@ class MatchRuntime implements EngineRuntime {
     if (command.type === "choose") throw new Error("Choice commands are handled by the runtime boundary");
     if (command.type === "move") {
       const ref = this.resolveObjectRef(command.objectId, command.stateVersion);
+      this.assertCanControl(playerId, ref);
       let outcome;
       if (command.to.zone === "deck" || command.to.zone === "rune-deck") {
         outcome = this.host!.perform({ type: "move-zone", object: ref, to: command.to.zone === "deck" ? command.to.position === "top" ? "deck-top" : "deck-bottom" : "rune-deck" });
@@ -246,6 +287,7 @@ class MatchRuntime implements EngineRuntime {
     if (command.type === "play") {
       if (!this.binding) throw new Error("No trusted card-program registry is bound");
       const source = this.resolveObject(command.cardObjectId);
+      this.assertCanControl(playerId, source.ref);
       const draft = this.binding.describePlay({ type: "play", object: source.ref, player: playerId }, source);
       match.flow.execute(draft);
       return { accepted: true, objectId: command.cardObjectId };
@@ -253,7 +295,12 @@ class MatchRuntime implements EngineRuntime {
     if (command.type === "activate") {
       if (!this.binding) throw new Error("No trusted card-program registry is bound");
       const source = this.resolveObject(command.sourceObjectId);
-      match.flow.execute(this.binding.describeActivate(source, playerId));
+      this.assertCanControl(playerId, source.ref);
+      const abilityIndex = /^\d+$/u.test(command.abilityId) ? Number(command.abilityId) : 0;
+      if (!Number.isSafeInteger(abilityIndex) || abilityIndex < 0 || !this.binding.activationAbilities(source)[abilityIndex]) {
+        throw new Error(`Unknown ability ${command.abilityId}`);
+      }
+      match.flow.execute(this.binding.describeActivate(source, playerId, abilityIndex));
       return { accepted: true, objectId: command.sourceObjectId, abilityId: command.abilityId };
     }
     if (command.type === "declare-attack" || command.type === "declare-defense") throw new Error(`${command.type} is not available until the combat transaction adapter is installed`);
@@ -266,9 +313,17 @@ class MatchRuntime implements EngineRuntime {
 
   private resolveObjectRef(id: string, _stateVersion: number): ObjectRef { return this.resolveObject(id).ref; }
 
-  private rejected(command: V2Command, playerId: string, error: string): RuntimeSubmitResult {
-    const receipt: RuntimeReceipt = { commandId: command.commandId, status: "rejected", stateVersion: this.stateVersion, eventSeq: this.match?.events().length ?? 0, error };
-    return { receipt, projection: this.projectFor(playerId) };
+  private assertCanControl(playerId: string, ref: ObjectRef): void {
+    const object = this.host!.object(ref);
+    if (!object) throw new Error(`Unknown object ${ref.id}`);
+    if (object.owner !== playerId && object.controller !== playerId) throw new Error("Player does not control object");
+  }
+
+  private rejected(command: V2Command | { readonly commandId?: unknown }, playerId: string, error: string): RuntimeSubmitResult {
+    const commandId = typeof command.commandId === "string" && command.commandId.length > 0 ? command.commandId : "invalid-command";
+    const receipt: RuntimeReceipt = { commandId, status: "rejected", stateVersion: this.stateVersion, eventSeq: this.match?.events().length ?? 0, error };
+    const viewer = Object.hasOwn(this.host?.playerNames() ?? {}, playerId) ? playerId : null;
+    return { receipt, projection: this.projectFor(viewer) };
   }
 
   private appendJournal(
@@ -280,21 +335,64 @@ class MatchRuntime implements EngineRuntime {
     pendingReason?: Readonly<Record<string, unknown>>,
   ): RuntimeJournalEntry {
     const writer = this.journalWriter!;
+    const viewers = Object.keys(this.host!.playerNames());
+    const projections = [
+      projectRuntime(this.match!, this.host!, this.runtimeOptions.matchId, viewers[0]!, this.stateVersion, this.pendingChoiceFor(viewers[0]!)),
+      projectRuntime(this.match!, this.host!, this.runtimeOptions.matchId, viewers[1]!, this.stateVersion, this.pendingChoiceFor(viewers[1]!)),
+      projectRuntime(this.match!, this.host!, this.runtimeOptions.matchId, null, this.stateVersion, this.pendingChoiceFor(null)),
+    ] as const;
     return writer.append({
       playerId, actor: playerId, requestId: command.commandId, commandId: command.commandId, command, payload: command,
       acceptedAt: new Date(0).toISOString(),
       expectedStateVersion: duplicate || receipt.status === "pending" ? this.stateVersion : Math.max(0, this.stateVersion - 1),
       expectedRoomVersion: 0,
-      appliedStateVersion: this.stateVersion, roomVersion: 0, eventSeq: this.match!.events().length, result, publicReceipt: result,
+      appliedStateVersion: this.stateVersion, roomVersion: 0, eventSeq: this.match!.events().length, result, publicReceipt: receipt as unknown as Record<string, unknown>,
       duplicate, rejection: null, ...(pendingReason ? { pendingReason } : {}), entropyConsumed: [],
-      projectionDigestByViewer: Object.fromEntries([null, ...Object.keys(this.host!.playerNames())].map(viewer => [viewer ?? "spectator", projectionDigest(this.projectFor(viewer))])),
+      projectionDigestByViewer: Object.fromEntries(["spectator", ...viewers].map((viewer, index) => [viewer, projectionDigest(projections[index === 0 ? 2 : index - 1]!) ])),
+      stateDigest: projectionDigest(projections[2]), privateStateDigest: digest(projections.slice(0, 2)),
     });
+  }
+
+  private pendingChoiceFor(viewer: string | null): Parameters<typeof projectRuntime>[5] {
+    if (!this.pending) return null;
+    const request = this.pending.request;
+    const options = request.type === "mode" ? request.options.map(option => {
+      const value = typeof option === "string" || typeof option === "number" || typeof option === "boolean" ? option : undefined;
+      return { id: String(option), label: String(option), ...(value === undefined ? {} : { value }) };
+    }) : undefined;
+    return {
+      choiceId: request.id,
+      ownerPlayerId: request.chooser,
+      stateVersion: this.stateVersion,
+      kind: request.type,
+      ...(viewer === request.chooser && options ? { options } : {}),
+      ...(request.type === "select-objects" ? { min: request.min, max: request.max } : {}),
+    };
   }
 
   private requireStarted(): void { if (!this.match || !this.host || !this.journalWriter) throw new Error("Engine runtime has not started"); }
 
-  private stateDigest(): string { return digest({ objects: this.host!.objects(), players: Object.keys(this.host!.playerNames()).map(id => this.host!.player(id)) }); }
-  private privateStateDigest(): string { return digest(this.host!.checkpoint()); }
+  private stateDigest(): string {
+    if (!this.match || !this.host) throw new Error("Engine runtime has not started");
+    return projectionDigest(projectRuntime(this.match, this.host, this.runtimeOptions.matchId, null, this.stateVersion, null));
+  }
+  private privateStateDigest(): string {
+    if (!this.match || !this.host) throw new Error("Engine runtime has not started");
+    return digest([
+      projectRuntime(this.match, this.host, this.runtimeOptions.matchId, Object.keys(this.host.playerNames())[0]!, this.stateVersion, this.pending ? {
+        choiceId: this.pending.request.id,
+        ownerPlayerId: this.pending.request.chooser,
+        stateVersion: this.stateVersion,
+        kind: this.pending.request.type,
+      } : null),
+      projectRuntime(this.match, this.host, this.runtimeOptions.matchId, Object.keys(this.host.playerNames())[1]!, this.stateVersion, this.pending ? {
+        choiceId: this.pending.request.id,
+        ownerPlayerId: this.pending.request.chooser,
+        stateVersion: this.stateVersion,
+        kind: this.pending.request.type,
+      } : null),
+    ]);
+  }
 
   private normalizeDecks(decks: readonly [EngineRuntimeDeck, EngineRuntimeDeck]): readonly [EngineRuntimeDeck, EngineRuntimeDeck] {
     return decks.map(deck => ({
