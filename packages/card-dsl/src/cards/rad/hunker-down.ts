@@ -27,11 +27,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   the ready instruction: a replaced or negated ready must still draw
  *   (359.3.e.14.b, and 359.3.e.8 for partial target loss).
  *
- * Status: judge-required — every instruction runs on merged primitives and
- * Standard Move consumes the recorded MovementPermissions restriction, but
- * effect.move delegates to move-location, whose current action path does not
- * consult continuous movement restrictions. CR 054.1 also forbids effect Moves
- * under "can't move" (451), so Standard Move evidence alone is insufficient.
+ * Status: judge-required（2026-10-17 复核）— every instruction runs on merged
+ * primitives and Standard Move consumes the recorded MovementPermissions
+ * restriction, but effect.move delegates to move-location, whose current action
+ * path does not consult continuous movement restrictions: the golden test
+ * executes the merged effect.move primitive while `cannot-move` is registered
+ * and the unit is relocated anyway. CR 054.1 also forbids effect Moves under
+ * "can't move" (451), so Standard Move evidence alone is insufficient.
  * The golden tests preserve ready/draw/receipt assertions, execute Standard
  * Move rejection and expiry, and exercise the supported body and Reaction
  * timing in a real chain without admitting the whole judged program.
@@ -42,7 +44,8 @@ export default {
   status: "judge-required",
   judgeReason:
     "仍缺效果移动对 continuous.movement/cannot-move 的消费：effect.move 委托 move-location，" +
-    "该动作及 chain/events 提交路径尚未读取 MovementPermissions，因此不能落实 054.1 对 451 效果移动的禁止。" +
+    "该动作及 chain/events 提交路径尚未读取 MovementPermissions——实测在 cannot-move 仍注册时，" +
+    "已合入的 effect.move 原语照样把单位移动走，因此不能落实 054.1 对 451 效果移动的禁止。" +
     "Standard Move 的限制检查、this-turn 到期、ready/draw 和 Reaction 链执行已有证据；缺口仅为效果移动限制消费。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },

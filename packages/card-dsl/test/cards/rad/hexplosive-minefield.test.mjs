@@ -8,6 +8,9 @@ import { bindResolveContext } from "../../../../engine-core/dist/events/action-a
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { AwaitChoice, runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { queryLocationCandidates } from "../../../../engine-core/dist/target/location/candidates.js";
 
 const [speed, play] = program.abilities;
 const [killInstruction, delayedPlay] = play.body;
@@ -68,7 +71,69 @@ test("rad-142-167 Hexplosive Minefield: judgeReason names the delayed op, full l
   assert.match(program.judgeReason, /440\.2\.c/);
   assert.match(program.judgeReason, /187\.12/);
   assert.match(program.judgeReason, /LocationState/);
+  // Second-sweep refresh: add the two newly-verified mechanics (no numeric
+  // killed count; the registered-op absence behind registerDelayedTrigger).
+  assert.match(program.judgeReason, /registerDelayedTrigger|instructionDefinitionsById/);
+  assert.match(program.judgeReason, /amount/);
 });
+
+test("rad-142-167 Hexplosive Minefield gap: no registered op creates a Delayed Ability (390 / 391.2 / 393)", () => {
+  // The ResolveContext hook exists, but only registered instructions can call it
+  // from card data; the card-facing delayed op is still absent, and a
+  // card-owned trigger would be wrong under 393.
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+  assert.equal(delayedPlay.op, "trigger.delayed");
+});
+
+test("rad-142-167 Hexplosive Minefield gap: effect.kill exposes no numeric count for `that many`", () => {
+  const kernel = bombKernel();
+  const run = runInstruction(kill, { target: targetId }, {
+    world: kernel,
+    targets: { [targetId]: [kernel.ref("bomb-1"), kernel.ref("bomb-2")] }
+  });
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(run.linked.killed.map((ref) => ref.id).sort(), ["bomb-1", "bomb-2"]);
+  // The linked value is the object list itself; there is no `count` key, so the
+  // delayed body cannot feed effect.token an amount. A linked object list is
+  // not accepted as an amount at all.
+  assert.equal(run.linked.killed.count, undefined);
+  const marker = world().unit("field-marker", { location: { type: "base", player: "A" } }).build();
+  const denied = runInstruction(token, {
+    token: { kind: "constant", value: "recruit" },
+    mode: { kind: "constant", value: "create" },
+    location: { kind: "constant", value: { type: "base", player: "A" } },
+    amount: { kind: "linked-value", instructionId: "hexplosive-minefield.kill-bombs", key: "killed" },
+    linkKey: { kind: "constant", value: "bombTokens" }
+  }, { world: marker });
+  assert.equal(denied.result.status, "negated");
+  assert.equal(denied.result.reason, "impossible");
+  assert.equal(marker.objects.filter((object) => object.isToken).length, 0);
+});
+
+test("rad-142-167 Hexplosive Minefield gap: the bomb definition is absent, and unrepresented battlefields need external state", () => {
+  // CR 187.12's Bomb gear token is not in the merged token definition table.
+  const kernel = world().unit("marker", { location: { type: "battlefield", id: "bf-1" } }).build();
+  const played = runInstruction(token, {
+    token: { kind: "constant", value: "bomb" },
+    mode: { kind: "constant", value: "play" },
+    location: { kind: "constant", value: { type: "battlefield", id: "bf-1" } },
+    linkKey: { kind: "constant", value: "bombTokens" }
+  }, { world: kernel });
+  assert.equal(played.result.status, "negated");
+  assert.equal(played.result.reason, "impossible");
+  assert.equal(played.linked.bombTokens.blockedReason, "token-definition-or-abilities-judge-required");
+
+  // 355.10.b: the battlefield choice is expressible, but its candidate query
+  // derives locations from current objects only; an empty battlefield appears
+  // only when the caller supplies it as external LocationState.
+  assert.deepEqual(queryLocationCandidates(kernel, { type: "battlefield" }), [{ type: "battlefield", id: "bf-1" }]);
+  assert.deepEqual(
+    queryLocationCandidates(kernel, { type: "battlefield" }, { locations: [{ ref: { type: "battlefield", id: "bf-empty" } }] }),
+    [{ type: "battlefield", id: "bf-empty" }, { type: "battlefield", id: "bf-1" }]
+  );
+});
+
 
 test("rad-142-167 Hexplosive Minefield: structure — Action keyword, any-number kill, delayed token play", () => {
   assert.equal(program.abilities.length, 2);
@@ -208,11 +273,13 @@ test("rad-142-167 Hexplosive Minefield: choosing zero Bomb tokens is legal and k
 
 test.todo(
   "rad-142-167 Hexplosive Minefield: 'At end of turn, play that many Bomb tokens' needs the card-facing " +
-    "delayed-ability binding (CR 390 / 391.2 / 393) that registers a turn-end trigger with the killed count; " +
-    "a card-owned triggered ability would be wrong under 393"
+    "delayed-ability binding (CR 390 / 391.2 / 393): a registered trigger.delayed op that registers a turn-end " +
+    "trigger with the killed count; a card-owned triggered ability would be wrong under 393"
 );
 test.todo(
   "rad-142-167 Hexplosive Minefield: playing NEW Bomb tokens to a single battlefield needs a " +
-    "complete battlefield candidate list at resolution (CR 355.10.b), the delayed captured count, and the " +
-    "Bomb gear token definition with its Deploy + Deathknell abilities (CR 187.12); the location expression is merged"
+    "complete battlefield candidate list at resolution (CR 355.10.b) — the LocationExpr path only derives " +
+    "locations from current objects and needs external LocationState for empty battlefields — plus a numeric " +
+    "killed count from effect.kill, and the Bomb gear token definition with its Deploy + Deathknell abilities " +
+    "(CR 187.12); the location expression itself is merged"
 );

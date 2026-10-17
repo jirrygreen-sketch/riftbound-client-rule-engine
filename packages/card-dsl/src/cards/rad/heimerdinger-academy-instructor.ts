@@ -20,15 +20,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "while I'm at a battlefield"：来源的位置（198.2/199.1 位置是永久物的特征）为战场，
  *   写成对来源的命名谓词（同 fiora-peerless 的 one-on-one 先例），由图层/触发上下文求值。
  *
- * 无法执行的依赖（保持 judge-required）：
- * - 当前替代绑定能够匹配 card-played 事件，但 replacement planner 没有把 effect.token
- *   规划成可提交的 GameAction 序列；因此不能完成“创建并打出 Mech token”的替代提交。
- * - "to that same location"：替代动作的目标位置 = 被替代的打出动作将前往的位置。IR 中
- *   没有"被替代事件的 location"选择器；下面的 location 是有意标出的占位常量
- *   （replaced-play-location），必须由替代系统在结算时绑定为被替代打出的目的地——
- *   用来源自身的位置会在这两者不同时给出错误结果，因此这里不用 object-property。
- * - replacement.event 已能声明 optional，但 instead 要求裸指令数组，与卡牌 Expr 包装不兼容。
- * - 来源战场位置与己方 unit token 门控仍是待绑定描述，不能把命名常量当成已求值谓词。
+ * 无法执行的依赖（保持 judge-required；2026-10-17 复核，均为实测）：
+ * - replacement/planner.ts 仍把 effect.token 判为 “Unsupported replacement opcode”，
+ *   所以计划不出“在链上创建 Mech token 再交付 play”的动作序列，替代无法提交（440.2.c）。
+ * - "to that same location"：替代动作的目的地是被替代 play 动作将前往的位置。
+ *   replacement/bind.ts 只向 IR 暴露被替代事件的对象绑定（REPLACED_EVENT_LINK），
+ *   GameEvent/GameAction 里 play 动作的 location 既没有链接键也没有链接选择器；下面的
+ *   location 是有意标出的占位常量（replaced-play-location），不能换成来源自身位置——
+ *   来源在战场 A 而打出动作前往战场 B 时，用来源位置会给出错误结果。
+ * - "you may ... instead" 的可选询问没有落地：EffectsIR 的 instruction.args 值必须是 Expr，
+ *   而 replacement.event 的 instead 只接受字面量数组（bindReplacement："must be an instruction body"），
+ *   裸指令数组无法写进 args（validateCardProgram 报 invalid-expression）。直接 `with` 形状
+ *   则完全不声明 optional（bindReplacement 得到的 registration 无 optional 字段）。
+ * - 来源战场位置与仅替代己方 unit token 的门控仍是待绑定描述：source-at-a-battlefield
+ *   只是描述性常量，没有任何已合入谓词求值它，不能当作已实现条件。
  */
 const abilities: Ability[] = [
   {
@@ -63,11 +68,12 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "369.1 的替代仍缺：(1) replacement/planner 未支持 effect.token，不能提交创建并打出 Mech 的动作序列；" +
-    "(2) 替代输入仅暴露 replacement.object，未向 IR 绑定被替代 play 动作的 destination；现有 LocationExpr " +
-    "可读对象当前位置，但不能用它替代待打出的目的地。" +
-    "(3) replacement.event 已有 optional 机制，但 instead 要求裸指令数组，与 Instruction.args 的 Expr 包装不兼容，" +
-    "本卡的直接 with 形状也未声明 you may。" +
+    "369.1 的替代仍缺（实测）：(1) replacement/planner.ts 对 effect.token 抛 Unsupported replacement opcode，" +
+    "不能计划「在链上创建 Mech token 再交付 play」的动作序列（440.2.c）；" +
+    "(2) 替代输入只暴露被替代对象（REPLACED_EVENT_LINK = replacement.object），没有 play action 的 destination 选择器，" +
+    "现有 LocationExpr 只读对象当前位置，不能用它替代待打出的目的地；" +
+    "(3) replacement.event 的 optional 与 args 的 Expr 契约不兼容：bindReplacement 只接受字面量数组 args.instead，" +
+    "裸指令数组写进 instruction.args 会被 validateCardProgram 判 invalid-expression；直接 with 形状不声明 optional。" +
     "来源须位于战场、仅替代己方 unit token 的门控尚未落地；source-at-a-battlefield 只是描述性常量。",
   abilities,
   sourceText:
