@@ -5,6 +5,12 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/sfd/sivir-ambitious.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
+import { buildCostPlan, payCostPlan, DUEL_DOMAINS } from "../../../../engine-core/dist/cost/index.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-4a74e3934f4bc0ee5d6d8c70c0b3f9df97cdfcc7c158bf1473bb64daa8aade48";
 const SOURCE_TEXT =
@@ -26,22 +32,21 @@ test("sfd-120-221 Sivir, Ambitious: program validates and keeps its identity", (
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("sfd-120-221 Sivir, Ambitious: judgeReason names the excess-damage, conquer-emission and tax gaps", () => {
+test("sfd-120-221 Sivir, Ambitious: judgeReason names the excess-damage, conquer-host payload and tax gaps", () => {
   assert.match(program.judgeReason, /467\.2\.c\.4/);
   assert.match(program.judgeReason, /HistoryQuery/);
-  assert.match(program.judgeReason, /payloadFields/);
   assert.match(program.judgeReason, /conquer/);
   assert.match(program.judgeReason, /383\.4\.c\.2\.a/);
   assert.match(program.judgeReason, /target\.tax/);
-  // RIFT-90 (target.tax wiring) has merged, so the refreshed reason no longer
-  // cites it; the remaining gaps are the EventPattern conquer spelling, the
-  // excess-damage statistic and Universal Power.
-  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
-  assert.match(program.judgeReason, /Universal Power/);
+  assert.match(program.judgeReason, /conquered/);
+  assert.match(program.judgeReason, /objectId/);
+  assert.match(program.judgeReason, /征服宿主/);
+  assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
+  assert.match(program.judgeReason, /809\.1\.c\/809\.1\.c\.1/);
 });
 
 test("sfd-120-221 Sivir, Ambitious: [Deflect 2] is declared with its printed value, not expanded", () => {
-  // 809.1.b.2: Deflect 2 makes opponents pay :rb_rune_rainbow::rb_rune_rainbow:
+  // 809.1.c/809.1.c.1: Deflect 2 costs two Power of any Domain
   // to choose this unit; 809.2 makes multiple instances sum.
   assert.deepEqual(keyword, { kind: "keyword", keyword: "deflect", value: 2 });
   assert.equal(deflect.keyword, "Deflect");
@@ -56,7 +61,7 @@ test("sfd-120-221 Sivir, Ambitious: 'when I conquer after an attack' carries the
   // 383.4.c / 383.4.c.2.a: a Conquer Effect on the conquer timing point, put on
   // the Chain after the Conquer action when this unit took part in it.
   assert.equal(conquerTrigger.trigger.at, "conquer");
-  assert.deepEqual(conquerTrigger.trigger.filter, { event: "conquer", filter: { source: "self" } });
+  assert.deepEqual(conquerTrigger.trigger.filter, { event: "conquered", filter: { source: "self" } });
 
   // 383.2.a.1: the "if you assigned …" clause immediately follows the trigger
   // condition, so it belongs to the TriggerSpec and is checked before the Chain;
@@ -131,16 +136,65 @@ test.todo(
     "conquer payload declares no fields; the conquer timing point itself is emitted by turn/flow.ts"
 );
 
-test.todo(
-  "sfd-120-221 Sivir, Ambitious: the conquer trigger cannot register yet — the EventPattern " +
-    "vocabulary has no bare conquer (only conquered, which pipeline-match maps back) and the nested " +
-    "filter: { source: self } spelling is an unknown-field rejection (383.4.c.2.a)"
-);
+test("sfd-120-221 Sivir, Ambitious: the conquer alias and nested self anchor register in the real event pipeline", () => {
+  // Test the binding surface only. The shipped program remains judge-gated;
+  // its excess-damage read and the actual conquer host payload are unresolved.
+  const { judgeReason, ...definition } = program;
+  const binding = createProgramBinding({ cardPrograms: [{ ...definition, status: "executable" }] });
+  const { engine, kernel } = fixture({ cards: [{ id: "sivir", cardId: CANONICAL, types: ["unit"], might: 7 }] });
+  engine.commit({ type: "move-zone", object: kernel.ref("sivir"), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
+  const source = kernel.getObject("sivir");
+  const ids = binding.registerProgramTriggers(engine, source);
+  assert.equal(ids.length, 1);
+  const registration = engine.pipeline.checkpoint().triggers.get(ids[0]);
+  assert.equal(registration.spec.at, "conquer");
+  assert.deepEqual(registration.spec.filter, { event: "conquered", object: { objectId: "sivir" } });
+  assert.deepEqual(registration.spec.condition, conquerTrigger.trigger.condition);
+  assert.equal(validateTriggerSpec(registration.spec).ok, true);
+  assert.deepEqual(registration.body, conquerTrigger.body);
+
+  // The spelling fix does not supply the producer's missing host snapshot.
+  // This is the payload shape emitted by turn/flow.ts, not a fabricated attack.
+  const scoringPayload = { timingPoint: "conquer", player: "A", details: { battlefieldId: "battlefield-1" } };
+  assert.equal(matchesTriggerEvent(registration.spec.filter, scoringPayload, "A"), false);
+  assert.equal(engine.items.length, 0);
+});
+
+test("sfd-120-221 Sivir, Ambitious: the two-Power any-domain requirement accepts mixed domains", () => {
+  const kernel = world().player("A", { energy: 0, power: ["Calm", "Chaos"] }).unit("sivir", { cardId: CANONICAL }).build();
+  const plan = buildCostPlan(kernel, {
+    id: "deflect-any-domain-requirement",
+    cost: { payments: [{ kind: "power", amount: { kind: "constant", value: keyword.value }, allowedDomains: DUEL_DOMAINS }] }
+  });
+  assert.deepEqual(plan.total.power, [{ amount: 2, allowedDomains: DUEL_DOMAINS }]);
+  assert.equal(plan.total.energy, 0);
+  const receipt = payCostPlan(kernel, plan);
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.power.power, [
+    { requirementIndex: 0, from: "Calm", amount: 1 },
+    { requirementIndex: 0, from: "Chaos", amount: 1 }
+  ]);
+  assert.deepEqual(receipt.actions.map(entry => entry.action), [{
+    type: "pay", player: "A", plan: { finalized: true, energy: 0, power: ["Calm", "Chaos"] }
+  }]);
+  assert.deepEqual(kernel.events.map(event => event.action), ["pay"]);
+});
+
+test("sfd-120-221 Sivir, Ambitious: energy cannot substitute for the two-Power requirement", () => {
+  const kernel = world().player("A", { energy: 10, power: ["Body"] }).unit("sivir", { cardId: CANONICAL }).build();
+  const plan = buildCostPlan(kernel, {
+    id: "deflect-insufficient-power",
+    cost: { payments: [{ kind: "power", amount: { kind: "constant", value: keyword.value }, allowedDomains: DUEL_DOMAINS }] }
+  });
+  assert.throws(() => payCostPlan(kernel, plan), error => error.reason === "cannot-pay-cost");
+  assert.equal(kernel.player("A").energy, 10);
+  assert.deepEqual(kernel.events, []);
+});
 
 test.todo(
   "sfd-120-221 Sivir, Ambitious: [Deflect 2]'s expansion (effects/keywords/Deflect.ts target.tax) is consumed by " +
     "the target pipeline so opponents must pay :rb_rune_rainbow::rb_rune_rainbow: to choose Sivir " +
-    "(809.1.b.2) — the taxAdapter wiring has merged; the tax is still an energy proxy, and Universal Power [A] is a contract change request"
+    "(809.1.c/809.1.c.1) — the chain must append the existing any-domain Power payment; it currently appends an Energy cost"
 );
 
 test.todo(

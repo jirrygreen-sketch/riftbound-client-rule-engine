@@ -9,8 +9,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "When I conquer after an attack, if you assigned 5 or more excess damage to enemy units, you may deal that much to an enemy unit."
  *
  * 规则依据（CR v1.5）：
- * - [Deflect 2]（809）：Passive Ability 关键词，809.1.b 规定带数值，809.1.b.2 的
- *   reminder 说明对手必须以 [A][A] 支付才能用法术或能力选择我；809.2 规定多份 Deflect
+ * - [Deflect 2]（809）：Passive Ability 关键词，809.1.b 规定带数值，809.1.c/809.1.c.1
+ *   规定对手必须以任意域的 2 Power 支付才能用法术或能力选择我；809.2 规定多份 Deflect
  *   相加（stacking "sum"）。卡内只声明
  *   { kind: "keyword", keyword: "deflect", value: 2 }（契约 3.7/README 第 5 节），
  *   展开（target.tax 静态效果）由 effects/keywords/Deflect.ts 负责。
@@ -32,16 +32,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "scoring" 且未声明 payloadFields，也不携带战斗分配结果（同 ogn/tryndamere-barbarian
  *   与 unl/piltover-enforcer 记录的缺口）。
  * - conquer 时点有发射方（turn/flow.ts 在 scoring 时按 score.method 发射 conquer
- *   时点事件，载荷只有 player + details.battlefieldId），但 events/trigger-spec.ts 的
- *   EVENT_PATTERN_TYPES 词表只有 "conquered"（pipeline-match.ts 把 conquered 映射
- *   回 conquer），没有裸 "conquer"——本卡的 filter: { event: "conquer" } 会被
- *   assertTriggerSpec 拒绝注册；且 filter 内嵌的 filter: { source: "self" } 是
- *   EventPattern 不允许的 unknown-field 拼写（应改用顶层 source 锚点）。
+ *   时点事件，载荷只有 player + details.battlefieldId）。过滤器用已有 conquered 别名，
+ *   programs/filters.ts 会将内层 source: "self" 转为宿主 objectId，注册与校验已通过；
+ *   但发射方尚未携带征服单位身份或参与该次攻击的信息，无法匹配「I conquer after an attack」。
  * - [Deflect 2] 的展开与 target.tax 消费方都已合入（chain/engine.ts 的 taxAdapter
- *   + mandatoryAdditional 接线），但税额仍是 energy 代理而非 Universal Power [A]——
- *   809.1.b.2 的对手付费仍不可执行（契约缺口）。
- * 依赖：conquer 时点词表（EVENT_PATTERN_TYPES 补 conquer/conquered 裸名或改写 filter）+
- *   excess damage 统计 + Universal Power 契约变更请求。
+ *   + mandatoryAdditional 接线），但税额仍接成 energy，尚未接为任意域 Power（809.1.c/809.1.c.1）。
+ *   现有 power + 六域 allowedDomains 可表达 [A] 费用，不需要增加 Domain。
+ * 依赖：excess damage 统计、征服宿主与攻击参与信息载荷、Deflect 的 Power 税额接线。
  * 不近似实现（不把条件写成常量、不把 "that much" 写成固定数额、不手改伤害或点数）。
  */
 const abilities: Ability[] = [
@@ -50,7 +47,7 @@ const abilities: Ability[] = [
     kind: "triggered",
     trigger: {
       at: "conquer",
-      filter: { event: "conquer", filter: { source: "self" } },
+      filter: { event: "conquered", filter: { source: "self" } },
       // 383.2.a.1：紧跟触发条件的 "if" 从句属于触发条件，进链前判定；
       // 467.2.c.4 的 excess damage 统计在合并内核里没有可求值路径（见 judgeReason）。
       condition: {
@@ -133,17 +130,15 @@ const program = {
     "HistoryQuery（effects/contract.ts）只有 scope/action/timingPoint/player/object 且返回事件次数 count，不是伤害量；" +
     "conquer 时点是 payloadType \"scoring\" 且未声明 payloadFields，也不携带战斗分配结果（与 ogn/tryndamere-barbarian、" +
     "unl/piltover-enforcer 记录的同一缺口）。conquer 时点有发射方（turn/flow.ts 在 scoring 时按 score.method " +
-    "发射 conquer 时点事件，载荷只有 player + details.battlefieldId），但 events/trigger-spec.ts 的 " +
-    "EVENT_PATTERN_TYPES 词表只有 \"conquered\"（pipeline-match.ts 把 conquered 映射回 conquer），没有裸 " +
-    "\"conquer\"，且本卡 filter 内嵌的 filter: { source: \"self\" } 是 EventPattern 不允许的 unknown-field " +
-    "拼写（应改用顶层 source 锚点），assertTriggerSpec 会拒绝注册，触发无法按 383.4.c.2.a 进入链。" +
+    "发射 conquer 时点事件，载荷只有 player + details.battlefieldId）；本卡已改用 conquered 过滤别名，" +
+    "绑定层将内嵌 source: \"self\" 转为 objectId，能够通过校验和真实事件管线注册。" +
+    "仍缺征服宿主及参与该次攻击的信息载荷，无法按 383.4.c.2.a 判断「I conquer after an attack」。" +
     "[Deflect 2]（809）的展开 effects/keywords/Deflect.ts 已合入（target.tax 静态效果），" +
-    "其消费方也已合入（chain/engine.ts 的 taxAdapter + mandatoryAdditional 接线），但税额仍是 energy 代理而非 809.1.b.2 要求的" +
-    " Universal Power [A]——对手付费仍不可执行（契约缺口）。" +
+    "其消费方也已合入（chain/engine.ts 的 taxAdapter + mandatoryAdditional 接线），但税额仍接成 energy，" +
+    "未接为 809.1.c/809.1.c.1 的任意域 Power。CR 135.2.e.5.a 的 [A] 费用已可由 power payment 配合六域 allowedDomains 表达。" +
     "正文里 excess damage 的读取位置（condition.value 读 source.excessDamageAssignedThisCombat）是待接线声明：" +
     "未接线时该指令求值抛 MissingInformation 并被 ignored，不会把数额算错。" +
-    "依赖：conquer 时点词表（EVENT_PATTERN_TYPES 补 conquer/conquered 裸名或改写 filter）、" +
-    "excess damage 统计（CR 467.2.c.4）与 Universal Power 的契约变更请求。" +
+    "依赖：excess damage 统计（CR 467.2.c.4）、征服宿主与攻击参与信息载荷、Deflect 的 Power 税额接线。" +
     "不近似实现（条件不写成常量、\"that much\" 不写成固定数额、不手改伤害）。",
   abilities,
   sourceText:

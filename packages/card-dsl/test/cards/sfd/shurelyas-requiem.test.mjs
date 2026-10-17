@@ -3,8 +3,8 @@
 // Two merge-verified halves run for real: the card-played trigger body
 // (effect.ready with the `{ kind: "query" }` set shape: ready your units, leave
 // the opponent's) and the Equip expansion's attach body, both through the
-// production interpreter adapter. Unique, the `equip` payment kind and the
-// card-program → TriggerRegistration adapter are the judged gaps.
+// production interpreter adapter. Unique and the Equip printed-cost adapter
+// remain judged gaps; [A] payment and trigger registration are supported.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -19,6 +19,8 @@ import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { buildCostPlan, payCostPlan, DUEL_DOMAINS } from "../../../../engine-core/dist/cost/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID =
   "card.hash-d0752a11e22119fd9d027e757d45f90d57f3fb9dd7fb884daa19a97b0566dad3";
@@ -32,7 +34,8 @@ const [unique, equip, playTrigger] = program.abilities;
 const [readyUnits] = playTrigger.body;
 const activation = keywordDefinitionsById.get("Equip").expand({ host: HOST })[0];
 
-const requiemWorld = () => world()
+const requiemWorld = (resources = {}) => world()
+  .player("A", resources)
   .object("shurelyas-requiem", {
     name: "Shurelya's Requiem",
     cardId: CARD_ID,
@@ -134,8 +137,9 @@ test("sfd-192-221 Shurelya's Requiem: identity, ruleset, status, judgeReason and
 
   assert.match(program.judgeReason, /Unique/);
   assert.match(program.judgeReason, /continuous\.deck/);
-  assert.match(program.judgeReason, /163\.2\.b/);
+  assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
   assert.match(program.judgeReason, /Equip 支付种类/);
+  assert.match(program.judgeReason, /params\.cost/);
   assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /TriggerRegistration/);
 });
@@ -238,9 +242,31 @@ test.todo(
 
 test.todo(
   "sfd-192-221 Shurelya's Requiem: paying the printed Equip cost (one [A] Power, CR 135.2.e.5 / 818.1.c.2) is " +
-    "blocked on the `equip` payment kind in cost/plan-values.ts and on a contract representation for Universal Power " +
-    "(CR 163.2.b)"
+    "blocked on the Equip printed-cost parameter flow and conversion of its equip placeholder into the existing " +
+    "power payment with all six allowedDomains (CR 135.2.e.5.a)"
 );
+
+test("sfd-192-221 Shurelya's Requiem: each Domain can pay the printed one-Power Equip requirement", () => {
+  // Exercise the cost representation independently of the still-blocked Equip
+  // expansion. A requirement accepting any Domain needs no new resource type.
+  for (const domain of DUEL_DOMAINS) {
+    const kernel = requiemWorld({ energy: 0, power: [domain] });
+    const context = bindResolveContext(kernel, { source: kernel.getObject("shurelyas-requiem") });
+    const plan = buildCostPlan(context, {
+      id: `requiem-equip-requirement:${domain}`,
+      cost: { payments: [{ kind: "power", amount: { kind: "constant", value: equip.value }, allowedDomains: DUEL_DOMAINS }] }
+    });
+    assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: DUEL_DOMAINS }]);
+    assert.equal(plan.total.energy, 0);
+    const receipt = payCostPlan(context, plan);
+    assert.equal(receipt.paid, true);
+    assert.deepEqual(receipt.power.power, [{ requirementIndex: 0, from: domain, amount: 1 }]);
+    assert.deepEqual(receipt.actions.map(entry => entry.action), [{
+      type: "pay", player: "A", plan: { finalized: true, energy: 0, power: [domain] }
+    }]);
+    assert.deepEqual(kernel.events.map(event => event.action), ["pay"]);
+  }
+});
 
 test("sfd-192-221 golden: the merged binding layer expands and registers the card-played play effect", () => {
   // Any merged trigger registration must go through expandProgram, which
@@ -271,12 +297,13 @@ test("sfd-192-221 golden: the merged binding layer expands and registers the car
 
   const withoutUnique = { ...lifted, abilities: lifted.abilities.filter((ability) => ability.keyword !== "unique") };
   const binding = createProgramBinding({ cardPrograms: [withoutUnique] });
-  const registrations = [];
-  const equipOnlySnapshot = { ...hostSnapshot(), keywords: [{ id: "Equip", value: 1 }] };
-  const ids = binding.registerProgramTriggers(
-    { pipeline: { registerTrigger: (registration) => registrations.push(registration), unregisterTrigger: () => {} } },
-    equipOnlySnapshot
-  );
+  const { engine, kernel } = fixture({ cards: [{
+    id: "shurelyas-requiem", cardId: CARD_ID, types: ["gear"], might: 2, keywords: [{ id: "Equip", value: 1 }]
+  }] });
+  engine.commit({ type: "move-zone", object: kernel.ref("shurelyas-requiem"), to: "base", location: { type: "base", player: "A" } });
+  const equipOnlySnapshot = kernel.getObject("shurelyas-requiem");
+  const ids = binding.registerProgramTriggers(engine, equipOnlySnapshot);
+  const registrations = ids.map(id => engine.pipeline.checkpoint().triggers.get(id));
   assert.equal(ids.length, 1);
   assert.equal(registrations[0].spec.at, "card-played");
   assert.deepEqual(registrations[0].spec.filter, {

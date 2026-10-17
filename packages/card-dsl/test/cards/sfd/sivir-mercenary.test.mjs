@@ -7,6 +7,8 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import continuousMight from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-bd07122c30b6cd8a4c4c84c4bcce0070fad8ea471344189ee61fb766cb54e888";
 const SOURCE_TEXT =
@@ -26,15 +28,17 @@ test("sfd-143-221 Sivir, Mercenary: identity, ruleset, status, judgeReason and v
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /163\.2\.b/);
+  assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
   assert.match(program.judgeReason, /continuous\.might/);
   // The Might/grant execution sides merged with RIFT-258; the refreshed reason
   // cites the static-to-layer registration consumer (RIFT-257), the missing
-  // spent/cost-receipt read and the layer compare-condition gap.
+  // spent/cost-receipt read and the Ganking movement permission gap.
   assert.match(program.judgeReason, /RIFT-258/);
   assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /spent/);
-  assert.match(program.judgeReason, /conditionMatches/);
+  assert.match(program.judgeReason, /evaluateCondition/);
+  assert.match(program.judgeReason, /powerSpentThisTurn/);
+  assert.match(program.judgeReason, /permission\.routes/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -56,12 +60,13 @@ test("sfd-143-221 Sivir, Mercenary: the +2 Might half is a conditioned arithmeti
   assert.deepEqual(mightStatic.effect.amount, { kind: "constant", value: 2 });
 
   // "If you've spent at least [A][A] this turn" — the recorded condition shape;
-  // no merged Expr reads spent Universal Power (see judgeReason).
+  // the turn's Power-spent amount has no read interface (see judgeReason).
   assert.equal(mightStatic.condition.kind, "compare");
   assert.equal(mightStatic.condition.operator, "gte");
   assert.deepEqual(mightStatic.condition.right, { kind: "constant", value: 2 });
-  assert.equal(mightStatic.condition.left.kind, "count");
-  assert.equal(mightStatic.condition.left.subject, "universal-power-spent-this-turn");
+  assert.deepEqual(mightStatic.condition.left, {
+    kind: "object-property", object: "source", property: "powerSpentThisTurn"
+  });
 });
 
 test("sfd-143-221 Sivir, Mercenary: the Ganking half is declared as a conditional keyword grant", () => {
@@ -74,7 +79,7 @@ test("sfd-143-221 Sivir, Mercenary: the Ganking half is declared as a conditiona
   assert.deepEqual(gankingStatic.effect.keyword, { id: "Ganking" });
   assert.equal(gankingStatic.effect.duration, "this-turn");
   assert.equal(gankingStatic.condition.kind, "compare");
-  assert.equal(gankingStatic.condition.left.subject, "universal-power-spent-this-turn");
+  assert.deepEqual(gankingStatic.condition.left, mightStatic.condition.left);
   assert.deepEqual(gankingStatic.condition.right, { kind: "constant", value: 2 });
 });
 
@@ -137,55 +142,58 @@ test("sfd-143-221 Sivir, Mercenary: the merged continuous.might primitive regist
   assert.equal(kernel.getObject("sivir").buffs, 0);
 });
 
-test("sfd-143-221 Sivir, Mercenary: the layer condition evaluator treats the declared spend gate as true until a compare evaluator exists", () => {
-  // Durable evidence for the judgeReason: the card's gate is a compare over
-  // "Universal Power spent this turn". layers/engine.ts's conditionMatches only
-  // resolves always/never/type/has-tag/has-keyword and returns true for unknown
-  // kinds, so registering the declared static ability unchanged would grant +2
-  // Might unconditionally. This golden pins that behavior so the card must stay
-  // judge-required until the condition evaluator and the spent read land.
-  const kernel = world().unit("sivir", { might: 4, location: { type: "battlefield", id: "bf-1" } }).build();
-  const snapshot = kernel.getObject("sivir");
-  const engine = createLayerEngine([snapshot], [
-    {
-      effect: {
-        id: "sivir-mercenary.might.gated",
-        layer: "arithmetic",
-        source: snapshot.ref,
-        filter: { objectId: "sivir" },
-        effect: {
-          kind: "continuous.might",
-          mode: "add",
-          amount: { kind: "constant", value: 2 },
-          condition: mightStatic.condition
-        }
-      },
-      duration: { type: "permanent" },
-      timestamp: 1,
-      sequence: 1
+test("sfd-143-221 Sivir, Mercenary: production static binding keeps the unresolved spend gate closed on a populated Board", () => {
+  const { engine, kernel } = fixture({ cards: [
+    { id: "sivir", cardId: CARD_ID, types: ["unit"], might: 4 },
+    { id: "ally", types: ["unit"], might: 3 }
+  ] });
+  for (const id of ["sivir", "ally"]) {
+    engine.commit({ type: "move-zone", object: kernel.ref(id), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
+  }
+  // Exercise the production adapter with the original static declarations.
+  // Extra objects must never stand in for Power-spent amounts.
+  const binder = createEngineStaticBinder(engine);
+  binder.bindStatic(mightStatic, kernel.getObject("sivir"));
+  binder.bindStatic(gankingStatic, kernel.getObject("sivir"));
+  const snapshot = engine.layers.snapshot(kernel.ref("sivir"));
+  assert.equal(snapshot.might, 4);
+  assert.equal(snapshot.keywords.some(keyword => keyword.id.toLowerCase() === "ganking"), false);
+  assert.equal(snapshot.buffs, 0);
+  assert.equal(kernel.events.some(event => event.action === "pay"), false);
+});
+
+test("sfd-143-221 Sivir, Mercenary: the production binder re-evaluates a supported compare against live source state", () => {
+  const { engine, kernel } = fixture({ cards: [{ id: "sivir", cardId: CARD_ID, types: ["unit"], might: 4 }] });
+  engine.commit({ type: "move-zone", object: kernel.ref("sivir"), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
+  // A consumer control for compare support, using the card's Might effect and
+  // an existing characteristic. This does not implement the printed spend gate.
+  createEngineStaticBinder(engine).bindStatic({
+    ...mightStatic,
+    condition: {
+      kind: "compare",
+      left: { kind: "object-property", object: "self", property: "exhausted" },
+      operator: "eq",
+      right: { kind: "constant", value: true }
     }
-  ]);
-  assert.equal(engine.evaluate(snapshot.ref).might, 6);
-  // The declared gate still names the unmodelled spend read, so nothing may
-  // treat it as evaluated. The comparison operators themselves are the merged
-  // interpreter's job, not the layer's.
-  assert.equal(mightStatic.condition.left.subject, "universal-power-spent-this-turn");
-  assert.equal(typeof mightStatic.condition.left.kind, "string");
+  }, kernel.getObject("sivir"));
+  assert.equal(engine.layers.snapshot(kernel.ref("sivir")).might, 4);
+  engine.commit({ type: "exhaust", object: kernel.ref("sivir") });
+  assert.equal(engine.layers.snapshot(kernel.ref("sivir")).might, 6);
+  engine.commit({ type: "ready", object: kernel.ref("sivir") });
+  assert.equal(engine.layers.snapshot(kernel.ref("sivir")).might, 4);
+  assert.equal(kernel.getObject("sivir").buffs, 0);
 });
 
 test.todo(
   "sfd-143-221 Sivir, Mercenary: evaluate \"you've spent at least [A][A] this turn\" — no merged Expr reads " +
-    "spent resources (count counts objects, not amounts; ResolveContext exposes no spend receipt), [A] is " +
-    "163.2.b Universal Power, which the closed Domain type cannot express (contract change request), and " +
-    "registering the compare through the layer path must stay blocked because the wrapped count filter would " +
-    "open the gate unconditionally (probe: might 6 with an empty spend record)"
+    "spent amounts this turn (ResolveContext exposes no spend receipt); source.powerSpentThisTurn is " +
+    "an unresolved read position, and a missing read closes the bound condition (RIFT-359)"
 );
 
-test.todo(
-  "sfd-143-221 Sivir, Mercenary: the static-to-layer registration consumer has merged (bindStaticToLayers + " +
-    "attachProgramLifecycle); the remaining gap is the spent-read Expr and the Universal Power representation " +
-    "for the condition the wrapped registration evaluates"
-);
+test("sfd-143-221 Sivir, Mercenary: the shipped program remains judge-gated before lifecycle binding", () => {
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  assert.throws(() => binding.registry.get(CARD_ID), error => error.code === "judge-required" && /spent/.test(error.message));
+});
 
 test.todo(
   "sfd-143-221 Sivir, Mercenary: grant [Ganking] for the turn through a continuous.grant-keyword consumer that the " +
@@ -196,7 +204,6 @@ test.todo(
 
 test.todo(
   "sfd-143-221 Sivir, Mercenary: paying the optional Accelerate cost [1][Chaos] and the enter-ready replacement " +
-    "run through the card-level play binding — the Finalize optionalAdditional cost plan and the Accelerate " +
-    "keyword expansion have merged (engine cost-plan tests cover them), so what remains is the card-level " +
-    "Finalize flow"
+    "run through the whole card once its spent-read condition is implemented — the Finalize optionalAdditional " +
+    "cost plan and Accelerate keyword expansion have merged; the shipped program stays judge-gated"
 );
