@@ -26,7 +26,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   fields (target/target-plan.ts); it does not expose a chain item's
  *   finalized target plans to a card filter, and no ObjectSnapshot
  *   characteristic records them. The filter key "choosesFriendly" below is
- *   therefore descriptive and is not evaluated by merged code.
+ *   therefore descriptive: layers/filter.ts silently ignores unknown keys, and
+ *   programs/filters.ts translateObjectFilter rejects it outright
+ *   (ProgramBindingError: Unsupported filter field choosesFriendly), so the
+ *   production trigger/target translation cannot even bind this TargetSpec.
  *
  * Status: judge-required. The counter instruction itself is merged and is
  * executed by the golden test with a Finalize-locked Chain target, but the
@@ -44,7 +47,9 @@ const notSoFast = {
     "目标限制「that chooses a friendly unit or gear」无法求值：355.9.a.2 把 spell/ability 指向链上项，" +
     "但判断该链项是否选择（754 的成为目标记录）了你控制的单位或装备，需要读取该链项的 Finalize 目标计划；" +
     "契约 3.6/3.8 的目标接口不向卡牌暴露链项已选目标，target-plan 只校验当前对象的 filter 字段，" +
-    "因此 filter 里的 choosesFriendly 是描述性键、不参与匹配。" +
+    "因此 filter 里的 choosesFriendly 是描述性键：layers/filter.ts 对未知键静默忽略，" +
+    "programs/filters.ts 的 translateObjectFilter 直接拒绝（ProgramBindingError: Unsupported filter field " +
+    "choosesFriendly），生产翻译阶段无法绑定该 TargetSpec。" +
     "effect.counter（426.1-426.3）与 [Reaction]（813）本体已合入并有 golden 真实执行测试；不近似实现（不省略限制去反制任意链项）。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },

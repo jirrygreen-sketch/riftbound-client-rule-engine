@@ -27,6 +27,8 @@ test("sfd-014-221 Minotaur Reckoner: validates identity and the global prohibiti
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /单数 restriction/);
+  assert.match(program.judgeReason, /DuelMovementRuleContext/);
+  assert.match(program.judgeReason, /standard-move-executor-v2/);
   assert.equal(program.sourceText, "Units can't move to base.");
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "static");
@@ -74,6 +76,29 @@ test("sfd-014-221 Minotaur Reckoner: default static binding keeps the original r
   // normalized restrictions, so the shared engine must normalize the
   // original instruction before this card can become executable.
   assert.deepEqual(movement(layers.registry, targetObject.ref, targetObject, "A").restrictions, []);
+  handle.unbind();
+});
+
+test("sfd-014-221 Minotaur Reckoner: the production static binder is the only registration path, so the unnormalized field is what ships", () => {
+  // 054.1/144.4.b: the prohibition must reach movement(). createEngineStaticBinder
+  // is the production binder (programs/statics.ts); it registers the singular
+  // `restriction` field verbatim, which the rule query never reads. The snapshot
+  // does fold it, which is why the IR itself is not the defect — the normalization
+  // and the missing production rule context are.
+  const source = world()
+    .unit("minotaur", { cardId: ID, location: { type: "battlefield", id: "bf-1" } })
+    .unit("u1", { location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const sourceObject = source.getObject("minotaur");
+  const targetObject = source.getObject("u1");
+  const layers = createLayerEngine([sourceObject, targetObject]);
+  const handle = createEngineStaticBinder({ layers }).bindStatic(ability, sourceObject);
+
+  const [entry] = layers.registry.list();
+  assert.equal(entry.effect.effect.restriction, "move-to-base");
+  assert.equal(entry.effect.effect.restrictions, undefined);
+  assert.deepEqual(movement(layers.registry, targetObject.ref, targetObject, "A").restrictions, []);
+  assert.deepEqual(layers.evaluate(targetObject.ref).movement.restrictions, ["move-to-base"]);
   handle.unbind();
 });
 

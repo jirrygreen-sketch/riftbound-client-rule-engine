@@ -19,12 +19,15 @@ import type { CardProgram } from "../../ir/index.js";
  * 卡牌只声明关键词（契约 3.1/3.7、README 第 5 节）；展开（static target.tax）由
  * engine-core 的 effects/keywords/Deflect.ts 负责。
  *
- * status = judge-required：Deflect 展开与卡牌绑定均已合入，但 static 绑定对 target.tax
- * 没有图层映射（Static ability kind target.tax has no layer
- * mapping），仍缺两层消费方：(1) 没有生产方把永久物 static 的 target.tax 接入目标选择——
- * target/target-plan.ts 只在调用方显式传入 tax 时追加，链的 Finalize 未从图层读取；
- * (2) 该目标税按 809.1.c.1 应可用任意域 Power 支付，链的 Finalize 目前把税记成
- * Energy 常量（chain/engine.ts 的 target-tax mandatoryAdditional）。不近似实现。
+ * status = judge-required（复核 2026-10-17）：Deflect 展开（effects/keywords/Deflect.ts 的
+ * static target.tax）与 target/target-plan.ts 的 tax 追加（taxAdapter → 调用方的
+ * mandatoryAdditional）均已合入，但仍缺两层消费方：(1) 没有生产方把永久物 static 的
+ * target.tax 接入目标选择——programs/statics.ts 的 layerFor 对 target.tax 抛
+ * ProgramBindingError（Static ability kind target.tax has no layer mapping），
+ * 而 target/target-plan.ts 只在调用方显式传入 TargetFinalizeOptions.tax 时追加，
+ * 链的 Finalize 未从图层读取；(2) 该目标税按 809.1.c.1 应可用任意域 Power 支付，
+ * 链的 Finalize 目前把税记成 Energy 常量（chain/engine.ts 的 target-tax mandatoryAdditional）。
+ * 不近似实现（不省略限制、不把税写成 Energy）。
  */
 const navoriScout = {
   canonicalCardId:
@@ -33,8 +36,10 @@ const navoriScout = {
   status: "judge-required",
   judgeReason:
     "The Deflect expansion (effects/keywords/Deflect.ts: static target.tax) and the " +
-    "card binding are merged, but the static binder has no layer mapping for target.tax, " +
-    "so the tax still has no production consumer: " +
+    "target-plan tax append (target/target-plan.ts taxAdapter) are merged, but the static " +
+    "binder has no layer mapping for target.tax " +
+    "(programs/statics.ts layerFor throws ProgramBindingError: Static ability kind target.tax " +
+    "has no layer mapping), so the tax still has no production consumer: " +
     "target/target-plan.ts appends it only from an explicit TargetFinalizeOptions.tax, and the " +
     "chain Finalize never derives it from layers. The chain also books the target tax as an " +
     "Energy constant (chain/engine.ts mandatoryAdditional), while 809.1.c.1 requires any-Domain " +

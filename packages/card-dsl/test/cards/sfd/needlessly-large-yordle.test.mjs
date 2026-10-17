@@ -5,6 +5,10 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/needlessly-large-yordle.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import shield from "../../../../engine-core/dist/effects/keywords/Shield.js";
+import tank from "../../../../engine-core/dist/effects/keywords/Tank.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CARD_ID = "card.hash-fd21f689bd36e48ea3071e7d21c1fa68fd1527e85ca97ffd9052664f6aaba7de";
 const SOURCE_TEXT =
@@ -64,6 +68,60 @@ test("sfd-055-221 Needlessly Large Yordle: the merged Shield definition owns the
   assert.equal(might.condition.kind, "compare");
   assert.equal(might.condition.left.property, "designation");
   assert.deepEqual(might.condition.right, { kind: "constant", value: "defender" });
+});
+
+test("sfd-055-221 Needlessly Large Yordle: the expanded Shield 5 never applies because its condition is unevaluable", () => {
+  // 814.1.d/814.1.d.1: the +5 applies only while the host is a defender. The
+  // expanded condition reads the "designation" characteristic, which the merged
+  // ObjectSnapshot does not carry (only combatRole) and layers/engine.ts
+  // conditionMatches does not evaluate compare conditions, so the bonus stays off.
+  const kernel = world()
+    .unit("yordle", { cardId: CARD_ID, might: 5, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const source = kernel.getObject("yordle");
+  const layers = createLayerEngine([source]);
+  const [might] = shield.expand({ value: 5, host: { canonicalCardId: CARD_ID } });
+  const handle = createEngineStaticBinder({ layers }).bindStatic(might, source);
+  assert.equal(layers.evaluate(source.ref).might, 5);
+  assert.deepEqual(layers.registry.list().map((entry) => entry.effect.effect.kind), ["continuous.might"]);
+  handle.unbind();
+});
+
+test("sfd-055-221 Needlessly Large Yordle: the Tank expansion is registered but has no combat consumer", () => {
+  // 815.1.b/815.1.c.1/.c.2: Tank is a damage-assignment priority. The merged
+  // binder persists continuous.combat, but that kind has no layer branch and
+  // combat/base-combat-allocation.ts only accepts keywordPriority: "proven-none",
+  // so the printed assignment rule cannot be enforced.
+  const kernel = world()
+    .unit("yordle", { cardId: CARD_ID, might: 5, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const source = kernel.getObject("yordle");
+  const layers = createLayerEngine([source]);
+  const [combat] = tank.expand({ value: undefined, host: { canonicalCardId: CARD_ID } });
+  assert.equal(combat.effect.kind, "continuous.combat");
+  const handle = createEngineStaticBinder({ layers }).bindStatic(combat, source);
+  const [entry] = layers.registry.list();
+  assert.equal(entry.effect.effect.kind, "continuous.combat");
+  // The layer engine has no branch for it: no Might, no buff, no assignment rule.
+  assert.equal(layers.evaluate(source.ref).might, 5);
+  assert.equal(layers.evaluate(source.ref).buffs, 0);
+  handle.unbind();
+});
+
+test("sfd-055-221 Needlessly Large Yordle: the card-static discount never reaches a cost plan", () => {
+  // 356.1/356.4: the printed discount is a static continuous.cost-modification.
+  // The merged binder refuses that kind, so no CostPlanInput.discounts list can
+  // ever receive the -2 Energy / -1 Calm Power reduction.
+  const kernel = world()
+    .unit("yordle", { cardId: CARD_ID, might: 5, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const source = kernel.getObject("yordle");
+  const layers = createLayerEngine([source]);
+  assert.throws(
+    () => createEngineStaticBinder({ layers }).bindStatic(discount, source),
+    /Static ability kind continuous\.cost-modification has no layer mapping/
+  );
+  assert.deepEqual(layers.registry.list(), []);
 });
 
 test.todo(
