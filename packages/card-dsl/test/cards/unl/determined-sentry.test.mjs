@@ -53,10 +53,11 @@ test("unl-111-219 Determined Sentry: identity, status, judgeReason and verbatim 
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   // 054 / 054.1 (“Can’t beats Can”) is the operative rule; the reason must also
-  // name the missing consumer.
+  // name the singular/plural field mismatch and the remaining effect.move gap.
   assert.match(program.judgeReason, /054/);
   assert.match(program.judgeReason, /144\.4\.b/);
   assert.match(program.judgeReason, /MovementPermissions|zones\/movement/);
+  assert.match(program.judgeReason, /restriction/);
 });
 
 test("unl-111-219 Determined Sentry: one passive movement restriction on the host", () => {
@@ -115,19 +116,20 @@ test("unl-111-219 Determined Sentry golden: the production static binder registe
   assert.equal(entry.effect.effect.restriction, "move-to-base");
   assert.equal(entry.effect.filter.objectId, "determined-sentry");
   assert.equal(entry.effect.filter.zoneEntryId, source.ref.zoneEntryId);
+  // Standard Move has a MovementPermissions consumer, but the card's singular
+  // `restriction` field is not the plural `restrictions` field that query reads.
+  const queried = movement(f.engine.layers.registry, source.ref, source, source.controller);
+  assert.deepEqual(queried.restrictions, []);
+  assert.equal(queried.canMove, true);
   handle.unbind();
   assert.equal(f.engine.layers.registry.list().length, 0);
 });
 
-test("unl-111-219 Determined Sentry golden: RIFT-259's movement query serves the continuous.movement spec to a caller", () => {
-  // RIFT-329 re-review: the rules-query layer is merged and really reports a
-  // recorded restriction together with the object it applies to. The spec below
-  // is the shape continuous.movement (the merged primitive) writes:
-  // { kind: "movement", restrictions: [...] }. It has no production caller yet
-  // (zones/movement.ts and move-location validate from their own inputs), and
-  // the raw card declaration's singular "restriction" field is the primitive's
-  // arg spelling, not the spec field the query reads — both gaps are recorded
-  // in the judgeReason.
+test("unl-111-219 Determined Sentry golden: the movement query consumes its plural restrictions shape", () => {
+  // The query is a real Standard Move input path and consumes the normalized
+  // { kind: "movement", restrictions: [...] } shape. The production card
+  // binding above still emits singular `restriction`, so it does not reach this
+  // query until that field mismatch is resolved.
   const subject = unit();
   const registry = new ContinuousEffectRegistry();
   registry.register(

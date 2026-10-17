@@ -3,6 +3,9 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/dancing-grenade.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { prepareCostPayment } from "../../../../engine-core/dist/cost/payment.js";
+import { DUEL_DOMAINS } from "../../../../engine-core/dist/cost/resources.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -108,5 +111,22 @@ test("unl-020-219 Dancing Grenade golden: a stale target is ignored instead of r
 
 test.todo("unl-020-219 Dancing Grenade: 'Its controller may play this spell again for :rb_rune_rainbow:' still needs a resolving-chain-item replay path with the official source and nested-order ruling (CR 158.3 / 420.3)");
 test.todo("unl-020-219 Dancing Grenade: 'for each time this spell has dealt damage this turn' still needs a per-card damage history count, because effect.damage links only one action's dealt/dealtTo/dealtCount");
-test.todo("unl-020-219 Dancing Grenade: :rb_rune_rainbow: is Universal Power (CR 135.2.e.5.a / 163.2.b) and the current closed Power vocabulary cannot finalize that replay cost");
+
+test("unl-020-219 Dancing Grenade golden: the merged cost plan accepts a domainless 1 Power replay cost", () => {
+  // CR 135.2.e.5.a / 163.2.b: domains: [] is the catalog spelling for
+  // Universal Power. The cost layer expands it to all six Domains; this proves
+  // cost expressivity while the resolving-chain replay lifecycle remains TODO.
+  const kernel = world()
+    .player("A", { energy: 0, power: ["Order"] })
+    .hand("replay-source", { types: ["spell"], energy: 0, power: ["Order"] })
+    .build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("replay-source"), controller: "A" });
+  const plan = buildCostPlan(ctx, {
+    id: "dancing-grenade.replay-cost",
+    cost: { kind: "printed" },
+    printed: { id: "dancing-grenade", cardType: "Spell", energy: 0, power: 1, domains: [] }
+  });
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: DUEL_DOMAINS }]);
+  assert.deepEqual(prepareCostPayment(ctx, plan).actions[0].action.plan.power, ["Order"]);
+});
 
