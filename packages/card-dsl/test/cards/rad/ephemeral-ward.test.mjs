@@ -10,7 +10,7 @@ import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js"
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-9ec6311582c4337e549c7a39070aeaf28ae3996142538fa2fb11c3b16cebcf5b";
-const SOURCE_TEXT = "Your units have +2 :rb_might:\nWhen you play a unit, kill this.";
+const SOURCE_TEXT = "Your units have +2 :rb_might:.\nWhen you play a unit, kill this.";
 
 const [staticAbility, triggered] = program.abilities;
 const [killInstruction] = triggered.body;
