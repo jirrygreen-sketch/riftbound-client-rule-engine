@@ -7,18 +7,16 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [attackAbility, defendAbility] = program.abilities;
 const [debuffInstruction] = attackAbility.body;
 const [targetSpec] = debuffInstruction.targets;
 const c = value => ({ kind: "constant", value });
 
-/**
- * "an enemy unit here" 的 filter 里，controller: "opponent" 与 sameLocationAs: "source"
- * 是选择管线占位符：生产管线在 Finalize 把 "opponent" 绑定成能力控制者的对手，
- * 解释器在执行时解析 sameLocationAs 锚点（359.3.f）。参考测试内核按值比较 controller，
- * 因此下面的执行用例像 assembly-rig / yone-blademaster 的 golden 一样，把占位符替换成
- * 具体对手 id 后跑同一原语与同一位置锚点，不复制结算逻辑。
+/** Bind only the relative opponent id for the reference kernel's scalar query.
+ * The interpreter still receives the card's original sameLocationAs anchor.
  */
 const withConcreteOpponent = (instruction, opponent) => ({
   ...instruction,
@@ -107,6 +105,32 @@ test("structure: -2 Might this turn with the printed minimum of 1, targeting an 
   }
 });
 
+test.todo(
+  "Ahri, Inquisitive: accept dynamic TargetSpec.location (location-of/source) in validateCardProgram before migrating here; the target-plan kernel supports it but shared validation still treats it as a LocationFilter (invalid-location-kind)."
+);
+
+test("Ahri, Inquisitive: here follows the live source after a real Move instead of its captured location (359.3.f.2)", () => {
+  const kernel = world()
+    .unit("ahri", { might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy-here", { might: 4, owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const sourced = kernel.clone({ sourceSnapshot: kernel.getObject("ahri") });
+  sourced.setTargets(targetSpec.id, [sourced.ref("enemy-here")]);
+  const moved = runInstruction(move, {
+    objects: c("source"),
+    to: c({ type: "battlefield", id: "bf-2" })
+  }, { world: sourced });
+  assert.equal(moved.result.status, "executed");
+  assert.equal(sourced.source.location.id, "bf-1");
+  assert.equal(sourced.getObject("ahri").location.id, "bf-2");
+
+  const outcome = runAbilityBody([withConcreteOpponent(debuffInstruction, "B")], sourced);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.deepEqual(outcome.events, []);
+  assert.deepEqual(sourced.continuousEffects, []);
+});
+
 test("golden: a locked enemy unit that is no longer 'here' is mistargeted and ignored", () => {
   // 359.3.f.2 / 359.3.f.2.a：执行时 referent 不合法 → 该指令被忽略。这里用一个已
   // 经不在来源同一地点的目标（Finalize 锁定的对象仍存在，但 filter 不再满足）。
@@ -178,10 +202,29 @@ test("golden: the printed minimum of 1 clamps the reduction (479.4.b)", () => {
   assert.equal(engine.evaluate(sourced.ref("enemy-weak")).might, 1);
 });
 
+test("Ahri, Inquisitive: the defense body applies its own -2 effect and expires at turn end", () => {
+  const kernel = world()
+    .unit("ahri", { might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy-here", { might: 5, owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" } })
+    .unit("friendly-here", { might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const sourced = kernel.clone({ sourceSnapshot: kernel.getObject("ahri") });
+  sourced.setTargets(targetSpec.id, [sourced.ref("enemy-here")]);
+  const outcome = runAbilityBody([withConcreteOpponent(defendAbility.body[0], "B")], sourced);
+
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].id, "ahri.debuff-defense");
+  const engine = createLayerEngine(
+    sourced.objects,
+    sourced.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 }))
+  );
+  assert.equal(engine.evaluate(sourced.ref("enemy-here")).might, 3);
+  assert.equal(engine.evaluate(sourced.ref("friendly-here")).might, 4);
+  assert.equal(engine.evaluate(sourced.ref("ahri")).might, 3);
+  assert.equal(engine.expireAt("turn-end").length, 1);
+  assert.equal(engine.evaluate(sourced.ref("enemy-here")).might, 5);
+});
+
 test.todo(
-  "Ahri, Inquisitive: the attack-declared / defense-declared timing points and the ability's " +
-    "self-scoped trigger registration (383.4.e.1 / 383.4.f.1) still have no merged path: " +
-    "combat/flow.ts blocks the declaration transaction (CR 466.2); the binding spelling itself " +
-    "is merged (RIFT-257 translateTriggerFilter) and instruction-target sameLocationAs anchors " +
-    "still lack a translate-path binding."
+  "Ahri, Inquisitive: emit attack-declared/defense-declared from the atomic combat-start/designation transaction (CR 466.2), and bind the sameLocationAs:source target dynamically through programs/filters.ts (359.3.f)."
 );

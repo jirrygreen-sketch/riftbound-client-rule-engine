@@ -15,6 +15,18 @@ const ability = program.abilities[0];
 const [spendInstruction, channelInstruction] = ability.body;
 const [buffPick] = spendInstruction.picks;
 
+// Primitive-only adapter: effect.buff currently consumes targets, not the
+// counter PickSpec declared by the card. Keep that limitation explicit while
+// producing the real spend receipt for the card's unchanged repeat body.
+const supportedSpend = {
+  ...spendInstruction,
+  args: {
+    mode: spendInstruction.args.mode,
+    target: spendInstruction.args.pick
+  },
+  picks: undefined
+};
+
 test("ogn-230-298 Albus Ferros: program passes validateCardProgram and is registered", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
@@ -116,15 +128,21 @@ test("ogn-230-298 Albus Ferros: the channel instruction repeats once per buff ac
 });
 
 test("ogn-230-298 Albus Ferros: spending two buffs channels exactly two runes", () => {
-  const kernel = world().rune(["rune-1", "rune-2", "rune-3"]).build();
-  // The linked count is the value effect.buff publishes after spending; supplying it directly
-  // isolates the repeat-driven channel that this card declares.
-  kernel.link("albus-ferros.spend-buffs.spentCount", 2);
-  const outcome = resolveChainBody([channelInstruction], kernel);
+  const kernel = world()
+    .unit("buffed-one", { controller: "A", buffs: 1 })
+    .unit("buffed-two", { controller: "A", buffs: 1 })
+    .rune(["rune-1", "rune-2", "rune-3"])
+    .build();
+  kernel.setTargets(buffPick.id, [kernel.ref("buffed-one"), kernel.ref("buffed-two")]);
+  const outcome = resolveChainBody([supportedSpend, channelInstruction], kernel);
 
   assert.equal(outcome.status, "executed");
   assert.deepEqual(kernel.zone("A", "rune-zone").map(ref => ref.id), ["rune-1", "rune-2"]);
   assert.equal(kernel.player("A").runeDeckSize, 1);
+  assert.equal(kernel.getObject("buffed-one").buffs, 0);
+  assert.equal(kernel.getObject("buffed-two").buffs, 0);
+  assert.equal(outcome.results[0].result.linkedValues.spentCount, 2);
+  assert.deepEqual(outcome.results[0].result.linkedValues.spent.map(ref => ref.id), ["buffed-one", "buffed-two"]);
   const channeled = outcome.results.filter(result => result.op === "effect.channel");
   assert.equal(channeled.length, 2);
   assert.equal(channeled.every(result => result.result.status === "executed"), true);
@@ -135,14 +153,20 @@ test("ogn-230-298 Albus Ferros: spending two buffs channels exactly two runes", 
 });
 
 test("ogn-230-298 Albus Ferros: spending zero buffs channels nothing", () => {
-  const kernel = world().rune(["rune-1"]).build();
-  kernel.link("albus-ferros.spend-buffs.spentCount", 0);
+  const kernel = world().unit("unbuffed", { controller: "A", buffs: 0 }).rune(["rune-1"]).build();
+  kernel.setTargets(buffPick.id, [kernel.ref("unbuffed")]);
+  const spend = resolveChainBody([supportedSpend], kernel);
+  assert.equal(spend.results[0].result.status, "negated");
+  assert.equal(spend.results[0].result.reason, "skipped");
+  // The primitive publishes the actual zero receipt even when no buff exists.
+  assert.equal(kernel.linked("albus-ferros.spend-buffs.spentCount"), 0);
   const outcome = resolveChainBody([channelInstruction], kernel);
 
   assert.equal(outcome.status, "executed");
   assert.deepEqual(kernel.zone("A", "rune-zone"), []);
   assert.equal(kernel.player("A").runeDeckSize, 1);
   assert.equal(outcome.events.filter(event => event.action === "channel-rune").length, 0);
+  assert.equal(kernel.getObject("unbuffed").buffs, 0);
 });
 
 test("ogn-230-298 Albus Ferros: the merged effect.buff spends a counter through its target form", () => {
@@ -173,12 +197,8 @@ test("ogn-230-298 Albus Ferros: the merged effect.buff spends a counter through 
 });
 
 test.todo(
-  "ogn-230-298 Albus Ferros: the non-target counter pick (CR 704.1/742.1/745.1.a, any number per " +
-    "CR 355.13) needs effect.buff's pick form; the golden tests supply the spend count directly " +
-    "because the merged primitive only accepts args.target (TargetSpec)."
+  "ogn-230-298 Albus Ferros: choose any number of friendly buff counters at resolution through a non-target effect.buff pick/choose entry (CR 704.1/742.1/745.1.a); use its actual spentCount for repeat/channel."
 );
 test.todo(
-  "ogn-230-298 Albus Ferros: the card-played trigger registration into the real chain " +
-    "is merged (RIFT-257 translateTriggerFilter + validateTriggerSpec, proven above); " +
-    "the remaining dependency is effect.buff's non-target pick form."
+  "ogn-230-298 Albus Ferros: execute the full bound card-played trigger after the non-target counter choice exists; current tests only run the supported target-form spend and the original repeat/channel body."
 );

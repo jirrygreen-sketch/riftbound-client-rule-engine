@@ -19,36 +19,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   (22 identities). Reward/points accounting (470.1, 470.2) stays in the
  *   engine.
  *
- * Status: judge-required. Both halves have merged execution support — the
- * `hold` timing point is emitted by the TurnFlow Score wave (turn/flow.ts,
- * rule refs 315.2.b.2 / 471.2 / 473.2.b) and `effect.score` (RIFT-115) awards
- * the point and publishes the `scored` receipt; the golden test executes the
- * score instruction through the real interpreter and reference kernel. The
- * merged CardProgram trigger binding is also merged (RIFT-257,
- * programs/triggers.ts + filters.ts translateTriggerFilter, which resolves the
- * nested `{ filter: { source: 'self' } }` spelling to
- * `{ object: { objectId: host } }` and passes assertTriggerSpec). The
- * remaining gap is the 383.4.d.2.a rule itself: the held emission carries only
- * `{ player, details: { battlefieldId } }` with no participant object, so no
- * merged EventPattern field can express "this unit was present during the
- * Hold". A `player: 'self'` pattern would fire for every Ahri the controller
- * owns instead of the unit that held, and is rejected as an approximation of
- * 383.4.d.2.a. A proof test registers the translated filter through
- * validateTriggerSpec and shows that a real held emission does not match it.
+ * Status: judge-required. effect.score executes, but the hold wave supplies
+ * player and battlefieldId without a participant object. The self-anchored
+ * EventPattern cannot express the host's presence at that scoring battlefield
+ * (383.4.d.2.a), and no event-field/location comparison predicate supplies the
+ * missing association. Golden tests inspect a real TurnFlow hold emission.
  */
 export default {
   canonicalCardId: "card.hash-4f9cef9a5292a16fac59206baa263b0654606faa95119ee4a76583f82b2a4dac",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "效果本体已合入并可执行：「you score 1 point」用已注册的 effect.score（194.1.c/470.1-3 的得点，" +
-    "受让者缺省为能力控制者，golden 真实执行并断言只给控制者加 1 分），hold 时点已由 turn/flow.ts 的 Score 波发射" +
-    "（383.4.d、315.2.b.2/471.2/473.2.b），触发绑定也已合入（programs/triggers.ts 经 " +
-    "translateTriggerFilter 把本卡 { filter: { source: 'self' } } 拼写翻译成 object:{objectId:宿主} 并通过 assertTriggerSpec）。" +
-    "仍缺 383.4.d.2.a 的自身范围条件：held 发射载荷只有 { player, details:{ battlefieldId } }、没有参战单位 object，" +
-    "EventPattern 封闭字段集无法表达「本单位在该战场经历了固守」；player:'self' 只能近似成『控制者的每次固守』，" +
-    "会给不相干单位的 Ahri 也挂上触发，属近似实现，不采用。" +
-    "证明测试：translateTriggerFilter 产出的 pattern 通过 validateTriggerSpec，但对真实 held 发射 matchesTriggerEvent 返回 false。不近似实现。",
+    "仍缺自身固守范围（CR 383.4.d.2.a）：turn/flow.ts 的 hold 波只有 player 与 details.battlefieldId，没有参战单位 object；translateTriggerFilter 把 self 锚点变成 objectId，无法关联宿主与该战场的这次固守。尚无读取事件战场并与宿主位置比较的 IR 条件；仅用 player:self 会让其它战场或基地的 Ahri 也执行 effect.score。",
   abilities: [
     {
       kind: "triggered",

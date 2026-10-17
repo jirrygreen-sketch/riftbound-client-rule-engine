@@ -29,7 +29,7 @@ test("Ava Achiever identity and judge-required reason", () => {
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /finalized cost plan/);
   assert.match(program.judgeReason, /picks/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
   assert.equal(
     program.sourceText,
     "When I attack, you may pay :rb_rune_mind: to play a card with [Hidden] from your hand here, ignoring its cost."
@@ -150,10 +150,29 @@ test("golden: choosing to proceed pays 1 Mind and plays the [Hidden] card with a
     id: "battlefield-1"
   });
   assert.deepEqual(outcome.events.map(event => event.action), ["pay", "play"]);
+  assert.equal(context.getObject("hidden-card").energy, 2);
+  assert.deepEqual(context.getObject("hidden-card").power, ["Fury"]);
+});
+
+test("Ava Achiever: accepting without Mind power cannot pay or play the selected card", () => {
+  const kernel = world()
+    .unit("ava", { might: 4 })
+    .hand("hidden-card", { types: ["unit"], keywords: [{ id: "hidden" }], energy: 2, power: ["Fury"] })
+    .build();
+  kernel.setAnswers({ "ava.opt-in/optional": true });
+  kernel.setPicks("ava.hidden-card", [kernel.ref("hidden-card")]);
+
+  assert.throws(() => resolveChainBody(ability.body, kernel), {
+    name: "CostPlanError",
+    reason: "cannot-pay-cost"
+  });
+  assert.equal(kernel.getObject("hidden-card").zone, "hand");
+  assert.equal(kernel.player("A").handSize, 1);
+  assert.equal(kernel.player("A").energy, 0);
+  assert.deepEqual(kernel.player("A").power, []);
+  assert.deepEqual(kernel.events, []);
 });
 
 test.todo(
-  "Ava Achiever: bind the pick filter ({ zone: hand, Hidden }) into concrete " +
-    "resolution-time options, generate the finalized ignore-cost plan from the selected card, " +
-    "and emit the attack-declared trigger (RIFT-8x pick/finalize wiring; RIFT-120 combat declaration)."
+  "Ava Achiever: emit the real attack-declared event, choose a Hidden card from hand at resolution, and generate its finalized ignore-base plan while preserving additional costs/increases (CR 466.2/355.10.a/356.1.b.1/356.1.b.3)."
 );

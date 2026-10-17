@@ -9,6 +9,7 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { fixture } from "../../../../engine-core/test/turn/helpers.mjs";
 
 const CANONICAL =
   "card.hash-4f9cef9a5292a16fac59206baa263b0654606faa95119ee4a76583f82b2a4dac";
@@ -63,15 +64,19 @@ test("ogn-066-298 Ahri, Alluring: the merged binding registers the self-anchored
 });
 
 test("ogn-066-298 Ahri, Alluring: a real held emission matches nothing self-anchored (383.4.d.2.a gap)", () => {
-  // turn/flow.ts Score wave emits held with only player + details, no
-  // participant object, so the translated object-anchored filter can never
-  // match — that remains the true gap in judgeReason.
+  const f = fixture({
+    fields: [{ id: "bf1", controller: "A" }, { id: "bf2", controller: null }],
+    setup: builder => builder.unit("ahri-host", { location: { type: "battlefield", id: "bf1" } })
+  });
+  f.flow.start();
+  const event = f.flow.chain.pipeline.events.find(entry => entry.timingPoint === "hold");
+  assert.ok(event);
+  assert.equal(event.player, "A");
+  assert.equal(event.details.battlefieldId, "bf1");
+  assert.equal(f.kernel.player("A").score, 1);
+  assert.equal(f.kernel.getObject("ahri-host").location.id, "bf1");
   const translated = translateTriggerFilter(triggered.trigger.filter, "ahri-host", "hold");
-  const matched = matchesTriggerEvent(
-    translated,
-    { timingPoint: "hold", player: "A", details: { battlefieldId: "bf-1" } },
-    "A"
-  );
+  const matched = matchesTriggerEvent(translated, event, "A");
   assert.equal(matched, false);
 });
 
@@ -114,7 +119,5 @@ test("ogn-066-298 Ahri, Alluring golden: a zero-point award links an empty list 
 });
 
 test.todo(
-  "ogn-066-298 Ahri, Alluring: the held emission needs the 383.4.d.2.a participant " +
-    "identity (present during the Hold) so the self-anchored filter can match a " +
-    "real Score-wave emission; player:'self' is an approximation and is not used."
+  "ogn-066-298 Ahri, Alluring: bind the held battlefield and scoring player to this host's presence during the Hold (CR 383.4.d.2.a); controller-wide hold matching is insufficient."
 );

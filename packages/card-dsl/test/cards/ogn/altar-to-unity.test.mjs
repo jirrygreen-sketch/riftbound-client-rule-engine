@@ -6,6 +6,7 @@ import program from "../../../dist/cards/ogn/altar-to-unity.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world as testWorld } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/turn/helpers.mjs";
 
 const [ability] = program.abilities;
 const [resolveBase, instruction] = ability.body;
@@ -97,9 +98,27 @@ test("ogn-275-298 Altar to Unity: A and B controllers each receive the Recruit i
   }
 });
 
+test("ogn-275-298 Altar to Unity: real Hold scoring identifies the battlefield and scoring player for either seat", () => {
+  for (const controller of ["A", "B"]) {
+    const f = fixture({
+      fields: [{ id: "bf1", controller }, { id: "bf2", controller: null }],
+      setup: builder => builder.unit("holder", {
+        owner: controller,
+        controller,
+        location: { type: "battlefield", id: "bf1" }
+      })
+    });
+    f.flow.start();
+    if (controller === "B") f.flow.endTurn("A");
+    const holds = f.flow.chain.pipeline.events.filter(event => event.timingPoint === "hold");
+    assert.equal(holds.length, 1);
+    assert.equal(holds[0].player, controller);
+    assert.equal(holds[0].details.battlefieldId, "bf1");
+    assert.equal(f.kernel.player(controller).score, 1);
+    assert.equal(f.kernel.player(controller === "A" ? "B" : "A").score, 0);
+  }
+});
+
 test.todo(
-  "ogn-275-298 Altar to Unity: the hold trigger still cannot register: the held emission " +
-    "(turn/flow.ts Score wave) carries no object for 'here' to anchor, and no merged field can " +
-    "express this battlefield's scope (here:true is rejected by events/trigger-spec.ts and by " +
-    "the binding layer), so player:'self' would only approximate the controller's every hold."
+  "ogn-275-298 Altar to Unity: dynamically associate held.details.battlefieldId with this battlefield host and its current controller (CR 383.4.d.2.b/190.6.d); here:true has no binding."
 );
