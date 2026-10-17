@@ -1,3 +1,11 @@
+// Golden test for Brazen Buccaneer (ogn-002-298).
+//
+// Execution evidence (the real play through the printed 6 Energy cost, the
+// unpayable-cost boundary and the fail-closed static cost bind) lives in the
+// RIFT-675 parameterized template golden:
+// test/cards/templates/static-static-675.test.mjs.
+// Existing per-card behavior and structure assertions are retained here;
+// the template suite supplies additional execution evidence.
 // RIFT-651 template execution evidence (pending the card-side CostPlan/Finalize
 // adapter): packages/card-dsl/test/cards/templates/static-static-651.test.mjs
 import assert from "node:assert/strict";
@@ -16,6 +24,7 @@ const literal = (value) => ({ kind: "constant", value });
 test("brazen-buccaneer: passes validateCardProgram and is indexed by canonicalCardId", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
+  assert.deepEqual(result.issues, []);
   assert.equal(cardProgramsById.get(CARD_ID), program);
 });
 
@@ -32,6 +41,7 @@ test("brazen-buccaneer: identity, ruleset, status and verbatim sourceText", () =
     program.sourceText,
     "As you play me, you may discard 1 as an additional cost. If you do, reduce my cost by :rb_energy_2:."
   );
+  assert.deepEqual(JSON.parse(JSON.stringify(program)), program);
 });
 
 test("brazen-buccaneer: the additional-cost and discount halves are two static declarations", () => {

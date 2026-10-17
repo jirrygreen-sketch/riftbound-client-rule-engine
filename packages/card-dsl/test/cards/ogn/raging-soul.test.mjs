@@ -1,3 +1,11 @@
+// Golden test for Raging Soul (ogn-019-298).
+//
+// Execution evidence (a real discard through the merged chain, the
+// no-discard and opponent-discard boundaries and the host-only keyword grants)
+// lives in the RIFT-675 parameterized template golden:
+// test/cards/templates/static-static-675.test.mjs.
+// Existing per-card behavior and structure assertions are retained here;
+// the template suite supplies additional execution evidence.
 // RIFT-651 template execution evidence (pending history gating, combat-role
 // designation and Ganking movement consumption): packages/card-dsl/test/cards/templates/static-static-651.test.mjs
 import assert from "node:assert/strict";
@@ -12,6 +20,7 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CARD_ID = "card.hash-55958c501a029c3b3b6cc885be9c3637445d707ccf6347d1f0338abd97718571";
 const [assaultGrant, gankingGrant] = program.abilities;
@@ -156,15 +165,14 @@ test("raging-soul golden: the production static binder registers both grants and
   const kernel = world()
     .unit("raging-soul", { owner: "A", controller: "A", might: 4, location: { type: "battlefield", id: "bf-1" } })
     .build();
-  const engineHost = {
-    checkpoint: () => kernel.stateForTest(),
-    restore: () => {},
+  const engineHost = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
     objects: () => kernel.objects,
-    context: () => kernel,
-    execute: action => ({ outcome: kernel.perform(action), emissions: [] }),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
     choose: request => kernel.choose(request),
     perform: action => kernel.perform(action)
-  };
+  });
   const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", host: engineHost, cleanup: () => false });
   const binder = createEngineStaticBinder(engine);
   const source = kernel.getObject("raging-soul");

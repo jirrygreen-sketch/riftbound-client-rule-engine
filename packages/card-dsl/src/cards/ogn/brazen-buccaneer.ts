@@ -41,7 +41,9 @@ const brazenBuccaneer = {
   judgeReason:
     "缺 static cost.additional/cost.modify 到 play CostPlan/Finalize 的适配：需要询问可选弃牌费用并把 " +
     "card-in-controller-hand 解析为当前手牌的非目标费用选择（CR 356.2.b.1）。还缺 grantedBy 到 selectedAdditional 的 " +
-    "paid-proof gate（356.4.f.1），使总费用只在选择支付该附加费用时减 2（356.4）；不能把手工附加/移除 discount 当作声明已执行。",
+    "paid-proof gate（356.4.f.1），使总费用只在选择支付该附加费用时减 2（356.4）；不能把手工附加/移除 discount 当作声明已执行。" +
+    "RIFT-675 通用测试台实测：本条 static 声明连图层都登记不了（layerFor 对 cost.additional/cost.modify 抛 " +
+    "no layer mapping），生产打出只收印刷 6 Energy、不会询问弃牌，减费也无从生效。",
   abilities: [
     {
       kind: "static",

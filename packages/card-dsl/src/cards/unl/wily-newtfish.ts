@@ -27,16 +27,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   mathematical layer really applies +1 Might and the Ganking keyword to the host
  *   only — asserted in the golden through `runAbilityBody` plus `createLayerEngine`.
  * Two remaining gaps (none approximated):
- * - The "you've gained XP this turn" gate (364.3) still has no evaluation path:
- *   the frozen Condition algebra (always / never / expression / compare / all /
- *   any / not) has no history node, and the `xp-gained` timing point is only a
- *   payload definition — nothing reads it as a static-ability predicate. The
- *   interpreter's `condition.history` instruction exists, but a static layer
- *   effect's condition is consumed by `layers/engine.ts` `conditionMatches`,
- *   which only knows always/never/type/has-tag/has-keyword and returns true for
- *   everything else, so binding the declared gate blindly would grant the bonus
- *   with 0 XP. The retained `count` subject is a descriptive shape, not an
- *   evaluation.
+ * - The "you've gained XP this turn" gate (364.3) still has no truthful
+ *   evaluation path. The production static binder compiles the declared
+ *   Condition through `programs/statics.ts` `abilityEnvironment` /
+ *   `effects/interpreter/condition.ts`; the `count` half then runs the live set
+ *   query, whose non-anchor fields go to `layers/filter.ts#matchesObjectFilter`
+ *   — `filter: { player: "controller" }` and the descriptive `subject` are not
+ *   read, so the host itself is counted and the gate is true with 0 XP. The
+ *   RIFT-675 scenario suite measures that current behaviour (bonus granted at 0
+ *   XP) and keeps the printed 0-XP expectation as a TODO. There is still no
+ *   turn-history consumer for `controller-xp-gained-this-turn`.
  * - "and [Ganking]" still has no consumer in the movement system: the merged
  *   `continuous.grant-keyword` writes the keyword into the ability layer
  *   (verified), but `zones/movement.ts` and `effect.move` never read a movement
@@ -52,17 +52,16 @@ export default {
   status: "judge-required",
   judgeReason:
     "已合入并可执行的部分：RIFT-258 的 continuous.might 与 continuous.grant-keyword 原语按本卡声明的 { object: \"self\" } 选择符解析" +
-    "（解释器 resolveObjectSelector/queryObjects 已支持 object 锚点），数学图层真实给宿主 +1 Might 并授予 Ganking，golden 用 " +
-    "runAbilityBody + createLayerEngine 断言只作用于宿主自身。整卡仍缺两处，均不近似实现：" +
-    "(1)「If you've gained XP this turn」（364.3）仍无求值路径——冻结的 Condition 只有 always/never/expression/compare/all/any/not，" +
-    "没有历史节点，events/timing-points.ts 的 xp-gained 只是载荷定义、没有静态谓词读取方；解释器的 condition.history 指令存在，" +
-    "但静态图层效果的 condition 由 layers/engine.ts 的 conditionMatches 消费，它只识别 always/never/type/has-tag/has-keyword，" +
-    "其余一律返回 true，直接绑定门槛会在 0 XP 时也发放加成。程序里的 count subject 只是描述形状，不构成求值。" +
+    "（解释器 resolveObjectSelector/queryObjects 已支持 object 锚点），数学图层真实给宿主 +1 Might 并授予 Ganking，" +
+    "RIFT-675 模板 golden 用 runCardScenario 断言只作用于宿主自身。整卡仍缺两处，均不近似实现：" +
+    "(1)「If you've gained XP this turn」（364.3）仍无求值路径——生产 static binder 会把该 Condition 交给 " +
+    "effects/interpreter/condition.ts 求值，但 count 走的是现场集合查询、非锚点字段交给 layers/filter.ts#matchesObjectFilter，" +
+    "filter.player 与描述性的 subject 都不被读取，宿主自身被计入，0 XP 时门槛也为真并发放加成（RIFT-675 模板 golden 实测记录该现状；" +
+    "0 XP 不发加成的印刷预期保留为 TODO）。仍缺 controller-xp-gained-this-turn 的回合历史消费方。" +
     "(2)「and [Ganking]」在移动系统里仍无消费方：continuous.grant-keyword 已把关键词写入 ability 图层（已验证），但 zones/movement.ts 与 " +
     "effect.move 都不读取移动许可，而 continuous.movement 只填 layers/rules/query.ts#movement 的 permission.routes 形态、" +
     "不识别 Ganking KeywordDef 的 permission: \"battlefield-to-battlefield\" 拼写（探针显示该授权下 rules.query 的 canGank 仍为 false），" +
-    "810.1.c/144.4.c 无法证明。programs/statics.ts 与 attachProgramLifecycle 已能登记静态 ContinuousEffectSpec；" +
-    "当前 binder 对该 XP 门控只能安全地保持 inactive，因为 Condition/LayerEngine 没有 controller-XP history 求值。依赖：XP 历史谓词路径与移动许可消费方。",
+    "810.1.c/144.4.c 无法证明。依赖：XP 历史谓词路径与移动许可消费方。",
   abilities: [
     {
       kind: "static",

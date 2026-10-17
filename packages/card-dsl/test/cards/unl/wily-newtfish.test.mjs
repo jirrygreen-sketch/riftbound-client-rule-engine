@@ -1,3 +1,11 @@
+// Golden test for Wily Newtfish (unl-108-219).
+//
+// Execution evidence (a real XP gain through the merged chain, the no-XP and
+// opponent-XP boundaries and the host-only Might/keyword grants) lives in the
+// RIFT-675 parameterized template golden:
+// test/cards/templates/static-static-675.test.mjs.
+// Existing per-card behavior and structure assertions are retained here;
+// the template suite supplies additional execution evidence.
 // RIFT-651 template execution evidence (pending XP-history gating and Ganking
 // movement consumption): packages/card-dsl/test/cards/templates/static-static-651.test.mjs
 import assert from "node:assert/strict";

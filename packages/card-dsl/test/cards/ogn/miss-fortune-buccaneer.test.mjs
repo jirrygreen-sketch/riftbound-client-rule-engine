@@ -1,3 +1,11 @@
+// Golden test for Miss Fortune, Buccaneer (ogn-193-298).
+//
+// Execution evidence (the real printed-cost plays, the open-battlefield
+// placement, the unpayable-cost boundary and the fail-closed
+// play-location-permission bind) lives in the RIFT-675 parameterized template
+// golden: test/cards/templates/static-static-675.test.mjs.
+// Existing per-card behavior and structure assertions are retained here;
+// the template suite supplies additional execution evidence.
 // RIFT-651 template execution evidence (pending open-battlefield permission
 // binding and Finalize consumption): packages/card-dsl/test/cards/templates/static-static-651.test.mjs
 import assert from "node:assert/strict";
@@ -44,6 +52,7 @@ test("miss-fortune-buccaneer: passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
   assert.deepEqual(result.issues, []);
+  assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
 test("miss-fortune-buccaneer: identity, ruleset, status, judgeReason and sourceText", () => {

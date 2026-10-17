@@ -72,7 +72,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处已实测的当前缺口：" +
+    "三处已实测的当前缺口（RIFT-675 通用测试台复核）：" +
     "(1) 两条声明用的 effect kind `play-location-permission` 没有静态层映射——programs/statics.ts 的 " +
     "layerFor 抛 “Static ability kind play-location-permission has no layer mapping”，生产 static binder " +
     "无法注册任何一条许可。" +
@@ -81,7 +81,9 @@ const program = {
     "unoccupied 且 uncontrolled）这一位置状态，Finalize 无法推导该许可。" +
     "(3) “Friendly units may be played to open battlefields” 要把许可持续授予控制者的所有友方单位" +
     "（355.2.b），但 appliesTo: \"friendly-units\" 与 relative 玩家在 staticFilter 没有绑定路径，" +
-    "Finalize 无法按打出者求值。依赖：静态图层映射、open battlefield 目的地判定与友方作用域绑定。不近似实现。",
+    "Finalize 无法按打出者求值。当前实测：默认基地位置与本卡自己打到战场的许可都无法登记，" +
+    "host 对任意战场目的地也不做 open 校验（占用的战场同样被接受）。" +
+    "依赖：静态图层映射、open battlefield 目的地判定与友方作用域绑定。不近似实现。",
   abilities,
   sourceText:
     "You may play me to an open battlefield.\nFriendly units may be played to open battlefields."

@@ -1,3 +1,11 @@
+// Golden test for Rage Amplifier (ven-018-166).
+//
+// Execution evidence (the +1/+2 instead branches driven by a real Empower and
+// Disempower through the merged chain, plus the refused printed [Empower]
+// activation) lives in the RIFT-675 parameterized template golden:
+// test/cards/templates/static-static-675.test.mjs.
+// Existing per-card behavior and structure assertions are retained here;
+// the template suite supplies additional execution evidence.
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
