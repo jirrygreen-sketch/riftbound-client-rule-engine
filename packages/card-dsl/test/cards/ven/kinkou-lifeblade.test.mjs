@@ -1,3 +1,4 @@
+// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";

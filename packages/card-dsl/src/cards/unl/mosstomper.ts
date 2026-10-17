@@ -32,14 +32,21 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  * 已有原语、关键词定义或通用适配器不代表本卡完整生产路径可执行。
  */
 const LEVEL_THREE_XP: Condition = {
-  kind: "compare",
-  left: {
-    kind: "count",
-    subject: "controller-xp",
-    filter: { player: "controller" }
-  },
-  operator: "gte",
-  right: { kind: "constant", value: 3 }
+  // CR 824.1.c/d: controller-xp has no evaluator; never count objects as XP.
+  kind: "all",
+  conditions: [
+    { kind: "never" },
+    {
+      kind: "compare",
+      left: {
+        kind: "count",
+        subject: "controller-xp",
+        filter: { player: "controller" }
+      },
+      operator: "gte",
+      right: { kind: "constant", value: 3 }
+    }
+  ]
 };
 
 const abilities: Ability[] = [
@@ -77,7 +84,7 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "缺 Hunt 的事件名适配（823.1）：programs/filters.ts 已把嵌套 filter 翻译成 object，但 conquer/hold 仍与封闭 EventPattern 的 conquered/held 不一致，订阅不能注册。" +
-    "缺 Level 的 controller-xp 表达式读取 PlayerSnapshot.xp（824.1.c/824.1.d）：continuous.might 与 continuous.grant-keyword 已有静态绑定条件求值，count 仍只数对象而不读取 subject。" +
+    "缺 Level 的 controller-xp 表达式读取 PlayerSnapshot.xp（824.1.c/824.1.d）：continuous.might 与 continuous.grant-keyword 已有静态绑定条件求值，count 仍只数对象而不读取 subject；现用 never 显式阻断保留的 controller-xp 查询，不近似实现 XP。" +
     "缺授予 Deflect 后的 target.tax 到 Chain Finalize 费用接线（809.1.c.1）；target/tax 已能收集分层关键词并计算任意域 Power，链仍使用自身按 Energy 记账的适配器。",
   abilities,
   sourceText:

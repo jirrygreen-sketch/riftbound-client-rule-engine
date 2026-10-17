@@ -22,17 +22,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 828.1.b / 828.1.b.1：”[Empowered][>] I have +3 :rb_might:” 是依赖能力，只在宿主拥有
  *   Empowered 状态时 Active；+3 Might 属 layers 的 arithmetic 层（143.2/143.2.a、479）。
  *
- * status = judge-required（复核 2026-10-17，实测证据）：
- * 1. Empower KeywordDef 已合入并能展开出 activated ability，但 CardProgram 的 KeywordAbility
- *    没有每实例 params.cost，programs/keywords.ts 的 expandProgram 也只透传 value/host；本卡印刷的 12 Energy
- *    与 per-rune 减费因此无法进入展开，默认占位 cost.kind "empower" 会被 programs/play.ts
- *    的 translateCost 以 Unsupported cost kind 拒绝。
- * 2. 没有 Empowered 状态谓词（442.1.a）：生产 ObjectSnapshot 没有 empowered 字段，
- *    “[Empowered][>]” 的门控不能作为可执行状态条件；条件任务仍是 RIFT-359。
- * 3. continuous.cost-modification 的静态声明无法绑定：staticTarget() 不认识 appliesTo
- *    "empower-activation-cost"，实测 createEngineStaticBinder().bindStatic 抛 ProgramBindingError；
- *    即使绑定成功也没有 Empower 费用消费方读取该修改。
- * continuous.might 指令和图层求值已合入，但条件谓词与第 3 条同因，未 Empowered 时也可能生效。
+ * status = judge-required：费用参数、逐符文折扣与生产状态/关键词消费仍缺，
+ * 当前缺口见 judgeReason；静态子集证据见 templates/keyword-static-static-649.test.mjs。
  */
 const abilities: Ability[] = [
   {
@@ -50,10 +41,14 @@ const abilities: Ability[] = [
       appliesTo: "empower-activation-cost",
       per: "rune-you-control",
       minimum: 0,
-      value: {
-        kind: "count",
-        subject: "runes",
-        filter: { type: "rune", controller: "self", zone: "rune-zone" }
+      amount: {
+        kind: "arithmetic",
+        operator: "neg",
+        operands: [{
+          kind: "count",
+          subject: "runes",
+          filter: { type: "rune", controller: "self", zone: "rune-zone" }
+        }]
       }
     }
   },
@@ -68,8 +63,10 @@ const abilities: Ability[] = [
       amount: { kind: "constant", value: 3 }
     },
     condition: {
-      kind: "expression",
-      value: { kind: "constant", value: "empowered" }
+      kind: "compare",
+      left: { kind: "object-property", object: "self", property: "empowered" },
+      operator: "gte",
+      right: { kind: "constant", value: 1 }
     }
   }
 ];
@@ -79,14 +76,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Empower KeywordDef 已合入并能展开出 activated ability，但卡程序的 KeywordAbility 没有每实例 " +
-    "params.cost，programs/keywords.ts 的 expandProgram 也只透传 value/host；本卡印刷的 12 Energy 与每符文减费无法进入 " +
-    "展开，827.1.c.1 的真实费用只能落成默认占位 cost.kind \"empower\"，会被 programs/play.ts 的 " +
-    "translateCost 以 Unsupported cost kind 拒绝。另缺 Empowered 状态谓词（442.1.a/828.1.b.1）：生产 ObjectSnapshot 没有 empowered 字段，" +
-    "该门控不可执行（依赖 RIFT-359）。827.1.c.3 的每符文减费声明也无法绑定：staticTarget() 不认识 " +
-    "appliesTo \"empower-activation-cost\"，实测 createEngineStaticBinder().bindStatic 抛 " +
-    "ProgramBindingError（Unsupported static appliesTo），且没有 Empower 费用消费方读取该 " +
-    "continuous.cost-modification。",
+    "827.1.c.1 的印刷 12 Energy 缺 KeywordAbility.params.cost → expandProgram → Empower.expand 接线，默认 cost.kind empower 仍被 translateCost 拒绝。827.1.c.3 的逐符文减费现显式声明为负 rune count，但 count.filter.controller:self 尚无相对玩家求值（会错误计为 0），programs/statics.ts 也不支持 appliesTo empower-activation-cost，也无 Empower 费用消费方。828.1.c 的 Empowered 门控已改读 self.empowered，参考内核能经真实 Empower/Disempower 和静态绑定增减 3 Might；ObjectSnapshot 仍未公开 Empowered 特征及生产二元状态（442.1.a/b/c，RIFT-359），不能据此标记整卡 executable。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_12:. This ability costs :rb_energy_1: less for each rune you control. (Pay the cost: Empower me. Use only if not Empowered.)\n" +
