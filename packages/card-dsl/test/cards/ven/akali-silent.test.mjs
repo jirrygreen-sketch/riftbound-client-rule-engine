@@ -4,6 +4,9 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/akali-silent.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-cbfb311a21f9513fabec6e5988abd82142daa5583c2f6638ef10ecc4244c44bc";
@@ -28,7 +31,7 @@ test("ven-038-166 Akali, Silent: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /355\.9\.b/);
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /invalid-event-type/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -70,15 +73,14 @@ test("ven-038-166 Akali, Silent: the body is the documented +2 Might this-turn s
   assert.equal(might.op, "continuous.might");
   assert.deepEqual(might.args, {
     mode: { kind: "constant", value: "add" },
-    layer: { kind: "constant", value: "arithmetic" },
     amount: { kind: "constant", value: 2 },
     duration: { kind: "constant", value: "this-turn" },
-    object: { kind: "constant", value: { kind: "source" } }
+    appliesTo: { kind: "constant", value: "self" }
   });
   assert.equal(might.targets, undefined);
   assert.equal(might.picks, undefined);
-  // The host is named symbolically (contract 3.6), not by a runtime ObjectRef.
-  assert.equal(might.args.object.value.kind, "source");
+  // appliesTo: "self" binds the ability host (ResolveContext.source);
+  // the card no longer carries the unsupported layer/object arg keys.
 });
 
 test("ven-038-166 Akali, Silent: the object-moved event matcher honours the battlefield destination", () => {
@@ -113,6 +115,30 @@ test("ven-038-166 Akali, Silent: the object-moved event matcher honours the batt
   assert.equal(matchesTriggerEvent(pattern, toBase, "A"), false);
 });
 
+
+test("ven-038-166 golden: continuous.might really adds +2 Might this turn (RIFT-258)", () => {
+  // The merged continuous.might primitive executes the card's actual IR shape;
+  // the Empowered gate is not involved here, but the +2 this-turn body is real.
+  const kernel = world()
+    .unit("akali-silent", { controller: "A", might: 4 })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("akali-silent") });
+  const outcome = resolveChainBody(ability.body, context);
+  assert.equal(outcome.status, "executed");
+  assert.equal(context.continuousEffects.length, 1);
+  assert.equal(context.continuousEffects[0].effect.layer, "arithmetic");
+  assert.deepEqual(context.continuousEffects[0].effect.effect.amount, 2);
+  // this-turn resolves to the end-of-turn duration alias.
+  assert.deepEqual(context.continuousEffects[0].duration, { type: "end-of-turn" });
+
+  const layers = createLayerEngine(context.objects, context.continuousEffects.map((entry, index) => ({
+    effect: entry.effect,
+    duration: entry.duration,
+    timestamp: index + 1
+  })));
+  assert.equal(layers.evaluate(context.ref("akali-silent")).might, 6);
+});
+
 test.todo(
   "ven-038-166 Akali, Silent: enforce the 355.9.b targeting restriction and its 'unless I'm in combat' " +
     "exception in the target plan — no continuous.target-restriction consumer, no combatRole on " +
@@ -120,11 +146,7 @@ test.todo(
 );
 
 test.todo(
-  "ven-038-166 Akali, Silent: execute 'give me +2 :rb_might: this turn' (143.2.a / 317.2.c) — the closed " +
-    "GameAction set has no Might change and no continuous.might instruction is registered (RIFT-91)"
-);
-
-test.todo(
-  "ven-038-166 Akali, Silent: resolve 'When I move to a battlefield' end to end — the move-location event " +
-    "must carry its destination payload and expose the moved-object identity to card registration (RIFT-120)"
+  "ven-038-166 Akali, Silent: resolve 'When I move to a battlefield' end to end (143.2.a / 317.2.c) — the merged " +
+    "continuous.might primitive executes +2 (see the golden), but registerProgramTriggers fails with " +
+    "TriggerSpecValidationError / invalid-event-type because EVENT_PATTERN_TYPES does not accept object-moved"
 );

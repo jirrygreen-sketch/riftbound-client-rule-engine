@@ -4,6 +4,9 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/ambessa-the-wolf.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
   "card.hash-e8452b3b9f2d2d608a43289045ddea899510d5650e10a3ffaf7066b5484d0f49";
@@ -31,7 +34,9 @@ test("ven-084-166 Ambessa: identity, ruleset, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /828\.1\.b\.1/);
   assert.match(program.judgeReason, /438\.7/);
   assert.match(program.judgeReason, /RIFT-87/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /bindReplacement/);
+  assert.match(program.judgeReason, /combatRole/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -66,13 +71,45 @@ test("ven-084-166 Ambessa: 'can't be dealt damage unless I'm in combat' is a dam
   assert.equal(damagePrevention.kind, "replacement");
   assert.deepEqual(damagePrevention.replaces, {
     event: "damage",
-    filter: { target: "self", combat: false }
+    filter: { target: "self", characteristics: { combatRole: null } }
   });
   // 空 with = 伤害事件被替换为“什么也不发生”（同 ogn/kayn-unleashed 的写法）。
   assert.deepEqual(damagePrevention.with, []);
   assert.equal(damagePrevention.condition.kind, "compare");
   assert.equal(damagePrevention.condition.operator, "gte");
   assert.deepEqual(damagePrevention.condition.right, { kind: "constant", value: 1 });
+});
+
+test("ven-084-166 golden: continuous.might really adds +3 Might through the merged primitive (RIFT-258)", () => {
+  // [Empowered][>] I have +3 :rb_might:. - the primitive itself is merged
+  // (RIFT-258); the Empowered gate is the remaining judge-required dependency.
+  // This golden runs the card's own static effect shape through the real
+  // interpreter + test kernel, then projects through the layers engine.
+  const kernel = world()
+    .unit("ambessa-the-wolf", { controller: "A", might: 4 })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("ambessa-the-wolf") });
+  const body = [{
+    id: "ambessa-the-wolf.grant-might",
+    op: "continuous.might",
+    args: {
+      mode: { kind: "constant", value: mightGrant.effect.mode },
+      amount: mightGrant.effect.amount,
+      appliesTo: { kind: "constant", value: "self" }
+    }
+  }];
+  const outcome = resolveChainBody(body, context);
+  assert.equal(outcome.status, "executed");
+  assert.equal(context.continuousEffects.length, 1);
+  assert.equal(context.continuousEffects[0].effect.layer, "arithmetic");
+  assert.deepEqual(context.continuousEffects[0].effect.effect.amount, 3);
+
+  const layers = createLayerEngine(context.objects, context.continuousEffects.map((entry, index) => ({
+    effect: entry.effect,
+    duration: entry.duration,
+    timestamp: index + 1
+  })));
+  assert.equal(layers.evaluate(context.ref("ambessa-the-wolf")).might, 7);
 });
 
 test.todo(
@@ -82,11 +119,11 @@ test.todo(
 
 test.todo(
   "ven-084-166 Ambessa: both [Empowered][>] dependent abilities (828.1.b.1) need an Empowered status predicate " +
-    "(442.1.a) and the card-side continuous.might entry point (RIFT-87, RIFT-91)"
+    "(442.1.a) to gate the merged continuous.might primitive (the golden proves the +3 itself executes)"
 );
 
 test.todo(
-  "ven-084-166 Ambessa: the combat-only damage prevention (438.7) needs a CardProgram → ReplacementRegistration " +
-    "subscriber plus the damage action's combat classification — no merged consumer applies card replacements " +
-    "(RIFT-120 follow-up)"
+  "ven-084-166 Ambessa: the combat-only damage prevention (438.7) needs the combat-start designation producer " +
+    "(466.2 / contract 3.8) to write the host's attacker/defender combatRole; the replacement filter already " +
+    "matches the host characteristic and must not use damage action.combat"
 );

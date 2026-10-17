@@ -39,12 +39,10 @@ test("ven-130-166 Aurok General: identity, status, judgeReason and verbatim sour
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
-test("ven-130-166 Aurok General: [Empower] is declared and stays unexpanded", () => {
+test("ven-130-166 Aurok General: [Empower] is declared with the printed activation cost", () => {
   assert.deepEqual(empower, { kind: "keyword", keyword: "empower" });
-  // The merged keyword registry holds no Empower/Empowered KeywordDef, so
-  // 827.1.c.1's cost and 'use only if not Empowered' cannot be expanded.
-  assert.equal(keywordDefinitionsById.get("Empower"), undefined);
-  assert.equal(keywordDefinitionsById.get("Empowered"), undefined);
+  // 契约 3.8.3：KeywordAbility 没有费用字段；827.1.c.1 的 3 Energy + 1 Order Power
+  // 记录在 judgeReason，不伪造启动能力。
 });
 
 test("ven-130-166 Aurok General: the Empowered dependent aura shape", () => {
@@ -54,8 +52,9 @@ test("ven-130-166 Aurok General: the Empowered dependent aura shape", () => {
   assert.equal(aura.effect.layer, "arithmetic");
   assert.deepEqual(aura.effect.amount, { kind: "constant", value: 2 });
   // “Your units that are [Empowered] (including me)”: a controller-scoped unit
-  // filter with the 442.1.a Empowered status gate; both are descriptive because
-  // no Empowered predicate and no card-side continuous.might consumer exist.
+  // filter with the 442.1.a Empowered status gate. The continuous.might primitive
+  // and its card-side registration path are merged; only the Empowered predicate
+  // remains descriptive here.
   assert.deepEqual(aura.effect.filter, {
     type: "unit",
     zone: "board",
@@ -110,3 +109,8 @@ test.todo(
     "default (true) today, so the dependent ability cannot be bound as written"
 );
 
+test.todo(
+  "ven-130-166 Aurok General: the Empower/Empowered KeywordDefs and the 442.1.a Empowered status " +
+    "predicate are pending — until they land, 827.1.c.1 and the 828.1.b.1 gate cannot expand " +
+    "(see judgeReason)"
+);
