@@ -20,9 +20,8 @@ import type { CardProgram } from "../../ir/index.js";
  * - The ResolveContext side is expressible: ctx.registerDelayedTrigger(spec,
  *   body) exists in the frozen contract (3.6) and the reference kernel records
  *   delayed triggers. What is missing is a *card-facing instruction* that
- *   registers the delayed trigger: the merged instruction registry has no
- *   trigger.delayed / trigger.state op (RIFT-9's trigger.delayed template,
- *   used by 2 cards), so no card program can subscribe to damage-dealt for the
+ *   registers the delayed trigger: the instruction registry has no
+ *   trigger.delayed / trigger.state op, so no card program can subscribe to damage-dealt for the
  *   rest of the turn. Writing a triggered ability on the card would be wrong:
  *   a card's own triggered ability is a passive ability that exists while the
  *   card is on the board, not a one-shot delayed ability created by its
@@ -34,8 +33,8 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required. The delayed trigger is recorded as the pending
  * `trigger.delayed` instruction with the damage-dealt subscription and the
- * kill body; the merged registry cannot execute that op, so no execution test
- * claims it. RIFT-9 lists trigger.delayed as a required primitive.
+ * kill body; a card-facing registration instruction is still required before
+ * the delayed subscription can execute.
  */
 const imperialDecree = {
   canonicalCardId: "card.hash-a56576887313144ef13fd285dd3130fb460b1678a4a592a776002d9ef0757fb9",
@@ -45,9 +44,9 @@ const imperialDecree = {
     "缺「本回合内任意单位受到伤害就消灭它」的延迟触发指令：该文本按 CR 390/391 生成一个 Delayed Ability" +
     "（392/393：由效果创建、不依附于战场上的卡），窗口为本回合（317.2.c 到期），订阅 damage-dealt 时点" +
     "（418.1.a/b，仅在实际造成正整数伤害时发出）。ResolveContext 侧已有 registerDelayedTrigger（契约 3.6），" +
-    "但已合入的指令注册表没有卡牌可用的 trigger.delayed / trigger.state op（RIFT-9 清单中的 trigger.delayed），" +
+    "但当前指令注册表没有卡牌可用的 trigger.delayed / trigger.state op，" +
     "因此卡程序无法注册该订阅；把能力写成卡自身的 triggered ability 会违反 391.1/393（延迟能力不依附卡本体）。" +
-    "不近似实现；依赖 trigger.delayed 原语与 RIFT-257 的 CardProgram play 绑定。",
+    "不近似实现；需要一个能把 delayed spec/body 送入 ResolveContext.registerDelayedTrigger 的卡牌指令。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
@@ -60,7 +59,7 @@ const imperialDecree = {
       body: [
         {
           // "When any unit takes damage this turn, kill it" — the pending
-          // delayed-trigger instruction (RIFT-9 trigger.delayed). The window
+          // delayed-trigger instruction. The window
           // is this turn (317.2.c) and the subscription is the damage-dealt
           // timing point (418.1.a / 418.1.b); the body kills the unit that
           // took the damage. No merged op consumes this yet (see judgeReason).

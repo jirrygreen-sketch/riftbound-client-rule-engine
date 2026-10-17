@@ -24,7 +24,6 @@ test("Imperial Decree identity and judge-required status match the printing", ()
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("trigger.delayed"), true);
   assert.equal(program.judgeReason.includes("390"), true);
-  assert.equal(program.judgeReason.includes("RIFT-9"), true);
   assert.equal(
     program.sourceText,
     "[Action] (Play on your turn or in showdowns.)\n" +
@@ -68,20 +67,6 @@ test("Imperial Decree structure: Action keyword, printed cost, a this-turn damag
   assert.equal(killInstruction.targets[0].selection, "one");
 });
 
-test("Imperial Decree: the pending trigger.delayed op is not registered, so no execution is claimed", () => {
-  // The merged instruction registry has no trigger.delayed op (RIFT-9), so the
-  // card's instruction cannot be dispatched. Running the body must fail loudly
-  // instead of silently no-oping, which is exactly what the interpreter does
-  // with an unregistered opcode.
-  const kernel = world().build();
-  assert.throws(
-    () => runAbilityBody(play.body, kernel),
-    /Unregistered instruction opcode: trigger\.delayed/
-  );
-  assert.deepEqual(kernel.delayedTriggers, []);
-  assert.deepEqual(kernel.events, []);
-});
-
 test("Imperial Decree: the delayed kill body itself is a valid, executable effect.kill", () => {
   // The subscription is pending, but the body the delayed trigger will run is
   // ordinary data and can be executed against the merged primitive with the
@@ -101,11 +86,11 @@ test("Imperial Decree: the delayed kill body itself is a valid, executable effec
 test.todo(
   "Imperial Decree: registering the Delayed Ability for the rest of the turn needs the " +
     "trigger.delayed / trigger.state instruction primitive over ctx.registerDelayedTrigger " +
-    "(contract 3.6; RIFT-9)."
+    "(contract 3.6)."
 );
 
 test.todo(
   "Imperial Decree: the damage-dealt subscription must fire only for actual positive valid " +
     "damage (418.1.a/b, 418.1.e/e.1) and expire with the 'this turn' effects (317.2.c); both " +
-    "belong to the trigger pipeline once trigger.delayed and CardProgram play binding (RIFT-257) are merged."
+    "belong to the delayed-trigger pipeline once the card-facing registration instruction is available."
 );

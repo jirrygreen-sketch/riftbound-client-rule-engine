@@ -22,15 +22,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   ObjectFilter Location spelling (events/trigger-spec.ts `location?: string`,
  *   layers/filter.ts accepts the location name or the exact Location).
  *
- * Status: judge-required — the "with 3 :rb_might: or less" restriction has no
- * executable predicate. Targets are finalized from static `ObjectFilter` data
- * (target/target-plan.ts), and neither the filter vocabulary nor the frozen IR
- * offers a numeric comparison on a unit's current Might. The merged layers can
- * compute current Might, but no target predicate consumes it. The `mightLte: 3`
- * field below is descriptive only and is not consumed by any merged layer or
- * target check; no approximate Might test (e.g. counting objects) is substituted.
- * The Move half itself uses only the merged effect.zone primitive and is
- * executed in the golden test.
+ * Status: judge-required — the "with 3 :rb_might: or less" restriction still
+ * has no target predicate. Target plans now lock and revalidate ordinary
+ * filters, but the filter vocabulary has no comparison against a unit's
+ * current Might. The `mightLte: 3` field below remains descriptive until the
+ * condition-predicate work exposes that comparison to target Finalize and
+ * Resolve; no approximate Might test is substituted. The move half uses only
+ * the merged effect.zone primitive and is executed in the golden test.
  */
 const gust = {
   canonicalCardId: "card.hash-22baca2d2ee27d8cf7c15a3d1d1f215e8c0a3b8fbbe9b0edcd70d888b29a21d5",
@@ -38,9 +36,9 @@ const gust = {
   status: "judge-required",
   judgeReason:
     "缺「Might 3 或更少」的目标限制谓词：目标合法性只由静态 ObjectFilter / TargetRequirement 在 Finalize 求值（target/target-plan.ts），" +
-    "冻结的 IR、ObjectFilter 与 TargetPlan 都没有把当前 Might 的数值比较接入 Finalize/Resolve；layers/engine 虽能计算当前 Might，" +
-    "但不会消费本文件里的 mightLte: 3，因此不能用计数或等价近似替代。Return 半段只用已合入的 effect.zone 表达并有执行测试；" +
-    "依赖 RIFT-90 的数值目标谓词与目标重验。",
+    "冻结的 IR 与 ObjectFilter 没有把当前 Might 的数值比较接入目标 Finalize/Resolve；layers/engine 虽能计算当前 Might，" +
+    "但不会消费本文件里的 mightLte: 3，因此不能用计数或等价近似替代。普通目标的锁定与重验已由当前 TargetPlan 提供；" +
+    "缺口是把该数值比较作为条件谓词接入目标候选与 Resolve 重验（RIFT-359）。Return 半段只用已合入的 effect.zone 表达并有执行测试。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

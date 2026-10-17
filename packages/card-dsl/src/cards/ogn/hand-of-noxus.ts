@@ -21,13 +21,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   HistoryQuery 的 exclude 维度（契约 3.8 第 2 条），由关键词展开提供谓词。
  *
  * status = judge-required：
- * - 依赖型关键词的闸门没有可执行路径：已合入的 Legion KeywordDef 展开引用
- *   condition.predicate / condition.history，而合并解释器只支持 always/never/
- *   expression/compare/all/any/not，没有 history 条件；812.1.c 的“排除本卡”维度
- *   也尚未在合并 HistoryQuery 中接通。本卡把闸门保留为 restriction（Legion +
- *   history 条件形状），但没有卡牌 Restriction 的消费方。
- * - Reaction Add 的支付窗口（430.3）与启动能力→链的生产接线未合并。
- * 依赖：RIFT-90（条件/历史与排除本卡）、RIFT-257（CardProgram 启动能力绑定）、RIFT-261（费用/支付接线）。
+ * - ResolveContext.history supports turn/action/player/object/exclude queries,
+ *   but the CardProgram Condition vocabulary has no history/predicate node and
+ *   the activated restriction binder cannot consume the Legion gate. The
+ *   restriction keeps the printed gate auditable; it is not treated as an
+ *   executable comparison.
+ * - The ordinary exhaust payment and resource primitive are merged, but the
+ *   activation path does not classify this resource-adding ability as the
+ *   immediate Add window required by 430.2.a/430.3.
  */
 const handOfNoxus = {
   canonicalCardId:
@@ -35,12 +36,10 @@ const handOfNoxus = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Legion 闸门（812.1.b.1：本回合已 Finalize 过另一张牌才获得 [Text]）没有可执行路径：" +
-    "Legion 的 KeywordDef 展开引用 condition.predicate / condition.history，而合并解释器的 " +
-    "Condition 只支持 always/never/expression/compare/all/any/not；812.1.c 的“排除本卡自身”" +
-    "维度（契约 3.8 HistoryQuery.exclude）也未在合并实现中接通。本卡以 restriction 保留 “Legion + " +
-    "history 条件” 的闸门形状，但没有消费卡牌 Restriction 的内核路径；430.3 的 Reaction Add " +
-    "启动窗口与启动能力→链的生产接线同样缺失。依赖 RIFT-90（条件/历史）、RIFT-257（CardProgram 启动能力绑定）与 RIFT-261（费用/支付接线）。",
+    "Legion 闸门（812.1.b.1：本回合已 Finalize 过另一张牌才获得 [Text]）仍不能执行：" +
+    "ResolveContext.history 已支持 turn/action/player/object/exclude 查询，但 CardProgram 的封闭 Condition 词汇没有 history/predicate 节点，" +
+    "activated restriction 的绑定层也没有消费该历史闸门；812.1.c 的“另一张牌”因此不能被写成普通 compare。" +
+    "此外，当前启动能力路径虽能支付 exhaust 并执行 effect.resources，却没有把资源增加能力路由到 430.2.a/430.3 所需的即时 Add 窗口。",
   abilities: [
     {
       kind: "activated",

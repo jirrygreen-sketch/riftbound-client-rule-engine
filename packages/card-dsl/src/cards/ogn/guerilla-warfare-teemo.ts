@@ -25,7 +25,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   cost removes neither the facedown-zone, control and slot requirements nor
  *   the next-turn Reaction permission.
  *
- * Status: judge-required — two dependencies are not merged:
+ * Status: judge-required — two dependencies remain incomplete:
  * - the [Hidden] restriction is not evaluable: no merged filter predicate
  *   tests a keyword characteristic. The layer matcher compares
  *   type/zone/location/controller/owner/states/tags/characteristics and has no
@@ -37,8 +37,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   plus a duration-bounded cost waiver: the merged Hidden KeywordDef declares
  *   only a static cost.hidden placeholder and documents that the Hide action,
  *   the facedown zone, the [A] payment and the next-turn Reaction permission
- *   are not implemented. The waiver is authored as an unmerged cost.modify
- *   instruction carrying the printed this-turn duration (RIFT-261).
+ *   are not implemented. The waiver is authored as a cost.modify instruction
+ *   carrying the printed this-turn duration, but the cost primitive only
+ *   rewrites an already finalized plan and cannot grant Hide itself.
  * The return clause uses only merged structures and is executed by the golden
  * test.
  */
@@ -53,7 +54,7 @@ const guerillaWarfare = {
     "删掉它会把“任意两张垃圾场卡牌”写成事实（禁止近似）。(2)「You can hide cards ignoring costs this turn」改写 Hide 行动的费用" +
     "（811.1.b 的 [A]、422.1/422.2 的 Hide 定义、811.1.c.1 Hide≠Play），需要 hidden 费用/明置区机制与本回合期限的减费许可；" +
     "已合入的 Hidden KeywordDef 只声明 cost.hidden 占位并注明 Hide 行动、明置区、[A] 支付与次回合 Reaction 许可均未实现；" +
-    "本回合忽略 Hide 费用还需要未合入的 cost.modify 消费路径（RIFT-261）。返回半段（effect.zone → hand，355.7/355.13/417.1.b）已合入，由 golden 执行。",
+    "当前 cost.modify 只能改写已给出的 finalized 费用计划，不能授予 Hide 行动或本回合的 Hide 权限。返回半段（effect.zone → hand，355.7/355.13/417.1.b）已合入，由 golden 执行。",
   sourceText:
     "Return up to two cards with [Hidden] from your trash to your hand. " +
     "You can hide cards ignoring costs this turn.",
@@ -85,7 +86,7 @@ const guerillaWarfare = {
         {
           // "You can hide cards ignoring costs this turn" — an unmerged Hide
           // cost waiver with the printed end-of-turn duration (see
-          // judgeReason); no merged cost.modify instruction exists.
+          // judgeReason); Hide still needs its action and permission consumer.
           id: "hide-ignoring-costs",
           op: "cost.modify",
           args: {

@@ -51,7 +51,6 @@ test("Hidden Blade identity and judge-required status match the printing", () =>
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("811.1.d.2"), true);
-  assert.equal(program.judgeReason.includes("RIFT-84"), true);
   assert.equal(program.judgeReason.includes("cost.hidden"), true);
   assert.equal(
     program.sourceText,
@@ -146,17 +145,10 @@ test("Hidden Blade golden: a lost target ignores both instructions (359.3.e.14.a
 
 test.todo(
   "Hidden Blade: Hide for :rb_rune_rainbow: and the facedown reaction play (for " +
-    ":rb_energy_0:) need a consumer for Hidden's cost.hidden expansion (the keyword " +
-    "expansion itself merged as RIFT-84) plus the facedown zone, Hide action, and cost plan (RIFT-261)."
+    ":rb_energy_0:) need a consumer for Hidden's cost.hidden expansion plus the facedown zone, " +
+    "Hide action, and cost plan."
 );
-
 test.todo(
   "Hidden Blade: the 811.1.d.2 restriction that a facedown play must target the battlefield " +
     "the card was hidden at is enforced by Hidden's expansion consumer and the target system."
-);
-
-test.todo(
-  "Hidden Blade: Finalize-time target selection over { types: unit, location: { type: " +
-    "battlefield } } (355.3, pending-chain exclusion, became-target triggers) belongs to the " +
-    "target system (RIFT-90)."
 );
