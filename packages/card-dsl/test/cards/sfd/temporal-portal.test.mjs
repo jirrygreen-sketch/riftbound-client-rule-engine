@@ -120,3 +120,18 @@ test("sfd-078-221 Temporal Portal: the merged grant-keyword primitive really gra
   assert.equal(bound.continuousEffects[0].effect.effect.keyword, "Shield");
   assert.equal(bound.continuousEffects[0].effect.effect.keywordValue, 2);
 });
+
+test.todo(
+  "sfd-078-221 Temporal Portal: granting Repeat to the next spell needs a one-shot next-spell window and a binding " +
+    "from that pending spell to the granted instance"
+);
+
+test.todo(
+  "sfd-078-221 Temporal Portal: equal-to-its-cost needs the future spell's printed cost at Finalize to build the optional " +
+    "Repeat payment"
+);
+
+test.todo(
+  "sfd-078-221 Temporal Portal: the printed Universal Power rainbow symbol needs a cost representation beyond the six " +
+    "closed domain values"
+);

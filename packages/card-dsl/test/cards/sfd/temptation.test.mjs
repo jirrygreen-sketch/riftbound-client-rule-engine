@@ -160,3 +160,13 @@ test("sfd-129-221 Temptation golden: a stale target is ignored when the unit alr
   assert.equal(run.events.length, 0);
   assert.equal(kernel.getObject("enemy-unit").zone, "trash");
 });
+
+test.todo(
+  "sfd-129-221 Temptation: production Finalize must enumerate legal Locations and choose one containing another unit " +
+    "controlled by the moved unit's controller; the descriptive destination selector has no runtime consumer yet"
+);
+
+test.todo(
+  "sfd-129-221 Temptation: the optional Repeat additional cost must be collected at Finalize and drive one additional " +
+    "execution of the move effect when paid"
+);

@@ -58,7 +58,7 @@ test("sfd-090-221 The Zero Drive: identity, ruleset, status, judgeReason and ver
   // The judgeReason must name every real gap and the data note.
   assert.match(program.judgeReason, /Equip/);
   assert.match(program.judgeReason, /banish-as-cost/);
-  assert.match(program.judgeReason, /394/);
+  assert.match(program.judgeReason, /394.*398/);
   assert.match(program.judgeReason, /use-only-if-unattached|Use only if unattached/);
   assert.match(program.judgeReason, /Deathknell/);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -182,3 +182,13 @@ test("sfd-090-221 The Zero Drive: the merged program binding consumes the Gear's
   assert.equal(inspected.abilities.some((entry) => entry.kind === "activated"), true);
   assert.equal(inspected.abilities.some((entry) => entry.kind === "keyword"), true);
 });
+
+test.todo(
+  "sfd-090-221 The Zero Drive: production Linked Ability tracking must supply the units banished with this source to the " +
+    "all-units play pick, and each ignored-cost play must receive its finalized zero-cost plan"
+);
+
+test.todo(
+  "sfd-090-221 The Zero Drive: the declared Use only if unattached restriction must be consumed by activated-ability " +
+    "legality before the Banish-this cost is attempted"
+);

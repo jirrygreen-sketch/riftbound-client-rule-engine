@@ -113,3 +113,18 @@ test("sfd-059-221 Svellsongur: the Equip expansion declares its activation cost 
   const [activation] = keywordDefinitionsById.get("Equip").expand({ value: equip.value, host: { canonicalCardId: CARD_ID } });
   assert.deepEqual(activation.cost.payments.map((payment) => payment.kind), ["equip"]);
 });
+
+test("sfd-059-221 Svellsongur: copy text remains a keyword-owned attachment effect", () => {
+  // The printed copy sentence belongs to the attachment/copy layer. Keeping
+  // the card program to its Equip declaration prevents a fake card-local
+  // instruction from silently changing the Equipment's text.
+  assert.equal(program.abilities.length, 1);
+  assert.equal(program.abilities[0].kind, "keyword");
+  assert.equal(program.abilities[0].keyword, "equip");
+  assert.equal(program.status, "judge-required");
+});
+
+test.todo(
+  "sfd-059-221 Svellsongur: while-attached copy of the host unit's effect text needs the copy layer's effect-text " +
+    "consumer and attachment lifetime cleanup (CR 479.1/479.1.d)"
+);

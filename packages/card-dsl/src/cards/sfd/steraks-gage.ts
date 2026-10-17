@@ -21,8 +21,9 @@ import type { CardProgram } from "../../ir/index.js";
  * Equip 展开声明 `payments: [{ kind: "equip", … }]`，而
  * cost/plan-values.ts 的 readCost 对该支付种类当前直接 blocked，buildCostPlan
  * 抛出 CostPlanError（reason "judge-required"，message "Unsupported payment kind: equip"）。
- * Quick-Draw 的 card-played 附着触发与固有 Reaction 时机已经有程序绑定和链时机消费路径，
- * 不再把已合入的绑定或时机查询列为缺口。
+ * Quick-Draw 的 card-played 附着触发与 continuous.timing 展开已经存在；但初始打出路径的
+ * programs/play.ts 只从关键字名读取 abilitySpeed，没有把该静态 Reaction grant 转成打出速度。
+ * 因此这张牌从手牌打出时仍缺少 Reaction 时机的生产消费方。
  *
  * 印刷的 Equip 费用为 1 个 Calm 符文；契约 3.1 的 KeywordAbility 没有承载印刷费用组成
  * 的字段，本卡按现有契约只声明 keyword + value: 1，费用组成保留在注释与 judgeReason 中。
@@ -35,7 +36,8 @@ export default {
     "Equip 的启动费用无法在费用管线支付：Equip 展开声明 payments: [{ kind: \"equip\" }]，" +
     "cost/plan-values.ts 的 readCost 对该支付种类当前调用 blocked，实测 buildCostPlan 抛出 " +
     "CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）。" +
-    "Quick-Draw 的 card-played 附着触发与 Reaction 时机已经有程序绑定和链时机消费路径。" +
+    "Quick-Draw 的 card-played 附着触发与 continuous.timing 展开已经存在，但 programs/play.ts 的 " +
+    "abilitySpeed 只从关键字名读取打出速度，尚未把静态 Reaction grant 消费为初始打出时机。" +
     "印刷 Equip 费用为 1 个 Calm 符文；契约 3.1 的 KeywordAbility 没有承载印刷费用组成的字段，" +
     "故只以 value: 1 记录印刷符号数。不把 Equip 写成裸 effect.attach，也不手写 Quick-Draw 的附着逻辑。",
   abilities: [

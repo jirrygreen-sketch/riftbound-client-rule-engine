@@ -165,3 +165,8 @@ test("sfd-017-221 Sudden Storm golden: a stale battlefield target is ignored, no
   assert.equal(kernel.getObject("leaving-unit").damage, 0);
   assert.equal(kernel.getObject("leaving-unit").zone, "hand");
 });
+
+test.todo(
+  "sfd-017-221 Sudden Storm: the printed [Hidden] line still needs a production consumer that grants Hide, stores the " +
+    "card facedown, and permits its later facedown Reaction play"
+);

@@ -90,3 +90,8 @@ test("sunken-temple: the merged draw primitive executes the printed draw-1 for r
   assert.deepEqual(kernel.zone("A", "hand").map((ref) => ref.id), ["top-card"]);
   assert.equal(drawInstruction.linkedTo, "sunken-temple.pay");
 });
+
+test.todo(
+  "sunken-temple: production trigger matching must bind conquer's battlefieldId to the card's here anchor and count only " +
+    "the conquering Mighty units; the declared payload and Might thresholds still need those runtime selectors"
+);

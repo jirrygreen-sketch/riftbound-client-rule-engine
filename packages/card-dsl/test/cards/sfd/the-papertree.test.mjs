@@ -213,3 +213,17 @@ test("sfd-219-221: the hold timing point really reaches a registered trigger thr
   assert.equal(seen.length, 1);
   assert.equal(seen[0].event.details.battlefieldId, "battlefield-1");
 });
+
+test.todo(
+  "sfd-219-221: the hold trigger must bind details.battlefieldId to the card's here location before production " +
+    "trigger matching can execute it"
+);
+
+test.todo(
+  "sfd-219-221: each player channels 1 rune exhausted needs a player-set iteration that submits one channel action per " +
+    "seat rather than resolving the placeholder recipient"
+);
+
+test.todo(
+  "sfd-219-221: the reference channel-rune kernel still needs to record the 431.2 exhausted entry state"
+);

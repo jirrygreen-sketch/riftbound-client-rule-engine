@@ -190,3 +190,13 @@ test("sfd-145-221 Switcheroo golden: the merged target system locks exactly the 
   assert.equal(resolveTargetPlan(context, firstPlan).status, "resolved");
   assert.equal(resolveTargetPlan(context, secondPlan).status, "resolved");
 });
+
+test.todo(
+  "sfd-145-221 Switcheroo: production resolution still needs an atomic effect.swap-might consumer that preserves both " +
+    "Might values through end of turn after the two same-location targets are finalized"
+);
+
+test.todo(
+  "sfd-145-221 Switcheroo: the printed [Hidden] line still needs a consumer that grants Hide, stores the card facedown, " +
+    "and permits its later facedown Reaction play"
+);

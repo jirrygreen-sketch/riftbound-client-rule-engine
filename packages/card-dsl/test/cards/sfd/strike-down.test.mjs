@@ -215,3 +215,8 @@ test("Strike Down golden: a stale picked unit ignores the damage instead of gues
   assert.deepEqual(outcome.events, []);
   assert.deepEqual(kernel.events.map((event) => event.action), ["kill"]);
 });
+
+test.todo(
+  "Strike Down full play: production Finalize must fill the non-target pick for an equipped friendly unit and the " +
+    "linked detach pick; the current ObjectFilter and pick lifecycle do not provide that complete selection path"
+);

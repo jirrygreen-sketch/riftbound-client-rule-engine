@@ -12,6 +12,7 @@ const { runAbilityBody } = await import(new URL("effects/interpreter.js", ENGINE
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
 const { translateTriggerFilter } = await import(new URL("programs/filters.js", ENGINE));
 const { assertTriggerSpec } = await import(new URL("events/trigger-spec.js", ENGINE));
+const { expandProgram } = await import(new URL("programs/keywords.js", ENGINE));
 
 const CARD_ID = "card.hash-b9ee923133a3002010f175ddd77b690a710fa21bed8ffaefa29904a936c710ca";
 const EXPECTED_SOURCE =
@@ -71,6 +72,7 @@ test("sfd-056-221 Sterak's Gage: program validates and is judge-required", () =>
   assert.match(program.judgeReason, /equip/);
   assert.match(program.judgeReason, /CostPlanError|Unsupported payment kind/);
   assert.match(program.judgeReason, /Quick-Draw/);
+  assert.match(program.judgeReason, /abilitySpeed|Reaction grant/);
 });
 
 test("sfd-056-221 Sterak's Gage: identity, ruleset, status and verbatim source text", () => {
@@ -157,3 +159,25 @@ test("sfd-056-221 Sterak's Gage: Quick-Draw translates to a closed card-played t
   };
   assert.doesNotThrow(() => assertTriggerSpec(spec));
 });
+
+test("sfd-056-221 Sterak's Gage: Quick-Draw declares its Reaction timing grant", () => {
+  const source = {
+    cardId: CARD_ID,
+    keywords: [{ id: "Quick-Draw" }],
+    ref: { id: "steraks-gage", zoneEntryId: 1 }
+  };
+  const expanded = expandProgram(program, source);
+  const timing = expanded.abilities.find((ability) => ability.kind === "static");
+  assert.deepEqual(timing?.effect, {
+    kind: "continuous.timing",
+    value: { kind: "constant", value: "reaction" },
+    source: { canonicalCardId: CARD_ID },
+    scope: "source",
+    permissions: ["play", "attach"]
+  });
+});
+
+test.todo(
+  "sfd-056-221 Sterak's Gage: the printed Quick-Draw Reaction timing must be consumed by the production canAct path, " +
+    "including the static timing registration when the card is played"
+);
