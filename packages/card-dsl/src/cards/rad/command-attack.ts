@@ -78,6 +78,13 @@ import type { CardProgram } from "../../ir/index.js";
  * instruction's `locations` declaration; effect.move's own schema still only
  * accepts an already-resolved LocationRef, so the bridge is what makes this the
  * production path rather than a rejected marker.
+ *
+ * Candidate-source limitation (verified): target/location/candidates.ts's
+ * allRefs() only derives Battlefield locations from objects that already sit in
+ * one, plus the known players' Bases; no merged caller passes explicit
+ * LocationState. A Battlefield with no Unit on it therefore never appears as a
+ * choice — which is exactly the empty-Battlefield destination 355.4.a allows.
+ * The golden test asserts this boundary so the ability is not claimed complete.
  */
 const A_BATTLEFIELD = {
   kind: "choose",
@@ -93,6 +100,9 @@ const commandAttack = {
     "模式 1 的目标地点已按 RIFT-357 改写为运行期 Location 选择（Expr kind \"location\" 的 choose 形状，" +
     "filter { type: battlefield }，355.4 / 355.4.a），golden 用真实解释器 + 参考内核执行并断言实际位移，" +
     "不再使用被拒绝的描述性标记。当前真实缺口两处，均不近似实现：" +
+    "(0) 地点候选来源不完整：target/location/candidates.ts 的 allRefs() 只从「已有对象驻留的战场」与玩家 Base 派生候选，" +
+    "没有任何已合入调用方传入显式 LocationState，因此没有单位驻留的战场（355.4.a 允许的合法目的地）不会出现在选项里；" +
+    "golden 断言了该边界，不把候选不足当作整卡可执行。" +
     "(1)「with [Deploy]」没有可求值的过滤谓词：ObjectFilter 没有关键词字段，已合入查询也不读它（layers/filter.ts、" +
     "testing/test-kernel.ts），programs/filters.ts 的 translateObjectFilter 仍以 \"Unsupported filter field hasKeyword\" 拒绝该键，" +
     "因此目标限制无法求值（830.3；依赖 Deploy 特征过滤器契约）。" +

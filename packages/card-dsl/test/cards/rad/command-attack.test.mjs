@@ -398,6 +398,36 @@ test("rad-033-167 Command: Attack golden: a battlefield-less board offers no des
   assert.deepEqual(scoped.getObject("deploy-gear").location, { type: "base", player: "A" });
 });
 
+test("rad-033-167 Command: Attack: an empty Battlefield is not among the destination candidates", () => {
+  // 355.4.a allows moving to a Battlefield that has no Unit on it. The merged
+  // candidate source derives Battlefield locations only from objects already
+  // sitting in one (plus Bases), so an empty Battlefield never becomes an
+  // option — the ability cannot yet offer every legal destination.
+  const kernel = world()
+    .unit("deploy-gear", {
+      types: ["gear"],
+      zone: "board",
+      location: { type: "base", player: "A" }
+    })
+    .object("empty-battlefield", {
+      owner: "A",
+      controller: null,
+      types: ["battlefield"],
+      zone: "board",
+      location: null
+    })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("deploy-gear") });
+  scoped.setTargets("command-attack.friendly-deploy-gear", [kernel.ref("deploy-gear")]);
+  const bodyWithoutTargetSpec = moveMode.body.map(({ targets, ...rest }) => rest);
+
+  assert.throws(
+    () => resolveChainBody(bodyWithoutTargetSpec, scoped),
+    /Location choice has no options/
+  );
+  assert.deepEqual(scoped.getObject("deploy-gear").location, { type: "base", player: "A" });
+});
+
 test.todo(
   "rad-033-167 Command: Attack: the ordered top-5 range and mode/target Finalize lifecycle (RIFT-358) " +
     "are still not wired into the production chain; the golden supplies the ordered range the way " +
