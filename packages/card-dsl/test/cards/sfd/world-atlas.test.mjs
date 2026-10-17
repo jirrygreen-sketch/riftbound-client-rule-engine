@@ -63,8 +63,8 @@ test("sfd-086-221 World Atlas: program validates, is registered and stays judge-
   assert.equal(cardRegistryById.get(CARD_ID), program);
   // README section 2: the reason states the current gap (transfer + payment kind).
   assert.match(program.judgeReason, /params\.cost/);
-  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /kind:equip/);
+  assert.match(program.judgeReason, /Finalize/);
   assert.match(program.judgeReason, /818\.1/);
 });
 
@@ -115,8 +115,4 @@ test("sfd-086-221 World Atlas golden: the merged attach body really attaches the
   assert.equal(outcome.events[0].type, "task-resolved");
 });
 
-test.todo(
-  "sfd-086-221 World Atlas: paying the printed Equip cost (1 Mind rune, 818.1.c) needs the \"equip\" payment kind " +
-    "(RIFT-261 cost.pay/cost.modify) plus the KeywordDef params.cost transfer (contract 3.8.3; programs/keywords.ts " +
-    "still calls def.expand({ value, host }))."
-);
+test.todo("World Atlas: carry the printed Mind Equip CostSpec through KeywordAbility/params.cost and finalize the actual activation payment (818.1.c)");

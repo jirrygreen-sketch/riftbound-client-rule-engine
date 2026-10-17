@@ -1,62 +1,17 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Void Rush (sfd-188-221) — Spell, 2 energy + 1 Fury/Order power, Fury/Order,
- * tags Rek'Sai/Signature.
- *
- * Printed text:
- *   Reveal the top 2 cards of your Main Deck. You may play one of them,
- *   reducing its cost by :rb_energy_2:. Draw any you did not play this way.
- *
- * Modeling notes (Core Rules v1.5):
- * - "Reveal the top 2 cards of your Main Deck" is 425.3 ("Reveal 2 cards from
- *   the top of your Main Deck"); the cards remain in the Main Deck
- *   (425.1.a.2). The ordered deck-top slice must come from an ordered pick:
- *   effect.reveal's own zone+count path throws for any non-hand subset because
- *   query order is not deck order, and 432.1.c's "as much as possible" rule
- *   means an under-full deck still reveals what is there.
- * - "You may play one of them, reducing its cost by 2" is one optional
- *   decision (contract 3.9), so the card choice and the play live inside the
- *   choice body. The reduced cost has to arrive as an already-finalized cost
- *   plan: effect.play refuses to derive printed costs, and cost.modify /
- *   cost.pay are absent from the merged instruction registry (RIFT-261), so the
- *   play cannot be authorized today. The card carries a documented
- *   cost-plan placeholder naming the reduction instead of playing at full
- *   price, which would silently be a different card.
- * - "Draw any you did not play this way" moves the remaining revealed cards
- *   to hand (effect.zone with a non-target pick, 355.10.e: the cards are not
- *   targeted). Which cards remain is decided by what actually happened to the
- *   play, which needs the result-binding support (condition.result) that is
- *   not merged either.
- *
- * Status: judge-required. The gap list is unchanged in kind but narrower and
- * now verified against the merged code:
- * 1. the reduced-cost play needs cost.modify (RIFT-261, unmerged) plus a
- *    consumer that materializes a FinalizedCostPlan from the printed cost;
- * 2. the ordered deck-top pick has no Finalize lifecycle: the chain only locks
- *    instruction.targets (chain/engine.ts assertFinalizationSurface), and
- *    chain/interpreter-adapter.ts's LITERAL_FIELDS unwraps `target` for
- *    effect.reveal but not `pick`, so the card's own reveal instruction is
- *    rejected by the primitive schema ("effect.reveal: pick must be a non-empty
- *    id") before any card logic runs;
- * 3. "did not play this way" still needs result binding (359.3.e.14).
- * Nothing is approximated: the reveal/optional/linked structure is described but
- * the card never plays a revealed card at the wrong price.
+ * Void Rush — sfd-188-221 (CR v1.5 425.3, 356.4, 420.3, 414.1).
+ * Ordinary cost modifiers exist. Selected-card plan handoff, ordered picks and
+ * drawing the actual unplayed revealed objects remain blocked. The pending
+ * move-to-hand declaration below does not implement Draw and must not execute.
  */
 const voidRush = {
   canonicalCardId: "card.hash-cd92b45de0981074325a5119213251cd97706ab04339f5fe7339e69c8761258a",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处未合入的依赖（均为当前缺口，无过时描述）：" +
-    "(1)「You may play one of them, reducing its cost by :rb_energy_2:」缺减费与费用计划：CR v1.5 366.2 的印刷费用改写需要 cost.modify（RIFT-261 未合入，" +
-    "effects/instructions/registry.generated.ts 没有该 op），且必须由费用系统生成带改写费用的 FinalizedCostPlan（effect.play 明确不自行推导印刷费用；" +
-    "卡内保留记录减费意图的 cost-plan-request 占位，不以全价打出代替）。" +
-    "(2)「Reveal the top 2 cards of your Main Deck」的有序牌库顶 pick 没有 Finalize 生命周期：链的 Finalize 只锁定 instruction.targets" +
-    "（chain/engine.ts 的 assertFinalizationSurface），而 chain/interpreter-adapter.ts 的 LITERAL_FIELDS 只为 effect.reveal 解包 target、未解包 pick，" +
-    "卡声明的 pick 在到原语前即被参数校验拒绝（实测 “effect.reveal: pick must be a non-empty id”）。" +
-    "(3)「Draw any you did not play this way」中「未被以此法打出」的集合差需要 359.3.e.14 的结果绑定（condition.result 未注册）。" +
-    "依赖：cost.modify / 费用计划（RIFT-261）、有序区域 pick 的 Finalize 生命周期与链适配器 pick 解包、结果绑定。不近似实现。",
+    "(1) cost.modify 已支持普通 Energy 减费，但所选揭示牌的印刷 CostPlan、[2] 折扣到 effect.play/Finalize 的计划交接仍未绑定；当前 cost-plan-request 仅记录意图，不是可支付计划（356.4、420.3）。(2) 有序牌库顶 picks 依赖 RIFT-358，链适配器 LITERAL_FIELDS 仍未解包 effect.reveal.pick。(3) Draw any you did not play this way 必须对实际剩余揭示对象执行 Draw（414.1）；当前 draw-rest 的 effect.zone 只是不可执行草图，会产生 return-to-hand 而非 draw，effect.draw 的 pick 仅选抽牌者、不接受指定卡集合。需要已揭示对象集合的 Draw 接口；不能用固定抽 2、回手动作或不存在的 condition.result 近似。抽剩余牌独立于是否接受可选打出。",
   sourceText:
     "Reveal the top 2 cards of your Main Deck. You may play one of them, reducing its cost by :rb_energy_2:. Draw any you did not play this way.",
   abilities: [
@@ -105,8 +60,8 @@ const voidRush = {
                   args: {
                     pick: { kind: "constant", value: "void-rush.played-card" },
                     // Placeholder for the printed cost minus 2 energy; the
-                    // real plan must be materialized by cost.modify and the
-                    // cost system (see judgeReason).
+                    // real selected-card plan must reach the existing cost
+                    // system and effect.play (see judgeReason).
                     cost: {
                       kind: "constant",
                       value: {
@@ -131,12 +86,11 @@ const voidRush = {
           }
         },
         {
-          // "Draw any you did not play this way": the remaining revealed
-          // cards move to hand. Non-target pick (355.10.e); the set difference
-          // against what was actually played needs result binding.
+          // Pending Draw intent (414.1): effect.zone cannot emit Draw events.
+          // All actual remaining revealed refs must be drawn, even if play is
+          // declined. This block stays unreachable while judge-required.
           id: "void-rush.draw-rest",
           op: "effect.zone",
-          linkedTo: "void-rush.may-play",
           args: {
             pick: { kind: "constant", value: "void-rush.remaining" },
             to: { kind: "constant", value: "hand" },
@@ -148,7 +102,7 @@ const voidRush = {
               options: [{ kind: "linked-value", instructionId: "void-rush.reveal", key: "revealed" }],
               min: 0,
               max: 2,
-              selection: "up-to"
+              selection: "all"
             }
           ]
         }

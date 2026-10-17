@@ -1,21 +1,3 @@
-// Golden test for Xin Zhao, Vigilant (sfd-176-221).
-//
-// status = judge-required (see the program's judgeReason). Two gaps remain:
-//
-// 1. [Tank]'s KeywordDef is merged (RIFT-264) and expands to static
-//    continuous.combat, but no runtime consumer reads the assignment
-//    requirement (combat/base-combat-allocation.ts binds none).
-// 2. The merged replacement/ binder (RIFT-260) rewrites an entry through the
-//    synthetic enter declaration without evaluating ability.condition
-//    (replacement/bind.ts matchesEnterAction short-circuits before
-//    testCondition), so the "if you have two or more other units in your base"
-//    gate cannot open the rewrite. Running it would be an unconditional entry
-//    rewrite, which CR 364.3/369.3 does not support.
-//
-// The runnable evidence is therefore: the merged Tank expansion, the merged
-// effect.ready primitive executed with the card's real body, and the card's
-// condition predicate evaluated against the reference kernel. The entry-rewrite
-// gap and the wiring of the production registration path stay as test.todo.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -95,7 +77,7 @@ test("sfd-176-221 Xin Zhao, Vigilant: identity, ruleset, status, judgeReason and
   assert.match(program.judgeReason, /base-combat-allocation/);
   assert.match(program.judgeReason, /matchesEnterAction/);
   assert.match(program.judgeReason, /364\.3/);
-  assert.match(program.judgeReason, /effects\/keywords\/Tank\.ts，RIFT-264/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /exclude/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -218,22 +200,5 @@ test("sfd-176-221 Xin Zhao, Vigilant: the replacement body executes through the 
   assert.deepEqual(readyScoped.events, []);
 });
 
-test.todo(
-  "sfd-176-221 Xin Zhao, Vigilant: [Tank] (CR 815.1.b/815.1.c.1/.c.2) must force lethal damage into this " +
-    "unit before same-controller non-Tank units — the Tank KeywordDef is merged (RIFT-264) and expands to " +
-    "static continuous.combat, but no combat consumer reads it (combat/base-combat-allocation.ts binds no " +
-    "assignment priority; layers/engine.ts has no continuous.combat branch)"
-);
-test.todo(
-  "sfd-176-221 Xin Zhao, Vigilant: the entry rewrite must be gated on 'two or more other units in your base' " +
-    "(CR 364.3/369.3) — replacement/bind.ts matchesEnterAction returns true before testCondition, so the merged " +
-    "synthetic enter declaration would ready the unit unconditionally; the entry path needs the ability " +
-    "condition evaluated in the ability's context before the orientation is rewritten, with the exclude anchor " +
-    "bound to the entering incarnation (today it binds to the registration-time zone entry, so the entering unit " +
-    "would count itself toward 'two or more other units')"
-);
-test.todo(
-  "sfd-176-221 Xin Zhao, Vigilant: the CardProgram replacement registration path (RIFT-257 programs/ + lifecycle) " +
-    "must install this replacement in the production engine; the merged binder is exercised directly here because " +
-    "no production caller supplies a CardProgram static/replacement binder yet"
-);
+test.todo("Xin Zhao: consume Tank's continuous.combat priority during lethal-first combat damage assignment (815.1.b/c)");
+test.todo("Xin Zhao: evaluate ability.condition before entry-state replacement with exclude:self bound to the entering incarnation (364.3/369.3, RIFT-359)");

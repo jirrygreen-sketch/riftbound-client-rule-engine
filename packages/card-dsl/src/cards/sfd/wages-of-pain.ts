@@ -1,49 +1,16 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Wages of Pain — sfd-070-221 (Spell, Mind, Rumble SFD champion precon).
- *
- * Printed text:
- *   [Hidden] (Hide now for [A] to react with later for [0].)
- *   [Action] (Play on your turn or in showdowns.)
- *   Deal 3 to a unit at a battlefield. Play a Gold gear token exhausted.
- *
- * Modeling notes (Core Rules v1.5):
- * - [Hidden] (811) / [Action] (806) are keyword abilities expanded by the
- *   keyword registry (contract 3.7).
- * - "Deal 3 to a unit at a battlefield" is one targeted effect.damage
- *   instruction; the target filter pins the unit to a battlefield location
- *   (location.type "battlefield"). When this card is played from facedown,
- *   811.1.d.2 further restricts the target to the battlefield it was hidden
- *   at; that restriction is enforced by the target system at Finalize
- *   (RIFT-90), not by this data.
- * - "Play a Gold gear token exhausted." is NOT expressible with merged
- *   primitives, so this card stays judge-required:
- *   - effect.token (RIFT-63) resolves definition ids through its frozen table,
- *     which deliberately excludes a Gold gear token because CR 187.5 gives it
- *     its own printed ability "[Reaction][>] Kill this, [E]: [Add] [A]"; the
- *     primitive documents such definitions as blocked/judge-required and returns
- *     blockedReason "token-definition-or-abilities-judge-required".
- *   - "exhausted" is an entry stipulation (184.1 / 185.2.d), and the creation/play
- *     actions do not support entry overrides (143.4); a later effect.exhaust is
- *     not equivalent.
- *   The chain-create + play handoff itself is merged (RIFT-62), so the token half's
- *   remaining gap is the Gold definition plus the entry state.
- *   The damage half is fully described and executed by the golden test.
+ * Wages of Pain — sfd-070-221 (CR v1.5 811.1, 187.5, 184.1).
+ * Damage executes through effect.damage. The Gold definition/intrinsic ability,
+ * exhausted entry and complete Hidden play path still block the whole card.
  */
 const wagesOfPain = {
   canonicalCardId: "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    '"Play a Gold gear token exhausted." 仍无原语：CR 187.5 的 Gold gear token 自带印刷能力 “[Reaction][>] Kill this, [E]: [Add] [A]”，' +
-    "effect.token 的冻结定义表刻意排除带能力的 token，对该定义会以 negated + blockedReason " +
-    '"token-definition-or-abilities-judge-required" 拒绝；“exhausted”是入场状态规定（184.1/185.2.d），' +
-    "create-token/play 不支持入场改写（143.4，事后 effect.exhaust 不等价）。" +
-    "链上创建 + play 接手本身已合入（RIFT-62），因此该半段剩余缺口就是 Gold 定义与入场状态；" +
-    "「Deal 3 to a unit at a battlefield」半段用已合入的 effect.damage 表达（含目标失效 ignored 的边界），golden 真实执行。" +
-    "token 半段改用已合入的 effect.token 记录真实参数（token/amount/mode/location + entersExhausted），不再用不存在的占位 opcode；" +
-    "entersExhausted 会被原语 schema 明确拒绝（fail-closed），golden 记录该行为。依赖：Gold 定义（187.5）与入场状态改写（184.1/185.2.d）。不近似实现。",
+    "effect.token 的卡牌原语路径仍缺 CR 187.5 的 Gold 定义及内建 [Reaction][>] Kill this, [E]: [Add] [A] 能力；现有 token 创建/打出管线不能用普通无能力 Gear 代替。另缺 184.1/185.2.d 的 exhausted 入场状态覆盖（entersExhausted 尚非受支持参数，事后横置不等价），以及 163.2.b 的 Universal Power 资源来源。Hidden 的 cost.hidden 尚未接通 811.1.b 的 Hide、面朝下/下回合解锁、Reaction 免费打出和 811.1.d.2 的原战场目标限制。effect.damage 子效果已可真实执行；Gold 和 Hidden 不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },
