@@ -21,17 +21,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status = judge-required（缺口不近似实现）：
  * - 入场替代的绑定层已合入（RIFT-260 的 src/replacement/bind.ts 能消费卡牌 replacement 能力、
  *   识别 object-enters-board 的入场状态改写并把 effect.ready 规划成 ready action），golden 用真实
- *   bindReplacement 绑定该能力并驱动了入口改写；缺的是生产侧把 CardProgram 的 replacement 注册进
- *   管线的消费方（RIFT-257 的 programs/lifecycle 只在 attachProgramLifecycle 里做 binder 钩子，
- *   默认 noop，链/回合流程没有调用方）。
+ *   bindReplacement 绑定该能力并驱动了入口改写；programs/lifecycle（RIFT-257）也已用
+ *   createEngineStaticBinder（非 noop）在入场时把卡牌 replacement 经 bindReplacementAbility
+ *   注册；缺的是对局生产接线：createMatch / turn 流程只把 MatchPrograms 作为 opaque 依赖
+ *   携带（game/lifecycle.ts），没有调用方把 ProgramBinding attach 到链引擎。
  * - 条件 "If a unit died this turn" 仍不可诚实求值：卡内用 Condition 的 compare(count) 形状表达，
  *   但解释器求值 count 时执行的是 ctx.query(filter) 的**集合计数**（interpreter/expr.ts 忽略
- *   subject 字段），"units-died-this-turn" 会被当成在场单位集合，条件会静默判错；Condition 代数里
+ *   subject 字段），"units-died-this-turn" 会被当成在场单位集合，条件会静默判错（无死亡也判
+ *   真、就绪入场在错误时机发生）；Condition 代数里
  *   没有历史谓词形态（只有 condition.history 指令，且它只作指令求值，不能作为 replacement 的 condition）。
  *   契约 3.8 的 HistoryQuery.exclude/objectFilter 已在 interpreter/history.ts 落地，但那是指令侧通道，
  *   不能作为替代能力的门控。不近似实现：不把条件改成 always、不用事后 effect.ready。
  *
- * 依赖：RIFT-257（卡牌 replacement → 管线的生产注册）、替代条件的历史谓词求值。
+ * 依赖：RIFT-257（对局流程把 ProgramBinding attach 到链引擎的生产接线）、替代条件的历史谓词
+ * 求值、compare(designation) 门控求值。
  */
 const abilities: Ability[] = [
   // 807.1.b.3：省略数值 → Assault Value 1，不写 value 与写 value: 1 等价；
@@ -73,15 +76,17 @@ export default {
     "(1) 「I enter ready.」是入场替代效果（359.2.c / 369.3；805.6.a 说明不经过先横置再就绪的中间状态），" +
     "契约 3.1 的 replacement 形状与绑定层都已就绪（RIFT-260 的 src/replacement/bind.ts 识别 object-enters-board 的" +
     "入场状态改写并把 effect.ready 规划成 ready action，golden 用真实 bindReplacement 绑定该能力并驱动入口改写），" +
-    "缺的是生产侧把 CardProgram 的 replacement 注册进管线的消费方：RIFT-257 的 programs/lifecycle 只露出默认 noop 的" +
-    "binder 钩子，链/回合流程没有调用方；effect.ready 不能模拟入场替代。" +
+    "programs/lifecycle（RIFT-257）已用 createEngineStaticBinder（非 noop）在入场时把卡牌 replacement 经 bindReplacementAbility 注册，" +
+    "golden 也驱动了该绑定；缺的是对局生产接线：createMatch / turn 流程只把 MatchPrograms 作为 opaque 依赖携带（game/lifecycle.ts），" +
+    "没有调用方把 ProgramBinding attach 到链引擎；effect.ready 不能模拟入场替代。" +
     "(2) 条件「If a unit died this turn」不可诚实求值：卡内用 Condition 的 compare(count) 形状保留，但解释器对 count 的" +
     "求值走 ctx.query(filter) 的集合计数（interpreter/expr.ts 忽略 subject），\"units-died-this-turn\" 会被当成在场单位集合，" +
-    "条件会静默判错；replacement 的 condition 也接不到 condition.history 指令（它只在指令体里求值），Condition 代数没有" +
+    "条件会静默判错（无死亡也判真、就绪入场在错误时机发生）；replacement 的 condition 也接不到 condition.history 指令（它只在指令体里求值），Condition 代数没有" +
     "历史谓词形态，契约 3.8 的 HistoryQuery.exclude/objectFilter（interpreter/history.ts 已落地）不适用于替代门控。" +
-    "[Assault]（807.1.b.3 省略数值 = Assault Value 1）的 KeywordDef 已合入（RIFT-81），但同样缺卡牌→layers 的注册路径，" +
-    "且 807.1.d.1 的 designation 门控属 compare 条件、layers/engine.ts 不求值。" +
-    "依赖：RIFT-257（卡牌 replacement/static → 管线的生产注册）、替代条件的历史谓词求值与 layers 的 compare 求值。不近似实现。",
+    "[Assault]（807.1.b.3 省略数值 = Assault Value 1）的 KeywordDef 已合入（RIFT-81），expandProgram 也已把关键词展开的 static 能力接入 lifecycle 绑定；" +
+    "但 807.1.d.1 的 designation 门控是 compare 条件：programs/statics.ts 把它交给 evaluateCondition，object-property 求值对 designation 特征" +
+    "抛 MissingInformation、被 try/catch 吞成恒 false（fail-closed 无操作），+1 Might 从不生效；layers/engine.ts 的结构化 conditionMatches 也不求值 compare。" +
+    "依赖：RIFT-257（对局流程把 ProgramBinding attach 到链引擎的生产接线）、替代条件的历史谓词求值与 compare(designation) 门控求值。不近似实现。",
   abilities,
   sourceText:
     "[Assault] (+1 :rb_might: while I'm an attacker.)\n" +

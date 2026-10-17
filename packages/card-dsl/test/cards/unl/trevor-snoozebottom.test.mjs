@@ -52,7 +52,7 @@ test("unl-048-219 Trevor Snoozebottom: [Shield] is a declaration whose 814.1.b.3
 
 test("unl-048-219 Trevor Snoozebottom: 'When I hold' subscribes to the hold timing point for the source", () => {
   assert.equal(onHold.kind, "triggered");
-  assert.deepEqual(onHold.trigger, { at: "hold", filter: { event: "hold", filter: { source: "self" } } });
+  assert.deepEqual(onHold.trigger, { at: "hold", filter: { event: "held", filter: { source: "self" } } });
   assert.equal(onHold.optional, false);
   assert.equal(onHold.body.length, 1);
 });

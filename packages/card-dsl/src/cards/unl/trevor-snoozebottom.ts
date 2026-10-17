@@ -15,8 +15,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   814.2 多来源求和；814.3 是可读取特征。按契约 3.7 / README 第 5 节，卡文件只声明
  *   `{ kind: "keyword", keyword: "shield" }`，展开由 effects/keywords/Shield.ts 负责。
  * - “When I hold”：383.4.d 的 Hold Effect（383.4.d.1 的 “When I hold…” 写法；383.4.d.2 限定此类
- *   触发只属于固守时在场的那个单位，383.4.d.2.a 说明它作为 Pending Item 进链）；时点用封闭表的 hold
- *   （scoring/ 发射，ruleRefs 315.2.b.2 / 471.2 / 473.2.b），filter 以内层 source: "self" 指称本卡。
+ *   触发只属于固守时在场的那个单位，383.4.d.2.a 说明它作为 Pending Item 进链）；hold 时点由 Score wave
+ *   发出（ruleRefs 315.2.b.2 / 471.2 / 473.2.b），触发过滤用封闭 EVENT_PATTERN_TYPES 里的 "held"
+ *   （383.4.d.2.a；同 shen-scourge-of-shadows 的记录），filter 以内层 source: "self" 指称本卡。
  * - “play a ready 3 [M] Sprite unit token with [Temporary] here”：187.2 定义 3 [M] Sprite token——
  *   域外单位 token、3 Might、Fae 标签、带 Temporary 关键词；440.2.c / 185.2.a 规定被“打出”的 token
  *   先在链上生成再交给 play 动作，因此 effect.token 用 mode "play"（185.3.a：token 没有印刷费用，
@@ -52,7 +53,7 @@ const abilities: Ability[] = [
   { kind: "keyword", keyword: "shield" },
   {
     kind: "triggered",
-    trigger: { at: "hold", filter: { event: "hold", filter: { source: "self" } } },
+    trigger: { at: "hold", filter: { event: "held", filter: { source: "self" } } },
     optional: false,
     body: [
       {

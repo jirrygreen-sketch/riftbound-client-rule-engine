@@ -22,7 +22,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   计数器（702 / 703）是另一回事，不能近似（同 ogn/back-alley-bar、sfd/frigid-touch、
  *   unl/pridestalker 的记录）。
  *
- * status = judge-required（README 第 2 节），三处缺口，均不近似实现：
+ * status = judge-required（README 第 2 节），三处现状，其中一处不近似实现：
  * (1) 没有「命名标签」的选择原语：契约 3.1 / 3.9 的控制结构与已合入 op 集合里没有 name /
  *     choose-name 形状（调研 docs/plans/survey/ability-templates.md 把该句列为
  *     unmatched-functional-clause），因此程序用 op "choice.name" 记录意图——它是待合入 op，
@@ -31,10 +31,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *     eq / ne / lt / lte / gt / gte / in，无法把运行期命名的标签与对象的 tags 比较；若只写
  *     { type: "unit" } 会把「具有所命名标签」这一限制悄悄丢掉。程序里保留 namedTag: true 这一
  *     记录性键，它没有已合入消费方，仅用于可审查性。
- * (3) 临时 Might 修正没有可执行路径：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作
- *     （effect.buff 文件头明确本回合修正归 layers 的 continuous.might），effects/instructions/
- *     也没有 continuous.might 原语（RIFT-91 的图层消费方未接通）。
- * 整卡保持 judge-required；golden 只做校验、结构与 TODO，不执行任何近似结算。
+ * (3)「-2 :rb_might: this turn」的修正本体已可执行：continuous.might 原语（RIFT-91）把
+ *     本回合修正注册进 arithmetic 图层并在本回合结束清理时到期，golden 用真实解释器 +
+ *     图层引擎断言目标单位 Might 下降 2。整卡仍不可执行：没有命名标签的选择原语，目标上
+ *     的 namedTag 限制也没有消费方，golden 只能以 setTargets 预锁目标来覆盖已可执行的
+ *     修正半段。
  */
 const abilities: Ability[] = [
   {
@@ -64,7 +65,15 @@ const abilities: Ability[] = [
         args: {
           // 143.2.a / 315.4：本回合有效的 Might 修正，在清理步骤到期。
           amount: { kind: "constant", value: -2 },
-          duration: { kind: "constant", value: "end-of-turn" }
+          duration: { kind: "constant", value: "end-of-turn" },
+          // 355.10.d.2：目标消费走 instruction.targets 锁定（chain/engine.ts 的
+          // Finalize 目标计划 → ctx.targets("the-list.unit")）；objects 求值得到
+          // { kind: "target", id } 引用同一 TargetSpec（同 ogn/back-alley-bar 的
+          // executable 写法）。
+          objects: {
+            kind: "constant",
+            value: { kind: "target", id: "the-list.unit" }
+          }
         },
         targets: [
           {
@@ -88,16 +97,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 没有「命名标签」的选择原语：契约 3.1 / 3.9 的控制结构与已合入 op 集合里没有 name / choose-name 形状" +
+    "三处现状，其中一处不近似实现：(1) 没有「命名标签」的选择原语：契约 3.1 / 3.9 的控制结构与已合入 op 集合里没有 name / choose-name 形状" +
     "（docs/plans/survey/ability-templates.md 把「As you play this, name a tag.」列为 unmatched-functional-clause）；" +
     "程序里的 op choice.name 是记录意图的待合入 op，不是可执行指令（契约变更请求见任务回复）。" +
     "(2)「the named tag」没有可求值形态：ObjectFilter 是静态字段合取、Condition 只有 eq/ne/lt/lte/gt/gte/in，" +
     "无法把运行期命名的标签与对象 tags 比较；程序保留记录性键 namedTag: true（同 rad/sirens-song 记录 movedThisTurn 的写法），" +
     "它没有已合入消费方，只为可审查性存在，不把限制改写成别的谓词。" +
-    "(3)「-2 :rb_might: this turn」是临时 Might 修正：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，" +
-    "effect.buff 明确本回合修正归 layers 的 continuous.might（702 / 703 的 Buff 计数器不是本效果），" +
-    "而 effects/instructions/ 尚无 continuous.might 原语（RIFT-91 图层消费方未接通；315.4 的本回合到期同理）。" +
-    "整卡不执行任何近似结算，golden 只做校验、结构断言与 TODO。",
+    "(3)「-2 :rb_might: this turn」的修正本体已可执行（702 / 703 的 Buff 计数器不是本效果）：continuous.might 原语（RIFT-91）" +
+    "已把本回合修正注册进 arithmetic 图层并在本回合结束清理时到期，golden 用真实解释器与图层引擎断言目标单位 Might 下降 2。" +
+    "整卡仍不可执行：没有命名标签的选择原语，目标上的 namedTag 限制也没有消费方，" +
+    "golden 只能以 setTargets 预锁目标来覆盖已可执行的修正半段。",
   abilities,
   sourceText:
     "As you play this, name a tag. (For example, Miss Fortune, Demacia, and Poro are tags.)\n" +

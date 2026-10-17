@@ -4,6 +4,9 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/the-academy.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+import { validateEventPattern } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import repeatDefinition from "../../../../engine-core/dist/effects/keywords/Repeat.js";
 
 const CANONICAL =
   "card.hash-3c0bf04f347717e5a304a3188f6fa00eb657fea304747bef8f5c004ecf3679ab";
@@ -33,9 +36,9 @@ test("unl-216-219 The Academy: judgeReason names the one-shot window, base cost 
   assert.match(program.judgeReason, /one-shot|next spell/);
   assert.match(program.judgeReason, /204\.1\.a/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /registerContinuousEffect/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /FinalizedCostPlan/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -44,13 +47,13 @@ test("unl-216-219 The Academy: a hold trigger at this Battlefield for its contro
   assert.equal(ability.kind, "triggered");
   // 383.4.d / 471.2 / 473.2.b: a Hold Effect put on the chain when the
   // controller of the triggering source has held; 053.3 supplies "here" and
-  // 190.6.d makes "you" the Battlefield's controller. Sibling battlefield
-  // programs keep this placeholder spelling while the pipeline is unmerged.
+  // 190.6.d makes "you" the Battlefield's controller. "held" is the closed
+  // EVENT_PATTERN_TYPES spelling for the hold timing point and "self" is the
+  // accepted player selector; the here-binding is the remaining gap.
   assert.equal(ability.trigger.at, "hold");
   assert.deepEqual(ability.trigger.filter, {
-    event: "hold",
-    here: true,
-    player: "controller"
+    event: "held",
+    player: "self"
   });
   assert.equal(ability.trigger.once, undefined);
   assert.equal(ability.trigger.condition, undefined);
@@ -98,25 +101,51 @@ test("unl-216-219 The Academy: the card is not a Repeat spell itself", () => {
 });
 
 test("unl-216-219 The Academy: the merged Repeat definition is the printed optional additional cost", () => {
-  return import("../../../../engine-core/dist/effects/keywords/Repeat.js").then(
-    ({ default: repeat }) => {
-      assert.equal(repeat.keyword, "Repeat");
-      assert.equal(repeat.valued, false);
-      assert.equal(repeat.stacking, "separate");
-      assert.ok(repeat.ruleRefs.includes("820.1"));
-      assert.ok(repeat.ruleRefs.includes("820.1.a"));
-      assert.ok(repeat.ruleRefs.includes("820.1.c"));
-      // "equal to its base cost" is per-instance cost data of the spell that
-      // carries Repeat (820.1.c); the keyword definition is the single place
-      // that turns it into an ability, and no cost is invented here.
-      const expanded = repeat.expand({
-        host: { canonicalCardId: CANONICAL },
-        cost: { kind: "additional-cost", source: "base-cost-of-that-spell" }
-      });
-      assert.equal(expanded.length, 1);
-      assert.equal(expanded[0].kind, "static");
-      assert.equal(expanded[0].effect.kind, "repeat.cost");
-    }
+  // The merged KeywordDef is the single place that turns [Repeat] into the
+  // printed optional additional cost (820.1); the grant only names it.
+  assert.equal(repeatDefinition.keyword, "Repeat");
+  assert.equal(repeatDefinition.valued, false);
+  assert.equal(repeatDefinition.stacking, "separate");
+  assert.ok(repeatDefinition.ruleRefs.includes("820.1"));
+  assert.ok(repeatDefinition.ruleRefs.includes("820.1.a"));
+  assert.ok(repeatDefinition.ruleRefs.includes("820.1.c"));
+  // "equal to its base cost" is per-instance cost data of the spell that
+  // carries Repeat (820.1.c); the keyword definition is the single place
+  // that turns it into an ability, and no cost is invented here.
+  const expanded = repeatDefinition.expand({
+    host: { canonicalCardId: CANONICAL },
+    cost: { kind: "additional-cost", source: "base-cost-of-that-spell" }
+  });
+  assert.equal(expanded.length, 1);
+  assert.equal(expanded[0].kind, "static");
+  assert.equal(expanded[0].effect.kind, "repeat.cost");
+});
+
+
+test("unl-216-219 The Academy golden: the held pattern is a valid closed-vocabulary EventPattern", () => {
+  // turn/flow.ts emits the hold timing point from the Score wave; the card
+  // side must spell the event name with the closed EVENT_PATTERN_TYPES value.
+  const pattern = ability.trigger.filter;
+  const result = validateEventPattern(pattern);
+  assert.deepEqual(result.issues, []);
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+  assert.equal(pattern.event, "held");
+});
+
+test("unl-216-219 The Academy golden: trigger registration accepts this shape but still rejects the here field", () => {
+  // translateTriggerFilter accepts {event, player} and normalizes the player
+  // selector into a real EventPattern; the printed "here" referent (053.3) has
+  // no EventPattern field and is rejected fail-closed.
+  const translated = translateTriggerFilter(
+    ability.trigger.filter,
+    "the-academy-source"
+  );
+  assert.equal(translated.event, "held");
+  assert.equal(translated.player, "self");
+  assert.equal(translated.here, undefined);
+  assert.throws(
+    () => translateTriggerFilter({ ...ability.trigger.filter, here: true }, "the-academy-source"),
+    /Unsupported filter field here/
   );
 });
 

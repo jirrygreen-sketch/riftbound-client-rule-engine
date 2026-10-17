@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/trapping-grounds.js";
+import { validateEventPattern } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL_ID =
   "card.hash-7a01ecd3aa462214de6a41d9b27507498954ccd6e7095b6e731dbe742c275f90";
@@ -39,13 +41,13 @@ test("unl-217-219 Trapping Grounds: identity, status, judgeReason and verbatim s
 test("unl-217-219 Trapping Grounds: conquer trigger with the excess-damage clause as trigger condition", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "triggered");
-  // 383.4.c / 383.4.c.1: a Conquer Effect; "here" is this Battlefield (053.3)
-  // and "you" its controller (190.6.d).
+  // 383.4.c / 383.4.c.1: a Conquer Effect; the card-side filter uses the
+  // closed-vocabulary event name "conquered" (the conquer timing point itself is
+  // emitted by turn/flow.ts) and "you" is the Battlefield's controller (190.6.d).
   assert.equal(ability.trigger.at, "conquer");
   assert.deepEqual(ability.trigger.filter, {
-    event: "conquer",
-    here: true,
-    player: "controller"
+    event: "conquered",
+    player: "self"
   });
   // 383.2.a.1: the clause follows the trigger condition directly, so it belongs
   // to that condition; the "assigned excess damage" total is a combat-damage
@@ -86,6 +88,34 @@ test("unl-217-219 Trapping Grounds: one Bird token play with no fixed destinatio
   assert.equal(playBird.picks, undefined);
   assert.equal(playBird.linkedTo, undefined);
   assert.equal(playBird.condition, undefined);
+});
+
+
+test("unl-217-219 Trapping Grounds golden: the conquered pattern is a valid closed-vocabulary EventPattern", () => {
+  // turn/flow.ts emits the conquer timing point from the Score wave; the card
+  // side must spell the event name with the closed EVENT_PATTERN_TYPES value.
+  const pattern = ability.trigger.filter;
+  const result = validateEventPattern(pattern);
+  assert.deepEqual(result.issues, []);
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+  assert.equal(pattern.event, "conquered");
+});
+
+test("unl-217-219 Trapping Grounds golden: trigger registration accepts this shape but still rejects the here field", () => {
+  // translateTriggerFilter accepts {event, player} and normalizes the player
+  // selector into a real EventPattern; the printed "here" referent (053.3) has
+  // no EventPattern field and is rejected fail-closed.
+  const translated = translateTriggerFilter(
+    ability.trigger.filter,
+    "trapping-grounds-source"
+  );
+  assert.equal(translated.event, "conquered");
+  assert.equal(translated.player, "self");
+  assert.equal(translated.here, undefined);
+  assert.throws(
+    () => translateTriggerFilter({ ...ability.trigger.filter, here: true }, "trapping-grounds-source"),
+    /Unsupported filter field here/
+  );
 });
 
 test.todo(

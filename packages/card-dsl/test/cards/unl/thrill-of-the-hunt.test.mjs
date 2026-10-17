@@ -38,10 +38,13 @@ test("unl-184-219 Thrill of the Hunt: identity, status, judgeReason and verbatim
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   // The ignore-cost rule (356.1.b/.b.1, floor 356.6), effect.play's finalized
   // plan requirement and the runtime Location selector gap are named.
+  // RIFT-89 merged cost.modify + ignoreAllCosts, so the current gap is the
+  // producer path that freezes the plan for effect.play (judgeReason point 1).
   assert.match(program.judgeReason, /356\.1\.b\.1/);
   assert.match(program.judgeReason, /356\.6/);
   assert.match(program.judgeReason, /FinalizedCostPlan/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /ignoreAllCosts/);
+  assert.match(program.judgeReason, /finalized plan/);
   assert.match(program.judgeReason, /355\.4/);
   assert.match(program.judgeReason, /RIFT-90/);
 });
@@ -215,11 +218,11 @@ test("unl-184-219 Thrill of the Hunt golden: a banish that cannot happen leaves 
 });
 
 test.todo(
-  "unl-184-219 Thrill of the Hunt: materialize the ignore-cost plan (base Energy and base Power costs set to zero, CR 356.1.b.1, floor 0 per 356.6, keeping 356.1.b.3 additional costs) so the banished card can be played by its owner (RIFT-89)"
+  "unl-184-219 Thrill of the Hunt: materialize the ignore-cost plan (base Energy and base Power costs set to zero, CR 356.1.b.1, floor 0 per 356.6, keeping 356.1.b.3 additional costs) — cost.modify with ignoreAllCosts (CR 356.5) is merged, but no merged path freezes the card's descriptive plan into a finalized FinalizedCostPlan that effect.play accepts"
 );
 test.todo(
   "unl-184-219 Thrill of the Hunt: offer \"to any battlefield\" as a runtime Location choice other than the unit's current location (CR 355.4/355.4.a/451.1; target.location is unmerged - RIFT-90/RIFT-91)"
 );
 test.todo(
-  "unl-184-219 Thrill of the Hunt: enforce the printed [Reaction] Closed-State permission through the keyword registry and the chain's canAct (CR 813.1.c / 309.1.a; keyword expansion wiring - RIFT-84/RIFT-89)"
+  "unl-184-219 Thrill of the Hunt: enforce the printed [Reaction] Closed-State permission through the keyword registry and the chain's canAct (CR 813.1.c / 309.1.a) — the Reaction KeywordDef expands to continuous.timing, the layers rules query reads it and chain canAct consults it, but the match/turn flow never attaches the program lifecycle, so a production engine cannot consume the grant"
 );

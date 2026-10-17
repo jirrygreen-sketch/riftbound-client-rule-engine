@@ -9,8 +9,9 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * 规则依据（CR v1.5）：
  * - 383.4.c / 383.4.c.1 / 383.4.c.2.b：“When you conquer here” 是 Conquer Effect；
- *   时点用封闭表的 conquer（scoring/ 发出，ruleRefs 468.5.d / 471.1 / 473.2.a），
- *   190.6.d 的 “you” 是战场控制者。
+ *   conquer 时点由 turn/flow.ts 的 Score wave 发出（ruleRefs 468.5.d / 471.1 / 473.2.a），
+ *   触发过滤用封闭 EVENT_PATTERN_TYPES 里的 "conquered"；“here”=本源战场（053.3），
+ *   “you”=战场控制者（190.6.d）。
  * - 383.2.a.1：紧跟触发条件的 “if you assigned 3 or more excess damage” 属触发条件，
  *   在触发时求值；467.2.c 规定战斗伤害由玩家分配，467.2.c.1 明确 Assigning ≠ Dealing，
  *   467.2.c.4 定义“超出致命所需的分配量”。
@@ -35,7 +36,7 @@ import type { CardProgram } from "../../ir/index.js";
  *    "assigned 3+ excess damage" 的台账（467.2.c.1–c.4）没有暴露给 conquer 载荷或
  *    ResolveContext（契约 3.6 的 history 只按动作计数，不表达金额）。
  * 依赖：effect.token 定义表扩展（187.7 的 Bird）与关键词展开、target.location、
- * RIFT-31/RIFT-33 的 here 载荷与 RIFT-120/RIFT-257 的触发注册。
+ * here 与注册源的绑定（053.3）与触发注册调用方（RIFT-120/RIFT-257）。
  */
 export default {
   canonicalCardId: "card.hash-7a01ecd3aa462214de6a41d9b27507498954ccd6e7095b6e731dbe742c275f90",
@@ -47,10 +48,12 @@ export default {
     "(2) 「play a … token」按 440.2.c/185.2.a/350.2/354 需要链上创建 + 打出流程，且原文未写地点，目的地是 355.2/355.2.a 的默认合法地点选择" +
     "（控制者 Base 或该玩家控制的 Battlefield），而没有任何已合入 Expr 能产出该运行时地点集合（RIFT-9 的 target.location 未合入；复核实测 effect.token 以 " +
     "\"requires exactly one destination argument\" 拒绝缺目的地写法）；固定写一个地点会删掉印刷选项。" +
-    "(3) 触发侧：conquer 时点现已由 turn/flow.ts 的 Score wave 发出，但仍没有已合入订阅方把卡牌程序的 triggered ability 注册成触发（RIFT-120/RIFT-257），" +
-    "且 filter 里的 here: true 会被 programs/filters.ts 以 \"Unsupported filter field here\" 拒绝（053.3 的占位尚无消费方）；" +
-    "「if you assigned 3 or more excess damage」是紧随触发条件的从句（383.2.a.1），其数值来自 467.2.c 的伤害分配台账（467.2.c.1 的 Assigning ≠ Dealing、467.2.c.4 的超量定义），" +
-    "conquer 载荷与 ResolveContext 都没有该读数。依赖：effect.token 定义表扩展与关键词展开、target.location（RIFT-9）、here 载荷（RIFT-31/RIFT-33）与触发注册（RIFT-120/RIFT-257）。",
+    "(3) 触发侧：conquer 时点已由 turn/flow.ts 的 Score wave 发出，卡面过滤也已用封闭词表里的 \"conquered\" " +
+    "（validateEventPattern 接受该形状）；但注册该触发时（programs/filters.ts 的 translateTriggerFilter）" +
+    "无法表达 053.3 的 \"here\"=本源战场——EventPattern 没有 here 字段，而 conquer 载荷只有 player/battlefieldId，" +
+    "没有把事件与注册源关联起来的通路；对局生产路径也没有把战场卡注册成触发的调用方（RIFT-120/RIFT-257）。" +
+    "「if you assigned 3 or more excess damage」是紧随触发条件的从句（383.2.a.1），其数值来自 467.2.c 的伤害分配台账" +
+    "（467.2.c.1 的 Assigning ≠ Dealing、467.2.c.4 的超量定义），依赖：effect.token 定义表扩展与关键词展开、target.location（RIFT-9）、here 载荷（RIFT-31/RIFT-33）与触发注册（RIFT-120/RIFT-257）。",
   sourceText:
     "When you conquer here, if you assigned 3 or more excess damage, play a 1 :rb_might: Bird unit token with [Deflect].",
   abilities: [
@@ -58,9 +61,10 @@ export default {
       kind: "triggered",
       trigger: {
         at: "conquer",
-        // “here” 是本源战场，“you” 是战场控制者（053.3、190.6.d）；here 占位键
-        // 等待 scoring 载荷（见 judgeReason）。
-        filter: { event: "conquer", here: true, player: "controller" },
+        // 383.4.d.2.a 的同一性锚点：EventPattern 没有 here 字段；“here”=本源
+        // 战场，触发注册须把它绑定到注册源的 battlefieldId（053.3），消费方缺失（见 judgeReason）。
+        // "conquered" 是 EVENT_PATTERN_TYPES 中对应 conquer 时点的枚举值。
+        filter: { event: "conquered", player: "self" },
         // 383.2.a.1：紧跟触发条件的 “if you assigned 3 or more excess damage” 是
         // 触发条件的一部分；count 表达式是保留形状（合并 IR 没有伤害分配金额维度）。
         condition: {

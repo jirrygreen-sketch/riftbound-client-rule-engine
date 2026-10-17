@@ -29,14 +29,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 1. effect.token 的冻结定义表只有 recruit / sand-soldier / mech / reflection /
  *    tentacle（effect.token.ts 的 DEFINITIONS），没有 187.7 的 bird 定义，
  *    因此 token 定义必须由令牌批次补齐；不拿 Mech 等近似。
- * 2. mode "play" 的链上生成 + 打出流程在冻结内核里被显式 block；本卡声明的
- *    bird 定义与 mode 只作为可审查形状。
+ * 2. mode "play" 已合入：effect.token 在链上生成 token 后接打出流程（见
+ *    effect.token.ts 的 play 分支）；本卡剩下的是 bird 定义与合法位置。
  * 3. 打出位置：355.2 / 355.2.a 的合法位置由 Finalize 决定，而 effect.token 的
  *    location/locations 只接受调用方给出的闭集合（没有"按 355.2.a 求值默认
  *    合法位置"的通路），这里的 locations 占位符不能解析成位置，保持 fail-closed。
  *
- * 依赖：RIFT-62（链上 token 创建与打出）、effect.token 定义表扩展（187.7 的
- * Bird token）、RIFT-90（位置合法性与 Finalize）与 RIFT-89（费用计划接线）。
+ * 依赖：effect.token 定义表扩展（187.7 的 Bird token）、RIFT-90（位置合法性与
+ * Finalize）与 RIFT-90/120（battlefield-only restriction 校验）；费用计划已合入。
  */
 const abilities: Ability[] = [
   {
@@ -54,7 +54,8 @@ const abilities: Ability[] = [
           // [Deflect]；冻结定义表尚无该条目（见 judgeReason）。
           token: { kind: "constant", value: "bird" },
           amount: { kind: "constant", value: 2 },
-          // 185.2.a / 440.2.c："Play … token" 先在链上生成再打出。
+          // 185.2.a / 440.2.c："Play … token" 先在链上生成再打出；mode "play"
+          // 的该通路在 effect.token 中已合入。
           mode: { kind: "constant", value: "play" },
           // 355.2 的合法位置由 Finalize 决定；这个条目是"由打出流程给出合法位置"
           // 的占位记录，不是合法 LocationRef，原语会 negated（fail-closed），
@@ -73,16 +74,16 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) effect.token 的冻结定义表（effect.token.ts 的 DEFINITIONS：recruit / sand-soldier / " +
+    "两处缺口：(1) effect.token 的冻结定义表（effect.token.ts 的 DEFINITIONS：recruit / sand-soldier / " +
     "mech / reflection / tentacle）没有 187.7 的 1 [M] Bird token（无域单位 token、1 Might、Bird 标签、带 [Deflect]），" +
     "本卡声明的 token id bird 无法解析，原语按契约 negated 并写 blockedReason，不拿 Mech 等既有定义近似。" +
-    "(2) mode play 的链上生成 + 打出（185.2.a / 440.2.c / 350.2 / 354）在冻结内核里被显式 block（RIFT-62 已记录）。" +
-    "(3) 打出位置：355.2 / 355.2.a 规定单位打出的合法位置（Base 或己方战场等）在 Finalize 由玩家选择，" +
+    "(2) 打出位置：355.2 / 355.2.a 规定单位打出的合法位置（Base 或己方战场等）在 Finalize 由玩家选择，" +
     "而 effect.token 的 location/locations 只接受调用方给出的闭集合，没有「按默认合法位置求值」的通路；" +
     "本卡的 locations 占位符不能解析成位置，保持 fail-closed，不把 Base 或来源所在地当作印刷位置。" +
     "另：「Use this ability only while I'm at a battlefield」的 restriction 形状已声明，Finalize 的位置许可校验属链/目标批次。" +
-    "已可执行部分：:rb_exhaust: 自身的费用（415.5）由已合入的费用管线真实支付，golden 覆盖。" +
-    "依赖：RIFT-62、effect.token 定义表扩展（187.7）、RIFT-90（位置合法性）、RIFT-89（费用接线）。",
+    "已可执行部分：:rb_exhaust: 自身的费用（415.5）由已合入的费用管线真实支付，golden 覆盖；" +
+    "mode \"play\" 的链上生成 + 打出（185.2.a / 440.2.c / 350.2 / 354）也已合入。" +
+    "依赖：effect.token 定义表扩展（187.7）、RIFT-90（位置合法性）与 RIFT-90/120（restriction 校验）。",
   abilities,
   sourceText:
     ":rb_exhaust:: Play two :rb_energy_1: :rb_might: Bird unit tokens with [Deflect]. " +

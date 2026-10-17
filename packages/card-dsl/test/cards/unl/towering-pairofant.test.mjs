@@ -126,13 +126,14 @@ test("unl-008-219 Towering Pairofant: the generated card registry exposes the pr
 
 test.todo(
   "unl-008-219 Towering Pairofant: apply Assault's default +1 Might exactly while the unit holds the Attacker designation " +
-    "(CR 807.1.b.3 / 807.1.c / 807.1.d.1) — the KeywordDef is merged (RIFT-81), but no card/keyword-to-layers registration " +
-    "path exists and layers/engine.ts conditionMatches does not evaluate the compare(designation) gate (RIFT-91 follow-up / RIFT-257)"
+    "(CR 807.1.b.3 / 807.1.c / 807.1.d.1) — the KeywordDef (RIFT-81) and the lifecycle static binder (RIFT-257) are merged, " +
+    "but the compare(designation) gate is silently false: evaluateCondition throws MissingInformation on the designation " +
+    "characteristic and bindStaticToLayers swallows it, so the +1 never applies"
 );
 
 test.todo(
   "unl-008-219 Towering Pairofant: register 'If a unit died this turn, I enter ready' as a board-entry replacement " +
-    "(CR 143.4 / 359.2.c / 369.3) with the this-turn death-history condition — the RIFT-260 binder consumes the entry " +
-    "rewrite, but production still needs the card-replacement registration consumer (RIFT-257), and the condition needs a " +
-    "history predicate form for replacement conditions (compare(count) silently counts the live board instead)"
+    "(CR 143.4 / 359.2.c / 369.3) — the RIFT-260 binder consumes the entry rewrite and the lifecycle registers it, " +
+    "but the condition needs a history predicate: compare(count) silently counts the live board (expr.ts ignores the " +
+    "subject), so entering ready would fire without any death this turn, and the match flow never attaches the binding"
 );
