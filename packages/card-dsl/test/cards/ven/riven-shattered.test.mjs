@@ -1,3 +1,7 @@
+// RIFT-664 template execution evidence (trigger -> damage resolution for
+// 2 x attached Equipment, no-equipment / no-legal-target boundaries) is in
+// ../templates/keyword-triggered-attack-declared-effect-664.test.mjs. This
+// card stays judge-required for the printed gaps asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -122,6 +126,8 @@ test("ven-041-166 Riven, Shattered: 'When I attack' is an Attack Trigger scoped 
     event: "attack-declared",
     filter: { source: "self" }
   });
+  // 383.4.e.2.a: the condition is checked only once per combat.
+  assert.equal(ability.trigger.once, "per-combat");
   assert.equal(ability.optional, false);
 });
 
