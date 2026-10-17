@@ -11,9 +11,10 @@ const trifarianGloryseeker = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Legion]（CR 812.1.b.1/812.1.c）的本回合另一张已 Finalized 牌条件仍缺触发时求值：count 表达式只数当前对象，condition.history 是结算期指令；Legion 展开 condition.predicate 的 history.excluding 也未接入静态谓词消费。依赖条件谓词 RIFT-359。" +
+    "[Legion]（CR 812.1.b.1/812.1.c）的本回合另一张已 Finalized 牌条件仍缺触发时求值：count 表达式只数当前对象，condition.history 是结算期指令；Legion 展开的 condition.predicate 无 statics.layerFor 图层映射，触发时谓词消费仍未接入（RIFT-359）。" +
+    "契约 §3.8 与 condition.history 已支持 exclude: 'self'，能排除本卡对象并保留相同 canonicalCardId 的另一张牌；Legion 展开的 history.excluding 是过时字段，需要改用现有 exclude 选择器，不需要新增按 canonicalCardId 排除的契约。" +
     "「buff me」属于非目标自身选择（355.10.d.1），effect.buff 目前仅收 TargetSpec id；现有 self-unit TargetSpec 只能保留为受阻描述，不能通过 Finalize 冒充非目标选择，否则会错误产生 became-target。" +
-    "CardProgram 触发注册与 self 锚点归一化已合入；但生产触发绑定先经 programs/filters.translateObjectFilter，Legion 展开 condition.predicate 无 statics.layerFor 图层映射会被拒绝，history.excluding 也不在 condition.history 允许键中（HistoryQuery 契约级缺口），且 body TargetSpec 的 object:'self' 键被 translateObjectFilter 拒绝；仍需 Legion 条件的历史/身份排除绑定和 effect.buff 的非目标自身选择。",
+    "CardProgram 触发注册与 self 锚点归一化已合入，但 body TargetSpec 的 object:'self' 键仍被 programs/filters.translateObjectFilter 拒绝；需修正关键词展开、接入触发时历史谓词，并支持 effect.buff 的非目标自身选择。",
   abilities: [
     { kind: "keyword", keyword: "legion" },
     {
