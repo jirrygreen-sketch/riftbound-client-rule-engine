@@ -102,7 +102,7 @@ test.todo(
 );
 
 test.todo(
-  "rad-075-167 Skystrike Squadron: [Deflect 1] target tax as any-Domain Power — the expansion is registered " +
-    "through programs/statics.ts, but finalize converts the collected TargetTaxRequest into a mandatoryAdditional " +
-    "{ energy: amount } constant (809.1.c.1)"
+  "rad-075-167 Skystrike Squadron: [Deflect 1] target tax as any-Domain Power — the KeywordDef produces " +
+    "target.tax, but production statics binding fails because layerFor has no target.tax mapping; after that " +
+    "mapping exists, finalize must preserve Power instead of writing mandatoryAdditional { energy: amount } (809.1.c.1)"
 );
