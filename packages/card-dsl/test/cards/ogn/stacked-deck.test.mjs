@@ -128,6 +128,34 @@ test("ogn-183-298 Stacked Deck golden: the kept card goes to hand and the other 
   }
 });
 
+test("ogn-183-298 Stacked Deck golden: the top scope refuses to guess deck order without an ordered source", () => {
+  // A set query does not carry zone order: without the ordered pick set the
+  // look range is empty (nothing is looked at), the put-1 has nothing to pick
+  // from, and the recycle has nothing to recycle. The deck is never reordered
+  // by a guessed slice.
+  const kernel = deckedKernel();
+  const outcome = resolveChainBody(play.body, kernel);
+
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason ?? null]),
+    [
+      ["stacked-deck.bind-controller", "executed", null],
+      ["stacked-deck.look", "executed", null],
+      ["stacked-deck.put-into-hand", "ignored", "mistargeted"],
+      ["stacked-deck.recycle-rest", "executed", null]
+    ]
+  );
+  assert.equal(outcome.linkedValues["stacked-deck.look.viewedCount"], 0);
+  assert.deepEqual(outcome.linkedValues["stacked-deck.look.viewed"], []);
+  assert.equal(outcome.linkedValues["stacked-deck.recycle-rest.recycledCount"], 0);
+  assert.equal(outcome.events.length, 0);
+  assert.deepEqual(kernel.objectsInZone("A", "hand"), []);
+  assert.deepEqual(
+    kernel.objectsInZone("A", "deck").map((ref) => ref.id),
+    ["top-card", "middle-card", "bottom-card", "fourth-card"]
+  );
+});
+
 test.todo(
   "ogn-183-298 Stacked Deck: the ordered 'top 3 of your Main Deck' pick set (face-down cards " +
     "looked at privately, then one to hand) must be provisioned by the production Finalize/AwaitChoice " +
