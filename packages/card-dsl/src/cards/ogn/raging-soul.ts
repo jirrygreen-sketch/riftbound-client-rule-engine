@@ -52,7 +52,7 @@ const ragingSoul = {
   judgeReason:
     "『If you've discarded a card this turn, I have [Assault] and [Ganking]』（复核 2026-10-17）：" +
     "continuous.grant-keyword 指令、Assault/Ganking 的 KeywordDef 与卡牌 static 绑定" +
-    "（programs/statics.ts 的 bindStaticToLayers）均已合入，golden 用真实 binder + 图层引擎注册两条 static；" +
+    "（programs/statics.ts 的 bindStaticToLayers）均已合入，RIFT-675 模板 golden 用 runCardScenario 走真实打出链并断言宿主获得两个关键词；" +
     "整卡仍不可执行的三处：(1) 条件历史查询未接通——compare + count 的 count 是对当前对象集合的现场查询，" +
     "filter 里的相对玩家占位符在集合查询中无锚点，实测没有弃牌的回合也会数到宿主自身并判为真，两个关键词被错误授予；" +
     "需要把 count/HistoryQuery 落到 ctx.history({ scope: \"turn\", action: \"discard\" }) 的条件消费方；" +

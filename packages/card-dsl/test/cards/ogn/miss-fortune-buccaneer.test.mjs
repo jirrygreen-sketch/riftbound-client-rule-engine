@@ -1,38 +1,19 @@
-// RIFT-651 template execution evidence (pending open-battlefield permission
-// binding and Finalize consumption): packages/card-dsl/test/cards/templates/static-static-651.test.mjs
+// Golden test for Miss Fortune, Buccaneer (ogn-193-298).
+//
+// Execution evidence (the real printed-cost plays, the open-battlefield
+// placement, the unpayable-cost boundary and the fail-closed
+// play-location-permission bind) lives in the RIFT-675 parameterized template
+// golden: test/cards/templates/static-static-675.test.mjs.
+// This file keeps validation, identity, verbatim text, declared status and the
+// key structure of both permissions.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/miss-fortune-buccaneer.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
-import { playLocations } from "../../../../engine-core/dist/layers/rules/query.js";
-import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
-import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const BUCCANEER_ID = "card.hash-713732fef292fb529d388efbec2020949fdfaeca0c39e3afeb5ed43119a7f3e5";
-
-/** A real chain engine so the production static binder runs. */
-function engineFor() {
-  const kernel = world()
-    .player("A", { energy: 20 })
-    .player("B", { energy: 20 })
-    .hand("buccaneer", { cardId: BUCCANEER_ID, owner: "A", controller: "A", types: ["unit"], energy: 4, power: [] })
-    .build();
-  const host = createActionPipelineHost({
-    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
-    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
-    objects: () => kernel.objects,
-    perform: action => kernel.perform(action),
-    choose: request => { throw new Error(`Unexpected choice: ${request.id}`); },
-    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
-    testTrigger: registration => kernel.test(registration.spec.condition)
-  });
-  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
-  return { engine, kernel };
-}
 
 const CANONICAL = "card.hash-713732fef292fb529d388efbec2020949fdfaeca0c39e3afeb5ed43119a7f3e5";
 const SOURCE_TEXT =
@@ -40,10 +21,11 @@ const SOURCE_TEXT =
 
 const [playSelf, friendlyUnits] = program.abilities;
 
-test("miss-fortune-buccaneer: passes validateCardProgram", () => {
+test("ogn-193-298 Miss Fortune, Buccaneer: passes validateCardProgram and is registered", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
   assert.deepEqual(result.issues, []);
+  assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
 test("miss-fortune-buccaneer: identity, ruleset, status, judgeReason and sourceText", () => {
@@ -57,65 +39,6 @@ test("miss-fortune-buccaneer: identity, ruleset, status, judgeReason and sourceT
   assert.match(program.judgeReason, /layerFor|playDestinationIsLegal/);
   assert.match(program.judgeReason, /open battlefield/);
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.equal(cardRegistryById.get(CANONICAL), program);
-});
-
-test("miss-fortune-buccaneer: both play-location permissions are still unmappable in the layer binder", () => {
-  const { engine, kernel } = engineFor();
-  const source = kernel.getObject("buccaneer");
-  for (const ability of program.abilities) {
-    const error = (() => {
-      try {
-        createEngineStaticBinder(engine).bindStatic(ability, source);
-        return null;
-      } catch (thrown) {
-        return thrown;
-      }
-    })();
-    assert.ok(error, "the merged layer binder must still refuse play-location-permission");
-    assert.equal(error.code, "judge-required");
-    assert.match(error.message, /play-location-permission has no layer mapping/);
-  }
-  assert.deepEqual(engine.layers.registry.list(), []);
-});
-
-test("miss-fortune-buccaneer: playLocations only carries the named permission, never the open-battlefield value", () => {
-  // The consumable-looking continuous.location shape is ALSO unmappable: the
-  // merged layerFor has no location branch, so a rewritten declaration is
-  // refused exactly like the card's declared kind.
-  const { engine, kernel } = engineFor();
-  const source = kernel.getObject("buccaneer");
-  const planned = {
-    ...program.abilities[0],
-    effect: { kind: "continuous.location", permission: "open-battlefield", appliesTo: "self" }
-  };
-  const error = (() => {
-    try {
-      createEngineStaticBinder(engine).bindStatic(planned, source);
-      return null;
-    } catch (thrown) {
-      return thrown;
-    }
-  })();
-  assert.ok(error);
-  assert.equal(error.code, "judge-required");
-  assert.match(error.message, /continuous\.location has no layer mapping/);
-  assert.deepEqual(engine.layers.registry.list(), []);
-
-  // And the query itself only exposes permission names, so even a manual
-  // registration cannot supply the 170.11.c open-battlefield predicate to
-  // playDestinationIsLegal.
-  engine.layers.registry.register({
-    id: "probe-location",
-    layer: "ability",
-    source: source.ref,
-    filter: { objectId: "buccaneer" },
-    effect: { kind: "location", permission: "open-battlefield" }
-  }, { type: "permanent" }, 1);
-  const view = playLocations(engine.layers.registry, source.ref, source, "A");
-  assert.deepEqual(view.permissions.map(permission => permission.name), ["open-battlefield"]);
-  assert.equal("occupied" in engine.layers.registry.list()[0].effect.effect, false);
-  assert.equal("controlled" in engine.layers.registry.list()[0].effect.effect, false);
 });
 
 test("miss-fortune-buccaneer: two static play-location permissions", () => {
@@ -158,11 +81,10 @@ test("miss-fortune-buccaneer: 'open battlefield' means unoccupied and uncontroll
 });
 
 test.todo(
-  "miss-fortune-buccaneer: map play-location-permission to a continuous.location registration and " +
-    "consume its open-battlefield value during Finalize"
+  "ogn-193-298 Miss Fortune, Buccaneer: map play-location-permission to a static layer registration and " +
+    "consume its open-battlefield value (170.11.c: unoccupied and uncontrolled) during Finalize"
 );
-
 test.todo(
-  "miss-fortune-buccaneer: verify an open battlefield (CR 170.11.c: unoccupied and uncontrolled) " +
-    "is accepted while an occupied or controlled battlefield stays illegal"
+  "ogn-193-298 Miss Fortune, Buccaneer: bind the friendly-units permission scope so the controller's units " +
+    "may be played to open battlefields (355.2.b)"
 );

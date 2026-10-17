@@ -45,7 +45,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺 Empower 印刷费用与状态契约接线：Empower KeywordDef 已注册且接受 params.cost，但 KeywordAbility / programs/keywords.ts 未传递 827.1.c.1 的 6 Energy + 1 Fury Power，旧 value/costDomain 不是展开器的费用输入。828.1.c 的互斥分支已改用 self.empowered >= 1 及其否定；static → continuous.might 已绑定，参考内核可验证未 Empowered +1、Empowered +2 instead，不再使用恒真的字符串。ObjectSnapshot 仍未声明 empowered，生产状态来源和 442.1 的重复 Empower 限制需统一。保留 judge-required，不近似实现。",
+    "仍缺 Empower 印刷费用与状态契约接线：Empower KeywordDef 已注册且接受 params.cost，但 KeywordAbility / programs/keywords.ts 未传递 827.1.c.1 的 6 Energy + 1 Fury Power，旧 value/costDomain 不是展开器的费用输入（RIFT-675 模板 golden 实测：activate 直接抛 Unsupported cost kind empower）。" +
+    "828.1.c 的互斥分支已改用 self.empowered >= 1 及其否定；static → continuous.might 已绑定，RIFT-675 模板 golden 用真实 Empower/Disempower 动作验证未 Empowered +1、Empowered +2 instead、Disempower 回到 +1，不再使用恒真的字符串。" +
+    "ObjectSnapshot 仍未声明 empowered，生产状态来源和 442.1 的重复 Empower 限制需统一。保留 judge-required，不近似实现。",
   abilities: [
     empower,
     {
