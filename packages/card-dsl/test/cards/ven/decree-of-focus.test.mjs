@@ -1,3 +1,6 @@
+import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -26,14 +29,7 @@ test("ven-040-166 Decree of Focus: program passes validateCardProgram with the c
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("ven-040-166 Decree of Focus: judgeReason names the temporary-Might gap and both target-legality gaps", () => {
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /740\.2\.c/);
-  assert.match(program.judgeReason, /combatRole/);
-  assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /targetRestriction/);
+test("ven-040-166 Decree of Focus: judgeReason names the remaining compound target restriction", () => {
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -112,14 +108,39 @@ test("ven-040-166 Decree of Focus: the descriptive clause stays out of every rea
   assert.equal(typeof unitTarget.filter.targetRestriction, "string");
 });
 
-test.todo(
-  "ven-040-166 Decree of Focus: 'Give it +4 :rb_might: this turn' needs the continuous.might layers " +
-    "consumer with an end-of-turn duration (317.2.c) — RIFT-91 (layers/continuous.might)"
-);
 
-test.todo(
-  "ven-040-166 Decree of Focus: 'a friendly unit that's in combat with an enemy Fury unit or that's " +
-    "being chosen by an enemy Fury spell' needs the 740.2.c combat designation (contract 3.8 " +
-    "combatRole), an enemy-plus-domain location predicate, and chain-item target-plan reads " +
-    "(355.x being chosen, contract 3.8.4) — RIFT-90 / RIFT-91"
-);
+
+test("decree-of-focus: the review records the current blockers", () => {
+  assert.match(program.judgeReason, /740\.2\.c/);
+  assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /RIFT-359/);
+});
+
+test.todo("decree-of-focus: 740.2.c/355.9: test enemy Fury combat relation OR enemy Fury spell target plan (RIFT-359)");
+
+test("decree-of-focus supported effect: temporary Might changes through the real primitive and expires", () => {
+  const kernel = world().unit("locked-unit", { might: 3 }).build();
+  // Only the arithmetic sub-effect is exercised here; the printed target restriction remains blocked.
+  const run = runInstruction(might, { ...giveMight.args, target: giveMight.args.target.value }, {
+    world: kernel, targets: { [giveMight.args.target.value]: [kernel.ref("locked-unit")] }
+  });
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(run.linked.affected.objects, [kernel.ref("locked-unit")]);
+  assert.deepEqual(kernel.continuousEffects[0].duration, { type: "end-of-turn" });
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects.map(entry => ({ ...entry, timestamp: 1 })));
+  assert.equal(layers.evaluate(kernel.ref("locked-unit")).might, 7);
+  assert.equal(kernel.getObject("locked-unit").buffs, 0);
+  layers.advance({ id: "turn-end", player: "A" });
+  assert.equal(layers.evaluate(kernel.ref("locked-unit")).might, 3);
+});
+
+test("decree-of-focus supported effect: a stale target produces no continuous registration", () => {
+  const kernel = world().unit("gone", { might: 8 }).build();
+  const stale = kernel.ref("gone");
+  assert.equal(kernel.perform({ type: "return-to-hand", object: stale }).status, "done");
+  const run = runInstruction(might, { ...giveMight.args, target: giveMight.args.target.value }, {
+    world: kernel, targets: { [giveMight.args.target.value]: [stale] }
+  });
+  assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
+  assert.deepEqual(kernel.continuousEffects, []);
+});

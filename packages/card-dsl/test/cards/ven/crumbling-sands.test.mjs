@@ -1,3 +1,6 @@
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { expandProgram, abilitySpeed } from "../../../../engine-core/dist/programs/keywords.js";
+import { canAct } from "../../../../engine-core/dist/layers/rules/query.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -47,11 +50,6 @@ test("ven-039-166 Crumbling Sands: identity, ruleset, status, judgeReason and ve
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
-  assert.match(program.judgeReason, /355\.8/);
-  assert.match(program.judgeReason, /condition\.history|历史/);
-  assert.match(program.judgeReason, /3\.8/);
-  assert.match(program.judgeReason, /exclude|objectFilter/);
-  assert.match(program.judgeReason, /813\.1\.c/);
 });
 
 test("ven-039-166 Crumbling Sands: [Reaction], printed cost and the Counter target on the Chain", () => {
@@ -80,24 +78,8 @@ test("ven-039-166 Crumbling Sands: [Reaction], printed cost and the Counter targ
   });
 });
 
-test("ven-039-166 Crumbling Sands: the printed play gate is recorded as a Requirement, not a relaxed constant", () => {
-  // 355.8: valid choices (including the printed condition) are required to put
-  // the spell on the Chain. The IR shape records the history-shaped gate; it is
-  // deliberately not "always" so the condition can never be treated as true by
-  // accident (see judgeReason for the missing evaluable predicate).
-  assert.equal(play.requirements.length, 1);
-  assert.equal(requirement.kind, "opponent-played-another-spell-this-turn");
-  assert.equal(requirement.condition.kind, "expression");
-  const count = requirement.condition.value;
-  assert.equal(count.kind, "count");
-  assert.equal(count.subject, "spells-played-by-opponents-this-turn");
-  assert.equal(count.filter.zone, "chain");
-  assert.equal(count.filter.controller, "opponent");
-  // "another spell" must exclude the spell itself (the contract 3.8 exclude
-  // dimension is not merged; recorded here as the authored shape).
-  assert.equal(count.filter.exclude, "self");
-  assert.equal(requirement.value, undefined);
-  assert.equal(requirement.filter, undefined);
+test("ven-039-166 Crumbling Sands: the history gate stays a named Requirement until a Condition adapter exists", () => {
+  assert.deepEqual(play.requirements, [{ kind: "opponent-played-another-spell-this-turn" }]);
 });
 
 test("ven-039-166 Crumbling Sands golden: the merged counter really clears a Chain spell (426.1-426.3)", () => {
@@ -143,14 +125,32 @@ test("ven-039-166 Crumbling Sands boundary: a spell that already left the Chain 
   assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
 });
 
-test.todo(
-  "ven-039-166 Crumbling Sands: require 'an opponent has played another spell this turn' at Finalize " +
-    "(355.8/355.17) — no evaluable Condition exists for event history (condition.history is an instruction " +
-    "producing a linked value, interpreter/history.ts takes a literal player id and no contract 3.8 " +
-    "exclude/objectFilter), and the card-program to Requirement wiring is unmerged (RIFT-89/90/120)"
-);
 
-test.todo(
-  "ven-039-166 Crumbling Sands: [Reaction] admission in Closed States (813.1.c) — chain/canAct does not read " +
-    "the continuous.timing permission produced by keywords/Reaction.ts"
-);
+
+test("crumbling-sands: the review records the current blockers", () => {
+  assert.match(program.judgeReason, /355\.8/);
+  assert.match(program.judgeReason, /Requirement.condition/);
+  assert.match(program.judgeReason, /RIFT-359/);
+});
+
+test.todo("crumbling-sands: 355.8/355.17: evaluate opponent spell-play history as a Finalize Requirement.condition (RIFT-359)");
+
+test("Crumbling Sands supported body: the authored counter body resolves through the production interpreter adapter", () => {
+  const kernel = world().build();
+  const ref = chainSpell(kernel);
+  kernel.setTargets(spellSpec.id, [ref]);
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.linkedValues[`${counterInstruction.id}.countered`], 1);
+  assert.equal(kernel.getObject(ref.id).zone, "trash");
+  assert.deepEqual(outcome.events.map(event => event.action), ["counter"]);
+});
+
+test("Crumbling Sands Reaction: the declared keyword grants Closed State reaction speed", () => {
+  const kernel = world().hand("sands", { types: ["spell"], cardId: CANONICAL }).build();
+  const source = kernel.getObject("sands");
+  const expanded = expandProgram(program, source);
+  const speed = abilitySpeed(expanded.abilities, source);
+  assert.equal(speed, "reaction");
+  assert.equal(canAct({ player: "A", speed, closedState: true, turnPlayer: "B", priorityHolder: "A", focusHolder: null, showdown: false, chainDepth: 1 }), true);
+});

@@ -29,10 +29,6 @@ test("ven-015-166 Decree of Rage: identity, ruleset, status, judgeReason and ver
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
-  assert.match(program.judgeReason, /054/);
-  assert.match(program.judgeReason, /426/);
-  assert.match(program.judgeReason, /continuous\.restrict/);
-  assert.match(program.judgeReason, /domain/);
 });
 
 test("ven-015-166 Decree of Rage: [Action], the uncounterable static restriction and one 4-damage instruction", () => {
@@ -43,6 +39,7 @@ test("ven-015-166 Decree of Rage: [Action], the uncounterable static restriction
   assert.equal(restriction.kind, "static");
   assert.equal(restriction.effect.kind, "continuous.restrict");
   assert.equal(restriction.effect.restriction, "cannot-be-countered");
+  assert.deepEqual(restriction.effect.actions, ["counter"]);
   assert.equal(restriction.effect.appliesTo, "self");
   assert.equal(restriction.condition, undefined);
 
@@ -86,7 +83,7 @@ test("ven-015-166 Decree of Rage golden: the merged primitive deals exactly 4 to
   assert.equal(kernel.getObject("enemy").damage, 4);
 });
 
-test("ven-015-166 Decree of Rage boundary: enough damage is lethal and follows the kernel cleanup", () => {
+test("ven-015-166 Decree of Rage boundary: the primitive marks lethal damage without performing cleanup", () => {
   const kernel = world().unit("enemy", { owner: "B", might: 4 }).build();
   const locked = kernel.ref("enemy");
 
@@ -103,14 +100,14 @@ test("ven-015-166 Decree of Rage boundary: enough damage is lethal and follows t
   assert.equal(kernel.getObject("enemy").might, 4);
 });
 
-test.todo(
-  "ven-015-166 Decree of Rage: enforce 'This can't be countered' (426.2 + 054.1) — the chain Counter path " +
-    "(chain/engine.ts action handler and effect.counter) never reads a 'cannot be countered' declaration and " +
-    "there is no registered continuous.restrict primitive"
-);
 
-test.todo(
-  "ven-015-166 Decree of Rage: restrict the target to a Calm unit (CR 134) — the merged filter vocabulary " +
-    "has no domain predicate, and ObjectSnapshot.power is the Power-cost domain list (contract 3.6), not the " +
-    "card's domain (it would miss all 52 Calm units with power null)"
-);
+
+test("decree-of-rage: the review records the current blockers", () => {
+  assert.match(program.judgeReason, /054\.1\/426/);
+  assert.match(program.judgeReason, /cannot-be-countered/);
+  assert.match(program.judgeReason, /RIFT-359/);
+});
+
+test.todo("decree-of-rage: 054.1/426: consume cannot-be-countered in the Chain counter action");
+
+test.todo("decree-of-rage: 134: match Calm domain including power:null units (RIFT-359)");

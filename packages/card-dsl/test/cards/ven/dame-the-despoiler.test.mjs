@@ -1,3 +1,7 @@
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { world, runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
+import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -15,8 +19,8 @@ const SOURCE_TEXT =
 const [empower, attackTrigger, defendTrigger] = program.abilities;
 const attackBody = attackTrigger.body;
 const defendBody = defendTrigger.body;
-const [setMight, plusOneMight] = attackBody;
-const [defendSetMight, defendPlusOneMight] = defendBody;
+const [setMight, increaseMight, plusOneMight] = attackBody;
+const [defendSetMight, defendIncreaseMight, defendPlusOneMight] = defendBody;
 
 test("ven-079-166 Dame the Despoiler: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -29,11 +33,6 @@ test("ven-079-166 Dame the Despoiler: identity, status, judgeReason and verbatim
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /Empower/);
-  assert.match(program.judgeReason, /827\.1\.c\.1/);
-  assert.match(program.judgeReason, /143\.2\.a\.1/);
-  assert.match(program.judgeReason, /479\.4\.b/);
-  assert.match(program.judgeReason, /RIFT-120/);
 });
 
 test("ven-079-166 Dame the Despoiler: [Empower] is declared without faking its printed cost", () => {
@@ -67,7 +66,7 @@ test("ven-079-166 Dame the Despoiler: 'When I attack or defend' is two independe
 
 test("ven-079-166 Dame the Despoiler: 'choose a unit here' is a real target spec (355.7/355.9)", () => {
   for (const [label, instruction] of [["attack", setMight], ["defend", defendSetMight]]) {
-    assert.equal(instruction.op, "continuous.might", label);
+    assert.equal(instruction.op, "condition.value", label);
     assert.equal(instruction.targets.length, 1, label);
     const [spec] = instruction.targets;
     assert.equal(spec.id, "dame-the-despoiler.unit-here", label);
@@ -80,57 +79,106 @@ test("ven-079-166 Dame the Despoiler: 'choose a unit here' is a real target spec
   }
 });
 
-test("ven-079-166 Dame the Despoiler: the set-to-its-Might then +1 sequence keeps both instructions independent", () => {
-  for (const [label, set, plus] of [
-    ["attack", setMight, plusOneMight],
-    ["defend", defendSetMight, defendPlusOneMight]
-  ]) {
-    // 143.2.a.1 / 479.4.b：“Increase my Might to its Might this turn” 是算术图层的 set 修正。
-    assert.deepEqual(set.args.mode, { kind: "constant", value: "set" }, label);
-    assert.deepEqual(set.args.value, {
-      kind: "object-property",
-      object: { target: "dame-the-despoiler.unit-here" },
-      property: "might"
-    }, label);
-    assert.deepEqual(set.args.duration, { kind: "constant", value: "this-turn" }, label);
-    assert.deepEqual(set.args.object, { kind: "constant", value: { kind: "source" } }, label);
-
-    // “then give me +1 :rb_might: this turn”：同层加值修正，与上一条独立
-    // （359.3.e.14.b：前一条被否定不自动否定后续指令）。
-    assert.deepEqual(plus.args.mode, { kind: "constant", value: "add" }, label);
-    assert.deepEqual(plus.args.amount, { kind: "constant", value: 1 }, label);
-    assert.deepEqual(plus.args.duration, { kind: "constant", value: "this-turn" }, label);
-    assert.deepEqual(plus.args.object, { kind: "constant", value: { kind: "source" } }, label);
-    assert.equal(plus.linkedTo, undefined, label);
-    assert.equal(plus.targets, undefined, label);
+test("ven-079-166 Dame the Despoiler: measure a nonnegative increase, apply it, then independently give +1", () => {
+  for (const [measure, increase, plus] of [[setMight, increaseMight, plusOneMight], [defendSetMight, defendIncreaseMight, defendPlusOneMight]]) {
+    assert.deepEqual(measure.args.value, {
+      kind: "arithmetic", operator: "max", operands: [
+        { kind: "constant", value: 0 },
+        { kind: "arithmetic", operator: "sub", operands: [
+          { kind: "object-property", object: { target: "dame-the-despoiler.unit-here" }, property: "might" },
+          { kind: "object-property", object: "self", property: "might" }
+        ] }
+      ]
+    });
+    assert.equal(increase.op, "continuous.might");
+    assert.equal(increase.linkedTo, measure.id);
+    assert.deepEqual(increase.args.amount, { kind: "linked-value", instructionId: measure.id, key: "value" });
+    assert.deepEqual(increase.args.appliesTo, { kind: "constant", value: "self" });
+    assert.deepEqual(plus.args.amount, { kind: "constant", value: 1 });
+    assert.deepEqual(plus.args.appliesTo, { kind: "constant", value: "self" });
+    for (const instruction of [increase, plus]) assert.deepEqual(instruction.args.duration, { kind: "constant", value: "this-turn" });
+    assert.equal(plus.linkedTo, undefined);
   }
 });
 
-test("ven-079-166 Dame the Despoiler: both combat triggers share the same printed effect shape", () => {
-  assert.deepEqual(
-    attackBody.map(instruction => instruction.args),
-    defendBody.map(instruction => instruction.args)
-  );
-  assert.deepEqual(
-    attackBody.map(instruction => instruction.targets),
-    defendBody.map(instruction => instruction.targets)
-  );
-  // 指令 id 在卡内唯一：两条触发不得复用同一批 id。
-  assert.equal(
-    attackBody.some(instruction => defendBody.some(other => other.id === instruction.id)),
-    false
-  );
+test("ven-079-166 Dame the Despoiler: both combat bodies have matching measurements and independent ids", () => {
+  assert.deepEqual(setMight.args, defendSetMight.args);
+  assert.deepEqual(setMight.targets, defendSetMight.targets);
+  assert.deepEqual(plusOneMight.args, defendPlusOneMight.args);
+  assert.equal(attackBody.some(instruction => defendBody.some(other => other.id === instruction.id)), false);
 });
 
-test.todo(
-  "ven-079-166 Dame the Despoiler: [Empower] expansion (827.1.c.1: 5 Energy + 1 Body Power, 'use only if not Empowered') and " +
-    "the [Empowered][>] dependent ability (828.1.b.1) need an Empower/Empowered KeywordDef — none is merged"
-);
-test.todo(
-  "ven-079-166 Dame the Despoiler: 'Increase my Might to its Might this turn' plus 'give me +1 :rb_might: this turn' " +
-    "(143.2.a.1 / 479.4.b) need a card-side continuous.might registration with set mode — no such primitive is merged (RIFT-91)"
-);
-test.todo(
-  "ven-079-166 Dame the Despoiler: the attack-declared / defense-declared subscriptions (383.4.e/383.4.f) need the " +
-    "CardProgram → TriggerRegistration adapter and the combat emission path (RIFT-120)"
-);
+
+test("dame-the-despoiler: the review records the current blockers", () => {
+  assert.match(program.judgeReason, /Empower/);
+  assert.match(program.judgeReason, /827\.1\.c\.1/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /sameLocationAs/);
+});
+
+test.todo("dame-the-despoiler: 827/828: pass the printed Empower cost and gate combat triggers on Empowered (RIFT-359)");
+
+test.todo("dame-the-despoiler: 355.9: translate sameLocationAs into program target binding");
+
+function combatWorld(chosenMight = 9, sourceMight = 5) {
+  const kernel = world().unit("dame", { might: sourceMight }).unit("chosen", { might: chosenMight }).build();
+  kernel.setTargets("dame-the-despoiler.unit-here", [kernel.ref("chosen")]);
+  return kernel.clone({ sourceSnapshot: kernel.getObject("dame") });
+}
+function layersOf(kernel) {
+  return createLayerEngine(kernel.objects, kernel.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 })));
+}
+
+test("Dame supported body: both combat bodies lock a nonnegative increase, then +1, and expire at turn end", () => {
+  for (const body of [attackBody, defendBody]) {
+    const kernel = combatWorld();
+    const outcome = resolveChainBody(body, kernel);
+    assert.equal(outcome.status, "executed");
+    assert.equal(outcome.linkedValues[`${body[0].id}.value`], 4);
+    assert.deepEqual(kernel.continuousEffects.map(entry => entry.effect.effect.amount), [4, 1]);
+    assert.deepEqual(kernel.continuousEffects.map(entry => entry.duration), [{ type: "end-of-turn" }, { type: "end-of-turn" }]);
+    const layers = layersOf(kernel);
+    assert.equal(layers.evaluate(kernel.ref("dame")).might, 10);
+    layers.advance({ id: "turn-end", player: "A" });
+    assert.equal(layers.evaluate(kernel.ref("dame")).might, 5);
+  }
+});
+
+test("Dame supported body: choosing a lower-Might unit never reduces Dame and still gives +1", () => {
+  const kernel = combatWorld(3, 8);
+  const outcome = resolveChainBody(attackBody, kernel);
+  assert.equal(outcome.linkedValues[`${setMight.id}.value`], 0);
+  assert.equal(outcome.results[1].result.status, "negated");
+  assert.equal(outcome.results[1].result.reason, "skipped");
+  assert.equal(outcome.results[2].result.status, "executed");
+  assert.equal(layersOf(kernel).evaluate(kernel.ref("dame")).might, 9);
+});
+
+test("Dame supported body: a later change to the chosen Might does not change the remembered increase", () => {
+  const kernel = combatWorld();
+  resolveChainBody(attackBody, kernel);
+  const run = runInstruction(might, { target: "later", amount: { kind: "constant", value: 4 } }, {
+    world: kernel, targets: { later: [kernel.ref("chosen")] }
+  });
+  assert.equal(run.result.status, "executed");
+  const layers = layersOf(kernel);
+  assert.equal(layers.evaluate(kernel.ref("chosen")).might, 13);
+  assert.equal(layers.evaluate(kernel.ref("dame")).might, 10);
+});
+
+test("Dame supported body: stale or elsewhere targets suppress the increase while independent +1 resolves", () => {
+  for (const action of ["return-to-hand", "move-location"]) {
+    const kernel = combatWorld();
+    const target = kernel.ref("chosen");
+    assert.equal(kernel.perform(action === "return-to-hand"
+      ? { type: action, object: target }
+      : { type: action, object: target, to: { type: "battlefield", id: "elsewhere" } }).status, "done");
+    const outcome = resolveChainBody(attackBody, kernel);
+    assert.equal(outcome.results[0].result.status, "ignored");
+    assert.equal(outcome.results[1].result.status, "ignored");
+    assert.equal(outcome.results[2].result.status, "executed");
+    assert.equal(layersOf(kernel).evaluate(kernel.ref("dame")).might, 6);
+  }
+});
+
+test.todo("dame-the-despoiler: emit attack-declared / defense-declared from actual combat designation changes (383.4.e/f)");

@@ -18,8 +18,7 @@ const SOURCE_TEXT =
   "to their base.";
 
 const [enterReady, attackTrigger] = program.abilities;
-const [mayMove] = attackTrigger.body;
-const [moveEnemiesHome] = mayMove.args.body.value;
+const [moveEnemiesHome] = attackTrigger.body;
 
 test("ven-091-166 Corrupted Dragon: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -34,10 +33,6 @@ test("ven-091-166 Corrupted Dragon: identity, ruleset, status, judgeReason and v
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
-  assert.match(program.judgeReason, /replacement|入场替代/);
-  assert.match(program.judgeReason, /Victory Score/);
-  assert.match(program.judgeReason, /attack-declared/);
-  assert.match(program.judgeReason, /mightLte/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -72,12 +67,11 @@ test("ven-091-166 Corrupted Dragon: 'When I attack' is a self-scoped attack trig
   });
   assert.equal(attackTrigger.trigger.condition, undefined);
   assert.equal(attackTrigger.trigger.once, undefined);
-  // 403.1 / 契约 3.9：“you may move any number …” 的首段是可选执行。
+  // 383.3.a：首段 may 只在触发 Finalize 询问一次，body 不重复询问。
   assert.equal(attackTrigger.optional, true);
   assert.equal(attackTrigger.body.length, 1);
-  assert.equal(mayMove.id, "corrupted-dragon.may-move-enemies");
-  assert.equal(mayMove.op, "choice.optional");
-  assert.equal(mayMove.linkedTo, undefined);
+  assert.equal(moveEnemiesHome.id, "corrupted-dragon.move-enemies-home");
+  assert.equal(moveEnemiesHome.op, "effect.move");
 });
 
 test("ven-091-166 Corrupted Dragon: the chosen body moves up to any number of enemy units here to their base", () => {
@@ -117,9 +111,8 @@ test("ven-091-166 Corrupted Dragon: the chosen body moves up to any number of en
 });
 
 test("ven-091-166 golden: the declared move relocates locked enemy units to their own base (421.1)", () => {
-  // The trigger cannot enter the chain and the '5 Might or less' gate is not
-  // evaluable, so the golden locks the Finalize selection itself and executes
-  // the card's own effect.move instruction (the sfd/janna-savior convention).
+  // Sub-effect evidence only: target eligibility still needs the Might predicate.
+  // Execute the existing move primitive with a legal locked group.
   const kernel = world()
     .player("A")
     .player("B")
@@ -198,19 +191,18 @@ test("ven-091-166 golden: 'any number' permits moving none (355.13)", () => {
   assert.deepEqual(run.linked.moved, { count: 0, objects: [], movements: [] });
 });
 
-test.todo(
-  "ven-091-166 Corrupted Dragon: 'I enter ready' is a 359.2.c / 369.3 entry replacement and needs the " +
-    "CardProgram → ReplacementRegistration consumer (effect.ready explicitly cannot stand in; RIFT-89~91 follow-up)"
-);
 
-test.todo(
-  "ven-091-166 Corrupted Dragon: the 'not within 3 points of the Victory Score' condition needs the current " +
-    "Victory Score (194.3/194.3.a) exposed to the rules context — PlayerSnapshot has no victoryScore read and " +
-    "Condition has no such predicate (hard-coding 8 would be invention)"
-);
 
-test.todo(
-  "ven-091-166 Corrupted Dragon: the attack trigger and the Might gate need attack-declared emission from combat/ " +
-    "plus a CardProgram → TriggerRegistration subscriber (RIFT-120) and a Might-threshold target predicate " +
-    "(143.2.a, RIFT-90)"
-);
+
+test("corrupted-dragon: the review records the current blockers", () => {
+  assert.match(program.judgeReason, /194\.3/);
+  assert.match(program.judgeReason, /Victory Score/);
+  assert.match(program.judgeReason, /mightLte/);
+  assert.match(program.judgeReason, /RIFT-359/);
+});
+
+test.todo("corrupted-dragon: 194.3/194.3.a: read current Victory Score and player score for conditional entry readiness");
+
+test.todo("corrupted-dragon: 143.2.a: enforce current Might <= 5 and bind sameLocationAs in program targets (RIFT-359)");
+
+test.todo("corrupted-dragon: emit attack-declared from actual combat designation changes (383.4.e/f)");
