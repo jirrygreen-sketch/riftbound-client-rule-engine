@@ -30,8 +30,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   is written.
  *
  * Status: judge-required. The damage instruction is merged and is executed by
- * the golden test (including a partially stale target set), but two
- * dependencies are unmerged and not approximated:
+ * the RIFT-652 parameterized template suite (including a partially stale
+ * target set), but two dependencies are unmerged and not approximated:
  * - the 355.11 group requirement "same location" (the merged target plan carries
  *   kind/group as data but evaluates no group-level coherence and no
  *   legal-subset re-choice of 355.11.b);
@@ -39,7 +39,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   paid-instance to interpreter-repeat wiring (820.1.c.1, 820.1.d.1): the
  *   Repeat keyword, effect.repeat and the cost-plan optionalAdditional input
  *   exist, but no code connects the card-declared additional cost to the
- *   spell-play Finalize or feeds the paid count to the resolution.
+ *   spell-play Finalize or feeds the paid count to the resolution
+ *   (programs/play.ts translateCost rejects `kind: "additional"` and the
+ *   `optional` field, measured 2026-10-17: "Unsupported play cost field
+ *   optional").
  */
 const bellowsBreath = {
   canonicalCardId: "card.hash-effd069140ba0a97aec2b49e85dfc04e38ae3517c75aea5b88e3fcb853a4ea2b",
