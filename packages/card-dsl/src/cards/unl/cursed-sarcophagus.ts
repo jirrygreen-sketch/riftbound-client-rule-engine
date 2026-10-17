@@ -19,19 +19,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （CR 394–398：398 明确规定组件能力只能与同一组能力影响的对象互动）。
  * - "(You must pay its costs.)" 要求按正常 Play 流程支付该单位的印刷费用（420.3）。
  *
- * status = judge-required（缺口不近似实现）：
- * - "banished with this" 的 Linked Ability 作用域没有可执行追踪：契约 3.6 的
- *   ObjectSelector 只有 self / source / target / pick / linked，`linked` 只能读到**同一次
- *   解析**内前序指令写入的链接值；两条能力分属不同链项（card-played 触发与 [E] 启动能力），
- *   第一次放逐的记录在第二次解析时无法经 ctx.linked 取回（428.3.a / 395–398）。改用 zone
- *   查询 banishment 会把其它效果放逐的单位也算进来，398 明确禁止。
- * - 即使对象可选取，"Play ... (You must pay its costs.)" 还需要按该单位的印刷费用走打出
- *   流程（420.3）；已合入的 effect.play 要求已 Finalize 的费用计划，本卡不能自己推导印刷费用。
- *   原文没有印刷目的地，所以指令体不写 location，交给 359.2.b / 420.3 的正常 Play 流程决定
- *   打出位置（不硬写成 base 近似）。
- * 第一段（trash → banishment）用已合入的 effect.banish 由 golden 真实执行；第二段保留
- * 可审查结构。依赖：Linked Ability 追踪（CR 394–398 / 428.3.a）与 CardProgram → Finalize 的
- * 打出费用计划接线（RIFT-349 后续）；不近似实现。
+ * Status: judge-required. Current source audit:
+ * Trash-unit banishment executes. The second chain item needs the first
+ * ability's persistent, incarnation-scoped banishment records. Normal printed
+ * costs already flow through effect.play -> Chain Finalize when cost is omitted.
  */
 const abilities: Ability[] = [
   {
@@ -85,8 +76,7 @@ const abilities: Ability[] = [
           pick: { kind: "constant", value: "cursed-sarcophagus.unit-banished-with-this" }
           // 不写 location：原文没有指定目的地，单位按 359.2.b / 420.3 的正常 Play
           // 流程决定打出位置（Base 或自己控制的战场），硬写 base 属近似实现。
-          // "(You must pay its costs.)"：需要该单位的 Finalize 费用计划（420.3），
-          // 由 CardProgram → Finalize 的费用计划接线提供（见 judgeReason）。
+          // 420.3：省略 cost 覆盖，交给正常 Chain Finalize 读取并支付印刷费用。
         },
         picks: [
           {
@@ -108,15 +98,9 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「Play a unit banished with this」无可执行路径：(1)「banished with this」是同一张牌印刷文本内的 " +
-    "Linked Ability 作用域（CR 394–398 / 428.3.a；396 把该组能力界定在同一张牌的印刷文本内，398 明确" +
-    "组件能力只能与同一组能力影响的对象互动），但契约 3.6 的 ObjectSelector 只有 self/source/target/pick/" +
-    "linked，`linked` 仅能读取同一次解析内前序指令写入的链接值；本卡两条能力属于不同链项（card-played " +
-    "触发与 [E] 启动能力），第一次放逐的记录在第二次解析时无法取回，因此选不出正确对象；改用 zone 查询 " +
-    "banishment 会把其它效果放逐的单位也算进来（398 禁止）。(2) 即使对象可选取，「(You must pay its costs.)」" +
-    "要求按该单位的印刷费用走正常打出流程（420.3），已合入的 effect.play 只接受已 Finalize 的费用计划、" +
-    "不推导印刷费用（RIFT-349 后续）。第一段 banish（428.1）用已合入的 effect.banish 由 golden 真实执行；" +
-    "不近似实现。依赖：Linked Ability 追踪（CR 394–398 / 428.3.a）与 CardProgram → Finalize 的打出费用计划接线。",
+    "缺跨能力、按本卡入区身份保存的 Linked Ability 放逐记录（CR 394–398/428.3.a）：当前 linked 仅保存解析结果，" +
+    "没有按本卡来源保存并在下一次启动时恢复的对象关联。effect.play 的 Finalize 选牌因而无法限定为本卡放逐的单位，" +
+    "不能查询整个 banishment 混入其他来源。",
   abilities,
   sourceText:
     "When you play this, banish all units from your trash.\n" +

@@ -3,6 +3,9 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/cursed-sarcophagus.js";
+import playableUnit from "../../../dist/cards/ogn/pit-crew.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 import banish from "../../../../engine-core/dist/effects/instructions/effect.banish.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -34,7 +37,7 @@ test("unl-148-219 Cursed Sarcophagus: identity, status, judgeReason and verbatim
   // README 第 2 节：judgeReason 必须点名缺哪个语义与依赖任务。
   assert.match(program.judgeReason, /394/);
   assert.match(program.judgeReason, /428\.3\.a/);
-  assert.match(program.judgeReason, /RIFT-349/);
+  assert.match(program.judgeReason, /Finalize/);
   assert.match(program.judgeReason, /effect\.play/);
 });
 
@@ -94,8 +97,7 @@ test("unl-148-219 Cursed Sarcophagus: the [E] activation keeps the exhaust cost 
     kind: "constant",
     value: "cursed-sarcophagus.unit-banished-with-this"
   });
-  // 原文没有印刷目的地，因此不写 location（不硬写成 base 近似）；费用计划同样由
-  // 420.3 的正常 Play 流程提供（见 judgeReason）。
+  // 原文没有印刷目的地，因此不写 location；省略 cost 覆盖后走 420.3 正常付费。
   assert.equal(playInstruction.args.location, undefined);
   assert.equal(playInstruction.args.cost, undefined);
   assert.deepEqual(banishedPick, {
@@ -171,8 +173,39 @@ test.todo(
   "Cursed Sarcophagus: track the Linked Ability window 'a unit banished with this' (CR 394–398 / 428.3.a) " +
     "so the activated ability only offers units banished by this card's own effect, not the whole Banishment"
 );
-test.todo(
-  "Cursed Sarcophagus: 'Play ... (You must pay its costs.)' needs a finalized printed-cost plan from the " +
-  "cost pipeline (CR 420.3) — effect.play accepts a finalized plan, while the CardProgram-to-Finalize " +
-  "printed-cost wiring remains a follow-up (RIFT-349)"
-);
+test("Cursed Sarcophagus golden: the authored activation pays the chosen unit's printed energy cost through production Finalize (420.3)", () => {
+  // The pick is provisioned externally: this proves payment/play, not the
+  // unresolved provenance of units banished with this particular Sarcophagus.
+  const binding = createProgramBinding({ cardPrograms: [playableUnit] });
+  const board = fixture({
+    cards: [
+      { id: "sarcophagus", cardId: CANONICAL_ID, types: ["gear"], energy: 4, power: ["Chaos"], might: null },
+      { id: "pit-crew", cardId: playableUnit.canonicalCardId, types: ["unit"], energy: 3, power: null, might: 3 }
+    ],
+    describePlay: binding.describePlay,
+    choose: request => request.type === "select-objects"
+      ? request.options.filter(ref => ref.id === "pit-crew")
+      : undefined
+  });
+  binding.attachLifecycle(board.engine);
+  assert.equal(board.engine.commit({
+    type: "move-zone", object: board.kernel.ref("sarcophagus"), to: "base", location: { type: "base", player: "A" }
+  }).status, "done");
+  assert.equal(board.engine.commit({ type: "banish", object: board.kernel.ref("pit-crew") }).status, "done");
+  board.kernel.setPicks(banishedPick.id, [board.kernel.ref("pit-crew")]);
+  board.engine.advance();
+  board.engine.execute(board.draft("sarcophagus-activation", {
+    source: board.kernel.getObject("sarcophagus"),
+    speed: activated.timing,
+    body: activated.body,
+    cost: { id: "sarcophagus-exhaust", cost: activated.cost }
+  }));
+  resolveAll(board.engine);
+  assert.equal(board.kernel.getObject("sarcophagus").exhausted, true);
+  assert.equal(board.kernel.player("A").energy, 17);
+  assert.deepEqual(board.kernel.player("A").power, []);
+  assert.equal(board.kernel.getObject("pit-crew").zone, "board");
+  assert.deepEqual(board.kernel.getObject("pit-crew").location, { type: "base", player: "A" });
+  assert.equal(board.kernel.getObject("pit-crew").exhausted, true);
+  assert.equal(board.engine.items.length, 0);
+});

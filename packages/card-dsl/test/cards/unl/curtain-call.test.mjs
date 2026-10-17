@@ -8,6 +8,7 @@ import damage from "../../../../engine-core/dist/effects/instructions/effect.dam
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL_ID =
@@ -68,7 +69,7 @@ test("unl-182-219 Curtain Call: identity, status, judgeReason and verbatim sourc
   // primitive itself is merged and executable.
   assert.match(program.judgeReason, /820\.1\.c\.2/);
   assert.match(program.judgeReason, /820\.1\.d\.1/);
-  assert.match(program.judgeReason, /RIFT-349/);
+  assert.match(program.judgeReason, /Finalize optionalAdditional/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /assertFinalizationSurface/);
 });
@@ -234,13 +235,16 @@ test("unl-182-219 Curtain Call golden: the mode choice excludes the modes alread
   assert.equal(asked.max ?? undefined, undefined);
 });
 
-test("unl-182-219 Curtain Call golden: the printed Deal 3 restriction rejects a unit at a base", () => {
+test("unl-182-219 Curtain Call the printed Deal 3 restriction accepts a base and excludes a battlefield", () => {
   // 355.9.b / 355.10.b: "a unit at a base" is only a legality restriction on
   // the target; the merged filter matcher the chain uses compares the
   // location type. The reference kernel compares filter values literally, so
   // the restriction itself is asserted here instead of being re-derived.
   assert.deepEqual(dealThree.targets[0].filter, { type: "unit", location: "base" });
   assert.notDeepEqual(dealThree.targets[0].filter, dealTwo.targets[0].filter);
+  const kernel = world().base("base-unit").unit("battlefield-unit").build();
+  assert.equal(matchesObjectFilter(dealThree.targets[0].filter, kernel.getObject("base-unit")), true);
+  assert.equal(matchesObjectFilter(dealThree.targets[0].filter, kernel.getObject("battlefield-unit")), false);
 });
 
 test("unl-182-219 Curtain Call golden: effect.draw and effect.damage are the merged primitives the modes call", () => {
@@ -259,11 +263,28 @@ test("unl-182-219 Curtain Call golden: effect.draw and effect.damage are the mer
 
 test.todo(
   "unl-182-219 Curtain Call: pay each printed [Repeat] additional cost (1 / rainbow rune / 1 + rainbow rune) and execute the spell's instructions an additional time per paid instance " +
-    "(CR 820.1.c.1–820.1.d.1; Repeat still needs CardProgram-to-Finalize payment/count wiring - RIFT-349 follow-up)"
+    "(CR 820.1.c.1–820.1.d.1; Repeat still needs CardProgram-to-Finalize payment/count wiring)"
 );
 test.todo(
   "unl-182-219 Curtain Call: remember the modes already chosen for this spell across executions so \"Choose one you haven't already chosen\" can exclude them (CR 355.3 / 820.2.a; choice.mode currently de-duplicates only within one selection request)"
 );
 test.todo(
-  "unl-182-219 Curtain Call: drive the card body through the production chain, whose Finalize surface currently blocks nested targets and resolution-time choice.mode (chain/engine.ts assertFinalizationSurface; RIFT-357/RIFT-358 choice-plan work)"
+  "unl-182-219 Curtain Call: drive the card body through the production chain, whose Finalize surface currently blocks nested targets and resolution-time choice.mode (chain/engine.ts assertFinalizationSurface; production choice-plan adapter)"
 );
+
+test("unl-182-219 Curtain Call golden: the printed Deal 3 primitive damages only the locked base unit", () => {
+  const kernel = world()
+    .base("base-unit", { owner: "B", might: 5 })
+    .unit("battlefield-unit", { owner: "B", might: 5 })
+    .build();
+  const run = runInstruction(damage, { amount: dealThree.args.amount, target: dealThree.args.target.value }, {
+    world: kernel,
+    targets: { "curtain-call.base-unit": [kernel.ref("base-unit")] }
+  });
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.dealt, 3);
+  assert.equal(run.linked.dealtCount, 1);
+  assert.equal(kernel.getObject("base-unit").damage, 3);
+  assert.equal(kernel.getObject("battlefield-unit").damage, 0);
+  assert.deepEqual(run.events.map(event => event.action), ["damage"]);
+});

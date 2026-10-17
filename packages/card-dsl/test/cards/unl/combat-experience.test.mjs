@@ -5,7 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/combat-experience.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-9e75e74352d500dfa1b7c1192957a26c7b4c5e2cc9471eb6057e9d0147ebf803";
@@ -103,3 +104,22 @@ test("unl-031-219 Combat Experience golden: the non-Level branch registers +1 Mi
 
 test.todo("unl-031-219 Combat Experience: evaluate the Level 6 XP predicate and its dynamic instead branch (CR 824.1.b.1 / 824.1.c / 824.1.d) — the merged Level declaration still lacks a controller-XP condition consumer");
 
+
+test("unl-031-219 Combat Experience golden: the printed +3 primitive modifies Might and expires without adding a Buff", () => {
+  // This proves the Level branch's primitive only; live XP gating remains a TODO.
+  const kernel = world().unit("unit", { might: 4 }).build();
+  const run = runInstruction(might, plusThreeInstead.args, {
+    world: kernel,
+    targets: { "combat-experience.unit": [kernel.ref("unit")] }
+  });
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  assert.equal(kernel.getObject("unit").buffs, 0);
+  assert.deepEqual(run.events, []);
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects.map(entry => ({
+    effect: entry.effect, duration: entry.duration, timestamp: 1
+  })));
+  assert.equal(layers.evaluate(kernel.ref("unit")).might, 7);
+  assert.equal(layers.expireAt("turn-end").length, 1);
+  assert.equal(layers.evaluate(kernel.ref("unit")).might, 4);
+});
