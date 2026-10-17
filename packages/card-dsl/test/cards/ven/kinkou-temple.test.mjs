@@ -1,3 +1,6 @@
+// Template execution evidence: ../templates/static-645.test.mjs.
+// This card remains judge-required; the template covers only the traversable
+// lifecycle and keeps the unsupported Tank/location gate explicit below.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
