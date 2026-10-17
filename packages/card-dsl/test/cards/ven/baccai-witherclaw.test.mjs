@@ -33,13 +33,16 @@ test("ven-078-166 Baccai Witherclaw: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /rb_rune_rainbow/);
   assert.match(program.judgeReason, /727\.1\.b\.3/);
   assert.match(program.judgeReason, /431\.2/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.ok(!/RIFT-82|RIFT-87/.test(program.judgeReason));
 });
 
 test("ven-078-166 Baccai Witherclaw: [Empower] is declared, never faked as an activated ability", () => {
   assert.equal(program.abilities.length, 3);
   assert.deepEqual(empower, { kind: "keyword", keyword: "empower" });
   assert.equal(empower.value, undefined);
-  // 印刷费 1 Energy + 两个任意域 Power 无承载字段（六域封闭集合无法表达 [A]）。
+  // 印刷费 1 Energy + 两个任意域 Power 的支付形状已合入（butcher-of-the-sands 同形），
+  // 但 Empower 本体仍缺 KeywordDef，不伪造启动能力。
   assert.equal(program.abilities.filter(ability => ability.kind === "activated").length, 0);
 });
 
@@ -132,11 +135,13 @@ test("ven-078-166 golden: an empty Rune Deck channels zero and still succeeds (4
 
 test.todo(
   "ven-078-166 Baccai Witherclaw: [Empower] expansion (827.1.c.1: 1 Energy plus two :rb_rune_rainbow: [A] Power, 'use only " +
-    "if not Empowered') needs an Empower KeywordDef and a Domain representation for Universal Power (135.2.e.5.a / 163.2.b)"
+    "if not Empowered') needs an Empower KeywordDef; the [A] payment shape itself is merged " +
+    "(two 1-point all-domain Power requirements, butcher-of-the-sands shape)"
 );
 test.todo(
   "ven-078-166 Baccai Witherclaw: the 727.1.b.3 nested gate ('active Deathknell exactly while Empowered') needs an " +
-    "Empowered status predicate (442.1.a / 727.1.c.1; RIFT-87) and a card-side continuous.might registration (RIFT-91)"
+    "Empowered status predicate (442.1.a / 727.1.c.1; RIFT-359); the trigger's cause/destination/empowered " +
+    "filter keys are rejected by programs/filters.ts until that predicate work lands"
 );
 test.todo(
   "ven-078-166 Baccai Witherclaw: the channelled runes must enter exhausted (431.2) — the merged channel-rune action " +

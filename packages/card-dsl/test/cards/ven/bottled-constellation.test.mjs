@@ -216,7 +216,8 @@ test("ven-067-166 Bottled Constellation golden: a non-target pick leaves the ene
 
 test.todo(
   "ven-067-166 Bottled Constellation: the main-start trigger must be registered from card data (CardProgram -> " +
-    "TriggerRegistration, RIFT-120 follow-up) though turn/ already emits the timing point (316.1/316.4)"
+    "TriggerRegistration, RIFT-120 follow-up) though turn/ already emits the timing point (316.1/316.4); the " +
+    "registered channel itself (programs/triggers.ts) exists but the card-program producer does not"
 );
 test.todo(
   "ven-067-166 Bottled Constellation: the leading \"kill 3 …\" must be paid as the triggered ability's base cost at " +

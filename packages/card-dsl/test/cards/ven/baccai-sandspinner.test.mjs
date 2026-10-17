@@ -4,6 +4,9 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/baccai-sandspinner.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -75,9 +78,9 @@ test("ven-001-166 Baccai Sandspinner: identity, ruleset, status, judgeReason and
   assert.match(program.judgeReason, /827\.1\.c\.1/);
   assert.match(program.judgeReason, /continuous\.cost-modification/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /RIFT-360/);
+  assert.ok(!/RIFT-89|RIFT-90|RIFT-91/.test(program.judgeReason));
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -128,6 +131,47 @@ test("ven-001-166: the Empowered dependent ability grants Deflect 1 and Assault 
   });
 });
 
+test("ven-001-166 review evidence: the grant primitive is merged but the Empower defs are not", () => {
+  assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), true);
+  assert.equal(instructionDefinitionsById.has("target.tax"), false);
+});
+
+test("ven-001-166 golden: the [Empowered] grant shape really registers Deflect 1 and Assault 2 through layers", () => {
+  // 828.1.c 的门控仍未实现（见 judgeReason），但授予原语是合入的：用本卡声明的 static
+  // effect 形状真实执行一次，断言 ability 图层注册与求值结果（grumpy-rockbear 同款 golden）。
+  const kernel = world()
+    .unit("baccai-sandspinner", { types: ["unit"], zone: "board", owner: "A", controller: "A", might: 6 })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("baccai-sandspinner") });
+  const body = [{
+    id: "baccai-sandspinner.grant-keywords",
+    op: "continuous.grant-keyword",
+    args: {
+      keywords: { kind: "constant", value: grantedKeywords.effect.keywords },
+      appliesTo: { kind: "constant", value: "self" }
+    }
+  }];
+  const outcome = runAbilityBody(body, context);
+
+  assert.equal(outcome.status, "executed");
+  // keywords 列表是「一个对象一条注册」：两个关键词走同一条 ability 层注册（与
+  // continuous.grant-keyword 的 keywords 分支约定一致）。
+  assert.equal(context.continuousEffects.length, 1);
+  const registrations = context.continuousEffects.map((entry, index) => ({
+    effect: entry.effect,
+    duration: entry.duration,
+    timestamp: index + 1
+  }));
+  const layers = createLayerEngine(context.objects, registrations);
+  const evaluated = layers.evaluate(context.ref("baccai-sandspinner"));
+  assert.deepEqual(
+    evaluated.keywords.map(keyword => [keyword.id, keyword.value]),
+    [["deflect", 1], ["assault", 2]]
+  );
+  // 807.1.c：Assault 2 只在「我是攻击者时 +2 [M]」；未指定 combatRole 时不该加 Might。
+  assert.equal(evaluated.might, 6);
+});
+
 test("ven-001-166 golden: the '4 or fewer runes' condition really evaluates on the rune zone (133.5.a.1)", () => {
   const condition = substitutePlayers(costReduction.condition, "A", "B");
 
@@ -149,10 +193,11 @@ test.todo(
   "ven-001-166 Baccai Sandspinner: activate [Empower] 5 and apply the 827.1.c.3 cost rewrite " +
     "(5 Energy minus 3 under the four-or-fewer-runes condition, floored at 0) with the " +
     "'use only if not Empowered' restriction — needs the Empower/Empowered KeywordDef and the " +
-    "RIFT-89 cost.activated/effect.empower wiring"
+    "continuous.cost-modification -> Empower activation consumer"
 );
 test.todo(
   "ven-001-166 Baccai Sandspinner: while Empowered, grant Deflect 1 and Assault 2 through the " +
-    "layers engine — needs a card-side continuous.grant-keyword op and the RIFT-91 layer " +
-    "registration, plus the 809.1.c Deflect target tax (RIFT-90)"
+    "layers engine — the grant primitive is merged (golden above), but the 828.1.c gate still needs " +
+    "the empowered status predicate (RIFT-359) and the granted Deflect needs the target.tax " +
+    "consumer (809.1.c / RIFT-360)"
 );

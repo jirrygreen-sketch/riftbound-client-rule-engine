@@ -18,12 +18,12 @@ import type { CardProgram } from "../../ir/index.js";
  * status = judge-required（两处缺口，均不近似实现）：
  * 1. 缺多玩家顺序选择的原语／控制结构：已注册的指令表（effects/instructions/）没有 choice.each-player /
  *    choice.each-other-player，契约 3.6 的 choose 只支持单个 chooser 且 IR 无法命名运行时玩家 id；
- *    本仓 ogn-244-298 Divine Judgment、ogn-237-298 King's Edict 记录同一缺口（依赖 RIFT-9 的
- *    target.player / 多玩家选择协调）。程序里保留描述性节点与 PickSpec 形状，没有已注册消费方。
+ *    本仓 ogn-244-298 Divine Judgment、ogn-237-298 King's Edict 记录同一缺口（依赖 target.player /
+ *    多玩家选择协调）。程序里保留描述性节点与 PickSpec 形状，没有已注册消费方。
  * 2. "Kill the rest" 需要补集选择：已合入的 effect.kill 只接受 target（目标）/ picks（已选定引用）/
  *    self；没有任何原语表达"除各玩家所选之外的全部单位"，也没有跨玩家累计已选集合的读数
  *    （同上两条记录）。
- * 依赖：RIFT-9（多玩家选择原语 / target.player）与 RIFT-90（目标计划、结算期选择）。
+ * 依赖：多玩家选择原语 / target.player 与目标计划、结算期选择接线。
  * golden 覆盖校验、身份与结构；kill 本体（effect.kill）已在其它卡的 golden 中由真实内核执行，本卡
  * 因缺上述两处依赖不做整卡执行。
  */
@@ -34,10 +34,10 @@ const cataclysmicDuel = {
   judgeReason:
     "两处缺口：(1)「Each player chooses a unit they control」需要多玩家顺序选择原语：effects/instructions/ " +
     "没有 choice.each-player / choice.each-other-player 的注册实现，契约 3.6 的 choose 只支持单个 chooser 且 IR " +
-    "无法命名运行时玩家 id（同 ogn-244-298 Divine Judgment / ogn-237-298 King's Edict 记录，依赖 RIFT-9 的 target.player " +
+    "无法命名运行时玩家 id（同 ogn-244-298 Divine Judgment / ogn-237-298 King's Edict 记录，依赖 target.player " +
     "与多玩家选择协调）；355.10.e 明确这类选择不是 Target，故也不能用 TargetSpec 表达。" +
     "(2)「Kill the rest」需要补集选择：已合入的 effect.kill 只有 target/picks/self，没有任何原语能表达" +
-    "「除各玩家所选之外的全部单位」，也没有跨玩家累计已选集合的读数（依赖 RIFT-9/RIFT-90）。" +
+    "「除各玩家所选之外的全部单位」，也没有跨玩家累计已选集合的读数。" +
     "程序里的描述性节点与 PickSpec 保持原意的可审查形状，未注册、不执行；golden 只做校验/身份/结构断言。不近似实现。",
   abilities: [
     {

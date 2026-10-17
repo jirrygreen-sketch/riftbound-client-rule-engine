@@ -19,13 +19,17 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（三处缺口，均不近似实现）：
  * 1. 印刷 Flow 费用无法送进展开：契约 3.1 的 KeywordAbility 只有 keyword / value，而 829.1.c 的
- *    Flow 费用是 CostSpec；合并的 KeywordDef.expand 签名（effects/keyword-contract.ts）只有
- *    value/host，契约 3.8.3 的 params.cost 未落地。因此卡层无法声明 4 能量 + 1 Fury 力量，
- *    既不臆造额外字段，也不用 value: 4 冒充费用。
+ *    Flow 费用是 CostSpec；已合入的 KeywordDef.expand 签名（effects/keyword-contract.ts）只有
+ *    value/host——effects/keywords/Flow.ts 的 FlowKeywordInput 消费侧已接受 cost /
+ *    params.cost，但 IR 的 KeywordAbility 没有承载字段的形状、expandProgram 也不会传入
+ *    （契约 3.8.3 的生产侧未落地）。因此卡层无法声明 4 能量 + 1 Fury 力量，既不臆造额外
+ *    字段，也不用 value: 4 冒充费用。
  * 2. Flow 展开的消费方未合入：keywords/Flow.ts 自己记录 flow.cost 需要 RIFT-261 的费用消费方
- *    暴露可选的 alternative cost、保留 null 印刷费并记录“哪一份 Flow 实例被支付”，
+ *    暴露可选的 alternative cost、保留 null 印刷费并记录“哪一份 Flow 实例被支付”；
  *    replacement.event 需要 RIFT-260 的替代注册/排序路径（区分正常离链与法术自身指示的离链，
- *    829.1.b.1）；continuous.timing 的“从弃牌堆打出”位置许可与链项终态也未合并。
+ *    829.1.b.1——programs/lifecycle.ts 的 bindReplacementOnChain 已合入替换通道，但
+ *    leavingInstruction 过滤键会被 programs/filters.ts 拒收）；continuous.timing 的
+ *    “从弃牌堆打出”位置许可与链项终态也未合并。
  * 3. 卡牌程序 → 关键词展开 → 链的接线（契约 3.5）未合入，与 Accelerate / Equip 的判定同型。
  * 已合入并真实执行的部分：「Kill a gear」的 effect.kill（429.1/429.6），golden 用解释器 +
  * 参考内核以 Finalize 锁定的目标真实执行，并覆盖目标失效（359.3.e）分支。
@@ -38,11 +42,14 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处缺口，均不近似实现：(1) 印刷 Flow 费用送不进展开——契约 3.1 的 KeywordAbility 只有 keyword / value，" +
-    "829.1.c 的 Flow 费用是 CostSpec，合并的 KeywordDef.expand 只有 value/host（契约 3.8.3 的 params.cost 未落地），" +
+    "829.1.c 的 Flow 费用是 CostSpec；已合入的 KeywordDef.expand 只有 value/host，" +
+    "effects/keywords/Flow.ts 的 FlowKeywordInput 消费侧已接受 cost / params.cost，" +
+    "但 IR 的 KeywordAbility 没有承载字段的形状、expandProgram 也不会传入（契约 3.8.3 的生产侧未落地），" +
     "卡层无法声明 4 能量 + 1 点 Fury 力量，也不臆造字段或用 value: 4 冒充费用。" +
     "(2) Flow 展开的消费方未合入：Flow.ts 记录 flow.cost 需要 RIFT-261 的费用消费方（可选 alternate cost、保留 null 印刷费、" +
-    "记录被支付的 Flow 实例），「然后放逐」（829.1.b.1 的延迟替代）需要 RIFT-260 的替代注册/排序路径，" +
-    "从弃牌堆打出的位置许可与链项终态同样未合并。" +
+    "记录被支付的 Flow 实例），「然后放逐」（829.1.b.1 的延迟替代）需要 RIFT-260 的替代注册/排序路径——" +
+    "programs/lifecycle.ts 的 bindReplacementOnChain 已合入替换通道，但 leavingInstruction 过滤键会被 " +
+    "programs/filters.ts 拒收；从弃牌堆打出的位置许可与链项终态同样未合并。" +
     "(3) 卡牌程序 → 关键词展开 → 链的接线（契约 3.5）未合入（同 Accelerate / Equip 判定）。" +
     "已合入并真实执行：「Kill a gear」的 effect.kill（429.1/429.6，355.9.a.1 的 Board Gear 目标）由 golden 以解释器 + " +
     "参考内核执行。依赖：RIFT-261、RIFT-260 与关键词接线任务。",
