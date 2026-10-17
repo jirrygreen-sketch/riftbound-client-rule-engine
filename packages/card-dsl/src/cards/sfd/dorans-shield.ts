@@ -21,8 +21,8 @@
  *   RIFT-261 费用指令批次），启动费用无法计算/支付。
  * - 契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的 KeywordDef 接口
  *   虽声明了 params，但 Equip 展开只用 value/host，印刷的 Calm 符文没有落到 expand；
- *   卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）未合入（卡牌程序绑定 RIFT-257）。
- * - 依赖：RIFT-261（Equip 费用与 cost.* 指令）、RIFT-257（卡牌程序关键词展开绑定）。不近似实现。
+ *   卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）未合入。
+ * - 依赖：RIFT-261（Equip 费用与 cost.* 指令）。不近似实现。
  */
 export default {
   canonicalCardId: "card.hash-6ef5f0dfecb89d68422cd4fa23ea64d155ef384d03c974ea67ff920203e89a46",
@@ -34,8 +34,8 @@ export default {
     "费用管线 cost/plan-values.ts 的 readCost 没有 \"equip\" 支付种类，启动费用无法计算/支付；" +
     "契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的 KeywordDef 虽声明了 params，" +
     "但 Equip 展开只用 value/host，印刷的 Calm 符文没有落到 expand 参数上；" +
-    "也缺卡牌程序→关键词展开→时点/链的接线（契约 3.5）。" +
-    "依赖：RIFT-261（Equip 费用支付与 cost.* 指令）、RIFT-257（卡牌程序关键词展开绑定）。" +
+    "缺卡牌程序→关键词展开→时点/链的接线（契约 3.5）。" +
+    "依赖：RIFT-261（Equip 费用支付与 cost.* 指令）。" +
     "不近似实现（不把 Equip 降级成裸 effect.attach）。",
   abilities: [
     { kind: "keyword", keyword: "equip", value: 1, costDomain: "Calm" }

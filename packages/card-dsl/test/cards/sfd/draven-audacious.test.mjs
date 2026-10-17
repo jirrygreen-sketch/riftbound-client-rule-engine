@@ -32,7 +32,6 @@ test("sfd-148-221 Draven, Audacious: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /target\.player/);
   assert.match(program.judgeReason, /RIFT-90/);
   assert.match(program.judgeReason, /RIFT-124/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -137,7 +136,7 @@ test("sfd-148-221 Draven, Audacious golden: the death body scores for the linked
 
 test.todo(
   "sfd-148-221 Draven, Audacious: the combat-result timing point (468.3) must be emitted by combat/ and reach " +
-    "this ability through the trigger -> chain pipeline with the winner payload exposed (RIFT-124 + RIFT-257)"
+    "this ability through the trigger -> chain pipeline with the winner payload exposed (RIFT-124)"
 );
 
 test.todo(

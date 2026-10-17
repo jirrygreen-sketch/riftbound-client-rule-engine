@@ -26,7 +26,7 @@ test("sfd-147-221 Downwell: program passes validateCardProgram", () => {
 test("sfd-147-221 Downwell: judgeReason names the missing non-target set form", () => {
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /effect\.zone/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-260/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 

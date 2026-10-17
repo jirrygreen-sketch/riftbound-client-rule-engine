@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/drag-under.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [keyword, costModification, play] = program.abilities;
@@ -22,8 +23,8 @@ test("Drag Under program is valid EffectIR v2 data and judge-required", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /366\.2/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /layerFor/);
+  assert.match(program.judgeReason, /any-except-hand/);
   assert.equal(
     program.sourceText,
     "[Action] (Play on your turn or in showdowns.)\n" +
@@ -95,7 +96,34 @@ test("Drag Under golden: a unit that left the battlefield makes the instruction 
   assert.equal(run.events.length, 0);
 });
 
+test("Drag Under golden: the merged cost.modify really reduces the printed energy at plan time", () => {
+  // CR 366.2: the printed reduction is a Finalize discount. The merged
+  // instruction freezes a real cost plan with the -2 energy discount applied;
+  // wiring that plan into the production play pipeline is the recorded gap.
+  const base = world()
+    .player("A", { energy: 20 })
+    .hand("drag-under", { types: ["spell"], energy: 5, power: [] })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("drag-under") });
+  const run = runInstruction(
+    costModify,
+    {
+      id: "drag-under.cost-plan",
+      printed: { id: "drag-under", cardType: "Spell", energy: 5, power: 0, domains: ["Order"] },
+      modifier: { kind: "reduce", resource: "energy", amount: { kind: "constant", value: 2 } }
+    },
+    { world: kernel }
+  );
+  assert.equal(run.result.status, "executed");
+  const plan = run.linked["cost"];
+  assert.equal(plan.total.energy, 3);
+  assert.deepEqual(plan.discounts.map((entry) => [entry.id, entry.before, entry.after]), [
+    ["drag-under.cost-plan:modifier:0", 5, 3]
+  ]);
+  assert.equal(plan.player, "A");
+});
+
 test.todo(
   "Drag Under cost reduction: playing this spell from anywhere other than the hand reduces its " +
-    "printed 5 energy by 2 at Finalize (CR 366.2 + 349 cost steps) (依赖 cost.modify 指令与卡牌静态效果到费用计划的绑定，RIFT-261 / RIFT-257)"
+    "printed 5 energy by 2 at Finalize (CR 366.2 + 349 cost steps) (依赖静态 cost.modify 的图层映射与 fromZone 消费方)"
 );

@@ -53,7 +53,6 @@ test("sfd-033-221 Doran's Shield: identity, ruleset, status, judgeReason and ver
   assert.match(program.judgeReason, /Equip/);
   assert.match(program.judgeReason, /readCost/);
   assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The generated registry indexes this exact program object.
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -147,4 +146,4 @@ test("sfd-033-221 Doran's Shield golden: the merged Equip activation declares it
 });
 
 test.todo("sfd-033-221 Doran's Shield: paying the printed Calm Equip cost (CR 818.1.b / 818.1.c.3) needs an Equip payment kind in cost/plan-values.ts plus the ExpandInput params.cost plumbing (contract 3.8 item 3) - RIFT-261 follow-up.");
-test.todo("sfd-033-221 Doran's Shield: the card-program -> keyword expansion -> chain activation wiring (contract 3.5) is not merged - RIFT-257 binding follow-up; the merged effect.attach body above runs directly, and payCostPlan is only exercised once the cost kind exists.");
+test.todo("sfd-033-221 Doran's Shield: the card-program -> keyword expansion -> chain activation wiring (contract 3.5) is not merged; the merged effect.attach body above runs directly, and payCostPlan is only exercised once the cost kind exists.");

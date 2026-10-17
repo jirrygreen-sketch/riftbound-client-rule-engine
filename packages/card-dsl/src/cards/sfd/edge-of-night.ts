@@ -34,7 +34,6 @@
  * - Equip 的启动费用仍不可支付：已合入 Equip 展开声明 payments: [{ kind: "equip" }]，
  *   而 cost/plan-values.ts 的 readCost 没有该支付种类，buildCostPlan 实测抛
  *   CostPlanError（reason "judge-required"，message "Unsupported payment kind: equip"）。
- * - 触发能力还缺卡牌程序→TriggerRegistration 的生产接线（契约 3.5，RIFT-257）。
  * 与同目录已合入装备程序（long-sword / bf-sword / warmogs-armor / dorans-blade / sacred-shears）
  * 一致：关键词上的 costDomain（以及本卡的 costAdditions）是扩展字段，因此本文件按这些文件的写法用
  * as const 声明，由 golden 的 validateCardProgram 做结构校验（不是用类型断言绕过契约）。
@@ -56,8 +55,7 @@ export default {
     "已合入 Equip 展开声明 payments: [{ kind: \"equip\" }]，cost/plan-values.ts 的 readCost " +
     "没有该支付种类（实测 buildCostPlan 抛 \"Unsupported payment kind: equip\"），" +
     "契约 3.8 第 3 条的 params.cost 也未落到 KeywordDef 接口（RIFT-261）。" +
-    "另缺卡牌程序→TriggerRegistration 的生产接线（契约 3.5，RIFT-257）。依赖：RIFT-90（Location/目标）、" +
-    "RIFT-257、RIFT-261。不近似实现。",
+    "依赖：RIFT-90（Location/目标）、RIFT-261。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     {

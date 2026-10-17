@@ -30,8 +30,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   的闸门无法生效（场上的单位一律就绪入场）。条件求值本身也不是本卡的问题：手牌计数用已合入的
  *   count + chain/engine.ts 的 owner/「self」归一化即可；缺的是把 condition 接进入场取向匹配。
  * - hold 触发本身只用已合入时点与 effect.draw，golden 测试对 draw 体做真实执行；
- *   卡牌程序 → TriggerRegistration 的生产接线仍属 RIFT-257。
- * 依赖：RIFT-260 的入场取向条件求值补齐、RIFT-257（触发注册）。不近似实现（不把 enter ready
+ * 依赖：RIFT-260 的入场取向条件求值补齐。不近似实现（不把 enter ready
  * 写成事后 effect.ready，也不把「手牌 ≤ 2」写成常量或干脆删掉）。
  */
 const abilities: Ability[] = [
@@ -83,8 +82,7 @@ const program = {
     "matchesEnterAction 先于 testCondition 命中，于是「If you have two or fewer cards in your hand」的闸门" +
     "无法生效——手牌 3 张时单位仍以就绪状态入场。条件本身可用已合入的 count + chain/engine.ts 的 owner 归一化" +
     "表达（owner: \"self\"），缺的是入场取向匹配把 condition 纳入判定。" +
-    "hold 触发（383.4.d，时点 hold）与 effect.draw 已合入并有执行测试；卡牌程序 → TriggerRegistration 仍属 RIFT-257。" +
-    "依赖：RIFT-260 入场取向条件求值、RIFT-257（触发注册）。不近似实现。",
+        "依赖：RIFT-260 入场取向条件求值。不近似实现。",
   abilities,
   sourceText:
     "If you have two or fewer cards in your hand, I enter ready.\n" +

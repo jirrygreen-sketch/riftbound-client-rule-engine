@@ -30,7 +30,7 @@ function combatBuff(id: string, at: "attack-declared" | "defense-declared"): Abi
               {
                 id: `${id}.pay-fury`,
                 op: "cost.pay",
-                args: { power: { kind: "constant", value: ["Fury"] } }
+                args: { payments: { kind: "constant", value: { power: ["Fury"] } } }
               },
               {
                 id: `${id}.might`,
@@ -65,8 +65,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "胜利战斗触发需要 combat-result 对单位胜负的事件对象绑定（468.3），并播放 Gold gear token；Gold 定义、链上 token 创建、exhausted 入场覆盖均未合入（RIFT-62/RIFT-89）。" +
-    "攻击/防御能力需要 cost.pay、临时 continuous.might 与本回合期限（RIFT-89/RIFT-91），且这些触发的生产接线尚未完成。保留已知结构，不近似实现。",
+    "(1) combat-result（468.3）与 attack-declared/defense-declared（407）这三个封闭时点目前只有 timing-points.ts 的声明，" +
+    "没有已合入的发射方把战斗结果/宣言交给事件管线（RIFT-124）；object-killed 同理缺 inCombat 载荷。" +
+    "(2) 印刷的 Gold gear token（187.5）不在 effect.token 的 DEFINITIONS 表里（当前只有 recruit/sand-soldier/mech/reflection/tentacle），" +
+    "执行会得到 negated / blockedReason: token-definition-or-abilities-judge-required。" +
+    "(3) token 的 entersExhausted（184.1/185.2.d 入场规定）与 { type: \"base\", player: \"controller\" } 相对控制者记法" +
+    "（effect.token 只接受字面 PlayerId 并要求等于 ctx.controller）都未被原语消费。" +
+    "cost.pay 的 Fury 域支付与 continuous.might 的 end-of-turn +2 Might 本身已合入并有真实执行测试；" +
+    "触发接线的生产方（contract 3.5）未合入。不近似实现。",
   abilities,
   sourceText:
     "When I win a combat, play a Gold gear token exhausted.\n" +

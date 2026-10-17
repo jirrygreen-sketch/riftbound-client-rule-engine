@@ -36,7 +36,6 @@ test("sfd-027-221 Dunebreaker: judgeReason names the replacement-enter and hand-
   assert.match(program.judgeReason, /RIFT-260/);
   assert.match(program.judgeReason, /matchesEnterAction/);
   assert.match(program.judgeReason, /condition/);
-  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("sfd-027-221 Dunebreaker: enter-ready is a replacement, not a post-entry effect.ready", () => {
@@ -155,7 +154,3 @@ test.todo(
     "replacement/bind.ts matchesEnterAction returns before testCondition, so a 3-card hand still enters ready; RIFT-260 follow-up"
 );
 
-test.todo(
-  "sfd-027-221 Dunebreaker: the hold timing point reaches this ability through the trigger -> chain " +
-    "pipeline and fires for the unit that held (CR 383.4.d, 383.4.d.2.a) — RIFT-257"
-);
