@@ -28,13 +28,11 @@ import type { CardProgram } from "../../ir/index.js";
  * - the card-facing delayed-instruction op is not available: Delayed Abilities
  *   are created by the resolving spell, not owned by a permanent (393), so the
  *   existing timing registration hook cannot be represented by this program;
- * - "play ... Bomb tokens" needs chain creation plus a play destination
- *   (440.2.c / 185.2.a / 350.2 / 354). effect.token requires exactly one
- *   destination argument for mode "play"; "to a single battlefield" is a
- *   resolution-time battlefield choice (355.9.a.4) and neither the frozen Expr
- *   vocabulary nor the ObjectSelector set can enumerate the current legal
- *   battlefields, so the destination has no resolvable location expression
- *   (the location machinery needs the current position-choice contract);
+ * - "to a single battlefield" is a non-target play-location choice (355.10.b).
+ *   LocationExpr can now choose a battlefield once, and effect.token can read
+ *   that bound location. Its candidate query still needs the complete location
+ *   list: the expression path only derives locations mentioned by objects and
+ *   does not pass external LocationState for otherwise unrepresented fields;
  * - the Bomb definition (187.12) carries its own Deploy and Deathknell
  *   abilities, which the merged effect.token definition table still does not
  *   include.
@@ -44,15 +42,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "消灭半边由已合入的 effect.kill 真实执行（any number 可为零，355.13；golden 用卡内原始指令 + 链解释器适配器执行并断言事件与区域）；其余三点仍未合入：" +
-    "(1)「At end of turn, play that many Bomb tokens …」是本法术创建的延迟能力（390/391.1/391.2，窗口为本回合 317.2.c），" +
-    "需要卡牌可用的 trigger.delayed 指令；延迟能力由结算中的法术创建而不是由永久物持有（393），" +
-    "当前程序无法把该延迟注册绑定到法术结算；" +
-    "(2)「play … Bomb tokens」的目的地是结算时选择的单一战场（440.2.c/185.2.a/350.2/354、355.9.a.4）：" +
-    "effect.token 的 mode:\"play\" 必须且只能给出一个 destination，而冻结的 Expr 词汇与 ObjectSelector 集合都无法枚举「当前合法战场」，" +
-    "地点选择需要当前的位置选择契约（RIFT-357）；" +
-    "(3) Bomb gear token 定义（187.12，自带 Deploy 与 Deathknell）仍不在 effect.token 的已实现定义表内。" +
-    "依赖：法术创建的延迟能力绑定、RIFT-357 的地点选择与 Bomb token 能力定义；不近似实现。",
+    "当前缺口：(1) trigger.delayed 未注册，无法从法术结算创建独立于来源存续的延迟能力（390/391.2/393），" +
+    "也无法将 effect.kill 的 killed 对象列表捕获为延迟执行时的固定数量；registerDelayedTrigger 钩子本身已存在。" +
+    "(2) effect.token 仍缺 187.12 的 Bomb 定义及 Deploy/Deathknell 正文绑定（440.2.c 的链上创建/play 交接已存在）。" +
+    "(3) 355.10.b 的单一战场非目标选择已能表达，但 LocationExpr 候选路径未接入完整 LocationState 列表，" +
+    "只能从对象 location 推导战场，未覆盖不被这些位置引用的空战场。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
@@ -99,6 +93,20 @@ export default {
               kind: "constant",
               value: [
                 {
+                  id: "hexplosive-minefield.choose-battlefield",
+                  op: "condition.value",
+                  args: {
+                    value: {
+                      kind: "location",
+                      value: {
+                        kind: "choose",
+                        id: "hexplosive-minefield.battlefield",
+                        filter: { type: "battlefield" }
+                      }
+                    }
+                  }
+                },
+                {
                   id: "hexplosive-minefield.play-bombs",
                   op: "effect.token",
                   args: {
@@ -110,14 +118,12 @@ export default {
                       instructionId: "hexplosive-minefield.delayed-play",
                       key: "count"
                     },
-                    // "to a single battlefield": one battlefield, chosen as
-                    // the delayed ability resolves, is the destination shared
-                    // by every token played this way.
-                    locations: {
-                      kind: "constant",
-                      value: [{ type: "battlefield", id: "hexplosive-minefield.chosen-battlefield" }]
+                    // All tokens share the one non-target location choice.
+                    location: {
+                      kind: "linked-value",
+                      instructionId: "hexplosive-minefield.choose-battlefield",
+                      key: "value"
                     },
-                    choiceId: { kind: "constant", value: "hexplosive-minefield.battlefield" },
                     linkKey: { kind: "constant", value: "bombTokens" }
                   }
                 }

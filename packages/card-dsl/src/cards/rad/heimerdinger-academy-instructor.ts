@@ -27,7 +27,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   没有"被替代事件的 location"选择器；下面的 location 是有意标出的占位常量
  *   （replaced-play-location），必须由替代系统在结算时绑定为被替代打出的目的地——
  *   用来源自身的位置会在这两者不同时给出错误结果，因此这里不用 object-property。
- * - "you may ... instead" 的打出前可选询问仍没有在该 replacement ability 形状中表达。
+ * - replacement.event 已能声明 optional，但 instead 要求裸指令数组，与卡牌 Expr 包装不兼容。
+ * - 来源战场位置与己方 unit token 门控仍是待绑定描述，不能把命名常量当成已求值谓词。
  */
 const abilities: Ability[] = [
   {
@@ -62,11 +63,12 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "替代绑定已能匹配 369.1 的 card-played 事件，但 replacement planner 尚不能把 effect.token " +
-    "规划成创建并打出 Mech token 的 GameAction 序列；\"you may ... instead\" 的打出前可选询问" +
-    "也没有在当前 replacement ability 形状中表达。另缺 \"to that same location\" 的绑定：IR 没有" +
-    "被替代打出动作目的地的动态选择器，程序里的 location 是有意标注的占位常量，不能用来源自身位置近似。" +
-    "依赖：token replacement planner 与动态地点选择（RIFT-357）。",
+    "369.1 的替代仍缺：(1) replacement/planner 未支持 effect.token，不能提交创建并打出 Mech 的动作序列；" +
+    "(2) 替代输入仅暴露 replacement.object，未向 IR 绑定被替代 play 动作的 destination；现有 LocationExpr " +
+    "可读对象当前位置，但不能用它替代待打出的目的地。" +
+    "(3) replacement.event 已有 optional 机制，但 instead 要求裸指令数组，与 Instruction.args 的 Expr 包装不兼容，" +
+    "本卡的直接 with 形状也未声明 you may。" +
+    "来源须位于战场、仅替代己方 unit token 的门控尚未落地；source-at-a-battlefield 只是描述性常量。",
   abilities,
   sourceText:
     "If you would play a unit token to a location while I'm at a battlefield, you may play a 3 :rb_might: Mech unit token to that same location instead."

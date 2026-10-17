@@ -23,7 +23,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    effects/instructions/continuous.might.ts 无论 mode "add" 还是 "set" 都注册
  *    layer: "arithmetic" 的效果（mode "set" 写 kind "set-might"，engine.ts 的
  *    applyArithmetic 消费），仍是 479.4 的算术图层；Trait-Altering 图层的
- *    Base Might 设值（479.2 的 Base Might 行）没有对应的指令原语
+ *    Base Might 设值（479.2 的 Base Might 行）没有对应的指令原语；
+ *    trait 图层本身已有 set-property(might) 消费，缺的是从卡牌指令注册到该层的入口
  *    （continuous.trait / set-base-might 都没有文件），把 Base Might 当有效 Might
  *    处理会改变 143.2.a.1 与 479.2/479.4 的分层语义。
  * 下面保留有依据的形状：card-played 自发触发 + 目标式（己方单位）的
@@ -67,12 +68,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口，不近似实现：缺少「把 Base Might 设为 5（本回合）」的 Trait-Altering 图层原语：已合入的 continuous.might " +
-    "（无论 mode add 还是 set）都注册 layer arithmetic 的效果（mode set 写 kind set-might，由 layers/engine.ts 的 applyArithmetic 消费），" +
-    "属 479.4 的算术图层，而卡面按 143.2.a.1 / 479.2 改的是 Base Might，两者语义不同；" +
-    "当前仍缺把 Base Might 设值注册到 Trait-Altering 图层的指令与消费方。" +
-    "已写出的形状：card-played 自发触发 + 目标式（己方单位）continuous.base-might 指令 + this-turn 期限；golden 单独用已合入原语做对照执行。" +
-    "依赖：Trait-Altering 图层的 Base Might 设值语义。",
+    "缺把 Base Might 设为 5 并持续本回合的卡牌指令入口（143.2.a.1 / 479.2）。" +
+    "layers/engine 的 trait 图层已支持 set-property(might)，但没有已注册的 continuous.base-might 原语将正文绑定到它；" +
+    "continuous.might 的 add/set 始终注册 arithmetic 图层（479.4），不能代替本卡的 Trait-Altering 语义。",
   abilities,
   sourceText: "When you play me, choose a friendly unit. Its base Might becomes 5 this turn."
 } satisfies CardProgram;

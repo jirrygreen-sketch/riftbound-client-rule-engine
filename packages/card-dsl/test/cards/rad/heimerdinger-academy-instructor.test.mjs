@@ -20,7 +20,9 @@ test("rad-132-167 Heimerdinger: program validates and has expected identity", ()
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("369.1"), true);
   assert.equal(program.judgeReason.includes("effect.token"), true);
-  assert.equal(program.judgeReason.includes("RIFT-357"), true);
+  assert.match(program.judgeReason, /destination/);
+  assert.match(program.judgeReason, /replacement\.event/);
+  assert.match(program.judgeReason, /source-at-a-battlefield/);
   assert.equal(
     program.sourceText,
     "If you would play a unit token to a location while I'm at a battlefield, you may play a 3 :rb_might: Mech unit token to that same location instead."
@@ -106,5 +108,5 @@ test.todo(
 test.todo(
   "rad-132-167 Heimerdinger: \"to that same location\" 的绑定——IR 没有\"被替代打出动作的目标位置\"" +
     "选择器，替代管线必须把被替代事件的 location 传进 effect.token；程序里的" +
-    "replaced-play-location 是标注用的占位常量（RIFT-357）"
+    "replaced-play-location 是标注用的占位常量；已合入的对象位置选择器不代表 play 动作的目的地"
 );

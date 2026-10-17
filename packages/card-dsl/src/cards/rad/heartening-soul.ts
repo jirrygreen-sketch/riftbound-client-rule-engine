@@ -104,12 +104,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「Friendly legends have \"[E]: Give a unit +3 :rb_might: this turn.\"」需要把一条完整激活能力（含 [E] 费用与持续期）附加给一组对象，" +
-    "对应的 continuous.grant-ability 需要把完整激活能力（801.3.a / 135.4.b）附加给每个友方传奇，" +
-    "而当前绑定形状只能注册图层效果或关键词，无法承载带 [E] 费用的激活能力体。" +
-    "授予能力体内的临时 Might 修改现已改用已合入的 continuous.might + duration this-turn（143.2.a / 475，RIFT-258），并有真实执行证据。" +
-    "「ready a friendly legend」用已合入的 effect.ready 并有真实执行证据；但 Legend Zone 的位置绑定仍不在当前 ZoneId/目标选择契约内。" +
-    "依赖：完整 Ability grant 绑定与 Legend Zone 目标位置契约。不近似实现。",
+    "缺 continuous.grant-ability 的完整 Ability 绑定：programs/statics 与 ability 图层只消费图层效果/关键词，" +
+    "尚不能给每个友方传奇安装含 [E] 费用的 activated body（801.3.a / 135.4.b）。" +
+    "另缺 Legend Zone 的区域/目标绑定（355.9.a.4）：当前 ZoneId 无该区域，LocationRef 仅含 base/battlefield。" +
+    "effect.ready 与 continuous.might 的局部执行不覆盖这两处缺口。",
   abilities,
   sourceText:
     "When you play me, ready a friendly legend.\n" +
