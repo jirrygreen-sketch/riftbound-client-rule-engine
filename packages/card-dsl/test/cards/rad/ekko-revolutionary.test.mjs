@@ -38,6 +38,10 @@ test("rad-021-167 Ekko, Revolutionary: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /356\.1\.b\.1/);
+  // The Assault condition gap keeps the designation wording (the expansion
+  // still reads designation) and records that combatRole exists but lacks the
+  // binding; the snapshot-field claim stays historical.
+  assert.match(program.judgeReason, /ObjectSnapshot 也不在解释器表达式环境/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });

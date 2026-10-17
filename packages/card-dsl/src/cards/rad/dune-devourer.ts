@@ -47,7 +47,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "CR 356.2.b/356.4.f.1：programs/play.ts 的 translateCost 尚不绑定 optional additional，cost/plan-values.ts 的 choiceObjects 仍需精确 ObjectRef，缺按友方单位过滤器生成费用选择（RIFT-358）以及可选费用决定关联折扣的条件（RIFT-359）。cost.modify/cost.pay 与 kill 费用均已合入。Deflect 已展开为 target.tax，但目标税登记和 Finalize 收取仍依赖 RIFT-360（809.1.c）；不能把未解释的字符串条件当成真值。",
+    "CR 356.2.b/356.4.f.1：programs/play.ts 的 translateCost 仍拒绝 additional（mandatoryAdditional 链路已存在但静态卡程序不可达），cost/plan-values.ts 的 choiceObjects 只接受精确 ObjectRef，缺按友方单位过滤器生成费用选择（RIFT-358 进行中）以及可选费用决定关联折扣的条件（RIFT-359 进行中）；不能把未解释的字符串条件当成真值。cost.modify/cost.pay 与 kill 费用均已合入。CR 809.1.c：Deflect 的 target.tax 原语与 Finalize 收税链路已存在，但 Deflect 展开的 static 绑定被 programs/statics.ts 的 layerFor 拒绝（kind 无 target.tax 映射，RIFT-388/389 确认），收税仍是不可达路径。",
   abilities,
   sourceText:
     "You may kill a friendly unit as an additional cost to play me. If you do, I cost :rb_energy_2: less.\n" +

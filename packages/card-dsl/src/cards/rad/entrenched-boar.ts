@@ -65,7 +65,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "CR 368.1/369.3：replacement.event 已支持 optional，程序 replacement 绑定也已合入；仍缺在同一次可选入场改写成功后，按新入区身份登记本回合 continuous.restrict 的事务路径。replacement.enter 只改入场朝向，replacement/planner.ts 不能规划 choice.optional 或 continuous.restrict；不能用先横置再 ready 代替。CR 054/144.1/144.2：移动限制已可由 zones/movement.ts 消费；缺口是把接受替代的事实与入场后的禁止注册绑定（RIFT-359），不是移动消费方。",
+    "CR 368.1/369.3：程序 replacement 绑定已合入，replacement.event 的 optional 形状已合入，replaces.event 声明也支持 optional；" +
+    "仍缺在同一次可选入场改写成功后，按新入区身份登记本回合 continuous.restrict 的事务路径。replacement.enter 只改入场朝向，" +
+    "replacement/planner.ts 不能规划 choice.optional 或 continuous.restrict（BlockedReplacementError）；不能用先横置再 ready 代替。" +
+    "CR 054/144.1/144.2：移动限制已可由 zones/movement.ts 消费；缺口是把接受替代的事实与入场后的禁止注册绑定（RIFT-359 进行中），不是移动消费方。",
   abilities,
   sourceText: "You may have me enter ready. If you do, I can't move this turn."
 } satisfies CardProgram;

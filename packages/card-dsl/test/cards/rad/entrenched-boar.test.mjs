@@ -98,6 +98,7 @@ test("rad-026-167 Entrenched Boar: identity, status, judgeReason and verbatim so
   // README §2: the reason names each remaining semantic and its owner task.
   assert.match(program.judgeReason, /optional/);
   assert.match(program.judgeReason, /replacement\.event/);
+  assert.match(program.judgeReason, /replaces\.event 声明也支持 optional/);
   assert.match(program.judgeReason, /continuous\.restrict/);
   assert.match(program.judgeReason, /RIFT-359/);
   // The merged entry replacement must no longer be reported as unmerged.

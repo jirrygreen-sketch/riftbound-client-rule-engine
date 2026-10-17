@@ -58,6 +58,11 @@ test("rad-152-167 Encore: judgeReason records mode Finalize, location and ordere
   assert.match(program.judgeReason, /355\.3/);
   assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /LocationSelector\.choose\.filter/);
+  assert.match(program.judgeReason, /condition\.value/);
+  assert.match(program.judgeReason, /linked-value/);
+  assert.doesNotMatch(program.judgeReason, /动态枚举.*选项数组/);
+  assert.doesNotMatch(program.judgeReason, /需已解析 LocationRef/);
 });
 
 test("rad-152-167 Encore: structure — Choose two with four modes in printed order", () => {
@@ -90,16 +95,29 @@ test("rad-152-167 Encore: structure — Choose two with four modes in printed or
   assert.equal(dealTwo.targets[0].max, 1);
   assert.equal(dealTwo.targets[0].selection, "one");
 
-  // Mode 2: "Play two 1 Might Recruit unit tokens" — CR 187.1 Recruit, played
-  // to the controller's base (355.2.a); the destination is the open part.
-  const [recruits] = tokenMode.body;
+  // Mode 2: "Play two 1 Might Recruit unit tokens" — CR 187.1 Recruit. The
+  // destination is selected through the merged location selector and then
+  // passed to effect.token through a linked value.
+  const [chooseRecruitLocation, recruits] = tokenMode.body;
+  assert.equal(chooseRecruitLocation.op, "condition.value");
+  assert.deepEqual(chooseRecruitLocation.args.value, {
+    kind: "location",
+    value: {
+      kind: "choose",
+      id: "encore.recruit-location",
+      filter: { type: "any", controller: "controller" }
+    }
+  });
+  assert.deepEqual(chooseRecruitLocation.args.key, { kind: "constant", value: "location" });
   assert.equal(recruits.op, "effect.token");
+  assert.equal(recruits.linkedTo, "encore.choose-recruit-location");
   assert.deepEqual(recruits.args.token, { kind: "constant", value: "recruit" });
   assert.deepEqual(recruits.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(recruits.args.mode, { kind: "constant", value: "play" });
   assert.deepEqual(recruits.args.location, {
-    kind: "constant",
-    value: { type: "base", player: "controller" }
+    kind: "linked-value",
+    instructionId: "encore.choose-recruit-location",
+    key: "location"
   });
 
   // Mode 3: "Give up to two units each +1 Might this turn" — zero allowed
@@ -154,6 +172,58 @@ test("rad-152-167 Encore: the original Choose two body executes damage and Might
     layers.expireAt("turn-end", "A");
     assert.equal(layers.evaluate(kernel.ref("ally")).might, 3);
   }
+});
+
+function controlledBattlefieldWorld() {
+  const builder = world();
+  const kernel = builder.build();
+  const battlefield = { type: "battlefield", id: "encore-controlled-battlefield" };
+  // Location state is represented by a battlefield object with no location;
+  // the occupant supplies the concrete battlefield ref that the selector
+  // enumerates.
+  kernel.addObject({
+    ref: { id: "encore-controlled-battlefield", zoneEntryId: 1 },
+    owner: "A",
+    controller: "A",
+    types: ["battlefield"],
+    zone: "board",
+    location: null
+  });
+  builder.unit("encore-battlefield-anchor", { location: battlefield });
+  return { kernel, battlefield };
+}
+
+function assertRecruitModePlayed(kernel, destination) {
+  kernel.setAnswers({ "encore.choose-recruit-location/encore.recruit-location": destination });
+  const outcome = resolveChainBody(tokenMode.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["encore.choose-recruit-location", "executed"],
+    ["encore.recruit-tokens", "executed"]
+  ]);
+  const recruits = kernel.objects.filter(object => object.isToken);
+  assert.equal(recruits.length, 2);
+  for (const recruit of recruits) {
+    assert.equal(recruit.name, "Recruit");
+    assert.equal(recruit.might, 1);
+    assert.equal(recruit.energy, null);
+    assert.equal(recruit.power, null);
+    assert.deepEqual(recruit.location, destination);
+  }
+  assert.deepEqual(kernel.events.map(event => event.action), [
+    "create-token", "play", "create-token", "play"
+  ]);
+  assert.deepEqual(kernel.pendingItems, []);
+}
+
+test("rad-152-167 Encore: Recruit mode selects the controller's Base through condition.value", () => {
+  const kernel = world().build();
+  assertRecruitModePlayed(kernel, { type: "base", player: "A" });
+});
+
+test("rad-152-167 Encore: Recruit mode selects a controlled Battlefield through the location filter", () => {
+  const { kernel, battlefield } = controlledBattlefieldWorld();
+  assertRecruitModePlayed(kernel, battlefield);
 });
 
 test("rad-152-167 Encore: the +1 Might mode registers an end-of-turn arithmetic effect for the chosen units", () => {
@@ -214,5 +284,4 @@ test("rad-152-167 Encore: a unit that left the board before resolution cancels o
 });
 
 test.todo("Encore: choose modes during Finalize and bind only the selected modes' targets (CR 355.3)");
-test.todo("Encore: resolve legal Recruit play locations (RIFT-357), then create on Chain and play both tokens (CR 187.1/440.2.c)");
 test.todo("Encore: ordered top two picks, draw the chosen inspected card and recycle its complement (RIFT-358)");

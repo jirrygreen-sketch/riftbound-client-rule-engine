@@ -8,7 +8,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "CR 355.3：programs/play.ts 的 validateSurface 仍拒绝 choice.mode，缺 Finalize 模式计划及所选模式内目标生命周期；解释器可执行模式不等于生产绑定可执行。CR 355.2.a/187.1：effect.token 的打出位置需已解析 LocationRef，缺控制者基地/所控制战场的位置选择（RIFT-357）。查看牌库顶两张、选择其中一张 draw 并回收另一张需有序动态 picks（RIFT-358）及与 draw 的选择绑定；不能把普通抽牌库顶一张当成任意选一。effect.damage 与 continuous.might 均已可执行。",
+    "CR 355.3：programs/play.ts 的 validateSurface 与 chain/engine.ts 的 assertFinalizationSurface " +
+    "都拒绝 choice.mode，静态打出仍缺 Finalize 模式计划及所选模式内目标生命周期（解释器可执行模式不等于生产绑定可执行）。" +
+    "CR 355.2.a/187.1：RIFT-357 已合入；现有 LocationSelector.choose.filter 以 type:any + controller:controller " +
+    "动态枚举控制者基地与其控制的战场，condition.value 在结算时锁定一个 LocationRef，linked-value 再由 effect.token.location 消费，" +
+    "两种目的地均已用真实 Recruit 打出执行测试覆盖。CR 355.10/432.1.c：查看牌库顶两张需要有序动态 picks（RIFT-358 进行中），" +
+    "effect.inspect 缺该上游来源时会明确阻断；draw 1 与 recycle the other 的绑定随 RIFT-358 落地后还需收尾。" +
+    "effect.damage 与 continuous.might 均已可执行。",
   abilities: [
     {
       kind: "play",
@@ -48,18 +54,35 @@ export default {
                   id: "encore.recruit-tokens-mode",
                   body: [
                     {
+                      id: "encore.choose-recruit-location",
+                      op: "condition.value",
+                      args: {
+                        value: {
+                          kind: "location",
+                          value: {
+                            kind: "choose",
+                            id: "encore.recruit-location",
+                            filter: { type: "any", controller: "controller" }
+                          }
+                        },
+                        key: { kind: "constant", value: "location" }
+                      }
+                    },
+                    {
                       // "Play two 1 Might Recruit unit tokens" — Recruit is CR
-                      // 187.1; the destination (the controller's Base, 355.2.a)
-                      // is the open part (see judgeReason).
+                      // 187.1. The selected LocationRef is consumed by the
+                      // merged create-on-chain + play path.
                       id: "encore.recruit-tokens",
                       op: "effect.token",
+                      linkedTo: "encore.choose-recruit-location",
                       args: {
                         token: { kind: "constant", value: "recruit" },
                         amount: { kind: "constant", value: 2 },
                         mode: { kind: "constant", value: "play" },
                         location: {
-                          kind: "constant",
-                          value: { type: "base", player: "controller" }
+                          kind: "linked-value",
+                          instructionId: "encore.choose-recruit-location",
+                          key: "location"
                         },
                         linkKey: { kind: "constant", value: "encore.recruits" }
                       }
