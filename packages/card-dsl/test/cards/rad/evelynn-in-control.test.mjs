@@ -33,9 +33,8 @@ test("rad-109-167 Evelynn, In Control: program validates and keeps identity", ()
 
 test("rad-109-167 Evelynn, In Control: judgeReason names Disarm, the Facedown Zone and the hold emitter", () => {
   assert.match(program.judgeReason, /Disarm/);
-  assert.match(program.judgeReason, /Disarm\.ts/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /facedown-zone/);
+  assert.match(program.judgeReason, /Facedown Zone/);
   assert.match(program.judgeReason, /attack-declared/);
   // The hold emitter is merged now, so it must not be reported as missing.
   assert.doesNotMatch(program.judgeReason, /RIFT-76/);

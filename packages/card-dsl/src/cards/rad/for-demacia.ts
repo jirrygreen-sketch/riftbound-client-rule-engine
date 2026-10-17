@@ -40,7 +40,7 @@ const forDemacia = {
   status: "judge-required",
   judgeReason:
     "唯一未合入的依赖是 [Shield 2] 授予之后的行为（814.1.c/814.1.d.1）：战场筛选与本回合授予已可执行——" +
-    "continuous.grant-keyword 原语由 RIFT-681 的模板参数化 golden 经通用测试台真实支付 3 能量、锁定所选战场，并由 sameLocationAs 集合查询" +
+    "continuous.grant-keyword 原语经通用测试台真实支付 3 能量、锁定所选战场，并由 sameLocationAs 集合查询" +
     "断言只有该战场的友方单位在 ability 图层拿到 Shield 2 与 end-of-turn 期限（317.2.c）。" +
     "缺的是 Shield 的展开：它要求 object-property(self, \"designation\") === \"defender\"，" +
     "但生产 ObjectSnapshot 只有 combatRole（默认 null），layers 没有 designation 读取器，战斗系统也没有指定产生方，" +
