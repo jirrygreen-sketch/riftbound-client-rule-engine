@@ -17,6 +17,8 @@ test("black-rose-sanctum: passes validateCardProgram and carries the catalog ide
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  assert.ok(program.judgeReason.includes("ProgramRegistry.get"));
+  assert.ok(program.judgeReason.includes("cardId:null"));
   assert.equal(
     program.sourceText,
     "For each player, the first time each turn a non-token unit they control dies here, they play a 1 :rb_might: Recruit unit token to their base."
@@ -130,7 +132,7 @@ test("black-rose-sanctum: the merged token primitive creates then plays Recruit 
 
 test.todo(
   "black-rose-sanctum: play the Recruit token into the dying unit controller's base " +
-    "(the frozen create-token action carries no destination player)"
+    "(bind the event player to both the creator and destination, rather than ability-controller defaults)"
 );
 test.todo(
   "black-rose-sanctum: for-each-player first-time-each-turn frequency on a single card ability " +

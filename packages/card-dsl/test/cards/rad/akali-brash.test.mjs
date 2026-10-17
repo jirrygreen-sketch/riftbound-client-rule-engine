@@ -14,6 +14,8 @@ test("rad-015-167 Akali, Brash: program validates and has expected identity", ()
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.equal(program.status, "judge-required");
+  assert.ok(program.judgeReason.includes("self-moves-this-turn/history-record"));
+  assert.ok(program.judgeReason.includes("move-location"));
   assert.equal(
     program.canonicalCardId,
     "card.hash-299400fea6fee0793728ed914b84549455937a2ee92f40540aa04c765818548e"

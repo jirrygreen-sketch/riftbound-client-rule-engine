@@ -63,6 +63,9 @@ test("rad-025-167 Consult the Heavens: identity, status, judgeReason and verbati
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
+  assert.ok(program.judgeReason.includes("combatRole"));
+  assert.ok(program.judgeReason.includes("expr-ext"));
+  assert.ok(program.judgeReason.includes("生命周期"));
   // README §2: Reaction timing and Defender designation remain blocked;
   // Predict now has an ordered source consumed by the real chain.
   assert.match(program.judgeReason, /Reaction/);
@@ -195,7 +198,7 @@ test("rad-025-167 Consult the Heavens: the [Shield 2] grant registers an ability
   // end of the turn (317.2.c). The merged continuous.grant-keyword primitive
   // (RIFT-258) is the producer; the layers engine reads the granted keyword
   // back with its value.
-  const kernel = world().unit("hero", { might: 2 }).unit("ally", { might: 3 }).build();
+  const kernel = world().unit("hero", { might: 2 }).unit("ally", { might: 3, combatRole: "defender" }).build();
   kernel.setTargets("consult-the-heavens.unit", [kernel.ref("ally")]);
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("hero") });
 
@@ -210,6 +213,8 @@ test("rad-025-167 Consult the Heavens: the [Shield 2] grant registers an ability
   assert.equal(registration.effect.effect.kind, "continuous.grant-keyword");
   assert.equal(registration.effect.effect.keyword, "shield");
   assert.equal(registration.effect.effect.keywordValue, 2);
+  assert.equal(scoped.getObject("ally").combatRole, "defender");
+  assert.equal(scoped.evaluate({ kind: "object-property", object: { target: "consult-the-heavens.unit" }, property: "combatRole" }), "defender");
   // The grant is applied to the chosen unit, not to the ability's own source.
   assert.equal(registration.effect.filter.objectId, "ally");
 
@@ -282,7 +287,7 @@ test("rad-025-167 Consult the Heavens: declining to recycle performs an empty re
 
 test.todo(
   "Consult the Heavens: the [Shield 2] modifier applies +2 only while the unit holds the Defender designation " +
-    "(814.1.d.1); CR 814.1.d.1's designation is not an ObjectSnapshot characteristic (contract 3.8 combatRole)"
+    "(814.1.d.1); combatRole exists, but designation alias consumption, granted-keyword expansion and combat role production remain unbound"
 );
 
 test("Consult the Heavens: the [Reaction] expansion is refused by the merged static binder", () => {
@@ -301,7 +306,7 @@ test("Consult the Heavens: the [Reaction] expansion is refused by the merged sta
   );
 });
 
-test("Consult the Heavens: the [Shield 2] expansion does bind, so only the Defender designation is missing", () => {
+test("Consult the Heavens: the [Shield 2] expansion does bind, while designation expression and granted-keyword lifecycle wiring remain", () => {
   // 814.1.c: Shield expands to the arithmetic-layer +Might that is gated on the
   // Defender designation. The merged binder accepts the static ability, so the
   // remaining gap is the missing designation characteristic, not the binding.

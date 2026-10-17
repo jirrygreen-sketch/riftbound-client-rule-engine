@@ -18,48 +18,24 @@ import type { CardProgram } from "../../ir/index.js";
  * - 187.5: the Gold gear token is a domainless gear token with the printed
  *   "[Reaction][>] Kill this, [E]: [Add] [A]." activated ability.
  *
- * Status: judge-required (re-verified 2026-10-17) — the effect cannot be
- * honestly executed:
- * - "When you hide a card here" cannot be subscribed: `card-hidden` is not in
- *   EVENT_PATTERN_TYPES (events/trigger-spec.ts), so pipeline.registerTrigger
- *   rejects the spec, and the Hide action is not in the GameAction set, so no
- *   module emits the timing point
- *   (docs/rules/timing-point-producers.md). The "here" anchor is also not an
- *   EventPattern field: RIFT-257's programs/filters.ts rejects `here` with
- *   "Unsupported filter field here".
- * - The Gold definition (187.5) carries its own activated ability, which
- *   effect.token.ts deliberately keeps out of its frozen definition table
- *   ("definitions requiring other abilities, including Gold, remain
- *   blocked/judge-required").
- * - "exhausted" is an entry override (143.4 / 185.2.d) and the create-token
- *   action has no argument for it: effect.token.argsSchema accepts only
- *   token/amount/mode/location/target/pick/locations/choiceId/linkKey.
- * - The production chain has no consumer for { type: "play" }: chain/engine.ts
- *   requires the caller's describePlay card-program adapter, and
- *   EngineRuntimeHost returns impossible for the play action.
- * RIFT-257 (card-program binding) and RIFT-261 (cost kinds, cost.pay/modify)
- * are merged and are no longer the gap.
- *
- * The trigger and the intended body are recorded (token id, destination and
- * entry exhaustion) so downstream tooling can see the full shape; execution
- * is judged, and nothing is approximated.
+ * Status: judge-required (2026-10-17 source audit).
+ * card-hidden still lacks a Hide action/producer and EVENT_PATTERN_TYPES entry;
+ * the source-Battlefield here anchor is not consumed by trigger translation.
+ * Gold still has no frozen token definition/activated program (187.5), and
+ * effect.token/create-token cannot carry an exhausted entry override (185.2.d).
+ * ChainEngine already routes play through describePlay; the remaining token
+ * integration is that ability-bearing tokens need a program identity/adapter,
+ * not a blanket absence of play handling. Gold's [A] also needs Universal Power.
  */
 export default {
   canonicalCardId: "card.hash-722142d79d944add290577d2ffd13c8f888e9948a549f7948d622833d6a0783e",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) 「When you hide a card here」无法订阅：card-hidden 不在 EVENT_PATTERN_TYPES " +
-    "（events/trigger-spec.ts），pipeline.registerTrigger 直接拒绝该 spec；Hide 动作也不在 GameAction " +
-    "集内，没有模块发出该时点（docs/rules/timing-point-producers.md）。「here」也不是 EventPattern " +
-    "字段，programs/filters.ts 判 “Unsupported filter field here”。" +
-    "(2) Gold gear token（187.5）自带启动能力，effect.token 的冻结定义表按设计不收录（blocked，返回 " +
-    "token-definition-or-abilities-judge-required）。" +
-    "(3) 「exhausted」是入场替代修正（143.4 / 185.2.d），create-token 动作没有该参数：" +
-    "effect.token 的 argsSchema 只收 token/amount/mode/location/target/pick/locations/choiceId/linkKey。" +
-    "(4) 生产链没有消费 { type: \"play\" } 的 host 动作（chain/engine.ts 要求调用方提供 describePlay；" +
-    "EngineRuntimeHost 对 play 返回 impossible）。" +
-    "不近似实现。",
+    "(1)「When you hide a card here」缺 Hide 动作/card-hidden 生产者及 EVENT_PATTERN_TYPES 入口；programs/filters.ts 也不消费 here 来源战场锚点（CR 422.1 / 422.2）。" +
+    "(2) Gold gear token 缺 187.5 的定义与启动程序；其 [Add] [A] 仍需 Universal Power，不能近似为任一域。" +
+    "(3)「exhausted」缺入场覆盖：effect.token 的 argsSchema / create-token 动作没有该参数（143.4 / 185.2.d），不得用后续 exhaust 替代。" +
+    "(4) ChainEngine 已通过 describePlay 路由 play；但 Gold 等能力 Token 仍需可绑定的程序身份/适配，不能以无能力 Token 的 cardId:null 代替。",
   sourceText:
     "When you hide a card here, play a Gold gear token exhausted. (It has \"[Reaction][>] Kill this, :rb_exhaust:: [Add] :rb_rune_rainbow:.\")",
   abilities: [

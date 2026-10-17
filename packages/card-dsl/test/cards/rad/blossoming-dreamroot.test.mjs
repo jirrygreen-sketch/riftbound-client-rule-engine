@@ -26,6 +26,8 @@ test("rad-024-167 Blossoming Dreamroot: identity, ruleset, status and exact sour
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  assert.ok(program.judgeReason.includes("continuous.location"));
+  assert.ok(program.judgeReason.includes("held"));
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });

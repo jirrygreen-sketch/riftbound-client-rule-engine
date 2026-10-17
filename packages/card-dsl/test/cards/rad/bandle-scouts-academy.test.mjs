@@ -15,6 +15,8 @@ test("bandle-scouts-academy: passes validateCardProgram and carries the catalog 
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  assert.ok(program.judgeReason.includes("Universal Power"));
+  assert.ok(program.judgeReason.includes("cardId:null"));
   assert.equal(
     program.sourceText,
     'When you hide a card here, play a Gold gear token exhausted. (It has "[Reaction][>] Kill this, :rb_exhaust:: [Add] :rb_rune_rainbow:.")'
@@ -71,7 +73,7 @@ test("bandle-scouts-academy: the printed exhausted entry stipulation is not carr
 test.todo(
   "bandle-scouts-academy: create the Gold token on the Chain and play it exhausted in the " +
     "production chain (440.2.c / 185.2.a / 350.2 / 354; needs the Gold definition, the exhausted " +
-    "entry stipulation and a host that consumes { type: \"play\" })"
+    "entry stipulation and the Gold program identity/describePlay adapter)"
 );
 test.todo(
   "bandle-scouts-academy: card-hidden timing wiring for the Hide discretionary action " +
