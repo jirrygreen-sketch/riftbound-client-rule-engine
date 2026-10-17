@@ -27,8 +27,7 @@ test("sfd-055-221 Needlessly Large Yordle: identity, ruleset, status, judgeReaso
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Shield/);
   assert.match(program.judgeReason, /Tank/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /designation/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -82,6 +81,5 @@ test.todo(
 test.todo(
   "sfd-055-221 Needlessly Large Yordle: the discount must be collected at Finalize as -2 Energy and -1 Calm " +
     "Power per point scored from holding this turn (356.1/356.4; and the plan must never go below 0 Power), " +
-    "which needs both the cost-plan discount wiring and a history count of this turn's hold points — " +
-    "RIFT-261 plus a Hold-score history query"
+    "which needs both the card-static cost-binding path and a history count of this turn's hold points"
 );

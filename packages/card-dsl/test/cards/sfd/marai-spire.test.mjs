@@ -41,11 +41,11 @@ test("sfd-211-221 Marai Spire: static Repeat-cost discount scoped to friendly Re
   assert.deepEqual(ability.condition, { kind: "always" });
 });
 
-// The discount is not executable: no cost.modify primitive / Finalize cost-plan
-// consumer, and the Repeat keyword's own additional-cost path is not wired.
+// The discount is not executable: no production consumer binds a static
+// cost.modify into Finalize, and Repeat's repeat.cost has no collector.
 test.todo(
-  "sfd-211-221 Marai Spire: apply the -1 energy discount to friendly Repeat additional costs at Finalize (cost.modify + cost plan, RIFT-261; 356.4/356.4.f/356.6)"
+  "sfd-211-221 Marai Spire: apply the -1 energy discount to friendly Repeat additional costs at Finalize (static cost.modify -> cost plan consumer; 356.4/356.4.f/356.6)"
 );
 test.todo(
-  "sfd-211-221 Marai Spire: Repeat additional-cost payment wiring so the discount has a target cost to modify (keywords/Repeat.ts cost.additional/cost.pay)"
+  "sfd-211-221 Marai Spire: Repeat repeat.cost collection at Finalize so the discount has a target cost to modify (keywords/Repeat.ts)"
 );

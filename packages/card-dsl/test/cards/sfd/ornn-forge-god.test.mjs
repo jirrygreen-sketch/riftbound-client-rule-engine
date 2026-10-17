@@ -30,8 +30,7 @@ test("sfd-085-221 Ornn, Forge God: judgeReason names Deflect, Weaponmaster and t
   assert.match(program.judgeReason, /821\.1\.c/);
   assert.match(program.judgeReason, /143\.2\.a/);
   assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /reduce-equip-cost/);
   assert.match(program.judgeReason, /RIFT-91/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -68,16 +67,17 @@ test("sfd-085-221 Ornn, Forge God: '+1 Might for each friendly gear' is a counti
 
 test.todo(
   "sfd-085-221 Ornn, Forge God: [Deflect 2] expands to target.tax and appends two any-Domain Power to an " +
-    "opposing spell/ability that chooses this unit (CR 809.1.c/809.1.c.1/809.1.d, 356.2.a.2) — the layers " +
-    "consumer of the Deflect expansion and the card keyword registration are unmerged (RIFT-90)"
+    "opposing spell/ability that chooses this unit (CR 809.1.c/809.1.c.1/809.1.d, 356.2.a.2) — the RIFT-349 " +
+    "static binder has no layer mapping for target.tax and the chain Finalize books taxes as Energy (RIFT-90)"
 );
 test.todo(
   "sfd-085-221 Ornn, Forge God: [Weaponmaster]'s play effect chooses one of the controller's Equipment and " +
     "attaches it after paying its Equip cost reduced by one any-Domain Power, without activating Equip " +
-    "(CR 821.1.b/821.1.c/821.1.c.2/821.1.c.6; RIFT-261 cost wiring plus the keyword target layer)"
+    "(CR 821.1.b/821.1.c/821.1.c.2/821.1.c.6; the reduce-equip-cost branch needs the original " +
+    "[A]/[C] symbol binding)"
 );
 test.todo(
   "sfd-085-221 Ornn, Forge God: 'I have +1 Might for each friendly gear' requires the merged " +
     "continuous.might instruction plus a card-static registration path and count-expression evaluation " +
-    "in the arithmetic layer (CR 143.2.a/475-478; RIFT-257 static binding plus RIFT-91 count follow-up) — never a Buff counter"
+    "in the arithmetic layer (CR 143.2.a/475-478; card-static layer binding plus RIFT-91 count evaluation) — never a Buff counter"
 );

@@ -65,7 +65,7 @@ test("sfd-058-221 Ornn, Blacksmith: the printed \"or\" is two trigger subscripti
   // 383.4.d / 315.2.b.2 / 471.2 / 473.2.b: "when I hold".
   assert.equal(holdTrigger.kind, "triggered");
   assert.equal(holdTrigger.trigger.at, "hold");
-  assert.deepEqual(holdTrigger.trigger.filter, { event: "hold", filter: { source: "self" } });
+  assert.deepEqual(holdTrigger.trigger.filter, { event: "held", filter: { source: "self" } });
   assert.equal(holdTrigger.optional, false);
 
   // Both printed conditions share the identical effect instructions.
@@ -305,5 +305,6 @@ test.todo(
 test.todo(
   "sfd-058-221 Ornn, Blacksmith: both subscriptions (card-played 383.4.a and hold 383.4.d) must reach the " +
     "chain as Pending items through a CardProgram trigger registration; the hold timing point is " +
-    "emitted, but the CardProgram lifecycle consumer is still missing — RIFT-257"
+    "emitted and the RIFT-257 program binding is merged, but the hold payload carries no object " +
+    "for the self-scoped filter to match"
 );

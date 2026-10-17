@@ -20,10 +20,11 @@ import type { CardProgram } from "../../ir/index.js";
  * 第 5 节）；展开由 engine-core 的 effects/keywords/Weaponmaster.ts 负责，
  * 卡内不重写关键词逻辑。
  *
- * status = judge-required（cards/README.md 第 2 节）：Weaponmaster 展开文件与
- * keyword registry 已合入，但其 body 使用的 cost.modify / cost.pay 仍未进入当前
- * 指令注册与 Finalize 费用计划（RIFT-261），所以 821.1.c.2 的 Equip 费计算与
- * 821.1.c.3 的 [A] 减费无法执行；卡牌能力接入仍依赖 RIFT-257；不近似实现。
+ * status = judge-required（cards/README.md 第 2 节）：Weaponmaster 展开、keyword
+ * registry 与 cost.modify / cost.pay 原语均已合入（RIFT-261），但 cost.modify 的
+ * reduce-equip-cost 分支在以 judge-required 失败关闭——它需要“原始 [A]/[C] 符号”
+ * 绑定才能按 821.1.c.2 计算 Equip 费并按 821.1.c.3 减 [A]，当前 CostPlan 无法区分，
+ * 因此 821.1.c.2/.c.3 仍无法执行；不近似实现。
  */
 const masterBingwen = {
   canonicalCardId:
@@ -31,13 +32,11 @@ const masterBingwen = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The Weaponmaster KeywordDef and keyword expansion are merged, but the card is not " +
-    "executable end to end: its expansion pays the chosen Equipment's Equip cost through " +
-    "cost.modify / cost.pay, and those opcodes plus the Finalize payment plan are still " +
-    "pending in RIFT-261. 821.1.c.2 (cost determined as though the Equip ability were " +
-    "activated targeting this unit) and 821.1.c.3 (the [A] reduction) therefore cannot be " +
-    "calculated or paid before effect.attach runs; the card-program play binding also remains " +
-    "pending in RIFT-257; not approximated.",
+    "The Weaponmaster KeywordDef, keyword expansion, and the RIFT-261 cost.modify/cost.pay " +
+    "primitives are merged, but cost.modify fails closed with judge-required for " +
+    "reduce-equip-cost: the cost plan cannot distinguish the original [A] symbol from [C], so " +
+    "821.1.c.2 (cost determined as though the Equip ability were activated) and 821.1.c.3 (the " +
+    "[A] reduction) still cannot be calculated before effect.attach runs; not approximated.",
   abilities: [{ kind: "keyword", keyword: "weaponmaster" }],
   sourceText:
     "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)"

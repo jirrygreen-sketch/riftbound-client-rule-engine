@@ -24,4 +24,4 @@ test("ornns-forge: static cost-modify structure", () => {
 
 // Cost modification is not executable: the card-static effect has no Finalize
 // consumer, and the per-turn "first played" window needs history-gated expiry.
-test.todo("ornns-forge: CardProgram static binding / Finalize cost.modify consumer and per-turn first-play window (RIFT-257/RIFT-261)");
+test.todo("ornns-forge: card-static cost binding into Finalize plus the per-turn first-play window");

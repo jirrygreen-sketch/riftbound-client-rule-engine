@@ -38,7 +38,7 @@ test("sfd-114-221 Marching Orders: program passes validateCardProgram", () => {
 test("sfd-114-221 Marching Orders: judgeReason names the [Repeat] cost gap and its tasks", () => {
   assert.match(program.judgeReason, /\[Repeat\]/);
   assert.match(program.judgeReason, /820\.1\.c/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /programs\/play\.ts/);
   // The damage half is executable and must be reported as such, not as a gap.
   assert.match(program.judgeReason, /golden 已真实执行/);
 });
@@ -206,11 +206,13 @@ test("sfd-114-221 Marching Orders golden: a stale enemy target ignores both Deal
 test.todo(
   "sfd-114-221 Marching Orders: [Repeat] :rb_energy_3: — collecting the optional additional cost at " +
     "Finalize and executing the effect one extra time per paid instance with re-made choices " +
-    "(820.1.b/820.1.d/820.2.a) needs the card-program Repeat cost plan and payment adapter (RIFT-261)"
+    "(820.1.b/820.1.d/820.2.a) needs the card-program adapter to bind the additional-cost field " +
+    "(programs/play.ts currently rejects it) and a paid-instance count at resolution"
 );
 
 test.todo(
   "sfd-114-221 Marching Orders: the printed [Action] Showdown permission must be enforced through the " +
     "continuous.timing consumer and a CardProgram -> ChainDraft play adapter " +
-    "(chain/engine.ts describePlay, contract 3.7) — RIFT-257"
+    "(chain/engine.ts describePlay, contract 3.7) — abilitySpeed derives 'action', but describePlay " +
+    "still rejects the additional-cost field before a draft exists"
 );

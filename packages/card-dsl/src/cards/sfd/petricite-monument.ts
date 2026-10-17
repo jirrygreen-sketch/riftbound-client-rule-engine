@@ -23,12 +23,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   the keyword to units you control; ongoing grants are layer effects (contract 3.7).
  *
  * status: judge-required, no part approximated:
- * 1. the Temporary KeywordDef and its effect.kill expansion are merged (RIFT-265),
- *    but the card-program lifecycle still has to register the beginning-start trigger
- *    and enqueue it through the production chain (RIFT-257).
- * 2. continuous.grant-keyword is merged (RIFT-258/259), but there is no RIFT-257 card-static
- *    ability binder in the production lifecycle; the granted Deflect target.tax also
- *    has no target-plan consumer (RIFT-90) or any-Domain Power payment path (RIFT-261).
+ * 1. the Temporary KeywordDef, its effect.kill expansion (RIFT-265) and the RIFT-257
+ *    card-program lifecycle are merged, but the beginning-start filter's event spelling
+ *    and the trigger payload cannot yet bind the kill to this permanent: the KeywordDef
+ *    emits event "beginning-start" whose TriggerSpec vocabulary name is different, and
+ *    the turn flow's beginning-start emission carries no object.
+ * 2. the continuous.grant-keyword primitive and the RIFT-349 static binder are merged, so
+ *    the Deflect grant now really lands in the ability layer; the granted Deflect's
+ *    target.tax still has no target-plan consumer (RIFT-90), and chain/engine.ts books the
+ *    Deflect tax as an Energy constant instead of any-Domain Power (809.1.c.1).
  * The golden tests validate the identity/structure and execute the merged Temporary
  * sub-effect; the card remains judge-required until both integration gaps close.
  */
@@ -37,10 +40,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) [Temporary]（CR 816.1.b）的 KeywordDef 与 effect.kill 展开已合入（RIFT-265），但卡牌生命周期仍未把 " +
-    "beginning-start 触发注册并送入生产结算链（RIFT-257）。" +
-    "(2) \"Friendly units have [Deflect]\" 的 continuous.grant-keyword 原语已合入，但没有 RIFT-257 卡牌 static " +
-    "能力绑定入口；被授予的 Deflect target.tax 还缺目标计划消费方（RIFT-90）与任意域 Power 支付路径（RIFT-261）。" +
+    "(1) [Temporary]（CR 816.1.b）的 KeywordDef、effect.kill 展开（RIFT-265）与 RIFT-257 卡牌生命周期均已合入，" +
+    "但 beginning-start 触发的 filter.event 用的时点名与 TriggerSpec 词汇表不一致（events/trigger-spec.ts），" +
+    "且 turn/flow.ts 的 beginning-start 载荷不含对象，无法把 kill 绑到本永久物。" +
+    "(2) \"Friendly units have [Deflect]\" 的 continuous.grant-keyword 原语与 RIFT-349 static 绑定已合入，" +
+    "授予现在能真正落到 ability 图层；但被授予的 Deflect target.tax 仍缺目标计划消费方（RIFT-90），" +
+    "链上又把税记成 Energy 常量而非任意域 Power（809.1.c.1）。" +
     "No approximate implementation is provided; the executable Temporary sub-effect is covered in isolation.",
   abilities: [
     // 816.1: the printed [Temporary] declaration. Expansion belongs to the

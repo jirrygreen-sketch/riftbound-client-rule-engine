@@ -20,22 +20,26 @@ import type { CardProgram } from "../../ir/index.js";
  *   per 820.1.c and 820.4), so the static effect filters friendly Repeat
  *   sources rather than granting Repeat to anything.
  *
- * Status rationale (contract 3.1): the Repeat KeywordDef is merged, but its
- * additional-cost declaration and this battlefield's discount still have no
- * card-program consumer in Finalize. The cost.modify/cost.pay and Repeat cost
- * plan work remains pending in RIFT-261, and the RIFT-257 CardProgram binding
- * path does not yet bind this static card ability. The static effect
- * below records the intended scope and delta; nothing is approximated and no
- * cost is silently rewritten in card data.
+ * Status rationale (contract 3.1): the Repeat KeywordDef and the RIFT-261
+ * cost.modify/cost.pay primitives are merged, but two consumers are still
+ * missing: (1) the RIFT-349 static binder rejects this card's
+ * `appliesTo: "repeat-additional-cost"` (only the generic static layers are
+ * mapped, and cost plans are not one of them), so the discount never reaches a
+ * Finalize cost plan (the plan only applies caller-supplied discounts), and
+ * (2) Repeat's `repeat.cost` declaration has no Finalize collector, so the
+ * discount has no target cost to modify. The static effect below records the
+ * intended scope and delta; nothing is approximated and no cost is silently
+ * rewritten in card data.
  */
 export default {
   canonicalCardId: "card.hash-e00a3fe8d0f18d062b1743d6d5d1eb534e884d83303af037d7c1d05c3a6a21bd",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Repeat 关键词展开已合入，但其附加费用和本静态减费没有卡牌侧 Finalize 消费方：" +
-    "cost.modify/cost.pay 与 Repeat 的费用计划接线仍待 RIFT-261（356.4/356.4.b/356.4.f），" +
-    "且 RIFT-257 的 CardProgram 静态能力绑定尚未把 ContinuousEffect 接入该费用计划；不近似减费。",
+    "Repeat 关键词展开与 RIFT-261 的 cost.modify/cost.pay 原语均已合入，但仍缺两个消费方：" +
+    "(1) RIFT-349 static 绑定会拒绝本卡的 appliesTo \"repeat-additional-cost\"，卡牌 static cost 效果接不进 Finalize 费用计划" +
+    "（cost/cost-plan.ts 只应用调用方显式传入的 discounts）；" +
+    "(2) Repeat 展开出的 repeat.cost 没有 Finalize 收取方，本减费没有可修改的目标费用（356.4/356.4.b/356.4.f）。不近似减费。",
   sourceText: "While you control this battlefield, friendly [Repeat] costs cost :rb_energy_1: less.",
   abilities: [
     {

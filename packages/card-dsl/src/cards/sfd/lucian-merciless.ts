@@ -9,34 +9,37 @@ import type { CardProgram } from "../../ir/index.js";
  *   The first time I conquer each turn, ready me.
  *
  * - [Weaponmaster] 是 keyword 能力（821）；展开（打出触发 + Equip 费减免 [A] +
- *   effect.attach）已由 effects/keywords/Weaponmaster.ts 声明，但费用计划仍依赖
- *   尚未合入的 cost.modify/cost.pay（RIFT-261）。
+ *   effect.attach）由 effects/keywords/Weaponmaster.ts 提供，cost.modify / cost.pay
+ *   原语已合入（RIFT-261），但 821.1.c.2 的 Equip 费仍缺“原始 [A]/[C] 符号”绑定：
+ *   cost.modify 的 reduce-equip-cost 分支以 judge-required 失败关闭，尚未执行减费。
  * - “The first time I conquer each turn, ready me.” 是触发能力：时点 conquer
  *   （383.4.c，自身参与征服），once per-turn 即 “the first time … each turn”；
  *   指令体只含已合入的 effect.ready 原语（objects 缺省即 source）。
  *   整条能力可表达。
  *
- * 程序整体保持 judge-required，因为 Weaponmaster 的费用/支付路径和卡牌触发注册
- * 尚未端到端接线；征服触发能力本身结构完整，golden 测试用解释器 + 参考内核执行
- * effect.ready 部分。
+ * 程序整体保持 judge-required：Weaponmaster 的 Equip 费绑定未完成，且征服时点
+ * 产生方只发出 player/details、不携带战场对象（turn/flow.ts），program 触发的
+ * self 过滤因此无法命中；征服触发能力本身结构完整，golden 测试用解释器 + 参考内核
+ * 执行 effect.ready 部分。
  */
 const lucianMerciless = {
   canonicalCardId: "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The Weaponmaster KeywordDef is merged, but its 821.1.c play effect still cannot " +
-    "calculate and pay the chosen Equipment's Equip cost reduced by one any-Domain Power: " +
-    "the cost.modify/cost.pay instruction and Finalize payment path remain pending in " +
-    "RIFT-261. The conquer trigger also needs the RIFT-257 card-program trigger binding and a " +
-    "validated self/here event filter; the timing-point producer exists, but this card " +
-    "cannot be executable until that registration path is wired. The effect.ready body " +
-    "is executable in isolation.",
+    "The Weaponmaster KeywordDef and the RIFT-261 cost.modify/cost.pay primitives are merged, " +
+    "but the 821.1.c.2 Equip-cost binding is still missing: cost.modify throws " +
+    "judge-required for reduce-equip-cost because the cost plan cannot distinguish the " +
+    "original [A] symbol from [C], so the reduction cannot execute. The conquer trigger " +
+    "also cannot fire: the scoring conquer emission carries only player/details and no " +
+    "object, so a self filter has nothing to match (turn/flow.ts); the RIFT-257 trigger " +
+    "adapter itself registers the event as 'conquered'. The effect.ready body is " +
+    "executable in isolation.",
   abilities: [
     { kind: "keyword", keyword: "weaponmaster" },
     {
       kind: "triggered",
-      trigger: { at: "conquer", filter: { role: "self" }, once: "per-turn" },
+      trigger: { at: "conquer", filter: { event: "conquered", role: "self" }, once: "per-turn" },
       optional: false,
       body: [{ id: "ready-self", op: "effect.ready", args: {} }]
     }

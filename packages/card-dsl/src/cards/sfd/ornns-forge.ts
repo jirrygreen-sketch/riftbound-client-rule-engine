@@ -7,9 +7,10 @@ import type { CardProgram } from "../../ir/index.js";
  *  played each turn costs {1 energy} less."
  *
  * Status rationale (contract §3.1): the ability is a cost modification whose
- * scope is a per-turn window keyed to the first qualifying play. The cost
- * planning/payment work is still pending in RIFT-261, and the RIFT-257 card-static
- * registration path does not feed this effect into Finalize:
+ * scope is a per-turn window keyed to the first qualifying play. The cost.modify
+ * and cost.pay primitives are merged (RIFT-261), but the RIFT-349 static binder
+ * rejects this card's `cost.modify` shape (no Finalize cost-plan mapping), so no
+ * production path feeds the effect into the Finalize cost plan:
  * - the "first … each turn" window needs per-turn state reset by the turn
  *   timing points plus history counting (condition.history) combined with a
  *   continuous cost layer (contract 3.4 layer arithmetic) that expires after
@@ -26,8 +27,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The cost.modify shape is recorded, but card-static cost effects are not consumed by " +
-    "Finalize (RIFT-257) and the cost.modify/cost.pay path remains pending in RIFT-261. The 'first " +
+    "The cost.modify shape is recorded and the cost.modify/cost.pay primitives are merged " +
+    "(RIFT-261), but the RIFT-349 static binder rejects this shape (cost-plan effects have no " +
+    "layer mapping), so no production path binds it into the Finalize cost plan (the plan " +
+    "applies only caller-supplied discounts). The 'first " +
     "friendly non-token gear played each turn' window additionally needs per-turn state and " +
     "history-gated expiry after the first qualifying play; the current ContinuousEffect/condition " +
     "model cannot express that window. No cost is approximated.",

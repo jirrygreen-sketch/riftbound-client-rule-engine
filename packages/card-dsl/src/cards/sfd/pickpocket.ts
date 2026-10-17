@@ -35,8 +35,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   仍不在 effect.token 的已实现定义表；虽然 mode: "play" 已支持链上创建 + 打出，
  *   Gold 的能力定义与 exhausted 入场规定尚未实现。
  * effect.kill 与 choice.optional 已合入并被 golden 真实执行（接受/拒绝/目标失效三分支）。
- * 依赖：RIFT-90（目标过滤的印刷费用谓词）、RIFT-257（卡牌触发/Token 打出绑定）、
- * frozen IR 的 condition.result 动作回执契约缺口、Gold 定义与入场状态（token 原语任务）。
+ * 依赖：RIFT-90（目标过滤的印刷费用谓词）、frozen IR 的 condition.result 动作回执契约缺口、
+ * Gold 定义与入场状态（token 原语任务）。RIFT-257 触发绑定已合入，但 programs/filters.ts
+ * 在注册时直接拒绝未知的 costEnergyLte 字段，因此该过滤不是可执行路径。
  */
 const abilities: Ability[] = [
   {
@@ -97,15 +98,16 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "三处依赖仍未合入，均不近似实现：(1)「a gear with Energy cost no more than :rb_energy_1:」需要 206 的印刷费用上限比较作为目标合法性限制" +
-    "（355.9.b 型阈值）：冻结 ObjectFilter 没有费用谓词，已合入的过滤器（layers/filter.ts 的 matchesObjectFilter、测试内核 matchesFilter）" +
-    "只按 type/zone/controller/owner/tags/characteristics 等匹配，未知键（如程序里的 costEnergyLte）被静默忽略——" +
+    "（355.9.b 型阈值）：冻结 ObjectFilter 没有费用谓词，且 RIFT-257 的 programs/filters.ts 会在注册时直接拒绝未知的 " +
+    "costEnergyLte 字段（Unsupported filter field），TargetSpec 也没有可执行的费用上限——" +
     "把它当已实现会让 Pickpocket 消灭任意费用的 gear（同 sfd/sandshifter 的 mightLte 缺口）。" +
     "(2)「If you do」是 359.3.e.14.b 的直接引用游戏动作条件（调研记为 condition.result）：冻结 IR 没有动作/费用回执绑定，" +
     "Gold token 指令无法按 kill 实际发生开闸；linkedTo 的传播不区分「直接引用动作」（negated 时仍会放行），故不伪造该闸门。" +
     "(3) Gold gear token（CR 187.5，自带 Reaction/Kill/[E]: [Add] [A] 能力）仍不在 effect.token 的已实现定义表；" +
     "mode: play 的链上创建 + 打出路径已合入，但 Gold 定义与 exhausted 入场状态仍不支持。effect.kill 与 choice.optional 已合入，" +
-    "golden 用锁定目标真实执行 kill 半段。依赖：RIFT-90（目标过滤印刷费用谓词）、RIFT-257（卡牌触发/Token 打出绑定）、" +
-    "frozen IR 的 condition.result 动作回执契约缺口、Gold 定义与入场状态（token 原语任务）。",
+    "golden 用锁定目标真实执行 kill 半段。依赖：RIFT-90（目标过滤印刷费用谓词）、" +
+    "frozen IR 的 condition.result 动作回执契约缺口、Gold 定义与入场状态（token 原语任务）；" +
+    "RIFT-257 触发绑定已合入，但 filters.ts 对 costEnergyLte 直接报错关闭。",
   abilities,
   sourceText:
     "When you play me, you may kill a gear with Energy cost no more than :rb_energy_1:. " +

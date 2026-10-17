@@ -17,7 +17,7 @@ test("minefield: triggered conquer structure", () => {
   const ability = program.abilities[0];
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "conquer");
-  assert.equal(ability.trigger.filter.event, "conquer");
+  assert.equal(ability.trigger.filter.event, "conquered");
   assert.equal(ability.trigger.filter.here, true);
   assert.equal(ability.trigger.filter.player, "controller");
   assert.equal(ability.optional, false);
@@ -42,5 +42,6 @@ test("minefield: the supported body mills the controller's top 2 cards", () => {
 
 test.todo(
   "minefield: the conquer trigger must enforce the printed battlefield-relative here restriction " +
-    "through CardProgram trigger registration and EventPattern host-location matching (RIFT-257)"
+    "— programs/filters.ts rejects the `here` key and the conquer emission carries no " +
+    "battlefield object to compare against"
 );

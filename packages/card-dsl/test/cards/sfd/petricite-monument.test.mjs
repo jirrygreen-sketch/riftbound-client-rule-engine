@@ -7,6 +7,10 @@ import program from "../../../dist/cards/sfd/petricite-monument.js";
 import temporary from "../../../../engine-core/dist/effects/keywords/Temporary.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+// The production static binder (RIFT-349) is the path that turns the printed
+// static ability into a live layer effect; the golden exercises it directly.
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-40f4f4fa670faf83d3f284bef5c9dc3ae0047668559d38ad02a7521cff81b378";
 const SOURCE_TEXT =
@@ -65,11 +69,42 @@ test("sfd-104-221 Petricite Monument: Temporary expansion and kill body execute 
   assert.equal(kernel.getObject("petricite-monument").zone, "trash");
 });
 
+test("sfd-104-221 Petricite Monument golden: the static binder grants [Deflect] to friendly units only", () => {
+  // 364.1/364.2 + 809.1.b.3: "Friendly units have [Deflect]" is a continuous
+  // grant of Deflect 1 to units the ability's controller controls. The card is
+  // still judge-required, so the program is made executable in-memory only for
+  // this binder probe; the shipped program and its judgeReason are untouched.
+  const executable = { ...program, status: "executable" };
+  delete executable.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [executable] });
+  const { engine, kernel, host } = fixture({
+    cards: [
+      { id: "petricite", cardId: CARD_ID, types: ["gear"], energy: 2, power: [] },
+      { id: "ally", types: ["unit"], might: 2 },
+      { id: "enemy", types: ["unit"], might: 2, owner: "B", controller: "B" }
+    ]
+  });
+  const board = id => engine.commit({ type: "move-zone", object: kernel.ref(id), to: "board" });
+  board("ally");
+  board("enemy");
+  const lifecycle = binding.attachLifecycle(engine, () => {});
+  board("petricite");
+  engine.pipeline.emit({ timingPoint: "object-enters-board", object: kernel.getObject("petricite") });
+
+  assert.deepEqual(engine.layers.evaluate(kernel.ref("ally")).keywords, [
+    { id: "deflect", value: 1 }
+  ]);
+  assert.deepEqual(engine.layers.evaluate(kernel.ref("enemy")).keywords, []);
+  lifecycle.detach();
+  assert.deepEqual(engine.layers.evaluate(kernel.ref("ally")).keywords, []);
+  assert.equal(host.objects().length >= 3, true);
+});
+
 test.todo(
-  "sfd-104-221 Petricite Monument: [Temporary] (CR 816.1.b) needs the merged KeywordDef " +
-    "registered through the card-program lifecycle at beginning-start (RIFT-257)."
+  "sfd-104-221 Petricite Monument: [Temporary] (CR 816.1.b) needs the beginning-start event " +
+    "name and payload to bind the kill to this permanent through the card-program lifecycle."
 );
 test.todo(
-  "sfd-104-221 Petricite Monument: \"Friendly units have [Deflect]\" needs a card-static " +
-    "continuous.grant-keyword binder, the target.tax reader (RIFT-90), and any-Domain Power payment (RIFT-261)."
+  "sfd-104-221 Petricite Monument: the granted [Deflect] layer value is live, but the target.tax " +
+    "reader (RIFT-90) and any-Domain Power tax booking (809.1.c.1) are still missing."
 );

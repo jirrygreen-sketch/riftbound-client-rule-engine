@@ -38,8 +38,7 @@ test("sfd-037-221 Navori Scout: judgeReason names the missing wiring and its tas
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /809\.1\.c\.1/);
   assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /Energy/);
   assert.match(program.judgeReason, /any-Domain Power/);
 });
 
@@ -120,6 +119,6 @@ test.todo(
   "sfd-037-221 Navori Scout: an opponent's spell or ability that chooses me costs 1 additional " +
     "Power payable with any Domain (CR 809.1.c/809.1.c.1), derived from my target.tax continuous " +
     "effect and charged at Finalize — blocked because no producer derives the Deflect tax from a " +
-    "permanent's target.tax effect (RIFT-90), and the any-Domain Power payment still needs the " +
-    "cost-plan/payment path (RIFT-261)"
+    "permanent's target.tax effect (RIFT-90), and chain/engine.ts still books the tax as an " +
+    "Energy constant instead of any-Domain Power (809.1.c.1)"
 );

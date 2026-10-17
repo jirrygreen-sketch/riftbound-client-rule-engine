@@ -44,9 +44,10 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   会让玩家选到非装备牌——按红线不近似实现。此外链适配器
  *   （chain/interpreter-adapter.ts 的 LITERAL_FIELDS）只为 effect.reveal 解包 target、
  *   未解包 pick，卡声明的 pick 在到原语前就被参数校验拒绝。
- * - 触发侧：hold 时点已由回合/计分流程发出，但没有已合入消费方把 CardProgram 的
- *   triggered 能力注册成事件订阅并把 Hold Effect 接入该链（RIFT-257）。
- * 依赖：有序区域 pick 的 Finalize 生命周期、RIFT-257（卡牌触发注册与 hold 载荷）、
+ * - 触发侧：hold 时点已由回合/计分流程发出，RIFT-257 的 program 绑定也在生产侧可用，
+ *   filter.event 已按 TriggerSpec 词汇写作 "held" 并能完成注册；但计分流程的 hold
+ *   载荷只带 player/details、不含对象，filter 的 self 归属因此永远命中不了。
+ * 依赖：有序区域 pick 的 Finalize 生命周期、hold 载荷的对象/归属接线、
  * 以及链适配器对 nested pick 的解包。look / reveal / draw-it / recycle 四段只用已合入
  * 原语，golden 用解释器与参考内核真实执行。
  */
@@ -166,7 +167,7 @@ const abilities: Ability[] = [
   },
   {
     kind: "triggered",
-    trigger: { at: "hold", filter: { event: "hold", filter: { source: "self" } } },
+    trigger: { at: "hold", filter: { event: "held", filter: { source: "self" } } },
     optional: false,
     body
   }
@@ -184,9 +185,11 @@ const program = {
     "写进 PickSpec 的 filter 只是描述性数据（候选来自链接值），没有消费方把「链接列表 + gear 过滤」变成可重放的结算期选择；" +
     "用无过滤的 choose 近似会让玩家选到非装备牌，按红线不近似实现；并且链适配器（chain/interpreter-adapter.ts 的 LITERAL_FIELDS）" +
     "只为 effect.reveal 解包 target、未解包 pick，卡声明的 pick 在到原语前就被参数校验拒绝。" +
-    "(3) 触发侧：hold 时点已由回合/计分流程发出，但没有已合入消费方把 CardProgram 的 triggered 能力注册成事件订阅并把 Hold Effect 接入该链（RIFT-257）。" +
+    "(3) 触发侧：hold 时点已由回合/计分流程发出，RIFT-257 的 program 绑定也已在生产侧可用，" +
+    "filter.event 已按 TriggerSpec 词汇写作 \"held\" 并能完成注册；但计分流程的 hold 载荷只带 player/details、不含对象，" +
+    "filter 的 self 归属永远命中不了。" +
     "look/reveal/draw-it/recycle 四段只用已合入原语，golden 用解释器与参考内核真实执行。" +
-    "依赖：有序区域 pick 的 Finalize 生命周期、RIFT-257、链适配器 nested pick 解包。不近似实现。",
+    "依赖：有序区域 pick 的 Finalize 生命周期、hold 载荷的对象/归属接线、链适配器 nested pick 解包。不近似实现。",
   abilities,
   sourceText:
     "When you play me or when I hold, look at the top 4 cards of your Main Deck. " +

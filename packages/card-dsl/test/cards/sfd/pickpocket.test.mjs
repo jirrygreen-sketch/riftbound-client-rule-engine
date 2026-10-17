@@ -112,7 +112,7 @@ test("sfd-074-221 Pickpocket golden: accepting the may kills the locked gear (CR
     .unit("pickpocket", { might: 3 })
     .unit("cheap-gear", { types: ["gear"], owner: "A", controller: "A", energy: 1 })
     .build();
-  // Isolate the merged kill body: the Gold token definition is unmerged, so the
+  // Isolate the merged kill body: effect.token still has no Gold definition, so the
   // composite body cannot execute as a whole yet (see the todo below).
   kernel.setTargets(TARGET_ID, [kernel.ref("cheap-gear")]);
   kernel.setAnswers({ [MAY_ID + "/optional"]: true });

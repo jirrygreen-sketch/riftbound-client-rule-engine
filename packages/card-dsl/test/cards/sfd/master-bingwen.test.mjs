@@ -55,9 +55,9 @@ test("sfd-127-221 Master Bingwen: identity, ruleset, status and verbatim sourceT
 test("sfd-127-221 Master Bingwen: judgeReason names the remaining cost-plan dependency", () => {
   assert.match(program.judgeReason, /Weaponmaster/);
   assert.match(program.judgeReason, /cost\.modify/);
-  assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /821\.1\.c\.2/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /reduce-equip-cost/);
+  assert.match(program.judgeReason, /\[A\]/);
 });
 
 test("sfd-127-221 Master Bingwen: exactly one unvalued Weaponmaster keyword ability", () => {
@@ -109,5 +109,6 @@ test.todo(
   "sfd-127-221 Master Bingwen: on play, choose one of your Equipment, pay its Equip cost " +
     "reduced by [A], then attach it to me even if it is already attached (821.1.c / " +
     "821.1.c.2 / 821.1.c.3) — the Weaponmaster expansion is present, but its " +
-    "cost.modify / cost.pay Finalize/payment path remains blocked by RIFT-261"
+    "cost.modify reduce-equip-cost branch fails closed until the original [A]/[C] symbol " +
+    "binding exists"
 );

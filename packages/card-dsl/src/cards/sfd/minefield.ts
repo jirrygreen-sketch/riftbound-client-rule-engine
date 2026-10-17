@@ -15,9 +15,9 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status rationale (contract §3.1): the mill body is executable, but the whole
  * card remains judge-required. The conquer timing point is emitted by the
- * scoring flow, while the printed "here" restriction still has no validated
- * battlefield-relative EventPattern/host-location comparison, and the card
- * trigger registration is not wired through the production lifecycle. The
+ * scoring flow, but the printed "here" restriction has no battlefield-relative
+ * EventPattern spelling: programs/filters.ts rejects the `here` key, and the
+ * conquer emission carries no battlefield object to compare against. The
  * structure below records the exact trigger and uses effect.mill for the
  * supported sub-effect.
  */
@@ -27,15 +27,16 @@ export default {
   status: "judge-required",
   judgeReason:
     "The merged effect.mill primitive executes the deck-top-to-trash action, but the card is " +
-    "still judge-required because the conquer trigger's battlefield-relative `here` filter " +
-    "has no validated EventPattern/host-location comparison, and CardProgram trigger " +
-    "registration is not wired end to end. The supported mill body is tested in isolation. " +
-    "依赖：RIFT-257（触发注册与 here 语义）。",
+    "still judge-required: the RIFT-257 program adapter rejects the printed `here` filter key " +
+    "(Unsupported filter field here), the TriggerSpec vocabulary spells the event 'conquered', " +
+    "and the scoring conquer emission carries only player/details with no battlefield object, " +
+    "so a battlefield-relative host-location comparison cannot be formed. The supported mill " +
+    "body is tested in isolation.",
   sourceText: "When you conquer here, put the top 2 cards of your Main Deck into your trash.",
   abilities: [
     {
       kind: "triggered",
-      trigger: { at: "conquer", filter: { event: "conquer", here: true, player: "controller" } },
+      trigger: { at: "conquer", filter: { event: "conquered", here: true, player: "controller" } },
       optional: false,
       body: [
         {
