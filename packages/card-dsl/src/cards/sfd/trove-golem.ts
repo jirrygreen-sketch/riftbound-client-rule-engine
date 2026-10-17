@@ -27,7 +27,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 2. the "exhausted" entry override is unsupported by the creation/play actions;
  *    effect.exhaust's boundary notes that a later exhaust is not equivalent
  *    (143.4 / 184.1 / 185.2.d).
- * The chain-create + play handoff itself IS merged (RIFT-62): the golden proves the
+ * The chain-create + play handoff itself is merged: the golden proves the
  * card's own token/amount/mode/location shape against a merged definition really
  * creates and plays four tokens. The judged half stays on the Gold definition and
  * the entry state, so the printed "exhausted" entry is recorded as a
@@ -67,13 +67,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处 token 依赖仍未合入（链上创建 + play 接手本身已合入，RIFT-62）：" +
+    "三处 token 依赖仍未合入（链上创建 + play 接手本身已合入）：" +
     "(1) Gold gear token 定义（CR 187.5：域外 gear token，自带印刷能力 “[Reaction][>] Kill this, [E]: [Add] [A]”）不在 effect.token 的冻结定义表；" +
     "该文件明确此类定义保持 blocked/judge-required，对 “gold” 执行会得到 negated + blockedReason: token-definition-or-abilities-judge-required。" +
     "(2)「exhausted」是入场状态规定（184.1/185.2.d），create-token/play 不支持改写；事后 effect.exhaust 不等价（143.4，effect.exhaust 文件头亦如此说明）。" +
     "已可真实执行：卡自身的 token/amount/mode/location 形状在已合入定义上会真实执行 create-token → play 四次" +
     "（golden 以此证明形状与 440.2.c 路径可用，且入场状态为默认 ready）；印刷的「exhausted」入场以 test.todo 记录，不按 ready 静默通过。" +
-    "依赖：Gold 定义（187.5）与入场状态改写（184.1/185.2.d）。不近似实现。",
+    "此外，程序中的 controller-relative Base marker 仍需要位置解析（RIFT-357）。不近似实现。",
   abilities,
   sourceText: "When you play me, play four Gold gear tokens exhausted."
 } satisfies CardProgram;

@@ -33,15 +33,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   layer engine, and asserts that only the other friendly units get +2, that
  *   Undertitan itself and enemy units do not, and that the effect expires at
  *   end of turn.
- * - The reveal replacement has no CardProgram -> replacement registration: the
- *   merged replacement/ module (RIFT-260) binds this exact pattern to the
- *   `card-revealed` action and the body (effect.resources, 430.1) executes (the
- *   golden drives that merged binding with the card's own replaces/with data),
- *   but programs/statics.ts defaults to `noopStaticBinder` and no merged consumer
- *   supplies a `bindReplacement` implementation (RIFT-257 follow-up).
- * Dependencies: RIFT-257 follow-up (card replacement registration). Nothing is
- * approximated: the +2 is never a Buff counter and the reveal clause is never
- * turned into a plain instruction.
+ * - The replacement matcher, body, and default lifecycle binder are merged and
+ *   exercised by the golden. A deck-hosted replacement still needs to be
+ *   discovered before a reveal action while the host remains in the deck; the
+ *   lifecycle currently attaches programs on zone-entry/chain transitions, so
+ *   that initial deck registration remains a production integration gap.
+ * Nothing is approximated: the +2 is never a Buff counter and the reveal clause
+ * is never turned into a plain instruction.
  */
 const abilities: Ability[] = [
   {
@@ -106,13 +104,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "半段可执行、半段未接线：(1)「give your other units +2 :rb_might: this turn」已可执行——continuous.might（RIFT-258）注册 arithmetic 层效果并支持 end-of-turn 期限" +
+    "半段可执行、半段未接线：(1)「give your other units +2 :rb_might: this turn」已可执行——continuous.might注册 arithmetic 层效果并支持 end-of-turn 期限" +
     "（317.1.a/468.7.c）；卡内选择按契约 3.6 写成 controller: \"self\" + exclude: \"self\"（\"other\" 排除来源，355.9.c），" +
     "golden 经解释器 + 参考内核 + 图层引擎真实执行（只有其他友方单位 +2、来源与敌方不变、回合结束到期）。" +
-    "(2)「As I'm revealed from your deck, [Add] :rb_energy_2:」（135.2.b.6 的非指令从句）仍缺卡牌程序→替代注册的消费方：replacement/（RIFT-260）已合入并能匹配 reveal 动作（card-revealed）、" +
+    "(2)「As I'm revealed from your deck, [Add] :rb_energy_2:」（135.2.b.6 的非指令从句）对应的 replacement/" +
+    "已合入并能匹配 reveal 动作（card-revealed）、" +
     "with 体（effect.resources，430.1）也已可执行（golden 用卡自身的 replaces/with 数据驱动该绑定），" +
-    "但 programs/statics.ts 的 bindReplacement 默认是 noopStaticBinder，没有已合入实现把卡牌 replacement 能力注册进事件管线（RIFT-257 后续）。" +
-    "依赖：RIFT-257 后续（卡牌替代注册）。不近似实现（+2 不用 Buff 计数器近似，揭示句也不改写成普通指令）。",
+    "默认 lifecycle binder 已能注册并执行该 replacement；当前仍缺的是对 deck 中既有宿主的初始发现：" +
+    "卡牌在 deck 内被 reveal 时，生命周期没有在 reveal 前为该宿主建立 replacement registration。" +
+    "不近似实现（+2 不用 Buff 计数器近似，揭示句也不改写成普通指令）。",
   abilities,
   sourceText:
     "When you play me, give your other units +2 :rb_might: this turn.\n" +

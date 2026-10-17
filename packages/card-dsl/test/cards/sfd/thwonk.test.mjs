@@ -19,11 +19,8 @@ const [action, play] = program.abilities;
 const [stunInstruction] = play.body;
 const targetSpec = stunInstruction.targets[0];
 // The authored TargetSpec pins the Attacker restriction with the contract 3.8
-// combatRole vocabulary, which the merged reference kernel does not evaluate.
-// Golden execution therefore locks the finalized target (the one-two-punch /
-// frigid-touch convention) instead of re-deriving candidates from a filter key
-// that no merged matcher understands; the card's own TargetSpec is asserted
-// structurally below and the missing predicate is recorded as a TODO.
+// The golden body locks the finalized target while the structural assertion
+// below verifies the merged combatRole filter vocabulary.
 const executableBody = play.body.map(({ targets, ...rest }) => rest);
 
 test("sfd-040-221 Thwonk!: program passes validateCardProgram", () => {
@@ -40,11 +37,11 @@ test("sfd-040-221 Thwonk!: identity, ruleset, status and verbatim text", () => {
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
-test("sfd-040-221 Thwonk!: judgeReason names the Attacker designation and the Repeat wiring", () => {
+test("sfd-040-221 Thwonk!: judgeReason names the remaining Repeat wiring", () => {
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /740\.2\.c/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /Repeat/);
+  assert.match(program.judgeReason, /programs\/play\.ts/);
 });
 
 test("sfd-040-221 Thwonk!: [Action] keyword plus the printed [Repeat] additional cost", () => {
@@ -76,11 +73,11 @@ test("sfd-040-221 Thwonk!: one targeted effect.stun restricted to an attacking u
   });
 
   // 355.5 names "Stun a unit at a battlefield" as a Choice; the printed
-  // restriction here is the Attacker designation (740.2.c) recorded with the
-  // contract 3.8 combatRole vocabulary.
+  // The Attacker designation is carried by the contract's combatRole
+  // characteristic and is consumed by the merged object matcher.
   assert.deepEqual(targetSpec, {
     id: "thwonk.attacking-unit",
-    filter: { type: "unit", zone: "board", combatRole: "attacker" },
+    filter: { type: "unit", zone: "board", characteristics: { combatRole: "attacker" } },
     min: 1,
     max: 1,
     selection: "one"
@@ -132,15 +129,9 @@ test("sfd-040-221 Thwonk! golden: a unit that left the board is mistargeted (359
 });
 
 test.todo(
-  "sfd-040-221 Thwonk!: 'an attacking unit' needs the Attacker designation test — ObjectSnapshot.combatRole and " +
-    "its filter vocabulary (CR 461 / 466.2.c.3 / 740.2.c; contract 3.8 item 1, RIFT-91 / RIFT-105) plus the " +
-    "Finalize target system that consumes it (RIFT-90)."
-);
-
-test.todo(
   "sfd-040-221 Thwonk!: [Repeat] :rb_energy_2: must be collected at Finalize and the paid instance count fed to the " +
-    "interpreter's repeat node (CR 820.1.c.1 / 820.1.d.1; RIFT-89 cost plan plus the wiring named in " +
-    "effects/keywords/Repeat.ts)."
+    "interpreter's repeat node (CR 820.1.c.1 / 820.1.d.1; programs/play.ts currently rejects the additional " +
+    "play cost and no resolver supplies the paid count)."
 );
 
 test.todo(

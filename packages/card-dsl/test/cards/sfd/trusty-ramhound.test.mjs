@@ -5,9 +5,11 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/trusty-ramhound.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-88c1812cc994f155d1a08ed94e9690205a48e0ecd3e4d827b49d468bc6f8e69f";
@@ -36,11 +38,8 @@ test("sfd-159-221 Trusty Ramhound: program validates, is registered and keeps it
   assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /conditionMatches/);
-  assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(
     program.sourceText,
     "While you have another unit here, I have +1 :rb_might:."
@@ -128,10 +127,9 @@ test("sfd-159-221 Trusty Ramhound golden: an instruction gated by the condition 
 });
 
 test("sfd-159-221 Trusty Ramhound golden: the merged arithmetic layer applies the declared +1 Might", () => {
-  // RIFT-91's layer engine consumes the declared continuous.might effect when a
+  // The layer engine consumes the declared continuous.might effect when a
   // caller registers it; this executes the real arithmetic path for the amount
-  // this card declares. The gate itself has no layer-side evaluation (see
-  // judgeReason), so no layer assertion claims the condition is honoured.
+  // this card declares.
   const kernel = world()
     .unit("ramhound", { zone: "board", might: 2, location: { type: "battlefield", id: "bf-1" } })
     .build();
@@ -153,8 +151,27 @@ test("sfd-159-221 Trusty Ramhound golden: the merged arithmetic layer applies th
   assert.equal(engine.evaluate(snapshot.ref).might, 3);
 });
 
-test.todo(
-  "sfd-159-221 Trusty Ramhound: evaluate the 'while you have another unit here' gate on the layer path " +
-    "(conditionMatches must handle compare/count and matchesObjectFilter must implement the sameLocationAs/exclude " +
-    "anchors) and register the card's static ability (RIFT-91 follow-up / RIFT-257 follow-up)."
-);
+test("sfd-159-221 Trusty Ramhound golden: the production static binder honors the relative condition", () => {
+  const kernel = world().player("A")
+    .unit("ramhound", { zone: "board", might: 2, controller: "A", owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("ally-here", { zone: "board", might: 2, controller: "A", owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("ally-elsewhere", { zone: "board", might: 2, controller: "A", owner: "A", location: { type: "base", player: "A" } })
+    .build();
+  const decide = (request) => { throw new Error("Unexpected choice: " + request.id); };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: decide,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: () => true
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const handle = createEngineStaticBinder(engine).bindStatic(ability, kernel.getObject("ramhound"));
+
+  assert.equal(engine.layers.evaluate(kernel.ref("ramhound")).might, 3);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-here")).might, 2);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-elsewhere")).might, 2);
+  handle?.unbind();
+});

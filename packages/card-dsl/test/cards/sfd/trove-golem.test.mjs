@@ -59,7 +59,7 @@ test("sfd-174-221 Trove Golem: card-played self trigger plays four Gold tokens",
 });
 
 test("sfd-174-221 Trove Golem golden: the card's own chain-create + play shape really plays four tokens", () => {
-  // RIFT-62 merged the chain-create + play handoff, so the card's own
+  // The merged chain-create + play handoff means the card's own
   // token/amount/mode/location args execute a real four-token play once the
   // definition exists. Only the Gold definition and the entry state are missing.
   const kernel = world().player("A").build();
@@ -92,7 +92,8 @@ test("sfd-174-221 Trove Golem golden: the card's own chain-create + play shape r
 test.todo(
   "sfd-174-221 Trove Golem: create and play four Gold gear tokens exhausted once the Gold definition " +
     "(CR 187.5) and the entry-state stipulation (184.1 / 185.2.d) are merged; the chain-create + play " +
-    "handoff itself is already merged and executed above."
+    "handoff itself is already merged and executed above; the controller-relative Base marker still needs " +
+    "the location resolver (RIFT-357)."
 );
 
 test.todo(

@@ -30,9 +30,10 @@ test("sfd-060-221 Tianna Crownguard: identity, ruleset, status, judgeReason and 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.restrict/);
   assert.match(program.judgeReason, /470/);
-  assert.match(program.judgeReason, /RIFT-31/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /conditionMatches/);
+  assert.match(program.judgeReason, /restrictions\(\)/);
+  assert.match(program.judgeReason, /at a battlefield/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /RIFT-360/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -68,8 +69,8 @@ test("sfd-060-221 Tianna Crownguard: the Deflect keyword definition is merged an
 });
 
 test("sfd-060-221 Tianna Crownguard: the merged continuous.restrict primitive really registers the prohibition", () => {
-  // RIFT-259 已合入原语：它把 restriction 写进图层注册表，说明当前的缺口只剩
-  // 「score 动作没有消费方」与「static 声明没有绑定」。
+  // The merged primitive writes the restriction into the layer registry;
+  // production scoring still needs to consume that registry entry.
   const kernel = world().unit("tianna", { might: 4 }).build();
   const run = runInstruction(restrict, {
     mode: { kind: "constant", value: "prohibit" },
@@ -101,12 +102,11 @@ test("sfd-060-221 Tianna Crownguard: the query side reads the registered prohibi
 
 test.todo(
   "sfd-060-221 Tianna Crownguard: 'opponents can't score points' needs a scoring-side consumer of the registered " +
-    "restrictions plus the card static binding (RIFT-31, RIFT-257) and the 363.2.a Location predicate in the " +
-    "continuous condition vocabulary (RIFT-91)"
+    "restrictions and the 363.2.a 'at-battlefield' condition predicate (RIFT-359)."
 );
 
 test.todo(
   "sfd-060-221 Tianna Crownguard: [Deflect]'s target tax must be collected when an opponent chooses this unit " +
     "and paid as any-domain Power (809.1.c.1) instead of the Energy-shaped tax the chain builds today — " +
-    "RIFT-90 / RIFT-89"
+    "RIFT-360"
 );
