@@ -27,9 +27,8 @@ test("unl-097-219 Kinkou Initiate: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /143\.2\.a\.1/);
   assert.match(program.judgeReason, /total Might/);
   assert.match(program.judgeReason, /count/);
-  // The trigger/draw half now binds (RIFT-257); the reason must name the
-  // sum-over-set expression and the rejected exclude anchor.
-  assert.match(program.judgeReason, /RIFT-257/);
+  // The reason names the sum-over-set expression and the rejected exclude anchor.
+  assert.match(program.judgeReason, /programs\/triggers\.ts 注册订阅/);
   assert.match(program.judgeReason, /exclude/);
 });
 
@@ -87,8 +86,8 @@ test("unl-097-219 Kinkou Initiate golden: the merged effect.draw instruction rea
 test("unl-097-219 Kinkou Initiate: the printed gate is a sum of Effective Might over the filtered set", () => {
   // 143.2.a.1 / 143.1.b: "your other units have total Might 5 or more" sums the
   // Effective Might of the host's other board units. The card keeps the count
-  // placeholder because no merged Expr produces that sum (see test.todo); this
-  // pins the rules reading so the placeholder cannot be mistaken for it.
+  // placeholder because no merged Expr produces that sum; this pins the rules
+  // reading so the placeholder cannot be mistaken for it.
   const kernel = world()
     .unit("initiate", { owner: "A", controller: "A", might: 3, location: { type: "battlefield", id: "bf-1" } })
     .unit("strong", { owner: "A", controller: "A", might: 4, location: { type: "battlefield", id: "bf-1" } })
@@ -117,11 +116,9 @@ test("unl-097-219 Kinkou Initiate golden: the card-played trigger registers thro
 });
 
 test("unl-097-219 Kinkou Initiate golden: the body runs through the chain adapter and honours its gate", async () => {
-  // The merged instruction path really runs the card's own body: with the gate
-  // unsatisfied the draw is skipped, and with the gate satisfied the draw
-  // happens. The world below is chosen so the printed Might sum and the
-  // retained count placeholder disagree, which is why the card stays
-  // judge-required (see test.todo) instead of binding either value blindly.
+  // The merged instruction path runs the card's own body. The world below is
+  // chosen so the printed Might sum is 5 while the retained count placeholder
+  // does not satisfy the gate, preserving evidence for the judge-required gap.
   const { resolveChainBody } = await import("../../../../engine-core/dist/chain/interpreter-adapter.js");
   const { translateInstructionTargets } = await import("../../../../engine-core/dist/programs/filters.js");
   const kernel = world()
@@ -132,8 +129,6 @@ test("unl-097-219 Kinkou Initiate golden: the body runs through the chain adapte
     .build();
   const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("initiate"), controller: "A" });
 
-  // 143.2.a.1: the printed gate is the sum of Effective Might over the filtered
-  // set, which is exactly the printed threshold here.
   const totalMight = kernel
     .query({ type: "unit", zone: "board", controller: "A" })
     .filter(unit => unit.ref.id !== "initiate")
@@ -149,7 +144,6 @@ test("unl-097-219 Kinkou Initiate golden: the body runs through the chain adapte
 });
 
 test.todo(
-  "unl-097-219 Kinkou Initiate: evaluate 'your other units have total Might 5 or more' " +
-    "as a sum of Effective Might over the filtered set (143.2.a.1) — the frozen Expr algebra has " +
-    "no sum-over-set form (contract 3.2 Expr); depends on the expression condition pipeline (RIFT-9 expression inventory)"
+  "unl-097-219 Kinkou Initiate: sum Effective Might over the controller's other board units before " +
+    "evaluating the draw gate, covering both sides of the threshold (CR 143.2.a.1; sum-over-set Expr)"
 );

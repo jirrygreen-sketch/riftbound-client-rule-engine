@@ -35,8 +35,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   exhaust 费用计划形状与 effect.draw 都已合入，golden 用真实费用计划、真实解释器与
  *   参考内核执行；只有 Legend Zone 归属这一处依赖保持缺口。
  *
- * 依赖：契约补充 legend-zone（ZoneId / 费用支付对象合法性），与 RIFT-89 的费用计划
- * 接线。本卡没有其他未合入依赖。
+ * 依赖：契约补充 legend-zone（ZoneId / 费用支付对象合法性）与现有费用计划接线。
+ * 本卡没有其他未合入依赖。
  */
 const keeperOfTheHammer = {
   canonicalCardId:
@@ -50,7 +50,7 @@ const keeperOfTheHammer = {
     "传奇自身无法通过费用管线的合法性检查。本卡不把费用横置近似成 effect.exhaust 的状态改变（会漏掉 415.4/415.5 的可完成性与 415.1.b 的重复横置检查）。" +
     "其余部分均已合入：hold 时点由 turn/flow.ts 的计分波发出（CR 315.2.b.2/471.2/473.2.b）、effect.xp 的 gain 1 XP（728/730.1/733）、" +
     "启动能力的 xp + exhaust 费用计划形状与 effect.draw 的 Draw 1（414.1.a/414.3），golden 用真实费用计划与参考内核执行。" +
-    "依赖：契约补充 legend-zone（ZoneId / 费用支付对象合法性）与 RIFT-89 的费用计划接线。",
+    "依赖：契约补充 legend-zone（ZoneId / 费用支付对象合法性）与现有费用计划接线。",
   abilities: [
     {
       kind: "triggered",

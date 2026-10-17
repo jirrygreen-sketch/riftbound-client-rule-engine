@@ -34,10 +34,10 @@ test("unl-119-219 Kha'Zix, Evolving Hunter: identity, status, judgeReason and ve
   assert.match(program.judgeReason, /cost\.xp/);
   assert.match(program.judgeReason, /740\.4\.a/);
   assert.match(program.judgeReason, /attack-declared/);
-  assert.match(program.judgeReason, /RIFT-120/);
-  // Hunt's KeywordDef is merged (RIFT-265); the remaining Hunt gap is the
+  // Hunt's KeywordDef and expansion are present; the remaining Hunt gap is the
   // conquer/hold event spelling and payload, not a missing definition.
-  assert.match(program.judgeReason, /RIFT-265/);
+  assert.match(program.judgeReason, /KeywordDef 与展开已存在/);
+  assert.match(program.judgeReason, /conquer 发射也不带征服单位/);
 });
 
 test("unl-119-219 Kha'Zix, Evolving Hunter: [Hunt] omits the value, which is Hunt 1 (823.1.c.2)", () => {
@@ -224,16 +224,14 @@ test("unl-119-219 Kha'Zix, Evolving Hunter golden: a Might of 0 deals no damage 
 });
 
 test.todo(
-  "unl-119-219 Kha'Zix, Evolving Hunter: [Hunt] expands to “When I Conquer or Hold, my controller gains 1 XP” " +
-    "(CR 823.1.c.1/.c.2) once a Hunt KeywordDef and the conquer/hold emitters exist (RIFT-33/RIFT-120)"
+  "unl-119-219 Kha'Zix, Evolving Hunter: [Hunt] reaches the real conquered/held event producers with the " +
+    "conquering unit in the payload (CR 823.1.c.1/.c.2)"
 );
 test.todo(
-  "unl-119-219 Kha'Zix, Evolving Hunter: “spend 3 XP” is charged at Finalize as an instruction cost " +
-    "(CR 740.4.a / 740.4.a.2, 730.2) and the decline path is a real choice — no cost.xp primitive or cost-plan " +
-    "wiring is merged (RIFT-9 directPrimitive for this card)"
+  "unl-119-219 Kha'Zix, Evolving Hunter: charge the optional 3 XP instruction cost at Finalize, and declining " +
+    "it pays nothing and deals no damage (CR 740.4.a/740.4.a.2 / 730.2; instruction-cost receipt adapter)"
 );
 test.todo(
   "unl-119-219 Kha'Zix, Evolving Hunter: the attack-declared timing point reaches this trigger from the combat " +
-    "workflow (CR 383.4.e) — docs/rules/timing-point-producers.md lists it as 待后续 (RIFT-33/RIFT-120)"
+    "workflow (CR 383.4.e), including the attack role designation and trigger registration"
 );
-

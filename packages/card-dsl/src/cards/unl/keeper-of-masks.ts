@@ -26,22 +26,22 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   不是另造对象。
  *
  * status = judge-required（缺口均不近似实现）：
- * - Hide 行动与面朝下打出需要 cost.hidden 与 continuous.timing 的消费方（RIFT-89、RIFT-91）：
+ * - Hide 行动与面朝下打出需要 cost.hidden 与 continuous.timing 的消费方：
  *   effects/keywords/Hidden.ts 只声明静态 cost.hidden，没有指令或图层读取它。
- * - [Temporary]（816）的关键词展开与「keyword 能力 → 时点/链」注册路径未接线
- *   （RIFT-265 的定义 + RIFT-120 的触发注册），token 身上的 Temporary 不会真的在控制者
+ * - [Temporary]（816）的关键词展开已有，但「keyword 能力 → 时点/链」注册路径与
+ *   beginning-start 产生器未接线，token 身上的 Temporary 不会真的在控制者
  *   Beginning Phase 开始时消灭它。
  * - “They become copies of me” 需要复制图层消费一个针对已存在对象的复制效果：effect.copy 的
  *   mode "effect" 在当前内核被显式阻断（blockedReason:
  *   copy-layer-traits-exceptions-and-attachment-duration-unavailable），用 mode "create" 直接
  *   造副本会跳过“先打出 Reflection token”这一步（187.6/440.2.c），不是同一语义。
  * - effect.token 的 argsSchema 尚未与契约 3.6 同步：object-property 的 object 只接受运行时
- *   ObjectRef，符号选择器会被拒绝（sfd/industrious-mechsmith 记录同一缺口，RIFT-62）。
+ *   ObjectRef，符号选择器会被拒绝（sfd/industrious-mechsmith 记录同一缺口）。
  * 已保留的有依据形状：关键词声明 + card-played 自发触发 + effect.token（reflection、mode play、
  * here = 来源当前位置）+ 作用于链接结果的对象复制指令。
  *
- * 依赖：RIFT-89（cost.hidden/Hide）、RIFT-91（layers/continuous.timing 与复制图层消费方）、
- * RIFT-120（触发注册）、RIFT-265（Temporary 关键词展开）、RIFT-62（effect.token 参数同步）。
+ * 依赖：cost.hidden/Hide 与 continuous.timing 的消费方、beginning-start 的触发注册和产生器、
+ * 复制图层消费方，以及 effect.token 对符号对象选择器的契约支持。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "hidden" },
@@ -93,16 +93,17 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "三处缺口，均不近似实现：(1) [Hidden]（811.1）的 Hide 行动与面朝下打出需要 cost.hidden 与 continuous.timing 的消费方" +
-    "（effects/keywords/Hidden.ts 只声明静态 cost.hidden，没有指令/图层读取它；RIFT-89、RIFT-91）。" +
-    "(2) [Temporary]（816）的关键词展开与 keyword→时点/链注册路径未接线（RIFT-265 的关键词定义 + RIFT-120 的触发注册），" +
+    "（effects/keywords/Hidden.ts 只声明静态 cost.hidden，没有指令/图层读取它）。" +
+    "(2) [Temporary]（816）的关键词展开已有，但 keyword→时点/链注册路径与 beginning-start 产生器未接线，" +
     "token 的 Temporary 不会在控制者 Beginning Phase 开始时消灭它。" +
     "(3)「They become copies of me」需要对刚打出的 Reflection token 施加复制效果（446/479.1 复制图层）：effect.copy 的 " +
     "mode \"effect\" 在当前内核被显式阻断（blockedReason: copy-layer-traits-exceptions-and-attachment-duration-unavailable），" +
     "而用 mode \"create\" 直接创建副本会跳过原文先 play Reflection token 的流程（187.6/440.2.c），不是同一语义。" +
     "另外 effect.token 的 argsSchema 尚未与契约 3.6 同步（object-property 的 object 只接受运行时 ObjectRef，符号选择器被拒绝；" +
-    "sfd/industrious-mechsmith 同缺口，RIFT-62）。" +
+    "sfd/industrious-mechsmith 同缺口）。" +
     "已保留：关键词声明 + card-played 自发触发 + effect.token（reflection 定义、mode play、here = 来源当前位置）+ 作用于链接结果的复制指令。" +
-    "依赖：RIFT-89、RIFT-91、RIFT-120、RIFT-265、RIFT-62。",
+    "依赖：cost.hidden/Hide 与 continuous.timing 的消费方、beginning-start 触发注册和产生器、复制图层消费方，" +
+    "以及 effect.token 对符号对象选择器的契约支持。",
   abilities,
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +

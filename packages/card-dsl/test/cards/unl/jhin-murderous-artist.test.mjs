@@ -36,10 +36,10 @@ test("unl-022-219 Jhin, Murderous Artist: identity, status, judgeReason and verb
   assert.match(program.judgeReason, /Universal/);
   assert.match(program.judgeReason, /rainbow/);
   assert.match(program.judgeReason, /163\.2\.b/);
-  // Both keyword definitions are merged now; the remaining gaps are the static
-  // registration / target-tax / movement consumers and the object-moved
-  // subscription spelling.
-  assert.match(program.judgeReason, /noopStaticBinder/);
+  // Both keyword definitions and their static shapes are present; the remaining
+  // gaps are the target-tax / movement consumers and object-moved event wiring.
+  assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /movement/);
   assert.match(program.judgeReason, /object-moved/);
 });
 
@@ -113,14 +113,14 @@ test("unl-022-219 Jhin, Murderous Artist golden: the Energy half alone is a real
 });
 
 test.todo(
-  "unl-022-219 Jhin, Murderous Artist: represent and spend Universal Power ([A], CR 163.2.b / 135.2.e.5.b) —" +
-    " the closed Domain union and gain-power action have no universal value (contract change request, RIFT-89)"
+  "unl-022-219 Jhin, Murderous Artist: represent, gain, and spend Universal Power while retaining the " +
+    "printed 1 Energy addition (CR 163.2.b / 135.2.e.5.b; Universal Power contract)"
 );
 test.todo(
-  "unl-022-219 Jhin, Murderous Artist: [Deflect] target.tax (CR 809.1.c) is applied when an opponent chooses this" +
-    " unit — needs the target-tax/target-lock wiring (RIFT-90) plus the cost-pay merge (RIFT-89)"
+  "unl-022-219 Jhin, Murderous Artist: [Deflect] target.tax (CR 809.1.c) is applied when an opponent chooses this " +
+    "unit — the target-tax permission still needs to enter target locking and the additional cost plan"
 );
 test.todo(
-  "unl-022-219 Jhin, Murderous Artist: [Ganking] continuous.movement permission (CR 810.1.b / 144.4.c.1) is read" +
-    " by the movement system (RIFT-91) and the object-moved trigger is registered (RIFT-120)"
+  "unl-022-219 Jhin, Murderous Artist: [Ganking] continuous.movement permission (CR 810.1.b / 144.4.c.1) is " +
+    "read by the movement system and a completed move emits the object-moved trigger for this unit"
 );
