@@ -3,7 +3,11 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/curator-of-the-sands.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
+import exhaust from "../../../../engine-core/dist/effects/instructions/effect.exhaust.js";
+import { deriveAbilityActivatedEmission } from "../../../../engine-core/dist/events/producers/ability-activation.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
@@ -48,10 +52,58 @@ test("ven-145-166 Curator of the Sands: validateCardProgram passes and identity 
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /Energy cost/);
   assert.match(program.judgeReason, /ability-activated/);
   assert.match(program.judgeReason, /383\.3\.b/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /LITERAL_FIELDS/);
+});
+
+test("ven-145-166: review evidence — ability-activated now has a producer (RIFT-270)", () => {
+  // 旧 judgeReason 说“没有产者发出 ability-activated”；现在 Chain 的合法完成结果经
+  // deriveAbilityActivatedEmission 发出该时点。
+  const emission = deriveAbilityActivatedEmission({
+    status: "committed",
+    chainItemId: "item-1",
+    playerId: "A",
+    sourceId: "curator-of-the-sands",
+    abilityId: "ability-0"
+  });
+  assert.equal(emission.timingPoint, "ability-activated");
+  assert.equal(emission.player, "A");
+  assert.equal(emission.details.abilityId, "ability-0");
+  // cancelled / countered / invalid 不产生时点。
+  assert.equal(deriveAbilityActivatedEmission({
+    status: "countered",
+    chainItemId: "item-1",
+    playerId: "A",
+    sourceId: "curator-of-the-sands",
+    abilityId: "ability-0"
+  }), null);
+});
+
+test("ven-145-166: the authored 'exhaust me' shape cannot run through the production chain adapter", () => {
+  // 383.3.b 的“exhaust me”是触发能力的基础费用。程序里的 choose 是 Expr 包封，而
+  // chain/interpreter-adapter 的 LITERAL_FIELDS 不解包 effect.exhaust 的 choose，
+  // 所以生产链路上会以 argsSchema 失败（这是当前缺口的可复现证据，不是“功能不存在”的断言）。
+  const [exhaustSelf] = ability.body;
+  const kernel = world().unit("curator-of-the-sands", { types: ["legend"], zone: "board" }).build();
+  kernel.setAnswers({ "curator-of-the-sands.exhaust-self": [kernel.ref("curator-of-the-sands")] });
+  assert.throws(
+    () => resolveChainBody([exhaustSelf], kernel),
+    /effect\.exhaust choose requires a stable non-empty choice id/
+  );
+
+  // 把同一形状按适配器约定解包成字面值后，真实原语本身是可执行的（证明差的是适配器）。
+  const unpacked = world().unit("curator-of-the-sands", { types: ["legend"], zone: "board" }).build();
+  const run = runInstruction(exhaust, {
+    choose: { id: "curator-of-the-sands.exhaust-self", filter: { objectId: "curator-of-the-sands" } }
+  }, {
+    world: unpacked,
+    answers: { "curator-of-the-sands.exhaust-self": [unpacked.ref("curator-of-the-sands")] }
+  });
+  assert.equal(run.result.status, "executed");
+  assert.equal(unpacked.getObject("curator-of-the-sands").exhausted, true);
 });
 
 test("ven-145-166: 'When you play a unit, gear, or activated ability' trigger shape", () => {
@@ -203,13 +255,13 @@ test.todo(
 );
 test.todo(
   "ven-145-166: the 'unit, gear, or activated ability' disjunction crosses card-played and " +
-    "ability-activated; one TriggerSpec subscribes to a single timing point and no producer emits " +
-    "ability-activated yet (RIFT-89)"
+    "ability-activated; the activation producer is merged (RIFT-270), but one TriggerSpec still " +
+    "subscribes to a single timing point"
 );
 test.todo(
   "ven-145-166: pay the leading 'exhaust me' as the trigger's base cost at Finalize (CR 383.3.b / " +
-    "404.1.b.1 / 415.4-415.5) — TriggeredAbility has no cost field, and the chain adapter's " +
-    "LITERAL_FIELDS does not unwrap effect.exhaust.choose (RIFT-89)"
+    "404.1.b.1 / 415.4-415.5) — TriggeredAbility has no cost field, and the production chain " +
+    "adapter does not unwrap effect.exhaust's choose argument"
 );
 test.todo(
   "ven-145-166: the 'up to 2 runes' target selection at Finalize (355.12/355.13, including " +

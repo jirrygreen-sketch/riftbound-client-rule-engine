@@ -3,8 +3,11 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/apprentice-mage.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import inspect from "../../../../engine-core/dist/effects/instructions/effect.inspect.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [empower, triggered, might] = program.abilities;
@@ -59,6 +62,7 @@ test("apprentice-mage: passes validateCardProgram and is judge-required", () => 
   );
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
+  assert.equal(cardRegistryById.get(program.canonicalCardId), program);
   assert.equal(
     program.sourceText,
     "[Empower] :rb_energy_2: (:rb_energy_2:: Empower me. Use only if not Empowered.)\n" +
@@ -74,8 +78,34 @@ test("apprentice-mage: judgeReason names every missing dependency", () => {
   assert.match(program.judgeReason, /828\.1\.d/);
   assert.match(program.judgeReason, /effect\.inspect/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /442\.1\.a/);
+  assert.match(program.judgeReason, /RIFT-258/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
+});
+
+test("apprentice-mage: review evidence — continuous.might is merged, Empower/Empowered are not", () => {
+  assert.equal(instructionDefinitionsById.has("continuous.might"), true);
+  assert.equal(keywordDefinitionsById.get("Empower"), undefined);
+  assert.equal(keywordDefinitionsById.get("Empowered"), undefined);
+});
+
+test("apprentice-mage: the merged effect.inspect argsSchema still rejects the symbolic player selector", () => {
+  // 契约 3.6 允许符号选择器，但合并原语的 object-property 分支要求运行时 ObjectRef；
+  // 这不是“功能不存在”的断言，而是当前真实缺口的可复现证据（judgeReason 第 4 条）。
+  const [look] = triggered.body;
+  assert.deepEqual(look.args.player, {
+    kind: "object-property",
+    object: "source",
+    property: "controller"
+  });
+  assert.throws(
+    () => instructionDefinitionsById.get("effect.inspect").argsSchema.parse(look.args),
+    /effect\.inspect: player must be an Expr/
+  );
+  assert.throws(
+    () => resolveChainBody([look], world().deck(["top"]).build()),
+    /effect\.inspect: player must be an Expr/
+  );
 });
 
 test("apprentice-mage: Empower 2 is declared, and the might bonus is an Empowered-gated static effect", () => {
@@ -216,14 +246,15 @@ test("apprentice-mage: looking at the top 2 is an ordered read, never a set quer
 test.todo(
   "apprentice-mage: [Empower] 2 activation and the 828.1.d empowered-changed trigger (including " +
     "the increase-direction filter from 828.1.c), pending the Empower/Empowered KeywordDefs " +
-    "(RIFT-83/84) and the CardProgram -> trigger pipeline adapter"
+    "and the increase-direction trigger filter"
 );
 test.todo(
   "apprentice-mage: '+1 :rb_might:' through the layers engine with the empowered predicate " +
-    "(828.1.b.1/828.1.c; RIFT-91 layers-continuous)"
+    "(828.1.b.1/828.1.c, CR 442.1.a) — continuous.might is merged (RIFT-258), the 442.1.a " +
+    "predicate is not: layers/engine.ts conditionMatches falls back to true for unknown kinds"
 );
 test.todo(
   "apprentice-mage: effect.inspect accepting the contract 3.6 symbolic selector for " +
     "object-property (player: { object: 'source', property: 'controller' }); the merged " +
-    "argsSchema still requires a zone-bound ObjectRef (RIFT-102 follow-up)"
+    "argsSchema still requires a zone-bound ObjectRef"
 );

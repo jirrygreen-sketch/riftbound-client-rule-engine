@@ -20,28 +20,37 @@ import type { CardProgram } from "../../ir/index.js";
  *   Ready，属于选目标且可以在 Finalize 选择任意数量（含 0）；effect.ready（416.1–416.3）
  *   已合入可执行该子效果。
  *
- * status = judge-required（四处缺口均不近似实现）：
- * 1. 触发条件 “with Energy cost 7 or more” 无可求值路径：合并 IR 的 Expr / Condition
- *    只能读对象特征、链接值与对象计数，读不到刚打出的牌或刚启动能力的印刷/basis Energy
- *    费用；card-played 与 ability-activated 的载荷都不带费用回执（契约 3.6 的
- *    ResolveContext 也没有对应入口）。程序以描述性过滤键记录门槛，并在 golden 里断言
- *    严格触发器校验器拒绝该形状。
- * 2. 触发条件的 “unit, gear, or activated ability” 是一个跨两个时点的析取：单个
- *    TriggerSpec 只能订阅一个 at（契约 3.1/3.5），本程序因此把卡牌打出这一半写成
- *    card-played 订阅，另一半（启动能力）需要 ability-activated 订阅；而合并内核目前
- *    没有任何产者发出 ability-activated（只有 chain/engine.ts 发出 card-played），
- *    启动能力 → 链的接线（RIFT-89）未合入。
- * 3. “exhaust me” 的规则身份是基础费用（383.3.b），但契约 3.1 的 TriggeredAbility 没有
- *    CostSpec 字段；body 里以 effect.exhaust 的非目标 choose 形状记录该动作，不能替代
- *    Finalize 的费用检查（“已横置时不能支付”，415.4/415.5）。另外合并解释器的链适配器
- *    （chain/interpreter-adapter.ts 的 LITERAL_FIELDS）只解包 effect.exhaust 的
- *    target/pick/choice，不解包 choose，所以这条占位指令在生产链路上也无法执行。
- * 4. Rune 的位置语义需要裁定：107.1.c 规定 Runes 位于其控制者的 Base，而冻结契约的
- *    ZoneId 用 rune-zone 表示符文区；target 过滤器同时写 type: "rune" 与 zone:
- *    "rune-zone" 表达“你控制的在符文区/Base 的 Rune”，该读法由目标管线在 Base 位置
- *    语义落地时复核。
- * 依赖：事件载荷 / 费用回执（契约变更请求）、RIFT-89（费用与启动接线）；effect.ready
- * 子效果已合入，golden 用真实解释器 + 参考内核执行。
+ * 复核（2026-10-17，第一轮 M2 覆盖率复核；逐条对照旧 judgeReason）：
+ * - 旧第 2 条已过时：ability-activated 时点有产者了——events/producers/ability-activation.ts
+ *   的 deriveAbilityActivatedEmission 在 Chain 合法完成后发出该时点（RIFT-270 审计的清单里
+ *   也记为“本任务新增”；RIFT-120 的链与事件单管线已合入）。但跨时点析取本身仍是缺口：
+ *   契约 3.1 的 TriggeredAbility 只有一个 `at`（3.5 的 TriggerSpec 亦然）。
+ * - 旧第 3 条仍成立且更具体：effect.exhaust 的 argsSchema 接受字面 choose 形状，
+ *   但生产链适配器（chain/interpreter-adapter.ts 的 LITERAL_FIELDS）只解包 effect.exhaust 的
+ *   target/pick/choice，不解包 choose：程序把 args 写成 Expr 后，choose 仍是
+ *   { kind: "constant", value: … } 包封，schema 会以「requires a stable non-empty choice id」
+ *   拒绝（golden 用生产链适配器断言该失败，并用解包后的字面形状证明原语本体可执行）。
+ *   「exhaust me」的规则身份仍是基础费用（383.3.b），契约 3.1 的 TriggeredAbility 没有
+ *   CostSpec 字段，因此无法按 Finalize 费用支付（“已横置时不能支付”，415.4/415.5）。
+ * - 旧第 1、4 条保持：触发条件 “with Energy cost 7 or more” 无可求值路径（206/206.1 要读
+ *   刚打出的牌或刚启动能力的印刷/base Energy 费用，Expr/Condition 读不到，事件载荷里也没有
+ *   费用回执）；“runes” 的位置读法（107.1.c 的 Base vs 契约的 rune-zone）仍待目标管线裁定。
+ * effect.ready 子效果已合入，golden 用真实解释器 + 参考内核执行（含 up-to 2、已就绪不重复、
+ * 目标失效三种边界）。
+ *
+ * status = judge-required（四处缺口）：
+ * 1. 触发条件 “with Energy cost :rb_energy_7: or more” 无可求值路径：206/206.1 要求读取刚打出的牌/
+ *    刚启动能力的印刷或 base Energy 费用，而 Expr / Condition 只能读对象特征、链接值与对象计数，
+ *    card-played / ability-activated 的载荷都不带费用回执。程序以描述性过滤键 energyCostAtLeast /
+ *    playedCardTypes 记录门槛（严格触发器校验器会以 unknown-field 拒绝，golden 断言该拒绝）。
+ * 2. “unit, gear, or activated ability” 是跨两个时点（card-played 与 ability-activated）的析取，
+ *    单个 TriggerSpec 只能订阅一个 at；本程序写出 card-played 这一半，另一半需要第二个订阅。
+ * 3. “exhaust me” 是触发能力的基础费用（383.3.b），但 TriggeredAbility 没有 CostSpec 字段；
+ *    body 以 effect.exhaust 的 choose 形状记录该动作，但生产链适配器不解包该键，Expr 包封会被
+ *    argsSchema 拒绝（golden 用生产链适配器断言），且该形状也无法替代 Finalize 的费用检查（415.4/415.5）。
+ * 4. Rune 的位置语义需要裁定：107.1.c 规定 Runes 位于其控制者的 Base，而冻结契约的 ZoneId 用
+ *    rune-zone 表示符文区；target 过滤器同时写 type: "rune" 与 zone: "rune-zone"。
+ * 依赖：事件载荷 / 费用回执（契约变更请求）与 trigger 侧的基础费用形状；effect.ready 子效果已合入。
  */
 const curatorOfTheSands = {
   canonicalCardId: "card.hash-913749be19f87a0f632bd0690ad0490bb254a346584c09e1b8c3244137f609a7",
@@ -53,14 +62,16 @@ const curatorOfTheSands = {
     "card-played / ability-activated 载荷都不带费用回执，ResolveContext 也没有该入口；程序以描述性过滤键 " +
     "energyCostAtLeast 与 playedCardTypes 记录门槛（严格触发器校验器会以 unknown-field 拒绝，golden 断言该拒绝）。 " +
     "(2) “unit, gear, or activated ability” 是跨两个时点（card-played 与 ability-activated）的析取，" +
-    "单个 TriggerSpec 只能订阅一个 at；本程序写出 card-played 这一半，另一半需要 ability-activated 订阅，" +
-    "而合并内核没有产者发出 ability-activated（只有 chain/engine.ts 发 card-played），启动能力 → 链的接线（RIFT-89）未合入。 " +
+    "单个 TriggerSpec 只能订阅一个 at；本程序写出 card-played 这一半，另一半需要第二个 ability-activated 订阅" +
+    "（该时点已由 events/producers/ability-activation.ts 在链合法完成后发出，但一个 TriggerSpec 装不下析取）。 " +
     "(3) “exhaust me” 的规则身份是触发能力的基础费用（383.3.b），但契约 3.1 的 TriggeredAbility 没有 CostSpec 字段；" +
-    "body 以 effect.exhaust 的非目标 choose 形状记录动作，无法替代 Finalize 的费用检查（415.4/415.5），" +
-    "且链适配器 LITERAL_FIELDS 不解包 effect.exhaust 的 choose，生产链路上同样执行不了。 " +
+    "body 以 effect.exhaust 的 choose 形状记录动作，但生产链适配器（chain/interpreter-adapter.ts 的 " +
+    "LITERAL_FIELDS）只解包 target/pick/choice、不解包 choose，Expr 包封会被 argsSchema 以" +
+    "「requires a stable non-empty choice id」拒绝（golden 用生产链适配器断言该失败），" +
+    "且该形状也无法替代 Finalize 的费用检查（415.4/415.5）。 " +
     "(4) “runes” 的位置读法需要裁定：107.1.c 说 Runes 位于控制者的 Base，冻结契约的 ZoneId 用 rune-zone 表示符文区，" +
     "target 过滤器同时写 type: \"rune\" 与 zone: \"rune-zone\"，待目标管线确认 Base 位置语义。 " +
-    "依赖事件载荷 / 费用回执（契约变更请求）与 RIFT-89；effect.ready 子效果已合入，golden 用真实解释器执行。不近似实现。",
+    "依赖事件载荷 / 费用回执（契约变更请求）与 trigger 侧的基础费用形状；effect.ready 子效果已合入，golden 用真实解释器执行。不近似实现。",
   abilities: [
     {
       kind: "triggered",

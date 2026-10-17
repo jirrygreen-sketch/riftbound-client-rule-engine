@@ -19,34 +19,36 @@ import type { CardProgram } from "../../ir/index.js";
  * - 「Spend this Energy only to play units or activated abilities of units」是对这批
  *   Energy 的花费限制（Rune Pool 的受限资源）；它不是一条独立指令。
  *
- * status = judge-required（三处缺口均不近似实现）：
- * 1. :rb_rune_rainbow: = [A]（任意域 Power，163.2.b）无法在六域封闭 Domain 集合中表达；
- *    effect.resources 已明确记录「Universal Power 不可表达，绝不用某个选定的域近似」。
- * 2. 「Spend this Energy only to play units or activated abilities of units」是不可表达的
- *    花费限制：契约 3.6 的 GameAction 集合只有无标签的 gain-energy，ResolveContext /
- *    PlayerSnapshot 都不暴露「带用途标签的 Energy」；EffectIR 也没有「受限资源」形状，
- *    因此不能用 restriction 或某个 continuous.effect 近似（RIFT-9 清单里没有对应原语）。
- * 3. 启动能力 → 链的生产接线（ActivatedAbility 进入 Finalize / Reaction Add 支付窗口，
- *    430.3）未合入；本卡能力因此只作为数据存在，没有可执行入口。
- * effect.resources 的 Add 2 Energy 本体已合入，golden 用真实解释器 + 参考内核执行该子效果
- * （不带用途标签，见上面的缺口 2）。
- * 依赖：Universal Power 表达（契约变更请求）、受限资源 / 花费限制原语与 RIFT-89（费用与
- * 启动接线）。
+ * 复核（2026-10-17，第一轮 M2 覆盖率复核）：原 judgeReason 的第 1 条（:rb_rune_rainbow: 不可
+ * 表达）已不成立——合并费用管线的 payment 形状用 `{ kind: "power", amount, allowedDomains }`
+ * 表达任意域 Power 需求（cost/plan-values.ts 的 domains()；所有六域 = 135.2.e.5.a 的 [A]，
+ * 135.2.e.5.b 的「任意域的 Power 都能支付」），dragon-roost / power-nexus 等卡已按该形状写出
+ * 并于 cost-plan 真实执行。因此本卡的印刷费用写成两条各 1 点、allowedDomains 覆盖六域的 Power
+ * 需求（印刷的两个符号 = 两条 1 点需求，不是一个 2 点需求），golden 用真实费用计划 + 支付管线
+ * 断言「任意域 Power 均能支付」与 Exhaust 横置。
+ *
+ * status = judge-required（唯一剩余缺口）：
+ * 「Spend this Energy only to play units or activated abilities of units」是受限资源的花费限制。
+ * 契约 3.6 的 GameAction 集合只有无用途标签的 `gain-energy`，ResolveContext / PlayerSnapshot
+ * 都不暴露「带用途标签的 Energy」，EffectIR 也没有受限资源形状，因此不能用 restriction 或某个
+ * continuous.effect 近似（RIFT-9 清单没有对应原语）；把 2 Energy 视为无限制资源会让本卡比印刷
+ * 更强，所以不能标记 executable。
+ * 依赖：受限资源 / 花费限制原语（含 204.4 的 applied-cost 之外的用途标签形状）。
+ * effect.resources 的 Add 2 Energy 本体已合入，golden 用真实解释器执行（不含用途标签）。
  */
 const butcherOfTheSands = {
   canonicalCardId: "card.hash-fd135b06be83d09c3f8ab5d01c8c2625b0ae9ea0392ea903d7ac2fae20d61237",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) 印刷费用里的 :rb_rune_rainbow: 是任意域 Power [A]（135.2.e.5.a、163.2.b），" +
-    "内核 Domain 是 Fury/Calm/Mind/Body/Chaos/Order 六域封闭集合，无法表达；effect.resources 已记录" +
-    "「绝不用某个域近似」，程序里以描述性 [\"rainbow\"] 记录。 " +
-    "(2) 「Spend this Energy only to play units or activated abilities of units」是受限资源的花费限制：" +
-    "契约 3.6 的 gain-energy 不带用途标签，PlayerSnapshot / ResolveContext 不暴露受限 Energy，" +
-    "EffectIR 也没有受限资源的形状，无法用 restriction / continuous.effect 近似（RIFT-9 清单无对应原语）。 " +
-    "(3) ActivatedAbility → 链的 Finalize 接线与 430.3 的 Reaction Add 支付窗口未合入，能力没有可执行入口。 " +
-    "effect.resources 的 Add 2 Energy 子效果已合入，golden 用真实解释器执行（不含用途标签）。 " +
-    "依赖 Universal Power 表达（契约变更请求）、受限资源原语与 RIFT-89。不近似实现。",
+    "唯一剩余缺口：「Spend this Energy only to play units or activated abilities of units」是受限资源的花费限制。" +
+    "契约 3.6 的 GameAction 集合只有无用途标签的 gain-energy，PlayerSnapshot / ResolveContext 不暴露" +
+    "按用途受限的 Energy，EffectIR 也没有受限资源形状，无法用 restriction / continuous.effect 近似" +
+    "（RIFT-9 清单没有对应原语）；把 Add 出的 2 Energy 当成无限制资源会让本卡比印刷更强。" +
+    "印刷费用本身已可执行：两个 :rb_rune_rainbow:（135.2.e.5.a 的 [A]）用两条 amount 1、allowedDomains 覆盖" +
+    "全六域的 Power 需求表达（cost/plan-values.ts 的 domains()，与 dragon-roost / power-nexus 同形状），" +
+    "golden 用真实 cost plan + payment 断言任意域 Power 均可支付、单域不足时拒绝，以及 Exhaust 横置；" +
+    "effect.resources 的 Add 2 Energy 本体也已合入并真实执行。依赖受限资源 / 花费限制原语。不近似实现。",
   abilities: [
     {
       kind: "activated",
@@ -54,10 +56,22 @@ const butcherOfTheSands = {
       timing: "reaction",
       cost: {
         kind: "activated",
-        // :rb_rune_rainbow::rb_rune_rainbow: = 两个 [A]；六域封闭集合无对应值，保留
-        // 描述性记号（与 RIFT-238 的 Matriarch of War 同写法）。
-        power: { kind: "constant", value: ["rainbow", "rainbow"] },
-        payments: [{ kind: "exhaust", object: "self" }]
+        // :rb_rune_rainbow::rb_rune_rainbow: = 两个 [A]：135.2.e.5.a 的「任意域 Power 均可支付」
+        // 用 allowedDomains 覆盖全部六域表达（cost/plan-values.ts 的 domains() 读该形状，
+        // 与 dragon-roost / power-nexus 一致）。两个印刷符号走两条 1 点需求。
+        payments: [
+          {
+            kind: "power",
+            amount: { kind: "constant", value: 1 },
+            allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]
+          },
+          {
+            kind: "power",
+            amount: { kind: "constant", value: 1 },
+            allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]
+          },
+          { kind: "exhaust", object: "self" }
+        ]
       },
       body: [
         {
@@ -65,7 +79,7 @@ const butcherOfTheSands = {
           op: "effect.resources",
           // [Add] :rb_energy_2:：向控制者 Rune Pool 加 2 Energy（430.1、168）。
           args: { energy: { kind: "constant", value: 2 } }
-          // 「Spend this Energy only to …」的用途限制没有可表达形状（见 judgeReason 第 2 条），
+          // 「Spend this Energy only to …」的用途限制没有可表达形状（见 judgeReason），
           // 这里不写伪造的 restriction：受限资源的标签需要契约层面的新形状。
         }
       ]

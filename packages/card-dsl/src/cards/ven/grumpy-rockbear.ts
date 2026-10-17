@@ -38,6 +38,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 关键词只声明，不重写展开（契约 3.7 / README 第 5 节）。
  * - Empowered 门控用显式谓词占位（"empowered"），由 condition.predicate 与关键词
  *   系统消费；本程序不手写状态判定，也不把依赖能力改成无条件能力。
+ *
+ * 复核（2026-10-17，第一轮 M2 覆盖率复核）：
+ * - 旧 judgeReason 第 (3) 条的「layers/ 尚未消费 continuous.grant-keyword」已不成立：
+ *   指令原语随 RIFT-258 合入（注册表可见），它在 ability 图层建立注册，layers/engine.ts
+ *   的 applyAbility 会把它写进 keywords 特征（golden 用真实原语 + 图层引擎断言
+ *   Deflect 1 与 Shield 3 真的出现）。
+ * - 仍不可执行的是：(a) Empower / Empowered KeywordDef（827.1.c.1 的起动费用、
+ *   827.1.c.3 的 Empower 费用改写、827.1.c.5 的「仅未 Empowered 时可起动」）；
+ *   (b) 442.1.a 的 Empowered 状态谓词——ObjectSnapshot / Condition 都没有该二元状态，
+ *   layers/engine.ts 的 conditionMatches 对未知 condition kind 落回 true，所以两条静态
+ *   效果的门控不可求值；(c) `{ id, value }` 关键词列表的 keywordValue 只在图层里做数值
+ *   叠加，被授予的 Deflect 还需要 RIFT-90 的 target.tax 消费方才能变成实际的目标税。
+ * 依赖新增 Empower/Empowered 关键词任务与 442.1.a 的状态谓词。
  */
 const abilities: Ability[] = [
   {
@@ -83,14 +96,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺三块已合入能力：(1)「[Empower] 12」与它的费用改写没有 KeywordDef（RIFT-83/84 关键词展开；" +
-    "827.1.c.1 的 cost.activated + effect.empower、827.1.c.3 的 Empower 费用改写、827.1.c.5 的" +
-    "「仅未 Empowered 时可起动」限制均无实现）；(2)「[Empowered][>]」的 dependent-ability 门控" +
-    "（828.1.c）需要 condition.predicate 的 empowered 谓词与关键词系统判断 Active，当前 Condition " +
-    "没有该谓词；(3)「I have [Deflect] and [Shield 3]」是 continuous.grant-keyword 图层效果，" +
-    "layers/ 尚未消费该 kind，且被授予的 Deflect 还需要 target.tax 图层消费方（RIFT-90）与关键词" +
-    "注册表接通（RIFT-91 layers-continuous）。不近似实现费用改写与状态门控，不把依赖能力写成无条件" +
-    "能力。",
+    "三条缺口：(1)「[Empower] 12」与它的费用改写没有 KeywordDef——827.1.c.1 的起动费用、" +
+    "827.1.c.3 的 Empower 费用改写（每枚自己控制的符文减 1，下限 0）、827.1.c.5 的" +
+    "「仅未 Empowered 时可起动」均无实现；(2) 442.1.a 的 Empowered 二元状态不在 " +
+    "ObjectSnapshot / Condition 中，layers/engine.ts 的 conditionMatches 对未知 condition kind " +
+    "落回 true，所以 828.1.c 的 [Empowered][>] 静态效果门控不可求值；" +
+    "(3)「I have [Deflect] and [Shield 3]」用的 continuous.grant-keyword 已随 RIFT-258 合入并真的" +
+    "写进 ability 图层 / keywords 特征（golden 已断言），但被授予的 Deflect 还需要 RIFT-90 的 " +
+    "target.tax 消费方才能变成对手选择我时必须支付的 [A] 目标税。" +
+    "依赖新的 Empower/Empowered 关键词任务与 442.1.a 的状态谓词；不近似实现费用改写与状态门控，" +
+    "不把依赖能力写成无条件能力。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_12:. This ability costs :rb_energy_1: less for each rune you control. (Pay the cost: Empower me. Use only if not Empowered.)\n" +

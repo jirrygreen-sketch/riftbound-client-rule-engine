@@ -18,37 +18,40 @@ import type { CardProgram } from "../../ir/index.js";
  *   必须先给我分配致命伤害，之后才能给同一控制者的其它无 [Tank] 单位分配伤害」；它是单位
  *   的可引用特征。本卡的授予带 “this turn” 期限（回合结束到期）。
  *
- * status = judge-required（三处缺口均不近似实现）：
- * 1. 缺 Tank 关键词定义：effects/keywords/ 的已合入批次（RIFT-81~88）不含 Tank，
- *    keywords/registry.generated.ts 没有该展开；按 README 第 5 节本卡只声明关键词身份，
- *    不手写展开。
- * 2. 「give … [Tank] this turn」是带 end-of-turn 期限的关键词授予，需要卡牌侧的
- *    continuous.grant-keyword 指令原语；effects/instructions 没有该 op（RIFT-91 只合入了
- *    图层引擎 LayerEngine / ContinuousEffectSpec，卡牌侧入口缺失）——与 sfd-007-221
- *    Gem Jammer、sfd-062-221 Bubble Bot、venue-153-166 Matriarch of War 同一缺口。
- *    程序里以描述性 op 记录该授予意图，并在 golden 里断言它是未注册原语。
- * 3. Tank 的战斗含义落在战斗伤害分配（815.1.b / 815.1.c.2）：combat/ 目前只证明「无
- *    assignment modifier」的窄路径（base-combat-allocation.ts 的
- *    DuelBaseCombatSourceEffectProof.keywordPriority: "proven-none"），没有 [Tank]
- *    的分配优先级实现，因此即使授予落地也不能宣称整卡可执行。
- * 依赖：新增 Tank KeywordDef、continuous.grant-keyword 指令原语（RIFT-91）、
- * combat/ 的分配优先级实现；费用与 effect.exhaust 本体已合入，golden 用真实费用计划 +
- * 真实解释器执行「3 能量…」以外的费用与横置部分（见测试说明）。
+ * 复核（2026-10-17，第一轮 M2 覆盖率复核）：原 judgeReason 的两条依赖已合入——
+ * Tank 的 KeywordDef（RIFT-264，effects/keywords/Tank.ts）与 continuous.grant-keyword
+ * 指令原语（RIFT-258）都在当前内核里：授予按 478.1.a 建立 ability 层注册，"this turn"
+ * 按 317.1.a / 468.7.c 走 end-of-turn 到期。本卡程序因此改用合并 IR 的选择器形状
+ * （`objects: { kind: "target", id }`，契约 3.6 / 与 smoke-screen、siphon-power 的
+ * 选择约定一致）而不是把 TargetSpec id 塞进 Expr；golden 用生产链适配器
+ * （chain/interpreter-adapter）执行真实 body，并用图层引擎断言真实授予与到期、
+ * 以及目标离场时的 ignored/mistargeted 边界。
+ *
+ * status = judge-required（唯一剩余缺口）：
+ * 815.1.b / 815.1.c.2 的战斗伤害分配语义没有消费方。[Tank] 展开出的
+ * `continuous.combat`（Tank.ts 的 TANK_EFFECT）在 layers/engine.ts 里没有分支——
+ * applyAbility 与 applyArithmetic 都不命中该 kind；effects/instructions/continuous.combat.ts
+ * 因为没有消费方而统一返回 negated/impossible；combat/ 的窄路径明确只证明
+ * 「无 assignment modifier / 无 [Tank] 指派优先级」（base-combat-allocation.ts 的
+ * DuelBaseCombatSourceEffectProof.keywordPriority: "proven-none"）。因此本卡即使授予成功，
+ * 也不会改变 Combat Damage step 的指派顺序，不能宣称整卡可执行。
+ * 依赖：战斗伤害分配工作流消费 continuous.combat（RIFT-258 交接、RIFT-270 时点审计之后仍未接线）。
+ * 费用与 effect.exhaust 本体已合入，golden 用真实费用计划 + 真实解释器执行。
  */
 const eyeOfTwilight = {
   canonicalCardId: "card.hash-58b622a816049405488a25adae394668eeed8847e5a9ff884d3f09ce03886a4d",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) 缺 Tank KeywordDef——effects/keywords/ 的已合入批次（RIFT-81~88）不含 Tank，" +
-    "keywords/registry.generated.ts 没有其展开（CR 815.1.b/815.3）。 " +
-    "(2) “Give a friendly unit [Tank] this turn” 需要带 end-of-turn 期限的关键词授予指令原语 " +
-    "continuous.grant-keyword，effects/instructions 没有该 op（RIFT-91 只合入图层引擎，" +
-    "卡牌侧入口缺失；与 Gem Jammer / Bubble Bot / Matriarch of War 同一缺口），程序里以描述性 op 记录。 " +
-    "(3) Tank 的战斗语义（815.1.b / 815.1.c.2 的伤害分配优先级）在 combat/ 未实现——" +
-    "base-combat-allocation.ts 只证明 “无 assignment modifier” 的窄路径（keywordPriority: \"proven-none\"）。 " +
-    "依赖新增 Tank KeywordDef、continuous.grant-keyword 指令原语（RIFT-91）与 combat/ 分配优先级；" +
-    "effect.exhaust 本体与 Exhaust 费用已合入，golden 用真实费用计划与解释器执行该部分。不近似实现。",
+    "唯一剩余缺口：815.1.b / 815.1.c.2 的战斗伤害分配（Combat Damage step）没有消费 [Tank] 的路径。" +
+    "[Tank] 的 KeywordDef 已合入（effects/keywords/Tank.ts，RIFT-264），" +
+    "continuous.grant-keyword 指令原语也已合入（RIFT-258）：本卡 golden 用生产链适配器执行真实 body，" +
+    "断言 ability 层注册、end-of-turn 到期与目标离场时的 ignored/mistargeted。" +
+    "但 Tank 展开出的 continuous.combat 在 layers/engine.ts 没有任何分支（applyAbility / applyArithmetic 都不命中），" +
+    "effects/instructions/continuous.combat.ts 因缺消费方而统一返回 negated/impossible，" +
+    "combat/base-combat-allocation.ts 只证明“无指派优先级”的窄路径（keywordPriority: \"proven-none\"），" +
+    "所以被授予的 [Tank] 不会改变指派顺序，815.1.b/815.1.c.2 不可执行。依赖战斗伤害分配工作流消费 " +
+    "continuous.combat（RIFT-258 交接、RIFT-270 时点审计后仍未接线）。Exhaust 费用与 effect.exhaust 本体已合入。不近似实现。",
   abilities: [
     {
       kind: "activated",
@@ -69,7 +72,12 @@ const eyeOfTwilight = {
           args: {
             keyword: { kind: "constant", value: "Tank" },
             duration: { kind: "constant", value: "this-turn" },
-            target: { kind: "constant", value: "eye-of-twilight.unit" }
+            // 契约 3.6 的符号目标选择器：continuous.grant-keyword 由解释器把选择器
+            // 解析成运行时 ObjectRef（与其他 continuous.* 原语的 objects 约定一致）。
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "eye-of-twilight.unit" }
+            }
           },
           targets: [
             {

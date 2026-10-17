@@ -17,13 +17,24 @@ import type { CardProgram } from "../../ir/index.js";
  *   条件为宿主在战场上，禁止内容为对手不能打出该名称的法术；需要读取宿主链接值里
  *   记录的牌名，并由 chain 的 canAct 在 Finalize 校验时执行。
  *
- * status = judge-required（两处缺口均不近似实现）：
- * 1. 没有“命名卡牌”原语（choices 集合只有 optional / mode / select-objects /
- *    order / number，命名需要一个由玩家输入牌名的选择；Naming 的合法性校验按
- *    762.1 需要卡池），effects/instructions 下也没有 choice.name / effect.name-card；
- * 2. “对手不能打出该名称的法术”是静态禁止，封闭 GameAction 集合没有“禁止打出”
- *    动作，也没有卡牌侧 continuous.restrict 原语的注册入口，chain 的 canAct 只读取
- *    已合入的语义注册表。依赖 RIFT-87/89 与 continuous.restrict 原语落地。
+ * 复核（2026-10-17，第一轮 M2 覆盖率复核）：
+ * - 旧第 2 条里的「没有卡牌侧 continuous.restrict 原语的注册入口」已过时：
+ *   continuous.restrict 随 RIFT-259 合入（effects/instructions/continuous.restrict.ts），
+ *   layers/rules/query.ts 也提供 restrictions() / requirements() / appliedCosts() 查询。
+ *   但仍然不可执行：
+ *   (a) 旧程序写的 mode "cannot-play" 不在合并原语的 mode 词表里
+ *       （MODES = prohibit / require / permit / limit / applied-cost），未知 mode 会以
+ *       negated/impossible 失败关闭；改写成已支持的 mode "prohibit" + action "play-spell"
+ *       后可以真实注册，但还需要 chain 的 canAct/Finalize 消费方——query.ts 的约束查询
+ *       目前只被 layers/rules 自身的测试使用，chain/engine.ts 的 canAct 只查
+ *       priority/showdown/turn 状态，不查注册表；
+ *   (b) 被禁止的牌名来自命名链接值：EffectIR 没有读取链接值做过滤器/限制参数的形状
+ *       （原来的 namedFrom 键在 validateCardProgram 里也只是未知字段），因此“该名称”
+ *       无法进入 restriction 的谓词。
+ * 1. 「name a spell」仍缺命名原语：ChoiceRequest 只有 optional / mode / select-objects /
+ *    order / number，命名需要一个由玩家给出牌名的选择（762.1 的“只能命名本赛制合法的牌”
+ *    还需要卡池校验），effects/instructions 下没有 choice.name / effect.name-card。
+ * 依赖：命名原语、限制谓词读取命名结果、chain 的 canAct/Finalize 消费 continuous.restrict。
  * 本程序保留触发结构；命名与禁止以有依据的形状记录，不近似实现。
  */
 export default {
@@ -32,12 +43,14 @@ export default {
   status: "judge-required",
   judgeReason:
     "两处缺口：(1) “name a spell” 需要命名原语——契约的 ChoiceRequest 只有 optional / mode / " +
-    "select-objects / order / number，命名需要一个由玩家给出牌名的选择；effects/instructions 下没有" +
-    "choice.name / effect.name-card 文件，762.1 的“只能命名本赛制合法的牌”还需要卡池校验；" +
-    "(2) “opponents can't play spells with that name” 属 continuous.restrict 静态禁止，封闭 " +
-    "GameAction 集合没有“禁止打出”动作，卡牌程序也没有注册进 layers / chain 的入口（chain 的 canAct " +
-    "只读取已合入的语义注册表）。依赖命名原语、RIFT-89（chain 时机/校验接线）与 continuous.restrict" +
-    "原语落地。程序保留 card-played 触发结构与有依据的禁止形状，不近似实现。",
+    "select-objects / order / number，命名需要一个由玩家给出牌名的选择；effects/instructions 下没有 " +
+    "choice.name / effect.name-card 文件，762.1 的“只能命名本赛制合法的牌”还需要卡池校验。 " +
+    "(2) “opponents can't play spells with that name” 即使把 continuous.restrict（已随 RIFT-259 合入）" +
+    "写成 mode prohibit + action play-spell，也还缺两件事：被禁止的牌名来自命名指令的链接值，" +
+    "EffectIR 没有读取链接值做限制谓词的形状；" +
+    "同时 chain 的 canAct 只查 priority/showdown/turn 状态、不消费 layers/rules/query.ts 的 " +
+    "restrictions() 结果。依赖命名原语、限制谓词读取命名结果与 chain 的 canAct/Finalize 消费方。" +
+    "程序保留 card-played 触发结构与有依据的禁止形状，不近似实现。",
   abilities: [
     {
       kind: "triggered",
@@ -62,7 +75,10 @@ export default {
       kind: "static",
       effect: {
         kind: "continuous.restrict",
-        mode: "cannot-play",
+        // 合并原语的 mode 词表里没有 cannot-play：写成已支持的 prohibit + action
+        // "play-spell"（未知 mode 会被以 negated/impossible 拒绝，见 judgeReason）。
+        mode: "prohibit",
+        action: "play-spell",
         appliesTo: "opponent",
         subject: { kind: "constant", value: { type: "spell" } },
         // 被禁止的牌名来自上面命名指令写入的链接值：`namedFrom` 是描述性依赖
