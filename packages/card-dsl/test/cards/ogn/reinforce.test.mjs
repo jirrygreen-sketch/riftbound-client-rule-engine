@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import inspect from "../../../../engine-core/dist/effects/instructions/effect.inspect.js";
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
 import play from "../../../../engine-core/dist/effects/instructions/effect.play.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 // Production resolves a card body through the chain's interpreter adapter
 // (chain/interpreter-adapter.ts), which keeps each card Expr argument inside a
 // literal envelope so the merged primitives validate and evaluate them
@@ -54,13 +55,13 @@ test("ogn-062-298 Reinforce identity, ruleset, status and printed text", () => {
   assert.equal(cardRegistryById.get(CARD_ID), program);
 });
 
-test("ogn-062-298 Reinforce judgeReason names the cost.modify gap and RIFT-261", () => {
+test("ogn-062-298 Reinforce judgeReason names the current cost-plan and selection gaps", () => {
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /356\.1\.c/);
   assert.match(program.judgeReason, /356\.6/);
   assert.match(program.judgeReason, /FinalizedCostPlan/);
-  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /picksSpecId/);
+  assert.match(program.judgeReason, /unit/);
 });
 
 test("ogn-062-298 Reinforce structure: no speed keyword, look -> may(banish -> play) -> recycle", () => {
@@ -148,6 +149,28 @@ test("ogn-062-298 Reinforce golden: the merged registry really registers the use
   assert.equal(inspect.op, "effect.inspect");
   assert.equal(recycle.op, "effect.recycle");
   assert.equal(play.op, "effect.play");
+});
+
+test("ogn-062-298 Reinforce golden: merged cost.modify floors the five-energy discount at zero", () => {
+  const kernel = reinforceWorld();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("reinforce") });
+  const run = runInstruction(
+    costModify,
+    {
+      id: "reinforce.preview-cost",
+      printed: { id: "unit-a", cardType: "Unit", energy: 3, power: 0, domains: ["Calm"] },
+      modifier: {
+        kind: "reduce",
+        resource: "energy",
+        amount: { kind: "constant", value: 5 },
+        minimum: { kind: "constant", value: 0 }
+      }
+    },
+    { world: ctx }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.cost.total.energy, 0);
+  assert.deepEqual(run.linked.cost.discounts.map(discount => [discount.before, discount.after]), [[3, 0]]);
 });
 
 test("ogn-062-298 Reinforce golden: looking at the top 5 is private and moves nothing (128.3-128.4)", () => {
@@ -305,11 +328,11 @@ test("ogn-062-298 Reinforce golden: the merged play primitive refuses the unfina
 test.todo(
   "Reinforce: materialize the reduced cost plan (printed base cost of the banished card minus 5 Energy, " +
     "never below 0 per CR 356.1.c/356.6) and play it out of Banishment as a Limited Action (420.3/420.3.a) - " +
-    "needs the cost.modify discount component and the finalized plan producer (RIFT-261)"
+    "cost.modify is merged, but the card-program/Finalize producer for the selected card's printed cost and effect.play plan is missing"
 );
 
 test.todo(
   "Reinforce: the ordered deck-top provider for effect.inspect's non-zero top scope in the production " +
-    "lifecycle (contract 3.6 zoneSlice; the chain Finalize surface only locks instruction.targets) and the " +
-    "card-program play wiring (RIFT-257)"
+    "lifecycle (contract 3.6 zoneSlice; the chain Finalize surface only locks instruction.targets), plus an " +
+    "executable unit-only filter for the inspect choice"
 );

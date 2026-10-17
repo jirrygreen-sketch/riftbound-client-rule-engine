@@ -16,12 +16,9 @@ test("ogn-286-298 Reckoner's Arena: program validates and is judge-required", ()
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // Both gaps must be named: the missing hold producer and 383.4.g named
-  // trigger activation.
-  assert.match(program.judgeReason, /hold/);
+  // The remaining gaps are the 383.4.g named-trigger entry and the relative
+  // scoring-location binding; hold production is covered separately below.
   assert.match(program.judgeReason, /383\.4\.g/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /scheduleScore/);
   assert.equal(program.sourceText, "When you hold here, activate the conquer effects of units here.");
 });
 

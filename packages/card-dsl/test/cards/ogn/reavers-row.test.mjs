@@ -42,7 +42,6 @@ test("ogn-285-298 Reaver's Row: program validates and is judge-required", () => 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /defense-declared/);
   assert.match(program.judgeReason, /combat\/flow\.ts/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, "When you defend here, you may move a friendly unit here to base.");
 });
 
@@ -150,7 +149,6 @@ test("ogn-285-298: the trigger names the defense-declared timing point with the 
 
 test.todo(
   "ogn-285-298: defense-declared 由 combat/ 发出（每场战斗只检查一次，383.4.f.2.a）并进链；here 需要战场相对锚点；" +
-    "卡牌 triggered ability 注册成实时触发依赖 RIFT-257——" +
     "Finalize 按 controller \"self\" + sameLocationAs \"self\" 在守方战场上的友方单位中锁定目标" +
     "（参考内核按字面值比较过滤器，不解析 PlayerSelector）"
 );

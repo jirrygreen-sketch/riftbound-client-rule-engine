@@ -23,8 +23,8 @@ test("rhasa-the-sunderer: identity, ruleset, status, judgeReason and sourceText"
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /layerFor/);
+  assert.match(program.judgeReason, /continuous\.cost-modification/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -137,7 +137,7 @@ test("rhasa-the-sunderer golden: the same reduction drops a 10-energy printed co
 
 test.todo(
   "rhasa-the-sunderer: read the static continuous.cost-modification from the card program into the " +
-    "Finalize cost plan (356.4; cost.modify / cost.printed + CardProgram 静态效果绑定，RIFT-261/RIFT-257) and assert the " +
+    "Finalize cost plan (356.4; the static binder must produce a CostDiscount and resolve owner=\"self\") and assert the " +
     "actual payment of 7 energy"
 );
 
