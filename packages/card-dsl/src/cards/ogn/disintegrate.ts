@@ -24,19 +24,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   attributed by the cleanup/event pipeline (429.1.a.2 describes passive kill
  *   via Lethal Damage in a Cleanup; 429.5.c attributes it to the spell), which is
  *   where the death timing point is emitted. The frozen IR has no result
- *   binding or predicate for "the object this instruction damaged died" (RIFT-9
- *   lists condition.result as a required but unmerged primitive, and the survey
- *   entry for this printing asks for a reflexive trigger).
+ *   binding or predicate for "the object this instruction damaged died"; the
+ *   frozen IR has no condition.result producer for this result.
  * - The draw instruction therefore reads the missing result binding
  *   `disintegrate.deal-3.killed`. The merged interpreter treats an unavailable
  *   linked value as missing information and ignores the guarded instruction
  *   (contract 3.4: 缺信息 → ignored, 不伪造 0), verified by the golden test, so
  *   the current card fails closed instead of drawing unconditionally.
  *
- * Dependencies: RIFT-9 condition.result / "if you do" result binding, the
- * lethal-damage→kill attribution in the cleanup and event pipeline (429.5.c,
- * docs/plans/survey/unclassified-ogn.json proposes trigger.reflexive for this
- * printing), and RIFT-90 for the battlefield-restricted target.
+ * Dependency: a condition.result producer plus lethal-damage→kill attribution
+ * in the cleanup and event pipeline (429.5.c). The battlefield-restricted
+ * target is already expressible in the card IR.
  */
 const disintegrate = {
   canonicalCardId: "card.hash-59023abea680c1ec0358c2f407d08193931447ee6c2b18ad3f0a0588b4f6501f",
@@ -46,10 +44,9 @@ const disintegrate = {
     "「If this kills it」是结果条件，依赖前一条指令实际执行过的消灭动作（359.3.e.14；359.3.e.14.b：\"if you do\" 直接" +
     "引用该动作，被替代或未发生就不能执行），已合入的 effect.damage 只链接 dealt / dealtTo / dealtCount，不报告伤害是否致命；" +
     "伤害造成的消灭归因（429.5.c）与死亡时点属于清理与事件管线，冻结 IR 没有对应结果绑定或谓词" +
-    "（RIFT-9 的 condition.result 未合入；survey 对本印刷号提出 trigger.reflexive）。" +
+    "（当前冻结 IR 没有 condition.result 的生产者；需补结果条件与死亡归因接线）。" +
     "条件读取的结果绑定 disintegrate.deal-3.killed 目前无生产者，解释器按契约 3.4 以缺信息 ignored 处理（失败关闭，" +
-    "不会退化成无条件 Draw 1，golden 测试固定该行为）。依赖：condition.result 结果绑定、致命伤→消灭归因、" +
-    "RIFT-90 战场目标系统、RIFT-257 CardProgram play 绑定、RIFT-261 费用计划/支付。",
+    "不会退化成无条件 Draw 1，golden 测试固定该行为）。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "Deal 3 to a unit at a battlefield. If this kills it, draw 1.",

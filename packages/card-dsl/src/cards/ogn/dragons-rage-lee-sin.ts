@@ -8,7 +8,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   Move an enemy unit. Then choose another enemy unit at its destination.
  *   They deal damage equal to their Mights to each other.
  *
- * Catalog note: the RIFT-40 triage and the RIFT-54 data-issue recheck report
+ * Catalog note: the existing data-issue triage reports
  * that the official Origins errata adds a reflexive-trigger boundary here
  * ("Then do this:" after the Move) and that the refreshed catalog carries it;
  * the local snapshot (dataVersion 2026-10-12-official-gallery) still holds the
@@ -35,7 +35,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   389.2): the errata boundary creates a new Pending Item that makes its own
  *   target selection, which is not the spell's Finalize selection (355.5.b).
  *   No merged ability or instruction form creates a reflexive Pending Item;
- *   the RIFT-40 survey names the missing primitive trigger.reflexive.
+ *   the missing primitive is a reflexive Pending Item.
  * - the Move Destination cannot be expressed in the frozen IR (355.4.a): the
  *   merged effect.move destination accepts a static LocationRef, the literal
  *   "controller-base", a static option list, or an Expr that the primitive
@@ -58,12 +58,12 @@ const dragonsRage = {
   judgeReason:
     "三段依赖未合入：(1)「Then choose another enemy unit at its destination」按 S-ORIGINS 勘误属于反身触发" +
     "（388.1/388.2/389.1/389.2、355.5.b：第二个目标由新 Pending Item 自行 Finalize，不是在原咒语的 Finalize 选择），" +
-    "已合入的 IR 没有任何创建反身 Pending Item 的能力/指令形态，调研（RIFT-40 第 3 节）记名为 trigger.reflexive；" +
+    "已合入的 IR 没有任何创建反身 Pending Item 的能力/指令形态，需要新增 trigger.reflexive；" +
     "(2)「Move an enemy unit」的目的地无法表达：355.4/355.4.a 要求移动效果在 Finalize 从运行时合法 Location 中选择，" +
     "已合入的 effect.move 只接受静态 LocationRef、字面量 controller-base、静态候选列表，或其自身能求值的 Expr" +
     "（静态对象的 object-property 只接受运行时 ObjectRef），因此写成与已合入 Charm 相同的 fail-closed 占位符，不臆造目的地；" +
     "(3) 第二个单位的目标合法性依赖第一步 Move 的实际结果，属目标/反身生命周期工作。" +
-    "本地目录仍是旧文本（无「Then do this:」），RIFT-54 复核显示刷新目录已带勘误，此差异另报资料问题。" +
+    "本地目录仍是旧文本（无「Then do this:」），刷新目录带有勘误文本，而本地 catalog 仍是旧文本；这是资料问题。" +
     "互伤半段只用已合入的 effect.damage（动态 amount/source）并由 golden 执行，不近似实现缺失部分。",
   sourceText:
     "Move an enemy unit. Then choose another enemy unit at its destination. " +

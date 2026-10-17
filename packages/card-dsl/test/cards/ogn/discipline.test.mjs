@@ -6,6 +6,7 @@ import discipline from "../../../dist/cards/ogn/discipline.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-a1b14db94434084b789c0069291250652a46b455cbb2b5c347c9231af8ac51b5";
@@ -22,11 +23,8 @@ test("Discipline program is structurally valid EffectIR v2 data", () => {
 test("Discipline identity, ruleset, status and printed text", () => {
   assert.equal(discipline.canonicalCardId, CANONICAL);
   assert.equal(discipline.rulesetVersion, "core-1.5");
-  assert.equal(discipline.status, "judge-required");
-  assert.match(discipline.judgeReason, /continuous\.might/);
-  assert.match(discipline.judgeReason, /RIFT-257/);
-  assert.match(discipline.judgeReason, /RIFT-261/);
-  assert.match(discipline.judgeReason, /effect\.draw args\.amount must be an Expr/);
+  assert.equal(discipline.status, "executable");
+  assert.equal(discipline.judgeReason, undefined);
   assert.equal(cardRegistryById.get(discipline.canonicalCardId), discipline);
   assert.equal(
     discipline.sourceText,
@@ -46,7 +44,7 @@ test("Discipline body: +2 Might this turn to one unit target, then an unlinked D
   assert.equal(mightInstruction.op, "continuous.might");
   assert.deepEqual(mightInstruction.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(mightInstruction.args.duration, { kind: "constant", value: "this-turn" });
-  assert.deepEqual(mightInstruction.args.target, { kind: "constant", value: "chosen-unit" });
+  assert.deepEqual(mightInstruction.args.objects, { kind: "constant", value: { kind: "target", id: "chosen-unit" } });
   assert.deepEqual(mightInstruction.targets, [
     {
       id: "chosen-unit",
@@ -94,8 +92,16 @@ test("Discipline golden: the Might clause registers +2 on the chosen unit until 
   assert.equal(scoped.getObject("chosen-unit").buffs, 0);
 });
 
-test.todo(
-  "Discipline: execute the complete play body through the generic interpreter once its eager argument " +
-    "evaluation is compatible with effect.draw's Expr-only argsSchema; current error is " +
-    "effect.draw args.amount must be an Expr"
-);
+test("Discipline golden: the complete play body grants Might and draws one card", () => {
+  const kernel = world().unit("chosen-unit", { owner: "B", controller: "B", might: 3 }).deck("top-card").build();
+  kernel.setTargets("chosen-unit", [kernel.ref("chosen-unit")]);
+  const outcome = resolveChainBody(play.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => entry.result.status), ["executed", "executed"]);
+  assert.equal(kernel.continuousEffects.length, 1);
+  assert.equal(kernel.continuousEffects[0].effect.effect.kind, "continuous.might");
+  assert.equal(kernel.continuousEffects[0].effect.effect.amount, 2);
+  assert.equal(kernel.player("A").handSize, 1);
+  assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["top-card"]);
+});

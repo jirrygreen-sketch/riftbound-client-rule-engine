@@ -204,7 +204,7 @@ test("Dragon's Rage golden: the mutual damage reads both Might values and attrib
 test.todo(
   "Dragon's Rage reflexive trigger: after the Move, create a Pending Item that chooses another enemy " +
     "unit at the moved unit destination and resolves the mutual damage (388.1 / 388.2 / 389.1 / 389.2, " +
-    "355.5.b) — needs the trigger.reflexive primitive named by the RIFT-40 survey and the pending-item " +
+    "355.5.b) — needs the trigger.reflexive primitive and the pending-item " +
     "target legality rules"
 );
 

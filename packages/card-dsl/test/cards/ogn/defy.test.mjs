@@ -107,11 +107,5 @@ test("Defy golden: a spell that already left the chain is ignored (359.3.e)", ()
 test.todo(
   "Defy cost restriction (CR 206): finalize the chain-spell target against its printed/copied " +
     "Energy cost (<= 4) and printed Power requirement (<= 1 rainbow), ignoring paid additional costs - " +
-    "needs a printed-cost target predicate (RIFT-90 target finalize / RIFT-261 printed-cost read)"
-);
-
-test.todo(
-  "Defy [Reaction] admission: play during a Closed State and resolve before the items already on the " +
-    "chain (CR 813.1.c.1 / 309.1.a / 159.2.b.3) - needs the continuous.timing keyword expansion (RIFT-85) " +
-    "consumed by chain canAct"
+    "needs a printed-cost target predicate (RIFT-359)"
 );
