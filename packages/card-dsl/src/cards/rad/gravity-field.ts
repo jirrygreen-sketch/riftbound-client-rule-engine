@@ -42,7 +42,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口（均不近似实现）：(1) Deploy 的 KeywordDef 已合入（RIFT-267 的 effects/keywords/Deploy.ts：" +
+    "三处缺口（均不近似实现）：(1) Deploy 的 KeywordDef 已有展开（effects/keywords/Deploy.ts：" +
     "static continuous.location 的入场许可 + hold 触发的 effect.kill 自身），但没有消费方——" +
     "CardProgram 的 keyword 展开当前不能绑定 continuous.location；Finalize 已消费 playLocations()（chain/engine.ts:383），" +
     "但 Deploy 展开的开放元数据形状（play.anyBattlefield 等）没有 permission/restriction 字符串字段，playLocations() 读不到；" +
@@ -51,7 +51,7 @@ export default {
     "(2)「Opponents must pay :rb_energy_1::rb_rune_rainbow: to move …」是 Applied Cost（CR 204.4/204.4.b），" +
     "现已按已合入的 continuous.restrict（mode applied-cost）真实登记、layers/rules/query.ts 的 appliedCosts() 能读回（golden 已断言），" +
     "但标准移动尚未消费 applied cost 并将其接进费用计划；[A] 的六域任选支付已有支持（135.2.e.5.a）。" +
-    "(3) Deathknell 的展开体（RIFT-82）仍引用未注册的 op trigger.leave，展开会抛 Unregistered instruction opcode，" +
+    "(3) Deathknell 的展开体仍引用未注册的 op trigger.leave，展开会抛 Unregistered instruction opcode，" +
     "且 trigger.leave 原语仍未注册。Draw 1 原语已执行，但不构成整卡证据。" +
     "依赖：Deploy 的位置许可/hold 事件消费、标准移动费用管线的 applied-cost 消费，以及 Deathknell 的 trigger.leave 原语。",
   abilities: [

@@ -63,7 +63,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处未合入依赖：(1) [Tank]（815.1.b/c）的 KeywordDef 已合入并展开为 continuous.combat 静态声明，" +
+    "两处当前缺口：(1) [Tank]（815.1.b/c）的 KeywordDef 已展开为 continuous.combat 静态声明，" +
     "生产静态绑定也已能落到 ability 图层（实测 layerFor 映射该 kind、绑定不再抛错）；" +
     "剩余缺口是战斗分配管线没有 Tank 消费方：combat/base-combat-allocation.ts 的 " +
     "DuelBaseCombatSourceEffectProof.keywordPriority 只有 'proven-none'（basic path 必须显式证明无分配优先级，" +
@@ -71,7 +71,7 @@ const program = {
     "object-property(self, \"designation\")，而 ObjectSnapshot 只有 combatRole：解释器抛 MissingInformation，" +
     "生产绑定器按 false 处理（实测 combatRole=attacker 时 Might 仍为印刷值 7），攻击时的 +1 不生效。" +
     "攻击触发注册（attack-declared，383.4.e/323.2）与 effect.move 移动本体已有引擎路径并有 golden 执行证据；" +
-    "在 Tank 消费方与 designation/combatRole 对齐合入前整卡仍保持 judge-required。",
+    "在 Tank 消费方与 designation/combatRole 对齐前整卡仍保持 judge-required。",
   abilities,
   sourceText:
     "[Assault] (+1 :rb_might: while I'm attacking.)\n" +

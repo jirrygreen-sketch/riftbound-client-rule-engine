@@ -28,8 +28,9 @@ test("cosmic-vista: passes validateCardProgram and carries the catalog identity"
   );
 });
 
-test("cosmic-vista: judgeReason names the trigger-condition adapter and the missing here anchor", () => {
-  assert.match(program.judgeReason, /testTrigger/);
+test("cosmic-vista: judgeReason names the symbolic-owner and here-anchor gaps", () => {
+  assert.match(program.judgeReason, /owner/);
+  assert.match(program.judgeReason, /self/);
   assert.match(program.judgeReason, /hold/);
   assert.match(program.judgeReason, /here/);
 });

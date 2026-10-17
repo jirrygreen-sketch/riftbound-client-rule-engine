@@ -51,14 +51,9 @@ export default {
   status: "judge-required",
   judgeReason:
     "缺「one or more … die」的批次触发语义：370.1.a.2 把同一次游戏动作造成的多个死亡视为同时事件，" +
-    "「When one or more friendly units die」应每个批次只触发一次；已合入的事件管线虽在各 emission 上带 " +
-    "simultaneousGroup（events/pipeline.ts 按组发布），但 TriggerSpec.once 仍只有 per-turn / per-phase / " +
-    "per-combat / per-showdown / per-chain / per-object / per-game（频度键 = 单个注册 + 来源），" +
-    "没有批次频度、也没有读取事件同时组键的口子；golden 用事件管线实测：同一 simultaneousGroup 的两次死亡让单个注册触发 2 次，" +
-    "而印刷文本要求 1 次（语义差异，非近似实现）。" +
-    "CardProgram 的 triggered ability 注册路径已合入；当前仅缺事件管线按 simultaneousGroup 对同一死亡批次去重。" +
-    "「[Buff] a friendly unit」本体已由已合入的 effect.buff 覆盖并有真实执行测试。" +
-    "依赖：TriggerSpec 的批次频度契约变更；不近似实现。",
+    "该能力应每个 simultaneousGroup 只触发一次。当前 EventPipeline 仍按每个 object-killed emission 扫描，" +
+    "TriggerSpec.once 也没有 per-batch 频度或按 simultaneousGroup 去重的契约；同一批次两次死亡实测会触发两次，" +
+    "与印刷文本不符。effect.buff（427.1.b.1 / 427.3）本体已有真实执行证据；缺口只在死亡批次聚合，不能近似实现。",
   abilities: [
     {
       kind: "triggered",
