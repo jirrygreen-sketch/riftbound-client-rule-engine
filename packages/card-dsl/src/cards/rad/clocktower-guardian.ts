@@ -34,7 +34,7 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *    （808.1.c 的"功能等价"），并保留 keyword 声明。
  * The finalized zero-Energy plan for "ignoring its Energy cost" is already
  * consumed by effect.play; the golden covers that path.
- * 依赖：Predict KeywordDef 展开；trigger.leave op 消费（RIFT-9 调研的离场原语）
+ * 依赖：Predict KeywordDef 展开；trigger.leave op 消费
  * 与 object-killed 离场入链时序消费方。
  * 不近似实现：不把"ignoring its Energy cost"当作忽略全部费用，也不用手写 Predict 冒充关键词。
  */
@@ -192,7 +192,7 @@ const program = {
     "按 README 第 5 节不在卡里手写同一套看顶/回收/放回展开；(2) [Deathknell] 的关键词展开产出 trigger.leave 订阅指令，" +
     "该 op 不在已生成指令注册表，解释器遇未知 op 阻断，808.1.d.2 的「进 Trash 前入链」时序无消费方。" +
     "Predict 三步、Deathknell 的 Banish 半段以及 finalized zero-Energy plan for effect.play 已按 437 / 428 / 420.3 写出并由 golden 覆盖。" +
-    "依赖：Predict 关键词展开；trigger.leave op 消费（RIFT-9 离场原语）与 object-killed 离场入链时序。" +
+    "依赖：Predict 关键词展开；trigger.leave op 消费与 object-killed 离场入链时序。" +
     "不近似实现：不把「ignore Energy cost」当成忽略全部费用。",
   abilities,
   sourceText:
