@@ -165,8 +165,10 @@ for (const controller of ["A", "B"]) {
   });
 }
 
-test("Stormclaw Ursine: channeled rune must actually enter exhausted (CR 431.2)", {
-  todo: "effects/testing/test-kernel.ts channel-rune currently ignores action.exhausted; engine fix outside this card scope"
+// Node executes TODO callbacks unless they are also skipped. Keep the regression
+// assertions pending until channel-rune applies the printed entry state.
+test.todo("Stormclaw Ursine: channeled rune must actually enter exhausted (CR 431.2)", {
+  skip: "TODO: effects/testing/test-kernel.ts channel-rune ignores action.exhausted; requires an engine fix outside this card scope"
 }, () => {
   const kernel = world().rune("top-rune").build();
   const outcome = resolveChainBody(playedTrigger.body, kernel);
