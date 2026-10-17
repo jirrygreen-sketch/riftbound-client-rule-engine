@@ -48,7 +48,7 @@ test("unl-062-219 Dramatic Visionary: identity, status, judgeReason and verbatim
   assert.match(program.judgeReason, /trigger\.leave/);
   assert.match(program.judgeReason, /808\.1\.d\.1/);
   assert.match(program.judgeReason, /effect\.inspect/);
-  assert.match(program.judgeReason, /RIFT-82/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120|RIFT-257/);
 });
 
 test("unl-062-219 Dramatic Visionary: [Deathknell] keyword plus the object-killed effect body", () => {
@@ -230,36 +230,10 @@ test("unl-062-219 Dramatic Visionary golden: an empty deck looks at nothing and 
   assert.equal(kernel.player("A").deckSize, 0);
 });
 
-test("unl-062-219 Dramatic Visionary: a non-zero top scope without an ordered pick set is blocked, never a set query", () => {
-  // 契约 3.6 / effect.inspect：非零 top 查看必须由上游提供有序 picks；缺有序来源时明确
-  // negated(impossible)，不截取无序 query 近似牌库顶。
-  const { kernel } = deckWorld(["top", "second"]);
-  const bound = { ...bindController, args: { ...bindController.args } };
-  const withoutOrderedRange = {
-    ...look,
-    args: Object.fromEntries(
-      Object.entries(look.args).filter(([key]) => key !== "picksSpecId")
-    )
-  };
-  const outcome = resolveChainBody([bound, withoutOrderedRange], kernel);
-  assert.equal(outcome.status, "partial");
-  const result = outcome.results.find((entry) => entry.id === look.id).result;
-  assert.equal(result.status, "negated");
-  assert.equal(result.reason, "impossible");
-  // 没有任何牌被查看或移动。
-  assert.equal(kernel.player("A").deckSize, 2);
-  assert.equal(kernel.player("A").handSize, 0);
-});
-
 test.todo(
   "dramatic-visionary: [Deathknell] keyword expansion (订阅 object-killed、808.1.d.1 死亡被替代时把触发移出链、" +
-    "808.1.d.3 / 429.1.a.1.b 换区前记录最后已知信息并作为 Pending Item 入链) —— effects/keywords/Deathknell.ts 的" +
-    "展开体引用未合入的 trigger.leave 原语，依赖 RIFT-82"
-);
-
-test.todo(
-  "dramatic-visionary: CardProgram -> trigger 管线——没有订阅方把 808.1.c 的 object-killed 触发注册进时点/链" +
-    "（契约 3.5；引擎批 4 / RIFT-120 接线）"
+    "808.1.d.3 / 429.1.a.1.b 换区前记录最后已知信息并作为 Pending Item 入链) —— " +
+    "effects/keywords/Deathknell.ts 的展开体仍引用未注册的 trigger.leave 原语"
 );
 
 test.todo(

@@ -49,9 +49,9 @@ import type { CardProgram } from "../../ir/index.js";
  * payment/count wiring. Neither is approximated: the filter does not silently
  * accept every enemy unit, and the body is not repeated with a fabricated count.
  *
- * Dependencies: the Attacker/Defender designation (contract 3.8 item 1's
- * `combatRole`) in ObjectSnapshot and the filter vocabulary, plus RIFT-86 / 
- * RIFT-89 for the Repeat additional-cost payment and its paid-instance count.
+ * Dependencies: the Attacker/Defender designation (combatRole) in the filter
+ * vocabulary, plus the play-cost translation and resolution handoff for Repeat's
+ * additional payment and paid-instance count.
  */
 export default {
   canonicalCardId:
@@ -60,18 +60,16 @@ export default {
   status: "judge-required",
   judgeReason:
     "两处依赖未合入，均不近似实现：(1)「an attacking enemy unit」的 attacking 是 Attacker designation（459 / 807）：" +
-    "契约 3.8 第 1 条要求 ObjectSnapshot 增加 combatRole（attacker/defender/null），但该字段尚未合入 effects/contract.ts，" +
-    "任何过滤器词表也不识别它（ogn/cannon-barrage、ogn/clearing 记录了同一缺口），所以本文件的 filter 只保留描述性键 " +
-    "combatRole: \"attacker\"（无消费者）——删掉它会把「任意敌方单位」写成事实。" +
+    "ObjectSnapshot 已有 combatRole 字段，但 programs/filters.ts 的 filter 词汇仍不接受 combatRole，" +
+    "所以本文件的 filter 只保留描述性键 combatRole: \"attacker\"（无消费者）——删掉它会把「任意敌方单位」写成事实。" +
     "(2) 印刷的 [Repeat] :rb_energy_2: 是可选追加费用（820.1 / 820.1.c / 355.1.a / 356.2.b.1），" +
-    "已合入的 effects/keywords/Repeat.ts 自己的文件头说明其费用收取与「已支付实例数」到结算端的交接尚未接线" +
-    "（cost.additional / cost.pay 属 RIFT-89；sfd/danger-zone、sfd/frigid-touch 记录同一缺口），" +
+    "programs/play.ts::translateCost 仍拒绝 additional/additional-cost，且打出后的 paid-instance count 尚未交给结算端，" +
     "本卡在 play.cost 里按已合入的 frigid-touch 形状声明该可选费用（带 pay/decline 选择）与印刷基础费用（1 能量 + 1 Chaos 力量），" +
     "但不用固定次数的 repeat 控制指令伪造「额外执行一次」。" +
-    "依赖：契约 3.8 combatRole 落地与图层/过滤器支持（RIFT-91 图层消费），以及 RIFT-86 / RIFT-89（Repeat 附加费用与已付实例计数）。" +
+    "依赖：programs/filters.ts 的 combatRole 过滤支持，以及 Repeat 附加费用与已付实例计数的 play/resolve 接线。" +
     "已合入并由 golden 真实执行的部分：两条互斥分支（effect.stun / effect.zone → hand，424.1 / 424.1.a / 056.1）；" +
     "[Action] 关键词声明（806）。另注：engine-core 的 chain 适配器（chain/interpreter-adapter.ts 的 LITERAL_FIELDS）" +
-    "尚未登记 effect.stun 的 target，生产链路上仍需引擎侧补登记（ogn/solari-chief 记录了同一缺口）。",
+    "尚未登记 effect.stun 的 target，生产链路上仍需引擎侧补登记。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

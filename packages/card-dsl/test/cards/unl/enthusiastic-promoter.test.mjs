@@ -68,10 +68,10 @@ test("unl-043-219 Enthusiastic Promoter: the hold trigger subscribes to the hold
   assert.equal(onHold.body.length, 1);
 });
 
-test("unl-043-219 Enthusiastic Promoter: the merged keyword expansion binds the card and then fails on the anchor", () => {
-  // RIFT-257: expandProgram turns the declared [Backline] keyword into the merged
-  // continuous.combat static ability; the trigger body still cannot be bound
-  // because programs/filters.ts rejects the sameLocationAs anchor.
+test("unl-043-219 Enthusiastic Promoter: the merged keyword expansion produces continuous.combat", () => {
+  // expandProgram turns the declared [Backline] keyword into the merged
+  // continuous.combat static ability. The hold body remains separately judged
+  // because programs/filters.ts still rejects the sameLocationAs anchor.
   const binding = createProgramBinding({ cardPrograms: [program] });
   const source = {
     ref: { id: "promoter", zoneEntryId: 1 }, cardId: CANONICAL_ID, name: "Enthusiastic Promoter",
@@ -147,7 +147,7 @@ test("unl-043-219 Enthusiastic Promoter golden: a stale locked group is mistarge
 
 test.todo(
   "unl-043-219 Enthusiastic Promoter: honour [Backline] when assigning combat damage (CR 826.3/826.4.a/826.4.b) — " +
-    "the KeywordDef landed (RIFT-264) but the continuous.combat declaration still has no player: " +
+    "the KeywordDef is present but the continuous.combat declaration still has no player: " +
     "combat/base-combat-allocation.ts records 'No Tank/Backline/other assignment-priority requirement is bound here'"
 );
 test.todo(

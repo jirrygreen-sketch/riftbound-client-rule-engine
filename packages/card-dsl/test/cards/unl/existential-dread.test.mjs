@@ -43,8 +43,9 @@ test("unl-134-219 Existential Dread: identity, status, judgeReason and verbatim 
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /combatRole/);
-  assert.match(program.judgeReason, /RIFT-86/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /programs\/filters\.ts/);
+  assert.match(program.judgeReason, /programs\/play\.ts/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-86|RIFT-89|RIFT-91|RIFT-120|RIFT-257/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -202,14 +203,14 @@ test("unl-134-219 Existential Dread golden: a stale target ignores the Stun bran
 
 test.todo(
   "Existential Dread: the \"attacking\" restriction needs the Attacker designation as a readable characteristic " +
-    "(contract 3.8 item 1's ObjectSnapshot.combatRole, CR 459/807) plus a filter value for it; the descriptive " +
-    "combatRole key does not evaluate, so the card stays judge-required (RIFT-91 layers consumer)"
+    "(contract 3.8 item 1's ObjectSnapshot.combatRole, CR 459/807) plus a filter value for it; programs/filters.ts " +
+    "does not yet accept combatRole, so the card stays judge-required"
 );
 
 test.todo(
   "Existential Dread: the printed [Repeat] :rb_energy_2: additional cost needs its payment and paid-instance count " +
-    "wired to resolution so the effect is executed one additional time (CR 820.1 / 820.1.d; keywords/Repeat.ts self-documents " +
-    "the gap) - RIFT-86 / RIFT-89"
+    "wired to resolution so the effect is executed one additional time (CR 820.1 / 820.1.d); " +
+    "programs/play.ts currently rejects additional-cost"
 );
 
 test.todo(

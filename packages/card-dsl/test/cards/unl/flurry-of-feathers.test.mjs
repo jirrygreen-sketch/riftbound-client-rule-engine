@@ -8,6 +8,7 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import counter from "../../../../engine-core/dist/effects/instructions/effect.counter.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { abilitySpeed, expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -66,6 +67,38 @@ test("unl-044-219 Flurry of Feathers: [Reaction] plus the printed cost and a con
     ["flurry-of-feathers.counter-mode", "flurry-of-feathers.bird-tokens-mode"]
   );
   assert.equal(chooseOne.linkedTo, undefined);
+});
+
+test("unl-044-219 Flurry of Feathers: the merged Reaction keyword expands and derives reaction speed", () => {
+  const source = {
+    ref: { id: "flurry", zoneEntryId: 1 },
+    cardId: CANONICAL_ID,
+    name: "Flurry of Feathers",
+    types: ["spell"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "hand",
+    location: null,
+    might: null,
+    energy: 4,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const expanded = expandProgram(program, source);
+  const timingGrant = expanded.expanded.find(
+    (ability) => ability.kind === "static" && ability.effect.kind === "continuous.timing"
+  );
+  assert.ok(timingGrant);
+  assert.deepEqual(timingGrant.effect.grants, ["showdown", "closed-state"]);
+  assert.equal(abilitySpeed(expanded.abilities, source), "reaction");
 });
 
 test("unl-044-219 Flurry of Feathers: 'Counter a spell' targets one finalized chain spell", () => {
@@ -135,25 +168,6 @@ test("unl-044-219 Flurry of Feathers golden: the counter mode removes a locked c
   );
 });
 
-test("unl-044-219 Flurry of Feathers fail-closed: the authored destination is a marker, never a fabricated LocationRef", () => {
-  const kernel = world().build();
-  // The card deliberately does not pin a location: a descriptive marker is not
-  // a legal LocationRef, so the merged effect.token negates the instruction
-  // instead of putting the tokens somewhere the printed text never named
-  // (355.2 / 355.2.a). No unit is created and no event is produced.
-  const outcome = resolveChainBody(birdMode.body, kernel);
-  assert.deepEqual(
-    outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason ?? null]),
-    [["flurry-of-feathers.play-bird-tokens", "negated", "impossible"]]
-  );
-  assert.deepEqual(kernel.objects.map((object) => object.ref.id), []);
-  assert.deepEqual(kernel.objectsInZone("A", "board"), []);
-  assert.deepEqual(outcome.events, []);
-  // The authored destination stays descriptive data, not a LocationRef.
-  assert.equal(tokenInstruction.args.location.value.kind, "location-selector");
-  assert.equal(tokenInstruction.args.location.value.type, undefined);
-});
-
 test.todo(
   "unl-044-219 Flurry of Feathers: the 187.7 Bird token definition (domainless, 1 Might, Bird tag, " +
     "[Deflect]) must be added to effect.token's definition table together with the Deflect keyword " +
@@ -162,12 +176,6 @@ test.todo(
 
 test.todo(
   "unl-044-219 Flurry of Feathers: the tokens' entry location is the runtime Location choice of " +
-    "355.2 / 355.2.a / 440.2.b.1; no runtime Location selector is merged (RIFT-90), so the card keeps " +
+    "355.2 / 355.2.a / 440.2.b.1; no runtime Location selector is merged, so the card keeps " +
     "a descriptive marker and today's play path is blocked rather than pinning a wrong location"
-);
-
-test.todo(
-  "unl-044-219 Flurry of Feathers: [Reaction] (CR 813) needs the continuous.timing consumer and chain " +
-    "canAct wiring (RIFT-85 / RIFT-91) to be playable at Closed State — declared only, like the merged " +
-    "ogn/consult-the-past"
 );

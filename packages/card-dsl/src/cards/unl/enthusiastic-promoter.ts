@@ -27,7 +27,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   sameLocationAs 锚点指向来源位置。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required（已按合入依赖复核）。
- * - [Backline] 的 KeywordDef 已合入（RIFT-264，effects/keywords/Backline.ts），但它的 continuous.combat
+ * - [Backline] 的 KeywordDef 已合入（effects/keywords/Backline.ts），但它的 continuous.combat
  *   声明没有消费方：combat/base-combat-allocation.ts 仍写着 “No Tank/Backline/other assignment-priority
  *   requirement is bound here”，continuous.combat 原语也只返回 negated/impossible，因此 826.3/826.4.a/
  *   826.4.b 的分配顺序要求无处落地。
@@ -37,8 +37,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 触发体的 “[Buff] all units here” 目标用 sameLocationAs 锚点表达 355.10.d / 053.3 的 here，但
  *   programs/filters.ts 的允许字段集合没有该键并抛 judge-required，生产适配器无法绑定这条触发体
  *   （解释器侧 anchors 已合入，见 effects/interpreter/selectors.ts）。
- * - 卡牌 keyword 能力 → KeywordDef 展开的生产方已合入（RIFT-257 的 programs/keywords.ts expandProgram），
- *   该过时缺口已删除。
+ * - 卡牌 keyword 能力 → KeywordDef 展开的生产方已合入（programs/keywords.ts expandProgram），
+ *   该部分已有正向展开测试。
  * 依赖：战斗伤害分配工作流（826 / continuous.combat 消费方）、RIFT-31/33（scoring 载荷中的固守单位）、
  * programs/filters.ts 的 sameLocationAs 锚点支持。effect.buff 本体与触发体已可用解释器 + 参考内核真实执行。
  * 不近似实现：不把 Backline 写成静态数值，也不把 hold 触发改成别的时点。
@@ -81,14 +81,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "(1) [Backline]（826.3/826.4）的 KeywordDef 已合入（RIFT-264），但整条关键词功能仍不可执行：战斗伤害分配不读取分配优先级要求，" +
+    "(1) [Backline]（826.3/826.4）的 KeywordDef 已合入，但整条关键词功能仍不可执行：战斗伤害分配不读取分配优先级要求，" +
     "combat/base-combat-allocation.ts 仍写明 “No Tank/Backline/other assignment-priority requirement is bound here”，" +
     "continuous.combat 原语没有消费方、只返回 negated/impossible，826.4.a/826.4.b 无处落地。" +
     "(2) hold 触发缺少「本卡是在固守的战场上在场的那个单位」的载荷（383.4.d.2/.2.a）：turn/flow.ts 的 scoring wave 只发 player 与" +
     "details.battlefieldId，没有单位快照；本卡 filter 被翻译成对事件对象的 objectId 过滤，而这类事件没有 object，永远匹配不到（RIFT-31/33）。" +
     "(3) 触发体 “[Buff] all units here” 的 TargetSpec 用 sameLocationAs 锚点表达 053.3 的 here，但 programs/filters.ts 的允许字段集合没有该键并抛 " +
     "judge-required，生产适配器无法绑定这条触发体（解释器侧 anchors 已合入，见 effects/interpreter/selectors.ts）。" +
-    "已解决：卡牌 keyword 能力 → KeywordDef 展开的生产方（RIFT-257 programs/keywords.ts expandProgram）；effect.buff 本体已合入，" +
+    "已解决：卡牌 keyword 能力 → KeywordDef 展开的生产方（programs/keywords.ts expandProgram）；effect.buff 本体已合入，" +
     "golden 用解释器 + 参考内核真实执行。依赖：826 的 continuous.combat 消费方、RIFT-31/33、programs/filters.ts 的 sameLocationAs 支持。",
   abilities,
   sourceText:
