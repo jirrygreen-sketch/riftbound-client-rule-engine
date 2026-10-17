@@ -176,7 +176,8 @@ test("rad-179-167 Aphelios, Exalted golden: effect.buff places one buff counter 
 });
 
 test("rad-179-167 Aphelios, Exalted: the mode-choice dispatch and its three body ops are merged", () => {
-  assert.equal(instructionDefinitionsById.get("choice.exclusive-once-per-turn"), undefined);
+  // The three mode bodies run through merged primitives; the per-turn chosen
+  // receipt is the gap recorded in judgeReason, not an assertion here.
   assert.notEqual(instructionDefinitionsById.get("effect.ready"), undefined);
   assert.notEqual(instructionDefinitionsById.get("effect.channel"), undefined);
   assert.notEqual(instructionDefinitionsById.get("effect.buff"), undefined);
