@@ -4,6 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/rad/scrutinizing-scope.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-b08afbe6dc630f67287c7ab652b90f17c81abfd9d7f94bda47eae324899ce111";
 const [ability] = program.abilities;
@@ -27,9 +29,10 @@ test("rad-064-167 Scrutinizing Scope: program passes validateCardProgram with th
 
 test("rad-064-167 Scrutinizing Scope: judgeReason names the guess primitive, the containment gap, the deck-top ordering, and the type mismatch", () => {
   assert.match(program.judgeReason, /choice\.hidden-guess/);
-  assert.match(program.judgeReason, /数组包含/);
+  assert.match(program.judgeReason, /compareValues/);
   assert.match(program.judgeReason, /zoneSlice/);
-  assert.match(program.judgeReason, /RIFT-89\/90/);
+  assert.match(program.judgeReason, /128\.3/);
+  assert.match(program.judgeReason, /有序 pick/);
   // The card-type data problem must be stated, not silently resolved.
   assert.match(program.judgeReason, /Spell/);
   assert.match(program.judgeReason, /145\.1\/151\.1/);
@@ -74,16 +77,90 @@ test("rad-064-167 Scrutinizing Scope: structure — guess, reveal the deck top, 
   );
 });
 
+test("rad-064-167 Scrutinizing Scope: the compare/in membership test really decides the two branches", () => {
+  // The guess primitive has no producer yet, so the branch conditions are
+  // driven by seeding the linked value the guess would write, with its own
+  // instruction id in scope so linkedTo resolves. The membership operator and
+  // the recycle/zone bodies are the merged evaluator and primitives.
+  const seeded = (types) => {
+    const kernel = world().deck(["top", "second"], { owner: "A", types }).build();
+    const scope = kernel.clone({ sourceSnapshot: kernel.getObject("top"), controller: "A" });
+    return { kernel, scope };
+  };
+  const guessWrite = {
+    id: "scrutinizing-scope.guess-type",
+    op: "condition.value",
+    args: {
+      value: { kind: "constant", value: "gear" },
+      key: { kind: "constant", value: "guessedType" }
+    }
+  };
+  const matched = seeded(["gear"]);
+  const matchedOutcome = resolveChainBody(
+    [
+      guessWrite,
+      {
+        id: "scrutinizing-scope.reveal-top",
+        op: "condition.value",
+        args: {
+          value: { kind: "constant", value: [matched.kernel.ref("top")] },
+          key: { kind: "constant", value: "revealed" }
+        }
+      },
+      recycleBranch
+    ],
+    matched.scope
+  );
+  const matchedRecycle = matchedOutcome.results.find((result) => result.id === recycleBranch.id);
+  assert.equal(matchedRecycle.result.status, "executed");
+  // 417.1: the recycled card goes to the BOTTOM of its owner's Main Deck.
+  assert.deepEqual(matched.scope.zoneSlice("A", "deck", "top").map((object) => object.ref.id), ["second", "top"]);
+  assert.equal(matchedOutcome.events.filter((event) => event.action === "recycle").length, 1);
+
+  const mismatched = seeded(["unit"]);
+  const mismatchedOutcome = resolveChainBody(
+    [
+      guessWrite,
+      {
+        id: "scrutinizing-scope.reveal-top",
+        op: "condition.value",
+        args: {
+          value: { kind: "constant", value: [mismatched.kernel.ref("top")] },
+          key: { kind: "constant", value: "revealed" }
+        }
+      },
+      recycleBranch
+    ],
+    mismatched.scope
+  );
+  const mismatchedRecycle = mismatchedOutcome.results.find((result) => result.id === recycleBranch.id);
+  assert.equal(mismatchedRecycle.result.status, "negated");
+  assert.equal(mismatchedRecycle.result.reason, "skipped");
+  assert.deepEqual(mismatched.scope.zoneSlice("A", "deck", "top").map((object) => object.ref.id), ["top", "second"]);
+  assert.equal(mismatchedOutcome.events.filter((event) => event.action === "recycle").length, 0);
+});
+
 test("rad-064-167 Scrutinizing Scope: the matched branch recycles, the otherwise branch returns the card to hand", () => {
   // "If it has that type, recycle it."
   assert.equal(recycleBranch.id, "scrutinizing-scope.recycle-if-matched");
   assert.equal(recycleBranch.op, "effect.recycle");
   assert.equal(recycleBranch.linkedTo, reveal.id);
-  assert.equal(recycleBranch.condition.kind, "expression");
-  assert.deepEqual(recycleBranch.condition.value.value, {
-    guessComparison: "revealed-card-has-guessed-type",
-    guessedType: { linked: "guessedType" },
-    revealed: { linked: "revealed" }
+  // The merged membership test: the scalar guessed type is tested with
+  // compare/in against the revealed card's types array (compareValues
+  // implements left-in-right).
+  assert.deepEqual(recycleBranch.condition, {
+    kind: "compare",
+    left: {
+      kind: "linked-value",
+      instructionId: "scrutinizing-scope.guess-type",
+      key: "guessedType"
+    },
+    operator: "in",
+    right: {
+      kind: "object-property",
+      object: { linked: "scrutinizing-scope.reveal-top" },
+      property: "types"
+    }
   });
   assert.deepEqual(recycleBranch.args.objects, {
     kind: "linked-value",
@@ -98,11 +175,19 @@ test("rad-064-167 Scrutinizing Scope: the matched branch recycles, the otherwise
   assert.equal(drawBranch.op, "effect.zone");
   assert.equal(drawBranch.linkedTo, reveal.id);
   assert.equal(drawBranch.condition.kind, "not");
-  assert.equal(drawBranch.condition.condition.kind, "expression");
-  assert.deepEqual(drawBranch.condition.condition.value.value, {
-    guessComparison: "revealed-card-has-guessed-type",
-    guessedType: { linked: "guessedType" },
-    revealed: { linked: "revealed" }
+  assert.deepEqual(drawBranch.condition.condition, {
+    kind: "compare",
+    left: {
+      kind: "linked-value",
+      instructionId: "scrutinizing-scope.guess-type",
+      key: "guessedType"
+    },
+    operator: "in",
+    right: {
+      kind: "object-property",
+      object: { linked: "scrutinizing-scope.reveal-top" },
+      property: "types"
+    }
   });
   // The revealed card is a non-target pick (355.10.c/e), sourced from the
   // reveal's own link value.
@@ -130,15 +215,14 @@ test.todo(
 );
 
 test.todo(
-  "rad-064-167 Scrutinizing Scope: 'If it has that type' needs an array-contains membership test over " +
-    "the revealed card's types (Condition has no such operator; 'in' tests left-in-right) — same gap as " +
-    "sfd-215-221 Ravenbloom Conservatory."
+  "rad-064-167 Scrutinizing Scope: 'Choose an opponent. They guess a card type' needs a producer for the " +
+    "guessed-type link the compare/in membership test reads (CR 128.3 / 425 / 135.2.b.7)."
 );
 
 test.todo(
   "rad-064-167 Scrutinizing Scope: 'Reveal the top card of your Main Deck' needs the ordered deck-top " +
-    "reference (zoneSlice or an upstream ordered pick); effect.reveal reads ctx.query, which does not " +
-    "guarantee zone order — RIFT-66 follow-up."
+    "reference supplied to effect.reveal as an upstream ordered pick; zoneSlice (RIFT-66) provides the " +
+    "ordered read, but effect.reveal reads ctx.query and no merged producer hands it the deck-top refs."
 );
 
 test.todo(

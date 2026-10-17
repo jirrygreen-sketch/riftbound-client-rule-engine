@@ -15,13 +15,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “ready me.”：416.1 的就绪动作；effect.ready 的缺省选择就是能力来源（"ready me"），
  *   已合入。
  *
- * status = judge-required（见 judgeReason）：本项目已合入的触发过滤词汇里没有“被写出卡牌的
- * 印刷能量费用阈值”，也没有把打出事件的对象暴露给触发条件的表达式选择器（ObjectSelector
- * 只有 self / source / target / pick / linked，均指本能力自身或显式选择，不能指被触发事件里的
- * 那张牌），因此无法如实判定 7+；改写为“本单位/来源”上的条件会得到错误的语义，不能近似。
- * golden 真实执行可执行半段：“ready me”的 effect.ready（含 416.1.c 已就绪时无额外事情的边界）。
- * 依赖：RIFT-120 之后的触发事件载荷/过滤扩展（打出事件的印刷费用阈值 + 事件对象选择器）、
- * 以及卡牌程序 → TriggerRegistration 的接线。
+ * status = judge-required（见 judgeReason），按 RIFT-258/259/270 合入后的状态复核：
+ * - card-played 时点已由 chain/engine.ts 在链项结算完成时真实发出；
+ * - 但引擎的 TriggerSpec/EventPattern 词表里仍没有“被写出卡牌的印刷能量费用阈值”，
+ *   且 ObjectSelector 只有 self / source / target / pick / linked，均指本能力自身或显式选择，
+ *   不能指被触发事件里的那张牌（事件载荷也不暴露该对象），因此无法如实判定 7+；
+ *   改写为“本单位/来源”上的条件会得到错误的语义，不能近似。程序用一个未在引擎词表内的
+ *   描述性键记录门槛（声明即缺口的形状），注册时会 fail-closed 而不是对每张牌都触发。
+ * - golden 真实执行可执行半段：“ready me”的 effect.ready（含 416.1.c 已就绪时无额外事情）。
+ * 依赖：RIFT-257（CardProgram → TriggerRegistration 接线）、事件对象选择器/费用阈值的契约扩展。
  */
 const abilities: Ability[] = [
   {
@@ -54,10 +56,11 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "触发条件无法如实判定：CR 206/206.1 规定“卡牌的费用”一律取印刷（或被复制）费用，因此本能力要检查被打出卡牌的印刷能量费用 ≥ 7，" +
-    "但已合入的触发过滤词汇（events/trigger-spec.ts 的 ObjectFilter/EventPattern）没有该阈值谓词，" +
+    "但引擎的触发过滤词汇（events/trigger-spec.ts 的 ObjectFilter/EventPattern）没有该阈值谓词，" +
     "也没有把「被打出事件里的那张牌」暴露给条件表达式的选择器（契约 3.6 的 ObjectSelector 只有 self / source / target / pick / linked，" +
-    "全部指本能力自身或显式选择，不能指被触发事件的对象）；把它改写成对来源/本单位条件的检查会得到错误语义，故不近似实现。" +
-    "另：卡牌程序 → TriggerRegistration 的生产接线尚未合入（RIFT-120 之后的协调工作）。" +
+    "全部指本能力自身或显式选择，不能指被触发事件的对象）；把它改写成对来源/本单位条件的检查会得到错误语义，故不近似实现，" +
+    "程序里只在触发过滤器中记录该门槛的声明形状（引擎词表不认识该键，注册 fail-closed）。" +
+    "另：卡牌程序 → TriggerRegistration 的生产接线尚未合入（RIFT-257）。" +
     "可执行半段：effect.ready 的 “ready me”（416.1，已就绪时按 416.1.c 无额外事情），golden 真实执行；不据此宣称整卡可执行。",
   abilities,
   sourceText: "When you play a card with Energy cost :rb_energy_7: or more, ready me."

@@ -39,14 +39,33 @@ import type { CardProgram } from "../../ir/index.js";
  *   carries it). Both instructions therefore carry their own condition and the
  *   card declares no `choice.mode` — nothing here asks a player to pick a
  *   mode, and modelling it as one would invent a choice the text does not give.
- *   The membership test itself ("has that type") is unmerged as well: Condition
- *   has no array-contains operator and `in` tests left-in-right, so a card's
- *   `types` array cannot be tested for one type (the same gap recorded for
- *   sfd-215-221 Ravenbloom Conservatory).
+ *   The membership test ("has that type") is the merged compare with the `in`
+ *   operator: the interpreter's compareValues implements left-in-right, and the
+ *   revealed card's `types` array is read through object-property on the
+ *   reveal's link value (see the two branches below).
  *
- * Status: judge-required (missing `choice.hidden-guess`; missing ordered
- * deck-top supply for effect.reveal; no array-contains condition; and the
- * printing's card-type mismatch).
+ * Status: judge-required, re-reviewed against the merged M2 batches. The
+ * deck-top half moved: effect.reveal still reads ctx.query (which does not
+ * guarantee zone order) and requires an *upstream* ordered pick for a subset of
+ * a non-hand zone, so the ordered supply is still the caller's job; the
+ * interpreter and the kernel do provide zoneSlice for ordered reads
+ * (effects/testing/README: 读牌库顶 N 张必须用 zoneSlice), but no merged
+ * producer turns the deck top into refs for effect.reveal, so the reveal step
+ * stays unavailable in IR.
+ * The remaining gaps are unchanged in kind but now stated precisely:
+ * - "Choose an opponent. They guess a card type" needs choice.hidden-guess:
+ *   a private/declarative guess made by another player plus a comparison
+ *   against the revealed card's type (CR 128.3, 425, 135.2.b.7); the merged
+ *   Condition/Expr vocabulary has no guessing primitive and no link-value
+ *   producer for it;
+ * - "If it has that type" IS expressible with the merged evaluator: the
+ *   interpreter's compareValues implements "in" as left-in-right, so a scalar
+ *   guessed type can be tested against the revealed card's types array read
+ *   through object-property on the reveal's link value. The branches below use
+ *   that form. What is still missing is the producer of the guessed-type link;
+ *   with no guess written, the condition's linked read has no value and the
+ *   branch is ignored (fail-closed) rather than guessing;
+ * - the printing's card-type mismatch (reported, not fixed here).
  */
 export default {
   canonicalCardId: "card.hash-b08afbe6dc630f67287c7ab652b90f17c81abfd9d7f94bda47eae324899ce111",
@@ -55,11 +74,11 @@ export default {
   judgeReason:
     "缺原语 choice.hidden-guess（指定对手在私密信息约束下声明一个卡类猜测，并把它与公开揭示对象的类型比较）：" +
     "CR 1.5 128.3 / 425 / 135.2.b.7，见 docs/plans/survey/unclassified-rad-sfd.md 第 25 条。" +
-    "同时缺“类型数组包含”的条件表达：Condition 只有 eq/ne/lt/lte/gt/gte/in，且 in 是左值属于右数组，" +
-    "无法测试揭示牌的 types 是否含该猜测类型（与 sfd-215-221 Ravenbloom Conservatory 记录同一缺口）；" +
-    "因此两条分支各自带描述性 condition（非玩家选择，故不写 choice.mode）。" +
-    "“Reveal the top card of your Main Deck”的牌库顶顺序必须由 zoneSlice 或上游有序 pick 提供，" +
-    "effect.reveal 自身的 ctx.query 不保证区域内顺序（RIFT-66 之后的上游有序查询接线未合入）。依赖 RIFT-89/90。" +
+    "“类型数组包含”本身已可表达（解释器的 compareValues 把 in 实现为左值属于右数组，右值可用 object-property 读揭示牌的 types），" +
+    "但猜测值没有任何生产者：没有 guess 链接值时条件读不到值、分支 fail-closed（两条分支因此各自带该 condition，非玩家选择，故不写 choice.mode）。" +
+    "“Reveal the top card of your Main Deck”的牌库顶顺序必须由 zoneSlice 或上游有序 pick 提供（RIFT-66 的 zoneSlice 已合入），" +
+    "effect.reveal 自身的 ctx.query 不保证区域内顺序，对非手牌区域的子集明确要求上游有序 pick，" +
+    "而没有已合入的提供者把牌库顶解析成这些引用。" +
     "另有卡牌数据问题：该印刷被目录标为 Spell，但文本是永久物的启动式能力（[E],[Exhaust] 费用，CR 1.5 145.1/151.1；" +
     "Spell 结算后进弃牌堆，157）；本任务不改数据、不推断其真实卡型。不近似实现。",
   abilities: [
@@ -106,21 +125,28 @@ export default {
           }
         },
         {
-          // "If it has that type, recycle it." — gated on the guess comparison,
-          // which is descriptive data here (see judgeReason). The instruction
-          // is not wrapped in a player choice.
+          // "If it has that type, recycle it." — the merged membership test:
+          // the scalar guessed type is tested with compare/in against the
+          // revealed card's types array (interpreter compareValues =
+          // left-in-right). The instruction is not wrapped in a player choice.
+          // The guess link has no producer yet (see judgeReason), so without a
+          // written guess the linked read has no value and the branch is
+          // ignored rather than opening a made-up gate.
           id: "scrutinizing-scope.recycle-if-matched",
           op: "effect.recycle",
           linkedTo: "scrutinizing-scope.reveal-top",
           condition: {
-            kind: "expression",
-            value: {
-              kind: "constant",
-              value: {
-                guessComparison: "revealed-card-has-guessed-type",
-                guessedType: { linked: "guessedType" },
-                revealed: { linked: "revealed" }
-              }
+            kind: "compare",
+            left: {
+              kind: "linked-value",
+              instructionId: "scrutinizing-scope.guess-type",
+              key: "guessedType"
+            },
+            operator: "in",
+            right: {
+              kind: "object-property",
+              object: { linked: "scrutinizing-scope.reveal-top" },
+              property: "types"
             }
           },
           args: {
@@ -142,14 +168,17 @@ export default {
           condition: {
             kind: "not",
             condition: {
-              kind: "expression",
-              value: {
-                kind: "constant",
-                value: {
-                  guessComparison: "revealed-card-has-guessed-type",
-                  guessedType: { linked: "guessedType" },
-                  revealed: { linked: "revealed" }
-                }
+              kind: "compare",
+              left: {
+                kind: "linked-value",
+                instructionId: "scrutinizing-scope.guess-type",
+                key: "guessedType"
+              },
+              operator: "in",
+              right: {
+                kind: "object-property",
+                object: { linked: "scrutinizing-scope.reveal-top" },
+                property: "types"
               }
             }
           },
