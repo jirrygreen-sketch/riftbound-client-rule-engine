@@ -4,9 +4,10 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/renata-glasc-industrialist.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { actionMatchesEventPattern, bindReplacement, planReplacementBody } from "../../../../engine-core/dist/replacement/index.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-f24db41d4c6576e3cd77510e93f4c384bab9ccb151eba3ce9a3666b6862b79d3";
@@ -16,6 +17,7 @@ const [enterReady] = ability.with;
 test("sfd-171-221 Renata Glasc, Industrialist: program validates and keeps its identity", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.deepEqual(result.issues, []);
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
@@ -31,8 +33,7 @@ test("sfd-171-221 Renata Glasc, Industrialist: program validates and keeps its i
 });
 
 test("sfd-171-221 Renata Glasc, Industrialist: entry replacement over this controller's tokens", () => {
-  // 369.1 / 369.3: describing how a permanent enters is a Replacement Effect;
-  // the merged Accelerate expansion uses this exact shape.
+  // 369.1 / 369.3: describing how a permanent enters is a Replacement Effect.
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "replacement");
   assert.deepEqual(ability.replaces, {
@@ -42,22 +43,13 @@ test("sfd-171-221 Renata Glasc, Industrialist: entry replacement over this contr
   assert.equal(ability.with.length, 1);
   assert.equal(enterReady.id, "renata.tokens-enter-ready");
   assert.equal(enterReady.op, "effect.ready");
-  // The entering token of the replaced event is not a target choice (355.10.c)
-  // and must eventually use the existing replacement.object plan-time link;
-  // the current target remains a blocked declaration.
+  // The entering token is the replaced event's non-target object (355.10.c).
   assert.deepEqual(enterReady.args.objects, {
     kind: "constant",
-    value: { kind: "target", id: "renata.entering-token" }
+    value: { linked: "replacement.object" }
   });
-  assert.deepEqual(enterReady.targets, [
-    {
-      id: "renata.entering-token",
-      filter: { type: "token", controller: "controller" },
-      min: 1,
-      max: 1,
-      selection: "one"
-    }
-  ]);
+  assert.equal(enterReady.targets, undefined);
+  assert.equal(enterReady.picks, undefined);
 });
 
 test("sfd-171-221 Renata Glasc, Industrialist: the printed Mech definition is the 3-Might Mech token", () => {
@@ -91,15 +83,47 @@ test("sfd-171-221 Renata Glasc, Industrialist: the printed Mech definition is th
 test.todo(
   "sfd-171-221 Renata Glasc, Industrialist: a create-token action must become a matchable event " +
     "(or the creation action must accept an entry-orientation override), with cross-object " +
-    "orientation rewriting so tokens enter ready " +
+    "orientation rewriting that preserves the original entry move so tokens enter ready " +
     "instead of entering exhausted then readying (143.4 / 805.6)"
 );
+
+test("sfd-171-221 Renata: the original declaration plans the intercepted friendly token without a target choice", () => {
+  const kernel = world()
+    .base("renata", { cardId: CANONICAL, might: 4 })
+    .unit("entering", { zone: "chain", location: null, isToken: true, cardId: null, exhausted: true })
+    .unit("opposing-token", { zone: "chain", location: null, owner: "B", isToken: true, cardId: null })
+    .unit("ordinary-unit", { zone: "chain", location: null })
+    .build();
+  const host = {
+    object: ref => kernel.object(ref),
+    objects: () => kernel.objects,
+    context: (source, controller) => bindResolveContext(kernel, { source, controller, timingPoint: "cleanup-start" })
+  };
+  // Matcher/planner evidence only: the missing entry-orientation adapter must
+  // still bind cross-object orientation, preserve the move and cover creation.
+  const entry = id => ({
+    type: "move-zone", object: kernel.ref(id), to: "base", location: { type: "base", player: "A" }
+  });
+  for (const [id, expected] of [["entering", true], ["opposing-token", false], ["ordinary-unit", false]]) {
+    assert.equal(actionMatchesEventPattern({
+      pattern: ability.replaces, action: entry(id), target: { object: kernel.ref(id) },
+      hostRef: kernel.ref("renata"), controller: "A", snapshotFor: ref => kernel.object(ref)
+    }), expected, id);
+  }
+  const before = kernel.objects;
+  const actions = planReplacementBody(ability.with, {
+    hostRef: kernel.ref("renata"), replacedObject: kernel.ref("entering"), usedWindow: false
+  }, { host, controller: "A", evaluate: expr => kernel.evaluate(expr) });
+  assert.deepEqual(actions, [{ type: "ready", object: kernel.ref("entering") }]);
+  assert.deepEqual(kernel.objects, before);
+  assert.deepEqual(kernel.events, []);
+});
 
 test("sfd-171-221 Renata Glasc, Industrialist: a bound replacement intercepts a board entry", (t) => {
   // Evidence for the judgeReason. The merged bindReplacement is live: a
   // replacement over object-enters-board really rewrites a token's board entry
   // (here: banishing it instead of readying it). The creation action is not a
-  // matchable event yet, which is the card's remaining blocker.
+  // matchable event yet; orientation rewriting also needs an entry adapter.
   const { engine, kernel, host: actionHost } = fixture({ cards: [{
     id: "renata", cardId: CANONICAL, might: 4
   }] });
