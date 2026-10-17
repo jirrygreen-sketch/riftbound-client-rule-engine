@@ -28,9 +28,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   Ability-Altering (layer 3) effect; cards only declare keywords (cards
  *   README §5) and the expansion belongs to effects/keywords/Repeat.ts.
  *
- * Status (packages/card-dsl/src/cards/README.md §2): judge-required. The hold
- * trigger and the keyword grant are each expressible, but the card cannot
- * execute as printed:
+ * Status (packages/card-dsl/src/cards/README.md §2): judge-required, re-checked
+ * at this sweep. The hold trigger filter and the grant primitive are merged,
+ * but the card still cannot execute as printed:
  * 1. the recipient — "your next spell this turn" — does not exist when the
  *    trigger resolves. The frozen ObjectSelector set has no "next/later played"
  *    quantifier, an ObjectFilter cannot name a future object, and a TargetSpec
@@ -42,22 +42,22 @@ import type { CardProgram } from "../../ir/index.js";
  * 2. "equal to its base cost" needs that later spell's printed cost read at the
  *    moment its Repeat cost is built. The merged IR can read a linked value or
  *    an object characteristic, but the base cost of a not-yet-played spell is
- *    neither, and no merged instruction installs a cost-modifying continuous
- *    effect (cost.modify is not a merged primitive; RIFT-89 owns cost.*);
- * 3. but nothing grants it: no merged `continuous.grant-keyword`
- *    instruction exists and no merged path turns a CardProgram's ability into a
- *    ContinuousEffectSpec for layers/ (registerContinuousEffect has no caller),
- *    so even a fully bound grant would never be installed. Repeat's own
- *    expansion (effects/keywords/Repeat.ts) documents that its additional-cost
- *    payment is not yet wired into Finalize (cost.additional / cost.pay);
- * 4. no merged subscriber registers a CardProgram's triggered ability as a
- *    TriggerRegistration and nothing emits `hold` for the scoring flow, so the
- *    trigger cannot enter the chain (190.6 controller resolution included).
+ *    neither; cost.modify and ignoreAllCosts are merged, while no finalized
+ *    FinalizedCostPlan path yet supplies this delayed Repeat payment.
+ * 3. The grant primitive and Repeat KeywordDef are merged (RIFT-258), and
+ *    expandProgram/trigger registration/lifecycle binding handle explicitly
+ *    supplied CardPrograms. The default room does not inject this program, and
+ *    Repeat's optional additional payment still is not wired into Finalize.
+ * 4. The hold filter retains the source Battlefield anchor as nested
+ *    filter {source: "self"}; translateTriggerFilter binds it to the registered
+ *    source object. The Score wave carries only player and battlefieldId,
+ *    however, so no source/object snapshot or source-to-Battlefield binding is
+ *    available to match CR 053.3 "here".
  * Dependencies: a one-shot "next spell this turn" window and a base-cost read,
- * plus RIFT-89 (cost plan / additional-cost wiring) and RIFT-91
- * (layers-continuous) with RIFT-33 / contract §7.2 batch 5 trigger
- * registration. Nothing is approximated; the golden test asserts the declared
- * grant shape and the merged Repeat definition it refers to, and records the
+ * finalized-cost wiring (RIFT-89), the scoring source/Battlefield binding for
+ * "here", and default-room injection of the CardProgram.
+ * Nothing is approximated; the golden tests assert the declared grant shape,
+ * the merged Repeat definition and the well-formed hold filter, and record the
  * missing consumers as todos.
  */
 export default {
@@ -71,14 +71,16 @@ export default {
     "Duration 词表（permanent / end-of-turn / end-of-combat / while-source-in-zone / until）也没有一次性 next-spell 窗口" +
     "（同 ogn/raging-firebrand、rad/firelights-hideout 的 one-shot 缺口），因此本卡不声明任何 target。" +
     "(2)「equal to its base cost」要在该法术构建 Repeat 附加费用时读取它的印刷基础费用（204.1.a、206），" +
-    "而合并 IR 只能读链接值与对象特征，读不到「尚未打出的法术的基础费用」，也没有已合入指令把费用改写安装成持续效果" +
-    "（cost.modify 不是已合入原语；RIFT-89 负责 cost.*）。" +
-    "(3) 即使绑定完成也无人授予：[Repeat] 属关键词，卡牌 README §5 要求只声明、不要手写展开；" +
-    "effects/instructions/ 没有 continuous.grant-keyword 原语，也没有已合入路径把 CardProgram 的能力注册成 layers 的 ContinuousEffectSpec" +
-    "（registerContinuousEffect 无调用方），且 Repeat 自身的 KeywordDef 文档说明其附加费用尚未接入 Finalize（cost.additional / cost.pay 待办）。" +
-    "(4) hold 时点（CR 383.4.d、471.2、473.2.b）没有已合入生产者把它 emit 进唯一事件管线，也没有订阅方把 CardProgram 的 triggered ability " +
-    "注册成 TriggerRegistration（190.6 控制者解析包含在内）。" +
-    "依赖：一次性 next-spell 窗口与基础费用读取、RIFT-89（费用计划/附加费用接线）、RIFT-91（layers-continuous）、RIFT-33（契约 §7.2 批 5）。",
+    "而合并 IR 只能读链接值与对象特征，读不到「尚未打出的法术的基础费用」；cost.modify 与 ignoreAllCosts 虽已合入，" +
+    "但没有已合入通路把卡内描述性 cost.modify 冻结成 finalized 的 FinalizedCostPlan 供 effect.play 使用。" +
+    "(3) 授予原语与 Repeat KeywordDef 已合入（continuous.grant-keyword，RIFT-258）；expandProgram、" +
+    "trigger registration 与 lifecycle binder 能处理显式传入的 CardProgram，apps/game-server 在显式传入 programs 时也会 attachLifecycle，" +
+    "但默认房间不注入本卡程序，而且 Repeat 的附加费用仍未接入最终费用计划（cost.additional / cost.pay）。" +
+    "(4) hold 时点（CR 383.4.d、471.2、473.2.b）已由 turn/flow.ts 的 Score wave 发出；卡面过滤保留了 053.3 的完整 \"here\" 语义，" +
+    "用 CardProgram 允许的嵌套 filter {source: \"self\"} 把事件对象锚定到注册源。translateTriggerFilter 能把该锚点绑定为 sourceRef，" +
+    "但当前 hold emission 只有 player 与 details.battlefieldId，没有 source/object snapshot 或 source-to-battlefield 绑定供事件匹配器消费；" +
+    "apps/game-server 仅在显式传入 programs 时调用 attachLifecycle，默认房间不注入本卡程序。依赖：一次性 next-spell 窗口与基础费用读取、" +
+    "RIFT-89（finalized 成本计划接线）、计分载荷的 source/Battlefield 绑定，以及默认房间的 CardProgram 注入。",
   sourceText:
     "When you hold here, give your next spell this turn [Repeat] equal to its base cost. " +
     "(You may pay the additional cost to repeat the spell's effect.)",
@@ -87,11 +89,11 @@ export default {
       kind: "triggered",
       trigger: {
         at: "hold",
-        // "you hold here": the hold happens at this Battlefield and is
-        // performed by its controller (053.3, 190.6.d). Sibling battlefield
-        // programs keep this placeholder spelling while the trigger pipeline
-        // is unmerged.
-        filter: { event: "hold", here: true, player: "controller" }
+        // "you hold here": retain the source Battlefield anchor in the
+        // CardProgram filter. The nested source:self selector is translated to
+        // the registered source object; the scoring event still lacks the
+        // source/object snapshot needed to consume that anchor (053.3).
+        filter: { event: "held", filter: { source: "self" }, player: "self" }
       },
       optional: false,
       body: [
