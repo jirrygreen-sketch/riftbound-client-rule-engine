@@ -38,7 +38,9 @@ test("ven-034-166 Resonating Strike: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /355\.11/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /811/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(89|90|120)/);
 });
 
 test("ven-034-166 Resonating Strike: both printed keywords are declared only", () => {
@@ -165,13 +167,13 @@ test("ven-034-166 Resonating Strike golden: +2 Might this turn registers on the 
 test.todo(
   "ven-034-166 Resonating Strike: move the chosen unit to the chosen battlefield (355.4/355.4.a) — the " +
     "runtime Location selector is unmerged; effect.move only takes static LocationRefs / controller-base / " +
-    "static candidate lists (RIFT-90 target/location plan)"
+    "static candidate lists (RIFT-357 location plan)"
 );
 
 test.todo(
   "ven-034-166 Resonating Strike: enforce 'a unit you control at a different location' as a 355.11 group " +
     "restriction over both targets, and the 190 battlefield-control predicate for 'a battlefield you control' " +
-    "— the merged target plan and filter vocabulary have neither (RIFT-90)"
+    "— the merged target plan and filter vocabulary have neither (RIFT-357/RIFT-359)"
 );
 
 test.todo(
@@ -181,5 +183,5 @@ test.todo(
 
 test.todo(
   "ven-034-166 Resonating Strike: [Hidden] (811) — the Hide action, the facedown zone, free play from facedown " +
-    "(RIFT-89) and the 811.1.d.2 target narrowing all lack a consumer for the merged cost.hidden expansion"
+    "and the 811.1.d.2 target narrowing all lack a consumer for the merged cost.hidden expansion"
 );

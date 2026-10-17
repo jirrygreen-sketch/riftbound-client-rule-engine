@@ -28,8 +28,7 @@ test("ven-102-166 Ravenbloom Prefect: identity, status, judgeReason and verbatim
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /383\.3\.b/);
   assert.match(program.judgeReason, /ObjectSelector/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-120/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(89|120)/);
 });
 
 test("ven-102-166 Ravenbloom Prefect: an opponent's gear play is the trigger (383.4.a.4 / 420.4.a)", () => {
@@ -133,7 +132,7 @@ test("ven-102-166 golden: a gear that already left the board makes the banish ig
 
 test.todo(
   "ven-102-166 Ravenbloom Prefect: pay 'banish me' as the triggered ability's base cost — banish is not a " +
-    "supported nonstandard payment kind in cost/plan-values.ts (RIFT-89), and contract 3.1's TriggeredAbility " +
+    "supported nonstandard payment kind in cost/plan-values.ts, and contract 3.1's TriggeredAbility " +
     "has no cost field"
 );
 

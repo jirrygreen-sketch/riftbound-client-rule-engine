@@ -52,9 +52,8 @@ test("ven-092-166 Renekton: identity, ruleset, status, judgeReason and verbatim 
   assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /might-changed/);
-  assert.match(program.judgeReason, /RIFT-87/);
   assert.match(program.judgeReason, /RIFT-360/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-89/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(87|89|90|120)/);
   assert.doesNotMatch(program.judgeReason, /RIFT-91/);
   assert.doesNotMatch(program.judgeReason, /没有注册的 Might 修正原语/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
@@ -141,7 +140,7 @@ test("ven-092-166 golden: 'empower me' empowers the ability source through the r
 test("ven-092-166: [Empowered][>] grants Deflect and Ganking behind the descriptive Empowered gate", () => {
   assert.equal(keywordGrant.kind, "static");
   // 828.1.b.1 的依赖能力：只在宿主 Empowered 时授予两个关键词（809/810）。
-  // continuous.grant-keyword 没有已合入的图层消费方（RIFT-91），故按契约写出 shape。
+  // continuous.grant-keyword 的指令与 static 绑定已合入；缺的是关键词的下游图层消费方，故按契约写出 shape。
   assert.deepEqual(keywordGrant.effect, {
     kind: "continuous.grant-keyword",
     keywords: [{ id: "Deflect" }, { id: "Ganking" }],
@@ -173,11 +172,11 @@ test("ven-092-166 golden: 'give me +1 Might this turn' registers an arithmetic-l
 test.todo(
   "ven-092-166 Renekton: the 'becomes 10 or more' transition (709 previousMight < 10 <= currentMight) needs the " +
     "might-changed payload exposed to trigger matching — EventPattern.details only accepts scalars, NumericMatcher " +
-    "only matches event.amount, and the might-changed producer is not wired into the pipeline (RIFT-87/RIFT-120)"
+    "only matches event.amount, and the might-changed producer is not wired into the pipeline"
 );
 
 test.todo(
-  "ven-092-166 Renekton: the [Empowered][>] grant of [Deflect] and [Ganking] needs an Empowered predicate (442.1.a, " +
-    "RIFT-87) plus keyword consumers — Deflect's target tax (RIFT-360) and Ganking's movement permission, which the " +
+  "ven-092-166 Renekton: the [Empowered][>] grant of [Deflect] and [Ganking] needs an Empowered predicate (442.1.a) " +
+    "plus keyword consumers — Deflect's target tax (RIFT-360) and Ganking's movement permission, which the " +
     "movement system leaves unread (continuous.grant-keyword itself is merged)"
 );

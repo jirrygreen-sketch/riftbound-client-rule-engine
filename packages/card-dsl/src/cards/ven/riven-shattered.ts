@@ -36,7 +36,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    cost.modify 的 reduce-equip-cost 分支会按“821.1.c.2 缺权威 Equip 费用绑定”设计性抛出，
  *    费用计算与支付不会执行。
  * 2. CardProgram → TriggerRegistration 的通用路径已由 programs/triggers.ts + lifecycle.ts
- *    接入，但 programs/filters.ts 尚不支持 TargetSpec 的 sameLocationAs（053.3/355.11），
+ *    接入，但 programs/filters.ts 尚不支持 TargetSpec 的 sameLocationAs（053.3/355.11，RIFT-359），
  *    所以本卡的注册在目标翻译处仍被 judge-required 阻断。
  * 3. attack-declared 时点没有发射方：combat/ 不把 Attacker 指定接入事件管线（全仓库没有
  *    attack-declared 的 emit 调用，同 sfd/azir-sovereign、sfd/lucian-gunslinger 的记录）。
@@ -117,7 +117,7 @@ export default {
     "cost.modify 与 cost.pay 原语也已合入，但 reduce-equip-cost 分支按 821.1.c.2 缺权威 Equip 费用绑定而设计性抛出，" +
     "费用计算与支付不会执行；" +
     "(2) CardProgram → TriggerRegistration 的通用路径已由 programs/triggers.ts + lifecycle.ts 合入，" +
-    "但 programs/filters.ts 尚不支持 TargetSpec 的 sameLocationAs（053.3/355.11，RIFT-90），本卡注册会在目标翻译处以 judge-required 阻断；" +
+    "但 programs/filters.ts 尚不支持 TargetSpec 的 sameLocationAs（053.3/355.11，RIFT-359），本卡注册会在目标翻译处以 judge-required 阻断；" +
     "(3) attack-declared 时点（323.2 / 383.4.e / 466.2.c）没有发射方：combat/ 不把 Attacker 指定接入事件管线（全仓库没有 attack-declared " +
     "的 emit 调用）。依赖权威 Equip 费用绑定（reduce-equip-cost 消费方）、sameLocationAs 目标过滤适配与战斗触发发射。" +
     "「choose an enemy unit here」按 355.9.b 声明为被选目标（sameLocationAs: \"self\" 的 053.3 here 锚点），" +

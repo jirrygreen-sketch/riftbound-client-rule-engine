@@ -61,8 +61,7 @@ test("ven-019-166 Renekton: identity, status, judgeReason and verbatim sourceTex
   assert.match(program.judgeReason, /effect\.damage/);
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /attack-declared/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-120/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(89|120)/);
 });
 
 test("ven-019-166 Renekton: unvalued [Accelerate] with the merged 805 expansion", () => {
@@ -148,7 +147,7 @@ test("ven-019-166 Renekton golden: the 4-or-fewer-runes trigger condition really
 test.todo(
   "ven-019-166 Renekton: deal 2 to every enemy unit here (418.1.b/418.1.d with the 355.10.d " +
     "non-target set) needs the merged effect.damage to accept a query/set selector instead of only " +
-    "ctx.targets(specId) — the same RIFT-9 target.query gap as og/firestorm"
+    "ctx.targets(specId) — effect.damage still lacks a query/set selector for non-target groups"
 );
 
 test.todo(
@@ -159,5 +158,5 @@ test.todo(
 test.todo(
   "ven-019-166 Renekton: [Accelerate]'s cost/entry rewrite (805.1.b.1 Fury money, 805.6 ready " +
     "entry) needs a card-program → cost-plan/entry-replacement wiring — the cost planner accepts " +
-    "optional additional costs, but no producer turns accelerate.cost on a card program into that plan (RIFT-89)"
+    "optional additional costs, but no producer turns accelerate.cost on a card program into that plan"
 );

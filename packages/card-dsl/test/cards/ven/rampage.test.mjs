@@ -231,7 +231,7 @@ test("ven-083-166 Rampage golden: a chosen unit that left the Board is not dealt
 test.todo(
   "ven-083-166 Rampage: charge the optional :rb_rune_body: additional cost at Finalize (CR 356.2.b / " +
     "356.2.b.1) and gate the +2 on the paid result (356.4.f.1) — needs the card program's cost.additional / " +
-    "CostSpec clause wired into CostPlanInput.optionalAdditional plus a cost-result binding (RIFT-89)"
+    "CostSpec clause wired into CostPlanInput.optionalAdditional plus a cost-result binding"
 );
 
 test("ven-083-166 Rampage golden: the chosen friendly unit receives a +2 Might arithmetic-layer boost", () => {
@@ -268,5 +268,5 @@ test.todo(
   "ven-083-166 Rampage: give the chosen friendly unit +2 Might this turn and compute both Deal amounts " +
     "from the modified Mights (CR 143.2.a / 317.2.c / 418.6.b.3) — the +2 registration is proven by golden, " +
     "but the paid-additional-cost result binding (356.4.f.1) is still missing, so the unfired-cost branch must " +
-    "never trigger the +2 (RIFT-89)"
+    "never trigger the +2"
 );

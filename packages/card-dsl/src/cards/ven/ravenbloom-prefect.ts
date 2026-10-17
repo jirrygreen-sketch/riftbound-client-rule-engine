@@ -21,7 +21,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status 判定（cards/README.md 第 2 节）：judge-required，两处缺口均不近似实现：
  * 1. “banish me” 作为费用没有可支付的凭据种类：cost/plan-values.ts 的非标准费用只支持
- *    exhaust/discard/recycle/kill/reveal/spend-buff，没有 banish（RIFT-89）；契约 3.1 的
+ *    exhaust/discard/recycle/kill/reveal/spend-buff，没有 banish；契约 3.1 的
  *    TriggeredAbility 也没有 cost 字段，费用只能按 383.3.b 在指令里声明。程序按契约形状保留
  *    cost.pay 指令，不在卡里手改状态。
  * 2. “it” 指触发事件里的那张被打出的装备，而冻结的 ObjectSelector 只有 self/source/target/
@@ -82,7 +82,7 @@ export default {
   judgeReason:
     "两处缺口，均不近似实现：(1)「banish me」按 383.3.b/383.3.b.1 是触发能力的指令内基础费用（428.5），" +
     "但 cost/plan-values.ts 的非标准费用只支持 exhaust/discard/recycle/kill/reveal/spend-buff，没有 banish 付费种类，" +
-    "且契约 3.1 的 TriggeredAbility 没有 cost 字段（RIFT-89）；程序按契约形状保留 cost.pay，不在卡里手改状态。" +
+    "且契约 3.1 的 TriggeredAbility 没有 cost 字段；程序按契约形状保留 cost.pay，不在卡里手改状态。" +
     "(2)「banish it」的 “it” 是触发事件里的那张被打出的装备，而冻结的 ObjectSelector 只有 self/source/target/pick/linked，" +
     "没有触发事件物件的选择器（同 ogn/back-alley-bar 的记录，已登记契约变更请求），因此只保留描述性占位；" +
     "触发注册路径本身已合入（programs/lifecycle.ts → triggers.ts → pipeline.registerTrigger，`player: \"opponent\"` 也由 " +

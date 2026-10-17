@@ -15,7 +15,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   展开与准入由关键词注册表与 chain 负责（契约 3.7 / 3.5）。
  * - 「Choose a spell」：355.9.a.2 规定 "spell" 指链上已 Finalize 的对象，因此这是链上目标的
  *   TargetSpec；待结算的 Pending 链项不是合法目标（契约 3.4 / 355.3），法术也不能以自身为目标
- *   （355.9.c）——两者的校验义务在目标计划与链（RIFT-90），不在卡数据。
+ *   （355.9.c）——两者的校验义务在目标计划与链，不在卡数据。
  * - 「with Energy cost no more than :rb_energy_4:」：206 / 206.1 规定判断费用时只看印刷（或用复制
  *   效果后的复制）费用，忽略已支付的追加费用——Defy 正是该条自带的示例。冻结的 TargetSpec 过滤器
  *   无法读取链上法术的印刷 Energy 费用，因此限制以描述性键保留（见 judgeReason），绝不去掉限制。
@@ -47,13 +47,13 @@ const rebuttal = {
     "三处缺口，均不近似实现：(1)「Choose a spell with Energy cost no more than :rb_energy_4:」的目标限制" +
     "读不到链上法术的印刷 Energy 费用：CR 206 明确只看印刷（或复制）费用、忽略已支付的追加费用（该条自带 Defy 示例），" +
     "而冻结的 TargetSpec filter 只能逐键比较 type/zone/location 等字段，没有任何已合入谓词读取链上项的印刷费用；" +
-    "限制以描述性键 energyMax 保留（去掉它会变成“反制任意法术”）。依赖：target 系统的印刷费用谓词（RIFT-90 目标/链，或 cost-plan 的印刷费用读取）。" +
+    "限制以描述性键 energyMax 保留（去掉它会变成“反制任意法术”）。依赖：target 系统的印刷费用谓词（当前条件谓词工作）。" +
     "(2)「You may pay :rb_rune_rainbow:. If you do … Otherwise, counter it」的两路结算分支虽已用 choice.mode、" +
     "cost.pay 的 payments.power: 1 与 linked-value 回执表达，但 chain/engine.ts 的 Finalize/Resolve choice-plan 适配器" +
     "仍阻断 choice.mode，因此支付后控制/重选与未支付反制尚不能经打出管线执行。依赖：结算期分支选择计划适配器。" +
     "(3)「you may make new choices for it」是 CR 750-755 的 Making New Choices：752.1 只允许重选 location/mode/destination/target，" +
     "753/753.3 要求全部重选并沿用原限制，753.2 在无合法新选择时 negated，754 重新触发成为目标，755 忽略因此产生的 to-play 费用；" +
-    "IR 没有重开已 Finalize 链项选择计划的节点，也没有 753.2 的结果绑定。依赖：链/目标计划的重选支持（RIFT-90/RIFT-120）。" +
+    "IR 没有重开已 Finalize 链项选择计划的节点，也没有 753.2 的结果绑定。依赖：位置/选择计划与条件谓词接线（RIFT-357/RIFT-358/RIFT-359）。" +
     "已合入部分：链上法术目标（355.9.a.2）、effect.counter（426.1-426.3）与 effect.control（RIFT-117）——golden 用真实原语执行。",
   abilities: [
     // 813.1.c.1：印刷的 [Reaction] 只声明，展开与 Closed State 准入归关键词注册表与 chain。

@@ -87,9 +87,9 @@ test("ven-041-166 Riven, Shattered: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /821\.1\.c\.2/);
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  // The stale RIFT-89 citation was removed; the judgeReason now names the
-  // concrete Equip-cost binding and attack-declared producer gaps.
+  assert.match(program.judgeReason, /RIFT-359/);
+  // The judgeReason names the concrete Equip-cost binding and attack-declared
+  // producer gaps without citing merged dependency tasks.
   assert.doesNotMatch(program.judgeReason, /RIFT-89/);
   assert.doesNotMatch(program.judgeReason, /RIFT-120/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
@@ -229,7 +229,7 @@ test.todo(
   "ven-041-166 Riven, Shattered: expand [Weaponmaster] (821.1.c.2 / 821.1.c.2.a: calculate the chosen " +
     "Equipment's Equip cost, one any-Power less, and attach it without activating Equip) — cost.modify / cost.pay " +
     "are merged, but reduce-equip-cost throws by design because rule 821.1.c.2 still lacks an authoritative " +
-    "Equip-cost binding (RIFT-89)"
+    "Equip-cost binding"
 );
 
 test.todo(
