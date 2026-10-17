@@ -1,9 +1,10 @@
+// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/frostcoat-mother.js";
-import { createEngineStaticBinder, expandProgram } from "../../../../engine-core/dist/programs/index.js";
+import { createEngineStaticBinder, expandProgram, translateCost } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
@@ -51,10 +52,14 @@ test("ven-032-166 Frostcoat Mother: 'costs 1 less for each rune you control' is 
     appliesTo: "empower-activation-cost",
     per: "rune-you-control",
     minimum: 0,
-    value: {
-      kind: "count",
-      subject: "runes",
-      filter: { type: "rune", controller: "self", zone: "rune-zone" }
+    amount: {
+      kind: "arithmetic",
+      operator: "neg",
+      operands: [{
+        kind: "count",
+        subject: "runes",
+        filter: { type: "rune", controller: "self", zone: "rune-zone" }
+      }]
     }
   });
   assert.equal(costReduction.condition, undefined);
@@ -71,19 +76,33 @@ test("ven-032-166 Frostcoat Mother: the [Empowered][>] dependent ability is +3 M
     amount: { kind: "constant", value: 3 }
   });
   assert.deepEqual(might.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "empowered" }
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
   });
 });
 
-test.todo(
-  "ven-032-166 Frostcoat Mother: expand [Empower] 12 with the 827.1.c.3 per-rune cost rewrite and the " +
-    "827.1.c.5 'use only if not Empowered' restriction — no Empower KeywordDef and no cost consumer"
-);
+test("ven-032-166 Frostcoat Mother: merged Empower expands, but the printed cost cannot cross the card-program boundary", () => {
+  const { source } = hostFor(program, "frostcoat");
+  const expanded = expandProgram(program, source);
+  const [expandedEmpower] = expanded.expanded;
+  assert.equal(expandedEmpower.kind, "activated");
+  assert.deepEqual(expandedEmpower.cost, { kind: "empower" });
+  assert.deepEqual(expandedEmpower.restriction.condition, {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq",
+    right: { kind: "constant", value: 0 }
+  });
+  assert.throws(
+    () => translateCost(expandedEmpower.cost, "frostcoat.empower", "activate"),
+    /Unsupported cost kind empower/
+  );
+});
 
 test.todo(
-  "ven-032-166 Frostcoat Mother: register the Empowered-gated +3 Might (828.1.b.1, 143.2.a) — no card-side " +
-    "Empowered status predicate"
+  "ven-032-166 Frostcoat Mother: integrate printed Empower cost and production state (827.1.c.1, 442.1); static subset is covered in the template"
 );
 
 /** 复核（2026-10-17）负向证据：关键词展开与减费静态绑定两处缺口。 */
@@ -93,17 +112,7 @@ function hostFor(programUnderTest, id) {
   return { f, source: f.kernel.getObject(id) };
 }
 
-test("ven-032-166 Frostcoat Mother evidence: the merged Empower expansion carries no printed cost or rune rewrite", () => {
-  const { source } = hostFor(program, "frostcoat");
-  const expanded = expandProgram(program, source);
-  const empowerActivation = expanded.expanded.find(ability => ability.kind === "activated");
-  assert.ok(empowerActivation, "RIFT-593 merged the Empower KeywordDef");
-  // 827.1.c: the printed 12 Energy and the 827.1.c.3 per-rune rewrite never
-  // reach the expansion, which keeps the fail-closed cost placeholder.
-  assert.deepEqual(empowerActivation.cost, { kind: "empower" });
-});
-
-test("ven-032-166 Frostcoat Mother evidence: the cost modification cannot bind and the Empowered gate is unenforced", () => {
+test("ven-032-166 Frostcoat Mother evidence: the cost modification stays blocked while the corrected Empowered gate follows live state", () => {
   const { f, source } = hostFor(program, "frostcoat");
   const binder = createEngineStaticBinder(f.engine);
   // 827.1.c.3：减费声明要作为 Empower 启动费用的改写被消费；当前 staticTarget 直接失败关闭。
@@ -111,10 +120,16 @@ test("ven-032-166 Frostcoat Mother evidence: the cost modification cannot bind a
     () => binder.bindStatic(costReduction, source),
     /Unsupported static appliesTo "empower-activation-cost"/
   );
-  // 828.1.b.1：+3 Might 的 Empowered 门控没有求值形态；该声明本身可进图层，但不受状态约束。
+  // 828.1.b.1：直接绑定原始 static；状态由真实动作改变，不以常量字符串开启。
   const handle = binder.bindStatic(might, source);
   f.engine.layers.setObjects(f.kernel.objects);
-  assert.equal(f.engine.layers.evaluate(f.kernel.ref("frostcoat")).might, 6);
+  assert.equal(f.engine.layers.evaluate(f.kernel.ref("frostcoat")).might, 3);
+  assert.equal(f.engine.commit({ type: "empower", object: source.ref }).status, "done");
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.equal(f.engine.layers.evaluate(source.ref).might, 6);
+  assert.equal(f.engine.commit({ type: "disempower", object: source.ref }).status, "done");
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.equal(f.engine.layers.evaluate(source.ref).might, 3);
   handle.unbind();
   f.engine.layers.setObjects(f.kernel.objects);
   assert.equal(f.engine.layers.evaluate(f.kernel.ref("frostcoat")).might, 3);
