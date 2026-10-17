@@ -27,6 +27,7 @@ test("rad-001-167 Amateur Demolitionist: program validates and has expected iden
   assert.match(program.judgeReason, /bomb/i);
   assert.match(program.judgeReason, /effect\.token/);
   assert.match(program.judgeReason, /describePlay/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(257|261|265|267)/);
 });
 
 test("rad-001-167: card-played self trigger plays a Bomb gear token to a chosen battlefield", () => {

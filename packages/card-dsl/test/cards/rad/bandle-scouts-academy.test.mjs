@@ -27,6 +27,7 @@ test("bandle-scouts-academy: judgeReason names the Gold definition, the play flo
   assert.match(program.judgeReason, /describePlay/);
   assert.match(program.judgeReason, /185\.2\.d/);
   assert.match(program.judgeReason, /card-hidden/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(257|261)/);
 });
 
 test("bandle-scouts-academy: hidden-card trigger at this battlefield", () => {

@@ -28,7 +28,7 @@ test("rad-002-167 Banner of Conquest: identity, ruleset, status and exact source
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("rad-002-167 Banner of Conquest: the judgeReason names the actual merged gaps", () => {
+test("rad-002-167 Banner of Conquest: the judgeReason names the current gaps", () => {
   // cards/README.md section 2: a judge-required program must name the missing
   // op/keyword/rule and the dependency, not just say "unimplemented".
   assert.match(program.judgeReason, /Deploy/);
@@ -38,6 +38,7 @@ test("rad-002-167 Banner of Conquest: the judgeReason names the actual merged ga
   assert.match(program.judgeReason, /applyKeyword/);
   // The grant must not be approximated as an arithmetic Might bonus.
   assert.match(program.judgeReason, /807\.1\.c/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-349/);
 });
 
 test("rad-002-167 Banner of Conquest: the printed [Deploy] is declared as a keyword ability", () => {

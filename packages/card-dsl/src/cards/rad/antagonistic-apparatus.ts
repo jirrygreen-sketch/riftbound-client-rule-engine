@@ -104,9 +104,9 @@ const program = {
     "(2) 生产链还没有消费 { type: \"play\" } 的 host 动作（chain/engine.ts 要求调用方提供 " +
     "describePlay；EngineRuntimeHost 对 play 返回 impossible），链上生成 + 打出目前只在参照内核可执行。" +
     "Mech token 定义（187.4，id \"mech\"）与 mode \"play\"（440.2.c / 185.2.a）按契约声明；" +
-    "“I enter ready”（143.4 + 369.3）用已合入的 replacement 形状（RIFT-260 / RIFT-349）并有真实" +
+    "“I enter ready”（143.4 + 369.3）的 replacement 形状与绑定已有真实" +
     "绑定执行测试；“here” 用 condition.value 读取来源位置后经 linked-value 交给 token，并在参照内核" +
-    "真实执行。RIFT-257 的 CardProgram 绑定已合入，不再是缺口。不近似实现。",
+    "真实执行。不近似实现。",
   abilities,
   sourceText: "I enter ready.\nWhen you play me, play a ready 3 :rb_might: Mech unit token here."
 } satisfies CardProgram;

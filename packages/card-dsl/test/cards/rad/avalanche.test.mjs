@@ -25,7 +25,8 @@ test("rad-079-167 Avalanche: program passes validateCardProgram with the catalog
 test("rad-079-167 Avalanche: judgeReason names the missing batch set damage path", () => {
   assert.match(program.judgeReason, /ctx\.targets/);
   assert.match(program.judgeReason, /355\.10\.d/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /target\/target-plan/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-90/);
 });
 
 test("rad-079-167 Avalanche: structure — printed energy 5 plus 2 power, one set damage instruction", () => {
@@ -82,5 +83,5 @@ test.todo(
 
 test.todo(
   "rad-079-167 Avalanche: proving the simultaneous-damage and rule-055 partial-resolution behaviour " +
-    "(418.1.c/418.1.d, 055) needs the batch set op above and the event pipeline — RIFT-89/90."
+    "(418.1.c/418.1.d, 055) needs the batch set op above and the event pipeline."
 );

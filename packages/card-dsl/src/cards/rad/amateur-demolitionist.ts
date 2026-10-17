@@ -36,12 +36,11 @@ const program = {
   judgeReason:
     "(1) Bomb gear token 定义缺失：effect.token 的冻结定义表不含 bomb（CR 187.12 的带自身能力" +
     "定义按原语说明保持 blocked，返回 blockedReason \"token-definition-or-abilities-judge-required\"）；" +
-    "Deploy / Deathknell 的 KeywordDef 虽已合入（RIFT-267 / RIFT-265），卡牌侧仍不能为 Bomb 补定义。" +
+    "Deploy / Deathknell 的 KeywordDef 虽已具备，卡牌侧仍不能为 Bomb 补定义。" +
     "(2) mode \"play\" 的链上生成 + 打出（440.2.c / 185.2.a）缺生产接线：chain/engine.ts 的" +
     "Play 动作要求调用方提供 describePlay 卡牌程序适配器，而 EngineRuntimeHost 对 { type: \"play\" }" +
     " 返回 impossible，整段只能在参照内核执行。" +
-    "RIFT-257 的 CardProgram 绑定与 RIFT-261 的费用种类/cost.pay 已合入，不再是缺口；" +
-    "战场目的地选择（355.10.b 非目标地点选择）已按 pick 表达。不近似实现。",
+    "战场目的地选择（355.10.b 非目标地点选择）已按 pick 表达；不近似实现。",
   abilities: [
     {
       kind: "triggered",

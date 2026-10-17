@@ -48,7 +48,7 @@ export default {
     "缺“按特征选中整组对象、且不作为目标”的批量伤害路径：已合入的 effect.damage 只经 ctx.targets(TargetSpec id) 读受击集合，" +
     "而“all units in bases”按 355.10.d 不由玩家选择、不是目标，声明 TargetSpec 会错误触发“成为目标”相关触发。" +
     "「in bases」的限制本身已可表达（layers/filter.ts 与 layers/rules/query.ts 按 object.location.type 求值字符串 " +
-    "location:\"base\"，程序已改用该求值拼写）；已合入的目标系统（RIFT-90，target/target-plan.ts）只走 " +
+    "location:\"base\"，程序已改用该求值拼写）；现有目标系统（target/target-plan.ts）只走 " +
     "TargetSpec 并为每个被选对象发 became-target，355.10.d / 355.10.d.1 明确排除按特征选中的集合，" +
     "因此不能复用。repeat/choice 组合也无法逐成员结算而不引入假目标；仍缺非目标的批量集合伤害原语。不近似实现。",
   abilities: [

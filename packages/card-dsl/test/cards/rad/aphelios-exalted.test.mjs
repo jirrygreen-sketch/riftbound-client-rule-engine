@@ -40,6 +40,7 @@ test("rad-179-167 Aphelios, Exalted: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /ChainContractBlockedError/);
   assert.match(program.judgeReason, /object-attached/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
