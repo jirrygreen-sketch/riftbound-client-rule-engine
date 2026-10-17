@@ -15,7 +15,8 @@ test("Jeweled Colossus program validates and is judge-required", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Shield/);
   assert.match(program.judgeReason, /814\.1\.b\.3/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /designation/);
   assert.equal(
     program.sourceText,
     "[Vision] (When you play me, look at the top card of your Main Deck. You may recycle it.)\n" +
@@ -34,7 +35,9 @@ test("Jeweled Colossus declares exactly the two printed keywords, in printed ord
 
 test.todo(
   "Jeweled Colossus [Shield] expansion: +1 [M] while the unit is a defender (814.1.c / 814.1.d.1) through a layers " +
-    "continuous.might effect keyed to the defender designation (RIFT-91); no merged ObjectSnapshot characteristic carries the designation"
+    "continuous.might registration keyed to the defender designation; continuous.might is merged (RIFT-258) but no consumer " +
+    "registers a card's static/keyword expansion (RIFT-257), layers/engine.ts does not evaluate the compare condition, and " +
+    "no merged ObjectSnapshot characteristic carries the designation (contract 3.8 combatRole)"
 );
 
 test.todo(

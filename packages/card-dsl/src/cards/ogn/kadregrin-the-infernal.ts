@@ -18,22 +18,25 @@ import type { CardProgram } from "../../ir/index.js";
  *   表达式在结算时求值（契约 3.6 evaluate 时机）；不足时按 414.4/432 由内核处理
  *   Burn Out。
  *
- * status：judge-required。缺合并后的「Mighty 集合谓词」：Mighty 关键词文件只把
- * is-mighty 谓词声明成 condition.value 的静态效果形状，没有等价的查询过滤器；
- * 当前合并的 query filter 只识别 type/tags/controller/owner/zone/location 等键，
- * 不识别 mightGte/mighty 键——直接写上会让计数把非 Mighty 单位也算进去，等于
- * 近似实现。依赖：RIFT-88（kw-mighty 的谓词落地）与 RIFT-91（图层/条件消费）。
- * draw 原语本身已合入，golden 测试对固定数量的 draw 场景做真实执行。
+ * status：judge-required。Mighty 的 KeywordDef（RIFT-88）已合入，但没有查询消费方：
+ * 合并的 ObjectFilter 实现（layers/filter.ts、参考内核 matchesFilter、chain/engine.ts 的
+ * query 归一化）只识别 type/tags/controller/owner/zone/location/states 等键，
+ * 不识别 mightGte（或等价的 is-mighty 谓词），未知键被静默忽略——直接按 710 写
+ * mightGte: 5 会让计数把非 Mighty 单位也算进去，等于近似实现。
+ * effect.draw 已合入并有真实执行测试；触发侧还缺 CardProgram → TriggerRegistration
+ * 绑定（RIFT-257）。依赖：Mighty 谓词的过滤器/查询消费方（RIFT-91 后续）与 RIFT-257。
  */
 const kadregrinTheInfernal = {
   canonicalCardId: "card.hash-398b3826ce23339dadae173c5f1fa39994abe8d2eed99f68d1de01806763d379",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺「Mighty 单位集合」的查询谓词：Mighty（CR 706-708）目前只有 keywords/Mighty.ts 的 condition.value/is-mighty 静态形状，" +
-    "合并的 ObjectFilter 查询不识别 mightGte/mighty 键（当前只按 type/tags/controller/owner/zone/location 过滤），" +
-    "计数会把非 Mighty 单位算进去，构成近似实现。依赖：RIFT-88（kw-mighty 谓词落地）、RIFT-91（图层/条件消费）。" +
-    "effect.draw 原语已合入。",
+    "缺「Mighty 单位集合」的查询消费方：Mighty 的 KeywordDef（RIFT-88）已合入，但它只提供 " +
+    "condition.value/is-mighty 的静态形状；合并的 ObjectFilter 实现（layers/filter.ts、参考内核 matchesFilter、" +
+    "chain/engine.ts 的 query 归一化）只识别 type/tags/controller/owner/zone/location/states，不识别 mightGte/mighty，" +
+    "未知键被静默忽略，计数会把非 Mighty 单位算进去，构成近似实现（CR 706-708/710 要求在场上按当前 Might >= 5 判定）。" +
+    "effect.draw 已合入并有真实执行测试；触发侧还缺 CardProgram → TriggerRegistration 的订阅方（RIFT-257）。" +
+    "依赖：Mighty 谓词的过滤器/查询消费方（RIFT-91 后续）与 RIFT-257。不近似实现。",
   abilities: [
     {
       kind: "triggered",

@@ -24,15 +24,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   支付数量（cost 计划里的 discount amount 读不到已选的 spend-buff 数量）。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
- * 关键词声明本身有依据，但整卡不可执行：
+ * 关键词声明与两条 KeywordDef（Accelerate 805、Assault 807）本身有依据，但整卡不可执行：
  * - 可选附加费用的"任意数量 Buff" 需要 Finalize 阶段由玩家选择数量并逐次支付：
  *   cost-plan 的 optionalAdditional 是布尔式选择（selected?: boolean，每个
- *   additional 组件一次），没有"不受限数量"的已被验证表达；同时也没有把该组件
- *   的费用减免（每 Buff 减 1 Body Power）接入 356.4.c 组件折扣的路径。
+ *   additional 组件一次），没有"不受限数量"的已被验证表达；cost.pay / cost.modify
+ *   指令原语未合入（RIFT-261），也没有把该组件的费用减免（每 Buff 减 1 Body Power）
+ *   接入 356.4.c 组件折扣的路径。
  * - 减费随支付数量联动：cost-plan 的 CostDiscount 只接受静态 Expr amount，
  *   无法读"本次已支付的 Buff 数"。
- * 依赖：cost.additional 的可变数量选择（RIFT-89 费用计划）与引用已支付数量的
- * 组件折扣。不近似实现（不写成固定 0/1 个 Buff，也不写死减费量）。
+ * - 卡牌/关键词展开→运行时绑定仍属 RIFT-257。
+ * 依赖：RIFT-261（cost 种类与 cost.pay / cost.modify 的可变数量附加费与引用支付结果的折扣）、
+ * RIFT-257（关键词展开消费）。不近似实现（不写成固定 0/1 个 Buff，也不写死减费量）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -48,10 +50,12 @@ const program = {
     "as an additional cost” 需要 Finalize 里不受限数量的 spend-buff 支付选择；已合入 cost-plan " +
     "的 optionalAdditional 是每个组件一次的布尔选择（207 / 356.4），没有“任意数量”的" +
     "已验证表达（cost/README.md：非标准费用按对象选择，amount 用于 spend-buff 的" +
-    "单对象 Buff 数，不能表达跨对象的不限数量）。（2）“Reduce my cost by [Body] for each " +
-    "buff you spend” 是引用本次已支付数量的组件折扣（356.4.c），CostDiscount.amount 只接受" +
-    "静态 Expr，读不到已支付的 Buff 数。依赖：RIFT-89（batch3-cost-plan）的可变数量附加费" +
-    "与引用支付结果的折扣。Accelerate/Assault 只按 805/807 声明关键词，不重写展开。不近似实现。",
+    "单对象 Buff 数，不能表达跨对象的不限数量）；cost.pay / cost.modify 指令原语未合入（RIFT-261）。" +
+    "（2）“Reduce my cost by [Body] for each buff you spend” 是引用本次已支付数量的组件折扣（356.4.c），" +
+    "CostDiscount.amount 只接受静态 Expr，读不到已支付的 Buff 数。" +
+    "（3）卡牌/关键词展开→运行时绑定仍属 RIFT-257。" +
+    "依赖：RIFT-261（cost 种类与 cost.pay / cost.modify）、RIFT-257（关键词展开消费）。" +
+    "Accelerate/Assault 只按 805/807 声明关键词，不重写展开。不近似实现。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_body: as an additional cost to have me enter ready.)\n" +

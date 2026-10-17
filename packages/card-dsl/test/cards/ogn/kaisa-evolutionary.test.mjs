@@ -49,7 +49,7 @@ test("Kai'Sa, Evolutionary identity and judge-required reason", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /356\.1\.b\.2/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /points/);
   assert.equal(
     program.sourceText,
@@ -118,7 +118,7 @@ test("structure: choice.optional wraps the play + recycle, per contract 3.9", ()
 test("golden: effect.play executes the trash spell with a zero-Energy finalized plan", () => {
   // 局部执行证据：已合入的 effect.play 在给定 finalized 零 Energy 计划与目标时能真实把
   // trash 里的法术牌打出（420.3 / 356.1.b.2 的“忽略 Energy 费用”部分形状）。整张卡仍
-  // 因动态目标过滤与「Then recycle it」的引用绑定保持 judge-required。
+  // 因动态 points 过滤、finalized 计划与「Then recycle it」的对象引用绑定保持 judge-required。
   const kernel = world().build();
   kernel.addObject(trashSpell("trash-spell"), "trash");
   const instruction = triggered.body[0].args.body.value[0];
@@ -140,8 +140,6 @@ test("golden: effect.play executes the trash spell with a zero-Energy finalized 
   assert.equal(run.result.status, "executed");
   assert.equal(run.linked.played, 1);
   assert.equal(kernel.getObject("trash-spell").zone, "board");
-  // effect.play 的链接值只有实际打出次数，没有对象引用 —— 正是 "Then recycle it" 缺的绑定。
-  assert.equal(run.linked.playedObjects, undefined);
 });
 
 test("golden: declining the optional play skips the body entirely", () => {
@@ -163,7 +161,7 @@ test.todo(
 
 test.todo(
   "Kai'Sa, Evolutionary: 'without paying its Energy cost' as a finalized plan with base Energy 0 and the " +
-    "printed Power still payable (CR 356.1.b.2; RIFT-89 cost.printed / cost.pay)"
+    "printed Power still payable for the actually chosen card (CR 356.1.b.2; RIFT-261 cost.printed / cost.pay)"
 );
 
 test.todo(
@@ -173,5 +171,5 @@ test.todo(
 
 test.todo(
   "Kai'Sa, Evolutionary: [Ganking] expansion granting the battlefield-to-battlefield standard move " +
-    "(RIFT-91 continuous.movement)"
+    "(RIFT-83 KeywordDef merged; the card/keyword-expansion to layers registration path is RIFT-257)"
 );

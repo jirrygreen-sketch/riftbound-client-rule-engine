@@ -28,6 +28,7 @@ test("kogmaw-caustic: identity, ruleset, status, judgeReason and sourceText", ()
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /trigger\.leave/);
   assert.match(program.judgeReason, /RIFT-82/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -108,5 +109,6 @@ test("kogmaw-caustic golden: an emptied battlefield ignores the instruction (CR 
 
 test.todo(
   "kogmaw-caustic: Deathknell keyword expansion (808.1.d.1 死亡被替代时移出链、808.1.d.3 " +
-    "换区前记录最后已知信息、object-killed 触发收集) 依赖 trigger.leave 原语与关键词注册表接线（RIFT-82）"
+    "换区前记录最后已知信息、object-killed 触发收集) 依赖 trigger.leave 原语、object-killed " +
+    "触发收集与关键词展开绑定（RIFT-82 展开文件已合入；RIFT-257 提供运行时绑定）"
 );

@@ -24,13 +24,14 @@ test("ogn-202-298 Jinx, Rebel: program validates and has expected identity", () 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /per-batch|批次/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "When you discard one or more cards, ready me and give me +1 :rb_might: this turn."
   );
 });
 
-test("ogn-202-298 Jinx, Rebel: discard trigger with ready-me then an end-of-turn Might descriptor", () => {
+test("ogn-202-298 Jinx, Rebel: discard trigger with ready-me then an end-of-turn Might instruction", () => {
   assert.equal(program.abilities.length, 1);
   const [ability] = program.abilities;
   assert.equal(ability.kind, "triggered");
@@ -55,13 +56,11 @@ test("ogn-202-298 Jinx, Rebel: discard trigger with ready-me then an end-of-turn
   assert.equal(might.op, "continuous.might");
   assert.deepEqual(might.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(might.args.duration, { kind: "constant", value: "end-of-turn" });
-  assert.equal(might.targets.length, 1);
-  assert.equal(might.targets[0].id, "self-unit");
-  assert.deepEqual(might.targets[0].filter, {
-    object: "self",
-    type: "unit",
-    zone: "board"
-  });
+  // "give me +1 Might this turn" refers to the ability source, so it is not a
+  // target (355.10.d); the primitive registers the arithmetic-layer change on
+  // itself through appliesTo (RIFT-258).
+  assert.deepEqual(might.args.appliesTo, { kind: "constant", value: "self" });
+  assert.equal(might.targets, undefined);
 });
 
 test("ogn-202-298 Jinx, Rebel golden: 'ready me' readies the exhausted source through the interpreter", () => {
@@ -95,12 +94,33 @@ test("ogn-202-298 Jinx, Rebel: readying an already-ready source is a no-op, not 
   assert.equal(kernel.getObject("jinx").exhausted, false);
 });
 
-test.todo(
-  "ogn-202-298 Jinx, Rebel: '+1 :rb_might: this turn' as an end-of-turn Might modification " +
-    "(expression 修正层 432/433，回合结束由 317.2.c 同时到期；缺 continuous.might 指令原语，依赖 RIFT-91 后的原语落地)"
-);
+test("ogn-202-298 Jinx, Rebel golden: both halves execute through the interpreter", () => {
+  const kernel = world()
+    .unit("jinx", { might: 5, exhausted: true, location: { type: "base", player: "A" } })
+    .build();
+  Object.defineProperty(kernel, "source", { value: kernel.getObject("jinx") });
+
+  const outcome = runAbilityBody(program.abilities[0].body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    [READY_ID, "executed"],
+    [MIGHT_ID, "executed"]
+  ]);
+  // ready me (416): the exhausted source is readied.
+  assert.equal(kernel.getObject("jinx").exhausted, false);
+  // +1 [M] this turn (432/433): one arithmetic-layer registration on the
+  // source with the end-of-turn lifetime (317.2.c / 468.7.c).
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [registration] = kernel.continuousEffects;
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 1);
+  assert.deepEqual(registration.effect.filter.objectId, "jinx");
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+});
 
 test.todo(
   "ogn-202-298 Jinx, Rebel: 'one or more cards' fires the trigger once per discard batch " +
-    "(CR 423.1.b；card-discarded 按牌逐张发出，触发生命期枚举没有 per-batch 去重，依赖 RIFT-120 事件管线)"
+    "(CR 423.1.b；card-discarded 按牌逐张发出，触发生命期枚举没有 per-batch 去重；trigger-spec 的 " +
+    "EVENT_PATTERN_TYPES 也没有该事件名，注册绑定属 RIFT-257)"
 );

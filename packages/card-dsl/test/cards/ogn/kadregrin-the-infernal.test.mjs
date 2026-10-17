@@ -13,7 +13,8 @@ test("ogn-038-298 Kadregrin the Infernal: program validates and is judge-require
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Mighty/);
-  assert.match(program.judgeReason, /RIFT-88/);
+  assert.match(program.judgeReason, /mightGte/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("ogn-038-298 Kadregrin the Infernal: identity, ruleset and exact source text", () => {
@@ -50,7 +51,7 @@ test("ogn-038-298 Kadregrin the Infernal: card-played self trigger with a count-
 });
 
 test("ogn-038-298 Kadregrin the Infernal: the count drives an exactly-sized draw through the reference kernel", () => {
-  // The merged reference kernel's filter does not implement a Mighty predicate,
+  // No merged filter consumer implements the Mighty predicate (CR 706-708/710),
   // so this golden pins the count -> draw shape with an explicit board filter
   // (controller + zone); the Mighty predicate itself remains the judged part.
   const kernel = world()
@@ -88,7 +89,8 @@ test("ogn-038-298 Kadregrin the Infernal: zero qualifying units draws zero cards
 });
 
 test.todo(
-  "ogn-038-298 Kadregrin the Infernal: the [Mighty] set predicate (Might >= 5, CR 706-708/710) must be " +
-    "supplied by the keyword/condition work (RIFT-88) and consumed by the query filter (RIFT-91); until " +
-    "then the count cannot distinguish Mighty units from non-Mighty ones."
+  "ogn-038-298 Kadregrin the Infernal: the [Mighty] set predicate (Might >= 5, CR 706-708/710) still has " +
+    "no query-filter consumer (layers/filter.ts, the reference kernel matchesFilter and chain/engine.ts " +
+    "ignore the mightGte/is-mighty key), so the count cannot distinguish Mighty units from non-Mighty ones; " +
+    "the card-played trigger also needs the RIFT-257 CardProgram -> TriggerRegistration binding."
 );

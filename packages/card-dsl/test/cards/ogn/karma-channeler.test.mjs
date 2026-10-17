@@ -7,7 +7,6 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { isTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL = "card.hash-65e0ab54a0954e391f643dc900a7a0faa2cd298faa850e7c436e13659498922d";
 const [vision, recycleTrigger] = program.abilities;
@@ -26,6 +25,8 @@ test("ogn-235-298 Karma, Channeler: identity, status and verbatim sourceText", (
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /effect\.inspect/);
   assert.match(program.judgeReason, /card-recycled/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "[Vision] (When you play me, look at the top card of your Main Deck. You may recycle it.)\n" +
@@ -64,13 +65,12 @@ test("ogn-235-298 Karma, Channeler: the recycle clause is a mandatory buff of on
   assert.equal(buffInstruction.linkedTo, undefined);
 });
 
-test("ogn-235-298 Karma, Channeler: the merged trigger matcher rejects the declared recycle event name", () => {
-  // events/trigger-spec.ts keeps a closed EVENT_PATTERN_TYPES list and its validator
-  // rejects any name outside it; "card-recycled" is not a member, so the declared
-  // trigger cannot be registered by the production pipeline today.
-  assert.equal(isTriggerSpec({ at: "card-recycled", filter: recycleTrigger.trigger.filter }), false);
-  // The timing point itself exists (events/timing-points.ts), which is the mismatch.
+test("ogn-235-298 Karma, Channeler: the recycle trigger is declared on the existing card-recycled timing point", () => {
+  // The timing point itself exists (events/timing-points.ts). Registering the
+  // trigger needs the closed EVENT_PATTERN_TYPES whitelist to accept the
+  // event name plus the "one or more cards" batch semantics (see judgeReason).
   assert.equal(recycleTrigger.trigger.at, "card-recycled");
+  assert.deepEqual(recycleTrigger.trigger.filter, { event: "card-recycled", player: "self" });
 });
 
 test("ogn-235-298 Karma, Channeler: the buff clause executes against a friendly unit (CR 702.2.a)", () => {
@@ -125,7 +125,8 @@ test("ogn-235-298 Karma, Channeler: the declared buff instruction runs through t
 test.todo(
   "ogn-235-298 Karma, Channeler: [Vision]'s Predict step (CR 437.1/437.3) needs an ordered " +
     "top-of-deck source for effect.inspect (the merged primitive blocks non-zero top ranges " +
-    "without an ordered picksSpecId)"
+    "without an ordered picksSpecId) plus the RIFT-257 card keyword-to-trigger binding; the " +
+    "Vision KeywordDef expansion itself is merged and executed by the engine-core Vision goldens"
 );
 test.todo(
   "ogn-235-298 Karma, Channeler: registering the recycle trigger needs 'card-recycled' to be " +
