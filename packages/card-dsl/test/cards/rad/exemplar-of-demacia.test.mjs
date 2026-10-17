@@ -1,11 +1,14 @@
+
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/exemplar-of-demacia.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { matchesTriggerObject } from "../../../../engine-core/dist/events/pipeline-match.js";
 
 const CANONICAL_ID =
   "card.hash-aeae869420081de1b84e1b857cd09233807ef065f1a55595f74684bdb08821eb";
@@ -15,6 +18,29 @@ const SOURCE_TEXT =
 
 const [ability] = program.abilities;
 const [payInstruction, moveInstruction] = ability.body;
+
+const gear = (keywords) => ({
+  ref: { id: "gear", zoneEntryId: 1 },
+  cardId: "card:gear",
+  name: "gear",
+  types: ["gear"],
+  tags: [],
+  keywords,
+  owner: "A",
+  controller: "A",
+  zone: "board",
+  location: { type: "battlefield", id: "bf-2" },
+  might: null,
+  energy: null,
+  power: null,
+  exhausted: false,
+  damage: 0,
+  stunned: false,
+  buffs: 0,
+  attachedTo: null,
+  faceDown: false,
+  isToken: false
+});
 
 test("rad-155-167 Exemplar of Demacia: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -29,8 +55,8 @@ test("rad-155-167 Exemplar of Demacia: identity, status, judgeReason, and verbat
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Deploy/);
   assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /that battlefield/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -54,6 +80,26 @@ test("rad-155-167 Exemplar of Demacia: card-played trigger for a gear with [Depl
   // CR 383.3.a / 403.1: the leading "you may" is the triggered ability's own
   // Finalize decision, so it is carried by optional, not by a body choice node.
   assert.equal(ability.optional, true);
+});
+
+test("rad-155-167 Exemplar of Demacia: the declared [Deploy] filter cannot gate the trigger (830.3)", () => {
+  // Writing keywords: [Deploy] into a trigger filter is silently ignored by the
+  // merged matcher (unknown members are skipped), so it would match every played
+  // Gear. This pins the real behaviour instead of trusting the marker.
+  const withDeploy = gear([{ id: "Deploy" }]);
+  const withoutDeploy = gear([]);
+  assert.equal(matchesTriggerObject({ type: "gear", keywords: ["Deploy"] }, withDeploy, "A"), true);
+  assert.equal(
+    matchesTriggerObject({ type: "gear", keywords: ["Deploy"] }, withoutDeploy, "A"),
+    true,
+    "the keywords member is not evaluated, so a plain Gear matches too"
+  );
+  // A characteristics-based attempt is not a keyword read either: it compares
+  // the snapshot property verbatim, and the snapshot has no deploy field.
+  assert.equal(
+    matchesTriggerObject({ type: "gear", characteristics: { deploy: true } }, withDeploy, "A"),
+    false
+  );
 });
 
 test("rad-155-167 Exemplar of Demacia: cost within instructions, then a linked move", () => {
@@ -104,33 +150,69 @@ test("rad-155-167 Exemplar of Demacia: cost within instructions, then a linked m
   assert.equal(moveInstruction.picks, undefined);
 });
 
-test("rad-155-167 Exemplar of Demacia: neither declared op is registered, so nothing is approximated", () => {
-  // cost.pay has no merged primitive file (RIFT-89). Executing the declared
-  // body through the real interpreter reports the unregistered opcode instead
-  // of silently skipping the cost and moving a unit for free.
+test("rad-155-167 Exemplar of Demacia: cost.pay is not registered, so nothing is approximated", () => {
+  // cost.pay has no merged primitive file (RIFT-261). The merged registry is
+  // the evidence that the leading cost cannot be paid yet.
+  assert.equal(instructionDefinitionsById.has("cost.pay"), false);
+});
+
+test("rad-155-167 Exemplar of Demacia golden: the declared move shape relocates a unit to a literal battlefield", () => {
+  // effect.move's `to` accepts only a literal LocationRef / controller-base / a
+  // choice of literal locations (its own destination() validator), so a
+  // target-supplied location cannot be used for "that battlefield". This golden
+  // runs the card's own objects/amount shape with the literal destination to
+  // prove the move half executes once the destination is bound.
   const kernel = world()
-    .unit("ally", { might: 2 })
-    .unit("gear", { types: ["gear"], location: { type: "battlefield", id: "battlefield-2" } })
+    .unit("ally", { might: 2, location: { type: "base", player: "A" } })
+    .unit("gear", { types: ["gear"], location: { type: "battlefield", id: "bf-2" } })
     .build();
-  assert.throws(
-    () => runAbilityBody([payInstruction], kernel, undefined, { host: kernel.ref("gear") }),
-    /Unregistered instruction opcode: cost\.pay/
+  const scoped = kernel.clone({ source: kernel.ref("gear"), sourceSnapshot: kernel.getObject("gear") });
+  const run = runInstruction(
+    move,
+    {
+      objects: moveInstruction.args.objects,
+      to: { kind: "constant", value: { type: "battlefield", id: "bf-2" } },
+      amount: moveInstruction.args.amount
+    },
+    { world: scoped, targets: { "exemplar-of-demacia.friendly-unit": [kernel.ref("ally")] } }
   );
-  // The friendly unit did not move anywhere.
-  assert.deepEqual(kernel.getObject("ally").location, { type: "battlefield", id: "battlefield-1" });
+
+  assert.equal(run.result.status, "executed");
+  // runInstruction executes against the supplied world (the scoped clone).
+  assert.deepEqual(scoped.getObject("ally").location, { type: "battlefield", id: "bf-2" });
+  assert.equal(run.linked.moved.count, 1);
+});
+
+test("rad-155-167 Exemplar of Demacia: effect.move rejects a target-supplied destination today", () => {
+  // "that battlefield" would have to come from the triggered object's location,
+  // but the merged destination() validator only takes literal LocationRefs; a
+  // target descriptor is rejected when the instruction resolves.
+  const kernel = world().unit("ally", { might: 2, location: { type: "base", player: "A" } }).build();
+  assert.throws(
+    () => runInstruction(
+      move,
+      {
+        objects: { kind: "constant", value: { target: "unit" } },
+        to: { kind: "constant", value: { kind: "target", id: "bf" } },
+        amount: { kind: "constant", value: 1 }
+      },
+      { world: kernel, targets: { unit: [kernel.ref("ally")], bf: [kernel.ref("ally")] } }
+    ),
+    /effect.move to must be a location, controller-base, or location choice/
+  );
 });
 
 test.todo(
   "rad-155-167 Exemplar of Demacia: filter the card-played event for a gear that has the " +
-    "Deploy keyword (CR 830.1.a / 830.3; keyword-aware filters, RIFT-84 + RIFT-91)"
+    "Deploy keyword (CR 830.1.a / 830.3; keyword-aware filters) — RIFT-257"
 );
 test.todo(
   "rad-155-167 Exemplar of Demacia: pay the base cost (Exhaust this legend plus 1 Power of " +
     "any domain) during Finalize and remove the trigger when it cannot be paid " +
-    "(CR 383.3.b.1 / 415.4 / 163.2.b; cost.pay and Universal Power, RIFT-89)"
+    "(CR 383.3.b.1 / 415.4 / 163.2.b; cost.pay and Universal Power) — RIFT-261"
 );
 test.todo(
   "rad-155-167 Exemplar of Demacia: move the friendly unit to the triggering gear's " +
-    "battlefield (CR 421 / 449; needs the triggering object's location as a destination, " +
-    "RIFT-90/91)"
+    "battlefield (CR 421 / 449; needs the triggering object's location bound as a destination) — RIFT-257"
 );
+

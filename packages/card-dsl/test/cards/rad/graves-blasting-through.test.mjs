@@ -4,6 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/graves-blasting-through.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
+import combat from "../../../../engine-core/dist/effects/instructions/continuous.combat.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
@@ -32,6 +34,9 @@ test("rad-085-167 Graves, Blasting Through: validates, identity and source text"
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /combat damage/);
+  assert.match(program.judgeReason, /continuous\.combat/);
+  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /attack-declared/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -115,9 +120,34 @@ test("rad-085-167 Graves, Blasting Through: the dealt amount reads the source's 
   assert.equal(run.linked.dealtCount, 1);
 });
 
+test("rad-085-167 Graves, Blasting Through: continuous.combat is merged but has no consumer yet", () => {
+  // The merged primitive exists and accepts a flags payload, but returns
+  // negated/impossible until the layers/combat consumer reads it, so "I don't
+  // deal combat damage" still has no vehicle (its own header records this).
+  assert.notEqual(instructionDefinitionsById.get("continuous.combat"), undefined);
+  const kernel = world().unit("graves", { might: 4 }).build();
+  const scoped = kernel.clone({
+    source: kernel.ref("graves"),
+    sourceSnapshot: kernel.getObject("graves")
+  });
+  const run = runInstruction(
+    combat,
+    {
+      flags: { kind: "constant", value: ["no-combat-damage"] },
+      appliesTo: { kind: "constant", value: "self" },
+      duration: { kind: "constant", value: "this-combat" }
+    },
+    { world: scoped }
+  );
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  assert.equal(scoped.snapshot().continuous.length, 0);
+});
+
 test.todo(
   "graves-blasting-through: 'I don't deal combat damage' (CR v1.5 467.2.c damage-assignment contribution)" +
-    " needs a combat-damage contribution suppression consumed by the combat system"
+    " needs a combat-damage contribution suppression consumed by the combat system — continuous.combat is merged" +
+    " but its layers/combat consumer is not"
 );
 test.todo(
   "graves-blasting-through: 'all enemy units here' collection selection (CR 355.10.d each-set): effect.damage" +

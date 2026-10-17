@@ -20,9 +20,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   picks 是选择，二者与 each-set 不可互换），而是在 args.appliesTo 里描述该集合
  *   （与 danger-zone 的 each-set 写法同型）；集合解析属目标/集合管线（RIFT-90）。
  * - "I don't deal combat damage"：467.2.c 的伤害分配里本单位的 Might 不计入战斗伤害。
- *   这需要一个"本单位不贡献战斗伤害"的静态限制（契约 3.4 的 continuous.restrict /
- *   战斗系统的 damage-contribution 抑制）；当前 layers / combat 没有该消费路径，
- *   因此整卡保持 judge-required（不近似实现）。
+ *   RIFT-258 合入了 continuous.combat 原语，但它对任何 flags 都返回
+ *   negated(impossible)（文件头自述：图层引擎没有 kind "continuous.combat" 的消费分支），
+ *   所以该限制仍无载体；把限制写成触发器或结算时动作属禁止的近似实现。
  */
 const combatTrigger = (at: "attack-declared" | "defense-declared", id: string): Ability => ({
   kind: "triggered",
@@ -61,14 +61,14 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "「I don't deal combat damage」没有已合入的载体：CR v1.5 467.2.c 的战斗伤害分配按单位的 Might 求和" +
-    "伤害，需要一个抑制本单位战斗伤害贡献的静态限制（continuous.restrict / 战斗系统的 damage-contribution" +
-    "抑制），当前 layers 与 combat 均无该消费路径，故不能把整卡标为可执行。两条「When I attack or defend," +
-    "deal damage equal to my Might to all enemy units here」的另一处缺口是集合形状：按 355.10.d 这些单位是" +
-    "程序化集合、不是目标，而 effect.damage 只接受 TargetSpec id，契约缺少" +
+    "伤害，需要抑制本单位战斗伤害贡献的静态限制；continuous.combat 原语已合入（RIFT-258）但图层/战斗端没有" +
+    "消费分支，对任何 flags 都返回 negated(impossible)（文件头自述），故不能把整卡标为可执行。" +
+    "两条「When I attack or defend, deal damage equal to my Might to all enemy units here」的另一处缺口是集合形状：" +
+    "按 355.10.d 这些单位是程序化集合、不是目标，而 effect.damage 只接受 TargetSpec id，契约缺少" +
     "目标集/查询选择形状（同族先例见 effect.ready 的 query 选择），不能把 each-set 写成 targets 来近似" +
     "（会成为「成为目标」触发）。golden 测试用解释器 + 参考内核真实执行 effect.damage 的伤害主体（目标集由" +
-    "测试内核 provision）。依赖：RIFT-91（layers-continuous 的 continuous.restrict）、战斗伤害贡献抑制任务" +
-    "（467 流程）、effect.damage 的 set/query 选择（契约变更请求）。",
+    "测试内核 provision）。依赖：combat 的 continuous.combat 消费方（战斗伤害贡献抑制，467 流程）、" +
+    "attack-declared/defense-declared 产出方（combat 角色事务）、effect.damage 的 set/query 选择（契约变更请求）。",
   abilities,
   sourceText:
     "When I attack or defend, deal damage equal to my Might to all enemy units here.\n" +
