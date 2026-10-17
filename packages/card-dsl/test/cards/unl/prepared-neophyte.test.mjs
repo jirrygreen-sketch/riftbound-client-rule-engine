@@ -28,12 +28,9 @@ test("unl-004-219 Prepared Neophyte: identity, status, judgeReason and verbatim 
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /HistoryQuery/);
-  // The stale "no continuous.might primitive / no card static registration" gap is
-  // gone (RIFT-258 + RIFT-257); the reason must name the real remaining gaps.
-  assert.match(program.judgeReason, /RIFT-258/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  // The reason names the missing payment amount and conditional-layer reads.
   assert.match(program.judgeReason, /conditionMatches/);
-  assert.doesNotMatch(program.judgeReason, /没有 continuous\.might 的文件|无调用方/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+|没有 continuous\.might 的文件|无调用方/);
 });
 
 test("unl-004-219 Prepared Neophyte: one conditional static +4 Might ability", () => {
@@ -78,14 +75,12 @@ test("unl-004-219 Prepared Neophyte: the generated card registry exposes the pro
 
 test.todo(
   "unl-004-219 Prepared Neophyte: read the Energy actually spent to play a spell this turn (CR 383.2 / 206) and compare " +
-    "it with the printed 4 — merged Expr/Condition has no spent-amount read, the frozen HistoryQuery counts actions only, " +
-    "and cost/payment.ts receipts never reach ResolveContext"
+    "it with the printed 4 by exposing payment amounts through Expr/Condition and ResolveContext"
 );
 
 test.todo(
   "unl-004-219 Prepared Neophyte: apply +4 Might in the arithmetic layer while the conditional passive holds " +
-    "(CR 143.2.a / 475) — the merged registration path exists, but layers/engine.ts conditionMatches does not " +
-    "evaluate the card's compare condition and treats unknown conditions as true"
+    "(CR 143.2.a / 475) by evaluating the card's compare condition in layers/engine.ts"
 );
 
 test("unl-004-219 Prepared Neophyte golden: the declaration really registers +4 Might in the arithmetic layer", () => {

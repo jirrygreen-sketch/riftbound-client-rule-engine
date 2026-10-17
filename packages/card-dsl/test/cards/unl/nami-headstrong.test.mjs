@@ -37,7 +37,7 @@ test("unl-052-219 Nami, Headstrong: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /356\.2\.b/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
   assert.match(program.judgeReason, /trigger\.delayed/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("unl-052-219 Nami, Headstrong: the optional additional cost is declared with 1 Calm Power (356.2.b.1)", () => {
@@ -215,22 +215,21 @@ test("unl-052-219 Nami, Headstrong golden: a unit that already has a Buff is not
 });
 
 test.todo(
-  "unl-052-219 Nami, Headstrong: pay 'You may pay :rb_rune_calm: as an additional cost to play me' through the " +
-    "cost planner's optionalAdditional input (CR 204.2/356.2.b.1) — no card-facing cost.additional / cost.pay " +
-    "opcode and no wiring from a CardProgram CostSpec into cost/cost-plan.ts (RIFT-89)"
+  "unl-052-219 Nami, Headstrong: feed the declared Calm additional cost into Finalize's optionalAdditional plan " +
+    "(CR 204.2/356.2.b.1) through the CardProgram cost translation"
 );
 
 test.todo(
   "unl-052-219 Nami, Headstrong: evaluate 'if you paid the additional cost' from the paid receipt " +
-    "(CR 356.4.f.1) — Condition has no cost-result form, so the retained count is the reviewed shape (RIFT-89)"
+    "(CR 356.4.f.1) by exposing the payment decision to trigger conditions"
 );
 
 test.todo(
   "unl-052-219 Nami, Headstrong: register the 'the next time you play a unit this turn' delayed trigger " +
-    "(CR 391.2/391.3) — trigger.delayed has no merged InstructionDef and TriggerSpec.once has no next-time window"
+    "(CR 391.2/391.3) with a trigger.delayed InstructionDef and next-time window"
 );
 
 test.todo(
   "unl-052-219 Nami, Headstrong: bind 'it' to the unit just played (the delayed trigger's event object) — " +
-    "the merged ObjectSelector vocabulary has no event-object selector"
+    "add an event-object selector to the delayed trigger binding"
 );

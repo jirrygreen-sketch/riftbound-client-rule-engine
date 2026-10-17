@@ -28,28 +28,20 @@ test("unl-047-219 Mosstomper: identity, status, judgeReason and verbatim sourceT
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // The stale "no Hunt/Level KeywordDef" and "no continuous.might / continuous.grant-keyword"
-  // gaps are gone (RIFT-265/268 + RIFT-258); the reason must name the real gaps.
+  // The reason records the current Hunt trigger, XP predicate, and Deflect tax gaps.
   assert.match(program.judgeReason, /823\.1/);
   assert.match(program.judgeReason, /824\.1/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-265/);
-  assert.match(program.judgeReason, /RIFT-265\/268/);
-  assert.match(program.judgeReason, /RIFT-258/);
   assert.match(program.judgeReason, /conquered/);
-  assert.doesNotMatch(program.judgeReason, /无 Hunt 文件/);
+  assert.match(program.judgeReason, /target\.tax/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
-test("unl-047-219 Mosstomper: [Hunt 2] carries the printed Hunt Value and no card-side expansion", () => {
+test("unl-047-219 Mosstomper: [Hunt 2] carries the printed Hunt Value", () => {
   assert.equal(program.abilities.length, 3);
   // 823.1.c.3：印刷的 Hunt Value 是 2（展开与 823.2 的求和由 keywords/Hunt.ts 负责）。
   assert.deepEqual(hunt, { kind: "keyword", keyword: "hunt", value: 2 });
-  assert.equal(
-    program.abilities.some((ability) => ability.kind === "triggered"),
-    false,
-    "[Hunt 2] must not be re-written as a conquer/hold trigger inside the card"
-  );
 });
 
 test("unl-047-219 Mosstomper: [Level 3][>]'s [Text] is a static +1 Might and a Deflect grant, both gated at 3 XP", () => {
@@ -139,7 +131,7 @@ test("unl-047-219 Mosstomper: the merged Level expansion only publishes the unev
 
 test("unl-047-219 Mosstomper golden: the arithmetic +1 Might and the Deflect grant are really executable instructions", () => {
   // 824.1.b.1's [Text] halves are card-owned static effects; the merged primitives
-  // (RIFT-258) can really apply both when the 3+ XP gate is true. The goldens pin
+  // The merged continuous primitives can really apply both when the 3+ XP gate is true. The goldens pin
   // the merged primitives' behaviour, and the unevaluated 824.1.c gate is what
   // keeps the whole card judge-required.
   const base = world().unit("mosstomper", { might: 3 }).build();
@@ -172,6 +164,5 @@ test("unl-047-219 Mosstomper golden: the arithmetic +1 Might and the Deflect gra
 
 test.todo(
   "unl-047-219 Mosstomper: evaluate [Level 3]'s 3+ XP gate (CR 824.1.b.1/824.1.c/824.1.d) so the [Text] " +
-    "halves switch Active/Inactive — layers/engine.ts conditionMatches does not evaluate condition.predicate " +
-    "and PlayerSnapshot.xp has no Expr read path"
+    "halves switch Active/Inactive by wiring condition.predicate to PlayerSnapshot.xp"
 );

@@ -28,14 +28,11 @@ test("unl-183-219 Pridestalker: identity, status, judgeReason and verbatim sourc
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // The stale "no continuous.might primitive / no layer entry point" gap is gone
-  // (RIFT-258 + RIFT-257); the reason must now name the real remaining gap.
-  assert.match(program.judgeReason, /RIFT-258/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  // The reason names the remaining Legend lifecycle gap.
   assert.match(program.judgeReason, /Legend/);
   assert.match(program.judgeReason, /107\.4/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.doesNotMatch(program.judgeReason, /没有 continuous\.might/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+|没有 continuous\.might/);
 });
 
 test("unl-183-219 Pridestalker: mandatory card-played trigger on a friendly unit", () => {
@@ -58,7 +55,7 @@ test("unl-183-219 Pridestalker: mandatory card-played trigger on a friendly unit
 test("unl-183-219 Pridestalker: 'give a unit +1 Might this turn' is one chosen target plus a duration-bounded modifier", () => {
   assert.equal(ability.body.length, 1);
   assert.equal(grantMight.id, "pridestalker.grant-might");
-  // The merged continuous.might primitive (RIFT-258) registers the arithmetic
+  // The merged continuous.might primitive registers the arithmetic
   // layer effect; the card must not approximate it with effect.buff
   // (702 Buff counters are a different thing).
   assert.equal(grantMight.op, "continuous.might");
@@ -231,7 +228,6 @@ test("unl-183-219 Pridestalker golden: a unit that left the Board is ignored, no
 });
 
 test.todo(
-  "unl-183-219 Pridestalker: a Legend in a real match keeps its card-played subscription (CR 107.4) — " +
-    "contract ZoneId has no legend-zone member and game/lifecycle.ts leaves the Legend on the Chain, while " +
-    "programs/triggers.ts binds the subscription to ['board']"
+  "unl-183-219 Pridestalker: keep a Legend's card-played subscription active in a real match (CR 107.4) by " +
+    "modeling its Legend Zone lifecycle and deriving the correct active zone"
 );

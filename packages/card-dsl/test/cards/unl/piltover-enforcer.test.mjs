@@ -35,11 +35,9 @@ test("unl-187-219 Piltover Enforcer: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /404\.1\.b\.1/);
   // The conquer timing point is really emitted now (turn/flow.ts Score wave),
   // and the exhaust/ready primitives plus the program binding are merged; the
-  // reason must reflect the two remaining gaps instead of a blanket RIFT-89.
+  // reason reflects the two remaining gaps.
   assert.match(program.judgeReason, /turn\/flow\.ts/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.doesNotMatch(program.judgeReason, /依赖 RIFT-89（费用接线）/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+|依赖 RIFT-89（费用接线）/);
 });
 
 test("unl-187-219 Piltover Enforcer: 'When you conquer' trigger with the excess-damage clause as trigger condition", () => {
@@ -171,11 +169,11 @@ test("unl-187-219 Piltover Enforcer: ready executes on the locked unit and a sta
 
 test.todo(
   "unl-187-219 Piltover Enforcer: expose the conquer payload's assigned excess damage (CR 467.2.c.1–c.4: assigning vs dealing) " +
-    "— the scoring payload has no such field and ResolveContext has no damage-assignment ledger (engine batch 4)"
+    "by adding the damage-assignment ledger to the scoring payload and ResolveContext"
 );
 test.todo(
   "unl-187-219 Piltover Enforcer: pay the leading 'exhaust me' as the trigger's base cost at Finalize (CR 383.3.b / 404.1.b.1 / 415.4–415.5) " +
-    "— TriggeredAbility has no cost field (RIFT-261 series)"
+    "by adding a TriggeredAbility cost binding"
 );
 
 test("unl-187-219 Piltover Enforcer golden: the merged pipeline really publishes the conquer timing", () => {
@@ -208,6 +206,5 @@ test("unl-187-219 Piltover Enforcer golden: the merged pipeline really publishes
 
 test.todo(
   "unl-187-219 Piltover Enforcer: register the conquer subscription (CR 383.4.c) — the timing point id is " +
-    "`conquer`, but events/trigger-spec.ts's closed EVENT_PATTERN_TYPES spells the event `conquered`, so the " +
-    "card's own `{ event: \"conquer\" }` filter is rejected at registration"
+    "the closed EventPattern vocabulary must accept the conquer timing and the card's source filter"
 );

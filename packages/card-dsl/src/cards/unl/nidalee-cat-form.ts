@@ -24,15 +24,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 提示文字 "(I win if I remain after combat.)" 是提醒文本（135.2.d.3），不产生
  *   额外能力。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。自本程序初写后合入的依赖：
- * Ambush 的 KeywordDef（RIFT-266，keywords/Ambush.ts 已发布 play-location-permission 与
- * continuous.timing 两条声明）与 CardProgram → TriggerRegistration 适配器
- * （RIFT-257，programs/triggers.ts）。
+ * status 判定（cards/README.md 第 2 节）：judge-required。Ambush 的 KeywordDef 已发布
+ * play-location-permission 与 continuous.timing 两条声明，CardProgram → TriggerRegistration
+ * 适配器也已合入。
  *
  * 仍缺三处（不近似实现）：
- * 1. [Ambush] 的两条展开都没有消费方：play-location-permission / continuous.timing 的
- *    图层注册不改变 Finalize 的合法位置校验（打出位置许可没有读取入口），
- *    chain.canAct() 也不读图层的时机许可。
+ * 1. [Ambush] 的 play-location-permission 展开仍没有 Finalize 的合法位置选择消费方；
+ *    continuous.timing 的 Reaction 许可已经由 chain.canAct() 的 timing 查询读取。
  * 2. combat-result 时点没有生产者：docs/rules/timing-point-producers.md 把该时点记为
  *    “待后续——需要胜负/No Result 的权威 Combat cleanup 结果”；combat/flow.ts 仍在
  *    combat-start-transaction 抛出，combat-result 没有发射方。
@@ -45,7 +43,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * combat 结果事务与 combat-result 事件的封闭词汇。
  */
 const abilities: Ability[] = [
-  // 822：印刷的 [Ambush] 关键词声明（展开依赖未合入的 Ambush 关键词任务）。
+  // 822：印刷的 [Ambush] 关键词声明（展开由关键词注册表负责）。
   { kind: "keyword", keyword: "ambush" },
   {
     kind: "triggered",
@@ -73,9 +71,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Ambush] 的 KeywordDef（RIFT-266）与卡牌程序绑定（RIFT-257）已合入，但仍有三处缺口，均不近似实现：" +
-    "(1) [Ambush]（822.1.b/822.1.c、355.2.b）的 play-location-permission 与 continuous.timing 两条展开没有消费方：" +
-    "Finalize 的合法位置校验不读该许可，chain.canAct() 也不读图层的时机授予。" +
+    "[Ambush] 的 KeywordDef 与卡牌程序绑定已合入，但仍有三处缺口，均不近似实现：" +
+    "(1) [Ambush]（822.1.b/822.1.c、355.2.b）的 play-location-permission 展开没有 Finalize 的合法位置选择消费方；" +
+    "continuous.timing 的 Reaction 许可已经由 chain.canAct() 的 timing 查询读取。" +
     "(2) combat-result 时点（CR 468.3.a-468.3.d；468.3.c 规定单位继承控制者的战斗结果）没有生产者：" +
     "docs/rules/timing-point-producers.md 记为待后续，combat/flow.ts 仍在 combat-start-transaction 抛出。" +
     "(3) “我获胜”的绑定需要该时点载荷的 unitResults/参与者身份，而封闭的 EventPattern 词汇（events/trigger-spec.ts 的 " +

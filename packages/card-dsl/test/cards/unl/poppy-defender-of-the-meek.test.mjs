@@ -28,9 +28,7 @@ test("unl-178-219 Poppy, Defender of the Meek: identity, status, judgeReason and
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /356\.2\.b/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-84/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("unl-178-219 Poppy, Defender of the Meek: [Ambush] and [Tank] are declared without values", () => {
@@ -69,14 +67,14 @@ test("unl-178-219 Poppy, Defender of the Meek: the granted discount is 3 Energy,
 
 test.todo(
   "unl-178-219 Poppy, Defender of the Meek: charge the optional 3-XP additional cost during Finalize and feed the discount — " +
-    "cost/cost-plan.ts only consumes caller-supplied optionalAdditional and there is no cost.additional / cost.modify primitive or CardProgram -> CostPlan wiring (RIFT-89)"
+    "wire the declared cost.additional and cost.modify components into the CardProgram -> CostPlan path"
 );
 test.todo(
-  "unl-178-219 Poppy, Defender of the Meek: gate the 3-Energy discount on the paid decision (356.4.f.1) — the frozen IR has no cost-result binding (survey condition.result)"
+  "unl-178-219 Poppy, Defender of the Meek: gate the 3-Energy discount on the paid decision (356.4.f.1) by exposing a cost-result binding"
 );
 test.todo(
-  "unl-178-219 Poppy, Defender of the Meek: [Ambush] expansion (822.1.b entry permission + Reaction timing) — no Ambush.ts keyword and no continuous.timing consumer (RIFT-84)"
+  "unl-178-219 Poppy, Defender of the Meek: consume the [Ambush] expansion (822.1.b entry permission + Reaction timing) in Finalize and chain.canAct"
 );
 test.todo(
-  "unl-178-219 Poppy, Defender of the Meek: [Tank] lethal-first combat damage assignment (815.1.b) — the combat allocator does not read the continuous.combat priority (RIFT-90)"
+  "unl-178-219 Poppy, Defender of the Meek: consume [Tank]'s lethal-first combat damage priority (815.1.b) in the combat allocator"
 );
