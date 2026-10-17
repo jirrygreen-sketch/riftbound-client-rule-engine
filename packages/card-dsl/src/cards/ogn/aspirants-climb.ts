@@ -24,15 +24,16 @@ import type { CardProgram } from "../../ir/index.js";
  * (scoring/setDuelVictoryScoreForEffect, CR 194.3.a, internal-only), but no
  * card-facing opcode, IR kind or validation shape is merged for it, and
  * inventing one here is exactly the approximation the judge-required rule
- * forbids, so `abilities` stays empty. A battlefield static ability also still
- * needs the RIFT-257 CardProgram static binding before it could register.
+ * forbids, so `abilities` stays empty. The RIFT-257 static binding is merged
+ * (programs/statics.ts), so a static ability could be bound once a
+ * victory-score operation exists.
  */
 export default {
   canonicalCardId: "card.hash-fcad8933f7d202b4257c42152d9db853ca4833cb50e75d63d54ab0462883e34d",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "No merged operation changes the Victory Score: the closed GameAction set (contract 3.6) exposes `score` (point gain, CR 470/473.1) and `win` (CR 195/196) but no victory-threshold change, and no instruction file or IR ability kind exists for CR 194.3.a 'card effects may alter the Victory Score'. The engine models the value internally (scoring/setDuelVictoryScoreForEffect) without a card-facing primitive, so the effect is not encoded rather than approximated with point gain. Dependency: a new victory-score primitive (contract change request) plus the RIFT-257 CardProgram static binding for this battlefield's ability.",
+    "No merged operation changes the Victory Score: the closed GameAction set (contract 3.6) exposes `score` (point gain, CR 470/473.1) and `win` (CR 195/196) but no victory-threshold change, and no instruction file or IR ability kind exists for CR 194.3.a 'card effects may alter the Victory Score'. The engine models the value internally (scoring/setDuelVictoryScoreForEffect) without a card-facing primitive, so the effect is not encoded rather than approximated with point gain. The static binding is merged (programs/statics.ts); the only dependency is a new victory-score primitive (contract change request).",
   sourceText: "Increase the points needed to win the game by 1.",
   abilities: []
 } satisfies CardProgram;

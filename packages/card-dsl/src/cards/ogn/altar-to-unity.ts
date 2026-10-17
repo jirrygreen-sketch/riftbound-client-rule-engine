@@ -23,39 +23,27 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status rationale (contract §3.1, cards README §2): the `hold` timing point is
  * now emitted by the TurnFlow Score wave, and the merged `effect.token`
- * implements the chain-create + play handoff, but two gaps remain:
- * - the printed destination "in your base" cannot be named by the frozen IR.
- *   `location` must evaluate to literal data ({type:"base",
- *   player:<PlayerId>}) and the primitive only accepts a base whose player is
- *   `ctx.controller` (verified: the "controller" placeholder is negated before
- *   any token is created); no Expr or ObjectSelector can build a LocationRef
- *   from the ability controller (effect.move accepts the literal
- *   "controller-base", effect.token has no such spelling). Hard-coding a seat
- *   would place the token in the wrong player's base.
- * - the trigger cannot register: the nested `{ event, here, player }` spelling
- *   is rejected by the engine validator (events/trigger-spec.ts EventPattern
- *   has no `here` field and the engine spellings are "held"/"self"), and no
- *   merged consumer binds a CardProgram's triggered ability into a
- *   TriggerRegistration (RIFT-257).
+ * implements the chain-create + play handoff. A condition.value read of
+ * `ability-controller-base` supplies the controller-relative destination.
+ * The remaining gap is trigger registration: the held emission (turn/flow.ts Score wave)
+ *   carries no object for "here" to anchor, the validator's event name is
+ *   "held" (not "hold"), and no merged field can express this battlefield's
+ *   scope (`here: true` is rejected by events/trigger-spec.ts and by the
+ *   binding layer).
  *
- * `player: "controller"` below is the spelling merged cards use for "the
- * ability controller's base" (sfd/assembly-rig, sfd/rumble-scrapper). It is
- * deliberately not resolvable today; the golden test executes the token half
- * with the concrete seat the controller occupies and records the placeholder
- * as a test.todo (the merged primitive negates the placeholder instead of
- * silently creating a token in an arbitrary base).
+ * `condition.value` binds the LocationRef and `effect.token` consumes it through
+ * `linked-value`; this is executable for either controller without hard-coding a
+ * seat.
  */
 export default {
   canonicalCardId: "card.hash-235642b62ac009ff34cfa13db7debd2bf1e71c1a9bf411cf5ffab5dfd06e5099",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1) 印刷目的地 'in your base' 无法命名：effect.token 把 location 当字面数据求值且只接受 player 等于 ctx.controller 的 {type:'base', player:<PlayerId>}（实测 controller 占位值在创建 token 前被 negated），" +
-    "冻结 IR 没有控制者相对的 LocationRef 表达式或拼写（effect.move 认字面量 'controller-base'，effect.token 没有）；写死座位会把 token 放进错误玩家的基地，属近似实现。" +
-    "(2) 触发无法注册：本卡嵌套 { event, here, player } 拼写被引擎侧 assertTriggerSpec 拒绝（events/trigger-spec.ts 的 EventPattern 没有 here 字段，自身玩家拼写为 self），" +
-    "且没有已合入消费方把 CardProgram 的 triggered 能力绑定成 TriggerRegistration（RIFT-257）。" +
-    "hold 时点已由 turn/flow.ts 的 Score 波发射；CR 187.1 的 Recruit 定义与 440.2.c 的链上创建 + play 交接已合入并由 golden 真实执行（token 半段用控制者实际座位）。" +
-    "依赖：effect.token 的控制者相对 location（契约变更请求）与 RIFT-257。不近似实现。",
+    "唯一缺口是触发无法注册：held 发射（turn/flow.ts Score 波）载荷没有 object 供「here」锚定，" +
+    "校验器事件名是 held（不是 hold），且没有合并字段能表达本战场的范围（here:true 被 events/trigger-spec.ts 与绑定层拒绝）。" +
+    "CR 187.1 的 Recruit 定义、440.2.c 的链上创建 + play 交接，以及通过 condition.value 读取 ability-controller-base 并经 linked-value 传入 effect.token 均已合入并由 A/B 控制者 golden 真实执行。" +
+    "依赖：held 事件的 here 范围载荷与触发注册语义（契约变更请求）。不近似实现。",
   sourceText: "When you hold here, play a 1 :rb_might: Recruit unit token in your base.",
   abilities: [
     {
@@ -63,20 +51,33 @@ export default {
       trigger: {
         at: "hold",
         // "here" = this battlefield (the ability host); "you" = its controller
-        // (190.6.d). Spelling follows the merged battlefield cards that use
-        // "When you hold here" (sfd/rumble-scrapper, sfd/sunken-temple).
-        filter: { event: "hold", here: true, player: "controller" }
+        // (190.6.d). "held" is the validator's event name; the here-anchor and
+        // the registration gap are recorded in judgeReason.
+        filter: { event: "held", here: true, player: "controller" }
       },
       optional: false,
       body: [
         {
+          id: "altar-to-unity.resolve-base",
+          op: "condition.value",
+          args: {
+            value: { kind: "location", value: "ability-controller-base" },
+            key: { kind: "constant", value: "base" }
+          }
+        },
+        {
           id: "altar-to-unity.play-recruit",
           op: "effect.token",
+          linkedTo: "altar-to-unity.resolve-base",
           args: {
             token: { kind: "constant", value: "recruit" },
             amount: { kind: "constant", value: 1 },
             mode: { kind: "constant", value: "play" },
-            location: { kind: "constant", value: { type: "base", player: "controller" } },
+            location: {
+              kind: "linked-value",
+              instructionId: "altar-to-unity.resolve-base",
+              key: "base"
+            },
             linkKey: { kind: "constant", value: "recruitToken" }
           }
         }

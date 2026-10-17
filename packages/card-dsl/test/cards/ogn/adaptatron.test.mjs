@@ -6,6 +6,9 @@ import program from "../../../dist/cards/ogn/adaptatron.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 
 const CANONICAL =
   "card.hash-efa44994f07966ad8095ddd1f56f9c20b1246888b3f037a54a196793f2cb0f4b";
@@ -44,8 +47,10 @@ test("ogn-056-298 Adaptatron: identity, ruleset, status, judgeReason and source 
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /conquer/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /383\.4\.c\.1/);
+  assert.doesNotMatch(program.judgeReason, /嵌套 \{ event, filter \} 拼写被引擎侧 assertTriggerSpec 拒绝/);
+  assert.match(program.judgeReason, /没有参战单位 object/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -55,11 +60,41 @@ test("ogn-056-298 Adaptatron: conquer trigger filtered to self, mandatory trigge
   assert.equal(triggered.kind, "triggered");
   assert.equal(triggered.trigger.at, "conquer");
   assert.deepEqual(triggered.trigger.filter, {
-    event: "conquer",
+    event: "conquered",
     filter: { source: "self" }
   });
   assert.equal(triggered.optional, false);
   assert.equal(triggered.trigger.once, undefined);
+});
+
+test("ogn-056-298 Adaptatron: the merged binding registers the self-anchored conquer filter", () => {
+  // The merged binding layer translates the nested self anchor into
+  // object:{objectId: host}; the translated pattern passes the engine's own
+  // trigger-spec validator, so the spelling no longer blocks registration.
+  const translated = translateTriggerFilter(
+    triggered.trigger.filter,
+    "adaptatron-host",
+    "conquer"
+  );
+  assert.deepEqual(translated, {
+    event: "conquered",
+    object: { objectId: "adaptatron-host" }
+  });
+  const result = validateTriggerSpec({ at: "conquer", filter: translated });
+  assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
+});
+
+test("ogn-056-298 Adaptatron: a real conquered emission matches nothing self-anchored (383.4.c.1 gap)", () => {
+  // turn/flow.ts Score wave emits conquered with only player + details, no
+  // participant object, so the translated object-anchored filter can never
+  // match — that remains the true gap in judgeReason.
+  const translated = translateTriggerFilter(triggered.trigger.filter, "adaptatron-host", "conquer");
+  const matched = matchesTriggerEvent(
+    translated,
+    { timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" } },
+    "A"
+  );
+  assert.equal(matched, false);
 });
 
 test("ogn-056-298 Adaptatron: structure — optional wrapper containing kill then gated buff", () => {
@@ -175,7 +210,8 @@ test("ogn-056-298 Adaptatron golden: with no gear the kill is ignored and the bu
 // ---------------------------------------------------------------------------
 
 test.todo(
-  "ogn-056-298 Adaptatron: the conquer trigger still cannot register: the card's nested " +
-    "{ event, filter } spelling is rejected by events/trigger-spec.ts and no merged consumer " +
-    "binds a CardProgram's triggered ability into a TriggerRegistration (RIFT-257)."
+  "ogn-056-298 Adaptatron: the conquered emission needs the 383.4.c.1 participant " +
+    "identity (present at the conquering battlefield) so the self-anchored filter " +
+    "can match a real Score-wave emission; player:'self' is an approximation and " +
+    "is not used."
 );

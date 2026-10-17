@@ -6,6 +6,9 @@ import program from "../../../dist/cards/ogn/ahri-alluring.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 
 const CANONICAL =
   "card.hash-4f9cef9a5292a16fac59206baa263b0654606faa95119ee4a76583f82b2a4dac";
@@ -25,7 +28,8 @@ test("ogn-066-298 Ahri, Alluring: identity, ruleset, status, judgeReason and sou
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /hold/);
   assert.match(program.judgeReason, /effect\.score/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /383\.4\.d\.2\.a/);
+  assert.doesNotMatch(program.judgeReason, /拼写被引擎侧 assertTriggerSpec 拒绝/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -37,12 +41,38 @@ test("ogn-066-298 Ahri, Alluring: hold trigger filtered to this unit", () => {
   assert.equal(triggered.kind, "triggered");
   assert.equal(triggered.trigger.at, "hold");
   assert.deepEqual(triggered.trigger.filter, {
-    event: "hold",
+    event: "held",
     filter: { source: "self" }
   });
   assert.equal(triggered.optional, false);
   assert.equal(triggered.trigger.once, undefined);
   assert.equal(triggered.trigger.condition, undefined);
+});
+
+test("ogn-066-298 Ahri, Alluring: the merged binding registers the self-anchored held filter (RIFT-257)", () => {
+  // The merged binding layer (RIFT-257) translates the nested self anchor into
+  // object:{objectId: host}; the translated pattern passes the engine's own
+  // trigger-spec validator.
+  const translated = translateTriggerFilter(triggered.trigger.filter, "ahri-host", "hold");
+  assert.deepEqual(translated, {
+    event: "held",
+    object: { objectId: "ahri-host" }
+  });
+  const result = validateTriggerSpec({ at: "hold", filter: translated });
+  assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
+});
+
+test("ogn-066-298 Ahri, Alluring: a real held emission matches nothing self-anchored (383.4.d.2.a gap)", () => {
+  // turn/flow.ts Score wave emits held with only player + details, no
+  // participant object, so the translated object-anchored filter can never
+  // match — that remains the true gap in judgeReason.
+  const translated = translateTriggerFilter(triggered.trigger.filter, "ahri-host", "hold");
+  const matched = matchesTriggerEvent(
+    translated,
+    { timingPoint: "hold", player: "A", details: { battlefieldId: "bf-1" } },
+    "A"
+  );
+  assert.equal(matched, false);
 });
 
 test("ogn-066-298 Ahri, Alluring: 'you score 1 point' is one amount-1 instruction", () => {
@@ -84,8 +114,7 @@ test("ogn-066-298 Ahri, Alluring golden: a zero-point award links an empty list 
 });
 
 test.todo(
-  "ogn-066-298 Ahri, Alluring: the hold trigger still cannot register: the card's nested " +
-    "{ event, filter } spelling is rejected by events/trigger-spec.ts (engine spellings are " +
-    "held/self) and no merged consumer binds a CardProgram's triggered ability into a " +
-    "TriggerRegistration (RIFT-257)."
+  "ogn-066-298 Ahri, Alluring: the held emission needs the 383.4.d.2.a participant " +
+    "identity (present during the Hold) so the self-anchored filter can match a " +
+    "real Score-wave emission; player:'self' is an approximation and is not used."
 );

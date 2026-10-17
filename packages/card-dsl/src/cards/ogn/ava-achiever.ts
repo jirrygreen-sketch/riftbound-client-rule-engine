@@ -17,19 +17,21 @@ import type { CardProgram } from "../../ir/index.js";
  * - 383.3.a/383.3.b：效果开头的 "you may … to …" 是可选的执行决定；按契约
  *   §3.9 用 choice.optional 把被选择的指令包进 body，而不是 choice + linkedTo。
  *
- * 状态：judge-required。攻击触发本体、choice.optional 拒绝路径与 effect.play 的
- * 零费用计划都由 golden 经链式适配器真实执行；仍缺：
+ * 状态：judge-required。攻击触发本体、choice.optional 拒绝路径、费用支付与
+ * effect.play 的零费用计划都由 golden 经链式适配器真实执行；费用指令及嵌套
+ * self 触发绑定均已合入。仍缺：
  * - "play a card with [Hidden] from your hand" 的选择绑定：候选来自 filter
  *   （手牌 + [Hidden]），但冻结的 PickSpec / `ctx.picks` 只读取运行时已提供的
- *   options，Finalize / 选择管线还没有把 filter 查询绑定成 picks（RIFT-8x
- *   target/pick）；不能让卡牌程序自带 fixture 候选。
- * - "ignoring its cost" 的支付与 Finalize 计划：费用改写需要卡面费用指令
- *   （cost.printed / cost.pay，RIFT-261 未合入本工作树），effect.play 只接受
- *   已经 Finalize 的计划；卡牌程序不得自行推导打印费用。
- * - attack-declared 触发进链与自我范围拼写：宣告事务仍被 combat-start-transaction
- *   阻断（CR 466.2），并依赖 RIFT-257 的 CardProgram 触发绑定。
+ *   options，Finalize / 选择管线还没有把 filter 查询绑定成 picks；不能让卡牌
+ *   程序自带 fixture 候选。
+ * - "ignoring its cost" 的 Finalize 计划生成：effect.play 只接受已经 Finalize 的
+ *   计划，而把被选中的手牌与其印刷费用接进 cost.modify 的 printed 投影 /
+ *   ignore-base 改写、生成 finalized 计划的接线路径还没有把两者接起来；卡牌
+ *   程序不得自行推导打印费用或手写 finalized 计划。
+ * - attack-declared 触发进链：宣告事务仍被 combat-start-transaction 阻断
+ *   （CR 466.2）。
  *
- * 依赖：RIFT-261、RIFT-8x（Finalize / pick 选择管线）、RIFT-257。
+ * 依赖：RIFT-8x（Finalize / pick 选择管线）、RIFT-120（战斗宣告事务）。
  */
 const avaAchiever = {
   canonicalCardId: "card.hash-2c1a169269b0950e25c0db04cc22a192284b006d0d720477f488d2f0ddef6e3b",
@@ -37,12 +39,13 @@ const avaAchiever = {
   status: "judge-required",
   judgeReason:
     "「play a card with [Hidden] from your hand」的选择无法结算：冻结的 PickSpec / ctx.picks 只读取运行时提供的 options，" +
-    "Finalize / 选择管线尚未把 { zone: hand, Hidden } 的 filter 查询绑定成 picks（RIFT-8x）；" +
-    "「ignoring its cost」需要按 CR v1.5 356.1.b.1 生成 energy/power 置 0 的 finalized cost plan，" +
-    "卡面费用指令 cost.printed / cost.pay 未合入（RIFT-261），effect.play 只接受已 Finalize 的计划，不近似实现；" +
-    "attack-declared 触发还依赖战斗宣告事务（CR 466.2）与 RIFT-257 的 CardProgram 触发绑定。" +
+    "Finalize / 选择管线尚未把 { zone: hand, Hidden } 的 filter 查询绑定成 picks；" +
+    "「ignoring its cost」需要按 CR v1.5 356.1.b.1 生成 energy/power 置 0 的 finalized cost plan：" +
+    "费用指令（cost.pay / cost.modify，后者含 printed 投影与 ignore-base 改写）已合入，" +
+    "但把被选手牌与其印刷费用接进该计划、再交给 effect.play 的接线还没有合入，effect.play 只接受已 Finalize 的计划，不近似实现；" +
+    "attack-declared 触发还依赖战斗宣告事务（CR 466.2；嵌套 self 锚点可翻译并通过 assertTriggerSpec）。" +
     "choice.optional 的拒绝路径与零费用计划下的 effect.play 已由 golden 经链式适配器真实执行（play 的 location 由调用方按来源当前位置提供）。" +
-    "依赖：RIFT-261、RIFT-8x（Finalize/pick 选择管线）、RIFT-257。",
+    "依赖：RIFT-8x（Finalize/pick 选择管线）、RIFT-120（战斗宣告事务）。",
   abilities: [
     {
       kind: "triggered",
@@ -67,7 +70,12 @@ const avaAchiever = {
                 {
                   id: "ava.pay",
                   op: "cost.pay",
-                  args: { power: { kind: "constant", value: ["Mind"] } }
+                  args: {
+                    payments: {
+                      kind: "constant",
+                      value: { energy: 0, power: ["Mind"] }
+                    }
+                  }
                 },
                 {
                   id: "ava.play-hidden",
@@ -78,7 +86,7 @@ const avaAchiever = {
                     // 选择管线按 pick 的 filter 提供，而不是静态 IR 里的固定对象。
                     pick: { kind: "constant", value: "ava.hidden-card" },
                     // 356.1.b.1：ignoring its cost → base Energy/Power 皆为 0 的
-                    // finalized 计划由费用管线生成（卡面费用指令仍缺 RIFT-261）。这里的
+                    // finalized 计划由费用管线生成。这里的
                     // 0/[] 是“忽略费用”的结果，不是这张牌的印刷费用；被忽略的牌的印刷
                     // 费用仍保持无印刷值/印刷值原样，绝不在此改写为 0。
                     cost: { kind: "constant", value: { finalized: true, energy: 0, power: [] } },

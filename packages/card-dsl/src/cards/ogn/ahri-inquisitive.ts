@@ -21,25 +21,29 @@ import type { CardProgram } from "../../ir/index.js";
  * 状态：judge-required。效果本体已可执行：已合入的 continuous.might（RIFT-258）
  * 按 478/479.4.b 注册 arithmetic 层减法并快照印刷下限、按 this-turn 在回合末到期
  * （317.1.a/468.7.c），golden 用解释器与参考内核真实执行（含同位置目标合法性、
- * 最低 1 的逐条钳制与到期）。仍缺的是触发：attack-declared / defense-declared
- * （383.4.e.1 / 383.4.f.1）没有发射方——combat/flow.ts 的宣告事务仍以
- * combat-start-transaction 显式阻断（CR 466.2，P0 契约 7.2 批 5）；且事件词汇
- * 没有把「该单位被指派为 attacker/defender」这一自身范围写成引擎可接受的
- * EventPattern 锚点（本卡的嵌套 { event, filter } 会被 assertTriggerSpec 拒绝）。
+ * 最低 1 的逐条钳制与到期）。触发绑定也已合入（RIFT-257，programs/triggers.ts +
+ * filters.ts 的 translateTriggerFilter，能把本卡嵌套 { filter: { source: 'self' } }
+ * 拼写翻译成 object:{objectId:宿主} 并通过 assertTriggerSpec；instruction 目标
+ * 过滤的 sameLocationAs 锚点仍不被 programs/filters.ts 的绑定翻译路径接受）。
+ * 仍缺的是触发发射本身：
+ * attack-declared / defense-declared（383.4.e.1 / 383.4.f.1）没有发射方——
+ * combat/flow.ts 的宣告事务仍以 combat-start-transaction 显式阻断（CR 466.2）。
  *
- * 依赖：RIFT-120（链/事件与战斗宣告事务）、RIFT-257（CardProgram 触发绑定）。
+ * 依赖：RIFT-120（链/事件与战斗宣告事务）。
  */
 const ahriInquisitive = {
   canonicalCardId: "card.hash-c68ef91624a369cffdc5c5e3f81ab2700878a51de07b1cde21bbfc25db8dea10",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "效果本体已合入并可执行：「give an enemy unit here -2 :rb_might: this turn, to a minimum of 1 :rb_might:」由 RIFT-258 的 continuous.might" +
+    "效果本体已合入并可执行：「give an enemy unit here -2 :rb_might: this turn, to a minimum of 1 :rb_might:」由 continuous.might" +
     "注册 arithmetic 层效果（478/479.4.b：施加时快照印刷下限 1 的逐条钳制），按 this-turn 到期（317.1.a/468.7.c），" +
     "golden 经解释器 + 图层引擎真实执行并断言登记、最低下限、同位置目标合法性（359.3.f）与到期。" +
-    "仍缺：attack-declared / defense-declared 发射方——combat/flow.ts 的宣告事务仍被 combat-start-transaction 阻断" +
-    "（CR 466.2，P0 契约 7.2 批 5），且触发能力需要自身范围（该单位被指派）的引擎可接受 EventPattern 锚点" +
-    "（本卡嵌套 { event, filter } 会被 assertTriggerSpec 拒绝）与 CardProgram 绑定。依赖：RIFT-120、RIFT-257。不近似实现。",
+    "触发绑定也已合入（programs/triggers.ts + filters.ts 的 translateTriggerFilter 能把本卡嵌套" +
+    " { filter: { source: 'self' } } 拼写翻译成 object:{objectId:宿主} 并通过 assertTriggerSpec；" +
+    "instruction 目标过滤的 sameLocationAs 锚点仍不被 programs/filters.ts 的绑定翻译路径接受）。" +
+    "仍缺：attack-declared / defense-declared 的发射方——combat/flow.ts 的宣告事务仍被 combat-start-transaction 阻断" +
+    "（CR 466.2）。依赖：RIFT-120（链/事件与战斗宣告事务）。不近似实现。",
   abilities: [
     {
       kind: "triggered",
@@ -67,6 +71,8 @@ const ahriInquisitive = {
           targets: [
             {
               id: "ahri.enemy-unit-here",
+              // sameLocationAs 锚点：IR 校验接受；kernel 环境的 queryObjects 真实解析；
+              // programs/filters.ts 的绑定翻译路径尚未接受（见 judgeReason）。
               filter: {
                 type: "unit",
                 controller: "opponent",
@@ -104,6 +110,8 @@ const ahriInquisitive = {
           targets: [
             {
               id: "ahri.enemy-unit-here",
+              // sameLocationAs 锚点：IR 校验接受；kernel 环境的 queryObjects 真实解析；
+              // programs/filters.ts 的绑定翻译路径尚未接受（见 judgeReason）。
               filter: {
                 type: "unit",
                 controller: "opponent",
