@@ -9,6 +9,12 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { bindStaticAbility, createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 
 const CARD_ID = "card.hash-7f7a5adb7ade7c414e4fe27dffeabdf651e620759800bc7ab9794451ca9952a9";
 const SOURCE_TEXT =
@@ -177,6 +183,82 @@ test("rad-083-167 Stalwart Goatherd: effect.kill ignores a gear that left its zo
   assert.equal(run.result.reason, "mistargeted");
 });
 
+test("rad-083-167 Stalwart Goatherd: the production binders really refuse the energyLte target filter", () => {
+  // 355.9.b / CR 163.1: "a gear with Energy cost 4 or less" is a targeting
+  // restriction keyed on the printed Energy cost. Without a merged evaluator the
+  // program binding must fail closed instead of falling back to any gear.
+  assert.throws(
+    () => translateObjectFilter({ type: "gear", zone: "board", energyLte: 4 }),
+    /Unsupported filter field energyLte/
+  );
+  const kernel = gearKernel();
+  const snapshot = { ...kernel.getObject("stalwart-goatherd"), cardId: CARD_ID };
+  assert.throws(
+    () => triggerRegistrations(new Map([[CARD_ID, program]]), snapshot),
+    /Unsupported filter field energyLte/
+  );
+});
+
+test("rad-083-167 Stalwart Goatherd: the merged Shield registration still evaluates to printed Might", () => {
+  // 814.1.c: the production binder registers the expanded continuous.might,
+  // but its condition reads object-property "designation" while ObjectSnapshot
+  // exposes only combatRole, so the defender gate is permanently false. The
+  // equivalent combatRole predicate does evaluate, which isolates the attribute
+  // name as the single gap.
+  const kernel = world().player("A").player("B")
+    .unit("goatherd", {
+      controller: "A", owner: "A", might: 2, combatRole: "defender", zone: "board",
+      location: { type: "battlefield", id: "bf-1" }, keywords: [{ id: "Shield", value: 2 }]
+    })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error("Unexpected choice: " + request.id); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const binder = createEngineStaticBinder(engine);
+  const snapshot = { ...kernel.getObject("goatherd"), cardId: CARD_ID };
+  const registered = [];
+  for (const ability of expandProgram(program, snapshot).abilities) {
+    if (ability.kind !== "static") continue;
+    registered.push(bindStaticAbility(binder, ability, snapshot));
+  }
+  engine.layers.setObjects(kernel.objects);
+  assert.deepEqual(engine.layers.registry.list().map(entry => entry.effect.effect.kind), ["continuous.might"]);
+  assert.equal(
+    engine.layers.evaluate(snapshot.ref).might,
+    2,
+    "the defender gate is false while the condition reads 'designation'"
+  );
+  const combatRolePredicate = runAbilityBody(
+    [{
+      id: "goatherd.combat-role-gate",
+      op: "condition.predicate",
+      args: {
+        condition: {
+          kind: "constant",
+          value: {
+            kind: "compare",
+            left: { kind: "object-property", object: "self", property: "combatRole" },
+            operator: "eq",
+            right: { kind: "constant", value: "defender" }
+          }
+        }
+      }
+    }],
+    kernel,
+    undefined,
+    { host: kernel.ref("goatherd") }
+  );
+  assert.equal(combatRolePredicate.results[0].result.status, "executed");
+  assert.equal(combatRolePredicate.results[0].result.linkedValues.value, true);
+  for (const handle of registered) handle.unbind();
+});
+
 test.todo(
   "stalwart-goatherd: 'gear with Energy cost 4 or less' target restriction (CR 163.1 / 356.x printed Energy)" +
     " has no evaluator anywhere in engine-core (energyLte is not computed), and translateObjectFilter rejects" +
@@ -185,6 +267,6 @@ test.todo(
 test.todo(
   "stalwart-goatherd: [Shield 2] expansion (+2 Might while defending, stacking sum) through the Shield" +
     " KeywordDef and the production binders — the expansion predicate reads object-property 'designation'," +
-    " the merged ObjectSnapshot exposes only combatRole, evaluation returns MissingInformation and" +
-    " bindStaticToLayers' catch makes the condition permanently false"
+    " the merged ObjectSnapshot exposes only combatRole (a combatRole condition.predicate evaluates true)," +
+    " evaluation throws MissingInformation and bindStaticToLayers' catch makes the condition permanently false"
 );

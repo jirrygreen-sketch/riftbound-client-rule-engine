@@ -31,8 +31,10 @@ import type { CardProgram } from "../../ir/index.js";
  * lifecycle/statics 把展开注册进图层），但整卡仍无可执行路径：
  * - 展开里的 designation 条件在真实图层计算中不可求值：契约 3.8 已给 ObjectSnapshot 增加
  *   combatRole，但 Assault/Shield 条件读的是 object-property "designation"（快照没有该
- *   属性）。解释器求值返回 MissingInformation，bindStaticToLayers 的条件包装捕获异常后
- *   恒返回 false，接线后两个 +2 永不生效；该判别式属 engine-core 的 keywords 文件（范围外）。
+ *   属性）。解释器求值实测抛 MissingInformation（Unavailable characteristic: designation），
+ *   bindStaticToLayers 的条件包装捕获异常后恒返回 false，接线后两个 +2 永不生效；
+ *   把判别式换成 combatRole 的 condition.predicate 在同一快照上实测 true，说明缺口只是
+ *   属性名（该判别式属 engine-core 的 keywords 文件，范围外）。
  * 依赖：keywords/Assault.ts 与 keywords/Shield.ts 的 designation/combatRole 判别式修正；
  * 不近似实现。
  */
