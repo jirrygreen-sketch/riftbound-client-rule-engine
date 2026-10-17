@@ -138,7 +138,8 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处缺口，均不近似实现：(1) 「ignoring its cost」没有生产路径——cost.pay / cost.modify 已合入，" +
-    "但 cost.modify 的 ignoreAllCosts 只能由打出/激活流程传入 source 参数，当前唯一调用方是 Weaponmaster；" +
+    "但 cost.modify 的 ignoreAllCosts 只能由打出/激活流程传入 source 参数，当前唯一生产调用方是" +
+    " Weaponmaster 的目标选择器形式（cost.modify.ts 头部注记）；" +
     "按 356.1.b.1 为选定手牌单位生成「base Energy 与 Power 全清零」的 Finalize 计划仍没有打出侧调用方" +
     "（effect.play 只消费已 Finalize 计划，不实现 ignored-cost 规则），静态 IR 也给不出该计划；" +
     "(2) 「a unit with less Might than that unit had」是 Finalize 时的跨对象动态过滤：候选牌在手牌（355.10.a 私有区域 → pick，" +

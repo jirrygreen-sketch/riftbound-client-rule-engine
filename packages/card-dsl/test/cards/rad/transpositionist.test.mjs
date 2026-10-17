@@ -189,7 +189,8 @@ test("rad-115-167 Transpositionist: declining the optional play still returns th
 test.todo(
   "rad-115-167 Transpositionist: 'ignoring its cost' producing a finalized plan that clears both the base " +
     "Energy and the Power cost (CR 356.1.b.1) - cost.pay/cost.modify are merged, but the cost.modify " +
-    "ignoreAllCosts path currently has only the Weaponmaster caller; no play-side caller generates the " +
+    "ignoreAllCosts path currently has only the Weaponmaster target-selector caller (cost.modify.ts header); " +
+    "no play-side caller generates the " +
     "plan for a selected hand unit, and effect.play implements no ignored-cost rule itself."
 );
 test.todo(

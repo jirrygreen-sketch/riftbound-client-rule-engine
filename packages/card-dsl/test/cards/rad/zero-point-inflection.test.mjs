@@ -241,8 +241,10 @@ test("rad-069-167 Zero Point Inflection: scoring to an invalid opponent pick is 
 test.todo(
   "rad-069-167 Zero Point Inflection: evaluating 'when you draw 1 or more cards with 9 or more other " +
     "cards in your hand' still needs a per-event drawn-card payload and a post-draw hand re-read; " +
-    "HistoryQuery's exclude source anchor points at the card program's source object, not the card(s) " +
-    "drawn by this event. Trigger registration itself is merged."
+    "the merged card-drawn payload (actionId/batchId/playerId/cardId/fromZone/drawIndexThisTurn) has no " +
+    "per-event drawn-card set, HistoryQuery's exclude/objectFilter fields do not add one, and its exclude " +
+    "source anchor points at the card program's source object, not the card(s) drawn by this event. " +
+    "Trigger registration itself is merged."
 );
 
 test.todo(
