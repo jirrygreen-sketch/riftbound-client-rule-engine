@@ -25,26 +25,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "Use my abilities only while I'm at a battlefield."：377.2.b 规定这是**启动许可条件**
  *   （原文范例正是 Ultrasoft Poro 的同句），必须在启动前为真，而不是结算时的效果。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - 两条能力的费用与效果都已用已合入形状写全（费用计划由 cost/ 消费、effect.draw 与
- *   effect.score 都是已注册原语），但「Use my abilities only while I'm at a battlefield」
- *   这条启动条件仍没有可执行路径：
- *   1. 位置类型谓词仍不可表达："I'm at a battlefield" 需要判断来源当前 Location 的类型是
- *      battlefield（107.1.b / 198.1）。冻结 Condition 的 compare 只能做既有两个 Expr 的比较，
- *      object-property(source, "location") 返回的是 Location 对象本身（比较结果不代表
- *      location.type），而 ObjectFilter 的 location/locationType 字段由原语自己消费、
- *      不是 Condition 词表的一部分（sfd/peak-guardian 记录同一缺口）。
- *   2. 生产绑定不再把 restriction 当纯数据：RIFT-257 的 programs/play.ts
- *      translateRestriction 已把 CardProgram 的 restriction 译成 ChainDraft.restrictions，
- *      chain/engine.ts Finalize 会对它求值（实测：Condition 形状的 restriction 会原样进入
- *      ChainDraft 并在 Finalize 被断言）。但本卡的 kind "use-only-while-at-battlefield"
- *      不是 Condition 词表成员，translateRestriction 会以 judge-required 拒绝
- *      （"restriction … kind use-only-while-at-battlefield needs a rules adapter"），
- *      因为缺少消费方：layers/rules 的 canAct() 是纯真值表，chain.canAct() 也不读图层许可。
- * - 因此整卡不宣称 executable；不把该条件改写成 body 里的恒真 condition，也不把两条能力
- *   合并成一条，golden 只对已支持的费用与效果做真实执行。
- * 依赖：位置类型谓词（Condition 词表扩展）与启动许可消费方（layers/rules 的 timing grant
- * 与 by-kind restriction 消费；RIFT-257/258 后仍缺）。
+ * Current review:
+ * CR v1.5 377.1 / 404.1.a / 415.5: two activated abilities pay the
+ * printed Energy/Mind Power costs, with self-exhaust on the scoring ability.
+ * CR 377.2.b requires the source to be at a battlefield when activating.
+ * Condition restrictions reach Finalize; this location-type restriction still
+ * needs an adapter. Draw and Score bodies remain independently executable.
  */
 const abilities: Ability[] = [
   {
@@ -102,20 +88,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两条启动能力的费用与效果都已写全（1 Energy + 1 Mind Power → effect.draw；4 Energy + 4 Mind Power + " +
-    "横置 → effect.score，404.1.a / 415.5 / 414.3 / 194.1.c），但「Use my abilities only while I'm at a battlefield」" +
-    "（377.2.b 的启动许可条件，原文范例即 Ultrasoft Poro 同句）仍没有可执行路径：" +
-    "(1) 位置类型谓词不可表达——判断来源当前 Location 类型是 battlefield（107.1.b/198.1）需要 Condition 能读 " +
-    "location.type，冻结 Condition 的 compare 只能比较既有两个 Expr（object-property(source, \"location\") 返回 " +
-    "Location 对象本身），而 ObjectFilter 的 location/locationType 由原语自己消费、不属于 Condition 词表" +
-    "（sfd/peak-guardian 记录同一缺口）；" +
-    "(2) 生产绑定已存在但只接 Condition——RIFT-257 的 programs/play.ts translateRestriction 会把 CardProgram 的 " +
-    "restriction 译进 ChainDraft.restrictions 并由 chain/engine.ts Finalize 求值，但 kind " +
-    "\"use-only-while-at-battlefield\" 不是 Condition 词表成员，translateRestriction 以 judge-required 拒绝" +
-    "（\"restriction … kind use-only-while-at-battlefield needs a rules adapter\"）；启动许可也没有消费方：" +
-    "layers/rules 的 canAct() 是纯真值表，chain.canAct() 不读图层许可。" +
-    "不把该条件改写成 body 里的恒真 condition，也不合并两条能力。" +
-    "依赖：位置类型谓词（Condition 词表扩展）与启动许可/按 kind 的 restriction 消费方（RIFT-257/258 后仍缺）。",
+    "「Use my abilities only while I'm at a battlefield」仍缺 CR v1.5 377.2.b、107.1.b/198.1 的来源位置类型启动检查：translateRestriction 已能把 Condition 送入 ChainDraft，在 Finalize 检查；当前 use-only-while-at-battlefield 仍是未适配的描述性 kind。object-property(self, \"location\") 只返回整个 Location，没有读取 location.type 的表达式；不能用其它单位在场或结算期 body 条件代替本来源的启动许可。另有真实执行证据缺口：effects/testing/test-kernel.ts 的 pay 只扣 Energy/XP、未消费 Power，Mind Power 扣除断言保留为 TODO。依赖：来源位置类型谓词/启动检查适配与 Power 支付执行载体。",
   abilities,
   sourceText:
     ":rb_energy_1::rb_rune_mind:: Draw 1.\n" +

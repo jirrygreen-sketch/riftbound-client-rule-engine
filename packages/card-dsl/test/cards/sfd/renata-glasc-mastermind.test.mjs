@@ -5,7 +5,10 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/sfd/renata-glasc-mastermind.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CARD_ID = "card.hash-f5072242d7761ded012359feb98fcc8a89d7c3db8562a68ea71287fefa8f2141";
@@ -36,18 +39,18 @@ test("sfd-088-221 Renata Glasc, Mastermind: judgeReason names the activation-con
   assert.match(program.judgeReason, /377\.2\.b/);
   assert.match(program.judgeReason, /battlefield/);
   assert.match(program.judgeReason, /107\.1\.b/);
-  // RIFT-257 merged the CardProgram -> ChainDraft restriction adapter, so the
+  // The merged CardProgram -> ChainDraft restriction adapter exists, so the
   // accurate gap is the missing location-type predicate plus the refusal of a
   // non-Condition restriction kind, not a missing adapter.
   assert.match(program.judgeReason, /translateRestriction/);
   assert.match(program.judgeReason, /ChainDraft/);
-  assert.match(program.judgeReason, /canAct/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /location\.type/);
+  assert.match(program.judgeReason, /启动检查适配/);
   assert.doesNotMatch(program.judgeReason, /describePlay 未实现/);
 });
 
 test("sfd-088-221 Renata Glasc, Mastermind: the merged adapter does forward a Condition-shaped restriction", () => {
-  // Evidence for the corrected judgeReason: RIFT-257's translateRestriction
+  // Evidence for the corrected judgeReason: translateRestriction
   // turns a CardProgram restriction into a ChainDraft restriction, and the
   // chain checks it during Finalize. This card's kind is not in the Condition
   // vocabulary, which is exactly why the adapter refuses it.
@@ -96,7 +99,7 @@ test("sfd-088-221 Renata Glasc, Mastermind: the merged adapter does forward a Co
 test.todo(
   "sfd-088-221 Renata Glasc, Mastermind: the card's own restriction kind " +
     "(use-only-while-at-battlefield) must be carried by a rules adapter — the merged adapter only " +
-    "accepts Condition kinds, and a non-Condition kind fails closed — RIFT-257 follow-up"
+    "accepts Condition kinds, and a non-Condition kind fails closed"
 );
 
 test("sfd-088-221 Renata Glasc, Mastermind: two Action-speed activated abilities with printed costs", () => {
@@ -183,8 +186,7 @@ test("sfd-088-221 Renata Glasc, Mastermind golden: Score 1 point awards the abil
 
 test("sfd-088-221 Renata Glasc, Mastermind golden: the same body scores for whoever controls the ability", () => {
   const kernel = world().player("A").player("B").build();
-  // 190.6.d: "you" resolves to the ability's controller, so the body must not
-  // name a seat.
+  // 191.5.a/.b: use the ability's controller, so the body must not name a seat.
   Object.defineProperty(kernel, "controller", { value: "B" });
   const outcome = resolveChainBody(scoreAbility.body, kernel);
   assert.equal(outcome.status, "executed");
@@ -203,12 +205,29 @@ test("sfd-088-221 Renata Glasc, Mastermind golden: an empty deck draws 0 without
 test.todo(
   "sfd-088-221 Renata Glasc, Mastermind: an activation-time check that the source is at a battlefield " +
     "(377.2.b with the Ultrasoft Poro example, 107.1.b / 198.1) — the frozen Condition cannot read " +
-    "location.type and no activation-permission consumer reads a by-kind restriction " +
-    "(RIFT-257 merged the ChainDraft adapter but not this vocabulary)"
+    "location.type directly and use-only-while-at-battlefield still needs an activation restriction adapter"
 );
 
-test.todo(
-  "sfd-088-221 Renata Glasc, Mastermind: charge the printed Energy and Mind Power costs at Finalize " +
-    "through the merged cost pipeline (404.1.a / 415.5) for the activated-ability draft " +
-    "(the adapter exists since RIFT-257; the printed activated payments are not bound yet)"
-);
+for (const [index, ability] of [drawAbility, scoreAbility].entries()) {
+  test(`sfd-088-221 Renata Glasc, Mastermind: real printed cost payment for ability ${index + 1}`, { todo: "reference TestWorld pay does not consume Mind Power; preserve the exact payment postcondition" }, () => {
+    // This executes the original cost only; the source-location activation
+    // restriction still blocks whole-card activation through the registry.
+    const energy = index === 0 ? 1 : 4;
+    const power = Array.from({ length: index === 0 ? 1 : 4 }, () => "Mind");
+    const initial = world().player("A", { energy, power })
+      .unit("renata", { cardId: CARD_ID, might: 4, energy: 5, power: null }).build();
+    const kernel = initial.clone({ sourceSnapshot: initial.getObject("renata") });
+    const cost = translateCost(ability.cost, `renata-cost-${index}`, "activate");
+    const modified = runInstruction(costModify, { id: `renata-cost-${index}`, cost }, { world: kernel });
+    assert.equal(modified.result.status, "executed");
+    assert.equal(modified.linked.cost.total.energy, energy);
+    assert.deepEqual(modified.linked.cost.total.power, [{ amount: power.length, allowedDomains: ["Mind"] }]);
+    const paid = runInstruction(costPay, { cost: { kind: "constant", value: modified.linked.cost } }, { world: kernel });
+    assert.equal(paid.result.status, "executed");
+    assert.equal(kernel.player("A").energy, 0);
+    assert.deepEqual(kernel.player("A").power, []);
+    assert.equal(kernel.getObject("renata").exhausted, index === 1);
+    assert.equal(kernel.getObject("renata").power, null);
+    assert.deepEqual(paid.events.map(event => event.action), index === 0 ? ["pay"] : ["pay", "exhaust"]);
+  });
+}
