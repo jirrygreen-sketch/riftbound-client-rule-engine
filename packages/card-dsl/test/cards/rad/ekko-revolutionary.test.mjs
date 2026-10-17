@@ -1,10 +1,3 @@
-// Golden test for Ekko, Revolutionary (rad-021-167).
-//
-// judge-required (see the program's judgeReason): the entry replacement
-// (RIFT-260 / bindReplacement), the Assault KeywordDef (RIFT-81) and the
-// banish -> play-ignoring-cost half are merged and really executed here; what
-// remains is the card-program registration path (RIFT-257), the filter-based
-// Discard-1 cost selection (RIFT-261), and the Attacker designation.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -39,14 +32,12 @@ test("rad-021-167 Ekko, Revolutionary: identity, status, judgeReason and verbati
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   // README §2: the reason names the missing semantics and the owner tasks.
-  assert.match(program.judgeReason, /I enter ready|enter ready/);
+  assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /Discard 1/);
-  // The enter-ready replacement and Assault expansion are merged (RIFT-260 /
-  // RIFT-81); the remaining owners are the card-program binding (RIFT-257) and
-  // the cost batch (RIFT-261).
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /356\.1\.b\.1/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -144,10 +135,8 @@ test("rad-021-167 Ekko, Revolutionary: 'Banish me' then 'play me to your base, i
     instructionId: "ekko.banish-self",
     key: "ekko.banishedObject"
   });
-  assert.deepEqual(playInstruction.args.location, {
-    kind: "constant",
-    value: { type: "base", player: "controller" }
-  });
+  // effect.play defaults to the actual playing controller's base.
+  assert.equal(playInstruction.args.location, undefined);
   // 356.1.b.1: "ignoring its cost" sets the base Energy and Power costs to zero.
   assert.deepEqual(playInstruction.args.cost, {
     kind: "constant",
@@ -155,7 +144,7 @@ test("rad-021-167 Ekko, Revolutionary: 'Banish me' then 'play me to your base, i
   });
 });
 
-test("rad-021-167 Ekko, Revolutionary: banish → play really resolves through the interpreter", () => {
+test("rad-021-167 Ekko, Revolutionary: banish → play primitives resolve with the declared cost placeholder", () => {
   const kernel = world().unit("ekko", { might: 4 }).build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("ekko") });
   // resolveChainBody is the merged card-program → primitive adapter (it keeps
@@ -177,29 +166,14 @@ test("rad-021-167 Ekko, Revolutionary: banish → play really resolves through t
   // step reported one successful play.
   assert.equal(outcome.linkedValues["ekko.banish-self.ekko.banishedCount"], 1);
   assert.equal(outcome.linkedValues["ekko.play-from-banishment.played"], 1);
-  // 356.1.b.1: "ignoring its cost" is carried as a finalized zero-cost plan.
+  // This checks the declared placeholder, not the missing Finalize adaptation
+  // for CR 356.1.b.1 and other cost adjustments.
   assert.deepEqual(playInstruction.args.cost.value, {
     finalized: true,
     energy: 0,
     power: [],
     xp: 0
   });
-  // The static IR names the playing player's base symbolically ("controller");
-  // substituting the concrete player yields that player's base.
-  const concrete = resolveChainBody(
-    [
-      banishInstruction,
-      {
-        ...playInstruction,
-        args: {
-          ...playInstruction.args,
-          location: { kind: "constant", value: { type: "base", player: "A" } }
-        }
-      }
-    ],
-    kernel.clone({ sourceSnapshot: kernel.getObject("ekko") })
-  );
-  assert.equal(concrete.status, "executed");
 });
 
 test("rad-021-167 Ekko, Revolutionary: the play step is ignored when the banished reference is stale", () => {
@@ -228,21 +202,6 @@ test("rad-021-167 Ekko, Revolutionary: the play step is ignored when the banishe
   assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
   assert.equal(scoped.getObject("ekko").zone, "board");
 });
-
-test.todo(
-  "Ekko, Revolutionary: collecting 'Discard 1' as an activation cost with a filter-based (non-target) selection — blocked because " +
-    "CostSpec choices require exact ObjectRefs and cost.discard / cost.pay consumers are part of the ongoing RIFT-261 cost batch"
-);
-
-test.todo(
-  "Ekko, Revolutionary: [Assault] +1 Might while attacking (807.1.c/.d.1) — the KeywordDef is merged (RIFT-81) but no producer " +
-    "resolves a card's keyword abilities into the layers, and the Attacker designation is not an ObjectSnapshot characteristic (RIFT-257 / contract 3.8)"
-);
-
-test.todo(
-  "Ekko, Revolutionary: registering the activation (and its chain cost/target lifecycle) from the card program — shared wiring " +
-    "tracked by the coordinator (RIFT-1 / RIFT-120 follow-up)"
-);
 
 test("rad-021-167 Ekko, Revolutionary: 'I enter ready' really replaces the exhausted entry through the merged binding", () => {
   // CR 369.3 / 359.2.c: the unit's default exhausted entry is replaced by a
@@ -295,3 +254,6 @@ test("rad-021-167 Ekko, Revolutionary: 'I enter ready' really replaces the exhau
     false
   );
 });
+
+test.todo('Ekko, Revolutionary: bind Discard 1 cost candidates (RIFT-358) and the ignored-base-cost play plan at Finalize (CR 423.3/355.10.c/356.1.b.1)');
+test.todo('Ekko, Revolutionary: Assault condition must consume combatRole attacker designation (CR 807.1.c/807.1.d.1; RIFT-359)');

@@ -54,13 +54,10 @@ test("rad-152-167 Encore: program validates and has expected identity", () => {
   );
 });
 
-test("rad-152-167 Encore: judgeReason names the two unresolved modes and the executed ones", () => {
-  assert.match(program.judgeReason, /187\.1/);
-  assert.match(program.judgeReason, /355\.2\.a/);
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /补集/);
-  // The resolved mode 3 must not be described as a missing dependency.
-  assert.doesNotMatch(program.judgeReason, /RIFT-91/);
+test("rad-152-167 Encore: judgeReason records mode Finalize, location and ordered picks", () => {
+  assert.match(program.judgeReason, /355\.3/);
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /RIFT-358/);
 });
 
 test("rad-152-167 Encore: structure — Choose two with four modes in printed order", () => {
@@ -142,69 +139,22 @@ test("rad-152-167 Encore: structure — Choose two with four modes in printed or
   assert.equal(recycleOther.linkedTo, "encore.look-top-two");
 });
 
-test("rad-152-167 Encore: choosing Deal 2 plus Recruit tokens runs both mode bodies through the interpreter", () => {
-  const kernel = world().player("A").unit("victim", { owner: "B", might: 4 }).build();
-  const answers = {
-    [slot(0)]: damageMode.id,
-    [slot(1)]: tokenMode.id
-  };
-  const outcome = runWithAnswers(kernel, answers);
-  assert.equal(outcome.status, "partial");
-  // The damage mode executes; the Recruit mode's base destination cannot be
-  // resolved by the merged token primitive (see judgeReason), so that mode is
-  // negated and no token is created.
-  assert.deepEqual(outcome.results.map(result => result.id), [
-    "encore.deal-two",
-    "encore.recruit-tokens",
-    "encore.choose-two"
-  ]);
-  assert.equal(outcome.results[0].result.status, "executed");
-  assert.equal(outcome.results[1].result.status, "negated");
-  assert.equal(outcome.results[1].result.reason, "impossible");
-  // The container reports the executed child (aggregate: at least one child
-  // executed) while the outcome as a whole stays partial.
-  assert.equal(outcome.results[2].result.status, "executed");
-  assert.equal(kernel.getObject("victim").damage, 2);
-  assert.deepEqual(kernel.events.map(event => event.action), ["damage"]);
-  assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
+test("rad-152-167 Encore: the original Choose two body executes damage and Might modes in printed order", () => {
+  for (const selected of [[damageMode, mightMode], [mightMode, damageMode]]) {
+    const kernel = world().unit("victim", { owner: "B", might: 4 }).unit("ally", { might: 3 }).build();
+    kernel.setTargets("encore.buffed-units", [kernel.ref("ally")]);
+    const outcome = runWithAnswers(kernel, { [slot(0)]: selected[0].id, [slot(1)]: selected[1].id });
+    assert.equal(outcome.status, "executed");
+    assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+      ["encore.deal-two", "executed"], ["encore.grant-might", "executed"], ["encore.choose-two", "executed"]
+    ]);
+    assert.equal(kernel.getObject("victim").damage, 2);
+    const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+    assert.equal(layers.evaluate(kernel.ref("ally")).might, 4);
+    layers.expireAt("turn-end", "A");
+    assert.equal(layers.evaluate(kernel.ref("ally")).might, 3);
+  }
 });
-
-test("rad-152-167 Encore: the same two-mode selection executes in printed declaration order", () => {
-  // Select the Recruit mode first and the damage mode second; declaration
-  // order (not selection order) governs which body runs first (158.1).
-  const kernel = world().player("A").unit("victim", { owner: "B", might: 4 }).build();
-  const outcome = runWithAnswers(kernel, {
-    [slot(0)]: tokenMode.id,
-    [slot(1)]: damageMode.id
-  });
-  assert.deepEqual(outcome.results.map(result => result.id), [
-    "encore.deal-two",
-    "encore.recruit-tokens",
-    "encore.choose-two"
-  ]);
-  assert.equal(kernel.getObject("victim").damage, 2);
-});
-
-test("rad-152-167 Encore: a selected mode with no merged dependency does not stop the executable mode", () => {
-  const kernel = world().player("A").unit("victim", { owner: "B", might: 4 }).build();
-  const outcome = runWithAnswers(kernel, {
-    [slot(0)]: damageMode.id,
-    [slot(1)]: tokenMode.id
-  });
-  // The Recruit mode's destination cannot be resolved, so that mode is negated;
-  // the damage mode still dealt 2 (359.3.e.11: resolve as much as possible).
-  assert.equal(outcome.results[0].result.status, "executed");
-  assert.equal(outcome.results[1].result.status, "negated");
-  assert.equal(kernel.getObject("victim").damage, 2);
-  assert.deepEqual(kernel.events.map(event => event.action), ["damage"]);
-  assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
-});
-
-test.todo(
-  "rad-152-167 Encore: 'Play two 1 [M] Recruit unit tokens' (CR 187.1 / 440.2.c / 185.2.a) needs a " +
-    "resolvable play destination — a base LocationRef must name a resolved PlayerId, and no card-side " +
-    "expression yields the controller's id; effect.token rejects a literal \"controller\" base (RIFT-90)"
-);
 
 test("rad-152-167 Encore: the +1 Might mode registers an end-of-turn arithmetic effect for the chosen units", () => {
   const kernel = world().unit("u1", { might: 3 }).unit("u2", { might: 3 }).unit("u3", { might: 3 }).build();
@@ -263,8 +213,6 @@ test("rad-152-167 Encore: a unit that left the board before resolution cancels o
   assert.equal(kernel.snapshot().continuous.length, 0);
 });
 
-test.todo(
-  "rad-152-167 Encore: 'Look at the top 2 cards of your Main Deck, draw 1 and recycle the other' needs " +
-    "an ordered deck-top selection (effect.inspect top scope takes a PickSpec, whose options are static " +
-    "data; query() does not guarantee zone order) plus a complement selection for recycle (RIFT-64 / RIFT-90)"
-);
+test.todo("Encore: choose modes during Finalize and bind only the selected modes' targets (CR 355.3)");
+test.todo("Encore: resolve legal Recruit play locations (RIFT-357), then create on Chain and play both tokens (CR 187.1/440.2.c)");
+test.todo("Encore: ordered top two picks, draw the chosen inspected card and recycle its complement (RIFT-358)");

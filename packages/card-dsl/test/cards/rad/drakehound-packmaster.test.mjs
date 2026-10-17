@@ -28,9 +28,9 @@ test("rad-018-167 Drakehound Packmaster: program validates and has expected iden
     "When you play me, reveal the top card of each opponent's Main Deck. Choose one and banish it, then play it, ignoring its cost. Recycle the rest."
   );
   assert.match(program.judgeReason, /effect\.reveal/);
-  assert.match(program.judgeReason, /ignoring/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /356\.1\.b\.1/);
+  assert.match(program.judgeReason, /each opponent/);
 });
 
 test("rad-018-167: reveal, choose-banish, ignore-cost play, recycle-the-rest structure", () => {
@@ -162,23 +162,5 @@ test("rad-018-167: recycling the rest returns the other deck cards to the bottom
   assert.equal(kernel.zone("B", "deck").length, 1);
 });
 
-test.todo(
-  "rad-018-167 Drakehound Packmaster: “reveal the top card of each opponent's Main Deck” 需要" +
-    "上游按牌库真实顺序提供 pick（target.query 有序 pick 融合，RIFT-90），且 “each opponent” 的" +
-    "玩家集合在原语里没有表达（effect.reveal 只接单个 player）"
-);
-test.todo(
-  "rad-018-167 Drakehound Packmaster: “play it, ignoring its cost” 需要公开打出流程产出" +
-    "ignore-all-cost 的 Finalize 费用计划（356.1.b.1；cost.ignoreAllCosts 已在 cost/ 实现但未接到卡牌可声明路径，" +
-    "属仍在进行的 RIFT-261 费用批次）"
-);
-test.todo(
-  "rad-018-167 Drakehound Packmaster: registering the card-played trigger from the card program — shared wiring" +
-    " owned by the RIFT-257 card-program binding workstream"
-);
-test.todo(
-  "rad-018-167 Drakehound Packmaster: ordered region picks — the chain Finalize must lock the opponent's deck-top" +
-    " references (contract 3.6 zoneSlice) and effect.reveal must accept them through its pick argument on the" +
-    " production path (RIFT-90 ordered pick fusion; chain/interpreter-adapter.ts LITERAL_FIELDS currently decodes" +
-    " only target for effect.reveal)"
-);
+test.todo('Drakehound Packmaster: ordered top card from each opponent and dynamic choice from the revealed set (RIFT-358)');
+test.todo('Drakehound Packmaster: Finalize the selected banished card with ignored base costs through effect.play (CR 356.1.b.1)');

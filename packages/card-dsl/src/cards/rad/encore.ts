@@ -1,63 +1,14 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Encore — rad-152-167 (Spell, Mind/Order, 3 Energy + 1 Power,
- * Seraphine / Signature).
- *
- * Printed text (verbatim, deck-catalog rad-152-167):
- *   "Choose two —
- *    Deal 2 to a unit.Play two 1 :rb_might: Recruit unit tokens.Give up to two
- *    units each +1 :rb_might: this turn.Look at the top 2 cards of your Main
- *    Deck, draw 1 and recycle the other."
- *
- * Modeling notes (Core Rules v1.5):
- * - "Choose two —" is a bulleted mode list; per 355.3 the modes are chosen as
- *   the spell is finalized, and the chosen instructions resolve top to bottom
- *   (158.1). Contract 3.9 encodes that as one choice.mode node with count: 2 and
- *   different: true; the selected mode bodies execute in declaration order.
- * - "Deal 2 to a unit" is one Deal action against a target (355.7 / 418.1.b),
- *   fully covered by the merged effect.damage primitive (see the golden test).
- * - "Play two 1 :rb_might: Recruit unit tokens" uses the CR 187.1 Recruit unit
- *   token and plays it through the Play procedure (420.3 / 420.3.a / 350.2).
- *   Playing a NEW token creates it on the Chain (440.2.c / 185.2.a); the unit's
- *   play destination defaults to the controller's Base or a battlefield they
- *   control (355.2.a).
- * - "Give up to two units each +1 :rb_might: this turn" is a temporary Might
- *   modification handled by the layers arithmetic pass; the merged
- *   continuous.might instruction (RIFT-258) is its card-facing entry. "this turn"
- *   expires as one batch per 317.2.c, never as a Buff counter (702, 703), and
- *   "up to two" permits choosing zero (355.13).
- * - "Look at the top 2 cards of your Main Deck, draw 1 and recycle the other":
- *   look (128.3-128.4) at the top two cards in Main Deck order, then draw one
- *   (414) and recycle the other (417.1).
- *
- * Status: judge-required. Modes 1 and 3 are executable through merged primitives
- * (both driven for real in the golden test); the other two are not, and no mode
- * is approximated:
- * - mode 2: the Recruit definition exists, but the token's play destination is
- *   the controller's Base (355.2.a) and a base LocationRef must name a resolved
- *   PlayerId, while the card-facing location expression cannot produce the
- *   controller's id (effect.token negates a literal "controller" base);
- * - mode 3 is executable: continuous.might registers an arithmetic-layer effect
- *   with an end-of-turn duration for the Finalize-locked TargetSpec;
- * - mode 4: effect.inspect's top scope still refuses an ordered deck-top range
- *   without an upstream ordered PickSpec (picksSpecId), and PickSpec options are
- *   static data; "recycle the other" additionally needs a complement selection,
- *   which effect.recycle cannot express (it takes N from one zone, or an
- *   explicit target/objects list).
+ * encore — Core Rules v1.5; see judgeReason for the current execution gaps.
  */
 export default {
   canonicalCardId: "card.hash-3812004b1ace905a5750f12683fd2ae066128769b8d39d3a460ea8a2bce04b99",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两个模式可执行：模式1 由 effect.damage、模式3 由已合入的 continuous.might 承担（golden 真实执行）；以下缺口仍未合入：" +
-    "「Play two 1 :rb_might: Recruit unit tokens」的 token 定义（187.1 Recruit）已存在，但打出目的地需为控制者基地/其控制的战场（355.2.a），" +
-    "而 base 的 LocationRef 必须给出已解析 PlayerId，卡牌侧没有能产出控制者 id 的表达式，effect.token 拒绝字面 \"controller\" 的 base；" +
-    "「Look at the top 2 cards of your Main Deck, draw 1 and recycle the other」的 top 查看需要有序 PickSpec（query 不保证区域内顺序，PickSpec.options 是静态数据），" +
-    "且「recycle the other」是补集选择，effect.recycle 只能从单一区域取 N 张或按显式 target/objects 列表。" +
-    "「Give up to two units each +1 :rb_might: this turn」已改写为 continuous.might 的已合入形状（objects: { kind: \"target\", id }），可零选（355.13）并在本回合末到期（317.2.c）。" +
-    "依赖：RIFT-90 目标/选择与有序牌库顶查询；不近似实现。",
+    "CR 355.3：programs/play.ts 的 validateSurface 仍拒绝 choice.mode，缺 Finalize 模式计划及所选模式内目标生命周期；解释器可执行模式不等于生产绑定可执行。CR 355.2.a/187.1：effect.token 的打出位置需已解析 LocationRef，缺控制者基地/所控制战场的位置选择（RIFT-357）。查看牌库顶两张、选择其中一张 draw 并回收另一张需有序动态 picks（RIFT-358）及与 draw 的选择绑定；不能把普通抽牌库顶一张当成任意选一。effect.damage 与 continuous.might 均已可执行。",
   abilities: [
     {
       kind: "play",
