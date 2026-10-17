@@ -15,15 +15,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   cost.exhaust / 费用计划（415.4/415.5），不是 effect.exhaust。
  * - 414.3："draw 1" 经 effect.draw 结算，抽牌者隐含为能力控制者（190.6.d）。
  *
- * status：judge-required。三处缺口：
- * 1. 成本内指令的费用支付：契约 3.1 的 TriggeredAbility 没有 cost 字段，指令层面也没有
- *    合并的 cost.pay 原语（RIFT-261 进行中；本 worktree 的 effects/instructions/ 无 cost.*），
- *    行内 cost.pay 无法被解释器执行。
+ * status：judge-required。缺口：
+ * 1. 成本内指令的费用支付：契约 3.1 的 TriggeredAbility 没有 cost 字段。指令层已合入
+ *    cost.pay（effects/instructions/cost.pay.ts），但其 paymentsPlan 只收 energy/power/xp
+ *    形状，静态 IR 在 card-played 时点给不出“me”的 exhaust ObjectRef；触发结算期也没有
+ *    打出/激活 Finalize 费用计划那样的消费方。
  * 2. "Might greater than each other unit on the board"：需要把被打出的单位从其
  *    card-played 事件载荷绑定出来（契约 3.6 的 ObjectSelector 没有“事件对象”形式），
  *    并对 Board 上其他单位做数值 Might 比较；events/pipeline-match.ts 的过滤器没有数值
  *    Might 匹配键，condition 也无法对“每个其他单位”逐一比较。
- * 3. 即便条件与费用就绪，也没有卡牌程序 → 触发注册的接线（契约 3.5，RIFT-257 进行中）。
+ * 3. 条件谓词属 RIFT-359（进行中）。
  * 不把条件近似成“总是成立”，也不把横置费用写成 effect.exhaust。
  */
 export default {
@@ -32,12 +33,13 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处缺口：(1)「exhaust me to draw 1」是成本内指令（204.1.c/204.3/355.10.c.1）：" +
-    "TriggeredAbility 没有 cost 字段，指令层的 cost.pay 仍属进行中的 RIFT-261（本 worktree 的" +
-    "effects/instructions/ 没有 cost.* 原语），费用计划与 Finalize 收费管线未接通；" +
-    "(2)「Might greater than each other unit on the board」需要从 card-played 事件载荷绑定" +
-    "被打出的单位（ObjectSelector 没有事件对象形式），并对 Board 上其他单位做数值 Might 比较" +
-    "（events/pipeline-match.ts 的过滤器没有数值 Might 键，condition 也无法逐一比较）；" +
-    "(3) 缺少卡牌程序→触发注册的接线（契约 3.5，RIFT-257 进行中）。" +
+    "TriggeredAbility 没有 cost 字段；cost.pay/paymentsPlan 原语已合入，付款计划也支持 exhaust 付款" +
+    "（PaymentPlan.exhaust: readonly ObjectRef[]），但静态 IR 在 card-played 时点给不出“me”的具体 exhaust ObjectRef，" +
+    "触发结算期也没有" +
+    "费用计划消费方；(2)「Might greater than each other unit on the board」需要从 card-played " +
+    "事件载荷绑定被打出的单位（ObjectSelector 没有事件对象形式），并对 Board 上其他单位做数值 " +
+    "Might 比较（events/pipeline-match.ts 的过滤器没有数值 Might 键，condition 也无法逐一比较）；" +
+    "(3) 该条件谓词属 RIFT-359（进行中）。" +
     "Draw 1 原语已合入并单独执行；不近似实现条件与横置费用。",
   abilities: [
     {
@@ -53,16 +55,8 @@ export default {
       optional: false,
       body: [
         {
-          // 204.3：成本内指令先支付（横置自身），由费用管线接管；cost.pay 属 RIFT-261。
-          id: "titanic-shrine.pay-exhaust",
-          op: "cost.pay",
-          args: {
-            payments: { kind: "constant", value: [{ kind: "exhaust", object: "self" }] }
-          }
-        },
-        {
-          // 费用支付后抽 1（414.3）。"then" 是顺序词而不是结果绑定，故不写 linkedTo：
-          // 横置作为费用失败时能力根本无法成立，不依赖链接传播来表达这一点。
+        // 204.3：横置自身是触发能力的费用（缺口见 judgeReason 第 1 点），触发体只声明
+        // 费用支付后的效果——抽 1（414.3）。
           id: "titanic-shrine.draw-1",
           op: "effect.draw",
           args: { amount: { kind: "constant", value: 1 } }

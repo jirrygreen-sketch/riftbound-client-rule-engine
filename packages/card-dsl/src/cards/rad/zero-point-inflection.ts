@@ -31,20 +31,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   ("kill this", 429.6's self form), and then chooses an opponent who scores
  *   1 point (194.1.c, 470).
  *
- * Status: judge-required. Missing pieces:
- * - "9 or more other cards in your hand" needs the number of cards drawn by
+ * Status: judge-required. Trigger registration is merged (programs/triggers.ts),
+ * but the "9 or more other cards in your hand" gate is still unexecutable:
+ * - it needs the number of cards drawn by
  *   this event and a hand-size re-read after the draw commits. `HistoryQuery`
  *   now carries `exclude` / `objectFilter` (contract 3.8), but there is still
  *   no per-event "cards drawn" payload and no merged condition primitive that
  *   re-reads the hand size after the draw commits;
- * - `TriggerSpec.filter`'s EventPattern has no hand-size field either;
- * - the `count` filter's `owner: "controller"` placeholder is only normalized
- *   by the RIFT-257 card-program binding (programs/filters.ts maps
- *   controller/you to self); until that path is wired the count evaluates to
- *   0 in both the reference kernel and the chain query, so the gate cannot be
- *   claimed executable;
- * - both triggers (card-played and card-drawn) need the card-program ->
- *   TriggerRegistration wiring (contract 3.5, RIFT-257).
+ * - the count filter's `exclude: "source"` anchors the card program's source
+ *   object, not the card(s) drawn by this draw event, so there is no way to
+ *   express "other" without a per-event drawn-card payload.
  * The discard / kill / score half uses only merged primitives (effect.discard
  * with "all", effect.kill with self: true, effect.score) and is executed by the
  * golden test.
@@ -54,13 +50,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺“本次抽牌后手牌中其他牌数 ≥ 9”的可执行条件与触发注册：(1) 需要读“本次抽牌事件抽到的张数”，" +
+    "触发注册已合入（programs/triggers.ts，契约 3.5）；缺的是“本次抽牌后手牌中其他牌数 ≥ 9”的可执行条件：" +
+    "(1) 需要读“本次抽牌事件抽到的张数”，" +
     "并在抽牌提交后重读手牌数；合并的 Condition 只有 always/never/compare/all/any/not/expression，" +
     "HistoryQuery 虽已按契约 3.8 增加 exclude/objectFilter，但没有“本次事件抽到的牌”这一载荷，" +
-    "TriggerSpec.filter 的 EventPattern 也没有手牌数字段。(2) count 过滤器的 owner/controller 占位符归一化" +
-    "属 RIFT-257 的卡牌程序绑定（programs/filters.ts 才把 controller → self 并交给链上下文解析），" +
-    "在该接线合入前 count 在本卡条件里求值为 0，不能当作可执行。(3) 整卡的触发（card-played 与 card-drawn）" +
-    "都依赖 card-program → TriggerRegistration 的接线（契约 3.5，RIFT-257 进行中）。" +
+    "TriggerSpec.filter 的 EventPattern 也没有手牌数字段。(2) count 过滤器的 exclude 锚定的是" +
+    "卡牌程序来源对象，不是本次 draw 事件抽到的牌；没有 per-event 抽牌载荷，就无法表达“other”。" +
     "另有卡牌数据问题：目录把该印刷标为 Spell，但文本是留在场上、随后被自身触发“kill this”的永久物（两个持续触发）；" +
     "Spell 结算后进弃牌堆（CR 1.5 157/351.2），“kill this”与持续触发都不成立，本任务不改数据、不推断真实卡型。" +
     "“discard your hand / kill this / They score 1 point”三半段用已合入原语表达，并有真实执行证据。",

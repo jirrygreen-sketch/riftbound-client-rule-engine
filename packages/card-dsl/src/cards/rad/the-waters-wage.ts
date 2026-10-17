@@ -34,7 +34,8 @@ import type { CardProgram } from "../../ir/index.js";
  *    expression，没有对应谓词（context.test 只求值 IR 条件），因此两个数量分支只保留
  *    choice.mode 结构，不写成可求值条件。
  *
- * 依赖：token 定义表扩充、RIFT-257（卡牌 static/关键词绑定）与 RIFT-261（费用指令）。
+ * 依赖：token 定义表扩充。另：cost.hidden 已合入（src/cost/），但隐藏打出 / Hide 动作
+ *   没有费用管线消费方。
  * golden 只做校验与结构断言，并对已合入的 token 原语做真实执行边界（非黄金定义被显式 negated）。
  */
 const theWatersWage = {
@@ -43,15 +44,16 @@ const theWatersWage = {
   status: "judge-required",
   judgeReason:
     "三处依赖未合入，均不近似实现：(1) Gold gear token 定义（CR 187.5，带自身的 " +
-    '"[Reaction][>] Kill this, [E]: [Add] [A]" 能力）不在 effect.token 的 DEFINITIONS 表，' +
+    '"[Reaction][>] Kill this, [E]: [Add] [A]" 能力）不在 effect.token 的 DEFINITIONS 表' +
+    "（src/effects/instructions/effect.token.ts 定义表无 gold、也不支持 entry override），" +
     "带能力的 token 被 effect.token 显式阻断（token-definition-or-abilities-judge-required）" +
     "（依赖 token 定义表扩充）。(2) exhausted 入场覆盖：effect.token 明确不支持 entry overrides（143.4 / 185.2.d），" +
     '"play … exhausted" 与 "ready" 的差别没有原语路径；replacement.enter 只覆盖永久物的入场方向，不覆盖单次 token 创建。' +
     "(3) 判别式「it's your turn and you played this from face down」" +
     "（811.1.d）需要读取打出方式与当前回合玩家的可执行谓词，合并 Condition 没有该谓词（context.test 只求值 IR 条件），" +
     "因此两个数量分支只保留 choice.mode 结构，不写成可求值条件。" +
-    "另：[Hidden] 的 KeywordDef 已合入（effects/keywords/Hidden.ts），但卡牌关键词 → 打出/费用管线的绑定仍待 RIFT-257，" +
-    "Hide 动作与隐藏次回合 Reaction 许可依赖 RIFT-261（cost.hidden/cost.pay 未合入）。不近似实现上述缺口。",
+    "另：[Hidden] 的 KeywordDef 与 cost.hidden（src/cost/）都已合入，但隐藏打出 / Hide 动作没有费用管线消费方，" +
+    "隐藏次回合 Reaction 许可也没有对应接线。不近似实现上述缺口。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     {

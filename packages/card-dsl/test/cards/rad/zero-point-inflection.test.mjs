@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/rad/zero-point-inflection.js";
 import discard from "../../../../engine-core/dist/effects/instructions/effect.discard.js";
@@ -32,7 +31,8 @@ test("rad-069-167 Zero Point Inflection: program passes validateCardProgram with
 test("rad-069-167 Zero Point Inflection: judgeReason names the hand-size gate and the printing's type mismatch", () => {
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /hand/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /programs\/triggers/);
+  assert.match(program.judgeReason, /per-event/);
   // The catalog types this printing as a Spell while the text is a permanent.
   assert.match(program.judgeReason, /Spell/);
   assert.match(program.judgeReason, /157/);
@@ -237,22 +237,16 @@ test("rad-069-167 Zero Point Inflection: scoring to an invalid opponent pick is 
   assert.equal(run.events.length, 0);
 });
 
+
 test.todo(
   "rad-069-167 Zero Point Inflection: evaluating 'when you draw 1 or more cards with 9 or more other " +
-    "cards in your hand' needs a condition that reads the number of cards drawn by this event and " +
-    "re-reads the hand size after the draw commits; HistoryQuery carries scope/action/timingPoint/" +
-    "player/object/exclude/objectFilter but no per-event drawn-card payload, and the count filter's " +
-    "owner/controller placeholder normalization plus trigger registration belong to RIFT-257."
+    "cards in your hand' still needs a per-event drawn-card payload and a post-draw hand re-read; " +
+    "HistoryQuery's exclude source anchor points at the card program's source object, not the card(s) " +
+    "drawn by this event. Trigger registration itself is merged."
 );
 
 test.todo(
   "rad-069-167 Zero Point Inflection: the ongoing triggers and 'kill this' require the printing to be " +
     "a board permanent; the catalog types it as Spell (CR 1.5 157/351.2 trash the spell after resolving). " +
     "Card-data issue report, not a card-program change."
-);
-
-test.todo(
-  "rad-069-167 Zero Point Inflection: both triggers (card-played and card-drawn) still need the " +
-    "card-program -> TriggerRegistration wiring (contract 3.5, RIFT-257) before they can fire in " +
-    "production."
 );

@@ -19,10 +19,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Buff counter（702/703）不能代替。
  *
  * status: judge-required（不近似实现）：
- * - Accelerate 展开已合入，但其附加费用 [1][Fury] 的收取与 805.6 入场就绪仍无可执行路径：
- *   cost.additional / cost.pay 属仍在进行的 RIFT-261，accelerate.cost 声明没有 Finalize
- *   消费方；卡牌关键词 → 打出管线的绑定属 RIFT-257。
- * - 触发侧同样依赖 RIFT-257 的 card-program → TriggerRegistration 接线（契约 3.5）。
+ * - Accelerate 展开与 805.6 入场替代已合入并经 golden 核实；剩余缺口是
+ *   accelerate.cost 的 Finalize optionalAdditional 消费：engine.ts 已读取
+ *   selectedAdditional 中的 accelerate → ready，但没有任何打出流程把 805.1.b 的
+ *   附加费 [1][Fury] 写进 selectedAdditional 并收取（805 附加费收取未接线）。
+ * - “give a unit +2 :rb_might: this turn” 已用已合入的 continuous.might（RIFT-258）
+ *   经解释器 + 图层内核真实执行。
  * golden 用解释器 + 参考内核真实执行 continuous.might 的 +2 与 end-of-turn 期限。
  */
 const abilities: Ability[] = [
@@ -61,11 +63,11 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Accelerate] 展开依赖仍在进行的费用与绑定批次：805.1.b 的附加费 [1][Fury] 与 805.6 的入场就绪替代" +
-    "由 effects/keywords/Accelerate.ts 声明，但 accelerate.cost 的 Finalize 消费方与附加费收取依赖 " +
-    "cost.additional / cost.pay（RIFT-261 进行中），卡牌 keyword → 打出管线的绑定依赖 RIFT-257（进行中）。" +
-    "触发侧“When you play me”同样需要 card-program → TriggerRegistration 接线（契约 3.5，RIFT-257）。" +
-    "“give a unit +2 :rb_might: this turn” 已可用已合入的 continuous.might（RIFT-258）真实执行（golden 覆盖），" +
+    "[Accelerate] 展开与 805.6 入场替代已合入；当前真实缺口是 805.1.b 的可选附加费 [1][Fury] 收取：" +
+    "accelerate.cost 声明没有 Finalize optionalAdditional 消费方——chain/engine.ts（src/chain/engine.ts:431）已支持读取 " +
+    "selectedAdditional 中的 accelerate 并让单位就绪，但没有任何打出流程把该附加费写入 " +
+    "selectedAdditional 并收取（CR 805 的附加费收取未接线）。" +
+    "“give a unit +2 :rb_might: this turn” 已用已合入的 continuous.might（RIFT-258）真实执行（golden 覆盖），" +
     "但不据此宣称整卡可执行。不近似实现。",
   abilities,
   sourceText:

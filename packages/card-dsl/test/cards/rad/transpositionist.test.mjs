@@ -76,8 +76,8 @@ test("rad-115-167 Transpositionist: judgeReason names the ignored-cost, dynamic-
   assert.match(program.judgeReason, /356\.1\.b\.1/);
   assert.match(program.judgeReason, /355\.10\.a/);
   assert.match(program.judgeReason, /355\.2\.a/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /ignoreAllCosts/);
+  assert.match(program.judgeReason, /Weaponmaster/);
 });
 
 test("rad-115-167 Transpositionist: the activated ability pays one Chaos power plus exhausting this unit (145.1/377)", () => {
@@ -188,9 +188,9 @@ test("rad-115-167 Transpositionist: declining the optional play still returns th
 
 test.todo(
   "rad-115-167 Transpositionist: 'ignoring its cost' producing a finalized plan that clears both the base " +
-    "Energy and the Power cost (CR 356.1.b.1) - effect.play demands a finalized plan and implements no " +
-    "ignored-cost rule; the cost.pay/cost.modify instructions and the cost-side ignoreAllCosts caller are " +
-    "still in flight (RIFT-261)"
+    "Energy and the Power cost (CR 356.1.b.1) - cost.pay/cost.modify are merged, but the cost.modify " +
+    "ignoreAllCosts path currently has only the Weaponmaster caller; no play-side caller generates the " +
+    "plan for a selected hand unit, and effect.play implements no ignored-cost rule itself."
 );
 test.todo(
   "rad-115-167 Transpositionist: 'a unit with less Might than that unit had' as a Finalize-time dynamic filter " +
@@ -200,9 +200,5 @@ test.todo(
 test.todo(
   "rad-115-167 Transpositionist: the played unit's legal location chosen at Finalize (CR 355.2.a/355.2.b) - " +
     "effect.play needs a concrete LocationRef that static IR cannot supply"
-);
-test.todo(
-  "rad-115-167 Transpositionist: the card-program -> trigger/activation binding (contract 3.5, RIFT-257) is " +
-    "required before the activated ability can resolve through the production chain"
 );
 

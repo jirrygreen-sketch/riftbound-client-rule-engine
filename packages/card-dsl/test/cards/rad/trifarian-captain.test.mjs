@@ -195,8 +195,8 @@ test("rad-129-167 Trifarian Captain: 接受时的可选分支按声明顺序执�
 });
 
 test.todo(
-  "rad-129-167 Trifarian Captain: 片库顶按序来源——effect.inspect 的 top 范围必须由上游按契约 3.6 的" +
-    "zoneSlice 提供有序 picksSpecId，该接线未合入（RIFT-66 之后的牌库顺序接线），用 query 顺序冒充" +
+  "rad-129-167 Trifarian Captain: 牌库顶按序来源——effect.inspect 的 top 范围必须由上游按契约 3.6 的" +
+    "zoneSlice 提供有序 picksSpecId，该生产接线属 RIFT-358（进行中），用 query 顺序冒充" +
     "牌库顶被原语显式禁止"
 );
 

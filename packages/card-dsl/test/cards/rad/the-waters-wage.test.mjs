@@ -29,8 +29,8 @@ test("The Waters' Wage identity, ruleset, status and printed text", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /185\.2\.d/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /cost\.hidden/);
+  assert.match(program.judgeReason, /entry override/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -83,6 +83,6 @@ test.todo(
 
 test.todo(
   "The Waters' Wage: 'If it's your turn and you played this from face down' needs an executable predicate for the " +
-    "facedown play result (CR 811.1.d) and the current turn player; the [Hidden] KeywordDef is merged but the " +
-    "card's keyword → cost/timing binding is still pending in RIFT-257/RIFT-261"
+    "facedown play result (CR 811.1.d) and the current turn player. The [Hidden] KeywordDef and cost.hidden are merged, " +
+    "but no hidden-play / Hide cost pipeline consumes them yet, and the next-turn Reaction permission is also unwired."
 );
