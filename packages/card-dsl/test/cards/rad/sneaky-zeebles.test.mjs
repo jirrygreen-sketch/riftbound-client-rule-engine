@@ -75,6 +75,28 @@ test("rad-076-167 Sneaky Zeebles: the same primitive path really adds power for 
   assert.deepEqual(run.events.map(event => event.action), ["gain-power"]);
 });
 
+test("rad-076-167 Sneaky Zeebles: the declared Add body executes through the merged resource primitive", () => {
+  // The concrete-domain execution is the supported half of the printed Add.
+  // Immediate Finalize/priority handling remains a separate TODO below.
+  const kernel = world().build();
+  const run = runInstruction(
+    resources,
+    {
+      power: { kind: "constant", value: ["Body"] },
+      linkKey: { kind: "constant", value: "sneaky-zeebles.added" }
+    },
+    { world: kernel }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(kernel.player("A").power, ["Body"]);
+  assert.deepEqual(run.events.map(event => event.action), ["gain-power"]);
+  assert.deepEqual(run.linked["sneaky-zeebles.added"], {
+    player: "A",
+    energy: 0,
+    power: ["Body"]
+  });
+});
+
 test.todo(
   "rad-076-167 Sneaky Zeebles: add 1 Power of any domain ([A], 135.2.e.5 / 163.2.b) — the closed " +
     "Domain type and effect.resources accept only Fury/Calm/Mind/Body/Chaos/Order, so universal " +
