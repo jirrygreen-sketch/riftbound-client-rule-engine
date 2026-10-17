@@ -45,7 +45,8 @@ export default {
     "442.1.a/828.1.b.1 的 continuous.might +2 已改用 empowered > 0，并经 programs/statics 的条件绑定读取参考内核状态；" +
     "公开 ObjectSnapshot 契约仍未声明 empowered，正式适配器的状态读取尚无契约保证。" +
     "RIFT-672 模板已通过付费测试法术的真实链路验证原始静态能力在 Empower/Disempower 前后的 +2/0，" +
-    "并确认本卡缺失费用的启动失败闭合；这不证明印刷 Kill 费用已接通。",
+    "并确认本卡缺失费用的启动失败闭合；RIFT-697 模板再用真实场景链路复核未 Empowered/生效/撤销三个边界与这一失败闭合，" +
+    "仍不证明印刷 Kill 费用已接通。",
   abilities,
   sourceText:
     "[Empower] — Kill a friendly unit (Pay the cost: Empower me. Use only if not Empowered.)\n" +
