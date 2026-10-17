@@ -6,7 +6,9 @@ import program from "../../../dist/cards/unl/alpha-strike.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import xp from "../../../../engine-core/dist/effects/instructions/effect.xp.js";
-import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { abilitySpeed } from "../../../../engine-core/dist/programs/keywords.js";
+import { canAct } from "../../../../engine-core/dist/layers/rules/query.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -19,24 +21,16 @@ const SOURCE_TEXT =
 const [actionKeyword, play] = program.abilities;
 const [dealMightSplit, gainXpPerKill] = play.body;
 
-// The reference kernel compares filter values literally, so the production
-// Finalize-locked targets are supplied by the harness and the authored
-// TargetSpecs (asserted structurally above) are stripped before execution. The
-// strip walks the body because the damage instruction declares its own specs.
-function withoutTargetSpecs(body) {
-  return body.map(({ targets, args, ...instruction }) => ({
-    ...instruction,
-    args: Object.fromEntries(
-      Object.entries(args).map(([key, expression]) => {
-        if (key === "body" && expression.kind === "constant" && Array.isArray(expression.value)) {
-          return [key, { ...expression, value: withoutTargetSpecs(expression.value) }];
-        }
-        return [key, expression];
-      })
-    )
-  }));
-}
-const executableBody = withoutTargetSpecs(play.body);
+test("unl-192-219 Alpha Strike: the merged Action permission admits play during a Showdown on the opponent's turn", () => {
+  const source = world().object("alpha-strike", { zone: "hand", types: ["spell"], cardId: CANONICAL_ID }).build().getObject("alpha-strike");
+  const [permission] = keywordDefinitionsById.get("Action").expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(permission.effect.kind, "continuous.timing");
+  assert.equal(canAct({
+    player: "A", speed: abilitySpeed(program.abilities, source),
+    showdown: true, closedState: false, turnPlayer: "B", priorityHolder: "A", focusHolder: "A",
+    grants: permission.effect.grants
+  }), true);
+});
 
 test("unl-192-219 Alpha Strike: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -50,14 +44,16 @@ test("unl-192-219 Alpha Strike: identity, status, judgeReason and verbatim sourc
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
-  // The reason cites the official reflexive-trigger wording, the passive-kill
-  // attribution rules and the missing count window.
+  // The reason cites the current reflexive/kill-count gap, target re-selection
+  // gap, and the production adapter's divide-literal gap.
   assert.match(program.judgeReason, /388/);
   assert.match(program.judgeReason, /389/);
   assert.match(program.judgeReason, /429\.1\.a\.2/);
   assert.match(program.judgeReason, /429\.4/);
-  assert.match(program.judgeReason, /323\.4/);
   assert.match(program.judgeReason, /429\.5/);
+  assert.match(program.judgeReason, /355\.14\.h/);
+  assert.match(program.judgeReason, /LITERAL_FIELDS/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-9|RIFT-84|RIFT-89/);
 });
 
 test("unl-192-219 Alpha Strike: [Action], one damage instruction with two TargetSpecs and the printed split", () => {
@@ -225,9 +221,9 @@ test("unl-192-219 Alpha Strike golden: an enemy target that left its battlefield
     .unit("enemy-two", { owner: "B", might: 3, location: { type: "battlefield", id: "bf-2" } })
     .build();
   const locked = [kernel.ref("enemy-one"), kernel.ref("enemy-two")];
-  // enemy-two leaves the Board after finalization; only the surviving member is
-  // damaged (359.3.e.2-359.3.e.8, the 355.14.h "choose which targets cease
-  // being targets" case the effect controller resolves in production).
+  // enemy-two leaves the Board after finalization; only the surviving member
+  // is damaged (359.3.e.2-359.3.e.8). This does not exercise the distinct
+  // 355.14.h case where damage is insufficient for the surviving targets.
   kernel.perform({ type: "kill", object: kernel.ref("enemy-two") });
 
   const run = runInstruction(
@@ -254,52 +250,26 @@ test("unl-192-219 Alpha Strike golden: an enemy target that left its battlefield
   assert.equal(run.linked.dealtTo.length, 1);
 });
 
-test("unl-192-219 Alpha Strike golden: the XP clause fails closed because no kill count is linked", () => {
-  const kernel = world()
-    .player("A", { xp: 0 })
-    .unit("friendly", { owner: "A", might: 2, location: { type: "battlefield", id: "bf-1" } })
-    .unit("enemy", { owner: "B", might: 3, location: { type: "battlefield", id: "bf-1" } })
-    .build();
-  // The XP clause runs through the real interpreter behind a real, registered
-  // primitive that produces no killed binding: its declared condition cannot
-  // resolve the linked value, so the clause is ignored instead of granting
-  // unconditional XP (contract 3.4 / 3.6).
-  const outcome = resolveChainBody(
-    [
-      {
-        id: "alpha-strike.deal-might-split",
-        op: "effect.draw",
-        args: { amount: { kind: "constant", value: 0 } }
-      },
-      gainXpPerKill
-    ],
-    kernel
-  );
-
-  assert.equal(outcome.status, "partial");
-  const xpResult = outcome.results.find((result) => result.id === "alpha-strike.gain-xp-per-kill");
-  assert.equal(xpResult.result.status, "ignored");
-  assert.equal(kernel.player("A").xp, 0);
-
-  // The primitive really would grant XP when a count exists, so the closure is
-  // the missing binding rather than a broken instruction.
-  const xpRun = runInstruction(xp, { amount: { kind: "constant", value: 2 } }, { world: kernel });
-  assert.equal(xpRun.result.status, "executed");
-  assert.equal(kernel.player("A").xp, 2);
-  assert.equal(xpRun.linked.gained, 2);
+test("unl-192-219 Alpha Strike golden: the XP primitive grants the printed one XP to the controller", () => {
+  // Isolated supported subeffect; this does not synthesize a kill result or
+  // stand in for the pending reflexive-trigger/attribution implementation.
+  const kernel = world().build();
+  const run = runInstruction(xp, { amount: { kind: "constant", value: 1 } }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.player("A").xp, 1);
+  assert.equal(kernel.player("B").xp, 0);
+  assert.equal(run.linked.gained, 1);
+  assert.deepEqual(run.events.map(event => event.action), ["gain-xp"]);
 });
 
 test.todo(
-  "unl-192-219 Alpha Strike: add the \"for each unit this kills, do this\" reflexive triggered ability to the chain as its own pending item (CR 388 / 389.1; the six Ability forms cannot add a chain item at resolution - RIFT-9 trigger.reflexive)"
+  "unl-192-219 Alpha Strike: add the \"for each unit this kills, do this\" reflexive triggered ability to the chain as its own pending item (CR 388 / 389.1; the IR lacks a resolution-time reflexive chain-item constructor)"
 );
 test.todo(
   "unl-192-219 Alpha Strike: count the units killed by this damage during this resolution (CR 429.1.a.2 / 429.4 / 323.4 passive lethal-damage kill plus 429.5 attribution; the closed history query only counts game actions - engine batch 4)"
 );
 test.todo(
-  "unl-192-219 Alpha Strike: let the effect controller choose which targets cease being targets when the available damage is lower than at resolution (CR 355.14.h / 355.14.h.1; target/target-plan work - RIFT-90)"
-);
-test.todo(
-  "unl-192-219 Alpha Strike: apply the printed [Action] Showdown timing permission through the keyword registry and the chain's canAct (CR 806.1.b; keyword expansion wiring - RIFT-84/RIFT-89)"
+  "unl-192-219 Alpha Strike: let the effect controller choose which targets cease being targets when the available damage is lower than at resolution (CR 355.14.h / 355.14.h.1; effect-controller re-selection is still absent from the production chain path)"
 );
 test.todo(
   "unl-192-219 Alpha Strike: run the entire instruction list - including the divide damage - through the production chain entry point; chain/interpreter-adapter.ts LITERAL_FIELDS does not decode effect.damage's literal divide flag, so resolveChainBody rejects \"divide\": {kind: \"constant\"} with \"effect.damage args.divide must be true when present\" (the primitive and the raw interpreter path both work - engine adapter batch)"

@@ -25,16 +25,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   keyword/value/filter 的数据形状（static 的 effect 是 ContinuousEffect，不是指令参数），
  *   golden 把该声明映射到原语的合入参数（objects: { kind: "query", filter }）后用解释器
  *   + 图层引擎真实执行，断言只有同位置的其他友方单位获得 Deflect。
- * - 仍缺消费方：CardProgram 的 static 能力没有任何已合入路径注册成 ContinuousEffectSpec
- *   （RIFT-257 的 attachLifecycle 只在永久物入场时调用 staticBinder，而战场/静态来源的接线与
- *   binder 实现都还没有；registerContinuousEffect 无调用方）。
+ * - static binder 与 continuous.grant-keyword 的生产路径已经存在，但本卡的
+ *   `exclude: "self"` 是动态来源相对过滤；`programs/statics.ts` 会拒绝该字段，
+ *   因而仍不能把这张卡的完整 aura 注册到 LayerEngine。
  * - Deflect 自身的 target.tax 仍没有生产方：target/target-plan.ts 的 taxSpecs/appendTaxes 只在
  *   调用方显式传入 tax 时才追加，链侧也没有从永久物特征派生 Deflect 税；被授予的关键词还需要在
  *   接收者上再展开一次（两级处理），该消费方同样未合入。
  * - 已合入的 tax→费用换算按 Energy 记账（chain/engine.ts 把税额写成 energy 形态的 mandatory
  *   additional cost），而 809.1.c.1 要求这笔追加费用始终可用任意域（rainbow）力量支付。
- * 依赖：RIFT-257（卡牌 static 注册与 binder 实现）、RIFT-90（target.tax 接线与任意域支付）、
- * RIFT-84（kw-deflect-hidden 的消费）。
+ * 依赖：static 相对过滤（`exclude`）的 binder 支持、target.tax 的自动接线与接收者二次展开、
+ * 以及 809.1.c.1 要求的任意域 Power 支付。
  * 不近似实现：不把授予写成固定数值加算，也不用别的关键词顶替。
  */
 const abilities: Ability[] = [
@@ -78,18 +78,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处缺口，均不近似实现：(1) CardProgram 的 static 能力仍没有注册路径：RIFT-258 的 " +
-    "continuous.grant-keyword 原语与 layers 的 ability 图层都已合入（golden 用真实解释器 + 图层引擎执行本卡的授予，" +
-    "断言只有同位置的其他友方单位获得 Deflect），但 RIFT-257 的 attachLifecycle 只在永久物入场时调用 staticBinder，" +
-    "没有已合入的 ProgramStaticBinder 实现把 ContinuousEffectSpec 注册进 LayerEngine（registerContinuousEffect 无调用方）。" +
+    "三处缺口，均不近似实现：(1) static binder 与 continuous.grant-keyword 已合入，" +
+    "但本卡授予范围的 exclude: \"self\" 是动态来源相对过滤，programs/statics.ts 会拒绝该字段；sameLocationAs 也只在绑定时捕获来源位置，移动后不更新，" +
+    "因此完整 aura 仍不能由生产绑定注册进 LayerEngine；golden 只验证原语与图层语义本身。" +
     "(2) 自带的 [Deflect]（809.1.b.3 省略值按 1）虽然展开文件 " +
     "effects/keywords/Deflect.ts 已合入（static target.tax），但没有任何生产方把永久物上的 target.tax 持续效果接进目标选择：" +
     "target/target-plan.ts 的 taxSpecs/appendTaxes 只在调用方显式传入 tax 时才追加，chain 侧也没有从永久物特征派生 Deflect 税" +
-    "（RIFT-90；ogn/pouty-poro 记录同一缺口）；被授予的 Deflect 还需在接收者上再按 809 展开一次（两级处理），该消费方同样未合入。" +
+    "（target-plan 只消费调用方显式传入的税）；被授予的 Deflect 还需在接收者上再按 809 展开一次（两级处理），该消费方同样未合入。" +
     "(3) 已合入的 tax→费用换算按 Energy 记账（chain/engine.ts 把税额写成 energy 形态的" +
     " mandatory additional cost），与 809.1.c.1 要求的“该 Power 始终可用任意域支付”不符。" +
-    "依赖：RIFT-257（卡牌 static 注册与 ProgramStaticBinder 实现）、RIFT-90（target.tax 接线与任意域支付）、" +
-    "RIFT-84（kw-deflect-hidden 的消费）。不近似实现。",
+    "依赖：static 相对过滤的 binder 支持、target.tax 自动接线与接收者二次展开、以及 809.1.c.1 的任意域 Power 支付（RIFT-360）。不近似实现。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +

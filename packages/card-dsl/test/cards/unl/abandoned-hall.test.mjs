@@ -3,7 +3,10 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/abandoned-hall.js";
-import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { createProgramBinding, triggerRegistrations } from "../../../../engine-core/dist/programs/index.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 // card-dsl has no dependency edge on engine-core (engine-core depends on
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
@@ -21,7 +24,16 @@ const ELSEWHERE = { type: "battlefield", id: "battlefield-2" };
 const [ability] = program.abilities;
 const [optional] = ability.body;
 const [grantMight] = optional.args.body.value;
-const [unitPick] = grantMight.picks;
+const unitChoice = grantMight.args.objects.value;
+
+function hallContext(kernel) {
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("hall"), controller: "A" });
+  // The reference kernel compares scalar players literally. Keep the authored
+  // body and resolve self exactly as the production chain context does.
+  return bindResolveContext(scoped, {
+    query: filter => scoped.query({ ...filter, ...(filter.controller === "self" ? { controller: "A" } : {}) })
+  });
+}
 
 test("unl-205-219 Abandoned Hall: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -36,7 +48,7 @@ test("unl-205-219 Abandoned Hall: identity, status, judgeReason and verbatim sou
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /card-played/);
   assert.match(program.judgeReason, /190\.6\.c/);
 });
 
@@ -58,49 +70,24 @@ test("unl-205-219 Abandoned Hall: a spell-play trigger for any player, decided b
   assert.equal(ability.optional, true);
 });
 
-test("unl-205-219 Abandoned Hall: one choice.optional wrapping the Might grant and its non-target pick", () => {
+test("unl-205-219 Abandoned Hall: the optional Might grant chooses one non-target unit at resolution", () => {
   assert.equal(ability.body.length, 1);
   assert.equal(optional.id, "abandoned-hall.opt-in");
   assert.equal(optional.op, "choice.optional");
-  assert.deepEqual(optional.args.prompt, {
-    kind: "constant",
-    value: "Give a unit here +1 Might this turn?"
-  });
-  // Contract 3.9: the chosen instruction lives inside the optional body; there
-  // is no choice-plus-linkedTo shape anywhere.
+  assert.deepEqual(optional.args.prompt, { kind: "constant", value: "Give a unit here +1 Might this turn?" });
   assert.equal(optional.linkedTo, undefined);
-  assert.equal(optional.args.body.kind, "constant");
   assert.equal(optional.args.body.value.length, 1);
-
   assert.equal(grantMight.id, "abandoned-hall.grant-might");
   assert.equal(grantMight.op, "continuous.might");
   assert.deepEqual(grantMight.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(grantMight.args.duration, { kind: "constant", value: "end-of-turn" });
-  // RIFT-258's merged parameter shape reads the non-target pick through
-  // `objects` (the bare `pick` argument was the pre-merge spelling).
-  assert.equal(grantMight.args.pick, undefined);
-  assert.deepEqual(grantMight.args.objects, {
-    kind: "constant",
-    value: { kind: "pick", id: "abandoned-hall.unit-here" }
-  });
-  assert.equal(grantMight.linkedTo, undefined);
   assert.equal(grantMight.targets, undefined);
-
-  // 355.10.c.1 / 355.7: the unit is chosen inside the instruction, so it is a
-  // non-target pick; 053.3 gives the filter its "here" anchor, and 190.6.c
-  // makes "they control" the ability controller.
-  assert.equal(grantMight.picks.length, 1);
-  assert.equal(unitPick.id, "abandoned-hall.unit-here");
-  assert.deepEqual(unitPick.options, ["unit-controlled-by-the-spells-player-here"]);
-  assert.deepEqual(unitPick.filter, {
-    type: "unit",
-    zone: "board",
-    controller: "self",
-    sameLocationAs: "self"
+  assert.equal(grantMight.picks, undefined);
+  assert.deepEqual(unitChoice, {
+    kind: "choose", id: "abandoned-hall.unit-here",
+    filter: { type: "unit", zone: "board", controller: "self", sameLocationAs: "self" },
+    min: 1, max: 1
   });
-  assert.equal(unitPick.min, 1);
-  assert.equal(unitPick.max, 1);
-  assert.equal(unitPick.selection, "one");
 });
 
 test("unl-205-219 Abandoned Hall: declining the option executes as a real skipped choice", () => {
@@ -122,7 +109,7 @@ test("unl-205-219 Abandoned Hall: declining the option executes as a real skippe
   assert.equal(scoped.getObject("here-ally").might, 3);
 });
 
-test("unl-205-219 Abandoned Hall: the pick's 053.3 'here' anchor excludes units at other battlefields", () => {
+test("unl-205-219 Abandoned Hall: the choice's 053.3 'here' anchor excludes units at other battlefields", () => {
   // The merged interpreter resolves the sameLocationAs/exclude anchors for
   // set queries; this runs the card's own anchor vocabulary (with the ability
   // controller concretized, as the merged kernel compares raw values) through
@@ -173,11 +160,22 @@ test("unl-205-219 Abandoned Hall golden: the chosen unit at this battlefield rea
   const kernel = world()
     .unit("hall", { types: ["battlefield"], location: HERE })
     .unit("here-ally", { controller: "A", location: HERE, might: 3 })
+    .unit("here-enemy", { controller: "B", location: HERE, might: 3 })
     .unit("elsewhere-ally", { controller: "A", location: ELSEWHERE, might: 3 })
     .build();
-  kernel.setPicks(unitPick.id, [kernel.ref("here-ally")]);
   kernel.setAnswers({ "abandoned-hall.opt-in/optional": true });
-  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("hall"), controller: "A" });
+  const scoped = hallContext(kernel);
+  let request;
+  assert.throws(() => runAbilityBody(ability.body, scoped), error => {
+    request = error.request;
+    return error instanceof AwaitChoice;
+  });
+  assert.equal(request.type, "select-objects");
+  assert.equal(request.chooser, "A");
+  assert.deepEqual(request.options, [scoped.ref("here-ally")]);
+  assert.equal(request.min, 1);
+  assert.equal(request.max, 1);
+  scoped.setAnswers({ "abandoned-hall.opt-in/optional": true, [request.id]: [scoped.ref("here-ally")] });
 
   const outcome = runAbilityBody(ability.body, scoped, undefined, { host: scoped.ref("hall") });
   assert.equal(outcome.status, "executed");
@@ -195,49 +193,41 @@ test("unl-205-219 Abandoned Hall golden: the chosen unit at this battlefield rea
 
   const layers = createLayerEngine(scoped.objects, scoped.continuousEffects.map(entry => ({ ...entry })));
   assert.equal(layers.evaluate(scoped.ref("here-ally")).might, 4);
+  assert.equal(layers.evaluate(scoped.ref("here-enemy")).might, 3);
   assert.equal(layers.evaluate(scoped.ref("elsewhere-ally")).might, 3);
   assert.equal(layers.expireAt("turn-end").length, 1);
   assert.equal(layers.evaluate(scoped.ref("here-ally")).might, 3);
 });
 
-test("unl-205-219 Abandoned Hall golden: a pick that resolved to nothing registers no layer effect", () => {
-  // 359.3.e.2/e.6: the merged primitive reports ignored/mistargeted when the
-  // referenced pick holds no surviving Board object, so no Might modification
-  // is registered against anything else.
+test("unl-205-219 Abandoned Hall golden: no legal unit here leaves the Might grant impossible", () => {
+  // An empty resolution-time choice cannot grant Might to a unit elsewhere.
   const kernel = world()
     .unit("hall", { types: ["battlefield"], location: HERE })
     .unit("elsewhere-ally", { controller: "A", location: ELSEWHERE, might: 3 })
     .build();
   kernel.setAnswers({ "abandoned-hall.opt-in/optional": true });
-  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("hall"), controller: "A" });
+  const scoped = hallContext(kernel);
 
   const outcome = runAbilityBody(ability.body, scoped, undefined, { host: scoped.ref("hall") });
   assert.equal(outcome.status, "partial");
-  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(outcome.results[0].result.status, "negated");
+  assert.equal(outcome.results[0].result.reason, "impossible");
   assert.equal(scoped.continuousEffects.length, 0);
   assert.equal(scoped.getObject("elsewhere-ally").might, 3);
 });
 
 test("unl-205-219 Abandoned Hall: the merged trigger binder registers the card-played subscription", () => {
-  // RIFT-257's production adapter accepts this program's declared trigger and
-  // registers it with the pipeline. What it cannot yet honor is CR 190.6.c: the
-  // pipeline resolves `player: "self"` against the registration's controller,
-  // not against the player who played the spell (see judgeReason).
+  // Exercise the supported subscription in the real pipeline. Dynamic
+  // controller binding for the opponent's spell remains a separate gate.
   const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
-  const source = {
-    ref: { id: "hall", zoneEntryId: 1 }, cardId: CANONICAL_ID, name: "Abandoned Hall",
-    types: ["battlefield"], tags: [], keywords: [], owner: "A", controller: "A",
-    zone: "board", location: HERE, might: null, energy: null, power: null,
-    exhausted: false, damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
-  };
-  const registered = [];
-  const ids = binding.registerProgramTriggers({ pipeline: { registerTrigger: registration => registered.push(registration) } }, source);
-
-  assert.equal(ids.length, 1);
-  assert.deepEqual(registered.map(entry => [entry.spec.at, entry.spec.filter, entry.optional]), [
-    ["card-played", { event: "card-played", object: { type: "spell" }, player: "any" }, true]
-  ]);
-  // The registration carries the battlefield's controller; 190.6.c needs the
-  // spell's player instead, and no merged binder re-binds it from the payload.
-  assert.equal(registered[0].controller, "A");
+  const f = fixture({ cards: [{ id: "hall", cardId: CANONICAL_ID, types: ["battlefield"], might: null, energy: null, power: null }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("hall"), to: "battlefield", location: HERE });
+  const source = f.kernel.getObject("hall");
+  const [registration] = triggerRegistrations(binding.registry, source);
+  const ids = binding.registerProgramTriggers(f.engine, source);
+  assert.deepEqual(ids, [registration.id]);
+  assert.deepEqual(registration.spec.filter, { event: "card-played", object: { type: "spell" }, player: "any" });
+  assert.equal(registration.spec.at, "card-played");
+  assert.equal(registration.optional, true);
+  assert.equal(registration.controller, "A");
 });

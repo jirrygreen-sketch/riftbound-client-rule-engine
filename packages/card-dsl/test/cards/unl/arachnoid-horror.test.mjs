@@ -7,6 +7,9 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import xp from "../../../../engine-core/dist/effects/instructions/effect.xp.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-158f0c8fe09a511b90b88574669f5f31fbfc1742ef2b6dea8f7b903e7a448423";
@@ -29,14 +32,11 @@ test("unl-117-219 Arachnoid Horror: identity, status, judgeReason and verbatim s
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
-  assert.match(program.judgeReason, /Hunt 2/);
-  // The reason now points at the current gap (the expansion's 'conquer' event
-  // spelling vs. the frozen 'conquered') instead of the pre-RIFT-265 state.
-  assert.match(program.judgeReason, /823\.1/);
   assert.match(program.judgeReason, /play-location-permission/);
   assert.match(program.judgeReason, /740\.2\.a/);
-  assert.match(program.judgeReason, /RIFT-265/);
-  assert.match(program.judgeReason, /conquered/);
+  assert.match(program.judgeReason, /occupied/);
+  assert.match(program.judgeReason, /battlefieldId/);
+  assert.match(program.judgeReason, /EventPattern/);
 });
 
 test("unl-117-219 Arachnoid Horror: [Hunt 2] is a valued keyword declaration (823.1.c)", () => {
@@ -88,9 +88,8 @@ test("unl-117-219 Arachnoid Horror: the second sentence extends the same permiss
 });
 
 test("unl-117-219 Arachnoid Horror golden: the Hunt 2 clause is exactly effect.xp with amount 2 (823.1.c.1)", () => {
-  // [Hunt 2] is not expanded by the merged registry (the judgeReason records that
-  // gap); its functional text is “my controller gains 2 XP”, so the expansion's
-  // merged commit step is exercised directly on the real primitive.
+  // The expanded body is “my controller gains 2 XP”, so its merged commit step
+  // is exercised directly on the real primitive.
   const kernel = world().build();
   // 823.1.c.3: the printed Hunt Value is what the expansion feeds to effect.xp.
   const run = runInstruction(xp, { amount: { kind: "constant", value: hunt.value } }, { world: kernel });
@@ -159,13 +158,29 @@ test("unl-117-219 Arachnoid Horror: the expanded Hunt 2 body really gains the pr
   assert.equal(kernel.player("B").xp, 0);
 });
 
+test("unl-117-219 Arachnoid Horror: the trigger translator constructs the two object-bound Hunt subscriptions", () => {
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const f = fixture({ cards: [{ id: "arachnoid", cardId: CANONICAL_ID, types: ["unit"], might: 6, energy: 6, power: null }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("arachnoid"), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
+  const source = f.kernel.getObject("arachnoid");
+  const registrations = triggerRegistrations(binding.registry, source);
+  assert.deepEqual(registrations.map(registration => registration.spec.at), ["conquer", "hold"]);
+  assert.deepEqual(registrations.map(registration => registration.spec.filter), [
+    { event: "conquer", object: { objectId: "arachnoid" } },
+    { event: "hold", object: { objectId: "arachnoid" } }
+  ]);
+});
 test.todo(
-  "unl-117-219 Arachnoid Horror: register the expanded Hunt trigger with the pipeline so 'conquered' " +
-    "reaches the conquer timing point (RIFT-257 trigger binding + the expansion's 'conquer' event spelling, " +
-    "the same wiring gap as sfd/dunebreaker and ogn/startipped-peak)"
+  "Arachnoid Horror: register the original Hunt expansion in the real pipeline after aligning the " +
+    "conquer/hold filter events with the conquered/held EventPattern vocabulary (823.1.c.1)"
 );
 test.todo(
   "unl-117-219 Arachnoid Horror: both play-location permissions reach the Make Relevant Choices location choice " +
     "(CR 355.2.b) and the “enemy unit is alone there” gate is evaluated with the 740.2.a predicate " +
     "— no consumer of play-location-permission is merged (same gap as sfd/dauntless-vanguard, ogn/miss-fortune-buccaneer)"
+);
+
+test.todo(
+  "Arachnoid Horror: match the scoring wave's battlefieldId to Hunt units present there " +
+    "(383.4.c.2.a / 383.4.d.2.a / 823.1.c.1); the translated objectId filter requires unit attribution"
 );

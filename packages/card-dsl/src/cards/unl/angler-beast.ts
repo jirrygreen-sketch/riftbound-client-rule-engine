@@ -27,7 +27,7 @@ import type { CardProgram } from "../../ir/index.js";
  * 已合入且可执行的是回手动作本体：golden 用解释器 + 参考内核真实执行 effect.zone（对已锁定
  * 的弱单位集合回手，且强单位留在场上），并按 359.3.e 验证失效引用被忽略。
  *
- * 依赖：RIFT-81~91（Mighty 类 Might 谓词与目标/图层过滤）与 RIFT-90 的目标查询场景。
+ * 依赖：RIFT-359（有效 Might 读取与阈值谓词）。目标查询与 effect.zone 回手动作已经合入。
  */
 export default {
   canonicalCardId:
@@ -37,10 +37,11 @@ export default {
   judgeReason:
     "缺 Might 上限过滤：冻结的 ObjectFilter 没有 Might 谓词，已合入的过滤器（layers/filter.ts 的 " +
     "matchesObjectFilter 与测试内核的 matchesFilter）只按 type/zone/controller/owner/tags/characteristics 等字段匹配，" +
-    "未知键（程序里的 mightLte）会被静默忽略——按已实现对待会让本卡把场上所有单位（含 Might ≥ 3 的）都回手；" +
+    "未知键（程序里的 mightLte）会被底层匹配器忽略，programs/filters.ts 则在生产绑定时拒绝该字段；" +
+    "不能省略过滤把场上所有单位（含 Might ≥ 3 的）都回手；" +
     "355.9.b 的「2 [M] or less」需要 143.2.a 的有效 Might 读取与阈值谓词（与 sfd/sandshifter、ogn/gust 同一缺口）。" +
     "回手本体 effect.zone（to: hand，各牌按拥有者路由）已合入，golden 用解释器 + 参考内核对该集合真实执行，" +
-    "并验证 359.3.e 的失效引用被忽略。依赖：RIFT-81~91（Might 谓词/过滤）、RIFT-90（目标查询）。不近似实现。",
+    "并验证 359.3.e 的失效引用被忽略。依赖：RIFT-359（有效 Might 阈值谓词）。不近似实现。",
   abilities: [
     {
       kind: "triggered",

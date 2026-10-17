@@ -5,6 +5,9 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/abandon.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import counter from "../../../../engine-core/dist/effects/instructions/effect.counter.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { abilitySpeed } from "../../../../engine-core/dist/programs/keywords.js";
+import { canAct } from "../../../../engine-core/dist/layers/rules/query.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -89,8 +92,8 @@ test("unl-131-219 Abandon golden: the counter half clears the targeted spell fro
   assert.equal(run.linked.countered, 1);
   assert.deepEqual(run.linked.counteredObjects, [{ id: "enemy-spell", zoneEntryId: 1 }]);
   // The merged primitive performs the printed Counter (426.1.a: it does nothing
-  // and is cleared). Its destination is the trash, which is the half this card
-  // rewrites - see the test.todo below.
+  // and is cleared). Its destination is the trash; Abandon's replacement of
+  // that destination remains a separate unresolved capability.
   assert.equal(kernel.getObject("enemy-spell").zone, "trash");
   assert.deepEqual(run.events.map((event) => event.action), ["counter"]);
 });
@@ -120,7 +123,14 @@ test.todo(
     "(kw-predict, no assigned task number) and the merged Vision keyword only inlines Predict 1 for its own expansion"
 );
 
-test.todo(
-  "Abandon: [Reaction] admission during a Closed State (CR 813.1.b/813.1.c) plus the Finalize-time locking of the " +
-    "countered spell (355.8) belong to the chain and the target system (RIFT-85 / RIFT-90 / RIFT-120)"
-);
+test("unl-131-219 Abandon: the merged Reaction permission allows a Closed State response on the opponent's turn", () => {
+  const source = world().object("abandon", { zone: "hand", types: ["spell"], cardId: CANONICAL_ID }).build().getObject("abandon");
+  const definition = keywordDefinitionsById.get("Reaction");
+  const [permission] = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(permission.effect.kind, "continuous.timing");
+  assert.equal(canAct({
+    player: "A", speed: abilitySpeed(program.abilities, source),
+    showdown: false, closedState: true, turnPlayer: "B", priorityHolder: "A",
+    grants: permission.effect.grants
+  }), true);
+});
