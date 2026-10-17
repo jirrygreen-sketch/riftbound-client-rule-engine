@@ -26,19 +26,14 @@ import type { CardProgram } from "../../ir/index.js";
  * 在结算时读出来源控制者，再以 linked-value 交给 effect.inspect（190.6.d 的隐含 “you”；
  * 与已合入 ogn/stacked-deck 同一写法，避免把玩家 id 硬编码进卡数据）。
  *
- * status = judge-required（README 第 2 节）：临时 Might 修正已由 continuous.might 原语真实登记并
- * 由图层求值，Predict 半段也只用已合入原语；但生产环境的「按牌库顶顺序取前 1 张」仍需有序区域
- * picks 的 Finalize/AwaitChoice 生命周期，缺少该生命周期时整卡不能宣称可执行。不近似实现。
+ * status = executable：临时 Might 修正已由 continuous.might 原语真实登记并由图层求值，
+ * Predict 的牌库顶也通过已合入的 PickSpec.zoneSlice 在 Finalize 锁定真实区域顺序，
+ * 再由 effect.inspect/effect.recycle 完成结算。
  */
 const eclipse = {
   canonicalCardId: "card.hash-de24e677d5541604808bbe583f958d702c8e2067e5a554af3d856ceac17c6354",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "生产环境的「按牌库顶顺序取前 1 张」（437.1 / 契约 3.6 zoneSlice）仍缺有序区域 picks 的 Finalize/AwaitChoice 生命周期，" +
-    "所以 Predict 在正式打出路径上无法取得牌库顶的保序集合，整卡不能宣称可执行。Give -4 Might 已由 continuous.might 原语经 " +
-    "ResolveContext.addContinuous 真实登记，this-turn 期限由图层清理处理；Predict 半段（effect.inspect + effect.recycle）也有真实执行测试。" +
-    "「[Predict]」按 437.3.a 省略数值即 X = 1，不按关键词展开处理。",
+  status: "executable",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
@@ -55,7 +50,12 @@ const eclipse = {
           args: {
             amount: { kind: "constant", value: -4 },
             duration: { kind: "constant", value: "this-turn" },
-            target: { kind: "constant", value: "eclipse.chosen-unit" }
+            // The primitive resolves selector descriptors from `objects`; this
+            // keeps the TargetSpec binding in the production chain context.
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "eclipse.chosen-unit" }
+            }
           },
           targets: [
             {
@@ -104,11 +104,10 @@ const eclipse = {
             {
               id: "eclipse.predicted-card",
               // 主牌库顶 1 张（含顺序），由上游 zoneSlice 顺序提供。
-              options: ["dynamic:top-card-of-your-main-deck-in-zone-order"],
-              min: 1,
-              max: 1,
+              options: [],
+              ordered: true,
               selection: "all",
-              filter: { owner: "self", zone: "deck" }
+              zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 1 } }
             }
           ]
         },

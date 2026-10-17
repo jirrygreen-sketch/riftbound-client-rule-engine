@@ -9,7 +9,8 @@ import might from "../../../../engine-core/dist/effects/instructions/continuous.
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { abilitySpeed, expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
-import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-de24e677d5541604808bbe583f958d702c8e2067e5a554af3d856ceac17c6354";
@@ -45,12 +46,9 @@ test("unl-063-219 Eclipse: identity, ruleset, status, judgeReason and verbatim s
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /437\.1/);
-  assert.match(program.judgeReason, /Finalize\/AwaitChoice/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-90|RIFT-91|RIFT-120|RIFT-257/);
   assert.equal(cardProgramsById.get(program.canonicalCardId), program);
 });
 
@@ -111,9 +109,9 @@ test("unl-063-219 Eclipse: 'Give a unit -4 Might this turn' is a temporary modif
   assert.notEqual(mightInstruction.op, "effect.buff");
   assert.deepEqual(mightInstruction.args.amount, { kind: "constant", value: -4 });
   assert.deepEqual(mightInstruction.args.duration, { kind: "constant", value: "this-turn" });
-  assert.deepEqual(mightInstruction.args.target, {
+  assert.deepEqual(mightInstruction.args.objects, {
     kind: "constant",
-    value: "eclipse.chosen-unit"
+    value: { kind: "target", id: "eclipse.chosen-unit" }
   });
   assert.deepEqual(mightInstruction.targets, [
     {
@@ -133,7 +131,7 @@ test("unl-063-219 Eclipse golden: continuous.might registers -4 and expires at e
   const outcome = runInstruction(might, {
     amount: mightInstruction.args.amount,
     duration: mightInstruction.args.duration,
-    target: mightInstruction.args.target.value
+    objects: mightInstruction.args.objects.value
   }, {
     world: ctx,
     targets: { "eclipse.chosen-unit": [ctx.ref("chosen")] }
@@ -187,11 +185,10 @@ test("unl-063-219 Eclipse: [Predict] is CR 437's action — look at one card, th
   // arrives as an ordered pick (zoneSlice), never from an unordered query.
   assert.deepEqual(predictedPick, {
     id: "eclipse.predicted-card",
-    options: ["dynamic:top-card-of-your-main-deck-in-zone-order"],
-    min: 1,
-    max: 1,
+    options: [],
+    ordered: true,
     selection: "all",
-    filter: { owner: "self", zone: "deck" }
+    zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 1 } }
   });
   // The recycle follows the look (437.1) and recycles exactly what was chosen
   // under the look's choosePicksKey; recycling nothing is a legal no-op (417.4).
@@ -284,8 +281,48 @@ test("unl-063-219 Eclipse fail-closed: the top scope refuses to guess deck order
   assert.deepEqual(outcome.events, []);
 });
 
-test.todo(
-  "unl-063-219 Eclipse: the production Finalize/AwaitChoice lifecycle must provision the ordered " +
-    "'top card of your Main Deck' pick set for Predict (CR 437.1 / contract 3.6 zoneSlice) — the " +
-    "merged chain Finalize surface only locks instruction.targets TargetSpecs"
-);
+test("unl-063-219 Eclipse golden: production Finalize locks the deck top and the played spell resolves both effects", () => {
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const board = fixture({
+    cards: [{ id: "eclipse", cardId: CANONICAL_ID, types: ["spell"], energy: 3, power: [] }],
+    describePlay: binding.describePlay
+  });
+  board.kernel.addObject({
+    ref: { id: "enemy", zoneEntryId: 1 },
+    cardId: "card:enemy",
+    name: "Enemy",
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    owner: "B",
+    controller: "B",
+    zone: "board",
+    location: { type: "battlefield", id: "bf-1" },
+    might: 5,
+    energy: null,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false,
+    combatRole: null
+  }, "board");
+  const source = board.kernel.getObject("eclipse");
+  const draft = binding.describePlay({ type: "play", object: source.ref, player: "A" }, source);
+  const deckTop = board.kernel.zoneSlice("A", "deck", "top", 1)[0].ref;
+  board.answers.set("target:eclipse.chosen-unit", [board.kernel.ref("enemy")]);
+  board.engine.execute(draft);
+  assert.deepEqual(board.engine.items[0].pickPlans[0].refs, [deckTop]);
+  board.answers.set(PREDICT_CHOICE_ID, [deckTop]);
+  resolveAll(board.engine);
+
+  assert.equal(board.engine.layers.evaluate(board.kernel.ref("enemy")).might, 1);
+  assert.deepEqual(board.kernel.zone("A", "deck").map((ref) => ref.id).slice(-1), [deckTop.id]);
+  assert.deepEqual(
+    board.kernel.events.map((event) => event.action).filter((action) => action === "look" || action === "recycle"),
+    ["look", "recycle"]
+  );
+});

@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/dramatic-visionary.js";
 // card-dsl 不依赖 engine-core（方向相反），golden 执行按 workspace 布局直接加载已构建的 engine-core。
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { finalizeOrderedPickPlans } from "../../../../engine-core/dist/chain/picks/plan.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -27,8 +28,9 @@ const PUT_BACK_ORDER_ID = "dramatic-visionary.predict-put-back/effect.order%3Ato
 
 const deckWorld = (ids) => {
   const kernel = world().deck(ids, { owner: "A" }).build();
-  const viewed = kernel.zoneSlice("A", "deck", "top", 2).map((object) => object.ref);
-  kernel.setPicks("dramatic-visionary.predict-top-2", viewed);
+  const [plan] = finalizeOrderedPickPlans(kernel, triggered.body);
+  const viewed = plan.refs;
+  kernel.setPicks(plan.id, viewed);
   return { kernel, viewed };
 };
 
@@ -105,6 +107,15 @@ test("unl-062-219 Dramatic Visionary: Predict 2 is inspect(top, 2) -> recycle(ch
     kind: "constant",
     value: "dramatic-visionary.predict-top-2"
   });
+  assert.deepEqual(look.picks, [
+    {
+      id: "dramatic-visionary.predict-top-2",
+      options: [],
+      ordered: true,
+      selection: "all",
+      zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 2 } }
+    }
+  ]);
   assert.deepEqual(look.args.choose, { kind: "constant", value: true });
   assert.deepEqual(look.args.chooseCount.value, { min: 0, max: 2 });
   assert.deepEqual(look.args.choosePicksKey, { kind: "constant", value: "predict-recycle" });
@@ -258,7 +269,9 @@ test.todo(
     "effects/keywords/Deathknell.ts 的展开体仍引用未注册的 trigger.leave 原语"
 );
 
-test.todo(
-  "dramatic-visionary: 生产侧有序牌库顶 picks 生命周期——链 Finalize 只锁定 instruction.targets，" +
-    "没有按 zoneSlice 顺序提供 effect.inspect top scope 的 picksSpecId（同 stacked-deck 的缺口）"
-);
+test("dramatic-visionary: Finalize's ordered pick plan supplies the real top-two deck slice", () => {
+  const kernel = world().deck(["top", "second", "third"], { owner: "A" }).build();
+  const [plan] = finalizeOrderedPickPlans(kernel, triggered.body);
+  assert.equal(plan.id, "dramatic-visionary.predict-top-2");
+  assert.deepEqual(plan.refs.map((ref) => ref.id), ["top", "second"]);
+});
