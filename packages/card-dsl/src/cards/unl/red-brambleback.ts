@@ -28,10 +28,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status = judge-required（缺口不近似实现）。自本程序初写后合入的依赖：conquer 时点已由
  * turn/flow.ts 的 Score 波次真实发出、effect.buff 原语与卡牌程序绑定（RIFT-257）。
  * 仍缺三处：
- * - “When I conquer” 的作用域无法绑定：scoring 波次只发 player + details
- *   （timing-points.ts 的 conquer 没有声明 payloadFields），而 383.4.c.2 要把触发绑到
- *   “在这里征服的这张单位”；卡片 filter 的 `{ source: "self" }` 经 programs/filters.ts
- *   翻译成 object filter 后无法匹配（同 ogn/sigil-of-the-storm 的 conquering-unit 归属缺口）。
+ * - conquer 订阅不可用：scoring 波次只发 player + details（timing-points.ts 的 conquer
+ *   没有声明 payloadFields），383.4.c.2 要绑的“在这里征服的这张单位”没有归属字段；
+ *   同时 EVENT_PATTERN_TYPES 把事件名拼成 `conquered`，卡片 filter 的 `event: "conquer"`
+ *   会被 validateTriggerSpec 直接拒绝（仓库内 44 张卡同此拼写）。
  * - “trigger an additional time” 没有引擎模型：Ability 的六种形状没有触发倍率，
  *   ContinuousEffect.kind 没有倍率消费者，触发收集阶段（events/）也没有倍率接口
  *   （与已合入 ogn/karthus-eternal、rad/detonation-amplifier 记录同一缺口，按 Karthus 先例写 static 声明）。
@@ -103,10 +103,10 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "conquer 时点已由 turn/flow.ts 的 Score 波次真实发出，effect.buff 与卡牌程序绑定（RIFT-257）也已合入；" +
-    "但仍有三处缺口，均不近似实现：(1) 383.4.c.2 的“在这里征服的这张单位”作用域没有载荷可绑：" +
-    "scoring 波次只发 player + details（timing-points.ts 的 conquer 未声明 payloadFields），" +
-    "卡片 filter 的 { source: \"self\" } 经 programs/filters.ts 翻译成 object filter 后匹配不到该发射" +
-    "（同 ogn/sigil-of-the-storm 的 conquering-unit 归属缺口）。" +
+    "但仍有三处缺口，均不近似实现：(1) conquer 订阅的载荷与拼写都不可用：scoring 波次只发 player + details" +
+    "（timing-points.ts 的 conquer 未声明 payloadFields），383.4.c.2 的“在这里征服的这张单位”没有归属字段可绑；" +
+    "同时 EVENT_PATTERN_TYPES 把事件名拼成 `conquered`，卡片 filter 写的 `event: \"conquer\"` 会被 " +
+    "validateTriggerSpec 直接拒绝（仓库内 44 张卡同此拼写；同 ogn/sigil-of-the-storm 的归属缺口）。" +
     "(2)「Your conquer effects for conquering here trigger an additional time.」" +
     "（383.4.c.3 的 Conquer Effects 触发收集改写；383.4.g.2 用本卡自己的例子区分“真正 Conquer”与“被激活的触发”）" +
     "没有引擎模型：Ability 的六种形状没有触发倍率，ContinuousEffect.kind 没有倍率消费者，触发收集阶段（events/）也没有倍率接口" +

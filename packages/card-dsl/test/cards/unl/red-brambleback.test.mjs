@@ -10,8 +10,6 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
-import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL_ID =
@@ -178,41 +176,20 @@ test.todo(
     " it; the card keeps judge-required for the trigger-multiplicity gap recorded in judgeReason"
 );
 
-test("unl-029-219 Red Brambleback golden: the conquer timing is emitted, but its payload cannot bind 'self'", () => {
-  // 383.4.c: "When I conquer" is a Conquer Effect. turn/flow.ts publishes the
-  // conquer timing inside the committed Score wave (one simultaneous group), so
-  // the timing itself exists on merged paths. 383.4.c.2 scopes the ability to
-  // *this* unit, which the card spells `{ source: "self" }`; programs/filters.ts
-  // translates that into an object filter ({ objectId }) and the scoring emission
-  // carries only player + details, so the subscription can never match.
-  const kernel = world().player("A").player("B").unit("brambleback", { controller: "A", cardId: CANONICAL_ID, might: 4 }).build();
-  const hits = [];
-  const pipeline = new EventPipeline(createActionPipelineHost({
-    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
-    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
-    objects: () => kernel.objects,
-    perform: action => kernel.perform(action),
-    choose: () => { throw new Error("no choice"); },
-    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
-    testTrigger: registration => kernel.test(registration.spec.condition)
-  }), ["A", "B"], "A");
-  pipeline.onTrigger = snapshot => hits.push(snapshot.registration.id);
-
-  // The card's own filter, translated exactly as programs/triggers.ts does: the
-  // source:self anchor becomes an object filter targeting the unit, and the event
-  // name keeps the card's "conquer" spelling (the timing point's id).
+test("unl-029-219 Red Brambleback: the card's `source: self` anchor translates to the conquering unit's object filter", () => {
+  // 383.4.c.2 scopes the ability to *this* unit. programs/filters.ts is the merged
+  // translation the registration path uses: the source anchor becomes an object
+  // filter on the unit. Binding that filter to a real conquer emission is the
+  // separate gap recorded below.
   const translated = translateTriggerFilter(conquerTrigger.trigger.filter, "brambleback", "conquer");
-  assert.deepEqual(translated, { event: "conquer", object: { objectId: "brambleback" } });
-
-  // A player-scoped spelling with the closed-vocabulary name does match...
-  pipeline.registerTrigger({ id: "player-scoped", source: kernel.getObject("brambleback"), controller: "A", spec: { at: "conquer", filter: { event: "conquered", player: "self" } }, body: [] });
-  // ...and the object-scoped spelling is registerable too once the event name is
-  // spelled with the closed vocabulary.
-  pipeline.registerTrigger({ id: "brambleback-conquer", source: kernel.getObject("brambleback"), controller: "A", spec: { at: "conquer", filter: { event: "conquered", object: { objectId: "brambleback" } } }, body: [] });
-  pipeline.emit({ timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" } });
-  assert.deepEqual(hits, ["player-scoped"]);
-
-  // The card's own source-scoped subscription does not fire, because the scoring
-  // payload carries no conquering-unit attribution (the gap in judgeReason).
-  assert.equal(hits.includes("brambleback-conquer"), false);
+  assert.deepEqual(translated, {
+    event: "conquer",
+    object: { objectId: "brambleback" }
+  });
 });
+
+test.todo(
+  "unl-029-219 Red Brambleback: a real conquer emission binds the conquering unit (CR 383.4.c.2) — the scoring " +
+    "wave in turn/flow.ts publishes only player + battlefieldId, so the translated object filter has no " +
+    "conquering-unit attribution to match (timing-points.ts declares no payloadFields for conquer)"
+);

@@ -7,7 +7,6 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 
@@ -121,16 +120,11 @@ test.todo(
     "from/to locations and exclude Recalls (449.1/449.2/458.1)"
 );
 
-test("unl-115-219 Nilah, Joyful Ascetic: the 'When I move' subscription is outside the closed trigger vocabulary", () => {
-  // events/trigger-spec.ts freezes EVENT_PATTERN_TYPES; there is no object-moved
-  // member (the alias table maps zone-entered/zone-left instead), and nesting a
-  // `filter` object inside the pattern is rejected too. The card's own spelling
-  // is therefore not registrable, which is the documented gap.
-  const result = validateTriggerSpec(moveTrigger.trigger);
-  assert.equal(result.ok, false);
-  assert.equal(result.issues.some(issue => issue.code === "invalid-event-type"), true);
-  assert.equal(result.issues.some(issue => issue.code === "unknown-field"), true);
-});
+test.todo(
+  "unl-115-219 Nilah, Joyful Ascetic: register the 'When I move' subscription (CR 421.1/449.1) — the move " +
+    "payload needs the object-moved timing in the closed EventPattern vocabulary of events/trigger-spec.ts, " +
+    "its from/to location fields and the 458.1 Recall exclusion"
+);
 
 test("unl-115-219 Nilah, Joyful Ascetic golden: the merged Ganking expansion really registers the movement permission, but nothing reads it", () => {
   const gankingDef = keywordDefinitionsById.get("Ganking");

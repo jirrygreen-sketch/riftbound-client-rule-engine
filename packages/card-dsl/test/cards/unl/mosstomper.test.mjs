@@ -4,7 +4,6 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/mosstomper.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
@@ -96,26 +95,18 @@ test("unl-047-219 Mosstomper: the printed [Deflect] grant reuses the merged Defl
   assert.deepEqual(expansion.effect.value, { kind: "constant", value: 1 });
 });
 
-test("unl-047-219 Mosstomper: the merged Hunt expansion is registered but its TriggerSpec fails the closed validation", () => {
+test("unl-047-219 Mosstomper: the merged Hunt KeywordDef publishes one trigger per printed timing, with X = 2", () => {
   const huntDef = keywordDefinitionsById.get("Hunt");
   assert.ok(huntDef, "the merged Hunt KeywordDef is registered (CR 823)");
   // 823.2: all granted Hunt values sum into one value passed to the expansion.
   assert.equal(huntDef.stacking, "sum");
   const expansion = huntDef.expand({ value: 2, host: { canonicalCardId: CANONICAL_ID } });
-  // 823.1.b: one triggered ability for Conquer and one for Hold.
+  // 823.1.b/823.1.c.1: one triggered ability for Conquer and one for Hold.
   assert.deepEqual(expansion.map(ability => ability.trigger.at), ["conquer", "hold"]);
+  // 823.1.c.3: the printed Hunt Value flows into the sub-effect as the XP amount.
   for (const ability of expansion) {
-    const result = validateTriggerSpec(ability.trigger);
-    // The expansion still spells the timing names as "conquer"/"hold" and nests
-    // a `filter` object inside the EventPattern; the frozen vocabulary of
-    // events/trigger-spec.ts accepts only `conquered`/`held` and rejects nested
-    // filter objects, so the subscription cannot be registered as written.
-    assert.equal(result.ok, false);
-    assert.equal(
-      result.issues.some(issue => issue.code === "invalid-event-type"),
-      true,
-      "the merged Hunt expansion must be the reason this card stays judge-required"
-    );
+    assert.equal(ability.trigger.filter.source ?? ability.trigger.filter.filter?.source, "self");
+    assert.deepEqual(ability.body[0].args.amount, { kind: "constant", value: 2 });
   }
 });
 

@@ -34,11 +34,12 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *
  * 仍不能宣称整卡可执行的三处缺口（不近似实现）：
  * 1. 合并的 Hunt 展开（823.1.b/823.1.c.1）产出的 TriggerSpec 过不了引擎的封闭校验：
- *    keywords/Hunt.ts 写 `filter: { event: "conquer", filter: { source: "self" } }`，
- *    而 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 只认 `conquered`/`held`，
- *    ObjectFilter 也不允许嵌套 `filter` 字段（validateTriggerSpec 直接报
- *    invalid-event-type + unknown-field），所以 823.1 的 conquer/hold 订阅在任何
- *    生产路径上都注册不了。该缺口在 keywords/Hunt.ts（不在本卡 write scope）。
+ *    触发时点 id 是 conquer/hold，而 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 把
+ *    对应事件名拼成 `conquered`/`held`；keywords/Hunt.ts 也写
+ *    `filter: { event: "conquer", filter: { source: "self" } }`，ObjectFilter 同样不允许
+ *    嵌套 `filter` 字段（validateTriggerSpec 报 invalid-event-type + unknown-field），
+ *    所以 823.1 的 conquer/hold 订阅在任何生产路径上都注册不了。这是共享契约的拼写
+ *    不一致：仓库内 44 张卡用 `event: "conquer"`，均会被拒绝（只有 1 张用 conquered）。
  * 2. 824.1.c/824.1.d 的 XP 门槛仍不可求值：Level 的展开只发布 `condition.predicate`
  *    形状（keywords/Level.ts），而 layers/engine.ts 的 conditionMatches 只识别
  *    always/never/type/has-tag/has-keyword，未识别的条件按 true 处理；PlayerSnapshot.xp
@@ -98,9 +99,10 @@ const program = {
   judgeReason:
     "Hunt/Level 的 KeywordDef（RIFT-265/268）与 continuous.might、continuous.grant-keyword 指令（RIFT-258）已合入，" +
     "但整卡仍不可执行，三处缺口均不近似实现：(1) 合并的 Hunt 展开过不了引擎的封闭 TriggerSpec 校验：" +
-    "keywords/Hunt.ts 写 `{ event: \"conquer\", filter: { source: \"self\" } }`，而 events/trigger-spec.ts 的 " +
-    "EVENT_PATTERN_TYPES 只认 `conquered`/`held`，ObjectFilter 也不允许嵌套 `filter` 字段，" +
-    "因此 823.1 的 conquer/hold 订阅在任何生产路径上都注册失败（缺口在 keywords/Hunt.ts，不在本卡 write scope）。" +
+    "触发时点 id 是 conquer/hold，而 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 把对应事件拼成 `conquered`/`held`，" +
+    "keywords/Hunt.ts 又写 `{ event: \"conquer\", filter: { source: \"self\" } }`（ObjectFilter 不允许嵌套 `filter`），" +
+    "因此 823.1 的 conquer/hold 订阅在任何生产路径上都注册失败。这是共享契约的拼写不一致：仓库内 44 张卡的 " +
+    "`event: \"conquer\"` 同样被拒绝，只有 1 张用 `conquered`（缺口不在本卡 write scope）。" +
     "(2) 824.1.c/824.1.d 的 XP 门槛仍不可求值：Level 只发布 condition.predicate 形状（keywords/Level.ts），" +
     "layers/engine.ts 的 conditionMatches 只识别 always/never/type/has-tag/has-keyword（未识别条件按 true），" +
     "PlayerSnapshot.xp 也没有进入 Expr 的路径（count 只数被查询对象），所以本程序里的 3+ XP 门控只是保留形状。" +

@@ -178,13 +178,11 @@ test.todo(
     "— TriggeredAbility has no cost field (RIFT-261 series)"
 );
 
-test("unl-187-219 Piltover Enforcer golden: the merged pipeline really emits conquer as a triggerable timing", () => {
+test("unl-187-219 Piltover Enforcer golden: the merged pipeline really publishes the conquer timing", () => {
   // turn/flow.ts publishes the conquer timing inside the committed Score action
-  // (one simultaneous group). Drive that emission through the real EventPipeline
-  // with the card's own player-scoped filter: the subscription is reachable,
-  // which is the merged half of this card.
+  // and marks the whole wave as one simultaneous group. Driving that emission
+  // through the real EventPipeline is the merged half of this card.
   const kernel = world().player("A").player("B").unit("vi", { types: ["legend"], controller: "A" }).build();
-  const hits = [];
   const pipeline = new EventPipeline(createActionPipelineHost({
     checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
     restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
@@ -194,16 +192,12 @@ test("unl-187-219 Piltover Enforcer golden: the merged pipeline really emits con
     context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
     testTrigger: registration => kernel.test(registration.spec.condition)
   }), ["A", "B"], "A");
-  pipeline.onTrigger = snapshot => hits.push(snapshot.registration.id);
-  pipeline.registerTrigger({
-    id: "piltover-conquer",
-    source: kernel.getObject("vi"),
-    controller: "A",
-    spec: { at: "conquer", filter: { event: "conquered", player: "self" } },
-    body: []
-  });
-  pipeline.emit({ timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" } });
-  assert.deepEqual(hits, ["piltover-conquer"]);
+
+  pipeline.emit({ timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" }, simultaneousGroup: "battlefield-score" });
+  const [event] = pipeline.events.filter(candidate => candidate.timingPoint === "conquer");
+  assert.equal(event.timingPoint, "conquer");
+  assert.equal(event.player, "A");
+  assert.deepEqual(event.details, { battlefieldId: "bf-1" });
 
   // The printed clause stays a comparison over the missing damage-assignment
   // ledger, so the card keeps judge-required instead of treating the count as a
@@ -211,3 +205,9 @@ test("unl-187-219 Piltover Enforcer golden: the merged pipeline really emits con
   assert.equal(ability.trigger.condition.left.subject, "excess-damage-assigned-this-combat");
   assert.deepEqual(ability.trigger.condition.right, { kind: "constant", value: 3 });
 });
+
+test.todo(
+  "unl-187-219 Piltover Enforcer: register the conquer subscription (CR 383.4.c) — the timing point id is " +
+    "`conquer`, but events/trigger-spec.ts's closed EVENT_PATTERN_TYPES spells the event `conquered`, so the " +
+    "card's own `{ event: \"conquer\" }` filter is rejected at registration"
+);

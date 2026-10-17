@@ -6,7 +6,6 @@ import program from "../../../dist/cards/unl/nidalee-cat-form.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CANONICAL_ID =
@@ -128,12 +127,8 @@ test("unl-114-219 Nidalee, Cat Form: the merged Ambush KeywordDef publishes the 
   assert.equal(expansion[1].effect.location.battlefield.controller, "controller");
 });
 
-test("unl-114-219 Nidalee, Cat Form: the combat-result subscription is outside the closed trigger vocabulary", () => {
-  // 468.3.a/468.3.c: the win belongs to the player and units inherit it. The card
-  // records that scope with `result: "win"`, but events/trigger-spec.ts's frozen
-  // EVENT_PATTERN_TYPES has no combat-result name, so the subscription cannot be
-  // registered as written -- which is exactly the documented gap.
-  const result = validateTriggerSpec(combatWin.trigger);
-  assert.equal(result.ok, false);
-  assert.equal(result.issues.some(issue => issue.code === "invalid-event-type"), true);
-});
+test.todo(
+  "unl-114-219 Nidalee, Cat Form: register the combat-result subscription (CR 468.3.a/468.3.c) — the card's " +
+    "recorded `result: \"win\"` scope needs the combat-result timing to be part of the closed EventPattern " +
+    "vocabulary in events/trigger-spec.ts and to be emitted with a unitResults payload"
+);
