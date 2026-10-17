@@ -20,9 +20,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   per 820.1.c and 820.4), so the static effect filters friendly Repeat
  *   sources rather than granting Repeat to anything.
  *
- * Status rationale (contract 3.1): the Repeat KeywordDef and the RIFT-261
+ * Status rationale: the Repeat KeywordDef and the merged cost.modify/cost.pay
  * cost.modify/cost.pay primitives are merged, but two consumers are still
- * missing: (1) the RIFT-349 static binder rejects this card's
+ * missing: (1) the merged static binder (programs/statics.ts) rejects this card's
  * `appliesTo: "repeat-additional-cost"` (only the generic static layers are
  * mapped, and cost plans are not one of them), so the discount never reaches a
  * Finalize cost plan (the plan only applies caller-supplied discounts), and
@@ -36,8 +36,8 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Repeat 关键词展开与 RIFT-261 的 cost.modify/cost.pay 原语均已合入，但仍缺两个消费方：" +
-    "(1) RIFT-349 static 绑定会拒绝本卡的 appliesTo \"repeat-additional-cost\"，卡牌 static cost 效果接不进 Finalize 费用计划" +
+    "Repeat 关键词展开与已合入的 cost.modify/cost.pay 原语均已合入，但仍缺两个消费方：" +
+    "(1) 已合入的 static 绑定（programs/statics.ts）拒绝本卡的 appliesTo \"repeat-additional-cost\"，卡牌 static cost 效果接不进 Finalize 费用计划" +
     "（cost/cost-plan.ts 只应用调用方显式传入的 discounts）；" +
     "(2) Repeat 展开出的 repeat.cost 没有 Finalize 收取方，本减费没有可修改的目标费用（356.4/356.4.b/356.4.f）。不近似减费。",
   sourceText: "While you control this battlefield, friendly [Repeat] costs cost :rb_energy_1: less.",

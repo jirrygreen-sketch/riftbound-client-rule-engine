@@ -10,7 +10,7 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * - [Weaponmaster] 是 keyword 能力（821）；展开（打出触发 + Equip 费减免 [A] +
  *   effect.attach）由 effects/keywords/Weaponmaster.ts 提供，cost.modify / cost.pay
- *   原语已合入（RIFT-261），但 821.1.c.2 的 Equip 费仍缺“原始 [A]/[C] 符号”绑定：
+ *   原语已合入，但 821.1.c.2 的 Equip 费仍缺“原始 [A]/[C] 符号”绑定：
  *   cost.modify 的 reduce-equip-cost 分支以 judge-required 失败关闭，尚未执行减费。
  * - “The first time I conquer each turn, ready me.” 是触发能力：时点 conquer
  *   （383.4.c，自身参与征服），once per-turn 即 “the first time … each turn”；
@@ -27,13 +27,13 @@ const lucianMerciless = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The Weaponmaster KeywordDef and the RIFT-261 cost.modify/cost.pay primitives are merged, " +
+    "The Weaponmaster KeywordDef and the merged cost.modify/cost.pay primitives are merged, " +
     "but the 821.1.c.2 Equip-cost binding is still missing: cost.modify throws " +
     "judge-required for reduce-equip-cost because the cost plan cannot distinguish the " +
     "original [A] symbol from [C], so the reduction cannot execute. The conquer trigger " +
     "also cannot fire: the scoring conquer emission carries only player/details and no " +
-    "object, so a self filter has nothing to match (turn/flow.ts); the RIFT-257 trigger " +
-    "adapter itself registers the event as 'conquered'. The effect.ready body is " +
+    "object, so a self filter has nothing to match (turn/flow.ts); the merged trigger " +
+    "registration machinery (programs/triggers.ts) itself accepts this shape. The effect.ready body is " +
     "executable in isolation.",
   abilities: [
     { kind: "keyword", keyword: "weaponmaster" },

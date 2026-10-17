@@ -43,13 +43,14 @@ import type { CardProgram } from "../../ir/index.js";
  *       `details.winnerId` descriptively: it fails closed ("self" is a literal, so
  *       a combat you lost never matches) and is never treated as an evaluated
  *       predicate.
- * 3. Independently of the two above, nothing registers a CardProgram's
- *    triggered ability as a pipeline TriggerRegistration (contract 3.5), so the
- *    trigger could not be subscribed even with an emitter in place.
+ * 3. The registration machinery itself is merged (engine-core programs/triggers.ts
+ *    and its registerProgramTriggers consumer), but it is gated on the program
+ *    status and the trigger vocabulary above, so this trigger still cannot be
+ *    subscribed today.
  * The body (effect.draw, amount 1) is merged and is executed by the golden test.
- * Dependencies: RIFT-120/combat flow (combat-result emission), a winner predicate
- * for the combat-result payload plus the `combat-result` discriminator in
- * EVENT_PATTERN_TYPES, and the contract 3.5 trigger registration consumer.
+ * Dependencies: combat flow (combat-result emission), a winner predicate for
+ * the combat-result payload plus the combat-result discriminator in
+ * EVENT_PATTERN_TYPES; the status gate then still keeps the binding judge-required.
  * Nothing is approximated: the filter is not relaxed to "any combat" and the
  * trigger is not moved to a different timing point.
  */
@@ -68,9 +69,11 @@ export default {
     "(b) 468.3.a 的胜负载荷字段是 winnerId，而 EventPattern.details 只与字面标量比较、无法与能力控制者对比；" +
     "EventPattern 唯一的玩家选择符 player 匹配的是事件的行动玩家，与战斗胜者不是同义；" +
     "下方的 filter 以 details.winnerId 作描述性记录（fail-closed：\"self\" 是字面量，输掉的战斗永远不会命中，" +
-    "绝不被当作已求值谓词）；(3) 即使有发射方，也没有任何生产方把 CardProgram 的 triggered 能力注册成管线的 " +
-    "TriggerRegistration（契约 3.5）。效果本体 effect.draw（数量 1，抽取者为能力控制者 190.6.d）已合入并由 golden 执行。" +
-    "依赖：RIFT-120 / combat 流程的 combat-result 发射、胜负载荷谓词、以及契约 3.5 的触发注册消费者；" +
+    "绝不被当作已求值谓词）；(3) 触发注册机制本身已合入（engine-core programs/triggers.ts 与其 " +
+    "registerProgramTriggers 消费方），但按程序 status 门禁 + 上述词表缺口，该触发今天仍无法被订阅。" +
+    "效果本体 effect.draw（数量 1，抽取者为能力控制者 190.6.d）已合入并由 golden 执行。" +
+    "依赖：combat 流程的 combat-result 发射、胜负载荷谓词、以及 combat-result 的词表成员；" +
+    "在这些落地后 status 门禁仍会保持本卡 judge-required。" +
     "不把过滤放宽成「任意战斗」，也不把触发挪到别的时点。",
   abilities: [
     {

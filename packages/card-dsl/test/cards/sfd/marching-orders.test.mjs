@@ -50,7 +50,7 @@ test("sfd-114-221 Marching Orders: [Action] keyword plus the [Repeat] additional
   // 820.1.c: the printed "Repeat :rb_energy_3:" cost travels on the play
   // CostSpec (356.2.b.1), the merged sfd/danger-zone shape; the Repeat
   // The KeywordDef is merged, but the card-program cost plan that would collect it
-  // is not wired through Finalize (RIFT-261).
+  // is not wired through Finalize (programs/play.ts rejects additional-cost).
   assert.deepEqual(play.cost, {
     kind: "additional-cost",
     keyword: "repeat",

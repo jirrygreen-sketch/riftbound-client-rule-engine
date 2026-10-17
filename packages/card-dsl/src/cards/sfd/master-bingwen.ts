@@ -21,7 +21,7 @@ import type { CardProgram } from "../../ir/index.js";
  * 卡内不重写关键词逻辑。
  *
  * status = judge-required（cards/README.md 第 2 节）：Weaponmaster 展开、keyword
- * registry 与 cost.modify / cost.pay 原语均已合入（RIFT-261），但 cost.modify 的
+ * registry 与 cost.modify / cost.pay 原语均已合入，但 cost.modify 的
  * reduce-equip-cost 分支在以 judge-required 失败关闭——它需要“原始 [A]/[C] 符号”
  * 绑定才能按 821.1.c.2 计算 Equip 费并按 821.1.c.3 减 [A]，当前 CostPlan 无法区分，
  * 因此 821.1.c.2/.c.3 仍无法执行；不近似实现。
@@ -32,7 +32,7 @@ const masterBingwen = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The Weaponmaster KeywordDef, keyword expansion, and the RIFT-261 cost.modify/cost.pay " +
+    "The Weaponmaster KeywordDef, keyword expansion, and the merged cost.modify/cost.pay " +
     "primitives are merged, but cost.modify fails closed with judge-required for " +
     "reduce-equip-cost: the cost plan cannot distinguish the original [A] symbol from [C], so " +
     "821.1.c.2 (cost determined as though the Equip ability were activated) and 821.1.c.3 (the " +

@@ -33,29 +33,31 @@ import type { CardProgram } from "../../ir/index.js";
  *   already-finalized FinalizedCostPlan; no merged producer turns a card
  *   program's cost descriptor into that plan.
  *
- * Status: judge-required. All three dependencies are unmerged and nothing is
- * approximated (no printed-cost play, no invented battlefield id, no
+ * Status: judge-required. All three dependencies are still missing today and
+ * nothing is approximated (no printed-cost play, no invented battlefield id, no
  * unconditional body):
- * - the cost.hidden consumer for the Hide action, the facedown zone and the
- *   free facedown play (811.1.b/811.1.c; RIFT-89 / RIFT-91 — the keyword
- *   expansion itself is merged in effects/keywords/Hidden.ts);
- * - a finalized cost plan for the played unit that applies the printed -3
- *   energy reduction (356.4/356.6; RIFT-89);
+ * - a runtime consumer for the Hide action: cost/kinds/hidden.ts only builds and
+ *   pays a Hidden cost plan; the Hide Discretionary Action, the facedown zone and
+ *   the free facedown play (811.1.b/811.1.c) stay with their zone/timing owners;
+ * - a producer that turns the printed -3 energy reduction into an already
+ *   finalized FinalizedCostPlan for effect.play (356.4/356.6);
  * - a runtime Location selector for "a battlefield you control"
- *   (355.4/355.4.a, 451.1; RIFT-90 target/location plan).
+ *   (355.4/355.4.a, 451.1) — the in-progress location-choice work RIFT-357.
  */
 const hereToHelp = {
   canonicalCardId: "card.hash-783f18a4ad28b8126f59f285304bee0b93c1e76fb7a557f8e9fee60bebf1f609",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1)[Hidden]（811）的展开已合入（keywords/Hidden.ts），但其 cost.hidden 消费方" +
-    "（Hide 行动、facedown 区域、从 facedown 免费打出，811.1.b/811.1.c）尚未实现（RIFT-89/RIFT-91）。" +
+    "三处依赖缺口，均不近似实现：(1)[Hidden]（811）的展开已合入（keywords/Hidden.ts），cost.hidden 费用种类的构建与支付也已合入" +
+    "（cost/kinds/hidden.ts）；Hide 行动、facedown 区域与从 facedown 免费打出（811.1.b/811.1.c）" +
+    "仍没有运行期消费者（见 cost/kinds/README.md 的集成请求）。" +
     "(2)「play a unit from hand」是 effect.play 的非目标 pick（355.10.a：手牌不是公开区域），" +
     "「reducing its cost by :rb_energy_3:」需要按 356.1.c/356.4/356.6 生成已 Finalize 的减费计划，" +
-    "而卡牌程序到 cost-plan 折扣的生成接线不存在，effect.play 明确要求 cost 是费用系统产出的 FinalizedCostPlan（RIFT-89）。" +
-    "(3)「a battlefield you control」是运行期 Location 选择（355.4/355.4.a、451.1），合并 IR 没有运行期 Location 选择器，" +
-    "effect.play 的 location 只接受静态 LocationRef；本卡保留描述性目的地标记，解释器会拒绝（negated）而不是落到错误地点（RIFT-90）。",
+    "而把卡牌程序的费用描述变成已 Finalize 的 FinalizedCostPlan 的生产者不存在，effect.play 明确要求 cost 是费用系统产出的 FinalizedCostPlan。" +
+    "(3)「a battlefield you control」是运行期 Location 选择（355.4/355.4.a、451.1；进行中的 RIFT-357），" +
+    "合并 IR 没有运行期 Location 选择器，effect.play 的 location 只接受 { type:\"base\",player } 或 { type:\"battlefield\",id }；" +
+    "本卡保留描述性目的地标记，解释器会拒绝（negated）而不是落到错误地点。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },

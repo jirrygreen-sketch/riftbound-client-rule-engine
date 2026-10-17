@@ -27,7 +27,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   player/fromZone/toZone/amount/details）与该事件的发射路径都没有把它暴露给卡程序；
  *   静态 IR 不能写运行时 LocationRef，也没有"能力发生地"的 referent 可读
  *   （来源是 Base/战场的 unit，其 location 与防守战场不一定相同，不能当作近似）。
- * 依赖：RIFT-33/RIFT-124（combat 身份指派与事件管线发射，含防守战场载荷）、RIFT-90（目标计划）。
+ * 依赖：combat 身份指派与事件管线发射（含防守战场载荷）、RIFT-357（运行期 Location 选择）。
  * 不近似实现（不把 defense-declared 换成其它时点，不用来源当前位置冒充防守战场）。
  */
 const abilities: Ability[] = [
@@ -88,7 +88,7 @@ const program = {
     "现有 EventPattern 词汇（object/source/target/player/fromZone/toZone/amount/details）与该事件的发射路径" +
     "都没有把它暴露给卡程序；静态 IR 不能写运行时 LocationRef，来源单位自身的 location 又不等于防守战场" +
     "（它可能停在 Base 或被移动过），不能用作近似。" +
-    "依赖：RIFT-33/RIFT-124（combat 身份指派与事件管线发射，含防守战场载荷）、RIFT-90（目标与目的地计划）。" +
+    "依赖：combat 身份指派与事件管线发射（含防守战场载荷）；「there」的运行期目的地选择（359.3.f.1，进行中的 RIFT-357）。" +
     "不近似实现（不换时点、不用来源当前位置冒充防守战场）。",
   abilities,
   sourceText: "When you defend at a battlefield, you may move me there."

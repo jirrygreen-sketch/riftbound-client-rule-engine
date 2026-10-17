@@ -30,8 +30,8 @@ test("sfd-126-221 Loyal Pup: judgeReason names the defense emission and destinat
   assert.match(program.judgeReason, /466\.2\.c/);
   assert.match(program.judgeReason, /383\.4\.f\.2/);
   assert.match(program.judgeReason, /payloadFields/);
-  assert.match(program.judgeReason, /RIFT-33\/RIFT-124/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
+  assert.match(program.judgeReason, /RIFT-357/);
 });
 
 test("sfd-126-221 Loyal Pup: 'when you defend at a battlefield' subscribes to defense-declared once per combat", () => {
@@ -94,16 +94,17 @@ test("sfd-126-221 Loyal Pup golden: declining the may leaves Loyal Pup where it 
 test.todo(
   "sfd-126-221 Loyal Pup: the defense-declared timing point is emitted when this unit gains the " +
     "Defender designation (383.4.f.2, 466.2.c/323.2) — combat/ has no emission path yet " +
-    "(combat/flow.ts throws combat-start-transaction), RIFT-33 / RIFT-124"
+  "(combat/flow.ts throws combat-start-transaction)"
 );
 
 test.todo(
   "sfd-126-221 Loyal Pup: the defended battlefield reaches the ability as a resolvable destination for " +
-    "\"there\" (359.3.f.1 referent; the timing-point payload declares no fields) — RIFT-90 destination plan"
+  "\"there\" (359.3.f.1 referent; the timing-point payload declares no fields) — the in-progress " +
+  "RIFT-357 runtime Location choice"
 );
 
 test.todo(
   "sfd-126-221 Loyal Pup golden: accepting the may moves Loyal Pup from its current Location to the " +
     "defended battlefield; the authored destination is a declared referent marker (359.3.f.1), so no " +
-    "authentic execution is possible until the defended battlefield is resolvable — RIFT-90"
+  "authentic execution is possible until the defended battlefield is resolvable — RIFT-357"
 );

@@ -76,7 +76,7 @@ test("sfd-193-221 Grandmaster at Arms: identity, ruleset, status, judgeReason an
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /契约 3\.5/);
+  assert.match(program.judgeReason, /createProgramBinding/);
   assert.match(program.judgeReason, /Legend Zone/);
   assert.match(program.judgeReason, /107\.4\.c/);
 });
@@ -268,8 +268,8 @@ test("sfd-193-221 Grandmaster at Arms: re-attaching to the current host is a no-
 
 test.todo(
   "sfd-193-221 Grandmaster at Arms: registration of a card program's activated ability as a " +
-    "chain-playable item (contract 3.5) — engine-core never reads CardProgram.abilities, so no " +
-    "real game state can offer either activation yet"
+  "chain-playable item — the merged programs/activate.ts + programs/registry.ts machinery is " +
+  "gated on the program status, so no real game state can offer either activation yet"
 );
 
 test.todo(

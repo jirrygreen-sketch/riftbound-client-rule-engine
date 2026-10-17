@@ -29,7 +29,7 @@ test("sfd-185-221 Glorious Executioner: identity, ruleset, status, judgeReason a
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /combat-result/);
   assert.match(program.judgeReason, /winnerId/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
 });
 
 test("sfd-185-221 Glorious Executioner: one combat-result trigger whose body is Draw 1", () => {
@@ -122,6 +122,7 @@ test.todo(
 );
 
 test.todo(
-  "sfd-185-221 Glorious Executioner: the program → TriggerRegistration wiring (contract 3.5) " +
-    "needed before the trigger can be subscribed at all"
+  "sfd-185-221 Glorious Executioner: the merged program → TriggerRegistration machinery " +
+  "(programs/triggers.ts) is gated on the program status, so the trigger stays unsubscribed " +
+  "while this program is judge-required"
 );
