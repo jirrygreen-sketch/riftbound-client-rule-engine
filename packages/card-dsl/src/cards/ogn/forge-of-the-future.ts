@@ -76,6 +76,7 @@ const forgeOfTheFuture = {
     "按 controller 读会静默漏掉对手 Trash 中的牌，也没有规则条目把 trashes 收窄为控制者自己的 Trash（417.6 的示例写作 your trash），" +
     "故不用逐玩家循环近似。(2) up to 4 允许少选甚至选 0（355.13），但 from 把选择锁成恰好 min(4, 可用数)（effect.recycle 的 chooseFromZone 用 min: count, max: count），" +
     "任何更小的答案都会被拒绝，因此无法表达玩家自选的更小张数。417.6 明确该选择不指定目标，这部分不是障碍。" +
+   "此外 417.5 的随机落牌次序（同时回收多张到 Main Deck）仍由解释器/内核的 shuffle/choose 原语负责，尚未实现。" +
     "Kill this 费用（429.2.a / 429.6）本身可表达。第一个能力（Recruit token 的链上创建 + 打出，440.2.c/185.2.a/187.1）" +
     "只用已合入原语，已由 golden 真实执行。",
   abilities: [

@@ -26,22 +26,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 414.1 / 416.1 / 702.2.a："ready it and [Buff] it" 是对那个被播放单位的重置与 Buff
  *   （effect.ready / effect.buff，两者均已合入），"it" 是触发事件的对象。
  *
- * status = judge-required（缺口不近似实现）：
- * - 可选附加费用虽然有 cost.additional 声明，但 programs/play.ts 的费用翻译仍拒绝
- *   additional/additional-cost 字段，CardProgram 的声明没有进入 Finalize 的 optionalAdditional 输入；
- * - "if you paid the additional cost" 需要费用凭证（356.4.f.1 的 paid 收据）进入条件求值，
- *   合并 IR 的 Condition 没有 condition.result；程序里只保留
- *   compare(count("paid-additional-cost"), gte, 1) 的**保留形状**——真实内核下该计数为 0，
- *   条件是假的，因此 Stun 不会无条件发生（与 piltover-enforcer/virtuoso 同一写法）。
- * - "the next time you play a unit this turn" 需要延迟触发注册与"下一次"窗口：
- *   trigger.delayed 没有已注册的 InstructionDef，ResolveContext.registerDelayedTrigger 只有
- *   引擎内部调用方，TriggerSpec.once 也只有 per-turn/per-combat/per-chain/per-game；
- * - "ready it and [Buff] it" 的 "it" 是延迟触发的事件对象（被打出的那个单位），合并
- *   ObjectSelector 只有 self/source/target/pick/linked，没有事件对象选择器；程序里的
- *   TargetSpec 只是形状保留（virtuoso 同型），真实绑定须由触发系统在生成延迟触发时完成。
- *
- * 依赖：CardProgram 费用声明到 Finalize 的接线、支付回执条件、trigger.delayed 的 InstructionDef、
- * next-time-this-turn 窗口与事件对象选择器；不近似实现。
+ * 2026-10-17 复核：仍为 judge-required，当前缺口见 judgeReason。
+ * 已有原语、关键词定义或通用适配器不代表本卡完整生产路径可执行。
  */
 
 /** "the unit you played" —— 延迟触发的事件对象（形状保留，见 judgeReason）。 */
@@ -74,17 +60,12 @@ const abilities: Ability[] = [
       at: "card-played",
       filter: { event: "card-played", filter: { source: "self" } },
       // 383.2.a.1：紧跟触发条件的 "if you paid the additional cost" 属于触发条件。
-      // 保留形状：合并 IR 没有费用凭证（condition.result），count 只数对象、
-      // 这里恒为 0 → 条件为假、该触发不成立，不会无条件 Stun（见 judgeReason）。
+      // 356.4.f.1：读取这一项可选附加费的支付决定，而非计数局面中的对象。
+      // 谓词已可执行；原始打出回执到触发环境的传递仍缺失（见 judgeReason）。
       condition: {
-        kind: "compare",
-        left: {
-          kind: "count",
-          subject: "paid-additional-cost",
-          filter: { player: "controller" }
-        },
-        operator: "gte",
-        right: { kind: "constant", value: 1 }
+        kind: "result",
+        result: "cost.additional",
+        id: "nami-headstrong.additional-cost"
       }
     },
     optional: false,
@@ -177,21 +158,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均不近似实现：（1）可选附加费用『You may pay :rb_rune_calm: as an additional cost to play me.』" +
-    "（204.2 / 356.2.b / 356.2.b.1）虽然保留了 cost.additional 声明，但 programs/play.ts 的费用翻译仍拒绝 " +
-    "additional/additional-cost 字段，CardProgram 的 CostSpec 没有接进 cost/cost-plan.ts 的 optionalAdditional 输入。" +
-    "（2）『if you paid the additional cost』需要 356.4.f.1 的费用凭证（作出支付决定的收据）进入条件求值，" +
-    "合并 IR 的 Condition 没有 condition.result；程序保留 count(subject \"paid-additional-cost\") 的比较形状，" +
-    "真实内核下该计数为 0、条件为假，所以不会无条件 Stun（不近似实现）。" +
-    "（3）『the next time you play a unit this turn』需要延迟触发注册与『下一次』窗口：" +
-    "trigger.delayed 没有已注册的 InstructionDef，ResolveContext.registerDelayedTrigger 只有引擎内部调用方，" +
-    "TriggerSpec.once 也只有 per-turn / per-combat / per-chain / per-game，没有 next-time 窗口。" +
-    "（4）『ready it and [Buff] it』的 it 是延迟触发的事件对象（被打出的那个单位），合并 ObjectSelector 只有 " +
-    "self / source / target / pick / linked，没有事件对象选择器；程序里的 TargetSpec 只是形状保留，" +
-    "真实绑定须由触发系统在生成延迟触发时完成。" +
-    "依赖：CardProgram 费用声明到 Finalize 的接线、支付回执条件、trigger.delayed 的 InstructionDef、" +
-    "next-time-this-turn 窗口与事件对象选择器。" +
-    "effect.stun / effect.ready / effect.buff 本体均已合入，golden 对它们做真实执行。",
+    "缺静态 cost.additional 声明到 Finalize optionalAdditional 的翻译（204.2/356.2.b.1），programs/statics.ts 不映射费用声明。" +
+    "condition.result 已能读取真实费用计划/支付回执；仍缺把原始打出费用回执传给 card-played 的触发条件（356.4.f.1），events/pipeline.ts 的条件环境只传 event/context，未传 cost。" +
+    "Hold 的 hold 事件名仍与封闭 EventPattern 的 held 不一致；缺 trigger.delayed InstructionDef、next-time-this-turn 的一次性本回合窗口（391.2/391.3），" +
+    "以及将延迟事件里被打出的单位绑定给 ready/Buff 的对象引用；现有 TargetSpec 仅保留该对象范围，不能代替事件对象绑定。",
   abilities,
   sourceText:
     "You may pay :rb_rune_calm: as an additional cost to play me.\n" +

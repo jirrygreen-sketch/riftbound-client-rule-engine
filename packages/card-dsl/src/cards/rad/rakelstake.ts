@@ -23,54 +23,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   the ability's recipient is each player who plays the card, not only the
  *   Battlefield's controller.
  *
- * Status (cards/README.md §2, rechecked 2026-10-17): judge-required. The Predict
- * steps themselves are executable with merged primitives (the merged
- * effect.inspect + effect.recycle pair, executed in the golden; RIFT-269's
- * keyword actions map Predict through the same ops), but the triggered ability
- * cannot execute as written because these binding pieces are missing:
- * 1. "they" is the player who played the card — an event participant. The IR has
- *    no event-player selector: effect.inspect takes a PlayerId Expr, and no
- *    ObjectSelector / Expr reads the triggering event's player. Measured: with
- *    the authored body the look is negated, so the constant "event-player"
- *    below stays a documented placeholder, not executable data.
- * 2. "the first time they play a unit or gear here each turn" is per-player, per-
- *    turn, and restricted to plays at this Battlefield. The closed timing-point
- *    payload for card-played carries object + player but no play destination, so
- *    no filter can name "here"; TriggerSpec.once frequencies (per-turn /
- *    per-combat / per-chain / per-game) are keyed by one registration+source in
- *    events/pipeline.ts frequencyKey, not per event player.
- * 3. the binding layer is merged (programs/triggers.ts). On the normal path,
- *    translateTriggerFilter drops the sibling battlefield placeholder here:true
- *    before EventPipeline's strict validation, so the resulting registration
- *    validates but loses the "played here" restriction and can over-trigger.
- *    A real destination filter/payload is still required.
- * Order is preserved: Predict looks first, then the optional recycle of the
- * looked-at card (437.1), so the recycle is linked to the inspect step.
- * Dependencies: an event-player selector and per-player once frequency
- * (contract change request), a play-location payload/filter, and the production
- * registration path that feeds CardProgram triggers through
- * programs/triggers.ts (the adapter itself is merged).
+ * 2026-10-17 再复核：整卡仍为 judge-required；当前缺口见 judgeReason。
+ * 已合入原语与关键词声明不等于生产链路可执行；局部执行证据见同名单卡测试。
  */
 export default {
   canonicalCardId: "card.hash-1b896afb48233f602257054e1545c35265f320f21b47acd9ff53e914226707f7",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口（2026-10-17 复核，均不近似实现）：(1) 「they [Predict]」的接收者是事件玩家（打出该牌的玩家），" +
-    "IR 没有事件玩家选择器：effect.inspect 的 player 只接受 PlayerId 表达式，ObjectSelector/Expr 都读不到触发事件的 player" +
-    "（同 ogn/obelisk-of-power 的缺口）；实测按原样执行 body 时 look 被 negated，程序里的 \"event-player\" " +
-    "是缺选择器的占位值，不可执行。" +
-    "(2) 「the first time they play a unit or gear here each turn」是每名玩家、每回合一次、且限定打出到本战场：" +
-    "TriggerSpec.once 的频度键是单个 registration+source（events/pipeline.ts frequencyKey 用 source.ref），不是按事件玩家分别各一次；" +
-    "封闭的 card-played 载荷只带 object + player，不暴露打出目的地战场，filter 的 here: true 仍是 053.3 的占位" +
-    "（引擎 trigger-spec 校验器不接受该键）。" +
-    "(3) 绑定层已合入（programs/triggers.ts 的 triggerRegistrations/registerProgramTriggers）。" +
-    "正常路径先由 translateTriggerFilter 处理 filter，再进入 EventPipeline 的严格校验；实测 here: true " +
-    "会在翻译时被丢弃，随后生成的 registration 通过校验却失去「打出到此处」限制，可能过度触发。" +
-    "仍需真实的打出目的地过滤/载荷。" +
-    "Predict 本体（437.1/437.3.a/437.4）已用 effect.inspect + effect.recycle 表达并由 golden 真实执行。" +
-    "依赖：契约变更请求（事件玩家选择器 + per-player once + 打出地点载荷/过滤），" +
-    "以及具体打出地点过滤的绑定支持。",
+    "「they Predict」缺事件玩家表达式（event-player）：effect.inspect 的 player 无法读取触发事件玩家；TriggerSpec.once 的频度键是 registration+source+turn，仍缺 per-player once（CR 383.1、437.1）。" +
+    "card-played 的生产事件现在保留进场后的 object.location 和 fromZone/printed 来源信息；缺口不是完全没有 destination 信息，而是 programs/filters.ts 没有把「here」绑定为来源战场与事件对象位置的比较。translateTriggerFilter 在 object 分支丢弃 sibling here:true，故现有过滤会过度触发。" +
+    "本卡「每名玩家每回合第一次在此打出单位或装备」仍需来源相对地点过滤与按事件玩家分组的频度，不能用一个 per-turn 槽代替。Predict 的 inspect/recycle 已能执行，但当前 viewer 仍为占位值。",
   sourceText:
     "For each player, the first time they play a unit or gear here each turn, they [Predict]. " +
     "(They look at the top card of their Main Deck. They may recycle it.)",

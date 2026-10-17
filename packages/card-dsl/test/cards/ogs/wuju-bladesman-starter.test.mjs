@@ -85,7 +85,7 @@ test("ogs-019-024 Wuju Bladesman, Starter: the aura is gated, never an unconditi
 });
 
 test("ogs-019-024 Wuju Bladesman, Starter: the merged static binder fails closed on the defendsAlone guard", () => {
-  // The RIFT-257 static binding path is merged, and it refuses this card's
+  // The merged static binding path is present, and it refuses this card's
   // guard key before any layer effect is registered: staticFilter throws on
   // defendsAlone, so the aura can never be registered as an unconditional +2.
   const source = {
@@ -167,9 +167,9 @@ test("ogs-019-024 Wuju Bladesman, Starter: production staticFilter normalizes fr
 test.todo(
   "Wuju Bladesman, Starter: a friendly unit gets +2 Might exactly while it defends alone " +
     "(CR 363/364.3.a + 740.2.a: Defender designation from CR 466.2.c.3 with no other friendly " +
-    "unit at the same location) — blocked because layers/filter.ts reads neither the merged " +
-    "ObjectSnapshot.combatRole (contract 3.8) nor any same-location exclusion predicate, and " +
-    "staticFilter rejects defendsAlone (contract change request)"
+    "unit at the same location) — blocked because staticFilter rejects defendsAlone and the static " +
+    "aura has no binding for the recipient's combatRole or same-location friendly exclusion " +
+    "(contract change request)"
 );
 
 test.todo(

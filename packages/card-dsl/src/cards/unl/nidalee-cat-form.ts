@@ -24,23 +24,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 提示文字 "(I win if I remain after combat.)" 是提醒文本（135.2.d.3），不产生
  *   额外能力。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。Ambush 的 KeywordDef 已发布
- * play-location-permission 与 continuous.timing 两条声明，CardProgram → TriggerRegistration
- * 适配器也已合入。
- *
- * 仍缺三处（不近似实现）：
- * 1. [Ambush] 的 play-location-permission 展开仍没有 Finalize 的合法位置选择消费方；
- *    continuous.timing 的 Reaction 许可已经由 chain.canAct() 的 timing 查询读取。
- * 2. combat-result 时点没有生产者：docs/rules/timing-point-producers.md 把该时点记为
- *    “待后续——需要胜负/No Result 的权威 Combat cleanup 结果”；combat/flow.ts 仍在
- *    combat-start-transaction 抛出，combat-result 没有发射方。
- * 3. “我获胜”的绑定（468.3.c 的单位继承）需要 combat-result 载荷的 unitResults 与
- *    该战斗参与者的身份判定：合约 EventPattern 词汇没有这个绑定键（封闭枚举里没有
- *    combat-result 事件名，见 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES），
- *    本程序用占位键 result: "win" 保留印刷作用域，不把它当成已可求值。
- * body 的 draw 1（414.3）已合入，golden 用解释器 + 参考内核真实执行。
- * 依赖：play-location-permission/continuous.timing 的 Finalize 与 canAct 消费方、
- * combat 结果事务与 combat-result 事件的封闭词汇。
+ * 2026-10-17 复核：仍为 judge-required，当前缺口见 judgeReason。
+ * 已有原语、关键词定义或通用适配器不代表本卡完整生产路径可执行。
  */
 const abilities: Ability[] = [
   // 822：印刷的 [Ambush] 关键词声明（展开由关键词注册表负责）。
@@ -71,14 +56,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Ambush] 的 KeywordDef 与卡牌程序绑定已合入，但仍有三处缺口，均不近似实现：" +
-    "(1) [Ambush]（822.1.b/822.1.c、355.2.b）的 play-location-permission 展开没有 Finalize 的合法位置选择消费方；" +
-    "continuous.timing 的 Reaction 许可已经由 chain.canAct() 的 timing 查询读取。" +
-    "(2) combat-result 时点（CR 468.3.a-468.3.d；468.3.c 规定单位继承控制者的战斗结果）没有生产者：" +
-    "docs/rules/timing-point-producers.md 记为待后续，combat/flow.ts 仍在 combat-start-transaction 抛出。" +
-    "(3) “我获胜”的绑定需要该时点载荷的 unitResults/参与者身份，而封闭的 EventPattern 词汇（events/trigger-spec.ts 的 " +
-    "EVENT_PATTERN_TYPES）没有 combat-result 事件名也没有该绑定键，本程序用占位键 result: \"win\" 记录印刷作用域。" +
-    "draw 1（414.3）已合入并在 golden 中真实执行。",
+    "缺 Ambush 的 play-location-permission 到打出位置选择/Finalize 的绑定（822.1.b/822.1.c/822.3），不能仅凭 continuous.timing 已有 chain.canAct 消费方认定整项许可可用。" +
+    "缺 combat-result 的战斗结果生产者（468.3.a–468.3.d），combat/flow.ts 仍阻塞于 combat-start-transaction；" +
+    "封闭 EventPattern（EVENT_PATTERN_TYPES）没有 combat-result 事件名及 unitResults/参与单位胜负绑定，本卡 result: win 仍是声明形状（468.3.c）。",
   abilities,
   sourceText:
     "[Ambush] (You may play me as a [Reaction] to a battlefield where you have units.)\n" +

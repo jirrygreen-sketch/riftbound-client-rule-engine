@@ -1,3 +1,5 @@
+// Template execution evidence: ../templates/keyword-replacement-effect-ready-678.test.mjs.
+// False-condition and Tank regressions keep printed expectations under TODO.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -12,12 +14,6 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
-import {
-  createDuelBoard, placeDuelUnit, applyOpenDuelCleanup, beginDuelCombat
-} from "../../../../engine-core/dist/duel/battlefields.js";
-import {
-  createTrustedDuelBaseCombatFacts, planDuelBaseCombatDamage, validateDuelBaseCombatAllocation
-} from "../../../../engine-core/dist/combat/base-combat-allocation.js";
 
 const CARD_ID = "card.hash-74a101bf90abcf30478ceacbdf6a254627d4b912349d7ed3b6a76591368936a8";
 const SOURCE_TEXT =
@@ -225,7 +221,9 @@ const productionDeps = (f) => ({
   pipeline: f.engine.pipeline
 });
 
-test("sfd-176-221 Xin Zhao, Vigilant: the real entry path applies even when the ability condition is false", () => {
+test("sfd-176-221 Xin Zhao, Vigilant: a false ability condition must preserve exhausted entry", {
+  todo: "RIFT-260 follow-up: matchesEnterAction skips ability.condition (CR 364.3/369.3)"
+}, () => {
   // 364.3/369.3: the "if" clause gates the entry replacement itself. The
   // merged production binding (replacement/bind.ts matchesEnterAction) matches
   // on the replaces filter only and never evaluates ability.condition, so a
@@ -237,10 +235,12 @@ test("sfd-176-221 Xin Zhao, Vigilant: the real entry path applies even when the 
   resolveAll(f.engine);
 
   assert.equal(f.kernel.getObject("xin").zone, "board");
-  assert.equal(f.kernel.getObject("xin").exhausted, false);
+  assert.equal(f.kernel.getObject("xin").exhausted, true);
 });
 
-test("sfd-176-221 Xin Zhao, Vigilant: the entry condition must bind exclude:self to the entering incarnation", () => {
+test("sfd-176-221 Xin Zhao, Vigilant: the entry condition must bind exclude:self to the entering incarnation", {
+  todo: "RIFT-260 follow-up: one other base unit cannot satisfy the two-other-unit condition"
+}, () => {
   // Exactly one other friendly Base unit: the printed condition (>=2 others)
   // is false, so the unit must enter exhausted. The binding also keeps the
   // registration-time hostRef (zoneEntryId 1) while entry lands a new
@@ -292,67 +292,16 @@ test("sfd-176-221 Xin Zhao, Vigilant: the entry condition must bind exclude:self
   // ...but the registration-time incarnation fails to exclude the entering
   // unit and reports the wrong answer, and the merged entry path never asks.
   assert.equal(conditionHolds(f.kernel, registered), true);
-  assert.equal(entered.exhausted, false);
+  assert.equal(entered.exhausted, true);
 });
 
-test("sfd-176-221 Xin Zhao, Vigilant: the merged combat allocator still allows non-Tank damage first", () => {
-  // 815.1.b/815.1.c.2: a Tank unit must receive lethal damage before any other
-  // same-controller unit without Tank. The merged assignment kernel consumes a
-  // trusted source/effect proof but has no Tank priority consumer: it accepts
-  // keywordPriority: "proven-none" and validates a plan that damages the plain
-  // unit first.
-  let board = createDuelBoard({
-    selected: [
-      { playerId: "P1", instanceId: "field:1", cardId: "field-print:1" },
-      { playerId: "P2", instanceId: "field:2", cardId: "field-print:2" }
-    ],
-    removedByPlayer: [
-      { playerId: "P1", battlefields: [
-        { instanceId: "field:3", cardId: "field-print:3" },
-        { instanceId: "field:4", cardId: "field-print:4" }
-      ] },
-      { playerId: "P2", battlefields: [
-        { instanceId: "field:5", cardId: "field-print:5" },
-        { instanceId: "field:6", cardId: "field-print:6" }
-      ] }
-    ]
-  });
-  const fieldId = board.battlefields[0].locationId;
-  const unitMeta = {};
-  const mightByUID = new Map();
-  const place = (uid, might, controllerPlayerId) => {
-    board = placeDuelUnit(board, { objectId: uid, controllerPlayerId, locationId: fieldId });
-    unitMeta[uid] = { damageMarks: [] };
-    mightByUID.set(uid, might);
-  };
-  place("attacker", 4, "P1");
-  place("tank-unit", 3, "P2");
-  place("plain-unit", 3, "P2");
-  board = applyOpenDuelCleanup(board);
-  board = beginDuelCombat(board, fieldId);
-
-  const state = { stateVersion: 17, board, unitMeta };
-  const facts = createTrustedDuelBaseCombatFacts(17, fieldId, {
-    currentMight: (unit) => mightByUID.get(unit.uid),
-    proveBasicCombat: () => ({
-      currentMight: "validated",
-      assignmentModifier: "proven-none",
-      preventionReplacement: "proven-none",
-      keywordPriority: "proven-none"
-    })
-  });
-  const plan = planDuelBaseCombatDamage(state, fieldId, facts);
-  // The plan exposes only lethal needs; the Tank ordering requirement is gone.
-  assert.deepEqual(plan.attacker.targets.map((target) => target.uid), ["tank-unit", "plain-unit"]);
-  const allocation = validateDuelBaseCombatAllocation(plan, "P1", [
-    { uid: "plain-unit", amount: 3 },
-    { uid: "tank-unit", amount: 1 }
-  ]);
-  assert.deepEqual(allocation.assignments, [
-    { uid: "plain-unit", amount: 3 },
-    { uid: "tank-unit", amount: 1 }
-  ]);
-});
+// The old allocator probe supplied keywordPriority:"proven-none" itself and
+// never bound this card's Tank ability. That absent-consumer assertion is not
+// executable Tank evidence; preserve the required behavior as an explicit gap.
+test.todo(
+  "sfd-176-221 Xin Zhao, Vigilant: reject non-Tank damage first using real Tank-aware combat facts " +
+    "(CR 815.1.c.2; RIFT-264 follow-up: continuous.combat priority consumer is absent)"
+);
 
 test.todo(
   "Xin Zhao: consume Tank's continuous.combat priority during lethal-first combat damage assignment " +

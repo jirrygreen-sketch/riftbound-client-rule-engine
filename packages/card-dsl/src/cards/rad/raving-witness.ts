@@ -20,26 +20,12 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  * - "If it's [Mighty], draw it"：707 / 708 的 Mighty = 有效 Might ≥ 5；710 在场上按
  *   当前 Might 判定，711 在非棋盘区域按印刷 Might 判定——本例被揭的牌在牌库（非棋盘
  *   区域），因此按印刷 Might 判定。"draw it" 是把**这一张**（不是牌库顶随机一张）
- *   拿到手，由 effect.zone 的 pick → hand 完成（414.1 的抽牌要求"取牌库顶"，这里已
- *   经通过 reveal 锁定了具体对象，所以用移动而不是 effect.draw）。
+ *   拿到手并执行 Draw；effect.zone 的 pick → hand 只覆盖对象移动，不能证明 Draw
+ *   的事件与替代语义（414.1.a），因此该子效果不支持升级整卡状态。
  * - "Otherwise, recycle it"：417.1 / 417.1.a 的 Recycle 把牌放到其拥有者主牌库**底部**。
  *
- * 状态：judge-required（2026-10-17 实测复核）。
- * 已可执行的部分：Mighty 判定按 707/708 的阈值 5 用锁定对象的比较条件表达，
- * 非棋盘对象按印刷 Might 判定（711）；实测把牌库顶对象交给解释器后，Might 6 与 5 走
- * draw 半段（return-to-hand，牌进手牌），Might 4 与 1 走 recycle 半段（牌回牌库底），
- * 两条互斥条件各自 correct。揭示（effect.reveal，pick 形式）与两个半段的原语都可执行。
- * 剩余缺口（两条都实测，不近似实现）：
- * 1. 触发词表：object-moved 不在引擎 EVENT_PATTERN_TYPES（实测 validateTriggerSpec
- *    返回 invalid-event-type；时点本身存在于 timing-points.ts，action-adapter 也把
- *    move-location 映射到该时点）。translateTriggerFilter 能翻译 {source:'self'}，
- *    但注册会被严格校验 fail-closed 拒绝，所以"When I move"绑不上。
- * 2. 契约 3.9 的控制结构只有 sequence / repeat / choice.optional / choice.mode，没有
- *    if/otherwise 节点。当前两条互斥 condition 指令在单次结算的测试里各自正确，但
- *    引擎没有保证"否则"分支的条件读取与展示时锁定的是同一份快照；正式分支语义需要
- *    契约层的 if/otherwise（或等价的 result 谓词）支持，故不把整卡标为 executable。
- * 不近似实现：Mighty 已按 707/708/711 用阈值比较表达，也不把"draw it"
- *   写成 effect.draw（那会变成抽牌库顶，而不是抽已揭示的那一张）。
+ * 2026-10-17 再复核：整卡仍为 judge-required；当前缺口见 judgeReason。
+ * 已合入原语与关键词声明不等于生产链路可执行；局部执行证据见同名单卡测试。
  */
 
 const revealTop: Instruction = {
@@ -52,12 +38,48 @@ const revealTop: Instruction = {
   picks: [
     {
       id: "raving-witness.top-card",
-      options: ["top-card-of-controller-main-deck"],
-      min: 1,
-      max: 1,
-      selection: "one"
+      options: [],
+      ordered: true,
+      selection: "all",
+      zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 1 } }
     }
   ]
+};
+
+// Compute the branch once before either zone change. Non-units and units with
+// no printed Might are not Mighty; never coerce a null characteristic to zero.
+const checkMighty: Instruction = {
+  id: "raving-witness.check-mighty",
+  op: "condition.predicate",
+  linkedTo: "raving-witness.reveal-top",
+  args: {
+    condition: {
+      kind: "constant",
+      value: {
+        kind: "all",
+        conditions: [
+          {
+            kind: "compare",
+            left: { kind: "count", subject: "objects", filter: { type: "unit", object: { linked: "raving-witness.reveal-top" } } },
+            operator: "gt",
+            right: { kind: "constant", value: 0 }
+          },
+          {
+            kind: "compare",
+            left: { kind: "object-property", object: { linked: "raving-witness.reveal-top" }, property: "might" },
+            operator: "ne",
+            right: { kind: "constant", value: null }
+          },
+          {
+            kind: "compare",
+            left: { kind: "object-property", object: { linked: "raving-witness.reveal-top" }, property: "might" },
+            operator: "gte",
+            right: { kind: "constant", value: 5 }
+          }
+        ]
+      }
+    }
+  }
 };
 
 /** "If it's [Mighty], draw it."（707/708/711：牌库中的牌按印刷 Might ≥ 5 判定）。 */
@@ -66,14 +88,9 @@ const drawIfMighty: Instruction = {
   op: "effect.zone",
   linkedTo: "raving-witness.reveal-top",
   condition: {
-    kind: "compare",
-    left: {
-      kind: "object-property",
-      object: { linked: "raving-witness.reveal-top" },
-      property: "might"
-    },
-    operator: "gte",
-    right: { kind: "constant", value: 5 }
+    kind: "result",
+    result: "raving-witness.check-mighty",
+    key: "value"
   },
   args: {
     pick: { kind: "constant", value: "raving-witness.revealed-card" },
@@ -83,16 +100,10 @@ const drawIfMighty: Instruction = {
   picks: [
     {
       id: "raving-witness.revealed-card",
-      options: [
-        {
-          kind: "linked-value",
-          instructionId: "raving-witness.reveal-top",
-          key: "revealed"
-        }
-      ],
-      min: 1,
-      max: 1,
-      selection: "one"
+      options: [],
+      ordered: true,
+      selection: "all",
+      linked: { kind: "linked-value", instructionId: "raving-witness.reveal-top", key: "revealed" }
     }
   ]
 };
@@ -103,14 +114,8 @@ const recycleOtherwise: Instruction = {
   op: "effect.recycle",
   linkedTo: "raving-witness.reveal-top",
   condition: {
-    kind: "compare",
-    left: {
-      kind: "object-property",
-      object: { linked: "raving-witness.reveal-top" },
-      property: "might"
-    },
-    operator: "lt",
-    right: { kind: "constant", value: 5 }
+    kind: "not",
+    condition: { kind: "result", result: "raving-witness.check-mighty", key: "value" }
   },
   args: {
     objects: {
@@ -129,7 +134,7 @@ const abilities: Ability[] = [
       filter: { event: "object-moved", filter: { source: "self" } }
     },
     optional: false,
-    body: [revealTop, drawIfMighty, recycleOtherwise]
+    body: [revealTop, checkMighty, drawIfMighty, recycleOtherwise]
   }
 ];
 
@@ -139,19 +144,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "Mighty 判定本身已可执行：707/708 的阈值是 5，当前分支用锁定对象的 compare 条件表达，" +
-    "condition.predicate 也能执行 mightyCondition 的同一比较语义；非棋盘区域按 711 使用印刷 Might。" +
-    "实测证据：把牌库顶对象交给解释器后，印刷 Might 6 与 5 走 draw 半段（return-to-hand，牌进手牌），" +
-    "Might 4 与 1 走 recycle 半段（牌回牌库底），effect.reveal 的 pick 形式与两个半段原语都真实执行。" +
-    "剩余两条缺口（均实测）：(1) 触发词表——object-moved 不在引擎 EVENT_PATTERN_TYPES，" +
-    "validateTriggerSpec 实测 invalid-event-type（时点本身存在，action-adapter 也把 move-location 映射到该时点），" +
-    "translateTriggerFilter 虽能翻译 {source:'self'} 但注册被严格校验 fail-closed 拒绝。" +
-    "(2) 契约 3.9 的控制结构只有 sequence / repeat / choice.optional / choice.mode，没有 if/otherwise 分支节点；" +
-    "两条互斥 condition 指令在单次结算里各自正确，但引擎没有保证「否则」分支与展示锁定同一份快照，" +
-    "正式分支语义需要契约层的 if/otherwise 或等价的 result 谓词支持。" +
-    "结构已写出：object-moved 触发 + effect.reveal（pick 形式，牌库顶按真实顺序取）+ effect.zone to hand + effect.recycle to deck bottom。" +
-    "依赖：object-moved 事件词表接线与 if/otherwise 契约缺口。" +
-    "Mighty 使用 707/708/711 的阈值比较，不把「draw it」写成 effect.draw。",
+    "「When I move」的 object-moved 时点与 move-location 生产映射已合入，但 EVENT_PATTERN_TYPES 尚无该事件；validateTriggerSpec 返回 invalid-event-type，真实触发注册仍被拒绝（CR 421.1、449）。" +
+    "Mighty（707/708/711）可由 condition.predicate 计算一次，并用已合入的 condition.result 选择 if/otherwise 分支；不再依赖不存在的专用 if/otherwise 节点。显式 zoneSlice 与 linked pick 已替换牌库顶字符串占位。" +
+    "「draw it」还缺以已揭示引用为对象的 Draw 动作/原语：现有 effect.draw 只能抽当前牌库顶或选抽牌者，effect.zone to hand 实际产生 return-to-hand，不能作为 Draw 的事件、替代与触发证据（414.1.a）。" +
+    "当前有序 pick 在 Finalize 锁定引用，而本卡要求 Resolve 时揭示当时牌库顶；还需 Resolve 时有序来源捕获。保留 effect.zone 仅验证已揭牌移动至手牌的子效果，整卡保持 judge-required。",
   abilities,
   sourceText:
     "When I move, reveal the top card of your Main Deck. If it's [Mighty], draw it. Otherwise, recycle it. (A unit is Mighty while it has 5+ :rb_might:.)"

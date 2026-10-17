@@ -63,7 +63,7 @@ test("ven-089-166 Wild Claw: judgeReason names the cost reduction, the 'it' refe
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /356\.1\.c/);
   assert.match(program.judgeReason, /356\.6/);
-  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /有序 picks/);
   assert.doesNotMatch(program.judgeReason, /RIFT-9|RIFT-89|RIFT-90/);
   assert.match(program.judgeReason, /effect\.play/);
   assert.match(program.judgeReason, /effect\.empower/);
@@ -273,5 +273,5 @@ test.todo(
 test.todo(
   "ven-089-166 Wild Claw: restrict the inspected choice to a unit or gear (CR 417.6-style type restriction) — " +
     "effect.inspect's resolve-time choose does not read the PickSpec filter, so the declared filter is descriptive " +
-    "until the ordered-pick/filter consumer from RIFT-358 is complete"
+    "until an ordered-pick/filter consumer is available"
 );

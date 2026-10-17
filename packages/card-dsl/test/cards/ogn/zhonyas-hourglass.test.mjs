@@ -202,55 +202,6 @@ test("zhonyas-hourglass: the static replacement shape has no one-shot window", (
   assert.equal(registration.matches(secondKill, secondKill), true);
 });
 
-test("zhonyas-hourglass: the replacement.event window cannot carry a CardProgram's instead body", () => {
-  // The wrapper that owns the one-shot window requires a raw instruction array
-  // in args.instead; the frozen CardProgram Instruction.args are Expr. A bare
-  // array is rejected by validateCardProgram, and a constant wrapper reaches
-  // the binder as the wrong shape.
-  const register = (instead, window = "next-time-this-turn") => ({
-    id: "zhonyas-hourglass.window",
-    op: "replacement.event",
-    args: {
-      event: literal({ event: "object-killed" }),
-      window: literal(window),
-      instead
-    }
-  });
-  const withBody = body => ({
-    ...program,
-    abilities: [{ kind: "keyword", keyword: "hidden" }, { ...replacement, with: body }]
-  });
-
-  const bare = validateCardProgram(withBody([register([killThis])]));
-  assert.equal(bare.ok, false);
-  assert.deepEqual(
-    bare.issues.map(issue => [issue.path, issue.code]),
-    [["$.abilities[1].with[0].args.instead", "invalid-expression"]]
-  );
-
-  // The only other shape the IR admits binds to the wrong kind of value.
-  const { kernel, hostRef } = hourglassWorld();
-  const pipeline = { clock: { turn: 1 }, registerReplacement() {}, unregisterReplacement() {} };
-  assert.throws(
-    () => bindReplacement(
-      { replaces: replacement.replaces, with: [register(literal([killThis]))] },
-      hostRef,
-      { host: { object: ref => kernel.getObject(ref.id), objects: () => kernel.objects, context: () => kernel }, pipeline }
-    ),
-    /replacement\.event instead must be an instruction body/
-  );
-
-  // The window vocabulary has no unbounded one-shot either.
-  assert.throws(
-    () => bindReplacement(
-      { replaces: replacement.replaces, with: [register([killThis], "next-time")] },
-      hostRef,
-      { host: { object: ref => kernel.getObject(ref.id), objects: () => kernel.objects, context: () => kernel }, pipeline }
-    ),
-    /Unsupported replacement\.event window value/
-  );
-});
-
 test("zhonyas-hourglass: [Hidden]'s cost.hidden declaration has no layer consumer", () => {
   // 811.1.b / 811.1.c.2: hiding and the facedown play path need a consumer for
   // the declared static cost.hidden effect; the production binder refuses it at
@@ -292,9 +243,9 @@ test("zhonyas-hourglass golden: a blocked Recall attempt leaves the unit's locat
 });
 
 test.todo(
-  "zhonyas-hourglass: encode the printed 'the next time' one-shot lifetime using the " +
-    "replacement.event window; the current frozen replacement ability shape cannot carry its raw instead instruction array " +
-    "(CardProgram stores Instruction.args as Expr while bindReplacement requires a bare array)"
+  "zhonyas-hourglass: encode the printed 'the next time' one-shot lifetime with a static replacement " +
+    "window that survives across turns; the current replacement ability shape only binds permanent " +
+    "static registrations, while replacement.event runtime dependencies are unavailable to the ordinary card ResolveContext"
 );
 
 test.todo(

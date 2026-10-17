@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/rogue-assassin.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 // effect.move / effect.ready 的 v1 原语接口要求 Expr 参数：合并解释器的普通分发会先
 // 求值再解析，只有生产链适配器（chain/interpreter-adapter.ts，ChainEngine 使用）会把
 // 原始 Expr 交给原语的 argsSchema。golden 用该真实生产路径执行。
@@ -32,14 +33,31 @@ test("ven-139-166 Rogue Assassin: validateCardProgram passes and identity is ver
   assert.match(program.judgeReason, /your turn/);
   assert.match(program.judgeReason, /Empowered/);
   assert.match(program.judgeReason, /showdown/);
-  // The reason states the current registry fact (no Empower KeywordDef) instead
-  // of citing the already-merged keyword batches.
-  assert.match(program.judgeReason, /注册表当前没有 Empower/);
+  assert.match(program.judgeReason, /KeywordAbility/);
 });
 
-test("ven-139-166: the [Empower] keyword is declared only, never expanded", () => {
+test("ven-139-166: the [Empower] keyword is declared and its merged definition accepts a printed CostSpec", () => {
   // README 第 5 节：关键词只声明身份；展开属于 effects/keywords/<keyword>.ts。
   assert.deepEqual(empower, { kind: "keyword", keyword: "empower" });
+  const definition = keywordDefinitionsById.get("Empower");
+  assert.ok(definition, "effects/keywords/Empower.ts must be registered");
+  const [expanded] = definition.expand({
+    host: { canonicalCardId: CANONICAL_ID },
+    params: {
+      cost: {
+        kind: "activated",
+        energy: { kind: "constant", value: 3 },
+        payments: [{
+          kind: "power",
+          amount: { kind: "constant", value: 1 },
+          allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]
+        }]
+      }
+    }
+  });
+  assert.equal(expanded.kind, "activated");
+  assert.deepEqual(expanded.cost.energy, { kind: "constant", value: 3 });
+  assert.deepEqual(expanded.cost.payments[0].allowedDomains, ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]);
 });
 
 test("ven-139-166: [Action][>] exhaust ability with the sentence-scoped sequence", () => {
@@ -101,8 +119,10 @@ test("ven-139-166: 'if I'm [Empowered], ready it' reuses the move receipt", () =
   assert.equal(ready.op, "effect.ready");
   // 135.2.b.5.b：第二个条件只作用于紧随其后的指令。
   assert.deepEqual(ready.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "is-empowered" }
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
   });
   // “it” = 前一条指令移动的那个单位：消费 effect.move 的 moved 回执（{ count, objects }）。
   assert.deepEqual(ready.args.objects, {
@@ -117,8 +137,8 @@ test("ven-139-166: 'if I'm [Empowered], ready it' reuses the move receipt", () =
 
 /**
  * 执行用的 body：只保留两个已合入子效果本身。
- * - 去掉描述性条件（your-turn / is-empowered）：合并解释器会把这些占位字符串当作
- *   truthy 常量求值，等于伪造谓词语义，因此不执行；
+ * - 去掉尚未有生产上下文的条件（your-turn / self.empowered）：参考内核快照缺少回合归属
+ *   和 empowered 字段时必须失败闭合，因此 golden 只执行已合入的 move/ready 子效果；
  * - 去掉 TargetSpec：过滤器里的 inShowdown 是描述性键，合并目标系统按过滤器重验时
  *   会拒绝该目标（ObjectFilter 没有该字段），因此改由内核锁定目标，原语经
  *   ctx.targets(id) 读取（effect.move 的 target 选择器语义）。
@@ -203,9 +223,8 @@ test("ven-139-166 golden: a stale move target makes both instructions ignored (3
 });
 
 test.todo(
-  "ven-139-166: [Empower] :rb_energy_3::rb_rune_rainbow: — no Empower KeywordDef is merged " +
-    "(the keyword registry currently has no Empower expansion) and [A] Universal Power is not representable in the " +
-    "closed six-domain union (CR 163.2.b)"
+  "ven-139-166: pass the printed 3 Energy + 1 [A] Empower cost into the registered KeywordDef " +
+    "through KeywordAbility/programs/keywords.ts params.cost; the six-domain [A] payment shape itself is supported"
 );
 
 test.todo(
@@ -214,8 +233,8 @@ test.todo(
 );
 
 test.todo(
-  "ven-139-166: \"if I'm [Empowered]\" — ObjectSnapshot (contract 3.6) does not expose the " +
-    "Empowered status (effect.empower.ts records the same contract gap)"
+  "ven-139-166: \"if I'm [Empowered]\" — the card now uses compare(object-property(self, empowered)), " +
+    "but production ObjectSnapshot does not expose the live empowered count"
 );
 
 test.todo(

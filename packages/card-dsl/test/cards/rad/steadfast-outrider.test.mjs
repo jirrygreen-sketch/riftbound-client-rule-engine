@@ -1,3 +1,14 @@
+// RIFT-670 single-card golden: validation, identity, judgeReason and the key
+// structure of Steadfast Outrider. Real execution evidence for this card (the
+// whole-card scenario through the generic card harness plus the measured
+// outcome of binding both expanded static abilities) lives in
+// `test/cards/templates/keyword-static-670.test.mjs`.
+//
+// The card stays judge-required: the +2 Might aura registers in the arithmetic
+// layer, but its condition reaches `layers/filter.ts` with `controller:
+// "controller"`, which is never resolved to the source's controller, so the
+// Might stays at the printed 3; Tank's combat-allocation consumer is still
+// `proven-none`. Nothing here approximates either half.
 import assert from "node:assert/strict";
 import test from "node:test";
 

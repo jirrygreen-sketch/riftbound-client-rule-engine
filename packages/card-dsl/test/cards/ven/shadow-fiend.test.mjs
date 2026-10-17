@@ -1,3 +1,4 @@
+// RIFT-672 execution evidence: ../templates/keyword-static-672.test.mjs (supported paths only).
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -35,7 +36,7 @@ test("ven-014-166 Shadow Fiend: identity, ruleset, status, judgeReason and verba
   // The grant primitive and its merged static binder are merged; the remaining
   // execution gap is the Empowered gate predicate and the card-side cost wiring.
   assert.match(program.judgeReason, /bindStatic/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /ObjectSnapshot/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -58,10 +59,12 @@ test("ven-014-166 Shadow Fiend: the Empowered dependent ability grants Assault 3
   });
   // 卡内只声明关键词，不重写 Assault 的展开（契约 3.7 / README 第 5 节）。
   assert.equal(assault.effect.amount, undefined);
-  // 828.1.c 的门控用显式谓词占位，不手写状态判定；不把依赖能力写成无条件能力。
+  // 828.1.c 的门控读取来源当前 Empowered 状态；不把依赖能力写成无条件能力。
   assert.deepEqual(assault.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "empowered" }
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
   });
 });
 
@@ -89,13 +92,13 @@ test("ven-014-166 Shadow Fiend golden: the production static binder installs Ass
 });
 
 test.todo(
-  "ven-014-166 Shadow Fiend: activate [Empower] for 2 Energy + 1 Fury Power (827.1.c.1) with the " +
-    "'use only if not Empowered' restriction — needs the Empower/Empowered KeywordDef and the " +
-    "card-side cost-plan wiring"
+  "ven-014-166 Shadow Fiend: pass the printed 2 Energy + 1 Fury Power Empower cost through " +
+    "KeywordAbility/programs/keywords.ts params.cost; the registered KeywordDef already supplies " +
+    "the 'use only if not Empowered' restriction"
 );
 test.todo(
   "ven-014-166 Shadow Fiend: [Assault 3] while Empowered through the layers engine — needs a " +
     "card-side continuous.grant-keyword op plus the card-side registration entry point; the grant " +
-    "itself installs through the merged static binder, while the 828.1.c Empowered gate " +
-    "still needs the status predicate (RIFT-359, in flight)"
+    "itself installs through the merged static binder, while production ObjectSnapshot still " +
+    "lacks the live empowered count used by the gate"
 );

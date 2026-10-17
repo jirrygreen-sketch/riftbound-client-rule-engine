@@ -18,7 +18,10 @@ const abilities: Ability[] = [
         args: {
           amount: { kind: "constant", value: 4 },
           duration: { kind: "constant", value: "this-turn" },
-          target: { kind: "constant", value: "decree-of-focus.friendly-unit" }
+          objects: {
+            kind: "constant",
+            value: { kind: "target", id: "decree-of-focus.friendly-unit" }
+          }
         },
         targets: [
           {
@@ -48,7 +51,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺目标的复合关系谓词：740.2.c 的 in combat 虽已有 combatRole 状态，但还需“与敌方 Fury 单位交战”的关系及领域成员判断，或读取敌方 Fury 法术正在选择本单位的链目标计划；ResolveContext 不暴露该目标计划，TargetSpec.filter 未支持此析取（RIFT-359）。targetRestriction 只是描述。",
+    "仍缺目标的复合关系谓词：740.2.c 的 in combat 虽已有 combatRole 状态，但还需“与敌方 Fury 单位交战”的关系及领域成员判断，或读取敌方 Fury 法术正在选择本单位的链目标计划；该目标计划属于引擎内部，TargetSpec.filter 未支持此析取（RIFT-359）。targetRestriction 只是描述，生产过滤器适配器会拒绝该字段；+4 Might 正文已按原始 objects 选择器经解释器执行，不代表目标限制可执行。",
   abilities,
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
@@ -86,12 +89,17 @@ test("ven-021-166 Akali: the damage instruction records the Empowered-dependent 
   ]);
   assert.equal(dealDamage.op, "effect.damage");
   // "deal 1 … If I'm [Empowered], deal 2 instead": the replacement amount is
-  // gated on the host's Empowered status (442.1.a), which has no evaluable
-  // predicate in the frozen IR. Nothing is hard-coded: the read is descriptive
-  // and fails closed as missing information instead of inventing a branch.
-  assert.equal(dealDamage.args.amount.kind, "object-property");
-  assert.equal(dealDamage.args.amount.property, "empoweredReplacementDamage");
-  assert.equal(dealDamage.args.amount.object, "source");
+  // gated on the host's live Empowered status (442.1.a). A count above one
+  // still replaces 1 with 2, rather than scaling damage by the count.
+  assert.deepEqual(dealDamage.args.amount, {
+    kind: "arithmetic", operator: "add", operands: [
+      { kind: "constant", value: 1 },
+      { kind: "arithmetic", operator: "min", operands: [
+        { kind: "constant", value: 1 },
+        { kind: "object-property", object: "self", property: "empowered" }
+      ] }
+    ]
+  });
   assert.deepEqual(dealDamage.args.target, {
     kind: "constant",
     value: "akali.unit-at-moved-battlefield"
@@ -121,8 +129,10 @@ test("ven-021-166 Akali: the [Empowered] Might bonus is a gated arithmetic-layer
   assert.deepEqual(mightBonus.effect.amount, { kind: "constant", value: 1 });
   assert.equal(mightBonus.effect.appliesTo, "self");
   assert.deepEqual(mightBonus.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "empowered" }
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
   });
 });
 
@@ -140,13 +150,12 @@ test("ven-021-166 golden: declining the may wraps the whole damage half away", (
   assert.deepEqual(kernel.events, []);
 });
 
-test("ven-021-166 Akali: accepting the may cannot invent the Empowered replacement amount", () => {
+test("ven-021-166 Akali: accepting the may without a bound movement target leaves the unit undamaged", () => {
   const kernel = akaliWorld();
   kernel.setAnswers({ [OPTIONAL_ID]: true });
 
-  // The nested damage instruction reads a characteristic that does not exist on
-  // the source snapshot, so it is ignored as missing information: no damage is
-  // dealt and no amount is guessed (contract 3.6 / 359.3.e.6).
+  // No movement-location target is bound, so accepting the optional action
+  // cannot damage an unrelated unit (contract 3.6 / 359.3.e.6).
   const outcome = runAbilityBody(moveTrigger.body, kernel);
   assert.equal(kernel.getObject("enemy").damage, 0);
   assert.deepEqual(kernel.events, []);
@@ -160,7 +169,7 @@ test("ven-021-166 Akali: accepting the may cannot invent the Empowered replaceme
 
 test("ven-021-166 golden: continuous.might really adds +1 Might through the merged primitive (RIFT-258)", () => {
   // [Empowered][>] I have +1 :rb_might:. — the primitive itself is merged
-  // (RIFT-258); the Empowered gate is the remaining judge-required dependency.
+  // (RIFT-258); the original gated static is exercised separately below.
   // This golden runs the card's own static effect shape through the real
   // interpreter + test kernel, then projects through the layers engine.
   const kernel = world()
@@ -190,21 +199,90 @@ test("ven-021-166 golden: continuous.might really adds +1 Might through the merg
   assert.equal(layers.evaluate(context.ref("akali-deadly-weapon")).might, 4);
 });
 test.todo(
-  "ven-021-166 Akali: [Empower] 2 Energy + 1 Fury Power expansion (827.1.c.1 activation cost, 'use " +
-    "only if not Empowered' restriction) needs an Empower/Empowered KeywordDef — none is merged"
+  "ven-021-166 Akali: bind printed 2 Energy + 1 Fury Power through KeywordAbility.params.cost and expandProgram (827.1.c.1)"
 );
 
 test.todo(
-  "ven-021-166 Akali: 'If I'm [Empowered], deal 2 instead' needs an Empowered status predicate " +
-    "(442.1.a) that Condition/object-property can evaluate (RIFT-87/RIFT-91)"
+  "ven-021-166 Akali: authoritative Empowered snapshot and binary-state action semantics across production adapters (442.1.a-c)"
 );
 
 test.todo(
-  "ven-021-166 Akali: 'a battlefield I moved to or from' needs the move event's from/to location " +
-    "payload (449.1/449.2) plus the object-moved source binding (RIFT-120)"
+  "ven-021-166 Akali: bind object-moved origin/destination LocationRefs into movedToOrFrom target selection (449.1/449.2; Recall excluded by 458.1)"
 );
 
 test.todo(
-  "ven-021-166 Akali: '[Empowered][>] I have +1 :rb_might:.' needs the Empowered status predicate " +
-    "(442.1.a) to gate the merged continuous.might primitive (golden proves the +1 itself executes) "
+  "ven-021-166 Akali: integrate the tested dependent +1 Might clause with the printed-cost Empower activation (827.1.c.1 / 828.1.b.1)"
 );
+
+// The card remains judge-required: this binds only its supported static clause.
+// State changes use real actions; the original static ability is never rewritten.
+test("akali-deadly-weapon: the dependent static follows live Empower and Disempower actions", () => {
+  const { kernel, engine } = fixture({ cards: [{
+    id: "host", cardId: program.canonicalCardId, types: ["unit"],
+    might: 3, energy: null, power: null
+  }] });
+  assert.equal(engine.commit({
+    type: "move-zone", object: kernel.ref("host"), to: "battlefield",
+    location: { type: "battlefield", id: "bf-gate" }
+  }).status, "done");
+  const binding = createEngineStaticBinder(engine).bindStatic(mightBonus, kernel.getObject("host"));
+  let snapshot = engine.layers.snapshot(kernel.ref("host"));
+  assert.equal(snapshot.might, 3);
+  assert.equal(snapshot.energy, null);
+  assert.equal(snapshot.power, null);
+
+  assert.equal(engine.commit({ type: "empower", object: kernel.ref("host") }).status, "done");
+  snapshot = engine.layers.snapshot(kernel.ref("host"));
+  assert.equal(snapshot.empowered, 1);
+  assert.equal(snapshot.might, 4);
+
+  assert.equal(engine.commit({ type: "disempower", object: kernel.ref("host") }).status, "done");
+  snapshot = engine.layers.snapshot(kernel.ref("host"));
+  assert.equal(snapshot.empowered, 0);
+  assert.equal(snapshot.might, 3);
+  assert.deepEqual(engine.pipeline.events.filter(event => event.timingPoint === "empowered-changed")
+    .map(event => event.action.type), ["empower", "disempower"]);
+  binding.unbind();
+});
+
+test("akali-deadly-weapon: the merged Empower definition expands through the real program adapter", () => {
+  const kernel = world().unit("keyword-host", {
+    cardId: program.canonicalCardId, energy: null, power: null
+  }).build();
+  const { expanded } = expandProgram(program, kernel.getObject("keyword-host"));
+  assert.equal(expanded.length, 1);
+  const [activation] = expanded;
+  assert.equal(activation.kind, "activated");
+  assert.equal(activation.timing, "action");
+  // The missing printed-cost bridge must never turn this into a free activation.
+  assert.deepEqual(activation.cost, { kind: "empower" });
+  assert.deepEqual(activation.restriction, { kind: "empower", condition: {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq", right: { kind: "constant", value: 0 }
+  } });
+  assert.equal(activation.body[0].id, `empower:${program.canonicalCardId}`);
+  assert.equal(activation.body[0].op, "effect.empower");
+  assert.deepEqual(activation.body[0].args, { amount: { kind: "constant", value: 1 } });
+  assert.deepEqual(activation.body[0].condition, activation.restriction.condition);
+  assert.equal(activation.body[0].targets, undefined);
+  assert.equal(program.status, "judge-required");
+});
+
+test("ven-021-166 Akali: the actual damage expression deals 1, or 2 while Empowered", () => {
+  for (const empowered of [false, true]) {
+    const kernel = akaliWorld();
+    const context = kernel.clone({ sourceSnapshot: kernel.getObject("akali") });
+    if (empowered) {
+      assert.equal(context.perform({ type: "empower", object: context.ref("akali") }).status, "done");
+    }
+    // Only the supported damage subeffect: movement-location targeting remains blocked.
+    const { targets, ...damageSubeffect } = dealDamage;
+    context.setTargets(targets[0].id, [context.ref("enemy")]);
+    const result = resolveChainBody([damageSubeffect], context);
+    assert.equal(result.status, "executed");
+    assert.equal(result.results[0].result.status, "executed");
+    assert.equal(context.getObject("enemy").damage, empowered ? 2 : 1);
+    assert.deepEqual(result.events.map(event => event.action), ["damage"]);
+  }
+});

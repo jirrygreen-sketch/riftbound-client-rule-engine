@@ -5,10 +5,11 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import showstopper from "../../../dist/cards/ogn/showstopper-sett.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.js";
-import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { finalizeTargetPlan } from "../../../../engine-core/dist/target/target-plan.js";
 
 const CANONICAL = "card.hash-b22bcf86e002f1a9a45cb4011a53cb3377c815e03ab16283a99130fec4987f95";
@@ -25,19 +26,16 @@ test("Showstopper program is structurally valid EffectIR v2 data", () => {
   assert.equal(result.ok, true);
 });
 
-test("Showstopper identity, ruleset, status, printed text and judgeReason", () => {
+test("Showstopper identity, ruleset, executable status and printed text", () => {
   assert.equal(showstopper.canonicalCardId, CANONICAL);
   assert.equal(showstopper.rulesetVersion, "core-1.5");
-  assert.equal(showstopper.status, "judge-required");
+  assert.equal(showstopper.status, "executable");
   assert.equal(
     showstopper.sourceText,
     "Buff a friendly unit in your base, then move it to a battlefield. " +
       "(If it doesn't have a buff, it gets a +1 :rb_might: buff.)"
   );
-  // The judgeReason must name the remaining concrete gap.
-  assert.match(showstopper.judgeReason, /controller-relative|target\.location/);
-  assert.match(showstopper.judgeReason, /355\.4/);
-  assert.match(showstopper.judgeReason, /effect\.move/);
+  assert.equal(showstopper.judgeReason, undefined);
   assert.equal(cardRegistryById.get(showstopper.canonicalCardId), showstopper);
 });
 
@@ -81,15 +79,16 @@ test("Showstopper structure: Buff the base unit, then move that same locked unit
     value: { target: "friendly-unit-in-base" }
   });
   assert.equal(moveInstruction.targets, undefined);
-  // "to a battlefield" — the Destination is a Finalize-time runtime choice the
-  // frozen IR can only mark (355.4.a), exactly as the merged Charm program does.
+  assert.deepEqual(moveInstruction.locations, [{
+    id: "showstopper.destination",
+    type: "battlefield",
+    min: 1,
+    max: 1,
+    selection: "one"
+  }]);
   assert.deepEqual(moveInstruction.args.to, {
-    kind: "constant",
-    value: {
-      kind: "choose",
-      id: "showstopper.destination",
-      options: ["runtime:legal-battlefield-destination"]
-    }
+    kind: "location",
+    value: { kind: "target-location", target: "showstopper.destination" }
   });
 });
 
@@ -162,69 +161,66 @@ test("Showstopper golden: the Buff half runs from the program body through the i
   assert.deepEqual(outcome.events.map(event => event.action), ["buff"]);
 });
 
-test("Showstopper golden: the Move half sends the same unit to a battlefield", () => {
-  // The production caller owns the runtime Destination (355.4.a); this pins the
-  // primitive half with a real battlefield and the unit the Buff half chose.
-  const kernel = world().unit("unit", { owner: "A", exhausted: true, location: BASE("A") }).build();
-  const run = runInstruction(
-    move,
-    {
-      objects: moveInstruction.args.objects,
-      to: { kind: "constant", value: BATTLEFIELD("bf1") }
-    },
-    {
-      world: kernel,
-      targets: { "friendly-unit-in-base": [kernel.ref("unit")] }
-    }
-  );
+test("Showstopper golden: the production body buffs the base unit and moves it to the selected battlefield", () => {
+  const kernel = world()
+    .unit("unit", { owner: "A", exhausted: true, location: BASE("A") })
+    .unit("battlefield-1-occupant", { owner: "B", controller: "B", location: BATTLEFIELD("battlefield-1") })
+    .unit("battlefield-2-occupant", { owner: "B", controller: "B", location: BATTLEFIELD("battlefield-2") })
+    .build();
+  kernel.setTargets("friendly-unit-in-base", [kernel.ref("unit")]);
+  kernel.setAnswers({
+    "move-buffed-unit/location%3Ashowstopper.destination": BATTLEFIELD("battlefield-2")
+  });
+  // The reference TestWorld does not normalize the authored controller-relative
+  // filter, so the production caller's already-finalized target is supplied and
+  // the target declaration is omitted from this resolver run.
+  const body = play.body.map(({ targets, ...instruction }) => instruction);
+  const outcome = resolveChainBody(body, kernel);
 
-  assert.equal(run.result.status, "executed");
-  assert.deepEqual(kernel.getObject("unit").location, BATTLEFIELD("bf1"));
-  assert.equal(run.linked.moved.count, 1);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["buff-friendly-unit-in-base", "executed"],
+    ["move-buffed-unit", "executed"]
+  ]);
+  assert.equal(kernel.getObject("unit").buffs, 1);
+  assert.deepEqual(kernel.getObject("unit").location, BATTLEFIELD("battlefield-2"));
+  assert.deepEqual(outcome.results[1].result.linkedValues.moved, {
+    count: 1,
+    objects: [kernel.ref("unit")],
+    movements: [
+      { object: kernel.ref("unit"), from: BASE("A"), to: BATTLEFIELD("battlefield-2") }
+    ]
+  });
   // An effect Move is not the Standard Move ability: no exhaust, no cost (144).
   assert.equal(kernel.getObject("unit").exhausted, true);
-  assert.deepEqual(run.events.map(event => event.action), ["move-location"]);
+  assert.deepEqual(outcome.events.map(event => event.action), ["buff", "move-location"]);
 });
 
-test("Showstopper golden: awaiting a concrete destination keeps the unit in base, then the answer moves it", () => {
-  const kernel = world().unit("own-base", { owner: "A", location: BASE("A") }).build();
-  // Runtime enumeration of legal battlefields remains pending. Exercise the
-  // supported choice consumer with concrete destinations supplied by the caller.
-  const args = {
-    ...moveInstruction.args,
-    to: {
-      kind: "constant",
-      value: { kind: "choose", id: "showstopper.destination", options: [BATTLEFIELD("bf1"), BATTLEFIELD("bf2")] }
+test("Showstopper golden: the production location resolver asks for all battlefield destinations", () => {
+  const kernel = world()
+    .unit("unit", { owner: "A", location: BASE("A") })
+    .unit("battlefield-1-occupant", { owner: "B", controller: "B", location: BATTLEFIELD("battlefield-1") })
+    .unit("battlefield-2-occupant", { owner: "B", controller: "B", location: BATTLEFIELD("battlefield-2") })
+    .build();
+  kernel.setTargets("friendly-unit-in-base", [kernel.ref("unit")]);
+  const body = play.body.map(({ targets, ...instruction }) => instruction);
+
+  assert.throws(
+    () => resolveChainBody(body, kernel),
+    error => {
+      assert.ok(error instanceof AwaitChoice);
+      assert.deepEqual(error.request, {
+        id: "move-buffed-unit/location%3Ashowstopper.destination",
+        type: "mode",
+        chooser: "A",
+        visibility: "public",
+        options: [BATTLEFIELD("battlefield-1"), BATTLEFIELD("battlefield-2")]
+      });
+      return true;
     }
-  };
-  const options = { world: kernel, targets: { "friendly-unit-in-base": [kernel.ref("own-base")] } };
-
-  const asked = runInstruction(move, args, options);
-  assert.deepEqual(asked.asked.request, {
-    id: "showstopper.destination",
-    type: "mode",
-    chooser: "A",
-    visibility: "public",
-    options: [BATTLEFIELD("bf1"), BATTLEFIELD("bf2")]
-  });
-  assert.deepEqual(kernel.getObject("own-base").location, BASE("A"));
-  assert.deepEqual(asked.events, []);
-  assert.deepEqual(asked.linked, {});
-
-  const ran = runInstruction(move, args, {
-    ...options,
-    answers: { "showstopper.destination": BATTLEFIELD("bf2") }
-  });
-  assert.equal(ran.result.status, "executed");
-  assert.deepEqual(kernel.getObject("own-base").location, BATTLEFIELD("bf2"));
-  assert.equal(ran.linked.moved.count, 1);
-  assert.deepEqual(ran.events.map(event => event.action), ["move-location"]);
+  );
+  assert.deepEqual(kernel.getObject("unit").location, BASE("A"));
+  assert.equal(kernel.getObject("unit").buffs, 1);
+  assert.deepEqual(kernel.events.map(event => event.action), ["buff"]);
 });
-
-test.todo(
-  "Showstopper Move Destination: enumerate the runtime-legal battlefield Destinations at Finalize and " +
-    "offer the choice to the controller (355.4 / 355.4.a / 449.2 / 451.1), then resolve the Move " +
-    "consequences (Contested 452, Move-triggered Showdown/Combat 453-454, Cleanup 455); " +
-    "the remaining gap is the card-facing Finalize destination provider"
-);
 

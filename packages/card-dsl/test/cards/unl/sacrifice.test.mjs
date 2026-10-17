@@ -9,6 +9,10 @@ import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { readCost } from "../../../../engine-core/dist/cost/plan-values.js";
 import { mightyCondition } from "../../../../engine-core/dist/effects/keywords/Mighty.js";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL = "card.hash-33403d8f77f3caa9aa8f59a1a0290c3e349fe6a5893c3b812340601ac4a0629a";
 const SOURCE_TEXT =
@@ -35,8 +39,9 @@ test("unl-173-219 Sacrifice: program validates and keeps its identity", () => {
   assert.match(program.judgeReason, /356\.2\.a\.1/);
   assert.match(program.judgeReason, /mightGte/);
   assert.match(program.judgeReason, /706/);
-  assert.match(program.judgeReason, /CardProgram → CostPlan/);
   assert.match(program.judgeReason, /translateCost/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /Cost requires an exact object reference/);
 });
 
 test("unl-173-219 Sacrifice: [Reaction] plus the mandatory Mighty-unit additional cost", () => {
@@ -214,8 +219,54 @@ test("unl-173-219 Sacrifice golden: the Mighty predicate distinguishes units bel
 });
 
 test.todo(
-  "unl-173-219 Sacrifice: collect cost.additional from the CardProgram and charge the mandatory Mighty-unit kill at Finalize (CR 356.2.a.1/355.10.c); the cost reader and payment primitive are already executable"
+  "unl-173-219 Sacrifice: collect the CardProgram's static cost.additional into the Finalize cost plan and charge the mandatory Mighty-unit kill (CR 356.2.a.1/355.10.c); the cost reader and payment primitive are already executable"
 );
 test.todo(
-  "unl-173-219 Sacrifice: bind dynamic friendly-unit cost options and enforce current Might >= 5 through CostPayment.choice (CR 706–711/143.2.a); the Mighty predicate itself executes above"
+  "unl-173-219 Sacrifice: bind dynamic friendly-unit cost options and enforce current Might >= 5 through CostPayment.choice (CR 706-711/143.2.a); the Mighty predicate itself executes above"
 );
+
+test("unl-173-219 Sacrifice: the merged production adapter still refuses the static cost.additional declaration", () => {
+  // 356.2.a.1: the card's mandatory additional cost is a static cost.additional
+  // declaration. The merged production surfaces refuse it -- this is the
+  // currently observable gap, pinned fail-closed instead of approximated.
+  assert.throws(
+    () => translateCost({ kind: "additional", payments: costAbility.effect.payments }, "sacrifice", "play"),
+    (error) => error.name === "ProgramBindingError" && /Additional costs are not bound for sacrifice/.test(error.message)
+  );
+
+  const kernel = world().unit("sacrifice", { types: ["spell"] }).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(),
+    restore: (state) => kernel.restore(state),
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: (request) => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const binder = createEngineStaticBinder(engine);
+  assert.throws(
+    () => binder.bindStatic(costAbility, kernel.getObject("sacrifice")),
+    (error) => error.name === "ProgramBindingError" && /no layer mapping/.test(error.message)
+  );
+});
+
+test("unl-173-219 Sacrifice: the declared symbolic cost options are rejected, never resolved to an arbitrary unit", () => {
+  // 355.10.c / 706-711: the Mighty unit is chosen by the paying player and must
+  // satisfy the current Might >= 5 filter. plan-values resolves every declared
+  // option to an exact ObjectRef, so the symbolic placeholder cannot silently
+  // become a real unit -- the cost remains unpayable rather than approximate.
+  const kernel = world()
+    .unit("mighty", { owner: "A", might: 6, location: { type: "base", player: "A" } })
+    .build();
+  const payment = costAbility.effect.payments[0];
+  assert.throws(
+    () => readCost(
+      kernel.clone(),
+      { kind: "explicit", payments: [{ ...payment, choice: { ...payment.choice, min: undefined, max: undefined } }] },
+      { id: "sacrifice" },
+      "sacrifice.additional-cost"
+    ),
+    (error) => error.name === "CostPlanError" && /exact object reference/.test(error.message)
+  );
+});

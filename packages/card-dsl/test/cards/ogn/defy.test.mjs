@@ -1,3 +1,6 @@
+// Partial execution evidence for the merged counter primitive is consolidated
+// in ../templates/keyword-play-effect-counter-676.test.mjs; Defy's printed
+// cost restriction remains judge-required until Finalize can compare costs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -51,7 +54,11 @@ test("Defy keeps the printed [Reaction] keyword (CR 813) and one play ability", 
   assert.deepEqual(keyword, { kind: "keyword", keyword: "reaction" });
   assert.equal(keyword.value, undefined);
   assert.equal(play.kind, "play");
-  assert.equal(play.cost, undefined);
+  assert.deepEqual(play.cost, {
+    kind: "cost.printed",
+    energy: { kind: "constant", value: 1 },
+    power: { kind: "constant", value: 1 }
+  });
 });
 
 test("Defy target: one chain spell carrying the cost restriction as descriptive keys", () => {

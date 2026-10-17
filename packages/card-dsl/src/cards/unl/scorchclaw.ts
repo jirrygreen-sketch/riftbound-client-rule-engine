@@ -24,12 +24,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *     按契约 3.1 写成 replacement 能力。
  *   括号内的 "(While you have 3+ XP, get the effect.)" 是 824.1.b.1 的提醒文本，不是第三条能力。
  *
- * status = judge-required：
- * 两处当前缺口：(1) Hunt 2（CR 823.1.c.1）的 conquer/hold 时点已经由 turn/flow.ts 发出，但事件只有 player 与 battlefieldId，
- * 没有承载 Hunt 的单位 object，无法匹配 programs/triggers.ts 翻译出的自身过滤。(2) Level 3（824.1.b.1/824.1.c/824.1.d）
- * 需要实时读取控制者 XP；现有 count 表达式不读取 controller-xp，Level 展开的 condition.predicate 也未接入依赖能力绑定。
- * 此外 replacement/bind.ts 的 matchesEnterAction 分支未检查 ability.condition，不能证明带 XP 门槛的入场替代正确（RIFT-359）。
- * continuous.might、replacement.enter 与 programs/ 的图层/替代绑定均已合入，不能再将注册路径列为缺口。
+ * status = judge-required（2026-10-17 复核）：
+ * continuous.might、replacement.enter 与 programs/ 的图层/替代绑定均已合入，不能再将注册路径列为缺口；
+ * 当前缺口见 judgeReason（Hunt 载荷缺单位归属、Level 的实时 XP 谓词、带 XP 门槛的入场替代）。
  */
 const abilities: Ability[] = [
   // 823.1.c：印刷为 "Hunt 2"，Hunt Value = 2（823.1.c.2 的缺省 1 不适用）。
@@ -79,11 +76,18 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处当前缺口：(1) Hunt 2（CR 823.1.c.1）的 conquer/hold 时点已经由 turn/flow.ts 发出，但事件只有 player 与 battlefieldId，" +
-    "没有承载 Hunt 的单位 object，无法匹配 programs/triggers.ts 翻译出的自身过滤。(2) Level 3（824.1.b.1/824.1.c/824.1.d）" +
-    "需要实时读取控制者 XP；现有 count 表达式不读取 controller-xp，Level 展开的 condition.predicate 也未接入依赖能力绑定。" +
-    "此外 replacement/bind.ts 的 matchesEnterAction 分支未检查 ability.condition，不能证明带 XP 门槛的入场替代正确（RIFT-359）。" +
-    "continuous.might、replacement.enter 与 programs/ 的图层/替代绑定均已合入，不能再将注册路径列为缺口。",
+    "当前缺口（2026-10-17 复核；continuous.might、replacement.enter 与 programs/ 的图层/替代绑定均已合入，不列为缺口）：" +
+    "(1) Hunt 2 的订阅绑不上真实事件（CR 823.1.c.1）：conquer/hold 时点已由 turn/flow.ts 的 Score 波次发出，" +
+    "但事件只带 player 与 details.battlefieldId，没有承载 Hunt 单位的 object；programs/triggers.ts 把 { source: \"self\" } " +
+    "翻译成 { event: \"conquer\", object: { objectId: <本卡> } }，实测该过滤器对只带 player + battlefieldId 的 conquer 事件不匹配，" +
+    "加上 object 才匹配，因此 \"my controller gains 2 XP\" 无法在真实链路触发（effect.xp 展开本身已可执行）。" +
+    "(2) Level 3 的实时 XP 不可求值（824.1.b.1/824.1.c/824.1.d）：连续图层需要读取控制者当前 XP；" +
+    "现有 count 表达式按 filter 统计对象，不读 controller-xp（实测 4 个无关对象即可让 gte 3 为真），PlayerSnapshot.xp 不是 Expr 可读特征；" +
+    "Level 展开产生的 condition.predicate 也未被消费（programs/statics.ts 的 layerFor 对 condition.predicate 抛 " +
+    "\"Static ability kind condition.predicate has no layer mapping\"），依赖能力的动态启停同样未接线。" +
+    "(3) replacement/bind.ts 的 matchesEnterAction 分支不检查 ability.condition（RIFT-359 的谓词桥接未覆盖该分支）：" +
+    "实测把该入场替代的 condition 换成 never 后，绑定与匹配结果不变（仍会按声明改写入场状态），" +
+    "因此带 XP 门槛的 \"enter ready\" 无法被证明正确。",
   abilities,
   sourceText:
     "[Hunt 2] (When I conquer or hold, gain 2 XP.)\n" +

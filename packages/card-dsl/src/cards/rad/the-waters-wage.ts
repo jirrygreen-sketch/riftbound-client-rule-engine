@@ -18,44 +18,22 @@ import type { CardProgram } from "../../ir/index.js";
  *   185.2.a 先在链上生成再由 play 接手，185.2.d / 143.4 的入场状态由创建/打出动作负责。
  * - 「If it's your turn and you played this from face down」是决定两个互斥数量分支（"…instead"）
  *   的判别式：355.3 / 355.16 的 Finalize 决定与 811.1.d 的 facedown 信息由引擎记录。
- *   合并 IR 没有读取该结果的谓词，因此两个分支用 choice.mode 的两个模式保留结构
- *   （契约 3.9），判别式的缺口见 judgeReason 第 3 点，不写成 linkedTo 串联。
+ *   played-from-zone 谓词已能读取 card-played 的来源记录；自身 spell body 尚缺该来源输入
+ *   和当前回合玩家输入。choice.mode 仅保留两个受阻正文，不代表玩家可自由选择数量。
  *
- * status = judge-required（不近似实现；Hidden.ts 头部列出的 cost.hidden / Hide 动作、
- * facedown 免费打出与 continuous.timing 的 Reaction 许可消费仍未合入）：
- * 1. Gold token 定义缺失：effect.token 的 DEFINITIONS 表不含 gold，带自身能力的 token
- *    被显式阻断（blockedReason: token-definition-or-abilities-judge-required）。依赖 token
- *    定义表扩充（CR 187.5）。
- * 2. exhausted 入场覆盖不可表达：effect.token 文档明确「Entry overrides are not supported」
- *    （143.4 / 185.2.d），"play … exhausted" 与 "ready" 的差别没有原语路径；entersExhausted
- *   不是 effect.token 的注册参数（fail-closed 拒绝），replacement.enter 只覆盖永久的入场方向，
- *    不覆盖单次 token 创建。
- * 3. 判别式「it's your turn and you played this from face down」（811.1.d）需要读取打出方式与
- *    当前回合玩家的可执行谓词，合并 Condition 只有 always/never/compare/all/any/not/
- *    expression，没有对应谓词（context.test 只求值 IR 条件），因此两个数量分支只保留
- *    choice.mode 结构，不写成可求值条件。
- *
- * 依赖：token 定义表扩充。另：src/cost/kinds/hidden.ts 已合入，但只锁定 Hide 计划与
- *   付款；隐藏打出权限、facedown 免费打出的消费与隐藏次回合 Reaction 许可仍归
- *   zone/timing/费用管线。
- * golden 只做校验与结构断言，并对已合入的 token 原语做真实执行边界（非黄金定义被显式 negated）。
+ * The Waters' Wage — CR v1.5 187.5 (Gold token), 184.1 (entry state),
+ * 811.1.b / 811.6 (Hidden), 440.2.c / 185.2.a (play new tokens).
+ * played-from-zone and the Hidden Hide/play cost planners are merged. This spell
+ * still lacks the resolution inputs for its deterministic one/three branch,
+ * Gold's definition and entry overrides. choice.mode preserves only the two
+ * blocked bodies; it does not implement the printed condition. See judgeReason.
  */
 const theWatersWage = {
   canonicalCardId: "card.hash-98b3c6e4016c853f5b0a9bdc4963a2a929fcb2930a1f1484367e5c546015fe0c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1) Gold gear token 定义（CR 187.5，带自身的 " +
-    '"[Reaction][>] Kill this, [E]: [Add] [A]" 能力）不在 effect.token 的 DEFINITIONS 表' +
-    "（src/effects/instructions/effect.token.ts 定义表无 gold、也不支持 entry override），" +
-    "带能力的 token 被 effect.token 显式阻断（token-definition-or-abilities-judge-required）" +
-    "（依赖 token 定义表扩充）。(2) exhausted 入场覆盖：effect.token 明确不支持 entry overrides（143.4 / 185.2.d），" +
-    '"play … exhausted" 与 "ready" 的差别没有原语路径；replacement.enter 只覆盖永久物的入场方向，不覆盖单次 token 创建。' +
-    "(3) 判别式「it's your turn and you played this from face down」" +
-    "（811.1.d）需要读取打出方式与当前回合玩家的可执行谓词，合并 Condition 没有该谓词（context.test 只求值 IR 条件），" +
-    "因此两个数量分支只保留 choice.mode 结构，不写成可求值条件。" +
-    "另：[Hidden] 的 KeywordDef 与 cost.hidden 原语（src/cost/kinds/hidden.ts）都已合入，但后者只锁定 Hide 计划与付款；" +
-    "隐藏打出权限、facedown 免费打出的消费方与隐藏次回合 Reaction 许可（continuous.timing）仍缺。不近似实现上述缺口。",
+    "CR 187.5：effect.token 缺带自身 Reaction 启动能力的 Gold gear token 定义。CR 184.1 / 185.2.d：effect.token 无 entry override，不能分别声明一个 exhausted Gold 与三个 ready Gold。判别式缺当前回合玩家的条件输入，以及自身 spell body 结算时的原始打出区域绑定：played-from-zone 谓词与 card-played 的来源记录已存在，但 chain/engine.ts 只把 trigger.event 传入条件环境，自身 card-played 在 body 之后产生，且当前 ZoneId 没有 facedown 来源区域，仍缺 Hidden 打出事实的记录适配；choice.mode 不能替代此确定性判别。CR 811.1.b / 811.6：cost.hidden 已有 Hide 与 ignore-base play 费用计划，仍缺 Hide/隐藏打出权限、次回合 Reaction 与该费用计划的生产接线。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     {
@@ -66,7 +44,7 @@ const theWatersWage = {
       },
       body: [
         {
-          // 两个互斥分支（原文 "instead"）：用 choice.mode 表达，不用 linkedTo 串联。
+          // 两个待绑定的互斥正文；玩家选模式不能代替卡面判别式，整卡保持 blocked。
           id: "the-waters-wage.choose-amount",
           op: "choice.mode",
           args: {

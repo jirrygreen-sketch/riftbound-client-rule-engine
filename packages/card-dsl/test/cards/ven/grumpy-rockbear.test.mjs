@@ -1,3 +1,4 @@
+// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -9,6 +10,8 @@ import { instructionDefinitionsById } from "../../../../engine-core/dist/effects
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { expandProgram, translateCost } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const [empower, costReduction, grantedKeywords] = program.abilities;
 
@@ -57,10 +60,14 @@ test("grumpy-rockbear: the 'costs 1 less per rune' clause is a cost rewrite of t
   assert.equal(effect.appliesTo, "empower-activation-cost");
   assert.equal(effect.per, "rune-you-control");
   assert.equal(effect.minimum, 0);
-  assert.deepEqual(effect.value, {
-    kind: "count",
-    subject: "runes",
-    filter: { type: "rune", controller: "self", zone: "rune-zone" }
+  assert.deepEqual(effect.amount, {
+    kind: "arithmetic",
+    operator: "neg",
+    operands: [{
+      kind: "count",
+      subject: "runes",
+      filter: { type: "rune", controller: "self", zone: "rune-zone" }
+    }]
   });
   // 既不写死具体减免数值，也不自行改写费用。
   assert.equal(costReduction.condition, undefined);
@@ -77,10 +84,12 @@ test("grumpy-rockbear: the Empowered dependent ability grants Deflect 1 and Shie
     ]
   });
   // 828.1.b/828.1.c：依赖能力只在拥有 Empowered 状态时 Active；
-  // 程序用显式谓词占位，不手写状态判定。
+  // 门控读取实时 empowered 状态，不使用恒真的字符串。
   assert.deepEqual(grantedKeywords.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "empowered" }
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
   });
 });
 
@@ -91,7 +100,7 @@ test("grumpy-rockbear: review evidence — the grant primitive and Deflect/Shiel
 });
 
 test("grumpy-rockbear golden: the [Empowered] clause really grants Deflect 1 and Shield 3 through layers", () => {
-  // 828.1.b.1 的门控仍未实现（见 judgeReason），但授予原语与 Deflect/Shield 展开是合入的：
+  // 此处仅验证授予原语；真实 828.1.b.1 状态门控证据在模板场景中：
   // 用本卡声明的 static effect 形状真实执行一次，断言 ability 图层注册与求值结果。
   const kernel = world()
     .unit("grumpy-rockbear", { types: ["unit"], zone: "board", owner: "A", controller: "A", might: 6 })
@@ -126,11 +135,26 @@ test("grumpy-rockbear golden: the [Empowered] clause really grants Deflect 1 and
   assert.equal(evaluated.might, 6);
 });
 
-test.todo(
-  "grumpy-rockbear: [Empower] 12 activation including 827.1.c.3 cost rewrite (12 Energy minus 1 " +
-    "per controlled rune, floor 0) and the 827.1.c.5 'play only if not Empowered' restriction, " +
-    "pending the Empower/Empowered KeywordDefs"
-);
+test("grumpy-rockbear: merged Empower expands, but its printed cost is not carried by KeywordAbility", () => {
+  const f = fixture({
+    cards: [{ id: "grumpy", cardId: program.canonicalCardId, types: ["unit"], might: 6 }]
+  });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("grumpy"), to: "base" });
+  const expanded = expandProgram(program, f.kernel.getObject("grumpy"));
+  const [expandedEmpower] = expanded.expanded;
+  assert.equal(expandedEmpower.kind, "activated");
+  assert.deepEqual(expandedEmpower.cost, { kind: "empower" });
+  assert.deepEqual(expandedEmpower.restriction.condition, {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq",
+    right: { kind: "constant", value: 0 }
+  });
+  assert.throws(
+    () => translateCost(expandedEmpower.cost, "grumpy-rockbear.empower", "activate"),
+    /Unsupported cost kind empower/
+  );
+});
 
 test.todo(
   "grumpy-rockbear: the 827.1.c.3 cost-rewrite static (continuous.cost-modification, appliesTo " +
@@ -138,8 +162,5 @@ test.todo(
     "fails closed when bound (Unsupported static appliesTo)"
 );
 test.todo(
-  "grumpy-rockbear: the [Empowered] gate on the Deflect/Shield grant (442.1.a / 828.1.c) — " +
-    "layers conditionMatches falls back to true for unknown condition kinds, so the grant cannot " +
-    "be bound as written (in-progress RIFT-359); the granted Deflect tax consumer (target.tax / " +
-    "TargetTaxAdapter) is merged"
+  "grumpy-rockbear: integrate granted Deflect Power tax and Shield defender expansion through Chain Finalize/combat; state-gated grant subset is covered by the template"
 );

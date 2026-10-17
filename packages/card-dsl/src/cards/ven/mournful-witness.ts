@@ -14,8 +14,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   （events/timing-points.ts；events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 有
  *   "combat-ended"，events/pipeline-match.ts 把它映射到 combat-end）。
  * - “a combat that I was in” 需要 Attacker/Defender designation（323.2、466.2.c.3、
- *   468.7.a）；契约 3.8 第 1 条的 ObjectSnapshot.combatRole 只在契约层冻结了字段设计，
- *   engine-core 的 ObjectSnapshot 尚无该特征，事件载荷也不带角色信息。
+ *   468.7.a）；ObjectSnapshot.combatRole 已存在，但
+ *   468.7.a 清除 designation 后仍需要本次参战历史，不能只查询当前角色。
  * - 442.1 / 442.1.b / 442.1.c：“empower me” 是 Empower 动作——把对象渲染为 Empowered；
  *   已 Empowered 的对象不能再次 Empower，重做时“nothing additional happens”。
  *   Empower 的来源自身不是目标（827.1.b.1 对关键词的同一原则），已合入的 effect.empower
@@ -23,27 +23,13 @@ import type { CardProgram } from "../../ir/index.js";
  * - 828.1.a / 828.1.b.1：[Empowered][>] 是 Dependent Keyword，整段功能等价于“当我拥有
  *   Empowered 状态时，此牌获得 [Text]”，本条为静态 +2 Might（479 的算术图层）。
  *
- * status = judge-required（三处缺口均不近似实现）：
- * 1. combat-end 时点没有发射方：combat/ 批次尚未把战斗结束接入事件管线（全仓库没有
- *    combat-end 的 emit 调用，combat/flow.ts 对战斗开始/伤害直接抛 TurnCombatBlockedError），
- *    触发无法进入链（combat 事件生产批次）；
- * 2. “a combat that I was in” 需要 combatRole/designation 特征，引擎侧未落地；
- * 3. “+2 [M]” 的 continuous.might 静态形状与图层求值已合入；本卡仍缺 Empowered
- *    状态门控的生产消费方。
- * body 的 “empower me” 只用已合入的 effect.empower，golden 用真实解释器与参考内核执行程序
- * 原始 body（含已 Empowered 时“什么都不发生”的 442.1.b/442.1.c 边界），照实记录原语返回结果。
+ * 当前执行边界见 judgeReason 与对应 golden；保留所有印刷语义。
  */
 export default {
   canonicalCardId: "card.hash-9306105a8f30f0954fec4a0757dc246561b8408b00e76f9d104c939964b55bd0",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason:
-    "三处缺口：(1) combat-end 时点（468.7/468.7.b）没有发射方——combat/ 未把战斗结束接入事件管线，" +
-    "全仓库没有 combat-end 的 emit 调用，触发无法进入链（combat 事件生产批次）；(2) “a combat that I was in”" +
-    "需要 Attacker/Defender designation（323.2、466.2.c.3、468.7.a），契约 3.8 的 ObjectSnapshot.combatRole" +
-    "尚未落地、事件载荷不带角色信息；(3)「I have +2 :rb_might:」的 continuous.might 静态形状已合入，" +
-    "但 Empowered 状态门控尚无生产消费方。body 的「empower me」只用已合入的 effect.empower（442.1；来源自身不是目标），" +
-    "golden 用真实解释器执行并覆盖已 Empowered 时什么都不发生的边界。不近似实现。",
+  judgeReason: "当前缺口是 468.7/468.7.b 的 combat-end 生产与参战历史：combat/flow.ts 尚无战斗结束发射路径，无法在 468.7.a 清除 Attacker/Defender designation 后判断“a combat that I was in”。ObjectSnapshot.combatRole 已存在，但当前角色不能代替本次战斗的参与记录。effect.empower、compare(object-property self empowered) 与 continuous.might 静态绑定已可在参考内核真实执行；ObjectSnapshot 契约仍需声明 empowered 特征。golden 覆盖二次 Empower 不重复执行、状态门控 +2 Might 和 Disempower 后撤销；不近似实现战斗触发。",
   abilities: [
     {
       kind: "triggered",
@@ -59,6 +45,13 @@ export default {
           args: {
             // 442.1 / 827.1.b.1：Empower 的对象是来源自身，且不是目标。
             objects: { kind: "constant", value: { kind: "source" } }
+          },
+          // 442.1.b/c：已 Empowered 时不再次提交 Empower 动作。
+          condition: {
+            kind: "compare",
+            left: { kind: "object-property", object: "self", property: "empowered" },
+            operator: "eq",
+            right: { kind: "constant", value: 0 }
           }
         }
       ]
@@ -73,11 +66,12 @@ export default {
         amount: { kind: "constant", value: 2 },
         appliesTo: "self"
       },
-      // 828.1.c：仅在宿主拥有 Empowered 状态时生效；该门槛没有可求值的谓词，
-      // 以描述性 expression 记录（同已合入的 applied-researchers / grumpy-rockbear）。
+      // 828.1.c：状态门槛由生产静态绑定器求值。
       condition: {
-        kind: "expression",
-        value: { kind: "constant", value: "empowered" }
+        kind: "compare",
+        left: { kind: "object-property", object: "self", property: "empowered" },
+        operator: "gte",
+        right: { kind: "constant", value: 1 }
       }
     }
   ],

@@ -83,10 +83,8 @@ test("ven-061-166 Decree of Insight: structure — one -5 Might this turn instru
 });
 
 test("ven-061-166 Decree of Insight: the Body restriction stays descriptive and never becomes a filter key", () => {
-  // "Body unit" needs a domain predicate over the unit's Power; neither merged
-  // query consumer reads a domain/power key, and unknown keys are ignored — so a
-  // bare key would silently make every enemy unit legal. The program keeps the
-  // predicate as named metadata next to the real type/zone/controller keys.
+  // Body is an independent domain characteristic; printed Power cannot replace it.
+  // The program keeps blocked metadata next to type/zone/controller.
   assert.deepEqual(Object.keys(enemyUnit.filter).sort(), [
     "controller",
     "targetRestriction",
@@ -105,13 +103,14 @@ test("ven-061-166 Decree of Insight: the Body restriction stays descriptive and 
 
 test("decree-of-insight: the review records the current blockers", () => {
   assert.match(program.judgeReason, /809\.1\.c/);
-  assert.match(program.judgeReason, /RIFT-360/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /continuous\.ignore-target-tax/);
+  assert.match(program.judgeReason, /targetRestriction/);
+  assert.match(program.judgeReason, /ObjectSnapshot/);
 });
 
-test.todo("decree-of-insight: 809.1.c: waive this spell Deflect target taxes in Finalize (RIFT-360)");
+test.todo("decree-of-insight: 809.1.c: bind continuous.ignore-target-tax and waive this spell's Deflect taxes in Finalize");
 
-test.todo("decree-of-insight: 134: match Body domain including power:null units (RIFT-359)");
+test.todo("decree-of-insight: 134: expose and filter Body domain independently of printed power, including power:null units");
 
 test("decree-of-insight supported effect: temporary Might changes through the real primitive and expires", () => {
   const kernel = world().unit("locked-unit", { might: 8 }).build();

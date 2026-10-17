@@ -24,8 +24,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   a TargetSpec — even with selection "all" — runs through the target
  *   finalization pipeline and emits became-target events, which 355.10.d
  *   forbids; a PickSpec requires the controller to choose the cards, which 355.5
- *   forbids. The primitive's args schema rejects anything else (probe: the only
- *   accepted keys are target/picks/self/count/reason).
+ *   forbids. The primitive consumes target/picks/self/count/reason and requires
+ *   a target, pick or self selector; an `objects` query supplies none of them.
  * - 178.3 and the 429.6 example ("Kill all gear") confirm the affected set is
  *   determined by the gear characteristic, including a unit that is also a
  *   gear, which is why a characteristic query is required rather than a target
@@ -37,8 +37,8 @@ import type { CardProgram } from "../../ir/index.js";
  * Dependencies: an untargeted each/all set selection consumed by effect.kill
  * (355.10.d, 355.5) — an extension of the merged primitive,
  * not a card-local implementation. The merged effect.kill still accepts only
- * target / picks / self: true and rejects an `objects` query at its schema, so
- * nothing changed for this card with the later op batches.
+ * target / picks / self: true. RIFT-682's scenario proves main-phase Action
+ * admission only; it does not execute this unsupported query kill.
  */
 const thermoBeam = {
   canonicalCardId: "card.hash-6a20eaa5d0de7ffae215ad7179d8429ac1a7b0cf0e32667d6cdaf0a546cc7edf",
@@ -47,10 +47,10 @@ const thermoBeam = {
   judgeReason:
     "「Kill all gear」不是目标选择（355.5 明示 Kill all gear is not a Choice；355.10.d：按特征程序化选出、无需选择的集合" +
     "不算目标），但已合入的 effect.kill 只能从 TargetSpec（ctx.targets）、PickSpec（ctx.picks）或来源自身解析对象" +
-    "（args 只接受 target/picks/self/count/reason）。用 selection: all 的 TargetSpec 会走目标锁定管线并发出" +
+    "（args 消费 target/picks/self/count/reason；objects 查询不满足必需的对象来源）。用 selection: all 的 TargetSpec 会走目标锁定管线并发出" +
     "became-target 事件（与 355.10.d 冲突），用 PickSpec 又要求控制者逐张选择（与 355.5 冲突），两者都不是如实编码。" +
     "缺的是 effect.kill 可消费的无目标 each/all 集合选择；已合入的其他原语集合形态（effect.ready/effect.heal 的 " +
-    "{ kind: \"query\", filter }）不能平移到 effect.kill，权当近似。不近似实现。",
+    "{ kind: \"query\", filter }）不能平移到 effect.kill。RIFT-682 模板只验证主阶段 Action 入链，集合 kill 仍阻塞。不近似实现。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "Kill all gear.",

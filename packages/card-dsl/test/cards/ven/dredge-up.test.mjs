@@ -39,6 +39,7 @@ test("ven-049-166 Dredge Up: judgeReason names the Flow cost, banish replacement
   assert.match(program.judgeReason, /KeywordDef\.expand\.params\.cost/);
   assert.match(program.judgeReason, /实付实例回执/);
   assert.match(program.judgeReason, /object-leaves-chain/);
+  assert.match(program.judgeReason, /programs\/statics/);
   assert.doesNotMatch(program.judgeReason, /RIFT-89/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });

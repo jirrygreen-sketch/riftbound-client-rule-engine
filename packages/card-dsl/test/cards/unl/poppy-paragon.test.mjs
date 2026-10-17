@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { createTargetTaxAdapter } from "../../../../engine-core/dist/target/tax/index.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/poppy-paragon.js";
@@ -32,10 +35,11 @@ test("unl-116-219 Poppy, Paragon: identity, status, judgeReason and verbatim sou
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /Deflect/);
   assert.match(program.judgeReason, /809\.1\.c/);
+  assert.match(program.judgeReason, /BoundTargetTax/);
   assert.match(program.judgeReason, /Victory Score/);
   assert.match(program.judgeReason, /194\.3/);
   // The reason must refuse to hard-code the default Victory Score of 8.
-  assert.match(program.judgeReason, /硬编码 8 就是臆造/);
+  assert.match(program.judgeReason, /不能硬编码胜利分数 8/);
   assert.doesNotMatch(program.judgeReason, /RIFT-\d+|缺 CardProgram → TriggerRegistration 适配器/);
 });
 
@@ -174,4 +178,37 @@ test("unl-116-219 Poppy, Paragon: every deck-level dependency of the trigger is 
   const [tax] = keywordDefinitionsById.get("Deflect").expand({ value: 1, host: { canonicalCardId: CANONICAL_ID } });
   assert.equal(tax.effect.kind, "target.tax");
   assert.deepEqual(tax.effect.value, { kind: "constant", value: 1 });
+});
+
+test("unl-116-219 Poppy, Paragon golden: its expanded Deflect charges any-domain Power through the merged tax adapter", () => {
+  for (const [controller, power, payable, expectedTax] of [
+    ["B", ["Mind"], true, 1],
+    ["A", [], true, 0],
+    ["B", [], false, 1]
+  ]) {
+    const initial = world().player("A", { energy: 20, power })
+      .hand("spell", { types: ["spell"], energy: 1, power: [] })
+      .unit("poppy", { owner: "B", controller, cardId: CANONICAL_ID, might: 5 }).build();
+    const kernel = initial.clone({ sourceSnapshot: initial.getObject("spell") });
+    const target = kernel.getObject("poppy");
+    const expanded = createProgramBinding({ cardPrograms: [program] }).inspect(target).abilities;
+    const tax = expanded.find(ability => ability.kind === "static" && ability.effect.kind === "target.tax");
+    assert.ok(tax);
+    const adapter = createTargetTaxAdapter(kernel, { id: "choose-poppy", cost: { kind: "printed" } }, {
+      kind: "spell", effects: [{ id: "poppy-deflect", target: target.ref, effect: tax.effect }]
+    });
+    const requirement = { id: "poppy", filter: { type: "unit", zone: "board" }, min: 1, max: 1 };
+    assert.deepEqual(adapter.queryTargetCandidates(requirement), payable ? [target.ref] : []);
+    if (!payable) {
+      // Energy alone cannot cover Deflect (809.1.c.1).
+      assert.equal(kernel.player("A").energy, 20);
+      continue;
+    }
+    assert.deepEqual(adapter.finalizeTargetPlan(requirement, { selected: [target.ref] }).selected, [target.ref]);
+    assert.equal(adapter.costPlan.total.energy, 1);
+    assert.equal(adapter.costPlan.total.power.reduce((sum, item) => sum + item.amount, 0), expectedTax);
+    const receipt = payCostPlan(kernel, adapter.costPlan);
+    assert.deepEqual(receipt.actions[0].action.plan.power, power);
+    assert.equal(kernel.player("A").energy, 19);
+  }
 });

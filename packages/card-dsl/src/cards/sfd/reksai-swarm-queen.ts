@@ -26,13 +26,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "If the played card is a unit, you may play it here" adds an entry-location
  *   choice for the played unit (355.2.b).
  *
- * Status: judge-required. RIFT-358 supplies real Finalize/Resolve zoneSlice
- * and linked picks, including effect.reveal.pick Expr decoding. The optional
- * reveal, optional one-card play, printed-cost payment and recycle instructions
- * are exercised unchanged through ChainEngine. Remaining gaps are the combat
- * attack event producer and the unit-only "play it here" entry-location choice:
- * effect.play still links only a played count, not the played object reference.
- * No unconditional location override stands in for that permission.
+ * Status: judge-required (re-checked 2026-10-17). RIFT-358 supplies real
+ * Finalize/Resolve zoneSlice and linked picks, including effect.reveal.pick Expr
+ * decoding. The optional reveal, optional one-card play, printed-cost payment
+ * and recycle instructions are exercised unchanged through ChainEngine.
+ * Remaining gaps are the combat attack event producer and the unit-only
+ * "play it here" entry-location choice: effect.play still links only a played
+ * count, not the played object reference, so the unit-type gate cannot read the
+ * played card's types and no unconditional location override stands in for that
+ * permission. RIFT-359 merged the condition predicates and does not close
+ * either gap.
  */
 const abilities: Ability[] = [
   {
@@ -129,13 +132,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处缺口仍保持 judge-required：(1) attack-declared 的战斗开始事务产生方尚未合入（RIFT-124）；" +
+    "两处缺口仍保持 judge-required（复核 2026-10-17）：(1) attack-declared 的战斗开始事务产生方尚未合入——" +
+    "combat/flow.ts 的 CombatFlow.advance 对 staged combat 仍抛 TurnCombatBlockedError('combat-start-transaction'，" +
+    "CR 466.2 要求同波次战斗开始与角色指派的原子事务)，dealDamage 也仍抛 'simultaneous-damage-transaction'（CR 467.2.c.1.a/467.3）；" +
     "(2)「If the played card is a unit, you may play it here」需要以被打出对象的 types 为闸门，再提供 CR 355.2.b 的入场地点选择，" +
-    "effect.play 的 linkKey 目前只写 played 计数，不记录对象引用，不能写成无条件 location。" +
+    "effect.play 的 linkKey 目前只写 played 计数（实测 typeof number），不记录对象引用，不能写成无条件 location。" +
     "有序选择与费用路径已合入：RIFT-358 的 ordered picks / zoneSlice 在 Finalize 锁定真实牌库顶 2 张（RIFT-66 顺序接口），" +
     "effect.reveal.pick 的 Expr 已由 LITERAL_FIELDS 解包，后续 linked pick 读取实际 revealed 列表，effect.play.choice 只选一张。" +
     "真实 ChainEngine 测试执行原始可选正文、展示、选择、印刷费用支付及剩余牌回收；不手动移走已打出的牌。" +
-    "依赖：战斗 attack-declared 产生方、effect.play 的对象回执与单位入场地点选择。",
+    "RIFT-359 的条件谓词已合入，但不关闭以上任一缺口。依赖：战斗 attack-declared 产生方、effect.play 的对象回执与单位入场地点选择。",
   abilities,
   sourceText:
     "When I attack, you may reveal the top 2 cards of your Main Deck. You may play one. Then recycle the rest. If the played card is a unit, you may play it here."

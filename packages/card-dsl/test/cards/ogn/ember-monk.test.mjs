@@ -7,6 +7,7 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-2845da03b74c83b71b9acc70abe634678cc7dd57b5a5ab5a2dbc7386c52d089a";
 const [ability] = program.abilities;
@@ -23,6 +24,9 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /fromHidden/);
+  assert.match(program.judgeReason, /settlement/);
+  assert.match(program.judgeReason, /指令路径前缀/);
+  assert.match(program.judgeReason, /重复注册/);
   assert.equal(
     program.sourceText,
     "When you play a card from [Hidden], give me +2 :rb_might: this turn."
@@ -88,4 +92,28 @@ test("Ember Monk supported Might primitive stacks separate settlements until tur
 });
 
 test.todo("Ember Monk: retain Hidden origin on card-played and translate the fromHidden trigger filter (CR 811/412.4)");
-test.todo("Ember Monk: preserve continuous.might settlement identity between Chain resolutions so repeated triggers stack without duplicate effect IDs");
+
+test("Ember Monk: preserve continuous.might settlement identity between Chain resolutions so repeated triggers stack without duplicate effect IDs", {
+  todo: "Chain settlement counter reads an unqualified key after writing an instruction-path-qualified key"
+}, () => {
+  const f = fixture({ cards: [{ id: "monk", cardId: CANONICAL, types: ["unit"], might: 4 }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("monk"), to: "base", location: { type: "base", player: "A" } });
+  f.engine.advance();
+
+  // Test the unmodified body through Chain, independently of the still-missing
+  // Hidden-origin event/filter binding. The primitive-only test above is not
+  // evidence that separate Chain resolutions allocate distinct effect IDs.
+  for (let index = 1; index <= 2; index++) {
+    f.engine.enqueue(f.draft(`monk-trigger-${index}`, {
+      kind: "triggered", source: f.kernel.getObject("monk"), body: ability.body
+    }));
+    f.engine.advance();
+    resolveAll(f.engine);
+    assert.equal(f.engine.layers.snapshot(f.kernel.ref("monk")).might, 4 + 2 * index);
+    assert.equal(f.engine.layers.snapshot(f.kernel.ref("source")).might, 2);
+    assert.equal(f.kernel.getObject("monk").buffs, 0);
+  }
+  f.engine.emit({ timingPoint: "turn-end" });
+  f.engine.advance();
+  assert.equal(f.engine.layers.snapshot(f.kernel.ref("monk")).might, 4);
+});

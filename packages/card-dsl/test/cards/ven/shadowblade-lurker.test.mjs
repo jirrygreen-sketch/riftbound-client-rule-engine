@@ -52,7 +52,7 @@ test("ven-096-166 Shadowblade Lurker: identity, status, judgeReason and verbatim
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /356\.4\.b/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /CostPlanInput\.discounts/);
 });
 
 test("ven-096-166 Shadowblade Lurker: one static Energy discount scoped to itself", () => {
@@ -123,7 +123,7 @@ test.todo(
   "ven-096-166 Shadowblade Lurker: install the static -2 per-card Energy discount on the Finalize cost " +
     "plan — cost.modify and the cost-plan discount evaluation are merged, but programs/statics.ts layerFor() " +
     "has no cost-modification mapping for continuous.cost-modification (fail-closed) and no consumer installs " +
-    "the CardProgram static into CostPlanInput.discounts (RIFT-89)"
+    "the CardProgram static into CostPlanInput.discounts"
 );
 
 test.todo(

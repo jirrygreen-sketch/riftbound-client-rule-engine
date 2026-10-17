@@ -44,9 +44,12 @@ const feralStrength = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "continuous.might 已合入：卡面 +2 Might 经解释器注册 arithmetic 图层，this-turn 映射为 end-of-turn（143.2.a/317.2.c），并有真实增益和到期测试。剩余是 Repeat 接线（820.1.c.1/820.1.d.1/820.2）：programs/play.ts 的 translateCost 拒绝 kind: additional 及 optional/keyword 字段，describePlay 未把本卡可选费用送入已有 CostPlanInput.optionalAdditional，也未把已付实例数接到 repeat 节点并重选目标。费用计划本身支持可选附加费用与付费回执；不能因此把卡面 Repeat 标为可执行。",
+    "continuous.might 已合入：卡面 +2 Might 经解释器注册 arithmetic 图层，this-turn 映射为 end-of-turn（143.2.a/317.2.c），并有真实增益和到期测试。剩余是 Repeat 接线（820.1.c.1/820.1.d.1/820.2）：KeywordAbility / expandProgram 不能将印刷费用传给 Repeat.expand；programs/play.ts 的 translateCost 拒绝 kind: additional 及 optional/keyword 字段，describePlay 未把本卡可选费用送入已有 CostPlanInput.optionalAdditional，也未把已付实例数接到 repeat 节点并重选目标。repeat.cost 尚无图层映射与 Finalize 消费方。费用计划本身支持可选附加费用与付费回执；不能因此把卡面 Repeat 标为可执行。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
+    // Keep the printed keyword identity; its nonnumeric cost remains on the
+    // play CostSpec until the keyword parameter contract is connected.
+    { kind: "keyword", keyword: "repeat" },
     {
       kind: "play",
       // 印刷基础费用（2 energy、无 power）由 catalog 在 Finalize 绑定；此处 cost

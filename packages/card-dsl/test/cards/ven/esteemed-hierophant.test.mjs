@@ -7,6 +7,9 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { actionMatchesEventPattern } from "../../../../engine-core/dist/replacement/pattern.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
 
 const CANONICAL_ID =
   "card.hash-f580f1b022b337a29509e9df000540117dd9fd09ef728fb8fc82f34c6bfe8807";
@@ -17,8 +20,8 @@ const [ability] = program.abilities;
 const [prevent] = ability.with;
 
 /**
- * The prevention planner/source classification and source-relative condition
- * binding remain blocked; the absolute-player count itself executes below.
+ * The prevention primitive is available, but replacement-ability planning,
+ * source classification and relative-player condition binding remain blocked.
  */
 const predicate = {
   id: "esteemed-hierophant.rune-condition",
@@ -80,7 +83,7 @@ test("ven-025-166 Esteemed Hierophant: one prevention replacement scoped to enem
   assert.equal(ability.replaces.event, "damage");
   assert.equal(ability.replaces.filter.target, "self");
   // 438.1.b / 418.6.b: the source classification has no discriminator in the
-  // frozen damage GameAction; the intended scope is recorded declaratively.
+  // damage GameAction; the intended scope is recorded declaratively.
   assert.deepEqual(ability.replaces.filter.sourceKind, ["spell", "ability"]);
   assert.equal(ability.replaces.filter.controller, "opponent");
 
@@ -146,17 +149,51 @@ test.todo(
  * 复核（2026-10-17）执行证据：三条缺口用真实绑定/求值路径复现。
  */
 
-/** 生产替换绑定所需的 host/context 适配（与 engine-core 的 bindDeps 同形）。 */
+/** Use the real pipeline for registration and action execution, without no-op hooks. */
 function bindDeps(kernel) {
+  const context = (source, controller) => kernel.clone({ sourceSnapshot: source, controller });
+  const pipeline = new EventPipeline(createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(),
+    restore: (checkpoint) => kernel.restore(checkpoint),
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    context,
+    choose: (request) => kernel.choose(request)
+  }), ["A", "B"], "A");
   return {
     host: {
-      object: (ref) => kernel.objects.find((object) => object.ref.id === ref.id && object.ref.zoneEntryId === ref.zoneEntryId) ?? null,
+      object: (ref) => kernel.object(ref),
       objects: () => kernel.objects,
-      context: (source, controller) => kernel.clone({ sourceSnapshot: source, controller })
+      context
     },
-    pipeline: { clock: { turn: 1 }, registerReplacement: () => {}, unregisterReplacement: () => {} }
+    pipeline
   };
 }
+
+test("ven-025-166 subeffect: the registered all-prevention primitive stops repeated host damage (438.3.c/438.4)", () => {
+  // This exercises the supported primitive only. The authored source filter and
+  // rune condition still require the replacement-ability planner below.
+  const kernel = runeZoneWorld(7);
+  const dependencies = bindDeps(kernel);
+  const ctx = bindResolveContext(kernel, { replacement: dependencies });
+  const definition = instructionDefinitionsById.get(prevent.op);
+  assert.ok(definition);
+  const args = { ...prevent.args, target: { kind: "constant", value: "self" } };
+  const result = definition.execute(ctx, definition.argsSchema.parse(args));
+  assert.equal(result.status, "executed");
+  assert.equal(result.linkedValues.amount, "all");
+  assert.deepEqual(result.events, []);
+
+  for (const amount of [2, 9]) {
+    const outcome = dependencies.pipeline.commit({
+      type: "damage", source: kernel.ref("hierophant"), target: kernel.ref("hierophant"), amount, combat: false
+    });
+    assert.equal(outcome.status, "prevented");
+    assert.deepEqual(outcome.events, []);
+  }
+  assert.equal(kernel.getObject("hierophant").damage, 0);
+  assert.equal(dependencies.pipeline.events.length, 0);
+});
 
 test("ven-025-166 evidence: replacement.prevent is not a supported planner opcode (438.2/438.3.c)", () => {
   // 438.2 的 prevented 事件改写目前没有 planner 支持；绑定期失败关闭而不是近似执行。
@@ -173,18 +210,14 @@ test("ven-025-166 evidence: replacement.prevent is not a supported planner opcod
 test("ven-025-166 evidence: the rune-count condition needs an absolute player binding on the replacement path", () => {
   const probe = (condition) => {
     const kernel = runeZoneWorld(7);
-    const registered = [];
     // 用只含 target:self 的图案，让匹配结果只取决于条件求值（本卡原图案另受来源分类键影响，见下一条）。
     const bound = bindReplacement(
       { replaces: { event: "damage", filter: { target: "self" } }, with: [{ id: "probe-ready", op: "effect.ready", args: { objects: { kind: "constant", value: { kind: "source" } } } }], condition },
       kernel.ref("hierophant"),
-      {
-        host: bindDeps(kernel).host,
-        pipeline: { clock: { turn: 1 }, registerReplacement: (registration) => registered.push(registration), unregisterReplacement: () => {} }
-      }
+      bindDeps(kernel)
     );
     const damage = { type: "damage", source: kernel.ref("hierophant"), target: kernel.ref("hierophant"), amount: 2, combat: false };
-    return registered[0].matches(damage, damage);
+    return bound.registration.matches(damage, damage);
   };
 
   const absolute = JSON.parse(JSON.stringify(ability.condition));

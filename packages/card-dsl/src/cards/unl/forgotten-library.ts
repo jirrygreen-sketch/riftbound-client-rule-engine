@@ -42,13 +42,16 @@ import type { CardProgram } from "../../ir/index.js";
  * 3. effect.inspect's argsSchema still validates object-property's `object` as
  *    a zone-bound ObjectRef instead of the contract 3.6 selector used below
  *    (the RIFT-102 follow-up ven/apprentice-mage records), so the symbolic
- *    "your Main Deck" binding is not executable as written either;
- * 4. no merged subscriber turns a CardProgram's triggered ability into a
- *    TriggerRegistration, so 190.6's Battlefield-controller resolution and the
- *    "While you control this battlefield" window have no producer.
- * Dependencies: RIFT-89 (finalized cost receipt), the ordered zone-pick
- * lifecycle that effect.inspect's contract already names, and RIFT-33 /
- * contract §7.2 batch 5 trigger registration. Nothing is approximated.
+ *    "your Main Deck" binding is not executable as written either.
+ * The old "no TriggerRegistration subscriber" claim is stale: the merged
+ * programs/triggers.ts turns a CardProgram's triggered ability into a
+ * TriggerRegistration (and beginning/card-played timing points are emitted),
+ * so the remaining production work is cost-receipt reading plus the ordered
+ * zone-pick lifecycle and the inspect selector sync.
+ * Dependencies: the finalized-cost receipt vocabulary (RIFT-89 follow-up),
+ * the ordered zone-pick lifecycle that effect.inspect's contract already
+ * names (RIFT-358), and the effect.inspect contract 3.6 selector sync
+ * (RIFT-102). Nothing is approximated.
  */
 export default {
   canonicalCardId:
@@ -56,18 +59,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1)「if you spent :rb_energy_4: or more」紧跟触发条件，按 383.2.a.1 属于触发条件，" +
+    "三处缺口，均不近似实现（旧理由里的「无 TriggerRegistration 订阅方」已过时：programs/triggers.ts 已合并，" +
+    "card-played/beginning-start 时点也已发射，触发注册不再是缺口）：(1)「if you spent :rb_energy_4: or more」紧跟触发条件，按 383.2.a.1 属于触发条件，" +
     "但合并 IR 的 Expr/Condition 只能读对象特征、链接值与对象计数（count 只数对象、不读金额），" +
     "契约 3.6 的 ResolveContext 也没有 finalized 费用回执入口，读不到「为刚打出的法术实际支付多少能量」" +
-    "（依赖 RIFT-89 费用计划回执；同 unl-181-219 Virtuoso 的缺口，程序里的 count subject 是记录形状的占位）。" +
+    "（依赖 RIFT-89 后续的费用回执读取词汇：cost.pay/cost.modify 原语已合并，但 Expr/Condition 仍没有读取已支付金额的形态；" +
+    "同 unl-181-219 Virtuoso 的缺口，程序里的 count subject 是记录形状的占位）。" +
     "(2)「[Predict]」要看牌库顶：effect.inspect 的 scope \"top\" 必须由上游提供有序 picksSpecId，" +
     "缺有序来源时该原语按自身契约 negated/impossible；已合入的链 Finalize 只锁定 instruction.targets 的 TargetSpec" +
-    "（chain/engine.ts），没有有序区域 pick 的锁定/生命周期（同 ogn/stacked-deck 记录的生产缺口）。" +
+    "（chain/engine.ts），没有有序区域 pick 的锁定/生命周期（RIFT-358 进行中；同 ogn/stacked-deck 记录的生产缺口）。" +
     "(3) effect.inspect 的 argsSchema 仍要求 object-property 的 object 是运行时 ObjectRef，" +
     "未同步契约 3.6 的符号选择器（RIFT-102 的校验器收口；同 ven/apprentice-mage 记录），故「your Main Deck」的符号绑定同样不可直接执行。" +
-    "(4) 没有任何已合入订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration，" +
-    "190.6 的战场能力控制者解析与「While you control this battlefield」窗口没有生产者" +
-    "（依赖 RIFT-33 触发注册 / RIFT-120，契约 §7.2 批 5）。" +
     "Predict 的 inspect → recycle 本体已用参考内核按绑定后的观看者与有序牌库顶真实执行；不近似实现。",
   sourceText:
     "While you control this battlefield, when you play a spell, if you spent :rb_energy_4: or more, [Predict]. " +

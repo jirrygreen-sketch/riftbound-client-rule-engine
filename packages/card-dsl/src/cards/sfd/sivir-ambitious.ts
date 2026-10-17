@@ -38,10 +38,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   时点事件，载荷只有 player + details.battlefieldId）。过滤器用已有 conquered 别名，
  *   programs/filters.ts 会将内层 source: "self" 转为宿主 objectId，注册与校验已通过；
  *   但发射方尚未携带征服单位身份或参与该次攻击的信息，无法匹配「I conquer after an attack」。
- * - [Deflect 2] 的展开与 target.tax 消费方都已合入（chain/engine.ts 的 taxAdapter
- *   + mandatoryAdditional 接线），但税额仍接成 energy，尚未接为任意域 Power（809.1.c/809.1.c.1）。
- *   现有 power + 六域 allowedDomains 可表达 [A] 费用，不需要增加 Domain。
- * 依赖：excess damage 统计、征服宿主与攻击参与信息载荷、Deflect 的 Power 税额接线。
+ * - [Deflect 2] 展开与 target/tax 的适配器已支持追加任意域 Power，并可通过真实目标计划与
+ *   费用分配器执行；但 programs/statics.ts 尚无 target.tax 绑定，chain/engine.ts::finalize
+ *   仍以自己的税额收集器将税额转成 Energy，未消费该适配器的完整 CostPlan。
+ * 依赖：excess damage 统计、征服宿主与攻击参与信息载荷、target.tax 静态绑定与 Chain 接线。
  * 不近似实现（不把条件写成常量、不把 "that much" 写成固定数额、不手改伤害或点数）。
  */
 const abilities: Ability[] = [
@@ -130,22 +130,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处当前缺口，均不近似实现：" +
-    "（1）「if you assigned 5 or more excess damage to enemy units」与效果数额「that much」依赖同一个未合入统计：" +
-    "没有任何可求值路径读取本次攻击向敌方单位分配的 excess damage 总量（CR 467.2.c.4 定义 excess = 超过致命所需的分配量）——" +
-    "HistoryQuery（effects/contract.ts）只有 scope/action/timingPoint/player/object 且返回事件次数 count，不是伤害量；" +
-    "count 表达式的 subject 也不参与求值、未知 filter 键被忽略（golden 实测 6 个无关对象即满足 gte 5），因此条件不能写成 count：" +
-    "触发条件改读来源特征 source.excessDamageAssignedThisCombat，未接线时生产 evaluator 抛 MissingInformation 并 fail-closed 关闭条件（golden 实测）。" +
-    "（2）conquer 时点是 payloadType \"scoring\" 且未声明 payloadFields，也不携带战斗分配结果；发射方（turn/flow.ts 在 scoring 时按 score.method 发射 conquer）" +
-    "载荷只有 player + details.battlefieldId，仍缺征服宿主及参与该次攻击的信息载荷，无法按 383.4.c.2.a 判断「I conquer after an attack」。" +
-    "本卡已改用 conquered 过滤别名，绑定层将内嵌 source: \"self\" 转为 objectId，能够通过校验和真实事件管线注册（golden 实测）。" +
-    "（3）[Deflect 2]（809）的展开 effects/keywords/Deflect.ts 已合入（target.tax 静态效果），其消费方也已合入" +
-    "（chain/engine.ts 的 taxAdapter + mandatoryAdditional 接线），但税额仍接成 energy，未接为 809.1.c/809.1.c.1 的任意域 Power" +
-    "（engine-core/test/rules/costs/809.1.c-deflect-mandatory-power.test.mjs 仍为 todo）。CR 135.2.e.5.a 的 [A] 费用已可由 power payment 配合六域 allowedDomains 表达。" +
-    "正文里 excess damage 的读取位置（condition.value 读 source.excessDamageAssignedThisCombat）是待接线声明：" +
-    "未接线时该指令求值抛 MissingInformation 并被 ignored，不会把数额算错（golden 实测）。" +
-    "依赖：excess damage 统计（CR 467.2.c.4）、征服宿主与攻击参与信息载荷、Deflect 的 Power 税额接线。" +
-    "不近似实现（条件不写成常量、\"that much\" 不写成固定数额、不手改伤害）。",
+    "（1）缺本次攻击向敌方单位分配的 excess damage 总量读取（CR 467.2.c.4）：" +
+    "HistoryQuery 只返回事件次数，source.excessDamageAssignedThisCombat 也未接线，" +
+    "触发条件与 condition.value 的数额读取均缺数据，不能用对象数或固定 5 代替。" +
+    "（2）turn/flow.ts 的 conquer 载荷只有 player + details.battlefieldId，" +
+    "缺征服宿主 objectId 及攻击参与信息，conquered 的 self 锚点无法匹配「I conquer after an attack」（383.4.c.2.a）。" +
+    "（3）Deflect 的 target.tax 尚未接入 programs/statics.ts；chain/engine.ts::finalize " +
+    "仍把税额转成 Energy，未消费 target/tax 适配器的完整 CostPlan，" +
+    "无法在生产 Chain 中收取 809.1.c/809.1.c.1、135.2.e.5.a 要求的任意域 Power。",
   abilities,
   sourceText:
     "[Deflect 2] (Opponents must pay :rb_rune_rainbow::rb_rune_rainbow: to choose me with a spell or Ability.)\n" +

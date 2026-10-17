@@ -39,6 +39,7 @@ const garbageGrabber = {
     "417.6 的 \"Recycle 3 from your trash\"（选择在 Finalize 才存在，且不指定目标）；" +
     "effect.recycle 的 from 形式是结算效果而非费用，用它会把 417.3 的\"费用必须能完成\"变成普通效果。" +
     "当前缺少在 Finalize 时按 controller Trash 动态生成非目标费用选项并把选择交给支付计划的形状；" +
+   "费用侧的 417.5 随机落牌次序（同时回收多张）也还没有 shuffle/choose 原语落地（effect.recycle 文件头明确随机化归解释器/内核）。" +
     "1 能量、exhaust self 与 Draw 1 效果已合入，golden 仅执行 Draw 1；不近似实现。",
   abilities: [
     {

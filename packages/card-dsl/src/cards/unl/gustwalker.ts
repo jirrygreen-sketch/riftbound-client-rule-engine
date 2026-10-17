@@ -42,7 +42,7 @@ const gustwalker = {
     "三处缺口，均不近似实现：(1) Hunt 的 conquer/hold 事件在 turn/flow 的 score 分支以玩家为发射方存在（不是拼写缺失），但事件载荷不带 object，" +
     "[Hunt 2] 的 When I（self 归属）无法命中；Hunt 数值求和已由 expandProgram 实现；" +
     "(2) [Level 3][>] 依赖式关键词（824.1.b.1）仍不能读取玩家 XP：824.1.c / .d 需要可求值的控制者 XP ≥ 3 谓词与动态失活，" +
-    "合并 IR 的 Condition 读不到 PlayerSnapshot.xp（count 只会静默数对象）；" +
+    "合并 IR 的 Condition 读不到 PlayerSnapshot.xp（count 只会静默数对象）；现用 never 显式阻断保留的 controller-xp 查询，禁止以对象数代替 XP；" +
     "(3) 静态绑定可注册 Might 与 Ganking 授予，但移动规则尚未把运行时授予的 Ganking " +
     "characteristic 消费为战场到战场许可。" +
     "依赖：Hunt 事件载荷、Level 实时 XP 谓词、Ganking 移动许可消费接线。",
@@ -61,10 +61,17 @@ const gustwalker = {
         appliesTo: "self"
       },
       condition: {
-        kind: "compare",
-        left: { kind: "count", subject: "controller-xp", filter: { player: "controller" } },
-        operator: "gte",
-        right: { kind: "constant", value: 3 }
+        // CR 824.1.c/d: pending player XP query; never substitute object count.
+        kind: "all",
+        conditions: [
+          { kind: "never" },
+          {
+            kind: "compare",
+            left: { kind: "count", subject: "controller-xp", filter: { player: "controller" } },
+            operator: "gte",
+            right: { kind: "constant", value: 3 }
+          }
+        ]
       }
     },
     {
@@ -76,10 +83,17 @@ const gustwalker = {
         appliesTo: "self"
       },
       condition: {
-        kind: "compare",
-        left: { kind: "count", subject: "controller-xp", filter: { player: "controller" } },
-        operator: "gte",
-        right: { kind: "constant", value: 3 }
+        // CR 824.1.c/d: pending player XP query; never substitute object count.
+        kind: "all",
+        conditions: [
+          { kind: "never" },
+          {
+            kind: "compare",
+            left: { kind: "count", subject: "controller-xp", filter: { player: "controller" } },
+            operator: "gte",
+            right: { kind: "constant", value: 3 }
+          }
+        ]
       }
     }
   ],

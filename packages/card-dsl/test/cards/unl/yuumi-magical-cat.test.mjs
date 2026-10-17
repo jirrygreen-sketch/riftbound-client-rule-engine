@@ -36,7 +36,8 @@ test("unl-056-219 Yuumi, Magical Cat: identity, status, judgeReason and verbatim
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /sameLocationAs\/exclude/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /translateObjectFilter/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
   assert.match(program.judgeReason, /Tank/);
   assert.match(program.judgeReason, /815\.1\.b/);
 });
@@ -208,7 +209,7 @@ test.todo(
 );
 test.todo(
   "unl-056-219 Yuumi, Magical Cat: Finalize binds sameLocationAs/exclude for the chosen other friendly unit " +
-    "here (CR 355.9 / 359.3.f.1; RIFT-359)"
+    "here (CR 355.9 / 359.3.f.1; card-program target-binding adapter)"
 );
 test.todo(
   "unl-056-219 Yuumi, Magical Cat: combat consumes the granted Tank's lethal-first damage-assignment " +

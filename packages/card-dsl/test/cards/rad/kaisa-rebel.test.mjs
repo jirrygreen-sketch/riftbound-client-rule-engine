@@ -1,3 +1,15 @@
+// RIFT-670 single-card golden: validation, identity, judgeReason and the key
+// structure of Kai'Sa, Rebel. Real execution evidence for this card (the
+// whole-card scenario through the generic card harness plus the measured
+// outcome of binding the expanded Reaction grant) lives in
+// `test/cards/templates/keyword-static-670.test.mjs`.
+//
+// The card stays judge-required: the Disarm expansion's `sameLocationAs` target
+// filter is rejected by the production trigger path and `attack-declared` has
+// no production emitter, while the Reaction grant registers but its
+// `in-showdown` condition raises MissingInformation and fails closed, so a
+// friendly chain spell still has no Reaction. Only the gap-asserting probes are
+// removed here; the primitive-level evidence is kept.
 import assert from "node:assert/strict";
 import test from "node:test";
 

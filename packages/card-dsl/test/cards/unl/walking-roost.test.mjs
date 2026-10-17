@@ -6,6 +6,10 @@ import program from "../../../dist/cards/unl/walking-roost.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID =
   "card.hash-51c4e6e520ee820d879fd83a63fbe09eed92fc00f5b8f7db1f68e18dd93f2154";
@@ -30,6 +34,11 @@ test("unl-130-219 Walking Roost: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /187\.7/);
   assert.match(program.judgeReason, /bird/);
   assert.match(program.judgeReason, /target\.player/);
+  // The refreshed reason also names the observed registration failure for the
+  // Deflect expansion and the fail-closed token destination.
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /Unregistered instruction opcode/);
+
 });
 
 test("unl-130-219 Walking Roost: unvalued Deflect (809.1.b.3) plus the card-played self trigger", () => {
@@ -89,6 +98,73 @@ test("unl-130-219 Walking Roost: the declared keyword id matches the merged Defl
   assert.ok(registered.ruleRefs.includes("809.1.b.3"));
 });
 
+test("unl-130-219 Walking Roost gap: the Bird definition and the player-choice op are both unregistered", () => {
+  // 187.7 needs a Bird token (domainless, 1 Might, Bird tag, Deflect). The frozen
+  // table has no entry: the primitive negates with a blocked reason instead of
+  // inventing a keyword-less substitute.
+  const f = fixture();
+  const run = runInstruction(
+    token,
+    {
+      token: { kind: "constant", value: "bird" },
+      amount: { kind: "constant", value: 1 },
+      mode: { kind: "constant", value: "play" },
+      location: { kind: "constant", value: { type: "base", player: "A" } }
+    },
+    { world: f.kernel, controller: "A" }
+  );
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.linked.token.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.deepEqual(run.linked.token.objects, []);
+  // 355.7: choosing an opponent is a player choice. There is no target.player op
+  // and no player-shaped ChoiceRequest, so the instruction cannot run at all.
+  assert.equal(instructionDefinitionsById.has("target.player"), false);
+});
+
+test("unl-130-219 Walking Roost gap: the descriptive chosen-opponent base is refused, never mis-placed", () => {
+  // The card keeps a descriptive destination because the IR cannot name the chosen
+  // opponent's seat. effect.token requires a concrete PlayerId, so the value is
+  // negated: no token is ever created at the wrong player's base.
+  const kernel = world().unit("roost", { might: 6 }).build();
+  const before = kernel.query({ zone: "board" }).length;
+  const run = runInstruction(
+    token,
+    {
+      token: { kind: "constant", value: "bird" },
+      amount: { kind: "constant", value: 1 },
+      mode: { kind: "constant", value: "play" },
+      location: playBird.args.location
+    },
+    { world: kernel, controller: "A" }
+  );
+  assert.equal(run.result.status, "negated");
+  assert.deepEqual(run.linked.token.objects, []);
+  assert.equal(run.linked.token.amount, 0);
+  // Nothing was created, and no token landed at either base (the reference
+  // kernel's set query does not support an isToken predicate, so the token
+  // count is read from the receipt and from the unchanged board size).
+  assert.equal(kernel.query({ zone: "board" }).length, before);
+  assert.deepEqual(run.events, []);
+});
+
+test("unl-130-219 Walking Roost gap: the expanded Deflect declaration has no layer mapping", () => {
+  // 809.1.c.1: the tax is paid in Power of any Domain. The keyword expansion only
+  // produces a static target.tax declaration, and the production static binder has
+  // no layer for that kind, so no tax can ever be collected.
+  const f = fixture({ cards: [{ id: "roost", cardId: CARD_ID, types: ["unit"], might: 6 }] });
+  const expansion = keywordDefinitionsById.get("Deflect").expand({ value: 1, host: { canonicalCardId: CARD_ID } });
+  const binder = createEngineStaticBinder(f.engine);
+  assert.throws(
+    () => binder.bindStatic(expansion[0], f.kernel.getObject("roost")),
+    /Static ability kind target\.tax has no layer mapping/
+  );
+  // The trigger binding itself works, which is why only the token/player/tax
+  // halves stay judged.
+  const { judgeReason: _reason, ...rest } = program;
+  const binding = createProgramBinding({ cardPrograms: [{ ...rest, status: "executable" }] });
+  const source = { ...f.kernel.getObject("roost"), keywords: [] };
+  assert.deepEqual(binding.registerProgramTriggers(f.engine, source).length, 1);
+});
 test.todo(
   "unl-130-219 Walking Roost: add the CR 187.7 1 [M] Bird token (domainless, 1 Might, Bird tag, Deflect) to the " +
     "token definitions — effect.token's frozen table has no bird entry"

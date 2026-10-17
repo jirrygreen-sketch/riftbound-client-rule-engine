@@ -1,4 +1,7 @@
+// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
 import assert from "node:assert/strict";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
@@ -34,7 +37,7 @@ test("applied-researchers: judgeReason names the current cost-plan and Empowered
   assert.match(program.judgeReason, /828\.1\.c/);
   assert.match(program.judgeReason, /CostPlanInput\.discounts/);
   assert.match(program.judgeReason, /356\.4\.e/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /spell-play-cost/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -48,8 +51,10 @@ test("applied-researchers: Empower 3 is declared, and both discount components a
     assert.equal(ability.effect.appliesTo, "spell-play-cost");
     assert.deepEqual(ability.effect.filter, { type: "spell", controller: "self" });
     assert.deepEqual(ability.condition, {
-      kind: "expression",
-      value: { kind: "constant", value: "empowered" }
+      kind: "compare",
+      left: { kind: "object-property", object: "self", property: "empowered" },
+      operator: "gte",
+      right: { kind: "constant", value: 1 }
     });
   }
 });
@@ -131,18 +136,55 @@ test("applied-researchers: the merged cost plan applies a caller-supplied discou
 });
 
 test.todo(
-  "applied-researchers: [Empower] 3 activation and the Empowered gate on the discount " +
-    "(827.1.c.1 / 828.1.c) need the Empower/Empowered KeywordDefs and the 442.1.a state predicate"
+  "applied-researchers: bind printed 3 Energy through KeywordAbility.params.cost and expandProgram (827.1.c.1)"
 );
 test.todo(
-  "applied-researchers: feed 'your spells cost 1 Energy and 1 any-Domain Power less, to a minimum " +
-    "of 1 Energy' from the CardProgram static effect into buildCostPlan as a CostDiscount " +
-    "(356.4.a-d ordering, 356.4.e per-discount minimum) — RIFT-257's static binding and a merged " +
-    "cost-modification consumer are still missing"
+  "applied-researchers: connect continuous.cost-modification spell-play-cost to CostPlanInput.discounts with its per-discount minimum (356.4.a-e)"
 );
 
 test.todo(
-  "applied-researchers: the Empower/Empowered KeywordDefs and the card-side static-to-CostPlan " +
-    "discount channel are pending — until the keyword task and the discount-channel task land, the " +
-    "827.1.c.1 activation and the 828.1.c gate cannot expand (see judgeReason)"
+  "applied-researchers: integrate the tested live empowered gate with spell Finalize discounts and authoritative binary state (442.1 / 828.1.c)"
 );
+
+test("applied-researchers: the merged Empower definition expands through the real program adapter", () => {
+  const kernel = world().unit("keyword-host", {
+    cardId: program.canonicalCardId, energy: null, power: null
+  }).build();
+  const { expanded } = expandProgram(program, kernel.getObject("keyword-host"));
+  assert.equal(expanded.length, 1);
+  const [activation] = expanded;
+  assert.equal(activation.kind, "activated");
+  assert.equal(activation.timing, "action");
+  // The missing printed-cost bridge must never turn this into a free activation.
+  assert.deepEqual(activation.cost, { kind: "empower" });
+  assert.deepEqual(activation.restriction, { kind: "empower", condition: {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq", right: { kind: "constant", value: 0 }
+  } });
+  assert.equal(activation.body[0].id, `empower:${program.canonicalCardId}`);
+  assert.equal(activation.body[0].op, "effect.empower");
+  assert.deepEqual(activation.body[0].args, { amount: { kind: "constant", value: 1 } });
+  assert.deepEqual(activation.body[0].condition, activation.restriction.condition);
+  assert.equal(activation.body[0].targets, undefined);
+  assert.equal(program.status, "judge-required");
+});
+
+test("applied-researchers: the source gate evaluates the actual empowered state", () => {
+  const kernel = world().unit("gate-host", { energy: null, power: null }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("gate-host") });
+  const body = [{ id: "gate", op: "condition.predicate", args: {
+    condition: { kind: "constant", value: energyDiscount.condition }
+  } }];
+  const evaluate = () => {
+    const outcome = runAbilityBody(body, context);
+    assert.equal(outcome.status, "executed");
+    return outcome.results[0].result.linkedValues.value;
+  };
+  assert.equal(evaluate(), false);
+  assert.equal(context.perform({ type: "empower", object: context.ref("gate-host") }).status, "done");
+  assert.equal(evaluate(), true);
+  assert.equal(context.perform({ type: "disempower", object: context.ref("gate-host") }).status, "done");
+  assert.equal(evaluate(), false);
+  assert.deepEqual(context.events.map(event => event.action), ["empower", "disempower"]);
+});

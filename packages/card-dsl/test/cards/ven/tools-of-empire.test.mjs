@@ -4,6 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/tools-of-empire.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -41,7 +42,8 @@ test("ven-077-166 Tools of Empire: identity, ruleset, status, judgeReason and ve
   assert.equal(program.status, "judge-required");
   // The reason names only the current Empower and Empowered-condition gaps.
   assert.match(program.judgeReason, /Empower/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /params\.cost/);
+  assert.match(program.judgeReason, /ObjectSnapshot|状态条件谓词/);
   assert.doesNotMatch(program.judgeReason, /assertFinalizationSurface|RIFT-81|RIFT-89|RIFT-90|RIFT-91/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -59,6 +61,14 @@ test("ven-077-166 Tools of Empire: Empower 2 plus an exhaust-cost Might ability"
     payments: [{ kind: "exhaust", object: "self" }]
   });
   assert.equal(activated.restriction, undefined);
+});
+
+test("ven-077-166 Tools of Empire: the merged Empower definition is present but receives no printed-cost parameter", () => {
+  const definition = keywordDefinitionsById.get("Empower");
+  assert.ok(definition);
+  const [expanded] = definition.expand({ host: { canonicalCardId: CARD_ID } });
+  assert.equal(expanded.kind, "activated");
+  assert.deepEqual(expanded.cost, { kind: "empower" });
 });
 
 test("ven-077-166 Tools of Empire: one unit target carrying the printed +2 and the Empowered +4 branch", () => {
@@ -130,12 +140,8 @@ test("ven-077-166 Tools of Empire golden: the declared target filter really sele
 });
 
 test.todo(
-  "ven-077-166 Tools of Empire: [Empower] 2 (CR 827.1.c.1 activation cost plus \"Use only if not Empowered\") needs an " +
-    "Empower KeywordDef expansion that carries the printed 2 Energy cost and the not-Empowered activation gate"
-);
-test.todo(
   "ven-077-166 Tools of Empire: the printed \"+2 … if Empowered, +4 … instead\" either/or branch needs a merged " +
-    "runtime Empowered condition predicate (RIFT-359); the +4 instruction must remain conditional on the same target"
+    "runtime Empowered condition predicate (ObjectSnapshot / Condition); the +4 instruction must remain conditional on the same target"
 );
 
 test("ven-077-166 Tools of Empire golden: the non-Empowered +2 branch registers a temporary Might effect", () => {

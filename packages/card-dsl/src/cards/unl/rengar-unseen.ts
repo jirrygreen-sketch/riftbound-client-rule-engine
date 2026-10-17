@@ -23,20 +23,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - [Ganking]（810.1.b / 144.4.c.1）：为单位的标准移动增加“战场→战场”许可。
  * 四条都是"只声明关键词"（契约 3.1 / 3.7、README 第 5 节），展开与消费归 effects/keywords/ 与 layers。
  *
- * status = judge-required。自本程序初写后合入的依赖：Assault 的 KeywordDef（RIFT-264～268）、
- * continuous.might 指令（RIFT-258）、CardProgram 绑定（RIFT-257）。
- *
- * 仍缺四处（不近似实现）：
- * - Accelerate 的 accelerate.cost 静态效果没有 Finalize/费用计划消费方，入场就绪也没有
- *   replacement.enter 接线（chain/engine.ts 只读调用方传入的费用计划；programs/play.ts 对
- *   additional-cost 类字段直接判 judge-required 失败）；
- * - Assault 2 需要 807.1.d 的 Attacker designation 与求值后的图层修正：ObjectSnapshot.combatRole
- *   已进入 HEAD（契约 3.8），但战斗角色 designation 没有产生方（combat/flow.ts 仍抛
- *   combat-start-transaction），layers/engine.ts 的 conditionMatches 也不求值该 compare 条件（按 true 处理）；
- * - Deflect 的 target.tax 接线：target/target-plan.ts 已有 Deflect 税的部分支持（TargetFinalizeOptions.tax
- *   与 taxAdapter），但 layers/rules/query.ts 没有 target.tax 查询、关键词展开也没有接线进 Finalize；
- * - Ganking 的 continuous.movement 许可需要移动系统读取（movement() 查询已合入但没有调用方）。
- * 任一未接线即不能宣称整卡可执行；golden 只做身份、结构与已合入展开文件的形状校验，缺依赖写 test.todo。
+ * 2026-10-17 复核：仍为 judge-required，当前缺口见 judgeReason。
+ * 已有原语、关键词定义或通用适配器不代表本卡完整生产路径可执行。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -52,15 +40,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "Assault 的 KeywordDef（RIFT-264～268）、continuous.might（RIFT-258）与卡牌程序绑定（RIFT-257）已合入，" +
-    "但仍缺四处管线接线，缺一即不能宣称整卡可执行，均不近似实现：" +
-    "(1) Accelerate 的 accelerate.cost 静态效果没有 Finalize/费用计划消费方，805.2.b/805.6 的入场就绪也没有 replacement.enter 接线" +
-    "（chain/engine.ts 只读调用方传入的费用计划；programs/play.ts 对 additional-cost 类字段直接判 judge-required 失败）。" +
-    "(2) Assault 2（807.1.c）需要 807.1.d 的 Attacker designation 与求值后的 continuous.might 图层：ObjectSnapshot.combatRole 已进入 HEAD（契约 3.8），" +
-    "但战斗角色 designation 没有产生方（combat/flow.ts 仍抛 combat-start-transaction），layers/engine.ts 的 conditionMatches 也不求值该 compare 条件（按 true 处理）。" +
-    "(3) [Deflect]（809.1.b.3 省略数值时按 1）的 target.tax 接线：target/target-plan.ts 已有 Deflect 税的部分支持" +
-    "（TargetFinalizeOptions.tax 与 taxAdapter），但 layers/rules/query.ts 没有 target.tax 查询，关键词展开也没有接线进 Finalize。" +
-    "(4) Ganking 的 continuous.movement 许可需要移动系统读取（movement() 查询已合入但没有调用方）。",
+    "缺 Accelerate 的 accelerate.cost 到 Finalize 可选附加费用及付费后才生效的入场替代绑定（805.1.b/805.2.b/805.6）；费用计划支持 accelerate 组件但 CardProgram 未提供该组件。" +
+    "缺 Assault 的 designation 到 ObjectSnapshot.combatRole 映射（807.1.c/807.1.d）：静态 compare 条件已可求值，关键词却读取不存在的 designation；combat-start-transaction 仍未产生战斗角色。" +
+    "缺 Deflect 的 target.tax 静态绑定及 target/tax 适配器到 Chain Finalize 的接线（809.1.c.1）；target-plan 已有目标税接口，但链仍按 Energy 而非任意域 Power 收费。" +
+    "缺 Ganking 的 continuous.movement 许可翻译与标准移动消费方（810.1.b/144.4.c.1），movement() 读取 permission.routes，关键词仍给 permission 字符串。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_fury: as an additional cost to have me enter ready.)\n" +

@@ -23,11 +23,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （effect.channel 的 exhausted 参数）。两句由 "and" 连接但动作独立，不写 linkedTo
  *   （055 / 359.3.e.11：能做什么做什么）。
  *
- * status = judge-required：
- * 两处当前缺口：(1) 强制追加费用（CR 356.2.a.1）的 cost.additional 静态声明尚未接入 CardProgram → CostPlan：
- * programs/play.ts 的 translateCost 拒绝 additional，describePlay 也不收集静态追加费用；费用计划和 kill 支付本身已可执行。
- * (2) friendly [Mighty] unit（706–711）需要有效 Might >= 5 的费用选择谓词；cost/plan-values.ts 的 choiceObjects
- * 只消费显式 options，不读取 choice.filter 中的 mightGte，也没有动态候选集合绑定。Mighty 谓词本身已合入；
+ * status = judge-required（2026-10-17 对源码逐条复核）：
+ * 两处当前缺口：(1) 强制追加费用（CR 356.2.a.1）的 cost.additional 静态声明仍没有消费方把它接进 Finalize 费用计划：
+ * programs/play.ts 的 translateCost 对 kind "additional"/"additional-cost" 直接 judgeRequired
+ * （实测 "Additional costs are not bound for sacrifice"），describePlay 只从 play ability 的 cost 生成计划、
+ * 不收集 static cost.additional；programs/statics.ts 的 layerFor 也把该静态效果以
+ * "Static ability kind cost.additional has no layer mapping" 拒绝（实测）。cost/plan-values.ts 的 kill 支付
+ * 与 buildCostPlan 的 mandatoryAdditional 本体已可执行，缺的只是这条卡牌声明→计划的接线。
+ * (2) friendly [Mighty] unit（706–711）的费用选择缺动态候选与 Might 谓词：cost/plan-values.ts 的 choiceObjects
+ * 逐个把 choice.options 经 reference() 解析为精确 ObjectRef，符号占位（"dynamic:friendly-mighty-unit"）会以
+ * "Cost requires an exact object reference" 失败（实测），也不读取 choice.filter 中的 mightGte，
+ * 没有挑选期绑定"该玩家自己的、当前 Might >= 5"候选集合的路径。Mighty 谓词本身已合入；
  * 不能用任意友方单位近似该费用。
  */
 const abilities: Ability[] = [
@@ -95,11 +101,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处当前缺口：(1) 强制追加费用（CR 356.2.a.1）的 cost.additional 静态声明尚未接入 CardProgram → CostPlan：" +
-    "programs/play.ts 的 translateCost 拒绝 additional，describePlay 也不收集静态追加费用；费用计划和 kill 支付本身已可执行。" +
-    "(2) friendly [Mighty] unit（706–711）需要有效 Might >= 5 的费用选择谓词；cost/plan-values.ts 的 choiceObjects " +
-    "只消费显式 options，不读取 choice.filter 中的 mightGte，也没有动态候选集合绑定。Mighty 谓词本身已合入；" +
-    "不能用任意友方单位近似该费用。",
+    "两处当前缺口（均不近似实现）：(1) 强制追加费用（CR 356.2.a.1）的 cost.additional 静态声明没有消费方接进 Finalize 费用计划：" +
+    "programs/play.ts 的 translateCost 对 kind \"additional\"/\"additional-cost\" 直接 judgeRequired" +
+    "（实测 \"Additional costs are not bound for sacrifice\"），describePlay 只从 play ability 的 cost 生成计划、" +
+    "不收集 static cost.additional；programs/statics.ts 的 layerFor 也以 " +
+    "\"Static ability kind cost.additional has no layer mapping\" 拒绝该静态效果（实测）。" +
+    "buildCostPlan 的 mandatoryAdditional 与 plan-values 的 kill 支付本体已可执行，缺的只是这条卡牌声明→计划的接线。" +
+    "(2) friendly [Mighty] unit（706–711）的费用选择缺动态候选与 Might 谓词：cost/plan-values.ts 的 choiceObjects " +
+    "逐个把 choice.options 经 reference() 解析成精确 ObjectRef，符号占位会以 \"Cost requires an exact object reference\" 失败（实测），" +
+    "也不读取 choice.filter 中的 mightGte，没有挑选期绑定「该玩家自己的、当前 Might >= 5」候选集合的路径。" +
+    "Mighty 谓词本身已合入；不能用任意友方单位近似该费用。",
   abilities,
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +

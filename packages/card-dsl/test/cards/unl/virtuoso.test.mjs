@@ -7,6 +7,10 @@ import banish from "../../../../engine-core/dist/effects/instructions/effect.ban
 import channel from "../../../../engine-core/dist/effects/instructions/effect.channel.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { ChainContractBlockedError } from "../../../../engine-core/dist/chain/engine.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
@@ -36,6 +40,11 @@ test("unl-181-219 Virtuoso: identity, status, judgeReason and verbatim sourceTex
   assert.match(program.judgeReason, /spent/);
   assert.match(program.judgeReason, /383\.2\.a\.1/);
   assert.match(program.judgeReason, /394/);
+  // The refreshed reason names the observed blocked surfaces and the fifth gap
+  // (nested targets through chain Finalize) instead of finished tasks.
+  assert.match(program.judgeReason, /Unavailable condition result/);
+  assert.match(program.judgeReason, /assertFinalizationSurface/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
 });
 
 test("unl-181-219 Virtuoso: card-played trigger on a spell with the spent clause as trigger condition", () => {
@@ -214,6 +223,87 @@ test("unl-181-219 Virtuoso: the four-banish tail is guarded per instruction, not
   });
 });
 
+test("unl-181-219 Virtuoso gap: the spent clause over-satisfies without a cost receipt", () => {
+  // 383.2.a.1 asks for the Energy actually spent on the triggering spell. The
+  // retained count shape has no evaluable subject at all, so it tracks the number
+  // of unrelated objects: 0 objects is false, 4 objects is true. The real
+  // predicate (a finalized cost receipt) is unavailable during trigger evaluation.
+  const condition = ability.trigger.condition;
+  const empty = world().build();
+  const fourObjects = world().unit("a").unit("b").unit("c").unit("d").build();
+  assert.equal(empty.test(condition), false);
+  assert.equal(fourObjects.test(condition), true);
+  assert.throws(
+    () => evaluateCondition(
+      { kind: "result", result: "cost.total", key: "energy", operator: "gte", right: { kind: "constant", value: 4 } },
+      {
+        context: fourObjects,
+        event: { timingPoint: "card-played" },
+        linked: () => undefined,
+        canLookBack: () => true,
+        isIgnored: () => false,
+        query: filter => fourObjects.query(filter)
+      }
+    ),
+    /Unavailable condition result/
+  );
+});
+
+test("unl-181-219 Virtuoso gap: the four-banish condition counts any banished spell, not the linked window", () => {
+  // CR 394-398: "four spells banished with me" is a Linked Ability window. The
+  // merged counter only sees Banishment as a zone, so four unrelated spells
+  // satisfy the condition while the put-each-in-trash pick resolves as ignored.
+  const kernel = world()
+    .object("spell-1", { zone: "banishment", types: ["spell"], owner: "B" })
+    .object("spell-2", { zone: "banishment", types: ["spell"], owner: "B" })
+    .object("spell-3", { zone: "banishment", types: ["spell"], owner: "B" })
+    .object("spell-4", { zone: "banishment", types: ["spell"], owner: "B" })
+    .deck(["top", "second"])
+    .rune(["r1", "r2", "r3", "r4", "r5"])
+    .build();
+  const context = kernel.clone({ controller: "A" });
+  const outcome = resolveChainBody([fourSpells], context);
+
+  assert.equal(kernel.test(fourSpells.condition), true);
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["virtuoso.put-in-trash", "ignored"],
+    ["virtuoso.channel-four", "executed"],
+    ["virtuoso.draw-one", "executed"],
+    ["virtuoso.four-spells", "executed"]
+  ]);
+  assert.deepEqual(
+    kernel.query({ zone: "banishment" }).map(object => object.ref.id),
+    ["spell-1", "spell-2", "spell-3", "spell-4"]
+  );
+});
+
+test("unl-181-219 Virtuoso gap: the chain Finalize rejects the nested banish target", () => {
+  // The optional banish target sits inside choice.optional. assertFinalizationSurface
+  // refuses nested TargetSpecs, so putting this trigger on the chain throws before
+  // Finalize can lock any target. Observed with the real ChainEngine, not with the
+  // interpreter alone.
+  const f = fixture();
+  const body = [{
+    id: "virtuoso.opt-banish",
+    op: "choice.optional",
+    args: {
+      prompt: { kind: "constant", value: "Banish the spell you played?" },
+      body: optionalBanish.args.body
+    }
+  }];
+  assert.throws(
+    () => f.engine.execute({
+      id: "virtuoso-like",
+      controller: "A",
+      source: f.kernel.getObject("source"),
+      kind: "triggered",
+      speed: "action",
+      body
+    }),
+    error => error instanceof ChainContractBlockedError &&
+      /Nested\/repeated targets require an interpreter target-selection lifecycle adapter/.test(error.message)
+  );
+});
 test.todo(
   "unl-181-219 Virtuoso: evaluate 'if you spent [4] or more' from the finalized cost plan receipt (CR 383.2.a.1) — " +
     "chain/engine.ts stores the payCostPlan receipt on ChainItem.payment, but ResolveContext has no spent/finalized-cost " +

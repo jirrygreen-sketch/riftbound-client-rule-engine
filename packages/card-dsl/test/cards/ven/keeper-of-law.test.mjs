@@ -1,3 +1,6 @@
+// Scenario execution evidence: ../templates/static-644.test.mjs (one parameterized row per card).
+// This card stays judge-required; the template row pins the missing layer mapping for
+// continuous.cost-modification.
 import assert from "node:assert/strict";
 import test from "node:test";
 

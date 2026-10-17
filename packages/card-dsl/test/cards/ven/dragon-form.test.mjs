@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CARD_ID = "card.hash-ace1c75d6848b5ce9e834068a2b6255d8f82c7ccf918d3063e5a31698ccdacb6";
 const SOURCE_TEXT =
@@ -41,7 +42,28 @@ test("ven-116-166 Dragon Form: judgeReason names the trait layer setting, the du
   assert.match(program.judgeReason, /object-leaves-chain/);
   // 143.2.c.1: the actual Might value is not clamped, so no printed floor is invented.
   assert.match(program.judgeReason, /143\.2\.c\.1/);
+  assert.match(program.judgeReason, /set-trait/);
+  assert.match(program.judgeReason, /programs\/statics/);
   assert.match(program.judgeReason, /不近似实现/);
+});
+
+test("Dragon Form layer dependency: the generic trait layer sets Might before arithmetic and expires", () => {
+  // The layer consumer exists; continuous.base-might still has no registered card instruction.
+  const kernel = world().unit("unit", { might: 2, power: null }).build();
+  const object = kernel.getObject("unit");
+  const layers = createLayerEngine([object], [
+    { effect: { id: "base", layer: "trait", source: object.ref, filter: { objectId: "unit" },
+        effect: { kind: "set-trait", property: "might", value: setBaseMight.args.value.value } },
+      duration: { type: "end-of-turn" }, timestamp: 1, sequence: 1 },
+    { effect: { id: "bonus", layer: "arithmetic", source: object.ref, filter: { objectId: "unit" },
+        effect: { kind: "continuous.might", amount: 2 } },
+      duration: { type: "permanent" }, timestamp: 2, sequence: 2 }
+  ]);
+  assert.equal(layers.evaluate(object.ref).might, 7);
+  assert.equal(kernel.getObject("unit").might, 2);
+  assert.equal(kernel.getObject("unit").power, null);
+  layers.advance({ id: "turn-end", player: "A" });
+  assert.equal(layers.evaluate(object.ref).might, 4);
 });
 
 test("ven-116-166 Dragon Form: [Flow] keyword plus one trait-layer base-Might set", () => {
@@ -113,7 +135,7 @@ test("ven-116-166 Dragon Form golden: an explicitly supplied Flow parameter expa
 test.todo(
   "ven-116-166 Dragon Form: execute 'Its base Might becomes 5 this turn' in the trait-altering " +
     "layer (143.2.a) with an end-of-turn expiry (317.2.c/318) — needs the continuous.base-might " +
-    "instruction plus its layers consumer (continuous.might's set is the arithmetic layer, not the trait layer)"
+    "instruction to bind the existing trait layer (continuous.might's set is the arithmetic layer, not the trait layer)"
 );
 
 test.todo(

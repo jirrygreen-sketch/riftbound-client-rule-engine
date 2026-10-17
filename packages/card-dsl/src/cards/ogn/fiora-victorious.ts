@@ -2,17 +2,16 @@ import type { CardProgram } from "../../ir/index.js";
 
 /**
  * Fiora, Victorious — CR v1.5 708/710, 809, 810 and 814.
- * Static program binding and object-property comparisons are merged.
- * Conditional granted keywords still need their live behavior expansion:
- * Deflect into target costs, Ganking into movement permissions, and Shield
- * into defender Might, refreshed as effective Might changes.
+ * Static binding and the conditional keyword grant are executable as a layer
+ * registration. The granted characteristics still lack their live behavior
+ * consumers, and the production threshold recheck remains a failing path.
  */
 const fioraVictorious = {
   canonicalCardId: "card.hash-184064ceedf3bc8c1c777c425d1bc971c0b7a878cde5573d58da57509cf5d08e",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺图层授予关键词后的行为消费：Ganking 未转为 Standard Move 许可、Shield 未转为 defender Might，Shield KeywordDef 还读取 designation 而 ObjectSnapshot 使用 combatRole（CR 810.1.b/144.4.c.1、814.1.c）。Deflect 的 target.tax 未从授予关键词接入 Finalize，现有 Chain tax 汇总还使用 Energy 而非所需任意域 Power（CR 809.1.c/809.1.c.1）。静态绑定虽已读取图层快照，有效 Might 的动态阈值仍未正确重验：4→5 未授予、5→4 未撤销三关键词（CR 708/710）。",
+    "仍缺动态授予关键词的行为消费：continuous.grant-keyword 只把 Deflect/Ganking/Shield 写入 ability 层特征，未把 Ganking 接到已有的 continuous.movement/Standard Move 许可，未把 Shield 接到 defender Might；Shield KeywordDef 仍读取 designation，而 ObjectSnapshot 的战斗字段是 combatRole（CR 810.1.b/144.4.c.1、814.1.c）。Deflect 的 target.tax 也未从该授予路径接入 Finalize：programs/statics.ts 没有 target.tax 绑定，Chain Finalize 仍把税额记为 Energy，绕过 target/tax 的任意域 Power 计划（CR 809.1.c/809.1.c.1）。实际 continuous.might 链结算中的静态阈值回测仍失败：createEngineStaticBinder 绑定的条件在 4→5 时不授予、5→4 时不撤销三关键词，尚缺 CR 478.3/478.4 要求的当前有效 Might 重验。",
   sourceText:
     "While I'm [Mighty], I have [Deflect], [Ganking], and [Shield]. (I'm Mighty while I have 5+ :rb_might:.)",
   abilities: [

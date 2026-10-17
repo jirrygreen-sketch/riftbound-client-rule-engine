@@ -230,5 +230,5 @@ test("ven-138-166 Shen golden: the merged pipeline delivers the hold event to a 
 
 test.todo(
   "ven-138-166 Shen: bind \"here\" to the hold event's battlefield payload (053.3) and resolve the " +
-    "battlefield controller's abilities (190.6); the emission and RIFT-257 registrar are merged"
+    "battlefield controller's abilities (190.6); the emission and trigger registrar are merged"
 );

@@ -13,18 +13,28 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   合并费用管线（cost/plan-values.ts、cost/payment.ts）能收取 energy / power / exhaust 支付。
  * - 381 / 381.1：印刷没有 [Action] 或 [Reaction]，启动能力在控制者回合的 Open State 以默认
  *   Action 速度启动，因此 timing = "action"（对照已合入 ogn/energy-conduit 的 reaction 声明）。
- * - 377.2.b / 377.2.b 的示例（Ultrasoft Poro “Use this ability only while I'm at a battlefield.”）：
- *   “Use this ability only while …” 是**启动该能力的前置限制**，必须在启动时就为真；
- *   该条示例与本卡原文一致。
+ * - 377.2.b（其示例同样由 Ultrasoft Poro 给出 “Use this ability only while I'm at a
+ *   battlefield.”）：“Use this ability only while …” 是**启动该能力的前置限制**，必须在启动时
+ *   就为真。
  * - “Deal 3 to a unit”：单个单位（不限定控制者）是选目标（355.9 / 355.10），
  *   用已合入的 effect.damage（amount 3、target 指向 TargetSpec）提交伤害动作（418）。
  *
- * status = judge-required（2026-10-17 复核）：仅剩 377.2.b 的战场启动限制。
- * programs/activate.ts 已消费 Restriction，并交给 Chain Finalize 校验；费用与 effect.damage
- * 均已合入。当前还需把来源的 LocationRef.type 判定编译成可执行 Condition（RIFT-359）：
- * object-property(source, "location") 只能读取整个 LocationRef，不能读取嵌套 type；
- * describeActivate 对本卡描述性 restriction kind 仍会 fail-closed。
- * golden 直接执行原始 body（保留 TargetSpec），另经 buildCostPlan/payCostPlan 支付印刷费用。
+ * status = judge-required（2026-10-17 复核；缺口不近似实现）：仅剩 377.2.b 的战场启动限制。
+ * programs/activate.ts → translateRestriction 已能把 Restriction.condition 原样送入 ChainDraft，
+ * Chain Finalize 用 context.test(condition) 在支付前校验（实测：带 condition 的 restriction
+ * 正常翻译，不带 condition 的描述性 kind 抛 needs a rules adapter）。缺的是**可判定的
+ * 来源位置谓词**：engine 的 Condition 词表没有任何能读来源 LocationRef.type 的形状——
+ * （a）object-property(source, "location") 只返回整个 LocationRef（实测得到 {type,id}/{type,player}），
+ * compare 对 "battlefield" 字符串恒为 false；
+ * （b）count({ object: "self", location: "battlefield" }) 的唯一求值路径是集合查询：
+ * layers/filter.ts 确实能按 type 字符串匹配 location（实测 battlefield 单位为 true、Base 单位 false），
+ * 但 Condition 求值走的是 ResolveContext.test → 参考内核的 query/test，完全不消费 object 锚点
+ * （实测两种位置下 test 均返回 false、query 均为 []），而且该形状只过滤集合成员，
+ * 无法把来源自身的位置类型当作启动许可。
+ * 因此现有形状既不能区分 Base 与任意 Battlefield，也不能作为启动许可。
+ * 不做替代：把限制改成目标过滤、或把 body 包成 condition 都属于发明语义。
+ * 已合入并有真实执行证据：1 点 Fury Power + 横置的印刷费用（buildCostPlan/payCostPlan，
+ * 含非 Fury 池付费失败与二次启动被拒），以及 effect.damage 对锁定单位造成印刷的 3 点。
  */
 const abilities: Ability[] = [
   {
@@ -36,7 +46,7 @@ const abilities: Ability[] = [
       payments: [{ kind: "exhaust", object: "self" }]
     },
     // 377.2.b：“Use this ability only while I'm at a battlefield.” —— 启动前置限制。
-    // 位置类型 Condition 的适配尚待 RIFT-359；不能把启动限制改成目标限制。
+    // 位置类型谓词没有可判定形状（见 judgeReason）；不能把启动限制改成目标限制。
     restriction: { kind: "use-only-while-source-at-battlefield" },
     body: [
       {
@@ -67,10 +77,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "377.2.b 的「Use this ability only while I'm at a battlefield.」仍需来源位置类型谓词（RIFT-359）：" +
-    "programs/activate.ts 已把 Restriction 交给 Chain Finalize，但本卡的描述性 kind 尚不能编译成 Condition；" +
-    "object-property(source, location) 只返回完整 LocationRef，现有 Expr 无嵌套 type 读取，" +
-    "必须在启动时区分 Base 与任意 Battlefield，不能用目标过滤替代。",
+    "377.2.b 的「Use this ability only while I'm at a battlefield.」仍需来源位置类型谓词：" +
+    "Restriction 的 condition 已被 programs/activate.ts → translateRestriction 送入 ChainDraft 并在 Finalize 求值" +
+    "（无 condition 的描述性 kind 会抛 needs a rules adapter），但 Condition/Expr 词表没有读取来源位置类型（LocationRef.type）的形状：" +
+    "object-property(source, location) 只返回整个 LocationRef，compare 对 \"battlefield\" 恒为 false；" +
+    "count({ object: \"self\", location: \"battlefield\" }) 只走集合查询：layers/filter.ts 能按 type 字符串匹配 location，" +
+    "但 Condition 求值的 ResolveContext.test 走参考内核的 query/test，完全不消费 object 锚点（实测两种位置下均为 false/[]），" +
+    "且该形状只过滤集合成员、无法把来源自身的位置类型当作启动许可。" +
+    "必须在启动时区分 Base 与任意 Battlefield，不能用目标过滤或 body 条件替代；印刷费用（1 Fury Power + 横置）与 effect.damage 3 已有真实执行证据。",
   abilities,
   sourceText:
     ":rb_rune_fury:, :rb_exhaust:: Deal 3 to a unit. Use this ability only while I'm at a battlefield."

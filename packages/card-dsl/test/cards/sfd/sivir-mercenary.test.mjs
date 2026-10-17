@@ -1,3 +1,4 @@
+// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -81,7 +82,8 @@ test("sfd-143-221 Sivir, Mercenary: the Ganking half is declared as a conditiona
   assert.equal(gankingStatic.effect.kind, "continuous.grant-keyword");
   assert.equal(gankingStatic.effect.appliesTo, "self");
   assert.deepEqual(gankingStatic.effect.keyword, { id: "Ganking" });
-  assert.equal(gankingStatic.effect.duration, "this-turn");
+  // A passive grant is live while the source/condition applies, with no own turn expiry.
+  assert.equal(gankingStatic.effect.duration, undefined);
   assert.equal(gankingStatic.condition.kind, "compare");
   assert.deepEqual(gankingStatic.condition.left, mightStatic.condition.left);
   assert.deepEqual(gankingStatic.condition.right, { kind: "constant", value: 2 });

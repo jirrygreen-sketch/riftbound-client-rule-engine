@@ -20,40 +20,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   一个句子（“and”），本程序保留同一 TargetSpec 的符号选择器以表达同一对象。
  * - 「[Flow] :rb_energy_3::rb_rune_fury:」同 Brittle Steel 的判定（829.1.b/829.1.c.1）。
  *
- * status = judge-required（复核 2026-10-17；缺口均不近似实现）：
- * 1. 关键词授予原语已合入：continuous.grant-keyword 以 ability 层注册
- *    buildKeywordGrantSpec，本卡的 grant 指令由 golden 用真实原语 + 参考内核执行，
- *    并经 LayerEngine 断言目标获得 Assault 3（806 之外的 807 是 Assault 的被动关键词定义）。
- * 2. Assault 自身的展开消费方未合入：keywords/Assault.ts 展开为 continuous.might +
- *    condition.compare(object-property self "designation" eq "attacker")；对象快照已有
- *    combatRole，但 combatRole→designation 的层查询映射仍未接线，所以 “+3 while it's an
- *    attacker” 的层求值仍不可执行（层条件目前对未知谓词 fail-open，绝不能当作已实现）。
- * 3. Flow 的 KeywordDef 已接受契约 3.8.3 的 params.cost，但 KeywordAbility/卡牌程序的
- *    消费方仍未把印刷 Flow 费用转发到 expand；flow.cost / replacement.event 的消费方依赖
- *    仍缺 Flow alternate-cost 与离链 replacement 的消费接线（829.1.b.1）。
- * 已合入并真实执行：「Ready a unit」的 effect.ready（416.1/416.1.b/416.1.c），golden 用解释器 +
- * 参考内核执行横置单位被重置、已就绪单位不再重置（count 0）、目标失效（ignored）三个分支；
- * 「give it [Assault 3] this turn」的 grant 指令（801.3.a.2 的 end-of-turn 期限）由
- * continuous.grant-keyword 真实注册。
- * 依赖：combatRole→designation 谓词接线（RIFT-359）、Flow alternate-cost / replacement 消费接线。
+ * 当前执行边界见 judgeReason 与对应 golden；保留所有印刷语义。
  */
 export default {
   canonicalCardId: "card.hash-9b9d80a33d320406e0f8cd8f3d1302432ecb3631b32fe7d448639224c253e235",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason:
-    "两处缺口，均不近似实现：(1) Assault 的展开消费方未合入：keywords/Assault.ts 展开为 continuous.might + " +
-    "condition.compare(object-property self \"designation\" eq \"attacker\")；ObjectSnapshot 已有 combatRole，" +
-    "但 combatRole→designation 的层查询映射仍未接线，所以「+3 while it's an attacker」（807.1.c）的层求值仍不可执行" +
-    "（依赖 RIFT-359/战斗角色谓词接线）；(2) Flow 的 KeywordDef 已接受契约 3.8.3 的 params.cost，" +
-    "但 KeywordAbility/卡牌程序消费方仍未把印刷 Flow 费用（829.1.c：3 能量 + 1 点 Fury 力量）转发到 expand，" +
-    "且 flow.cost / replacement.event 消费方仍未接线（829.1.b.1）。" +
-    "已合入并真实执行：「Ready a unit」的 effect.ready（416.1/416.1.b/416.1.c），golden 用解释器 + 参考内核断言横置被重置、" +
-    "已就绪不再重置、目标失效 ignored；「give it [Assault 3] this turn」（801.3.a.2 的 end-of-turn 期限）由已合入的 " +
-    "continuous.grant-keyword 用真实原语注册，golden 再经 LayerEngine 断言目标获得 Assault 3。" +
-    "依赖：RIFT-359（combatRole→designation 谓词接线）、Flow alternate-cost / replacement 消费接线。",
+  judgeReason: "当前缺口：(1) 授予的 Assault 3 仍缺动态关键词展开与角色谓词消费：continuous.grant-keyword 已把关键词写入 ability 层，但 programs/lifecycle.ts 不会按授予后的关键词变化重新绑定展开；Assault.ts 的 designation 与已存在的 ObjectSnapshot.combatRole 尚无映射，无法证明 807.1.c 的攻击时 +3 Might。(2) KeywordAbility / programs/keywords.ts 未传 params.cost，印刷 Flow 的 3 Energy + 1 Fury Power 无法传入展开，flow.cost / 离链 replacement 的已支付实例与退出原因仍无消费路径（829.1.b.1）。effect.ready、continuous.grant-keyword 与到期移除已有真实执行证据；不近似实现这两处缺口。",
   abilities: [
-    // 829.1.a：Flow 在法术上；卡只声明关键词（展开见 judgeReason 第 3 条）。
+    // 829.1.a：Flow 在法术上；卡只声明关键词（展开见 judgeReason 第 2 条）。
     { kind: "keyword", keyword: "flow" },
     {
       kind: "play",

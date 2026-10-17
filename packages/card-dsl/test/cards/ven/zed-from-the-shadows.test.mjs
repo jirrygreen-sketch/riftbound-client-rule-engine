@@ -3,7 +3,10 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/zed-from-the-shadows.js";
+import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
+import tokenPrimitive from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -28,9 +31,12 @@ test("ven-023-166 Zed: identity, status, judgeReason and verbatim sourceText", (
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /condition\.result/);
-  assert.match(program.judgeReason, /translateCost/);
+  assert.match(program.judgeReason, /describePlay/);
+  assert.match(program.judgeReason, /CostPlanInput/);
   assert.match(program.judgeReason, /ObjectRef/);
-  assert.match(program.judgeReason, /合法地点|地点候选/);
+  assert.match(program.judgeReason, /合法地点|地点候选|地点集合/);
+  assert.doesNotMatch(program.judgeReason, /translateCost/);
+  assert.doesNotMatch(program.judgeReason, /冻结 IR 没有 condition\.result/);
   assert.doesNotMatch(program.judgeReason, /RIFT-/);
   assert.match(program.judgeReason, /effect\.token/);
   assert.match(program.judgeReason, /187\.11/);
@@ -67,12 +73,13 @@ test("ven-023-166 Zed: the play effect is gated on the paid-cost receipt", () =>
     event: "card-played",
     filter: { source: "self" }
   });
-  // 356.4.f.1: "if you paid the additional cost" is the decision-to-pay receipt;
-  // the frozen IR has no cost-result binding, so this stays a descriptive
-  // condition instead of an invented always-true gate.
+  // 356.4.f.1: "if you paid the additional cost" reads the finalized
+  // CostPlan/payment receipt. CardProgram -> Finalize production binding is
+  // still missing, but this condition itself is executable by the interpreter.
   assert.deepEqual(playEffect.trigger.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "paid-additional-cost" }
+    kind: "result",
+    result: "additional-cost-paid",
+    id: "zed.additional-cost"
   });
 });
 
@@ -101,6 +108,83 @@ test("ven-023-166 Zed: the token identity is the printed Shadow Clone, never a s
   assert.equal(playToken.args.token.value, "shadow-clone");
   assert.notEqual(playToken.args.token.value, "recruit");
   assert.notEqual(playToken.args.token.value, "reflection");
+});
+
+test("ven-023-166 Zed golden: condition.result reads the paid and declined additional-cost receipts", () => {
+  const runGate = (selected) => {
+    const kernel = world()
+      .player("A", { energy: 4, power: ["Fury"] })
+      .hand("zed", { owner: "A", types: ["unit"], energy: 4, power: ["Fury"] })
+      .hand("discard-me", { owner: "A" })
+      .build();
+    kernel.setAnswers({
+      ["zed-cost:pick:" + paymentChoiceId]: [kernel.ref("discard-me")]
+    });
+    const context = kernel.clone({ sourceSnapshot: kernel.getObject("zed") });
+    const plan = buildCostPlan(context, {
+      id: "zed-cost",
+      cost: {
+        kind: "explicit",
+        energy: { kind: "constant", value: 4 },
+        power: { kind: "constant", value: ["Fury"] }
+      },
+      optionalAdditional: [{
+        id: additionalCost.effect.id,
+        kind: "additional",
+        selected,
+        cost: {
+          kind: "explicit",
+          payments: [{
+            kind: "discard",
+            choice: {
+              id: paymentChoiceId,
+              options: [context.ref("discard-me")],
+              min: 1,
+              max: 1,
+              selection: "one"
+            }
+          }]
+        }
+      }]
+    });
+    const receipt = payCostPlan(context, plan);
+    const probe = resolveChainBody([{
+      id: "zed.paid-cost-gate",
+      op: "condition.predicate",
+      args: { condition: { kind: "constant", value: playEffect.trigger.condition } }
+    }], context, { cost: { plan, receipt } });
+    return { context, plan, receipt, probe };
+  };
+
+  const paid = runGate(true);
+  assert.deepEqual(paid.receipt.additional, [
+    { id: additionalCost.effect.id, kind: "additional", paid: true }
+  ]);
+  assert.equal(paid.probe.results[0].result.linkedValues.value, true);
+
+  const declined = runGate(false);
+  assert.deepEqual(declined.plan.declinedAdditional, [additionalCost.effect.id]);
+  assert.deepEqual(declined.receipt.additional, []);
+  assert.equal(declined.probe.results[0].result.linkedValues.value, false);
+});
+
+test("ven-023-166 Zed golden: the exact Shadow Clone token remains blocked by the frozen definition table", () => {
+  // Supply a concrete legal Base only to isolate the token-definition check;
+  // the card's own destination remains dynamic and is covered by the structure
+  // assertions and judge-required TODO below.
+  const kernel = world().player("A").build();
+  const run = runInstruction(tokenPrimitive, {
+    token: playToken.args.token,
+    amount: playToken.args.amount,
+    mode: playToken.args.mode,
+    location: { kind: "constant", value: { type: "base", player: "A" } },
+    linkKey: { kind: "constant", value: "shadowClone" }
+  }, { world: kernel });
+
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  assert.equal(run.linked.shadowClone.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.deepEqual(kernel.objects.filter((object) => object.isToken), []);
 });
 
 test("ven-023-166 Zed golden: the merged cost modifier can plan the optional discard component", () => {
@@ -175,8 +259,9 @@ test("ven-023-166 Zed golden: the merged cost modifier can plan the optional dis
 const paymentChoiceId = "zed.discarded-card";
 
 test.todo(
-  "ven-023-166 Zed: the optional additional discard cost needs CardProgram → CostPlan wiring and a " +
-    "paid-cost receipt readable by the Play Effect (356.2/356.2.a/356.4.f.1)"
+  "ven-023-166 Zed: the static cost.additional declaration still needs CardProgram → Finalize " +
+    "CostPlanInput.optionalAdditional wiring and a controller-hand ObjectRef candidate adapter " +
+    "(356.2/356.2.a); condition.result paid/declined receipt evaluation is executable above"
 );
 
 test.todo(

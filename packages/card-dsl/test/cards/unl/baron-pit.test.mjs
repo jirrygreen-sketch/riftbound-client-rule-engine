@@ -1,3 +1,8 @@
+// RIFT-668 partial execution / boundaries: ../templates/static-668.test.mjs.
+// Published status stays judge-required; existing component coverage is retained below.
+// RIFT-643: static|| execution evidence is consolidated in ../templates/static-643.test.mjs.
+// This file retains the card's identity, status, sourceText, and key IR guards.
+
 import assert from "node:assert/strict";
 import test from "node:test";
 

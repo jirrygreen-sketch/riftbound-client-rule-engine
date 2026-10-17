@@ -1,3 +1,6 @@
+// Scenario execution evidence: ../../templates/static-642.test.mjs.
+// This file keeps the validation and identity checks plus the key structural
+// assertions; the real execution path for this card lives in that template row.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -6,6 +9,9 @@ import program from "../../../dist/cards/rad/orianna-mechanical-marvel.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 
 const CARD_ID =
   "card.hash-d4ef90d20d4782edbcabe8cd157c2b6565e5c53b930df73f688bd58c0289d3a1";
@@ -59,12 +65,38 @@ test("rad-068-167 Orianna, Mechanical Marvel: the discount is a static cost modi
 });
 
 test("rad-068-167 Orianna, Mechanical Marvel: 'while I'm at a battlefield' is the source location condition (364.3)", () => {
+  // The location predicate has to read the layer/filter vocabulary: the
+  // object-property spelling compares ObjectSnapshot.location (a LocationRef
+  // object) against the string "battlefield" and is always false.
   assert.deepEqual(costModification.condition, {
     kind: "compare",
-    left: { kind: "object-property", object: "self", property: "location" },
-    operator: "eq",
-    right: { kind: "constant", value: "battlefield" }
+    left: {
+      kind: "count",
+      subject: "objects",
+      filter: { object: "self", location: "battlefield" }
+    },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
   });
+  const atBattlefield = world()
+    .unit("orianna", { might: 5, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const atBase = world()
+    .unit("orianna", { might: 5, location: { type: "base", player: "A" } })
+    .build();
+  const evaluateIn = (kernel) => {
+    const host = kernel.getObject("orianna");
+    return evaluateCondition(costModification.condition, {
+      context: bindResolveContext(kernel, { source: host, controller: host.controller }),
+      host: host.ref,
+      linked: () => undefined,
+      canLookBack: () => true,
+      isIgnored: () => false,
+      query: (filter) => kernel.objects.filter((object) => matchesObjectFilter(filter, object))
+    });
+  };
+  assert.equal(evaluateIn(atBattlefield), true, "the source is at a battlefield");
+  assert.equal(evaluateIn(atBase), false, "the source at its Base is not at a battlefield");
 });
 
 test("rad-068-167 Orianna, Mechanical Marvel: the merged cost pipeline only takes caller-supplied discounts", () => {

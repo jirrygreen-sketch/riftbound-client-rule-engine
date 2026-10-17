@@ -25,19 +25,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   740.1.a 的 friendly 决定 "Your units" 指本卡控制者的单位。
  *   "instead" 表示 Empowered 时把 +1 整体替换为 +2，而不是叠加（同一句的两种取值）。
  *
- * status = judge-required（复核 2026-10-17；缺口均不近似实现）：
- * 1. effects/keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef：
- *    827.1.c.1 的起动费用（cost.activated + effect.empower + "仅当未 Empowered"限制）
- *    与 828.1.c 的状态门控都没有展开实现（RIFT-81~88 关键词批次不含它们）。
- * 2. 两条 Might 修正的声明已在图层真实执行：static → layers 的绑定入口已合入
- *    （programs/statics.ts 的 createEngineStaticBinder，RIFT-91 批次），golden 用图层
- *    引擎分别执行 +1 与 +2 分支并断言 instead 的互斥语义。
- * 3. "If I'm [Empowered]" 需要求值 Empowered 状态的谓词；当前 Condition 没有 empowered
- *    谓词（进行中 RIFT-359 条件谓词侧），且 Empower/Empowered KeywordDef 仍缺，
- *    所以分支门控绝不能写成无条件生效。
- * 依赖：新增 Empower/Empowered 关键词任务、empowered 谓词（RIFT-359 侧）。
- * 本程序只声明印刷事实（关键词 + 两条 continuous.might 取值），不手写状态判定，
- * 也不把 Empowered 分支平铺成无条件效果。
+ * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。
  */
 /**
  * 827.1.c：印刷 "Empower 6 Energy + 1 Fury Power"。value 记印刷的 Energy 数量 6（同目录
@@ -57,16 +45,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) effects/keywords/registry.generated.ts 没有 Empower/Empowered 的 " +
-    "KeywordDef（RIFT-81~88 批次不含），827.1.c.1 的起动费用（6 Energy + 1 Fury Power，来源非目标）" +
-    "与 827.1.c.5 / 442.1.b 的『仅当未 Empowered』限制、以及 828.1.c 的 Dependent Ability 门控都无展开；" +
-    "(2) 两条 Might 修正是 arithmetic 层的 continuous.might（143.2.a / 475 / 477），" +
-    "static → layers 的绑定入口已合入（programs/statics.ts 的 createEngineStaticBinder，RIFT-91 批次），" +
-    "golden 用图层引擎真实执行 +1/+2 并断言 instead 互斥；" +
-    "(3) 『If I'm [Empowered]』缺可求值谓词：当前 Condition 没有 empowered 谓词" +
-    "（进行中 RIFT-359 条件谓词侧），Empower/Empowered KeywordDef 也仍缺。" +
-    "依赖新增 Empower/Empowered 关键词任务与 empowered 谓词。" +
-    "关键词与两条 Might 取值只按印刷事实声明，不把 Empowered 分支平铺成无条件效果。",
+    "仍缺 Empower 印刷费用与状态契约接线：Empower KeywordDef 已注册且接受 params.cost，但 KeywordAbility / programs/keywords.ts 未传递 827.1.c.1 的 6 Energy + 1 Fury Power，旧 value/costDomain 不是展开器的费用输入。828.1.c 的互斥分支已改用 self.empowered >= 1 及其否定；static → continuous.might 已绑定，参考内核可验证未 Empowered +1、Empowered +2 instead，不再使用恒真的字符串。ObjectSnapshot 仍未声明 empowered，生产状态来源和 442.1 的重复 Empower 限制需统一。保留 judge-required，不近似实现。",
   abilities: [
     empower,
     {
@@ -81,13 +60,14 @@ export default {
         amount: { kind: "constant", value: 1 }
       },
       // 默认分支的适用条件是"未 Empowered"：828.1.b.1 的 Dependent Ability 只在
-      // 拥有 Empowered 状态时 Active，所以 +1 分支与 +2 分支互斥。Empowered 状态
-      // 谓词（828.1.c）当前没有可求值形状，只以具名谓词记录，不写成恒真或硬编码。
+      // 拥有 Empowered 状态时 Active，所以 +1 分支与 +2 分支互斥。门控（828.1.c）读取来源的当前 Empowered 状态。
       condition: {
         kind: "not",
         condition: {
-          kind: "expression",
-          value: { kind: "constant", value: "self-is-empowered" }
+          kind: "compare",
+          left: { kind: "object-property", object: "self", property: "empowered" },
+          operator: "gte",
+          right: { kind: "constant", value: 1 }
         }
       }
     },
@@ -105,8 +85,10 @@ export default {
         amount: { kind: "constant", value: 2 }
       },
       condition: {
-        kind: "expression",
-        value: { kind: "constant", value: "self-is-empowered" }
+        kind: "compare",
+        left: { kind: "object-property", object: "self", property: "empowered" },
+        operator: "gte",
+        right: { kind: "constant", value: 1 }
       }
     }
   ],

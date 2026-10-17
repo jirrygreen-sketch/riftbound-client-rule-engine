@@ -9,6 +9,10 @@ import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
+import empowerDefinition from "../../../../engine-core/dist/effects/keywords/Empower.js";
+import empowerEffect from "../../../../engine-core/dist/effects/instructions/effect.empower.js";
+import { translateRestriction } from "../../../../engine-core/dist/programs/play.js";
 
 const CANONICAL_ID =
   "card.hash-a83f38e4a2af89564ecd6ceb9b9d1eb607e58af4d10927e697cd6eb4c95fe037";
@@ -49,7 +53,7 @@ test("ven-149-166 Defender of Tomorrow: validateCardProgram passes and identity 
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
-  // 复核后：缺的只是 Empower/Empowered 关键词与 442.1.a 的状态谓词（[A] 的支付形状已可表达）。
+  // Empower 展开已合入；费用参数传递和公开状态契约仍阻塞整卡。
   assert.match(program.judgeReason, /empower/i);
   assert.match(program.judgeReason, /442\.1\.a/);
   assert.match(program.judgeReason, /828\.1\.b\.1/);
@@ -97,7 +101,13 @@ test("ven-149-166: the [Empowered] clause is a second ability gated by the depen
   assert.equal(readyTwo.kind, "activated");
   assert.equal(readyTwo.timing, "action");
   // 828.1.b.1: "While I have the Empowered status, this card gains [Text]."
-  assert.deepEqual(readyTwo.restriction, { kind: "dependent-keyword", keyword: "empowered" });
+  assert.deepEqual(readyTwo.restriction, {
+    kind: "dependent-keyword", keyword: "empowered",
+    condition: {
+      kind: "compare", left: { kind: "object-property", object: "self", property: "empowered" },
+      operator: "gt", right: { kind: "constant", value: 0 }
+    }
+  });
   const [instruction] = readyTwo.body;
   assert.equal(instruction.id, "defender-of-tomorrow.ready-2-gear");
   assert.equal(instruction.op, "effect.ready");
@@ -152,10 +162,14 @@ test("ven-149-166 golden: the [Empowered] clause readies exactly two exhausted g
 });
 
 test("ven-149-166 golden: the printed Empower cost (2 Energy + 2 [A]) pays with any-domain Power", () => {
-  // 135.2.e.5.a：每个 [A] 都能用任意域的 Power 支付；这里用 Mind/Body 两点付掉，
-  // 再确认单域两点不足时被拒（不是把所有 Power 当成任意域）。
+  // 135.2.e.5.a：每个 [A] 都能用任意域的 Power 支付；这里用 Mind/Body 两点付掉。
   const context = legendWorld(5, ["Mind", "Body"]);
-  const plan = buildCostPlan(context, { id: "empower", cost: EMPOWER_COST });
+  // 直接传参证明 KeywordDef 已支持印刷费用，仍不代表卡声明传参已接通。
+  const [activation] = empowerDefinition.expand({ host: { canonicalCardId: CANONICAL_ID }, params: { cost: EMPOWER_COST } });
+  assert.deepEqual(activation.cost, EMPOWER_COST);
+  assert.equal(activation.body[0].op, "effect.empower");
+  assert.equal(activation.body[0].targets, undefined);
+  const plan = buildCostPlan(context, { id: "empower", cost: activation.cost });
   assert.deepEqual(plan.total.power, [
     { amount: 1, allowedDomains: ALL_SIX_DOMAINS },
     { amount: 1, allowedDomains: ALL_SIX_DOMAINS }
@@ -165,6 +179,22 @@ test("ven-149-166 golden: the printed Empower cost (2 Energy + 2 [A]) pays with 
   assert.equal(receipt.paid, true);
   assert.equal(receipt.power.power.length, 2);
   assert.ok(receipt.power.power.every(allocation => ["Mind", "Body"].includes(allocation.from)));
+  assert.equal(context.player("A").energy, 3);
+  assert.deepEqual(receipt.actions[0].action.plan.power, ["Mind", "Body"]);
+  // This receipt proves allocation, while TestWorld's pay action only debits Energy.
+});
+
+test("Defender Empowered gate: the real restriction translator uses live status for Ready 2 gear", () => {
+  const kernel = legendWorld(3, []);
+  const [condition] = translateRestriction(readyTwo.restriction, CANONICAL_ID);
+  assert.equal(kernel.test(condition), false);
+  const run = runInstruction(empowerEffect, { amount: { kind: "constant", value: 1 } }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.test(condition), true);
+  const removed = runInstruction(empowerEffect, { mode: { kind: "constant", value: "disempower" } }, { world: kernel });
+  assert.equal(removed.result.status, "executed");
+  assert.equal(kernel.test(condition), false);
+  assert.deepEqual(kernel.events.map(event => event.action), ["empower", "disempower"]);
 });
 
 test("ven-149-166 golden: the Empower cost is still gated by its printed Energy and Power amounts", () => {
@@ -183,7 +213,6 @@ test("ven-149-166 golden: the Empower cost is still gated by its printed Energy 
 });
 
 test.todo(
-  "ven-149-166: Empower/Empowered keyword expansion (827.1.c.1 activation + 'only if not Empowered' " +
-    "restriction, 828.1.b.1 dependent ability) — needs the printed-cost activation, the " +
-    "442.1.a Empowered state predicate and dependent-ability binding"
+  "ven-149-166: 827.1.c.1 — pass the printed Empower cost through KeywordAbility/expandProgram; " +
+    "442.1.a/828.1.b.1 — guarantee live empowered state in production ObjectSnapshot adapters"
 );

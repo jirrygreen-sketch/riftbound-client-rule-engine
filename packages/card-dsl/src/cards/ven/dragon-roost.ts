@@ -30,8 +30,8 @@ import type { CardProgram } from "../../ir/index.js";
  * 2. 缺“[A][A] 支付后改写打出位置”的消费者：playDestinationIsLegal 已在 Finalize
  *    校验位置（355.2.b / 355.17 / 420.3.b.2），但没有把费用回执绑定成
  *    then.play-to-source-battlefield 位置强制要求的消费方。
- * 3. 缺 "a Dragon" 的可求值谓词：Dragon 是印刷 tag（133.8），但费用/位置计划的 take 集合
- *    由调用方提供，卡程序无法声明“任何玩家打出的、带 Dragon tag 的单位”这一对象域。
+ * 3. Dragon 的 tags 过滤已支持（133.8）；缺的是费用声明绑定到任意玩家待打出的
+ *    Dragon，而非关键词或标签谓词本身。result 条件也已可读取真实附加费用决定。
  * 依赖：附加费用声明→Finalize optionalAdditional 的生产接线、费用回执→位置强制要求
  * 绑定（同 sfd/dauntless-vanguard、ogn/deadbloom-predator 的缺口）。
  */
@@ -40,14 +40,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 缺可选附加费用的声明接线——cost.additional 是静态声明，尚无绑定消费方；cost.pay 与 " +
+    "三处缺口，均不近似实现：(1) 缺可选附加费用的声明接线——cost.additional 是静态声明，生产 binder 直接拒绝" +
+    "（实测 'Static ability kind cost.additional has no layer mapping'，被 attachLifecycle 的 onError 吞掉，fail-closed）；cost.pay 与 " +
     "CostPlanInput.optionalAdditional 消费方已合入，但 Chain Finalize 只从打出项自身成本构建 input，" +
     "没有生产者把卡程序声明的附加费用与 356.4.f.1 的「决定支付」回执接进 Finalize；" +
     "(2) 缺「[A][A] 已付则打到本战场」的消费者：playDestinationIsLegal 已在 Finalize 校验位置" +
     "（355.2/355.2.b/355.17/355.17.a 与 420.3.b.2），但没有把费用回执绑定成 then.play-to-source-battlefield " +
     "位置强制要求的消费方；" +
-    "(3) 「a Dragon」是印刷 tag 谓词（133.8），但费用/位置计划的对象域由调用方提供，" +
-    "卡程序无法声明「任何玩家打出的带 Dragon tag 的单位」。附费的两个 [A] 已按 135.2.e.5.a/163.2.b 记录成" +
+    "(3) Dragon 的 tags 谓词已支持（133.8），仍缺把该静态声明绑定到任意玩家待打出对象的上下文。" +
+    "result 条件已可读取真实附加费用决定，缺该决定到位置要求的生产绑定。附费的两个 [A] 已按 135.2.e.5.a/163.2.b 记录成" +
     "两条任意域 Power 需求（六域 eligible 集合）。依赖：附加费用声明→optionalAdditional 的生产接线、" +
     "打出位置许可的 Finalize 消费者。不近似实现，不把可选附加费写成强制费。",
   abilities: [

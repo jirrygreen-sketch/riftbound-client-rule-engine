@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/cataclysmic-duel.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-52ee12e5ff701518b1a9805038c94f6a69d57289e478e7dc7d6e55ecdc1858e9";
@@ -34,7 +36,30 @@ test("ven-090-166 Cataclysmic Duel: judgeReason names the multi-player choice an
   assert.match(program.judgeReason, /choice\.each-player/);
   assert.match(program.judgeReason, /355\.10\.e/);
   assert.match(program.judgeReason, /effect\.kill/);
+  // The current, measured form of both gaps.
+  assert.match(program.judgeReason, /42 个 op/);
+  assert.match(program.judgeReason, /chain\/picks\/plan\.ts/);
   assert.match(program.judgeReason, /不近似实现/);
+});
+
+test("ven-090-166 Cataclysmic Duel: neither required op is registered, and describePlay carries the unregistered node", () => {
+  // The multi-player choice has no registry entry, and no primitive expresses
+  // "the complement of every player's choice".
+  assert.equal(instructionDefinitionsById.has("choice.each-player"), false);
+  assert.equal(instructionDefinitionsById.has("choice.each-other-player"), false);
+
+  // The program binds as far as the play surface goes: the unregistered node is
+  // carried into the chain body verbatim, so the interpreter would have no
+  // branch for it. That is exactly why this card stays judge-required.
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const kernel = world()
+    .player("A", { energy: 20, power: ["Body", "Body", "Body"] })
+    .unit("duel", { types: ["spell"], zone: "hand", owner: "A", controller: "A", cardId: CARD_ID })
+    .build();
+  assert.throws(
+    () => binding.describePlay({ type: "play", object: kernel.ref("duel"), player: "A" }, kernel.getObject("duel")),
+    error => error.name === "ProgramBindingError" && /judge-required/.test(error.code)
+  );
 });
 
 test("ven-090-166 Cataclysmic Duel: printed 8 Energy + 3 Body Power cost", () => {

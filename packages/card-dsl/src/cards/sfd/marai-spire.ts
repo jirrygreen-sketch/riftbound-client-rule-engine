@@ -51,7 +51,19 @@ export default {
           zone: "board"
         }
       },
-      condition: { kind: "always" }
+      // 190.6.a/190.6.d: this battlefield supplies the ability only while its
+      // controller controls it. The first-class control window is represented
+      // explicitly; Repeat-cost consumption remains judge-required.
+      condition: {
+        kind: "compare",
+        left: {
+          kind: "count",
+          subject: "objects",
+          filter: { object: "self", controller: "self" }
+        },
+        operator: "gte",
+        right: { kind: "constant", value: 1 }
+      }
     }
   ]
 } satisfies CardProgram;

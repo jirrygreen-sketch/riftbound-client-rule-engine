@@ -211,5 +211,5 @@ test.todo(
 );
 test.todo(
   "unl-078-219 Sprite Fountain: the Deathknell expansion still references the unmerged trigger.leave primitive " +
-    "(effects/keywords/Deathknell.ts); RIFT-82"
+    "(effects/keywords/Deathknell.ts), so the leave-trigger lifecycle remains unavailable"
 );

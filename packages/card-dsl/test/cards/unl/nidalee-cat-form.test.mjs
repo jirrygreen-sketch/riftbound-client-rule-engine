@@ -36,6 +36,7 @@ test("unl-114-219 Nidalee, Cat Form: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /combat-result/);
   assert.match(program.judgeReason, /468\.3/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /play-location-permission/);
 });
 
 test("unl-114-219 Nidalee, Cat Form: [Ambush] stays a keyword declaration (822)", () => {

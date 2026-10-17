@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/lacerate.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
@@ -36,10 +35,10 @@ test("ven-127-166 Lacerate: program passes validateCardProgram and is judge-requ
   assert.equal(cardRegistryById.get(CARD_ID), program);
 });
 
-test("ven-127-166 Lacerate: judgeReason names Flow as the only unmerged dependency", () => {
+test("ven-127-166 Lacerate: judgeReason names the remaining Flow bindings and layered Disempower rule", () => {
   assert.match(program.judgeReason, /829/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-260/);
+  assert.match(program.judgeReason, /params\.cost/);
+  assert.match(program.judgeReason, /实付 Flow 实例/);
   // 443.1.a.1: the Empowered clause is equivalent to an unconditional Disempower.
   assert.match(program.judgeReason, /443\.1\.a\.1/);
   assert.match(program.judgeReason, /不把 Flow 降级成普通费用/);
@@ -152,6 +151,9 @@ test("ven-127-166 Lacerate: the merged Disempower primitive really is what runs"
   // effect.empower clears the state through the closed disempower GameAction.
   const kernel = world().unit("empowered", { owner: "B", controller: "B", might: 4 }).build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("empowered") });
+  const empowered = runInstruction(empower, {}, { world: scoped });
+  assert.equal(empowered.result.status, "executed");
+  assert.equal(scoped.getObject("empowered").empowered, 1);
   const run = runInstruction(
     empower,
     { mode: { kind: "constant", value: "disempower" }, objects: { kind: "constant", value: { kind: "target", id: TARGET_ID } } },
@@ -161,10 +163,13 @@ test("ven-127-166 Lacerate: the merged Disempower primitive really is what runs"
   assert.equal(run.result.status, "executed");
   assert.deepEqual(run.events.map((event) => event.action), ["disempower"]);
   assert.equal(run.linked["disempowered.count"], 1);
+  assert.equal(scoped.getObject("empowered").empowered, 0);
 });
 
 test.todo(
   "ven-127-166 Lacerate: play from Trash for the printed Flow cost (4 energy + 2 Order runes) and " +
     "banish the spell when it leaves the Chain by 829.1.b (not by its own execution, 829.1.b.1) — " +
-    "needs the alternate-cost consumer (RIFT-261) and the replacement registration path (RIFT-260)"
+    "needs printed keyword-cost forwarding and paid-instance Chain-exit replacement binding"
 );
+
+test.todo("Lacerate: Disempower removes one stacked status (443.1.b) and does nothing to an unempowered unit (443.1.a.1)");

@@ -22,7 +22,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   附着的那个单位；本句与附着同时发生，因此在附着事件的处理中完成选择。
  * - "for as long as this is attached to it"：期限与附着状态同步，脱离时结束（718.1）。
  *
- * status = judge-required（缺口均不近似实现）：
+ * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。
  * 1. Equip 启动费用不可支付：已合入的 effects/keywords/Equip.ts 展开声明
  *    cost.payments [{ kind: "equip" }]，cost/plan-values.ts 的 readCost 对未知支付种类
  *    调用 blocked——实测 buildCostPlan 抛 CostPlanError（reason "judge-required"，
@@ -39,9 +39,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    blockedReason "copy-layer-traits-exceptions-and-attachment-duration-unavailable"；
  *    layers/copy.ts 也无附着事件驱动的注册路径）。
  * golden 覆盖身份/结构、Equip 展开的 effect.attach 本体真实执行；绑定检查覆盖关键词经
- * programs/activate.ts 生成 ChainDraft。未合入的费用与复制语义记 test.todo。
- * 依赖：Equip 费用支付种类（RIFT-89 后续）与印刷费用传参、附着事件驱动的选择/复制图层
- * （RIFT-91 layers-continuous）。
+ * programs/activate.ts 生成 ChainDraft。费用与复制语义仍由 test.todo 记录。
  */
 const equip = {
   // 印刷 "Equip :rb_energy_1::rb_rune_order:"：2 个资源符号（1 Energy + 1 Order Power）。
@@ -68,7 +66,7 @@ export default {
     "cost.payments [{ kind: \"equip\" }]，cost/plan-values.ts 的 readCost 对未知支付种类调用 blocked——实测 " +
     "buildCostPlan 抛 CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）；" +
     "印刷费用（1 Energy + 1 Order 符文，CR 818.1.c/135.2.e.4）也无法送达 KeywordDef.expand（契约 3.8.3 的 " +
-    "params.cost 未实现，programs/keywords.ts 只传 value/host）。programs/activate.ts 已将 Equip 展开为" +
+    "params.cost 未由 programs/keywords.ts 转发，调用方只传 value/host）。programs/activate.ts 已将 Equip 展开为" +
     "带目标和费用的 ChainDraft，通用启动绑定已合入；阻塞在印刷费用的传参与支付。" +
     "(2)「As this is attached to a unit, choose another friendly unit」没有卡牌侧的附着时选择路径：" +
     "IR 没有「附着事件 → 选另一个友方单位」的声明形态，选择生命周期归目标/选择系统（355.5）；" +
@@ -79,7 +77,7 @@ export default {
     "mode \"effect\" 在合并代码里显式 blocked（blockedReason " +
     "\"copy-layer-traits-exceptions-and-attachment-duration-unavailable\"），layers/copy.ts 亦无附着事件驱动的注册路径。" +
     "golden 覆盖身份/结构与 Equip 展开的 effect.attach 本体真实执行，绑定检查覆盖 programs/activate.ts 的 ChainDraft。" +
-    "依赖：Equip 费用支付种类（RIFT-89 后续）与印刷费用传参、附着事件驱动的选择与复制图层（RIFT-91）。",
+    "依赖：equip 费用支付种类、印刷费用传参、附着事件驱动的选择与复制图层；不把 copy mode=effect 的 blocked 误报成已执行。",
   abilities,
   sourceText:
     "[Equip] :rb_energy_1::rb_rune_order: (:rb_energy_1::rb_rune_order:: Attach this to a unit you control.)\n" +

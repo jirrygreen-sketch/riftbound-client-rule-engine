@@ -149,6 +149,10 @@ test("rad-009-167: the Mech definition lands at the source location (CR 187.4)",
   assert.deepEqual(tokens[0].tags, ["Mech"]);
   assert.deepEqual(tokens[0].location, BATTLEFIELD);
   assert.equal(tokens[0].controller, "A");
+  assert.equal(tokens[0].energy, null);
+  assert.equal(tokens[0].power, null);
+  assert.deepEqual(outcome.events.map(event => event.action), ["create-token", "play"]);
+  assert.equal(outcome.linkedValues[PLAY_MECH + ".token.amount"], 1);
 });
 
 test("rad-009-167: the merged binding installs the enter-ready replacement and the card-played trigger", () => {
@@ -182,3 +186,16 @@ test.todo(
     "350.2 / 354）在生产链上需要消费 { type: \"play\" } 的 host 动作（chain/engine.ts 要求 " +
     "describePlay；EngineRuntimeHost 对 play 返回 impossible）"
 );
+
+
+test("Antagonistic Apparatus: no Board location negates the Mech handoff without creating a token", () => {
+  const kernel = world().hand("apparatus", { types: ["unit"], might: 3 }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("apparatus") });
+  const outcome = resolveChainBody(program.abilities[1].body, scoped);
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(outcome.linkedValues["antagonistic-apparatus.read-here.here"], null);
+  assert.equal(outcome.results[1].result.status, "negated");
+  assert.equal(outcome.results[1].result.reason, "impossible");
+  assert.deepEqual(outcome.events, []);
+  assert.equal(scoped.objects.some(object => object.isToken), false);
+});

@@ -6,7 +6,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺 054.1/426 的不可被反击限制消费：continuous.restrict 已有注册与查询，但 ChainEngine 的 counter 路径尚未查询本牌的 cannot-be-countered。134 的 Calm 领域还缺独立领域特征与成员谓词（RIFT-359）；ObjectSnapshot.power 是力量费用域，不能漏掉 power:null 的 Calm 单位。",
+    "仍缺 054.1/426 的 cannot-be-countered 生产消费接线：continuous.restrict 已可注册和查询，" +
+    "但 programs/statics 的 appliesTo:self 限定 board，未覆盖本法术在 chain 的化身，ChainEngine.counter 也未查询该限制。" +
+    "134 的 Calm 领域仍缺 ObjectSnapshot 独立领域特征与成员筛选；characteristics.domains 没有对应快照字段，" +
+    "ObjectSnapshot.power 是印刷力量费用，不能替代领域或漏掉 power:null 的 Calm 单位。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

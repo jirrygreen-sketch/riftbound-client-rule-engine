@@ -11,6 +11,9 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -37,8 +40,10 @@ test("unl-030-219 Vi, Hotheaded: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /433\.1/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /target\.tax/);
-  assert.match(program.judgeReason, /RIFT-360/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-(90|91|257)/);
+  // The refreshed reason names the two observed gaps instead of a task number.
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /809\.1\.c\.1/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
 });
 
 test("unl-030-219 Vi, Hotheaded: [Deflect] declared without a value (CR 809.1.b.3 presumes 1)", () => {
@@ -164,6 +169,47 @@ test("unl-030-219 Vi, Hotheaded golden: Doubling reflects a smaller live Might i
   const engine = createLayerEngine(ctx.objects, ctx.continuousEffects.map(entry => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 })));
   assert.equal(engine.evaluate(ctx.ref("vi")).might, 4);
 });
+
+test("unl-030-219 Vi, Hotheaded gap: the expanded Deflect declaration has no layer mapping", () => {
+  // 809.1.c / 356.2.a.2: the keyword expansion produces a static target.tax
+  // declaration. The production static binder has no layer for it, so the
+  // declaration never reaches the bound tax set collected by
+  // target/tax/collect.ts.
+  const expansion = keywordDefinitionsById.get("Deflect").expand({ value: 1, host: { canonicalCardId: CANONICAL_ID } });
+  assert.deepEqual(expansion.map(ability => [ability.kind, ability.effect.kind]), [
+    ["static", "target.tax"]
+  ]);
+  const f = fixture({ cards: [{ id: "vi", cardId: CANONICAL_ID, types: ["unit"], might: 3 }] });
+  const binder = createEngineStaticBinder(f.engine);
+  assert.throws(
+    () => binder.bindStatic(expansion[0], f.kernel.getObject("vi")),
+    /Static ability kind target\.tax has no layer mapping/
+  );
+  assert.deepEqual(f.engine.layers.registry.list(), []);
+});
+
+test("unl-030-219 Vi, Hotheaded gap: the Deflect tax is booked as Energy, not any-domain Power", () => {
+  // 809.1.c.1 requires the tax to be Power of any Domain. The chain Finalize
+  // still converts whatever a caller supplies through the tax adapter into an
+  // Energy component (chain/engine.ts), so the cost plan reports energy instead
+  // of power. This is the second observed gap in judgeReason.
+  const f = fixture({ choose: request => request.type === "select-objects" ? [f.kernel.ref("enemy")] : undefined });
+  f.engine.execute({
+    id: "vi-deflect-tax",
+    controller: "A",
+    source: f.kernel.getObject("source"),
+    kind: "activated",
+    speed: "action",
+    body: [{ id: "draw", op: "effect.draw", args: { amount: { kind: "constant", value: 1 } } }],
+    targets: [{
+      requirement: { id: "vi-tax-target", filter: { type: "unit" }, min: 0, max: 1 },
+      options: { tax: { kind: "deflect", amount: 2 } }
+    }]
+  });
+  const item = f.engine.items[0];
+  assert.deepEqual(item.costPlan.total, { energy: 2, power: [], xp: 0, actions: [] });
+});
+
 test.todo(
   "unl-030-219 Vi, Hotheaded: append the [Deflect] target tax when an opponent chooses this unit (CR 809.1.c;" +
     " target.tax consumer + any-domain Power payment"

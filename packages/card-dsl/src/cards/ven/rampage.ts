@@ -27,31 +27,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   （契约 3.6：表达式取值时机即调用时）。418.1.c 分别标记伤害；418.1.d 的同时性由内核表达。
  *   两条指令互不链接（359.2.c 尽可能执行）。
  *
- * status = judge-required（三处缺口，均不近似实现）：
- * 1. 可选追加费用只有数据、没有收取路径：已合入的 buildCostPlan 只消费调用方传入的
- *    optionalAdditional，没有任何适配器把卡牌程序的这条子句转成 CostPlanInput.optionalAdditional
- *    （chain/engine.ts finalize 对卡牌只给 { kind: 'printed' }，见 rad-028-167 Ki Burst 的同一记录）。
- *    写成 body 指令会在错误时机结算（356.3/356.5）并允许不付费用就结算，故不这么做。
- * 2. "If you paid the additional cost"（356.4.f.1）需要费用结果回执；冻结 IR 没有费用结果绑定
- *    （调研记为 condition.result），所以 +2 的门控写不出来——本卡按 sfd-160-221 Zaun Punk 的
- *    同口径不伪造恒真条件，只把指令写成待接线数据。
- * 3. "give the friendly unit +2 :rb_might: this turn" 可用已合入的 continuous.might（targets 形状）
- *    表达：243.2.a 的有效 Might 读数、317.2.c 在回合结束 3d 步骤同时到期，属 arithmetic 图层
- *    （478 / 478.1.a）。未付出的卡牌仍不得触发 +2（见 judgeReason 第 2 条）。
- * 依赖：卡牌可选追加费用到 CostPlanInput.optionalAdditional 的接线与费用结果回执。
+ * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。
  */
 const rampage = {
   canonicalCardId: "card.hash-9c6aa95845a73edcec9a9568deba187100fbe690f0a6dfcc010810f04e6a9245",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) 可选追加费用（356.2.b/356.2.b.1，1 点 Body Power）只有 CostSpec 数据、没有收取路径——" +
-    "(2)「If you paid the additional cost」（356.4.f.1）需要费用结果回执，冻结 IR 没有费用结果绑定（调研记为 condition.result），" +
-    "故 +2 的门控写不出来（按 sfd-160-221 Zaun Punk 同口径不伪造恒真条件）；" +
-    "已合入的 buildCostPlan 只消费调用方传入的 optionalAdditional（chain/engine.ts finalize 对卡牌只给 { kind: 'printed' }，同 rad-028-167 Ki Burst）；" +
-    "(3)「give the friendly unit +2 :rb_might: this turn」已用合入的 continuous.might（targets 形状，479.4.e.1）表达，" +
-    "golden 用真实解释器注册算术层并校验 end-of-turn 期限，但因为第 (2) 条费用回执缺口，未付费分支仍不得触发 +2。" +
-    "依赖：卡牌可选追加费用到 CostPlanInput.optionalAdditional 的接线与费用结果回执。不近似实现。",
+    "仍缺卡程序到可选追加费用的 Finalize 绑定：CR 356.2.b 的 1 Body Power 必须生成 CostPlanInput.optionalAdditional；当前 payments.power.choice 是描述性 pay/decline 数据，cost/plan-values.ts 不接受 Power payment 带 choice，不能当成已绑定费用。condition.result 与 chain/engine.ts 的 cost plan/payment receipt 转发已合入，+2 continuous.might 现按 356.4.f.1 的 cost.additional 回执门控，付费/拒付/折扣到零有真实计划与解释器证据。完整互伤还须验证图层有效 Might 的读取、双向伤害的同一结算组（418.1.d），以及重复目标声明的 Finalize 计划。保留 judge-required，不近似实现。",
   abilities: [
     {
       kind: "play",
@@ -80,9 +63,9 @@ const rampage = {
         {
           id: "rampage.give-friendly-plus-2",
           // "If you paid the additional cost, give the friendly unit +2 Might this turn"：带期限的
-          // 临时 Might 修正（317.2.c 到期）；continuous.might 已合入，费用门控缺回执
-          // （见 judgeReason 第 2 条），golden 用真实解释器单独执行该注册。
+          // 临时 Might 修正（317.2.c 到期），按已支付的可选追加费用回执门控。
           op: "continuous.might",
+          condition: { kind: "result", result: "cost.additional", id: "rampage.pay-or-decline" },
           args: {
             amount: { kind: "constant", value: 2 },
             duration: { kind: "constant", value: "this-turn" },

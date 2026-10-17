@@ -22,21 +22,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 428.1 / 428.2 / 428.5：“banish” 把该单位从其区域放入其拥有者的 Banishment，不是 Kill
  *   （428.2.a）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，三处缺口均不近似实现：
- * 1. keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef（RIFT-81~88 批次不含
- *    它们），827.1.c.1 的启动费用与 827.1.c.2 的 “Discard a spell” 非资源费用无法展开；
- *    cost/plan-values.ts 的非标准费用也只支持 exhaust/discard/recycle/kill/reveal/spend-buff，
- *    费用种类与 Empower 关键词到费用计划的接线仍缺；KeywordAbility 只声明关键词身份，
- *    不在本卡重复伪造另一条启动能力。
- * 2. 442.1.a 的 Empowered 二元状态不在 ObjectSnapshot / Condition 里，empowered-changed 的载荷
- *    也没有增加方向过滤的消费方（同 souls-reflection/covert-informant，RIFT-87）；这同时阻断
- *    “when I become Empowered”的依赖能力门控。
- * 3. “with 3 :rb_might: or less” 是单位当前 Might 的数值上限（143.2.a 的有效 Might）：冻结的
- *    ObjectFilter 没有 Might 谓词，已合入过滤器（layers/filter.ts、参考内核）也不读这类键——
- *    把它当已实现会让本卡放逐任意敌方单位（同 sfd/sandshifter、unl/conscription）。
- *    触发翻译和注册适配器本身已合入。
- * 已支持部分：effect.banish 本体（把锁定的敌方单位放入其拥有者的 Banishment）在 golden 中
- * 真实执行，含 Might 上限未被求值时的 fail-open 证据与目标失效边界。
+ * status = judge-required。已合入依赖与剩余生产接线已重新核对；
+ * 当前真实缺口以 judgeReason 为准，子效果执行不证明整卡可执行。
  */
 const abilities: Ability[] = [
   {
@@ -52,7 +39,7 @@ const abilities: Ability[] = [
       at: "empowered-changed",
       filter: {
         event: "empowered-changed",
-        filter: { player: "self", direction: "increase" }
+        filter: { source: "self", direction: "increase" }
       }
     },
     optional: false,
@@ -96,13 +83,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，" +
-    "827.1.c.1 的启动费用与 827.1.c.2 的「Discard a spell」非资源费用无法展开，当前仍缺 Empower " +
-    "关键词到费用计划的接线与可支付的 spell 弃牌费用（契约 3.1 的 KeywordAbility 只承载关键词身份）；" +
-    "(2) 442.1.a 的 Empowered 二元状态不在 ObjectSnapshot / Condition 里，empowered-changed 载荷也没有增加方向过滤的" +
-    "消费方（这同时阻断依赖能力门控）；(3)「with 3 :rb_might: or less」是 143.2.a 的当前 Might 上限，冻结 ObjectFilter 没有 Might 谓词、" +
-    "已合入过滤器也不读该键（写成过滤器会让本卡放逐任意敌方单位）；" +
-    "触发注册适配器已合入。已支持部分：effect.banish 本体在 golden 中按锁定目标真实执行。",
+    "仍缺：(1) KeywordAbility / programs/keywords.ts 未传 params.cost，无法把 Discard a spell 非资源费用交给 Empower 展开（827.1.c.2），且关键词费用仍缺按 spell 筛选手牌的选择接线；" +
+    "(2) empowered-changed 不在 EVENT_PATTERN_TYPES，事件缺 Empower/Disempower 前后状态与方向，无法只在本来源成为 Empowered 时触发（442.2.a / 828.1.d）；" +
+    "(3) 3 Might or less 是 143.2.a 的有效 Might 目标限制，programs/filters.ts 不接受 mightLte，生产目标过滤缺此谓词，不能以结算时跳过效果替代目标合法性。",
   abilities,
   sourceText:
     "[Empower] — Discard a spell (Pay the cost: Empower me. Use only if not Empowered.)\n" +

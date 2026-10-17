@@ -35,8 +35,8 @@ import type { CardProgram } from "../../ir/index.js";
  *    不接受契约 3.2 的 { linked: id } 选择器，因此该分支连数据都写不成可执行的"引用前序结果"形态。
  * 3. "a unit or gear from among them" 的类型限制没有消费方：effect.inspect 的结算期 choose 只是对已查看
  *    集合做非目标选择，不读取 PickSpec.filter，因此 unit/gear 限制无法在执行期生效（程序里的 filter 是
- *    描述性记录，不能被当成已实现）。有序 top picks 的生产与过滤消费仍依赖进行中的 RIFT-358。
- * 依赖：动态费用计划/FinalizedCostPlan 生产、effect.play 的对象收据与 Empowered 条件路径、RIFT-358 有序 picks 与过滤消费。
+ *    描述性记录，不能被当成已实现）。有序 top picks 的生产与过滤消费仍缺少执行期消费者。
+ * 依赖：动态费用计划/FinalizedCostPlan 生产、effect.play 的对象收据与 Empowered 条件路径、有序 picks 与过滤消费。
  */
 const wildClaw = {
   canonicalCardId: "card.hash-28f97aabe7a3a4dfd6dae43c8b97140d885896c00f5daa8175c00a2e9b0a9d64",
@@ -48,7 +48,7 @@ const wildClaw = {
     "(2)「Then you may do this: Empower it」的 it 没有引用生产者：effect.play 只链接实际打出的张数（数字），没有暴露被打出永久物的 Board 新引用；" +
     "banish 收据里的引用在打出后失效（124），且卡牌侧 effect.empower 的 objects 不接受契约 3.2 的 { linked: id } 选择器，故该分支未写成可执行形态。" +
     "(3)「a unit or gear from among them」的类型限制无消费方：effect.inspect 的结算期 choose 不读取 PickSpec.filter，描述性 filter 键不会被任何已合入过滤器消费" +
-    "因此不能声称该限制已生效。依赖：动态费用计划/FinalizedCostPlan 生产、effect.play 的对象收据与 Empowered 条件路径、RIFT-358 有序 picks 与过滤消费。不近似实现。",
+    "因此不能声称该限制已生效。依赖：动态费用计划/FinalizedCostPlan 生产、effect.play 的对象收据与 Empowered 条件路径、有序 picks 与过滤消费。不近似实现。",
   abilities: [
     {
       kind: "play",

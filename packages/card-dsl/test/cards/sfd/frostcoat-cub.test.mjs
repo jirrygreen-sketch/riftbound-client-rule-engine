@@ -9,11 +9,20 @@ import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
 
 const CARD_ID = "card.hash-868962f51f93e867b6166a5b00e7da34767ced7692925eb143855d3d05c68618";
 
 const [additionalCost, playTrigger] = program.abilities;
 const [mightInstruction] = playTrigger.body;
+const PAID_CONDITION = {
+  kind: "result",
+  result: "additional-cost-paid",
+  id: "frostcoat-cub.additional-cost"
+};
 
 test("sfd-067-221 Frostcoat Cub: program validates, is registered and stays judge-required", () => {
   const result = validateCardProgram(program);
@@ -34,7 +43,16 @@ test("sfd-067-221 Frostcoat Cub: judgeReason names the cost, receipt and Might g
   assert.match(program.judgeReason, /356\.2\.b/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /Play\/Finalize/);
+  assert.match(program.judgeReason, /CostPlanInput/);
+  assert.match(program.judgeReason, /result/);
+  assert.match(program.judgeReason, /item\.payment/);
+  assert.match(program.judgeReason, /MissingInformation/);
+  assert.match(program.judgeReason, /cost\.additional has no layer mapping/);
+  // RIFT-359 merged the result predicate and RIFT-261 merged the cost kinds, so
+  // the reason must not keep citing the old "Condition shape has no source" or
+  // "Play/Finalize wiring is entirely absent" framings.
+  assert.doesNotMatch(program.judgeReason, /冻结 IR 没有费用结果绑定/);
+  assert.doesNotMatch(program.judgeReason, /调研记为 condition\.result/);
   assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-91|RIFT-257|RIFT-258|RIFT-261/);
   // The debuff must not be approximated with a Buff counter.
   assert.match(program.judgeReason, /702\/703/);
@@ -66,7 +84,10 @@ test("sfd-067-221 Frostcoat Cub: the play trigger shape keeps the debuff as a co
     event: "card-played",
     filter: { source: "self" }
   });
-  assert.equal(playTrigger.trigger.condition, undefined);
+  // 383.2.a.1 + 356.4.f.1: "if you paid the additional cost" is part of the
+  // trigger condition; the merged result predicate reads the finalized
+  // { plan, receipt } pair.
+  assert.deepEqual(playTrigger.trigger.condition, PAID_CONDITION);
 
   assert.equal(playTrigger.body.length, 1);
   assert.equal(mightInstruction.id, "frostcoat-cub.give-minus-2-might");
@@ -80,8 +101,8 @@ test("sfd-067-221 Frostcoat Cub: the play trigger shape keeps the debuff as a co
     value: { kind: "target", id: "frostcoat-cub.unit" }
   });
   assert.equal(mightInstruction.linkedTo, undefined);
-  // "if you paid the additional cost" (356.4.f.1) has no receipt binding in the
-  // frozen IR, so the instruction carries no invented always-true condition.
+  // The gate lives on the trigger condition; the instruction never carries an
+  // invented always-true condition.
   assert.equal(mightInstruction.condition, undefined);
 
   // 355.9.b: "a unit" (no friend/foe qualifier) is a resolution-time choice of
@@ -104,15 +125,108 @@ test("sfd-067-221 Frostcoat Cub: the declared shapes name the cost and continuou
   assert.equal(playTrigger.body.some((instruction) => instruction.op === "effect.buff"), false);
 });
 
-test.todo(
-  "sfd-067-221 Frostcoat Cub: charge the optional additional cost (:rb_rune_mind:, 356.2.b) in Finalize " +
-    "and gate the -2 Might on the 356.4.f.1 paid receipt — Play/Finalize does not consume the " +
-    "declared cost.additional, and the receipt binding is the frozen IR's condition.result gap"
-);
-test.todo(
-  "sfd-067-221 Frostcoat Cub: once the optional-cost receipt condition is expressible, the card-played " +
-    "trigger body must enter the chain after the unit is played (CR 383.4.a.2/420.4.a)"
-);
+test("sfd-067-221 Frostcoat Cub: the declaration has no CardProgram -> CostPlanInput consumer (current gap)", () => {
+  // 356.2.b/356.2.b.1: the optional additional cost is declared by a static
+  // Passive Ability. The merged cost layer plans and pays the shape when a
+  // caller supplies it (asserted below), but both production adapters that
+  // would carry the declaration reject it instead of approximating the charge.
+  assert.throws(
+    () => translateCost({ kind: "additional", payments: [] }, "frostcoat-cub", "play"),
+    /Additional costs are not bound/
+  );
+  assert.throws(
+    () => translateCost({ kind: "explicit", optional: true, payments: [] }, "frostcoat-cub", "play"),
+    /Unsupported play cost field optional/
+  );
+  const kernel = world().unit("cub", { might: 3 }).build();
+  const binder = createEngineStaticBinder({
+    layers: createLayerEngine(kernel.objects, []),
+    pipeline: {
+      host: {
+        objects: () => kernel.objects,
+        context: (snapshot) => kernel.clone({ sourceSnapshot: snapshot, source: snapshot.ref })
+      }
+    }
+  });
+  assert.throws(
+    () => binder.bindStatic(additionalCost, kernel.getObject("cub")),
+    /Static ability kind cost\.additional has no layer mapping/
+  );
+});
+
+test("sfd-067-221 Frostcoat Cub golden: the trigger condition reads the real paid/declined receipt (356.4.f.1)", () => {
+  // The declaration is charged through the merged planner with a caller-supplied
+  // component, exactly as a future CardProgram -> CostPlanInput consumer would;
+  // the resulting { plan, receipt } pair is what the card's own condition reads.
+  const kernel = world()
+    .player("A", { energy: 5, power: ["Mind"] })
+    .unit("cub", { energy: 3, power: null, controller: "A", owner: "A" })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("cub") });
+  const planFor = (selected) => buildCostPlan(context, {
+    id: "frostcoat-cub:play",
+    cost: { kind: "printed" },
+    optionalAdditional: [{
+      id: "frostcoat-cub.additional-cost",
+      kind: "additional",
+      selected,
+      cost: { payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["Mind"] }] }
+    }]
+  });
+  const environment = (plan, receipt) => ({
+    context: bindResolveContext(kernel, { source: kernel.getObject("cub"), controller: "A", cost: { plan, receipt } }),
+    event: { timingPoint: "card-played" },
+    cost: { plan, receipt },
+    linked: (key) => kernel.linked(key),
+    canLookBack: () => true,
+    isIgnored: () => false
+  });
+
+  const paidPlan = planFor(true);
+  const paidReceipt = payCostPlan(context.clone(), paidPlan);
+  assert.deepEqual(paidPlan.selectedAdditional, [{ id: "frostcoat-cub.additional-cost", kind: "additional" }]);
+  assert.deepEqual(paidReceipt.additional, [{ id: "frostcoat-cub.additional-cost", kind: "additional", paid: true }]);
+  assert.equal(evaluateCondition(PAID_CONDITION, environment(paidPlan, paidReceipt)), true);
+
+  // 356.4.f.1: declining is a false decision even though the base cost was paid.
+  const declinedPlan = planFor(false);
+  const declinedReceipt = payCostPlan(context.clone(), declinedPlan);
+  assert.deepEqual(declinedPlan.declinedAdditional, ["frostcoat-cub.additional-cost"]);
+  assert.equal(evaluateCondition(PAID_CONDITION, environment(declinedPlan, declinedReceipt)), false);
+
+  // The real card-played wave carries no cost inputs yet (the gap recorded in
+  // judgeReason), so the same condition cannot be evaluated there.
+  const bare = bindResolveContext(kernel, { source: kernel.getObject("cub"), controller: "A" });
+  assert.throws(
+    () => evaluateCondition(PAID_CONDITION, {
+      context: bare,
+      event: { timingPoint: "card-played" },
+      linked: (key) => kernel.linked(key),
+      canLookBack: () => true,
+      isIgnored: () => false
+    }),
+    /Unavailable condition result: additional-cost-paid/
+  );
+});
+
+test("sfd-067-221 Frostcoat Cub golden: the gated debuff executes once the receipt is paid (356.4.f.1 + 143.2)", () => {
+  // 383.4.a.2/420.4.a: with the trigger condition paid, the card's own body runs
+  // through the production adapter and registers the arithmetic Might layer.
+  const kernel = world().unit("target-unit", { owner: "B", controller: "B", might: 5 }).build();
+  kernel.setTargets("frostcoat-cub.unit", [kernel.ref("target-unit")]);
+  const bound = bindResolveContext(kernel, {
+    source: kernel.getObject("target-unit"),
+    controller: "A",
+    cost: {
+      plan: { selectedAdditional: [{ id: "frostcoat-cub.additional-cost", kind: "additional" }], declinedAdditional: [] },
+      receipt: { paid: true, additional: [{ id: "frostcoat-cub.additional-cost", kind: "additional", paid: true }] }
+    }
+  });
+  const outcome = resolveChainBody([mightInstruction], bound);
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  assert.equal(kernel.continuousEffects[0].effect.effect.amount, -2);
+});
 
 test("sfd-067-221 Frostcoat Cub golden: the declared Mind Power cost is payable through the merged cost plan", () => {
   // 356.2.b/356.2.b.1: one printed :rb_rune_mind: Power. The merged plan pays

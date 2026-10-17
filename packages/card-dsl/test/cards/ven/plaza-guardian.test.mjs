@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/plaza-guardian.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createTargetTaxAdapter } from "../../../../engine-core/dist/target/tax/adapter.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { finalizeTargetPlan } from "../../../../engine-core/dist/target/target-plan.js";
 
 const CANONICAL_ID =
@@ -55,9 +57,9 @@ test("ven-064-166 Plaza Guardian: identity, status, judgeReason and verbatim sou
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /continuous\.cost-modification/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /target-plan/);
-  assert.match(program.judgeReason, /RIFT-360/);
+  assert.match(program.judgeReason, /discounts/);
+  assert.match(program.judgeReason, /target\/tax\/collect\.ts/);
+  assert.match(program.judgeReason, /809\.1\.c\.1/);
 });
 
 test("ven-064-166 Plaza Guardian: the printed discount is a static cost modification scoped to itself", () => {
@@ -125,7 +127,7 @@ test("ven-064-166 golden: units are not gear and do not reduce the cost", () => 
 
 test.todo(
   "ven-064-166 Plaza Guardian: read the static continuous.cost-modification into the Finalize cost plan " +
-    "(356.4 / 356.4.b / 356.4.g; cost.modify + 费用计划接线，RIFT-89) and assert a 10-energy printed cost drops " +
+    "(356.4 / 356.4.b / 356.4.g; cost.modify + 费用计划接线，programs/statics.ts) and assert a 10-energy printed cost drops " +
     "by the number of controlled gear"
 );
 
@@ -134,11 +136,14 @@ test("ven-064-166 Plaza Guardian golden: finalizing a choice of this permanent a
   // （TargetTaxSpec → appendTargetTax）必须收到该请求。链级把税记成 Energy 而非
   // 809.1.c.1 的任意域 Power，且没有 Deflect 关键词 → taxAdapter 的自动接线，
   // 这两个缺口仍让整卡保持 judge-required（见 judgeReason 第 2 条）。
-  const kernel = world()
-    .unit("plaza-guardian", { types: ["unit"], controller: "A", might: 4 })
+  const kernel = world().player("A", { power: ["Mind"] })
+    .unit("plaza-guardian", { types: ["unit"], owner: "B", controller: "B", might: 8 })
     .build();
   const ref = kernel.ref("plaza-guardian");
   const requests = [];
+  const taxAdapter = createTargetTaxAdapter(kernel, { id: "opposing-spell", cost: { kind: "explicit" } }, { kind: "spell" });
+  const taxEffect = expandProgram(program, kernel.getObject("plaza-guardian")).expanded
+    .find(ability => ability.kind === "static" && ability.effect.kind === "target.tax").effect;
   const plan = finalizeTargetPlan(kernel, {
     id: "spell-target",
     filter: { type: "unit", zone: "board" },
@@ -147,11 +152,11 @@ test("ven-064-166 Plaza Guardian golden: finalizing a choice of this permanent a
     selection: "one"
   }, {
     selected: [ref],
-    tax: { kind: "deflect", amount: 1 },
+    tax: { kind: "deflect", amount: taxEffect.value.value },
     taxAdapter: {
       appendTargetTax: request => {
         requests.push(request);
-        return { status: "appended" };
+        return taxAdapter.appendTargetTax(request);
       }
     }
   });
@@ -162,13 +167,18 @@ test("ven-064-166 Plaza Guardian golden: finalizing a choice of this permanent a
   assert.equal(requests[0].amount, 1);
   assert.equal(requests[0].payer, "A");
   assert.deepEqual(requests[0].target, ref);
+  assert.equal(taxAdapter.costPlan.total.energy, 0);
+  assert.deepEqual(taxAdapter.costPlan.total.power, [{
+    amount: 1, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]
+  }]);
 });
 
 test("ven-064-166 Plaza Guardian golden: an unpayable Deflect tax rejects the choice", () => {
   // 809.1.d：付不出追加费用的目标不能被锁定；unpayable 结果在通知前抛出。
-  const kernel = world()
-    .unit("plaza-guardian", { types: ["unit"], controller: "A", might: 4 })
+  const kernel = world().player("A", { energy: 100, power: [] })
+    .unit("plaza-guardian", { types: ["unit"], owner: "B", controller: "B", might: 8 })
     .build();
+  const taxAdapter = createTargetTaxAdapter(kernel, { id: "opposing-spell", cost: { kind: "explicit" } }, { kind: "spell" });
   assert.throws(
     () =>
       finalizeTargetPlan(
@@ -178,7 +188,7 @@ test("ven-064-166 Plaza Guardian golden: an unpayable Deflect tax rejects the ch
           selected: [kernel.ref("plaza-guardian")],
           tax: { kind: "deflect", amount: 1 },
           taxAdapter: {
-            appendTargetTax: () => ({ status: "unpayable", reason: "no power available" })
+            appendTargetTax: request => taxAdapter.appendTargetTax(request)
           }
         }
       ),

@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/master-of-shadows.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
@@ -53,7 +52,8 @@ test("ven-143-166: 'When you banish a card you own' trigger shape", () => {
 test("ven-143-166 binding: the merged adapter translates 'you banish a card you own' into both anchors", () => {
   // The merged registration path translates filter fields into TriggerSpec：“you banish”（player）与
   // “a card you own”（object.owner）两个锚点都进入翻译结果，说明适配器本身已就位；
-  // 缺的是 card-banished 事件判别值与载荷（见 judgeReason 第 1 条）。
+  // Registration still needs the event discriminant and actual banish actor;
+  // player and owner translation itself is already merged.
   const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
   const kernel = world()
     .unit("master-of-shadows", { types: ["legend"], zone: "board", cardId: CANONICAL_ID })
@@ -196,5 +196,7 @@ test("ven-143-166 golden: an impossible discard still lets the unlinked draw res
 
 test.todo(
   "ven-143-166: the banish event pattern needs the card-banished discriminant and who-banished / " +
-    "who-owns payload fields on EventPattern (contract change request)"
+    "actual banish actor provenance (contract change request); ownership is already on object.owner"
 );
+
+test.todo("Master of Shadows: repeated banish triggers must keep Empowered binary (CR 442.1.b/.c)");

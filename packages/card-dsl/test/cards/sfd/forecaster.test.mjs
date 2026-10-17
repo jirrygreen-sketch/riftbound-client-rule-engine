@@ -1,5 +1,9 @@
 // Golden test for Forecaster (sfd-065-221).
 //
+// Scenario execution evidence: ../templates/static-642.test.mjs.
+// This file keeps the validation/identity checks and the key structural
+// assertions; the real execution path for this card lives in that template row.
+//
 // The static Vision grant executes through the production static binder and
 // continuous.grant-keyword primitive. The remaining gap is the semantic
 // expansion of a runtime-gained Vision.

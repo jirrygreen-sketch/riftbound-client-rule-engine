@@ -42,8 +42,13 @@ test("unl-211-219 Forgotten Library: judgeReason names the spent-energy, ordered
   assert.match(program.judgeReason, /effect\.inspect/);
   assert.match(program.judgeReason, /RIFT-89/);
   assert.match(program.judgeReason, /RIFT-102/);
-  assert.match(program.judgeReason, /TriggerRegistration/);
+  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /383\.2\.a\.1/);
+  // The old "no TriggerRegistration subscriber" claim is stale (merged
+  // programs/triggers.ts), so the reason no longer lists a trigger gap.
+  // The word survives only inside the "stale claim" note; no gap is cited.
+  assert.ok(!/没有任何已合入订阅方/.test(program.judgeReason));
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -182,19 +187,20 @@ test("unl-211-219 Forgotten Library: a short Main Deck predicts as much as possi
 test.todo(
   "unl-211-219 Forgotten Library: evaluate 'if you spent :rb_energy_4: or more' from the " +
     "finalized cost plan of the spell that was just played (CR 383.2.a.1; needs the cost-receipt " +
-    "reading path of RIFT-89) — no Expr/Condition form reads a paid amount today"
+    "reading vocabulary of the RIFT-89 follow-up — cost.pay/cost.modify primitives are merged, " +
+    "but no Expr/Condition form reads a paid amount today)"
 );
 
 test.todo(
-  "unl-211-219 Forgotten Library: run the trigger for the Battlefield's controller and resolve " +
-    "the ordered top-of-deck Predict through the production pipeline (053.3 'this battlefield', " +
-    "190.6.a/190.6.d, 437.1) — needs the ordered zone-pick lifecycle the effect.inspect contract " +
-    "names plus RIFT-33 / contract §7.2 batch 5 CardProgram TriggerRegistration"
+  "unl-211-219 Forgotten Library: resolve the ordered top-of-deck Predict through the production " +
+    "pipeline (053.3 'this battlefield', 190.6.a/190.6.d, 437.1) — needs the ordered zone-pick " +
+    "lifecycle the effect.inspect contract names (RIFT-358); the merged programs/triggers.ts path " +
+    "already carries this trigger"
 );
 
 test.todo(
   "unl-211-219 Forgotten Library: effect.inspect accepting the contract 3.6 symbolic selector for " +
     "object-property (player: { object: 'source', property: 'controller' }) — the merged " +
-    "argsSchema still requires a zone-bound ObjectRef (RIFT-102 follow-up), so the executed " +
+    "argsSchema still requires a zone-bound ObjectRef (RIFT-102 in progress), so the executed " +
     "scenarios bind the viewer explicitly"
 );

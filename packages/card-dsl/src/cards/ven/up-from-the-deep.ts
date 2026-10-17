@@ -24,10 +24,10 @@ import type { CardProgram } from "../../ir/index.js";
  *    但"控制者控制的战场"取决于打出时的战场控制状态，而 effect.token 的 locations 只接受具体
  *    LocationRef；没有已合入的生产方把"你控制的战场"集合解析成 LocationRef（ResolveContext 暴露的是
  *    对象查询，不是位置集合），也没有把 355.2 的 token 级位置选择接进 Finalize 的路径——与本仓
- *    属于进行中的 RIFT-357 位置选择工作。程序里的描述性 query 占位保留该意图，不硬编码某个战场。
+ *    需要位置集合与选择接线。程序里的描述性 query 占位保留该意图，不硬编码某个战场。
  * 2. [Flow] 的展开依赖未合入：Flow 的替代费用与替代放逐消费链仍未闭合；印刷 Flow 费用
  *    按契约 3.8.3 应经 KeywordDef.expand 的 params.cost 承载，但 KeywordAbility 无该字段（契约变更请求）。
- * 依赖：RIFT-357（位置集合读数与 355.2 的打出位置选择接线）、Flow 的费用/替代消费链。
+ * 依赖：位置集合读数与 355.2 的打出位置选择接线、Flow 的费用/替代消费链。
  * token 定义、数量与 create-on-chain + play 交接均已合入，golden 用真实原语执行"打出到控制者 Base"
  * 半段（具体目的地由调用方给出，同 Recruit the Vanguard 的做法）。
  */
@@ -39,10 +39,10 @@ const upFromTheDeep = {
     "两处缺口：(1) 两个 token 的打出目的地集合是动态的——「控制者控制的战场」取决于打出时的战场控制状态，" +
     "而 effect.token 的 locations 只接受具体 LocationRef；没有已合入的生产方把该集合解析成 LocationRef" +
     "（ResolveContext 只暴露对象查询，没有位置集合读数），也没有把 355.2 的 token 级打出位置选择接进 Finalize 的路径" +
-    "（属于进行中的 RIFT-357 位置选择工作）。程序用描述性 query 占位，不硬编码某个战场、也不直接在场上创建来近似。" +
+    "（需要位置集合与选择接线）。程序用描述性 query 占位，不硬编码某个战场、也不直接在场上创建来近似。" +
     "(2) [Flow]（829.1/829.1.c）的展开依赖未合入：Flow 的替代费用与替代放逐消费链仍未闭合；" +
     "印刷 Flow 费用（3 Energy）按契约 3.8.3 应经 params.cost 承载，而 KeywordAbility 无该字段（契约变更请求）。" +
-    "依赖：RIFT-357 位置选择与 355.2 的打出位置接线。token 定义（187.10）、数量与 create-on-chain + play 交接（440.2.c/185.2.a/350.2/354）" +
+    "依赖：位置集合与 355.2 的打出位置接线。token 定义（187.10）、数量与 create-on-chain + play 交接（440.2.c/185.2.a/350.2/354）" +
     "均已合入，golden 用真实原语执行「打出到控制者 Base」半段（具体目的地由调用方给出）。不近似实现。",
   abilities: [
     // 829.1.c：印刷 "[Flow] :rb_energy_3:"；费用本身归 Flow.ts 的展开（见 judgeReason 第 2 条）。

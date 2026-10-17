@@ -1,3 +1,5 @@
+// Template evidence: ../templates/keyword-play-continuous-might-653.test.mjs.
+// Whole-card scenarios remain blocked by Repeat; existing body goldens remain valid.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -16,7 +18,8 @@ const SOURCE_TEXT =
   "[Repeat] :rb_energy_1::rb_rune_rainbow: (You may pay the additional cost to repeat this spell's effect.)\n" +
   "Give your Mechs +1 :rb_might: this turn.";
 
-const [speed, play] = dangerZone.abilities;
+const speed = dangerZone.abilities.find(ability => ability.keyword === "reaction");
+const play = dangerZone.abilities.find(ability => ability.kind === "play");
 const buff = play.body[0];
 
 /** The resolving effect's own registrations, shaped for the real layer engine. */
@@ -73,7 +76,7 @@ test("sfd-182-221 Danger Zone: program is structurally valid and judge-required"
 test("sfd-182-221 Danger Zone: judgeReason names the current Repeat cost gap", () => {
   assert.match(dangerZone.judgeReason, /Repeat/);
   assert.match(dangerZone.judgeReason, /translateCost/);
-  assert.match(dangerZone.judgeReason, /Additional costs are not bound/);
+  assert.match(dangerZone.judgeReason, /optional\/keyword/);
   assert.match(dangerZone.judgeReason, /repeat\.cost/);
   assert.match(dangerZone.judgeReason, /continuous\.might/);
   assert.doesNotMatch(dangerZone.judgeReason, /RIFT-261|RIFT-257|RIFT-258/);
@@ -84,9 +87,10 @@ test("sfd-182-221 Danger Zone: judgeReason names the current Repeat cost gap", (
 });
 
 test("sfd-182-221 Danger Zone ability structure: [Reaction] + play with Repeat additional cost", () => {
-  assert.equal(dangerZone.abilities.length, 2);
+  assert.equal(dangerZone.abilities.length, 3);
 
   assert.deepEqual(speed, { kind: "keyword", keyword: "reaction" });
+  assert.deepEqual(dangerZone.abilities[1], { kind: "keyword", keyword: "repeat" });
   assert.equal(play.kind, "play");
 
   // [Repeat] 1 energy + 1 rainbow rune: declared as an additional cost on
@@ -94,6 +98,7 @@ test("sfd-182-221 Danger Zone ability structure: [Reaction] + play with Repeat a
   // is merged, but the play flow still has no additional-cost consumer.
   assert.equal(play.cost.kind, "additional-cost");
   assert.equal(play.cost.keyword, "repeat");
+  assert.equal(play.cost.optional, true);
   assert.deepEqual(play.cost.energy, { kind: "literal", value: 1 });
   assert.deepEqual(play.cost.power, { kind: "literal", value: ["rainbow"] });
 

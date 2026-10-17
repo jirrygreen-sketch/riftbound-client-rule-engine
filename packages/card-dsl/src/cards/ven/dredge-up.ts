@@ -62,7 +62,7 @@ export default {
     "Flow 的通用能力已支持：KeywordDef.expand.params.cost、buildCostPlan 的 flow/baseChoices 与 " +
     "programs/statics.ts → bindReplacement 均已合入。仍缺 Flow 专用接线：" +
     "(1) 印刷 Flow 费用是 2 Energy（829.1.c），KeywordAbility 只有 keyword / value 字段，expandProgram 只传 value / host，" +
-    "没有把费用传给已支持的 params.cost；flow.cost 静态声明未接入 Finalize 的备选费用输入，也没有实付实例回执" +
+    "没有把费用传给已支持的 params.cost；flow.cost 在 programs/statics 无图层映射，未接入 Finalize 的备选费用输入，也没有实付实例回执" +
     "（829.1.c.1 的 alternate cost、829.1.c.3 的多实例）。费用保留在注释与 judgeReason，不写成第二条普通费用或 value。" +
     "(2) 829.1.b.1 的离链替代：匹配器 ACTION_KINDS 不含 object-leaves-chain，flow-cost-selected 仍是字符串常量，" +
     "没有绑定已 finalize、实付 Flow 实例或 leavingInstruction，不能区分正常离链与“由该法术自身指示的离开”；" +

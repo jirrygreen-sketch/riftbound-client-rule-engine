@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/masa-crashing-thunder.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
@@ -8,6 +7,8 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import stunPrimitive from "../../../../engine-core/dist/effects/instructions/effect.stun.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 
 const CANONICAL_ID =
   "card.hash-136c3803080e71b9a47e3adff1362584873339a31072f939e14afa55abc3ecd2";
@@ -173,16 +174,17 @@ test("ven-120-166 Masa golden: a unit in a base is outside the 'at a battlefield
 test("ven-120-166 golden: the declared 1 Order Power component is payable through the cost plan", () => {
   // 已合入的 buildCostPlan 接受同一份 payments 形状（163.2 的域费用）：这里把卡里声明的
   // 分量交给费用计划，证明 1 枚 Order Power 确实作为追加费用被收集。它不证明费用已接线
-  // 到卡牌打出流程，也不提供「已支付」回执（见 judgeReason / test.todo）。
+  // 到卡牌打出流程，卡牌程序绑定仍未传入支付回执（见 judgeReason / test.todo）。
   const kernel = world().player("controller").build();
   const plan = buildCostPlan(kernel, {
     id: "masa-crashing-thunder",
     cost: { kind: "explicit", energy: { kind: "constant", value: 0 } },
     domains: ["Order"],
-    mandatoryAdditional: [
+    optionalAdditional: [
       {
         id: "masa-crashing-thunder.additional-cost",
         kind: "additional",
+        selected: true,
         cost: { kind: "explicit", payments: additionalCost.effect.payments }
       }
     ]
@@ -203,7 +205,7 @@ test("ven-120-166 golden: the declared 1 Order Power component is payable throug
 test.todo(
   "ven-120-166 Masa: the optional additional cost reaches Finalize, records the paid receipt and gates " +
     "the Stun on it (CR 356.2.b / 356.4.f.1) — CardProgram static cost.additional is not yet wired into " +
-    "the play Finalize plan and the frozen IR has no cost-result binding"
+    "the play Finalize plan and the play trigger context still lacks the original plan and receipt"
 );
 
 test.todo(
@@ -211,3 +213,32 @@ test.todo(
     "cost' gate and 424.1.b/424.1.c consequences for the Stunned unit — the merged trigger path still lacks " +
     "the additional-cost paid receipt"
 );
+
+
+test("Masa: the play trigger declares the specific additional-cost decision", () => {
+  assert.deepEqual(onPlay.trigger.condition, {
+    kind: "result", result: "cost.additional", id: additionalCost.effect.id
+  });
+});
+
+test("Masa: a real optional-cost receipt gates Stun, including discount to zero", () => {
+  for (const [selected, discounted, expected] of [[true, false, true], [false, false, false], [true, true, true]]) {
+    const kernel = world().player("A", { power: ["Order"] }).unit("masa", { cardId: CANONICAL_ID }).build();
+    const context = kernel.clone({ sourceSnapshot: kernel.getObject("masa") });
+    const plan = buildCostPlan(context, {
+      id: `masa:${selected}:${discounted}`, cost: { kind: "explicit" },
+      optionalAdditional: [{ id: additionalCost.effect.id, kind: "additional", selected,
+        cost: { payments: additionalCost.effect.payments } }],
+      ...(discounted ? { discounts: [{ id: "free-additional", component: additionalCost.effect.id,
+        resource: "power", amount: { kind: "constant", value: 1 } }] } : {})
+    });
+    const receipt = payCostPlan(context, plan);
+    assert.equal(receipt.paid, true);
+    assert.deepEqual(receipt.additional.map(component => component.id), selected ? [additionalCost.effect.id] : []);
+    assert.equal(plan.total.power.reduce((total, payment) => total + payment.amount, 0), selected && !discounted ? 1 : 0);
+    assert.equal(evaluateCondition(onPlay.trigger.condition, {
+      context, host: context.source.ref, cost: { plan, receipt },
+      linked: context.linked.bind(context), canLookBack: () => true, isIgnored: () => false
+    }), expected);
+  }
+});

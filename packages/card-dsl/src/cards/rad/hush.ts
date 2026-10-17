@@ -61,6 +61,11 @@ const hush = {
     { kind: "keyword", keyword: "reaction" },
     {
       kind: "play",
+      cost: {
+        kind: "cost.printed",
+        energy: { kind: "constant", value: 1 },
+        power: { kind: "constant", value: 2 }
+      },
       body: [
         {
           id: "hush.counter-spell",

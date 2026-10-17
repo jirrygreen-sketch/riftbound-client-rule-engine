@@ -22,25 +22,17 @@ import type { CardProgram } from "../../ir/index.js";
  * - 808.1.c：Deathknell 功能等价于 “When I die, [Effect].”；触发在对象被消灭时
  *   入链（object-killed，429.1.a.1.b），并从换区前的最后已知信息读取
  *   （808.1.d.3）。本程序把该依赖能力写成显式触发能力，并在过滤里保留
- *   `empowered: true` 的描述性依赖门槛（尚未被翻译层消费）。
+ *   trigger.condition 的 Empowered 门槛。
  * - 187.1：Recruit 是 1 Might 的单位 token；契约 3.6 的 create-token 只允许单位
  *   进入控制者自己的 Base，对应原文 “to your base”。
  *
- * status = judge-required：Empower/Empowered 的关键词展开和印刷费用绑定仍缺，
- * Empowered 状态还不能由 Condition 或死亡前的最后已知快照查询，因此无法判定
- * 727.1.c.1 / 828.1.b.1 的依赖能力。object-killed 生产、trigger 注册与 LKI 捕获已经存在，
- * 不再把通用 Deathknell 展开的 trigger.leave 缺口当成本显式死亡触发的依赖。
- * effect.token 的 mode play 半段由 golden 在实际 A/B 控制者局面真实执行；
- * to your base 用已合入的 Expr.location 求值后链接给 token 原语。
+ * 当前执行边界见 judgeReason 与对应 golden；保留所有印刷语义。
  */
 export default {
   canonicalCardId: "card.hash-f94f709693f78579dcd97c1ebdba7859c74403424ef6cd195238e47541869fbf",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason:
-    "当前缺口：(1) Empower / Empowered 尚无 KeywordDef，programs/keywords.ts 无法展开印刷的 1 Energy + 1 Order Power Empower 费用与“仅未 Empowered 时”限制（827.1.c.1 / 828.1.b.1）。" +
-    "(2) effect.empower 动作已存在，但 ObjectSnapshot 未暴露可查询的 Empowered 状态，依赖 Deathknell 无法按死亡前 LKI 判断是否 Active（442.1.a / 727.1.c.1 / 808.1.d.3）；当前 self:true 翻译路径不会消费 empowered:true，不能把它当作生效门控。" +
-    "object-killed、LKI 与 effect.token(mode:play) 已存在；to your base 通过 condition.value 求值 Expr.location，再把真实地点链接给 token 原语，已覆盖实际 A/B 控制者，不再依赖字面玩家 controller。不近似实现。",
+  judgeReason: "当前缺口：(1) Empower 印刷费用绑定：Empower.ts 已有 KeywordDef，KeywordAbility / programs/keywords.ts 仍未传 params.cost，不能支付 1 Energy + 1 Order Power（827.1.c.1）。参考内核及死亡前 LKI 已保存 empowered 计数，compare 条件可在触发扫描时判断 727.1.c.1 / 808.1.d.3 / 828.1.b.1 的依赖门槛，但 ObjectSnapshot 契约尚未声明该特征。object-killed、trigger condition、LKI 与 effect.token(mode:play) 已存在；to your base 经 Expr.location 绑定实际控制者，golden 覆盖死亡前门控入链及原语层 A/B 控制者的两枚 Recruit。(2) effect.token(mode:play) 生成 cardId:null 的 Recruit，programs/play.ts 仍要求 ProgramRegistry 中的可执行程序；生产链缺少此类原生 token 的打出绑定，不能用测试 describePlay 回调替代。不近似实现费用或 token 打出。",
   abilities: [
     {
       // 印刷费 1 Energy + 1 Order Power 见 judgeReason；KeywordAbility 没有 params
@@ -50,12 +42,18 @@ export default {
       keyword: "empower"
     },
     {
-      // [Empowered][>>][Deathknell][>] 的依赖能力：过滤里的 `empowered: true` 是
-      // 442.1.a 的 Empowered 状态门槛（727.1.b.3），尚无谓词消费者。
+      // [Empowered][>>][Deathknell][>] 的依赖能力：在触发扫描时以来源的死亡前状态判断
+      // 442.1.a 的 Empowered 门槛（727.1.b.3 / 808.1.d.3）。
       kind: "triggered",
       trigger: {
         at: "object-killed",
-        filter: { self: true, empowered: true, cause: "kill", destination: "trash" }
+        filter: { self: true, cause: "kill", destination: "trash" },
+        condition: {
+          kind: "compare",
+          left: { kind: "object-property", object: "source", property: "empowered" },
+          operator: "gte",
+          right: { kind: "constant", value: 1 }
+        }
       },
       optional: false,
       body: [

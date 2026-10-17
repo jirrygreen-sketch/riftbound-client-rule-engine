@@ -4,7 +4,6 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/shadow-dash.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 // Card bodies run through the chain's own interpreter adapter — the production
 // entry point that re-wraps Expr arguments for the registered primitives.
@@ -66,15 +65,15 @@ test("ven-148-166 Shadow Dash: program passes validateCardProgram as judge-requi
   assert.equal(cardRegistryById.get(CARD_ID), program);
 });
 
-test("ven-148-166 Shadow Dash: judgeReason names the runtime destination and the temporary Might gaps", () => {
+test("ven-148-166 Shadow Dash: judgeReason names the remaining Might and Flow gaps", () => {
   // README §2: the reason names the missing selector/primitive and the owner.
-  assert.match(program.judgeReason, /355\.4/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /143\.2\.a/);
   assert.match(program.judgeReason, /Flow/);
   // The might primitive is merged; the remaining gap is the same-location
   // selector vocabulary, not a missing op.
   assert.match(program.judgeReason, /sameLocationAs 集合选择器/);
+  assert.match(program.judgeReason, /params\.cost/);
 });
 
 test("ven-148-166 Shadow Dash: [Flow] is declared as a keyword, not re-implemented", () => {
@@ -85,7 +84,7 @@ test("ven-148-166 Shadow Dash: [Flow] is declared as a keyword, not re-implement
   assert.equal(flowKeyword.value, undefined);
 });
 
-test("ven-148-166 Shadow Dash: Move targets one enemy Board unit and keeps the runtime destination as data", () => {
+test("ven-148-166 Shadow Dash: Move targets one enemy Board unit and declares its runtime destination", () => {
   assert.equal(play.kind, "play");
   assert.equal(play.cost, undefined);
   assert.equal(moveEnemyUnit.id, "shadow-dash.move-enemy-unit");
@@ -99,18 +98,21 @@ test("ven-148-166 Shadow Dash: Move targets one enemy Board unit and keeps the r
   });
   assert.deepEqual(moveEnemyUnit.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(moveEnemyUnit.args.linkKey, { kind: "constant", value: "movedEnemy" });
-  // 355.4 / 355.4.a: the destination is chosen at Finalize among the legal
-  // Battlefield locations. The frozen IR has no runtime Location selector, so
-  // the program keeps a descriptive marker that effect.move rejects outright
-  // (fail-closed) instead of guessing a location.
+  // 355.4 / 355.4.a: the destination is chosen at resolution from the legal
+  // Battlefield LocationTargetSpec and read by the target-location expression.
   assert.deepEqual(moveEnemyUnit.args.to, {
-    kind: "constant",
-    value: {
-      kind: "destination-selector",
-      filter: { type: "battlefield" },
-      whereYouHaveUnits: true
-    }
+    kind: "location",
+    value: { kind: "target-location", target: "shadow-dash.battlefield" }
   });
+  assert.deepEqual(moveEnemyUnit.locations, [{
+    id: "shadow-dash.battlefield",
+    type: "battlefield",
+    controller: "controller",
+    hasUnits: true,
+    min: 1,
+    max: 1,
+    selection: "one"
+  }]);
   // 355.7 / 355.9.a.1 / 355.9.b: "an enemy unit" is a chosen Board object.
   assert.equal(moveEnemyUnit.targets.length, 1);
   assert.deepEqual(enemySpec, {
@@ -155,31 +157,24 @@ test("ven-148-166 Shadow Dash: the Might grant is a same-location set gated on e
   });
 });
 
-test("ven-148-166 Shadow Dash golden: the finalize-locked enemy unit really moves to the chosen location", () => {
+test("ven-148-166 Shadow Dash golden: the declared LocationTargetSpec moves the enemy to the chosen battlefield", () => {
   // 421 / 448-451: an effect Move relocates a permanent between Board spaces and
   // is not a zone change (448.2); no Standard Move exhaust cost or Main-Phase
-  // gate is added. The runtime destination is supplied by the production caller
-  // (see the to-marker test above), so the golden hands the primitive the
-  // concrete Battlefield location that choice resolved to.
+  // The location answer is supplied through the production interpreter's normal
+  // location-choice request, then consumed by target-location.
   const kernel = world()
     .unit("enemy-unit", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" } })
     .unit("ally-a", { owner: "A", controller: "A", location: { type: "battlefield", id: "bf-2" } })
     .unit("ally-b", { owner: "A", controller: "A", location: { type: "battlefield", id: "bf-2" } })
+    .object("bf-2", { owner: "A", controller: "A", types: ["battlefield"], zone: "board", location: null })
     .build();
-  const run = runInstruction(
-    move,
-    {
-      objects: moveEnemyUnit.args.objects,
-      to: { kind: "constant", value: { type: "battlefield", id: "bf-2" } },
-      amount: moveEnemyUnit.args.amount,
-      linkKey: moveEnemyUnit.args.linkKey
-    },
-    { world: kernel, targets: { [enemySpec.id]: [kernel.ref("enemy-unit")] } }
-  );
+  kernel.setTargets(enemySpec.id, [kernel.ref("enemy-unit")]);
+  kernel.setAnswers({ "shadow-dash.move-enemy-unit/location%3Ashadow-dash.battlefield": { type: "battlefield", id: "bf-2" } });
+  const run = resolveChainBody([moveEnemyUnit], chainKernel(kernel));
 
-  assert.equal(run.result.status, "executed");
+  assert.equal(run.status, "executed");
   assert.deepEqual(kernel.getObject("enemy-unit").location, { type: "battlefield", id: "bf-2" });
-  assert.deepEqual(run.linked.movedEnemy, {
+  assert.deepEqual(run.linkedValues["shadow-dash.move-enemy-unit.movedEnemy"], {
     count: 1,
     objects: [{ id: "enemy-unit", zoneEntryId: 1 }],
     movements: [
@@ -191,27 +186,6 @@ test("ven-148-166 Shadow Dash golden: the finalize-locked enemy unit really move
     ]
   });
   assert.deepEqual(run.events.map((event) => event.action), ["move-location"]);
-});
-
-test("ven-148-166 Shadow Dash golden: the descriptive destination is rejected, never guessed", () => {
-  const kernel = world().unit("enemy-unit", { owner: "B", controller: "B" }).build();
-
-  assert.throws(
-    () => runInstruction(
-      move,
-      {
-        objects: moveEnemyUnit.args.objects,
-        to: moveEnemyUnit.args.to,
-        amount: moveEnemyUnit.args.amount,
-        linkKey: moveEnemyUnit.args.linkKey
-      },
-      { world: kernel, targets: { [enemySpec.id]: [kernel.ref("enemy-unit")] } }
-    ),
-    /effect\.move to must be a location, controller-base, or location choice/
-  );
-  // The unit stays exactly where it was: the gap fails closed.
-  assert.deepEqual(kernel.getObject("enemy-unit").location, { type: "battlefield", id: "battlefield-1" });
-  assert.deepEqual(kernel.events, []);
 });
 
 test("ven-148-166 Shadow Dash golden: the exactly-two condition reads the moved location and gates the grant", () => {
@@ -310,11 +284,6 @@ test("ven-148-166 Shadow Dash golden: the same-location filter selector is rejec
 });
 
 test.todo(
-  "Shadow Dash: 'to a battlefield where you have units' (355.4 / 355.4.a) needs a runtime Location selector in the " +
-    "target/location plan; effect.move only accepts static LocationRefs, 'controller-base' or a static candidate list"
-);
-
-test.todo(
   "Shadow Dash: 'they each get +1 :rb_might: this turn' (143.2.a effective Might, 317.2.c end-of-turn expiry) needs a card-facing " +
     "continuous.might selector for the same-location set; the merged primitive accepts refs/{objects:[refs]} shapes " +
     "(executed above) but rejects the card's sameLocationAs filter anchor, which belongs to the target/location plan"
@@ -322,5 +291,5 @@ test.todo(
 
 test.todo(
   "Shadow Dash: the printed [Flow] :rb_energy_5::rb_rune_rainbow::rb_rune_rainbow: alternate cost and its then-banish replacement " +
-    "(829.1.b/829.1.c) need the Flow KeywordDef expansion plus a card-program -> keyword -> chain/cost wiring (RIFT-266)"
+    "(829.1.b/829.1.c) need card-program -> keyword params.cost forwarding plus Flow alternate-cost and replacement consumers"
 );

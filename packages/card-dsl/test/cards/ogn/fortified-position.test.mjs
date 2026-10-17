@@ -74,7 +74,7 @@ test("ogn-279-298 Fortified Position: one chosen unit gains Shield 2 for this co
   assert.equal(instruction.picks, undefined);
 });
 
-test("ogn-279-298 Fortified Position: the granted keyword expands through the merged Shield definition", () => {
+test("ogn-279-298 Fortified Position: the granted keyword expands through the merged Shield definition (the duel role consumer is a printing whitelist, not a granted-Shield bridge)", () => {
   // Contract 3.7: the keyword file owns the expansion; the card only declares
   // keyword + value. Shield 2 must expand to +2 Might while the unit holds the
   // defender designation (CR 814.1.b/814.1.c/814.1.d.1), which is precisely the

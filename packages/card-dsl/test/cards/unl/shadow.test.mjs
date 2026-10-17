@@ -8,6 +8,8 @@ import program from "../../../dist/cards/unl/shadow.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import stun from "../../../../engine-core/dist/effects/instructions/effect.stun.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL_ID =
   "card.hash-4c764cb6248ef9337fc1c8769d4b74fc1d4c1fff6a9e8d00ca6753a560b3e74b";
@@ -35,7 +37,8 @@ test("unl-194-219 Shadow: identity, status, judgeReason and verbatim sourceText"
   assert.match(program.judgeReason, /replacement\.enter|替代/);
   assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
   assert.match(program.judgeReason, /combatRole/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /shadow\.played-to-battlefield/);
+  assert.match(program.judgeReason, /Unsupported filter field sameLocationAs/);
 });
 
 test("unl-194-219 Shadow: 'I enter ready' is an entry replacement, never a create-then-ready pair", () => {
@@ -183,3 +186,54 @@ test.todo(
 test.todo(
   "unl-194-219 Shadow: retain sameLocationAs and combatRole through programs target translation and chain layer filtering (CR 355.9/424.1); ObjectSnapshot already carries attacker/defender identity"
 );
+
+test("unl-194-219 Shadow: the merged replacement binder ignores the play-destination condition and matches either destination", () => {
+  // CR 143.4/359.2.c/369.3: \"If you play me to a battlefield\" must be decided
+  // from this play's chosen destination. The binder only evaluates
+  // replaces.filter, so both the Base and the battlefield entry match -- the
+  // reason the card cannot bind this replacement yet.
+  const base = world().unit("shadow", { zone: "hand", types: ["unit"] }).build();
+  const hostRef = base.ref("shadow");
+  const bound = bindReplacement(enterReady, hostRef, {
+    host: { object: (ref) => base.object(ref), objects: () => base.objects, context: () => base },
+    pipeline: { clock: { turn: 1 }, registerReplacement: () => {} }
+  });
+  base.perform({ type: "move-zone", object: hostRef, to: "chain" });
+  const chainRef = base.ref("shadow");
+  base.perform({ type: "exhaust", object: chainRef });
+
+  const toBase = { type: "move-zone", object: chainRef, to: "base", location: { type: "base", player: "A" } };
+  const toBattlefield = { type: "move-zone", object: chainRef, to: "battlefield", location: { type: "battlefield", id: "bf-1" } };
+  assert.equal(bound.registration.matches(toBase, toBase), true);
+  assert.equal(bound.registration.matches(toBattlefield, toBattlefield), true);
+  // The declared condition is what should separate them, but the snapshot has
+  // no such characteristic, so the binder cannot evaluate it (Stun earlier).
+  assert.equal(enterReady.condition.kind, "compare");
+  assert.deepEqual(enterReady.condition.left, {
+    kind: "object-property",
+    object: "self",
+    property: "shadow.played-to-battlefield"
+  });
+});
+
+test("unl-194-219 Shadow: sameLocationAs and combatRole are still rejected by the production target translator", () => {
+  // CR 355.9 / 424.1: \"an enemy unit attacking here\" needs both anchors.
+  assert.throws(
+    () => translateObjectFilter(enemyAttacker.filter),
+    (error) => error.name === "ProgramBindingError" && /Unsupported filter field sameLocationAs/.test(error.message)
+  );
+  // combatRole is likewise outside the translated filter vocabulary, so a
+  // locked target cannot be narrowed to an actual attacker.
+  assert.throws(
+    () => translateObjectFilter({ type: "unit", combatRole: "attacker" }),
+    (error) => error.name === "ProgramBindingError" && /Unsupported filter field combatRole/.test(error.message)
+  );
+  // The declared TargetSpec keeps both anchors for the once-merged adapter.
+  assert.deepEqual(enemyAttacker.filter, {
+    type: "unit",
+    zone: "board",
+    controller: "opponent",
+    sameLocationAs: "source",
+    combatRole: "attacker"
+  });
+});
