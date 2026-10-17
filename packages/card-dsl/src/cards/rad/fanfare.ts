@@ -19,16 +19,21 @@ import type { CardProgram } from "../../ir/index.js";
  *   the use count are set by the effect that creates the ability).
  * - Each use performs a Draw (414); "draw 1" is effect.draw with amount 1.
  *
- * Status: judge-required. Missing implementation:
- * - `ResolveContext.registerDelayedTrigger` exists (contract 3.6) but no merged
- *   instruction under `effects/instructions/` registers a delayed trigger
- *   (the `trigger.delayed` template is unmerged), so `effect.delayed-trigger`
- *   below is a descriptive, unregistered op;
- * - `TriggerSpec.once` only offers per-turn / per-combat / per-chain /
- *   per-game, so the "next three times" use counter cannot be stated with the
- *   merged trigger vocabulary;
- * - the end-of-turn expiry of the created delayed trigger is the
- *   continuous.duration / layers cleanup work (RIFT-91).
+ * Status: judge-required. Missing implementation (re-checked against the merged
+ * ops):
+ * - `ResolveContext.registerDelayedTrigger` exists (contract 3.6) and the chain
+ *   engine implements it (src/chain/engine.ts registers the delayed trigger into
+ *   the event pipeline), but no merged instruction under
+ *   `effects/instructions/` exposes it as an opcode: the `trigger.delayed`
+ *   template is still unmerged, so `effect.delayed-trigger` below is a
+ *   descriptive, unregistered op;
+ * - `TriggerSpec.once` only offers per-turn / per-phase / per-combat /
+ *   per-showdown / per-chain / per-object / per-game, so the "next three times"
+ *   use counter cannot be stated with the merged trigger vocabulary;
+ * - the end-of-turn expiry of the created delayed trigger needs a registration
+ *   `expiresAt` / duration cleanup path for card-created delayed triggers
+ *   (TriggerRegistration has `expiresAt`, but the card-program binding that would
+ *   set it is RIFT-257).
  * The body keeps that intended shape instead of approximating the three uses
  * with a single immediate draw or a permanent "whenever you play a unit"
  * trigger.
@@ -38,11 +43,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺延迟触发注册与“接下来三次”的用量计数：契约 3.6 只在 ResolveContext 暴露 registerDelayedTrigger，" +
-    "effects/instructions/ 尚无对应的已合入原语（trigger.delayed 模板未合入，故本卡用未注册的描述性 op " +
-    "effect.delayed-trigger 记录形状）；TriggerSpec.once（events/trigger-spec.ts）只支持 " +
-    "per-turn / per-phase / per-combat / per-showdown / per-chain / per-object / per-game，无法表达“本回合接下来三次打出单位”；" +
-    "本回合结束的到期清理属 continuous.duration（依赖 RIFT-91）。不近似实现（不用立即抽 1、也不用永久“每当你打出单位”触发代替）。",
+    "缺延迟触发注册的卡牌侧原语与“接下来三次”的用量计数：ResolveContext.registerDelayedTrigger 已在契约 3.6 " +
+    "且 chain/engine.ts 已实现（把延迟触发注册进事件管线），但 effects/instructions/ 没有把它暴露成 opcode" +
+    "（trigger.delayed 模板未合入，故本卡用未注册的描述性 op effect.delayed-trigger 记录形状）；" +
+    "TriggerSpec.once（events/trigger-spec.ts）只支持 per-turn / per-phase / per-combat / per-showdown / per-chain / per-object / per-game，" +
+    "无法表达“本回合接下来三次打出单位”；本回合到期需要注册 expiresAt 的接线（TriggerRegistration 有该字段，但卡牌程序绑定 RIFT-257 未合入）。" +
+    "不近似实现（不用立即抽 1、也不用永久“每当你打出单位”触发代替）。",
   abilities: [
     {
       kind: "play",

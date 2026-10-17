@@ -26,13 +26,14 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   sfd assembly-rig 的 "[E],[rune]: [trigger]" 同型。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。三处理由：
- * 1. "I don't deal combat damage." 需要 `continuous.combat` 的战斗伤害限制消费方（RIFT-9 第 4 节
- *    kw-tank 同族的 44/76 身份；仓库只有 effect.stun 的注释引用 continuous.combat，没有任何
- *    实现/消费方）；
- * 2. Attack / Defend 触发与 [Action] 的组合还依赖战斗工作流真正发出 attack-declared /
- *    defense-declared（engine-core 目前只有 events/ 管线定义与 duel/ 的迁移中内核）；
- * 3. 启动能力的 Mind Power 费用按 cost 费用计划（RIFT-89）在 Finalize 收取，已合入费用管线，
- *    但卡牌 IR 到真实启动的接线仍属未集成部分（RIFT-120 后继）。
+ * 1. "I don't deal combat damage." 的 IR 载体存在：RIFT-258 合入了 continuous.combat 原语，
+ *    但该原语在缺少 combat consumer 时统一返回 negated(impossible)（文件头自述：图层引擎对
+ *    kind "continuous.combat" 没有消费分支），所以战斗伤害贡献抑制仍未落地；
+ *    把限制写成触发器属于禁止的近似实现。
+ * 2. attack-declared / defense-declared 没有产出方：docs/rules/timing-point-producers.md 记为「待后续」，
+ *    combat/flow.ts 的角色事务未实现（CombatFlow 抛 combat-start-transaction）；
+ * 3. 启动能力的 Mind Power 费用仍依赖 cost.pay（RIFT-261，未合入）：本分支没有 cost.pay/cost.modify
+ *    指令，卡牌 IR 到真实启动的接线（RIFT-257 卡牌程序绑定）也未合入。
  * 已合入的 effect.damage（动态 Might 数额 + sameLocationAs 锚点）与 effect.move（controller-base）
  * 在 golden 测试里用解释器 + 参考内核真实执行。不近似实现（不把战斗伤害限制写成触发器，也不省略）。
  */
@@ -83,11 +84,12 @@ const abilities: Ability[] = [
   },
   {
     kind: "static",
-    // "I don't deal combat damage."：战斗伤害限制属于图层/战斗消费方
-    // （continuous.combat，与 Tank/Backline 同族）；当前没有实现（见 judgeReason）。
+    // "I don't deal combat damage."：战斗伤害限制属于图层/战斗消费方。
+    // continuous.combat（RIFT-258）声明本次战斗内的规则标记；`flags` 是它的
+    // 参数字段（`restriction` 不在 argsSchema 内），当前没有 consumer。
     effect: {
       kind: "continuous.combat",
-      restriction: "no-combat-damage",
+      flags: ["no-combat-damage"],
       appliesTo: "self"
     }
   },
@@ -122,13 +124,13 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "三处缺口：(1) 「I don't deal combat damage.」是持续的战斗伤害限制（467.2.a/b 的 Might 汇总与" +
-    "467.2.c 的伤害指派），需要 continuous.combat 消费方；仓库里只有 effect.stun 的注释引用它，" +
-    "没有实现（RIFT-9 第 4 节 Tank/Backline 同族，均未分配任务）；(2) Attack/Defend 触发依赖战斗" +
-    "工作流真正发出 attack-declared / defense-declared（383.4.e/383.4.f；timing-points.ts 已定义，" +
-    "combat/ 尚未接入派出路径）；(3) 启动能力的 Mind Power 费用由 RIFT-89 费用计划在 Finalize 收取，" +
-    "但卡牌 IR 到真实启动的接线仍属未集成（RIFT-120 后继）。已合入的 effect.damage（动态 Might 数额、" +
-    "359.3.f.2 here 指代用 sameLocationAs 锚点）与 effect.move（controller-base）在 golden 测试中真实执行；" +
-    "不近似实现（不把战斗伤害限制写成触发器或结算时动作）。",
+    "467.2.c 的伤害指派）：continuous.combat 原语已合入（RIFT-258），但图层/战斗端没有消费分支，" +
+    "该原语对任何 flags 都返回 negated(impossible)（文件头自述），所以限制无法生效；" +
+    "(2) attack-declared / defense-declared 没有产出方：timing-points.ts 已定义，但 combat/flow.ts 的" +
+    "角色事务未实现（抛 combat-start-transaction），docs/rules/timing-point-producers.md 记为「待后续」；" +
+    "(3) 启动能力的 Mind Power 费用需要 cost.pay（RIFT-261，本分支未合入），卡牌 IR 到真实启动的接线" +
+    "（RIFT-257）也未合入。已合入的 effect.damage（动态 Might 数额、359.3.f.2 here 指代用 sameLocationAs 锚点）" +
+    "与 effect.move（controller-base）在 golden 测试中真实执行；不近似实现（不把战斗伤害限制写成触发器或结算时动作）。",
   abilities,
   sourceText:
     "When I attack or defend, deal damage equal to my Might to an enemy unit here.\n" +

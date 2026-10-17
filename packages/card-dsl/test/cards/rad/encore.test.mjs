@@ -7,6 +7,7 @@ import program from "../../../dist/cards/rad/encore.js";
 // registered primitive schemas (chain/interpreter-adapter.ts), so the golden
 // execution goes through the same path the chain engine uses.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [play] = program.abilities;
@@ -53,11 +54,13 @@ test("rad-152-167 Encore: program validates and has expected identity", () => {
   );
 });
 
-test("rad-152-167 Encore: judgeReason names the three unresolved modes", () => {
+test("rad-152-167 Encore: judgeReason names the two unresolved modes and the executed ones", () => {
   assert.match(program.judgeReason, /187\.1/);
   assert.match(program.judgeReason, /355\.2\.a/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /补集/);
+  // The resolved mode 3 must not be described as a missing dependency.
+  assert.doesNotMatch(program.judgeReason, /RIFT-91/);
 });
 
 test("rad-152-167 Encore: structure — Choose two with four modes in printed order", () => {
@@ -103,11 +106,16 @@ test("rad-152-167 Encore: structure — Choose two with four modes in printed or
   });
 
   // Mode 3: "Give up to two units each +1 Might this turn" — zero allowed
-  // (355.13), end-of-turn expiry (317.2.c), layers arithmetic effect.
+  // (355.13), end-of-turn expiry (317.2.c), arithmetic-layer continuous.might
+  // reading the Finalize-locked TargetSpec through the symbolic target selector.
   const [grantMight] = mightMode.body;
   assert.equal(grantMight.op, "continuous.might");
   assert.deepEqual(grantMight.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(grantMight.args.duration, { kind: "constant", value: "end-of-turn" });
+  assert.deepEqual(grantMight.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "encore.buffed-units" }
+  });
   assert.equal(grantMight.targets.length, 1);
   assert.equal(grantMight.targets[0].id, "encore.buffed-units");
   assert.equal(grantMight.targets[0].min, 0);
@@ -198,11 +206,62 @@ test.todo(
     "expression yields the controller's id; effect.token rejects a literal \"controller\" base (RIFT-90)"
 );
 
-test.todo(
-  "rad-152-167 Encore: 'Give up to two units each +1 [M] this turn' needs the card-facing " +
-    "continuous.might instruction with an end-of-turn duration (CR 317.2.c); layers/engine.ts evaluates " +
-    "such effects and ResolveContext.addContinuous exists, but no op creates one (RIFT-91)"
-);
+test("rad-152-167 Encore: the +1 Might mode registers an end-of-turn arithmetic effect for the chosen units", () => {
+  const kernel = world().unit("u1", { might: 3 }).unit("u2", { might: 3 }).unit("u3", { might: 3 }).build();
+  kernel.setTargets("encore.buffed-units", [kernel.ref("u1"), kernel.ref("u2")]);
+
+  const outcome = resolveChainBody(mightMode.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map(result => [result.id, result.result.status]),
+    [["encore.grant-might", "executed"]]
+  );
+  // CR 143.2.a / 475-478: the merged layers engine really applies the +1 in the
+  // arithmetic layer, and the effect carries the printed end-of-turn duration
+  // (317.2.c). The third unit was not chosen and keeps its printed Might.
+  const engine = createLayerEngine(
+    kernel.query({}),
+    kernel.snapshot().continuous.map(entry => ({ effect: entry.effect, duration: entry.duration }))
+  );
+  assert.deepEqual(
+    engine.evaluateAll().map(object => [object.ref.id, object.might]),
+    [["u1", 4], ["u2", 4], ["u3", 3]]
+  );
+  assert.deepEqual(kernel.snapshot().continuous.map(entry => entry.duration), [
+    { type: "end-of-turn" },
+    { type: "end-of-turn" }
+  ]);
+});
+
+test("rad-152-167 Encore: choosing zero units is a legal no-op for the Might mode (CR 355.13)", () => {
+  const kernel = world().unit("u1", { might: 3 }).build();
+  kernel.setTargets("encore.buffed-units", []);
+
+  const outcome = resolveChainBody(mightMode.body, kernel);
+
+  // "up to two" allows choosing none: the locked set is empty, so the merged
+  // primitive reports the selection as mistargeted (the same zero-selection
+  // convention the merged effect.damage/bilgewater-tracker path uses), and no
+  // continuous effect may be registered.
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(kernel.snapshot().continuous.length, 0);
+  assert.equal(kernel.getObject("u1").might, 3);
+});
+
+test("rad-152-167 Encore: a unit that left the board before resolution cancels only the Might mode", () => {
+  const kernel = world().unit("u1", { might: 3 }).build();
+  const stale = kernel.ref("u1");
+  assert.equal(kernel.perform({ type: "kill", object: stale }).status, "done");
+  kernel.setTargets("encore.buffed-units", [stale]);
+
+  const outcome = resolveChainBody(mightMode.body, kernel);
+
+  // 359.3.e.6: every target ref is stale, so the instruction is ignored and no
+  // effect is registered.
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(kernel.snapshot().continuous.length, 0);
+});
 
 test.todo(
   "rad-152-167 Encore: 'Look at the top 2 cards of your Main Deck, draw 1 and recycle the other' needs " +

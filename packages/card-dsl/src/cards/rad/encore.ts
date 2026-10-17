@@ -23,42 +23,41 @@ import type { CardProgram } from "../../ir/index.js";
  *   play destination defaults to the controller's Base or a battlefield they
  *   control (355.2.a).
  * - "Give up to two units each +1 :rb_might: this turn" is a temporary Might
- *   modification, which belongs to the layers arithmetic pass (continuous.might
- *   with an end-of-turn duration; "this turn" expires as one batch per 317.2.c),
- *   never to Buff counters (702, 703). "up to two" permits choosing zero
- *   (355.13).
+ *   modification handled by the layers arithmetic pass; the merged
+ *   continuous.might instruction (RIFT-258) is its card-facing entry. "this turn"
+ *   expires as one batch per 317.2.c, never as a Buff counter (702, 703), and
+ *   "up to two" permits choosing zero (355.13).
  * - "Look at the top 2 cards of your Main Deck, draw 1 and recycle the other":
  *   look (128.3-128.4) at the top two cards in Main Deck order, then draw one
  *   (414) and recycle the other (417.1).
  *
- * Status: judge-required. Only the first mode is executable; the other three are
- * not, and no mode is approximated:
+ * Status: judge-required. Modes 1 and 3 are executable through merged primitives
+ * (both driven for real in the golden test); the other two are not, and no mode
+ * is approximated:
  * - mode 2: the Recruit definition exists, but the token's play destination is
  *   the controller's Base (355.2.a) and a base LocationRef must name a resolved
  *   PlayerId, while the card-facing location expression cannot produce the
  *   controller's id (effect.token negates a literal "controller" base);
- * - mode 3: layers/engine.ts evaluates arithmetic continuous.might and
- *   ResolveContext.addContinuous exists (contract 3.6), but
- *   effects/instructions/ registers no op that creates such an effect (RIFT-91);
- * - mode 4: effect.inspect's top scope requires an ordered PickSpec
- *   (picksSpecId) because query() does not guarantee zone order and PickSpec
- *   options are static data; "recycle the other" additionally needs a
- *   complement selection, which effect.recycle cannot express (it takes N from
- *   one zone, or an explicit target/objects list).
+ * - mode 3 is executable: continuous.might registers an arithmetic-layer effect
+ *   with an end-of-turn duration for the Finalize-locked TargetSpec;
+ * - mode 4: effect.inspect's top scope still refuses an ordered deck-top range
+ *   without an upstream ordered PickSpec (picksSpecId), and PickSpec options are
+ *   static data; "recycle the other" additionally needs a complement selection,
+ *   which effect.recycle cannot express (it takes N from one zone, or an
+ *   explicit target/objects list).
  */
 export default {
   canonicalCardId: "card.hash-3812004b1ace905a5750f12683fd2ae066128769b8d39d3a460ea8a2bce04b99",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四个模式中只有「Deal 2 to a unit」可由已合入的 effect.damage 执行（见 golden 测试），其余未合入：" +
+    "两个模式可执行：模式1 由 effect.damage、模式3 由已合入的 continuous.might 承担（golden 真实执行）；以下缺口仍未合入：" +
     "「Play two 1 :rb_might: Recruit unit tokens」的 token 定义（187.1 Recruit）已存在，但打出目的地需为控制者基地/其控制的战场（355.2.a），" +
     "而 base 的 LocationRef 必须给出已解析 PlayerId，卡牌侧没有能产出控制者 id 的表达式，effect.token 拒绝字面 \"controller\" 的 base；" +
-    "「Give up to two units each +1 :rb_might: this turn」（可为零，355.13；到期 317.2.c）需要 layers 的 continuous.might 持续效果，" +
-    "ResolveContext.addContinuous 已存在但指令注册表没有创建它的 op（依赖 RIFT-91），不得用 Buff 计数器代替；" +
     "「Look at the top 2 cards of your Main Deck, draw 1 and recycle the other」的 top 查看需要有序 PickSpec（query 不保证区域内顺序，PickSpec.options 是静态数据），" +
     "且「recycle the other」是补集选择，effect.recycle 只能从单一区域取 N 张或按显式 target/objects 列表。" +
-    "依赖：RIFT-90 目标/选择、RIFT-91 layers 卡牌侧入口；不近似实现。",
+    "「Give up to two units each +1 :rb_might: this turn」已改写为 continuous.might 的已合入形状（objects: { kind: \"target\", id }），可零选（355.13）并在本回合末到期（317.2.c）。" +
+    "依赖：RIFT-90 目标/选择与有序牌库顶查询；不近似实现。",
   abilities: [
     {
       kind: "play",
@@ -121,13 +120,20 @@ export default {
                   body: [
                     {
                       // "Give up to two units each +1 Might this turn" —
-                      // layers arithmetic effect; no merged op creates it (see
-                      // judgeReason).
+                      // arithmetic-layer temporary Might (contract 3.4/3.6),
+                      // registered by the merged continuous.might instruction.
+                      // The objects descriptor stays symbolic so the
+                      // Finalize-locked TargetSpec is read at resolution
+                      // (355.13 allows choosing zero units).
                       id: "encore.grant-might",
                       op: "continuous.might",
                       args: {
                         amount: { kind: "constant", value: 1 },
-                        duration: { kind: "constant", value: "end-of-turn" }
+                        duration: { kind: "constant", value: "end-of-turn" },
+                        objects: {
+                          kind: "constant",
+                          value: { kind: "target", id: "encore.buffed-units" }
+                        }
                       },
                       targets: [
                         {
@@ -177,8 +183,10 @@ export default {
                     },
                     {
                       // "and recycle the other" — the complement of the drawn
-                      // card; effect.recycle has no complement selection (see
-                      // judgeReason).
+                      // card; effect.recycle has no complement selection, so the
+                      // linked inspected set cannot name "the other" (see
+                      // judgeReason). The objects list stays as an auditable
+                      // shape, never as an approximation of the complement.
                       id: "encore.recycle-other",
                       op: "effect.recycle",
                       linkedTo: "encore.look-top-two",
@@ -187,8 +195,7 @@ export default {
                           kind: "linked-value",
                           instructionId: "encore.look-top-two",
                           key: "inspected-picked"
-                        },
-                        exclude: { kind: "constant", value: "drawn-card" }
+                        }
                       }
                     }
                   ]

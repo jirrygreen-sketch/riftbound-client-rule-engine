@@ -29,7 +29,8 @@ test("rad-047-167 Fanfare: judgeReason names the delayed-trigger primitive and t
   assert.match(program.judgeReason, /registerDelayedTrigger/);
   assert.match(program.judgeReason, /effect\.delayed-trigger/);
   assert.match(program.judgeReason, /per-turn/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /expiresAt/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-047-167 Fanfare: structure — printed energy 3, no power, one delayed-trigger registration", () => {
@@ -89,5 +90,6 @@ test.todo(
   "rad-047-167 Fanfare: registering the delayed trigger so it fires on the next three " +
     "unit plays and expires at end of turn needs a merged delayed-trigger instruction " +
     "(ResolveContext.registerDelayedTrigger behind an opcode), a use counter beyond " +
-    "TriggerSpec.once, and continuous.duration expiry — RIFT-89/90/91."
+    "TriggerSpec.once, and an expiresAt/end-of-turn cleanup binding for card-created delayed " +
+    "triggers — RIFT-257 (card-program binding) plus the delayed-trigger opcode task."
 );

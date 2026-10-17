@@ -23,16 +23,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   Move 语义与限制归 effect.move 与内核。（本卡不是 Recall，不加 recall 模式。）
  *
  * status = judge-required（缺口均不近似实现）：
- * - “[Deploy] 装备”无法过滤：ObjectFilter 的公开词汇只有 objectId/cardId/type/controller/
- *   owner/zone/location/states/tags/characteristics，没有 keywords 成员；ObjectSnapshot 虽
- *   有 keywords 数组，但过滤器读不到它（RIFT-84 关键词注册、RIFT-91 图层/过滤消费）。
- * - 费用没有可执行路径：cost.pay / 费用计划未合入（RIFT-89），[A]（任意域 Power，
+ * - “[Deploy] 装备”仍无法过滤：ObjectFilter 的公开词汇只有 objectId/cardId/type/controller/
+ *   owner/zone/location/states/tags/characteristics，没有 keywords 成员；ObjectSnapshot 虽有
+ *   keywords 数组，但触发器过滤读不到它——写入未知成员会被静默忽略（整个过滤器退化成
+ *   「任何被打出的装备」），不能作为条件使用（依赖 RIFT-257 卡牌程序触发绑定与关键词过滤）。
+ * - 费用没有可执行路径：本分支未合入 cost.pay / cost.modify（RIFT-261），[A]（任意域 Power，
  *   163.2.b / 135.2.e.5）在六域封闭的 Domain 集合里无法表达，且契约 ZoneId 没有
  *   Legend Zone（CR 107.4），传奇自身无法作为可横置的费用对象。
- * - “that battlefield” 需要触发事件物体的位置：ObjectSelector 只有 self/source/target/
- *   pick/linked，card-played 载荷也不暴露被打出牌的位置（RIFT-90/91）；这里只保留描述性
- *   地点标记，等待接线。
- * golden 只做校验、结构断言与缺口 todo。
+ * - “that battlefield” 的目的地缺口已缩小：effect.move 的 to 支持 target.location（从已锁定的
+ *   目标读取 LocationRef）。但要指向“被打出装备所在的战场”，需要一个锁定该装备位置的目标；
+ *   card-played 事件载荷不出现在 IR 的目标词汇里（ObjectSelector 只有 self/source/target/pick/linked），
+ *   所以本卡仍把目的地写成描述性标记，等待 RIFT-257 的事件物体绑定。
+ * golden 真实执行已有原语的部分（移动的 to/objects 形状可校验；无可独立执行的正文指令）。
  */
 export default {
   canonicalCardId:
@@ -41,15 +43,16 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处缺口，均不近似实现：（1）“a gear with [Deploy]” 无法过滤——CR 830.1.a/830.3 的 Deploy 是 " +
-    "Gear 的关键词特征，但 ObjectFilter 的公开词汇没有 keywords 成员（只到 characteristics），" +
-    "characteristics.deploy 只是待接线声明（依赖 RIFT-84 关键词注册与 RIFT-91 过滤消费）。" +
+    "Gear 的关键词特征，但 ObjectFilter 的公开词汇没有 keywords 成员，写进去会被触发匹配器静默忽略" +
+    "（过滤器退化成“任何被打出的装备”），因此不能作为条件（依赖 RIFT-257 的关键词过滤/触发绑定）。" +
     "（2）效果开头 “you may exhaust me and pay :rb_rune_rainbow:” 按 CR 383.3.b.1 是触发能力的基础费用、" +
-    "必须在 Finalize 支付（415.4 / 415.5），但 cost.pay 与费用计划未合入（RIFT-89）；[A]（任意域 Power，" +
-    "CR 163.2.b / 135.2.e.5）在六域封闭的 Domain 集合里不可表达；契约 ZoneId 也没有 Legend Zone" +
-    "（CR 107.4），传奇自身无法作为横置费用的对象。（3）“that battlefield” 需要触发事件物体的位置，" +
-    "合并 ObjectSelector 只有 self/source/target/pick/linked，card-played 载荷不暴露位置（RIFT-90/91）。" +
-    "被移动的友方单位是目标（CR 355.10 / 355.9.a.1），结构已按此声明。依赖 RIFT-89（batch3 费用计划）、" +
-    "RIFT-90（目标计划）、RIFT-91（layers-continuous / 触发过滤）。",
+    "必须在 Finalize 支付（415.4 / 415.5），但本分支未合入 cost.pay/cost.modify（RIFT-261）；" +
+    "[A]（任意域 Power，CR 163.2.b / 135.2.e.5）在六域封闭的 Domain 集合里不可表达；契约 ZoneId 也没有 Legend Zone" +
+    "（CR 107.4），传奇自身无法作为横置费用的对象。" +
+    "（3）“that battlefield” 没有可执行目的地：effect.move 的 to 只接受字面 LocationRef / controller-base / 字面地点选项，" +
+    "不接受 target/pick 描述符；事件物体的位置绑定与 to 的地点来源形式属 RIFT-257。" +
+    "被移动的友方单位是目标（CR 355.10 / 355.9.a.1），结构已按此声明。" +
+    "依赖 RIFT-261（费用原语）与 RIFT-257（事件物体/关键词过滤绑定）。",
   abilities: [
     {
       kind: "triggered",

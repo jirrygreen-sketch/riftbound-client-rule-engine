@@ -1,3 +1,4 @@
+
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -7,6 +8,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import combat from "../../../../engine-core/dist/effects/instructions/continuous.combat.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-7f839c473b5043b9c00abbc5b251e23126eb2b7a039e3edd56d07d54734b7288";
@@ -30,7 +32,7 @@ test("rad-180-167 Ezreal, Dashing: identity, ruleset, status, judgeReason and so
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.combat/);
   assert.match(program.judgeReason, /attack-declared/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -86,7 +88,7 @@ test("rad-180-167 Ezreal, Dashing: the combat-damage restriction is a static con
   assert.equal(combatRestriction.kind, "static");
   assert.deepEqual(combatRestriction.effect, {
     kind: "continuous.combat",
-    restriction: "no-combat-damage",
+    flags: ["no-combat-damage"],
     appliesTo: "self"
   });
 });
@@ -173,24 +175,40 @@ test("rad-180-167 Ezreal, Dashing golden: the activated Move relocates the sourc
   assert.deepEqual(run.events.map((event) => event.action), ["move-location"]);
 });
 
-test("rad-180-167 Ezreal, Dashing: continuous.combat has no merged implementation", () => {
-  assert.equal(instructionDefinitionsById.get("continuous.combat"), undefined);
+test("rad-180-167 Ezreal, Dashing golden: the continuous.combat declaration is merged but has no consumer yet", () => {
+  // The merged primitive exists and accepts the declared flags shape, but it
+  // returns negated/impossible until a combat consumer reads the flags (its own
+  // header records that), so the restriction cannot suppress damage today.
+  assert.notEqual(instructionDefinitionsById.get("continuous.combat"), undefined);
+  const kernel = world().unit("ezreal", { might: 3 }).build();
+  const scoped = kernel.clone({
+    source: kernel.ref("ezreal"),
+    sourceSnapshot: kernel.getObject("ezreal")
+  });
+  const run = runInstruction(
+    combat,
+    { flags: { kind: "constant", value: combatRestriction.effect.flags }, appliesTo: { kind: "constant", value: "self" } },
+    { world: scoped }
+  );
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  assert.equal(scoped.snapshot().continuous.length, 0);
   assert.notEqual(instructionDefinitionsById.get("effect.damage"), undefined);
   assert.notEqual(instructionDefinitionsById.get("effect.move"), undefined);
 });
 
 test.todo(
   "rad-180-167 Ezreal, Dashing: exclude this unit from combat damage assignment and the Might sums " +
-    "(CR 467.2.a/b / 467.2.c) — the continuous.combat consumer is unmerged (RIFT-9 section 4, same family as " +
-    "Tank/Backline; no assigned task)"
+    "(CR 467.2.a/b / 467.2.c) — continuous.combat is merged but the layers/combat consumer that reads its flags " +
+    "is unmerged (same family as Tank/Backline)"
 );
-
 test.todo(
   "rad-180-167 Ezreal, Dashing: fire the attack-declared / defense-declared triggers from the real combat " +
-    "workflow (CR 383.4.e/.f) — the timing points exist but combat/ has no emit path wired yet"
+    "workflow (CR 383.4.e/.f) — combat/flow.ts still throws combat-start-transaction for the role designation " +
+    "transaction (RIFT-270 audit marks it 待后续)"
+);
+test.todo(
+  "rad-180-167 Ezreal, Dashing: charge the Mind Power cost at Finalize and hand the activated ability its " +
+    "resolution window — cost.pay (RIFT-261) plus the RIFT-257 card-program binding are unmerged"
 );
 
-test.todo(
-  "rad-180-167 Ezreal, Dashing: charge the Mind Power cost at Finalize through the cost plan and hand the " +
-    "activated ability its resolution window (RIFT-89 / RIFT-120 follow-up)"
-);

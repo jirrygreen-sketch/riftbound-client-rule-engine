@@ -1,9 +1,15 @@
+
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/firelights-hideout.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import grant from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL =
   "card.hash-b0fa1aa611f78286913c3002834a073dcdd58ad0678ff45714b3accf84b68c72";
@@ -12,7 +18,33 @@ const SOURCE_TEXT =
   "(You may pay :rb_energy_1: and a Power of its Domain as an additional cost to have it enter ready.)";
 
 const [ability] = program.abilities;
-const [grant] = ability.body;
+const [grantInstruction] = ability.body;
+
+function unit(id, values = {}) {
+  return {
+    ref: { id, zoneEntryId: 1 },
+    cardId: "card:" + id,
+    name: id,
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "bf-1" },
+    might: 3,
+    energy: null,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false,
+    ...values
+  };
+}
 
 test("rad-162-167 Firelights' Hideout: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -25,9 +57,11 @@ test("rad-162-167 Firelights' Hideout: identity, ruleset, status and exact sourc
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /continuous.grant-keyword/);
+  assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /one-shot/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  // The merged grant op must not be described as unregistered.
+  assert.doesNotMatch(program.judgeReason, /effects\/instructions\/ 没有该 op 的文件/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -37,7 +71,8 @@ test("rad-162-167 Firelights' Hideout: conquer trigger at the 'here' battlefield
   assert.equal(ability.optional, false);
   assert.equal(ability.trigger.at, "conquer");
   // 053.3 "here" + 190.6.d "you": the sibling battlefield programs keep the
-  // same placeholder spelling while the trigger pipeline is unmerged.
+  // same placeholder spelling while the card-program trigger registration is
+  // unmerged. The engine's own trigger-spec validator rejects it today.
   assert.deepEqual(ability.trigger.filter, {
     event: "conquer",
     here: true,
@@ -45,24 +80,29 @@ test("rad-162-167 Firelights' Hideout: conquer trigger at the 'here' battlefield
   });
   assert.equal(ability.trigger.once, undefined);
   assert.equal(ability.trigger.condition, undefined);
+  assert.throws(
+    () => assertTriggerSpec(ability.trigger),
+    /here/,
+    "the engine trigger validator does not accept the placeholder spelling yet"
+  );
 });
 
 test("rad-162-167 Firelights' Hideout: the grant names Accelerate, this turn and the next unit", () => {
   assert.deepEqual(ability.body.map(instruction => instruction.id), [
     "firelights-hideout.grant-accelerate"
   ]);
-  assert.equal(grant.op, "continuous.grant-keyword");
-  assert.deepEqual(grant.args.keyword, { kind: "constant", value: "Accelerate" });
+  assert.equal(grantInstruction.op, "continuous.grant-keyword");
+  assert.deepEqual(grantInstruction.args.keyword, { kind: "constant", value: "Accelerate" });
   // The printed grant lasts for this turn (Duration end-of-turn vocabulary);
   // the one-shot "next unit" window itself has no IR shape (judgeReason).
-  assert.deepEqual(grant.args.duration, { kind: "constant", value: "this-turn" });
-  assert.deepEqual(grant.args.appliesTo, {
+  assert.deepEqual(grantInstruction.args.duration, { kind: "constant", value: "this-turn" });
+  assert.deepEqual(grantInstruction.args.appliesTo, {
     kind: "constant",
     value: { target: "firelights-hideout.next-unit" }
   });
 
-  assert.equal(grant.targets.length, 1);
-  const [target] = grant.targets;
+  assert.equal(grantInstruction.targets.length, 1);
+  const [target] = grantInstruction.targets;
   assert.equal(target.id, "firelights-hideout.next-unit");
   // 805.1.a: Accelerate is present on Units; "you" is the controller. The
   // "next" quantifier is not expressible, so min stays 0 — the shape must not
@@ -81,10 +121,42 @@ test("rad-162-167 Firelights' Hideout: the card never declares Accelerate on the
     program.abilities.some(value => value.kind === "keyword"),
     false
   );
-  assert.equal(grant.args.keyword.value, "Accelerate");
+  assert.equal(grantInstruction.args.keyword.value, "Accelerate");
 });
 
-test("rad-162-167 Firelights' Hideout: the granted Accelerate cost is the +1 power optional additional cost", () => {
+test("rad-162-167 Firelights' Hideout golden: the declared grant really installs [Accelerate] through the merged layers", () => {
+  // The granted unit is the one the ability's target lock supplies (a unit the
+  // controller plays later this turn); the card's own instruction is executed.
+  const kernel = world().unit("later-unit", { might: 3 }).build();
+  const scoped = kernel.clone({
+    source: kernel.ref("later-unit"),
+    sourceSnapshot: kernel.getObject("later-unit")
+  });
+  const run = runInstruction(
+    grant,
+    {
+      keyword: grantInstruction.args.keyword,
+      duration: grantInstruction.args.duration,
+      appliesTo: { kind: "constant", value: "self" }
+    },
+    { world: scoped }
+  );
+  assert.equal(run.result.status, "executed");
+
+  const engine = createLayerEngine(
+    scoped.query({}),
+    scoped.snapshot().continuous.map(entry => ({ effect: entry.effect, duration: entry.duration }))
+  );
+  const granted = engine.evaluate(kernel.ref("later-unit")).keywords;
+  assert.equal(granted.length, 1);
+  assert.equal(granted[0].id, "Accelerate");
+  // CR 317.2.c: "this turn" is carried as the end-of-turn duration.
+  assert.deepEqual(scoped.snapshot().continuous.map(entry => entry.duration), [
+    { type: "end-of-turn" }
+  ]);
+});
+
+test("rad-162-167 Firelights' Hideout golden: the granted Accelerate cost is the +1 power optional additional cost", () => {
   // 805.1.b / 805.2: paying the granted Accelerate cost is what makes the unit
   // enter ready. The merged Accelerate keyword definition is the single source
   // of that cost (effects/keywords/Accelerate.ts), so the golden test asserts
@@ -106,83 +178,41 @@ test("rad-162-167 Firelights' Hideout: the granted Accelerate cost is the +1 pow
   });
 });
 
-test("rad-162-167 Firelights' Hideout: the merged layers engine cannot apply the declared effect", () => {
-  // The grant is a continuous effect, so the layer engine is the consumer that
-  // would have to apply it. Two merged behaviours make the declaration
-  // unusable as written, so the card must not be treated as executable. This
-  // test pins the current behaviour instead of assuming the scope works.
-  const unit = (id, locationId) => ({
-    ref: { id, zoneEntryId: 1 },
-    cardId: "card:" + id,
-    name: id,
-    types: ["unit"],
-    tags: [],
-    keywords: [],
-    owner: "A",
-    controller: "A",
-    zone: "board",
-    location: { type: "battlefield", id: locationId },
-    might: 3,
-    energy: null,
-    power: null,
-    exhausted: false,
-    damage: 0,
-    stunned: false,
-    buffs: 0,
-    attachedTo: null,
-    faceDown: false,
-    isToken: false,
-  });
-  const here = unit("unit-here", "bf-1");
-  const elsewhere = unit("unit-elsewhere", "bf-2");
-  const declaredFilter = { type: "unit", controller: "controller", sameLocationAs: "self" };
-  const effect = {
-    id: "firelights-grant",
-    layer: "ability",
-    source: here.ref,
-    filter: declaredFilter,
-    effect: { kind: "grant-keyword", keyword: "Accelerate" },
+test("rad-162-167 Firelights' Hideout golden: the conquer timing point really exists in the merged pipeline", () => {
+  // The scoring task emits conquer (383.4.c); the card side simply has no
+  // registration path yet. Proving the timing point exists keeps the recorded
+  // gap precise.
+  const kernel = world().unit("here", { types: ["battlefield"], location: { type: "battlefield", id: "bf-1" } }).build();
+  const decide = () => {
+    throw new Error("unexpected choice");
   };
-  const engine = createLayerEngine([here, elsewhere], [
-    { effect, duration: { type: "permanent" } },
-  ]);
-
-  // 1. The declared filter never matches: the merged filter compares
-  //    controller literally, so the "controller" placeholder cannot resolve to
-  //    the ability's controller and no unit receives the grant at all.
-  assert.deepEqual(engine.evaluate(here.ref).keywords, []);
-  assert.deepEqual(engine.evaluate(elsewhere.ref).keywords, []);
-
-  // 2. 053.3 "here" is not honoured either: dropping only the controller
-  //    placeholder applies the grant to units at every Battlefield, because
-  //    merged filters ignore sameLocationAs (another over-application, not a
-  //    fix).
-  const unscoped = { ...effect, id: "firelights-grant-unscoped", filter: { type: "unit", sameLocationAs: "self" } };
-  const unscopedEngine = createLayerEngine([here, elsewhere], [
-    { effect: unscoped, duration: { type: "permanent" } },
-  ]);
-  assert.deepEqual(
-    unscopedEngine.evaluate(here.ref).keywords.map(keyword => keyword.id),
-    ["Accelerate"]
-  );
-  assert.deepEqual(
-    unscopedEngine.evaluate(elsewhere.ref).keywords.map(keyword => keyword.id),
-    ["Accelerate"],
-    "sameLocationAs is ignored, so the grant leaks to other Battlefields"
-  );
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => {
+      kernel.restore(checkpoint.state);
+      kernel.copyLinkedFrom(checkpoint.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: decide,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint, choose: decide }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  const pipeline = new EventPipeline(host, ["A", "B"], "A");
+  pipeline.emit({ timingPoint: "conquer", player: "A", object: kernel.getObject("here") });
+  assert.equal(pipeline.events.some(event => event.timingPoint === "conquer"), true);
 });
 
 test.todo(
   "rad-162-167 Firelights' Hideout: install the granted [Accelerate] on the next unit the " +
     "controller plays this turn, assert the 1-energy-plus-Domain-power optional cost is offered " +
-    "at that play and that entering ready follows payment (805.1.b/805.2/805.2.b) — needs " +
-    "continuous.grant-keyword / continuous.keyword registration and the one-shot next-unit " +
-    "window (RIFT-91 follow-up, same gap as ogn/raging-firebrand)"
+    "at that play and that entering ready follows payment (805.1.b/805.2/805.2.b) — needs the " +
+    "CardProgram continuous-effect registration and the one-shot next-unit window (RIFT-257)"
 );
-
 test.todo(
   "rad-162-167 Firelights' Hideout: subscribe the conquer trigger and resolve it for the " +
-    "Battlefield's controller (383.4.c.2.b, 190.6.d) — needs scoring → chain/events conquer " +
-    "emission and CardProgram TriggerRegistration (RIFT-31/RIFT-33, contract §7.2 batch 5)"
+    "Battlefield's controller (383.4.c.2.b, 190.6.d) — needs the CardProgram TriggerRegistration and " +
+    "the accepted 053.3 here-referent spelling (RIFT-257)"
 );
 
