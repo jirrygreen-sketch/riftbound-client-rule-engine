@@ -10,7 +10,7 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required — the second clause has one open rules question that
  * changes the executable shape, plus the layer-set condition/consumer chain:
- * - The merged continuous.might primitive (RIFT-258) registers arithmetic
+ * - The merged continuous.might primitive registers arithmetic
  *   effects through ctx.addContinuous and the "set" mode exists, so the
  *   modification itself is expressible. What is unresolved is the referenced
  *   unit: the text does not say who chooses "another friendly unit" or when, and
@@ -26,7 +26,8 @@ import type { CardProgram } from "../../ir/index.js";
  * Neither half is approximated (no Buff counter, no fixed value).
  *
  * The printed [Reaction] keyword is declared as a keyword ability (813 /
- * 159.2.b); its continuous.timing expansion and admission are chain-owned.
+ * 159.2.b); its continuous.timing expansion and admission are available through
+ * the keyword registry, layers/rules query, and chain timing checks.
  */
 const convergentMutation = {
   canonicalCardId: "card.hash-6d70f12e2dfb5fbc2398e27f4f4f03110c0310091884499b782107d95b9d6c65",
@@ -34,11 +35,11 @@ const convergentMutation = {
   status: "judge-required",
   judgeReason:
     "Might 修改本身现在有已合入的执行路径（continuous.might 的 set 模式经 ctx.addContinuous 注册 arithmetic 层效果，" +
-    "RIFT-258；数值可先用 condition.value 捕获被引用单位的当时 Might 再以 linked 值传入，时长 this-turn 由图层到期处理），" +
+    "数值可先用 condition.value 捕获被引用单位的当时 Might 再以 linked 值传入，时长 this-turn 由图层到期处理），" +
     "但“increase its Might to the Might of another friendly unit”的引用语义仍未裁定：sourceText 未说明谁选择 " +
     "\"another friendly unit\"、何时选择；若它是具体对象选择则按 355.7 成为 Target（需要第二个 Finalize 目标与 became-target 事件），" +
     "若是按特征的引用则按 355.10.d 不是目标，且 479.4.b 的快照语义与结算时动态读取两种读数给出不同的取值时点。" +
-    "两种读数产生不同的目标/触发行为，缺乏官方裁决时不能把任一种写成可执行结论。依赖：规则裁定（引用语义）与目标系统（RIFT-90）。不近似实现。",
+    "两种读数产生不同的目标/触发行为，缺乏官方裁决时不能把任一种写成可执行结论；当前生产 target translator 也拒绝 another/other 动态排除。依赖：规则裁定（引用语义）、第二个目标的生产翻译与动态排除。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
@@ -65,7 +66,7 @@ const convergentMutation = {
         {
           // "This turn, increase its Might to ..." — the merged
           // continuous.might primitive in "set" mode registers one
-          // arithmetic-layer effect through ctx.addContinuous (RIFT-258) with
+          // arithmetic-layer effect through ctx.addContinuous with
           // the captured Might as the set value and the this-turn duration.
           id: "convergent-mutation.set-might",
           op: "continuous.might",

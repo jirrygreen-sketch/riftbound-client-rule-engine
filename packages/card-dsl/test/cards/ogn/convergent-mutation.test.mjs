@@ -7,6 +7,9 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import reaction from "../../../../engine-core/dist/effects/keywords/Reaction.js";
+import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/index.js";
+import { actionTimings, canAct } from "../../../../engine-core/dist/layers/rules/query.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 
 /**
@@ -63,7 +66,7 @@ test("Convergent Mutation program is structurally valid and judge-required", () 
   assert.match(program.judgeReason, /355\.7/);
   assert.match(program.judgeReason, /479\.4\.b/);
   assert.match(program.judgeReason, /裁定/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /target translator|another\/other/);
 });
 
 test("Convergent Mutation identity and printed text match the catalog", () => {
@@ -164,20 +167,51 @@ test("Convergent Mutation golden: the merged primitives register the captured Mi
   assert.equal(engine.evaluate(kernel.ref("chosen")).might, 5);
 });
 
+test("Convergent Mutation: the declared Reaction expands into the merged timing permission", () => {
+  const [expanded] = reaction.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(expanded.kind, "static");
+  assert.deepEqual(expanded.effect, {
+    kind: "continuous.timing",
+    grants: ["showdown", "closed-state"],
+    appliesTo: ["card", "activated-ability"]
+  });
+
+  const kernel = world().object("convergent", {
+    cardId: CANONICAL,
+    types: ["spell"],
+    zone: "chain",
+    owner: "A",
+    controller: "A"
+  }).build();
+  const registry = new ContinuousEffectRegistry();
+  registry.register({
+    id: "convergent.reaction",
+    source: kernel.ref("convergent"),
+    filter: { objectId: "convergent", zoneEntryId: kernel.ref("convergent").zoneEntryId },
+    effect: expanded.effect
+  }, { type: "permanent" }, 1);
+  assert.deepEqual(actionTimings(registry, kernel.ref("convergent"), kernel.getObject("convergent"), "A"), ["showdown", "closed-state"]);
+  assert.equal(canAct(registry, {
+    player: "A",
+    turnPlayer: "B",
+    priorityHolder: "A",
+    speed: "reaction",
+    showdown: false,
+    closedState: true,
+    ref: kernel.ref("convergent"),
+    object: kernel.getObject("convergent")
+  }), true);
+});
+
 test.todo(
   "Convergent Mutation: whether 'another friendly unit' is a chosen target (355.7, second Finalize " +
     "target + became-target events) or a characteristic-derived reference (355.10.d), and whether its " +
     "Might is snapshotted per 479.4.b or read live, needs a rules ruling before the card can claim " +
-    "executable; the target system (RIFT-90) owns the eventual target wiring."
+    "executable; the production target translator must also consume the second target's dynamic exclusion."
 );
 
 test.todo(
   "Convergent Mutation: resolving which friendly unit is referenced, whether it is " +
-    "Targeted (355.7) and when the choice is made (355.3/355.5) needs a rules ruling " +
-    "and the target system (RIFT-90); the source text does not state the chooser."
-);
-
-test.todo(
-  "Convergent Mutation: [Reaction] admission and its three continuous.timing grants " +
-    "(813.1.b) are chain + layer work (RIFT-91), not card data."
+    "Targeted (355.7) and when the choice is made (355.3/355.5) needs a rules ruling; " +
+    "the source text does not state the chooser."
 );

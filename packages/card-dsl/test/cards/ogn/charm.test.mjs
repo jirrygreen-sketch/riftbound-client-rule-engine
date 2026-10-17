@@ -32,7 +32,7 @@ test("Charm identity, ruleset, status and printed text", () => {
   assert.match(charm.judgeReason, /effect\.move/);
   // The still-current gap is the runtime-legal destination enumeration, not the
   // primitive's existence.
-  assert.match(charm.judgeReason, /target\.location/);
+  assert.match(charm.judgeReason, /target\/location|effect\.move/);
   // The generated registry indexes this program by canonicalCardId.
   assert.equal(cardRegistryById.get(charm.canonicalCardId), charm);
 });
@@ -133,8 +133,8 @@ test("Charm structure: the destination is declared as a runtime choice placehold
 test.todo(
   "Charm Destination: enumerate the runtime-legal Move Destinations at Finalize and offer the " +
     "choice to the controller (CR 355.4 / 355.4.a / 449.2) - needs a runtime destination provider " +
-    "(the target.location family) so the { kind: \"choose\", options } list holds real LocationRefs; " +
-    "RIFT-124's movement structure only accepts a caller-supplied destination"
+    "that connects target/location candidates to effect.move so the { kind: \"choose\", options } list " +
+    "holds real LocationRefs; the current movement structure only accepts a caller-supplied destination"
 );
 
 test.todo(

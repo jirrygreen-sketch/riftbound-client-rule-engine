@@ -25,10 +25,10 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   // The reason must name the still-current gaps: the unread nested trigger
-  // filter / missing "another object" predicate and the missing host selector
-  // inside effect.buff.
-  assert.match(program.judgeReason, /matchesTriggerEvent/);
-  assert.match(program.judgeReason, /exclude/);
+  // The event matcher exists; production filter translation still rejects the
+  // dynamic "another object" exclusion, and effect.buff lacks a host selector.
+  assert.match(program.judgeReason, /programs\/filters\.ts/);
+  assert.match(program.judgeReason, /other|exclude/);
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /objects: \{kind: "source"\}/);
   assert.equal(
@@ -89,9 +89,8 @@ test("golden: a host that already has a buff is not buffed again (CR 702.3/702.3
 
 test.todo(
   "Cithria of Cloudfield: 'you play another unit' needs a trigger-filter predicate that excludes the " +
-    "host and scopes to units played by the controller; matchesTriggerEvent reads the EventPattern's " +
-    "top-level object/source/target keys and does not consume the nested filter spelling, and " +
-    "ObjectSelector.exclude only applies to interpreter set queries"
+    "host and scopes to units played by the controller; programs/filters.ts currently rejects the " +
+    "nested other/exclude spelling before the EventPattern matcher sees it"
 );
 test.todo(
   "Cithria of Cloudfield: 'buff me' needs a host-selector form inside effect.buff (contract change " +
