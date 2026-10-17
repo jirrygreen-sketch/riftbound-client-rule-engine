@@ -45,7 +45,7 @@ const theHarrowing = {
     "② cost.modify 原语虽然已合入，但它需要调用方提供可计算的 CostPlanInput，当前没有从被选 Trash 单位读取印刷费用并把 ignore-base: energy 接入 effect.play 的生产管线。" +
     "effect.play 只接受已生成的 FinalizedCostPlan（自述 never derives printed costs or implements an ignored-cost rule），" +
     "未 finalized 时按契约 3.3 返回 negated/impossible，不近似实现（不为免费打出、不手写计划）。" +
-    "依赖：被选卡印刷费用读取、cost.modify 描述符到 Finalize 计划的消费接线，以及该计划到 effect.play 的链接。",
+    "依赖：被选卡印刷费用读取、cost.modify 描述符到 Finalize 计划的消费接线、该计划到 effect.play 的链接，以及 420.3 Limited Action 的 chain handoff。",
   abilities: [
     {
       kind: "play",

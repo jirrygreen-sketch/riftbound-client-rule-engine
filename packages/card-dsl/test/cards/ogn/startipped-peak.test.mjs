@@ -90,6 +90,12 @@ test("ogn-288-298: accepting the option channels one rune", () => {
     ["startipped-peak.channel:executed", "startipped-peak.channel-opt:executed"]
   );
   assert.deepEqual(ran.events.map(event => event.action), ["channel-rune"]);
+  assert.deepEqual(kernel.stateForTest().history.at(-1).action, {
+    type: "channel-rune",
+    player: "A",
+    amount: 1,
+    exhausted: true
+  });
   assert.equal(kernel.player("A").runeDeckSize, 1);
   assert.equal(kernel.player("A").runePool.length, 1);
   assert.equal(kernel.getObject("rune-top").zone, "rune-zone");
@@ -141,8 +147,4 @@ test("ogn-288-298: the hold timing point is emitted by the merged scoring flow w
 test.todo(
   "ogn-288-298: normalize the here-anchored hold filter against details.battlefieldId " +
     "before registering the trigger"
-);
-test.todo(
-  "ogn-288-298: 431.2 的“exhausted 入场”状态由内核实现——参考测试内核的 channel-rune 不记录符文入场状态" +
-    "（449 类位置状态归真实内核；本地只验证符文离开符文牌库进入符文区）"
 );

@@ -27,10 +27,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   translateTriggerFilter / trigger-spec layer does not resolve;
  * - the "if you have 7+ units here" clause is a condition on the hold event: the
  *   interpreter's set query implements the sameLocationAs anchor (contract
- *   3.6), but the trigger's condition can only be evaluated through the host
- *   testTrigger adapter, which no merged host provides (events/pipeline.ts
- *   throws "Trigger condition adapter required"), and the engine's literal
- *   controller placeholder never matches in the plain query path.
+ *   3.6), and events/pipeline.ts now evaluates trigger conditions through the
+ *   canonical event-aware evaluator. The condition still needs its controller
+ *   placeholder and Battlefield anchor bound before the query can run in the
+ *   production registration path.
  */
 export default {
   canonicalCardId: "card.hash-627933b535ef66e1e1bb12785313b937e23dc2c7ac48a1ff26c8c49a94e0c233",
@@ -39,10 +39,9 @@ export default {
   judgeReason:
     "“you win the game”指令本身完全可用已合入的 effect.win（CR 195）表达并在 golden 里真实执行；hold 时点也已由 TurnFlow 的 Beginning Score 波真实发出（471.2 / 473.2.b）。阻断在触发侧：" +
     "① 190.6 的战场能力控制者解析也未落地；② filter 的 here: true / player: controller 是同类战场卡占位（053.3 的 here 指代），已合入的 translateTriggerFilter / trigger-spec 不解析这两个键；" +
-    "③ “if you have 7+ units here” 是 hold 事件上的触发条件：解释器的集合查询已实现 sameLocationAs 锚点（契约 3.6），但带 condition 的注册要求宿主提供 " +
-    "testTrigger 适配器（events/pipeline.ts 会抛 Trigger condition adapter required），没有任何已合入宿主提供该适配器；condition 的 count 过滤器 " +
-    "controller: \"controller\" 占位在普通查询路径也不会匹配真实 PlayerId。" +
-    "依赖：here/controller 归一化与 testTrigger 条件适配器（契约变更请求）。不近似实现。",
+    "③ “if you have 7+ units here” 是 hold 事件上的触发条件：解释器的集合查询已实现 sameLocationAs 锚点（契约 3.6），" +
+    "events/pipeline.ts 已有 canonical event-aware condition fallback；但 condition 的 count 过滤器仍含未绑定的 controller: \"controller\" 占位，" +
+    "而触发注册的 here/controller 锚点也未解析。依赖：here/controller 归一化、条件查询的能力控制者绑定与 Battlefield 控制者解析（契约变更请求）。不近似实现。",
   sourceText: "When you hold here, if you have 7+ units here, you win the game.",
   abilities: [
     {

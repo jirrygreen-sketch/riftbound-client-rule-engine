@@ -44,7 +44,7 @@ export default {
     "（该锚点只在解释器的集合查询里被消费）：无法把“友方单位在本战场被法术指定为目标”与其他战场的事件区分开，按现状实现会过度触发" +
     "（became-target 载荷已带来源快照，EventPattern.source 的 spell 判别可表达；不得据此把整卡标为 executable）；" +
     "触发注册路径已存在，但 Battlefield 能力来源的控制器（190.6）仍未解析；" +
-    "此外需要触发条件/载荷绑定（testTrigger 适配器）与事件匹配器对 sameLocationAs 的支持（见契约变更请求）。不近似实现。",
+    "还需要把 became-target 载荷中的选择者绑定到能力体，并让触发过滤器接受/匹配 sameLocationAs 与 chooser-relative friendly 条件（当前 programs/filters.ts 会拒绝该字段；见契约变更请求）。不近似实现。",
   sourceText: "When a player chooses a friendly unit here with a spell for the first time each turn, they draw 1.",
   abilities: [
     {

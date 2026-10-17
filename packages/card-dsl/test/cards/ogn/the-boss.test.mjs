@@ -10,6 +10,7 @@ const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
 const { createTestWorld } = await import(new URL("effects/testing/index.js", engineCore));
 const { planReplacementBody } = await import(new URL("replacement/index.js", engineCore));
+const { actionMatchesEventPattern } = await import(new URL("replacement/pattern.js", engineCore));
 
 const [replacement, conquer] = program.abilities;
 const readyInstruction = conquer.body[0];
@@ -70,7 +71,7 @@ test("the-boss structure: death replacement for a buffed friendly unit with the 
   assert.equal(replacement.kind, "replacement");
   assert.deepEqual(replacement.replaces, {
     event: "object-killed",
-    filter: { type: "unit", controller: "self", buffed: true }
+    filter: { type: "unit", controller: "self", characteristics: { buffs: 1 } }
   });
   assert.equal(replacement.condition, undefined);
   assert.equal(replacement.with.length, 4);
@@ -111,6 +112,55 @@ test("the-boss structure: death replacement for a buffed friendly unit with the 
     value: { linked: "replacement.object" }
   });
   assert.equal(exhaust.linkedTo, "the-boss.recall");
+});
+
+test("the-boss replacement matcher accepts a buffed friendly unit and rejects an unbuffed one", () => {
+  const kernel = theBossWorld();
+  kernel.addObject({
+    ref: { id: "buffed-unit", zoneEntryId: 2 },
+    name: "Buffed Unit",
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "battlefield-1" },
+    exhausted: false,
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    might: 3,
+    energy: null,
+    power: null,
+    buffs: 1
+  }, "board");
+  kernel.addObject({
+    ref: { id: "plain-unit", zoneEntryId: 3 },
+    name: "Plain Unit",
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "battlefield-1" },
+    exhausted: false,
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    might: 3,
+    energy: null,
+    power: null,
+    buffs: 0
+  }, "board");
+  const matches = id => {
+    const object = kernel.getObject(id);
+    return actionMatchesEventPattern({
+      pattern: replacement.replaces,
+      action: { type: "kill", object: object.ref },
+      target: { object: object.ref },
+      hostRef: kernel.ref("the-boss"),
+      controller: "A",
+      snapshotFor: ref => kernel.getObject(ref.id) ?? null
+    });
+  };
+  assert.equal(matches("buffed-unit"), true);
+  assert.equal(matches("plain-unit"), false);
 });
 
 test("the-boss structure: mandatory conquer trigger that readies the legend itself", () => {
@@ -203,6 +253,5 @@ test.todo(
 
 test.todo(
   "the-boss replacement binding: expose the printed 'you may pay ... instead' decision through " +
-    "replacement.event's raw instead body; the Recall action (CR 457-460) and the CR 702.2.a " +
-    "buffed-unit predicate are still open."
+    "replacement.event's raw instead body; the Recall action (CR 457-460) is still open."
 );
