@@ -2,8 +2,8 @@
 //
 // Execution evidence (the printed 10 energy / 3 Calm payment, the real
 // Shield 5 and Tank keyword expansion and the fail-closed static binds) lives
-// in the RIFT-674 parameterized template golden:
-// test/cards/templates/keyword-keyword-static-674.test.mjs.
+// in the RIFT-698 parameterized template golden:
+// test/cards/templates/keyword-keyword-static-698.test.mjs.
 // This file keeps validation, identity, verbatim text, declared status and the
 // key structure of the printed abilities.
 import assert from "node:assert/strict";
