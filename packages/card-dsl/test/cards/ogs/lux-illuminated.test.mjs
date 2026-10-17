@@ -6,7 +6,9 @@ import program from "../../../dist/cards/ogs/lux-illuminated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
-import { ProgramBindingError } from "../../../../engine-core/dist/programs/errors.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
@@ -24,41 +26,51 @@ const registrations = (kernel) =>
 const effectiveMight = (kernel, id) =>
   createLayerEngine(kernel.objects, registrations(kernel)).evaluate(kernel.ref(id)).might;
 
-test("ogs-006-024 Lux, Illuminated: program validates and is judge-required", () => {
+test("ogs-006-024 Lux, Illuminated: program validates as judge-required with the current engine gaps", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.deepEqual(result.issues, []);
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  assert.match(program.judgeReason, /settlement-1/);
+  assert.match(program.judgeReason, /Continuous effect already registered/);
+  assert.match(program.judgeReason, /registry\.get/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("ogs-006-024 Lux, Illuminated: judgeReason names the current event-payload cost gap and the merged Might/trigger primitives", () => {
-  assert.match(program.judgeReason, /energyGte/);
-  assert.match(program.judgeReason, /translateTriggerFilter/);
-  assert.match(program.judgeReason, /testTrigger/);
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-258/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-91/);
+test("ogs-006-024 Lux, Illuminated: the translated trigger binding retains the printed-cost condition and source zone", () => {
+  const kernel = world().unit("lux", { cardId: CANONICAL, might: 5 }).build();
+  const [registration] = triggerRegistrations({ get: () => program }, kernel.getObject("lux"));
+  assert.deepEqual(registration.spec.condition, ability.trigger.condition);
+  assert.deepEqual(registration.spec.filter, ability.trigger.filter);
+  assert.deepEqual(registration.body, ability.body);
+  assert.deepEqual(registration.activeZones, ["board"]);
+  assert.equal(registration.boundToIncarnation, true);
 });
 
-test("ogs-006-024 Lux, Illuminated: card-played trigger with the descriptive energy gate and a temporary +3 Might body", () => {
+test("ogs-006-024 Lux, Illuminated: the production registry rejects the judge-required program", () => {
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const kernel = world().unit("lux", { cardId: CANONICAL, might: 5 }).build();
+  assert.throws(
+    () => triggerRegistrations(binding.registry, kernel.getObject("lux")),
+    (error) => error.name === "ProgramBindingError" && error.code === "judge-required"
+  );
+});
+
+test("ogs-006-024 Lux, Illuminated: card-played trigger with the printed-energy gate and a temporary +3 Might body", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.optional, false);
   assert.equal(ability.trigger.at, "card-played");
-  // The energy gate is a descriptive placeholder: the card-played event carries
-  // no cost payload and the frozen vocabulary has no numeric comparison over an
-  // event object's characteristics; the key is named in judgeReason as having
-  // no formal semantics.
+  // CR 206: printed/copied cost is independent of the resources actually paid.
   assert.deepEqual(ability.trigger.filter, {
-    type: "spell",
-    controller: "controller",
-    energyGte: 5
+    event: "card-played", object: { type: "spell" }, player: "self"
   });
-  assert.equal(ability.trigger.condition, undefined);
+  assert.deepEqual(ability.trigger.condition, {
+    kind: "event-printed", object: "object", characteristic: "energy",
+    operator: "gte", right: { kind: "constant", value: 5 }
+  });
 
   assert.equal(ability.body.length, 1);
   assert.equal(grantMight.id, "lux-illuminated.grant-might");
@@ -72,33 +84,15 @@ test("ogs-006-024 Lux, Illuminated: card-played trigger with the descriptive ene
   assert.equal(grantMight.linkedTo, undefined);
 });
 
-test("ogs-006-024 Lux, Illuminated: the merged trigger translation resolves the equal-value half of the descriptive energy gate", () => {
-  // The card-played event payload carries no cost, so the numeric energy gate
-  // stays descriptive (judgeReason). The merged translation resolves the
-  // equal-value half: controller is normalized to "self", the object filter
-  // matches a spell played by the source's controller, and the descriptive
-  // energyGte key is rejected by the whitelist (asserted below).
+test("ogs-006-024 Lux, Illuminated: translated trigger matches only the controller's spells", () => {
   const base = world().unit("lux", { zone: "board" }).build();
-  const played = base.getObject("lux");
-  assert.throws(() => translateTriggerFilter(ability.trigger.filter, played.ref.id, "card-played"), (error) => {
-    assert.ok(error instanceof ProgramBindingError);
-    assert.match(error.message, /Unsupported filter field energyGte/);
-    return true;
-  });
-  const pattern = translateTriggerFilter(
-    { type: "spell", controller: "controller" },
-    played.ref.id,
-    "card-played"
-  );
-  // The flat filter is passed through as the pattern's object filter (the
-  // translation only wraps keys like source/self/object into pattern.object).
-  assert.deepEqual(pattern, { type: "spell", controller: "self" });
-  assert.equal(matchesTriggerEvent(pattern, { timingPoint: "card-played", object: { ...played, types: ["spell"] }, player: "A" }, "A"), true);
-  assert.equal(matchesTriggerEvent(pattern, { timingPoint: "card-played", object: { ...played, types: ["gear"] }, player: "A" }, "A"), false);
-  // A flat filter has no pattern.player, so the event player is not compared;
-  // an explicit player selector is what the production pipeline gets from
-  // cards that name the player (like Might of Demacia's player: "self").
-  assert.equal(matchesTriggerEvent({ ...pattern, player: "self" }, { timingPoint: "card-played", object: { ...played, types: ["spell"] }, player: "B" }, "A"), false);
+  const source = base.getObject("lux");
+  const pattern = translateTriggerFilter(ability.trigger.filter, source.ref.id, "card-played");
+  assert.deepEqual(pattern, { event: "card-played", object: { type: "spell" }, player: "self" });
+  const event = { timingPoint: "card-played", object: { ...source, types: ["spell"] }, player: "A" };
+  assert.equal(matchesTriggerEvent(pattern, event, "A"), true);
+  assert.equal(matchesTriggerEvent(pattern, { ...event, object: { ...source, types: ["gear"] } }, "A"), false);
+  assert.equal(matchesTriggerEvent(pattern, { ...event, player: "B" }, "A"), false);
 });
 
 test("ogs-006-024 Lux, Illuminated golden: the body registers +3 Might in the arithmetic layer until end of turn", () => {
@@ -136,10 +130,101 @@ test("ogs-006-024 Lux, Illuminated golden: a source that left the Board register
   assert.equal(kernel.continuousEffects.length, 0);
 });
 
-test.todo(
-  "ogs-006-024 Lux, Illuminated: the trigger only fires for a played spell whose cost is 5+ energy " +
-    "(CR 383.4.a, 420.4.a, 355.9) — the card-played event payload carries no cost and the frozen " +
-    "EventPattern/ObjectFilter vocabulary has no numeric >= comparison over an event object's " +
-    "characteristics; trigger registration with a condition needs a host testTrigger adapter and " +
-    "translateTriggerFilter rejects the descriptive energyGte key (contract change request)"
-);
+function productionGame({ printed = 5, types = ["spell"], count = 1 } = {}) {
+  // The probe spell needs a registered play program for the production
+  // describePlay adapter; its printed Energy is injected per scenario.
+  const PROBE = "card.probe.lux-illuminated.spell";
+  const probeProgram = {
+    canonicalCardId: PROBE, rulesetVersion: "core-1.5", status: "executable",
+    abilities: [{ kind: "play", cost: { kind: "cost.printed", energy: { kind: "constant", value: printed } }, body: [] }],
+    sourceText: "[Probe] (No ability.)"
+  };
+  const binding = createProgramBinding({ cardPrograms: [probeProgram] });
+  // Lux's production lifecycle cannot bind while the program is judge-required,
+  // so the golden attaches the card's own translated trigger to the engine
+  // pipeline manually (the same convention as lady-of-luminosity-starter) while
+  // plays still take the production payment and event path.
+  const game = fixture({
+    cards: [
+      { id: "lux", cardId: CANONICAL, types: ["unit"], energy: 6, power: ["Mind"], might: 5 },
+      ...Array.from({ length: count }, (_, index) => ({
+        id: `probe-${index}`, cardId: PROBE, types, energy: printed, power: [], might: 2
+      }))
+    ],
+    describePlay: binding.describePlay
+  });
+  const [ability] = program.abilities;
+  game.engine.pipeline.registerTrigger({
+    id: "lux.cost-gate",
+    source: game.kernel.getObject("lux"),
+    controller: "A",
+    spec: ability.trigger,
+    body: ability.body,
+    optional: ability.optional
+  });
+  assert.equal(game.engine.commit({ type: "gain-power", player: "A", power: ["Mind"] }).status, "done");
+  // The trigger's active zone is Board; place Lux there without claiming a
+  // production play binding for the judge-required program.
+  assert.equal(game.engine.commit({ type: "move-zone", object: game.kernel.ref("lux"), to: "board" }).status, "done");
+  assert.equal(game.kernel.getObject("lux").zone, "board");
+  assert.equal(game.engine.layers.evaluate(game.kernel.ref("lux")).might, 5);
+  assert.equal(game.engine.layers.registry.list().length, 0, "Lux's own unit play does not trigger");
+  assert.equal(game.kernel.player("A").energy, 20, "setup must not pay for the judge-required Lux");
+  return game;
+}
+
+function playCard(game, id, extra = {}) {
+  assert.equal(game.engine.commit({ type: "play", object: game.kernel.ref(id), player: "A", ...extra }).status, "done");
+  game.engine.advance();
+  resolveAll(game.engine);
+  assert.equal(game.engine.items.length, 0);
+}
+
+test("ogs-006-024 Lux, Illuminated golden: real program lifecycle grants +3 only for a 5+ printed-Energy spell", () => {
+  for (const [printed, types, expected] of [[4, ["spell"], 5], [5, ["spell"], 8], [6, ["spell"], 8], [5, ["unit"], 5]]) {
+    const game = productionGame({ printed, types });
+    playCard(game, "probe-0");
+    const event = game.engine.pipeline.events.find(entry => entry.timingPoint === "card-played" && entry.object.ref.id === "probe-0");
+    assert.ok(event, "cost gate must consume a real play event");
+    assert.equal(event.details.printed.energy, printed);
+    assert.equal(event.player, "A");
+    assert.deepEqual(event.object.types, types);
+    assert.equal(game.kernel.player("A").energy, 20 - printed);
+    assert.equal(game.engine.layers.evaluate(game.kernel.ref("lux")).might, expected);
+    const entries = game.engine.layers.registry.list();
+    assert.equal(entries.length, expected === 8 ? 1 : 0);
+    if (entries.length) {
+      assert.equal(entries[0].effect.filter.objectId, "lux");
+      assert.equal(entries[0].effect.effect.amount, 3);
+      assert.deepEqual(entries[0].duration, { type: "end-of-turn" });
+    }
+    assert.equal(game.engine.trace.filter(entry => entry.step === "resolved" && entry.item.startsWith("trigger:")).length, expected === 8 ? 1 : 0);
+  }
+});
+
+test("ogs-006-024 Lux, Illuminated golden: CR 206 uses the printed cost when the real play pays less or more", () => {
+  for (const [printed, paid, expected] of [[5, 1, 8], [4, 7, 5]]) {
+    const game = productionGame({ printed });
+    playCard(game, "probe-0", { cost: { finalized: true, energy: paid, power: [] } });
+    const event = game.engine.pipeline.events.find(entry => entry.timingPoint === "card-played" && entry.object.ref.id === "probe-0");
+    assert.equal(event.details.printed.energy, printed);
+    assert.equal(game.kernel.player("A").energy, 20 - paid);
+    assert.equal(game.engine.layers.evaluate(game.kernel.ref("lux")).might, expected);
+  }
+});
+
+test("ogs-006-024 Lux, Illuminated evidence: a second same-turn grant collides on settlement-1 (blocker: shared settlement identity)", () => {
+  const game = productionGame({ count: 2 });
+  playCard(game, "probe-0");
+  assert.equal(game.engine.layers.evaluate(game.kernel.ref("lux")).might, 8);
+  // 负向证据：continuous.might 的 settlement 计数写读键不一致，第二次触发注册同一 id。
+  // This pins the current failure; when the shared interpreter persists the
+  // settlement counter across resolutions this must become the stacking test:
+  // probe-1 resolves, both grants expire together at turn-end (11 -> 5).
+  assert.throws(
+    () => playCard(game, "probe-1"),
+    /Continuous effect already registered: continuous\.might:settlement-1/
+  );
+  assert.equal(game.engine.layers.evaluate(game.kernel.ref("lux")).might, 8);
+  assert.equal(game.kernel.getObject("lux").might, 5, "printed Might remains unchanged");
+});
