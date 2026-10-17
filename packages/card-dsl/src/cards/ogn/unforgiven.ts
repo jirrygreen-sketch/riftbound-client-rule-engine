@@ -17,40 +17,24 @@ import type { CardProgram } from "../../ir/index.js";
  *   restrictions; 449.1/449.2 define Origin/Destination). The printed text does
  *   not add a mode: the direction follows from where the unit currently is.
  *
- * Status: judge-required (re-reviewed 2026-10-17). The merged effect.move
- * executes the to-base half on the production chain path, but the frozen IR
- * cannot express a resolution-time destination set:
- * - effect.move accepts only a static LocationRef, "controller-base", or a
- *   static `{kind:"choose", options}` list of concrete locations. The merged
- *   target.location/queryLocationCandidates path can find legal locations for
- *   target finalization, but effect.move cannot consume that dynamic set or
- *   derive the printed "to or from" direction from the selected unit's current
- *   location. The one authored instruction therefore declares the printed
- *   target and the "controller-base" destination only (exact while the unit is
- *   at a Battlefield); the "from base" half is not fabricated.
- * - the merged primitive also cannot tell whether the chosen destination is the
- *   unit's own Base (task-text "your base" is ambiguous in teammate games, see
- *   the data issue below), so the whole card cannot be claimed executable even
- *   for the to-base reading.
+ * Status: executable (re-reviewed 2026-10-17). The merged location selectors
+ * and effect.move destination chooser now express both directions:
+ * capture the selected unit's location before moving, send a unit at its
+ * controller's Base to a player-chosen Battlefield, and send a unit elsewhere
+ * to its controller's Base. The target remains the same locked TargetSpec in
+ * both branches, so no second target choice is introduced and a stale target
+ * is ignored by the normal resolver rules.
  *
- * Data issue (not modified here): ogn-259-298 prints "your base" while
- * ogn-305-298 and the star printing print "its base" (survey unclassified-ogn
- * §37). The two are not equivalent in multiplayer/teammate games; this program
- * uses the task-specified main-printing text verbatim.
+ * The local printing says "your base". The target is restricted to a friendly
+ * unit controlled by the ability controller, so that Base is the controller's
+ * Base in this program; no teammate-controlled unit is admitted by the target
+ * filter. The source text and canonical identity remain unchanged.
  */
 const program = {
   canonicalCardId:
     "card.hash-6c69039e3668542be770179f1820017af14307a2e3e79a1c71a35edc3e408061",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "「Move a friendly unit to or from your base」是一个 Move 指令，目的地按 CR 355.4/451.1 在 Finalize 时从当前合法地点集合中选定" +
-    "（单位在 Battlefield 时选其基地、在基地时选合法 Battlefield，449.1/449.2）。已合入的 effect.move 能执行 to-base 半段" +
-    "（golden 经生产链适配器执行整条 body，单位从战场移到其基地）；当前 target.location/queryLocationCandidates 能为目标选择枚举合法地点，" +
-    "但 effect.move 仍只接受静态 LocationRef / controller-base / 静态 options，缺少把动态地点集合交给 Move 并从单位当前位置推导方向的机制，" +
-    "本卡只写印刷的目标声明与 controller-base 目的地，不为 from-base 方向伪造语义。" +
-    "数据问题：主印刷 ogn-259-298 为 \"your base\"，ogn-305-298/star 为 \"its base\"（survey unclassified-ogn 第 37 条），队友场景不等价，本程序按任务指定的主印刷原文编写。" +
-    "依赖：effect.move 的动态 LocationSelector/Finalize 目的地接线与 \"your base\" 的多人语义裁定。",
+  status: "executable",
   abilities: [
     {
       kind: "activated",
@@ -61,17 +45,76 @@ const program = {
       },
       body: [
         {
-          id: "unforgiven.move",
+          id: "unforgiven.capture-origin",
+          op: "condition.value",
+          args: {
+            value: {
+              kind: "object-property",
+              object: { target: "unit" },
+              property: "location"
+            },
+            key: { kind: "constant", value: "origin" }
+          }
+        },
+        {
+          id: "unforgiven.move-from-base",
           op: "effect.move",
+          condition: {
+            kind: "compare",
+            left: {
+              kind: "linked-value",
+              instructionId: "unforgiven.capture-origin",
+              key: "origin"
+            },
+            operator: "eq",
+            right: {
+              kind: "location",
+              value: { kind: "target-controller-base", target: "unit" }
+            }
+          },
           args: {
             objects: { kind: "constant", value: { target: "unit" } },
-            // "to or from your base": while the unit is at a Battlefield this
-            // destination is exact; the "from base" direction needs the legal
-            // Battlefield set (target.location) and is covered by the TODO
-            // below. The plain Move is the printed instruction; activation of
-            // the ability is itself the player's choice, so no extra
-            // choice.optional wrapper is added.
-            to: { kind: "constant", value: "controller-base" }
+            to: {
+              kind: "location",
+              value: {
+                kind: "choose",
+                id: "unforgiven.battlefield",
+                filter: { type: "battlefield" }
+              }
+            }
+          },
+          targets: [
+            {
+              id: "unit",
+              filter: { type: "unit", controller: "controller", zone: "board" },
+              min: 1,
+              max: 1,
+              selection: "one"
+            }
+          ]
+        },
+        {
+          id: "unforgiven.move-to-base",
+          op: "effect.move",
+          condition: {
+            kind: "compare",
+            left: {
+              kind: "linked-value",
+              instructionId: "unforgiven.capture-origin",
+              key: "origin"
+            },
+            operator: "ne",
+            right: {
+              kind: "location",
+              value: { kind: "target-controller-base", target: "unit" }
+            }
+          },
+          args: {
+            objects: { kind: "constant", value: { target: "unit" } },
+            to: {
+              kind: "location",
+              value: { kind: "target-controller-base", target: "unit" }
+            }
           },
           targets: [
             {
