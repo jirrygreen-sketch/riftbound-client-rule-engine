@@ -5,6 +5,8 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/void-gate.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ProgramBindingError } from "../../../../engine-core/dist/programs/errors.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CANONICAL = "card.hash-914c78ed19d1829c8172e4fcce5b399b51f05e15d1a02fb7eaaaf64e7132bc08";
 const SOURCE_TEXT =
@@ -24,6 +26,8 @@ test("Void Gate program validates and is judge-required", () => {
   assert.match(program.judgeReason, /713/);
   assert.match(program.judgeReason, /715\.4\.a/);
   assert.match(program.judgeReason, /deal-actions/);
+  assert.match(program.judgeReason, /continuous\.bonus-damage/);
+  assert.match(program.judgeReason, /LocationRef/);
   // The reason must name the granting path and the exact rules it depends on.
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -102,5 +106,31 @@ test("Void Gate: the declared static grant keeps its printed scope and amount", 
   assert.equal(ability.effect.amount.value, 1);
 });
 
-test.todo("Void Gate: grant Bonus Damage to qualifying Deal actions, preserving per-target sum and prevention semantics (CR 418.4 / 713–715.4.a; continuous.bonus-damage action consumer)");
-test.todo("Void Gate: bind appliesTo:deal-actions and the affecting-units-here action scope before injecting the bonus (CR 053.3 / 715.2; static action target contract)");
+test("Void Gate binding fails closed at the current Deal-action target gap", async () => {
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+  const f = fixture({
+    cards: [{ id: "gate", cardId: CANONICAL, types: ["battlefield"], energy: null, power: null }]
+  });
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("gate"),
+    to: "board",
+    location: { type: "battlefield", id: "battlefield-1" }
+  });
+
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(ability, f.kernel.getObject("gate")),
+    error => error instanceof ProgramBindingError &&
+      error.code === "judge-required" &&
+      /Unsupported static appliesTo/.test(error.message)
+  );
+});
+
+test.todo(
+  "Void Gate: grant Bonus Damage to qualifying Deal actions, preserving per-target sum and prevention semantics " +
+    "(CR 418.4 / 713–715.4.a; continuous.bonus-damage action consumer)"
+);
+test.todo(
+  "Void Gate: bind appliesTo:deal-actions and the affecting-units-here action scope before injecting the bonus " +
+    "(CR 053.3 / 715.2; static action target contract and value-based LocationRef matching)"
+);
