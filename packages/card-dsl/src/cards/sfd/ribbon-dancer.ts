@@ -18,16 +18,21 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   选择的对象（355.7/355.9.b），「another」排除来源自身。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
- * - 临时 Might 修改没有可执行路径：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，
- *   effects/instructions/ 下也没有任何注册 continuous.might 的原语（layers 引擎能求值，
- *   但没有把结算中的持续效果经 ResolveContext.addContinuous 落地的指令），不能近似为
- *   effect.buff 计数。
- * - object-moved 触发缺可判定载荷：events/action-adapter.ts 为 move-location 生成的事件
- *   不填 toZone/toKind（timing-points.ts 声明的 payloadFields），因此 toZone: "battlefield"
- *   永不命中；内层 filter 锚点（source: "self"）也没有消费方（events/pipeline-match.ts 只读
- *   EventPattern 的 object/source/target/player/fromZone/toZone/amount/details）。
- * 依赖：continuous.might 指令原语（RIFT-9 清单；RIFT-91 已合入 layers 求值侧）、RIFT-120
- * （移动时点载荷与卡牌触发注册）、RIFT-89（费用/目标批次）。不近似实现。
+ * - Might 修改本体已可执行：RIFT-258 合入 continuous.might（经 ResolveContext.addContinuous
+ *   注册 arithmetic 层，带 end-of-turn 期限），RIFT-269 的 condition.value 也能在结算期
+ *   读值；golden 用生产解释器真实执行 body 并断言图层注册与 Might 变化。
+ * - 触发侧仍不可执行，两处缺口：
+ *   1. object-moved 事件不带终点信息：events/action-adapter.ts 为 move-location 发出的事件
+ *      只有 object/fromZone/toZone 之外的载荷（toZone 只对换区赋值，同一 Board 内
+ *      move-location 不填 —— 实测 object-moved 事件无 details/toZone），而 449.1/449.2 的
+ *      「移动到 battlefield」需要终点种类与 id（turn/flow.ts 只补发 object-enters-battlefield
+ *      别名事件）；因此 toZone: "battlefield" 永不命中。
+ *   2. 触发过滤器里的对象锚点与相对控制者过滤无法进入生产绑定：programs/filters.ts
+ *      translateObjectFilter 以 judge-required 拒绝 exclude/sameLocationAs 等锚点字段，
+ *      translateTriggerFilter 只把 source/role/self 译成 objectId，因此本卡 body 的
+ *      exclude: "source" 与「another」都到不了目标管道（RIFT-257 之后仍缺）。
+ * 依赖：RIFT-120（移动时点终点载荷与卡牌触发注册）、programs/filters.ts 的对象锚点/相对
+ * 控制者过滤（RIFT-257 后续）、RIFT-89（费用/目标批次接线）。不近似实现。
  */
 const abilities: Ability[] = [
   {
@@ -44,10 +49,19 @@ const abilities: Ability[] = [
     body: [
       {
         id: "ribbon-dancer.give-plus-1",
+        // "give another friendly unit +1 [M] this turn" — the chosen unit is
+        // the effect's object (the target declared below), not the source of
+        // the ability; the merged continuous.might primitive reads it through
+        // its `objects` selection (the merged smoke-screen / siphon-power
+        // shape).
         op: "continuous.might",
         args: {
           amount: { kind: "constant", value: 1 },
-          duration: { kind: "constant", value: "this-turn" }
+          duration: { kind: "constant", value: "this-turn" },
+          objects: {
+            kind: "constant",
+            value: { kind: "target", id: "ribbon-dancer.other-friendly-unit" }
+          }
         },
         targets: [
           {
@@ -73,15 +87,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「give another friendly unit +1 :rb_might: this turn」是带回合期限的临时 Might 修改，属算术图层：" +
-    "契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，effects/instructions/ 下也没有注册 continuous.might 的原语" +
-    "（layers 引擎能求值 arithmetic 层与 end-of-turn 期限，但没有把结算中的持续效果经 ResolveContext.addContinuous 落地的指令；" +
-    "effect.buff 文件头明确临时 Might 归 continuous.might，不能近似为 Buff 计数）。" +
-    "同时 object-moved 触发缺可判定载荷：events/action-adapter.ts 为 move-location 生成的事件不填 toZone/toKind" +
-    "（timing-points.ts 声明的 payloadFields），因此 toZone: \"battlefield\" 永不命中；内层 filter 锚点 source: \"self\" 也没有消费方" +
-    "（events/pipeline-match.ts 只读 EventPattern 的 object/source/target/player/fromZone/toZone/amount/details；449.1/449.2 的起点终点、" +
-    "458/458.1 的 Recall 排除据此无法执行）。依赖：continuous.might 指令原语（RIFT-9 清单；RIFT-91 的图层求值侧已合入）、" +
-    "RIFT-120（移动时点载荷与卡牌触发注册）。不近似实现。",
+    "Might 修改本体已合入并可执行：RIFT-258 的 continuous.might 经 ResolveContext.addContinuous 注册 " +
+    "arithmetic 层效果并带 end-of-turn 期限（317.1.a/468.7.c），golden 用生产解释器真实执行并断言注册与 Might 变化；" +
+    "object-moved 时点也由 events/action-adapter.ts 为 move-location 产生（RIFT-270）。整卡仍不可执行，两处缺口：" +
+    "(1) 事件不带终点信息——同一 Board 内的 move-location 事件不填 toZone/toKind（实测 object-moved 只有对象引用；" +
+    "turn/flow.ts 只为位置变化补发 object-enters-battlefield 别名），449.1/449.2 的「移动到战场」与 458/458.1 的 Recall 排除" +
+    "都无法判定，toZone: \"battlefield\" 永不命中；" +
+    "(2) 触发与目标的相对锚点没有生产绑定——programs/filters.ts 的 translateObjectFilter 对 exclude/sameLocationAs " +
+    "等锚点字段以 judge-required 拒绝，translateTriggerFilter 只把 source/role/self 译成 objectId，" +
+    "「another（exclude: source）」与内层 source 锚点都到不了目标管道。" +
+    "依赖：RIFT-120（移动时点终点载荷与卡牌触发注册）、programs/filters.ts 的对象锚点/相对控制者过滤（RIFT-257 后续）。不近似实现。",
   abilities,
   sourceText: "When I move to a battlefield, give another friendly unit +1 :rb_might: this turn."
 } satisfies CardProgram;

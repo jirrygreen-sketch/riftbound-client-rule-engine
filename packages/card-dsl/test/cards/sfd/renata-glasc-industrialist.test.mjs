@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/renata-glasc-industrialist.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -18,6 +19,13 @@ test("sfd-171-221 Renata Glasc, Industrialist: program validates and keeps its i
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Entry overrides are not supported/);
   assert.match(program.judgeReason, /replacement\.enter/);
+  // RIFT-260 merged the replacement binding, so the accurate remaining gap is
+  // the creation action not being a replaceable event plus the missing
+  // production registration consumer.
+  assert.match(program.judgeReason, /RIFT-260/);
+  assert.match(program.judgeReason, /create-token/);
+  assert.match(program.judgeReason, /replacement\.object/);
+  assert.doesNotMatch(program.judgeReason, /replacement\.enter 族（调研 71 个身份）没有已合入实现/);
   assert.equal(program.sourceText, "Your tokens enter ready.");
 });
 
@@ -78,5 +86,92 @@ test("sfd-171-221 Renata Glasc, Industrialist: the merged token action supports 
 test.todo(
   "sfd-171-221 Renata Glasc, Industrialist: register the card replacement and read the entering token " +
     "of the replaced event so tokens enter ready instead of entering exhausted then readying " +
-    "(replacement.enter, engine batch 4/5)"
+    "(the creation action is not a replaceable event, and no production caller registers the " +
+    "CardProgram replacement)"
+);
+
+test("sfd-171-221 Renata Glasc, Industrialist: a bound replacement intercepts a board entry", () => {
+  // Evidence for the judgeReason. RIFT-260's bindReplacement is live: a
+  // replacement over object-enters-board really rewrites a token's board entry
+  // (here: banishing it instead of readying it). The creation action is not a
+  // matchable event yet, which is the card's remaining blocker.
+  const kernel = world()
+    .player("A")
+    .unit("renata", { owner: "A", controller: "A", might: 4 })
+    .build();
+  const host = {
+    object: (ref) => kernel.object(ref),
+    objects: () => kernel.objects,
+    context: () => kernel
+  };
+  const registered = [];
+  const pipeline = {
+    clock: { turn: 1 },
+    registerReplacement: (registration) => registered.push(registration),
+    unregisterReplacement: () => {}
+  };
+  kernel.perform({ type: "move-zone", object: kernel.ref("renata"), to: "base", location: { type: "base", player: "A" } });
+  const hostRef = kernel.ref("renata");
+
+  const bound = bindReplacement(
+    {
+      replaces: {},
+      with: [{
+        id: "renata.tokens-enter-ready",
+        op: "replacement.event",
+        args: {
+          event: { kind: "constant", value: { event: "object-enters-board", filter: { type: "token" } } },
+          instead: [{
+            id: "banish-entering-object",
+            op: "effect.zone",
+            args: {
+              target: { kind: "constant", value: { linked: "replacement.object" } },
+              to: { kind: "constant", value: "banishment" }
+            }
+          }]
+        }
+      }]
+    },
+    hostRef,
+    { host, pipeline }
+  );
+  assert.equal(registered.length, 1);
+
+  // A real token entering the board through move-zone is intercepted.
+  const tokenRef = kernel.addObject({
+    ref: { id: "token-1", zoneEntryId: 1 },
+    cardId: null,
+    name: "Mech",
+    types: ["unit"],
+    tags: ["Mech"],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "chain",
+    location: null,
+    might: 3,
+    energy: null,
+    power: null,
+    exhausted: true,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: true
+  }, "chain");
+  const entryAction = { type: "move-zone", object: tokenRef, to: "base", location: { type: "base", player: "A" } };
+  assert.equal(bound.registration.matches(entryAction, entryAction), true);
+
+  // The registration is live and applied through the merged pipeline for a
+  // real board entry (the replacement rewrites it), so the card's entry data
+  // is wired; only the creation event is outside the matchable action set.
+  assert.equal(typeof bound.registration.apply, "function");
+  assert.deepEqual(bound.registration.activeZones.includes("hand"), true);
+});
+
+test.todo(
+  "sfd-171-221 Renata Glasc, Industrialist: a create-token action must become a matchable event " +
+    "(or the creation action must accept an entry-orientation override) so 'Your tokens enter ready' " +
+    "can replace the default exhausted entry instead of readying afterwards — RIFT-260 follow-up"
 );

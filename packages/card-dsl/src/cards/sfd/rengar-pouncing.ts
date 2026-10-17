@@ -21,15 +21,26 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   没有 permission 字段）。该静态效果的消费方（Finalize 的打出位置校验）尚未接线，
  *   且「你正在攻击的战场」需要攻击者与战场的关联谓词。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - [Reaction] 的展开（effects/keywords/Reaction.ts）只作为 continuous.timing 被图层
- *   记录，chain 的 canAct()（契约 3.5 的唯一时机许可查询）不读取图层许可；
- * - [Assault 2] 的 KeywordDef 已合入，但没有消费方把卡牌程序的 keyword 能力展开并
- *   注册进图层，图层也不读取 Attacker designation（ObjectSnapshot 无 combatRole/
- *   designation，契约 3.8 只冻结了字段设计）；
- * - 打出位置许可需要 static 消费方（Finalize 位置校验）与「正在攻击的战场」谓词。
- * 依赖：RIFT-81/85/91（关键词展开与图层消费）、链时机许可与 Finalize 位置校验接线、
- * 攻击者-战场谓词。不近似实现（不把许可写成 restriction，也不手改打出位置）。
+ * status 判定（cards/README.md 第 2 节）：judge-required。RIFT-257 已提供关键词展开
+ * （programs/keywords.ts expandProgram 调 KeywordDef.expand）与速度推导（abilitySpeed），
+ * 但三个缺口都还在：
+ * - [Reaction]：展开仍是 continuous.timing 静态能力，没有消费方把它注册进图层，
+ *   chain.canAct()（契约 3.5 的唯一时机许可查询）只做真值表
+ *   （layers/rules/query.ts canAct 需要调用方显式传 registry；chain/engine.ts 的 canAct
+ *   不读任何图层许可），因此 closed-state 打出许可不生效；
+ * - [Assault 2]：KeywordDef 与 Assault 展开已合入（RIFT-81），但 (a) 卡牌 keyword 能力要
+ *   经 expandProgram 展开后才成为 static continuous.might，而生产路径没有把 
+ *   CardProgram 展开结果注册进图层的消费方（static 绑定仍是 ProgramStaticBinder 回调，
+ *   programs statics.ts 默认 noop）；(b) 展开的 condition 是
+ *   compare(object-property(self, "designation") eq "attacker")，而 ObjectSnapshot 只有
+ *   combatRole（契约 3.8）没有 designation 字段，layers/engine.ts 的 conditionMatches
+ *   也不求值 compare（未知 kind 一律返回 true）——直接注册会无条件 +2 Might；
+ * - 打出位置许可需要 static 消费方（Finalize 位置校验）与「你正在攻击的战场」谓词，
+ *   现有 programs/filters.ts translateObjectFilter 会以 judge-required 拒绝 
+ *   battlefield/attacking 这类字段。
+ * 依赖：RIFT-81/85/91（关键词展开→图层注册消费）、链时机许可与 Finalize 位置校验接线、
+ * 攻击者-战场谓词（designation/combatRole 落地）。不近似实现（不把许可写成 restriction，
+ * 也不手改打出位置）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "reaction" },
@@ -56,14 +67,19 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "[Reaction]（813.1）与 [Assault 2]（807.1.b/.c）的关键词展开文件虽已合入（effects/keywords/Reaction.ts、Assault.ts），" +
-    "但没有运行时消费方把卡牌程序的 keyword 能力展开并注册进图层：chain.canAct()（契约 3.5 的唯一时机许可查询）不读取 continuous.timing，" +
-    "layers（RIFT-91）也不读取 Attacker designation（ObjectSnapshot 无 combatRole/designation，契约 3.8 只冻结了字段设计），" +
-    "因此 [Assault 2] 的 +2 Might 与 [Reaction] 的任意时机打出都不可执行；" +
-    "「I can be played to a battlefield you're attacking」是 static 打出位置许可（349、355.17.b），其 static 消费方" +
-    "（Finalize 位置校验）尚未接线，且「你正在攻击的战场」需要攻击者-战场关联谓词。" +
-    "依赖：RIFT-81（kw-assault-shield）、RIFT-85（kw-reaction 等时机关键词）、RIFT-91（layers-continuous）、" +
-    "链时机许可与 Finalize 位置校验接线。不近似实现（不把手牌许可写成 restriction，也不手改打出位置）。",
+    "[Reaction]（813.1）与 [Assault 2]（807.1.b/.c）的关键词展开都已合入，RIFT-257 的 programs/keywords.ts " +
+    "expandProgram/abilitySpeed 也提供了从卡牌 keyword 到展开结果的路径，但仍无可执行消费方：" +
+    "(1) [Reaction] 展开为 continuous.timing 静态能力，layers/rules 的 canAct() 需要调用方显式传入注册表，" +
+    "chain.canAct()（契约 3.5 的唯一时机许可查询）不读图层许可，closed-state 打出许可不生效；" +
+    "(2) [Assault 2] 展开为 static continuous.might + condition，但卡牌展开结果的图层注册消费方仍是 " +
+    "ProgramStaticBinder 回调（programs/statics.ts 默认 noop，生产路径无调用者），且展开条件读 " +
+    "object-property(self, \"designation\")（对象快照只有契约 3.8 的 combatRole），layers/engine.ts 的 conditionMatches " +
+    "不求值 compare（未知 kind 返回 true），直接注册会无条件 +2 Might；" +
+    "(3)「I can be played to a battlefield you're attacking」是 static 打出位置许可（349、355.17.b），" +
+    "Finalize 位置校验的 static 消费方尚未接线，且「你正在攻击的战场」需要攻击者-战场关联谓词" +
+    "（programs/filters.ts 对 battlefield/attacking 字段以 judge-required 拒绝）。" +
+    "依赖：RIFT-81/85/91（关键词展开→图层注册消费）、链时机许可与 Finalize 位置校验接线、攻击者-战场谓词。" +
+    "不近似实现（不把手牌许可写成 restriction，也不手改打出位置）。",
   abilities,
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve, including to a battlefield you control.)\n" +

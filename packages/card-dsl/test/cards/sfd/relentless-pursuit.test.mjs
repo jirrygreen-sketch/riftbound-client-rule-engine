@@ -25,7 +25,12 @@ test("Relentless Pursuit program is valid EffectIR v2 data and judge-required", 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /355\.4/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  // The current gaps: no legal-destination provider, no object-relative
+  // controller anchor, and no merged whole-ability grant.
+  assert.match(program.judgeReason, /target\.location/);
+  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /ProgramStaticBinder/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-91 layers-continuous 未实现/);
   assert.match(program.sourceText, /Move a friendly unit\./);
   assert.match(program.sourceText, /You may attach an Equipment with the same controller to it\./);
   assert.match(program.sourceText, /When I conquer, you may move me to my base\./);

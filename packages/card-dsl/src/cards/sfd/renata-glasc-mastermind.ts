@@ -28,17 +28,23 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status 判定（cards/README.md 第 2 节）：judge-required。
  * - 两条能力的费用与效果都已用已合入形状写全（费用计划由 cost/ 消费、effect.draw 与
  *   effect.score 都是已注册原语），但「Use my abilities only while I'm at a battlefield」
- *   这条启动条件没有可执行路径，两处缺口：
- *   1. 语义不可判定："I'm at a battlefield" 需要判断来源当前 Location 的类型是 battlefield
- *      （107.1.b / 198.1）。冻结 Condition 的 compare 不能嵌套读取 location.type，
- *      object-property(source, "location") 返回的是 Location 对象本身（恒为真值），
- *      写死某个战场 id 不是卡面语义（sfd/peak-guardian 记录同一缺口）。
- *   2. 没有消费者：契约 3.1 的 activated.restriction 是纯数据，链侧只校验 ChainDraft 的
- *      restrictions（chain/engine.ts Finalize），而已合入代码里没有任何 CardProgram →
- *      ChainDraft 的适配器把卡上的 restriction 接进去（describePlay 尚未实现）。
+ *   这条启动条件仍没有可执行路径：
+ *   1. 位置类型谓词仍不可表达："I'm at a battlefield" 需要判断来源当前 Location 的类型是
+ *      battlefield（107.1.b / 198.1）。冻结 Condition 的 compare 只能做既有两个 Expr 的比较，
+ *      object-property(source, "location") 返回的是 Location 对象本身（比较结果不代表
+ *      location.type），而 ObjectFilter 的 location/locationType 字段由原语自己消费、
+ *      不是 Condition 词表的一部分（sfd/peak-guardian 记录同一缺口）。
+ *   2. 生产绑定不再把 restriction 当纯数据：RIFT-257 的 programs/play.ts
+ *      translateRestriction 已把 CardProgram 的 restriction 译成 ChainDraft.restrictions，
+ *      chain/engine.ts Finalize 会对它求值（实测：Condition 形状的 restriction 会原样进入
+ *      ChainDraft 并在 Finalize 被断言）。但本卡的 kind "use-only-while-at-battlefield"
+ *      不是 Condition 词表成员，translateRestriction 会以 judge-required 拒绝
+ *      （"restriction … kind use-only-while-at-battlefield needs a rules adapter"），
+ *      因为缺少消费方：layers/rules 的 canAct() 是纯真值表，chain.canAct() 也不读图层许可。
  * - 因此整卡不宣称 executable；不把该条件改写成 body 里的恒真 condition，也不把两条能力
  *   合并成一条，golden 只对已支持的费用与效果做真实执行。
- * 依赖：位置类型谓词与激活限制的消费方（RIFT-90/RIFT-120 后续）。
+ * 依赖：位置类型谓词（Condition 词表扩展）与启动许可消费方（layers/rules 的 timing grant
+ * 与 by-kind restriction 消费；RIFT-257/258 后仍缺）。
  */
 const abilities: Ability[] = [
   {
@@ -98,13 +104,18 @@ const program = {
   judgeReason:
     "两条启动能力的费用与效果都已写全（1 Energy + 1 Mind Power → effect.draw；4 Energy + 4 Mind Power + " +
     "横置 → effect.score，404.1.a / 415.5 / 414.3 / 194.1.c），但「Use my abilities only while I'm at a battlefield」" +
-    "（377.2.b 的启动许可条件，原文范例即 Ultrasoft Poro 同句）没有可执行路径：(1) 语义不可判定——" +
-    "判断来源当前 Location 类型是 battlefield（107.1.b/198.1）需要位置类型谓词，冻结 Condition 的 compare " +
-    "无法嵌套读取 location.type，object-property(source, \"location\") 返回 Location 对象本身（恒为真值），" +
-    "写死战场 id 不是卡面语义（sfd/peak-guardian 记录同一缺口）；(2) 没有消费者——activated.restriction 是纯数据，" +
-    "链侧只校验 ChainDraft 的 restrictions，而已合入代码没有 CardProgram → ChainDraft 的适配器把它接进去" +
-    "（describePlay 未实现，RIFT-120 后续）。不把该条件改写成 body 里的恒真 condition，也不合并两条能力。" +
-    "依赖：位置类型谓词与激活限制消费方（RIFT-90/RIFT-120）。",
+    "（377.2.b 的启动许可条件，原文范例即 Ultrasoft Poro 同句）仍没有可执行路径：" +
+    "(1) 位置类型谓词不可表达——判断来源当前 Location 类型是 battlefield（107.1.b/198.1）需要 Condition 能读 " +
+    "location.type，冻结 Condition 的 compare 只能比较既有两个 Expr（object-property(source, \"location\") 返回 " +
+    "Location 对象本身），而 ObjectFilter 的 location/locationType 由原语自己消费、不属于 Condition 词表" +
+    "（sfd/peak-guardian 记录同一缺口）；" +
+    "(2) 生产绑定已存在但只接 Condition——RIFT-257 的 programs/play.ts translateRestriction 会把 CardProgram 的 " +
+    "restriction 译进 ChainDraft.restrictions 并由 chain/engine.ts Finalize 求值，但 kind " +
+    "\"use-only-while-at-battlefield\" 不是 Condition 词表成员，translateRestriction 以 judge-required 拒绝" +
+    "（\"restriction … kind use-only-while-at-battlefield needs a rules adapter\"）；启动许可也没有消费方：" +
+    "layers/rules 的 canAct() 是纯真值表，chain.canAct() 不读图层许可。" +
+    "不把该条件改写成 body 里的恒真 condition，也不合并两条能力。" +
+    "依赖：位置类型谓词（Condition 词表扩展）与启动许可/按 kind 的 restriction 消费方（RIFT-257/258 后仍缺）。",
   abilities,
   sourceText:
     ":rb_energy_1::rb_rune_mind:: Draw 1.\n" +

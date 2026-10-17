@@ -5,6 +5,8 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/sandshifter.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/index.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL = "card.hash-6c5e86a11835553c21b709846a47353de46fcea93be21041ecaf6f4a50b1ecd7";
 const [ability] = program.abilities;
@@ -18,6 +20,9 @@ test("sfd-158-221 Sandshifter: program validates and keeps its identity", () => 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /mightLte/);
   assert.match(program.judgeReason, /355\.9\.b/);
+  assert.match(program.judgeReason, /143\.2\.a/);
+  assert.match(program.judgeReason, /characteristics/);
+  assert.match(program.judgeReason, /translateObjectFilter|programs\/filters\.ts/);
   assert.equal(
     program.sourceText,
     "When you play me, kill an enemy unit with 3 :rb_might: or less."
@@ -88,3 +93,36 @@ test.todo(
   "sfd-158-221 Sandshifter: enforce the '3 :rb_might: or less' target ceiling at Finalize/Resolve " +
     "(355.9.b / 143.2.a effective-Might predicate) once a Might filter predicate is merged (RIFT-81~91)"
 );
+
+test("sfd-158-221 Sandshifter: the merged filter vocabulary is equality-only, so a Might ceiling needs a new predicate", () => {
+  // Evidence for the judgeReason: the merged layer filter expresses a Might
+  // characteristic only by equality (characteristics: { might: N }), which
+  // selects exactly the units whose Might is N. "3 or less" therefore has no
+  // spelling in the current predicate vocabulary, and the card's own
+  // descriptive mightLte key is outside it.
+  const kernel = world()
+    .unit("weak-enemy", { owner: "B", controller: "B", might: 2 })
+    .unit("exactly-three", { owner: "B", controller: "B", might: 3 })
+    .unit("strong-enemy", { owner: "B", controller: "B", might: 6 })
+    .build();
+  const objects = kernel.objects;
+
+  assert.deepEqual(
+    objects
+      .filter((object) => matchesObjectFilter({ type: "unit", characteristics: { might: 2 } }, object))
+      .map((object) => object.ref.id),
+    ["weak-enemy"]
+  );
+  assert.deepEqual(
+    objects
+      .filter((object) => matchesObjectFilter({ type: "unit", characteristics: { might: 3 } }, object))
+      .map((object) => object.ref.id),
+    ["exactly-three"]
+  );
+
+  // The production translator round-trips exactly the fields the engine knows.
+  assert.deepEqual(
+    translateObjectFilter({ type: "unit", zone: "board", controller: "opponent" }),
+    { type: "unit", zone: "board", controller: "opponent" }
+  );
+});
