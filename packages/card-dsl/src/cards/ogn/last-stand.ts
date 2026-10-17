@@ -30,19 +30,18 @@ import type { CardProgram } from "../../ir/index.js";
  * paths, but the granted keyword has no runtime consumer yet:
  * - "Double a friendly unit's Might this turn" is captured as the target's
  *   current Might with the merged condition.value value node and added back
- *   through the merged continuous.might instruction (RIFT-258) with the
+ *   through the continuous.might instruction with the
  *   this-turn duration; the arithmetic layer and end-of-turn expiry evaluate
  *   the result. The golden test drives the card's own body through the
  *   production chain adapter and asserts the real registration, the doubled
  *   effective Might, expiry and the lost-target edge.
- * - "Give it [Temporary]" uses the merged continuous.grant-keyword instruction
- *   (RIFT-258) with the merged Temporary KeywordDef (RIFT-265); the ability
- *   layer really carries the Temporary keyword, but nothing binds a card's
- *   keyword expansion into the trigger pipeline (RIFT-257), so 816.1.b's
- *   "kill this at the start of your Beginning Phase" trigger never fires. The
- *   grant is not dropped or faked into a direct kill.
- * - [Action] (806) is declared as a keyword ability only; the keyword registry
- *   owns its expansion, but chain ownership of Action admissions is unchanged.
+ * - "Give it [Temporary]" uses continuous.grant-keyword. The ability layer
+ *   carries the Temporary keyword, but a dynamically granted keyword is not
+ *   re-expanded into a trigger registration, so 816.1.b's "kill this at the
+ *   start of your Beginning Phase" trigger never fires. The grant is not
+ *   dropped or faked into a direct kill.
+ * - [Action] (806) is declared as a keyword ability and its showdown timing
+ *   grant is consumed by the chain timing query.
  */
 const lastStand = {
   canonicalCardId: "card.hash-cfe83e821b0faa83120c2096c34d250fad91786b0aba091191591e6936237f0a",
@@ -50,11 +49,12 @@ const lastStand = {
   status: "judge-required",
   judgeReason:
     "「Double a friendly unit's Might this turn」（CR 433.1 的 Doubling）已可执行：condition.value 捕获目标当前 Might" +
-    "（433.1/433.1.a）后由 continuous.might 以 add + this-turn 期限注册（RIFT-258），golden 用生产链适配器执行并断言翻倍、" +
-    "end-of-turn 到期与目标丢失边界。整卡仍不可执行：「Give it [Temporary]」的 continuous.grant-keyword（RIFT-258）" +
-    "已能把 Temporary 写进 ability 层，且 Temporary 的 KeywordDef（RIFT-265）已合入，但没有把卡牌关键词展开绑定进触发管线的消费方" +
-    "（RIFT-257），816.1.b「在控制者 Beginning Phase 开始时消灭它」的触发不会运行；[Action]（806）同样只有声明与展开、" +
-    "chain 的 timing 许可接线未变。依赖：RIFT-257（关键词展开→触发绑定）。不近似实现：不把 [Temporary] 省略，也不写成直接消灭。",
+    "（433.1/433.1.a）后由 continuous.might 以 add + this-turn 期限注册，golden 用生产链适配器执行并断言翻倍、" +
+    "end-of-turn 到期与目标丢失边界。整卡仍不可执行：「Give it [Temporary]」的 continuous.grant-keyword" +
+    "已能把 Temporary 写进 ability 层，但动态授予的关键词不会重新注册其 beginning-start 触发，且该时点仍不在" +
+    "EVENT_PATTERN_TYPES 闭集内；816.1.b「在控制者 Beginning Phase 开始时消灭它」不会运行。[Action]（806）的" +
+    "showdown timing grant 已由 chain 查询消费。依赖：动态关键词授予后的触发注册与 beginning-start 事件绑定。" +
+    "不近似实现：不把 [Temporary] 省略，也不写成直接消灭。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
@@ -103,8 +103,8 @@ const lastStand = {
           // "Give it [Temporary]" — the same unit, so this instruction is
           // linked to the target choice (359.3.e.14); a lost target ignores the
           // whole clause. The grant registers the merged Temporary keyword
-          // (CR 816, RIFT-265) into the ability layer through the merged
-          // continuous.grant-keyword instruction (RIFT-258).
+          // (CR 816) into the ability layer through the merged
+          // continuous.grant-keyword instruction.
           id: "last-stand.give-temporary",
           op: "continuous.grant-keyword",
           linkedTo: "last-stand.capture-might",

@@ -13,7 +13,7 @@ test("ogn-070-298: identity, exact source text, pure data and explicit blocked s
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous.restrict|Finalize/);
-  assert.match(program.judgeReason, /RIFT-/);
+  assert.match(program.judgeReason, /动态读取|相对 opponent|ready cause/);
   assert.equal(program.sourceText, "While I'm at a battlefield, opponents can only play units to their base.\nWhile I'm at a battlefield, spells and abilities can't ready enemy units and gear.");
   assert.deepEqual(JSON.parse(JSON.stringify(program)), program);
 });
@@ -37,5 +37,5 @@ test("Mageseeker Warden: only spell/ability ready actions on enemy units OR gear
   assert.equal(program.abilities[1].effect.causes.includes("awaken"), false);
 });
 
-test.todo("Mageseeker Warden: deny enemy battlefield unit plays at Finalize, allow their base and end restriction after Warden leaves (CR 355.17.b; continuous.restrict consumer RIFT-91/120)");
-test.todo("Mageseeker Warden: forbid spell/ability ready of enemy units/gear while preserving Awaken and friendly ready actions (continuous.restrict action-cause binding RIFT-91/120)");
+test.todo("Mageseeker Warden: deny enemy battlefield unit plays at Finalize, allow their base and end restriction after Warden leaves (CR 355.17.b; dynamic battlefield and relative-player binding)");
+test.todo("Mageseeker Warden: forbid spell/ability ready of enemy units/gear while preserving Awaken and friendly ready actions (continuous.restrict action-cause binding)");

@@ -13,7 +13,7 @@ test("ogn-079-298: identity, exact source text, pure data and explicit blocked s
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /replacement.enter|Victory Score/);
-  assert.match(program.judgeReason, /RIFT-/);
+  assert.match(program.judgeReason, /players\/scoreAtLeast|dynamic static/);
   assert.equal(program.sourceText, "If an opponent's score is within 3 points of the Victory Score, I enter ready.\nStunned enemy units here have -8 :rb_might:, to a minimum of 1 :rb_might:.");
   assert.deepEqual(JSON.parse(JSON.stringify(program)), program);
 });
@@ -38,5 +38,5 @@ test("Leona: permanent -8 Might applies only to stunned enemies here with printe
   assert.equal(aura.effect.duration, undefined);
 });
 
-test.todo("Leona: entry replacement evaluates any opponent against current Victory Score at distances 3/4, including non-eight modes; never emit ready-after-entry (RIFT-1/91/120)");
-test.todo("Leona: real continuous aura at Might 1/8/9/10; preserve friendly/unstunned/other-location units and expire applicability as state changes (RIFT-91 layer filter/minimum bridge)");
+test.todo("Leona: entry replacement evaluates any opponent against current Victory Score at distances 3/4, including non-eight modes; never emit ready-after-entry");
+test.todo("Leona: real continuous aura at Might 1/8/9/10; preserve friendly/unstunned/other-location units and expire applicability as state changes");

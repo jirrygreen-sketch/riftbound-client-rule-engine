@@ -12,7 +12,10 @@ const program = {
   canonicalCardId: "card.hash-da797609bf7c16ecdf7c10aed579c7d786c25395e580819421a8f380186df025",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason: "缺 replacement.enter 原语与读取各对手分数及当前 Victory Score 的玩家谓词（CR 194.3.a / 359.2.c）；不能把入场就绪模拟为事后 effect.ready。持续 -8 Might 的 stunned/enemy/here 过滤及 minimum:1 钳制尚无 CardProgram 到图层的接线（CR 478）。依赖 RIFT-1/91/120 的玩家查询、入场替代与持续效果接线；不固定 Victory Score 为 8。",
+  judgeReason: "replacement.enter 已有绑定路径，但该替代的 condition 仍依赖读取各对手分数及当前 Victory Score 的玩家谓词（CR 194.3.a / 359.2.c），" +
+    "当前 evaluateCondition 无 players/scoreAtLeast/victory-score 求值，不能把入场就绪模拟为无条件 effect.ready。" +
+    "持续 -8 Might 的 stunned/enemy/here 过滤及 minimum:1 钳制也无法从 CardProgram 静态绑定到图层（CR 478）：" +
+    "静态 binder 不支持 relative opponent 与 same-location 动态对象过滤。依赖：玩家分数谓词与动态静态过滤绑定；不固定 Victory Score 为 8。",
   abilities: [
     {
       kind: "replacement",

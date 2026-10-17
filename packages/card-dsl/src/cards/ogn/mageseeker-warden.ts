@@ -11,7 +11,10 @@ const program = {
   canonicalCardId: "card.hash-b2b0dc0db7b4646ebf76c4865cc10fb826a643400e758e6396dfeca70062a616",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason: "缺 continuous.restrict 对 Finalize 打出地点及 ready 动作来源的消费路径（CR 355.17.b / 416）：当前图层不能将该限制接入打出和重置，必须区分 spells/abilities 与 Awaken 的常规重置。依赖 RIFT-91/120 的持续限制与事件/链接线；不替换成入场触发或笼统禁止一切重置。",
+  judgeReason: "continuous.restrict 原语和 ruleRestrictions 查询已合入，但本卡的静态 binder 仍不能消费其形状：" +
+    "condition 需要动态读取 self 是否在 battlefield，第一条限制需要相对 opponent 与 acting-player-base，" +
+    "第二条还需要将 causes=spell/ability 传入 ready 动作的限制查询。当前 staticFilter 与规则查询没有这些字段的完整绑定路径" +
+    "（CR 355.17.b / 416）。依赖：动态 battlefield 条件、相对玩家目标与 ready cause 过滤；不替换成入场触发或笼统禁止一切重置。",
   abilities: [
     {
       kind: "static",

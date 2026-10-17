@@ -19,12 +19,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   字段，没有许可字段，故按同类先例（sfd/dauntless-vanguard.ts 的
  *   `play-location-permission` 静态效果）表达两条能力，由 layers/Finalize 消费。
  *
- * status 判定（README 第 2 节）：judge-required。RIFT-259 已合入 `continuous.location`
- * 指令与 layers/rules 的 `playLocations` 查询，但两条许可仍没有执行路径：没有任何消费者
- * 调用 `playLocations` —— Finalize 的合法位置校验（chain/engine.ts 只校验
- * requirements/restrictions 与锁定目标）不读图层许可，170.11.a/b/c 的 "open battlefield"
- * 判定没有接线；也没有已合入路径把 CardProgram 的 static 能力绑定进图层（RIFT-257 的
- * 程序绑定）。本卡没有任何可执行原语，因此没有执行类 golden 用例。
+ * status 判定（README 第 2 节）：judge-required。`continuous.location` 与
+ * `playLocations` 已有生产查询，CardProgram static 也已有绑定入口，但本卡的声明值仍是
+ * `play-location-permission`，不是 `continuous.location` 的可消费 effect 形状；因此 binder
+ * 会把它判为 judge-required，且 Finalize 无法从该值推导 170.11.a/b/c 的 open battlefield。
  */
 const abilities: Ability[] = [
   {
@@ -66,14 +64,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两条能力都是“打出位置许可”的静态持续效果（355.2.b / 170.11.c），但仍无消费方：" +
-    "(1) RIFT-259 已合入 continuous.location 指令与 layers/rules 的 playLocations 查询，" +
-    "但没有任何调用方——Finalize 的合法打出位置校验（chain/engine.ts 只校验 " +
-    "requirements/restrictions 与锁定目标）不读图层许可，170.11.a/b/c 的 open battlefield" +
-    "（unoccupied 且 uncontrolled）判定没有接线；" +
-    "(2) 没有已合入路径把 CardProgram 的 static 能力注册进图层（RIFT-257 的程序绑定），" +
-    "play-location-permission 只是等待消费者与绑定的声明数据。" +
-    "本卡不含可执行原语，golden 测试只做校验与结构断言；不近似实现。",
+    "两条能力都是“打出位置许可”的静态持续效果（355.2.b / 170.11.c），但声明使用的 " +
+    "play-location-permission effect kind 没有 continuous.location binder 的消费形状；" +
+    "因此当前 static binding 会将它保留为 judge-required，Finalize 也无法从该值推导 " +
+    "open battlefield（unoccupied 且 uncontrolled）。不近似实现。",
   abilities,
   sourceText:
     "You may play me to an open battlefield.\nFriendly units may be played to open battlefields."
