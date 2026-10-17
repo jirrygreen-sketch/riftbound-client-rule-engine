@@ -23,8 +23,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   self/opponent/具体 PlayerId（layers/filter.ts、chain/engine.ts 的归一化），
  *   把 “or allies” 省略成 controller: "controller" 会在队友模式少抽牌，属近似实现。
  * - “Battlefield” 在合并对象空间里也没有稳定的类型读数：契约 ObjectFilter 的 type 词表与
- *   参考内核按对象特征过滤，战场对象的表示（engine-core/src/duel/battlefields.ts 的
- *   controllerPlayerId）不是经 ResolveContext 暴露的 ObjectSnapshot 类型。二者都缺，整卡保持
+ *   参考内核按对象特征过滤（测试内核的 matchesQueryFilter 支持 types: ["battlefield"]），
+ *   但生产 ResolveContext 暴露的合并对象空间不含战场对象（engine-core/src/duel/battlefields.ts
+ *   的 controllerPlayerId 状态不进入 host.objects()）。二者都缺，整卡保持
  *   judge-required；golden 用真实原语分别执行 “draw 1” 与 “按计数抽 N” 的形状。
  */
 const rightOfConquest = {
@@ -36,8 +37,8 @@ const rightOfConquest = {
     "ResolveContext 只暴露 controller 与 player(id)，没有任何“控制者是我或我的盟友”的选择符或谓词，" +
     "ObjectFilter 的 controller 词表只有 self/opponent/具体 PlayerId（layers/filter.ts 与 chain/engine.ts 的归一化），" +
     "省略 allies 会在队友模式少抽牌（CR 491.8.e 明确 Friendly 含 Teammate 控制的物件），属禁止的近似实现；" +
-    "(2) 战场控制关系（CR 190.2 / 190.4 / 190.4.a）未经 ResolveContext 以 ObjectSnapshot 类型暴露，" +
-    "合并对象空间里战场由 duel/battlefields.ts 的 controllerPlayerId 维护，没有卡牌可用的 type: \"battlefield\" 读数。" +
+    "(2) 战场控制关系（CR 190.2 / 190.4 / 190.4.a）未经 ResolveContext 暴露：合并对象空间里战场由 " +
+    "duel/battlefields.ts 的 controllerPlayerId 维护，不进入 host.objects()，没有卡牌可用的 type: \"battlefield\" 读数。" +
     "两条 effect.draw（414.1/414.3）本身已合入，golden 分别执行 “draw 1” 与按计数抽 N 的形状；不近似实现上述两个读数。",
   abilities: [
     {

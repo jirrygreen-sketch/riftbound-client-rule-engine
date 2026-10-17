@@ -27,6 +27,9 @@ test("unl-015-219 Right of Conquest: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /491\.8\.e/);
   assert.match(program.judgeReason, /allies/);
   assert.match(program.judgeReason, /190\.4/);
+  // Second-sweep refresh proof: name the merged-object-space fact, that
+  // battlefield state never reaches host.objects().
+  assert.match(program.judgeReason, /host\.objects/);
 });
 
 test("unl-015-219 Right of Conquest: two independent draws, the second counted per controlled battlefield", () => {

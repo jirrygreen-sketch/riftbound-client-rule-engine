@@ -38,8 +38,8 @@ test("unl-179-219 Rift Herald: identity, status, judgeReason and verbatim source
   assert.match(program.judgeReason, /trigger\.leave/);
   assert.match(program.judgeReason, /356\.1\.b\.2/);
   assert.match(program.judgeReason, /LITERAL_FIELDS/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /cost\.pay/);
+  assert.match(program.judgeReason, /RIFT-82/);
 });
 
 test("unl-179-219 Rift Herald: 'When I move to a battlefield' subscribes to object-moved with a battlefield destination", () => {
@@ -197,8 +197,10 @@ test.todo(
 );
 test.todo(
   "unl-179-219 Rift Herald: generate the finalized zero-Energy / printed-Power cost plan for the chosen hand card (356.1.b.2) — " +
-    "cost.printed / cost.pay and the CardProgram -> CostPlan wiring are unmerged (RIFT-89)"
+    "cost.printed / cost.pay primitives are merged (cost.pay settles an already finalized " +
+    "CostPlan), but no producer builds or submits the finalized zero-Energy plan for the chosen hand card"
 );
 test.todo(
-  "unl-179-219 Rift Herald: [Deathknell] expansion (808.1.d.1-.3) and CardProgram trigger registration (RIFT-82, RIFT-120)"
+  "unl-179-219 Rift Herald: [Deathknell] KeywordDef expansion and its trigger.leave instruction must be " +
+    "registered and connected to the object-killed chain path (CR 808.1.d.1-.3 / RIFT-82)"
 );

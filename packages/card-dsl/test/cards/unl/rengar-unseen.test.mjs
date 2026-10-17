@@ -62,6 +62,9 @@ test("unl-024-219 Rengar, Unseen: identity, status, judgeReason and verbatim sou
   assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /RIFT-258/);
   assert.match(program.judgeReason, /combatRole/);
+  // Second-sweep refresh proof: the merged target-plan Deflect-tax scaffolding
+  // is named instead of claiming target.tax has no merged consumer.
+  assert.match(program.judgeReason, /target-plan/);
   assert.doesNotMatch(program.judgeReason, /尚未进入实际 ObjectSnapshot/);
 });
 

@@ -41,6 +41,9 @@ test("unl-106-219 Repulse: identity, status, judgeReason and verbatim sourceText
   // README section 2: name the missing predicate, the rule entry and the task.
   assert.match(program.judgeReason, /355\.9\.b/);
   assert.match(program.judgeReason, /RIFT-90/);
+  // Second-sweep refresh proof: RIFT-90 target planning is merged; the reason
+  // names only the missing locked-target-set predicate.
+  assert.match(program.judgeReason, /已合入/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
