@@ -38,8 +38,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （chain/engine.ts assertFinalizationSurface 目前阻断 choice.mode 的卡牌 body），
  *   解释器 + 参考内核可执行该结构（golden 提供答案）。
  * 模式二与 choice.mode 结构已由 golden 真实执行；模式一按描述性 owner 写出。
- * 依赖：effect.recycle 的多所有者区域形式与 up-to 选择（RIFT-9 / RIFT-66 后续）、
- * 链的模式选择适配器（chain/engine.ts 的 Finalize 选择计划）。
+ * 依赖：effect.recycle 的多所有者区域形式与 up-to 选择、链的模式选择适配器
+ * （chain/engine.ts 的 Finalize 选择计划）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "reaction" },

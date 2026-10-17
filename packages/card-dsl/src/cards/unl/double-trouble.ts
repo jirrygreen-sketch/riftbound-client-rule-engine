@@ -10,9 +10,9 @@ import type { CardProgram } from "../../ir/index.js";
  *    among them and draw it. Recycle the rest."
  *
  * 规则依据（CR v1.5）：
- * - [Repeat]（820.1/820.1.c.1）：印刷费用 2 能量是打出时支付的追加费用，按契约 3.1
- *   声明在 play 的 CostSpec 上，并带显式的 pay/decline 选择（与已合入的
- *   sfd/frigid-touch 同一形状）。支付后 820.1.d.1 让本牌的效果在结算时额外执行一次，
+ * - [Repeat]（820.1/820.1.c.1）：印刷费用 2 能量由 keyword: "repeat" 声明；KeywordAbility
+ *   当前只能承载 keyword/value，不能把印刷费用参数挂在关键词节点上。打出本体的 2 能量
+ *   基础费用由 play 的 cost.printed 声明。支付后 820.1.d.1 让本牌的效果在结算时额外执行一次，
  *   820.2/820.2.a 要求重新做选择；这部分由 Repeat 关键词展开与结算接线承担
  *   （effects/keywords/Repeat.ts 只声明 repeat.cost 静态效果）。卡内不手写重复执行。
  * - 「Look at the top 3 cards of your Main Deck」是私下查看（128.3-128.4 look），必须按
@@ -32,8 +32,9 @@ import type { CardProgram } from "../../ir/index.js";
  *    上游提供有序 picksSpecId（其文件头明确 query 不保证区域顺序、缺有序来源时
  *    negated/impossible）；已合入的链 Finalize 只锁定 instruction.targets 的 TargetSpec
  *    （chain/engine.ts assertFinalizationSurface），没有有序区域 pick 的锁定路径。
- * 2. [Repeat] 的追加费用收取与「已付费实例数 → 额外执行一次」接线未合入：Repeat.ts
- *    只声明 repeat.cost 静态效果，消费方（RIFT-89/91 的费用计划）与结算端计数读取缺失。
+ * 2. [Repeat] 的印刷费用参数、追加费用收取与「已付费实例数 → 额外执行一次」接线未合入：
+ *    Repeat.ts 只声明 repeat.cost 静态效果，KeywordAbility 没有承载 :rb_energy_2: 的字段，
+ *    消费方与结算端计数读取也缺失。
  * golden 借参考内核提供有序 picks 与选择答案，真实执行 inspect → optional(reveal →
  * zone to hand) → recycle 全链；Repeat 部分写 test.todo。
  */
@@ -45,20 +46,18 @@ const doubleTrouble = {
     "两处依赖未合入：(1)「Look at the top 3 cards of your Main Deck」需要按牌库真实顺序的有序 picks——" +
     "effect.inspect 的 top scope 必须由上游提供有序 picksSpecId（其文件头明确 query 不保证区域内顺序、缺有序来源时 negated/impossible），" +
     "已合入的链 Finalize 只锁定 instruction.targets 的 TargetSpec，没有有序区域 pick 的锁定路径（同 ogn/stacked-deck 的缺口）。(2) " +
-    "[Repeat] :rb_energy_2: 的追加费用收取与「已付费实例数 → 结算时额外执行一次」（CR 820.1.c.1/820.1.d.1/820.2）尚未接线：" +
-    "effects/keywords/Repeat.ts 只声明 repeat.cost 静态效果，费用计划消费方与结算端计数读取属 RIFT-89/91 批次。" +
+    "[Repeat] :rb_energy_2: 的印刷费用参数、追加费用收取与「已付费实例数 → 结算时额外执行一次」（CR 820.1.c.1/820.1.d.1/820.2）尚未接线：" +
+    "effects/keywords/Repeat.ts 只声明 repeat.cost 静态效果，KeywordAbility 没有承载该费用参数，费用计划消费方与结算端计数读取也缺失。" +
     "查看→可选 reveal→draw→recycle 四段只用已合入原语，golden 借参考内核提供有序 picks 与选择答案真实执行；不近似实现。" +
-    "依赖：有序区域 picks / Finalize 生命周期、RIFT-89/91（Repeat 费用与结算接线）。",
+    "依赖：有序区域 picks / Finalize 生命周期、Repeat 费用收取与 paid-instance 结算接线。",
   abilities: [
+    { kind: "keyword", keyword: "repeat" },
     {
       kind: "play",
-      // 印刷基础费用 2 能量由费用管线从 catalog 绑定（356.1.c）；这里显式声明的是
-      // [Repeat] 的追加费用 2 能量（820.1.c.1），与已合入 sfd/danger-zone 的写法一致。
-      // 该追加费用的收取与「已付费实例数 → 额外执行一次」的计数读取尚未接线
-      // （Repeat.ts 目前只声明 repeat.cost 静态效果），见 judgeReason 第 2 点。
+      // 印刷基础费用 2 能量由费用管线从 catalog 绑定（356.1.c）；KeywordAbility
+      // 当前没有字段承载 [Repeat] 的 :rb_energy_2: 参数，因此不把追加费用伪装成 play cost。
       cost: {
-        kind: "additional-cost",
-        keyword: "repeat",
+        kind: "cost.printed",
         energy: { kind: "constant", value: 2 }
       },
       body: [

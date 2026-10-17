@@ -58,7 +58,7 @@ test("unl-186-219 Death from Below: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /389/);
   assert.match(program.judgeReason, /356\.1\.a/);
   assert.match(program.judgeReason, /FinalizedCostPlan/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /Universal Power|rainbow/);
 });
 
 test("unl-186-219 Death from Below: one targeted battlefield kill plus a guarded, optional trash play", () => {
@@ -239,7 +239,7 @@ test.todo(
   "unl-186-219 Death from Below: resolve this as the card's current reference in Trash after it changed zones (CR 124 / 420.3; ObjectSelector has no self-in-zone form - engine batch 4 source/link references)"
 );
 test.todo(
-  "unl-186-219 Death from Below: charge the for-rainbow-rune replacement cost through a finalized cost plan (CR 356.1.a; effect.play requires a FinalizedCostPlan - RIFT-89)"
+  "unl-186-219 Death from Below: charge the for-rainbow-rune replacement cost through a finalized cost plan (CR 356.1.a; effect.play requires a FinalizedCostPlan and the current Power vocabulary has no Universal Power value)"
 );
 test.todo(
   "unl-186-219 Death from Below: decide the reflexive trigger's may during that trigger's finalization per CR 388.4 instead of an instruction-scoped choice.optional (may-scope ruling)"

@@ -30,22 +30,20 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *   位置与来源相同）；424.1 / 424.1.a：Stun 是效果型受限动作，effect.stun 已合入。
  *   括注 “(It doesn't deal combat damage this turn.)” 是 424.1.b 的提醒文本。
  *
- * status 判定（README 第 2 节）：judge-required —— 四处依赖未合入，均不近似实现：
- * 1. “I enter ready” 是入场替代（143.4 / 359.2.c / 369.3），replacement.enter 没有已合入的
- *    消费管线（events 的替代注册表没有 CardProgram → ReplacementRegistration 的路径），
- *    effect.ready 不能事后模拟。
+ * status 判定（README 第 2 节）：judge-required —— 三处当前依赖仍未闭合，均不近似实现：
+ * 1. “I enter ready” 的替代声明已经有 CardProgram → ReplacementRegistration 绑定路径，
+ *    但仍需由实际 play 生命周期提供完整的动态入场事件证据；effect.ready 不能事后模拟。
  * 2. 减费没有可执行入口：cost/ 的费用计划只在调用方显式传入 discounts 时应用减费
  *    （cost/cost-plan.ts 读 CostPlanInput.discounts），没有把 CardProgram 的 cost.modify 接进
  *    Finalize 的路径；且“按你的单位中 Bird/Cat/Dog/Poro 的去重标签数”需要跨对象并集计数谓词
  *    （同 Ivern 的判定），已合入的 ObjectFilter.tags 是同一对象上的 every 匹配。
- * 3. attack-declared 时点没有已合入发射方（combat 流程属引擎批 5 / RIFT-31/33/77），且卡牌
- *    触发未注册进 TriggerRegistration（引擎批 4 / RIFT-120）。
- * 4. 触发条件 “while your units have all 4 tags” 用的是同一并集谓词（见第 2 点）。
+ * 3. attack-declared 的 TriggerRegistration 与 effect.stun 本体已经有生产绑定路径，但目标
+ *    过滤中的 sameLocationAs 动态锚点仍不能由当前程序绑定器锁定；触发条件也依赖同一并集谓词。
  * 程序保留减费声明（cost.modify 与并集占位形状）、触发与 Stun 的目标过滤；golden 用解释器与
  * 参考内核真实执行 effect.stun 部分与条件探针。
  *
- * 依赖：RIFT-89/90（费用计划接线与跨对象谓词）、RIFT-120（入场替代 + 攻击时点 + 触发注册）、
- * 跨对象标签并集谓词（契约变更请求）。
+ * 依赖：静态 cost.modify 到 Finalize 费用计划的消费、跨对象标签并集谓词、以及动态
+ * sameLocationAs 目标锚点（契约变更请求）。
  */
 
 /**
@@ -138,18 +136,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处依赖未合入：(1)「I enter ready」是入场替代（143.4/359.2.c/369.3），但 replacement.enter " +
-    "没有已合入的消费管线——events 的替代注册表没有 CardProgram → ReplacementRegistration 的路径，" +
-    "effect.ready 不能事后模拟（会多产生一次\"成为就绪\"事件）。(2)「Reduce my cost by [1] for each of the " +
-    "following tags among your units」需要在 Finalize 应用减费，但 cost/cost-plan.ts 只在调用方显式传入 " +
-    "discounts 时生效，没有 CardProgram → CostPlan 的接线（RIFT-89），也没有 cost.modify 原语；" +
-    "且「你的单位中 Bird/Cat/Dog/Poro 的去重标签数」需要跨对象并集计数——已合入的 ObjectFilter.tags " +
-    "是同一对象上的 every 匹配，无法表达「每个标签分别被某个单位拥有」。(3) attack-declared 时点没有" +
-    "已合入发射方（combat 流程属引擎批 5 / RIFT-31/33/77），卡牌触发也未注册进 TriggerRegistration" +
-    "（引擎批 4 / RIFT-120）。(4) 触发条件「while your units have all 4 tags」使用同一并集谓词。" +
-    "程序保留减费的 count/subject 并集形状与 maximum 4、攻击触发与 Stun 的目标过滤（sameLocationAs 锚点）；" +
-    "golden 用解释器与参考内核真实执行 effect.stun 与条件探针，其余缺口写 test.todo。依赖：RIFT-89/90、" +
-    "RIFT-120、跨对象标签并集谓词（契约变更请求）。不近似实现。",
+    "三处当前缺口，均不近似实现：(1)「I enter ready」的替代声明已有绑定路径，但仍需实际 play " +
+    "生命周期提供动态入场事件证据，不能用事后 effect.ready 模拟（143.4/359.2.c/369.3）。(2)「Reduce my cost by [1] for each of the " +
+    "following tags among your units」虽已有 cost.modify 原语，静态 cost.modify 尚未接入 Finalize 费用计划，" +
+    "且「你的单位中 Bird/Cat/Dog/Poro 的去重标签数」需要跨对象并集计数——ObjectFilter.tags 仍是同一对象上的 every 匹配。" +
+    "(3) attack-declared 的触发注册与 effect.stun 本体已经合入，但 sameLocationAs 动态目标锚点仍不能由当前程序绑定器锁定，" +
+    "触发条件也依赖同一跨对象并集谓词。golden 用解释器与参考内核真实执行 effect.ready、effect.stun 与条件探针。不近似实现。",
   abilities,
   sourceText:
     "I enter ready.\n" +

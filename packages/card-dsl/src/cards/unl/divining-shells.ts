@@ -29,17 +29,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   明确临时 Might 归 continuous.might，绝不能用 Buff 计数器（702）近似。
  *
  * status = judge-required（缺口不近似实现）：
- * - 第二段的临时 Might 修正没有可执行路径：契约 3.6 的封闭 GameAction 集合没有
- *   Might 修改动作，effects/instructions/ 下也没有注册 continuous.might 原语
- *   （实测 runAbilityBody 对该 op 抛 "Unregistered instruction opcode: continuous.might"），
- *   "this turn" 的到期也没有接线（与 sfd/punch-first、sfd/undertitan、rad/elnuk-herd
- *   同一口径）。
- * - Vision 的展开（keywords/Vision.ts，817）已合入且其 body 可在参考内核真实执行，
- *   但卡牌的关键词能力尚未被解析到 KeywordDef 并接入 object-enters-board 触发
- *   （契约 3.5；当前只有 registry.generated.ts 与其测试消费关键词注册表）。
- * 已合入部分由 golden 真实执行：Vision 展开的 look + 可选 recycle（437.1）与启动费用的
- * 费用计划（kill this + [E]，415.4/415.5）。依赖：continuous.might 原语与 end-of-turn
- * 期限（RIFT-9 原语清单 / RIFT-91 后续）、契约 3.5 的关键词→触发接线；不近似实现。
+ * - continuous.might 原语、arithmetic layer 注册和 end-of-turn duration 已合入，启动 body
+ *   可以真实登记 +2 Might；不把它近似成 Buff 计数器。
+ * - Vision KeywordDef 与 object-enters-board 展开已合入，但生产装配仍需把 `object.id`/
+ *   `objectId` 主体过滤绑定到本卡、把展开期固定的 player "A" 注入真实控制者，并提供有序
+ *   top-card pick。缺少这些生命周期接线时，Vision 不能整卡标记 executable。
+ * 已合入部分由 golden 真实执行：Vision 展开的 look + 可选 recycle（437.1）、启动费用的
+ * 费用计划（kill this + [E]，415.4/415.5）与 Might 层效果。依赖：Vision 的生产触发、控制者
+ * 注入和有序牌库选择接线；不近似实现。
  */
 const abilities: Ability[] = [
   // 817.1：Vision 只声明关键词，展开（看牌 + 可选回收）归 keywords/Vision.ts。
@@ -89,15 +86,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「Give a unit +2 :rb_might: this turn」无可执行路径：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，" +
-    "effects/instructions/ 下也没有注册 continuous.might 原语（实测 runAbilityBody 抛 " +
-    "\"Unregistered instruction opcode: continuous.might\"），effect.buff 的文件头明确临时 Might 修正归 " +
-    "continuous.might、不能近似成 Buff 计数器（702）；「this turn」的到期（317.2.c）同样未接线" +
-    "（与 sfd/punch-first、sfd/undertitan、rad/elnuk-herd 同一口径）。另外 Vision（817）的展开 keywords/Vision.ts " +
-    "虽已合入且 body 可在参考内核真实执行，但卡牌关键词能力→object-enters-board 触发的接线（契约 3.5）仍未合入。" +
-    "已合入部分由 golden 真实执行：Vision 展开的 look + 可选 recycle（437.1）与 kill this + [E] 的费用计划" +
-    "（415.4/415.5）。依赖：continuous.might 原语与 end-of-turn 期限（RIFT-9 原语清单 / RIFT-91 后续）、" +
-    "契约 3.5 关键词→触发接线；不近似实现。",
+    "当前缺口集中在 Vision 的生产装配：Vision KeywordDef 与 object-enters-board 展开已合入，" +
+    "但 `object.id`/`objectId` 主体过滤尚需绑定到本卡，展开期固定 player \"A\" 尚需注入真实控制者，" +
+    "并且 top-card 必须由有序牌库 pick 提供。continuous.might、end-of-turn duration、Vision 的 look/recycle " +
+    "以及 kill this + [E] 费用计划均可执行；不把 Might 改写成 Buff，也不以无序 query 冒充牌库顶牌。",
   abilities,
   sourceText:
     "[Vision] (When you play this, look at the top card of your Main Deck. You may recycle it.)\n" +

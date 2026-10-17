@@ -29,27 +29,21 @@ import type { CardProgram } from "../../ir/index.js";
  *   控制者的 Beginning Phase 开始时、计分前消灭它」，多个实例冗余。
  *
  * status = judge-required（四处缺口，均不近似实现）：
- * - 触发能力的基础费用没有可执行路径：契约 3.1 的 TriggeredAbility 没有 cost 槽位，
- *   指令层也没有注册的 cost.pay / cost.discard 原语（engine-core instructions 注册表
- *   只有 effect.* 与解释器的控制/条件节点），RIFT-89 的费用计划未接通；本程序用未注册
- *   的 cost.pay 保留 204.3 / 423 的费用形状，不把「discard 1」近似成效果式
- *   effect.discard，也不把「exhaust me」近似成 effect.exhaust 的状态改变。
- * - 「play a ready Reflection unit token there」不可执行：effect.token 的 mode "play"
- *   需要链上创建 + 免费用打出交接（440.2.c / 185.2.a / 350.2 / 354），冻结的
- *   create-token 只支持直接创建到棋盘；「ready」入场改写（143.4 / 184.1）不被
- *   create-token 支持，先创建再补一次就绪会产生错误的「成为就绪」事件。
- * - 「It becomes a copy of another unit there」不可执行：effect.copy 的 mode "effect"
- *   被显式 blocked（copy-layer-traits-exceptions-and-attachment-duration-unavailable），
- *   复制图层（446.1-446.2）没有面向已存在对象的卡牌指令入口；「there」还需要触发事件
- *   载荷里的战场身份（conquer/hold 时点未声明 payloadFields）。
- * - 「Give it [Temporary]」不可执行：keywords/ 下没有 Temporary.ts（816 的展开缺失），
- *   continuous.grant-keyword 也没有注册原语与 layers 消费方（与已合入的
- *   rad/momentary-companion.ts 同一口径）。
- * 本卡没有可独立真实执行的已注册原语段，因此只做校验与结构测试，执行场景保留 test.todo。
+ * - `cost.pay` 与费用计划原语已经合入，但契约 3.1 的 TriggeredAbility 没有基础费用槽位，
+ *   也没有把触发能力里的 discard 选择和 self exhaustion 接进生产 Finalize；保留
+ *   cost.pay 形状不会把费用误写成两个效果。
+ * - Reflection token 的 mode "play" 创建与交接已经合入，但「ready」入场改写
+ *   （143.4 / 184.1）仍没有 entry override，且 conquer/hold 事件没有提供“there”的动态
+ *   战场位置供 token destination 使用。
+ * - 「It becomes a copy of another unit there」仍受 effect.copy 的 mode "effect" 阻断
+ *   （copy-layer-traits-exceptions-and-attachment-duration-unavailable）；复制图层的
+ *   已存在对象生命周期与嵌套目标选择尚未接线。
+ * - Temporary KeywordDef 与 continuous.grant-keyword 原语已经合入，但关键词展开仍需要
+ *   Beginning Phase 触发注册和层效果的生产生命周期，不能把 Temporary 改写成一次性 kill。
+ * 本卡保留可审查的结构与已合入原语，整卡仍不能标记 executable。
  *
- * 依赖：RIFT-89（触发能力基础费用与 cost.pay）、RIFT-62（token 链上创建 + 打出交接）、
- * RIFT-91（复制图层的卡牌指令入口）、RIFT-84（Temporary 关键词展开）、
- * 引擎批 4（触发事件载荷绑定）。
+ * 依赖：触发能力基础费用的 Finalize 接线、token ready 入场覆盖与动态 battlefield 引用、
+ * copy-layer 的 effect mode/嵌套目标生命周期、Temporary 的生产触发注册。
  */
 const deceiver = {
   canonicalCardId:
@@ -57,19 +51,11 @@ const deceiver = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均不近似实现：(1) 触发能力的基础费用没有可执行路径——CR 383.3.b/204.3 把紧跟效果开头 you may 的「discard 1 and exhaust me」" +
-    "定为触发能力的基础费用，但契约 3.1 的 TriggeredAbility 没有 cost 槽位，指令层也没有注册的 cost.pay / cost.discard 原语" +
-    "（engine-core instructions 注册表只有 effect.* 与解释器的控制/条件节点），RIFT-89 的费用计划未接通；本程序用未注册的 cost.pay 保留费用形状，" +
-    "不把「discard 1」近似成效果式 effect.discard，也不把「exhaust me」近似成 effect.exhaust 的状态改变。" +
-    "(2)「play a ready Reflection unit token there」不可执行：effect.token 的 mode \"play\" 需要链上创建 + 免费用打出交接" +
-    "（440.2.c/185.2.a/350.2/354），冻结的 create-token 只支持直接创建到棋盘；「ready」是入场状态改写（143.4/184.1），" +
-    "create-token 不支持，先创建再补一次就绪会产生错误的「成为就绪」事件。" +
-    "(3)「It becomes a copy of another unit there」不可执行：effect.copy 的 mode \"effect\" 被显式 blocked" +
-    "（copy-layer-traits-exceptions-and-attachment-duration-unavailable），复制图层（446.1-446.2）没有面向已存在对象的卡牌指令入口；" +
-    "「there」还需要触发事件载荷里的战场身份（conquer/hold 时点未声明 payloadFields）。" +
-    "(4)「Give it [Temporary]」不可执行：keywords/ 下没有 Temporary.ts（816 的展开缺失），continuous.grant-keyword 也没有注册原语与 layers 消费方。" +
-    "依赖：RIFT-89（触发能力基础费用与 cost.pay）、RIFT-62（token 链上创建 + 打出交接）、RIFT-91（复制图层入口）、RIFT-84（Temporary 关键词展开）、" +
-    "引擎批 4（触发事件载荷绑定）。",
+    "四处当前缺口，均不近似实现：(1) CR 383.3.b 的 cost.pay 与费用计划原语已经合入，但契约 3.1 的 TriggeredAbility 没有基础费用槽位，" +
+    "生产 Finalize 尚未消费触发能力里的 discard 选择与 self exhaustion；(2) Reflection token 的 mode \"play\" 创建与交接已经合入，" +
+    "但 ready 入场覆盖（143.4/184.1）和 conquer/hold 事件到 \"there\" battlefield 的动态引用仍缺失；(3) effect.copy 的 mode \"effect\" 仍被" +
+    "copy-layer-traits-exceptions-and-attachment-duration-unavailable 阻断，嵌套目标与已存在对象复制生命周期未接线；" +
+    "(4) Temporary KeywordDef 与 continuous.grant-keyword 已合入，但 Beginning Phase 触发注册和生产层生命周期仍缺失。",
   abilities: [
     {
       kind: "triggered",
