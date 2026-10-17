@@ -10,23 +10,22 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const [ability] = program.abilities;
-const [killInstruction, lookInstruction, optionalInstruction, recycleInstruction] = ability.body;
+const CANONICAL_ID = program.canonicalCardId;
+const [viewerInstruction, killInstruction, lookInstruction, optionalInstruction, recycleInstruction] = ability.body;
 const [banishInstruction, playInstruction] = optionalInstruction.args.body.value;
 
 // The golden run drives the body the way the production caller must:
 // - TargetSpec declarations are dropped because the interpreter itself selects
 //   and re-verifies targets (reselectTargets defaults to true); the Finalize-locked
 //   answers arrive through the kernel's answer map, exactly as the chain does.
-// - The look's `player` is supplied as the already-resolved controller value: the
-//   card IR carries the contract-3.6 selector form, but the merged effect.inspect
-//   argsSchema still validates that position as a runtime value (see judgeReason
-//   and the contract-change request), so the caller resolves the selector first.
+// - The look's `player` is resolved by the card's own condition.value binding, so
+//   the caller only resolves the nested play's controller-base placeholder.
 const callerBody = ability.body.map(({ targets, ...instruction }) => {
-  if (instruction.op === "effect.inspect") {
-    return { ...instruction, args: { ...instruction.args, player: { kind: "constant", value: "A" } } };
-  }
   if (instruction.op === "choice.optional") {
     // The nested play records the printed controller-base placeholder; the
     // caller resolves it to the concrete player base, exactly as the merged
@@ -105,11 +104,10 @@ test("baited-hook: identity, ruleset, status, judgeReason and printed text", () 
   // The gap is the "Might up to 1 more than the killed unit" legality bound.
   assert.match(program.judgeReason, /Might/);
   assert.match(program.judgeReason, /killed unit/);
-  // The second gap: the merged effect.inspect schema rejects selector-valued
-  // Expr arguments, so the caller must resolve the player expression.
+  // The look is bound with the merged Scryer's Bloom pattern; what remains is
+  // the ordered top-5 picks production supply.
   assert.match(program.judgeReason, /effect\.inspect/);
-  // The third gap: the activated ability still needs the RIFT-257 binding.
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-358/);
   assert.equal(
     program.sourceText,
     ":rb_energy_1::rb_rune_order:, :rb_exhaust:: Kill a friendly unit. Look at the top 5 cards of your Main Deck. " +
@@ -130,6 +128,7 @@ test("baited-hook: the printed cost is 1 energy + 1 Order power + the exhaust sy
   });
   // The cost is declared, never executed as a body instruction (contract 3.5).
   assert.deepEqual(ability.body.map(instruction => instruction.op), [
+    "condition.value",
     "effect.kill",
     "effect.inspect",
     "choice.optional",
@@ -146,7 +145,7 @@ test("baited-hook: \"Kill a friendly unit\" is one target, not a pick", () => {
   assert.equal(killInstruction.targets.length, 1);
   const [target] = killInstruction.targets;
   assert.equal(target.id, "baited-hook.killed-unit");
-  assert.deepEqual(target.filter, { type: "unit", controller: "controller", zone: "board" });
+  assert.deepEqual(target.filter, { type: "unit", controller: "self", zone: "board" });
   assert.equal(target.min, 1);
   assert.equal(target.max, 1);
   assert.equal(target.selection, "one");
@@ -166,9 +165,7 @@ test("baited-hook: the look reads the top 5 of the Main Deck through an ordered 
   // "your Main Deck": the looking player is the ability controller (190.6.d),
   // written with the contract-3.6 selector form, never a hard-coded player id.
   assert.deepEqual(lookInstruction.args.player, {
-    kind: "object-attribute",
-    object: "self",
-    attribute: "controller"
+    kind: "linked-value", instructionId: "baited-hook.bind-viewer", key: "value"
   });
   // The ordered references (not the count) feed the following instructions.
   assert.deepEqual(lookInstruction.args.pickedKey, { kind: "constant", value: "looked" });
@@ -176,6 +173,16 @@ test("baited-hook: the look reads the top 5 of the Main Deck through an ordered 
   assert.equal(lookInstruction.picks.length, 1);
   assert.equal(lookInstruction.picks[0].id, "baited-hook.looked-cards");
   assert.equal(lookInstruction.picks[0].selection, "all");
+  // "your Main Deck" is bound at execution time with the merged
+  // condition.value + linked-value pattern (Scryer's Bloom), so the caller
+  // never rewrites the inspect player argument.
+  assert.equal(viewerInstruction.op, "condition.value");
+  assert.deepEqual(viewerInstruction.args.value, {
+    kind: "object-property", object: "source", property: "controller"
+  });
+  assert.deepEqual(lookInstruction.args.player, {
+    kind: "linked-value", instructionId: "baited-hook.bind-viewer", key: "value"
+  });
 });
 
 test("baited-hook: \"You may …\" is a choice.optional wrapping the chosen instructions (contract 3.9)", () => {
@@ -350,8 +357,94 @@ test.todo(
     "359.3.e.13 / contract 3.6 lastKnown); no merged filter value can relate two objects or a " +
     "linked value, so the descriptive mightUpTo key on the pick is not enforced — see judgeReason."
 );
-test.todo(
-  "baited-hook: the activated ability's production binding (RIFT-257 describeActivate) must " +
-    "generate the Finalize cost plan, the kill target and the look picks; the golden drives the " +
-    "card's own body through the merged chain adapter with caller-supplied locked sets instead."
-);
+test("baited-hook golden: the production chain draft runs the full printed ability end to end", () => {
+  // The chain draft exercises the production path: the ability draft carries the
+  // card's own body and cost, the chain finalizes the cost plan and the kill
+  // target, and the play action is described with the same unit-play adapter the
+  // production routeAction path uses. Only the ordered look picks are supplied by
+  // the caller until RIFT-358 lands the zoneSlice supply.
+  const kernel = world()
+    .player("A", { energy: 20, power: ["Order"] })
+    .player("B", { energy: 20 })
+    .base("baited-hook", { types: ["gear"], energy: 3, power: null, might: null, location: { type: "base", player: "A" }, cardId: CANONICAL_ID })
+    .unit("ally", { might: 2 })
+    .deck(["d1", "d2", "d3", "d4", "d5", "d6"], { types: ["unit"], might: 3 })
+    .build();
+  const looked = kernel.zoneSlice("A", "deck", "top", 5);
+  kernel.setPicks("baited-hook.looked-cards", looked.map(object => object.ref));
+  kernel.setPicks("baited-hook.banished-unit", [looked[2].ref]);
+  kernel.setTargets("baited-hook.killed-unit", [kernel.ref("ally")]);
+  kernel.setAnswers({
+    "baited-hook.kill-friendly-unit/target:baited-hook.killed-unit": [kernel.ref("ally")],
+    "baited-hook.may-banish-and-play/optional": true
+  });
+
+  const requests = [];
+  const decide = (request) => {
+    requests.push(request);
+    if (request.type === "optional") return true;
+    if (request.type === "select-objects" && request.id === "target:baited-hook.killed-unit") return [...request.options];
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: decide,
+    context: (sourceSnapshot, controller, timingPoint) => bindResolveContext(kernel, {
+      source: sourceSnapshot, controller, timingPoint, choose: decide,
+      setPicks: kernel.setPicks.bind(kernel),
+      setTargets: kernel.setTargets.bind(kernel),
+      setAnswers: kernel.setAnswers.bind(kernel)
+    }),
+    testTrigger: (registration) => kernel.test(registration.spec.condition),
+    describePlay: (action, source) => ({
+      id: `play:${source.ref.id}:${source.ref.zoneEntryId}`,
+      controller: action.player,
+      source,
+      kind: "unit",
+      speed: "normal",
+      body: []
+    })
+  });
+  const context = (sourceSnapshot, controller, timingPoint) => bindResolveContext(kernel, {
+    source: sourceSnapshot, controller, timingPoint, choose: decide
+  });
+  const describePlay = (action, source) => ({
+    id: `play:${source.ref.id}:${source.ref.zoneEntryId}`,
+    controller: action.player,
+    source,
+    kind: "unit",
+    speed: "normal",
+    body: []
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host,
+    cleanup: () => false,
+    describePlay,
+  });
+
+  engine.execute({
+    id: "baited-hook:activate",
+    controller: "A",
+    source: kernel.getObject("baited-hook"),
+    kind: "activated",
+    speed: "action",
+    body: ability.body,
+    cost: { id: "baited-hook:cost", cost: ability.cost }
+  });
+  while (engine.items.length) engine.pass(engine.priority);
+
+  assert.equal(kernel.player("A").energy, 19);
+  assert.equal(kernel.getObject("baited-hook").exhausted, true);
+  assert.equal(kernel.getObject("ally").zone, "trash");
+  assert.equal(kernel.getObject("d3").zone, "board");
+  assert.deepEqual(kernel.getObject("d3").location, { type: "base", player: "A" });
+  assert.equal(kernel.getObject("d3").controller, "A");
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["d6", "d1", "d2", "d4", "d5"]);
+  assert.equal(engine.items.length, 0);
+});

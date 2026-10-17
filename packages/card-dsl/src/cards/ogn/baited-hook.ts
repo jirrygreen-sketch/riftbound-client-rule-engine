@@ -51,21 +51,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   reads it through the killed instruction's linked reference with look-back);
  *   only its use as a selection constraint is missing.
  * - Second gap: contract 3.6 requires the
- *   looking player to be written as an ObjectSelector expression ("your Main
- *   Deck" = the ability controller, 190.6.d), and the interpreter's expression
- *   evaluator resolves that form. The merged `effect.inspect` argsSchema, however,
- *   still validates `object-property.object` as a runtime `ObjectRef` rather than
- *   a selector (effect.resources already accepts selectors), so dispatching this
- *   instruction through the merged chain adapter throws before it can evaluate.
- *   The selector form is authored because it is what the contract requires; the
- *   schema mismatch is reported as a contract-change request instead of being
- *   sidestepped with a hard-coded player id.
- * - Third gap: an activated ability still needs the RIFT-257 CardProgram
- *   binding (describeActivate) before the cost plan, targets and body execute
- *   through the production chain; the merged cost plan itself rejects the
- *   historical `kind: "cost.printed"` spelling (only `"printed"` is accepted),
- *   which is why the cost declared here is `kind: "activated"` with its printed
- *   components.
+ *   looking player to be the ability controller (190.6.d). The card now binds
+ *   that controller at execution time (`condition.value` + `linked-value`,
+ *   Scryer's Bloom pattern), so the look runs without a caller rewrite or a
+ *   hard-coded player id. What is still missing is the ordered top-5 picks
+ *   production supply (RIFT-358): the chain/programs path does not read the
+ *   real Main Deck zoneSlice into this stable picksSpecId yet, and query()
+ *   cannot promise deck order, so the golden test supplies the locked picks.
  * The golden test executes the cost payment, the kill, the ordered look, the
  * optional wrapper, the banish and the cost-waived play for real; the constrained
  * candidate selection is a test.todo.
@@ -81,12 +73,12 @@ const baitedHook = {
     "condition 从句只作用于整条指令、无法过滤选择集合的成员，因此没有任何已合入拼写能把 Might 超限的候选排除在外；" +
     "按 type: unit 直接选择会静默允许放逐任意 Might 的单位，违反不得近似实现的红线，故按描述性键写出但不作为已执行语义。" +
     "被杀单位 Might 的读取本身可表达（解释器经 killed 链接引用 + look-back 取值），缺的只是把它用作选择约束。" +
-    "第二处缺口：契约 3.6 要求“your Main Deck”的查看者写成 ObjectSelector 表达式（190.6.d 的能力控制者），解释器的表达式求值器能解析该形态，" +
-    "但已合入的 effect.inspect argsSchema 仍把 object-property/object-attribute 的 object 校验为运行时 ObjectRef 而非选择器" +
-    "（effect.resources 已接受选择器），经链式适配器派发会在求值前抛错；按契约写选择器形态并提交契约变更请求，不用硬编码玩家 id 绕过。" +
-    "第三处缺口：启动能力仍需 RIFT-257 的 CardProgram 绑定（describeActivate）才能让费用计划、目标与 body 经生产链执行。" +
+    "查看者已按已合入形态解决：condition.value 绑定来源控制者，effect.inspect 读取 linked-value（Scryer's Bloom 同款绕行），" +
+    "不再需要 argsSchema 选择器契约变更请求。" +
+    "第二处缺口：effect.inspect 的 scope:top 只读取外部 picksSpecId，programs/ 与 chain/ 没有从真实牌库 zoneSlice " +
+    "自动提供保序 top-5 picks 的路径（RIFT-358），query() 不保证牌库顺序，不能用无序查询近似。" +
     "费用（1 能量 + 1 Order Power + 横置）、Kill、按牌库真实顺序查看顶 5 张、choice.optional、banish 与零费用计划的 play " +
-    "都只用已合入原语，已由 golden 真实执行（look 的 player 由调用方按求值后的值提供）。",
+    "都只用已合入原语，已由 golden 与生产链草稿真实执行（picks 由调用方按稳定 id 提供直至 RIFT-358）。",
   abilities: [
     {
       kind: "activated",
@@ -99,13 +91,24 @@ const baitedHook = {
       timing: "action",
       body: [
         {
+          // "your Main Deck": the looking player is the ability controller
+          // (190.6.d). condition.value binds that controller at execution time
+          // and effect.inspect reads it back as a linked value, the same
+          // interpreter-supported spelling Scryer's Bloom uses for its look.
+          id: "baited-hook.bind-viewer",
+          op: "condition.value",
+          args: {
+            value: { kind: "object-property", object: "source", property: "controller" }
+          }
+        },
+        {
           id: "baited-hook.kill-friendly-unit",
           op: "effect.kill",
           args: { target: { kind: "constant", value: "baited-hook.killed-unit" } },
           targets: [
             {
               id: "baited-hook.killed-unit",
-              filter: { type: "unit", controller: "controller", zone: "board" },
+              filter: { type: "unit", controller: "self", zone: "board" },
               min: 1,
               max: 1,
               selection: "one"
@@ -126,14 +129,7 @@ const baitedHook = {
           // Main Deck. Linking them would suppress the look under 3.4.
           op: "effect.inspect",
           args: {
-            // "your Main Deck": the looking player is the ability controller
-            // (190.6.d). Contract 3.6 requires a selector here, and "self" is the
-            // host; the caller resolves it to a PlayerId. The merged effect.inspect
-            // argsSchema still validates object-property's `object` as a runtime
-            // ObjectRef instead of a selector (effect.resources already accepts
-            // selectors), so this Expr shape is reported as a contract-change
-            // request rather than sidestepped with a hard-coded player id.
-            player: { kind: "object-attribute", object: "self", attribute: "controller" },
+            player: { kind: "linked-value", instructionId: "baited-hook.bind-viewer", key: "value" },
             zone: { kind: "constant", value: "deck" },
             scope: { kind: "constant", value: "top" },
             amount: { kind: "constant", value: 5 },
