@@ -71,8 +71,8 @@ test("unl-155-219 Heroic Charge: program validates and keeps its identity", () =
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
-  // Both printed instructions execute; the remaining gap is the sameLocationAs
-  // anchor in programs/filters.ts, which blocks a production play as written.
+  // Both printed instructions execute in the direct interpreter; production
+  // target binding and the chain adapter's literal decoding remain unsupported.
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /355\.10\.b/);
 });
@@ -243,6 +243,38 @@ test("unl-155-219 Heroic Charge golden: an already Stunned unit is a legal targe
   assert.equal(kernel.events.filter(event => event.action === "stun").length, 0);
   assert.equal(kernel.getObject("enemy").stunned, true);
 });
+
+test("unl-155-219 Heroic Charge golden: the original body grants Might and stuns the colocated enemy in order", () => {
+  const kernel = world()
+    .unit("ally", { owner: "A", might: 2, location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy", { owner: "B", controller: "B", might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .unit("far-enemy", { owner: "B", controller: "B", might: 3, location: { type: "battlefield", id: "bf-2" } })
+    .build();
+  kernel.setTargets(mightSpec.id, [kernel.ref("ally")]);
+  kernel.setTargets(enemySpec.id, [kernel.ref("enemy")]);
+  // Both primitives accept evaluated arguments in the direct interpreter. The
+  // chain adapter still needs effect.stun's target literal decoding (TODO below).
+  const outcome = runAbilityBody(play.body, chainContext(kernel, "A"));
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    [grantMight.id, "executed"],
+    [stunEnemy.id, "executed"]
+  ]);
+  assert.equal(effectiveMight(kernel, "ally"), 3);
+  assert.equal(effectiveMight(kernel, "enemy"), 3);
+  assert.equal(kernel.getObject("enemy").stunned, true);
+  assert.equal(kernel.getObject("far-enemy").stunned, false);
+  assert.deepEqual(outcome.events.map(event => event.action), ["stun"]);
+  const layers = layerEngine(kernel);
+  assert.equal(layers.expireAt("turn-end").length, 1);
+  assert.equal(layers.evaluate(kernel.ref("ally")).might, 2);
+});
+
+test.todo(
+  "unl-155-219 Heroic Charge: decode effect.stun.target in chain/interpreter-adapter.ts — its literal-field " +
+    "table omits effect.stun, so the original body cannot pass the primitive argsSchema on the chain path"
+);
 
 test.todo(
   "unl-155-219 Heroic Charge: bind the card as-written in a production play — programs/filters.ts " +

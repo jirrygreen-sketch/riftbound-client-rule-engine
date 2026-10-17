@@ -20,22 +20,12 @@ import type { CardProgram } from "../../ir/index.js";
  * - 414.3 / 414.1.a：「draw 1」是 effect.draw，抽牌者缺省为能力控制者（190.6.d），
  *   牌库顺序与 Burn Out（414.4 / 432）由内核拥有。
  *
- * status = judge-required（缺口不近似实现）：
- * - 「you or an ally hold」里的 ally 需要 2v2 队友模型：CR 491.8 / 491.8.e 定义队友与
- *   friendly 的范围，而合并的 TriggerSpec PlayerSelector 只有 self/opponent/any/
- *   { playerId }（events/trigger-spec.ts），引擎没有任何 teammate/ally 概念，无法表达
- *   「队友固守」；只写 player: "self" 会把触发收窄成「你固守」。本程序保留该收窄形状
- *   作可审查的声明，不宣称已覆盖原文。
- * - 「exhaust me」的基础费用语义没有接线：契约 3.1 的 TriggeredAbility 没有 cost 槽位，
- *   用 effect.exhaust 的状态改变代替费用会漏掉 415.4 / 415.5 的「费用必须能完成」与
- *   415.1.b 的「已横置的对象不能被再次横置」这类 Finalize 检查（与已合入的
- *   unl/piltover-enforcer.ts、rad/exemplar-of-demacia.ts、ogn/the-boss.ts 同一口径）。
- * - 「me」是 Legend Zone 中的传奇（CR 107.4.a / 107.4.c）：契约 ZoneId 没有 legend-zone，
- *   而 cost/payment.ts 的 exhaust 费用只接受 board / rune-zone 的支付对象，传奇自身
- *   无法作为可横置的费用对象（effect.exhaust.ts 的 NON_BOARD_ZONES 注释记录同一契约缺口）。
- * draw 1、hold 时点与解释器路径已合入，golden 用参考内核真实执行已支持部分。
- *
- * 依赖：2v2 队友模型、TriggeredAbility 基础费用字段与契约补充 legend-zone。
+ * status = judge-required：
+ * - ally 的固守触发缺 2v2 队友关系与 PlayerSelector（491.8/491.8.e）。
+ * - programs/triggers.ts 未把前置 may/exhaust 指令转换为 TriggerRegistration 的
+ *   cost / mayAtFinalize；链本身已有费用支付能力，但本卡仍在 Resolve 才横置（383.3.a/b）。
+ * - game/lifecycle.ts 仅把传奇创建在 chain 并另记 legendZone 报告，未进入真实传奇区域；
+ *   触发默认仅在 board 激活，横置费用也只接受 board/rune-zone（107.4.a/c）。
  */
 export default {
   canonicalCardId:
@@ -43,14 +33,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1)「you or an ally hold」的 ally 需要 2v2 队友模型——CR 491.8 / 491.8.e 定义队友与 friendly 的范围，" +
-    "而合并的 TriggerSpec PlayerSelector 只有 self/opponent/any/{playerId}（events/trigger-spec.ts），引擎没有 teammate/ally 概念，" +
-    "无法表达「队友固守」这一触发条件；只写 player: \"self\" 会把触发收窄成「你固守」，本程序保留该收窄形状作可审查声明。" +
-    "(2)「you may exhaust me」按 CR 383.3.b / 204.3 是触发能力的基础费用（紧跟效果开头的 you may），契约 3.1 的 TriggeredAbility 没有 cost 槽位；" +
-    "用 effect.exhaust 的状态改变代替费用会漏掉 415.4 / 415.5「费用必须能完成」与 415.1.b「已横置不能再次横置」的 Finalize 检查。" +
-    "(3)「me」是 Legend Zone 中的传奇（CR 107.4.a / 107.4.c），契约 ZoneId 没有 legend-zone，cost/payment.ts 的 exhaust 费用只接受 board / rune-zone，" +
-    "传奇自身无法作为可横置的费用对象。hold 时点、effect.draw 与解释器路径已合入并有执行测试。" +
-    "依赖：2v2 队友模型、TriggeredAbility 基础费用字段与契约补充 legend-zone。",
+    "缺 ally 固守的 2v2 队友关系与 PlayerSelector（CR 491.8/491.8.e）。缺本卡前置费用的程序适配（383.3.a/383.3.b、204.3、415.4/415.5）：programs/triggers.ts 未把前置 you may/exhaust 转为 TriggerRegistration.cost / mayAtFinalize，当前 choice.optional + effect.exhaust 在 Resolve 执行，不能代替 Finalize 的费用检查。缺 Legend Zone 的生命周期与费用对象接线（107.4.a/107.4.c）：game/lifecycle.ts 把传奇创建在 chain，仅另记 legendZone 报告；触发默认在 board 激活，cost/payment.ts 的 exhaust 也只接受 board/rune-zone。",
   abilities: [
     {
       kind: "triggered",

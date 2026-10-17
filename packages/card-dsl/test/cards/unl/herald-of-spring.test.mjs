@@ -127,7 +127,19 @@ test.todo(
   "unl-034-219 Herald of Spring: bind the hold trigger to the unit present at the held battlefield " +
     "(CR 383.4.d.2/.2.a) — the hold payload carries only battlefield/player"
 );
-test.todo(
-  "unl-034-219 Herald of Spring: resolve the battlefield-relative 'here' vocabulary in EventPattern " +
-    "(CR 464.2.b) once a payload exists to anchor against"
-);
+test("unl-034-219 Herald of Spring golden: both Hunt bodies award the current controller rather than the owner", () => {
+  const definition = keywordDefinitionsById.get("Hunt");
+  assert.ok(definition);
+  for (const ability of definition.expand({ host: { canonicalCardId: CANONICAL_ID } })) {
+    const kernel = world().player("A", { xp: 2 }).player("B", { xp: 3 })
+      .unit("herald", { owner: "A", controller: "B", cardId: CANONICAL_ID })
+      .build();
+    const context = kernel.clone({ sourceSnapshot: kernel.getObject("herald"), controller: "B" });
+    const outcome = resolveChainBody(ability.body, context);
+    assert.equal(outcome.status, "executed");
+    assert.equal(context.player("A").xp, 2);
+    assert.equal(context.player("B").xp, 4);
+    assert.equal(outcome.linkedValues[`${encodeURIComponent(ability.body[0].id)}.gainedTo`], "B");
+    assert.deepEqual(outcome.events.map(event => event.action), ["gain-xp"]);
+  }
+});

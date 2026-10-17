@@ -16,15 +16,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Level Ability；“I have +1 :rb_might:” 是依赖能力文本，门槛 6 写在 keyword 的 value 上
  *   （824.1.c：控制者 XP ≥ 6 时 Active，XP 变化即时生效）。
  *
- * status = judge-required（已按当前代码复核，缺口不近似实现）：
- * - [Hunt] 的 KeywordDef 展开、关键词注册以及 card-program → TriggerRegistration 适配均已合入；
- *   effect.xp 也有真实执行证据。剩余的征服/固守归因缺口在计分事件：turn/flow.ts 的 conquer/hold
- *   emission 只有 player 与 battlefieldId，没有把发生事件绑定到这张单位，故 Hunt 的 source:self
- *   过滤仍无法命中本卡。
- * - [Level 6] 的 KeywordDef 只发布带 controller-xp / threshold 的 level-active 谓词；当前条件求值
- *   没有读取玩家 XP，也没有把 `[>]` 后的依赖文本绑定成带该谓词的 continuous.might 能力，故无法按
- *   824.1.c 即时启用/停用「I have +1 :rb_might:」。
- * 依赖：计分事件的征服/固守单位载荷、Level predicate 的 XP 求值与 dependent-ability 绑定。
+ * status = judge-required：
+ * - [Hunt] 的征服/固守事件仅有 player 与 details.battlefieldId，缺少在场单位归因；
+ *   programs/filters.ts 把 source:self 翻译为事件 objectId，无法据此匹配本卡（383.4.c.2/d.2）。
+ * - [Level 6] 的 controller-xp / level-active 谓词尚无求值与依赖能力绑定；
+ *   programs/statics.ts 也没有 condition.predicate 的图层映射，不能即时启停 +1 Might（824.1.c）。
  */
 const abilities: Ability[] = [
   // 823.1.c.2：省略数值按 Hunt 1，故省略 value。
@@ -39,12 +35,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处缺口，均不近似实现：(1) [Hunt] 的 KeywordDef 展开、关键词注册、card-program → TriggerRegistration 适配与 effect.xp 均已合入；" +
-    "剩余问题是计分事件归因：turn/flow.ts 发出的 conquer/hold 只有 player 与 battlefieldId，没有发生征服/固守的单位对象，" +
-    "因此 Hunt 展开出的 source:self 过滤无法命中本卡（823.1.b / 383.4.c.2 / 383.4.d.2）。" +
-    "(2) [Level 6] 的 KeywordDef 只发布 controller-xp / threshold 的 level-active 谓词；当前条件求值不读取玩家 XP，" +
-    "也没有把 `[>]` 后的「I have +1 :rb_might:」绑定成受该谓词控制的 continuous.might 能力，缺少 824.1.c 的即时 Active/Inactive 语义。" +
-    "依赖：计分事件的征服/固守单位载荷、Level predicate 的 XP 求值与 dependent-ability 绑定。",
+    "缺 [Hunt] 的计分单位归因（CR 823.1.b、383.4.c.2/383.4.d.2）：turn/flow.ts 的 conquer/hold 只带 player 与 details.battlefieldId，未携带在场单位对象/快照，source:self 翻译后的 objectId 无法匹配本卡。缺 [Level 6] 的 controller-xp / level-active 求值与 [>] 依赖能力绑定（824.1.c）：programs/statics.ts 没有 condition.predicate 的图层映射，无法随控制者 XP 即时启停 continuous.might 的 +1 Might。",
   abilities,
   sourceText:
     "[Hunt] (When I conquer or hold, gain 1 XP.)\n" +

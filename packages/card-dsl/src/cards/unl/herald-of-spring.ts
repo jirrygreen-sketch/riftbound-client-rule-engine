@@ -18,19 +18,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “gain 2 XP”：728 / 729 / 730.1 的 XP 资源增加，额度在结算时取值；已合入的 effect.xp
  *   只提交封闭集合里的 gain-xp 动作，获得者缺省是能力控制者（190.6.d 的隐含 “you”）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（已按合入依赖复核）。
- * - 已解决：[Hunt] 的 KeywordDef 已合入（effects/keywords/Hunt.ts）：823.1.c.2 的省略值按 1、
- *   823.1.b/823.1.c.1 的 conquer + hold 两个触发与 effect.xp 展开、823.2 的 sum stacking 都已实现；
- *   卡牌 keyword 能力 → KeywordDef 展开 → 触发注册的生产方也已合入（programs/keywords.ts +
- *   programs/triggers.ts，本卡展开出 conquer/hold/card-played 三条注册）。
- * - 剩余缺口：823.1.b 的“当我征服或固守”归因仍无法判定——turn/flow.ts 的 Score wave 只发 player +
- *   details.battlefieldId，没有事件对象/单位快照；展开出的触发 filter 经 programs/filters.ts 变成对事件对象的
- *   objectId 过滤，而这类事件没有 object，objectId 过滤永远匹配不到（因此触发不会误触，但也不会触发）。
- *   hold 侧的「本卡是在场固守的那个单位」（383.4.d.2/.2.a）与 EventPattern 的 here 相对词汇同样缺失。
- * 「When you play me, gain 2 XP」只用已合入的 effect.xp（728/729/730.1，获得者缺省为能力控制者，190.6.d），
- * golden 用解释器 + 参考内核真实执行。不近似实现：不把 [Hunt] 手写成 conquer/hold 触发体。
- * 依赖：计分波的单位对象/快照归因、hold 事件的单位绑定，以及 EventPattern 的
- * battlefield-relative `here` 词汇。
+ * status = judge-required：
+ * - [Hunt] 缺 823.1.b / 383.4.c.2 / 383.4.d.2 的在场单位归因。
+ *   turn/flow.ts 的 conquer/hold 只有 player 与 details.battlefieldId；
+ *   programs/filters.ts 将 source:self 翻译为事件 objectId，无法匹配本卡。
+ * - 需要由计分战场绑定征服/固守时在场的单位对象/快照；不要求本卡没有印刷的 here 条件。
+ * 保留关键词声明和打出后 gain 2 XP 的真实执行测试，不手写 Hunt 展开。
  */
 const abilities: Ability[] = [
   // 823.1.c.2：印刷省略 Hunt Value，按 1 处理（提醒文字同值）。
@@ -55,14 +48,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "(1) 已解决：[Hunt] 的 KeywordDef 已合入（effects/keywords/Hunt.ts），823.1.b/823.1.c.1 的 conquer 与 hold 两个触发、823.1.c.2 的省略值按 1、" +
-    "823.2 的 sum stacking 与 effect.xp 展开都已实现；卡牌 keyword → 关键词展开 → 触发注册的生产方也已合入（programs/keywords.ts + programs/triggers.ts）。" +
-    "(2) 剩余缺口：823.1.b 的“当我征服或固守”归因无法判定——turn/flow.ts 的 Score wave 只发 player + details.battlefieldId，没有事件对象/单位快照；" +
-    "展开出的触发 filter 被翻译成对事件对象的 objectId 过滤，而这类事件没有 object，该过滤永远匹配不到（触发不会误触，但也不会触发）；" +
-    "hold 侧的「本卡是在场固守的那个单位」（383.4.d.2/.2.a）与 EventPattern 的 here 相对词汇同样缺失。" +
-    "「When you play me, gain 2 XP」只用已合入的 effect.xp（728/729/730.1，获得者缺省为能力控制者，190.6.d），golden 用解释器 + 参考内核真实执行。" +
-    "当前缺口是计分波只有 player + details.battlefieldId，缺少发生征服/固守的单位对象或快照归因；" +
-    "hold 侧还缺少驻守单位绑定，EventPattern 也没有可由该载荷锚定的 battlefield-relative here 词汇；不近似实现。",
+    "缺 [Hunt] 的计分单位归因（CR 823.1.b、383.4.c.2、383.4.d.2/383.4.d.2.a）：turn/flow.ts 的 conquer/hold 只带 player 与 details.battlefieldId，没有征服/固守时在场单位的对象/快照；programs/filters.ts 将 source:self 翻译成事件 objectId，该载荷无法匹配本卡。需要把计分战场与在场单位绑定，再由同一事件管线扫描 Hunt。",
   abilities,
   sourceText:
     "[Hunt] (When I conquer or hold, gain 1 XP.)\n" + "When you play me, gain 2 XP."
