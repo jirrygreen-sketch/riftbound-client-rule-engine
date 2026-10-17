@@ -31,7 +31,8 @@ test("ogn-279-298 Fortified Position: identity, ruleset, status and printed text
     program.sourceText,
     "When you defend here, choose a unit. It gains [Shield 2] this combat. (+2 :rb_might: while it's a defender.)"
   );
-  assert.match(program.judgeReason, /grant/);
+  assert.match(program.judgeReason, /here/);
+  assert.match(program.judgeReason, /combatRole/);
 });
 
 test("ogn-279-298 Fortified Position: defend trigger with a once-per-combat identity check", () => {
@@ -117,13 +118,3 @@ test("ogn-279-298 Fortified Position golden: the real interpreter grants Shield 
   );
   assert.deepEqual(engine.evaluate(kernel.ref("chosen-unit")).keywords, [{ id: "Shield", value: 2 }]);
 });
-
-test.todo(
-  "ogn-279-298 Fortified Position: the Shield expansion must be consumed by the layers engine " +
-    "(continuous.might gated on the defender designation, CR 814.1.c/814.1.d.1)"
-);
-
-test.todo(
-  "ogn-279-298 Fortified Position: bind the defense-declared CardProgram trigger through the complete " +
-    "card-program adapter (RIFT-257)"
-);

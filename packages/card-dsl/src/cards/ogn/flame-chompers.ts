@@ -23,22 +23,22 @@ import type { CardProgram } from "../../ir/index.js";
  * - effect.play 的 TargetSpec 用 { source: "self" } 锚点（IR 静态数据用契约 3.6 的
  *   符号选择器，不写运行时 ObjectRef）选择仍在 Trash 的本卡。
  *
- * 未合入依赖（不近似实现）:
- * - 费用种类、cost.pay / cost.printed 与卡牌程序 → 费用计划的接线仍在 RIFT-261：
- *   卡面只声明已 Finalize 的计划形状，真正的替代费用计算与
- *   Power 支付（356.1.a / 357.2）没有消费方，参考内核的 pay 也只校验 energy/xp。
- * - 从 Trash 打出所需的许可/限制（366.1）虽然已有 continuous.location 形状，
- *   但其卡牌程序绑定和 Finalize 区域合法性消费仍未接入。
- * 依赖：RIFT-261（费用种类、cost.pay / cost.printed）与 RIFT-257（卡牌程序绑定和区域许可消费）。
+ * 未完成部分（不近似实现）:
+ * - 绑定器当前拒绝 effect.play 的 self/source Trash 目标过滤，无法把接受分支
+ *   绑定到仍在 Trash 的本卡。
+ * - 费用计划虽已支持 pay/modify 与 Fury cost kind，但接受分支仍没有把
+ *   :rb_rune_fury: 的替代支付、从 Trash 的区域许可和嵌套 play 目标生命周期
+ *   一起交给 Finalize/Resolve；不能只把一个静态 finalized 费用对象当成完整支付证据。
  */
 const flameChompers = {
   canonicalCardId: "card.hash-0f5f84f75dbe0744c93412016da28963e78fa05c747a4b3163be7cfef5f26cc9",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "『you may pay :rb_rune_fury: to play me』接受分支仍缺 RIFT-261 的 cost.pay / cost.printed 费用种类与卡牌费用绑定，" +
-    "effect.play 只接受已 Finalize 的费用计划而不推导/支付费用；从 Trash 打出还需要 RIFT-257 的卡牌程序绑定和 366.1 区域许可消费。" +
-    "触发时点 card-discarded（423.1.b）已定义，拒绝分支与 play 子效果已有执行测试。不近似实现。",
+    "『you may pay :rb_rune_fury: to play me』的触发时点与可选分支已写入 IR；" +
+    "但程序绑定器会因 effect.play 的 self/source Trash 目标过滤而拒绝接受分支，" +
+    "且当前完整结算仍缺 Fury 替代费用支付、366.1 区域许可和嵌套 play 目标生命周期的联合消费。" +
+    "拒绝分支与 play 子效果已有执行测试，不近似实现。",
   abilities: [
     {
       kind: "triggered",

@@ -33,7 +33,7 @@ test("ogn-256-298 Fox-Fire: program passes validateCardProgram", () => {
 test("ogn-256-298 Fox-Fire judgeReason names the group and total-Might gap", () => {
   assert.match(program.judgeReason, /355\.11/);
   assert.match(program.judgeReason, /total Might/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /同一战场/);
   assert.match(program.judgeReason, /cost\.hidden/);
 });
 
@@ -92,14 +92,3 @@ test("ogn-256-298 Fox-Fire golden: choosing zero units is legal for any-number t
   assert.equal(kernel.getObject("untouched-unit").zone, "board");
   assert.equal(run.events.length, 0);
 });
-
-test.todo(
-  "Fox-Fire: the 355.11 group requirement (units sharing one battlefield, total Might <= 4) and " +
-    "the resolution-time legal-subset re-choice of 355.11.b belong to target-plan work (RIFT-90) — " +
-    "the Core Rules use this card as the example for that rule."
-);
-
-test.todo(
-  "Fox-Fire: [Hidden] Hide for a rainbow rune, the facedown zone and the free facedown play " +
-    "need the cost.hidden primitive and facedown support."
-);

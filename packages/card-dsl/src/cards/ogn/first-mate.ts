@@ -17,7 +17,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   （740.1.a/740.1.b 只在文本出现 friendly/enemy 时适用），故 filter 不写 controller。
  *
  * status: judge-required —— `exclude: "self"` 已能表达 another unit，effect.ready
- * 本体也已合入；仍缺 card-played 时点到卡牌程序触发能力的绑定（RIFT-257）。
+ * 本体也已合入；当前程序绑定器拒绝 TargetSpec 的 `exclude` 字段，无法把
+ * “another”安全地交给完整的 Finalize/Resolve 目标管线。
  * 效果本体 effect.ready 已合入，golden 测试以真实原语执行 body 的目标形态。
  */
 export default {
@@ -25,8 +26,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "effect.ready 本体与 `exclude: \"self\"` 的 another unit 目标过滤已合入；仍缺 card-played 时点到卡牌程序触发能力的绑定（RIFT-257），" +
-    "因此触发链尚未形成完整执行证据。",
+    "effect.ready 本体与 `exclude: \"self\"` 的 another unit 目标过滤已写入 IR；" +
+    "当前程序绑定器的 translateObjectFilter 不支持 exclude 字段，会以 judge-required 拒绝该 TargetSpec，" +
+    "因此无法形成带有 another 语义的完整目标锁定与结算证据。",
   abilities: [
     {
       kind: "triggered",

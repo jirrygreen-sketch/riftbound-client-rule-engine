@@ -78,7 +78,3 @@ test("garbage-grabber golden: Draw 1 takes the top card of the controller's deck
   );
   assert.equal(run.linked.drawn, 1);
 });
-
-test.todo(
-  "garbage-grabber: a payable 'Recycle 3 from your trash' cost needs a filter-based, non-targeting cost selection that resolves offered cards at Finalize (CR 417.3/417.6), which the frozen CostSpec PickSpec (exact ObjectRef options) cannot express."
-);

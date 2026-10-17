@@ -18,8 +18,8 @@ test("Get Excited! program is valid EffectIR v2 data and judge-required", () => 
   assert.equal(program.status, "judge-required");
   // The reason must name the real gap: the linked characteristic read cannot
   // resolve to the discarded card's reference.
-  assert.match(program.judgeReason, /RIFT-102/);
   assert.match(program.judgeReason, /linked/);
+  assert.match(program.judgeReason, /discard/);
 });
 
 test("Get Excited! identity and sourceText match the printing", () => {
@@ -114,11 +114,3 @@ test("Get Excited! golden execution: Discard 1 moves the chosen card to the tras
   assert.equal(kernel.getObject("chosen-card").zone, "trash");
   assert.equal(kernel.getObject("kept-card").zone, "hand");
 });
-
-test.todo(
-  "Get Excited!: dealing the discarded card's printed Energy cost (never its " +
-    "Power cost) needs a linked object selector that reads the producer's named " +
-    "result binding, so the characteristic read can consume effect.discard's " +
-    "discarded reference with the 359.3.e.13 look-back (RIFT-102 " +
-    "selector plumbing)."
-);

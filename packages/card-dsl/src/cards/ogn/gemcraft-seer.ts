@@ -14,28 +14,25 @@ import type { CardProgram } from "../../ir/index.js";
  *   steps run through the interpreter + reference kernel (golden test).
  * - "Other friendly units have [Vision]" is a static ability-layer keyword
  *   grant (contract 3.4/3.7: continuous effects never enter the chain). The
- *   merged layers engine understands a `continuous.grant-keyword` ability
- *   effect (layers/engine.ts applyAbility), but nothing turns a card program's
- *   static ability into a registered continuous effect: no card-program adapter
- *   calls layerEngine.addContinuous, so the grant has no consumer. "Other" also
- *   needs the source excluded, which the declared filter records.
+ *   layer binder currently rejects the Vision trigger's `object.id` event
+ *   filter and rejects the static grant's `exclude: "self"` anchor, so the
+ *   complete grant cannot be registered. "Other" also needs the source
+ *   excluded, which the declared filter records.
  *   Not approximated (a SelfScope Vision re-declaration would double-count
  *   Vision, contrary to 817.2).
  *
- * The grant filter follows the merged static-grant spelling used by the same
- * family ("Your Mechs have [Vision]", cards/sfd/forecaster.ts): `controller`
- * is the ability-controller placeholder resolved by the (unmerged) continuous
- * effect consumer, and `exclude: "self"` is the merged ObjectSelector anchor
- * for "other" (contract 3.6 selector shape, interpreter queryObjects).
+ * The grant filter follows the static-grant spelling used by the same family:
+ * `controller` is the ability-controller placeholder and `exclude: "self"` is
+ * the source-relative anchor for "other".
  */
 export default {
   canonicalCardId: "card.hash-636736b78f865097117f9cc183f462f662d5b234a87f487fd261ac54279875c6",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Other friendly units have [Vision]」需要把卡牌程序的静态能力注册进图层引擎的 continuous.grant-keyword 效果，" +
-    "但目前没有卡牌程序适配器调用 layerEngine.addContinuous；且需要把本卡自身从授予集合中排除（817.2 下重复 Vision 会各自触发，不能近似成再声明一次 keyword）。" +
-    "依赖：RIFT-257（CardProgram static → continuous effect 注册适配）。[Vision]（817）本体已合入并可在参考内核执行。不近似实现。",
+    "「Other friendly units have [Vision]」需要静态 grant 的 layer 注册与 source-relative 排除；" +
+    "当前 Vision 触发过滤含有 binder 不支持的 object.id 字段，静态 grant 又含有 binder 不支持的 exclude:self 锚点，" +
+    "所以无法同时证明 Vision 触发和 other-friendly 授予的完整执行链。[Vision]（817）本体已合入并可在参考内核执行，不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "vision" },
     {

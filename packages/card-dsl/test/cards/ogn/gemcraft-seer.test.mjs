@@ -13,8 +13,9 @@ test("Gemcraft Seer program validates and is judge-required", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /静态 grant/);
+  assert.match(program.judgeReason, /object\.id/);
+  assert.match(program.judgeReason, /exclude:self/);
   assert.equal(
     program.sourceText,
     "[Vision] (When you play me, look at the top card of your Main Deck. You may recycle it.)\n" +
@@ -40,14 +41,3 @@ test("Gemcraft Seer structure: Vision keyword plus an other-friendly-units Visio
     exclude: "self"
   });
 });
-
-test.todo(
-  "Gemcraft Seer grant: other friendly units gain [Vision], so each of them triggers its own Predict when it enters " +
-  "the Board (817.1.c / 817.2); needs card-program static abilities registered as layer continuous effects (RIFT-257) " +
-    "plus the self-exclusion in the grant filter"
-);
-
-test.todo(
-  "Gemcraft Seer Vision: this card's own Predict 1 with the may-recycle choice (817.1.c, 437.1 / 437.3.a) executes on the " +
-    "merged keyword body once the chain subscribes card-program triggers; the keyword body itself already runs on the reference kernel"
-);
