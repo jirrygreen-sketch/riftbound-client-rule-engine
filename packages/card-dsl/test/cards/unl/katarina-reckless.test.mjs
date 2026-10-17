@@ -59,6 +59,10 @@ test("unl-023-219 Katarina, Reckless: identity, status, judgeReason and verbatim
   assert.match(program.judgeReason, /422\.1/);
   assert.match(program.judgeReason, /811\.1\.d/);
   assert.match(program.judgeReason, /RIFT-120/);
+  // The registration path (RIFT-257) is merged; the reason must name the two
+  // blocked event facts instead of a missing adapter.
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /RIFT-89/);
 });
 
 test("unl-023-219 Katarina, Reckless: the hide trigger waits on the card-hidden timing point", () => {
@@ -106,6 +110,29 @@ test("unl-023-219 Katarina, Reckless: the second trigger is one enemy-unit damag
   });
   assert.equal(dealTwo.picks, undefined);
   assert.equal(dealTwo.linkedTo, undefined);
+});
+
+test("unl-023-219 Katarina, Reckless: the merged program binding exposes both declared triggers", async () => {
+  // programs/keywords.ts + programs/filters.ts (RIFT-257) parse the card and
+  // expose both declared triggered abilities with their anchors.
+  const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const f = fixture({ cards: [{ id: "katarina", cardId: CANONICAL_ID, types: ["unit"], energy: 1, power: [], might: 5 }], describePlay: binding.describePlay });
+  const snapshot = { ...f.kernel.getObject("katarina"), cardId: CANONICAL_ID, zone: "board" };
+
+  const abilities = binding.inspect(snapshot).abilities;
+  assert.equal(abilities.filter(ability => ability.kind === "triggered").length, 2);
+  // The two declared anchors are the timing point is what each ability watches:
+  // the Hide event and the face-down play are the recorded gaps (test.todo), so
+  // the merged binding cannot install either subscription yet.
+  assert.deepEqual(abilities.filter(ability => ability.kind === "triggered").map(ability => ability.trigger.at), [
+    "card-hidden",
+    "card-played"
+  ]);
+  // The card-played ability carries the ability-controller player anchor.
+  const cardPlayed = abilities.find(ability => ability.kind === "triggered" && ability.trigger.at === "card-played");
+  assert.equal(cardPlayed.trigger.filter.player, "self");
 });
 
 test("unl-023-219 Katarina, Reckless golden: 'ready me' readies the exhausted source", () => {
@@ -178,6 +205,10 @@ test.todo(
     " once the card-played payload records the played-from-face-down fact"
 );
 test.todo(
-  "unl-023-219 Katarina, Reckless: both triggers are registered through the CardProgram -> TriggerRegistration" +
-    " adapter (RIFT-120)"
+  "unl-023-219 Katarina, Reckless: register the card-hidden subscription — the closed EVENT_PATTERN_TYPES" +
+    " (events/trigger-spec.ts) has no card-hidden spelling and events/producers/ emits none (RIFT-89 / RIFT-120 follow-up)"
+);
+test.todo(
+  "unl-023-219 Katarina, Reckless: register the 'from face down' card-played subscription — programs/filters.ts" +
+    " rejects the fromFaceDown filter field until the card-played payload records that provenance (RIFT-120 follow-up)"
 );

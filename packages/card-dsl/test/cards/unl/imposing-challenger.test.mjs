@@ -30,6 +30,10 @@ test("unl-105-219 Imposing Challenger: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /143\.2\.a\.1/);
   assert.match(program.judgeReason, /355\.4/);
   assert.match(program.judgeReason, /449\.2/);
+  // The program binding and event producers are merged; the reason must name
+  // the still-missing payload/anchor and the closed event vocabulary.
+  assert.match(program.judgeReason, /RIFT-270/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES|object-moved/);
 });
 
 test("unl-105-219 Imposing Challenger: 'When I move' subscribes to the object-moved timing point", () => {
@@ -112,14 +116,19 @@ test("unl-105-219 Imposing Challenger: declining the option moves nothing", () =
   });
 });
 
-test("unl-105-219 Imposing Challenger: the recorded dynamic destination fails closed in effect.move", () => {
-  // Evidence for judgeReason item 2: the printed "to a different battlefield"
-  // cannot be handed to the merged primitive as a LocationRef, and the
-  // placeholder string is rejected instead of being guessed into a location.
+test("unl-105-219 Imposing Challenger golden: accepting the option tries the recorded destination and moves nothing", () => {
+  // The accepting branch reaches effect.move with the card's own objects
+  // selection and recorded destination; the merged primitive rejects that
+  // destination before any relocation, so the enemy unit stays where it was and
+  // no guessed battlefield is used.
   const kernel = world()
+    .unit("imposing-challenger", { controller: "A", might: 5 })
     .unit("enemy-here", { controller: "B", might: 3, location: { type: "battlefield", id: "battlefield-1" } })
     .build();
-  const context = kernel.clone({ sourceSnapshot: kernel.getObject("enemy-here") });
+  kernel.setAnswers({ "imposing-challenger.move-opt/optional": true });
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("imposing-challenger") });
+
+  // The same selection the card declares, executed through the merged primitive.
   assert.throws(
     () =>
       runInstruction(
@@ -143,4 +152,10 @@ test.todo(
 );
 test.todo(
   "unl-105-219 Imposing Challenger: trigger on the Destination of the Move ('here' = the event's toLocationId) — events/action-adapter.ts does not populate the declared object-moved payload fields and the merged trigger matcher has no candidate-location vs event-location anchor (engine batch 4)"
+);
+test.todo(
+  "unl-105-219 Imposing Challenger: register the object-moved subscription in production — the closed EVENT_PATTERN_TYPES (events/trigger-spec.ts) has no object-moved spelling and programs/filters.ts drops the nested self anchor, so registerProgramTriggers fails closed (RIFT-120 follow-up)"
+);
+test.todo(
+  "unl-105-219 Imposing Challenger: bind 'an enemy unit here with less Might than me' as a TargetSpec through programs/filters.ts — the retained sameLocationAs/mightLessThan anchors are not supported card-side filter fields (RIFT-257 follow-up)"
 );

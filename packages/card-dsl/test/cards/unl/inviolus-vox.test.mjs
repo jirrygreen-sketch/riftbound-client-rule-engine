@@ -7,6 +7,10 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // card-dsl has no dependency edge on engine-core (engine-core depends on
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -16,6 +20,53 @@ const SOURCE_TEXT = "When I conquer, give a friendly unit +8 :rb_might: this tur
 const [conquerTrigger] = program.abilities;
 const [grantMight] = conquerTrigger.body;
 const targetSpec = grantMight.targets[0];
+
+/**
+ * chain/engine.ts resolves the static controller/owner spellings before it
+ * calls the production matcher: "self" becomes the ability controller and
+ * "opponent" excludes that player's objects. The reference kernel's own query
+ * compares filter values literally, so the goldens go through the same
+ * normalization the production chain applies (the merged siphon-power /
+ * switcheroo goldens use this exact helper).
+ */
+const chainQuery = (kernel, controller) => (value) => {
+  const normalized = { ...value };
+  for (const key of ["controller", "owner"]) {
+    if (normalized[key] === "self") normalized[key] = controller;
+  }
+  return kernel.query({}).filter((object) => {
+    for (const key of ["controller", "owner"]) {
+      if (normalized[key] === "opponent" && object[key] === controller) return false;
+    }
+    return matchesObjectFilter({
+      ...normalized,
+      ...(normalized.controller === "opponent" ? { controller: "any" } : {}),
+      ...(normalized.owner === "opponent" ? { owner: "any" } : {})
+    }, object);
+  });
+};
+
+const chainContext = (kernel, controller) => new Proxy(kernel, {
+  get(target, key) {
+    if (key === "query") return chainQuery(target, controller);
+    const value = Reflect.get(target, key);
+    return typeof value === "function" ? value.bind(target) : value;
+  }
+});
+
+const CONQUER_WORLD = () => world()
+  .unit("vox", { owner: "A", controller: "A", might: 8, location: { type: "battlefield", id: "bf-1" } })
+  .unit("friend", { owner: "A", controller: "A", might: 2, location: { type: "battlefield", id: "bf-1" } })
+  .unit("other-friend", { owner: "A", controller: "A", might: 4, location: { type: "battlefield", id: "bf-1" } })
+  .unit("enemy", { owner: "B", controller: "B", might: 3, location: { type: "battlefield", id: "bf-1" } })
+  .build();
+
+/** The registered arithmetic-layer entries, as the layer engine consumes them. */
+const registrations = (kernel) => kernel.continuousEffects.map(entry => ({
+  effect: entry.effect,
+  duration: entry.duration,
+  timestamp: 1
+}));
 
 test("unl-027-219 Inviolus Vox: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -32,7 +83,10 @@ test("unl-027-219 Inviolus Vox: identity, status, judgeReason and verbatim sourc
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /143\.2/);
   assert.match(program.judgeReason, /702/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  // The gap is now the trigger subscription, not the Might primitive: the
+  // judgeReason must name that and the merged primitive that already works.
+  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /RIFT-120/);
 });
 
 test("unl-027-219 Inviolus Vox: the conquer trigger is a Conquer Effect on self", () => {
@@ -52,16 +106,25 @@ test("unl-027-219 Inviolus Vox: the conquer trigger is a Conquer Effect on self"
   assert.equal(conquerTrigger.body.length, 1);
 });
 
-test("unl-027-219 Inviolus Vox: +8 Might for the turn is recorded with its target shape", () => {
+test("unl-027-219 Inviolus Vox: +8 Might for the turn is authored in the merged continuous.might shape", () => {
   assert.equal(grantMight.id, "inviolus-vox.grant-might-8");
-  // No merged continuous.might primitive exists; the op records the intended
-  // arithmetic-layer effect (see judgeReason) and must not be approximated with
+  // continuous.might (RIFT-258) is merged: it registers the arithmetic-layer
+  // modification through ctx.addContinuous and must not be approximated with
   // effect.buff (702 Buff counters are a different thing).
   assert.equal(grantMight.op, "continuous.might");
   assert.deepEqual(grantMight.args.amount, { kind: "constant", value: 8 });
   assert.deepEqual(grantMight.args.duration, { kind: "constant", value: "this-turn" });
-  assert.deepEqual(grantMight.args.layer, { kind: "constant", value: "arithmetic" });
   assert.deepEqual(grantMight.args.mode, { kind: "constant", value: "add" });
+  // The merged primitive's schema rejects the old descriptive layer argument
+  // (Invalid continuous.might argument: layer); the arithmetic layer is fixed
+  // by layers/ops buildMightSpec.
+  assert.equal(grantMight.args.layer, undefined);
+  // The chosen friendly unit is handed over as an evaluated selection
+  // descriptor: a bare target string is not a contract 3.2 Expr.
+  assert.deepEqual(grantMight.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "inviolus-vox.friendly-unit" }
+  });
   // 355.9 / 355.9.a.1: "a friendly unit" is one chosen Board unit controlled by
   // the ability's controller.
   assert.deepEqual(targetSpec, {
@@ -87,11 +150,77 @@ test("unl-027-219 Inviolus Vox: the +8 amount is a literal, not a read of some o
   assert.equal(grantMight.args.amount.value, 8);
 });
 
+test("unl-027-219 Inviolus Vox golden: the merged primitive registers the +8 arithmetic-layer modification", () => {
+  const kernel = CONQUER_WORLD();
+  // The production program-binding translator normalises the card's target
+  // filter ("controller" -> the ability controller) before the interpreter
+  // runs; the golden drives the translated body through the chain adapter.
+  const body = translateInstructionTargets(conquerTrigger.body);
+  const ctx = chainContext(kernel.clone({ sourceSnapshot: kernel.getObject("vox"), controller: "A" }), "A");
+  ctx.setTargets(targetSpec.id, [kernel.ref("friend")]);
+
+  const outcome = resolveChainBody(body, ctx);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map(entry => [entry.id, entry.result.status]),
+    [["inviolus-vox.grant-might-8", "executed"]]
+  );
+  // One registration for exactly the chosen friendly unit, in the arithmetic
+  // layer, with the printed +8 and the end-of-turn duration (317.1.a/468.7.c).
+  assert.deepEqual(
+    ctx.continuousEffects.map(entry => [entry.effect.filter.objectId, entry.effect.layer, entry.effect.effect.amount]),
+    [["friend", "arithmetic", 8]]
+  );
+  assert.deepEqual(ctx.continuousEffects.map(entry => entry.duration), [{ type: "end-of-turn" }]);
+});
+
+test("unl-027-219 Inviolus Vox golden: only the chosen friendly unit's Effective Might rises by 8", () => {
+  const kernel = CONQUER_WORLD();
+  const ctx = chainContext(kernel.clone({ sourceSnapshot: kernel.getObject("vox"), controller: "A" }), "A");
+  ctx.setTargets(targetSpec.id, [kernel.ref("friend")]);
+  resolveChainBody(translateInstructionTargets(conquerTrigger.body), ctx);
+
+  const engine = createLayerEngine(kernel.objects, registrations(ctx));
+  // 143.2.a: Might references the Effective Might after the arithmetic layer.
+  assert.equal(engine.evaluate(kernel.ref("friend")).might, 10);
+  // The other friendly unit, the enemy unit and the source itself are untouched.
+  assert.equal(engine.evaluate(kernel.ref("other-friend")).might, 4);
+  assert.equal(engine.evaluate(kernel.ref("enemy")).might, 3);
+  assert.equal(engine.evaluate(kernel.ref("vox")).might, 8);
+});
+
+test("unl-027-219 Inviolus Vox golden: the modification expires at the end of the turn (CR 317.1.a / 468.7.c)", () => {
+  const kernel = CONQUER_WORLD();
+  const ctx = chainContext(kernel.clone({ sourceSnapshot: kernel.getObject("vox"), controller: "A" }), "A");
+  ctx.setTargets(targetSpec.id, [kernel.ref("friend")]);
+  resolveChainBody(translateInstructionTargets(conquerTrigger.body), ctx);
+
+  const engine = createLayerEngine(kernel.objects, registrations(ctx));
+  assert.equal(engine.evaluate(kernel.ref("friend")).might, 10);
+  assert.equal(engine.expireAt("turn-end").length, 1);
+  assert.equal(engine.evaluate(kernel.ref("friend")).might, 2);
+});
+
+test("unl-027-219 Inviolus Vox golden: a locked friendly unit that left the Board makes the grant ignored", () => {
+  const kernel = CONQUER_WORLD();
+  const ctx = chainContext(kernel.clone({ sourceSnapshot: kernel.getObject("vox"), controller: "A" }), "A");
+  const stale = kernel.ref("friend");
+  ctx.perform({ type: "kill", object: stale });
+  ctx.setTargets(targetSpec.id, [stale]);
+
+  const outcome = resolveChainBody(translateInstructionTargets(conquerTrigger.body), ctx);
+  // 359.3.e.2/e.6: every selected reference is stale, so the instruction is
+  // ignored and nothing is retargeted at "other-friend".
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(ctx.continuousEffects.length, 0);
+});
+
 test.todo(
-  "unl-027-219 Inviolus Vox: apply +8 Might in the arithmetic layer with a this-turn duration and cleanup" +
-    " expiry (CR 143.2.a / 475 / 478; no continuous.might instruction is merged — RIFT-91)"
+  "unl-027-219 Inviolus Vox: fire 'When I conquer' from the real scoring flow — turn/flow.ts emits conquer" +
+    " with player/details only, so the {source: \"self\"} subscription has no event object to match (CR 383.4.c.2.a; RIFT-120 follow-up)"
 );
 test.todo(
-  "unl-027-219 Inviolus Vox: the conquer trigger is registered and its friendly-unit target is locked at" +
-    " Finalize (CR 383.4.c.2.a; RIFT-120 / RIFT-90)"
+  "unl-027-219 Inviolus Vox: lock the friendly-unit target at Finalize from the production chain (CR 355.9; RIFT-90/RIFT-257 follow-up) —" +
+    " the golden supplies the locked target set, and chain/engine.ts's query binds only self/opponent, not the card's controller placeholder"
 );

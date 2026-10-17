@@ -92,6 +92,10 @@ test("unl-003-219 Mischievous Marai: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /811\.1\.b/);
   assert.match(program.judgeReason, /card-played/);
   assert.match(program.judgeReason, /RIFT-89/);
+  // The program binding is merged, so the reason must name the missing
+  // play-location payload and the missing static registration path.
+  assert.match(program.judgeReason, /noopStaticBinder/);
+  assert.match(program.judgeReason, /details/);
 });
 
 test("unl-003-219 Mischievous Marai: Hidden keyword plus a self play trigger dealing 2", () => {
@@ -210,6 +214,31 @@ test("unl-003-219 Mischievous Marai: the primitive itself reports the full targe
 
 test("unl-003-219 Mischievous Marai: the generated card registry exposes the program under its canonical id", () => {
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
+});
+
+test("unl-003-219 Mischievous Marai: the 'to a battlefield' gate is a concrete card-played detail", async () => {
+  // 143.4 / 359.2.c: a unit may be played to a Base or a Battlefield, so the
+  // printed "to a battlefield" is a real condition on the play event, not a
+  // redundant restatement of "played". The card therefore states it as the
+  // card-played detail that the merged matcher would compare, and the golden
+  // pins that the subscription stays a detail match (the payload producer is
+  // the recorded gap, see test.todo).
+  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  const translated = translateTriggerFilter(triggered.trigger.filter, "marai");
+  assert.deepEqual(translated.details, { playedTo: "battlefield" });
+  assert.equal(translated.event, "card-played");
+  assert.deepEqual(translated.object, { type: "unit", controller: "self" });
+  assert.equal(translated.player, "self");
+});
+
+test("unl-003-219 Mischievous Marai: the declared Hidden keyword expands to the cost.hidden declaration", async () => {
+  // 811.1.b/c: [Hidden] is a KeywordDef-provided static cost declaration; the
+  // card declares the keyword only (contract 3.7) and the definition owns the
+  // expansion, so the golden pins that expansion rather than restating it.
+  const { default: hidden } = await import("../../../../engine-core/dist/effects/keywords/Hidden.js");
+  const [expansion] = hidden.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expansion.kind, "static");
+  assert.deepEqual(expansion.effect, { kind: "cost.hidden" });
 });
 
 test.todo(

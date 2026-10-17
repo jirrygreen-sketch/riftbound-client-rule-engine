@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/master-yi-tempered.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
 const CANONICAL_ID =
   "card.hash-c32a0493f88b4c947cb3f7806d8ba125b166dd6478a848bb39f1da87aed3ae92";
@@ -23,10 +24,16 @@ test("unl-113-219 Master Yi, Tempered: identity, status, judgeReason and verbati
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /823\.1\.c\.1/);
   assert.match(program.judgeReason, /824\.1/);
   assert.match(program.judgeReason, /Deflect/);
   assert.match(program.judgeReason, /Ganking/);
+  // The merged keyword definitions are named as such; the remaining gaps are
+  // the trigger spelling/object payload, the XP predicate and the missing
+  // card-static registration.
+  assert.match(program.judgeReason, /RIFT-265/);
+  assert.match(program.judgeReason, /RIFT-268/);
 });
 
 test("unl-113-219 Master Yi, Tempered: [Hunt 2] carries its printed Hunt Value", () => {
@@ -63,17 +70,57 @@ test("unl-113-219 Master Yi, Tempered: Ganking is granted to the host", () => {
   assert.deepEqual(gankingGrant.effect.filter, { object: "self" });
 });
 
-test("unl-113-219 Master Yi, Tempered: the merged keyword registry has no Hunt or Level entry", async () => {
+test("unl-113-219 Master Yi, Tempered: the merged keyword registry now provides Hunt and Level", async () => {
   const { keywordDefinitionsById } = await import(
     "../../../../engine-core/dist/effects/keywords/registry.generated.js"
   );
-  assert.equal(keywordDefinitionsById.has("Hunt"), false);
-  assert.equal(keywordDefinitionsById.has("Level"), false);
-  // The two keywords this card needs for its grants are already merged, which is
-  // why the judgeReason points at the grant-registration and XP-predicate gaps
-  // rather than at missing Deflect/Ganking definitions.
+  // RIFT-265 and RIFT-268 merged these definitions, so the card's remaining
+  // gaps are the subscription spelling/object payload and the unevaluated XP
+  // predicate, not the missing KeywordDefs.
+  assert.equal(keywordDefinitionsById.has("Hunt"), true);
+  assert.equal(keywordDefinitionsById.has("Level"), true);
   assert.equal(keywordDefinitionsById.has("Deflect"), true);
   assert.equal(keywordDefinitionsById.has("Ganking"), true);
+});
+
+test("unl-113-219 Master Yi, Tempered: Hunt 2 expands to the conquer/hold XP triggers (823.1.c.1)", async () => {
+  const { default: hunt } = await import("../../../../engine-core/dist/effects/keywords/Hunt.js");
+  const expansion = hunt.expand({ value: hunt.value ?? program.abilities[0].value, host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expansion.length, 2);
+  assert.deepEqual(expansion.map(ability => ability.trigger.at), ["conquer", "hold"]);
+  assert.deepEqual(expansion.map(ability => ability.body[0].op), ["effect.xp", "effect.xp"]);
+  // 823.2: the printed Hunt Value 2 flows through the keyword's own expansion,
+  // so the card does not restate the XP gain.
+  assert.deepEqual(expansion.map(ability => ability.body[0].args.amount), [
+    { kind: "constant", value: 2 },
+    { kind: "constant", value: 2 }
+  ]);
+});
+
+test("unl-113-219 Master Yi, Tempered: the Level expansion publishes the 6+ XP predicate for the layers pipeline", async () => {
+  const { default: level } = await import("../../../../engine-core/dist/effects/keywords/Level.js");
+  const [predicate] = level.expand({ value: 6, host: { canonicalCardId: CANONICAL_ID } });
+  // 824.1.a / 824.1.b.1: [Level 6][>] publishes the threshold predicate that
+  // makes the dependent ability text Active while the controller has 6+ XP.
+  assert.equal(predicate.kind, "static");
+  assert.equal(predicate.effect.kind, "condition.predicate");
+  assert.deepEqual(predicate.effect.threshold, { kind: "constant", value: 6 });
+  assert.equal(predicate.effect.operator, "gte");
+  assert.equal(predicate.effect.controller, "controller");
+  assert.equal(predicate.effect.link, "active");
+});
+
+test("unl-113-219 Master Yi, Tempered: the card's own grants are registered as static declarations", () => {
+  // The two static abilities are the card's [Level 6][>] grants. They are
+  // authored per contract 3.7; installing them into layers is the recorded gap.
+  assert.deepEqual(program.abilities.filter(ability => ability.kind === "static").map(ability => [
+    ability.effect.kind,
+    ability.effect.keyword,
+    ability.condition.right.value
+  ]), [
+    ["continuous.grant-keyword", "Deflect", 6],
+    ["continuous.grant-keyword", "Ganking", 6]
+  ]);
 });
 
 test("unl-113-219 Master Yi, Tempered: the Deflect expansion is a target tax the merged target plan can bill", async () => {

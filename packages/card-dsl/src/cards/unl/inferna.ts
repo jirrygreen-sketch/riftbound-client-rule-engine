@@ -20,17 +20,19 @@ import type { CardProgram } from "../../ir/index.js";
  *   807.3 说明这是可被引用的特征。展开（static continuous.might + designation
  *   条件）由 effects/keywords/Assault.ts（RIFT-81）提供，卡文件不重复实现。
  *
- * status = judge-required（缺口不近似实现）：
- * - [Ambush] 没有 KeywordDef 文件（effects/keywords/ 下无 Ambush.ts），822.1.b/.c 的
- *   合法打出位置与 Reaction 许可因此没有展开实现；也不能用 [Reaction] 关键词冒充
- *   （822.1.b 的 Reaction 只在"以 Ambush 方式打出"时成立，且只落在该次打出的链项上）。
- * - [Assault 2] 的展开文件已合入，但没有生产方把卡牌的 keyword 能力解析成 KeywordDef
- *   展开并注册进图层（layers/engine.ts 的 registerContinuousEffect 无调用方），
- *   且 807.1.d 的 Attacker designation 不是 ObjectSnapshot 特征（契约 3.8 的 combatRole
- *   未进当前 HEAD）。
- *
- * 依赖：RIFT-84（kw-* 关键词展开批次中的 Ambush）、RIFT-81 / RIFT-91（Assault 展开与
- * 图层接线）、契约 3.8 的 combatRole 落地。
+ * status = judge-required（按 2026-10-16 合入批次复核；缺口不近似实现）：
+ * - [Ambush] 的 KeywordDef 已合入（effects/keywords/Ambush.ts，RIFT-266），展开为
+ *   play-location-permission 与 continuous.timing 两个静态声明；两个声明都没有消费方：
+ *   programs/statics.ts 缺省 noopStaticBinder，layers/rules/query.ts 的 playLocations()
+ *   没有调用方，chain.canAct() 也不读取图层时机许可。仍然不能用 [Reaction] 关键词冒充
+ *   （822.1.b 的 Reaction 只在以 Ambush 打出那一次成立，813.1.c 的 [Reaction] 是整张牌的常驻许可）。
+ * - [Assault 2] 的 KeywordDef 已合入（RIFT-102 批次），programs/keywords.ts 的 expandProgram
+ *   会把 keyword 声明解析成展开并做校验；但展开出的静态效果仍需卡牌 static 生产方注册进图层，
+ *   且 Assault.ts 的条件读宿主 "designation"（807.1.d），而 ObjectSnapshot 只有 combatRole
+ *   （契约 3.8），layers/engine.ts 的 conditionMatches 不评估 compare、未识别按 true
+ *   （exp25 实测：非攻击者也 +2），因此直接注册会把「仅攻击者 +2」变成常驻 +2。
+ * 依赖：卡牌 static/keyword 展开 → layers 的注册路径（RIFT-257 后续）、playLocations/canAct
+ * 消费方（RIFT-259 后续）、图层 compare 条件与 designation/combatRole 对齐（RIFT-91 后续）。
  */
 export default {
   canonicalCardId:
@@ -38,16 +40,19 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入：(1) [Ambush]（822）没有已合入的 KeywordDef——effects/keywords/ 下无 Ambush.ts，" +
-    "822.1.b/.c 的“可打到你有单位的战场”位置改写与仅在该次打出时成立的 Reaction 许可没有展开实现；" +
-    "不能用 [Reaction] 关键词冒充（813.1.c 的 Reaction 是整张牌的常驻许可，而 822.1.b 的" +
-    "Reaction 只在以 Ambush 方式打出的那一次成立）。" +
-    "(2) [Assault 2] 的展开文件 effects/keywords/Assault.ts（RIFT-81：static continuous.might + " +
-    "compare(object-property(self, 'designation'), eq, 'attacker')）已合入，但没有生产方把卡牌的 keyword " +
-    "能力解析为 KeywordDef 展开并注册成 continuous 效果（registerContinuousEffect 无调用方），" +
-    "且 807.1.d 的 Attacker designation 不是 ObjectSnapshot 特征（契约 3.8 combatRole 未进 HEAD）。" +
-    "依赖：RIFT-84（kw-* 展开批次中的 Ambush）、RIFT-81 / RIFT-91（Assault 展开与图层接线）、" +
-    "契约 3.8 的 combatRole 落地。不近似实现。",
+    "两处缺口，均不近似实现（已按 2026-10-16 合入批次复核）：" +
+    "(1) [Ambush]（822）的 KeywordDef 已合入（effects/keywords/Ambush.ts，RIFT-266），展开为 " +
+    "play-location-permission 与 continuous.timing 两个静态声明，但都没有消费方：programs/statics.ts 缺省 " +
+    "noopStaticBinder（没有把卡牌 static 能力注册进图层的入口），layers/rules/query.ts 的 playLocations() " +
+    "无调用方，chain.canAct() 不读取图层时机许可；仍不能用 [Reaction] 关键词冒充（822.1.b 的 Reaction " +
+    "只在以 Ambush 打出那一次成立，813.1.c 的 [Reaction] 是整张牌的常驻许可）。" +
+    "(2) [Assault 2]（807.1.b.3 的印刷值 2）的 KeywordDef 已合入（RIFT-102 批次）且 programs/keywords.ts " +
+    "会解析 keyword 声明并校验展开；但展开出的 static continuous.might 仍缺卡牌 static 生产方，且 Assault 的 " +
+    "条件 compare(object-property(self, 'designation'), eq, 'attacker')（807.1.d）无法诚实求值：" +
+    "ObjectSnapshot 只有 combatRole（契约 3.8），layers/engine.ts 的 conditionMatches 不评估 compare、" +
+    "未识别时按 true（实测非攻击者也 +2），直接注册会把「仅攻击者 +2」变成常驻 +2。" +
+    "依赖：卡牌 static/keyword 展开 → layers 注册（RIFT-257 后续）、playLocations/canAct 消费方（RIFT-259 后续）、" +
+    "图层 compare 条件与 designation/combatRole 对齐（RIFT-91 后续）。",
   abilities: [
     { kind: "keyword", keyword: "ambush" },
     // 807.1.b.1-2 / 807.1.b.3：印刷为 "Assault 2"，Assault Value = 2（缺省才是 1）。

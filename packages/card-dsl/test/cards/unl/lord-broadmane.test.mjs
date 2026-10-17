@@ -4,7 +4,10 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/lord-broadmane.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { queryObjects } from "../../../../engine-core/dist/effects/interpreter/selectors.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -17,7 +20,7 @@ const SOURCE_TEXT =
 
 const [keyword, triggered] = program.abilities;
 const [grantAssault] = triggered.body;
-const grantedFilter = grantAssault.args.filter.value;
+const grantedFilter = grantAssault.args.objects.value.filter;
 
 /** Mirrors chain/engine.ts's normalization of the static controller spellings. */
 function chainQuery(kernel, controller) {
@@ -53,7 +56,11 @@ test("unl-012-219 Lord Broadmane: identity, status, judgeReason and verbatim sou
   assert.match(program.judgeReason, /Ambush/);
   assert.match(program.judgeReason, /822\.1\.b/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-84/);
+  // Ambush's KeywordDef is merged now, so the reason must name the missing
+  // consumers (static -> layers, playLocations/canAct) instead of RIFT-84.
+  assert.match(program.judgeReason, /RIFT-266/);
+  assert.match(program.judgeReason, /noopStaticBinder|playLocations/);
+  assert.match(program.judgeReason, /designation/);
 });
 
 test("unl-012-219 Lord Broadmane: Ambush keyword plus a self play trigger", () => {
@@ -69,6 +76,27 @@ test("unl-012-219 Lord Broadmane: Ambush keyword plus a self play trigger", () =
   assert.deepEqual(triggered.trigger.filter, { event: "card-played", filter: { source: "self" } });
   assert.equal(triggered.trigger.condition, undefined);
   assert.equal(triggered.optional, false);
+});
+
+test("unl-012-219 Lord Broadmane: the registered trigger host binding resolves the self anchor", () => {
+  // programs/filters.ts normalises {source: "self"} to the host object filter
+  // and programs/triggers.ts registers the subscription; both are merged
+  // (RIFT-257), so the Play Effect half has a production path.
+  const translated = translateInstructionTargets(triggered.body);
+  assert.equal(translated.length, 1);
+  assert.deepEqual(translated[0].args.objects, {
+    kind: "constant",
+    value: {
+      kind: "query",
+      filter: {
+        zone: "board",
+        type: "unit",
+        controller: "self",
+        exclude: "self",
+        sameLocationAs: "self"
+      }
+    }
+  });
 });
 
 test("unl-012-219 Lord Broadmane: the granted Assault lasts this turn and exempts the source itself", () => {
@@ -121,13 +149,83 @@ test("unl-012-219 Lord Broadmane: the generated card registry exposes the progra
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
+test("unl-012-219 Lord Broadmane golden: the merged grant registers on exactly the other friendly units here", () => {
+  const kernel = world()
+    .unit("broadmane", { owner: "A", controller: "A", might: 5, location: { type: "battlefield", id: "bf-1" } })
+    .unit("friendly-here", { owner: "A", controller: "A", might: 2, location: { type: "battlefield", id: "bf-1" } })
+    .unit("friendly-elsewhere", { owner: "A", controller: "A", might: 2, location: { type: "battlefield", id: "bf-2" } })
+    .unit("enemy-here", { owner: "B", controller: "B", might: 2, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  // The card's filter uses the "self" controller placeholder; the production
+  // chain normalises it to the ability controller (the same helper the
+  // siphon-power golden uses), and the reference kernel applies the anchor
+  // semantics of effects/interpreter/selectors.ts.
+  const ctx = new Proxy(kernel.clone({ sourceSnapshot: kernel.getObject("broadmane"), controller: "A" }), {
+    get(target, key) {
+      if (key === "query") return chainQuery(target, "A");
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
+
+  const outcome = resolveChainBody(translateInstructionTargets(triggered.body), ctx);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["lord-broadmane.grant-assault", "executed"]
+  ]);
+  // One ability-layer registration per affected unit: only the other friendly
+  // unit at the host's battlefield ("other" excludes the source, "here" keeps
+  // the same location, "your" excludes the enemy unit).
+  assert.deepEqual(ctx.continuousEffects.map(entry => entry.effect.filter.objectId), ["friendly-here"]);
+  assert.deepEqual(ctx.continuousEffects.map(entry => entry.effect.layer), ["ability"]);
+  // layers/ops buildKeywordGrantSpec writes the grant plus its non-promotion
+  // guard; the keyword and the ability layer are the parts that matter here.
+  assert.deepEqual(
+    ctx.continuousEffects.map(entry => [entry.effect.effect.kind, entry.effect.effect.keyword]),
+    [["continuous.grant-keyword", "assault"]]
+  );
+  assert.deepEqual(ctx.continuousEffects.map(entry => entry.duration), [{ type: "end-of-turn" }]);
+
+  // The layers engine really applies the granted keyword (478.1.a ability
+  // layer), so the granting half is executable behaviour, not a data shape.
+  const engine = createLayerEngine(kernel.objects, ctx.continuousEffects.map(entry => ({
+    effect: entry.effect,
+    duration: entry.duration,
+    timestamp: 1
+  })));
+  const keywordIds = (id) => engine.evaluate(kernel.ref(id)).keywords.map(keyword => keyword.id);
+  assert.deepEqual(keywordIds("friendly-here"), ["assault"]);
+  assert.deepEqual(keywordIds("friendly-elsewhere"), []);
+  assert.deepEqual(keywordIds("enemy-here"), []);
+  assert.deepEqual(keywordIds("broadmane"), []);
+});
+
+test("unl-012-219 Lord Broadmane: the granted Assault's expansion is the attacker-gated Might modifier (807.1.c)", async () => {
+  // The grant is the card's own instruction; what the granted keyword means is
+  // Assault's expansion, so the golden pins that the granted keyword expands to
+  // the attacker-gated +1 (rather than being restated in the card).
+  const { default: assault } = await import("../../../../engine-core/dist/effects/keywords/Assault.js");
+  const [expansion] = assault.expand({ value: 1, host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expansion.effect.kind, "continuous.might");
+  assert.deepEqual(expansion.effect.amount, { kind: "constant", value: 1 });
+  assert.equal(expansion.effect.layer, "arithmetic");
+  assert.deepEqual(expansion.condition.left, {
+    kind: "object-property",
+    object: "self",
+    property: "designation"
+  });
+  assert.equal(expansion.condition.operator, "eq");
+  assert.deepEqual(expansion.condition.right, { kind: "constant", value: "attacker" });
+});
+
 test.todo(
-  "unl-012-219 Lord Broadmane: expand [Ambush] (CR 822.1.b/.c) — the battlefield-where-you-control-Units play " +
-    "location plus the Reaction permission for that play only; effects/keywords/Ambush.ts is not merged (RIFT-84)"
+  "unl-012-219 Lord Broadmane: play [Ambush] from the real play flow (CR 822.1.b/.c) — the KeywordDef is merged " +
+    "(RIFT-266) but its play-location-permission has no consumer (layers/rules/query.ts playLocations has no caller) " +
+    "and chain.canAct() does not read the layer timing permission"
 );
 
 test.todo(
-  "unl-012-219 Lord Broadmane: grant [Assault] to your other units here until end of turn (CR 801.3.a.2, 807.1.b.3) — " +
-    "no registered continuous.grant-keyword instruction primitive and no consumer that registers a card's abilities " +
-    "through layers (RIFT-81 / RIFT-91)"
+  "unl-012-219 Lord Broadmane: apply the granted Assault as +1 Might while the unit is an attacker (CR 807.1.c/807.1.d) — " +
+    "Assault's compare against the \"designation\" characteristic cannot be evaluated (ObjectSnapshot exposes combatRole, " +
+    "layers/engine.ts treats an unknown compare condition as true), and no producer registers a card's static abilities into layers"
 );

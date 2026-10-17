@@ -27,37 +27,50 @@ import type { CardProgram } from "../../ir/index.js";
  * - 810.1 / 810.1.b / 810.1.c.1: [Ganking] adds the Battlefield→Battlefield
  *   Standard Move permission.
  *
- * Status: judge-required. Four merged gaps (none approximated):
- * - No Hunt KeywordDef exists (effects/keywords/ has Accelerate, Action,
- *   Assault, Deathknell, Deflect, Equip, Ganking, Hidden, Legion, Mighty,
- *   Quick-Draw, Reaction, Repeat, Shield, Vision, Weaponmaster), so Hunt 2's
- *   conquer/hold subscription, XP gain and value summing are not implemented.
- * - No kw-level expansion exists and the frozen Condition algebra
- *   (always / never / expression / compare / all / any / not) has no path to
- *   PlayerSnapshot.xp, so 824.1.c.1 / 824.1.d cannot be evaluated.
- * - The Deflect half needs the ":rb_rune_rainbow:" any-domain Power tax to be
- *   billed for a granted keyword: effects/keywords/Deflect.ts expands into the
- *   static target.tax shape and the merged target plan charges it, but no merged
- *   producer turns a CardProgram static ability into the registered effect, and
- *   the Level gate cannot be attached.
- * - The Ganking half needs a continuous.grant-keyword registration and a
- *   movement consumer; zones/movement.ts and effect.move do not read that
- *   permission.
+ * Status: judge-required. Re-checked against the merged keyword, program-binding
+ * and continuous-effect batches (RIFT-257/258/259/261 follow-ups, 2026-10-16):
+ * - Hunt's KeywordDef (RIFT-265) and Level's (RIFT-268) are merged, so the
+ *   "no Hunt / no Level entry" gap is obsolete. Hunt's expansion still cannot
+ *   subscribe: it authors the event spellings "conquer"/"hold", while the
+ *   closed EVENT_PATTERN_TYPES vocabulary is "conquered"/"held"
+ *   (events/trigger-spec.ts with the EVENT_NAMES aliases in
+ *   events/pipeline-match.ts), so registerProgramTriggers throws
+ *   invalid-event-type; and the conquer emission carries no object
+ *   (turn/flow.ts Score wave emits { timingPoint, player, details }), so the
+ *   source:"self" anchor cannot match the conquering unit (823.1.c.1).
+ * - Level's expansion is a `condition.predicate` static effect that no merged
+ *   evaluator consumes (layers/engine.ts applyAbility/conditionMatches ignore
+ *   that kind and an unknown compare condition evaluates to true), and
+ *   PlayerSnapshot.xp is not readable from an Expr, so 824.1.c.1 / 824.1.d
+ *   cannot be evaluated.
+ * - No merged producer registers a card's static ability as a layer effect
+ *   (programs/statics.ts defaults to noopStaticBinder), so the Level-gated
+ *   Deflect target tax is never installed; nothing derives a target.tax from a
+ *   granted keyword either (the merged target plan bills only a caller-supplied
+ *   tax).
+ * - The Ganking half needs a movement consumer: continuous.movement registers
+ *   (RIFT-258) and the layer engine records the permission, but
+ *   zones/movement.ts and effect.move never read it.
  */
 export default {
   canonicalCardId: "card.hash-c32a0493f88b4c947cb3f7806d8ba125b166dd6478a848bb39f1da87aed3ae92",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均不近似实现：(1) [Hunt 2] 只是关键词声明——effects/keywords/ 没有 Hunt.ts，" +
-    "823.1.c.1 的 conquer/hold 订阅与获得 2 XP、823.2 的多来源相加未实现；" +
-    "(2) [Level 6][>] 依赖式关键词（824.1.b.1）没有 kw-level 展开：824.1.c / 824.1.d 需要可求值的" +
-    "「控制者 XP ≥ 6」谓词与动态失活，而 Condition 只有 always/never/expression/compare/all/any/not，" +
-    "读取 PlayerSnapshot.xp 没有进入 Expr/谓词的路径；" +
-    "(3) [Deflect] 一半需要把授予的目标税真正计费：effects/keywords/Deflect.ts 只声明静态 target.tax 形状，" +
-    "没有任何已合入生产方把 CardProgram 的 static 能力注册成持续效果，且该效果还必须被上面的 XP 门槛守住；" +
-    "(4) [Ganking] 一半需要 continuous.grant-keyword 注册路径与移动许可消费方（810.1.c/144.4.c）：" +
-    "zones/movement.ts 与 effect.move 都不读取该许可。依赖：Hunt / Level 关键词展开、XP 谓词路径、RIFT-91 卡牌接线与 combat/movement 消费方。",
+    "四处缺口，均不近似实现（已按 2026-10-16 合入批次复核）：" +
+    "(1) [Hunt 2] 的 KeywordDef 已合入（RIFT-265），但它的展开无法订阅：Hunt.ts 写的事件拼写是 \"conquer\"/\"hold\"，" +
+    "而封闭 EVENT_PATTERN_TYPES（events/trigger-spec.ts，配 events/pipeline-match.ts 的 EVENT_NAMES 别名）只接受 " +
+    "\"conquered\"/\"held\"，registerProgramTriggers 会抛 invalid-event-type；且 conquer 发射不带对象" +
+    "（turn/flow.ts 的 Score 波只发 { timingPoint, player, details }），source:\"self\" 锚点匹配不到征服单位（823.1.c.1）；" +
+    "(2) [Level 6][>] 的 KeywordDef 已合入（RIFT-268），但展开出的 condition.predicate 静态效果没有任何已合入求值器" +
+    "（layers/engine.ts 的 applyAbility/conditionMatches 不识别该 kind，未识别条件按 true），且 PlayerSnapshot.xp " +
+    "不是 Expr 可读特征，824.1.c.1 / 824.1.d 的动态失活无法判定；" +
+    "(3) [Deflect] 的目标税仍然没有安装方：effects/keywords/Deflect.ts 只声明静态 target.tax 形状，" +
+    "没有生产方把 CardProgram 的 static 能力注册成图层效果（programs/statics.ts 缺省 noopStaticBinder），" +
+    "也没有任何路径从「已授予的关键词」生成目标税（目标计划只收调用方提供的 tax）；" +
+    "(4) [Ganking] 的 continuous.movement 已能注册（RIFT-258）并由图层记录许可，但 zones/movement.ts 与 effect.move " +
+    "都不读取该许可（810.1.c/144.4.c）。依赖：conquer/hold 触发拼写与对象载荷（RIFT-120 后续）、" +
+    "XP 谓词/图层 compare 求值（RIFT-91 后续）、卡牌 static → layers 注册与目标税消费方（RIFT-257/90）、移动许可消费方。",
   abilities: [
     // 823.1.c.3：X 是本印刷的 Hunt Value 2。
     { kind: "keyword", keyword: "hunt", value: 2 },

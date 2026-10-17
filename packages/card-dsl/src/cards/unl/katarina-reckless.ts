@@ -19,14 +19,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “deal 2 to an enemy unit”（418 / 429.6 的 Deal 格式；355.9 / 355.10）：单个对手控制的单位是
  *   选目标，用已合入的 effect.damage（amount 2、target 指向 TargetSpec）。
  *
- * status = judge-required（缺口不近似实现）：
- * - “When you hide a card” 不可执行：已合入代码没有任何模块 emit card-hidden（GameAction 封闭集合里
- *   没有 Hide 动作，面朝下区域与 cost.hidden 属 RIFT-89 的 Hide 工作），因此触发无法进链。
- * - “When you play a card from face down” 同样不可执行：card-played 载荷与 ObjectSnapshot 都不暴露
- *   “该牌此前面朝下”的特征（811.1.d；与已合入 rad/evelynn-consuming 记录同一缺口）。
- * - 两条触发都缺 CardProgram → TriggerRegistration 的注册路径（RIFT-120）。
- * 已合入并可真实执行的部分：effect.ready（ready me）与 effect.damage（deal 2 to an enemy unit），
- * golden 用解释器 + 参考内核执行。
+ * status = judge-required（按 2026-10-16 合入批次复核；缺口不近似实现）：
+ * - "When you hide a card" 的订阅仍不可注册：events/timing-points.ts 定义了 card-hidden，但封闭
+ *   EVENT_PATTERN_TYPES（events/trigger-spec.ts）没有该拼写，programs/triggers.ts 注册时会抛
+ *   invalid-event-type；更根本的是没有任何模块 emit card-hidden（GameAction 封闭集合没有 Hide 动作，
+ *   面朝下区域与 cost.hidden 属 RIFT-89 的 Hide 工作，producers/ 也没有对应产生器）。
+ * - "When you play a card from face down" 同样不可执行：card-played 载荷与 ObjectSnapshot 都不暴露
+ *   "该牌此前面朝下"的特征（811.1.d；与已合入 rad/evelynn-consuming 记录同一缺口），
+ *   programs/filters.ts 也不接受 fromFaceDown 过滤键。
+ * 已合入并可真实执行的部分：card-played 触发注册（programs/filters.ts + programs/triggers.ts，RIFT-257）
+ * 与触发体 effect.ready（ready me）、effect.damage（deal 2 to an enemy unit）；golden 用链适配器 + 参考内核执行。
+ * 依赖：Hide 动作与 card-hidden 发射/拼写（RIFT-89 后续）、card-played 的 face-down 出处载荷（RIFT-120 后续）。
  */
 const abilities: Ability[] = [
   {
@@ -83,14 +86,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两条触发都不可执行：(1)「When you hide a card」依赖 card-hidden 时点（422.1）真正被发出，" +
-    "但合并内核没有 Hide 动作：GameAction 封闭集合里没有 hide，面朝下区域与 Hide/cost.hidden 属 RIFT-89，" +
-    "没有任何模块 emit card-hidden，触发无法进链。" +
+    "两条触发都不可执行（已按 2026-10-16 合入批次复核，均不近似实现）：" +
+    "(1)「When you hide a card」（422.1 的 Hide 行动）的订阅注册就会失败：封闭 EVENT_PATTERN_TYPES（events/trigger-spec.ts）不含 " +
+    "\"card-hidden\"，programs/triggers.ts 注册时抛 invalid-event-type；且没有任何模块 emit card-hidden" +
+    "（GameAction 封闭集合里没有 hide，面朝下区域与 Hide/cost.hidden 属 RIFT-89，events/producers/ 也无对应产生器）。" +
     "(2)「When you play a card from face down」需要「该牌此前在面朝下区域」的事实（811.1.d 与 Facedown Zone 口径），" +
-    "当前 card-played 事件载荷与 ObjectSnapshot 都不暴露该特征（与已合入 rad/evelynn-consuming 记录同一缺口）。" +
-    "两条触发还缺 CardProgram → TriggerRegistration 的注册路径（RIFT-120）。" +
-    "已合入并可真实执行的部分：effect.ready（ready me）与 effect.damage（deal 2 to an enemy unit），" +
-    "golden 用解释器 + 参考内核覆盖。依赖：RIFT-89（Hide/面朝下）、RIFT-120（触发注册）。不近似实现。",
+    "当前 card-played 事件载荷与 ObjectSnapshot 都不暴露该特征（与已合入 rad/evelynn-consuming 同一缺口），" +
+    "programs/filters.ts 也不接受 fromFaceDown 过滤键。" +
+    "已合入并可真实执行的部分：card-played 触发注册（programs/filters.ts + programs/triggers.ts，RIFT-257）与触发体 " +
+    "effect.ready（ready me）、effect.damage（deal 2 to an enemy unit），golden 用链适配器 + 参考内核覆盖。" +
+    "依赖：Hide 动作与 card-hidden 的发射/拼写接线（RIFT-89 后续）、card-played 的 face-down 出处载荷（RIFT-120 后续）。",
   abilities,
   sourceText:
     "When you hide a card, ready me.\n" +

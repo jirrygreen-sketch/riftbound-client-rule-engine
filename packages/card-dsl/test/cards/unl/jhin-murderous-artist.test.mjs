@@ -36,8 +36,11 @@ test("unl-022-219 Jhin, Murderous Artist: identity, status, judgeReason and verb
   assert.match(program.judgeReason, /Universal/);
   assert.match(program.judgeReason, /rainbow/);
   assert.match(program.judgeReason, /163\.2\.b/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  // Both keyword definitions are merged now; the remaining gaps are the static
+  // registration / target-tax / movement consumers and the object-moved
+  // subscription spelling.
+  assert.match(program.judgeReason, /noopStaticBinder/);
+  assert.match(program.judgeReason, /object-moved/);
 });
 
 test("unl-022-219 Jhin, Murderous Artist: [Deflect] and [Ganking] keyword declarations", () => {
@@ -73,6 +76,27 @@ test("unl-022-219 Jhin, Murderous Artist: the body adds 1 Energy and keeps [A] d
   assert.equal(addResources.targets, undefined);
   assert.equal(addResources.picks, undefined);
   assert.equal(addResources.linkedTo, undefined);
+});
+
+test("unl-022-219 Jhin, Murderous Artist: [Deflect] and [Ganking] expand to merged static shapes", async () => {
+  const { default: deflect } = await import("../../../../engine-core/dist/effects/keywords/Deflect.js");
+  const { default: ganking } = await import("../../../../engine-core/dist/effects/keywords/Ganking.js");
+  const [deflectExpansion] = deflect.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  // 809.1.b.3: the printed [Deflect] omits its value, so X is presumed 1.
+  assert.equal(deflectExpansion.effect.kind, "target.tax");
+  assert.deepEqual(deflectExpansion.effect.value, { kind: "constant", value: 1 });
+  const [gankingExpansion] = ganking.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  // 810.1.b: Ganking adds the Battlefield -> Battlefield Standard Move permission.
+  assert.equal(gankingExpansion.effect.kind, "continuous.movement");
+  assert.equal(gankingExpansion.effect.permission, "battlefield-to-battlefield");
+});
+
+test("unl-022-219 Jhin, Murderous Artist: the program binding resolves the trigger's self anchor", async () => {
+  // programs/filters.ts normalises the {source: "self"} spelling to the host
+  // object filter, so the authored anchor has a production translation.
+  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  const translated = translateTriggerFilter(movedTrigger.trigger.filter, "jhin");
+  assert.deepEqual(translated, { event: "object-moved", object: { objectId: "jhin" } });
 });
 
 test("unl-022-219 Jhin, Murderous Artist golden: the Energy half alone is a real merged addition", () => {

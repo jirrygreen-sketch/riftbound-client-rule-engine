@@ -22,23 +22,26 @@ import type { CardProgram } from "../../ir/index.js";
  *   expression over the symbolic "source" selector (royal-guard precedent), not
  *   a hard-coded location id.
  *
- * Status: judge-required. Three merged gaps (none approximated):
+ * Status: judge-required. Re-checked against the merged instruction, program-
+ * binding and event batches (RIFT-257/258/259/260/270, 2026-10-16). Two
+ * remaining gaps (none approximated):
  * - "to a battlefield" restricts the trigger to Moves whose Destination is a
- *   Battlefield. The merged trigger matcher compares object characteristics and
- *   event fields, but the declared object-moved payload (fromKind / toKind /
- *   fromLocationId / toLocationId) is not populated by
- *   events/action-adapter.ts, so the Destination kind cannot be tested; the
- *   retained `movedToBattlefield` key inside the event filter follows the
- *   repository's documented placeholder convention (volibear-imposing's
- *   `movedToOtherThanSourceLocation`, yone-blademaster's `battlefieldWas`) and
- *   has no consumer.
+ *   Battlefield. The declared object-moved payload (fromKind / toKind /
+ *   fromLocationId / toLocationId) is still not populated by
+ *   events/action-adapter.ts, and the closed EVENT_PATTERN_TYPES has no
+ *   "object-moved" spelling, so registerProgramTriggers fails closed
+ *   (invalid-event-type, or an unsupported filter field for the retained
+ *   `movedToBattlefield` placeholder).
  * - The destination is read with the contract 3.6 symbolic selector
  *   ({kind: "object-property", object: "source"}), and the merged effect.move
- *   schema does not accept it: its own isExpr requires a runtime ObjectRef for
- *   object-property (effect.move.ts isExpr), so the instruction fails closed
+ *   schema still does not accept it: its own isExpr requires a runtime ObjectRef
+ *   for object-property (effect.move.ts isExpr), so the instruction fails closed
  *   with "effect.move requires a to Expr" before the interpreter can bind the
- *   host reference. README §3 says not to work around that gap in the card or
- *   its IR.
+ *   host reference. The merged read-then-move alternative (condition.value +
+ *   effect.move linked-value, the azir-sovereign/fae-porter precedent) is
+ *   proven end to end in the golden for the accepting branch, but README §3
+ *   forbids rewriting the printed destination away from the contract selector
+ *   here.
  * - No merged module registers a CardProgram's triggered ability as
  *   TriggerRegistration, nor resolves the `{source: "self"}` self anchor for
  *   trigger subscriptions (engine batch 4 / RIFT-120 follow-up); the golden test
@@ -50,16 +53,18 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1)「move to a battlefield」把触发限制在目的地为战场的 Move 上（449.2），" +
-    "但 events/action-adapter.ts 没有为 move-location 填充 timing-points.ts 声明的 fromKind/toKind/fromLocationId/toLocationId 载荷，" +
-    "合并触发匹配无法判定事件目的地种类；事件 filter 里的 movedToBattlefield 只是描述性占位键（同 volibear-imposing 的 movedToOtherThanSourceLocation 约定），没有消费方。" +
-    "(2) 没有模块把 CardProgram 的 triggered ability 注册成 TriggerRegistration，也不解析触发订阅所需的 { source: \"self\" } 自指锚点" +
-    "（引擎批 4 / RIFT-120 后续）。" +
-    "(3) 目的地的契约 3.6 符号选择器（{ kind: \"object-property\", object: \"source\" }）尚未被 effect.move 的 schema 接受：" +
+    "两处缺口，均不近似实现（已按 2026-10-16 合入批次复核）：" +
+    "(1)「move to a battlefield」把触发限制在目的地为战场的 Move 上（449.2）：events/action-adapter.ts 仍未为 " +
+    "move-location 填充 timing-points.ts 声明的 fromKind/toKind/fromLocationId/toLocationId 载荷（RIFT-270 审计记为“已有”时点但不含载荷），" +
+    "且封闭 EVENT_PATTERN_TYPES（events/trigger-spec.ts）不含 \"object-moved\"，programs/triggers.ts 注册时抛 invalid-event-type；" +
+    "事件 filter 里的 movedToBattlefield 只是描述性占位键，programs/filters.ts 也会以不支持的过滤字段拒绝它。" +
+    "(2) 目的地的契约 3.6 符号选择器（{ kind: \"object-property\", object: \"source\" }）仍未被 effect.move 的 schema 接受：" +
     "该原语自己的 isExpr 要求 object-property 的 object 是运行时 ObjectRef（effect.move.ts），因此指令在解释器绑定宿主引用之前就失败关闭" +
-    "（\"effect.move requires a to Expr\"）；README 第 3 节要求不得在卡程序/IR 里绕过该缺口。" +
-    "能力本体（choice.optional + effect.move）的结构只用已合入契约形状，golden 用参考内核提供的运行时绑定执行合并部分。" +
-    "依赖：移动载荷接线、card-program 触发适配器、原语 schema 与契约 3.6 选择器的同步（RIFT-1 上游）。",
+    "（\"effect.move requires a to Expr\"）。golden 覆盖两侧证据：拒绝分支在合并 schema 处失败关闭；接受分支用已合入的 " +
+    "condition.value + effect.move linked-value 读取来源当前位置并真实把敌方单位移过去（azir-sovereign/fae-porter 先例），" +
+    "但 README 第 3 节要求不得把印刷的符号目的地改写成其它形状。" +
+    "触发形状与 effect.move 调用形状只用已合入契约结构。依赖：事件载荷与 object-moved 触发拼写/注册（RIFT-120 后续）、" +
+    "effect.move 的符号选择器支持（RIFT-90/91 后续）。",
   abilities: [
     {
       kind: "triggered",

@@ -24,20 +24,24 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  * - "an enemy unit here"：355.7/355.9.a 的目标；"here" 是 359.3.f 的指代，用契约 3.6 的
  *   sameLocationAs: "source" 锚点表达（与已合入的 rad/ezreal-dashing 同型）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。四处缺口，均不近似实现：
- * 1. [Hunt]（823）没有已合入的 KeywordDef："When I Conquer or Hold, my controller gains
- *    1 XP" 需要 conquer / hold 时点（383.4.c/383.4.d）与关键词展开接线，而 scoring/ 未接入
- *    唯一事件管线（RIFT-33/RIFT-120）。
- * 2. 指令内费用 "spend 3 XP" 没有已合入原语：effects/instructions/ 下没有 cost.xp 文件
- *    （RIFT-9 原语清单里的 cost.xp；调研记为本卡的 directPrimitive），Finalize 侧也没有把
- *    该费用的支付决定变成可选选择与回执的接线，"you may" 的拒绝路径因此不可执行。
- * 3. attack-declared 时点没有生产者：docs/rules/timing-point-producers.md 把它记为
- *    “待后续——需要 Combat start/role designation 的原子 timing wave”，combat/ 未接入唯一
- *    事件管线（契约 §7.2 批 5，RIFT-33/RIFT-120）。
- * 4. 缺 CardProgram → TriggerRegistration 适配器（RIFT-120 后续），触发能力没有注册路径。
- * body 的 effect.damage（动态 Might 数额 + sameLocationAs 锚点）已合入，golden 用解释器 +
- * 参考内核真实执行；"pay 3 XP to" 的代价用 cost.xp 形状记录在指令的 cost 字段（不注册为
- * 指令 op，避免发明语义），见 judgeReason 第 2 点。
+ * status 判定（cards/README.md 第 2 节）：judge-required（按 2026-10-16 合入批次复核）。
+ * 四处缺口，均不近似实现：
+ * 1. [Hunt] 的 KeywordDef 已合入（effects/keywords/Hunt.ts，RIFT-265），programs/keywords.ts
+ *    也会展开它；但展开写的事件拼写是 "conquer"/"hold"，而封闭 EVENT_PATTERN_TYPES 用的是
+ *    "conquered"/"held"（events/trigger-spec.ts + pipeline-match.ts 的 EVENT_NAMES），
+ *    registerProgramTriggers 抛 invalid-event-type；conquer 发射也不带征服单位
+ *    （turn/flow.ts 的 Score 波只发 player/details），source:"self" 匹配不到（823.1.c.1）。
+ * 2. 指令内费用 "spend 3 XP"（740.4.a/740.4.a.2；730.2）没有已注册原语：effects/instructions/
+ *    下没有 cost.xp，cost/ 也没有把该支付变成 Finalize 可选选择 + 回执的接线（RIFT-261 仍在进行）。
+ *    "you may" 的拒绝路径因此不可执行；golden 只断言声明的形状并保留 test.todo。
+ * 3. attack-declared 时点没有生产者：docs/rules/timing-point-producers.md 记为“待后续——需要
+ *    Combat start/role designation 的原子 timing wave”，combat/flow.ts 明确抛
+ *    combat-start-transaction（RIFT-33/RIFT-124 后续）。
+ * 4. 两条声明都无法注册：Hunt 的 "conquer"/"hold" 拼写不在封闭词汇表内，攻击触发的 body
+ *    又带 sameLocationAs 过滤键（programs/filters.ts 拒绝），registerProgramTriggers 都失败关闭。
+ * body 的 effect.damage（动态 Might 数额 + sameLocationAs 锚点）已合入，golden 用链适配器 +
+ * 参考内核真实执行卡程序原始参数；"pay 3 XP to" 的代价目前只以未注册的 cost.xp 指令形状保留
+ * （见 judgeReason 第 2 点），没有近似成其它原语。
  */
 const ENEMY_UNIT_HERE = "khazix-evolving-hunter.enemy-unit-here";
 
@@ -121,14 +125,19 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口：(1) [Hunt]（823）没有已合入的 KeywordDef：「When I Conquer or Hold, my controller gains 1 XP」" +
-    "（823.1.c.1/.c.2）需要 conquer/hold 时点与关键词展开接线，scoring/ 未接入唯一事件管线（RIFT-33/RIFT-120）。" +
-    "(2) 指令内费用「spend 3 XP」（740.4.a、740.4.a.2；730.2 的花费方向）没有已合入原语：" +
-    "effects/instructions/ 下没有 cost.xp 文件（RIFT-9 清单记为本卡的 directPrimitive），" +
-    "Finalize 侧也没有把该支付决定变成可选选择与回执的接线，\"you may\" 的拒绝路径因此不可执行。" +
+    "四处缺口（已按 2026-10-16 合入批次复核）：(1) [Hunt]（823）的 KeywordDef 已合入（effects/keywords/Hunt.ts，RIFT-265）且 " +
+    "programs/keywords.ts 会展开它，但展开写的事件拼写是 \"conquer\"/\"hold\"，封闭 EVENT_PATTERN_TYPES（events/trigger-spec.ts，" +
+    "配 pipeline-match.ts 的 EVENT_NAMES 别名）用的是 \"conquered\"/\"held\"，registerProgramTriggers 抛 invalid-event-type；" +
+    "conquer 发射也不带征服单位（turn/flow.ts 的 Score 波只发 player/details），source:\"self\" 匹配不到（823.1.c.1；RIFT-120 后续）。" +
+    "(2) 指令内费用「spend 3 XP」（740.4.a、740.4.a.2；730.2 的花费方向）仍没有已注册原语：" +
+    "effects/instructions/ 下没有 cost.xp，cost/ 也没有把该支付变成 Finalize 可选选择与回执的接线" +
+    "（RIFT-261 仍在进行），\"you may\" 的拒绝路径因此不可执行。" +
     "(3) attack-declared 时点（383.4.e 的 Attack Trigger）没有生产者：docs/rules/timing-point-producers.md 记为待后续，" +
-    "combat/ 未接入唯一事件管线（RIFT-33/RIFT-120）。(4) 缺 CardProgram → TriggerRegistration 适配器（RIFT-120 后续）。" +
-    "effect.damage 的动态 Might 数额与 sameLocationAs 锚点已合入并在 golden 中真实执行。不近似实现。",
+    "combat/flow.ts 遇到 staged combat 直接抛 combat-start-transaction（RIFT-33/RIFT-124 后续）。" +
+    "(4) 触发没有可用注册路径：Hunt 展开的 " +
+    "\"conquer\"/\"hold\" 拼写不被封闭 EVENT_PATTERN_TYPES 接受，body 的 sameLocationAs 过滤键也被 " +
+    "programs/filters.ts 拒绝，registerProgramTriggers 对两者都失败关闭。" +
+    "effect.damage 的动态 Might 数额与 sameLocationAs 锚点已合入并在 golden 中真实执行（卡程序原始参数）。不近似实现。",
   abilities,
   sourceText:
     "[Hunt] (When I conquer or hold, gain 1 XP.)\n" +

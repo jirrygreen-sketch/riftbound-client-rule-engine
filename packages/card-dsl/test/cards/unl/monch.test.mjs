@@ -5,7 +5,9 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/monch.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-f6fc6f5dbe6ceebe1e128bfe16a67f81a7cc149370db212b7fbda2bbd71599e4";
@@ -28,9 +30,12 @@ test("unl-035-219 Monch: identity, status, judgeReason and verbatim sourceText",
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /356\.4/);
   assert.match(program.judgeReason, /cost\.modify/);
-  assert.match(program.judgeReason, /replacement\.enter/);
+  assert.match(program.judgeReason, /replacement\/bind\.ts/);
   assert.match(program.judgeReason, /369\.3/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  // The replacement binding (RIFT-260) is merged; the reason must name the
+  // missing card-static registration and the object-filter shape instead.
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-260/);
 });
 
 test("unl-035-219 Monch: the -2 energy discount is declared as a gated cost modification (CR 356.4)", () => {
@@ -98,21 +103,80 @@ test("unl-035-219 Monch golden: a source that already entered ready is not readi
   assert.deepEqual(run.events, []);
 });
 
+test("unl-035-219 Monch golden: the merged replacement layer binds the declared entry replacement", () => {
+  // RIFT-260's bindReplacement accepts this card's { replaces, with } shape and
+  // intercepts the board-entry move, correcting the orientation before the
+  // permanent lands (CR 369.3 / 805.6). The binding is created with the real
+  // chain fixture; the card's own declared body drives it.
+  const f = fixture({ cards: [{ id: "monch", types: ["unit"], energy: 1, power: [], might: 6 }] });
+  const bound = bindReplacement(
+    { replaces: enterReady.replaces, with: enterReady.with },
+    f.kernel.ref("monch"),
+    {
+      host: {
+        object: ref => f.kernel.object(ref),
+        objects: () => f.kernel.objects,
+        context: (source, controller) => f.kernel.clone({ sourceSnapshot: source, controller })
+      },
+      pipeline: f.engine.pipeline
+    }
+  );
+  assert.equal(bound.registration.id, "replacement:monch:1");
+
+  f.engine.execute(f.card("monch", { kind: "unit", body: [] }));
+  resolveAll(f.engine);
+  const entered = f.kernel.getObject("monch");
+  assert.equal(entered.zone, "board");
+  assert.equal(entered.exhausted, false);
+  // 805.6.a: the substitution never becomes a "becomes ready" event.
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "object-readied"), false);
+});
+
+test("unl-035-219 Monch: the printed condition is an opponent-scoped stunned-unit count", () => {
+  const condition = enterReady.condition;
+  assert.equal(condition.kind, "compare");
+  assert.equal(condition.left.kind, "count");
+  assert.deepEqual(condition.left.filter, {
+    type: "unit",
+    zone: "board",
+    controller: "opponent",
+    states: "stunned"
+  });
+  // The card's replaces filter uses the inner-source spelling, which the
+  // merged object-filter matcher does not read as "this card enters".
+  assert.deepEqual(enterReady.replaces.filter, { source: "self", exhausted: true });
+});
+
+test("unl-035-219 Monch: the two printed effects share the one gating condition (383.2.a.1)", () => {
+  // Both halves are gated by the same lead-in clause, which the card states once
+  // and reuses; the golden pins that they cannot drift apart.
+  assert.equal(costModification.kind, "static");
+  assert.equal(enterReady.kind, "replacement");
+  assert.deepEqual(costModification.condition, enterReady.condition);
+  // The condition is compared against the merged evaluator's vocabulary; the
+  // layer/replacement consumers for it are the recorded gaps (test.todo).
+  assert.equal(costModification.condition.kind, "compare");
+  assert.deepEqual(costModification.condition.right, { kind: "constant", value: 1 });
+});
+
 test.todo(
   "unl-035-219 Monch: install the printed -2 energy discount into the play's finalized cost plan " +
-    "(CR 356.4/356.4.a) — cost/cost-plan.ts only applies caller-supplied CostPlanInput.discounts and no " +
-    "cost.modify instruction exists (RIFT-89)"
+    "(CR 356.4/356.4.a) — cost/cost-plan.ts only applies caller-supplied CostPlanInput.discounts, " +
+    "programs/play.ts's translateCost rejects the discount field, and no cost.modify instruction is " +
+    "registered (RIFT-261)"
 );
 test.todo(
   "unl-035-219 Monch: register the 'I enter ready' board-entry replacement before the zone change " +
-    "(CR 143.4/359.2.c/369.3) — no card ReplacementAbility consumer is merged (RIFT-9/RIFT-120); a " +
-    "post-entry effect.ready must not be substituted"
+    "(CR 143.4/359.2.c/369.3) — replacement/bind.ts (RIFT-260) binds this shape, but programs/statics.ts " +
+    "defaults to noopStaticBinder and the declared replaces.filter uses the inner source spelling that " +
+    "the binder does not read (RIFT-257/260 follow-up); a post-entry effect.ready must not be substituted"
 );
 test.todo(
-  "unl-035-219 Monch: evaluate 'if an opponent controls a stunned unit' in the layer/trigger condition " +
-    "path — layers/engine.ts conditionMatches treats unrecognised compare conditions as true (RIFT-91)"
+  "unl-035-219 Monch: evaluate 'if an opponent controls a stunned unit' on both halves — layers/engine.ts " +
+    "conditionMatches has no compare branch and replacement/bind.ts's entry path returns before " +
+    "testCondition (RIFT-91 / RIFT-260 follow-up)"
 );
 test.todo(
   "unl-035-219 Monch: fire the play-time cost modification and entry replacement from the real play flow " +
-    "(CR 349/356; RIFT-89/RIFT-120)"
+    "(CR 349/356; RIFT-261/RIFT-257)"
 );

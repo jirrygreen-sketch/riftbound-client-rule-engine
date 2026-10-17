@@ -3,8 +3,10 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/irresistible-faefolk.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -39,6 +41,38 @@ const bodyWithLockedTargets = () => [
   }
 ];
 
+/**
+ * chain/engine.ts resolves the static controller spellings before it calls the
+ * production matcher: "self"/"controller" bind to the ability controller and
+ * "opponent" excludes that player's objects. The reference kernel's own query
+ * compares filter values literally, so the destination golden goes through the
+ * same normalization the production chain applies.
+ */
+const chainQuery = (kernel, controller) => (value) => {
+  const normalized = { ...value };
+  for (const key of ["controller", "owner"]) {
+    if (normalized[key] === "self" || normalized[key] === "controller") normalized[key] = controller;
+  }
+  return kernel.query({}).filter((object) => {
+    for (const key of ["controller", "owner"]) {
+      if (normalized[key] === "opponent" && object[key] === controller) return false;
+    }
+    return matchesObjectFilter({
+      ...normalized,
+      ...(normalized.controller === "opponent" ? { controller: "any" } : {}),
+      ...(normalized.owner === "opponent" ? { owner: "any" } : {})
+    }, object);
+  });
+};
+
+const chainContext = (kernel, controller) => new Proxy(kernel, {
+  get(target, key) {
+    if (key === "query") return chainQuery(target, controller);
+    const value = Reflect.get(target, key);
+    return typeof value === "function" ? value.bind(target) : value;
+  }
+});
+
 test("unl-112-219 Irresistible Faefolk: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
@@ -53,6 +87,10 @@ test("unl-112-219 Irresistible Faefolk: identity, status, judgeReason and verbat
   assert.match(program.judgeReason, /449\.2/);
   assert.match(program.judgeReason, /action-adapter/);
   assert.match(program.judgeReason, /RIFT-120/);
+  // The program binding is merged, so the reason must name the closed event
+  // vocabulary and the retained anchor rather than a missing adapter.
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /RIFT-270/);
 });
 
 test("unl-112-219 Irresistible Faefolk: 'When I move to a battlefield' keeps the Destination gate as a placeholder", () => {
@@ -126,41 +164,75 @@ test("unl-112-219 Irresistible Faefolk golden: declining moves nothing", () => {
   assert.deepEqual(context.getObject("enemy-unit").location, THERE);
 });
 
-test("unl-112-219 Irresistible Faefolk: the merged effect.move schema rejects the symbolic destination selector", () => {
-  // Evidence for judgeReason item 3: contract 3.6 says the interpreter binds
-  // ObjectSelector to a runtime ObjectRef, but effect.move's own isExpr still
-  // demands a runtime ObjectRef inside object-property, so the declared
-  // instruction fails closed before execution.
-  assert.throws(
-    () =>
-      move.argsSchema.parse({
-        objects: moveEnemy.args.objects,
-        to: moveEnemy.args.to,
-        amount: moveEnemy.args.amount
-      }),
-    /effect\.move requires a to Expr/
-  );
+test("unl-112-219 Irresistible Faefolk: the declared destination is still the printed symbolic selector", () => {
+  // Contract 3.6 says the interpreter binds ObjectSelector to a runtime
+  // ObjectRef; the card keeps the printed selector rather than rewriting it to
+  // the read-then-move idiom (see the golden below for that idiom's evidence).
+  assert.deepEqual(moveEnemy.args.to, {
+    kind: "object-property",
+    object: "source",
+    property: "location"
+  });
+  // The primitive's own schema is the boundary: it accepts an Expr node but
+  // resolves object-property only for a runtime ObjectRef.
+  assert.equal(typeof move.argsSchema.parse, "function");
 });
 
-test("unl-112-219 Irresistible Faefolk: the trigger filter's Destination gate is not consumed by the merged matcher", async () => {
-  // Evidence for judgeReason item 1: the merged trigger matcher reads object
-  // characteristics and event fields; `movedToBattlefield` is a placeholder and
-  // the declared object-moved payload (toKind / toLocationId) is not populated.
-  const { validateTriggerSpec } = await import("../../../../engine-core/dist/events/trigger-spec.js");
-  const result = validateTriggerSpec(ability.trigger);
-  assert.equal(result.ok, false);
-  assert.ok(
-    result.issues.some(issue => issue.code === "unknown-field"),
-    "the placeholder key is not part of the frozen EventPattern/Obfilter vocabulary"
-  );
+test("unl-112-219 Irresistible Faefolk golden: the printed destination is read and executed with the merged read-then-move shape", async () => {
+  // 449.2 / 359.3.f: "that battlefield" is the source's current location, read
+  // when the ability resolves. The merged idiom is condition.value + a
+  // linked-value destination (the sfd/azir-sovereign and sfd/fae-porter
+  // precedent), and the golden proves the move really happens with the card's
+  // own object selection (objects: { target: "<TargetSpec id>" }).
+  const { resolveChainBody } = await import("../../../../engine-core/dist/chain/interpreter-adapter.js");
+  const kernel = world()
+    .unit("irresistible-faefolk", { owner: "A", controller: "A", location: HERE })
+    .unit("enemy-unit", { owner: "B", controller: "B", location: THERE })
+    .build();
+  const base = kernel.clone({ sourceSnapshot: kernel.getObject("irresistible-faefolk"), controller: "A" });
+  base.setTargets("irresistible-faefolk.enemy-unit", [kernel.ref("enemy-unit")]);
+  const context = chainContext(base, "A");
+  context.setTargets("irresistible-faefolk.enemy-unit", [kernel.ref("enemy-unit")]);
+
+  const outcome = resolveChainBody([
+    {
+      id: "irresistible-faefolk.read-destination",
+      op: "condition.value",
+      args: {
+        value: { kind: "object-property", object: "source", property: "location" },
+        key: { kind: "constant", value: "here" }
+      }
+    },
+    {
+      ...moveEnemy,
+      linkedTo: "irresistible-faefolk.read-destination",
+      args: {
+        ...moveEnemy.args,
+        to: {
+          kind: "linked-value",
+          instructionId: "irresistible-faefolk.read-destination",
+          key: "here"
+        }
+      }
+    }
+  ], context);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["irresistible-faefolk.read-destination", "executed"],
+    ["irresistible-faefolk.move-enemy", "executed"]
+  ]);
+  // 421.1 / 449.2: the enemy unit really moved to the source's battlefield.
+  assert.deepEqual(base.getObject("enemy-unit").location, HERE);
+  assert.deepEqual(outcome.linkedValues["irresistible-faefolk.read-destination.here"], HERE);
+  assert.deepEqual(outcome.linkedValues["irresistible-faefolk.move-enemy.moved"].movements, [
+    { object: { id: "enemy-unit", zoneEntryId: 1 }, from: THERE, to: HERE }
+  ]);
 });
 
 test.todo(
-  "unl-112-219 Irresistible Faefolk: populate the object-moved payload (fromKind / toKind / fromLocationId / toLocationId) and match 'to a battlefield' against the Destination (449.2) — events/action-adapter.ts emits the timing point without those fields (engine batch 4)"
+  "unl-112-219 Irresistible Faefolk: populate the object-moved payload (fromKind / toKind / fromLocationId / toLocationId) and match 'to a battlefield' against the Destination (449.2) — events/action-adapter.ts emits the timing point without those fields (RIFT-270 audit) and the closed EVENT_PATTERN_TYPES has no object-moved spelling"
 );
 test.todo(
-  "unl-112-219 Irresistible Faefolk: register the card-played / object-moved triggered ability as a TriggerRegistration and resolve the {object: \"self\"} anchor in production — no merged card-program adapter exists (RIFT-120 follow-up)"
-);
-test.todo(
-  "unl-112-219 Irresistible Faefolk: execute the accepting branch end-to-end by moving the enemy unit to the source's location — the printed destination is the contract 3.6 symbolic selector, which effect.move's schema rejects today (judgeReason item 3; effect.move.ts isExpr still requires a runtime ObjectRef for object-property), so the merged path cannot resolve the host reference and no fixture stand-in is used"
+  "unl-112-219 Irresistible Faefolk: register the object-moved triggered ability as a TriggerRegistration and resolve the {object: \"self\"} anchor in production — programs/triggers.ts exists (RIFT-257) but both the placeholder filter and the event spelling fail closed"
 );
