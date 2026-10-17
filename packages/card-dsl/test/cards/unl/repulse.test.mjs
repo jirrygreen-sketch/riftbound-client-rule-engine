@@ -1,5 +1,5 @@
 // Partial execution evidence for the merged counter primitive is consolidated
-// in ../templates/keyword-play-effect-counter-657.test.mjs; the chosen-target
+// in ../templates/keyword-play-effect-counter-676.test.mjs; the chosen-target
 // restriction remains judge-required until chain target history is queryable.
 import assert from "node:assert/strict";
 import test from "node:test";
