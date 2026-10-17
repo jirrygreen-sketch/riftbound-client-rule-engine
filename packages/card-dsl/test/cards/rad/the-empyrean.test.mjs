@@ -22,7 +22,7 @@ test("rad-060-167 The Empyrean: program validates and is judge-required", () => 
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /show-off/);
+  assert.match(program.judgeReason, /Show Off/);
   assert.match(program.judgeReason, /832\.1\.c\.3/);
   assert.match(program.judgeReason, /832\.1\.d\.1/);
 });
@@ -216,12 +216,7 @@ test("rad-060-167 The Empyrean: declining the show off makes the guarded sequenc
 
 test.todo(
   "rad-060-167 The Empyrean: show off a card (reveal from hand and/or pick a friendly one, lock its " +
-    "Power cost) via a Show Off keyword definition (no KeywordDef today; effects/keywords has no " +
-    "show-off.ts) plus a combined hand+board selection and a display snapshot in the link value " +
-    "(832.1.c.3 / 832.1.d.1 — needs the contract change requested in the task reply)"
-);
-
-test.todo(
-  "rad-060-167 The Empyrean: [Predict] as a reusable keyword expansion (437.1 / 437.3) — the " +
-    "Predict KeywordDef has no assigned RIFT task; RIFT-83's Vision inlines only Predict 1"
+    "Power cost) still needs a combined hand+board selection (832.1.c.3) and a display snapshot in " +
+    "the link value (832.1.d.1); both are contract-change requests, not a keyword-registry gap. " +
+    "[Predict] (437.1 / 437.3) also has no KeywordDef to orchestrate look/recycle/reorder."
 );

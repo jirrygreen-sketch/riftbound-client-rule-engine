@@ -21,7 +21,8 @@ test("rad-106-167 The Good Stuff: program validates and is judge-required", () =
   assert.deepEqual(result.issues, []);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Deploy/);
-  assert.match(program.judgeReason, /TriggerRegistration/);
+  assert.match(program.judgeReason, /playLocations/);
+  assert.match(program.judgeReason, /here 过滤/);
 });
 
 test("rad-106-167 The Good Stuff: identity, ruleset, status and verbatim source text", () => {
@@ -147,5 +148,5 @@ test("rad-106-167 The Good Stuff: an empty hand negates the discard but the draw
   assert.equal(kernel.player("A").deckSize, 1);
 });
 
-test.todo("rad-106-167 The Good Stuff: the merged Deploy KeywordDef (CR 830.1.b) still has no consumers - the continuous.location play-location/restriction checks have no Finalize caller, cleanup has no non-Unit Deploy recall exemption, and the hold kill trigger is not registered.");
-test.todo("rad-106-167 The Good Stuff: both triggers need the program -> TriggerRegistration wiring (contract 3.5, RIFT-257); the \"hold here\" filter additionally needs the hold payload's battlefield identity.");
+test.todo("rad-106-167 The Good Stuff: the merged Deploy KeywordDef (CR 830.1.b) still has no structured consumers - the playLocations query reads only location-name strings, no Finalize caller consumes KeywordDef.location, cleanup has no non-Unit Deploy recall exemption, and the opponent-hold kill side has no consumer.");
+test.todo("rad-106-167 The Good Stuff: the \"hold here\" trigger is registered, but the here filter key is rejected by programs/filters.ts and the hold timing point has no battlefield-identity payload, so \"this battlefield\" cannot be bound.");

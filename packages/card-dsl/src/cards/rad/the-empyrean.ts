@@ -22,9 +22,7 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   Power cost（832.1.d.1 的锁定值）。
  * - 414.3："draw 2" 是 effect.draw。
  *
- * 状态：judge-required。缺的是 Show Off 这条链路本身，而不是某个可替代的形状：
- * - 关键词注册表（effects/keywords/registry.generated.ts）里没有 Show Off 定义，
- *   也没有 [Show Off]/[Predict] 的 KeywordDef；
+ * 状态：judge-required。缺的是 Show Off / Predict 这条链路本身：
  * - "reveal a card from hand or pick another friendly one"要求一条把"手牌
  *   revealed 结果"与"场上 picked 结果"合成同一组的非目标选择（832.1.c.3），
  *   现有 PickSpec 只能给固定 options 列表，没有"手牌或友方场上对象"的合成选项；
@@ -32,11 +30,11 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   （832.1.d.1），当前没有任何指令把展示快照写进链接值（effect.reveal 只链接
  *   refs / 数量）；
  * - "Recycle any of them and put the rest back in any order"是 Predict 的两段
- *   选择（437.1.a）叠加在同一批已看卡上，需要 Predict 关键词展开统一编排。
+ *   选择（437.1.a）叠加在同一批已看卡上，[Predict] 也还没有 KeywordDef 统一编排。
  * 因此只写出有依据的骨架（play 能力 + Predict 的 reject/reorder 结构），
  * 不把 Show Off 近似成"随便展示一张"或把 Power cost 近似成固定张数。
- * 依赖：RIFT-83（kw-ganking-vision 一类的关键词展开批次）与本任务的
- * "契约变更请求"（见最终回复：展示快照与合成选项选择）。
+ * 依赖：[Predict] KeywordDef 与本任务的"契约变更请求"
+ * （见最终回复：展示快照与合成选项选择）。
  */
 /** "When you play me, if you showed off a card, [Predict] …, then draw 2." 的正文骨架。 */
 const predictBody: readonly Instruction[] = [
@@ -154,11 +152,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Show Off 关键词展开（CR 832.1）：关键词注册表没有 show-off 定义，registry 也不展开该关键词；" +
-    "832.1.c.3 要把「从手牌展示」与「从友方场上拾取」合成同一组展示对象，现有 PickSpec 只有固定 options，无法表达这种合成；" +
+    "缺 Show Off / [Predict] 关键词展开（CR 832.1 / 437）：" +
+    "832.1.c.3 要把「从手牌展示」与「从友方场上拾取」合成同一组展示对象，现有 PickSpec 只有固定 options，无法表达这种合成选项；" +
     "832.1.d.1 要求读取展示那一刻锁定的 Power cost，而 effect.reveal 只链接引用与数量、不写展示快照，" +
-    "没有原语产出 shownPowerCost 这类锁定值；[Predict] 也没有关键词展开（437.1 / 437.1.a 的看顶、可回收、任意顺序放回编排）。" +
-    "Predict 与抽牌的结构已按 437 写出并有结构测试；整卡依赖关键词批次与「展示快照」契约缺口（见最终回复的契约变更请求）。",
+    "没有原语产出 shownPowerCost 这类锁定值；[Predict] 也没有 KeywordDef（437.1 / 437.1.a 的看顶、可回收、任意顺序放回编排没有统一展开）。" +
+    "Predict 与抽牌的结构已按 437 写出并有结构测试；整卡依赖 [Predict] KeywordDef 与「展示快照」契约缺口（见最终回复的契约变更请求）。",
   abilities,
   sourceText:
     "[Show Off] a card. (As you play me, you may reveal a card from hand or pick another friendly one.)\n" +

@@ -1,10 +1,9 @@
 // Golden test for War Scout (rad-008-167).
 //
 // The +2 Might clause is now executable with the merged continuous.might
-// instruction (RIFT-258) and the real layer engine. The Accelerate additional
-// cost and its enter-ready replacement still need the cost.pay / cost.modify
-// pipeline (RIFT-261) and the card-program binding (RIFT-257), so the card
-// stays judge-required.
+// instruction (RIFT-258) and the real layer engine. [Accelerate] itself is
+// merged, but the optional [1][Fury] additional cost has no Finalize
+// optionalAdditional consumer yet, so the card stays judge-required.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -35,8 +34,8 @@ test("rad-008-167 War Scout: program validates and has expected identity", () =>
   );
   assert.match(program.judgeReason, /Accelerate/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /optionalAdditional/);
+  assert.match(program.judgeReason, /selectedAdditional/);
 });
 
 test("rad-008-167: keyword declaration plus card-played trigger with a +2 Might effect", () => {
@@ -117,9 +116,7 @@ test("rad-008-167: an unselected target leaves the Might effect ignored, never s
 });
 
 test.todo(
-  "rad-008-167 War Scout: [Accelerate] 的附加费 [1][Fury] 收取与 805.6 入场就绪替代 - 展开已声明，" +
-    "但 cost.pay/cost.modify 与 Finalize 费用计划仍在进行（RIFT-261），卡牌 keyword → 打出管线的绑定属 RIFT-257"
-);
-test.todo(
-  "rad-008-167 War Scout: card-played 触发端到端（383.4.a）依赖 card-program → TriggerRegistration 的接线（RIFT-257）"
+  "rad-008-167 War Scout: 805.1.b 的可选附加费 [1][Fury] 收取 - accelerate.cost 声明已合入，" +
+    "但没有任何打出流程把该附加费写入 Finalize 的 selectedAdditional 并收取；" +
+    "engine.ts 的 accelerate → ready 消费因此仍无生产输入"
 );

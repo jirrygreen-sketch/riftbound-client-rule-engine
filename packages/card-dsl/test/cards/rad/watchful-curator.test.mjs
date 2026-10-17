@@ -1,10 +1,11 @@
 // Golden test for Watchful Curator (rad-037-167).
 //
-// judge-required (see the program's judgeReason): granting [Deflect] to your
-// gear needs the card-program -> layers registration (RIFT-257). The runnable
-// evidence is the declared grant shape plus the merged continuous.grant-keyword
-// instruction and the real LayerEngine applying the granted keyword, including
-// the CR 809.2 addition to an existing Deflect value.
+// executable: the whole card is one static grant of [Deflect] to your gear.
+// The production evidence is the ProgramRegistry accepting the program and
+// createProgramBinding().bindStatic registering the grant as a
+// ContinuousEffectSpec; the runnable evidence is the merged
+// continuous.grant-keyword instruction and the real LayerEngine applying the
+// granted keyword, including the CR 809.2 addition to an existing Deflect value.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -18,6 +19,9 @@ import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js"
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CANONICAL =
   "card.hash-dc5774a38ed543aac39bd40a45c96e08acddedf25a91e979a8a3576715ec1a5b";
@@ -102,12 +106,9 @@ test("rad-037-167 Watchful Curator: program passes validateCardProgram", () => {
 test("rad-037-167 Watchful Curator: identity, status, judgeReason and verbatim sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(program.status, "judge-required");
-  // README section 2: name the missing consumer, the rules and the task.
-  assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /809\.2/);
-  assert.match(program.judgeReason, /809\.3/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.equal(program.status, "executable");
+  // README section 2: executable programs carry no judgeReason.
+  assert.equal(program.judgeReason, undefined);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -203,14 +204,38 @@ test("rad-037-167 Watchful Curator: the Deflect expansion the granted keyword fe
   assert.equal(grant.effect.kind, "continuous.grant-keyword");
 });
 
-test.todo(
-  "Watchful Curator: 'Your gear have [Deflect]' in production - the merged continuous.grant-keyword primitive and the " +
-    "layer engine apply the grant (verified above), but no merged path registers a card program's static ability as a " +
-    "ContinuousEffectSpec (RIFT-257); the target-tax consumer also needs the any-Domain Power payment path (RIFT-261)"
-);
+test("rad-037-167 Watchful Curator: the ProgramRegistry accepts the program and returns it for .get", () => {
+  const registry = new ProgramRegistry([program]);
+  assert.equal(registry.get(CANONICAL), program);
+});
 
-test.todo(
-  "Watchful Curator: 809.2 addition with a gear's own Deflect and 809.3 readable characteristic in production - blocked by " +
-    "the same card->layers registration gap; the layer engine itself already sums grants (verified above) and clears them on " +
-    "a new zone entry"
-);
+test("rad-037-167 Watchful Curator: the production static binder registers the grant for the layer engine", () => {
+  // createEngineStaticBinder is the production adapter used by
+  // attachProgramLifecycle; it turns bindStatic calls into ContinuousEffectSpec
+  // registrations on the chain's layer registry.
+  const source = boardObject("curator", ["unit"], { might: 4 });
+  const gear = { ...boardObject("gear", ["gear"]), ref: { id: "gear", zoneEntryId: 2 } };
+  const enemyGear = { ...boardObject("enemy-gear", ["gear"], { owner: "B", controller: "B" }), ref: { id: "enemy-gear", zoneEntryId: 3 } };
+  const registered = [];
+  const engine = {
+    layers: {
+      addContinuous: (spec) => registered.push(spec),
+      removeContinuous: () => {},
+    },
+  };
+  const binder = createEngineStaticBinder(engine);
+  binder.bindStatic(grant, source);
+  assert.equal(registered.length, 1);
+  const spec = registered[0];
+  assert.equal(spec.layer, "ability");
+  assert.deepEqual(spec.source, source.ref);
+  assert.deepEqual(spec.filter, { type: "gear", controller: "A", zone: "board" });
+  assert.equal(spec.effect.keyword, "deflect");
+  assert.deepEqual(spec.effect.value, 1);
+  const layerEngine = createLayerEngine(
+    [source, gear, enemyGear],
+    [{ effect: spec, duration: { type: "permanent" } }]
+  );
+  assert.deepEqual(layerEngine.evaluate(gear.ref).keywords, [{ id: "deflect", value: 1 }]);
+  assert.deepEqual(layerEngine.evaluate(enemyGear.ref).keywords, []);
+});

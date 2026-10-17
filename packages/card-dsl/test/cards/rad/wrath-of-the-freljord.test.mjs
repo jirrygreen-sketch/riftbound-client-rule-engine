@@ -21,8 +21,8 @@ test("rad-077-167 Wrath of the Freljord: program validates and is judge-required
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /369\.3/);
-  assert.match(program.judgeReason, /replacement\.enter/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /syntheticEnter/);
+  assert.match(program.judgeReason, /designation/);
 });
 
 test("rad-077-167 Wrath of the Freljord: sourceText is the verbatim deck-catalog ability text", () => {
@@ -73,7 +73,7 @@ test("rad-077-167 Wrath of the Freljord: the Shield expansion ties +3 Might to t
   });
 });
 
-test("rad-077-167 Wrath of the Freljord: the enter-ready replacement body really readies the source (evidence for the missing replacement pipeline)", () => {
+test("rad-077-167 Wrath of the Freljord: the enter-ready replacement body really readies the source (evidence for the merged replacement primitive)", () => {
   const kernel = world().unit("wrath", { exhausted: true, might: 7 }).build();
   const ref = kernel.ref("wrath");
   // The replacement body targets the source object; the kernel needs its snapshot as source.
@@ -105,15 +105,9 @@ test("rad-077-167 Wrath of the Freljord: an already-ready unit produces no ready
 });
 
 test.todo(
-  "rad-077-167 Wrath of the Freljord: board-entry replacement pipeline — the replacement ability " +
-    "shape is authored (replaces object-enters-board/exhausted, with effect.ready), but no adapter " +
-    "turns a card-dsl replacement ability into an events/pipeline ReplacementRegistration " +
-    "(replacement.enter family; same gap as sfd/breakneck-mech)"
-);
-
-test.todo(
   "rad-077-167 Wrath of the Freljord: [Shield 3] while defending — the expansion emits " +
-    "continuous.might gated on the Defender designation, but the layers consumer is unmerged " +
-    "(RIFT-91) and the designation is not an ObjectSnapshot characteristic (contract 3.8 adds " +
-    "only combatRole)"
+    "continuous.might gated on the Defender designation, but that designation is not an " +
+    "ObjectSnapshot characteristic (contract 3.8 adds only combatRole); bindStaticToLayers " +
+    "therefore catches MissingInformation and evaluates the condition to false, so the bonus " +
+    "cannot be claimed executable until the designation feature is added."
 );
