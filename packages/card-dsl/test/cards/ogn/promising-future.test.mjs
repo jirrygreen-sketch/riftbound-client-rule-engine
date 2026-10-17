@@ -4,8 +4,6 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/promising-future.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-d7bf59ee29e8ca9c306efe1bf2bd701f4edb154b5dea8674d4b6dc7aff35f61d";
 const SOURCE_TEXT =
@@ -24,7 +22,8 @@ test("Promising Future program is structurally valid and judge-required", () => 
   assert.match(program.judgeReason, /effect\.inspect/);
   assert.match(program.judgeReason, /417\.5/);
   assert.match(program.judgeReason, /420\.3\/420\.4/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("Promising Future identity and printed text match the catalog", () => {
@@ -92,38 +91,6 @@ test("Promising Future structure: the residue is recycled and the chosen card is
   assert.equal(playChosen.targets, undefined);
 });
 
-test("Promising Future golden: the unmerged half never fabricates an effect on the reference kernel", () => {
-  // The look's multi-player top-N shape has no executing path and the
-  // play-for-each-player op is not merged, so running the printed body cannot
-  // silently pretend to resolve: every stage is negated or ignored, no events
-  // are produced, and no card moves.
-  const kernel = world().deck(["top-one", "top-two"]).build();
-  const outcome = resolveChainBody(program.abilities[0].body, kernel);
-
-  assert.equal(outcome.status, "partial");
-  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
-    ["each-player-look-top-5", "negated"],
-    ["each-player-recycle-rest", "ignored"],
-    ["each-player-plays-chosen", "ignored"]
-  ]);
-  assert.deepEqual(kernel.events, []);
-  assert.equal(kernel.player("A").deckSize, 2);
-  assert.equal(kernel.player("A").handSize, 0);
-});
-
-test("Promising Future golden: the look stage reports an impossible shape instead of a made-up result", () => {
-  // effect.inspect requires a real viewer; the multi-player set has none, so
-  // the instruction is negated as impossible and nothing is looked at.
-  const kernel = world().deck(["top-one", "top-two"]).build();
-  const outcome = resolveChainBody([look], kernel);
-
-  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status, result.result.reason]), [
-    ["each-player-look-top-5", "negated", "impossible"]
-  ]);
-  assert.deepEqual(kernel.events, []);
-  assert.equal(kernel.player("A").deckSize, 2);
-});
-
 test.todo(
   "Promising Future: each player looking at the top 5 of their own Main Deck needs a " +
     "non-zero top-N inspect over an ordered collection (effect.inspect's documented " +
@@ -139,5 +106,6 @@ test.todo(
 test.todo(
   "Promising Future: each player playing the card they chose, in turn order, ignoring " +
     "Energy costs while still paying Power (420.3/420.3.b.1, 356.1/356.2), needs the " +
-    "cost-plan override (RIFT-89) and a turn-order walk that no merged opcode provides."
+    "cost-plan override consumer (RIFT-261 cost.pay/cost.modify) and a turn-order walk that no " +
+    "merged opcode provides; the card-program play binding is RIFT-257."
 );

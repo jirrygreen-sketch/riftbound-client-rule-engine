@@ -27,12 +27,18 @@ test("ogn-155-298 Qiyana, Victorious: program validates and keeps identity", () 
   );
 });
 
-test("ogn-155-298 Qiyana, Victorious: judgeReason cites the Deflect target tax and the conquer timing point", () => {
+test("ogn-155-298 Qiyana, Victorious: judgeReason cites the current Deflect, conquer and binding gaps", () => {
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /809/);
-  assert.match(program.judgeReason, /conquer/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  // The conquer timing point is now emitted by the Score wave; the remaining
+  // gaps are the tax-to-payment wiring (RIFT-261), the card-program trigger
+  // binding (RIFT-257), the EventPattern source/here vocabulary and the
+  // choice.mode Finalize/Resolve adapter.
+  assert.match(program.judgeReason, /turn\/flow\.ts/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /assertFinalizationSurface/);
+  assert.match(program.judgeReason, /EventPattern/);
 });
 
 test("ogn-155-298 Qiyana, Victorious: Deflect is a keyword declaration, not a hand-written tax", () => {
@@ -101,10 +107,12 @@ test("ogn-155-298 Qiyana, Victorious: the merged Deflect KeywordDef only emits t
 
 test.todo(
   "ogn-155-298 Qiyana, Victorious: the Deflect target tax (809.1.c/d) needs a consumer that reads the " +
-    "expanded target.tax effect while targets are finalized and folds it into the cost plan (contract 3.8 " +
-    "item 4; RIFT-89 cost plan / RIFT-90 target tax)."
+    "expanded target.tax effect while targets are finalized and folds it into the cost plan and its " +
+    "payment (RIFT-261 cost.pay/cost.modify); the merged target plan only appends a caller-supplied tax."
 );
 test.todo(
-  "ogn-155-298 Qiyana, Victorious: the 'conquer' timing point (473.1, CR v1.5 383.4.c) needs the scoring " +
-    "flow to emit it so the trigger can enter the chain."
+  "ogn-155-298 Qiyana, Victorious: 'When I conquer' (383.4.c.2) needs the conquer event's participating " +
+    "unit/location identity in EventPattern so the trigger can be narrowed to this unit, and a merged " +
+    "CardProgram→TriggerRegistration binder (RIFT-257); the conquer timing point itself is now emitted by " +
+    "turn/flow.ts and the choice.mode body still needs the Finalize/Resolve choice-plan adapter."
 );

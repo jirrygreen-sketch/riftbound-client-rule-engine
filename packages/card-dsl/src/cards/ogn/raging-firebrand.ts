@@ -14,13 +14,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   法术打出的费用改写：需要一个一次性（one-shot）费用修正窗口，作用到本回合
  *   你接下来打出的第一张 Spell 的 Finalize 费用计划，随后失效。
  * - cost/ 的 buildCostPlan 支持 components/discounts 与 optionalAdditional，但
- *   没有已注册的指令原语把"安装一个一次性减费"挂到触发结算上（cost.modify 只
- *   存在于调研清单与静态持续效果形状，没有 instruction 文件）；"next spell"
- *   的一次性窗口也没有对应的持续效果期限类型（Duration 只有 permanent /
- *   end-of-turn / end-of-combat / while-source-in-zone / until）。
+ *   没有已注册的指令原语把"安装一个一次性减费"挂到触发结算上：
+ *   effects/instructions/ 下没有 cost.modify 文件（RIFT-261 的
+ *   cost.pay/cost.modify 未合入本分支）；"next spell" 的一次性窗口也没有对应的
+ *   持续效果期限类型（Duration 只有 permanent / end-of-turn / end-of-combat /
+ *   while-source-in-zone / until），且折扣只在单次 Finalize 计划内生效。
+ * - 触发注册还缺卡牌程序绑定：没有任何已合入消费方把 CardProgram 的 triggered
+ *   能力登记成 TriggerRegistration（RIFT-257）。
  *
  * status：judge-required。缺 cost.modify 指令原语与 one-shot 费用窗口；
- * 依赖 cost-plan 后续任务（RIFT-89 已有基础计划，但缺一次性注册/失效）。
+ * 依赖 cost-plan 后续任务（RIFT-261）与卡牌触发绑定（RIFT-257）。
  * 不近似为常驻减费或固定数值改写。
  */
 const ragingFirebrand = {
@@ -28,14 +31,23 @@ const ragingFirebrand = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 cost.modify 指令原语与一次性费用窗口：没有原语把「本回合下一张法术 -5 能量」注册进 Finalize 费用计划" +
-    "（RIFT-9 调研的 cost.modify 无 instruction 文件；cost/buildCostPlan 的 discounts 只在单次计划内生效），" +
-    "Duration 也没有 one-shot「next spell this turn」期限。依赖：RIFT-89（费用计划）后续的一次性费用修正，" +
-    "以及触发结算到费用层的注册通道。不近似为常驻减费。",
+    "缺 cost.modify 指令原语与一次性费用窗口：effects/instructions/ 下没有 cost.modify 文件" +
+    "（RIFT-261 的 cost.pay/cost.modify 未合入本分支），没有原语把「本回合下一张法术 -5 能量」注册进 Finalize 费用计划" +
+    "（cost/buildCostPlan 的 discounts 只在单次计划内生效），Duration 也没有 one-shot「next spell this turn」期限；" +
+    "另缺卡牌触发绑定——没有任何已合入消费方把 CardProgram 的 triggered 能力登记成 TriggerRegistration（RIFT-257）。" +
+    "依赖：RIFT-261（cost.pay/cost.modify 与一次性费用修正）、RIFT-257（卡牌触发绑定）。不近似为常驻减费。",
   abilities: [
     {
       kind: "triggered",
-      trigger: { at: "card-played", filter: { self: true } },
+      trigger: {
+        at: "card-played",
+        // The engine validator rejects the older { self: true } spelling; the
+        // played card identifies itself by canonical id.
+        filter: {
+          event: "card-played",
+          object: { canonicalCardId: "card.hash-6a44ecaa1f76158a92ecce63e4d3e2d347cc32014c448f13003d9f2500cb3de7" }
+        }
+      },
       optional: false,
       body: [
         {

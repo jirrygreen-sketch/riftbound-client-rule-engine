@@ -31,6 +31,7 @@ test("ogn-013-298 Pouty Poro: judgeReason names the missing wiring and its tasks
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /809\.1\.c\.1/);
   assert.match(program.judgeReason, /TargetPlan 税/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /不属于本卡的 write scope/);
 });
 

@@ -17,13 +17,23 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
  * - [Deflect] 的展开（keywords/Deflect.ts 输出 static target.tax）没有消费方：
- *   契约 3.8 第 4 条把"成为目标/目标锁定通知"放到引擎批 4，
  *   TargetPlan 的 TargetTaxAdapter（target/target-plan.ts）只接受调用方经
  *   TargetFinalizeOptions.tax 传入的税，链的 Finalize 没有从图层读取 target.tax
- *   静态效果的路径（RIFT-90）；同时 cost.pay 也没有把 Deflect 税并入费用计划。
- * - 时点 "conquer" 尚无发射方：scoring/ 只返回 triggerScore 指令，没有把
- *   "conquer" 时点交给事件管线的接线（P0 契约 §7.2 批 5 / 评分集成）。
- * 依赖：RIFT-90（目标税与目标锁定通知）、RIFT-89（费用计划合并税）、评分/时点接线。
+ *   静态效果的路径；chain/engine.ts 虽然把税记进 mandatoryAdditional，但
+ *   「目标税请求 → 实际收费」仍依赖未合入的 cost.pay/cost.modify（RIFT-261），
+ *   且已合入的换算按 Energy 记账而 809.1.c.1 要求任意域 Power。
+ * - conquer 时点（473.1）现已由 turn/flow.ts 的 Score wave 发出（见
+ *   docs/rules/timing-point-producers.md），但「When I conquer」指「我参与并成功
+ *   征服」：conquer 载荷只有 player + details.battlefieldId，没有参战单位/地点
+ *   身份；把事件源与宿主当前位置比较的 "here"/source 锚点在 EventPattern 词表中
+ *   不存在（嵌套 filter.source 拼写会被引擎校验拒绝），因此无法诚实地收窄到本卡。
+ * - 触发注册本身缺卡牌程序绑定：没有任何已合入消费方把 CardProgram 的 triggered
+ *   能力登记成 TriggerRegistration（RIFT-257）。
+ * - body 的 choice.mode 也过不了链的 Finalize：assertFinalizationSurface 对
+ *   choice.mode 抛 ChainContractBlockedError（Mode choices require a
+ *   Finalize/Resolve choice-plan adapter，RIFT-120 后续）。
+ * 依赖：RIFT-261（cost.pay/cost.modify 与目标税收费）、RIFT-257（卡牌触发绑定）、
+ * EventPattern 的 source/here 参照词表、choice.mode 的 Finalize/Resolve 接线。
  * 不近似实现（不把 Deflect 写成静态数值，也不跳过目标税）。
  */
 const abilities: Ability[] = [
@@ -81,14 +91,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处依赖未合入：（1）[Deflect]（809）的展开是 static target.tax，但没有消费方——" +
-    "契约 3.8 第 4 条把目标税通知放在引擎批 4，TargetPlan 的 TargetTaxAdapter 只接受调用方 " +
-    "经 TargetFinalizeOptions.tax 传入的税，链的 Finalize 没有从图层读取 CardProgram 静态 " +
-    "target.tax 的接线，cost.pay 也没有把目标税并入费用计划（依赖 RIFT-89 费用计划与 RIFT-90 目标税；" +
-    "keywords/Deflect.ts 的注释同款缺口）。（2）时点 conquer（473.1 征服得分后）没有发射方：" +
-    "scoring/ 只返回 triggerScore 指令，未把 conquer 时点交给事件管线，征服触发无法进入链" +
-    "（P0 契约 §7.2 批 5 / 评分集成）。body 的 draw/channel 二选一结构完整，" +
-    "golden 测试分别用已合入的 effect.draw 与 effect.channel 原语执行。不近似实现。",
+    "三处依赖仍未接通：（1）[Deflect]（809）的展开是 static target.tax，但没有消费方——" +
+    "TargetPlan 的 TargetTaxAdapter 只接受调用方经 TargetFinalizeOptions.tax 传入的税，链的 Finalize 没有从图层读取 " +
+    "CardProgram 静态 target.tax 的接线；chain/engine.ts 已把税记进 mandatoryAdditional，但「目标税请求 → 实际收费」" +
+    "仍依赖未合入的 cost.pay/cost.modify（RIFT-261），且已合入换算按 Energy 记账而 809.1.c.1 要求任意域 Power。" +
+    "（2）conquer 时点（473.1）已由 turn/flow.ts 的 Score wave 发出，但「When I conquer」= 我参与并成功征服：" +
+    "载荷只有 player + details.battlefieldId，没有参战单位/地点身份，EventPattern 词表也没有把事件源与宿主当前位置" +
+    "比较的 source/here 锚点（嵌套 filter.source 拼写会被引擎校验拒绝），无法诚实收窄到本卡。（3）没有任何已合入消费方" +
+    "把 CardProgram 的 triggered 能力登记成 TriggerRegistration（RIFT-257）；body 的 choice.mode 也过不了链的 Finalize" +
+    "（assertFinalizationSurface 抛 ChainContractBlockedError，RIFT-120 后续）。" +
+    "body 的 draw/channel 二选一结构完整，golden 分别用已合入的 effect.draw 与 effect.channel 原语执行。不近似实现。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +

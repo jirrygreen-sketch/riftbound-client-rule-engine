@@ -6,6 +6,7 @@ import program from "../../../dist/cards/ogn/poro-herder.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL =
   "card.hash-d30257c95bd0d16256944f4942f276da6f4e29317a22692f8f2bd04d8b0b5212";
@@ -50,18 +51,30 @@ test("ogn-061-298 Poro Herder: identity, ruleset, status, judgeReason and source
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /383\.2\.a\.1/);
   assert.match(program.judgeReason, /testTrigger/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /controller/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
+});
+
+test("ogn-061-298 Poro Herder: the trigger spec uses the merged filter spellings", () => {
+  // The engine validator rejects the older { filter: { role: "self" } }
+  // spelling; the played card identifies itself through its canonical id.
+  assert.deepEqual(triggered.trigger.filter, {
+    event: "card-played",
+    object: { canonicalCardId: CANONICAL }
+  });
+  const validated = validateTriggerSpec(triggered.trigger);
+  assert.equal(validated.ok, true, JSON.stringify(validated.ok ? [] : validated.issues));
+  // The condition stays on the TriggerSpec: 383.2.a.1 checks it before the
+  // ability goes on the chain.
+  assert.equal(triggered.trigger.condition.kind, "compare");
 });
 
 test("ogn-061-298 Poro Herder: the Poro condition belongs to the trigger condition (CR 383.2.a.1)", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(triggered.kind, "triggered");
   assert.equal(triggered.trigger.at, "card-played");
-  assert.deepEqual(triggered.trigger.filter, {
-    event: "card-played",
-    filter: { role: "self" }
-  });
   assert.equal(triggered.optional, false);
 
   // "if you control a Poro" is an additional conditional statement immediately
@@ -175,14 +188,8 @@ test("ogn-061-298 Poro Herder golden: an empty deck still executes Draw 1 with z
 // ---------------------------------------------------------------------------
 
 test.todo(
-  "ogn-061-298 Poro Herder: the Trigger Condition has no merged evaluator: events/pipeline.ts " +
-    "requires a host testTrigger adapter for conditional triggers and only engine-core's test " +
-    "helper installs one (RIFT-120 chain/events wiring)"
-);
-
-test.todo(
-  "ogn-061-298 Poro Herder: the controller placeholder (\"self\") inside a trigger-condition " +
-    "filter has no merged resolver: the reference kernel's matchesFilter compares the raw " +
-    "placeholder, and the ChainEngine's normalization is reachable only from ResolveContext " +
-    "queries, not from trigger conditions"
+  "ogn-061-298 Poro Herder: the Trigger Condition needs a production evaluator — the event " +
+    "pipeline requires a host testTrigger adapter for conditional triggers (only engine-core's " +
+    "test helpers install one), the condition filter's controller placeholder has no resolver on " +
+    "that path, and no merged consumer binds CardProgram triggered abilities at all (RIFT-257)."
 );

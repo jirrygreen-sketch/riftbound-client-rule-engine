@@ -9,6 +9,7 @@ import program from "../../../dist/cards/ogn/radiant-dawn.js";
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
+const { validateTriggerSpec } = await import(new URL("events/trigger-spec.js", engineCore));
 
 const ability = program.abilities[0];
 const buff = ability.body[0];
@@ -29,6 +30,8 @@ test("radiant-dawn identity: canonicalCardId, ruleset, judge-required status and
   assert.match(program.judgeReason, /412\.4/);
   assert.match(program.judgeReason, /412\.5/);
   assert.match(program.judgeReason, /one or more/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /testTrigger/);
   assert.equal(
     program.sourceText,
     "When you stun one or more enemy units, buff a friendly unit. (If it doesn't have a buff, it gets a +1 :rb_might: buff.)"
@@ -39,10 +42,16 @@ test("radiant-dawn structure: mandatory unit-stunned trigger with enemy-unit pay
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "unit-stunned");
+  // The merged event vocabulary has no "unit-stunned" EventPattern name, so the
+  // filter is the bare ObjectFilter the matcher applies to the event payload
+  // object; validateTriggerSpec accepts it.
   assert.deepEqual(ability.trigger.filter, {
-    event: "unit-stunned",
-    object: { type: "unit", zone: "board", controller: "opponent" }
+    type: "unit",
+    zone: "board",
+    controller: "opponent"
   });
+  const validated = validateTriggerSpec(ability.trigger);
+  assert.equal(validated.ok, true, JSON.stringify(validated.ok ? [] : validated.issues));
   assert.equal(ability.optional, false);
   assert.equal(ability.trigger.once, undefined);
 });
@@ -101,12 +110,12 @@ test("radiant-dawn golden: a target that left the board makes the instruction ig
 
 test.todo(
   "radiant-dawn \"When you stun\" responsibility (CR 412.4/412.5): filter the Stun action by " +
-    "the player responsible for it; the unit-stunned payload only carries the stunned unit's " +
-    "controller (engine batch 4 trigger.state work)."
+    "the player responsible for it; the stun GameAction carries no player (contract 3.6), so the " +
+    "emitted event's player falls back to the stunned unit's controller (engine batch 4 trigger.state work)."
 );
 
 test.todo(
   "radiant-dawn \"one or more enemy units\": one trigger per Stun action/batch even when it " +
     "stuns several enemy units; needs batch grouping on the stun timing point plus a per-batch " +
-    "lifetime (engine batch 4 / P2 batch-6 wiring)."
+    "lifetime, and a merged CardProgram→TriggerRegistration binder (RIFT-257)."
 );

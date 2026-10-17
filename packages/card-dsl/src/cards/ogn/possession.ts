@@ -18,10 +18,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   an ordinary target: one unit, opponent-controlled, located at a
  *   battlefield (355.7, 355.9.b, 355.10). The Pending-exclusion and
  *   target-lock rules (355.3, 355.15) stay with the target system (RIFT-90).
- * - "Take control of it" is the frozen take-control GameAction (contract
- *   3.6). No instruction file implements it yet (RIFT-117
- *   prim-effect-control); effect.control is the survey's primitive name
- *   (ability-templates.md 「control」row).
+ * - "Take control of it" is executed by the merged effect.control primitive
+ *   (RIFT-117) over the frozen take-control GameAction (contract 3.6): the
+ *   chosen unit's controller changes to the ability controller. The card has
+ *   no printed duration, so the primitive's permanent default is used (nothing
+ *   hands the unit back). The primitive also documents that non-permanent
+ *   durations remain BLOCKED; this card does not need one.
  * - "and recall it" is a Recall (457): a relocation to its Base that is
  *   explicitly not a Move (458), does not trigger Move abilities (458.1),
  *   cannot be blocked by movement restrictions (458.3) and keeps damage and
@@ -33,23 +35,25 @@ import type { CardProgram } from "../../ir/index.js";
  *   ("controller-base": the Base of each object's current controller, which
  *   is the new controller once control has been taken).
  *
- * Status: judge-required, both halves. The control instruction is the
- * pending RIFT-117 primitive; the recall instruction is the merged
- * effect.move recall path that explicitly refuses to fake a Move. The two
- * instructions are linked (359.3.e.14: "it" refers to the chosen unit), and
- * the recall keeps the card's own object selector rather than a substitute
- * action.
+ * Status: judge-required. The control half now executes through the merged
+ * effect.control primitive and is covered by the golden; the recall half is
+ * still not executable — the merged effect.move recall path explicitly refuses
+ * to fake a Move (it returns negated/impossible with a blockedReason and
+ * submits no substitute action). The two instructions stay linked (359.3.e.14:
+ * "it" refers to the chosen unit), and the recall keeps the card's own object
+ * selector rather than a substitute action.
  */
 const possession = {
   canonicalCardId: "card.hash-18e556f7feed1c4774ba2262a9ef50441960dfa08dadbf07fd4011f655b4f544",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 effect.control 原语：契约 3.6 的封闭 GameAction 已有 take-control，但 effects/instructions 中尚无一步" +
-    "指令实现它（依赖 RIFT-117 prim-effect-control）；「recall it」亦不可执行——已合入的 effect.move 明确标注" +
-    "Recall 为 BLOCKED（CR 457–460：Recall 不是 Move，不发 Move 事件、不受移动限制、保留伤害与状态），" +
-    "调用 mode:\"recall\" 会返回 negated/impossible 并给出 blockedReason，且不得用 move-location 近似（458）。" +
-    "依赖：RIFT-117（控制原语）、Recall 独立动作的落地（RIFT-109 的后续/RIFT-9 effect.move 清单）。",
+    "「Take control of it」半段已可执行：effect.control 原语（RIFT-117）已合入并经 golden 真实执行（控制器变为" +
+    "能力控制者，127.1/188–192）；本卡无印刷期限，用原语的 permanent 默认值，不涉及被阻断的非永久期限。" +
+    "「recall it」仍不可执行——已合入的 effect.move 明确标注 Recall 为 BLOCKED（CR 457–460：Recall 不是 Move、" +
+    "不发 Move 事件、不受移动限制、保留伤害与状态），调用 mode:\"recall\" 会返回 negated/impossible 并给出" +
+    "blockedReason，且不得用 move-location 近似（458）。两条指令保持 linkedTo（359.3.e.14 的「it」）。" +
+    "依赖：Recall 独立动作的落地（RIFT-109 后续）。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
@@ -61,12 +65,14 @@ const possession = {
       },
       body: [
         {
-          // "Take control of it" — pending primitive named by the survey
-          // (RIFT-117); the target set is the randomized enemy unit locked on
-          // this instruction's TargetSpec.
+          // "Take control of it" — effect.control over the frozen take-control
+          // action (RIFT-117); the target set is the enemy unit locked on this
+          // instruction's TargetSpec.
           id: "possession.take-control",
           op: "effect.control",
-          args: { target: { kind: "constant", value: "possession.unit" } },
+          args: {
+            objects: { kind: "constant", value: { target: "possession.unit" } }
+          },
           targets: [
             {
               id: "possession.unit",

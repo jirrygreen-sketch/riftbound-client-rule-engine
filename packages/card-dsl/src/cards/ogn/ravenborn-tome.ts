@@ -18,12 +18,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   「本回合你打出的下一个法术」这个窗口与授予路径归延迟被动能力 / 图层。
  *
  * status = judge-required：
- * - 没有已注册原语消费 `ctx.registerDelayedTrigger`，也没有把“下一次打出的法术”
- *   与该次 Deal 动作关联的延迟被动能力管线（392 的 Delayed Passive Ability）；
+ * - 没有已注册原语消费 `ctx.registerDelayedTrigger`（契约 3.6 有该方法，
+ *   chain/engine.ts 也有内部注册路径，但指令注册表里没有 trigger.delayed 或
+ *   continuous.bonus-damage 的 op 文件），也没有把“下一次打出的法术”与该次 Deal
+ *   动作关联的延迟被动能力管线（392 的 Delayed Passive Ability）；
  * - 已合入的 effect.damage 只接受调用方传入的 bonus 表达式（698），自己不做授予，
  *   拿一个静态 1 点 bonus 直接写进 instruction 就会对所有伤害生效，属近似实现；
- * - 「本回合」的到期依赖 continuous.duration / 延迟能力到期（393、392 的 specified
- *   time），由同一批管线负责。
+ * - 「本回合」的到期依赖延迟能力到期（393、392 的 specified time）——图层的 duration
+ *   注册表本身已合入（layers/duration.ts 支持 end-of-turn），但把 1 点 Bonus Damage
+ *   授予“本回合你打出的下一个法术”并把授予结果接到那次 Deal 的管线仍缺失，因此到期
+ *   也无从谈起。
  * 费用半段（横置自身）用已合入的 cost.exhaust 费用计划，golden 测试真实执行。
  */
 const abilities: Ability[] = [
@@ -56,11 +60,13 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "缺延迟被动能力的登记与消费：CR v1.5 392 的示例直接点名本卡（Delayed Passive Ability that " +
-    "passively adds 1 Bonus Damage to just the next spell played），但已合入的指令原语里没有" +
-    "任何实现消费 ctx.registerDelayedTrigger，也没有把「本回合你打出的下一个法术」与那次 Deal" +
-    "动作关联的管线；effect.damage 只接受调用方传入的 bonus 表达式（714 / 715.2），自己不做授予，" +
-    "把静态 1 点 bonus 写进 instruction 会对所有伤害生效，属近似实现（712–715）。到期（本回合）" +
-    "归延迟能力 / 图层期限。依赖：RIFT-120（延迟触发 / 替代注册管线）、RIFT-91（layers-continuous）。" +
+    "passively adds 1 Bonus Damage to just the next spell played），但已合入的指令注册表里没有" +
+    "任何消费 ctx.registerDelayedTrigger 的原语（契约 3.6 有该方法、chain/engine.ts 有内部注册路径，" +
+    "但没有 trigger.delayed 或 continuous.bonus-damage 的 instruction 文件），也没有把「本回合你打出的下一个法术」" +
+    "与那次 Deal 动作关联的管线；effect.damage 只接受调用方传入的 bonus 表达式（714 / 715.2），自己不做授予，" +
+    "把静态 1 点 bonus 写进 instruction 会对所有伤害生效，属近似实现（712–715）。图层的 duration 注册表" +
+    "（layers/duration.ts 的 end-of-turn）已合入，但授予与关联管线缺失使到期也无从落地。" +
+    "依赖：RIFT-120（延迟触发注册管线）与 trigger.delayed / continuous.bonus-damage 指令落地。" +
     "费用半段（横置自身）已用已合入的 cost.exhaust 费用计划真实执行。",
   abilities,
   sourceText:

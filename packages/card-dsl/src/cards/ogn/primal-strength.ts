@@ -12,25 +12,25 @@ import type { CardProgram } from "../../ir/index.js";
  *   owns its expansion (contract 3.7).
  * - "Give a unit +7 :rb_might: this turn" chooses one unit on the board
  *   (355.9.a.1: "unit" means an object on the board unless stated otherwise),
- *   so the instruction carries a one-unit TargetSpec.
- * - The modification itself is a temporary Might change. Contract 3.6's closed
- *   GameAction set has no Might-modification action, and effect.buff documents
- *   that Buff counters (702/703) are not temporary Might changes. The layers
- *   engine landed (RIFT-91) and its duration registry owns "this turn" expiry,
- *   but no merged instruction primitive registers a continuous.might effect
- *   through ctx.addContinuous, so this body cannot be executed. Recorded as
- *   judge-required; not approximated with Buff counters.
+ *   so the instruction carries a one-unit TargetSpec and reads that choice
+ *   through the contract 3.6 target selector.
+ * - The modification is a temporary Might change executed by the merged
+ *   continuous.might primitive (RIFT-258): it registers one arithmetic-layer
+ *   effect per resolved object through ResolveContext.addContinuous with the
+ *   end-of-turn duration (143.2.a / 478; "this turn" expires in the cleanup
+ *   step per 317.1.a / 468.7.c, layers/ops resolveContinuousDuration).
+ *   effect.buff (702/703) is not used: a Buff counter is a counter, not a
+ *   Might modification.
+ *
+ * Status: executable — the printed ability executes on merged paths and the
+ * golden test drives the card's own body through the interpreter + layer
+ * engine, asserting the arithmetic-layer registration, the +7 result, the
+ * end-of-turn expiry and the mistargeted edge.
  */
 const primalStrength = {
   canonicalCardId: "card.hash-973d0d5d514cd0b81080d51a93fd58adb4be5b542b6ac111f49c4202d30e1abf",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "缺注册 continuous.might 的指令原语：effects/instructions 下没有对应文件，契约 3.6 的封闭 GameAction 集合" +
-    "也没有 Might 修改动作；图层引擎（RIFT-91）只消费 RegisteredContinuousEffect，卡牌 IR 没有把 Might 修正" +
-    "注册进图层的 opcode，因此“Give a unit +7 M this turn”无法执行（this-turn 到期由 layers/duration 负责，" +
-    "但仍需该原语才能落地）。effect.buff 边界明确只做 Buff 计数（702/703），不得用来近似临时 Might 修正。" +
-    "依赖：continuous.might 指令原语。",
+  status: "executable",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
@@ -38,13 +38,16 @@ const primalStrength = {
       body: [
         {
           id: "primal-strength.give-plus-7",
-          // Pending instruction primitive (continuous.might): +7 Might for the
-          // rest of the turn, applied in the layers arithmetic layer and
-          // expiring at cleanup.
+          // +7 Might for the rest of the turn (143.2.a / 478), applied in the
+          // layers arithmetic layer and expiring at cleanup (317.1.a).
           op: "continuous.might",
           args: {
             amount: { kind: "constant", value: 7 },
-            duration: { kind: "constant", value: "this-turn" }
+            duration: { kind: "constant", value: "this-turn" },
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "primal-strength.unit" }
+            }
           },
           targets: [
             {
