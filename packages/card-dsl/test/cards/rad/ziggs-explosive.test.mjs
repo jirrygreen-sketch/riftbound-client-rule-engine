@@ -64,7 +64,10 @@ test("rad-112-167 Ziggs, Explosive: judgeReason names the current gaps only", ()
   assert.match(program.judgeReason, /Deathknell/);
   assert.match(program.judgeReason, /defense-declared/);
   assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /Finalize/);
+  assert.match(program.judgeReason, /battlefieldId/);
   assert.match(program.judgeReason, /CardProgram 绑定（RIFT-257）与 card-played 生产方已合入/);
+  assert.doesNotMatch(program.judgeReason, /cleanup 的非单位 Deploy 免召回/);
 });
 
 test("rad-112-167 Ziggs, Explosive: the activated ability costs 1 energy plus exhausting this unit (145.1/377)", () => {
@@ -248,11 +251,13 @@ test.todo(
 );
 
 test.todo(
-  "rad-112-167 Ziggs, Explosive: Deploy (830.1.b: Finalize destination validation, non-Unit " +
-    "cleanup recall exemption, battlefield-identity hold trigger) and the Bomb Deathknell body " +
-    "need the trigger.leave primitive that effects/keywords/Deathknell.ts declares plus a 'here' " +
-    "location and mass-kill expansion for 'deal 2 to an enemy unit here and kill all other Bombs " +
-    "you control here' - RIFT-82 / the Deploy consumer work"
+  "rad-112-167 Ziggs, Explosive: Deploy (830.1.b) still needs the continuous.location Finalize " +
+    "destination validator and hold-trigger registration/location-filter adaptation: turn/flow.ts " +
+    "already provides the non-Unit Deploy cleanup exemption and hold/conquer/score events carry " +
+    "battlefieldId, but TriggerSpec cannot bind Deploy's 'here' to event.details.battlefieldId. " +
+    "The Bomb Deathknell body also needs the trigger.leave primitive that effects/keywords/Deathknell.ts " +
+    "declares plus a 'here' location and mass-kill expansion for 'deal 2 to an enemy unit here and " +
+    "kill all other Bombs you control here' - RIFT-82 / the Deploy consumer work"
 );
 
 test.todo(
