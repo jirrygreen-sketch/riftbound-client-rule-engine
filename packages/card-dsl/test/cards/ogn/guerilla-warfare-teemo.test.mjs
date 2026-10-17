@@ -6,6 +6,7 @@ import guerillaWarfare from "../../../dist/cards/ogn/guerilla-warfare-teemo.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-1175fb7ab62c4d777b8ccd63b423982a0b70440ed2d5652d2b61dde6fb07b06f";
@@ -80,6 +81,26 @@ test("Guerilla Warfare structure: an up-to-two return, then the unmerged Hide co
   assert.equal(waiverInstruction.linkedTo, undefined);
 });
 
+test("Guerilla Warfare: the supported return half keeps the zone and owner semantics", () => {
+  // The return primitive is registered and the supported parts of the target
+  // filter remain meaningful even while the Hidden characteristic predicate
+  // is pending.
+  assert.equal(instructionDefinitionsById.has("effect.zone"), true);
+  const kernel = world()
+    .card("hidden-card", { zone: "trash" })
+    .card("plain-card", { zone: "trash" })
+    .card("other-zone", { zone: "hand" })
+    .build();
+  assert.deepEqual(
+    kernel.query({ zone: "trash", owner: "A" }).map(object => object.ref.id),
+    ["hidden-card", "plain-card"]
+  );
+  assert.deepEqual(
+    kernel.query({ zone: "hand", owner: "A" }).map(object => object.ref.id),
+    ["other-zone"]
+  );
+});
+
 test("Guerilla Warfare golden: the return half brings up to two locked trash cards to hand (417.1.b)", () => {
   const kernel = world()
     .card("one", { zone: "trash" })
@@ -145,6 +166,20 @@ test("Guerilla Warfare golden: choosing zero cards moves nothing (355.13)", () =
   assert.equal(kernel.zone("A", "hand").length, 0);
   assert.equal(kernel.zone("A", "trash").length, 1);
   assert.equal(run.events.length, 0);
+});
+
+test("Guerilla Warfare: the supported return half executes before the pending Hide waiver", () => {
+  const kernel = world().card("one", { zone: "trash" }).build();
+  kernel.setTargets("hidden-cards-in-trash", [kernel.ref("one")]);
+  const [returnBody] = play.body;
+  const { targets, ...lockedReturn } = returnBody;
+  const outcome = resolveChainBody([lockedReturn], kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["one"]);
+  assert.deepEqual(kernel.zone("A", "trash"), []);
+  assert.equal(outcome.linkedValues["return-hidden-cards.moved"], 1);
 });
 
 test.todo(
