@@ -17,8 +17,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   MissingInformation，生产绑定器按 false 处理（实测 combatRole=attacker 时 Might 仍为
  *   印刷值），因此攻击时的 +1 目前不生效。
  * - [Tank]（815.1.b/c）：effects/keywords/Tank.ts 已合入并展开为 continuous.combat 的
- *   静态声明，但 combat/base-combat-allocation.ts 没有 lethal-first 分配消费方，
- *   layers/engine.ts 也不识别该 kind（实测绑定后快照无任何变化）。
+ *   静态声明，生产静态绑定也已能落到 ability 图层（实测不再抛错）；剩余缺口是
+ *   combat/base-combat-allocation.ts 的 proof.keywordPriority 只有 'proven-none'，
+ *   没有 lethal-first 分配消费方。
  * - "When I attack"：攻击触发（时点 attack-declared；323.2 取得 Attacker 身份时触发）。
  * - "you may move a unit you control"："you may" 是效果第一段 → 383.3.a 由触发能力
  *   控制者在 Finalize 决定是否执行该触发能力（383.3.a.1/.a.2）→ triggered.optional = true。
@@ -63,8 +64,10 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "两处未合入依赖：(1) [Tank]（815.1.b/c）的 KeywordDef 已合入并展开为 continuous.combat 静态声明，" +
-    "但 combat/base-combat-allocation.ts 没有 lethal-first 分配消费方，layers/engine.ts 也不识别该 kind" +
-    "（实测绑定后快照无变化）。(2) [Assault]（807.1.c）展开为 arithmetic 的 continuous.might，条件读 " +
+    "生产静态绑定也已能落到 ability 图层（实测 layerFor 映射该 kind、绑定不再抛错）；" +
+    "剩余缺口是战斗分配管线没有 Tank 消费方：combat/base-combat-allocation.ts 的 " +
+    "DuelBaseCombatSourceEffectProof.keywordPriority 只有 'proven-none'（basic path 必须显式证明无分配优先级，" +
+    "没有 lethal-first 的 Tank 语义接入）。(2) [Assault]（807.1.c）展开为 arithmetic 的 continuous.might，条件读 " +
     "object-property(self, \"designation\")，而 ObjectSnapshot 只有 combatRole：解释器抛 MissingInformation，" +
     "生产绑定器按 false 处理（实测 combatRole=attacker 时 Might 仍为印刷值 7），攻击时的 +1 不生效。" +
     "攻击触发注册（attack-declared，383.4.e/323.2）与 effect.move 移动本体已有引擎路径并有 golden 执行证据；" +
