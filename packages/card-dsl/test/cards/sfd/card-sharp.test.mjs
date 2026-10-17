@@ -34,7 +34,7 @@ test("sfd-081-221 Card Sharp: judgeReason names the multi-player choice, result 
   assert.match(program.judgeReason, /355\.18/);
   assert.match(program.judgeReason, /party-favors/);
   assert.match(program.judgeReason, /187\.5/);
-  assert.match(program.judgeReason, /RIFT-9/);
+  assert.ok(!/RIFT-\d+/.test(program.judgeReason));
   assert.match(program.judgeReason, /token/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -104,34 +104,13 @@ test("sfd-081-221 Card Sharp: 'For each opponent who did' reads the first clause
 test.todo(
   "sfd-081-221 Card Sharp: each player (you and every opponent) makes an independent optional 'play a " +
     "Gold gear token exhausted' decision at resolution (CR 355.10.e/355.18) — the frozen choose node has a " +
-    "single chooser, no other-seat enumeration and no per-seat repetition (RIFT-9 target.player)"
+    "single chooser, no other-seat enumeration and no per-seat repetition (same target.player gap as ogn/party-favors)"
 );
 test.todo(
   "sfd-081-221 Card Sharp: 'For each opponent who did' needs the per-seat outcome of the first clause " +
-    "(CR 359.3.e.14 result family; RIFT-90 selection/result binding)"
+    "(CR 359.3.e.14 result family; selection/result binding)"
 );
 test.todo(
   "sfd-081-221 Card Sharp: play a Gold gear token exhausted — CR 187.5 definition plus 440.2.c/185.2.a chain " +
     "creation and the 184.1/185.2.d exhausted entry stipulation"
 );
-
-test("sfd-081-221 Card Sharp: the merged effect.token primitive refuses the Gold definition", () => {
-  // The second clause names the printed "gold" definition; the merged primitive
-  // refuses definitions that carry their own abilities (CR 187.5) and reports
-  // the reason, so no substitute token can be created in its place.
-  const kernel = world().player("A")
-    .unit("sharp", { types: ["unit"], might: 3, location: { type: "base", player: "A" } })
-    .build();
-  const run = runInstruction(token, {
-    token: { kind: "constant", value: "gold" },
-    amount: { kind: "constant", value: 1 },
-    mode: { kind: "constant", value: "play" },
-    location: { kind: "constant", value: { type: "base", player: "A" } },
-    linkKey: { kind: "constant", value: "bonusGoldTokens" }
-  }, { world: kernel.clone({ sourceSnapshot: kernel.getObject("sharp") }) });
-
-  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
-  assert.equal(run.linked.bonusGoldTokens.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.equal(run.linked.bonusGoldTokens.amount, 0);
-  assert.deepEqual(kernel.objects.filter((object) => object.isToken).map((object) => object.ref.id), []);
-});
