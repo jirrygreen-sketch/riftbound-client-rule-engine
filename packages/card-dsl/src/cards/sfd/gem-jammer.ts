@@ -20,8 +20,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   用印刷 keywords 调用 expandProgram；没有运行时 keyword → Ability 的派生）；
  * - layers/rules/query 的 movement()/canGank 也没有生产调用方：标准移动合法性检查
  *   不会读取该许可，「It can move from battlefield to battlefield」无法被兑现。
- * 已合入并真实执行：continuous.grant-keyword 原语（RIFT-258）、Ganking KeywordDef
- * （RIFT-83）与触发注册；golden 经真实 ChainEngine 管线解析本卡的 card-played 触发，
+ * 已合入并真实执行：continuous.grant-keyword、Ganking KeywordDef 与触发注册；golden
+ * 经真实 ChainEngine 管线解析本卡的 card-played 触发，
  * 断言授予只落在被选单位、duration 到期后消失（不构成整卡证据）。
  */
 export default {
@@ -29,12 +29,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺口是授予后语义消费：(1) 被授予的 Ganking 只在 ability 层留下 { id: \"Ganking\" }，" +
+    "缺口是授予后语义消费：(1) 运行时获得的 Ganking 只在 ability 层留下 { id: \"Ganking\" }，" +
     "没有任何已合入消费方为「运行中获得的」关键词展开其 810.1.b/810.1.c 的移动许可" +
     "（关键词展开只在绑定期用印刷 keywords 调用 expandProgram，没有运行时 keyword → Ability 派生）；" +
     "(2) layers/rules/query 的 movement()/canGank 没有生产调用方，标准移动合法性检查不读取该许可，" +
     "\"It can move from battlefield to battlefield\" 无法兑现。" +
-    "continuous.grant-keyword 原语（RIFT-258）、Ganking KeywordDef（RIFT-83）与 RIFT-257 触发注册本身已合入；" +
+    "continuous.grant-keyword、Ganking KeywordDef 与 card-played 触发注册本身已可执行；" +
     "golden 经真实 ChainEngine 管线执行本卡 card-played 触发并断言授予范围与 end-of-turn 到期，不近似实现。",
   abilities: [
     {

@@ -24,11 +24,9 @@ test("sfd-165-221 Glasc Mixologist: program validates and keeps its identity", (
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /356\.1\.b/);
-  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /RIFT-90/);
-  // The old reason blamed the unmerged cost plan (RIFT-89); the remaining
-  // wiring is the cost.printed / cost.pay batch.
-  assert.doesNotMatch(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /已选垃圾场单位.*ignore-base/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-82|RIFT-89|RIFT-261/);
   assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.equal(
     program.sourceText,
@@ -127,7 +125,7 @@ test("sfd-165-221 Glasc Mixologist: the merged play primitive plays the locked t
 test.todo(
   "sfd-165-221 Glasc Mixologist: enforce the printed-cost ceiling (Energy <= 3, Power <= 1 including [A] " +
     "Universal Power, 163.2.b) and generate the ignore-cost plan from the chosen trash unit (356.1.b.1, " +
-    "RIFT-90 printed-cost predicate and RIFT-261 cost.printed / cost.pay wiring)"
+    "RIFT-90 printed-cost predicate and selected-object cost-plan wiring)"
 );
 
 test("sfd-165-221 Glasc Mixologist: the merged Deathknell keyword is registered", () => {
@@ -138,7 +136,7 @@ test("sfd-165-221 Glasc Mixologist: the merged Deathknell keyword is registered"
 
 test("sfd-165-221 Glasc Mixologist golden: the card's own optional body plays the locked trash unit on accept", () => {
   // The card's original may-play wrapper executes through the production chain
-  // adapter with the caller-supplied zero-cost plan the unmerged cost.printed
+  // adapter with the caller-supplied zero-cost plan the selected-object cost
   // step would otherwise build (356.1.b.1). The descriptive costEnergyLte /
   // costPowerLte keys are ignored by the reference matcher, matching the
   // judged gap (they must never be treated as a working ceiling).

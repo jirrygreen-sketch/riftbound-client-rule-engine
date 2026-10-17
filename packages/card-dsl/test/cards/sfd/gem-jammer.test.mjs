@@ -46,12 +46,9 @@ test("sfd-007-221 Gem Jammer: program passes validateCardProgram and is judge-re
 
 test("sfd-007-221 Gem Jammer: judgeReason names the current semantic-consumption gap", () => {
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-258/);
   assert.match(program.judgeReason, /810/);
-  // The old reason claimed the primitive itself was missing; RIFT-258 merged
-  // it, so the reason must not still say so.
-  assert.doesNotMatch(program.judgeReason, /尚无实现/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-91（layers-continuous）/);
+  assert.match(program.judgeReason, /运行时获得的 Ganking/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-83|RIFT-91|RIFT-257|RIFT-258/);
   assert.equal(keywordDefinitionsById.has("Ganking"), true);
   assert.equal(keywordDefinitionsById.get("Ganking").stacking, "single");
 });

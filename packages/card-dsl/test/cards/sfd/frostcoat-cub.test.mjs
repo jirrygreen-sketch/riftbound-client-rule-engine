@@ -34,11 +34,8 @@ test("sfd-067-221 Frostcoat Cub: judgeReason names the cost, receipt and Might g
   assert.match(program.judgeReason, /356\.2\.b/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-258/);
-  // The old reason blamed the unmerged continuous.might primitive; it landed.
-  assert.doesNotMatch(program.judgeReason, /RIFT-89/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /Play\/Finalize/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-91|RIFT-257|RIFT-258|RIFT-261/);
   // The debuff must not be approximated with a Buff counter.
   assert.match(program.judgeReason, /702\/703/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
@@ -109,19 +106,18 @@ test("sfd-067-221 Frostcoat Cub: the declared shapes name the cost and continuou
 
 test.todo(
   "sfd-067-221 Frostcoat Cub: charge the optional additional cost (:rb_rune_mind:, 356.2.b) in Finalize " +
-    "and gate the -2 Might on the 356.4.f.1 paid receipt — the optional-cost wiring and cost kinds " +
-    "are RIFT-261, and the receipt binding is the frozen IR's condition.result gap"
+    "and gate the -2 Might on the 356.4.f.1 paid receipt — Play/Finalize does not consume the " +
+    "declared cost.additional, and the receipt binding is the frozen IR's condition.result gap"
 );
 test.todo(
-  "sfd-067-221 Frostcoat Cub: the card-played trigger enters the chain after the unit is played " +
-    "(CR 383.4.a.2/420.4.a) through the CardProgram -> trigger/chain adapter (RIFT-257 registration " +
-    "is merged, but this card stays judge-required so the registry refuses it end to end)"
+  "sfd-067-221 Frostcoat Cub: once the optional-cost receipt condition is expressible, the card-played " +
+    "trigger body must enter the chain after the unit is played (CR 383.4.a.2/420.4.a)"
 );
 
 test("sfd-067-221 Frostcoat Cub golden: the declared Mind Power cost is payable through the merged cost plan", () => {
   // 356.2.b/356.2.b.1: one printed :rb_rune_mind: Power. The merged plan pays
-  // the component when the caller supplies it; the automatic optional-cost
-  // wiring is the RIFT-261 gap.
+  // the component when the caller supplies it; Play/Finalize still lacks the
+  // automatic optional-cost wiring.
   const kernel = world()
     .player("A", { energy: 5, power: ["Mind"] })
     .unit("cub", { energy: 3, power: null, controller: "A", owner: "A" })

@@ -8,6 +8,8 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
 import { restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const [ability] = program.abilities;
 
@@ -23,11 +25,8 @@ test("sfd-209-221 Forgotten Monument: validates, is registered and keeps identit
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.restrict/);
   assert.match(program.judgeReason, /third turn/);
-  assert.match(program.judgeReason, /RIFT-259/);
-  // The old reason claimed the primitive itself was missing; RIFT-259 merged
-  // it, so the current gaps are the scoring consumer and the turn-ordinal
-  // window.
-  assert.doesNotMatch(program.judgeReason, /缺 continuous\.restrict 静态限制原语/);
+  assert.match(program.judgeReason, /this-battlefield/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257|RIFT-259/);
   assert.equal(program.sourceText, "Players can't score here until their third turn.");
   assert.equal(cardProgramsById.get(program.canonicalCardId), program);
 });
@@ -88,6 +87,14 @@ test("sfd-209-221 Forgotten Monument golden: the merged primitive registers a re
   );
   // ...and it does not leak into other actions.
   assert.deepEqual(restrictions(registry, "move"), []);
+});
+
+test("sfd-209-221 Forgotten Monument boundary: static binding needs a concrete battlefield identity", () => {
+  const f = fixture({ cards: [{ id: "monument", cardId: program.canonicalCardId, types: ["battlefield"] }] });
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(ability, f.kernel.getObject("monument")),
+    /Unsupported static appliesTo/
+  );
 });
 
 // The scoring flow does not consult the restriction registry, and card IR has

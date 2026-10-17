@@ -20,7 +20,7 @@ test("Frigid Touch program is valid EffectIR v2 data", () => {
   assert.equal(result.ok, true);
 });
 
-test("Frigid Touch is judge-required because the Repeat cost/count hook is unmerged", () => {
+test("Frigid Touch is judge-required because Repeat cost/count wiring and a Might repeat action are missing", () => {
   assert.equal(
     program.canonicalCardId,
     "card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9"
@@ -31,9 +31,9 @@ test("Frigid Touch is judge-required because the Repeat cost/count hook is unmer
   // cost/count wiring and the closed GameAction set's lack of a Might
   // modification — not the stale "continuous.might is unmerged" claim.
   assert.match(program.judgeReason, /continuous.might/);
-  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /repeat/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /Play\/Finalize/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-86|RIFT-91|RIFT-261/);
   assert.match(program.sourceText, /Give a unit -2 :rb_might: this turn./);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -108,8 +108,8 @@ test("Frigid Touch golden execution: an ignored Might instruction also ignores t
 
 test.todo(
   "Frigid Touch: collecting the optional [2] Repeat cost at Finalize and exposing the paid " +
-    "count to the repeat instruction (820.1.c.1) need the Repeat cost hook and the cost kinds " +
-    "(RIFT-261); the card must not write a fixed count."
+    "count to the repeat instruction (820.1.c.1) needs Play/Finalize to consume the expanded " +
+    "repeat.cost static effect; the card must not write a fixed count."
 );
 
 test.todo(

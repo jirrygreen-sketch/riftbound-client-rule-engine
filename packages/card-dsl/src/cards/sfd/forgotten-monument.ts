@@ -19,12 +19,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   scoring authority never consults card data for such restrictions today).
  *
  * Status rationale (contract 3.1): judge-required, current gaps:
- * 1. the merged `continuous.restrict` primitive (RIFT-259) registers the
- *    prohibition and layers/rules/query.restrictions() can read it, but the
- *    scoring flow (scoring/scoring.ts) never consults that registry — nothing
- *    reads a score restriction at Scoring time, and the card-static → layers
- *    registration path is RIFT-257's binder hook rather than an end-to-end
- *    consumer;
+ * 1. the continuous.restrict primitive and rules/query restriction reader are
+ *    executable, but the static binder cannot resolve appliesTo:
+ *    "this-battlefield" without a concrete battlefield identity, and the
+ *    scoring flow (scoring/scoring.ts) never consults the restriction registry;
  * 2. the printed window "until their third turn" is a per-player turn-count
  *    predicate: card IR exposes counting via condition.history (action /
  *    timing-point history) and object filters, but no turn-ordinal vocabulary
@@ -39,9 +37,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处当前缺口：(1) continuous.restrict 原语（RIFT-259）已合入且 layers/rules/query.restrictions() 可读，" +
-    "但 scoring 流程（scoring/scoring.ts）从不查询该注册表——计分时没有任何读取得分限制的调用方，" +
-    "卡牌 static → 图层的注册入口也仍是 RIFT-257 的 binder 钩子而非端到端消费方；" +
+    "两处当前缺口：(1) continuous.restrict 原语与 layers/rules/query.restrictions() 已可执行，" +
+    "但 static binder 无法把 appliesTo: \"this-battlefield\" 解析成具体战场身份，" +
+    "且 scoring 流程（scoring/scoring.ts）从不查询该注册表——计分时没有任何读取得分限制的调用方；" +
     "(2) 「until their third turn」是按玩家的回合序数窗口：卡牌 IR 只有 condition.history（动作/时点计数）" +
     "与对象过滤器，没有「某玩家的第三回合」词表，窗口不可求值。不近似实现（不写触发、不写替代、不写禁止计分指令）。",
   sourceText: "Players can't score here until their third turn.",
