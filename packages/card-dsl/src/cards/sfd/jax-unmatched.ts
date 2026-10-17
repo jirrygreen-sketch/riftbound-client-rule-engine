@@ -22,23 +22,25 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   effects/keywords/Quick-Draw.ts（其文件头也把 continuous.timing 与 card-played
  *   附着触发标为未合入）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-16）。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
  * - 授予句：RIFT-258 的 continuous.grant-keyword 已合入，golden 证明该静态声明的
  *   过滤（zone: hand + Equipment 标签）注册为 ability 层效果后，手牌里的 Equipment
- *   真的获得 quick-draw（其它手牌与非法对象不受影响）；仍未合入的是把 CardProgram
- *   的 static 能力安装进图层的生产路径——RIFT-257 的 attachProgramLifecycle 只调用
- *   bindStatic 回调位，默认 noop，没有图层注册实现。
+ *   真的获得 quick-draw（其它手牌与非法对象不受影响）；static → 图层的生产路径
+ *   也已合入（RIFT-257 的 attachProgramLifecycle 默认 createEngineStaticBinder，
+ *   bindStaticToLayers 注册图层）。仍未合入的是 Quick-Draw 展开的触发注册路径：
+ *   该展开把 card-played 附着触发挂在被授予的 gear 上，而手牌中的 gear 没有触发
+ *   attach 管线（triggerRegistrations 只在 attachProgramLifecycle attach 时调用，
+ *   手牌对象无人 attach），因此打出装备时附着触发不进链。
  * - filter 里的 controller: "controller" 是卡面写法；程序绑定把它归一化为 self
  *   （programs/filters.ts normalizePlayer），golden 按该归一化执行。
  * - [Deflect] 的展开（static target.tax）已合入，但没有生产方把永久物上的 target.tax
  *   接进目标选择与追加费用，且已合入换算按 Energy 记账而 809.1.c.1 要求任意域 Power
  *   （同 ogn/pouty-poro）。
- * - Quick-Draw 自身的展开（continuous.timing 的 [Reaction] 许可（819.1.a）与 card-played
- *   的附着触发（819.1.b/c、435））没有端到端消费方：continuous.timing 无 chain.canAct
- *   消费（P0 契约 3.5），附着触发的目标锁定/批次未接线。
- * 依赖：CardProgram static → 图层的安装（RIFT-257 后续）、Deflect 目标税（RIFT-90）、
- * 时序消费（RIFT-91 后续）。不近似实现（不把授予写成逐张手牌的副本，也不把 Quick-Draw
- * 近似为 Reaction 声明）。
+ * - Quick-Draw 授予的 continuous.timing（819.1.a 的 [Reaction] 许可）已被
+ *   chain.canAct 的图层时序读取消费（旧理由的“无消费方”已过时）；待接线的是
+ *   卡程序 granted-keyword 到图层时序的注册路径（同上（1）的管线缺口）。
+ * 依赖：手牌对象的触发 attach 管线、Deflect 目标税（RIFT-90）。
+ * 不近似实现（不把授予写成逐张手牌的副本，也不把 Quick-Draw 近似为 Reaction 声明）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "deflect" },
@@ -58,11 +60,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处依赖仍未合入：(1)「Each Equipment in your hand has [Quick-Draw]」的 continuous.grant-keyword（RIFT-258）已合入，" +
-    "golden 以声明的手牌 Equipment 过滤真实注册 ability 层效果并读到 quick-draw；缺的是把 CardProgram 的 static 能力" +
-    "安装进图层的生产路径——RIFT-257 的 attachProgramLifecycle 只有 bindStatic 回调位（默认 noop），没有 layers 注册实现；" +
-    "Quick-Draw 自身的展开（effects/keywords/Quick-Draw.ts：819.1.a 的 [Reaction] 时序许可与 819.1.b/c 的 card-played " +
-    "附着）同样无消费方（continuous.timing 无 chain.canAct 消费，附着目标锁定未接线）。" +
+    "两处依赖仍未合入：(1)「Each Equipment in your hand has [Quick-Draw]」的授予（continuous.grant-keyword，RIFT-258）" +
+    "与 static→图层的安装管线（attachProgramLifecycle 默认 createEngineStaticBinder→bindStaticToLayers）均已合入，" +
+    "golden 以声明的手牌 Equipment 过滤真实注册 ability 层效果并读到 quick-draw；缺的是 Quick-Draw 展开的触发注册路径——" +
+    "该展开把 819.1.b/c 的 card-played 附着触发挂到被授予的 gear 上，而手牌中的对象没有触发 attach 管线" +
+    "（triggerRegistrations 只在 attachProgramLifecycle attach 时调用，手牌 gear 无人 attach），打出装备时附着触发不进链；" +
+    "819.1.a 的 [Reaction] 时序许可已被 chain.canAct 的图层时序读取消费（旧理由的 continuous.timing 无消费方已过时），" +
+    "待接线的是卡程序 granted-keyword 到图层时序的注册路径（同本条管线缺口）。" +
     "(2)[Deflect] 的展开（static target.tax）已合入，但没有生产方把永久物上的 target.tax 接进目标选择与追加费用，" +
     "且已合入换算按 Energy 记账而 809.1.c.1 要求任意域 Power（同 ogn/pouty-poro）。" +
     "不近似实现（不把授予写成逐张手牌副本，也不把 Quick-Draw 近似为单独的 Reaction 声明）。",

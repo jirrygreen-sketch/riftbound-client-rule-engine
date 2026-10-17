@@ -9,16 +9,20 @@ import type { CardProgram } from "../../ir/index.js";
  *   I cost :rb_energy_2: less for each of your [Mighty] units. (A unit is
  *   Mighty while it has 5+ :rb_might:.)
  *
- * 表达说明（复核 2026-10-16）：
+ * 表达说明（复核 2026-10-17）：
  * - [Accelerate]（805）已由 effects/keywords/Accelerate.ts 展开为
  *   static accelerate.cost（可选附加费 [1] + 域匹配 Power）与 replacement
  *   （object-enters-board + exhausted → effect.ready，805.6）；RIFT-257 的
  *   expandProgram 会把本卡的 keyword 声明解析为这两条能力（golden 验证）。
  * - “I cost 2 less for each of your Mighty units” 是静态费用改写（356.4/
- *   356.4.b，cost-modify 模板）：effects/instructions/ 没有 cost.modify 原语，
- *   cost/cost-plan.ts 也不读 CardProgram 声明的折扣（属仍在进行的 RIFT-261）；
- *   “for each of your Mighty units”还需要 706–711 的 Mighty 谓词计数作为
- *   折扣 amount 的输入，费用侧同样没有计数入口。故整卡保持 judge-required，
+ *   356.4.b，cost-modify 模板）：cost.modify 原语已合入
+ *   （effects/instructions/cost.modify.ts，完整管线），但静态绑定层没有它——
+ *   programs/statics.ts 的 layerFor 对 cost.modify 抛 Static ability kind
+ *   cost.modify has no layer mapping，卡程序声明的折扣无法注册进图层；
+ *   cost/cost-plan.ts 的 CostDiscount 只读调用方传入的 amount（仍在进行的
+ *   RIFT-261），没有卡程序入口。“for each of your Mighty units”可用
+ *   Mighty 的条件谓词计数（Mighty.ts 已展开 condition.value，导出
+ *   mightyCondition），但费用侧没有消费入口。故整卡保持 judge-required，
  *   不做近似实现（契约 1.5 红线）。
  */
 const jaullFish = {
@@ -26,11 +30,12 @@ const jaullFish = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 cost.modify 与费用计划消费方：「I cost 2 less for each of your Mighty units」（356.4/356.4.b）需要静态费用改写" +
-    "（effects/instructions/ 没有 cost.modify 原语，cost/cost-plan.ts 的折扣只读调用方传入的 CostDiscount，" +
-    "属仍在进行的 RIFT-261），折扣数量还依赖 706–711 的 Mighty 计数，费用侧没有该谓词入口。" +
-    "[Accelerate]（805）的展开（effects/keywords/Accelerate.ts：成本声明 + 入场就绪替代）已合入，" +
-    "RIFT-257 的 expandProgram 可把它解析为可校验的能力（golden 验证展开形状），但不构成整卡可执行证据。不近似实现。",
+    "cost.modify 原语已合入（effects/instructions/cost.modify.ts），但静态费用改写仍缺三层：「I cost 2 less " +
+    "for each of your Mighty units」（356.4/356.4.b）需要 (a) static cost.modify 的图层映射——" +
+    "programs/statics.ts 的 layerFor 对该 kind 抛 has-no-layer-mapping，卡程序声明的折扣无法注册进图层；" +
+    "(b) 卡程序→费用计划的接线——cost/cost-plan.ts 的 CostDiscount 只读调用方传入的 amount（RIFT-261 费用批次）；" +
+    "(c) Mighty 计数入口——Mighty.ts 已展开 condition.value 谓词并导出 mightyCondition（706–711），" +
+    "但费用侧没有读取该谓词的入口。[Accelerate]（805）的展开已合入（golden 验证），不构成整卡可执行证据。不近似实现。",
   abilities: [{ kind: "keyword", keyword: "accelerate" }],
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_body: as an additional cost to have me enter ready.)\n" +

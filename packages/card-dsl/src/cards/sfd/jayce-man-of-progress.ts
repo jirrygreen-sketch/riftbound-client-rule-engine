@@ -22,7 +22,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   只把 Base Energy cost 置 0、Power 仍然照付（印刷提示 (You must still pay its Power cost.) 亦然）；
  *   "this turn" 是本回合一次性的后续打出许可（回合末到期的持续许可窗口）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-16），四处依赖仍未合入，均不近似实现：
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17），四处依赖仍未合入，均不近似实现：
  * - 「If you do」需要前一条 kill 的动作回执（condition.result 类缺口），冻结 IR 无该绑定；
  *   不加恒真条件、也不把 kill 改写成费用。
  * - 「play a gear ... from hand this turn」是**本回合稍后**的一次性许可窗口：ObjectFilter 没有

@@ -23,10 +23,11 @@
  *   "Chaos"（与同目录已合入 sfd 装备程序同一约定）。
  * - 非资源费用"Recycle 2 cards from your trash"没有可用的印刷字段：契约 3.1 的
  *   KeywordAbility 只有 { keyword, value }，契约 3.8 第 3 条要求的 expand params.cost
- *   尚未落到 KeywordDef 接口。这里以扩展字段 costAdditions 记录该印刷费用供审查——
+ *   KeywordDef 接口有 params.cost 声明（keyword-contract.ts），但 Equip.ts 的 expand() 未用它。
+ *   这里以扩展字段 costAdditions 记录该印刷费用供审查——
  *   它是描述性数据，不是可执行原语调用，也不改共享契约。
  *
- * status = judge-required（复核 2026-10-16）：
+ * status = judge-required（复核 2026-10-17）：
  * - 已合入的 Equip 展开（RIFT-87）声明 payments: [{ kind: "equip", value: source }]，
  *   但 cost/plan-values.ts 的 readCost 仍没有 "equip" 支付种类（golden 证明
  *   buildCostPlan 对该 payments 形状抛 Unsupported payment kind: equip，属仍在进行的
@@ -50,8 +51,8 @@ export default {
   judgeReason:
     "印刷的 [Equip] 费用无法表达也无法支付：(1) 费用同时含 1 点 Chaos Power（818.1.c.2、135.2.e.4）" +
     "与「Recycle 2 cards from your trash」（818.1.c.3 允许的非资源费用），而契约 3.1 的 KeywordAbility " +
-    "只有 { keyword, value }，契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的 " +
-    "KeywordDef 接口仍无该参数（印刷费用以扩展字段 costAdditions 记录供审查）；(2) 已合入的 Equip 展开" +
+    "只有 { keyword, value }，契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费：KeywordDef 接口" +
+    "有 params.cost 声明（keyword-contract.ts），但已合入的 Equip.ts expand() 未用它（印刷费用以扩展字段 costAdditions 记录供审查）；(2) 已合入的 Equip 展开" +
     "（RIFT-87）声明 payments: [{ kind: \"equip\", value: source }]，cost/plan-values.ts 的 readCost " +
     "没有 \"equip\" 支付种类，费用计划对该形状抛 Unsupported payment kind（RIFT-261 费用种类批次），无法构建；" +
     "(3) 缺卡牌程序→关键词展开→时点/链的接线（契约 3.5；RIFT-257 的 expandProgram 可解析声明，但等 KeywordDef 承载 cost）。" +

@@ -72,7 +72,6 @@ test("sfd-053-221 Janna, Savior: identity, ruleset, status, judgeReason and verb
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /translateObjectFilter|filters\.ts/);
-  assert.match(program.judgeReason, /canAct/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -186,6 +185,7 @@ test.todo(
 );
 
 test.todo(
-  "sfd-053-221 Janna, Savior: [Reaction]'s continuous.timing permission (813.1.c) must be consumed by the " +
-    "chain's canAct query (P0 contract 3.5) — chain/engine.ts canAct still decides from the passed speed alone"
+  "sfd-053-221 Janna, Savior: [Reaction]'s continuous.timing permission (813.1.c) reaches the chain's " +
+    "actionTimings/canActByRules consumers (P0 contract 3.5) — the keyword expansion must be bound to the " +
+    "card program's chain timing before the Closed State play permission can be judged end to end"
 );

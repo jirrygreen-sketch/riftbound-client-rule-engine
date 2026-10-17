@@ -28,18 +28,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   to: "controller-base" 表达该语义（按每个被移动对象当前控制者解析），
  *   已在 ven/sky-crusier 等卡使用。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-16）。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
  * 已合入：RIFT-257 的 programs/triggers.ts 能把 "When you play me"（card-played，
  * 383.4.a/420.4.a）注册进事件管线；effect.heal 的集合 query 与 effect.move 的
  * "controller-base" 目的地（421.1）都真实执行。
- * 仍缺：(1) 两条指令的过滤里 "here" 用 sameLocationAs: "self" 锚点，但
+ * 仍缺：两条指令的过滤里 "here" 用 sameLocationAs: "self" 锚点，但
  * programs/filters.ts 的 translateObjectFilter 把锚点键视为 Unsupported filter
  * field 并在注册/绑定时报 judge-required——target 过滤与 heal 的 query 都会
- * 走到这条翻译路径；(2) [Reaction] 的 continuous.timing 展开（813.1.c）虽由
- * RIFT-258 合入图层指令，但 chain.canAct 的时序查询（P0 契约 3.5）尚未消费它，
- * 带 Reaction 的单位在 Closed State 的打出许可无法裁决。
+ * 走到这条翻译路径。[Reaction] 的打出时机消费（旧理由的"chain.canAct 尚未
+ * 消费 continuous.timing"）已过时：chain/engine.ts 的 actionTimings/canActByRules
+ * 已读取图层时序。
  * 依赖：programs/filters.ts 对 sameLocationAs 锚点的翻译（含 trigger 与
- * instruction 两条路径）、chain.canAct 的 continuous.timing 消费（RIFT-91 后续）。
+ * instruction 两条路径）。
  * 不近似实现：不把 "here" 近似为无位置过滤、不把 "its base" 写成固定 seat、也不把
  * Heal 当成反向伤害。
  */
@@ -97,13 +97,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处依赖仍未合入：(1) 两条指令的 \"here\" 过滤用 sameLocationAs 锚点（契约 3.6），" +
+    "一处依赖仍未合入：两条指令的 \"here\" 过滤用 sameLocationAs 锚点（契约 3.6），" +
     "但 RIFT-257 合入的 programs/filters.ts（translateObjectFilter）对锚点键直接报 " +
     "Unsupported filter field 并转 judge-required——effect.heal 的 query 与 effect.move 的目标过滤在绑定/注册时都会失败" +
     "（need：锚点在 instructions/trigger 两条翻译路径落地）。" +
-    "(2) [Reaction]（813.1.c）的 continuous.timing 展开（RIFT-258 已合入图层指令）还没有 chain.canAct 的时序消费方（P0 契约 3.5），" +
-    "Closed State 的打出许可无法裁决。body 本体（effect.heal 集合治疗 + effect.move 到 controller-base）已合入，" +
-    "golden 用解释器与真实查询路径执行。依赖：sameLocationAs 的 binding 翻译、chain.canAct 的 continuous.timing 消费。" +
+    "body 本体（effect.heal 集合治疗 + effect.move 到 controller-base）与 [Reaction] 的时序消费" +
+    "（chain/engine.ts 的 actionTimings/canActByRules 已读图层）均已合入，" +
+    "golden 用解释器与真实查询路径执行。依赖：sameLocationAs 的 binding 翻译。" +
     "不近似实现（不把 here 近似为无位置过滤，不写死 seat 的基地）。",
   abilities,
   sourceText:

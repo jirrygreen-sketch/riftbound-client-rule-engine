@@ -30,7 +30,7 @@ test("sfd-054-221 Jax, Unmatched: identity, ruleset, status, judgeReason and ver
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /RIFT-258/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /triggerRegistrations/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -109,15 +109,15 @@ test("sfd-054-221 Jax, Unmatched golden: the Equipment-scoped grant really adds 
 });
 
 test.todo(
-  "sfd-054-221 Jax, Unmatched: 'Each Equipment in your hand has [Quick-Draw]' must be installed from the " +
-    "CardProgram into the layers engine — RIFT-257's attachProgramLifecycle only calls the bindStatic " +
-    "callback slot (default no-op) and has no layer registration, so the declared static grant never " +
-    "becomes an active effect"
+  "sfd-054-221 Jax, Unmatched: 'Each Equipment in your hand has [Quick-Draw]' reaches the layers engine " +
+    "(the static-to-layer binder is merged) but the granted Quick-Draw's card-played attach trigger must " +
+    "be registered for hand objects — triggerRegistrations only run in attachProgramLifecycle attach, " +
+    "so hand gear never gets the trigger pipeline attached"
 );
 
 test.todo(
-  "sfd-054-221 Jax, Unmatched: the granted Quick-Draw's continuous.timing permission and its card-played " +
-    "attach trigger must reach the chain/target pipeline, and [Deflect]'s target tax must be collected as " +
+  "sfd-054-221 Jax, Unmatched: the granted Quick-Draw's card-played attach trigger must reach the chain/target " +
+    "pipeline (hand-object trigger registration is missing), and [Deflect]'s target tax must be collected as " +
     "any-domain Power (809.1.c.1) rather than the Energy-shaped tax the chain builds today — " +
-    "continuous.timing has no chain.canAct consumer (P0 contract 3.5) and the Deflect tax consumer is missing (RIFT-90)"
+    "the Deflect tax consumer is still missing (RIFT-90)"
 );
