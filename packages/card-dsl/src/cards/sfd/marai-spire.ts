@@ -20,26 +20,20 @@ import type { CardProgram } from "../../ir/index.js";
  *   per 820.1.c and 820.4), so the static effect filters friendly Repeat
  *   sources rather than granting Repeat to anything.
  *
- * Status rationale: the Repeat KeywordDef and the merged cost.modify/cost.pay
- * cost.modify/cost.pay primitives are merged, but two consumers are still
- * missing: (1) the merged static binder (programs/statics.ts) rejects this card's
- * `appliesTo: "repeat-additional-cost"` (only the generic static layers are
- * mapped, and cost plans are not one of them), so the discount never reaches a
- * Finalize cost plan (the plan only applies caller-supplied discounts), and
- * (2) Repeat's `repeat.cost` declaration has no Finalize collector, so the
- * discount has no target cost to modify. The static effect below records the
- * intended scope and delta; nothing is approximated and no cost is silently
- * rewritten in card data.
+ * Current status: judge-required. Generic cost planning/payment is merged;
+ * static repeat-additional-cost binding and a cost.modify layer are not.
+ * No consumer applies this controller's discount to friendly Repeat components,
+ * collects repeat.cost at Finalize, or binds paid instances to extra resolution.
  */
 export default {
   canonicalCardId: "card.hash-e00a3fe8d0f18d062b1743d6d5d1eb534e884d83303af037d7c1d05c3a6a21bd",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Repeat 关键词展开与已合入的 cost.modify/cost.pay 原语均已合入，但仍缺两个消费方：" +
-    "(1) 已合入的 static 绑定（programs/statics.ts）拒绝本卡的 appliesTo \"repeat-additional-cost\"，卡牌 static cost 效果接不进 Finalize 费用计划" +
-    "（cost/cost-plan.ts 只应用调用方显式传入的 discounts）；" +
-    "(2) Repeat 展开出的 repeat.cost 没有 Finalize 收取方，本减费没有可修改的目标费用（356.4/356.4.b/356.4.f）。不近似减费。",
+    "Repeat 展开与 cost.modify/cost.pay 已合入，通用费用计划也支持追加费用减至零（356.4.b/f / 356.6）。" +
+    "仍缺本卡的生产接线：programs/statics.ts 拒绝 appliesTo=repeat-additional-cost，cost.modify 也没有静态图层映射；" +
+    "尚无按战场当前控制者，把 -1 Energy 应用到友方 Repeat 费用组件的消费者。repeat.cost 未接入卡牌 Finalize 收取，" +
+    "已付实例数也未接到额外结算（820.1.c/d）。不把通用减费原语当成本卡已执行。",
   sourceText: "While you control this battlefield, friendly [Repeat] costs cost :rb_energy_1: less.",
   abilities: [
     {

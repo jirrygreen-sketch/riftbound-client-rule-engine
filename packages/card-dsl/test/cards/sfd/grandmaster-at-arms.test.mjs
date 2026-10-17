@@ -10,6 +10,8 @@ const { AwaitChoice } = await import(new URL("effects/contract.js", ENGINE));
 const { bindResolveContext, createActionPipelineHost } = await import(new URL("events/action-adapter.js", ENGINE));
 const { matchesObjectFilter } = await import(new URL("layers/filter.js", ENGINE));
 const { world } = await import(new URL("effects/testing/index.js", ENGINE));
+const { buildCostPlan } = await import(new URL("cost/cost-plan.js", ENGINE));
+const { payCostPlan } = await import(new URL("cost/payment.js", ENGINE));
 
 const CANONICAL_ID = "card.hash-9ce83a420f4ca5ab0a7f43d95f5f4a698cd4c4b8ca2b7453cfdad2c9ae9f38ef";
 const SOURCE_TEXT =
@@ -20,8 +22,9 @@ const [detachedAbility, attachedAbility] = program.abilities;
 
 /**
  * A real chain fixture: the legend plus one attached/non-attached Equipment and two
- * Units, driven through the merged ChainEngine by supplying the draft (nothing
- * registers a program's activated ability for production — see judgeReason). The
+ * Units, driven through the merged ChainEngine by supplying the draft. Program
+ * registration exists; this only covers the Board-source subpath while Legend
+ * Zone is unavailable (see judgeReason). The
  * answer map provides the Finalize-locked target choices, exactly as the merged
  * target pipeline supplies them.
  */
@@ -266,10 +269,28 @@ test("sfd-193-221 Grandmaster at Arms: re-attaching to the current host is a no-
   assert.equal(kernel.getObject("jax").exhausted, true);
 });
 
+test("sfd-193-221 Grandmaster at Arms: an exhausted source cannot pay either printed ability cost", () => {
+  for (const ability of program.abilities) {
+    const base = world().player("A", { energy: 2 }).base("jax", { types: ["legend"], energy: null, power: null }).build();
+    assert.equal(base.perform({ type: "exhaust", object: base.ref("jax") }).status, "done");
+    const kernel = base.clone({ sourceSnapshot: base.getObject("jax") });
+    const plan = buildCostPlan(kernel, { id: "gma:exhausted", cost: ability.cost });
+    const before = kernel.events.length;
+    assert.throws(() => payCostPlan(kernel, plan), error => {
+      assert.equal(error.reason, "cannot-pay-cost");
+      return true;
+    });
+    assert.equal(kernel.player("A").energy, 2);
+    assert.equal(kernel.getObject("jax").exhausted, true);
+    assert.equal(kernel.events.length, before);
+    assert.equal(kernel.getObject("jax").energy, null);
+    assert.equal(kernel.getObject("jax").power, null);
+  }
+});
+
 test.todo(
-  "sfd-193-221 Grandmaster at Arms: registration of a card program's activated ability as a " +
-  "chain-playable item — the merged programs/activate.ts + programs/registry.ts machinery is " +
-  "gated on the program status, so no real game state can offer either activation yet"
+  "sfd-193-221 Grandmaster at Arms: use the merged createProgramBinding to offer both activations " +
+  "from the actual Legend Zone after its source-zone and exhaust-payment binding exists"
 );
 
 test.todo(

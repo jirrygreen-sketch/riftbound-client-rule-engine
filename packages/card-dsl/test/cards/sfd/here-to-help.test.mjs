@@ -8,6 +8,7 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import playInstruction from "../../../../engine-core/dist/effects/instructions/effect.play.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 
 const CANONICAL_ID = "card.hash-783f18a4ad28b8126f59f285304bee0b93c1e76fb7a557f8e9fee60bebf1f609";
 const SOURCE_TEXT =
@@ -17,8 +18,20 @@ const SOURCE_TEXT =
 
 const [hidden, action, play] = program.abilities;
 const [optional] = play.body;
-const [permitted] = optional.args.body.value;
+const destination = optional.args.body.value.find(instruction => instruction.id === "here-to-help.choose-battlefield");
+const permitted = optional.args.body.value.find(instruction => instruction.op === "effect.play");
 const pickSpec = permitted.picks[0];
+const destinationChoice = "here-to-help.may-play-unit/here-to-help.choose-battlefield/here-to-help.battlefield";
+
+function battlefieldWorld() {
+  return world()
+    .hand("unit-card", { types: ["unit"], owner: "A" })
+    .object("friendly-field", { types: ["battlefield"], zone: "board", location: null, controller: "A" })
+    .object("enemy-field", { types: ["battlefield"], zone: "board", location: null, owner: "B", controller: "B" })
+    .unit("ally", { location: { type: "battlefield", id: "friendly-field" } })
+    .unit("enemy", { owner: "B", location: { type: "battlefield", id: "enemy-field" } })
+    .build();
+}
 
 /**
  * The reference kernel compares filter values literally; the production chain
@@ -70,11 +83,11 @@ test("sfd-111-221 Here to Help: identity, ruleset, status and verbatim text", ()
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
-test("sfd-111-221 Here to Help: judgeReason names cost.hidden, the discount producer and the Location choice", () => {
+test("sfd-111-221 Here to Help: judgeReason names cost.hidden and the played-unit cost binding", () => {
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /FinalizedCostPlan/);
   assert.match(program.judgeReason, /Location/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /cost\.modify/);
 });
 
 test("sfd-111-221 Here to Help: [Hidden] + [Action] keywords and the printed cost", () => {
@@ -101,11 +114,12 @@ test("sfd-111-221 Here to Help: the optional clause wraps the permitted instruct
   });
   assert.equal(optional.args.body.kind, "constant");
   assert.deepEqual(optional.args.body.value.map((instruction) => instruction.id), [
+    "here-to-help.choose-battlefield",
     "here-to-help.play-unit"
   ]);
 });
 
-test("sfd-111-221 Here to Help: the permitted play uses a hand pick plus descriptive cost/location shapes", () => {
+test("sfd-111-221 Here to Help: the permitted play uses a hand pick, a bound Location and a deferred cost", () => {
   assert.equal(permitted.id, "here-to-help.play-unit");
   assert.equal(permitted.op, "effect.play");
   assert.equal(permitted.linkedTo, undefined);
@@ -120,14 +134,22 @@ test("sfd-111-221 Here to Help: the permitted play uses a hand pick plus descrip
     max: 1,
     selection: "one"
   });
-  // 355.4/355.4.a/451.1: "a battlefield you control" is a runtime Location
-  // choice; the descriptor fails closed in effect.play (see judgeReason).
-  assert.deepEqual(permitted.args.location, {
-    kind: "constant",
+  // Bind the controller's battlefield with the merged location expression;
+  // effect.play accepts the resulting linked value through its Expr schema.
+  assert.equal(destination.id, "here-to-help.choose-battlefield");
+  assert.equal(destination.op, "condition.value");
+  assert.deepEqual(destination.args.value, {
+    kind: "location",
     value: {
-      kind: "destination-selector",
-      filter: { type: "battlefield", controller: "self" }
+      kind: "choose",
+      id: "here-to-help.battlefield",
+      filter: { type: "battlefield", controller: "controller" }
     }
+  });
+  assert.deepEqual(permitted.args.location, {
+    kind: "linked-value",
+    instructionId: "here-to-help.choose-battlefield",
+    key: "value"
   });
   // 356.1.c/356.4/356.6: the printed -3 energy reduction needs a finalized
   // plan produced by the cost system; this descriptor is not one.
@@ -162,9 +184,12 @@ test("sfd-111-221 Here to Help golden: declining the optional clause leaves the 
 });
 
 test("sfd-111-221 Here to Help golden: accepting reaches effect.play, which negates on the non-finalized cost (no silent free play)", () => {
-  const kernel = world().hand("unit-card", { types: ["unit"], owner: "A" }).build();
+  const kernel = battlefieldWorld();
   kernel.setPicks("here-to-help.unit", [kernel.ref("unit-card")]);
-  kernel.setAnswers({ "here-to-help.may-play-unit/optional": true });
+  kernel.setAnswers({
+    "here-to-help.may-play-unit/optional": true,
+    [destinationChoice]: { type: "battlefield", id: "friendly-field" }
+  });
 
   const outcome = resolveChainBody(play.body, productionQuery(kernel));
 
@@ -172,6 +197,9 @@ test("sfd-111-221 Here to Help golden: accepting reaches effect.play, which nega
   // descriptive cost descriptor is not one, so the play fails closed instead
   // of playing the unit for free (356.1.c / 356.4 / 356.6).
   assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.linkedValues["here-to-help.may-play-unit/here-to-help.choose-battlefield.value"], {
+    type: "battlefield", id: "friendly-field"
+  });
   const played = outcome.results.find((entry) => entry.id === "here-to-help.play-unit");
   assert.equal(played.result.status, "negated");
   assert.equal(played.result.reason, "impossible");
@@ -191,7 +219,28 @@ test.todo(
   "the FinalizedCostPlan effect.play requires."
 );
 
-test.todo(
-  "sfd-111-221 Here to Help: 'to a battlefield you control' needs the runtime Location choice (CR 355.4 / 355.4.a, " +
-  "451.1; the in-progress RIFT-357 location-choice work) because effect.play's location argument only accepts a LocationRef."
-);
+test("sfd-111-221 Here to Help golden: the Location choice offers only a controlled battlefield", () => {
+  const kernel = battlefieldWorld();
+  kernel.setAnswers({ "here-to-help.may-play-unit/optional": true });
+  assert.throws(() => resolveChainBody(play.body, productionQuery(kernel)), error => {
+    assert.ok(error instanceof AwaitChoice);
+    assert.equal(error.request.id, destinationChoice);
+    assert.equal(error.request.chooser, "A");
+    assert.equal(error.request.visibility, "public");
+    assert.deepEqual(error.request.options, [{ type: "battlefield", id: "friendly-field" }]);
+    return true;
+  });
+  assert.equal(kernel.getObject("unit-card").zone, "hand");
+  assert.deepEqual(kernel.events, []);
+});
+
+test("sfd-111-221 Here to Help golden: an enemy battlefield is rejected before any play or payment", () => {
+  const kernel = battlefieldWorld();
+  kernel.setAnswers({
+    "here-to-help.may-play-unit/optional": true,
+    [destinationChoice]: { type: "battlefield", id: "enemy-field" }
+  });
+  assert.throws(() => resolveChainBody(play.body, productionQuery(kernel)), /Invalid location choice answer/);
+  assert.equal(kernel.getObject("unit-card").zone, "hand");
+  assert.deepEqual(kernel.events, []);
+});

@@ -40,25 +40,10 @@ import type { Ability, CardProgram, ObjectFilter } from "../../ir/index.js";
  *   spell or ability's controller is a target), so both selections are TargetSpecs
  *   rather than picks (355.7).
  *
- * status (cards/README.md section 2): judge-required. Both abilities are declared
- * with merged cost and body primitives; the printed in-game steps are executed for
- * real by the golden test. One prerequisite outside this card is still missing:
- * 1. The Legend's own zone is a recorded contract gap: CR 107.4.c puts a Champion
- *    Legend in the Legend Zone and the frozen ZoneId union has no legend-zone, so
- *    "exhaust me" cannot cite the legend's real zone in production. The sibling
- *    Legends record the same gap; this program does not work around it.
- * (The card-program registration machinery — engine-core programs/activate.ts and
- * programs/registry.ts — is merged and wired through createProgramBinding, but it
- * gates on program status, so the activation stays unbound while this program is
- * judge-required. The golden test drives the abilities through the real ChainEngine
- * by supplying the draft, which proves the cost/action/body path.)
- * Everything the printed text asks for inside the game — paying 1 Energy and/or
- * exhausting the source, choosing a detached/attached Equipment, choosing a Unit
- * host, and performing the attach — is merged and is executed for real by the
- * golden test, including the re-attachment path (435.1.f) and the no-op path when
- * the Equipment is already on the chosen host (435.1.g).
- * Dependencies: the legend-zone contract gap. Nothing is approximated: the costs
- * are not moved into resolution, and no per-card attach logic is written.
+ * Current status: judge-required. Both cost/attach paths and the production
+ * createProgramBinding machinery are merged. Legend Zone (107.4.a–d) still
+ * has no ZoneId or source/payment binding. The Board/Base fixture verifies
+ * only the supported subpaths, not activation from the Legend's actual zone.
  */
 
 /** Shared TargetSpec ids; each ability declares its own group because targets are ability-local. */
@@ -110,15 +95,10 @@ const grandmasterAtArms = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两条启动能力都已用已合入的费用与正文原语声明；卡牌程序→链注册机制也已合入" +
-    "（engine-core programs/activate.ts + programs/registry.ts，经 createProgramBinding 接线），" +
-    "但它按程序 status 门禁，本卡保持 judge-required 时启动仍无法从真实局面发起。" +
-    "当前真实缺口是 Champion Legend 自身的区域：107.4.c 规定传奇在 Legend Zone，而冻结的 ZoneId 联合没有 legend-zone，" +
-    "所以「exhaust me」在生产线里无法指向传奇的真实区域（同批传奇卡记录同一缺口，本程序不绕过）。" +
-    "印刷文本在游戏内的其余要求都已合入：1 Energy 与横置来源的费用（cost/plan-values.ts + cost/payment.ts 真实检查" +
-    "「必须是自己控制的、Board 上、未横置的对象」）、选择 detached/attached 的 Equipment、选择一个 Unit 宿主、" +
-    "以及执行 attach（435.1.f 的换绑、435.4 的位置跟随、435.1.g 的「已附着在同一宿主上什么也不发生」都由内核动作负责）。" +
-    "依赖：Legend Zone 的契约缺口。不近似实现（不把费用挪进结算正文，不写单卡专用附着逻辑）。",
+    "两条能力的 Finalize 费用、Equipment/Unit 目标与 effect.attach 均已合入；createProgramBinding " +
+    "已接入 programs/activate.ts，无需再等待启动注册机制。当前缺口是 Legend Zone（107.4.a–d，含 107.4.c）：" +
+    "ZoneId 没有该区域，横置费用与传奇来源活动区域尚无真实绑定。golden 的 board/Base 来源仅验证费用和附着子路径，" +
+    "不能作为传奇在真实区域可启动的证据。",
   abilities: [
     attachAbility(
       "grandmaster-at-arms.attach-detached",

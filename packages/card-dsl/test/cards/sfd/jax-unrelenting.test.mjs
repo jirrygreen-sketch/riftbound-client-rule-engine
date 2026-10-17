@@ -8,6 +8,8 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import weaponmaster from "../../../../engine-core/dist/effects/keywords/Weaponmaster.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL = "card.hash-e3c3834ab49461988dec4155b965077754fcd478f5efc15474112568b47083ca";
 const SOURCE_TEXT =
@@ -140,6 +142,29 @@ test("sfd-119-221 Jax, Unrelenting golden: the supported draw body executes inde
   assert.deepEqual(run.events.map((event) => event.action), ["draw"]);
 });
 
+test("sfd-119-221 Jax, Unrelenting: a real attach emission identifies Equipment but does not bind the host", () => {
+  const kernel = world().unit("jax").object("blade", { types: ["gear"], tags: ["Equipment"], zone: "board" }).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(),
+    restore: state => kernel.restore(state),
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const { outcome, emissions } = host.execute({ type: "attach", object: kernel.ref("blade"), host: kernel.ref("jax") });
+  assert.equal(outcome.status, "done");
+  assert.deepEqual(kernel.getObject("blade").attachedTo, kernel.ref("jax"));
+  const attached = emissions.find(event => event.timingPoint === "object-attached");
+  assert.ok(attached);
+  assert.deepEqual(attached.object.ref, kernel.ref("blade"));
+  assert.equal(attached.target, undefined);
+  assert.equal(attached.details?.topMostCardId, undefined);
+  const result = validateTriggerSpec(attachTrigger.trigger);
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some(issue => issue.path.includes("event")));
+});
+
 test.todo(
   "sfd-119-221 Jax, Unrelenting: the optional 1 Energy trigger base cost must be selected and paid " +
     "at Finalize (CR 204.1.c / 403.1 / 404.1.b.1), before the body resolves — TriggeredAbility has no " +
@@ -150,14 +175,14 @@ test.todo(
 
 test.todo(
   "sfd-119-221 Jax, Unrelenting: [Weaponmaster] expands through effects/keywords/Weaponmaster.ts — the " +
-    "play trigger binding the chosen controlled Equipment and the Equip cost rewrite/payment " +
+    "chosen Equipment's authoritative Equip-cost binding and original [A]/[C] symbol provenance " +
     "(821.1.b, 821.1.c.2/.c.2.a, 821.1.c.6 \"the Equip ability is not actually activated\") are not " +
-  "executable yet (the Weaponmaster expansion's own judge-required gap)"
+  "executable yet (cost.modify's Equipment source branch fails closed)"
 );
 
 test.todo(
   "sfd-119-221 Jax, Unrelenting: the object-attached timing point exposes the top-most card (host) and " +
-    "the attached object so source: \"self\" binds Jax and the Equipment tag filters the attached Gear " +
-  "(435.1/435.3/435.4.a): the closed EVENT_PATTERN_TYPES has no object-attached member and no " +
-  "topMostCardId payload predicate exists yet"
+    "the attached object so the host identity binds Jax and the Equipment tag filters the attached Gear " +
+  "(435.1/435.3/435.4.a): EVENT_PATTERN_TYPES needs object-attached and action-adapter.ts must " +
+  "produce a host target or topMostCardId details before a host predicate can match"
 );

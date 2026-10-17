@@ -17,18 +17,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "me" 是能力宿主本卡（effect.move 的 objects 缺省即 ctx.source，或用符号选择器
  *   "source"）；"there" 指该次防守发生的战场（运行期 Location，359.3.f.1 的 referent）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。两处已合入缺口：
- * - defense-declared 时点没有发射方：events/action-adapter.ts 只为已提交游戏动作派生时点
- *   （ACTION_TIMINGS 无 defense-declared），combat/ 的 Defender 身份指派（466.2.c/323.2）
- *   尚未接入事件管线——combat/flow.ts 在 combat 开启路径上直接抛
- *   TurnCombatBlockedError('combat-start-transaction')，全仓库没有 defense-declared 的 emit。
- * - "there" 的目的地无法绑定：该次防守的战场只存在于事件载荷（timing-points.ts 的
- *   defense payloadType 未声明 payloadFields），现有 EventPattern 词汇（object/source/target/
- *   player/fromZone/toZone/amount/details）与该事件的发射路径都没有把它暴露给卡程序；
- *   静态 IR 不能写运行时 LocationRef，也没有"能力发生地"的 referent 可读
- *   （来源是 Base/战场的 unit，其 location 与防守战场不一定相同，不能当作近似）。
- * 依赖：combat 身份指派与事件管线发射（含防守战场载荷）、RIFT-357（运行期 Location 选择）。
- * 不近似实现（不把 defense-declared 换成其它时点，不用来源当前位置冒充防守战场）。
+ * Current status: judge-required. CombatFlow blocks defense designation at
+ * combat-start-transaction. The defense emission and its battlefield payload
+ * binding to the resolving body are absent. Generic Location selectors and
+ * effect.move are merged; choosing any battlefield would change "there".
  */
 const abilities: Ability[] = [
   {
@@ -36,7 +28,7 @@ const abilities: Ability[] = [
     trigger: {
       at: "defense-declared",
       // "When you defend at a battlefield"：防守者是能力控制者；该次防守的战场载荷
-      // 在合并内核里为空（见 judgeReason），这里不写任何能冒充它的过滤键。
+      // 尚未由战斗生产者发射（见 judgeReason），不能用其它事件冒充。
       filter: { event: "defense-declared", player: "self" },
       // 383.4.f.2.a/383.4.f.2.b：战斗身份只结算一次；"at a battlefield" 是 Defend Trigger
       // 的定义性限定。
@@ -58,9 +50,8 @@ const abilities: Ability[] = [
                 args: {
                   // "me"：能力宿主本卡（source 选择器由解释器在运行时绑定）。
                   objects: { kind: "constant", value: "source" },
-                  // "there" = 该次防守发生的战场。静态 IR 无法写运行时 LocationRef，
-                  // 该事件载荷在合并内核里也不存在（见 judgeReason），因此声明待接线的
-                  // referent 而不是伪造一个 battlefield id。
+                  // "there" = 该次防守发生的战场。LocationSelector 已合入，
+                  // 但没有读取触发事件战场的表达式；保留待接线的 referent。
                   to: { kind: "constant", value: { referent: "defending-battlefield" } },
                   amount: { kind: "constant", value: 1 },
                   linkKey: { kind: "constant", value: "moved" }
@@ -79,17 +70,11 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "defense-declared 时点没有发射方：events/action-adapter.ts 只为已提交游戏动作派生时点（ACTION_TIMINGS 无 " +
-    "defense-declared），combat/ 的 Defender 身份指派（466.2.c/323.2、383.4.f.2）尚未接入事件管线——" +
-    "combat/flow.ts 在 combat 开启路径上直接抛 TurnCombatBlockedError('combat-start-transaction')，" +
-    "全仓库没有 defense-declared 的 emit，触发无法进入链。" +
-    "同时「move me there」的目的地无法绑定：该次防守的战场只存在于事件载荷，而 " +
-    "timing-points.ts 为 defense-declared 声明的 payloadType \"defense\" 没有 payloadFields，" +
-    "现有 EventPattern 词汇（object/source/target/player/fromZone/toZone/amount/details）与该事件的发射路径" +
-    "都没有把它暴露给卡程序；静态 IR 不能写运行时 LocationRef，来源单位自身的 location 又不等于防守战场" +
-    "（它可能停在 Base 或被移动过），不能用作近似。" +
-    "依赖：combat 身份指派与事件管线发射（含防守战场载荷）；「there」的运行期目的地选择（359.3.f.1，进行中的 RIFT-357）。" +
-    "不近似实现（不换时点、不用来源当前位置冒充防守战场）。",
+    "defense-declared 仍无战斗身份指派发射路径（383.4.f.2 / 466.2.c）：combat/flow.ts 在 " +
+    "combat-start-transaction 处阻断，时点表的 defense payloadFields 也未声明防守战场。" +
+    "LocationSelector、运行期 Location 选择和 effect.move 已合入；当前缺口是把该次防守事件的 battlefieldId " +
+    "绑定到能力正文的「there」引用（359.3.f.1）。ResolveContext/Expr 尚无触发事件载荷读取，" +
+    "programs/triggers.ts 也未提供该引用。不能用任选战场或来源当前 location 代替防守战场。",
   abilities,
   sourceText: "When you defend at a battlefield, you may move me there."
 } satisfies CardProgram;
