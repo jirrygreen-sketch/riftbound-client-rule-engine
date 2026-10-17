@@ -7,6 +7,7 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import banish from "../../../../engine-core/dist/effects/instructions/effect.banish.js";
 import reveal from "../../../../engine-core/dist/effects/instructions/effect.reveal.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const [speed, play] = program.abilities;
 const [revealInstruction, banishInstruction, playInstruction, recycleInstruction] = play.body;
@@ -22,6 +23,7 @@ test("Blind Fury program is valid EffectIR v2 data and judge-required", () => {
   assert.match(program.judgeReason, /356\.1\.b\.1/);
   assert.match(program.judgeReason, /play\/effect adapter|费用计划/);
   assert.match(program.judgeReason, /zoneSlice/);
+  assert.match(program.judgeReason, /单玩家路径已经可执行|golden/);
   assert.match(program.judgeReason, /linked revealed/);
 });
 
@@ -51,21 +53,37 @@ test("Blind Fury structure: [Action] plus reveal, choose/banish, ignoring-cost p
   assert.deepEqual(
     play.body.map(instruction => [instruction.id, instruction.op]),
     [
-      ["blind-fury.reveal-top-card-of-each-opponent", "effect.reveal-each-opponent"],
+      ["blind-fury.reveal-top-card-of-each-opponent", "effect.reveal"],
       ["blind-fury.banish-chosen", "effect.banish"],
       ["blind-fury.play-chosen", "effect.play"],
       ["blind-fury.recycle-the-rest", "effect.recycle"]
     ]
   );
 
-  // The per-opponent reveal records the intended shape: one card from the top of
-  // each opponent's Main Deck. The missing each-opponent binding and the
-  // deck-top ordering are the judged part.
+  // The per-opponent reveal records the intended shape: one ordered card from
+  // each opponent's Main Deck. The fan-out/aggregation is still judged, while
+  // the concrete zoneSlice -> effect.reveal pick path is executable.
   assert.deepEqual(revealInstruction.args, {
-    zone: { kind: "constant", value: "deck" },
-    from: { kind: "constant", value: "top" },
-    count: { kind: "constant", value: 1 }
+    pick: { kind: "constant", value: "blind-fury.revealed" }
   });
+  assert.deepEqual(revealInstruction.picks, [{
+    id: "blind-fury.revealed",
+    options: [],
+    ordered: true,
+    selection: "all",
+    zoneSlice: {
+      player: { kind: "constant", value: "each-opponent" },
+      zone: "deck",
+      from: "top",
+      count: { kind: "constant", value: 1 }
+    }
+  }]);
+  assert.equal(revealInstruction.targets, undefined);
+
+  // The card-level placeholder cannot be finalized until an each-opponent
+  // binder supplies concrete PlayerIds; the production probe below expands it
+  // into four explicit ordered sources without changing the card's static IR.
+  assert.equal(revealInstruction.picks[0].zoneSlice.player.value, "each-opponent");
 
   // "Choose one and banish it": one non-target pick over the revealed set, then
   // the merged banish instruction. The choice itself is made on resolution
@@ -167,31 +185,84 @@ test("Blind Fury golden execution: 'recycle the rest' skips the already-banished
 });
 
 test("Blind Fury golden execution: the merged effect.reveal reveals one opponent's top card", () => {
-  // The declared instruction's per-opponent loop is the judged part; the
-  // reveal itself runs through the merged primitive with the same player/zone/
-  // count shape for one opponent.
-  const kernel = world().deck(["b-top"], { owner: "B" }).build();
+  // The declared each-opponent loop is the judged part; one concrete player
+  // uses the merged ordered-pick path directly.
+  const kernel = world().deck(["b-top", "b-second"], { owner: "B" }).build();
+  const top = kernel.zoneSlice("B", "deck", "top", 1).map((object) => object.ref);
   const run = runInstruction(
     reveal,
-    {
-      player: { kind: "constant", value: "B" },
-      zone: revealInstruction.args.zone,
-      count: revealInstruction.args.count
-    },
-    { world: kernel }
+    { pick: "blind-fury.revealed.B" },
+    { world: kernel, picks: { "blind-fury.revealed.B": top } }
   );
 
   assert.equal(run.result.status, "executed");
   assert.equal(run.linked.revealedCount, 1);
   assert.deepEqual(run.linked.revealed, [kernel.ref("b-top")]);
   assert.equal(kernel.getObject("b-top").zone, "deck");
+  assert.deepEqual(kernel.zone("B", "deck").map((ref) => ref.id), ["b-top", "b-second"]);
   assert.deepEqual(run.events.map((event) => event.action), ["reveal"]);
 });
 
+test("Blind Fury golden execution: ordered reveal picks show only the top card from four explicit opponent decks", () => {
+  // The card still lacks the each-opponent fan-out, so this probe supplies four
+  // concrete bindings as the production binder would. Each instruction then
+  // goes through ChainEngine Finalize (zoneSlice lock) and Resolve (effect.reveal
+  // pick), proving that the merged adapter preserves deck order and reveals only
+  // one card per opponent.
+  const opponents = ["B", "C", "D", "E"];
+  const f = fixture({ turnOrder: ["A", ...opponents] });
+  const body = opponents.map((player) => {
+    const pickId = `blind-fury.revealed.${player}`;
+    return {
+      id: `blind-fury.reveal.${player}`,
+      op: "effect.reveal",
+      args: { pick: { kind: "constant", value: pickId } },
+      picks: [{
+        id: pickId,
+        options: [],
+        ordered: true,
+        selection: "all",
+        zoneSlice: {
+          player: { kind: "constant", value: player },
+          zone: "deck",
+          from: "top",
+          count: { kind: "constant", value: 1 }
+        }
+      }]
+    };
+  });
+
+  f.engine.enqueue({
+    id: "blind-fury-ordered-reveal-probe",
+    kind: "triggered",
+    controller: "A",
+    source: f.kernel.getObject("source"),
+    body
+  });
+  f.engine.advance();
+  assert.equal(f.engine.items[0].status, "finalized");
+  assert.deepEqual(
+    f.engine.items[0].pickPlans.map((plan) => plan.refs.map((ref) => ref.id)),
+    opponents.map((player) => [`${player}:deck:1`])
+  );
+
+  resolveAll(f.engine);
+  assert.equal(f.kernel.events.filter((event) => event.action === "reveal").length, opponents.length);
+  for (const player of opponents) {
+    const id = `blind-fury.reveal.${player}`;
+    assert.deepEqual(f.kernel.linked(`${id}.revealed`).map((ref) => ref.id), [`${player}:deck:1`]);
+    assert.equal(f.kernel.linked(`${id}.revealedCount`), 1);
+    assert.deepEqual(f.kernel.zone(player, "deck").slice(0, 2).map((ref) => ref.id), [
+      `${player}:deck:1`,
+      `${player}:deck:2`
+    ]);
+  }
+});
+
 test.todo(
-  "Blind Fury: the per-opponent reveal needs an each-opponent binding plus " +
-    "zoneSlice-to-reveal-pick adapter (effect.reveal rejects a proper deck subset), so each opponent reveals " +
-    "the top card of their own Main Deck."
+  "Blind Fury: bind each opponent to a separate reveal and aggregate the ordered " +
+    "top-card results (CR 355.10.c/425.3); the concrete single-player ordered reveal " +
+    "path is covered by the golden execution test."
 );
 
 test.todo(
