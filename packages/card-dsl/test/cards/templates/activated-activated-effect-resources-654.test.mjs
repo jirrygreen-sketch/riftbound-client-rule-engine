@@ -72,7 +72,7 @@ const wholeCardRows = defineTemplateSuite("RIFT-654 whole-card activation", [
       objects: [legendSource(daughterOfTheVoid, "daughter")],
       operations: activate("daughter"),
       expect: {
-        players: { A: { energy: 3 } },
+        players: { A: { energy: 3, power: ["Fury"] } },
         objects: { daughter: { exhausted: true, energy: null, power: null } },
       },
     },
@@ -114,7 +114,7 @@ const wholeCardRows = defineTemplateSuite("RIFT-654 whole-card activation", [
       objects: [legendSource(fireBelowTheMountain, "fire")],
       operations: activate("fire"),
       expect: {
-        players: { A: { energy: 3 } },
+        players: { A: { energy: 3, power: ["Calm"] } },
         objects: { fire: { exhausted: true, energy: null, power: null } },
       },
     },
@@ -140,7 +140,7 @@ const wholeCardRows = defineTemplateSuite("RIFT-654 whole-card activation", [
       }],
       operations: activate("gold-token"),
       expect: {
-        players: { A: { energy: 3 } },
+        players: { A: { energy: 3, power: ["Mind"] } },
         objects: { "gold-token": { zone: "trash", energy: null, power: null } },
       },
     },
