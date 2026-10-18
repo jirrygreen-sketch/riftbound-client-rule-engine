@@ -9,6 +9,8 @@ import { world } from '../../../dist/effects/testing/index.js';
 import { ContinuousEffectRegistry } from '../../../dist/layers/duration.js';
 import { payHiddenCostPlan } from '../../../dist/cost/kinds/hidden.js';
 import hidden from '../../../dist/effects/keywords/Hidden.js';
+import { createEngineStaticBinder } from '../../../dist/programs/statics.js';
+import { fixture as engineFixture } from '../../rules/keywords/support.mjs';
 import bandleTree from '../../../../card-dsl/dist/cards/ogn/bandle-tree.js';
 import fightOrFlight from '../../../../card-dsl/dist/cards/ogn/fight-or-flight.js';
 import hiddenBlade from '../../../../card-dsl/dist/cards/ogn/hidden-blade.js';
@@ -115,6 +117,27 @@ test('Bandle Tree additional slot is scoped to its battlefield and still require
   const paidSecond = prepareHide(secondCtx, first.zone, battlefield, timing(), 'additional-hide', { registry });
   assert.deepEqual(paidSecond.payment.actions[0].action.plan.power, ['Mind']);
   assert.throws(() => planHide(first.zone, { ...ctx.object(ctx.ref('second')), keywords: [] }, battlefield, timing(), { registry }), failure('illegal-hide'));
+});
+
+test('Bandle Tree capacity reaches the zone through the production static binder', () => {
+  const canonicalCardId = 'test:bandle-tree-production';
+  const f = engineFixture({
+    programs: [{
+      canonicalCardId, rulesetVersion: 'core-1.5', status: 'executable',
+      sourceText: bandleTree.sourceText, abilities: [bandleTree.abilities[0]],
+    }],
+    setup: builder => builder.player('A').unit('tree', {
+      cardId: canonicalCardId, types: ['battlefield'],
+      location: { type: 'battlefield', id: 'tree' },
+    }),
+  });
+  const battlefield = f.get('tree');
+  const zone = createFacedownZone('tree');
+  assert.equal(facedownCapacity(zone, battlefield, f.engine.layers.registry), 1);
+  const handle = createEngineStaticBinder(f.engine).bindStatic(bandleTree.abilities[0], battlefield);
+  assert.equal(facedownCapacity(zone, battlefield, f.engine.layers.registry), 2);
+  handle.unbind();
+  assert.equal(facedownCapacity(zone, battlefield, f.engine.layers.registry), 1);
 });
 
 test('capacity handles reductions, cancellation and malformed registered amounts', () => {
