@@ -21,6 +21,11 @@ export type PowerPaymentSource = Domain | UniversalPowerSource;
 export type FacedownZoneId = "facedown";
 /** An immutable event role that can be referenced without choosing an object. */
 export type EventObjectRole = "it";
+/**
+ * An authoritative Empowered status count. It is a nonnegative safe integer;
+ * the reader in zones/empower-state.ts rejects every other value.
+ */
+export type EmpoweredCount = number;
 /** Zones named by the primitive contract. */
 export type ZoneId = "hand" | "deck" | "rune-deck" | "trash" | "banishment" | "board" | "rune-zone" | "chain";
 /** A Base or Battlefield on the Board. */
@@ -56,7 +61,22 @@ export interface ObjectSnapshot {
   readonly exhausted: boolean;
   readonly damage: number;
   readonly stunned: boolean;
+  /** Number of ordinary Buff markers. This is independent of Empowered. */
   readonly buffs: number;
+  /**
+   * Authoritative number of Empowered statuses (CR v1.5 442, 443). This is
+   * optional only so existing adapters can keep constructing legacy snapshots;
+   * absence means unavailable, never zero. Consumers must read it through
+   * zones/empower-state.ts, which validates it at runtime.
+   */
+  readonly empowered?: EmpoweredCount;
+  /**
+   * Legacy compatibility spelling for `empowered`. The reader uses it only
+   * when the canonical field is absent. When both are present, the existing
+   * reader gives `empowered` precedence; new producers should emit both from
+   * `empoweredState()` and keep them equal.
+   */
+  readonly empoweredCount?: EmpoweredCount;
   readonly attachedTo: ObjectRef | null;
   readonly faceDown: boolean;
   /** Battlefield provenance for a facedown object; absent for legacy adapters. */
