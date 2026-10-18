@@ -8,6 +8,7 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { createEngineStaticBinder, createProgramBinding, expandProgram } from "../../../../engine-core/dist/programs/index.js";
 
 // Card bodies run through the chain's own interpreter adapter — the production
 // entry point that re-wraps Expr arguments for the registered primitives.
@@ -76,6 +77,9 @@ test("ven-156-166 Lightning Rush: judgeReason names Flow, the subset choice and 
   assert.match(program.judgeReason, /Draw/);
   assert.match(program.judgeReason, /829\.1\.c/);
   assert.match(program.judgeReason, /Flow|flow\.cost/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /AwaitChoice/);
+  assert.match(program.judgeReason, /mistargeted/);
   assert.doesNotMatch(program.judgeReason, /RIFT-64|RIFT-66|RIFT-266.*KeywordDef/);
 });
 
@@ -306,6 +310,68 @@ test.todo(
     "replacement (829.1.b/829.1.c) need the merged Flow KeywordDef's flow.cost consumer and replacement wiring, " +
     "and KeywordAbility still cannot carry the printed Flow cost (contract change request)"
 );
+
+test("ven-156-166 Lightning Rush evidence: the merged Flow expansion still cannot bind and describePlay fails closed", () => {
+  // Re-measured 2026-10-18: the printed Flow cost has no carrier, the expanded
+  // static flow.cost has no static layer mapping, and describePlay refuses the
+  // still-judge-required program, so no trash play or leave-chain banish exists.
+  const source = world()
+    .object("lightning-rush", { cardId: CARD_ID, types: ["spell"], zone: "hand", energy: 1, power: null, might: null })
+    .build()
+    .getObject("lightning-rush");
+  const expanded = expandProgram(program, source).expanded;
+  const flowCost = expanded.find((ability) => ability.kind === "static" && ability.effect.kind === "flow.cost");
+  assert.ok(flowCost, "the merged Flow KeywordDef expands to a static flow.cost");
+  assert.throws(
+    () => createEngineStaticBinder(fixture({ cards: [] }).engine).bindStatic(flowCost, source),
+    error => error.constructor.name === "ProgramBindingError" &&
+      /Static ability kind flow\.cost has no layer mapping/.test(error.message)
+  );
+  assert.throws(
+    () => createProgramBinding({ cardPrograms: [program] }).describePlay({ type: "play", object: source.ref, player: "A" }, source),
+    error => error.code === "judge-required" && /params\.cost/.test(error.message)
+  );
+});
+
+test("ven-156-166 Lightning Rush evidence: the may branch needs an injected pick and still resolves no chosen card", () => {
+  // With the ordered look supplied, the card's own optional gate is answered by
+  // the REAL choice channel (AwaitChoice), not by the card writing a linked
+  // follower. The chosen-card pick itself has no channel into the chain context,
+  // so the body reports mistargeted instead of drawing a card.
+  const kernel = decked();
+  const viewed = kernel.zoneSlice("A", "deck", "top", 3).map((object) => object.ref);
+  kernel.setPicks(VIEWED, viewed);
+  assert.throws(
+    () => resolveChainBody(play.body, kernel),
+    (error) => error instanceof AwaitChoice &&
+      error.request.id === `${MAY}/optional` && error.request.type === "optional"
+  );
+
+  // Even with the answer supplied, the chosen-card pick is not bound by the
+  // production adapter, so the clause is mistargeted rather than executed.
+  kernel.setAnswers({ [`${MAY}/optional`]: true });
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [
+      ["lightning-rush.bind-controller", "executed"],
+      ["lightning-rush.look-top-three", "executed"],
+      ["lightning-rush.draw-chosen-card", "ignored"],
+      ["lightning-rush.may-draw-chosen-card", "ignored"],
+      // The rest clause is linked to the look, not to the mistargeted may branch,
+      // so it still runs; with no looked-at set bound it moves nothing.
+      ["lightning-rush.put-rest-into-trash", "executed"]
+    ]
+  );
+  // The ordered look did resolve its three cards (the test doubles as the
+  // ordered-pick evidence), but the chosen-card pick has no chain binding, so
+  // the branch is mistargeted and no card is drawn. The linked rest clause then
+  // moves the whole looked-at group to the trash.
+  assert.equal(outcome.linkedValues["lightning-rush.look-top-three.viewedCount"], 3);
+  assert.deepEqual(ids(kernel, "hand"), []);
+  assert.deepEqual(ids(kernel, "trash"), ["top", "middle", "bottom"]);
+  assert.deepEqual(ids(kernel, "deck"), ["fourth"]);
+});
 
 
 test("Lightning Rush body: real Finalize locks deck order and linked rest needs no injected pick", () => {

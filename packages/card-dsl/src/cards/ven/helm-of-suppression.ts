@@ -25,28 +25,28 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Power 支付；"instead" 表示 Empowered 时把 +1 Energy 替换为"+1 Energy 与 +1 [A]"，
  *   不是两者同时叠加。
  *
- * status = judge-required（缺口逐个列出，均不近似实现）：
- * 复核（2026-10-17，RIFT-613 第三轮 M2 覆盖率复核，实测见 test.mjs 的 probe 用例）：
- * 1. Empower/Empowered 关键词已合入（effects/keywords/Empower.ts，RIFT-593 已 merge），
- *    但卡侧印刷费用仍未到达展开：冻结的 KeywordAbility 只有 keyword/value，
- *    programs/keywords.ts 的 expandProgram 只向 def.expand 传 value/host，实测本卡
- *    Empower 展开出的 activated.cost 是 { kind: "empower" }（无 4 Energy + 1 Calm Power，
- *    costDomain 仍只是描述性扩展字段），且在 describeActivate 的 translateCost 里被拒
- *    （"Unsupported cost kind empower"）。
- * 2. 费用增加没有 static→费用计划的消费方：ProgramStaticBinder.staticTarget 对
- *    appliesTo "spell-play-cost" 抛 "Unsupported static appliesTo"（实测两条 static 都
- *    在 programs/statics.ts 被拒），cost/cost-plan.ts 的 buildCostPlan 只应用调用方显式
- *    传入的 CostPlanInput.increases；chain/engine.ts 的 Finalize 也从不从已绑定 static
- *    推导 increases。effects/instructions/cost.modify.ts 已注册，但它是卡牌指令，不是本
- *    卡的 static 路径。
- * 3. "If this is [Empowered]" 缺可求值谓词：实测 expression 常量串 self-is-empowered 直接
- *    求真为 true（不读状态），object-property "empoweredCount" 抛 MissingInformation
- *    （ObjectSnapshot 在 effects/contract.ts 里不声明 Empowered 计数）；两个分支因此既不能
- *    互斥也不能按状态求值，本卡 IR 目前用该常量串描述性占位并如实记为缺口。
+ * status = judge-required（复核 2026-10-18，缺口逐条实测）：
+ * 1. 卡侧印刷费用仍未到达展开：KeywordAbility 只有 keyword/value，programs/keywords.ts 的
+ *    expandProgram 只向 def.expand 传 value/host，实测本卡 Empower 展开出的 activated.cost 是
+ *    { kind: "empower" }（无 4 Energy + 1 Calm Power，costDomain 仍只是描述性扩展字段），
+ *    describeActivate 的 translateCost 以 "Unsupported cost kind empower" 拒绝。
+ * 2. static 费用改写的绑定仍缺失：ProgramStaticBinder.staticTarget 对 appliesTo
+ *    "spell-play-cost" 抛 "Unsupported static appliesTo"（实测 bindStatic 直接失败）。
+ *    cost/discounts 的消费方已合入（collectCostModifications/finalizeCostPlan 能用同一份
+ *    声明形状推出 increases），但结论相同：没有调用方从已绑定 static 推导 increases，
+ *    chain/engine.ts 的 Finalize 仍只走 buildCostPlan 的调用方显式输入。
+ * 3. "If this is [Empowered]" 缺可求值谓词：两条分支仍用 expression 常量串
+ *    self-is-empowered 占位；实测该串只按真值求值（不读状态）。参考内核的
+ *    object-property "empowered" 可读，但 apps/game-server 的 host 把 empower 记在 buffs 上，
+ *    生产 ObjectSnapshot 也未声明该特征，所以生产门控仍不可求值。
+ * 4. 即便谓词可得，把该改写接进费用计划还缺字段通道：实测两条声明的 condition 形状本身
+ *    可求值（换成 self.empowered 比较后 golden 能跑），但 empowered 分支的 insteadOf 会先被
+ *    cost/discounts 以 "Unsupported cost modification field insteadOf" 拒绝；
+ *    additionalPower 也没有进入 CostPlanInput 的通道。
  * 已支持部分：[A]（135.2.e.5.a / 163.2.b）可用 kind:"power" 与六域 allowedDomains
  * 表达并分配支付资源；golden 覆盖各域 Power 对该增加分量的支付分配，无需新增 Domain 值。
  * 依赖：KeywordAbility 印刷费用参数承载 + expandProgram params.cost 转发、static 费用改写
- * 进费用计划的消费方（appliesTo 绑定）、可求值的 Empowered 状态谓词（进行中任务 RIFT-359）。
+ * 进费用计划的绑定与 insteadOf/additionalPower 通道、可求值的生产 Empowered 状态。
  */
 /**
  * 827.1.c：印刷 "Empower 4 Energy + 1 Calm Power"。value 记印刷 Energy 数量 4，costDomain
@@ -117,22 +117,22 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现（2026-10-17 RIFT-613 复核实测）：(1) Empower/Empowered 关键词已合入" +
-    "（effects/keywords/Empower.ts），但卡侧印刷费用没有到达展开：KeywordAbility 只有 keyword/value，" +
-    "programs/keywords.ts 的 expandProgram 只传 value/host，实测本卡展开出的 activated.cost 是 " +
-    "{ kind: \"empower\" }（不含 4 Energy + 1 Calm Power，costDomain 只是描述性字段），" +
-    "translateCost 随后以 \"Unsupported cost kind empower\" 拒绝该启动费用。(2) 费用增加（356.3）没有 " +
-    "static→费用计划的消费方：ProgramStaticBinder.staticTarget 对 appliesTo \"spell-play-cost\" 抛 " +
-    "\"Unsupported static appliesTo\"（实测两条 static 均被拒），buildCostPlan 只应用调用方显式传入的 " +
-    "CostPlanInput.increases，chain/engine.ts 的 Finalize 也不从已绑定 static 推导 increases；" +
-    "effects/instructions/cost.modify.ts 已注册，但那是卡牌指令而非本卡的 static 路径。(3) 『If this is " +
-    "[Empowered]』缺可求值谓词：expression 常量串 self-is-empowered 直接求真为 true（不读状态），" +
-    "object-property \"empoweredCount\" 抛 MissingInformation（ObjectSnapshot 在 effects/contract.ts " +
-    "里不声明 Empowered 计数），两个分支既不能互斥也不能按状态求值。已支持部分：Empowered 分支的 " +
-    ":rb_rune_rainbow: 是任意域 Power [A]" +
-    "（135.2.e.5.a/163.2.b），费用计划支持 kind:power 与六域 allowedDomains，并由 golden 覆盖支付分配。" +
-    "依赖 KeywordAbility 印刷费用参数承载与 expandProgram 转发、static 费用改写进费用计划的消费方、" +
-    "可求值的 Empowered 状态谓词（进行中任务 RIFT-359）。",
+    "四处缺口，均不近似实现（2026-10-18 复核实测）：(1) 卡侧印刷费用没有到达展开：KeywordAbility 只有 " +
+    "keyword/value，expandProgram 只传 value/host，实测本卡展开出的 activated.cost 是 { kind: \"empower\" }" +
+    "（不含 4 Energy + 1 Calm Power，costDomain 只是描述性字段），translateCost 以 " +
+    "\"Unsupported cost kind empower\" 拒绝该启动费用。(2) 356.3 的 static 费用改写仍没有绑定：" +
+    "ProgramStaticBinder.staticTarget 对 appliesTo \"spell-play-cost\" 抛 \"Unsupported static appliesTo\"" +
+    "（实测两条 static 均被拒）。cost/discounts 的 collectCostModifications 已能用同一份声明形状推出 " +
+    "increases，但没有调用方把已绑定 static 送进它；chain/engine.ts 的 Finalize 仍只应用调用方显式传入的 " +
+    "CostPlanInput.increases；effects/instructions/cost.modify.ts 只是卡牌指令，不走这条 static 路径。" +
+    "(3) 『If this is [Empowered]』缺可求值谓词：两条分支仍是 expression 常量串 " +
+    "self-is-empowered（实测只按真值求值、不读状态）；参考内核的 object-property \"empowered\" 可读，" +
+    "但 apps/game-server 的 host 把 empower 记在 buffs 上、生产 ObjectSnapshot 也不声明该特征，" +
+    "两个分支因此既不能互斥也不能按状态求值。(4) 即便谓词可得，这两条声明也缺字段通道：实测 empowered " +
+    "分支的 insteadOf 被 cost/discounts 以 \"Unsupported cost modification field insteadOf\" 拒绝，" +
+    "additionalPower 也没有进入 CostPlanInput 的路径。已支持部分：Empowered 分支的 " +
+    ":rb_rune_rainbow: 是任意域 Power [A]（135.2.e.5.a/163.2.b），费用计划支持 kind:power 与六域 " +
+    "allowedDomains，并由 golden 覆盖支付分配。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_4::rb_rune_calm: (:rb_energy_4::rb_rune_calm:: Empower this. Use only if not Empowered.)\n" +

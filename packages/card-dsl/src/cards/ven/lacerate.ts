@@ -23,7 +23,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - [Flow]（829）：829.1.c 的格式 "Flow [Cost]" 与 829.1.b 的「用 Flow 打出后本卡离开 Chain
  *   时改为放逐」；卡只声明关键词身份（契约 3.7/README 第 5 节）。
  *
- * status = judge-required。已合入依赖与剩余生产接线已重新核对；
+ * status = judge-required。已合入依赖与剩余生产接线已重新核对（2026-10-18 逐条实测）；
  * 当前真实缺口以 judgeReason 为准，子效果执行不证明整卡可执行。
  */
 const lacerate = {
@@ -33,7 +33,9 @@ const lacerate = {
   judgeReason:
     "仍缺：(1) KeywordAbility / programs/keywords.ts 未传 params.cost，无法把印刷 Flow 费用 4 Energy + 2 Order Power 交给关键词展开（829.1.c）；" +
     "(2) programs/play.ts 未把 flow.cost 接入从 trash 打出的许可与备选费用，也未把实付 Flow 实例关联离链放逐及自身指令离链例外（829.1.b.1）；不把 Flow 降级成普通费用。" +
-    "(3) effect.empower 的 disempower 模式交给参考内核后会清空全部 Empowered 状态，尚不满足 443.1.b 的多重状态只移除一层；443.1.a.1 的未 Empowered 空效果也仍会产生 disempower 动作事件。",
+    "实测展开后 Flow 的 static flow.cost 在 programs/statics.ts 的 layerFor 抛 no layer mapping，programs/play.ts 的 describePlay 也直接以本卡的 judge-required 状态拒绝。" +
+    "(3) effect.empower 的 disempower 模式交给参考内核后会清空全部 Empowered 状态（实测 2 层 Empower 后剩 0），尚不满足 443.1.b 的多重状态只移除一层；" +
+    "443.1.a.1 的未 Empowered 空效果也仍会产生 disempower 动作事件（实测 events 含 disempower，仅 board 状态不变）。",
   abilities: [
     { kind: "keyword", keyword: "flow" },
     {
