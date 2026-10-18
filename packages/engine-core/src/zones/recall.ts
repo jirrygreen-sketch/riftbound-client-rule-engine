@@ -94,7 +94,7 @@ export function performRecall(ctx: ResolveContext, ref: ObjectRef, options: Reca
   try {
     outcome = perform(recall);
   } catch (error) {
-    if (error instanceof TypeError) {
+    if (error instanceof TypeError || error instanceof Error && /Unknown action type: recall/.test(error.message)) {
       return {
         status: "impossible", events: [], count: 0, object: refOf(ref), from, to: null,
         blockedReason: "RecallAction consumer unavailable (RIFT-849/810/835/837)"

@@ -13,21 +13,20 @@
  * destination may already hold Units from two other players; both objects
  * vacate their origins simultaneously, so neither origin blocks the other).
  * The swap is one instantaneous action with no intermediate state (448.1,
- * 448.3.a-b); the kernel only exposes single-object move-location, so the
- * primitive commits the two relocations back to back and fails closed: if the
- * second relocation is replaced or prevented, the error rejects the whole
- * instruction and the outer transaction rolls back the first relocation
- * instead of leaving one object stranded (448.3). Same-location pairs are
- * already where the instruction would put them: they execute without events,
- * like a same-location effect.move.
+ * 448.3.a-b). It submits one additive BatchAction containing both destination
+ * snapshots and requires a committed batch receipt before reporting success.
+ * The production BatchAction consumer is owned by RIFT-849/810/835/837; when
+ * it is unavailable this instruction returns blocked instead of emulating a
+ * batch with sequential move-location actions. Same-location pairs are
+ * already where the instruction would put them and need no action.
  *
  * Exchanging locations is a Move for both objects (448.1: it is not a
  * corrective Recall), so move-location history and object-moved timings are
  * the kernel's existing Move seam; no Recall semantics are claimed here.
  */
 import type {
-  Expr, GameEvent, InstructionDef, InstructionResult, LocationRef, ObjectRef,
-  ObjectSelector, ResolveContext, Value
+  ActionOutcome, BatchAction, ContractGameAction, Expr, GameEvent, InstructionDef,
+  InstructionResult, LocationRef, ObjectRef, ObjectSelector, ResolveContext, Value
 } from "../contract.js";
 import { sameLocation } from "../../target/location/ref.js";
 
@@ -107,6 +106,9 @@ function locationValue(location: LocationRef): Value {
   return location.type === "base" ? { type: "base", player: location.player } :
     { type: "battlefield", id: location.id };
 }
+function blockedReceipt(a: ObjectRef, b: ObjectRef, blockedReason: string): Record<string, Value> {
+  return { count: 0, objects: [refValue(a), refValue(b)], movements: [], status: "blocked", blockedReason };
+}
 function objectAt(ctx: ResolveContext, selected: ObjectSelector, label: string): { ref: ObjectRef; location: LocationRef } {
   const candidates = selected === "source" || selected === "self" ? [ctx.source.ref] :
     "target" in selected ? ctx.targets(selected.target) :
@@ -160,19 +162,40 @@ export default {
     }
     const originA = { ...a.location };
     const originB = { ...b.location };
-    const firstOutcome = ctx.perform({ type: "move-location", object: a.ref, to: originB });
-    if (firstOutcome.status !== "done") {
-      return {
-        status: "negated",
-        reason: firstOutcome.status === "prevented" ? "skipped" : firstOutcome.status,
-        events: [...firstOutcome.events]
-      };
+    const batch: BatchAction = {
+      type: "batch",
+      transactionId: `swap:${a.ref.id}:${a.ref.zoneEntryId}:${b.ref.id}:${b.ref.zoneEntryId}`,
+      actions: [
+        { type: "move-location", object: a.ref, to: originB },
+        { type: "move-location", object: b.ref, to: originA }
+      ]
+    };
+    const perform = ctx.perform as unknown as (action: ContractGameAction) => ActionOutcome;
+    let outcome: ActionOutcome;
+    try {
+      outcome = perform(batch);
+    } catch (error) {
+      if (error instanceof TypeError || error instanceof Error && /Unknown action type: batch/.test(error.message)) {
+        const receipt = blockedReceipt(a.ref, b.ref, "BatchAction consumer unavailable (RIFT-849/810/835/837)");
+        ctx.link("swapped", receipt);
+        return { status: "negated", reason: "impossible", events: [] };
+      }
+      throw error;
     }
-    const secondOutcome = ctx.perform({ type: "move-location", object: b.ref, to: originA });
-    if (secondOutcome.status !== "done") {
-      // Atomic single action (448.3): fail closed so the outer transaction
-      // rolls back the first relocation instead of stranding one object.
-      throw new Error("effect.swap-location second relocation failed; rolling back the atomic swap");
+    const committed = outcome.status === "done" && outcome.receipt?.status === "committed" &&
+      outcome.receipt.actions.length === 2 && outcome.receipt.actions.every(action => action.status === "done");
+    const afterA = ctx.object(a.ref);
+    const afterB = ctx.object(b.ref);
+    const moved = committed && afterA !== null && afterB !== null &&
+      sameLocation(afterA.location!, originB) && sameLocation(afterB.location!, originA);
+    if (!moved) {
+      const status = String(outcome.receipt?.status ?? (outcome.status === "done" ? "rejected" : "rolled-back"));
+      const receipt: Value = {
+        ...blockedReceipt(a.ref, b.ref, "Atomic BatchAction did not commit both relocations"),
+        status
+      };
+      ctx.link("swapped", receipt);
+      return { status: "negated", reason: outcome.status === "replaced" ? "replaced" : "impossible", events: [...outcome.events] };
     }
     const receipt: Value = {
       count: 2,
@@ -180,9 +203,12 @@ export default {
       movements: [
         { object: refValue(a.ref), from: locationValue(originA), to: locationValue(originB) },
         { object: refValue(b.ref), from: locationValue(originB), to: locationValue(originA) }
-      ]
+      ],
+      status: "committed",
+      ...(batch.transactionId === undefined ? {} : { transactionId: batch.transactionId }),
+      actionReceipt: outcome.receipt as unknown as Value
     };
     ctx.link("swapped", receipt);
-    return { status: "executed", events: [...firstOutcome.events, ...secondOutcome.events], linkedValues: { swapped: receipt } };
+    return { status: "executed", events: [...outcome.events], linkedValues: { swapped: receipt } };
   }
 } satisfies InstructionDef<SwapArgs>;

@@ -13,16 +13,13 @@
  * - amount: nonnegative safe integer upper bound, default 1; insufficient
  *   objects means as many as possible (359.3.e.11). Zero performs no action
  *   or choice. Object and destination choice ids must be distinct.
- * - mode: move (default) or recall. Recall (CR v1.5 457-460) is its own
- *   action path: each selected Board Permanent is relocated to its current
- *   controller's Base through the identity-preserving move-location seam
- *   exposed by zones/recall.ts, so the same zone entry, its damage and its
- *   statuses survive (458.2, 460, 459). A Recall is not a Move, so the
- *   destination cannot be chosen and Move restrictions are bypassed (458.3);
- *   an explicit Base destination is honored only when it is that object's
- *   controller's Base. Until the contract owners add a distinct Recall game
- *   action, move-location history and object-moved timings remain an open
- *   458.1 seam (documented in recall.ts), not a completed Move-trigger story.
+ * - mode: move (default) or recall. Recall (CR v1.5 457-460) submits the
+ *   independent RecallAction through zones/recall.ts. It never falls back to
+ *   move-location, so a Move-only replacement cannot stop it and no Move event
+ *   or history is produced. A Recall destination is always the object's
+ *   current controller's Base (458.3). When the additive action is declared
+ *   but its production consumer is unavailable, the instruction links a
+ *   blockedReason and is negated/impossible instead of approximating a Move.
  * - linkKey: nonempty result key, default moved. Receipt { count, objects,
  *   movements: [{ object, from, to }] } captures actual successful movement,
  *   also on partial negation. A same-location instruction moves nothing.
@@ -49,6 +46,7 @@ import type {
   ObjectRef, ResolveContext, Value
 } from "../contract.js";
 import { performRecall } from "../../zones/recall.js";
+import { queryMoveDestinations } from "../../target/location/candidates.js";
 
 export interface MoveArgs {
   readonly objects?: Expr;
@@ -206,6 +204,51 @@ function chooseDestination(ctx: ResolveContext, to: Destination): LocationRef | 
   return answer;
 }
 
+/**
+ * One gate for every evaluated Move destination shape. The interpreter also
+ * checks dynamic selectors before the primitive, but direct constants and
+ * already-evaluated linked/controller-base values only meet the same shared
+ * Location rules here. A multi-object Move is rejected as a whole when no one
+ * destination is legal for every selected zone entry (CR 451.2).
+ */
+function commonMoveDestination(
+  ctx: ResolveContext, objects: readonly ObjectRef[], to: Destination
+): LocationRef | "controller-base" | null {
+  if (objects.length === 0) return null;
+  const legal = queryMoveDestinations(ctx, objects, {});
+  const requested: LocationRef[] = to === "controller-base"
+    ? [...new Map(objects.map(ref => {
+      const object = ctx.object(ref);
+      const location: LocationRef = { type: "base", player: object!.controller };
+      return [`base:${object!.controller}`, location] as const;
+    })).values()]
+    : "kind" in to ? [...to.options] : [to];
+  return requested.find(location =>
+    objects.every(ref => sameLocation(ctx.object(ref)!.location!, location)) ||
+    legal.some(candidate => sameLocation(candidate, location))
+  ) ?? null;
+}
+
+function resolveDestinationForObjects(
+  ctx: ResolveContext, objects: readonly ObjectRef[], to: Destination
+): LocationRef | "controller-base" | null {
+  if (to === "controller-base") {
+    const bases = [...new Set(objects.map(ref => ctx.object(ref)!.controller))]
+      .map(player => ({ type: "base" as const, player }));
+    return bases.find(location => objects.every(ref => sameLocation(ctx.object(ref)!.location!, location)) ||
+      queryMoveDestinations(ctx, objects, {}).some(candidate => sameLocation(candidate, location))) ?? null;
+  }
+  if (!("kind" in to)) {
+    const current = objects.every(ref => sameLocation(ctx.object(ref)!.location!, to));
+    return current || queryMoveDestinations(ctx, objects, {}).some(candidate => sameLocation(candidate, to)) ? to : null;
+  }
+  const options = to.options.filter(location =>
+    objects.every(ref => sameLocation(ctx.object(ref)!.location!, location)) ||
+    queryMoveDestinations(ctx, objects, {}).some(candidate => sameLocation(candidate, location)));
+  if (options.length === 0) return null;
+  return chooseDestination(ctx, { ...to, options });
+}
+
 export default {
   op: "effect.move",
   argsSchema: { parse: parseArgs },
@@ -227,6 +270,7 @@ export default {
     const moved: ObjectRef[] = [];
     const movements: Value[] = [];
     let reason: "replaced" | "skipped" | "impossible" | undefined;
+    let blockedReason: string | undefined;
     if (amount > 0) {
       if (mode === "recall") {
         if (typeof to === "object" && "kind" in to) {
@@ -252,6 +296,7 @@ export default {
             events.push(...outcome.events);
             if (outcome.status !== "done") {
               reason ??= outcome.status === "prevented" ? "skipped" : outcome.status;
+              blockedReason ??= outcome.blockedReason;
               continue;
             }
             if (outcome.count > 0) {
@@ -264,7 +309,12 @@ export default {
         reason = "impossible";
       } else {
         const objects = chooseRefs(ctx, selected, refs, amount);
-        const location = objects.length === 0 ? null : chooseDestination(ctx, to);
+        const common = objects.length === 0 ? null : resolveDestinationForObjects(ctx, objects, to);
+        if (objects.length > 0 && common === null) {
+          const receipt: Value = { count: 0, objects: [], movements: [] };
+          ctx.link(linkKey, receipt);
+          return { status: "negated", reason: "impossible", events };
+        }
         for (const ref of objects) {
           const before = ctx.object(ref);
           if (before?.zone !== "board" || before.location === null ||
@@ -272,7 +322,7 @@ export default {
             reason ??= "impossible";
             continue;
           }
-          const target = location === "controller-base" ? { type: "base" as const, player: before.controller } : location!;
+          const target = common === "controller-base" ? { type: "base" as const, player: before.controller } : common!;
           if (sameLocation(before.location, target)) continue;
           const outcome = ctx.perform({ type: "move-location", object: ref, to: target });
           events.push(...outcome.events);
@@ -289,7 +339,9 @@ export default {
       }
     }
     const receipt: Value = {
-      count: moved.length, objects: moved.map(refValue), movements, ...(mode === "recall" ? { mode } : {})
+      count: moved.length, objects: moved.map(refValue), movements,
+      ...(mode === "recall" ? { mode } : {}),
+      ...(blockedReason === undefined ? {} : { blockedReason })
     };
     ctx.link(linkKey, receipt);
     return reason ? { status: "negated", reason, events } :
