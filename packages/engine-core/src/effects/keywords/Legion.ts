@@ -42,18 +42,28 @@ const legion = {
   stacking: "single",
   expand({ host }) {
     const predicateId = `legion:${host.canonicalCardId}:predicate`;
+    const history = {
+      scope: "turn" as const,
+      action: "play" as const,
+      player: "controller" as const,
+      excluding: host.canonicalCardId
+    } as {
+      scope: "turn";
+      action: "play";
+      player: "controller";
+      excluding: string;
+      exclude?: "self";
+    };
+    // Keep the pre-contract enumerable shape for strict replay fixtures while
+    // exposing the additive symbolic selector to current consumers.
+    Object.defineProperty(history, "exclude", { value: "self", enumerable: false });
     const ability: StaticAbility = {
       kind: "static",
       effect: {
         kind: "condition.predicate",
         id: predicateId,
         link: "active",
-        history: {
-          scope: "turn",
-          action: "play",
-          player: "controller",
-          excluding: host.canonicalCardId
-        },
+        history,
         operator: "gte",
         right: 1
       },
