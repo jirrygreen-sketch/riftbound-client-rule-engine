@@ -154,8 +154,7 @@ describe("engine runtime", () => {
       status: "executable",
       sourceText: "runtime choice test",
       abilities: [{
-        kind: "activated",
-        timing: "action",
+        kind: "play",
         cost: { kind: "explicit", energy: { kind: "constant", value: 0 } },
         body: [{ id: "choose", op: "choice.optional", args: { body: { kind: "constant", value: [] } } }],
       }],
@@ -185,6 +184,58 @@ describe("engine runtime", () => {
     });
     expect(answered.receipt.status).toBe("accepted");
     const restored = createEngineRuntime({ matchId: "m4", decks, seed: "m4", programs: [program] }).restore(runtime.journal());
+    expect(restored.projectFor("A")).toEqual(runtime.projectFor("A"));
+    expect(restored.projectFor("B")).toEqual(runtime.projectFor("B"));
+  }, 60_000);
+
+  it("projects an authoritative number range only to its chooser and rejects malformed answers", () => {
+    const decks = [m1Deck("rumble-sfd"), m1Deck("fiora-sfd")] as const;
+    const probe = createEngineRuntime({ matchId: "number-probe", decks, seed: "number" }).start();
+    const source = probe.projectFor("A").objects.find(object => object.zone === "hand" && object.ownerPlayerId === "A" && object.cardId);
+    expect(source?.cardId).toBeTruthy();
+    const program = {
+      canonicalCardId: source!.cardId,
+      rulesetVersion: "core-1.5",
+      status: "executable",
+      sourceText: "number choice test",
+      abilities: [{
+        kind: "activated",
+        timing: "action",
+        cost: { kind: "explicit", energy: { kind: "constant", value: 0 } },
+        body: [{
+          id: "damage", op: "effect.damage",
+          targets: [{ id: "all", filter: {}, selection: "all" }],
+          args: { amount: { kind: "constant", value: 2 }, divide: { kind: "constant", value: true },
+            target: { kind: "constant", value: "all" } },
+        }],
+      }],
+    } as const;
+    const runtime = createEngineRuntime({ matchId: "number", decks, seed: "number", programs: [program] }).start();
+    const objectId = source!.objectId;
+    runtime.submit("A", { type: "move", commandId: "move-number-source", stateVersion: 0, objectId, to: { zone: "base", playerId: "A" } });
+    const activated = runtime.submit("A", { type: "play", commandId: "play-number", stateVersion: 1,
+      cardObjectId: objectId, cost: { energy: 0 } });
+    const pending = runtime.submit("B", { type: "pass", commandId: "pass-number-a", stateVersion: activated.receipt.stateVersion });
+    const next = runtime.submit("A", { type: "pass", commandId: "pass-number-b", stateVersion: pending.receipt.stateVersion });
+    expect(next.receipt.status).toBe("pending");
+    const owner = runtime.projectFor("A").pendingChoice;
+    expect(owner).toMatchObject({ status: "pending", kind: "number", min: 1, max: 1 });
+    expect(runtime.projectFor("B").pendingChoice).toEqual({ status: "pending", choiceId: owner.choiceId,
+      ownerPlayerId: "A", stateVersion: owner.stateVersion, kind: "number", min: 1, max: 1 });
+    const choiceId = owner.choiceId;
+    for (const answer of [0, 2, 1.5, Number.NaN]) {
+      const rejected = runtime.submit("A", { type: "choose", commandId: `bad-number-${String(answer)}`,
+        stateVersion: next.receipt.stateVersion, choiceId, answer });
+      expect(rejected.receipt.status).toBe("rejected");
+      expect(runtime.projectFor("A").pendingChoice).toMatchObject({ status: "pending", choiceId });
+    }
+    const accepted = runtime.submit("A", { type: "choose", commandId: "good-number",
+      stateVersion: next.receipt.stateVersion, choiceId, answer: 1 });
+    expect(accepted.receipt.status).toBe("accepted");
+    expect(runtime.submit("A", { type: "choose", commandId: "good-number",
+      stateVersion: next.receipt.stateVersion, choiceId, answer: 1 }).receipt.status).toBe("duplicate");
+    const restored = createEngineRuntime({ matchId: "number", decks, seed: "number", programs: [program] })
+      .restore(runtime.journal());
     expect(restored.projectFor("A")).toEqual(runtime.projectFor("A"));
     expect(restored.projectFor("B")).toEqual(runtime.projectFor("B"));
   }, 60_000);

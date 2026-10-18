@@ -199,7 +199,8 @@ class MatchRuntime implements EngineRuntime {
           return { id: String(option), label: String(option), ...(value === undefined ? {} : { value }) };
         }),
       } : {}),
-      ...(this.pending.request.type === "select-objects" ? { min: this.pending.request.min, max: this.pending.request.max } : {}),
+      ...(this.pending.request.type === "select-objects" || this.pending.request.type === "number"
+        ? { min: this.pending.request.min, max: this.pending.request.max } : {}),
     } : null;
     return projectRuntime(this.match!, this.host!, this.runtimeOptions.matchId, playerId, this.stateVersion, this.pending ? {
       ...pendingProjection!,
@@ -251,7 +252,13 @@ class MatchRuntime implements EngineRuntime {
   private choose(playerId: string, command: Extract<V2Command, { type: "choose" }>): RuntimeSubmitResult {
     if (!this.pending) return this.rejected(command, playerId, "No choice is pending");
     if (this.pending.request.id !== command.choiceId || this.pending.request.chooser !== playerId) return this.rejected(command, playerId, "Choice is not owned by this player");
-    const original = this.pending; this.pending = null; this.decision = command.answer;
+    const original = this.pending;
+    if (original.request.type === "number" &&
+        (typeof command.answer !== "number" || !Number.isSafeInteger(command.answer) ||
+          command.answer < original.request.min || command.answer > original.request.max))
+      return this.rejected(command, playerId,
+        `Number choice must be an integer between ${original.request.min} and ${original.request.max}`);
+    this.pending = null; this.decision = command.answer;
     try {
       const result = this.execute(original.playerId, original.command);
       this.stateVersion += 1;
@@ -366,7 +373,8 @@ class MatchRuntime implements EngineRuntime {
       stateVersion: this.stateVersion,
       kind: request.type,
       ...(viewer === request.chooser && options ? { options } : {}),
-      ...(request.type === "select-objects" ? { min: request.min, max: request.max } : {}),
+      ...(request.type === "select-objects" || request.type === "number"
+        ? { min: request.min, max: request.max } : {}),
     };
   }
 

@@ -17,6 +17,7 @@ import type {
   ZoneDestination,
   ZoneId,
 } from "../../../../packages/engine-core/dist/effects/contract.js";
+import { disempowerTransition, empowerTransition } from "../../../../packages/engine-core/dist/zones/empower-state.js";
 
 export interface RuntimeCard {
   readonly id: string;
@@ -32,7 +33,7 @@ export interface RuntimeCard {
 
 type MutableObject = {
   -readonly [K in keyof ObjectSnapshot]: ObjectSnapshot[K];
-} & { counters: Record<string, number> };
+} & { counters: Record<string, number>; empowered: number };
 
 type RuntimeZone = ZoneId | "base" | "battlefield" | "champion" | "legend";
 
@@ -125,7 +126,7 @@ export class EngineRuntimeHost {
       energy: card.energy === undefined ? null : card.energy,
       power: card.power == null ? null : [...card.power], exhausted: false, damage: 0,
       stunned: false, buffs: 0, attachedTo: null, faceDown: zone === "deck" || zone === "rune-deck", isToken: false,
-      counters: {},
+      counters: {}, empowered: 0,
     };
     this.objectMap.set(id, object);
     this.players.get(player)!.zones[zone].push(id);
@@ -230,8 +231,20 @@ export class EngineRuntimeHost {
         case "spend-xp": { const player = this.requirePlayer(action.player); if (player.xp < action.amount) return this.prevented(); player.xp -= action.amount; return this.done(action.amount); }
         case "buff": { const object = this.requireObject(action.object); object.buffs += action.amount; return this.done(object.buffs); }
         case "spend-buff": { const object = this.requireObject(action.object); if (object.buffs < action.amount) return this.prevented(); object.buffs -= action.amount; return this.done(object.buffs); }
-        case "empower": { const object = this.requireObject(action.object); object.buffs += action.amount ?? 1; return this.done(object.buffs); }
-        case "disempower": this.requireObject(action.object).buffs = 0; return this.done();
+        case "empower": {
+          const object = this.requireObject(action.object);
+          const transition = empowerTransition(object.empowered, { amount: action.amount ?? 1 });
+          if (!transition.changed) return this.prevented();
+          object.empowered = transition.currentCount;
+          return this.done(object.empowered);
+        }
+        case "disempower": {
+          const object = this.requireObject(action.object);
+          const transition = disempowerTransition(object.empowered);
+          if (!transition.changed) return this.prevented();
+          object.empowered = transition.currentCount;
+          return this.done();
+        }
         case "add-counter": {
           const object = this.requireObject(action.object); object.counters[action.counter] = (object.counters[action.counter] ?? 0) + action.amount; return this.done(object.counters[action.counter]);
         }

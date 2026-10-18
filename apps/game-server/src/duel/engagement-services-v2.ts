@@ -42,13 +42,14 @@ export function createDuelEngagementServicesV2(options: {
   };
   const lethalDamageThreshold = (unit: { readonly objectId: string;
     readonly damageMarks: readonly { readonly responsiblePlayerId: string }[] }, currentMight: number) => {
-    if (!options.effects) return currentMight;
+    const effects = options.effects;
+    if (!effects) return currentMight;
     // 142.4.c thresholds can refer to the controller of the marked Damage.
     // Evaluate every source that actually marked this Unit, never a guessed
     // owner/controller from its current board location. The smallest active
     // threshold is the amount needed for the marked Damage to be lethal.
     const thresholds = new Set(unit.damageMarks.map(mark => mark.responsiblePlayerId));
-    const grants = [...thresholds].flatMap(controller => lethalThresholdFor(options.effects,
+    const grants = [...thresholds].flatMap(controller => lethalThresholdFor(effects,
       { controller, anchors: [unit] }, ref => ref.id === unit.objectId ? unit : null));
     return grants.length ? Math.min(currentMight, ...grants.map(grant => grant.amount)) : currentMight;
   };
