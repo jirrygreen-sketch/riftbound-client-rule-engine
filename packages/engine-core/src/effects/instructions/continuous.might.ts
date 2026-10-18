@@ -353,7 +353,8 @@ export function addContinuousWithUniqueId(
   duration: Parameters<ResolveContext["addContinuous"]>[1]
 ): ContinuousEffectSpec {
   let candidate = effect;
-  for (let attempt = 0; ; attempt += 1) {
+  const maximumAttempts = 1024;
+  for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
     try {
       ctx.addContinuous(candidate, duration);
       return candidate;
@@ -364,6 +365,7 @@ export function addContinuousWithUniqueId(
       candidate = { ...effect, id: effect.id + ":retry-" + String(attempt + 1) };
     }
   }
+  throw new Error("Continuous effect id could not be made unique: " + effect.id);
 }
 
 /** 442.2 风格的 Board 判定：非 Board 区域的对象不再接收修改（359.3.e.8）。 */
