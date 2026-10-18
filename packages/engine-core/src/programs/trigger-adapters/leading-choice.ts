@@ -1,5 +1,6 @@
 import type { CostPlanInput } from '../../cost/plan-types.js';
 import type { Instruction, ObjectSnapshot } from '../../effects/contract.js';
+import type { TargetRequirement } from '../../target/target-plan.js';
 import { costPayArgsToCostSpec } from './finalize-cost.js';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -14,6 +15,12 @@ const isCostPay = (instruction: unknown): instruction is Instruction & { readonl
   isRecord(instruction) && (instruction as { op?: unknown }).op === 'cost.pay' && isRecord((instruction as { args?: unknown }).args);
 
 const isEffectInstruction = (instruction: unknown): boolean => isRecord(instruction) && typeof (instruction as { op?: unknown }).op === 'string' && String((instruction as { op?: unknown }).op).startsWith('effect.');
+
+function hoistTargets(instruction: Instruction): { readonly instruction: Instruction; readonly targets: readonly TargetRequirement[] } {
+  if (!instruction.targets?.length) return { instruction, targets: [] };
+  const { targets: _hoisted, ...withoutTargets } = instruction as Instruction & { readonly targets?: readonly TargetRequirement[] };
+  return { instruction: withoutTargets as Instruction, targets: instruction.targets as readonly TargetRequirement[] };
+}
 
 /** Rewrite instruction args so symbolic links into the removed cost.pay stay resolvable. */
 function stripCostLinks(instruction: Instruction, costId: string): Instruction {
@@ -45,7 +52,12 @@ function stripCostLinks(instruction: Instruction, costId: string): Instruction {
 export function adaptLeadingChoice(
   source: ObjectSnapshot,
   body: readonly Instruction[]
-): { readonly mayAtFinalize: true; readonly cost: CostPlanInput; readonly body: readonly Instruction[] } | undefined {
+): {
+  readonly mayAtFinalize: true;
+  readonly cost: CostPlanInput;
+  readonly body: readonly Instruction[];
+  readonly targets: readonly { readonly requirement: TargetRequirement }[];
+} | undefined {
   if (body.length !== 1) return undefined;
   const choice = body[0]!;
   if (choice.op !== 'choice.optional') return undefined;
@@ -58,9 +70,11 @@ export function adaptLeadingChoice(
   if (!rest.length || !rest.every(isEffectInstruction)) return undefined;
   const cost = costPayArgsToCostSpec(first.args);
   if (!cost) return undefined;
+  const adapted = rest.map(instruction => hoistTargets(stripCostLinks(instruction, first.id)));
   return {
     mayAtFinalize: true,
     cost: { id: `cost:${source.ref.id}:${source.ref.zoneEntryId}:${choice.id}`, cost },
-    body: rest.map(instruction => stripCostLinks(instruction, first.id))
+    body: adapted.map(entry => entry.instruction),
+    targets: adapted.flatMap(entry => entry.targets.map(requirement => ({ requirement })))
   };
 }

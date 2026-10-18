@@ -57,7 +57,7 @@ export function costPayArgsToCostSpec(args: Record<string, unknown>): CostSpec |
       for (const payment of arrayPayments) {
         if (!isRecord(payment)) return undefined;
         for (const key of Object.keys(payment)) {
-          if (key !== 'kind' && !['amount', 'value', 'object', 'objects', 'choice', 'allowedDomains'].includes(key)) return undefined;
+          if (key !== 'kind' && !['amount', 'value', 'object', 'objects', 'choice', 'allowedDomains', 'self'].includes(key)) return undefined;
         }
         const kind = payment.kind;
         if (typeof kind !== 'string' || !PAYMENT_KINDS.has(kind)) return undefined;
@@ -86,12 +86,17 @@ export function costPayArgsToCostSpec(args: Record<string, unknown>): CostSpec |
   }
 
   if (args.power !== undefined) {
-    const domains = domainList(args.power);
+    const powerValue = asConstantArray(args.power) ?? args.power;
+    const domains = domainList(powerValue);
     if (domains !== undefined) {
       if (power !== undefined) return undefined;
-      power = domains;
+      payments.push({
+        kind: 'power',
+        amount: { kind: 'constant', value: 1 },
+        allowedDomains: [...domains]
+      });
     } else {
-      const amount = asConstantNumber(args.power);
+      const amount = asConstantNumber(powerValue);
       if (amount === undefined || amount <= 0) return undefined;
       payments.push({ kind: 'power', amount: { kind: 'constant', value: amount }, allowedDomains: [...DUEL_DOMAINS] });
     }

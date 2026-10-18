@@ -27,7 +27,7 @@ export function triggerRegistrations(registry: ProgramRegistry, source: ObjectSn
         spec: { at: ability.trigger.at as TimingPointId, filter: filter as any, ...(ability.trigger.condition ? { condition: ability.trigger.condition as any } : {}), ...(ability.trigger.once ? { once: ability.trigger.once } : {}) },
         body: adapted?.body ?? body,
         optional: adapted ? false : ability.optional,
-        ...(adapted ? { mayAtFinalize: true as const, cost: adapted.cost } : {}),
+        ...(adapted ? { mayAtFinalize: true as const, cost: adapted.cost, ...(adapted.targets.length ? { targets: adapted.targets } : {}) } : {}),
         activeZones: (() => {
           const at = ability.trigger.at;
           if (at === 'object-enters-chain' || at === 'object-leaves-chain') return ['chain'];
