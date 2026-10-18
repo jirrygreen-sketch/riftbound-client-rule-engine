@@ -39,6 +39,33 @@ function stableId(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.length > 0 ? value : fallback;
 }
 
+function collectCostLinks(value: unknown, ids = new Set<string>(), choices = new Set<string>()): { ids: Set<string>; choices: Set<string> } {
+  if (typeof value !== 'object' || value === null) return { ids, choices };
+  if (Array.isArray(value)) {
+    for (const item of value) collectCostLinks(item, ids, choices);
+    return { ids, choices };
+  }
+  const item = value as AnyRecord;
+  if (item.kind === 'result' && typeof item.result === 'string' &&
+    /(?:^|\.)(?:additional|optional-additional|additional-cost)(?:\.|-|$)/.test(item.result) && typeof item.id === 'string') {
+    ids.add(item.id);
+  }
+  if (typeof item.id === 'string' &&
+    (record(item.filter) !== undefined || item.zone !== undefined || item.type !== undefined || item.controller !== undefined) &&
+    Array.isArray(item.options)) choices.add(item.id);
+  for (const child of Object.values(item)) collectCostLinks(child, ids, choices);
+  return { ids, choices };
+}
+
+function deriveComponentId(raw: AnyRecord, program: CardProgram, fallback: string): string {
+  if (typeof raw.id === 'string' && raw.id.length > 0) return raw.id;
+  const directChoice = collectCostLinks(raw).choices;
+  if (directChoice.size === 1) return [...directChoice][0]!;
+  const referenced = collectCostLinks(program.abilities).ids;
+  if (referenced.size === 1) return [...referenced][0]!;
+  return fallback;
+}
+
 function stripPaymentMetadata(payment: unknown, keyword: string | undefined): AnyRecord {
   const source = record(payment);
   if (!source) judgeRequired('Additional costs require payment objects');
@@ -53,12 +80,28 @@ function stripPaymentMetadata(payment: unknown, keyword: string | undefined): An
   return output;
 }
 
-function componentCost(raw: AnyRecord, keyword: string | undefined): CostSpec {
+function componentCost(raw: AnyRecord, keyword: string | undefined, direct = false): CostSpec {
   const output: AnyRecord = {};
+  const hasPayments = Array.isArray(raw.payments) && raw.payments.length > 0;
+  const domains = raw.power === undefined ? undefined : (() => {
+    const value = record(raw.power);
+    return Array.isArray(raw.power) ? raw.power : value?.value;
+  })();
   for (const [key, value] of Object.entries(raw)) {
     if (COMPONENT_METADATA.has(key) || ADDITIONAL_KINDS.has(normalizedKind(key) ?? '')) continue;
     if (key === 'kind' && ADDITIONAL_KINDS.has(normalizedKind(value) ?? '')) continue;
     if (key === 'costs' || key === 'discount') judgeRequired(`Unsupported additional cost field ${key}`);
+    if (direct && Array.isArray(raw.payments) && ['energy', 'power', 'rune', 'discard'].includes(key)) continue;
+    if (!direct && !hasPayments && key === 'power') {
+      if (!Array.isArray(domains)) judgeRequired('Additional Power costs require a domain list');
+      output.payments = domains.map(domain => ({ kind: 'power', amount: { kind: 'constant', value: 1 }, allowedDomains: [domain] }));
+      continue;
+    }
+    if (direct && key === 'power' && !hasPayments) {
+      if (!Array.isArray(domains)) judgeRequired('Additional Power costs require a domain list');
+      output.payments = domains.map(domain => ({ kind: 'power', amount: { kind: 'constant', value: 1 }, allowedDomains: [domain] }));
+      continue;
+    }
     if (key === 'payments' && Array.isArray(value)) {
       output.payments = value.map(payment => stripPaymentMetadata(payment, keyword));
     } else {
@@ -112,11 +155,12 @@ function component(
   raw: AnyRecord,
   program: CardProgram,
   fallbackId: string,
+  direct = false,
 ): { readonly optional?: OptionalCostInput; readonly mandatory?: CostComponentInput; readonly id: string } {
   const keyword = keywordFor(raw, fallbackId);
-  const id = stableId(raw.id, fallbackId);
+  const id = deriveComponentId(raw, program, fallbackId);
   const selected = optionalDecision(raw, program, keyword, id);
-  const cost = componentCost(raw, keyword);
+  const cost = componentCost(raw, keyword, direct);
   const kind: OptionalCostInput['kind'] = keyword ?? 'additional';
   if (selected) return { id, optional: { id, kind, cost } };
   return { id, mandatory: { id, cost } };
@@ -127,6 +171,7 @@ function appendComponents(
   program: CardProgram,
   fallbackId: string,
   add: (id: string, optional?: OptionalCostInput, mandatory?: CostComponentInput) => void,
+  direct = false,
 ): void {
   const costs = raw.costs;
   if (costs !== undefined) {
@@ -141,7 +186,7 @@ function appendComponents(
     });
     return;
   }
-  const value = component(raw, program, fallbackId);
+  const value = component(raw, program, fallbackId, direct);
   add(value.id, value.optional, value.mandatory);
 }
 
@@ -168,20 +213,31 @@ function normalizeBaseCost(raw: AnyRecord, id: string, mode: CostMode): CostPlan
   return { ...base, kind } as CostPlanInput['cost'];
 }
 
+function printedBaseCost(raw: AnyRecord): CostPlanInput['cost'] {
+  const base: AnyRecord = { kind: 'printed' };
+  for (const key of ['energy', 'power']) {
+    if (raw[key] !== undefined) base[key] = raw[key];
+  }
+  return base as CostPlanInput['cost'];
+}
+
 function directAdditional(raw: AnyRecord): boolean {
   const kind = normalizedKind(raw.kind);
   return ADDITIONAL_KINDS.has(kind ?? '') || raw.additional !== undefined || raw['additional-cost'] !== undefined ||
     raw.costs !== undefined || raw.keyword === 'repeat' || raw.keyword === 'accelerate' || raw.optional !== undefined;
 }
 
-function directBaseCost(raw: AnyRecord, program: CardProgram): CostPlanInput['cost'] | undefined {
-  const hasPrintedComponent = raw.kind !== undefined || raw.payments !== undefined || raw.energy !== undefined ||
-    raw.power !== undefined || raw.discard !== undefined;
-  if (hasPrintedComponent) return normalizeBaseCost(raw, program.canonicalCardId, 'play');
-  if (sourceSaysMay(program.sourceText) === undefined && /\bprinted\b/i.test(program.sourceText)) {
-    return { kind: 'printed' };
+function directBaseCost(raw: AnyRecord, _program: CardProgram): CostPlanInput['cost'] | undefined {
+  const hasDeclarationBase = raw.energy !== undefined || raw.power !== undefined || raw.rune !== undefined || raw.discard !== undefined;
+  if (Array.isArray(raw.payments)) {
+    const base: AnyRecord = { kind: 'printed' };
+    for (const key of ['energy', 'power', 'rune', 'discard']) {
+      if (raw[key] !== undefined) base[key] = raw[key];
+    }
+    if (Object.keys(base).length > 1) return base as CostPlanInput['cost'];
+    return hasDeclarationBase ? { kind: 'printed' } : printedBaseCost(raw);
   }
-  return undefined;
+  return hasDeclarationBase ? { kind: 'printed' } : printedBaseCost(raw);
 }
 
 function staticAdditional(
@@ -271,10 +327,10 @@ export function bindProgramCost(input: ProgramCostBindingInput): ProgramCostBind
         const value = record(entry);
         if (!value) judgeRequired(`${id} additional cost ${index} must be an object`);
         const merged = { ...rawCost, ...value, kind: value.kind ?? rawCost.kind };
-        appendComponents(merged, program, `${id}:additional:${index}`, add);
+        appendComponents(merged, program, `${id}:additional:${index}`, add, true);
       });
     } else {
-      appendComponents(rawCost, program, `${program.canonicalCardId}:${mode}:additional`, add);
+      appendComponents(rawCost, program, `${program.canonicalCardId}:${mode}:additional`, add, true);
     }
   } else if (rawCost) {
     base = normalizeBaseCost(rawCost, id, mode);
