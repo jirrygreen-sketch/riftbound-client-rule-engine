@@ -12,6 +12,8 @@ import {
 import sunlitGuardian from '../../../card-dsl/dist/cards/ogn/sunlit-guardian.js';
 import pykeReturned from '../../../card-dsl/dist/cards/unl/pyke-returned.js';
 import { createProgramBinding, fixture } from '../rules/keywords/support.mjs';
+import { world } from '../../dist/effects/testing/index.js';
+import { createLayerEngine } from '../../dist/layers/index.js';
 
 const amount = (uid, value) => ({ uid, amount: value });
 const blocked = (fn, code) => assert.throws(fn,
@@ -253,6 +255,47 @@ test('explicit assignment bounds are consumed and inconsistent validated proofs 
   });
   blocked(() => planDuelBaseCombatDamage(scene.state, scene.fieldId, inconsistent),
     'source-effect-proof-incomplete');
+});
+
+test('assignment lethal thresholds consume Might from the current production layer', () => {
+  const scene = combat({
+    attackers: [{ uid: 'a', might: 6 }],
+    defenders: [{ uid: 'layered', might: 3 }, { uid: 'other', might: 3 }],
+  });
+  const kernel = world().player('P1').player('P2')
+    .unit('layered', { owner: 'P2', controller: 'P2', might: 3 })
+    .unit('other', { owner: 'P2', controller: 'P2', might: 3 })
+    .unit('a', { owner: 'P1', controller: 'P1', might: 6 })
+    .build();
+  const layers = createLayerEngine(kernel.objects);
+  layers.addContinuous({
+    id: 'layer:layered-might', layer: 'arithmetic', source: kernel.ref('layered'),
+    filter: { objectId: 'layered', zoneEntryId: kernel.ref('layered').zoneEntryId },
+    effect: { kind: 'continuous.might', amount: 2 },
+  }, { type: 'permanent' });
+  const layeredMight = id => {
+    const current = kernel.getObject(id);
+    assert.ok(current);
+    const value = layers.snapshot(current.ref)?.might;
+    assert.equal(typeof value, 'number');
+    return value;
+  };
+  assert.equal(layeredMight('layered'), 5);
+  const facts = createTrustedDuelBaseCombatFacts(scene.state.stateVersion, scene.fieldId, {
+    currentMight: input => layeredMight(input.uid),
+    proveBasicCombat: () => ({ currentMight: 'validated', assignmentModifier: 'proven-none',
+      preventionReplacement: 'proven-none', keywordPriority: 'proven-none' }),
+  });
+  const plan = planDuelBaseCombatDamage(scene.state, scene.fieldId, facts);
+  const layered = plan.attacker.targets.find(target => target.uid === 'layered');
+  assert.equal(layered.currentMight, 5);
+  assert.equal(layered.lethalNeed, 5);
+  blocked(() => validateDuelBaseCombatAllocation(plan, 'P1', [
+    amount('layered', 3), amount('other', 3),
+  ]), 'invalid-allocation');
+  assert.deepEqual(validateDuelBaseCombatAllocation(plan, 'P1', [
+    amount('layered', 5), amount('other', 1),
+  ]).assignments, [amount('layered', 5), amount('other', 1)]);
 });
 
 test('unknown assignment semantics stay blocked instead of being treated as proven-none', () => {
