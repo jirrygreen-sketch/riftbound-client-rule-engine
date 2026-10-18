@@ -19,6 +19,7 @@ import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
 import { fixture as chainFixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-f5202df7168d19f18b45036939808e43056853194542d133c56127959e1b69c1";
@@ -53,7 +54,11 @@ test("rad-105-167 Reckless Innovator: judgeReason names the gaps and the depende
   assert.match(program.judgeReason, /143\.4/);
   assert.match(program.judgeReason, /accelerate\.cost/);
   assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /additional-cost/);
+  assert.match(program.judgeReason, /Additional costs are not bound/);
+  assert.match(program.judgeReason, /Unsupported play cost field optional/);
   assert.match(program.judgeReason, /optionalAdditional/);
+  assert.match(program.judgeReason, /entersExhausted/);
   assert.match(program.judgeReason, /success-gated/);
   assert.match(program.judgeReason, /choice-plan/);
   assert.equal(/RIFT-\d+/.test(program.judgeReason), false);
@@ -224,6 +229,34 @@ test("rad-105-167 Reckless Innovator: the Gold token definition and exhausted en
     cardId: CANONICAL,
     exhausted: true
   });
+});
+
+test("rad-105-167 Reckless Innovator boundary: the Accelerate cost is also unbound on the play path", () => {
+  // CR 356.2 / 805.2.b: the optional [1][C] is an additional cost. Both halves of
+  // the production path refuse it before Finalize - the static declaration has no
+  // layer mapping and the play translator never binds additional costs - so the
+  // card-side accelerate.cost declaration cannot reach a payable plan.
+  const expansion = accelerate.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(expansion[0].effect.kind, "accelerate.cost");
+  assert.equal(expansion[0].effect.cost.kind, "additional-cost");
+  assert.equal(expansion[0].effect.cost.optional, true);
+  assert.deepEqual(
+    expansion[0].effect.cost.payments.map(payment => payment.kind),
+    ["energy", "power"],
+    "805.1.b.1: one Energy plus one Power matching the source domains"
+  );
+  assert.throws(
+    () => translateCost(expansion[0].effect.cost, CANONICAL, "play"),
+    (error) => error.code === "judge-required" && /Unsupported play cost field optional/.test(error.message)
+  );
+  // With the optional flag removed the same declaration is rejected as an
+  // additional cost, so neither spelling binds today.
+  const { optional, ...withoutOptional } = expansion[0].effect.cost;
+  assert.equal(optional, true);
+  assert.throws(
+    () => translateCost(withoutOptional, CANONICAL, "play"),
+    (error) => error.code === "judge-required" && /Additional costs are not bound/.test(error.message)
+  );
 });
 
 test.todo(

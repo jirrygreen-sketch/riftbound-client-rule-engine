@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/rad/resource-extractor.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { translateInstructionTargets, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
@@ -40,17 +42,20 @@ test("rad-052-167 Resource Extractor: the judgeReason names the actual merged ga
   assert.match(program.judgeReason, /830\.1\.b/);
   assert.match(program.judgeReason, /Gold gear token/);
   assert.match(program.judgeReason, /187\.5/);
-  assert.match(program.judgeReason, /entry overrides/);
+  assert.match(program.judgeReason, /entersExhausted/);
   assert.match(program.judgeReason, /143\.4/);
-  assert.match(program.judgeReason, /TriggerRegistration/);
   assert.match(program.judgeReason, /invalid-event-type/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
-  assert.match(program.judgeReason, /here:true/);
+  assert.match(program.judgeReason, /here: true/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /recall-action/);
+  assert.match(program.judgeReason, /TriggerRegistration/);
+  assert.match(program.judgeReason, /condition\.result/);
   assert.match(program.judgeReason, /ability-controller-base/);
   assert.equal(program.judgeReason.includes("RIFT-267"), false);
   // General predicates are merged; battlefield-control querying is still missing.
-  assert.match(program.judgeReason, /condition\.result/);
-  assert.match(program.judgeReason, /控制状态查询/);
+  assert.match(program.judgeReason, /condition\.value/);
+  assert.match(program.judgeReason, /战场控制状态/);
   assert.equal(/RIFT-\d+/.test(program.judgeReason), false);
 });
 
@@ -188,6 +193,47 @@ test("rad-052-167 Resource Extractor: the merged Deploy expansion has no consume
   assert.throws(
     () => translateTriggerFilter(expansion[1].trigger.filter, source.ref.id, "hold"),
     (error) => error.code === "judge-required" && /Unsupported filter field here/.test(error.message)
+  );
+});
+
+test("rad-052-167 Resource Extractor: the merged cleanup really exempts a Deploy Gear (830.1.b.3 is no longer a gap)", () => {
+  // CR 830.1.b.3: a non-Unit Gear with Deploy is not recalled by the Cleanup
+  // step. turn/flow.ts keys that exemption off the printed keyword, so this runs
+  // the real driver: the Deploy Gear stays put, while an otherwise identical
+  // Gear without the keyword still reaches the not-yet-merged Recall action.
+  const cleanupFor = keywords => {
+    const kernel = world().player("A").player("B")
+      .base("source", { might: 4 })
+      .base("enemy", { owner: "B", might: 4 })
+      .object("gear", {
+        types: ["gear"], zone: "board", controller: "A",
+        location: { type: "battlefield", id: "bf1" }, keywords, energy: 1, power: []
+      })
+      .build();
+    const host = createActionPipelineHost({
+      checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+      restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+      objects: () => kernel.objects,
+      perform: action => kernel.perform(action),
+      choose: request => { throw new Error(`Unexpected choice: ${request.id}`); },
+      context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+    });
+    const flow = new TurnFlow({
+      host, player: id => kernel.player(id), turnOrder: ["A", "B"],
+      battlefields: [{ id: "bf1", controller: null }, { id: "bf2", controller: null }]
+    });
+    return { kernel, flow };
+  };
+
+  const deployed = cleanupFor([{ id: "Deploy" }]);
+  deployed.flow.cleanup(deployed.flow.chain);
+  assert.equal(deployed.kernel.getObject("gear").zone, "board");
+  assert.deepEqual(deployed.kernel.getObject("gear").location, { type: "battlefield", id: "bf1" });
+
+  const plain = cleanupFor([]);
+  assert.throws(
+    () => plain.flow.cleanup(plain.flow.chain),
+    (error) => error.status === "blocked" && error.code === "recall-action"
   );
 });
 

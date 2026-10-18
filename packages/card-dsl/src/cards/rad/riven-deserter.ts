@@ -21,8 +21,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 386 / 386.1 / 377.2.b："Use this ability only once each turn." 是启动能力的每回合
  *   使用次数限制，写成 ActivatedAbility.restriction（契约 3.1）。
  *
- * 2026-10-17 再复核：整卡仍为 judge-required；当前缺口见 judgeReason。
+ * 2026-10-18 再复核：整卡仍为 judge-required；当前缺口见 judgeReason。
  * 已合入原语与关键词声明不等于生产链路可执行；局部执行证据见同名单卡测试。
+ * 本轮把三处缺口逐条写成实测：费用选择仍要求 exact object reference，
+ * usage-limit 仍走 translateLegalityCondition 的 rules adapter 分支，
+ * 生产过滤翻译仍拒绝 exclude / object 锚点。
  */
 const abilities: Ability[] = [
   {
@@ -112,9 +115,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "continuous.might 的 +1 Might 与本回合到期已可执行。剩余：(1) Exhaust a friendly unit 的费用选择仍停在动态字符串占位；cost/plan-values.ts 的 choiceObjects 要求 exact object reference，没有从合法友方单位过滤到费用选项的绑定（CR 355.5、415.5）。" +
-    "(2) 每回合一次（386/386.1）的 usage-limit 仍被 translateRestriction 以 needs a rules adapter 拒绝，未与启动成功记录及回合重置接线。" +
-    "(3) object-exhausted 有真实生产者，解释器也已支持符号对象锚点，但生产 programs/filters.ts 仍报 Unsupported filter field exclude / Unsupported filter field object，无法绑定「another friendly unit」与自身目标。缺口位于生产过滤翻译，不是通用 ObjectSelector 不存在。",
+    "三处当前真实缺口（2026-10-18 实测）：" +
+    "(1) 「Exhaust a friendly unit」的费用选择仍停在动态字符串占位：cost/plan-values.ts 的 choiceObjects 逐项要求 " +
+    "exact { id, zoneEntryId } 引用（否则 “Cost requires an exact object reference”），没有「按过滤器从合法友方单位现算费用选项」" +
+    "的绑定（355.5、415.3.a）。" +
+    "(2) 每回合一次（386/386.1）的 usage-limit 仍被 programs/play.ts 的 translateLegalityCondition 以 " +
+    "“restriction … kind usage-limit needs a rules adapter” 拒绝，未与启动成功记录及回合重置接线。" +
+    "(3) object-exhausted 有真实生产者、解释器也支持符号对象锚点（实测 exclude:" + "\"source\" 与 object:" + "\"self\" 的集合查询都能求值），" +
+    "但生产 programs/filters.ts 仍对触发过滤器报 “Unsupported filter field exclude”、对 body 目标报 " +
+    "“Unsupported filter field object”，因此「another friendly unit」与自身目标都无法进入链。缺口位于生产过滤翻译，不是通用 ObjectSelector 不存在。" +
+    "已可执行的部分：continuous.might 的 +1 Might 与本回合到期、effect.ready 的重置与已就绪跳过。",
   abilities,
   sourceText:
     "When another friendly unit becomes exhausted, give me +1 :rb_might: this turn.\n" +

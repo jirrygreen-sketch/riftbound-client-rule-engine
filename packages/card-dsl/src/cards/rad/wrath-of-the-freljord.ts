@@ -20,15 +20,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   数值相加；814.3 是可引用特征。按 README 第 5 节只声明关键词与数值，展开属
  *   effects/keywords/Shield.ts（已合入 continuous.might + defender 条件的形状）。
  *
- * 状态：judge-required。缺口只剩 [Shield 3] 的 defender 条件：
+ * 状态：judge-required（2026-10-18 复核）。缺口只剩 [Shield 3] 的 defender 条件：
  * 1. 入场替代管线已合入（src/replacement/bind.ts 的 syntheticEnter 会消费
  *    object-enters-board 的 replacement 能力；Golden Breakneck 等同形卡已执行），
  *    本卡的替代体按契约 3.1 用 effect.ready 表达“以就绪进场”（该原语已合入，golden 真实执行）。
  * 2. [Shield 3] 的展开产出 continuous.might 静态效果 + defender designation 条件；
  *    814.1.d 的 Defender designation 不是 ObjectSnapshot 特征（契约 3.8 只有 combatRole），
- *    bindStaticToLayers 求值该条件时抛 MissingInformation，catch 后恒为 false，
- *    因此“我是防御者时 +3 [M]”不能宣称可执行。
- * 依赖：Shield 的 designation 特征（契约变更请求）。
+ *    bindStaticToLayers 求值该条件时抛 MissingInformation（基础求值器："Unavailable characteristic: designation"），
+ *    catch 后恒为 false，因此“我是防御者时 +3 [M]”不能宣称可执行。
+ * 依赖：keywords/Shield.ts 的 designation/combatRole 判别式修正（engine-core 写域外）。
  * 不近似实现：不用结算期的 effect.ready 冒充"进场即就绪"（那会变成进场后再重置，
  *   与 369.3 / 805.6.a 明确不同），也不手写 Shield 的 Might 加成。
  */
@@ -60,11 +60,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「I enter ready.」是入场替代效果（369.3：把 143.4 的横置进场替换成就绪进场；805.6.a 明确不是先横置再就绪、不触发「成为就绪」）：替代管线已合入" +
-    "（src/replacement/bind.ts 的 syntheticEnter 消费 object-enters-board 替代），替代体按契约 3.1 用已合入的 effect.ready 表达，并有真实执行证据。" +
-    "[Shield 3]（814.1）的展开产出 continuous.might 静态效果 + defender 条件；当前缺口是 814.1.d 的 Defender designation " +
-    "不是 ObjectSnapshot 特征（契约 3.8 只有 combatRole），bindStaticToLayers 求值该条件时抛 MissingInformation，catch 后恒为 false，" +
-    "因此「我是防御者时 +3 [M]」不能执行。依赖：Shield 的 designation 特征（契约变更请求）。" +
+    "当前唯一缺口（2026-10-18 实测）：[Shield 3]（814.1.b/814.1.c）的展开产出 static continuous.might + " +
+    "compare(object-property(self, \"designation\") eq \"defender\") 条件，但对象侧判别式不可求值——" +
+    "契约 3.8 的 ObjectSnapshot 只提供 combatRole（814.1.d 的 Defender designation 不在其中），" +
+    "基础求值器实测抛 MissingInformation “Unavailable characteristic: designation”，" +
+    "bindStaticToLayers 捕获后条件恒为 false，因此「我是防御者时 +3 [M]」不能执行；" +
+    "同一快照上用 combatRole 的 condition.predicate 实测为 true，缺口只是该判别式（属 engine-core 的 " +
+    "keywords/Shield.ts，写域外）。" +
+    "「I enter ready.」不再是缺口：369.3 的入场替代（143.4 的横置进场 → 就绪进场；805.6.a 明确不是先横置再就绪、" +
+    "不触发「成为就绪」）由 src/replacement/bind.ts 的 syntheticEnter 消费 object-enters-board 替代，" +
+    "替代体按契约 3.1 用已合入的 effect.ready 表达，并有真实执行证据（本文件测试）。" +
     "不近似实现：不用结算期 effect.ready 冒充「进场即就绪」，也不手写 Shield 的 Might 加成。",
   abilities,
   sourceText:

@@ -80,17 +80,20 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处当前缺口：(1)「a gear with Energy cost :rb_energy_4: or less」的筛选没有求值器：engine-core 全部源码里 " +
-    "energyLte 没有任何求值实现（ObjectSnapshot.energy 是印刷值，null = 无印刷值，CR 163.1/356.x 不得当 0），" +
-    "且 programs/filters.ts 的 translateObjectFilter 白名单不含该键，绑定该目标约束实测抛 " +
-    "judge-required \"Unsupported filter field energyLte\"（triggerRegistrations 同样在此失败），故不能安全地挑出该 gear，" +
-    "不用无条件消灭 gear 近似。(2) [Shield 2] 的 KeywordDef 已合入并经 programs/keywords.ts → " +
-    "lifecycle/statics 接入生产绑定，但其展开的判别式写 object-property(self, \"designation\") == \"defender\"，" +
-    "而合并的 ObjectSnapshot 只暴露 combatRole：解释器求值返回 MissingInformation，" +
-    "bindStaticToLayers 的条件包装捕获异常后恒返回 false——实测生产 binder 成功登记 continuous.might，" +
-    "但同一防守者快照上的 layers.evaluate() 仍为印刷 Might 2，改用 combatRole 的 condition.predicate 则实测 true；" +
-    "该判别式属 engine-core 的 keywords/Shield.ts（范围外）。" +
-    "kill 原语（effect.kill）与 383.3.a 的可选结构（choice.optional，契约 3.9）已合入并由 golden 真实执行。",
+    "两项当前真实缺口（2026-10-18 实测）：" +
+    "(1)「a gear with Energy cost :rb_energy_4: or less」的筛选没有求值器：engine-core 全部源码里 energyLte " +
+    "没有任何求值实现（ObjectSnapshot.energy 是印刷值，null = 无印刷值，CR 163.1/356.x 不得当 0），" +
+    "programs/filters.ts 的 translateObjectFilter 白名单也不含该键，绑定该目标约束实测抛 " +
+    "judge-required “Unsupported filter field energyLte”（triggerRegistrations 同样在此失败），故不能安全地挑出该 gear，" +
+    "不用无条件消灭 gear 近似。" +
+    "(2) [Shield 2]（814.1）的 KeywordDef 已合入并经 programs/keywords.ts → lifecycle/statics 接入生产绑定，" +
+    "但其展开条件的判别式写 object-property(self, \"designation\") == \"defender\"，合并的 ObjectSnapshot 只暴露 combatRole：" +
+    "基础求值器返回 MissingInformation（实测 “Unavailable characteristic: designation”），bindStaticToLayers 的条件包装" +
+    "捕获异常后恒返回 false——实测生产 binder 成功登记 continuous.might，但同一防守者快照上的 layers.evaluate() 仍为印刷 Might 2；" +
+    "把判别式换成 combatRole 的 condition.predicate 则实测 true，说明缺口只是该属性名。" +
+    "该判别式属 engine-core 的 keywords/Shield.ts（写域外）。" +
+    "已可执行并由 golden 真实执行的部分：kill 原语（429，effect.kill）、383.3.a 的可选结构（choice.optional，契约 3.9）、" +
+    "以及已锁定目标的 kill 与 decline 两条路径。",
   abilities,
   sourceText:
     "[Shield 2] (+2 :rb_might: while I'm a defender.)\n" +

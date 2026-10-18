@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/raving-witness.js";
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
+import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import reveal from "../../../../engine-core/dist/effects/instructions/effect.reveal.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import { mightyCondition } from "../../../../engine-core/dist/effects/keywords/Mighty.js";
@@ -37,6 +38,7 @@ test("rad-074-167 Raving Witness: program validates and is judge-required", () =
   assert.match(program.judgeReason, /condition.result/);
   assert.match(program.judgeReason, /Resolve.*有序来源捕获/);
   assert.match(program.judgeReason, /Draw.*原语/);
+  assert.match(program.judgeReason, /414\.1\.a/);
   assert.equal(/RIFT-\d+/.test(program.judgeReason), false);
 });
 
@@ -162,6 +164,26 @@ test("rad-074-167 Raving Witness: the revealed card can be drawn to hand by effe
   assert.equal(kernel.player("A").handSize, 1);
   assert.equal(kernel.player("A").deckSize, 1);
   // The kernel routes a move to hand through the closed return-to-hand action.
+});
+
+test("rad-074-167 Raving Witness boundary: effect.draw cannot draw the revealed card, only name its drawer", () => {
+  // 414.1.a: a Draw takes the top card; the primitive's pick names WHO draws.
+  // Pointing the pick at a non-top card still draws the real top card, so it
+  // cannot implement "draw it". The revealed card is therefore moved by
+  // effect.zone, whose action is the closed return-to-hand (pinned above).
+  const kernel = world().deck(["top", "middle", "bottom"]).build();
+  const bottom = kernel.zoneSlice("A", "deck", "bottom", 1)[0].ref;
+  const run = runInstruction(
+    draw,
+    { amount: { kind: "constant", value: 1 }, pick: "raving-witness.revealed-card" },
+    { world: kernel, picks: { "raving-witness.revealed-card": [bottom] } }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.drawn, 1);
+  assert.equal(run.linked.drawnTo, "A");
+  assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["top"]);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["middle", "bottom"]);
+  assert.equal(kernel.getObject("bottom").zone, "deck", "the highlighted card is never the one drawn");
 });
 
 test("rad-074-167 Raving Witness: the otherwise branch recycles the revealed card to the bottom of its owner's deck (417.1.a)", () => {
