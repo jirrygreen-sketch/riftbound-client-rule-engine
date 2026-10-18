@@ -45,7 +45,6 @@ test("EG-ZONES registers recycle-rest and the original zone instructions remain 
   assert.equal(divineJudgment.status, "judge-required");
   assert.deepEqual([blitzcrank, downwell, blindFury, reinforce, divineJudgment], before);
 });
-
 test("EG-ZONES self return runs the original Blitzcrank hold instruction through the production chain", () => {
   const zone = selfZone();
   const program = wrapBody("test:eg-zones-blitzcrank-self", [zone]);
