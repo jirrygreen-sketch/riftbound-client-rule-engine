@@ -3,11 +3,14 @@ import type { Condition, Expr, Instruction, ObjectFilter, ObjectRef, ObjectSelec
 import {
   AwaitChoice,
   type ActionOutcome,
+  type ActionReceipt,
+  type BatchAction,
   type ChoiceRequest,
   type ContinuousEffectSpec,
   type Domain,
   type Duration,
   type GameAction,
+  type ContractGameAction,
   type HistoryQuery,
   type InstructionResult,
   type LegacyBoardTokenAction,
@@ -16,6 +19,7 @@ import {
   type PlayerId,
   type PlayerSnapshot,
   type ResolveContext,
+  type RecallAction,
   type TokenSpec,
   type TriggerSpec,
   type ZoneDestination,
@@ -25,11 +29,23 @@ import { isTimingPointId, type TimingPointId } from "../../events/timing-points.
 import { evaluateCondition } from "../interpreter/condition.js";
 import { arithmetic, equalValues } from "../interpreter/values.js";
 import { resolveObjectSelector } from "../interpreter/selectors.js";
+import { executeContractAction, isKnownContractAction } from "../../events/contract-actions/bridge.js";
+import { disempowerTransition } from "../../zones/empower-state.js";
 
 export { AwaitChoice } from "../contract.js";
 
-export type TestEvent = GameEvent & { readonly timingPoint: TimingPointId; readonly action: GameAction["type"] };
-export type ReplacementHook = (action: GameAction, world: TestWorld) => "replaced" | "prevented" | "impossible" | null;
+export type TestEvent = GameEvent & { readonly timingPoint: TimingPointId; readonly action: ContractGameAction["type"] };
+export type TestReplacementResult =
+  | "replaced"
+  | "prevented"
+  | "impossible"
+  | { readonly status: "rewrite"; readonly action: GameAction }
+  | { readonly status: "prevent" }
+  | { readonly status: "prevented" }
+  | { readonly status: "replaced" }
+  | { readonly status: "impossible" }
+  | null;
+export type ReplacementHook = (action: GameAction, world: TestWorld) => TestReplacementResult;
 
 /** A Chain-created token waiting for play in the reference kernel. */
 export interface TestPendingItem {
@@ -58,7 +74,7 @@ interface WorldState {
   lastKnown: Map<string, ObjectSnapshot>;
   pending: Map<string, TestPendingItem>;
   events: TestEvent[];
-  history: Array<{ action: GameAction; object?: ObjectSnapshot; timingPoint: TimingPointId; turn: number; combat: number }>;
+  history: Array<{ action: ContractGameAction; object?: ObjectSnapshot; timingPoint: TimingPointId; turn: number; combat: number }>;
   continuous: Array<{ effect: ContinuousEffectSpec; duration: Duration }>;
   delayed: Array<{ at: TriggerSpec; body: readonly Instruction[] }>;
   replacements: ReplacementHook[];
@@ -75,7 +91,7 @@ const refKey = (ref: ObjectRef): string => `${ref.id}:${ref.zoneEntryId}`;
 const copySnapshot = (snapshot: ObjectSnapshot): ObjectSnapshot => structuredClone(snapshot);
 const asValue = (value: unknown): Value => value as Value;
 
-function makeEvent(state: WorldState, action: GameAction["type"], timingPoint: TimingPointId, details: Record<string, unknown> = {}): TestEvent {
+function makeEvent(state: WorldState, action: ContractGameAction["type"], timingPoint: TimingPointId, details: Record<string, unknown> = {}): TestEvent {
   const event = {
     type: "task-resolved",
     seq: ++state.sequence,
@@ -277,9 +293,13 @@ export class TestWorld implements ResolveContext {
   registerDelayedTrigger(at: TriggerSpec, body: readonly Instruction[]): void { this.state.delayed.push({ at, body }); }
 
   perform(input: GameAction | LegacyBoardTokenAction): ActionOutcome {
-    const action: GameAction = input.type === "create-token" && input.to === undefined ? { ...input, to: "board" } : input;
-    const replacement = this.state.replacements.map(hook => hook(action, this)).find(result => result !== null);
-    if (replacement) return { status: replacement, events: [makeEvent(this.state, action.type, this.timingPoint, { outcome: replacement })] };
+    const inputAction: GameAction = input.type === "create-token" && input.to === undefined ? { ...input, to: "board" } : input;
+    const rewritten = this.rewriteReplacement(inputAction);
+    if (!('resolved' in rewritten)) return rewritten;
+    return this.performResolved(rewritten.action);
+  }
+
+  private performResolved(action: GameAction): ActionOutcome {
     const ref = actionObject(action);
     const object = ref === undefined ? undefined : this.object(ref) ?? undefined;
     const outcome = this.apply(action);
@@ -288,6 +308,120 @@ export class TestWorld implements ResolveContext {
       this.state.history.push({ action: structuredClone(action), ...(object === undefined ? {} : { object }), timingPoint, turn: 1, combat: 0 });
     }
     return outcome;
+  }
+
+  /** Authoritative contract-action entry used by the default ResolveContext. */
+  performContract(input: ContractGameAction): ActionOutcome {
+    if (!isKnownContractAction(input)) {
+      return { status: 'impossible', events: [], receipt: { status: 'rejected', actions: [{ type: (input as { type: ContractGameAction['type'] }).type, status: 'impossible' }] } };
+    }
+    if (input.type === 'recall') return this.performRecall(input);
+    if (input.type === 'batch') return this.performBatch(input);
+    if (input.type === 'hide') {
+      return { status: 'impossible', events: [], receipt: { status: 'rejected', actions: [{ type: 'hide', status: 'impossible' }] } };
+    }
+    return this.perform(input);
+  }
+
+  private performRecall(action: RecallAction): ActionOutcome {
+    const checkpoint = this.snapshot();
+    const object = this.current(action.object);
+    const destination = object === null ? undefined : { type: 'base' as const, player: object.controller };
+    const valid = object !== null && object.zone === 'board' && object.location !== null &&
+      object.types.some(type => type === 'unit' || type === 'gear') &&
+      object.controller === action.player && destination !== undefined &&
+      !sameTestLocation(object.location, destination);
+    if (!valid) {
+      this.restore(checkpoint);
+      return {
+        status: 'impossible',
+        events: [],
+        receipt: { status: 'rolled-back', actions: [{ type: 'recall', status: 'impossible' }] },
+      };
+    }
+    const before = copySnapshot(object);
+    object.location = destination;
+    const after = copySnapshot(object);
+    const event = makeEvent(this.state, 'recall', this.timingPoint, {
+      object: before,
+      details: { recall: true, from: before.location, to: after.location },
+    });
+    this.state.history.push({ action: structuredClone(action), object: before, timingPoint: this.timingPoint, turn: 1, combat: 0 });
+    const receipt: ActionReceipt = { status: 'committed', actions: [{ type: 'recall', status: 'done' }] };
+    return { status: 'done', events: [event], receipt };
+  }
+
+  private performBatch(action: BatchAction): ActionOutcome {
+    const execution = executeContractAction(action, {
+      checkpoint: () => this.snapshot(),
+      restore: checkpoint => this.restore(checkpoint as WorldState),
+      objects: () => this.objects,
+      perform: leaf => this.perform(leaf as GameAction),
+      performContract: leaf => this.performContract(leaf),
+      performBatchLeaf: (leaf, batchId) => this.performBatchLeaf(leaf, batchId),
+    }, { transactionId: action.transactionId });
+    if (execution.outcome.status !== 'done') return execution.outcome;
+    const recallEvents: TestEvent[] = [];
+    for (const step of execution.steps) {
+      if (step.action.type !== 'recall') continue;
+      const recall = step.action as RecallAction;
+      const before = step.before.find(object => refKey(object.ref) === refKey(recall.object));
+      const after = step.after.find(object => refKey(object.ref) === refKey(recall.object));
+      const event = makeEvent(this.state, 'recall', this.timingPoint, {
+        object: before,
+        details: { recall: true, from: before?.location, to: after?.location },
+      });
+      recallEvents.push(event);
+    }
+    for (const step of execution.steps) {
+      const ref = 'object' in step.action ? step.action.object : undefined;
+      const object = ref === undefined ? undefined : step.before.find(candidate => refKey(candidate.ref) === refKey(ref));
+      this.state.history.push({ action: structuredClone(step.action), ...(object === undefined ? {} : { object }), timingPoint: this.timingPoint, turn: 1, combat: 0 });
+    }
+    return { ...execution.outcome, events: [...execution.outcome.events, ...recallEvents] };
+  }
+
+  private performBatchLeaf(action: GameAction, batchId: string): ActionOutcome {
+    if (action.type !== 'kill') return this.perform(action);
+    const object = this.current(action.object);
+    if (object === null || object.zone !== 'board') return { status: 'impossible', events: [] };
+    const rewritten = this.rewriteReplacement(action);
+    if (!('resolved' in rewritten)) return rewritten;
+    if (rewritten.action.type !== 'kill' || refKey(rewritten.action.object) !== refKey(action.object)) {
+      return { status: 'impossible', events: [] };
+    }
+    const outcome = this.performResolved(rewritten.action);
+    return outcome.status === 'done' ? { ...outcome, events: [...outcome.events, makeEvent(this.state, 'kill', this.timingPoint, { batchId })] } : outcome;
+  }
+
+  /** Capability consumer used by the action adapter for all-Kill batches. */
+  performBatchLeafForCapability(action: GameAction, batchId: string): ActionOutcome {
+    return this.performBatchLeaf(action, batchId);
+  }
+
+  private rewriteReplacement(action: GameAction): { readonly resolved: true; readonly action: GameAction } | ActionOutcome {
+    const applied = new Set<number>();
+    let current = action;
+    while (true) {
+      let rewritten = false;
+      for (const [index, hook] of this.state.replacements.entries()) {
+        if (applied.has(index)) continue;
+        const replacement = hook(current, this);
+        if (replacement === null) continue;
+        applied.add(index);
+        if (typeof replacement === 'object') {
+          if (replacement.status === 'rewrite') {
+            current = replacement.action;
+            rewritten = true;
+            break;
+          }
+          const status = replacement.status === 'prevent' ? 'prevented' : replacement.status;
+          return { status, events: [makeEvent(this.state, current.type, this.timingPoint, { outcome: status })] };
+        }
+        return { status: replacement, events: [makeEvent(this.state, current.type, this.timingPoint, { outcome: replacement })] };
+      }
+      if (!rewritten) return { resolved: true, action: current };
+    }
   }
 
   private apply(action: GameAction): ActionOutcome {
@@ -354,7 +488,14 @@ export class TestWorld implements ResolveContext {
       case "spend-xp": { const player = this.state.players.get(action.player); if (!player || action.amount < 0 || player.xp < action.amount) return fail("prevented"); player.xp -= action.amount; return done(action.amount as Value); }
       case "buff": case "spend-buff": { const object = this.current(action.object); if (!object || action.amount < 0 || (action.type === "spend-buff" && object.buffs < action.amount)) return fail("prevented"); object.buffs += action.type === "buff" ? action.amount : -action.amount; return done(object.buffs as Value); }
       case "empower": { const object = this.current(action.object); if (!object) return fail(); const amount = action.amount ?? 1; object.empowered += amount; return done(object.empowered as Value); }
-      case "disempower": { const object = this.current(action.object); if (!object) return fail(); object.empowered = 0; return done(); }
+      case "disempower": {
+        const object = this.current(action.object);
+        if (!object) return fail();
+        const transition = disempowerTransition(object);
+        if (!transition.changed) return fail("prevented");
+        object.empowered = transition.currentCount;
+        return done();
+      }
       case "add-counter": case "remove-counter": { const object = this.current(action.object); if (!object || action.amount < 0) return fail(); const prior = object.counters.get(action.counter) ?? 0; const next = action.type === "add-counter" ? prior + action.amount : Math.max(0, prior - action.amount); object.counters.set(action.counter, next); return done(next as Value); }
       case "create-token": {
         if (!this.state.players.has(action.player)) return fail();
@@ -429,8 +570,8 @@ export class TestWorld implements ResolveContext {
       players: new Map([...this.state.players].map(([id, player]) => [id, { ...player, power: [...player.power], runes: [...player.runes], zones: Object.fromEntries(ZONES.map(zone => [zone, [...player.zones[zone]]])) as Record<ZoneId, string[]> }])),
       lastKnown: new Map([...this.state.lastKnown].map(([key, value]) => [key, copySnapshot(value)])),
       pending: new Map([...this.state.pending].map(([id, item]) => [id, { ...item, object: cloneRef(item.object) }])),
-      events: [...this.state.events],
-      history: [...this.state.history],
+      events: structuredClone(this.state.events),
+      history: structuredClone(this.state.history),
       continuous: [...this.state.continuous],
       delayed: [...this.state.delayed],
       replacements: [...this.state.replacements]
@@ -442,8 +583,13 @@ export class TestWorld implements ResolveContext {
   clone(options: Partial<ConstructorParameters<typeof TestWorld>[0]> = {}): TestWorld { return new TestWorld({ state: this.snapshot(), sourceSnapshot: copySnapshot(this.source), controller: this.controller, timingPoint: this.timingPoint, targets: new Map([...this.targetSets].map(([key, value]) => [key, value.map(cloneRef)])), picks: new Map(this.pickSets), answers: new Map(this.answers), linked: new Map(this.linkedValues), ...options }); }
 }
 
-function actionPlayer(action: GameAction): PlayerId | undefined { return "player" in action ? action.player : undefined; }
-function actionObject(action: GameAction): ObjectRef | undefined { return "object" in action ? action.object : undefined; }
+function actionPlayer(action: ContractGameAction): PlayerId | undefined { return "player" in action ? action.player : undefined; }
+function actionObject(action: ContractGameAction): ObjectRef | undefined { return "object" in action ? action.object : undefined; }
+function sameTestLocation(left: LocationRef | null, right: LocationRef): boolean {
+  return left?.type === right.type && (left.type === "base"
+    ? right.type === "base" && left.player === right.player
+    : right.type === "battlefield" && left.id === right.id);
+}
 /** Keep the set query's existing supported predicates separate from history snapshots. */
 function matchesQueryFilter(object: ObjectSnapshot, filter: ObjectFilter): boolean {
   return Object.entries(filter).every(([key, expected]) => {
