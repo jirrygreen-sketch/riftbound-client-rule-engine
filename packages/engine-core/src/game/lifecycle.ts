@@ -5,15 +5,27 @@
  * issues primitive actions and structural rules tasks through the same
  * TurnFlow / ChainEngine / EventPipeline path that production uses.
  */
-import type { ActionOutcome, GameAction, ObjectRef, PlayerId, PlayerSnapshot, ZoneId } from '../effects/contract.js';
+import type { ActionOutcome, Domain, GameAction, ObjectRef, PlayerId, PlayerSnapshot, ZoneId } from '../effects/contract.js';
 import type { PipelineHost, PipelineEvent } from '../events/pipeline-types.js';
 import { TurnFlow } from '../turn/flow.js';
 
 export interface MatchCard {
   readonly id: string;
   readonly cardId?: string | null;
+  readonly canonicalCardId?: string | null;
   readonly name?: string;
+  /** The source catalog's card type (for example `Unit` or `Spell`). */
+  readonly cardType?: string;
   readonly types?: readonly string[];
+  /** Printed tags and deck-building Domains from the trusted card catalog. */
+  readonly tags?: readonly string[];
+  readonly domains?: readonly string[];
+  /** Printed characteristics. `null` means that the characteristic is absent. */
+  readonly energy?: number | null;
+  /** Headless/catalog cards use a numeric amount; runtime adapters may already
+   * provide the ObjectSnapshot Domain list. */
+  readonly power?: number | readonly Domain[] | null;
+  readonly might?: number | null;
 }
 
 export interface MatchDeck {
@@ -202,14 +214,55 @@ function execute(host: MatchHost, action: GameAction): ActionOutcome {
   return outcome.outcome;
 }
 
+function normalizedDomains(card: MatchCard): readonly Domain[] {
+  const valid = new Set<Domain>(['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order']);
+  return (card.domains ?? []).map((domain, index) => {
+    if (!valid.has(domain as Domain)) {
+      throw new TypeError(`Match card ${card.id} has an invalid Domain at index ${index}`);
+    }
+    return domain as Domain;
+  });
+}
+
+/**
+ * ObjectSnapshot stores the source's Power Domains, while the catalog stores a
+ * separate numeric Power amount. Keep the Domain set unique here so programs
+ * that derive an ability's own Domains do not receive duplicate values. The
+ * cost planner's exact numeric printed amount must come from its catalog
+ * projection (`CostPlanInput.printed`); that scalar is not part of the
+ * ObjectSnapshot contract.
+ */
+function objectPower(card: MatchCard): readonly Domain[] | null {
+  const printedPower = card.power;
+  if (printedPower === undefined || printedPower === null) return null;
+  if (Array.isArray(printedPower)) {
+    const types = (card.types ?? []).map(type => type.toLowerCase());
+    if (card.energy === null && types.length > 0 && types.every(type => !['unit', 'gear', 'spell'].includes(type))) return null;
+    return normalizedDomains({ ...card, domains: printedPower, power: null });
+  }
+  if (typeof printedPower !== 'number' || !Number.isSafeInteger(printedPower) || printedPower < 0) {
+    throw new TypeError(`Match card ${card.id} has an invalid printed Power value`);
+  }
+  const domains = normalizedDomains(card);
+  if (printedPower === 0) return [];
+  if (domains.length === 0) {
+    // The object contract cannot carry a scalar amount and an [A] marker at
+    // once. Keep a canonical any-Domain carrier; exact payment stays with the
+    // catalog-bound printed-cost adapter.
+    return ['Fury'];
+  }
+  return domains;
+}
+
 function tokenCard(card: MatchCard, types: readonly string[]) {
   return {
-    cardId: card.cardId ?? null,
+    cardId: card.cardId ?? card.canonicalCardId ?? null,
     name: card.name ?? card.id,
-    types,
-    might: null,
-    energy: null,
-    power: null,
+    types: [...types],
+    tags: [...(card.tags ?? [])],
+    might: card.might ?? null,
+    energy: card.energy ?? null,
+    power: objectPower(card),
   };
 }
 
@@ -246,7 +299,9 @@ function createDeckCards(deck: MatchDeck, player: PlayerId, zone: DeckZone, host
   const cards = zone === 'deck' ? deck.mainDeck : deck.runeDeck;
   const destination = zone === 'deck' ? 'deck-bottom' : 'rune-deck';
   for (const card of cards) {
-    const id = createToken(host, player, tokenCard(card, zone === 'deck' ? ['unit'] : ['rune']));
+    const fallbackTypes = zone === 'deck' ? ['unit'] : ['rune'];
+    const cardTypes = card.types?.length ? card.types : card.cardType ? [card.cardType.toLowerCase()] : fallbackTypes;
+    const id = createToken(host, player, tokenCard(card, cardTypes));
     // create-token cannot target deck zones, so each card is created on the
     // Chain and immediately moved into its shuffled starting zone (CR 114).
     execute(host, { type: 'move-zone', object: requireRef(host, id), to: destination });
