@@ -30,12 +30,12 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *   位置与来源相同）；424.1 / 424.1.a：Stun 是效果型受限动作，effect.stun 已合入。
  *   括注 “(It doesn't deal combat damage this turn.)” 是 424.1.b 的提醒文本。
  *
- * status 判定（README 第 2 节，2026-10-17 逐条对源码复核）：judge-required ——
+ * status 判定（README 第 2 节，2026-10-18 逐条对源码复核）：judge-required ——
  * 三处当前缺口，均以实测证据记录，不近似实现：
- * 1. 减费不是可执行路径：programs/statics.ts 的 layerFor 对 static effect kind
- *    "cost.modify" 抛 ProgramBindingError（"Static ability kind cost.modify has no layer
- *    mapping"，实测），cost/cost-plan.ts 只在调用方显式传入 CostPlanInput.discounts 时应用
- *    减费，Finalize 也不读卡牌静态费用效果。
+ * 1. 减费还没有生产接线：cost/discounts/collect.ts 已能把普通静态 cost.modify 转成
+ *    Finalize discounts，但 programs/statics.ts 的 layerFor 仍对本卡的 static effect kind
+ *    "cost.modify" 抛 ProgramBindingError（"no layer mapping"，实测），chain/engine.ts
+ *    的 Finalize 也没有调用 collector，因此卡牌声明仍到不了费用计划。
  * 2. “按你的单位中 Bird/Cat/Dog/Poro 的去重标签数”没有跨对象并集谓词：已合入的
  *    ObjectFilter.tags 是同一对象上的 every 匹配（layers/filter.ts），CountExpr 的 subject 只
  *    是标签、不参与求值，evaluateExpression 直接返回 queryObjects(filter).length。实测本卡
@@ -140,9 +140,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处当前缺口，均以实测证据记录，不近似实现：(1)「Reduce my cost by [1] …」不是可执行路径：" +
-    "programs/statics.ts 的 layerFor 对 static effect kind \"cost.modify\" 抛 ProgramBindingError（\"no layer mapping\"，实测），" +
-    "cost/cost-plan.ts 只在调用方显式传入 CostPlanInput.discounts 时应用减费，Finalize 不读卡牌静态费用效果。" +
+    "三处当前缺口，均以实测证据记录，不近似实现：(1)「Reduce my cost by [1] …」还没有生产接线：" +
+    "cost/discounts/collect.ts 已能收集普通 static cost.modify，但 programs/statics.ts 的 layerFor 仍抛 \"no layer mapping\"，" +
+    "chain/engine.ts 的 Finalize 也没有调用该 collector，故本卡声明到不了费用计划。" +
     "(2)「your units have all 4 tags」的去重标签并集计数没有谓词支持：ObjectFilter.tags 是同一对象上的 every 匹配，" +
     "CountExpr 的 subject 不参与求值（evaluateExpression 直接返回 queryObjects(filter).length）；实测本卡形状" +
     "（filter 只有 { player: \"controller\" }）在「A 有 Bird 单位与 Cat 单位、B 有同时带两标签的单位」时求值为 3，" +

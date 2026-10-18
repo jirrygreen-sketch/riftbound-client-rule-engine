@@ -122,8 +122,9 @@ const program = {
   status: "judge-required",
   judgeReason:
     "当前缺口（CR v1.5）：(1) cost.pay/cost.modify、kill 费用种类与可选费用凭证已合入，但 static cost.additional/grantedBy 声明仍没有生产消费方：" +
-    "programs/play.ts 的 translateCost 对 kind \"additional\"/\"additional-cost\" 及 additional/discount/optional 字段直接 judgeRequired，" +
-    "createEngineStaticBinder 也没有 cost.additional / continuous.cost-modification 的 layer 映射（两者实测抛 judge-required），" +
+    "programs/play.ts 的 translateCost 对 kind \"additional\"/\"additional-cost\" 及 additional/discount/optional 字段直接 judgeRequired；" +
+    "cost/discounts/collect.ts 虽能消费普通 cost.modify 声明，却拒绝本卡的 grantedBy/optional-additional 关联，" +
+    "而 createEngineStaticBinder 也没有 cost.additional / continuous.cost-modification 的 layer 映射（两者实测抛 judge-required），" +
     "因此 356.2.b.1/356.4.f.1 的选择与减费闸门在 Finalize 里仍未接通。" +
     "(2) 206 要求读取被选择作费用单位的印刷或复制 Energy/Power 费用：现有 amount 只有 count(zone: cost-receipt) 占位，" +
     "IR 没有读取“支付该费用时那个对象”的印刷费用快照的形状，也没有按 Power 符号数计算 Order 分量折扣的表达式；cost-receipt 不是真实区域。" +

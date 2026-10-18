@@ -32,8 +32,10 @@ test("unl-091-219 Concentrate: identity, status, judgeReason and verbatim source
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /356\.4/);
-  // Re-probed 2026-10-17: the planner applies caller-supplied discounts but no
-  // production path derives them from a card's static effect.
+  // Re-probed 2026-10-18: the planner applies caller-supplied discounts but no
+  // production path derives them from a card's static effect. The Level gates
+  // now retain the real controller-xp count shape; the base evaluator still
+  // cannot read that subject.
   assert.match(program.judgeReason, /layerFor/);
   assert.match(program.judgeReason, /no layer mapping/);
   assert.match(program.judgeReason, /cost\.modify/);
@@ -59,8 +61,10 @@ test("unl-091-219 Concentrate: the two [Level] cost reductions are recorded as s
     });
     // 824.1.b.1 / 824.1.c: the Level gate is the controller's XP threshold.
     assert.deepEqual(ability.condition, {
-      kind: "expression",
-      value: { kind: "constant", value: `level-active:${threshold}` }
+      kind: "compare",
+      left: { kind: "count", subject: "controller-xp", filter: { player: "controller" } },
+      operator: "gte",
+      right: { kind: "constant", value: threshold }
     });
   }
 });
@@ -151,22 +155,24 @@ test("unl-091-219 Concentrate boundary: the merged static binder refuses the car
   assert.equal(board.engine.layers.registry.list().length, 0);
 });
 
-test("unl-091-219 Concentrate boundary: the two [Level] gates are truthy constants, so no 'instead' exclusivity exists (CR 824.1.b.1 / 824.1.c)", () => {
-  // The authored gates are named constant strings; evaluateCondition treats any
-  // expression result as truthy, and nothing in the merged vocabulary reads the
-  // controller's XP. Both conditions therefore evaluate true in the same state,
-  // which is exactly why -2 and -4 cannot be treated as mutually exclusive.
-  const kernel = world().player("A", { xp: 0 }).build();
-  for (const [ability, threshold] of [[levelSix, 6], [levelEleven, 11]]) {
-    const outcome = resolveChainBody([{
-      id: `gate-${threshold}`,
-      op: "condition.value",
-      args: { value: { kind: "constant", value: true } },
-      condition: ability.condition
-    }], kernel.clone());
-    assert.equal(outcome.results[0].result.status, "executed");
-    assert.equal(outcome.results[0].result.linkedValues.value, true);
-  }
-  const zeroXp = program.abilities.slice(0, 2).map((ability) => ability.condition);
-  assert.deepEqual(zeroXp.map((condition) => condition.value.value), ["level-active:6", "level-active:11"]);
+test("unl-091-219 Concentrate boundary: the retained Level count shape counts objects instead of XP (CR 824.1.b.1 / 824.1.c)", () => {
+  // The authored gates now use the contract's controller-xp subject. The base
+  // interpreter still evaluates count as queryObjects(filter).length, so an
+  // object-rich zero-XP state incorrectly activates the Level 6 branch while a
+  // six-XP state with no matching objects incorrectly deactivates it.
+  const withXpNoObjects = world().player("A", { xp: 6 }).build();
+  const withObjectsNoXp = world().player("A", { xp: 0 });
+  for (let index = 0; index < 6; index++) withObjectsNoXp.unit(`unit-${index}`, { might: 1 });
+  const populated = withObjectsNoXp.build();
+  const evaluate = (ability, kernel) => resolveChainBody([{
+    id: "check-level-gate",
+    op: "condition.value",
+    args: { value: { kind: "constant", value: true } },
+    condition: ability.condition
+  }], kernel);
+  assert.equal(evaluate(levelSix, withXpNoObjects).results[0].result.status, "negated");
+  assert.equal(evaluate(levelSix, populated).results[0].result.status, "executed");
+  assert.equal(evaluate(levelEleven, populated).results[0].result.status, "negated");
+  assert.deepEqual(levelSix.condition.left, { kind: "count", subject: "controller-xp", filter: { player: "controller" } });
+  assert.deepEqual(levelEleven.condition.left, levelSix.condition.left);
 });
