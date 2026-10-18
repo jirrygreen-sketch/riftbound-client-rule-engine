@@ -34,9 +34,15 @@ test("unl-187-219 Piltover Enforcer: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /467\.2\.c/);
   assert.match(program.judgeReason, /404\.1\.b\.1/);
   // The conquer timing point is really emitted now (turn/flow.ts Score wave),
-  // and the exhaust/ready primitives plus the program binding are merged; the
-  // reason reflects the two remaining gaps.
+  // the subscription uses the merged closed event name, and the exhaust/ready
+  // primitives plus the program binding are merged; the reason reflects the two
+  // remaining gaps.
   assert.match(program.judgeReason, /turn\/flow\.ts/);
+  assert.match(program.judgeReason, /conquered/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  // The reason must refuse to treat the object count as assigned damage.
+  assert.match(program.judgeReason, /never/);
+  assert.match(program.judgeReason, /count 只按 filter 数对象/);
   assert.doesNotMatch(program.judgeReason, /RIFT-\d+|依赖 RIFT-89（费用接线）/);
 });
 
@@ -45,14 +51,21 @@ test("unl-187-219 Piltover Enforcer: 'When you conquer' trigger with the excess-
   assert.equal(ability.kind, "triggered");
   // 383.4.c / 383.4.c.1: a Conquer Effect; "self" is the conqueror.
   assert.equal(ability.trigger.at, "conquer");
-  assert.deepEqual(ability.trigger.filter, { event: "conquer", player: "self" });
+  // The merged closed event vocabulary spells the conquer timing "conquered"
+  // (EVENT_PATTERN_TYPES), and pipeline-match maps it onto the conquer timing
+  // point; the raw "conquer" spelling is rejected by validateTriggerSpec.
+  assert.deepEqual(ability.trigger.filter, { event: "conquered", player: "self" });
   // 383.2.a.1: the "if you assigned 3 or more excess damage" clause follows the
-  // trigger condition directly and belongs to it; the count shape is the
-  // documented readability gap, not an estimated damage ledger.
-  assert.equal(ability.trigger.condition.kind, "compare");
-  assert.equal(ability.trigger.condition.operator, "gte");
-  assert.deepEqual(ability.trigger.condition.right, { kind: "constant", value: 3 });
-  assert.equal(ability.trigger.condition.left.kind, "count");
+  // trigger condition directly and belongs to it. Its ledger is still missing,
+  // so the retained count shape is explicitly blocked by never — object counts
+  // must never stand in for assigned damage.
+  assert.equal(ability.trigger.condition.kind, "all");
+  assert.deepEqual(ability.trigger.condition.conditions[0], { kind: "never" });
+  const comparison = ability.trigger.condition.conditions[1];
+  assert.equal(comparison.kind, "compare");
+  assert.equal(comparison.operator, "gte");
+  assert.deepEqual(comparison.right, { kind: "constant", value: 3 });
+  assert.equal(comparison.left.kind, "count");
   // 383.3.a: the leading "you may" is the Finalize decision for the trigger.
   assert.equal(ability.optional, true);
 });
@@ -169,13 +182,77 @@ test("unl-187-219 Piltover Enforcer: ready executes on the locked unit and a sta
 
 test.todo(
   "unl-187-219 Piltover Enforcer: expose the conquer payload's assigned excess damage (CR 467.2.c.1–c.4: assigning vs dealing) " +
-    "by adding the damage-assignment ledger to the scoring payload and ResolveContext"
+    "by adding the damage-assignment ledger to the scoring payload and ResolveContext, then replace the never block"
 );
 test.todo(
   "unl-187-219 Piltover Enforcer: pay the leading 'exhaust me' as the trigger's base cost at Finalize (CR 383.3.b / 404.1.b.1 / 415.4–415.5) " +
     "by adding a TriggeredAbility cost binding"
 );
 
+test("unl-187-219 Piltover Enforcer golden: the 'conquered' subscription registers and matches the conquer event", async () => {
+  // The merged closed event vocabulary spells the conquer timing "conquered"
+  // (events/trigger-spec.ts EVENT_PATTERN_TYPES) and pipeline-match maps it onto
+  // the conquer timing point, so the card's own trigger registration succeeds
+  // and really receives a conquer emission.
+  const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
+  const { validateTriggerSpec } = await import("../../../../engine-core/dist/events/trigger-spec.js");
+  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const f = fixture({ cards: [{ id: "vi", cardId: CANONICAL_ID, types: ["legend"], energy: 1, power: [], might: 2 }] });
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("vi"),
+    to: "board",
+    location: { type: "base", player: "A" }
+  });
+  const source = { ...f.kernel.getObject("vi"), cardId: CANONICAL_ID, zone: "board" };
+  const ids = binding.registerProgramTriggers(f.engine, source);
+  assert.equal(ids.length, 1);
+  assert.match(ids[0], /^program:vi:/);
+
+  const hits = [];
+  f.engine.pipeline.onTrigger = snapshot => hits.push(snapshot.registration.id);
+  f.engine.emit({ timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" } });
+
+  // The raw "conquer" spelling really is outside the merged vocabulary, which
+  // is why the card authors the closed name.
+  const raw = validateTriggerSpec({ at: "conquer", filter: { event: "conquer", player: "self" } });
+  assert.equal(raw.ok, false);
+  assert.deepEqual(raw.issues.map(issue => issue.code), ["invalid-event-type"]);
+  assert.equal(validateTriggerSpec({
+    at: "conquer",
+    filter: translateTriggerFilter(ability.trigger.filter, "vi")
+  }).ok, true);
+
+  // The trigger's own condition is fail-closed, so the registration matches the
+  // event but the chain never gains an item whose cost the card cannot pay.
+  assert.deepEqual(hits, []);
+  assert.equal(f.engine.items.length, 0);
+  assert.equal(kernelXp(f), 0);
+
+  // A world with three controlled units would let the retained count read 3,
+  // so the never block is what keeps the gate closed.
+  const { evaluateCondition } = await import("../../../../engine-core/dist/effects/interpreter/condition.js");
+  const { evaluateExpression } = await import("../../../../engine-core/dist/effects/interpreter/expr.js");
+  const { world } = await import("../../../../engine-core/dist/effects/testing/index.js");
+  const counting = world().player("A").player("B")
+    .unit("a1", { owner: "A", controller: "A" }).unit("a2", { owner: "A", controller: "A" })
+    .unit("a3", { owner: "A", controller: "A" }).build();
+  const environment = {
+    context: counting, linked: () => undefined, canLookBack: () => false, isIgnored: () => false,
+    query: filter => counting.query(filter)
+  };
+  const comparison = ability.trigger.condition.conditions[1];
+  assert.equal(evaluateExpression(comparison.left, environment), 3);
+  assert.equal(evaluateCondition(comparison, environment), true);
+  assert.equal(evaluateCondition(ability.trigger.condition, environment), false);
+});
+
+function kernelXp(f) { return f.kernel.player("A").xp; }
 test("unl-187-219 Piltover Enforcer golden: the merged pipeline really publishes the conquer timing", () => {
   // turn/flow.ts publishes the conquer timing inside the committed Score action
   // and marks the whole wave as one simultaneous group. Driving that emission
@@ -197,14 +274,12 @@ test("unl-187-219 Piltover Enforcer golden: the merged pipeline really publishes
   assert.equal(event.player, "A");
   assert.deepEqual(event.details, { battlefieldId: "bf-1" });
 
-  // The printed clause stays a comparison over the missing damage-assignment
-  // ledger, so the card keeps judge-required instead of treating the count as a
-  // damage sum (467.2.c.1: assigning and dealing are distinct).
-  assert.equal(ability.trigger.condition.left.subject, "excess-damage-assigned-this-combat");
-  assert.deepEqual(ability.trigger.condition.right, { kind: "constant", value: 3 });
+  // The printed clause stays a blocked comparison over the missing
+  // damage-assignment ledger, so the card keeps judge-required instead of
+  // treating the count as a damage sum (467.2.c.1: assigning and dealing are
+  // distinct).
+  const comparison = ability.trigger.condition.conditions[1];
+  assert.equal(comparison.left.subject, "excess-damage-assigned-this-combat");
+  assert.deepEqual(comparison.right, { kind: "constant", value: 3 });
 });
 
-test.todo(
-  "unl-187-219 Piltover Enforcer: register the conquer subscription (CR 383.4.c) — the timing point id is " +
-    "the closed EventPattern vocabulary must accept the conquer timing and the card's source filter"
-);
