@@ -3,8 +3,8 @@
 //
 // Execution evidence (printed base cost, board-unit target, permanent
 // ability-layer Assault 2 grant, the declared [Repeat] cost failing closed and
-// the Showdown timing query) lives in the RIFT-681 parameterized template
-// golden: test/cards/templates/keyword-play-continuous-grant-keyword-681.test.mjs.
+// the Showdown timing query) lives in the parameterized template golden:
+// test/cards/templates/keyword-play-continuous-grant-keyword-681.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -47,6 +47,7 @@ test("sfd-003-221 Blood Rush: judge-required for the keyword grant and the Repea
   assert.match(program.judgeReason, /KeywordDef|consumer|expand/);
   assert.match(program.judgeReason, /optionalAdditional/);
   assert.doesNotMatch(program.judgeReason, /non-combat|unconditionally/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("sfd-003-221 Blood Rush structure: [Action] plus the printed Repeat cost", () => {
@@ -172,6 +173,29 @@ test.todo(
   "sfd-003-221 Blood Rush: runtime granted keywords still need a KeywordDef consumer that " +
     "expands the registered Assault 2 into its printed conditional Might effect (807.1.c)."
 );
+
+test("sfd-003-221 Blood Rush: a runtime granted Assault 2 registers the keyword but changes no Might", () => {
+  // Re-probed 2026-10-18 (807.1.c / 807.1.d.1): continuous.grant-keyword really
+  // lands the keyword on the ability layer. What is missing is the consumer that
+  // turns the granted keyword back into its KeywordDef expansion, so an
+  // attacker's Might stays at its printed value even though the keyword is
+  // present. The layers fallback is measured, not assumed.
+  const kernel = world()
+    .object("spell", { zone: "chain", types: ["spell"], cardId: CANONICAL })
+    .unit("attacker", { might: 3, combatRole: "attacker" })
+    .build();
+  kernel.setTargets("blood-rush.unit", [kernel.ref("attacker")]);
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.equal(outcome.status, "executed");
+
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  const snapshot = layers.snapshot(kernel.ref("attacker"));
+  // The keyword really is granted (and its printed value is the card's 2).
+  assert.deepEqual(snapshot.keywords, [{ id: "Assault", value: 2 }]);
+  // …but the attacker-conditioned +2 Might of 807.1.c is not produced.
+  assert.equal(kernel.getObject("attacker").combatRole, "attacker");
+  assert.equal(snapshot.might, 3);
+});
 
 test.todo(
   "sfd-003-221 Blood Rush: the Assault expansion's designation condition must consume the " +

@@ -50,7 +50,7 @@ const rows = [
       operations: [],
       expect: {},
     },
-    blocked: "scoring restriction consumer and per-player third-turn predicate",
+    blocked: "scoring restriction consumer and the per-player third-turn window slot",
   },
   {
     name: "Irelia, Graceful · spell-target cost discount is pending cost-plan binding",

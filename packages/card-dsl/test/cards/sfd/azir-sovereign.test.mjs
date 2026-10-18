@@ -69,8 +69,10 @@ test("sfd-177-221 Azir, Sovereign: identity, ruleset, status, judgeReason and ve
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /attack-declared/);
-  assert.match(program.judgeReason, /Finaliz/);
-  assert.match(program.judgeReason, /optionalAdditional/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
+  assert.match(program.judgeReason, /accelerate\.cost has no layer mapping/);
+  assert.match(program.judgeReason, /Nested\/repeated targets/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
   assert.equal(
     program.sourceText,
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_order: as an additional cost to have me enter ready.)\n" +
@@ -183,13 +185,16 @@ test("sfd-177-221 Azir, Sovereign: accepting moves the chosen token units to thi
 });
 
 test.todo(
-  "Azir, Sovereign: emit attack-declared from the real Attacker designation transaction (383.4.e.2/466.2.c), not an injected event"
+  "Azir, Sovereign: emit attack-declared from the real Attacker designation transaction (383.4.e.2/466.2.c) — " +
+    "combat/flow.ts still throws TurnCombatBlockedError('combat-start-transaction') before any role emission"
 );
 test.todo(
-  "Azir, Sovereign: finalize nested up-to token targets, including a legal empty group, before resolving the optional body (355.13)"
+  "Azir, Sovereign: build the interpreter target-selection lifecycle adapter that lets Finalize lock (or legally empty) " +
+    "the nested up-to token-target group inside the optional body (355.12/355.13)"
 );
 test.todo(
-  "Azir, Sovereign: connect accelerate.cost collection and its paid decision to the entry replacement without a becomes-ready trigger (805.2.b/805.6.a)"
+  "Azir, Sovereign: map accelerate.cost into the optional-additional cost pipeline and gate the 805.6 entry replacement " +
+    "on the paid decision, without a becomes-ready trigger (805.2.b/805.6.a)"
 );
 
 test("Azir, Sovereign: the real combat start transaction is still blocked (383.4.e.2/466.2.c)", () => {
@@ -219,6 +224,30 @@ test("Azir, Sovereign: the declared accelerate.cost static has no binding, so it
   assert.equal(declared !== undefined, true);
   assert.throws(() => bindStaticAbility(createEngineStaticBinder(f.engine), declared, source),
     error => error.code === "judge-required" && /accelerate\.cost has no layer mapping/.test(error.message));
+});
+
+test("Azir, Sovereign: the real chain blocks the nested token target before Finalize can lock it", () => {
+  // 355.12/355.13: the "any number of your token units" choice lives inside the
+  // optional body. assertFinalizationSurface only collects top-level targets, so
+  // the production chain refuses the item outright rather than resolving a
+  // possibly-empty group.
+  const f = fixture({ cards: [{ id: "azir-sovereign", cardId: CARD_ID, types: ["unit"], might: 4 }] });
+  const source = f.kernel.getObject("azir-sovereign");
+  assert.throws(
+    () => f.engine.execute({
+      id: "azir-sovereign.attack",
+      controller: "A",
+      source,
+      kind: "triggered",
+      speed: "action",
+      body: program.abilities[1].body
+    }),
+    error => error.name === "ChainContractBlockedError" &&
+      /Nested\/repeated targets require an interpreter target-selection lifecycle adapter/.test(error.message)
+  );
+  // The declared target really is nested inside the choice body, which is why
+  // the surface check fires.
+  assert.equal(program.abilities[1].body[0].args.body.value[1].targets.length, 1);
 });
 
 

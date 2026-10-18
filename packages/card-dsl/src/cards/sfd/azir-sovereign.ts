@@ -34,7 +34,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   condition.value 在结算时读出来源当前位置，再由 effect.move 的 to 经 linked-value
  *   读取（该形状被 effect.move 接受并真实执行）。
  *
- * 当前复核：保持 judge-required；具体未接通路径见 judgeReason。
+ * 当前复核（2026-10-18，逐条实测）：保持 judge-required。三条缺口均可复现：
+ * attack-declared 无生产者、accelerate.cost 无图层映射、可选 body 内嵌套目标被
+ * assertFinalizationSurface 阻断。见 judgeReason。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -106,10 +108,18 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "attack-declared 缺真实 combat 角色事务生产者（383.4.e.2/466.2.c）：启动一场已 Staged 的战斗仍由 combat/flow.ts 的 combat-start-transaction 阻断（\"Combat start needs an atomic simultaneous timing wave + roles\"），没有已合入模块为“取得 Attacker 身份”发该时点；只有注入式 emit 才能在测试里验证触发体。" +
-    "Accelerate 的费用绑定未接通：accelerate.cost 是 static ContinuousEffect，programs/statics.ts 的 layerFor 对未知 kind 直接 judgeRequired（\"Static ability kind accelerate.cost has no layer mapping\"），" +
-    "programs/play.ts 的 translateCost 也拒绝 additional-cost/additional 字段，因此该声明进不了 Finalize 的 optionalAdditional，805.2.b/805.6.a 的入场替代也没有支付决定门控，不能免费就绪或入场后再 ready。" +
-    "可选 body 内的 token TargetSpec 仍被 chain/engine.ts 的 assertFinalizationSurface 主动阻断（\"Nested/repeated targets require an interpreter target-selection lifecycle adapter\"）；Finalize 只收集顶层目标，不能在 Resolve 重新选目标。",
+    "三条缺口，均为 2026-10-18 实测（golden 记录实际抛错，不近似实现）：" +
+    "（1）attack-declared 无真实生产者（383.4.e.2/466.2.c）：启动一场已 Staged 的战斗仍由 combat/flow.ts 抛 " +
+    "TurnCombatBlockedError('combat-start-transaction'，\"Combat start needs an atomic simultaneous timing wave + roles (CR 466.2)\")，" +
+    "全仓库没有为「取得 Attacker 身份」发出该时点的模块，因此触发体只能靠注入式 emit 验证。" +
+    "（2）accelerate.cost 进不了费用管线（805.1.b/805.2/805.2.b/805.6/805.6.a）：该关键词展开是 static ContinuousEffect，" +
+    "programs/statics.ts 的 layerFor 对未知 kind 抛 ProgramBindingError judge-required（实测 \"Static ability kind accelerate.cost has no layer mapping\"）；" +
+    "programs/play.ts 的 translateCost 也 fail-closed（kind additional/additional-cost 抛 judge-required），" +
+    "所以该声明进不了 CostPlanInput.optionalAdditional，付费决定也没有门控替代入场就绪。" +
+    "（3）可选 body 内的 token TargetSpec 被 chain/engine.ts 的 assertFinalizationSurface 阻断（实测 ChainContractBlockedError " +
+    "\"Nested/repeated targets require an interpreter target-selection lifecycle adapter\"）：Finalize 只收集顶层目标，不能在 Resolve 重新选目标，" +
+    "355.13 的 0…任意数量选择因此没有生命周期适配器。" +
+    "已合入且由 golden 真实执行：effect.move 的结算期来源位置读取（359.3.f.1）、token 过滤归一化、Accelerate 的已付费/拒绝计划与 Order 分配。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_order: as an additional cost to have me enter ready.)\n" +

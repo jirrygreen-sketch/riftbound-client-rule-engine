@@ -31,18 +31,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   让由其控制的 Gold 的 [Add] 多产生 1 Energy。194.3/194.3.a：Victory Score 默认 8，可被游戏模式或
  *   卡牌效果改变（485.3.a 允许任意正整数），因此不能硬编码 8。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17，逐条对源码）。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-18，逐条对源码）。
  * - Gold 的 token 定义不在 effect.token 的冻结定义表里（文件头明确记录：需要自身能力的定义（包括 Gold）
  *   保持 blocked/judge-required；表内只有 recruit/sand-soldier/mech/reflection/tentacle），
  *   运行期以 blockedReason "token-definition-or-abilities-judge-required" 判负。
  * - "exhausted" 是 143.4/185.2.d 的入场状态规定；合并的 effect.token 明确记录"Entry overrides are not
  *   supported"，argsSchema 对 entersExhausted 直接抛 TypeError，事后补 effect.exhaust 不等价。
  * - 费用式 "exhaust me" 依赖 legend-zone 表达与触发点费用计划接线（契约 3.6 的 ZoneId 没有
- *   Legend Zone，CR 108.3；同 ogn/the-boss）。
+ *   Legend Zone，CR 108.3；同 ogn/the-boss）：cost.pay 已支持已结算的 exhaust 计划（golden 真实执行），
+ *   但触发点的前导费用仍无提取接线，且传奇来源无法作为 Board/Rune-Zone 费用对象绑定。
  * - "an ally"（491.8.e 的 Teammate）没有已合入的队友关系读法：ResolveContext 只暴露 player/query，
- *   没有 team/ally 概念（"ally" 在整个 cards 目录只有 732 条的注释提及）。
+ *   PlayerSnapshot 没有 team/ally 字段（实测 "ally" in player === false），无法把队友的 Hold 与自己的合并判定。
  * - "within 3 points of the Victory Score" 需要当前 Victory Score（194.3/194.3.a），ResolveContext 的
- *   PlayerSnapshot 只暴露各自 score，没有 victoryScore；硬编码 8 就是臆造（同 ogn/find-your-center）。
+ *   PlayerSnapshot 只暴露各自 score，没有 victoryScore（实测）；硬编码 8 就是臆造（同 ogn/find-your-center）。
  * - "your Gold [Add] an additional :rb_energy_1:" 是改写在先资源能力产出上的条件持续效果：需要把
  *   [Add] 的产出量按持有者与条件改写。既没有 continuous-effect 的"资源产出加成"图层/谓词，也没有把
  *   CardProgram 的 static 能力注册进 LayerEngine 的路径（同 ogn/darius-executioner），且 :rb_rune_rainbow:
@@ -77,14 +78,42 @@ const abilities: Ability[] = [
             value: [
               {
                 // "exhaust me"：740.4.a.2 的费用在 Finalization 支付（415.4/415.5）；
-                // 形状是费用计划，不是 effect.exhaust 的状态改变。
+                // cost.modify 先把 { kind: "exhaust", object: "self" } 锁成可支付计划，
+                // 再由 cost.pay 收取（这是已合入且可真实支付的形状）。
+                id: "chem-baroness.prepare-exhaust",
+                op: "cost.modify",
+                args: {
+                  id: { kind: "constant", value: "chem-baroness.prepare-exhaust" },
+                  cost: {
+                    kind: "constant",
+                    value: {
+                      kind: "activated",
+                      payments: [{ kind: "exhaust", object: "self" }]
+                    }
+                  }
+                }
+              },
+              {
                 id: "chem-baroness.pay-exhaust",
                 op: "cost.pay",
+                linkedTo: "chem-baroness.prepare-exhaust",
                 args: {
-                  payments: {
-                    kind: "constant",
-                    value: [{ kind: "exhaust", object: "self" }]
+                  cost: {
+                    kind: "linked-value",
+                    instructionId: "chem-baroness.prepare-exhaust",
+                    key: "cost"
                   }
+                }
+              },
+              {
+                // 440.2.b.1 / 107.1.c：Gear token 落在能力控制者的 Base。原语要求具体
+                // PlayerId，静态 IR 不能写 controller 符号，因此先求值 ability-controller-base
+                // 再以 linked-value 传入（已合入形状，同 unl/yeti-brawler）。
+                id: "chem-baroness.read-base",
+                op: "condition.value",
+                args: {
+                  value: { kind: "location", value: "ability-controller-base" },
+                  key: { kind: "constant", value: "base" }
                 }
               },
               {
@@ -93,11 +122,16 @@ const abilities: Ability[] = [
                 // "exhausted" 入场状态也不被 create-token 支持（见 judgeReason）。
                 id: "chem-baroness.play-gold",
                 op: "effect.token",
-                linkedTo: "chem-baroness.pay-exhaust",
+                linkedTo: "chem-baroness.read-base",
                 args: {
                   token: { kind: "constant", value: "gold" },
                   amount: { kind: "constant", value: 1 },
                   mode: { kind: "constant", value: "play" },
+                  location: {
+                    kind: "linked-value",
+                    instructionId: "chem-baroness.read-base",
+                    key: "base"
+                  },
                   // 打印的 "exhausted" 是 185.2.d/143.4 的入场状态规定；effect.token 的
                   // argsSchema 没有该参数（Entry overrides are not supported），故不写进 args，
                   // 见 judgeReason。
@@ -139,24 +173,27 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "按 2026-10-17 源码逐条复核，仍缺六项，均不近似实现。" +
+    "按 2026-10-18 源码逐条复核，仍缺六项，均不近似实现。" +
     "（1）Gold token 定义缺失：187.5 的 Gold 是带自身能力的 gear token（\"[Reaction][>] Kill this, [E]: [Add] [A].\"），" +
     "effect.token 的冻结定义表按设计保持 blocked/judge-required，表内只有 recruit/sand-soldier/mech/reflection/tentacle，" +
     "实测该原语对 gold 返回 negated + blockedReason \"token-definition-or-abilities-judge-required\"；" +
     "（2）「exhausted」是 143.4/185.2.d 的入场状态规定，但合并的 create-token 明确不支持入场改写（effect.token：Entry overrides are not supported），" +
     "argsSchema 对 entersExhausted 抛 TypeError，事后补 effect.exhaust 不等价（会多产生一次「成为横置」事件并错过入场替代）；" +
-    "（3）费用式「exhaust me」（415.4/415.5）依赖 legend-zone 表达（契约 3.6 的 ZoneId 无 Legend Zone，CR 108.3）；" +
-    "cost.pay 原语已注册，但其 payments 参数只接受 { energy, power, xp } 形状，本卡声明的裸数组 " +
-    "[{ kind: \"exhaust\", object: \"self\" }] 会被 paymentsPlan 拒绝（CostPlanError cannot-pay-cost）——" +
-    "buildCostPlan/payCostPlan 已能支付直接构造的 exhaust 计划（见 golden），缺的是 cost.pay 对非资源支付数组的解包与触发点接线；" +
-    "（4）「an ally」是 491.8.e 的 Teammate 关系（740.1.a 的 friendly 含 teammates），ResolveContext 没有队友关系读法，无法把队友的 Hold 与自己的 Hold 合并判定；" +
+    "（3）费用式「exhaust me」（383.3.b/383.3.b.1/415.4/415.5）缺触发点的 Finalize 绑定与 legend-zone 表达：" +
+    "正文已按已合入的可支付形状声明该费用（cost.modify 锁定 { kind: \"activated\", payments: [{ kind: \"exhaust\", object: \"self\" }] }，" +
+    "cost.pay 经 linked-value 收取，golden 在解释器上真实执行并断言横置发生），但生产链路径不会把 cost.modify 的 id 字面量化" +
+    "（chain/interpreter-adapter.ts，实测抛 TypeError），且契约 3.1 的 TriggeredAbility 没有费用字段、" +
+    "programs/triggers.ts 也不从正文提取（TriggerRegistration.cost/mayAtFinalize 恒为 undefined），" +
+    "因此该费用到不了 Finalize，与 383.3.b.1「未支付就不能进链定稿」不符；同时 CR 108.3 的 Legend Zone 不在 ZoneId 联合里" +
+    "（只允许 board/rune-zone 上的就绪受控对象作为 exhaust 费用对象，实测传奇来源 cannot-pay-cost）；" +
+    "（4）「an ally」是 491.8.e 的 Teammate 关系（740.1.a 的 friendly 含 teammates），PlayerSnapshot/ResolveContext 没有 team/ally 读法（实测），无法把队友的 Hold 与自己的 Hold 合并判定；" +
     "（5）「within 3 points of the Victory Score」需要当前 Victory Score（194.3/194.3.a，默认可被游戏模式改），ResolveContext 只暴露各自 score、没有 victoryScore，硬编码 8 就是臆造；" +
     "（6）「your Gold [Add] an additional :rb_energy_1:」是改写 [Add] 产出的条件持续效果：programs/statics.ts 的 layerFor 对 " +
-    "modify-resource-ability 没有映射，绑定会抛 ProgramBindingError（static ability kind has no layer mapping），" +
+    "modify-resource-ability 没有映射（实测抛 ProgramBindingError \"Static ability kind modify-resource-ability has no layer mapping\"），" +
     "也没有资源产出加成的持续效果形状。" +
     "复核记录：hold 时点的订阅词汇是 \"held\"（TriggerSpec 的 EVENT_PATTERN_TYPES 只接受 held，" +
-    "events/pipeline-match.ts 的 EVENT_NAMES 把 hold 映射为 held），本卡已按该词汇声明，触发注册可达。" +
-    "依赖：cost.pay 非资源支付数组形状、modify-resource-ability 图层读者，以及 legend-zone、Victory Score 读数、" +
+    "events/pipeline-match.ts 的 EVENT_NAMES 把 hold 映射为 held），本卡已按该词汇声明并通过生产注册路径的校验。" +
+    "依赖：触发能力的费用字段/提取接线、modify-resource-ability 图层读者，以及 legend-zone、Victory Score 读数、" +
     "Teammate(ally) 关系、Gold token 定义与入场状态的契约补充。不近似实现。",
   abilities,
   sourceText:

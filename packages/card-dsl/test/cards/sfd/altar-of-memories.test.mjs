@@ -7,8 +7,6 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // card-dsl has no dependency edge on engine-core (engine-core depends on
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
-import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
-import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { isTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { registerProgramTriggers, triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
@@ -34,7 +32,7 @@ const DESTINATION_ID = "altar-of-memories.put-back/altar-of-memories.destination
 
 const [ability] = program.abilities;
 const [optional] = ability.body;
-const [payExhaust, drawInstruction, putBack] = optional.args.body.value;
+const [prepareExhaust, payExhaust, drawInstruction, putBack] = optional.args.body.value;
 
 test("sfd-169-221 Altar of Memories: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -46,12 +44,15 @@ test("sfd-169-221 Altar of Memories: identity, ruleset, status, judgeReason and 
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // README section 2: the remaining gap is the trigger base cost at Finalize,
-  // including the CardProgram declaration and its locked payment plan.
+  // README section 2: the remaining gap is the trigger base cost at Finalize.
+  // Re-probed 2026-10-18: the cost itself is now authored in the merged payable
+  // shape and really charges; what is missing is the Finalize binding.
   assert.match(program.judgeReason, /programs\/triggers\.ts/);
   assert.match(program.judgeReason, /Finalize/);
-  assert.match(program.judgeReason, /383\.3\.b/);
+  assert.match(program.judgeReason, /383\.3\.b\.1/);
   assert.match(program.judgeReason, /TriggeredAbility/);
+  assert.match(program.judgeReason, /cost\.modify/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -76,6 +77,7 @@ test("sfd-169-221 Altar of Memories: contract 3.9 — one choice.optional wrappi
   assert.equal(optional.op, "choice.optional");
   assert.equal(optional.args.body.kind, "constant");
   assert.deepEqual(optional.args.body.value.map((instruction) => instruction.id), [
+    "altar-of-memories.prepare-exhaust",
     "altar-of-memories.pay-exhaust",
     "altar-of-memories.draw-1",
     "altar-of-memories.put-back"
@@ -83,11 +85,28 @@ test("sfd-169-221 Altar of Memories: contract 3.9 — one choice.optional wrappi
   assert.equal(optional.linkedTo, undefined);
 
   // 383.3.b / 383.3.b.1: "exhaust me" right after "you may" is the ability's
-  // base cost, paid at finalize.
+  // base cost. It now uses the merged payable shape: cost.modify locks the
+  // { kind: "exhaust", object: "self" } plan, cost.pay charges that plan. The
+  // remaining gap is lifting this leading cost into Finalize (judgeReason).
+  assert.equal(prepareExhaust.op, "cost.modify");
+  assert.deepEqual(prepareExhaust.args, {
+    id: { kind: "constant", value: "altar-of-memories.prepare-exhaust" },
+    cost: {
+      kind: "constant",
+      value: {
+        kind: "activated",
+        payments: [{ kind: "exhaust", object: "self" }]
+      }
+    }
+  });
   assert.equal(payExhaust.op, "cost.pay");
-  assert.deepEqual(payExhaust.args.payments, {
-    kind: "constant",
-    value: [{ kind: "exhaust", object: "self" }]
+  assert.equal(payExhaust.linkedTo, "altar-of-memories.prepare-exhaust");
+  assert.deepEqual(payExhaust.args, {
+    cost: {
+      kind: "linked-value",
+      instructionId: "altar-of-memories.prepare-exhaust",
+      key: "cost"
+    }
   });
 
   // 414.1 / 414.3: draw 1, linked to the paid cost.
@@ -184,18 +203,16 @@ test("sfd-169-221 Altar of Memories golden: the chosen hand card goes to the bot
 });
 
 test.todo(
-  "Altar of Memories: register and finalize the friendly-death ability with its exhaust base cost (429.1/383.3.b.1); trigger translation already works"
-);
-test.todo(
-  "Altar of Memories: carry CardProgram trigger cost into the existing TriggerRegistration.cost and Finalize transaction (383.3.b.1/415.4/415.5)"
+  "Altar of Memories: lift the leading exhaust base cost into the Finalize transaction (383.3.b.1/415.4/415.5) — " +
+    "TriggeredAbility has no cost field and programs/triggers.ts extracts none, so the declared cost.modify/cost.pay pair " +
+    "is charged at Resolve instead of before the ability is finalized to the chain"
 );
 
-test("Altar of Memories: the trigger registration carries no base cost and cost.pay rejects the card's payments array", () => {
+test("Altar of Memories: the trigger registration still carries no base cost", () => {
   // 383.3.b.1 / 405.2: the leading "exhaust me" cost must be paid to finalize
   // the triggered ability. The merged TriggeredAbility contract has no cost
-  // field, programs/triggers.ts emits no cost, and the merged payer refuses the
-  // authored payments list (it is not a finalized plan), so no production path
-  // can charge it.
+  // field and programs/triggers.ts extracts none, so Finalize has no locked
+  // plan: the declared cost.modify/cost.pay pair only runs at Resolve.
   assert.equal(Object.hasOwn(ability, "cost"), false);
   const { judgeReason, ...executableProgram } = program;
   const registration = triggerRegistrations(
@@ -203,11 +220,7 @@ test("Altar of Memories: the trigger registration carries no base cost and cost.
     world().unit("altar", { cardId: CANONICAL, types: ["gear"] }).build().getObject("altar")
   )[0];
   assert.equal(registration.cost, undefined);
-
-  const kernel = world().unit("altar", { types: ["gear"] }).build();
-  assert.throws(() => runInstruction(costPay, { payments: payExhaust.args.payments }, { world: kernel }),
-    error => error.reason === "cannot-pay-cost");
-  assert.equal(kernel.getObject("altar").exhausted, false);
+  assert.equal(registration.mayAtFinalize, undefined);
 });
 
 test("Altar of Memories: the merged registration really attaches to the event pipeline", () => {
@@ -232,27 +245,68 @@ test("Altar of Memories: the merged trigger translator preserves friendly-death 
   assert.equal(isTriggerSpec({ at: ability.trigger.at, filter: translated }), true);
 });
 
-test("Altar of Memories: a locked exhaust plan pays through cost.pay, while an exhausted source cannot pay", () => {
-  for (const exhausted of [false, true]) {
-    const base = world().unit("altar", { types: ["gear"], exhausted }).deck(["top", "bottom"]).build();
-    const kernel = base.clone({ sourceSnapshot: base.getObject("altar") });
-    const plan = buildCostPlan(kernel, {
-      id: "altar.exhaust", cost: { kind: "activated", payments: payExhaust.args.payments.value }
-    });
-    if (exhausted) {
-      const before = kernel.snapshot();
-      assert.throws(() => runInstruction(costPay, { cost: { kind: "constant", value: plan } }, { world: kernel }),
-        error => error.reason === "cannot-pay-cost");
-      assert.deepEqual(kernel.snapshot(), before);
-      assert.deepEqual(kernel.events, []);
-    } else {
-      const run = runInstruction(costPay, { cost: { kind: "constant", value: plan } }, { world: kernel });
-      assert.equal(run.result.status, "executed");
-      assert.equal(run.linked.payment.paid, true);
-      assert.deepEqual(run.linked.payment.actions.map(entry => entry.action.type), ["pay", "exhaust"]);
-      assert.equal(kernel.getObject("altar").exhausted, true);
-      assert.equal(kernel.player("A").handSize, 0);
-      assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["top", "bottom"]);
-    }
-  }
+test("Altar of Memories golden: the declared exhaust cost really locks a plan and exhausts the source", () => {
+  // 383.3.b / 415.4 / 415.5: the authored cost.modify/cost.pay pair is the
+  // merged payable spelling of "exhaust me". Running the card's own two
+  // instructions through the real interpreter locks a plan and charges it, so
+  // the remaining gap is the Finalize binding, not the payment mechanics.
+  const base = world().unit("altar", { types: ["gear"] }).deck(["top", "bottom"]).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("altar") });
+
+  const outcome = runAbilityBody([prepareExhaust, payExhaust], kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["altar-of-memories.prepare-exhaust", "executed"],
+    ["altar-of-memories.pay-exhaust", "executed"]
+  ]);
+  const planned = outcome.results[0].result.linkedValues.cost;
+  assert.equal(planned.finalized, true);
+  assert.deepEqual(planned.total.actions.map(entry => entry.action.type), ["exhaust"]);
+  const receipt = outcome.results[1].result.linkedValues.payment;
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay", "exhaust"]);
+  assert.equal(kernel.getObject("altar").exhausted, true);
+  // "exhaust me" is a cost, not a draw: the source is tapped and nothing moves.
+  assert.equal(kernel.player("A").handSize, 0);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["top", "bottom"]);
+});
+
+test("Altar of Memories golden: an already exhausted altar cannot pay the cost", () => {
+  // 415.4: the Exhaust action must be completable for the cost to be paid; a
+  // tapped source fails closed with cannot-pay-cost and no state change.
+  const base = world().unit("altar", { types: ["gear"], exhausted: true }).deck(["top"]).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("altar") });
+  const before = kernel.snapshot();
+
+  assert.throws(
+    () => runAbilityBody([prepareExhaust, payExhaust], kernel),
+    error => error.name === "CostPlanError" && error.reason === "cannot-pay-cost"
+  );
+  assert.deepEqual(kernel.snapshot(), before);
+  assert.deepEqual(kernel.events, []);
+});
+
+test("Altar of Memories: the chain cannot lock the declared trigger cost at Finalize", () => {
+  // 383.3.b.1 / 405.2: the cost must be paid before the ability is finalized to
+  // the chain. programs/triggers.ts extracts no cost, so chain/engine.ts never
+  // calls buildCostPlan for this item, and the production chain path cannot even
+  // literalize cost.modify's id argument, so the declared pair fails closed with
+  // a TypeError instead of silently resolving. Both halves are measured here.
+  const { judgeReason, ...executableProgram } = program;
+  const registration = triggerRegistrations(
+    new ProgramRegistry([{ ...executableProgram, status: "executable" }]),
+    world().unit("altar", { cardId: CANONICAL, types: ["gear"] }).build().getObject("altar")
+  )[0];
+  assert.equal(registration.cost, undefined);
+  assert.equal(registration.mayAtFinalize, undefined);
+  assert.equal(registration.body.length, 1);
+
+  const kernel = world().unit("altar", { types: ["gear"] }).build();
+  assert.throws(
+    () => resolveChainBody([prepareExhaust, payExhaust], kernel),
+    error => error instanceof TypeError && /cost\.modify id/.test(error.message)
+  );
+  assert.equal(kernel.getObject("altar").exhausted, false);
+  assert.deepEqual(kernel.events, []);
 });
