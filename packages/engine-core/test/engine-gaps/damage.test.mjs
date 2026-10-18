@@ -14,6 +14,7 @@ import effectDamage from "../../dist/effects/instructions/effect.damage.js";
 import { AwaitChoice, runInstruction, world } from "../../dist/effects/testing/index.js";
 import { runCardScenario } from "../../dist/effects/testing/scenario/index.js";
 import firestorm from "../../../card-dsl/dist/cards/ogs/firestorm.js";
+import volibear from "../../../card-dsl/dist/cards/ogn/volibear-furious.js";
 import avalanche from "../../../card-dsl/dist/cards/rad/avalanche.js";
 import crescent from "../../../card-dsl/dist/cards/unl/crescent-strike.js";
 import glowstone from "../../../card-dsl/dist/cards/ven/glowstone.js";
@@ -374,6 +375,43 @@ test("divide answers of 0, over-limit splits, and missing targets negate before 
     assert.equal(kernel.getObject("enemy-3").damage, 0);
     assert.deepEqual(run.linked, {});
   }
+});
+
+test("the published Volibear divide literal reaches the default production adapter", () => {
+  assert.equal(volibear.status, "judge-required");
+  const triggered = volibear.abilities.find(ability => ability.kind === "triggered");
+  const [instruction] = triggered.body;
+  assert.deepEqual(instruction.args.divide, { kind: "literal", value: true });
+  const kernel = damageSetup();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("ally"), controller: "A" });
+  const refs = [kernel.ref("enemy-1"), kernel.ref("enemy-2"), kernel.ref("enemy-3")];
+  context.setTargets("volibear.enemy-units-here", refs);
+  context.setAnswers({
+    "volibear.split-damage/effect.damage%3Adivide%3A0": 3,
+    "volibear.split-damage/effect.damage%3Adivide%3A1": 1,
+    "volibear.split-damage/effect.damage%3Adivide%3A2": 1,
+  });
+  const outcome = resolveChainBody([instruction], context);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => entry.result.status), ["executed"]);
+  assert.equal(context.getObject("enemy-1").damage, 3);
+  assert.equal(context.getObject("enemy-2").damage, 1);
+  assert.equal(context.getObject("enemy-3").damage, 1);
+  assert.deepEqual(instruction.args.divide, { kind: "literal", value: true });
+});
+
+test("divide negates before asking when fewer damage than locked targets cannot be allocated", () => {
+  const kernel = damageSetup();
+  const run = runInstruction(effectDamage, {
+    amount: literal(2), target: "enemies", divide: true,
+  }, {
+    world: kernel,
+    targets: { enemies: [kernel.ref("enemy-1"), kernel.ref("enemy-2"), kernel.ref("enemy-3")] },
+  });
+  assert.equal(run.asked, null);
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  assert.equal(kernel.history({ action: "damage" }), 0);
 });
 
 // ---------------------------------------------------------------------------

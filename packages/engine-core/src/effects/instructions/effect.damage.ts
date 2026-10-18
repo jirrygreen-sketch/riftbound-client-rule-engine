@@ -186,13 +186,21 @@ function parseArgs(value: unknown): EffectDamageArgs {
   if (value.bonus !== undefined && !isExpr(value.bonus)) {
     throw new Error("effect.damage args.bonus must be an Expr");
   }
-  if (value.divide !== undefined && value.divide !== true) {
+  const divideValue = value.divide;
+  const divide = divideValue === true ||
+    (isRecord(divideValue) &&
+      (divideValue.kind === "constant" || divideValue.kind === "literal") &&
+      divideValue.value === true);
+  if (divideValue !== undefined && !divide) {
     throw new Error("effect.damage args.divide must be true when present");
   }
-  if (hasObjects && value.divide !== undefined) {
+  if (hasObjects && divideValue !== undefined) {
     throw new Error("effect.damage args.objects cannot be divided");
   }
-  return value as unknown as EffectDamageArgs;
+  // The chain adapter preserves card-DSL literals for primitive-local
+  // evaluation. Normalize the validated true literal before execute() checks
+  // the primitive flag.
+  return { ...value, ...(divideValue === undefined ? {} : { divide: true }) } as unknown as EffectDamageArgs;
 }
 
 function isAmount(value: unknown): value is number {
@@ -322,6 +330,9 @@ const effectDamage = {
     if (args.divide === true) {
       // CR 355.14.e：分摊数额到结算时才选择；355.14.f/.g：每个目标必须分到
       // 正整数。选择在重放时整体校验，非法则 negated，不部分结算。
+      if (perTarget < valid.length) {
+        return { status: "negated", reason: "impossible", events: [] };
+      }
       const divided: DamagePlanEntry[] = [];
       let remaining = perTarget;
       for (let index = 0; index < valid.length; index += 1) {
