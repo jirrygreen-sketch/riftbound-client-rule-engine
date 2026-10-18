@@ -7,7 +7,7 @@ import { ChainEngine } from '../../dist/chain/engine.js';
 import { TurnFlow } from '../../dist/turn/flow.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
 import { createEngineStaticBinder } from '../../dist/programs/statics.js';
-import { resolveAbilityGrants } from '../../dist/programs/ability-grants/index.js';
+import { projectAbilityGrantInstruction, projectStaticAbilityGrant, resolveAbilityGrants } from '../../dist/programs/ability-grants/index.js';
 import { bindGrantedAbility } from '../../dist/programs/ability-grants/bind.js';
 import { expandEffectiveKeywords } from '../../dist/programs/keyword-grants.js';
 import dominus from '../../../card-dsl/dist/cards/ven/dominus.js';
@@ -93,6 +93,29 @@ test('effective keyword expansion preserves printed costs and independent Equip 
   assert.equal(source.power, null);
 });
 
+test('static and instruction grant projections use the live source as the unique installer', () => {
+  const aura = program('aura', [{ kind: 'static', effect: { kind: 'continuous.grant-ability',
+    filter: { type: 'unit', controller: 'self', sameLocationAs: 'self' }, ability: ready } }]);
+  const f = runtime(world().unit('source', { cardId: 'aura', location: at('one') })
+    .unit('hero', { cardId: 'hero', location: at('one') }));
+  f.enter('source');
+  const source = f.snapshot('source');
+  const objects = f.engine.layers.evaluateAll();
+  const grantSource = { ref: source.ref, snapshot: source, controller: source.controller,
+    registry: f.engine.layers.registry,
+    object: ref => f.engine.layers.snapshot(ref),
+    query: filter => objects.filter(object => (filter.objectId === undefined || object.ref.id === filter.objectId) &&
+      (filter.type === undefined || object.types.includes(filter.type))) };
+  const staticEffects = projectStaticAbilityGrant(grantSource, aura.abilities[0]);
+  assert.equal(staticEffects.length, 1);
+  assert.deepEqual(staticEffects[0].filter.objectId, 'hero');
+  const instruction = grant(ready, { filter: c({ type: 'unit', zone: 'board', objectId: 'hero' }) });
+  const instructionEffects = projectAbilityGrantInstruction(grantSource, instruction);
+  assert.equal(instructionEffects.length, 1);
+  assert.deepEqual(instructionEffects[0].effect.abilities, [ready]);
+  assert.notEqual(staticEffects[0].id, instructionEffects[0].id);
+});
+
 test('a default ChainEngine executes the unchanged Dominus IR and retains its entire granted ability', () => {
   const f = runtime(world().player('A', { energy: 10, power: ['Fury', 'Calm'] })
     .hand('spell', { cardId: dominus.canonicalCardId, types: ['spell'], energy: 4, might: null, power: null })
@@ -128,6 +151,15 @@ test('multiple full ability grants keep independent registrations and revoke ind
   assert.deepEqual(f.effective('source').abilities, [ready]);
   assert.equal(f.snapshot('source').energy, null);
   assert.equal(f.snapshot('source').power, null);
+});
+
+test('same-resolution multi-target grants receive distinct stable registration ids', () => {
+  const f = runtime(world().unit('source', { cardId: 'source' }).unit('other', { cardId: 'other' }));
+  f.resolve([{ ...grant(ready, { filter: c({ type: 'unit', zone: 'board' }) }), id: 'all-units' }]);
+  const ids = f.engine.layers.registry.list().map(entry => entry.effect.id);
+  assert.equal(ids.length, 2);
+  assert.equal(new Set(ids).size, 2);
+  assert.equal(new Set(ids).size, ids.length);
 });
 
 test('valued keyword grants sum and separate keyword entries keep identity when another grant is revoked', () => {
@@ -235,7 +267,7 @@ test('an awaited choice rolls back a registered ability and its settlement ident
   f.settle();
   assert.deepEqual(f.effective('source').abilities, [ready]);
   assert.equal(f.kernel.player('A').xp, 1);
-  assert.match(f.engine.layers.registry.list()[0].effect.id, /settlement-1/);
+  assert.match(f.engine.layers.registry.list()[0].effect.id, /granted/);
 });
 
 test('invalid chosen refs and invalid full IR reject atomically after an earlier grant', () => {

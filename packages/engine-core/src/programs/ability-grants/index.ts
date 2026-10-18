@@ -1,16 +1,29 @@
-import type { Ability, Condition } from '@riftbound/card-dsl';
-import type { ObjectSnapshot, PlayerId, ResolveContext } from '../../effects/contract.js';
+import type { Ability, Condition, Instruction } from '@riftbound/card-dsl';
+import type { ContinuousEffectSpec, ObjectFilter, ObjectRef, ObjectSnapshot, PlayerId, ResolveContext } from '../../effects/contract.js';
 import { evaluateCondition } from '../../effects/interpreter/condition.js';
 import { queryObjects } from '../../effects/interpreter/selectors.js';
 import { MissingInformation } from '../../effects/interpreter/values.js';
+import { asValue } from '../../effects/interpreter/values.js';
 import { keywordDefinitionsById } from '../../effects/keywords/registry.generated.js';
 import type { ContinuousEffectRegistry } from '../../layers/duration.js';
+import { effectId, isDurationAlias, resolveContinuousDuration, targetFilter } from '../../layers/ops/index.js';
 import { refKey, sameRef } from '../../layers/types.js';
 import { translateObjectFilter } from '../filters.js';
 import { expandEffectiveKeywords, type EffectiveKeywordExpansion, type KeywordChange } from '../keyword-grants.js';
-import { fields, grantedAbilities, ignoredKeywords } from './instruction.js';
+import { abilitySettlementIdentity, evaluate, fields, grantedAbilities, ignoredKeywords } from './instruction.js';
 
 export interface AbilityQueryScope { readonly operation: string; readonly player: PlayerId; }
+export interface AbilityGrantSource {
+  readonly ref: ObjectRef;
+  /** Current source used for relative filters and conditions. */
+  readonly snapshot: ObjectSnapshot;
+  readonly controller: PlayerId;
+  /** Active registrations, normally the owner's layer-engine registry. */
+  readonly registry: ContinuousEffectRegistry;
+  /** Owner's current layer view, including copy/trait/arithmetic results. */
+  readonly object: (ref: ObjectRef) => ObjectSnapshot | null;
+  readonly query: (filter: ObjectFilter) => readonly ObjectSnapshot[];
+}
 export interface EffectiveAbilityEntry {
   /** Persistent registration identity, separate from the body's instruction ids. */
   readonly id: string;
@@ -23,6 +36,22 @@ export interface EffectiveAbilities extends EffectiveKeywordExpansion {
 function environment(context: ResolveContext) {
   return { context, host: context.source.ref, linked: (key: string) => context.linked(key),
     canLookBack: () => true, isIgnored: () => false };
+}
+function sourceContext(source: AbilityGrantSource, anchor: ObjectSnapshot): ResolveContext {
+  return {
+    source: anchor, controller: anchor.controller, timingPoint: 'cleanup-start',
+    object: source.object, lastKnown: ref => source.object(ref) ?? source.snapshot,
+    query: filter => [...source.query(filter)],
+    zoneSlice: () => { throw new MissingInformation('Ability grant query requires a zone slice'); },
+    targets: () => [], picks: () => [], player: () => { throw new MissingInformation('Ability grant query requires a player'); },
+    evaluate: () => { throw new MissingInformation('Ability grant query requires an expression evaluator'); },
+    test: () => { throw new MissingInformation('Ability grant query requires a condition evaluator'); },
+    linked: () => undefined, history: () => 0,
+    choose: () => { throw new MissingInformation('Ability grant query cannot choose'); },
+    perform: () => ({ status: 'impossible', events: [] }), link: () => {},
+    addContinuous: () => { throw new MissingInformation('Ability grant query cannot mutate layers'); },
+    registerDelayedTrigger: () => { throw new MissingInformation('Ability grant query cannot register triggers'); },
+  };
 }
 function applies(condition: unknown, context: ResolveContext, target: ObjectSnapshot): boolean {
   if (condition === undefined || condition === true) return true;
@@ -107,4 +136,71 @@ export function resolveAbilityGrants(
   entries.push(...active.entries.map(entry => ({ ...entry, id: `keyword:${refKey(source.ref)}:${entry.id}` })));
   return Object.freeze({ keywords: expansion.keywords, abilities: Object.freeze(entries.map(entry => entry.ability)),
     entries: Object.freeze(entries) });
+}
+
+/**
+ * Layer-registration projection for the unique program/static route. A static
+ * ability remains the sole installer; this adapter only evaluates its current
+ * selector/condition against the live source and exposes one registration per
+ * selected object. It neither executes nor resolves the granted ability.
+ */
+export function projectStaticAbilityGrant(
+  source: AbilityGrantSource,
+  ability: Extract<Ability, { kind: 'static' }>,
+): readonly ContinuousEffectSpec[] {
+  const effect = fields(ability.effect);
+  if (effect.kind !== 'continuous.grant-ability' && effect.kind !== 'continuous.ignore-ability') {
+    throw new TypeError('Static grant projection requires a grant/ignore effect');
+  }
+  const filter = translateObjectFilter(fields(effect.filter ?? {}));
+  const selected = source.query(filter);
+  const conditionForRegistration = ability.condition === undefined ? undefined : (object: ObjectSnapshot) => {
+    const targetContext = sourceContext(source, source.snapshot);
+    const environmentWithTarget = new Proxy(environment(targetContext), {
+      get(target, key) { return key === 'host' ? object.ref : Reflect.get(target, key); },
+    });
+    try { return evaluateCondition(ability.condition!, environmentWithTarget); }
+    catch (error) { if (error instanceof MissingInformation) return false; throw error; }
+  };
+  const identity = `${source.ref.id}:${source.ref.zoneEntryId}`;
+  return Object.freeze(selected.map((object, index) => Object.freeze({
+    id: `program-static-grant:${identity}:${index}`,
+    layer: 'ability', source: source.ref,
+    filter: { ...targetFilter({ ref: object.ref, snapshot: object }), zone: object.zone },
+    effect: { ...asValue({ ...effect, filter }) as Record<string, unknown>,
+      ...(conditionForRegistration === undefined ? {} : { condition: conditionForRegistration }) } as ContinuousEffectSpec['effect'],
+  })));
+}
+
+/**
+ * Materialize the single-instruction card shape into the same ability-layer
+ * registration stream. The card program remains the installer; no second
+ * resolver or state store is introduced. Activation/trigger execution belongs
+ * to the program/lifecycle owners after this projection.
+ */
+export function projectAbilityGrantInstruction(
+  source: AbilityGrantSource,
+  instruction: Instruction,
+): readonly ContinuousEffectSpec[] {
+  if (instruction.op !== 'continuous.grant-ability' && instruction.op !== 'continuous.ignore-ability') {
+    throw new TypeError('Ability projection requires a grant/ignore instruction');
+  }
+  const args = fields(instruction.args);
+  const selected = source.query(translateObjectFilter(fields(args.filter ?? {})));
+  const context = sourceContext(source, source.snapshot);
+  const effect: Record<string, unknown> = instruction.op === 'continuous.grant-ability'
+    ? { kind: instruction.op, abilities: grantedAbilities(evaluate(context, args.ability ?? args.abilities)) }
+    : { kind: instruction.op, ignores: ignoredKeywords(evaluate(context, args.ignores)),
+      operation: evaluate(context, args.operation), players: evaluate(context, args.players) };
+  const rawDuration = evaluate(context, args.duration ?? 'permanent');
+  if (!isDurationAlias(rawDuration)) throw new TypeError('Unknown ability grant duration');
+  const duration = resolveContinuousDuration(rawDuration, source.ref);
+  const settlement = abilitySettlementIdentity(context, instruction.op, instruction.id, evaluate(context, args.settlementId));
+  return Object.freeze(selected.map((object, index) => Object.freeze({
+    id: effectId(instruction.op, source.ref, { ref: object.ref, snapshot: object }, String(index),
+      `${instruction.id}:${settlement}`),
+    layer: 'ability', source: source.ref,
+    filter: { ...targetFilter({ ref: object.ref, snapshot: object }), zone: object.zone },
+    effect: asValue(effect) as ContinuousEffectSpec['effect'],
+  })));
 }

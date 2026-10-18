@@ -1,6 +1,6 @@
 import { validateCardProgram, type Ability } from '@riftbound/card-dsl';
 import type { ContinuousEffectSpec, Expr, InstructionResult, ObjectFilter, ObjectRef, ResolveContext, Schema, Value } from '../../effects/contract.js';
-import { effectId, isDurationAlias, resolveContinuousDuration, settlementIdentity, targetFilter } from '../../layers/ops/index.js';
+import { effectId, isDurationAlias, resolveContinuousDuration, targetFilter } from '../../layers/ops/index.js';
 import { sameRef } from '../../layers/types.js';
 import { asValue } from '../../effects/interpreter/values.js';
 
@@ -20,8 +20,27 @@ const ref = (value: unknown): value is ObjectRef => {
 const expression = (value: unknown): value is Expr => typeof value === 'object' && value !== null && 'kind' in value &&
   ['constant', 'literal', 'linked', 'linked-value', 'object-property', 'object-attribute', 'count', 'arithmetic',
     'player-property', 'turn-number', 'player-turn-count', 'object-designation'].includes(String(value.kind));
-function evaluate(ctx: ResolveContext, value: unknown): unknown {
+export function evaluate(ctx: ResolveContext, value: unknown): unknown {
   return expression(value) ? ctx.evaluate(value) : value;
+}
+
+/**
+ * Replay-stable identity for one instruction resolution. The interpreter's
+ * link writes are path-qualified, while settlementIdentity's read helper only
+ * sees unqualified links. Use the instruction path as the fallback instead of
+ * a process-global counter: repeated resolution paths remain independently
+ * addressable and rollback restores their sequence naturally.
+ */
+export function abilitySettlementIdentity(
+  ctx: ResolveContext, op: Operation, instructionId: string, requested: unknown, target?: ObjectRef,
+): string {
+  if (requested !== undefined) {
+    if (!id(requested)) throw new TypeError('settlementId must be a non-empty string');
+    return requested;
+  }
+  const scoped = ctx.linked('__settlement') ?? ctx.linked('settlement') ?? ctx.linked('__continuous.settlement');
+  if (typeof scoped === 'string' && id(scoped) && scoped !== String(ctx.linked('__settlement'))) return scoped;
+  return `${op}:${instructionId}${target === undefined ? '' : `:${target.id}:${target.zoneEntryId}`}`;
 }
 
 /** Keep complete typed IR, including nested costs, targets, and unknown opcodes.
@@ -160,12 +179,12 @@ export function executeAbilityInstruction(op: Operation, ctx: ResolveContext, ar
   if (refs !== 'impossible' && !refs.length && args.filter === undefined && args.choose === undefined) {
     return { status: 'ignored', reason: 'mistargeted' };
   }
-  const settlement = settlementIdentity(ctx.source.ref, op, key => ctx.linked(key), (key, value) => ctx.link(key, value), requested);
   const objects: Value[] = [];
   if (refs !== 'impossible') for (const [index, object] of refs.entries()) {
     const snapshot = ctx.object(object);
     if (!snapshot) continue;
     const target = { ref: object, snapshot };
+    const settlement = abilitySettlementIdentity(ctx, op, String(args.instructionId ?? linkKey), requested, object);
     ctx.addContinuous({ id: effectId(op, ctx.source.ref, target, String(index), settlement), layer: 'ability',
       source: ctx.source.ref, filter: { ...targetFilter(target), zone: snapshot.zone },
       effect: asValue(effect) as ContinuousEffectSpec['effect'] }, resolveContinuousDuration(duration, ctx.source.ref));

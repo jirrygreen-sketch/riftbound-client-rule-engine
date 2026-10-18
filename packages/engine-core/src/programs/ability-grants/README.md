@@ -52,12 +52,11 @@ or made executable by structural validation.
    `describeActivate` and inspection. These modules only provide queries and
    binding/removal handles, not a second event scanner or resolver.
 4. **EG-CONTRACT / EG-ADAPTER:** provide a deterministic resolution identity
-   to continuous registrations. The existing `settlementIdentity` helper's
-   unqualified read cannot recover the interpreter's path-qualified link from
-   a previous resolution. Repeated grants from the same incarnation therefore
-   need explicit distinct `settlementId` values until the owner connects that
-   identity. Reusing a registration id rejects atomically; no process-global
-   counter or random id was added. Minimal additive seam:
+   to continuous registrations. The helper now falls back to the stable
+   instruction path plus the target's incarnation, so repeated instruction
+   paths do not collide and no process-global counter is needed. A caller that
+   resolves the same instruction path repeatedly against the same incarnation
+   must still supply an explicit `settlementId`. Minimal additive seam:
 
    ```ts
    interface ResolveContext {
