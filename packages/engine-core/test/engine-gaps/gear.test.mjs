@@ -13,20 +13,23 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { validateCardProgram } from '../../../card-dsl/dist/ir/validation.js';
+import longSword from '../../../card-dsl/dist/cards/sfd/long-sword.js';
 import shadySpectacles from '../../../card-dsl/dist/cards/ven/shady-spectacles.js';
-import equipKeyword from '../../dist/effects/keywords/Equip.js';
-import quickDrawKeyword from '../../dist/effects/keywords/Quick-Draw.js';
 import { ChainContractBlockedError } from '../../dist/chain/engine.js';
 import { runCardScenario } from '../../dist/effects/testing/scenario/index.js';
 import {
-  advanceDuelPhysicalZoneTransitions,
-  attachDuelGear,
-  detachDuelGearsBeforeHostExit,
-  followDuelAttachedHostMove,
-  initializeDuelPermanentState,
-} from '../../dist/duel/permanent-state.js';
-import { placeDuelUnit, relocateDuelUnit } from '../../dist/duel/battlefields.js';
-import { createDuelMatch, resolveDuelMulligan } from '../../dist/duel/match-state.js';
+  attachDuelGearV2,
+  commitDuelPlayingMutationV2,
+  createDuelMatchV2,
+  moveDuelUnitV2,
+  registerDuelGearFromTrustedSourceV2,
+  resolveDuelMulliganV2,
+} from '../../dist/duel/core-v2.js';
+import {
+  commitApprovedDuelUnitKills,
+  materializeDuelUnitFromSettledSource,
+  planDuelUnitKills,
+} from '../../dist/zones/unit-lifecycle.js';
 import { TargetSelectionError } from '../../dist/target/target-plan.js';
 import { fixture, settle } from '../rules/keywords/support.mjs';
 
@@ -54,14 +57,18 @@ const hostObject = { id: 'host', types: ['unit'], might: 2, location: battlefiel
 const enemyObject = { id: 'enemy', owner: 'B', controller: 'B', types: ['unit'], might: 2, location: battlefield };
 const secondGearObject = { ...gearObject('second-gear'), cardId: 'test:second-gear' };
 
-const equipBody = () =>
-  equipKeyword.expand({ host: { canonicalCardId: shadySpectacles.canonicalCardId } })[0].body;
+const duelCardType = cardId => cardId === 'print-0' || cardId === 'print-1' ? 'Gear'
+  : cardId === 'print-2' ? 'Unit'
+    : cardId.startsWith('champion-') ? 'Champion'
+      : cardId.startsWith('legend-') ? 'Legend'
+        : cardId.startsWith('rune-') ? 'Rune'
+          : cardId.startsWith('field-') ? 'Battlefield' : 'Unit';
 
-// Explicit TEST-ONLY attested duel catalog, mirroring duel-permanent-state.test.mjs.
+// Native admitted V2 match; every carrier below enters through a trusted production mutation.
 function startingDuel() {
   const seats = ['p1', 'p2'].map(id => ({
     playerId: id,
-    mainDeck: Array.from({ length: 8 }, (_, i) => ({ uid: `${id}-main-${i}`, cardId: `print-${i}` })),
+    mainDeck: Array.from({ length: 10 }, (_, i) => ({ uid: `${id}-main-${i}`, cardId: `print-${i}` })),
     champion: { uid: `${id}-champion`, cardId: `champion-${id}` },
     legend: { uid: `${id}-legend`, cardId: `legend-${id}` },
     runeDeck: Array.from({ length: 5 }, (_, i) => ({ uid: `${id}-rune-${i}`, cardId: `rune-${i}`, domain: 'Fury' })),
@@ -69,64 +76,61 @@ function startingDuel() {
   }));
   const metadata = { matchId: 'test-match-1', dataVersion: 'test-catalog-v1', catalogDigest: 'sha256:test-verified',
     roster: seats.map(seat => ({ playerId: seat.playerId, displayName: seat.playerId })) };
-  const setup = createDuelMatch(seats, metadata, () => 0);
-  const first = resolveDuelMulligan(setup, setup.turnOrder[0], []);
-  const playing = resolveDuelMulligan(first, setup.turnOrder[1], []);
-  const originalPhysicalCards = seats.flatMap(seat => [
-    ...seat.mainDeck.map((card, i) => ({ ...card, uid: card.uid, ownerPlayerId: seat.playerId, origin: 'submitted-deck',
-      cardType: i === 0 || i === 1 ? 'Gear' : 'Unit' })),
-    { ...seat.champion, ownerPlayerId: seat.playerId, origin: 'submitted-deck', cardType: 'Champion' },
-    { ...seat.legend, ownerPlayerId: seat.playerId, origin: 'submitted-deck', cardType: 'Legend' },
-    ...seat.runeDeck.map(rune => ({ uid: rune.uid, cardId: rune.cardId, ownerPlayerId: seat.playerId,
-      origin: 'submitted-deck', cardType: 'Rune' })),
-    ...seat.battlefields.map(battlefieldCard => ({ uid: battlefieldCard.instanceId, cardId: battlefieldCard.cardId,
-      ownerPlayerId: seat.playerId, origin: 'submitted-deck', cardType: 'Battlefield' })),
-  ]);
-  const retiredPhysicalUIDs = setup.setup.selection.removedByPlayer.flatMap(player =>
-    player.battlefields.map(battlefieldCard => battlefieldCard.instanceId));
-  const proof = { matchId: metadata.matchId, dataVersion: metadata.dataVersion, catalogDigest: metadata.catalogDigest,
-    rosterPlayerIds: ['p1', 'p2'], originalPhysicalCards,
-    submittedBattlefieldUIDs: seats.flatMap(seat => seat.battlefields.map(battlefieldCard => battlefieldCard.instanceId)),
-    expectedZoneEpochByUID: Object.fromEntries(originalPhysicalCards.map(card => [card.uid, 0])),
-    retiredPhysicalUIDs, goldOwnersByUID: {}, unitTokenOwnersByUID: {} };
-  const state = initializeDuelPermanentState(playing, proof);
-  return { state, proof };
+  const setup = createDuelMatchV2(seats, metadata, () => 0, duelCardType);
+  const first = resolveDuelMulliganV2(setup, setup.turnOrder[0], []);
+  const state = resolveDuelMulliganV2(first, setup.turnOrder[1], []);
+  return state;
 }
 
-const cloneDuel = value => structuredClone(value);
 const baseOf = (state, player = 'p1') => state.board.bases.find(base => base.ownerPlayerId === player).locationId;
 const duelField = state => state.board.battlefields[0].locationId;
-const duelHand = player => ({ kind: 'hand', zonePlayerId: player });
 const duelBaseZone = locationId => ({ kind: 'board-base', locationId });
-function enterDuelGear(state, proof, uid, controller = 'p1', location = baseOf(state, controller)) {
-  const card = state.players.flatMap(player => player.hand).find(item => item.uid === uid);
-  assert.ok(card, 'fixture gear must start in a hand; use a hand UID with Gear catalog type');
-  const proposed = cloneDuel(state);
-  proposed.players = proposed.players.map(seat => ({ ...seat, hand: seat.hand.filter(item => item.uid !== uid) }));
-  proposed.gears.push({ uid, controllerPlayerId: controller, locationId: location, readied: false, attachedToUID: null });
-  const fromPlayer = state.players.find(seat => seat.hand.some(item => item.uid === uid)).playerId;
-  return advanceDuelPhysicalZoneTransitions(state, proposed, proof,
-    [{ uid, from: duelHand(fromPlayer), to: duelBaseZone(location) }]);
+const handCard = (state, uid, playerId = 'p1') =>
+  state.players.find(player => player.playerId === playerId).hand.find(card => card.uid === uid);
+function enterDuelUnit(state, uid, owner = 'p1', controller = owner) {
+  const card = handCard(state, uid, owner);
+  assert.ok(card, 'the fixture Unit must be a real card in Hand');
+  const locationId = baseOf(state, controller);
+  return commitDuelPlayingMutationV2(state, draft => {
+    const withoutSource = { ...draft, players: draft.players.map(player => player.playerId === owner
+      ? { ...player, hand: player.hand.filter(item => item.uid !== uid) } : player) };
+    const entered = materializeDuelUnitFromSettledSource(withoutSource, {
+      kind: 'card', uid, cardType: 'Unit', cardId: card.cardId, ownerPlayerId: owner,
+      controllerPlayerId: controller, locationId,
+    }, cardId => cardId === card.cardId);
+    return { match: entered, transitions: [{ uid,
+      from: { kind: 'hand', zonePlayerId: owner }, to: duelBaseZone(locationId) }] };
+  });
 }
-function enterDuelUnit(state, proof, uid, owner = 'p1', controller = owner, locationId = baseOf(state, controller)) {
-  const proposed = cloneDuel(state);
-  proposed.players = proposed.players.map(seat => ({ ...seat, hand: seat.hand.filter(item => item.uid !== uid) }));
-  proposed.board = placeDuelUnit(proposed.board, { objectId: uid, controllerPlayerId: controller, locationId });
-  proposed.unitMeta[uid] = { ownerPlayerId: owner, readied: true, damageMarks: [],
-    trait: { kind: 'card', cardId: proposed.physicalCardsByUID[uid].cardId } };
-  return advanceDuelPhysicalZoneTransitions(state, proposed, proof,
-    [{ uid, from: duelHand(state.players.find(seat => seat.hand.some(item => item.uid === uid)).playerId),
-      to: duelBaseZone(locationId) }]);
+function enterDuelGear(state, uid, controller = 'p1', location = baseOf(state, controller)) {
+  return registerDuelGearFromTrustedSourceV2(state, uid, controller, location, true);
 }
-function anyDuelGearHand(state) {
-  const card = state.players.flatMap(player => player.hand)
-    .find(card => card.uid.endsWith('-main-1') || card.uid.endsWith('-main-0'));
-  assert.ok(card, 'fixture RNG hands contain the attested Gear printing');
-  return card.uid;
+function admittedAttachedGear({ move = false } = {}) {
+  let state = startingDuel();
+  const hostUID = 'p1-main-2';
+  const gearUID = 'p1-main-1';
+  state = enterDuelUnit(state, hostUID);
+  state = enterDuelGear(state, gearUID);
+  state = attachDuelGearV2(state, gearUID, hostUID);
+  if (move) state = moveDuelUnitV2(state, hostUID, duelField(state));
+  return { state, hostUID, gearUID };
 }
-function anyDuelUnitHand(state, owner = 'p1') {
-  const seat = state.players.find(player => player.playerId === owner);
-  return seat.hand.find(card => !card.uid.endsWith('-main-1')).uid;
+function exitHostThroughKill(state, hostUID) {
+  const unit = state.board.units.find(entry => entry.objectId === hostUID);
+  const from = state.board.bases.some(base => base.locationId === unit.locationId)
+    ? duelBaseZone(unit.locationId)
+    : { kind: 'board-battlefield', locationId: unit.locationId };
+  let notices = [];
+  const exited = commitDuelPlayingMutationV2(state, draft => {
+    const detached = { ...draft, gears: draft.gears.map(gear =>
+      gear.attachedToUID === hostUID || gear.uid === hostUID ? { ...gear, attachedToUID: null } : gear) };
+    const plan = planDuelUnitKills(detached, [hostUID], 'passive');
+    const killed = commitApprovedDuelUnitKills(detached, { plan, approvedUnitUIDs: [hostUID] });
+    notices = killed.notices;
+    return { match: killed.state, transitions: [{ uid: hostUID, from,
+      to: { kind: 'trash', zonePlayerId: draft.unitMeta[hostUID].ownerPlayerId } }] };
+  });
+  return { state: exited, notices };
 }
 
 const fixtureWorld = ({ answers, extraGear = false } = {}) =>
@@ -204,13 +208,14 @@ test('EG-GEAR blocks the printed Equip activation at the unsupported equip payme
 // without a cost draft exercises the real attach primitive end to end.
 test('EG-GEAR executes the raw Equip body onto a controlled Unit through the chain', () => {
   const f = fixtureWorld({ answers: { 'target:equip-target': ['host'] } });
+  const [equip] = f.binding.activationAbilities(f.get('gear'));
   f.engine.execute({
     id: 'eg-gear-activate',
     controller: 'A',
     source: f.get('gear'),
     kind: 'activated',
     speed: 'action',
-    body: equipBody(),
+    body: equip.body,
   });
   settle(f.engine);
   assert.deepEqual(f.get('gear').attachedTo, f.ref('host'));
@@ -241,21 +246,30 @@ test('EG-GEAR rejects a Gear host because attachment requires a Unit (CR 435.1.h
   assert.equal(f.get('second-gear').attachedTo, null);
 });
 
-test('EG-GEAR drops stale Equip targets at resolve and leaves the Gear unattached (CR 719.5)', () => {
+test('EG-GEAR invalidates a locked Equip host through real Kill, then resolves without Attach or state drift', () => {
   const f = fixtureWorld({ answers: { 'target:equip-target': ['host'] } });
-  assert.throws(
-    () => f.activate('gear'),
-    error => error instanceof TargetSelectionError
-      || (error instanceof ChainContractBlockedError && /Unsupported payment kind: equip/.test(error.message)),
-  );
+  const [equip] = f.binding.activationAbilities(f.get('gear'));
+  f.engine.execute({ id: 'eg-gear-stale', controller: 'A', source: f.get('gear'),
+    kind: 'activated', speed: 'action', body: equip.body });
+  const locked = f.engine.items[0].targetPlans[0].selected;
+  assert.deepEqual(locked, [f.ref('host')], 'the host must be locked before it is invalidated');
+  const killed = f.engine.commit({ type: 'kill', object: f.ref('host') });
+  assert.equal(killed.status, 'done');
+  assert.equal(f.get('host').zone, 'trash');
+  const beforeResolve = { gear: f.get('gear').attachedTo, host: f.get('host').zone };
+  f.engine.advance();
+  settle(f.engine);
   assert.equal(f.get('gear').attachedTo, null);
-  assert.ok(f.asked.some(request => request.id === 'target:equip-target'));
+  assert.deepEqual({ gear: f.get('gear').attachedTo, host: f.get('host').zone }, beforeResolve,
+    'the stale target resolves as a no-op and the failed Attach changes no state');
   assert.ok(f.engine.pipeline.events.every(event => event.action !== 'attach'),
-    'the invalid choice is rejected before any Attach action exists');
+    'the invalidated target produces no Attach action');
+  assert.ok(f.engine.trace.some(entry => entry.step === 'resolved' && entry.item === 'eg-gear-stale'));
 });
 
 test('EG-GEAR attach is replaceable and the chain still resolves cleanly', () => {
   const f = fixtureWorld({ answers: { 'target:equip-target': ['host'] } });
+  const [equip] = f.binding.activationAbilities(f.get('gear'));
   f.kernel.addReplacement(action => action.type === 'attach' ? 'replaced' : null);
   f.engine.execute({
     id: 'eg-gear-activate',
@@ -263,7 +277,7 @@ test('EG-GEAR attach is replaceable and the chain still resolves cleanly', () =>
     source: f.get('gear'),
     kind: 'activated',
     speed: 'action',
-    body: equipBody(),
+    body: equip.body,
   });
   settle(f.engine);
   assert.equal(f.get('gear').attachedTo, null);
@@ -273,78 +287,72 @@ test('EG-GEAR attach is replaceable and the chain still resolves cleanly', () =>
     'a replaced Attach action produces no Attach event and no attachment');
 });
 
-test('EG-GEAR Quick-Draw attaches the source Gear to a friendly Unit through its trigger body (CR 819.1)', () => {
+test('EG-GEAR plays the original Long Sword program and its registered card-played trigger attaches (CR 819.1)', () => {
   const f = fixture({
+    programs: [longSword],
+    energy: { A: 4 },
     answers: { 'target:quick-draw-unit': ['runner'] },
-    programs: [],
     setup: w => w.player('A').player('B')
-      .object('quick-draw-gear', { cardId: 'sfd-022-221', types: ['gear'], tags: ['Equipment'], zone: 'board', location: battlefield, energy: null, power: null })
+      .hand('quick-draw-gear', { cardId: longSword.canonicalCardId, types: ['gear'],
+        tags: ['Equipment'], energy: 2, power: [], keywords: [] })
       .unit('runner', { might: 2 })
       .unit('enemy', { owner: 'B', controller: 'B', might: 2 }),
   });
-  const [staticTiming, trigger] = quickDrawKeyword.expand({ host: { canonicalCardId: 'sfd-022-221' } });
-  assert.equal(staticTiming.kind, 'static');
-  assert.equal(trigger.kind, 'triggered');
-  assert.deepEqual(trigger.body.map(instruction => instruction.op), ['effect.attach']);
-  f.engine.execute({
-    id: 'quick-draw-trigger',
-    controller: 'A',
-    source: f.get('quick-draw-gear'),
-    kind: 'triggered',
-    body: trigger.body,
-  });
-  assert.equal(f.engine.items.length, 1, 'Quick-Draw waits for priority like any trigger');
+  const abilities = f.binding.inspect(f.get('quick-draw-gear')).abilities;
+  assert.ok(abilities.some(ability => ability.kind === 'triggered' && ability.trigger.at === 'card-played'),
+    'the original CardProgram expands its registered play trigger');
+  f.play('quick-draw-gear');
+  assert.ok(f.engine.pipeline.events.some(event => event.timingPoint === 'card-played'));
+  assert.ok(f.engine.items.some(item => item.kind === 'triggered'),
+    'the production lifecycle queues Quick-Draw from card-played');
   settle(f.engine);
   assert.deepEqual(f.get('quick-draw-gear').attachedTo, f.ref('runner'));
   assert.ok(f.engine.trace.some(entry => entry.step === 'event' && entry.timingPoint === 'object-attached'),
     'the committed Attach action is reported as the CR 818.2 object-attached timing point');
 });
 
-test('EG-GEAR host movement carries the attached Gear without a Move (CR 719.3.a)', () => {
-  const { state, proof } = startingDuel();
-  const hostUID = anyDuelUnitHand(state);
-  const gearUID = anyDuelGearHand(state);
-  let { state: entered, nextInventory: p } = enterDuelUnit(state, proof, hostUID);
-  ({ state: entered, nextInventory: p } = enterDuelGear(entered, p, gearUID));
-  const attached = attachDuelGear(entered, p, gearUID, hostUID);
-  const movedBoard = relocateDuelUnit(attached.board, hostUID, duelField(attached));
-  const followed = followDuelAttachedHostMove(attached, p, movedBoard);
-  const gear = followed.gears[0];
+test('EG-GEAR host movement carries the attached Gear through the admitted V2 move transaction (CR 719.3.a)', () => {
+  const { state: attached, hostUID, gearUID } = admittedAttachedGear();
+  const moved = moveDuelUnitV2(attached, hostUID, duelField(attached));
+  const gear = moved.gears.find(entry => entry.uid === gearUID);
   assert.equal(gear.uid, gearUID);
   assert.equal(gear.locationId, duelField(attached), 'the Gear follows the host location exactly');
   assert.equal(gear.attachedToUID, hostUID, 'the attachment link survives the relocation');
-  assert.equal(followed.physicalCardsByUID[gearUID].zoneEpoch, attached.physicalCardsByUID[gearUID].zoneEpoch,
+  assert.equal(moved.physicalCardsByUID[gearUID].zoneEpoch, attached.physicalCardsByUID[gearUID].zoneEpoch,
     'CR 435.4.a: attaching is not a Move, so no zone epoch is charged');
-  assert.equal(followed.board.units[0].locationId, gear.locationId);
+  assert.equal(moved.board.units.find(unit => unit.objectId === hostUID).locationId, gear.locationId);
+  assert.deepEqual(moved.provenance.transitions.slice(-2).map(step => step.uid), [hostUID, gearUID],
+    'the production transaction records the host and followed Gear carrier movements');
 });
 
-test('EG-GEAR a Gear may be attached to another Gear (stacked) per permanent-state rules', () => {
-  const { state, proof } = startingDuel();
-  const hostGearUID = anyDuelGearHand(state);
-  const innerGearUID = state.players.flatMap(player => player.hand)
-    .find(card => card.uid !== hostGearUID && (card.uid.endsWith('-main-1') || card.uid.endsWith('-main-0')))?.uid;
-  assert.ok(innerGearUID, 'the attested deck has a second Gear printing');
-  let { state: entered, nextInventory: p } = enterDuelGear(state, proof, hostGearUID);
-  ({ state: entered, nextInventory: p } = enterDuelGear(entered, p, innerGearUID));
-  const attached = attachDuelGear(entered, p, innerGearUID, hostGearUID);
-  const gear = attached.gears.find(entry => entry.uid === innerGearUID);
-  assert.equal(gear.attachedToUID, hostGearUID, 'Gear stacks onto Gear without any location action');
-  assert.equal(gear.locationId, attached.gears.find(entry => entry.uid === hostGearUID).locationId);
+test('EG-GEAR a Gear may attach to another Gear through the admitted V2 attachment transaction', () => {
+  let state = startingDuel();
+  const location = duelField(state);
+  state = enterDuelGear(state, 'p1-main-1', 'p1', location);
+  state = enterDuelGear(state, 'p2-main-1', 'p2', location);
+  const host = state.gears.find(entry => entry.uid === 'p1-main-1');
+  const attached = attachDuelGearV2(state, 'p2-main-1', 'p1-main-1');
+  const gear = attached.gears.find(entry => entry.uid === 'p2-main-1');
+  assert.equal(gear.attachedToUID, 'p1-main-1', 'Gear stacks onto Gear');
+  assert.equal(gear.locationId, host.locationId);
+  assert.equal(attached.stateVersion, state.stateVersion + 1);
 });
 
-test('EG-GEAR host exit detaches the Gear first, which then stays at the old location (CR 719.5)', () => {
-  const { state, proof } = startingDuel();
-  const hostUID = anyDuelUnitHand(state);
-  const gearUID = anyDuelGearHand(state);
-  let { state: entered, nextInventory: p } = enterDuelUnit(state, proof, hostUID);
-  ({ state: entered, nextInventory: p } = enterDuelGear(entered, p, gearUID));
-  const attached = attachDuelGear(entered, p, gearUID, hostUID);
-  const detached = detachDuelGearsBeforeHostExit(attached, p, hostUID);
-  assert.equal(detached.gears[0].attachedToUID, null, 'the Gear is unlinked before the host exits');
-  assert.equal(detached.gears[0].locationId, baseOf(detached), 'the Gear stays at the last board location');
+test('EG-GEAR a real Kill exits the host, detaches first and leaves the Gear at the old location (CR 719.5)', () => {
+  const { state: attached, hostUID, gearUID } = admittedAttachedGear({ move: true });
+  const { state: exited, notices } = exitHostThroughKill(attached, hostUID);
+  const gear = exited.gears.find(entry => entry.uid === gearUID);
+  assert.equal(gear.attachedToUID, null, 'the Gear is unlinked before the host exits');
+  assert.equal(gear.locationId, duelField(attached), 'the Gear stays at the last board location');
+  assert.equal(exited.board.units.some(unit => unit.objectId === hostUID), false);
+  assert.equal(exited.players.find(player => player.playerId === 'p1').trash.some(card => card.uid === hostUID), true);
+  assert.deepEqual(notices.map(notice => notice.kind), ['Killed', 'TrashEntry']);
+  assert.deepEqual(exited.provenance.transitions.at(-1), { uid: hostUID,
+    from: { kind: 'board-battlefield', locationId: duelField(attached) },
+    to: { kind: 'trash', zonePlayerId: 'p1' } }, 'the real host zone exit is recorded');
   assert.throws(
-    () => attachDuelGear(attached, p, gearUID, detached.gears[0].locationId),
-    /unknown\/hidden\/non-card host/,
+    () => attachDuelGearV2(exited, gearUID, gear.locationId),
+    /unknown\/hidden\/non-card host|unknown board object/,
     'a location id is not a host; only a current board object can be a host',
   );
 });
