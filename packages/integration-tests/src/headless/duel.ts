@@ -62,6 +62,21 @@ export interface HeadlessMatrixOptions {
   readonly maxActions?: number;
 }
 
+export interface HeadlessRegressionOptions {
+  readonly maxTurns?: number;
+  readonly maxActions?: number;
+}
+
+export interface HeadlessRegressionRun {
+  readonly matrix: HeadlessMatrixSummary;
+  readonly determinism: readonly [HeadlessStats, HeadlessStats];
+  readonly blocked: HeadlessStats;
+  readonly targets: HeadlessStats;
+  readonly sourceTrigger: HeadlessStats;
+  readonly tamper: { readonly journal: HeadlessJournal; readonly result: HeadlessStats };
+  readonly aggregate: HeadlessRunSummary;
+}
+
 /** Counts come only from committed engine events, never from bot intentions. */
 export interface HeadlessBattleStats {
   readonly showdowns: number;
@@ -182,11 +197,18 @@ interface HeadlessWorld {
   readonly kernel: TestWorld;
   readonly host: PipelineHost & { readonly player: (id: PlayerId) => ReturnType<TestWorld["player"]> };
   readonly counters: MutableCounters;
+  readonly projectionInput: (match?: Match) => Parameters<typeof projectFor>[0];
 }
 
 export interface HeadlessWorldCheckpoint {
   readonly state: ReturnType<TestWorld["snapshot"]>;
   readonly links: TestWorld;
+}
+
+export interface HeadlessCheckpointManager {
+  checkpoint(): HeadlessWorldCheckpoint;
+  restore(checkpoint: unknown): void;
+  invalidate(): void;
 }
 
 export interface HeadlessJournal {
@@ -196,6 +218,8 @@ export interface HeadlessJournal {
   readonly commands: readonly HeadlessJournalEntry[];
   readonly events: readonly PipelineEvent[];
   readonly final: Readonly<Record<string, unknown>>;
+  /** Digest of all replay inputs. Older journals without it remain replayable. */
+  readonly integrity?: string;
 }
 
 type DraftableCard = ObjectSnapshot & { readonly cardId: string };
@@ -211,6 +235,15 @@ interface HeadlessContext {
 function digest(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value, (_key, entry: unknown) =>
     entry instanceof Map ? { map: [...entry] } : entry instanceof Set ? { set: [...entry] } : entry)).digest("hex");
+}
+
+function journalContent(journal: HeadlessJournal): Omit<HeadlessJournal, "integrity"> {
+  const { integrity: _integrity, ...content } = journal;
+  return content;
+}
+
+function journalHasValidIntegrity(journal: HeadlessJournal): boolean {
+  return journal.integrity === undefined || digest(journalContent(journal)) === journal.integrity;
 }
 
 function stableSeed(seed: string): number {
@@ -265,6 +298,23 @@ export function checkpointHeadlessWorld(kernel: TestWorld): HeadlessWorldCheckpo
 export function restoreHeadlessWorld(kernel: TestWorld, checkpoint: HeadlessWorldCheckpoint): void {
   kernel.restore(checkpoint.state);
   kernel.copyLinkedFrom(checkpoint.links);
+}
+
+/**
+ * A ChainEngine transaction can create nested checkpoints before its first
+ * mutation. Those checkpoints observe the same state, so capture it lazily and
+ * reuse it until an authoritative mutation invalidates the cache.
+ */
+export function createHeadlessCheckpointManager(kernel: TestWorld): HeadlessCheckpointManager {
+  let cached: HeadlessWorldCheckpoint | undefined;
+  return {
+    checkpoint: () => cached ??= checkpointHeadlessWorld(kernel),
+    restore: checkpoint => {
+      restoreHeadlessWorld(kernel, checkpoint as HeadlessWorldCheckpoint);
+      cached = undefined;
+    },
+    invalidate: () => { cached = undefined; },
+  };
 }
 
 function judgeRequiredCardCounts(counters: MutableCounters): readonly HeadlessJudgeRequiredCardStat[] {
@@ -333,22 +383,33 @@ function makeWorld(seed: string): HeadlessWorld {
     }
     return cachedObjects;
   };
+  let projectionInputRevision = -1;
+  let cachedProjectionInput: Parameters<typeof projectFor>[0] | undefined;
+  const projectionInput = (match?: Match): Parameters<typeof projectFor>[0] => {
+    if (projectionInputRevision !== objectRevision || cachedProjectionInput === undefined) {
+      cachedProjectionInput = projectionInputForKernel(kernel, match);
+      projectionInputRevision = objectRevision;
+    }
+    return cachedProjectionInput;
+  };
   const counters: MutableCounters = {
     judgeRequiredRejections: 0,
     judgeRequiredCards: new Map(),
     actionCoverage: emptyActionCoverage(),
   };
+  const checkpoints = createHeadlessCheckpointManager(kernel);
   const choiceRandom = new BotRandom(`${seed}:choices`);
   const choose = <T>(request: Parameters<PipelineHost["choose"]>[0]): T => botChoice(choiceRandom, request, counters) as T;
   const hostBase = createActionPipelineHost({
-    checkpoint: () => checkpointHeadlessWorld(kernel),
+    checkpoint: checkpoints.checkpoint,
     restore: snapshot => {
-      restoreHeadlessWorld(kernel, snapshot as HeadlessWorldCheckpoint);
+      checkpoints.restore(snapshot);
       objectRevision += 1;
     },
     objects,
     perform: action => {
       objectRevision += 1;
+      checkpoints.invalidate();
       return kernel.perform(action);
     },
     choose,
@@ -357,12 +418,21 @@ function makeWorld(seed: string): HeadlessWorld {
       controller,
       timingPoint,
       choose,
+      link: (key, value) => {
+        checkpoints.invalidate();
+        kernel.link(key, value);
+      },
     }),
   });
   const host = Object.assign(Object.create(Object.getPrototypeOf(hostBase)), hostBase, {
     player: (id: PlayerId) => kernel.player(id),
   }) as HeadlessWorld["host"];
-  return { kernel, host, counters };
+  return {
+    kernel,
+    host,
+    counters,
+    projectionInput: match => projectionInput(match),
+  };
 }
 
 function cardProgramStatus(cardId: string | null): "executable" | "judge-required" | "missing" {
@@ -430,9 +500,9 @@ export function headlessProjectionLeaks(projection: ProjectionV2, hiddenRefs: re
   return leaks;
 }
 
-function projectionForKernel(kernel: TestWorld, viewer: PlayerId | "spectator", match?: Match): ReturnType<typeof projectFor> {
+function projectionInputForKernel(kernel: TestWorld, match?: Match): Parameters<typeof projectFor>[0] {
   const players = ["A", "B"] as const;
-  const input = {
+  return {
     stateVersion: kernel.events.length,
     eventSeq: kernel.events.length,
     phase: match?.flow.phase ?? "playing",
@@ -490,7 +560,10 @@ function projectionForKernel(kernel: TestWorld, viewer: PlayerId | "spectator", 
     })),
     events: kernel.events,
   };
-  return projectFor(input, viewer);
+}
+
+function projectionForKernel(state: HeadlessWorld, viewer: PlayerId | "spectator", match?: Match): ReturnType<typeof projectFor> {
+  return projectFor(state.projectionInput(match), viewer);
 }
 
 function botChoice(
@@ -715,13 +788,14 @@ function finalState(context: HeadlessContext, includeProjections = true): Readon
     stateDigest: digest(state.kernel.snapshot()), linkedDigest: digest(state.kernel.linkedSnapshot()), chainDigest: digest(match.flow.chain.items),
     traceDigest: digest(match.flow.chain.trace),
     ...(includeProjections ? { projections: Object.fromEntries((["A", "B", "spectator"] as const)
-      .map(viewer => [viewer, digest(projectionForKernel(state.kernel, viewer, match))])) } : {}),
+      .map(viewer => [viewer, digest(projectionForKernel(state, viewer, match))])) } : {}),
   };
 }
 
 /** Re-execute accepted AND rejected commands, and compare the complete event stream and final state. */
 export function replayHeadlessJournal(journal: HeadlessJournal): boolean {
   try {
+    if (!journalHasValidIntegrity(journal)) return false;
     const context = createHeadlessContext(journal.seed, journal.mulligans, journal.decks);
     for (const entry of journal.commands) {
       let failure: HeadlessFailure | null = null;
@@ -764,7 +838,7 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
       privacyChecks++;
       const hidden = state.kernel.objects.filter(object => object.zone === "deck" || object.zone === "rune-deck" ||
         object.zone === "hand" && object.owner !== viewer).map(object => object.ref);
-      if (headlessProjectionLeaks(projectionForKernel(state.kernel, viewer, match), hidden).length) privacySafe = false;
+      if (headlessProjectionLeaks(projectionForKernel(state, viewer, match), hidden).length) privacySafe = false;
     }
   };
   checkPrivacy();
@@ -803,10 +877,11 @@ export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {})
     }
   }
   if (match.result().winner) termination = "winner";
-  const journal: HeadlessJournal = { seed, decks, mulligans: context.mulligans, commands,
+  const content: Omit<HeadlessJournal, "integrity"> = { seed, decks, mulligans: context.mulligans, commands,
     events: structuredClone(match.events()), final: finalState(context) };
+  const journal: HeadlessJournal = { ...content, integrity: digest(content) };
   options.onJournal?.(structuredClone(journal));
-  const projections = { A: projectionForKernel(state.kernel, "A", match), B: projectionForKernel(state.kernel, "B", match) };
+  const projections = { A: projectionForKernel(state, "A", match), B: projectionForKernel(state, "B", match) };
   const cards = judgeRequiredCardCounts(state.counters);
   return {
     seed, decks, ...match.result(), termination, guardReason, blockers,
@@ -939,5 +1014,37 @@ export function runHeadlessMatrix(options: HeadlessMatrixOptions = {}): Headless
     gamesWithReplayMismatch: aggregate.gamesWithReplayMismatch,
     gamesWithPrivacyLeak: aggregate.gamesWithPrivacyLeak,
     results,
+  };
+}
+
+/**
+ * Run the fixed regression cases once. The focused gate previously created the
+ * same deterministic, blocked, target and aggregate games repeatedly in
+ * separate tests. This shares those exact runs without reducing the matrix or
+ * any tamper/replay assertion; callers still receive all original results.
+ */
+export function runHeadlessRegression(options: HeadlessRegressionOptions = {}): HeadlessRegressionRun {
+  const shared = {
+    maxTurns: options.maxTurns ?? DEFAULT_TURN_LIMIT,
+    maxActions: options.maxActions ?? DEFAULT_ACTION_LIMIT,
+  };
+  const matrix = runHeadlessMatrix({ games: 5, decks: M1_DECK_IDS, seeds: HEADLESS_MATRIX_SEEDS, ...shared });
+  const determinismFirst = runHeadlessGame(HEADLESS_SEEDS[0]!, { decks: ["vex-unl", "vi-unl"], ...shared });
+  const determinismSecond = runHeadlessGame(HEADLESS_SEEDS[0]!, { decks: ["vex-unl", "vi-unl"], ...shared });
+  const blocked = runHeadlessGame(HEADLESS_SEEDS[0]!, shared);
+  const targets = runHeadlessGame("RIFT-739-natural-1", shared);
+  const sourceTrigger = runHeadlessGame(HEADLESS_SEEDS[2]!, { decks: ["fiora-sfd", "vex-unl"], ...shared });
+  let journal: HeadlessJournal | undefined;
+  const tamperResult = runHeadlessGame(HEADLESS_SEEDS[0]!, { ...shared, onJournal: value => { journal = value; } });
+  if (!journal) throw new Error("Headless journal callback was not invoked");
+  const aggregate = runHeadlessGames(2, HEADLESS_SEEDS.slice(0, 2), shared);
+  return {
+    matrix,
+    determinism: [determinismFirst, determinismSecond],
+    blocked,
+    targets,
+    sourceTrigger,
+    tamper: { journal, result: tamperResult },
+    aggregate,
   };
 }

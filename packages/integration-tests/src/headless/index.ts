@@ -9,8 +9,10 @@ export {
   headlessProjectionLeaks,
   checkpointHeadlessWorld,
   restoreHeadlessWorld,
+  createHeadlessCheckpointManager,
   runHeadlessGames,
   runHeadlessMatrix,
+  runHeadlessRegression,
   type HeadlessActionCoverage,
   type HeadlessBattleStats,
   type HeadlessCommand,
@@ -18,6 +20,7 @@ export {
   type HeadlessJournal,
   type HeadlessJournalEntry,
   type HeadlessWorldCheckpoint,
+  type HeadlessCheckpointManager,
   type HeadlessChoiceType,
   type HeadlessCommandType,
   type HeadlessDeckPair,
@@ -28,6 +31,8 @@ export {
   type HeadlessMatrixOptions,
   type HeadlessMatrixSummary,
   type HeadlessRunSummary,
+  type HeadlessRegressionOptions,
+  type HeadlessRegressionRun,
   type HeadlessStats,
 } from "./duel.js";
 export {
