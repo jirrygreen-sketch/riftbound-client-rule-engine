@@ -19,7 +19,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   单位，数值等于它自己的 Shield Value（807.2 多个 Assault 相加；814.1.b.2 定义
  *   Shield Value），期限到本回合结束。
  *
- * 2026-10-17 再复核：整卡仍为 judge-required；当前缺口见 judgeReason。
+ * 2026-10-18 再复核：整卡仍为 judge-required；当前缺口见 judgeReason。
  * 已合入原语与关键词声明不等于生产链路可执行；局部执行证据见同名单卡测试。
  */
 const abilities: Ability[] = [
@@ -40,12 +40,13 @@ const abilities: Ability[] = [
       {
         id: "pride-of-nazumah.grant-assault",
         // 契约 3.7 / 连续效果模板中的 continuous.grant-keyword；op 与图层消费已合入，
-        // 本指令的动态数值读取仍缺（见 judgeReason）。
+        // 运行时仍不能从目标的 Shield 关键词特征得到动态值（见 judgeReason）。
         op: "continuous.grant-keyword",
         args: {
           keyword: { kind: "constant", value: "Assault" },
           // “equal to my [Shield]”：读取被授予单位自己的 Shield Value。
-          // 关键词数值读取在合并 IR 里没有表达位置，见 judgeReason。
+          // object-property 可声明该读取形状，但当前 ObjectSnapshot 没有 shield
+          // characteristic，运行时只能保持 judge-required（见 judgeReason）。
           value: {
             kind: "object-property",
             object: { target: "pride-of-nazumah.friendly-unit" },
@@ -74,9 +75,9 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "continuous.grant-keyword 已合入；「I have Assault equal to my Shield this turn」缺持续读取目标 Shield Value（CR 814.1.b.2）的表达式及动态图层依赖，不能用一次性固定 Assault 值代替。" +
-    "ObjectSnapshot.keywords 是数组，object-property shield 在 interpreter/expr.ts 抛 MissingInformation；解释器忽略该指令，直接授予则要求 non-negative integer。" +
-    "1 Energy + Exhaust this（204.1.b、415.4/415.5）的计划能构建，但 cost/payment.ts 只允许 board/rune-zone 费用对象，传奇所在 Legend Zone（107.4）缺契约表示与支付路径，当前报 cannot-pay-cost。固定数值授予及 this-turn 到期已支持，不构成整卡执行证据。",
+    "continuous.grant-keyword 与 end-of-turn 持续期限已合入；「I have Assault equal to my Shield this turn」的 object-property 声明形状也能通过 IR 校验，但当前 ObjectSnapshot 只有 keywords 数组，没有可读取的 shield characteristic。" +
+    "interpreter/expr.ts 因此对 object-property shield 抛 MissingInformation，解释器把指令标为 ignored/mistargeted；直接调用 grant primitive 也只能在收到 non-negative integer 时执行，不能用固定 Assault 值替代 CR 814.1.b.2 的动态 Shield Value。" +
+    "1 Energy + Exhaust this（204.1.b、415.4/415.5）的计划能构建，但 cost/payment.ts 的 exhaust 校验只接受 board/rune-zone 对象；Legend Zone（107.4）不在当前 ZoneId/支付契约中，实测 payCostPlan 报 cannot-pay-cost。固定数值授予及 this-turn 到期已支持，不构成整卡执行证据。",
   abilities,
   sourceText:
     ":rb_energy_1:, :rb_exhaust:: Give a friendly unit \"I have [Assault] equal to my [Shield]\" " +
