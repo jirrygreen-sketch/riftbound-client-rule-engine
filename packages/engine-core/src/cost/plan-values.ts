@@ -3,6 +3,7 @@ import type { Domain, ObjectRef, ResolveContext, Value } from '../effects/contra
 import { bindDuelPrintedCost } from './printed-costs.js';
 import { DUEL_DOMAINS, type DuelPowerRequirement } from './resources.js';
 import { CostPlanError, type CostAmount, type CostPlanInput, type NonstandardCostAction } from './plan-types.js';
+import { chooseCostObjects } from './plan-choices.js';
 
 export function invalid(message: string): never {
   throw new CostPlanError('invalid-cost-plan', message);
@@ -58,7 +59,17 @@ function powerValue(value: Value, input: CostPlanInput): DuelPowerRequirement[] 
     return amount ? [{ amount, allowedDomains: ownDomains(input) }] : [];
   }
   if (!Array.isArray(value)) return invalid('Power must evaluate to an amount or a domain list');
+  if (value.some(item => item === 'any' || item === 'universal' || item === 'universal-power' || item === 'rainbow')) {
+    return blocked('Universal Power requires a domainless resource contract');
+  }
   return value.map(item => ({ amount: 1, allowedDomains: domains([item]) }));
+}
+
+function paymentDomains(value: unknown): Domain[] {
+  if (Array.isArray(value) && value.some(item => item === 'any' || item === 'universal' || item === 'universal-power' || item === 'rainbow')) {
+    return blocked('Universal Power requires a domainless resource contract');
+  }
+  return domains(value);
 }
 
 function reference(value: unknown, ctx: ResolveContext): ObjectRef {
@@ -70,34 +81,16 @@ function reference(value: unknown, ctx: ResolveContext): ObjectRef {
   return { id: object.id, zoneEntryId: object.zoneEntryId };
 }
 
-function choiceObjects(ctx: ResolveContext, choice: PickSpec, planId: string): ObjectRef[] {
-  if (!choice || typeof choice !== 'object' || Array.isArray(choice)) invalid('Cost choice must be an object');
-  if (!Array.isArray(choice.options)) invalid('Cost choice options must be an array');
-  identifier(choice.id);
-  const options = choice.options.map(option => reference(option, ctx));
-  if (choice.selection !== undefined && !['one', 'any', 'all', 'up-to'].includes(choice.selection)) blocked('Unsupported cost selection mode');
-  const minimum = count(choice.min ?? (choice.selection === 'all' ? options.length : choice.selection === 'up-to' || choice.selection === 'any' ? 0 : 1), 'Choice minimum');
-  const maximum = count(choice.max === null ? options.length : choice.max ?? (choice.selection === 'all' || choice.selection === 'any' ? options.length : 1), 'Choice maximum');
-  if (minimum > maximum || maximum > options.length) invalid('Invalid cost choice bounds');
-  const picks = ctx.picks(choice.id);
-  const selected: unknown = picks.length ? picks : ctx.choose<readonly ObjectRef[]>({
-    id: `${planId}:pick:${choice.id}`, type: 'select-objects', chooser: ctx.controller,
-    visibility: 'chooser-only', options, min: minimum, max: maximum
-  });
-  if (!Array.isArray(selected)) invalid('Cost choice must be an object list');
-  const refs = selected.map(item => reference(item, ctx));
-  const keys = refs.map(ref => `${ref.id}:${ref.zoneEntryId}`);
-  if (refs.length < minimum || refs.length > maximum || new Set(keys).size !== keys.length || refs.some(ref => !options.some(option => option.id === ref.id && option.zoneEntryId === ref.zoneEntryId))) invalid('Invalid cost object selection');
-  return refs;
-}
-
-function paymentObjects(ctx: ResolveContext, payment: CostPayment, input: CostPlanInput): ObjectRef[] {
-  if (payment.choice !== undefined) return choiceObjects(ctx, payment.choice, input.id);
+function paymentObjects(ctx: ResolveContext, payment: CostPayment, input: CostPlanInput, kind: string): { refs: ObjectRef[]; choice?: ReturnType<typeof chooseCostObjects>['receipt'] } {
+  if (payment.choice !== undefined) {
+    const selected = chooseCostObjects(ctx, payment.choice, input.id, kind);
+    return { refs: [...selected.selected], choice: selected.receipt };
+  }
   if (payment.objects !== undefined) {
     if (!Array.isArray(payment.objects)) invalid('Cost objects must be an array');
-    return payment.objects.map(item => reference(item, ctx));
+    return { refs: payment.objects.map(item => reference(item, ctx)) };
   }
-  return [reference(payment.object ?? 'self', ctx)];
+  return { refs: [reference(payment.object ?? 'self', ctx)] };
 }
 
 export function readCost(ctx: ResolveContext, spec: CostSpec, input: CostPlanInput, componentId: string): CostAmount | null {
@@ -124,6 +117,7 @@ export function readCost(ctx: ResolveContext, spec: CostSpec, input: CostPlanInp
   let power = spec.power === undefined ? [] : powerValue(ctx.evaluate(spec.power), input);
   let xp = 0;
   const actions: CostAmount['actions'][number][] = [];
+  const choices: NonNullable<CostAmount['choices']>[number][] = [];
   const payments = [...(spec.payments ?? []), ...(spec.discard ? [{ kind: 'discard', choice: spec.discard }] : [])];
   for (const [index, payment] of payments.entries()) {
     if (!payment || typeof payment !== 'object' || Array.isArray(payment) || typeof payment.kind !== 'string' || !payment.kind.length) invalid('Each cost payment must have a nonempty kind');
@@ -139,13 +133,17 @@ export function readCost(ctx: ResolveContext, spec: CostSpec, input: CostPlanInp
       else xp = add(xp, amount);
     } else if (kind === 'power') {
       if (payment.choice !== undefined || payment.object !== undefined || payment.objects !== undefined) invalid('A Power cost cannot contain object choices');
+      if (payment.universal === true || payment.source === 'universal' || payment.source === 'universal-power' || payment.source === 'any') {
+        blocked('Universal Power requires a domainless resource contract');
+      }
       const amount = count(expression === undefined ? 1 : ctx.evaluate(expression), 'Power');
-      if (amount) power = [...power, { amount, allowedDomains: payment.allowedDomains === undefined ? ownDomains(input) : domains(payment.allowedDomains) }];
-    } else if (['exhaust', 'discard', 'recycle', 'kill', 'reveal', 'spend-buff'].includes(kind)) {
+      if (amount) power = [...power, { amount, allowedDomains: payment.allowedDomains === undefined ? ownDomains(input) : paymentDomains(payment.allowedDomains) }];
+    } else if (['exhaust', 'discard', 'recycle', 'kill', 'banish', 'disempower', 'reveal', 'spend-buff'].includes(kind)) {
       if (payment.allowedDomains !== undefined) invalid('A nonstandard cost cannot select Power domains');
       if ([payment.choice, payment.object, payment.objects].filter(value => value !== undefined).length > 1) invalid('A nonstandard cost must use exactly one object selection form');
       if (input.ignoreAllCosts) continue;
-      const objects = paymentObjects(ctx, payment, input);
+      const selected = paymentObjects(ctx, payment, input, kind);
+      const objects = selected.refs;
       const identities = objects.map(object => `${object.id}:${object.zoneEntryId}`);
       if (new Set(identities).size !== identities.length) invalid('The same object cannot be selected twice for one cost');
       const amount = expression === undefined ? undefined : count(ctx.evaluate(expression), 'Nonstandard cost amount');
@@ -154,16 +152,28 @@ export function readCost(ctx: ResolveContext, spec: CostSpec, input: CostPlanInp
         const action: NonstandardCostAction = kind === 'reveal'
           ? { type: 'reveal', object }
           : kind === 'spend-buff' ? { type: 'spend-buff', object, amount: amount ?? 1 }
-          : { type: kind as 'exhaust' | 'discard' | 'recycle' | 'kill', object };
-        actions.push({ id: `${componentId}:payment:${index}:${objectIndex}`, componentId, action });
+          : { type: kind as 'exhaust' | 'discard' | 'recycle' | 'kill' | 'banish' | 'disempower', object };
+        actions.push({ id: `${componentId}:payment:${index}:${objectIndex}`, componentId, action, ...(selected.choice ? { choiceId: selected.choice.id } : {}) });
+      }
+      if (selected.choice) {
+        choices.push(selected.choice);
       }
     } else blocked(`Unsupported payment kind: ${payment.kind}`);
   }
-  return { energy, power, xp, actions };
+  return { energy, power, xp, actions, ...(choices.length ? { choices } : {}) };
 }
 
 export function combineCosts(costs: readonly CostAmount[]): CostAmount {
-  return costs.reduce((total, cost) => ({ energy: add(total.energy, cost.energy), power: [...total.power, ...cost.power], xp: add(total.xp, cost.xp), actions: [...total.actions, ...cost.actions] }), emptyCost());
+  return costs.reduce((total, cost) => {
+    const choices = [...(total.choices ?? []), ...(cost.choices ?? [])];
+    return {
+      energy: add(total.energy, cost.energy),
+      power: [...total.power, ...cost.power],
+      xp: add(total.xp, cost.xp),
+      actions: [...total.actions, ...cost.actions],
+      ...(choices.length ? { choices } : {})
+    };
+  }, emptyCost());
 }
 
 export function orderedById<T extends { readonly id: string }>(values: readonly T[], order?: readonly string[]): T[] {

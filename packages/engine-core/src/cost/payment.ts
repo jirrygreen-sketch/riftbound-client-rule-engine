@@ -43,6 +43,16 @@ function checkAction(ctx: ResolveContext, payment: PreparedCostAction): void {
     if (object.controller !== ctx.controller || !['board', 'rune-zone'].includes(object.zone) || object.exhausted) cannotPay('An exhaust cost requires a ready controlled object on the Board', payment);
   } else if (action.type === 'recycle') {
     if (object.owner !== ctx.controller || !(object.zone === 'trash' || object.zone === 'rune-zone' && object.types.some(type => type.toLowerCase() === 'rune'))) cannotPay('A recycle cost requires an owned card in Trash or a Rune in the Rune Zone', payment);
+  } else if (action.type === 'banish') {
+    if (object.owner !== ctx.controller || object.zone === 'banishment') cannotPay('A banish cost requires an owned object outside Banishment', payment);
+  } else if (action.type === 'disempower') {
+    if (object.controller !== ctx.controller || !['board', 'rune-zone'].includes(object.zone)) cannotPay('A disempower cost requires a controlled object on the Board', payment);
+    const empowered = (object as typeof object & { readonly empowered?: unknown }).empowered;
+    if (typeof empowered !== 'number' && typeof empowered !== 'boolean') {
+      throw new CostPlanError('judge-required', 'Disempower payment requires an authoritative Empowered state', payment);
+    }
+    const active = typeof empowered === 'number' ? Number.isSafeInteger(empowered) && empowered > 0 : empowered;
+    if (!active) cannotPay('A disempower cost requires an Empowered object', payment);
   } else if (action.type === 'kill') {
     if (object.controller !== ctx.controller || object.zone !== 'board') cannotPay('A kill cost requires a controlled permanent on the Board', payment);
   } else if (action.type === 'spend-buff') {
@@ -112,7 +122,17 @@ function payCostPlanNow(ctx: ResolveContext, plan: CostPlan, options: CostPaymen
     events.push(...outcome.events);
     actions.push({ ...payment, status: outcome.status });
   }
-  return freezeCost(structuredClone({ planId: plan.id, player: plan.player, paid: true as const, total: plan.total, power: prepared.power, additional: plan.selectedAdditional.map(cost => ({ ...cost, paid: true as const })), actions, events }));
+  return freezeCost(structuredClone({
+    planId: plan.id,
+    player: plan.player,
+    paid: true as const,
+    total: plan.total,
+    power: prepared.power,
+    additional: plan.selectedAdditional.map(cost => ({ ...cost, paid: true as const })),
+    ...(plan.total.choices?.length ? { choices: plan.total.choices } : {}),
+    actions,
+    events
+  }));
 }
 
 /**

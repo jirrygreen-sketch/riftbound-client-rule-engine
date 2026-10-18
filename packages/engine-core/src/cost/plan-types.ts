@@ -50,13 +50,24 @@ export interface CostPlanInput {
 }
 
 export type NonstandardCostAction = Extract<GameAction, {
-  type: 'exhaust' | 'discard' | 'recycle' | 'kill' | 'reveal' | 'spend-buff'
+  type: 'exhaust' | 'discard' | 'recycle' | 'kill' | 'banish' | 'disempower' | 'reveal' | 'spend-buff'
 }>;
+
+/** A non-target object selection locked by Finalize for a cost component. */
+export interface CostChoiceReceipt {
+  readonly id: string;
+  readonly kind: string;
+  readonly min: number;
+  readonly max: number;
+  readonly count: number;
+  readonly objects: readonly ObjectRef[];
+}
 
 export interface CostAction {
   readonly id: string;
   readonly componentId: string;
   readonly action: NonstandardCostAction;
+  readonly choiceId?: string;
 }
 
 export interface CostAmount {
@@ -64,6 +75,7 @@ export interface CostAmount {
   readonly power: readonly DuelPowerRequirement[];
   readonly xp: number;
   readonly actions: readonly CostAction[];
+  readonly choices?: readonly CostChoiceReceipt[];
 }
 
 export interface CostComponent {
@@ -135,6 +147,7 @@ export interface CostPaymentReceipt {
   readonly total: CostAmount;
   readonly power: DuelPaymentPlan;
   readonly additional: readonly { readonly id: string; readonly kind: OptionalCostInput['kind']; readonly paid: true }[];
+  readonly choices?: readonly CostChoiceReceipt[];
   readonly actions: readonly { readonly id: string; readonly action: GameAction; readonly status: 'done' | 'replaced' }[];
   readonly events: readonly GameEvent[];
 }
