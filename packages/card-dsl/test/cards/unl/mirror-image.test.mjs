@@ -8,6 +8,7 @@ import copy from "../../../../engine-core/dist/effects/instructions/effect.copy.
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CANONICAL_ID =
   "card.hash-1624e5bc418da476f531d04662765fc6e20f06c4b970aa940a696af64789318b";
@@ -225,11 +226,30 @@ test("unl-200-219 Mirror Image golden: the token half runs for real and the bloc
   assert.deepEqual(kernel.events.map((event) => event.action), ["create-token", "play"]);
 });
 
+test("unl-200-219 Mirror Image golden: Temporary already expands to a real beginning-start kill body", () => {
+  const temporary = keywordDefinitionsById.get(grantTemporary.args.keyword.value);
+  assert.ok(temporary);
+  const [trigger] = temporary.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(trigger.trigger.at, "beginning-start");
+  assert.deepEqual(trigger.trigger.filter, { event: "beginning-start", player: "self" });
+  assert.equal(trigger.optional, false);
+  const kernel = world().unit("reflection", {
+    owner: "B", might: 0, isToken: true, keywords: [{ id: "Temporary" }], energy: null, power: null
+  }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("reflection"), controller: "B" });
+  const result = resolveChainBody(trigger.body, context);
+  assert.equal(result.status, "executed");
+  assert.equal(context.getObject("reflection").zone, "trash");
+  assert.equal(context.getObject("reflection").energy, null);
+  assert.equal(context.getObject("reflection").power, null);
+  assert.deepEqual(context.events.map(event => event.action), ["kill"]);
+});
+
 test.todo(
   "unl-200-219 Mirror Image: apply \"It becomes a copy of that unit\" through the Copy layer so the created token takes the chosen unit's copyable printed traits without a new object (CR 446.1/446.2/446.3, 479.1.a-479.1.d; effect.copy's effect mode and the layers copy work are still blocked)"
 );
 test.todo(
-  "unl-200-219 Mirror Image: give the token [Temporary] and expand it into its kill trigger at the start of the controller's Beginning Phase before scoring (CR 816.1.b/816.1.c, 816.2.a; Temporary KeywordDef and trigger consumer are missing)"
+  "unl-200-219 Mirror Image: refresh a newly granted Temporary's beginning-start subscription before scoring (CR 816.1.b/816.1.c, 816.2.a; KeywordDef and general trigger binding exist, dynamic grant lifecycle is missing)"
 );
 test.todo(
   "unl-200-219 Mirror Image: let the played token enter ready as an entry-state override (CR 143.4/184.1/185.2.d; create-token supports no entry state, and a later ready action would emit a wrong becomes-ready event - token entry work)"

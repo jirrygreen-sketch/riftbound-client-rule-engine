@@ -95,6 +95,7 @@ test("sfd-191-221 Rabadon's Deathcrown: identity, ruleset, status, judgeReason a
   // consumer, not a missing continuous.deck primitive.
   assert.match(program.judgeReason, /continuous\.deck/);
   assert.match(program.judgeReason, /no layer mapping/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("sfd-191-221 Rabadon's Deathcrown: the merged binder rejects [Unique]'s continuous.deck shape (CR 825.3.a)", () => {

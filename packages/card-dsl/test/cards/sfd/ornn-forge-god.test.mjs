@@ -2,8 +2,8 @@
 //
 // Execution evidence (the printed 6 energy payment, the real Deflect/
 // Weaponmaster keyword expansion, the fail-closed target.tax bind and the
-// unevaluated friendly-gear count) lives in the RIFT-674 parameterized golden:
-// test/cards/templates/keyword-keyword-static-674.test.mjs.
+// unevaluated friendly-gear count) lives in the RIFT-698 parameterized golden:
+// test/cards/templates/keyword-keyword-static-698.test.mjs.
 // This file keeps validation, identity, verbatim text, declared status and the
 // key structure of the printed abilities.
 import assert from "node:assert/strict";

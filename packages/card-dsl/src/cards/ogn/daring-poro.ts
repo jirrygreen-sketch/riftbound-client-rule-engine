@@ -22,11 +22,12 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status 判定（README 第 2 节）：
  * - CardProgram keyword expansion and static binding are present. The remaining
- *   execution gap is in the combat state: Assault.ts still reads the legacy
- *   `designation` property while ObjectSnapshot exposes `combatRole`, and the
- *   live CombatFlow has not yet published attacker designations. The static
- *   binder already evaluates compare conditions; the missing characteristic
- *   prevents this modifier from following the combat boundary.
+ *   execution gap is in the production condition/combat path: Assault.ts still
+ *   emits the legacy `designation` property, while the new expr-ext evaluator
+ *   maps that spelling to ObjectSnapshot.combatRole but is not routed by the
+ *   production static binder. CombatFlow also has not published attacker
+ *   designations; the combat-start transaction remains blocked. The missing
+ *   production adapter prevents this modifier from following the combat boundary.
  * 保留有依据的声明，执行证据写 test.todo，不近似实现。
  */
 const daringPoro = {
@@ -34,9 +35,11 @@ const daringPoro = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Assault 的攻击者特征映射与实时生产（CR 807.1.c/807.1.d/807.1.d.1）：" +
-    "Assault.ts 的条件读取 designation，但 ObjectSnapshot 提供 combatRole，CombatFlow 也未发布该角色的进入/退出变化。" +
-    "静态 binder 已能求值 compare(object-property) 条件，仍需让实际攻击者状态驱动 +1 Might 的生效与失效。",
+    "缺 Assault 的攻击者特征生产接线（CR 807.1.c/807.1.d/807.1.d.1）：" +
+    "Assault.ts 仍生成读取 designation 的 compare 条件；expr-ext/evaluate.ts 虽已把 designation 映射到 " +
+    "ObjectSnapshot.combatRole，programs/statics.ts 的生产条件回调仍走基础 evaluator，未接入该扩展。" +
+    "同时 combat/flow.ts 的 combat-start-transaction 仍阻塞，尚未发布攻击者角色的进入/退出变化；" +
+    "因此 +1 Might 不能随真实 Combat 边界生效与失效。",
   abilities: [{ kind: "keyword", keyword: "assault" }],
   sourceText: "[Assault] (+1 :rb_might: while I'm an attacker.)"
 } satisfies CardProgram;

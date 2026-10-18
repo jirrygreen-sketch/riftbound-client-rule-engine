@@ -1,3 +1,7 @@
+// RIFT-664 template execution evidence (trigger -> Finalize target locking,
+// no-legal-target boundary, Assault-value read gap) is in
+// ../templates/keyword-triggered-attack-declared-effect-664.test.mjs. This
+// card stays judge-required for the printed gaps asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -44,7 +48,7 @@ test("sfd-028-221 Lucian, Gunslinger: identity, ruleset, status and verbatim tex
 
 test("sfd-028-221 Lucian, Gunslinger: judgeReason names the Assault-value and attack-declared gaps", () => {
   assert.match(program.judgeReason, /Assault/);
-  assert.match(program.judgeReason, /关键词数值|keyword.*Expr/);
+  assert.match(program.judgeReason, /keywords\.assault\.value|Assault Value/);
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /combat-start-transaction/);
@@ -52,7 +56,7 @@ test("sfd-028-221 Lucian, Gunslinger: judgeReason names the Assault-value and at
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /showdown-conversion/);
   assert.match(program.judgeReason, /383\.4\.e\.2\.a/);
-  assert.match(program.judgeReason, /466\.2\.d/);
+  assert.match(program.judgeReason, /466\.2\.c/);
   assert.match(program.judgeReason, /807\.2/);
   assert.match(program.judgeReason, /effects\/interpreter\/expr\.ts/);
   assert.match(program.judgeReason, /translateInstructionTargets.*translateObjectFilter/);
@@ -135,6 +139,8 @@ test("sfd-028-221 Lucian, Gunslinger: the attack trigger targets one enemy unit 
   assert.equal(attack.kind, "triggered");
   assert.equal(attack.trigger.at, "attack-declared");
   assert.deepEqual(attack.trigger.filter, { event: "attack-declared", filter: { source: "self" } });
+  // 383.4.e.2.a: the condition is checked only once per combat.
+  assert.equal(attack.trigger.once, "per-combat");
   assert.equal(attack.optional, false);
   assert.equal(attack.body.length, 1);
 

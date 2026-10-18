@@ -1,6 +1,11 @@
-// RIFT-643: static|| execution evidence is consolidated in ../templates/static-643.test.mjs.
-// This file retains the card's identity, status, sourceText, and key IR guards.
-
+// RIFT-667 single-card golden: validation, identity and the key IR structure of
+// Marai Spire. The whole-card execution evidence (its own scenario through the
+// generic card harness plus the measured outcome of binding its own static ability
+// with the production binder) lives in `test/cards/templates/static-667.test.mjs`.
+//
+// The card stays judge-required: the binder rejects the appliesTo anchor and the
+// printed keyword filter, cost.modify has no layer mapping, and repeat.cost is
+// never collected at Finalize. Nothing here approximates the printed discount.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -10,42 +15,34 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { fixture } from "../../../../engine-core/test/programs/helpers.mjs";
 
+const CANONICAL = "card.hash-e00a3fe8d0f18d062b1743d6d5d1eb534e884d83303af037d7c1d05c3a6a21bd";
+const SOURCE_TEXT = "While you control this battlefield, friendly [Repeat] costs cost :rb_energy_1: less.";
 const [ability] = program.abilities;
 
-test("sfd-211-221 Marai Spire: validates, is registered and keeps identity/source text", () => {
+test("sfd-211-221 Marai Spire: program validates, is registered and keeps identity", () => {
   const result = validateCardProgram(program);
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
   assert.deepEqual(result.issues, []);
-  assert.equal(result.ok, true);
+  assert.equal(cardProgramsById.get(CANONICAL), program);
+  assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(
-    program.canonicalCardId,
-    "card.hash-e00a3fe8d0f18d062b1743d6d5d1eb534e884d83303af037d7c1d05c3a6a21bd"
-  );
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /cost\.modify/);
-  assert.match(program.judgeReason, /Repeat/);
-  assert.match(program.judgeReason, /repeat-additional-cost/);
+  assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /repeat\.cost/);
-  assert.match(program.judgeReason, /programs\/statics\.ts/);
-  assert.equal(
-    program.sourceText,
-    "While you control this battlefield, friendly [Repeat] costs cost :rb_energy_1: less."
-  );
-  assert.equal(cardProgramsById.get(program.canonicalCardId), program);
+  assert.match(program.judgeReason, /Finalize/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("sfd-211-221 Marai Spire: static Repeat-cost discount scoped to friendly Repeat sources", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "static");
+  // 356.4 / 356.4.b: "cost [1] less" is a discount; 820.1.c names the affected
+  // additional cost.
   assert.equal(ability.effect.kind, "cost.modify");
   assert.deepEqual(ability.effect.value, { kind: "constant", value: { energy: -1 } });
   assert.equal(ability.effect.appliesTo, "repeat-additional-cost");
-  assert.deepEqual(ability.effect.filter, {
-    keyword: "Repeat",
-    controller: "self",
-    zone: "board"
-  });
-  // "While you control this battlefield" (190.6.a / 190.6.d) is kept explicit.
+  assert.deepEqual(ability.effect.filter, { keyword: "Repeat", controller: "self", zone: "board" });
+  // 190.6.a / 190.6.d: "While you control this battlefield" is kept explicit.
   assert.deepEqual(ability.condition, {
     kind: "compare",
     left: {
@@ -58,53 +55,37 @@ test("sfd-211-221 Marai Spire: static Repeat-cost discount scoped to friendly Re
   });
 });
 
-test("sfd-211-221 Marai Spire: the merged static binder refuses this ability", () => {
-  // The production binder is the only CardProgram -> layers path for statics.
-  // It rejects appliesTo "repeat-additional-cost" before layerFor could even
-  // report that cost.modify has no mapping.
+test("sfd-211-221 Marai Spire: the merged static binder refuses this ability in three measured steps", () => {
+  // programs/statics.ts is the only CardProgram -> layers path for statics.
   const f = fixture({ cards: [{ id: "spire", cardId: program.canonicalCardId, types: ["battlefield"] }] });
+  const host = f.kernel.getObject("spire");
+  // (a) The authored appliesTo anchor is rejected outright.
   assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic(ability, f.kernel.getObject("spire")),
-    error => {
-      assert.equal(error.code, "judge-required");
-      assert.match(error.message, /repeat-additional-cost/);
-      return true;
-    }
+    () => createEngineStaticBinder(f.engine).bindStatic(ability, host),
+    error => error.code === "judge-required" && /repeat-additional-cost/.test(error.message)
   );
-  // Two further blockers are also owned by the merged binder: the printed
-  // `keyword: "Repeat"` filter field is unknown to staticFilter, and removing
-  // it leaves layerFor without any cost.modify mapping. Each is asserted
-  // separately so the reason names only live gaps.
-  // (a) With the unsupported appliesTo dropped, the printed keyword filter
-  // reaches staticFilter and is refused there.
-  const { appliesTo: _appliesTo, ...withoutAppliesTo } = ability.effect;
+  // (b) With the anchor dropped, the printed keyword filter is refused.
+  const { appliesTo: _appliesTo, ...withoutAnchor } = ability.effect;
   assert.throws(
-    () => createEngineStaticBinder(f.engine).bindStatic({ ...ability, effect: withoutAppliesTo }, f.kernel.getObject("spire")),
-    error => {
-      assert.equal(error.code, "judge-required");
-      assert.match(error.message, /Unsupported static filter field keyword/);
-      return true;
-    }
+    () => createEngineStaticBinder(f.engine).bindStatic({ ...ability, effect: withoutAnchor }, host),
+    error => error.code === "judge-required" && /Unsupported static filter field keyword/.test(error.message)
   );
-  // (b) With both obstacles removed, layerFor still has no cost.modify mapping.
+  // (c) With both obstacles removed, layerFor still has no cost.modify mapping.
   assert.throws(
     () => createEngineStaticBinder(f.engine).bindStatic(
       { ...ability, effect: { ...ability.effect, appliesTo: "self", filter: { controller: "self", zone: "board" } } },
-      f.kernel.getObject("spire")
+      host
     ),
-    error => {
-      assert.equal(error.code, "judge-required");
-      assert.match(error.message, /no layer mapping/);
-      return true;
-    }
+    error => error.code === "judge-required" && /no layer mapping/.test(error.message)
   );
+  assert.deepEqual(f.engine.layers.registry.list(), []);
 });
 
-// The discount is not executable: no production consumer binds a static
-// cost.modify into Finalize and Repeat's repeat.cost has no collector.
 test.todo(
-  "sfd-211-221 Marai Spire: apply the -1 energy discount to friendly Repeat additional costs at Finalize (static cost.modify -> cost plan consumer; 356.4/356.4.f/356.6)"
+  "sfd-211-221 Marai Spire: apply the -1 Energy discount to friendly Repeat additional costs at Finalize " +
+    "(CR 190.6.a / 190.6.d / 356.4 / 356.4.f / 356.6) - needs a static cost.modify consumer"
 );
 test.todo(
-  "sfd-211-221 Marai Spire: Repeat repeat.cost collection at Finalize so the discount has a target cost to modify (keywords/Repeat.ts)"
+  "sfd-211-221 Marai Spire: collect Repeat repeat.cost at Finalize so there is a cost to modify " +
+    "(CR 820.1.c) - Repeat's KeywordDef expansion has no consumer"
 );

@@ -31,12 +31,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   修改，由已合入的 continuous.might（RIFT-258）注册；317.2.c / 468.7.c 的
  *   "this turn" 由 end-of-turn 到期处理。
  *
- * status = judge-required（README 第 2 节）。2026-10-17 复核：两条能力里可执行的部分已
+ * status = judge-required（README 第 2 节）。2026-10-18 复核：两条能力里可执行的部分已
  * 拿到真实执行证据，未合入的缺口逐条保留（每条均实测）。
  * 已合入（golden 用解释器 + 参考内核真实执行）：
  * - effect.kill 的 picks 路径执行指令内费用（355.10.c.1）；
  * - continuous.might 注册 "+2 [M] this turn" 的 arithmetic 图层效果（RIFT-258），
  *   并由 layers 引擎求值。
+ * - Deploy 的清洁期豁免（830.1.b.3）已接入 turn/flow.ts（按关键词 "deploy" 跳过 non-Unit
+ *   Gear 的 Recall），实测带 Deploy 的装备留在战场、不带则该步抛 recall-action。
  * 未合入（不近似实现）：
  * 1. Bomb gear token 定义（187.12）：effect.token 的冻结定义表只有 recruit /
  *    sand-soldier / mech / reflection / tentacle，且 TokenSpec 只能承载印制的统计
@@ -161,7 +163,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "本次复核后仍缺四项真实依赖，均不近似实现：" +
+    "2026-10-18 复核后仍缺四项真实依赖，均不近似实现：" +
     "(1) CR 187.12 的 Bomb gear token 定义不在 effect.token 的冻结定义表内（只有 recruit / sand-soldier / mech / reflection / tentacle），" +
     "TokenSpec 也只承载印制统计与 keywords，无法携带 Bomb 自己的 [Deploy] / [Deathknell] 能力文本；对 \"bomb\" 执行返回 " +
     "negated(impossible, blockedReason \"token-definition-or-abilities-judge-required\")。" +
@@ -172,6 +174,8 @@ export default {
     "Deploy 的 static continuous.location 在生产静态绑定即被拒绝（实测 judge-required: Static ability kind " +
     "continuous.location has no layer mapping）、Finalize 目的地校验与 Deploy hold 触发的注册/地点过滤尚未接通" +
     "（实测 { event: \"hold\", here: true } 被拒：Unsupported filter field here）；" +
+    "Deploy 的清洁期免召回（830.1.b.3）已合入 turn/flow.ts，实测带 Deploy 的非 Unit 装备留在战场、" +
+    "不带该关键词则在该步抛 recall-action，故这一条不再是缺口；" +
     "Deathknell [Effect] 正文所需的 trigger.leave 原语仍未注册，" +
     "因此 \"deal 2 to an enemy unit here and kill all other Bombs you control here\" 的 here 地点与集合消灭形态都没有展开。" +
     "(4) defense-declared 时点虽已在 timing-points.ts 声明，但 combat/flow.ts 在 combat 开启路径抛出 " +

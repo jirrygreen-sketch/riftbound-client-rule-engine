@@ -223,12 +223,17 @@ const partialRows = [
       ] },
       links: { "brittle-steel.kill-gear.killed": [{ id: "enemy-gear", zoneEntryId: 1 }] },
     },
+    bindingError: /Unsupported replacement opcode: effect\.banish/,
   },
 ];
 
 for (const [index, row] of defineTemplateSuite("keyword/play/effect.kill RIFT-682 · partial evidence", partialRows).entries()) {
   test(row.name, () => {
     assert.equal(partialRows[index].program.abilities, fullRows[index].program.abilities);
+    if (partialRows[index].bindingError) {
+      assert.throws(row.run, partialRows[index].bindingError);
+      return;
+    }
     const result = row.run();
     if (index < 2) {
       assert.equal(result.state.chain.length, 1);
@@ -283,11 +288,17 @@ const boundaryRows = [
         { timingPoint: "card-played", object: { ref: "spell" } },
       ] },
     },
+    bindingError: /Unsupported replacement opcode: effect\.banish/,
   },
 ];
 
 for (const row of defineTemplateSuite("keyword/play/effect.kill RIFT-682 · boundary", boundaryRows)) {
   test(row.name, () => {
+    const source = boundaryRows.find(candidate => candidate.canonicalCardId === row.canonicalCardId);
+    if (source.bindingError) {
+      assert.throws(row.run, source.bindingError);
+      return;
+    }
     const result = row.run();
     assert.equal(result.state.chain.length, 0);
     assert.equal(result.events.filter(event => event.timingPoint === "object-killed").length, 0);

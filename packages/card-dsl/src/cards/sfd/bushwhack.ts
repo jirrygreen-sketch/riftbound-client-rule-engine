@@ -35,7 +35,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   a token whose default state would be ready (149.1 / 359.2.d: non-Unit Gear
  *   enters Ready at the player's Base), not a later Exhaust (143.4).
  *
- * Status: judge-required (re-checked 2026-10-17). Three real gaps, none
+ * Status: judge-required (re-checked 2026-10-18). Three real gaps, none
  * approximated:
  * - Hidden has no executable reader: the merged `cost.hidden` static effect has
  *   no consumer that grants the Hide action, the facedown zone or the facedown
@@ -61,7 +61,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "复核 2026-10-17：(1) cost.hidden 尚未接通 Hide 动作、facedown 区域与次回合打出许可" +
+    "复核 2026-10-18：(1) cost.hidden 尚未接通 Hide 动作、facedown 区域与次回合打出许可" +
     "（811.1.b/811.1.c/811.6），programs/statics.ts 的 layerFor 对该静态效果没有映射。" +
     "(2) replacement.enter 原语与 this-turn 时限已合入，但 appliesTo 必须标识 host/source，" +
     "replacement/bind.ts 的 matchesEnterAction 也仅改写宿主的 chain→board move-zone，不能覆盖其他友方单位；" +

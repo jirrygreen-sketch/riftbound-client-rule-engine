@@ -1,3 +1,8 @@
+// Whole-card execution evidence for the supported slice (the card-played self
+// trigger and a count-driven effect.draw through the real ProgramBinding /
+// ChainEngine path) lives in
+// test/cards/templates/triggered-card-played-effect-draw-656.test.mjs. This file
+// keeps validation, identity, structure and the remaining mightGte gap.
 import assert from "node:assert/strict";
 import test from "node:test";
 

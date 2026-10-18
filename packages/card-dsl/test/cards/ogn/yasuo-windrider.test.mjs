@@ -68,12 +68,13 @@ test("ogn-205-298 Yasuo, Windrider: program validates and has expected identity"
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /effect\.score/);
   assert.match(program.judgeReason, /470\.2/);
-  // RIFT-359 is merged; the current gap is the closed event vocabulary plus the
-  // event-level history predicate and its production host adapter.
+  // The pipeline already evaluates event predicates; the missing history
+  // predicate must distinguish this turn's real Moves and simultaneous hits.
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.match(program.judgeReason, /invalid-event-type/);
   assert.match(program.judgeReason, /condition\.history/);
   assert.match(program.judgeReason, /testTrigger/);
+  assert.match(program.judgeReason, /Recall/);
   assert.match(program.judgeReason, /383\.1\.b/);
   assert.doesNotMatch(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /Ganking/);
@@ -89,6 +90,26 @@ test("ogn-205-298 Yasuo, Windrider: program validates and has expected identity"
   assert.match(program.judgeReason, /authoritative-runtime-p4/);
   assert.match(program.judgeReason, /permission\.routes/);
   assert.equal(program.sourceText, SOURCE_TEXT);
+});
+
+test("ogn-205-298 Yasuo, Windrider golden: Move history is specific to this object and excludes zone transitions", () => {
+  const base = world()
+    .unit("yasuo", { might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .unit("other-unit", { might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .hand("arrival", { types: ["unit"], might: 2 })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("yasuo") });
+  assert.equal(kernel.perform({ type: "move-zone", object: kernel.ref("arrival"), to: "battlefield", location: { type: "battlefield", id: "bf-2" } }).status, "done");
+  assert.equal(kernel.perform({ type: "move-location", object: kernel.ref("other-unit"), to: { type: "battlefield", id: "bf-2" } }).status, "done");
+  for (const destination of ["bf-2", "bf-1", "bf-2"]) assert.equal(moveYasuo(kernel, destination).result.status, "executed");
+  const outcome = runAbilityBody([{
+    id: "yasuo-history", op: "condition.history",
+    args: { query: literal({ action: "move-location", object: kernel.ref("yasuo"), scope: "turn" }), operator: literal("eq"), right: literal(3) }
+  }], kernel);
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(outcome.results[0].result.linkedValues, { count: 3, value: true });
+  assert.equal(kernel.history({ action: "move-location" }), 4);
+  assert.equal(kernel.player("A").score, 0);
 });
 
 test("ogn-205-298 Yasuo, Windrider: Ganking keyword plus a third-move trigger that scores 1 point", () => {

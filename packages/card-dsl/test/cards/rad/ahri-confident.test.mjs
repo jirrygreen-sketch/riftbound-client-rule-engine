@@ -29,6 +29,8 @@ test("rad-038-167 Ahri, Confident: identity, ruleset, status, judgeReason and so
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  assert.ok(program.judgeReason.includes("you reduce"));
+  assert.ok(program.judgeReason.includes("previousMight/currentMight"));
   // README 第 2 节：judgeReason 要写清缺哪个 op、哪条规则、依赖哪个任务。
   assert.match(program.judgeReason, /might-changed/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
@@ -97,6 +99,9 @@ test("rad-038-167 Ahri, Confident golden: the +1 Might body registers an end-of-
   assert.equal(layers.evaluate(scoped.ref("ahri")).might, 5);
   assert.equal(layers.evaluate(scoped.ref("enemy")).might, 3);
   assert.equal(scoped.getObject("ahri").buffs, 0);
+  layers.expireAt("turn-end", "A");
+  assert.equal(layers.evaluate(scoped.ref("ahri")).might, 4);
+  assert.equal(layers.evaluate(scoped.ref("enemy")).might, 3);
 });
 
 test("rad-038-167 Ahri, Confident: the merged binding accepts the authored body and the printed Disarm", () => {

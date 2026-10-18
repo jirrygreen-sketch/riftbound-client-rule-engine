@@ -79,6 +79,24 @@ const LAYER_BY_KIND: Readonly<Record<string, LayerName>> = {
   'continuous.movement': 'ability',
   'continuous.restrict': 'ability',
   'continuous.timing': 'ability',
+  'continuous.deck': 'ability',
+  'continuous.deck-limit': 'ability',
+  'continuous.permission': 'ability',
+  'continuous.location': 'ability',
+  'continuous.requirement': 'ability',
+  'continuous.applied-cost': 'ability',
+  'continuous.ability-count': 'ability',
+  'continuous.usage': 'ability',
+  'continuous.resource': 'ability',
+  'continuous.modify-resource': 'ability',
+  'continuous.resource-limit': 'ability',
+  // These kinds are read by merged production rule-query and Finalize
+  // collectors. Their consumers validate payloads and ignore unknown flags.
+  'continuous.combat': 'ability',
+  'continuous.cost-modification': 'ability',
+  'cost.additional': 'ability',
+  'cost.modify': 'ability',
+  'target.tax': 'ability',
   'restriction': 'ability',
 };
 
@@ -118,6 +136,9 @@ function numericLayerValue(value: unknown): boolean {
   if (['add', 'subtract', 'multiply'].includes(String(expression.kind))) {
     return numericLayerValue(expression.left) && numericLayerValue(expression.right);
   }
+  // The merged layer expression interpreter now consumes CountExpr values.
+  // Keep malformed counts (including the old subject-less spelling) blocked.
+  if (expression.kind === 'count') return typeof expression.subject === 'string' && expression.subject.trim().length > 0;
   if (expression.kind === 'object-property' || expression.kind === 'object-attribute') {
     const object = record(expression.object);
     const ref = record(object.ref ?? object);
@@ -246,6 +267,11 @@ function bindRuleFilter(filter: ObjectFilter, effect: AnyRecord, ability: Extrac
     // The rule reader compares this live location by value. Unlike a captured
     // bind-time location it follows move-location without reinstalling effects.
     Object.defineProperty(filter, 'location', { enumerable: true, get: () => engine.layers.snapshot(source.ref)?.location ?? null });
+    // Positional rule queries have no source snapshot. Once lowered to the
+    // live location, do not ask the richer rule reader to resolve it again.
+    delete (filter as AnyRecord).sameLocationAs;
+    delete (filter as AnyRecord).here;
+    delete (filter as AnyRecord).position;
   }
   for (const [key, value] of Object.entries({ controller, owner })) {
     if (['opponent', 'their', 'caster-opponent'].includes(String(value))) {

@@ -21,8 +21,7 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required — three production gaps remain, none approximated:
  * 1. no merged module emits `defense-declared` into the single event pipeline:
- *    the RIFT-281 resweep reconfirmed (commit d8e60ac) that the
- *    attack/defense-declared emitters are still not merged and
+ *    the attack/defense-declared emitters are still not merged and
  *    combat/flow.ts still throws combat-start-transaction;
  * 2. "here" has no evaluable anchor on the trigger side: the closed
  *    EventPattern/ObjectFilter vocabulary has no battlefield-relative spelling
@@ -43,7 +42,6 @@ const reaversRow = {
   status: "judge-required",
   judgeReason:
     "三处缺口：(1) defense-declared 时点（CR 383.4.f.2.a、323.2）仍没有发射方——" +
-    "RIFT-281 复核（commit d8e60ac）确认 attack/defense-declared 发射未合入，" +
     "combat/flow.ts 的攻防宣告事务仍显式抛 combat-start-transaction，触发无法进入唯一事件管线；" +
     "(2) 触发侧「here」没有可求值的锚点：EventPattern/ObjectFilter 仍没有战场相对词汇读宿主的运行时地点身份，程序里的 here=true 是等待战斗载荷绑定的占位键；" +
     "(3) TargetSpec 虽接受 sameLocationAs:\"self\" 数据形状，生产目标适配器 programs/filters.ts 仍以 Unsupported filter field sameLocationAs 拒绝它，嵌套目标也因此无法在 Finalize 锁定；" +
@@ -55,7 +53,7 @@ const reaversRow = {
       kind: "triggered",
       trigger: {
         at: "defense-declared",
-        filter: { event: "defense-declared", here: true, player: "controller" }
+        filter: { event: "defense-declared", here: true, player: "self" }
       },
       // "you may move …": the optional decision is recorded on the ability and
       // the chosen instructions stay inside choice.optional so the interpreter

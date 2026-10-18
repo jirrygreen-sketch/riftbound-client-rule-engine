@@ -6,6 +6,10 @@ import program from "../../../dist/cards/ogn/leona-determined.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import shieldDefinition from "../../../../engine-core/dist/effects/keywords/Shield.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { createEngineStaticBinder, createProgramBinding, translateInstructionTargets } from "../../../../engine-core/dist/programs/index.js";
 import stun from "../../../../engine-core/dist/effects/instructions/effect.stun.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { queryObjects } from "../../../../engine-core/dist/effects/interpreter/selectors.js";
@@ -29,6 +33,12 @@ test("ogn-238-298 Leona, Determined: identity, status and verbatim sourceText", 
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /sameLocationAs/);
+  // 2026-10-17 re-sweep: the reason now names the measured dispatch gap
+  // (designation is unimplemented in the default evaluator) and the exact
+  // translator that refuses the "here" anchor.
+  assert.match(program.judgeReason, /MissingInformation/);
+  assert.match(program.judgeReason, /expr-ext\/evaluate\.ts/);
+  assert.match(program.judgeReason, /translateInstructionTargets|translateObjectFilter/);
   assert.equal(
     program.sourceText,
     "[Shield] (+1 :rb_might: while I'm a defender.)\n" +
@@ -165,7 +175,65 @@ test("ogn-238-298 Leona, Determined: a stun target that already left the board i
 
 test.todo(
   "ogn-238-298 Leona, Determined: [Shield]'s continuous.might consumer and its Defender " +
-    "designation condition (CR 814.1.c/814.1.d.1) need a production mapping from the current " +
-    "ObjectSnapshot combatRole characteristic, and the attack target's sameLocationAs: source " +
-    "filter still needs a programs/filters.ts translation path"
+    "designation condition (CR 814.1.c/814.1.d.1) need the designation -> combatRole dispatch in " +
+    "effects/interpreter/expr.ts / programs/statics.ts (RIFT-711's expr-ext/evaluate.ts implements " +
+    "the mapping but no default consumer calls it)"
 );
+
+test("ogn-238-298 Leona, Determined: the Shield static registers but its designation condition reads false", () => {
+  // CR 814.1.c/814.1.d.1. The KeywordDef's continuous.might binds, but the
+  // bundled condition is evaluated by effects/interpreter/condition.ts ->
+  // expr.ts, which throws MissingInformation for the "designation"
+  // characteristic; programs/statics.ts swallows it and reports false.
+  const kernel = world().player("A").player("B")
+    .unit("leona", { cardId: CANONICAL, owner: "A", controller: "A", types: ["unit"], might: 4, combatRole: "defender" })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`Unexpected choice: ${request.id}`); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const source = kernel.getObject("leona");
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const expandedShield = binding.inspect(source).abilities.find(ability => ability.kind === "static" && ability.effect.kind === "continuous.might");
+  assert.equal(expandedShield.condition.left.property, "designation");
+  assert.throws(
+    () => evaluateCondition(expandedShield.condition, {
+      context: bindResolveContext(kernel, { source, controller: "A", timingPoint: "main-start" }),
+      host: source.ref,
+      linked: () => undefined,
+      canLookBack: () => true,
+      isIgnored: () => false,
+      query: filter => kernel.query(filter)
+    }),
+    /Unavailable characteristic: designation/
+  );
+  const handle = createEngineStaticBinder(engine).bindStatic(expandedShield, source);
+  assert.equal(engine.layers.registry.list()[0].effect.effect.condition(source), false);
+  assert.equal(engine.layers.evaluate(source.ref).might, 4);
+  handle.unbind();
+});
+
+test("ogn-238-298 Leona, Determined: the attack trigger cannot register while sameLocationAs has no translation", () => {
+  // 359.3.f.1/f.2: "here" = the source's location, authored with the
+  // sameLocationAs anchor. programs/filters.ts allows neither the anchor key
+  // nor the rest of the declared TargetSpec, so the whole trigger registration
+  // fails instead of silently dropping the location constraint.
+  const kernel = world().unit("leona", { cardId: CANONICAL, owner: "A", controller: "A", types: ["unit"] }).build();
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const registered = [];
+  assert.throws(
+    () => binding.registerProgramTriggers({ pipeline: { registerTrigger: registration => registered.push(registration) } }, kernel.getObject("leona")),
+    /Unsupported filter field sameLocationAs/
+  );
+  assert.deepEqual(registered, []);
+  assert.throws(
+    () => translateInstructionTargets(attackTrigger.body),
+    /Unsupported filter field sameLocationAs/
+  );
+});

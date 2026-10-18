@@ -23,17 +23,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   707/708 要求 Might ≥ 5，710 规定在场单位按当前（含图层结果）Might 判定。
  * - “Draw 1.”：414.3/414.4 的 Draw；抽牌者是能力控制者（190.6.d 的隐含 “you”）。
  *
- * status = judge-required（2026-10-17 复核，不近似实现），当前缺口：
+ * status = judge-required（2026-10-18 复核，不近似实现），当前缺口：
  * 1. “Exhaust a friendly [Mighty] unit” 是费用内的非目标选择（355.10.c.1），但 CostSpec 的
  *    choice 仍只接受逐项列出的精确 ObjectRef：cost/plan-values.ts 的 choiceObjects 对静态
- *    占位选项直接抛 “Cost requires an exact object reference”，Finalize 不会按 board 候选
- *    生成选项。正文 picks 的 ordered/zoneSlice 已有 Finalize 候选路径，费用侧仍没有对应的
- *    filter/query 形状。
+ *    占位选项直接抛 “Cost requires an exact object reference”（实测），Finalize 不会按
+ *    board 候选生成选项；把 filter 直接写进 payment 也被 “Unsupported payment field: filter”
+ *    拒绝（实测）。正文 picks 的 ordered/zoneSlice 已有 Finalize 候选路径，费用侧仍没有
+ *    对应的 filter/query 形状。
  * 2. [Mighty] 谓词：Mighty 已由 effects/keywords/Mighty.ts 展开为 condition.value 的静态
  *    描述（706–711），但过滤词汇里没有“当前 Might ≥ 5”的谓词（programs/filters.ts 的
- *    translateObjectFilter 直接拒绝 mightGte；characteristics.might 只是字面相等，费用侧
- *    也没有 filter 入口），费用选择无法在 Finalize 阶段按 710 判定场上单位的当前 Might
- *    （同 Show of Strength sfd-106-221 的判定）。
+ *    translateObjectFilter 实测拒绝 mighty / mightGte；characteristics.might 只是字面相等，
+ *    实测 Might 6 的单位不满足 characteristics: { might: 5 }），费用选择无法在 Finalize 阶段
+ *    按 710 判定场上单位的当前 Might（同 Show of Strength sfd-106-221 的判定）。
+ *    另外 Mighty 的 condition.value 静态描述本身也不能经 programs/statics.ts 的 layerFor
+ *    注册（实测抛 “Static ability kind condition.value has no layer mapping”）。
  * 已合入并已有执行证据的部分：“give a friendly unit +3 :rb_might: this turn”
  * （continuous.might + end-of-turn 到期）、启动能力的横置自身费用（415.3）、以及
  * effect.draw 的 Draw 1（414.3）——见 golden 的真实执行用例。
@@ -120,12 +123,13 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "(1)「Exhaust a friendly [Mighty] unit」是费用内的非目标选择（355.10.c.1 明确不计为目标），" +
-    "但 CostSpec 的 choice 仍只接受逐项列出的精确 ObjectRef：cost/plan-values.ts 的 choiceObjects 对静态占位选项" +
-    "抛 \"Cost requires an exact object reference\"，Finalize 不按 board 候选生成选项；正文 picks 的 " +
-    "ordered/zoneSlice 已有 Finalize 候选路径，但费用侧没有 filter/query 形状（同 Garbage Grabber ogn-099-298）。" +
-    "(2) 过滤词汇没有「场上单位当前 Might ≥ 5」谓词：effects/keywords/Mighty.ts 已把 706–711 描述为 condition.value，" +
-    "programs/filters.ts 的 translateObjectFilter 拒绝 mightGte，layers/filter.ts 忽略未知键、characteristics.might 只做字面相等；" +
-    "710 要求按含图层结果的当前 Might 判定，费用选择在 Finalize 阶段无法求值（同 Show of Strength sfd-106-221）。" +
+    "但 CostSpec 的 choice 仍只接受逐项列出的精确 ObjectRef：实测 cost/plan-values.ts 的 choiceObjects 对静态占位选项" +
+    "抛 \"Cost requires an exact object reference\"，把 filter 写进 payment 又被 \"Unsupported payment field: filter\" 拒绝，" +
+    "Finalize 不按 board 候选生成选项；正文 picks 的 ordered/zoneSlice 已有 Finalize 候选路径，但费用侧没有 filter/query 形状（同 Garbage Grabber ogn-099-298）。" +
+    "(2) 过滤词汇没有「场上单位当前 Might ≥ 5」谓词（710）：实测 programs/filters.ts 的 translateObjectFilter 拒绝 mighty / mightGte，" +
+    "layers/filter.ts 对未知键恒真、characteristics.might 只做字面相等（Might 6 的单位不满足 characteristics: { might: 5 }）；" +
+    "effects/keywords/Mighty.ts 虽已把 706–711 描述为 condition.value，该静态描述也无法经 programs/statics.ts 的 layerFor 注册" +
+    "（实测抛 “Static ability kind condition.value has no layer mapping”），费用选择在 Finalize 阶段无法按当前 Might 求值（同 Show of Strength sfd-106-221）。" +
     "已合入并有执行证据：give +3 :rb_might: this turn（continuous.might，478.1.a/317.2.c）、" +
     "启动能力的横置自身费用（415.3.a/415.5）与 Draw 1（414.3），见 golden。" +
     "数据问题（不改数据）：本印刷在本地目录记为 cardType Unit，却既无印刷力量也无印刷 Might。",

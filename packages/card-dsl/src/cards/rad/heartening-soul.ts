@@ -17,17 +17,23 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   需要把完整激活能力附加给一组对象。授予的能力体只含"临时 Might +3"，改用已合入的
  *   continuous.might + duration "this-turn"（143.2.a / 475，RIFT-258）。
  *
- * status 判定（README 第 2 节，2026-10-17 复核）：judge-required。缺口：
+ * status 判定（README 第 2 节，2026-10-18 第四轮复核实测）：judge-required。缺口：
  * 1. `continuous.grant-ability`（把完整激活能力附加给一组对象，保留费用与持续期；
  *    135.4.b / 801.3.a）仍未注册为原语：instructionDefinitionsById 无该 id，
  *    programs/statics.ts 的 layerFor 也对该 kind 抛 “no layer mapping”（实测）。
  *    已合入的 continuous.grant-keyword / continuous.keyword 只能承载关键词（id + 可选数值），
  *    其 argsSchema 明确拒绝 `ability` 参数，无法承载一条带 [E] 费用的 activated body；
  * 2. “friendly legend” 的 Legend Zone 目标绑定尚不可用：engine 的封闭 ZoneId
- *    （effects/contract.ts）没有 legend，test kernel 的 ZONES 列表同样没有，
- *    { zone: "legend" } 在 layers/filter.ts 对任何对象都不匹配，目标计划因此取不到候选。
+ *    （effects/contract.ts:16）没有 legend，test kernel 的 ZONES 列表同样没有，
+ *    实测 { type: “legend”, zone: “legend” } 对传奇快照不匹配（zone 是 “board”）。
+ *    更关键的是本卡声明的 controller: “controller” 也不在 layers/filter.ts 的
+ *    selectorMatches 词汇里（它只认 undefined / any / self / opponent / {playerId}），
+ *    实测该过滤器的原样形态取不到候选、目标计划得到 mistargeted；
+ *    programs/filters.ts 的 translateObjectFilter 会把 “controller” 规范成 “self”，
+ *    但触发能力的绑定路径先被缺口 1 阻断。
  * 授予能力体本身已改成可执行形状并用真实执行测试覆盖；effect.ready 同样有真实执行证据。
- * 依赖：完整 Ability grant 绑定与原语注册，以及 Legend Zone 的区域/目标契约。
+ * 依赖：完整 Ability grant 绑定与原语注册、Legend Zone 的区域/目标契约，
+ * 以及 TargetSpec 过滤器的相对玩家规范化。
  */
 
 const grantedAbility: Ability = {
@@ -108,12 +114,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺 continuous.grant-ability 的完整 Ability 绑定与注册：instructionDefinitionsById 无该 id，" +
-    "programs/statics.ts 的 layerFor 对该 kind 抛 no layer mapping；已合入的 continuous.grant-keyword / " +
-    "continuous.keyword 只承载关键词（id + 数值），argsSchema 拒绝 ability 参数，" +
-    "不能给每个友方传奇安装含 [E] 费用的 activated body（801.3.a / 135.4.b）。" +
-    "另缺 Legend Zone 的区域/目标绑定（355.9.a.4）：engine 封闭 ZoneId 无 legend，" +
-    "{ zone: \"legend\" } 对任何对象都不匹配；effect.ready 与 continuous.might 的局部执行不覆盖这两处缺口。",
+    "(2026-10-18 第四轮复核实测) 缺 continuous.grant-ability 的完整 Ability 绑定与注册：" +
+    "instructionDefinitionsById 无该 id（已注册 45 个 op 里没有），programs/statics.ts 的 layerFor " +
+    "对该 kind 抛 no layer mapping；已合入的 continuous.grant-keyword / continuous.keyword 只承载关键词" +
+    "（id + 数值），argsSchema 拒绝 ability 参数，不能给每个友方传奇安装含 [E] 费用的 activated body" +
+    "（801.3.a / 135.4.b）。" +
+    "另缺 Legend Zone 的区域/目标绑定（355.9.a.4）：engine 封闭 ZoneId（effects/contract.ts:16）无 legend，" +
+    "实测 { type: \"legend\", zone: \"legend\" } 对传奇快照不匹配；本卡声明的 controller: \"controller\" " +
+    "也不在 layers/filter.ts 的 selectorMatches 词汇里，原样过滤器实测取不到候选、目标计划 mistargeted" +
+    "（programs/filters.ts 会规范成 self，但注册路径先被 grant-ability 阻断）。" +
+    "effect.ready 与 continuous.might 的局部执行不覆盖这两处缺口。",
   abilities,
   sourceText:
     "When you play me, ready a friendly legend.\n" +

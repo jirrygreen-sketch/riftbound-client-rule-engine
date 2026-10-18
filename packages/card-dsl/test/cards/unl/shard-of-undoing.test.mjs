@@ -7,6 +7,7 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { orderedPickSpecs } from "../../../../engine-core/dist/chain/picks/plan.js";
 
 const CANONICAL_ID =
   "card.hash-6c9353964d68cf174354c551a4cf9b2c7ca9c3322303954f03d108f7f1bca840";
@@ -35,6 +36,9 @@ test("unl-174-219 Shard of Undoing: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /each opponent/);
   assert.match(program.judgeReason, /duringPhase/);
   assert.match(program.judgeReason, /静默丢弃|Unsupported filter field duringPhase/);
+  // 2026-10-18 re-sweep: the reason also names the measured options placeholder.
+  assert.match(program.judgeReason, /runtime:one-unit-per-opponent/);
+  assert.match(program.judgeReason, /zoneSlice/);
 });
 
 test("unl-174-219 Shard of Undoing: a friendly unit's death subscribes to object-killed", () => {
@@ -122,6 +126,24 @@ test("unl-174-219 Shard of Undoing: a replaced kill does not report a false succ
   assert.equal(run.result.status, "negated");
   assert.equal(run.result.reason, "replaced");
   assert.equal(kernel.getObject("victim").zone, "board");
+});
+
+test("unl-174-219 Shard of Undoing: the authored pick options are a placeholder the chain never consumes", () => {
+  // 355.10.e / 355.10.f: each opponent chooses their own unit, so the kill reads
+  // a non-target pick. The card records the intent as
+  // options: ["runtime:one-unit-per-opponent"]. chain/picks/plan.ts only builds
+  // plans for explicit zoneSlice/linked sources, so this spec contributes no
+  // plan at all: the fan-out has to come from the caller, which is exactly the
+  // missing per-opponent chooser primitive.
+  assert.deepEqual(opponentUnitsPick.options, ["runtime:one-unit-per-opponent"]);
+  assert.deepEqual(orderedPickSpecs(ability.body), []);
+  // The primitive still performs the kill on a real, Finalize-locked pick set.
+  const kernel = world().unit("opponent-a", { owner: "B" }).unit("opponent-b", { owner: "B" }).build();
+  kernel.setPicks(opponentUnitsPick.id, [kernel.ref("opponent-a")]);
+  const outcome = resolveChainBody([killInstruction], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.getObject("opponent-a").zone, "trash");
+  assert.equal(kernel.getObject("opponent-b").zone, "board");
 });
 
 test.todo(

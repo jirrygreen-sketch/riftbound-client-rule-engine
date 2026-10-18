@@ -1,3 +1,11 @@
+// Golden test for Brazen Buccaneer (ogn-002-298).
+//
+// Execution evidence (the real play through the printed 6 Energy cost, the
+// unpayable-cost boundary and the fail-closed static cost bind) lives in the
+// RIFT-675 parameterized template golden:
+// test/cards/templates/static-static-675.test.mjs.
+// Existing per-card behavior and structure assertions are retained here;
+// the template suite supplies additional execution evidence.
 // RIFT-651 template execution evidence (pending the card-side CostPlan/Finalize
 // adapter): packages/card-dsl/test/cards/templates/static-static-651.test.mjs
 import assert from "node:assert/strict";
@@ -9,6 +17,7 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { collectCostModifications } from "../../../../engine-core/dist/cost/discounts/index.js";
 
 const CARD_ID = "card.hash-da18079d11afce4cad1d799fd51de5b0219e0635613cd5a5b4a5f38e1a42aafc";
 const literal = (value) => ({ kind: "constant", value });
@@ -16,6 +25,7 @@ const literal = (value) => ({ kind: "constant", value });
 test("brazen-buccaneer: passes validateCardProgram and is indexed by canonicalCardId", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
+  assert.deepEqual(result.issues, []);
   assert.equal(cardProgramsById.get(CARD_ID), program);
 });
 
@@ -28,10 +38,12 @@ test("brazen-buccaneer: identity, ruleset, status and verbatim sourceText", () =
   assert.match(program.judgeReason, /paid-proof/);
   assert.match(program.judgeReason, /grantedBy.*selectedAdditional/);
   assert.match(program.judgeReason, /card-in-controller-hand/);
+  assert.match(program.judgeReason, /cost\/discounts\.finalizeCostPlan/);
   assert.equal(
     program.sourceText,
     "As you play me, you may discard 1 as an additional cost. If you do, reduce my cost by :rb_energy_2:."
   );
+  assert.deepEqual(JSON.parse(JSON.stringify(program)), program);
 });
 
 test("brazen-buccaneer: the additional-cost and discount halves are two static declarations", () => {
@@ -166,3 +178,15 @@ test.todo(
     "including the 356.4.f.1 paid-proof gate that applies the 2-Energy discount only when the " +
     "optional additional cost is selected; the card-facing cost declarations still need a Finalize adapter."
 );
+
+test("brazen-buccaneer: the merged collector rejects the unresolved grantedBy paid-proof gate", () => {
+  const initial = world().player("A", { energy: 6 })
+    .hand("buccaneer", { cardId: CARD_ID, energy: 6, power: null })
+    .hand("fodder").build();
+  const ctx = initial.clone({ sourceSnapshot: initial.getObject("buccaneer") });
+  const before = ctx.snapshot();
+  assert.throws(() => collectCostModifications(ctx, { id: "brazen:cost", cost: { kind: "printed" } }, {
+    statics: program.abilities.map((ability, index) => ({ id: `brazen:${index}`, source: ctx.ref("buccaneer"), ability }))
+  }), error => error.reason === "judge-required" && /Unsupported cost modification field grantedBy/.test(error.message));
+  assert.deepEqual(ctx.snapshot(), before);
+});

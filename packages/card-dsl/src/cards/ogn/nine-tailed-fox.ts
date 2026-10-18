@@ -36,6 +36,19 @@ import type { CardProgram } from "../../ir/index.js";
  * 依赖：攻击/战斗时点产生方（RIFT-124 已合入，但 combat/flow.ts 的 combat-start
  * 事务仍抛 TurnCombatBlockedError）、触发事件物体选择器
  * 与 attack-declared 载荷的战场控制状态。
+ *
+ * 2026-10-17 RIFT-705 复核与执行证据：
+ * - 选择器接线修正：args.target 写 Expr 时解释器把 Expr 交给 ctx.targets()，实测
+ *   TargetRefs 为空 → ignored mistargeted（-1 Might 从不注册）。改为合并原语的
+ *   objects 约定（{ kind: "target", id }）后，本卡正文的 -1 Might + minimum 1
+ *   在真实 scene 路径执行：攻击单位 4 → 3、1 Might 单位钳制在 1、回合末到期。
+ * - 执行证据模板：packages/card-dsl/test/cards/templates/
+ *   triggered-attack-declared-continuous-mig-705.test.mjs。
+ * - 仍然不能把整卡判为 executable：(1) attack-declared 无产生方（combat/flow.ts 的
+ *   combat-start 事务仍抛 TurnCombatBlockedError，CR 466.2）；(2) “a battlefield you
+ *   control” 的控制状态不在事件载荷（details 只有 battlefieldId）；(3) “it” 没有事件
+ *   物体选择器，实测把非攻击的敌方单位作为答案也能被锁定并生效——正文目标的运行时
+ *   锁定仍不正确。以上都不近似实现。
  */
 const nineTailedFox = {
   canonicalCardId:
@@ -44,10 +57,12 @@ const nineTailedFox = {
   status: "judge-required",
   judgeReason:
     "临时 Might 修正已合入（continuous.might 的 amount/duration/minimum 与 layers/ops 的 applyMightMinimums，" +
-    "按 478.1.c 逐步钳制；golden 已用真实原语执行并断言注册形状），整卡仍不可执行的原因在触发侧：" +
+    "按 478.1.c 逐步钳制；本卡正文选择已改按原语的 objects 约定接线，并在 RIFT-705 模板层经真实路径执行：" +
+    "test/cards/templates/triggered-attack-declared-continuous-mig-705.test.mjs），整卡仍不可执行的原因在触发侧：" +
     "(1) attack-declared 没有任何产生方——RIFT-124 与 RIFT-270 均已合入，但 combat/flow.ts 的 combat-start 角色事务仍未实现（抛 TurnCombatBlockedError，CR 466.2）；" +
     "(2) attack-declared 载荷（combatId/battlefieldId/attackerId/defenderId）不带“该战场由你控制”的控制状态，触发过滤无从判定；" +
-    "(3) “it” 需要触发事件物体选择器（383.2.c.3.b / 359.3.f.3），合并 ObjectSelector 只有 self/source/target/pick/linked。" +
+    "(3) “it” 需要触发事件物体选择器（383.2.c.3.b / 359.3.f.3），合并 ObjectSelector 只有 self/source/target/pick/linked；" +
+    "实测把非攻击的敌方单位作为目标答案同样被锁定并生效，正文目标的运行时绑定仍不正确。" +
     "依赖：combat 事务的时点产生方、载荷控制状态维度与事件物体选择器。不近似实现。",
   abilities: [
     {
@@ -58,7 +73,11 @@ const nineTailedFox = {
           event: "attack-declared",
           object: {
             type: "unit",
-            controller: "opponent"
+            controller: "opponent",
+            // 355.9.a.1：“unit” 在规则中指 Board 上的对象；攻击单位必然在 Board 上
+            // （466.2.c）。缺 zone 时同名的非 Board 对象（例如手牌里的单位牌）也会
+            // 匹配，实测手牌对象可触发本卡。
+            zone: "board"
           }
           // “a battlefield you control” 的控制状态不在事件载荷中；见 judgeReason。
         }
@@ -72,14 +91,23 @@ const nineTailedFox = {
             amount: { kind: "constant", value: -1 },
             duration: { kind: "constant", value: "this-turn" },
             minimum: { kind: "constant", value: 1 },
-            target: { kind: "constant", value: "attacking-unit" }
+            // 合并的 continuous.might 只从已求值的 objects 选择器读选择结果；
+            // 写成 args.target 时解释器把 Expr 当规格 id 传给 ctx.targets()，
+            // 实测返回空集（ignored mistargeted）。这里按已合入原语的选择约定
+            // （smoke-screen / back-alley-bar 同形）表达同一个 TargetSpec 绑定，
+            // 不新增、不更改任何规则语义。
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "attacking-unit" }
+            }
           },
           targets: [
             {
               id: "attacking-unit",
               // “it” = 触发事件的攻击单位；此 TargetSpec 是形状保留，运行时必须绑定事件物体，
               // 不允许重新自由选择敌方单位（见 judgeReason）。
-              filter: { type: "unit", controller: "opponent" },
+              // 355.9.a.1：目标候选同样限定在 Board 上的单位。
+              filter: { type: "unit", controller: "opponent", zone: "board" },
               min: 1,
               max: 1,
               selection: "one"

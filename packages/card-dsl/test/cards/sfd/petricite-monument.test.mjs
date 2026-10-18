@@ -1,4 +1,5 @@
-// Partial execution evidence is consolidated in ../templates/keyword-static-647.test.mjs; this card remains judge-required for the gaps asserted below.
+// Execution evidence for this card lives in ../templates/keyword-static-671.test.mjs (README 4.1); this
+// card stays judge-required for the gaps asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -32,6 +33,7 @@ test("sfd-104-221 Petricite Monument: identity, ruleset, status, judgeReason and
   assert.match(program.judgeReason, /816\.1\.b/);
   assert.match(program.judgeReason, /Temporary/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });

@@ -3,6 +3,10 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/titanic-shrine.js";
+// Whole-card execution evidence for the supported slice (unit-play gate +
+// effect.draw through the real ProgramBinding/ChainEngine path) lives in
+// test/cards/templates/triggered-card-played-effect-draw-656.test.mjs. This file
+// keeps validation, identity and structure, plus the two remaining gaps.
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
 const draw = (await import(new URL("effects/instructions/effect.draw.js", ENGINE))).default;
@@ -36,7 +40,8 @@ test("rad-089-167 Titanic Shrine: card-played trigger for a played unit, draw-on
   assert.equal(ability.trigger.at, "card-played");
   assert.deepEqual(ability.trigger.filter, {
     event: "card-played",
-    filter: { type: "unit", player: "self" }
+    object: { type: "unit" },
+    player: "self"
   });
   // 条件谓词不可表达（judgeReason 第 2 点）：不写条件，也不写成恒真条件。
   assert.equal(ability.trigger.condition, undefined);

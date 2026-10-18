@@ -29,7 +29,16 @@ export default {
   canonicalCardId: "card.hash-9306105a8f30f0954fec4a0757dc246561b8408b00e76f9d104c939964b55bd0",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason: "当前缺口是 468.7/468.7.b 的 combat-end 生产与参战历史：combat/flow.ts 尚无战斗结束发射路径，无法在 468.7.a 清除 Attacker/Defender designation 后判断“a combat that I was in”。ObjectSnapshot.combatRole 已存在，但当前角色不能代替本次战斗的参与记录。effect.empower、compare(object-property self empowered) 与 continuous.might 静态绑定已可在参考内核真实执行；ObjectSnapshot 契约仍需声明 empowered 特征。golden 覆盖二次 Empower 不重复执行、状态门控 +2 Might 和 Disempower 后撤销；不近似实现战斗触发。",
+  judgeReason:
+    "三处当前缺口（2026-10-17 RIFT-733 复核实测）：" +
+    "(1) 468.7/468.7.b 的 combat-end 没有生产发射方：combat/flow.ts 的 cleanup/advance 只发 contested-applied/control-lost/showdown 等，" +
+    "且 start() 对 staged combat 直接抛 TurnCombatBlockedError('combat-start-transaction')；duel/engagement-executor-v2.ts 里的 " +
+    "combat-end 只是 gate 名称而非 emission。触发因此无法在战斗结束时点绑定。" +
+    "(2) “a combat that I was in”缺参战历史：ObjectSnapshot.combatRole 只是当前 designation，468.7.a 清除 Attacker/Defender 后无法回看本次战斗是否参战。" +
+    "(3) [Empowered][>] 的 continuous.might 静态门控读 object-property \"empowered\"，而 effects/contract.ts 的 ObjectSnapshot 未声明该特征；" +
+    "生产内核 apps/game-server/src/engine-runtime/host.ts 把 empower/disempower 落到 buffs 且不暴露 empowered，" +
+    "programs/statics.ts 的条件求值捕获失败后返回 false，静态 +2 Might 在生产不可证明（参考内核的 effect.empower、compare 与 continuous.might 已真实执行）。" +
+    "不近似实现战斗触发与状态门控。",
   abilities: [
     {
       kind: "triggered",

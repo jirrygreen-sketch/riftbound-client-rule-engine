@@ -1,60 +1,54 @@
-// RIFT-643: static|| execution evidence is consolidated in ../templates/static-643.test.mjs.
-// This file retains the card's identity, status, sourceText, and key IR guards.
-
+// RIFT-667 single-card golden: validation, identity, the key IR structure of
+// Purifier, and the merged keyword-grant half. The whole-card execution evidence
+// (its own scenario through the generic card harness plus the measured outcome of
+// binding its own static ability with the production binder) lives in
+// `test/cards/templates/static-667.test.mjs`.
+//
+// The card stays judge-required: the merged KeywordGrantLayerEngine can expand
+// the granted Assault in isolation, but production lifecycle wiring and the
+// 718.3 Attached-card propagation bridge are still absent.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/purifier.js";
-
-// card-dsl has no dependency edge on engine-core (engine-core depends on
-// card-dsl), so golden execution loads the built engine through its workspace
-// layout instead of the package name.
-const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
-const { keywordDefinitionsById } = await import(new URL("effects/keywords/registry.generated.js", ENGINE));
-// The production static binder is the path that turns the printed static
-// ability into a live layer effect; the golden exercises it directly.
-const { createProgramBinding } = await import(new URL("programs/index.js", ENGINE));
-const { fixture } = await import(new URL("../../../../engine-core/test/chain/helpers.mjs", import.meta.url));
+import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 
 const CANONICAL_ID = "card.hash-d6988e3c4bfaf3cd84e8451ade514abc99df9e47acaa479d8e17bd78b14d1db5";
 const SOURCE_TEXT =
   "Your Equipment each give [Assault]. (+1 :rb_might: while equipped unit is an attacker.)";
-
 const [grant] = program.abilities;
 
-test("sfd-183-221 Purifier: program passes validateCardProgram", () => {
+test("sfd-183-221 Purifier: program validates and keeps identity", () => {
   const result = validateCardProgram(program);
-  assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
   assert.deepEqual(result.issues, []);
-});
-
-test("sfd-183-221 Purifier: identity, ruleset, status and verbatim sourceText", () => {
+  assert.equal(cardProgramsById.get(CANONICAL_ID), program);
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // cards/README.md section 2: the reason names the missing pieces, not a vague
-  // "not implemented yet".
-  assert.match(program.judgeReason, /programs\/statics/);
-  assert.match(program.judgeReason, /807\.1\.c/);
-  assert.match(program.judgeReason, /718\.3/);
-  assert.match(program.judgeReason, /assault|Assault/);
 });
 
 test("sfd-183-221 Purifier: one static ability granting a keyword to your Equipment on the Board", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(grant.kind, "static");
+  // 807.1 / 807.1.a: Assault is granted through a characteristic-changing
+  // continuous effect, never a chain item.
   assert.equal(grant.effect.kind, "continuous.grant-keyword");
-  // 807.1.b.3: no printed Assault value, so none is declared and the value
-  // defaults to 1; the grant must not invent one.
+  assert.equal(grant.effect.keyword, "Assault");
+  // 807.1.b.3: the printed Assault has no value, so none is declared.
+  assert.equal(grant.effect.keywordValue, undefined);
   assert.equal(grant.effect.value, undefined);
-  assert.deepEqual(grant.effect.filter, {
-    zone: "board",
-    controller: "controller",
-    tags: ["Equipment"]
-  });
+  // 818.1.a / 718.5.a: "Equipment" is a Gear tag; 190.6.d: "your" is the
+  // ability controller.
+  assert.deepEqual(grant.effect.filter, { zone: "board", controller: "controller", tags: ["Equipment"] });
   assert.equal(grant.condition, undefined);
 });
 
@@ -62,49 +56,89 @@ test("sfd-183-221 Purifier: the granted keyword id is the merged Assault definit
   const definition = keywordDefinitionsById.get(grant.effect.keyword);
   assert.ok(definition, "the granted KeywordId must be registered");
   assert.equal(definition.keyword, "Assault");
-  // 807: valued, and multiple Assaults on one unit sum (807.2).
+  // 807.2: valued, and multiple Assaults on one unit sum.
   assert.equal(definition.valued, true);
   assert.equal(definition.stacking, "sum");
   assert.ok(definition.ruleRefs.includes("807.1.c"));
 });
 
-test("sfd-183-221 Purifier golden: the static binder grants [Assault] to your Equipment only", () => {
-  // The program is still judge-required, so it is made executable in-memory only
-  // for this binder probe; the shipped program and its judgeReason are untouched.
-  const executable = { ...program, status: "executable" };
-  delete executable.judgeReason;
-  const binding = createProgramBinding({ cardPrograms: [executable] });
-  const { engine, kernel } = fixture({
-    cards: [
-      { id: "purifier", cardId: CANONICAL_ID, types: ["legend"], energy: null, power: null, might: null },
-      { id: "blade", types: ["gear"], tags: ["Equipment"], energy: 1, power: [], might: null },
-      { id: "enemy-blade", types: ["gear"], tags: ["Equipment"], energy: 1, power: [], might: null, owner: "B", controller: "B" },
-      { id: "rig", types: ["gear"], energy: 2, power: [], might: null }
-    ]
+test("sfd-183-221 Purifier: the production binder grants Assault to your Equipment only", () => {
+  const { engine } = fixture({ cards: [] });
+  const source = {
+    ref: { id: "purifier", zoneEntryId: 1 },
+    cardId: CANONICAL_ID,
+    name: "purifier",
+    types: ["legend"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "battlefield-1" },
+    combatRole: null,
+    might: null,
+    energy: null,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const handle = createEngineStaticBinder(engine).bindStatic(grant, source);
+  const object = (id, extra) => ({
+    ...source, ref: { id, zoneEntryId: 1 }, name: id, types: ["gear"], tags: ["Equipment"], ...extra
   });
-  const board = (id) => engine.commit({ type: "move-zone", object: kernel.ref(id), to: "board" });
-  board("blade");
-  board("enemy-blade");
-  board("rig");
-  const lifecycle = binding.attachLifecycle(engine, () => {});
-  board("purifier");
-  engine.pipeline.emit({ timingPoint: "object-enters-board", object: kernel.getObject("purifier") });
+  const mine = object("blade", { owner: "A", controller: "A" });
+  const theirs = object("enemy-blade", { owner: "B", controller: "B" });
+  const plain = object("rig", { tags: [] });
+  engine.layers.setObjects([mine, theirs, plain]);
+  // 818.1.a / 718.5.a: only your Equipment-tagged Gear qualifies.
+  assert.deepEqual(engine.layers.snapshot(mine.ref).keywords.map(keyword => keyword.id), ["Assault"]);
+  assert.deepEqual(engine.layers.snapshot(theirs.ref).keywords, []);
+  assert.deepEqual(engine.layers.snapshot(plain.ref).keywords, []);
+  handle.unbind();
+  assert.deepEqual(engine.layers.snapshot(mine.ref).keywords, []);
+});
 
-  // The granted Assault prints no value (807.1.b.3), so the layer keeps none.
-  assert.deepEqual(engine.layers.evaluate(kernel.ref("blade")).keywords.map((keyword) => keyword.id), ["Assault"]);
-  assert.deepEqual(engine.layers.evaluate(kernel.ref("enemy-blade")).keywords, []);
-  assert.deepEqual(engine.layers.evaluate(kernel.ref("rig")).keywords, []);
-  lifecycle.detach();
-  assert.deepEqual(engine.layers.evaluate(kernel.ref("blade")).keywords, []);
+test("sfd-183-221 Purifier: the merged keyword layer expands the granted Assault", () => {
+  const kernel = world()
+    .unit("purifier", { owner: "A", controller: "A", zone: "board", might: null })
+    .unit("blade", {
+      owner: "A", controller: "A", zone: "board", types: ["gear"], tags: ["Equipment"],
+      might: 3, combatRole: "attacker"
+    })
+    .unit("enemy-blade", { owner: "B", controller: "B", zone: "board", types: ["gear"], tags: ["Equipment"], might: 3, combatRole: "attacker" })
+    .build();
+  const layers = new KeywordGrantLayerEngine(kernel.objects, {
+    context: source => bindResolveContext(kernel, { source, controller: source.controller })
+  });
+  layers.addContinuous({
+    id: "purifier.grant",
+    layer: "ability",
+    source: kernel.ref("purifier"),
+    filter: { zone: "board", controller: "A", tags: ["Equipment"] },
+    effect: { kind: "continuous.grant-keyword", keyword: "Assault" }
+  }, { type: "permanent" });
+  const blade = layers.evaluate(kernel.ref("blade"));
+  assert.deepEqual(blade.keywords, [{ id: "Assault", value: 1 }]);
+  assert.equal(blade.might, 4);
+  assert.deepEqual(layers.evaluate(kernel.ref("enemy-blade")).keywords, []);
+  assert.equal(layers.evaluate(kernel.ref("enemy-blade")).might, 3);
+});
+
+test("sfd-183-221 Purifier: judgeReason names the measured propagation gaps", () => {
+  // Re-probed 2026-10-18 (RIFT-667): the standalone re-expander now reads the
+  // granted Assault, while production lifecycle and attachment propagation remain.
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /effects\/keywords\/Assault\.ts/);
+  assert.match(program.judgeReason, /Assault/);
+  assert.match(program.judgeReason, /718\.3/);
 });
 
 test.todo(
-  "sfd-183-221 Purifier: expansion of the granted Assault into its" +
-    " \"while I am an attacker, +1 [M]\" arithmetic static effect (effects/keywords/Assault.ts" +
-    " defines the expansion; nothing reads a granted keyword and applies it) — 807.1.c"
-);
-
-test.todo(
-  "sfd-183-221 Purifier: 718.3 propagation of the granted Assault from the attached card to its" +
-    " equipped unit, plus the production card-program lifecycle wiring into a live game"
+  "sfd-183-221 Purifier: 718.3 propagation of the granted Assault from the attached card to its equipped unit " +
+    "- no executable bridge exists; production lifecycle also does not feed granted keywords into the re-expander"
 );

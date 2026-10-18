@@ -45,7 +45,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺 Empower 印刷费用与状态契约接线：Empower KeywordDef 已注册且接受 params.cost，但 KeywordAbility / programs/keywords.ts 未传递 827.1.c.1 的 6 Energy + 1 Fury Power，旧 value/costDomain 不是展开器的费用输入。828.1.c 的互斥分支已改用 self.empowered >= 1 及其否定；static → continuous.might 已绑定，参考内核可验证未 Empowered +1、Empowered +2 instead，不再使用恒真的字符串。ObjectSnapshot 仍未声明 empowered，生产状态来源和 442.1 的重复 Empower 限制需统一。保留 judge-required，不近似实现。",
+    "当前缺口：Empower KeywordDef 接受 params.cost，但 KeywordAbility / programs/keywords.ts 只传 keyword/value，未把 827.1.c.1 的 6 Energy + 1 Fury Power 传入展开；旧 value/costDomain 不是费用输入，展开得到的 cost.kind=empower 被 translateCost 拒绝。ObjectSnapshot 仍未声明 empowered，生产状态读取及 442.1.b 的重复 Empower 限制须统一。828.1.c 的两个互斥 static → continuous.might 分支已经能绑定，并经真实 Empower/Disempower 动作验证 +1、+2 instead、恢复 +1；该光环不是当前缺失原语。整卡保持 judge-required，不近似实现。",
   abilities: [
     empower,
     {

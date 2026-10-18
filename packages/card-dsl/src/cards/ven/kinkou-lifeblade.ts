@@ -20,14 +20,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “+1 :rb_might:” 是算术图层的 Might 增加（143.2.a、479.4.e.1），不是 Buff 计数器（702/703）。
  * - 810.1：[Ganking] 是 Passive Ability 关键词，单位因此可用标准移动在战场之间移动。
  *
- * status = judge-required。已合入依赖与剩余生产接线已重新核对；
- * 当前真实缺口以 judgeReason 为准，子效果执行不证明整卡可执行。
+ * status = judge-required。2026-10-18 复核确认 Empower 的参考内核结算、
+ * continuous.might 与 continuous.grant-keyword 的局部执行路径均已可用；
+ * 当前生产缺口以 judgeReason 为准，子效果执行不证明整卡可执行。
  */
 const abilities: Ability[] = [
   {
-    // 印刷费 2 Energy 见 judgeReason 第 1 条；不伪造启动能力。
+    // 827.1.c.1：印刷的 :rb_energy_2: 无法从 KeywordAbility 送达 expand
+    //（judgeReason 第 1 条；契约 3.1 没有 params 承载字段）。value 2 保留印刷
+    // 符号数的可审查记录，不被当作可执行费用；不伪造启动能力。
     kind: "keyword",
-    keyword: "empower"
+    keyword: "empower",
+    value: 2
   },
   {
     // [Empowered][>] 的“I have +1 :rb_might:”：算术层 Might 增加（479.4.e.1）。
@@ -79,8 +83,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺：(1) KeywordAbility / programs/keywords.ts 未传 params.cost，无法把印刷的 2 Energy 交给 Empower 展开（827.1.c.1）；" +
-    "(2) ObjectSnapshot 契约未公开 Empowered 状态，continuous.might / continuous.grant-keyword 的 828.1.b.1 门控仍需权威状态与静态层、Ganking 能力重绑定。",
+    "三处当前缺口，均不近似实现：(1) 827.1.c.1 的印刷 2 Energy 没有费用承载通道：" +
+    "KeywordAbility 只有 keyword/value，programs/keywords.ts 不传 params.cost，实测展开的启动费用为 " +
+    "{ kind: \"empower\" }，buildCostPlan 以 \"Unsupported cost kind: empower\" 拒绝。(2) 442.1.a/828.1.b.1 的 " +
+    "Empowered 状态虽由参考内核维护，但生产 ObjectSnapshot 不声明 empowered 计数，continuous.might 与 " +
+    "continuous.grant-keyword 的门控无法读取权威状态。(3) 授予后的 Ganking 仍缺默认 " +
+    "CardProgram/ChainEngine 的关键词重绑定与 movement permission 消费；标准移动查询只会消费已归一化的 " +
+    "continuous.movement 路由。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_2: (:rb_energy_2:: Empower me. Use only if not Empowered.)\n" +

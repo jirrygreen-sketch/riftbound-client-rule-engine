@@ -39,11 +39,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   已合入链接值形状：effect.score 的 player 接受 PlayerId / PlayerId[] / choose(PlayerId 列表)，
  *   但没有「在所有对手里由控制者重放式选一个玩家」的已注册指令（instructionDefinitionsById.has("target.player") 实测为 false），
  *   因此被选对手无法写进静态 IR；需要原生玩家目标契约。
- * - [Deflect] 的展开（static target.tax）没有消费方：TargetPlan 的 TargetTaxAdapter 只接受调用方显式传入的税，
- *   没有从图层读取 target.tax 的接线，且已合入的税→费用换算按 Energy 记账，与 809.1.c.1 的
- *   "任意域 Power"不符（目标税 RIFT-360）。
+ * - [Deflect] 的展开（static target.tax）没有消费方：programs/statics.ts 的 layerFor 对该 kind 抛
+ *   ProgramBindingError judge-required（实测 "Static ability kind target.tax has no layer mapping"），
+ *   TargetPlan 的 TargetTaxAdapter 只接受调用方显式传入的税；chain/engine.ts 的 Finalize 也把收到的税
+ *   按 Energy 记账，而不是 809.1.c.1 要求的任意域 Power。
  * - "you score 1 point" 本身只用已合入的 effect.score，golden 对该计分体做真实执行。
- * 仍缺原生玩家目标、战斗结果/战斗死亡载荷，以及目标税图层与 Power 支付绑定（RIFT-360）。
+ * 仍缺原生玩家目标、战斗结果/战斗死亡载荷，以及目标税图层与 Power 支付绑定。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "deflect" },
@@ -53,9 +54,14 @@ const abilities: Ability[] = [
       at: "combat-result",
       filter: {
         event: "combat-result",
+        // 合并的 translateTriggerFilter 只在有内层 filter/已知锚点时才走
+        // EventPattern 分支；裸 details 会被当作对象过滤器并抛
+        // "Unsupported filter field details"。空 filter 是已合入的可翻译形状。
+        filter: {},
         // 468.3.a / 468.3.c：单位继承控制者的战斗结果，本卡须是胜方单位。
         details: { winnerId: "self" },
-        player: "controller"
+        // 383.4.b.1 / 190.6.d：「you score」的 you 是能力控制者。
+        player: "self"
       },
       // 383.3.e / 383.3.e.1："The first time … each turn" 的每回合一次寿命。
       once: "per-turn"
@@ -76,11 +82,13 @@ const abilities: Ability[] = [
       at: "object-killed",
       filter: {
         event: "object-killed",
-        // 808.1.d / 808.1.d.2：触发于自身被消灭（在换区前作为 Pending Item 进链）。
-        filter: { object: "self" },
-        // 740.2.c 的 "in combat"：死亡时的战斗身份限制。
-        details: { inCombat: true }
-      }
+          // 808.1.d / 808.1.d.2：触发于自身被消灭（在换区前作为 Pending Item 进链）。
+          // 合并的 self 锚点在 EventPattern 里写作 self: true，由
+          // programs/filters.ts 的 translateTriggerFilter 转成宿主 objectId。
+          self: true,
+          // 740.2.c 的 "in combat"：死亡时的战斗身份限制。
+          details: { inCombat: true }
+        }
     },
     optional: false,
     body: [
@@ -118,12 +126,21 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "（1）combat-result 的战斗结果发射方，以及 object-killed 的 inCombat 载荷/过滤绑定尚缺（CR 468.3、740.2.c）：" +
-    "本包 ChainEngine 上没有把该时点交给事件管线的生产者，combatRole 也未被任何时点/载荷带到 object-killed；" +
-    "（2）choose an opponent 缺原生玩家目标及其链接值（target.player）：instructionDefinitionsById.has(\"target.player\") 实测为 false，" +
-    "effect.score 的 choose 形态只接收静态 PlayerId 选项，" +
-    "不能在静态卡牌 IR 中列出运行时所有对手；" +
-    "（3）Deflect 的静态 target.tax 尚未接入目标税与费用计划，现有税适配也未实现 809.1.c.1 的任意域 Power 支付（RIFT-360）。",
+    "三处缺口（2026-10-18 实测）：" +
+    "（1）combat-result 既不在 EVENT_PATTERN_TYPES（实测 invalid-event-type@trigger.filter.event），也没有发射方：" +
+    "本包 ChainEngine / combat 上没有把 468.3/468.4 的战斗结果交给事件管线的生产者；" +
+    "object-killed 同样拿不到 740.2.c 的 inCombat 载荷（ObjectSnapshot.combatRole 存在，但没有任何时点/载荷把它带到死亡事件，" +
+    "details 的 inCombat 无消费方），因此「die in combat」的过滤条件不可满足。" +
+    "（2）choose an opponent 缺原生玩家目标及其链接值：instructionDefinitionsById.has(\"target.player\") 实测为 false，" +
+    "已注册的 IR 只有对象目标与游戏动作，effect.score 的 choose 形态只接收静态 PlayerId 选项，" +
+    "不能在静态卡牌 IR 中列出运行时所有对手；且 chain/engine.ts 发出的事件 player 用链项控制者，不保留 355.18 的实际选择者。" +
+    "另外 EventPattern.details 的值只支持标量字面量比较（events/pipeline-match.ts 逐字比对，实测 winnerId:\"self\" 对 " +
+    "winnerId:\"A\" 的载荷为 false），\"胜方是能力控制者\" 这类相对玩家判定没有词表；" +
+    "本卡的 details 声明同时被 programs/filters.ts 以 \"Unsupported filter field details\" 判负（裸 details 会被当成对象过滤器）。" +
+    "（3）Deflect 的展开（static target.tax）没有图层消费方：programs/statics.ts 的 layerFor 对该 kind 抛 " +
+    "ProgramBindingError judge-required（实测），TargetPlan 的 taxAdapter 只接受调用方显式传入的税，" +
+    "chain/engine.ts 的 Finalize 又把收到的税按 Energy 记账，与 809.1.c.1 的任意域 Power 不符。" +
+    "已合入并由 golden 真实执行：effect.score（194.1.c/470.2 的得点）、[Deflect] 关键词声明与对象/玩家 ID 否决分支。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +

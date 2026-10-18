@@ -9,6 +9,10 @@ import stunPrimitive from "../../../../engine-core/dist/effects/instructions/eff
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { translateInstructionTargets, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-136c3803080e71b9a47e3adff1362584873339a31072f939e14afa55abc3ecd2";
@@ -56,6 +60,9 @@ test("ven-120-166 Masa: identity, ruleset, status, judgeReason and verbatim sour
   // 缺可选追加费用原语与已付回执。
   assert.match(program.judgeReason, /cost\.additional/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /Structured location filters/);
+  assert.match(program.judgeReason, /Unavailable condition result/);
   assert.doesNotMatch(program.judgeReason, /RIFT-120|cost\.sacrifice/);
 });
 
@@ -213,6 +220,60 @@ test.todo(
     "cost' gate and 424.1.b/424.1.c consequences for the Stunned unit — the merged trigger path still lacks " +
     "the additional-cost paid receipt"
 );
+
+test("ven-120-166 Masa evidence: the printed additional cost and battlefield target still fail closed", () => {
+  // Re-measured 2026-10-18 for all three recorded gaps at once.
+  const f = fixture({ cards: [{ id: "masa", cardId: CANONICAL_ID, types: ["unit"], might: 4 }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("masa"), to: "base" });
+  const source = f.kernel.getObject("masa");
+
+  // (1) static cost.additional has no static binding
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(additionalCost, source),
+    error => error.constructor.name === "ProgramBindingError" &&
+      error.message === "Static ability kind cost.additional has no layer mapping"
+  );
+
+  // (3) the printed "at a battlefield" filter cannot reach the production
+  // translator at all
+  assert.throws(
+    () => translateInstructionTargets(onPlay.body),
+    error => error.constructor.name === "ProgramBindingError" &&
+      /Structured location filters need a concrete location identity/.test(error.message)
+  );
+
+  // (2) registering the real card-played trigger condition without a cost
+  // receipt throws MissingInformation during the pipeline scan
+  f.engine.pipeline.registerTrigger({
+    id: "masa-play", source, controller: "A",
+    // Same translation the production trigger registration performs.
+    spec: {
+      at: "card-played",
+      filter: translateTriggerFilter(onPlay.trigger.filter, source.ref.id, "card-played"),
+      condition: onPlay.trigger.condition
+    },
+    body: onPlay.body, optional: false, activeZones: ["board"], boundToIncarnation: true
+  });
+  assert.throws(
+    () => f.engine.pipeline.emit({ timingPoint: "card-played", object: source, source }),
+    error => error.constructor.name === "MissingInformation" &&
+      /Unavailable condition result: cost\.additional/.test(error.message)
+  );
+});
+
+test("ven-120-166 Masa evidence: the Stun body is mistargeted through the production chain adapter", () => {
+  // The declared effect.stun.args.target is Expr-wrapped; the chain adapter's
+  // LITERAL_FIELDS table does not unwrap it, so a real Finalize/Resolve of the
+  // printed body reports mistargeted instead of stunning (355.10.b aside). This
+  // is measured here through the production entry point rather than the
+  // primitive-only helper the golden above uses.
+  const kernel = masaKernel().clone({ controller: "controller" });
+  kernel.setTargets("masa-crashing-thunder.enemy-unit", [kernel.ref("enemy")]);
+  const outcome = resolveChainBody(onPlay.body, kernel);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(kernel.getObject("enemy").stunned, false);
+});
 
 
 test("Masa: the play trigger declares the specific additional-cost decision", () => {

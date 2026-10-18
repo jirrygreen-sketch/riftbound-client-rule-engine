@@ -20,17 +20,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   数值相加；809.3 是可引用特征。按 README 第 5 节只声明关键词，展开属
  *   effects/keywords/Deflect.ts（已产出 target.tax 形状）。
  *
- * 状态：judge-required。费用原语、RIFT-360 的 target-tax 规划器与生产绑定链均已合入，
- * 但下面三处是当前真实缺口（2026-10-17 逐条实测）：
+ * 状态：judge-required（2026-10-18 逐条实测）。费用原语、RIFT-360 的 target-tax 规划器
+ * 与生产绑定链均已合入，但下面三处仍是当前真实缺口：
  * 1. 附加费用"return a friendly gear to its owner's hand"没有收费路径：费用管线接受的
  *    付款种类只有 energy/xp/power 与 exhaust/discard/recycle/kill/reveal/spend-buff
  *    （cost/plan-values.ts 的 blocked 路径实测返回 "Unsupported payment kind:
  *    return-to-hand"）；而 programs/play.ts 的 translateCost 在翻译 Play 程序时首先
- *    拒绝 optional 与 kind: "additional-cost"（实测抛 "Unsupported play cost field
- *    optional"），附加费用在"卡牌程序 → 费用计划"的生产绑定层就被挡住。
- * 2. "If you do, I cost [2] less" 需要条件式费用改写（356.4.c 的 component discount）
- *    与"已支付该附加费"的检测消费方；cost/cost-plan.ts 只从调用方显式传入的
- *    input.discounts 应用折扣，没有读取卡牌声明或费用支付历史的入口。
+ *    拒绝 optional（实测抛 "Unsupported play cost field optional"）与 kind:
+ *    "additional-cost"（实测抛 "Additional costs are not bound for ..."），附加费用在
+ *    "卡牌程序 → 费用计划"的生产绑定层就被挡住。
+ * 2. "If you do, I cost [2] less" 仍无处求值：本文件声明的条件读一个描述性常量，
+ *    已合入的收集器（cost/discounts/collect.ts）实测把它当普通比较求值为 false，
+ *    因此折扣永远不会真的触发；没有"已支付该附加费"的回执谓词，
+ *    cost/cost-plan.ts 也只从调用方显式传入的 input.discounts 应用折扣
+ *    （356.4.c / 356.4.f.1）。
  * 3. [Deflect]：RIFT-360 已合入可执行的 target.tax 规划
  *    （target/tax/collect.ts 的 deflectCost(amount) 产出任意域 Power 的
  *    mandatory-additional 组件，buildCostPlan 实测得到
@@ -94,14 +97,17 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处当前缺口，均不近似实现：" +
+    "两处当前缺口（2026-10-18 实测），均不近似实现：" +
     "(1) 附加费用「return a friendly gear to its owner's hand」仍无收费路径：" +
     "programs/play.ts 的 translateCost 对 play 费用实测抛 \"Unsupported play cost field optional\"" +
-    "（kind: additional-cost 同样被拒），cost/plan-values.ts 对 kind: return-to-hand 实测抛 " +
+    "与 \"Additional costs are not bound for ...\"（kind: additional-cost 同样被拒），" +
+    "cost/plan-values.ts 对 kind: return-to-hand 实测抛 " +
     "judge-required \"Unsupported payment kind: return-to-hand\"（费用管线只支持 energy/xp/power 与 " +
     "exhaust/discard/recycle/kill/reveal/spend-buff）；" +
     "「If you do, I cost :rb_energy_2: less」还需要 356.4.c 的条件式 component discount 与「该附加费已支付」" +
-    "的检测消费方，cost/cost-plan.ts 只从调用方显式传入的 CostPlanInput.discounts 应用折扣。" +
+    "的检测回执：本文件声明的条件读一个描述性常量，已合入的 cost/discounts/collect.ts " +
+    "实测把它作为普通比较求值为 false（折扣永不触发），不存在「已支付该附加费」的回执谓词，" +
+    "而 cost/cost-plan.ts 只从调用方显式传入的 CostPlanInput.discounts 应用折扣。" +
     "(2) RIFT-360 的 target.tax 规划器已合入：target/tax/collect.ts 的 deflectCost(amount) 产出任意域 Power 的 " +
     "mandatory-additional 组件，buildCostPlan 实测得到 { amount: 1, allowedDomains: 六域 } 的 Power 要求；" +
     "但 [Deflect 1]（809.1.c.1）走不到它——programs/statics.ts 的 layerFor 没有 target.tax 映射，" +

@@ -13,6 +13,7 @@ import { translateObjectFilter } from "../../../../engine-core/dist/programs/fil
 import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createTargetTaxAdapter } from "../../../../engine-core/dist/target/tax/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
@@ -51,6 +52,12 @@ test("sfd-120-221 Sivir, Ambitious: judgeReason names the excess-damage, conquer
   assert.match(program.judgeReason, /programs\/statics\.ts/);
   assert.match(program.judgeReason, /chain\/engine\.ts::finalize/);
   assert.match(program.judgeReason, /CostPlan/);
+  // Every gap in the reason must be one of the three measured blockers; the
+  // merged surfaces (the tax-adapter arithmetic, the conquer emitter and the
+  // binding translator) may only be described as merged.
+  assert.match(program.judgeReason, /MissingInformation/);
+  assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /has no layer mapping/);
 });
 
 test("sfd-120-221 Sivir, Ambitious: [Deflect 2] is declared with its printed value, not expanded", () => {
@@ -385,6 +392,29 @@ test.todo(
   "sfd-120-221 Sivir, Ambitious: programs/statics.ts must bind target.tax and chain/engine.ts::finalize must " +
     "consume the existing target/tax adapter's CostPlan instead of converting the Deflect amount to Energy (809.1.c/809.1.c.1)"
 );
+
+// The live production rejection for gap (3): the expanded [Deflect 2] static is
+// not merely unwired at the Chain — the merged static binder cannot install it.
+test("sfd-120-221 Sivir, Ambitious: the merged static binder rejects the expanded Deflect target.tax (809.1.c)", () => {
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .unit("sivir", { cardId: CANONICAL, owner: "B", energy: 6, power: ["Body", "Body", "Body"], might: 7 })
+    .build();
+  const { engine } = fixture({ cards: [{ id: "chooser", cardId: CANONICAL, types: ["unit"], might: 2 }] });
+  const binder = createEngineStaticBinder(engine);
+  const tax = createProgramBinding({ cardPrograms: [program] }).inspect(kernel.getObject("sivir")).abilities
+    .find((ability) => ability.kind === "static" && ability.effect.kind === "target.tax");
+  assert.ok(tax, "[Deflect 2] must still expand to a static target.tax");
+  assert.throws(
+    () => binder.bindStatic(tax, kernel.getObject("sivir")),
+    (error) => {
+      assert.match(error.message, /target\.tax has no layer mapping/);
+      return true;
+    }
+  );
+  // Fail closed: nothing was half-registered.
+  assert.deepEqual(engine.layers.registry.list(), []);
+});
 
 test.todo(
   "sfd-120-221 Sivir, Ambitious: \"that much\" resolves from the wired excess-damage total once the statistic " +

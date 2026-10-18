@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/skystrike-squadron.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
@@ -45,6 +46,10 @@ test("rad-075-167 Skystrike Squadron: program validates and is judge-required", 
   assert.match(program.judgeReason, /translateCost/);
   assert.match(program.judgeReason, /layerFor/);
   assert.match(program.judgeReason, /mandatoryAdditional/);
+  // 2026-10-18 refresh: the declared gate is refused by the merged collector,
+  // and both translateCost rejections are now measured separately.
+  assert.match(program.judgeReason, /回执谓词/);
+  assert.match(program.judgeReason, /Additional costs are not bound/);
 });
 
 test("rad-075-167 Skystrike Squadron: sourceText is the verbatim deck-catalog ability text", () => {
@@ -122,6 +127,48 @@ test("rad-075-167 Skystrike Squadron: translateCost really refuses the declared 
     () => translateCost(play.cost, "play:skystrike-squadron-test", "play"),
     /Unsupported play cost field optional/
   );
+  assert.throws(
+    () => translateCost({ kind: "additional-cost", payments: [] }, "play:skystrike-squadron-test", "play"),
+    /Additional costs are not bound for play:skystrike-squadron-test/
+  );
+});
+
+test("rad-075-167 Skystrike Squadron: the merged collector never lets the descriptive 'if you do' gate become true", () => {
+  // 356.4.f.1: "an optional additional cost was paid if the player made the
+  // decision to pay it". The declaration's gate must be evaluable; the merged
+  // collector evaluates the authored comparison against the descriptive string
+  // and it is false, so no approximation can be installed from this card today
+  // (the discount never fires unconditionally).
+  const kernel = world()
+    .player("A", { energy: 5 })
+    .hand("skystrike-squadron", { types: ["unit"], energy: 5, power: [] })
+    .unit("gear", { types: ["gear"], controller: "A" })
+    .build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("skystrike-squadron") });
+  const gate = { kind: "static", effect: { kind: "continuous.cost-modification", resource: "energy", amount: { kind: "constant", value: -2 }, appliesTo: "self" }, condition: discount.condition };
+  const plan = finalizeCostPlan(ctx, { id: "play", cost: { kind: "printed" } }, {
+    statics: [{ id: "skystrike:0", source: ctx.ref("skystrike-squadron"), ability: gate }]
+  });
+  assert.equal(ctx.evaluate(discount.condition.left), "returned-gear-paid");
+  assert.equal(plan.total.energy, 5, "the descriptive gate is never true, so no discount is applied");
+  assert.deepEqual(plan.discounts, []);
+});
+
+test("rad-075-167 Skystrike Squadron: the printed -2 discount really reduces a merged plan once it is discoverable", () => {
+  // 356.4.c: the reduction amount itself is executable on a real finalized plan.
+  // What the card still lacks is the decision receipt that turns "if you do"
+  // into a discoverable discount (see judgeReason).
+  const kernel = world().player("A", { energy: 5 }).hand("skystrike-squadron", { types: ["unit"], energy: 5, power: [] }).build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("skystrike-squadron") });
+  const ability = { kind: "static", effect: { kind: "continuous.cost-modification", resource: "energy", amount: discount.amount, appliesTo: "self" } };
+  const plan = finalizeCostPlan(ctx, { id: "play", cost: { kind: "printed" } }, {
+    statics: [{ id: "skystrike:0", source: ctx.ref("skystrike-squadron"), ability }]
+  });
+  assert.equal(plan.total.energy, 3, "a 5 Energy cost reduced by 2");
+  assert.equal(plan.printed.energy, 5);
+  assert.deepEqual(plan.discounts.map(entry => [entry.id, entry.resource, entry.amount, entry.after]), [
+    ["skystrike:0:0:total", "energy", 2, 3]
+  ]);
 });
 
 test("rad-075-167 Skystrike Squadron: the cost pipeline really has no return-to-hand payment kind", () => {

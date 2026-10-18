@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/stealthy-pursuer.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL = "card.hash-ba317497fb11f0057ab92dddc2368fdcdf29656f88954eb40ed97277241324c5";
 const [ability] = program.abilities;
@@ -20,6 +21,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.match(program.judgeReason, /fromLocationId/);
   assert.match(program.judgeReason, /ObjectSelector/);
   assert.match(program.judgeReason, /object-moved/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.equal(
     program.sourceText,
     "When a friendly unit moves from my location, I may be moved with it."
@@ -49,6 +51,23 @@ test("body records the follow-up Move of self with its payload-derived destinati
     kind: "constant",
     value: { type: "battlefield", id: "event-destination" }
   });
+});
+
+test("Stealthy Pursuer: trigger validation rejects the unsupported object-moved event and nominal nested filter", () => {
+  const result = validateTriggerSpec(ability.trigger);
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.issues, [
+    {
+      path: "trigger.filter.filter",
+      code: "unknown-field",
+      message: "EventPattern 不允许此字段。"
+    },
+    {
+      path: "trigger.filter.event",
+      code: "invalid-event-type",
+      message: "值必须属于 zone-entered, zone-left, object-entered-zone, object-left-zone, card-played, object-targeted, became-target, object-killed, object-readied, object-exhausted, attack-declared, defense-declared, combat-damage-before, combat-damage-after, showdown-opened, showdown-closed, combat-ended, chain-item-pending, chain-item-finalized, chain-item-resolved, control-established, control-lost, conquered, held, scored, final-point。"
+    }
+  ]);
 });
 
 test.todo(

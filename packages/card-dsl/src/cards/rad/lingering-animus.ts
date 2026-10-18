@@ -20,7 +20,18 @@ const abilities: Ability[] = [
   {
     kind: "replacement",
     replaces: { event: "object-enters-board", filter: { source: "self" } },
-    // The historical if-clause still needs a replacement Condition adapter.
+    // 364.3.a：把本回合友方单位或 Gear 的死亡历史保留在替代能力条件上。
+    // `history-record` 使当前集合查询 fail-closed；它不是把 live objects 当作死亡记录的近似。
+    condition: {
+      kind: "compare",
+      left: {
+        kind: "count",
+        subject: "friendly-unit-or-gear-died-this-turn",
+        filter: { zone: "history-record", type: ["unit", "gear"], controller: "self" }
+      },
+      operator: "gte",
+      right: { kind: "constant", value: 1 }
+    },
     with: [
       {
         id: "lingering-animus.enter-ready",

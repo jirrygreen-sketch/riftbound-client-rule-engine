@@ -11,6 +11,8 @@ import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { getTimingPoint } from "../../../../engine-core/dist/events/timing-points.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL =
   "card.hash-37ce210574e7c91a9622befdf13147021c67804d234496c259e656e10217be0e";
@@ -39,9 +41,10 @@ test("sfd-214-221 Power Nexus: identity, ruleset, status and verbatim source tex
   assert.equal(cardProgramsById.get(CANONICAL), program);
   // The current dependency is the battlefield-relative anchor / unknown filter
   // field; cost.pay is merged and executed by the golden below (see judgeReason).
-  assert.match(program.judgeReason, /hold producer is merged|hold/);
-  assert.match(program.judgeReason, /here:true/);
+  assert.match(program.judgeReason, /hold producer and its closed discriminant are merged/);
+  assert.match(program.judgeReason, /Unsupported filter field here/);
   assert.match(program.judgeReason, /battlefield-relative/);
+  assert.match(program.judgeReason, /383\.4\.d\.2\.a/);
   assert.match(program.judgeReason, /cost\.pay/);
 });
 
@@ -52,9 +55,11 @@ test("sfd-214-221: hold trigger whose printed may is one choice.optional body (3
   // 053.3 "here" + 190.6.d "you"; sibling battlefield programs keep this
   // placeholder spelling while the hold pipeline is unmerged.
   assert.deepEqual(ability.trigger.filter, {
-    event: "hold",
+    event: "held",
     here: true,
-    player: "controller"
+    // "you" is the ability controller (190.6.d); PlayerSelector "self" is the
+    // frozen vocabulary for "the trigger's controller performed the action".
+    player: "self"
   });
   assert.equal(ability.optional, true);
 
@@ -234,3 +239,24 @@ test.todo(
 test.todo(
   "sfd-214-221: hold 触发在链上真正匹配本 Battlefield 后，可选分支的金色执行升级为端到端生产链路（cost.pay 已执行支付与得分）"
 );
+
+test("sfd-214-221: the printed here placeholder is refused while the closed discriminant registers", () => {
+  // Direct evidence for the judgeReason: the hold producer and the "held"
+  // discriminant are merged (the matcher maps held -> the hold timing point for
+  // a controller filter), but the printed battlefield-relative anchor has no
+  // vocabulary, so no faithful registration of THIS Battlefield exists.
+  assert.throws(
+    () => translateTriggerFilter(ability.trigger.filter, "power-nexus", "hold"),
+    (error) => error.code === "judge-required" && /Unsupported filter field here/.test(error.message)
+  );
+
+  const translated = translateTriggerFilter({ event: "held", player: "controller" }, "power-nexus", "hold");
+  assert.deepEqual(translated, { event: "held", player: "self" });
+  assert.doesNotThrow(() => assertTriggerSpec({ at: "hold", filter: translated }));
+  const emission = { timingPoint: "hold", kind: "hold", player: "A", details: { battlefieldId: "bf-1" } };
+  assert.equal(matchesTriggerEvent(translated, emission, "A"), true);
+  // It is exactly the battlefield identity that is missing: any Battlefield's
+  // Hold would match this broader filter, so the printed restriction must stay
+  // in the published program instead of being narrowed here.
+  assert.equal(matchesTriggerEvent(translated, { ...emission, details: { battlefieldId: "bf-2" } }, "A"), true);
+});

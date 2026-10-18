@@ -1,8 +1,8 @@
 // Golden test for Taric, Protector (ogn-074-298).
 //
 // Execution evidence (play, payment, keyword expansion and the fail-closed
-// static bind) lives in the RIFT-674 parameterized template golden:
-// test/cards/templates/keyword-keyword-static-674.test.mjs.
+// static bind) lives in the RIFT-698 parameterized template golden:
+// test/cards/templates/keyword-keyword-static-698.test.mjs.
 // This file keeps validation, identity, verbatim text, declared status and the
 // key structure of the printed abilities.
 import assert from "node:assert/strict";
@@ -28,6 +28,9 @@ test("ogn-074-298 Taric, Protector: identity, ruleset, status, judgeReason and v
   assert.match(program.judgeReason, /Tank/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /exclude/);
+  assert.match(program.judgeReason, /continuous\.keyword/);
+  assert.match(program.judgeReason, /Static exclude anchor/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-650/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, "[Shield] (+1 :rb_might: while I'm a defender.)\n[Tank] (I must be assigned combat damage first.)\nOther friendly units here have [Shield].");
   assert.deepEqual(JSON.parse(JSON.stringify(program)), program);

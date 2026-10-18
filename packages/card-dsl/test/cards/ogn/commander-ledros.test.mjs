@@ -7,6 +7,8 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
+import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-c80681881ea8ea46056b7e0beb729fa6209936934189d25a1dda9a04ebf36b79";
 const [deflect, ganking, play] = program.abilities;
@@ -25,6 +27,8 @@ test("ogn-231-298 Commander Ledros: identity, status and verbatim sourceText", (
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /routes/);
+  assert.match(program.judgeReason, /cost\/discounts/);
+  assert.match(program.judgeReason, /tax\.amount.*energy/);
   assert.doesNotMatch(program.judgeReason, /转换成 Energy/);
   assert.equal(
     program.sourceText,
@@ -122,3 +126,28 @@ test.todo(
   "ogn-231-298 Commander Ledros: [Ganking]'s battlefield-to-battlefield standard move (CR 810.1.b/" +
     "144.4.c.1) needs the scalar KeywordDef permission normalized to movement()'s permission.routes shape"
 );
+
+test("Commander Ledros supported kill payment accepts zero or multiple selected friendly units", () => {
+  // This is the cost-layer runtime selection surface; the card-to-Finalize quantity/discount binding is still missing.
+  for (const selected of [[], ["first", "second"]]) {
+    const initial = world().hand("ledros", { cardId: CANONICAL, types: ["unit"], power: null })
+      .unit("first").unit("second").unit("enemy", { owner: "B" }).build();
+    const ctx = initial.clone({ sourceSnapshot: initial.getObject("ledros") });
+    const payment = play.cost.payments[0];
+    ctx.setPicks(payment.choice.id, selected.map(id => ctx.ref(id)));
+    ctx.setAnswers({ [`ledros:kill-payment:pick:${payment.choice.id}`]: selected.map(id => ctx.ref(id)) });
+    const plan = buildCostPlan(ctx, {
+      id: "ledros:kill-payment", cost: { kind: "explicit" },
+      optionalAdditional: [{ id: "ledros:kills", kind: "additional", selected: true, cost: { payments: [{
+        ...payment, choice: { ...payment.choice, options: [ctx.ref("first"), ctx.ref("second")] }
+      }] } }]
+    });
+    assert.deepEqual(plan.total.actions.map(entry => [entry.action.type, entry.action.object.id]), selected.map(id => ["kill", id]));
+    const receipt = payCostPlan(ctx, plan);
+    assert.equal(receipt.paid, true);
+    assert.deepEqual(receipt.events.map(event => event.action), ["pay", ...selected.map(() => "kill")]);
+    for (const id of ["first", "second"]) assert.equal(ctx.getObject(id).zone, selected.includes(id) ? "trash" : "board");
+    assert.equal(ctx.getObject("enemy").zone, "board");
+    assert.equal(ctx.history({ action: "kill" }), selected.length);
+  }
+});

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { matchesRelativeController, matchesRelativeExclusion, matchesRelativeLocation, matchesRelativeOwner, matchesRelativePosition } from '../../../dist/layers/relative/filter.js';
+import { bindFilterAnchor, matchesRelativeController, matchesRelativeExclusion, matchesRelativeLocation, matchesRelativeOwner, matchesRelativePosition } from '../../../dist/layers/relative/filter.js';
 import { matchesRelativeRegion } from '../../../dist/layers/relative/filter.js';
 import { sameLocation } from '../../../dist/layers/relative/location.js';
 import { matchesObjectFilter } from '../../../dist/layers/filter.js';
@@ -165,16 +165,16 @@ test('matchesObjectFilter fails closed for unbound location and exclusion anchor
   assert.equal(matchesObjectFilter({ type: 'unit', location: { type: 'battlefield', id: 'battlefield-2' } }, here, null), false);
 });
 
-test('legacy queries that omit the host preserve their old matching semantics', () => {
+test('explicit legacy queries preserve their old unanchored matching semantics', () => {
   const object = snapshot({});
   assert.equal(matchesObjectFilter({ type: 'unit', other: true }, object), true);
   assert.equal(matchesObjectFilter({ type: 'unit', here: true }, object), true);
   assert.equal(matchesObjectFilter({ type: 'unit', owner: 'self' }, object), true);
   assert.equal(matchesObjectFilter({ type: 'unit', controller: 'self' }, object), true);
   assert.equal(matchesObjectFilter({ type: 'unit', controller: 'controller' }, object), false);
-  assert.equal(matchesObjectFilter({ type: 'unit', location: { ...object.location } }, object), false);
+  assert.equal(matchesObjectFilter({ type: 'unit', location: { ...object.location } }, object, { legacy: true }), false);
   assert.equal(matchesObjectFilter({ type: 'unit', location: { ...object.location } }, object, anchor), true);
-  assert.equal(matchesObjectFilter({ type: 'unit', keyword: 'missing' }, object), true);
+  assert.equal(matchesObjectFilter({ type: 'unit', keyword: 'missing' }, object, { legacy: true }), true);
   assert.equal(matchesObjectFilter({ type: 'unit', keyword: 'missing' }, object, anchor), false);
 });
 
@@ -199,4 +199,60 @@ test('matchesObjectFilter supports region and position', () => {
   assert.equal(matchesObjectFilter({ region: 'board' }, battlefield, anchor), true);
   assert.equal(matchesObjectFilter({ position: 'here' }, battlefield, anchor), true);
   assert.equal(matchesObjectFilter({ position: 'here' }, base, anchor), false);
+});
+
+test('query contexts and direct hosts combine shared predicates with relative static fields', () => {
+  const candidate = snapshot({ ref: { id: 'nearby-enemy', zoneEntryId: 201 }, controller: 'B', owner: 'B', damage: 1, buffs: 1, keywords: [{ id: 'shield' }] });
+  const filter = { controller: 'opponent', here: true, other: true, damaged: true, states: ['buffed'], hasKeyword: 'Shield', mightLte: 2 };
+  for (const context of [anchor, { controller: 'A', anchor }]) {
+    assert.equal(matchesObjectFilter(filter, candidate, context), true);
+    assert.equal(matchesObjectFilter(filter, { ...candidate, damage: 0 }, context), false);
+    assert.equal(matchesObjectFilter(filter, { ...candidate, might: 3 }, context), false);
+    assert.equal(matchesObjectFilter(filter, { ...candidate, location: { type: 'battlefield', id: 'elsewhere' } }, context), false);
+    assert.equal(matchesObjectFilter(filter, { ...candidate, ref: anchor.ref }, context), false);
+  }
+});
+
+test('query contexts retain controller overrides, references, and printed-cost comparisons', () => {
+  const candidate = snapshot({ controller: 'B', might: 2, energy: 1, power: [] });
+  const comparison = snapshot({ ref: { id: 'comparison', zoneEntryId: 202 }, might: 3, energy: 2, power: [] });
+  const selector = { linked: 'killed' };
+  const references = value => {
+    assert.deepEqual(value, selector);
+    return [comparison];
+  };
+  const context = { anchor, controller: 'B', references };
+  assert.equal(matchesObjectFilter({ controller: 'self', mightLessThan: selector }, candidate, context), true);
+  assert.equal(matchesObjectFilter({ controller: 'self' }, candidate, { controller: 'A' }), false);
+  assert.equal(matchesObjectFilter({ controller: 'self' }, candidate, { controller: 'B' }), true);
+  assert.equal(matchesObjectFilter({ printedCostNoMoreThanKilledUnit: true, other: selector }, candidate, context), true);
+  assert.equal(matchesObjectFilter({ printedCostNoMoreThanKilledUnit: true }, candidate, { costReference: comparison }), true);
+  assert.equal(matchesObjectFilter({ printedCostNoMoreThanKilledUnit: true }, { ...candidate, energy: null }, { costReference: comparison }), false);
+});
+
+test('bound live hosts take precedence over layer contexts after control and location changes', () => {
+  let current = anchor;
+  const filter = bindFilterAnchor({ controller: 'opponent', sameLocationAs: 'self', other: true }, () => current);
+  const oldContext = { controller: anchor.controller, anchor };
+  const oldEnemy = snapshot({ ref: { id: 'old-enemy', zoneEntryId: 203 }, controller: 'B' });
+  const newEnemy = snapshot({ ref: { id: 'new-enemy', zoneEntryId: 204 }, controller: 'A', location: { type: 'battlefield', id: 'battlefield-2' } });
+  assert.equal(matchesObjectFilter(filter, oldEnemy, oldContext), true);
+  current = { ...anchor, controller: 'B', location: { type: 'battlefield', id: 'battlefield-2' } };
+  assert.equal(matchesObjectFilter(filter, oldEnemy, oldContext), false);
+  assert.equal(matchesObjectFilter(filter, newEnemy, oldContext), true);
+  current = null;
+  assert.equal(matchesObjectFilter(filter, newEnemy, oldContext), false, 'a stale context cannot resurrect a removed source');
+});
+
+test('context entry points preserve absolute locations and fail closed on missing relative anchors', () => {
+  const candidate = snapshot({ location: { type: 'base', player: 'A' } });
+  assert.equal(matchesObjectFilter({ location: { type: 'base' }, region: 'board' }, candidate, { anchor }), true);
+  assert.equal(matchesObjectFilter({ location: null }, snapshot({ zone: 'hand', location: null }), { anchor }), true);
+  assert.equal(matchesObjectFilter({ location: 'battlefield-1' }, ally, { anchor }), true);
+  for (const context of [null, { anchor: null }]) {
+    assert.equal(matchesObjectFilter({ controller: 'self' }, candidate, context), false);
+    assert.equal(matchesObjectFilter({ controller: 'opponent' }, candidate, context), false);
+    assert.equal(matchesObjectFilter({ here: true }, candidate, context), false);
+    assert.equal(matchesObjectFilter({ other: true }, candidate, context), false);
+  }
 });

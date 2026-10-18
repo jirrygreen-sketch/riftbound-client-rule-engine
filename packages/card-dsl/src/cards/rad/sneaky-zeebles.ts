@@ -22,18 +22,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   kind: 'triggered'"的生产绑定仍无调用方（triggerRegistrations 一律产出
  *   kind: 'triggered' 的草案），因此本卡仍走普通链。
  *
- * 状态：judge-required。三处当前真实缺口（2026-10-17 逐条实测）：
+ * 状态：judge-required。三处当前真实缺口（2026-10-18 逐条实测）：
  * 1. rainbow（[A]）在封闭 Domain 类型里没有表示：card-dsl 的 Value/Domain 与
  *    effect.resources 的 DOMAINS 常量都只有 Fury/Calm/Mind/Body/Chaos/Order
  *    六域，effect.resources 对 ["rainbow"] 实测 negated/impossible；gain-power
  *    GameAction 的 power 也是 readonly Domain[]。要真正"加 1 点可支付任意领域的
  *    Power"，需要新增万能 Power 表示（见最终回复的契约变更请求）。
- * 2. Conquer 触发对象：turn/flow.ts 的 scheduleScore 发布的 conquer 事件只带
- *    player 与 details.battlefieldId，不带 conquering Unit；引擎内也没有任何生产方
- *    给 conquer 事件补 object。绑定后的 filter { event: conquer, object: { objectId: self } }
- *    实测不匹配该事件的真实形状（matchesTriggerEvent 返回 false），因此"When I conquer"
- *    无法按 383.4.c.1 的"参与并成功征服该战场的单位"过滤；matchesTriggerEvent 对未识别
- *    键静默放行，去掉 object 过滤会把别人征服也算进来。
+ * 2. Conquer 触发：订阅词已改为封闭词汇 "conquered"（写 "conquer" 会在
+ *    registerTrigger 处被 invalid-event-type 拒绝；events/pipeline-match.ts 把时点
+ *    conquer 映射成 conquered），订阅本身实测注册成功。但征服者身份仍拿不到：
+ *    turn/flow.ts 的 scheduleScore 发布的 conquer 事件只带 player 与
+ *    details.battlefieldId，不带 conquering Unit，也没有生产方补 object；
+ *    绑定后的 filter { event: conquered, object: { objectId: self } } 实测不匹配该事件形状
+ *    （matchesTriggerEvent 返回 false），因此"When I conquer"无法按 383.4.c.1 的
+ *    "参与并成功征服该战场的单位"过滤；去掉 object 过滤又会把别人征服也算进来。
  * 3. 430.2 / 430.2.a 的"Add 能力立即 finalize 并结算、不传递 Priority 与 Focus"：
  *    ChainKind 'add' 与 advance() 的立即 resolve 已合入，但触发绑定链固定产出
  *    kind: 'triggered'，没有把 Add 触发升级为 kind: 'add' 的生产路径。
@@ -46,7 +48,9 @@ const abilities: Ability[] = [
     kind: "triggered",
     trigger: {
       at: "conquer",
-      filter: { event: "conquer", filter: { source: "self" } }
+      // 封闭词表用 "conquered"（时点仍是 conquer）；events/pipeline-match.ts 的
+      // EVENT_NAMES 把 conquer 映射为 conquered，写 "conquer" 会在注册时被拒。
+      filter: { event: "conquered", filter: { source: "self" } }
     },
     optional: false,
     body: [
@@ -70,13 +74,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处当前缺口，均不近似实现：" +
+    "三处当前缺口（2026-10-18 实测），均不近似实现：" +
     "(1) [Add] :rb_rune_rainbow: 的 [A]（135.2.e.5 / 163.2.b，可支付任意领域的 Power）在封闭 Domain 类型里没有表示：" +
     "effect.resources 的 DOMAINS 与 gain-power GameAction 都只有六域，实测把 [\"rainbow\"] 交给 effect.resources 得到 " +
     "negated/impossible；要加 1 点「可支付任意领域」的 Power 需要新增万能 Power 表示，属契约缺口（见最终回复的契约变更请求）。" +
-    "(2) 「When I conquer」的征服者身份（383.4.c.1）拿不到：turn/flow.ts 的 scheduleScore 发布的 conquer 事件只带 player 与 " +
-    "details.battlefieldId，不带 conquering Unit，也没有生产方补 object；绑定后的 filter " +
-    "{ event: conquer, object: { objectId: self } } 实测不匹配该事件形状，而去掉 object 过滤会把其他单位的征服也算进来。" +
+    "(2) 「When I conquer」的订阅词已按封闭词表改为 \"conquered\"（时点仍是 conquer；写 \"conquer\" 会在 registerTrigger " +
+    "处被 invalid-event-type 拒绝），生产注册实测成功；但征服者身份（383.4.c.1）仍拿不到：" +
+    "turn/flow.ts 的 scheduleScore 发布的 conquer 事件只带 player 与 details.battlefieldId，" +
+    "不带 conquering Unit，也没有生产方补 object；绑定后的 filter { event: conquered, object: { objectId: self } } " +
+    "实测不匹配该事件形状（matchesTriggerEvent 返回 false），而去掉 object 过滤会把其他单位的征服也算进来。" +
     "(3) 430.2 / 430.2.a 的「Add 能力立即 finalize 并结算、不传递 Priority 与 Focus」：ChainKind 'add' 与 " +
     "chain/engine.ts advance() 的立即 resolve 已合入，但 programs/triggers.ts 的 triggerRegistrations 固定产出 " +
     "kind: 'triggered' 草案，没有把 Add 触发绑定为 kind: 'add' 的生产路径。" +

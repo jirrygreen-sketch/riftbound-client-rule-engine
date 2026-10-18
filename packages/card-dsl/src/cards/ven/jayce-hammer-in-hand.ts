@@ -25,9 +25,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   continuous.grant-keyword 只接受 appliesTo self / objects / filter 等选择形状，
  *   因此用字面 appliesTo self（指令将其解析为能力来源自身）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。触发注册与 grant-keyword
- * 指令都已合入并有探针执行证据（test.mjs 的 probe 用例）；仍缺的是链适配器与
- * 关键词消费方，见 judgeReason。
+ * status 判定（cards/README.md 第 2 节）：judge-required。触发注册（object-readied）与
+ * grant-keyword 指令都已合入并有探针执行证据（test.mjs 的 probe 用例）。独立
+ * KeywordGrantLayerEngine 已能重展开 Assault / Deflect / Ganking；默认 CardProgram
+ * lifecycle 尚未接入该 adapter，另有 choice.mode 的 Finalize 接线缺口，逐条见
+ * judgeReason（2026-10-18 复核实测）。
  */
 const mode = (id: string, keyword: string, value?: number) => ({
   id,
@@ -84,20 +86,14 @@ export default {
   judgeReason:
     "触发注册与授予原语都已合入并有探针证据：object-readied 触发经 programs/triggers 注册、" +
     "就绪后进链（probe 见 test.mjs），continuous.grant-keyword 是已注册指令，" +
-    "appliesTo self（355.10.d/g 自我指代）解析为来源对象。仍缺三处（2026-10-17 RIFT-613 复核实测）：" +
+    "appliesTo self（355.10.d/g 自我指代）解析为来源对象。仍缺两类生产接线（2026-10-18 复核实测）：" +
     "(1) 被选模式进入 Finalize 时 choice.mode 被链适配器拒绝——chain/engine.ts 的 " +
     "assertFinalizationSurface 抛 ChainContractBlockedError('Mode choices require a " +
-    "Finalize/Resolve choice-plan adapter')，模式选择无法落到被选 body；(2) Assault 的 " +
-    "战斗加成没有消费方：Assault.ts 展开的 static 条件读 object-property \"designation\"，" +
-    "而 ObjectSnapshot 只暴露 combatRole，图层求值对未知属性返回 false（实测绑定后 Might " +
-    "不变），" +
-    "需要 807.1.d.1 的攻击方指定到图层谓词的接线；(3) Deflect 与 Ganking 的消费方仍未完成：" +
-    "Deflect 的 target.tax 静态在 programs/statics.ts 被拒（\"Static ability kind target.tax " +
-    "has no layer mapping\"），Chain 的 Finalize 也只传 taxAdapter、不传 tax；Ganking 的 " +
-    "continuous.movement 可绑定，但展开形状与消费方不一致——Ganking.ts 展开平铺的 permission " +
-    "\"battlefield-to-battlefield\"，layers/rules/query.ts 的 movement() 读嵌套的 permission.routes，" +
-    "实测 movement() 返回 canGank:false / permissions:[]；zones/movement.ts 的 routeBlocked 也只读 " +
-    "restrictions，没有任何生产调用方消费战场间移动许可。" +
+    "Finalize/Resolve choice-plan adapter')，模式选择无法落到被选 body；(2) 关键词重展开已有独立 " +
+    "KeywordGrantLayerEngine adapter：Assault 会按 combatRole/designation 计算攻击者 Might，" +
+    "Ganking 会写入 battlefield-to-battlefield movement，Deflect 会产生 target.tax static；" +
+    "但默认 CardProgram lifecycle 仍使用基础 LayerEngine，生产触发不会进入该重展开路径，" +
+    "Chain Finalize 也未把 Deflect 的 Power tax 接入支付。" +
     "不近似实现（不把三个模式压成一个，也不把授予写成直接改 Might）。",
   abilities,
   sourceText:

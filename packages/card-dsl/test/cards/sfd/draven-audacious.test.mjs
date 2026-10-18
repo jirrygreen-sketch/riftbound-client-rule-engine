@@ -10,6 +10,8 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-517bab9d87b5b339d5d8886b24a11340875d925af78a9616dcb0a621e6ea4818";
@@ -35,7 +37,9 @@ test("sfd-148-221 Draven, Audacious: identity, ruleset, status, judgeReason and 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /combat-result/);
   assert.match(program.judgeReason, /target\.player/);
-  assert.match(program.judgeReason, /RIFT-360/);
+  assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /809\.1\.c\.1/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -52,8 +56,9 @@ test("sfd-148-221 Draven, Audacious: the win-combat half is once per turn and sc
   assert.equal(winCombat.trigger.at, "combat-result");
   assert.deepEqual(winCombat.trigger.filter, {
     event: "combat-result",
+    filter: {},
     details: { winnerId: "self" },
-    player: "controller"
+    player: "self"
   });
   // 383.3.e / 383.3.e.1: "The first time ... each turn" is the per-turn lifetime.
   assert.equal(winCombat.trigger.once, "per-turn");
@@ -78,7 +83,7 @@ test("sfd-148-221 Draven, Audacious: the death half chooses an opponent who then
   assert.equal(dieInCombat.trigger.at, "object-killed");
   assert.deepEqual(dieInCombat.trigger.filter, {
     event: "object-killed",
-    filter: { object: "self" },
+    self: true,
     details: { inCombat: true }
   });
   assert.equal(dieInCombat.trigger.condition, undefined);
@@ -157,7 +162,7 @@ test.todo(
 test.todo(
   "sfd-148-221 Draven, Audacious: the [Deflect] expansion (static target.tax) needs its consumer — TargetPlan's " +
     "tax adapter only appends caller-supplied taxes and the merged tax -> cost mapping bills Energy instead of the " +
-    "any-domain Power of 809.1.c.1 (RIFT-360)"
+    "any-domain Power of 809.1.c.1, and programs/statics.ts has no layer mapping for target.tax"
 );
 
 test("sfd-148-221 Draven, Audacious: the merged registries still lack the native player target", () => {
@@ -180,6 +185,40 @@ test("sfd-148-221 Draven, Audacious: an in-combat death payload cannot match the
       "A"
     ),
     false
+  );
+});
+
+test("sfd-148-221 Draven, Audacious: the win-combat subscription is rejected by the production vocabulary", () => {
+  // Re-probed 2026-10-18 (468.3.a / 468.3.c): the declared `details` key is a
+  // valid EventPattern field, but combat-result is not an EVENT_PATTERN_TYPE, so
+  // the registration can never be scanned for.
+  const translated = translateTriggerFilter(
+    winCombat.trigger.filter,
+    "draven",
+    "combat-result"
+  );
+  assert.deepEqual(translated, { event: "combat-result", player: "self", details: { winnerId: "self" } });
+  const result = validateTriggerSpec({ at: "combat-result", filter: translated });
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.issues.map(issue => [issue.code, issue.path]), [
+    ["invalid-event-type", "trigger.filter.event"]
+  ]);
+  // The death half's self anchor translates to the host snapshot; only the
+  // in-combat payload is missing.
+  assert.deepEqual(translateTriggerFilter(dieInCombat.trigger.filter, "draven", "object-killed"), {
+    event: "object-killed",
+    object: { objectId: "draven" },
+    details: { inCombat: true }
+  });
+  // A bare top-level `details` key would be treated as an object filter and
+  // rejected outright; the declared nested-filter shape is the translatable one.
+  assert.throws(
+    () => translateTriggerFilter(
+      { event: "combat-result", details: { winnerId: "self" }, player: "self" },
+      "draven",
+      "combat-result"
+    ),
+    error => error.name === "ProgramBindingError" && /Unsupported filter field details/.test(error.message)
   );
 });
 

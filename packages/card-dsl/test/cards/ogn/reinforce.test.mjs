@@ -19,6 +19,8 @@ import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { finalizeOrderedPickPlans } from "../../../../engine-core/dist/chain/picks/plan.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 
 const CARD_ID = "card.hash-c2c17a54e193d86678b7e7bb36f02bf0db8c677c91f7ac73a0fa57cb2acc8be5";
 const SOURCE_TEXT =
@@ -67,7 +69,7 @@ test("ogn-062-298 Reinforce judgeReason names the current cost-plan and selectio
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /356\.1\.c/);
   assert.match(program.judgeReason, /356\.6/);
-  assert.match(program.judgeReason, /FinalizedCostPlan/);
+  assert.match(program.judgeReason, /finalized CostPlan|FinalizedCostPlan|effect\.play/);
   assert.match(program.judgeReason, /effect\.banish/);
   assert.match(program.judgeReason, /object: \{ pick: \"reinforce\.top-five\" \}/);
   assert.doesNotMatch(program.judgeReason, /inspect.*没有候选过滤|从 5 张中选 unit.*无法表达/);
@@ -345,6 +347,45 @@ test("ogn-062-298 Reinforce golden: the merged play primitive refuses the unfina
   assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
   assert.equal(kernel.getObject("rescued").zone, "banishment");
   assert.equal(run.events.length, 0);
+});
+
+test("ogn-062-298 Reinforce golden: a caller-supplied finalized discounted plan lets effect.play execute", () => {
+  const kernel = world()
+    .player("A", { energy: 4 })
+    .object("rescued", {
+      zone: "banishment",
+      types: ["unit"],
+      owner: "A",
+      controller: "A",
+      energy: 4,
+      power: []
+    })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("rescued") });
+  const plan = finalizeCostPlan(context, {
+    id: "reinforce.selected-card",
+    cost: { kind: "printed" },
+    discounts: [{
+      id: "reinforce.energy-five",
+      resource: "energy",
+      amount: { kind: "constant", value: 5 },
+      minimum: { kind: "constant", value: 0 }
+    }]
+  });
+  assert.equal(plan.total.energy, 0);
+  assert.equal(payCostPlan(context, plan).paid, true);
+
+  const run = runInstruction(
+    play,
+    {
+      object: { kind: "constant", value: context.ref("rescued") },
+      cost: { kind: "constant", value: plan }
+    },
+    { world: context }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.equal(context.getObject("rescued").zone, "board");
+  assert.deepEqual(run.events.map(event => event.action), ["pay", "play"]);
 });
 
 test.todo(

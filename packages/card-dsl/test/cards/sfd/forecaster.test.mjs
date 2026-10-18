@@ -13,9 +13,12 @@ import assert from "node:assert/strict";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/forecaster.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { KeywordGrantLayerEngine, expandEffectiveKeywords } from "../../../../engine-core/dist/programs/keyword-grants.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
@@ -44,10 +47,13 @@ test("sfd-065-221 Forecaster: program passes validateCardProgram and is judge-re
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("sfd-065-221 Forecaster: judgeReason names the current binding and expansion gaps", () => {
+test("sfd-065-221 Forecaster: judgeReason names the current dynamic Vision gap", () => {
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /817\.1\.b/);
   assert.match(program.judgeReason, /运行时获得的 Vision/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /triggered Predict/);
+  assert.match(program.judgeReason, /production lifecycle/);
   assert.doesNotMatch(program.judgeReason, /RIFT-257|RIFT-258|RIFT-83/);
   assert.equal(keywordDefinitionsById.has("Vision"), true);
   assert.equal(keywordDefinitionsById.get("Vision").stacking, "separate");
@@ -202,8 +208,102 @@ test("sfd-065-221 Forecaster golden: the production static binder installs the f
   assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref("friendly-mech")).keywords, []);
 });
 
-test.todo(
-  "sfd-065-221 Forecaster: expand a runtime-gained Vision per instance into its 817.1.b Predict " +
-    "trigger with a real controller and ordered deck-top binding; expandProgram currently only " +
-    "consumes printed/declared keywords"
-);
+test("sfd-065-221 Forecaster: the merged Vision KeywordDef expands to the full 817.1.b triggered Predict body", () => {
+  assert.equal(keywordDefinitionsById.has("Vision"), true);
+  const [ability] = keywordDefinitionsById.get("Vision").expand({ host: { canonicalCardId: "sfd-065-221" } });
+  assert.equal(ability.kind, "triggered");
+  assert.equal(ability.trigger.at, "object-enters-board");
+  assert.deepEqual(ability.body.map((instruction) => instruction.op), ["effect.inspect", "effect.recycle"]);
+  // The expansion leaves the ordered deck-top pick declaration to the
+  // assembly layer: without it the production ChainEngine collects no
+  // orderedPickSpecs and the inspect silently looks at zero cards.
+  assert.equal(ability.body[0].picks, undefined);
+});
+
+test("sfd-065-221 Forecaster: the expanded Vision body really executes its Predict look and recycle on the reference kernel", () => {
+  const built = world()
+    .deck(["z-top", "a-rest"])
+    .unit("forecaster", { types: ["unit"], tags: ["Mech"], keywords: [{ id: "Vision" }] })
+    .build();
+  const kernel = built.clone({ controller: "A", sourceSnapshot: built.getObject("forecaster") });
+  const [ability] = keywordDefinitionsById.get("Vision").expand({ host: { canonicalCardId: "sfd-065-221" } });
+  const [inspect] = ability.body;
+  const picksId = inspect.args.picksSpecId.value;
+  const amount = inspect.args.amount.value;
+  kernel.setPicks(picksId, kernel.zoneSlice("A", "deck", "top", amount).map((object) => object.ref));
+  kernel.setAnswers({
+    ["vision-look/" + encodeURIComponent("effect.inspect:select:A:A:deck")]: [kernel.ref("z-top")]
+  });
+
+  const outcome = resolveChainBody(ability.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(kernel.events.map((event) => event.action), ["look", "recycle"]);
+  assert.deepEqual(kernel.zone("A", "deck").map((ref) => ref.id), ["a-rest", "z-top"]);
+  assert.equal(outcome.linkedValues["vision-look.inspected"], 1);
+  assert.deepEqual(outcome.linkedValues["vision-look.vision-picked"], [{ id: "z-top", zoneEntryId: 1 }]);
+});
+
+test("sfd-065-221 Forecaster: the merged re-expander refuses a runtime Vision trigger and the production chain looks at nothing", () => {
+  const built = world()
+    .deck(["z-top", "a-rest"])
+    .unit("mech", { owner: "A", controller: "A", tags: ["Mech"], keywords: [{ id: "Vision" }] })
+    .build();
+  const kernel = built.clone({ controller: "A", sourceSnapshot: built.getObject("mech") });
+  const layers = new KeywordGrantLayerEngine(kernel.objects, {
+    context: (source) => bindResolveContext(kernel, { source, controller: source.controller })
+  });
+  const expansion = expandEffectiveKeywords(kernel.getObject("mech"));
+  assert.deepEqual(expansion.keywords, [{ id: "Vision" }]);
+  assert.deepEqual(expansion.abilities.map((ability) => ability.kind), ["triggered"]);
+  assert.throws(
+    () => layers.keywordAbilities(kernel.ref("mech")),
+    (error) => error.code === "judge-required" && /Dynamic triggered keyword abilities need a lifecycle binder/.test(error.message)
+  );
+
+  // The same silent zero-look is measured on the production chain when the
+  // expanded body (without a zoneSlice pick declaration) is appended directly:
+  // pickPlans stay empty, the deck keeps its order, and no look event fires.
+  const choose = (request) => {
+    if (request.type === "optional") return true;
+    if (request.type === "select-objects") return request.options.slice(0, 1);
+    throw new Error("unexpected choice " + request.id);
+  };
+  let engine;
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone(), triggers: engine ? engine.pipeline.checkpoint() : undefined }),
+    restore: (saved) => {
+      kernel.restore(saved.state);
+      kernel.copyLinkedFrom(saved.links);
+      if (saved.triggers && engine) engine.pipeline.restore(saved.triggers);
+    },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: (registration) => kernel.test(registration.spec.condition)
+  });
+  engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const [ability] = keywordDefinitionsById.get("Vision").expand({ host: { canonicalCardId: "sfd-065-221" } });
+  engine.append({
+    id: "vision-trigger",
+    controller: "A",
+    source: kernel.getObject("mech"),
+    kind: "triggered",
+    optional: false,
+    trigger: { at: "object-enters-board", filter: {} },
+    body: ability.body
+  });
+  let steps = 0;
+  while (engine.entries.some((item) => item.status === "pending")) {
+    engine.advance();
+    if (++steps > 30) throw new Error("finalize did not settle");
+  }
+  assert.deepEqual(engine.items[0].pickPlans, []);
+  steps = 0;
+  while (engine.entries.length) {
+    engine.pass(engine.priority);
+    if (++steps > 30) throw new Error("resolve did not settle");
+  }
+  assert.deepEqual(kernel.events, []);
+  assert.deepEqual(kernel.zone("A", "deck").map((ref) => ref.id), ["z-top", "a-rest"]);
+});

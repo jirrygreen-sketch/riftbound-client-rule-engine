@@ -36,6 +36,11 @@ test("sfd-047-221 Simian Ancestor: identity, ruleset, status, judgeReason and ve
   assert.match(program.judgeReason, /buff-added/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.match(program.judgeReason, /TriggerSpecValidationError/);
+  assert.match(program.judgeReason, /invalid-event-type/);
+  // The merged parts must be named as merged, not as outstanding dependencies.
+  assert.match(program.judgeReason, /effect\.ready/);
+  assert.match(program.judgeReason, /绑定层/);
+  assert.match(program.judgeReason, /TriggerRegistration/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 

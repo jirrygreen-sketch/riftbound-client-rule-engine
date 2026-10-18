@@ -19,13 +19,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   the use count are set by the effect that creates the ability).
  * - Each use performs a Draw (414); "draw 1" is effect.draw with amount 1.
  *
- * Status: judge-required. Missing implementation (re-checked against the merged
- * ops):
+ * Status: judge-required. Missing implementation (re-checked 2026-10-18 against
+ * the merged ops; each item measured):
  * - `ResolveContext.registerDelayedTrigger` exists (contract 3.6) and the chain
  *   engine implements it (src/chain/engine.ts registers the delayed trigger into
  *   the event pipeline), but no merged instruction under
  *   `effects/instructions/` exposes it as an opcode: the `trigger.delayed`
- *   template is still unmerged, so `trigger.delayed` below is a
+ *   op is absent from `instructionDefinitionsById` (`has()` is false) and
+ *   handing this card's own body to the production interpreter throws
+ *   "Unregistered instruction opcode: trigger.delayed", so the op below is a
  *   descriptive, unregistered op;
  * - `TriggerSpec.once` only offers per-turn / per-phase / per-combat /
  *   per-showdown / per-chain / per-object / per-game, so the "next three times"
@@ -33,7 +35,9 @@ import type { CardProgram } from "../../ir/index.js";
  * - the end-of-turn expiry of the created delayed trigger needs a registration
  *   `expiresAt` / duration cleanup path for card-created delayed triggers
  *   (TriggerRegistration has `expiresAt`, but the delayed-registration path does not
- *   currently accept or propagate that expiry).
+ *   currently accept or propagate that expiry: chain/engine.ts's
+ *   `registerDelayedTrigger` forwards id / source / controller / spec / body /
+ *   delayed only).
  * The body keeps that intended shape instead of approximating the three uses
  * with a single immediate draw or a permanent "whenever you play a unit"
  * trigger.
@@ -43,12 +47,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺延迟触发注册的卡牌侧原语与“接下来三次”的用量计数：ResolveContext.registerDelayedTrigger 已在契约 3.6 " +
-    "且 chain/engine.ts 已实现（把延迟触发注册进事件管线），但 effects/instructions/ 没有把它暴露成 opcode" +
-    "（trigger.delayed 模板未合入，故本卡用未注册的描述性 op trigger.delayed 记录形状）；" +
+    "缺延迟触发注册的卡牌侧原语与“接下来三次”的用量计数（2026-10-18 实测复核）：" +
+    "ResolveContext.registerDelayedTrigger 已在契约 3.6，且 chain/engine.ts 已实现（把延迟触发注册进事件管线），" +
+    "但 effects/instructions/ 没有把它暴露成 opcode：实测 instructionDefinitionsById.has(\"trigger.delayed\") 为 false，" +
+    "把本卡自身 body 交给生产解释器直接抛 “Unregistered instruction opcode: trigger.delayed”；" +
     "TriggerSpec.once（events/trigger-spec.ts）只支持 per-turn / per-phase / per-combat / per-showdown / per-chain / per-object / per-game，" +
-    "无法表达“本回合接下来三次打出单位”；本回合到期需要让卡牌侧延迟注册传递 expiresAt（TriggerRegistration 有该字段，" +
-    "事件管线也会在到期时点清掉带 expiresAt 的触发，events/pipeline.ts:78，但 chain/engine.ts:280 的延迟注册不透传该期限）。" +
+    "无法表达“本回合接下来三次打出单位”的用量计数；本回合到期还需要卡牌侧延迟注册透传 expiresAt" +
+    "（TriggerRegistration 有该字段，events/pipeline.ts 会在到期时点清掉带 expiresAt 的触发，" +
+    "但 chain/engine.ts 的延迟注册只传 id/source/controller/spec/body/delayed）。" +
     "不近似实现（不用立即抽 1、也不用永久“每当你打出单位”触发代替）。",
   abilities: [
     {

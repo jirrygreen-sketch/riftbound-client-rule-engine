@@ -74,6 +74,7 @@ test("Dr. Mundo, Expert identity and judge-required reason", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /count/);
   assert.match(program.judgeReason, /479\.4/);
+  assert.match(program.judgeReason, /programs\/statics\.ts/);
   assert.match(program.judgeReason, /beginning-start/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.equal(program.sourceText,

@@ -11,7 +11,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   Choose a friendly unit in your base. Deal damage equal to its Might to all
  *   enemy units at a battlefield, then move your unit there.
  *
- * Status: judge-required (re-reviewed 2026-10-17). "all enemy units at a
+ * Status: judge-required (re-reviewed 2026-10-18). "all enemy units at a
  * battlefield" still cannot be expressed and is not approximated:
  * - the units are NOT targeted: 355.10.b/355.10.d ("Kill all units at a
  *   battlefield" targets a battlefield, but not any units) make the BATTLEFIELD

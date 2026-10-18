@@ -43,6 +43,11 @@ test("rad-040-167 Heartening Soul: identity, ruleset, status, judgeReason and so
   // layer-mapping failure, not a merely unbound shape.
   assert.match(program.judgeReason, /instructionDefinitionsById/);
   assert.match(program.judgeReason, /no layer mapping/);
+  // Fourth-sweep refresh: the target-filter blocker is the authored controller
+  // spelling and the missing Legend Zone, not just an unbound shape.
+  assert.match(program.judgeReason, /selectorMatches/);
+  assert.match(program.judgeReason, /mistargeted/);
+  assert.match(program.judgeReason, /effects\/contract\.ts:16/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -225,3 +230,47 @@ test.todo(
   "rad-040-167 Heartening Soul: once complete Ability grants and Legend Zone targets are bound, use the " +
     "CardProgram lifecycle to register the static grant and card-played trigger, then activate the granted exhaust-cost ability"
 );
+
+// --- 2026-10-18 re-sweep: measured target-filter blockers ---
+test("rad-040-167 Heartening Soul re-sweep: the authored controller selector is outside the layer matcher vocabulary", () => {
+  // layers/filter.ts selectorMatches accepts undefined / "any" / "self" /
+  // "opponent" / { playerId } — never the card's authored "controller" spelling.
+  // The produced layer snapshot therefore never matches, whatever zone is used.
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .unit("legend", { zone: "board", controller: "A", types: ["legend"], exhausted: true })
+    .build();
+  const snapshot = createLayerEngine(kernel.objects, []).evaluate(kernel.ref("legend"));
+  assert.equal(snapshot.zone, "board");
+  assert.deepEqual(snapshot.types, ["legend"]);
+
+  assert.equal(matchesObjectFilter({ type: "legend", controller: "controller" }, snapshot), false);
+  assert.equal(matchesObjectFilter({ type: "legend", controller: "self" }, snapshot), true);
+  assert.equal(matchesObjectFilter({ type: "legend", controller: "A" }, snapshot), true);
+  // The Legend Zone is not part of the closed ZoneId either (effects/contract.ts:16),
+  // so the authored zone spelling matches nothing.
+  assert.equal(matchesObjectFilter({ type: "legend", zone: "legend" }, snapshot), false);
+  assert.equal(matchesObjectFilter({ type: "legend", zone: "board" }, snapshot), true);
+});
+
+test("rad-040-167 Heartening Soul re-sweep: the declared ready target resolves to no candidate, so effect.ready is mistargeted", () => {
+  // The target plan cannot lock the legend with the card's own filter, so the
+  // printed "ready a friendly legend" never reaches the merged effect.ready
+  // primitive in production. (The existing golden shows the primitive does work
+  // once a legend reference is supplied.)
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .unit("legend", { zone: "board", controller: "A", types: ["legend"], exhausted: true })
+    .unit("src", { zone: "board", controller: "A" })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("src") });
+  assert.deepEqual(readyInstruction.targets[0].filter, { type: "legend", controller: "controller" });
+  assert.deepEqual(scoped.query(readyInstruction.targets[0].filter), []);
+  assert.deepEqual(
+    runAbilityBody([readyInstruction], scoped).results.map(result => [result.id, result.result.status, result.result.reason]),
+    [["heartening-soul.ready-legend", "ignored", "mistargeted"]]
+  );
+  assert.equal(scoped.getObject("legend").exhausted, true);
+});

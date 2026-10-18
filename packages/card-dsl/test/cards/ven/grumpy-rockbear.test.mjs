@@ -1,4 +1,12 @@
-// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
+// Golden test for Grumpy Rockbear (ven-050-166).
+//
+// Execution evidence (the registered per-rune cost rewrite behind its
+// fail-closed bind, the Empowered-gated Deflect 1 / Shield 3 grant with both
+// the Empower and Disempower boundaries and the blocked printed [Empower]
+// activation) lives in the RIFT-673 parameterized template golden:
+// test/cards/templates/keyword-static-static-673.test.mjs.
+// Original behavior and structure assertions remain in this file; the
+// template adds execution evidence without replacing these checks.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -6,12 +14,18 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/grumpy-rockbear.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
-import { expandProgram, translateCost } from "../../../../engine-core/dist/programs/index.js";
+import { createEngineStaticBinder, expandProgram, translateCost } from "../../../../engine-core/dist/programs/index.js";
+import { ProgramBindingError } from "../../../../engine-core/dist/programs/errors.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+
+const Deflect = keywordDefinitionsById.get("Deflect");
 
 const [empower, costReduction, grantedKeywords] = program.abilities;
 
@@ -42,7 +56,10 @@ test("grumpy-rockbear: judgeReason names the keyword, cost and layer gaps with t
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /442\.1\.a/);
   assert.match(program.judgeReason, /empower-activation-cost/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /rune-you-control/);
+  assert.match(program.judgeReason, /Unsupported cost kind empower/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -135,6 +152,35 @@ test("grumpy-rockbear golden: the [Empowered] clause really grants Deflect 1 and
   assert.equal(evaluated.might, 6);
 });
 
+test("grumpy-rockbear golden: the merged keyword-grant adapter applies Shield 3 to a defender", () => {
+  const kernel = world().unit("grumpy-rockbear", {
+    types: ["unit"], zone: "board", owner: "A", controller: "A", might: 6,
+    combatRole: "defender", location: { type: "battlefield", id: "bf-1" }
+  }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("grumpy-rockbear") });
+  const outcome = runAbilityBody([{
+    id: "grumpy-rockbear.grant-keywords",
+    op: "continuous.grant-keyword",
+    args: {
+      keywords: { kind: "constant", value: grantedKeywords.effect.keywords },
+      appliesTo: { kind: "constant", value: "self" }
+    }
+  }], context);
+  assert.equal(outcome.status, "executed");
+  const layers = new KeywordGrantLayerEngine(context.objects, {
+    context: source => bindResolveContext(context, { source, controller: source.controller })
+  });
+  for (const entry of context.continuousEffects) {
+    layers.addContinuous(entry.effect, entry.duration, entry.timestamp);
+  }
+  const snapshot = layers.snapshot(context.ref("grumpy-rockbear"));
+  assert.deepEqual(snapshot.keywords, [
+    { id: "Deflect", value: 1 },
+    { id: "Shield", value: 3 }
+  ]);
+  assert.equal(snapshot.might, 9);
+});
+
 test("grumpy-rockbear: merged Empower expands, but its printed cost is not carried by KeywordAbility", () => {
   const f = fixture({
     cards: [{ id: "grumpy", cardId: program.canonicalCardId, types: ["unit"], might: 6 }]
@@ -162,5 +208,60 @@ test.todo(
     "fails closed when bound (Unsupported static appliesTo)"
 );
 test.todo(
-  "grumpy-rockbear: integrate granted Deflect Power tax and Shield defender expansion through Chain Finalize/combat; state-gated grant subset is covered by the template"
+  "grumpy-rockbear: route the granted Deflect Power tax and Shield defender expansion through the default CardProgram lifecycle and Chain Finalize; the isolated KeywordGrantLayerEngine adapter covers the Shield combatRole/designation alias"
 );
+
+test("grumpy-rockbear evidence: the granted Deflect expansion still has no static binding", () => {
+  // 809.1.c: the granted [Deflect] expands to the target.tax static; the
+  // merged staticTarget/layerFor still rejects it, so the printed Power tax
+  // cannot reach Chain Finalize from the default lifecycle. Re-measured
+  // 2026-10-18 rather than assumed from the previous review.
+  const [deflectTax] = Deflect.expand({ value: 1, host: { canonicalCardId: program.canonicalCardId } });
+  assert.equal(deflectTax.kind, "static");
+  assert.equal(deflectTax.effect.kind, "target.tax");
+  const f = fixture({ cards: [{ id: "rockbear", cardId: program.canonicalCardId, types: ["unit"], might: 4 }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("rockbear"), to: "base" });
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(deflectTax, f.kernel.getObject("rockbear")),
+    error => error instanceof ProgramBindingError && error.code === "judge-required" &&
+      error.message === "Static ability kind target.tax has no layer mapping"
+  );
+});
+
+test("grumpy-rockbear evidence: the printed per-rune discount cannot be consumed", () => {
+  // 827.1.c.3 / 206.1: the clause modifies this card's own Empower cost. The
+  // declared per is the descriptive string "rune-you-control", which the merged
+  // cost collector cannot evaluate; under its own scope the modifier is not
+  // collected at all, and under the recognized activated scope it fails closed.
+  const f = fixture({ cards: [{ id: "rockbear", cardId: program.canonicalCardId, types: ["unit"], might: 4 }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("rockbear"), to: "base" });
+  f.engine.advance();
+  for (const id of ["r1", "r2"]) {
+    f.kernel.addObject({
+      ref: { id, zoneEntryId: 1 }, cardId: "rune", name: "rune", types: ["rune"], tags: [],
+      keywords: [], owner: "A", controller: "A", zone: "rune-zone", location: null,
+      combatRole: null, might: null, energy: null, power: null, exhausted: false,
+      damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
+    }, "rune-zone");
+  }
+  const source = f.kernel.getObject("rockbear");
+  const context = f.kernel.clone({ sourceSnapshot: source, controller: "A" });
+  const plan = (effect) => finalizeCostPlan(
+    context,
+    { id: "rockbear-empower", cost: { kind: "explicit", energy: { kind: "constant", value: 12 } } },
+    { statics: [{ id: "rockbear", source: source.ref, ability: { kind: "static", effect } }], purpose: "activate" }
+  );
+
+  assert.deepEqual(plan(costReduction.effect).discounts, []);
+  assert.equal(plan(costReduction.effect).total.energy, 12);
+  assert.throws(
+    () => plan({ ...costReduction.effect, appliesTo: "activated-ability-cost" }),
+    error => error.constructor.name === "CostPlanError" &&
+      /Cost modification requires a safe integer amount/.test(error.message)
+  );
+  const counted = runAbilityBody(
+    [{ id: "rockbear.count", op: "condition.value", args: { value: costReduction.effect.amount } }],
+    context
+  );
+  assert.equal(counted.results[0].result.linkedValues.value, -0);
+});

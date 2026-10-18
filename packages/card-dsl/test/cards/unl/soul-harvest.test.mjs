@@ -1,3 +1,4 @@
+// RIFT-684 execution evidence is also covered by templates/play-effect-kill-684.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -166,4 +167,3 @@ test.todo(
   "unl-159-219 Soul Harvest: exclude Pending chain items from the target choice and revalidate the battlefield " +
     "location at Resolve (CR 355.3/355.15, 359.3.e.9) — needs the TargetPlan resolve re-check (RIFT-357)"
 );
-

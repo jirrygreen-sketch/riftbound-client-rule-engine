@@ -1,3 +1,7 @@
+// Whole-card execution evidence for this program (the RIFT-687 template row and
+// its supported-part tests) lives in
+// test/cards/templates/triggered-object-moved-continuous-might-687.test.mjs;
+// every assertion below is retained.
 import assert from "node:assert/strict";
 import test from "node:test";
 

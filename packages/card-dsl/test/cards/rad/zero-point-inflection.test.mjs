@@ -243,11 +243,13 @@ test("rad-069-167 Zero Point Inflection: scoring to an invalid opponent pick is 
 
 test.todo(
   "rad-069-167 Zero Point Inflection: evaluating 'when you draw 1 or more cards with 9 or more other " +
-    "cards in your hand' still needs event-object and draw-batch binding into the trigger condition/IR; " +
-    "action-adapter emits one card-drawn event per drawn object with an object snapshot and amount, and " +
-    "pipeline retains the original draw action, but programs/triggers.ts does not bind those values into " +
-    "the CardProgram condition. The existing count can read the post-draw hand, while exclude still anchors " +
-    "to the program source instead of the card(s) drawn by this event. Trigger registration and event evidence are merged."
+    "cards in your hand' still needs the IR Expr union to grow an event-object/event-batch expression: " +
+    "the trigger condition is attached and really evaluated (programs/triggers.ts + evaluateTriggerCondition), " +
+    "but no expression can reference the per-card card-drawn event object or the original draw action's batch " +
+    "amount (CountExpr.subject is ignored; count uses only filter), and the count exclude anchor resolves only " +
+    "to the program source, so 'other' for a multi-card draw cannot be expressed. Each card-drawn event has its " +
+    "own simultaneousGroup, and pipeline scans groups separately after the draw action's final after snapshot, so " +
+    "an expressible condition could still re-fire on the same final hand state without batch-level binding or dedupe."
 );
 
 test.todo(

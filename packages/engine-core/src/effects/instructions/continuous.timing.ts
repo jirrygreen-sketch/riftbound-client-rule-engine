@@ -120,7 +120,10 @@ export default {
       layer: "ability",
       source: ctx.source.ref,
       filter: mergeFilter(filter, target),
-      effect: { kind: "timing", grants: speeds, ...(target.refs.length > 0 ? { targetRefs: target.refs } : {}) },
+      effect: {
+        kind: "timing", grants: speeds, sourcePlayer: ctx.controller,
+        ...(target.refs.length > 0 ? { targetRefs: target.refs } : {}),
+      },
     };
     ctx.addContinuous(spec, durationOf(durationArg, ctx));
     ctx.link("registered", { id: spec.id, duration: durationArg });

@@ -1,108 +1,145 @@
-// RIFT-643: static|| execution evidence is consolidated in ../templates/static-643.test.mjs.
-// This file retains the card's identity, status, sourceText, and key IR guards.
-
+// RIFT-667 single-card golden: validation, identity, the key IR structure of
+// Irelia, Graceful, and the merged cost-plan vocabulary it would have to reach.
+// The whole-card execution evidence (its own scenario through the generic card
+// harness plus the measured outcome of binding its own static ability with the
+// production binder) lives in `test/cards/templates/static-667.test.mjs`.
+//
+// The card stays judge-required: continuous.cost-modification has no layer
+// mapping and the production chain does not pass the static binding and locked
+// targets into Finalize. The merged collector evidence below does not claim a
+// production binding.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/irelia-graceful.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-4226ae419dd851644c384f3f4d645badcec767b55055e62cb45fcc436ec55e03";
 const SOURCE_TEXT = "Your spells that choose me cost :rb_energy_1: or :rb_rune_rainbow: less.";
-
 const [ability] = program.abilities;
 
 test("sfd-141-221 Irelia, Graceful: program validates and is registered by canonicalCardId", () => {
   const result = validateCardProgram(program);
-  assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
   assert.deepEqual(result.issues, []);
   assert.equal(cardRegistryById.get(CARD_ID), program);
-});
-
-test("sfd-141-221 Irelia, Graceful: identity, ruleset, status, judgeReason and verbatim sourceText", () => {
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /163\.2\.b/);
-  assert.match(program.judgeReason, /356\.4/);
-  assert.match(program.judgeReason, /no layer mapping/);
-  assert.match(program.judgeReason, /cost\.modify/);
-  assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
-  // RIFT-261 landed; the cost.modify/cost.pay primitives are merged and the
-  // remaining gap is the missing static -> CostPlanInput.discounts compilation.
-  assert.doesNotMatch(program.judgeReason, /RIFT-(89|90|257|258|261)\b/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
 test("sfd-141-221 Irelia, Graceful: one static cost reduction scoped to spells that choose this unit", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "static");
-  assert.equal(ability.condition, undefined);
-
-  // 356.4 / 356.4.b: a discount on the spell cost; 355.6: "choose" is Targeting,
-  // so the scope names this unit through the symbolic "self" selector.
-  const effect = ability.effect;
-  assert.equal(effect.kind, "continuous.cost-modification");
-  assert.equal(effect.stage, "discount");
-  assert.equal(effect.resource, "energy");
-  assert.deepEqual(effect.amount, { kind: "constant", value: 1 });
-  // "or [A]": 163.2.b's Universal Power, kept as its own alternative rather than
-  // being folded into a named domain.
-  assert.deepEqual(effect.alternative, { resource: "power", universal: true, amount: 1 });
-  assert.deepEqual(effect.appliesTo, { type: "spell", object: "self" });
-});
-
-test("sfd-141-221 Irelia, Graceful: the declared discount shape matches the cost-plan vocabulary it must reach", () => {
-  // The static effect is authored in the shape the merged cost plan already
-  // understands for discounts (cost/plan-types.ts CostDiscount: resource +
-  // amount + component order, 356.4/356.4.c), so the remaining gap is the
-  // card-static -> CostPlanInput.discounts wiring, not the shape itself. The
-  // judgeReason names that consumer (layerFor / CostPlanInput.discounts) and the two
-  // dimensions the current shape cannot carry (per-target scope, [A]).
-  assert.equal(ability.kind, "static");
+  // 363: the printed "While …"-free passive cost change is a Passive Ability.
+  assert.equal(ability.effect.kind, "continuous.cost-modification");
   assert.equal(ability.effect.stage, "discount");
+  // 356.4.b / 356.4.c: a per-component "cost [amount] less".
   assert.equal(ability.effect.resource, "energy");
   assert.deepEqual(ability.effect.amount, { kind: "constant", value: 1 });
+  // 163.2.b: the printed "or [A]" alternative stays an explicit Universal Power.
   assert.deepEqual(ability.effect.alternative, { resource: "power", universal: true, amount: 1 });
+  // 355.6: "choose" means Targeting, and "me" is the symbolic self selector.
   assert.deepEqual(ability.effect.appliesTo, { type: "spell", object: "self" });
+  assert.equal(ability.condition, undefined);
 });
 
-test("sfd-141-221 Irelia, Graceful: the merged static binder has no layer for the declared discount", () => {
-  // 355.6/356.4.c: the effect is a continuous.cost-modification discount scoped to
-  // "spells that choose me". The merged production binder refuses it twice: the
-  // declared appliesTo shape is unsupported, and the kind has no layer mapping.
-  // Both halves are executed evidence for the current gap in the judgeReason.
+test("sfd-141-221 Irelia, Graceful: the production binder refuses the declared discount twice", () => {
+  // 355.6 / 356.4.c: the merged binder refuses the authored appliesTo shape, and
+  // with the "self" shorthand it still has no layer for the kind, so the discount
+  // can never reach CostPlanInput.discounts.
   const kernel = world()
     .unit("irelia", { cardId: CARD_ID, location: { type: "battlefield", id: "bf-1" } })
     .build();
   const source = kernel.getObject("irelia");
   const layers = createLayerEngine([source]);
   const binder = createEngineStaticBinder({ layers });
-  assert.equal(ability.effect.kind, "continuous.cost-modification");
-  assert.deepEqual(ability.effect.appliesTo, { type: "spell", object: "self" });
   assert.throws(
     () => binder.bindStatic(ability, source),
     /Unsupported static appliesTo \{"type":"spell","object":"self"\}/
   );
-  // Isolating the kind: with the "self" shorthand the binder still refuses the
-  // cost-modification layer, so the discount cannot reach CostPlanInput.discounts.
-  const selfScoped = {
-    ...ability,
-    effect: { ...ability.effect, appliesTo: "self" }
-  };
   assert.throws(
-    () => binder.bindStatic(selfScoped, source),
+    () => binder.bindStatic({ ...ability, effect: { ...ability.effect, appliesTo: "self" } }, source),
     /Static ability kind continuous\.cost-modification has no layer mapping/
   );
   assert.deepEqual(layers.registry.list(), []);
 });
 
+test("sfd-141-221 Irelia, Graceful: the merged cost collector honors the locked target and Universal Power choice", () => {
+  const makeContext = (cost) => {
+    const kernel = world()
+      .player("A", { energy: 10, power: ["Mind"] })
+      .unit("irelia", { cardId: CARD_ID, location: { type: "battlefield", id: "bf-1" } })
+      .hand("spell", { types: ["spell"], energy: 2, power: [] })
+      .build();
+    const context = kernel.clone({
+      source: kernel.ref("spell"),
+      sourceSnapshot: kernel.getObject("spell"),
+      controller: "A"
+    });
+    return { context, binding: { id: "irelia-static", source: kernel.ref("irelia"), ability }, cost };
+  };
+
+  const unrelated = makeContext({ energy: { kind: "constant", value: 2 } });
+  assert.equal(
+    finalizeCostPlan(unrelated.context, {
+      id: "spell",
+      cost: unrelated.cost
+    }, {
+      statics: [unrelated.binding],
+      targets: []
+    }).total.energy,
+    2
+  );
+
+  const primary = makeContext({ energy: { kind: "constant", value: 2 } });
+  primary.context.setAnswers({ "spell:modifier:irelia-static:0:total:resource": "primary" });
+  assert.equal(
+    finalizeCostPlan(primary.context, {
+      id: "spell",
+      cost: primary.cost
+    }, {
+      statics: [primary.binding],
+      targets: [primary.context.ref("irelia")]
+    }).total.energy,
+    1
+  );
+
+  const alternative = makeContext({
+    energy: { kind: "constant", value: 2 },
+    payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["Mind"] }]
+  });
+  alternative.context.setAnswers({ "spell:modifier:irelia-static:0:total:resource": "alternative" });
+  const plan = finalizeCostPlan(alternative.context, {
+    id: "spell",
+    cost: alternative.cost
+  }, {
+    statics: [alternative.binding],
+    targets: [alternative.context.ref("irelia")]
+  });
+  assert.equal(plan.total.energy, 2);
+  assert.deepEqual(plan.total.power, []);
+});
+
+test("sfd-141-221 Irelia, Graceful: judgeReason names the measured consumer gaps", () => {
+  // Re-probed 2026-10-18: the collector is executable; the production
+  // static-to-Finalize bridge is still missing.
+  assert.match(program.judgeReason, /staticTarget/);
+  assert.match(program.judgeReason, /layerFor/);
+  assert.match(program.judgeReason, /finalizeCostPlan/);
+  assert.match(program.judgeReason, /锁定目标/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
+  assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
+});
+
 test.todo(
-  "sfd-141-221 Irelia, Graceful: represent and charge the '[A]' (163.2.b Universal Power) alternative, and let " +
-    "the payer choose between the Energy and Universal-Power reductions — the closed Domain type and " +
-    "CostDiscount.resource cannot express either (effect.resources keeps [A] unsupported; contract change request)"
+  "sfd-141-221 Irelia, Graceful: a spell that chooses me must really cost 1 Energy or 1 Universal Power less " +
+    "(CR 355.6 / 356.4.b / 163.2.b) - needs the production CardProgram -> Finalize discount consumer " +
+    "to pass the locked target set and static binding into finalizeCostPlan"
 );

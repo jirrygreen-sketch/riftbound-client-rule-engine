@@ -1,3 +1,7 @@
+// Whole-card execution evidence (the card-played Play Effect and the gated
+// Draw 1 body through the real chain path) lives in
+// test/cards/templates/triggered-card-played-effect-draw-656.test.mjs. This file
+// keeps validation, identity, structure and the remaining sum-over-set gap.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -98,6 +102,65 @@ test("unl-097-219 Kinkou Initiate: the printed gate is a sum of Effective Might 
     .filter(unit => unit.ref.id !== "initiate");
   assert.deepEqual(others.map(unit => unit.might), [4, 1]);
   assert.equal(others.reduce((sum, unit) => sum + unit.might, 0), 5);
+});
+
+test("unl-097-219 Kinkou Initiate: the retained count diverges from the printed Might total", () => {
+  // One other unit with Might 5 satisfies the printed sum (143.2.a.1) while the
+  // retained count reads 1. Pinning the divergence keeps the placeholder from
+  // ever being read as "sum of Might".
+  const kernel = world()
+    .unit("initiate", { owner: "A", controller: "A", might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .unit("strong", { owner: "A", controller: "A", might: 5, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const others = kernel.query({ type: "unit", zone: "board", controller: "A" }).filter(unit => unit.ref.id !== "initiate");
+  assert.equal(others.reduce((sum, unit) => sum + unit.might, 0), 5);
+  assert.equal(others.length, 1);
+  assert.notEqual(others.length, others.reduce((sum, unit) => sum + unit.might, 0));
+});
+
+test("unl-097-219 Kinkou Initiate golden: a single Might-5 ally still leaves the gate closed", async () => {
+  // Real chain path (effects/testing/scenario: ProgramBinding + ChainEngine +
+  // EventPipeline). The printed total is 5 but the retained count reads 1, so no
+  // card is drawn — the placeholder's divergence is observable, not cosmetic.
+  const { runCardScenario } = await import("../../../../engine-core/dist/effects/testing/scenario/index.js");
+  const executableView = { ...program, status: "executable", judgeReason: undefined };
+  const deckCards = count => Array.from({ length: count }, (_, index) => ({ id: `deck-${index}`, owner: "A", types: ["unit"], zone: "deck" }));
+  const run = allies => runCardScenario(executableView, {
+    players: { A: { energy: 20 } },
+    objects: [
+      {
+        id: "kinkou",
+        cardId: CANONICAL_ID,
+        program: executableView,
+        types: ["unit"],
+        zone: "hand",
+        energy: 3,
+        power: null,
+        might: 3
+      },
+      ...allies,
+      ...deckCards(2)
+    ],
+    operations: [
+      { type: "play", object: "kinkou", player: "A" },
+      { type: "pass", player: "A" },
+      { type: "pass", player: "B" }
+    ]
+  });
+
+  const printedFive = run([{ id: "strong", owner: "A", types: ["unit"], zone: "board", might: 5 }]);
+  assert.equal(printedFive.state.players.A.handSize, 0);
+  assert.equal(printedFive.state.players.A.deckSize, 2);
+  assert.deepEqual(Object.keys(printedFive.links).filter(key => key.endsWith("drawn")), []);
+
+  // Five Might-1 allies make the retained count and the printed sum agree, which
+  // is the only world where the placeholder reproduces the printed behaviour.
+  const counting = run(Array.from({ length: 5 }, (_, index) => ({
+    id: `ally-${index}`, owner: "A", types: ["unit"], zone: "board", might: 1
+  })));
+  assert.equal(counting.links["kinkou-initiate.draw.drawn"], 1);
+  assert.equal(counting.state.players.A.handSize, 1);
+  assert.equal(counting.state.players.A.deckSize, 1);
 });
 
 test("unl-097-219 Kinkou Initiate golden: the card-played trigger registers through the merged program binding", async () => {

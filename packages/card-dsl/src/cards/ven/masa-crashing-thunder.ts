@@ -25,7 +25,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   位置限制（355.10.b），不是第二个目标。已合入原语 effect.stun（RIFT-112 批次）就是
  *   该动作；括号里的文字是 424.1.b/424.1.c 的提示文本，不构成第二条能力。
  *
- * status = judge-required。已合入依赖与剩余生产接线已重新核对；
+ * status = judge-required。已合入依赖与剩余生产接线已重新核对（2026-10-18 逐条实测）；
  * 当前真实缺口以 judgeReason 为准，子效果执行不证明整卡可执行。
  */
 const abilities: Ability[] = [
@@ -98,7 +98,12 @@ export default {
   judgeReason:
     "仍缺：(1) programs/play.ts 未将 CardProgram static cost.additional 接入 Finalize 的 optionalAdditional，programs/statics.ts 也没有该费用类型的绑定；" +
     "(2) card-played 触发上下文未携带原打出的费用计划与支付回执，condition.result 的 cost.additional 条件无法读取 356.4.f.1 的支付决定；" +
-    "(3) 目标的结构化 location: { type: battlefield } 尚未被 programs/filters.ts 的生产目标适配器支持。",
+    "(3) 目标的结构化 location: { type: battlefield } 尚未被 programs/filters.ts 的生产目标适配器支持。" +
+    "实测（2026-10-18）：bindStatic 对 cost.additional 抛 \"Static ability kind cost.additional has no layer mapping\"；" +
+    "translateInstructionTargets 对该目标抛 \"Structured location filters need a concrete battlefield identity\"；" +
+    "programs/triggers.ts 注册 card-played 触发时，只要没有费用回执，条件求值就抛 " +
+    "MissingInformation(Unavailable condition result: cost.additional)。" +
+    "条件形状本身可求值：同一 condition.result 在注入 { plan, receipt } 的支付回执后返回 true（golden 覆盖已付/未付/折扣到 0 三支）。不近似实现费用或目标。",
   abilities,
   sourceText:
     "You may pay :rb_rune_order: as an additional cost to play me.\n" +

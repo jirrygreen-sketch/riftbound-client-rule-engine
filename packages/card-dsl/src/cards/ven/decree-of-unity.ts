@@ -18,11 +18,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   归一化解析（自指占位）。
  * - "Chaos" 是领域（134），不是类型：对象所属领域由 ObjectSnapshot.power 承载（163/134.1）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。唯一未合入的依赖是领域谓词：
+ * status 判定（cards/README.md 第 2 节）：judge-required（2026-10-18 复核）。
+ * 唯一未合入的依赖是领域谓词：
  * 已合入的过滤器匹配器（layers/filter.ts matchesObjectFilter、events/pipeline-match.ts）只读取
  * 固定键（type/types/zone/location/controller/owner/states/tags/characteristics），不读取 
  * power/domain，因此 filter 里的 power: ["Chaos"] 没有消费方，不能把任意敌方 unit/gear 当作
- * 「Chaos」目标结算（依赖 RIFT-359 的条件/目标谓词词表）。
+ * 「Chaos」目标结算（缺条件/目标谓词词表中的领域谓词）。
  * 不近似实现：不把 Chaos 写成标签、不用 type 之外的捷径，也不省略该限制。
  */
 const decreeOfUnity = {
@@ -30,17 +31,22 @@ const decreeOfUnity = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "唯一未合入的依赖是「Chaos」领域谓词（134：对象所属领域由 ObjectSnapshot.power 承载）：" +
+    "唯一未合入的依赖是「Chaos」领域谓词（134：对象所属领域由 ObjectSnapshot.power 承载；2026-10-18 复核）：" +
     "已合入的过滤器匹配器（layers/filter.ts matchesObjectFilter、events/pipeline-match.ts）只读取 " +
     "type/types/zone/location/controller/owner/states/tags/characteristics 等固定键，不读取 power/domain，" +
     "因此 filter 里的 power: [\"Chaos\"] 没有消费方，Finalize 无法按领域限制目标合法性（355.9.b；" +
-    "依赖 RIFT-359 的条件/目标谓词词表）。不近似实现：不把 Chaos 写成标签或类型，也不省略该限制" +
+    "缺条件/目标谓词词表中的领域谓词）。不近似实现：不把 Chaos 写成标签或类型，也不省略该限制" +
     "（省略会把「any enemy unit or gear」错误地当成合法目标）。" +
     "kill 半段（429.1.a.1/429.2.a/429.2.b）与恒为真的目标声明（355.7/355.9.a.1/355.10）本身" +
     "只用已合入的 effect.kill，golden 用真实解释器 + 参考内核执行该半段。",
   abilities: [
     {
       kind: "play",
+      cost: {
+        kind: "cost.printed",
+        energy: { kind: "constant", value: 2 },
+        power: { kind: "constant", value: 1 }
+      },
       body: [
         {
           // "Kill an enemy Chaos unit or gear"：一个被选目标（355.7/355.9.a.1/355.10）。

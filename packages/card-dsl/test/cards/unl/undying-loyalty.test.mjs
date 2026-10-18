@@ -6,6 +6,7 @@ import program from "../../../dist/cards/unl/undying-loyalty.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL = "card.hash-7931567b3f67164c8892f798e2afcb96c5f980a4e74c3677fdb5e52bb602b376";
 const SOURCE_TEXT =
@@ -59,7 +60,7 @@ test("unl-168-219 Undying Loyalty: program validates and keeps its identity", ()
   assert.match(program.judgeReason, /356\.1\.c/);
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /CardProgram.*CostPlan|CostPlan.*接线/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-(90|257)/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("unl-168-219 Undying Loyalty: the conditional [2] energy discount is declared as cost.modify", () => {
@@ -149,6 +150,13 @@ test("unl-168-219 Undying Loyalty golden: a unit no longer in the Trash is mista
     [["undying-loyalty.play-unit", "ignored", "mistargeted"]]
   );
   assert.equal(kernel.getObject("recycled-poro").zone, "deck");
+});
+
+test("unl-168-219 Undying Loyalty boundary: printed-cost ceilings are rejected by the production target translator", () => {
+  assert.throws(
+    () => translateObjectFilter(playUnit.targets[0].filter),
+    error => error?.code === "judge-required" && /Unsupported filter field printedEnergyMax/.test(error.message)
+  );
 });
 
 test.todo(

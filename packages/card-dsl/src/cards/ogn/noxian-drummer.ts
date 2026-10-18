@@ -17,22 +17,30 @@ import type { CardProgram } from "../../ir/index.js";
  * 结构：object-moved 触发（filter 用 toZone: "battlefield" 表达“移动到战场”）；body[0] 读来源位置，
  * body[1] 在该位置打出 1 个 Recruit token。
  *
- * status = judge-required：程序绑定已经能把 `objectId: "self"` 翻译为注册源对象，
- * 但 object-moved 的事件载荷仍不填 `toZone`，所以“移动到战场”的过滤无法命中；
- * turn/flow 补发的 object-enters-battlefield 也还没有同一对象过滤的完整生产路径。见 judgeReason。
+ * status = judge-required（2026-10-17 复核）：触发注册先失败在事件名上——
+ * events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 是封闭枚举，没有 object-moved，
+ * 而 translateTriggerFilter 会把卡片声明的 event 原样保留，validateTriggerSpec 实测拒绝；
+ * pipeline-match.ts 的别名映射发生在其后。放行后仍缺对象载荷：action-adapter 的 object-moved
+ * 发射只填 object/player/amount（实测无 toZone/toKind），而 turn/flow.ts 的
+ * object-enters-battlefield 名称同样不在词表中，且实际 Standard Move 结果只以
+ * requiresMoveTriggers 交给外层、没有提交进事件管线。见 judgeReason。
  */
 const noxianDrummer = {
   canonicalCardId: "card.hash-5518503e78770284d5f2f55292d0d27dd571a336dd4bcae40fdc3ee530d2b12d",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "object-moved 时点已由 RIFT-270 的管线产生（events/action-adapter.ts 为 move-location 动作发出；" +
-    "turn/flow.ts 为 move-location 补发 object-leaves-battlefield/object-enters-battlefield 等别名，" +
-    "并区分 base/battlefield），但事件载荷仍不足以满足触发过滤：" +
-    "(1) 事件物体的同一性通过 objectId: \"self\" 已可由 CardProgram 注册绑定翻译为注册源对象；" +
-    "(2) object-moved 事件本身不填 toZone/toKind（timing-points.ts 声明了这些 payloadFields，但 action-adapter 的动作时点发射不给该事件填 toZone），" +
-    "toZone: \"battlefield\" 的过滤永远不命中；「移动到战场」可由 turn/flow 补发的 object-enters-battlefield 别名表达，但那条事件同样没有对象自指过滤。" +
-    "依赖：对局实际 Standard Move 结果提交到事件管线（duel 侧执行器只把 requiresMoveTriggers 交给外层）。" +
+    "触发注册仍失败，且不是停在事件名上：(1) events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 是封闭枚举，" +
+    "没有 object-moved 名称，而 translateTriggerFilter 会把卡片声明的 event: \"object-moved\" 原样保留；" +
+    "validateTriggerSpec 实测返回 trigger.filter.event/invalid-event-type，registerProgramTriggers 抛 TriggerSpecValidationError。" +
+    "pipeline-match.ts 的别名映射发生在其后，救不了这次注册。" +
+    "(2) 即使放行事件名，payload 也不足以判定“移动到战场”：" +
+    "object-moved 的 action-adapter 发射只填 object/player/amount（实测一条 move-location 只产出 { timingPoint: \"object-moved\", object }），" +
+    "toZone/toKind 从不填充，timing-points.ts 声明的 payloadFields 没有得到兑现，toZone: \"battlefield\" 永远不命中。" +
+    "(3) 换成事件名直读 turn/flow.ts 的 object-enters-battlefield 也不行：该名称同样不在 EVENT_PATTERN_TYPES 中，" +
+    "registerTrigger 实测拒绝；而且实际 Standard Move 结果本身也没有提交进事件管线——" +
+    "zones/movement.ts 与 duel/standard-move-executor-v2.ts 只把 requiresMoveTriggers 交给外层，" +
+    "没有已合入模块把该结果转成上述别名发射。" +
     "不近似实现（不用任何移动都触发代替）。" +
     "token 部分（effect.token mode play + condition.value 链接位置）已可用并有 golden 执行证据。",
   abilities: [

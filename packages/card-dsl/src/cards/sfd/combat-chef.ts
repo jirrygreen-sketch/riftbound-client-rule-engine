@@ -20,7 +20,7 @@ import type { CardProgram } from "../../ir/index.js";
  * 第 5 节）；展开由 engine-core 的 effects/keywords/Weaponmaster.ts 负责，
  * 卡内不重写关键词逻辑。
  *
- * status = judge-required（cards/README.md 第 2 节）：展开文件与 programs/ 绑定已合入，但
+ * status = judge-required（cards/README.md 第 2 节；2026-10-18 复核）：展开文件与 programs/ 绑定已合入，但
  * - 费用路径在解释器侧即被拒：effects/instructions/cost.modify.ts 对 Weaponmaster 来源
  *   形态抛 judge-required（821.1.c.3 的 [A] 减费），另一分支对不含 [A] 的目标 Equip 费
  *   抛 judge-required（821.1.c.2 的「如同激活」计算）；
@@ -35,16 +35,15 @@ const combatChef = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The Weaponmaster expansion and the programs/ binding are merged, but the cost " +
-    "path is judge-required end to end: effects/instructions/cost.modify.ts throws " +
-    "judgeRequired for the Weaponmaster source shape (821.1.c.3, the [A] reduction) " +
-    "and for a target Equip cost containing no [A] (821.1.c.2, the as-if activation " +
-    "calculation), so the Equip cost cannot be calculated or paid before effect.attach " +
-    "runs. cost/plan-values.ts readCost also blocks the expansion's Equip payment kind " +
-    "\"equip\" (\"Unsupported payment kind: equip\"). programs/keywords.ts " +
-    "expandProgram passes only { value, host } to KeywordDef.expand, so the printed " +
-    "cost composition has no params.cost path (contract 3.8.3). " +
-    "The merged effect.attach step is exercised by the golden test; not approximated.",
+    "The Weaponmaster expansion and the programs/ binding are merged, but the cost path " +
+    "is still judge-required end to end (2026-10-18 measured): effects/instructions/cost.modify.ts " +
+    "throws CostPlanError judge-required for the Weaponmaster source shape (821.1.c.3, the [A] reduction) " +
+    "and for a target Equip cost containing no [A] (821.1.c.2, the as-if activation calculation), " +
+    "so the Equip cost cannot be calculated or paid before effect.attach runs. cost/plan-values.ts " +
+    "also blocks the expansion's Equip payment kind \"equip\" (\"Unsupported payment kind: equip\"). " +
+    "programs/keywords.ts expandProgram passes only { value, host } to KeywordDef.expand, so the printed " +
+    "cost composition still has no params.cost path (contract 3.8.3). The merged effect.attach step is " +
+    "exercised by the golden test; it is not treated as full-card execution.",
   abilities: [{ kind: "keyword", keyword: "weaponmaster" }],
   sourceText:
     "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)"

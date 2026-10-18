@@ -20,6 +20,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   gains '[Text]'”。
  * - 807.1 / 807.1.b / 807.1.c：[Assault 3] 的功能文本是 “While I am an attacker, I have
  *   +3 [M]”；括号内正是该提醒文本，不构成第二条能力。关键词只声明、不重写（契约 3.7）。
+ * - 2026-10-18 复核：programs/keyword-grants.ts 的 KeywordGrantLayerEngine 已能把授予后的
+ *   Assault 3 重新展开为 continuous.might（参考层实测，攻击者 Might 2→5），但该层未接入生产
+ *   turn/layer 构造，见 judgeReason 第 3 条。
  *
  * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。
  */
@@ -51,12 +54,20 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口（对应 827.1.c.1、807.1.c）：(1) Empower KeywordDef 已注册并支持未 Empowered 限制，但 KeywordAbility / programs/keywords.ts 不传递本卡的 " +
-    "2 Energy + 1 Fury Power CostSpec，无法建立完整启动费用计划；(2) 828.1.c 门控已改用 self.empowered >= 1，" +
-    "参考内核可求值，但生产 ObjectSnapshot 尚未声明 live empowered 计数；(3) continuous.grant-keyword 与 " +
-    "programs/statics.ts 的 ability 图层绑定（bindStatic）已合入；RIFT-672 模板通过真实效果链验证原始门控的 Assault 3 授予与撤销，" +
-    "但授予后的关键词没有随图层变化重新展开绑定，Assault 展开读取的 designation 与公开 combatRole 仍不一致，" +
-    "807.1.c 的攻击者 +3 尚无完整执行路径。仍需生产门控状态接线，不近似实现。",
+    "三处缺口（827.1.c.1、807.1.c，2026-10-18 复核），均为实测行为，不近似实现：" +
+    "(1) Empower KeywordDef 已注册并支持未 Empowered 限制，但 KeywordAbility / programs/keywords.ts 不传递本卡的 2 Energy + 1 Fury Power CostSpec" +
+    "（契约 3.1 的 KeywordAbility 只有 keyword/value），expand 只产出 { kind: \"empower\" }，费用规划实测抛 " +
+    "CostPlanError judge-required \"Unsupported cost kind: empower\"，无法建立完整启动费用计划。" +
+    "(2) 828.1.c 门控 self.empowered >= 1 在参考内核里已随真实 empower/disempower 动作开关（bindStatic golden 实测 Assault 3 的授予与撤销），" +
+    "但契约 ObjectSnapshot（engine-core/src/effects/contract.ts）不声明 live empowered 计数，apps/game-server 的引擎宿主把 " +
+    "empower 动作写成 buffs，缺字段时求值抛 MissingInformation \"Unavailable characteristic: empowered\"，失败闭合。" +
+    "(3) 授予后的关键词只有参考层的重展开、没有生产消费方：continuous.grant-keyword 与 programs/statics.ts 的 ability 图层绑定已合入，" +
+    "已合入的 programs/keyword-grants.ts KeywordGrantLayerEngine 能把 empower 后的 Assault 3 重新展开为 continuous.might " +
+    "（实测攻击者 Might 2→5），但该层只被 engine-core 自身测试构造，既没有从任何公开入口导出，" +
+    "也没有被 turn/flow.ts、apps/game-server 使用（两处仍构造 TurnPhaseLayers）；Assault 展开读取的 designation " +
+    "在生产条件的默认求值器上仍不可读（实测 \"Unavailable characteristic: designation\"），" +
+    "且 combat/flow.ts 的 combat-start-transaction 仍抛 TurnCombatBlockedError，" +
+    "没有生产写入方发布 ObjectSnapshot.combatRole，807.1.c 的攻击者 +3 尚无完整执行路径。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_2::rb_rune_fury: (:rb_energy_2::rb_rune_fury:: Empower me. Use only if not Empowered.)\n" +

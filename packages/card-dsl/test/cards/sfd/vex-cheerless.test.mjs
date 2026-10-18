@@ -9,6 +9,9 @@ import { bindResolveContext } from "../../../../engine-core/dist/events/action-a
 import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import { DUEL_DOMAINS } from "../../../../engine-core/dist/cost/resources.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-f53634b94e6fae93d877ca3bb7f92c97c1f881953a9d82fc5a297b398f35d3ad";
 const SOURCE_TEXT =
@@ -39,7 +42,7 @@ const vexWorld = () => {
       might: 5,
       combatRole: "attacker"
     })
-    .hand("spell", { energy: 2, power: ["Fury"] })
+    .hand("spell", { types: ["spell"], energy: 2, power: ["Fury"] })
     .build();
   return kernel;
 };
@@ -55,14 +58,14 @@ test("sfd-146-221 Vex, Cheerless: identity, ruleset, status, judgeReason and ver
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // README section 2: the reason names the concrete current gaps, not a stale one.
-  assert.match(program.judgeReason, /Power/);
-  assert.match(program.judgeReason, /356\.4\.e/);
+  // README section 2: the reason names the concrete measured current gaps.
   assert.match(program.judgeReason, /740\.2\.c/);
-  assert.match(program.judgeReason, /continuous\.cost-modification/);
-  assert.match(program.judgeReason, /Finalize/);
   assert.match(program.judgeReason, /self-in-combat/);
-  assert.match(program.judgeReason, /CountExpr/);
+  assert.match(program.judgeReason, /evaluateCostValue/);
+  assert.match(program.judgeReason, /Unsupported static appliesTo/);
+  assert.match(program.judgeReason, /finalizeCostPlan/);
+  assert.match(program.judgeReason, /356\.4\.e/);
+  assert.match(program.judgeReason, /163\.2\.b/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -221,4 +224,94 @@ test("Vex supported modifier subpath: enemy [1][A] increase adds both Energy and
   assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: DUEL_DOMAINS }]);
 });
 
-test.todo("Vex: bind static spell modifiers to Finalize with friendly/enemy relations and the ongoing-combat predicate (740.2.c; CountExpr subject support)");
+test("sfd-146-221 Vex, Cheerless: the merged cost collector rejects the in-combat condition instead of guessing it (740.2.c)", () => {
+  // The declaration is supplied exactly as the card writes it, through the
+  // merged Finalize collector. Until an authoritative in-combat predicate
+  // exists the collector must fail closed, never treat the condition as met.
+  const kernel = vexWorld();
+  const payer = bindResolveContext(kernel, {
+    source: kernel.getObject("spell"),
+    sourceSnapshot: kernel.getObject("spell"),
+    controller: "A"
+  });
+  const statics = program.abilities.flatMap((ability, ordinal) => ability.kind === "static"
+    ? [{ id: `vex:${ordinal}`, source: payer.ref("vex"), ability }] : []);
+  const before = kernel.snapshot();
+  assert.throws(
+    () => finalizeCostPlan(payer, { id: "vex-spell", cost: { kind: "printed" } }, { statics }),
+    (error) => error.reason === "judge-required" && /self-in-combat/.test(String(error.message))
+  );
+  assert.deepEqual(kernel.snapshot(), before, "a failed cost collection must not change state");
+});
+
+test("sfd-146-221 Vex, Cheerless: the default static binder still rejects the relative friendly/enemy appliesTo", () => {
+  const { engine, kernel } = fixture();
+  const binder = createEngineStaticBinder(engine);
+  for (const ordinal of [0, 1]) {
+    assert.throws(
+      () => binder.bindStatic(program.abilities[ordinal], kernel.getObject("source")),
+      (error) => /Unsupported static appliesTo/.test(String(error.message))
+    );
+  }
+});
+
+test("sfd-146-221 Vex, Cheerless: the collector's arithmetic is correct once the condition is answerable", () => {
+  // Isolate the arithmetic subpath by supplying the same two declarations with
+  // a condition the merged collector can evaluate; the card's own condition is
+  // asserted above to fail closed until 740.2.c lands. The relative appliesTo
+  // is exercised as the merged collector really reads it (caster/spell filters).
+  const kernel = vexWorld();
+  const payer = bindResolveContext(kernel, {
+    source: kernel.getObject("spell"),
+    sourceSnapshot: kernel.getObject("spell"),
+    controller: "A"
+  });
+  const statics = program.abilities.slice(0, 2).map((ability, ordinal) => ({
+    id: `vex-answerable:${ordinal}`,
+    source: payer.ref("vex"),
+    ability: { ...ability, condition: undefined }
+  }));
+  const plan = finalizeCostPlan(payer, { id: "vex-spell", cost: { kind: "printed" } }, { statics });
+  assert.equal(plan.total.energy, 1);
+  assert.deepEqual(plan.total.power, []);
+  // 356.4.e: the minimum of 1 is this discount's own, so it stops at 1 Energy,
+  // while the Power component keeps only its zero floor (356.4.f).
+  assert.deepEqual(plan.discounts.map((entry) => [entry.resource, entry.amount, entry.minimum, entry.before, entry.after]),
+    [["energy", 1, 1, 2, 1], ["power", 1, 0, 1, 0]]);
+});
+
+test("sfd-146-221 Vex, Cheerless: the collector's enemy increase is applied through the real spell relation", () => {
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .player("B", { energy: 20 })
+    .object("vex", {
+      cardId: CARD_ID, types: ["unit"], tags: ["Champion"], zone: "board",
+      location: { type: "battlefield", id: "bf-1" }, might: 5, combatRole: "attacker"
+    })
+    .hand("spell", { owner: "B", controller: "B", types: ["spell"], energy: 2, power: ["Chaos"] })
+    .build();
+  const payer = bindResolveContext(kernel, {
+    source: kernel.getObject("spell"),
+    sourceSnapshot: kernel.getObject("spell"),
+    controller: "B"
+  });
+  const statics = program.abilities.slice(2, 4).map((ability, ordinal) => ({
+    id: `vex-enemy:${ordinal}`,
+    source: payer.ref("vex"),
+    ability: { ...ability, condition: undefined }
+  }));
+  const plan = finalizeCostPlan(payer, { id: "vex-enemy-spell", cost: { kind: "printed" } }, { statics });
+  // 356.3: the enemy increase adds [1][A] on top of the spell's own Chaos Power.
+  assert.equal(plan.total.energy, 3);
+  assert.deepEqual(plan.total.power, [
+    { amount: 1, allowedDomains: ["Chaos"] },
+    { amount: 1, allowedDomains: DUEL_DOMAINS }
+  ]);
+  assert.deepEqual(
+    plan.components.filter((entry) => entry.stage === "increase").map((entry) => [entry.id, entry.cost.energy, entry.cost.power]),
+    [
+      ["vex-enemy:0:0:total", 1, []],
+      ["vex-enemy:1:0:total", 0, [{ amount: 1, allowedDomains: DUEL_DOMAINS }]]
+    ]
+  );
+});

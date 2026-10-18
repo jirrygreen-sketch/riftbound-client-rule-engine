@@ -50,7 +50,7 @@ const thermoBeam = {
     "（args 消费 target/picks/self/count/reason；objects 查询不满足必需的对象来源）。用 selection: all 的 TargetSpec 会走目标锁定管线并发出" +
     "became-target 事件（与 355.10.d 冲突），用 PickSpec 又要求控制者逐张选择（与 355.5 冲突），两者都不是如实编码。" +
     "缺的是 effect.kill 可消费的无目标 each/all 集合选择；已合入的其他原语集合形态（effect.ready/effect.heal 的 " +
-    "{ kind: \"query\", filter }）不能平移到 effect.kill。RIFT-682 模板只验证主阶段 Action 入链，集合 kill 仍阻塞。不近似实现。",
+    "{ kind: \"query\", filter }）不能平移到 effect.kill。已合入的关键词模板场景只验证主阶段 Action 入链、5 能量 + 2 Fury 力量支付与集合 kill 的失败证据（effect.kill requires args.target…），集合 kill 本身仍阻塞。不近似实现。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "Kill all gear.",

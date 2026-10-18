@@ -1,12 +1,24 @@
-// Partial execution evidence is consolidated in ../templates/keyword-static-647.test.mjs; this card remains judge-required for the gaps asserted below.
+// Execution evidence for the supported slice lives in
+// ../templates/keyword-static-671.test.mjs (README 4.1) and
+// ../templates/keyword-static-647.test.mjs; this card stays judge-required for the
+// gaps asserted below. The measured gates added on 2026-10-18 pin the three
+// production-side blockers: the cost.hidden layer mapping, the relative controller
+// selector and the ignored sameLocationAs/exclude anchors.
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
-import program from "../../../dist/cards/ven/disciple-of-shen.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+
+import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
+import program from "../../../dist/cards/ven/disciple-of-shen.js";
 
 const CANONICAL_ID =
   "card.hash-29466276a36ad6d31ede84a0b5f6d73cfe73590d866accc1e138b05ffecd77ca";
@@ -67,13 +79,20 @@ test("ven-117-166 Disciple of Shen: identity, ruleset, status, judgeReason and v
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   // [Hidden] 无结算消费方；授予侧注册入口已合入，但条件选择符不解析。
+  // Refreshed 2026-10-18: the reason names the isolated KeywordGrantLayerEngine vs
+  // default lifecycle difference and stays RIFT-free.
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /Facedown Zone/);
-  assert.match(program.judgeReason, /Hide 动作与打出流程接线/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /Facedown Zone|藏牌/);
+  assert.match(program.judgeReason, /selectorMatches/);
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /designation/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /2026-10-18 复核/);
   assert.doesNotMatch(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("ven-117-166 Disciple of Shen: [Hidden] is declared as a bare keyword (contract 3.7)", () => {
@@ -139,9 +158,6 @@ test("ven-117-166 golden: an enemy unit here is not 'a unit you control'", () =>
 });
 
 test("ven-117-166 golden: the declared Grant-Keyword adds Shield 3 to the layered keyword list", () => {
-  // layers 引擎对 ability 层识别 grant 类 kind 并追加关键词；这里用该卡
-  // 声明的 keyword/value 形状做真实求值，证明“授予 Shield 3”的 declared 形状在图层里
-  // 有实际产出。它不证明 828/814 的门控与卡牌注册路径已接通（见 judgeReason）。
   const kernel = world()
     .unit("disciple", {
       controller: "controller",
@@ -175,14 +191,119 @@ test("ven-117-166 golden: the declared Grant-Keyword adds Shield 3 to the layere
   assert.deepEqual(evaluated.keywords, [{ id: "shield", value: 3 }]);
 });
 
+test("ven-117-166 golden: the merged keyword-grant adapter applies Shield 3 to a defender", () => {
+  const kernel = world().unit("disciple", {
+    controller: "controller",
+    might: 1,
+    combatRole: "defender",
+    types: ["unit"],
+    location: { type: "battlefield", id: "bf-1" }
+  }).build().clone({ controller: "controller" });
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("disciple") });
+  const outcome = runAbilityBody([{
+    id: "disciple-of-shen.grant-shield",
+    op: "continuous.grant-keyword",
+    args: {
+      keywords: { kind: "constant", value: shieldGrant.effect.keywords },
+      appliesTo: { kind: "constant", value: "self" }
+    }
+  }], context);
+  assert.equal(outcome.status, "executed");
+  const layers = new KeywordGrantLayerEngine(context.objects, {
+    context: source => bindResolveContext(context, { source, controller: source.controller })
+  });
+  for (const entry of context.continuousEffects) {
+    layers.addContinuous(entry.effect, entry.duration, entry.timestamp);
+  }
+  const snapshot = layers.snapshot(context.ref("disciple"));
+  assert.deepEqual(snapshot.keywords, [{ id: "Shield", value: 3 }]);
+  assert.equal(snapshot.might, 4);
+});
+
+test("ven-117-166 evidence: the Hidden expansion has no production layer mapping", () => {
+  // 811.1.c/811.1.d: Hidden expands to a static hidden-cost effect. The real
+  // binder rejects that kind, and attachProgramLifecycle swallows the error, so
+  // the Hide action, the facedown zone and the later free play stay unreachable.
+  const kernel = world().unit("shen", {
+    cardId: program.canonicalCardId, types: ["unit"], zone: "board",
+    controller: "A", owner: "A", energy: null, power: null
+  }).build();
+  const { expanded } = expandProgram(program, kernel.getObject("shen"));
+  assert.deepEqual(expanded.map(ability => ability.effect), [{ kind: "cost.hidden" }]);
+
+  const { engine, kernel: boardKernel } = fixture({ cards: [{
+    id: "shen", cardId: program.canonicalCardId, types: ["unit"], might: 1, energy: null, power: null
+  }] });
+  const binder = createEngineStaticBinder(engine);
+  assert.throws(
+    () => binder.bindStatic(expanded[0], boardKernel.getObject("shen")),
+    (error) => error instanceof Error && /cost\.hidden has no layer mapping/.test(error.message)
+  );
+});
+
+test("ven-117-166 evidence: the relative controller selector cannot anchor the grant", () => {
+  // 814.1.c needs "exactly one other unit you control here". The layer matcher
+  // resolves controller selectors against the object itself, so the authored
+  // "controller" spelling never matches a production object.
+  const object = {
+    ref: { id: "u", zoneEntryId: 1 }, cardId: null, name: "u", types: ["unit"], tags: [], keywords: [],
+    owner: "A", controller: "A", zone: "board", location: { type: "battlefield", id: "bf-1" },
+    combatRole: null, might: 1, energy: null, power: null, exhausted: false, damage: 0,
+    stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
+  };
+  assert.equal(matchesObjectFilter({ type: "unit", zone: "board", controller: "controller" }, object), false);
+  assert.equal(matchesObjectFilter({ type: "unit", zone: "board", controller: "A" }, object), true);
+});
+
+test("ven-117-166 evidence: the layer matcher ignores sameLocationAs and exclude", () => {
+  // 355.9.c / 359.3.f: "other" excludes the source and "here" pins the location.
+  // The production matcher ignores both anchors, so a unit at a different
+  // battlefield and the source itself would both be counted.
+  const elsewhere = {
+    ref: { id: "ally", zoneEntryId: 1 }, cardId: null, name: "ally", types: ["unit"], tags: [], keywords: [],
+    owner: "A", controller: "A", zone: "board", location: { type: "battlefield", id: "bf-2" },
+    combatRole: null, might: 1, energy: null, power: null, exhausted: false, damage: 0,
+    stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
+  };
+  assert.equal(
+    matchesObjectFilter({ type: "unit", zone: "board", controller: "A", sameLocationAs: "self", exclude: "self" }, elsewhere),
+    true
+  );
+});
+
+test("ven-117-166 evidence: the production binder registers the grant but never satisfies its gate", () => {
+  // The static registration path exists; the condition is what fails. With a
+  // real board of exactly one other friendly unit here, the layered keywords
+  // still never gain Shield 3 under the authored condition.
+  const { engine, kernel } = fixture({ cards: [{
+    id: "shen", cardId: program.canonicalCardId, types: ["unit"], might: 1, energy: null, power: null
+  }] });
+  engine.commit({
+    type: "move-zone", object: kernel.ref("shen"), to: "battlefield",
+    location: { type: "battlefield", id: "bf-1" }
+  });
+  const ally = engine.pipeline.host.objects().find(object => object.ref.id === "enemy");
+  assert.ok(ally, "the fixture provides another permanent");
+  const binder = createEngineStaticBinder(engine);
+  binder.bindStatic(shieldGrant, kernel.getObject("shen"));
+  assert.deepEqual(engine.layers.snapshot(kernel.ref("shen")).keywords, []);
+});
+
 test.todo(
-  "ven-117-166 Disciple of Shen: [Hidden]'s Hide action, the facedown zone, the later [Reaction] and the " +
-    "0-Energy play (CR 811.1.d / 811.5 / 811.6) need facedown-zone/Hide integration and later-play permissions; " +
-    "cost.hidden has no layerFor mapping, while cost.pay, effect.zone and buildHiddenCostPlan already exist"
+  "ven-117-166 Disciple of Shen: [Hidden]'s Hide action, the facedown zone, the later [Reaction] and " +
+    "the 0-Energy play (CR 811.1.d / 811.5 / 811.6) need facedown-zone/Hide integration; cost.hidden " +
+    "has no layerFor mapping while cost.pay, effect.zone and buildHiddenCostPlan already exist"
 );
 
 test.todo(
-  "ven-117-166 Disciple of Shen: the conditional Shield 3 grant reaches the layers with an honest " +
-    "'exactly one other unit you control here' predicate — bindStaticToLayers exists but the " +
-    "controller：“controller” selector is not parsed by layers/filter.ts (RIFT-359)"
+  "ven-117-166 Disciple of Shen: reach the layers with an honest 'exactly one other unit you " +
+    "control here' predicate - the production matcher has no relative controller selector and " +
+    "ignores sameLocationAs/exclude (355.9.c / 359.3.f)"
 );
+
+test.todo(
+  "ven-117-166 Disciple of Shen: route the granted Shield 3 through the default CardProgram lifecycle " +
+    "so production layers consume the defender Might bonus; the isolated KeywordGrantLayerEngine adapter " +
+    "already covers the combatRole/designation alias (814.1.c)"
+);
+

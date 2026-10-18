@@ -1,9 +1,19 @@
+// RIFT-664 template execution evidence (trigger condition true/false on the
+// real chain, non-target set damage gap) is in
+// ../templates/keyword-triggered-attack-declared-effect-664.test.mjs. This
+// card stays judge-required for the printed gaps asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/renekton-rage-fueled.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import accelerateKeyword from "../../../../engine-core/dist/effects/keywords/Accelerate.js";
+import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -61,7 +71,8 @@ test("ven-019-166 Renekton: identity, status, judgeReason and verbatim sourceTex
   assert.match(program.judgeReason, /effect\.damage/);
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /attack-declared/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-(89|120)/);
+  assert.match(program.judgeReason, /accelerate\.cost/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("ven-019-166 Renekton: unvalued [Accelerate] with the merged 805 expansion", () => {
@@ -150,6 +161,77 @@ test.todo(
     "ctx.targets(specId) — effect.damage still lacks a query/set selector for non-target groups"
 );
 
+test("ven-019-166 Renekton gap: the non-target set descriptor is rejected by effect.damage", () => {
+  // Measured evidence for judgeReason point 1: the merged primitive reads its
+  // target set from a Finalize-locked TargetSpec id, so handing it the card's
+  // own query descriptor throws rather than dealing 2 to every enemy unit.
+  const kernel = world()
+    .unit("renekton", { might: 6, location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy", { owner: "B", controller: "B", might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const bound = kernel.clone({ controller: "A", source: kernel.ref("renekton"), sourceSnapshot: kernel.getObject("renekton") });
+
+  assert.throws(
+    () => resolveChainBody([dealTwo], bound),
+    error => error instanceof Error && /args\.target must be a TargetSpec id string/.test(error.message)
+  );
+  assert.equal(bound.getObject("enemy").damage, 0);
+});
+
+test("ven-019-166 Renekton gap: a committed Move emits object-moved and never attack-declared", () => {
+  // Measured evidence for judgeReason point 2: the production action adapter
+  // emits the movement timing point only; no module emits attack-declared, and
+  // the combat flow refuses to open a staged Combat, so the printed trigger
+  // cannot be reached by real play.
+  const builder = world().player("A", { energy: 20 }).player("B", { energy: 20 })
+    .unit("renekton", { might: 6, location: { type: "base", player: "A" } });
+  const kernel = builder.build();
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(), restore: state => kernel.restore(state),
+    objects: () => kernel.objects, perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ host, turnOrder: ["A", "B"], turnPlayer: "A", cleanup: () => false });
+  const seen = [];
+  const original = engine.pipeline.emit.bind(engine.pipeline);
+  engine.pipeline.emit = (emission, action) => {
+    seen.push(emission.timingPoint);
+    return original(emission, action);
+  };
+
+  assert.equal(engine.commit({ type: "move-location", object: kernel.ref("renekton"), location: { type: "battlefield", id: "bf-1" } }).status, "done");
+  assert.ok(seen.includes("object-moved"));
+  assert.equal(seen.includes("attack-declared"), false, "no producer emits attack-declared");
+});
+
+test("ven-019-166 Renekton gap: the [Accelerate] static ability has no layer mapping", () => {
+  // Measured evidence for judgeReason point 3: the keyword expansion exists and
+  // declares the printed optional cost plus the ready-entry replacement, but
+  // the production static binder cannot install its cost declaration, and no
+  // producer turns a card keyword into a Finalize cost component.
+  const kernel = world().player("A", { energy: 20 }).unit("renekton", { cardId: CANONICAL_ID, might: 6, location: { type: "base", player: "A" } }).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(), restore: state => kernel.restore(state),
+    objects: () => kernel.objects, perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ host, turnOrder: ["A", "B"], turnPlayer: "A", cleanup: () => false });
+  const source = kernel.getObject("renekton");
+  const [costAbility] = accelerateKeyword.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(costAbility.kind, "static");
+  assert.equal(costAbility.effect.kind, "accelerate.cost");
+  assert.deepEqual(costAbility.effect.cost.payments.map(payment => [payment.kind, payment.amount.value]), [
+    ["energy", 1],
+    ["power", 1]
+  ]);
+  assert.throws(
+    () => createEngineStaticBinder(engine).bindStatic(costAbility, source),
+    error => error.code === "judge-required" && /accelerate\.cost has no layer mapping/.test(error.message)
+  );
+});
+
 test.todo(
   "ven-019-166 Renekton: the attack-declared timing point needs its combat emitter and the " +
     "engine batch 4–5 combat transaction; CardProgram → TriggerRegistration binding is already merged"
@@ -160,3 +242,24 @@ test.todo(
     "entry) needs a card-program → cost-plan/entry-replacement wiring — the cost planner accepts " +
     "optional additional costs, but no producer turns accelerate.cost on a card program into that plan"
 );
+
+for (const selected of [true, false]) test(`ven-019-166 Renekton: the merged Accelerate cost planner ${selected ? "selects" : "declines"} one Energy and Fury Power`, () => {
+  const base = world().player("A", { energy: 7, power: ["Fury"] })
+    .hand("renekton", { cardId: CANONICAL_ID, types: ["unit"], energy: 6, power: null, might: 6 }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("renekton") });
+  const plan = buildCostPlan(kernel, {
+    id: "renekton:accelerate", cost: { kind: "printed" }, domains: ["Fury"],
+    optionalAdditional: [{ id: "renekton:accelerate", kind: "accelerate", selected }]
+  });
+  assert.equal(plan.printed.energy, 6);
+  assert.equal(plan.printed.power, null);
+  assert.equal(plan.total.energy, selected ? 7 : 6);
+  assert.deepEqual(plan.total.power, selected ? [{ amount: 1, allowedDomains: ["Fury"] }] : []);
+  assert.equal(plan.selectedAdditional.length, selected ? 1 : 0);
+  if (selected) assert.equal(plan.selectedAdditional[0].kind, "accelerate");
+  const receipt = payCostPlan(kernel, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(kernel.player("A").energy, selected ? 0 : 1);
+  assert.deepEqual(receipt.actions[0].action.plan.power, selected ? ["Fury"] : []);
+  assert.equal(kernel.getObject("renekton").power, null);
+});

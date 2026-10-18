@@ -1,3 +1,4 @@
+// Execution evidence: templates/triggered-card-played-effect-token-661.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -10,14 +11,6 @@ import { runInstruction, world } from "../../../../engine-core/dist/effects/test
 const CANONICAL = "card.hash-6e0d0c7e82324687174e1c1585a9fdba369a29e517e743eb601994ed2edb5de9";
 const [ability] = program.abilities;
 const [instruction] = ability.body;
-
-// The reference primitive still needs a concrete runtime LocationRef, so the
-// golden substitutes the playing player's Base for the contract LocationExpr.
-const { entersExhausted, ...consumedArgs } = instruction.args;
-const saturatingArgs = {
-  ...consumedArgs,
-  location: { kind: "constant", value: { type: "base", player: "A" } }
-};
 
 test("sfd-174-221 Trove Golem: program validates, is registered and keeps its identity", () => {
   const result = validateCardProgram(program);
@@ -58,10 +51,16 @@ test("sfd-174-221 Trove Golem: card-played self trigger plays four Gold tokens",
   assert.equal(instruction.linkedTo, undefined);
 });
 
-test("sfd-174-221 Trove Golem golden: the card's own chain-create + play shape really plays four tokens", () => {
-  // The merged chain-create + play handoff means the card's own
-  // token/amount/mode/location args execute a real four-token play once the
-  // definition exists. Only the Gold definition and the entry state are missing.
+// This preserves the pre-template positive assertion for the merged
+// create-token -> play handoff using a defined token. Gold itself remains
+// blocked by the card's judge-required dependencies and is covered by the
+// template scenario evidence.
+test("sfd-174-221 Trove Golem golden: the card's own chain-create + play shape really plays four defined tokens", () => {
+  const { entersExhausted, ...consumedArgs } = instruction.args;
+  const saturatingArgs = {
+    ...consumedArgs,
+    location: { kind: "constant", value: { type: "base", player: "A" } }
+  };
   const kernel = world().player("A").build();
   const run = runInstruction(
     token,
@@ -69,7 +68,6 @@ test("sfd-174-221 Trove Golem golden: the card's own chain-create + play shape r
     { world: kernel }
   );
   assert.equal(run.result.status, "executed");
-  // The card's own link key ("goldTokens") carries the receipt.
   assert.equal(run.linked["goldTokens.amount"], 4);
   assert.equal(run.linked["goldTokens.createdAmount"], 4);
   assert.deepEqual(
@@ -84,20 +82,4 @@ test("sfd-174-221 Trove Golem golden: the card's own chain-create + play shape r
     assert.equal(created.energy, null);
     assert.equal(created.power, null);
   }
-  // The printed "exhausted" entry state is the unsupported override recorded in
-  // judgeReason, so this golden asserts only the merged chain-create + play shape
-  // and leaves the entry state to the test.todo below.
 });
-
-test.todo(
-  "sfd-174-221 Trove Golem: create and play four Gold gear tokens exhausted once the Gold definition " +
-    "(CR 187.5) and the entry-state stipulation (184.1 / 185.2.d) are merged; the chain-create + play " +
-    "handoff itself is already merged and executed above; effect.token still needs to consume the " +
-    "contract LocationExpr ability-controller-base as a runtime LocationRef."
-);
-
-test.todo(
-  "sfd-174-221 Trove Golem: play the created Gold tokens in the printed exhausted entry state " +
-    "(184.1 / 185.2.d). The merged creation/play actions place tokens ready, and a later " +
-    "effect.exhaust is not equivalent (143.4), so no execution test can assert the printed state yet."
-);

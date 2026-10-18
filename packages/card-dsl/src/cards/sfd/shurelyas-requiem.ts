@@ -37,9 +37,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - [Equip] 的费用管线缺口：已合入的 Equip 展开声明 payments: [{ kind: "equip" }]，
  *   而 cost/plan-values.ts 的支付种类不含 equip，启动费用无法在 Finalize 支付——
  *   应将展开的印刷费用接为已有 power payment（六域 allowedDomains）。
- * - 打出触发的注册方不再是缺口（programs/triggers.ts）：把 [Unique] 声明移出后，绑定层能把
- *   card-played 触发注册成 TriggerRegistration 并解析 object: { canonicalCardId } 过滤
- *   （golden 实测），触发体 effect.ready 的 { kind: "query" } 集合语义也由 golden 真实执行。
+ * - 打出触发的注册和 ready 集合语义已由 golden 真实执行；它们不构成本卡当前缺口。
  *
  * golden 测试真实执行已合入的触发本体（effect.ready 的 query 形状：就绪我方单位、
  * 不动对手单位）与 Equip 展开的 effect.attach 本体；其余缺口写成 test.todo。
@@ -98,8 +96,8 @@ const program = {
     "costDomain: \"rainbow\" 保留印刷记号，但 programs/keywords.ts 只向 expand 传 value/host，未把印刷费用传入 params.cost。" +
     "（3）Equip 支付种类尚未转换成费用管线支持的 power payment：展开仍声明 payments: [{ kind: \"equip\" }]，cost/plan-values.ts 因未知支付种类阻断 Finalize" +
     "（实测 buildCostPlan 抛 CostPlanError reason \"judge-required\"、message \"Unsupported payment kind: equip\"）。" +
-    "打出触发的注册方不再构成缺口：programs/triggers.ts 已合入，把 [Unique] 声明移出后，绑定层能把 card-played 触发注册成 TriggerRegistration，" +
-    "并原样解析 object: { canonicalCardId } 过滤（golden 实测）；触发体本身的语义（effect.ready 的 { kind: \"query\" } 集合形状，416.1/416.1.c）也已由 golden 真实执行。" +
+    "打出触发的注册和触发体本身的语义（effect.ready 的 { kind: \"query\" } 集合形状，416.1/416.1.c）" +
+    "已由 golden 真实执行，不构成当前缺口。" +
     "依赖：kw-unique 的图层映射/构筑期消费方、Equip 印刷费用参数传递与支付种类转换。",
   abilities,
   sourceText:

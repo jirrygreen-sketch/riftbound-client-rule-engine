@@ -20,7 +20,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   按区域取值（zone 选择），hand 与 trash 由两条独立区域选择表达（108.2.d/108.3 的
  *   区域身份各自独立），两条指令都写在 body 里。
  * - 441.1 / 441.2 / 441.4："[Burn 7]" 把主牌库顶 7 张移入其弃牌区，尽可能多做；
- *   已合入原语 effect.mill（RIFT-112）即该动作。
+ *   已合入原语 effect.mill 即该动作。
  * - 444.1 / 444.1.a / 444.1.b / 444.2："Skip your Draw Phase" 是把 Draw 阶段的流程
  *   替换为无事发生——它是替代效果（replacement），不是一条结算指令。当前替代匹配器只
  *   消费闭合 GameAction 事件（replacement/pattern.ts 的 ACTION_KINDS），turn/ 尚未提供可匹配的
@@ -136,7 +136,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Draw Phase 流程替代入口（444.1/444.1.a/444.1.b）：本卡的 phase-procedure 替代声明虽能注册，但 " +
+    "三处缺口（2026-10-18 复核，均为实测）：缺 Draw Phase 流程替代入口（444.1/444.1.a/444.1.b）：本卡的 phase-procedure 替代声明虽能注册，但 " +
     "replacement/pattern.ts 的 ACTION_KINDS 只映射闭合 GameAction，实测 matches(draw)/matches(exhaust) 均为 false，" +
     "turn/ 也没有可匹配的 Draw Phase 流程事件；" +
     "缺 continuous.play-permission 的静态图层映射及通用 trash 打出许可消费（420.1.a）：实测 " +

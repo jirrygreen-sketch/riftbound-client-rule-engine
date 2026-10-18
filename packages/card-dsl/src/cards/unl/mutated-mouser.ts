@@ -19,7 +19,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   815.2 多实例冗余；815.3 是可读取特征。同样只声明关键词，展开（continuous.combat 分配要求）
  *   由 effects/keywords/Tank.ts 负责。括号内是提醒文本（135.2.d.3 无游戏功能），本文件不重复实现。
  *
- * 2026-10-17 复核：仍为 judge-required，当前缺口见 judgeReason。
+ * 2026-10-18 复核：仍为 judge-required，当前缺口见 judgeReason。
  * 已有原语、关键词定义或通用适配器不代表本卡完整生产路径可执行。
  */
 const abilities: Ability[] = [
@@ -35,9 +35,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺 Shield 展开的 designation 到 ObjectSnapshot.combatRole 映射（814.1.d/814.1.d.1）：programs/statics.ts 已将 compare 条件包装为 conditionMatches 可调用的函数，" +
-    "但 object-property(self, designation) 读取不存在的字段，静态绑定器捕获 MissingInformation 后返回 false；不是所有身份都无条件 +2 Might。" +
-    "战斗角色事务仍在 combat/flow.ts 的 combat-start-transaction 阻塞（466.2）；Tank 的 continuous.combat 没有战斗伤害分配消费方，base-combat-allocation.ts 仍不绑定优先级要求（815.1.b/815.1.c）。",
+    "两处当前缺口（2026-10-18 实测，均不近似实现）：" +
+    "(1) [Shield 2]（814.1.d/814.1.d.1）的 designation 条件仍不可求值：programs/statics.ts 把 compare 条件包成 evaluateCondition 可调用的函数，" +
+    "而默认识别器只认 ObjectSnapshot 的自有字段，object-property(self, \"designation\") 抛 MissingInformation、静态绑定器捕获后返回 false；" +
+    "interpreter/expr-ext/evaluate.ts 已有 designation → combatRole 映射，但没有接入主 dispatch 与 programs/statics.ts（expr-ext/README 的 integration boundary）。" +
+    "实测：attacker/defender/无身份三种快照下条件恒为 false、打印 Might 1 都不加成（不能无条件 +2）。" +
+    "同时战斗角色本身也还没有产出方：combat/flow.ts 仍在 combat-start-transaction 阻塞（466.2）。" +
+    "(2) [Tank]（815.1.b/815.1.c）的 continuous.combat 没有战斗伤害分配消费方：static binder 能登记该 registration，" +
+    "但 layers/engine.ts 没有该 kind 的求值分支，combat/base-combat-allocation.ts 只接受 keywordPriority: \"proven-none\" 的基础分配证明。",
   abilities,
   sourceText:
     "[Shield 2] (+2 :rb_might: while I'm a defender.)\n" +

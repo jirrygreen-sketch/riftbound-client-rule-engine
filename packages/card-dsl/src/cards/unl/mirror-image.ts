@@ -21,20 +21,8 @@ import type { CardProgram } from "../../ir/index.js";
  * - "Give it [Temporary]"：816 的空格式关键词授予；816.1.b 的等价文本是"在该永久物控制者的
  *   Beginning Phase 开始时、计分前消灭它"，括号里的 reminder 只是释义，不是独立指令。
  *
- * status = judge-required（不近似实现）：
- * 1. "It becomes a copy of that unit" 没有可执行的复制路径：已合入的 effect.copy 的 mode
- *    "effect" 明确被阻断（blockedReason: copy-layer-traits-exceptions-and-attachment-duration-unavailable，
- *    446 / 479.1.a-d），它只能以 mode "create" 生成新对象；用新建对象冒充"token 变成复制体"
- *    会得到错误的图层与身份（479.1.b.1）。
- * 2. "Give it [Temporary]" 的 continuous.grant-keyword 原语已合入，但 Temporary
- *    KeywordDef/其 816.1.b 的 Beginning Phase 触发仍未合入。
- * 3. "ready" 是入场状态改写（143.4 / 184.1 / 185.2.d）：create-token 不支持入场状态，
- *    先创建再补一次 ready 会产生错误的"成为就绪"事件，也可能错过入场替代（143.4.a）。
- * 4. effect.token 的回执已经提供本次结算创建的 token 对象；当前复制图层被阻断，
- *    因而不能验证该链接在复制效果中的最终消费。
- *
- * 可执行部分：effect.token 的 play 路径对定义表内的 "reflection" 已合入，golden 用参考
- * 内核真实执行并断言新 token 的身份（0 Might / 无域 / Reflection 名称）；整卡不可执行。
+ * 2026-10-18 复核：整卡仍为 judge-required；当前生产缺口见 judgeReason。
+ * 已支持子效果的执行证据保留在对应 golden；不以原语存在替代整卡可执行性。
  */
 
 export default {
@@ -42,14 +30,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处依赖未合入，均不近似实现：(1) “It becomes a copy of that unit” 是 446.1 / 446.2 的 Copy 图层（479.1.a–d），" +
-    "已合入的 effect.copy 的 mode \"effect\" 被显式阻断（blockedReason: copy-layer-traits-exceptions-and-attachment-duration-unavailable），" +
-    "用 mode \"create\" 新建对象冒充“token 变成复制体”会得到错误的图层与身份（479.1.b.1）。" +
-    "(2) “Give it [Temporary]” 的 continuous.grant-keyword 原语已合入，但 816 的 Temporary KeywordDef 与 Beginning Phase 消费仍未合入。" +
-    "(3) “Play a ready Reflection unit token” 的 “ready” 是入场状态改写（143.4 / 184.1 / 185.2.d）：create-token 不支持入场状态，" +
-    "先创建再补一次 ready 会产生错误的“成为就绪”事件并可能错过 143.4.a 的入场替代。" +
-    "(4) token 回执已经提供后续指令所需的对象链接，但复制图层阻断了该链接的最终消费；[Action]/[Reaction] 均未印刷。" +
-    "已合入部分：effect.token 的 play 路径对定义表内的 \"reflection\"（187.6 的 0 Might 无域单位 token）可执行，golden 用参考内核真实执行。",
+    "当前缺口：(1) effect.copy 的 effect mode 仍返回 copy-layer-traits-exceptions-and-attachment-duration-unavailable，缺将已存在 token 的可复制特征写入 Copy 图层及其生命周期（CR 446.1/446.2/479.1）。" +
+    "(2) Temporary KeywordDef、beginning-start 触发与 effect.kill 均已存在；缺 continuous.grant-keyword 新授予关键词后的宿主订阅刷新，KeywordGrantLayerEngine 对动态 triggered 展开仍 fail-closed（816.1.b/816.1.c）。" +
+    "(3) effect.token 的 play 路径没有 ready 入场覆盖参数（143.4/184.1）；事后 ready 不能替代入场状态改写。token 回执与对象链接已可用。",
   abilities: [
     {
       kind: "play",

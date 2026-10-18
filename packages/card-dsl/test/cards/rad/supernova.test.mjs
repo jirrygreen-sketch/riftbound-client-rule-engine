@@ -28,6 +28,10 @@ test("rad-059-167 Supernova: program validates and is judge-required on the cata
   assert.match(program.judgeReason, /effect\.damage/);
   assert.match(program.judgeReason, /effect\.draw/);
   assert.match(program.judgeReason, /describePlay/);
+  // The refreshed reason records the measured consequence of the card-type
+  // disagreement: describePlay derives the chain kind from source.types.
+  assert.match(program.judgeReason, /source\.types/);
+  assert.match(program.judgeReason, /spell \/ unit \/ gear/);
 });
 
 test("rad-059-167 Supernova: sourceText is the verbatim deck-catalog ability text", () => {
@@ -179,3 +183,25 @@ test.todo(
     "(Spell vs Unit) so this text is either a play " +
     "ability (420.1) or a play effect (383.4.a) — card-data task, not this workstream"
 );
+
+test("rad-059-167 Supernova gap: describePlay derives the chain kind from source.types, so the catalog type decides the card", () => {
+  // 420.1 vs 383.4.a: the same authored program produces a spell, unit, or gear
+  // chain item purely from the source snapshot's types. That is why the
+  // catalog's Spell/Unit disagreement is a real blocker rather than a cosmetic
+  // labelling problem.
+  const { judgeReason, ...rest } = program;
+  const binding = createProgramBinding({ cardPrograms: [{ ...rest, status: "executable" }] });
+  const kinds = ["spell", "unit", "gear"].map(type => {
+    const kernel = world()
+      .unit("card", { types: [type], zone: "hand", cardId: CARD_ID, energy: 9, power: ["Order"], might: null })
+      .build();
+    const source = kernel.getObject("card");
+    const draft = binding.describePlay({ type: "play", object: source.ref, player: "A" }, source);
+    return [draft.kind, draft.body.map(instruction => instruction.op)];
+  });
+  assert.deepEqual(kinds, [
+    ["spell", ["effect.damage", "effect.draw"]],
+    ["unit", ["effect.damage", "effect.draw"]],
+    ["gear", ["effect.damage", "effect.draw"]]
+  ]);
+});

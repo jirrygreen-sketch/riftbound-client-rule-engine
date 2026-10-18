@@ -25,11 +25,15 @@ import type { CardProgram } from "../../ir/index.js";
  * continuous.might + designation 条件）由 effects/keywords/Assault.ts 与
  * effects/keywords/Shield.ts 负责，卡文件不重复实现，也不写单卡结算代码。
  *
- * status = judge-required（复核 2026-10-17）：见 judgeReason —— Assault.ts / Shield.ts
- * 的 KeywordDef 展开、卡牌程序静态绑定与 chain 生命周期都已合入，但展开所读的
- * designation 特征在 ObjectSnapshot 上不存在（只有 combatRole），而绑定后的静态注册
- * 也不求值 compare 条件：layers/engine.ts 的 conditionMatches 把未识别的条件当 true。
- * 缺一即不能宣称整卡可执行。
+ * status = judge-required（复核 2026-10-17/18）：见 judgeReason —— Assault.ts /
+ * Shield.ts 的 KeywordDef 展开、expandProgram 的同名叠加（807.2/814.2）、卡牌程序
+ * 静态绑定与 chain 生命周期都已合入且经 golden 实测；仍不能宣称整卡可执行的是两处
+ * 已实测缺口：(1) 展开条件读的 designation 特征在 ObjectSnapshot（契约 3.8）上不存在，
+ * 求值抛 MissingInformation 后被 programs/statics.ts fail-closed；(2) 战斗角色
+ * designation 没有生产方（combat/flow.ts 抛 combat-start-transaction，CR 466.2）。
+ * RIFT-711 的 expr-ext 已实现 designation→combatRole 读取，但按该模块 README 的集成
+ * 边界，默认解释器与静态绑定尚未 dispatch；控制组 golden 证明字段对齐后同一生产路径
+ * 立即给出印刷加成。不近似实现。
  */
 const garenRugged = {
   canonicalCardId:
@@ -37,17 +41,22 @@ const garenRugged = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Assault/Shield 的 KeywordDef 展开（effects/keywords/Assault.ts、Shield.ts：static continuous.might + " +
-    "compare(object-property(self, 'designation'), eq, 'attacker'/'defender')）与卡牌程序静态绑定都已合入，" +
-    "但合并内核仍缺两处执行路径：(1) 展开读的是对象属性 'designation'，ObjectSnapshot（契约 3.8）只有 combatRole，" +
-    "求值直接抛 \"Unavailable characteristic: designation\"，programs/statics.ts 的 condition 包装捕获异常后 fail-closed，" +
-    "所以攻击/防守期间都不会有 +2（golden 用真实 binder + 图层证明 5 Might 未变化）；" +
-    "(2) 即便把特征换成 combatRole，layers/engine.ts 的 conditionMatches 也只识别 always/never/type/has-tag/has-keyword，" +
-    "未识别的 compare 条件按 true 处理——golden 用真实图层注册证明防守时 +2 会被无条件套用（5 → 7），" +
-    "无法分别只在攻击/防守时生效。另：本印刷是 Assault 与 Shield 合并提醒的复合文本，" +
-    "duel/assault-description-v1 与 duel/shield-description-v1 的整条能力匹配都将其判为 unknown，" +
-    "窄路径（combat/derived-might.ts）只覆盖它自有的指定语义、不消费本卡程序。" +
-    "依赖：layers 的 compare 条件消费与 designation 特征暴露。不近似实现。",
+    "复核 2026-10-17/18（均为实测）：Assault/Shield 的 KeywordDef 展开（effects/keywords/Assault.ts、Shield.ts：" +
+    "static continuous.might + compare(object-property(self, 'designation'), eq, ...)）、expandProgram 的同名叠加" +
+    "（CR 807.2/814.2：印刷 + 授予来源相加，golden 实测 2+2 展开为单个 Assault 4）、卡牌静态绑定与图层求值路径" +
+    "（programs/statics.ts 把 ability.condition 包成函数交给 layers/engine.ts 的 conditionMatches 求值）都已合入。" +
+    "整卡仍不可执行，实测缺口两条：(1) 展开读的 designation 不在 ObjectSnapshot（契约 3.8 只有 combatRole），" +
+    "求值抛 MissingInformation「Unavailable characteristic: designation」、binder fail-closed，真实攻击者快照 Might 仍 5" +
+    "（golden 断言 registry 1 条、condition(snapshot)=false）；RIFT-711 的 expr-ext 已把 designation/object-designation" +
+    "映射到 combatRole（evaluateExtendedExpression 实测 attacker/defender），但其 README 的集成边界写明默认解释器" +
+    "（effects/interpreter/expr.ts）与 programs/statics.ts 尚未 dispatch 该扩展，生产条件路径拿不到映射；" +
+    "把展开条件 property 改为 combatRole 的控制组在同一生产 binder 上攻击者 5→7、防守者/无角色保持 5（Shield 反之）。" +
+    "(2) combat/flow.ts 的战斗角色事务仍抛 TurnCombatBlockedError('combat-start-transaction')（CR 466.2/807.1.d/814.1.d），" +
+    "没有任何生产方写 combatRole，真实对局中「我是攻击者/防守者」不成立（RIFT-124 后续）。" +
+    "另：本印刷是 Assault 与 Shield 合并提醒的复合文本，duel/assault-description-v1 与 duel/shield-description-v1 的整条能力匹配" +
+    "都将其判为 unknown（ability-not-pure-assault / ability-not-pure-shield），combat/derived-might.ts 的窄路径只覆盖它自有的" +
+    "指定语义、不消费本卡程序。（golden 里直接注册原始对象条件证明 layers/engine.ts 自身不求值未识别条件，但生产绑定总是发函数形态，" +
+    "因此该形状不是本卡阻塞项。）依赖：expr-ext 到默认解释器/静态条件的 dispatch、战斗 designation 的生产方。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "assault", value: 2 },
     { kind: "keyword", keyword: "shield", value: 2 }

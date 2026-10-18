@@ -30,10 +30,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   Stunned unit cannot be Stunned again). The unit is chosen specifically and
  *   sits on the Board, so it is a target (355.7 / 355.9.a.1 / 355.9.b).
  *   "attacking" is the Attacker designation (459 / 807; contract 3.8 item 1 adds
- *   `ObjectSnapshot.combatRole`, which is not merged into effects/contract.ts or
- *   into any filter vocabulary), so the filter carries the contract's field name
- *   as an unevaluated, descriptive key — unchanged, the filter would stun any
- *   enemy unit.
+ *   `ObjectSnapshot.combatRole`. The field exists on the snapshot, but
+ *   programs/filters.ts does not accept a top-level combatRole key), so the
+ *   filter carries the contract's field name as an unevaluated, descriptive key
+ *   — removing it would silently turn the card into "stun any enemy unit".
  * - "If it's already stunned, return it to its owner's hand instead" branches on
  *   the chosen unit's current stunned state (424.1.a) and is written as two
  *   mutually exclusive instructions reading that state with an object-property
@@ -44,14 +44,30 @@ import type { CardProgram } from "../../ir/index.js";
  *   shared target's state rather than the first instruction's result, and the
  *   two conditions are mutually exclusive.
  *
- * status = judge-required (README section 2): the "attacking" restriction has
- * no evaluable predicate, and the printed [Repeat] additional cost has no
- * payment/count wiring. Neither is approximated: the filter does not silently
- * accept every enemy unit, and the body is not repeated with a fabricated count.
+ * status = judge-required (README section 2), re-measured 2026-10-18: the
+ * "attacking" restriction has no evaluable predicate, and the printed [Repeat]
+ * additional cost has no payment/count wiring. Neither is approximated: the
+ * filter does not silently accept every enemy unit, and the body is not repeated
+ * with a fabricated count.
+ * - probing programs/filters.ts confirms `combatRole` is still rejected as an
+ *   unsupported filter field (characteristics.combatRole *is* translated, and
+ *   layers/filter.ts evaluates it, but chain/interpreter-adapter's literal-field
+ *   table and the play/finalize target path are the pieces the card needs).
+ * - probing programs/play.ts translateCost confirms the cost is returned as
+ *   `kind: "explicit"` with the repeat payment still carrying its `keyword`
+ *   field, and cost/plan-values.ts then rejects it: "Unsupported payment field:
+ *   keyword". cost-plan.ts does support kind:"repeat" through optionalAdditional,
+ *   but nothing in the play path turns the declared payment into that channel.
+ * - probing chain/interpreter-adapter.ts: effect.stun's `target` is not in
+ *   LITERAL_FIELDS, so the card's own Expr-wrapped target id fails schema parsing
+ *   ("effect.stun target must be a spec id string") and the chain path reports
+ *   ignored/mistargeted instead of stunning.
  *
- * Dependencies: the Attacker/Defender designation (combatRole) in the filter
- * vocabulary, plus the play-cost translation and resolution handoff for Repeat's
- * additional payment and paid-instance count.
+ * Dependencies: the Attacker designation in the play/finalize target filter
+ * path, the play-cost translation for Repeat's optional additional payment, and
+ * the engine-side registry entry for effect.stun's literal target. The two
+ * mutually exclusive branches and the [Action] declaration are merged and really
+ * executed by the golden.
  */
 export default {
   canonicalCardId:
@@ -59,17 +75,19 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1)「an attacking enemy unit」的 attacking 是 Attacker designation（459 / 807）：" +
+    "三处依赖未合入，均不近似实现（2026-10-18 复核）：(1)「an attacking enemy unit」的 attacking 是 Attacker designation（459 / 807）：" +
     "ObjectSnapshot 已有 combatRole 字段，但 programs/filters.ts 的 filter 词汇仍不接受 combatRole，" +
     "所以本文件的 filter 只保留描述性键 combatRole: \"attacker\"（无消费者）——删掉它会把「任意敌方单位」写成事实。" +
     "(2) 印刷的 [Repeat] :rb_energy_2: 是可选追加费用（820.1 / 820.1.c / 355.1.a / 356.2.b.1），" +
-    "programs/play.ts::translateCost 仍拒绝 additional/additional-cost，且打出后的 paid-instance count 尚未交给结算端，" +
-    "本卡在 play.cost 里按已合入的 frigid-touch 形状声明该可选费用（带 pay/decline 选择）与印刷基础费用（1 能量 + 1 Chaos 力量），" +
-    "但不用固定次数的 repeat 控制指令伪造「额外执行一次」。" +
-    "依赖：programs/filters.ts 的 combatRole 过滤支持，以及 Repeat 附加费用与已付实例计数的 play/resolve 接线。" +
-    "已合入并由 golden 真实执行的部分：两条互斥分支（effect.stun / effect.zone → hand，424.1 / 424.1.a / 056.1）；" +
-    "[Action] 关键词声明（806）。另注：engine-core 的 chain 适配器（chain/interpreter-adapter.ts 的 LITERAL_FIELDS）" +
-    "尚未登记 effect.stun 的 target，生产链路上仍需引擎侧补登记。",
+    "programs/play.ts 的 translateCost 把本卡 cost 原样转成 explicit 并保留 payment 上的 keyword 字段，cost/plan-values.ts 随即抛 " +
+    "\"Unsupported payment field: keyword\"；cost-plan.ts 的 optionalAdditional 通道本身支持 kind: \"repeat\"，" +
+    "但 play 路径没有任何地方把本卡声明的 payment 转成该通道，paid-instance count 也未交给结算端，" +
+    "本卡因此不写固定次数的 repeat 控制指令。(3) 链适配器未登记 effect.stun 的 literal target：" +
+    "chain/interpreter-adapter.ts 的 LITERAL_FIELDS 没有 effect.stun，本卡 Expr 包裹的 target id 会被按 spec id 字符串重新校验并抛 " +
+    "\"effect.stun target must be a spec id string\"，实测整条指令在链上记 ignored/mistargeted、并未 Stun。" +
+    "依赖：play/finalize 目标路径的 combatRole 过滤支持、Repeat 附加费用与已付实例计数的 play/resolve 接线、" +
+    "以及 effect.stun literal target 的引擎侧登记。" +
+    "已合入并由 golden 真实执行的部分：两条互斥分支（effect.stun / effect.zone → hand，424.1 / 424.1.a / 056.1）；[Action] 关键词声明（806）。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

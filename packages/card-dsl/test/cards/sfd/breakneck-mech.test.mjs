@@ -1,4 +1,6 @@
-// Scenario execution evidence: ../templates/static-replacement-effect-ready-663.test.mjs (supported parts only).
+// Scenario execution evidence: ../templates/static-replacement-effect-ready-677.test.mjs
+// (one row per card; the printed expectations the merged engine cannot produce
+// yet are reported there as TODO rows, never as a pass).
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -8,6 +10,7 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 import { createContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
@@ -97,21 +100,19 @@ test("breakneck-mech program is registered and validates", () => {
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("breakneck-mech judgeReason names the current Deflect, Ganking and entry-condition gaps", () => {
+test("breakneck-mech judgeReason names the current Deflect tax and entry-condition gaps", () => {
   assert.match(program.judgeReason, /Deflect/);
   assert.match(program.judgeReason, /Ganking/);
   assert.match(program.judgeReason, /target\.tax/);
-  assert.match(program.judgeReason, /permission\.routes/);
   assert.match(program.judgeReason, /matchesEnterAction/);
-  assert.match(program.judgeReason, /attachProgramLifecycle/);
-  assert.match(program.judgeReason, /createEngineStaticBinder/);
-  assert.match(program.judgeReason, /layerFor/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /TargetTaxSpec/);
   // The tag/other count-filter gap was fixed in this resweep, so the reason
   // records the repair instead of still claiming the counting is broken.
   assert.match(program.judgeReason, /已修/);
   assert.match(program.judgeReason, /exclude/);
   assert.ok(!/unmerged KeywordDef|keywords registry is empty/.test(program.judgeReason));
-  assert.ok(!/RIFT-257|CardProgram binding|未合入/.test(program.judgeReason));
+  assert.ok(!/permission\.routes|no layer mapping|Ganking.*false/.test(program.judgeReason));
 });
 
 test("breakneck-mech structure: static grant + enter-ready replacement", () => {
@@ -211,7 +212,7 @@ test("breakneck-mech golden: the battlefield-to-battlefield permission is readab
   assert.deepEqual(ungranted.permissions, []);
 });
 
-test("breakneck-mech golden: the granted keywords land on the controller's Mechs through the layer engine", () => {
+test("breakneck-mech golden: the granted keywords re-expand through the merged keyword layer", () => {
   // The declared grant is a single ability-layer grant-keyword effect over the
   // controller's Mechs (802.2 style). The layer engine applies the grants to
   // exactly that set; the missing piece is the production registration path.
@@ -233,7 +234,10 @@ test("breakneck-mech golden: the granted keywords land on the controller's Mechs
     duration: { type: "permanent" },
     timestamp: 1
   };
-  const engine = createLayerEngine(kernel.objects, [registration]);
+  const engine = new KeywordGrantLayerEngine(kernel.objects, {
+    context: source => bindResolveContext(kernel, { source, controller: source.controller })
+  });
+  engine.addContinuous(registration.effect, registration.duration, registration.timestamp);
 
   assert.deepEqual(engine.evaluate(kernel.ref("mech")).keywords.map((keyword) => keyword.id).sort(), ["Deflect", "Ganking"]);
   assert.deepEqual(engine.evaluate(kernel.ref("ally-non-mech")).keywords, []);
@@ -356,19 +360,6 @@ test("breakneck-mech golden: 'if you control another Mech' really counts the oth
 });
 
 test.todo(
-  "breakneck-mech: derive the granted Deflect target.tax registration into a TargetTaxSpec the target " +
-    "plan consumes (today only caller-supplied options.tax / taxAdapter exists, and chain/engine.ts " +
-    "collects taxes without reading the layers)"
-);
-
-test.todo(
-  "breakneck-mech: reconcile the Ganking expansion with the rules query — Ganking.ts emits " +
-    "continuous.movement with a plain permission string while layers/rules/query.ts reads " +
-    "permission.routes, so the granted keyword yields no battlefield-to-battlefield route (CR 810.1.c)"
-);
-
-test.todo(
-  "breakneck-mech: evaluate the replacement condition on the entry path — replacement/bind.ts " +
     "matchesEnterAction returns before testCondition, so 'if you control another Mech' never gates the " +
     "entry rewrite (CR 371.1)"
 );

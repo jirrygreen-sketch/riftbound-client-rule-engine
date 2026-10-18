@@ -35,10 +35,9 @@ test("unl-105-219 Imposing Challenger: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /449\.2/);
   // The program binding is merged; the reason must name the remaining movement
   // payload/position/comparison gaps.
-  assert.match(program.judgeReason, /LocationSelector\/LocationTargetSpec/);
-  assert.match(program.judgeReason, /exclude/);
+  assert.match(program.judgeReason, /LocationCandidateOptions\.exclude/);
   assert.match(program.judgeReason, /mightLessThan/);
-  assert.match(program.judgeReason, /movement.*载荷|toLocationId/);
+  assert.match(program.judgeReason, /toLocationId/);
   assert.doesNotMatch(program.judgeReason, /RIFT-90|RIFT-120|RIFT-257|RIFT-270/);
   // The reason must name the live translator/schema rejections, not a placeholder.
   assert.match(program.judgeReason, /translateObjectFilter|ProgramBindingError/);
@@ -54,9 +53,12 @@ test("unl-105-219 Imposing Challenger: 'When I move' subscribes to the object-mo
   // Recall out of Move triggers, which is why the closed timing point is
   // object-moved (events/timing-points.ts).
   assert.equal(ability.trigger.at, "object-moved");
+  // 449.1/449.2: the anchor must name this source. The nested object:"self"
+  // spelling is dropped by programs/filters.ts, so the preserved source:"self"
+  // form is required for the registration to stay host-scoped.
   assert.deepEqual(ability.trigger.filter, {
     event: "object-moved",
-    filter: { object: "self" }
+    filter: { source: "self" }
   });
   assert.equal(ability.trigger.once, undefined);
 });
@@ -195,10 +197,25 @@ test("unl-105-219 Imposing Challenger: object-moved exists as a timing point but
   assert.equal(isTimingPointId("object-moved"), true);
   assert.equal(EVENT_PATTERN_TYPES.includes("object-moved"), false);
   const translated = translateTriggerFilter(ability.trigger.filter, "imposing-challenger", "object-moved");
-  assert.deepEqual(translated, { event: "object-moved" });
+  // The host anchor survives translation (it was dropped for the old nested form).
+  assert.deepEqual(translated, { event: "object-moved", object: { objectId: "imposing-challenger" } });
   const result = validateTriggerSpec({ at: "object-moved", filter: translated });
   assert.equal(result.ok, false);
   assert.deepEqual(result.issues.map(issue => issue.code), ["invalid-event-type"]);
+});
+
+test("unl-105-219 Imposing Challenger: the host anchor survives translation while the nested form is dropped", () => {
+  // 449.1/449.2: "When I move" must stay scoped to this card. programs/filters.ts
+  // normalizes source:"self" to the host object filter; the old nested object:"self"
+  // form produced an unscoped pattern that would match any unit's Move.
+  assert.deepEqual(
+    translateTriggerFilter({ event: "object-moved", filter: { source: "self" } }, "imposing-challenger"),
+    { event: "object-moved", object: { objectId: "imposing-challenger" } }
+  );
+  assert.deepEqual(
+    translateTriggerFilter({ event: "object-moved", filter: { object: "self" } }, "imposing-challenger"),
+    { event: "object-moved" }
+  );
 });
 
 test.todo(

@@ -4,6 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/rad/fanfare.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
@@ -28,6 +30,7 @@ test("rad-047-167 Fanfare: judgeReason names the delayed-trigger primitive and t
   // the end-of-turn expiry task.
   assert.match(program.judgeReason, /registerDelayedTrigger/);
   assert.match(program.judgeReason, /trigger\.delayed/);
+  assert.match(program.judgeReason, /Unregistered instruction opcode/);
   assert.match(program.judgeReason, /per-turn/);
   assert.match(program.judgeReason, /expiresAt/);
 });
@@ -83,6 +86,17 @@ test("rad-047-167 Fanfare: the delayed trigger's body draws 1 through the merged
   assert.equal(kernel.getObject("second-card").zone, "deck");
   assert.equal(run.linked.drawn, 1);
   assert.deepEqual(run.events.map(event => event.action), ["draw"]);
+});
+
+test("rad-047-167 Fanfare: the authored registration op is not dispatched by the production interpreter", () => {
+  // The reason records this as measured evidence: the card's own body cannot be
+  // resolved today because trigger.delayed is not a registered instruction.
+  const kernel = world().unit("spell", { types: ["spell"], zone: "chain" }).build();
+  assert.throws(
+    () => runAbilityBody([registration], kernel.clone({ sourceSnapshot: kernel.getObject("spell") })),
+    /Unregistered instruction opcode: trigger\.delayed/
+  );
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
 });
 
 test.todo(

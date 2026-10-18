@@ -16,27 +16,33 @@ import type { CardProgram } from "../../ir/index.js";
  *   effect.token 的 mode "play" 已支持该链上创建 + 打出（RIFT-62 合入后不再是阻断项）。
  * - 440.4：新创建对象的控制者是效果控制者，即 "your base" 里的 your = 本卡控制者。
  *
- * status: judge-required —— 两处真实缺口仍在：
- * 1. [Deathknell] 的关键词展开引用尚未实现的 trigger.leave 原语；其展开过滤器还带有
- *    当前 trigger adapter 不接受的 cause / destination 字段，因此展开程序不能绑定。
- * 2. "into your base" 的目标地点需要把 "controller" 占位解析成当前控制者的 Base：
- *    合并的 effect.token 只接受具体 LocationRef，遇到 player: "controller" 占位会
- *    negated/impossible（契约 3.6 与 effect.token 文档）。
+ * status: judge-required（2026-10-17 复核）—— 两处真实缺口：
+ * 1. [Deathknell] 的关键词展开引用尚未实现的 trigger.leave 原语：effects/instructions 与生成的
+ *    registryById 都没有该 op（实测 instructionDefinitionsById.has("trigger.leave") === false），
+ *    resolveChainBody 执行展开体抛 "Unregistered instruction opcode: trigger.leave"。
+ * 2. "into your base" 的目标地点需要把 "controller" 占位解析成当前控制者的 Base（440.4）：
+ *    合并的 effect.token 只接受具体 LocationRef 或可解析的 LocationSelector，
+ *    实测 { type: "base", player: "controller" } 形状的 constant 被原语判为 negated/impossible。
+ * 展开的 object-killed 过滤器 { self: true, cause: "kill", destination: "trash" } 现在能经
+ * translateTriggerFilter 注册（cause/destination 被折进 self 身份，实测 registerTrigger 接受）。
  * 本卡的 [Deathknell] 效果本体（三个 Recruit token）用已合入的 effect.token 表达，并在 golden
- * 测试中以具体 Base 替换占位后真实执行；上述三点保持 pending，不把占位当可执行。
+ * 测试中以具体 Base 替换占位后真实执行；上述缺口保持 pending，不把占位当可执行。
  */
 const machineEvangel = {
   canonicalCardId: "card.hash-17636361767d3b9981692423637f956799fa03a84c22ee687c41f59f2b58aa59",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Deathknell] 的关键词展开仍引用未实现的 trigger.leave 原语，且生成的 object-killed 过滤器含有 " +
-    "当前 trigger adapter 不接受的 cause / destination 字段；" +
-    "本卡显式 object-killed 触发已有 CardProgram 注册路径，但会被该关键词展开失败阻断；" +
+    "[Deathknell] 的关键词展开仍引用未实现的 trigger.leave 原语：effects/instructions 与生成的 " +
+    "registryById 都没有该 op（实测 instructionDefinitionsById.has(\"trigger.leave\") === false），" +
+    "resolveChainBody 执行展开体抛 “Unregistered instruction opcode: trigger.leave”。" +
+    "展开的 object-killed 过滤器 { self: true, cause: \"kill\", destination: \"trash\" } 现在能经 " +
+    "translateTriggerFilter 注册（cause/destination 被折进 self 身份，实测 registerTrigger 接受）；" +
     "「Play three 1 [M] Recruit unit tokens into your base」的目标地点需要把 base 的 " +
-    "player controller 占位解析成当前控制者（440.4），合并的 effect.token 只接受具体 LocationRef，" +
-    "占位会 negated/impossible。效果本体（187.1 Recruit x3）可用已合入的 effect.token mode play 执行，" +
-    "故仅上述缺口保持 judge-required。依赖：trigger.leave 与 Deathknell 过滤器适配，以及 effect.token 的 controller-base 占位解析。",
+    "player controller 占位解析成当前控制者（440.4），合并的 effect.token 只接受具体 LocationRef 或可解析的 " +
+    "LocationSelector：实测 { type: \"base\", player: \"controller\" } 形状的 constant 被原语判为 negated/impossible。" +
+    "效果本体（187.1 Recruit x3）在给定具体 Base 时可用 effect.token mode play 执行。" +
+    "依赖：trigger.leave 原语与 effect.token 的 controller-base 占位解析。",
   sourceText:
     "[Deathknell] — Play three 1 :rb_might: Recruit unit tokens into your base. (When I die, get the effect.)",
   abilities: [

@@ -23,15 +23,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   在动作层映射为 `return-to-hand`，归属按对象的 owner 路由（本卡的返回目标是本卡自身，静态 IR 用契约 3.6
  *   的 `"source"` 选择器，由解释器绑定运行时引用；picks 条目是对象引用的声明位）。
  *
- * 复核（2026-10-17 第三轮复核）：
+ * 复核（2026-10-18 第四轮复核，逐项实测）：
  * - `continuous.might` 指令原语已合入（RIFT-258）：+2 Might this turn 走 arithmetic 层注册，
  *   选择器改为原语接受的 `objects.target` 形态，golden 有真实执行测试；
- * - `[Deploy]` 的 KeywordDef 已合入（effects/keywords/Deploy.ts，RIFT-267），但其展开仍不可绑定：
+ * - `[Deploy]` 的 KeywordDef 已合入（effects/keywords/Deploy.ts），但其展开仍不可绑定：
  *   `programs/statics.ts` 的 `layerFor()` 对 `continuous.location` 抛
  *   “Static ability kind continuous.location has no layer mapping”（实测）；
- * - 缺口：`attack-declared` / `hold` 的 here 锚点没有可求值形态（`programs/filters.ts` 的
- *   `translateTriggerFilter` 以 “Unsupported filter field here” 拒绝该键），“one of them”
- *   也仍缺“从触发条件收集到的攻击者集合里选一个”的触发式选择落地。
+ * - 缺口一：`attack-declared` / `hold` 的 here 锚点没有可求值形态（`programs/filters.ts` 的
+ *   `translateTriggerFilter` 以 “Unsupported filter field here” 拒绝该键）。
+ * - 缺口二：攻击触发的 body 也还不可绑定——TargetSpec 的 `sameLocationAs: "source"` 被
+ *   `programs/filters.ts` 的 `translateObjectFilter` 以 “Unsupported filter field sameLocationAs”
+ *   拒绝（实测；`programs/play.ts` 的 body 走的就是 `translateInstructionTargets`）。
+ * - 缺口三：“one of them”需要在触发条件收集该处攻击者之后由控制者选其中之一；
+ *   触发载荷里没有该处攻击者集合，Finalize 的 TargetSpec 又是按 filter 现场查询（355.9/466.2.c），
+ *   会连带把“成为目标”发出去，所以不能改写为触发条件收集。
  *
  * 可执行部分：hold 分支（`choice.optional` + `effect.zone` 返回手牌）、以及攻击分支的“无合格攻击者时不生效”
  * 只保留结构；golden 用参考内核真实执行 hold 分支的接受/拒绝两条路径。
@@ -109,17 +114,20 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处当前缺口（2026-10-17 第三轮复核），均不近似实现：" +
+    "四处当前缺口（2026-10-18 第四轮复核，均实测），不近似实现：" +
     "(1) 「when one or more friendly units attack here」/「when you hold here」的 here 锚点没有可求值形态：" +
     "programs/filters.ts 的 translateTriggerFilter 以 \"Unsupported filter field here\" 拒绝该键，" +
-    "无法把触发绑定到本卡所在战场（载荷只带 details.battlefieldId，程序侧读不到）。" +
-    "(2) 攻击触发里“one of them”需要在触发条件收集该处攻击者后由控制者选择其中之一，" +
-    "属触发式选择与模式/目标 Finalize 的落地（RIFT-358），当前没有可执行路径；815/831 类的战斗指派与身份" +
-    "（契约 3.8 combatRole）也仍缺产生方（combat/flow.ts 抛 combat-start-transaction）。" +
-    "(3) [Deploy] 的 KeywordDef 已合入（effects/keywords/Deploy.ts，RIFT-267），但展开无法绑定：" +
+    "无法把触发绑定到本卡所在战场。" +
+    "(2) 攻击触发的 body 也无法绑定：+2 Might 的 TargetSpec 用 sameLocationAs: \"source\" 表达 “here”，" +
+    "programs/filters.ts 的 translateObjectFilter 以 \"Unsupported filter field sameLocationAs\" 拒绝该键（实测；play.ts 的 body 经 translateInstructionTargets）。" +
+    "(3) 攻击触发里“one of them”需要在触发条件收集该处攻击者后由控制者选其中之一：" +
+    "触发载荷不带该攻击者集合，Finalize 的 TargetSpec 按 filter 现场查询并会为每个被选对象发 became-target（355.9/466.2.c），" +
+    "因此不能用现场目标选择冒充触发条件集合内的选择；815/831 类的战斗指派与身份（契约 3.8 combatRole）" +
+    "也仍缺产生方（combat/flow.ts 抛 combat-start-transaction）。" +
+    "(4) [Deploy] 的 KeywordDef 已合入（effects/keywords/Deploy.ts），但展开无法绑定：" +
     "programs/statics.ts 的 layerFor() 对 continuous.location 抛 \"Static ability kind continuous.location has no layer mapping\"（实测），" +
     "830.1.b 的地点限制与清理豁免进不了图层。" +
-    "已合入部分：+2 Might this turn 用 continuous.might（RIFT-258）表达并有真实执行测试；" +
+    "已合入部分：+2 Might this turn 用 continuous.might 表达并有真实执行测试；" +
     "hold 分支（choice.optional + effect.zone 返回手牌）已可执行且有接受/拒绝两条真实执行测试。",
   abilities: [
     { kind: "keyword", keyword: "deploy" },

@@ -15,12 +15,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "draw 1"：414.1/414.3——缺省抽牌者是能力控制者（190.6.d），只提交封闭的 draw
  *   GameAction，牌库顺序与 Burn Out 由内核负责（已合入 effect.draw）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（2026-10-17 复核）。
+ * status 判定（cards/README.md 第 2 节）：judge-required（2026-10-18 复核，两处缺口均实测）。
  * - 卡牌程序绑定已合入：events/pipeline 的注册路径调用 translateTriggerFilter，把内层锚点
  *   filter: { source: "self" } 解析为 object: { objectId: <本卡> }；但 EventPattern 词表
  *   （events/trigger-spec.ts 的 EVENT_PATTERN_TYPES）仍然没有 object-moved，
  *   pipeline.registerTrigger → assertTriggerSpec 以 invalid-event-type 拒绝该 filter，
- *   触发器进不了事件管线（RIFT-39 只补齐了 timing-points.ts 的时点表，未扩展该词表）。
+ *   触发器进不了事件管线（已合入的时点表补全只覆盖 timing-points.ts，未扩展该词表）。
  * - events/action-adapter.ts 为 move-location 派生的 object-moved 事件只带被移动的 object
  *   （加 player/source 等通用字段），既不携带 timing-points.ts 为 421.1/449.1/449.2/458
  *   声明的 Location 起终点载荷（fromKind/fromLocationId/toKind/toLocationId，即该时点的
@@ -55,15 +55,16 @@ const program = {
   judgeReason:
     "卡牌程序绑定已合入：translateTriggerFilter 能把内层锚点 filter: { source: \"self\" } 解析为 object 锚点，" +
     "但 EventPattern 词表（events/trigger-spec.ts 的 EVENT_PATTERN_TYPES）仍没有 object-moved，注册时被 assertTriggerSpec " +
-    "以 invalid-event-type 拒绝（实测 code=invalid-event-type），触发器无法进入唯一事件管线；timing-points.ts 里虽有该时点，" +
+    "以 invalid-event-type 拒绝（实测 registerProgramTriggers 抛 TriggerSpecValidationError，" +
+    "path=trigger.filter.event，code=invalid-event-type），触发器无法进入唯一事件管线；timing-points.ts 里虽有该时点，" +
     "词表与注册校验尚未接通。其次，events/action-adapter.ts 为 move-location 派生的 object-moved 事件只带被移动的 object" +
     "（加 player/source 等通用字段），没有 timing-points.ts 为 421.1/449.1/449.2/458 声明的 Location 起终点载荷" +
     "（fromKind/fromLocationId/toKind/toLocationId），也不带 fromZone/toZone——起止区域只出现在同一提交附带的 " +
     "turn/flow.ts 为同一次移动另外发出的 object-leaves-*/object-enters-* 事件上；过滤器因此读不到 " +
-    "Move 的起点与终点，也无法区分 Move 与 Recall。" +
+    "Move 的起点与终点，也无法区分 Move 与 Recall（458.1）。" +
     "effect.draw（414.1/414.3）本体已合入，" +
-    "golden 用解释器 + 参考内核真实执行该 body。依赖：RIFT-120 后续（EventPattern 词表补 object-moved）与移动事件载荷" +
-    "（Location 起终点）；两处都未合入，不近似实现。",
+    "golden 用解释器 + 参考内核真实执行该 body。依赖：events/trigger-spec.ts 的 EventPattern 词表补 object-moved" +
+    "与移动事件的 Location 起终点载荷；两处都未合入，不近似实现。",
   abilities,
   sourceText: "When I move, draw 1."
 } satisfies CardProgram;

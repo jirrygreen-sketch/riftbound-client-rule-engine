@@ -1,3 +1,4 @@
+// RIFT-684 execution evidence is also covered by templates/play-effect-kill-684.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -32,17 +33,25 @@ test("ven-131-166 Decree of Unity: program passes validateCardProgram and is jud
 
 test("ven-131-166 Decree of Unity: judgeReason names the missing domain predicate", () => {
   // CR 134 domain of an object lives in ObjectSnapshot.power; the merged matchers do not read it.
+  // Refreshed 2026-10-18: the stale RIFT-359 task citation was replaced with the
+  // technical gap (the missing domain predicate in the target predicate vocabulary).
   assert.match(program.judgeReason, /134/);
   assert.match(program.judgeReason, /power/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /2026-10-18 复核/);
+  assert.match(program.judgeReason, /领域谓词/);
   assert.doesNotMatch(program.judgeReason, /RIFT-90/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.match(program.judgeReason, /不近似实现/);
 });
 
 test("ven-131-166 Decree of Unity: one kill instruction over an enemy unit-or-gear target", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(play.kind, "play");
-  assert.equal(play.cost, undefined);
+  assert.deepEqual(play.cost, {
+    kind: "cost.printed",
+    energy: { kind: "constant", value: 2 },
+    power: { kind: "constant", value: 1 }
+  });
   assert.equal(play.body.length, 1);
 
   assert.equal(killInstruction.id, "decree-of-unity.kill");
@@ -137,5 +146,5 @@ test("ven-131-166 Decree of Unity: direct primitive evidence for the kill half",
 test.todo(
   "ven-131-166 Decree of Unity: the target filter must evaluate the Chaos domain (134, " +
     "ObjectSnapshot.power) so only Chaos units/gear are legal — needs the domain predicate in the " +
-    "target predicate vocabulary (RIFT-359); until then the declared power: [\"Chaos\"] has no consumer"
+    "target predicate vocabulary; until then the declared power: [\"Chaos\"] has no consumer"
 );

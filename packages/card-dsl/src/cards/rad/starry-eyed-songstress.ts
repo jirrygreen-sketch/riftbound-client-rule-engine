@@ -20,18 +20,22 @@ import type { CardProgram } from "../../ir/index.js";
  *   不产生目标，因此用非目标选择（PickSpec 形状）描述，而不是 TargetSpec。
  * - 107.4.c / 108.3：“me” 是 Legend Zone 里的这张传奇（Game Object）。
  *
- * status = judge-required：整张卡没有可执行路径，不做近似实现（2026-10-17 逐条实测）——
+ * status = judge-required：整张卡没有可执行路径，不做近似实现（2026-10-18 逐条实测）——
  * - cost.modify / cost.pay 原语（effects/instructions/）已合入，且能表达同一条费用故事：
  *   cost.modify 的 optionalAdditional（356.2.b.1）+ modifier reduce（356.4.c）实测把
  *   "可选横置我"与 -2 Energy 一起算进同一份 finalized CostPlan（并链接 exhaust 动作）。缺的是从这张卡的
  *   static 到该计划的消费方：programs/statics.ts 的 staticTarget 先拒 appliesTo
  *   "play-spell-cost"（实测 "Unsupported static appliesTo ..."），把 appliesTo 换成可绑定的
  *   "self" 后 layerFor 又拒 cost.modify（实测 "Static ability kind cost.modify has no layer
- *   mapping"）；cost/cost-plan.ts 只应用调用方显式传入的 CostPlanInput.discounts/optionalAdditional，
- *   没有读取卡牌 static 的入口，也没有"费用流程步骤 2 的声明"与"已支付该附加费"的判定链。
+ *   mapping"）；cost/discounts/collect.ts 的 finalizeCostPlan 也不消费本声明：它的字段白名单
+ *   实测拒绝 additionalCost（"Unsupported cost modification field additionalCost"），
+ *   且只读 CostPlanInput.optionalAdditional/discounts 而不读卡牌 static；cost/cost-plan.ts
+ *   同样只应用调用方显式传入的 CostPlanInput.discounts/optionalAdditional，没有读取卡牌 static 的入口。
  * - "exhaust me" 是费用式横置（CR 415.4 / 415.5）：横置必须可完成，且 "me" 是
  *   Legend Zone 里的传奇（CR 107.4.c / 355.9.a.4）。契约 ZoneId 没有 legend-zone，
- *   LocationRef 也只有 base/battlefield，无法把这件传奇作为可横置的费用对象表达。
+ *   LocationRef 也只有 base/battlefield；cost/payment.ts 的 exhaust 费用对象实测只接受
+ *   board/rune-zone（"An exhaust cost requires a ready controlled object on the Board"），
+ *   无法把这件传奇作为可横置的费用对象表达。
  * 下面的 static 只保留可审查的声明形状，golden 只做校验、结构断言与缺口 todo。
  */
 export default {
@@ -40,17 +44,19 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处当前缺口，均不近似实现：" +
+    "两处当前缺口（2026-10-18 实测），均不近似实现：" +
     "(1) 被动能力授予的可选附加费用没有可执行路径：cost.modify / cost.pay 原语已合入，" +
     "且它们的 optionalAdditional（356.2.b.1）+ modifier reduce（356.4.c）实测把这条费用故事算进同一份 " +
     "finalized CostPlan；缺的是从卡牌 static 到该计划的消费方——programs/statics.ts 的 layerFor 不映射 " +
     "cost.modify（卡牌 static 绑定实测先抛「Unsupported static appliesTo \"play-spell-cost\"」，" +
     "把 appliesTo 换成 self 后又抛「Static ability kind cost.modify has no layer mapping」），" +
-    "cost/cost-plan.ts 只应用调用方显式传入的 CostPlanInput.discounts/optionalAdditional，" +
-    "没有读取卡牌 static、也没有 356.2.b.1 步骤 2 声明与「已支付该附加费」判定链的入口。" +
+    "已合入的 cost/discounts/collect.ts 也不消费本声明（字段白名单实测拒绝 additionalCost：" +
+    "「Unsupported cost modification field additionalCost」）；cost/cost-plan.ts 只应用调用方" +
+    "显式传入的 CostPlanInput.discounts/optionalAdditional，没有读取卡牌 static、" +
+    "也没有 356.2.b.1 步骤 2 声明与「已支付该附加费」判定链的入口。" +
     "(2) “exhaust me” 是费用式横置（CR 415.4 / 415.5，必须能完成），且 “me” 是 Legend Zone 里的传奇" +
     "（CR 107.4.c / 355.9.a.4）：契约 ZoneId 没有 legend-zone、LocationRef 只有 base/battlefield，" +
-    "无法作为可横置的费用对象表达；" +
+    "cost/payment.ts 的 exhaust 费用对象实测只接受 board/rune-zone，无法作为可横置的费用对象表达；" +
     "(3) 通用测试台实测：同一场景里打出 3 能量法术时，传奇与三个友方单位都保持 ready，" +
     "说明没有支付该附加费用的路径。" +
     "“three friendly units” 按 355.10.c.1 属于费用、不产生目标，这里只保留非目标选择形状。",

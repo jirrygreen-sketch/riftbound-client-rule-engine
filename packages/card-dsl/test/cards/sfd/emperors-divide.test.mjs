@@ -7,6 +7,8 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createEngineStaticBinder, expandProgram } from "../../../../engine-core/dist/programs/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { finalizeTargetPlan, resolveTargetPlan } from "../../../../engine-core/dist/target/target-plan.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID = "card.hash-ecb9b44b724f5cf8fc83e9f49da0b24bed461053303201914a0ce0ef8db8ed45";
@@ -69,11 +71,18 @@ test("sfd-043-221 Emperor's Divide: identity, ruleset, status and verbatim text"
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
-test("sfd-043-221 Emperor's Divide: judgeReason names cost.hidden and the 811.1.d.2 restriction", () => {
+test("sfd-043-221 Emperor's Divide: judgeReason names the three measured gaps", () => {
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /811\.1\.d\.2/);
   assert.match(program.judgeReason, /811\.1\.b/);
   assert.match(program.judgeReason, /355\.10\.b/);
+  // 2026-10-18 re-sweep: name the measured halves instead of the merged tasks.
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /invalid-location-kind/);
+  assert.match(program.judgeReason, /isLocationSelectorValue/);
+  assert.match(program.judgeReason, /355\.11\.b/);
+  assert.match(program.judgeReason, /only has a type definition|只有类型定义/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
 });
 
 test("sfd-043-221 Emperor's Divide: [Hidden] and [Action] keywords plus the printed cost", () => {
@@ -199,19 +208,104 @@ test("sfd-043-221 Emperor's Divide: the merged Hidden expansion reaches the bind
   );
 });
 
-test.todo(
-  "sfd-043-221 Emperor's Divide: [Hidden] needs the cost.hidden consumer — the Hide Discretionary Action, the " +
-    "facedown zone and the free facedown play (CR 811.1.b / 811.1.c); no merged primitive consumes cost.hidden " +
-    "even though the keyword expansion in effects/keywords/Hidden.ts is merged."
-);
+test("sfd-043-221 Emperor's Divide: the engine zone vocabulary still has no facedown zone (811.1.b)", () => {
+  // Live evidence for the first half of the refreshed reason: nothing consumes
+  // the Hidden expansion, and the engine's own zone contract has no facedown
+  // zone for the Hide action to store the card in. The V2 display name exists
+  // only in the server projection.
+  const zones = ["hand", "deck", "rune-deck", "trash", "banishment", "board", "rune-zone", "chain"];
+  assert.equal(zones.includes("facedown"), false);
+  const kernel = world().card("divide", {
+    cardId: program.canonicalCardId,
+    types: ["spell"],
+    zone: "board",
+    energy: 2,
+    power: null
+  }).build();
+  const source = kernel.getObject("divide");
+  // The merged zoneSlice has no facedown bucket: asking for one reads through
+  // to an undefined zone array instead of a supported zone.
+  let failed = false;
+  try { kernel.zoneSlice("A", "facedown", "top"); } catch { failed = true; }
+  assert.equal(failed, true, "facedown is not a supported engine zone");
+  assert.equal(source.faceDown, false);
+});
 
-test.todo(
-  "sfd-043-221 Emperor's Divide: 811.1.d.2 restricts a facedown-played spell's targets to the battlefield it was " +
-    "hidden at; no TargetSpec field carries that origin binding, so it is not expressible with the current filter."
-);
+test("sfd-043-221 Emperor's Divide: the 811.1.d.2 origin-bound location is rejected by card validation", () => {
+  // Live evidence for the second half: "all units chosen for the spell must be
+  // located at the same battlefield it was played from" needs an origin-bound
+  // location, but TargetSpec.location only validates as a LocationFilter. Every
+  // symbolic selector spelling the target plan can consume is rejected.
+  const [hidden, action, play] = program.abilities;
+  const [move] = play.body;
+  const spellings = [
+    "source-location",
+    { kind: "location-selector", locationOf: "source" },
+    { kind: "location-of", object: "source" },
+    { kind: "target-location", target: "emperors-divide.units" }
+  ];
+  for (const value of spellings) {
+    const candidate = {
+      ...program,
+      status: "executable",
+      judgeReason: undefined,
+      abilities: [hidden, action, {
+        ...play,
+        body: [{ ...move, targets: [{ ...move.targets[0], location: { kind: "location", value } }] }]
+      }]
+    };
+    const result = validateCardProgram(candidate);
+    assert.equal(result.ok, false, JSON.stringify({ value, issues: result.ok ? [] : result.issues }));
+    assert.ok(
+      result.issues.some((issue) => issue.code === "invalid-location-kind"),
+      `expected an invalid-location-kind issue for ${JSON.stringify(value)}`
+    );
+  }
 
+  // The plain battlefield filter (the shape the shipped program carries) is the
+  // only one that validates, and it cannot bind the origin.
+  const withFilter = {
+    ...program,
+    status: "executable",
+    judgeReason: undefined,
+    abilities: [hidden, action, {
+      ...play,
+      body: [{ ...move, targets: [{ ...move.targets[0], location: { type: "battlefield" } }] }]
+    }]
+  };
+  assert.equal(validateCardProgram(withFilter).ok, true);
+});
 
-test.todo(
-  "sfd-043-221 Emperor's Divide: enforce a single battlefield for the target group at Finalize, then " +
-    "reselect a maximal legal subset if the group separates before resolution (355.11.a/b/b.1)"
-);
+test("sfd-043-221 Emperor's Divide: the 355.11 group requirement still has no consumer", () => {
+  // Live evidence for the third gap: the TargetRequirement contract carries
+  // kind/group as data, but nothing in the engine reads it. A same-battlefield
+  // choice and the 355.11.b/.b.1 maximal legal subset re-choice at resolution
+  // therefore never happen.
+  const kernel = world()
+    .unit("one", { owner: "A", controller: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("two", { owner: "A", controller: "A", location: { type: "battlefield", id: "bf-2" } })
+    .build();
+  const source = kernel.getObject("one");
+  // productionQuery normalizes controller "self"/"opponent" and the location
+  // type string exactly as the chain query does.
+  const context = bindResolveContext(productionQuery(kernel), { source, controller: "A" });
+  const [move] = play.body;
+
+  // Locking a group requirement keeps the kind on the plan but applies no
+  // group-level constraint: two units at DIFFERENT battlefields are accepted
+  // for the same "group" requirement.
+  const groupPlan = finalizeTargetPlan(context, {
+    ...move.targets[0],
+    kind: "group",
+    min: 0
+  }, { selected: [kernel.ref("one"), kernel.ref("two")] });
+  assert.equal(groupPlan.requirement.kind, "group");
+  assert.deepEqual(groupPlan.selected.map((ref) => ref.id), ["one", "two"]);
+
+  // Resolution re-tests per object only (359.3.e.8 semantics); a split group is
+  // never narrowed to the 355.11.b/.b.1 maximal same-battlefield subset, so the
+  // spell would move units from both battlefields.
+  const resolution = resolveTargetPlan(context, groupPlan, {});
+  assert.equal(resolution.status, "resolved");
+  assert.deepEqual(resolution.selected.map((ref) => ref.id), ["one", "two"]);
+});

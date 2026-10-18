@@ -4,8 +4,9 @@
 // The program declares two keyword identities (contract 3.1 / 3.7). The
 // merge-verified half is the Equip expansion's attach body, executed through the
 // production interpreter adapter with a Finalize-locked target. Unique's
-// deck-constraint consumer, the `equip` payment kind and the [A] Universal Power
-// representation are the judged gaps (see judgeReason).
+// deck-constraint consumer and the `equip` payment kind are the judged gaps
+// (see judgeReason). The existing cost planner can represent an any-domain
+// Power requirement with all six allowed domains once Equip supplies it.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -89,7 +90,6 @@ test("sfd-190-221 Forgefire Cape: identity, ruleset, status, judgeReason and ver
 
   assert.match(program.judgeReason, /Unique/);
   assert.match(program.judgeReason, /825\./);
-  assert.match(program.judgeReason, /163\.2\.b/);
   // The keyword registry now holds 27 keywords; Unique is still absent, so
   // the reason must not cite the stale count or an obsolete cost-task attribution.
   assert.match(program.judgeReason, /27 个关键词不含 Unique/);
@@ -165,8 +165,8 @@ test.todo(
 test.todo(
   "sfd-190-221 Forgefire Cape: paying the printed Equip cost (one [A] Power, CR 135.2.e.5 / 818.1.c.2) is blocked on " +
     "the `equip` payment binding in cost/plan-values.ts (the merged cost.pay / cost.modify kinds still reject it " +
-    "with \"Unsupported payment kind: equip\") and on the missing Equip.ts params.cost binding; the [A] Universal Power " +
-    "(CR 163.2.b) itself is still not representable by effect.resources / the closed Domain type"
+    "with \"Unsupported payment kind: equip\") and on the missing Equip.ts params.cost binding; the existing planner " +
+    "can represent the any-domain Power requirement once that binding supplies a normal Power payment"
 );
 
 test("sfd-190-221 Forgefire Cape: the production binding rejects the missing Unique KeywordDef", () => {

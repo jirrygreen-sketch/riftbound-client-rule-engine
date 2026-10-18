@@ -21,32 +21,44 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   443.1 / 443.2：Disempower 是移除 Empowered 状态的受限动作，只由游戏效果指示。
  * - “Reduce the cost of the next unit you play this turn by
  *   :rb_energy_2::rb_rune_rainbow:” 是本回合“下一张打出的单位”的费用改写
- *   （356.4 的折扣阶段）。cost.modify 已合入，但仍没有把折扣绑定到“下一张单位”的
- *   后续 Finalize 窗口；[A] Power 可由费用计划的空领域列表表达，不能因此选定某个领域。
+ *   （356.4 的折扣阶段）。RIFT-709 的 continuous.cost-modification 与
+ *   cost/discounts/collect.ts 已合入并可由 finalizeCostPlan 消费，但仍没有把折扣
+ *   绑定到“下一张单位”的后续 Finalize 窗口；[A] Power 可由通用 Power 折扣表达，
+ *   不能因此选定某个领域。
  * - “and give it "Kill me at end of turn."” 把一条带来源关联的触发能力临时附加给
  *   那个单位（317.1.a 的回合结束时点；135.4.b / 801.3.a 的授予边界），需要
  *   continuous.grant-ability。该对象在结算时还不存在（它是本回合之后被打出的单位），
  *   所以两条指令都只能用描述窗口的常量，不能声明 TargetSpec（355.5/355.8 要求
  *   目标在把链项放上链时就合法存在）。
  * - 135.2.e.5 / 163.2.b：减费值里的 :rb_rune_rainbow: 是 [A]（任意域）Power；
- *   费用计划用空领域列表表达通用 Power，绝不用某个域近似。
+ *   费用计划用 universal 折扣表达通用 Power，绝不用某个域近似。
  *
- * status = judge-required（逐个保留证据，不近似实现）：
- * - [Empower] 的 KeywordDef、限制条件和 effect.empower 已合入；但
- *   KeywordAbility 仍只有 keyword/value 字段，不能承载契约 3.8.3 的 params.cost。
- *   本卡声明因此按默认 cost: { kind: "empower" } 展开，production
- *   describeActivate 在 Finalize 前以 “Unsupported cost kind empower” fail-closed；
- *   不能把 value: 1 当作印刷的 1 Energy + Exhaust，也不能在卡文件里重写关键词。
+ * status = judge-required（2026-10-18 第五轮复核，逐项实测，不近似实现）：
+ * - [Empower] 的 KeywordDef、限制条件和 effect.empower 仍已合入；但
+ *   KeywordAbility（ir/types.ts:481）仍只有 keyword/value，不能承载契约 3.8.3 的
+ *   params.cost。实测把 params.cost 注入该能力后 validateCardProgram 仍通过，但
+ *   programs/keywords.ts 的 expandProgram 一律调 def.expand({ value, host })，
+ *   展开出的 cost 仍是默认 { kind: "empower" }，production describeActivate 因此在
+ *   Finalize 前以 “Unsupported cost kind empower” fail-closed；不能把 value: 1 当作
+ *   印刷的 1 Energy + Exhaust，也不能在卡文件里重写关键词。
  * - 费用管线不接受 “Disempower me” 作为费用：cost/plan-values.ts 支持的支付种类只有
  *   energy / power / xp / exhaust / discard / recycle / kill / reveal / spend-buff，
  *   kind: "disempower" 会被 readCost 以 judge-required 拒绝（443 的 Disempower 是
  *   受限动作，不在费用管线里）；golden 锁定该拒绝证据；
- * - “下一张打出的单位”的减费窗口没有 cost.modify 的消费方；原语只为一个已知费用计划
- *   生成折扣后的 FinalizedCostPlan；
+ * - “下一张打出的单位”的减费窗口仍无消费方。RIFT-709 已合入
+ *   continuous.cost-modification 与 cost/discounts/collect.ts 的 finalizeCostPlan：
+ *   实测该原语登记 -2 Energy 与 -1 [A] Power 两条折扣后，真实 CostPlan 由
+ *   4 Energy + 1 Order 变为 2 Energy（356.4），generic [A] 用 universal: true
+ *   表达任意域（135.2.e.5 / 163.2.b）。但 duration 词汇仍没有一次性窗口：
+ *   isDurationAlias("next-unit") === false，原语对 "next-unit-played-this-turn"
+ *   抛 “Unknown continuous cost modification duration”；ChainEngine 的 Finalize
+ *   也仍直接调用 buildCostPlan（实测登记该折扣后 production 依旧收取印刷 3 Energy），
+ *   所以缺的是把折扣绑定到本回合下一张单位的一次性费用窗口及生产消费方。
  * - “Kill me at end of turn.” 的临时能力授予与回合结束到期需要 continuous.grant-ability
- *   与延迟触发（现有持续效果指令只提供 might / grant-keyword / keyword / combat /
- *   movement / timing / restrict / location / deck，没有 grant-ability）；
- * - [A] 通用 Power 的数值本身已可由费用计划表达；真正缺的是把它绑定到下一张单位的费用窗口。
+ *   与延迟触发：instructionDefinitionsById 实测 46 个已注册 op 里没有该 id，图层也没有
+ *   whole-ability 授权映射。
+ * - [A] 通用 Power 的数值本身已可由费用计划表达（universal Power 折扣清掉 1 个
+ *   Order Power 实测通过）；真正缺的是一次性费用窗口。
  */
 const abilities: Ability[] = [
   {
@@ -74,8 +86,9 @@ const abilities: Ability[] = [
     body: [
       {
         id: "boy-who-shattered-time.reduce-next-unit",
-        // cost.modify 的已合入折扣形状仍无法承载“下一张单位”的延迟窗口；这里保留
-        // 描述性参数，避免把折扣错误地应用到本能力来源的费用计划。
+        // 折扣数值已可由已合入的 continuous.cost-modification + finalizeCostPlan 执行，
+        // 但“下一张单位”的一次性费用窗口仍无承载（见 judgeReason）；这里保留描述性
+        // 参数，避免把折扣错误地应用到本能力来源或其他非“下一张单位”的费用计划。
         op: "cost.modify",
         args: {
           appliesTo: { kind: "constant", value: "next-unit-played-this-turn" },
@@ -120,17 +133,23 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "[Empower] 的 KeywordDef、未 Empowered 限制与 effect.empower 已合入（827.1.c / 442），" +
-    "但 KeywordAbility 仍只有 keyword/value，不能承载契约 3.8.3 的 params.cost；本卡按默认 " +
-    "cost: { kind: \"empower\" } 展开，production describeActivate 实测以 \"Unsupported cost kind empower\" fail-closed，" +
+    "(2026-10-18 第五轮复核实测) [Empower] 的 KeywordDef、未 Empowered 限制与 effect.empower 仍已合入（827.1.c / 442），" +
+    "但 KeywordAbility（ir/types.ts:481）仍只有 keyword/value，不能承载契约 3.8.3 的 params.cost。" +
+    "实测注入 params.cost 后 validateCardProgram 仍通过，但 programs/keywords.ts 的 expandProgram 只调 def.expand({ value, host })，" +
+    "展开出的 cost 仍是默认 { kind: \"empower\" }，production describeActivate 因此以 \"Unsupported cost kind empower\" fail-closed；" +
     "不能把 value: 1 当作印刷的 1 Energy + Exhaust，也不能在卡文件里重写关键词。" +
     "费用管线不接受 “Disempower me” 作为费用：cost/plan-values.ts 支持的支付种类只有 energy / power / xp / " +
     "exhaust / discard / recycle / kill / reveal / spend-buff，kind: \"disempower\" 会被 readCost 以 judge-required 拒绝" +
-    "（443 的 Disempower 是受限动作）。cost.modify 原语已合入，但仍缺“本回合下一张打出的单位”窗口的消费方，" +
-    "减费值里的 [A]（135.2.e.5 / 163.2.b 任意域 Power）可由空领域的通用 Power 费用计划表达，不选一个域近似。" +
-    "“Kill me at end of turn.” 需要 continuous.grant-ability 与回合结束到期（317.1.a / 135.4.b 的临时能力授予与到期），" +
-    "已合入的持续效果指令清单里没有 grant-ability。" +
-    "依赖：KeywordAbility → KeywordDef.params.cost 的契约/绑定接线、下一张单位的费用窗口消费方、" +
+    "（443 的 Disempower 是受限动作）。" +
+    "RIFT-709 的 continuous.cost-modification / finalizeCostPlan 已合入：实测登记 -2 Energy 与 -1 [A] Power 两条折扣后，" +
+    "真实 CostPlan 由 4 Energy + 1 Order 变为 2 Energy（356.4），[A] 用 universal: true 表达任意域（135.2.e.5 / 163.2.b）。" +
+    "仍缺「下一张打出的单位」的一次性费用窗口：cost/plan-values.ts 与 layers 的 duration 词汇没有 next-unit" +
+    "（isDurationAlias(\"next-unit\") === false），原语对 \"next-unit-played-this-turn\" 抛 " +
+    "\"Unknown continuous cost modification duration\"，且 ChainEngine 的 Finalize 仍直接调用 buildCostPlan" +
+    "（实测登记该折扣后 production 依旧收取印刷 3 Energy）。" +
+    "「Kill me at end of turn.」需要 continuous.grant-ability 与回合结束到期（317.1.a / 135.4.b），" +
+    "已注册的 46 个 op 里没有该 id（instructionDefinitionsById 实测）。" +
+    "依赖：KeywordAbility → KeywordDef.params.cost 的契约/绑定接线、下一张单位的一次性费用窗口与生产 Finalize 消费方、" +
     "grant-ability 持续效果；不近似实现。",
   abilities,
   sourceText:

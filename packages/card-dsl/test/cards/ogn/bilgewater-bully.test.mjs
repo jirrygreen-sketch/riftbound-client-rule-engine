@@ -140,7 +140,9 @@ test("golden: the granted Ganking expands to the CR 810 movement permission", ()
 });
 
 test.todo(
-  "Bilgewater Bully: re-expand dynamically granted Ganking into a registered movement rule " +
+  "Bilgewater Bully: consume dynamically granted Ganking through production assembly — attach the merged " +
+    "KeywordGrantLayerEngine re-expansion (continuous.grant-keyword to continuous.movement) to the turn-phase " +
+    "layers and the chain's default LayerEngine, wire the trusted hasGanking derivation into the movement query, " +
     "(the continuous.movement instruction already normalizes permission strings into permission.routes) " +
     "and revoke the battlefield-to-battlefield Standard Move permission when the Buff is spent"
 );

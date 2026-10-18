@@ -34,16 +34,10 @@ import type { Ability, CardProgram, Condition, Instruction } from "../../ir/inde
  *   触发在 attacker 仍在场时求值）；“all other enemy units here” 用 `exclude` 排除被
  *   选中的那一个（355.14 的“other”语义）。
  *
- * status 判定（README 第 2 节）：judge-required。复核 2026-10-17，仍有两处缺口：
- * 1. 反身触发（388）没有卡牌侧原语/接线——`choice.mode` 只按玩家选择，不能按 domain
- *    条件自动入链，也不能把分支变成新的链项；链上还直接拒绝 choice.mode
- *    （assertFinalizationSurface 要求 Finalize/Resolve 的 choice-plan adapter）；
- * 2. `effect.stun` 的参数解码在链式适配器（chain/interpreter-adapter.ts 的
- *    LITERAL_FIELDS）里没有条目，生产链路径会抛 “effect.stun target must be a spec
- *    id string”；卡自身的 stun 指令经解释器（runAbilityBody，Finalize 已锁定目标）
- *    已真实执行。
- * 已合入且可执行的部分（ordered reveal、recycle 的链接值、两个伤害指令、draw、
- * 解释器路径的 stun）都在 golden 测试里真实执行。
+ * status：judge-required。首次攻击过滤已使用可绑定的 source:self 与 per-combat。
+ * 揭示/回收前缀通过真实触发链执行；其余子效果保持原有执行测试。
+ * 仍缺反身触发的新链项、Fury 相对目标与嵌套目标生命周期、Order stun 解码，
+ * 以及首次攻击身份的生产事务。同步 sequence 分支不构成反身触发证据。
  */
 
 /** 分支条件：被展示符文的域列表等于给定的单域列表（`eq` 与 `in` 等价，取更严格者）。 */
@@ -162,7 +156,8 @@ const abilities: Ability[] = [
     kind: "triggered",
     trigger: {
       at: "attack-declared",
-      filter: { event: "attack-declared", object: { objectId: "self" } }
+      filter: { event: "attack-declared", source: "self" },
+      once: "per-combat"
     },
     optional: false,
     body: [
@@ -207,14 +202,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处缺口（复核 2026-10-17）：(1) “Do one of the following based on its domain” 是反身触发（CR 388.1/388.1.b、389），" +
-    "条件满足后要把对应的一个分支作为**新的链项**入链；没有卡牌可用的反身触发构造原语，" +
-    "choice.mode 只按玩家选择、不按域条件自动入链，且 chain/engine.ts 的 assertFinalizationSurface 直接拒绝 choice.mode" +
-    "（Mode choices require a Finalize/Resolve choice-plan adapter）；" +
-    "(2) effect.stun 的参数解码在链式适配器（chain/interpreter-adapter.ts 的 LITERAL_FIELDS）里没有条目，" +
-    "生产链路径会抛 “effect.stun target must be a spec id string”；卡自身的 stun 指令经解释器（runAbilityBody，Finalize 已锁定目标）已真实执行。" +
-    "依赖：反身触发原语 / choice-plan adapter、effect.stun 的适配器解码。" +
-    "可执行部分（ordered reveal、recycle 链接值、两条伤害、draw、stun）已在 golden 测试中真实执行。",
+    "缺按展示符文域创建反身触发的新 Pending 链项（CR 388.1/388.1.b、389.1），" +
+    "sequence 同步分支不能代替该链项；choice.mode 的玩家选择也不能代替按域决定，" +
+    "chain/engine.ts 的 assertFinalizationSurface 仍缺 choice-plan adapter。" +
+    "Fury 的 sameLocationAs / exclude 目标锚点被 programs/filters.ts 拒绝，" +
+    "且反身分支内嵌套目标缺 Finalize/Resolve 生命周期；" +
+    "Order 的 effect.stun target 尚未接入 chain/interpreter-adapter.ts 的 LITERAL_FIELDS 解码。" +
+    "combat/flow.ts 还缺首次 Attacker designation 的原子事务与 attack-declared 生产发射（383.4.e）。",
   abilities,
   sourceText:
     "When I attack, reveal the top rune of your rune deck, then recycle it. Do one of the " +

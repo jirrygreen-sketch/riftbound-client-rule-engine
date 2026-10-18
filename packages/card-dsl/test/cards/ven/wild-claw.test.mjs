@@ -247,6 +247,13 @@ test("ven-089-166 Wild Claw golden: the chosen card is banished and the rest is 
   // "You may banish a unit or gear from among them": the chosen gear leaves its
   // Main Deck zone for its owner's Banishment (428.1 / 428.2).
   assert.equal(resultFor(outcome, "wild-claw.banish-chosen-card").result.status, "executed");
+  // effect.play is deliberately fail-closed until a dynamic printed-cost
+  // producer supplies a finalized plan; the preceding banish still commits.
+  assert.deepEqual(resultFor(outcome, "wild-claw.play-it").result, {
+    status: "negated",
+    reason: "impossible",
+    events: []
+  });
   assert.deepEqual(kernel.zone("A", "banishment").map(ref => ref.id), ["gear-b"]);
   // The chosen card's old deck reference is stale, so "recycle the rest" recycles
   // exactly the other four looked-at cards (417.1.a / 417.4), and the unlooked

@@ -1,5 +1,10 @@
 // Golden test for Yordle Explorer (sfd-100-221).
 //
+// Whole-card execution evidence (the 2-Power gate and the Draw 1 body through
+// the real chain path) lives in
+// test/cards/templates/triggered-card-played-effect-draw-656.test.mjs. This file
+// keeps validation, identity, structure and the remaining power: null gap.
+//
 // status = judge-required (see the program's judgeReason). The printed-Power
 // cost gate of "with Power cost [[A]][[A]] or more" (CR 135.2.e.5 / 206.1,
 // applied as a 383.2.a.1 trigger condition) is now the merged event-printed
@@ -153,6 +158,10 @@ test("sfd-100-221 Yordle Explorer: identity, ruleset, status, judgeReason and ve
   // only open link is the missing-printed-characteristic semantics.
   assert.match(program.judgeReason, /numericPrinted/);
   assert.match(program.judgeReason, /MissingInformation/);
+  // 2026-10-18 re-sweep: the missing-printed-Power semantics remain the single
+  // named gap, and the merged event payload/predicate are credited as merged.
+  assert.match(program.judgeReason, /event-printed/);
+  assert.match(program.judgeReason, /card-played/);
   assert.doesNotMatch(program.judgeReason, /chain\/engine\.ts 的 resolve 发射只带 object\/player/);
   assert.doesNotMatch(program.judgeReason, /EventPattern\.details/);
 });

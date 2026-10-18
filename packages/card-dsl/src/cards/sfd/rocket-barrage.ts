@@ -33,33 +33,38 @@ import type { CardProgram } from "../../ir/index.js";
  * - "Kill a gear." names a gear in a public zone, so it is a target (355.7,
  *   429.6) killed by the merged effect.kill (429).
  *
- * Status: judge-required. Both mode instructions and the mode choice use merged
- * primitives and are executed by the golden test (one scenario per mode), but
- * the Finalize collection of the optional [Repeat] additional cost and the
- * paid-instance to interpreter-repeat wiring (with re-made mode choices) are
- * unmerged, so the whole card is not executable (820.1.c.1, 820.1.d.1, 820.2).
- * Re-checked 2026-10-17: RIFT-89/261 merged the cost planner and the cost
- * kinds, but nothing consumes this card's declared Repeat additional cost —
- * programs/play.ts translateCost rejects `kind: "additional"`
- * ("Additional costs are not bound") and the `optional` field
- * ("Unsupported play cost field optional"), no consumer turns the Repeat
- * keyword expansion's repeat.cost static ability into CostPlanInput
- * (createEngineStaticBinder throws "Static ability kind repeat.cost has no layer
- * mapping"), and chain/engine.ts assertFinalizationSurface still rejects
- * choice.mode ("Mode choices require a Finalize/Resolve choice-plan adapter"),
- * so the printed mode selection cannot be finalized at all.
+ * Status: judge-required（2026-10-18 逐条对源码复核）. Both mode instructions and the
+ * mode-choice primitive are merged and executed by the golden test (one scenario
+ * per mode), but three links are still missing (none approximated):
+ * - programs/play.ts translateCost rejects `kind: "additional"`
+ *   ("Additional costs are not bound") and the `optional` field ("Unsupported
+ *   play cost field optional"), so the printed [Repeat] cost never reaches
+ *   Finalize (820.1.c.1).
+ * - No consumer turns the Repeat keyword expansion's repeat.cost static into
+ *   CostPlanInput (createEngineStaticBinder throws "Static ability kind
+ *   repeat.cost has no layer mapping"), and programs/keywords.ts calls expand
+ *   with only keyword/value/host, so the printed 4 Energy is dropped. The paid
+ *   instance count also has no card-side route into the interpreter's repeat
+ *   node: the receipt reads as a boolean `result: "cost.optional-additional-paid"`
+ *   while the repeat node requires a non-negative integer (820.1.d.1/820.2).
+ * - chain/engine.ts assertFinalizationSurface still rejects choice.mode
+ *   ("Mode choices require a Finalize/Resolve choice-plan adapter"), so the
+ *   printed mode selection cannot be finalized at all (355.3, contract 3.9).
  */
 const rocketBarrage = {
   canonicalCardId: "card.hash-b104ab4f2d5ede379d04e1002cd97a70d95148d73cddde15852f5dce8b204e9e",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处当前接线缺口（复核 2026-10-17），均不近似实现：" +
+    "三处当前接线缺口（复核 2026-10-18），均不近似实现：" +
     "(1) [Repeat] :rb_energy_4::rb_rune_mind:（820.1.c.1/820.1.d.1）的附加费用已按 CostSpec 声明" +
     "（kind additional、4 energy + 1 Mind power、可选支付 choice），但没有任何已合入消费方把 PlayAbility 声明的该费用接进 CostPlanInput——" +
     "programs/play.ts 的 translateCost 对 kind \"additional\" 抛 \"Additional costs are not bound\"、对 optional 字段抛 \"Unsupported play cost field optional\"。" +
     "(2) Repeat 展开的 repeat.cost 静态声明同样没有消费方（createEngineStaticBinder.bindStatic 抛 \"Static ability kind repeat.cost has no layer mapping\"），" +
-    "把已支付实例数接到解释器 repeat 节点并重做模式选择（820.2/820.2.a）的接线也不存在。" +
+    "programs/keywords.ts 调 KeywordDef.expand 时只传 keyword/value/host、印刷的 4 Energy 被丢弃；" +
+    "把已支付实例数接到解释器 repeat 节点并重做模式选择（820.2/820.2.a）的接线也不存在：" +
+    "付费回执只能由 condition.predicate 的 result: \"cost.optional-additional-paid\" 读成布尔值，" +
+    "而 repeat 节点只接受非负整数（实测 \"Repeat count must be a non-negative safe integer\"）。" +
     "(3) 正文的 choice.mode 二选一（355.3，契约 3.9）在链的 Finalize 被 assertFinalizationSurface 直接拒绝" +
     "（ChainContractBlockedError \"Mode choices require a Finalize/Resolve choice-plan adapter\"），实测本卡经 createProgramBinding 的生产打出草稿即抛该错误。" +
     "effect.damage / effect.kill 本体均已合入，golden 分别真实执行两个模式；" +

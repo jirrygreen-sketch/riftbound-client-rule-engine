@@ -1,4 +1,12 @@
-// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
+// Golden test for Master Yi, Tempered (unl-113-219).
+//
+// Execution evidence (the real printed 4 Energy payment, the registered
+// [Level 6] grants with their unresolved XP gate, the fail-closed Hunt trigger
+// registration and the blocked printed expectations) lives in the RIFT-673
+// parameterized template golden:
+// test/cards/templates/keyword-static-static-673.test.mjs.
+// Original behavior and structure assertions remain in this file; the
+// template adds execution evidence without replacing these checks.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -9,6 +17,9 @@ import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-s
 import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 
 const CANONICAL_ID =
   "card.hash-c32a0493f88b4c947cb3f7806d8ba125b166dd6478a848bb39f1da87aed3ae92";
@@ -45,6 +56,7 @@ test("unl-113-219 Master Yi, Tempered: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /TriggerSpecValidationError/);
   assert.match(program.judgeReason, /condition\.predicate/);
   assert.match(program.judgeReason, /permission\.routes/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
   assert.doesNotMatch(program.judgeReason, /未识别条件按 true/);
 });
 
@@ -110,6 +122,51 @@ test("unl-113-219 Master Yi, Tempered: Hunt 2 expands to the conquer/hold XP tri
     { kind: "constant", value: 2 },
     { kind: "constant", value: 2 }
   ]);
+});
+
+test("unl-113-219 Master Yi, Tempered golden: either Hunt body really credits 2 XP to its controller", async () => {
+  const { default: huntDefinition } = await import("../../../../engine-core/dist/effects/keywords/Hunt.js");
+  for (const ability of huntDefinition.expand({ value: hunt.value, host: { canonicalCardId: CANONICAL_ID } })) {
+    const kernel = world()
+      .player("A", { xp: 1 })
+      .player("B", { xp: 4 })
+      .unit("yi", { owner: "A", controller: "B", might: 4 })
+      .build();
+    const context = kernel.clone({ sourceSnapshot: kernel.getObject("yi"), controller: "B" });
+    const result = resolveChainBody(ability.body, context);
+    assert.equal(result.status, "executed");
+    assert.equal(result.results[0].result.linkedValues.gained, 2);
+    assert.equal(result.results[0].result.linkedValues.gainedTo, "B");
+    assert.equal(context.player("A").xp, 1);
+    assert.equal(context.player("B").xp, 6);
+    assert.deepEqual(context.events.map(event => event.action), ["gain-xp"]);
+  }
+});
+
+test("unl-113-219 Master Yi, Tempered golden: the opt-in adapter expands the Ganking grant into movement rules", () => {
+  // Exercise only the supported grant primitive and adapter. The original
+  // Level condition remains blocked; this does not install the Level ability.
+  const kernel = world().unit("yi", { might: 4, location: { type: "battlefield", id: "bf-1" } }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("yi") });
+  const result = resolveChainBody([{
+    id: "yi.ganking-grant-primitive", op: gankingGrant.effect.kind,
+    args: {
+      keyword: { kind: "constant", value: gankingGrant.effect.keyword },
+      appliesTo: { kind: "constant", value: "self" }
+    }
+  }], context);
+  assert.equal(result.status, "executed");
+  const layers = new KeywordGrantLayerEngine(context.objects, {
+    context: source => context.clone({ sourceSnapshot: source, controller: source.controller })
+  });
+  for (const entry of context.continuousEffects) layers.addContinuous(entry.effect, entry.duration);
+  const current = layers.evaluate(context.ref("yi"));
+  assert.deepEqual(current.keywords, [{ id: "Ganking" }]);
+  assert.equal(current.movement.canGank, true);
+  const rules = movement(layers.registry, current.ref, current, "A");
+  assert.equal(rules.canGank, true);
+  assert.equal(rules.battlefieldToBattlefield, true);
+  assert.deepEqual(layers.keywordAbilities(current.ref).map(ability => ability.effect.permission), ["battlefield-to-battlefield"]);
 });
 
 test("unl-113-219 Master Yi, Tempered: the Level expansion publishes the 6+ XP predicate for the layers pipeline", async () => {

@@ -7,6 +7,9 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
+// Execution evidence for the supported replacement body is also covered by
+// ../templates/replacement-effect-ready-655.test.mjs; the assertions below
+// retain the card-specific identity, condition, structure, and edge cases.
 const CARD_ID = "card.hash-733ee080aef6259973bf03c5ede49e36dd44b081fa4f1040aa0ec8525bcf71b9";
 const [replacement] = program.abilities;
 const [enterReady] = replacement.with;
@@ -33,10 +36,9 @@ test("sfd-094-221 Direwing: identity, ruleset, status and verbatim text", () => 
 
 test("sfd-094-221 Direwing: judgeReason names the replacement-enter and Dragon-filter gaps", () => {
   assert.match(program.judgeReason, /replacement\/bind\.ts/);
-  assert.match(program.judgeReason, /controller/);
-  assert.match(program.judgeReason, /exclude/);
   assert.match(program.judgeReason, /Dragon/);
-  assert.match(program.judgeReason, /condition/);
+  assert.match(program.judgeReason, /ability\.condition/);
+  assert.match(program.judgeReason, /RIFT-359/);
 });
 
 test("sfd-094-221 Direwing: 'I enter ready' is an entry replacement, not a post-entry effect.ready", () => {
@@ -50,7 +52,9 @@ test("sfd-094-221 Direwing: 'I enter ready' is an entry replacement, not a post-
   });
   assert.equal(enterReady.id, "direwing.enter-ready");
   assert.equal(enterReady.op, "effect.ready");
-  assert.deepEqual(enterReady.args, {});
+  assert.deepEqual(enterReady.args, {
+    objects: { kind: "constant", value: { kind: "source" } }
+  });
   assert.equal(enterReady.targets, undefined);
   assert.equal(enterReady.picks, undefined);
   assert.equal(enterReady.linkedTo, undefined);
@@ -69,7 +73,7 @@ test("sfd-094-221 Direwing: the condition counts another Dragon you control (133
   assert.deepEqual(condition.left.filter, {
     type: "unit",
     tags: ["Dragon"],
-    controller: "controller",
+    controller: "self",
     zone: "board",
     exclude: "self"
   });

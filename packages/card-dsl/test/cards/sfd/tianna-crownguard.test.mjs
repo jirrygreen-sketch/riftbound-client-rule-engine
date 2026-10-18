@@ -1,4 +1,5 @@
-// Partial execution evidence is consolidated in ../templates/keyword-static-647.test.mjs; this card remains judge-required for the gaps asserted below.
+// Execution evidence for this card lives in ../templates/keyword-static-671.test.mjs (README 4.1); this
+// card stays judge-required for the gaps asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -10,6 +11,10 @@ import restrict from "../../../../engine-core/dist/effects/instructions/continuo
 import { restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
 import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 
 const CARD_ID = "card.hash-d4d3c7fbd236daf76867733cea0af3151a9d91e178cb072e3bbb88c4391fef22";
 const SOURCE_TEXT =
@@ -35,6 +40,13 @@ test("sfd-060-221 Tianna Crownguard: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /at a battlefield/);
   assert.match(program.judgeReason, /ObjectSnapshot/);
   assert.match(program.judgeReason, /任意域 Power/);
+  // 2026-10-18 re-sweep: all three gaps are named with their measured errors,
+  // and the merged restriction registry must not be presented as missing.
+  assert.match(program.judgeReason, /Unsupported static appliesTo/);
+  assert.match(program.judgeReason, /relative-player query/);
+  assert.match(program.judgeReason, /Unavailable characteristic: at-battlefield/);
+  assert.match(program.judgeReason, /target\.tax has no layer mapping/);
+  assert.match(program.judgeReason, /809\.1\.c\.1/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -110,3 +122,72 @@ test.todo(
   "sfd-060-221 Tianna Crownguard: [Deflect]'s target tax must be collected when an opponent chooses this unit " +
     "and paid as any-domain Power (809.1.c.1) instead of the Energy-shaped tax the chain builds today."
 );
+
+// Live evidence for all three refreshed gaps: the shipped static cannot bind,
+// no bindable spelling reaches the opponent, the 363.2.a condition has no
+// evaluator, and the merged [Deflect] expansion is itself unbindable.
+function tiannaBindingWorld() {
+  const kernel = world().player("A").player("B")
+    .unit("tianna", { cardId: CARD_ID, might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy-unit", { owner: "B", controller: "B", might: 2 })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (saved) => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: () => { throw new Error("the static binding evidence must not require a choice"); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host });
+  return { kernel, engine, binder: createEngineStaticBinder(engine) };
+}
+
+test("sfd-060-221 Tianna Crownguard: the shipped static and its opponent spellings are rejected by the binder", () => {
+  const { kernel, binder } = tiannaBindingWorld();
+  const source = kernel.getObject("tianna");
+  // The printed appliesTo: "opponents" in the card file.
+  assert.throws(
+    () => binder.bindStatic(restriction, source),
+    /Unsupported static appliesTo "opponents"/
+  );
+  // A relative opponent filter would be the natural replacement, but the merged
+  // static filter translator refuses relative-player queries outright.
+  assert.throws(
+    () => binder.bindStatic({
+      kind: "static",
+      effect: { kind: "continuous.restrict", actions: ["score"], filter: { controller: "opponent" } }
+    }, source),
+    /Static controller:opponent filter needs a relative-player query/
+  );
+});
+
+test("sfd-060-221 Tianna Crownguard: the 363.2.a 'at a battlefield' condition has no evaluator", () => {
+  const { kernel } = tiannaBindingWorld();
+  const source = kernel.getObject("tianna");
+  // The card's own condition is an ObjectSnapshot property read, and the merged
+  // snapshot has no such derived predicate even though the unit really is at a
+  // battlefield.
+  assert.deepEqual(source.location, { type: "battlefield", id: "bf-1" });
+  assert.throws(
+    () => evaluateCondition(restriction.condition, {
+      context: bindResolveContext(kernel, { source, controller: "A" }),
+      host: source.ref,
+      linked: () => undefined,
+      canLookBack: () => true,
+      isIgnored: () => false
+    }),
+    /Unavailable characteristic: at-battlefield/
+  );
+});
+
+test("sfd-060-221 Tianna Crownguard: the merged [Deflect] expansion has no layer mapping", () => {
+  const { kernel, engine, binder } = tiannaBindingWorld();
+  const tax = deflect.expand({ value: undefined, host: { canonicalCardId: CARD_ID } })[0];
+  assert.throws(
+    () => binder.bindStatic(tax, kernel.getObject("tianna")),
+    /target\.tax has no layer mapping/
+  );
+  // Fail closed: neither the restriction nor the tax reached the layers.
+  assert.deepEqual(engine.layers.registry.list(), []);
+});

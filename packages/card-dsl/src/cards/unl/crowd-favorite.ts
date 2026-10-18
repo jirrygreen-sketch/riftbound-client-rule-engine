@@ -29,28 +29,35 @@ import type { CardProgram } from "../../ir/index.js";
  *   { object: "self" } in the target filter (sett-brawler spelling), never a
  *   runtime ObjectRef.
  *
- * Status: judge-required. Re-checked 2026-10-17 against merged source:
+ * Status: judge-required. Re-checked 2026-10-18 against merged source:
  * the activated half is fully executable — the real cost plan spends exactly
  * 2 XP and effect.buff places one Buff on the host (golden verified). The Hunt
- * half still cannot subscribe: Hunt.ts expands to the timing points
+ * half still cannot subscribe: Hunt.ts expands to the EventPattern event names
  * "conquer"/"hold", while the closed EVENT_PATTERN_TYPES vocabulary used by
  * events/trigger-spec.ts is "conquered"/"held", so registerProgramTriggers
  * throws invalid-event-type through the production adapter (probed). Even with
- * the spelling fixed, turn/flow.ts emits { timingPoint, player, details } with
- * details.battlefieldId and no object, so the expansion's source:"self" filter
- * has no conquering/holding unit to match (CR 823.1.c.1).
+ * the spelling fixed to the closed vocabulary, the subscription is still inert:
+ * turn/flow.ts emits "hold"/"conquer" as { timingPoint, player, details }
+ * where details only carries battlefieldId and there is no object/source, so a
+ * subscription narrowed to the host (objectId / source:"self" — Hunt's actual
+ * shape) matches nothing: probed, a registered {event:"held", object:{objectId},
+ * player:"self"} filter never fires on the real hold emission, while the same
+ * filter without the object gate does. CR 823.1.c.1 needs the conquering/holding
+ * unit's identity so the host's controller can gain the XP.
  */
 export default {
   canonicalCardId: "card.hash-204eccc6166c5de77fb944367f972c5488c896a4054343aae4b3c15ca9b01b0f",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺 Hunt 触发注册与计分单位归属接线（2026-10-17 复核，均不近似实现）：" +
-    "(1) 事件拼写不一致（CR 823.1.c.1/823.2）：Hunt.ts 的 KeywordDef 展开为 conquer/hold，" +
+    "仍缺 Hunt 触发注册与计分单位归属接线（2026-10-18 复核，均不近似实现）：" +
+    "(1) 事件名不在封闭词汇内（CR 823.1.c.1/823.2）：Hunt.ts 的 KeywordDef 展开的 EventPattern 事件名是 conquer/hold，" +
     "而封闭 EVENT_PATTERN_TYPES（events/trigger-spec.ts）只接受 conquered/held/scored；" +
     "实测经 createProgramBinding().registerProgramTriggers 注册时抛 TriggerSpecValidationError（invalid-event-type），订阅无法建立；" +
-    "(2) 计分载荷没有单位身份（CR 823.1.c.1）：即使拼写对齐，turn/flow.ts 的计分波只发出 " +
-    "{ timingPoint, player, details: { battlefieldId } }，没有 source:\"self\" 过滤器所需的征服/坚守单位对象，无法确定谁应获得 Hunt XP。" +
+    "(2) 计分载荷没有单位身份（CR 823.1.c.1）：即使事件名对齐封闭词汇，turn/flow.ts 的计分波也只发出 " +
+    "{ timingPoint, player, details: { battlefieldId } }，没有 object/source；实测不带单位门槛的 { event: \"held\", player: \"self\" } 会在" +
+    "控制者的 hold 上触发，但只要按 Hunt 的实际形状收窄到宿主（objectId / source:\"self\"）就永不触发，" +
+    "没有可匹配的征服/坚守单位，无法确定谁应获得 Hunt XP。" +
     "已合入并可执行：Spend 2 XP 启动能力（费用计划真实支付 XP）与 effect.buff（golden 覆盖放置与已 Buff 的跳过）。",
   abilities: [
     // 823.1.c.1 / 823.1.c.2：Hunt 是 Triggered Ability 关键词，缺省 X=1；

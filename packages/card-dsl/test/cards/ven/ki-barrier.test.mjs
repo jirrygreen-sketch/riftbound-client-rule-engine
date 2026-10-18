@@ -4,6 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/ki-barrier.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -44,6 +45,8 @@ test("ven-126-166 Ki Barrier: judgeReason distinguishes the merged budget from r
   assert.match(program.judgeReason, /438\.5\.a/);
   assert.match(program.judgeReason, /duration|期限/);
   assert.match(program.judgeReason, /不近似实现/);
+  assert.match(program.judgeReason, /BlockedReplacementError/);
+  assert.match(program.judgeReason, /resolveChainBody/);
   assert.doesNotMatch(program.judgeReason, /RIFT-120|RIFT-91/);
 });
 
@@ -190,3 +193,33 @@ test.todo(
   "ven-126-166 Ki Barrier: combat lethal assignment must include the remaining Prevent Value (438.5.a) — " +
     "the numeric budget is private to the replacement closure and is not exposed to combat allocation"
 );
+
+test("ven-126-166 Ki Barrier evidence: the original play body cannot install the delayed replacement", () => {
+  // Re-measured 2026-10-18: the card's own play body goes through the production
+  // chain adapter and fails before any registration, because the frozen
+  // ResolveContext has no replacement entry point.
+  const kernel = world()
+    .object("barrier", { cardId: CARD_ID, types: ["spell"], zone: "chain", might: null, energy: 2, power: ["Order"] })
+    .unit("unit", { controller: "A", might: 10 })
+    .build();
+  kernel.setTargets(targetSpec.id, [kernel.ref("unit")]);
+  assert.throws(
+    () => resolveChainBody(play.body, kernel),
+    (error) => error.constructor.name === "BlockedReplacementError" &&
+      /requires ResolveContext\.replacement dependencies/.test(error.message)
+  );
+});
+
+test("ven-126-166 Ki Barrier evidence: the shield survives into the end-of-turn window (317.2.c)", () => {
+  // The primitive-only path is what the merged tree can execute today. This row
+  // pins the measured lifetime boundary: after the next turn-start the shield is
+  // gone, but damage taken inside the end-of-turn cleanup window is still
+  // prevented, which is exactly what a 317.2.c Expiration-Step expiry must fix.
+  const { kernel, pipeline, damage } = preventionWorld();
+  pipeline.emit({ timingPoint: "turn-end" });
+  assert.equal(damage(5).status, "prevented");
+  assert.equal(kernel.getObject("unit").damage, 0);
+  pipeline.emit({ timingPoint: "turn-start" });
+  assert.equal(damage(5).status, "done");
+  assert.equal(kernel.getObject("unit").damage, 5);
+});

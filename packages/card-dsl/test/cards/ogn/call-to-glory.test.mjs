@@ -1,5 +1,10 @@
-// Template evidence: ../templates/keyword-play-continuous-might-653.test.mjs.
-// Whole-card scenarios remain blocked; the supported Might body is tested separately.
+// Execution evidence: ../templates/keyword-play-continuous-might-683.test.mjs
+// (RIFT-683). Each row of that suite runs this program's original abilities,
+// target predicate, printed base cost and continuous.might body through the real
+// card scenario harness; the measured-gate test there executes the optional
+// spend-buff cost and the ignore-base rewrite and asserts their real rejection.
+// This file keeps the validation, identity, structure and primitive-level
+// evidence; the whole-card scenarios live in the template suite.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -12,9 +17,11 @@ import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js"
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { collectCostModifications } from "../../../../engine-core/dist/cost/discounts/index.js";
 
 const CARD_ID = "card.hash-9eef9a0508648141992bbe70aa56b64551bbd00d06fd8be401c85dda6f542339";
-const [reaction, play] = program.abilities;
+const [reaction, optionalCost, costRewrite, play] = program.abilities;
 const [mightInstruction] = play.body;
 const mightSpec = mightInstruction.targets[0];
 
@@ -30,9 +37,11 @@ test("Call to Glory identity and judge-required status match the printing", () =
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("356.2.b"), true);
   assert.equal(program.judgeReason.includes("356.1.b"), true);
-  assert.match(program.judgeReason, /Finalize/);
+  assert.equal(program.judgeReason.includes("702.2.b"), true);
+  assert.match(program.judgeReason, /可选追加费用/);
   assert.match(program.judgeReason, /ignore-base/);
-  assert.match(program.judgeReason, /运行时友方 Buff 对象选择/);
+  assert.match(program.judgeReason, /baseModifications\.ignore-base/);
+  assert.match(program.judgeReason, /optionalCostPaid/);
   assert.equal(
     program.sourceText,
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
@@ -42,26 +51,43 @@ test("Call to Glory identity and judge-required status match the printing", () =
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
 
-test("Call to Glory structure: Reaction list, an optional spend-buff payment with a pay/decline choice", () => {
+test("Call to Glory structure: Reaction, the optional spend-buff cost and the conditional ignore-base rewrite", () => {
   assert.deepEqual(reaction, { kind: "keyword", keyword: "reaction" });
-  assert.equal(play.kind, "play");
 
-  // 356.2.b: the buff spend is an Optional Additional Cost declared on the play
-  // ability, carrying an explicit pay/decline choice (the merged cost-plan
-  // shape, as in Frigid Touch's [Repeat] payment).
-  assert.equal(play.cost.kind, "explicit");
-  assert.equal(play.cost.payments.length, 1);
-  const payment = play.cost.payments[0];
+  // 356.2.b.1: the Optional Additional Cost is specified by a Passive Ability on
+  // the card being played, so it is declared as a static cost.additional effect
+  // rather than inline on the play CostSpec (see the file header).
+  assert.equal(optionalCost.kind, "static");
+  assert.equal(optionalCost.effect.kind, "cost.additional");
+  assert.equal(optionalCost.effect.appliesTo, "self");
+  assert.equal(optionalCost.effect.optional, true);
+  assert.equal(optionalCost.effect.stage, "optional-additional");
+  const payment = optionalCost.effect.payments[0];
   assert.equal(payment.kind, "spend-buff");
   assert.deepEqual(payment.amount, { kind: "constant", value: 1 });
   assert.equal(payment.choice.id, "call-to-glory.spend-buff-payment");
-  assert.deepEqual(payment.choice.options, ["pay", "decline"]);
+  // 355.10.c.1: the buff's unit is not a target, so the cost carries a non-target
+  // pick whose option set is resolved at Finalize (702.2.b.2).
   assert.equal(payment.choice.selection, "one");
+  assert.equal(payment.choice.min, 1);
+  assert.equal(payment.choice.max, 1);
+  assert.deepEqual(payment.choice.options, ["buffed-unit-you-control"]);
 
-  // The printed base cost is 3 Energy with no Power component, carried on the
-  // same CostSpec as the optional additional payment.
-  assert.deepEqual(play.cost.energy, { kind: "constant", value: 3 });
-  assert.equal(play.cost.power, undefined);
+  // 356.1.b.1: "ignore this spell's cost" zeroes the base cost, gated on the
+  // optional payment being chosen (356.4.f.1); 356.1.b.3 keeps later costs.
+  assert.equal(costRewrite.kind, "static");
+  assert.equal(costRewrite.effect.kind, "continuous.cost-modification");
+  assert.equal(costRewrite.effect.appliesTo, "self");
+  assert.deepEqual(costRewrite.effect.amount, { kind: "constant", value: "ignore-base" });
+  assert.deepEqual(costRewrite.effect.when, {
+    kind: "constant",
+    value: { optionalCostPaid: "call-to-glory.spend-buff-payment" }
+  });
+
+  // The play ability carries only the printed base cost: 3 Energy with no
+  // printed Power (never rewritten to 0).
+  assert.equal(play.kind, "play");
+  assert.deepEqual(play.cost, { kind: "cost.printed", energy: { kind: "constant", value: 3 } });
 });
 
 test("Call to Glory structure: the +3 Might instruction with its single-unit target", () => {
@@ -75,7 +101,7 @@ test("Call to Glory structure: the +3 Might instruction with its single-unit tar
   });
   assert.deepEqual(mightSpec, {
     id: "call-to-glory.unit",
-    filter: { types: "unit", zone: "board" },
+    filter: { type: "unit", zone: "board" },
     min: 1,
     max: 1,
     selection: "one"
@@ -184,10 +210,9 @@ test("Call to Glory golden: the printed +3 Might executes through continuous.mig
 });
 
 test.todo(
-  "Call to Glory: the conditional rewrite \"If you do, ignore this spell's cost\" (356.1.b sets " +
-    "the base cost to zero; 357.2.a counts the paid additional cost; 356.1.b.3 keeps later " +
-    "increases) needs a CardProgram-to-Finalize adapter with a runtime buff-holder choice and " +
-    "an ignore-base cost modification."
+  "Call to Glory: binding the optional spend-buff cost and the conditional ignore-base rewrite into \"" +
+    "the play cost plan (356.2.b/356.1.b.1/356.1.b.3) needs a CardProgram-to-CostPlanInput adapter with a " +
+    "Finalize-time buff-holder option set; measured in keyword-play-continuous-might-683.test.mjs."
 );
 
 test("Call to Glory: the original Might body resolves through the production interpreter adapter", () => {
@@ -215,4 +240,46 @@ test("Call to Glory: the original body does not grant Might when its finalized t
   assert.equal(kernel.getObject("chosen").zone, "hand");
   assert.equal(kernel.getObject("other").might, 4);
   assert.deepEqual(result.events, []);
+});
+
+test("Call to Glory supported cost plan ignores only the base and keeps the selected buff payment and later fees", () => {
+  // Runtime options/baseModifications are cost-layer inputs; their CardProgram adapter remains missing.
+  for (const selected of [true, false]) {
+    const initial = world().player("A", { energy: 10 })
+      .hand("glory", { cardId: CARD_ID, types: ["spell"], energy: 3, power: null })
+      .unit("buffed", { buffs: 1 }).build();
+    const ctx = initial.clone({ sourceSnapshot: initial.getObject("glory") });
+    const payment = optionalCost.effect.payments[0];
+    ctx.setPicks(payment.choice.id, [ctx.ref("buffed")]);
+    const plan = buildCostPlan(ctx, {
+      id: "glory:cost", cost: { kind: "printed" },
+      ...(selected ? { baseModifications: [{ kind: "ignore-base", ignore: "resources" }] } : {}),
+      optionalAdditional: [{
+        id: optionalCost.effect.id, kind: "additional", selected,
+        cost: { payments: [{ ...payment, choice: { ...payment.choice, options: [ctx.ref("buffed")] } }] }
+      }],
+      mandatoryAdditional: [{ id: "later-fee", cost: { energy: { kind: "constant", value: 2 } } }]
+    });
+    assert.deepEqual(plan.printed, { energy: 3, power: null });
+    assert.equal(plan.total.energy, selected ? 2 : 5);
+    assert.deepEqual(plan.total.power, []);
+    assert.deepEqual(plan.selectedAdditional.map(entry => entry.id), selected ? [optionalCost.effect.id] : []);
+    const receipt = payCostPlan(ctx, plan);
+    assert.equal(receipt.paid, true);
+    assert.deepEqual(receipt.additional, selected ? [{ id: optionalCost.effect.id, kind: "additional", paid: true }] : []);
+    assert.deepEqual(receipt.events.map(event => event.action), selected ? ["pay", "spend-buff"] : ["pay"]);
+    assert.equal(ctx.getObject("buffed").buffs, selected ? 0 : 1);
+    assert.equal(ctx.player("A").energy, selected ? 8 : 5);
+    assert.equal(ctx.getObject("glory").power, null);
+  }
+});
+
+test("Call to Glory cost collector cannot interpret its declared optionalCostPaid gate", () => {
+  const initial = world().hand("glory", { cardId: CARD_ID, types: ["spell"], energy: 3, power: null }).build();
+  const ctx = initial.clone({ sourceSnapshot: initial.getObject("glory") });
+  const before = ctx.snapshot();
+  assert.throws(() => collectCostModifications(ctx, { id: "glory:cost", cost: { kind: "printed" } }, {
+    statics: [{ id: "glory:rewrite", source: ctx.ref("glory"), ability: costRewrite }]
+  }), error => error.reason === "judge-required" && /Unsupported cost condition/.test(error.message));
+  assert.deepEqual(ctx.snapshot(), before);
 });

@@ -1,3 +1,4 @@
+// Execution evidence: templates/triggered-card-played-effect-token-661.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -32,7 +33,7 @@ test("sfd-121-221 Black Market Broker: judgeReason names the facedown-source and
   assert.match(program.judgeReason, /440\.2\.c/);
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /143\.4/);
-  assert.match(program.judgeReason, /OBJECT_FILTER_ZONES/);
+  assert.match(program.judgeReason, /played-from-zone/);
   assert.match(program.judgeReason, /exhausted/);
   assert.doesNotMatch(program.judgeReason, /token-play-requires-chain-creation/);
 });
@@ -41,16 +42,18 @@ test("sfd-121-221 Black Market Broker: the trigger is card-played, scoped to you
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "triggered");
   // 359 / 383.4.a / 407: the card-played timing point; "you" is the ability's
-  // controller (190.6.d). "from face down" has no merged payload field, so the
-  // program declares details.fromFaceDown and fails closed instead of matching
-  // every card played.
+  // controller (190.6.d). The play-origin predicate reads the event payload and
+  // fails closed when no Facedown Zone event exists.
   assert.equal(ability.trigger.at, "card-played");
   assert.deepEqual(ability.trigger.filter, {
     event: "card-played",
-    player: "self",
-    details: { fromFaceDown: true }
+    player: "self"
   });
-  assert.equal(ability.trigger.condition, undefined);
+  assert.deepEqual(ability.trigger.condition, {
+    kind: "played-from-zone",
+    zone: "facedown",
+    object: "object"
+  });
   assert.equal(ability.trigger.once, undefined);
   assert.equal(ability.optional, false);
 });
@@ -71,17 +74,6 @@ test("sfd-121-221 Black Market Broker: the body declares one Gold token played e
   assert.equal(instruction.linkedTo, undefined);
   assert.equal(instruction.condition, undefined);
 });
-
-test.todo(
-  "sfd-121-221 Black Market Broker: the card-played event carries the pre-play zone so a " +
-  "Facedown Zone source can be detected (355.9.a.3 / 107.3.a / 107.3.e / 422.2.a) — the hidden/facedown " +
-    "zone vocabulary and source-zone payload are still needed"
-);
-
-test.todo(
-  "sfd-121-221 Black Market Broker: the supported token-play path still needs the CR 187.5 Gold " +
-    "definition and an exhausted-entry stipulation (184.1 / 185.2.d) for this card"
-);
 
 test("sfd-121-221 Black Market Broker: mode play performs chain creation and hand-off for a defined token", () => {
   const kernel = world().build();

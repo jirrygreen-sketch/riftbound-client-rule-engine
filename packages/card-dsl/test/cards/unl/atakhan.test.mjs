@@ -10,6 +10,7 @@ import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createEngineStaticBinder, translateCost } from "../../../../engine-core/dist/programs/index.js";
+import { collectCostModifications } from "../../../../engine-core/dist/cost/discounts/collect.js";
 import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -42,6 +43,8 @@ test("unl-170-219 Atakhan: identity, status, judgeReason and verbatim sourceText
   // Second-sweep refresh: the cost instructions exist, but neither the play
   // cost translator nor the static binder consumes the declarations.
   assert.match(program.judgeReason, /translateCost/);
+  assert.match(program.judgeReason, /cost\/discounts\/collect/);
+  assert.match(program.judgeReason, /grantedBy/);
   assert.match(program.judgeReason, /createEngineStaticBinder/);
   assert.match(program.judgeReason, /permission\.routes/);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -72,6 +75,28 @@ test("unl-170-219 Atakhan: the production static binder has no layer mapping for
     assert.throws(() => binder.bindStatic(discount, source), /continuous\.cost-modification has no layer mapping/);
   }
   assert.deepEqual(f.engine.layers.registry.list(), []);
+});
+
+test("unl-170-219 Atakhan: the merged discount collector still rejects the grantedBy optional-cost link", () => {
+  // The generic collector is merged and can plan ordinary static discounts,
+  // but this card's 356.4.f.1 relationship is a distinct contract shape. It
+  // must fail closed until the optional additional-cost receipt is available.
+  const f = fixture({ cards: [
+    { id: "atakhan", cardId: CANONICAL_ID, types: ["unit"], energy: 1, power: [], zone: "board", location: { type: "battlefield", id: "bf-1" } }
+  ] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("atakhan"), to: "board", location: { type: "battlefield", id: "bf-1" } });
+  const source = f.kernel.getObject("atakhan");
+  const context = f.kernel.clone({ sourceSnapshot: source });
+  assert.throws(
+    () => collectCostModifications(context, {
+      id: "cost:atakhan",
+      cost: { kind: "explicit", energy: { kind: "constant", value: 5 } }
+    }, {
+      statics: [{ id: "atakhan.energy-discount", source: source.ref, ability: energyDiscount }],
+      purpose: "play"
+    }),
+    error => error.name === "CostPlanError" && /grantedBy|Unsupported cost modification field/.test(error.message)
+  );
 });
 
 test("unl-170-219 Atakhan: the merged Ganking expansion registers, but its permission string is not consumed as a movement route (810.1.c)", () => {

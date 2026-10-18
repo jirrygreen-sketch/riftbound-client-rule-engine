@@ -24,15 +24,14 @@ test("sfd-165-221 Glasc Mixologist: program validates and keeps its identity", (
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /163\.2\.b/);
+  assert.match(program.judgeReason, /printed-cost|印刷费用/);
   assert.match(program.judgeReason, /356\.1\.b/);
   assert.match(program.judgeReason, /costEnergyLte/);
   assert.match(program.judgeReason, /trigger\.leave/);
   assert.match(program.judgeReason, /已选垃圾场单位.*ignore-base/);
-  // RIFT-358/RIFT-359 are named only as already-merged work that closes none of
-  // the gaps; the dependency sentence must not list any merged task as a gap.
-  assert.match(program.judgeReason, /RIFT-358 的有序 picks 与 RIFT-359 的条件谓词均已合入/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-82|RIFT-89|RIFT-261/);
+  // The reason names only current gaps; merged task numbers are not dependencies.
+  assert.doesNotMatch(program.judgeReason, /RIFT-358|RIFT-359/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-82|RIFT-89|RIFT-90|RIFT-261/);
   assert.doesNotMatch(program.judgeReason, /依赖：[^。]*RIFT-/);
   assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.equal(
@@ -130,8 +129,8 @@ test("sfd-165-221 Glasc Mixologist: the merged play primitive plays the locked t
 });
 
 test.todo(
-  "sfd-165-221 Glasc Mixologist: enforce the printed-cost ceiling (Energy <= 3, Power <= 1 including [A] " +
-    "Universal Power, 163.2.b) and generate the ignore-cost plan from the chosen trash unit (356.1.b.1; " +
+  "sfd-165-221 Glasc Mixologist: enforce the printed-cost ceiling (Energy <= 3, Power <= 1 including the " +
+    "any-domain [A] requirement, 163.2.b) and generate the ignore-cost plan from the chosen trash unit (356.1.b.1; " +
     "needs a printed-cost predicate for target filters and the selected-object cost-plan wiring)"
 );
 

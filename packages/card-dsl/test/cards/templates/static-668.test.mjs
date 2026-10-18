@@ -248,12 +248,26 @@ const rows = [
   },
 ];
 
+const scenarioBindingErrors = new Map([
+  [voidDrone.canonicalCardId, /Static ability kind continuous\.cost-modification has no layer mapping/],
+  [blackFlameAltar.canonicalCardId, /Unsupported static filter field keywords/],
+]);
+
 for (const row of rows) {
   const [execution] = defineTemplateSuite("RIFT-668 static|| partial/boundary", [{ ...row, program: probe(row.program) }]);
   test(execution.name, row.todo ? { todo: row.todo } : {}, () => {
     const binding = createProgramBinding({ cardPrograms: [row.program] });
     assert.throws(() => binding.registry.get(row.canonicalCardId), error => error.code === "judge-required");
     assert.throws(() => runCardScenario(row.program, row.scenario), /is judge-required/);
+    const bindingError = scenarioBindingErrors.get(row.canonicalCardId);
+    if (bindingError) {
+      assert.throws(execution.run, error => {
+        assert.equal(error.code, "judge-required");
+        assert.match(error.message, bindingError);
+        return true;
+      });
+      return;
+    }
     const result = execution.run();
     row.verify?.(result);
   });

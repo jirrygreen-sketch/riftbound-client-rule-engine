@@ -6,12 +6,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * The granted Shield is a continuous ability-layer effect on OTHER friendly units here.
  * There is no battlefield-only qualification: here also includes the host's Base.
  *
- * Review (2026-10-17, RIFT-650): sourceText matches deck-catalog ogn-074-298 and the
+ * Review (2026-10-17): sourceText matches deck-catalog ogn-074-298 and the
  * IR keeps the printed values (Shield 1 via 814.1.b.3, Tank with no value via 815),
  * the "here" anchor (sameLocationAs: self) and the "other" exclusion. Nothing is
  * added or approximated; the gap below is still open on the merged engine.
  * Execution evidence for what does run (play/payment/keyword expansion and the
- * fail-closed static bind attempt): packages/card-dsl/test/cards/templates/keyword-keyword-static-650.test.mjs.
+ * fail-closed static bind attempt): packages/card-dsl/test/cards/templates/keyword-keyword-static-698.test.mjs.
  */
 const abilities: Ability[] = [
   {
@@ -44,7 +44,7 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口（2026-10-17 RIFT-650 复核，均有模板测试执行证据）：" +
+    "三处缺口（2026-10-17 复核，均有模板测试执行证据）：" +
     "(1) [Tank] 的 KeywordDef 已展开为 continuous.combat，但 combat 的伤害分配仍只接受 keywordPriority: \"proven-none\"" +
     "（combat/base-combat-allocation.ts），没有消费 815.1.b/.c 的伤害优先分支。" +
     "(2) [Shield]（814.1.c）展开为 arithmetic 层的 continuous.might，条件读 object-property(self, \"designation\")，" +

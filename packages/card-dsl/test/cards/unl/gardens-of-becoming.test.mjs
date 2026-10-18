@@ -34,12 +34,12 @@ test("unl-213-219 Gardens of Becoming: identity, ruleset, status and verbatim so
 test("unl-213-219 Gardens of Becoming: judgeReason names the grant, cost and 'here' gaps", () => {
   assert.match(program.judgeReason, /continuous\.grant-ability/);
   assert.match(program.judgeReason, /describeActivate/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /被授予能力的启动入口/);
+  assert.match(program.judgeReason, /图层消费者/);
   // The "no static registration path" and "controller literal compare"
   // claims are stale (the merged binder resolves the anchors); the reason
   // records that and no longer carries the fourth item.
-  assert.match(program.judgeReason, /已过时/);
+  assert.match(program.judgeReason, /普通静态绑定/);
   assert.ok(!/④/.test(program.judgeReason));
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -121,14 +121,14 @@ test("unl-213-219 Gardens of Becoming: an already exhausted unit cannot pay the 
 test.todo(
   "unl-213-219 Gardens of Becoming: grant the quoted activated ability to the units at this " +
     "Battlefield through a merged continuous.grant-ability / layers consumer (CR 479.3/479.3.b, " +
-    "053.3) — needs RIFT-91 and RIFT-9's continuous.grant-ability: grant-keyword is merged but " +
+    "053.3) — needs continuous.grant-ability: grant-keyword is merged but " +
     "keyword-only, layers cannot consume ability bodies, and statics layerFor rejects grant-ability"
 );
 
 test.todo(
   "unl-213-219 Gardens of Becoming: start the granted ability through the chain, paying the " +
     "Exhaust cost and resolving Gain 1 XP for the activating player (415.5, 381.1, 730.1) — needs " +
-    "a granted-ability activation entry (describeActivate covers only a card's own program; RIFT-89 follow-up)"
+    "a granted-ability activation entry (describeActivate covers only a card's own program)"
 );
 
 test.todo(

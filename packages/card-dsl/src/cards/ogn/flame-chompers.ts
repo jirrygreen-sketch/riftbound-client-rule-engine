@@ -42,11 +42,11 @@ const flameChompers = {
   status: "judge-required",
   judgeReason:
     "缺弃牌后的 Trash 触发注册与换区 incarnation 绑定（CR 423.1.b、383.2.c.1、385.1/385.2）：" +
-    "programs/triggers.ts 对 card-discarded 默认 activeZones=['board']，lifecycle 只在进 Chain/Board 时注册。" +
+    "programs/triggers.ts 对 card-discarded 默认 activeZones=['board']，programs/lifecycle.ts 只在进 Chain/Board 时注册，" +
     "首段『you may pay :rb_rune_fury: to play me』还缺触发能力 Finalize 的选择与 Fury 基础费用绑定" +
     "（383.3.a、383.3.b/383.3.b.1）；TriggeredAbility 无费用字段，绑定器未产出 TriggerRegistration.cost/mayAtFinalize，" +
     "choice.optional 与 resulting effect.play 的费用覆盖不能替代该流程。" +
-    "当前草案另有 effect.play 的 self/source Trash 目标过滤及嵌套目标生命周期绑定缺口；" +
+    "当前草案另有 programs/filters.ts 拒绝 effect.play 的 self/source Trash 目标过滤及嵌套目标生命周期绑定缺口；" +
     "cost.pay 和 finalized cost override 已合入，单独的计划/回执与 Play 子效果不证明整卡可执行。",
   abilities: [
     {

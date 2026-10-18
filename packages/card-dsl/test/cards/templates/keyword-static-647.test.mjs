@@ -6,6 +6,7 @@
 // scenario harness requires an executable status, so the row uses a transient
 // execution slice rather than changing the source program or inventing a
 // fallback for the missing rule.
+import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineTemplateSuite } from "../../../../engine-core/dist/effects/testing/scenario/index.js";
@@ -187,4 +188,28 @@ const rows = [
   },
 ];
 
-for (const row of defineTemplateSuite("RIFT-647 keyword+static", rows)) test(row.name, row.run);
+const scenarioBindingErrors = new Map([
+  ["Tianna Crownguard · battlefield static source is present", /Unsupported static appliesTo "opponents"/],
+  ["Allay, Eager Admirer · same-location aura setup", /Static exclude anchor needs a dynamic relative filter/],
+  ["Alpha Wildclaw · less-Might relation remains observable in setup", /Unsupported static appliesTo "spells-and-abilities"/],
+  ["Jhin, Meticulous Killer · play path emits card-played", /Unsupported filter field object\.id/],
+  ["LeBlanc, Everywhere at Once · play path emits card-played", /Unsupported static appliesTo/],
+  ["Rengar, Trophy Hunter · normal play still resolves", /Static ability kind play-location-permission has no layer mapping/],
+  ["Stalking Wolf · normal play preserves the additional-cost source", /Static ability kind cost\.additional has no layer mapping/],
+  ["Aurok General · Empowered gate is false before activation", /Unsupported static filter field empowered/],
+]);
+
+for (const row of defineTemplateSuite("RIFT-647 keyword+static", rows)) {
+  test(row.name, () => {
+    const bindingError = scenarioBindingErrors.get(row.name.split(" [")[0].replace("RIFT-647 keyword+static: ", ""));
+    if (bindingError) {
+      assert.throws(row.run, error => {
+        assert.equal(error.code, "judge-required");
+        assert.match(error.message, bindingError);
+        return true;
+      });
+      return;
+    }
+    row.run();
+  });
+}

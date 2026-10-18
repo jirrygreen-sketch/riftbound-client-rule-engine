@@ -1,11 +1,29 @@
 import type { Ability, CardProgram } from "../../ir/index.js";
 
 /**
- * baccai-sandspinner — M2 源码复核（2026-10-17）。
- * CR v1.5 827.1.c.1：Empower 印刷费用为 5 Energy。
+ * baccai-sandspinner — M2 源码复核（2026-10-18，本轮 re-sweep 措辞精修）。
+ * CR v1.5 827.1.c.1：Empower 印刷费用为 5 Energy；827.1.c.3 的控制 4 或更少符文时减 3 Energy。
  * 442.1.a/828.1.b.1：依赖能力只在宿主 Empowered 时有效。
- * Empower KeywordDef 已合入；缺口是逐实例费用参数与生产接线。
- * 具体规则与剩余阻塞见 judgeReason；局部执行不代表整卡可执行。
+ *
+ * status = judge-required（四处当前缺口，均为实测，不近似实现）：
+ * 1. 印刷费用没有载体：KeywordAbility 只有 keyword/value（本卡另有 value: 5），
+ *    expandProgram 调到 Empower.expand 时拿不到 params.cost，实测产出 { kind: "empower" }；
+ *    生产 buildCostPlan 对该 kind 抛 CostPlanError('Unsupported cost kind: empower')。
+ * 2. 827.1.c.3 的减费没有消费方：实测 computeEngineStaticBinder.bindStatic 对
+ *    appliesTo: "empower-activation-cost" 抛 ProgramBindingError('Unsupported static appliesTo')，
+ *    连注册都到不了费用计划、进不了 Chain Finalize；且条件里的 count(filter { controller:self })
+ *    在生产图层匹配器上不是相对该能力控制者求值：layers/filter.ts 的 selectorMatches 拿
+ *    "对象自己的 controller"当比较基准，因此 controller:self 退化成"任意控制者"
+ *    （实测对手的符文同样命中），只有绝对玩家 id 才能限定集合、无法跟随控制者变化。
+ * 3. Empowered 门控：本卡用 object-property(self, "empowered")，实测参考内核路径可求值
+ *    （Empower 后 keywords 里出现 deflect 1 与 assault 2），但 ObjectSnapshot 契约没有
+ *    empowered 字段、engine-runtime/host.ts 也不提供。
+ * 4. KeywordGrantLayerEngine 已能在独立 adapter 中重展开 granted Assault 2 / Deflect 1，
+ *    并按 combatRole/designation 计算攻击者 Might；默认 CardProgram lifecycle 仍使用基础
+ *    LayerEngine（该层只被 engine-core 自身测试构造，未从任何公开入口导出，
+ *    turn/flow.ts 与 apps/game-server 均不构造），所以生产图层只登记关键词，
+ *    不消费 Assault 修正。Deflect 展开的 { kind: "target.tax" } 仍在 bindStatic 抛
+ *    'no layer mapping'，Chain Finalize 也没有 Power 目标税消费方。
  */
 const abilities: Ability[] = [
   {
@@ -61,7 +79,20 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "827.1.c.1 的 5 Energy 印刷费用缺 KeywordAbility.params.cost → expandProgram → Empower.expand 接线；ObjectSnapshot 尚未声明 empowered（442.1.a），统一生产 Empowered 状态适配与 442.1.b/c 的二元状态限制仍需接通；827.1.c.3 的 continuous.cost-modification 尚无 empower-activation-cost → 费用计划接线，控制 4 或更少符文时的减 3 Energy 不能应用；count.filter.controller:self 尚无相对玩家求值，不能用测试内符号替换证明生产条件已实现。828.1.c 的 continuous.grant-keyword 已用 empowered 比较门控；授予的 Assault 2 仍缺展开与攻击者 designation/combatRole 接线（807.1.c），Deflect 的真实 Power 目标税适配器尚未进入 Chain Finalize，chain/engine.ts 仍把税写为 Energy（809.1.c）。",
+    "四处缺口（2026-10-18 复核，均为实测）：(1) 827.1.c.1 的 5 Energy 印刷费用没有载体——" +
+    "KeywordAbility 只有 keyword/value（本卡值 5），expandProgram 调到 Empower.expand 时拿不到 params.cost，实测产出 { kind: \"empower\" }，" +
+    "生产 buildCostPlan 抛 CostPlanError('Unsupported cost kind: empower')。" +
+    "(2) 827.1.c.3 的减 3 Energy（continuous.cost-modification）没有消费方：实测 bindStatic 对 appliesTo: \"empower-activation-cost\" 抛 " +
+    "ProgramBindingError('Unsupported static appliesTo')，注册阶段就失败，因此该减费进不了 Chain Finalize；条件里的 count(filter { controller:self }) 也没有相对值——" +
+    "layers/filter.ts 的 selectorMatches 以对象自身 controller 为基准，写 controller:self 会退化成任意控制者（实测对手的符文同样命中），" +
+    "只能写绝对玩家 id，无法跟随控制者，因此不能用测试内符号替换冒充生产已实现。" +
+    "(3) 442.1.a/828.1.b.1 的 Empowered 门控：卡牌用 object-property(self, \"empowered\")，实测参考内核路径可求值（Empower 后 keywords 出现 deflect 1 与 assault 2），" +
+    "但 ObjectSnapshot 契约没有 empowered 字段、engine-runtime/host.ts 也不提供。" +
+    "(4) continuous.grant-keyword 本身已合入；独立 KeywordGrantLayerEngine adapter 可把 granted Assault 2 / Deflect 1 " +
+    "重展开，并按 combatRole/designation 计算攻击者 Might，但默认 CardProgram lifecycle 仍使用基础 LayerEngine" +
+    "（该层只被 engine-core 自身测试构造，未从任何公开入口导出，turn/flow.ts 与 apps/game-server 均不构造），" +
+    "生产图层只登记关键词而不消费该修正。809.1.c 的 Deflect Power 目标税仍没有生产适配器——Deflect 展开的 " +
+    "target.tax 在 bindStatic 抛 \"no layer mapping\"，Chain Finalize 没有 Power tax 消费方。不近似实现。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_5:. This ability costs :rb_energy_3: less if you control 4 or fewer runes. " +

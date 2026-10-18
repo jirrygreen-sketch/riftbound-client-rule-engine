@@ -4,8 +4,14 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/swain-visionary.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { finalizeOrderedPickPlans } from "../../../../engine-core/dist/chain/picks/plan.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL_ID =
   "card.hash-4f54fa53d7952e0ddc5664e048b84ba9749234c943d017b1e5038773e2f42b74";
@@ -52,10 +58,15 @@ test("ven-065-166 Swain: identity, status, judgeReason and verbatim sourceText",
   assert.match(program.judgeReason, /Vision/);
   assert.match(program.judgeReason, /817\.1\.b/);
   assert.match(program.judgeReason, /383\.2\.a\.1/);
+  assert.match(program.judgeReason, /subject/);
   assert.match(program.judgeReason, /HistoryQuery/);
-  assert.match(program.judgeReason, /RIFT-357|RIFT-358/);
   assert.match(program.judgeReason, /objectFilter/);
-  assert.ok(!/RIFT-87/.test(program.judgeReason));
+  assert.match(program.judgeReason, /battlefieldId/);
+  assert.match(program.judgeReason, /finalizeOrderedPickPlans/);
+  // Refreshed 2026-10-17: the Vision expansion also fails to bind because its
+  // self-entry filter uses the unsupported "object.id" key.
+  assert.match(program.judgeReason, /Unsupported filter field object\.id/);
+  assert.ok(!/RIFT-87|RIFT-357|RIFT-358|RIFT-359/.test(program.judgeReason));
 });
 
 test("ven-065-166 Swain: [Vision] is declared without a value (817.1.b)", () => {
@@ -66,7 +77,9 @@ test("ven-065-166 Swain: [Vision] is declared without a value (817.1.b)", () => 
 test("ven-065-166 Swain: 'When I conquer' is a mandatory self conquer trigger", () => {
   assert.equal(conquer.kind, "triggered");
   assert.equal(conquer.trigger.at, "conquer");
-  assert.deepEqual(conquer.trigger.filter, { event: "conquer", filter: { source: "self" } });
+  // The closed discriminant is "conquered" (trigger-spec EVENT_PATTERN_TYPES +
+  // pipeline-match's conquered → conquer mapping); the TimingPoint stays "conquer".
+  assert.deepEqual(conquer.trigger.filter, { event: "conquered", filter: { source: "self" } });
   // 383.4.c.2.c：即使征服得分被替代，该触发仍进链，因此不把得分成功写成条件。
   assert.equal(conquer.trigger.once, undefined);
   assert.equal(conquer.optional, false);
@@ -218,7 +231,7 @@ test("ven-065-166 golden: the merged history primitive evaluates the three-claus
 });
 
 test("ven-065-166 TODO: the original condition is true after all three categories were played this turn", {
-  todo: "CR 383.2.a.1 / RIFT-359: bind the controller and evaluate the card's count condition from play history"
+  todo: "CR 383.2.a.1: count cards actually played this turn — expr.ts ignores subject and queries the live object set"
 }, () => {
   // 原始条件和规则预期都保留；依赖接通后此用例应通过，再移除 TODO。
   // 不能将当前的 false 作为打出过三类牌之后的正确结果。
@@ -247,7 +260,7 @@ test("ven-065-166 TODO: the original condition is true after all three categorie
 });
 
 test("ven-065-166 TODO: the original condition is false when all three categories remain unplayed in hand", {
-  todo: "CR 383.2.a.1 / RIFT-359: count cards played this turn instead of matching the current object set"
+  todo: "CR 383.2.a.1: count cards played this turn instead of matching the current object set (subject is not consumed by expr.ts)"
 }, () => {
   // 直接执行卡内原始条件。将测试玩家命名为 controller，让原条件的控制者键能命中，
   // 从而单独复现现场集合查询误算手牌的问题，不改写条件，也不伪造历史。
@@ -267,14 +280,84 @@ test("ven-065-166 TODO: the original condition is false when all three categorie
   assert.equal(outcome.linkedValues["swain-visionary.conquer-condition.value"], false);
 });
 
-test.todo(
-  "ven-065-166 Swain, Visionary: [Vision]'s Predict needs the ordered top-deck source for effect.inspect " +
-    "(817.1.b / 437.1) plus the ordered picks prerequisite (RIFT-357 / RIFT-358, in flight)"
-);
-test.todo(
-  "ven-065-166 Swain, Visionary: evaluate 'played a non-token unit, a non-token gear, and a spell this turn' " +
-    "at trigger time (CR 383.2.a.1) — the trigger pipeline evaluates spec.condition as a live set query " +
-    "(host.testTrigger → kernel.test), not from play history; no merged path evaluates the three-clause " +
-    "'played … this turn' condition (HistoryQuery/condition.history is merged as an independent primitive " +
-    "but is not wired into the card's count condition)"
-);
+test("ven-065-166 Swain gap: the Vision expansion carries no ordered top-deck pick", () => {
+  // Executed evidence for judgeReason point 1: keywords/Vision.ts runs
+  // effect.inspect with scope top + picksSpecId, but its body declares no
+  // zoneSlice-bearing PickSpec, so the chain locks zero ordered picks.
+  const kernel = world().player("A").deck(["top-card", "second"], { owner: "A" })
+    .unit("swain", { cardId: CANONICAL_ID }).build();
+  const expanded = expandProgram(program, kernel.getObject("swain"));
+  const vision = expanded.expanded.find(entry => entry.trigger?.at === "object-enters-board");
+  assert.equal(vision.body[0].op, "effect.inspect");
+  assert.equal(vision.body[0].args.scope, undefined);
+  assert.equal(vision.body[0].args.amount.value, 1);
+  assert.equal(vision.body[0].picks ?? null, null);
+  assert.deepEqual(finalizeOrderedPickPlans(kernel, vision.body), []);
+});
+
+test("ven-065-166 Swain gap: the Vision expansion self-entry filter is rejected by the production binder", () => {
+  // Executed evidence for judgeReason point 1: keywords/Vision.ts spells the
+  // self-entry filter with an "object.id" key, which
+  // programs/filters.ts's translateObjectFilter rejects, so registerProgramTriggers
+  // throws before any Vision ability can reach the chain.
+  const kernel = world().player("A").deck(["top-card"], { owner: "A" })
+    .unit("swain", { cardId: CANONICAL_ID }).build();
+  const expanded = expandProgram(program, kernel.getObject("swain"));
+  const visionExpansion = expanded.expanded.find((entry) => entry.trigger?.at === "object-enters-board");
+  assert.deepEqual(visionExpansion.trigger.filter, { objectId: "self", "object.id": "self" });
+  assert.throws(
+    () => translateTriggerFilter(visionExpansion.trigger.filter, "swain-instance", "object-enters-board"),
+    (error) => error instanceof Error && /Unsupported filter field object\.id/.test(error.message)
+  );
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  assert.throws(
+    () => binding.registerProgramTriggers({ pipeline: { registerTrigger: () => {}, unregisterTrigger: () => {} } }, kernel.getObject("swain")),
+    (error) => error instanceof Error && /Unsupported filter field object\.id/.test(error.message)
+  );
+});
+
+test("ven-065-166 Swain: the closed conquer discriminant binds through the production trigger adapter", () => {
+  // The published filter uses the closed discriminant, so trigger registration
+  // no longer fails on invalid-event-type; only the source: "self" identity
+  // anchor (point 3) still cannot match the real scoring payload.
+  const translated = translateTriggerFilter(conquer.trigger.filter, "swain-instance", conquer.trigger.at);
+  assert.deepEqual(translated, { event: "conquered", object: { objectId: "swain-instance" } });
+  assert.doesNotThrow(() => assertTriggerSpec({ at: conquer.trigger.at, filter: translated }));
+});
+
+test("ven-065-166 Swain gap: the count condition ignores its subject and reads the live object set", () => {
+  // Executed evidence for judgeReason point 2: expr.ts's count only calls
+  // query(filter) and never consumes subject, so cards still in hand satisfy
+  // the "played this turn" clauses (two-units-in-hand => unit clause true).
+  const base = world()
+    .player("controller")
+    .card("hand-unit", { owner: "controller", zone: "hand", types: ["unit"], isToken: false })
+    .card("hand-gear", { owner: "controller", zone: "hand", types: ["gear"], isToken: false })
+    .card("hand-spell", { owner: "controller", zone: "hand", types: ["spell"] })
+    .build();
+  const kernel = base.clone({ controller: "controller" });
+  assert.equal(kernel.history({ scope: "turn", action: "play", player: "controller" }), 0);
+  const outcome = resolveChainBody(predicateBody(conquer.trigger.condition), kernel);
+  // The three in-hand cards make every clause's live query non-zero, so the
+  // conjunction is true although nothing has been played this turn.
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.linkedValues["swain-visionary.conquer-condition.value"], true);
+});
+
+test("ven-065-166 Swain gap: the conquer identity anchor rejects the real scoring payload", () => {
+  // Executed evidence for judgeReason point 3: turn/flow.ts emits conquer with
+  // only player + details.battlefieldId; translateTriggerFilter binds
+  // source: "self" to pattern.object, so the real payload does not match.
+  const pattern = translateTriggerFilter(conquer.trigger.filter, "swain-instance", "conquer");
+  const event = {
+    type: "task-resolved", seq: 1, eventId: 1, turnNumber: 1, activePlayerId: "A",
+    taskId: "pipeline:1", sourceCardId: "", reason: "conquer", autoResolved: true,
+    timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" }
+  };
+  assert.deepEqual(pattern, { event: "conquered", object: { objectId: "swain-instance" } });
+  assert.equal(matchesTriggerEvent(pattern, event, "A"), false);
+  assert.equal(
+    matchesTriggerEvent(pattern, { ...event, object: { ref: { id: "swain-instance", zoneEntryId: 1 } } }, "A"),
+    true
+  );
+});

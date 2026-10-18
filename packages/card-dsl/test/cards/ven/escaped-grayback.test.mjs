@@ -1,3 +1,6 @@
+// RIFT-697 execution evidence: ../templates/keyword-static-697.test.mjs runs the card's
+// exported abilities through the generic scenario harness and keeps the documented
+// clauses judge-required.
 // RIFT-672 execution evidence: ../templates/keyword-static-672.test.mjs (supported paths only).
 // Partial execution evidence is consolidated in ../templates/keyword-static-647.test.mjs; this card remains judge-required for the gaps asserted below.
 import assert from "node:assert/strict";
@@ -144,6 +147,9 @@ test.todo(
   "ven-124-166 Escaped Grayback: the [Empowered] dependent +2 Might reaches the layers behind the " +
     "Empowered status gate (CR 828.1.b.1 / 442.1.a) — guarantee empowered in production ObjectSnapshot adapters"
 );
+
+// 2026-10-17 RIFT-618: deleted the stale "expandProgram rejects the missing Empower KeywordDef"
+// assertion — effects/keywords/Empower.ts is merged, so that absence claim is no longer true.
 
 test("ven-124-166 Escaped Grayback evidence: expandProgram now expands Empower while preserving the missing-cost sentinel", () => {
   const kernel = world().unit("grayback", { types: ["unit"], zone: "board", controller: "A" }).build();

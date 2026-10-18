@@ -25,7 +25,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   从事件对象/载荷读取印刷 Power。
  * - "draw 1"：effect.draw（414.1/414.3），抽牌者缺省为能力控制者。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
+ * status 判定（cards/README.md 第 2 节，2026-10-18 复核）：judge-required。
  * - 已合入并由 golden 真实执行：card-played 时点、player: self 绑定（190.6.d）、
  *   event-printed 印刷 Power 比较、以及 effect.draw 本体。golden 里印刷 2 Power 的牌
  *   触发放抽 1，印刷 1 Power 的牌不触发。
@@ -81,7 +81,7 @@ const program = {
     "（\"Printed characteristic is unavailable\"），触发扫描会把正在结算的牌留在 Chain 上并向调用方抛错，" +
     "而不是按 206.1/131.3.b 把「无 Power cost」评价为使 2+ 条件为假；" +
     "需要该谓词对缺失的印刷 Power 给出可比较语义（不得把卡牌数据的 null 改写成 0）。" +
-    "依赖：effects/interpreter/predicates/helpers.ts 的缺失印刷特征语义。",
+    "依赖：effects/interpreter/predicates/helpers.ts 的缺失印刷特征语义（numericPrinted 对 null 的处理）。",
   abilities,
   sourceText: "When you play a card with Power cost :rb_rune_rainbow::rb_rune_rainbow: or more, draw 1."
 } satisfies CardProgram;

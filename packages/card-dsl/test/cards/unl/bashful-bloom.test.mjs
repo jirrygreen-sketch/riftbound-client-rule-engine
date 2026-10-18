@@ -35,6 +35,7 @@ test("unl-189-219 Bashful Bloom: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /187\.2/);
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /cost\.modify/);
+  assert.match(program.judgeReason, /cost\/discounts\/collect/);
   assert.match(program.judgeReason, /programs\/activate/);
   // Second-sweep refresh: the location selector itself is merged; the token
   // primitive's parameter boundary is the remaining blocker and is asserted
@@ -96,7 +97,7 @@ test("unl-189-219 Bashful Bloom: the printed 4-Energy cost is payable through th
 });
 
 test("unl-189-219 Bashful Bloom: the Temporary KeywordDef the Sprite token needs is merged", () => {
-  // CR 187.2 gives the Sprite token [Temporary]; RIFT-265 merged the KeywordDef,
+  // CR 187.2 gives the Sprite token [Temporary]; the KeywordDef is merged,
   // so the token's ability half is available even though the token definition
   // itself (and the ready entry override) is still missing.
   const temporary = keywordDefinitionsById.get("Temporary");

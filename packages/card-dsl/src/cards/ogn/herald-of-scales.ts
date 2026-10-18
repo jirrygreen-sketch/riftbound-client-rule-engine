@@ -18,9 +18,9 @@ import type { CardProgram } from "../../ir/index.js";
  * - 133.8 / 133.8.a：“Dragon” 是标签（tag），本身没有内在规则含义，只在被文本
  *   引用时生效；筛选按 `tags: "Dragon"` + 控制者（“Your”）。
  *
- * status: judge-required —— 契约 3.7/费用系统尚未消费静态费用改写：
- * 1. 没有把静态 `continuous.cost-modification` 送进 cost/cost-plan.ts 折扣步骤
- *    （356.4）的 CardProgram 桥接。
+ * status: judge-required —— 静态费用收集器已合入，但生产 Finalize 尚未调用：
+ * 1. cost/discounts 能直接读取本卡 continuous.cost-modification 与活跃来源；
+ *    programs/statics.ts 和 chain/engine.ts 尚未连接这条费用路径。
  * 2. “Energy costs … reduced by [2], to a minimum of [1]” 的 minimum 语义（356.4.e）
  *    已由 buildCostPlan 实际消费；仍缺把本卡静态来源送入该计划的桥接。
  * 3. 该静态能力作用于“你即将打出的 Dragon 牌”，其 filter 与费用分量（energy）在
@@ -32,8 +32,10 @@ export default {
   status: "judge-required",
   judgeReason:
     "仍缺 continuous.cost-modification → 生产 Finalize CostPlanInput.discounts 的来源桥接（CR 356.4）：programs/statics.ts" +
-    " 没有该静态类型的 layer 映射，chain/engine.ts 未从场上己方 Herald 收集 Dragon 费用折扣及来源生命周期。CR 356.4.e 要求每个折扣独立保留 " +
-    "minimum，不能把最小 1 写成印刷费用或总费用的永久下限。",
+    " 的 layerFor 仍拒绝该声明，chain/engine.ts 仍直接调用 buildCostPlan，未调用已合入的 cost/discounts.finalizeCostPlan。" +
+    "收集器已能读取本卡原始声明，按当前控制者、Dragon 标签与活跃来源计算独立 minimum（356.4.e）；" +
+    "缺的是生产来源登记、生命周期和 Finalize 事务接线，不再是减费收集或 minimum 算法。" +
+    "另有测试内核缺口：pay 动作未扣除 plan.power，不能把回执作为 Dragon 原有 Power 已支付的执行证据（357.2）。",
   abilities: [
     {
       kind: "static",

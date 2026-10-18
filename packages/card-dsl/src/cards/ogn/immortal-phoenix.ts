@@ -34,7 +34,7 @@ const immortalPhoenix = {
   status: "judge-required",
   judgeReason:
     "仍缺法术消灭归因与 Trash 活跃窗口（CR 429.5.b/c/d、385.2）：kill 动作没有 " +
-    "source，主动消灭原语不传法术来源，清理消灭未贯通法术/伤害归因；triggerRegistrations 对 object-killed 固定 activeZones: board。count 的 " +
+    "source，主动消灭原语不传法术来源，清理消灭未贯通法术/伤害归因；programs/triggers.ts 对 object-killed 固定 activeZones: board。count 的 " +
     "kill-sources-this-event 不是事件归因查询。嵌套 Play 还缺在 resulting unit Finalize " +
     "选择合法地点并接入替代费用的窗口，不能用正文提前付款取代该生命周期。[Assault 2] 展开仍读取 designation，而当前快照暴露 combatRole，缺关键词与战斗身份绑定（807.1）。",
   abilities: [

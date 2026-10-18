@@ -19,7 +19,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   PlayerSnapshot.power / FinalizedCostPlan.power 只有六域值，cost/README.md 的
  *   契约请求 2 记录该缺口。
  *
- * status = judge-required（2026-10-17 按当前合入源码复核，缺口实测，不近似实现）:
+ * status = judge-required（2026-10-18 按当前合入源码复核，缺口实测，不近似实现）:
  * 1. Applied Cost 可以经 `continuous.restrict`（mode `applied-cost`）用指令路径真实登记，
  *    layers/rules/query.ts 的 appliedCosts() 也能按动作名读回（实测读回 actions:["move"]
  *    与完整 cost）；但没有任何消费方把它接进标准移动的费用计划（204.4.b 要求付费与移动同一
@@ -76,7 +76,7 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口（2026-10-17 实测）：(1) Applied Cost 可经 continuous.restrict 的 applied-cost 模式用指令路径真实登记，" +
+    "当前缺口（2026-10-18 实测）：(1) Applied Cost 可经 continuous.restrict 的 applied-cost 模式用指令路径真实登记，" +
     "layers/rules/query.ts 的 appliedCosts() 也按动作名读回（golden 已断言），但仍没有移动费用计划消费方；" +
     "204.4.b 要求付费与 Game Action 同一时机，不能改写成触发式/入链费用。(2) [A]（135.2.e.5 / 163.2.b 的任意域 Power）没有可执行表达：" +
     "六域封闭枚举下没有 universal 值，cost/README.md 的契约请求 2 明确要求保留 universal 源、不能用某一色替代。" +

@@ -1,6 +1,9 @@
 // Partial execution evidence for the merged counter primitive is consolidated
-// in ../templates/keyword-play-effect-counter-676.test.mjs; the history gate
-// remains judge-required until a Finalize-time history requirement adapter exists.
+// in ../templates/keyword-play-effect-counter-676.test.mjs and extended by
+// Crumbling Sands' own per-card scenario row in
+// ../templates/keyword-play-effect-counter-699.test.mjs; the history gate
+// remains judge-required until a Finalize-time history requirement adapter
+// exists.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { expandProgram, abilitySpeed } from "../../../../engine-core/dist/programs/keywords.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";

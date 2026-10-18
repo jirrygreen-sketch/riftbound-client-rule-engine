@@ -18,13 +18,12 @@ import type { Ability, CardProgram, Expr } from "../../ir/index.js";
  *   `count` 与 `arithmetic` 都是类型与解释器已支持的原语级表达式（interpreter README
  *   的 native arithmetic 段），`cost/cost-plan.ts` 也接受 `CostDiscount.amount: Expr`。
  *
- * status 判定（README 第 2 节）：judge-required。缺口不是表达式，而是**声明通道**：
- * 工程里没有把卡牌侧 `continuous.cost-modification` 静态效果映射到费用计划的消费者——费用计划
- * `buildCostPlan` 的 `discounts` 仍由调用方提供，`programs/statics.ts` 的图层映射也拒绝该
- * effect kind。同时 “self” 这个 owner/牌主占位符只有卡片 IR 语义，费用计划的
- * `ResolveContext.query` 过滤器仍是运行时字面值。
- * 折扣金额表达式本身可由解释器真实执行，golden 测试用解释器 + 参考内核断言减费点数，
- * 并用已合入的 `buildCostPlan` 证明同一表达式能产出 10→7 的 Energy 折扣。
+ * status 判定（README 第 2 节）：judge-required（复核 2026-10-18）。表达式和
+ * Finalize 收集器已经能执行：`finalizeCostPlan` 能按本卡的 `owner: "self"` 计数、锁定
+ * -1/Trash 折扣并交给费用支付。剩余缺口在生产 CardProgram/Chain 接线：默认打出路径仍
+ * 直接调用 `buildCostPlan`，没有从本卡 static ability 收集 `continuous.cost-modification`
+ * 到 `CostPlanInput.discounts`；`programs/statics.ts` 也只负责普通图层绑定，不能把本卡的
+ * pre-play 自身费用能力送进该收集器。整卡因此不能宣称 executable。
  */
 const trashDiscount: Expr = {
   kind: "arithmetic",
@@ -57,11 +56,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺费用改写的卡牌侧声明通道：356.4.b/356.4.g 的 “cost N less for each card in your trash” 需要把本卡的 " +
-    "continuous.cost-modification 静态效果读成费用计划的 CostDiscount，但 engine-core 里没有任何消费者——" +
-    "buildCostPlan 的 discounts 只由调用方（chain 的费用输入）提供，programs/statics.ts 的 layerFor() 也没有 continuous.cost-modification 的费用层映射；" +
-    "同时 amount 里的 owner: \"self\"（本卡拥有者的 trash）没有费用计划侧的解析定义。cost.modify 原语和费用计划本体已合入，折扣点数表达式本身已可由解释器求值，" +
-    "golden 测试真实执行并断言 10→7 的减费结果。",
+    "当前生产缺口（复核 2026-10-18）：356.4.b/356.4.g 的“cost N less for each card in your trash”已经能由 engine-core 的 " +
+    "finalizeCostPlan 真实收集并按 owner: \"self\" 计算，但默认 ChainEngine 的打出 Finalize 仍直接调用 buildCostPlan，" +
+    "没有把 CardProgram 的 continuous.cost-modification static ability 转成 CostPlanInput.discounts；programs/statics.ts 也没有把 pre-play 自身费用能力接到该收集器。" +
+    "因此本卡的实际打出仍缺 CardProgram → Finalize 费用桥接；golden 覆盖收集器、Energy 下限与支付结果，不近似实现生产接线。",
   abilities,
   sourceText: "I cost :rb_energy_1: less for each card in your trash."
 } satisfies CardProgram;

@@ -9,7 +9,8 @@ import play from "../../../../engine-core/dist/effects/instructions/effect.play.
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 
 import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
-import { createProgramBinding, createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { createProgramBinding, createEngineStaticBinder, translateTriggerFilter } from "../../../../engine-core/dist/programs/index.js";
+import { assertTriggerSpec, validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { LayerEngine } from "../../../../engine-core/dist/layers/engine.js";
 
@@ -58,6 +59,11 @@ test("Kai'Sa, Evolutionary identity and judge-required reason", () => {
   assert.match(program.judgeReason, /energyLessThan/);
   assert.match(program.judgeReason, /played 次数/);
   assert.match(program.judgeReason, /permission\.routes/);
+  // 2026-10-17 re-sweep: the reason now names the event-name vocabulary that
+  // blocks registration before the target filter is even reached.
+  assert.match(program.judgeReason, /conquer/);
+  assert.match(program.judgeReason, /conquered/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES|validateTriggerSpec/);
   assert.match(program.judgeReason, /候选法术印刷 Energy/);
   assert.match(program.judgeReason, /嵌套 Finalize/);
   assert.equal(
@@ -165,7 +171,8 @@ test("golden: declining the optional play skips the body entirely", () => {
 
 test.todo(
   "Kai'Sa: target filtering must compare a candidate spell's printed Energy with the current controller " +
-    "points (355.10.a); the authored energyLessThan placeholder is not a known filter field"
+    "points (355.10.a); the authored energyLessThan placeholder is not a known filter field, and the " +
+    "trigger cannot register first because EVENT_PATTERN_TYPES has no 'conquer' spelling"
 );
 test.todo(
   "Kai'Sa: bind the actually selected spell to an ignore-base-energy cost plan and nested Finalize, preserving " +
@@ -227,6 +234,47 @@ test("Kai'Sa: the authored energyLessThan target filter is not a known field, so
   assert.throws(
     () => binding.registerProgramTriggers({ pipeline: { registerTrigger: () => {} } }, source),
     /Unsupported filter field energyLessThan/
+  );
+});
+
+test("Kai'Sa: the conquer subscription is rejected by the closed event-name vocabulary", () => {
+  // 2026-10-17 re-sweep measurement: registration never reaches the
+  // energyLessThan / nested-Finalize gaps. translateTriggerFilter keeps the
+  // declared EventPattern's event name, and events/trigger-spec.ts only accepts
+  // the closed EVENT_PATTERN_TYPES spelling "conquered" (471.1 / 473.2.a).
+  const source = {
+    ref: { id: "kaisa", zoneEntryId: 1 },
+    cardId: program.canonicalCardId,
+    name: "Kai'Sa, Evolutionary",
+    types: ["unit"], tags: [], keywords: [], owner: "A", controller: "A",
+    zone: "board", location: { type: "battlefield", id: "battlefield-1" },
+    might: 4, energy: 5, power: ["Fury"], exhausted: false, damage: 0,
+    stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
+  };
+  assert.deepEqual(triggered.trigger.filter, { event: "conquer", filter: { role: "self" } });
+  assert.deepEqual(translateTriggerFilter(triggered.trigger.filter, source.ref.id, triggered.trigger.at), {
+    event: "conquer",
+    object: { objectId: source.ref.id }
+  });
+  const validation = validateTriggerSpec({
+    at: triggered.trigger.at,
+    filter: translateTriggerFilter(triggered.trigger.filter, source.ref.id, triggered.trigger.at)
+  });
+  assert.equal(validation.ok, false);
+  assert.deepEqual(validation.issues.map(issue => [issue.path, issue.code]), [
+    ["trigger.filter.event", "invalid-event-type"]
+  ]);
+  // registerProgramTriggers translates the ability body before the spec reaches
+  // the pipeline, so the energyLessThan target key is reported first; the event
+  // name still cannot pass, as the standalone validation above shows.
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  assert.throws(
+    () => binding.registerProgramTriggers({ pipeline: { registerTrigger: () => {} } }, source),
+    /Unsupported filter field energyLessThan/
+  );
+  assert.throws(
+    () => assertTriggerSpec({ at: triggered.trigger.at, filter: translateTriggerFilter(triggered.trigger.filter, source.ref.id, triggered.trigger.at) }),
+    { name: "TriggerSpecValidationError", message: /^trigger\.filter\.event:/ }
   );
 });
 

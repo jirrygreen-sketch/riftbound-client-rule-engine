@@ -139,6 +139,8 @@ test.todo(
   "ogn-151-298 Lee Sin, Centered: 'Other buffed friendly units at my battlefield have +2 Might.' needs a " +
     "host-location ('my battlefield', 359.3.f.2) anchor the layer filter can match — statics.ts resolves " +
     "sameLocationAs to a structured location that layers/filter.ts never matches — and a dynamic 'other' " +
+    "exclusion (printed \"other\"), which staticFilter rejects outright. The merged binder reports " +
+    "'Static exclude anchor needs a dynamic relative filter'. The integration wording is: " +
     'exclusion (printed "other"), which staticFilter rejects outright with ' +
     "'Static exclude anchor needs a dynamic relative filter'."
 );

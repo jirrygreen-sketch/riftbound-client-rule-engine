@@ -1,3 +1,17 @@
+// Golden test for Noxian Emissary (ven-128-166).
+// The Empower keyword declaration, the Empowered-gated object-killed trigger
+// and the two-Recruit token body are verifiable; the printed Empower cost and
+// the native-token play handoff remain judged (see judgeReason).
+//
+// Template-level execution evidence lives in
+// test/cards/templates/keyword-triggered-object-killed-conditio-679.test.mjs
+// (RIFT-679, README 4.1): a real effect.empower action flips the pre-death
+// state and the harness queues the authored two-Recruit body with
+// source.empowered === 1; a boundary row shows the token play failing closed
+// on the missing native-token program. The authored Empowered trigger gate is
+// asserted here, where the event-aware evaluator reads the pre-death LKI.
+// This file keeps the validation, structure and fail-closed dependency
+// assertions for the same canonical identity.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -10,7 +24,11 @@ import { createActionPipelineHost, bindResolveContext } from "../../../../engine
 import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { attachProgramLifecycle } from "../../../../engine-core/dist/programs/lifecycle.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-f94f709693f78579dcd97c1ebdba7859c74403424ef6cd195238e47541869fbf";
@@ -35,10 +53,15 @@ test("ven-128-166 Noxian Emissary: identity, status, judgeReason and verbatim so
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Empower/);
-  assert.match(program.judgeReason, /ObjectSnapshot/);
+  assert.match(program.judgeReason, /Unsupported cost kind empower/);
   assert.match(program.judgeReason, /727\.1\.c\.1/);
-  assert.match(program.judgeReason, /empowered 计数/);
+  assert.match(program.judgeReason, /createEngineStaticBinder/);
   assert.match(program.judgeReason, /Expr\.location/);
+  assert.match(program.judgeReason, /object-leaves-board/);
+  assert.match(program.judgeReason, /cardId:null/);
+  // The old "ObjectSnapshot does not declare Empowered" claim was re-measured:
+  // the reference kernel exposes the count and the trigger scan reads it.
+  assert.doesNotMatch(program.judgeReason, /ObjectSnapshot 契约尚未声明/);
 });
 
 test("ven-128-166 Noxian Emissary: [Empower] is declared, not re-implemented (contract 3.7)", () => {
@@ -188,3 +211,50 @@ test.todo(
   "ven-128-166 Noxian Emissary: resolve the Deathknell token plays through the production ProgramBinding; " +
     "Recruit has cardId:null and the chain requires a real native-token play adapter (440.2.c / 185.2.a)"
 );
+
+test("ven-128-166 Noxian Emissary evidence: the production lifecycle detaches the death trigger before the kill scan", () => {
+  // Re-measured 2026-10-18: src/programs/lifecycle.ts unregisters a bound program
+  // trigger as soon as object-leaves-board is emitted, so the object-killed scan
+  // that follows a real kill has no subscription and Deathknell never queues.
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const f = fixture({ cards: [{ id: "emissary", cardId: CANONICAL_ID, types: ["unit"], might: 2, location: { type: "base", player: "A" } }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("emissary"), to: "base" });
+  f.engine.advance();
+  const source = f.kernel.getObject("emissary");
+  assert.equal(triggerRegistrations(registry, source).length, 1);
+
+  const handle = attachProgramLifecycle(f.engine, registry);
+  f.engine.pipeline.emit({ timingPoint: "object-enters-board", object: source });
+  const registrations = () => {
+    let count = 0;
+    for (const _ of f.engine.pipeline.triggers.values()) count += 1;
+    return count;
+  };
+  assert.equal(registrations(), 1);
+  assert.equal(f.engine.commit({ type: "empower", object: source.ref }).status, "done");
+
+  // A real kill emission both detaches the subscription and skips the death scan.
+  assert.equal(f.engine.commit({ type: "kill", object: source.ref }).status, "done");
+  assert.equal(registrations(), 0, "the program trigger is unregistered by the leave-board emission");
+  assert.deepEqual(f.engine.items, [], "no Pending Item was queued for the death");
+  handle.detach();
+});
+
+test("ven-128-166 Noxian Emissary evidence: a played Recruit has no production play program", () => {
+  // effect.token(mode: "play") creates a Chain token with cardId: null; the
+  // production play path resolves programs by cardId only.
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  assert.throws(
+    () => registry.get(null),
+    error => error.code === "unknown-program" && /No CardProgram is registered for <null>/.test(error.message)
+  );
+  const kernel = world().player("A").build();
+  const run = runInstruction(
+    token,
+    { ...playRecruits.args, location: { kind: "constant", value: { type: "base", player: "A" } } },
+    { world: kernel }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.pendingItems.length, 0, "the reference kernel has no play handoff for the created token");
+  assert.throws(() => registry.get(kernel.query({ tag: "Recruit" })[0]?.cardId ?? null), error => error.code === "unknown-program");
+});

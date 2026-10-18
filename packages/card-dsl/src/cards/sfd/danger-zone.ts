@@ -21,7 +21,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   rune) stays declared on the play ability as an optional additional CostSpec
  *   so the intent is reviewable.
  * - The team buff itself is now executable: the merged continuous.might
- *   primitive (RIFT-258) registers the arithmetic-layer modification over the
+ *   primitive registers the arithmetic-layer modification over the
  *   programmatic "your Mechs" set through ctx.addContinuous with the
  *   end-of-turn duration (317.2.c / 468.7.c), and the golden test drives the
  *   card's own body through the production interpreter adapter.
@@ -65,7 +65,7 @@ const dangerZone = {
           // "Give your Mechs +1 Might this turn" — each-set (no TargetSpec);
           // a duration-bounded Might modification over the programmatic set of
           // the controller's Mech units, registered by the merged
-          // continuous.might primitive (RIFT-258) and expiring at cleanup.
+          // continuous.might primitive and expiring at cleanup.
           id: "buff-mechs",
           op: "continuous.might",
           args: {

@@ -22,23 +22,29 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Value 与 809.1.c/809.1.c.1 的对手附加 Power 费用由关键词展开负责。
  * - 143.2 / 143.2.a："+1 :rb_might:" 是算术图层的 Might 修正，不是 702 的 Buff 计数器。
  *
- * 复核（2026-10-17，第二轮 M2 覆盖率复核）：+1 Might 与 Deflect 2 的图层产出已有
- * golden 执行证据（arithmetic 注册 + grant-keyword 图层）；早前作为缺口的
- * RIFT-91（图层注册入口）与 RIFT-90（target.tax 机制）已合入，不再列为缺口——
- * target.tax 现由 Deflect 展开声明，仍缺的是从关键词自动接线到目标计划。
+ * 复核（2026-10-18；结论以源码与本任务 golden 实测为准）：
+ * - Empower KeywordDef 已合入（effects/keywords/Empower.ts）并会展开
+ *   827.1.c.1 的启动费用与 “Use only if not Empowered” 限制；+1 Might 与 [Deflect 2]
+ *   的图层产出（continuous.might / continuous.grant-keyword）也已可由生产 binder 求值。
+ * - 本卡仍不能 executable：印刷的 2 Energy 无法到达 expand，Empowered 门控没有可求值谓词，
+ *   且 [Deflect 2] 的税没有生产收集方。
  *
  * status = judge-required（当前真实缺口，均不近似实现）：
- * 1. keywords/registry.generated.ts 没有任何 Empower / Empowered 的 KeywordDef
- *    （RIFT-81~88 关键词批次不含它们），827.1.c.1 的启动费用与「仅当未 Empowered 时」
- *    限制、828.1.b.1 的依赖能力都无法展开；
- * 2. 没有 Empowered 状态谓词（442.1.a）：状态不在 ObjectSnapshot / Condition 里，
- *    静态效果的 condition 只能以显式谓词字符串占位（由关键词系统消费）；
- * 3. 卡牌侧没有把 continuous.might / continuous.grant-keyword 静态效果注册进图层的入口
- *    （ctx.addContinuous 只有 chain/engine 内部接线；RIFT-91 的 layers 引擎已合入求值
- *    骨架），因此依赖能力无法激活。
- * 依赖：新增 Empower/Empowered 关键词任务与 442.1.a 状态谓词；并把卡内声明的
- * continuous.might 与 [Deflect 2] 的 continuous.grant-keyword 接到图层/target.tax
- * 执行入口（图层求值骨架已合入）。
+ * 1. 印刷的 2 Energy 无法到达 KeywordDef.expand：827.1.c.1 的费用属于启动费用，
+ *   契约 3.1 的 KeywordAbility 只有 keyword/value，programs/keywords.ts 的
+ *   expandProgram 调用 def.expand({ value, host }) 时不传 params.cost（契约 3.8.3）。
+ *   本任务实测：展开出的费用是 { kind: "empower" }，buildCostPlan 抛
+ *   CostPlanError "Unsupported cost kind: empower"，因此 2 Energy 尚未成为可支付的费用。
+ * 2. 没有 Empowered 状态谓词（442.1.a/828.1.b.1）：程序现在使用与参考内核一致的
+ *   object-property "empowered" 比较，但生产 ObjectSnapshot 没有该字段，且 layers/engine.ts
+ *   的 conditionMatches 尚不解释 compare/object-property，未知条件会 fail-open。
+ * 3. [Deflect 2] 的税没有生产收集方（809.1.c/809.1.c.1）：continuous.grant-keyword 可把
+ *   deflect 2 加入图层关键词列表，但没有消费方把该关键词转成 target.tax；
+ *   chain/engine.ts 的 finalizeTargetPlan 不传 tax 选项（target/target-plan.ts 只在调用方
+ *   显式传 tax 时才追加 TargetTaxRequest），本任务 golden 实测选择带 Deflect 2 的单位
+ *   不会产生任何税，也不会因税不可支付而被拒绝。
+ * 依赖：KeywordAbility 印刷 Empower 费用传递（契约变更请求）、442.1.a 状态谓词、
+ * layered Deflect → target tax 的生产接线。
  */
 const abilities: Ability[] = [
   {
@@ -57,8 +63,10 @@ const abilities: Ability[] = [
       appliesTo: "self"
     },
     condition: {
-      kind: "expression",
-      value: { kind: "constant", value: "empowered" }
+      kind: "compare",
+      left: { kind: "object-property", object: "self", property: "empowered" },
+      operator: "gte",
+      right: { kind: "constant", value: 1 }
     }
   },
   {
@@ -70,8 +78,10 @@ const abilities: Ability[] = [
       keywords: [{ id: "deflect", value: 2 }]
     },
     condition: {
-      kind: "expression",
-      value: { kind: "constant", value: "empowered" }
+      kind: "compare",
+      left: { kind: "object-property", object: "self", property: "empowered" },
+      operator: "gte",
+      right: { kind: "constant", value: 1 }
     }
   }
 ];
@@ -82,13 +92,20 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两条缺口（复核 2026-10-17；+1 Might 与 Deflect 2 的图层产出已有 golden 执行证据，" +
-    "图层注册入口与 target.tax 机制均已合入，不再列为缺口）：(1) keywords/registry.generated.ts " +
-    "没有任何 Empower / Empowered 的 KeywordDef，827.1.c.1 的「2 Energy：Empower me，仅当未 " +
-    "Empowered 时启动」与 828.1.b.1 的依赖能力都无展开实现；(2) 没有 Empowered 状态谓词（442.1.a）" +
-    "——状态不在 ObjectSnapshot / Condition 里，静态效果里的 condition 只能以显式谓词字符串占位，" +
-    "828.1.b.1 的依赖能力无法激活，[Deflect 2] 的 target.tax 也缺从关键词到目标计划的自动接线。" +
-    "依赖：新增 Empower/Empowered 关键词任务与 442.1.a 状态谓词；并把卡内声明的 continuous.might 与 [Deflect 2] 的 continuous.grant-keyword 接到图层/target.tax 执行入口（图层求值骨架已合入）。不近似实现（不把 +1 :rb_might: 写成 Buff）。",
+    "三条当前缺口（复核 2026-10-18；均不近似实现）：" +
+    "(1) 印刷的 2 Energy 无法到达 KeywordDef.expand（827.1.c.1）：KeywordAbility 只有 keyword/value，" +
+    "programs/keywords.ts 调用 def.expand({ value, host }) 时不传 params.cost（契约 3.8.3）；本任务实测" +
+    "展开出的启动费用是 { kind: \"empower\" }，buildCostPlan 抛 CostPlanError " +
+    "\"Unsupported cost kind: empower\"。" +
+    "(2) 没有 Empowered 状态谓词（442.1.a/828.1.b.1）：ObjectSnapshot 无 empowered 字段、Condition 词表" +
+    "无该谓词；程序虽已使用 object-property \"empowered\" 比较，生产 ObjectSnapshot 没有该字段，" +
+    "layers/engine.ts 的 conditionMatches 也尚不解释该比较，未知条件当前 fail-open。" +
+    "(3) [Deflect 2] 的税没有生产收集方（809.1.c/809.1.c.1）：continuous.grant-keyword 能把 deflect 2 加入" +
+    "图层关键词列表，但没有消费方把关键词转成 target.tax；chain/engine.ts 的 finalizeTargetPlan 不传 tax" +
+    "选项，本任务 golden 实测选择带 Deflect 2 的单位不产生任何税，也不因不可支付被拒绝。" +
+    "已合入且非缺口：Empower KeywordDef、continuous.might 的 +1 Might 算术图层求值、[Deflect 2] 的关键词图层授予、" +
+    "target/tax/collect.ts 的税收集器与 TargetTaxCostAdapter（由调用方显式传入 effects/tax 时）。" +
+    "依赖：KeywordAbility 印刷 Empower 费用传递（契约变更请求）、442.1.a 状态谓词、layered Deflect → target tax 生产接线。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_2: (:rb_energy_2:: Empower me. Use only if not Empowered.)\n" +

@@ -23,20 +23,36 @@ import type { CardProgram } from "../../ir/index.js";
  *   with the end-of-turn duration; effect.buff (703 Buffs are counters) is not
  *   substituted.
  *
- * Status: judge-required. continuous.might executes, but three event seams
- * remain: object-moved is absent from the trigger validator's event vocabulary;
- * the actual action-adapter emission does not populate the declared origin
- * fields; and ObjectSelector cannot name the moved unit from the event.
- * The origin must bind dynamically to this battlefield, and Recall must stay
- * distinct from Move (458.1). The TargetSpec is a blocked structural stand-in,
- * not a target choice made by the printed text.
+ * Status: judge-required (re-checked 2026-10-17 with measured evidence).
+ * continuous.might executes, but three event seams remain: object-moved is
+ * absent from the trigger validator's event vocabulary (registerProgramTriggers
+ * throws TriggerSpecValidationError / invalid-event-type and registers nothing);
+ * the actual action-adapter emission carries neither the declared fromKind /
+ * fromLocationId nor fromZone (those fields are only written on the
+ * zone-enters/leaves branch), so "from here" cannot be compared with the Move's
+ * origin (449.1); and ObjectSelector cannot name the moved unit from the event
+ * (355.10.c). Recall must stay distinct from Move (458.1). The TargetSpec is a
+ * blocked structural stand-in, not a target choice made by the printed text.
+ * Execution evidence: test/cards/templates/triggered-object-moved-continuous-might-687.test.mjs.
  */
 export default {
   canonicalCardId: "card.hash-493d66d1c2a0fe93d708e9d2f3e005dc5a57140526eb8080cdad1ce0977c081a",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺三处事件接线：（1）object-moved 虽已发射，却不在 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 内，触发无法注册；（2）events/action-adapter.ts 的实际 Move 发射没有 fromKind/fromLocationId，timing-points.ts 的声明不等于载荷实现，且缺把起点 here 动态绑定到宿主战场的过滤器；（3）ObjectSelector 没有读取触发载荷中移动单位的入口，continuous.might 的 TargetSpec 只是占位，会错误要求文本未包含的目标选择（CR 355.10.c）。需保留 Move 与 Recall 的区别（CR 458.1）并对实际移动单位施加本回合 +1（317.1.a/478）。",
+    "三处实测缺口（2026-10-17），均不近似实现：" +
+    "(1) 触发无法注册——programs/triggers.ts 经 events/trigger-spec.ts 的 assertTriggerSpec 校验 trigger.at/filter，" +
+    "而封闭 EVENT_PATTERN_TYPES 不含 \"object-moved\"（词表用 zone-entered/zone-left 一类别名），" +
+    "实测 registerProgramTriggers 抛 TriggerSpecValidationError（trigger.filter.event invalid-event-type），pipeline 触发器数为 0。" +
+    "(2) 起点载荷缺失——events/action-adapter.ts 为 move-location 发出的 object-moved 事件只带 action.to，" +
+    "不带 timing-points.ts 为此时点声明的 fromKind/fromLocationId/toKind/toLocationId，也不带 fromZone/toZone" +
+    "（这两个字段只在同一发射的 zone-enters/leaves 分支写入），因此「from here」无法与该次 Move 的起点比较（449.1）；" +
+    "filter.details.fromLocationId 的 \"self\" 是目前唯一可表达的静态占位，字面量永不等于真实战场 id，保持 fail-closed，" +
+    "不能退化成「任何移动都触发」。" +
+    "(3)「it」没有选择器——冻结 ObjectSelector 只有 self/source/target/pick/linked，没有触发载荷对象形态，" +
+    "而 355.10.c 明确触发条件里的对象不是目标；continuous.might 的 TargetSpec 只是结构性占位，会错误要求文本未包含的目标选择。" +
+    "已可执行部分：continuous.might + duration \"this-turn\"（143.2.a、317.1.a、478）经生产 body 适配器对被绑定对象真实生效并在回合结束到期。" +
+    "依赖：object-moved 进入 EventPattern 词表、Move 起终点载荷（449.1/449.2，并保留 458.1 的 Recall 区分）、触发载荷对象选择器（契约变更请求）。",
   sourceText: "When a unit moves from here, give it +1 :rb_might: this turn.",
   abilities: [
     {

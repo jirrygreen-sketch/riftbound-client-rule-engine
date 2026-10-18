@@ -6,6 +6,7 @@ import program from "../../../dist/cards/ogn/the-arenas-greatest.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture } from "../../../../engine-core/test/turn/helpers.mjs";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL = "card.hash-23d43dc5325dcaca58f58415a7f9046b3d280f3c40d261f5aa7ddbfa1bf72770";
 const [ability] = program.abilities;
@@ -26,10 +27,17 @@ test("ogn-290-298 The Arena's Greatest: program validates and is judge-required"
   assert.match(program.judgeReason, /EventPattern/);
   assert.match(program.judgeReason, /oncePerPlayer/);
   assert.match(program.judgeReason, /per-game/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.equal(
     program.sourceText,
     "At the start of each player's first Beginning Phase, that player gains 1 point."
   );
+});
+
+test("ogn-290-298: the authored Beginning event pattern still needs registration support", () => {
+  const validation = validateTriggerSpec(ability.trigger);
+  assert.equal(validation.ok, false);
+  assert.equal(validation.issues.some(issue => issue.path === "trigger.filter.event" && issue.code === "invalid-event-type"), true);
 });
 
 test("ogn-290-298: beginning-start trigger that gains 1 point for the event player", () => {
@@ -83,7 +91,7 @@ test("ogn-290-298: prevented Gaining Points negates the instruction without awar
   assert.deepEqual(outcome.linkedValues[`${score.id}.scored`], []);
 });
 test.todo(
-  "ogn-290-298: beginning-start 已由 TurnFlow 发出；仍缺每名玩家对局一次频度与事件玩家选择器，" +
+  "ogn-290-298: beginning-start 已由 TurnFlow 发出；仍缺事件词表注册、每名玩家对局一次频度与事件玩家选择器，" +
     "占位 EventPattern 未绑定这些语义，不能用控制者代替 that player"
 );
 

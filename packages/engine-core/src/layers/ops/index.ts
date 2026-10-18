@@ -64,12 +64,15 @@ export function isDurationAlias(value: unknown): value is DurationAlias {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const item = value as Record<string, unknown>;
   if (item.type === "until") {
-    return isTimingPointId(item.at) && (item.player === undefined || typeof item.player === "string");
+    return Object.keys(item).every(key => ["type", "at", "player"].includes(key)) && isTimingPointId(item.at) &&
+      (item.player === undefined || typeof item.player === "string" && item.player.length > 0);
   }
   if (item.type === "while-source-in-zone") {
+    if (Object.keys(item).some(key => key !== "type" && key !== "source")) return false;
     if (item.source === undefined) return true;
     return typeof item.source === "object" && item.source !== null &&
       typeof (item.source as Record<string, unknown>).id === "string" &&
+      ((item.source as Record<string, unknown>).id as string).length > 0 &&
       Number.isSafeInteger((item.source as Record<string, unknown>).zoneEntryId) &&
       ((item.source as Record<string, unknown>).zoneEntryId as number) >= 0;
   }
@@ -104,6 +107,7 @@ export function resolveContinuousDuration(
   value: DurationAlias | undefined,
   sourceRef: ObjectRef | undefined
 ): Duration {
+  if (value !== undefined && !isDurationAlias(value)) throw new TypeError("Unknown continuous effect duration");
   if (value === undefined || value === "permanent") return { type: "permanent" };
   if (value === "this-turn" || value === "end-of-turn") return { type: "end-of-turn" };
   if (value === "this-combat" || value === "end-of-combat") return { type: "end-of-combat" };
@@ -167,6 +171,8 @@ export interface MightEffect {
   readonly amount?: number;
   readonly value?: number;
   readonly minimum?: number;
+  /** Non-passive changes remember their actual delta (CR 479.4.b). */
+  readonly snapshotDelta?: number;
 }
 
 /**
@@ -187,12 +193,14 @@ export function buildMightSpec(
   const snapshotMight = target.snapshot.might;
   const snapshottedAmount = mode === "add" && target.minimum !== undefined &&
     snapshotMight !== null && amount < 0
-    ? Math.max(amount, target.minimum - snapshotMight)
+    ? Math.min(0, Math.max(amount, target.minimum - snapshotMight))
     : mode === "set" && target.minimum !== undefined
       ? Math.max(amount, target.minimum)
       : amount;
   const effect: MightEffect = mode === "set"
-    ? { kind: "set-might", value: snapshottedAmount, ...(target.minimum === undefined ? {} : { minimum: target.minimum }) }
+    ? { kind: "set-might", value: snapshottedAmount,
+      ...(snapshotMight === null ? {} : { snapshotDelta: snapshottedAmount - snapshotMight }),
+      ...(target.minimum === undefined ? {} : { minimum: target.minimum }) }
     : { kind: "continuous.might", amount: snapshottedAmount, ...(target.minimum === undefined ? {} : { minimum: target.minimum }) };
   const spec: ContinuousEffectSpec = {
     id: effectId(op, sourceRef, target, effectIdSuffix, settlement),

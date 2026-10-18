@@ -1,3 +1,4 @@
+// RIFT-684 execution evidence is also covered by templates/play-effect-kill-684.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 

@@ -7,10 +7,32 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { translateInstructionTargets, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { readFile } from "node:fs/promises";
 
 const CANONICAL =
   "card.hash-97d6652832570169cee7f8ada60deed43c5e7d3c133950eed2de4fe1f0818f76";
 const [trigger] = program.abilities;
+
+/** Minimal engine so the production registration path can be exercised directly. */
+function engineFor(kernel) {
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: (request) => kernel.choose(request),
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  return new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+}
 
 test("durand-memorial: passes validateCardProgram and carries the catalog identity", () => {
   const result = validateCardProgram(program);
@@ -30,7 +52,11 @@ test("durand-memorial: judgeReason names the continuous keyword grant and the da
   assert.match(program.judgeReason, /815\.1\.c/);
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /defense-declared/);
-  assert.match(program.judgeReason, /解释器查询锚点已可执行/);
+  assert.match(program.judgeReason, /Unsupported filter field here/);
+  assert.match(program.judgeReason, /Unsupported filter field sameLocationAs/);
+  assert.match(program.judgeReason, /base-combat-allocation/);
+  assert.match(program.judgeReason, /sameLocationAs 锚点本身可执行/);
+  assert.match(program.judgeReason, /815\.1\.c\.1\/c\.2/);
 });
 
 test("durand-memorial: defense-declared trigger at this battlefield", () => {
@@ -123,6 +149,58 @@ test("durand-memorial: the [Tank] grant really registers through the merged inte
 
 test.todo('Durand Memorial: emit defense-declared with combat roles and bind here/sameLocationAs battlefield scope (CR 466.2.c)');
 test.todo('Durand Memorial: enforce Tank lethal-damage assignment priority (CR 815.1.c.1/815.1.c.2)');
+
+// --- 2026-10-18 re-sweep: measured production registration/assignment gaps ---
+test("Durand Memorial re-sweep: the production trigger registration refuses the printed here and sameLocationAs filters", () => {
+  // The card's trigger filter spells the two clauses as authored ("When you
+  // defend here" and "a unit you control here"). programs/filters.ts accepts
+  // neither spelling, so the registration path fails closed before any
+  // defense-declared event could be matched.
+  assert.deepEqual(trigger.trigger.filter, { event: "defense-declared", here: true, player: "self" });
+  assert.throws(
+    () => translateTriggerFilter(trigger.trigger.filter, "durand-memorial"),
+    error => error.code === "judge-required" && /Unsupported filter field here/.test(error.message)
+  );
+  assert.deepEqual(trigger.body[0].targets[0].filter, {
+    type: "unit",
+    controller: "controller",
+    zone: "board",
+    sameLocationAs: "self"
+  });
+  assert.throws(
+    () => translateInstructionTargets(trigger.body),
+    error => error.code === "judge-required" && /Unsupported filter field sameLocationAs/.test(error.message)
+  );
+});
+
+test("Durand Memorial re-sweep: the program registry refuses the whole card, so no trigger is ever registered", () => {
+  // ProgramRegistry.get throws for a judge-required program, and
+  // registerProgramTriggers funnels that into the visible reason — the card
+  // cannot subscribe to defense-declared in production.
+  const kernel = world().player("A").player("B")
+    .unit("memorial", { cardId: CANONICAL, zone: "board", controller: "A", types: ["battlefield"] })
+    .build();
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  assert.throws(
+    () => binding.registerProgramTriggers(engineFor(kernel), kernel.getObject("memorial")),
+    error => error.code === "judge-required"
+  );
+});
+
+test("Durand Memorial re-sweep: the battle damage-assignment path still proves no Tank priority (815.1.c.1/c.2)", async () => {
+  // combat/base-combat-allocation.ts requires a source-effect proof that
+  // explicitly reports keywordPriority: 'proven-none'; there is no consumer
+  // that reads the [Tank] grant and reorders lethal assignment.
+  const source = await readFile(
+    new URL("../../../../engine-core/src/combat/base-combat-allocation.ts", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /No Tank\/Backline\/other assignment-priority requirement is bound here/);
+  assert.match(source, /readonly keywordPriority: 'proven-none'/);
+  // The keyword itself is still merged and readable; only its combat consumer
+  // is missing.
+  assert.equal(keywordDefinitionsById.get("Tank").stacking, "single");
+});
 
 test("Durand Memorial: the original Tank target filter excludes enemies and units at another battlefield", () => {
   for (const chosen of ["defender", "elsewhere", "enemy"]) {

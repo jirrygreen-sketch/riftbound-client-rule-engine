@@ -6,7 +6,10 @@ import program from "../../../dist/cards/ven/shen-scourge-of-shadows.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { EVENT_PATTERN_TYPES } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -75,11 +78,16 @@ test("ven-042-166 Shen, Scourge of Shadows: identity, status, judgeReason and ve
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /383\.4\.d/);
+  assert.match(program.judgeReason, /383\.4\.d\.2\.a/);
   assert.match(program.judgeReason, /objectId|pattern\.object/);
-  assert.match(program.judgeReason, /testTrigger/);
+  assert.match(program.judgeReason, /controller/);
   assert.match(program.judgeReason, /053\.3/);
   assert.match(program.judgeReason, /sameLocationAs/);
+  assert.doesNotMatch(program.judgeReason, /依赖：.*host\.testTrigger/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257 尚未/);
+  // Deleted stale assertion (2026-10-18 re-sweep): the previous reason carried
+  // the merged RIFT-618 sweep id; the refreshed reason names the live gaps.
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -189,16 +197,49 @@ test("ven-042-166 Shen, Scourge of Shadows golden: the printed count gate counts
   assert.equal(evaluate(shenWorld("elsewhere")), false);
 });
 
-test.todo(
-  "ven-042-166 Shen, Scourge of Shadows: register the Hold Effect as a TriggerRegistration (RIFT-257 is merged) " +
-    "and match the printed 'I hold' identity — hold events are emitted by turn/flow.ts with only " +
-    "{ timingPoint, player, details: { battlefieldId } } (no object payload), while translateTriggerFilter binds " +
-    "the inner source: 'self' anchor to pattern.object = { objectId } and matchesTriggerObject returns false " +
-    "when the object is missing; the conditioned registration also needs a production host.testTrigger adapter " +
-    "(events/pipeline.ts scan)"
-);
+test("ven-042-166 Shen, Scourge of Shadows gap: the translated 'I hold' filter rejects the real hold payload", () => {
+  // programs/filters.ts resolves the inner source: "self" anchor into
+  // pattern.object = { objectId }; turn/flow.ts emits hold with only
+  // player + details.battlefieldId. The identity anchor therefore never matches.
+  const pattern = translateTriggerFilter(ability.trigger.filter, "shen-instance", "hold");
+  const holdEvent = {
+    kind: "held",
+    timingPoint: "hold",
+    player: "A",
+    details: { battlefieldId: "bf-1" }
+  };
+  assert.deepEqual(pattern, { event: "held", object: { objectId: "shen-instance" } });
+  assert.equal(matchesTriggerEvent(pattern, holdEvent, "A"), false);
+  assert.equal(
+    matchesTriggerEvent(pattern, { ...holdEvent, object: { ref: { id: "shen-instance", zoneEntryId: 1 } } }, "A"),
+    true
+  );
+  // 383.4.d.2.a: the closed vocabulary does carry the "held" discriminant, so
+  // the identity payload (not the event name) is what is missing.
+  assert.ok(EVENT_PATTERN_TYPES.includes("held"));
+});
 
-test.todo(
-  "ven-042-166 Shen, Scourge of Shadows: evaluate the 'here' part of the trigger condition from the event's " +
-    "last-known location (808.1.d.3) — events/pipeline-match.ts does not consume the sameLocationAs anchor"
-);
+test("ven-042-166 Shen, Scourge of Shadows gap: the trigger condition needs a bound relative controller", () => {
+  // pipeline.ts's evaluateTriggerCondition queries through host.context(...).query.
+  // The game-side host compares placeholders by value, so controller:
+  // "controller" never matches and the count is 0; chain/engine.ts binds it.
+  const base = world()
+    .unit("shen", { owner: "A", controller: "A", location: BATTLEFIELD })
+    .unit("ally", { owner: "A", controller: "A", location: BATTLEFIELD })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("shen"), controller: "A" });
+  const environment = {
+    context: kernel,
+    query: filter => kernel.query(filter),
+    linked: () => undefined,
+    canLookBack: () => true,
+    isIgnored: () => false
+  };
+  assert.equal(evaluateCondition(ability.trigger.condition, environment), false);
+
+  const bound = {
+    ...environment,
+    query: filter => kernel.query(filter.controller === "controller" ? { ...filter, controller: "A" } : filter)
+  };
+  assert.equal(evaluateCondition(ability.trigger.condition, bound), true);
+});

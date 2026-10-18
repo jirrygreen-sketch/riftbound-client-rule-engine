@@ -1,3 +1,11 @@
+// Golden test for Mageseeker Warden (ogn-070-298).
+//
+// Execution evidence (the real play/ready scenarios through the merged chain,
+// the no-legal-target boundary and the fail-closed production static bind)
+// lives in the RIFT-675 parameterized template golden:
+// test/cards/templates/static-static-675.test.mjs.
+// Existing per-card behavior and structure assertions are retained here;
+// the template suite supplies additional execution evidence.
 // RIFT-651 template execution evidence (pending relative-player, location and
 // ready-cause consumers): packages/card-dsl/test/cards/templates/static-static-651.test.mjs
 import assert from "node:assert/strict";
@@ -33,6 +41,13 @@ function engineFor() {
   const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
   return { engine, kernel };
 }
+
+test("ogn-070-298 Mageseeker Warden: program validates and is registered by canonicalCardId", () => {
+  const validation = validateCardProgram(program);
+  assert.equal(validation.ok, true, JSON.stringify(validation.issues));
+  assert.deepEqual(validation.issues, []);
+  assert.equal(cardRegistryById.get(CANONICAL), program);
+});
 
 test("ogn-070-298: identity, exact source text, pure data and explicit blocked status", () => {
   const validation = validateCardProgram(program);
@@ -102,25 +117,40 @@ test("Mageseeker Warden: the registered restriction query ignores the ready caus
   handle.unbind();
 });
 
-test("Mageseeker Warden: the self-at-battlefield condition is not evaluated by the reference kernel", () => {
-  const kernel = world()
-    .player("A", { energy: 20 })
-    .unit("warden", { cardId: CANONICAL, owner: "A", controller: "A", types: ["unit"] })
-    .build();
+test("Mageseeker Warden: the self-at-battlefield condition follows the host location", () => {
+  const { engine, kernel } = engineFor();
+  kernel.perform({ type: "move-location", object: kernel.ref("warden"), to: { type: "base", player: "A" } });
+  engine.layers.setObjects(kernel.objects);
   const source = kernel.getObject("warden");
   const condition = program.abilities[0].condition;
+  // Isolate the unchanged condition from the separately tested, blocked
+  // opponent-relative target binding by using an absolute target controller.
+  const absolute = {
+    ...program.abilities[0],
+    effect: { ...program.abilities[0].effect, filter: { type: "unit", controller: "B" } }
+  };
+  const handle = createEngineStaticBinder(engine).bindStatic(absolute, source);
+  const predicate = engine.layers.registry.list()[0].effect.effect.condition;
+  assert.equal(typeof predicate, "function");
+  assert.equal(predicate(source), false, "the condition is inactive at the base");
   kernel.perform({ type: "move-location", object: source.ref, to: { type: "battlefield", id: "bf-1" } });
   assert.deepEqual(kernel.getObject("warden").location, { type: "battlefield", id: "bf-1" });
-  // The card is at a battlefield, yet the host test() resolves the zone filter
-  // to a false count: the location predicate has no evaluator yet.
-  assert.equal(kernel.test(condition), false);
-  assert.deepEqual(condition.left.filter, { object: "self", zone: "battlefield" });
+  // Objects on a battlefield remain in the board zone; the corrected IR
+  // checks location through the production static binder's predicate.
+  engine.layers.setObjects(kernel.objects);
+  assert.equal(predicate(kernel.getObject("warden")), true, "the condition is active at a battlefield");
+  assert.deepEqual(condition.left.filter, { object: "self", location: "battlefield" });
   assert.equal(condition.left.subject, "objects");
+  kernel.perform({ type: "move-location", object: source.ref, to: { type: "base", player: "A" } });
+  assert.deepEqual(kernel.getObject("warden").location, { type: "base", player: "A" });
+  engine.layers.setObjects(kernel.objects);
+  assert.equal(predicate(kernel.getObject("warden")), false, "the condition stops applying after leaving the battlefield");
+  handle.unbind();
 });
 
 test("Mageseeker Warden: two independent static restrictions with identical battlefield conditions", () => {
   assert.equal(program.abilities.length, 2);
-  const expectedCondition = { kind: "compare", left: { kind: "count", subject: "objects", filter: { object: "self", zone: "battlefield" } }, operator: "gte", right: { kind: "constant", value: 1 } };
+  const expectedCondition = { kind: "compare", left: { kind: "count", subject: "objects", filter: { object: "self", location: "battlefield" } }, operator: "gte", right: { kind: "constant", value: 1 } };
   for (const ability of program.abilities) {
     assert.equal(ability.kind, "static");
     assert.deepEqual(ability.condition, expectedCondition);

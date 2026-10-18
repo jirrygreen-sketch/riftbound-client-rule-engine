@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/twilight-reveler.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL_ID =
   "card.hash-06ec9960630fdb489ea65176cf2d899ccda0784b50dcc84efaf98e95381f6d46";
@@ -44,6 +47,9 @@ test("ven-020-166 Twilight Reveler: identity, status, judgeReason and verbatim s
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /383\.4\.e/);
+  // Refreshed 2026-10-17: the "another friendly unit" exclude anchor is also
+  // rejected by the production card-binding translation.
+  assert.match(program.judgeReason, /Unsupported filter field exclude/);
   assert.doesNotMatch(program.judgeReason, /RIFT-120/);
 });
 
@@ -132,6 +138,35 @@ test("ven-020-166 golden: an ally that left the board makes the ready ignored (3
     ["ignored", "mistargeted"]
   ]);
   assert.equal(kernel.getObject("ally").zone, "trash");
+});
+
+test("ven-020-166 Twilight Reveler probe: the exclude anchor is rejected by the production binder", () => {
+  // Executed evidence for judgeReason point 2: the interpreter's set query
+  // consumes OBJECT_FILTER_ANCHORS' exclude, but the production card binding
+  // translates TargetSpec filters with translateObjectFilter, which fails
+  // closed on the card's own authored filter before a trigger can register.
+  assert.throws(
+    () => translateInstructionTargets(ability.body),
+    (error) => error instanceof Error && /Unsupported filter field exclude/.test(error.message)
+  );
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const kernel = world().player("A").unit("reveler", { cardId: CANONICAL_ID }).build();
+  assert.throws(
+    () => binding.registerProgramTriggers({ pipeline: { registerTrigger: () => {}, unregisterTrigger: () => {} } }, kernel.getObject("reveler")),
+    (error) => error instanceof Error && /Unsupported filter field exclude/.test(error.message)
+  );
+});
+
+test("ven-020-166 Twilight Reveler probe: attack-declared has no producer in the merged combat flow", () => {
+  // Executed evidence for judgeReason point 1: combat/flow.ts only documents the
+  // blocked combat-start transaction; no merged code emits attack-declared.
+  const flowSource = readFileSync(
+    new URL("../../../../engine-core/src/combat/flow.ts", import.meta.url),
+    "utf8"
+  );
+  assert.match(flowSource, /combat-start-transaction/);
+  const emitSites = [...flowSource.matchAll(/emit\(\s*'([a-z-]+)'/g)].map((match) => match[1]);
+  assert.ok(!emitSites.includes("attack-declared"), `flow.ts emits ${JSON.stringify(emitSites)}`);
 });
 
 test.todo(

@@ -3,6 +3,12 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/kharox.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { ChainContractBlockedError } from "../../../../engine-core/dist/chain/engine.js";
+import { validateEventPattern } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import mill from "../../../../engine-core/dist/effects/instructions/effect.mill.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
@@ -218,4 +224,60 @@ test("kharox: the merged Empower resolution body checks live state and does not 
   assert.equal(second.results[0].result.reason, "skipped");
   assert.equal(context.getObject("kharox").empowered, 1);
   assert.deepEqual(context.events.map(event => event.action), ["empower"]);
+});
+
+// RIFT-733: the four refreshed gaps, each pinned against the real production seam.
+test("ven-114-166 Kharox: the printed Empower cost cannot reach the keyword expansion", () => {
+  const source = world().unit("kharox", { cardId: CANONICAL_ID }).build().getObject("kharox");
+  const [expanded] = expandProgram(program, source).expanded;
+  // programs/keywords.ts calls def.expand({ value, host }) only; KeywordAbility
+  // has no params carrier, so Empower.ts falls back to its default cost kind and
+  // the printed 6 Energy + 2 Chaos Power is lost (827.1.c.1).
+  assert.deepEqual(expanded.cost, { kind: "empower" });
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const kernel = world().player("A").unit("kharox", { cardId: CANONICAL_ID, energy: 6, power: ["Chaos"] }).build();
+  assert.throws(
+    () => binding.describeActivate(kernel.getObject("kharox"), "A", 0),
+    error => error.code === "judge-required" && /Unsupported cost kind empower/.test(error.message)
+  );
+});
+
+test("ven-114-166 Kharox: empowered-changed is not in the closed trigger vocabulary", () => {
+  const result = validateEventPattern({ event: "empowered-changed" });
+  assert.equal(result.ok, false);
+  assert.equal(result.issues[0].code, "invalid-event-type");
+  // The same rejection stops the program trigger from registering at all: the
+  // error surfaces when the pipeline asserts the spec (EventPipeline.registerTrigger).
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const f = fixture();
+  const source = { ...f.kernel.getObject("source"), cardId: CANONICAL_ID };
+  assert.equal(triggerRegistrations(binding.registry, source).length, 1);
+  assert.throws(
+    () => binding.registerProgramTriggers(f.engine, source),
+    error => error.name === "TriggerSpecValidationError" && error.issues?.[0]?.code === "invalid-event-type"
+  );
+});
+
+test("ven-114-166 Kharox: the descriptive opponent pick really negates the Burn 3", () => {
+  const base = world().player("controller").player("opponent")
+    .unit("kharox", { cardId: CANONICAL_ID })
+    .deck(["their-top", "their-second", "their-third", "their-fourth"], { owner: "opponent" })
+    .build();
+  const kernel = base.clone({ controller: "controller", sourceSnapshot: base.getObject("kharox") });
+  // No production Finalize resolves "dynamic:opponent-players" into a player pick.
+  const outcome = resolveChainBody([burnThree], kernel);
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status, entry.result.reason]),
+    [["kharox.chosen-opponent-burn-3", "negated", "impossible"]]);
+  assert.deepEqual(trashIds(kernel, "opponent"), []);
+  assert.deepEqual(deckIds(kernel, "opponent"), ["their-top", "their-second", "their-third", "their-fourth"]);
+});
+
+test("ven-114-166 Kharox: the nested effect.play target is refused by the chain Finalize", () => {
+  const f = fixture();
+  const source = f.kernel.getObject("source");
+  assert.throws(
+    () => f.engine.execute({ id: "kharox-body", source, controller: "A", kind: "triggered", speed: "reaction", body: onEmpowered.body }),
+    error => error instanceof ChainContractBlockedError &&
+      /Nested\/repeated targets require an interpreter target-selection lifecycle adapter/.test(error.message)
+  );
 });

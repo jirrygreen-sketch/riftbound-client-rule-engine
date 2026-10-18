@@ -18,38 +18,38 @@ import type { CardProgram } from "../../ir/index.js";
  *   指令包进 choice.optional 的 body（不用 choice + linkedTo）。
  * - "draw 1"：414.1 / 414.3，抽牌者缺省为能力控制者（190.6.d）。
  *
- * status = judge-required（成本内基础费用仍不可执行，不近似实现）：
- * - 触发侧已合入：CardProgram → TriggerRegistration 的绑定层把本卡的 became-target
- *   订阅注册进 events/pipeline（golden 实测 spec.at = became-target、target 过滤解析为
- *   controller: self）。但 TriggerRegistration.cost / mayAtFinalize 仍是 undefined：
- *   programs/triggers.ts 不从正文提取前导费用，383.3.a/383.3.e.2 要求「you may」在
- *   Finalize 决定、383.3.b/404.1.b.1 要求后续费用作为基础费用在该步支付。
- * - 费用侧仍是缺口：契约 3.1 的 TriggeredAbility 没有 cost 字段；已合入的 cost.pay
- *   只接受已结算费用计划形态的 args（{ cost/power/nonstandardOrder/payments/linkKey }），
- *   静态 IR 的 energy: 键被 argsSchema.parse 以 TypeError: Invalid cost.pay argument: energy
- *   拒绝（golden 实测）。可接受的 payments: { energy: 1 } 只能支付资源：加入 exhaust 语义
- *   （actions/exhaust 键或非 standard 引用）会走到 payablePlan，实测抛
- *   CostPlanError("cannot-pay-cost")，因此「and exhaust this」的半段没有可执行的合法拼写。
- *   把横置降级为结算期 effect.exhaust 会改变 383.3.b 的支付时点（405.2 允许在付费步拒付），
- *   属近似实现。
- * - 已可真实执行的部分：became-target 订阅与 effect.draw 本体（golden 用参考内核执行）。
+ * status = judge-required（2026-10-18 复核；383.3.b 的前导基础费用仍无法在 Finalize 收取）：
+ * - 费用本体已改为已合入的可支付形状：cost.modify 锁定
+ *   { kind: "activated", energy: 1, payments: [{ kind: "exhaust", object: "self" }] }
+ *   计划，cost.pay 经 linked-value 收取（同 sfd/altar-of-memories）。解释器上实测真的扣
+ *   1 Energy 并横置宿主（events = ["pay", "exhaust"]）。
+ * - 仍缺生产链路径：(a) 契约 3.1 的 TriggeredAbility 没有费用字段，programs/triggers.ts
+ *   也不从正文提取，TriggerRegistration.cost/mayAtFinalize 实测恒为 undefined，
+ *   383.3.a/383.3.e.2 的 Finalize「you may」决定与 383.3.b.1 的付费门因此都不可执行；
+ *   (b) chain/interpreter-adapter.ts 的字面量表不含 cost.modify，正文里的该指令在链上
+ *   实测抛 TypeError("cost.modify id must be a non-empty string")，到不了 Resolve。
+ * - 已可真实执行的部分：became-target 订阅、effect.draw 本体，以及 cost.modify/cost.pay
+ *   对「1 energy + exhaust this」的真实收取（golden 均用生产代码执行）。
  */
 export default {
   canonicalCardId: "card.hash-498c7e8ce2e20ef011de716db7cf2ff6e0f71a410cc40dace65553df8b0b2518",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "触发侧已可绑定：programs/triggers.ts 把本卡的 became-target 订阅注册进 events/pipeline（golden 实测 " +
-    "spec.at = became-target、target 过滤解析为 controller: self），并且 TriggerRegistration 已有 cost/mayAtFinalize " +
-    "字段却仍为 undefined——绑定层不从正文提取前导费用与 383.3.a 的 Finalize「you may」决定。" +
-    "仍然缺的是费用侧：「you may pay :rb_energy_1: and exhaust this」按 CR 383.3.b/383.3.b.1/404.1.b.1 是该触发能力的基础费用、" +
-    "必须在 Finalize 支付，但契约 3.1 的 TriggeredAbility 没有 cost 字段；已合入的 cost.pay 只接受已结算费用计划形态的 args" +
-    "（{ cost/power/nonstandardOrder/payments/linkKey } 键），静态 IR 的 energy: 键被 argsSchema 实测拒绝" +
-    "（TypeError: Invalid cost.pay argument: energy），而可接受的 payments: { energy: 1 } 只覆盖资源半段——并入 exhaust 引用后会走到 payablePlan，" +
-    "实测抛 CostPlanError(cannot-pay-cost)，即「and exhaust this」没有合法拼写。effect.draw 本体已合入并单独执行；" +
+    "「you may pay :rb_energy_1: and exhaust this」按 CR 383.3.b/383.3.b.1/404.1.b.1/415.4 是该触发能力的基础费用，" +
+    "必须在 Finalize 支付；费用本体已改写为已合入的可支付形状（cost.modify 锁定 " +
+    "{ kind: \"activated\", energy: 1, payments: [{ kind: \"exhaust\", object: \"self\" }] }，cost.pay 经 linked-value 收取，" +
+    "解释器实测扣 1 Energy + 横置宿主），但生产链路径仍缺两段接线：" +
+    "(a) 契约 3.1 的 TriggeredAbility 没有费用字段、programs/triggers.ts 也不从正文提取费用或 383.3.a/383.3.e.2 的 " +
+    "Finalize「you may」决定，TriggerRegistration.cost/mayAtFinalize 实测恒为 undefined，" +
+    "chain/engine.ts 只在 item.cost 存在时才调用 buildCostPlan 支付，383.3.b.1 的门不可执行；" +
+    "(b) chain/interpreter-adapter.ts 的 primitive 字面量表不含 cost.modify，该指令在链上实测抛 " +
+    "TypeError(\"cost.modify id must be a non-empty string (or supply source)\")，正文里的费用对到不了 Resolve。" +
+    "已可真实执行并有 golden 实测：became-target 订阅（spec.at = became-target、target 过滤解析为 controller: self）、" +
+    "effect.draw 本体、cost.modify/cost.pay 的真实收取与 415.4 的已横置拒付。" +
     "不近似实现（不把横置改写成结算期 effect.exhaust，也不把费用写成免费）。" +
-    "依赖：契约变更请求（TriggeredAbility 增加基础费用字段）+ programs/triggers.ts 的 cost/mayAtFinalize 提取与 " +
-    "非 standard 支付对象的运行时引用接线。",
+    "依赖：TriggeredAbility 的基础费用字段 + programs/triggers.ts 的 cost/mayAtFinalize 提取，" +
+    "以及 chain/interpreter-adapter.ts 对 cost.modify 的字面量化。",
   abilities: [
     {
       kind: "triggered",
@@ -80,13 +80,33 @@ export default {
               kind: "constant",
               value: [
                 {
-                  id: "spirit-wheel.pay",
-                  // 383.3.b / 383.3.b.1：1 energy + Exhaust this 是基础费用、Finalize 支付；
-                  // cost.pay 原语与费用管线接线见 judgeReason。
-                  op: "cost.pay",
+                  id: "spirit-wheel.prepare-payment",
+                  // 383.3.b / 383.3.b.1：1 energy + Exhaust this 是基础费用。cost.modify 先把可支付的
+                  // 计划锁进 linked value（cost/plan-values.ts 支持 { kind: "exhaust", object: "self" }），
+                  // 再由 cost.pay 收取；缺的是把这段前导费用提升到 Finalize（见 judgeReason）。
+                  op: "cost.modify",
                   args: {
-                    energy: { kind: "constant", value: 1 },
-                    payments: { kind: "constant", value: [{ kind: "exhaust", object: "self" }] }
+                    id: { kind: "constant", value: "spirit-wheel.prepare-payment" },
+                    cost: {
+                      kind: "constant",
+                      value: {
+                        kind: "activated",
+                        energy: { kind: "constant", value: 1 },
+                        payments: [{ kind: "exhaust", object: "self" }]
+                      }
+                    }
+                  }
+                },
+                {
+                  id: "spirit-wheel.pay",
+                  op: "cost.pay",
+                  linkedTo: "spirit-wheel.prepare-payment",
+                  args: {
+                    cost: {
+                      kind: "linked-value",
+                      instructionId: "spirit-wheel.prepare-payment",
+                      key: "cost"
+                    }
                   }
                 },
                 {

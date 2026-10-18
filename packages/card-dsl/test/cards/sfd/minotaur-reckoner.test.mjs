@@ -1,27 +1,41 @@
-// RIFT-643: static|| execution evidence is consolidated in ../templates/static-643.test.mjs.
-// This file retains the card's identity, status, sourceText, and key IR guards.
-
+// RIFT-667 single-card golden: validation, identity, the key IR structure of
+// Minotaur Reckoner, and the merged rule-query / Standard Move halves. The
+// whole-card execution evidence (its own scenario through the generic card harness
+// plus the measured outcome of binding its own static ability with the production
+// binder) lives in `test/cards/templates/static-667.test.mjs`.
+//
+// The card stays judge-required: the rule query really serves the prohibition, but
+// no production caller supplies a DuelMovementRuleContext to the Standard Move and
+// effect.move never consults the query at all. Nothing here approximates it.
 import assert from "node:assert/strict";
 import test from "node:test";
+
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/minotaur-reckoner.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
-import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { moveDuelUnitsStandard } from "../../../../engine-core/dist/zones/movement.js";
-import {
-  createDuelBoard,
-  placeDuelUnit,
-  selectDuelBattlefields,
-} from "../../../../engine-core/dist/duel/battlefields.js";
+import { createDuelBoard, placeDuelUnit, selectDuelBattlefields } from "../../../../engine-core/dist/duel/battlefields.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const ID = "card.hash-4707dc730254c2d3c4ed3484a961094d03925ec45f647f561ff4b106e7e22ebe";
 const ability = program.abilities[0];
 
-test("sfd-014-221 Minotaur Reckoner: validates identity and the global prohibition", () => {
+function duelScene() {
+  const selection = selectDuelBattlefields([
+    { playerId: "A", battlefields: [{ instanceId: "a-1", cardId: "f1" }, { instanceId: "a-2", cardId: "f2" }, { instanceId: "a-3", cardId: "f3" }] },
+    { playerId: "B", battlefields: [{ instanceId: "b-1", cardId: "f1" }, { instanceId: "b-2", cardId: "f2" }, { instanceId: "b-3", cardId: "f3" }] },
+  ], () => 0);
+  const empty = createDuelBoard(selection);
+  const battlefield = empty.battlefields[0].locationId;
+  const base = empty.bases.find(value => value.ownerPlayerId === "A").locationId;
+  const board = placeDuelUnit(empty, { objectId: "u1", controllerPlayerId: "A", locationId: battlefield });
+  return { board, base, battlefield };
+}
+
+test("sfd-014-221 Minotaur Reckoner: program validates, keeps identity and the global prohibition", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.issues));
   assert.deepEqual(result.issues, []);
@@ -29,14 +43,14 @@ test("sfd-014-221 Minotaur Reckoner: validates identity and the global prohibiti
   assert.equal(program.canonicalCardId, ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /单数 restriction/);
-  assert.match(program.judgeReason, /DuelMovementRuleContext/);
-  assert.match(program.judgeReason, /standard-move-executor-v2/);
   assert.equal(program.sourceText, "Units can't move to base.");
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "static");
   assert.equal(ability.effect.kind, "continuous.movement");
+  // RIFT-667: both spellings ship. The rule query reads the plural and the layer
+  // snapshot folds the singular; declaring only one silently broke a path.
   assert.equal(ability.effect.restriction, "move-to-base");
+  assert.deepEqual(ability.effect.restrictions, ["move-to-base"]);
   // 054.1: a prohibition grants nothing.
   assert.equal(ability.effect.addsPermission, false);
   assert.equal(ability.effect.permission, undefined);
@@ -44,89 +58,30 @@ test("sfd-014-221 Minotaur Reckoner: validates identity and the global prohibiti
   assert.deepEqual(ability.effect.filter, { type: "unit", zone: "board" });
 });
 
-test("sfd-014-221 Minotaur Reckoner: the layer engine records the prohibition on the filtered object", () => {
+test("sfd-014-221 Minotaur Reckoner: the production binding really reaches the rule query", () => {
   const kernel = world()
-    .unit("minotaur", { location: { type: "battlefield", id: "bf-1" } })
-    .build();
-  const object = kernel.getObject("minotaur");
-  const engine = createLayerEngine([object], [{
-    effect: { id: "minotaur-reckoner", layer: "ability", filter: ability.effect.filter, effect: ability.effect },
-    duration: { type: "permanent" },
-    timestamp: 1
-  }]);
-  engine.setObjects([object]);
-  assert.deepEqual(engine.evaluate(object.ref).movement.restrictions, ["move-to-base"]);
-});
-
-test("sfd-014-221 Minotaur Reckoner: default static binding keeps the original restriction shape pending shared normalization", () => {
-  const source = world()
-    .unit("minotaur", {
-      cardId: ID,
-      location: { type: "battlefield", id: "bf-1" }
-    })
-    .unit("u1", { location: { type: "battlefield", id: "bf-1" } })
-    .build();
-  const sourceObject = source.getObject("minotaur");
-  const targetObject = source.getObject("u1");
-  const layers = createLayerEngine([sourceObject, targetObject]);
-  const binder = createEngineStaticBinder({ layers });
-  const handle = binder.bindStatic(ability, sourceObject);
-  const [entry] = layers.registry.list();
-  assert.equal(entry.effect.effect.kind, "continuous.movement");
-  assert.equal(entry.effect.effect.restriction, "move-to-base");
-  assert.equal(entry.effect.effect.restrictions, undefined);
-  // This is the production-path compatibility guard: movement() consumes
-  // normalized restrictions, so the shared engine must normalize the
-  // original instruction before this card can become executable.
-  assert.deepEqual(movement(layers.registry, targetObject.ref, targetObject, "A").restrictions, []);
-  handle.unbind();
-});
-
-test("sfd-014-221 Minotaur Reckoner: the production static binder is the only registration path, so the unnormalized field is what ships", () => {
-  // 054.1/144.4.b: the prohibition must reach movement(). createEngineStaticBinder
-  // is the production binder (programs/statics.ts); it registers the singular
-  // `restriction` field verbatim, which the rule query never reads. The snapshot
-  // does fold it, which is why the IR itself is not the defect — the normalization
-  // and the missing production rule context are.
-  const source = world()
     .unit("minotaur", { cardId: ID, location: { type: "battlefield", id: "bf-1" } })
     .unit("u1", { location: { type: "battlefield", id: "bf-1" } })
     .build();
-  const sourceObject = source.getObject("minotaur");
-  const targetObject = source.getObject("u1");
-  const layers = createLayerEngine([sourceObject, targetObject]);
-  const handle = createEngineStaticBinder({ layers }).bindStatic(ability, sourceObject);
-
-  const [entry] = layers.registry.list();
-  assert.equal(entry.effect.effect.restriction, "move-to-base");
-  assert.equal(entry.effect.effect.restrictions, undefined);
-  assert.deepEqual(movement(layers.registry, targetObject.ref, targetObject, "A").restrictions, []);
-  assert.deepEqual(layers.evaluate(targetObject.ref).movement.restrictions, ["move-to-base"]);
+  const source = kernel.getObject("minotaur");
+  const target = kernel.getObject("u1");
+  const layers = {
+    objects: new Map(),
+    registry: new ContinuousEffectRegistry(),
+    addContinuous: (effect, duration) => layers.registry.register(effect, duration),
+    removeContinuous: id => layers.registry.remove(id)
+  };
+  const handle = createEngineStaticBinder({ layers }).bindStatic(ability, source);
+  const view = movement(layers.registry, target.ref, target, "A");
+  assert.deepEqual(view.restrictions, ["move-to-base"]);
+  // 054.1: the prohibition removes only the Battlefield-to-Base option.
+  assert.equal(view.canMove, true);
+  assert.equal(view.canGank, false);
   handle.unbind();
 });
 
-function duelBoard() {
-  const board = createDuelBoard(selectDuelBattlefields([
-    { playerId: "A", battlefields: [{ instanceId: "a-1", cardId: "f1" }, { instanceId: "a-2", cardId: "f2" }, { instanceId: "a-3", cardId: "f3" }] },
-    { playerId: "B", battlefields: [{ instanceId: "b-1", cardId: "f1" }, { instanceId: "b-2", cardId: "f2" }, { instanceId: "b-3", cardId: "f3" }] },
-  ], () => 0));
-  const base = board.bases.find(value => value.ownerPlayerId === "A").locationId;
-  const battlefield = board.battlefields[0].locationId;
-  return { board: placeDuelUnit(board, { objectId: "u1", controllerPlayerId: "A", locationId: battlefield }), base, battlefield };
-}
-
-const moveRequest = scene => ({
-  actor: "A",
-  unitUIDs: ["u1"],
-  destinationLocationId: scene.base,
-  timing: { phase: "main", stateOpen: true, turnPlayerId: "A", priorityPlayerId: "A" }
-});
-const readiness = [{ objectId: "u1", readied: true, hasGanking: false }];
-
-test("sfd-014-221 Minotaur Reckoner: the movement rule query serves the registered prohibition (CR 054.1)", () => {
-  const kernel = world()
-    .unit("u1", { location: { type: "battlefield", id: "bf-1" } })
-    .build();
+test("sfd-014-221 Minotaur Reckoner: a Standard Move from battlefield to base is prohibited with a rules context", () => {
+  const scene = duelScene();
   const registry = new ContinuousEffectRegistry();
   registry.register({
     id: "minotaur-reckoner",
@@ -135,61 +90,48 @@ test("sfd-014-221 Minotaur Reckoner: the movement rule query serves the register
     filter: ability.effect.filter,
     effect: { kind: "movement", restrictions: [ability.effect.restriction] },
   }, { type: "permanent" });
-
-  const unit = kernel.getObject("u1");
-  const view = movement(registry, unit.ref, unit, "A");
-  assert.deepEqual(view.restrictions, ["move-to-base"]);
-  // 054.1: the prohibition removes only the Battlefield→Base option.
-  assert.equal(view.canMove, true);
-  assert.equal(view.canGank, false);
-});
-
-test("sfd-014-221 Minotaur Reckoner: a standard move from battlefield to base is prohibited (144.4.b)", () => {
-  const scene = duelBoard();
-  const registry = new ContinuousEffectRegistry();
-  registry.register({
-    id: "minotaur-reckoner",
-    layer: "ability",
-    source: { id: "minotaur", zoneEntryId: 1 },
-    filter: ability.effect.filter,
-    effect: { kind: "movement", restrictions: [ability.effect.restriction] },
-  }, { type: "permanent" });
-  const kernel = world()
-    .unit("u1", { location: { type: "battlefield", id: "bf-1" } })
-    .build();
-  // The card filter is a rich object filter (type + zone), so the movement
-  // gate needs the actual snapshots/refs resolved through the test kernel.
+  const kernel = world().unit("u1", { location: { type: "battlefield", id: "bf-1" } }).build();
   const snapshot = kernel.getObject("u1");
+  // 144.4.b: with the rule context supplied, the route really is blocked.
   assert.throws(
-    () => moveDuelUnitsStandard(scene.board, readiness, moveRequest(scene), {
-      registry,
-      refForUnit: () => ({ id: "u1", zoneEntryId: 1 }),
-      objectForUnit: () => snapshot,
-    }),
-    /prohibited from moving/,
+    () => moveDuelUnitsStandard(scene.board, [{ objectId: "u1", readied: true, hasGanking: false }], {
+      actor: "A",
+      unitUIDs: ["u1"],
+      destinationLocationId: scene.base,
+      timing: { phase: "main", stateOpen: true, turnPlayerId: "A", priorityPlayerId: "A" }
+    }, { registry, refForUnit: () => ({ id: "u1", zoneEntryId: 1 }), objectForUnit: () => snapshot }),
+    /prohibited from moving/
   );
-  assert.equal(scene.board.units[0].locationId, scene.battlefield);
-});
-
-test("sfd-014-221 Minotaur Reckoner: the same move succeeds once the prohibition expires (054 duration)", () => {
-  const scene = duelBoard();
-  const registry = new ContinuousEffectRegistry();
-  registry.register({
+  // The same Move is allowed once the prohibition expires (054 duration).
+  const expiring = new ContinuousEffectRegistry();
+  expiring.register({
     id: "minotaur-reckoner",
     layer: "ability",
     source: { id: "minotaur", zoneEntryId: 1 },
     filter: ability.effect.filter,
     effect: { kind: "movement", restrictions: [ability.effect.restriction] },
   }, { type: "end-of-turn" });
-  registry.expireAt({ id: "turn-end" }, () => null);
-  const kernel = world()
-    .unit("u1", { location: { type: "battlefield", id: "bf-1" } })
-    .build();
-  const snapshot = kernel.getObject("u1");
-  const moved = moveDuelUnitsStandard(scene.board, readiness, moveRequest(scene), {
-    registry,
-    refForUnit: () => ({ id: "u1", zoneEntryId: 1 }),
-    objectForUnit: () => snapshot,
-  });
+  expiring.expireAt({ id: "turn-end" }, () => null);
+  const moved = moveDuelUnitsStandard(scene.board, [{ objectId: "u1", readied: true, hasGanking: false }], {
+    actor: "A",
+    unitUIDs: ["u1"],
+    destinationLocationId: scene.base,
+    timing: { phase: "main", stateOpen: true, turnPlayerId: "A", priorityPlayerId: "A" }
+  }, { registry: expiring, refForUnit: () => ({ id: "u1", zoneEntryId: 1 }), objectForUnit: () => snapshot });
   assert.equal(moved.board.units[0].locationId, scene.base);
 });
+
+test("sfd-014-221 Minotaur Reckoner: judgeReason names the measured production gap", () => {
+  // Re-probed 2026-10-17 (RIFT-667): the rule query serves the prohibition as soon
+  // as both spellings are declared; the remaining gap is the missing production
+  // rules context and effect.move's missing query.
+  assert.match(program.judgeReason, /DuelMovementRuleContext/);
+  assert.match(program.judgeReason, /standard-move-executor-v2/);
+  assert.match(program.judgeReason, /effect\.move/);
+});
+
+test.todo(
+  "sfd-014-221 Minotaur Reckoner: units must not be able to move to base (CR 054.1 / 144.4.b / 451.1) - " +
+    "duel/standard-move-executor-v2.ts must supply a DuelMovementRuleContext and effect.move must consult the " +
+    "same movement restrictions"
+);

@@ -19,13 +19,13 @@ import type { CardProgram } from "../../ir/index.js";
  * - 135.2.e.5.a / 163.2.b：:rb_rune_rainbow: 是任意域 Power [A]，作为费用可由任意域 Power
  *   支付；163.2.b 的 Universal Power 不在六域封闭集合内。
  *
- * status = judge-required（复核 2026-10-17；三处缺口，均不近似实现）：
+ * status = judge-required（复核 2026-10-18；三处缺口，均不近似实现）：
  * 1. 结算期任意数量支付没有已注册原语：204.3/204.3.a 的指令内费用要求玩家在结算时选择金额，
  *    且实付额必须可被后续指令读取；已注册的 cost.pay 只接受 { cost, power,
  *    nonstandardOrder, payments, linkKey } 且金额是固定值，没有「结算期选择金额」的形状，
  *    effects/instructions 里也没有任何结算期的任意数量支付原语（程序里保留的 cost.pay-any
  *    会在解释器中以 "Unregistered instruction opcode: cost.pay-any" 失败；
- *    同型缺口见 ogn 的 Bullet Time, Miss Fortune）。
+ *    当前 registry.generated.ts 没有该 opcode）。
  * 2. 任意域 Power [A] 的支付与增益无法表达：六域封闭 Domain 集合没有 Universal Power 成员，
  *    effect.resources 的文件头明确 Universal Power 保持 unsupported、绝不用某个域近似；
  *    cost.pay 的 payments 记录同样只接受六域（以 rainbow 支付时 cost/payment.ts 抛
@@ -45,7 +45,7 @@ export default {
     "三处当前缺口：(1)「Pay any amount of [A]」是 204.3/204.3.a 的指令内费用（同型文本见该条示例 Ancient Henge）：" +
     "金额在结算时由玩家选择且 [Add] 的量必须是实付额，但已注册原语里没有任何「结算期任意数量支付并发布实付额」的形态" +
     "——cost.pay 的 payments/cost 都要求固定金额，且其参数集合不含金额选择；effects/instructions 下也没有等价原语，" +
-    "程序保留的 cost.pay-any 会在解释器中以 \"Unregistered instruction opcode: cost.pay-any\" 失败（同型缺口见 Bullet Time, Miss Fortune）；" +
+    "程序保留的 cost.pay-any 会在解释器中以 \"Unregistered instruction opcode: cost.pay-any\" 失败；" +
     "(2) :rb_rune_rainbow: 是任意域 Power [A]（135.2.e.5.a / 163.2.b 的 Universal Power），六域封闭 Domain 集合无法表达，" +
     "effect.resources 文件头明确 Universal Power 保持 unsupported；cost.pay 的 payments 记录同样只接受六域" +
     "（以 rainbow 支付时 cost/payment.ts 抛 invalid domain），因此实付额的域组成无法记录或重现；" +

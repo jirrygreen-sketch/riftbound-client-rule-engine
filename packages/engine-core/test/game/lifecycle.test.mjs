@@ -117,6 +117,70 @@ test('setup-legend-and-champion-zones-populated', () => {
   assert.deepEqual(champion.types, ['champion']);
 });
 
+test('setup-carries-printed-card-characteristics into every created object', () => {
+  const printedUnit = {
+    ...card('printed-unit', ['unit']),
+    cardType: 'Unit',
+    tags: ['Mech', 'Champion'],
+    domains: ['Fury'],
+    energy: 4,
+    power: 2,
+    might: 5,
+  };
+  const unprintedRune = {
+    ...card('printed-rune', ['rune']),
+    cardType: 'Rune',
+    tags: ['Basic'],
+    domains: ['Mind'],
+    energy: null,
+    power: null,
+    might: null,
+  };
+  const printedSpell = {
+    ...card('printed-spell'),
+    types: undefined,
+    cardType: 'Spell',
+    domains: ['Calm'],
+    energy: 1,
+    power: null,
+    might: null,
+  };
+  const domainlessUnit = {
+    ...card('domainless-unit', ['unit']),
+    cardType: 'Unit',
+    domains: [],
+    energy: 2,
+    power: 1,
+    might: 3,
+  };
+  const first = deck();
+  const second = deck();
+  first.mainDeck = [printedUnit, printedSpell, domainlessUnit, ...first.mainDeck.slice(3)];
+  first.runeDeck = [unprintedRune, ...first.runeDeck.slice(1)];
+  const { kernel } = match({ decks: [first, second], battlefieldChoice: [0, 0], mulligans: [[], []] });
+  const unit = kernel.objects.find(object => object.cardId === 'card:printed-unit');
+  assert.ok(unit);
+  assert.deepEqual(unit.types, ['unit']);
+  assert.deepEqual(unit.tags, ['Mech', 'Champion']);
+  assert.equal(unit.energy, 4);
+  assert.deepEqual(unit.power, ['Fury']);
+  assert.equal(unit.might, 5);
+  const spell = kernel.objects.find(object => object.cardId === 'card:printed-spell');
+  assert.ok(spell);
+  assert.deepEqual(spell.types, ['spell']);
+  assert.equal(spell.energy, 1);
+  assert.equal(spell.power, null);
+  const domainless = kernel.objects.find(object => object.cardId === 'card:domainless-unit');
+  assert.ok(domainless);
+  assert.deepEqual(domainless.power, ['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order']);
+  const rune = kernel.objects.find(object => object.cardId === 'card:printed-rune');
+  assert.ok(rune);
+  assert.deepEqual(rune.types, ['rune']);
+  assert.deepEqual(rune.tags, ['Basic']);
+  assert.equal(rune.energy, null);
+  assert.equal(rune.power, null);
+});
+
 test('setup-legend-not-shuffled-into-deck', () => {
   const { match: m, kernel } = match();
   const main = zoneCards(kernel, 'A', 'deck');

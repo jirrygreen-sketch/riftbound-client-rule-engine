@@ -26,7 +26,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   现在在 Board 上的那个永久物执行 Empower。442.2 规定 Empowered 是 Board 上对象的状态；
  *   442.1.b / 442.1.c 的"已 Empowered 则什么都不发生"由动作层负责（effect.empower 文档记录同一分工）。
  *
- * status = judge-required（三处缺口，均不近似实现）：
+ * status = judge-required（持续复核 2026-10-18；三处缺口，均不近似实现）：
  * 1. 减费的动态费用计划仍无生产者：已合入 cost.modify 可构造修改后的费用计划，但 effect.play 要求
  *    传入费用系统产出的已 Finalize 的 FinalizedCostPlan；当前卡牌 IR 不能从被选牌读取其印刷费用并完成该计划。
  * 2. "Empower it" 的目标引用没有生产者：effect.play 只把实际打出的张数写进链接值（数字），
@@ -43,7 +43,7 @@ const wildClaw = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1)「play it, reducing its Energy cost by :rb_energy_5:」需要按 356.1.c/356.6 在打出该牌时改写其印刷基础费用（Energy -5，且不得低于 0）：" +
+    "三处缺口（持续复核 2026-10-18）：(1)「play it, reducing its Energy cost by :rb_energy_5:」需要按 356.1.c/356.6 在打出该牌时改写其印刷基础费用（Energy -5，且不得低于 0）：" +
     "已合入的 cost.modify 只能改写费用计划；effect.play 仍要求费用系统产出的已 Finalize 的 FinalizedCostPlan，当前卡牌 IR 没有被选牌印刷费用的动态计划生产者。" +
     "(2)「Then you may do this: Empower it」的 it 没有引用生产者：effect.play 只链接实际打出的张数（数字），没有暴露被打出永久物的 Board 新引用；" +
     "banish 收据里的引用在打出后失效（124），且卡牌侧 effect.empower 的 objects 不接受契约 3.2 的 { linked: id } 选择器，故该分支未写成可执行形态。" +

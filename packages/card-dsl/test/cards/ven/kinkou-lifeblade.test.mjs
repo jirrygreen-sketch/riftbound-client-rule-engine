@@ -1,4 +1,11 @@
-// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
+// Golden test for Kinkou Lifeblade (ven-093-166).
+//
+// Execution evidence (the real printed 4 Energy payment, the Empowered-gated
+// +1 Might and Ganking grant with its Disempower boundary and the blocked
+// printed [Empower] activation) lives in the RIFT-673 parameterized template
+// golden: test/cards/templates/keyword-static-static-673.test.mjs.
+// Original behavior and structure assertions remain in this file; the
+// template adds execution evidence without replacing these checks.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
@@ -10,6 +17,8 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 // card-dsl has no dependency edge on engine-core (engine-core depends on
@@ -37,20 +46,25 @@ test("ven-093-166 Kinkou Lifeblade: identity, ruleset, status, judgeReason and v
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.match(program.judgeReason, /Empower/);
+  assert.match(program.judgeReason, /827\.1\.c\.1/);
   assert.match(program.judgeReason, /828\.1\.b\.1/);
   assert.match(program.judgeReason, /ObjectSnapshot/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
+  assert.match(program.judgeReason, /Ganking/);
   assert.doesNotMatch(program.judgeReason, /RIFT-91 只合入|没有 .*continuous\.grant-keyword/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
 test("ven-093-166 Kinkou Lifeblade: [Empower] 2 Energy stays a keyword declaration", () => {
   assert.equal(program.abilities.length, 3);
-  assert.deepEqual(empower, { kind: "keyword", keyword: "empower" });
+  assert.deepEqual(empower, { kind: "keyword", keyword: "empower", value: 2 });
   // 827.1.c.1 的费用与“仅当未 Empowered 时”限制属于 KeywordDef 的展开
   //（README 第 5 节：卡文件只声明关键词身份，不自己重写展开）；展开依赖见 judgeReason。
-  assert.equal(empower.value, undefined);
+  // value preserves the printed amount; params.cost is still unavailable.
+  assert.equal(empower.value, 2);
+  assert.equal(empower.params, undefined);
 });
 
 test("ven-093-166 Kinkou Lifeblade: the Empowered +1 Might is an arithmetic-layer modification (479.4.e.1)", () => {
@@ -63,6 +77,9 @@ test("ven-093-166 Kinkou Lifeblade: the Empowered +1 Might is an arithmetic-laye
   // 828.1.b.1 的门槛读取参考内核 empowered；生产状态契约仍缺。
   assert.equal(mightGrant.condition.kind, "compare");
   assert.equal(mightGrant.condition.operator, "gte");
+  assert.deepEqual(mightGrant.condition.left, {
+    kind: "object-property", object: "self", property: "empowered"
+  });
   assert.deepEqual(mightGrant.condition.right, { kind: "constant", value: 1 });
 });
 
@@ -85,6 +102,17 @@ test.todo(
   "ven-093-166 Kinkou Lifeblade: [Empower] 2 Energy activation (827.1.c.1 cost.activated + effect.empower, " +
     "'Use only if not Empowered') needs KeywordAbility params.cost and programs/keywords printed-cost forwarding"
 );
+
+test("kinkou-lifeblade: the Empower activation still exposes an unsupported cost plan", () => {
+  const kernel = world().unit("kinkou-lifeblade", { cardId: CANONICAL }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("kinkou-lifeblade") });
+  const activation = expandProgram(program, context.source).expanded.find(ability => ability.kind === "activated");
+  assert.deepEqual(activation.cost, { kind: "empower" });
+  assert.throws(
+    () => buildCostPlan(context, { id: "kinkou-lifeblade.empower", cost: activation.cost }),
+    /Unsupported cost kind: empower/
+  );
+});
 
 test.todo(
   "ven-093-166 Kinkou Lifeblade: both [Empowered][>] dependent abilities (828.1.b.1) need an Empowered status " +
@@ -132,6 +160,14 @@ test("kinkou-lifeblade: the actual static binder follows Empower and Disempower 
   assert.equal(engine.layers.evaluate(source.ref).might, 3);
   assert.equal(engine.layers.evaluate(source.ref).buffs, 0);
   assert.ok(engine.layers.evaluate(source.ref).keywords.some(keyword => keyword.id === "Ganking"));
+  const movementQuery = movement(
+    engine.layers.registry,
+    source.ref,
+    engine.layers.evaluate(source.ref),
+    "A"
+  );
+  assert.equal(movementQuery.canGank, false);
+  assert.equal(movementQuery.battlefieldToBattlefield, false);
   assert.equal(engine.commit({ type: "disempower", object: source.ref }).status, "done");
   engine.advance();
   assert.equal(engine.layers.evaluate(source.ref).might, 2);

@@ -1,6 +1,6 @@
-// Scenario execution evidence: ../../templates/static-642.test.mjs.
-// This file keeps the validation and identity checks plus the key structural
-// assertions; the real execution path for this card lives in that template row.
+// Binding-gap scenarios: ../../templates/static-642.test.mjs.
+// Local selector and Might tests cover supported subeffects; a one-time query
+// or registration does not prove Garen's continuously evaluated static aura.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -46,6 +46,9 @@ test("ogs-013-024 Garen, Commander: judgeReason names the source-relative filter
   assert.match(program.judgeReason, /exclude/);
   assert.match(program.judgeReason, /053\.3/);
   assert.match(program.judgeReason, /staticFilter/);
+  assert.match(program.judgeReason, /matchesObjectFilter/);
+  assert.match(program.judgeReason, /LocationRef/);
+  assert.match(program.judgeReason, /478\.1/);
 });
 
 test("ogs-013-024 Garen, Commander: one static +1 Might effect scoped to other friendly units here", () => {
@@ -104,6 +107,38 @@ test("ogs-013-024 Garen, Commander: the here/other filter matches exactly the co
   assert.equal(scoped.getObject("garen").exhausted, false);
   assert.equal(scoped.getObject("ally-elsewhere").exhausted, true);
   assert.equal(scoped.getObject("enemy-here").exhausted, true);
+});
+
+test("ogs-013-024 Garen, Commander supported selector: here is re-queried at the source's new location", () => {
+  const elsewhere = { type: "battlefield", id: "battlefield-2" };
+  const kernel = world()
+    .unit("garen", { location: BATTLEFIELD, exhausted: true })
+    .unit("ally-old", { location: BATTLEFIELD, exhausted: true })
+    .unit("ally-new", { location: elsewhere, exhausted: true })
+    .unit("enemy-new", { owner: "B", location: elsewhere, exhausted: true })
+    .build();
+  // Move through the kernel action path; only the merged interpreter's query
+  // semantics are under test here, not the unavailable dynamic static binding.
+  const moved = kernel.perform({ type: "move-location", object: kernel.ref("garen"), to: elsewhere });
+  assert.equal(moved.status, "done");
+  assert.deepEqual(kernel.getObject("garen").location, elsewhere);
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("garen") });
+  const filter = substituteController(program.abilities[0].effect.filter, scoped.controller);
+  const outcome = runAbilityBody([
+    {
+      id: "garen.ready-new-set",
+      op: "effect.ready",
+      args: { objects: { kind: "constant", value: { kind: "query", filter } } }
+    }
+  ], scoped);
+  assert.equal(outcome.status, "executed");
+  const readied = outcome.linkedValues["garen.ready-new-set.readied"];
+  assert.deepEqual(readied.objects, [scoped.ref("ally-new")]);
+  assert.equal(readied.count, 1);
+  assert.equal(scoped.getObject("ally-new").exhausted, false);
+  assert.equal(scoped.getObject("garen").exhausted, true);
+  assert.equal(scoped.getObject("ally-old").exhausted, true);
+  assert.equal(scoped.getObject("enemy-new").exhausted, true);
 });
 
 test("ogs-013-024 Garen, Commander golden: the effect half registers +1 Might only for the co-located friendly units", () => {
@@ -176,11 +211,11 @@ test("ogs-013-024 Garen, Commander golden: the production static binder rejects 
   assert.equal(engine.layers.registry.list().length, 0);
 });
 
-test("ogs-013-024 Garen, Commander golden: sameLocationAs is frozen at bind time instead of re-evaluated", () => {
-  // Same-shaped filter without the (rejected) exclude anchor: the merged binder
-  // accepts it but resolves "here" once, so after Garen moves battlefields the
-  // aura keeps buffing units at his previous location — the exact behavior
-  // CR 053.3 / 359.3.f.2 forbid.
+test("ogs-013-024 Garen, Commander binding-gap probe: sameLocationAs snapshots a LocationRef with identity-sensitive matching", () => {
+  // Removing only the rejected exclude anchor exposes two independent gaps:
+  // the stored location is a snapshot, and equal LocationRefs are separate
+  // objects. The unchanged Might below diagnoses the missing consumer; it does
+  // not mean Garen should leave his co-located ally unmodified (CR 478.1).
   const BF1 = { type: "battlefield", id: "bf-1" };
   const BF2 = { type: "battlefield", id: "bf-2" };
   const { engine, kernel } = fixture({ cards: [{ id: "garen", might: 5 }] });
@@ -199,8 +234,13 @@ test("ogs-013-024 Garen, Commander golden: sameLocationAs is frozen at bind time
   createEngineStaticBinder(engine).bindStatic(partial, kernel.getObject("garen"));
   const [entry] = engine.layers.registry.list();
   assert.deepEqual(entry.effect.filter, { type: "unit", controller: "A", location: BF1 });
+  assert.deepEqual(entry.effect.filter.location, kernel.getObject("ally-1").location);
+  assert.notEqual(entry.effect.filter.location, kernel.getObject("ally-1").location);
   engine.commit({ type: "move-location", object: kernel.ref("garen"), to: BF2 });
   engine.layers.setObjects(kernel.objects);
-  assert.equal(engine.layers.evaluate(kernel.ref("ally-1")).might, 2, "the pre-move location is still the anchor");
+  assert.deepEqual(kernel.getObject("garen").location, BF2);
+  assert.deepEqual(entry.effect.filter.location, BF1, "the registered filter retains the old location value");
+  assert.notDeepEqual(entry.effect.filter.location, kernel.getObject("garen").location);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-1")).might, 2, "equal LocationRef values do not match by identity");
   assert.equal(engine.layers.evaluate(kernel.ref("ally-2")).might, 3, "the unit at Garen's new location is not buffed");
 });

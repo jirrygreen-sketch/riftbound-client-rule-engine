@@ -19,14 +19,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “deal 2 to an enemy unit”（418 / 429.6 的 Deal 格式；355.9 / 355.10）：单个对手控制的单位是
  *   选目标，用已合入的 effect.damage（amount 2、target 指向 TargetSpec）。
  *
- * status = judge-required（按 2026-10-17 合入批次复核；缺口不近似实现）：
+ * status = judge-required（按 2026-10-17 HEAD 复核；缺口不近似实现）：
  * - "When you hide a card" 的订阅仍不可注册：events/timing-points.ts 定义了 card-hidden，但封闭
  *   EVENT_PATTERN_TYPES（events/trigger-spec.ts）没有该拼写，programs/triggers.ts 注册时会抛
  *   invalid-event-type；更根本的是没有任何模块 emit card-hidden（GameAction 封闭集合没有 Hide 动作，
  *   面朝下区域与 cost.hidden 也没有对应的动作和产生器）。
- * - "When you play a card from face down" 的事件过滤形状可以用 details 保留并 fail-closed，且
- *   card-played 已携带 fromZone/playedFromZone provenance；但引擎仍没有 Facedown Zone 的区域值和
- *   Hide/face-down play 产生器，因此不能判定 811.1.d 的来源事实。
+ * - "When you play a card from face down" 的过滤形状按生产翻译规则补了嵌套 filter；否则 programs/filters.ts 会把
+ *   { event, player, details } 当对象过滤器解析并以 "Unsupported filter field details"
+ *   拒绝。补上嵌套 filter 后 details 被原样保留、订阅可注册（实测）。但生产 card-played
+ *   发射的 details 只带 fromZone/playedFromZone/playedFromHand provenance
+ *   （来源是 hand/chain/trash 等已有区域），契约仍没有 Facedown Zone 的区域值和
+ *   Hide/face-down play 产生器，因此不能判定 811.1.d 的来源事实，订阅保持 fail-closed。
  * 已合入并可真实执行的部分：card-played 触发的 provenance 过滤形状与触发体 effect.ready
  * （ready me）、effect.damage（deal 2 to an enemy unit）；golden 用链适配器 + 参考内核执行。
  * 依赖：Hide 动作与 card-hidden 发射/拼写、Facedown Zone 与 face-down play provenance 的消费方。
@@ -53,9 +56,10 @@ const abilities: Ability[] = [
     kind: "triggered",
     trigger: {
       at: "card-played",
-      // 359/383.4.a：事件是“打出一张牌”；面朝下来源事实仍由缺失的
-      // Facedown Zone/Hide 产生器提供，先用 details 形状 fail-closed。
-      filter: { event: "card-played", details: { fromFaceDown: true }, player: "self" }
+      // 359/383.4.a：事件是“打出一张牌”。嵌套 filter 是生产翻译器的必需形状——
+      // 没有它时 translateObjectFilter 会把 details 当作非法对象过滤键拒绝。
+      // 面朝下来源事实仍由缺失的 Facedown Zone/Hide 产生器提供，保持 fail-closed。
+      filter: { event: "card-played", player: "self", filter: {}, details: { fromFaceDown: true } }
     },
     optional: false,
     body: [
@@ -92,8 +96,10 @@ const program = {
     "\"card-hidden\"，programs/triggers.ts 注册时抛 invalid-event-type；且没有任何模块 emit card-hidden" +
     "（GameAction 封闭集合里没有 hide，面朝下区域与 Hide/cost.hidden 也无对应产生器）。" +
     "(2)「When you play a card from face down」需要「该牌此前在面朝下区域」的事实（811.1.d 与 Facedown Zone 口径），" +
-    "card-played 现在携带 fromZone/playedFromZone provenance，过滤器改用 details.fromFaceDown 保持 fail-closed；" +
-    "但契约仍没有 Facedown Zone 的区域值或 Hide/face-down play 产生器，故 811.1.d 来源事实仍不可判定。" +
+    "过滤器按生产翻译规则补了嵌套 filter（否则 translateObjectFilter 以 Unsupported filter field details 拒绝整个 EventPattern），" +
+    "details.fromFaceDown 可注册；但 card-played 的生产发射只带 fromZone/playedFromZone/playedFromHand provenance" +
+    "（来源是 hand/chain/trash 等已有区域，chain/engine.ts 的 playedFromZone），契约仍没有 Facedown Zone 的区域值或 " +
+    "Hide/face-down play 产生器，故 811.1.d 来源事实仍不可判定，订阅保持 fail-closed。" +
     "已合入并可真实执行的部分：card-played 触发的 provenance 过滤形状与触发体 " +
     "effect.ready（ready me）、effect.damage（deal 2 to an enemy unit），golden 用链适配器 + 参考内核覆盖。" +
     "依赖：Hide 动作与 card-hidden 的发射/拼写接线、Facedown Zone 与 face-down play provenance 的消费方。",

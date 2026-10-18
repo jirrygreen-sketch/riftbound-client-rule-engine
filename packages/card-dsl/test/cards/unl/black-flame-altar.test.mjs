@@ -12,7 +12,9 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import grant from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -37,19 +39,17 @@ test("unl-208-219 Black Flame Altar: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /Temporary/);
   assert.match(program.judgeReason, /staticFilter/);
   assert.match(program.judgeReason, /Unsupported static filter field keywords/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
   assert.match(program.judgeReason, /combatRole/);
-  // Third-sweep refresh: RIFT-359's merged predicates do not cover player-side
-  // keyword filtering or defender identity, so the reason names the concrete
-  // missing wirings instead of that task.
+  // Third-sweep refresh: the reason names the concrete missing production
+  // wirings (keyword characteristic filter, default-layer location matching,
+  // keyword-grant adapter integration, and Battlefield Board lifecycle).
   assert.match(program.judgeReason, /applyLayer/);
   assert.match(program.judgeReason, /matchesObjectFilter/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-359/);
-  // The reason now names where the reference comparison really sits: the binder
-  // resolves sameLocationAs to source.location, and the *layer application*
-  // path compares that structured value by reference.
-  assert.doesNotMatch(program.judgeReason, /按引用比较/);
-  assert.match(program.judgeReason, /走引用比较/);
-  assert.match(program.judgeReason, /layers\/engine\.ts 的 applyLayer/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
+  assert.match(program.judgeReason, /object-enters-board/);
+  assert.doesNotMatch(program.judgeReason, /不会重新进入关键词展开/);
+  assert.doesNotMatch(program.judgeReason, /designation.*不存在/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -79,8 +79,9 @@ test("unl-208-219 Black Flame Altar: one static ability-layer keyword grant scop
 });
 
 test("Black Flame Altar: the real grant instruction registers Shield 1 in the ability layer", () => {
-  // Only the grant is executable here. The printed static gate and subsequent
-  // Shield expansion remain distinct unresolved parts of the card.
+  // The grant primitive is executable here. The printed static gate remains
+  // blocked in the production binder; the specialized Shield expansion is
+  // covered by the adapter scenario below.
   const kernel = world()
     .unit("temporary-unit", { keywords: [{ id: "Temporary" }], might: 3 })
     .unit("other-unit", { might: 3 })
@@ -98,9 +99,9 @@ test("Black Flame Altar: the real grant instruction registers Shield 1 in the ab
 });
 
 test("unl-208-219 Black Flame Altar: the Temporary KeywordDef is merged and keeps this card's gate meaningful", () => {
-  // CR 816.1/816.3: RIFT-265 merged effects/keywords/Temporary.ts, so
-  // "with [Temporary]" is now a real registry characteristic; what is missing is
-  // the filter predicate and the dynamically granted keyword expansion.
+  // CR 816.1/816.3: the merged effects/keywords/Temporary.ts definition means
+  // "with [Temporary]" is now a real registry characteristic; what remains is
+  // the production filter predicate and adapter integration.
   const temporary = keywordDefinitionsById.get("Temporary");
   assert.ok(temporary, "effects/keywords/Temporary.ts must be registered");
   assert.equal(temporary.valued, false);
@@ -157,10 +158,9 @@ test("unl-208-219 Black Flame Altar: the resolved here-scope does not match even
 });
 
 test("unl-208-219 Black Flame Altar: the granted Shield's defender clause is still fail-closed (CR 814.1.c/814.1.d)", () => {
-  // Evidence for gap (2): Shield expands to a static continuous.might gated on
-  // the "designation" characteristic. The merged ObjectSnapshot exposes
-  // combatRole instead, so the condition can never match and the +1 Might stays
-  // inactive even for an actual defender.
+  // The default production binder still uses the base expression evaluator.
+  // The merged KeywordGrantLayerEngine has a separate designation → combatRole
+  // adapter; the positive adapter path is covered below.
   const f = fixture({ cards: [
     { id: "altar", cardId: CANONICAL, types: ["battlefield"], energy: null, power: null, zone: "board", location: { type: "battlefield", id: "bf-1" } },
     { id: "shielded", types: ["unit"], might: 3, keywords: [{ id: "Shield", value: 1 }], zone: "board", location: { type: "battlefield", id: "bf-1" } }
@@ -171,7 +171,8 @@ test("unl-208-219 Black Flame Altar: the granted Shield's defender clause is sti
   const shield = keywordDefinitionsById.get("Shield");
   assert.ok(shield, "effects/keywords/Shield.ts must be registered");
   const [expansion] = shield.expand({ host: { canonicalCardId: CANONICAL }, value: 1 });
-  // The expansion reads a designation the contract never exposes.
+  // Shield keeps the contract spelling "designation"; the specialized keyword
+  // layer maps it from ObjectSnapshot.combatRole when that adapter is installed.
   assert.deepEqual(expansion.condition.left, {
     kind: "object-property", object: "self", property: "designation"
   });
@@ -179,13 +180,57 @@ test("unl-208-219 Black Flame Altar: the granted Shield's defender clause is sti
   binder.bindStatic(expansion, f.kernel.getObject("shielded"));
 
   const shielded = f.kernel.getObject("shielded");
-  // 3.8: the actual combat identity is combatRole; there is no designation field.
+  // 3.8: the actual combat identity is combatRole; there is no own designation
+  // field for the default binder's base evaluator to read.
   assert.equal(shielded.combatRole, null);
   assert.equal(Object.hasOwn(shielded, "designation"), false);
   assert.equal(f.engine.layers.evaluate(shielded.ref).might, 3,
     "the defender bonus must not be claimed while designation is unreadable");
 });
 
-test.todo("black-flame-altar: bind the Temporary keyword gate to the here-scoped unit set (CR 053.3/816.3; needs a keyword filter field and value-based structured location matching in the layer path)");
+test("unl-208-219 Black Flame Altar: the merged keyword layer re-expands granted Shield for a defender (CR 814.1.c/814.1.d)", () => {
+  // The merged keyword adapter is executable even though the card's production
+  // filter and Battlefield lifecycle are still blocked.
+  const kernel = world()
+    .unit("shielded-defender", { might: 3, combatRole: "defender" })
+    .unit("plain-unit", { might: 3 })
+    .build();
+  const run = runInstruction(grant, {
+    target: "grant-recipient",
+    keywords: { kind: "constant", value: ability.effect.keywords }
+  }, { world: kernel, targets: { "grant-recipient": [kernel.ref("shielded-defender")] } });
+  assert.equal(run.result.status, "executed");
 
-test.todo("black-flame-altar: expand dynamically granted Shield and bind its defender designation to combatRole (CR 814.1.c/814.1.d; needs granted-keyword re-expansion and a combatRole-based defender condition)");
+  const layers = new KeywordGrantLayerEngine(kernel.objects, {
+    context: source => bindResolveContext(kernel, { source, controller: source.controller })
+  });
+  for (const entry of kernel.continuousEffects) layers.addContinuous(entry.effect, entry.duration);
+
+  const defender = layers.evaluate(kernel.ref("shielded-defender"));
+  assert.deepEqual(defender.keywords.map(keyword => [keyword.id, keyword.value]), [["Shield", 1]]);
+  assert.equal(defender.might, 4);
+  assert.equal(layers.keywordAbilities(kernel.ref("shielded-defender"))[0].effect.kind, "continuous.might");
+  assert.equal(layers.evaluate(kernel.ref("plain-unit")).might, 3);
+});
+
+test("unl-208-219 Black Flame Altar: production binds only on object-enters-board, which a Chain-zone Battlefield never emits", () => {
+  // Third-sweep evidence for gap (4): game/lifecycle.ts creates Battlefields as
+  // Chain-zone tokens, so the merged lifecycle never reaches this card's
+  // static binding at all.
+  const f = fixture({ cards: [
+    { id: "altar", cardId: CANONICAL, types: ["battlefield"], energy: null, power: null, controller: "A" }
+  ] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("altar"), to: "chain" });
+  const source = f.kernel.getObject("altar");
+  assert.equal(source.zone, "chain");
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const lifecycle = binding.attachLifecycle(f.engine);
+  assert.deepEqual(f.engine.layers.registry.list(), []);
+  // Binding the declaration directly from the Chain fails even earlier than the
+  // keyword gate: a Chain-zone source has no location for sameLocationAs:self.
+  assert.throws(() => createEngineStaticBinder(f.engine).bindStatic(ability, source),
+    /sameLocationAs source has no location/);
+  lifecycle.detach();
+});
+
+test.todo("black-flame-altar: bind the Temporary keyword gate to the here-scoped unit set in the production path (CR 053.3/816.3; needs a keyword filter field, default-layer value-based structured location matching, KeywordGrantLayerEngine integration, and Battlefield Board lifecycle)");

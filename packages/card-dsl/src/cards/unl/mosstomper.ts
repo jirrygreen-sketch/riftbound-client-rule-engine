@@ -28,8 +28,8 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *   而是把授予放在 824.1.c 门控的持续效果里（否则默认会假定本卡无条件下带 1 点 Deflect 值，与
  *   809.2/814.2 式的求和含义冲突）。
  *
- * 2026-10-17 复核：仍为 judge-required，当前缺口见 judgeReason。
- * 已有原语、关键词定义或通用适配器不代表本卡完整生产路径可执行。
+ * 2026-10-18 复核：整卡仍为 judge-required；当前生产缺口见 judgeReason。
+ * 已支持子效果的执行证据保留在对应 golden；不以原语存在替代整卡可执行性。
  */
 const LEVEL_THREE_XP: Condition = {
   // CR 824.1.c/d: controller-xp has no evaluator; never count objects as XP.
@@ -83,9 +83,9 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺 Hunt 的事件名适配（823.1）：programs/filters.ts 已把嵌套 filter 翻译成 object，但 conquer/hold 仍与封闭 EventPattern 的 conquered/held 不一致，订阅不能注册。" +
-    "缺 Level 的 controller-xp 表达式读取 PlayerSnapshot.xp（824.1.c/824.1.d）：continuous.might 与 continuous.grant-keyword 已有静态绑定条件求值，count 仍只数对象而不读取 subject；现用 never 显式阻断保留的 controller-xp 查询，不近似实现 XP。" +
-    "缺授予 Deflect 后的 target.tax 到 Chain Finalize 费用接线（809.1.c.1）；target/tax 已能收集分层关键词并计算任意域 Power，链仍使用自身按 Energy 记账的适配器。",
+    "当前缺口：(1) Hunt 的过滤事件名 conquer/hold 不在 conquered/held 词表内；programs/filters.ts 虽能翻译 self 锚点，计分事件仍无单位 object（823.1.c.1）。" +
+    "(2) Level 缺控制者实时 XP 查询、控制权/XP 变化时的失活（824.1.c/824.1.d）：controller-xp 的 count 仍只数对象；continuous.might 与 continuous.grant-keyword 的条件保留 never 阻断。" +
+    "(3) KeywordGrantLayerEngine 已可重展开授予的 Deflect，但默认 lifecycle 未接入；target.tax 无默认静态映射，chain/engine.ts 未消费 target/tax 的任意域 Power 费用计划，仍将显式税额记为 Energy（809.1.c.1）。",
   abilities,
   sourceText:
     "[Hunt 2] (When I conquer or hold, gain 2 XP.)\n" +

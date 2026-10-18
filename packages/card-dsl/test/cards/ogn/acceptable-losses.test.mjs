@@ -1,5 +1,8 @@
 // Scenario evidence: ../templates/keyword-play-effect-kill-682.test.mjs.
 // Main-phase admission only; the per-player effect remains blocked below.
+// RIFT-701 group evidence: ../templates/keyword-play-effect-kill-701.test.mjs
+// (Action admission, 1 Energy payment and the no-became-target shape); the
+// per-player chooser gap (355.10.e / 412.1) stays recorded in judgeReason.
 import assert from "node:assert/strict";
 import test from "node:test";
 

@@ -15,7 +15,10 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { getTimingPoint } from "../../../../engine-core/dist/events/index.js";
+import { EVENT_PATTERN_TYPES, assertTriggerSpec, validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { deriveAbilityActivatedEmission } from "../../../../engine-core/dist/events/producers/ability-activation.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-2affca3f8f8306aa0687163e5113f3532b04acb9960f806d7a7eba3bf504104a";
 const SOURCE_TEXT =
@@ -173,4 +176,53 @@ test.todo(
     "hands it every committed activation result, so the ability-activated timing really enters the pipeline " +
     "(CR 400/402/405-407); programs/activate.ts currently only builds a ChainDraft"
 );
+
+test("sfd-075-221 Prize of Progress: the stored discriminant and player spelling are not registrable", () => {
+  // Direct evidence for both live wiring gaps. The closed EventPattern vocabulary
+  // (events/trigger-spec.ts) has no ability-activated member, so even the
+  // spelling cannot register; and the merged [-choice] PlayerSelector vocabulary
+  // is self/opponent/any/playerId, so "controller" is not accepted either.
+  assert.equal(EVENT_PATTERN_TYPES.includes("ability-activated"), false);
+  assert.equal(EVENT_PATTERN_TYPES.includes("held"), true);
+  assert.throws(
+    () => assertTriggerSpec(ability.trigger),
+    (error) => error.name === "TriggerSpecValidationError"
+  );
+  const validation = validateTriggerSpec(ability.trigger);
+  assert.equal(validation.ok, false);
+  assert.ok(validation.issues.some((issue) => issue.path === "trigger.filter.event"));
+  // "you use" is the activating player (190.6.d); PlayerSelector "self" is the
+  // frozen spelling for the ability's own controller. Comment only — the
+  // published IR keeps the printed/unresolved form until the vocabulary lands.
+  assert.equal(ability.trigger.filter.player, "self");
+  assert.equal(ability.trigger.filter.source.type, "gear");
+});
+
+test("sfd-075-221 Prize of Progress: substituting another discriminant would silently validate, so it is not done", () => {
+  // Guard: EventPattern validation is keyed on the discriminant VALUE, not on
+  // whether it names the same event the card prints. Swapping in any other legal
+  // value would therefore "pass" while making the ability fire on the wrong game
+  // occurrence, which is exactly the approximation this program refuses.
+  for (const event of ["card-played", "held", "conquered", "scored", "chain-item-finalized"]) {
+    assert.equal(
+      validateTriggerSpec({ at: ability.trigger.at, filter: { ...ability.trigger.filter, event } }).ok,
+      true,
+      `${event} would validate even though it is not "use an activated ability"`
+    );
+  }
+  // The published program keeps the printed semantics and therefore stays
+  // unregistrable: the merged binding rejects the real spelling instead of
+  // accepting a wrong-but-legal one.
+  assert.equal(validateTriggerSpec(ability.trigger).ok, false);
+  assert.throws(() => registerProgramTrigger());
+});
+
+/** The production adapter path for one trigger registration. */
+function registerProgramTrigger() {
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const { engine, kernel } = fixture({ cards: [{ id: "gear", cardId: CARD_ID, types: ["gear"], energy: 1, power: [] }] });
+  return binding.registerProgramTriggers(engine, kernel.getObject("gear"));
+}
 

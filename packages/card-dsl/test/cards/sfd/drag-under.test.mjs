@@ -28,7 +28,7 @@ test("Drag Under program is valid EffectIR v2 data and judge-required", () => {
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /366\.2/);
   assert.match(program.judgeReason, /layerFor/);
-  assert.match(program.judgeReason, /any-except-hand/);
+  assert.match(program.judgeReason, /not-hand/);
   // RIFT-357 landed: the location restriction is no longer a gap, so the
   // refreshed reason must not present it as missing.
   assert.doesNotMatch(program.judgeReason, /RIFT-357/);
@@ -53,7 +53,7 @@ test("Drag Under structure: Action keyword, printed cost, cost-modify static abi
   assert.equal(costModification.effect.resource, "energy");
   assert.deepEqual(costModification.effect.amount, { kind: "constant", value: -2 });
   assert.equal(costModification.effect.appliesTo, "self");
-  assert.equal(costModification.effect.fromZone, "any-except-hand");
+  assert.equal(costModification.effect.fromZone, "not-hand");
 
   assert.deepEqual(play.cost, {
     kind: "cost.printed",
@@ -191,6 +191,6 @@ test("Drag Under golden: the merged cost.modify really reduces the printed energ
 test.todo(
   "Drag Under cost reduction: playing this spell from anywhere other than the hand reduces its " +
     "printed 5 energy by 2 at Finalize (CR 366.2 / 356.4) — the static effect still has no layer " +
-    "mapping in programs/statics.ts and fromZone has no consumer, so the card-static discount cannot " +
-    "reach CostPlanInput.discounts"
+    "mapping in programs/statics.ts, and chain/engine.ts does not pass the pre-play origin plus " +
+    "the card static into CostPlanInput.discounts"
 );

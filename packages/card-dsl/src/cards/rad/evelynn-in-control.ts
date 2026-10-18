@@ -86,19 +86,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) [Disarm] 的 KeywordDef 与展开体已合入（effects/keywords/Disarm.ts：" +
-    "continuous.might + this-turn 期限 + here 锚点，golden 真实执行该展开体并注册 -1 Might），" +
-    "但 attack-declared 没有产出方——docs/rules/timing-point-producers.md 记为「待后续」：" +
-    "combat/flow.ts 的角色事务未实现（CombatFlow 抛 combat-start-transaction），该触发永远不会命中；" +
-    "(2) 「if you control a facedown card here」读不到 Facedown Zone：契约 ZoneId 没有 facedown-zone 成员" +
-    "（同 effect.stun.ts 记录的缺口），也没有「该战场上我控制的 facedown 牌」集合，把条件放宽成任意 faceDown 标记会改变卡牌语义；" +
-    "注册路径同样拒绝 details 声明：programs/filters.ts 的 translateTriggerFilter 会抛 " +
-    "ProgramBindingError「Unsupported filter field details」（实测），触发器无法注册；" +
-    "(3) hold 时点的发射方与 CardProgram TriggerRegistration 已合入，但 scoring 事件只有字面 battlefieldId，" +
-    "当前没有把该 id 与本战场宿主绑定的查询路径；details.battlefieldId: self 是字面量比较（turn/flow.ts:102 发射真实 id），" +
-    "永不等于真实 id，不放宽语义，但也无法绑定宿主战场。" +
-    "已写出的可执行部分：hold 触发 + TriggerSpec.condition 门控（383.2.a.1）+ effect.score 体（194.1.c/470.1，golden 真实执行）。" +
-    "依赖：combat 角色事务（attack-declared 发射）、hold 事件的来源战场绑定、Facedown Zone 区域模型。",
+    "三处缺口，均不近似实现：(1) [Disarm] 的 continuous.might 展开有 this-turn 与 here 语义，" +
+    "但 combat/flow.ts 尚未产生 attack-declared 的角色事务，该攻击触发不会命中；" +
+    "(2) 「if you control a facedown card here」没有可求值的 Facedown Zone 集合，ZoneId 与 ObjectSnapshot 都未提供该战场上的控制者集合，" +
+    "而触发过滤器也不接受 details 字段；" +
+    "(3) scoring 的 hold 事件只有字面 battlefieldId，没有把事件地点绑定到来源战场，故 here 限定无法匹配。" +
+    "effect.score（194.1.c / 470.1）和 Disarm 展开本体已有真实执行证据；整卡仍缺 attack-declared 生产、Facedown Zone 查询和 hold 来源绑定。",
   abilities,
   sourceText:
     "[Disarm] (When I attack, give an enemy unit here -1 :rb_might: this turn.)\n" +

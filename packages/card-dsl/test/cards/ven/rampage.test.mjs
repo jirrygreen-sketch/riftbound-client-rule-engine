@@ -1,3 +1,4 @@
+import { finalizeTargetPlan } from "../../../../engine-core/dist/target/target-plan.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
@@ -115,15 +116,10 @@ test("ven-083-166 Rampage: +2 Might body and the two Might-sourced Deal instruct
       selection: "one"
     }
   ]);
-  assert.deepEqual(enemyDeals.targets, [
-    {
-      id: FRIENDLY_ID,
-      filter: { type: "unit", zone: "board", controller: "self" },
-      min: 1,
-      max: 1,
-      selection: "one"
-    }
-  ]);
+  // One chosen friendly unit is reused by the boost and both Deal clauses.
+  // Declaring it again makes Finalize choose/emit became-target twice.
+  assert.equal(enemyDeals.targets, undefined);
+  assert.deepEqual(play.body.flatMap(instruction => instruction.targets ?? []).map(target => target.id), [FRIENDLY_ID, ENEMY_ID]);
 
   // 418.6.b.3: each chosen unit is the source of its own damage and the amount
   // is read from that unit's Might at resolution.
@@ -323,3 +319,15 @@ function finalizedContext(kernel) {
     return kernel.query(normalized);
   } });
 }
+
+test("ven-083-166 Rampage regression: Finalize locks each chosen unit once and emits two targeting events", () => {
+  const kernel = world().unit("friendly", { might: 3 }).unit("enemy", { owner: "B", might: 5 }).build();
+  kernel.setAnswers({ [`target:${FRIENDLY_ID}`]: [kernel.ref("friendly")], [`target:${ENEMY_ID}`]: [kernel.ref("enemy")] });
+  const chosen = [];
+  const plans = play.body.flatMap(instruction => instruction.targets ?? []).map(requirement =>
+    finalizeTargetPlan(finalizedContext(kernel), requirement, { onTargeted: event => chosen.push(event.target) })
+  );
+  assert.deepEqual(plans.map(plan => plan.requirement.id), [FRIENDLY_ID, ENEMY_ID]);
+  assert.deepEqual(chosen, [kernel.ref("friendly"), kernel.ref("enemy")]);
+  assert.deepEqual(plans.map(plan => plan.selected), [[kernel.ref("friendly")], [kernel.ref("enemy")]]);
+});

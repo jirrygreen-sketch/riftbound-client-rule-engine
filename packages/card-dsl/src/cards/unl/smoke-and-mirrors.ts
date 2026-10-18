@@ -28,40 +28,18 @@ import type { CardProgram } from "../../ir/index.js";
  * - 「Draw 1」是独立语句（与 "If …" 条件无 "do X to Y" 依赖），用已合入的
  *   effect.draw（414.1）执行。
  *
- * status = judge-required（不近似实现）：
- * - 缺 effect.swap-location：已合入的 effect.move 每条指令只移动一个选择集到固定
- *   LocationRef/controller-base/静态候选，不能把两个永久物的 Origin/Destination
- *   作为同一个原子 Move 关系交换；顺序两次 effect.move 会产生不同的合法性、战斗
- *   与触发结果，故不用它近似。（RIFT-259 的 continuous.movement 只声明移动许可，
- *   不提供交换动作。）
- * - 「at least one of them has [Temporary]」无求值路径：Condition 只支持
- *   always/never/compare/all/any/not/expression，ObjectFilter 没有关键词维度
- *   （模板里的 withoutKeyword 会被 layers/filter.ts 与测试内核静默忽略，
- *   Temporary 的 KeywordDef 与 continuous.grant-keyword 本身已合入），谓词也
- *   不能跨两个 TargetSpec 读取特征。
- * - 「at a different location」是两个选择之间的关系限制：TargetPlan（RIFT-357）
- *   只有单 spec 的 filter/location，未提供成对关系重验。
- * - [Hidden] 的 static cost.hidden 展开已存在，但 Hide 的 facedown 区域、费用支付与下一回合
- *   Reaction 时点仍没有消费方；本卡不能把 Hidden 当作已可执行。
- * Draw 1 一半已合入并有 golden 执行测试。依赖：RIFT-9 的 effect.swap-location、
- * 关键词特征谓词、成对关系限制（RIFT-357）以及 Hidden 的 cost.hidden 消费方。
+ * 2026-10-18 复核：整卡仍为 judge-required；当前生产缺口见 judgeReason。
+ * 已支持子效果的执行证据保留在对应 golden；不以原语存在替代整卡可执行性。
  */
 const smokeAndMirrors = {
   canonicalCardId: "card.hash-6add1fe7f28222eaf95929c9ea158fc564653d8c24fc981553089763dd098361",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处当前缺口，均不近似实现：(1) 缺 RIFT-9 建议的 effect.swap-location：" +
-    "CR 448.1/448.3 要求两个永久物的 Origin/Destination 作为同一个原子 Move 关系交换，" +
-    "已合入的 effect.move 每条指令只把单个选择集移到固定 LocationRef/controller-base/静态候选，" +
-    "顺序执行两次 effect.move 会在第二条的合法性重验与触发时点上产生不同结果（449.1/451.1），故不近似。" +
-    "(2)「If at least one of them has [Temporary]」无求值路径：Condition 只有 always/never/compare/all/any/not/expression，" +
-    "ObjectFilter 没有关键词维度（关键词键会被 layers/filter.ts 与测试内核静默忽略；Temporary 的 KeywordDef 与 " +
-    "continuous.grant-keyword 本身已合入，缺的是跨选择的特征谓词），且谓词不能跨两个 TargetSpec 读特征。" +
-    "(3)「at a different location」是两个选择之间的关系限制，TargetPlan（RIFT-357）只有单 spec 的 filter/location，没有成对关系重验。" +
-    "(4) [Hidden] 目前只有 static cost.hidden 展开，Hide 的 facedown 区域/费用支付与下一回合 Reaction 时点没有消费方。" +
-    "「Draw 1」是独立语句，只用已合入的 effect.draw，golden 真实执行。依赖：RIFT-9 的 effect.swap-location、" +
-    "关键词特征谓词、成对关系限制（RIFT-357）以及 Hidden 的 cost.hidden 消费方。",
+    "当前缺口：(1) 缺 effect.swap-location 或等价的双对象位置交换动作，现有 effect.move 不能在同一结算动作中交换两者原地点（CR 448.1/448.3）。" +
+    "(2) 所选两单位至少一个具有 Temporary 的实时关键词谓词仍无求值路径；count 的 selected-units-with-temporary subject 不被识别，会退化成对象计数（816.3）。" +
+    "(3) TargetPlan 缺 exclude/不同位置这类跨 TargetSpec 关系的 Finalize/Resolve 重验（355.7/355.9）；当前 locationRelation 不是可执行关系过滤。" +
+    "(4) cost.hidden 展开、Hidden 费用规划与支付封装已存在，但缺 Hide 动作、facedown 区域和下回合 Reaction 解锁的生产接线（811）。continuous.grant-keyword 与 Temporary 定义已存在；Draw 1 是独立语句，已有真实执行证据。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },

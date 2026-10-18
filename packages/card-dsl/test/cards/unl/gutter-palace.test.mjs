@@ -39,7 +39,7 @@ test("unl-088-219 Gutter Palace: identity, ruleset, status, judgeReason and verb
   assert.match(program.judgeReason, /argsSchema|适配/);
   assert.match(program.judgeReason, /PickSpec/);
   assert.match(program.judgeReason, /exact-count/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-(89|102|120)/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
   assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
@@ -125,7 +125,7 @@ test("unl-088-219 Gutter Palace: the token instruction is the printed Bird play 
   // 440.2.c / 185.2.a: "Play ... token" goes through chain creation.
   assert.deepEqual(playBird.args.mode, { kind: "constant", value: "play" });
   assert.deepEqual(playBird.args.amount, { kind: "constant", value: 1 });
-  // 355.2 / RIFT-357: the destination is a real LocationExpr selector.
+  // 355.2: the destination is a real LocationExpr selector.
   assert.deepEqual(playBird.args.location, {
     kind: "location",
     value: {

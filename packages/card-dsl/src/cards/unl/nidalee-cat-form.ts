@@ -24,7 +24,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 提示文字 "(I win if I remain after combat.)" 是提醒文本（135.2.d.3），不产生
  *   额外能力。
  *
- * 2026-10-17 复核：仍为 judge-required，当前缺口见 judgeReason。
+ * 2026-10-18 复核：仍为 judge-required，当前缺口见 judgeReason。
  * 已有原语、关键词定义或通用适配器不代表本卡完整生产路径可执行。
  */
 const abilities: Ability[] = [
@@ -56,9 +56,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Ambush 的 play-location-permission 到打出位置选择/Finalize 的绑定（822.1.b/822.1.c/822.3），不能仅凭 continuous.timing 已有 chain.canAct 消费方认定整项许可可用。" +
-    "缺 combat-result 的战斗结果生产者（468.3.a–468.3.d），combat/flow.ts 仍阻塞于 combat-start-transaction；" +
-    "封闭 EventPattern（EVENT_PATTERN_TYPES）没有 combat-result 事件名及 unitResults/参与单位胜负绑定，本卡 result: win 仍是声明形状（468.3.c）。",
+    "两处当前缺口（2026-10-18 实测，均不近似实现）：" +
+    "(1) [Ambush]（822.1.b/822.1.c/822.3）的展开进不了生产路径：programs/statics.ts 的 layerFor 拒绝 " +
+    "\"Static ability kind play-location-permission has no layer mapping\"，随后的 continuous.timing 也因 " +
+    "\"Unsupported static appliesTo [\\\"card\\\"]\" 被拒，两个 registration 都没有进入图层（实测 registry.list() 为空、" +
+    "playLocations() 的 permissions 为空）；chain/engine.ts 的 playDestinationIsLegal 只读 continuous.location 的 " +
+    "base/battlefield 类别，822.3 的“该战场还有你的单位”复核也没有消费方。" +
+    "(2) “When I win a combat”（468.3.a–468.3.c）没有生产者与订阅：events/trigger-spec.ts 的封闭 " +
+    "EVENT_PATTERN_TYPES 不含 combat-result（实测 translateTriggerFilter 之后仍以 invalid-event-type 被拒），" +
+    "combat/flow.ts 仍在 combat-start-transaction 阻塞，所以 result: win 只是声明形状。",
   abilities,
   sourceText:
     "[Ambush] (You may play me as a [Reaction] to a battlefield where you have units.)\n" +

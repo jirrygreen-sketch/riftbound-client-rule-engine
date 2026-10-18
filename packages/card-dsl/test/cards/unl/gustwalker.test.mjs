@@ -1,9 +1,18 @@
-// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
+// Golden test for Gustwalker (unl-075-219).
+//
+// Execution evidence (the real printed 3 Energy + 1 Mind Power payment, the
+// registered-but-inactive [Level 3] statics, the fail-closed Hunt trigger
+// registration and the blocked printed expectations) lives in the RIFT-673
+// parameterized template golden:
+// test/cards/templates/keyword-static-static-673.test.mjs.
+// Original behavior and structure assertions remain in this file; the
+// template adds execution evidence without replacing these checks.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/unl/gustwalker.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -21,6 +30,7 @@ test("unl-075-219 Gustwalker: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
 test("unl-075-219 Gustwalker: identity, ruleset, status, judgeReason, sourceText", () => {
@@ -32,6 +42,8 @@ test("unl-075-219 Gustwalker: identity, ruleset, status, judgeReason, sourceText
   assert.match(program.judgeReason, /824\.1/);
   assert.match(program.judgeReason, /静态绑定可注册/);
   assert.match(program.judgeReason, /Ganking/);
+  assert.match(program.judgeReason, /invalid-event-type/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
   assert.doesNotMatch(program.judgeReason, /823\.2.*未接线/);
   assert.doesNotMatch(program.judgeReason, /RIFT-91/);
   assert.doesNotMatch(program.judgeReason, /无卡牌持续效果注册路径/);
@@ -124,3 +136,21 @@ test("unl-075-219 Gustwalker golden: the merged Hunt body really gains XP", () =
   assert.equal(kernel.player("A").xp, 2);
 });
 
+test("unl-075-219 Gustwalker golden: both Hunt bodies credit the current controller rather than the owner", () => {
+  const huntDef = keywordDefinitionsById.get("Hunt");
+  for (const ability of huntDef.expand({ value: hunt.value, host: { canonicalCardId: CANONICAL } })) {
+    const kernel = world()
+      .player("A", { xp: 3 })
+      .player("B", { xp: 1 })
+      .unit("gustwalker", { owner: "A", controller: "B", might: 3 })
+      .build();
+    const context = kernel.clone({ sourceSnapshot: kernel.getObject("gustwalker"), controller: "B" });
+    const result = resolveChainBody(ability.body, context);
+    assert.equal(result.status, "executed");
+    assert.equal(result.results[0].result.linkedValues.gained, 2);
+    assert.equal(result.results[0].result.linkedValues.gainedTo, "B");
+    assert.equal(context.player("A").xp, 3);
+    assert.equal(context.player("B").xp, 3);
+    assert.deepEqual(context.events.map(event => event.action), ["gain-xp"]);
+  }
+});

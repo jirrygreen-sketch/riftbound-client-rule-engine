@@ -6,8 +6,11 @@ import program from "../../../dist/cards/ogn/machine-evangel.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import deathknell from "../../../../engine-core/dist/effects/keywords/Deathknell.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL = "card.hash-17636361767d3b9981692423637f956799fa03a84c22ee687c41f59f2b58aa59";
 const [keyword, effect] = program.abilities;
@@ -24,7 +27,11 @@ test("ogn-239-298 Machine Evangel: identity, status and verbatim sourceText", ()
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /trigger\.leave/);
-  assert.match(program.judgeReason, /cause/);
+  // 2026-10-17 re-sweep: cause/destination now bind, so the reason records the
+  // measured registration success instead of claiming the adapter refuses it.
+  assert.match(program.judgeReason, /cause|destination/);
+  assert.match(program.judgeReason, /instructionDefinitionsById|registryById/);
+  assert.match(program.judgeReason, /Unregistered instruction opcode/);
   assert.match(program.judgeReason, /controller-base/);
   assert.equal(
     program.sourceText,
@@ -113,12 +120,35 @@ test("ogn-239-298 Machine Evangel: the effect body executes through the ability 
   );
 });
 
-test.todo(
-  "ogn-239-298 Machine Evangel: registering the [Deathknell] trigger needs an executable " +
-    "trigger.leave instruction and a trigger adapter that accepts the expansion's cause / " +
-    "destination filter (CR 808.1.d/429.1.a.1.b)"
-);
-test.todo(
-  "ogn-239-298 Machine Evangel: resolving 'into your base' (CR 440.4) needs effect.token to " +
-    "resolve the controller-base placeholder into the acting player's Base"
-);
+test("ogn-239-298 Machine Evangel: the Deathknell expansion's trigger.leave op is not registered anywhere", () => {
+  // 2026-10-17 re-sweep: the expansion's fire/filter shape now registers
+  // (cause/destination fold into the self identity), but its body still
+  // references an op no instruction module implements.
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+  const expansion = deathknell.expand({ host: { canonicalCardId: CANONICAL } });
+  const [ability] = expansion;
+  assert.equal(ability.body[0].op, "trigger.leave");
+  assert.deepEqual(translateTriggerFilter(ability.trigger.filter, "SRC", "object-killed"), {
+    object: { objectId: "SRC" },
+    event: "object-killed"
+  });
+  assertTriggerSpec({ at: ability.trigger.at, filter: translateTriggerFilter(ability.trigger.filter, "SRC", "object-killed") });
+
+  const kernel = world().unit("evangel", { cardId: CANONICAL, owner: "A", controller: "A", types: ["unit"] }).build();
+  Object.defineProperty(kernel, "source", { value: kernel.getObject("evangel") });
+  assert.throws(
+    () => resolveChainBody(ability.body, kernel),
+    /Unregistered instruction opcode: trigger\.leave/
+  );
+});
+
+test("ogn-239-298 Machine Evangel: the declared controller-base placeholder resolves to negated/impossible", () => {
+  // CR 440.4: "your base" is the effect controller's Base. effect.token only
+  // takes a concrete LocationRef or a resolvable LocationSelector, so the
+  // declared { type: "base", player: "controller" } constant cannot be used.
+  const kernel = world().player("A", { energy: 10 }).build();
+  const run = runInstruction(token, tokenInstruction.args, { world: kernel });
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
+});

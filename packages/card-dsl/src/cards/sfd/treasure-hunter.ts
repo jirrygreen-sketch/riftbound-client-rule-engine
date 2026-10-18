@@ -17,12 +17,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   链上生成再由打出流程接手（350.2/354）；184.1 / 185.2.d 允许效果规定该 token 以
  *   横置状态入场；Gold gear token 的印刷定义见 187.5。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。object-moved 的
- * source: "self" 绑定与 Recall 排除已经由事件对象和触发过滤器消费；当前仍有三处
- * token 侧缺口：Gold 定义（187.5，自带 "[Reaction][>] Kill this, [E]: [Add] [A]"）
- * 不在 effect.token 的冻结定义表里，entry exhausted override 未接入，且 token 的
- * controller-relative Base 已有 LocationSelector 表达式；但 effect.token
- * 尚未消费 LocationExpr/relative selector，仍不能把它解析成运行时 LocationRef。
+ * status 判定（cards/README.md 第 2 节，2026-10-18 复核）：judge-required，触发与 token 两侧都有实测缺口。
+ * - 触发侧：object-moved 的 source: "self" 绑定由 filters/triggers 层完成，
+ *   但 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 词表不含 object-moved，
+ *   registerProgramTriggers 实测抛 TriggerSpecValidationError（invalid-event-type），
+ *   触发器进不了事件管线。
+ * - token 侧：Gold 定义（187.5，自带 "[Reaction][>] Kill this, [E]: [Add] [A]"）
+ *   不在 effect.token 的冻结定义表里（实测 linkReceipt 记
+ *   blockedReason=token-definition-or-abilities-judge-required），
+ *   effect.token 的 argsSchema 也不接受本卡声明的 location/entersExhausted 键
+ *   （实测 Invalid effect.token argument: location / entersExhausted），
+ *   因此 controller-relative Base 的 LocationSelector 与入场横置规定都还消费不了。
  */
 const abilities: Ability[] = [
   {
@@ -58,12 +63,15 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "object-moved 触发的 source: \"self\" 过滤已经能绑定事件对象，且 Recall 不会发出 object-moved；" +
-    "token 体仍不可执行：Gold gear token（CR 187.5 自带 [Reaction][>] Kill this, [E]: [Add] [A]）" +
-    "不在 effect.token 的冻结定义表里（该文件明确 Gold 等自带能力的定义保持 blocked/judge-required）；" +
-    "mode \"play\" 按 440.2.c/185.2.a 的链上创建与打出接手已合入；但「exhausted」是入场规定（184.1/185.2.d），" +
-    "不能用事后 effect.exhaust（143.4）近似；" +
-    "当前 create-token/play 不支持入场状态改写，且 effect.token 的参数解析器尚未消费 " +
-    "LocationExpr/relative selector（`ability-controller-base`）并解析成运行时 LocationRef，故不近似。",
+    "但触发仍注册不上：events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 词表不含 object-moved，" +
+    "registerProgramTriggers 实测抛 TriggerSpecValidationError（path=trigger.filter.event，code=invalid-event-type）。" +
+    "token 体同样不可执行：Gold gear token（CR 187.5 自带 [Reaction][>] Kill this, [E]: [Add] [A]）" +
+    "不在 effect.token 的冻结定义表里（实测 linkReceipt 记 blockedReason=token-definition-or-abilities-judge-required）；" +
+    "effect.token 的 argsSchema 也不接受本卡声明的键（实测 Invalid effect.token argument: location 与 " +
+    "Invalid effect.token argument: entersExhausted），因此 controller-relative Base 的 LocationSelector/LocationExpr" +
+    "（ability-controller-base）尚未解析成运行时 LocationRef；" +
+    "mode \"play\" 按 440.2.c/185.2.a 的链上创建与打出接手已合入，但「exhausted」是入场规定（184.1/185.2.d），" +
+    "不能用事后 effect.exhaust（143.4）近似；当前 create-token/play 也不支持入场状态改写，故不近似。",
   abilities,
   sourceText: "When I move, play a Gold gear token exhausted."
 } satisfies CardProgram;

@@ -1,3 +1,13 @@
+// Golden test for Nine-Tailed Fox (ogn-255-298).
+//
+// Execution evidence for the supported half of this card's printed ability (the
+// authored -1 Might modification with its printed floor of 1, its end-of-turn
+// expiry, and the remaining trigger-side gaps) lives in the RIFT-705
+// parameterized template golden:
+// test/cards/templates/triggered-attack-declared-continuous-mig-705.test.mjs.
+// The card stays judge-required: "a battlefield you control" has no payload
+// carrier, "it" has no event-object selector, and attack-declared has no
+// producer (CR 466.2).
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -44,7 +54,10 @@ test("ogn-255-298 Nine-Tailed Fox: attack-declared trigger for an enemy unit", (
   assert.equal(ability.trigger.at, "attack-declared");
   assert.deepEqual(ability.trigger.filter, {
     event: "attack-declared",
-    object: { type: "unit", controller: "opponent" }
+    // 355.9.a.1: "unit" is a Board object; attack-declared's object is the
+    // attacking unit, so the declared filter states the Board restriction
+    // explicitly instead of also matching a same-named card in another zone.
+    object: { type: "unit", controller: "opponent", zone: "board" }
   });
   // “When an enemy unit attacks …”: mandatory, not “you may”.
   assert.equal(ability.optional, false);
@@ -56,14 +69,21 @@ test("ogn-255-298 Nine-Tailed Fox: attack-declared trigger for an enemy unit", (
 test("ogn-255-298 Nine-Tailed Fox: -1 Might this turn with the printed minimum of 1", () => {
   assert.equal(ability.body.length, 1);
   assert.equal(debuff.id, "nine-tailed-fox.debuff-attacker");
-  // The debuff is a temporary Might modification: continuous.might belongs to
-  // the layers system (RIFT-83/84) and is not a merged instruction opcode; the
-  // golden documents the intended shape and its failure evidence.
+  // The debuff is a temporary Might modification, so it belongs to the layers
+  // system (478) and not to a Buff counter (702-704).
   assert.equal(debuff.op, "continuous.might");
   assert.deepEqual(debuff.args.amount, { kind: "constant", value: -1 });
   assert.deepEqual(debuff.args.duration, { kind: "constant", value: "this-turn" });
   assert.deepEqual(debuff.args.minimum, { kind: "constant", value: 1 });
   assert.equal(debuff.linkedTo, undefined);
+  // The merged primitive reads its recipients from the evaluated objects
+  // selection; writing args.target with an Expr made the interpreter hand the
+  // Expr node itself to ctx.targets(), which always returned an empty set.
+  assert.deepEqual(debuff.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "attacking-unit" }
+  });
+  assert.equal(debuff.args.target, undefined);
 
   // “it” = the attacking unit from the trigger event; the merged
   // ObjectSelector set has no event-object selector, so the TargetSpec is a
@@ -71,7 +91,7 @@ test("ogn-255-298 Nine-Tailed Fox: -1 Might this turn with the printed minimum o
   assert.equal(debuff.targets.length, 1);
   assert.deepEqual(debuff.targets[0], {
     id: "attacking-unit",
-    filter: { type: "unit", controller: "opponent" },
+    filter: { type: "unit", controller: "opponent", zone: "board" },
     min: 1,
     max: 1,
     selection: "one"

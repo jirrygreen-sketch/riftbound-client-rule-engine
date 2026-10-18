@@ -27,11 +27,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 2. the "exhausted" entry override is unsupported by the creation/play actions;
  *    effect.exhaust's boundary notes that a later exhaust is not equivalent
  *    (143.4 / 184.1 / 185.2.d).
- * The chain-create + play handoff itself is merged: the golden proves the
- * card's own token/amount/mode/location shape against a merged definition really
- * creates and plays four tokens. The judged half stays on the Gold definition and
- * the entry state, so the printed "exhausted" entry is recorded as a
- * `test.todo` instead of being approximated by a later exhaust.
+ * The chain-create + play handoff itself is available for defined token types, but
+ * this card's Gold invocation is blocked before token creation. The judged half
+ * stays on the Gold definition and the entry state; the printed "exhausted" entry
+ * is not approximated by a later exhaust.
  */
 const abilities: Ability[] = [
   {
@@ -73,8 +72,8 @@ const program = {
     "(1) Gold gear token 定义（CR 187.5：域外 gear token，自带印刷能力 “[Reaction][>] Kill this, [E]: [Add] [A]”）不在 effect.token 的冻结定义表；" +
     "该文件明确此类定义保持 blocked/judge-required，对 “gold” 执行会得到 negated + blockedReason: token-definition-or-abilities-judge-required。" +
     "(2)「exhausted」是入场状态规定（184.1/185.2.d），create-token/play 不支持改写；事后 effect.exhaust 不等价（143.4，effect.exhaust 文件头亦如此说明）。" +
-    "已可真实执行：卡自身的 token/amount/mode/location 形状在已合入定义上会真实执行 create-token → play 四次" +
-    "（golden 以此证明形状与 440.2.c 路径可用，且入场状态为默认 ready）；印刷的「exhausted」入场以 test.todo 记录，不按 ready 静默通过。" +
+    "已合入的 effect.token 原语对已定义 token 支持 create-token → play 链路；本卡的 Gold 调用会在定义检查处阻断，" +
+    "因此不会把默认 ready 当成印刷的「exhausted」入场状态，也不以事后 exhaust 近似。" +
     "此外，effect.token 的参数解析器尚未消费 LocationExpr/relative selector " +
     "（`ability-controller-base`）并解析成运行时 LocationRef。不近似实现。",
   abilities,

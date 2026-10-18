@@ -14,48 +14,42 @@ import type { CardProgram } from "../../ir/index.js";
  *   因此 TargetSpec 为 min 0 / max 1 / selection "up-to"；被点名的单位是目标（355.7/355.9.a.1），
  *   "enemy" 用 controller: "opponent"，"at a battlefield" 是目标限制而非第二个目标（355.10.b），
  *   用已合入的 location: "battlefield" 表达（ogn/gust、sfd/arcane-shift 同写法）。
- * - "then move a friendly unit"：421/448-451 的效果 Move（非 144 的标准移动：无横置费用、
- *   无 Main Phase 门槛，451.1 由来源声明目的地限制）。原文**没有印刷目的地**，因此目的地按
- *   355.4/355.4.a 在结算时选一个合法 Location（451.1）。被移动的友方单位是目标
- *   （355.7/355.9.a.1）。"then" 只是 158.1 的自上而下结算顺序；这句不引用伤害的结果对象，
- *   因此不写 linkedTo（README 第 4 节：独立语句不强行链接；否则「选择 0 个伤害目标」
- *   会让移动被 linked-ignored 连坐，凭空发明条件）。
+ * - "then move a friendly unit"：448-451 的效果 Move（非 144 的标准移动：无横置费用、
+ *   无 Main Phase 门槛，451.1 由来源声明目的地限制）。原文没有印刷目的地，因此目的地按
+ *   355.4/355.4.a 在结算时选一个合法 Location。被移动的友方单位是目标（355.7/355.9.a.1）。
+ *   "then" 只是 158.1 的自上而下结算顺序；这句不引用伤害的结果对象，因此不写 linkedTo
+ *   （README 第 4 节：独立语句不强行链接；否则「选择 0 个伤害目标」会让移动被
+ *   linked-ignored 连坐，凭空发明条件）。
  * - [Flow]（829）同其他卡：只声明关键词身份，展开归 keywords/Flow.ts。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。剩余两处阻塞，不近似实现：
- * (1) 没有运行期 Location 选择器：355.4/355.4.a 要求结算时选定目的地，而 effect.move 的
- *     `to` 只接受静态 LocationRef / "controller-base" / 静态候选列表；本文件保留描述性
- *     目的地标记，解释器会拒绝该形状而不是移动到一个编造的地点（同型记录见
- *     rad/sirens-song、rad/demon-shade；进行中任务 RIFT-357）。
- * (2) [Flow] 的印刷费用尚不能从 KeywordAbility 传入 expand 的 params.cost，展开的 flow.cost
- *     也未接入可选的 CostPlanInput.modifications。费用求值与替代绑定本身已合入，缺的是
- *     本卡的 Flow 费用选择收据及 829.1.b.1 排除自身指令离链的接线（RIFT-261 后续）。
- * 目标 Finalize/Resolve（含 0 选择、锁定与重验）已合入；golden 通过目标计划和原始伤害
- * body 真实执行。两个语句相互独立；运行期目的地与 Flow 的端到端路径仍用 test.todo 记录。
+ * status 判定（cards/README.md 第 2 节，持续复核 2026-10-18）：
+ * judge-required。位置选择器批次合入后目的地已是可执行 IR：Expr kind "location" 的
+ * { kind: "choose", id, filter } 由 interpreter/locations.ts 的 normalizeMoveArguments
+ * 在 effect.move 参数边界解析，target/location/candidates.ts 提供候选。本任务 golden
+ * 用真实解释器 + 参考内核执行完整 body：伤害半段与 Move 半段都执行
+ * （up-to 的 0 选择、目标锁定与重验、实际位移、目的地候选集合均已断言）。
+ * 仍缺的只有 [Flow] 的印刷费用：829.1.c 的 "[Flow] :rb_energy_3::rb_rune_rainbow:"
+ * 需要把费用从卡牌侧传到 KeywordDef.expand 的 params.cost（契约 3.8.3），但
+ * 契约 3.1 的 KeywordAbility 只有 keyword/value 字段，programs/keywords.ts 的
+ * expandProgram 也只调用 def.expand({ value, host })；展开出的 flow.cost 没有进入
+ * CostPlanInput.baseModifications 的消费方，且 829.1.b.1 排除法术自身指令离链的收据缺失。
+ * 属共享契约变更请求（见最终回复），不在本卡近似实现。
  */
-
-/** 描述性目的地标记，不是可执行 LocationRef（见 judgeReason 第 1 点）。 */
-const CHOSEN_LOCATION = {
-  kind: "destination-selector",
-  filter: { type: "location" }
-} as const;
-
 const shurikenFlip = {
   canonicalCardId: "card.hash-eead7ad848e8aa64f2ca544f7174c4bc3764b8eb661c26cfd050804e8ce278e5",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处阻塞，均不近似实现：(1)「then move a friendly unit」没有印刷目的地，目的地按 " +
-    "355.4/355.4.a/451.1 在结算时选择，但合并 IR 没有运行期 Location 选择器；effect.move 的 to " +
-    "只接受静态 LocationRef / controller-base / 静态候选列表，本卡只保留描述性目的地标记" +
-    "（解释器会拒绝该形状而不是移动到编造的地点；同型记录见 rad/sirens-song、rad/demon-shade；" +
-    "进行中：RIFT-357）。(2) [Flow]（829.1.b/829.1.c）的印刷费用无法经 KeywordAbility 传入 " +
-    "KeywordDef.expand 的 params.cost；programs/keywords.ts 只传 value/host，展开的 flow.cost " +
-    "也没有进入 CostPlanInput.modifications 的消费方。费用求值与替代绑定本身已合入，但仍缺 " +
-    "Flow 费用选择收据及 829.1.b.1 排除法术自身指令离链的接线（RIFT-261 后续）。" +
-    "目标 Finalize/Resolve 生命周期（up-to 的 0 选择、目标锁定与结算重验）已合入，有目标计划执行证据。" +
-    "伤害半段（418.1.c/418.6.a，up to one 可为零：355.13）与目标限制" +
-    "（355.10.b 的 at a battlefield）只用已合入的 effect.damage，golden 用真实解释器 + 参考内核执行。",
+    "唯一当前缺口是 [Flow] 的印刷费用不可达（持续复核 2026-10-18；不近似实现）：" +
+    "829.1.c 的 3 Energy + 1 rainbow rune 需要经契约 3.8.3 的 params.cost 进入 KeywordDef.expand，" +
+    "但契约 3.1 的 KeywordAbility 只有 keyword/value，programs/keywords.ts 的 expandProgram 只调用 " +
+    "def.expand({ value, host })；展开出的 flow.cost 也没有进入 CostPlanInput.baseModifications 的消费方，" +
+    "829.1.b.1 的「排除法术自身指令造成的离链」收据同样缺失，属共享契约变更请求。" +
+    "已合入且有真实执行证据：已合入的 LocationExpr（Expr kind \"location\" + symbolic choose）经 " +
+    "interpreter/locations.ts 与 target/location/candidates.ts 解析成合法目的地；golden 用真实解释器 + " +
+    "参考内核执行完整 body（up-to 0/1 选择、目标锁定与重验、实际位移、候选集合）；" +
+    "目标 Finalize/Resolve 缓存面与 effect.damage（418.1.c/418.6.a）也都已执行；" +
+    "本卡不再保留不可执行的占位形状。",
   abilities: [
     { kind: "keyword", keyword: "flow" },
     {
@@ -80,13 +74,21 @@ const shurikenFlip = {
           ]
         },
         {
-          // "then move a friendly unit"（158.1 的顺序，非结果引用）：目的地是运行期
-          // Location 选择，只有描述性标记（见 judgeReason 第 1 点）。
+          // "then move a friendly unit"（158.1 的顺序，非结果引用）。原文没有印刷目的地，
+          // 按 355.4/355.4.a/451.1 在结算时选一个合法 Location：已合入的
+          // LocationExpr 运行期选择（kind "location" 携带 symbolic choose），不是描述性标记。
           id: "shuriken-flip.move-unit",
           op: "effect.move",
           args: {
             objects: { kind: "constant", value: { target: "shuriken-flip.friendly-unit" } },
-            to: { kind: "constant", value: CHOSEN_LOCATION },
+            to: {
+              kind: "location",
+              value: {
+                kind: "choose",
+                id: "shuriken-flip.destination",
+                filter: { type: "any" }
+              }
+            },
             amount: { kind: "constant", value: 1 }
           },
           targets: [

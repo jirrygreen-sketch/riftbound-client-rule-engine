@@ -1,3 +1,13 @@
+// Golden test for Dune Drake (ogn-131-298).
+//
+// Execution evidence for the supported half of this card's printed ability (the
+// authored +2 Might body through the production chain adapter plus the layer
+// engine, its end-of-turn expiry and its no-eligible-host boundary) lives in the
+// RIFT-705 parameterized template golden:
+// test/cards/templates/triggered-attack-declared-continuous-mig-705.test.mjs.
+// The card stays judge-required: the 383.2.a.1 trigger condition
+// ("if there is a ready enemy unit here") cannot be satisfied on the merged
+// evaluation paths, and attack-declared still has no producer (CR 466.2).
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -195,6 +205,30 @@ test("current gap evidence: the trigger does register, but with no producer it c
   let registered = 0;
   for (const key of ["triggers", "registrations"]) if (state.engine.pipeline[key] instanceof Map) registered += state.engine.pipeline[key].size;
   assert.equal(registered, 1);
+});
+
+test("RIFT-705: the template layer runs the card's own mutation-model path", () => {
+  // The authored body is a temporary Might modification, so it belongs to the
+  // arithmetic layer, registers exactly one continuous effect for the host and
+  // expires at the end of the turn. Nothing here mints a Buff counter.
+  const base = world().unit("drake", { might: 5, owner: "A", controller: "A", location: BATTLEFIELD("bf1") }).build();
+  const kernel = base.clone({ source: base.ref("drake"), sourceSnapshot: base.getObject("drake") });
+  const outcome = runAbilityBody([grantInstruction], kernel, undefined, { host: kernel.ref("drake") });
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  const registered = kernel.continuousEffects[0].effect.effect;
+  assert.equal(registered.kind, "continuous.might");
+  assert.equal(registered.amount, 2);
+  assert.equal(kernel.continuousEffects[0].effect.layer, "arithmetic");
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects.map(entry => ({
+    effect: entry.effect,
+    duration: entry.duration,
+    timestamp: 1,
+  })));
+  assert.equal(layers.evaluate(kernel.ref("drake")).might, 7);
+  assert.equal(layers.evaluate(kernel.ref("drake")).buffs, 0, "a Might modification is not a Buff counter (702-704)");
+  assert.equal(layers.expireAt("turn-end").length, 1);
+  assert.equal(layers.evaluate(kernel.ref("drake")).might, 5, "the +2 expires at the end of the turn (317.1.a)");
 });
 
 test.todo(

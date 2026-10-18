@@ -31,7 +31,7 @@ const gearDiscount: Expr = {
   operands: [
     {
       kind: "count",
-      subject: "gear-you-control",
+      subject: "gear",
       filter: { type: "gear", controller: "self", zone: "board" }
     }
   ]
@@ -60,7 +60,8 @@ export default {
   canonicalCardId: "card.hash-8d3c1fb92524f486e6dc9126c50fabcfa804299c7b5069e2e43ba6329df29f27",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason: "当前缺口：(1) cost.modify / buildCostPlan 已合入，但 programs/statics.ts 对 continuous.cost-modification 没有 layer mapping，也没有把动态 gear 折扣安装到 describePlay 费用计划 discounts 的路径（356.4 / 356.4.b / 356.4.g）。(2) Deflect 已展开为 target.tax，但 programs/statics.ts 同样不能绑定该 kind；target/tax/collect.ts 的显式收集器没有接入链默认目标选择，chain/engine.ts 收到税后仍按 Energy 记账，未按 809.1.c.1 支付任意域 Power。golden 已验证折扣表达式及目标税请求，整卡保持 judge-required；不改写印刷费用、不近似实现 Deflect。",
+  judgeReason:
+    "当前缺口：(1) cost/discounts/collect.ts 的 collectCostModifications / finalizeCostPlan 已能把本卡 continuous.cost-modification 的动态 gear 计数折扣转换成 discounts 并冻结费用（356.4.b/356.4.g/356.6）；但 programs/statics.ts 的 layerFor 没有费用声明路由，chain/engine.ts 仍直接调用 buildCostPlan，未收集打出前自身的 static 折扣。(2) Deflect 已展开为 target.tax，target/tax/collect.ts 与 adapter 已能收集并验证 1 点任意域 Power（809.1.c.1）；该 static kind 仍不能由程序绑定，链默认目标选择也未接入收集器，显式收到的 TargetTaxRequest 仍按 Energy 记账。整卡保持 judge-required，不近似实现。",
   abilities,
   sourceText:
     "I cost :rb_energy_1: less for each gear you control.\n" +

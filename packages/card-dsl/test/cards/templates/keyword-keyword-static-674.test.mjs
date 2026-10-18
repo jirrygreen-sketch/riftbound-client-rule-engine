@@ -52,6 +52,7 @@ const definitions = [
       assert.match(program.judgeReason, /designation/);
       assert.match(program.judgeReason, /exclude/);
     },
+    bindingError: /Static exclude anchor needs a dynamic relative filter/,
   },
   {
     name: "Needlessly Large Yordle — pay the printed cost when no holding discount exists",
@@ -75,6 +76,7 @@ const definitions = [
       assert.match(program.judgeReason, /designation/);
       assert.match(program.judgeReason, /continuous\.combat/);
     },
+    bindingError: /Static ability kind continuous\.cost-modification has no layer mapping/,
   },
   {
     name: "Ornn, Forge God — play with friendly gear while the count and Weaponmaster attachment stay blocked",
@@ -104,6 +106,7 @@ const definitions = [
       assert.match(program.judgeReason, /Weaponmaster/);
       assert.match(program.judgeReason, /count 表达式/);
     },
+    bindingError: /Static ability kind target\.tax has no layer mapping/,
   },
   {
     name: "Rek'Sai, Breacher — pay the base cost and enter the base with printed Might",
@@ -127,6 +130,7 @@ const definitions = [
       assert.match(program.judgeReason, /accelerate\.cost/);
       assert.match(program.judgeReason, /designation/);
     },
+    bindingError: /Unsupported static filter field playedFromZoneNot/,
   },
   {
     name: "Rengar, Pouncing — Reaction play pays Fury and lands at base without Assault bonus",
@@ -149,6 +153,7 @@ const definitions = [
       assert.match(program.judgeReason, /play-location-permission/);
       assert.match(program.judgeReason, /designation/);
     },
+    bindingError: /Static ability kind play-location-permission has no layer mapping/,
   },
   {
     name: "Taric, Protector — boundary: insufficient Energy negates the play",
@@ -195,6 +200,7 @@ const definitions = [
       },
     },
     declared: program => assert.equal(program.status, "judge-required"),
+    bindingError: /Static ability kind target\.tax has no layer mapping/,
   },
   {
     name: "Rek'Sai, Breacher — boundary: insufficient Energy negates the base play before Accelerate can be chosen",
@@ -229,6 +235,7 @@ const templateCases = defineTemplateSuite(
     canonicalCardId: definition.canonicalCardId,
     program: definition.program,
     scenario: definition.scenario,
+    bindingError: definition.bindingError,
   })),
 );
 
@@ -240,6 +247,14 @@ for (const [index, templateCase] of templateCases.entries()) {
     definition.declared(declared);
     if (definition.expectedFailure) {
       assert.throws(templateCase.run, definition.expectedFailure);
+      return;
+    }
+    if (definition.bindingError) {
+      assert.throws(templateCase.run, error => {
+        assert.equal(error.code, "judge-required");
+        assert.match(error.message, definition.bindingError);
+        return true;
+      });
       return;
     }
     templateCase.run();

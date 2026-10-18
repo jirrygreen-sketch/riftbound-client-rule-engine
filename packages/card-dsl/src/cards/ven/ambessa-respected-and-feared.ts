@@ -1,18 +1,43 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * ambessa-respected-and-feared — M2 源码复核（2026-10-17）。
+ * ambessa-respected-and-feared — M2 源码复核（2026-10-18）。
  * CR v1.5 827.1.c.1：Empower 印刷费用为 1 Energy + 2 Order Power。
  * 442.1.a/828.1.b.1：依赖能力只在宿主 Empowered 时有效。
- * Empower KeywordDef 已合入；缺口是逐实例费用参数与生产接线。
- * 具体规则与剩余阻塞见 judgeReason；局部执行不代表整卡可执行。
+ *
+ * status = judge-required（四处当前缺口，均为实测，不近似实现）：
+ * 1. 印刷费用没有载体：KeywordAbility 只有 keyword/value，programs/keywords.ts 的
+ *    expandProgram 因此调 Empower.expand 时拿不到 params.cost，产出
+ *    { kind: "empower" }；实测生产 buildCostPlan 对该 kind 抛
+ *    CostPlanError('Unsupported cost kind: empower')，1 Energy + 2 Order Power 付不出去。
+ * 2. Empowered 状态：本卡用 object-property(self, "empowered") 门控，实测该条件在参考
+ *    内核路径上可求值（Empower 后授予 Assault 2），但 ObjectSnapshot 契约没有 empowered
+ *    字段，engine-runtime/host.ts 也不提供；442.1.b/c 的二元状态限制没有统一生产适配。
+ * 3. 关键词重展开已有独立的 KeywordGrantLayerEngine adapter：它会把 granted Assault 2
+ *    与 combatRole/designation 别名接起来并真实计算攻击者 Might；但默认
+ *    attachProgramLifecycle 仍使用基础 LayerEngine，卡牌授予不会进入生产重展开路径，
+ *    所以这段孤立 adapter 证据不能把整卡升为 executable。
+ * 4. 攻击触发的目标选择无法绑定：translateInstructionTargets 实测抛
+ *    ProgramBindingError('Unsupported filter field sameLocationAs')，355.9/355.10.g 的
+ *    “此处 Might 更低的敌方单位” 无法生产；攻击时点本身也没有发射方（466.2 的
+ *    combat-start-transaction 仍阻断 combat/flow.ts）。
  */
 export default {
   canonicalCardId: "card.hash-e8af5c2839945839572f9122c2803fdda719845f1a7356eca006d791891545cd",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "827.1.c.1 的 1 Energy + 2 Order Power 印刷费用缺 KeywordAbility.params.cost → expandProgram → Empower.expand 接线；ObjectSnapshot 尚未声明 empowered（442.1.a），统一生产 Empowered 状态适配与 442.1.b/c 的二元状态限制仍需接通；828.1.b.1 的 continuous.grant-keyword 与攻击触发已用 empowered 比较门控；仍缺授予 Assault 2 后的展开接线及 designation → combatRole 的攻击者读数（807.1.c），translateInstructionTargets 也不能绑定 sameLocationAs/exclude，无法生产选择此处 Might 更低的敌方单位（355.9/355.10.g）。",
+    "四处缺口（2026-10-18 复核，均为实测）：(1) 827.1.c.1 的 1 Energy + 2 Order Power 印刷费用没有载体——" +
+    "KeywordAbility 只有 keyword/value，expandProgram 调到 Empower.expand 时拿不到 params.cost，实测产出 { kind: \"empower\" }，" +
+    "生产 buildCostPlan 对该 kind 抛 CostPlanError('Unsupported cost kind: empower')。" +
+    "(2) 442.1.a/828.1.b.1 的 Empowered 门控：卡牌用 object-property(self, \"empowered\")，实测在参考内核路径上可求值（Empower 后授予 Assault 2），" +
+    "但 ObjectSnapshot 契约没有 empowered 字段、engine-runtime/host.ts 也不提供，442.1.b/c 的二元状态限制没有统一生产适配。" +
+    "(3) 807.1.c 的授予重展开已有独立 KeywordGrantLayerEngine adapter，可在隔离图层中把 Assault 2 " +
+    "按 combatRole/designation 计算攻击者 Might；但默认 attachProgramLifecycle 仍使用基础 LayerEngine，" +
+    "生产卡牌授予不会进入该重展开路径，不能把 adapter 子集证据当作整卡 executable。" +
+    "(4) 828.1.b.1 的攻击触发目标无法绑定：translateInstructionTargets 实测抛 ProgramBindingError('Unsupported filter field sameLocationAs')，" +
+    "355.9/355.10.g 的此处 Might 更低敌方单位不可生产；attack-declared 也没有发射方（combat/flow.ts 仍以 " +
+    "TurnCombatBlockedError('combat-start-transaction') 阻断，466.2）。不近似实现。",
   abilities: [
     {
       // 印刷费 1 Energy + 2 Order Power 见 judgeReason；不伪造启动能力。

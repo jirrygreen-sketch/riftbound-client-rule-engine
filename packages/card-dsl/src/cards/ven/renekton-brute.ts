@@ -30,6 +30,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 828.1.a / 828.1.b.1：[Empowered][>] 是 Dependent Keyword，整段是“只要我拥有 Empowered
  *   状态即生效”的依赖能力。
  * - 809 / 810：[Deflect] 与 [Ganking] 是只声明身份的关键词（展开归 effects/keywords/）。
+ *   2026-10-18 复核：programs/keyword-grants.ts 的 KeywordGrantLayerEngine 已能把授予后的关键词
+ *   重新展开为 target.tax / continuous.movement（参考层实测），但该层尚未接入生产 turn/layer 构造，
+ *   见 judgeReason 第 3 条。
  *
  * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。
  */
@@ -68,7 +71,7 @@ const abilities: Ability[] = [
         filter: { source: "self" }
       },
       // “becomes 10 or more” 的当前值一半可求值（143.2.a 的有效 Might）；
-      // 转换语义的另一半（previousMight < 10）需要载荷数值匹配器（见 judgeReason 第 2 条）。
+      // 转换语义的另一半（previousMight < 10）需要载荷数值匹配器（见 judgeReason 第 1 条）。
       condition: {
         kind: "compare",
         left: { kind: "object-property", object: "self", property: "might" },
@@ -92,7 +95,7 @@ const abilities: Ability[] = [
   {
     // [Empowered][>] I have [Deflect] and [Ganking]：828.1.b.1 的依赖能力只在
     // 宿主 Empowered 时授予两个关键词（809/810）。门槛是 442.1.a 的二元状态，
-    // condition 里的 empoweredCount 只是描述性记录（见 judgeReason 第 3 条）。
+    // condition 读 self.empowered（见 judgeReason 第 2 条）；授予后的关键词展开见第 3 条。
     kind: "static",
     effect: {
       kind: "continuous.grant-keyword",
@@ -117,7 +120,27 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺三段：(1) 「When my Might becomes 10 or more」需要 previousMight < 10 <= currentMight；might-changed producer 已存在，但未接入图层更新事件流，EventPattern.details 仍只支持标量等值，无法表达前后阈值比较。当前条件只描述 current Might >= 10，不能将 10→11 当成新跨越。(2) 828.1.b.1 的门控已改用 self.empowered >= 1；参考内核可读取，ObjectSnapshot 尚未声明该状态，442.1 的重复 Empower 约束仍须生产动作层保证。(3) continuous.grant-keyword、Deflect target.tax 收集器与 Ganking movement 规则查询均已合入，但 Chain Finalize 尚未使用 createTargetTaxAdapter，仍把旧税 amount 转成 Energy；授予的 Deflect/Ganking 也未与生产目标税/标准移动完整联通。continuous.might 与 effect.empower 已真实执行，保留 judge-required，不近似实现。",
+    "三段当前缺口（2026-10-18 复核），均为实测行为，不近似实现：" +
+    "(1) 「When my Might becomes 10 or more」（709 的转换语义 previousMight < 10 <= currentMight）无法注册：might-changed 不在 " +
+    "events/trigger-spec.ts 的封闭 EVENT_PATTERN_TYPES 中，registerProgramTriggers 实测抛 TriggerSpecValidationError " +
+    "（trigger.filter.event invalid-event-type，注册 0 条）；EventPattern.details 只接受标量等值，NumericMatcher 只作用于 event.amount，" +
+    "因此前后阈值比较也写不出来，当前条件只描述 current Might >= 10，会把 10→11 误当成新跨越；" +
+    "events/producers/might-change.ts 的 deriveMightChangedEmissions 仍没有图层重算后的生产调用方。" +
+    "(2) 828.1.b.1 的门控读取 self.empowered：参考内核可求值（golden 用真实 empower 动作使该门控开启并授予 Deflect/Ganking），" +
+    "但契约 ObjectSnapshot（engine-core/src/effects/contract.ts）不声明 live empowered 计数，" +
+    "apps/game-server 的引擎宿主把 empower 动作写成 buffs（host.ts 的 case \"empower\"），缺字段时求值抛 " +
+    "MissingInformation \"Unavailable characteristic: empowered\"，442.1 的重复 Empower 约束因此仍只在参考内核成立。" +
+    "(3) 授予后的关键词只有参考层的重展开、没有生产消费方：已合入的 programs/keyword-grants.ts KeywordGrantLayerEngine " +
+    "能把 empower 后的 Deflect/Ganking 重新展开（实测可读到 target.tax 与 continuous.movement，canGank 变 true，" +
+    "809.1.c.1 的任意域 Power 税经 createTargetTaxAdapter 可计价），但该层只被 engine-core 自身测试构造，" +
+    "既没有从任何公开入口导出，也没有被 turn/flow.ts、apps/game-server 使用（两处仍构造 TurnPhaseLayers）；" +
+    "生产 programs/statics.ts 的 bindStatic 仍不映射 Deflect 展开出的 target.tax（实测 ProgramBindingError " +
+    "\"Static ability kind target.tax has no layer mapping\"），Chain Finalize 也仍未构造 createTargetTaxAdapter，" +
+    "而是把税 amount 转成 Energy 的 mandatoryAdditional（chain/engine.ts），违反 809.1.c.1；" +
+    "关键词展开读取的 designation 在生产条件的默认求值器上仍不可读（实测 MissingInformation " +
+    "\"Unavailable characteristic: designation\"），且 combat/flow.ts 的 combat-start-transaction 仍抛 " +
+    "TurnCombatBlockedError，没有生产写入方发布 ObjectSnapshot.combatRole。" +
+    "continuous.might 与 effect.empower 已真实执行，保留 judge-required。",
   abilities,
   sourceText:
     ":rb_energy_1:: Give me +1 :rb_might: this turn.\n" +

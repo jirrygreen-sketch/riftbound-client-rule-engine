@@ -19,10 +19,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   duration (317.2.c: "3d. All 'this turn' effects expire simultaneously.").
  * - The ResolveContext side is expressible: ctx.registerDelayedTrigger(spec,
  *   body) exists in the frozen contract (3.6), and the chain adapter registers
- *   a delayed trigger. What is missing is a *card-facing instruction* that maps
- *   duration and event-object binding into that adapter: the instruction registry
- *   has no trigger.delayed / trigger.state op, so no card program can subscribe
- *   to damage-dealt for the rest of the turn. Writing a triggered ability on the card would be wrong:
+ *   a delayed trigger. What is missing is the card-facing instruction: the
+ *   current instruction registry has no trigger.delayed / trigger.state op, so
+ *   no card program can subscribe to damage-dealt for the rest of the turn.
+ *   Writing a triggered ability on the card would be wrong:
  *   a card's own triggered ability is a passive ability that exists while the
  *   card is on the board, not a one-shot delayed ability created by its
  *   resolution (391.1 / 393: Delayed Abilities are not associated with Units
@@ -33,17 +33,18 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required. The delayed trigger is recorded as the pending
  * `trigger.delayed` instruction with the damage-dealt subscription and the
- * kill body; a card-facing registration instruction is still required before
- * the delayed subscription can execute.
+ * kill body; the card-facing opcode is not registered, so the subscription
+ * cannot execute from this CardProgram.
  */
 const imperialDecree = {
   canonicalCardId: "card.hash-a56576887313144ef13fd285dd3130fb460b1678a4a592a776002d9ef0757fb9",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺卡牌可用的 trigger.delayed 注册指令及每次事件的对象绑定（CR 390/391/393）：当前链上下文的 registerDelayedTrigger 桥接未把本回合期限映射到 " +
-    "expiresAt（317.2.c），也未把每次 damage-dealt 的 unit 绑定给 kill " +
-    "it。须仅对实际正伤害触发（418.1.a/b/e），使延迟能力在法术离链后继续存在并于本回合结束到期；不能改写为卡本体的常驻 triggered ability。",
+    "当前 instruction registry 没有卡牌可用的 trigger.delayed 注册入口（CR 390/391/393），" +
+    "因此 CardProgram 无法调用已有的 ResolveContext.registerDelayedTrigger。接入后仍需把 " +
+    "this-turn 映射到 expiry（317.2.c），将每次 damage-dealt 的 unit 事件对象绑定给 kill it，" +
+    "并仅对实际正伤害触发（418.1.a/b/e）；不能改写为卡本体的常驻 triggered ability。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
