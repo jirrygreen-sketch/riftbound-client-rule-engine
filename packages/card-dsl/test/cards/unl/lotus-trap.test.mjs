@@ -35,6 +35,9 @@ test("unl-013-219 Lotus Trap: identity, status, judgeReason and verbatim sourceT
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /replacement\.damage-multiplier/);
+  assert.match(program.judgeReason, /ProgramStaticBinder\.bindReplacement/);
+  assert.match(program.judgeReason, /伤害倍率消费方/);
+  assert.doesNotMatch(program.judgeReason, /没有替代注册入口|ResolveContext 只有 addContinuous/);
   assert.match(program.judgeReason, /433\.1\.b/);
   assert.match(program.judgeReason, /hidden/);
   assert.doesNotMatch(program.judgeReason, /timing 消费方同样未合入|chain timing consumer is missing/);

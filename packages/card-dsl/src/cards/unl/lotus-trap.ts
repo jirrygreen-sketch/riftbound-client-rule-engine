@@ -22,7 +22,8 @@ import type { CardProgram } from "../../ir/index.js";
  * 1. replacement.damage-multiplier 仍不在指令注册表内（replacement enter/event/prevent
  *    家族已合入，倍率改写原语仍未合入）；解释器实测在派发该指令时抛
  *    "Unregistered instruction opcode: replacement.damage-multiplier"，
- *    damage GameAction 也没有倍率维度。
+ *    伤害倍率消费方也仍未合入；ProgramStaticBinder.bindReplacement 与
+ *    replacement.enter/event/prevent 注册路径已存在。
  * 2. [Hidden] 的展开体是 static `cost.hidden`，programs/statics.ts 的 layerFor 没有该 kind
  *    的映射（实测抛 "cost.hidden has no layer mapping"），Hide 行动、facedown 区域以及从
  *    facedown 打出的流程都没有接入。
@@ -35,9 +36,8 @@ const lotusTrap = {
   status: "judge-required",
   judgeReason:
     "「Double all damage that would be dealt to it this turn」是伤害翻倍替代（CR 433.1.b：等价于" +
-    "“将受到的伤害改为双倍” 的替代效果；369.1 / 418.1 / 418.5），但 replacement.damage-multiplier 原语不存在，" +
-    "卡牌程序也没有替代注册入口（ResolveContext 只有 addContinuous / registerDelayedTrigger），" +
-    "damage GameAction 没有倍率维度：replacement enter/event/prevent 家族已合入，但当前指令注册表" +
+    "“将受到的伤害改为双倍” 的替代效果；369.1 / 418.1 / 418.5），但 replacement.damage-multiplier 原语与伤害倍率消费方仍未合入。" +
+    "ProgramStaticBinder.bindReplacement 与 replacement.enter/event/prevent 注册路径已存在；当前指令注册表" +
     "仍未收录该倍率改写 op，" +
     "解释器实测在派发时抛 \"Unregistered instruction opcode: replacement.damage-multiplier\"；" +
     "本地调研（docs/plans/survey/unclassified-unl.md 第 9 条）把它判为 needs-new-primitive。" +
