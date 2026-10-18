@@ -15,7 +15,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “for each card with my name in your trash” 是按特征程序化选出的集合计数
  *   （355.10.d，不是目标）；“your” 指该被动能力的控制者（190.6.d）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。三处缺口都不近似实现：
+ * status 判定（cards/README.md 第 2 节，2026-10-18 持续复核）：judge-required。
+ * 三处缺口都不近似实现：
  * 1. 没有把卡牌 static 费用改写装进 Finalize 费用计划的消费者：cost.modify 原语与
  *    cost/cost-plan.ts 的减费求值已合入，但 programs/statics.ts 的 layerFor() 对
  *    continuous.cost-modification 没有 cost-modification 图层映射（fail-closed 抛
@@ -55,7 +56,8 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 没有把卡牌 static 费用改写装进 Finalize 费用计划的消费者——" +
+    "三处缺口（持续复核 2026-10-18，均不近似实现）：(1) 没有把卡牌 static 费用改写装进 " +
+    "Finalize 费用计划的消费者——" +
     "cost.modify 原语（effects/instructions/cost.modify.ts）与 cost/cost-plan.ts 的减费求值已合入，" +
     "但 programs/statics.ts 的 layerFor() 对 continuous.cost-modification 没有 cost-modification 映射" +
     "（fail-closed 抛 judge-required），也没有消费方把 CardProgram static 装进 CostPlanInput.discounts；" +

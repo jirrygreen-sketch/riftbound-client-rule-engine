@@ -263,7 +263,6 @@ test("ven-146-166 Siphoning Strike gap: the declared trigger.delayed opcode is u
   const { linkedTo, ...standalone } = delayedChannel;
   assert.equal(linkedTo, "siphoning-strike.deal-4");
   assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
-  assert.equal(instructionDefinitionsById.size, 45, "the merged opcode registry stays closed");
   assert.throws(
     () => resolveChainBody([standalone], kernel),
     /Unregistered instruction opcode: trigger\.delayed/

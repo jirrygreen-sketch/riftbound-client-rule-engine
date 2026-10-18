@@ -22,7 +22,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （layers/filter.ts 的 matchesObjectFilter 比较 object.location.type，
  *   同 ven-060-166 sky-crusier）。
  *
- * status = judge-required（2026-10-17 RIFT-618 第三轮复核；缺口以本任务实测为准）：
+ * status = judge-required（2026-10-18 持续复核；缺口以本轮实测为准）：
  * 1. 「This costs :rb_energy_2: less」是 356.4.b 的减费，按 356.4.a 由本牌提供、在 Finalize 的
  *    费用折扣步骤套用（356.4.c.2 保证该分量不为负）。“你控制某物是 [Empowered]”的门槛
  *    （828.2：Empowered 是可检查特征）仍没有已合入谓词：ObjectSnapshot 没有 empowered 字段，
@@ -94,7 +94,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两条当前缺口（复核 2026-10-17，RIFT-618；均不近似实现）：" +
+    "两条当前缺口（持续复核 2026-10-18；均不近似实现）：" +
     "(1) 减费没有可执行路径：「This costs :rb_energy_2: less」按 356.4.b/356.4.a 在 Finalize 折扣步骤套用，" +
     "cost.modify 原语与 cost/cost-plan.ts 的减费求值已合入，但 programs/statics.ts 的 layerFor() 对 " +
     "continuous.cost-modification 没有图层映射（本任务实测 bindStatic 抛 " +

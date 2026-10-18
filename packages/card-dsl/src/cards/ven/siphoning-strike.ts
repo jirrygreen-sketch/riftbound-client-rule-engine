@@ -41,9 +41,9 @@ const siphoningStrike = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "延迟触发仍有缺口（复核 2026-10-18；均不近似实现）：" +
+    "延迟触发仍有缺口（持续复核 2026-10-18；均不近似实现）：" +
     "(1) effects/instructions/ 没有卡牌可用的 trigger.delayed opcode：契约 3.6 与 chain/engine.ts 的 " +
-    "ResolveContext.registerDelayedTrigger 已存在（instructions/registry.generated.ts 的 45 个 opcode 里没有 trigger.delayed），" +
+    "ResolveContext.registerDelayedTrigger 已存在（instructions/registry.generated.ts 里没有 trigger.delayed），" +
     "resolveChainBody 对本卡声明的 " +
     "\"trigger.delayed\" 抛 Error \"Unregistered instruction opcode: trigger.delayed\"，" +
     "卡牌数据无法自行创建 390/391.2/392/393 的延迟能力。" +

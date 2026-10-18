@@ -23,7 +23,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 产出冻结费用计划链接），旧缺口「没有 cost.modify 原语」已过时；-2/minimum 的
  * 费用计划 golden 已真实执行。
  *
- * status 判定（cards/README.md 第 2 节，RIFT-618 第三轮复核 2026-10-17）：judge-required。
+ * status 判定（cards/README.md 第 2 节，持续复核 2026-10-18）：judge-required。
  * 仍缺两条（均实测，不近似实现）：
  * 1. 没有把 static continuous.cost-modification 安装到被施放法术费用计划的路径：
  *    programs/statics.ts 的 layerFor() 抛无图层映射，且 staticTarget() 连 appliesTo
@@ -68,7 +68,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两条当前缺口（复核 2026-10-17，RIFT-618；均不近似实现）：" +
+    "两条当前缺口（持续复核 2026-10-18；均不近似实现）：" +
     "(1) 没有把 static continuous.cost-modification 安装到被施放法术费用计划的路径：programs/statics.ts 的 " +
     "layerFor() 无该 kind 的图层映射，staticTarget() 也不接受 appliesTo \"spell-play-cost\"——本任务实测 " +
     "bindStatic 抛 ProgramBindingError（Unsupported static appliesTo）；cost.modify 原语已合入" +
