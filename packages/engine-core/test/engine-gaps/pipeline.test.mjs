@@ -389,5 +389,12 @@ test('EG-PIPELINE: event and trigger snapshots preserve the same immutable event
   assert.deepEqual(binding.snapshot.ref, binding.ref);
   assert.equal(Object.isFrozen(binding), true);
   assert.equal(Object.isFrozen(binding.snapshot.ref), true);
+
+  const oldIt = structuredClone(binding.ref);
+  const oldRef = f.kernel.ref('source');
+  assert.equal(f.engine.commit({ type: 'move-zone', object: oldRef, to: 'hand' }).status, 'done');
+  assert.notEqual(f.kernel.ref('source').zoneEntryId, oldRef.zoneEntryId);
+  assert.deepEqual(binding.ref, oldIt);
+  assert.deepEqual(triggerEventObjectBinding({ ...trigger, event: { ...trigger.event, it: undefined } }, 'it'), null);
 });
 
