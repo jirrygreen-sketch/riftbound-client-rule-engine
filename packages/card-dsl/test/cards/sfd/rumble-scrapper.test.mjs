@@ -197,7 +197,11 @@ test("rumble-scrapper golden: the original Hold body creates and plays the print
   assert.deepEqual(outcome.results[1].result.linkedValues["token.objects"], [token.ref]);
 });
 
-test.todo("rumble-scrapper: match this unit's battlefield to a genuine Hold event (383.4.d/473.2.b), including other-field and enemy Hold exclusions");
+test.todo(
+  "rumble-scrapper: the hold emission must carry the held Battlefield/Unit identity so 383.4.d.2.a " +
+    "(this Unit's own presence at the battlefield it Held) can be decided; until then other-field and " +
+    "enemy Hold waves cannot be excluded even though the anchor spelling now registers"
+);
 
 
 test("rumble-scrapper golden: the same original body plays a token to player B's base", () => {

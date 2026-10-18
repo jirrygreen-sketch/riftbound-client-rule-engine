@@ -33,6 +33,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 「played from anywhere other than a player's hand」需要打出来源区域的谓词：ObjectFilter 只做
  *   类型/控制者/所有者/区域/状态/tags/characteristics 匹配（layers/filter.ts 的 matchesObjectFilter），
  *   不表达「从哪个区域打出」；golden 里 filter 的 playedFromZoneNot 只是描述性占位、无正式语义。
+ *   （对比：chain/engine.ts 在 card-played 事件上真实发布 playedFromZone/playedFromHand 的 provenance，
+ *   但那只供事件谓词读取，静态过滤器无法消费。）
  * - [Accelerate] 的费用计划接线：805.6/805.6.a 的「付费后以就绪进场替代横置进场」需要打出流程在
  *   Finalize 选择并收取可选附加费用；RIFT-261 的 cost kinds 与 cost.pay / cost.modify 已合入，
  *   但没有任何消费方把 Accelerate 展开的 accelerate.cost 静态声明接进 CostPlanInput
@@ -80,7 +82,8 @@ const program = {
     "RIFT-261 的 cost kinds 与 cost.pay / cost.modify 已合入，但没有任何消费方把 Accelerate 展开的 accelerate.cost 静态声明接进 CostPlanInput" +
     "（createEngineStaticBinder.bindStatic 实测抛 \"Static ability kind accelerate.cost has no layer mapping\"；programs/play.ts 的 translateCost 对 additional-cost 形状抛 \"Unsupported play cost field optional\"）；" +
     "[Assault] 展开的 arithmetic 效果带 compare(object-property(self, 'designation')) 条件；生产静态绑定器已通过 evaluateCondition 求值，" +
-    "但当前 ObjectSnapshot 契约提供 combatRole 而没有 designation，解释器对缺失属性抛 MissingInformation，绑定器捕获后按 false 处理，实测该卡 Might 保持印刷值 3，故仍无可执行的 attacker 判定。" +
+    "但当前 ObjectSnapshot 契约提供 combatRole 而没有 designation，基础解释器对缺失属性抛 MissingInformation，绑定器捕获后按 false 处理，" +
+    "实测该卡 Might 保持印刷值 3，故仍无可执行的 attacker 判定；把 designation 映射到 combatRole 的扩展求值器（effects/interpreter/expr-ext/evaluate.ts）不在该绑定路径上。" +
     "依赖：staticFilter 对 playedFromZoneNot 的消费方、打出来源区域谓词、accelerate.cost 的费用计划接线与 designation/combatRole 契约对齐及 designation 产生方。",
   abilities,
   sourceText:

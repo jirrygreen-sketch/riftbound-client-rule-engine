@@ -15,6 +15,8 @@ import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateInstructionTargets, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL = "card.hash-5a86b358540e9ab2512400c77f3291739c2aa6ccb7b537449298a640b02b0e82";
 const SOURCE_TEXT =
@@ -79,7 +81,8 @@ test("sfd-215-221 Ravenbloom Conservatory: identity, ruleset, status, judgeReaso
   assert.equal(cardRegistryById.get(CANONICAL), program);
   // Only the remaining trigger gaps keep the card judge-required.
   assert.match(program.judgeReason, /defense-declared/);
-  assert.match(program.judgeReason, /RIFT-124/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
+  assert.match(program.judgeReason, /466\.2/);
   assert.match(program.judgeReason, /here/);
   assert.match(program.judgeReason, /RIFT-358/);
   assert.match(program.judgeReason, /pick/);
@@ -94,7 +97,9 @@ test("sfd-215-221 Ravenbloom Conservatory structure: defend trigger, ordered rev
     // 053.3 "here": descriptive placeholder — the field has no merged vocabulary
     // (judgeReason). The trigger is not registered in production yet.
     here: true,
-    player: "controller"
+    // "you" is the ability controller (190.6.d); PlayerSelector "self" is the
+    // frozen vocabulary for "this trigger's controller".
+    player: "self"
   });
   assert.equal(ability.optional, false);
   assert.deepEqual(ability.body.map((instruction) => instruction.id), [
@@ -195,13 +200,32 @@ test("sfd-215-221 Ravenbloom Conservatory golden: a revealed non-spell really re
 
 test.todo(
   "sfd-215-221 Ravenbloom Conservatory: combat/flow.ts must produce defense-declared after the atomic combat " +
-    "start + designation transaction (CR 466.2; RIFT-124 follow-up), so the Defend Effect can enter the chain"
+    "start + designation transaction (CR 466.2), so the Defend Effect can enter the chain; combat/flow.ts " +
+    "still throws combat-start-transaction and no module emits the timing point"
 );
 test.todo(
   "sfd-215-221 Ravenbloom Conservatory: the printed here referent (CR 053.3) needs EventPattern/ObjectFilter vocabulary " +
-    "for a Battlefield's own identity; the merged trigger-spec validator rejects the placeholder field and the " +
-    "card-program binding (RIFT-257) fails closed on unknown filter fields"
+    "for a Battlefield's own identity; the merged card-program binding (RIFT-257) fails closed with " +
+    "\"Unsupported filter field here\" and a static program cannot know details.battlefieldId"
 );
+
+test("sfd-215-221 Ravenbloom Conservatory: the published here placeholder is refused by the merged binding", () => {
+  // Direct evidence for the second recorded gap: the printed Defend Effect
+  // cannot register while the battlefield-relative anchor has no vocabulary.
+  assert.deepEqual(ability.trigger.filter, { event: "defense-declared", here: true, player: "self" });
+  // Even with the frozen PlayerSelector the placeholder is rejected: the
+  // battlefield-relative anchor is the whole remaining trigger gap.
+  const validation = validateTriggerSpec(ability.trigger);
+  assert.equal(validation.ok, false);
+  assert.deepEqual([...new Set(validation.issues.map((issue) => issue.path))], ["trigger.filter.here"]);
+  assert.throws(
+    () => translateTriggerFilter(ability.trigger.filter, "ravenbloom", "defense-declared"),
+    (error) => error.code === "judge-required" && /Unsupported filter field here/.test(error.message)
+  );
+  // The body itself translates cleanly, which is why only the trigger keeps the
+  // card judge-required.
+  assert.equal(translateInstructionTargets(ability.body).length, 3);
+});
 test("sfd-215-221 Ravenbloom Conservatory: the original Expr reveal consumes the locked top card", () => {
   const kernel = conservatoryWorld(["spell"]);
   const ordered = lockPicks(kernel);

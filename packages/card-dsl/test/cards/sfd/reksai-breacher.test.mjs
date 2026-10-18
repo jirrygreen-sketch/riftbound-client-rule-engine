@@ -22,6 +22,7 @@ import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js"
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { evaluateExtendedExpression } from "../../../../engine-core/dist/effects/interpreter/expr-ext/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-6eb6345b70c561ae3d2ed335eb50fdd0958d942af912aaceba44ad0038813815";
@@ -173,8 +174,12 @@ test("sfd-029-221 Rek'Sai, Breacher: [Assault] uses designation while the object
   });
 
   // The production static binder evaluates the compare condition through the
-  // interpreter. ObjectSnapshot has combatRole but no designation, so the
-  // missing characteristic is treated as false and the printed Might 3 stays 3.
+  // base interpreter (effects/interpreter/condition.ts -> expr.ts), which has no
+  // "designation" property: the missing characteristic throws MissingInformation
+  // and the binder's catch-all treats it as false, so printed Might 3 stays 3.
+  // The extended evaluator that maps designation to combatRole
+  // (effects/interpreter/expr-ext/evaluate.ts) is not on that path. Measured
+  // below with a real attacker designation.
   const executable = {
     ...program,
     canonicalCardId: "card.synthetic-reksai-assault",
@@ -197,6 +202,55 @@ test("sfd-029-221 Rek'Sai, Breacher: [Assault] uses designation while the object
   });
   board.engine.layers.setObjects(board.kernel.objects);
   assert.equal(board.engine.layers.snapshot(board.kernel.ref("rekai")).might, 3);
+});
+
+test("sfd-029-221 Rek'Sai, Breacher: a real attacker designation still does not reach the Assault Might", () => {
+  // 807.1.c/.d.1: Assault 2 must read the attacker designation. The reference
+  // kernel really carries it, and the extended evaluator really reads it — but
+  // the production static binder resolves the condition through the BASE
+  // interpreter, so the merged path still yields printed Might 3. Both halves are
+  // measured here so the remaining gap is unambiguous.
+  // createEngineStaticBinder, createLayerEngine and evaluateExtendedExpression
+  // are imported at the top of this file.
+  const kernel = world()
+    .unit("rekai", { owner: "A", controller: "A", might: 3, zone: "board", combatRole: "attacker" })
+    .unit("defender", { owner: "B", controller: "B", might: 3, zone: "board", combatRole: "defender" })
+    .build();
+  const source = kernel.getObject("rekai");
+  const [expansion] = keywordDefinitionsById.get("Assault").expand({ value: undefined, host: { canonicalCardId: CARD_ID } });
+
+  // The extended evaluator does map designation onto combatRole.
+  const extendedEnvironment = {
+    context: kernel.clone({ sourceSnapshot: source }), host: source.ref,
+    linked: () => undefined, canLookBack: () => true, isIgnored: () => false
+  };
+  assert.equal(evaluateExtendedExpression(expansion.condition.left, extendedEnvironment), "attacker");
+
+  // The production static binder does not use it: the attacker keeps Might 3.
+  for (const id of ["rekai", "defender"]) {
+    const layers = createLayerEngine(kernel.objects, []);
+    const binder = createEngineStaticBinder({
+      layers,
+      pipeline: { host: { objects: () => kernel.objects, context: (snapshot) => kernel.clone({ sourceSnapshot: snapshot }) } }
+    });
+    binder.bindStatic({ kind: "static", effect: expansion.effect, condition: expansion.condition }, kernel.getObject(id));
+    layers.setObjects(kernel.objects);
+    assert.equal(layers.evaluate(kernel.ref(id)).might, 3, `${id} must stay at the printed Might`);
+    // The layer registration exists; only the condition never becomes true.
+    const [entry] = layers.registry.list();
+    assert.equal(entry.effect.layer, "arithmetic");
+    assert.equal(entry.effect.effect.kind, "continuous.might");
+  }
+
+  // Without the condition the same expansion really does add 2 Might, which
+  // proves the arithmetic path itself is merged.
+  const unconditional = createLayerEngine(kernel.objects, []);
+  createEngineStaticBinder({
+    layers: unconditional,
+    pipeline: { host: { objects: () => kernel.objects, context: (snapshot) => kernel.clone({ sourceSnapshot: snapshot }) } }
+  }).bindStatic({ kind: "static", effect: { ...expansion.effect, amount: { kind: "constant", value: 2 } } }, source);
+  unconditional.setObjects(kernel.objects);
+  assert.equal(unconditional.evaluate(source.ref).might, 5);
 });
 
 test.todo(
