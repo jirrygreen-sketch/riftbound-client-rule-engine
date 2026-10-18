@@ -3,16 +3,16 @@
 //
 // Temporary expands to a `beginning-start` trigger; Vision expands to an
 // `object-enters-board` trigger whose body is a real `effect.inspect` + `effect.recycle`
-// pair. Both are inspectable through the merged program expander; registration is
-// blocked for named reasons recorded as todos.
+// pair. Temporary now runs through the production trigger path; Vision's ordered
+// top-card binding remains a separate adapter gap.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import temporary from '../../../dist/effects/keywords/Temporary.js';
 import vision from '../../../dist/effects/keywords/Vision.js';
-import { expandProgram, createProgramBinding } from '../../../dist/programs/index.js';
+import { expandProgram } from '../../../dist/programs/index.js';
 import { instructionDefinitionsById } from '../../../dist/effects/instructions/registry.generated.js';
 import { validateTriggerSpec } from '../../../dist/events/trigger-spec.js';
-import { world } from './support.mjs';
+import { fixture, settle, world } from './support.mjs';
 
 const TEMPORARY_CARD = 'test:temporary-unit';
 const VISION_CARD = 'test:vision-unit';
@@ -78,21 +78,23 @@ test('keywords-vision-multiple-instances-trigger-separately: two printed Vision 
   assert.equal(expanded.length, 2, 'separate stacking keeps both instances');
 });
 
-test('keywords-temporary-killed-at-controller-beginning-phase: the production trigger registration rejects the authored Temporary filter', () => {
+test('keywords-temporary-killed-at-controller-beginning-phase: production registration and execution kill before scoring', () => {
   const [ability] = temporary.expand({ host: { canonicalCardId: TEMPORARY_CARD } });
-  // The trigger’s timing id is a real TimingPointId, but the frozen EventPattern
-  // type vocabulary cannot name it, so a registered spec is rejected.
   const result = validateTriggerSpec({ at: ability.trigger.at, filter: ability.trigger.filter });
-  assert.equal(result.ok, false);
-  assert.ok(result.issues.some(issue => issue.path === 'trigger.filter.event' && issue.code === 'invalid-event-type'), JSON.stringify(result.issues));
+  assert.equal(result.ok, true, result.ok ? '' : JSON.stringify(result.issues));
 
-  const kernel = world().unit('u1', { cardId: TEMPORARY_CARD, zone: 'board', keywords: [{ id: 'Temporary' }] }).build();
-  const binding = createProgramBinding({ cardPrograms: [program(TEMPORARY_CARD)] });
-  assert.throws(
-    () => binding.registerProgramTriggers({ pipeline: { registerTrigger: () => { throw new Error('unreachable'); } } }, kernel.getObject('u1'))
-  );
+  const f = fixture({ programs: [program(TEMPORARY_CARD)], setup: w => w.unit('u1', {
+    cardId: TEMPORARY_CARD,
+    zone: 'board',
+    keywords: [{ id: 'Temporary' }]
+  }) });
+  const ids = f.binding.registerProgramTriggers(f.engine, f.get('u1'));
+  assert.equal(ids.length, 1);
+  f.engine.emit({ timingPoint: 'beginning-start', player: 'A' });
+  f.engine.advance();
+  settle(f.engine);
+  assert.equal(f.get('u1').zone, 'trash');
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === 'object-killed').length, 1);
 });
 
-test.todo('keywords-temporary-killed-at-controller-beginning-phase / keywords-temporary-multiple-instances-trigger-once (CR 816.1.b): the authored trigger uses the timing-point id `beginning-start`, which the frozen EventPattern type vocabulary cannot express (src/events/trigger-spec.ts EVENT_PATTERN_TYPES starts at zone-entered/zone-left), so src/events/pipeline.ts `registerTrigger` raises a validation error and the ability never reaches the pipeline; the Beginning Step producer exists (src/turn/flow.ts) but no merged adapter maps the timing id to a registrable pattern. The authored shape is asserted above');
-
-test.todo('keywords-vision-trigger-on-played / keywords-vision-multiple-instances-trigger-separately (817.1.c, 817.2.b): the trigger filter uses the key `object.id`, which src/programs/filters.ts rejects (“Unsupported filter field object.id”), so the ability cannot register through the production binder even though its body primitives (`effect.inspect` + `effect.recycle`) are merged; the authored body shape is asserted above');
+test.todo('keywords-vision-trigger-on-played / keywords-vision-multiple-instances-trigger-separately (817.1.c, 817.2.b) [EG-TARGETS, EG-ADAPTER]: the objectId host filter now registers and the effect.inspect/effect.recycle body is present, but production execution still lacks the ordered top-card PickSpec and controller binding needed for Predict; the authored shape is asserted above');

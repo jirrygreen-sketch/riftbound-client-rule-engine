@@ -5,6 +5,7 @@ import { validateCardProgram } from "@riftbound/card-dsl";
 
 import deathknell from "../../../dist/effects/keywords/Deathknell.js";
 import { keywordDefinitionsById } from "../../../dist/effects/keywords/registry.generated.js";
+import { instructionDefinitionsById } from "../../../dist/effects/instructions/registry.generated.js";
 import { runAbilityBody } from "../../../dist/effects/interpreter.js";
 import { isTimingPointId } from "../../../dist/events/timing-points.js";
 import { world } from "../../../dist/effects/testing/index.js";
@@ -40,7 +41,9 @@ test("Deathknell expands to one mandatory triggered ability on object-killed (CR
   assert.equal(ability.optional, false);
   assert.equal(ability.trigger.at, "object-killed");
   assert.ok(isTimingPointId(ability.trigger.at));
-  assert.deepEqual(ability.trigger.filter, { self: true, cause: "kill", destination: "trash" });
+  // CR 808.1.d: the event binding is anchored to the killed Permanent. The
+  // kill cause and Trash destination are checked by trigger.leave at resolve.
+  assert.deepEqual(ability.trigger.filter, { self: true });
   assert.equal(ability.body.length, 1);
   assert.equal(ability.body[0].op, "trigger.leave");
   assert.equal(ability.body[0].id, "deathknell:" + HOST + ":leave");
@@ -91,29 +94,21 @@ test("Deathknell expansion registers in the generated keyword registry", () => {
   assert.equal(registered, deathknell);
 });
 
-test("Deathknell trigger subscription body executes on the reference kernel at object-killed", () => {
-  // The expansion body only references the not-yet-merged trigger.leave primitive; register a
-  // minimal stand-in that records the subscription so the merged interpreter runs end to end.
-  // This is test-only wiring, not an approximation of trigger.leave semantics.
-  const kernel = world().unit("host-unit").build();
-  kernel.timingPoint = "object-killed";
-  const subscriptions = [];
-  const registry = new Map([
-    ["trigger.leave", {
-      op: "trigger.leave",
-      argsSchema: { parse: args => args },
-      execute: (ctx, args) => {
-        subscriptions.push({ args, timingPoint: ctx.timingPoint, source: ctx.source.ref.id });
-        return { status: "executed", events: [] };
-      }
-    }]
-  ]);
+test("Deathknell trigger.leave executes against a real killed incarnation", () => {
+  assert.ok(instructionDefinitionsById.has("trigger.leave"));
+  const kernel = world().unit("host-unit", {
+    cardId: HOST,
+    location: { type: "battlefield", id: "bf1" }
+  }).build();
+  const source = kernel.getObject("host-unit");
+  assert.equal(kernel.perform({ type: "kill", object: source.ref }).status, "done");
+  const context = kernel.clone({ sourceSnapshot: source, timingPoint: "object-killed" });
 
   const [ability] = deathknell.expand({ host: { canonicalCardId: HOST } });
-  const outcome = runAbilityBody(ability.body, kernel, registry);
+  const outcome = runAbilityBody(ability.body, context, instructionDefinitionsById);
 
   assert.equal(outcome.status, "executed");
-  assert.equal(subscriptions.length, 1);
-  assert.equal(subscriptions[0].timingPoint, "object-killed");
-  assert.deepEqual(subscriptions[0].args, { cause: "kill" });
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.ok(Object.entries(outcome.linkedValues).some(([key, value]) => key.endsWith(".leaveCause") && value === "kill"));
+  assert.ok(Object.entries(outcome.linkedValues).some(([key, value]) => key.endsWith(".left") && value === true));
 });

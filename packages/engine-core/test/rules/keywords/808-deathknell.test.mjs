@@ -1,14 +1,14 @@
 // docs/rules/scenarios/keywords.yaml — Deathknell (CR v1.5 808.1.d.2, 808.2).
 //
 // The merged Deathknell expansion is a `object-killed` triggered ability whose body
-// is the `trigger.leave` instruction. Both halves are inspectable through the merged
-// program expander; firing it end-to-end is blocked (see the todos).
+// starts with the executable `trigger.leave` boundary. The production binding and
+// lifecycle now collect and resolve the Pending item before the source reaches Trash.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { expandProgram } from '../../../dist/programs/index.js';
 import { instructionDefinitionsById } from '../../../dist/effects/instructions/registry.generated.js';
 import deathknell from '../../../dist/effects/keywords/Deathknell.js';
-import { world } from './support.mjs';
+import { fixture, settle, world } from './support.mjs';
 
 const CARD = 'test:deathknell-unit';
 
@@ -33,8 +33,9 @@ test('keywords-deathknell-triggers-on-kill: the keyword expands to one object-ki
   assert.equal(one[0].kind, 'triggered');
   assert.equal(one[0].optional, false);
   assert.equal(one[0].trigger.at, 'object-killed');
-  assert.deepEqual(one[0].trigger.filter, { self: true, cause: 'kill', destination: 'trash' });
+  assert.deepEqual(one[0].trigger.filter, { self: true });
   assert.deepEqual(one[0].body.map(instruction => instruction.op), ['trigger.leave']);
+  assert.ok(instructionDefinitionsById.has('trigger.leave'));
 });
 
 test('keywords-deathknell-multiple-instances-trigger-separately: two printed Deathknell texts stay two independent abilities (CR 808.2)', () => {
@@ -47,8 +48,44 @@ test('keywords-deathknell-multiple-instances-trigger-separately: two printed Dea
   assert.ok(abilities.every(ability => ability.body.length === 1 && ability.body[0].op === 'trigger.leave'));
 });
 
-test.todo('keywords-deathknell-triggers-on-kill (808.1.d.2 execution): the trigger cannot fire through the production lifecycle — src/programs/lifecycle.ts calls detachSource() for every emission whose timing point is `object-killed` before the pipeline drains its scan queue, so the `program:…` registration is unregistered in the same action that should trigger it; and its body op `trigger.leave` has no registered InstructionDef (the generated instruction registry has no such op), so the resolved effect could not run either');
+test('keywords-deathknell-triggers-on-kill: production lifecycle resolves the leave boundary and body', () => {
+  const body = [{ id: 'deathknell.draw', op: 'effect.draw', args: { amount: { kind: 'constant', value: 1 } } }];
+  const f = fixture({ programs: [program], setup: w => w.unit('u1', {
+    cardId: CARD,
+    location: { type: 'battlefield', id: 'bf1' },
+    keywords: [{ id: 'Deathknell', params: { body } }]
+  }) });
+  const ids = f.binding.registerProgramTriggers(f.engine, f.get('u1'));
+  assert.equal(ids.length, 1);
 
-test.todo('keywords-deathknell-removed-when-death-replaced (808.1.d.1): replacing a combat death with heal+Recall needs the merged Combat damage task (src/combat/flow.ts dealDamage() throws the batch-4 blocked marker) plus a replacement registration for the kill action, which the merged replacement layer supports (src/replacement/bind.ts) but no card data can reach until Combat runs');
+  assert.equal(f.engine.commit({ type: 'kill', object: f.ref('u1') }).status, 'done');
+  assert.equal(f.engine.items.length, 1);
+  assert.deepEqual(f.engine.items[0].body.map(instruction => instruction.op), ['trigger.leave', 'effect.draw']);
 
-assert.equal(instructionDefinitionsById.has('trigger.leave'), false, 'documents the missing op named in the todo above');
+  f.engine.advance();
+  settle(f.engine);
+  assert.equal(f.get('u1').zone, 'trash');
+  assert.equal(f.kernel.player('A').handCount, 1);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === 'object-killed').length, 1);
+});
+
+test('keywords-deathknell-removed-when-death-replaced (808.1.d.1): a replaced kill leaves no Deathknell item', () => {
+  const f = fixture({ programs: [program], setup: w => w.unit('u1', {
+    cardId: CARD,
+    location: { type: 'battlefield', id: 'bf1' },
+    keywords: [{ id: 'Deathknell' }]
+  }) });
+  f.binding.registerProgramTriggers(f.engine, f.get('u1'));
+  f.engine.pipeline.registerReplacement({
+    id: 'replace-kill',
+    source: f.get('u1'),
+    matches: action => action.type === 'kill' && action.object.id === 'u1',
+    apply: action => ({ status: 'replace', actions: [{ type: 'move-location', object: action.object, to: { type: 'base', player: 'A' } }] })
+  });
+
+  assert.equal(f.engine.commit({ type: 'kill', object: f.ref('u1') }).status, 'replaced');
+  assert.equal(f.engine.items.length, 0);
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === 'object-killed'), false);
+  assert.equal(f.get('u1').zone, 'board');
+  assert.deepEqual(f.get('u1').location, { type: 'base', player: 'A' });
+});

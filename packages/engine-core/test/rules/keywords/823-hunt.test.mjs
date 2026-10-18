@@ -2,17 +2,15 @@
 //
 // Hunt expands to two `conquer` / `hold` triggered abilities whose bodies are the
 // merged `effect.xp` primitive, and the merged layer-ops path already sums several
-// Hunt instances into one value. Registration on the pipeline is blocked by the
-// trigger filter’s timing-point spelling (see the todo); the summed value and the XP
-// instruction are asserted below.
+// Hunt instances into one value. Production binding accepts the timing aliases and
+// resolves a correctly attributed event through the real ChainEngine.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import hunt from '../../../dist/effects/keywords/Hunt.js';
 import { instructionDefinitionsById } from '../../../dist/effects/instructions/registry.generated.js';
 import { runInstruction, world } from '../../../dist/effects/testing/index.js';
 import { expandProgram } from '../../../dist/programs/index.js';
-import { validateTriggerSpec } from '../../../dist/events/trigger-spec.js';
-import { c } from './support.mjs';
+import { c, fixture, settle } from './support.mjs';
 
 const HUNT_CARD = 'test:hunt-unit';
 
@@ -72,13 +70,21 @@ test('keywords-hunt-gains-xp-on-conquer: the merged effect.xp instruction grants
   assert.equal(context.player('B').xp, 0);
 });
 
-test('keywords-hunt-gains-xp-on-conquer: the authored Hunt trigger filter is rejected by the frozen EventPattern validator', () => {
-  const abilities = hunt.expand({ value: 2, host: { canonicalCardId: HUNT_CARD } });
-  for (const ability of abilities) {
-    const result = validateTriggerSpec({ at: ability.trigger.at, filter: ability.trigger.filter });
-    assert.equal(result.ok, false, `${ability.trigger.at} is not a registrable EventPattern`);
-    assert.ok(result.issues.some(issue => issue.path === 'trigger.filter.event' && issue.code === 'invalid-event-type'), JSON.stringify(result.issues));
-  }
+test('keywords-hunt-gains-xp-on-conquer: production binding resolves a real attributed conquer event', () => {
+  const f = fixture({ programs: [program], setup: w => w.unit('u1', {
+    cardId: HUNT_CARD,
+    might: 3,
+    keywords: [{ id: 'Hunt', value: 2 }],
+    location: { type: 'battlefield', id: 'bf1' }
+  }) });
+  const ids = f.binding.registerProgramTriggers(f.engine, f.get('u1'));
+  assert.equal(ids.length, 2);
+
+  f.engine.emit({ timingPoint: 'conquer', object: f.get('u1'), player: 'A', details: { battlefieldId: 'bf1' } });
+  f.engine.advance();
+  settle(f.engine);
+  assert.equal(f.kernel.player('A').xp, 2);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === 'xp-gained').length, 1);
 });
 
-test.todo('keywords-hunt-gains-xp-on-conquer / keywords-hunt-stacks-from-multiple-sources (823.1.c.1 execution): the expanded trigger cannot register — its filter names the timing-point ids `conquer`/`hold`, which the frozen EventPattern vocabulary cannot express (src/events/trigger-spec.ts EVENT_PATTERN_TYPES has `conquered`/`held`, and src/events/pipeline-match.ts does map those aliases, but the authored spelling never reaches it because registerTrigger validates first); the summed Hunt value and the real effect.xp grant are asserted above');
+test.todo('keywords-hunt-gains-xp-on-conquer / keywords-hunt-stacks-from-multiple-sources (823.1.c.1 scoring integration) [EG-PAYLOAD, EG-PIPELINE]: production binding and an attributed conquer event resolve above, but the merged scoring producer still needs to carry the conquering Unit/source identity so the self filter can match real Conquer/Hold waves');
