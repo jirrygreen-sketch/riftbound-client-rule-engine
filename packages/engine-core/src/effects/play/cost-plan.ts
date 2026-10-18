@@ -60,6 +60,30 @@ function domainsOf(snapshot: ObjectSnapshot): readonly Domain[] | undefined {
   return [...new Set(snapshot.power)];
 }
 
+/** ObjectSnapshot.power is a Domain set, while a numeric program cost uses
+ * those Domains as its one allowed set. De-duplicate for the printed
+ * projection while keeping an empty list domainless. */
+function programDomains(snapshot: ObjectSnapshot, programCost: CostSpec | undefined): readonly Domain[] | undefined {
+  const power = record(programCost?.power);
+  if (power?.kind === "constant" && typeof power.value === "number") return domainsOf(snapshot);
+  return undefined;
+}
+
+function exactProgramCost(programCost: CostSpec | undefined): CostPlanInput["cost"] | undefined {
+  const kind = typeof programCost?.kind === "string" ? programCost.kind.replace(/^cost\./, "") : undefined;
+  if (kind !== "printed" || programCost?.energy === undefined || programCost.power === undefined) return undefined;
+  const energy = record(programCost.energy);
+  const power = record(programCost.power);
+  if (energy?.kind !== "constant" || typeof energy.value !== "number") return undefined;
+  if (power?.kind !== "constant" || typeof power.value !== "number") return undefined;
+  return {
+    kind: "explicit",
+    energy: literal(energy.value),
+    power: literal(power.value),
+    ...(Array.isArray(programCost.payments) ? { payments: programCost.payments } : {})
+  };
+}
+
 function numericPower(snapshot: ObjectSnapshot, programCost: CostSpec | undefined): number | null {
   const explicit = programCost?.power;
   const constant = record(explicit);
@@ -125,7 +149,7 @@ function zeroTokenPlan(ctx: ResolveContext, snapshot: ObjectSnapshot, player: Pl
 }
 
 function printedPlan(ctx: ResolveContext, snapshot: ObjectSnapshot, player: PlayerId, programCost: CostSpec | undefined): CostPlan {
-  const domains = domainsOf(snapshot);
+  const domains = programDomains(snapshot, programCost) ?? domainsOf(snapshot);
   const cost = normalizedProgramCost(programCost) ?? { kind: "printed" as const };
   return buildCostPlan(ctx, {
     id: planId(snapshot, player),
@@ -250,7 +274,7 @@ function descriptorBaseCost(descriptor: AnyRecord, programCost: CostSpec | undef
   if (kind === "printed" && Object.keys(descriptor).some(key => !["kind", "base", "finalized"].includes(key))) {
     return normalizedProgramCost(descriptor as CostSpec);
   }
-  return normalizedProgramCost(programCost);
+  return exactProgramCost(programCost) ?? normalizedProgramCost(programCost);
 }
 
 function descriptorPlan(ctx: ResolveContext, snapshot: ObjectSnapshot, player: PlayerId, descriptor: AnyRecord): CostPlan {
@@ -417,8 +441,12 @@ export function buildEffectPlayCostPlan(ctx: ResolveContext, request: BuildEffec
   }
 
   if (rawCost === null) {
-    if (ability === undefined && ignore.length === 0) return undefined;
-    const normalized = normalizedProgramCost(programCost);
+    // Only a legacy object with no trusted directory entry may use the old
+    // "normal Play without an override" compatibility path. A known program
+    // with no PlayAbility still has catalog/runtime characteristics that must
+    // be checked instead of silently becoming free.
+    if (program === undefined && ignore.length === 0) return undefined;
+    const normalized = exactProgramCost(programCost) ?? normalizedProgramCost(programCost);
     const powerIgnored = ignore.some(modification =>
       modification.kind === "ignore-base" && modification.ignore !== "energy");
     if (snapshot.energy === null && normalized === undefined && !powerIgnored) {
@@ -437,7 +465,9 @@ export function buildEffectPlayCostPlan(ctx: ResolveContext, request: BuildEffec
         id: plan.id,
         cost: normalized ?? { kind: "printed" },
         printed: printedProjection(snapshot, programCost),
-        ...(domainsOf(snapshot) === undefined ? {} : { domains: domainsOf(snapshot) }),
+        ...(programDomains(snapshot, programCost) ?? domainsOf(snapshot)) === undefined
+          ? {}
+          : { domains: programDomains(snapshot, programCost) ?? domainsOf(snapshot) },
         baseModifications: ignore
       }));
   }
@@ -452,6 +482,15 @@ export function buildEffectPlayCostPlan(ctx: ResolveContext, request: BuildEffec
   const explicitBase = record(directive.cost) !== null || descriptorKind === "printed" || descriptorKind === "explicit";
   if (!hasDirective && !explicitBase && descriptorKind !== "modify") {
     throw new CostPlanError("judge-required", "Unrecognized unfinalized play cost descriptor");
+  }
+  const ignoresPower = (ignoreModifications(directive.ignore) ?? []).some(modification =>
+    modification.kind === "ignore-base" && modification.ignore !== "energy");
+  if (programCost === undefined && snapshot.power !== null && !ignoresPower &&
+      record(directive.cost) === null && descriptorKind !== "explicit") {
+    throw new CostPlanError(
+      "judge-required",
+      `Selected card ${snapshot.ref.id} has no exact numeric Power cost; its Domain list is not a count`
+    );
   }
   if (snapshot.energy === null && descriptorBaseCost(directive, programCost) === undefined) {
     throw new CostPlanError("missing-printed-cost", `Selected card ${snapshot.ref.id} has no printed Energy cost`);
