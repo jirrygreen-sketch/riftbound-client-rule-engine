@@ -293,12 +293,13 @@ export class TestWorld implements ResolveContext {
   registerDelayedTrigger(at: TriggerSpec, body: readonly Instruction[]): void { this.state.delayed.push({ at, body }); }
 
   perform(input: GameAction | LegacyBoardTokenAction): ActionOutcome {
-    let action: GameAction = input.type === "create-token" && input.to === undefined ? { ...input, to: "board" } : input;
-    const rewritten = this.rewriteReplacement(action);
-    if (rewritten !== null) {
-      if (rewritten.status === 'done' && 'action' in rewritten) action = rewritten.action;
-      else return rewritten;
-    }
+    const inputAction: GameAction = input.type === "create-token" && input.to === undefined ? { ...input, to: "board" } : input;
+    const rewritten = this.rewriteReplacement(inputAction);
+    if (!('resolved' in rewritten)) return rewritten;
+    return this.performResolved(rewritten.action);
+  }
+
+  private performResolved(action: GameAction): ActionOutcome {
     const ref = actionObject(action);
     const object = ref === undefined ? undefined : this.object(ref) ?? undefined;
     const outcome = this.apply(action);
@@ -385,15 +386,11 @@ export class TestWorld implements ResolveContext {
     const object = this.current(action.object);
     if (object === null || object.zone !== 'board') return { status: 'impossible', events: [] };
     const rewritten = this.rewriteReplacement(action);
-    if (rewritten === null) {
-      const outcome = this.perform(action);
-      return outcome.status === 'done' ? { ...outcome, events: [...outcome.events, makeEvent(this.state, 'kill', this.timingPoint, { batchId })] } : outcome;
-    }
-    if (rewritten.status !== 'done' || !('action' in rewritten)) return rewritten;
+    if (!('resolved' in rewritten)) return rewritten;
     if (rewritten.action.type !== 'kill' || refKey(rewritten.action.object) !== refKey(action.object)) {
       return { status: 'impossible', events: [] };
     }
-    const outcome = this.perform(rewritten.action);
+    const outcome = this.performResolved(rewritten.action);
     return outcome.status === 'done' ? { ...outcome, events: [...outcome.events, makeEvent(this.state, 'kill', this.timingPoint, { batchId })] } : outcome;
   }
 
@@ -402,7 +399,7 @@ export class TestWorld implements ResolveContext {
     return this.performBatchLeaf(action, batchId);
   }
 
-  private rewriteReplacement(action: GameAction): { readonly status: 'done'; readonly action: GameAction } | ActionOutcome | null {
+  private rewriteReplacement(action: GameAction): { readonly resolved: true; readonly action: GameAction } | ActionOutcome {
     const applied = new Set<number>();
     let current = action;
     while (true) {
@@ -423,7 +420,7 @@ export class TestWorld implements ResolveContext {
         }
         return { status: replacement, events: [makeEvent(this.state, current.type, this.timingPoint, { outcome: replacement })] };
       }
-      if (!rewritten) return { status: 'done', action: current };
+      if (!rewritten) return { resolved: true, action: current };
     }
   }
 

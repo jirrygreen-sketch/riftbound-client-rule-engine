@@ -408,6 +408,49 @@ test('Batch Kill commits simultaneous deaths with one identity before trigger sc
   assert.equal(f.kernel.history({ action: 'kill', object: b.ref }), 1);
 });
 
+test('Batch Kill applies a bound same-object rewrite exactly once and remains atomic', () => {
+  const f = fixture();
+  let applications = 0;
+  f.kernel.addReplacement(action => {
+    if (action.type !== 'kill' || action.object.id !== 'b') return null;
+    applications += 1;
+    return { status: 'rewrite', action: { ...action } };
+  });
+  const outcome = f.engine.commit({
+    type: 'batch',
+    transactionId: 'kill:rewrite-once',
+    actions: [
+      { type: 'kill', object: f.kernel.ref('a') },
+      { type: 'kill', object: f.kernel.ref('b') },
+    ],
+  });
+  assert.equal(outcome.status, 'done');
+  assert.equal(applications, 1);
+  assert.equal(f.kernel.getObject('a').zone, 'trash');
+  assert.equal(f.kernel.getObject('b').zone, 'trash');
+});
+
+test('Batch Kill rejects a rewrite to another action before any death commits', () => {
+  const f = fixture();
+  const before = f.kernel.stateForTest();
+  f.kernel.addReplacement(action => action.type === 'kill' && action.object.id === 'b'
+    ? { status: 'rewrite', action: { type: 'gain-energy', player: 'A', amount: 1 } }
+    : null);
+  const outcome = f.engine.commit({
+    type: 'batch',
+    transactionId: 'kill:foreign-rewrite',
+    actions: [
+      { type: 'kill', object: f.kernel.ref('a') },
+      { type: 'kill', object: f.kernel.ref('b') },
+    ],
+  });
+  assert.equal(outcome.status, 'impossible');
+  assert.equal(outcome.receipt.status, 'rolled-back');
+  assert.deepEqual(f.kernel.stateForTest(), before);
+  assert.equal(f.kernel.player('A').energy, 0);
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === 'object-killed'), false);
+});
+
 for (const [name, hook, expectedStatus] of [
   ['replacement', action => action.type === 'kill' && action.object.id === 'b' ? 'replaced' : null, 'replaced'],
   ['prevention', action => action.type === 'kill' && action.object.id === 'b' ? 'prevented' : null, 'prevented'],
