@@ -3,7 +3,7 @@ import { bindResolveContext, createActionPipelineHost } from "../../../engine-co
 import { createMatch, type Match, type MatchCard, type MatchDeck } from "../../../engine-core/dist/game/lifecycle.js";
 import { projectFor, type ProjectionV2 } from "../../../engine-core/dist/projection/v2/index.js";
 import { createProgramBinding } from "../../../engine-core/dist/programs/index.js";
-import { world, type TestWorld } from "../../../engine-core/dist/effects/testing/test-kernel.js";
+import { TestWorld, world } from "../../../engine-core/dist/effects/testing/test-kernel.js";
 import { cardPrograms } from "../../../card-dsl/dist/cards/registry.generated.js";
 import type { CardProgram } from "../../../card-dsl/dist/ir/types.js";
 import { ChainContractBlockedError, type ChainDraft } from "../../../engine-core/dist/chain/engine.js";
@@ -184,6 +184,11 @@ interface HeadlessWorld {
   readonly counters: MutableCounters;
 }
 
+export interface HeadlessWorldCheckpoint {
+  readonly state: ReturnType<TestWorld["snapshot"]>;
+  readonly links: TestWorld;
+}
+
 export interface HeadlessJournal {
   readonly seed: string;
   readonly decks: HeadlessDeckPair;
@@ -236,6 +241,30 @@ function recordJudgeRequired(counters: MutableCounters, cardId: string, name?: s
   } else {
     counters.judgeRequiredCards.set(cardId, { name: name ?? null, count: 1 });
   }
+}
+
+/**
+ * Capture one authoritative state copy. `TestWorld.clone()` snapshots again
+ * internally, so using `{ state: kernel.snapshot(), links: kernel.clone() }`
+ * doubled the dominant transaction cost on every ChainEngine checkpoint.
+ * The link holder only needs the linked-value map; `copyLinkedFrom` ignores
+ * its state and source snapshots.
+ */
+export function checkpointHeadlessWorld(kernel: TestWorld): HeadlessWorldCheckpoint {
+  const state = kernel.snapshot();
+  const links = new TestWorld({
+    state,
+    sourceSnapshot: kernel.source,
+    controller: kernel.controller,
+    timingPoint: kernel.timingPoint,
+    linked: new Map(Object.entries(kernel.linkedSnapshot())),
+  });
+  return { state, links };
+}
+
+export function restoreHeadlessWorld(kernel: TestWorld, checkpoint: HeadlessWorldCheckpoint): void {
+  kernel.restore(checkpoint.state);
+  kernel.copyLinkedFrom(checkpoint.links);
 }
 
 function judgeRequiredCardCounts(counters: MutableCounters): readonly HeadlessJudgeRequiredCardStat[] {
@@ -294,6 +323,16 @@ class BotRandom {
 function makeWorld(seed: string): HeadlessWorld {
   const builder = world(stableSeed(`${seed}:kernel`)).player("A").player("B");
   const kernel = builder.build();
+  let objectRevision = 0;
+  let cachedObjectRevision = -1;
+  let cachedObjects: readonly ObjectSnapshot[] = [];
+  const objects = (): readonly ObjectSnapshot[] => {
+    if (cachedObjectRevision !== objectRevision) {
+      cachedObjects = kernel.objects;
+      cachedObjectRevision = objectRevision;
+    }
+    return cachedObjects;
+  };
   const counters: MutableCounters = {
     judgeRequiredRejections: 0,
     judgeRequiredCards: new Map(),
@@ -302,14 +341,16 @@ function makeWorld(seed: string): HeadlessWorld {
   const choiceRandom = new BotRandom(`${seed}:choices`);
   const choose = <T>(request: Parameters<PipelineHost["choose"]>[0]): T => botChoice(choiceRandom, request, counters) as T;
   const hostBase = createActionPipelineHost({
-    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    checkpoint: () => checkpointHeadlessWorld(kernel),
     restore: snapshot => {
-      const saved = snapshot as { readonly state: unknown; readonly links: TestWorld };
-      kernel.restore(saved.state as Parameters<TestWorld["restore"]>[0]);
-      kernel.copyLinkedFrom(saved.links);
+      restoreHeadlessWorld(kernel, snapshot as HeadlessWorldCheckpoint);
+      objectRevision += 1;
     },
-    objects: () => kernel.objects,
-    perform: action => kernel.perform(action),
+    objects,
+    perform: action => {
+      objectRevision += 1;
+      return kernel.perform(action);
+    },
     choose,
     context: (source, controller, timingPoint) => bindResolveContext(kernel, {
       source,

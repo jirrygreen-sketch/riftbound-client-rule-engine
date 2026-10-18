@@ -105,7 +105,7 @@ describe("M1 headless dual-bot regression", () => {
     if (result.termination === "blocked") {
       expect(result.winner).toBeNull();
       expect(result.blockers).toEqual(expect.arrayContaining([expect.objectContaining({
-        name: "TriggerSpecValidationError", code: "unsupported-trigger-spec", message: expect.stringContaining("trigger.filter.event"),
+        name: "ProgramBindingError", code: "judge-required", message: "Unsupported filter field battlefieldWas",
       })]));
     } else {
       expect(result.termination).toBe("winner");
