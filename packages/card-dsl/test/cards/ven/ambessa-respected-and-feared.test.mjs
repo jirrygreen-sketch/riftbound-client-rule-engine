@@ -1,19 +1,21 @@
 import assert from "node:assert/strict";
-import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
-import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import test from "node:test";
 
-import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
-import program from "../../../dist/cards/ven/ambessa-respected-and-feared.js";
-import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
-import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { translateInstructionTargets, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+
+import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
+import program from "../../../dist/cards/ven/ambessa-respected-and-feared.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
 const CANONICAL_ID =
   "card.hash-e8af5c2839945839572f9122c2803fdda719845f1a7356eca006d791891545cd";
@@ -64,19 +66,21 @@ test("ven-136-166 Ambessa: identity, status, judgeReason and verbatim sourceText
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
-  // 原语存在不代表参数、授予关键词的行为及目标绑定已经接通。
+  // The refreshed reason names the four measured gaps, not merged task numbers.
   assert.match(program.judgeReason, /Empower/);
+  assert.match(program.judgeReason, /827\.1\.c\.1/);
+  assert.match(program.judgeReason, /Unsupported cost kind: empower/);
   assert.match(program.judgeReason, /Empowered/);
   assert.match(program.judgeReason, /442\.1\.a/);
   assert.match(program.judgeReason, /828\.1\.b\.1/);
-  assert.doesNotMatch(program.judgeReason, /没有注册\/求值原语/);
+  assert.match(program.judgeReason, /designation/);
+  assert.match(program.judgeReason, /sameLocationAs/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
 test("ven-136-166 Ambessa: [Empower] plus the Empowered [Assault 2] grant", () => {
   assert.deepEqual(empower, { kind: "keyword", keyword: "empower" });
-  // 复核证据：授予用的原语本身已合入（缺的是 Empowered 门控）。
-  // 807.1.c: Assault 2 is a valued keyword whose expansion is merged; the card
+  // 807.1.c: Assault 2 is a valued keyword whose definition is merged; the card
   // only declares the 828.1.b.1 dependent grant of that keyword.
   assert.ok(keywordDefinitionsById.get("Assault"), "the Assault KeywordDef is merged");
   assert.equal(assaultGrant.kind, "static");
@@ -94,13 +98,9 @@ test("ven-136-166 Ambessa: [Empower] plus the Empowered [Assault 2] grant", () =
 });
 
 test("ven-136-166 Ambessa: the merged grant primitive really registers the Assault 2 grant", () => {
-  // 本例只测授予原语；下方用原始 static 验证状态门控。
-  // ability 层保留 keyword/keywordValue（Assault 2 = 807.1.c）。
   const kernel = world()
     .unit("ambessa", { types: ["champion"], zone: "board", owner: "A", controller: "A" })
     .build();
-  // appliesTo: "self" 绑定的是能力宿主（ResolveContext.source），所以要按
-  // clone({ sourceSnapshot }) 绑定来源，与其他卡 golden 的做法一致。
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("ambessa") });
   const body = [{
     id: "ambessa.grant-assault",
@@ -199,18 +199,6 @@ test("ven-136-166 golden: equal or greater Might leaves the enemy unit alone (sk
   }
 });
 
-test.todo(
-  "ven-136-166 Ambessa: bind printed 1 Energy + 2 Order Power through KeywordAbility.params.cost and expandProgram (827.1.c.1)"
-);
-
-test.todo(
-  "ven-136-166 Ambessa: expand granted Assault 2 with the current combatRole designation (807.1.c / 828.1.b.1)"
-);
-
-test.todo(
-  "ven-136-166 Ambessa: bind sameLocationAs/exclude targets and resolve the empowered attack trigger end to end (355.9 / 466.2.c)"
-);
-
 // The card remains judge-required: this binds only its supported static clause.
 // State changes use real actions; the original static ability is never rewritten.
 test("ambessa-respected-and-feared: the dependent static follows live Empower and Disempower actions", () => {
@@ -268,3 +256,59 @@ test("ambessa-respected-and-feared: the merged Empower definition expands throug
   assert.equal(activation.body[0].targets, undefined);
   assert.equal(program.status, "judge-required");
 });
+
+test("ambessa-respected-and-feared evidence: the printed 1 Energy + 2 Order Power never reaches the planner", () => {
+  // 827.1.c.1: KeywordAbility carries only keyword/value, so the expanded
+  // activation ships { kind: "empower" } and the real planner rejects it.
+  const kernel = world().player("A", { energy: 5 })
+    .unit("host", { controller: "A", energy: null, power: null }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("host") });
+  assert.throws(
+    () => buildCostPlan(context, { id: "empower-cost", cost: { kind: "empower" } }),
+    (error) => error instanceof Error && /Unsupported cost kind: empower/.test(error.message)
+  );
+});
+
+test("ambessa-respected-and-feared evidence: granted Assault 2 never adds the attacker Might", () => {
+  // 807.1.c: the granted keyword reaches the layer keyword list, but Assault's
+  // own expansion condition reads "designation", which the default interpreter
+  // cannot evaluate - Might stays at the printed 5 even while attacking.
+  const { engine, kernel } = fixture({ cards: [{
+    id: "host", cardId: program.canonicalCardId, types: ["unit"],
+    might: 5, energy: null, power: null, combatRole: "attacker"
+  }] });
+  engine.commit({ type: "move-zone", object: kernel.ref("host"), to: "base" });
+  const binding = createEngineStaticBinder(engine).bindStatic(assaultGrant, kernel.getObject("host"));
+  engine.commit({ type: "empower", object: kernel.ref("host") });
+  const snapshot = engine.layers.snapshot(kernel.ref("host"));
+  assert.deepEqual(snapshot.keywords, [{ id: "assault", value: 2 }]);
+  assert.equal(snapshot.might, 5);
+  assert.equal(snapshot.combatRole, null, "the production host does not carry the designation");
+  binding.unbind();
+});
+
+test("ambessa-respected-and-feared evidence: the attack target filter is rejected before any binding", () => {
+  // 355.9 / 355.10.g: "an enemy unit here with less Might than me" needs the
+  // sameLocationAs anchor, which the production target translator refuses.
+  assert.throws(
+    () => translateInstructionTargets(attackTrigger.body),
+    (error) => error instanceof Error && /Unsupported filter field sameLocationAs/.test(error.message)
+  );
+  assert.equal(instructionDefinitionsById.has("effect.kill"), true);
+});
+
+test.todo(
+  "ven-136-166 Ambessa: bind printed 1 Energy + 2 Order Power through a per-instance cost carrier " +
+    "so Empower.expand can emit a payable plan (827.1.c.1) - KeywordAbility has no params.cost"
+);
+
+test.todo(
+  "ven-136-166 Ambessa: re-expand granted Assault 2 against the live combat designation so the " +
+    "attacker gains +2 Might (807.1.c / 828.1.b.1) - the default interpreter cannot read designation"
+);
+
+test.todo(
+  "ven-136-166 Ambessa: bind sameLocationAs/exclude targets and resolve the empowered attack " +
+    "trigger end to end (355.9 / 466.2) - combat/flow.ts still throws combat-start-transaction"
+);
+

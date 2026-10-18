@@ -4,9 +4,12 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/baccai-reaper.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID =
   "card.hash-49effe3e8a2c9466ade25946a0f4067d8c9dbdadf4c04be9e0216bff858d3c3c";
@@ -19,6 +22,9 @@ const [optional] = ability.body;
 const [pay, grant] = optional.args.body.value;
 const OPTIONAL_ID = "baccai-reaper.opt-in/optional";
 
+/** The program as the production registry sees it (status still judge-required). */
+const executableView = { ...program, status: "executable", judgeReason: undefined };
+
 test("ven-009-166 Baccai Reaper: program validates and is registered by canonicalCardId", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
@@ -30,13 +36,14 @@ test("ven-009-166 Baccai Reaper: identity, ruleset, status, judgeReason and verb
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /cost\.pay/);
+  // The refreshed reason names the measured gaps and no merged task number as a dependency.
   assert.match(program.judgeReason, /attack-declared/);
-  assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
-  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
+  assert.match(program.judgeReason, /registerProgramTriggers/);
   assert.match(program.judgeReason, /receipt/);
+  assert.match(program.judgeReason, /designation/);
+  assert.match(program.judgeReason, /combatRole/);
+  assert.ok(!/RIFT-89|RIFT-120|RIFT-257|RIFT-258/.test(program.judgeReason));
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -44,7 +51,7 @@ test("ven-009-166 Baccai Reaper: identity, ruleset, status, judgeReason and verb
 test("ven-009-166 Baccai Reaper: attack trigger scoped to self (383.4.e)", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "triggered");
-  // 383.4.e.1 的 "When I attack …" 形态；时点为 attack-declared。
+  // 383.4.e.1 的 "When I attack ..." 形态；时点为 attack-declared。
   assert.equal(ability.trigger.at, "attack-declared");
   assert.deepEqual(ability.trigger.filter, {
     event: "attack-declared",
@@ -56,7 +63,7 @@ test("ven-009-166 Baccai Reaper: attack trigger scoped to self (383.4.e)", () =>
   assert.equal(ability.optional, false);
 });
 
-test("ven-009-166 Baccai Reaper: 'you may pay … to …' is one choice.optional body (contract 3.9)", () => {
+test("ven-009-166 Baccai Reaper: 'you may pay ... to ...' is one choice.optional body (contract 3.9)", () => {
   assert.deepEqual(ability.body.map(instruction => instruction.id), ["baccai-reaper.opt-in"]);
   assert.equal(optional.op, "choice.optional");
   assert.equal(optional.args.body.kind, "constant");
@@ -103,26 +110,20 @@ test("ven-009-166 Baccai Reaper golden: declining the payment skips both the pay
 
 test("ven-009-166 Baccai Reaper golden: the optional wrapper keeps a single stable replay request id", () => {
   const kernel = world().unit("baccai-reaper", { might: 4 }).build();
-  // 契约 3.9 / 解释器 README：choice.optional 的稳定请求 id 是「执行路径 + 本地 id」；
-  // 接受与否由这一次询问决定（拒绝路径见上一个用例）。
   kernel.setAnswers({ [OPTIONAL_ID]: false });
   const outcome = runAbilityBody(ability.body, kernel);
   assert.equal(outcome.results[0].path.join("/"), "baccai-reaper.opt-in");
   assert.equal(outcome.results[0].result.reason, "skipped");
-  // 支付与授予都在这一个 body 里，因此拒绝时两条指令都不会被尝试。
   assert.equal(optional.args.body.value.length, 2);
 });
 
-test("ven-009-166 Baccai Reaper golden: accepting pays 1 Fury Power and grants [Assault 2] this turn (RIFT-258)", () => {
-  // cost.pay + continuous.grant-keyword 已随 RIFT-258 合入；生产触发接线（RIFT-120）
-  // 仍是 judge-required 缺口。本 golden 用真实解释器 + 测试内核执行卡内的 choice.optional body。
+test("ven-009-166 Baccai Reaper golden: accepting pays 1 Fury Power and grants [Assault 2] this turn", () => {
   const kernel = world().player("A", { power: ["Fury"] }).unit("baccai-reaper", { might: 4 }).build();
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("baccai-reaper") });
   context.setAnswers({ [OPTIONAL_ID]: true });
 
   const outcome = runAbilityBody(ability.body, context);
 
-  // choice.optional 先把被选 body 跑完（pay → grant），再以 executed 收束自身。
   assert.deepEqual(outcome.results.map((entry) => entry.id), [
     "baccai-reaper.pay-fury",
     "baccai-reaper.grant-assault",
@@ -139,9 +140,6 @@ test("ven-009-166 Baccai Reaper golden: accepting pays 1 Fury Power and grants [
     { requirementIndex: 0, from: "Fury", amount: 1 }
   ]);
   assert.ok(outcome.events.some((event) => event.action === "pay"));
-  // 注意：receipt 证明「计划已支付到准备/回执层」（204.1.b 的支付动作已产出），但参考
-  // 内核的 pay 动作只扣 energy/xp（test-kernel.ts:300），不消费 PlayerSnapshot.power 池，
-  // 因此「池余额被真实扣减」在 card-dsl 测试内核上尚不可验证（见下方 TODO 与依赖）。
 
   // [Assault 2]：ability 层的关键词授予，end-of-turn 到期。
   assert.equal(context.continuousEffects.length, 1);
@@ -160,9 +158,6 @@ test("ven-009-166 Baccai Reaper golden: accepting pays 1 Fury Power and grants [
 });
 
 test("ven-009-166 Baccai Reaper golden: the payment fails closed with an empty Power pool and no grant runs", () => {
-  // 边界证据：成本计划先经 planDuelRunePayment 校验（cost/resources.ts 的
-  // 'insufficient matching Power'），参考内核 pay 动作扣 energy/xp——Power 不足时
-  // cost.pay 在任何授予之前失败，整个事务不提交。
   const kernel = world().player("A", { power: [] }).unit("baccai-reaper", { might: 4 }).build();
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("baccai-reaper") });
   context.setAnswers({ [OPTIONAL_ID]: true });
@@ -176,21 +171,50 @@ test("ven-009-166 Baccai Reaper golden: the payment fails closed with an empty P
   assert.equal(context.getObject("baccai-reaper").keywords.length, 0);
 });
 
+test("ven-009-166 Baccai Reaper evidence: the attack trigger really registers against the pipeline", () => {
+  // Registration is no longer the gap: the CardProgram adapter accepts this
+  // subscription. The missing piece is the attack-declared emitter (466.2).
+  const registry = new ProgramRegistry([executableView]);
+  const { engine, kernel } = fixture({
+    cards: [{ id: "reaper", cardId: CARD_ID, types: ["unit"], might: 4, energy: 3, power: ["Fury"] }]
+  });
+  const registrations = triggerRegistrations(registry, kernel.getObject("reaper"));
+  assert.deepEqual(
+    registrations.map((registration) => [registration.spec.at, registration.spec.filter]),
+    [["attack-declared", { event: "attack-declared", object: { objectId: "reaper" } }]]
+  );
+  assert.equal(engine.pipeline.events.filter((event) => event.timingPoint === "attack-declared").length, 0);
+});
+
+test("ven-009-166 Baccai Reaper evidence: the reference kernel never debits the Power pool", () => {
+  // Measured: the pay action debits energy/xp only, so a single Fury Power can
+  // pay twice and both runs report paid:true while the pool stays ["Fury"].
+  const kernel = world().player("A", { power: ["Fury"] }).unit("baccai-reaper", { might: 4 }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("baccai-reaper") });
+  context.setAnswers({ [OPTIONAL_ID]: true });
+  const first = runAbilityBody(ability.body, context);
+  assert.equal(first.results.find((entry) => entry.id === "baccai-reaper.pay-fury").result.linkedValues.payment.paid, true);
+  assert.deepEqual(context.player("A").power, ["Fury"]);
+  const second = runAbilityBody(ability.body, context);
+  assert.equal(second.results.find((entry) => entry.id === "baccai-reaper.pay-fury").result.linkedValues.payment.paid, true);
+  assert.deepEqual(context.player("A").power, ["Fury"]);
+});
+
 test.todo(
-  "ven-009-166 Baccai Reaper: the Power pool debit cannot be verified on the reference kernel — " +
-    "test-kernel.ts:300's pay action debits only energy/xp and leaves PlayerSnapshot.power untouched, " +
-    "so holding one Fury pays twice (both runs return paid:true and grant the effect while the pool " +
-    "stays ['Fury']); the recurring-debit boundary (a second payment from an empty pool must fail) " +
-    "needs the engine-core Power-integration task to land in the reference kernel"
+  "ven-009-166 Baccai Reaper: the Power pool debit cannot be verified on the reference kernel - " +
+    "test-kernel.ts's pay action debits only energy/xp and leaves PlayerSnapshot.power untouched, " +
+    "so holding one Fury pays twice; the recurring-debit boundary needs an engine-core Power-integration task"
 );
 
 test.todo(
-  "ven-009-166 Baccai Reaper: resolve the attack trigger's payment step in the production pipeline — " +
-    "cost.pay and continuous.grant-keyword are merged (see the accept golden), but the RIFT-89 " +
-    "cost-plan/trigger wiring still has no CardProgram execution entry for the optional payment"
+  "ven-009-166 Baccai Reaper: emit attack-declared from the actual Combat designation change so the " +
+    "registered trigger can enter the chain - CombatFlow.advance() still throws " +
+    "TurnCombatBlockedError('combat-start-transaction') (CR 466.2)"
 );
+
 test.todo(
-  "ven-009-166 Baccai Reaper: the attack trigger must enter the chain when this unit first gains the " +
-    "Attacker designation — attack-declared is only in the closed enum and keyword expansions; no " +
-    "merged emitter and no CardProgram TriggerRegistration (RIFT-120)"
+  "ven-009-166 Baccai Reaper: expand the granted [Assault 2] into the attacker Might bonus (807.1.c) - " +
+    "the grant only adds a keyword entry and Assault's own condition needs the production " +
+    "'designation' reading"
 );
+
