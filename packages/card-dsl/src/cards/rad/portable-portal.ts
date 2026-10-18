@@ -25,7 +25,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   的指令内费用（355.10.c.1），cost.pay 原语已合入，但缺 203.3 的
  *   success-gated payment body（cost/kinds/README.md 契约变更请求 #2）。
  *
- * 2026-10-17 再复核：整卡仍为 judge-required；当前缺口见 judgeReason。
+ * 2026-10-18 再复核：整卡仍为 judge-required；当前缺口见 judgeReason。
  * 已合入原语与关键词声明不等于生产链路可执行；局部执行证据见同名单卡测试。
  */
 const abilities: Ability[] = [
@@ -94,10 +94,12 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "[Deploy]（CR 830.1.b）的 KeywordDef 与 continuous.location 原语已合入，但 programs/statics.ts 仍报 continuous.location has no layer mapping；展开的 hold/here:true 也不能通过触发过滤与事件词表。" +
-    "「you may pay Body to ready a unit here」已接 cost.pay；支付请求、拒绝选择和支付失败事务回滚均有执行证据，但参考 TestWorld 的 pay 动作尚不扣减 Power，不能作为资源已实际消费的证据。仍缺 success-gated payment body/savepoint（355.10.c.1、203.3）以在不能支付时跳过该指令而继续结算，linkedTo 本身不提供支付门控；嵌套目标另被 chain Finalize 的 target-selection lifecycle gate 阻止。" +
-    "「a unit here」已保留任意控制者的单位选择，但 sameLocationAs 仍被 programs/filters.ts 拒绝；TargetSpec.location 虽在类型/解释器支持 source-location，当前 IR 校验器却按 LocationFilter 拒绝该拼写（invalid-location-kind），需契约/校验对齐。" +
-    "友方 Ganking 静态的 sameLocationAs 已能绑定，但 layers/filter.ts 的 matchesObjectFilter 未按值比较结构化 LocationRef，同地点的独立快照仍不能匹配。只保留局部 ready/grant 执行证据，不宣称整卡可执行。",
+    "[Deploy]（CR 830.1.b）的 KeywordDef 与 continuous.location 原语已合入，但 programs/statics.ts 的 layerFor 仍拒绝 continuous.location（no layer mapping）；hold 展开中的 here:true 也被 translateTriggerFilter 拒绝，" +
+    "因此战场打出许可与「对手在此固守时消灭」仍没有进入生产链。" +
+    "「you may pay Body to ready a unit here」已接 cost.pay；支付请求、拒绝选择与支付失败回滚都有真实执行证据，但 ReferenceTestKernel 的 pay action 仍不扣减 Power，不能据此证明资源已消费。" +
+    "同时缺少 355.10.c.1 / 203.3 所需的 success-gated payment body/savepoint：支付失败必须跳过后续 ready 并继续结算，linkedTo 只传播成功结果，不能提供该门控；Chain Finalize 也只收集顶层 TargetSpec，嵌套 optional body 的目标尚未进入 target-selection lifecycle。" +
+    "「a unit here」保留任意控制者的单位选择，但 sameLocationAs 仍被 programs/filters.ts 拒绝；把它改写成 TargetSpec.location 的 source-location 形式又会被 card-dsl 校验器按 LocationFilter 判为 invalid-location-kind。" +
+    "友方 Ganking 的 static grant 能注册并解析来源位置，但 layers/filter.ts 的 matchesObjectFilter 仍按 location.type 比较，不能按值匹配结构化 LocationRef；只保留 ready、支付请求和局部 grant 的执行证据，不宣称整卡可执行。",
   abilities,
   sourceText:
     "[Deploy] (Play this only to a battlefield. When an opponent holds here, kill this.)\n" +

@@ -90,11 +90,11 @@ test("rad-147-167 Pride of Nazumah: body grants Assault equal to the target's Sh
   ]);
 });
 
-test("rad-147-167 Pride of Nazumah: the dynamic Shield read is not representable by the merged expression language", () => {
-  // The declared value read is not resolvable: ObjectSnapshot exposes keywords
-  // as a list, not a "shield" property, so the merged interpreter's
-  // object-property path raises MissingInformation. That is exactly the open
-  // gap judgeReason names, and no static Assault value is substituted for it.
+test("rad-147-167 Pride of Nazumah: the dynamic Shield read lacks a runtime characteristic", () => {
+  // The object-property expression shape is valid IR, but ObjectSnapshot
+  // exposes keywords as a list and has no aggregated "shield" property. The
+  // interpreter therefore raises MissingInformation and keeps the instruction
+  // ignored/mistargeted; no fixed Assault value is substituted for it.
   const { targets, ...bodyOnly } = grant;
   const kernel = world()
     .unit("ally", { might: 2, keywords: [{ id: "Shield", value: 2 }] })
@@ -140,8 +140,9 @@ test("rad-147-167 Pride of Nazumah: a fixed Assault value does execute through t
 
 test.todo(
   "rad-147-167 Pride of Nazumah: dynamically grant [Assault] with a value read from the " +
-    "recipient's Shield Value (CR 814.1.b.2) — the IR has no keyword-value read expression " +
-    "(contract change request), so the merged continuous.grant-keyword cannot be fed"
+    "recipient's Shield Value (CR 814.1.b.2) — ObjectSnapshot has no aggregated Shield " +
+    "characteristic for object-property to read, so the merged continuous.grant-keyword " +
+    "cannot be fed a dynamic value"
 );
 
 test("rad-147-167 Pride of Nazumah: the merged grant consumes a keyword value only as an integer", () => {

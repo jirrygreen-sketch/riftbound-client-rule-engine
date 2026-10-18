@@ -210,7 +210,8 @@ test.todo(
 // The three TODO entries above/below are replaced by real executor evidence so
 // the remaining gaps are pinned to the merged code that actually rejects them.
 test("rad-087-167 Portable Portal: the merged Deploy expansion cannot bind (static layer + hold trigger)", () => {
-  // CR 830.1.b: RIFT-267 merged Deploy.ts, but neither half has a consumer.
+  // CR 830.1.b: the Deploy expansion exists, but neither half has a complete
+  // production consumer.
   const expansion = deploy.expand({ host: { canonicalCardId: CARD_ID } });
   assert.deepEqual(expansion.map(ability => ability.kind), ["static", "triggered"]);
   assert.equal(expansion[0].effect.kind, "continuous.location");
