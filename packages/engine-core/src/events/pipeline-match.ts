@@ -28,13 +28,16 @@ export function matchesTriggerObject(filter: ObjectFilter, object: ObjectSnapsho
   return true;
 }
 export function matchesTriggerEvent(filter: ObjectFilter | EventPattern, event: PipelineEvent, controller: string): boolean {
-  const pattern = filter as EventPattern;
-  const isPattern = ['event', 'kind', 'object', 'source', 'target', 'player', 'fromZone', 'toZone', 'amount', 'details'].some(key => key in filter) || typeof pattern.type === 'string' && pattern.type.includes('-');
+  // `it` is part of the card IR contract and is preserved on the runtime event
+  // even before the shared trigger-spec declaration exposes its typed field.
+  const pattern = filter as EventPattern & { readonly it?: ObjectFilter };
+  const isPattern = ['event', 'kind', 'object', 'source', 'target', 'it', 'player', 'fromZone', 'toZone', 'amount', 'details'].some(key => key in filter) || typeof pattern.type === 'string' && pattern.type.includes('-');
   if (!isPattern) return matchesTriggerObject(filter as ObjectFilter, event.object ?? event.target, controller);
   const kind = pattern.event ?? pattern.type ?? pattern.kind;
   const actual = event.kind ?? event.timingPoint;
   if (kind !== undefined && (EVENT_NAMES[kind] ?? kind) !== (EVENT_NAMES[actual] ?? actual)) return false;
   for (const key of ['object', 'source', 'target'] as const) if (pattern[key] && !matchesTriggerObject(pattern[key], event[key], controller)) return false;
+  if (pattern.it && (!event.it || !matchesTriggerObject(pattern.it, event.it, controller))) return false;
   if (!playerMatches(pattern.player, event.player, controller)) return false;
   if (pattern.fromZone !== undefined && pattern.fromZone !== event.fromZone || pattern.toZone !== undefined && pattern.toZone !== event.toZone) return false;
   if (pattern.amount !== undefined) {

@@ -13,6 +13,8 @@ export interface TimingEmission {
   readonly object?: ObjectSnapshot;
   readonly source?: ObjectSnapshot;
   readonly target?: ObjectSnapshot;
+  /** Immutable event-role snapshot distinct from object, source, and target. */
+  readonly it?: ObjectSnapshot;
   readonly player?: PlayerId;
   readonly amount?: number;
   readonly fromZone?: string;

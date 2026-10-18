@@ -8,6 +8,7 @@ import {
   triggerRuleFromStaticEffect,
 } from '../../dist/events/trigger-rules/index.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
+import { matchesTriggerEvent } from '../../dist/events/pipeline-match.js';
 import frigidJewel from '../../../card-dsl/dist/cards/unl/frigid-jewel.js';
 import karthusEternal from '../../../card-dsl/dist/cards/ogn/karthus-eternal.js';
 
@@ -185,5 +186,30 @@ test('EG-PIPELINE: an invalid static trigger-rule shape fails closed before regi
     appliesTo: { keyword: 'deathknell', unsupported: true },
   }, f.kernel.getObject('source')), /Unsupported static trigger appliesTo field unsupported/);
   assert.equal(f.engine.pipeline.rules.size, 0);
+});
+
+test('EG-PIPELINE: EventPattern.it matches only the real immutable event-role snapshot', () => {
+  const f = fixture();
+  const object = f.kernel.getObject('source');
+  const it = { ...object, ref: { id: 'event-it', zoneEntryId: 7 }, cardId: 'card:event-it' };
+  const event = f.engine.pipeline.emitBatch([{
+    timingPoint: 'buff-added', kind: 'buff-added', object, source: object,
+    target: object, it, player: 'A', batchId: 'event-it-batch',
+  }])[0];
+  assert.deepEqual(event.it.ref, it.ref);
+  assert.equal(matchesTriggerEvent({ event: 'buff-added', it: { objectId: 'event-it', zoneEntryId: 7 } }, event, 'A'), true);
+  assert.equal(matchesTriggerEvent({ event: 'buff-added', it: { objectId: 'source', zoneEntryId: 1 } }, event, 'A'), false);
+  assert.equal(matchesTriggerEvent({ event: 'buff-added', it: { objectId: 'event-it', zoneEntryId: 7 } }, { ...event, it: undefined }, 'A'), false);
+});
+
+test('EG-PIPELINE: missing EventPattern.it fails closed even when object and target match', () => {
+  const f = fixture();
+  const object = f.kernel.getObject('source');
+  const event = f.engine.pipeline.emitBatch([{
+    timingPoint: 'buff-added', kind: 'buff-added', object, source: object,
+    target: object, player: 'A', batchId: 'missing-it-batch',
+  }])[0];
+  assert.equal(matchesTriggerEvent({ event: 'buff-added', it: {} }, event, 'A'), false);
+  assert.equal(matchesTriggerEvent({ event: 'buff-added', it: { objectId: object.ref.id, zoneEntryId: object.ref.zoneEntryId } }, event, 'A'), false);
 });
 
