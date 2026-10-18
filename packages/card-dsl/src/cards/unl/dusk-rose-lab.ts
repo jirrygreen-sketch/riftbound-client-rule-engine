@@ -31,31 +31,33 @@ import type { CardProgram } from "../../ir/index.js";
  *   impossible kill must not draw; the draw reads the kill's own receipt.
  * - 414.1 / 414.3: "draw 1" is effect.draw for the implicit "you" (190.6.d).
  *
- * Status: judge-required — two remaining gaps,
- * neither approximated:
+ * Status: judge-required — three remaining gaps, re-measured 2026-10-18 and
+ * none approximated:
  * 1. The kill is the triggered ability's base cost (383.3.b), but no merged
  *    primitive charges a cost-inside-an-instruction at Finalize:
  *    instructions/registry.generated.ts has no `cost.sacrifice` instruction,
  *    and the triggered-ability finalize path has no slot for that instruction-
  *    local base cost. `cost.pay` / `cost.modify` only operate on already
  *    finalized plans, so nothing can be paid before the Chain finalizes.
- *    Writing the kill as a resolving
- *    `effect.kill` (as below, following the merged ogn/monastery-of-hirana
- *    precedent for the same "may pay X to get Y" wording) records the printed
- *    cost/effect linkage but does not put the kill at its 383.3.b finalize
- *    timing.
- * 2. The program binding turns a CardProgram's
- *    triggered ability into a TriggerRegistration, but registration still
- *    throws for this card: `beginning-start` is a valid timing point
- *    (events/timing-points.ts) yet absent from the closed EventPattern
- *    vocabulary (events/trigger-spec.ts EVENT_PATTERN_TYPES, enforced by
- *    assertTriggerSpec in EventPipeline.registerTrigger), so the filter cannot
- *    be registered at all. The 190.6.d battlefield-controller binding is the
- *    second part: a registration's controller comes from the source snapshot's
- *    controller, and this engine models a Battlefield as a token whose
- *    controller is not the battlefield's controller, so the `player: "self"`
- *    gate could not be attached to this source correctly even with the
- *    vocabulary accepted.
+ *    Writing the kill as a resolving `effect.kill` (as below, following the
+ *    merged ogn/monastery-of-hirana precedent for the same "may pay X to get Y"
+ *    wording) records the printed cost/effect linkage but does not put the kill
+ *    at its 383.3.b finalize timing.
+ * 2. The program binding turns a CardProgram's triggered ability into a
+ *    TriggerRegistration, but registration still throws for this card:
+ *    `beginning-start` is a valid timing point (events/timing-points.ts) yet
+ *    absent from the closed EventPattern vocabulary (events/trigger-spec.ts
+ *    EVENT_PATTERN_TYPES, enforced by assertTriggerSpec in
+ *    EventPipeline.registerTrigger), so the filter cannot be registered at all
+ *    (probed: registerProgramTriggers throws invalid-event-type).
+ * 3. Even with registration bypassed, no faithful filter exists. The timing
+ *    emission is { timingPoint, player } with no object (probed: an empty
+ *    filter fires for BOTH players' beginning-start), while the printed "your
+ *    Beginning Phase" is the Battlefield controller's own phase (190.6.d).
+ *    `player: "self"` would be the right gate, but a registration's controller
+ *    comes from the source snapshot's controller and this engine models a
+ *    Battlefield as a token whose controller is not the battlefield's
+ *    controller, so the gate cannot be attached to this source correctly.
  * The kill and the draw themselves are merged primitives, and the golden test
  * executes the card's own body through the real interpreter (accept, kill,
  * conditional draw; decline; replaced kill) exactly as the merged precedents
@@ -69,13 +71,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) 383.3.b/383.3.b.1 把「you may kill a unit you control here」（紧跟在效果开头 " +
+    "三处缺口，均不近似实现（2026-10-18 复核）：(1) 383.3.b/383.3.b.1 把「you may kill a unit you control here」（紧跟在效果开头 " +
     "的 you may 之后）规定为该触发能力的 base cost，必须在 finalize 支付；instructions/registry.generated.ts 里没有 cost.sacrifice 指令，" +
     "且 triggered-ability finalize 路径没有收取「指令内费用」的槽位；现有 cost.pay / cost.modify 只处理已经 finalize 的费用计划。" +
     "本程序按已合入的 ogn/monastery-of-hirana 同型写法把消灭写成结算期 effect.kill + 条件抽牌，保留印刷的 cost→effect 链接，" +
     "但不宣称已满足 383.3.b 的 finalize 时机。(2) programs/triggers.ts 已能把 CardProgram 的 triggered ability 注册成 TriggerRegistration，但本卡的注册会直接抛错：" +
     "beginning-start 是合法时点（events/timing-points.ts），却不在封闭 EventPattern 词汇内（events/trigger-spec.ts 的 EVENT_PATTERN_TYPES，EventPipeline.registerTrigger 经 assertTriggerSpec 强制）；" +
-    "另外注册的 controller 取来源快照的 controller，而本引擎里战场对象是 token，其 controller 不等于战场控制者，190.6.d 的 player: \"self\" 闸门即使词汇放开也无法正确挂到本来源。" +
+    "实测经 triggerRegistrations/registerProgramTriggers 抛 TriggerSpecValidationError（invalid-event-type）。" +
+    "(3) 即使绕过注册，也没有忠实 filter 可用：beginning-start 的发射只有 { timingPoint, player }、没有 object" +
+    "（实测空 filter 会为双方玩家的 beginning-start 触发），而印刷的「your Beginning Phase」是战场控制者自己的回合（190.6.d）。" +
+    "player: \"self\" 本应是正确的闸门，但注册的 controller 取来源快照的 controller，而本引擎里战场对象是 token，" +
+    "其 controller 不等于战场控制者，该闸门无法正确挂到本来源。" +
     "已支持部分：消灭（非目标 picks，355.10.c.1）与抽牌（414.1/414.3，读消灭的 killed 回执，359.3.e.14.b）都是已合入原语，" +
     "golden 用真实解释器执行本卡 body（接受／拒绝／死亡被替代）。依赖：cost.sacrifice/触发能力 finalize 费用路径、EventPattern 词汇 + 190.6 的战场控制者绑定。",
   sourceText:

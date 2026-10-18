@@ -5,8 +5,11 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/existential-dread.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
 
 const CANONICAL_ID =
   "card.hash-2ac2d6f3f32c301570d1dfe70ea13dd6550a4c9e791dee4da9ddfc79cc63a87c";
@@ -45,8 +48,12 @@ test("unl-134-219 Existential Dread: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /programs\/filters\.ts/);
   assert.match(program.judgeReason, /programs\/play\.ts/);
-  assert.match(program.judgeReason, /additional\/additional-cost/);
   assert.match(program.judgeReason, /paid-instance count/);
+  // Third-sweep refresh: the reason now names the measured failures (the
+  // keyword payment field, the LITERAL_FIELDS gap) instead of the older
+  // "translateCost rejects additional-cost" wording.
+  assert.match(program.judgeReason, /Unsupported payment field: keyword/);
+  assert.match(program.judgeReason, /LITERAL_FIELDS/);
   assert.doesNotMatch(program.judgeReason, /RIFT-86|RIFT-89|RIFT-91|RIFT-120|RIFT-257/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
@@ -203,17 +210,84 @@ test("unl-134-219 Existential Dread golden: a stale target ignores the Stun bran
   assert.equal(kernel.events.length, eventsBefore);
 });
 
-test.todo(
-  "Existential Dread: the \"attacking\" restriction needs the Attacker designation as a readable characteristic " +
-    "(contract 3.8 item 1's ObjectSnapshot.combatRole, CR 459/807) plus a filter value for it; programs/filters.ts " +
-    "does not yet accept combatRole, so the card stays judge-required"
-);
+test("unl-134-219 Existential Dread boundary: the authored combatRole filter is still outside the translation vocabulary (CR 459/807)", () => {
+  // Third-sweep evidence: characteristics.combatRole is the spelling
+  // programs/filters.ts accepts, but the authored top-level combatRole key is
+  // rejected outright, so the card keeps the descriptive key and stays
+  // judge-required instead of silently targeting any enemy unit.
+  const filter = stunInstruction.targets[0].filter;
+  assert.equal(filter.combatRole, "attacker");
+  assert.throws(
+    () => translateObjectFilter(filter),
+    error => error.name === "ProgramBindingError" && /Unsupported filter field combatRole/.test(error.message)
+  );
+  const readable = { ...filter, characteristics: { combatRole: "attacker" } };
+  delete readable.combatRole;
+  assert.deepEqual(translateObjectFilter(readable), {
+    type: "unit",
+    controller: "opponent",
+    zone: "board",
+    characteristics: { combatRole: "attacker" }
+  });
+});
 
-test.todo(
-  "Existential Dread: the printed [Repeat] :rb_energy_2: additional cost needs its payment and paid-instance count " +
-    "wired to resolution so the effect is executed one additional time (CR 820.1 / 820.1.d); " +
-    "programs/play.ts currently rejects additional-cost"
-);
+test("unl-134-219 Existential Dread boundary: the printed Repeat payment is not playable (CR 820.1 / 820.1.c / 820.1.d)", () => {
+  // Third-sweep evidence: the declaration survives translateCost, but the
+  // keyword field on the payment is unsupported when the real plan is built, and
+  // nothing in the play path moves that payment into the cost-plan.ts
+  // optionalAdditional channel that does support kind:"repeat".
+  const translated = translateCost(play.cost, "existential-dread", "play");
+  assert.equal(translated.kind, "explicit");
+  assert.deepEqual(translated.energy, { kind: "constant", value: 1 });
+  assert.deepEqual(translated.power, { kind: "constant", value: 1 });
+  assert.equal(translated.payments.length, 1);
+  assert.equal(translated.payments[0].keyword, "repeat");
+  assert.deepEqual(translated.payments[0].choice, {
+    id: "existential-dread.repeat-payment",
+    options: ["pay", "decline"],
+    selection: "one"
+  });
+
+  const kernel = world().player("A", { energy: 5, power: ["Chaos"] }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("source") });
+  assert.throws(
+    () => buildCostPlan(context, { id: "existential-dread", cost: translated, domains: ["Chaos"] }),
+    error => error.name === "CostPlanError" && /Unsupported payment field: keyword/.test(error.message)
+  );
+
+  // The channel the merged engine does support: cost-plan.ts accepts the same
+  // 2-energy payment as an optionalAdditional component of kind "repeat".
+  const plan = buildCostPlan(context, {
+    id: "existential-dread",
+    cost: { kind: "explicit", energy: { kind: "constant", value: 1 }, power: { kind: "constant", value: 1 } },
+    domains: ["Chaos"],
+    optionalAdditional: [{
+      id: "existential-dread.repeat-payment", kind: "repeat", selected: true,
+      cost: { payments: [{ kind: "energy", amount: { kind: "constant", value: 2 } }] }
+    }]
+  });
+  assert.deepEqual(plan.selectedAdditional, [{ id: "existential-dread.repeat-payment", kind: "repeat" }]);
+  assert.equal(plan.total.energy, 3);
+});
+
+test("unl-134-219 Existential Dread boundary: effect.stun's literal target is unregistered, so the chain branch mistargets (CR 424.1)", () => {
+  // Third-sweep evidence: the interpreter (runAbilityBody, used by the goldens)
+  // can stun, but the production chain adapter has no LITERAL_FIELDS entry for
+  // effect.stun, so the card's own Expr-wrapped target id fails its schema check
+  // and the instruction is reported ignored/mistargeted.
+  assert.deepEqual(stunForExecution.args, {
+    target: { kind: "constant", value: TARGET_ID }
+  });
+  const kernel = world().unit("enemy", { owner: "B", controller: "B", zone: "board", combatRole: "attacker" }).build();
+  kernel.setTargets(TARGET_ID, [kernel.ref("enemy")]);
+  // The card's own instruction (with its TargetSpec) is accepted, but the
+  // Expr-wrapped target id is not registered as a literal field, so the
+  // primitive sees the raw Expr and reports an unresolved target set.
+  const outcome = resolveChainBody([stunInstruction], kernel);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(kernel.getObject("enemy").stunned, false);
+});
 
 test.todo(
   "Existential Dread: the engine-side chain adapter must register effect.stun's literal target field before the card's " +

@@ -15,6 +15,7 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { getTimingPoint } from "../../../../engine-core/dist/events/timing-points.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL = "card.hash-979c0c88664ea7abe8ba5d613868eeb8569d56983d9d9b734d3ef2d55ca0e6c6";
 const SOURCE_TEXT =
@@ -58,6 +59,11 @@ test("unl-209-219 Dusk Rose Lab: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /beginning-start/);
   assert.match(program.judgeReason, /190\.6/);
+  // Third-sweep refresh: the reason now spells out the third blocker (no
+  // faithful filter: the emission has no object and an empty filter would fire
+  // for both players) alongside the closed vocabulary and the cost slot.
+  assert.match(program.judgeReason, /invalid-event-type/);
+  assert.match(program.judgeReason, /双方玩家的 beginning-start/);
   assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-90|RIFT-91|RIFT-120|RIFT-257/);
 });
 
@@ -230,4 +236,43 @@ test("unl-209-219 Dusk Rose Lab: beginning-start is a closed timing point that t
   assert.deepEqual([...timingPoint.ruleRefs], ["315.2.a.1"]);
   assert.deepEqual([...getTimingPoint("score").ruleRefs], ["470.1", "470.3", "471", "473.2"]);
   assert.equal(board.engine.pipeline.turnPlayer, "A");
+});
+
+test("unl-209-219 Dusk Rose Lab boundary: no faithful beginning-start filter exists (CR 190.6.d/315.2.a.1)", () => {
+  // Third-sweep evidence for the refreshed judgeReason:
+  // (1) the card's own translated filter is rejected by the closed vocabulary;
+  // (2) the only filter the pipeline would accept here (an empty one) fires for
+  //     BOTH players' beginning-start, which contradicts the printed "your
+  //     Beginning Phase" (190.6.d).
+  const board = fixture({
+    cards: [{ id: "lab", cardId: CANONICAL, types: ["battlefield"], energy: null, power: null }],
+    choose: request => (request.type === "optional" ? false : undefined)
+  });
+  board.engine.commit({ type: "move-zone", object: board.kernel.ref("lab"), to: "battlefield", location: { type: "battlefield", id: "bf-1" } });
+  const source = board.kernel.getObject("lab");
+  const translated = translateTriggerFilter({ event: "beginning-start", player: "self" }, source.ref.id, "beginning-start");
+  assert.deepEqual(translated, { event: "beginning-start", player: "self" });
+  assert.throws(
+    () => board.engine.pipeline.registerTrigger({
+      id: "dusk-rose-lab.printed", source, controller: source.controller,
+      spec: { at: "beginning-start", filter: translated },
+      body: [], optional: false, activeZones: ["board"], boundToIncarnation: true
+    }),
+    error => error.name === "TriggerSpecValidationError" && error.issues.some(issue => issue.code === "invalid-event-type")
+  );
+
+  // The empty-filter workaround is accepted but not faithful: it fires for the
+  // opponent's Beginning Phase too, so it cannot stand in for the printed gate.
+  // The trigger is registered as non-optional so the pipeline hands it straight
+  // to the trigger sink without asking the controller to accept it.
+  board.engine.pipeline.registerTrigger({
+    id: "dusk-rose-lab.empty", source, controller: source.controller,
+    spec: { at: "beginning-start", filter: {} },
+    body: [], optional: false, activeZones: ["board"], boundToIncarnation: true
+  });
+  const fired = [];
+  board.engine.pipeline.onTrigger = snapshot => fired.push(snapshot.event.player);
+  board.engine.pipeline.emit({ timingPoint: "beginning-start", player: "A" });
+  board.engine.pipeline.emit({ timingPoint: "beginning-start", player: "B" });
+  assert.deepEqual(fired, ["A", "B"]);
 });

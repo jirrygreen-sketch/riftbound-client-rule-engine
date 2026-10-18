@@ -4,34 +4,37 @@ import type { CardProgram } from "../../ir/index.js";
  * Baron Pit — CR v1.5 187.9/449.1/449.2 grants a Standard Move
  * permission whose destination is this Battlefield, from any origin.
  * It does not grant unrestricted Ganking. 135.2.d.1/d.3: the setup sentence
- * is reminder text. Static registration and movement queries are executable;
- * the Standard Move still needs to consume the destination endpoint.
+ * is reminder text.
  *
- * 复核后仍缺一处：位置选择器（RIFT-357）已合入，本程序的 permission.routes/
- * endpoints 形状能真实注册并由 movement() 读出；但 zones/movement.ts 消费移动
- * 规则时只识别 canGank 与按 route 名禁止的规则（routeKinds 只给出
- * base/battlefield 的方向类别），既不解析 destination:self 这个相对端点，
- * 也不把“本次目的地是否等于本源战场”与许可匹配。此外 Standard Move 请求仍以
- * destinationLocationId 表达目的地，没有把许可的 source:"anywhere" 起点放宽
- * 接入该判定。不能把该许可换成无限定目的地的 Ganking，也不能用 sameLocationAs
- * 限定为已在本战场的单位。括号句按 135.2.d.1/d.3 是提醒文本。
+ * 2026-10-18 复核：static 绑定、permission.routes/endpoints 注册与
+ * layers/rules/query.ts 的 movement() 读取都已合入并真实运行（golden 覆盖注册、
+ * 读取与 unbind）。剩余缺口只在 Standard Move 的消费端：zones/movement.ts 的
+ * moveDuelUnitsStandard 对 battlefield→battlefield 仍只看
+ * readiness.hasGanking / ruleView.canGank（即是否存在 battlefield-to-battlefield
+ * 这条 route 名），既不解析 destination:self 这个相对端点，也不比较本次
+ * destinationLocationId 与本源战场，也没有把 source:"anywhere" 的起点放宽接进
+ * 该判定。不能把该许可换成无限定目的地的 Ganking，也不能用 sameLocationAs
+ * 限定为已在本战场的单位。
  *
- * 第三轮复核确认该口径仍然成立：RIFT-360 只增加目标税成本计划、RIFT-359 只增加
- * 事件/结果谓词，两者都不消费 movement 许可；moveDuelUnitsStandard 的
- * battlefield→battlefield 分支依旧只看 readiness.hasGanking / ruleView.canGank。
+ * 另：production 对局把 battlefield 生成为 chain 区的 token（game/lifecycle.ts
+ * 只 create-token，不 move 到 Board），attachProgramLifecycle 仅在
+ * object-enters-board 时绑定 static/trigger，所以本卡在真实对局里目前还不会被
+ * 注册；这不是本卡可自行弥补的接线。括号句按 135.2.d.1/d.3 是提醒文本。
  */
 export default {
   canonicalCardId: "card.hash-9a277d1f603718992521dc7464de01bdb5cc00d5d35d10081db5b0c9cfc4c3db",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口（CR v1.5 187.9、449.1/449.2）：static 图层绑定与 layers/rules 的 movement() 查询已合入，" +
-    "本程序使用 permission.routes/endpoints 形状，能真实注册并读出 routes=[standard-move-to-here-from-anywhere]、" +
-    "endpoints={source:anywhere,destination:self}（golden 已实证）。位置选择器（RIFT-357）已合入，不再是缺口。" +
-    "剩余的是 Standard Move 端点消费方：zones/movement.ts 只用 canGank 判定 Battlefield→Battlefield 是否合法，" +
-    "routeKinds 只返回 base/battlefield 的方向类别，既不解析 destination:self 这个相对端点，" +
-    "也不比较本次 destinationLocationId 是否等于本源战场，source:anywhere 的起点放宽同样未接入该判定。" +
-    "不能把该许可换成无限定目的地的 Ganking，也不能用 sameLocationAs 限定为已在本战场的单位。括号句按 135.2.d.1/d.3 是提醒文本。",
+    "当前缺口（CR v1.5 187.9、449.1/449.2）只有 Standard Move 消费端：本卡的 continuous.movement 许可已由 static binder 注册，" +
+    "layers/rules/query.ts 的 movement() 也真实读回 routes=[standard-move-to-here-from-anywhere] 与 " +
+    "endpoints={source:anywhere,destination:self}（golden 实证注册、读取、解绑）。但 zones/movement.ts 的 " +
+    "moveDuelUnitsStandard 对 battlefield→battlefield 只检查 readiness.hasGanking 或 ruleView.canGank，" +
+    "即只识别 battlefield-to-battlefield 这条 route 名：它不解析 destination:self 这一相对端点、" +
+    "不把许可的 source:\"anywhere\" 放宽到起点判定，也不比较本次 destinationLocationId 是否等于本源战场。" +
+    "不能把该许可换成无限定目的地的 Ganking，也不能用 sameLocationAs 限定为已在本战场的单位；" +
+    "production 对局还把 battlefield 生成为 chain 区 token（game/lifecycle.ts），attachProgramLifecycle 只在 " +
+    "object-enters-board 时绑定，因此真实对局尚未注册本卡。依赖：Standard Move 的端点消费（destination:self + source:anywhere）与 battlefield 入 Board 的生命周期。",
   sourceText: "(You can't start the game with a token battlefield.)\nUnits can move here from anywhere.",
   abilities: [
     {

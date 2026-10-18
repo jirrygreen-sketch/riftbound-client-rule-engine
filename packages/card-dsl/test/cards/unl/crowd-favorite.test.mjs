@@ -65,6 +65,10 @@ test("unl-102-219 Crowd Favorite: identity, status, judgeReason and verbatim sou
   assert.match(program.judgeReason, /Hunt/);
   assert.match(program.judgeReason, /823\.1\.c\.1/);
   assert.match(program.judgeReason, /823\.2/);
+  // Third-sweep refresh: the reason records the closed-vocabulary mismatch and
+  // the measured no-op of an already-correctly-spelled subscription.
+  assert.match(program.judgeReason, /held/);
+  assert.doesNotMatch(program.judgeReason, /拼写不一致/);
 });
 
 test("unl-102-219 Crowd Favorite: [Hunt] is declared without a value (823.1.c.2 presumes X = 1)", () => {
@@ -233,6 +237,56 @@ test("unl-102-219 Crowd Favorite boundary: the scoring wave carries no conquerin
     assert.deepEqual(event.details, { battlefieldId: "bf-1" });
   }
   assert.equal(scored.some((event) => event.source !== undefined), false);
+});
+
+test("unl-102-219 Crowd Favorite boundary: a correctly-spelled hold subscription still never fires on the real emission (CR 823.1.c.1)", () => {
+  // Third-sweep evidence: fixing only the closed-vocabulary spelling is not
+  // enough. The real hold emission carries no object/source, so a registered
+  // {event:"held", player:"self"} filter (and any objectId filter) matches
+  // nothing and the Hunt XP effect can still never run.
+  const board = fixture({
+    cards: [{ id: "crowd-favorite", cardId: program.canonicalCardId, types: ["unit"], energy: 3, power: [], might: 3 }]
+  });
+  board.engine.commit({ type: "move-zone", object: board.kernel.ref("crowd-favorite"), to: "board", location: { type: "battlefield", id: "bf-1" } });
+  const source = board.kernel.getObject("crowd-favorite");
+
+  const register = (id, filter) => board.engine.pipeline.registerTrigger({
+    id, source, controller: "A",
+    spec: { at: "hold", filter },
+    body: [], optional: false, activeZones: ["board"], boundToIncarnation: true
+  });
+  const fireAndCollect = () => {
+    const fired = [];
+    board.engine.pipeline.onTrigger = snapshot => fired.push(snapshot.event.timingPoint);
+    board.engine.emit({ timingPoint: "hold", player: "A", details: { battlefieldId: "bf-1" } });
+    board.engine.emit({ timingPoint: "hold", player: "B", details: { battlefieldId: "bf-1" } });
+    return fired;
+  };
+
+  // A player-only gate does fire: the closed-vocabulary spelling itself is fine.
+  register("probe:held-player", { event: "held", player: "self" });
+  assert.deepEqual(fireAndCollect(), ["hold"], "the player gate alone fires on the controller's hold");
+  board.engine.pipeline.unregisterTrigger("probe:held-player");
+
+  // But Hunt's actual shape narrows by source:"self", and the emission carries
+  // no object, so the unit-scoped subscription matches nothing.
+  for (const [label, filter] of Object.entries({
+    "held + objectId": { event: "held", object: { objectId: source.ref.id }, player: "self" },
+    "held + objectId only": { event: "held", object: { objectId: source.ref.id } }
+  })) {
+    const id = `probe:${label}`;
+    register(id, filter);
+    assert.deepEqual(fireAndCollect(), [], `${label} must not fire without a conquering/holding unit`);
+    board.engine.pipeline.unregisterTrigger(id);
+  }
+  // The payload really is object-less, which is the second, independent blocker.
+  const holds = board.engine.pipeline.log.filter(event => event.timingPoint === "hold");
+  assert.ok(holds.length >= 2);
+  for (const event of holds) {
+    assert.equal(event.object, undefined);
+    assert.equal(event.source, undefined);
+    assert.deepEqual(event.details, { battlefieldId: "bf-1" });
+  }
 });
 
 test("unl-102-219 Crowd Favorite the binding inspects the authored activated cost/body while preserving judge-required", () => {
