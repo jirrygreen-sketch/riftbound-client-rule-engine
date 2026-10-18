@@ -4,7 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/spirits-refuge.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
@@ -12,6 +13,11 @@ import { runInstruction, world } from "../../../../engine-core/dist/effects/test
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import grantKeyword from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createTargetTaxAdapter } from "../../../../engine-core/dist/target/tax/index.js";
+import { prepareCostPayment } from "../../../../engine-core/dist/cost/payment.js";
+import { DUEL_DOMAINS } from "../../../../engine-core/dist/cost/resources.js";
 
 const CANONICAL = "card.hash-02d796287ee81a01d4db75cbc8913926d5faa0dda54e2bf07f4412ef09acf073";
 
@@ -36,8 +42,11 @@ test("ogn-063-298 Spirit's Refuge: program passes validateCardProgram", () => {
   assert.match(program.judgeReason, /809/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /已有 Deflect|否定关键词/);
-  // 复核后新增的真实缺口证据：图层映射缺失与 Energy 记账错位。
+  // The default path still needs the already-merged adapters.
   assert.match(program.judgeReason, /target\.tax has no layer mapping/);
+  assert.match(program.judgeReason, /createTargetTaxAdapter/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /Energy mandatoryAdditional/);
   assert.match(program.judgeReason, /809\.1\.c\.1/);
   assert.equal(
     program.sourceText,
@@ -329,6 +338,77 @@ test("Spirit's Refuge golden: the granted Deflect really reaches the ability lay
 
 test.todo(
   "Spirit's Refuge: an evaluable 'if they didn't already' keyword predicate (809.2), a layer mapping / " +
-    "target-pipeline consumer for Deflect's target.tax, and the 809.1.c.1 any-domain Power payment " +
-    "instead of the chain's Energy mandatoryAdditional"
+    "default-chain integration of KeywordGrantLayerEngine and createTargetTaxAdapter for target.tax " +
+    "and the 809.1.c.1 any-domain Power payment instead of Energy mandatoryAdditional"
 );
+
+test("Spirit's Refuge: the merged adapters price the card's granted Deflect as any-domain Power", () => {
+  // This verifies the static grant + tax adapters, not their default-chain integration.
+  // Each domain has a fresh initial world; no resources are changed by hand after execution.
+  for (const domain of DUEL_DOMAINS) {
+    const state = bindRefuge({ domain });
+    const layers = new KeywordGrantLayerEngine(state.kernel.objects, {
+      registry: state.engine.layers.registry,
+      context: source => bindResolveContext(state.kernel, { source, controller: source.controller })
+    });
+    assert.deepEqual(layers.evaluate(state.kernel.ref("buffed-ally")).keywords, [{ id: "Deflect", value: 1 }]);
+    for (const id of ["plain-ally", "enemy-buffed", "refuge"]) {
+      assert.deepEqual(layers.evaluate(state.kernel.ref(id)).keywords, []);
+    }
+    const [expanded] = layers.keywordAbilities(state.kernel.ref("buffed-ally"));
+    assert.equal(expanded.effect.kind, "target.tax");
+    assert.deepEqual(expanded.effect.value, { kind: "constant", value: 1 });
+    const context = bindResolveContext(state.kernel, {
+      source: state.kernel.getObject("opposing-spell"), controller: "B",
+      object: ref => layers.evaluate(ref),
+      query: filter => layers.evaluateAll().filter(object => matchesObjectFilter(filter, object))
+    });
+    const adapter = createTargetTaxAdapter(context, {
+      id: "refuge-opposing-spell", cost: { kind: "printed" }
+    }, { kind: "spell" });
+    const selected = adapter.finalizeTargetPlan({
+      id: "buffed-ally", filter: { objectId: "buffed-ally", zone: "board" }, min: 1, max: 1
+    }, { selected: [state.kernel.ref("buffed-ally")] });
+    assert.deepEqual(selected.selected, [state.kernel.ref("buffed-ally")]);
+    assert.equal(adapter.costPlan.total.energy, 2);
+    assert.deepEqual(adapter.costPlan.total.power, [{ allowedDomains: DUEL_DOMAINS, amount: 1 }]);
+    assert.deepEqual(prepareCostPayment(context, adapter.costPlan).actions[0].action.plan, {
+      finalized: true, energy: 2, power: [domain]
+    });
+  }
+});
+
+test("Spirit's Refuge TODO: an already-Deflect unit keeps its original value under this static grant", {
+  todo: "CR 809.3 and printed 'if they didn't already': missing per-candidate keyword predicate"
+}, () => {
+  const state = bindRefuge({ existing: [{ id: "Deflect", value: 2 }] });
+  const layers = new KeywordGrantLayerEngine(state.kernel.objects, {
+    registry: state.engine.layers.registry,
+    context: source => bindResolveContext(state.kernel, { source, controller: source.controller })
+  });
+  assert.deepEqual(layers.evaluate(state.kernel.ref("buffed-ally")).keywords, [{ id: "Deflect", value: 2 }]);
+});
+
+function bindRefuge({ domain = "Mind", existing = [] } = {}) {
+  const kernel = world().player("B", { energy: 7, power: [domain] })
+    .base("refuge", { cardId: CANONICAL, types: ["gear"], might: null })
+    .unit("buffed-ally", { buffs: 1, keywords: existing })
+    .unit("plain-ally", { buffs: 0 })
+    .unit("enemy-buffed", { owner: "B", controller: "B", buffs: 1 })
+    .hand("opposing-spell", { owner: "B", types: ["spell"], energy: 2, power: [] }).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects, perform: action => kernel.perform(action), choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ host, turnOrder: ["A", "B"], turnPlayer: "A", cleanup: current => {
+    current.layers.setObjects(kernel.objects);
+    const lethal = current.layers.evaluateAll().filter(object => object.zone === "board" &&
+      object.types.includes("unit") && object.might !== null && (object.might <= 0 || object.damage >= object.might));
+    for (const object of lethal) current.commit({ type: "kill", object: object.ref });
+    return lethal.length > 0;
+  } });
+  createEngineStaticBinder(engine).bindStatic(deflectGrant, kernel.getObject("refuge"));
+  return { kernel, engine };
+}
