@@ -1,6 +1,6 @@
-// RIFT-680: layer-1/2 checks (validation, identity, structure). Layer-3 real
-// execution evidence (trigger pipeline row: placeholder gap = no draw beside
-// a friend) lives in the parameterized template suite:
+// RIFT-680: per-card validation, identity, structure and draw-body behavior.
+// Additional real trigger-pipeline execution evidence (placeholder gap = no
+// draw beside a friend) lives in the parameterized template suite:
 // test/cards/templates/keyword-triggered-object-killed-effect-d-680.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -8,14 +8,15 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/loyal-poro.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { queryObjects } from "../../../../engine-core/dist/effects/interpreter/selectors.js";
 import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
-import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL_ID =
   "card.hash-189fb540b58840dbea672bf530705d9fc1548c9fb015ca1b98912e7e4bff7fc1";
@@ -96,6 +97,29 @@ test("unl-156-219 Loyal Poro: the effect body draws exactly 1 with a single unli
   assert.equal(drawInstruction.picks, undefined);
   assert.equal(drawInstruction.linkedTo, undefined);
   assert.equal(drawInstruction.condition, undefined);
+});
+
+test("unl-156-219 Loyal Poro golden: the printed draw body draws the top card of the deck", () => {
+  const kernel = world().deck(["top-card", "deep-card"]).build();
+  const outcome = resolveChainBody(diesTrigger.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map(entry => [entry.id, entry.result.status]),
+    [["loyal-poro.draw-1", "executed"]]
+  );
+  assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["top-card"]);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["deep-card"]);
+  assert.deepEqual(outcome.events.map(event => event.action), ["draw"]);
+});
+
+test("unl-156-219 Loyal Poro golden: an empty deck draws as much as possible (CR 414.4)", () => {
+  const kernel = world().build();
+  const run = runInstruction(draw, drawInstruction.args, { world: kernel });
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.drawn, 0);
+  assert.equal(kernel.player("A").handSize, 0);
 });
 
 test("unl-156-219 Loyal Poro golden: the object-killed CardProgram trigger registers through the merged binding", () => {

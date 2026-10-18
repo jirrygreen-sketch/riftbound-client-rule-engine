@@ -1,11 +1,14 @@
-// RIFT-680: layer-1/2 checks (validation, identity, structure). Layer-3 real
-// execution evidence lives in the parameterized template suite:
+// RIFT-680: per-card validation, identity, structure and draw-body behavior.
+// Additional real trigger-pipeline execution evidence lives in the
+// parameterized template suite:
 // test/cards/templates/keyword-triggered-object-killed-effect-d-680.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/watchful-sentry.js";
+import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-101c2b7846a23a872f4b23e49a531cd63f2f748e72c5e2c986d4967bcd8d19e7";
 
@@ -43,6 +46,17 @@ test("Watchful Sentry structure: Deathknell keyword plus the printed effect as a
   assert.deepEqual(instruction.args.amount, { kind: "constant", value: 1 });
   assert.equal(instruction.targets, undefined);
   assert.equal(instruction.linkedTo, undefined);
+});
+
+test("Watchful Sentry golden: the printed Draw 1 effect draws one card", () => {
+  const kernel = world().deck(["top-card", "next-card"]).build();
+  const instruction = program.abilities[1].body[0];
+  const run = runInstruction(draw, { amount: instruction.args.amount }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.drawn, 1);
+  assert.equal(run.linked.drawnTo, "A");
+  assert.equal(kernel.player("A").handSize, 1);
+  assert.equal(kernel.player("A").deckSize, 1);
 });
 
 test.todo(
