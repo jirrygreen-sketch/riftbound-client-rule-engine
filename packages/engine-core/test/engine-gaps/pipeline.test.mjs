@@ -129,8 +129,10 @@ test('EG-PIPELINE: original Frigid Jewel IR reaches the production binding and f
 
   f.engine.advance();
   resolveAll(f.engine);
-  assert.equal(f.kernel.continuousEffects.length, 1);
-  assert.deepEqual(f.kernel.continuousEffects[0].effect.filter.objectId, 'ally');
+  const registrations = f.engine.layers.registry.list();
+  assert.equal(registrations.length, 1);
+  assert.equal(registrations[0].effect.filter.objectId, 'ally');
+  assert.equal(f.engine.layers.snapshot(f.kernel.ref('ally')).might, 4);
   assert.deepEqual(program.abilities, frigidJewel.abilities);
   assert.equal(frigidJewel.status, 'judge-required');
 });
@@ -158,11 +160,20 @@ test('EG-PIPELINE: evidence-backed static multiplicity applies only to matching 
     appliesTo: { keyword: 'deathknell', controller: 'controller', zone: 'board' },
   }, source);
   f.engine.pipeline.registerTriggerRule(rule);
-  trigger(f, 'deathknell', { body: [], spec: { at: 'object-killed', filter: { objectId: 'source' } } });
-  trigger(f, 'plain', { body: [], spec: { at: 'object-killed', filter: { objectId: 'source' } } });
-  const object = { ...source, keywords: [{ id: 'Deathknell' }] };
-  f.engine.pipeline.emitBatch([{ timingPoint: 'object-killed', object, player: 'A', batchId: 'death-batch' }]);
-  assert.deepEqual(f.engine.items.map(item => item.trigger.registration.id), ['deathknell', 'deathknell']);
+  f.kernel.addObject({ ...source, ref: { id: 'deathknell', zoneEntryId: 1 }, cardId: 'card:deathknell', keywords: [{ id: 'Deathknell' }] }, 'board');
+  f.kernel.addObject({ ...source, ref: { id: 'plain', zoneEntryId: 1 }, cardId: 'card:plain', keywords: [] }, 'board');
+  f.engine.pipeline.registerTrigger({
+    id: 'deathknell', source: f.kernel.getObject('deathknell'), controller: 'A',
+    spec: { at: 'object-killed', filter: { objectId: 'deathknell' } }, body: [],
+  });
+  f.engine.pipeline.registerTrigger({
+    id: 'plain', source: f.kernel.getObject('plain'), controller: 'A',
+    spec: { at: 'object-killed', filter: { objectId: 'deathknell' } }, body: [],
+  });
+  f.engine.pipeline.emitBatch([{ timingPoint: 'object-killed', object: f.kernel.getObject('deathknell'), player: 'A', batchId: 'death-batch' }]);
+  const ids = f.engine.items.map(item => item.trigger.registration.id);
+  assert.equal(ids.filter(id => id === 'deathknell').length, 2);
+  assert.equal(ids.filter(id => id === 'plain').length, 1);
 });
 
 test('EG-PIPELINE: an invalid static trigger-rule shape fails closed before registration', () => {
