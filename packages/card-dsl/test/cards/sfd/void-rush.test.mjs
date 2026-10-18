@@ -31,12 +31,14 @@ test("sfd-188-221 Void Rush: program validates, is registered and stays judge-re
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // README section 2: the reason names the concrete current gaps and task numbers.
+  // README section 2: the reason names the concrete measured current gaps.
   assert.match(program.judgeReason, /cost\.modify/);
-  assert.match(program.judgeReason, /356\.4/);
   assert.match(program.judgeReason, /LITERAL_FIELDS/);
-  assert.match(program.judgeReason, /printed/);
-  assert.match(program.judgeReason, /LITERAL_FIELDS/);
+  assert.match(program.judgeReason, /Invalid cost\.modify modifier argument: value/);
+  assert.match(program.judgeReason, /cost\.modify id must be a non-empty string/);
+  assert.match(program.judgeReason, /linked 对象印刷费投影|FinalizedCostPlan/);
+  assert.match(program.judgeReason, /420\.3/);
+  assert.match(program.judgeReason, /414\.1/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -234,11 +236,85 @@ test("Void Rush primitive subpath: cost.pay consumes the plan produced by cost.m
   assert.deepEqual(kernel.events.map(event => event.action), ["pay"]);
 });
 
-test("Void Rush chain: the original cost-plan IR is blocked by the adapter's static id decoding", () => {
+test("Void Rush chain: the original cost-plan IR is still blocked by the adapter's literal decoding", () => {
+  const f = fixture();
+  f.engine.advance();
+  // Measured production behavior for the authored IR: without a LITERAL_FIELDS
+  // entry the constant-wrapped id itself reaches the primitive's schema.
+  assert.throws(() => resolveChainBody([costPlan], f.kernel), /cost\.modify id must be a non-empty string \(or supply source\)/);
+  // Unwrapping only the id (the natural first adapter fix) then fails on the
+  // constant-wrapped modifier envelope.
+  const idUnwrapped = { ...costPlan, args: { ...costPlan.args, id: costPlan.args.id.value } };
+  assert.throws(() => resolveChainBody([idUnwrapped], f.kernel), /Invalid cost\.modify modifier argument: value/);
+  // A hand-written full unwrap does freeze a plan on the *chain source* (the
+  // fixture's base), which is exactly why it cannot stand in for the printed
+  // gap: the plan describes the wrong card. Reported here as measured evidence.
+  const fullyUnwrapped = { ...costPlan, args: { id: costPlan.args.id.value, modifier: costPlan.args.modifier.value } };
+  const outcome = resolveChainBody([fullyUnwrapped], f.kernel);
+  assert.equal(outcome.results[0].result.status, "executed");
+  const plan = outcome.linkedValues["void-rush.cost-plan.cost"];
+  assert.equal(plan.finalized, true);
+  assert.equal(plan.source.id, "source");
+  assert.notEqual(plan.source.id, "void-rush");
+});
+
+test("Void Rush chain: the decode failure aborts the whole Finalize, so the reveal never resolves and nothing is played", () => {
+  // Feed the card's real reveal + cost-plan body through the production chain
+  // adapter. The adapter fails to decode cost.modify inside the Finalize
+  // transaction, so the locked reveal is rolled back; no play, draw, or
+  // discarded card from this card may be claimed.
   const f = fixture();
   f.engine.advance();
   assert.throws(
-    () => resolveChainBody([costPlan], f.kernel),
+    () => {
+      f.engine.enqueue({
+        id: "void-rush-body", kind: "triggered", controller: "A",
+        source: f.kernel.getObject("source"), body: [revealInstruction, costPlan]
+      });
+      f.engine.advance();
+      while (f.engine.items.length) f.engine.pass(f.engine.priority);
+    },
     /cost\.modify id must be a non-empty string \(or supply source\)/
   );
+  assert.equal(f.kernel.linked("void-rush.reveal.revealed"), undefined);
+  assert.equal(f.engine.pipeline.events.some((event) => event.timingPoint === "card-revealed"), false);
+  assert.equal(f.kernel.zone("A", "deck").length, 4);
+  assert.equal(f.kernel.player("A").handSize, 0);
+});
+
+test("Void Rush direct execution: the optional play cannot bind the reveal and the pending move-to-hand is not Draw", () => {
+  // With the pick plans locked for the reveal, the merged interpreter resolves
+  // the authored [reveal, optional play] body: the optional's body reads the
+  // linked revealed refs, but the link scope is not visible from the nested
+  // instruction, so the play is ignored and nothing moves to hand.
+  const kernel = world().player("A", { energy: 20 }).deck(["c1", "c2", "c3", "c4"]).build();
+  kernel.setAnswers({ "void-rush.may-play/optional": true });
+  // The reveal's ordered pick comes from the Finalize lock in the production
+  // path; here the direct interpreter call supplies the same locked refs so the
+  // optional branch itself is what is being measured.
+  const top = kernel.zoneSlice("A", "deck", "top", 2).map((object) => object.ref);
+  const outcome = resolveChainBody([revealInstruction, mayPlay], kernel, {
+    picks: (id) => id === "void-rush.top-two" ? top : undefined
+  });
+  assert.deepEqual(kernel.linked("void-rush.reveal.revealed"), top);
+  assert.equal(kernel.linked("void-rush.reveal.revealedCount"), 2);
+  assert.equal(kernel.zone("A", "deck").length, 4);
+  assert.equal(kernel.zone("A", "hand").length, 0);
+  // The optional body's own play is measured as ignored(mistargeted): the card
+  // was supposed to be played from the locked reveal, but no revealed card is
+  // reachable as a playable pick from the nested instruction.
+  assert.deepEqual(outcome.results.map((entry) => [entry.path.join("/"), entry.result.status, entry.result.reason]), [
+    ["void-rush.reveal", "executed", undefined],
+    ["void-rush.may-play/void-rush.play", "ignored", "mistargeted"],
+    ["void-rush.may-play", "ignored", "mistargeted"]
+  ]);
+  // The pending move-to-hand declaration is not a draw: with the reveal link
+  // present, the ordered pick resolver still cannot address the unplayed refs
+  // as a Draw set, and no card-drawn event is produced (414.1).
+  const linked = world().player("A", { energy: 20 }).deck(["d1", "d2", "d3", "d4"]).build();
+  linked.link("void-rush.reveal.revealed", linked.zoneSlice("A", "deck", "top", 2).map((object) => object.ref));
+  const drawRun = resolveChainBody([drawRest], linked);
+  assert.equal(drawRun.results[0].result.status, "ignored");
+  assert.equal(linked.zone("A", "hand").length, 0);
+  assert.equal(linked.events.filter((event) => event.action === "draw").length, 0);
 });

@@ -1,7 +1,27 @@
 import type { Ability, CardProgram, Condition } from "../../ir/index.js";
 
-/** Vex, Cheerless — [1][A] changes both resources (CR v1.5 356.3/356.4).
- * The combat predicate and static-to-Finalize cost binding remain judge-required.
+/**
+ * Vex, Cheerless — [1][A] changes both resources (CR v1.5 356.3/356.4).
+ *
+ * Status: judge-required (cards/README.md §2), re-verified 2026-10-18 against the
+ * merged engine sources. Three measured current gaps, none approximated:
+ * - The 740.2.c "in combat" predicate still cannot be evaluated. The merged cost
+ *   collector rejects this card's condition with CostPlanError(judge-required)
+ *   "Unsupported cost count subject self-in-combat" (cost/discounts/values.ts
+ *   evaluateCostValue), and the base interpreter's CountExpr branch ignores
+ *   `subject` and queries only `filter`, so it would count the self filter's
+ *   objects instead of proving an ongoing combat plus a combat designation.
+ * - The default static binder rejects this card's structured appliesTo
+ *   ({ type: 'spell', controller: 'caster' / 'caster-opponent' }):
+ *   programs/statics.ts staticTarget maps only self/source anchors and throws
+ *   ProgramBindingError('judge-required', 'Unsupported static appliesTo ...').
+ * - Even with those two fixed the production Finalize has no consumer:
+ *   chain/engine.ts finalize still calls buildCostPlan directly and never
+ *   finalizeCostPlan/collectCostModifications, so a registered declaration
+ *   would not reach the play cost plan.
+ * The merged collector does handle the declaration's arithmetic (Energy plus a
+ * universal [A] Power component, per-discount minimum 1) once the condition is
+ * answerable; the golden covers that subpath and the fail-closed condition.
  */
 const inCombat = {
   kind: "compare",
@@ -55,7 +75,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "continuous.cost-modification 尚未接入 Finalize 的 CostPlanInput.discounts/increases：programs/statics.ts 的 layerFor 没有该 kind 的映射，友敌法术关系也须随费用查询求值。费用原语已支持普通 Energy/Power 改费及 any-domain [A] 费用要求；本卡的 [1][A] 是同时修改两种资源，最低 [1] 按 356.4.e 仅属于本折扣，加费按 356.3。While I am in combat 仍缺 740.2.c 的进行中战斗与战斗身份谓词：当前 CountExpr 的 subject（self-in-combat）没有在 interpreter 中被消费，evaluateExpression 只按 filter 查询对象，因此不能把“来源正在战斗”当成已满足条件。不近似实现。",
+    "三处当前缺口（2026-10-18 复核实测；不近似实现）：(1) 740.2.c 的 While I'm in combat 仍不可求值——生产费用收集器实测以 " +
+    "CostPlanError(judge-required) \"Unsupported cost count subject self-in-combat\" 拒绝本卡条件（cost/discounts/values.ts 的 evaluateCostValue 只支持 objects/cards/units/gear(s)/runes），" +
+    "基础解释器的 CountExpr 分支也不消费 subject、仅按 filter 查询对象，无法证明进行中战斗与战斗身份。(2) 默认静态绑定拒绝本卡的相对友敌 appliesTo：programs/statics.ts 的 staticTarget 只接受 self/source 锚点，" +
+    "实测对 { type: \"spell\", controller: \"caster\" / \"caster-opponent\" } 抛 ProgramBindingError(judge-required) \"Unsupported static appliesTo ...\"。(3) 即使前两项接通，生产 Finalize 仍无消费方：" +
+    "chain/engine.ts 的 finalize 直接调用 buildCostPlan，未调用 finalizeCostPlan/collectCostModifications，已注册声明不会进入打出费用计划。" +
+    "已核实可执行部分：收集器把本卡的 [1] Energy 折扣（356.4.e 的最低 1 仅属于本折扣）与 universal [A] Power 折扣、以及 356.3 的加费正确折算（golden 绑定实测）；" +
+    "[A] 按 163.2.b 是任意域 Power 费用要求，不伪造成某个具名域。",
   abilities,
   sourceText:
     "While I'm in combat, friendly spells cost :rb_energy_1::rb_rune_rainbow: less to a minimum of :rb_energy_1:, " +
