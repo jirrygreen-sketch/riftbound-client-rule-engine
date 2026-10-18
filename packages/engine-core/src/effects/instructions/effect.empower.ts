@@ -67,10 +67,11 @@
  *
  * 状态检查的边界：“已被 Empower 的对象不能再次 Empower，什么也不发生”
  * （442.1.b / 442.1.c）与“Disempower 只影响当前 Empowered 的对象”
- * （443.1.a / 443.1.a.1）由动作层负责：契约的 ObjectSnapshot 不暴露 Empowered
- * 状态，原语也无法自行判断，所以本原语只如实记录动作返回的结果（见回复里的
- * 契约变更请求）。Empowered 触发的时点（828.1.d、“When I become [Empowered]”）
- * 由动作层发出 empowered-changed 后交给 trigger.state 处理。
+ * （443.1.a / 443.1.a.1）在提交动作前由本原语读取统一的 live 状态规划；缺少
+ * Empowered 字段的旧快照会严格失败闭合。最终状态、回滚与实付收据仍由动作适配器
+ * 提交并返回（见回复里的契约变更请求）。Empowered 触发的时点（828.1.d、
+ * “When I become [Empowered]”）由动作层发出 empowered-changed 后交给 trigger.state
+ * 处理。
  *
  * 与相近原语的边界：
  * - 与 effect.exhaust / effect.ready 同类：只提交状态标记动作并记录实际结果，
@@ -101,6 +102,11 @@ import type {
   Value,
   ZoneId
 } from "../contract.js";
+import {
+  disempowerTransition,
+  empowerTransition,
+  type EmpowermentTransition
+} from "../../zones/empower-state.js";
 
 /** 结算期选择（choose）的稳定请求描述。 */
 export interface EffectEmpowerChoice {
@@ -514,13 +520,19 @@ export default {
 
     // NegatedInstructionResult 没有 linkedValues 字段（契约 3.3），但实际结果仍要写进
     // ctx.link："if you do" 与后续链接指令要按 CR 055 看到已经发生的那部分结果。
-    const writeLinks = (objects: readonly ObjectRef[]): Record<string, Value> => {
+    const writeLinks = (objects: readonly ObjectRef[], receipts: readonly Value[] = []): Record<string, Value> => {
       const refs = objects.map(refValue);
       const values: Record<string, Value> = {
         [linkKey]: { mode, count: objects.length, objects: refs },
         [linkKey + ".count"]: objects.length,
         [linkKey + ".objects"]: refs
       };
+      // A payment/transaction adapter may provide an atomic receipt for a
+      // Disempower action.  Preserve that evidence beside the stable object
+      // result without changing the existing empower link shape.
+      if (mode === "disempower" && receipts.length > 0) {
+        values[linkKey + ".receipts"] = [...receipts];
+      }
       for (const [key, value] of Object.entries(values)) ctx.link(key, value);
       return values;
     };
@@ -540,15 +552,33 @@ export default {
       return { status: "negated", reason: "impossible", events: [] };
     }
 
+    // Resolve-time state is authoritative.  Finalize/keyword restrictions may
+    // have been checked earlier, while another item on the Chain can change
+    // the same object's Empowered count before this instruction resolves.
+    // Planning all transitions before submitting any action also prevents a
+    // missing state field on a later object from causing a partial mutation.
+    const planned: readonly { readonly ref: ObjectRef; readonly transition: EmpowermentTransition }[] =
+      resolution.refs.map(ref => ({
+        ref,
+        transition: mode === "empower"
+          ? empowerTransition(ctx.object(ref), { amount, multiple, limit })
+          : disempowerTransition(ctx.object(ref))
+      }));
+
     const events: GameEvent[] = [];
     const acted: ObjectRef[] = [];
+    const receipts: Value[] = [];
     let reason: "replaced" | "impossible" | null = null;
-    for (const ref of resolution.refs) {
+    for (const { ref, transition } of planned) {
+      // CR 442.1.b/442.1.c and 443.1.a/443.1.a.1 are no-effect outcomes;
+      // they do not submit a redundant action and therefore cannot emit a
+      // misleading empowered-changed event.
+      if (!transition.changed) continue;
       const outcome = mode === "empower"
         ? ctx.perform({
             type: "empower",
             object: ref,
-            amount,
+            amount: transition.appliedAmount,
             ...(multiple ? { multiple: true } : {}),
             ...(limit === undefined ? {} : { limit })
           })
@@ -560,10 +590,13 @@ export default {
         reason ??= outcome.status === "replaced" ? "replaced" : "impossible";
         continue;
       }
-      if (ctx.object(ref) !== null) acted.push({ id: ref.id, zoneEntryId: ref.zoneEntryId });
+      if (ctx.object(ref) !== null) {
+        acted.push({ id: ref.id, zoneEntryId: ref.zoneEntryId });
+        if (outcome.receipt !== undefined) receipts.push(outcome.receipt as unknown as Value);
+      }
     }
 
-    const values = writeLinks(acted);
+    const values = writeLinks(acted, receipts);
     if (reason !== null) return { status: "negated", reason, events };
     return { status: "executed", events, linkedValues: values };
   }
