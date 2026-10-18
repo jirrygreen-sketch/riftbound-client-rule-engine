@@ -1,6 +1,5 @@
 import type { ContinuousEffect, Expr } from "@riftbound/card-dsl";
-import type { ExpressionContext } from "../expr.js";
-import { evaluateExtendedExpression } from "./evaluate.js";
+import { evaluateExpression, type ExpressionContext } from "../expr.js";
 
 const EXPRESSION_KINDS = new Set<Expr["kind"]>([
   "constant", "literal", "location", "object-property", "object-attribute", "linked", "linked-value",
@@ -21,7 +20,7 @@ export function resolveLayerEffectExpressions(effect: ContinuousEffect, environm
     const value = effect[key];
     if (value !== null && typeof value === "object" && !Array.isArray(value) && "kind" in value &&
       typeof value.kind === "string" && EXPRESSION_KINDS.has(value.kind as Expr["kind"])) {
-      const result = evaluateExtendedExpression(value as unknown as Expr, environment);
+      const result = evaluateExpression(value as unknown as Expr, environment);
       if (key === "value") resolved.value = { kind: "constant", value: result };
       else resolved[key] = result;
     }
