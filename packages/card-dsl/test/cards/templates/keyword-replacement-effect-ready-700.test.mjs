@@ -20,7 +20,9 @@ const battlefield = { type: "battlefield", id: "bf-700" };
 function candidate(program) {
   assert.equal(program.status, "judge-required");
   assert.ok(program.judgeReason?.trim());
-  return { ...program, status: "executable", judgeReason: undefined };
+  const { judgeReason, ...metadata } = program;
+  assert.ok(judgeReason.trim());
+  return { ...metadata, status: "executable" };
 }
 
 const rows = [
@@ -50,7 +52,7 @@ const rows = [
     },
   },
   {
-    name: "Xin Zhao, Vigilant: two other friendly base units reach the ready-entry path",
+    name: "Xin Zhao, Vigilant: two other friendly base units permit ready entry",
     canonicalCardId: "card.hash-74a101bf90abcf30478ceacbdf6a254627d4b912349d7ed3b6a76591368936a8",
     program: xinZhao,
     scenario: {
@@ -79,7 +81,7 @@ const rows = [
     },
   },
   {
-    name: "Bandle Soldier: the ready-entry body executes on the 3-XP path",
+    name: "Bandle Soldier: 3 XP permits ready entry",
     canonicalCardId: "card.hash-121fc6b958b52f3a54986facd825169683558bc6c00ae71fbb3323be8b3a1f7c",
     program: bandleSoldier,
     scenario: {
@@ -100,7 +102,7 @@ const rows = [
     },
   },
   {
-    name: "Towering Pairofant: a real kill event enables ready entry and keeps power null",
+    name: "Towering Pairofant: a unit death permits ready entry; power stays null",
     canonicalCardId: "card.hash-236b348b03423e44bd4951c615315452d5da4f0e0be98b47ebafeddb51fe1f8a",
     program: toweringPairofant,
     scenario: {
@@ -142,6 +144,8 @@ for (const row of defineTemplateSuite("RIFT-700 keyword+replacement||effect.read
     assert.deepEqual(result.state.chain, []);
     // CR 369.3 / 805.6.a: the entry state is replaced before Board entry.
     assert.equal(result.events.some(event => event.timingPoint === "object-readied"), false);
+    assert.ok(result.events.some(event => event.timingPoint === "object-enters-board" && event.object?.exhausted === false));
+    assert.equal(result.events.some(event => event.timingPoint === "object-enters-board" && event.object?.exhausted === true), false);
   });
 }
 
@@ -175,7 +179,7 @@ const boundaryRows = [
   },
   {
     ...xinRow,
-    name: "Xin Zhao, Vigilant boundary: fewer than two other base units must stay exhausted",
+    name: "Xin Zhao, Vigilant: fewer than two other base units means exhausted entry",
     blocked: "RIFT-260: replacement/bind.ts still skips ability.condition and keeps the registration-time host reference",
     scenario: {
       players: { A: { energy: 3, power: ["Order"] } },
@@ -186,7 +190,7 @@ const boundaryRows = [
   },
   {
     ...soldierRow,
-    name: "Bandle Soldier boundary: 0 XP must leave the dependent entry inactive",
+    name: "Bandle Soldier: 0 XP means exhausted entry",
     blocked: "RIFT-268/258/259 and RIFT-260: controller XP and dependent replacement conditions are not evaluated",
     scenario: {
       players: { A: { energy: 4, power: ["Order"], xp: 0 } },
@@ -197,7 +201,7 @@ const boundaryRows = [
   },
   {
     ...pairofantRow,
-    name: "Towering Pairofant boundary: without a unit death the entry stays exhausted",
+    name: "Towering Pairofant: without a unit death, entry stays exhausted",
     blocked: "RIFT-260: replacement conditions need a turn-scoped unit-death history predicate",
     scenario: {
       players: { A: { energy: 6 } },

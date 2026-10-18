@@ -28,7 +28,7 @@ const abilities: Ability[] = [
       filter: { source: "self", exhausted: true }
     },
     // 824.1.c：“当控制者有 3 点或更多 XP 时 Dependent Ability 生效”。
-    // 824.1.c：保留控制者 XP 门槛的 IR 形状；解释器当前不读取 PlayerSnapshot.xp。
+    // 保留控制者 XP 门槛的 IR 形状；解释器当前不读取 PlayerSnapshot.xp。
     condition: levelCondition,
     with: [
       {
