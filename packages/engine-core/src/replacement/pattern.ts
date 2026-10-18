@@ -27,7 +27,11 @@ const ACTION_KINDS: Readonly<Record<string, readonly GameAction["type"][]>> = {
   damage: ["damage"],
   score: ["score"],
   "card-played": ["play"],
-  "card-revealed": ["reveal"]
+  "card-revealed": ["reveal"],
+  "object-enters-zone": ["move-zone", "return-to-hand", "recycle", "banish", "discard"],
+  "object-leaves-chain": ["move-zone", "banish"],
+  "object-leaves-zone": ["move-zone", "move-location", "return-to-hand", "recycle", "banish", "kill"],
+  "phase-procedure": []
 };
 
 /** The action ref an EventPattern object filter inspects. */
@@ -63,6 +67,7 @@ export function filterMatchesSnapshot(
   const normalized: Record<string, unknown> = {};
   const states: unknown[] = [];
   for (const [key, value] of Object.entries(filter)) {
+    if (key === "zoneEntryId" && value !== ref.zoneEntryId) return false;
     if (key === "exhausted" && typeof value === "boolean") {
       if (value) states.push("exhausted");
       else states.push("ready");
@@ -113,8 +118,56 @@ export function actionMatchesEventPattern(input: PatternMatchInput): boolean {
   const { pattern, action, target, hostRef, controller } = input;
   const kind = pattern.event ?? pattern.type ?? pattern.kind;
   const actionTypes = typeof kind === "string" ? ACTION_KINDS[kind] : undefined;
-  if (!actionTypes || !actionTypes.includes(action.type)) return false;
+  if (!actionTypes) return false;
+  if (actionTypes.length > 0 && !actionTypes.includes(action.type)) return false;
+  if (kind === "phase-procedure") {
+    const procedure = pattern.procedure;
+    const player = pattern.player;
+    const expectedProcedure = action.type === "draw" ? "draw" : undefined;
+    if (expectedProcedure === undefined || procedure !== expectedProcedure) return false;
+    if (player === "self") return "player" in action && action.player === controller;
+    if (typeof player === "string" && player !== "any") return "player" in action && action.player === player;
+    return player === undefined || player === "any";
+  }
   if (kind === "object-enters-board" && (action.type !== "move-zone" || (action.to !== "base" && action.to !== "battlefield"))) return false;
+  if (kind === "object-leaves-chain" &&
+      (action.type !== "move-zone" || ("object" in action && input.snapshotFor(action.object)?.zone !== "chain"))) return false;
+  if (kind === "object-leaves-zone" &&
+      (action.type === "kill" || action.type === "banish" || action.type === "recycle" ||
+       action.type === "return-to-hand" || action.type === "move-zone" || action.type === "move-location")) {
+    const ref = target.object ?? actionObjectRef(action);
+    const snapshot = ref ? input.snapshotFor(ref) : null;
+    if (snapshot === null) return false;
+    const fromZone = pattern.fromZone;
+    if (fromZone !== undefined) {
+      const zones = Array.isArray(fromZone) ? fromZone : [fromZone];
+      if (!zones.includes(snapshot.zone)) return false;
+    }
+  }
+  const notFromZone = pattern.notFromZone;
+  if (notFromZone !== undefined && (action.type === "kill" || action.type === "banish" || action.type === "recycle" ||
+      action.type === "return-to-hand" || action.type === "move-zone" || action.type === "move-location")) {
+    const ref = target.object ?? actionObjectRef(action);
+    const snapshot = ref ? input.snapshotFor(ref) : null;
+    if (snapshot === null) return false;
+    const excluded = Array.isArray(notFromZone) ? notFromZone : [notFromZone];
+    if (excluded.includes(snapshot.zone)) return false;
+  }
+  const toZone = pattern.toZone;
+  if (toZone !== undefined && (kind === "object-enters-zone" || kind === "object-leaves-zone")) {
+    if (action.type === "move-zone") {
+      const zones = Array.isArray(toZone) ? toZone : [toZone];
+      if (!zones.includes(action.to === "deck-bottom" ? "deck" : action.to === "deck-top" ? "deck" : action.to)) return false;
+    } else if (action.type === "return-to-hand") {
+      if (!(Array.isArray(toZone) ? toZone : [toZone]).includes("hand")) return false;
+    } else if (action.type === "recycle") {
+      if (!(Array.isArray(toZone) ? toZone : [toZone]).includes("deck")) return false;
+    } else if (action.type === "banish") {
+      if (!(Array.isArray(toZone) ? toZone : [toZone]).includes("banishment")) return false;
+    } else if (action.type === "discard" || action.type === "kill") {
+      if (!(Array.isArray(toZone) ? toZone : [toZone]).includes("trash")) return false;
+    }
+  }
   const filter = pattern.filter as Readonly<Record<string, unknown>> | undefined;
   const objectFilter = pattern.object as Readonly<Record<string, unknown>> | undefined;
   const entry = kind === "object-enters-board";

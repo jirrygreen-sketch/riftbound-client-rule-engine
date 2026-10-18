@@ -19,6 +19,9 @@ export interface ReplacementAbilityInput {
   readonly replaces: Readonly<Record<string, unknown>>;
   readonly with: readonly Instruction[];
   readonly condition?: Condition;
+  /** Runtime declaration fields may be added by card adapters without changing the frozen IR. */
+  readonly optional?: boolean;
+  readonly oncePerTurn?: boolean;
 }
 
 /**
@@ -37,6 +40,9 @@ export interface ReplacementPipelineAdapter {
   registerReplacement(registration: ReplacementRegistration): void;
   /** Optional: RIFT-120 pipelines without removal keep cancelled flags local. */
   unregisterReplacement?(id: string): void;
+  /** Optional pipeline checkpoint used to roll back a replacement body. */
+  checkpoint?(): unknown;
+  restore?(checkpoint: unknown): void;
 }
 
 export interface ReplacementDependencies {
