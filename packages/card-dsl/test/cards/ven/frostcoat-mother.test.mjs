@@ -13,6 +13,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/frostcoat-mother.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createEngineStaticBinder, expandProgram, translateCost } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -41,7 +43,9 @@ test("ven-032-166 Frostcoat Mother: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /Empowered/);
   assert.match(program.judgeReason, /expandProgram/);
   assert.match(program.judgeReason, /appliesTo/);
-  assert.match(program.judgeReason, /费用消费方/);
+  assert.match(program.judgeReason, /rune-you-control/);
+  assert.match(program.judgeReason, /Unsupported cost kind empower/);
+  assert.match(program.judgeReason, /442\.1\.a/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -154,4 +158,56 @@ test("ven-032-166 Frostcoat Mother evidence: the cost modification cannot bind a
 
 test("ven-032-166 Frostcoat Mother evidence: the cost modification stays blocked while the corrected Empowered gate follows live state", () => {
   assertCostModificationAndEmpoweredGate();
+});
+
+test("ven-032-166 Frostcoat Mother evidence: the printed per-rune discount reaches no cost plan", () => {
+  // 827.1.c.3 / 206.1: the printed "1 less for each rune you control" is part of
+  // determining this Empower cost. Re-measured 2026-10-18 through the merged
+  // collector: the declared per is still the descriptive string
+  // "rune-you-control", so a recognized scope rejects the whole modifier; and
+  // under its own scope the declaration is skipped entirely. Both results leave
+  // the printed 12 Energy untouched rather than becoming a free activation.
+  const f = fixture({
+    cards: [{ id: "frostcoat", cardId: program.canonicalCardId, types: ["unit"], might: 3 }]
+  });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("frostcoat"), to: "base" });
+  f.engine.advance();
+  for (const id of ["r1", "r2", "r3", "enemy-rune"]) {
+    f.kernel.addObject({
+      ref: { id, zoneEntryId: 1 }, cardId: "rune", name: "rune", types: ["rune"], tags: [],
+      keywords: [], owner: id === "enemy-rune" ? "B" : "A", controller: id === "enemy-rune" ? "B" : "A",
+      zone: "rune-zone", location: null, combatRole: null, might: null, energy: null, power: null,
+      exhausted: false, damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
+    }, "rune-zone");
+  }
+  const source = f.kernel.getObject("frostcoat");
+  const context = f.kernel.clone({ sourceSnapshot: source, controller: "A" });
+  const plan = (effect) => finalizeCostPlan(
+    context,
+    { id: "frostcoat-empower", cost: { kind: "explicit", energy: { kind: "constant", value: 12 } } },
+    { statics: [{ id: "frostcoat", source: source.ref, ability: { kind: "static", effect } }], purpose: "activate" }
+  );
+
+  // The declared scope is not a consumer scope at all.
+  assert.equal(plan(costReduction.effect).total.energy, 12);
+  assert.deepEqual(plan(costReduction.effect).discounts, []);
+
+  // Even under the recognized activated-ability scope the descriptive per
+  // string cannot be evaluated, so the declaration fails closed instead of
+  // silently discounting. Only the printed expression with per removed would
+  // produce a value, which is not what the program declares.
+  assert.throws(
+    () => plan({ ...costReduction.effect, appliesTo: "activated-ability-cost" }),
+    (error) => error.constructor.name === "CostPlanError" &&
+      /Cost modification requires a safe integer amount/.test(error.message)
+  );
+
+  // The interpreter's own count evaluation reaches the printed negative value
+  // only with an absolute player id; the authored controller:self spelling
+  // counts 0, so no in-card path yields the per-rune magnitude today.
+  const counted = runAbilityBody(
+    [{ id: "frostcoat.count", op: "condition.value", args: { value: costReduction.effect.amount } }],
+    context
+  );
+  assert.equal(counted.results[0].result.linkedValues.value, -0);
 });

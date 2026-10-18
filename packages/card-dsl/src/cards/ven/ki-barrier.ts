@@ -22,14 +22,17 @@ import type { CardProgram } from "../../ir/index.js";
  * - 括号内文字是 438.5 的提示文本（"Opponents can assign it extra combat damage to kill it"
  *   说明战斗伤害仍可被分配、超出 Prevent Value 的部分照常标记），不构成第二条能力。
  *
- * 复核：replacement.prevent 已注册，原语的 this-turn 数值额度可以累计消费、部分预防，
- * 不再缺原语或基础 Prevent Value 消费。整卡仍 judge-required，当前缺口是：
+ * 复核（2026-10-18，逐条实测）：replacement.prevent 已注册，原语的 this-turn 数值额度可以
+ * 累计消费、部分预防，不再缺原语或基础 Prevent Value 消费。整卡仍 judge-required，当前缺口是：
  * (1) 原语读取额外的 ResolveContext.replacement（host + pipeline），冻结契约 3.6 没有此入口；
- *     ChainEngine.context 没有提供它，解释器 instructionContext 也不转发扩展，原始 play body 仍无法注册。
+ *     实测把本卡原始 play body 交给 chain/interpreter-adapter.ts 的 resolveChainBody 会抛
+ *     BlockedReplacementError（replacement instruction requires ResolveContext.replacement
+ *     dependencies），ChainEngine.context 与解释器 instructionContext 都不转发该扩展。
  * (2) 原语把 { target: "ki-barrier.unit" } 降为 objectId 过滤，未绑定 zoneEntryId；
  *     目标离场再入场后不应继承旧预防（124/124.1）。
- * (3) this-turn 的 active() 仅比较 pipeline.clock.turn；317.2.c 的 Expiration Special Cleanup
- *     只清 continuous 图层，尚未使预防替代在该清理时到期。
+ * (3) this-turn 的 active() 仅比较 pipeline.clock.turn（实测：下一次 turn-start 后不再预防，
+ *     但本回合结束到下一次 turn-start 之间的窗口里仍然在预防）；317.2.c 的 Expiration Special
+ *     Cleanup 只清 continuous 图层，尚未使预防替代在该清理步骤到期。
  * (4) 额度当前封装在替代闭包中；战斗致死分配还需要读取剩余 Prevent Value（438.5.a）。
  * 保留目标 + 7 点 + this-turn 的准确声明，不近似实现。
  */
@@ -40,9 +43,11 @@ const kiBarrier = {
   judgeReason:
     "replacement.prevent 原语及 this-turn Prevent Value 的累计消费、部分预防已合入（438.1/438.2/438.3）；" +
     "当前缺口：(1) 原语需要 ResolveContext.replacement（host + pipeline），契约 3.6 尚无此入口，" +
-    "ChainEngine.context 未提供，解释器 instructionContext 未转发，原始 play body 无法安装延迟替代（438.7）。" +
+    "ChainEngine.context 未提供、解释器 instructionContext 未转发；实测把本卡原始 play body 交给 " +
+    "resolveChainBody 抛 BlockedReplacementError，延迟替代（438.7）无法从卡本体安装。" +
     "(2) 原语将目标选择器降为 objectId，未保留 zoneEntryId，缺少 124/124.1 要求的离场再入场失效。" +
-    "(3) duration:this-turn 仅比较 pipeline.clock.turn，未接入 317.2.c 的 Expiration Special Cleanup 到期。" +
+    "(3) duration:this-turn 仅比较 pipeline.clock.turn，未接入 317.2.c 的 Expiration Special Cleanup 到期：" +
+    "实测下一次 turn-start 之后不再预防，但本回合结束到下一次 turn-start 之间的窗口里仍会继续预防。" +
     "(4) 剩余额度封装在替代闭包中，战斗致死分配没有读取 Prevent Value 的接线（438.5.a）。不近似实现。" +
     "「Choose a unit」的目标声明本身按 355.7/355.9.a.1 正确；[Reaction]（813.1/813.1.c）关键词已合入。",
   abilities: [

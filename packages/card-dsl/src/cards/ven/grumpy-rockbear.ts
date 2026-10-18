@@ -39,24 +39,25 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - Empowered 门控用显式谓词占位（"empowered"），由 condition.predicate 与关键词
  *   系统消费；本程序不手写状态判定，也不把依赖能力改成无条件能力。
  *
- * 执行证据：templates/keyword-static-static-673.test.mjs。
- * 复核（2026-10-17，第二轮 M2 覆盖率复核）：
+ * 执行证据：templates/keyword-static-static-673.test.mjs 与本卡 golden。
+ * 复核（2026-10-18，第三轮 M2 覆盖率复核，逐条实测）：
  * - 旧 judgeReason 第 (3) 条的「layers/ 尚未消费 continuous.grant-keyword」已不成立：
  *   指令原语随 RIFT-258 合入（注册表可见），它在 ability 图层建立注册，layers/engine.ts
  *   的 applyAbility 会把它写进 keywords 特征（golden 用真实原语 + 图层引擎断言
  *   Deflect 1 与 Shield 3 真的出现）。
  * - Empower KeywordDef 已合入，但仍不可执行的是：(a) CardProgram 的 KeywordAbility 没有每实例
  *   params.cost，programs/keywords.ts 也不透传它；本卡的 12 Energy 与 per-rune 减费无法进入展开，
- *   默认占位 cost.kind "empower" 会被 translateCost 拒绝；(b) 442.1.a 的 Empowered 状态谓词——
- *   生产 ObjectSnapshot / Condition 都没有该二元状态，
- *   生产默认 lifecycle 尚未把所有 Empowered 状态变化接入 CardProgram；(c) 费用改写静态效果
+ *   默认占位 cost.kind "empower" 会被 translateCost 拒绝；(b) 费用改写静态效果
  *   （continuous.cost-modification, appliesTo "empower-activation-cost"）在
- *   programs/statics.ts 的 layerFor/staticTarget 里没有映射，bind 时 fail-closed
- *   （实测 Unsupported static appliesTo）；被授予的 Deflect 的目标税消费方
- *   （target.tax / TargetTaxAdapter）已有独立 adapter 形状，但默认 CardProgram lifecycle
- *   仍未把 Deflect 的 Power tax 接入 Chain Finalize；Shield 的 defender Might 也只在
- *   KeywordGrantLayerEngine 隔离路径重展开。
- * 依赖新增 Empower/Empowered 关键词任务与 442.1.a 的状态谓词。
+ *   programs/statics.ts 的 staticTarget 里没有映射，bind 时 fail-closed
+ *   （实测 Unsupported static appliesTo）；(c) 逐符文减费的 per 仍是描述性字符串，
+ *   cost/discounts 无法求值，解释器的 count.filter.controller:self 也会计成 0；
+ *   (d) 被授予的 Deflect 展开成 target.tax，而 layerFor 对 target.tax 抛
+ *   "Static ability kind target.tax has no layer mapping"，默认 lifecycle 未把该 Power tax
+ *   接入 Chain Finalize；Shield 的 defender Might 只在 KeywordGrantLayerEngine 隔离路径重展开。
+ *   已实测可用：真实的 Empower/Disempower 动作经 createEngineStaticBinder 授予并撤销
+ *   Deflect 1 / Shield 3（defender 时 +3 Might），故这些不再记作缺口。
+ * 依赖 Empower 印刷费用参数通道、empower-activation-cost 消费方与 target.tax 的静态绑定。
  */
 const abilities: Ability[] = [
   {
@@ -108,7 +109,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "827.1.c.1/827.1.c.3/827.1.c.5：KeywordAbility 尚无 params.cost，expandProgram 无法传印刷 12 Energy，且 continuous.cost-modification 的 empower-activation-cost 无静态绑定与费用消费方。逐符文折扣现显式声明负 rune count，但 count.filter.controller:self 尚无相对玩家求值，现会错误计为 0；不把缺失费用变成免费启动。828.1.c / 442.1.a 的 Empowered 门控与 continuous.grant-keyword 已在参考内核按 Empower/Disempower 授予并撤销 Deflect 1 / Shield 3；默认 CardProgram lifecycle 仍没有统一的 Empowered 状态与关键词展开接线（RIFT-359）。独立 KeywordGrantLayerEngine 可重展开 Shield 的 defender Might，Deflect 的 target.tax 也有展开形状，但二者仍需接入默认 lifecycle 与 Chain Finalize 的 Power tax；子集证据不证明整卡可执行。",
+    "仍缺（2026-10-18 实测）：(1) 827.1.c.1/827.1.c.3/827.1.c.5 的印刷 12 Energy 没有通道到达展开：" +
+    "KeywordAbility 只有 keyword/value，程序展开仍是占位 cost { kind: \"empower\" }，translateCost 以 " +
+    "\"Unsupported cost kind empower\" 拒绝；continuous.cost-modification 的 empower-activation-cost 在 " +
+    "programs/statics.ts 的 staticTarget 抛 Unsupported static appliesTo，bindStatic 直接失败，该费用改写没有绑定与消费方。" +
+    "(2) 442.1.a 的 Empowered 门控（828.1.c 的 continuous.grant-keyword + self.empowered 比较）本身已可求值；但逐符文折扣的 per 仍是不可求值的字符串 rune-you-control，且解释器把 count.filter.controller:self 计成 0；两条路径都拿不到" +
+    "\"每 1 枚符文少 1 Energy\" 的数值，不把缺失费用变成免费启动。(3) 授予关键词的落地不完整：实测 createEngineStaticBinder 在本卡声明下" +
+    "能随真实 Empower/Disempower 授予并撤销 Deflect 1 / Shield 3（CombatRole 为 defender 时 +3 Might），但被授予的 Deflect 展开成 " +
+    "target.tax，而 programs/statics.ts 的 layerFor 对 target.tax 抛 \"Static ability kind target.tax has no layer mapping\"，" +
+    "默认 CardProgram lifecycle 也不会把该 Power 税接入 Chain Finalize；Shield 的 defender Might 同样只在独立 KeywordGrantLayerEngine 重展开。" +
+    "子集证据不证明整卡可执行。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_12:. This ability costs :rb_energy_1: less for each rune you control. (Pay the cost: Empower me. Use only if not Empowered.)\n" +

@@ -8,7 +8,9 @@ import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { createEngineStaticBinder, createProgramBinding, expandProgram } from "../../../../engine-core/dist/programs/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-918c7c0acc1cff3bf6bc9579ca9dc1dfeec36e9b894becddb7b0eb8918a44cad";
 const SOURCE_TEXT =
@@ -39,6 +41,9 @@ test("ven-127-166 Lacerate: judgeReason names the remaining Flow bindings and la
   assert.match(program.judgeReason, /829/);
   assert.match(program.judgeReason, /params\.cost/);
   assert.match(program.judgeReason, /实付 Flow 实例/);
+  assert.match(program.judgeReason, /flow\.cost/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /443\.1\.b/);
   // 443.1.a.1: the Empowered clause is equivalent to an unconditional Disempower.
   assert.match(program.judgeReason, /443\.1\.a\.1/);
   assert.match(program.judgeReason, /不把 Flow 降级成普通费用/);
@@ -173,3 +178,57 @@ test.todo(
 );
 
 test.todo("Lacerate: Disempower removes one stacked status (443.1.b) and does nothing to an unempowered unit (443.1.a.1)");
+
+test("ven-127-166 Lacerate evidence: the [Flow] expansion still cannot bind and describePlay fails closed", () => {
+  // Re-measured 2026-10-18: the printed Flow cost still has no carrier and the
+  // expanded static flow.cost has no static layer mapping, so the alternative
+  // cost never reaches a Finalize plan.
+  const source = world()
+    .object("lacerate", { cardId: CARD_ID, types: ["spell"], zone: "hand", energy: 2, power: ["Order"], might: null })
+    .build()
+    .getObject("lacerate");
+  const expanded = expandProgram(program, source).expanded;
+  const flowCost = expanded.find((ability) => ability.kind === "static" && ability.effect.kind === "flow.cost");
+  assert.ok(flowCost, "the merged Flow KeywordDef expands to a static flow.cost");
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  assert.throws(
+    () => createEngineStaticBinder(fixture({ cards: [] }).engine).bindStatic(flowCost, source),
+    error => error.constructor.name === "ProgramBindingError" &&
+      /Static ability kind flow\.cost has no layer mapping/.test(error.message)
+  );
+
+  // The production play path refuses the card itself, so no trash play or
+  // banish-on-leave can be reached from the declared program.
+  assert.throws(
+    () => binding.describePlay({ type: "play", object: source.ref, player: "A" }, source),
+    error => error.code === "judge-required" && /params\.cost/.test(error.message)
+  );
+});
+
+test("ven-127-166 Lacerate evidence: disempower clears every stacked status (443.1.b)", () => {
+  // The reference kernel's disempower action sets the counter to 0, so a card
+  // that was Empowered twice loses both statuses instead of one. This is the
+  // measured reason the Disempower half cannot be called executable yet.
+  const kernel = world().unit("stacked", { owner: "B", controller: "B", might: 4 }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("stacked") });
+  assert.equal(scoped.perform({ type: "empower", object: scoped.ref("stacked"), amount: 2 }).status, "done");
+  assert.equal(scoped.getObject("stacked").empowered, 2);
+  scoped.setTargets(TARGET_ID, [scoped.ref("stacked")]);
+  const outcome = resolveOn(scoped);
+  assert.equal(outcome.results[0].result.status, "executed");
+  // 443.1.b requires removing exactly one status; the merged action removes all.
+  assert.equal(scoped.getObject("stacked").empowered, 0);
+});
+
+test("ven-127-166 Lacerate evidence: disempowering an unempowered unit still reports an action (443.1.a.1)", () => {
+  // 443.1.a.1 says the instruction does nothing to an object that is not
+  // Empowered, but the merged action still submits a disempower GameAction and
+  // emits the event; the board state is unchanged, which is what the golden
+  // above asserts.
+  const kernel = world().unit("plain", { owner: "B", controller: "B", might: 4 }).build();
+  kernel.setTargets(TARGET_ID, [kernel.ref("plain")]);
+  const outcome = resolveOn(kernel);
+  assert.deepEqual(outcome.events.map((event) => event.action), ["disempower"]);
+  assert.equal(kernel.getObject("plain").empowered, 0);
+  assert.equal(kernel.getObject("plain").zone, "board");
+});

@@ -36,7 +36,8 @@ const onslaught = {
     "(3) KeywordAbility / programs/keywords.ts 未把印刷的 4 Energy 通过 params.cost 传给 Flow.expand，" +
     "从 Trash 打出的许可与 cost 选择器也未接进打出流程。" +
     "已真实执行的半段：+6 Might 经 continuous.might 注册 arithmetic 图层并按 317.2.c 于回合末到期，" +
-    "测试台打出路径有真实增益与到期证据（含目标离场 ignored 边界）；不据此宣称整卡可执行，不近似实现 Flow。",
+    "测试台打出路径有真实增益与到期证据（含目标离场 ignored 边界）；programs/play.ts 的 describePlay 仍以本卡的 judge-required 状态拒绝，" +
+    "所以生产打出流程到不了这些子效果。不据此宣称整卡可执行，不近似实现 Flow。",
   abilities: [
     // 829.1.c：印刷 "[Flow] :rb_energy_4:"；费用本身归 Flow.ts 的展开（见 judgeReason）。
     { kind: "keyword", keyword: "flow" },
