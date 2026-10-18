@@ -46,7 +46,10 @@ export default {
     "三处实测缺口，均不近似实现：(1) [Ambush]（822.1.b/822.1.c）的两个 static 展开（play-location-permission 与 " +
     "continuous.timing）没有图层消费方——createEngineStaticBinder（programs/statics.ts）分别抛 " +
     "\"Static ability kind play-location-permission has no layer mapping\" 与 \"Unsupported static appliesTo [\\\"card\\\"]\"，" +
-    "Chain 的 describePlay/canAct 也不读位置许可或条件 Reaction。" +
+    "Chain 的 describePlay/canAct 也不读位置许可或条件 Reaction：programs/play.ts 只转发 action.location；" +
+    "即便把位置声明直接塞进注册表，layers/rules/query.ts 的 playLocations() 读的是 effect.permission 字符串，" +
+    "而本展开写的是 value（822.1.b 的战场筛选），golden 实测 permissions 仍为空；" +
+    "continuous.timing 的 grants 能被 actionTimings() 读出，但注册本身先被 binder 的 appliesTo 白名单拒绝。" +
     "(2) events/timing-points.ts 的 attack-declared 没有发射方：combat/flow.ts 的 start-combat 仍以 " +
     "TurnCombatBlockedError(\"combat-start-transaction\") 阻断，战斗角色/伤害交易未接线，触发在真实链路上不可达。" +
     "(3) 目标过滤的 sameLocationAs 锚点被卡牌绑定路径拒绝——programs/filters.ts 的 translateObjectFilter/" +

@@ -8,6 +8,9 @@ import { matchesTriggerObject } from "../../../../engine-core/dist/events/pipeli
 import { queryObjects } from "../../../../engine-core/dist/effects/interpreter/selectors.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID =
   "card.hash-ed7bafa7ae8c55236bdb4f3b21b17843836fdd9a22879336da866ccc90523a6f";
@@ -131,5 +134,22 @@ test("unl-129-219 Vicious Snapjaws gap: the interpreter-level exclude anchor is 
   assert.deepEqual(
     queryObjects({ type: "unit", exclude: "self" }, environment).map(object => object.ref.id),
     ["other"]
+  );
+});
+
+test("unl-129-219 Vicious Snapjaws gap: the card-side subscription really cannot register through the program binding", () => {
+  // 383.4.a.4 / 740.1.a: the production path for a CardProgram trigger goes
+  // through programs/triggers.ts -> programs/filters.ts. Running that real
+  // adapter is what keeps the card judge-required: the exclude anchor is
+  // rejected before any event can be observed, so no approximation exists that
+  // would preserve "another". The kernel-side filter behaviour is covered by the
+  // two tests above.
+  const f = fixture();
+  const { judgeReason: _reason, ...withoutReason } = program;
+  const binding = createProgramBinding({ cardPrograms: [{ ...withoutReason, status: "executable" }] });
+  const source = { ...f.kernel.getObject("source"), cardId: CARD_ID, name: "Vicious Snapjaws" };
+  assert.throws(
+    () => triggerRegistrations(binding.registry, source),
+    /Unsupported filter field exclude/
   );
 });

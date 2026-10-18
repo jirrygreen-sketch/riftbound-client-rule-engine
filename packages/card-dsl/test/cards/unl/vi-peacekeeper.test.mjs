@@ -10,6 +10,7 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { actionTimings, playLocations } from "../../../../engine-core/dist/layers/rules/query.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -40,6 +41,8 @@ test("unl-176-219 Vi, Peacekeeper: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /sameLocationAs/);
   // The refreshed reason names the observed blocked surfaces, not merged tasks.
   assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /playLocations/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
   assert.doesNotMatch(program.judgeReason, /RIFT-/);
 });
 
@@ -180,6 +183,33 @@ test("unl-176-219 Vi, Peacekeeper gap: neither Ambush declaration can be bound b
     /Unsupported static appliesTo/
   );
   assert.deepEqual(f.engine.layers.registry.list(), []);
+});
+
+test("unl-176-219 Vi, Peacekeeper gap: neither Ambush declaration is consumed even if it reaches the registry", () => {
+  // 822.1.b: the location permission grants a battlefield play option. The
+  // merged layer query reads effect.permission (a string), while the expansion
+  // writes value: { zone: battlefield, ... }; registering the raw declaration
+  // anyway shows playLocations() still returns nothing. The conditional
+  // Reaction half is readable through actionTimings() once registered, but the
+  // binder refuses to register it at all (appliesTo ["card"]). Both halves are
+  // measured against the merged query surface.
+  const f = fixture({ cards: [{ id: "vi", cardId: CANONICAL_ID, types: ["unit"], might: 5 }] });
+  const source = f.kernel.getObject("vi");
+  const expansion = keywordDefinitionsById.get("Ambush").expand({ host: { canonicalCardId: CANONICAL_ID } });
+  const filter = { objectId: "vi", zone: source.zone, zoneEntryId: source.ref.zoneEntryId };
+  f.engine.layers.addContinuous({ id: "ambush-location", layer: "ability", source: source.ref, filter, effect: expansion[0].effect }, { type: "permanent" });
+  f.engine.layers.addContinuous({ id: "ambush-timing", layer: "ability", source: source.ref, filter, effect: expansion[1].effect }, { type: "permanent" });
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.equal(expansion[0].effect.value.kind, "constant");
+  assert.equal(expansion[0].effect.value.value.zone, "battlefield");
+  assert.deepEqual(expansion[0].effect.value.value.battlefield, { occupied: true, controller: "controller" });
+  assert.equal(Object.hasOwn(expansion[0].effect, "permission"), false);
+  assert.deepEqual(playLocations(f.engine.layers.registry, source.ref, source, "A"), { permissions: [], restrictions: [] });
+  assert.deepEqual(actionTimings(f.engine.layers.registry, source.ref, source, "A"), ["showdown", "closed-state"]);
+  // The binder is what production uses, and it rejects both declarations.
+  const binder = createEngineStaticBinder(f.engine);
+  assert.throws(() => binder.bindStatic(expansion[0], source), /has no layer mapping/);
+  assert.throws(() => binder.bindStatic(expansion[1], source), /Unsupported static appliesTo/);
 });
 
 test("unl-176-219 Vi, Peacekeeper gap: the target filter's sameLocationAs anchor is rejected at binding time", () => {

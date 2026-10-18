@@ -7,6 +7,9 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { EVENT_PATTERN_TYPES, validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { timingsAfter, turnFixture } from "../../../../engine-core/test/rules/triggers/harness.mjs";
 
 const CANONICAL_ID =
   "card.hash-2becbc4280283ab4687ffaf051fc67d926dcc7f221810d14f31c9181a9b5cd0e";
@@ -35,8 +38,14 @@ test("unl-048-219 Trevor Snoozebottom: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /816\.1\.b/);
   assert.match(program.judgeReason, /383\.4\.d\.2/);
-  assert.doesNotMatch(program.judgeReason, /beginning-start/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
+  // The refreshed reason names the measured surfaces: the Temporary expansion's
+  // beginning-start trigger is outside the closed event vocabulary, and the
+  // default condition/layer dispatch still bypasses the expr-ext evaluator.
+  assert.match(program.judgeReason, /beginning-start/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /expr-ext/);
+  assert.match(program.judgeReason, /token-definition-or-abilities-judge-required/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
 });
 
 test("unl-048-219 Trevor Snoozebottom: [Shield] is a declaration whose 814.1.b.3 default lives in the keyword file", () => {
@@ -122,6 +131,85 @@ test("unl-048-219 Trevor Snoozebottom golden: condition.value reads the held uni
   assert.deepEqual(outcome.linkedValues["trevor-snoozebottom.read-here.here"], BATTLEFIELD);
 });
 
+test("unl-048-219 Trevor Snoozebottom golden: the hold subscription binds and validates against the real pipeline", () => {
+  // 383.4.d.2.a: the Hold Ability is put on the Chain as a Pending Item in the
+  // Beginning-Phase Scoring Step. The merged filter adapter binds the source and
+  // the closed TriggerSpec accepts it, so the subscription itself is no longer
+  // part of the gap. The missing "Unit present at the held battlefield" payload
+  // is pinned by its own test below instead of being approximated here.
+  const filter = translateTriggerFilter(onHold.trigger.filter, "trevor", "hold");
+  assert.deepEqual(filter, { event: "held", object: { objectId: "trevor" } });
+  assert.equal(validateTriggerSpec({ at: "hold", filter }).ok, true);
+  const f = turnFixture({
+    fields: [{ id: "bf1", controller: "A" }, { id: "bf2", controller: null }],
+    score: { A: 0, B: 0 },
+    setup: (w) => w.unit("trevor", { location: { type: "battlefield", id: "bf1" }, might: 3 })
+  });
+  f.trigger("trevor:hold", "hold", [readHere], { sourceId: "trevor", filter });
+  f.flow.start();
+  assert.equal(f.flow.chain.pipeline.events.filter((event) => event.timingPoint === "hold").length, 1);
+  assert.equal(f.kernel.player("A").score, 1);
+});
+
+test("unl-048-219 Trevor Snoozebottom gap: the hold payload carries no unit, so the presence-scoped subscription cannot fire", () => {
+  // 383.4.d.2 / 383.4.d.2.a: only the Unit that was present when the Hold
+  // happened may put its Hold Ability on the Chain. turn/flow.ts emits the
+  // hold/held wave with a player and details.battlefieldId and no object, so an
+  // objectId-bound subscription can never match: the point, the hold event and
+  // an empty Chain are all observed here. This is the measured half of the
+  // judgeReason's hold-payload gap.
+  const filter = translateTriggerFilter(onHold.trigger.filter, "trevor", "hold");
+  const f = turnFixture({
+    fields: [{ id: "bf1", controller: "A" }, { id: "bf2", controller: null }],
+    score: { A: 0, B: 0 },
+    setup: (w) => w.unit("trevor", { location: { type: "battlefield", id: "bf1" }, might: 3 })
+  });
+  f.trigger("trevor:hold", "hold", [readHere], { sourceId: "trevor", filter });
+  f.flow.start();
+  const [hold] = f.flow.chain.pipeline.events.filter((event) => event.timingPoint === "hold");
+  assert.equal(hold.player, "A");
+  assert.deepEqual(hold.details, { battlefieldId: "bf1" });
+  assert.equal(hold.object, undefined);
+  assert.deepEqual(f.flow.chain.items, []);
+  assert.equal(f.kernel.getObject("trevor").location.id, "bf1");
+});
+
+test("unl-048-219 Trevor Snoozebottom gap: the [Temporary] expansion triggers on an event outside the closed vocabulary", () => {
+  // 816.1.b: the token's Temporary ability is a beginning-start trigger. The
+  // timing point exists, but EventPattern's closed vocabulary omits it, so the
+  // expansion can never be registered (invalid-event-type). Pinned as evidence
+  // for the token-lifecycle half of judgeReason rather than approximated.
+  const [expansion] = keywordDefinitionsById.get("Temporary").expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expansion.kind, "triggered");
+  assert.equal(expansion.trigger.at, "beginning-start");
+  assert.equal(EVENT_PATTERN_TYPES.includes("beginning-start"), false);
+  const validated = validateTriggerSpec({ at: expansion.trigger.at, filter: expansion.trigger.filter });
+  assert.equal(validated.ok, false);
+  assert.deepEqual(validated.issues.map((issue) => issue.code), ["invalid-event-type"]);
+});
+
+test("unl-048-219 Trevor Snoozebottom gap: effect.token rejects the ready entry override and has no Sprite definition", () => {
+  // 143.4 / 184.1 / 185.2.d: entering ready is an entry-state rewrite the
+  // create/play actions do not accept; 187.2's Sprite is likewise absent from
+  // the frozen definition table. Both are asserted against the merged primitive.
+  const kernel = world().unit("trevor", { zone: "board", location: BATTLEFIELD }).build();
+  assert.throws(
+    () => runInstruction(token, { ...playSprite.args, ready: { kind: "constant", value: true } }, { world: kernel }),
+    /Invalid effect\.token argument: ready/
+  );
+  const run = runInstruction(token, {
+    token: playSprite.args.token,
+    amount: playSprite.args.amount,
+    mode: playSprite.args.mode,
+    linkKey: playSprite.args.linkKey,
+    location: { kind: "constant", value: BATTLEFIELD }
+  }, { world: kernel });
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  assert.equal(run.linked.sprite.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.equal(run.events.length, 0);
+});
+ 
 test.todo(
   "unl-048-219 Trevor Snoozebottom: add the CR 187.2 3 [M] Sprite unit token (domainless, Fae tag, " +
     "[Temporary]) to the effect.token definition table"
@@ -134,14 +222,16 @@ test.todo(
 test.todo(
   "unl-048-219 Trevor Snoozebottom: expand the token's [Temporary] (CR 816.1.b: kill it at the start of its " +
     "controller's Beginning Phase before scoring; 816.2.a redundant instances) — the KeywordDef is merged " +
-    "but token lifecycle binding and default-room program injection are still missing"
+    "but its beginning-start trigger is outside the closed EventPattern vocabulary and token lifecycle " +
+    "binding plus default-room program injection are still missing"
 );
 test.todo(
   "unl-048-219 Trevor Snoozebottom: bind the hold trigger to the unit present at the held battlefield " +
-    "(CR 383.4.d.2/.2.a) — hold is emitted by turn/flow.ts now, but the payload carries only battlefield/player (RIFT-31/RIFT-33)"
+    "(CR 383.4.d.2/.2.a) — hold is emitted by turn/flow.ts and this card's held subscription now registers " +
+    "through programs/filters.ts, but the payload carries only battlefield/player"
 );
 test.todo(
   "unl-048-219 Trevor Snoozebottom: read the Defender designation for [Shield] (CR 814.1.d/814.1.d.1) — " +
-    "the Shield KeywordDef and static binder are merged, but the current ObjectSnapshot " +
-    "does not provide designation; the unknown value is fail-closed as false, so +1 cannot apply while defending"
+    "the Shield KeywordDef, the static binder and the combatRole/expr-ext designation fact are merged, " +
+    "but the default condition and layer dispatch do not call the extension, so +1 cannot apply while defending"
 );

@@ -292,3 +292,26 @@ test.todo(
   "unl-201-219 Voidreaver: represent the Legend itself as an exhaust-cost object — the frozen ZoneId has no " +
     "legend-zone and cost/payment.ts only accepts board / rune-zone payers (CR 107.4.a/107.4.c)"
 );
+
+test("unl-201-219 Voidreaver gap: the exhaust payment cannot be satisfied by the Legend's real zone", () => {
+  // CR 107.4.a / 107.4.c: "Spend N XP, :rb_exhaust:" exhausts the Legend itself,
+  // which lives in the Legend Zone. game/lifecycle.ts creates it on the Chain
+  // because the frozen ZoneId (effects/contract.ts) has no legend-zone member,
+  // and cost/payment.ts accepts only ready controlled board / rune-zone payers.
+  // The golden runs the merged pipeline against that real zone and shows the
+  // whole plan failing with cannot-pay-cost, while the XP half is untouched.
+  const kernel = world()
+    .player("A", { xp: 2 })
+    .unit("legend", { zone: "chain", types: ["legend"], controller: "A", exhausted: false })
+    .build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.object(kernel.ref("legend")) });
+  assert.equal(ctx.object(ctx.ref("legend")).zone, "chain");
+  assert.throws(
+    () => payCostPlan(ctx, buildCostPlan(ctx, { id: "voidreaver-legend", cost: buffAbility.cost })),
+    error => error?.reason === "cannot-pay-cost"
+  );
+  // 405 / 204.2.a: the failed plan paid nothing, so the XP is still there and the
+  // Legend was never exhausted.
+  assert.equal(ctx.player("A").xp, 2);
+  assert.equal(ctx.object(ctx.ref("legend")).exhausted, false);
+});
