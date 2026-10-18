@@ -35,7 +35,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   instruction (RIFT-258: signed amount, this-turn duration, end-of-turn
  *   expiry).
  *
- * Status: judge-required, re-audited 2026-10-17 (RIFT-683). The optional cost
+ * Status: judge-required. The cost/discounts collector now exists, but the optional cost
  * and the conditional ignore-base rewrite have no merged consumer, so the card
  * cannot offer the printed choice; the printed decline branch (pay 3 Energy,
  * +3 Might) does have merged support and its execution evidence is in
@@ -64,16 +64,12 @@ const callToGlory = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "剩余缺口是可选追加费用与条件 ignore-base 改写没有已合入消费方，因此整卡无法提供原文的选择；三点实测（CR 356.2.b/356.2.b.1、356.1.b/356.1.b.1/356.1.b.3、357.2.a、702.2.b.1/b.2）：" +
-    "(1) 可选追加费用已按 356.2.b.1 写成 static cost.additional（非目标 pick），但 programs/statics.ts 的 layerFor 对该 effect kind 抛 no layer mapping" +
-    "（实测），也没有 CardProgram → CostPlanInput.optionalAdditional 的适配器，打出阶段的费用计划读不到该声明；" +
-    "(2) 356.1.b.1 的 ignore-base 改写同样只有静态声明（同一 layerFor 抛 no layer mapping），无法按 356.1.b.3 保留后续加费地施加；" +
-    "(3) 费用选择的选项集需要 Finalize 期「本玩家控制且带有 buff 的单位」的运行时 ObjectRef（702.2.b.1/b.2），" +
-    "静态 IR 只能声明字符串选项，缺契约变更请求里的适配器。" +
-    "已用真实路径执行的部分：印刷基础费用（3 Energy、无 Power）经 Finalize 收取，目标在 Board 单位中锁定，+3 Might 由 continuous.might 注册 arithmetic 图层并在 317.2.c 回合末到期" +
-    "——这是原文「不支付该可选费用」的分支，证据在 test/cards/templates/keyword-play-continuous-might-683.test.mjs 与本卡 golden（含目标失效 ignored 边界）；" +
-    "可选 buff 支付的语义（702.2.b 扣 1 个 buff、702.2.b.1 无 buff 拒绝、357.2.a 记为已付）另有费用层真实 plan/回执证据，但尚未接进整卡打出路径。" +
-    "不近似实现：不写免费打出、不把 Buff 换成 Might、不写固定费用计划。",
+    "缺可选追加费用和条件 ignore-base 的 CardProgram → Finalize 适配（CR 356.2.b/356.2.b.1、356.1.b/356.1.b.1/356.1.b.3、357.2.a）：" +
+    "programs/statics.ts 仍拒绝费用声明，chain/engine.ts 未调用已合入的 cost/discounts.finalizeCostPlan；" +
+    "该收集器只收集数值 Energy/Power 改写，不支持本卡的 resources/ignore-base 或 optionalCostPaid 条件。" +
+    "buildCostPlan 已支持 baseModifications.ignore-base 和 optionalAdditional，但缺从本卡声明到这些字段的条件绑定，不能简单减 3 代替忽略基础费用。" +
+    "还缺 Finalize 期「本玩家控制且有 buff 的单位」动态 ObjectRef 费用候选绑定（702.2.b.1/b.2）；" +
+    "非目标 spend-buff 支付与 +3 Might 正文均可单独执行，尚不能提供整卡的可选费用分支。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

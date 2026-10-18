@@ -17,6 +17,8 @@ import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js"
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { collectCostModifications } from "../../../../engine-core/dist/cost/discounts/index.js";
 
 const CARD_ID = "card.hash-9eef9a0508648141992bbe70aa56b64551bbd00d06fd8be401c85dda6f542339";
 const [reaction, optionalCost, costRewrite, play] = program.abilities;
@@ -38,6 +40,8 @@ test("Call to Glory identity and judge-required status match the printing", () =
   assert.equal(program.judgeReason.includes("702.2.b"), true);
   assert.match(program.judgeReason, /可选追加费用/);
   assert.match(program.judgeReason, /ignore-base/);
+  assert.match(program.judgeReason, /baseModifications\.ignore-base/);
+  assert.match(program.judgeReason, /optionalCostPaid/);
   assert.equal(
     program.sourceText,
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
@@ -236,4 +240,46 @@ test("Call to Glory: the original body does not grant Might when its finalized t
   assert.equal(kernel.getObject("chosen").zone, "hand");
   assert.equal(kernel.getObject("other").might, 4);
   assert.deepEqual(result.events, []);
+});
+
+test("Call to Glory supported cost plan ignores only the base and keeps the selected buff payment and later fees", () => {
+  // Runtime options/baseModifications are cost-layer inputs; their CardProgram adapter remains missing.
+  for (const selected of [true, false]) {
+    const initial = world().player("A", { energy: 10 })
+      .hand("glory", { cardId: CARD_ID, types: ["spell"], energy: 3, power: null })
+      .unit("buffed", { buffs: 1 }).build();
+    const ctx = initial.clone({ sourceSnapshot: initial.getObject("glory") });
+    const payment = optionalCost.effect.payments[0];
+    ctx.setPicks(payment.choice.id, [ctx.ref("buffed")]);
+    const plan = buildCostPlan(ctx, {
+      id: "glory:cost", cost: { kind: "printed" },
+      ...(selected ? { baseModifications: [{ kind: "ignore-base", ignore: "resources" }] } : {}),
+      optionalAdditional: [{
+        id: optionalCost.effect.id, kind: "additional", selected,
+        cost: { payments: [{ ...payment, choice: { ...payment.choice, options: [ctx.ref("buffed")] } }] }
+      }],
+      mandatoryAdditional: [{ id: "later-fee", cost: { energy: { kind: "constant", value: 2 } } }]
+    });
+    assert.deepEqual(plan.printed, { energy: 3, power: null });
+    assert.equal(plan.total.energy, selected ? 2 : 5);
+    assert.deepEqual(plan.total.power, []);
+    assert.deepEqual(plan.selectedAdditional.map(entry => entry.id), selected ? [optionalCost.effect.id] : []);
+    const receipt = payCostPlan(ctx, plan);
+    assert.equal(receipt.paid, true);
+    assert.deepEqual(receipt.additional, selected ? [{ id: optionalCost.effect.id, kind: "additional", paid: true }] : []);
+    assert.deepEqual(receipt.events.map(event => event.action), selected ? ["pay", "spend-buff"] : ["pay"]);
+    assert.equal(ctx.getObject("buffed").buffs, selected ? 0 : 1);
+    assert.equal(ctx.player("A").energy, selected ? 8 : 5);
+    assert.equal(ctx.getObject("glory").power, null);
+  }
+});
+
+test("Call to Glory cost collector cannot interpret its declared optionalCostPaid gate", () => {
+  const initial = world().hand("glory", { cardId: CARD_ID, types: ["spell"], energy: 3, power: null }).build();
+  const ctx = initial.clone({ sourceSnapshot: initial.getObject("glory") });
+  const before = ctx.snapshot();
+  assert.throws(() => collectCostModifications(ctx, { id: "glory:cost", cost: { kind: "printed" } }, {
+    statics: [{ id: "glory:rewrite", source: ctx.ref("glory"), ability: costRewrite }]
+  }), error => error.reason === "judge-required" && /Unsupported cost condition/.test(error.message));
+  assert.deepEqual(ctx.snapshot(), before);
 });

@@ -31,8 +31,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   payCostPlan 也只消费已锁定的计划。
  * - 减费随支付数量联动：CostDiscount.amount 是静态 Expr，读不到"本次已支付的 Buff 数"；
  *   实测把 amount 写成 linked-value 会被 buildCostPlan 以 "Discount must be a nonnegative safe integer" 拒绝，
- *   且 cost.modify 即便显式给出 CostSpec 也以 CostFailure/invalid-cost-plan 结束，
- *   成本没有把 spend-buff 的支付结果回接到 356.4.c 组件折扣的路径。
+ *   固定数量的 cost.modify 已能执行；仍没有把可变 spend-buff 的费用选择数量
+ *   接到减费量的路径，不能把普通静态计数或固定数量计划当作该费用已执行。
  * - Accelerate 的 `accelerate.cost` 展开没有静态层映射：programs/statics.ts 的 layerFor
  *   对 `accelerate.cost` 抛 "Static ability kind accelerate.cost has no layer mapping"（实测），
  *   关键词展开无法经 CardProgram 绑定，Finalize 也没有读取该声明的消费者（805.2.b）。
@@ -56,16 +56,16 @@ const program = {
     "不受限数量的 spend-buff 支付选择；cost/plan-types.ts 的 CostPlanInput.optionalAdditional 是每个组件一次的" +
     "布尔选择（OptionalCostInput.selected?: boolean，207 / 356.4），成本侧唯一的数量通道是 " +
     "CostAction.action.amount 这个锁定值，没有“任意数量”的已验证表达；payCostPlan（cost.pay 的支付入口）也只消费已锁定的计划。" +
-    "（2）“Reduce my cost by [Body] for each buff you spend” 是引用本次已支付数量的组件折扣（356.4.c）：" +
+    "（2）“Reduce my cost by [Body] for each buff you spend” 缺本次费用数量到减费量的链接（356.4.c/f）：" +
     "CostDiscount.amount 只接受静态 Expr，实测把 amount 写成 linked-value 会被 buildCostPlan 以 " +
-    "“Discount must be a nonnegative safe integer” 拒绝，而 " +
-    "cost.modify 即便显式给出 CostSpec 也以 CostFailure/invalid-cost-plan 结束，支付结果没有接回打出费用计划。" +
+    "“Discount must be a nonnegative safe integer” 拒绝；固定数量的 cost.modify 已能执行。" +
+    "已合入的 cost/discounts 支持静态计数，但不读取本次费用所选/支付的 buff 数，生产 Finalize 也未调用该收集器。" +
     "（3）Accelerate 展开的 accelerate.cost 没有静态层映射：programs/statics.ts 的 layerFor 实测对 " +
     "`accelerate.cost` 抛 “Static ability kind accelerate.cost has no layer mapping”，" +
     "生产 static binder 无法注册，Finalize 也没有读取该声明的消费者（805.2.b）。" +
     "（4）[Assault] 展开的 continuous.might 能绑定，但 designation 条件没有生产派发：" +
     "effects/interpreter/condition.ts → expr.ts 对 property \"designation\" 抛 MissingInformation、包装层吞成 false，" +
-    "实测 combatRole=\"attacker\" 时 might 仍为印刷值；RIFT-711 的 expr-ext/evaluate.ts 已能映射 combatRole，" +
+    "实测 combatRole=\"attacker\" 时 might 仍为印刷值；expr-ext/evaluate.ts 已能映射 combatRole，" +
     "但 expr.ts、layers/engine.ts、programs/statics.ts 未引用它（807.1.c / 807.1.d.1）。" +
     "Accelerate/Assault 只按 805/807 声明关键词，不重写展开。不近似实现。",
   abilities,

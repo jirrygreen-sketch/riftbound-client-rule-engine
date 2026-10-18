@@ -42,10 +42,11 @@ export default {
   status: "judge-required",
   judgeReason:
     "Missing the battlefield-scoped Facedown Zone capacity consumer for continuous.restrict (CR 107.3.b.1): " +
-    "the primitive's numeric limit registration and the ability-layer binder both record amount 1 without " +
-    "turning it into the per-battlefield occupancy cap a Hide action reads. cost.hidden only plans/pays costs; " +
-    "Hide, facedown occupancy/control checks and next-turn unlocking still lack a connected action/zone path " +
-    "(422.2.a, 811.1.b). The additional slot must preserve Hidden eligibility and its normal cost.",
+    "the static binder records amount 1, but no Hide action reads it as an increase to this battlefield's normal one-card cap. " +
+    "cost.hidden already plans [A], but the effects test-kernel pay action does not debit Power; its receipt is not proof of payment. " +
+    "The cost wrapper does not bind Hidden eligibility, facedown movement, occupancy/control checks " +
+    "or next-turn play permission to an action (107.3.c/d, 422.2.a, 811.1.b). The extra slot must remain local, preserve " +
+    "the normal cost, and follow the battlefield's current controller.",
   sourceText: "You may hide an additional card here.",
   abilities: [
     {
