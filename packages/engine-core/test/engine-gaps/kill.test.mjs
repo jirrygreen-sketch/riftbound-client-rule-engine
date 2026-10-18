@@ -97,22 +97,22 @@ test("EG-KILL raw Thermo Beam IR executes a single untargeted gear query without
   assert.equal(killed[0].details.responsiblePlayerId, "A");
 });
 
-test("EG-KILL raw Thermo Beam IR fails closed when the current query has two gears", () => {
+test("EG-KILL raw Thermo Beam IR re-queries the current Board candidates at resolution", () => {
   const f = scenario(admittedThermoBeam, {
     energy: 5,
     power: ["Fury", "Fury"],
     setup(builder) {
       addSpell(builder, admittedThermoBeam.canonicalCardId);
       builder.unit("gear-a", { types: ["gear"], might: null, location: base("A") });
-      builder.unit("gear-b", { types: ["gear"], owner: "B", controller: "B", might: null, location: base("B") });
+      builder.unit("gear-b", { types: ["gear"], owner: "B", controller: "B", zone: "hand", location: null });
     },
   });
   f.play();
   settle(f.engine);
 
-  assert.equal(f.kernel.getObject("gear-a").zone, "board");
-  assert.equal(f.kernel.getObject("gear-b").zone, "board");
-  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-killed").length, 0);
+  assert.equal(f.kernel.getObject("gear-a").zone, "trash");
+  assert.equal(f.kernel.getObject("gear-b").zone, "hand");
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-killed").length, 1);
   assert.equal(f.engine.items.length, 0);
 });
 
