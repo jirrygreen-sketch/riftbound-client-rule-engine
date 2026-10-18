@@ -7,6 +7,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { runInstruction, world } from '../../dist/effects/testing/index.js';
+import { runCardScenario } from '../../dist/effects/testing/scenario/index.js';
 import { instructionDefinitionsById } from '../../dist/effects/instructions/registry.generated.js';
 import { ContinuousEffectRegistry, durationExpiryTiming } from '../../dist/layers/duration.js';
 import { LayerEngine } from '../../dist/layers/engine.js';
@@ -192,16 +193,57 @@ test('effect.shield-value: sums Shield instances, bare Shield reads 1, absent Sh
   }
 });
 
+test('modifiers-boundaries: empty registries and controller isolation do not invent defaults', () => {
+  const kernel = build();
+  const registry = registryFrom(kernel);
+  const objects = ref => kernel.object(ref);
+  assert.equal(bonusDamageForDeal(registry, { controller: 'A', appliesTo: 'deal-actions' }, objects), 0);
+  assert.deepEqual(lethalThresholdFor(registry, { controller: 'A' }, objects), []);
+  assert.deepEqual(additionalMightReductions(registry, { controller: 'A' }, objects), []);
+
+  const source = kernel.ref('Abase');
+  const context = kernel.clone({ sourceSnapshot: kernel.object(source), controller: 'B' });
+  const empty = runInstruction(bonusOp, { amount: c(1), appliesTo: c('deal-actions') }, { world: context });
+  assert.equal(empty.result.status, 'executed');
+  const bRegistry = registryFrom(context);
+  assert.equal(bonusDamageForDeal(bRegistry, { controller: 'A', appliesTo: 'deal-actions' }, objects), 0);
+  assert.equal(bonusDamageForDeal(bRegistry, { controller: 'B', appliesTo: 'deal-actions' }, objects), 1);
+});
+
+test('modifiers-boundaries: the non-zero Might reduction record is queryable without applying it', () => {
+  const kernel = build();
+  const negative = runReduction(kernel, { mode: c('additional'), amount: c(-1) });
+  assert.equal(negative.result.status, 'executed');
+  const zero = runReduction(kernel, { mode: c('additional'), amount: c(0) });
+  assert.equal(zero.result.status, 'executed');
+  assert.deepEqual(additionalMightReductions(registryFrom(kernel), { controller: 'A' }, ref => kernel.object(ref)).map(g => g.amount), [-1]);
+  // The primitive records the modifier; it must not subtract Might itself.
+  assert.equal(kernel.getObject('ally').might, 4);
+});
+
+test('effect.shield-value: malformed arguments reject without writing a link', () => {
+  const kernel = build();
+  for (const [args, message] of [
+    [{}, 'requires object'],
+    [{ object: c({ kind: 'source' }), extra: c(1) }, 'Invalid effect.shield-value argument'],
+    [{ object: c({ kind: 'source' }), linkKey: c('') }, 'linkKey must be a non-empty string'],
+  ]) {
+    assert.throws(() => runShield(kernel, args), error => error instanceof TypeError && String(error).includes(message));
+    assert.equal(kernel.linked('shieldValue'), undefined);
+  }
+});
+
 // rad/ntofo-strikes original IR: grant Shield 2 to a friendly unit, read its
 // Shield Value, then deal damage equal to that value to an enemy unit.
 // (CR 814.1.b / 814.2: the granted keyword is what the value reader sees.)
 //
 // Stage-one boundary note: the card program is judge-required because the
-// default chain adapter does not yet (a) bind the IR TargetSpec as the grant
-// object selector and (b) hand instruction contexts layer-evaluated object
-// snapshots. Both adapter halves are contract change requests for the owner
-// tasks. The steps below execute the production primitives and the production
-// layer engine only; no value is computed by hand.
+// default chain adapter does not yet bind an instruction's authored TargetSpec
+// as a grant's object selector, and the default LayerEngine does not expand a
+// granted Shield into its KeywordDef static effect. Both adapter halves are
+// contract change requests for the owner tasks. The steps below execute the
+// production primitives and the production layer engine only; no value is
+// computed by hand.
 test('card rad/ntofo-strikes: original play body executes grant -> shield-value -> deal through the production registry', () => {
   const play = ntofo.abilities.find(a => a.kind === 'play');
   assert.equal(play.body.length, 3);
@@ -263,4 +305,27 @@ test('card ogn/ravenborn-tome: original activated body registers the next-spell 
   assert.equal(entry.effect.source.id, 'tome');
   assert.deepEqual(entry.duration, { type: 'end-of-turn' });
   assert.deepEqual(run.linked.registered, { id: entry.effect.id, amount: 1 });
+});
+
+// Production-assembly counterpart to the primitive-level grant above. The
+// program status is admitted only inside this test; its ability body, costs
+// and source remain the shipped IR.
+test('card ogn/ravenborn-tome: shipped IR activates through runCardScenario and registers Bonus Damage', () => {
+  const program = { ...ravenborn, status: 'executable', judgeReason: undefined };
+  const result = runCardScenario(program, {
+    players: { A: { energy: 0 }, B: { energy: 0 } },
+    objects: [{
+      id: 'tome', program, cardId: program.canonicalCardId, types: ['gear'], zone: 'board',
+      location: { type: 'base', player: 'A' }, energy: 0, power: null, might: null,
+    }],
+    operations: [
+      { type: 'activate', object: 'tome', player: 'A' },
+      { type: 'pass', player: 'A' },
+      { type: 'pass', player: 'B' },
+    ],
+  });
+  const registered = result.links['ravenborn-tome.grant-bonus-damage.registered'];
+  assert.equal(registered.amount, 1);
+  assert.match(registered.id, /^continuous\.bonus-damage:tome:/);
+  assert.equal(result.state.objects.find(object => object.ref.id === 'tome').exhausted, true);
 });
