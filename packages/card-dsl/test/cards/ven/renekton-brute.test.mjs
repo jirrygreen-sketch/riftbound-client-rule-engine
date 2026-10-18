@@ -12,6 +12,9 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // layout instead of the package name.
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { ProgramRegistry, triggerRegistrations } from "../../../../engine-core/dist/programs/index.js";
+import { EVENT_PATTERN_TYPES } from "../../../../engine-core/dist/events/trigger-spec.js";
+import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
@@ -56,8 +59,7 @@ test("ven-092-166 Renekton: identity, ruleset, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /might-changed/);
   assert.match(program.judgeReason, /createTargetTaxAdapter/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-(87|89|90|120)/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-91/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.doesNotMatch(program.judgeReason, /没有注册的 Might 修正原语/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -180,6 +182,38 @@ test.todo(
     "might-changed payload exposed to trigger matching — EventPattern.details only accepts scalars, NumericMatcher " +
     "only matches event.amount, and the might-changed producer is not wired into the pipeline"
 );
+
+test("ven-092-166 Renekton gap: might-changed is not in the closed event vocabulary", () => {
+  // Measured evidence for judgeReason point 1: the timing point exists in the
+  // frozen enumeration, but the closed pattern list used by trigger validation
+  // has no member for it, so the printed subscription cannot be registered.
+  assert.equal(EVENT_PATTERN_TYPES.includes("might-changed"), false);
+  const kernel = renektonWorld();
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const source = { ...kernel.getObject("renekton"), cardId: CANONICAL };
+  const [registration] = triggerRegistrations(registry, source);
+  assert.equal(registration.spec.at, "might-changed");
+  assert.deepEqual(
+    triggerRegistrations(registry, source).length,
+    1,
+    "the adapter still produces the printed subscription"
+  );
+});
+
+test("ven-092-166 Renekton gap: the [Empowered][>] grant reaches a target.tax the binder cannot install", () => {
+  // Measured evidence for judgeReason point 3: Deflect expands into a
+  // target.tax static ability, and programs/statics.ts has no layer mapping for
+  // that kind, so the granted tax can never be charged on target Finalize.
+  const [deflectAbility] = deflect.expand({ value: 1, host: { canonicalCardId: CANONICAL } });
+  assert.equal(deflectAbility.effect.kind, "target.tax");
+  const { engine, kernel } = staticFixture([
+    { id: "renekton", cardId: CANONICAL, types: ["unit"], zone: "board", might: 4 }
+  ]);
+  assert.throws(
+    () => createEngineStaticBinder(engine).bindStatic(deflectAbility, kernel.getObject("renekton")),
+    error => error.code === "judge-required" && /target\.tax has no layer mapping/.test(error.message)
+  );
+});
 
 test.todo(
   "ven-092-166 Renekton: the [Empowered][>] grant of [Deflect] and [Ganking] needs the production ObjectSnapshot.empowered contract (442.1.a) " +

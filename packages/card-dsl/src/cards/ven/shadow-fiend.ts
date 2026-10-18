@@ -51,12 +51,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口（对应 827.1.c.1、807.1.c）：(1) Empower KeywordDef 已注册并支持未 Empowered 限制，但 KeywordAbility / programs/keywords.ts 不传递本卡的 " +
-    "2 Energy + 1 Fury Power CostSpec，无法建立完整启动费用计划；(2) 828.1.c 门控已改用 self.empowered >= 1，" +
-    "参考内核可求值，但生产 ObjectSnapshot 尚未声明 live empowered 计数；(3) continuous.grant-keyword 与 " +
-    "programs/statics.ts 的 ability 图层绑定（bindStatic）已合入；RIFT-672 模板通过真实效果链验证原始门控的 Assault 3 授予与撤销，" +
-    "但授予后的关键词没有随图层变化重新展开绑定，Assault 展开读取的 designation 与公开 combatRole 仍不一致，" +
-    "807.1.c 的攻击者 +3 尚无完整执行路径。RIFT-697 模板用通用场景链路复核该授予与撤销，仍需生产门控状态接线，不近似实现。",
+    "三处缺口（827.1.c.1、807.1.c），均不近似实现：" +
+    "(1) Empower KeywordDef 已注册并支持未 Empowered 限制，但 KeywordAbility / programs/keywords.ts 不传递本卡的 2 Energy + 1 Fury Power CostSpec" +
+    "（契约 3.1 的 KeywordAbility 只有 keyword/value），expand 只产出 { kind: \"empower\" }，费用规划实测抛 " +
+    "CostPlanError judge-required \"Unsupported cost kind: empower\"，无法建立完整启动费用计划。" +
+    "(2) 828.1.c 门控 self.empowered >= 1 在参考内核里已随真实 empower/disempower 动作开关（bindStatic golden 实测 Assault 3 的授予与撤销），" +
+    "但生产 ObjectSnapshot 不声明 live empowered 计数（apps/game-server 的引擎宿主把 empower 动作写成 buffs），缺字段时失败闭合。" +
+    "(3) 授予后的关键词没有下游消费方：continuous.grant-keyword 与 programs/statics.ts 的 ability 图层绑定已合入，" +
+    "但 Assault 展开读取的 designation 没有公开 combatRole 的实时发布方——解释器实测 \"Unavailable characteristic: designation\"，" +
+    "授予后的关键词也不会随图层变化重新展开，807.1.c 的攻击者 +3 尚无完整执行路径。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_2::rb_rune_fury: (:rb_energy_2::rb_rune_fury:: Empower me. Use only if not Empowered.)\n" +

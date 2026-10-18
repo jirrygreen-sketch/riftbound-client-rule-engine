@@ -56,16 +56,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口（对应 827.1.c.1、828.1.b.1）：(1) Empower KeywordDef 已注册并支持未 Empowered 限制，" +
-    "但 KeywordAbility / programs/keywords.ts 不传递本卡印刷的 3 Energy CostSpec，无法建立完整启动费用计划；" +
-    "(2) “[Empowered][>]” 门控已改为 self.empowered >= 1，参考内核可求值，但生产 ObjectSnapshot 尚未声明 " +
-    "live empowered 计数；" +
-    "(3) Deflect/Shield 的 continuous.grant-keyword 持续授予关键词静态绑定（bindStatic）与两项 KeywordDef 展开已合入，" +
-    "但授予后的关键词没有随图层变化重新展开绑定，Shield 展开读取的 designation 与公开 combatRole 仍不一致；" +
-    "target.tax 也不是 programs/statics.ts layerFor() 支持的图层，且没有把该 Deflect 税自动接入目标 Finalize。" +
-    "RIFT-672 模板已验证原始门控的持续授予关键词与撤销，不能证明 Shield 战斗加值或 Deflect 税已执行。" +
-    "RIFT-697 模板在同一场景链路下复核 Empowered 门控的授予与撤销，仍不能证明 Shield 战斗加值或 Deflect 税已执行。" +
-    "不近似实现：不伪造启动能力，不把依赖能力写成无条件能力。",
+    "三处缺口（827.1.c.1、828.1.b.1），均不近似实现：" +
+    "(1) Empower KeywordDef 已注册并支持未 Empowered 限制，但 KeywordAbility / programs/keywords.ts 不传递本卡印刷的 3 Energy CostSpec " +
+    "（契约 3.1 的 KeywordAbility 只有 keyword/value），expand 只产出 { kind: \"empower\" }，费用规划实测抛 " +
+    "CostPlanError judge-required \"Unsupported cost kind: empower\"，无法建立完整启动费用计划。" +
+    "(2) “在参考内核可求值、生产不可求值”的差异收窄为一处：门控 self.empowered >= 1 在参考内核里已能随真实 empower/disempower 动作开关，" +
+    "但生产 ObjectSnapshot 不声明 live empowered 计数（apps/game-server 的引擎宿主把 empower 动作写成 buffs），契约字段缺失时失败闭合。" +
+    "(3) 持续授予关键词没有下游消费方：continuous.grant-keyword 能把 Deflect 1 / Shield 3 写进 ability 图层（bindStatic 实测，golden 断言），" +
+    "但 Deflect 展开出的 target.tax 不在 programs/statics.ts layerFor() 的图层映射内（实测 ProgramBindingError judge-required），" +
+    "Shield 展开读取的 designation 也没有公开 combatRole 的实时发布方——解释器实测 \"Unavailable characteristic: designation\"，" +
+    "且授予后的关键词不会随图层变化重新展开，Deflect 税从未接入目标 Finalize。" +
+    "模板 golden 只验证门控开/关时的关键词授予与撤销，不能证明 Shield 战斗加值或 Deflect 税已执行。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_3: (:rb_energy_3:: Empower me. Use only if not Empowered.)\n" +

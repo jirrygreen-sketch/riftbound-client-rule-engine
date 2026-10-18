@@ -8,9 +8,14 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/shadow-fiend.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { buildCostPlan, CostPlanError } from "../../../../engine-core/dist/cost/index.js";
+import assaultKeyword from "../../../../engine-core/dist/effects/keywords/Assault.js";
+import empowerKeyword from "../../../../engine-core/dist/effects/keywords/Empower.js";
+import { evaluateExpression } from "../../../../engine-core/dist/effects/interpreter/expr.js";
 // The production static binder installs card static abilities into
 // the merged layer engine; the chain fixture provides that engine.
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID =
@@ -40,6 +45,10 @@ test("ven-014-166 Shadow Fiend: identity, ruleset, status, judgeReason and verba
   // execution gap is the Empowered gate predicate and the card-side cost wiring.
   assert.match(program.judgeReason, /bindStatic/);
   assert.match(program.judgeReason, /ObjectSnapshot/);
+  assert.match(program.judgeReason, /designation/);
+  // Deleted stale assertions (2026-10-18 re-sweep): the previous reason cited
+  // the merged RIFT-672 / RIFT-697 template tasks as part of the gap text.
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -105,3 +114,43 @@ test.todo(
     "itself installs through the merged static binder, while production ObjectSnapshot still " +
     "lacks the live empowered count used by the gate"
 );
+
+test("ven-014-166 Shadow Fiend gap: the printed 2 Energy + 1 Fury Power Empower cost is not carried", () => {
+  // Measured evidence for judgeReason point 1: the registered KeywordDef keeps
+  // the not-Empowered restriction but receives no CostSpec, so the printed cost
+  // is judged unsupported instead of being charged (827.1.c.1).
+  const [expanded] = empowerKeyword.expand({ host: { canonicalCardId: CARD_ID } });
+  assert.equal(expanded.kind, "activated");
+  assert.deepEqual(expanded.cost, { kind: "empower" });
+  const kernel = world().unit("fiend", { cardId: CARD_ID, might: 2 }).build();
+  assert.throws(
+    () => buildCostPlan(kernel, { id: "cost:empower", cost: expanded.cost }),
+    error => error instanceof CostPlanError && error.reason === "judge-required" && /Unsupported cost kind: empower/.test(error.message)
+  );
+});
+
+test("ven-014-166 Shadow Fiend gap: the granted Assault reads a designation no snapshot publishes", () => {
+  // Measured evidence for judgeReason point 3: the grant installs (asserted by
+  // the golden above), but its +3 Might condition reads the attacker
+  // designation, which the merged expression evaluator cannot find on a
+  // contract-shaped snapshot.
+  const [assaultAbility] = assaultKeyword.expand({ value: 3, host: { canonicalCardId: CARD_ID } });
+  assert.deepEqual(assaultAbility.condition.left, {
+    kind: "object-property",
+    object: "self",
+    property: "designation"
+  });
+  const kernel = world().unit("fiend", { cardId: CARD_ID, might: 2 }).build();
+  const source = kernel.getObject("fiend");
+  assert.equal(Object.hasOwn(source, "designation"), false);
+  assert.throws(
+    () => evaluateExpression(assaultAbility.condition.left, {
+      context: kernel,
+      host: source.ref,
+      linked: () => undefined,
+      canLookBack: () => true,
+      isIgnored: () => false
+    }),
+    error => /Unavailable characteristic: designation/.test(error.message)
+  );
+});

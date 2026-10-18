@@ -9,9 +9,11 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/riven-shattered.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import weaponmaster from "../../../../engine-core/dist/effects/keywords/Weaponmaster.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ProgramBindingError, ProgramRegistry, triggerRegistrations } from "../../../../engine-core/dist/programs/index.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-449ee3c99ccb6cbedf40282cf1e6bd9c5f1849ff561c01da7535c34da3628b11";
@@ -91,11 +93,12 @@ test("ven-041-166 Riven, Shattered: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /821\.1\.c\.2/);
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /RIFT-359/);
-  // The judgeReason names the concrete Equip-cost binding and attack-declared
-  // producer gaps without citing merged dependency tasks.
-  assert.doesNotMatch(program.judgeReason, /RIFT-89/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /821\.1\.c\.2/);
+  assert.match(program.judgeReason, /LITERAL_FIELDS/);
+  // Deleted stale assertion (2026-10-18 re-sweep): the old reason cited the
+  // merged RIFT-359 task number. The refreshed reason names the concrete
+  // translator / error instead, so a task-number citation must stay absent.
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -237,6 +240,76 @@ test.todo(
     "are merged, but reduce-equip-cost throws by design because rule 821.1.c.2 still lacks an authoritative " +
     "Equip-cost binding"
 );
+
+test("ven-041-166 Riven, Shattered gap: the [Weaponmaster] expansion cannot reach a cost plan today", () => {
+  // Measured evidence for judgeReason point 1. Two distinct failures exist:
+  // the chain adapter does not unwrap cost.modify's source/modifier literals,
+  // and the primitive itself refuses reduce-equip-cost without the
+  // authoritative Equip-cost binding 821.1.c.2 requires.
+  // A detached Equipment keeps the negative assertion meaningful: this test
+  // must not see an attachment the fixture installed by hand.
+  const base = world()
+    .unit("riven", { might: 3, location: BATTLEFIELD })
+    .unit("sword", { types: ["gear"], tags: ["Equipment"], location: BATTLEFIELD })
+    .build();
+  const scoped = base.clone({ source: base.ref("riven"), sourceSnapshot: base.getObject("riven") });
+  assert.equal(scoped.getObject("sword").attachedTo, null);
+  scoped.setTargets("weaponmaster-equipment", [scoped.ref("sword")]);
+  const [equipmentChoice] = weaponmaster.expand({ host: { canonicalCardId: CANONICAL_ID } })[0].body;
+  const [modifyInstruction, payInstruction, attachInstruction] = equipmentChoice.args.body.value;
+
+  // The declared sequence is the printed one; only its execution is missing.
+  assert.deepEqual(
+    equipmentChoice.args.body.value.map(instruction => instruction.op),
+    ["cost.modify", "cost.pay", "effect.attach"]
+  );
+  assert.equal(modifyInstruction.args.modifier.kind, "constant");
+  assert.deepEqual(modifyInstruction.args.modifier.value, {
+    kind: "reduce-equip-cost",
+    resource: "power",
+    amount: 1,
+    domain: "any"
+  });
+  assert.equal(payInstruction.linkedTo, "weaponmaster-cost");
+  assert.equal(attachInstruction.linkedTo, "weaponmaster-pay");
+
+  // (a) Through the chain interpreter the still-wrapped modifier never parses.
+  assert.throws(
+    () => resolveChainBody(equipmentChoice.args.body.value, scoped),
+    error => error instanceof TypeError && /Invalid cost\.modify modifier argument: value/.test(error.message)
+  );
+
+  // (b) Even handed the primitive's literal shape, 821.1.c.2 has no binding:
+  // the reference unit exposes no authoritative Equip cost, so the discount
+  // must fail closed instead of guessing a generic Power reduction.
+  assert.throws(
+    () => runInstruction(costModify, {
+      source: { kind: "target", id: "weaponmaster-equipment" },
+      modifier: { kind: "reduce-equip-cost", resource: "power", amount: 1, domain: "any" }
+    }, {
+      world: scoped,
+      targets: { "weaponmaster-equipment": [scoped.ref("sword")] }
+    }),
+    error => error.reason === "judge-required" && /821\.1\.c\.2/.test(error.message)
+  );
+  // No attachment happened: the failed sequence never reached effect.attach.
+  assert.equal(scoped.getObject("sword").attachedTo, null);
+  assert.equal(scoped.linked("cost"), undefined);
+});
+
+test("ven-041-166 Riven, Shattered gap: production trigger registration stops at the here target anchor", () => {
+  // Measured evidence for judgeReason point 2: the sameLocationAs anchor the
+  // published program carries is refused by the merged filter translator, so
+  // the card registers no trigger at all.
+  const kernel = rivenWorld();
+  const source = { ...kernel.getObject("riven"), cardId: CANONICAL_ID };
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  assert.throws(
+    () => triggerRegistrations(registry, source),
+    error => error instanceof ProgramBindingError && error.code === "judge-required" &&
+      /Unsupported filter field sameLocationAs/.test(error.message)
+  );
+});
 
 test.todo(
   "ven-041-166 Riven, Shattered: resolve 'When I attack' end to end (383.4.e.2) — combat must emit the " +

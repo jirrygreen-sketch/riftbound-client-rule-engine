@@ -21,24 +21,24 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 414.1 / 414.3 / 190.6.d："draw 1" 是 effect.draw 的印刷常量 1；隐含的 "you" 是能力
  *   控制者（effect.draw 省略 player / target / pick 时取 ctx.controller）。
  *
- * status = judge-required（2026-10-17 RIFT-618 第三轮复核；结论以源码与本任务 golden 实测为准）：
+ * status = judge-required（2026-10-18 第三轮复核；结论以源码与 golden 实测为准）：
  * 1. hold 事件没有对象身份：turn/flow.ts 的 scheduleScore 以
  *    { timingPoint: "hold", player, details: { battlefieldId } } 发射（combat/flow.ts 同形），
  *    而 programs/filters.ts 的 translateTriggerFilter 把内层 source: "self" 解析成
  *    pattern.object = { objectId }；events/pipeline-match.ts 的 matchesTriggerObject 在事件
- *    没有 object 且 filter 非空时返回 false。本任务 golden 用真实翻译后的 filter 对
+ *    没有 object 且 filter 非空时返回 false。golden 用真实翻译后的 filter 对
  *    hold 载荷断言：带匹配 object 时为 true、按真实发射形状（无 object）时为 false，
  *    所以「When I hold」的同一性仍然无法匹配。
  * 2. 触发条件里的相对控制者没有统一绑定：pipeline.ts 的 evaluateTriggerCondition 走
  *    host.context(...).query，chain/engine.ts 的 context 会把 controller/owner 的
  *    self/opponent 占位符绑定到能力控制者，但游戏侧（apps/game-server
  *    engine-runtime/host.ts 的 context.query、参考内核的 query）按值比较，
- *    controller: "controller" 落空 → count 为 0。本任务 golden 实测同一条件在“未绑定”
+ *    controller: "controller" 落空 → count 为 0。golden 实测同一条件在“未绑定”
  *    查询下为 false、在绑定控制者后为 true。
  * 3. 早前列为缺口的 host.testTrigger 适配器已过时：条件谓词批次合入后 pipeline.ts 在
  *    host.testTrigger 缺失或抛 MissingInformation 时会自己调用 evaluateCondition；
  *    053.3 的 sameLocationAs / 356 的 exclude 锚点也已由 effects/interpreter/selectors.ts
- *    的 queryObjects 消费（本任务 golden 对“恰好一个其它友方单位在此”的真实求值）。
+ *    的 queryObjects 消费（golden 对“恰好一个其它友方单位在此”的真实求值）。
  * 4. body 的 effect.draw（414.1/414.3）与计数/锚点路径都有真实解释器执行证据。
  * 依赖：hold 事件的单位身份载荷（或等价的位置/对象绑定），以及触发条件查询路径统一绑定
  * 相对玩家占位符。
@@ -94,18 +94,18 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两条当前缺口（复核 2026-10-17，RIFT-618；均不近似实现）：" +
+    "两条当前缺口（复核 2026-10-18；均不近似实现）：" +
     "(1) hold 事件没有对象身份：turn/flow.ts 的 scheduleScore 只发射 " +
-    "{ timingPoint: \"hold\", player, details: { battlefieldId } }，而 translateTriggerFilter 把 " +
-    "source: \"self\" 解析成 pattern.object = { objectId }，matchesTriggerObject 对缺少 object 的事件返回 false；" +
-    "本任务 golden 用真实翻译后的 filter 断言：带匹配 object 时为真、按真实 hold 载荷（无 object）时为假，" +
+    "{ timingPoint: \"hold\", player, details: { battlefieldId } }，而 translateTriggerFilter 把 source: \"self\" " +
+    "解析成 pattern.object = { objectId }，matchesTriggerObject 对缺少 object 的事件返回 false；" +
+    "golden 用真实翻译后的 filter 断言：带匹配 object 时为真、按真实 hold 载荷（无 object）时为假，" +
     "因此 383.4.d.2.a 的「I hold」同一性仍不可匹配。" +
     "(2) 触发条件查询路径没有统一绑定相对控制者：pipeline.ts 的 evaluateTriggerCondition 走 host.context(...).query，" +
-    "chain/engine.ts 会绑定 self/opponent 占位符，但游戏侧 host.context.query（apps/game-server engine-runtime/host.ts）" +
-    "按值比较，controller: \"controller\" 落空 → count 为 0；golden 实测同一条件未绑定查询为 false、绑定控制者后为 true。" +
-    "已过时并移除的旧缺口：host.testTrigger 适配器（管线已自带 evaluateCondition 兜底）与" +
-    "053.3 的 sameLocationAs/exclude 锚点（effects/interpreter/selectors.ts 的 queryObjects 已消费）。" +
-    "413/414 的 draw 体与计数路径有真实解释器执行证据。依赖：hold 事件的单位身份载荷与相对玩家绑定的统一查询。",
+    "chain/engine.ts 会绑定 self/opponent 占位符，但游戏侧 host.context.query（apps/game-server engine-runtime/host.ts 的 query → matchesFilter）" +
+    "按值比较 controller/owner，controller: \"controller\" 落空 → count 为 0；golden 实测同一条件未绑定查询为 false、绑定控制者后为 true。" +
+    "已过时并移除的旧缺口：host.testTrigger 适配器（管线已自带 evaluateCondition 兜底）与 053.3 的 sameLocationAs/exclude 锚点" +
+    "（effects/interpreter/selectors.ts 的 queryObjects 已消费）。413/414 的 draw 体与计数路径有真实解释器执行证据。" +
+    "依赖：hold 事件的单位身份载荷与相对玩家绑定的统一查询。",
   abilities,
   sourceText: "When I hold, if there is exactly one other unit you control here, draw 1."
 } satisfies CardProgram;
