@@ -7,7 +7,8 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -118,7 +119,11 @@ test("ven-009-166 Baccai Reaper golden: the optional wrapper keeps a single stab
 });
 
 test("ven-009-166 Baccai Reaper golden: accepting pays 1 Fury Power and grants [Assault 2] this turn", () => {
-  const kernel = world().player("A", { power: ["Fury"] }).unit("baccai-reaper", { might: 4 }).build();
+  const kernel = world().player("A", { power: ["Fury"] }).unit("baccai-reaper", {
+    might: 4,
+    combatRole: "attacker",
+    location: { type: "battlefield", id: "bf-1" }
+  }).build();
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("baccai-reaper") });
   context.setAnswers({ [OPTIONAL_ID]: true });
 
@@ -147,14 +152,15 @@ test("ven-009-166 Baccai Reaper golden: accepting pays 1 Fury Power and grants [
   assert.equal(context.continuousEffects[0].effect.effect.keywordValue, 2);
   assert.deepEqual(context.continuousEffects[0].duration, { type: "end-of-turn" });
 
-  const layers = createLayerEngine(context.objects, context.continuousEffects.map((entry, index) => ({
-    effect: entry.effect,
-    duration: entry.duration,
-    timestamp: index + 1
-  })));
-  assert.deepEqual(layers.evaluate({ id: "baccai-reaper", zoneEntryId: 1 }).keywords, [
-    { id: "Assault", value: 2 }
-  ]);
+  const layers = new KeywordGrantLayerEngine(context.objects, {
+    context: source => bindResolveContext(context, { source, controller: source.controller })
+  });
+  for (const entry of context.continuousEffects) {
+    layers.addContinuous(entry.effect, entry.duration, entry.timestamp);
+  }
+  const snapshot = layers.snapshot({ id: "baccai-reaper", zoneEntryId: 1 });
+  assert.deepEqual(snapshot.keywords, [{ id: "Assault", value: 2 }]);
+  assert.equal(snapshot.might, 6);
 });
 
 test("ven-009-166 Baccai Reaper golden: the payment fails closed with an empty Power pool and no grant runs", () => {
@@ -213,8 +219,8 @@ test.todo(
 );
 
 test.todo(
-  "ven-009-166 Baccai Reaper: expand the granted [Assault 2] into the attacker Might bonus (807.1.c) - " +
-    "the grant only adds a keyword entry and Assault's own condition needs the production " +
-    "'designation' reading"
+  "ven-009-166 Baccai Reaper: route the granted [Assault 2] through the default CardProgram lifecycle " +
+    "so its production layers consume the attacker Might bonus; the isolated KeywordGrantLayerEngine " +
+    "adapter covers designation/combatRole aliasing, but attachProgramLifecycle still installs LayerEngine"
 );
 

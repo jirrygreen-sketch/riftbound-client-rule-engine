@@ -23,33 +23,47 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （所有 “this turn” 效果同时到期）处理。“a unit” 是结算期选择（355.5 的 Choice），
  *   按契约 3.6 写成 TargetSpec。
  *
- * 复核（2026-10-17，第二轮 M2 覆盖率复核）：continuous.grant-keyword 已注册并真实执行；
- * 真实缺口只剩追加费用绑定与费用回执条件。授予指令显式引用 gust-monk.unit，
- * golden 执行原始 body，断言所选单位获得 Assault 2、来源不受影响及 turn-end 到期。
+ * 复核（2026-10-18，第三轮 M2 覆盖率复核）：continuous.grant-keyword、
+ * effect.banish 与 356.4.f.1 的 result 条件谓词均已合入并可真实执行；本卡把
+ * “if you paid the additional cost” 放在 card-played 触发条件上，和同类
+ * Frostcoat Cub / Sea Monkey 保持同一契约形状。golden 执行原始 body，断言所选单位
+ * 获得 Assault 2、来源不受影响及 turn-end 到期；费用规划与 card-played 回执投递仍留在
+ * judgeReason 的生产接线缺口中。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required，缺口均不近似实现：
- * 1. 可选追加费用没有消费方：effects/instructions/ 下没有 cost.additional 原语，也没有把卡牌程序
- *    声明的 CostSpec 接进 cost/ 计划的入口（buildCostPlan 只消费调用方传入的 optionalAdditional，
- *    programs/play.ts 的 translateCost 对 additional-cost 直接 judgeRequired）。
- *    程序按契约形状保留 play.cost 声明，不自行收费。
- * 2. “if you paid the additional cost” 没有可求值的凭据形态：356.4.f.1 的凭证是“玩家决定支付”，
- *    而冻结的 Condition/Expr 读不到费用计划的回执（同 ogn/clockwork-keeper、ogn/wallop 的
- *    condition.result 缺口；条件谓词属进行中任务 RIFT-359 的相邻范围）。
- * 3. 已合入部分：“give a unit [Assault 2] this turn” 的 continuous.grant-keyword 原语已注册，
- *    golden 断言 ability 图层注册与 end-of-turn 到期。
- * 已支持部分：“banish a card from any trash” 用已合入的 effect.banish + 非目标 pick 在参考内核里
- * 真实执行（含任意一方垃圾场），见 golden 测试。
+ * 1. 可选追加费用没有卡牌侧消费方：cost.additional 的计划词汇与 additional cost kind 已合入，
+ *    但 programs/play.ts 仍拒绝 CardProgram 的 additional-cost 声明，buildCostPlan 只消费调用方
+ *    传入的 optionalAdditional；因此 356.2.b.1 的 1 Energy 还不能进入该卡的 Finalize。
+ * 2. “if you paid the additional cost” 的 Condition kind "result" 已合入并可读取模拟回执，
+ *    但 card-played 触发没有收到被打出牌的 item.payment 结果，生产触发条件仍以
+ *    MissingInformation 失败闭合（356.4.f.1）。
+ * 3. 已合入并真实执行：continuous.grant-keyword 的 Assault 2 授予、effect.banish 的任意垃圾场
+ *    选择，以及 end-of-turn 到期；关键词重展开与 Assault Might 消费由独立的
+ *    KeywordGrantLayerEngine adapter 覆盖，但默认 CardProgram lifecycle 尚未接入该 adapter。
  */
 const abilities: Ability[] = [
   {
-    kind: "play",
-    // 356.2.b / 356.2.b.1：可选追加费用「1 Energy」。声明形状按契约数据保留，收费与凭据
-    // 消费方未合入（见 judgeReason 第 1、2 点）。
-    cost: {
-      kind: "additional-cost",
+    kind: "static",
+    effect: {
+      // 356.2.b / 356.2.b.1：可选追加费用「1 Energy」。收费与凭据消费方未合入，
+      // 但 CardProgram 先按静态费用契约声明，不能把费用伪造成结算期效果。
+      kind: "cost.additional",
+      id: "gust-monk.additional-cost",
+      appliesTo: "self",
       optional: true,
+      stage: "optional-additional",
       payments: [{ kind: "energy", amount: { kind: "constant", value: 1 } }]
+    }
+  },
+  {
+    kind: "triggered",
+    trigger: {
+      at: "card-played",
+      filter: { event: "card-played", filter: { source: "self" } },
+      // 356.4.f.1：是否支付由追加费用回执记录，支付数额不是这里的条件。
+      condition: { kind: "result", result: "additional-cost-paid", id: "gust-monk.additional-cost" }
     },
+    optional: false,
     body: [
       {
         id: "gust-monk.banish-a-card-from-any-trash",
@@ -103,15 +117,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口与一处已合入证据：(1)「You may pay :rb_energy_1: as an additional cost to play me」是 " +
-    "356.2.b/356.2.b.1 的可选追加费用，但 effects/instructions/ 下没有 cost.additional 原语，" +
-    "也没有把卡牌程序的 CostSpec 接进 cost/ 计划的入口（buildCostPlan 只消费调用方传入的 optionalAdditional，" +
-    "programs/play.ts 的 translateCost 对 additional-cost 直接 judgeRequired）；" +
-    "(2)「if you paid the additional cost」按 356.4.f.1 以「玩家决定支付」为凭证，冻结的 Condition/Expr " +
-    "没有读取费用回执的形态（condition.result 缺口，同 clockwork-keeper/wallop；条件谓词属进行中任务 RIFT-359）；" +
-    "(3) 已合入部分：「give a unit [Assault 2] this turn」的 continuous.grant-keyword 原语已注册，" +
-    "golden 执行原始 body，断言所选单位获得 Assault 2、来源不受影响及 end-of-turn 到期。" +
-    "已支持部分：「banish a card from any trash」用 effect.banish + 非目标 pick（355.10.c.1/428.5）在 golden 中真实执行。",
+    "两处当前生产接线缺口，均不近似实现：(1)「You may pay :rb_energy_1: as an additional cost to play me」是 " +
+    "356.2.b/356.2.b.1 的可选追加费用；cost.additional 的计划词汇已合入，但 programs/play.ts 仍拒绝 " +
+    "CardProgram 的 additional-cost 声明，buildCostPlan 只消费调用方传入的 optionalAdditional，因此 1 Energy " +
+    "还不能进入该卡的 Finalize。(2)「if you paid the additional cost」的 Condition kind \"result\" 已合入，" +
+    "但 card-played 触发没有收到被打出牌的 item.payment 结果，生产条件仍以 MissingInformation 失败闭合（356.4.f.1）。" +
+    "已合入并有真实执行证据：effect.banish + 非目标 pick、continuous.grant-keyword 的 Assault 2 授予与 " +
+    "end-of-turn 到期；KeywordGrantLayerEngine 可在独立 adapter 中重展开 Assault 的攻击者 Might，默认 CardProgram " +
+    "lifecycle 尚未接入该 adapter。",
   abilities,
   sourceText:
     "You may pay :rb_energy_1: as an additional cost to play me.\n" +

@@ -14,6 +14,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/grumpy-rockbear.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -50,6 +52,7 @@ test("grumpy-rockbear: judgeReason names the keyword, cost and layer gaps with t
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /442\.1\.a/);
   assert.match(program.judgeReason, /empower-activation-cost/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
   assert.match(program.judgeReason, /RIFT-359/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -143,6 +146,35 @@ test("grumpy-rockbear golden: the [Empowered] clause really grants Deflect 1 and
   assert.equal(evaluated.might, 6);
 });
 
+test("grumpy-rockbear golden: the merged keyword-grant adapter applies Shield 3 to a defender", () => {
+  const kernel = world().unit("grumpy-rockbear", {
+    types: ["unit"], zone: "board", owner: "A", controller: "A", might: 6,
+    combatRole: "defender", location: { type: "battlefield", id: "bf-1" }
+  }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("grumpy-rockbear") });
+  const outcome = runAbilityBody([{
+    id: "grumpy-rockbear.grant-keywords",
+    op: "continuous.grant-keyword",
+    args: {
+      keywords: { kind: "constant", value: grantedKeywords.effect.keywords },
+      appliesTo: { kind: "constant", value: "self" }
+    }
+  }], context);
+  assert.equal(outcome.status, "executed");
+  const layers = new KeywordGrantLayerEngine(context.objects, {
+    context: source => bindResolveContext(context, { source, controller: source.controller })
+  });
+  for (const entry of context.continuousEffects) {
+    layers.addContinuous(entry.effect, entry.duration, entry.timestamp);
+  }
+  const snapshot = layers.snapshot(context.ref("grumpy-rockbear"));
+  assert.deepEqual(snapshot.keywords, [
+    { id: "Deflect", value: 1 },
+    { id: "Shield", value: 3 }
+  ]);
+  assert.equal(snapshot.might, 9);
+});
+
 test("grumpy-rockbear: merged Empower expands, but its printed cost is not carried by KeywordAbility", () => {
   const f = fixture({
     cards: [{ id: "grumpy", cardId: program.canonicalCardId, types: ["unit"], might: 6 }]
@@ -170,5 +202,5 @@ test.todo(
     "fails closed when bound (Unsupported static appliesTo)"
 );
 test.todo(
-  "grumpy-rockbear: integrate granted Deflect Power tax and Shield defender expansion through Chain Finalize/combat; state-gated grant subset is covered by the template"
+  "grumpy-rockbear: route the granted Deflect Power tax and Shield defender expansion through the default CardProgram lifecycle and Chain Finalize; the isolated KeywordGrantLayerEngine adapter covers the Shield combatRole/designation alias"
 );

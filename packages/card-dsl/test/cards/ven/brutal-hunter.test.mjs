@@ -18,6 +18,8 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { evaluateExpression } from "../../../../engine-core/dist/effects/interpreter/expr.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -58,6 +60,7 @@ test("ven-070-166 Brutal Hunter: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /827\.1\.c/);
   assert.match(program.judgeReason, /3\.8\.3/);
   assert.match(program.judgeReason, /Unsupported cost kind empower|Unsupported payment kind/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine|attachProgramLifecycle/);
   // The stale "no Empower/Empowered KeywordDef" and "no status predicate"
   // claims are gone: RIFT-593 merged both.
   assert.ok(!/没有 Empower \/ Empowered 的 KeywordDef/.test(program.judgeReason));
@@ -142,6 +145,32 @@ test("ven-070-166 Brutal Hunter golden: the card's own [Empowered] clauses regis
   assert.equal(after.empowered, 1);
   assert.equal(after.might, 6);
   assert.deepEqual(after.keywords.map(keyword => [keyword.id, keyword.value]), [["Ganking", undefined]]);
+});
+
+test("ven-070-166 Brutal Hunter golden: the merged keyword-grant adapter expands Ganking into movement permission", () => {
+  const kernel = world().unit("brutal-hunter", {
+    types: ["unit"], zone: "board", owner: "A", controller: "A", might: 4,
+    location: { type: "battlefield", id: "bf-1" }
+  }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("brutal-hunter") });
+  const outcome = runAbilityBody([{
+    id: "brutal-hunter.grant-ganking",
+    op: "continuous.grant-keyword",
+    args: {
+      keyword: { kind: "constant", value: "Ganking" },
+      appliesTo: { kind: "constant", value: "self" }
+    }
+  }], context);
+  assert.equal(outcome.status, "executed");
+  const layers = new KeywordGrantLayerEngine(context.objects, {
+    context: source => bindResolveContext(context, { source, controller: source.controller })
+  });
+  for (const entry of context.continuousEffects) {
+    layers.addContinuous(entry.effect, entry.duration, entry.timestamp);
+  }
+  const snapshot = layers.snapshot(context.ref("brutal-hunter"));
+  assert.deepEqual(snapshot.keywords, [{ id: "Ganking" }]);
+  assert.equal(snapshot.movement.canGank, true);
 });
 
 test("ven-070-166 Brutal Hunter: a missing Empowered reading is information-missing, never a satisfied gate", () => {

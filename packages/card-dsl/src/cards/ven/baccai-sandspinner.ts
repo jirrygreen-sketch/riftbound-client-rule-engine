@@ -18,11 +18,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 3. Empowered 门控：本卡用 object-property(self, "empowered")，实测参考内核路径可求值
  *    （Empower 后 keywords 里出现 deflect 1 与 assault 2），但 ObjectSnapshot 契约没有
  *    empowered 字段、engine-runtime/host.ts 也不提供。
- * 4. 授予的关键词不展开：实测 granted assault 2 只出现在 keywords 列表，might 不变
- *    （Assault 自身条件读 "designation"，默认解释器抛 MissingInformation），807.1.c 的
- *    “攻击者时 +2 Might” 不会发生；809.1.c 的 Deflect Power 目标税也没有生产适配器——
- *    Deflect 展开的 { kind: "target.tax" } 在 bindStatic 抛 'no layer mapping'，
- *    chain/engine.ts 仍把目标税写成 Energy。
+ * 4. KeywordGrantLayerEngine 已能在独立 adapter 中重展开 granted Assault 2 / Deflect 1，
+ *    并按 combatRole/designation 计算攻击者 Might；默认 CardProgram lifecycle 仍使用基础
+ *    LayerEngine，所以生产图层只登记关键词，不消费 Assault 修正。Deflect 展开的
+ *    { kind: "target.tax" } 仍在 bindStatic 抛 'no layer mapping'，Chain Finalize 也没有
+ *    Power 目标税消费方。
  */
 const abilities: Ability[] = [
   {
@@ -87,9 +87,10 @@ export default {
     "只能写绝对玩家 id，无法跟随控制者，因此不能用测试内符号替换冒充生产已实现。" +
     "(3) 442.1.a/828.1.b.1 的 Empowered 门控：卡牌用 object-property(self, \"empowered\")，实测参考内核路径可求值（Empower 后 keywords 出现 deflect 1 与 assault 2），" +
     "但 ObjectSnapshot 契约没有 empowered 字段、engine-runtime/host.ts 也不提供。" +
-    "(4) 授予（continuous.grant-keyword 本身已合入并可绑定）后的展开与目标税都缺失：实测 granted assault 2 只在 keywords 列表，might 不变（Assault 条件读 \"designation\" 抛 MissingInformation），" +
-    "807.1.c 的攻击者 +2 Might 不会发生；809.1.c 的 Deflect Power 目标税没有适配器——Deflect 展开的 target.tax 在 bindStatic 抛 \"no layer mapping\"，" +
-    "chain/engine.ts 的 target tax 仍写为 Energy。不近似实现。",
+    "(4) continuous.grant-keyword 本身已合入；独立 KeywordGrantLayerEngine adapter 可把 granted Assault 2 / Deflect 1 " +
+    "重展开，并按 combatRole/designation 计算攻击者 Might，但默认 CardProgram lifecycle 仍使用基础 LayerEngine，" +
+    "生产图层只登记关键词而不消费该修正。809.1.c 的 Deflect Power 目标税仍没有生产适配器——Deflect 展开的 " +
+    "target.tax 在 bindStatic 抛 \"no layer mapping\"，Chain Finalize 没有 Power tax 消费方。不近似实现。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_5:. This ability costs :rb_energy_3: less if you control 4 or fewer runes. " +

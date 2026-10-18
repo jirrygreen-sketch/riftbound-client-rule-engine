@@ -12,6 +12,8 @@ import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -184,6 +186,35 @@ test("ven-117-166 golden: the declared Grant-Keyword adds Shield 3 to the layere
   assert.deepEqual(evaluated.keywords, [{ id: "shield", value: 3 }]);
 });
 
+test("ven-117-166 golden: the merged keyword-grant adapter applies Shield 3 to a defender", () => {
+  const kernel = world().unit("disciple", {
+    controller: "controller",
+    might: 1,
+    combatRole: "defender",
+    types: ["unit"],
+    location: { type: "battlefield", id: "bf-1" }
+  }).build().clone({ controller: "controller" });
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("disciple") });
+  const outcome = runAbilityBody([{
+    id: "disciple-of-shen.grant-shield",
+    op: "continuous.grant-keyword",
+    args: {
+      keywords: { kind: "constant", value: shieldGrant.effect.keywords },
+      appliesTo: { kind: "constant", value: "self" }
+    }
+  }], context);
+  assert.equal(outcome.status, "executed");
+  const layers = new KeywordGrantLayerEngine(context.objects, {
+    context: source => bindResolveContext(context, { source, controller: source.controller })
+  });
+  for (const entry of context.continuousEffects) {
+    layers.addContinuous(entry.effect, entry.duration, entry.timestamp);
+  }
+  const snapshot = layers.snapshot(context.ref("disciple"));
+  assert.deepEqual(snapshot.keywords, [{ id: "Shield", value: 3 }]);
+  assert.equal(snapshot.might, 4);
+});
+
 test("ven-117-166 evidence: the Hidden expansion has no production layer mapping", () => {
   // 811.1.c/811.1.d: Hidden expands to a static hidden-cost effect. The real
   // binder rejects that kind, and attachProgramLifecycle swallows the error, so
@@ -266,7 +297,8 @@ test.todo(
 );
 
 test.todo(
-  "ven-117-166 Disciple of Shen: re-expand the granted Shield 3 into the defender Might bonus " +
-    "(814.1.c) - Shield's condition reads designation, which the default interpreter rejects"
+  "ven-117-166 Disciple of Shen: route the granted Shield 3 through the default CardProgram lifecycle " +
+    "so production layers consume the defender Might bonus; the isolated KeywordGrantLayerEngine adapter " +
+    "already covers the combatRole/designation alias (814.1.c)"
 );
 

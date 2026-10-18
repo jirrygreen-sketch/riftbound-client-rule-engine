@@ -29,9 +29,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    生产路径里计数恒 0、条件恒假。
  * 3. 条件里的 sameLocationAs / exclude 在图层匹配器里被忽略：实测 matchesObjectFilter 对
  *    “不同战场”的单位同样返回 true，位置与“其它”语义都不参与匹配（355.9.c、359.3.f）。
- * 4. 授予后的关键词不展开：Shield 自身的条件读 "designation"，默认解释器实测抛
- *    MissingInformation: Unavailable characteristic: designation，814.1.c 的
- *    “防守者时 +3 Might” 不会发生；ObjectSnapshot.combatRole 也没有生产写入方。
+ * 4. KeywordGrantLayerEngine 已能在独立 adapter 中重展开 Shield 3，并把
+ *    combatRole/defender 别名接到 814.1.c 的 +3 Might；默认 CardProgram lifecycle 仍使用
+ *    基础 LayerEngine，生产授予只登记关键词而不消费该修正，且战斗流程没有稳定写入
+ *    defender designation 的统一接线。
  * golden 中的 condition.predicate 只覆盖解释器路径，且测试内核的玩家 id 恰好字面叫
  * “controller”——它不证明生产链路。
  */
@@ -79,8 +80,9 @@ export default {
     "（同一对象只有写成绝对玩家 id 才命中），生产路径里计数恒 0、条件恒假，814.1.c 的“恰好一个其它友方单位在此”无法被诚实求值。" +
     "(3) 条件的 sameLocationAs/exclude 在图层匹配器里被忽略：实测 matchesObjectFilter 对“不同战场”的单位同样返回 true，" +
     "位置与“其它”语义都不参与匹配（355.9.c、359.3.f）。" +
-    "(4) 授予后的关键词不展开：Shield 条件读 \"designation\"，默认解释器实测抛 MissingInformation，" +
-    "814.1.c 的“防守者时 +3 Might”不会发生；ObjectSnapshot.combatRole 也没有生产写入方。" +
+    "(4) continuous.grant-keyword 后的 Shield 重展开已有独立 KeywordGrantLayerEngine adapter，" +
+    "可按 combatRole/defender 别名计算 814.1.c 的 +3 Might；默认 CardProgram lifecycle 仍使用基础 LayerEngine，" +
+    "生产授予只登记关键词，战斗流程也没有稳定写入 defender designation 的统一接线。" +
     "golden 的 condition.predicate 只覆盖解释器路径，且测试内核的玩家 id 恰好字面叫 \"controller\"。",
   abilities,
   sourceText:

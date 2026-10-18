@@ -10,6 +10,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { ChainContractBlockedError } from "../../../../engine-core/dist/chain/engine.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
@@ -56,11 +57,12 @@ test("ven-088-166 Jayce: identity, ruleset, status, judgeReason and verbatim sou
     "the reason names only current gaps: " + program.judgeReason);
   // Real gap 1: the chain adapter rejects mode choices at Finalize.
   assert.match(program.judgeReason, /choice\.mode|Finalize\/Resolve choice-plan/);
-  // Real gap 2/3: keyword consumers (Assault designation, Deflect target tax,
-  // Ganking move permission have no production consumer).
+  // The isolated keyword adapter is merged, but the default CardProgram
+  // lifecycle and Deflect Power payment path are not wired.
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /target\.tax/);
-  assert.match(program.judgeReason, /routeBlocked|battlefield-to-battlefield/);
+  assert.match(program.judgeReason, /battlefield-to-battlefield/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -183,19 +185,49 @@ test("ven-088-166 probe: the ready trigger enters the chain, then mode choice st
   assert.deepEqual(f.kernel.getObject("hammer").keywords, []);
 });
 
-test("ven-088-166 Jayce probe: the granted Assault never changes Might because the layer reads `designation`, not `combatRole`", () => {
+test("ven-088-166 Jayce probe: the default lifecycle still does not re-expand the granted Assault", () => {
   const base = world().unit("hammer", { zone: "board", might: 5, combatRole: "attacker" }).build();
   const kernel = base.clone({ sourceSnapshot: base.getObject("hammer") });
   const outcome = runAbilityBody([assault2.body[0]], kernel);
   assert.equal(outcome.status, "executed");
   const layers = createLayerEngine(kernel.objects, kernel.continuousEffects, { timingPoint: "combat-start" });
-  // Assault.ts expands to continuous.might gated on object-property
-  // "designation"; the frozen ObjectSnapshot exposes only combatRole, so the
-  // condition is unreadable/false and Might stays at its base value.
+  // The isolated KeywordGrantLayerEngine adapter aliases combatRole to the
+  // keyword definition's designation property. The default lifecycle still
+  // uses LayerEngine and only exposes the granted keyword.
   const evaluated = layers.evaluate(base.ref("hammer"));
   assert.equal(evaluated.combatRole, "attacker");
   assert.equal(evaluated.might, 5);
   assert.ok(!Object.hasOwn(evaluated, "designation"));
+});
+
+test("ven-088-166 Jayce golden: the merged keyword adapter re-expands Assault, Deflect and Ganking", () => {
+  const base = world().unit("hammer", {
+    cardId: CANONICAL, types: ["unit"], zone: "board", might: 5,
+    combatRole: "attacker", location: { type: "battlefield", id: "bf-1" }
+  }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("hammer") });
+  const outcome = runAbilityBody(
+    [assault2.body[0], deflect2.body[0], gankingMode.body[0]],
+    kernel
+  );
+  assert.equal(outcome.status, "executed");
+  const layers = new KeywordGrantLayerEngine(kernel.objects, {
+    context: source => bindResolveContext(kernel, { source, controller: source.controller })
+  });
+  for (const entry of kernel.continuousEffects) {
+    layers.addContinuous(entry.effect, entry.duration, entry.timestamp);
+  }
+  const snapshot = layers.snapshot(kernel.ref("hammer"));
+  assert.deepEqual(snapshot.keywords, [
+    { id: "Assault", value: 2 },
+    { id: "Deflect", value: 2 },
+    { id: "Ganking" }
+  ]);
+  assert.equal(snapshot.might, 7);
+  assert.equal(snapshot.movement.canGank, true);
+  assert.deepEqual(layers.keywordAbilities(kernel.ref("hammer")).map(ability => ability.effect.kind), [
+    "continuous.might", "target.tax", "continuous.movement"
+  ]);
 });
 
 test("ven-088-166 Jayce probe: the granted Deflect's static tax has no production binding", () => {

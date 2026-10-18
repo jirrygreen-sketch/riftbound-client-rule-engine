@@ -6,8 +6,9 @@ import program from "../../../dist/cards/ven/gust-monk.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import banish from "../../../../engine-core/dist/effects/instructions/effect.banish.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 
 const CANONICAL_ID =
   "card.hash-ac392c4087040dcdd16d8c56b9819899610a8873fb5b8314becec875dc3ef0a1";
@@ -16,8 +17,8 @@ const SOURCE_TEXT =
   "When you play me, if you paid the additional cost, banish a card from any trash to give a unit " +
   "[Assault 2] this turn. (+2 :rb_might: while it's an attacker.)";
 
-const [play] = program.abilities;
-const [banishInstruction, assaultInstruction] = play.body;
+const [additionalCost, played] = program.abilities;
+const [banishInstruction, assaultInstruction] = played.body;
 
 const trashKernel = ({ owner }) => {
   const builder = world().player("A").player("B");
@@ -39,23 +40,38 @@ test("ven-101-166 Gust Monk: identity, status, judgeReason and verbatim sourceTe
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /cost\.additional/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /translateCost/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /programs\/play\.ts/);
+  assert.match(program.judgeReason, /item\.payment/);
+  assert.doesNotMatch(program.judgeReason, /condition\.result 缺口|RIFT-359/);
 });
 
 test("ven-101-166 Gust Monk: the printed optional additional cost is declared", () => {
-  assert.equal(play.kind, "play");
+  assert.equal(additionalCost.kind, "static");
+  assert.equal(additionalCost.effect.kind, "cost.additional");
+  assert.equal(additionalCost.effect.id, "gust-monk.additional-cost");
+  assert.equal(additionalCost.effect.appliesTo, "self");
   // 356.2.b / 356.2.b.1：「may … as an additional cost」是可选的追加费用。
-  assert.equal(play.cost.kind, "additional-cost");
-  assert.equal(play.cost.optional, true);
-  assert.deepEqual(play.cost.payments, [
+  assert.equal(additionalCost.effect.optional, true);
+  assert.equal(additionalCost.effect.stage, "optional-additional");
+  assert.deepEqual(additionalCost.effect.payments, [
     { kind: "energy", amount: { kind: "constant", value: 1 } }
   ]);
 });
 
+test("ven-101-166 Gust Monk: the card-played ability gates on the real additional-cost result predicate", () => {
+  assert.equal(played.kind, "triggered");
+  assert.equal(played.trigger.at, "card-played");
+  assert.deepEqual(played.trigger.filter, { event: "card-played", filter: { source: "self" } });
+  assert.deepEqual(played.trigger.condition, {
+    kind: "result",
+    result: "additional-cost-paid",
+    id: "gust-monk.additional-cost"
+  });
+});
+
 test("ven-101-166 Gust Monk: banish a card from any trash, then grant Assault 2 this turn", () => {
   assert.deepEqual(
-    play.body.map(instruction => [instruction.id, instruction.op]),
+    played.body.map(instruction => [instruction.id, instruction.op]),
     [
       ["gust-monk.banish-a-card-from-any-trash", "effect.banish"],
       ["gust-monk.give-assault-2", "continuous.grant-keyword"]
@@ -133,21 +149,25 @@ test("ven-101-166 golden: an empty trash negates the banish instead of inventing
 
 test.todo(
   "ven-101-166 Gust Monk: charge the optional 1-Energy additional cost (356.2.b / 356.2.b.1) — " +
-    "effects/instructions/ has no cost.additional primitive and buildCostPlan only consumes a caller-supplied " +
-    "optionalAdditional; programs/play.ts translateCost judge-requires additional-cost"
+    "cost.additional is declared, but programs/play.ts still rejects the CardProgram additional-cost " +
+    "declaration and buildCostPlan only consumes a caller-supplied optionalAdditional"
 );
 
 test.todo(
   "ven-101-166 Gust Monk: decide 'if you paid the additional cost' (356.4.f.1) — the frozen Condition/Expr " +
-    "cannot read a cost-plan receipt (the recorded condition.result gap; adjacent to in-progress RIFT-359)"
+    "predicate is merged, but card-played still needs the item's payment receipt injected into Resolve"
 );
 
 test(
   "ven-101-166 golden: the original body banishes a card and grants only the chosen unit Assault 2 until turn-end",
   () => {
     const base = world()
-      .unit("gust-monk", { might: 2 })
-      .unit("chosen-unit", { might: 3 })
+      .unit("gust-monk", { might: 2, location: { type: "battlefield", id: "bf-1" } })
+      .unit("chosen-unit", {
+        might: 3,
+        combatRole: "attacker",
+        location: { type: "battlefield", id: "bf-1" }
+      })
       .card("trash-card", { zone: "trash", owner: "B" })
       .build();
     const kernel = base.clone({ sourceSnapshot: base.getObject("gust-monk") });
@@ -157,7 +177,7 @@ test(
 
     // Exercise the supported effect body only. Additional-cost payment and its
     // receipt gate remain TODO; no payment receipt is fabricated here.
-    const outcome = runAbilityBody(play.body, kernel);
+    const outcome = runAbilityBody(played.body, kernel);
     assert.equal(outcome.status, "executed");
     assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
       [banishInstruction.id, "executed"],
@@ -174,11 +194,17 @@ test(
     assert.equal(registration.effect.effect.keyword, "assault");
     assert.equal(registration.effect.effect.keywordValue, 2);
     assert.deepEqual(registration.duration, { type: "end-of-turn" });
-    const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
-    assert.deepEqual(layers.evaluate(chosen).keywords, [{ id: "assault", value: 2 }]);
+    const layers = new KeywordGrantLayerEngine(kernel.objects, {
+      context: source => bindResolveContext(kernel, { source, controller: source.controller })
+    });
+    for (const entry of kernel.continuousEffects) {
+      layers.addContinuous(entry.effect, entry.duration, entry.timestamp);
+    }
+    assert.deepEqual(layers.snapshot(chosen).keywords, [{ id: "Assault", value: 2 }]);
+    assert.equal(layers.snapshot(chosen).might, 5);
     assert.deepEqual(layers.evaluate(kernel.ref("gust-monk")).keywords, []);
     assert.deepEqual(layers.expireAt("turn-end"), [registration.effect.id]);
-    assert.deepEqual(layers.evaluate(chosen).keywords, []);
-    assert.deepEqual(layers.evaluate(kernel.ref("gust-monk")).keywords, []);
+    assert.deepEqual(layers.snapshot(chosen).keywords, []);
+    assert.deepEqual(layers.snapshot(kernel.ref("gust-monk")).keywords, []);
   }
 );

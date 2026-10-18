@@ -49,12 +49,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   params.cost，programs/keywords.ts 也不透传它；本卡的 12 Energy 与 per-rune 减费无法进入展开，
  *   默认占位 cost.kind "empower" 会被 translateCost 拒绝；(b) 442.1.a 的 Empowered 状态谓词——
  *   生产 ObjectSnapshot / Condition 都没有该二元状态，
- *   layers/engine.ts 的 conditionMatches 对未知 condition kind 落回 true，所以两条静态
- *   效果的门控不可求值，进行中任务 RIFT-359 覆盖条件谓词；(c) 费用改写静态效果
+ *   生产默认 lifecycle 尚未把所有 Empowered 状态变化接入 CardProgram；(c) 费用改写静态效果
  *   （continuous.cost-modification, appliesTo "empower-activation-cost"）在
  *   programs/statics.ts 的 layerFor/staticTarget 里没有映射，bind 时 fail-closed
  *   （实测 Unsupported static appliesTo）；被授予的 Deflect 的目标税消费方
- *   （target.tax / TargetTaxAdapter）已随 RIFT-90 合入，本卡不再把该消费列为缺口。
+ *   （target.tax / TargetTaxAdapter）已有独立 adapter 形状，但默认 CardProgram lifecycle
+ *   仍未把 Deflect 的 Power tax 接入 Chain Finalize；Shield 的 defender Might 也只在
+ *   KeywordGrantLayerEngine 隔离路径重展开。
  * 依赖新增 Empower/Empowered 关键词任务与 442.1.a 的状态谓词。
  */
 const abilities: Ability[] = [
@@ -107,7 +108,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "827.1.c.1/827.1.c.3/827.1.c.5：KeywordAbility 尚无 params.cost，expandProgram 无法传印刷 12 Energy，且 continuous.cost-modification 的 empower-activation-cost 无静态绑定与费用消费方。逐符文折扣现显式声明负 rune count，但 count.filter.controller:self 尚无相对玩家求值，现会错误计为 0；不把缺失费用变成免费启动。828.1.c 的 Empowered 门控现用 self.empowered 比较，continuous.grant-keyword 可在参考内核随 Empower/Disempower 授予并撤销 Deflect 1 / Shield 3；442.1.a 的生产 ObjectSnapshot 状态契约与二元限制仍缺（RIFT-359）。授予关键词尚未自动重绑定 Shield 的防守者 Might 展开，Deflect 的 Power 税仍需接入 Chain Finalize；子集证据不证明整卡可执行。",
+    "827.1.c.1/827.1.c.3/827.1.c.5：KeywordAbility 尚无 params.cost，expandProgram 无法传印刷 12 Energy，且 continuous.cost-modification 的 empower-activation-cost 无静态绑定与费用消费方。逐符文折扣现显式声明负 rune count，但 count.filter.controller:self 尚无相对玩家求值，现会错误计为 0；不把缺失费用变成免费启动。828.1.c / 442.1.a 的 Empowered 门控与 continuous.grant-keyword 已在参考内核按 Empower/Disempower 授予并撤销 Deflect 1 / Shield 3；默认 CardProgram lifecycle 仍没有统一的 Empowered 状态与关键词展开接线（RIFT-359）。独立 KeywordGrantLayerEngine 可重展开 Shield 的 defender Might，Deflect 的 target.tax 也有展开形状，但二者仍需接入默认 lifecycle 与 Chain Finalize 的 Power tax；子集证据不证明整卡可执行。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_12:. This ability costs :rb_energy_1: less for each rune you control. (Pay the cost: Empower me. Use only if not Empowered.)\n" +
