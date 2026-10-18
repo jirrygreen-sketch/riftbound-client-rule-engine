@@ -27,7 +27,7 @@ test("unl-070-219 Turn to Dust: identity, status, judgeReason and verbatim sourc
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /continuous\.keyword|continuous\.grant-keyword/);
   assert.match(program.judgeReason, /816/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
   assert.match(program.judgeReason, /beginning-start/);
 });
 
@@ -116,5 +116,6 @@ test("unl-070-219 Turn to Dust golden: the granted Temporary expansion is a real
 test.todo(
   "unl-070-219 Turn to Dust: the granted [Temporary] trigger (CR 816.1.b) killing the gear at the start of its " +
     "controller's Beginning Phase through the keyword expansion and trigger pipeline - runtime keyword grants must be " +
-    "expanded into TriggerRegistrations, and beginning-start must join the closed event-pattern vocabulary (RIFT-257 / RIFT-120)"
+    "expanded into TriggerRegistrations by the production layer assembly with a lifecycle binder for triggered keyword " +
+    "abilities, and beginning-start must join the closed event-pattern vocabulary"
 );
