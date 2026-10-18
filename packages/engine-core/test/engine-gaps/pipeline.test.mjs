@@ -15,12 +15,13 @@ import frigidJewel from '../../../card-dsl/dist/cards/unl/frigid-jewel.js';
 import karthusEternal from '../../../card-dsl/dist/cards/ogn/karthus-eternal.js';
 
 test('EG-PIPELINE: one per-batch trigger is collected for an atomic multi-object draw, then a new batch is independent', () => {
-  const f = fixture();
+  const f = fixture({ choose: request => request.type === 'mode' ? request.options[0] : undefined });
   trigger(f, 'once-per-batch', { body: [], spec: { at: 'card-drawn', once: 'per-batch' } });
 
   f.engine.commit({ type: 'draw', player: 'A', amount: 2 });
-  assert.equal(f.engine.items.length, 1);
+  assert.equal(f.engine.items.length, 2);
   assert.equal(f.engine.items[0].trigger.batchId, f.engine.pipeline.events.find(event => event.timingPoint === 'card-drawn').batchId);
+  assert.notEqual(f.engine.items[0].trigger.event.eventId, f.engine.items[1].trigger.event.eventId);
 
   f.engine.advance();
   resolveAll(f.engine);
@@ -75,7 +76,8 @@ test('EG-PIPELINE: source-scoped suppression follows zone lifecycle and is colle
 });
 
 test('EG-PIPELINE: malformed trigger ordering rolls back events, frequency usage, and dynamic rules', () => {
-  const f = fixture({ choose: request => request.type === 'mode' ? 'missing' : undefined });
+  let validOrder = false;
+  const f = fixture({ choose: request => request.type === 'mode' ? (validOrder ? request.options[0] : 'missing') : undefined });
   trigger(f, 'one', { body: [], spec: { at: 'turn-end', once: 'per-turn' } });
   trigger(f, 'two', { body: [], spec: { at: 'turn-end' } });
   f.engine.pipeline.registerTriggerRule(additionalTriggerRule({
@@ -90,9 +92,12 @@ test('EG-PIPELINE: malformed trigger ordering rolls back events, frequency usage
   // The rule remains registered after a failed action checkpoint, while the
   // failed batch and its once reservation do not.
   const before = f.engine.pipeline.events.length;
+  validOrder = true;
   f.engine.pipeline.unregisterTrigger('two');
   f.engine.emit({ timingPoint: 'turn-end' });
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === 'turn-end').length, 1);
+  assert.equal(f.engine.items.length, 2);
+  f.engine.advance();
   assert.equal(f.engine.items.length, 1);
 });
 
@@ -100,6 +105,7 @@ test('EG-PIPELINE: original Frigid Jewel IR reaches the production binding and f
   const program = { ...frigidJewel, status: 'executable', judgeReason: undefined };
   const f = fixture({
     choose: request => {
+      if (request.type === 'mode' && /order/.test(request.id)) return request.options[0];
       if (request.type === 'select-objects' && request.id === 'target:frigid-jewel.friendly-unit') {
         return [request.options.find(option => option.id === 'ally')];
       }
@@ -126,11 +132,15 @@ test('EG-PIPELINE: original Frigid Jewel IR reaches the production binding and f
   assert.deepEqual(binding.registerProgramTriggers(f.engine, f.kernel.getObject('jewel')), ['program:jewel:1:0']);
 
   assert.equal(f.engine.commit({ type: 'draw', player: 'A', amount: 2 }).status, 'done');
-  assert.equal(f.engine.items.length, 1);
+  // Two card-drawn instances are preserved so the controller can choose the
+  // instance serving as the Nth-time condition; Finalize consumes once.
+  assert.equal(f.engine.items.length, 2);
   assert.equal(f.engine.items[0].trigger.registration.id, 'program:jewel:1:0');
   assert.equal(f.engine.items[0].trigger.batchId, f.engine.pipeline.events.find(event => event.timingPoint === 'card-drawn').batchId);
+  assert.notEqual(f.engine.items[0].trigger.event.eventId, f.engine.items[1].trigger.event.eventId);
 
   f.engine.advance();
+  assert.equal(f.engine.items.length, 1);
   resolveAll(f.engine);
   const registrations = f.engine.layers.registry.list();
   assert.equal(registrations.length, 1);

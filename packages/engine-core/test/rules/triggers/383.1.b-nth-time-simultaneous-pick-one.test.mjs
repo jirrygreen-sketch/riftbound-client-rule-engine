@@ -18,6 +18,7 @@ import assert from 'node:assert/strict';
 
 import { fixture, resolveAll } from '../../chain/helpers.mjs';
 import { createProgramBinding } from '../../../dist/programs/index.js';
+import { killBatch } from '../../../dist/events/action-adapter.js';
 import { drawBody, itemTrace, program } from './harness.mjs';
 
 const WRAITH = 'card.probe-wraith';
@@ -34,8 +35,8 @@ const WRAITH_PROGRAM = program(WRAITH, [{
 
 /**
  * A board with one Wraith of Echoes and two doomed friendly units, all at the
- * same Battlefield. The two kills are published as one simultaneous wave through
- * the pipeline's own `deferTriggerScan`, exactly as a combat-damage batch would.
+ * same Battlefield. The two kills are one real typed Batch action, executed by
+ * the production adapter's batch-aware leaf consumer and published as one wave.
  */
 function simultaneousDeaths() {
   const orderAnswers = [];
@@ -56,10 +57,12 @@ function simultaneousDeaths() {
   // (384.2). Enter it through the real Move action, never by writing the zone.
   f.engine.commit({ type: 'move-zone', object: f.kernel.ref('wraith'), to: 'base', location: { type: 'base', player: 'A' } });
   binding.registerProgramTriggers(f.engine, f.kernel.getObject('wraith'));
-  f.engine.pipeline.deferTriggerScan(() => {
-    f.engine.commit({ type: 'kill', object: f.kernel.ref('d1') });
-    f.engine.commit({ type: 'kill', object: f.kernel.ref('d2') });
-  });
+  const outcome = f.engine.commit(killBatch([
+    f.kernel.ref('d1'),
+    f.kernel.ref('d2'),
+  ], 'kill:wraith-simultaneous'));
+  assert.equal(outcome.status, 'done');
+  assert.equal(outcome.receipt.status, 'committed');
   return { f, orderAnswers };
 }
 
@@ -69,9 +72,18 @@ test('triggers-nth-time-simultaneous-pick-one (383.1.b): two simultaneous deaths
     .map(event => event.object.ref.id);
   // Both deaths really occurred in the same wave; neither was collapsed into the other.
   assert.deepEqual(killed, ['d1', 'd2']);
+  const deathEvents = f.engine.pipeline.events.filter(event => event.timingPoint === 'object-killed');
+  assert.ok(deathEvents.every(event => event.batchId === 'kill:wraith-simultaneous'));
   // The controller (not the test) chose which instance serves as the trigger condition.
   assert.equal(orderAnswers.length, 1);
   assert.equal(orderAnswers[0].length, 2);
+  const first = f.engine.items[0].trigger;
+  const second = f.engine.items[1].trigger;
+  assert.notEqual(first.event.eventId, second.event.eventId);
+  assert.equal(new Set([first.event.object.ref.id, second.event.object.ref.id]).size, 2);
+  assert.deepEqual(first.source.ref, f.kernel.ref('wraith'));
+  assert.deepEqual(second.source.ref, first.source.ref);
+  assert.notEqual(first.source, second.source, 'each trigger owns an independent source snapshot');
 
   f.engine.advance();
   // 383.1.b: only the chosen instance reaches Finalize; the second is removed by
