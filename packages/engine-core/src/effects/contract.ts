@@ -19,6 +19,8 @@ export type Domain = "Fury" | "Calm" | "Mind" | "Body" | "Chaos" | "Order";
 export type UniversalPowerSource = "universal" | "any" | "universal-power";
 export type PowerPaymentSource = Domain | UniversalPowerSource;
 export type FacedownZoneId = "facedown";
+/** An immutable event role that can be referenced without choosing an object. */
+export type EventObjectRole = "it";
 /** Zones named by the primitive contract. */
 export type ZoneId = "hand" | "deck" | "rune-deck" | "trash" | "banishment" | "board" | "rune-zone" | "chain";
 /** A Base or Battlefield on the Board. */
@@ -299,6 +301,22 @@ export interface BatchAction {
 }
 export type ContractGameAction = GameAction | HideAction | RecallAction | BatchAction;
 
+/** Versioned, optional bridge for actions outside the legacy closed GameAction. */
+export const CONTRACT_ACTION_CAPABILITY_VERSION = "riftbound.contract-actions.v1" as const;
+export interface ContractActionCapability {
+  readonly version: typeof CONTRACT_ACTION_CAPABILITY_VERSION;
+  perform(action: ContractGameAction): ActionOutcome;
+}
+
+/** A frozen event-role snapshot, keyed to the pipeline event that supplied it. */
+export interface EventObjectBinding {
+  readonly eventId: number;
+  readonly role: EventObjectRole;
+  /** The exact event-time identity, never looked up again by id. */
+  readonly ref: ObjectRef;
+  readonly snapshot: ObjectSnapshot;
+}
+
 /** @deprecated Existing Board token calls are normalized to an explicit to: "board". */
 export type LegacyBoardTokenAction = Omit<Extract<GameAction, { readonly type: "create-token"; readonly to: "board" }>, "to"> & { readonly to?: undefined };
 
@@ -346,6 +364,18 @@ export interface ResolveContext {
   perform(action: GameAction): ActionOutcome;
   /** @deprecated Include to: "board" when creating a Board token. */
   perform(action: LegacyBoardTokenAction): ActionOutcome;
+  /**
+   * Read the immutable object bound by a triggering event. The returned
+   * snapshot must retain the event's id + zoneEntryId and must not be rebound
+   * to a later incarnation. Contexts without a trigger binding omit this
+   * capability; consumers then fail closed.
+   */
+  eventObject?(role: EventObjectRole): EventObjectBinding | null;
+  /**
+   * Optional versioned consumer for Hide/Recall/atomic Batch actions. Existing
+   * contexts remain valid without it; callers must fail closed when absent.
+   */
+  readonly contractActions?: ContractActionCapability;
   link(key: string, value: Value): void;
   addContinuous(effect: ContinuousEffectSpec, duration: Duration): void;
   registerDelayedTrigger(at: TriggerSpec, body: readonly Instruction[]): void;

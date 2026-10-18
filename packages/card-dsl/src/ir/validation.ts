@@ -6,6 +6,7 @@ import {
   type Condition,
   type CostSpec,
   type Expr,
+  type EventObjectRole,
   type Instruction,
   type LocationSelector,
   type LocationTargetSpec,
@@ -62,6 +63,7 @@ const CONDITION_KINDS = new Set([
   "event-it"
 ]);
 const EVENT_OBJECT_SELECTORS = new Set(["object", "source", "target", "it"]);
+const OBJECT_SELECTOR_EVENT_ROLES = new Set<EventObjectRole>(["it"]);
 const OBJECT_RELATIONS = new Set([
   "same-location",
   "different-location",
@@ -294,12 +296,19 @@ function validatePlayerSelector(value: unknown, path: string, context: Validatio
 function validateObjectSelector(value: unknown, path: string, context: ValidationContext): boolean {
   if (value === "self" || value === "source") return true;
   if (!isRecord(value) || Object.keys(value).length !== 1 ||
-    !["target", "pick", "linked"].includes(Object.keys(value)[0]!)) {
-    addIssue(context, path, "invalid-object-selector", "Expected self, source, or exactly one target, pick, or linked id; runtime ObjectRefs are not IR selectors.");
+    !["target", "pick", "linked", "event"].includes(Object.keys(value)[0]!)) {
+    addIssue(context, path, "invalid-object-selector", "Expected self, source, or exactly one target, pick, linked, or event selector; runtime ObjectRefs are not IR selectors.");
     return false;
   }
   const key = Object.keys(value)[0]!;
   const id = value[key];
+  if (key === "event") {
+    if (typeof id !== "string" || !OBJECT_SELECTOR_EVENT_ROLES.has(id as EventObjectRole)) {
+      addIssue(context, `${path}.event`, "invalid-event-object-role", "Expected the event role it.");
+      return false;
+    }
+    return true;
+  }
   if (!validateString(id, `${path}.${key}`, context, "Expected a selector id.", SYMBOL_PATTERN)) return false;
   if (key === "linked") {
     context.instructionReferences.push({ id, path: `${path}.linked` });

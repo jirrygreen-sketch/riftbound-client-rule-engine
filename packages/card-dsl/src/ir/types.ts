@@ -84,7 +84,15 @@ export type ObjectSelector =
   | "source"
   | { readonly target: string }
   | { readonly pick: string }
-  | { readonly linked: string };
+  | { readonly linked: string }
+  /**
+   * The immutable object role captured from the triggering event. This is a
+   * referent (CR v1.5 359.3.f.3), never an object choice or target.
+   */
+  | { readonly event: EventObjectRole };
+
+/** Event roles that a resolving instruction may name without choosing them. */
+export type EventObjectRole = "it";
 
 /** Object-valued anchors, distinct from scalar filter fields such as objectId. */
 export const OBJECT_FILTER_ANCHORS = ["object", "source", "target", "it", "host", "attachedTo", "sameLocationAs", "differentLocationFrom", "exclude"] as const;
