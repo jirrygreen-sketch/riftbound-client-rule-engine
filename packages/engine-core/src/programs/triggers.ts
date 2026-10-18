@@ -19,7 +19,7 @@ export function triggerRegistrations(registry: ProgramRegistry, source: ObjectSn
     try {
       const body = translateInstructionTargets(ability.body) as any;
       const filter = translateTriggerFilter(ability.trigger.filter as Record<string, unknown>, source.ref.id, ability.trigger.at as TimingPointId);
-      const adapted = adaptLeadingChoice(source, body);
+      const adapted = adaptLeadingChoice(source, body, ability.trigger);
       const leadingChoice = body[0]?.op === 'choice.optional';
       if (leadingChoice && !adapted) {
         const nested = body[0]?.args?.body;

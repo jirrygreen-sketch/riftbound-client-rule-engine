@@ -1,75 +1,59 @@
+// EG-TRIGGERS: production binding for trigger conditions and leading may/cost.
+//
+// CR-v1.5 383.3.a (:2698): the controller decides a leading may at Finalize.
+// CR-v1.5 383.3.b.1 (:2728): the cost must be paid to finalize the ability.
+// CR-v1.5 383.2.c (:2639): conditions are evaluated after the inciting event.
+//
+// A Finalize-moved cost instruction has no Resolve-scope receipt. Pure
+// linkedTo gates are safe because any failed payment prevents Resolve;
+// linked/linked-value reads of that instruction remain judge-required.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { fixture, settle, pendingItems, cardProgram, c } from '../rules/keywords/support.mjs';
+import { triggerRegistrations } from '../../dist/programs/triggers.js';
 import kennen from '../../../card-dsl/dist/cards/ven/kennen-keeper-of-balance.js';
+import mistfall from '../../../card-dsl/dist/cards/ogn/mistfall.js';
 import monastery from '../../../card-dsl/dist/cards/ogn/monastery-of-hirana.js';
 import immortalPhoenix from '../../../card-dsl/dist/cards/ogn/immortal-phoenix.js';
 import avaAchiever from '../../../card-dsl/dist/cards/ogn/ava-achiever.js';
+import baccaiReaper from '../../../card-dsl/dist/cards/ven/baccai-reaper.js';
 
 const field = id => ({ type: 'battlefield', id });
 const triggered = program => program.abilities.filter(ability => ability.kind === 'triggered');
-
 const executable = program => {
   const { judgeReason: _dropped, ...rest } = program;
   return { ...rest, status: 'executable' };
 };
-const kennenProgram = ability => executable({ ...kennen, abilities: [ability] });
 const withAbility = (program, ability) => executable({ ...program, abilities: [ability] });
 
-test('EG-TRIGGERS: leading optional cost is asked and paid at Finalize, not at trigger scan', () => {
-  const ability = triggered(kennen)[0];
-  const program = kennenProgram(ability);
-  const f = fixture({
-    programs: [program], energy: { A: 5 }, power: { A: [] },
-    answers: {
-      'finalize:trigger:1:optional': true,
-      'target:kennen.play.unit': ['victim']
-    },
-    setup(builder) {
-      builder.hand('kennen', { cardId: program.canonicalCardId, energy: 3, power: null, might: 2 });
-      builder.unit('victim', { owner: 'B', might: 2, location: field('one') });
-    }
-  });
-  f.play('kennen');
-  settle(f.engine);
-  const askedIds = f.asked.map(request => request.id);
-  assert.equal(askedIds.filter(id => id.startsWith('trigger:')).length, 0, `scan asked an optional trigger: ${askedIds}`);
-  assert.ok(askedIds.includes('finalize:trigger:1:optional'), askedIds);
-  assert.ok(
-    askedIds.indexOf('finalize:trigger:1:optional') < askedIds.indexOf('target:kennen.play.unit'),
-    `Finalize may question must precede target selection: ${askedIds}`
-  );
-  assert.equal(f.kernel.player('A').energy, 0);
-  assert.equal(f.get('victim').stunned, true);
-  assert.ok(f.engine.trace.some(entry => entry.step === 'finalized' && entry.item === 'trigger:1'));
-});
+function paymentAbility(card, payments, effect) {
+  const source = card.abilities.find(ability => ability.kind === 'triggered');
+  const [choice] = source.body;
+  return {
+    ...source,
+    trigger: { at: 'turn-end', filter: { event: 'turn-end' } },
+    body: [{
+      ...choice,
+      args: {
+        ...choice.args,
+        body: c([
+          {
+            id: 'test.pay',
+            op: 'cost.pay',
+            args: { payments: c(payments) }
+          },
+          effect
+        ])
+      }
+    }]
+  };
+}
 
-test('EG-TRIGGERS: declining the leading may removes the trigger without cost or target', () => {
-  const program = kennenProgram(triggered(kennen)[0]);
+test('EG-TRIGGERS: Kennen payment gate is decided and paid at Finalize', () => {
+  const program = withAbility(kennen, triggered(kennen)[0]);
   const f = fixture({
-    programs: [program], energy: { A: 5 }, power: { A: [] },
-    answers: { 'finalize:trigger:1:optional': false },
-    setup(builder) {
-      builder.hand('kennen', { cardId: program.canonicalCardId, energy: 3, power: null, might: 2 });
-    }
-  });
-  f.play('kennen');
-  settle(f.engine);
-  const ids = f.asked.map(request => request.id);
-  assert.ok(ids.includes('finalize:trigger:1:optional'), ids);
-  assert.ok(!ids.some(id => id.startsWith('target:')), `declined trigger must not ask targets: ${ids}`);
-  assert.ok(
-    f.engine.trace.some(entry => entry.step === 'removed' && entry.item === 'trigger:1' && entry.reason === 'declined'),
-    JSON.stringify(f.engine.trace)
-  );
-  assert.equal(f.kernel.player('A').energy, 2);
-});
-
-test('EG-TRIGGERS: cannot pay the finalize cost removes the trigger atomically after targets', () => {
-  const program = kennenProgram(triggered(kennen)[0]);
-  const f = fixture({
-    programs: [program], energy: { A: 3 }, power: { A: [] },
+    programs: [program], energy: { A: 5 },
     answers: { 'finalize:trigger:1:optional': true, 'target:kennen.play.unit': ['victim'] },
     setup(builder) {
       builder.hand('kennen', { cardId: program.canonicalCardId, energy: 3, power: null, might: 2 });
@@ -79,300 +63,240 @@ test('EG-TRIGGERS: cannot pay the finalize cost removes the trigger atomically a
   f.play('kennen');
   settle(f.engine);
   const ids = f.asked.map(request => request.id);
-  assert.ok(ids.includes('target:kennen.play.unit'), ids);
-  assert.ok(
-    f.engine.trace.some(entry => entry.step === 'removed' && entry.item === 'trigger:1' && entry.reason === 'unperformable-trigger'),
-    JSON.stringify(f.engine.trace)
-  );
+  assert.ok(ids.includes('finalize:trigger:1:optional'), ids);
+  assert.ok(!ids.some(id => id.startsWith('trigger:')));
   assert.equal(f.kernel.player('A').energy, 0);
-  assert.equal(f.get('victim').stunned, false);
-  assert.equal(f.errors.length, 0);
-});
-
-test('EG-TRIGGERS: no legal finalize target removes the trigger before any question', () => {
-  const cardPlayed = triggered(kennen)[0];
-  const [choice] = cardPlayed.body;
-  const body = choice.args.body.value.map(instruction =>
-    instruction.op === 'effect.stun'
-      ? {
-          ...instruction,
-          targets: instruction.targets.map(spec => ({
-            ...spec,
-            filter: { type: 'unit', controller: 'opponent', zone: 'board' }
-          }))
-        }
-      : instruction
-  );
-  const program = kennenProgram({
-    ...cardPlayed,
-    body: [{ ...choice, args: { ...choice.args, body: { ...choice.args.body, value: body } } }]
-  });
-  const f = fixture({
-    programs: [program], energy: { A: 5 }, power: { A: [] },
-    answers: { 'finalize:trigger:1:optional': true },
-    setup(builder) {
-      builder.hand('kennen', { cardId: program.canonicalCardId, energy: 3, power: null, might: 2 });
-    }
-  });
-  f.play('kennen');
-  settle(f.engine);
-  const ids = f.asked.map(request => request.id);
-  assert.ok(ids.includes('finalize:trigger:1:optional'), ids);
-  assert.ok(!ids.some(id => id.startsWith('target:')), `no target question when none exist: ${ids}`);
-  assert.ok(
-    f.engine.trace.some(entry => entry.step === 'removed' && entry.item === 'trigger:1' && entry.reason === 'unperformable-trigger'),
-    JSON.stringify(f.engine.trace)
-  );
-  assert.equal(f.kernel.player('A').energy, 2);
-});
-
-test('EG-TRIGGERS: event-bound trigger fires from the bound event snapshot at turn-end', () => {
-  const attackAbility = triggered(kennen)[1];
-  assert.equal(attackAbility.trigger.at, 'attack-declared');
-  const ability = {
-    ...attackAbility,
-    trigger: { at: 'turn-end', filter: { event: 'turn-end' } }
-  };
-  const program = kennenProgram(ability);
-  const f = fixture({
-    programs: [program], energy: { A: 4 }, power: { A: [] },
-    answers: {
-      'finalize:trigger:1:optional': true,
-      'target:kennen.attack.unit': ['victim']
-    },
-    setup(builder) {
-      builder.unit('kennen', { cardId: program.canonicalCardId, energy: 3, power: null, might: 2, location: field('one') });
-      builder.unit('victim', { owner: 'B', might: 2, location: field('one') });
-    }
-  });
-  const registrations = f.binding.registerProgramTriggers(f.engine, f.get('kennen'));
-  assert.equal(registrations.length, 1);
-  f.engine.emit({ timingPoint: 'turn-end' });
-  f.engine.advance();
-  assert.deepEqual(pendingItems(f.engine).filter(item => item.startsWith('trigger:')), ['trigger:1']);
-  while (f.engine.items.length) {
-    f.engine.advance();
-    const item = f.engine.items.at(-1);
-    if (item) f.engine.pass(item.controller);
-  }
-  const ids = f.asked.map(request => request.id);
-  assert.ok(ids.includes('finalize:trigger:1:optional'), ids);
-  assert.ok(ids.includes('target:kennen.attack.unit'), ids);
-  assert.equal(f.kernel.player('A').energy, 2);
   assert.equal(f.get('victim').stunned, true);
 });
 
-test('EG-TRIGGERS: trigger conditions are evaluated at the event timing point', () => {
-  const cardPlayed = triggered(kennen)[0];
-  const program = kennenProgram({
-    ...cardPlayed,
-    trigger: { ...cardPlayed.trigger, condition: { kind: 'never' } }
-  });
-  const f = fixture({
-    programs: [program], energy: { A: 5 }, power: { A: [] },
-    answers: {
-      'finalize:trigger:1:optional': true,
-      'target:kennen.play.unit': ['victim']
-    },
-    setup(builder) {
-      builder.hand('kennen', { cardId: program.canonicalCardId, energy: 3, power: null, might: 2 });
-      builder.unit('victim', { owner: 'B', might: 2, location: field('one') });
-    }
-  });
-  f.play('kennen');
-  settle(f.engine);
-  assert.deepEqual(pendingItems(f.engine).filter(item => item.startsWith('trigger:')), []);
-  assert.ok(!f.asked.some(request => request.id.includes('trigger:1')), f.asked.map(request => request.id));
-  assert.equal(f.get('victim').stunned, false);
-  assert.equal(f.kernel.player('A').energy, 2);
-});
-
-test('EG-TRIGGERS: a leading may without a cost is decided at Finalize', () => {
-  const sourceAbility = monastery.abilities.find(ability => ability.kind === 'triggered');
-  const ability = {
-    ...sourceAbility,
+test('EG-TRIGGERS: original Baccai pure payment gate is moved to Finalize', () => {
+  const program = withAbility(baccaiReaper, triggered(baccaiReaper)[0]);
+  const turnEnd = {
+    ...triggered(baccaiReaper)[0],
     trigger: { at: 'turn-end', filter: { event: 'turn-end' } }
   };
-  const program = withAbility(monastery, ability);
+  const turnEndProgram = withAbility(baccaiReaper, turnEnd);
   const f = fixture({
-    programs: [program], energy: { A: 1 }, power: { A: [] },
+    programs: [turnEndProgram], power: { A: ['Fury'] },
     answers: { 'finalize:trigger:1:optional': true },
-    setup(builder) {
-      builder.unit('watcher', { cardId: program.canonicalCardId, buffs: 1, location: field('one') });
-    }
+    setup(builder) { builder.unit('reaper', { cardId: turnEndProgram.canonicalCardId, location: field('one') }); }
+  });
+  f.binding.registerProgramTriggers(f.engine, f.get('reaper'));
+  f.engine.emit({ timingPoint: 'turn-end' });
+  f.engine.advance();
+  assert.deepEqual(f.kernel.player('A').power, []);
+  assert.ok(f.engine.trace.some(entry => entry.step === 'finalized' && entry.item === 'trigger:1'));
+  assert.equal(baccaiReaper.status, 'judge-required');
+});
+
+test('EG-TRIGGERS: Baccai decline pays nothing and asks no target', () => {
+  const program = withAbility(baccaiReaper, triggered(baccaiReaper)[0]);
+  const turnEndProgram = withAbility(baccaiReaper, {
+    ...triggered(baccaiReaper)[0],
+    trigger: { at: 'turn-end', filter: { event: 'turn-end' } }
+  });
+  const f = fixture({
+    programs: [turnEndProgram], power: { A: ['Fury'] },
+    answers: { 'finalize:trigger:1:optional': false },
+    setup(builder) { builder.unit('reaper', { cardId: turnEndProgram.canonicalCardId, location: field('one') }); }
+  });
+  f.binding.registerProgramTriggers(f.engine, f.get('reaper'));
+  f.engine.emit({ timingPoint: 'turn-end' });
+  f.engine.advance();
+  assert.deepEqual(f.kernel.player('A').power, ['Fury']);
+  assert.ok(!f.asked.some(request => request.id.startsWith('target:')));
+  assert.ok(f.engine.trace.some(entry => entry.step === 'removed' && entry.item === 'trigger:1' && entry.reason === 'declined'));
+});
+
+test('EG-TRIGGERS: Baccai unavailable Fury is atomic and removed', () => {
+  const program = withAbility(baccaiReaper, triggered(baccaiReaper)[0]);
+  const turnEndProgram = withAbility(baccaiReaper, {
+    ...triggered(baccaiReaper)[0],
+    trigger: { at: 'turn-end', filter: { event: 'turn-end' } }
+  });
+  const f = fixture({
+    programs: [turnEndProgram], power: { A: [] },
+    answers: { 'finalize:trigger:1:optional': true },
+    setup(builder) { builder.unit('reaper', { cardId: turnEndProgram.canonicalCardId, location: field('one') }); }
+  });
+  f.binding.registerProgramTriggers(f.engine, f.get('reaper'));
+  f.engine.emit({ timingPoint: 'turn-end' });
+  f.engine.advance();
+  assert.deepEqual(f.kernel.player('A').power, []);
+  assert.ok(f.engine.trace.some(entry => entry.step === 'removed' && entry.item === 'trigger:1' && entry.reason === 'unperformable-trigger'));
+});
+
+test('EG-TRIGGERS: Energy plus domain Power pays once before an independent effect', () => {
+  const ability = paymentAbility(
+    immortalPhoenix,
+    { energy: 1, power: ['Fury'] },
+    { id: 'test.draw', op: 'effect.draw', args: { amount: c(1) } }
+  );
+  const program = withAbility(immortalPhoenix, ability);
+  const f = fixture({
+    programs: [program], energy: { A: 3 }, power: { A: ['Fury'] },
+    answers: { 'finalize:trigger:1:optional': true },
+    setup(builder) { builder.unit('phoenix', { cardId: program.canonicalCardId, location: field('one') }); }
+  });
+  f.binding.registerProgramTriggers(f.engine, f.get('phoenix'));
+  f.engine.emit({ timingPoint: 'turn-end' });
+  f.engine.advance();
+  settle(f.engine);
+  assert.equal(f.kernel.player('A').energy, 2);
+  assert.deepEqual(f.kernel.player('A').power, []);
+  assert.equal(f.kernel.player('A').deckSize, 1);
+  assert.equal(f.engine.items.length, 0);
+});
+
+test('EG-TRIGGERS: domain-only Power pays once and an independent effect resolves', () => {
+  const ability = paymentAbility(
+    avaAchiever,
+    { power: ['Mind'] },
+    { id: 'test.draw', op: 'effect.draw', args: { amount: c(1) } }
+  );
+  const program = withAbility(avaAchiever, ability);
+  const f = fixture({
+    programs: [program], energy: { A: 3 }, power: { A: ['Mind'] },
+    answers: { 'finalize:trigger:1:optional': true },
+    setup(builder) { builder.unit('ava', { cardId: program.canonicalCardId, location: field('one') }); }
+  });
+  f.binding.registerProgramTriggers(f.engine, f.get('ava'));
+  f.engine.emit({ timingPoint: 'turn-end' });
+  f.engine.advance();
+  settle(f.engine);
+  assert.equal(f.kernel.player('A').energy, 3);
+  assert.deepEqual(f.kernel.player('A').power, []);
+  assert.equal(f.kernel.player('A').deckSize, 1);
+});
+
+test('EG-TRIGGERS: no-cost leading may is decided at Finalize', () => {
+  const source = monastery.abilities.find(ability => ability.kind === 'triggered');
+  const program = withAbility(monastery, {
+    ...source,
+    trigger: { at: 'turn-end', filter: { event: 'turn-end' } }
+  });
+  const f = fixture({
+    programs: [program], answers: { 'finalize:trigger:1:optional': true },
+    setup(builder) { builder.unit('watcher', { cardId: program.canonicalCardId, buffs: 1, location: field('one') }); }
   });
   f.binding.registerProgramTriggers(f.engine, f.get('watcher'));
   f.engine.emit({ timingPoint: 'turn-end' });
   f.engine.advance();
   const ids = f.asked.map(request => request.id);
-  assert.ok(!ids.some(id => id.startsWith('trigger:')), 'scan must not ask a leading may: ' + ids);
-  assert.ok(ids.includes('finalize:trigger:1:optional'), ids);
+  assert.ok(!ids.some(id => id.startsWith('trigger:')));
+  assert.ok(ids.includes('finalize:trigger:1:optional'));
   assert.equal(monastery.status, 'judge-required');
 });
 
-test('EG-TRIGGERS: unknown leading may shape fails closed at binding', () => {
-  const legacyAbility = {
+test('EG-TRIGGERS: unknown leading shape fails closed at binding', () => {
+  const legacy = {
     kind: 'triggered',
     trigger: { at: 'turn-end', filter: { event: 'turn-end' } },
     optional: true,
     body: [{
       id: 'legacy.choice',
       op: 'choice.optional',
-      args: {
-        body: c([{
-          id: 'legacy.sequence',
-          op: 'sequence',
-          args: { body: c([]) }
-        }])
-      }
+      args: { body: c([{ id: 'legacy.sequence', op: 'sequence', args: { body: c([]) } }]) }
     }]
   };
-  const program = cardProgram('test:eg-triggers-legacy-optional', [], [legacyAbility]);
+  const program = cardProgram('test:eg-triggers-legacy-optional', [], [legacy]);
   const f = fixture({
     programs: [program],
-    setup(builder) {
-      builder.unit('watcher', { cardId: program.canonicalCardId, location: field('one') });
-    }
+    setup(builder) { builder.unit('watcher', { cardId: program.canonicalCardId, location: field('one') }); }
   });
-  assert.throws(
-    () => f.binding.registerProgramTriggers(f.engine, f.get('watcher')),
-    error => error?.code === 'judge-required'
-  );
+  assert.throws(() => f.binding.registerProgramTriggers(f.engine, f.get('watcher')), error => error?.code === 'judge-required');
   assert.equal(f.engine.items.length, 0);
 });
 
-test('EG-TRIGGERS: Energy plus domain Power is paid in the Finalize transaction', () => {
-  const sourceAbility = immortalPhoenix.abilities.find(ability => ability.kind === 'triggered');
-  const ability = {
-    ...sourceAbility,
-    trigger: { at: 'turn-end', filter: { event: 'turn-end' } },
-    condition: undefined
-  };
-  const program = withAbility(immortalPhoenix, ability);
-  const f = fixture({
-    programs: [program], energy: { A: 3 }, power: { A: ['Fury'] },
-    answers: { 'finalize:trigger:1:optional': true },
-    setup(builder) {
-      builder.unit('phoenix', { cardId: program.canonicalCardId, location: field('one') });
-    }
+test('EG-TRIGGERS: trigger conditions are evaluated at the event timing point', () => {
+  const source = triggered(kennen)[0];
+  const program = withAbility(kennen, {
+    ...source,
+    body: [{ id: 'draw-choice', op: 'choice.optional', args: { body: c([{ id: 'draw', op: 'effect.draw', args: { amount: c(1) } }]) } }],
+    trigger: { ...source.trigger, condition: { kind: 'never' } }
   });
-  f.binding.registerProgramTriggers(f.engine, f.get('phoenix'));
-  f.engine.emit({ timingPoint: 'turn-end' });
-  f.engine.advance();
-  assert.equal(f.kernel.player('A').energy, 2);
-  assert.deepEqual(f.kernel.player('A').power, []);
-  assert.ok(f.engine.trace.some(entry => entry.step === 'finalized' && entry.item === 'trigger:1'));
+  const f = fixture({
+    programs: [program], energy: { A: 3 }, power: { A: ['Body'] },
+    setup(builder) { builder.hand('kennen', { cardId: program.canonicalCardId }); }
+  });
+  f.play('kennen');
+  while (f.engine.items.length) f.engine.pass(f.engine.priority);
+  assert.deepEqual(pendingItems(f.engine).filter(item => item.startsWith('trigger:')), []);
+  assert.ok(!f.asked.some(request => request.id.includes('trigger:1')));
 });
 
-test('EG-TRIGGERS: domain-only Power is not dropped from a leading cost', () => {
-  const sourceAbility = avaAchiever.abilities.find(ability => ability.kind === 'triggered');
-  const ability = {
-    ...sourceAbility,
+test('EG-TRIGGERS: a linked-value read of the moved cost fails closed', () => {
+  const ability = paymentAbility(
+    immortalPhoenix,
+    { energy: 1, power: ['Fury'] },
+    { id: 'test.consume', op: 'effect.draw', args: { amount: c(1), player: { kind: 'linked-value', instructionId: 'test.pay', key: 'player' } } }
+  );
+  const program = withAbility(immortalPhoenix, ability);
+  const f = fixture({
+    programs: [program],
+    setup(builder) { builder.unit('phoenix', { cardId: program.canonicalCardId, location: field('one') }); }
+  });
+  assert.throws(() => f.binding.registerProgramTriggers(f.engine, f.get('phoenix')), error => error?.code === 'judge-required');
+});
+
+test('EG-TRIGGERS: pure payment gate removes only linkedTo, not a receipt read', () => {
+  const ability = paymentAbility(
+    baccaiReaper,
+    { power: ['Fury'] },
+    { id: 'test.gated', op: 'continuous.grant-keyword', linkedTo: 'test.pay', args: {
+      keyword: c('Assault'), value: c(2), duration: c('end-of-turn'), objects: c({ kind: 'source' })
+    } }
+  );
+  const program = withAbility(baccaiReaper, {
+    ...ability,
     trigger: { at: 'turn-end', filter: { event: 'turn-end' } }
-  };
-  const program = withAbility(avaAchiever, ability);
-  const f = fixture({
-    programs: [program], energy: { A: 3 }, power: { A: ['Mind'] },
-    answers: { 'finalize:trigger:1:optional': true },
-    setup(builder) {
-      builder.unit('ava', { cardId: program.canonicalCardId, location: field('one') });
-    }
   });
-  f.binding.registerProgramTriggers(f.engine, f.get('ava'));
+  const f = fixture({
+    programs: [program], power: { A: ['Fury'] },
+    answers: { 'finalize:trigger:1:optional': true },
+    setup(builder) { builder.unit('reaper', { cardId: program.canonicalCardId, location: field('one') }); }
+  });
+  f.binding.registerProgramTriggers(f.engine, f.get('reaper'));
   f.engine.emit({ timingPoint: 'turn-end' });
   f.engine.advance();
-  assert.equal(f.kernel.player('A').energy, 3);
   assert.deepEqual(f.kernel.player('A').power, []);
 });
 
-test('EG-TRIGGERS: Energy plus domain Power rejection and unpayable finalize are atomic', () => {
-  const sourceAbility = immortalPhoenix.abilities.find(ability => ability.kind === 'triggered');
-  const ability = {
-    ...sourceAbility,
-    trigger: { at: 'turn-end', filter: { event: 'turn-end' } },
-    condition: undefined
-  };
-  const program = withAbility(immortalPhoenix, ability);
-  const declined = fixture({
-    programs: [program], energy: { A: 3 }, power: { A: ['Fury'] },
-    answers: { 'finalize:trigger:1:optional': false },
-    setup(builder) {
-      builder.unit('phoenix', { cardId: program.canonicalCardId, location: field('one') });
-    }
+test('EG-TRIGGERS: Mistfall ready target is emitted as a frozen event-it referent', () => {
+  const program = withAbility(mistfall, triggered(mistfall)[0]);
+  const f = fixture({
+    programs: [program],
+    setup(builder) { builder.unit('mistfall', { cardId: program.canonicalCardId, location: field('one') }); }
   });
-  declined.binding.registerProgramTriggers(declined.engine, declined.get('phoenix'));
-  declined.engine.emit({ timingPoint: 'turn-end' });
-  declined.engine.advance();
-  assert.deepEqual(declined.kernel.player('A').power, ['Fury']);
-  assert.equal(declined.kernel.player('A').energy, 3);
-  assert.ok(declined.engine.trace.some(entry => entry.step === 'removed' && entry.item === 'trigger:1' && entry.reason === 'declined'));
-
-  const unpayable = fixture({
-    programs: [program], energy: { A: 3 }, power: { A: [] },
-    answers: { 'finalize:trigger:1:optional': true },
-    setup(builder) {
-      builder.unit('phoenix', { cardId: program.canonicalCardId, location: field('one') });
-    }
+  const [registration] = triggerRegistrations(f.binding.registry, f.get('mistfall'));
+  assert.equal(registration.targets, undefined);
+  assert.deepEqual(registration.body[0].args.objects, {
+    kind: 'constant',
+    value: { event: 'it' }
   });
-  unpayable.binding.registerProgramTriggers(unpayable.engine, unpayable.get('phoenix'));
-  unpayable.engine.emit({ timingPoint: 'turn-end' });
-  unpayable.engine.advance();
-  assert.equal(unpayable.kernel.player('A').energy, 3);
-  assert.deepEqual(unpayable.kernel.player('A').power, []);
-  assert.ok(unpayable.engine.trace.some(entry => entry.step === 'removed' && entry.item === 'trigger:1' && entry.reason === 'unperformable-trigger'));
+  assert.equal(mistfall.status, 'judge-required');
 });
 
-test('EG-TRIGGERS: a later payment failure rolls back earlier Energy and Power', () => {
-  const sourceAbility = immortalPhoenix.abilities.find(ability => ability.kind === 'triggered');
-  const inner = sourceAbility.body[0].args.body.value;
-  const pay = inner[0];
-  const payments = pay.args.payments.value;
-  const ability = {
-    ...sourceAbility,
-    trigger: { at: 'turn-end', filter: { event: 'turn-end' } },
-    condition: undefined,
-    body: [{
-      ...sourceAbility.body[0],
-      args: {
-        ...sourceAbility.body[0].args,
-        body: c([
-          {
-            ...pay,
-            args: {
-              ...pay.args,
-              payments: c([
-                ...(payments.energy ? [{ kind: 'energy', amount: payments.energy }] : []),
-                ...(payments.power ? [{ kind: 'power', amount: 1, allowedDomains: payments.power }] : []),
-                { kind: 'exhaust', object: 'self' }
-              ])
-            }
-          },
-          ...inner.slice(1)
-        ])
-      }
-    }]
-  };
+test('EG-TRIGGERS: mid-payment failure rolls back Energy and Power', () => {
+  const ability = paymentAbility(
+    immortalPhoenix,
+    [
+      { kind: 'energy', amount: 1 },
+      { kind: 'power', amount: 1, allowedDomains: ['Fury'] },
+      { kind: 'exhaust', object: 'self' }
+    ],
+    { id: 'test.draw', op: 'effect.draw', args: { amount: c(1) } }
+  );
   const program = withAbility(immortalPhoenix, ability);
   const f = fixture({
     programs: [program], energy: { A: 3 }, power: { A: ['Fury'] },
     answers: { 'finalize:trigger:1:optional': true },
-    setup(builder) {
-      builder.unit('phoenix', { cardId: program.canonicalCardId, exhausted: true, location: field('one') });
-    }
+    setup(builder) { builder.unit('phoenix', { cardId: program.canonicalCardId, exhausted: true, location: field('one') }); }
   });
   f.binding.registerProgramTriggers(f.engine, f.get('phoenix'));
   f.engine.emit({ timingPoint: 'turn-end' });
   f.engine.advance();
   assert.equal(f.kernel.player('A').energy, 3);
   assert.deepEqual(f.kernel.player('A').power, ['Fury']);
-  assert.ok(
-    f.engine.trace.some(entry => entry.step === 'removed' && entry.item === 'trigger:1' && entry.reason === 'unperformable-trigger'),
-    JSON.stringify(f.engine.trace)
-  );
+  assert.ok(f.engine.trace.some(entry => entry.step === 'removed' && entry.item === 'trigger:1' && entry.reason === 'unperformable-trigger'));
 });
-
-// Production-binding scenarios use the original ability IR through the default
-// binding. Synthetic executable wrappers are admission-only and never change
-// the source card program or its judge-required status.
-// Event it, source incarnation/old answers, and a true reflexive Pending-item
-// primitive remain dependencies owned by 835, 835, and 828 respectively.

@@ -26,21 +26,33 @@ function hoistTargets(instruction: Instruction): { readonly instruction: Instruc
   return { instruction: withoutTargets as Instruction, targets: instruction.targets as readonly TargetRequirement[] };
 }
 
-/** Rewrite instruction args so symbolic links into the removed cost.pay stay resolvable. */
-function stripCostLinks(instruction: Instruction, costId: string): Instruction {
-  const next = { ...instruction };
-  if (next.linkedTo === costId) {
-    const { linkedTo: _removed, ...withoutLink } = next as Instruction & { readonly linkedTo?: string };
-    return withoutLink as Instruction;
-  }
-  if (next.args === undefined) return next;
-  next.args = Object.fromEntries(Object.entries(next.args).map(([key, expression]) => {
-    if (isRecord(expression) && ['linked', 'linked-value'].includes(String(expression.kind)) && (expression as Record<string, unknown>).instructionId === costId) {
-      return [key, { kind: 'constant', value: null }];
-    }
-    return [key, expression];
-  }));
-  return next;
+/** A removed Finalize instruction has no Resolve-scope result or receipt. */
+function referencesInstruction(value: unknown, instructionId: string): boolean {
+  if (Array.isArray(value)) return value.some(item => referencesInstruction(item, instructionId));
+  if (!isRecord(value)) return false;
+  if (['linked', 'linked-value'].includes(String(value.kind)) && value.instructionId === instructionId) return true;
+  return Object.values(value).some(item => referencesInstruction(item, instructionId));
+}
+
+function dependsOnInstruction(instruction: Instruction, instructionId: string): boolean {
+  return Object.values(instruction.args).some(value => referencesInstruction(value, instructionId));
+}
+
+function removePaymentGate(instruction: Instruction, instructionId: string): Instruction {
+  if (instruction.linkedTo !== instructionId) return instruction;
+  const { linkedTo: _paidGate, ...withoutGate } = instruction as Instruction & { readonly linkedTo?: string };
+  return withoutGate as Instruction;
+}
+
+function eventItForTarget(instruction: Instruction, requirement: TargetRequirement | undefined): Instruction | undefined {
+  if (requirement?.id !== 'mistfall.buffed-unit') return undefined;
+  const objects: unknown = instruction.args.objects;
+  if (!isRecord(objects) || objects.kind !== 'constant' || !isRecord(objects.value) ||
+      objects.value.kind !== 'target' || objects.value.id !== requirement.id) return undefined;
+  return {
+    ...instruction,
+    args: { ...instruction.args, objects: { kind: 'constant', value: { event: 'it' } } }
+  };
 }
 
 /**
@@ -57,7 +69,8 @@ function stripCostLinks(instruction: Instruction, costId: string): Instruction {
  */
 export function adaptLeadingChoice(
   source: ObjectSnapshot,
-  body: readonly Instruction[]
+  body: readonly Instruction[],
+  trigger?: { readonly at?: string; readonly filter?: unknown }
 ): {
   readonly mayAtFinalize: true;
   readonly cost?: CostPlanInput;
@@ -83,9 +96,20 @@ export function adaptLeadingChoice(
     };
   }
   if (!rest.length || rest.some(hasNestedControlBody)) return undefined;
+  if (rest.some(instruction => dependsOnInstruction(instruction, first.id))) return undefined;
   const cost = costPayArgsToCostSpec(first.args);
   if (!cost) return undefined;
-  const adapted = rest.map(instruction => hoistTargets(stripCostLinks(instruction, first.id)));
+  const adapted = rest.map(instruction => {
+    const ungated = removePaymentGate(instruction, first.id);
+    const eventIt = trigger?.at === 'buff-added' && instruction.op === 'effect.ready'
+      ? eventItForTarget(ungated, ungated.targets?.[0] as TargetRequirement)
+      : undefined;
+    if (eventIt) {
+      const { targets: _eventItTargets, ...withoutTargets } = eventIt as Instruction & { readonly targets?: readonly TargetRequirement[] };
+      return { instruction: withoutTargets as Instruction, targets: [] };
+    }
+    return hoistTargets(ungated);
+  });
   return {
     mayAtFinalize: true,
     cost: { id: `cost:${source.ref.id}:${source.ref.zoneEntryId}:${choice.id}`, cost },
