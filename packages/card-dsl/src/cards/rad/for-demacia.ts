@@ -19,7 +19,7 @@ import type { CardProgram, TargetSpec } from "../../ir/index.js";
  *   - 本回合授予关键词需要带 end-of-turn 期限的 continuous.grant-keyword 持续效果
  *     （契约 3.4：关键词授予落在 ability 图层）。
  *
- * status = judge-required（2026-10-18 第四轮复核，逐项实测，不近似实现）：
+ * status = judge-required（2026-10-18 第五轮复核，逐项实测，不近似实现）：
  * 1. continuous.grant-keyword 原语已合入（RIFT-258），并且写在 args.objects 里的集合查询会
  *    经解释器解析 sameLocationAs 锚点（effects/interpreter/selectors.ts 的 queryObjects），
  *    因此「friendly units there」按所选战场筛选单位是可执行的——golden 用真实解释器
@@ -40,15 +40,18 @@ import type { CardProgram, TargetSpec } from "../../ir/index.js";
  * 以及 combatRole 的战斗指定生产方（814.1.d）。
  * RIFT-681 的模板参数化 golden（test/cards/templates/
  * keyword-play-continuous-grant-keyword-681.test.mjs）经通用测试台真实执行 3 能量支付、
- * 战场筛选与 [Shield 2] 授予，并覆盖「所选战场没有友方单位」的边界。
+ * 战场筛选与 [Shield 2] 授予，并覆盖「所选战场没有友方单位」的边界。本卡 golden 另有
+ * 一条同等路径的用例断言生产链真实锁定战场后才求值 sameLocationAs 集合。
  */
 const forDemacia = {
   canonicalCardId: "card.hash-88b2b6a8fd884959d1de40824d4d5035cc609570087e598ecc6e808b8b3cc790",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(2026-10-18 第四轮复核实测) 战场筛选与本回合授予仍可执行：continuous.grant-keyword 原语经通用测试台真实支付 3 能量、" +
-    "锁定所选战场，并由 sameLocationAs 集合查询断言只有该战场的友方单位在 ability 图层拿到 Shield 2 与 end-of-turn 期限（317.2.c）。" +
+    "(2026-10-18 第五轮复核实测) 战场筛选与本回合授予仍可执行：continuous.grant-keyword 原语经通用测试台真实支付 3 能量、" +
+    "锁定所选战场，并由 sameLocationAs 集合查询断言只有该战场的友方单位在 ability 图层拿到 Shield 2 与 end-of-turn 期限（317.2.c）；" +
+    "本卡 golden 另以生产 ProgramBinding + ChainEngine 路径复现同一结算（真实 3 能量支付、became-target 只锁战场、" +
+    "其他战场友方单位与对手不变）。" +
     "仍缺的是 Shield 授予之后的行为（814.1.c/814.1.d.1）：" +
     "(1) 生产默认 LayerEngine 不展开被授予的关键词——实测授予后 Shield 只停在 object.keywords，Might 保持印刷值，+2 不生效；" +
     "RIFT-710 的 KeywordGrantLayerEngine 会展开并按 designation 求值（实测 defender +2、attacker/无角色不加），" +

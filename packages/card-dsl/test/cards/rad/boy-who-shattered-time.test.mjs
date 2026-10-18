@@ -12,7 +12,10 @@ import { createProgramBinding } from "../../../../engine-core/dist/programs/inde
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { isDurationAlias } from "../../../../engine-core/dist/layers/ops/index.js";
-import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
+import continuousCostModification from "../../../../engine-core/dist/effects/instructions/continuous.cost-modification.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-ad1eab15fd49b5de8236cadaa8e7c053d23218fb204a265a51a5ae2311445f11";
@@ -36,22 +39,28 @@ test("rad-139-167 Boy Who Shattered Time: identity, status and verbatim sourceTe
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The judgeReason must name the real gaps, not a generic complaint
   // (cards README §2): the missing KeywordAbility cost carrier, the
-  // Disempower cost, cost.modify's next-unit consumer and the granted
-  // end-of-turn kill.
+  // Disempower cost, the one-shot next-unit window and the granted
+  // end-of-turn kill. The merged RIFT-709 cost-modification surface is named
+  // as executable evidence rather than as a refusal.
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /KeywordAbility/);
   assert.match(program.judgeReason, /params\.cost/);
   assert.match(program.judgeReason, /Unsupported cost kind empower/);
   assert.match(program.judgeReason, /disempower/);
-  assert.match(program.judgeReason, /cost\.modify/);
+  assert.match(program.judgeReason, /continuous\.cost-modification/);
   assert.match(program.judgeReason, /下一张打出的单位/);
   assert.match(program.judgeReason, /grant-ability/);
   assert.match(program.judgeReason, /163\.2\.b/);
-  // Fourth-sweep refresh: the cost.modify argument shape is itself refused and
-  // the duration vocabulary has no next-unit window.
-  assert.match(program.judgeReason, /Invalid cost\.modify argument: appliesTo/);
+  // Fifth-sweep refresh: the discount arithmetic itself is executable through
+  // continuous.cost-modification + finalizeCostPlan (RIFT-709); only the
+  // one-shot window, its production consumer and grant-ability remain missing.
+  assert.match(program.judgeReason, /continuous\.cost-modification/);
+  assert.match(program.judgeReason, /finalizeCostPlan/);
+  assert.match(program.judgeReason, /Unknown continuous cost modification duration/);
   assert.match(program.judgeReason, /next-unit/);
   assert.match(program.judgeReason, /expandProgram/);
+  assert.match(program.judgeReason, /buildCostPlan/);
+  assert.doesNotMatch(program.judgeReason, /Invalid cost\.modify argument: appliesTo/);
   assert.equal(program.judgeReason.includes("KeywordDef 尚无归属任务号"), false);
 });
 
@@ -243,9 +252,10 @@ test("rad-139-167 Boy Who Shattered Time: opponent-side player is unaffected by 
 });
 
 test.todo(
-  "rad-139-167: reduce the cost of the next unit played this turn by 2 Energy and 1 [A] " +
-    "through the merged cost.modify primitive with a per-turn “next unit” window — the " +
-    "deferred CostPlan consumer is still missing (CR 135.2.e.5 / 163.2.b)"
+  "rad-139-167: arm the printed -2 Energy / -1 [A] discount only for the next unit played " +
+    "this turn — the discount arithmetic runs on the merged continuous.cost-modification + " +
+    "finalizeCostPlan surface, but the one-shot window has no duration alias and the " +
+    "production ChainEngine Finalize still calls buildCostPlan (CR 356.4 / 356.4.b)"
 );
 
 test.todo(
@@ -255,6 +265,11 @@ test.todo(
 );
 
 // --- 2026-10-18 re-sweep: measured carrier/schema gaps ---
+// 2026-10-18 fifth sweep: the two stale "the primitive refuses the discount"
+// assertions are replaced below by execution evidence on the merged
+// continuous.cost-modification + finalizeCostPlan surface (RIFT-709). Only the
+// assertions that pinned a now-merged primitive as absent/refused were removed;
+// every remaining semantic claim is re-asserted on the current shape.
 test("rad-139-167 Boy Who Shattered Time re-sweep: expandProgram drops params.cost even though the field validates", () => {
   // The contract type carries only keyword/value, and programs/keywords.ts calls
   // def.expand({ value, host }) without consulting params. Measured: adding the
@@ -293,34 +308,132 @@ test("rad-139-167 Boy Who Shattered Time re-sweep: expandProgram drops params.co
   );
 });
 
-test("rad-139-167 Boy Who Shattered Time re-sweep: the authored cost.modify shape is refused by the merged primitive", () => {
-  // The card writes appliesTo/energy/power/duration, which are not the
-  // primitive's argument vocabulary; cost.modify blocks instead of producing a
-  // cost plan for the wrong target. The correct modifier form does execute,
-  // which is exactly why the remaining gap is the deferred window, not the op.
+test("rad-139-167 Boy Who Shattered Time re-sweep: RIFT-709's cost-modification surface applies both printed discount halves to a real plan", () => {
+  // 356.4: the printed discount is -2 Energy and -1 [A] Power. The merged
+  // continuous.cost-modification primitive registers both halves on the
+  // arithmetic layer (RIFT-709) and finalizeCostPlan really consumes them, so
+  // the discount arithmetic itself is executable; [A] is a universal Power
+  // discount (135.2.e.5 / 163.2.b) and is never pinned to one Domain.
+  const kernel = world()
+    .player("A", { energy: 20, power: ["Order", "Order"] })
+    .hand("next-unit", { types: ["unit"], energy: 4, power: ["Order"], might: 2 })
+    .unit("ekko", { zone: "board", types: ["legend"], controller: "A" })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("ekko") });
+  const constant = value => ({ kind: "constant", value });
+  const playUnitFilter = constant({ type: "unit", controller: "self" });
+  const registrations = [
+    {
+      resource: constant("energy"),
+      amount: constant(2),
+      stage: constant("discount")
+    },
+    {
+      resource: constant("power"),
+      amount: constant(1),
+      stage: constant("discount"),
+      universal: constant(true)
+    }
+  ];
+  for (const registration of registrations) {
+    const run = runInstruction(
+      continuousCostModification,
+      {
+        ...registration,
+        appliesTo: constant("play-cost"),
+        filter: playUnitFilter,
+        // The supported duration stands in only to isolate the arithmetic; the
+        // printed one-shot window is asserted below as the remaining gap.
+        duration: constant("this-turn")
+      },
+      { world: scoped }
+    );
+    assert.equal(run.result.status, "executed");
+  }
+  assert.equal(scoped.continuousEffects.length, 2);
+  assert.deepEqual(
+    scoped.continuousEffects.map(entry => entry.effect.effect).map(effect => [effect.resource, effect.amount, effect.universal]),
+    [["energy", 2, undefined], ["power", 1, true]]
+  );
+
+  const plan = finalizeCostPlan(
+    bindResolveContext(kernel, { source: kernel.getObject("next-unit"), controller: "A" }),
+    { id: "play:next-unit", cost: { kind: "printed" } },
+    {
+      purpose: "play",
+      continuous: scoped.continuousEffects.map(entry => ({
+        effect: entry.effect,
+        duration: entry.duration,
+        timestamp: 1
+      }))
+    }
+  );
+  // 4 Energy + 1 Order really becomes 2 Energy and no Power.
+  assert.equal(plan.total.energy, 2);
+  assert.deepEqual(plan.total.power, []);
+  assert.deepEqual(plan.discounts.map(discount => [discount.resource, discount.before, discount.after]), [
+    ["energy", 4, 2],
+    ["power", 1, 0]
+  ]);
+});
+
+test("rad-139-167 Boy Who Shattered Time re-sweep: the printed one-shot window and the production Finalize consumer are still missing", () => {
+  // The remaining real gap, measured on the merged sources: the card's window
+  // is not a duration alias and the primitive refuses it, so the discount
+  // cannot be armed for exactly the next unit played this turn (356.4.b); the
+  // production ChainEngine Finalize also still calls buildCostPlan directly and
+  // charges the printed cost even with a valid registration present.
+  const constant = value => ({ kind: "constant", value });
   const kernel = world()
     .unit("ekko", { zone: "board", types: ["legend"], controller: "A" })
     .build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("ekko") });
-  const [reduce] = disempowerAbility.body;
+  assert.equal(isDurationAlias("next-unit-played-this-turn"), false);
   assert.throws(
-    () => runInstruction(costModify, reduce.args, { world: scoped }),
-    /Invalid cost\.modify argument: appliesTo/
+    () => runInstruction(
+      continuousCostModification,
+      {
+        resource: constant("energy"),
+        amount: constant(2),
+        stage: constant("discount"),
+        appliesTo: constant("play-cost"),
+        filter: constant({ type: "unit", controller: "self" }),
+        duration: constant("next-unit-played-this-turn")
+      },
+      { world: scoped }
+    ),
+    /Unknown continuous cost modification duration/
   );
 
-  const run = runInstruction(
-    costModify,
-    {
-      id: "boy-who-shattered-time.reduce-next-unit",
-      modifiers: [
-        { kind: "reduce", resource: "energy", amount: { kind: "constant", value: 2 }, id: "discount" }
-      ]
-    },
-    { world: scoped }
+  const f = fixture({
+    turnPlayer: "A",
+    cards: [{ id: "hero", cardId: null, owner: "A", types: ["unit"], energy: 3, power: [], might: 2 }]
+  });
+  const registered = f.kernel.clone({ sourceSnapshot: f.kernel.getObject("source") });
+  assert.equal(
+    runInstruction(
+      continuousCostModification,
+      {
+        resource: constant("energy"),
+        amount: constant(2),
+        stage: constant("discount"),
+        appliesTo: constant("play-cost"),
+        filter: constant({ type: "unit", controller: "self" }),
+        duration: constant("this-turn")
+      },
+      { world: registered }
+    ).result.status,
+    "executed"
   );
-  assert.equal(run.result.status, "executed");
-  // The plan is linked for this source only; nothing binds it to a later play.
-  assert.ok(run.linked.cost);
+  for (const entry of registered.continuousEffects) {
+    f.engine.layers.addContinuous(entry.effect, entry.duration);
+  }
+  assert.equal(f.engine.layers.registry.list().length, 1);
+  const energyBefore = f.kernel.player("A").energy;
+  f.engine.advance();
+  f.engine.execute(f.card("hero", { kind: "unit", controller: "A", body: [], cost: { id: "cost:hero", cost: { kind: "printed" } } }));
+  // ChainEngine still runs buildCostPlan, so the registered discount is not consumed.
+  assert.equal(energyBefore - f.kernel.player("A").energy, 3);
 });
 
 test("rad-139-167 Boy Who Shattered Time re-sweep: the duration vocabulary has no next-unit window", () => {
