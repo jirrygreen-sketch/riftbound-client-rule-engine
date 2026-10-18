@@ -31,17 +31,24 @@ import type { CardProgram } from "../../ir/index.js";
  *   ("kill this", 429.6's self form), and then chooses an opponent who scores
  *   1 point (194.1.c, 470).
  *
- * Status: judge-required. Trigger registration and the underlying draw-event
- * evidence are merged (programs/triggers.ts and events/action-adapter.ts),
- * but the "9 or more other cards in your hand" gate is still unexecutable:
- * - action-adapter emits one card-drawn event per drawn object with an object
- *   snapshot and amount, while pipeline.ts also retains the original draw
- *   action (including its batch amount); the missing piece is binding those
- *   event object/batch values into the CardProgram trigger condition/IR;
- * - the existing count expression can query the post-draw hand, but the
- *   condition has no event-object binding that makes `exclude: "source"`
- *   mean "exclude the card(s) drawn by this event", so it cannot express
- *   "other" for a multi-card draw.
+ * Status: judge-required. Trigger registration attaches the authored
+ * condition to the registration (programs/triggers.ts), and the pipeline really
+ * evaluates it per draw event with MissingInformation retry
+ * (events/pipeline.ts evaluateTriggerCondition). The gate is still
+ * unexecutable because the condition cannot reference the draw event itself:
+ * - the IR Expr union has no event-object / event-batch expression, so neither
+ *   the per-card event object nor the original draw action's batch amount is
+ *   reachable from the condition (the CountExpr `subject` string is ignored
+ *   by the evaluator; count uses only `filter`);
+ * - the existing count expression can query the post-draw hand, but its
+ *   `exclude` anchor resolves only through ObjectSelector — the program source,
+ *   not the card(s) drawn by this event — so it cannot express "other" for a
+ *   multi-card draw;
+ * - per-card card-drawn emissions (action-adapter.ts, one per drawn object,
+ *   amount 1, shared simultaneousGroup) are each fully scanned (pipeline
+ *   publish() drains each group before scanning the next), so even an
+ *   expressible hand-size condition would re-fire the whole trigger body on
+ *   intermediate hand states inside one draw action.
  * The discard / kill / score half uses only merged primitives (effect.discard
  * with "all", effect.kill with self: true, effect.score) and is executed by the
  * golden test.
@@ -51,13 +58,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "触发注册与抽牌事件证据已合入（programs/triggers.ts、events/action-adapter.ts、" +
-    "events/pipeline.ts）；缺的是“本次抽牌后手牌中其他牌数 ≥ 9”的事件绑定：" +
-    "(1) action-adapter 已为每张抽到的牌发出带 object 快照与 amount 的 card-drawn 事件，" +
-    "pipeline 也保留原始 draw action（含批次 amount），但 CardProgram 的 TriggerSpec/Condition " +
-    "与 programs/triggers.ts 尚未把事件对象、原始 action 和批次值绑定进可执行 IR；" +
-    "(2) 现有 count 表达式可以查询抽牌提交后的手牌，但 count 的 exclude 锚点仍是卡牌程序" +
-    "来源对象，不是本次 draw 事件抽到的牌，因而无法在多张抽牌时表达“other”。" +
+    "2026-10-18 复核：触发注册已把 condition 附到 registration（programs/triggers.ts），" +
+    "pipeline 也对每次抽牌事件真实求值该条件（events/pipeline.ts 的 evaluateTriggerCondition，含 MissingInformation 重试）；" +
+    "缺的是“本次抽牌后手牌中其他牌数 ≥ 9”的事件引用：" +
+    "(1) IR 的 Expr 联合类型没有 event-object / event-batch 表达式，条件既引用不到每张牌的" +
+    "card-drawn 事件对象，也引用不到原始 draw action 的批次 amount（CountExpr 的 subject 字段" +
+    "被求值器忽略，count 只使用 filter）；" +
+    "(2) 现有 count 表达式可以查询抽牌提交后的手牌，但 count 的 exclude 锚点只能解析为" +
+    "ObjectSelector（卡牌程序来源对象），不是本次 draw 事件抽到的牌，因而无法在多张抽牌时表达“other”。" +
+    "(3) 抽多张牌时 action-adapter 为每张牌各发一个 card-drawn 事件（amount 1、共享 simultaneousGroup），" +
+    "而 pipeline 的 publish 会先完整扫完前一组再发下一组——即使条件可表达，也会在同一 draw action 的" +
+    "中间手牌状态下把整个触发体重复执行。" +
     "另有卡牌数据问题：目录把该印刷标为 Spell，但文本是留在场上、随后被自身触发“kill this”的永久物（两个持续触发）；" +
     "Spell 结算后进弃牌堆（CR 1.5 157/351.2），“kill this”与持续触发都不成立，本任务不改数据、不推断真实卡型。" +
     "“discard your hand / kill this / They score 1 point”三半段用已合入原语表达，并有真实执行证据。",

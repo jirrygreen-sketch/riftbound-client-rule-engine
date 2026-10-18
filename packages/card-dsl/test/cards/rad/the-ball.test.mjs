@@ -147,7 +147,8 @@ test("rad-146-167 The Ball: a mistargeted damage group makes the whole mode inst
 
 test.todo(
   "rad-146-167 The Ball: [Deploy] 展开（830.1.b）的消费者未合入——continuous.location 没有 layerFor 映射" +
-    "（卡牌 static 绑定抛 judge-required），也没有 Finalize 位置校验调用方；hold 触发的 { here: true } 过滤器" +
+    "（卡牌 static 绑定抛 judge-required；chain/engine.ts 已有 playDestinationIsLegal → playLocations " +
+    "位置校验消费者，但绑定先行失败）；hold 触发的 { here: true } 过滤器" +
     "会被 translateTriggerFilter/translateObjectFilter 拒绝（turn/flow.ts 的清理召回已有 Deploy 豁免）"
 );
 
