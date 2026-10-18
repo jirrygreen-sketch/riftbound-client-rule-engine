@@ -116,13 +116,39 @@ test('rule-query controller filters read the stolen host controller rather than 
   assert.equal(applies('new-ally', 'A'), 1);
 });
 
-test('rule-query filters without exclusion, opponent or keyword consumers remain judge-required', () => {
+test('rule-query filters without exclusion or keyword consumers remain judge-required', () => {
   const f = fixture();
-  for (const filter of [{ controller: 'opponent' }, { sameLocationAs: 'self', location: BF2 }, { other: true }, { region: 'board' }, { keyword: 'shield' }]) {
+  for (const filter of [{ sameLocationAs: 'self', location: BF2 }, { other: true }, { region: 'board' }, { keyword: 'shield' }]) {
     assert.throws(() => createEngineStaticBinder(f.engine).bindStatic({ kind: 'static', effect: {
       kind: 'continuous.restrict', actions: ['reveal'], filter,
     } }, f.kernel.getObject('source')), error => error.code === 'judge-required' && /rule-filter consumer/.test(error.message));
     assert.equal(f.engine.layers.registry.list().length, 0);
+  }
+});
+
+test('rule-query opponent aliases follow the live host controller independently of the querying actor', () => {
+  for (const field of ['controller', 'owner']) {
+    for (const selector of ['opponent', 'their', 'caster-opponent']) {
+      const f = fixture({ cards: [
+        { id: 'host', types: ['unit'], might: 5 },
+        { id: 'ally-a', types: ['unit'], owner: 'A', controller: 'A', might: 2 },
+        { id: 'ally-b', types: ['unit'], owner: 'B', controller: 'B', might: 2 },
+      ] });
+      for (const id of ['host', 'ally-a', 'ally-b']) board(f, id);
+      createEngineStaticBinder(f.engine).bindStatic({ kind: 'static', effect: {
+        kind: 'continuous.restrict', actions: ['reveal'], restriction: `cannot-reveal-${field}-${selector}`,
+        filter: { type: 'unit', zone: 'board', [field]: selector },
+      } }, f.kernel.getObject('host'));
+      const entry = f.engine.layers.registry.list()[0];
+      const applies = id => restrictions(f.engine.layers.registry, 'reveal',
+        f.kernel.ref(id), f.engine.layers.snapshot(f.kernel.ref(id)), 'C').length;
+      assert.equal(applies('ally-a'), 0, `${field}:${selector} excludes the host controller`);
+      assert.equal(applies('ally-b'), 1, `${field}:${selector} matches the host opponent`);
+      f.engine.commit({ type: 'take-control', object: f.kernel.ref('host'), player: 'B' });
+      assert.equal(f.engine.layers.registry.list()[0], entry, 'the same registration is re-evaluated');
+      assert.equal(applies('ally-a'), 1, `${field}:${selector} retargets after control changes`);
+      assert.equal(applies('ally-b'), 0, `${field}:${selector} drops the former opponent`);
+    }
   }
 });
 

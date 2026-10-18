@@ -261,7 +261,18 @@ function bindRuleFilter(filter: ObjectFilter, effect: AnyRecord, ability: Extrac
   }
   for (const [key, value] of Object.entries({ controller, owner })) {
     if (['opponent', 'their', 'caster-opponent'].includes(String(value))) {
-      throw new ProgramBindingError('judge-required', `Static ${kind} needs a relative opponent rule-filter consumer`);
+      // Rule queries receive the acting/choosing player, which can be a third
+      // party. Resolve "opponent" from the live host controller instead. Core
+      // Rules defines a two-player opposing side; broader multiplayer relations
+      // need an explicit player-selector contract and stay fail-closed.
+      if (engine.pipeline.turnOrder.length !== 2) {
+        throw new ProgramBindingError('judge-required', `Static ${kind} opponent selector needs a two-player turn order`);
+      }
+      Object.defineProperty(filter, key, { enumerable: true, get: () => {
+        const controller = engine.layers.snapshot(source.ref)?.controller;
+        return controller === undefined ? null : engine.pipeline.turnOrder.find(player => player !== controller) ?? null;
+      } });
+      continue;
     }
     if (['self', 'source', 'controller', 'you', 'caster'].includes(String(value))) {
       Object.defineProperty(filter, key, { enumerable: true, get: () => engine.layers.snapshot(source.ref)?.controller ?? null });
