@@ -48,24 +48,25 @@ import type { CardProgram } from "../../ir/index.js";
  *   controller (190.6.d). See the contract change request in this task's
  *   reply.
  *
- * Status: judge-required. The look / unit-filtered banish / recycle halves are
- * merged and are executed by the golden test, but one gap remains:
- * - `cost.modify` is merged, but no card-program/Finalize producer reads the
- *   selected card's catalog printed cost, applies the Energy -5 discount, and
- *   supplies the resulting FinalizedCostPlan required by effect.play. The play
- *   instruction therefore keeps the intended unfinalized descriptor as
- *   reviewable data. The required "unit from among them" restriction is
- *   enforced by effect.banish's merged choose + ObjectFilter path
- *   (`object: { pick: "reinforce.top-five" }`).
+ * Status: judge-required (rechecked 2026-10-18). The look / unit-filtered
+ * banish / recycle halves are merged and are executed by the golden test, but
+ * one production gap remains:
+ * - no CardProgram/Chain Finalize producer reads the selected card's catalog
+ *   printed cost, applies the Energy -5 discount, and supplies the finalized
+ *   plan required by effect.play. The merged cost planner and effect.play
+ *   primitive each work when the caller supplies that plan, so the IR keeps
+ *   the intended unfinalized descriptor as reviewable data. The required
+ *   "unit from among them" restriction is enforced by effect.banish's merged
+ *   choose + ObjectFilter path (`object: { pick: "reinforce.top-five" }`).
  */
 const reinforce = {
   canonicalCardId: "card.hash-c2c17a54e193d86678b7e7bb36f02bf0db8c677c91f7ac73a0fa57cb2acc8be5",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "一处缺口：减费仍不可表达或执行——「play it, reducing its cost by :rb_energy_5:」需要按 CR 356.1.c/356.6 " +
-    "在打出该牌时改写其印刷基础费用（能源费 -5，不得低于 0）；cost.modify 原语与费用计划已合入，但没有卡牌程序/Finalize 生产者读取被选牌的目录印刷费用并" +
-    "把折扣后的 FinalizedCostPlan 提供给要求已 Finalize 费用的 effect.play。" +
+    "一处当前生产缺口（复核 2026-10-18）：减费仍没有卡牌程序/Chain Finalize 生产者——「play it, reducing its cost by :rb_energy_5:」需要按 CR 356.1.c/356.6 " +
+    "在打出被选牌时读取其目录印刷基础费用、应用 Energy -5（不得低于 0），并把 finalized CostPlan 提供给要求已 Finalize 费用的 effect.play；" +
+    "engine-core 的 finalizeCostPlan/cost.modify 与 effect.play 原语已各自合入，调用方仍未把两者接到该被放逐牌的二次打出流程。" +
     "有序 zoneSlice pick 来源（RIFT-66 契约变更随 RIFT-358 落地，Finalize 经 chain/picks/plan.ts 真实锁定牌库顶序、短牌库按实际数量锁定）" +
     "已合入并被本卡声明；effect.banish 的非目标 choose + ObjectFilter 已按 { object: { pick: \"reinforce.top-five\" }, type: \"unit\" } " +
     "约束候选，golden 真实验证排除法术及范围外的牌。look/banish/recycle 三段只用已合入原语并已由 golden 真实执行；不近似实现。",

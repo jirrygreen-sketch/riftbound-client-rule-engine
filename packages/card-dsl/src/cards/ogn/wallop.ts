@@ -22,10 +22,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   at Finalize (356.1.b.1: ignoring the cost sets the base Energy/Power
  *   components to 0; 356.1.b.3: later additional costs would still apply). It
  *   is declared as a static continuous.cost-modification ability. The card
- *   remains judge-required because the play adapter rejects this additional-cost
- *   shape, static cost modifications are not collected into the play CostPlan,
- *   and the condition vocabulary has no receipt lookup for "was this optional
- *   cost paid".
+ *   remains judge-required because `programs/play.ts` still rejects this
+ *   additional-cost shape, the default Chain Finalize path does not collect
+ *   card static cost modifications into the play CostPlan, and the condition
+ *   vocabulary has no receipt lookup for "was this optional cost paid".
  * - "Ready a unit." is ordinary targeting of a unit on the board (355.9.a.1)
  *   and uses the merged effect.ready primitive; the golden test executes it.
  */
@@ -34,11 +34,10 @@ const wallop = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「As you play this, you may spend a buff as an additional cost. If you do, ignore this spell's cost.」" +
-    "是 Finalize 阶段的可选追加费用 + 基础费用改写（355.1.a、356.2.b、356.1.b.1、356.1.b.3、356.4.f.1、702.2.b）。" +
-    "当前 play adapter 会拒绝该 additional-cost 形状，静态 continuous.cost-modification 也尚未进入 play 的 CostPlan；" +
-    "此外，Finalize 的可选费用回执没有可供 Condition/Expr 读取的表达式，无法可靠驱动“if you do, ignore this spell's cost”。" +
-    "费用声明与 Ready a unit 已按契约数据写出；Ready a unit 半段用已合入的 effect.ready 可执行。",
+    "当前三处生产缺口（复核 2026-10-18）：「As you play this, you may spend a buff as an additional cost. If you do, ignore this spell's cost.」" +
+    "是 Finalize 阶段的可选追加费用 + 基础费用改写（355.1.a、356.2.b、356.1.b.1、356.1.b.3、356.4.f.1、702.2.b）；" +
+    "programs/play.ts 仍拒绝本卡的 additional CostSpec，默认 Chain Finalize 也没有把 static continuous.cost-modification 接进 play 的 CostPlan，" +
+    "而 condition/Expr 没有读取 optional additional 的 paid receipt 来驱动“if you do”。费用计划本体已能独立表达 ignore-base 与 spend-buff，Ready a unit 已由 golden 真实执行；不近似实现卡牌接线。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

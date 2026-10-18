@@ -5,6 +5,8 @@ import { validateCardProgram } from "../../../dist/index.js";
 import wallop from "../../../dist/cards/ogn/wallop.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 
 const [speed, costRewrite, play] = wallop.abilities;
 const [readyInstruction] = play.body;
@@ -15,8 +17,8 @@ test("Wallop program is structurally valid and judge-required", () => {
   assert.equal(result.ok, true);
   assert.equal(wallop.status, "judge-required");
   assert.match(wallop.judgeReason, /356\.1\.b\.1/);
-  assert.match(wallop.judgeReason, /additional-cost/);
-  assert.match(wallop.judgeReason, /play adapter/);
+  assert.match(wallop.judgeReason, /additional-cost|additional CostSpec/);
+  assert.match(wallop.judgeReason, /programs\/play\.ts|play adapter/);
   assert.equal(wallop.rulesetVersion, "core-1.5");
   assert.equal(
     wallop.canonicalCardId,
@@ -131,6 +133,40 @@ test("Wallop golden: a unit that left the board makes the ready half ignored", (
   // Contract 3.6 primitive rule 2 / 359.3.e.7: every target invalid -> ignored.
   assert.equal(run.result.status, "ignored");
   assert.equal(run.result.reason, "mistargeted");
+});
+
+test("Wallop golden: the merged planner can ignore base resources and pay the optional spend-buff component", () => {
+  const kernel = world()
+    .player("A", { energy: 2, power: ["Body"] })
+    .hand("wallop", {
+      cardId: wallop.canonicalCardId,
+      types: ["spell"],
+      energy: 2,
+      power: ["Body"]
+    })
+    .unit("buffed-unit", { owner: "A", controller: "A", buffs: 1 })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("wallop") });
+  const plan = buildCostPlan(context, {
+    id: "wallop.supported-cost",
+    cost: { kind: "printed" },
+    baseModifications: [{ kind: "ignore-base", ignore: "resources" }],
+    optionalAdditional: [{
+      id: "wallop.buff-payment",
+      kind: "additional",
+      selected: true,
+      cost: { payments: [{ kind: "spend-buff", object: context.ref("buffed-unit") }] }
+    }]
+  });
+
+  assert.equal(plan.total.energy, 0);
+  assert.deepEqual(plan.total.power, []);
+  assert.deepEqual(plan.selectedAdditional, [{ id: "wallop.buff-payment", kind: "additional" }]);
+  const receipt = payCostPlan(context, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(context.player("A").energy, 2);
+  assert.equal(context.getObject("buffed-unit").buffs, 0);
+  assert.deepEqual(receipt.actions.map(action => action.action.type), ["pay", "spend-buff"]);
 });
 
 test.todo(
