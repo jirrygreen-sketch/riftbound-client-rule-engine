@@ -35,7 +35,6 @@ export interface StandardMoveBatchHost {
   readonly rules?: DuelMovementRuleContext;
   readonly transactionId?: string;
 }
-
 type StandardMovePipelineSurface = Pick<EventPipeline,
   'checkpoint' | 'restore' | 'commit' | 'deferTriggerScan' | 'events'>;
 
@@ -49,6 +48,14 @@ export interface StandardMovePipelinePort {
   readonly testTrigger?: Parameters<typeof createActionPipelineHost>[0]['testTrigger'];
   readonly turnOrder: readonly [string, string];
   readonly turnPlayer: string;
+  /** Additive hooks consumed by createActionPipelineHost for stable action/batch identity. */
+  readonly actionId?: (action: GameAction) => string | undefined;
+  readonly batchId?: (action: GameAction, actionId: string) => string | undefined;
+  readonly cause?: (action: GameAction) => string | undefined;
+}
+export interface StandardMovePipelineResult extends StandardMoveBatchResult {
+  /** The caller may continue with the same pipeline instead of creating a second one. */
+  readonly pipeline: EventPipeline;
 }
 
 export interface StandardMoveBatchResult {
@@ -83,15 +90,6 @@ function batchAction(action: GameAction, transactionId: string, index: number): 
     batchId: transactionId,
     cause: 'standard-move',
   }) as GameAction;
-}
-
-function batchHints(action: GameAction): { readonly actionId?: string; readonly batchId?: string; readonly cause?: string } {
-  const hints = action as GameAction & { readonly actionId?: string; readonly batchId?: string; readonly cause?: string };
-  return {
-    ...(hints.actionId === undefined ? {} : { actionId: hints.actionId }),
-    ...(hints.batchId === undefined ? {} : { batchId: hints.batchId }),
-    ...(hints.cause === undefined ? {} : { cause: hints.cause }),
-  };
 }
 
 function receipt(
@@ -149,29 +147,30 @@ export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMo
 
   const hostCheckpoint = host.checkpoint();
   const pipelineCheckpoint = host.pipeline.checkpoint();
-  const beforeEventCount = host.pipeline.events.length;
+  const batchStartEvent = host.pipeline.events.length;
   const actions: ActionReceipt['actions'][number][] = [];
   const exhausted: ObjectRef[] = [];
   const moved: ObjectRef[] = [];
   let index = 0;
   const live = (unitId: string) => {
-    const object = host.object(unitId);
-    if (object === null || object.zone !== 'board' || object.location === null) {
+    const raw = host.object(unitId);
+    const unit = host.board.units.find(candidate => candidate.objectId === unitId);
+    const object = unit === undefined ? raw : host.rules?.objectForUnit?.(unit) ?? raw;
+    if (raw === null || object === null || raw.zone !== 'board' || object.zone !== 'board' || object.location === null) {
       throw new StandardMoveBatchError('unit-unavailable', `Unit ${unitId} is no longer on the Board`);
     }
     return {
       controllerPlayerId: object.controller,
       locationId: locationId(object.location),
-      readied: !object.exhausted,
+      readied: !raw.exhausted,
       hasGanking: object.keywords.some(keyword => keyword.id.toLowerCase() === 'ganking'),
     };
   };
   const recheck = {
     unit: live,
     validate: (unitId: string) => {
-      const object = host.object(unitId);
-      if (object === null || object.zone !== 'board' || object.controller !== host.actor ||
-        object.location === null) {
+      const object = live(unitId);
+      if (object.controllerPlayerId !== host.actor) {
         throw new StandardMoveBatchError('unit-unavailable', `Unit ${unitId} is unavailable`);
       }
     },
@@ -180,39 +179,53 @@ export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMo
   try {
     return host.pipeline.deferTriggerScan(() => {
       for (const unitId of plan.unitIds) {
-        assertDuelStandardMoveUnitStillLegal(
-          host.board, plan, unitId, recheck, host.rules, 'before-exhaust',
-        );
-        const ref = host.ref(unitId);
-        const exhaustedOutcome: ActionOutcome = host.pipeline.commit(
-          batchAction({ type: 'exhaust', object: ref }, transactionId, ++index),
-        );
-        actions.push({ type: 'exhaust', status: exhaustedOutcome.status });
-        if (exhaustedOutcome.status !== 'done' && exhaustedOutcome.status !== 'replaced') {
-          throw new StandardMoveBatchError('exhaust-rejected',
-            `Exhaust for ${unitId} was ${exhaustedOutcome.status}`);
+        // One Exhaust + Move pair is the atomic unit; the outer checkpoint
+        // still restores the whole group if a later pair fails.
+        const pairCheckpoint = host.checkpoint();
+        const pairPipelineCheckpoint = host.pipeline.checkpoint();
+        try {
+          assertDuelStandardMoveUnitStillLegal(
+            host.board, plan, unitId, recheck, host.rules, 'before-exhaust',
+          );
+          const ref = host.ref(unitId);
+          const exhaustedOutcome: ActionOutcome = host.pipeline.commit(
+            batchAction({ type: 'exhaust', object: ref }, transactionId, ++index),
+          );
+          actions.push({ type: 'exhaust', status: exhaustedOutcome.status });
+          if (exhaustedOutcome.status !== 'done') {
+            throw new StandardMoveBatchError('exhaust-rejected',
+              `Exhaust for ${unitId} was ${exhaustedOutcome.status}`);
+          }
+          if (live(unitId).readied) {
+            throw new StandardMoveBatchError('exhaust-not-committed',
+              `Exhaust for ${unitId} did not mark the unit exhausted`);
+          }
+          assertDuelStandardMoveUnitStillLegal(
+            host.board, plan, unitId, recheck, host.rules, 'after-exhaust',
+          );
+          const movedOutcome: ActionOutcome = host.pipeline.commit(
+            batchAction({ type: 'move-location', object: ref, to: host.destination }, transactionId, ++index),
+          );
+          actions.push({ type: 'move-location', status: movedOutcome.status });
+          if (movedOutcome.status !== 'done') {
+            throw new StandardMoveBatchError('move-rejected',
+              `Move for ${unitId} was ${movedOutcome.status}`);
+          }
+          const after = host.object(unitId);
+          if (after === null || after.location === null || locationId(after.location) !== locationId(host.destination)) {
+            throw new StandardMoveBatchError('move-not-committed', `Move for ${unitId} did not commit its destination`);
+          }
+          const origin = plan.origins.find(entry => entry.objectId === unitId)?.locationId;
+          if (origin === undefined || origin === locationId(after.location)) {
+            throw new StandardMoveBatchError('move-event-invalid', `Move for ${unitId} has no location transition`);
+          }
+          exhausted.push(ref);
+          moved.push(ref);
+        } catch (error) {
+          host.restore(pairCheckpoint);
+          host.pipeline.restore(pairPipelineCheckpoint);
+          throw error;
         }
-        assertDuelStandardMoveUnitStillLegal(
-          host.board, plan, unitId, recheck, host.rules, 'after-exhaust',
-        );
-        const movedOutcome: ActionOutcome = host.pipeline.commit(
-          batchAction({ type: 'move-location', object: ref, to: host.destination }, transactionId, ++index),
-        );
-        actions.push({ type: 'move-location', status: movedOutcome.status });
-        if (movedOutcome.status !== 'done' && movedOutcome.status !== 'replaced') {
-          throw new StandardMoveBatchError('move-rejected',
-            `Move for ${unitId} was ${movedOutcome.status}`);
-        }
-        const after = host.object(unitId);
-        if (after === null || after.location === null || locationId(after.location) !== locationId(host.destination)) {
-          throw new StandardMoveBatchError('move-not-committed', `Move for ${unitId} did not commit its destination`);
-        }
-        const origin = plan.origins.find(entry => entry.objectId === unitId)?.locationId;
-        if (origin === undefined || origin === locationId(after.location)) {
-          throw new StandardMoveBatchError('move-event-invalid', `Move for ${unitId} has no location transition`);
-        }
-        exhausted.push(ref);
-        moved.push(ref);
       }
       return Object.freeze({
         receipt: receipt(transactionId, actions, 'committed'),
@@ -220,7 +233,7 @@ export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMo
         exhausted: Object.freeze([...exhausted]),
         moved: Object.freeze([...moved]),
         requiresOpenCleanup: true as const,
-        events: Object.freeze(host.pipeline.events.slice(beforeEventCount)),
+        events: Object.freeze(host.pipeline.events.slice(batchStartEvent)),
       });
     });
   } catch (error) {
@@ -245,9 +258,12 @@ export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMo
  */
 export function commitStandardMoveThroughPipeline(
   port: StandardMovePipelinePort,
-  input: Omit<StandardMoveBatchHost, 'pipeline' | 'checkpoint' | 'restore' | 'object'>,
-): StandardMoveBatchResult {
-  const pipeline = new EventPipeline(
+  input: Omit<StandardMoveBatchHost, 'pipeline' | 'checkpoint' | 'restore' | 'object'> & {
+    readonly pipeline?: EventPipeline;
+  },
+): StandardMovePipelineResult {
+  const suppliedPipeline = input.pipeline;
+  const pipeline = input.pipeline ?? new EventPipeline(
     createActionPipelineHost({
       checkpoint: port.checkpoint,
       restore: port.restore,
@@ -255,16 +271,20 @@ export function commitStandardMoveThroughPipeline(
       perform: port.perform,
       choose: port.choose,
       context: port.context,
+      ...(port.actionId === undefined ? {} : { actionId: port.actionId }),
+      ...(port.batchId === undefined ? {} : { batchId: port.batchId }),
+      ...(port.cause === undefined ? {} : { cause: port.cause }),
       ...(port.testTrigger === undefined ? {} : { testTrigger: port.testTrigger }),
     }),
     port.turnOrder,
     port.turnPlayer,
   );
-  return commitStandardMoveBatch({
+  const result = commitStandardMoveBatch({
     ...input,
     pipeline,
     checkpoint: port.checkpoint,
     restore: port.restore,
     object: id => port.objects().find(object => object.ref.id === id) ?? null,
   });
+  return Object.freeze({ ...result, pipeline });
 }
