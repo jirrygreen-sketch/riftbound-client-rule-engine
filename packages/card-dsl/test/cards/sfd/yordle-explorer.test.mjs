@@ -158,6 +158,10 @@ test("sfd-100-221 Yordle Explorer: identity, ruleset, status, judgeReason and ve
   // only open link is the missing-printed-characteristic semantics.
   assert.match(program.judgeReason, /numericPrinted/);
   assert.match(program.judgeReason, /MissingInformation/);
+  // 2026-10-18 re-sweep: the missing-printed-Power semantics remain the single
+  // named gap, and the merged event payload/predicate are credited as merged.
+  assert.match(program.judgeReason, /event-printed/);
+  assert.match(program.judgeReason, /card-played/);
   assert.doesNotMatch(program.judgeReason, /chain\/engine\.ts 的 resolve 发射只带 object\/player/);
   assert.doesNotMatch(program.judgeReason, /EventPattern\.details/);
 });

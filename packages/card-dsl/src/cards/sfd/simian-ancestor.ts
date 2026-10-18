@@ -20,8 +20,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "self" 表达（effect.ready 的 objects: { kind: "source" } 同义），由解释器在
  *   运行时绑定对象引用。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，缺口维持在一处事件词表。
- * - buff-added 时点产生方（events/action-adapter.ts 对 buff 动作发出 427.1/702.2.a）、
+ * status 判定（cards/README.md 第 2 节，2026-10-18 复核）：judge-required，缺口仍是同一处事件词表。
+ * - buff-added 时点定义（events/timing-points.ts，427.1/427.1.b/427.1.c）、buff 动作 →
+ *   buff-added 的派生（events/action-adapter.ts 对 buff 动作发出 427.1/702.2.a）、
  *   effect.ready 原语与 CardProgram → TriggerRegistration 的绑定层都已合入：
  *   programs/triggers.ts 会把本卡的 `{ event: "buff-added", filter: { source: "self" } }`
  *   交给 translateTriggerFilter，正确翻译成把 "me" 绑定到宿主的
@@ -61,13 +62,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "当前唯一缺口：events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 封闭词表不含 buff-added。" +
-    "buff-added 时点（events/timing-points.ts；events/action-adapter.ts 把 buff 动作映射为 427.1/702.2.a 的 buff-added）、" +
-    "effect.ready（416）原语与 CardProgram → TriggerRegistration 绑定层（programs/triggers.ts）都已合入：" +
+    "当前唯一缺口：events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 封闭词表不含 buff-added（实测 validateTriggerSpec 返回 invalid-event-type）。" +
+    "已合入且可执行：buff-added 时点定义（events/timing-points.ts；events/action-adapter.ts 把 buff 动作映射为 427.1/702.2.a 的 buff-added）、" +
+    "effect.ready（416）原语，以及 CardProgram → TriggerRegistration 绑定层（programs/triggers.ts）：" +
     "绑定层把本卡 `{ event: \"buff-added\", filter: { source: \"self\" } }` 翻译为把 \"me\" 指向宿主的 " +
-    "`{ event: \"buff-added\", object: { objectId: <host> } }`（golden 实测），但 events/pipeline.ts 的 registerTrigger " +
-    "对该 filter 调用 assertTriggerSpec，因此经绑定层注册本卡触发会抛 TriggerSpecValidationError（invalid-event-type，golden 实测）；" +
-    "该词表缺失前的注册等于跳过校验，不允许。golden 另用参考内核直接执行 body 的 effect.ready（416.1），并用真实 action-adapter 证明 buff 动作确实发出 buff-added。" +
+    "`{ event: \"buff-added\", object: { objectId: <host> } }`（golden 实测）。" +
+    "缺口后果：events/pipeline.ts 的 registerTrigger 对该 filter 调用 assertTriggerSpec，因此经绑定层注册本卡触发实测抛 TriggerSpecValidationError" +
+    "（path=trigger.filter.event，code=invalid-event-type），触发器进不了唯一事件管线；该词表缺失前的注册等于跳过校验，不允许。" +
+    "golden 另用参考内核直接执行 body 的 effect.ready（416.1），并用真实 action-adapter 证明 buff 动作确实发出 buff-added。" +
     "依赖：EventPattern 词表补齐 buff-added（时点本身已存在）。不近似实现（不把触发改写为其它时点，也不手改状态）。",
   abilities,
   sourceText: "When you buff me, ready me."
