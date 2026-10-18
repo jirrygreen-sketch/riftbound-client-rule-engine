@@ -14,8 +14,6 @@ const constantArray = (expression: unknown): readonly unknown[] | undefined =>
 export const isCostPay = (instruction: unknown): instruction is Instruction & { readonly args: Record<string, unknown> } =>
   isRecord(instruction) && (instruction as { op?: unknown }).op === 'cost.pay' && isRecord((instruction as { args?: unknown }).args);
 
-const isEffectInstruction = (instruction: unknown): boolean => isRecord(instruction) && typeof (instruction as { op?: unknown }).op === 'string' && String((instruction as { op?: unknown }).op).startsWith('effect.');
-
 const hasNestedControlBody = (instruction: Instruction): boolean => {
   const body = instruction.args?.body;
   if (!isRecord(body) || !('value' in body)) return false;
@@ -84,7 +82,7 @@ export function adaptLeadingChoice(
       targets: adapted.flatMap(entry => entry.targets.map(requirement => ({ requirement })))
     };
   }
-  if (!rest.length || !rest.every(isEffectInstruction)) return undefined;
+  if (!rest.length || rest.some(hasNestedControlBody)) return undefined;
   const cost = costPayArgsToCostSpec(first.args);
   if (!cost) return undefined;
   const adapted = rest.map(instruction => hoistTargets(stripCostLinks(instruction, first.id)));
