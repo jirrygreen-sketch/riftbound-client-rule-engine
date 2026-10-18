@@ -7,6 +7,7 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
@@ -59,7 +60,8 @@ test("ogn-150-298 Kraken Hunter: judgeReason cites the variable additional cost 
   // because the refreshed reason names the merged primitives separately.
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /cost\.modify/);
-  assert.match(program.judgeReason, /CostFailure|invalid-cost-plan/);
+  assert.match(program.judgeReason, /固定数量的 cost\.modify 已能执行/);
+  assert.match(program.judgeReason, /cost\/discounts/);
   assert.match(program.judgeReason, /356\.4\.c/);
   assert.match(program.judgeReason, /accelerate\.cost/);
   assert.match(program.judgeReason, /designation/);
@@ -207,10 +209,6 @@ test("ogn-150-298 Kraken Hunter: a fixed-count spend-buff is buildable but a pai
   assert.ok(error, "a paid-count discount must still be rejected while the gap is open");
   assert.match(error.message, /Discount must be a nonnegative safe integer/);
 
-  // The primitive itself cannot take the printed CostSpec either: with an
-  // explicit CostSpec the merged cost.modify ends in CostFailure/
-  // invalid-cost-plan, so there is no path that feeds the paid spend-buff
-  // count back into the play cost plan (356.4.c).
   // The merged cost.modify can only carry a *fixed* spend-buff count, and the
   // resulting plan exposes that count on CostPlan.total.actions while every
   // discount slot still requires a plain number, so nothing can turn the paid
@@ -225,6 +223,10 @@ test("ogn-150-298 Kraken Hunter: a fixed-count spend-buff is buildable but a pai
   assert.deepEqual(paidPlan.total.actions.map(entry => entry.action.amount), [2]);
   assert.equal(paidPlan.discounts.length, 0);
   assert.equal("paidAmount" in paidPlan.total.actions[0].action, false);
+  const receipt = payCostPlan(context, paidPlan);
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.events.map(event => event.action), ["pay", "spend-buff"]);
+  assert.equal(context.getObject("kraken").buffs, 0);
 });
 
 test.todo(

@@ -29,7 +29,7 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * 未合入依赖（不近似实现）:
  * - cost/buildCostPlan 已能表达 optionalAdditional（含 discard 支付）与 component 绑定的
- *   discount，但 play Finalize 仍没有把这里的 static 费用声明注册进费用计划，CostDiscount
+ *   discount，cost/discounts 也能收集普通静态减费，但 play Finalize 仍未绑定这里的可选费用，CostDiscount
  *   也没有"仅在该可选附加费用被选择时才应用"的 paid-proof gate（356.4.f.1）。
  * - cost.pay / cost.modify 原语已存在，但卡面声明还没有接入这条费用管线。
  * 依赖：CardProgram static cost declarations → play CostPlan/Finalize 的绑定。
@@ -39,11 +39,11 @@ const brazenBuccaneer = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 static cost.additional/cost.modify 到 play CostPlan/Finalize 的适配：需要询问可选弃牌费用并把 " +
+    "缺 static cost.additional/cost.modify 到 play CostPlan/Finalize 的适配：programs/statics.ts 仍拒绝费用声明，" +
+    "chain/engine.ts 未调用已合入的 cost/discounts.finalizeCostPlan；需要询问可选弃牌费用并把 " +
     "card-in-controller-hand 解析为当前手牌的非目标费用选择（CR 356.2.b.1）。还缺 grantedBy 到 selectedAdditional 的 " +
-    "paid-proof gate（356.4.f.1），使总费用只在选择支付该附加费用时减 2（356.4）；不能把手工附加/移除 discount 当作声明已执行。" +
-    "RIFT-675 通用测试台实测：本条 static 声明连图层都登记不了（layerFor 对 cost.additional/cost.modify 抛 " +
-    "no layer mapping），生产打出只收印刷 6 Energy、不会询问弃牌，减费也无从生效。",
+    "paid-proof gate（356.4.f.1）：新收集器对 cost.modify 的 grantedBy 字段仍拒绝，不能按 selectedAdditional 决定是否减 2（356.4）。" +
+    "不能把手工附加/移除 discount 或单独支付弃牌当作整卡声明已执行。",
   abilities: [
     {
       kind: "static",

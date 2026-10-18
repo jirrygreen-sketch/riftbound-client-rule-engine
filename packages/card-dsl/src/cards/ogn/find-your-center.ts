@@ -3,7 +3,7 @@ import type { CardProgram } from "../../ir/index.js";
 /**
  * Find Your Center — CR v1.5 194.3/194.3.a, 356.4, 414.3 and 431.
  * Action timing, discount planning, Draw and Channel movement are merged.
- * Finalize still needs a static-discount adapter and a condition expression
+ * The cost/discounts collector is merged; Finalize still needs its binding and a condition expression
  * reading the current per-mode Victory Score; never substitute a fixed 8.
  */
 const findYourCenter = {
@@ -11,9 +11,10 @@ const findYourCenter = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍有三处当前生产缺口：programs/statics.ts 的 layerFor 不接受 cost.modify，" +
-    "programs/play.ts 也没有把该静态声明收集进 Chain Finalize 的 CostPlanInput.discounts（CR 356.4）；" +
-    "对手 score 与模式 Victory Score 的差值条件没有已接线的 player/mode 状态适配，不能把命名字符串当作成立或硬编码默认 8（CR 194.3/194.3.a）。" +
+    "仍有三处当前生产缺口：programs/statics.ts 的 layerFor 不接受 cost.modify，programs/play.ts 未绑定活跃费用来源，" +
+    "chain/engine.ts 的 Finalize 仍直接调用 buildCostPlan，未接入已合入的 cost/discounts.finalizeCostPlan（CR 356.4）；" +
+    "该收集器仍拒绝本卡的命名条件，对手 score 与模式 Victory Score 的差值没有已接线的状态适配，" +
+    "不能把命名字符串当作成立或硬编码默认 8（CR 194.3/194.3.a）。" +
     "effect.channel 已提交 exhausted:true，但 effects/testing/test-kernel.ts 的 channel-rune 分支只换区、" +
     "未应用该入场状态，尚不能证明横置入场（CR 431.2）。",
   sourceText:
@@ -29,7 +30,7 @@ const findYourCenter = {
       kind: "static",
       effect: {
         kind: "cost.modify",
-        value: { kind: "constant", value: { energy: -2 } },
+        amount: { kind: "constant", value: -2 },
         resource: "energy",
         appliesTo: "play-cost"
       },
