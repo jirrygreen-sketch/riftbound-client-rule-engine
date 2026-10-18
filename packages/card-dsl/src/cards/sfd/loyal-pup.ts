@@ -71,10 +71,12 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "defense-declared 仍无战斗身份指派发射路径（383.4.f.2 / 466.2.c）：combat/flow.ts 在 " +
-    "combat-start-transaction 处阻断（TurnCombatBlockedError），时点表 defense-declared 也没有 payloadFields 声明防守战场。" +
+    "实测（2026-10-17）defense-declared 仍无战斗身份指派发射路径（383.4.f.2 / 466.2.c）：combat/flow.ts 在 " +
+    "combat-start-transaction 处阻断（TurnCombatBlockedError），时点表 defense-declared 没有 payloadFields 声明防守战场" +
+    "（脚本实测 timings 不含 defense-declared）。触发声明本身可校验并注册（实测 registerProgramTriggers 注册 1 条），" +
     "LocationSelector、运行期 Location 选择和 effect.move 已合入；当前缺口是把该次防守事件的 battlefieldId " +
-    "绑定到能力正文的「there」引用（359.3.f.1）。ResolveContext/Expr 尚无触发事件载荷读取，" +
+    "绑定到能力正文的「there」引用（359.3.f.1）。ResolveContext/Expr 尚无触发事件载荷读取" +
+    "（effect.move 的 to 只接受 LocationSelector；golden 实测该 referent 抛 effect.move to must be a location 且不改变位置），" +
     "programs/triggers.ts 也未提供该引用。不能用任选战场或来源当前 location 代替防守战场。",
   abilities,
   sourceText: "When you defend at a battlefield, you may move me there."

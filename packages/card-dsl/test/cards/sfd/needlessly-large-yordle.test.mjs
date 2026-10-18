@@ -12,6 +12,11 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/needlessly-large-yordle.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/engine.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { DuelBaseCombatBlockedError, createTrustedDuelBaseCombatFacts, planDuelBaseCombatDamage, validateDuelBaseCombatAllocation } from "../../../../engine-core/dist/combat/base-combat-allocation.js";
 
 const CARD_ID = "card.hash-fd21f689bd36e48ea3071e7d21c1fa68fd1527e85ca97ffd9052664f6aaba7de";
 const SOURCE_TEXT =
@@ -55,6 +60,95 @@ test("sfd-055-221 Needlessly Large Yordle: the cost reduction is per holding poi
     { resource: "energy", amount: -2, per: "point-scored-from-holding-this-turn" },
     { resource: "power", domain: "Calm", amount: -1, per: "point-scored-from-holding-this-turn" }
   ]);
+});
+
+/**
+ * The three measured gaps asserted in judgeReason. Each one is probed through
+ * the merged production surfaces (static binder, layer engine, combat
+ * allocation seam) so the reason describes the current engine rather than a
+ * historical one.
+ */
+function bindStatics(combatRole) {
+  const kernel = world().unit("yordle", { cardId: CARD_ID, might: 5, combatRole }).build();
+  const source = kernel.getObject("yordle");
+  const layers = createLayerEngine(kernel.objects);
+  const binder = createEngineStaticBinder({ layers, pipeline: { host: {
+    objects: () => kernel.objects,
+    context: (snapshot, controller, timingPoint) => kernel.context(snapshot, controller, timingPoint)
+  } } });
+  const bound = [];
+  // expandProgram.abilities = declared abilities + keyword expansions; the
+  // card's own continuous.cost-modification static is declared, while
+  // continuous.might/continuous.combat come from the Shield/Tank expansions.
+  for (const ability of expandProgram(program, source).abilities) {
+    if (ability.kind !== "static") continue;
+    bound.push(ability.effect.kind);
+    try {
+      binder.bindStatic(ability, source);
+    } catch (error) {
+      bound.push("BIND-REJECTED:" + String(error.message).slice(0, 60));
+    }
+  }
+  return { kernel, layers, bound };
+}
+
+test("sfd-055-221 Needlessly Large Yordle gap 1: Shield 5 stays unapplied for a real Defender designation", () => {
+  // 814.1.c/814.1.d: [Shield 5] is a static continuous.might gated on the
+  // Defender designation. The merged default expression path only reads
+  // snapshot-own properties, and layers/engine.ts does not consume compare, so
+  // the +5 never applies even when combatRole is defender.
+  const { kernel, layers } = bindStatics("defender");
+  assert.equal(layers.evaluate(kernel.ref("yordle")).might, 5);
+  assert.equal(layers.evaluate(kernel.ref("yordle")).buffs, 0);
+});
+
+test("sfd-055-221 Needlessly Large Yordle gap 2: Tank has no assignment-priority consumer", () => {
+  // 815.1.b/815.1.c.1/.c.2: the damage-assignment seam only accepts a
+  // keyword-priority proof of 'proven-none'. There is no merged consumer that
+  // can prove or apply Tank's lethal-first requirement, so a source/effect
+  // service that reports Tank priority is rejected at the trusted seam.
+  const state = {
+    stateVersion: 7,
+    board: {
+      playerIds: ["A", "B"],
+      battlefields: [{ locationId: "bf-1", controllerPlayerId: null, contested: true,
+        contestingPlayerId: "A", showdown: "active", combat: "active", occupancy: ["attacker-unit", "tank-unit"] }],
+      units: [
+        { objectId: "attacker-unit", controllerPlayerId: "A", locationId: "bf-1" },
+        { objectId: "tank-unit", controllerPlayerId: "B", locationId: "bf-1" }
+      ]
+    },
+    unitMeta: { "attacker-unit": { damageMarks: [] }, "tank-unit": { damageMarks: [] } }
+  };
+  const facts = createTrustedDuelBaseCombatFacts(7, "bf-1", {
+    currentMight: () => 3,
+    proveBasicCombat: () => ({
+      currentMight: "validated",
+      assignmentModifier: "proven-none",
+      preventionReplacement: "proven-none",
+      // 815.1.b: Tank is precisely an assignment-priority requirement. The
+      // closed proof vocabulary has no representable value for it.
+      keywordPriority: "first"
+    })
+  });
+  assert.throws(
+    () => planDuelBaseCombatDamage(state, "bf-1", facts),
+    (error) => error instanceof DuelBaseCombatBlockedError &&
+      error.code === "source-effect-proof-incomplete"
+  );
+  // The read-only attestation surface exists but carries no priority input.
+  assert.equal(typeof validateDuelBaseCombatAllocation, "function");
+});
+
+test("sfd-055-221 Needlessly Large Yordle gap 3: the Hold-point discount has no binding into Finalize", () => {
+  // 356.1/356.4: the discount must be collected as -2 Energy and -1 Calm Power
+  // per point scored from holding this turn. programs/statics.ts layerFor has no
+  // mapping for continuous.cost-modification, so the binder rejects before any
+  // Finalize cost plan could consume it.
+  const { bound } = bindStatics(null);
+  assert.deepEqual(bound.slice(0, 2), ["continuous.cost-modification", bound[1]]);
+  assert.match(bound[1], /BIND-REJECTED:.*continuous.cost-modification has no lay/);
+  assert.deepEqual(bound.slice(2), ["continuous.might", "continuous.combat"]);
 });
 
 test.todo(

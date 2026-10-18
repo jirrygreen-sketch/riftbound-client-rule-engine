@@ -21,18 +21,23 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "an enemy unit here"：「enemy」= 对手控制（740.1.b），「here」= 本卡所在地点
  *   （359.3.f.1/.2），写成 TargetSpec 的 controller/sameLocationAs 过滤（355.9.b）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（2026-10-17 复核）。
+ * status 判定（cards/README.md 第 2 节）：judge-required（2026-10-17 实测复核）。
  * - combat/flow.ts 在开启战斗/转换 showdown 时仍抛 combat-start-transaction/
  *   showdown-conversion，没有在授予 Attacker 后发射 attack-declared 的生产路径
  *   （383.4.e.2/383.4.e.2.a、466.2.c）；
  * - programs/filters.ts 的 translateInstructionTargets → translateObjectFilter 仍拒绝
- *   TargetSpec 的 sameLocationAs，触发 body 无法进入生产绑定，也就无法按来源结算时的
+ *   TargetSpec 的 sameLocationAs（实测 ProgramBindingError: Unsupported filter field
+ *   sameLocationAs），触发 body 无法进入生产绑定，也就无法按来源结算时的
  *   位置重验 here（359.3.f.2）；
  * - damage equal to my [Assault] 需要在结算时读取 Assault Value（807.1.b.2/807.2/
  *   807.3），而 effects/interpreter/expr.ts 的 object-property 只读快照直接属性，
- *   keywords.assault.value 仍是占位路径；
+ *   keywords.assault.value 仍是占位路径（实测 MissingInformation: Unavailable
+ *   characteristic: keywords.assault.value）；
  * - effects/keywords/Assault.ts 的展开条件读取 designation，ObjectSnapshot 提供的是
- *   combatRole，programs/statics.ts 捕获条件求值异常后返回 false，攻击加成未生效。
+ *   combatRole：实测默认 expr 求值器对 designation 报 Unavailable characteristic，
+ *   而 layers/engine.ts 的 conditionMatches 根本不求值 compare，programs/statics.ts
+ *   因此无法让攻击加成生效（effects/interpreter/expr-ext 的 designation 求值器
+ *   尚未接入默认 dispatch/图层）。
  * 模板 golden（test/cards/templates/keyword-triggered-attack-declared-effect-664.test.mjs）
  * 记录能真实执行的 Finalize 目标锁定与上述缺口；不把局部伤害原语测试当成整卡执行证据。
  */
@@ -81,15 +86,17 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "四处缺口，均不近似实现：(1) combat/flow.ts 仍以 combat-start-transaction/showdown-conversion " +
+    "实测（2026-10-17）四处缺口，均不近似实现：(1) combat/flow.ts 仍以 combat-start-transaction/showdown-conversion " +
     "阻止战斗开启与转换，尚未在授予 Attacker 后发射 attack-declared 并按每场战斗首次取得身份触发" +
     "（383.4.e.2/383.4.e.2.a、466.2.c）。(2) programs/filters.ts 的 translateInstructionTargets → " +
-    "translateObjectFilter 仍拒绝 TargetSpec 的 sameLocationAs，触发 body 在生产绑定即失败关闭，" +
+    "translateObjectFilter 仍拒绝 TargetSpec 的 sameLocationAs（实测 registerProgramTriggers 抛 " +
+    "ProgramBindingError: Unsupported filter field sameLocationAs），触发 body 在生产绑定即失败关闭，" +
     "不能按来源结算时的位置重验 enemy unit here（355.9.b/359.3.f.2）。(3) effects/interpreter/expr.ts " +
-    "的 object-property 只读取快照直接属性，不能读取结算时含叠加授予的 Assault Value（807.1.b.2/807.2/" +
-    "807.3）；keywords.assault.value 仍是占位路径，不能用常量 1 近似。(4) effects/keywords/Assault.ts " +
-    "读取 designation，ObjectSnapshot 提供 combatRole，programs/statics.ts 捕获异常后返回 false，" +
-    "continuous.might 攻击加成未生效（807.1.c/807.1.d.1）。",
+    "的 object-property 只读取快照直接属性（实测 MissingInformation: Unavailable characteristic: " +
+    "keywords.assault.value），不能读取结算时含叠加授予的 Assault Value（807.1.b.2/807.2/807.3），" +
+    "不能用常量 1 近似。(4) effects/keywords/Assault.ts 读取 designation 而 ObjectSnapshot 提供 " +
+    "combatRole（其实测 designation 条件抛 Unavailable characteristic，layers/engine.ts 的 " +
+    "conditionMatches 也不求值 compare），continuous.might 攻击加成未生效（807.1.c/807.1.d.1）。",
   abilities,
   sourceText:
     "[Assault] (+1 :rb_might: while I'm an attacker.)\n" +

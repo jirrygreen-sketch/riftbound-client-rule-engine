@@ -31,12 +31,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "combat-result 仍无生产发射路径：combat/flow.ts 在 combat-start-transaction / simultaneous-damage-transaction " +
-    "处阻断，尚未到达 468.3.a–d / 468.4 的胜负步骤。events/trigger-spec.ts 的 EVENT_PATTERN_TYPES " +
-    "没有 combat-result（实测 validateTriggerSpec 报 invalid-event-type），programs/filters.ts 也拒绝 details 字段" +
-    "（实测 ProgramBindingError judge-required: Unsupported filter field details），不能把 winnerId 与能力控制者比较。" +
-    "Legend Zone（107.4.a–d）不在 ZoneId 中，programs/triggers.ts 对永久物只默认订阅 board；" +
-    "需补传奇区域及活动区域绑定。effect.draw 1 已可独立执行，触发注册机制本身已合入。",
+    "实测 2026-10-17（HEAD 9be41b14）三处当前缺口：(1) combat-result 仍无生产发射路径——combat/flow.ts 在 " +
+    "combat-start-transaction / simultaneous-damage-transaction 处阻断，尚未到达 468.3.a–d / 468.4 的 " +
+    "Determine Combat Result 步骤；timing-points.ts 声明的 payloadFields（winnerId 等）只是声明，不是生产者。" +
+    "(2) 触发无法注册——events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 没有 combat-result" +
+    "（实测 validateTriggerSpec 报 invalid-event-type），programs/filters.ts 也拒绝 details 字段" +
+    "（实测 registerProgramTriggers 抛 ProgramBindingError: Unsupported filter field details），" +
+    "「你赢得战斗」的 winnerId 与能力控制者比较没有可注册拼写。(3) 活动区域绑定缺失——ZoneId 没有 Legend Zone" +
+    "（107.4.a–d），programs/triggers.ts 对永久物默认订阅 board，传奇对象无法在传奇区域订阅触发。" +
+    "effect.draw 1 本体已可执行（黄金测试覆盖抽 1 与空牌库口径）。依赖：战斗结果原子事务 + 事件词表 + 传奇区域绑定；不近似实现。",
   abilities: [
     {
       kind: "triggered",
