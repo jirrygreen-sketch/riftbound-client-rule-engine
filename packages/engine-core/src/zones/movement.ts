@@ -175,6 +175,41 @@ function routeBlocked(restrictions: readonly string[], route: ReturnType<typeof 
   return names.has('base-to-battlefield') || names.has('move-from-base') || names.has('move-to-battlefield');
 }
 
+/**
+ * KeywordDefs predate the normalized movement-permission record and still
+ * publish Ganking as a string. The production static binder registers that
+ * shape verbatim, so normalize this one closed permission at the movement
+ * consumer. Other permission spellings remain on the typed query path.
+ */
+function hasRawGankingPermission(
+  registry: ContinuousEffectRegistry,
+  ref: ObjectRef,
+  object: ObjectSnapshot | null | undefined,
+  actor: string,
+): boolean {
+  if (object === null || object === undefined) return false;
+  return registry.list().some(entry => {
+    const effect = entry.effect.effect as Record<string, unknown>;
+    const kind = String(effect.kind ?? '').toLowerCase();
+    if (kind !== 'movement' && kind !== 'continuous.movement') return false;
+    if (effect.permission !== 'battlefield-to-battlefield') return false;
+    const filter = entry.effect.filter as Record<string, unknown>;
+    const objectId = filter.objectId ?? filter.id;
+    if (objectId !== undefined && objectId !== ref.id) return false;
+    const zoneEntryId = filter.zoneEntryId;
+    if (zoneEntryId !== undefined && zoneEntryId !== ref.zoneEntryId) return false;
+    const controller = filter.controller;
+    if (controller !== undefined && controller !== 'any' && controller !== actor &&
+      !(typeof controller === 'object' && controller !== null && (controller as { playerId?: unknown }).playerId === actor)) return false;
+    const condition = effect.condition;
+    if (typeof condition === 'function') {
+      try { return Boolean((condition as (target: ObjectSnapshot) => unknown)(object)); }
+      catch { return false; }
+    }
+    return condition === undefined || condition === true;
+  }) && ref.id === object.ref.id;
+}
+
 /** Exact correspondence with `board.units`; returns detached, validated records in input order. */
 function checkedReadiness(board: DuelBoard, input: unknown): DuelReadinessRecord[] {
   const raw = list(input, null, 'readiness').map((value, i) => {
@@ -330,7 +365,8 @@ function checkedStandardMove(
       check(destinationField !== undefined, `unit ${unitId} may only leave a base for a battlefield`);
     } else {
       // 144.4.b/144.4.c: battlefield → own base, or battlefield → battlefield with Ganking.
-      check(destinationBase !== undefined || readinessById.get(unitId)!.hasGanking || ruleView?.canGank === true,
+      check(destinationBase !== undefined || readinessById.get(unitId)!.hasGanking ||
+        ruleView?.canGank === true || hasRawGankingPermission(rules!.registry, unitRef, unitObject, actor),
         `unit ${unitId} needs Ganking to move battlefield to battlefield`);
     }
   }
@@ -389,7 +425,8 @@ export function assertDuelStandardMoveUnitStillLegal(
     [...ruleView.restrictions, ...actionRestrictions], route,
   )), `unit ${unitId} is prohibited from moving`);
   if (bases.has(origin)) check(destinationIsField, `unit ${unitId} may only leave a base for a battlefield`);
-  else check(destinationIsBase || live.hasGanking || ruleView?.canGank === true,
+  else check(destinationIsBase || live.hasGanking || ruleView?.canGank === true ||
+    (rules !== undefined && hasRawGankingPermission(rules.registry, unitRef, unitObject, plan.actor)),
     `unit ${unitId} needs Ganking to move battlefield to battlefield`);
   recheck.validate(unitId);
 }
