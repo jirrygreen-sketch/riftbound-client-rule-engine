@@ -68,12 +68,11 @@ function parseArgs(value: unknown): LocationArgs {
   }
   return { ...value } as unknown as LocationArgs;
 }
-function name(value: Value, label: string): string | undefined {
-  if (Array.isArray(value)) throw new TypeError("continuous.location " + label + " must be a single name");
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new TypeError("continuous.location " + label + " must be a nonempty string");
-  }
-  return value;
+function name(value: Value, label: string): string | Record<string, unknown> | undefined {
+  if (Array.isArray(value)) throw new TypeError("continuous.location " + label + " must be a single name or location predicate");
+  if (typeof value === "string" && value.trim().length > 0) return value;
+  if (isRecord(value)) return value;
+  throw new TypeError("continuous.location " + label + " must be a nonempty string or location predicate");
 }
 function appliesTo(value: Value): ObjectFilter | undefined {
   if (value === undefined || value === null || value === "any" || value === "all") return undefined;

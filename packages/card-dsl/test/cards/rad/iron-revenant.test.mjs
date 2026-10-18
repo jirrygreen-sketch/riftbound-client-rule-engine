@@ -1,3 +1,7 @@
+// RIFT-654 template execution evidence: ../templates/activated-activated-effect-resources-654.test.mjs
+// (whole-card activation is pending; the original Exhaust slice and exhausted-source boundary execute as partial evidence). The card stays
+// judge-required for the banish payment kind, Universal Power, the resource-use restriction and
+// the Legend Zone asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -37,6 +41,7 @@ test("rad-143-167 Iron Revenant: identity, status and verbatim sourceText", () =
   // The merged restriction path, not a missing op, is the current gap.
   assert.match(program.judgeReason, /translateRestriction|needs a rules adapter/);
   assert.match(program.judgeReason, /activateAddDuringPayment/);
+  assert.match(program.judgeReason, /107\.4/);
   assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-91|RIFT-120|RIFT-257|RIFT-261/);
 });
 
@@ -101,6 +106,12 @@ test("rad-143-167 Iron Revenant: the Banish action itself is merged and moves th
   assert.deepEqual(scoped.zone("A", "trash"), []);
   assert.deepEqual(scoped.zone("A", "banishment").map(ref => ref.id), ["dead-unit"]);
 });
+
+// The previous "Banish cost has no payable plan" and "use restriction has no
+// Finalize adapter" goldens assert the missing-adapter gaps that judgeReason
+// also records; they are restored under the tightened review rule and stay
+// aligned with the TODO entries below, while the merged Banish action keeps its
+// own positive golden above.
 
 test("rad-143-167 Iron Revenant boundary: the printed Banish cost has no payable plan today", () => {
   // The cost layer keeps its closed nonstandard payment vocabulary, so the

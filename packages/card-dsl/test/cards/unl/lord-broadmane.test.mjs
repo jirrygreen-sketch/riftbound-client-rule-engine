@@ -14,6 +14,9 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { createProgramBinding, createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
+// Execution evidence for the supported card-played/grant body:
+// templates/keyword-triggered-card-played-continuous-704.test.mjs.
+
 const CANONICAL_ID =
   "card.hash-7fca30537894dafdae14a16780cb746b71b61799934fb26663599e56c55fe2bd";
 const SOURCE_TEXT =

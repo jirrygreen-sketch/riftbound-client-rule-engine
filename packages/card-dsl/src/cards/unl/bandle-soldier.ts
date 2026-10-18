@@ -3,10 +3,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
 /**
  * Bandle Soldier — CR v1.5 824.1 (Level 3), 369.3/143.4/359.2.c
  * (enter ready). 入场状态改写已可执行，Level 的控制者 XP 条件仍不可求值。
- * level-active:3 是描述性占位，非空字符串不能作为该条件的执行证据，因此本卡
- * 文件里的 condition 不是可执行 XP 门槛（真正的 level-active 谓词由 Level
- * KeywordDef 发布，其消费方仍缺）。
+ * condition 保留契约中的 controller-xp 查询形状；该查询目前仍没有玩家 XP
+ * 求值方，不能作为执行证据（真正的 level-active 谓词由 Level KeywordDef 发布，
+ * 其消费方仍缺）。
  */
+const levelCondition = {
+  kind: "compare",
+  left: { kind: "count", subject: "controller-xp", filter: { player: "controller" } },
+  operator: "gte",
+  right: { kind: "constant", value: 3 }
+} as const;
+
 const abilities: Ability[] = [
   {
     kind: "keyword",
@@ -21,9 +28,8 @@ const abilities: Ability[] = [
       filter: { source: "self", exhausted: true }
     },
     // 824.1.c：“当控制者有 3 点或更多 XP 时 Dependent Ability 生效”。
-    // 描述性占位：expression 把非空字符串视为真，所以该字段不能代表 824.1.c 的
-    // 生效条件；它只是作者侧记录。整卡保持 judge-required（见 judgeReason）。
-    condition: { kind: "expression", value: { kind: "constant", value: "level-active:3" } },
+    // 保留控制者 XP 门槛的 IR 形状；解释器当前不读取 PlayerSnapshot.xp。
+    condition: levelCondition,
     with: [
       {
         id: "bandle-soldier.enter-ready",
@@ -46,11 +52,10 @@ export default {
     "（实测抛 Static ability kind condition.predicate has no layer mapping），依赖能力根本无法注册；" +
     "(2) 解释器表达式集合也没有读取 PlayerSnapshot.xp 的形态（object-property/object-attribute 只读对象快照，" +
     "RIFT-359 扩充的是 played-from-hand / event-printed / result 谓词，不含玩家 XP），" +
-    "Condition 的现有分支都不读玩家 XP，Level 展开里的 query: \"controller-xp\" 无求值方。" +
+    "Condition 的现有分支都不读玩家 XP，Level 展开里的 query: \"controller-xp\" 无求值方；本卡 replacement.condition 保留同一查询形状，不能把对象数量当 XP。" +
     "入场替代本身已可执行：bindReplacement/createEngineStaticBinder 消费 effect.ready 形式，按 143.4/359.2.c/369.3 改写入场状态且不产生 object-readied" +
-    "（golden 用生产 binder 实证）。程序的 level-active:3 字符串只记录未实现意图，不能当作可执行 XP 条件" +
-    "（expression 会把非空字符串视为真）；replacement/bind.ts 的 matchesEnterAction 还跳过 ability.condition，" +
-    "RIFT-678 模板以原文要求断言 2 XP 时横置入场并保留失败 TODO，3 XP 的入场证据不能证明 Level 已接线。" +
+    "（golden 用生产 binder 实证）。replacement/bind.ts 的 matchesEnterAction 还跳过 ability.condition，" +
+    "RIFT-700 模板以原文要求断言 0 XP 时横置入场并保留失败 TODO，3 XP 的入场证据不能证明 Level 已接线。" +
     "整卡保持 judge-required。契约变更请求：可读取实时控制者 PlayerSnapshot.xp 的条件与 Dependent Ability 绑定；" +
     "依赖 RIFT-268/258/259 的后续接线及 RIFT-260 入场条件求值。",
   abilities,

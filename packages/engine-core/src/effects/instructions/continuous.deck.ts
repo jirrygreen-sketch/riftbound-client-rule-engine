@@ -111,11 +111,19 @@ export default {
     const instance = args.instanceId === undefined && args.executionId === undefined ? undefined :
       ctx.evaluate(args.instanceId ?? args.executionId!);
     const combinedFilter = mergeFilter(filter, target);
+    const namedFilter = {
+      ...combinedFilter,
+      characteristics: {
+        ...(typeof combinedFilter.characteristics === "object" && combinedFilter.characteristics !== null
+          ? combinedFilter.characteristics as Record<string, unknown> : {}),
+        name: nameValue,
+      },
+    };
     const spec: ContinuousEffectSpec = {
       id: continuousId("continuous-deck", ctx, instance, { mode, amount, name: nameValue, filter: combinedFilter, duration: durationArg }),
       layer: "ability",
       source: ctx.source.ref,
-      filter: filter === undefined && target.refs.length === 0 ? { characteristics: { name: nameValue } } : combinedFilter,
+      filter: namedFilter,
       effect: {
         kind: "deck-limit",
         mode,

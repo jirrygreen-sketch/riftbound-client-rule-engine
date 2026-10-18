@@ -18,7 +18,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Exhaust 是该能力的启动费用。
  * - 442.1 / 442.2："Empower another gear" 是 Empower 动作（Limited Action，442.3 / 442.3.a）；
  *   740.1.a 的 friendly 与本卡的 "another" 一起限定为"控制者控制的、除本卡以外的 gear"
- *   （the Boss / Detonation Amplifier 用 other: true 的同一写法）；"a gear" 由能力控制者
+ *   （用契约 3.6 的 exclude: "self" 锚点表达）；"a gear" 由能力控制者
  *   选择，属 Target（355.7 / 355.9.a.1：未特别说明时 "gear" 指 Board 上的 gear）。
  *   已合入的 effect.empower 原语即该动作（它把【成为 Empowered 的对象】交给动作层与
  *   442.1.c 的"已 Empowered 时什么也不发生"处理）。
@@ -26,7 +26,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   第二条能力。
  *
  * status = judge-required（缺口只剩目标过滤的排除锚点，不近似实现）：
- * 复核（2026-10-17，RIFT-613 第三轮 M2 覆盖率复核，实测见 test.mjs 的 probe 用例）：
+ * 复核（2026-10-17，实测见 test.mjs 的 probe 用例）：
  * 1. "This enters exhausted" 的入场替代已可执行：replacement.enter 原语与生产绑定链
  *    （programs/index.ts 的 createProgramBinding、programs/statics.ts 的
  *    createEngineStaticBinder → replacement/bind.ts）已合入，golden 用真实绑定复刻
@@ -34,12 +34,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 2. 启动能力的生产绑定路径已可产出 ChainDraft（programs/activate.ts），effect.empower
  *    原语与 442.1.c 的"已 Empowered 时什么也不发生"由动作层真实执行；golden 用真实
  *    解释器执行"横置自身并 Empower 另一个 gear"。
- * 3. 剩余缺口："another gear" 的排除锚点 other: true（740.1.a 的 friendly + other 写法）
- *    没有任何消费方：实测 programs/filters.ts 的 translateObjectFilter 对 other 抛
- *    ProgramBindingError（code "judge-required"，message "Unsupported filter field other"），
- *    生产绑定因此 fail-closed；参考内核的 layers/filter.ts matchesObjectFilter 同样不消费
- *    该字段（恒真），无法排除来源自身。"a gear" 是 355.7/355.9.a.1 的 Target，缺排除锚点即缺
- *    整个启动能力，故整卡不标 executable（契约变更请求：目标过滤 other/exclude 锚点）。
+ * 3. 剩余缺口："another gear" 的 exclude: "self" 排除锚点（740.1.a）还没有生产消费方：
+ *    实测 programs/filters.ts 的 translateObjectFilter 对 exclude 抛 ProgramBindingError
+ *    （code "judge-required"，message "Unsupported filter field exclude"），生产绑定因此
+ *    fail-closed；目标查询的 layers/filter.ts matchesObjectFilter 也不消费该锚点，无法排除
+ *    来源自身。"a gear" 是 355.7/355.9.a.1 的 Target，缺排除锚点即缺整个启动能力，故整卡
+ *    不标 executable（契约变更请求：目标过滤 exclude 锚点的生产翻译与目标查询消费）。
  */
 const abilities: Ability[] = [
   {
@@ -87,8 +87,8 @@ const abilities: Ability[] = [
         targets: [
           {
             id: "hextech-formula.other-gear",
-            // "another"（740.1.a 的 friendly + other: true）：限本卡控制者控制的另一件 gear。
-            filter: { type: "gear", controller: "self", zone: "board", other: true },
+            // "another"（740.1.a）：用契约 3.6 的 exclude: "self" 限定为另一件 gear。
+            filter: { type: "gear", controller: "self", zone: "board", exclude: "self" },
             min: 1,
             max: 1,
             selection: "one"
@@ -108,13 +108,13 @@ export default {
     "（createProgramBinding / createEngineStaticBinder → replacement/bind.ts）用真实绑定执行" +
     "『This enters exhausted』（369.1/369.3，359.2.d 默认就绪被改写为横置入场，不是一次横置动作）；" +
     "effect.empower 原语与 442.1.c 的『已 Empowered 时什么也不发生』由动作层真实执行。" +
-    "剩余缺口（2026-10-17 RIFT-613 复核实测）：『another gear』的排除锚点 other: true（740.1.a）" +
-    "没有消费方——programs/filters.ts translateObjectFilter 对 other 抛 ProgramBindingError" +
-    "（judge-required，\"Unsupported filter field other\"），生产绑定 fail-closed；" +
-    "layers/filter.ts matchesObjectFilter 也不消费该字段（恒真），参考内核同样无法排除来源自身。" +
-    "『a gear』是 Target（355.7/355.9.a.1），缺排除锚点即缺整个启动能力，故整卡保持 " +
-    "judge-required；契约变更请求：ObjectFilter 的 other/exclude 排除锚点（生产 translateObjectFilter" +
-    "与解释器目标过滤）。不近似实现（不把『another』近似成『a gear』，也不在卡内伪造来源排除）。",
+    "剩余缺口（2026-10-17 复核实测）：『another gear』的 exclude: \"self\" 排除锚点（740.1.a）" +
+    "没有生产消费方——programs/filters.ts translateObjectFilter 对 exclude 抛 ProgramBindingError" +
+    "（judge-required，\"Unsupported filter field exclude\"），生产绑定 fail-closed；" +
+    "layers/filter.ts matchesObjectFilter 也不消费该锚点，无法排除来源自身。『a gear』是 Target" +
+    "（355.7/355.9.a.1），缺排除锚点即缺整个启动能力，故整卡保持 judge-required；契约变更请求：" +
+    "ObjectFilter 的 exclude 排除锚点需接入生产 translateObjectFilter 与目标查询。" +
+    "不近似实现（不把『another』近似成『a gear』，也不在卡内伪造来源排除）。",
   abilities,
   sourceText:
     "This enters exhausted.\n" +

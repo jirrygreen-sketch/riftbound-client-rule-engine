@@ -4,17 +4,10 @@ import type { KeywordDef } from "../keyword-contract.js";
 /**
  * Hidden (Core Rules v1.5, 811) expands to the static hidden-cost effect.
  *
- * Dependencies not yet merged:
- * - `cost.hidden` for the Hide action, facedown-zone restrictions, and free
- *   play from the facedown zone (RIFT-89).
- * - `cost.pay` and `effect.zone` for the [A] payment and Hide movement
- *   (RIFT-89).
- * - `continuous.timing` for the Reaction permission beginning next turn
- *   (RIFT-91).
- *
- * This file only declares the EffectIR expansion. Hidden-card choices and
- * facedown information remain owned by the cost, zone, timing, and chain
- * implementations.
+ * The expansion remains deliberately additive: the static declaration is the
+ * stable IR shape consumed by the program binder, while the executable Hide /
+ * Facedown / next-turn lifecycle lives in `zones/hidden`.  Keeping this file
+ * free of state mutation preserves the normal keyword expansion contract.
  */
 const Hidden = {
   keyword: "Hidden",

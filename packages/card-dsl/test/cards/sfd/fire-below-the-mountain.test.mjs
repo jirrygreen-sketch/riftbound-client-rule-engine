@@ -1,3 +1,7 @@
+// RIFT-654 template execution evidence: ../templates/activated-activated-effect-resources-654.test.mjs
+// (whole-card activation is pending; the original Exhaust cost, original [A] body, exhausted-source
+// and no-invented-Domain boundaries execute as partial evidence). The card stays judge-required for Universal Power, the
+// resource-use restriction, the kind=add bridge and the missing Legend Zone asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -36,6 +40,7 @@ test("sfd-189-221 Fire Below the Mountain: identity, ruleset, status, judgeReaso
   assert.match(program.judgeReason, /Universal/);
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /restriction/);
+  assert.match(program.judgeReason, /107\.4/);
 });
 
 test("sfd-189-221 Fire Below the Mountain: one reaction-speed activated ability with the printed Exhaust cost", () => {
@@ -100,6 +105,10 @@ test("sfd-189-221 Fire Below the Mountain: the Add instruction only names Power 
   assert.deepEqual(run.events.map((event) => event.action), ["gain-power"]);
 });
 
+// The previous "Universal Add fails closed", "restriction needs a rules
+// adapter" and "activation adapter cannot build an Add draft" goldens assert
+// the missing-adapter gaps that judgeReason also records; they are restored
+// under the tightened review rule and stay aligned with the TODO entries below.
 test("sfd-189-221 Fire Below the Mountain: the original Universal Add body fails closed without changing resources", () => {
   const kernel = world().player("A", { energy: 2, power: ["Order"] }).build();
   const outcome = resolveChainBody(ability.body, kernel);
@@ -111,6 +120,9 @@ test("sfd-189-221 Fire Below the Mountain: the original Universal Add body fails
 });
 
 test("sfd-189-221 Fire Below the Mountain: the printed resource-use restriction requires a rules adapter", () => {
+  // programs/play.ts translateRestriction rejects this descriptive resource-use
+  // kind; the judge-required error is the missing-adapter gap, named in
+  // judgeReason, not an approved game rule.
   assert.throws(() => translateRestriction(ability.restriction, CANONICAL_ID), error => {
     assert.equal(error.code, "judge-required");
     assert.match(error.message, /use-only-to-play-gear-or-gear-abilities/);

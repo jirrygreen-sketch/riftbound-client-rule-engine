@@ -1,9 +1,14 @@
-import type { ContinuousEffect, ObjectFilter, ObjectRef } from "@riftbound/card-dsl";
+import type { Condition, Expr, ObjectRef } from "@riftbound/card-dsl";
 import type {
   ContinuousEffectSpec,
   Duration,
   ObjectSnapshot,
+  ResolveContext,
 } from "../effects/contract.js";
+import { evaluateCondition } from "../effects/interpreter/condition.js";
+import { evaluateExpression, type ExpressionContext } from "../effects/interpreter/expr.js";
+import { resolveLayerEffectExpressions } from "../effects/interpreter/expr-ext/layers.js";
+import { MissingInformation } from "../effects/interpreter/values.js";
 import { getTimingPoint, type TimingPointId } from "../events/timing-points.js";
 import type { DuelDerivedMightEvaluatorV2 } from "../combat/derived-might.js";
 import { matchesObjectFilter, objectRefFrom } from "./filter.js";
@@ -101,9 +106,9 @@ function valueOf(
     return ref === null ? null : resolve(ref);
   }
   if (item.kind === "add" || item.kind === "subtract" || item.kind === "multiply") {
-    const left = Number(valueOf(item.left, target, resolve));
-    const right = Number(valueOf(item.right, target, resolve));
-    if (!Number.isFinite(left) || !Number.isFinite(right)) return null;
+    const left = valueOf(item.left, target, resolve);
+    const right = valueOf(item.right, target, resolve);
+    if (typeof left !== "number" || typeof right !== "number" || !Number.isFinite(left) || !Number.isFinite(right)) return null;
     return item.kind === "add" ? left + right : item.kind === "subtract" ? left - right : left * right;
   }
   return value;
@@ -115,15 +120,18 @@ function numberValue(
   resolve: (ref: ObjectRef) => LayeredObjectSnapshot | null,
   fallback = 0,
 ): number {
-  const value = valueOf(effect.amount ?? effect.value ?? effect.delta, target, resolve);
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  const scalar = effect.amount !== undefined ? effect.amount : effect.value !== undefined ? effect.value : effect.delta;
+  const value = valueOf(scalar, target, resolve);
+  if (value === undefined) return fallback;
+  if (typeof value !== "number" || !Number.isFinite(value)) throw new MissingInformation("Layer arithmetic requires an available numeric value");
+  return value;
 }
 
 function effectKind(effect: AnyRecord): string {
   return String(record(effect).kind ?? "").toLowerCase();
 }
 
-function conditionMatches(effect: AnyRecord, object: LayeredObjectSnapshot): boolean {
+function conditionMatches(effect: AnyRecord, object: LayeredObjectSnapshot, environment: ExpressionContext): boolean {
   const condition = effect.condition ?? effect.when;
   if (condition === undefined) return true;
   if (typeof condition === "function") return Boolean((condition as (object: LayeredObjectSnapshot) => unknown)(object));
@@ -135,7 +143,13 @@ function conditionMatches(effect: AnyRecord, object: LayeredObjectSnapshot): boo
   if (item.kind === "type") return object.types.includes(String(item.type));
   if (item.kind === "has-tag") return object.tags.includes(String(item.tag));
   if (item.kind === "has-keyword") return object.keywords.some(keyword => keyword.id === item.keyword || keyword.id === item.id);
-  return true;
+  // Evaluate the closed Condition vocabulary, including logical composition.
+  // Unknown conditions must never silently authorize a continuous effect.
+  try { return evaluateCondition(condition as Condition, environment); }
+  catch (error) {
+    if (error instanceof MissingInformation) return false;
+    throw error;
+  }
 }
 
 function keywordValue(value: unknown): number | undefined {
@@ -180,7 +194,9 @@ function applyTrait(
   const kind = effectKind(effect);
   const id = String(effect.keyword ?? effect.id ?? effect.name ?? effect.value ?? "");
   const value = valueOf(effect.value ?? effect.amount, target, resolve);
-  if (kind === "set" || kind === "set-property" || kind === "set-trait" || kind === "trait") {
+  if (kind === "set-might" || kind === "continuous.base-might") {
+    if (typeof value === "number" && Number.isFinite(value)) target.might = value;
+  } else if (kind === "set" || kind === "set-property" || kind === "set-trait" || kind === "trait") {
     setField(target, String(effect.property ?? effect.attribute ?? effect.field), value);
   } else if (kind === "set-type" || kind === "set-types") {
     setField(target, "types", effect.types ?? effect.type ?? value);
@@ -215,7 +231,7 @@ function applyAbility(
   const keywords = effect.keywords ?? effect.keyword ?? effect.id;
   if (kind.includes("keyword") || kind === "grant" || kind === "ability") {
     for (const keyword of Array.isArray(keywords) ? keywords : [keywords]) {
-      if (typeof keyword === "string") applyKeyword(target, keyword, effect.keywordValue ?? effect.value);
+      if (typeof keyword === "string") applyKeyword(target, keyword, effect.keywordValue ?? value);
       else if (typeof keyword === "object" && keyword !== null) {
         const item = keyword as AnyRecord;
         applyKeyword(target, String(item.id ?? item.keyword), item.value);
@@ -265,44 +281,40 @@ function applyCopy(
 
 function applyArithmetic(
   target: MutableSnapshot,
-  effects: readonly RegisteredContinuousEffect[],
+  effect: AnyRecord,
   resolve: (ref: ObjectRef) => LayeredObjectSnapshot | null,
 ): void {
-  const increases: Array<{ readonly amount: number; readonly entry: RegisteredContinuousEffect }> = [];
-  const decreases: Array<{ readonly amount: number; readonly entry: RegisteredContinuousEffect }> = [];
-  for (const entry of effects) {
-    const effect = record(entry.effect.effect);
-    if (!conditionMatches(effect, target)) continue;
-    const kind = effectKind(effect);
-    const amount = numberValue(effect, target, resolve);
-    if (kind === "set" || kind === "set-might" || kind === "might-set" || kind === "set-power-value") {
-      const value = valueOf(effect.value ?? effect.amount, target, resolve);
-      if (typeof value === "number" && Number.isFinite(value)) target.might = value;
-    } else if (kind.includes("multiply") || kind.includes("double")) {
-      if (target.might !== null) target.might *= kind.includes("double") ? 2 : amount;
-    } else if (kind.includes("decrease") || kind.includes("subtract") || kind.includes("debuff") || amount < 0) {
-      decreases.push({ amount: Math.abs(amount), entry });
-    } else if (kind.includes("increase") || kind.includes("add") || kind.includes("buff") || kind.includes("might")) {
-      increases.push({ amount, entry });
-    }
-    if (kind === "add-buff" || kind === "buff") target.buffs += amount;
-    if (kind === "remove-buff" || kind === "spend-buff") target.buffs = Math.max(0, target.buffs - amount);
-    if (kind.includes("keyword") && (effect.keyword ?? effect.id) !== undefined) {
-      const id = String(effect.keyword ?? effect.id);
-      const keyword = target.keywords.find(item => item.id === id);
-      if (keyword?.value !== undefined) applyKeyword(target, id, keyword.value + amount);
-    }
+  const kind = effectKind(effect);
+  const amount = numberValue(effect, target, resolve);
+  if (typeof effect.snapshotDelta === "number") {
+    if (target.might !== null) target.might += effect.snapshotDelta;
+  } else if (kind === "set" || kind === "set-might" || kind === "might-set" || kind === "set-power-value") {
+    const value = valueOf(effect.value ?? effect.amount, target, resolve);
+    if (typeof value === "number" && Number.isFinite(value)) target.might = value;
+  } else if (kind.includes("multiply") || kind.includes("double")) {
+    if (target.might !== null) target.might *= kind.includes("double") ? 2 : amount;
+  } else if (kind.includes("decrease") || kind.includes("subtract") || kind.includes("debuff") || amount < 0) {
+    if (target.might !== null) target.might -= Math.abs(amount);
+  } else if (kind.includes("increase") || kind.includes("add") || kind.includes("buff") || kind.includes("might")) {
+    if (target.might !== null) target.might += amount;
   }
-  if (target.might !== null) {
-    for (const item of increases) target.might += item.amount;
-    for (const item of decreases) target.might -= item.amount;
-    if (target.might < 0) target.might = 0;
+  if (kind === "add-buff" || kind === "buff") target.buffs += amount;
+  if (kind === "remove-buff" || kind === "spend-buff") target.buffs = Math.max(0, target.buffs - amount);
+  if (kind.includes("keyword") && (effect.keyword ?? effect.id) !== undefined) {
+    const id = String(effect.keyword ?? effect.id);
+    const keyword = target.keywords.find(item => item.id === id);
+    if (keyword?.value !== undefined) applyKeyword(target, id, keyword.value + amount);
   }
 }
 
 function detachIfUnit(target: MutableSnapshot): void {
   if (target.attachedTo !== null && target.types.includes("unit")) target.attachedTo = null;
 }
+
+// A newly discovered object cycle restarts the read, never a game action.
+class LayerDependencyRestart extends Error {}
+class CopyDependencyRestart extends Error {}
+type AppliedEffect = { readonly entry: RegisteredContinuousEffect; readonly effect: AnyRecord };
 
 export class LayerEngine {
   readonly registry: ContinuousEffectRegistry;
@@ -314,6 +326,16 @@ export class LayerEngine {
   private partial = new Map<string, LayeredObjectSnapshot>();
   private copyEvaluating = new Set<string>();
   private copyPartial = new Map<string, LayeredObjectSnapshot>();
+  private copyCache = new Map<string, LayeredObjectSnapshot>();
+  private copyFrames: string[][] = [];
+  private copyGroups = new Map<string, Set<string>>();
+  private registryRevision = -1;
+  private depth = 0;
+  private frames: string[][] = [];
+  private groups = new Map<string, Set<string>>();
+  private groupView = new Map<string, LayeredObjectSnapshot>();
+  private currentObject?: string;
+  private restartRequested = false;
 
   constructor(
     objects: readonly ObjectSnapshot[] | ReadonlyMap<string, ObjectSnapshot>,
@@ -355,8 +377,13 @@ export class LayerEngine {
 
   private invalidate(): void {
     this.cache.clear();
-    this.partial.clear();
-    this.copyPartial.clear();
+    this.copyCache.clear();
+    if (this.depth === 0) {
+      this.partial.clear();
+      this.copyPartial.clear();
+      this.groups.clear();
+      this.copyGroups.clear();
+    }
   }
 
   private raw(ref: ObjectRef): ObjectSnapshot | null {
@@ -364,29 +391,114 @@ export class LayerEngine {
   }
 
   private resolve(ref: ObjectRef): LayeredObjectSnapshot | null {
-    const key = refKey(ref);
-    if (this.evaluating.has(key)) return this.partial.get(key) ?? null;
     return this.evaluate(ref);
   }
 
+  private layerEnvironment(entry: RegisteredContinuousEffect, target: LayeredObjectSnapshot): ExpressionContext {
+    const sourceRef = entry.effect.source ?? target.ref;
+    const source = () => {
+      const snapshot = sameRef(sourceRef, target.ref) ? target : this.resolve(sourceRef);
+      if (snapshot === null) throw new MissingInformation("Continuous effect source is unavailable");
+      return snapshot;
+    };
+    // Layers own object characteristics, not player resources, history, picks,
+    // or last-known information. Unavailable host capabilities fail closed.
+    const reads = {
+      get source() { return source(); },
+      get controller() { return source().controller; },
+      timingPoint: this.timingPoint ?? "cleanup-start",
+      object: (ref: ObjectRef) => this.resolve(ref),
+      query: () => this.evaluateAll(),
+    };
+    const context = new Proxy(reads, { get(object, key) {
+      if (key in object) return Reflect.get(object, key);
+      throw new MissingInformation(`Layer expression requires host capability: ${String(key)}`);
+    } }) as unknown as ResolveContext;
+    return {
+      context, host: sourceRef,
+      linked: () => { throw new MissingInformation("Layer expression requires linked values"); },
+      canLookBack: () => false,
+      isIgnored: () => false,
+    };
+  }
+
+  private layerMatches(entry: RegisteredContinuousEffect, target: LayeredObjectSnapshot): boolean {
+    const source = entry.effect.source === undefined ? target : this.raw(entry.effect.source);
+    if (!matchesObjectFilter(entry.effect.filter, target, { controller: source?.controller, anchor: source ?? undefined })) return false;
+    return conditionMatches(record(entry.effect.effect), target, this.layerEnvironment(entry, target));
+  }
+
+  private materialize(entry: RegisteredContinuousEffect, target: LayeredObjectSnapshot): AnyRecord {
+    const environment = this.layerEnvironment(entry, target);
+    const input = { ...entry.effect.effect };
+    for (const key of ["amount", "value", "delta", "keywordValue"] as const) {
+      const value = record(input[key]);
+      if (["add", "subtract", "multiply", "object-ref", "ref"].includes(String(value.kind)) ||
+        ["object-property", "object-attribute"].includes(String(value.kind)) && refFrom(value.object) !== null) {
+        input[key] = valueOf(value, target, ref => this.resolve(ref)) as never;
+      }
+    }
+    const effect = record(resolveLayerEffectExpressions(input, environment));
+    // Existing authored IR expresses "N for each ..." in this scalar slot.
+    if (effect.per !== undefined) {
+      const per = evaluateExpression(effect.per as Expr, environment);
+      const amount = numberValue(effect, target, ref => this.resolve(ref));
+      if (typeof per !== "number" || !Number.isFinite(per)) throw new MissingInformation("Layer multiplier is not numeric");
+      effect.amount = amount * per;
+    }
+    return effect;
+  }
+
   private resolveCopy(ref: ObjectRef): LayeredObjectSnapshot | null {
+    if (this.copyFrames.length) return this.evaluateCopyDependency(ref);
+    for (let attempt = 0; attempt <= this.objects.size; attempt++) {
+      try { return this.evaluateCopyDependency(ref); }
+      catch (error) {
+        if (!(error instanceof CopyDependencyRestart)) throw error;
+        this.copyCache.clear();
+      }
+    }
+    throw new MissingInformation("Copy dependency groups did not stabilize");
+  }
+
+  private evaluateCopyDependency(ref: ObjectRef): LayeredObjectSnapshot | null {
     const key = refKey(ref);
-    if (this.copyEvaluating.has(key)) return this.copyPartial.get(key) ?? null;
-    const raw = this.raw(ref);
-    if (raw === null) return null;
-    this.copyEvaluating.add(key);
-    let current = cloneSnapshot(raw);
-    this.copyPartial.set(key, current);
+    if (this.copyEvaluating.has(key)) {
+      const index = this.copyFrames.findIndex(frame => frame.includes(key));
+      if (index === this.copyFrames.length - 1) return this.copyPartial.get(key) ?? null;
+      const cycle = new Set(this.copyFrames.slice(index).flat());
+      for (const member of cycle) for (const existing of this.copyGroups.get(member) ?? []) cycle.add(existing);
+      for (const member of cycle) this.copyGroups.set(member, cycle);
+      throw new CopyDependencyRestart();
+    }
+    const cached = this.copyCache.get(key);
+    if (cached !== undefined) return cached;
+    if (this.raw(ref) === null) return null;
+    const keys = [...(this.copyGroups.get(key) ?? [key])];
+    for (const member of keys) {
+      this.copyEvaluating.add(member);
+      this.copyPartial.set(member, cloneSnapshot(this.objects.get(member)!));
+    }
+    this.copyFrames.push(keys);
     try {
-      const mutable = { ...current } as MutableSnapshot;
-      this.copyPartial.set(key, mutable);
-      this.applyLayer(mutable, "copy", this.activeEffects());
-      current = cloneSnapshot(mutable);
-      this.copyPartial.set(key, current);
-      return current;
+      const effects = this.activeEffects().filter(entry => entry.effect.layer === "copy");
+      for (const member of keys) {
+        const mutable = { ...this.copyPartial.get(member)! } as MutableSnapshot;
+        const done = new Set<string>();
+        let entry: RegisteredContinuousEffect | undefined;
+        while ((entry = this.nextEffect(effects.filter(item => !done.has(item.effect.id)), mutable))) {
+          this.apply(mutable, "copy", this.materialize(entry, mutable));
+          done.add(entry.effect.id);
+        }
+        this.copyCache.set(member, cloneSnapshot(mutable));
+      }
+      return this.copyCache.get(key) ?? null;
     } finally {
-      this.copyEvaluating.delete(key);
-      this.copyPartial.delete(key);
+      this.copyFrames.pop();
+      for (const member of keys) {
+        this.copyEvaluating.delete(member);
+        this.copyPartial.delete(member);
+      }
     }
   }
 
@@ -394,68 +506,244 @@ export class LayerEngine {
     return this.registry.active(undefined, ref => ref === undefined ? null : this.raw(ref));
   }
 
-  private applyLayer(
-    target: MutableSnapshot,
-    layer: typeof LAYER_ORDER[number],
-    effects: readonly RegisteredContinuousEffect[],
-  ): void {
-    const applicable = effects.filter(entry => entry.effect.layer === layer &&
-      matchesObjectFilter(entry.effect.filter as ObjectFilter, target) &&
-      conditionMatches(record(entry.effect.effect), target));
-    if (layer === "arithmetic") {
-      applyArithmetic(target, applicable, ref => this.resolve(ref));
-      return;
-    }
-    for (const entry of applicable) {
-      const effect = record(entry.effect.effect);
-      if (layer === "copy") applyCopy(target, effect, ref => this.resolveCopy(ref));
-      else if (layer === "trait") applyTrait(target, effect, ref => this.resolve(ref));
-      else applyAbility(target, effect, ref => this.resolve(ref));
-      detachIfUnit(target);
+  private apply(target: MutableSnapshot, layer: typeof LAYER_ORDER[number], effect: AnyRecord): void {
+    if (layer === "copy") applyCopy(target, effect, ref => {
+      // Within a copy loop all members use the same copy-layer input. A copy
+      // from outside the loop still receives the completed copyable traits.
+      if (!this.copyFrames.length && this.copyGroups.get(refKey(target.ref))?.has(refKey(ref))) {
+        const raw = this.raw(ref);
+        return raw === null ? null : cloneSnapshot(raw);
+      }
+      return this.resolveCopy(ref);
+    });
+    else if (layer === "trait") applyTrait(target, effect, ref => this.resolve(ref));
+    else if (layer === "ability") applyAbility(target, effect, ref => this.resolve(ref));
+    else applyArithmetic(target, effect, ref => this.resolve(ref));
+    detachIfUnit(target);
+  }
+
+  private withSnapshot<T>(target: LayeredObjectSnapshot, callback: () => T): T {
+    const key = refKey(target.ref);
+    const saved = this.partial.get(key);
+    this.partial.set(key, target);
+    try { return callback(); }
+    finally {
+      if (saved === undefined) this.partial.delete(key);
+      else this.partial.set(key, saved);
     }
   }
 
-  evaluate(ref: ObjectRef): LayeredObjectSnapshot | null {
-    const key = refKey(ref);
-    const cached = this.cache.get(key);
-    if (cached !== undefined) return cached;
-    const raw = this.raw(ref);
-    if (raw === null) return null;
-    if (this.evaluating.has(key)) return this.partial.get(key) ?? cloneSnapshot(raw);
-    this.evaluating.add(key);
-    let current = cloneSnapshot(raw);
-    this.partial.set(key, current);
-    try {
-      const effects = this.activeEffects();
-      for (const layer of LAYER_ORDER) {
-        const mutable = { ...current } as MutableSnapshot;
-        this.partial.set(key, mutable);
-        this.applyLayer(mutable, layer, effects);
-        detachIfUnit(mutable);
-        current = cloneSnapshot(mutable);
-        this.partial.set(key, current);
+  private signature(entry: RegisteredContinuousEffect, target: LayeredObjectSnapshot): string {
+    return this.withSnapshot(target, () => {
+      if (!this.layerMatches(entry, target)) return "inapplicable";
+      const effect = this.materialize(entry, target);
+      const after = { ...target } as MutableSnapshot;
+      this.apply(after, entry.effect.layer, effect);
+      // Arithmetic dependencies compare the size of the modification, not the
+      // resulting total: a fixed +2 doesn't depend on a passive "set to 5".
+      return JSON.stringify({ ...effect, condition: undefined, when: undefined,
+        ...(entry.effect.layer === "arithmetic" ? { mightDelta: after.might === null || target.might === null ? null : after.might - target.might } : {}) });
+    });
+  }
+
+  private nextEffect(entries: readonly RegisteredContinuousEffect[], target: LayeredObjectSnapshot): RegisteredContinuousEffect | undefined {
+    let candidates = entries.filter(entry => this.layerMatches(entry, target));
+    if (candidates[0]?.effect.layer === "arithmetic") {
+      // Legacy non-additive layer payloads precede the queued increments, as
+      // they did before expression IR was integrated. Game-action Double/Swap
+      // already arrive here as immutable, snapshotted additive registrations.
+      const legacy = candidates.find(entry => {
+        const effect = record(entry.effect.effect);
+        const kind = effectKind(effect);
+        return effect.snapshotDelta === undefined && (kind.includes("multiply") || kind.includes("double") ||
+          ["set", "set-might", "might-set", "set-power-value"].includes(kind));
+      });
+      if (legacy !== undefined) return legacy;
+      const increases = candidates.filter(entry => {
+        const after = { ...target } as MutableSnapshot;
+        this.apply(after, "arithmetic", this.materialize(entry, target));
+        return target.might === null || after.might === null || after.might >= target.might;
+      });
+      if (increases.length) candidates = increases;
+    }
+    const signatures = new Map(candidates.map(entry => [entry, this.signature(entry, target)]));
+    const depends = (dependent: RegisteredContinuousEffect, prerequisite: RegisteredContinuousEffect) => {
+      if (this.legacyScalar(dependent) || this.legacyScalar(prerequisite)) return false;
+      const after = { ...target } as MutableSnapshot;
+      this.apply(after, prerequisite.effect.layer, this.materialize(prerequisite, target));
+      return signatures.get(dependent) !== this.signature(dependent, after);
+    };
+    // CR 481.1: mutual dependencies use timestamp order, just like a cycle of
+    // dependencies with no available first effect (CR 482).
+    return candidates.find(entry => !candidates.some(other => other !== entry && depends(entry, other) && !depends(other, entry))) ?? candidates[0];
+  }
+
+  private legacyScalar(entry: RegisteredContinuousEffect): boolean {
+    const effect = record(entry.effect.effect);
+    const value = record(effect.amount ?? effect.value ?? effect.delta);
+    return ["add", "subtract", "multiply", "object-ref", "ref"].includes(String(value.kind)) ||
+      ["object-property", "object-attribute"].includes(String(value.kind)) && refFrom(value.object) !== null;
+  }
+
+  private beforeEffect(key: string, applied: ReadonlyMap<string, AppliedEffect>, excluded: string): LayeredObjectSnapshot {
+    const target = { ...cloneSnapshot(this.objects.get(key)!) } as MutableSnapshot;
+    this.withSnapshot(target, () => {
+      for (const layer of LAYER_ORDER) for (const [id, item] of applied) {
+        if (id === excluded || id.startsWith(excluded + ":value:") || item.entry.effect.layer !== layer) continue;
+        this.apply(target, layer, item.effect);
       }
-      // Arithmetic can change the predicate used by an ability-layer effect
-      // (for example, a Might threshold granting a keyword). Recheck that
-      // layer against the completed arithmetic snapshot without applying
-      // arithmetic a second time.
-      const afterArithmetic = { ...current } as MutableSnapshot;
-      this.partial.set(key, afterArithmetic);
-      this.applyLayer(afterArithmetic, "ability", effects);
-      detachIfUnit(afterArithmetic);
-      current = cloneSnapshot(afterArithmetic);
-      this.partial.set(key, current);
-      if (this.derivedMight !== undefined) {
-        const derived = this.derivedMight(current);
-        if (derived !== undefined && derived !== null && Number.isFinite(derived)) {
-          current = cloneSnapshot({ ...current, might: Math.max(0, derived) });
+    });
+    return cloneSnapshot(target);
+  }
+
+  private evaluateGroup(keys: readonly string[]): void {
+    const effects = this.activeEffects();
+    const current = new Map<string, MutableSnapshot>();
+    const applied = new Map<string, Map<string, AppliedEffect>>();
+    const removed = new Map<string, Set<string>>();
+    for (const key of keys) {
+      const raw = this.objects.get(key)!;
+      current.set(key, { ...cloneSnapshot(raw) } as MutableSnapshot);
+      applied.set(key, new Map());
+      removed.set(key, new Set());
+      this.evaluating.add(key);
+      this.partial.set(key, current.get(key)!);
+    }
+    this.frames.push([...keys]);
+    const previousObject = this.currentObject;
+    try {
+      let changed = true;
+      let passes = 0;
+      const seen = new Set<string>();
+      while (changed) {
+        if (++passes > effects.length * 2 + 2) throw new MissingInformation("Continuous numeric dependencies require an explicit cycle ruling");
+        changed = false;
+        for (const layer of LAYER_ORDER) {
+          // Objects in a dependency loop read the same start-of-layer view,
+          // irrespective of object enumeration or which snapshot was requested.
+          for (const key of keys) this.groupView.set(key, cloneSnapshot(current.get(key)!));
+          for (const key of keys) {
+            this.currentObject = key;
+            const target = current.get(key)!;
+            const done = applied.get(key)!;
+            const disqualified = removed.get(key)!;
+            let entry: RegisteredContinuousEffect | undefined;
+            while ((entry = this.nextEffect(effects.filter(item => item.effect.layer === layer &&
+              !done.has(item.effect.id) && !disqualified.has(item.effect.id)), target))) {
+              const effect = this.materialize(entry, target);
+              this.apply(target, layer, effect);
+              done.set(entry.effect.id, { entry, effect });
+              changed = true;
+            }
+          }
+        }
+        // Disqualification is separate from application and also occurs once.
+        // Rebuild from the raw object, rather than trying to invert copy/set/
+        // multiply effects or adding arithmetic again (CR 478.2–478.4).
+        for (const key of keys) this.groupView.set(key, cloneSnapshot(current.get(key)!));
+        for (const key of keys) {
+          this.currentObject = key;
+          const done = applied.get(key)!;
+          let rebuild = false;
+          for (const [id, item] of done) {
+            // A grant's own value (including its valued-keyword companion)
+            // must not disqualify its promotion/threshold condition. Legacy
+            // scalar callbacks retain their historical application snapshot.
+            if (this.legacyScalar(item.entry)) continue;
+            const before = this.beforeEffect(key, done, id);
+            if (!this.withSnapshot(before, () => this.layerMatches(item.entry, before))) {
+              done.delete(id);
+              removed.get(key)!.add(id);
+              rebuild = true;
+              continue;
+            }
+            const effect = this.withSnapshot(before, () => this.materialize(item.entry, before));
+            if (JSON.stringify(effect) !== JSON.stringify(item.effect)) {
+              // Replacing an evaluated scalar is not a second application.
+              // Replay the accumulated modifications from base characteristics.
+              done.set(id, { entry: item.entry, effect });
+              rebuild = true;
+            }
+          }
+          if (rebuild) {
+            const target = { ...cloneSnapshot(this.objects.get(key)!) } as MutableSnapshot;
+            current.set(key, target);
+            this.partial.set(key, target);
+            for (const layer of LAYER_ORDER) for (const item of done.values()) {
+              if (item.entry.effect.layer === layer) this.apply(target, layer, item.effect);
+            }
+            changed = true;
+          }
+        }
+        if (changed) {
+          const signature = JSON.stringify(keys.map(key => [key, [...applied.get(key)!], [...removed.get(key)!]]));
+          if (seen.has(signature)) throw new MissingInformation("Continuous numeric dependencies did not converge");
+          seen.add(signature);
         }
       }
-      this.cache.set(key, current);
-      return current;
+      for (const key of keys) {
+        let result = cloneSnapshot(current.get(key)!);
+        if (result.might !== null && result.might < 0) result = cloneSnapshot({ ...result, might: 0 });
+        if (this.derivedMight !== undefined) {
+          const derived = this.derivedMight(result);
+          if (derived !== undefined && derived !== null && Number.isFinite(derived)) result = cloneSnapshot({ ...result, might: Math.max(0, derived) });
+        }
+        this.cache.set(key, result);
+      }
     } finally {
-      this.evaluating.delete(key);
-      this.partial.delete(key);
+      this.currentObject = previousObject;
+      this.frames.pop();
+      for (const key of keys) {
+        this.evaluating.delete(key);
+        this.partial.delete(key);
+        this.groupView.delete(key);
+      }
+    }
+  }
+
+  private evaluateDependency(ref: ObjectRef): LayeredObjectSnapshot | null {
+    const key = refKey(ref);
+    if (this.evaluating.has(key)) {
+      const index = this.frames.findIndex(frame => frame.includes(key));
+      if (index === this.frames.length - 1) return (key === this.currentObject ? this.partial.get(key) : this.groupView.get(key)) ?? null;
+      const cycle = new Set(this.frames.slice(index).flat());
+      for (const member of cycle) for (const existing of this.groups.get(member) ?? []) cycle.add(existing);
+      for (const member of cycle) this.groups.set(member, cycle);
+      this.restartRequested = true;
+      throw new LayerDependencyRestart();
+    }
+    const cached = this.cache.get(key);
+    if (cached !== undefined) return cached;
+    if (this.raw(ref) === null) return null;
+    this.evaluateGroup([...(this.groups.get(key) ?? [key])]);
+    return this.cache.get(key) ?? null;
+  }
+
+  evaluate(ref: ObjectRef): LayeredObjectSnapshot | null {
+    if (this.depth > 0) return this.evaluateDependency(ref);
+    if (this.registryRevision !== this.registry.revision) {
+      this.invalidate();
+      this.registryRevision = this.registry.revision;
+    }
+    this.depth++;
+    try {
+      for (let attempt = 0; attempt <= this.objects.size; attempt++) {
+        this.restartRequested = false;
+        try {
+          const result = this.evaluateDependency(ref);
+          // Production binders catch condition errors. A discovered dependency
+          // must still restart even if that wrapper swallowed the sentinel.
+          if (this.restartRequested) throw new LayerDependencyRestart();
+          return result;
+        }
+        catch (error) {
+          if (!(error instanceof LayerDependencyRestart)) throw error;
+          this.cache.clear();
+        }
+      }
+      throw new MissingInformation("Object dependency groups did not stabilize");
+    } finally {
+      this.depth--;
     }
   }
 
