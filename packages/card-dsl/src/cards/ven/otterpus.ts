@@ -56,9 +56,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处当前缺口：(1) “during their first or second turn”需要每位得分玩家的回合序数（485.7 / 487.7 / 490.7 / 491.7）。TurnFlow 的私有 turns 未暴露给 Condition / HistoryQuery，不能用全局回合计数或常量字符串代替谓词。" +
-    "(2) “they draw 1 instead”需要被替代事件的得分者；replacement/planner.ts 的 effect.draw 只读取 args.target、缺省取 controller，ReplacementPlanInput 只绑定 replacement.object，未绑定事件玩家。" +
-    "(3) turn/flow.ts 在实际征服/固守计分事务中拒绝把 score 替换为 draw（TurnCombatBlockedError:replaced-scoring），还缺结构性 Score 替代与计分账本的一致提交。通用 replacement 注册和 draw 本体已可执行，不把规划结果或额外抽牌当作实际计分替代。",
+    "三处当前缺口（2026-10-17 RIFT-733 复核实测）：" +
+    "(1) “during their first or second turn”需要每位得分玩家各自的回合序数（485.7 / 487.7 / 490.7 / 491.7）。" +
+    "卡牌 IR 只有 condition.history（HistoryQuery 的动作/时点计数）与对象过滤器；turn/flow.ts 的 turns 仍是私有 Map，" +
+    "没有暴露给 Condition 的读数，因此程序保留显式常量谓词占位而不是用全局回合计数近似。" +
+    "(2) “they draw 1 instead”需要被替代事件的得分者：replacement/planner.ts 的 effect.draw 只读 args.target、" +
+    "缺省取 planner.controller，ReplacementPlanInput 只绑定 replacement.object，没有事件玩家载荷选择器，" +
+    "所以对 B 的得分会错误地替 A 抽牌。" +
+    "(3) turn/flow.ts 在实际征服/固守计分事务中仍拒绝把 score 替换为 draw" +
+    "（TurnCombatBlockedError:replaced-scoring，见 turn/flow.ts 的 structural Score 检查），" +
+    "还缺结构性 Score 替代与计分账本的一致提交。通用 replacement 注册与 draw 本体已可执行，" +
+    "不把规划结果或额外抽牌当作实际计分替代。",
   abilities,
   sourceText:
     "If a player would score 1 point from conquering or holding during their first or second turn, they draw 1 instead."

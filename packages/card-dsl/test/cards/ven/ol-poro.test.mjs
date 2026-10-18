@@ -9,6 +9,9 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/ol-poro.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-2ffb19822a72dc6ca4fc7111ad103487e5e4a120251c9b158b1064e31aa11748";
@@ -76,3 +79,39 @@ test.todo(
     "not-before-own-turn Requirement through translateLegalityCondition and the per-player turn ordinal; " +
     "standard play requirements/restrictions are already forwarded"
 );
+
+// RIFT-733: the refreshed gaps, pinned against the real production seam.
+test("ven-029-166 Ol' Poro: the per-player turn ordinal has no engine-side evaluator yet", () => {
+  // RIFT-711 added player-turn-count / turn-number to the card-dsl Expr
+  // vocabulary (that shape validates), but effects/interpreter/expr.ts still
+  // dispatches only the original kinds, so a condition using the new
+  // expression throws instead of resolving (485.7-style per-player windows).
+  const expression = { kind: "player-turn-count" };
+  const condition = {
+    kind: "compare",
+    left: expression,
+    operator: "gte",
+    right: { kind: "constant", value: 4 }
+  };
+  const kernel = world().player("A").player("B").build();
+  assert.throws(
+    () => evaluateCondition(condition, {
+      context: kernel, linked: () => undefined, canLookBack: () => false, isIgnored: () => false
+    }),
+    /Unsupported expression: player-turn-count/
+  );
+  // The reference kernel fails closed to false for the same condition.
+  assert.equal(kernel.test(condition), false);
+});
+
+test("ven-029-166 Ol' Poro: the printed requirement still fails closed at the production play seam", () => {
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const kernel = world().object("subject", {
+    cardId: CANONICAL_ID, types: ["unit"], zone: "hand", energy: 2, power: null, might: 4
+  }).build();
+  const source = kernel.getObject("subject");
+  assert.throws(
+    () => binding.describePlay({ type: "play", object: source.ref, player: "A" }, source),
+    error => error.code === "judge-required" && /not-before-own-turn needs a rules adapter/.test(error.message)
+  );
+});

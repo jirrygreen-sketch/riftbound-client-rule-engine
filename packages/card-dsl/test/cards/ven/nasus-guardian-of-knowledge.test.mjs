@@ -8,6 +8,10 @@ import {
   matchesTriggerEvent,
   matchesTriggerObject
 } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { queryObjects } from "../../../../engine-core/dist/effects/interpreter/selectors.js";
 import channel from "../../../../engine-core/dist/effects/instructions/effect.channel.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
@@ -148,3 +152,51 @@ test.todo(
     "assert the 383.3.e.1 single execution per turn once the 'here' anchor above registers " +
     "(frequencyKey already consumes TriggerSpec.once)"
 );
+
+// RIFT-733: the refreshed gaps, pinned against the real production seam.
+test("nasus-guardian-of-knowledge: the 'here' anchor is rejected before any trigger registers", () => {
+  // programs/filters.ts translateObjectFilter throws for sameLocationAs, so
+  // triggerRegistrations fails and the death trigger never subscribes.
+  assert.throws(
+    () => translateObjectFilter({ type: "unit", controller: "opponent", zone: "board", sameLocationAs: "self" }),
+    error => error.code === "judge-required" && /Unsupported filter field sameLocationAs/.test(error.message)
+  );
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const registry = new ProgramRegistry([lifted]);
+  const f = fixture();
+  const source = { ...f.kernel.getObject("source"), cardId: program.canonicalCardId };
+  assert.throws(
+    () => triggerRegistrations(registry, source),
+    error => error.code === "judge-required" && /Unsupported filter field sameLocationAs/.test(error.message)
+  );
+});
+
+test("nasus-guardian-of-knowledge: the merged machinery cannot fan the missing location anchor out", () => {
+  // The supported portion of the printed filter (an opposing board unit) still
+  // matches; only the location relation is missing. A same-battlefield kill and
+  // a different-battlefield kill are indistinguishable without it, which is why
+  // the card must stay judge-required (808.1.d.3).
+  const kernel = world()
+    .unit("nasus", { might: 6, location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy-here", { might: 3, controller: "B", location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy-elsewhere", { might: 3, controller: "B", location: { type: "battlefield", id: "bf-2" } })
+    .build();
+  const supported = { type: "unit", controller: "opponent", zone: "board" };
+  assert.equal(matchesTriggerObject(supported, kernel.getObject("enemy-here"), "A"), true);
+  assert.equal(matchesTriggerObject(supported, kernel.getObject("enemy-elsewhere"), "A"), true);
+  // trigger.matcher has no location comparison, so both deaths would fire: the
+  // production event filter cannot express "here". The interpreter-side set
+  // query does understand the anchor when it is given a host, which is exactly
+  // the capability the event-filter seam is missing. (The concrete opponent
+  // player is used because the raw set query does not resolve the relative
+  // controller spelling; ChainEngine's context proxy does that.)
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("nasus") });
+  const here = queryObjects({ type: "unit", controller: "B", zone: "board", sameLocationAs: "self" }, {
+    context: scoped,
+    host: kernel.ref("nasus"),
+    linked: () => undefined,
+    canLookBack: () => false,
+    isIgnored: () => false
+  });
+  assert.deepEqual(here.map(object => object.ref.id), ["enemy-here"]);
+});

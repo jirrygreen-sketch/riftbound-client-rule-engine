@@ -26,7 +26,19 @@ export default {
   canonicalCardId: "card.hash-9b9d80a33d320406e0f8cd8f3d1302432ecb3631b32fe7d448639224c253e235",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason: "当前缺口：(1) 授予的 Assault 3 仍缺动态关键词展开与角色谓词消费：continuous.grant-keyword 已把关键词写入 ability 层，但 programs/lifecycle.ts 不会按授予后的关键词变化重新绑定展开；Assault.ts 的 designation 与已存在的 ObjectSnapshot.combatRole 尚无映射，无法证明 807.1.c 的攻击时 +3 Might。(2) KeywordAbility / programs/keywords.ts 未传 params.cost，印刷 Flow 的 3 Energy + 1 Fury Power 无法传入展开，flow.cost / 离链 replacement 的已支付实例与退出原因仍无消费路径（829.1.b.1）。effect.ready、continuous.grant-keyword 与到期移除已有真实执行证据；不近似实现这两处缺口。",
+  judgeReason:
+    "两处当前缺口（2026-10-17 RIFT-733 复核实测）：" +
+    "(1) 授予的 Assault 3 缺动态关键词展开与角色谓词消费：continuous.grant-keyword 已把关键词写入 ability 层，" +
+    "但 programs/lifecycle.ts 只在登记时绑定一次，不会按授予后的关键词变化重新展开 KeywordDef；" +
+    "Assault.ts 展开的条件读 object-property \"designation\"，而已有的 ObjectSnapshot.combatRole 没有映射到该属性，" +
+    "无法证明 807.1.c 的攻击时 +3 Might。" +
+    "(2) 印刷 Flow 的 3 Energy + 1 Fury Power 没有承载通道：KeywordAbility 只有 keyword/value，" +
+    "programs/keywords.ts 的 expandProgram 一律调 def.expand({ value, host })、不读 params.cost（契约 3.8.3），" +
+    "Flow.ts 因此展开出不含 cost 的 flow.cost；" +
+    "该静态效果在 programs/statics.ts 实测被拒（\"Static ability kind flow.cost has no layer mapping\"），" +
+    "而其 object-leaves-chain replacement 在 replacement/bind.ts 实测抛 BlockedReplacementError " +
+    "\"Unsupported replacement opcode: effect.banish\"，829.1.b.1 的已支付实例与离链放逐同样无消费路径。" +
+    "effect.ready、continuous.grant-keyword 与到期移除已有真实执行证据；不近似实现这两处缺口。",
   abilities: [
     // 829.1.a：Flow 在法术上；卡只声明关键词（展开见 judgeReason 第 2 条）。
     { kind: "keyword", keyword: "flow" },

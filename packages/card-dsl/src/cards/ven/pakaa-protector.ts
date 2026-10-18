@@ -147,7 +147,16 @@ export default {
   canonicalCardId: "card.hash-f4d87dfb750f0f23070558bd76ae0fba7b17e9097fe44c0034f1eb55e6bb564e",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason: "当前缺口：(1) events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 不含 object-moved，programs/filters.ts 翻译的自身移动事件模式无法注册；已有 object-moved 发射与匹配不等于生产触发绑定（383.1 / 421.1）。(2) 结算时的牌库顶有序读取（425.1 / 414.1.a / 359.3）：chain/picks/plan.ts 的 zoneSlice 只在 Finalize 锁定引用，不能表达本触发 Resolve 时才展示的当前顶牌。若响应改变牌库顶，锁定的 reveal 对象与 effect.draw 抽到的当前顶牌可能不同，不能把旧引用近似为“draw it”。有序 pick、effect.reveal.pick 解包、linked PickSpec 自动绑定均已合入；golden 用原始 body 真实执行多张牌库的两个互斥分支、空牌库、Move 事件匹配和 +2 Might 到期，但在结算时读取来源接通前保持 judge-required。",
+  judgeReason:
+    "两处当前缺口（2026-10-17 RIFT-733 复核实测）：" +
+    "(1) 触发无法注册：events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 不含 object-moved，" +
+    "EventPipeline.registerTrigger 的 assertTriggerSpec 以 TriggerSpecValidationError(invalid-event-type) 拒绝本卡的判别式；" +
+    "已有的 object-moved 发射与 matchesTriggerEvent 匹配不等于生产触发绑定（383.1 / 421.1）。" +
+    "(2) 结算时的牌库顶有序读取（425.1 / 414.1.a / 359.3）：chain/picks/plan.ts 的 zoneSlice 只在 Finalize 锁定引用，" +
+    "不能表达本触发 Resolve 时才展示的当前顶牌；若响应改变牌库顶，锁定的 reveal 对象与 effect.draw 抽到的当前顶牌可能不同，" +
+    "不能把旧引用近似为“draw it”。" +
+    "有序 pick、effect.reveal.pick 解包、linked PickSpec 自动绑定均已合入；golden 用原始 body 真实执行多张牌库的两个互斥分支、" +
+    "空牌库、Move 事件匹配与 +2 Might 到期，但在结算时读取来源接通前保持 judge-required。",
   abilities,
   sourceText:
     "When I move, reveal the top card of your Main Deck. If it's a unit, draw it. Otherwise, put it in your trash and give me +2 :rb_might: this turn."
