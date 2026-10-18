@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assignDamage, declareAttack, declareDefense, executeGameCommand, inspectStandardMove, moveUnits, resolveCombatDamage } from '../../../dist/game/commands/index.js';
+import { assignDamage, declareAttack, declareDefense, executeGameCommand, inspectStandardMove, move, moveUnits, resolveCombatDamage } from '../../../dist/game/commands/index.js';
 import { setup, state, readyUnits } from './helpers.mjs';
 
 test('RIFT-761: formation validation uses real readiness and never partially exhausts a valid member', () => {
@@ -91,6 +91,15 @@ test('RIFT-761: stale/malformed/unknown-actor requests cannot reach authoritativ
   }
   assert.throws(() => executeGameCommand(f.context(), 'A', { type: 'pass', commandId: 'old', stateVersion: 9 }), error => error.code === 'stale-version');
   assert.throws(() => executeGameCommand(f.context(), 'spectator', { type: 'pass', commandId: 'guest', stateVersion: 0 }), error => error.code === 'unknown-player');
+  assert.deepEqual(state(f), before);
+});
+
+test('RIFT-761: specialized command entry points reject another valid v2 command type', () => {
+  const f = setup(); const before = state(f);
+  const pass = { commandId: 'wrong-kind', stateVersion: 0, type: 'pass' };
+  for (const command of [move, declareAttack, declareDefense, assignDamage]) {
+    assert.throws(() => command(f.context(), 'A', pass), error => error.code === 'invalid-command');
+  }
   assert.deepEqual(state(f), before);
 });
 

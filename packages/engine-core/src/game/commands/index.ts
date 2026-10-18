@@ -1,5 +1,6 @@
 import { isV2Command } from '../../../../protocol/dist/v2/command-guards.js';
 import type { V2ChooseCommand, V2Command, V2DeclareAttackCommand, V2DeclareDefenseCommand, V2MoveCommand } from '../../../../protocol/dist/v2/commands.js';
+import { isJournalEntry } from '../../../../protocol/dist/journal-v1.js';
 import type { ChainDraft } from '../../chain/engine.js';
 import type { PlayerId } from '../../effects/contract.js';
 import type { ProgramBinding } from '../../programs/index.js';
@@ -24,12 +25,18 @@ export interface GameCommandExecution {
   readonly winnerPlayerId: PlayerId | null;
 }
 
-function validate(context: GameCommandContext, actor: PlayerId, command: unknown): asserts command is V2Command {
-  if (!isV2Command(command)) throw new GameCommandError('invalid-command', 'Invalid protocol v2 command');
+function requireCurrentVersion(context: GameCommandContext, actor: PlayerId, stateVersion: number): void {
   requireActor(context, actor);
-  if (!Number.isSafeInteger(context.stateVersion) || context.stateVersion < 0 || command.stateVersion !== context.stateVersion) {
+  if (!Number.isSafeInteger(context.stateVersion) || context.stateVersion < 0 || stateVersion !== context.stateVersion) {
     throw new GameCommandError('stale-version', 'State version mismatch');
   }
+}
+
+function validate(context: GameCommandContext, actor: PlayerId, command: unknown, expectedType?: V2Command['type']): asserts command is V2Command {
+  if (!isV2Command(command) || expectedType !== undefined && command.type !== expectedType) {
+    throw new GameCommandError('invalid-command', 'Invalid protocol v2 command');
+  }
+  requireCurrentVersion(context, actor, command.stateVersion);
 }
 
 /** Command IDs, unlike ProgramBinding's process-local draft sequence, survive replay. */
@@ -39,19 +46,19 @@ function commandDraft(command: V2Command, draft: ChainDraft): ChainDraft {
 }
 
 export function move(context: GameCommandContext, actor: PlayerId, command: V2MoveCommand): never {
-  validate(context, actor, command);
+  validate(context, actor, command, 'move');
   return moveUnits(context, actor, [command.objectId], command.to);
 }
 
 export function declareAttack(context: GameCommandContext, actor: PlayerId, command: V2DeclareAttackCommand): never {
-  validate(context, actor, command);
+  validate(context, actor, command, 'declare-attack');
   requireBattlefield(context, command.battlefieldId);
   // CR 466.2.c assigns all present Units automatically, not an arbitrary client-selected subset.
   throw new TurnCombatBlockedError('combat-start-transaction', 'Combat start, simultaneous Showdown start and automatic designations require a public rules task (CR v1.5 466.2)');
 }
 
 export function declareDefense(context: GameCommandContext, actor: PlayerId, command: V2DeclareDefenseCommand): never {
-  validate(context, actor, command);
+  validate(context, actor, command, 'declare-defense');
   requireBattlefield(context, command.battlefieldId);
   throw new TurnCombatBlockedError('combat-designation-task', 'Defender designation is automatic and has no public rules-task interface (CR v1.5 466.2.c)');
 }
@@ -62,7 +69,7 @@ function requireBattlefield(context: GameCommandContext, id: string): void {
 
 /** Planned wire mapping is choose; no fake choice cursor or unchecked allocation is accepted. */
 export function assignDamage(context: GameCommandContext, actor: PlayerId, command: V2ChooseCommand): never {
-  validate(context, actor, command);
+  validate(context, actor, command, 'choose');
   throw new TurnCombatBlockedError('combat-damage-choice', 'TurnFlow cannot issue a Combat allocation choice yet (CR v1.5 467.2.c)');
 }
 
@@ -116,4 +123,30 @@ export function executeGameCommand(context: GameCommandExecutionContext, actor: 
     case 'concede': concede(match, actor); break;
   }
   return { commandId: command.commandId, type: command.type, previousEventSeq, eventSeq: match.events().length, winnerPlayerId: match.result().winner };
+}
+
+/**
+ * Compatibility adapter for a journal-v1 record whose enclosing journal has
+ * already passed the protocol's integrity/sequence checks. Does not rewrite the
+ * record or apply its stored receipts. The state owner skips duplicates and
+ * advances versions; prompt continuations still need the real suspended task.
+ */
+export function executeJournalGameCommand(context: GameCommandExecutionContext, input: unknown): GameCommandExecution {
+  if (!isJournalEntry(input)) throw new GameCommandError('invalid-journal-entry', 'Invalid journal-v1 command record');
+  if (input.duplicate) throw new GameCommandError('journal-duplicate', 'The journal owner must skip duplicate records');
+  const base = { commandId: input.commandId, stateVersion: input.expectedStateVersion };
+  // Apply the same actor/end/version guard even to unsupported legacy commands.
+  requireCurrentVersion(context, input.playerId, input.expectedStateVersion);
+  switch (input.command.type) {
+    case 'pass':
+    case 'concede':
+      return executeGameCommand(context, input.playerId, { ...base, type: input.command.type });
+    case 'play-card':
+      if (input.command.targets.length) {
+        throw new TurnCombatBlockedError('command-selections', 'Legacy target selections require a Finalize adapter');
+      }
+      return executeGameCommand(context, input.playerId, { ...base, type: 'play', cardObjectId: input.command.instanceId });
+    case 'respond-to-prompt':
+      throw new TurnCombatBlockedError('choice-continuation', 'A legacy prompt must resume the state owner\'s suspended operation');
+  }
 }
