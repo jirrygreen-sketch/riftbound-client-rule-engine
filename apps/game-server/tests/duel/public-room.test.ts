@@ -12,7 +12,7 @@ import { setupAdapterFixtureCatalog, setupAdapterFixtureDecks } from "./fixtures
 const imagesDirectory = fileURLToPath(new URL("./fixtures/", import.meta.url));
 async function prepared(roomId = "duel-room-test") {
   const catalog = await loadCardCatalogRuntime({ catalog: setupAdapterFixtureCatalog, imagesDirectory });
-  const room = new GameRoom(roomId, DUEL_RULESET_ID, catalog, () => 0);
+  const room = new GameRoom(roomId, DUEL_RULESET_ID, catalog, () => 0, undefined, undefined, undefined, 'legacy-p4');
   const received: [ServerToClientMessage[], ServerToClientMessage[]] = [[], []];
   const connections = [room.join("Alice", m => received[0].push(m), "socket-a"),
     room.join("Bob", m => received[1].push(m), "socket-b")];

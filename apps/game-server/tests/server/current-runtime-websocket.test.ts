@@ -60,7 +60,7 @@ afterEach(async () => {
 });
 async function start(port: number, storageDirectory?: string, roomStore?: RoomStore) {
   const server = createGameServer({ port, storageDirectory, roomStore, catalog: p4RuntimeFixtureCatalog,
-    roomIdFactory: () => 'current-ws', duelRandomIndex: () => 0 });
+    roomIdFactory: () => 'current-ws', duelRandomIndex: () => 0, duelRuntimeMode: 'legacy-p4' });
   servers.push(server); await server.start();
   return { server, url: `ws://127.0.0.1:${port}/ws` };
 }

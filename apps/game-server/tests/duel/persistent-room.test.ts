@@ -25,7 +25,7 @@ async function setup(roomId = "persistent-duel-room") {
   const catalog = await loadCardCatalogRuntime({ catalog: setupAdapterFixtureCatalog, imagesDirectory });
   const loadCatalog = async () => catalog;
   const store = new FileRoomStore(directory, loadCatalog);
-  const room = new GameRoom(roomId, DUEL_RULESET_ID, catalog, () => 0);
+  const room = new GameRoom(roomId, DUEL_RULESET_ID, catalog, () => 0, undefined, undefined, undefined, 'legacy-p4');
   await store.create(room);
   const events: [ServerToClientMessage[], ServerToClientMessage[]] = [[], []];
   const sockets = [room.join("Alice", m => events[0].push(m), "a"),

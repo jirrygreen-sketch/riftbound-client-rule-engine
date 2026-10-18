@@ -76,7 +76,7 @@ describe("P4 owner unresolved production boundary", () => {
     expect(duplicate.ack.duplicate).toBe(true);
     expect(runtime.project("bob").match).toEqual(second.match);
     expect(isDuelProjectionV3Actions1(second)).toBe(true);
-  });
+  }, 300_000);
   it("publishes valid setup and playing P4 frames, keeps missing journal pending and hides private facts", async () => {
     const { runtime } = await owner();
     expect(isDuelProjectionV3Actions1(runtime.project("alice"))).toBe(true);

@@ -53,7 +53,7 @@ afterEach(async () => {
 });
 async function start(options: Partial<GameServerOptions> = {}) {
   const server = createGameServer({ port: 0, catalog: p4RuntimeFixtureCatalog,
-    roomIdFactory: () => 'p4-public-socket', duelRoomProfile: 'p4', ...options });
+    roomIdFactory: () => 'p4-public-socket', duelRoomProfile: 'p4', duelRuntimeMode: 'legacy-p4', ...options });
   servers.push(server); await server.start();
   const address = server.httpServer.address();
   if (!address || typeof address === 'string') throw Error('listening address required');

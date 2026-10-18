@@ -162,7 +162,7 @@ export class GameRoom {
     readonly constructedRegion?: ConstructedRegionContext,
     /** @deprecated Accepted for source compatibility; never selects an executor. */
     duelRuntimeProfile?: DuelOptionalRoomRuntimeProfile,
-    readonly runtimeMode: DuelRuntimeMode = "legacy-p4"
+    readonly runtimeMode: DuelRuntimeMode = "engine-v2"
   ) {
     if (rulesetId !== RULESET_ID && rulesetId !== FOUNDATION_RULESET_ID &&
         rulesetId !== DUEL_RULESET_ID) {

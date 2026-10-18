@@ -65,7 +65,7 @@ interface Booted {
 }
 
 function boot(catalog: CardCatalogRuntime, region?: ReturnType<typeof bindConstructedRegion>): Booted {
-  const room = new GameRoom("constructed-regional-room", DUEL_RULESET_ID, catalog, () => 0, "p4", region);
+  const room = new GameRoom("constructed-regional-room", DUEL_RULESET_ID, catalog, () => 0, "p4", region, undefined, "legacy-p4");
   const outbox: ServerToClientMessage[][] = [[], []];
   const send = outbox.map(list => (message: ServerToClientMessage) => {
     expect(isServerMessage(message)).toBe(true);
@@ -266,7 +266,7 @@ describe("regional constructed room over the real WebSocket selector", () => {
     const server = createGameServer({
       port: Number(process.env.SWARM_PORT_BASE ?? 31780),
       constructedPolicy: { asOf: EVENT_DATE },
-      catalog: p4RuntimeFixtureCatalog, duelRoomProfile: "p4",
+      catalog: p4RuntimeFixtureCatalog, duelRoomProfile: "p4", duelRuntimeMode: "legacy-p4",
       roomIdFactory: () => `regional-ws-room-${roomSeq++}`, roomStore: new InMemoryRoomStore()
     });
     let roomSeq = 0;

@@ -18,7 +18,7 @@ async function currentDriver(seed = 77) {
   const room = new GameRoom('default-path', DUEL_RULESET_ID, catalog, bound => {
     randomState = (Math.imul(1664525, randomState) + 1013904223) >>> 0;
     return Math.floor(randomState / 0x1_0000_0000 * bound);
-  });
+  }, undefined, undefined, undefined, 'legacy-p4');
   const driver = Reflect.construct(DefaultPathDriver, [room, seed, catalog]) as DefaultPathDriver;
   const sessions = Reflect.get(driver, 'sessions') as Map<string, ClientSession>;
   const transport = (player: typeof PLAYERS[number]): ServerTransport =>

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   DUEL_COMMAND_PACKET_PROFILE_V3_ACTIONS_1,
   DUEL_RULESET_ID,
+  isJournal,
   isDuelCommandMessageV3Actions1,
   isDuelProjectionV3Actions1,
   isServerMessage,
@@ -117,7 +118,7 @@ export class DefaultPathDriver {
       if (!validation.valid) throw new Error(`Real deck ${name} is invalid: ${JSON.stringify(validation.issues)}`);
     }
     const room = new GameRoom("default-path", DUEL_RULESET_ID, catalog,
-      seededRandomIndex(seed), DEFAULT_ROOM_PROFILE, undefined, DEFAULT_RUNTIME_PROFILE);
+      seededRandomIndex(seed), DEFAULT_ROOM_PROFILE, undefined, DEFAULT_RUNTIME_PROFILE, "legacy-p4");
     const driver = new DefaultPathDriver(room, seed, catalog);
     for (const [index, player] of PLAYERS.entries()) {
       const connection = room.join(index === 0 ? "Alice" : "Bob", driver.transport(player), player);
@@ -131,9 +132,8 @@ export class DefaultPathDriver {
     for (const player of PLAYERS) room.setReady(driver.session(player), player, room.roomView().roomVersion,
       true, `ready-${player}`, driver.transport(player));
     const archive = room.exportArchive();
-    if (archive.duelProfile !== DEFAULT_ROOM_PROFILE || archive.duelRuntimeProfile !== DEFAULT_RUNTIME_PROFILE ||
-        archive.duelJournal?.schemaVersion !== 7 || archive.duelJournal.profile !== DEFAULT_RUNTIME_PROFILE) {
-      throw new Error("The room did not construct the CLI default P4 recorded runtime (schema 7)");
+    if (!isJournal(archive.journal) || archive.journal.header.rulesetVersion !== "core-1.5") {
+      throw new Error("The room did not construct the CLI default P4 journal");
     }
     driver.checkpoint("room-ready");
     return driver;

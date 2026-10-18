@@ -10,7 +10,7 @@ async function boot(profile: typeof DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT | type
   const catalog = await loadCardCatalogRuntime();
   for (const deck of Object.values(fury77RealDecks)) expect(validateCatalogDeck(catalog, deck).valid).toBe(true);
   let room = new GameRoom("optional-room-p4", DUEL_RULESET_ID, catalog, () => 0, "p4", undefined,
-    profile);
+    profile, "legacy-p4");
   const messages: ServerToClientMessage[][] = [[], []];
   const sends = messages.map(list => (message: ServerToClientMessage) => {
     expect(isServerMessage(message)).toBe(true); list.push(message);

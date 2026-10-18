@@ -43,6 +43,11 @@ function projection(room: GameRoom, playerId: "player-1" | "player-2") {
 }
 
 describe("engine runtime room cutover", () => {
+  it("defaults a Duel room to the engine-v2 owner", async () => {
+    const catalog = await loadCardCatalogRuntime({ catalog: p4RuntimeFixtureCatalog });
+    expect(new GameRoom("default-engine-v2-room", DUEL_RULESET_ID, catalog).runtimeMode).toBe("engine-v2");
+  });
+
   // Booting the engine-v2 room (protocol + engine-core source transform) has
   // exceeded the 10s default under full-suite load; keep every assertion.
   it("uses the v2 owner, preserves private projections and replays the room archive", async () => {

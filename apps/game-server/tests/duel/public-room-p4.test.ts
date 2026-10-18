@@ -9,7 +9,7 @@ import { setupAdapterFixtureDecks } from './fixtures/setup-adapter-catalog.js';
 
 async function boot() {
   const catalog = await loadCardCatalogRuntime({ catalog: p4RuntimeFixtureCatalog });
-  const room = new GameRoom('public-p4-test', DUEL_RULESET_ID, catalog, () => 0, 'p4');
+  const room = new GameRoom('public-p4-test', DUEL_RULESET_ID, catalog, () => 0, 'p4', undefined, undefined, 'legacy-p4');
   const messages: ServerToClientMessage[][] = [[], []];
   const send = messages.map(list => (value: ServerToClientMessage) => { expect(isServerMessage(value)).toBe(true); list.push(value); });
   const sockets = [room.join('Alice', send[0]!, 'a'), room.join('Bob', send[1]!, 'b')];

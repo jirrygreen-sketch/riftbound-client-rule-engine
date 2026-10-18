@@ -19,7 +19,7 @@ describe("physical Unit P8 FileRoomStore recovery", () => {
     let store: FileRoomStore | null = null;
     try {
       let room = new GameRoom("physical-unit-p8-file-room", DUEL_RULESET_ID, catalog, () => 0,
-        "p4", undefined, DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN);
+        "p4", undefined, DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN, "legacy-p4");
       const messages: ServerToClientMessage[][] = [[], []];
       const sends = messages.map(list => (message: ServerToClientMessage) => { list.push(message); });
       const sockets = [room.join("Alice", sends[0]!, "physical-socket-a"),

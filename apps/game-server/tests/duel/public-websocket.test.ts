@@ -66,7 +66,7 @@ afterEach(async () => {
 });
 async function start(store = new ControlledStore()) {
   const server = createGameServer({ port: 0, catalog: setupAdapterFixtureCatalog,
-    imagesDirectory, roomStore: store, roomIdFactory: () => "duel-socket-test" });
+    imagesDirectory, roomStore: store, roomIdFactory: () => "duel-socket-test", duelRuntimeMode: "legacy-p4" });
   openServers.push(server);
   await server.start();
   const address = server.httpServer.address();
