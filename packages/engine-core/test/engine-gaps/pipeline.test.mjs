@@ -9,6 +9,7 @@ import {
 } from '../../dist/events/trigger-rules/index.js';
 import { createProgramBinding } from '../../dist/programs/index.js';
 import { matchesTriggerEvent } from '../../dist/events/pipeline-match.js';
+import { triggerEventObjectBinding } from '../../dist/events/pipeline-types.js';
 import frigidJewel from '../../../card-dsl/dist/cards/unl/frigid-jewel.js';
 import karthusEternal from '../../../card-dsl/dist/cards/ogn/karthus-eternal.js';
 
@@ -289,13 +290,54 @@ test('EG-PIPELINE: conflicting explicit batch identities fail before publishing 
   assert.equal(f.engine.items.length, 0);
 });
 
-test('EG-PIPELINE: event snapshots and trigger snapshots are recursively immutable', () => {
+test('EG-PIPELINE: an explicit once cap permits N finalizations per turn and then stops', () => {
+  const f = fixture();
+  trigger(f, 'twice-per-turn', {
+    body: [],
+    maxPerScope: 2,
+    spec: { at: 'card-drawn', filter: {}, once: 'per-turn' },
+  });
+
+  for (let draw = 0; draw < 2; draw++) {
+    f.engine.commit({ type: 'draw', player: 'A', amount: 1 });
+    assert.equal(f.engine.items.length, 1);
+    f.engine.advance();
+    resolveAll(f.engine);
+  }
+  f.engine.commit({ type: 'draw', player: 'A', amount: 1 });
+  assert.equal(f.engine.items.length, 0);
+});
+
+test('EG-PIPELINE: malformed trigger caps and rule amounts fail closed at registration', () => {
+  const f = fixture();
+  const source = f.kernel.getObject('source');
+  assert.throws(() => f.engine.pipeline.registerTrigger({
+    id: 'invalid-cap',
+    source,
+    controller: 'A',
+    spec: { at: 'card-drawn', filter: {}, once: 'per-turn' },
+    body: [],
+    maxPerScope: 1.5,
+  }), /nonnegative safe integer/);
+  assert.equal(f.engine.pipeline.triggers.size, 0);
+  assert.throws(() => f.engine.pipeline.registerTriggerRule({
+    id: 'invalid-amount',
+    mode: 'additional',
+    amount: -1,
+    matches: () => true,
+  }), /nonnegative safe integer/);
+  assert.equal(f.engine.pipeline.rules.size, 0);
+});
+
+test('EG-PIPELINE: event and trigger snapshots preserve the same immutable event identity', () => {
   const f = fixture();
   const object = f.kernel.getObject('source');
   const it = { ...object, ref: { id: 'immutable-it', zoneEntryId: 3 } };
+  let liveEvent;
   f.engine.pipeline.onEvent = event => {
     assert.equal(Object.isFrozen(event), true);
     if (event.timingPoint === 'buff-added') {
+      liveEvent = event;
       assert.equal(Object.isFrozen(event.it), true);
       assert.equal(Object.isFrozen(event.it.ref), true);
       assert.throws(() => { event.it.ref.id = 'mutated'; }, TypeError);
@@ -315,7 +357,22 @@ test('EG-PIPELINE: event snapshots and trigger snapshots are recursively immutab
     timingPoint: 'buff-added', kind: 'buff-added', object, source: object, it, player: 'A', batchId: 'immutable-batch',
   }]);
   assert.equal(f.engine.items.length, 1);
-  assert.equal(Object.isFrozen(f.engine.items[0].trigger), true);
-  assert.equal(Object.isFrozen(f.engine.items[0].trigger.event.it.ref), true);
+  assert.ok(liveEvent);
+  const trigger = f.engine.items[0].trigger;
+  it.ref.id = 'outside-mutation';
+  assert.equal(liveEvent.it.ref.id, 'immutable-it');
+  assert.equal(trigger.event.eventId, liveEvent.eventId);
+  assert.deepEqual(trigger.event.it.ref, liveEvent.it.ref);
+  assert.deepEqual(trigger.event.it.ref, { id: 'immutable-it', zoneEntryId: 3 });
+  assert.equal(trigger.event.it.ref.id, 'immutable-it');
+
+  const binding = triggerEventObjectBinding(trigger, 'it');
+  assert.ok(binding);
+  assert.equal(binding.eventId, trigger.event.eventId);
+  assert.equal(binding.role, 'it');
+  assert.deepEqual(binding.ref, trigger.event.it.ref);
+  assert.deepEqual(binding.snapshot.ref, binding.ref);
+  assert.equal(Object.isFrozen(binding), true);
+  assert.equal(Object.isFrozen(binding.snapshot.ref), true);
 });
 

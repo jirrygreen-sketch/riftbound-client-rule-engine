@@ -82,6 +82,42 @@ export interface TriggerSnapshot {
   readonly multiplicity?: number;
   readonly batchId?: string;
 }
+
+function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
+  if (value === null || typeof value !== 'object' || seen.has(value as object)) return value;
+  seen.add(value as object);
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child, seen);
+  return Object.freeze(value);
+}
+
+/** Structural mirror of the additive RIFT-845 event binding contract. */
+export interface TriggerEventObjectBinding {
+  readonly eventId: number;
+  readonly role: 'it';
+  readonly ref: ObjectSnapshot['ref'];
+  readonly snapshot: ObjectSnapshot;
+}
+
+/**
+ * Build the contract binding from the one frozen event carried by a trigger.
+ * RIFT-835 owns installing this on the default Chain Finalize/Resolve context.
+ */
+export function triggerEventObjectBinding(snapshot: TriggerSnapshot, role: 'it'): TriggerEventObjectBinding | null {
+  const event = snapshot.event;
+  const object = event.it;
+  if (role !== 'it' || !Number.isSafeInteger(event.eventId) || event.eventId <= 0 || object === undefined ||
+      object === null || typeof object.ref !== 'object' || object.ref === null ||
+      typeof object.ref.id !== 'string' || object.ref.id.length === 0 ||
+      !Number.isSafeInteger(object.ref.zoneEntryId) || object.ref.zoneEntryId < 0) {
+    return null;
+  }
+  return deepFreeze({
+    eventId: event.eventId,
+    role,
+    ref: structuredClone(object.ref),
+    snapshot: structuredClone(object),
+  });
+}
 export interface ActionExecution {
   readonly outcome: ActionOutcome;
   readonly emissions: readonly TimingEmission[];

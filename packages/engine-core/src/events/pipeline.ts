@@ -298,7 +298,11 @@ export class EventPipeline {
         }
         own = [...ordered, ...remaining];
       }
-      for (const hit of own) this.onTrigger(deepFreeze(structuredClone(hit)));
+      for (const hit of own) {
+        // The sink and the chain's structured clone must both retain the exact
+        // immutable event identity used to create the trigger snapshot.
+        this.onTrigger(deepFreeze(structuredClone({ ...hit, event: deepFreeze(structuredClone(hit.event)) })));
+      }
     }
   }
   private triggerRuleEffect(context: TriggerRuleContext): { readonly suppressed: boolean; readonly multiplicity: number } {
