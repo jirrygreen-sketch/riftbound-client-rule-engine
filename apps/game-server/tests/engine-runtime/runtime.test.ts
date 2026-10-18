@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { isV2Projection, type V2Command } from "../../../../packages/protocol/dist/v2/index.js";
 import { createEngineRuntime, projectionDigest, type EngineRuntimeDeck } from "../../src/engine-runtime/index.js";
+import { EngineRuntimeHost } from "../../src/engine-runtime/host.js";
 
 type M1Card = {
   readonly zone: "legend" | "champion" | "mainDeck" | "battlefields" | "runes";
@@ -55,6 +56,28 @@ function command(command: Omit<V2Command, "commandId" | "stateVersion">, command
 }
 
 describe("engine runtime", () => {
+  it("keeps ordinary Buffs separate from layered Empowered state and rolls back a failed mutation", () => {
+    const host = new EngineRuntimeHost({ A: "A", B: "B" }, () => { throw new Error("unexpected choice"); });
+    const ref = host.addCard("A", { id: "empower-card", cardId: "card", name: "Unit", types: ["unit"] }, "board");
+    expect(host.object(ref)).toMatchObject({ buffs: 0, empowered: 0 });
+    expect(host.perform({ type: "buff", object: ref, amount: 2 }).status).toBe("done");
+    expect(host.perform({ type: "empower", object: ref }).status).toBe("done");
+    expect(host.perform({ type: "empower", object: ref }).status).toBe("prevented");
+    expect(host.object(ref)).toMatchObject({ buffs: 2, empowered: 1 });
+    expect(host.perform({ type: "empower", object: ref, amount: 2, multiple: true, limit: 3 }).status).toBe("done");
+    expect(host.object(ref)).toMatchObject({ buffs: 2, empowered: 3 });
+    const checkpoint = host.checkpoint();
+    expect(host.perform({ type: "disempower", object: ref }).status).toBe("done");
+    expect(host.object(ref)).toMatchObject({ buffs: 2, empowered: 2 });
+    host.restore(checkpoint);
+    expect(host.object(ref)).toMatchObject({ buffs: 2, empowered: 3 });
+    expect(host.perform({ type: "disempower", object: ref }).status).toBe("done");
+    expect(host.perform({ type: "disempower", object: ref }).status).toBe("done");
+    expect(host.perform({ type: "disempower", object: ref }).status).toBe("done");
+    expect(host.perform({ type: "disempower", object: ref }).status).toBe("prevented");
+    expect(host.object(ref)).toMatchObject({ buffs: 2, empowered: 0 });
+  });
+
   it("starts the new match lifecycle and keeps opponent hand identities private", () => {
     const decks = [m1Deck("rumble-sfd"), m1Deck("fiora-sfd")] as const;
     const opening = createEngineRuntime({ matchId: "m1-opening", decks, seed: "m1" }).start();

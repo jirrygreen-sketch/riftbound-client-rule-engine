@@ -17,7 +17,8 @@ import type {
   ZoneDestination,
   ZoneId,
 } from "../../../../packages/engine-core/dist/effects/contract.js";
-import { disempowerTransition, empowerTransition } from "../../../../packages/engine-core/dist/zones/empower-state.js";
+import { disempowerTransition, empoweredState, empowerTransition, readEmpowered }
+  from "../../../../packages/engine-core/dist/zones/empower-state.js";
 
 export interface RuntimeCard {
   readonly id: string;
@@ -233,16 +234,17 @@ export class EngineRuntimeHost {
         case "spend-buff": { const object = this.requireObject(action.object); if (object.buffs < action.amount) return this.prevented(); object.buffs -= action.amount; return this.done(object.buffs); }
         case "empower": {
           const object = this.requireObject(action.object);
-          const transition = empowerTransition(object.empowered, { amount: action.amount ?? 1 });
+          const transition = empowerTransition(readEmpowered(object), {
+            amount: action.amount ?? 1, multiple: action.multiple, limit: action.limit });
           if (!transition.changed) return this.prevented();
-          object.empowered = transition.currentCount;
+          Object.assign(object, empoweredState(transition.currentCount));
           return this.done(object.empowered);
         }
         case "disempower": {
           const object = this.requireObject(action.object);
-          const transition = disempowerTransition(object.empowered);
+          const transition = disempowerTransition(readEmpowered(object));
           if (!transition.changed) return this.prevented();
-          object.empowered = transition.currentCount;
+          Object.assign(object, empoweredState(transition.currentCount));
           return this.done();
         }
         case "add-counter": {
