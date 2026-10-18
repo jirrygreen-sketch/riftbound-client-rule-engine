@@ -349,8 +349,12 @@ export function deriveDuelCombatAssignmentRulesFromIR(
     const raw = effects[index];
     if (!isRecord(raw)) blocked('source-effect-proof-incomplete', `combat effect ${index} must be a record`);
     const effect = isRecord(raw.effect) ? raw.effect : raw;
+    // The assignment reader may receive the complete current ability layer.
+    // Unrelated continuous effects are inert here; every combat-assignment
+    // effect must still match one of the two sourced shapes below.
+    if (effect.kind !== 'continuous.combat') continue;
     const filter = isRecord(raw.filter) ? raw.filter : undefined;
-    if (effect.kind !== 'continuous.combat' || effect.mode !== 'damage-assignment' ||
+    if (effect.mode !== 'damage-assignment' ||
         effect.damage !== 'lethal' || effect.controllerScope !== 'same-controller') {
       blocked('source-effect-proof-incomplete', `unsupported continuous.combat assignment effect at ${index}`);
     }
@@ -700,8 +704,6 @@ export function planDuelBaseCombatDamage(
 export interface DuelBaseCombatOrderedUIDAmount {
   readonly uid: string;
   readonly amount: number;
-  /** Optional explicit choice for a Unit carrying both Tank and Backline. */
-  readonly priority?: 'first' | 'last';
 }
 
 export interface DuelBaseCombatAssignment {
@@ -758,7 +760,6 @@ function sideForActor(plan: DuelBaseCombatPlan, actor: string): DuelBaseCombatSi
 interface RawOrderedUIDAmountSnapshot {
   readonly uid: unknown;
   readonly amount: unknown;
-  readonly priority?: unknown;
 }
 
 /**
@@ -797,18 +798,13 @@ function snapshotOrderedUIDAmounts(
     const itemKeys = Reflect.ownKeys(item);
     const uid = Object.getOwnPropertyDescriptor(item, 'uid');
     const amount = Object.getOwnPropertyDescriptor(item, 'amount');
-    if ((itemKeys.length !== 2 && itemKeys.length !== 3) || !itemKeys.includes('uid') || !itemKeys.includes('amount') ||
-        itemKeys.some(key => key !== 'uid' && key !== 'amount' && key !== 'priority') ||
+    if (itemKeys.length !== 2 || !itemKeys.includes('uid') || !itemKeys.includes('amount') ||
+        itemKeys.some(key => key !== 'uid' && key !== 'amount') ||
         uid === undefined || !('value' in uid) ||
         amount === undefined || !('value' in amount)) {
       blocked('invalid-allocation', `orderedUIDAmounts[${index}] must contain data uid and amount only`);
     }
-    const priority = Object.getOwnPropertyDescriptor(item, 'priority');
-    if (priority !== undefined && !('value' in priority)) {
-      blocked('invalid-allocation', `orderedUIDAmounts[${index}].priority must be data`);
-    }
-    snapshots.push({ uid: uid.value, amount: amount.value,
-      ...(priority === undefined ? {} : { priority: priority.value }) });
+    snapshots.push({ uid: uid.value, amount: amount.value });
     items.push(item);
   }
   const finalKeys = Reflect.ownKeys(raw);
@@ -828,16 +824,10 @@ function snapshotOrderedUIDAmounts(
     const itemKeys = Reflect.ownKeys(item);
     const uid = Object.getOwnPropertyDescriptor(item, 'uid');
     const amount = Object.getOwnPropertyDescriptor(item, 'amount');
-    if ((itemKeys.length !== 2 && itemKeys.length !== 3) || !itemKeys.includes('uid') || !itemKeys.includes('amount') ||
-        itemKeys.some(key => key !== 'uid' && key !== 'amount' && key !== 'priority') ||
+    if (itemKeys.length !== 2 || !itemKeys.includes('uid') || !itemKeys.includes('amount') ||
+        itemKeys.some(key => key !== 'uid' && key !== 'amount') ||
         uid === undefined || !('value' in uid) || !Object.is(uid.value, snapshot.uid) ||
         amount === undefined || !('value' in amount) || !Object.is(amount.value, snapshot.amount)) {
-      blocked('invalid-allocation', 'orderedUIDAmounts changed while being read');
-    }
-    const priority = Object.getOwnPropertyDescriptor(item, 'priority');
-    if ((snapshot.priority === undefined && priority !== undefined) ||
-        (snapshot.priority !== undefined && (priority === undefined || !('value' in priority) ||
-          !Object.is(priority.value, snapshot.priority)))) {
       blocked('invalid-allocation', 'orderedUIDAmounts changed while being read');
     }
   }
@@ -872,19 +862,13 @@ function validateOrder(
     if (!target.canReceiveDamage) blocked('invalid-allocation', `${uid} cannot be dealt damage in this Combat`);
     if (seen.has(uid)) blocked('invalid-allocation', `${uid} is assigned more than once`);
 
-    // A choice between Tank and Backline is resolved by the assignment that
-    // actually selects the Unit (467.2.c.8/.9).  An explicit choice is
-    // accepted for replay stability; otherwise the live order determines it.
+    // A Unit with both Tank and Backline resolves one exclusionary requirement
+    // through the actual assignment order (467.2.c.8/.9). The order is already
+    // the client choice, so it remains the only wire input.
     let mode: 'first' | 'normal' | 'last';
     if (target.assignmentPriority === 'choice') {
-      if (item.priority !== undefined && item.priority !== 'first' && item.priority !== 'last') {
-        blocked('invalid-allocation', `${uid} has an invalid Tank/Backline priority choice`);
-      }
-      mode = item.priority ?? (normalStarted || lastStarted ? 'last' : 'first');
+      mode = normalStarted || lastStarted ? 'last' : 'first';
     } else {
-      if (item.priority !== undefined) {
-        blocked('invalid-allocation', `${uid} does not offer a Tank/Backline priority choice`);
-      }
       mode = target.assignmentPriority;
     }
     const pendingFixedFirst = side.targets.some(candidate => !seen.has(candidate.uid) &&

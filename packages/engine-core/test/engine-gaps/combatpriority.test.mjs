@@ -9,8 +9,12 @@ import {
   validateDuelBaseCombatAllocation, completeDuelBaseCombatAllocation,
   deriveDuelCombatAssignmentRulesFromIR, DuelBaseCombatBlockedError,
 } from '../../dist/combat/base-combat-allocation.js';
+import { createEngineStaticBinder } from '../../dist/programs/index.js';
+import sunlitGuardian from '../../../card-dsl/dist/cards/ogn/sunlit-guardian.js';
+import pykeReturned from '../../../card-dsl/dist/cards/unl/pyke-returned.js';
+import { createProgramBinding, fixture } from '../rules/keywords/support.mjs';
 
-const amount = (uid, value, priority) => ({ uid, amount: value, ...(priority ? { priority } : {}) });
+const amount = (uid, value) => ({ uid, amount: value });
 const blocked = (fn, code) => assert.throws(fn,
   error => error instanceof DuelBaseCombatBlockedError && error.code === code);
 
@@ -122,11 +126,65 @@ test('a Unit with both Tank and Backline resolves one exclusionary requirement',
     amount('dual', 3), amount('plain', 3),
   ]).assignments, [amount('dual', 3), amount('plain', 3)]);
   assert.deepEqual(validateDuelBaseCombatAllocation(plan, 'P1', [
-    amount('plain', 3), amount('dual', 3, 'last'),
+    amount('plain', 3), amount('dual', 3),
   ]).assignments, [amount('plain', 3), amount('dual', 3)]);
+  blocked(() => validateDuelBaseCombatAllocation(plan, 'P1', [{
+    uid: 'dual', amount: 3, priority: 'first',
+  }]), 'invalid-allocation');
+});
+
+test('representative original card IR expands and binds into the rules consumed by live assignment', () => {
+  const f = fixture({
+    setup: w => w.player('B')
+      .unit('a', { owner: 'P1', might: 9 })
+      .unit('tank', { owner: 'P2', controller: 'P2', cardId: sunlitGuardian.canonicalCardId,
+        might: 3 })
+      .unit('plain', { owner: 'P2', controller: 'P2', might: 3 })
+      .unit('back', { owner: 'P2', controller: 'P2', cardId: pykeReturned.canonicalCardId,
+        might: 3 }),
+  });
+  assert.equal(sunlitGuardian.status, 'judge-required');
+  assert.equal(pykeReturned.status, 'judge-required');
+  const admitted = program => ({ ...program, status: 'executable', judgeReason: undefined });
+  const sunlit = admitted(sunlitGuardian);
+  const pyke = admitted(pykeReturned);
+  assert.deepEqual(sunlit.abilities, sunlitGuardian.abilities);
+  assert.deepEqual(pyke.abilities, pykeReturned.abilities);
+  const binding = createProgramBinding({ cardPrograms: [sunlit, pyke] });
+  const binder = createEngineStaticBinder(f.engine);
+  const handles = [];
+  for (const id of ['tank', 'back']) {
+    const source = f.get(id);
+    const combat = binding.inspect(source).abilities.find(ability =>
+      ability.kind === 'static' && ability.effect.kind === 'continuous.combat');
+    assert.ok(combat, `${id} must expose its original continuous.combat declaration`);
+    handles.push(binder.bindStatic(combat, source));
+  }
+  const records = f.engine.layers.registry.list();
+  assert.deepEqual(records.map(entry => [entry.effect.effect.kind, entry.effect.effect.priority]), [
+    ['continuous.combat', 'first'], ['continuous.combat', 'last'],
+  ]);
+  const rules = deriveDuelCombatAssignmentRulesFromIR(
+    records.map(entry => entry.effect), ['a', 'tank', 'plain', 'back']);
+  const scene = combat({
+    attackers: [{ uid: 'a', might: 9 }],
+    defenders: [{ uid: 'tank', might: 3 }, { uid: 'plain', might: 3 }, { uid: 'back', might: 3 }],
+  });
+  const plan = planDuelBaseCombatDamage(scene.state, scene.fieldId, bind(scene, rules));
+  assert.deepEqual(plan.attacker.targets.map(target => target.assignmentPriority), ['first', 'normal', 'last']);
   blocked(() => validateDuelBaseCombatAllocation(plan, 'P1', [
-    amount('plain', 3), amount('dual', 3, 'first'),
+    amount('plain', 3), amount('tank', 6),
   ]), 'invalid-allocation');
+  assert.deepEqual(validateDuelBaseCombatAllocation(plan, 'P1', [
+    amount('tank', 3), amount('plain', 3), amount('back', 3),
+  ]).assignments, [amount('tank', 3), amount('plain', 3), amount('back', 3)]);
+
+  for (const handle of handles) handle.unbind();
+  const expired = deriveDuelCombatAssignmentRulesFromIR(
+    f.engine.layers.registry.list().map(entry => entry.effect), ['a', 'tank', 'plain', 'back']);
+  const expiredPlan = planDuelBaseCombatDamage(scene.state, scene.fieldId, bind(scene, expired));
+  assert.deepEqual(expiredPlan.attacker.targets.map(target => target.assignmentPriority),
+    ['normal', 'normal', 'normal']);
 });
 
 test('current-layer lethal threshold, no-damage exemption, and retry/rollback boundaries are enforced', () => {
