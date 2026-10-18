@@ -68,6 +68,7 @@ interface WorldState {
 }
 
 const ZONES: readonly ZoneId[] = ["hand", "deck", "rune-deck", "trash", "banishment", "board", "rune-zone", "chain"];
+const DOMAINS: readonly Domain[] = ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"];
 function emptyZones(): Record<ZoneId, string[]> { return { hand: [], deck: [], "rune-deck": [], trash: [], banishment: [], board: [], "rune-zone": [], chain: [] }; }
 const cloneRef = (ref: ObjectRef): ObjectRef => ({ id: ref.id, zoneEntryId: ref.zoneEntryId });
 const refKey = (ref: ObjectRef): string => `${ref.id}:${ref.zoneEntryId}`;
@@ -327,7 +328,28 @@ export class TestWorld implements ResolveContext {
       case "channel-rune": { const player = this.state.players.get(action.player); if (!player || action.amount < 0) return fail(); const count = Math.min(action.amount, player.zones["rune-deck"].length); for (let index = 0; index < count; index++) { const topId = player.zones["rune-deck"][0]; if (!topId) break; this.moveCurrent(this.state.objects.get(topId)!, "rune-zone"); } return done(count as Value); }
       case "gain-energy": { const player = this.state.players.get(action.player); if (!player || action.amount < 0) return fail(); player.energy += action.amount; return done(action.amount as Value); }
       case "gain-power": { const player = this.state.players.get(action.player); if (!player) return fail(); player.power.push(...action.power); return done(action.power as unknown as Value); }
-      case "pay": { const player = this.state.players.get(action.player); if (!player || !action.plan.finalized) return fail(); const energy = action.plan.energy ?? 0; const xp = action.plan.xp ?? 0; if (player.energy < energy || player.xp < xp) return fail("prevented"); player.energy -= energy; player.xp -= xp; return done(); }
+      case "pay": {
+        const player = this.state.players.get(action.player);
+        if (!player || !action.plan.finalized) return fail();
+        const energy = action.plan.energy ?? 0;
+        const xp = action.plan.xp ?? 0;
+        const requestedPower = action.plan.power;
+        if (!Number.isSafeInteger(energy) || energy < 0 || !Number.isSafeInteger(xp) || xp < 0) return fail();
+        if (requestedPower !== undefined && !Array.isArray(requestedPower)) return fail();
+        const power = requestedPower === undefined ? [] : [...requestedPower];
+        if (power.some(domain => !DOMAINS.includes(domain))) return fail();
+        if (player.energy < energy || player.xp < xp) return fail("prevented");
+        const remainingPower = [...player.power];
+        for (const domain of power) {
+          const index = remainingPower.indexOf(domain);
+          if (index < 0) return fail("prevented");
+          remainingPower.splice(index, 1);
+        }
+        player.energy -= energy;
+        player.power = remainingPower;
+        player.xp -= xp;
+        return done(undefined, { energy, power, xp });
+      }
       case "gain-xp": { const player = this.state.players.get(action.player); if (!player || action.amount < 0) return fail(); player.xp += action.amount; return done(action.amount as Value); }
       case "spend-xp": { const player = this.state.players.get(action.player); if (!player || action.amount < 0 || player.xp < action.amount) return fail("prevented"); player.xp -= action.amount; return done(action.amount as Value); }
       case "buff": case "spend-buff": { const object = this.current(action.object); if (!object || action.amount < 0 || (action.type === "spend-buff" && object.buffs < action.amount)) return fail("prevented"); object.buffs += action.type === "buff" ? action.amount : -action.amount; return done(object.buffs as Value); }
