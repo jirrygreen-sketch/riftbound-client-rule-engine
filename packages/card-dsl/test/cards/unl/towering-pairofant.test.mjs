@@ -1,4 +1,4 @@
-// Template execution evidence: ../templates/keyword-replacement-effect-ready-678.test.mjs.
+// Template execution evidence: ../templates/keyword-replacement-effect-ready-700.test.mjs.
 // A real spell/cleanup supplies death history; no-death entry remains blocked.
 import assert from "node:assert/strict";
 import test from "node:test";
