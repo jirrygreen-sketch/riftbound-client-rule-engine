@@ -23,51 +23,75 @@ import type { CardProgram } from "../../ir/index.js";
  *   played to this Battlefield ("here", 053.3) and it must be the player's
  *   first such play that turn.
  *
- * Status (cards/README.md §2, 2026-10-17 recheck): judge-required. The discount
- * value itself is denotable by the merged cost-plan model (buildCostPlan applies
- * announced `discounts`), but the card cannot install it, because two pieces
- * are missing:
- * 1. no current program-to-cost path registers a discount on a *future* play
- *    or turns this static ability into that play's CostPlanInput. The
+ * Status (cards/README.md §2, 2026-10-18 recheck): judge-required. The discount
+ * value, the unit-or-gear population and the "first … on their turn" window are
+ * executable in the merged collector (cost/discounts/collect.ts, RIFT-709): the
+ * declaration below uses that collector's accepted field set and golden measures
+ * 3 → 2 for the first qualifying play, full cost for the next one, and an
+ * untouched cost for a spell. Three pieces are still missing, so the card cannot
+ * install it on a real play:
+ * 1. no program-to-cost path registers a discount on a *future* play. The
  *    production binder rejects the declaration before any cost is built:
  *    programs/statics.ts `staticTarget` throws "Unsupported static appliesTo
- *    \"play-cost\"", and even without `appliesTo` the `sameLocationAs: "self"`
- *    anchor fails because a Battlefield permanent has no `location` (observed).
- * 2. the "first … on their turn" window needs a per-player, per-turn one-shot
- *    gate over plays to this Battlefield; the frozen Condition/HistoryQuery
- *    model has no "card was played to this location" predicate (Condition has
- *    no history kind at all; `condition.history` is a resolve-time instruction)
- *    and no per-player one-shot window, and a continuous effect would otherwise
- *    discount every qualifying play, which is not what the card says.
- * The static ability below is the closest structurally honest encoding: it
- * records the -1 energy delta and the unit-or-gear population without claiming
- * the one-shot window exists. The golden test proves the discount arithmetic on
- * a real merged cost plan (3 energy → 2 for one qualifying play, and no
- * negative cost) instead of asserting that the card installs it.
- * Dependencies: a static-program-to-CostPlan binding and a per-player
- * first-play history gate with a location predicate.
+ *    \"play-cost\"", and `layerFor` throws "has no layer mapping" once the scope
+ *    is renamed, so nothing reaches the collector. chain/engine.ts's Finalize
+ *    still calls buildCostPlan directly; finalizeCostPlan only runs when a
+ *    caller supplies `sources` (the module's own README lists the statics
+ *    routing and Finalize wiring as open integration requests).
+ * 2. "they play here" needs the play *destination*, and the declaration keeps
+ *    the printed anchor `sameLocationAs: "self"` for exactly that. A Battlefield
+ *    permanent has no `location`, so the collector fails closed with
+ *    "Cost location anchor has no location; play destination binding is
+ *    required" (measured), and the finalized-play history cannot supply it
+ *    either: a FinalizedCardPlay snapshot is taken at Finalize, when a card
+ *    played to a Battlefield is still on the Chain with `location: null`
+ *    (observed: chain-item-finalize carries `zone: "hand"`,
+ *    `location: null`).
+ * 3. "For each player" needs a payer-relative player selector. The collector
+ *    resolves `filter.controller` against the ability's source, so
+ *    `controller: "controller"` means "controlled by this Battlefield's
+ *    controller"; there is no spelling for "the player playing the card", and
+ *    dropping the field to buy one player would silently discount the other
+ *    (measured: with only the 'here' anchor removed, the controller's first
+ *    unit is 3 → 2 while a non-controller's first unit stays 3).
+ * The golden asserts every part that is executable today: the destination
+ * anchor fails closed, and with only that anchor removed (nothing else changed)
+ * the announced −1 discount, the unit/gear population and the per-turn
+ * one-shot window all execute.
+ * Dependencies: a static-program-to-CostPlan binding (statics routing + a
+ * chain/engine.ts Finalize that calls finalizeCostPlan) and a play-destination
+ * snapshot on the finalized-play history.
  */
 export default {
   canonicalCardId: "card.hash-7737d765f33a7c1065a7cc21af4afc511f86a348b9bfcda04f685a4478b48ffd",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口（实测）：(1) programs/statics 未把 cost.modify 转为后续打出的 CostPlanInput.discounts；" +
-    "production binder 在 staticTarget 阶段就抛 Unsupported static appliesTo \"play-cost\"，" +
-    "即使去掉 appliesTo，sameLocationAs:\"self\" 也因战场永久物没有 location 而失败。" +
-    "(2)「the first unit or gear they play here on their turn」需在费用计算前判定每名玩家自己回合的首次打出到本战场。" +
-    "HistoryQuery 已有 player/scope/objectFilter，但没有 play destination 谓词；Condition 没有历史种类" +
-    "（condition.history 是 Resolve 期指令），per-turn-first-play 尚无消费方。已合入的地点选择与普通条件求值不能代替这个历史/费用绑定。",
+    "2026-10-18 复核：减费量、unit/gear 范围与「first … on their turn」窗口本身已可执行——" +
+    "cost/discounts/collect.ts 的 finalizeCostPlan 消费 continuous.cost-modification 的 " +
+    "appliesTo=\"play-cost\"、duration=\"per-turn-first-play\" 与过滤器，golden 实测（仅去掉印刷的 here 锚点）" +
+    "首次 3→2、第二次恢复 3、spell 不减费。仍缺三处：(1) 生产路径不安装本声明——programs/statics.ts 的 staticTarget 抛 " +
+    "Unsupported static appliesTo \"play-cost\"，layerFor 对 continuous.cost-modification 抛 " +
+    "no layer mapping，chain/engine.ts 的 Finalize 只调用 buildCostPlan，不调用 finalizeCostPlan 收集场上 static，" +
+    "因此收集器只能由调用者显式传 sources。(2)「they play here」缺打出目的地绑定：" +
+    "印刷锚点 sameLocationAs:\"self\" 在战场上没有 location，收集器实测抛 " +
+    "CostPlanError\"Cost location anchor has no location; play destination binding is required\"；" +
+    "finalizedPlaysThisTurn 也补不上——它是 Finalize 时的快照，此时被播放的牌仍在 Chain 上、" +
+    "location 为 null（实测 chain-item-finalize：zone=hand、location=null）。(3)「For each player」缺" +
+    "付费者相对的玩家选择符：收集器把 filter.controller 相对能力来源解析，" +
+    "controller:\"controller\" 等于「本战场控制者打出的牌」，没有「打出这张牌的玩家」的拼写；" +
+    "实测仅去掉 here 锚点时，本战场控制者首次 3→2，而另一名玩家的首次仍为 3。" +
+    "不近似实现：不把 \"here\" 丢掉当作无条件减费。",
   sourceText:
     "For each player, the first unit or gear they play here on their turn costs :rb_energy_1: less.",
   abilities: [
     {
       kind: "static",
       effect: {
-        // Discount kind/field names follow the merged cost-plan model
-        // (CostPlanInput.discounts → CostDiscount{resource, amount}); the
-        // per-player one-shot window is the judged part (see judgeReason).
-        kind: "cost.modify",
+        // Field names follow the merged collector's accepted vocabulary
+        // (kind/resource/amount/appliesTo/filter/duration, 356.4). "here" is
+        // the missing destination half described in judgeReason.
+        kind: "continuous.cost-modification",
         resource: "energy",
         amount: { kind: "constant", value: -1 },
         duration: "per-turn-first-play",
@@ -75,6 +99,8 @@ export default {
         filter: {
           type: ["unit", "gear"],
           controller: "controller",
+          // 053.3 的 "here"：必须绑定打出目的地（见 judgeReason 第 2 条），
+          // 战场上没有 location 时 fail-closed，绝不当成无条件减费。
           sameLocationAs: "self"
         }
       },

@@ -8,6 +8,8 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
@@ -37,13 +39,16 @@ test("rad-070-167 Hold 'Em: judgeReason names the cost-plan wiring and the histo
   // cards README section 2: the reason must name the missing primitive/rule and
   // the dependency task instead of a stale description.
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /CostPlanInput\.discounts|static-program binder/);
+  assert.match(program.judgeReason, /finalizeCostPlan/);
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /objectFilter/);
   // Second-sweep refresh: name the observed binder failure and the missing
-  // Condition kind instead of a generic "no consumer".
+  // Condition kind instead of a generic "no consumer". 2026-10-18 refresh:
+  // the merged collector and its measured predicate limits are the live gap.
   assert.match(program.judgeReason, /no layer mapping/);
   assert.match(program.judgeReason, /condition\.history/);
+  assert.match(program.judgeReason, /finalizeCostPlan/);
+  assert.match(program.judgeReason, /Unsupported finalized-card history filter/);
 });
 
 test("rad-070-167 Hold 'Em gap: the production static binder rejects the discount declaration", () => {
@@ -82,6 +87,65 @@ test("rad-070-167 Hold 'Em gap: the declared gate is a descriptive constant, and
   assert.equal(discount.condition.kind, "expression");
   assert.equal(discount.condition.value.kind, "constant");
   assert.throws(() => evaluateCondition({ kind: "history" }, environment), /Unsupported condition: history/);
+});
+
+test("rad-070-167 Hold 'Em gap: the merged collector refuses the declared gate and the type-filtered history instead of discounting", () => {
+  // The collector is the merged consumer for this declaration kind. Both halves
+  // of the printed gate fail closed there, so no approximation can slip in:
+  // the descriptive expression is rejected, and the only evaluable play history
+  // (count/cards-played-this-turn) has no unit-or-gear filter or destination.
+  const kernel = world().hand("src", { types: ["spell"], energy: 3 }).build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("src") });
+  const source = { id: "hold-em", source: ctx.ref("src"), ability: discount };
+  assert.throws(
+    () => finalizeCostPlan(ctx, { id: "play", cost: { kind: "printed" } }, { statics: [source], finalizedPlaysThisTurn: [] }),
+    error => error instanceof CostPlanError && error.reason === "judge-required" &&
+      /Descriptive cost predicates require an authoritative condition adapter/.test(error.message)
+  );
+
+  // The same declaration with an *evaluable* gate still cannot express
+  // "a unit or gear … to a battlefield this turn".
+  const evaluable = {
+    ...discount,
+    condition: {
+      kind: "compare",
+      left: {
+        kind: "count",
+        subject: "cards-played-this-turn",
+        filter: { player: "controller", type: "unit" }
+      },
+      operator: "gte",
+      right: { kind: "constant", value: 1 }
+    }
+  };
+  assert.throws(
+    () => finalizeCostPlan(ctx, { id: "play", cost: { kind: "printed" } }, {
+      statics: [{ id: "hold-em", source: ctx.ref("src"), ability: evaluable }],
+      finalizedPlaysThisTurn: []
+    }),
+    error => error instanceof CostPlanError && error.reason === "judge-required" &&
+      /Unsupported finalized-card history filter/.test(error.message)
+  );
+
+  // Without an object filter the count is evaluable but blind to both printed
+  // clauses: a spell played this turn satisfies it (the printed text requires a
+  // unit or gear played to a battlefield).
+  const blind = {
+    ...evaluable,
+    condition: {
+      ...evaluable.condition,
+      left: { ...evaluable.condition.left, filter: { player: "controller" } }
+    }
+  };
+  const blindPlan = finalizeCostPlan(ctx, { id: "play", cost: { kind: "printed" } }, {
+    statics: [{ id: "hold-em", source: ctx.ref("src"), ability: blind }],
+    finalizedPlaysThisTurn: [{ object: { ...ctx.getObject("src"), types: ["spell"] }, player: "A" }]
+  });
+  assert.equal(blindPlan.total.energy, 1);
+  assert.ok(
+    blindPlan.selectedAdditional.length === 0 && blindPlan.discounts.length === 1,
+    "the unfiltered history discounts a spell play, which is not the printed gate"
+  );
 });
 
 test("rad-070-167 Hold 'Em: structure — Action keyword and the printed energy-3 cost", () => {

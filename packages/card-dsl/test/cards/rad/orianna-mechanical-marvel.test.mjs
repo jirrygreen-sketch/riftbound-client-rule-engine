@@ -7,6 +7,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/orianna-mechanical-marvel.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
@@ -26,7 +28,10 @@ test("rad-068-167 Orianna, Mechanical Marvel: program validates and is judge-req
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.cost-modification/);
   assert.match(program.judgeReason, /Finalize/);
-  assert.match(program.judgeReason, /once-per-turn/);
+  // The usage window is still the live gap: the collector refuses `once`, so
+  // the reason must name the missing per-turn counter.
+  assert.match(program.judgeReason, /Once each turn/);
+  assert.match(program.judgeReason, /per-turn 使用计数/);
   // The production static binder rejects this kind outright; the reason must
   // record that and the unsupported beneficiary appliesTo shape.
   assert.match(program.judgeReason, /layerFor/);
@@ -45,13 +50,19 @@ test("rad-068-167 Orianna, Mechanical Marvel: the discount is a static cost modi
   assert.equal(program.abilities.length, 1);
   assert.equal(costModification.kind, "static");
   assert.equal(costModification.effect.kind, "continuous.cost-modification");
-  assert.equal(costModification.effect.resource, "energy");
-  assert.deepEqual(costModification.effect.amount, { kind: "constant", value: -1 });
-  // "1 Energy and one rainbow rune" = 1 Energy plus 1 Power of any domain (135.2.e.5).
-  assert.deepEqual(costModification.effect.power, {
-    kind: "constant",
-    value: { amount: -1, domain: "any" }
-  });
+  // "1 Energy and one rainbow rune" = 1 Energy plus 1 Power of any domain
+  // (135.2.e.5): one reduction per resource, both consumed by the merged
+  // finalizeCostPlan collector.
+  assert.deepEqual(costModification.effect.reductions, [
+    { resource: "energy", amount: { kind: "constant", value: -1 } },
+    {
+      resource: "power",
+      amount: { kind: "constant", value: -1 },
+      universal: true
+    }
+  ]);
+  assert.equal(Object.hasOwn(costModification.effect, "resource"), false);
+  assert.equal(Object.hasOwn(costModification.effect, "amount"), false);
   assert.deepEqual(costModification.effect.appliesTo, {
     kind: "constant",
     value: { type: "gear", controller: "controller" }
@@ -62,6 +73,71 @@ test("rad-068-167 Orianna, Mechanical Marvel: the discount is a static cost modi
   });
   // "Once each turn" is the usage limit of this continuous effect.
   assert.deepEqual(costModification.effect.once, { kind: "constant", value: "per-turn" });
+});
+
+test("rad-068-167 Orianna, Mechanical Marvel: the announced 1 Energy + 1 any-domain Power discount really prices a gear play", () => {
+  // Real execution of the printed reduction through the merged cost collector
+  // (cost/discounts/collect.ts, RIFT-709). The collector consumes `reductions`,
+  // the beneficiary `appliesTo` filter and `stage: total-cost`; every assertion
+  // below is the printed outcome, not a fixture-side settlement.
+  const { once, ...effect } = costModification.effect;
+  void once;
+  const sources = (ctx) => ({
+    statics: [{ id: "orianna:0", source: ctx.ref("orianna"), ability: { ...costModification, effect } }]
+  });
+
+  const atBattlefield = world()
+    .player("A", { energy: 5 })
+    .unit("orianna", { location: { type: "battlefield", id: "bf-1" } })
+    .hand("gear", { types: ["gear"], energy: 1, power: ["Mind"] })
+    .player("B", { energy: 5 })
+    .hand("enemy-gear", { owner: "B", controller: "B", types: ["gear"], energy: 1, power: ["Mind"] })
+    .build();
+  const ownCtx = atBattlefield.clone({ sourceSnapshot: atBattlefield.getObject("gear") });
+  const discounted = finalizeCostPlan(ownCtx, { id: "gear-play", cost: { kind: "printed" }, domains: ["Mind"] }, sources(ownCtx));
+  assert.equal(discounted.total.energy, 0, "1 Energy becomes 0");
+  assert.deepEqual(discounted.total.power, [], "the 1 any-domain Power requirement is removed");
+  assert.deepEqual(
+    discounted.discounts.map(entry => [entry.resource, entry.amount, entry.before, entry.after]),
+    [["energy", 1, 1, 0], ["power", 1, 1, 0]]
+  );
+  assert.equal(discounted.printed.energy, 1, "the printed cost stays independent of the discount");
+
+  const enemyCtx = atBattlefield.clone({ sourceSnapshot: atBattlefield.getObject("enemy-gear"), controller: "A" });
+  const enemy = finalizeCostPlan(enemyCtx, { id: "enemy-gear-play", cost: { kind: "printed" }, domains: ["Mind"] }, sources(enemyCtx));
+  assert.deepEqual(enemy.discounts, [], "the beneficiary filter is the controller's gear (366.2.a)");
+  assert.equal(enemy.total.energy, 1);
+
+  const atBase = world()
+    .player("A", { energy: 5 })
+    .unit("orianna", { location: { type: "base", player: "A" } })
+    .hand("gear", { types: ["gear"], energy: 1, power: ["Mind"] })
+    .build();
+  const baseCtx = atBase.clone({ sourceSnapshot: atBase.getObject("gear") });
+  const off = finalizeCostPlan(baseCtx, { id: "gear-play", cost: { kind: "printed" }, domains: ["Mind"] }, sources(baseCtx));
+  assert.deepEqual(off.discounts, [], "\"while I'm at a battlefield\" is false at the Base (364.3)");
+  assert.equal(off.total.energy, 1);
+});
+
+test("rad-068-167 Orianna, Mechanical Marvel: the printed once-per-turn limit is still refused, so no per-gear approximation is installed", () => {
+  // The usage window is the remaining gap: the collector's field whitelist has
+  // no `once`, so a declaration carrying it fails closed instead of silently
+  // discounting every gear of the turn.
+  const kernel = world()
+    .player("A", { energy: 5 })
+    .unit("orianna", { location: { type: "battlefield", id: "bf-1" } })
+    .hand("gear", { types: ["gear"], energy: 1, power: ["Mind"] })
+    .build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("gear") });
+  assert.throws(
+    () => finalizeCostPlan(
+      ctx,
+      { id: "gear-play", cost: { kind: "printed" }, domains: ["Mind"] },
+      { statics: [{ id: "orianna:0", source: ctx.ref("orianna"), ability: costModification }] }
+    ),
+    error => error instanceof CostPlanError && error.reason === "judge-required" &&
+      /Unsupported cost modification field once/.test(error.message)
+  );
 });
 
 test("rad-068-167 Orianna, Mechanical Marvel: 'while I'm at a battlefield' is the source location condition (364.3)", () => {
@@ -200,11 +276,8 @@ test.todo(
   "rad-068-167 Orianna, Mechanical Marvel: bind and consume the continuous cost modification " +
     "(1 Energy + 1 any-domain Power less for a gear the controller plays, once each turn, while " +
     "the source is at a battlefield) — needs a staticTarget beneficiary-filter adapter, a " +
-    "layerFor mapping for continuous.cost-modification, a Finalize reader for it, and a " +
-    "per-turn use counter on continuous effects"
-);
-
-test.todo(
-  "rad-068-167 Orianna, Mechanical Marvel: any-domain Power discount semantics — reducing a " +
-    "printed Power component by 1 regardless of domain, and honoring 356.4.c component ordering"
+    "layerFor mapping for continuous.cost-modification, a Finalize reader wired into " +
+    "chain/engine.ts, and a per-turn use counter on continuous effects. The discount arithmetic " +
+    "itself (including the any-domain Power reduction and 356.4.c ordering) is executed by the " +
+    "announced-discount test above."
 );
