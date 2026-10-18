@@ -7,7 +7,6 @@ import { world } from "../../dist/effects/testing/index.js";
 import { createProgramBinding } from "../../dist/programs/index.js";
 import { fixture, settle } from "../rules/keywords/support.mjs";
 import albusFerros from "../../../card-dsl/dist/cards/ogn/albus-ferros.js";
-import cithriaOfCloudfield from "../../../card-dsl/dist/cards/ogn/cithria-of-cloudfield.js";
 import overtOperation from "../../../card-dsl/dist/cards/ogn/overt-operation.js";
 import peakGuardian from "../../../card-dsl/dist/cards/ogn/peak-guardian.js";
 
@@ -85,7 +84,10 @@ test("EG-BUFF original Albus Ferros pick spends any number at resolution and rep
       builder.unit("enemy", { owner: "B", controller: "B", buffs: 1, energy: null, power: null });
     }
   });
-  f.answers.set("pick:albus-ferros.buffs", [f.ref("buffed-a"), f.ref("buffed-b")]);
+  f.answers.set(
+    "albus-ferros.spend-buffs/pick%3Aalbus-ferros.buffs",
+    [f.ref("buffed-a"), f.ref("buffed-b")]
+  );
   f.play("albus");
   settle(f.engine);
   assert.equal(f.get("buffed-a").buffs, 0);
@@ -206,6 +208,31 @@ test("EG-BUFF stale refs and rejected choices roll back without fabricated state
   assert.deepEqual(kernel.stateForTest(), before);
 });
 
+test("EG-BUFF forced non-target choices reject empty sets, forged refs and duplicate answers", () => {
+  const body = [{
+    id: "forced",
+    op: "effect.buff",
+    args: { mode: c("spend"), objects: c({ kind: "choose", id: "forced", filter: { type: "unit", zone: "board", buffed: true }, min: 1, max: 2 }) }
+  }];
+  const empty = world().unit("plain", { buffs: 0 }).build();
+  const emptyContext = sourceContext(empty);
+  const impossible = resolveChainBody(body, emptyContext);
+  assert.deepEqual(impossible.results[0].result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(emptyContext.getObject("plain").buffs, 0);
+
+  for (const answer of [
+    [{ id: "forged", zoneEntryId: 1 }],
+    [{ id: "a", zoneEntryId: -1 }],
+    [{ id: "a", zoneEntryId: 1 }, { id: "a", zoneEntryId: 1 }]
+  ]) {
+    const kernel = world().unit("a", { buffs: 1 }).unit("b", { buffs: 1 }).build();
+    kernel.setAnswers({ "forced/forced": answer });
+    const before = kernel.stateForTest();
+    assert.throws(() => resolveChainBody(body, sourceContext(kernel)), /Invalid effect\.buff choice answer/);
+    assert.deepEqual(kernel.stateForTest(), before);
+  }
+});
+
 test("EG-BUFF replacement rejection stops the primitive and preserves no partial receipt", () => {
   const body = [{
     id: "buff",
@@ -233,7 +260,7 @@ test("EG-BUFF representative host IR keeps null costs while a source selector pl
   assert.equal(result.results[0].result.status, "executed");
   assert.equal(context.getObject("cithria").buffs, 1);
   assert.equal(context.getObject("cithria").energy, null);
-  assert.equal(context.getObject("cithria").power, []);
+  assert.deepEqual(context.getObject("cithria").power, []);
 });
 
 test("EG-BUFF original Peak Guardian self/other query shapes remain non-targeting at resolution", () => {
@@ -251,4 +278,51 @@ test("EG-BUFF original Peak Guardian self/other query shapes remain non-targetin
   assert.equal(kernel.getObject("peak").energy, null);
   assert.equal(kernel.getObject("peak").power, null);
   assert.equal(binding.inspect(kernel.getObject("peak")).program, program);
+});
+
+test("EG-BUFF Peak Guardian other friendly units there resolve as a non-target production query", () => {
+  const body = [{
+    id: "peak-other-friendlies",
+    op: "effect.buff",
+    args: {
+      mode: c("buff"),
+      objects: c({
+        kind: "query",
+        filter: {
+          type: "unit",
+          zone: "board",
+          controller: "controller",
+          exclude: "self",
+          sameLocationAs: "self"
+        }
+      })
+    }
+  }];
+  const hostAbility = {
+    kind: "triggered",
+    trigger: {
+      at: "card-played",
+      filter: { event: "card-played", filter: { source: "self" } }
+    },
+    optional: false,
+    body
+  };
+  const program = sourceProgram("peak-query", [], [hostAbility]);
+  const f = fixture({
+    programs: [program],
+    setup(builder) {
+      builder.hand("peak", { cardId: program.canonicalCardId, types: ["unit"], energy: 0, power: [] });
+      builder.unit("ally", { location: field("one"), buffs: 0, energy: null, power: null });
+      builder.unit("elsewhere", { location: field("two"), buffs: 0, energy: null, power: null });
+      builder.unit("enemy", { owner: "B", controller: "B", location: field("one"), buffs: 0, energy: null, power: null });
+    }
+  });
+  f.play("peak", { draft: { location: field("one") } });
+  settle(f.engine);
+  assert.equal(f.get("peak").buffs, 0);
+  assert.equal(f.get("ally").buffs, 1);
+  assert.equal(f.get("elsewhere").buffs, 0);
+  assert.equal(f.get("enemy").buffs, 0);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "became-target").length, 0);
+  assert.deepEqual(f.errors, []);
 });

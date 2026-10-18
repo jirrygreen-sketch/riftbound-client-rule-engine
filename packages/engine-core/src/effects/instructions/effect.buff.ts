@@ -237,9 +237,7 @@ const refValue = (ref: ObjectRef): Value => ({ id: ref.id, zoneEntryId: ref.zone
 const refKey = (ref: ObjectRef): string => ref.id + ":" + String(ref.zoneEntryId);
 
 function asObjectRef(value: unknown): ObjectRef | null {
-  if (!isRecord(value)) return null;
-  if (typeof value.id !== "string" || typeof value.zoneEntryId !== "number") return null;
-  return { id: value.id, zoneEntryId: value.zoneEntryId };
+  return isRef(value) ? { id: value.id, zoneEntryId: value.zoneEntryId } : null;
 }
 
 function distinctRefs(refs: readonly ObjectRef[]): ObjectRef[] {
@@ -332,11 +330,11 @@ function execute(ctx: ResolveContext, args: EffectBuffArgs): InstructionResult {
         const requestedMax = selection.max ?? options.length;
         const requestedMin = selection.min ?? 0;
         const max = Math.min(requestedMax, options.length);
+        if (requestedMin > max) return { status: "negated", reason: "impossible", events: [] };
         if (max === 0) {
           planned = [];
           break;
         }
-        if (requestedMin > max) return { status: "negated", reason: "impossible", events: [] };
         const chosen = ctx.choose<readonly ObjectRef[]>({
           id: selection.id,
           type: "select-objects",
@@ -349,10 +347,16 @@ function execute(ctx: ResolveContext, args: EffectBuffArgs): InstructionResult {
         });
         if (!Array.isArray(chosen)) throw new Error("Invalid effect.buff choice answer");
         const legalKeys = new Set(options.map(refKey));
-        planned = distinctRefs(chosen.map(asObjectRef).filter((ref): ref is ObjectRef => ref !== null));
-        if (planned.length < requestedMin || planned.length > max || planned.some(ref => !legalKeys.has(refKey(ref)))) {
+        const answered = chosen.map(asObjectRef);
+        if (
+          answered.some(ref => ref === null || !legalKeys.has(refKey(ref))) ||
+          new Set(answered.map(ref => ref === null ? "invalid" : refKey(ref))).size !== answered.length ||
+          answered.length < requestedMin ||
+          answered.length > max
+        ) {
           throw new Error("Invalid effect.buff choice answer");
         }
+        planned = answered.filter((ref): ref is ObjectRef => ref !== null);
         break;
       }
     }
