@@ -156,7 +156,7 @@ export function inspectFilter(value: unknown, label = "effect.inspect"): ObjectF
   if (!isRecord(value)) return reject("filter must evaluate to an ObjectFilter");
   const anchors = new Set<string>(OBJECT_FILTER_ANCHORS);
   const allowed = new Set([
-    ...anchors, "other", "relation",
+    ...anchors, "other", "self", "role", "here", "relation",
     "objectId", "id", "cardId", "canonicalCardId", "type", "types",
     "controller", "owner", "zone", "zoneEntryId", "location", "locationType",
     "tags", "tag", "states", "state", "characteristics", "keyword", "keywords", "hasKeyword",
@@ -166,12 +166,57 @@ export function inspectFilter(value: unknown, label = "effect.inspect"): ObjectF
     "energyAtMost", "powerMax", "printedPowerMax", "powerAtMost",
     "printedCostNoMoreThanKilledUnit", "killedUnit", "killed", "costReference"
   ]);
+  const output: Record<string, unknown> = {};
+  const put = (key: string, entry: unknown): void => {
+    if (key in output && JSON.stringify(output[key]) !== JSON.stringify(entry)) reject(`Conflicting filter field ${key}`);
+    output[key] = entry;
+  };
   for (const [key, entry] of Object.entries(value)) {
     if (!allowed.has(key)) reject(`Unsupported filter field ${key}`);
     const symbolic = (selector: unknown): boolean => isSelector(selector) && !isRef(selector);
-    if ((anchors.has(key) || key === "other") && !symbolic(entry)) reject(`invalid filter selector ${key}`);
-    if (key === "characteristics" && !isRecord(entry)) reject("invalid characteristics filter");
-    if (key === "relation") {
+    if (anchors.has(key) && !symbolic(entry)) reject(`invalid filter selector ${key}`);
+    if ((key === "self" || key === "other" || key === "here") && entry !== true) {
+      reject(`Unsupported filter ${key}: ${String(entry)}`);
+    }
+    if (key === "role" && !["self", "other-friendly"].includes(String(entry))) {
+      reject(`Unsupported filter role ${String(entry)}`);
+    }
+    if (key === "self") put("object", "self");
+    else if (key === "other") put("exclude", "self");
+    else if (key === "here") put("sameLocationAs", "self");
+    else if (key === "role") {
+      if (entry === "self") put("object", "self");
+      else {
+        put("controller", "self");
+        put("exclude", "self");
+      }
+    } else if (key === "object.id" || key === "id") {
+      if (entry === "self" || entry === "source") put("object", entry);
+      else put("objectId", entry);
+    } else if (key === "types") put("type", entry);
+    else if (key === "tag" || key === "tags") put("tags", Array.isArray(entry) ? entry : [entry]);
+    else if (key === "state" || key === "states") put("states", Array.isArray(entry) ? entry : [entry]);
+    else if (key === "controller" || key === "owner") {
+      put(key, entry === "controller" || entry === "you" ? "self" : entry === "their" ? "opponent" : entry);
+    } else if (key === "zoneEntryId" && (!Number.isSafeInteger(entry) || (entry as number) < 0)) {
+      reject("Invalid zoneEntryId filter");
+    } else if (key === "location") {
+      if (entry === "here" || entry === "source-location") put("sameLocationAs", entry === "here" ? "self" : "source");
+      else if (typeof entry === "string") put("location", ["base", "battlefield"].includes(entry) ? entry : { type: "battlefield", id: entry });
+      else if (entry === null) put("location", null);
+      else {
+        const location = isRecord(entry) ? entry : reject("Unsupported structured location filter");
+        const fields = location.type === "base" ? ["type", "player"] : location.type === "battlefield" ? ["type", "id"] : [];
+        if (!fields.length || Object.keys(location).some(field => !fields.includes(field)) ||
+            location.player !== undefined && (typeof location.player !== "string" || ["self", "controller", "you", "opponent", "their"].includes(location.player)) ||
+            location.id !== undefined && typeof location.id !== "string") {
+          reject("Unsupported structured location filter");
+        }
+        put("location", { ...(location as Record<string, unknown>) });
+      }
+    } else if (key === "locationType" && entry !== "base" && entry !== "battlefield") {
+      reject(`Unsupported location type ${String(entry)}`);
+    } else if (key === "relation") {
       if (!isRecord(entry) ||
           !["same-location", "different-location", "same-controller", "different-controller",
             "same-owner", "different-owner", "another", "other"].includes(String(entry.relation)) ||
@@ -179,9 +224,11 @@ export function inspectFilter(value: unknown, label = "effect.inspect"): ObjectF
           entry.object === undefined && entry.other === undefined ||
           entry.object !== undefined && !symbolic(entry.object) ||
           entry.other !== undefined && !symbolic(entry.other)) reject("Unsupported object relation filter");
-    }
+      put("relation", { ...(entry as Record<string, unknown>) });
+    } else put(key, entry);
   }
-  return value as ObjectFilter;
+  if (output.characteristics !== undefined && !isRecord(output.characteristics)) reject("invalid characteristics filter");
+  return output as ObjectFilter;
 }
 
 function resolveArgs(ctx: ResolveContext, args: InspectArgs, targetSpecId: string | null) {

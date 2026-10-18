@@ -331,6 +331,22 @@ test("production inspect intersects type and relative predicates with only this 
   assert.deepEqual(f.kernel.linked("look.inspected-pick"), request.options);
 });
 
+test("inspect filter accepts the shared legacy selector spellings and still constrains the inspected set", () => {
+  const f = filteredFixture();
+  start(f, filteredInspect({ role: "other-friendly", type: "gear" }));
+  const request = ask(f);
+  assert.deepEqual(ids(request.options), ["eligible-gear"]);
+  assert.equal(request.visibility, "chooser-only");
+  assert.equal(request.chooser, "A");
+});
+
+test("inspect filter resolves source-location and self selectors without widening the inspected set", () => {
+  const f = filteredFixture();
+  start(f, filteredInspect({ type: "gear", location: "source-location" }));
+  const request = ask(f);
+  assert.deepEqual(ids(request.options), ["eligible-gear"]);
+});
+
 test("a numeric result-set restriction preserves null printed costs and offers only a known cost", () => {
   const f = fixture({ cards: [
     { id: "no-printed-cost", types: ["gear"], energy: null, power: null },
