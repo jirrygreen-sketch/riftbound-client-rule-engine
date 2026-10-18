@@ -11,6 +11,7 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CANONICAL = "card.hash-574418734c3b92b767c220f89099980a68fad40a1074ee6c38bc88c7efb84771";
 const SOURCE_TEXT =
@@ -34,12 +35,17 @@ test("sfd-017-221 Sudden Storm: program passes validateCardProgram", () => {
 
 test("sfd-017-221 Sudden Storm: judge-required only for Hidden's unresolved permission", () => {
   assert.equal(program.status, "judge-required");
+  // The reason must credit the merged surfaces it relies on...
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /cost\.hidden/);
+  assert.match(program.judgeReason, /has no layer mapping/);
   assert.match(program.judgeReason, /facedown/);
-  // [Action]'s timing expansion is a second, live blocker: the merged static
-  // binder rejects the keyword's appliesTo form.
+  // ...and must not present the printed [Action] admission as missing: the
+  // declaration drives the real chain's timing, and its own expansion is a
+  // separate, still-unbound static.
   assert.match(program.judgeReason, /Action/);
+  assert.match(program.judgeReason, /abilitySpeed/);
+  assert.match(program.judgeReason, /Action is not legally timed/);
   assert.match(program.judgeReason, /Unsupported static appliesTo/);
   assert.doesNotMatch(program.judgeReason, /combatRole.*未|combatRole.*缺/);
 });
@@ -218,3 +224,74 @@ test.todo(
   "sfd-017-221 Sudden Storm: the printed [Hidden] line still needs a production consumer that grants Hide, stores the " +
     "card facedown, and permits its later facedown Reaction play"
 );
+
+// Real execution evidence for the printed [Action] permission (806.1.c): the
+// declaration alone drives the draft speed, so the merged chain admits the spell
+// during a Showdown with Focus and refuses it in an opponent's ordinary Main
+// phase. The card's own body then resolves through the production chain.
+function actionAdmissionWorld() {
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .player("B", { energy: 20 })
+    .object("storm", {
+      name: "Sudden Storm",
+      cardId: CANONICAL,
+      types: ["spell"],
+      zone: "hand",
+      energy: 3,
+      power: []
+    })
+    .unit("enemy-unit", { owner: "B", controller: "B", might: 6, location: { type: "battlefield", id: "bf-1" } })
+    .deck(["A:d1", "A:d2", "A:d3"])
+    .build();
+  const choose = (request) => request.type === "select-objects" ? [kernel.ref("enemy-unit")] : (request.options ? request.options[0] : undefined);
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (saved) => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose })
+  });
+  return { kernel, host };
+}
+
+test("sfd-017-221 Sudden Storm golden: the declared [Action] speed is admitted only in a Showdown (806.1.c)", () => {
+  const { kernel, host } = actionAdmissionWorld();
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const engine = new ChainEngine({
+    turnOrder: ["B", "A"],
+    turnPlayer: "B",
+    phase: "main",
+    host,
+    cleanup: () => false,
+    describePlay: binding.describePlay
+  });
+
+  // 806.1.b grants Showdown play even outside your turn, but it is still a
+  // timing permission: in an opponent's ordinary Main phase (no Showdown open)
+  // the chain refuses the play.
+  const before = kernel.getObject("storm");
+  const draft = binding.describePlay({ type: "play", object: before.ref, player: "A" }, before);
+  assert.equal(draft.speed, "action");
+  assert.throws(() => engine.execute(draft), /Action is not legally timed/);
+  assert.equal(engine.items.length, 0);
+  assert.equal(kernel.getObject("storm").zone, "hand");
+
+  // 806.1.b/806.1.c: with Focus in a Showdown the same draft is admitted, and
+  // the card's printed body resolves for real (2 to the non-attacking unit).
+  engine.openShowdown("A");
+  const source = kernel.getObject("storm");
+  engine.execute(binding.describePlay({ type: "play", object: source.ref, player: "A" }, source));
+  assert.deepEqual(engine.items.map((item) => [item.speed, item.status]), [["action", "finalized"]]);
+  let guard = 0;
+  while (engine.items.length) {
+    if (++guard > 20) throw new Error("Nonterminating chain");
+    engine.pass(engine.priority);
+  }
+  assert.equal(kernel.getObject("enemy-unit").damage, 2);
+  assert.equal(kernel.getObject("storm").zone, "trash");
+  assert.equal(kernel.player("A").energy, 17);
+  assert.equal(engine.pipeline.events.some((event) => event.timingPoint === "card-played"), true);
+});

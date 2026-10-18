@@ -8,6 +8,11 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import stun from "../../../../engine-core/dist/effects/instructions/effect.stun.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
 
 const CANONICAL_ID = "card.hash-e524222421455ebe13a4bfa061de0e5c349605918aaa2b3745828fe2443798e1";
 const SOURCE_TEXT =
@@ -18,6 +23,7 @@ const SOURCE_TEXT =
 const [action, play] = program.abilities;
 const [stunInstruction] = play.body;
 const targetSpec = stunInstruction.targets[0];
+const repeatKeyword = keywordDefinitionsById.get("Repeat");
 // The authored TargetSpec pins the Attacker restriction with the contract 3.8
 // The golden body locks the finalized target while the structural assertion
 // below verifies the merged combatRole filter vocabulary.
@@ -42,6 +48,11 @@ test("sfd-040-221 Thwonk!: judgeReason names the remaining Repeat wiring", () =>
   assert.match(program.judgeReason, /740\.2\.c/);
   assert.match(program.judgeReason, /Repeat/);
   assert.match(program.judgeReason, /programs\/play\.ts/);
+  // 2026-10-18 re-sweep: name the two measured halves of the remaining blocker.
+  assert.match(program.judgeReason, /translateCost/);
+  assert.match(program.judgeReason, /Unsupported play cost field optional/);
+  assert.match(program.judgeReason, /repeat\.cost has no layer mapping/);
+  assert.match(program.judgeReason, /820\.1\.d\.1/);
 });
 
 test("sfd-040-221 Thwonk!: [Action] keyword plus the printed [Repeat] additional cost", () => {
@@ -133,6 +144,47 @@ test.todo(
     "interpreter's repeat node (CR 820.1.c.1 / 820.1.d.1; programs/play.ts currently rejects the additional " +
     "play cost and no resolver supplies the paid count)."
 );
+
+// Live evidence for both halves of the refreshed reason: the shipped play cost
+// cannot be translated at all, and the merged Repeat keyword expansion is itself
+// rejected by the production static binder.
+test("sfd-040-221 Thwonk!: programs/play.ts still refuses the printed [Repeat] additional cost (820.1.c.1)", () => {
+  assert.throws(
+    () => translateCost(play.cost, "thwonk", "play"),
+    (error) => {
+      assert.equal(error.code, "judge-required");
+      assert.match(error.message, /Unsupported play cost field optional/);
+      return true;
+    }
+  );
+});
+
+test("sfd-040-221 Thwonk!: the merged Repeat expansion has no layer mapping in the static binder", () => {
+  const expansion = repeatKeyword.expand({ host: { canonicalCardId: CANONICAL_ID }, cost: { energy: 2 } })[0];
+  assert.equal(expansion.kind, "static");
+  assert.equal(expansion.effect.kind, "repeat.cost");
+  assert.deepEqual(expansion.effect.cost, { energy: 2 });
+
+  const kernel = world().unit("thwonk", { might: 0 }).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (saved) => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: () => { throw new Error("the static binding evidence must not require a choice"); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host });
+  const binder = createEngineStaticBinder(engine);
+  assert.throws(
+    () => binder.bindStatic(expansion, kernel.getObject("thwonk")),
+    (error) => {
+      assert.match(error.message, /repeat\.cost has no layer mapping/);
+      return true;
+    }
+  );
+  assert.deepEqual(engine.layers.registry.list(), []);
+});
 
 test.todo(
   "sfd-040-221 Thwonk!: the Stunned consequences and expiry — no combat damage (424.1.b) and removal in the " +

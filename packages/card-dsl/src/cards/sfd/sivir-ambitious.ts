@@ -27,20 +27,25 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   包进 choice.optional 的 body；"that much" 指前述已分配的 excess damage 总量；
  *   "an enemy unit" 是目标（355.10 / 355.9.a.1，"enemy" = 对手控制，740.1.b）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - 触发条件「本次攻击向敌方单位分配 5+ excess damage」与效果的数额「that much」都依赖
+ * status 判定（cards/README.md 第 2 节，2026-10-18 复核）：judge-required，三处当前缺口均实测。
+ * - (1) 触发条件「本次攻击向敌方单位分配 5+ excess damage」与效果的数额「that much」都依赖
  *   同一个未合入统计：没有可求值的路径读取本次战斗分配的 excess damage 总量——
  *   HistoryQuery（contract.ts）只有 scope/action/timingPoint/player/object 且返回事件
- *   **次数**（count），不是伤害量；conquer 时点（timing-points.ts）是 payloadType
- *   "scoring" 且未声明 payloadFields，也不携带战斗分配结果（同 ogn/tryndamere-barbarian
- *   与 unl/piltover-enforcer 记录的缺口）。
- * - conquer 时点有发射方（turn/flow.ts 在 scoring 时按 score.method 发射 conquer
+ *   **次数**（count），不是伤害量；ObjectSnapshot 也没有该特征，实测求值抛
+ *   MissingInformation("Unavailable characteristic: excessDamageAssignedThisCombat")。
+ *   conquer 时点（timing-points.ts）是 payloadType "scoring" 且未声明 payloadFields，
+ *   也不携带战斗分配结果（同 ogn/tryndamere-barbarian 与 unl/piltover-enforcer 记录的缺口）。
+ * - (2) conquer 时点有发射方（turn/flow.ts 在 scoring 时按 score.method 发射 conquer
  *   时点事件，载荷只有 player + details.battlefieldId）。过滤器用已有 conquered 别名，
  *   programs/filters.ts 会将内层 source: "self" 转为宿主 objectId，注册与校验已通过；
- *   但发射方尚未携带征服单位身份或参与该次攻击的信息，无法匹配「I conquer after an attack」。
- * - [Deflect 2] 展开与 target/tax 的适配器已支持追加任意域 Power，并可通过真实目标计划与
- *   费用分配器执行；但 programs/statics.ts 尚无 target.tax 绑定，chain/engine.ts::finalize
- *   仍以自己的税额收集器将税额转成 Energy，未消费该适配器的完整 CostPlan。
+ *   但发射方尚未携带征服单位身份或参与该次攻击的信息，实测该 payload 匹配不上
+ *   object 锚点，无法匹配「I conquer after an attack」（383.4.c.2.a）。
+ * - (3) [Deflect 2] 的展开是 static target.tax（effects/keywords/Deflect.ts），
+ *   target/tax 的适配器与 collectTargetTaxes 确实能推算 809.1.c.1 的任意域 Power，
+ *   golden 也直接执行过；但生产静态绑定器实测以
+ *   "Static ability kind target.tax has no layer mapping" 拒绝该静态能力，
+ *   且 chain/engine.ts::finalize 仍用自己的税额收集器把税额折成 Energy 分量的
+ *   mandatory-additional，未消费该适配器的完整 CostPlan。
  * 依赖：excess damage 统计、征服宿主与攻击参与信息载荷、target.tax 静态绑定与 Chain 接线。
  * 不近似实现（不把条件写成常量、不把 "that much" 写成固定数额、不手改伤害或点数）。
  */
@@ -131,12 +136,15 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "（1）缺本次攻击向敌方单位分配的 excess damage 总量读取（CR 467.2.c.4）：" +
-    "HistoryQuery 只返回事件次数，source.excessDamageAssignedThisCombat 也未接线，" +
-    "触发条件与 condition.value 的数额读取均缺数据，不能用对象数或固定 5 代替。" +
+    "HistoryQuery 只返回事件次数（history(query) => number），ObjectSnapshot 也没有该特征——" +
+    "实测求值 source.excessDamageAssignedThisCombat 抛 MissingInformation，触发条件与 condition.value 的数额读取均缺数据，" +
+    "不能用对象数或固定 5 代替。" +
     "（2）turn/flow.ts 的 conquer 载荷只有 player + details.battlefieldId，" +
-    "缺征服宿主 objectId 及攻击参与信息，conquered 的 self 锚点无法匹配「I conquer after an attack」（383.4.c.2.a）。" +
-    "（3）Deflect 的 target.tax 尚未接入 programs/statics.ts；chain/engine.ts::finalize " +
-    "仍把税额转成 Energy，未消费 target/tax 适配器的完整 CostPlan，" +
+    "缺征服宿主 objectId 及攻击参与信息，实测 conquered 的 self 锚点匹配不上该载荷（383.4.c.2.a）。" +
+    "（3）[Deflect 2] 的 static target.tax 未接入 programs/statics.ts：生产绑定器实测以 " +
+    "\"Static ability kind target.tax has no layer mapping\" 拒绝该静态能力；" +
+    "chain/engine.ts::finalize 仍把税额折成 Energy 的 mandatory-additional 分量，" +
+    "未消费 target/tax 适配器的完整 CostPlan，" +
     "无法在生产 Chain 中收取 809.1.c/809.1.c.1、135.2.e.5.a 要求的任意域 Power。",
   abilities,
   sourceText:

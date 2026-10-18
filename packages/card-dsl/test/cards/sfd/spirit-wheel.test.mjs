@@ -44,6 +44,11 @@ test("sfd-144-221 Spirit Wheel: identity, ruleset, status, judgeReason and verba
   assert.match(program.judgeReason, /Invalid cost\.pay argument/);
   assert.match(program.judgeReason, /payablePlan/);
   assert.match(program.judgeReason, /mayAtFinalize/);
+  // 2026-10-18 re-sweep: the reason must keep the measured split between the
+  // settled-cost payer (merged) and the static IR spelling (still blocked).
+  assert.match(program.judgeReason, /finalized/);
+  assert.match(program.judgeReason, /ObjectRef/);
+  assert.match(program.judgeReason, /cannot-pay-cost/);
   assert.ok(!/RIFT-257/.test(program.judgeReason), "the merged binding task must not stay listed");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -219,6 +224,25 @@ test("sfd-144-221 Spirit Wheel: accepting the optional never draws without a rea
   }
 });
 
+// The re-sweep split recorded in judgeReason: the settled-cost payer really can
+// pay "1 energy and exhaust this"; what is missing is a static-IR spelling that
+// produces such a plan (resolving the symbolic self reference at runtime).
+test("sfd-144-221 Spirit Wheel: the merged settled-cost payer really pays 1 Energy and exhausts the host", () => {
+  const kernel = world()
+    .player("A", { energy: 3 })
+    .unit("wheel", { types: ["gear"], might: 0, location: { type: "base", player: "A" } })
+    .build();
+  const host = kernel.getObject("wheel");
+  const plan = { finalized: true, energy: 1, exhaust: [kernel.ref("wheel")] };
+
+  const run = runInstruction(payCost, { cost: { kind: "constant", value: plan } }, { world: kernel });
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.player("A").energy, 2);
+  assert.equal(host.zone, "board");
+  assert.equal(kernel.getObject("wheel").exhausted, true);
+  assert.deepEqual(run.events.map((event) => event.action), ["pay", "exhaust"]);
+});
 test.todo(
   "sfd-144-221 Spirit Wheel: paying \"1 energy and exhaust this\" as the trigger's base cost " +
     "(CR 383.3.b/383.3.b.1) needs the TriggeredAbility cost field and the runtime payment " +

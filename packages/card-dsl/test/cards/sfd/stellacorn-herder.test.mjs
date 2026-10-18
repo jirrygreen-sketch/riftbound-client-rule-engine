@@ -33,10 +33,13 @@ test("sfd-048-221 Stellacorn Herder: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /fromKind|fromLocationId/);
   assert.match(program.judgeReason, /421\.1/);
   assert.match(program.judgeReason, /458/);
-  assert.match(program.judgeReason, /RIFT-120/);
-  // Both tasks that the historical reason named have merged; the live gaps are
-  // the closed event vocabulary and the movement payload itself.
-  assert.ok(!/RIFT-39|RIFT-257/.test(program.judgeReason), "merged task ids must not remain listed");
+  assert.match(program.judgeReason, /registerProgramTriggers/);
+  assert.match(program.judgeReason, /path=trigger\.filter\.event/);
+  // RIFT-39/RIFT-257 merged before this sweep, and RIFT-120 (which only covered
+  // the chain/event batch) is merged as well, so none may stay listed as a
+  // dependency; the live gaps are the closed event vocabulary and the movement
+  // payload itself.
+  assert.ok(!/RIFT-39|RIFT-120|RIFT-257/.test(program.judgeReason), "merged task ids must not remain listed");
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
