@@ -95,3 +95,69 @@ test('unknown argument keys throw', () => {
   );
   assert.equal(built.delayedTriggers.length, 0);
 });
+
+test('unconsumed card-IR arguments are rejected rather than silently ignored', () => {
+  for (const key of ['objects', 'count', 'uses', 'referent', 'target']) {
+    const built = world().player('A').build();
+    assert.throws(
+      () => runInstruction(instruction, {
+        at: c('turn-end'), body: c([draw('delayed-draw')]), [key]: c('unconsumed'),
+      }, { world: built }),
+      /Unsupported trigger\.delayed argument/
+    );
+    assert.equal(built.delayedTriggers.length, 0);
+  }
+});
+
+test('conflicting filter and duration spellings are rejected atomically', () => {
+  const built = world().player('A').build();
+  assert.throws(() => runInstruction(instruction, {
+    at: c('turn-end'), body: c([draw('delayed-draw')]),
+    filter: c({ zone: 'board' }), eventFilter: c({ event: 'card-played' }),
+  }, { world: built }), /filter or eventFilter/);
+  assert.throws(() => runInstruction(instruction, {
+    at: c('turn-end'), body: c([draw('delayed-draw')]),
+    duration: c('this-turn'), window: c('this-turn'),
+  }, { world: built }), /duration or window/);
+  assert.equal(built.delayedTriggers.length, 0);
+  assert.equal(built.linked('registered'), undefined);
+});
+
+test('eventFilter requires a real EventPattern and never becomes an object id', () => {
+  for (const eventFilter of ['turn-end', { event: 'not-an-event' }, { zone: 'board' }]) {
+    const built = world().player('A').build();
+    const outcome = runInstruction(instruction, {
+      at: c('turn-end'), body: c([draw('delayed-draw')]), eventFilter: c(eventFilter),
+    }, { world: built });
+    assert.deepEqual(outcome.result, { status: 'negated', reason: 'impossible', events: [] });
+    assert.equal(built.delayedTriggers.length, 0);
+  }
+  const built = world().player('A').build();
+  const outcome = runInstruction(instruction, {
+    at: c('card-played'), body: c([draw('delayed-draw')]),
+    eventFilter: c({ event: 'card-played', object: { type: 'unit' } }),
+  }, { world: built });
+  assert.equal(outcome.result.status, 'executed');
+  assert.deepEqual(built.delayedTriggers[0].at.filter, { event: 'card-played', object: { type: 'unit' } });
+});
+
+test('default no-window registration is not approximated as a once scope', () => {
+  const built = world().player('A').build();
+  const outcome = registered(built);
+  assert.equal(outcome.result.status, 'executed');
+  assert.equal(built.delayedTriggers.length, 1);
+  assert.equal(built.delayedTriggers[0].at.once, undefined);
+  assert.equal(built.linked('registered').once, undefined);
+});
+
+test('unsupported arguments are rejected before a choice or registration can mutate state', () => {
+  const built = world().player('A').unit('ally').build();
+  const choiceKey = 'trigger.delayed.choice';
+  assert.throws(() => runInstruction(instruction, {
+    at: c('turn-end'), body: c([draw('delayed-draw')]),
+    filter: c({ controller: { kind: 'choose', id: choiceKey, filter: { type: 'unit' } } }),
+    uses: c(3),
+  }, { world: built }), /Unsupported trigger\.delayed argument/);
+  assert.equal(built.linked('registered'), undefined);
+  assert.equal(built.delayedTriggers.length, 0);
+});

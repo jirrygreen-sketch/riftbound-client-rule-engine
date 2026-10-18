@@ -100,6 +100,7 @@ test('duration aliases map windows to registrations that expire on that point', 
   assert.deepEqual(delayedDuration('next-combat-phase'), { kind: 'until', at: 'combat-start' });
   assert.deepEqual(delayedDuration({ kind: 'until', at: 'main-start' }), { kind: 'until', at: 'main-start' });
   assert.deepEqual(delayedDuration({ kind: 'maybe' }), undefined);
+  assert.deepEqual(delayedDuration({ kind: 'until', at: 'next-summer' }), undefined);
   assert.deepEqual(delayedDuration('next-summer'), undefined);
   assert.equal(delayedExpiresAt(DELAYED_DURATION_ALIASES['this-turn']), 'turn-end');
   assert.equal(delayedExpiresAt(DELAYED_DURATION_ALIASES['next-main-phase']), 'main-start');
