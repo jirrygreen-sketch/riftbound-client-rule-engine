@@ -181,6 +181,11 @@ function selection(value: unknown): Selection {
   throw new TypeError("effect.zone objects must evaluate to self/source, target, pick, linked, or query");
 }
 
+function currentQueryRef(ctx: ResolveContext, object: ObjectRef): ObjectRef | null {
+  const current = ctx.query({}).find(candidate => candidate.ref.id === object.id);
+  return current === undefined ? null : { ...current.ref };
+}
+
 function linkedRefs(value: Value | undefined): ObjectRef[] {
   if (Array.isArray(value)) return value.filter(isRef);
   if (isRef(value)) return [value];
@@ -283,7 +288,7 @@ function actionFor(ctx: ResolveContext, destination: ZoneDestination, object: Ob
   return { type: "move-zone" as const, object, to: destination };
 }
 
-function negated(reason: "replaced" | "skipped" | "impossible", events: readonly GameEvent[]) {
+function negated(reason: "replaced" | "impossible", events: readonly GameEvent[]) {
   return {
     status: "negated" as const,
     reason,
@@ -318,7 +323,7 @@ export default {
     const events: GameEvent[] = [];
     const movedIds: string[] = [];
     const movedObjects: Value[] = [];
-    let failure: "replaced" | "skipped" | "impossible" | undefined;
+    let failure: "replaced" | "impossible" | undefined;
     for (const object of chosen) {
       let outcome;
       try {
@@ -332,12 +337,12 @@ export default {
       }
       events.push(...outcome.events);
       if (outcome.status !== "done") {
-        failure ??= outcome.status === "replaced" ? "replaced" : outcome.status === "prevented" ? "skipped" : "impossible";
+        failure ??= outcome.status === "replaced" ? "replaced" : "impossible";
         continue;
       }
       movedIds.push(object.id);
-      const current = ctx.query({}).find(candidate => candidate.ref.id === object.id);
-      if (current) movedObjects.push({ id: current.ref.id, zoneEntryId: current.ref.zoneEntryId });
+      const current = currentQueryRef(ctx, object);
+      if (current) movedObjects.push({ id: current.id, zoneEntryId: current.zoneEntryId });
     }
 
     const moved = movedIds.length;

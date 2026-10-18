@@ -23,7 +23,9 @@
  *   unique in the resolving program, chooser defaults to controller, and
  *   visibility defaults to chooser-only. Its optional from selector restricts
  *   the choice to a linked collection, pick, target, source, or query before
- *   applying the ObjectFilter. It grants no Look/Reveal permission.
+ *   applying the ObjectFilter. A filter with an `object: { pick }` anchor is
+ *   interpreted as a subset of that pick's current candidates; other filters
+ *   use the current query. It grants no Look/Reveal permission.
  * - amount: nonnegative safe integer upper bound; defaults to all candidates
  *   except choose, which defaults to one. Excess requests banish as many as
  *   possible (055, 359.3.e.11); zero performs no action or choice. Zone slices
@@ -189,9 +191,23 @@ function sourceValues(ctx: ResolveContext, selected: Selection, amount: number |
       break;
     }
     case "zone": values = ctx.zoneSlice(selected.player, selected.zone, selected.from, amount).map(object => object.ref); break;
-    case "choose": values = selected.from === undefined
-      ? ctx.query(selected.filter).map(object => object.ref)
-      : sourceValues(ctx, selected.from, undefined);
+    case "choose": {
+      if (selected.from !== undefined) {
+        values = sourceValues(ctx, selected.from, undefined);
+        break;
+      }
+      const anchor = selected.filter.object;
+      if (anchor !== undefined && isRecord(anchor) && Object.keys(anchor).length === 1 &&
+          "pick" in anchor && isId(anchor.pick)) {
+        const refs = ctx.picks(anchor.pick).filter(isRef);
+        const filter = Object.fromEntries(Object.entries(selected.filter).filter(([key]) => key !== "object"));
+        const matches = new Set(ctx.query(filter as ObjectFilter).map(object => `${object.ref.id}:${object.ref.zoneEntryId}`));
+        values = refs.filter(ref => matches.has(`${ref.id}:${ref.zoneEntryId}`));
+      } else {
+        values = ctx.query(selected.filter).map(object => object.ref);
+      }
+      break;
+    }
   }
   return values;
 }
@@ -205,11 +221,6 @@ function candidates(ctx: ResolveContext, selected: Selection, amount: number | u
     }
   }
   if (selected.kind === "choose") {
-    const allowed = new Set(ctx.query(selected.filter).map(object => `${object.ref.id}:${object.ref.zoneEntryId}`));
-    for (let index = refs.length - 1; index >= 0; index--) {
-      const ref = refs[index]!;
-      if (!allowed.has(`${ref.id}:${ref.zoneEntryId}`)) refs.splice(index, 1);
-    }
     refs.sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : left.zoneEntryId - right.zoneEntryId);
   }
   return refs;
