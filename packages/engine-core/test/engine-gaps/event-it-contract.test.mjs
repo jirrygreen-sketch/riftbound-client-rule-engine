@@ -111,7 +111,11 @@ test("event:it survives a source controller change because the event snapshot is
     .build();
   const eventSnapshot = kernel.object(kernel.ref("event-unit"));
   const binding = bindingFor(eventSnapshot);
-  const context = contextWithBinding(kernel, binding);
+  let chooseCalls = 0;
+  const context = bindResolveContext(kernel, {
+    eventObject: role => role === "it" ? binding : null,
+    choose() { chooseCalls++; throw new Error("event:it must not choose"); }
+  });
   const environment = {
     context,
     host: kernel.ref("source"),
@@ -124,11 +128,17 @@ test("event:it survives a source controller change because the event snapshot is
     object: kernel.ref("source"),
     player: "B"
   }).status, "done");
+  assert.equal(kernel.perform({
+    type: "take-control",
+    object: kernel.ref("event-unit"),
+    player: "B"
+  }).status, "done");
 
   const [ref] = resolveObjectSelector(eventSelector, environment);
   assert.deepEqual({ id: ref.id, zoneEntryId: ref.zoneEntryId }, binding.ref);
   assert.equal(selectorSnapshot(ref, environment).controller, "A");
-  assert.equal(kernel.getObject("event-unit").controller, "A");
+  assert.equal(kernel.getObject("event-unit").controller, "B");
+  assert.equal(chooseCalls, 0);
 });
 
 test("missing, malformed, wrong-role, and mismatched-incarnation bindings fail closed", () => {

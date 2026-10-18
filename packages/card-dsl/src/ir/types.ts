@@ -112,8 +112,8 @@ export type ObjectRelation =
 /** A relation is a filter predicate, never an implicit target selection. */
 export type RelationFilter = Readonly<Record<string, Value>> & {
   readonly relation: ObjectRelation;
-  readonly object?: ObjectSelector;
-  readonly other?: ObjectSelector;
+  readonly object?: ObjectSelector | EventRoleSelector;
+  readonly other?: ObjectSelector | EventRoleSelector;
 };
 
 /** A JSON-like filter whose object-valued anchors contain static selectors. */
