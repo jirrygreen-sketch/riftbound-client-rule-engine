@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { fixture, createProgramBinding, cardProgramsById } from '../helpers.mjs';
 import { staticFilter, layerFor, createEngineStaticBinder } from '../../../dist/programs/statics.js';
 import { ProgramBindingError } from '../../../dist/programs/errors.js';
-import { restrictions } from '../../../dist/layers/rules/query.js';
+import { combatRules, restrictions } from '../../../dist/layers/rules/query.js';
 
 const BF1 = { type: 'battlefield', id: 'battlefield-1' };
 const BF2 = { type: 'battlefield', id: 'battlefield-2' };
@@ -391,7 +391,7 @@ test('layerFor explicitly blocks unconsumed continuous kinds emitted by merged c
   }
 });
 
-test('the merged combat rule consumer accepts its layerFor declaration', () => {
+test('the merged combat rule consumer returns the bound declaration with its source', () => {
   const f = fixture({ cards: [{ id: 'host', types: ['unit'], might: 5 }] });
   board(f, 'host');
   const binder = createEngineStaticBinder(f.engine);
@@ -401,6 +401,10 @@ test('the merged combat rule consumer accepts its layerFor declaration', () => {
     const before = f.engine.layers.registry.list().length;
     binder.bindStatic({ kind: 'static', effect }, f.kernel.getObject('host'));
     assert.equal(f.engine.layers.registry.list().length, before + 1, effect.kind);
+    const rules = combatRules(f.engine.layers.registry, f.kernel.ref('host'), f.engine.layers.snapshot(f.kernel.ref('host')), 'A');
+    assert.deepEqual(rules.map(rule => rule.flags), [['tank']]);
+    assert.deepEqual(rules[0].source, f.kernel.ref('host'));
+    assert.deepEqual(rules[0].affected, f.kernel.ref('host'));
   }
 });
 
