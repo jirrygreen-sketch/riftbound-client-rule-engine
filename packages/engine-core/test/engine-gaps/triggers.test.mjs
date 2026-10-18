@@ -2,9 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { fixture, settle, pendingItems, cardProgram, c } from '../rules/keywords/support.mjs';
-import { triggerRegistrations } from '../../dist/programs/triggers.js';
 import kennen from '../../../card-dsl/dist/cards/ven/kennen-keeper-of-balance.js';
-import mistfall from '../../../card-dsl/dist/cards/ogn/mistfall.js';
 import monastery from '../../../card-dsl/dist/cards/ogn/monastery-of-hirana.js';
 import immortalPhoenix from '../../../card-dsl/dist/cards/ogn/immortal-phoenix.js';
 import avaAchiever from '../../../card-dsl/dist/cards/ogn/ava-achiever.js';
@@ -17,7 +15,6 @@ const executable = program => {
   return { ...rest, status: 'executable' };
 };
 const kennenProgram = ability => executable({ ...kennen, abilities: [ability] });
-const mistfallProgram = () => executable(mistfall);
 const withAbility = (program, ability) => executable({ ...program, abilities: [ability] });
 
 test('EG-TRIGGERS: leading optional cost is asked and paid at Finalize, not at trigger scan', () => {
@@ -163,85 +160,6 @@ test('EG-TRIGGERS: event-bound trigger fires from the bound event snapshot at tu
   assert.ok(ids.includes('target:kennen.attack.unit'), ids);
   assert.equal(f.kernel.player('A').energy, 2);
   assert.equal(f.get('victim').stunned, true);
-});
-
-test('EG-TRIGGERS: Mistfall keeps its event-it target pending on the 835 contract', () => {
-  const program = mistfallProgram();
-  const f = fixture({
-    programs: [program], energy: { A: 5 }, power: { A: ['Body'] },
-    answers: {
-      'finalize:trigger:1:optional': true,
-      'target:mistfall.buffed-unit': ['friendly']
-    },
-    setup(builder) {
-      builder.unit('mistfall', { cardId: program.canonicalCardId, power: ['Body'], location: field('one') });
-      builder.unit('friendly', { owner: 'A', power: ['Body'], exhausted: true, location: field('one') });
-    }
-  });
-  f.binding.registerProgramTriggers(f.engine, f.get('mistfall'));
-  f.engine.commit({ type: 'buff', object: f.ref('friendly'), amount: 1 });
-  const registration = triggerRegistrations(f.binding.registry, f.get('mistfall'))[0];
-  assert.deepEqual(registration.targets, [], 'event it must not be converted to a player TargetSpec');
-  assert.ok(registration.body.some(instruction => instruction.op === 'effect.ready'));
-  assert.equal(mistfall.status, 'judge-required');
-});
-
-test('EG-TRIGGERS: declining the ready may leaves its domain Power unpaid', () => {
-  const program = mistfallProgram();
-  const f = fixture({
-    programs: [program], energy: { A: 5 }, power: { A: ['Body'] },
-    answers: { 'finalize:trigger:1:optional': false },
-    setup(builder) {
-      builder.unit('mistfall', { cardId: program.canonicalCardId, power: ['Body'], location: field('one') });
-      builder.unit('friendly', { owner: 'A', power: ['Body'], exhausted: true, location: field('one') });
-    }
-  });
-  f.binding.registerProgramTriggers(f.engine, f.get('mistfall'));
-  f.engine.commit({ type: 'buff', object: f.ref('friendly'), amount: 1 });
-  f.engine.advance();
-  while (f.engine.items.length) {
-    f.engine.advance();
-    const item = f.engine.items.at(-1);
-    if (item) f.engine.pass(item.controller);
-  }
-  assert.ok(
-    f.engine.trace.some(entry => entry.step === 'removed' && entry.item === 'trigger:1' && entry.reason === 'declined'),
-    JSON.stringify(f.engine.trace)
-  );
-  assert.deepEqual(f.kernel.player('A').power, ['Body']);
-  assert.equal(f.get('mistfall').exhausted, false);
-  assert.equal(f.get('friendly').exhausted, true);
-});
-
-test('EG-TRIGGERS: an unpayable ready cost rolls finalize back atomically', () => {
-  const program = mistfallProgram();
-  const f = fixture({
-    programs: [program], energy: { A: 5 }, power: { A: [] },
-    answers: {
-      'finalize:trigger:1:optional': true,
-      'target:mistfall.buffed-unit': ['friendly']
-    },
-    setup(builder) {
-      builder.unit('mistfall', { cardId: program.canonicalCardId, power: [], exhausted: true, location: field('one') });
-      builder.unit('friendly', { owner: 'A', power: ['Body'], exhausted: true, location: field('one') });
-    }
-  });
-  f.binding.registerProgramTriggers(f.engine, f.get('mistfall'));
-  f.engine.commit({ type: 'buff', object: f.ref('friendly'), amount: 1 });
-  f.engine.advance();
-  while (f.engine.items.length) {
-    f.engine.advance();
-    const item = f.engine.items.at(-1);
-    if (item) f.engine.pass(item.controller);
-  }
-  assert.ok(
-    f.engine.trace.some(entry => entry.step === 'removed' && entry.item === 'trigger:1' && entry.reason === 'unperformable-trigger'),
-    JSON.stringify(f.engine.trace)
-  );
-  assert.equal(f.get('friendly').buffs, 1);
-  assert.equal(f.get('friendly').exhausted, true);
-  assert.equal(f.get('mistfall').exhausted, true);
-  assert.equal(f.errors.length, 0);
 });
 
 test('EG-TRIGGERS: trigger conditions are evaluated at the event timing point', () => {

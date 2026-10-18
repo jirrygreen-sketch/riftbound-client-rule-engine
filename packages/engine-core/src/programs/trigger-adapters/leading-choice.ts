@@ -16,6 +16,12 @@ export const isCostPay = (instruction: unknown): instruction is Instruction & { 
 
 const isEffectInstruction = (instruction: unknown): boolean => isRecord(instruction) && typeof (instruction as { op?: unknown }).op === 'string' && String((instruction as { op?: unknown }).op).startsWith('effect.');
 
+const hasNestedControlBody = (instruction: Instruction): boolean => {
+  const body = instruction.args?.body;
+  if (!isRecord(body) || !('value' in body)) return false;
+  return ['constant', 'literal'].includes(String(body.kind)) && Array.isArray(body.value);
+};
+
 function hoistTargets(instruction: Instruction): { readonly instruction: Instruction; readonly targets: readonly TargetRequirement[] } {
   if (!instruction.targets?.length) return { instruction, targets: [] };
   const { targets: _hoisted, ...withoutTargets } = instruction as Instruction & { readonly targets?: readonly TargetRequirement[] };
@@ -69,8 +75,9 @@ export function adaptLeadingChoice(
   if (!nested?.length) return undefined;
   const [first, ...rest] = nested as readonly Instruction[];
   if (!isCostPay(first)) {
-    if (!nested.every(isEffectInstruction)) return undefined;
-    const adapted = (nested as readonly Instruction[]).map(instruction => hoistTargets(instruction));
+    const instructions = nested as readonly Instruction[];
+    if (instructions.some(hasNestedControlBody)) return undefined;
+    const adapted = instructions.map(instruction => hoistTargets(instruction));
     return {
       mayAtFinalize: true,
       body: adapted.map(entry => entry.instruction),
