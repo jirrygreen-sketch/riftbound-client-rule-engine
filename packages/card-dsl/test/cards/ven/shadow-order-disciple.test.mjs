@@ -8,6 +8,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { buildCostPlan, CostPlanError } from "../../../../engine-core/dist/cost/index.js";
 import mill from "../../../../engine-core/dist/effects/instructions/effect.mill.js";
 import continuousMight from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
@@ -16,6 +17,7 @@ import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
@@ -67,6 +69,7 @@ test("ven-095-166 Shadow Order Disciple: identity, ruleset, status, judgeReason 
   assert.match(program.judgeReason, /740\.4\.a\.2/);
   assert.match(program.judgeReason, /TriggerRegistration\.cost/);
   assert.match(program.judgeReason, /mayAtFinalize/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.ok(!/没有指令入口|no continuous\.might instruction exists|effect\.might-modify/.test(program.judgeReason));
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -236,6 +239,54 @@ test("ven-095-166 binding inspection: the leading choice and Burn survive transl
     mayAtFinalize: registration.mayAtFinalize ?? null,
     triggerValidation: validateTriggerSpec(registration.spec)
   }));
+});
+
+test("ven-095-166 gap: production trigger registration is rejected by the closed event vocabulary", () => {
+  // Measured evidence for judgeReason point 3: the object-moved timing point
+  // exists and the movement producer emits it, but the closed
+  // EVENT_PATTERN_TYPES list does not accept it, so the real registration path
+  // throws instead of subscribing. Registering a zero-trigger pipeline is the
+  // fail-closed outcome the card must keep until the vocabulary is aligned.
+  const kernel = world().unit("disciple", { cardId: CANONICAL, might: 2 }).build();
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const [registration] = triggerRegistrations(registry, kernel.getObject("disciple"));
+  // The adapter itself produces the registration; the closed TriggerSpec
+  // validator is what refuses it, and the pipeline enforces that validator.
+  const validation = validateTriggerSpec(registration.spec);
+  assert.equal(validation.ok, false);
+  assert.deepEqual(
+    validation.issues.map(issue => [issue.path, issue.code]),
+    [["trigger.filter.event", "invalid-event-type"]]
+  );
+  const pipeline = new EventPipeline({
+    checkpoint: () => null,
+    restore: () => {},
+    execute: () => ({ outcome: { status: "done", events: [] }, emissions: [] }),
+    context: () => ({}),
+    objects: () => [kernel.getObject("disciple")],
+    choose: () => {
+      throw new Error("unexpected choice");
+    }
+  }, ["A", "B"], "A");
+  assert.throws(() => pipeline.registerTrigger(registration), error => error.name === "TriggerSpecValidationError");
+  assert.equal(pipeline.triggers.size, 0, "a rejected registration subscribes nothing");
+});
+
+test("ven-095-166 gap: the printed [Burn 1] is not a payable cost kind", () => {
+  // Measured evidence for judgeReason point 1: the payment plan rejects the
+  // card's own declared payment, so the leading cost cannot be settled at
+  // Finalize (740.4.a.2 / 441.1) even if the may-decision were extracted.
+  const kernel = discipleWorld();
+  assert.throws(
+    () => buildCostPlan(kernel, {
+      id: "shadow-order-disciple:leading-cost",
+      cost: { kind: "activated", payments: payBurn.args.payments.value }
+    }),
+    error => error instanceof CostPlanError && error.reason === "judge-required" && /burn/.test(error.message)
+  );
+  // The failed plan left the deck untouched.
+  assert.deepEqual(kernel.zone("A", "trash"), []);
+  assert.equal(kernel.zone("A", "deck").length, 2);
 });
 
 test.todo(

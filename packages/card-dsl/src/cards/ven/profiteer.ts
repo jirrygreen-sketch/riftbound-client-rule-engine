@@ -114,7 +114,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺两段接线：(1) CR 740.4.a.2 要求首段「disempower something you control」在触发能力 Finalization 支付，但 cost/plan-values.ts 的非标准费用不含 disempower（443.2.a），programs/triggers.ts 也没有把该首段 cost.pay 提取进 TriggerRegistration.cost/mayAtFinalize；cost.pay 本体已注册，不能用结算期 effect.empower 替代费用。(2) legend 目标按 355.9.a.4 位于 Legend Zone，但 ZoneId 无 legend-zone，effect.empower 只接受 Board 对象；目标类型 union 还须分别限定 Board unit/gear 与 Legend Zone legend。已支持 effect.empower、choice.optional 和 card-played 事件；仍保持 judge-required，不近似实现。",
+    "仍缺两段接线，均不近似实现：(1) CR 740.4.a.2 要求首段「disempower something you control」在触发能力 Finalization 支付，" +
+    "但 cost/plan-values.ts 的非标准费用种类只有 exhaust/discard/recycle/kill/reveal/spend-buff（443.2.a 的 Disempower 是 Limited Action）：" +
+    "kind \"disempower\" 让费用计划以 judge-required 抛 CostPlanError，cost.pay 的 payments 形状又不含该键，golden 实测接受可选分支后" +
+    "以 CostPlanError(cannot-pay-cost) \"cost.pay requires a valid, payable finalized cost plan\" 终止；" +
+    "programs/triggers.ts 也没有把该首段 cost.pay 提取进 TriggerRegistration.cost/mayAtFinalize，" +
+    "结算期支付因此同样不能满足 740.4.a.2，也不能用 effect.empower 替代费用。" +
+    "(2) legend 目标按 355.9.a.4 位于 Legend Zone，但契约 ZoneId 无 legend-zone，effect.empower 只接受 Board 对象；" +
+    "目标类型折取因此还须分别限定 Board 上的 unit/gear 与 Legend Zone 的 legend。" +
+    "已支持并真实执行：card-played 事件与 { source: \"self\" } 触发的翻译/注册、choice.optional 的「可以」语义、effect.empower 对 Board 对象的 Empower。",
   abilities,
   sourceText:
     "When you play me, you may disempower something you control to empower a legend, unit, or gear."

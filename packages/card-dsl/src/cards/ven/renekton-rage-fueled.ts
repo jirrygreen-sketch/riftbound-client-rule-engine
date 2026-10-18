@@ -45,19 +45,18 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1)「deal 2 to all enemy units here」是非目标整组伤害（355.10.d/355.10.d.1），" +
-    "但已合入的 effect.damage 只接受 Finalize 锁定的 TargetSpec（ctx.targets(id)），没有 " +
-    "effect.ready/effect.heal 那样的 { kind: \"query\", filter } 集合分支；用 TargetSpec 近似会" +
-    "错误触发成为目标（355.7/754），故只保留非目标集合描述符（依赖 effect.damage 的 query 集合形态）。" +
-    "(2) attack-declared 时点（383.4.e）没有发射方：combat/ 未把 Attacker 身份接入事件管线，" +
-    "combat/flow.ts 对战斗开始直接抛 TurnCombatBlockedError，全仓库没有 attack-declared 的 emit，" +
-    "触发无法进入链；CardProgram → TriggerRegistration 的通用路径已由 programs/triggers.ts + lifecycle.ts 合入。(3) [Accelerate]（805）的展开文件已合入，但没有任何" +
-    "生产方把卡牌上的 keyword 能力接进打出流程——cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，" +
-    "没有从 accelerate.cost 静态效果生成 1 Energy + 1 Fury Power 费用组件与 805.6 入场就绪替代的路径" +
-    "（费用规划器的 additional/optional 词汇已合入，缺的是卡牌侧生产路径）。" +
-    "Trigger Condition「4 or fewer runes」本身可真实求值：" +
-    "模板 golden 在真实链路上验证了 4 runes 触发、5 runes 不触发（383.4.e.2.b）。" +
-    "不近似实现。",
+    "三处缺口，均不近似实现：" +
+    "(1)「deal 2 to all enemy units here」是非目标整组伤害（355.10.d/355.10.d.1），" +
+    "但已合入的 effect.damage 只接受 Finalize 锁定的 TargetSpec（args.target 必须是 TargetSpec id 字符串，ctx.targets(id) 读取），" +
+    "没有 effect.ready/effect.heal 那样的 { kind: \"query\", filter } 集合分支——golden 实测把集合描述符交给该原语会抛 " +
+    "\"effect.damage args.target must be a TargetSpec id string\"；用 TargetSpec 近似会错误触发成为目标（355.7/754），故只保留非目标集合描述符。" +
+    "(2) attack-declared 时点（383.4.e）没有发射方：单测的合成 emission 能注册触发，但生产 combat/ 从不发出该时点——" +
+    "combat/flow.ts 在开启已 staged 的 Combat 时抛 TurnCombatBlockedError('combat-start-transaction')，也不给单位分配 Attacker/Defender designation，" +
+    "全仓库没有 attack-declared 的 emit 调用，golden 实测一次真实 move-location 只发出 object-moved，触发无法进入链。" +
+    "(3) [Accelerate] 的展开文件虽已合入（调整后的 expand 产出 accelerate.cost 静态能力 + object-enters-board 替代），" +
+    "但 programs/statics.ts 的 layerFor 不映射 accelerate.cost（实测 ProgramBindingError \"Static ability kind accelerate.cost has no layer mapping\"），" +
+    "cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，没有任何生产方把卡上 keyword 转成 1 Energy + 1 Fury Power 的费用组件与 805.6 入场就绪替代。" +
+    "Trigger Condition「4 or fewer runes」本身可真实求值：模板 golden 在真实链路上验证了 4 runes 触发、5 runes 不触发（383.4.e.2.b）。",
   abilities: [
     // 805.1.b：费用固定为 [1] + 一个与单位域匹配的 Power，keyword 不带数值（805.4 多个实例冗余）。
     { kind: "keyword", keyword: "accelerate" },

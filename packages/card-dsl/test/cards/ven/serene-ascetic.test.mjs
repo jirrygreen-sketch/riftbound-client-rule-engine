@@ -7,11 +7,15 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/serene-ascetic.js";
+import { buildCostPlan, CostPlanError } from "../../../../engine-core/dist/cost/index.js";
 import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
 import shield from "../../../../engine-core/dist/effects/keywords/Shield.js";
+import empowerKeyword from "../../../../engine-core/dist/effects/keywords/Empower.js";
+import { evaluateExpression } from "../../../../engine-core/dist/effects/interpreter/expr.js";
 // The production static binder installs card static abilities into
 // the merged layer engine; the chain fixture provides that engine.
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
@@ -40,6 +44,11 @@ test("ven-030-166 Serene Ascetic: identity, status, judgeReason and verbatim sou
   // Deflect target-tax consumer and the Empowered gate predicate.
   assert.match(program.judgeReason, /bindStatic/);
   assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /designation/);
+  // Deleted stale assertions (2026-10-18 re-sweep): the previous reason cited
+  // the merged RIFT-672 / RIFT-697 template tasks. Those templates stay the
+  // execution evidence, but no task-number citation belongs in the reason.
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -132,3 +141,65 @@ test.todo(
     "and bill the Deflect target tax (809.1.c / 814.1.c) — the static binder installs the grant, " +
     "but programs/statics.ts has no target.tax layer mapping and no consumer attaches the tax to target Finalize"
 );
+
+test("ven-030-166 Serene Ascetic gap: the printed 3 Energy Empower cost is not carried by the keyword", () => {
+  // Measured evidence for judgeReason point 1: the registered KeywordDef
+  // produces the not-Empowered restriction and resolution body, but the
+  // printed CostSpec never reaches it, so the plan is judged unsupported rather
+  // than being charged 3 Energy (827.1.c.1).
+  const [expanded] = empowerKeyword.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expanded.kind, "activated");
+  assert.deepEqual(expanded.cost, { kind: "empower" });
+  assert.deepEqual(expanded.restriction.condition, {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq",
+    right: { kind: "constant", value: 0 }
+  });
+
+  const kernel = world().unit("host", { cardId: CANONICAL_ID, might: 3 }).build();
+  assert.throws(
+    () => buildCostPlan(kernel, { id: "cost:empower", cost: expanded.cost }),
+    error => error instanceof CostPlanError && error.reason === "judge-required" && /Unsupported cost kind: empower/.test(error.message)
+  );
+});
+
+test("ven-030-166 Serene Ascetic gap: the granted Deflect cannot become a target tax in production", () => {
+  // Measured evidence for judgeReason point 3: Deflect expands to a target.tax
+  // static ability, and the production binder has no layer mapping for it —
+  // so no Deflect tax can ever be attached to an opponent's target Finalize.
+  const [deflectAbility] = deflect.expand({ value: 1, host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(deflectAbility.effect.kind, "target.tax");
+  const f = fixture({ cards: [{ id: "serene-ascetic", cardId: CANONICAL_ID, types: ["unit"] }] });
+  const source = f.kernel.getObject("serene-ascetic");
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(deflectAbility, source),
+    error => error.code === "judge-required" && /target\.tax has no layer mapping/.test(error.message)
+  );
+});
+
+test("ven-030-166 Serene Ascetic gap: the Shield expansion reads a designation no snapshot publishes", () => {
+  // Measured evidence for judgeReason point 3: 814.1.d gates Shield on the
+  // defender designation, but the merged expression evaluator has no such
+  // characteristic on a contract-shaped snapshot, so the +3 Might cannot be
+  // evaluated even though the grant itself installs.
+  const [shieldAbility] = shield.expand({ value: 3, host: { canonicalCardId: CANONICAL_ID } });
+  assert.deepEqual(shieldAbility.condition.left, {
+    kind: "object-property",
+    object: "self",
+    property: "designation"
+  });
+  const kernel = world().unit("host", { cardId: CANONICAL_ID, might: 3 }).build();
+  const source = kernel.getObject("host");
+  assert.equal(Object.hasOwn(source, "designation"), false);
+  assert.throws(
+    () => evaluateExpression(shieldAbility.condition.left, {
+      context: kernel,
+      host: source.ref,
+      linked: () => undefined,
+      canLookBack: () => true,
+      isIgnored: () => false
+    }),
+    error => /Unavailable characteristic: designation/.test(error.message)
+  );
+});

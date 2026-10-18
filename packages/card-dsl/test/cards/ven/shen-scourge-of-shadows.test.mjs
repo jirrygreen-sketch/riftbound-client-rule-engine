@@ -6,6 +6,7 @@ import program from "../../../dist/cards/ven/shen-scourge-of-shadows.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { EVENT_PATTERN_TYPES } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
@@ -84,6 +85,9 @@ test("ven-042-166 Shen, Scourge of Shadows: identity, status, judgeReason and ve
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.doesNotMatch(program.judgeReason, /依赖：.*host\.testTrigger/);
   assert.doesNotMatch(program.judgeReason, /RIFT-257 尚未/);
+  // Deleted stale assertion (2026-10-18 re-sweep): the previous reason carried
+  // the merged RIFT-618 sweep id; the refreshed reason names the live gaps.
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -210,6 +214,9 @@ test("ven-042-166 Shen, Scourge of Shadows gap: the translated 'I hold' filter r
     matchesTriggerEvent(pattern, { ...holdEvent, object: { ref: { id: "shen-instance", zoneEntryId: 1 } } }, "A"),
     true
   );
+  // 383.4.d.2.a: the closed vocabulary does carry the "held" discriminant, so
+  // the identity payload (not the event name) is what is missing.
+  assert.ok(EVENT_PATTERN_TYPES.includes("held"));
 });
 
 test("ven-042-166 Shen, Scourge of Shadows gap: the trigger condition needs a bound relative controller", () => {

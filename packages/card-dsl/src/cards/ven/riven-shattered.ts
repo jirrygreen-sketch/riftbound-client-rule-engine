@@ -115,13 +115,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) [Weaponmaster] 的展开文件（effects/keywords/Weaponmaster.ts）虽已合入，" +
-    "cost.modify 与 cost.pay 原语也已合入，但 reduce-equip-cost 分支按 821.1.c.2 缺权威 Equip 费用绑定而设计性抛出，" +
-    "费用计算与支付不会执行；" +
-    "(2) CardProgram → TriggerRegistration 的通用路径已由 programs/triggers.ts + lifecycle.ts 合入，" +
-    "但 programs/filters.ts 尚不支持 TargetSpec 的 sameLocationAs（053.3/355.11，RIFT-359），本卡注册会在目标翻译处以 judge-required 阻断；" +
-    "(3) attack-declared 时点（323.2 / 383.4.e / 466.2.c）没有发射方：combat/ 不把 Attacker 指定接入事件管线（全仓库没有 attack-declared " +
-    "的 emit 调用）。依赖权威 Equip 费用绑定（reduce-equip-cost 消费方）、sameLocationAs 目标过滤适配与战斗触发发射。" +
+    "三处缺口，均不近似实现：" +
+    "(1) [Weaponmaster] 展开出的 cost.modify reduce-equip-cost 没有可用消费方：chain/interpreter-adapter.ts 的 LITERAL_FIELDS 没有为 cost.modify " +
+    "解包 source/modifier，expanded 序列经链解释器执行时 modifier 仍以 Expr 包装到达原语，parseModifier 实测抛 " +
+    "TypeError \"Invalid cost.modify modifier argument: value\"；即使按 primitive 字面形状直接调用，cost.modify.execute 也会按 821.1.c.2 " +
+    "缺权威 Equip 费用绑定抛 CostPlanError(judge-required)，费用与附着不会执行。" +
+    "(2) programs/filters.ts 不支持 TargetSpec 的 sameLocationAs（053.3/355.11）：本卡注册实测在目标翻译处被 " +
+    "ProgramBindingError \"Unsupported filter field sameLocationAs\" 阻断，注册 0 条触发。" +
+    "(3) attack-declared 时点（323.2 / 383.4.e / 466.2.c）没有发射方：combat/ 不把 Attacker 指定接入事件管线（全仓库没有 attack-declared 的 emit 调用）。" +
     "「choose an enemy unit here」按 355.9.b 声明为被选目标（sameLocationAs: \"self\" 的 053.3 here 锚点），" +
     "「Deal 2 to it for each Equipment attached to me」用 count + attachedTo 锚点在结算时读取附着数量（418.1）；" +
     "effect.damage 本体已合入，模板 golden（test/cards/templates/keyword-triggered-attack-declared-effect-664.test.mjs）" +

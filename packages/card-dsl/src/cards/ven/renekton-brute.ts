@@ -117,7 +117,19 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺三段：(1) 「When my Might becomes 10 or more」需要 previousMight < 10 <= currentMight；might-changed producer 已存在，但未接入图层更新事件流，EventPattern.details 仍只支持标量等值，无法表达前后阈值比较。当前条件只描述 current Might >= 10，不能将 10→11 当成新跨越。(2) 828.1.b.1 的门控已改用 self.empowered >= 1；参考内核可读取，ObjectSnapshot 尚未声明该状态，442.1 的重复 Empower 约束仍须生产动作层保证。(3) continuous.grant-keyword、Deflect target.tax 收集器与 Ganking movement 规则查询均已合入，但 Chain Finalize 尚未使用 createTargetTaxAdapter，仍把旧税 amount 转成 Energy；授予的 Deflect/Ganking 也未与生产目标税/标准移动完整联通。continuous.might 与 effect.empower 已真实执行，保留 judge-required，不近似实现。",
+    "三段当前缺口，均不近似实现：" +
+    "(1) 「When my Might becomes 10 or more」（709 的转换语义 previousMight < 10 <= currentMight）无法注册：might-changed 不在 " +
+    "events/trigger-spec.ts 的封闭 EVENT_PATTERN_TYPES 中，registerProgramTriggers 实测抛 TriggerSpecValidationError " +
+    "（trigger.filter.event invalid-event-type，注册 0 条）；EventPattern.details 只接受标量等值，NumericMatcher 只作用于 event.amount，" +
+    "因此前后阈值比较也写不出来，当前条件只描述 current Might >= 10，会把 10→11 误当成新跨越；" +
+    "might-change.ts 的 deriveMightChangedEmissions 也没有生产调用方接入图层重算。" +
+    "(2) 828.1.b.1 的门控读取 self.empowered：参考内核可求值（golden 用真实 empower 动作使该门控开启并授予 Deflect/Ganking），" +
+    "但生产 ObjectSnapshot 不声明 live empowered 计数——game-server 引擎宿主把 empower 动作写成 buffs（host.ts 的 case \"empower\"），" +
+    "442.1 的重复 Empower 约束因此仍只在参考内核成立。" +
+    "(3) 授予后的关键词没有下游消费方：continuous.grant-keyword 能把 Deflect/Ganking 写进图层（golden 实测唤醒后可读），" +
+    "但 programs/statics.ts 的 layerFor 不映射 Deflect 展开出的 target.tax（实测 ProgramBindingError \"Static ability kind target.tax has no layer mapping\"），" +
+    "Chain Finalize 仍未使用 createTargetTaxAdapter，而是把旧税 amount 转成 Energy 的 mandatoryAdditional（chain/engine.ts），" +
+    "违反 809.1.c.1 的任意域 Power；Ganking 的 continuous.movement 也没有从授予后的关键词重新展开。continuous.might 与 effect.empower 已真实执行，保留 judge-required。",
   abilities,
   sourceText:
     ":rb_energy_1:: Give me +1 :rb_might: this turn.\n" +
