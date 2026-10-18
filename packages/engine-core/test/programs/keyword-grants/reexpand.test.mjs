@@ -8,6 +8,7 @@ import { createTargetTaxAdapter } from '../../../dist/target/tax/index.js';
 import { prepareCostPayment } from '../../../dist/cost/payment.js';
 import { movement } from '../../../dist/layers/rules/query.js';
 import { matchesObjectFilter } from '../../../dist/layers/filter.js';
+import { buildKeywordGrantSpec, buildKeywordArithmeticSpec, normaliseKeywordGrants } from '../../../dist/layers/ops/index.js';
 import { duelWorld, mainTiming, readinessFor } from '../../rules/movement/support.mjs';
 import { moveDuelUnitsStandard } from '../../../dist/zones/movement.js';
 import { createEngineStaticBinder } from '../../../dist/programs/statics.js';
@@ -112,6 +113,70 @@ test('several grants, including defaults and zero, sum once and expire independe
   f.layers.advance({ id: 'turn-end' });
   assert.deepEqual(f.hero().keywords, [kw('Assault', 2)]);
 });
+
+function conditionalAssault(f, condition, value = 2) {
+  const snapshot = f.kernel.getObject('hero');
+  const target = { ref: snapshot.ref, snapshot };
+  const grants = [kw('Assault', value)];
+  const registration = buildKeywordGrantSpec('continuous.grant-keyword', snapshot.ref, target,
+    'continuous.grant-keyword', normaliseKeywordGrants(target, grants), '1', { settlement: 'conditional' });
+  const companion = buildKeywordArithmeticSpec('continuous.grant-keyword', snapshot.ref, target,
+    grants[0], '1:value:0', 'conditional');
+  f.layers.addContinuous({ ...registration.effect, effect: { ...registration.effect.effect, condition } }, registration.duration);
+  f.layers.addContinuous(companion.effect, companion.duration);
+}
+
+for (const kind of ['callback', 'EffectIR']) {
+  const threshold = might => kind === 'callback' ? object => object.might >= might : {
+    kind: 'compare', left: { kind: 'object-property', object: 'self', property: 'might' }, operator: 'gte', right: c(might),
+  };
+  test(`${kind}: companion grant sees printed Assault and independent Might, then revokes when Might expires`, () => {
+    const f = fixture({ might: 2, keywords: [kw('Assault', 1)] });
+    conditionalAssault(f, threshold(4));
+    assert.equal(f.hero().might, 3);
+    f.resolve([{ id: 'raise-might', op: 'continuous.might', args: {
+      amount: c(1), mode: c('add'), duration: c('this-combat'), objects: c({ kind: 'target', id: 'hero' }),
+    }, targets: [{ id: 'hero', filter: { objectId: 'hero', zone: 'board' }, min: 1, max: 1 }] }]);
+    assert.deepEqual(f.hero().keywords, [kw('Assault', 3)]);
+    assert.equal(f.hero().might, 6);
+    assert.equal(f.hero().might, 6, 'repeated queries do not accumulate the companion');
+    f.layers.advance({ id: 'combat-end' });
+    assert.deepEqual(f.hero().keywords, [kw('Assault', 1)]);
+    assert.equal(f.hero().might, 3, 'the grant cannot sustain its own condition');
+  });
+
+  test(`${kind}: companion condition includes another grant and non-additive arithmetic, excluding itself`, () => {
+    const f = fixture({ might: 2, keywords: [kw('Assault', 1)] });
+    conditionalAssault(f, threshold(5));
+    f.layers.addContinuous({ id: 'double-might', layer: 'arithmetic', filter: { objectId: 'hero' },
+      effect: { kind: 'multiply-might', amount: 2 } }, { type: 'end-of-combat' });
+    assert.deepEqual(f.hero().keywords, [kw('Assault', 3)]);
+    assert.equal(f.hero().might, 7);
+    f.layers.advance({ id: 'combat-end' });
+    assert.deepEqual(f.hero().keywords, [kw('Assault', 1)]);
+    assert.equal(f.hero().might, 3);
+    f.grant('Assault', 2);
+    assert.deepEqual(f.hero().keywords, [kw('Assault', 5)]);
+    assert.equal(f.hero().might, 7, 'the other grant contributes to the pre-grant snapshot');
+    f.layers.advance({ id: 'turn-end' });
+    assert.deepEqual(f.hero().keywords, [kw('Assault', 1)]);
+    assert.equal(f.hero().might, 3);
+  });
+
+  test(`${kind}: companion's exact-Might condition does not oscillate on its own contribution`, () => {
+    const f = fixture({ might: 2, keywords: [kw('Assault', 1)] });
+    f.layers.addContinuous({ id: 'independent-might', layer: 'arithmetic', filter: { objectId: 'hero' },
+      effect: { kind: 'continuous.might', amount: 1 } }, { type: 'end-of-turn' });
+    conditionalAssault(f, kind === 'callback' ? object => object.might === 4 : {
+      kind: 'compare', left: { kind: 'object-property', object: 'self', property: 'might' }, operator: 'eq', right: c(4),
+    });
+    assert.deepEqual(f.hero().keywords, [kw('Assault', 3)]);
+    assert.equal(f.hero().might, 6);
+    f.layers.advance({ id: 'turn-end' });
+    assert.deepEqual(f.hero().keywords, [kw('Assault', 1)]);
+    assert.equal(f.hero().might, 3);
+  });
+}
 
 for (const combatRole of [null, 'defender']) {
   test(`Assault adds no Might when combatRole is ${combatRole}`, () => {
@@ -299,6 +364,25 @@ test('separate keyword stacking retains independent expansions', () => {
   assert.equal(expansion.abilities.length, 2);
   assert.equal(expansion.abilities.every(ability => ability.kind === 'triggered'), true);
 });
+
+for (const id of ['Ganking', 'Tank', 'Deathknell']) {
+  test(`${id}: non-valued KeywordDefs reject numeric printed and granted instances`, () => {
+    const source = world().unit('hero').build().getObject('hero');
+    for (const value of [0, 2]) {
+      const invalid = kw(id, value);
+      const rejected = error => error.code === 'judge-required' && /does not accept a value/.test(error.message);
+      assert.throws(() => expandEffectiveKeywords({ ...source, keywords: [invalid] }), rejected);
+      assert.throws(() => expandEffectiveKeywords(source, [{ kind: 'grant', keywords: [invalid] }]), rejected);
+      assert.throws(() => expandEffectiveKeywords({ ...source, keywords: [kw(id)] }, [{ kind: 'grant', keywords: [invalid] }]), rejected);
+    }
+    assert.deepEqual(expandEffectiveKeywords({ ...source, keywords: [kw(id)] }).keywords, [kw(id)]);
+    const f = fixture();
+    f.layers.addContinuous({ id: 'invalid-value', layer: 'ability', filter: { objectId: 'hero' },
+      effect: { kind: 'continuous.grant-keyword', keyword: id, value: 2 } }, { type: 'permanent' });
+    assert.throws(() => f.hero(), error => error.code === 'judge-required' && /does not accept a value/.test(error.message));
+    assert.equal(f.layers.registry.list().some(entry => entry.effect.id.startsWith('program-keyword:')), false);
+  });
+}
 
 test('unknown keywords and unsupported non-static bindings fail closed', () => {
   const f = fixture();

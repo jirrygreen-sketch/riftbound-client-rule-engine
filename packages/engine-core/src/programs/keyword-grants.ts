@@ -20,6 +20,11 @@ export interface EffectiveKeywordExpansion {
   readonly keywords: readonly Keyword[];
   readonly abilities: readonly Ability[];
 }
+type AppliedKeywordChanges = ReadonlyMap<string, ReadonlyMap<string, KeywordChange>>;
+interface PreGrantView {
+  readonly view: Map<string, LayeredObjectSnapshot>;
+  readonly instances: ReadonlyMap<string, readonly Keyword[]>;
+}
 
 function blocked(message: string): never {
   throw new ProgramBindingError('judge-required', message);
@@ -36,8 +41,7 @@ function keywordNumber(value: unknown): number {
   return value;
 }
 
-/** CR 801.3, 807.2, 809.2, 810.2, 814.2: merge instances before expanding. */
-export function expandEffectiveKeywords(source: ObjectSnapshot, changes: readonly KeywordChange[] = []): EffectiveKeywordExpansion {
+function keywordInstances(source: ObjectSnapshot, changes: readonly KeywordChange[]): Keyword[] {
   const instances = [...source.keywords];
   for (const change of changes) {
     if (change.kind === 'grant') instances.push(...change.keywords);
@@ -48,6 +52,12 @@ export function expandEffectiveKeywords(source: ObjectSnapshot, changes: readonl
       }
     }
   }
+  return instances;
+}
+
+/** CR 801.3, 807.2, 809.2, 810.2, 814.2: merge instances before expanding. */
+export function expandEffectiveKeywords(source: ObjectSnapshot, changes: readonly KeywordChange[] = []): EffectiveKeywordExpansion {
+  const instances = keywordInstances(source, changes);
   const groups = new Map<string, Keyword[]>();
   for (const keyword of instances) {
     if (keyword.value !== undefined) keywordNumber(keyword.value);
@@ -58,6 +68,9 @@ export function expandEffectiveKeywords(source: ObjectSnapshot, changes: readonl
   const abilities: Ability[] = [];
   for (const group of groups.values()) {
     const def = definition(group[0]!.id);
+    if (!def.valued && group.some(keyword => keyword.value !== undefined)) {
+      blocked(`Keyword ${def.keyword} does not accept a value`);
+    }
     const values = def.stacking === 'sum'
       ? [def.valued ? keywordNumber(group.reduce((sum, entry) => sum + (entry.value ?? 1), 0)) : undefined]
       : def.stacking === 'single' ? [group[0]!.value] : group.map(entry => entry.value);
@@ -85,7 +98,8 @@ export interface KeywordGrantLayerOptions {
  * expansion; callers must not also bind printed keyword expansions through
  * attachProgramLifecycle. The default lifecycle still needs that integration.
  * Non-static expansions fail closed until their lifecycle binding is available.
- * Tank's declaration is exposed, but combat must enforce its assignment rule.
+ * Tank's declaration is exposed only; its combat consumer remains
+ * judge-required until combat can enforce CR 815's assignment rule.
  */
 export class KeywordGrantLayerEngine extends LayerEngine {
   private readonly generated = new Set<string>();
@@ -177,29 +191,42 @@ export class KeywordGrantLayerEngine extends LayerEngine {
       (effect.keyword !== undefined || effect.keywords !== undefined);
   }
 
-  private changes(entries: readonly RegisteredContinuousEffect[], object: LayeredObjectSnapshot, printed: LayeredObjectSnapshot): KeywordChange[] {
-    const changes: KeywordChange[] = [];
+  private changes(entries: readonly RegisteredContinuousEffect[], object: LayeredObjectSnapshot,
+    beforeGrant: (id: string) => PreGrantView): ReadonlyMap<string, KeywordChange> {
+    const changes = new Map<string, KeywordChange>();
     for (const entry of entries) {
       if (entry.effect.layer !== 'ability' || !this.keywordEffect(entry) || !this.matches(entry, object)) continue;
       const effect = record(entry.effect.effect);
-      const source = this.view.get(refKey(entry.effect.source ?? object.ref)) ?? object;
       const companions = entries.filter(other => other.effect.layer === 'arithmetic' && other.effect.id.startsWith(entry.effect.id + ':value:'));
-      // The instruction's promotion predicate tests the pre-grant keyword.
-      if (!this.condition(effect, companions.length ? printed : object, source)) continue;
-      const raw = effect.keywords ?? effect.keyword;
-      const keywords = (Array.isArray(raw) ? raw : [raw]).map((item, index): Keyword => {
-        const declaration = typeof item === 'string' ? { id: item, value: effect.keywordValue ?? effect.value } : record(item);
-        const id = declaration.id ?? declaration.keyword;
-        if (typeof id !== 'string' || !id) blocked('Keyword grant requires an id');
-        // continuous.grant-keyword stores an existing value in the ability
-        // layer and its new contribution in an arithmetic companion. Read
-        // that contribution once instead of counting both registrations.
-        const companion = companions.find(other => other.effect.id === entry.effect.id + ':value:' + index);
-        const value = this.value(companion ? record(companion.effect.effect).amount : declaration.value, source);
-        return { id, ...(value === undefined ? {} : { value: keywordNumber(value) }) };
-      });
-      const kind = String(effect.kind);
-      changes.push({ kind: kind.includes('remove') || kind.includes('lose') ? 'remove' : 'grant', keywords });
+      const savedView = this.view;
+      try {
+        let subject = object;
+        if (companions.length) {
+          const before = beforeGrant(entry.effect.id);
+          this.view = before.view;
+          const key = refKey(object.ref);
+          subject = { ...(before.view.get(key) ?? object), keywords: before.instances.get(key) ?? object.keywords };
+        }
+        const source = this.view.get(refKey(entry.effect.source ?? object.ref)) ?? subject;
+        // Promotion callbacks must still see omitted printed values, while
+        // Might and interpreter queries include all effects except this grant.
+        if (!this.condition(effect, subject, source)) continue;
+        const raw = effect.keywords ?? effect.keyword;
+        const keywords = (Array.isArray(raw) ? raw : [raw]).map((item, index): Keyword => {
+          const declaration = typeof item === 'string' ? { id: item, value: effect.keywordValue ?? effect.value } : record(item);
+          const id = declaration.id ?? declaration.keyword;
+          if (typeof id !== 'string' || !id) blocked('Keyword grant requires an id');
+          // Read the companion's contribution once, not the retained base
+          // value in the ability-layer registration.
+          const companion = companions.find(other => other.effect.id === entry.effect.id + ':value:' + index);
+          const value = this.value(companion ? record(companion.effect.effect).amount : declaration.value, source);
+          return { id, ...(value === undefined ? {} : { value: keywordNumber(value) }) };
+        });
+        const kind = String(effect.kind);
+        changes.set(entry.effect.id, { kind: kind.includes('remove') || kind.includes('lose') ? 'remove' : 'grant', keywords });
+      } finally {
+        this.view = savedView;
+      }
     }
     return changes;
   }
@@ -235,6 +262,35 @@ export class KeywordGrantLayerEngine extends LayerEngine {
     return registry;
   }
 
+  private applyExpansions(prefix: readonly LayeredObjectSnapshot[], remaining: readonly RegisteredContinuousEffect[],
+    expansions: ReadonlyMap<string, EffectiveKeywordExpansion>): ContinuousEffectSpec[] {
+    const objects = prefix.map(object => ({ ...object, keywords: expansions.get(refKey(object.ref))!.keywords }));
+    this.view = new Map(objects.map(object => [refKey(object.ref), object]));
+    const generated = objects.flatMap(object => this.staticEffects(object, expansions.get(refKey(object.ref))!));
+    const registry = this.registryFor(remaining);
+    for (const effect of generated) registry.register(effect, { type: 'permanent' });
+    this.view = new Map(new LayerEngine(objects, registry).evaluateAll().map(object => [refKey(object.ref), object]));
+    return generated;
+  }
+
+  private preGrantView(prefix: readonly LayeredObjectSnapshot[], remaining: readonly RegisteredContinuousEffect[],
+    applied: AppliedKeywordChanges, excluded: string): PreGrantView {
+    const savedView = this.view;
+    try {
+      const instances = new Map(prefix.map(object => [refKey(object.ref), keywordInstances(object,
+        [...(applied.get(refKey(object.ref)) ?? [])].filter(([id]) => id !== excluded).map(([, change]) => change))]));
+      const expansions = new Map(prefix.map(object => [refKey(object.ref), expandEffectiveKeywords({
+        ...object, keywords: instances.get(refKey(object.ref))!,
+      })]));
+      // Re-run arithmetic from the base, rather than subtracting the grant's
+      // Might from the final snapshot (which fails for multiply/set effects).
+      this.applyExpansions(prefix, remaining, expansions);
+      return { view: this.view, instances };
+    } finally {
+      this.view = savedView;
+    }
+  }
+
   private refresh(): void {
     if (this.refreshing) return;
     this.refreshing = true;
@@ -249,12 +305,15 @@ export class KeywordGrantLayerEngine extends LayerEngine {
       const seed = new LayerEngine(prefix, this.registryFor(remaining)).evaluateAll();
       this.view = new Map(seed.map(object => [refKey(object.ref), object]));
       let previous = '';
+      let applied: AppliedKeywordChanges = new Map();
       let generated: ContinuousEffectSpec[] = [];
       const limit = entries.length + prefix.length + 4;
       for (let pass = 0; pass < limit; pass++) {
+        const changes = new Map(prefix.map(object => [refKey(object.ref), this.changes(entries,
+          this.view.get(refKey(object.ref)) ?? object, id => this.preGrantView(prefix, remaining, applied, id))]));
         const expansions = new Map(prefix.map(object => [refKey(object.ref), expandEffectiveKeywords(object,
-          this.changes(entries, this.view.get(refKey(object.ref)) ?? object, object))]));
-        const signature = JSON.stringify([...expansions].map(([key, value]) => [key, value.keywords]));
+          [...changes.get(refKey(object.ref))!.values()])]));
+        const signature = JSON.stringify([...expansions].map(([key, value]) => [key, value.keywords, [...changes.get(key)!]]));
         if (signature === previous) {
           this.expansions = expansions;
           for (const effect of generated) {
@@ -264,13 +323,8 @@ export class KeywordGrantLayerEngine extends LayerEngine {
           return;
         }
         previous = signature;
-        const objects = prefix.map(object => ({ ...object, keywords: expansions.get(refKey(object.ref))!.keywords }));
-        this.view = new Map(objects.map(object => [refKey(object.ref), object]));
-        generated = objects.flatMap(object => this.staticEffects(object, expansions.get(refKey(object.ref))!));
-        const registry = this.registryFor(remaining);
-        for (const effect of generated) registry.register(effect, { type: 'permanent' });
-        const evaluated = new LayerEngine(objects, registry).evaluateAll();
-        this.view = new Map(evaluated.map(object => [refKey(object.ref), object]));
+        applied = changes;
+        generated = this.applyExpansions(prefix, remaining, expansions);
       }
       blocked('Keyword layer dependencies did not converge; an explicit dependency adapter is required');
     } catch (error) {
