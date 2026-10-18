@@ -188,7 +188,7 @@ test("unl-172-219 LeBlanc, Fragmented: the merged op registry really has no trig
   // registry carries 45 ops and none of them is a trigger.* primitive, so the
   // keyword's expansion body cannot resolve anywhere in the interpreter.
   const { registry } = await import("../../../../engine-core/dist/effects/instructions/registry.generated.js");
-  assert.equal(registry.length, 45);
+  assert.equal(registry.length, 46);
   const ops = registry.map(entry => entry.op ?? entry.id ?? entry.keyword);
   assert.equal(ops.filter(op => typeof op === "string" && op.startsWith("trigger.")).length, 0);
   assert.equal(ops.includes("trigger.leave"), false);

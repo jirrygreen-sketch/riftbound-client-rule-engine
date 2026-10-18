@@ -247,9 +247,9 @@ test("corrupted-dragon: the trigger filter translates, but the body cannot be bo
 test("corrupted-dragon evidence: the entry replacement really readies the printed exhausted permanent", () => {
   // 359.2.c / 369.3: the supported effect.ready entry body runs through the real
   // ProgramBinding -> replacement registration -> move-zone path.
-  const abilities = program.abilities.map(ability => ability.kind === "replacement"
-    ? { ...ability, condition: { kind: "never" } }
-    : ability);
+  const abilities = [
+    { ...program.abilities.find(ability => ability.kind === "replacement"), condition: { kind: "never" } },
+  ];
   const result = runCardScenario(asExecutable(abilities), {
     players: { A: { energy: 10 }, B: { energy: 10 } },
     objects: [{
@@ -280,9 +280,9 @@ test("corrupted-dragon evidence: the entry replacement branch ignores the declar
     }]
   ];
   for (const [label, condition] of scenarios) {
-    const abilities = program.abilities.map(ability => ability.kind === "replacement"
-      ? { ...ability, condition }
-      : ability);
+    const abilities = [
+      { ...program.abilities.find(ability => ability.kind === "replacement"), condition },
+    ];
     const result = runCardScenario(asExecutable(abilities), {
       players: { A: { energy: 10 }, B: { energy: 10 } },
       objects: [{

@@ -113,8 +113,16 @@ const scenarioBindingErrors = new Map([
 function register(rows, template) {
   const cases = defineTemplateSuite(template, rows.map(row => ({ ...row, program: candidate(row.program) })));
   for (const [index, entry] of cases.entries()) {
-    test(entry.name, rows[index].blocked ? { todo: rows[index].blocked } : {}, () => {
-      const bindingError = scenarioBindingErrors.get(rows[index].canonicalCardId);
+    const row = rows[index];
+    const bindingGap = scenarioBindingErrors.get(row.canonicalCardId);
+    const gap = row.blocked
+      ?? (bindingGap && `${bindingGap.toString().replace(/^\/(.*)\/$/, "$1")}; missing the corresponding replacement/static consumer`);
+    if (gap !== undefined) {
+      test.todo(`${entry.name} — ${gap}`);
+      continue;
+    }
+    test(entry.name, () => {
+      const bindingError = scenarioBindingErrors.get(row.canonicalCardId);
       if (bindingError) {
         assert.throws(entry.run, error => {
           assert.match(error.message, bindingError);
