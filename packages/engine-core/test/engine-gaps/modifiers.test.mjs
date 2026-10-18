@@ -176,6 +176,27 @@ test('modifiers-queries: registration filters anchor on the queried object (CR 7
   assert.deepEqual(bonusDamageForDeal(registry, { controller: 'A', appliesTo: 'deal-actions', source: kernel.ref('ally') }, objects), 0);
 });
 
+test('modifiers-queries: source snapshots supply the controller and structured scopes compare by value', () => {
+  const kernel = build();
+  const source = kernel.ref('Abase');
+  const registry = new ContinuousEffectRegistry();
+  registry.register({
+    id: 'static-bonus',
+    layer: 'ability',
+    source,
+    filter: {},
+    effect: {
+      kind: 'continuous.bonus-damage',
+      amount: 2,
+      appliesTo: { target: 'units', damageController: 'controller' },
+    },
+  }, { type: 'permanent' });
+  const objects = ref => kernel.object(ref);
+  const appliesTo = { damageController: 'controller', target: 'units' };
+  assert.equal(bonusDamageForDeal(registry, { controller: 'A', appliesTo }, objects), 2);
+  assert.equal(bonusDamageForDeal(registry, { controller: 'B', appliesTo }, objects), 0);
+});
+
 test('effect.shield-value: sums Shield instances, bare Shield reads 1, absent Shield reads 0 (CR 814.1.b.3, 814.2)', () => {
   const variants = [
     [[{ id: 'Shield', value: 2 }], 2],
