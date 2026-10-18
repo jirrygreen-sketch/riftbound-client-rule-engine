@@ -70,7 +70,7 @@ test('Rhasa locks variable trash counts at Finalize and preserves null printed P
   const plan = build(ctx, sources);
   assert.equal(plan.total.energy, 8);
   assert.equal(plan.printed.power, null);
-  assert.equal(ctx.perform({ type: 'recycle', objects: [ctx.ref('trash1')], to: 'bottom' }).status, 'done');
+  assert.equal(ctx.perform({ type: 'recycle', object: ctx.ref('trash1') }).status, 'done');
   assert.equal(build(ctx, sources).total.energy, 9);
   assert.equal(plan.total.energy, 8);
 });
@@ -169,11 +169,13 @@ test('leaving/reentering a static host invalidates the old binding without rebin
 });
 
 test('first qualifying gear each turn: real Finalize history, token/opponent filters, real turn reset', () => {
-  const f = turnFixture({ energy: 20, setup(builder) {
-    builder.unit('forge', { types: ['battlefield'] });
+  const f = turnFixture({ setup(builder) {
+    builder.base('forge');
     for (const id of ['first', 'second', 'third']) builder.hand(id, { types: ['gear'], energy: 2, power: [] });
   } });
   f.flow.start();
+  f.flow.execute({ id: 'seed', controller: 'A', source: f.kernel.getObject('forge'), kind: 'activated', speed: 'normal', cost: undefined, body: [{ id: 'seed-energy', op: 'effect.resources', args: { energy: c(3), player: c('A') } }] });
+  while (f.flow.chain.items.length) f.flow.pass(f.flow.chain.priority);
   const cardIds = new Set(['first', 'second', 'third']);
   const history = () => {
     const events = f.flow.chain.pipeline.events;
@@ -193,6 +195,8 @@ test('first qualifying gear each turn: real Finalize history, token/opponent fil
   assert.equal(f.kernel.player('A').energy, before - 3);
   assert.equal(history().length, 2);
   f.flow.endTurn('A');
+  while (f.flow.chain.items.length) f.flow.pass(f.flow.chain.priority);
+  f.flow.advance();
   f.flow.endTurn('B');
   assert.equal(f.flow.turn, 3);
   assert.equal(history().length, 0);

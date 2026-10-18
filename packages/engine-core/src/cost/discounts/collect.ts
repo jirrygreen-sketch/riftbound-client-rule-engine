@@ -27,7 +27,7 @@ export interface CostDiscountSources {
 
 const DOMAINS: readonly Domain[] = ['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order'];
 const KINDS = new Set(['continuous.cost-modification', 'cost.modify']);
-const FIELDS = new Set(['kind', 'resource', 'amount', 'minimum', 'stage', 'appliesTo', 'filter', 'component', 'alternative', 'universal', 'domain', 'domains', 'fromZone', 'when', 'per', 'duration', 'value', 'reductions']);
+const FIELDS = new Set(['kind', 'resource', 'amount', 'minimum', 'stage', 'appliesTo', 'filter', 'component', 'alternative', 'universal', 'domain', 'domains', 'fromZone', 'when', 'per', 'duration', 'value', 'reductions', 'history']);
 
 function scopeMatches(effect: Record<string, unknown>, env: CostEnvironment, sources: CostDiscountSources): boolean {
   const scope = literal(effect.appliesTo);
@@ -96,6 +96,12 @@ export function collectCostModifications(ctx: ResolveContext, input: CostPlanInp
         matchesCostFilter(effect.filter ?? {}, play.object, env));
       if (previous) return;
     } else if (duration !== undefined && duration !== 'permanent') blocked(`Unsupported static cost window ${String(duration)}`);
+    if (effect.history !== undefined) {
+      const item = record(literal(effect.history));
+      if (item.scope !== 'turn' || item.action !== 'play' || item.player !== 'controller') blocked('Unsupported cost history source');
+      const serialized = JSON.stringify(effect.value ?? effect.amount ?? {});
+      if ((effect.value as { kind?: unknown } | undefined)?.kind !== 'arithmetic' && !serialized.includes('cards-played-this-turn')) blocked('Cost history metadata requires a cards-played-this-turn expression');
+    }
 
     const componentScope = literal(effect.component) ?? (literal(effect.appliesTo) === 'optional-additional-costs-you-pay' ? 'optional-additional' : undefined);
     const components = componentScope === 'optional-additional'

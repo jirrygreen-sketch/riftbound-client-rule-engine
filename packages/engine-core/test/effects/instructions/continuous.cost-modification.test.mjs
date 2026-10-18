@@ -117,7 +117,7 @@ test('Power [A] increases accept all Domains; explicit discount stage uses a pos
 test('registering a cost modifier leaves printed characteristics unchanged in the layer engine', () => {
   const ctx = setup();
   runInstruction(instruction, args(), { world: ctx });
-  const engine = new LayerEngine(ctx.objects, { effects: registryOf(ctx).list() });
+  const engine = new LayerEngine(ctx.objects, registryOf(ctx));
   assert.equal(engine.snapshot(ctx.ref('card')).energy, 3);
   assert.equal(plan(ctx, registryOf(ctx)).total.energy, 1);
 });
