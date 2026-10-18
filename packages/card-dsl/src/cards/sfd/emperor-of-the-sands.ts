@@ -38,7 +38,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
  * - HistoryQuery 已支持 objectFilter 并可计数本回合打出的 Equipment；但 condition.history
- *   目前是 body 指令，不是 Condition/Expr，不能供给启动前的 Restriction（054.2，RIFT-359）。
+ *   目前是 body 指令，不是启动前 Restriction 所需的 Condition/Expr（054.2）。
  * - ZoneId 没有 Legend Zone（107.4），而费用支付只接受 board/rune-zone 的横置对象；
  *   静态绑定、token 目的地与横置费用测试使用 Board 宿主，只证明各自支持的部分。
  * - programs/statics.ts 已能把原始 grant-keyword 注册进 ability 图层，并绑定相对控制者。
@@ -114,7 +114,7 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "（1）HistoryQuery 已支持 objectFilter 查询 Equipment 打出记录，但 condition.history 仅为 body 指令，" +
-    "不能作为启动前 Restriction 的 Condition/Expr（054.2，条件谓词 RIFT-359）；" +
+    "不能作为启动前 Restriction 的 Condition/Expr（054.2）；" +
     "（2）ZoneId 尚无 Legend Zone（CR 107.4），而费用支付只接受 board/rune-zone 的横置对象（415.4/415.5），" +
     "传奇自身无法在真实区域支付 :rb_exhaust:；" +
     "（3）Weaponmaster KeywordDef 已合入（effects/keywords/Weaponmaster.ts），展开产出完整 triggered Equip 能力，" +

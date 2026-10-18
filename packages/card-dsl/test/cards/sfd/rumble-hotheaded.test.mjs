@@ -68,9 +68,9 @@ test("conquer trigger is optional, self-scoped, and links recycle into play", ()
   // "conquered" (events/pipeline-match.ts maps it onto conquer), and the
   // anchor is this card (383.4.c.2.a).
   assert.deepEqual(trigger.trigger.filter, { event: "conquered", filter: { source: "self" } });
-  assert.equal(trigger.body.length, 2);
+  assert.equal(trigger.body.length, 3);
 
-  const [recycle, play] = trigger.body;
+  const [recycle, cost, play] = trigger.body;
   assert.equal(recycle.op, "effect.recycle");
   assert.equal(recycle.targets?.length, 1);
   assert.deepEqual(recycle.targets?.[0], {
@@ -81,19 +81,40 @@ test("conquer trigger is optional, self-scoped, and links recycle into play", ()
     selection: "one"
   });
 
-  assert.equal(play.op, "effect.play");
-  assert.equal(play.linkedTo, "rumble.recycle-fodder");
-  assert.deepEqual(play.args.target, { kind: "constant", value: "rumble.mech-in-trash" });
-  assert.deepEqual(play.args.cost, {
+  assert.equal(cost.op, "cost.modify");
+  assert.equal(cost.linkedTo, "rumble.recycle-fodder");
+  assert.deepEqual(cost.args.id, { kind: "constant", value: "rumble.mech-cost" });
+  assert.deepEqual(cost.args.cost, {
     kind: "constant",
     value: {
-      finalized: true,
+      kind: "explicit",
       energy: {
-        kind: "linked-value",
-        instructionId: "rumble.recycle-fodder",
-        key: "recycledMight"
+        kind: "object-property",
+        object: { target: "rumble.mech-in-trash" },
+        property: "energy"
       }
     }
+  });
+  assert.deepEqual(cost.args.modifier, {
+    kind: "constant",
+    value: {
+      kind: "reduce",
+      resource: "energy",
+      amount: {
+        kind: "object-property",
+        object: { linked: "rumble.recycle-fodder" },
+        property: "might"
+      }
+    }
+  });
+
+  assert.equal(play.op, "effect.play");
+  assert.equal(play.linkedTo, "rumble.mech-cost");
+  assert.deepEqual(play.args.target, { kind: "constant", value: "rumble.mech-in-trash" });
+  assert.deepEqual(play.args.cost, {
+    kind: "linked-value",
+    instructionId: "rumble.mech-cost",
+    key: "cost"
   });
   assert.deepEqual(play.targets?.[0], {
     id: "rumble.mech-in-trash",
@@ -140,9 +161,8 @@ test("reference kernel: an isolated play with an explicit cost moves the chosen 
 });
 
 test.todo(
-  "Rumble, Hotheaded: the cost plan must derive the discount from the recycled unit's Might " +
-    "(the merged effect.recycle links references, not a Might value) and apply it at Finalize — " +
-    "recycled Might snapshot / nested play Finalize adapter"
+  "Rumble, Hotheaded: pass the finalized CostPlan total through effect.play's flat override " +
+    "so the linked plan's 2 Energy total is charged instead of reading cost.energy ?? 0"
 );
 test("the merged continuous.grant-keyword primitive registers the Assault grant itself", () => {
   // The merged continuous.grant-keyword static data is
@@ -184,18 +204,16 @@ test("the merged continuous.grant-keyword primitive registers the Assault grant 
 });
 
 test("the card retains its blocked discount declaration and recycle reference links", () => {
-  // Evidence for the judgeReason: the discount cannot be declared through the
-  // card's `cost` field yet. The merged adapter accepts only
-  // printed/activated/explicit cost kinds; a FinalizedCostPlan literal is
-  // outside that vocabulary, so the discount has to come from the cost plan.
+  // Evidence for the judgeReason: the discount is now declared in the card's
+  // own body as a real cost.modify instruction, and effect.play links that
+  // plan. The remaining gap is the CostPlan-to-flat-finalized conversion.
   const [, trigger] = program.abilities;
-  const [, play] = trigger.body;
+  const [, cost, play] = trigger.body;
+  assert.equal(cost.op, "cost.modify");
   assert.deepEqual(play.args.cost, {
-    kind: "constant",
-    value: {
-      finalized: true,
-      energy: { kind: "linked-value", instructionId: "rumble.recycle-fodder", key: "recycledMight" }
-    }
+    kind: "linked-value",
+    instructionId: "rumble.mech-cost",
+    key: "cost"
   });
   const translated = translateCost({ kind: "printed", energy: { kind: "constant", value: 5 } }, "rumble.play-mech", "play");
   assert.deepEqual(translated, { kind: "explicit", energy: { kind: "constant", value: 5 } });
@@ -319,13 +337,13 @@ test("Rumble, Hotheaded: merged cost.modify and cost.pay execute a real Might-va
   assert.deepEqual(paid.events.map(event => event.action), ["pay"]);
 });
 
-test("Rumble, Hotheaded: the merged chain recycles for a real 3-Might discount but effect.play pays a silent zero from the unflattened plan", () => {
-  // The discount math executes end to end (recycle -> cost.modify with an
-  // explicit base and a linked-Might reduce -> effect.play reading the linked
-  // CostPlan), but the complete CostPlan has no flat top-level energy field,
-  // so the finalized play override is read as cost.energy ?? 0 and A keeps
-  // all 10 energy. This is the measured gap: plan-shape conversion, not the
-  // discount calculation.
+test("Rumble, Hotheaded: the real trigger body computes the discount and records the CostPlan shape blocker", () => {
+  // Execute the card's own trigger.body. The test kernel locks the two target
+  // refs because the printed role:other-friendly selector is intentionally
+  // blocked (covered above); the chain adapter also needs the cost.modify
+  // Expr wrappers literalized because it has no cost.modify LITERAL_FIELDS
+  // entry. Instruction ids, links, and all cost expressions still come from
+  // trigger.body itself.
   const built = world()
     .player("A", { energy: 10 })
     .unit("rumble", { owner: "A", controller: "A", tags: ["Mech"], might: 4 })
@@ -341,32 +359,18 @@ test("Rumble, Hotheaded: the merged chain recycles for a real 3-Might discount b
     ])
   });
   const [trigger] = program.abilities.filter((ability) => ability.kind === "triggered");
-  const body = [
-    {
-      id: "rumble.recycle-fodder",
-      op: trigger.body[0].op,
-      args: { target: "rumble.fodder" }
-    },
-    {
-      id: "rumble.mech-cost",
-      op: "cost.modify",
-      linkedTo: "rumble.recycle-fodder",
+  const body = trigger.body.map((instruction) => {
+    const withoutTargetSpecs = { ...instruction, targets: undefined };
+    if (instruction.op !== "cost.modify") return withoutTargetSpecs;
+    return {
+      ...withoutTargetSpecs,
       args: {
-        id: "rumble.mech-cost",
-        cost: { kind: "explicit", energy: { kind: "object-property", object: { target: "rumble.mech-in-trash" }, property: "energy" } },
-        modifier: { kind: "reduce", resource: "energy", amount: { kind: "object-property", object: { linked: "rumble.recycle-fodder" }, property: "might" } }
+        id: instruction.args.id.value,
+        cost: instruction.args.cost.value,
+        modifier: instruction.args.modifier.value
       }
-    },
-    {
-      id: "rumble.play-mech",
-      op: "effect.play",
-      linkedTo: "rumble.mech-cost",
-      args: {
-        target: "rumble.mech-in-trash",
-        cost: { kind: "linked-value", instructionId: "rumble.mech-cost", key: "cost" }
-      }
-    }
-  ];
+    };
+  });
   const outcome = resolveChainBody(body, kernel);
   assert.equal(outcome.status, "executed");
   assert.deepEqual(outcome.results.map((entry) => entry.result.status), ["executed", "executed", "executed"]);

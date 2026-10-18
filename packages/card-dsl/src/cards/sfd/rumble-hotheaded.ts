@@ -19,8 +19,8 @@ import type { CardProgram } from "../../ir/index.js";
  * turn/flow.ts emits in the Score wave). The recycle instruction still has a
  * blocked target declaration: as a "to" cost it must instead make a non-target
  * choice (355.10.c.1). effect.recycle links recycled refs and their count. The play
- * instruction then plays a Mech from the controller's trash. The merged
- * cost.modify / cost.pay path really computes the discount (measured: base
+ * instruction then computes a cost plan and plays a Mech from the controller's
+ * trash. The merged cost.modify / cost.pay path really computes the discount (measured: base
  * energy 5, a 3-Might recycled unit yields plan.base.energy=5,
  * plan.discounts=[{amount:3,before:5,after:2}], plan.total.energy=2), but the
  * complete CostPlan has no flat top-level `energy` field, so effect.play's
@@ -116,22 +116,43 @@ export default {
           ]
         },
         {
-          id: "rumble.play-mech",
-          op: "effect.play",
+          id: "rumble.mech-cost",
+          op: "cost.modify",
           linkedTo: "rumble.recycle-fodder",
           args: {
-            target: { kind: "constant", value: "rumble.mech-in-trash" },
+            id: { kind: "constant", value: "rumble.mech-cost" },
             cost: {
               kind: "constant",
               value: {
-                finalized: true,
+                kind: "explicit",
                 energy: {
-                  kind: "linked-value",
-                  instructionId: "rumble.recycle-fodder",
-                  key: "recycledMight"
+                  kind: "object-property",
+                  object: { target: "rumble.mech-in-trash" },
+                  property: "energy"
+                }
+              }
+            },
+            modifier: {
+              kind: "constant",
+              value: {
+                kind: "reduce",
+                resource: "energy",
+                amount: {
+                  kind: "object-property",
+                  object: { linked: "rumble.recycle-fodder" },
+                  property: "might"
                 }
               }
             }
+          }
+        },
+        {
+          id: "rumble.play-mech",
+          op: "effect.play",
+          linkedTo: "rumble.mech-cost",
+          args: {
+            target: { kind: "constant", value: "rumble.mech-in-trash" },
+            cost: { kind: "linked-value", instructionId: "rumble.mech-cost", key: "cost" }
           },
           targets: [
             {
