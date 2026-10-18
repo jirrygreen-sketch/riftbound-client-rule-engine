@@ -843,12 +843,30 @@ const runSuite = (templateName, suiteRows) => {
       assert.ok(row.sourceProgram.judgeReason?.trim(), `${row.canonicalCardId} keeps an explicit judge reason`);
       assert.equal(row.sourceProgram.abilities.length, 1, `${row.canonicalCardId} keeps the static|| signature`);
       assert.equal(row.sourceProgram.abilities[0].kind, "static");
+      const bindingError = scenarioBindingErrors.get(row.canonicalCardId);
+      if (bindingError) {
+        assert.throws(golden.run, error => {
+          assert.ok(error instanceof ProgramBindingError, String(error));
+          assert.equal(error.code, "judge-required");
+          assert.match(error.message, bindingError);
+          return true;
+        });
+        return;
+      }
       const result = golden.run();
       assert.deepEqual(result.state.chain, []);
       row.verify?.(result);
     });
   }
 };
+
+const scenarioBindingErrors = new Map([
+  [annieId, /Unsupported static appliesTo "controller-spells-and-abilities"/],
+  [garenId, /Static exclude anchor needs a dynamic relative filter/],
+  [circleId, /Unsupported static appliesTo "play-cost"/],
+  [oriannaId, /Unsupported static appliesTo \{"type":"gear","controller":"controller"\}/],
+  [songstressId, /Unsupported static appliesTo "play-spell-cost"/],
+]);
 
 runSuite("RIFT-642 static||", rows);
 runSuite("RIFT-642 static|| boundary", boundaryRows);

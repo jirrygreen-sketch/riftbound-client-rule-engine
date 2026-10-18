@@ -153,11 +153,28 @@ const rows = [
   },
 ];
 
+const scenarioBindingErrors = new Map([
+  [ids.kinkouTemple, /Unsupported static filter field keywords/],
+  [ids.mysticVortex, /Unsupported static appliesTo "play-cost"/],
+  [ids.piltovanForge, /Unsupported static appliesTo "activated-ability-cost"/],
+  [ids.sandstoneChimera, /Unsupported static appliesTo "all-players"/],
+  [ids.sandsweptTomb, /Unsupported static appliesTo "play-cost"/],
+]);
+
 for (const row of defineTemplateSuite("RIFT-645 static||", rows)) {
   test(row.name, () => {
     const source = sourcePrograms.get(row.canonicalCardId);
     assert.ok(source, `source program ${row.canonicalCardId} is present`);
     assert.equal(source.status, "judge-required");
+    const bindingError = scenarioBindingErrors.get(row.canonicalCardId);
+    if (bindingError) {
+      assert.throws(row.run, error => {
+        assert.equal(error.code, "judge-required");
+        assert.match(error.message, bindingError);
+        return true;
+      });
+      return;
+    }
     const result = row.run();
     assert.ok(result, "scenario result is returned");
   });

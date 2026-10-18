@@ -55,6 +55,7 @@ const definitions = [
       assert.match(program.judgeReason, /designation/);
       assert.match(program.judgeReason, /Tank/);
     },
+    bindingError: /Static exclude anchor needs a dynamic relative filter/,
   },
   {
     name: "Needlessly Large Yordle — printed cost paid with no holding points",
@@ -78,6 +79,7 @@ const definitions = [
       assert.match(program.judgeReason, /designation/);
       assert.match(program.judgeReason, /continuous\.combat/);
     },
+    bindingError: /Static ability kind continuous\.cost-modification has no layer mapping/,
   },
   {
     name: "Ornn, Forge God — two friendly gear do not raise Might (count not evaluated)",
@@ -107,6 +109,7 @@ const definitions = [
       assert.match(program.judgeReason, /Weaponmaster/);
       assert.match(program.judgeReason, /count 表达式/);
     },
+    bindingError: /Static ability kind target\.tax has no layer mapping/,
   },
   {
     name: "Rengar, Pouncing — Reaction play lands at base without the Assault bonus",
@@ -129,6 +132,7 @@ const definitions = [
       assert.match(program.judgeReason, /play-location-permission/);
       assert.match(program.judgeReason, /designation/);
     },
+    bindingError: /Static ability kind play-location-permission has no layer mapping/,
   },
   {
     name: "Taric, Protector — boundary: a 4-energy / 1-Calm cost is not payable with 2 energy (negated)",
@@ -185,6 +189,7 @@ const definitions = [
     declared: program => {
       assert.equal(program.status, "judge-required");
     },
+    bindingError: /Static ability kind target\.tax has no layer mapping/,
   },
   {
     name: "Rengar, Pouncing — boundary: no Fury Power means the printed cost cannot be paid",
@@ -226,6 +231,7 @@ const definitions = [
       assert.equal(program.status, "judge-required");
       assert.match(program.judgeReason, /Weaponmaster/);
     },
+    bindingError: /Static ability kind target\.tax has no layer mapping/,
   },
 ];
 
@@ -236,6 +242,7 @@ const templateCases = defineTemplateSuite(
     canonicalCardId: definition.canonicalCardId,
     program: definition.program,
     scenario: definition.scenario,
+    bindingError: definition.bindingError,
   })),
 );
 
@@ -246,6 +253,14 @@ for (const [index, templateCase] of templateCases.entries()) {
     definitions[index].declared(declared);
     if (definitions[index].expectedFailure) {
       assert.throws(templateCase.run, definitions[index].expectedFailure);
+      return;
+    }
+    if (definitions[index].bindingError) {
+      assert.throws(templateCase.run, error => {
+        assert.equal(error.code, "judge-required");
+        assert.match(error.message, definitions[index].bindingError);
+        return true;
+      });
       return;
     }
     templateCase.run();

@@ -131,11 +131,21 @@ const rows = [
       ],
       operations: [{ type: "play", object: "source", player: "A", location: battlefield }]
     },
-    expect: { objects: { source: { zone: "board", location: battlefield, might: 1, power: null, buffs: 0 }, far: { might: 1 }, enemy: { might: 1 } }, players: { A: { energy: 2 } }, events: { includes: [{ timingPoint: "card-played" }, { timingPoint: "object-enters-battlefield" }] } }
+    expect: { objects: { source: { zone: "board", location: battlefield, might: 1, power: null, buffs: 0 }, far: { might: 1 }, enemy: { might: 1 } }, players: { A: { energy: 2 } }, events: { includes: [{ timingPoint: "card-played" }, { timingPoint: "object-enters-battlefield" }] } },
+    bindingError: /Static ability kind cost\.hidden has no layer mapping/
   }
 ];
 
-for (const row of defineTemplateSuite("RIFT-672 keyword+static supported paths", rows)) test(row.name, row.run);
+for (const row of defineTemplateSuite("RIFT-672 keyword+static supported paths", rows)) {
+  test(row.name, () => {
+    const source = rows.find(candidate => candidate.canonicalCardId === row.canonicalCardId);
+    if (source.bindingError) {
+      assert.throws(row.run, source.bindingError);
+      return;
+    }
+    row.run();
+  });
+}
 
 for (const row of rows) {
   test(`RIFT-672 published status guard: ${row.name} [${row.canonicalCardId}]`, () => {

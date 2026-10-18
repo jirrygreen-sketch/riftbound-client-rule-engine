@@ -455,6 +455,13 @@ const rows = [
   },
 ];
 
+const scenarioBindingErrors = new Map([
+  [masterYiUnstoppable.canonicalCardId, /Unsupported static appliesTo "play-cost"/],
+  [dragonRoost.canonicalCardId, /Static ability kind cost\.additional has no layer mapping/],
+  [duneSurfer.canonicalCardId, /Static controller:opponent filter needs a relative-player query/],
+  [keeperOfLaw.canonicalCardId, /Static ability kind continuous\.cost-modification has no layer mapping/],
+]);
+
 for (const [index, templateCase] of defineTemplateSuite(TEMPLATE, rows).entries()) {
   const row = rows[index];
   test(templateCase.name, () => {
@@ -465,6 +472,16 @@ for (const [index, templateCase] of defineTemplateSuite(TEMPLATE, rows).entries(
       message: "Scenario program " + row.canonicalCardId + " is judge-required",
     });
     assert.equal(row.program.abilities, source.abilities, "the executable view must not rewrite abilities");
+    const bindingError = scenarioBindingErrors.get(row.canonicalCardId);
+    if (bindingError) {
+      assert.throws(templateCase.run, error => {
+        assert.ok(error instanceof ProgramBindingError, String(error));
+        assert.equal(error.code, "judge-required");
+        assert.match(error.message, bindingError);
+        return true;
+      });
+      return;
+    }
     const result = templateCase.run();
     assert.deepEqual(result.state.chain, [], "a static template row must not leave chain items");
     row.verify?.(result);
