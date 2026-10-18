@@ -1,7 +1,6 @@
 import type {
   ChoiceVisibility,
   Expr,
-  FinalizedCostPlan,
   GameEvent,
   InstructionDef,
   LocationRef,
@@ -148,6 +147,10 @@ function uniqueRefs(refs: readonly ObjectRef[]): ObjectRef[] {
   return result;
 }
 
+function refsAsValue(refs: readonly ObjectRef[]): Value[] {
+  return refs.map(ref => ({ id: ref.id, zoneEntryId: ref.zoneEntryId }));
+}
+
 function valueAsPlayer(value: Value | undefined, fallback: PlayerId): PlayerId | null {
   return value === undefined ? fallback : typeof value === "string" && value.length > 0 ? value : null;
 }
@@ -162,12 +165,6 @@ function valueAsLocation(value: Value | undefined): LocationRef | undefined | nu
   if (!isRecord(value) || (value.type !== "base" && value.type !== "battlefield")) return null;
   if (value.type === "base") return typeof value.player === "string" ? { type: "base", player: value.player } : null;
   return typeof value.id === "string" ? { type: "battlefield", id: value.id } : null;
-}
-
-function valueAsCost(value: Value | undefined): FinalizedCostPlan | undefined | null {
-  if (value === undefined || value === null) return value === undefined ? undefined : null;
-  if (!isRecord(value) || value.finalized !== true) return null;
-  return value as unknown as FinalizedCostPlan;
 }
 
 function negated(reason: "impossible" | "replaced", events: readonly GameEvent[]): NegatedInstructionResult {
@@ -200,15 +197,25 @@ function chooseRefs(ctx: ResolveContext, args: EffectPlayArgs, refs: readonly Ob
   return uniqueRefs(selected.filter(ref => isObjectRef(ref) && allowed.has(refKey(ref))));
 }
 
-const execute: InstructionDef<EffectPlayArgs>["execute"] = (ctx, args) => {
+function currentRef(ctx: ResolveContext, id: string): ObjectRef | null {
+  // Ids are stable across the Chain move, but object filters do not promise to
+  // support an objectId predicate. Read the host's unfiltered object view so a
+  // successful Play can expose the actual resulting incarnation.
+  const current = ctx.query({}).find(object => object.ref.id === id);
+  return current === undefined ? null : cloneRef(current.ref);
+}
+
+function runPlay(ctx: ResolveContext, args: EffectPlayArgs): ReturnType<InstructionDef<EffectPlayArgs>["execute"]> {
   const player = valueAsPlayer(
     args.player === undefined ? undefined : ctx.evaluate(args.player),
     ctx.controller
   );
   const amount = valueAsAmount(args.amount === undefined ? undefined : ctx.evaluate(args.amount));
   const location = valueAsLocation(args.location === undefined ? undefined : ctx.evaluate(args.location));
-  const cost = valueAsCost(args.cost === undefined ? undefined : ctx.evaluate(args.cost));
-  if (player === null || (args.amount !== undefined && amount === null) || location === null || cost === null) {
+  // Evaluate once. Cost descriptors can contain choices, and replaying an
+  // evaluation inside the selected-object loop could lock a different result.
+  const rawCost = args.cost === undefined ? undefined : ctx.evaluate(args.cost);
+  if (player === null || (args.amount !== undefined && amount === null) || location === null) {
     return negated("impossible", []);
   }
 
@@ -236,38 +243,63 @@ const execute: InstructionDef<EffectPlayArgs>["execute"] = (ctx, args) => {
 
   const events: GameEvent[] = [];
   let played = 0;
+  const playedObjects: ObjectRef[] = [];
+  const costPlans: Value[] = [];
   for (const object of selected) {
-    let finalized: FinalizedCostPlan | undefined;
+    let finalized;
     try {
       finalized = buildEffectPlayCostPlan(ctx, {
         object,
         player,
-        ...(args.cost === undefined ? {} : { cost: ctx.evaluate(args.cost) }),
+        ...(args.cost === undefined ? {} : { cost: rawCost }),
         ...(args.ignoreCost === undefined ? {} : { ignoreCost: ctx.evaluate(args.ignoreCost) }),
         ...(args.ignoreCosts === undefined ? {} : { ignoreCosts: ctx.evaluate(args.ignoreCosts) })
       });
     } catch (error) {
+      if (error instanceof CostPlanError &&
+          (error.reason === "judge-required" || error.reason === "missing-printed-cost")) throw error;
       if (error instanceof CostPlanError) return negated("impossible", events);
       throw error;
     }
-    const effectiveCost = finalized ?? cost;
     const outcome = ctx.perform({
       type: "play",
       object,
       player,
       ...(location === undefined ? {} : { location }),
-      ...(effectiveCost === undefined ? {} : { cost: effectiveCost })
+      ...(finalized === undefined ? {} : { cost: finalized })
     });
     events.push(...outcome.events);
     if (outcome.status !== "done") {
       return negated(outcome.status === "replaced" ? "replaced" : "impossible", events);
     }
     played += 1;
+    const current = currentRef(ctx, object.id);
+    if (current !== null) playedObjects.push(current);
+    if (finalized !== undefined) costPlans.push(finalized as unknown as Value);
   }
 
   const key = args.linkKey ?? "played";
+  const linkedObjects = refsAsValue(playedObjects);
   ctx.link(key, played);
-  return { status: "executed", events, linkedValues: { [key]: played } };
+  ctx.link(`${key}Objects`, linkedObjects);
+  if (key !== "played") ctx.link("playedObjects", linkedObjects);
+  if (costPlans.length > 0) ctx.link(`${key}CostPlans`, costPlans);
+  return {
+    status: "executed",
+    events,
+    linkedValues: {
+      [key]: played,
+      [`${key}Objects`]: linkedObjects,
+      ...(key === "played" ? {} : { playedObjects: linkedObjects }),
+      ...(costPlans.length === 0 ? {} : { [`${key}CostPlans`]: costPlans })
+    }
+  };
+}
+
+const execute: InstructionDef<EffectPlayArgs>["execute"] = (ctx, args) => {
+  // The host-owned seam is optional for legacy contexts. When present, target
+  // selection, every generated cost and every nested Play commit share it.
+  return ctx.transaction === undefined ? runPlay(ctx, args) : ctx.transaction(() => runPlay(ctx, args));
 };
 
 export default {
