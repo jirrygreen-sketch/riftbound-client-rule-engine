@@ -9,12 +9,6 @@ import grantKeyword from "../../../../engine-core/dist/effects/instructions/cont
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { runCardScenario } from "../../../../engine-core/dist/effects/testing/scenario/index.js";
-import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
-import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
-import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
-import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
-import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const ability = program.abilities[0];
 const instruction = ability.body[0];
@@ -26,14 +20,17 @@ test("bounty-hunter program is valid EffectIR v2 data", () => {
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
 });
 
-test("bounty-hunter identity: canonicalCardId, ruleset, executable status and verbatim text", () => {
+test("bounty-hunter identity: canonicalCardId, ruleset, judge-required status and verbatim text", () => {
   assert.equal(
     program.canonicalCardId,
     "card.hash-c26c4c53932bf73803251e7f0e60d3d3f8c1995783f4e6451d025fc6099f5ff6"
   );
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "executable");
-  assert.equal(Object.hasOwn(program, "judgeReason"), false);
+  assert.equal(program.status, "judge-required");
+  assert.match(program.judgeReason, /continuous\.grant-keyword/);
+  assert.match(program.judgeReason, /Ganking/);
+  assert.match(program.judgeReason, /hasGanking/);
+  assert.match(program.judgeReason, /810\.1\.c/);
   assert.equal(
     program.sourceText,
     ":rb_exhaust:: Give a unit [Ganking] this turn. (It can move from battlefield to battlefield.)"
@@ -136,111 +133,16 @@ test("bounty-hunter golden: the exhaust cost pays and the grant gives any chosen
   assert.deepEqual(engine.evaluate(ref).keywords, []);
 });
 
-test("bounty-hunter end-to-end: the printed activation pays Exhaust, locks the chosen unit and grants it Ganking through the real chain", () => {
-  const result = runCardScenario(program, {
-    players: { A: {}, B: {} },
-    objects: [
-      {
-        id: "bounty-hunter",
-        cardId: program.canonicalCardId,
-        program,
-        types: ["legend"],
-        zone: "board",
-        location: { type: "base", player: "A" },
-        energy: null,
-        power: null,
-        might: null
-      },
-      // "a unit" is unrestricted: an opponent's Board unit is a legal target.
-      { id: "target", owner: "B", types: ["unit"], zone: "board", might: 4, energy: null, power: null }
-    ],
-    operations: [
-      { type: "activate", object: "bounty-hunter", player: "A" },
-      { type: "pass", player: "A" },
-      { type: "pass", player: "B" }
-    ],
-    expect: {
-      objects: {
-        "bounty-hunter": { zone: "board", exhausted: true, energy: null, power: null },
-        target: { zone: "board", keywords: [{ id: "Ganking" }] }
-      },
-      events: {
-        sequence: [
-          { timingPoint: "chain-item-pending", object: { ref: "bounty-hunter" } },
-          { timingPoint: "object-exhausted", action: { type: "exhaust", object: { id: "bounty-hunter" } } },
-          { timingPoint: "chain-item-finalize" },
-          { timingPoint: "chain-item-resolve" }
-        ]
-      }
-    }
-  });
-  assert.equal(result.state.objects.find(object => object.ref.id === "target").movement.canGank, false,
-    "runCardScenario wires the default LayerEngine; movement expansion is asserted against KeywordGrantLayerEngine below");
-});
+test.todo(
+  "bounty-hunter end-to-end: the printed activation pays Exhaust, locks the chosen unit and grants it Ganking through the real chain, " +
+    "and once production assembly attaches the merged KeywordGrantLayerEngine the default path must assert canGank === true while " +
+    "the grant is live and canGank === false after turn end (CR 810.1.c) — today the default chain wiring keeps the plain LayerEngine, " +
+    "so the re-expanded permission stays false, and runCardScenario rejects this judge-required program until the status can be promoted"
+);
 
-test("bounty-hunter end-to-end: the granted Ganking re-expands into the movement() permission and is revoked at turn end", () => {
-  // KeywordGrantLayerEngine is the merged re-expansion engine; the default
-  // runCardScenario wiring does not attach it yet, so this fixture follows the
-  // engine-core reexpand.test.mjs construction and drives the same production
-  // binding through a ChainEngine configured with that layer engine.
-  const base = world()
-    .unit("bounty-hunter", {
-      cardId: program.canonicalCardId,
-      types: ["legend"],
-      might: null,
-      zone: "board",
-      location: { type: "base", player: "A" }
-    })
-    .unit("target", { owner: "B", controller: "B", might: 4 })
-    .build();
-  const kernel = base.clone({ sourceSnapshot: base.getObject("bounty-hunter") });
-  kernel.setAnswers({ "target:bounty-hunter.unit": [kernel.ref("target")] });
-  const context = source => bindResolveContext(kernel, { source, controller: source.controller });
-  const layers = new KeywordGrantLayerEngine(kernel.objects, { context });
-  const host = createActionPipelineHost({
-    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
-    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
-    objects: () => kernel.objects,
-    perform: action => kernel.perform(action),
-    choose: request => kernel.choose(request),
-    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
-  });
-  const engine = new ChainEngine({
-    host,
-    layers,
-    turnOrder: ["A", "B"],
-    turnPlayer: "A",
-    phase: "main",
-    cleanup: current => {
-      let changed = false;
-      current.layers.setObjects(kernel.objects);
-      for (const object of current.layers.evaluateAll()) {
-        if (object.zone === "board" && object.types.includes("unit") && object.might !== null && (object.might <= 0 || object.damage >= object.might)) {
-          current.commit({ type: "kill", object: object.ref });
-          changed = true;
-        }
-      }
-      return changed;
-    }
-  });
-  const binding = createProgramBinding({ cardPrograms: [program] });
-  engine.execute(binding.describeActivate(kernel.getObject("bounty-hunter"), "A", 0));
-  engine.pass(engine.priority);
-  while (engine.items.length) {
-    engine.pass(engine.priority);
-  }
-  assert.ok(engine.trace.some(event => event.step === "resolved"), "the activated chain item resolved");
-
-  layers.setObjects(kernel.objects);
-  const ref = kernel.ref("target");
-  const granted = movement(layers.registry, ref, layers.snapshot(ref), "A");
-  assert.equal(granted.canGank, true);
-  assert.ok(layers.snapshot(ref).keywords.some(keyword => keyword.id === "Ganking"));
-  assert.equal(kernel.getObject("bounty-hunter").exhausted, true);
-
-  engine.emit({ timingPoint: "turn-end", player: "A" });
-  layers.setObjects(kernel.objects);
-  const expired = movement(layers.registry, ref, layers.snapshot(ref), "A");
-  assert.equal(expired.canGank, false);
-  assert.deepEqual(layers.snapshot(ref).keywords, []);
-});
+test.todo(
+  "bounty-hunter fixture: with an explicit KeywordGrantLayerEngine the granted Ganking re-expands into the movement() permission " +
+    "(canGank === true) and is revoked at turn end (canGank === false) — blocked while the status is judge-required because " +
+    "ProgramRegistry.get refuses describeActivate (ProgramBindingError 'judge-required'); promote the card only after the " +
+    "production default assembly (chain/engine.ts and runCardScenario) attaches the re-expansion engine"
+);

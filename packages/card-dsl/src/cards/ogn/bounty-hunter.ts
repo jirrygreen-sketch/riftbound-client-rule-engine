@@ -15,19 +15,28 @@ import type { CardProgram } from "../../ir/index.js";
  * - "give a unit [Ganking] this turn" grants the Ganking keyword (CR 810;
  *   KeywordDef stacking "single") with an end-of-turn duration (CR 317.2.c).
  *
- * Status: executable — the merged continuous.grant-keyword instruction
+ * Status: judge-required — the merged continuous.grant-keyword instruction
  * registers the grant, describeActivate binds the exhaust cost and target
  * Finalize, and the merged KeywordGrantLayerEngine re-expands the dynamically
  * granted Ganking into the battlefield-to-battlefield movement permission,
- * revoking it at turn end. The golden test drives the real production chain
- * (Exhaust payment, locked target, chain resolution) and asserts the
- * movement() permission before and after expiry (CR 810.1.c).
+ * revoking it at turn end when a ChainEngine fixture attaches that engine.
+ * Production assembly still wires the plain LayerEngine (chain/engine.ts and
+ * the runCardScenario default), so the printed battlefield-to-battlefield
+ * permission (CR 810.1.c) stays unreachable through the default chain path.
  */
 const program = {
   canonicalCardId:
     "card.hash-c26c4c53932bf73803251e7f0e60d3d3f8c1995783f4e6451d025fc6099f5ff6",
   rulesetVersion: "core-1.5",
-  status: "executable",
+  status: "judge-required",
+  judgeReason:
+    "continuous.grant-keyword 授予、Exhaust 费用与 Board 单位目标的打出路径已可执行：" +
+    "golden 测试真实支付 Exhaust、锁定目标并在 ability 图层登记 Ganking，回合结束到期。" +
+    "生产链结算中该动态授予的 Ganking 不会重展开为 movement 许可：生产装配仍用普通 " +
+    "LayerEngine（chain/engine.ts 与 runCardScenario 默认），未接入 KeywordGrantLayerEngine，" +
+    "故 CR 810.1.c 的战场间 Standard Move 许可不可达，可信 hasGanking 派生也未接入生产 movement 查询；" +
+    "该重展开只在显式装配该引擎的 " +
+    "ChainEngine fixture 中证明，不能代表生产路径，整卡因此保持 judge-required。",
   abilities: [
     {
       kind: "activated",
