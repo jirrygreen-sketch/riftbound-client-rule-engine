@@ -35,6 +35,7 @@ const LITERAL_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'effect.counter': ['target'],
   'effect.buff': ['mode', 'target', 'chooser', 'chooseUpTo'],
   'effect.exhaust': ['target', 'pick', 'choice'],
+  'effect.stun': ['target', 'pick'],
   'effect.kill': ['target', 'picks', 'self', 'reason'],
   'effect.detach': ['pick'],
   'effect.play': ['target', 'pick', 'choice', 'linkKey'],
