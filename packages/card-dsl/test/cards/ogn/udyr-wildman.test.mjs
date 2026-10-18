@@ -9,6 +9,10 @@ import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/in
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 
 const CANONICAL = "card.hash-fa80adfa87e517c318ff696460904b28aeb38024b68666372f0109ecf2757882";
 
@@ -34,6 +38,7 @@ function udyrWorld() {
 test("ogn-157-298 Udyr, Wildman: program validates and keeps identity", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.deepEqual(result.issues, []);
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
@@ -47,10 +52,17 @@ test("ogn-157-298 Udyr, Wildman: program validates and keeps identity", () => {
   assert.equal(program.sourceText.includes("battlefield.Stun"), true);
 });
 
-test("ogn-157-298 Udyr, Wildman: judgeReason cites only the unresolved mode-choice gaps", () => {
+test("ogn-157-298 Udyr, Wildman: judgeReason cites mode memory, Finalize and default keyword integration", () => {
   assert.match(program.judgeReason, /choice\.mode/);
   assert.match(program.judgeReason, /choice-plan adapter/);
+  // Ganking itself is merged; the named blocker is default-layer integration.
   assert.doesNotMatch(program.judgeReason, /依赖：.*Ganking/);
+  assert.match(program.judgeReason, /选择记忆账本/);
+  assert.match(program.judgeReason, /355\.3.*403\.2/);
+  assert.match(program.judgeReason, /默认 ChainEngine.*普通 LayerEngine/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /Ganking.*仅添加关键词/);
+  assert.match(program.judgeReason, /LITERAL_FIELDS.*effect\.stun\.target/);
 });
 
 test("ogn-157-298 Udyr, Wildman: 'Spend my buff:' is the activated cost and action timing (377.1 / 381.1)", () => {
@@ -208,5 +220,67 @@ test("ogn-157-298 Udyr, Wildman golden: 'Spend my buff:' is charged through the 
 
 test.todo(
   "ogn-157-298 Udyr, Wildman: 'Choose one you've not chosen this turn' needs per-turn choice memory; " +
-    "choice.mode's different flag only de-duplicates within one resolution (CR v1.5 383.1.b / 355.5.a)."
+    "choice.mode's different flag only de-duplicates within one resolution (CR v1.5 355.3 / 403.2)."
 );
+
+test("ogn-157-298 Udyr, Wildman: the original modal body deals 2 through the chain interpreter adapter", () => {
+  const kernel = udyrWorld();
+  kernel.setAnswers({ "udyr.choose-mode/mode%3A0": "udyr.damage-mode" });
+  kernel.setTargets("udyr.damage-target", [kernel.ref("enemy")]);
+  const outcome = resolveChainBody(ability.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["udyr.deal-2", "executed"], ["udyr.choose-mode", "executed"]
+  ]);
+  assert.equal(kernel.getObject("enemy").damage, 2);
+  assert.equal(outcome.results[0].result.linkedValues.dealt, 2);
+  assert.deepEqual(outcome.events.map(event => event.action), ["damage"]);
+});
+
+test("ogn-157-298 Udyr, Wildman: the merged keyword adapter consumes and expires the modal Ganking grant", () => {
+  const kernel = udyrWorld();
+  kernel.setAnswers({ "udyr.choose-mode/mode%3A0": "udyr.ganking-mode" });
+  const outcome = resolveChainBody(ability.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["udyr.grant-ganking", "executed"], ["udyr.choose-mode", "executed"]
+  ]);
+  const layers = new KeywordGrantLayerEngine(kernel.objects, {
+    context: source => bindResolveContext(kernel, { source, controller: source.controller })
+  });
+  for (const entry of kernel.continuousEffects) layers.addContinuous(entry.effect, entry.duration);
+  const udyr = layers.evaluate(kernel.ref("udyr"));
+  assert.deepEqual(udyr.keywords, [{ id: "Ganking" }]);
+  assert.equal(movement(layers.registry, udyr.ref, udyr, "A").canGank, true);
+  assert.deepEqual(layers.evaluate(kernel.ref("enemy")).keywords, []);
+  layers.advance({ id: "turn-end", player: "A" });
+  const expired = layers.evaluate(kernel.ref("udyr"));
+  assert.deepEqual(expired.keywords, []);
+  assert.equal(movement(layers.registry, expired.ref, expired, "A").canGank, false);
+});
+
+test("ogn-157-298 Udyr, Wildman TODO: a second mode prompt excludes the mode already chosen this turn", {
+  todo: "Printed per-turn mode memory is missing; different only de-duplicates one resolution"
+}, () => {
+  const kernel = udyrWorld();
+  kernel.setAnswers({ "udyr.choose-mode/mode%3A0": "udyr.ready-mode" });
+  assert.equal(resolveChainBody(ability.body, kernel).status, "executed");
+  kernel.setAnswers({});
+  assert.throws(() => resolveChainBody(ability.body, kernel), error => {
+    assert.ok(error instanceof AwaitChoice);
+    assert.deepEqual(error.request.options, ["udyr.damage-mode", "udyr.stun-mode", "udyr.ganking-mode"]);
+    return true;
+  });
+});
+
+test("ogn-157-298 Udyr, Wildman TODO: the original stun mode crosses the chain interpreter adapter", {
+  todo: "chain/interpreter-adapter.ts lacks effect.stun target literal-field decoding"
+}, () => {
+  const kernel = udyrWorld();
+  kernel.setAnswers({ "udyr.choose-mode/mode%3A0": "udyr.stun-mode" });
+  kernel.setTargets("udyr.stun-target", [kernel.ref("enemy")]);
+  const outcome = resolveChainBody(ability.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.getObject("enemy").stunned, true);
+  assert.deepEqual(outcome.events.map(event => event.action), ["stun"]);
+});

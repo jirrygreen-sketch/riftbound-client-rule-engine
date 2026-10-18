@@ -14,7 +14,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   `payments[{kind: "spend-buff", object: "self", amount}]` 的费用形态。
  * - 381 / 381.1：未标注速度的启动能力只能在控制者 Main Phase 的 Open State 启动，
  *   故 timing 为 "action"。
- * - 355.5.a / 355.6："Choose one…" 是结算/进链时的模式选择，用 choice.mode
+ * - 355.3 / 403.2："Choose one…" 是 Finalize 时的模式选择，用 choice.mode
  *   （contract 3.9：count 1、different true；模式各自带 body）。
  * - 418.1/418.1.e："Deal 2 to a unit at a battlefield" 是固定 2 点伤害（不涉及分摊）。
  * - 424：Stun 是状态；effect.stun 已是合入原语（"a unit at a battlefield" 用
@@ -23,22 +23,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 801.3.a："Give me [Ganking] this turn" 是限时关键词授予（Granted Keyword，
  *   810 的 Ganking 权限），需要限时持续效果而非直接改写特征。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。复核 2026-10-17：
- * - "Choose one you've not chosen this turn" 需要跨多次启动的本回合选择记忆
- *   （383.1.b 式的"第 N 次"语义与选择账本）；choice.mode 只在**本次结算内**
- *   保证 different（count/different），没有跨启动的"本回合未选过"过滤，同一次启动也
- *   无法读取历史选择。审查还发现 chain/engine.ts 的 assertFinalizationSurface 直接
- *   拒绝 choice.mode（Mode choices require a Finalize/Resolve choice-plan adapter），
- *   生产链路径本身还不能结算该指令。
- * - "Give me [Ganking] this turn" 已由 continuous.grant-keyword 真实执行：
- *   golden 经链式适配器 + 图层引擎断言 ability 层注册、关键词 Ganking 与
- *   end-of-turn 到期；layers/rules/query.ts 与 zones/movement.ts 现在会消费
- *   该 movement 许可来判定 battlefield-to-battlefield 的 Standard Move。
- * - "Spend my buff:"（702.2.b 的 spend-buff）已用费用计划真实收取（golden）。
- * - "a unit at a battlefield" 的伤害/横置目标在真实链路里可用 TargetSpec 表达，
- *   对应模式的 effect.damage / effect.stun / effect.ready 已由 golden 真实执行。
- * 依赖：模式选择记忆账本、choice.mode 的 Finalize/Resolve choice-plan adapter。
- * 不近似实现（不把"本回合未选过"删掉当无限制，也不写死伤害数额）。
+ * status 判定：judge-required（复核 2026-10-18）。
+ * - “Choose one you've not chosen this turn” 仍缺跨启动的本回合模式账本；
+ *   choice.mode 的 different 只在一次结算内去重。355.3 / 403.2 要求 Finalize 时
+ *   选择模式及相应目标，chain/engine.ts 仍拒绝 choice.mode，缺 choice-plan adapter。
+ * - Ganking 的 KeywordGrantLayerEngine 已能展开授予并规范化 movement 许可，
+ *   但默认 ChainEngine / attachProgramLifecycle 未接入动态关键词二次展开；
+ *   不能只由普通 LayerEngine 读到关键词就声称 Standard Move 许可已生效。
+ * - chain/interpreter-adapter.ts 的 LITERAL_FIELDS 未解包 effect.stun.target，
+ *   原始 Stun 模式 body 经该适配器会抛 target must be a spec id string；
+ *   直接 runAbilityBody 的局部 Stun 成功不能证明该生产桥接路径已可用。
+ * - golden 真实执行 spend-buff 费用、各模式 body 和 Ganking 的回合结束到期，
+ *   并单独验证关键词适配器中的移动许可；这些局部证据不替代模式 Finalize 和账本。
+ * 不删掉“本回合未选过”的限制，不近似实现。
  */
 const abilities: Ability[] = [
   {
@@ -141,12 +138,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "一处模式接线缺口（复核 2026-10-17）：“Choose one you've not chosen this turn” 需要跨启动的本回合选择记忆" +
-    "——choice.mode 只在本次结算内做 count/different 去重，没有跨结算读取本回合已选模式的账本（383.1.b 系列对“第 N 次”的裁决）；" +
-    "并且 chain/engine.ts 的 assertFinalizationSurface 直接拒绝 choice.mode（Mode choices require a Finalize/Resolve choice-plan adapter），" +
-    "生产链路径无法结算该指令。continuous.grant-keyword、Ganking 的 movement 查询与 Standard Move 合法性消费均已接通。" +
-    "已真实执行：spend-buff 费用（702.2.b，费用计划）、effect.damage / effect.stun / effect.ready 三个模式，以及 Ganking 的限时授予。" +
-    "依赖：跨启动的选择记忆账本、choice.mode 的 Finalize/Resolve choice-plan adapter。不近似实现。",
+    "当前缺口（复核 2026-10-18）：(1)「Choose one you've not chosen this turn」缺跨启动的" +
+    "本回合选择记忆账本，choice.mode 的 count/different 只在单次结算内去重。" +
+    "(2) 355.3 / 403.2 要求 Finalize 时选择模式及对应目标，chain/engine.ts 仍拒绝 choice.mode" +
+    "（Mode choices require a Finalize/Resolve choice-plan adapter），生产链缺该 choice-plan adapter。" +
+    "(3) 默认 ChainEngine 使用普通 LayerEngine，attachProgramLifecycle 尚未接入 " +
+    "KeywordGrantLayerEngine 的动态授予展开，Ganking 模式在默认链路仅添加关键词，未产生 " +
+    "810.1.c / 144.4.c.1 的 Standard Move 许可。(4) chain/interpreter-adapter.ts 的 " +
+    "LITERAL_FIELDS 缺 effect.stun.target 解包，原始 Stun 模式经该适配器抛 target must be a spec id string。" +
+    "不近似实现。",
   abilities,
   sourceText:
     // 逐字保留 catalog 原文：四个模式之间只有 "."、没有空格或换行（数据疑点已上报，未修改）。

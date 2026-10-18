@@ -1,6 +1,6 @@
 // Scenario execution evidence: ../../templates/static-642.test.mjs.
-// This file keeps the validation and identity checks plus the key structural
-// assertions; the real execution path for this card lives in that template row.
+// This file also exercises the merged keyword adapter and keeps the default
+// production path's unresolved printed outcome as a live TODO.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -15,6 +15,13 @@ import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/du
 import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import movementInstruction from "../../../../engine-core/dist/effects/instructions/continuous.movement.js";
 import { runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import moveInstruction from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { duelWorld, mainTiming, readinessFor } from "../../../../engine-core/test/rules/movement/support.mjs";
+import { moveDuelUnitsStandard } from "../../../../engine-core/dist/zones/movement.js";
 
 const CANONICAL = "card.hash-ce3c166d72907a0d5807cb816eb9409a1ebc640347881bf29b083c9f4789e4de";
 const SOURCE_TEXT = "Units here have [Ganking]. (They can move from battlefield to battlefield.)";
@@ -47,6 +54,9 @@ test("Windswept Hillock program validates and is judge-required", () => {
   assert.match(program.judgeReason, /static binder/);
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /hasGanking:false/);
+  assert.match(program.judgeReason, /默认 ChainEngine.*普通 LayerEngine/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /二次展开/);
   assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -156,7 +166,99 @@ test("Windswept Hillock: the merged movement query consumes the expansion's perm
   assert.equal(movement(registry, kernel.ref("unit-elsewhere"), kernel.getObject("unit-elsewhere")).canGank, false);
 });
 
-test.todo(
-  "Windswept Hillock production static binder must grant Ganking to unit-here " +
-    "by resolving the source-relative sameLocationAs filter; current binder yields no keyword."
-);
+function bindHillock(here = "bf-1", elsewhere = "bf-9") {
+  const kernel = world()
+    .battlefield("hillock", { cardId: CANONICAL, types: ["battlefield"], location: BATTLEFIELD(here), energy: null, power: null })
+    .unit("unit-here", { location: BATTLEFIELD(here) })
+    .unit("enemy-here", { owner: "B", controller: "B", location: BATTLEFIELD(here) })
+    .unit("unit-elsewhere", { location: BATTLEFIELD(elsewhere) })
+    .unit("gear-here", { types: ["gear"], location: BATTLEFIELD(here) })
+    .hand("hand-unit", { types: ["unit"] }).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects, perform: action => kernel.perform(action), choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ host, turnOrder: ["A", "B"], turnPlayer: "A", cleanup: current => {
+    current.layers.setObjects(kernel.objects);
+    const lethal = current.layers.evaluateAll().filter(object => object.zone === "board" &&
+      object.types.includes("unit") && object.might !== null && (object.might <= 0 || object.damage >= object.might));
+    for (const object of lethal) current.commit({ type: "kill", object: object.ref });
+    return lethal.length > 0;
+  } });
+  const handle = createEngineStaticBinder(engine).bindStatic(ability, kernel.getObject("hillock"));
+  return { kernel, engine, handle };
+}
+
+test("Windswept Hillock: the merged keyword adapter grants both players' units here a movement route", () => {
+  const state = bindHillock();
+  const layers = new KeywordGrantLayerEngine(state.kernel.objects, {
+    registry: state.engine.layers.registry,
+    context: source => bindResolveContext(state.kernel, { source, controller: source.controller })
+  });
+  for (const id of ["unit-here", "enemy-here"]) {
+    const unit = layers.evaluate(state.kernel.ref(id));
+    assert.deepEqual(unit.keywords, [{ id: "Ganking" }]);
+    assert.equal(movement(layers.registry, unit.ref, unit, unit.controller).canGank, true);
+  }
+  for (const id of ["unit-elsewhere", "gear-here", "hand-unit", "hillock"]) {
+    assert.deepEqual(layers.evaluate(state.kernel.ref(id)).keywords, []);
+  }
+  assert.equal(layers.evaluate(state.kernel.ref("hillock")).energy, null);
+  assert.equal(layers.evaluate(state.kernel.ref("hillock")).power, null);
+
+  // Real effect moves exercise the live aura as units leave and enter "here".
+  for (const [id, to, expected] of [
+    ["unit-here", BATTLEFIELD("bf-9"), []],
+    ["unit-elsewhere", BATTLEFIELD("bf-1"), [{ id: "Ganking" }]]
+  ]) {
+    const moved = runInstruction(moveInstruction, {
+      objects: { kind: "constant", value: { target: "moving-unit" } },
+      to: { kind: "constant", value: to }
+    }, { world: state.kernel, targets: { "moving-unit": [state.kernel.ref(id)] } });
+    assert.equal(moved.result.status, "executed");
+    assert.deepEqual(state.kernel.getObject(id).location, to);
+    layers.setObjects(state.kernel.objects);
+    const unit = layers.evaluate(state.kernel.ref(id));
+    assert.deepEqual(unit.keywords, expected);
+    assert.equal(movement(layers.registry, unit.ref, unit, unit.controller).canGank, expected.length > 0);
+  }
+  state.handle.unbind();
+  assert.deepEqual(layers.evaluate(state.kernel.ref("enemy-here")).keywords, []);
+  assert.deepEqual(layers.evaluate(state.kernel.ref("unit-elsewhere")).keywords, []);
+});
+
+test("Windswept Hillock: its adapted grant permits a real Standard Move with hasGanking false", () => {
+  const given = duelWorld();
+  const board = given.place(given.board, "unit-here", "A", given.bf1);
+  const state = bindHillock(given.bf1, given.bf2);
+  const layers = new KeywordGrantLayerEngine(state.kernel.objects, {
+    registry: state.engine.layers.registry,
+    context: source => bindResolveContext(state.kernel, { source, controller: source.controller })
+  });
+  const unit = layers.evaluate(state.kernel.ref("unit-here"));
+  assert.deepEqual(unit.keywords, [{ id: "Ganking" }]);
+  const readiness = readinessFor(board);
+  assert.equal(readiness[0].hasGanking, false);
+  const moved = moveDuelUnitsStandard(board, readiness, {
+    actor: "A", unitUIDs: ["unit-here"], destinationLocationId: given.bf2, timing: mainTiming("A")
+  }, {
+    registry: layers.registry,
+    refForUnit: object => state.kernel.ref(object.objectId),
+    objectForUnit: object => layers.evaluate(state.kernel.ref(object.objectId))
+  });
+  assert.equal(moved.board.units.find(object => object.objectId === "unit-here").locationId, given.bf2);
+  assert.equal(moved.readiness[0].readied, false);
+  assert.equal(moved.group.exhaustedCount, 1);
+  assert.equal(moved.group.events.length, 1);
+});
+
+test("Windswept Hillock TODO: the default production layers grant Ganking to units here", {
+  todo: "Default ChainEngine has not integrated value-based location matching and granted-keyword expansion"
+}, () => {
+  const state = bindHillock();
+  const unit = state.engine.layers.evaluate(state.kernel.ref("unit-here"));
+  assert.deepEqual(unit.keywords, [{ id: "Ganking" }]);
+  assert.equal(movement(state.engine.layers.registry, unit.ref, unit, "A").canGank, true);
+});

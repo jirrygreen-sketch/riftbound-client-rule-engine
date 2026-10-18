@@ -1,9 +1,9 @@
 // Golden test for Raging Soul (ogn-019-298) — per cards/README.md section 4.
 //
-// The card stays judge-required: three documented gaps (history-condition
-// consumer, designation/combatRole alignment for the granted Assault, and the
-// movement-permission shape for the granted Ganking) each have a live repro
-// below, marked TODO with the exact missing dependency. The merged parts —
+// The card stays judge-required: history conditions, default keyword-layer
+// integration, and combat designation production still block it. The injected
+// keyword adapter's Assault/Ganking behavior has separate execution evidence.
+// The merged parts —
 // validation, identity, the two conditional grants and their ability-layer
 // registration after a real discard — are asserted as real execution, not as
 // structure alone. Template-level execution evidence for the same card lives in
@@ -22,6 +22,7 @@ import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 
 const CARD_ID = "card.hash-55958c501a029c3b3b6cc885be9c3637445d707ccf6347d1f0338abd97718571";
 const [assaultGrant, gankingGrant] = program.abilities;
@@ -64,6 +65,7 @@ function discardOne(kernel, player) {
 test("raging-soul: passes validateCardProgram and is indexed by canonicalCardId", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
+  assert.deepEqual(result.issues, []);
   assert.equal(cardProgramsById.get(CARD_ID), program);
 });
 
@@ -73,6 +75,7 @@ test("raging-soul: identity, ruleset, status and verbatim sourceText", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /bindStaticToLayers/);
+  assert.match(program.judgeReason, /attachProgramLifecycle/);
   // Each remaining gap is recorded against its real consumer, with the rule
   // anchor that makes it a gap.
   assert.match(program.judgeReason, /ctx\.history/);
@@ -83,9 +86,12 @@ test("raging-soul: identity, ruleset, status and verbatim sourceText", () => {
   assert.match(program.judgeReason, /matchesObjectFilter/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /默认 ChainEngine.*普通 LayerEngine/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
   assert.match(program.judgeReason, /combat-start-transaction/);
   assert.match(program.judgeReason, /movement/);
   assert.match(program.judgeReason, /permission\.routes/);
+  assert.match(program.judgeReason, /动态授予展开/);
   // The reason names only current, source-verifiable gaps, never a task number
   // or the superseded "no consumer registered the static ability" claim.
   assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
@@ -270,9 +276,8 @@ test("raging-soul TODO: an opponent's discard must not satisfy \"you've discarde
 });
 
 test("raging-soul TODO: the granted Assault needs a live Attacker designation for +1 Might", {
-  todo: "CR 807.1.b.3/807.1.c/807.1.d.1: a granted keyword is never re-expanded through its KeywordDef, and the " +
-    "Assault expansion reads object-property(self, 'designation') while the production ObjectSnapshot only has " +
-    "contract 3.8's combatRole; combat/flow.ts still throws combat-start-transaction, so no producer writes it"
+  todo: "CR 807.1.c/807.1.d.1: default ChainEngine has not integrated KeywordGrantLayerEngine; " +
+    "the adapter already maps combatRole to designation, but combat/flow.ts still blocks combat-start-transaction"
 }, () => {
   // 正确规则：本回合弃过牌 + 保持 Attacker designation 时，宿主应为 4 + 1 = 5 Might。
   const kernel = world()
@@ -288,9 +293,8 @@ test("raging-soul TODO: the granted Assault needs a live Attacker designation fo
 });
 
 test("raging-soul TODO: the granted Ganking must reach the Standard Move legality check", {
-  todo: "CR 810.1.c/144.4.c.1: the Ganking KeywordDef emits a string permission while layers/rules/query.ts " +
-    "movement() reads only the normalized permission.routes, and zones/movement.ts reads only the caller-supplied " +
-    "hasGanking/ruleView.canGank, so the granted battlefield-to-battlefield route is never consumable"
+  todo: "CR 810.1.c/144.4.c.1: default ChainEngine has not integrated KeywordGrantLayerEngine; " +
+    "the adapter already expands the grant and normalizes its movement permission"
 }, () => {
   // 正确规则：本回合弃过牌后，宿主应能按 144.4.c.1 从战场移动到战场。
   const kernel = world()
@@ -302,4 +306,26 @@ test("raging-soul TODO: the granted Ganking must reach the Standard Move legalit
   assert.deepEqual(evaluated.keywords.map(entry => entry.id).sort(), ["assault", "ganking"]);
   const permission = movement(engine.layers.registry, kernel.ref("raging-soul"), evaluated, "A");
   assert.equal(permission.canGank, true);
+});
+
+test("raging-soul: the merged keyword adapter expands both grants after a real discard", () => {
+  // Initial combatRole tests the layer consumer, not combat-start production.
+  for (const [combatRole, might] of [["attacker", 5], ["defender", 4], [null, 4]]) {
+    const kernel = world()
+      .unit("raging-soul", { owner: "A", controller: "A", might: 4, combatRole, location: HERE })
+      .unit("ally", { owner: "A", controller: "A", might: 2, location: HERE })
+      .hand("fodder", { owner: "A" }).build();
+    assert.equal(discardOne(kernel, "A").status, "executed");
+    const engine = bindStatics(kernel);
+    const layers = new KeywordGrantLayerEngine(kernel.objects, {
+      registry: engine.layers.registry,
+      context: source => bindResolveContext(kernel, { source, controller: source.controller })
+    });
+    const evaluated = layers.evaluate(kernel.ref("raging-soul"));
+    assert.deepEqual(evaluated.keywords, [{ id: "Assault", value: 1 }, { id: "Ganking" }]);
+    assert.equal(evaluated.might, might);
+    assert.equal(movement(layers.registry, evaluated.ref, evaluated, "A").canGank, true);
+    assert.deepEqual(layers.evaluate(kernel.ref("ally")).keywords, []);
+    assert.equal(layers.evaluate(kernel.ref("ally")).might, 2);
+  }
 });
