@@ -173,6 +173,13 @@ export interface MightEffect {
   readonly minimum?: number;
   /** Non-passive changes remember their actual delta (CR 479.4.b). */
   readonly snapshotDelta?: number;
+  /**
+   * A signed reduction registered by a spell or ability instruction. The
+   * arithmetic consumer uses this marker to find matching
+   * `continuous.modify-might-reduction` registrations before the reduction is
+   * applied. Passive layer effects (for example Shield) omit it.
+   */
+  readonly reductionScope?: "controller-spells-and-abilities";
 }
 
 /**
@@ -201,7 +208,12 @@ export function buildMightSpec(
     ? { kind: "set-might", value: snapshottedAmount,
       ...(snapshotMight === null ? {} : { snapshotDelta: snapshottedAmount - snapshotMight }),
       ...(target.minimum === undefined ? {} : { minimum: target.minimum }) }
-    : { kind: "continuous.might", amount: snapshottedAmount, ...(target.minimum === undefined ? {} : { minimum: target.minimum }) };
+    : { kind: "continuous.might", amount: snapshottedAmount,
+      ...(target.minimum === undefined ? {} : { minimum: target.minimum }),
+      // CR 479.4.b: only a live, non-zero reduction participates in the
+      // application-time modifier snapshot. A reduction already clamped to 0
+      // remains 0 and cannot be amplified later during layer re-evaluation.
+      ...(snapshottedAmount < 0 ? { reductionScope: "controller-spells-and-abilities" as const } : {}) };
   const spec: ContinuousEffectSpec = {
     id: effectId(op, sourceRef, target, effectIdSuffix, settlement),
     layer: "arithmetic",

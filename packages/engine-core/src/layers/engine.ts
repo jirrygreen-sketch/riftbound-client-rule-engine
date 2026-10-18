@@ -9,6 +9,8 @@ import { evaluateCondition } from "../effects/interpreter/condition.js";
 import { evaluateExpression, type ExpressionContext } from "../effects/interpreter/expr.js";
 import { resolveLayerEffectExpressions } from "../effects/interpreter/expr-ext/layers.js";
 import { MissingInformation } from "../effects/interpreter/values.js";
+import { additionalMightReductions } from "../effects/modifiers/query.js";
+import shieldKeyword from "../effects/keywords/Shield.js";
 import { getTimingPoint, type TimingPointId } from "../events/timing-points.js";
 import type { DuelDerivedMightEvaluatorV2 } from "../combat/derived-might.js";
 import { matchesObjectFilter, objectRefFrom } from "./filter.js";
@@ -29,6 +31,10 @@ import {
 
 type AnyRecord = Record<string, unknown>;
 type MutableSnapshot = { -readonly [Key in keyof LayeredObjectSnapshot]: LayeredObjectSnapshot[Key] } & AnyRecord;
+
+type AppliedArithmetic = {
+  readonly effect: AnyRecord;
+};
 
 const EMPTY_MOVEMENT: MovementPermissions = Object.freeze({
   allowed: true,
@@ -294,7 +300,8 @@ function applyArithmetic(
   } else if (kind.includes("multiply") || kind.includes("double")) {
     if (target.might !== null) target.might *= kind.includes("double") ? 2 : amount;
   } else if (kind.includes("decrease") || kind.includes("subtract") || kind.includes("debuff") || amount < 0) {
-    if (target.might !== null) target.might -= Math.abs(amount);
+    const reduction = typeof effect.snapshottedReduction === "number" ? effect.snapshottedReduction : amount;
+    if (target.might !== null) target.might -= Math.abs(reduction);
   } else if (kind.includes("increase") || kind.includes("add") || kind.includes("buff") || kind.includes("might")) {
     if (target.might !== null) target.might += amount;
   }
@@ -336,6 +343,13 @@ export class LayerEngine {
   private groupView = new Map<string, LayeredObjectSnapshot>();
   private currentObject?: string;
   private restartRequested = false;
+  /**
+   * Non-passive reduction totals are remembered per immutable registry entry
+   * and target incarnation. A WeakMap keeps the application-time snapshot when
+   * the registry revision changes (modifier expiry/removal) while rollback's
+   * restored registry entries get fresh identities and therefore fresh reads.
+   */
+  private readonly arithmeticSnapshots = new WeakMap<RegisteredContinuousEffect, Map<string, number>>();
 
   constructor(
     objects: readonly ObjectSnapshot[] | ReadonlyMap<string, ObjectSnapshot>,
@@ -447,6 +461,72 @@ export class LayerEngine {
       effect.amount = amount * per;
     }
     return effect;
+  }
+
+  /**
+   * CR 479.4.b: a non-passive reduction locks its limitation and modifier at
+   * application time. The registration already snapshots its printed minimum;
+   * this method locks the additional-reduction modifier once, against raw
+   * source snapshots so a re-evaluation cannot recurse through currentMight.
+   */
+  private appliedArithmetic(entry: RegisteredContinuousEffect, target: LayeredObjectSnapshot): AppliedArithmetic {
+    const effect = this.materialize(entry, target);
+    const amount = numberValue(effect, target, ref => this.resolve(ref));
+    const scope = effect.reductionScope;
+    const isReduction = effectKind(effect).includes("decrease") || effectKind(effect).includes("subtract") ||
+      effectKind(effect).includes("debuff") || amount < 0;
+    if (!isReduction || typeof scope !== "string" || entry.effect.source === undefined) return { effect };
+
+    const targetKey = refKey(target.ref);
+    const remembered = this.arithmeticSnapshots.get(entry)?.get(targetKey);
+    if (remembered !== undefined) return { effect: { ...effect, snapshottedReduction: remembered } };
+
+    // A zero delta was already limited out. Re-evaluation must not turn that
+    // remembered zero into a fresh modifier application.
+    let snapshottedReduction = 0;
+    if (amount !== 0) {
+      const source = this.raw(entry.effect.source);
+      if (source === null) return { effect };
+      const additional = additionalMightReductions(
+        this.registry,
+        { controller: source.controller, appliesTo: scope },
+        ref => ref === undefined ? null : this.raw(ref),
+      ).reduce((sum, modifier) => sum + modifier.amount, 0);
+      snapshottedReduction = amount + additional;
+    }
+    const snapshots = this.arithmeticSnapshots.get(entry) ?? new Map<string, number>();
+    snapshots.set(targetKey, snapshottedReduction);
+    this.arithmeticSnapshots.set(entry, snapshots);
+    return { effect: { ...effect, snapshottedReduction } };
+  }
+
+  /**
+   * The default layer chain must expose effective keywords, not only raw
+   * keyword declarations. Reuse Shield's authored KeywordDef expansion here
+   * and emit its arithmetic contribution as a synthetic layer entry. The
+   * keyword-grant lifecycle owner remains responsible for dynamic grants; this
+   * bridge makes those registrations readable by effect.shield-value in the
+   * default ChainEngine without duplicating the Shield rule text.
+   */
+  private shieldEffects(target: LayeredObjectSnapshot): RegisteredContinuousEffect[] {
+    const shields = target.keywords.filter(keyword => keyword.id.toLowerCase() === "shield");
+    if (shields.length === 0 || target.combatRole !== "defender") return [];
+    const value = shields.reduce((sum, keyword) => sum +
+      (typeof keyword.value === "number" && Number.isSafeInteger(keyword.value) && keyword.value >= 0 ? keyword.value : 1), 0);
+    const expanded = shieldKeyword.expand({ value, host: { canonicalCardId: target.cardId ?? target.ref.id } })[0];
+    if (expanded?.kind !== "static") return [];
+    return [{
+      effect: {
+        id: `default-keyword:shield:${target.ref.id}:${target.ref.zoneEntryId}`,
+        layer: "arithmetic",
+        source: target.ref,
+        filter: { objectId: target.ref.id, zoneEntryId: target.ref.zoneEntryId, zone: target.zone },
+        effect: expanded.effect,
+      },
+      duration: { type: "permanent" },
+      timestamp: 0,
+      sequence: 0,
+    }];
   }
 
   private resolveCopy(ref: ObjectRef): LayeredObjectSnapshot | null {
@@ -628,9 +708,17 @@ export class LayerEngine {
             const done = applied.get(key)!;
             const disqualified = removed.get(key)!;
             let entry: RegisteredContinuousEffect | undefined;
-            while ((entry = this.nextEffect(effects.filter(item => item.effect.layer === layer &&
-              !done.has(item.effect.id) && !disqualified.has(item.effect.id)), target))) {
-              const effect = this.materialize(entry, target);
+            const candidates = effects.filter(item => item.effect.layer === layer &&
+              !done.has(item.effect.id) && !disqualified.has(item.effect.id));
+            // KeywordGrantLayerEngine contributes its own program-keyword
+            // entries. Avoid double-applying Shield when that owner is present.
+            const keywordEngineOwnsShield = layer === "arithmetic" && effects.some(item =>
+              item.effect.id.startsWith("program-keyword:") && sameRef(item.effect.source, target.ref));
+            if (layer === "arithmetic" && !keywordEngineOwnsShield) candidates.push(...this.shieldEffects(target));
+            while ((entry = this.nextEffect(candidates, target))) {
+              candidates.splice(candidates.indexOf(entry), 1);
+              const appliedEntry = entry.effect.layer === "arithmetic" ? this.appliedArithmetic(entry, target) : { effect: this.materialize(entry, target) };
+              const { effect } = appliedEntry;
               this.apply(target, layer, effect);
               done.set(entry.effect.id, { entry, effect });
               changed = true;
