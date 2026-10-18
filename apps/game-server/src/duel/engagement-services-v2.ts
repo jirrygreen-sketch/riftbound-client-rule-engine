@@ -5,7 +5,7 @@ import {
   type DuelCanonicalPlayingStateV2, type DuelEngagementServicesV2,
   type DuelPhaseSourceClosureContextV2, type ContinuousEffectRegistry,
 } from '@riftbound/engine-core/duel';
-import { lethalThresholdFor } from '@riftbound/engine-core';
+import { lethalThresholdFor } from '../../../../packages/engine-core/dist/effects/modifiers/query.js';
 import type { DuelProductionSourceServicesV2 } from './production-source-services-v2.js';
 
 export function createDuelEngagementServicesV2(options: {
@@ -42,14 +42,15 @@ export function createDuelEngagementServicesV2(options: {
   };
   const lethalDamageThreshold = (unit: { readonly objectId: string;
     readonly damageMarks: readonly { readonly responsiblePlayerId: string }[] }, currentMight: number) => {
-    const damageController = unit.damageMarks.at(-1)?.responsiblePlayerId;
-    if (!damageController || !options.effects) return currentMight;
-    const grants = lethalThresholdFor(options.effects,
-      { controller: damageController, anchors: [unit] },
-      ref => ref.id === unit.objectId ? unit : null);
-    // CR 142.4.c overrides replace the default threshold; CR 142.4.b remains
-    // the fallback whenever no active registration applies.
-    return grants.at(-1)?.amount ?? currentMight;
+    if (!options.effects) return currentMight;
+    // 142.4.c thresholds can refer to the controller of the marked Damage.
+    // Evaluate every source that actually marked this Unit, never a guessed
+    // owner/controller from its current board location. The smallest active
+    // threshold is the amount needed for the marked Damage to be lethal.
+    const thresholds = new Set(unit.damageMarks.map(mark => mark.responsiblePlayerId));
+    const grants = [...thresholds].flatMap(controller => lethalThresholdFor(options.effects,
+      { controller, anchors: [unit] }, ref => ref.id === unit.objectId ? unit : null));
+    return grants.length ? Math.min(currentMight, ...grants.map(grant => grant.amount)) : currentMight;
   };
   const drawProof = (request: Parameters<NonNullable<DuelEngagementServicesV2['sourceDraw']>>[0]) => ({
     status: 'ready' as const, matchId: request.match.matchId,
