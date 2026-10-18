@@ -275,7 +275,17 @@ class MatchRuntime implements EngineRuntime {
   private execute(playerId: string, command: V2Command): Record<string, unknown> {
     const match = this.match!;
     if (command.type === "concede") { concede(match, playerId); return { accepted: true, winnerPlayerId: match.result().winner }; }
-    if (command.type === "pass") { match.flow.pass(playerId); return { accepted: true }; }
+    if (command.type === "pass") {
+      if (match.flow.chain.items.some(item => item.status === "pending")) {
+        // Finalize choices are part of the chain and may suspend before the
+        // priority holder can pass. Resume Finalize here; resolve passes through
+        // the normal chain priority after the item is finalized.
+        match.flow.chain.advance();
+        return { accepted: true };
+      }
+      match.flow.pass(playerId);
+      return { accepted: true };
+    }
     if (command.type === "mulligan") throw new Error("Mulligan is supplied to start(); setup is already complete");
     if (command.type === "choose") throw new Error("Choice commands are handled by the runtime boundary");
     if (command.type === "move") {

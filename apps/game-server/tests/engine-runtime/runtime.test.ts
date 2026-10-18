@@ -177,7 +177,8 @@ describe("engine runtime", () => {
       status: "executable",
       sourceText: "runtime choice test",
       abilities: [{
-        kind: "play",
+        kind: "activated",
+        timing: "action",
         cost: { kind: "explicit", energy: { kind: "constant", value: 0 } },
         body: [{ id: "choose", op: "choice.optional", args: { body: { kind: "constant", value: [] } } }],
       }],
@@ -227,7 +228,7 @@ describe("engine runtime", () => {
         cost: { kind: "explicit", energy: { kind: "constant", value: 0 } },
         body: [{
           id: "damage", op: "effect.damage",
-          targets: [{ id: "all", filter: {}, selection: "all" }],
+          targets: [{ id: "all", filter: { type: "unit" }, selection: "all" }],
           args: { amount: { kind: "constant", value: 2 }, divide: { kind: "constant", value: true },
             target: { kind: "constant", value: "all" } },
         }],
@@ -235,11 +236,13 @@ describe("engine runtime", () => {
     } as const;
     const runtime = createEngineRuntime({ matchId: "number", decks, seed: "number", programs: [program] }).start();
     const objectId = source!.objectId;
-    runtime.submit("A", { type: "move", commandId: "move-number-source", stateVersion: 0, objectId, to: { zone: "base", playerId: "A" } });
-    const activated = runtime.submit("A", { type: "play", commandId: "play-number", stateVersion: 1,
-      cardObjectId: objectId, cost: { energy: 0 } });
-    const pending = runtime.submit("B", { type: "pass", commandId: "pass-number-a", stateVersion: activated.receipt.stateVersion });
-    const next = runtime.submit("A", { type: "pass", commandId: "pass-number-b", stateVersion: pending.receipt.stateVersion });
+    const moved = runtime.submit("A", { type: "move", commandId: "move-number-source", stateVersion: 0,
+      objectId, to: { zone: "base", playerId: "A" } });
+    const played = runtime.submit("A", { type: "activate", commandId: "activate-number", stateVersion: moved.receipt.stateVersion,
+      sourceObjectId: objectId, abilityId: "0" });
+    expect(played.receipt.status).toBe("accepted");
+    const firstPass = runtime.submit("A", { type: "pass", commandId: "pass-number-a", stateVersion: played.receipt.stateVersion });
+    const next = runtime.submit("B", { type: "pass", commandId: "pass-number-b", stateVersion: firstPass.receipt.stateVersion });
     expect(next.receipt.status).toBe("pending");
     const owner = runtime.projectFor("A").pendingChoice;
     expect(owner).toMatchObject({ status: "pending", kind: "number", min: 1, max: 1 });
