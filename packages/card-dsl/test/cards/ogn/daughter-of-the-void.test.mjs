@@ -1,3 +1,9 @@
+// RIFT-654 template execution evidence: ../templates/activated-activated-effect-resources-654.test.mjs
+// (whole-card activation is pending; the original Exhaust cost, original [A] body, exhausted-source
+// and no-invented-Domain boundaries execute as partial evidence). The "[A] negated" and "original-body-partial" goldens
+// below assert the documented missing Universal Power representation and stay aligned with the
+// TODO entries. The card stays judge-required for that representation, the resource-use
+// restriction and the Legend Zone asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -7,7 +13,6 @@ import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import resources from "../../../../engine-core/dist/effects/instructions/effect.resources.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL_ID =
@@ -37,6 +42,7 @@ test("ogn-247-298 Daughter of the Void: identity, status, and verbatim sourceTex
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /use-only-to-play-spells/);
   assert.match(program.judgeReason, /430\.2/);
+  assert.match(program.judgeReason, /107\.4/);
 });
 
 test("ogn-247-298 Daughter of the Void: [Reaction] activation with the printed Exhaust cost", () => {
@@ -104,7 +110,6 @@ test.todo(
     "(restriction consumption) plus the 430.3 Reaction-Add window during payment"
 );
 
-
 test("Daughter of the Void: the original Add body preserves resources when Universal Power is impossible", () => {
   const initial = world().unit("daughter", { types: ["legend"] }).player("A", { energy: 2, power: ["Mind"] }).build();
   const kernel = initial.clone({ sourceSnapshot: initial.getObject("daughter") });
@@ -115,3 +120,5 @@ test("Daughter of the Void: the original Add body preserves resources when Unive
   assert.deepEqual(kernel.player("A").power, ["Mind"]);
   assert.deepEqual(result.events, []);
 });
+
+

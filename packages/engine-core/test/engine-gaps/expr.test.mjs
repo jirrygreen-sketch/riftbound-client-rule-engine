@@ -181,6 +181,10 @@ test("original Raging Soul gate reads discarded event snapshots after recycling,
   const keywords = () => f.snapshot("source").keywords.map(keyword => keyword.id.toLowerCase()).sort();
   assert.deepEqual(keywords(), []);
   assert.equal(f.engine.commit({ type: "discard", object: f.kernel.ref("enemy") }).status, "done");
+  const enemyDiscard = f.engine.pipeline.events.find(event => event.timingPoint === "card-discarded" && event.object?.ref.id === "enemy");
+  assert.equal(enemyDiscard.object.controller, "B", "the discard snapshot identifies the player whose Hand card moved");
+  assert.equal(f.context("source", "A").history({ scope: "turn", timingPoint: "card-discarded", player: "A" }), 0);
+  assert.equal(f.context("source", "B").history({ scope: "turn", timingPoint: "card-discarded", player: "B" }), 1);
   assert.deepEqual(keywords(), []);
   assert.equal(f.engine.commit({ type: "take-control", object: f.kernel.ref("source"), player: "B" }).status, "done");
   assert.deepEqual(keywords(), ["assault", "ganking"]);

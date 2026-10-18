@@ -32,6 +32,9 @@ import type { CardProgram } from "../../ir/index.js";
  * - 费用与时机两半可执行：kill + exhaust 的 nonstandard 支付、activated.timing =
  *   "reaction" 的声明、以及 430.3 的 Reaction Add 支付窗口都已合入；golden 经卡牌程序绑定
  *   describeActivate 真实执行费用计划与支付回执（含 token 进入 Trash）。
+ * - 但 programs/activate.ts 固定生成 kind "activated"，没有把资源增加正文识别为 Add
+ *   草案；CR 430.2.a 的即时结算与 430.3 的支付期启动窗口（chain/engine.ts 的
+ *   activateAddDuringPayment 要求 kind=add 且 speed=reaction）都不能从本卡进入。
  * - 另外，Token 的 token 定义表（effect.token 的 frozen 定义）刻意不含 Gold
  *   （"definitions requiring other abilities, including Gold, remain blocked/judge-required"），
  *   因此“造出 Gold”的来源仍属该原语的既有缺口，与本卡自身的程序无关。
@@ -78,9 +81,12 @@ const program = {
     "effect.resources 明确记录 Universal Power 不可表达、绝不近似成某个具体域；" +
     "本卡以 power: [\"rainbow\"] 保留记号，原语返回 negated(impossible)（effect.resources 的 isPower 只接受六域），" +
     "费用侧 cost/plan-values.ts 的 domains() 也对同一记号抛 CostPlanError(invalid-cost-plan)——golden 同时锁定这两条负向证据。" +
-    "费用与时机两半不缺口：kill + exhaust 的 nonstandard 支付（377.1 / 415.5 / 429.6 / 357.2）与 " +
+    "费用侧可执行：kill + exhaust 的 nonstandard 支付（377.1 / 415.5 / 429.6 / 357.2）与 " +
     "activated.timing = \"reaction\"（813.1.c.2）经卡牌程序绑定 describeActivate 真实执行（token 进入 Trash，" +
-    "第二次启动以 cannot-pay-cost 失败）；430.3 的 Reaction Add 支付窗口由链侧 activateAddDuringPayment 提供。" +
+    "第二次启动以 cannot-pay-cost 失败）。" +
+    "仍缺 describeActivate 按资源增加正文识别 kind: add 的桥接：当前固定生成 activated，" +
+    "不能进入 CR 430.2.a 的即时 Add 结算与 430.3 的 Reaction-Add 支付窗口" +
+    "（chain/engine.ts 的 activateAddDuringPayment 要求 kind=add 且 speed=reaction，仍无生产调用方）。" +
     "另记：本地 effect.token 的 frozen 定义表刻意不含 Gold 装备 token（需其它能力的 token 一律 blocked/judge-required），" +
     "因此“造出 Gold”的来源仍属该原语的既有缺口，与本卡程序无关。" +
     "依赖：契约变更（Domain 增补 Universal 或新增 gain-universal-power 动作）。不近似实现。",

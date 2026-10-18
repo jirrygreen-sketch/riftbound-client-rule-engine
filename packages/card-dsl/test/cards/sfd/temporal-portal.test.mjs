@@ -1,3 +1,6 @@
+// RIFT-662: execution evidence for the supported cost path lives in
+// ../templates/activated-activated-continuous-grant-key-662.test.mjs; this
+// file keeps the README §4.1 layer 1/2 checks and the gap evidence.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -40,9 +43,14 @@ test("sfd-078-221 Temporal Portal: program validates and is judge-required", () 
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.deepEqual(result.issues, []);
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /Repeat/);
-  assert.match(program.judgeReason, /next-spell|一次性/);
-  assert.match(program.judgeReason, /equal to its cost|印刷费用/);
+  // The refreshed reason keeps the four measured gaps (rejected printed
+  // shape, missing one-shot next-spell window, missing dynamic Repeat cost
+  // consumer, and the test kernel not removing Power); the marker assertions
+  // target those measured facts.
+  assert.match(program.judgeReason, /amount/);
+  assert.match(program.judgeReason, /one-shot next-spell|下一个法术/);
+  assert.match(program.judgeReason, /820\.1\.c\.1/);
+  assert.match(program.judgeReason, /player\.power/);
 });
 
 test("sfd-078-221 Temporal Portal: identity, ruleset, status and verbatim source text", () => {
@@ -68,18 +76,20 @@ test("sfd-078-221 Temporal Portal: one action-speed activated ability with the p
 test("sfd-078-221 Temporal Portal: the body grants Repeat to the next spell at a cost equal to its own", () => {
   assert.equal(ability.body.length, 1);
   assert.equal(grantRepeat.id, "temporal-portal.grant-repeat");
-  // 820.1.b/820.1.c：给下一个法术授予一个 Repeat 实例，费用来自该法术自己的印刷文本。
+  // 820.1.c：授予对象与费用都是「那张未来法术」自身，不是固定数值；IR 只能用
+  // 描述性标记表达，直到 one-shot 窗口与动态费用读取落地（见 judgeReason）。
   assert.equal(grantRepeat.op, "continuous.grant-keyword");
-  assert.deepEqual(grantRepeat.args.keyword, { kind: "constant", value: "Repeat" });
-  // 820.1.c：保留印刷的动态费用语义标记；Finalize 尚没有消费方。
-  assert.deepEqual(grantRepeat.args.amount, { kind: "constant", value: "equal-to-its-cost" });
-  assert.deepEqual(grantRepeat.args.appliesTo, { kind: "constant", value: "next-spell-you-play" });
-  assert.deepEqual(grantRepeat.args.duration, { kind: "constant", value: "end-of-turn" });
+  assert.deepEqual(grantRepeat.args, {
+    keyword: { kind: "constant", value: "Repeat" },
+    amount: { kind: "constant", value: "equal-to-its-cost" },
+    appliesTo: { kind: "constant", value: "next-spell-you-play" },
+    duration: { kind: "constant", value: "end-of-turn" }
+  });
   assert.equal(grantRepeat.targets, undefined);
   assert.equal(grantRepeat.linkedTo, undefined);
 });
 
-test("sfd-078-221 Temporal Portal: Universal Power and Exhaust are payable through the real cost pipeline", () => {
+test("sfd-078-221 Temporal Portal: the real cost pipeline selects Universal Power and pays Exhaust", () => {
   // 135.2.e.5.a / 415.4 / 415.5：每个任意域 Power 都能支付 [A]，并同时横置来源。
   for (const domain of ALL_SIX_DOMAINS) {
     const built = world()

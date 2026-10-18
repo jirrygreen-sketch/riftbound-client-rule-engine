@@ -2,6 +2,7 @@ import type { Expr, Instruction, InstructionDef, ResolveContext, Value } from '.
 import { runAbilityBody, type InterpreterOptions } from '../effects/interpreter.js';
 import { instructionDefinitionsById } from '../effects/instructions/registry.generated.js';
 import { bindOrderedPickInstructions, orderedPickResolver } from './picks/linked.js';
+import { bindResolveContext } from '../events/action-adapter.js';
 
 /**
  * The current interpreter evaluates args before dispatch, while primitive v1
@@ -31,18 +32,27 @@ function prepare(body: readonly Instruction[]): Instruction[] {
 // Decode only declared literal fields; dynamic value expressions stay intact.
 const LITERAL_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'effect.draw': ['target', 'pick', 'choice', 'linkKey'],
-  'effect.damage': ['target', 'combat'],
+  'effect.damage': ['target', 'combat', 'divide', 'source'],
   'effect.counter': ['target'],
   'effect.buff': ['mode', 'target', 'chooser', 'chooseUpTo'],
-  'effect.exhaust': ['target', 'pick', 'choice'],
-  'effect.stun': ['target', 'pick'],
+  'effect.exhaust': ['target', 'pick', 'choice', 'choose'],
   'effect.kill': ['target', 'picks', 'self', 'reason'],
   'effect.detach': ['pick'],
   'effect.play': ['target', 'pick', 'choice', 'linkKey'],
   'effect.recycle': ['target', 'from'],
   'effect.reveal': ['target', 'pick', 'choiceId'],
+  'effect.stun': ['target', 'pick', 'choose'],
   'effect.zone': ['target', 'pick', 'choice'],
-  'effect.repeat': ['actions', 'action', 'effect', 'choices', 'choice', 'linkKey', 'resultKey']
+  'effect.repeat': ['actions', 'action', 'effect', 'choices', 'choice', 'linkKey', 'resultKey'],
+  'cost.modify': [
+    'id', 'source', 'cost', 'printed', 'domains', 'baseChoices', 'baseChoice',
+    'baseModifications', 'optionalAdditional', 'mandatoryAdditional',
+    'discountOrder', 'modifier', 'modifiers', 'ignoreAllCosts', 'linkKey'
+  ],
+  'continuous.might': ['target', 'pick', 'choose', 'filter'],
+  'continuous.combat': ['target', 'pick', 'choose', 'filter'],
+  'continuous.keyword': ['target', 'pick', 'choose', 'filter'],
+  'continuous.grant-keyword': ['target', 'pick', 'choose', 'filter']
 };
 function primitiveArgs(op: string, value: unknown, definition: InstructionDef<unknown>): unknown {
   const raw = { ...(value as { primitiveArgs: Record<string, unknown> }).primitiveArgs };
@@ -64,9 +74,25 @@ export function resolveChainBody(
   options: InterpreterOptions = {}
 ) {
   const orderedPicks = orderedPickResolver(body);
+  // Continuous primitives derive their per-settlement registration id from a
+  // shared settlement counter keyed by source identity (CR 478.1: layers are
+  // evaluated continuously; 317.2.c: this-turn effects expire together). The
+  // interpreter only persists the instruction-qualified key, so the next
+  // settlement read the bare key and recomputed the same id, colliding in the
+  // continuous registry. Mirror the settlement counter back under its bare key
+  // so counters survive across settlements; host checkpoints still roll the
+  // mirrored write back with the transaction (AwaitChoice replays recompute the
+  // same id deterministically instead of resubmitting registrations).
+  const settlementContext = bindResolveContext(context, {
+    link: (key, value) => {
+      context.link(key, value);
+      const marker = key.indexOf('__continuous.settlement.');
+      if (marker > 0) context.link(key.slice(marker), value);
+    }
+  });
   return runAbilityBody(
     prepare(body),
-    context,
+    settlementContext,
     bindOrderedPickInstructions(registry, body),
     {
       ...options,

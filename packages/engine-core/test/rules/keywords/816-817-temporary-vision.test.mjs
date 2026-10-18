@@ -3,15 +3,19 @@
 //
 // Temporary expands to a `beginning-start` trigger; Vision expands to an
 // `object-enters-board` trigger whose body is a real `effect.inspect` + `effect.recycle`
-// pair. Both are inspectable through the merged program expander; registration is
-// blocked for named reasons recorded as todos.
+// pair. Temporary now runs through the production trigger path; Vision's ordered
+// top-card binding remains a separate adapter gap.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import temporary from '../../../dist/effects/keywords/Temporary.js';
 import vision from '../../../dist/effects/keywords/Vision.js';
-import { expandProgram, createProgramBinding } from '../../../dist/programs/index.js';
+import { expandProgram } from '../../../dist/programs/index.js';
 import { instructionDefinitionsById } from '../../../dist/effects/instructions/registry.generated.js';
 import { validateTriggerSpec } from '../../../dist/events/trigger-spec.js';
+import { createProgramBinding } from '../../../dist/programs/index.js';
+import { TurnFlow } from '../../../dist/turn/flow.js';
+import { bindResolveContext, createActionPipelineHost } from '../../../dist/events/action-adapter.js';
+import { AwaitChoice } from '../../../dist/effects/contract.js';
 import { world } from './support.mjs';
 
 const TEMPORARY_CARD = 'test:temporary-unit';
@@ -78,21 +82,71 @@ test('keywords-vision-multiple-instances-trigger-separately: two printed Vision 
   assert.equal(expanded.length, 2, 'separate stacking keeps both instances');
 });
 
-test('keywords-temporary-killed-at-controller-beginning-phase: the production trigger registration rejects the authored Temporary filter', () => {
+test('keywords-temporary-killed-at-controller-beginning-phase: production registration and execution kill before scoring', () => {
   const [ability] = temporary.expand({ host: { canonicalCardId: TEMPORARY_CARD } });
-  // The trigger’s timing id is a real TimingPointId, but the frozen EventPattern
-  // type vocabulary cannot name it, so a registered spec is rejected.
   const result = validateTriggerSpec({ at: ability.trigger.at, filter: ability.trigger.filter });
-  assert.equal(result.ok, false);
-  assert.ok(result.issues.some(issue => issue.path === 'trigger.filter.event' && issue.code === 'invalid-event-type'), JSON.stringify(result.issues));
+  assert.equal(result.ok, true, result.ok ? '' : JSON.stringify(result.issues));
 
-  const kernel = world().unit('u1', { cardId: TEMPORARY_CARD, zone: 'board', keywords: [{ id: 'Temporary' }] }).build();
+  const builder = world().player('A').player('B')
+    .base('source', { might: 4 })
+    .deck(['A:deck:0'], { owner: 'A' }).deck(['B:deck:0'], { owner: 'B' })
+    .rune(['A:rune:0'], { owner: 'A' }).rune(['B:rune:0'], { owner: 'B' })
+    .unit('u1', {
+      cardId: TEMPORARY_CARD,
+      location: { type: 'battlefield', id: 'bf1' },
+      keywords: [{ id: 'Temporary' }]
+    })
+    .unit('survivor', { location: { type: 'battlefield', id: 'bf2' } });
+  const kernel = builder.build();
+  const answers = new Map();
+  const choose = request => {
+    if (answers.has(request.id)) return answers.get(request.id);
+    if (request.type === 'select-objects' && request.min === request.max && request.options.length === request.min) {
+      return [...request.options];
+    }
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  const flow = new TurnFlow({
+    host,
+    player: id => kernel.player(id),
+    turnOrder: ['A', 'B'],
+    battlefields: [{ id: 'bf1', controller: 'A' }, { id: 'bf2', controller: 'A' }]
+  });
   const binding = createProgramBinding({ cardPrograms: [program(TEMPORARY_CARD)] });
-  assert.throws(
-    () => binding.registerProgramTriggers({ pipeline: { registerTrigger: () => { throw new Error('unreachable'); } } }, kernel.getObject('u1'))
-  );
+  const ids = binding.registerProgramTriggers(flow.chain, kernel.getObject('u1'));
+  assert.equal(ids.length, 1);
+  const mark = flow.chain.pipeline.events.length;
+  const startError = (() => { try { flow.start(); return null; } catch (error) { return error; } })();
+  assert.equal(startError, null, startError instanceof Error ? startError.message : String(startError));
+  let passes = 0;
+  while (flow.phase !== 'main') {
+    assert.ok(++passes <= 30, 'real TurnFlow did not reach Main Phase');
+    if (flow.chain.items.length) flow.pass(flow.chain.priority);
+    else flow.advance();
+  }
+
+  const events = flow.chain.pipeline.events.slice(mark);
+  const timings = events.map(event => event.timingPoint);
+  const killAt = timings.indexOf('object-killed');
+  assert.ok(killAt >= 0, 'TurnFlow Beginning produced the real Kill');
+  const scoreAt = timings.indexOf('score');
+  assert.ok(scoreAt >= 0, 'the same Beginning produced a real Score wave from the surviving Battlefield');
+  assert.equal(timings.includes('beginning-end'), true, 'the real Beginning Phase completed');
+  assert.ok(timings.indexOf('beginning-start') < killAt);
+  assert.ok(killAt < scoreAt, 'Temporary killed its host before the Beginning Scoring wave');
+  assert.ok(timings.indexOf('hold') > killAt);
+  assert.equal(kernel.getObject('u1').zone, 'trash');
+  assert.equal(kernel.player('A').score, 1);
+  assert.deepEqual(flow.scored('A'), ['bf2']);
 });
 
-test.todo('keywords-temporary-killed-at-controller-beginning-phase / keywords-temporary-multiple-instances-trigger-once (CR 816.1.b): the authored trigger uses the timing-point id `beginning-start`, which the frozen EventPattern type vocabulary cannot express (src/events/trigger-spec.ts EVENT_PATTERN_TYPES starts at zone-entered/zone-left), so src/events/pipeline.ts `registerTrigger` raises a validation error and the ability never reaches the pipeline; the Beginning Step producer exists (src/turn/flow.ts) but no merged adapter maps the timing id to a registrable pattern. The authored shape is asserted above');
-
-test.todo('keywords-vision-trigger-on-played / keywords-vision-multiple-instances-trigger-separately (817.1.c, 817.2.b): the trigger filter uses the key `object.id`, which src/programs/filters.ts rejects (“Unsupported filter field object.id”), so the ability cannot register through the production binder even though its body primitives (`effect.inspect` + `effect.recycle`) are merged; the authored body shape is asserted above');
+test.todo('keywords-vision-trigger-on-played / keywords-vision-multiple-instances-trigger-separately (817.1.c, 817.2.b) [EG-TARGETS, EG-ADAPTER]: the objectId host filter now registers and the effect.inspect/effect.recycle body is present, but production execution still lacks the ordered top-card PickSpec and controller binding needed for Predict; the authored shape is asserted above');
