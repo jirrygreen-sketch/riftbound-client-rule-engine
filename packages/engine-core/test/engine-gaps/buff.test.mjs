@@ -126,11 +126,23 @@ test("EG-BUFF original Albus Ferros production chain rolls back after an invalid
   assert.deepEqual(f.kernel.linkedSnapshot(), before.links);
   assert.deepEqual(f.engine.pipeline.events, before.events);
   assert.deepEqual(f.engine.items, before.items);
-  assert.deepEqual(f.engine.trace, before.trace);
-  assert.equal(f.engine.priority, before.priority);
+  assert.deepEqual(f.engine.trace.slice(0, before.trace.length), before.trace);
+  assert.equal(
+    f.engine.trace.slice(before.trace.length).some(entry => entry.step === "resolved" || entry.step === "removed"),
+    false
+  );
   assert.equal(f.get("buffed-a").buffs, 1);
   assert.equal(f.get("buffed-b").buffs, 1);
   assert.equal(f.kernel.player("A").runePool.length, 0);
+
+  f.answers.set(
+    "albus-ferros.spend-buffs/pick%3Aalbus-ferros.buffs",
+    [f.ref("buffed-a"), f.ref("buffed-b")]
+  );
+  settle(f.engine);
+  assert.equal(f.get("buffed-a").buffs, 0);
+  assert.equal(f.get("buffed-b").buffs, 0);
+  assert.equal(f.kernel.player("A").runePool.length, 2);
 });
 
 test("EG-BUFF arbitrary choose replays transactionally, accepts zero, and never targets the chosen Units", () => {
