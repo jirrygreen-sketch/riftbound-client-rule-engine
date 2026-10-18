@@ -2,7 +2,7 @@ import type { CostPayment, CostSpec, PickSpec } from '@riftbound/card-dsl';
 import type { Domain, ObjectRef, ResolveContext, Value } from '../effects/contract.js';
 import { bindDuelPrintedCost } from './printed-costs.js';
 import { DUEL_DOMAINS, type DuelPowerRequirement } from './resources.js';
-import { CostPlanError, type CostAmount, type CostChoiceLock, type CostChoiceLocks, type CostChoicePlanInput, type CostPlanInput, type NonstandardCostAction } from './plan-types.js';
+import { CostPlanError, type CostAmount, type CostChoiceLock, type CostChoiceLocks, type CostPlanInput, type NonstandardCostAction } from './plan-types.js';
 import { chooseCostObjects } from './plan-choices.js';
 
 export function invalid(message: string): never {
@@ -59,7 +59,9 @@ function powerValue(value: Value, input: CostPlanInput): DuelPowerRequirement[] 
     return amount ? [{ amount, allowedDomains: ownDomains(input) }] : [];
   }
   if (!Array.isArray(value)) return invalid('Power must evaluate to an amount or a domain list');
-  if (value.some(item => item === 'any' || item === 'universal' || item === 'universal-power' || item === 'rainbow')) {
+  const universal = value.some(item => item === 'any' || item === 'universal' || item === 'universal-power' || item === 'rainbow');
+  if (universal) {
+    if (value.some(item => !DUEL_DOMAINS.includes(item))) return invalid('Expected unique cost domains');
     return blocked('Universal Power requires a domainless resource contract');
   }
   return value.map(item => ({ amount: 1, allowedDomains: domains([item]) }));
@@ -67,6 +69,7 @@ function powerValue(value: Value, input: CostPlanInput): DuelPowerRequirement[] 
 
 function paymentDomains(value: unknown): Domain[] {
   if (Array.isArray(value) && value.some(item => item === 'any' || item === 'universal' || item === 'universal-power' || item === 'rainbow')) {
+    if (value.some(item => !DUEL_DOMAINS.includes(item))) return invalid('Expected unique cost domains');
     return blocked('Universal Power requires a domainless resource contract');
   }
   return domains(value);
@@ -82,7 +85,7 @@ function reference(value: unknown, ctx: ResolveContext): ObjectRef {
 }
 
 function lockedChoice(input: CostPlanInput, choiceId: string, kind: string): CostChoiceLock | undefined {
-  const locks = (input as CostPlanInput & CostChoicePlanInput).costChoices?.locks ?? [];
+  const locks = input.costChoices?.locks ?? [];
   const matches = locks.filter(lock => lock.choiceId === choiceId);
   if (matches.length > 1) invalid(`Cost choice ${choiceId} has duplicate Finalize locks`);
   const lock = matches[0];

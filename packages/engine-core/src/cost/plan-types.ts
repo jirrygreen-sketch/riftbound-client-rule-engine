@@ -47,6 +47,8 @@ export interface CostPlanInput {
   readonly discounts?: readonly CostDiscount[];
   readonly discountOrder?: readonly string[];
   readonly ignoreAllCosts?: boolean;
+  /** Finalize-locked non-target cost choices; retries must reuse these receipts. */
+  readonly costChoices?: CostChoiceLocks;
 }
 
 export type NonstandardCostAction = Extract<GameAction, {

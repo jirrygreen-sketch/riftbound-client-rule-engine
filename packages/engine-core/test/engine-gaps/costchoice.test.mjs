@@ -2,11 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildCostPlan } from '../../dist/cost/cost-plan.js';
+import { finalizeCostChoiceLock, costChoiceLocks } from '../../dist/cost/plan-values.js';
 import { payCostPlan } from '../../dist/cost/payment.js';
 import { CostPlanError } from '../../dist/cost/plan-types.js';
 import costPayAny from '../../dist/effects/instructions/cost.pay-any.js';
 import costPayAnyPower from '../../dist/effects/instructions/cost.pay-any-power.js';
 import { runInstruction, world } from '../../dist/effects/testing/index.js';
+import { AwaitChoice } from '../../dist/effects/contract.js';
+import { bindResolveContext, createActionPipelineHost } from '../../dist/events/action-adapter.js';
+import { ChainEngine } from '../../dist/chain/engine.js';
 import ironRevenant from '../../../card-dsl/dist/cards/rad/iron-revenant.js';
 import ancientHenge from '../../../card-dsl/dist/cards/sfd/ancient-henge.js';
 import { runAbilityBody } from '../../dist/effects/interpreter.js';
@@ -18,6 +22,34 @@ const failure = reason => error => error instanceof CostPlanError && error.reaso
 function withSource(builder, id = 'source') {
   const context = builder.build();
   return context.clone({ sourceSnapshot: context.object(context.ref(id)) });
+}
+
+function chainScene(builder, options = {}) {
+  const kernel = builder.build();
+  const answers = new Map(Object.entries(options.answers ?? {}));
+  const asked = [];
+  const choose = request => {
+    asked.push(request);
+    if (answers.has(request.id)) return answers.get(request.id);
+    if (request.type === 'select-objects' && request.min === request.max && request.options.length === request.min) return [...request.options];
+    throw new AwaitChoice(request);
+  };
+  const decide = request => {
+    if (answers.has(request.id)) return answers.get(request.id);
+    return choose(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: decide,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose: decide })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main', host, cleanup: () => false
+  });
+  return { kernel, engine, answers, asked };
 }
 
 test('Finalize binds a non-target cost choice to current controller and zone', () => {
@@ -94,16 +126,13 @@ test('dynamic cost choices reject an unavailable required selection before payme
   assert.equal(context.player('A').energy, 2);
 });
 
-test('banish and disempower are real nonstandard cost actions', () => {
+test('banish uses current control and disempower stays judge-required without contract state', () => {
   const context = withSource(world().player('A').unit('source', { types: ['unit'] }), 'source');
-  context.perform({ type: 'empower', object: context.ref('source') });
   const disempower = buildCostPlan(context, { id: 'disempower', cost: { payments: [{ kind: 'disempower', object: 'self' }] } });
   assert.equal(disempower.total.actions[0].action.type, 'disempower');
   const banish = buildCostPlan(context, { id: 'banish', cost: { payments: [{ kind: 'banish', object: 'self' }] } });
   assert.equal(banish.total.actions[0].action.type, 'banish');
-  payCostPlan(context, disempower);
-  assert.equal(context.object(context.ref('source')).empowered, 0);
-  assert.throws(() => payCostPlan(context, disempower), failure('cannot-pay-cost'));
+  assert.throws(() => payCostPlan(context, disempower), failure('judge-required'));
   payCostPlan(context, banish);
   assert.equal(context.object(context.ref('source')).zone, 'banishment');
 });
@@ -143,13 +172,44 @@ test('cost.pay-any keeps Universal Power judge-required instead of spending name
   assert.deepEqual(context.player('A').power, ['Fury', 'Mind']);
 });
 
+test('the authored Ancient Henge body reaches cost.pay-any through the default Chain', () => {
+  const f = chainScene(world().player('A', { energy: 4 }).player('B').unit('source', { types: ['gear'], energy: 0, power: [] }), {
+    answers: { 'ancient-henge.pay-any-energy/source%3Acost-pay-any': 3 }
+  });
+  const ability = ancientHenge.abilities[0];
+  f.engine.execute({
+    id: 'ancient-henge', controller: 'A', source: f.kernel.getObject('source'), kind: 'activated', speed: 'reaction', body: ability.body,
+    cost: { id: 'cost:ancient-henge', cost: ability.cost }
+  });
+  assert.equal(f.kernel.player('A').energy, 4);
+  f.engine.pass('A'); f.engine.pass('B');
+  assert.equal(f.kernel.player('A').energy, 1);
+  assert.equal(f.engine.items.length, 0);
+});
+
+test('an invalid arbitrary payment negates and does not execute its dependent body', () => {
+  const f = chainScene(world().player('A', { energy: 2 }).player('B')
+    .hand('source', { types: ['spell'], energy: 0, power: [] })
+    .deck(['A:deck:1', 'A:deck:2'], { owner: 'A' }), {
+    answers: { 'ancient-henge.pay-any-energy/source%3Acost-pay-any': 3 }
+  });
+  const body = [
+    ancientHenge.abilities[0].body[0],
+    { id: 'dependent-draw', op: 'effect.draw', args: { amount: literal(1) }, linkedTo: 'ancient-henge.pay-any-energy' }
+  ];
+  f.engine.execute({ id: 'pay-first', controller: 'A', source: f.kernel.getObject('source'), kind: 'spell', speed: 'normal', body, cost: { id: 'cost:pay-first', cost: { energy: literal(0) } } });
+  f.engine.pass('A'); f.engine.pass('B');
+  assert.equal(f.kernel.player('A').energy, 2);
+  assert.equal(f.kernel.player('A').deckSize, 1, 'exactly one dependent draw would leave one deck card');
+});
+
 test('cost.pay-any rejects an impossible amount without publishing a zero receipt', () => {
   const context = withSource(world().player('A', { energy: 2 }).hand('source', { types: ['spell'], energy: 0, power: [] }));
   const result = runInstruction(costPayAny, {
     resource: literal('energy'), amount: literal('any'), linkKey: literal('spent')
   }, { world: context, answers: { 'source:cost-pay-any': 3 } });
   assert.deepEqual(result.result, { status: 'negated', reason: 'impossible', events: [] });
-  assert.equal(result.linked?.spent, undefined);
+  assert.equal(context.linked('spent'), undefined);
   assert.equal(context.player('A').energy, 2);
 });
 
@@ -171,4 +231,153 @@ test('unsupported pseudo costs remain judge-required', () => {
   assert.throws(() => buildCostPlan(context, {
     id: 'universal', cost: { payments: [{ kind: 'power', universal: true }] }
   }), failure('judge-required'));
+});
+
+test('Finalize choice locks are serializable, stable, and reject a changed incarnation', () => {
+  const context = withSource(world().player('A').unit('source', { types: ['spell'] }).unit('victim'));
+  const choice = {
+    id: 'locked-victim', options: ['victim'], filter: { zone: 'board', type: 'unit', controller: 'self' }, min: 1, max: 1
+  };
+  context.setPicks(choice.id, [context.ref('victim')]);
+  const lock = finalizeCostChoiceLock(context, choice, 'play', 'kill');
+  const locks = costChoiceLocks([lock]);
+  const input = { id: 'play', cost: { payments: [{ kind: 'kill', choice }] }, costChoices: locks };
+  assert.deepEqual(buildCostPlan(context, input).total.choices[0], lock.receipt);
+  assert.deepEqual(buildCostPlan(context, input).total.choices[0], lock.receipt, 'a retry must return the same receipt');
+  context.perform({ type: 'move-zone', object: lock.receipt.objects[0], to: 'hand' });
+  assert.throws(() => buildCostPlan(context, input), failure('invalid-cost-plan'));
+});
+
+test('cost payment rejects a stale locked source before charging and preserves energy', () => {
+  const f = chainScene(world().player('A', { energy: 5 }).player('B')
+    .hand('source', { types: ['spell'], energy: 0, power: [] }).hand('victim', { types: ['spell'] }));
+  const context = f.kernel.clone({ sourceSnapshot: f.kernel.getObject('source') });
+  const plan = buildCostPlan(context, { id: 'cost:stale-source', cost: { energy: literal(1) } });
+  const lockedSource = context.ref('source');
+  context.perform({ type: 'move-zone', object: lockedSource, to: 'trash' });
+  assert.notEqual(context.getObject('source').ref.zoneEntryId, lockedSource.zoneEntryId);
+  const before = context.snapshot();
+  assert.throws(() => payCostPlan(context, plan), error => error instanceof CostPlanError && error.reason === 'cannot-pay-cost' && /Finalize incarnation/.test(error.message));
+  assert.deepEqual(context.snapshot(), before);
+  assert.equal(context.player('A').energy, 5);
+  assert.equal(context.getObject('victim').zone, 'hand');
+});
+
+test('cost payment rejects a stale locked object with exact diagnostics and no charge', () => {
+  const f = chainScene(world().player('A', { energy: 5 }).player('B')
+    .hand('source', { types: ['spell'], energy: 0, power: [] }).unit('victim', { types: ['unit'] }));
+  f.answers.set('cost:stale-object:pick:pick', [f.kernel.ref('victim')]);
+  const context = f.kernel.clone({ sourceSnapshot: f.kernel.getObject('source') });
+  context.setAnswers({ 'cost:stale-object:pick:pick': [f.kernel.ref('victim')] });
+  const plan = buildCostPlan(context, { id: 'cost:stale-object', cost: { energy: literal(1), payments: [{ kind: 'kill', choice: {
+    id: 'pick', options: ['placeholder'], filter: { zone: 'board', type: 'unit', controller: 'self' }, min: 1, max: 1
+  } }] } });
+  const locked = plan.total.choices[0].objects[0];
+  context.perform({ type: 'move-zone', object: locked, to: 'hand' });
+  const before = context.snapshot();
+  assert.throws(() => payCostPlan(context, plan), error => error instanceof CostPlanError && /Locked cost object/.test(error.message) && /Finalize incarnation/.test(error.message));
+  assert.deepEqual(context.snapshot(), before);
+  assert.equal(context.player('A').energy, 5);
+});
+
+test('default Chain rechecks each locked cost object immediately before its action', () => {
+  const kernel = world().player('A', { energy: 5 }).player('B')
+    .hand('source', { types: ['spell'], energy: 0, power: [] }).unit('first', { types: ['unit'] }).unit('second', { types: ['unit'] }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject('source') });
+  const locked = [kernel.ref('first'), kernel.ref('second')];
+  context.setAnswers({ 'cost:stale-second:pick:pick': locked });
+  context.setPicks('pick', locked);
+  const plan = buildCostPlan(context, { id: 'cost:stale-second', cost: { energy: literal(1), payments: [{ kind: 'kill', choice: {
+    id: 'pick', options: ['placeholder'], filter: { zone: 'board', type: 'unit', controller: 'self' }, min: 2, max: 2
+  } }] } });
+  const before = context.snapshot();
+  context.addReplacement((action, transaction) => {
+    if (action.type === 'kill' && action.object.id === 'first') transaction.perform({ type: 'move-zone', object: locked[1], to: 'hand' });
+    return null;
+  });
+  const transactional = context.clone({ transaction: run => {
+    const saved = context.snapshot();
+    try { return run(); } catch (error) { context.restore(saved); throw error; }
+  } });
+  assert.throws(() => payCostPlan(transactional, plan), error => error instanceof CostPlanError && /Locked cost object second:1/.test(error.message) && /Finalize incarnation/.test(error.message));
+  const after = context.snapshot();
+  assert.deepEqual({ ...after, replacements: [] }, before);
+  assert.equal(context.player('A').energy, 5);
+  assert.equal(context.getObject('first').zone, 'board');
+});
+
+test('banish checks the current controller while preserving owner differences', () => {
+  const kernel = world().player('A').player('B')
+    .unit('source', { types: ['unit'] })
+    .unit('foreign-owned', { owner: 'B', controller: 'A' })
+    .unit('foreign-controlled', { owner: 'A', controller: 'B' })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject('source') });
+  const ownPlan = buildCostPlan(context, { id: 'own', cost: { payments: [{ kind: 'banish', object: kernel.ref('foreign-owned') }] } });
+  payCostPlan(context, ownPlan);
+  assert.equal(context.getObject('foreign-owned').zone, 'banishment');
+  const foreignPlan = buildCostPlan(context, { id: 'foreign', cost: { payments: [{ kind: 'banish', object: kernel.ref('foreign-controlled') }] } });
+  assert.throws(() => payCostPlan(context, foreignPlan), failure('cannot-pay-cost'));
+  assert.equal(context.getObject('foreign-controlled').zone, 'board');
+});
+
+test('default Chain handles optional additional acceptance and decline', () => {
+  for (const selected of [true, false]) {
+    const f = chainScene(world().player('A', { energy: 4 }).player('B').unit('source', { types: ['unit'], energy: 0, power: [] }), {
+      answers: { 'cost:optional-choice:optional:extra': selected }
+    });
+    f.engine.execute({
+      id: 'optional-choice', controller: 'A', source: f.kernel.getObject('source'), kind: 'activated', speed: 'reaction', body: [],
+      cost: { id: 'cost:optional-choice', cost: { energy: literal(1) }, optionalAdditional: [{ id: 'extra', kind: 'additional', cost: { energy: literal(2) } }] }
+    });
+    assert.equal(f.kernel.player('A').energy, selected ? 1 : 3);
+    assert.deepEqual(f.engine.items[0].costPlan.selectedAdditional.map(cost => cost.id), selected ? ['extra'] : []);
+    assert.deepEqual(f.engine.items[0].costPlan.declinedAdditional, selected ? [] : ['extra']);
+  }
+});
+
+test('cost.pay-any does not ask when no Energy is available', () => {
+  const context = withSource(world().player('A', { energy: 0 }).hand('source', { types: ['spell'], energy: 0, power: [] }));
+  const paid = runInstruction(costPayAny, { resource: literal('energy'), amount: literal('any'), linkKey: literal('spent') }, { world: context });
+  assert.equal(paid.asked, null);
+  assert.equal(paid.result.status, 'executed');
+  assert.equal(paid.linked.spent, 0);
+  assert.equal(paid.linked['spent.receipt'], undefined);
+});
+
+test('default Chain rejects a duplicate Resolve after the item is removed', () => {
+  const f = chainScene(world().player('A', { energy: 2 }).player('B').hand('source', { types: ['spell'], energy: 0, power: [] }));
+  f.engine.execute({ id: 'one-shot', controller: 'A', source: f.kernel.getObject('source'), kind: 'spell', speed: 'normal', body: [], cost: { id: 'cost:one-shot', cost: { energy: literal(1) } } });
+  f.engine.pass('A'); f.engine.pass('B'); f.engine.advance();
+  assert.equal(f.kernel.player('A').energy, 1);
+  assert.equal(f.engine.items.length, 0);
+  assert.equal(f.engine.priority, 'A');
+  assert.throws(() => f.engine.pass('B'), /Player cannot pass now/);
+  assert.equal(f.kernel.player('A').energy, 1);
+});
+
+test('default Chain rolls back resources and prior cost actions when a later payment fails', () => {
+  const f = chainScene(world().player('A', { energy: 2 }).player('B')
+    .hand('source', { types: ['spell'], energy: 0, power: [] })
+    .hand('victim', { types: ['spell'] })
+    .unit('second', { types: ['unit'] }));
+  f.engine.pipeline.registerReplacement({
+    id: 'prevent-late-exhaust',
+    matches: action => action.type === 'exhaust' && action.object.id === 'second',
+    apply: () => ({ status: 'prevent' })
+  });
+  const before = f.kernel.snapshot();
+  assert.throws(() => f.engine.execute({
+    id: 'late-failure', controller: 'A', source: f.kernel.getObject('source'), kind: 'spell', speed: 'normal', body: [],
+    cost: { id: 'cost:late-failure', cost: { energy: literal(1), payments: [
+      { kind: 'discard', object: f.kernel.ref('victim') },
+      { kind: 'exhaust', object: f.kernel.ref('second') }
+    ] } }
+  }), error => error instanceof CostPlanError && error.reason === 'cannot-pay-cost');
+  assert.deepEqual(f.kernel.snapshot(), before);
+  assert.equal(f.kernel.player('A').energy, 2);
+  assert.equal(f.kernel.getObject('victim').zone, 'hand');
+  assert.equal(f.kernel.getObject('second').exhausted, false);
+  assert.equal(f.engine.items.length, 0);
+  assert.equal(f.engine.pipeline.events.length, 0);
 });

@@ -42,14 +42,26 @@ function assertSourceIncarnation(ctx: ResolveContext, plan: CostPlan): void {
     invalid(`Payment source ${objectLabel(plan.source)} does not match the resolving source ${objectLabel(ctx.source.ref)}`);
   }
   const exact = ctx.object(plan.source);
-  if (exact) return;
+  if (exact) {
+    if (exact.controller !== plan.player && exact.controller !== ctx.source.controller) {
+      invalid(`Locked cost source ${objectLabel(plan.source)} is no longer controlled by the paying player`);
+    }
+    return;
+  }
+  // A play's plan is built from the pre-entry snapshot, but the Chain item
+  // itself carries the just-created Chain incarnation. Bind that one transition
+  // by the Chain source ref; any later Resolve or second entry fails closed.
+  if (ctx.timingPoint === 'chain-item-finalize') {
+    const current = ctx.query({}).find(object => object.ref.id === ctx.source.ref.id);
+    if (current?.zone === 'chain' && current.controller === ctx.source.controller) return;
+  }
   const replacement = ctx.query({}).find(object => object.ref.id === plan.source.id);
   if (replacement) {
-    invalid(`Locked cost source ${objectLabel(plan.source)} is no longer its Finalize incarnation; current source is ${objectLabel(replacement.ref)}`);
+    cannotPay(`Locked cost source ${objectLabel(plan.source)} is no longer its Finalize incarnation; current source is ${objectLabel(replacement.ref)}`);
   }
   const sameSource = plan.source.zoneEntryId === ctx.source.ref.zoneEntryId;
   if (!sameSource) {
-    invalid(`Locked cost source ${objectLabel(plan.source)} no longer exists and is not this ability's last-known source`);
+    cannotPay(`Locked cost source ${objectLabel(plan.source)} no longer exists and is not this ability's last-known source`);
   }
 }
 
@@ -97,7 +109,8 @@ function checkAction(ctx: ResolveContext, payment: PreparedCostAction): void {
 }
 
 export function prepareCostPayment(ctx: ResolveContext, plan: CostPlan, options: CostPaymentOptions = {}): PreparedCostPayment {
-  if (plan.finalized !== true || plan.player !== ctx.controller || plan.source.id !== ctx.source.ref.id || plan.source.zoneEntryId !== ctx.source.ref.zoneEntryId) invalid('Payment must use this source and controller’s finalized cost plan');
+  const chainFinalize = ctx.timingPoint === 'chain-item-finalize';
+  if (plan.finalized !== true || plan.player !== ctx.controller || plan.source.id !== ctx.source.ref.id || (!chainFinalize && plan.source.zoneEntryId !== ctx.source.ref.zoneEntryId)) invalid('Payment must use this source and controller’s finalized cost plan');
   assertSourceIncarnation(ctx, plan);
   const player = ctx.player(plan.player);
   for (const domain of player.power) {
@@ -151,9 +164,17 @@ function payCostPlanNow(ctx: ResolveContext, plan: CostPlan, options: CostPaymen
   const actions: CostPaymentReceipt['actions'][number][] = [];
   const events: CostPaymentReceipt['events'][number][] = [];
   for (const payment of prepared.actions) {
-    // A prior action or host hook may have replaced an incarnation. Recheck the
-    // exact locked source and target immediately before every submission.
-    assertSourceIncarnation(ctx, plan);
+    const paymentObject = payment.action.type !== 'pay' && payment.action.type !== 'spend-xp' && 'object' in payment.action
+      ? payment.action.object
+      : null;
+    const consumedSource = paymentObject !== null && paymentObject.id === plan.source.id &&
+      paymentObject.zoneEntryId === plan.source.zoneEntryId &&
+      actions.some(action => action.status === 'done' && 'object' in action.action &&
+        action.action.object.id === paymentObject.id && action.action.object.zoneEntryId === paymentObject.zoneEntryId);
+    // A prior action or host hook may have replaced an incarnation. The one
+    // exception is another action on the same locked source already consumed
+    // by this plan (Gold's Exhaust then Kill this); that identity is not stale.
+    if (!consumedSource) assertSourceIncarnation(ctx, plan);
     checkAction(ctx, payment);
     const outcome = ctx.perform(payment.action);
     if (outcome.status !== 'done' && outcome.status !== 'replaced') {
