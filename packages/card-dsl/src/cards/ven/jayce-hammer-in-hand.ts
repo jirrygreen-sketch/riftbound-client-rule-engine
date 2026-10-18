@@ -25,9 +25,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   continuous.grant-keyword 只接受 appliesTo self / objects / filter 等选择形状，
  *   因此用字面 appliesTo self（指令将其解析为能力来源自身）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。触发注册与 grant-keyword
- * 指令都已合入并有探针执行证据（test.mjs 的 probe 用例）；仍缺的是链适配器与
- * 关键词消费方，见 judgeReason。
+ * status 判定（cards/README.md 第 2 节）：judge-required。触发注册（object-readied）与
+ * grant-keyword 指令都已合入并有探针执行证据（test.mjs 的 probe 用例）；仍缺链适配器与
+ * 三个关键词消费方，逐条见 judgeReason（2026-10-17 RIFT-733 复核实测）。
  */
 const mode = (id: string, keyword: string, value?: number) => ({
   id,
@@ -84,7 +84,7 @@ export default {
   judgeReason:
     "触发注册与授予原语都已合入并有探针证据：object-readied 触发经 programs/triggers 注册、" +
     "就绪后进链（probe 见 test.mjs），continuous.grant-keyword 是已注册指令，" +
-    "appliesTo self（355.10.d/g 自我指代）解析为来源对象。仍缺三处（2026-10-17 RIFT-613 复核实测）：" +
+    "appliesTo self（355.10.d/g 自我指代）解析为来源对象。仍缺三处（2026-10-17 RIFT-733 复核实测）：" +
     "(1) 被选模式进入 Finalize 时 choice.mode 被链适配器拒绝——chain/engine.ts 的 " +
     "assertFinalizationSurface 抛 ChainContractBlockedError('Mode choices require a " +
     "Finalize/Resolve choice-plan adapter')，模式选择无法落到被选 body；(2) Assault 的 " +

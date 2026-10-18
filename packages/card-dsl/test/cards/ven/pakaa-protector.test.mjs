@@ -16,6 +16,9 @@ import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
+import { validateEventPattern } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 
 const CANONICAL_ID =
   "card.hash-f4d87dfb750f0f23070558bd76ae0fba7b17e9097fe44c0034f1eb55e6bb564e";
@@ -335,3 +338,41 @@ test.todo(
   "ven-033-166 Pakaa Protector: register the source-scoped object-moved event pattern; " +
     "events/trigger-spec.ts EVENT_PATTERN_TYPES does not admit the producer's event name (383.1 / 421.1)"
 );
+
+// RIFT-733: the refreshed gaps, pinned against the real production seam.
+test("ven-033-166 Pakaa Protector: the closed trigger vocabulary rejects the authored Move pattern", () => {
+  // events/trigger-spec.ts EVENT_PATTERN_TYPES has no "object-moved";
+  // EventPipeline.registerTrigger therefore refuses the program trigger, so the
+  // printed "When I move" ability never subscribes (383.1 / 421.1).
+  const result = validateEventPattern({ event: "object-moved" });
+  assert.equal(result.ok, false);
+  assert.equal(result.issues[0].code, "invalid-event-type");
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const f = fixture();
+  const source = { ...f.kernel.getObject("source"), cardId: CANONICAL_ID };
+  assert.equal(triggerRegistrations(binding.registry, source).length, 1);
+  assert.throws(
+    () => binding.registerProgramTriggers(f.engine, source),
+    error => error.issues?.[0]?.code === "invalid-event-type"
+  );
+});
+
+test("ven-033-166 Pakaa Protector: an intervening recycle leaves the Finalize-locked top card stale", () => {
+  // chain/picks/plan.ts locks the ordered top card during Finalize, but this
+  // trigger reads its deck top during Resolve (425.1 / 414.1.a): after a
+  // response reorders the deck the locked reference is no longer the top card,
+  // so "draw it" and "put it in your trash" cannot be proven equivalent.
+  const base = world().unit("pakaa", { might: 4, cardId: CANONICAL_ID })
+    .deck(["top-card", "second-card"], { types: ["unit"] }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("pakaa") });
+  const plan = finalizeOrderedPickPlans(kernel, ability.body);
+  assert.deepEqual(plan.map(entry => entry.refs.map(ref => ref.id)), [["top-card"]]);
+  // A real intervening response changes the deck top: a card is recycled to the
+  // bottom, so the Finalize lock still names a card that is no longer the top.
+  assert.equal(kernel.perform({ type: "recycle", object: kernel.ref("top-card") }).status, "done");
+  const newTop = kernel.zoneSlice("A", "deck", "top", 1)[0];
+  assert.equal(newTop.ref.id, "second-card");
+  // The Finalize lock still names the old card, which is no longer the top.
+  assert.notEqual(plan[0].refs[0].id, newTop.ref.id);
+  assert.equal(kernel.getObject(plan[0].refs[0].id).zone, "deck");
+});

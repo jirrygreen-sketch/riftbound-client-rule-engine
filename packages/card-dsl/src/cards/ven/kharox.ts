@@ -142,10 +142,22 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺：(1) KeywordAbility / programs/keywords.ts 未传 params.cost，无法把本卡 6 Energy + 2 Chaos Power 交给 Empower 展开（827.1.c.1）；" +
-    "(2) empowered-changed 不在 EVENT_PATTERN_TYPES，事件缺 Empower/Disempower 方向与前后状态，无法只在来源成为 Empowered 时触发（442.2.a / 828.1.d）；" +
-    "(3) choose an opponent 缺玩家目标/选择的 Finalize 绑定（355.9.a），其 trash 也需关联同一被选玩家；" +
-    "(4) effect.play 的忽略基础费用入口仍未接到 buildCostPlan 的 ignore-base（356.1.b.1），常量 finalized 标记不能替代真实费用计划及追加费用处理。",
+    "四处当前缺口（2026-10-17 RIFT-733 复核实测，已合入依赖不再列为缺口）：" +
+    "(1) 印刷 Empower 费用没有承载通道：KeywordAbility 只有 keyword/value，programs/keywords.ts 的 expandProgram " +
+    "一律调 def.expand({ value, host }) 而不传 params，Empower.ts 因此只能回落到 cost: { kind: \"empower\" }；" +
+    "实测 createProgramBinding().describeActivate 抛 ProgramBindingError(judge-required) " +
+    "\"Unsupported cost kind empower on activate:…\"（827.1.c.1 / 827.1.c.2）。" +
+    "(2) empowered-changed 不在 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES：validateEventPattern 直接以 " +
+    "invalid-event-type 拒绝该判别式，所以 programs/triggers.ts 的 triggerRegistrations 无法注册本触发；" +
+    "事件载荷（previousCount/currentCount/cause）与 828.1.d 的“成为 Empowered”方向判定同样缺消费方（442.2.a）。" +
+    "(3) 「choose an opponent」的 picks 只有描述性 options: [\"dynamic:opponent-players\"]：" +
+    "chain/picks/plan.ts 只锁定 zoneSlice/linked 来源，Finalize 没有把动态对手集合解析成玩家选择，" +
+    "effect.mill 的 pick 通道实测 negated/impossible（355.9.a / 441.2）。" +
+    "(4) 「play it, ignoring its cost」缺真实费用计划：chain/engine.ts 的 Finalize 只对 item.cost 调 buildCostPlan，" +
+    "卡片 body 内的常量 finalized 计划不会被生成；effect.play 还要求选中对象已由 Finalize 锁定目标，" +
+    "而 effect.play 的 target 在 choice.optional 的 body 内，实测命中 " +
+    "ChainContractBlockedError \"Nested/repeated targets require an interpreter target-selection lifecycle adapter\"" +
+    "（356.1.b.1）。不近似实现：不改写为 controller 的 trash、不伪造零费计划。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_6::rb_rune_chaos::rb_rune_chaos: (:rb_energy_6::rb_rune_chaos::rb_rune_chaos:: " +

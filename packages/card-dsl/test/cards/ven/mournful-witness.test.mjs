@@ -8,6 +8,7 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 
 const CANONICAL_ID =
   "card.hash-9306105a8f30f0954fec4a0757dc246561b8408b00e76f9d104c939964b55bd0";
@@ -162,4 +163,66 @@ test("ven-028-166 Mournful Witness golden: the original static gate adds +2 only
   assert.equal(f.engine.layers.evaluate(f.kernel.ref("enemy")).might, 5);
   assert.equal(f.engine.commit({ type: "disempower", object: source.ref }).status, "done");
   assert.equal(might(), 2);
+});
+
+// RIFT-733: the refreshed gaps, pinned against the real production seam.
+test("ven-028-166 Mournful Witness: no merged producer ever emits combat-end", async () => {
+  // combat/flow.ts ends an engagement by clearing staged state; it never emits
+  // the closed combat-end timing point, and the staged-combat path itself throws
+  // before any combat starts. The printed "when a combat that I was in ends"
+  // trigger therefore has no production event to subscribe to (468.7 / 468.7.b).
+  const { fixture: turnFixture } = await import("../../../../engine-core/test/turn/helpers.mjs");
+  const staged = turnFixture({
+    setup: builder => builder
+      .unit("a-unit", { might: 4, location: { type: "battlefield", id: "bf1" } })
+      .unit("b-unit", { owner: "B", controller: "B", might: 3, location: { type: "battlefield", id: "bf1" } })
+  });
+  assert.throws(() => staged.flow.start(), error =>
+    error.name === "TurnCombatBlockedError" && error.code === "contested-origin");
+  assert.equal(staged.flow.chain.pipeline.events.some(event => event.timingPoint === "combat-end"), false);
+  assert.equal(staged.flow.chain.pipeline.events.some(event => event.timingPoint === "combat-start"), false);
+});
+
+test("ven-028-166 Mournful Witness: the Empowered static gate reads a characteristic ObjectSnapshot does not expose", () => {
+  // The trigger body's empower half really runs (previous test), but the +2
+  // Might condition reads object-property "empowered" while the frozen
+  // ObjectSnapshot (effects/contract.ts, mirrored by ObjectSnapshot in
+  // engine-core/dist/effects/contract.d.ts) has no such member: the reference
+  // kernel adds it in test-kernel only, and the production kernel keeps empower
+  // state in buffs. Evaluating the printed condition against a production-shaped
+  // snapshot must therefore fail closed rather than grant the bonus.
+  const snapshot = {
+    ref: { id: "witness", zoneEntryId: 1 },
+    cardId: CANONICAL_ID, name: "Mournful Witness", types: ["unit"], tags: [], keywords: [],
+    owner: "A", controller: "A", zone: "board", location: null, might: 2, energy: 2,
+    power: null, exhausted: false, damage: 0, stunned: false, buffs: 1, attachedTo: null,
+    faceDown: false, isToken: false
+  };
+  // The production-shaped snapshot really carries the empower record (buffs 1
+  // above), yet the condition's property is absent: the shared evaluator here
+  // is the same function programs/statics.ts calls, it throws for the missing
+  // characteristic, and the static binder's try/catch converts that throw into
+  // `false` for the layer gate.
+  assert.equal(Object.hasOwn(snapshot, "empowered"), false);
+  const condition = mightBonus.condition;
+  const context = {
+    source: snapshot, controller: "A", timingPoint: "cleanup-start",
+    object: ref => (ref.id === snapshot.ref.id ? snapshot : null),
+    lastKnown: () => null, query: () => [], zoneSlice: () => [], targets: () => [],
+    picks: () => [], player: id => ({ id, energy: 0, power: [], runePool: [], runes: [], xp: 0, score: 0,
+      handSize: 0, handCount: 0, deckSize: 0, deckCount: 0, runeDeckSize: 0, runeDeckCount: 0 }),
+    evaluate: () => null, test: () => false, linked: () => undefined, history: () => 0,
+    choose: () => { throw new Error("no choice expected"); },
+    perform: () => ({ status: "impossible", events: [] }), link: () => {},
+    addContinuous: () => {}, registerDelayedTrigger: () => {}
+  };
+  assert.throws(
+    () => evaluateCondition(condition, {
+      context, host: snapshot.ref, linked: () => undefined,
+      canLookBack: () => false, isIgnored: () => false
+    }),
+    error => /Unavailable characteristic: empowered/.test(error.message)
+  );
+  // programs/statics.ts wraps the same evaluation in try/catch and returns
+  // false, so the production layer never grants the bonus.
 });

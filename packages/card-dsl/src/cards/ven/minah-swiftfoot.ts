@@ -109,14 +109,20 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1)「Each player discards 1 / draws 1」是逐玩家迭代：已合入 IR 是单一 body + 单一 " +
-    "ResolveContext（effect.discard/effect.draw 的 player 只接受单个 PlayerId，数组会 negated/impossible），封闭 opcode " +
-    "表没有玩家集合枚举或按席位重复（同 the-papertree/whirlwind，ability-templates 的 target.player 未合入），" +
-    "程序保留 \"each-player\" 描述性占位而不只为自己结算；(2)「When I move to a battlefield」的载荷不可判定：" +
-    "events/action-adapter.ts 为 move-location 生成的 object-moved 事件不填 toZone/toKind（timing-points.ts 声明的 " +
-    "payloadFields），已合入 events/pipeline-match.ts 也不读卡程序 filter 的内层 source 锚点，(3) choice.mode 的 Finalize 消费方（模式选择与重放" +
-    "请求路径）属引擎批 4，未合入前不得固定分支。已支持部分：两条模式体分别使用已合入的 effect.discard / effect.draw，" +
-    "golden 用参考内核单席位真实执行；逐玩家扇出与模式选择写 test.todo。",
+    "三处缺口，均不近似实现（2026-10-17 RIFT-733 复核实测）：" +
+    "(1)「Each player discards 1 / draws 1」是逐玩家迭代：已合入 IR 是单一 body + 单一 ResolveContext，" +
+    "effect.discard/effect.draw 的 player 只接受单个 PlayerId——实测把 player 求值成 ['A','B'] 时 effect.draw 直接 " +
+    "negated/impossible，字符串 \"each-player\" 会被内核当作玩家 id 查到 Unknown player；封闭 opcode 表没有玩家集合" +
+    "枚举或按席位重复（同 the-papertree/whirlwind；ability-templates 的 target.player 未合入）。程序保留 \"each-player\" " +
+    "描述性占位而不只为自己结算。" +
+    "(2)「When I move to a battlefield」的目的地不可判定：events/action-adapter.ts 为 move-location 生成的 object-moved " +
+    "事件不填 toZone（timing-points.ts 声明的 payloadFields 有 toKind/toLocationId），实测同一模式的 toZone 过滤恒 false；" +
+    "同时 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 仍不含 \"object-moved\"，EventPipeline.registerTrigger 的 " +
+    "assertTriggerSpec 以 TriggerSpecValidationError(invalid-event-type) 拒绝本触发（卡侧的 source: self 锚点在 " +
+    "translateTriggerFilter 能翻译成 objectId）。" +
+    "(3) choice.mode 缺 Finalize/Resolve 消费方：chain/engine.ts 的 assertFinalizationSurface 实测抛 " +
+    "ChainContractBlockedError \"Mode choices require a Finalize/Resolve choice-plan adapter\"，未合入前不得固定分支。" +
+    "已支持部分：两条模式体分别使用已合入的 effect.discard / effect.draw，golden 用参考内核单席位真实执行。",
   abilities,
   sourceText:
     "When I move to a battlefield, choose one —\n" +
