@@ -7,9 +7,12 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { evaluateExtendedExpression } from "../../../../engine-core/dist/effects/interpreter/expr-ext/index.js";
 
 const CANONICAL = "card.hash-763d40ad13566634b64cc2de5da621393c0cf40858bb36abd9052e741aba4c2f";
 
@@ -55,9 +58,13 @@ test("ogn-150-298 Kraken Hunter: judgeReason cites the variable additional cost 
   // Restored from the pre-resweep assertion /cost\.pay \/ cost\.modify/, split
   // because the refreshed reason names the merged primitives separately.
   assert.match(program.judgeReason, /cost\.pay/);
+  assert.match(program.judgeReason, /cost\.modify/);
+  assert.match(program.judgeReason, /CostFailure|invalid-cost-plan/);
   assert.match(program.judgeReason, /356\.4\.c/);
   assert.match(program.judgeReason, /accelerate\.cost/);
   assert.match(program.judgeReason, /designation/);
+  assert.match(program.judgeReason, /expr-ext\/evaluate\.ts/);
+  assert.match(program.judgeReason, /MissingInformation/);
 });
 
 test("ogn-150-298 Kraken Hunter: Accelerate and Assault stay keyword declarations only", () => {
@@ -135,6 +142,32 @@ test("ogn-150-298 Kraken Hunter: the expanded Assault Might is inert because des
   assert.equal(kernel.getObject("kraken").combatRole, "attacker");
   assert.equal(Object.hasOwn(kernel.getObject("kraken"), "designation"), false);
   assert.equal(engine.layers.evaluate(kernel.ref("kraken")).might, 5);
+  // 2026-10-17 re-sweep: the gap is dispatch, not the characteristic. The
+  // default evaluator throws MissingInformation for "designation" and the
+  // binder swallows it, while the merged expr-ext evaluator (RIFT-711) already
+  // resolves the same expression to combatRole.
+  assert.throws(
+    () => evaluateCondition(assault.condition, {
+      context: bindResolveContext(kernel, { source, controller: "A", timingPoint: "main-start" }),
+      host: source.ref,
+      linked: () => undefined,
+      canLookBack: () => true,
+      isIgnored: () => false,
+      query: filter => kernel.query(filter)
+    }),
+    /Unavailable characteristic: designation/
+  );
+  assert.equal(
+    evaluateExtendedExpression(assault.condition.left, {
+      context: bindResolveContext(kernel, { source, controller: "A", timingPoint: "main-start" }),
+      host: source.ref,
+      linked: () => undefined,
+      canLookBack: () => true,
+      isIgnored: () => false,
+      query: filter => kernel.query(filter)
+    }),
+    "attacker"
+  );
   handle.unbind();
 });
 
@@ -173,6 +206,25 @@ test("ogn-150-298 Kraken Hunter: a fixed-count spend-buff is buildable but a pai
   })();
   assert.ok(error, "a paid-count discount must still be rejected while the gap is open");
   assert.match(error.message, /Discount must be a nonnegative safe integer/);
+
+  // The primitive itself cannot take the printed CostSpec either: with an
+  // explicit CostSpec the merged cost.modify ends in CostFailure/
+  // invalid-cost-plan, so there is no path that feeds the paid spend-buff
+  // count back into the play cost plan (356.4.c).
+  // The merged cost.modify can only carry a *fixed* spend-buff count, and the
+  // resulting plan exposes that count on CostPlan.total.actions while every
+  // discount slot still requires a plain number, so nothing can turn the paid
+  // count into "one Body per buff you spend" (356.4.c).
+  const fixed = runInstruction(costModify, {
+    id: "kraken.per-buff",
+    cost: { payments: [{ kind: "spend-buff", objects: [source.ref], amount: { kind: "constant", value: 2 } }] },
+    linkKey: "plan"
+  }, { world: context });
+  assert.equal(fixed.result.status, "executed");
+  const paidPlan = fixed.linked.plan;
+  assert.deepEqual(paidPlan.total.actions.map(entry => entry.action.amount), [2]);
+  assert.equal(paidPlan.discounts.length, 0);
+  assert.equal("paidAmount" in paidPlan.total.actions[0].action, false);
 });
 
 test.todo(

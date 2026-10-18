@@ -5,8 +5,10 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/lee-sin-ascetic.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.js";
+import restrict from "../../../../engine-core/dist/effects/instructions/continuous.restrict.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { translateCost } from "../../../../engine-core/dist/programs/play.js";
@@ -45,10 +47,14 @@ test("ogn-078-298: identity, exact source text, pure data and explicit blocked s
   assert.equal(program.canonicalCardId, "card.hash-cc6ad3795219f298711ebf12535a88b5542ad11cc99575a77634de551464784e");
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /effect.buff|427.1.b.2/);
-  // Restored pre-resweep assertion: the reason still names the snapshot gap.
-  assert.match(program.judgeReason, /ObjectSnapshot|combatRole/);
+  assert.match(program.judgeReason, /effect\.buff|427\.1\.b\.2/);
+  // 2026-10-17 re-sweep: the reason now names the dispatch gap rather than a
+  // missing snapshot characteristic; the designation/combatRole merge is the
+  // stale part, so the assertion follows the measured gap.
   assert.match(program.judgeReason, /designation/);
+  assert.match(program.judgeReason, /MissingInformation/);
+  assert.match(program.judgeReason, /expr-ext\/evaluate\.ts/);
+  assert.match(program.judgeReason, /continuous\.restrict|maximum/);
   assert.equal(program.sourceText, "[Shield] (+1 :rb_might: while I'm a defender.)\n:rb_exhaust:: Buff me. (I get a +1 :rb_might: buff.)\nI can have any number of buffs.");
   assert.deepEqual(JSON.parse(JSON.stringify(program)), program);
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -128,6 +134,18 @@ test("Lee Sin: the unlimited-buff permission registers but no rule query consume
   assert.equal(registered.effect.effect.kind, "restriction");
   assert.equal(registered.effect.effect.maximum, null);
   assert.deepEqual(registered.effect.effect.actions, undefined);
+  // 2026-10-17 re-sweep: the declared field names do not match the primitive's
+  // RestrictArgs (mode/action/operation/appliesTo/restriction/amount/cost/...),
+  // so the query still reports an entry with no actions and no maximum slot.
+  assert.throws(
+    () => restrict.argsSchema.parse({ kind: "continuous.restrict", action: "buff", filter: { object: "self" }, maximum: null }),
+    /Invalid continuous\.restrict argument: kind/
+  );
+  assert.deepEqual(
+    restrictions(engine.layers.registry, "buff", source.ref, source, source.controller)
+      .map(entry => [entry.actions, "maximum" in entry]),
+    [[[], false]]
+  );
   handle.unbind();
 });
 
@@ -149,5 +167,5 @@ test("Lee Sin: the Shield expansion binds, but its Defender predicate never eval
 });
 
 test.todo("Lee Sin: first self Buff via a non-target ObjectSelector, with real exhaust payment; effect.buff currently requires a TargetSpec id");
-test.todo("Lee Sin: second and subsequent Buffs through the same primitive after consuming unlimited-Buff permission; current unconditional skip must be removed upstream (CR 427.1.b.2)");
-test.todo("Lee Sin: Shield defender Might using the ObjectSnapshot combatRole predicate (CR 814)");
+test.todo("Lee Sin: second and subsequent Buffs through the same primitive after consuming unlimited-Buff permission; 427.1.b.2 still has no consumer and the declared action/maximum/filter fields have no counterpart in continuous.restrict's RestrictArgs or layers/rules/query.ts restrictions()");
+test.todo("Lee Sin: Shield defender Might needs the designation -> combatRole dispatch in effects/interpreter/expr.ts / programs/statics.ts (RIFT-711's expr-ext/evaluate.ts implements it but is not wired in)");

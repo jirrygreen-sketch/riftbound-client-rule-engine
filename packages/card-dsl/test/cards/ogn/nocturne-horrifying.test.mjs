@@ -8,6 +8,10 @@ const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js"
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
 const keywords = await import(new URL("effects/keywords/registry.generated.js", engineCore));
+const { createProgramBinding, translateTriggerFilter } = await import(new URL("programs/index.js", engineCore));
+const { assertTriggerSpec, validateTriggerSpec } = await import(new URL("events/trigger-spec.js", engineCore));
+const { bindResolveContext, createActionPipelineHost } = await import(new URL("events/action-adapter.js", engineCore));
+const { ChainEngine } = await import(new URL("chain/engine.js", engineCore));
 
 const CANONICAL = "card.hash-2d8f25416970f68a17656a4ad7384628767cc23866a689af4b1999391a436411";
 const SOURCE_TEXT =
@@ -18,6 +22,20 @@ const SOURCE_TEXT =
 const [keyword, triggered] = program.abilities;
 const [optional] = triggered.body;
 const [modifyCost, playSelf] = optional.args.body.value;
+
+/** A real ChainEngine so registration goes through the real pipeline validation. */
+function realEngine(kernel) {
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error("Unexpected choice: " + request.id); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  return new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+}
 
 test("nocturne-horrifying: passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -37,10 +55,16 @@ test("nocturne-horrifying: identity, ruleset, status, judgeReason and sourceText
   assert.doesNotMatch(program.judgeReason, /RIFT-260/);
   assert.match(program.judgeReason, /LITERAL_FIELDS/);
   assert.match(program.judgeReason, /CostPlan/);
+  // 2026-10-17 re-sweep: registration is blocked by the closed event-name
+  // vocabulary before any of the deeper wiring is reached.
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /invalid-event-type/);
+  assert.match(program.judgeReason, /ACTION_KINDS/);
   // The real look action carries an array; the event payload and nested
   // self identity each still need their own production adapter.
-  assert.match(program.judgeReason, /look 动作使用 objects 数组.*未生成.*object 载荷/);
-  assert.match(program.judgeReason, /嵌套 objectId:self.*未绑定.*来源 ID/);
+  // 2026-10-17 re-sweep: the same two wiring gaps, re-measured and reworded.
+  assert.match(program.judgeReason, /look 动作.*objects 数组.*object 为 null/);
+  assert.match(program.judgeReason, /嵌套 .*objectId.*拿不到本卡身份/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -181,17 +205,80 @@ test("nocturne-horrifying golden: the caller-supplied plan plays the looked-at c
   assert.deepEqual(kernel.events.map((event) => event.action), ["pay", "play"]);
 });
 
+test("nocturne-horrifying: registration fails on the cards-looked-at event name, before any look payload is read", () => {
+  // 2026-10-17 re-sweep measurement: translateTriggerFilter keeps the declared
+  // event name and events/trigger-spec.ts only accepts the closed
+  // EVENT_PATTERN_TYPES vocabulary, which has no cards-looked-at entry.
+  const kernel = world().unit("nocturne", { cardId: CANONICAL, owner: "A", controller: "A", types: ["unit"] }).build();
+  const source = kernel.getObject("nocturne");
+  const filter = translateTriggerFilter(triggered.trigger.filter, source.ref.id, triggered.trigger.at);
+  assert.deepEqual(filter, { event: "cards-looked-at", object: { objectId: "self" } });
+  const validation = validateTriggerSpec({ at: triggered.trigger.at, filter });
+  assert.equal(validation.ok, false);
+  assert.deepEqual(validation.issues.map(issue => [issue.path, issue.code]), [
+    ["trigger.filter.event", "invalid-event-type"]
+  ]);
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  assert.throws(
+    () => assertTriggerSpec({ at: triggered.trigger.at, filter }),
+    { name: "TriggerSpecValidationError", message: /^trigger\.filter\.event:/ }
+  );
+  // A real ChainEngine runs the same rejection at registration; a bare
+  // { registerTrigger } stub would skip it, so the production path is used.
+  assert.throws(
+    () => binding.registerProgramTriggers(realEngine(kernel), source),
+    { name: "TriggerSpecValidationError", message: /^trigger\.filter\.event:/ }
+  );
+  assert.deepEqual(realEngine(kernel).pipeline.events, []);
+});
+
+test("nocturne-horrifying: the flat objectId:self spelling binds, but the look emission carries no object", () => {
+  // 383.2.c / 432.1.c: the nested { object: { objectId: "self" } } spelling is
+  // not translated into the registered source id, while the flat spelling that
+  // *is* translated has nothing to compare against: contract.ts publishes the
+  // look action as an `objects` array and events/action-adapter.ts only reads a
+  // single object/target, so the emitted event has object === null.
+  assert.deepEqual(
+    translateTriggerFilter({ event: "cards-looked-at", object: { objectId: "self" } }, "SRC", "cards-looked-at"),
+    { event: "cards-looked-at", object: { objectId: "self" } }
+  );
+  assert.deepEqual(
+    translateTriggerFilter({ event: "cards-looked-at", objectId: "self" }, "SRC", "cards-looked-at"),
+    { event: "cards-looked-at", object: { objectId: "SRC" } }
+  );
+  const kernel = world().player("A").deck(["top"], { owner: "A" }).build();
+  const emissions = [];
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error("Unexpected choice: " + request.id); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: () => true
+  });
+  const original = host.execute;
+  host.execute = action => {
+    const execution = original(action);
+    for (const emission of execution.emissions) emissions.push([emission.timingPoint, emission.object?.ref?.id ?? null]);
+    return execution;
+  };
+  host.execute({ type: "look", objects: [kernel.ref("top")], player: "A" });
+  assert.deepEqual(emissions, [["cards-looked-at", null]]);
+});
+
 test.todo(
   "nocturne-horrifying: 打出许可与位置校验（从被查看的牌库顶打出，420.3.b / 355.2）——" +
-    "需要秘密区域的打出许可原语与消费方"
+    "需要秘密区域的打出许可原语与消费方；触发注册还先被 cards-looked-at 的封闭事件词表拒绝"
 );
 
 test.todo(
   "nocturne-horrifying: 356.1.a 的 cost.modify 已能在 interpreter 生成有效 CostPlan；" +
-    "仍需 chain adapter 解包 id/cost/linkKey，并把该计划接入从秘密区域打出的 effect.play Finalize 流程"
+    "仍需 chain adapter 在 LITERAL_FIELDS 解包 id/cost/linkKey（实测 cost.modify id must be a non-empty string），" +
+    "并把该计划接入从秘密区域打出的 effect.play Finalize 流程"
 );
 
 test.todo(
-  "nocturne-horrifying: 370.1.c.1 的秘密区域同刻替代（现有 replacement.event 可处理 card-revealed/reveal，look 的 objects→object 载荷与来源绑定仍缺）；" +
-    "同时复核 CR 370.1.c.1 示例文本与本地 sourceText 的措辞冲突（需要裁定）"
+  "nocturne-horrifying: 370.1.c.1 的秘密区域同刻替代（replacement/pattern.ts 的 ACTION_KINDS 是封闭映射，无 look 动作；" +
+    "look 的 objects→object 载荷与来源绑定仍缺）；同时复核 CR 370.1.c.1 示例文本与本地 sourceText 的措辞冲突（需要裁定）"
 );
