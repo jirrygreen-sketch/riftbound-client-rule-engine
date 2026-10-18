@@ -1,8 +1,12 @@
 import type { ObjectSnapshot, PlayerId } from '../../effects/contract.js';
 import type { TimingEmission } from '../pipeline-types.js';
+import { actionPayload, withActionPayload } from './payload.js';
 
 export interface MightChangeProducerContext {
+  readonly actionId?: string;
+  readonly batchId?: string;
   readonly player?: PlayerId;
+  readonly effectController?: PlayerId;
   readonly source?: ObjectSnapshot;
   readonly cause?: string;
   readonly simultaneousGroup?: string;
@@ -30,7 +34,7 @@ export function deriveMightChangedEmissions(
     if (previous === undefined || !sameIncarnation(previous, current)) continue;
     if (!previous.types.includes('unit') || !current.types.includes('unit')) continue;
     if (Object.is(previous.might, current.might)) continue;
-    emissions.push({
+    const emission: TimingEmission = {
       timingPoint: 'might-changed',
       kind: 'might-changed',
       object: current,
@@ -42,7 +46,21 @@ export function deriveMightChangedEmissions(
         ...(context.cause === undefined ? {} : { cause: context.cause }),
       },
       simultaneousGroup: context.simultaneousGroup ?? current.ref.id,
-    });
+    };
+    const enriched = context.actionId !== undefined || context.batchId !== undefined ||
+      context.effectController !== undefined || context.source !== undefined;
+    emissions.push(enriched
+      ? withActionPayload(emission, {
+        ...actionPayload(
+          { type: 'buff', object: current.ref, amount: 0 },
+          previous,
+          current,
+          { actionId: context.actionId, batchId: context.batchId, effectController: context.effectController, source: context.source, cause: context.cause, player: context.player },
+        ),
+        previousMight: previous.might,
+        currentMight: current.might,
+      }, { before: previous, after: current })
+      : emission);
   }
 
   return Object.freeze(emissions);
