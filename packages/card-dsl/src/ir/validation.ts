@@ -57,9 +57,21 @@ const CONDITION_KINDS = new Set([
   "event-printed",
   "printed-characteristic",
   "event-printed-characteristic",
-  "result"
+  "result",
+  "relation",
+  "event-it"
 ]);
-const EVENT_OBJECT_SELECTORS = new Set(["object", "source", "target"]);
+const EVENT_OBJECT_SELECTORS = new Set(["object", "source", "target", "it"]);
+const OBJECT_RELATIONS = new Set([
+  "same-location",
+  "different-location",
+  "same-controller",
+  "different-controller",
+  "same-owner",
+  "different-owner",
+  "another",
+  "other"
+]);
 const PRINTED_CHARACTERISTICS = new Set(["energy", "power", "might"]);
 const SELECTIONS = new Set(["one", "any", "all", "up-to"]);
 const TRIGGER_LIFETIMES = new Set(["per-turn", "per-combat", "per-chain", "per-game"]);
@@ -441,6 +453,23 @@ function validateFilter(value: unknown, path: string, context: ValidationContext
   for (const [key, item] of Object.entries(value)) {
     if ((OBJECT_FILTER_ANCHORS as readonly string[]).includes(key)) {
       valid = validateObjectSelector(item, `${path}.${key}`, context) && valid;
+    } else if (key === "relation") {
+      if (typeof item === "string") {
+        // Legacy relation labels (for example `opponent`) are opaque filter
+        // data and remain accepted; structured relation objects are validated
+        // below without changing their meaning.
+      } else if (Array.isArray(item)) {
+        if (item.length === 0) {
+          addIssue(context, `${path}.relation`, "invalid-relation-filter", "Expected at least one relation filter.");
+          valid = false;
+        } else {
+          item.forEach((relation, index) => {
+            valid = validateRelationFilter(relation, `${path}.relation[${index}]`, context) && valid;
+          });
+        }
+      } else {
+        valid = validateRelationFilter(item, `${path}.relation`, context) && valid;
+      }
     } else if (key === "filter") {
       valid = validateFilter(item, `${path}.filter`, context) && valid;
     } else {
@@ -448,6 +477,23 @@ function validateFilter(value: unknown, path: string, context: ValidationContext
     }
   }
   context.activeObjects.delete(value);
+  return valid;
+}
+
+function validateRelationFilter(value: unknown, path: string, context: ValidationContext): boolean {
+  if (!isRecord(value)) {
+    addIssue(context, path, "invalid-relation-filter", "Expected a relation filter object.");
+    return false;
+  }
+  let valid = typeof value.relation === "string" && OBJECT_RELATIONS.has(value.relation);
+  if (!valid) addIssue(context, `${path}.relation`, "invalid-relation", "Expected a supported object relation.");
+  for (const key of ["object", "other"] as const) {
+    if (hasOwn(value, key)) {
+      const endpoint = value[key];
+      const isEventRole = typeof endpoint === "string" && EVENT_OBJECT_SELECTORS.has(endpoint);
+      valid = (isEventRole || validateObjectSelector(endpoint, `${path}.${key}`, context)) && valid;
+    }
+  }
   return valid;
 }
 
@@ -512,6 +558,33 @@ function validateCondition(value: unknown, path: string, context: ValidationCont
     }
     valid = validateExpr(value.right, `${path}.right`, context) && valid;
     return valid;
+  }
+  if (kind === "relation") {
+    let valid = typeof value.relation === "string" && OBJECT_RELATIONS.has(value.relation);
+    if (!valid) addIssue(context, `${path}.relation`, "invalid-relation", "Expected a supported object relation.");
+    if (typeof value.left === "string" && EVENT_OBJECT_SELECTORS.has(value.left)) {
+      // Event roles are resolved by the event predicate adapter.
+    } else {
+      valid = validateObjectSelector(value.left, `${path}.left`, context) && valid;
+    }
+    if (value.right !== undefined) {
+      if (typeof value.right === "string" && EVENT_OBJECT_SELECTORS.has(value.right)) {
+        // Event roles are resolved by the event predicate adapter.
+      } else {
+        valid = validateObjectSelector(value.right, `${path}.right`, context) && valid;
+      }
+    } else if (value.relation !== "another" && value.relation !== "other") {
+      addIssue(context, `${path}.right`, "missing-relation-right", "This relation requires a right-hand object.");
+      valid = false;
+    }
+    return valid;
+  }
+  if (kind === "event-it") {
+    if (value.object !== undefined && (typeof value.object !== "string" || !EVENT_OBJECT_SELECTORS.has(value.object))) {
+      addIssue(context, `${path}.object`, "invalid-event-object-selector", "Expected object, source, target, or it.");
+      return false;
+    }
+    return true;
   }
   if (kind === "result") {
     let valid = validateString(value.result, `${path}.result`, context, "Expected a result key.", SYMBOL_PATTERN);
@@ -677,7 +750,7 @@ function validateCost(value: unknown, path: string, context: ValidationContext):
     addIssue(context, path, "invalid-cost", "Expected a cost specification.");
     return false;
   }
-  const known = ["kind", "payments", "energy", "power", "rune", "discard"];
+  const known = ["kind", "payments", "energy", "power", "rune", "discard", "parameters", "receiptKey", "universal"];
   let valid = true;
   if (Object.keys(value).length === 0) {
     addIssue(context, path, "empty-cost", "A cost specification must contain a payment.");
@@ -691,6 +764,21 @@ function validateCost(value: unknown, path: string, context: ValidationContext):
     if (hasOwn(value, key)) valid = validateExpr(value[key], `${path}.${key}`, context) && valid;
   }
   if (hasOwn(value, "discard")) valid = validatePick(value.discard, `${path}.discard`, context) && valid;
+  if (hasOwn(value, "receiptKey")) valid = validateString(value.receiptKey, `${path}.receiptKey`, context, "Expected a receipt key.", SYMBOL_PATTERN) && valid;
+  if (hasOwn(value, "universal") && typeof value.universal !== "boolean") {
+    addIssue(context, `${path}.universal`, "invalid-universal-source", "Expected a boolean Universal Power marker.");
+    valid = false;
+  }
+  if (hasOwn(value, "parameters")) {
+    if (!isRecord(value.parameters)) {
+      addIssue(context, `${path}.parameters`, "invalid-cost-parameters", "Expected a parameter expression map.");
+      valid = false;
+    } else {
+      for (const [key, expression] of Object.entries(value.parameters)) {
+        valid = validateExpr(expression, `${path}.parameters.${key}`, context) && valid;
+      }
+    }
+  }
   if (hasOwn(value, "payments")) {
     if (!Array.isArray(value.payments) || value.payments.length === 0) {
       addIssue(context, `${path}.payments`, "invalid-payments", "Expected at least one cost payment.");
@@ -704,9 +792,34 @@ function validateCost(value: unknown, path: string, context: ValidationContext):
           return;
         }
         valid = validateString(payment.kind, `${paymentPath}.kind`, context, "Expected a cost payment kind.", SYMBOL_PATTERN) && valid;
+        if (hasOwn(payment, "id")) valid = validateString(payment.id, `${paymentPath}.id`, context, "Expected a payment id.", SYMBOL_PATTERN) && valid;
         if (hasOwn(payment, "amount")) valid = validateExpr(payment.amount, `${paymentPath}.amount`, context) && valid;
         if (hasOwn(payment, "value")) valid = validateExpr(payment.value, `${paymentPath}.value`, context) && valid;
         if (hasOwn(payment, "choice")) valid = validatePick(payment.choice, `${paymentPath}.choice`, context) && valid;
+        if (hasOwn(payment, "source") && (typeof payment.source !== "string" || payment.source.length === 0)) {
+          addIssue(context, `${paymentPath}.source`, "invalid-payment-source", "Expected a payment source name.");
+          valid = false;
+        }
+        if (hasOwn(payment, "allowedDomains")) {
+          if (!Array.isArray(payment.allowedDomains) || payment.allowedDomains.some(domain => typeof domain !== "string" || domain.length === 0)) {
+            addIssue(context, `${paymentPath}.allowedDomains`, "invalid-payment-domains", "Expected a non-empty string domain list.");
+            valid = false;
+          }
+        }
+        if (hasOwn(payment, "universal") && typeof payment.universal !== "boolean") {
+          addIssue(context, `${paymentPath}.universal`, "invalid-universal-source", "Expected a boolean Universal Power marker.");
+          valid = false;
+        }
+        if (hasOwn(payment, "parameters")) {
+          if (!isRecord(payment.parameters)) {
+            addIssue(context, `${paymentPath}.parameters`, "invalid-payment-parameters", "Expected a parameter expression map.");
+            valid = false;
+          } else {
+            for (const [key, expression] of Object.entries(payment.parameters)) {
+              valid = validateExpr(expression, `${paymentPath}.parameters.${key}`, context) && valid;
+            }
+          }
+        }
       });
     }
   }
@@ -927,6 +1040,17 @@ function validateEventPattern(value: unknown, path: string, context: ValidationC
   const eventName = value.event ?? value.type;
   let valid = validateString(eventName, `${path}.${value.event !== undefined ? "event" : "type"}`, context, "Expected an event name.", SYMBOL_PATTERN);
   if (hasOwn(value, "filter")) valid = validateFilter(value.filter, `${path}.filter`, context) && valid;
+  if (hasOwn(value, "relations")) {
+    if (!Array.isArray(value.relations) || value.relations.length === 0) {
+      addIssue(context, `${path}.relations`, "invalid-event-relations", "Expected at least one relation filter.");
+      valid = false;
+    } else {
+      value.relations.forEach((relation, index) => {
+        valid = validateRelationFilter(relation, `${path}.relations[${index}]`, context) && valid;
+      });
+    }
+  }
+  if (hasOwn(value, "it")) valid = validateFilter(value.it, `${path}.it`, context) && valid;
   return valid;
 }
 
@@ -966,6 +1090,19 @@ function validateAbility(value: unknown, path: string, context: ValidationContex
   if (kind === "keyword") {
     valid = validateString(value.keyword, `${path}.keyword`, context, "Expected a lowercase keyword id.", SYMBOL_PATTERN);
     if (hasOwn(value, "value")) valid = validateFiniteNumber(value.value, `${path}.value`, context, true) && valid;
+    if (hasOwn(value, "params")) {
+      if (!isRecord(value.params)) {
+        addIssue(context, `${path}.params`, "invalid-keyword-params", "Expected a keyword parameter map.");
+        valid = false;
+      } else {
+        for (const [key, parameter] of Object.entries(value.params)) {
+          if (parameter === undefined) continue;
+          valid = key === "cost"
+            ? validateCost(parameter, `${path}.params.${key}`, context) && valid
+            : validateValue(parameter, `${path}.params.${key}`, context) && valid;
+        }
+      }
+    }
   } else if (kind === "triggered") {
     valid = validateTrigger(value.trigger, `${path}.trigger`, context) && valid;
     if (typeof value.optional !== "boolean") {
