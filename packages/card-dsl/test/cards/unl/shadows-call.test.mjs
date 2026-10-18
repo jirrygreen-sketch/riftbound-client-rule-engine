@@ -44,6 +44,7 @@ test("unl-165-219 Shadow's Call: program validates and keeps its identity", () =
   assert.match(program.judgeReason, /816\.3/);
   assert.match(program.judgeReason, /withoutKeyword/);
   assert.match(program.judgeReason, /addContinuous/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
 });
 
 test("unl-165-219 Shadow's Call: printed 2 energy, no printed power, and one chosen friendly unit", () => {
@@ -110,6 +111,21 @@ test("unl-165-219 Shadow's Call golden: a short deck draws as much as possible (
   assert.equal(run.linked.drawn, 1);
   assert.equal(kernel.player("A").handSize, 1);
   assert.equal(kernel.player("A").deckSize, 0);
+});
+
+test("unl-165-219 Shadow's Call golden: Draw 2 still executes when the locked grant target is gone", () => {
+  const kernel = world().deck(["top", "second", "third"]).build();
+  kernel.setTargets("shadows-call.friendly-unit", []);
+  const result = resolveChainBody([executableGrant, executableDraw], kernel);
+  assert.deepEqual(result.results.map(entry => [entry.id, entry.result.status]), [
+    [grantTemporary.id, "ignored"], [drawInstruction.id, "executed"]
+  ]);
+  assert.equal(result.results[0].result.reason, "mistargeted");
+  assert.equal(kernel.continuousEffects.length, 0);
+  assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["top", "second"]);
+  assert.equal(kernel.player("A").deckSize, 1);
+  assert.equal(result.linkedValues[`${drawInstruction.id}.drawn`], 2);
+  assert.deepEqual(kernel.events.map(event => event.action), ["draw"]);
 });
 
 test("unl-165-219 Shadow's Call golden: the merged grant registers Temporary on the chosen unit (CR 816.1.a)", () => {

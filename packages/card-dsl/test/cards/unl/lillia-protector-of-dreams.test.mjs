@@ -11,6 +11,7 @@ import { createEngineStaticBinder, createProgramBinding } from "../../../../engi
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { matchesTriggerObject } from "../../../../engine-core/dist/events/pipeline-match.js";
 
 const CANONICAL_ID =
   "card.hash-6e0aa33991db4d3499a6f694e8bef73ea18c9f5a92c1cff628ee2afc84a34321";
@@ -20,6 +21,20 @@ const SOURCE_TEXT =
 
 const [tokenPlayed, tokenTank] = program.abilities;
 const [grantMight] = tokenPlayed.body;
+
+test("unl-058-219 Lillia, Protector of Dreams: token gear neither triggers Might nor receives Tank", () => {
+  const kernel = world()
+    .unit("recruit", { isToken: true })
+    .unit("gold", { types: ["gear"], isToken: true })
+    .unit("ordinary-unit")
+    .unit("enemy-token", { owner: "B", isToken: true })
+    .build();
+  for (const [id, expected] of [["recruit", true], ["gold", false], ["ordinary-unit", false], ["enemy-token", false]]) {
+    const object = kernel.getObject(id);
+    assert.equal(matchesTriggerObject(tokenPlayed.trigger.filter.object, object, "A"), expected, `${id}: token-unit play trigger`);
+    assert.equal(matchesTriggerObject({ ...tokenTank.effect.filter, controller: "self" }, object, "A"), expected, `${id}: token-unit Tank aura`);
+  }
+});
 
 test("unl-058-219 Lillia, Protector of Dreams: program passes validateCardProgram and is registered", () => {
   const result = validateCardProgram(program);
@@ -55,7 +70,7 @@ test("unl-058-219 Lillia, Protector of Dreams: 'When you play a token unit' is n
   // a Play Effect; the owned token unit is the event object.
   assert.deepEqual(tokenPlayed.trigger.filter, {
     event: "card-played",
-    object: { type: "token", controller: "self" }
+    object: { type: "unit", characteristics: { isToken: true }, controller: "self" }
   });
   assert.equal(tokenPlayed.trigger.condition, undefined);
   assert.equal(tokenPlayed.trigger.once, undefined);
@@ -80,9 +95,9 @@ test("unl-058-219 Lillia, Protector of Dreams: 'Your token units have [Tank]' is
   assert.equal(tokenTank.effect.kind, "continuous.grant-keyword");
   assert.equal(tokenTank.effect.keyword, "Tank");
   assert.deepEqual(tokenTank.effect.filter, {
-    // 185.1/185.2 + 355.9.a.1: token units are objects on the board whose token
-    // category the merged filter vocabulary matches.
-    type: "token",
+    // 185.1/185.2 + 355.9.a.1: both the unit type and token category are required.
+    type: "unit",
+    characteristics: { isToken: true },
     controller: "controller",
     zone: "board"
   });
@@ -120,7 +135,9 @@ test("unl-058-219 Lillia, Protector of Dreams golden: the static binder grants T
     cards: [
       { id: "lillia", cardId: CANONICAL_ID, types: ["unit"], energy: 5, power: [], might: 4 },
       { id: "ally-token", types: ["unit"], isToken: true, might: 3, owner: "A", controller: "A" },
-      { id: "enemy-token", types: ["unit"], isToken: true, might: 3, owner: "B", controller: "B" }
+      { id: "enemy-token", types: ["unit"], isToken: true, might: 3, owner: "B", controller: "B" },
+      { id: "ally-gear-token", types: ["gear"], isToken: true, might: null },
+      { id: "ordinary-unit", types: ["unit"], might: 3 }
     ]
   });
   const board = id => f.engine.commit({
@@ -131,12 +148,16 @@ test("unl-058-219 Lillia, Protector of Dreams golden: the static binder grants T
   });
   board("ally-token");
   board("enemy-token");
+  board("ally-gear-token");
+  board("ordinary-unit");
   board("lillia");
   const source = f.kernel.getObject("lillia");
   const staticAbility = binding.inspect(source).abilities.find(ability => ability.kind === "static");
   const handle = createEngineStaticBinder(f.engine).bindStatic(staticAbility, source);
   assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref("ally-token")).keywords, [{ id: "Tank", value: undefined }]);
   assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref("enemy-token")).keywords, []);
+  assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref("ally-gear-token")).keywords, []);
+  assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref("ordinary-unit")).keywords, []);
   handle.unbind();
   assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref("ally-token")).keywords, []);
 });
