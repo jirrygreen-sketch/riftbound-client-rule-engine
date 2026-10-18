@@ -98,6 +98,41 @@ test("EG-BUFF original Albus Ferros pick spends any number at resolution and rep
   assert.equal(f.errors.length, 0);
 });
 
+test("EG-BUFF original Albus Ferros production chain rolls back after an invalid pick", () => {
+  const ability = triggered(albusFerros);
+  const program = sourceProgram("albus-rollback", [], [ability]);
+  const f = fixture({
+    programs: [program],
+    setup(builder) {
+      builder.hand("albus", { cardId: program.canonicalCardId, types: ["unit"], energy: 0, power: [] });
+      builder.unit("buffed-a", { buffs: 1, energy: null, power: null });
+      builder.unit("buffed-b", { buffs: 1, energy: null, power: null });
+    }
+  });
+  f.play("albus");
+  const before = {
+    state: f.kernel.stateForTest(),
+    links: structuredClone(f.kernel.linkedSnapshot()),
+    events: structuredClone(f.engine.pipeline.events),
+    items: structuredClone(f.engine.items),
+    trace: structuredClone(f.engine.trace),
+    priority: f.engine.priority
+  };
+  f.answers.set("albus-ferros.spend-buffs/pick%3Aalbus-ferros.buffs", [
+    { id: "forged", zoneEntryId: 1 }
+  ]);
+  assert.throws(() => settle(f.engine), /choice contains an unavailable or duplicate value/);
+  assert.deepEqual(f.kernel.stateForTest(), before.state);
+  assert.deepEqual(f.kernel.linkedSnapshot(), before.links);
+  assert.deepEqual(f.engine.pipeline.events, before.events);
+  assert.deepEqual(f.engine.items, before.items);
+  assert.deepEqual(f.engine.trace, before.trace);
+  assert.equal(f.engine.priority, before.priority);
+  assert.equal(f.get("buffed-a").buffs, 1);
+  assert.equal(f.get("buffed-b").buffs, 1);
+  assert.equal(f.kernel.player("A").runePool.length, 0);
+});
+
 test("EG-BUFF arbitrary choose replays transactionally, accepts zero, and never targets the chosen Units", () => {
   const body = [{
     id: "choose-buffs",
