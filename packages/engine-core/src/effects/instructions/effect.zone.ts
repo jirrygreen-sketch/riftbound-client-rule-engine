@@ -33,6 +33,10 @@ import type {
  * distinct targeting semantics of `target.query`; use `effect.draw`,
  * `effect.recycle`, `effect.banish`, or movement-specific primitives when the
  * card text calls for their narrower operation.
+ *
+ * Legacy `target`/`pick` calls retain their original receipt exactly:
+ * `moved`, `movedIds`, and `destination`. Calls through the additive `objects`
+ * selector also expose `movedObjects` with the post-action current references.
  */
 
 export interface EffectZoneChoice {
@@ -197,6 +201,8 @@ function selectedObjects(ctx: ResolveContext, args: EffectZoneArgs): {
   refs: ObjectRef[];
   target: boolean;
   staleInput: boolean;
+  legacyPick: boolean;
+  includeReceipt: boolean;
 } {
   const selected: Selection = args.objects === undefined
     ? args.target !== undefined
@@ -222,7 +228,13 @@ function selectedObjects(ctx: ResolveContext, args: EffectZoneArgs): {
     refs.push({ id: candidate.id, zoneEntryId: candidate.zoneEntryId });
   }
   const staleInput = values.length > 0 && refs.length === 0;
-  return { refs, target: selected.kind === "target", staleInput };
+  return {
+    refs,
+    target: selected.kind === "target",
+    staleInput,
+    legacyPick: args.objects === undefined && args.pick !== undefined,
+    includeReceipt: args.objects !== undefined
+  };
 }
 
 function evaluateDestination(ctx: ResolveContext, args: EffectZoneArgs): ZoneDestination {
@@ -301,7 +313,7 @@ export default {
   argsSchema: { parse: parseArgs },
   execute(ctx: ResolveContext, args: EffectZoneArgs) {
     const selected = selectedObjects(ctx, args);
-    if (selected.refs.length === 0 && (selected.target || selected.staleInput)) {
+    if (selected.refs.length === 0 && (selected.target || selected.staleInput || selected.legacyPick)) {
       return { status: "ignored", reason: "mistargeted" };
     }
 
@@ -348,9 +360,13 @@ export default {
     const moved = movedIds.length;
     ctx.link("moved", moved);
     ctx.link("movedIds", movedIds);
-    ctx.link("movedObjects", movedObjects);
     ctx.link("destination", destination);
+    if (selected.includeReceipt) ctx.link("movedObjects", movedObjects);
     if (failure) return negated(failure, events);
-    return { status: "executed", events: [...events], linkedValues: { moved, movedIds, movedObjects, destination } };
+    return {
+      status: "executed",
+      events: [...events],
+      linkedValues: { moved, movedIds, destination, ...(selected.includeReceipt ? { movedObjects } : {}) }
+    };
   }
 } satisfies InstructionDef<EffectZoneArgs>;
