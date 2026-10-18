@@ -24,7 +24,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   effect.repeat 本体已存在，但 Repeat 展开的 repeat.cost 静态声明在 programs/statics.ts
  *   被拒（"Static ability kind repeat.cost has no layer mapping"），卡片关键词实例没有接入
  *   Finalize/paid-count。
- * RIFT-681 的模板参数化 golden（test/cards/templates/
+ * 模板参数化 golden（test/cards/templates/
  * keyword-play-continuous-grant-keyword-681.test.mjs）经通用测试台真实支付 4 能量、
  * 登记 ability 图层授予并覆盖既有 Assault 宿主求和边界；整卡继续保持 judge-required。
  */
@@ -33,7 +33,8 @@ const squareUp = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未接通，均不近似实现（RIFT-681 模板 golden 给出真实执行证据边界，2026-10-18 复核）：" +
+    "两处依赖未接通，均不近似实现（模板参数化 golden " +
+    "test/cards/templates/keyword-play-continuous-grant-keyword-681.test.mjs 给出真实执行证据边界，2026-10-18 复核）：" +
     "(1) 整卡打出半段已可执行——continuous.grant-keyword 经通用测试台真实支付 4 能量并在 ability 图层登记本回合的 Assault 4" +
     "（含既有 Assault 1 宿主求和到 5 的边界），但 Assault 展开要求读取 attacker designation（807.1.c/807.1.d.1），" +
     "而生产 ObjectSnapshot 只提供 combatRole；把 designation 映射到 combatRole 的扩展求值器" +

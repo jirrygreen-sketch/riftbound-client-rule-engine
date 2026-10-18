@@ -3,7 +3,7 @@
 //
 // Execution evidence (4 Energy payment, board-unit target, end-of-turn
 // ability-layer Assault 4 registration and the Assault-stacking boundary) lives
-// in the RIFT-681 parameterized template golden:
+// in the parameterized template golden:
 // test/cards/templates/keyword-play-continuous-grant-keyword-681.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
