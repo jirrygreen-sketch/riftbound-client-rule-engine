@@ -9,6 +9,26 @@ import { bindEventHistory } from '../effects/interpreter/expr-ext/event-history.
 import { matchesObjectPredicates } from '../effects/filters/predicates.js';
 import { resolveRuleAmount } from './trigger-rules/index.js';
 
+function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
+  if (value === null || typeof value !== 'object' || seen.has(value as object)) return value;
+  seen.add(value as object);
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child, seen);
+  return Object.freeze(value);
+}
+
+function explicitBatchIdentity(emission: TimingEmission): string | undefined {
+  for (const value of [emission.batchId, emission.simultaneousGroup]) {
+    if (value !== undefined && (typeof value !== 'string' || value.length === 0)) {
+      throw new TypeError('Timing batch identity must be a non-empty string');
+    }
+  }
+  if (emission.batchId !== undefined && emission.simultaneousGroup !== undefined &&
+      emission.batchId !== emission.simultaneousGroup) {
+    throw new TypeError('Timing emission has conflicting batch identities');
+  }
+  return emission.batchId ?? emission.simultaneousGroup;
+}
+
 function relativeQuery(context: ResolveContext, controller: PlayerId): ResolveContext['query'] {
   return filter => {
     const normalized: Record<string, unknown> = { ...filter };
@@ -77,12 +97,23 @@ export class EventPipeline {
   registerTrigger(registration: TriggerRegistration): void {
     getTimingPoint(registration.spec.at);
     assertTriggerSpec(registration.spec);
+    if (registration.maxPerScope !== undefined &&
+        (!Number.isSafeInteger(registration.maxPerScope) || registration.maxPerScope < 0)) {
+      throw new RangeError('Trigger maxPerScope must be a nonnegative safe integer');
+    }
     if (this.triggers.has(registration.id)) throw new Error(`Duplicate trigger ${registration.id}`);
     this.triggers.set(registration.id, structuredClone(registration));
   }
   unregisterTrigger(id: string): void { this.triggers.delete(id); }
   registerTriggerRule(rule: TriggerRule): void {
     if (!rule.id || rule.id.trim().length === 0) throw new TypeError('Trigger rule id must be non-empty');
+    if (rule.mode !== 'additional' && rule.mode !== 'multiply' && rule.mode !== 'suppress') {
+      throw new TypeError('Trigger rule mode must be additional, multiply, or suppress');
+    }
+    if (rule.amount !== undefined && typeof rule.amount !== 'function' &&
+        (!Number.isSafeInteger(rule.amount) || rule.amount < 0)) {
+      throw new RangeError('Trigger rule amount must be a nonnegative safe integer or a function');
+    }
     if (this.rules.has(rule.id)) throw new Error(`Duplicate trigger rule ${rule.id}`);
     this.rules.set(rule.id, rule);
   }
@@ -131,7 +162,19 @@ export class EventPipeline {
   /** Publish one atomic wave. All emitted timings share one batch identity. */
   emitBatch(emissions: readonly TimingEmission[], action?: GameAction, batchId?: string): readonly PipelineEvent[] {
     if (emissions.length === 0) return [];
-    const sharedBatchId = emissions.find(emission => emission.batchId !== undefined)?.batchId ?? emissions.find(emission => emission.simultaneousGroup !== undefined)?.simultaneousGroup;
+    if (batchId !== undefined && (typeof batchId !== 'string' || batchId.length === 0)) {
+      throw new TypeError('Timing batch identity must be a non-empty string');
+    }
+    const explicitBatchIds = new Set<string>();
+    for (const emission of emissions) {
+      const identity = explicitBatchIdentity(emission);
+      if (identity !== undefined) explicitBatchIds.add(identity);
+    }
+    if (explicitBatchIds.size > 1) throw new TypeError('Timing emissions in one atomic batch must share a batch identity');
+    const sharedBatchId = explicitBatchIds.values().next().value;
+    if (batchId !== undefined && sharedBatchId !== undefined && batchId !== sharedBatchId) {
+      throw new TypeError('Explicit batch identity conflicts with emission batch identity');
+    }
     const resolvedBatchId = batchId ?? sharedBatchId ?? this.nextBatchId();
     const events: PipelineEvent[] = [];
     for (const [batchIndex, emission] of emissions.entries()) {
@@ -140,7 +183,7 @@ export class EventPipeline {
       if (emission.timingPoint === 'combat-start') this.clock.combat++;
       if (emission.timingPoint === 'showdown-open') this.clock.showdown++;
       if (['awaken-start', 'beginning-start', 'channel-start', 'draw-start', 'main-start', 'turn-end'].includes(emission.timingPoint)) this.clock.phase++;
-      const event: PipelineEvent = Object.freeze(structuredClone({ type: 'task-resolved' as const, seq: this.sequence + 1, eventId: ++this.sequence, turnNumber: this.clock.turn, activePlayerId: this.turnPlayer, taskId: `pipeline:${this.sequence}`, sourceCardId: emission.source?.cardId ?? emission.object?.cardId ?? '', reason: emission.kind ?? emission.timingPoint, autoResolved: true as const, ...emission, batchId: resolvedBatchId, batchIndex, batchSize: emissions.length, ...(action ? { action } : {}) }));
+      const event = deepFreeze(structuredClone({ type: 'task-resolved' as const, seq: this.sequence + 1, eventId: ++this.sequence, turnNumber: this.clock.turn, activePlayerId: this.turnPlayer, taskId: `pipeline:${this.sequence}`, sourceCardId: emission.source?.cardId ?? emission.object?.cardId ?? '', reason: emission.kind ?? emission.timingPoint, autoResolved: true as const, ...emission, batchId: resolvedBatchId, batchIndex, batchSize: emissions.length, ...(action ? { action } : {}) })) as PipelineEvent;
       events.push(event);
       this.log.push(event);
       this.onEvent?.(event);
@@ -237,14 +280,17 @@ export class EventPipeline {
       let own = hits.filter(hit => hit.controller === controller);
       own = own.filter(hit => {
         if (!hit.registration.optional) return true;
-        const answer = this.host.choose<boolean>({ id: `trigger:${hit.event.eventId}:${hit.registration.id}:optional`, chooser: controller, visibility: 'public', type: 'optional' });
+        const occurrence = hit.occurrence ?? 0;
+        const answer = this.host.choose<boolean>({ id: `trigger:${hit.event.eventId}:${hit.registration.id}:${occurrence}:optional`, chooser: controller, visibility: 'public', type: 'optional' });
         if (typeof answer !== 'boolean') throw new TypeError('Optional trigger answer must be boolean');
         return answer;
       });
       if (own.length > 1) {
         const remaining = [...own], ordered: TriggerSnapshot[] = [];
         while (remaining.length > 1) {
-          const token = (hit: TriggerSnapshot) => own.filter(candidate => candidate.registration.id === hit.registration.id).length > 1 ? `${hit.registration.id}:${hit.event.eventId}` : hit.registration.id;
+          const token = (hit: TriggerSnapshot) => own.filter(candidate => candidate.registration.id === hit.registration.id).length > 1
+            ? `${hit.registration.id}:${hit.event.eventId}:${hit.occurrence ?? 0}`
+            : hit.registration.id;
           const id = this.host.choose<string>({ id: `trigger:${events[0]!.eventId}:${controller}:order:${ordered.length}`, chooser: controller, visibility: 'public', type: 'mode', options: remaining.map(token) });
           const index = remaining.findIndex(hit => token(hit) === id);
           if (index < 0) throw new TypeError('Invalid trigger order');
@@ -252,7 +298,7 @@ export class EventPipeline {
         }
         own = [...ordered, ...remaining];
       }
-      for (const hit of own) this.onTrigger(structuredClone(hit));
+      for (const hit of own) this.onTrigger(deepFreeze(structuredClone(hit)));
     }
   }
   private triggerRuleEffect(context: TriggerRuleContext): { readonly suppressed: boolean; readonly multiplicity: number } {
@@ -267,9 +313,10 @@ export class EventPipeline {
         if (!rule.delayed && (!source || !(rule.activeZones ?? ['board']).includes(source.zone))) continue;
         ruleSource = source;
       }
-      if (!rule.matches({ ...context, ...(ruleSource === undefined ? {} : { ruleSource }) })) continue;
+      const ruleContext = { ...context, ...(ruleSource === undefined ? {} : { ruleSource }) };
+      if (!rule.matches(ruleContext)) continue;
       if (rule.mode === 'suppress') return { suppressed: true, multiplicity: 0 };
-      const amount = resolveRuleAmount(rule, context);
+      const amount = resolveRuleAmount(rule, ruleContext);
       multiplicity = rule.mode === 'additional' ? multiplicity + amount : multiplicity * amount;
       if (!Number.isSafeInteger(multiplicity) || multiplicity < 0) throw new RangeError(`Invalid trigger multiplicity after ${rule.id}`);
     }

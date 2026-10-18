@@ -249,3 +249,73 @@ test('EG-PIPELINE: relative controller conditions resolve from the trigger-time 
   resolveAll(f.engine);
 });
 
+test('EG-PIPELINE: a multiplicity wave gives each independent trigger its own prompt and order identity', () => {
+  const requests = [];
+  const f = fixture({
+    choose: request => {
+      requests.push(request);
+      if (request.type === 'optional') return true;
+      if (request.type === 'mode') return request.options.at(-1);
+      return undefined;
+    },
+  });
+  trigger(f, 'optional-amplified', {
+    optional: true,
+    body: [],
+    spec: { at: 'card-drawn' },
+  });
+  f.engine.pipeline.registerMultiplicityRule(additionalTriggerRule({
+    id: 'independent-amplifier',
+    matches: ({ event }) => event.timingPoint === 'card-drawn',
+  }));
+
+  f.engine.commit({ type: 'draw', player: 'A', amount: 1 });
+  assert.equal(f.engine.items.length, 2);
+  const optionalRequests = requests.filter(request => request.type === 'optional');
+  assert.equal(optionalRequests.length, 2);
+  assert.equal(new Set(optionalRequests.map(request => request.id)).size, 2);
+  const orderRequests = requests.filter(request => request.type === 'mode');
+  assert.equal(orderRequests.length, 1);
+  assert.equal(new Set(orderRequests[0].options).size, 2);
+});
+
+test('EG-PIPELINE: conflicting explicit batch identities fail before publishing an event', () => {
+  const f = fixture();
+  assert.throws(() => f.engine.pipeline.emitBatch([
+    { timingPoint: 'card-drawn', player: 'A', batchId: 'batch-a' },
+    { timingPoint: 'card-drawn', player: 'A', batchId: 'batch-b' },
+  ]), /share a batch identity/);
+  assert.equal(f.engine.pipeline.events.length, 0);
+  assert.equal(f.engine.items.length, 0);
+});
+
+test('EG-PIPELINE: event snapshots and trigger snapshots are recursively immutable', () => {
+  const f = fixture();
+  const object = f.kernel.getObject('source');
+  const it = { ...object, ref: { id: 'immutable-it', zoneEntryId: 3 } };
+  f.engine.pipeline.onEvent = event => {
+    assert.equal(Object.isFrozen(event), true);
+    if (event.timingPoint === 'buff-added') {
+      assert.equal(Object.isFrozen(event.it), true);
+      assert.equal(Object.isFrozen(event.it.ref), true);
+      assert.throws(() => { event.it.ref.id = 'mutated'; }, TypeError);
+    }
+  };
+  f.engine.pipeline.registerTrigger({
+    id: 'immutable-hit',
+    source: object,
+    controller: 'A',
+    // The shared EventPattern validator is owned by RIFT-845 and still omits
+    // `it`; this test exercises the pipeline snapshot contract without
+    // pretending that production registration has accepted the typed field.
+    spec: { at: 'buff-added', filter: {} },
+    body: [],
+  });
+  f.engine.pipeline.emitBatch([{
+    timingPoint: 'buff-added', kind: 'buff-added', object, source: object, it, player: 'A', batchId: 'immutable-batch',
+  }]);
+  assert.equal(f.engine.items.length, 1);
+  assert.equal(Object.isFrozen(f.engine.items[0].trigger), true);
+  assert.equal(Object.isFrozen(f.engine.items[0].trigger.event.it.ref), true);
+});
+
