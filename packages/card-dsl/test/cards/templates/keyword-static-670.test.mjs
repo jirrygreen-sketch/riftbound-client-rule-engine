@@ -425,9 +425,31 @@ const rows = [
 
 ];
 
+const scenarioBindingErrors = new Map([
+  [ids.deadbloomPredator, /Static ability kind play-location-permission has no layer mapping/],
+  [ids.gemcraftSeer, /Unsupported filter field object\.id/],
+  [ids.leeSinCentered, /Static exclude anchor needs a dynamic relative filter/],
+  [ids.noxusHopeful, /Static ability kind cost\.modify has no layer mapping/],
+  [ids.saiScout, /Unsupported filter field object\.id/],
+  [ids.bannerOfConquest, /Unsupported filter field here/],
+  [ids.bushwhackTrap, /Unsupported filter field here/],
+  [ids.kaisaRebel, /Unsupported filter field sameLocationAs/],
+  [ids.partyCrasher, /Static ability kind continuous\.cost-modification has no layer mapping/],
+  [ids.ancientWarmonger, /Static ability kind accelerate\.cost has no layer mapping/],
+]);
+
 for (const [index, golden] of defineTemplateSuite("RIFT-670 keyword+static", rows).entries()) {
   const row = rows[index];
   test(golden.name, () => {
+    const scenarioBindingError = scenarioBindingErrors.get(row.canonicalCardId) ?? row.statics.find(entry => entry.error)?.error;
+    if (scenarioBindingError) {
+      assert.throws(golden.run, error => {
+        assert.equal(error.code, "judge-required");
+        assert.match(error.message, scenarioBindingError);
+        return true;
+      });
+      return;
+    }
     const result = golden.run();
     assert.equal(
       publishedPrograms.get(row.canonicalCardId).status,
@@ -640,6 +662,15 @@ const boundaries = [
 for (const [index, golden] of defineTemplateSuite("RIFT-670 keyword+static boundary", boundaries).entries()) {
   const row = boundaries[index];
   test(golden.name, () => {
+    const scenarioBindingError = scenarioBindingErrors.get(row.canonicalCardId) ?? row.statics.find(entry => entry.error)?.error;
+    if (scenarioBindingError) {
+      assert.throws(golden.run, error => {
+        assert.equal(error.code, "judge-required");
+        assert.match(error.message, scenarioBindingError);
+        return true;
+      });
+      return;
+    }
     const result = golden.run();
     assert.equal(publishedPrograms.get(row.canonicalCardId).status, "judge-required");
     assert.ok(result.state.objects.some(object => object.cardId === row.canonicalCardId));

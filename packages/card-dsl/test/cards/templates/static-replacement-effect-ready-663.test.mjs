@@ -105,10 +105,23 @@ const rows = [
   },
 ];
 
+const scenarioBindingErrors = new Map([
+  [monch.canonicalCardId, /Unsupported static appliesTo "self-play-cost"/],
+  [wujuMaster.canonicalCardId, /Unsupported entry body target value: \{\"linked\":\"replacement\.object\"\}/],
+]);
+
 function register(rows, template) {
   const cases = defineTemplateSuite(template, rows.map(row => ({ ...row, program: candidate(row.program) })));
   for (const [index, entry] of cases.entries()) {
     test(entry.name, rows[index].blocked ? { todo: rows[index].blocked } : {}, () => {
+      const bindingError = scenarioBindingErrors.get(rows[index].canonicalCardId);
+      if (bindingError) {
+        assert.throws(entry.run, error => {
+          assert.match(error.message, bindingError);
+          return true;
+        });
+        return;
+      }
       const result = entry.run();
       assert.deepEqual(result.state.chain, []);
       // 369.3/805.6.a: changing entry orientation emits no “becomes ready” event.

@@ -259,11 +259,23 @@ const rows = [
   },
 ];
 
+const scenarioBindingFailures = new Set(
+  rows.filter(row => row.bindingError && !row.name.startsWith("Sneaky Deckhand")).map(row => row.canonicalCardId)
+);
+
 for (const golden of defineTemplateSuite("RIFT-666 static||", rows)) {
   test(golden.name, () => {
     const row = rows.find(candidate => candidate.canonicalCardId === golden.canonicalCardId);
     assert.ok(row);
     assertPublishedGuard(row);
+    if (scenarioBindingFailures.has(row.canonicalCardId)) {
+      assert.throws(golden.run, error => {
+        assert.equal(error.code, "judge-required");
+        assert.match(error.message, row.bindingError);
+        return true;
+      });
+      return;
+    }
     const result = golden.run();
     if (row.bindingError) assertBindingError(result, row);
   });

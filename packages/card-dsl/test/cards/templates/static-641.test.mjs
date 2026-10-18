@@ -258,14 +258,7 @@ for (const [index, golden] of defineTemplateSuite("RIFT-641 static probes", prob
       message: `Scenario program ${row.canonicalCardId} is judge-required`,
     });
     if (row.bindingError) {
-      // Lifecycle currently swallows static binding errors. Probe the scenario
-      // setup, then confirm the exact blocker directly with a real engine binder;
-      // a successful setup alone must never count as an executable static effect.
-      const result = golden.run();
-      const host = result.state.objects.find(object => object.cardId === row.canonicalCardId);
-      assert.ok(host);
-      const engine = fixture({ cards: [] }).engine;
-      assert.throws(() => createEngineStaticBinder(engine).bindStatic(row.program.abilities[0], host), error => {
+      assert.throws(golden.run, error => {
         assert.ok(error instanceof ProgramBindingError);
         assert.equal(error.code, "judge-required");
         assert.match(error.message, row.bindingError);

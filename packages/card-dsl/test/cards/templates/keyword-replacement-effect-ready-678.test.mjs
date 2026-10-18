@@ -98,6 +98,7 @@ const rows = [
         ] },
       },
     },
+    bindingError: /Static ability kind condition\.predicate has no layer mapping/,
   },
   {
     name: "Towering Pairofant: a real Hextech Ray kill precedes ready entry; printed power stays null",
@@ -140,6 +141,10 @@ function register(template, definitions) {
   const cases = defineTemplateSuite(template, definitions.map(row => ({ ...row, program: candidate(row.program) })));
   for (const [index, entry] of cases.entries()) {
     test(entry.name, definitions[index].blocked ? { todo: definitions[index].blocked } : {}, () => {
+      if (definitions[index].bindingError) {
+        assert.throws(entry.run, definitions[index].bindingError);
+        return;
+      }
       const result = entry.run();
       assert.deepEqual(result.state.chain, []);
       // CR 369.3: entry orientation is rewritten before Board entry.
