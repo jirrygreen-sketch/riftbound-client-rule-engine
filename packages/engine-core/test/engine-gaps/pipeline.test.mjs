@@ -213,3 +213,39 @@ test('EG-PIPELINE: missing EventPattern.it fails closed even when object and tar
   assert.equal(matchesTriggerEvent({ event: 'buff-added', it: { objectId: object.ref.id, zoneEntryId: object.ref.zoneEntryId } }, event, 'A'), false);
 });
 
+test('EG-PIPELINE: relative controller conditions resolve from the trigger-time controller', () => {
+  const f = fixture();
+  trigger(f, 'relative-condition', {
+    body: [],
+    spec: {
+      at: 'card-drawn',
+      condition: {
+        kind: 'compare',
+        left: { kind: 'count', subject: 'objects', filter: { type: 'unit', controller: 'self', zone: 'board' } },
+        operator: 'gte',
+        right: { kind: 'constant', value: 1 },
+      },
+    },
+  });
+  f.kernel.addObject({
+    ...f.kernel.getObject('source'), ref: { id: 'own-unit', zoneEntryId: 1 },
+    cardId: 'card:own-unit', types: ['unit'], controller: 'A', owner: 'A', zone: 'board',
+  }, 'board');
+  f.kernel.addObject({
+    ...f.kernel.getObject('source'), ref: { id: 'foreign-unit', zoneEntryId: 1 },
+    cardId: 'card:foreign-unit', types: ['unit'], controller: 'B', owner: 'B', zone: 'board',
+  }, 'board');
+
+  f.engine.pipeline.emitBatch([{ timingPoint: 'card-drawn', player: 'A', batchId: 'condition-a' }]);
+  assert.equal(f.engine.items.length, 1);
+  f.engine.advance();
+  resolveAll(f.engine);
+
+  // The trigger belongs to A even when the event is authored by B.  Its
+  // relative "self" condition remains A's perspective and sees A's unit.
+  f.engine.pipeline.emitBatch([{ timingPoint: 'card-drawn', player: 'B', batchId: 'condition-b' }]);
+  assert.equal(f.engine.items.length, 1);
+  f.engine.advance();
+  resolveAll(f.engine);
+});
+

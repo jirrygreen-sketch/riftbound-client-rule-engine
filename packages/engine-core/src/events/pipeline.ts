@@ -1,4 +1,4 @@
-import type { ActionOutcome, GameAction, ObjectSnapshot, PlayerId } from '../effects/contract.js';
+import type { ActionOutcome, GameAction, ObjectFilter, ObjectSnapshot, PlayerId, ResolveContext } from '../effects/contract.js';
 import { getTimingPoint } from './timing-points.js';
 import { matchesTriggerEvent } from './pipeline-match.js';
 import { assertTriggerSpec } from './trigger-spec.js';
@@ -6,7 +6,27 @@ import type { ActionExecution, PipelineClock, PipelineEvent, PipelineHost, Repla
 import { evaluateCondition } from '../effects/interpreter/condition.js';
 import { MissingInformation } from '../effects/interpreter/values.js';
 import { bindEventHistory } from '../effects/interpreter/expr-ext/event-history.js';
+import { matchesObjectPredicates } from '../effects/filters/predicates.js';
 import { resolveRuleAmount } from './trigger-rules/index.js';
+
+function relativeQuery(context: ResolveContext, controller: PlayerId): ResolveContext['query'] {
+  return filter => {
+    const normalized: Record<string, unknown> = { ...filter };
+    for (const key of ['controller', 'owner'] as const) {
+      if (normalized[key] === 'self') normalized[key] = controller;
+    }
+    return context.query({}).filter(object => {
+      for (const key of ['controller', 'owner'] as const) {
+        if (normalized[key] === 'opponent' && object[key] === controller) return false;
+      }
+      return matchesObjectPredicates({
+        ...normalized,
+        ...(normalized.controller === 'opponent' ? { controller: 'any' } : {}),
+        ...(normalized.owner === 'opponent' ? { owner: 'any' } : {}),
+      }, object);
+    });
+  };
+}
 
 function evaluateTriggerCondition(
   pipeline: { readonly events: readonly PipelineEvent[] },
@@ -14,10 +34,16 @@ function evaluateTriggerCondition(
   registration: TriggerRegistration,
   event: PipelineEvent,
   source: ObjectSnapshot,
+  controller: PlayerId,
 ): boolean {
   const condition = registration.spec.condition;
   if (condition === undefined) return true;
-  const context = bindEventHistory(host.context(source, registration.controller, event.timingPoint), pipeline);
+  const base = host.context(source, controller, event.timingPoint);
+  const context = bindEventHistory(new Proxy(base, { get(target, key) {
+    if (key === 'query') return relativeQuery(target, controller);
+    const value = Reflect.get(target, key);
+    return typeof value === 'function' ? value.bind(target) : value;
+  } }), pipeline);
   return evaluateCondition(condition as unknown as import("@riftbound/card-dsl").Condition, {
     context,
     event,
@@ -184,7 +210,7 @@ export class EventPipeline {
           // The pipeline evaluator has the captured source, immutable event,
           // and relative-player context.  A legacy host hook is only a fallback
           // for conditions that genuinely need host-specific information.
-          if (!evaluateTriggerCondition(this, this.host, registration, event, captured)) continue;
+          if (!evaluateTriggerCondition(this, this.host, registration, event, captured, controller)) continue;
         } catch (error) {
           if (!(error instanceof MissingInformation) || !this.host.testTrigger) throw error;
           if (!this.host.testTrigger(registration, event, captured)) continue;
