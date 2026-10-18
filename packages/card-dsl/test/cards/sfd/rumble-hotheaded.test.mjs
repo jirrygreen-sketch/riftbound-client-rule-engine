@@ -21,6 +21,7 @@ import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { world, runInstruction } from "../../../../../packages/engine-core/dist/effects/testing/index.js";
 import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL = "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870";
 
@@ -316,4 +317,74 @@ test("Rumble, Hotheaded: merged cost.modify and cost.pay execute a real Might-va
   assert.equal(paid.result.status, "executed");
   assert.equal(kernel.player("A").energy, 3);
   assert.deepEqual(paid.events.map(event => event.action), ["pay"]);
+});
+
+test("Rumble, Hotheaded: the merged chain recycles for a real 3-Might discount but effect.play pays a silent zero from the unflattened plan", () => {
+  // The discount math executes end to end (recycle -> cost.modify with an
+  // explicit base and a linked-Might reduce -> effect.play reading the linked
+  // CostPlan), but the complete CostPlan has no flat top-level energy field,
+  // so the finalized play override is read as cost.energy ?? 0 and A keeps
+  // all 10 energy. This is the measured gap: plan-shape conversion, not the
+  // discount calculation.
+  const built = world()
+    .player("A", { energy: 10 })
+    .unit("rumble", { owner: "A", controller: "A", tags: ["Mech"], might: 4 })
+    .base("fodder", { owner: "A", might: 3 })
+    .card("mech-card", { owner: "A", zone: "trash", types: ["unit"], tags: ["Mech"], energy: 5 })
+    .build();
+  const kernel = built.clone({
+    controller: "A",
+    sourceSnapshot: built.getObject("rumble"),
+    targets: new Map([
+      ["rumble.fodder", [built.ref("fodder")]],
+      ["rumble.mech-in-trash", [built.ref("mech-card")]]
+    ])
+  });
+  const [trigger] = program.abilities.filter((ability) => ability.kind === "triggered");
+  const body = [
+    {
+      id: "rumble.recycle-fodder",
+      op: trigger.body[0].op,
+      args: { target: "rumble.fodder" }
+    },
+    {
+      id: "rumble.mech-cost",
+      op: "cost.modify",
+      linkedTo: "rumble.recycle-fodder",
+      args: {
+        id: "rumble.mech-cost",
+        cost: { kind: "explicit", energy: { kind: "object-property", object: { target: "rumble.mech-in-trash" }, property: "energy" } },
+        modifier: { kind: "reduce", resource: "energy", amount: { kind: "object-property", object: { linked: "rumble.recycle-fodder" }, property: "might" } }
+      }
+    },
+    {
+      id: "rumble.play-mech",
+      op: "effect.play",
+      linkedTo: "rumble.mech-cost",
+      args: {
+        target: "rumble.mech-in-trash",
+        cost: { kind: "linked-value", instructionId: "rumble.mech-cost", key: "cost" }
+      }
+    }
+  ];
+  const outcome = resolveChainBody(body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map((entry) => entry.result.status), ["executed", "executed", "executed"]);
+  const plan = outcome.linkedValues["rumble.mech-cost.cost"];
+  assert.equal(plan.base.energy, 5);
+  assert.deepEqual(plan.discounts, [{
+    id: "rumble.mech-cost:modifier:0",
+    component: null,
+    resource: "energy",
+    amount: 3,
+    minimum: 0,
+    before: 5,
+    after: 2
+  }]);
+  assert.equal(plan.total.energy, 2);
+  assert.equal(plan.energy, undefined);
+  assert.equal(kernel.getObject("fodder").zone, "deck");
+  assert.equal(kernel.getObject("mech-card").zone, "board");
+  assert.equal(kernel.player("A").energy, 10);
+  assert.deepEqual(kernel.events.map((event) => event.action), ["recycle", "pay", "play"]);
 });

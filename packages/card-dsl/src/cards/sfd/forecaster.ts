@@ -11,23 +11,36 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
  * 卡牌 static → layers 的绑定、controller: "controller" 的相对玩家归一化、以及
- * continuous.grant-keyword 本体都已经可执行并有 golden 证据。合入的
- * KeywordGrantLayerEngine 现在确实会重新读取运行时关键词，但它只接受能落到静态图层
- * 的 KeywordDef；Vision 展开的是 817.1.b 的 triggered Predict 能力，当前 re-expander
- * 会 fail-closed，生产 lifecycle 也仍未把这个动态能力注册到链上。Vision 展开中的控制者
- * 和有序牌库顶 picks 还没有装配层绑定到真实对象，不能把授予关键词本身当作 Predict 已执行。
+ * continuous.grant-keyword 本体都已经可执行并有 golden 证据。
+ *
+ * 实测状态（re-checked 2026-10-18）：
+ * - keywordDefinitionsById.get("Vision").expand({host}) 产出完整 817.1.b triggered 体
+ *   （effect.inspect + effect.recycle），且该展开体在参考内核上真实执行成功：
+ *   设置有序 deck-top picks 与可选回答后，look + recycle 事件真实发生、牌库重排。
+ * - 但生产消费路径仍然 fail-closed：KeywordGrantLayerEngine.staticEffects 对运行时
+ *   Vision 实例抛 judge-required "Dynamic triggered keyword abilities need a lifecycle
+ *   binder"（keyword-grants.ts:236），production attachProgramLifecycle 也不消费
+ *   keywordAbilities()，所以动态 triggered 能力仍未注册到真实链上。
+ * - 展开体没有 zoneSlice picks 声明（body[0].picks === undefined，设计上留给装配层），
+ *   因此放进生产 ChainEngine 时 orderedPickSpecs 收集不到、pickPlans 为空、inspect
+ *   静默查 0 张；手工补 picks 后生产 ChainEngine 全链真实执行。player 仍是 constant("A")
+ *   占位。zoneSlice 锁定机制本身已合入并有他卡执行证据；这里缺的是装配层把展开体按
+ *   真实控制者与牌库顶绑定，以及 lifecycle binder。
  */
 export default {
   canonicalCardId: "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍有一处当前缺口：运行时获得的 Vision 虽会被合入的 KeywordGrantLayerEngine 尝试消费，但它只接受能落到静态图层的 KeywordDef；" +
-    "Vision 展开成 817.1.b 的 triggered Predict 能力，当前 re-expander 会 fail-closed，production lifecycle 也没有把" +
-    "该动态能力注册到链上。Vision 展开中的控制者仍是占位值，牌库顶 picks 也没有装配层按真实控制者和有序牌库绑定。" +
-    "通用测试台实测：打出被授予 Vision 的友方 Mech 只产生普通的进场/打出事件，没有任何 cards-looked-at；" +
+    "当前缺口是运行时获得的 Vision 的生产消费路径：KeywordGrantLayerEngine.staticEffects 对运行时 Vision 实例" +
+    "抛 judge-required（原文 \"Dynamic triggered keyword abilities need a lifecycle binder\"，keyword-grants.ts:236），" +
+    "production lifecycle（attachProgramLifecycle）也不消费 keywordAbilities()，所以 Vision 展开的 817.1.b triggered Predict 能力" +
+    "没有被注册到真实链上。展开体本身有参考内核真实执行证据（补上有序 deck-top picks 与可选回答后 " +
+    "look+recycle 真实发生、牌库重排），但展开体没有 zoneSlice picks 声明，放进生产 ChainEngine 时 " +
+    "orderedPickSpecs 收集不到、inspect 静默查 0 张；player 仍是 constant(\"A\") 占位。装配层需要按真实控制者与" +
+    "牌库顶绑定展开体并提供 lifecycle binder；zoneSlice 锁定机制本身已合入并有他卡执行证据，此处不列为机制缺口。" +
     "static binder、controller: \"controller\" 的相对玩家归一化和 continuous.grant-keyword 本体已有真实执行证据，" +
-    "但这些证据不等价于 Predict 已执行，不近似实现。",
+    "但这些证据不等价于 Predict 已在生产链执行，不近似实现。",
   abilities: [
     {
       kind: "static",

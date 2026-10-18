@@ -19,10 +19,14 @@ import type { CardProgram } from "../../ir/index.js";
  * turn/flow.ts emits in the Score wave). The recycle instruction still has a
  * blocked target declaration: as a "to" cost it must instead make a non-target
  * choice (355.10.c.1). effect.recycle links recycled refs and their count. The play
- * instruction then plays a Mech from the controller's trash. The Energy
- * discount travels on the effect.play cost argument in the frozen
- * FinalizedCostPlan shape, but binding the recycled Might snapshot into the nested Mech play Finalize
- * plan remains blocked even though cost.modify / cost.pay are merged.
+ * instruction then plays a Mech from the controller's trash. The merged
+ * cost.modify / cost.pay path really computes the discount (measured: base
+ * energy 5, a 3-Might recycled unit yields plan.base.energy=5,
+ * plan.discounts=[{amount:3,before:5,after:2}], plan.total.energy=2), but the
+ * complete CostPlan has no flat top-level `energy` field, so effect.play's
+ * finalized override is read as cost.energy ?? 0 (chain/engine.ts) and pays
+ * silently zero. The missing piece is a CostPlan -> flat finalized-override
+ * conversion primitive, not the discount calculation itself.
  *
  * Current review (re-checked 2026-10-18):
  * CR 383.4.c / 383.4.c.2.a: "When I conquer" requires this unit at the scored
@@ -30,10 +34,13 @@ import type { CardProgram } from "../../ir/index.js";
  * battlefieldId } }, so a source:self anchor cannot be evaluated (measured: the
  * registered spec is { event: "conquered", object: { objectId: <this card> } }
  * and never matches a real conquer emission).
- * CR 355.10.c.1: the recycled unit is a non-target cost within an instruction;
- * effect.recycle links recycled refs and their count, never a Might value, so the
- * printed discount has no source and the nested Mech play cost plan stays
- * unbound.
+ * CR 355.10.c.1: the recycled unit is a non-target cost within an instruction.
+ * The programs translation layer rejects both relative anchors the printed
+ * wording needs ("another friendly unit"): role:other-friendly and exclude:self
+ * are measured "Unsupported filter field role/exclude" failures even though the
+ * IR anchors exist. An explicit base=5 + linked-Might reduce modifier executes
+ * for real (see above), so the discount math is available; only the plan-shape
+ * conversion is missing.
  */
 export default {
   canonicalCardId: "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
@@ -50,10 +57,14 @@ export default {
     "(3) 回收作为「to」费用依 355.10.c.1 不应是目标：印文的「another friendly unit」需要相对锚（除本单位外），" +
     "当前 role:other-friendly 键被程序绑定 fail-closed 拒绝（实测 \"Unsupported filter field role\"），" +
     "IR 的 exclude 锚虽已存在，但 programs/filters.ts 的 translateObjectFilter 同样拒绝该键（实测 \"Unsupported filter field exclude\"）。" +
-    "(4) cost.modify/cost.pay 均已合入，但 effect.recycle 只链接 recycled 引用与 recycledCount，不给出被回收单位的 Might；" +
-    "因此减费计划缺取值时点，Mech 的真实印刷费用与嵌套 effect.play Finalize 的绑定（356/357）也不存在，" +
-    "不能把 recycled/recycledCount 当作不存在的 recycledMight。" +
-    "依赖：production lifecycle 对运行时关键词 re-expander 的接线、conquer 发射的场地/对象身份、回收的非目标选择器，以及嵌套打出减费计划。",
+    "(4) cost.modify/cost.pay 均已合入且减费计算真实可执行（实测 explicit base=5、被回收单位 Might=3 时 " +
+    "plan.base.energy=5、plan.discounts=[{amount:3,before:5,after:2}]、plan.total.energy=2）；" +
+    "但完整 CostPlan 没有顶层扁平 energy 字段，effect.play 的 finalized 费用覆盖被 chain/engine.ts 按 " +
+    "cost.energy ?? 0 读取，静默支付 0 费（实测 A 的能量保持 10）。缺的是完整 CostPlan 到扁平 " +
+    "finalized override 的转换原语，不是减费运算本身；effect.recycle 也只链接 recycled 引用与 recycledCount，" +
+    "不写 recycledMight 键，取 Might 需按引用自行求值。" +
+    "依赖：production lifecycle 对运行时关键词 re-expander 的接线、conquer 发射的场地/对象身份、回收的非目标选择器，" +
+    "以及 CostPlan → 扁平 finalized 费用覆盖的转换原语。",
   abilities: [
     {
       kind: "static",
