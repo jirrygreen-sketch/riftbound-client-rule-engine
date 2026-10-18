@@ -40,12 +40,12 @@ const concentrate = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺两段接线（2026-10-17 复核，均不近似实现）：" +
+    "仍缺两段接线（2026-10-18 复核，均不近似实现）：" +
     "(1) 静态 cost.modify → Finalize discounts（CR 356.4）：费用计划本身已能接受调用方传入的 discounts 并真实扣减印刷能量费，" +
-    "但没有生产消费者从卡牌静态效果生成该输入——programs/statics.ts 的 layerFor 直接拒绝 cost.modify（\"Static ability kind cost.modify has no layer mapping\"），" +
-    "chain/engine.ts 的 Finalize 也只按 item.cost 与调用方 tax 组计划；" +
+    "cost/discounts/collect.ts 已能收集普通 static cost.modify，但没有生产消费者把本卡静态效果接入该输入——programs/statics.ts 的 layerFor 仍拒绝 cost.modify（\"Static ability kind cost.modify has no layer mapping\"），" +
+    "chain/engine.ts 的 Finalize 也没有调用该 collector，仍只按 item.cost 与调用方 tax 组计划；" +
     "(2) [Level 6]/[Level 11] 的控制者 XP 门控（CR 824.1.b.1/824.1.c/824.1.c.1）：合并的 Condition 词汇（always/never/compare/all/any/not/expression 及 played-from-*/printed-characteristic/result 谓词）" +
-    "不能读取玩家 XP，卡内的 level-active 常量字符串会被求值为真，因此 -2 与 -4 的 instead 互斥无法判定。" +
+    "保留了 count(subject: \"controller-xp\") 的真实门槛，但基础 evaluateExpression 忽略 subject 而统计匹配对象，expr-ext 的玩家 XP 读取也未接入卡牌条件，因此 -2 与 -4 的 instead 互斥无法判定。" +
     "已合入并可执行：Draw 2（414.1/414.3）与费用计划的 discounts 扣减路径；不可把两档折扣相加或硬编码其中一档。" +
     "依赖：静态费用效果的 Finalize 绑定与 Expr/Condition 的 controller-xp 读取。",
   abilities: [

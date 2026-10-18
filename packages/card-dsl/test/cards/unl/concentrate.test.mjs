@@ -41,6 +41,8 @@ test("unl-091-219 Concentrate: identity, status, judgeReason and verbatim source
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /824\.1/);
   assert.match(program.judgeReason, /discounts/);
+  assert.match(program.judgeReason, /controller-xp/);
+  assert.doesNotMatch(program.judgeReason, /level-active/);
 });
 
 test("unl-091-219 Concentrate: the two [Level] cost reductions are recorded as static cost.modify shapes", () => {
