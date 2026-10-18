@@ -27,6 +27,42 @@ export function prepareCostPlanResourcePayment(
   return prepareResourcePayment(pool, { energy: plan.total.energy, power: plan.total.power }, options);
 }
 
+function objectLabel(ref: { readonly id: string; readonly zoneEntryId: number }): string {
+  return `${ref.id}:${ref.zoneEntryId}`;
+}
+
+/**
+ * A finalized plan is bound to one physical incarnation. Never recover it by
+ * card id: a later zone entry is a different object for cost purposes. LKI is
+ * usable only when the context itself still names that exact source and no
+ * later incarnation currently exists.
+ */
+function assertSourceIncarnation(ctx: ResolveContext, plan: CostPlan): void {
+  if (plan.source.id !== ctx.source.ref.id) {
+    invalid(`Payment source ${objectLabel(plan.source)} does not match the resolving source ${objectLabel(ctx.source.ref)}`);
+  }
+  const exact = ctx.object(plan.source);
+  if (exact) return;
+  const replacement = ctx.query({}).find(object => object.ref.id === plan.source.id);
+  if (replacement) {
+    invalid(`Locked cost source ${objectLabel(plan.source)} is no longer its Finalize incarnation; current source is ${objectLabel(replacement.ref)}`);
+  }
+  const sameSource = plan.source.zoneEntryId === ctx.source.ref.zoneEntryId;
+  if (!sameSource) {
+    invalid(`Locked cost source ${objectLabel(plan.source)} no longer exists and is not this ability's last-known source`);
+  }
+}
+
+function actionObject(ctx: ResolveContext, payment: PreparedCostAction, ref: { readonly id: string; readonly zoneEntryId: number }) {
+  const exact = ctx.object(ref);
+  if (exact) return exact;
+  const replacement = ctx.query({}).find(object => object.ref.id === ref.id);
+  if (replacement) {
+    cannotPay(`Locked cost object ${objectLabel(ref)} is no longer its Finalize incarnation; current object is ${objectLabel(replacement.ref)}`, payment);
+  }
+  cannotPay(`Locked cost object ${objectLabel(ref)} no longer exists in the current state`, payment);
+}
+
 function checkAction(ctx: ResolveContext, payment: PreparedCostAction): void {
   const action = payment.action;
   if (action.type === 'pay') return;
@@ -35,8 +71,7 @@ function checkAction(ctx: ResolveContext, payment: PreparedCostAction): void {
     return;
   }
   if (!('object' in action)) invalid('Unsupported nonstandard payment action');
-  const object = ctx.object(action.object);
-  if (!object) cannotPay('A payment reference is no longer in its selected zone', payment);
+  const object = actionObject(ctx, payment, action.object);
   if (action.type === 'discard' || action.type === 'reveal') {
     if (object.owner !== ctx.controller || object.zone !== 'hand') cannotPay('A hand cost requires a card in the paying player’s hand', payment);
   } else if (action.type === 'exhaust') {
@@ -44,15 +79,16 @@ function checkAction(ctx: ResolveContext, payment: PreparedCostAction): void {
   } else if (action.type === 'recycle') {
     if (object.owner !== ctx.controller || !(object.zone === 'trash' || object.zone === 'rune-zone' && object.types.some(type => type.toLowerCase() === 'rune'))) cannotPay('A recycle cost requires an owned card in Trash or a Rune in the Rune Zone', payment);
   } else if (action.type === 'banish') {
-    if (object.owner !== ctx.controller || object.zone === 'banishment') cannotPay('A banish cost requires an owned object outside Banishment', payment);
+    // Banish itself has no ownership predicate (CR 428.1/428.5). The cost's
+    // authored selector decides the zone/type set; the paying ability must
+    // still act on an object its current controller is directed to banish.
+    if (object.controller !== ctx.controller || object.zone === 'banishment') cannotPay('A banish cost requires an object controlled by the paying player outside Banishment', payment);
   } else if (action.type === 'disempower') {
     if (object.controller !== ctx.controller || !['board', 'rune-zone'].includes(object.zone)) cannotPay('A disempower cost requires a controlled object on the Board', payment);
-    const empowered = (object as typeof object & { readonly empowered?: unknown }).empowered;
-    if (typeof empowered !== 'number' && typeof empowered !== 'boolean') {
-      throw new CostPlanError('judge-required', 'Disempower payment requires an authoritative Empowered state', payment);
-    }
-    const active = typeof empowered === 'number' ? Number.isSafeInteger(empowered) && empowered > 0 : empowered;
-    if (!active) cannotPay('A disempower cost requires an Empowered object', payment);
+    // ObjectSnapshot has no authoritative Empowered carrier. Reading an
+    // adapter-specific property here would let a host with no contract support
+    // silently turn the cost into a no-op or reset every status (CR 443.1.b).
+    throw new CostPlanError('judge-required', 'Disempower payment requires an authoritative stacking Empowered state in ObjectSnapshot', payment);
   } else if (action.type === 'kill') {
     if (object.controller !== ctx.controller || object.zone !== 'board') cannotPay('A kill cost requires a controlled permanent on the Board', payment);
   } else if (action.type === 'spend-buff') {
@@ -62,6 +98,7 @@ function checkAction(ctx: ResolveContext, payment: PreparedCostAction): void {
 
 export function prepareCostPayment(ctx: ResolveContext, plan: CostPlan, options: CostPaymentOptions = {}): PreparedCostPayment {
   if (plan.finalized !== true || plan.player !== ctx.controller || plan.source.id !== ctx.source.ref.id || plan.source.zoneEntryId !== ctx.source.ref.zoneEntryId) invalid('Payment must use this source and controller’s finalized cost plan');
+  assertSourceIncarnation(ctx, plan);
   const player = ctx.player(plan.player);
   for (const domain of player.power) {
     if (!DUEL_DOMAINS.includes(domain)) invalid('Invalid Power domain in player snapshot');
@@ -114,6 +151,9 @@ function payCostPlanNow(ctx: ResolveContext, plan: CostPlan, options: CostPaymen
   const actions: CostPaymentReceipt['actions'][number][] = [];
   const events: CostPaymentReceipt['events'][number][] = [];
   for (const payment of prepared.actions) {
+    // A prior action or host hook may have replaced an incarnation. Recheck the
+    // exact locked source and target immediately before every submission.
+    assertSourceIncarnation(ctx, plan);
     checkAction(ctx, payment);
     const outcome = ctx.perform(payment.action);
     if (outcome.status !== 'done' && outcome.status !== 'replaced') {

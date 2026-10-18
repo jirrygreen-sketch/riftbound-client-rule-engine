@@ -63,6 +63,27 @@ export interface CostChoiceReceipt {
   readonly objects: readonly ObjectRef[];
 }
 
+/**
+ * Serialized Finalize decision for one non-target cost PickSpec. The Chain
+ * owner must persist this before building the plan and pass the same receipt
+ * back on every retry; ids and object incarnations are not recomputed.
+ */
+export interface CostChoiceLock {
+  readonly planId: string;
+  readonly choiceId: string;
+  readonly kind: string;
+  readonly receipt: CostChoiceReceipt;
+}
+
+export interface CostChoiceLocks {
+  readonly locks: readonly CostChoiceLock[];
+}
+
+/** Additive Finalize input: one lock per encountered cost object choice. */
+export interface CostChoicePlanInput {
+  readonly costChoices?: CostChoiceLocks;
+}
+
 export interface CostAction {
   readonly id: string;
   readonly componentId: string;

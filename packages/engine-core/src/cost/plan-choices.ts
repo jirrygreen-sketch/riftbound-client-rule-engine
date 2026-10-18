@@ -121,7 +121,7 @@ function selectedFromPicks(ctx: ResolveContext, id: string): ObjectRef[] | null 
   return picks.map(copy);
 }
 
-export function chooseCostObjects(ctx: ResolveContext, choice: PickSpec, planId: string, kind: string): CostObjectChoice {
+export function chooseCostObjects(ctx: ResolveContext, choice: PickSpec, planId: string, kind: string, lockedReceipt?: CostChoiceReceipt): CostObjectChoice {
   if (!choice || typeof choice !== 'object' || Array.isArray(choice) || typeof choice.id !== 'string' || !choice.id.length) {
     fail('invalid-cost-plan', 'Cost choice must have a nonempty id');
   }
@@ -151,7 +151,10 @@ export function chooseCostObjects(ctx: ResolveContext, choice: PickSpec, planId:
   const max = Math.min(requestedMax, offered.length);
   if (min > max) fail('invalid-cost-plan', 'Cost choice cannot be completed from the current zone');
 
-  let selected = selectedFromPicks(ctx, choice.id);
+  let selected = lockedReceipt === undefined ? selectedFromPicks(ctx, choice.id) : lockedReceipt.objects.map(copy);
+  if (lockedReceipt !== undefined && (lockedReceipt.id !== choice.id || lockedReceipt.kind !== kind || lockedReceipt.min !== min || lockedReceipt.max !== max)) {
+    fail('invalid-cost-plan', `${choice.id} Finalize lock does not match the current cost choice`);
+  }
   if (selected === null) {
     if (selection === 'all') selected = offered.slice(0, max);
     else if (offered.length === 0 && min === 0) selected = [];
@@ -187,5 +190,8 @@ export function chooseCostObjects(ctx: ResolveContext, choice: PickSpec, planId:
     count: locked.length,
     objects: locked
   };
+  if (lockedReceipt !== undefined && (receipt.count !== lockedReceipt.count || JSON.stringify(receipt.objects) !== JSON.stringify(lockedReceipt.objects))) {
+    fail('invalid-cost-plan', `${choice.id} Finalize lock contains an invalid object set`);
+  }
   return { id: choice.id, min, max, offered: offered.map(copy), selected: locked, receipt };
 }

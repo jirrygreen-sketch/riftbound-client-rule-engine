@@ -2,7 +2,7 @@ import type { CostPayment, CostSpec, PickSpec } from '@riftbound/card-dsl';
 import type { Domain, ObjectRef, ResolveContext, Value } from '../effects/contract.js';
 import { bindDuelPrintedCost } from './printed-costs.js';
 import { DUEL_DOMAINS, type DuelPowerRequirement } from './resources.js';
-import { CostPlanError, type CostAmount, type CostPlanInput, type NonstandardCostAction } from './plan-types.js';
+import { CostPlanError, type CostAmount, type CostChoiceLock, type CostChoiceLocks, type CostChoicePlanInput, type CostPlanInput, type NonstandardCostAction } from './plan-types.js';
 import { chooseCostObjects } from './plan-choices.js';
 
 export function invalid(message: string): never {
@@ -81,9 +81,21 @@ function reference(value: unknown, ctx: ResolveContext): ObjectRef {
   return { id: object.id, zoneEntryId: object.zoneEntryId };
 }
 
+function lockedChoice(input: CostPlanInput, choiceId: string, kind: string): CostChoiceLock | undefined {
+  const locks = (input as CostPlanInput & CostChoicePlanInput).costChoices?.locks ?? [];
+  const matches = locks.filter(lock => lock.choiceId === choiceId);
+  if (matches.length > 1) invalid(`Cost choice ${choiceId} has duplicate Finalize locks`);
+  const lock = matches[0];
+  if (lock !== undefined && (lock.planId !== input.id || lock.kind !== kind || lock.receipt.id !== choiceId)) {
+    invalid(`Cost choice ${choiceId} has a mismatched Finalize lock`);
+  }
+  return lock;
+}
+
 function paymentObjects(ctx: ResolveContext, payment: CostPayment, input: CostPlanInput, kind: string): { refs: ObjectRef[]; choice?: ReturnType<typeof chooseCostObjects>['receipt'] } {
   if (payment.choice !== undefined) {
-    const selected = chooseCostObjects(ctx, payment.choice, input.id, kind);
+    const lock = lockedChoice(input, payment.choice.id, kind);
+    const selected = chooseCostObjects(ctx, payment.choice, input.id, kind, lock?.receipt);
     return { refs: [...selected.selected], choice: selected.receipt };
   }
   if (payment.objects !== undefined) {
@@ -174,6 +186,23 @@ export function combineCosts(costs: readonly CostAmount[]): CostAmount {
       ...(choices.length ? { choices } : {})
     };
   }, emptyCost());
+}
+
+/** Stable public API consumed by the Chain Finalize owner (RIFT-835). */
+export function finalizeCostChoiceLock(
+  ctx: ResolveContext,
+  choice: PickSpec,
+  planId: string,
+  kind: string
+): CostChoiceLock {
+  const selected = chooseCostObjects(ctx, choice, planId, kind);
+  return freezeCost({ planId, choiceId: choice.id, kind, receipt: selected.receipt });
+}
+
+export function costChoiceLocks(locks: readonly CostChoiceLock[]): CostChoiceLocks {
+  const ids = locks.map(lock => `${lock.planId}:${lock.choiceId}`);
+  if (new Set(ids).size !== ids.length) invalid('Finalize cost choice locks must be unique');
+  return freezeCost({ locks: structuredClone(locks) });
 }
 
 export function orderedById<T extends { readonly id: string }>(values: readonly T[], order?: readonly string[]): T[] {
