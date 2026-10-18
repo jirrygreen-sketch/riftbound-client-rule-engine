@@ -12,10 +12,19 @@ import {
   withActionPayload,
   type ActionPayloadContext,
 } from './producers/payload.js';
+import {
+  CONTRACT_ACTIONS_VERSION,
+  ContractActionRollbackError,
+  executeContractAction,
+  type ContractActionBridgePort,
+  type ContractActionCapability,
+} from './contract-actions/bridge.js';
 
 /** State storage remains the caller's responsibility; this adapter owns event derivation. */
 export interface ActionStatePort extends Omit<PipelineHost, 'execute'> {
   perform(action: GameAction): ActionOutcome;
+  /** Optional direct seam for actions outside the closed GameAction union. */
+  performContract?(action: import('../effects/contract.js').ContractGameAction): ActionOutcome;
   /** Optional command identity supplied by a journal or a batch coordinator. */
   actionId?: (action: GameAction) => string | undefined;
   /** Optional identity shared by all primitive actions in one submitted batch. */
@@ -24,6 +33,21 @@ export interface ActionStatePort extends Omit<PipelineHost, 'execute'> {
   effectController?: (action: GameAction) => PlayerId | undefined;
   /** Optional rule-level cause (for example `move` versus `recall`). */
   cause?: (action: GameAction) => string | undefined;
+}
+
+const GAME_ACTION_TYPES = new Set<GameAction['type']>([
+  'draw', 'discard', 'move-zone', 'recycle', 'banish', 'mill', 'shuffle',
+  'order-top', 'return-to-hand', 'move-location', 'ready', 'exhaust', 'stun',
+  'kill', 'attach', 'detach', 'take-control', 'damage', 'heal',
+  'channel-rune', 'gain-energy', 'gain-power', 'pay', 'gain-xp', 'spend-xp',
+  'buff', 'spend-buff', 'empower', 'disempower', 'add-counter',
+  'remove-counter', 'create-token', 'copy', 'play', 'reveal', 'look',
+  'show-off', 'counter', 'score', 'win',
+]);
+
+function isContractAction(action: GameAction): action is GameAction & import('../effects/contract.js').ContractGameAction {
+  const type = String(action.type);
+  return type === 'batch' || type === 'recall' || type === 'hide' || !GAME_ACTION_TYPES.has(action.type);
 }
 
 const ACTION_TIMINGS: Partial<Record<GameAction['type'], TimingPointId>> = {
@@ -207,6 +231,12 @@ function payloadContext(
   };
 }
 
+function contractActionId(action: import('../effects/contract.js').ContractGameAction): string {
+  return action.type === 'batch' && action.transactionId !== undefined
+    ? action.transactionId
+    : `contract:${action.type}`;
+}
+
 export function createActionPipelineHost(port: ActionStatePort): PipelineHost {
   let sequence = 0;
   let active: ActiveEffectContext | undefined;
@@ -231,18 +261,114 @@ export function createActionPipelineHost(port: ActionStatePort): PipelineHost {
     port.restore(value);
   };
 
+  const executeContract = (action: import('../effects/contract.js').ContractGameAction, actionId: string, batchId: string) => {
+    const execution = executeContractAction(action, {
+      checkpoint,
+      restore,
+      objects: () => port.objects(),
+      perform: leaf => port.perform(leaf),
+      ...(port.performContract === undefined ? {} : { performContract: leaf => port.performContract!(leaf) }),
+    }, { transactionId: action.type === 'batch' ? action.transactionId ?? batchId : batchId });
+    if (execution.outcome.status !== 'done') return { outcome: execution.outcome, emissions: [] };
+    const observations = execution.steps.flatMap(step => {
+      if (step.action.type !== 'recall') return [];
+      if (step.outcome.events.some(event => (event as { action?: unknown }).action === 'recall')) return [];
+      const object = step.after.find(candidate => candidate.ref.id === step.action.object.id &&
+        candidate.ref.zoneEntryId === step.action.object.zoneEntryId);
+      return [{
+        type: 'task-resolved' as const,
+        seq: 0,
+        turnNumber: 1,
+        activePlayerId: active?.controller ?? step.action.player,
+        taskId: `${actionId}:recall`,
+        sourceCardId: object?.cardId ?? '',
+        reason: 'recall',
+        autoResolved: true as const,
+        action: 'recall',
+        details: {
+          recall: true,
+          from: step.before.find(candidate => candidate.ref.id === step.action.object.id)?.location,
+          to: object?.location,
+        },
+      } as unknown as import('@riftbound/protocol').GameEvent];
+    });
+    const outcome = observations.length === 0
+      ? execution.outcome
+      : { ...execution.outcome, events: [...execution.outcome.events, ...observations] };
+    const emissions: TimingEmission[] = [];
+    for (const step of execution.steps) {
+      if (step.action.type !== 'move-location') continue;
+      const leaf = step.action as Extract<GameAction, { type: 'move-location' }>;
+      const before = step.before.find(object => object.ref.id === leaf.object.id &&
+        object.ref.zoneEntryId === leaf.object.zoneEntryId);
+      const after = step.after.find(object => object.ref.id === leaf.object.id &&
+        object.ref.zoneEntryId === leaf.object.zoneEntryId);
+      if (before === undefined || after === undefined) continue;
+      const stepContext = payloadContext(
+        actionId,
+        batchId,
+        active,
+        active?.source,
+        after.controller,
+        'move',
+        active?.controller,
+      );
+      emissions.push(withActionPayload({
+        timingPoint: 'object-moved',
+        kind: 'object-moved',
+        object: structuredClone(after),
+        source: active?.source,
+        player: after.controller,
+        simultaneousGroup: batchId,
+      }, {
+        ...actionPayload(leaf, before, after, stepContext),
+        ...transitionPayload(leaf, before, after, stepContext),
+      }, { before, after }));
+    }
+    return { outcome, emissions };
+  };
+
+  const actionPort = (): ContractActionBridgePort => ({
+    checkpoint,
+    restore,
+    objects: () => port.objects(),
+    perform: leaf => port.perform(leaf),
+    ...(port.performContract === undefined ? {} : { performContract: leaf => port.performContract!(leaf) }),
+  });
+
+  const contractActions: ContractActionCapability = {
+    version: CONTRACT_ACTIONS_VERSION,
+    perform(action) {
+      const actionId = `action:${++sequence}`;
+      const batchId = action.type === 'batch' ? action.transactionId ?? actionId : actionId;
+      return executeContract(action, actionId, batchId).outcome;
+    },
+  };
+
   return {
     checkpoint,
     restore,
     objects: () => port.objects(),
     context: (source, controller, at) => {
       active = { source: structuredClone(source), controller, timingPoint: at };
-      return port.context(source, controller, at);
+      const context = port.context(source, controller, at);
+      return new Proxy(context, {
+        get(target, key) {
+          if (key === 'contractActions') return contractActions;
+          const value = Reflect.get(target, key);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
     },
     choose: <T>(request: ChoiceRequest<T>): T => port.choose(request),
     testTrigger: port.testTrigger ? (registration, event, source) => port.testTrigger!(registration, event, source) : undefined,
     execute(action) {
       const beforeList = port.objects();
+      const contractAction = action as unknown as import('../effects/contract.js').ContractGameAction;
+      const contract = isContractAction(action)
+        ? executeContract(contractAction, contractActionId(contractAction), contractActionId(contractAction))
+        : undefined;
+      if (contract !== undefined) return contract;
       const before = new Map(beforeList.map(object => [object.ref.id, object]));
       const hintedActionId = port.actionId?.(action) ?? actionHint(action, 'actionId');
       const actionId = hintedActionId ?? `action:${++sequence}`;
