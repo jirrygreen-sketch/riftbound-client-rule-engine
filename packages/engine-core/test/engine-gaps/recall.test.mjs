@@ -8,7 +8,6 @@ import { queryMoveDestinations } from "../../dist/target/location/candidates.js"
 import { createLayerEngine } from "../../dist/layers/engine.js";
 import { cardProgram, fixture as programFixture } from "../rules/keywords/support.mjs";
 import { runInstruction, world } from "../../dist/effects/testing/index.js";
-import { bindResolveContext } from "../../dist/events/action-adapter.js";
 import conscription from "../../../card-dsl/dist/cards/unl/conscription.js";
 import glowstone from "../../../card-dsl/dist/cards/ven/glowstone.js";
 import smokeAndMirrors from "../../../card-dsl/dist/cards/unl/smoke-and-mirrors.js";
@@ -33,91 +32,13 @@ function scenario() {
 }
 
 const targets = kernel => ({ units: [kernel.ref("hero")] });
-/** A capability-only test port. It changes positions but never invokes perform. */
-function withContractActions(kernel, perform) {
-  return bindResolveContext(kernel, {
-    contractActions: { version: "riftbound.contract-actions.v1", perform },
-    transaction: run => {
-      const before = kernel.snapshot();
-      try { return run(); }
-      catch (error) { kernel.restore(before); throw error; }
-    },
-  });
-}
-
-function runWithContractActions(def, args, kernel, options, perform) {
-  const target = kernel.clone();
-  for (const [id, refs] of Object.entries(options.targets ?? {})) target.setTargets(id, refs);
-  target.setAnswers(options.answers ?? {});
-  const context = withContractActions(target, action => perform(action, target));
-  const result = def.execute(context, def.argsSchema.parse(args));
-  kernel.restore(target.snapshot());
-  kernel.copyLinkedFrom(target);
-  return { result, events: result?.events ?? [], linked: target.linkedSnapshot(), asked: null };
-}
-
-function mutateRecall(kernel, action) {
-  const object = kernel.getObject(action.object.id);
-  if (object === null) return null;
-  const from = object.location;
-  object.location = base(object.controller);
-  kernel.addObject(object, "board");
-  return { object, from };
-}
-
-function withRecallCapability(kernel, { status = "done", throwError } = {}) {
-  const calls = [];
-  const perform = (action, execution = kernel) => {
-    calls.push(structuredClone(action));
-    if (throwError !== undefined) throw throwError;
-    if (status !== "done") return { status, events: [] };
-    const changed = mutateRecall(execution, action);
-    if (changed === null) return { status: "impossible", events: [] };
-    const { object, from } = changed;
-    const event = {
-      type: "task-resolved", seq: calls.length, turnNumber: 1, activePlayerId: "A",
-      taskId: `recall:${calls.length}`, sourceCardId: "test-capability", reason: "recall",
-      autoResolved: true, timingPoint: "object-recalled", action: structuredClone(action),
-      object: { ...object, location: from }, from, to: object.location,
-    };
-    return { status: "done", events: [event], receipt: { status: "committed", actions: [{ type: "recall", status: "done" }] } };
-  };
-  return { calls, perform };
-}
-
-function withBatchCapability(kernel, behavior = "commit") {
-  const calls = [];
-  const perform = (action, execution = kernel) => {
-    calls.push(structuredClone(action));
-    if (behavior === "throw") throw new Error("batch bridge exploded");
-    const [first, second] = action.actions;
-    if (behavior === "first-rewrite") {
-      execution.addObject({ ...execution.getObject(first.object.id), location: first.to }, "board");
-      return { status: "replaced", events: [], receipt: { status: "committed", transactionId: action.transactionId, actions: [{ type: "move-location", status: "done" }, { type: "move-location", status: "done" }] } };
-    }
-    if (behavior === "second-rewrite") {
-      execution.addObject({ ...execution.getObject(first.object.id), location: first.to }, "board");
-      return { status: "replaced", events: [], receipt: { status: "committed", transactionId: action.transactionId, actions: [{ type: "move-location", status: "done" }, { type: "move-location", status: "done" }] } };
-    }
-    if (behavior === "first-prevent") return { status: "prevented", events: [], receipt: { status: "rolled-back", transactionId: action.transactionId, actions: [{ type: "move-location", status: "prevented" }, { type: "move-location", status: "impossible" }] } };
-    if (behavior === "second-prevent") {
-      execution.addObject({ ...execution.getObject(first.object.id), location: first.to }, "board");
-      throw new Error("atomic batch rolled back");
-    }
-    execution.addObject({ ...execution.getObject(first.object.id), location: first.to }, "board");
-    execution.addObject({ ...execution.getObject(second.object.id), location: second.to }, "board");
-    return { status: "done", events: [], receipt: { status: "committed", transactionId: action.transactionId, actions: [{ type: "move-location", status: "done" }, { type: "move-location", status: "done" }] } };
-  };
-  return { calls, perform };
-}
 
 test("EG-RECALL moves a Board Permanent to its controller Base without a destination choice", () => {
   const kernel = scenario();
   const before = kernel.getObject("hero");
-  const { calls, perform } = withRecallCapability(kernel);
-  const run = runWithContractActions(move, recallArgs(), kernel, { targets: targets(kernel) }, perform);
+  const run = runInstruction(move, recallArgs(), { world: kernel, targets: targets(kernel) });
   assert.equal(run.result.status, "executed");
-  assert.deepEqual(calls, [{ type: "recall", object: before.ref, player: "A" }]);
+  assert.deepEqual(run.result.linkedValues.recalled.receipt.actions, [{ type: "recall", status: "done" }]);
   assert.deepEqual(run.events.map(event => event.action.type), ["recall"]);
   assert.deepEqual(kernel.getObject("hero"), { ...before, location: base("A") });
   assert.equal(kernel.history({ action: "move-location", object: before.ref }), 0);
@@ -133,8 +54,7 @@ test("EG-RECALL preserves statuses and relocates only its bound selection", () =
   const kernel = scenario();
   const anchor = kernel.getObject("anchor");
   const enemy = kernel.getObject("enemy");
-  const { perform } = withRecallCapability(kernel);
-  const run = runWithContractActions(move, recallArgs(), kernel, { targets: targets(kernel) }, perform);
+  const run = runInstruction(move, recallArgs(), { world: kernel, targets: targets(kernel) });
   assert.equal(kernel.getObject("hero").exhausted, true);
   assert.equal(kernel.getObject("hero").damage, 2);
   assert.equal(kernel.getObject("hero").stunned, true);
@@ -146,12 +66,11 @@ test("EG-RECALL preserves statuses and relocates only its bound selection", () =
 
 test("EG-RECALL recalls an enemy unit to its current controller Base (B's Base)", () => {
   const kernel = scenario();
-  const { calls, perform } = withRecallCapability(kernel);
-  const run = runWithContractActions(move, recallArgs("controller-base"), kernel, {
-    targets: { units: [kernel.ref("enemy")] },
-  }, perform);
+  const run = runInstruction(move, recallArgs("controller-base"), {
+    world: kernel, targets: { units: [kernel.ref("enemy")] },
+  });
   assert.equal(run.result.status, "executed");
-  assert.deepEqual(calls, [{ type: "recall", object: kernel.ref("enemy"), player: "B" }]);
+  assert.equal(run.result.linkedValues.recalled.receipt.actions[0].type, "recall");
   assert.deepEqual(kernel.getObject("enemy").location, base("B"));
   assert.deepEqual(run.linked.recalled.movements, [{ object: kernel.ref("enemy"), from: battlefield, to: base("B") }]);
 });
@@ -160,8 +79,7 @@ test("EG-RECALL rejects an explicit destination that is not the object's control
   for (const to of [{ type: "base", player: "B" }, second]) {
     const kernel = scenario();
     const before = kernel.stateForTest();
-    const { perform } = withRecallCapability(kernel);
-    const run = runWithContractActions(move, recallArgs(to), kernel, { targets: targets(kernel) }, perform);
+    const run = runInstruction(move, recallArgs(to), { world: kernel, targets: targets(kernel) });
     assert.equal(run.result.status, "negated");
     assert.equal(run.result.reason, "impossible");
     assert.deepEqual(run.linked.recalled, { count: 0, objects: [], movements: [], mode: "recall" });
@@ -171,10 +89,9 @@ test("EG-RECALL rejects an explicit destination that is not the object's control
 
 test("EG-RECALL honors an explicit controller Base destination only for the matching controller", () => {
   const kernel = scenario();
-  const { perform } = withRecallCapability(kernel);
-  const run = runWithContractActions(move, recallArgs({ type: "base", player: "A" }), kernel, {
-    targets: targets(kernel),
-  }, perform);
+  const run = runInstruction(move, recallArgs({ type: "base", player: "A" }), {
+    world: kernel, targets: targets(kernel),
+  });
   assert.equal(run.result.status, "executed");
   assert.deepEqual(kernel.getObject("hero").location, base("A"));
 });
@@ -215,10 +132,9 @@ test("EG-RECALL treats an object already at its controller Base as no recall out
 
 test("EG-RECALL recalls a Gear permanent to its controller Base", () => {
   const kernel = withSource(world().unit("gear", { types: ["gear"], might: 2, damage: 1 }).build(), "gear");
-  const { perform } = withRecallCapability(kernel);
-  const run = runWithContractActions(move, recallArgs("controller-base"), kernel, {
-    targets: { units: [kernel.ref("gear")] },
-  }, perform);
+  const run = runInstruction(move, recallArgs("controller-base"), {
+    world: kernel, targets: { units: [kernel.ref("gear")] },
+  });
   assert.equal(run.result.status, "executed");
   assert.deepEqual(kernel.getObject("gear").location, base("A"));
   assert.equal(kernel.getObject("gear").damage, 1);
@@ -252,16 +168,24 @@ test("EG-RECALL keeps Move restrictions on effect.move while Recall bypasses the
   kernel.addContinuous({
     id: "restrict-hero", layer: "ability", source: kernel.ref("hero"), filter: {},
     effect: { kind: "movement", restrictions: ["cannot-move"] },
-  }, "permanent");
+  }, { type: "permanent" });
   const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
   const restricted = queryMoveDestinations(kernel, [kernel.ref("hero")], {}, { registry: layers.registry });
   assert.deepEqual(restricted, []);
-  const before = kernel.stateForTest();
-  const { perform } = withRecallCapability(kernel);
-  const recall = runWithContractActions(move, recallArgs("controller-base"), kernel, {
-    targets: targets(kernel),
-  }, perform);
+  const blockedMove = runInstruction(move, { objects: c({ target: "units" }), to: c(second) }, {
+    world: kernel, targets: targets(kernel),
+  });
+  assert.equal(blockedMove.result.status, "negated");
+  assert.equal(blockedMove.result.reason, "impossible");
+  assert.equal(blockedMove.events.length, 0);
+  assert.deepEqual(kernel.getObject("hero").location, battlefield);
+  const recall = runInstruction(move, recallArgs("controller-base"), {
+    world: kernel, targets: targets(kernel),
+  });
   assert.equal(recall.result.status, "executed");
+  assert.deepEqual(recall.events.map(event => event.action.type), ["recall"]);
+  assert.equal(kernel.history({ action: "recall", object: kernel.ref("hero") }), 1);
+  assert.equal(kernel.history({ action: "move-location", object: kernel.ref("hero") }), 0);
   assert.deepEqual(kernel.getObject("hero").location, base("A"));
 });
 
@@ -270,14 +194,11 @@ test("EG-RECALL swap executes one atomic action with receipts and unchanged zone
   const kernel = scenario();
   const a = kernel.getObject("hero");
   const b = kernel.getObject("anchor");
-  const { calls, perform } = withBatchCapability(kernel);
-  const run = runWithContractActions(swap, { objects: c([{ target: "a" }, { target: "b" }]) }, kernel, {
+  const run = runInstruction(swap, { objects: c([{ target: "a" }, { target: "b" }]) }, {
+    world: kernel,
     targets: { a: [kernel.ref("hero")], b: [kernel.ref("anchor")] },
-  }, perform);
+  });
   assert.equal(run.result.status, "executed");
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].type, "batch");
-  assert.deepEqual(calls[0].actions.map(action => action.to), [second, battlefield]);
   assert.deepEqual(kernel.getObject("hero").location, second);
   assert.deepEqual(kernel.getObject("anchor").location, battlefield);
   assert.equal(kernel.getObject("hero").ref.zoneEntryId, a.ref.zoneEntryId);
@@ -286,8 +207,8 @@ test("EG-RECALL swap executes one atomic action with receipts and unchanged zone
   assert.equal(run.linked.swapped.status, "committed");
   assert.equal(run.linked.swapped.count, 2);
   assert.equal(run.linked.swapped.actionReceipt.status, "committed");
-  assert.equal(kernel.history({ action: "move-location", object: a.ref }), 0);
-  assert.equal(kernel.history({ action: "move-location", object: b.ref }), 0);
+  assert.equal(kernel.history({ action: "move-location", object: a.ref }), 1);
+  assert.equal(kernel.history({ action: "move-location", object: b.ref }), 1);
 });
 
 test("EG-RECALL swap of same-location objects performs no action", () => {
@@ -353,32 +274,37 @@ test("EG-RECALL swap rolls back the first relocation when the second is prevente
   const hero = kernel.getObject("hero");
   const anchor = kernel.getObject("anchor");
   const before = kernel.stateForTest();
-  const { perform } = withBatchCapability(kernel, "second-prevent");
-  assert.throws(() => runWithContractActions(swap, { objects: c([{ target: "a" }, { target: "b" }]) }, kernel, {
-    targets: { a: [kernel.ref("hero")], b: [kernel.ref("anchor")] },
-  }, perform), /atomic batch rolled back/);
+  kernel.addReplacement(action => action.type === "move-location" && action.object.id === "anchor" ? "prevented" : null);
+  const run = runInstruction(swap, { objects: c([{ target: "a" }, { target: "b" }]) }, {
+    world: kernel, targets: { a: [kernel.ref("hero")], b: [kernel.ref("anchor")] },
+  });
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "skipped");
   assert.deepEqual(kernel.getObject("hero"), hero);
   assert.deepEqual(kernel.getObject("anchor"), anchor);
   assert.deepEqual(kernel.stateForTest(), before);
 });
 
-for (const behavior of ["first-rewrite", "first-prevent", "second-rewrite", "throw"]) {
+for (const behavior of ["first-rewrite", "first-prevent", "first-replace", "second-rewrite", "second-prevent", "throw"]) {
   test("EG-RECALL swap never reports committed for batch behavior " + behavior, () => {
     const kernel = scenario();
     const a = kernel.getObject("hero");
     const b = kernel.getObject("anchor");
     const before = kernel.stateForTest();
-    const { perform } = withBatchCapability(kernel, behavior);
-    let result;
-    if (behavior === "throw") {
-      assert.throws(() => runWithContractActions(swap, { objects: c([{ target: "a" }, { target: "b" }]) }, kernel, {
-        targets: { a: [kernel.ref("hero")], b: [kernel.ref("anchor")] },
-      }, perform), /batch bridge exploded/);
-    } else {
-      assert.throws(() => runWithContractActions(swap, { objects: c([{ target: "a" }, { target: "b" }]) }, kernel, {
-        targets: { a: [kernel.ref("hero")], b: [kernel.ref("anchor")] },
-      }, perform), /did not commit both relocations/);
-    }
+    kernel.addReplacement(action => {
+      if (action.type !== "move-location") return null;
+      const target = behavior.startsWith("first") ? "hero" : "anchor";
+      if (action.object.id !== target) return null;
+      if (behavior === "throw") throw new Error("batch leaf failed");
+      if (behavior.endsWith("rewrite")) return { status: "rewrite", action: { ...action, to: action.to } };
+      if (behavior.endsWith("replace")) return "replaced";
+      return "prevented";
+    });
+    const run = runInstruction(swap, { objects: c([{ target: "a" }, { target: "b" }]) }, {
+      world: kernel, targets: { a: [kernel.ref("hero")], b: [kernel.ref("anchor")] },
+    });
+    assert.equal(run.result.status, "negated");
+    assert.notEqual(run.result.reason, "executed");
     assert.deepEqual(kernel.getObject("hero"), a);
     assert.deepEqual(kernel.getObject("anchor"), b);
     assert.deepEqual(kernel.stateForTest(), before);
@@ -451,8 +377,13 @@ test("EG-RECALL runs the original Conscription recall instruction through the de
       builder.unit("owner", {});
     },
   });
-  assert.throws(() => f.play("spell"), /Unsupported filter field mightLte/);
+  assert.throws(() => f.play("spell"), {
+    name: "TargetSelectionError",
+    message: "The required target count is not available",
+  });
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-moved").length, 0);
+  assert.deepEqual(f.get("owner").location, battlefield);
+  assert.equal(f.kernel.history({ action: "recall" }), 0);
 });
 
 test("EG-RECALL runs the original Glowstone recall instruction through the default production assembly", () => {
@@ -491,7 +422,10 @@ test("EG-RECALL runs the original Smoke and Mirrors swap instruction through the
       builder.object("destination", { types: ["battlefield"], energy: null, power: null });
     },
   });
-  assert.throws(() => f.play("spell"), /Unsupported filter field exclude/);
+  assert.throws(() => f.play("spell"), {
+    name: "ProgramBindingError",
+    message: "Unsupported filter field locationRelation",
+  });
   assert.deepEqual(f.get("one").location, battlefield);
   assert.deepEqual(f.get("two").location, second);
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-moved").length, 0);

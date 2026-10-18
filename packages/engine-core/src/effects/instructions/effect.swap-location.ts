@@ -178,26 +178,13 @@ export default {
       ctx.link("swapped", receipt);
       return { status: "negated", reason: "impossible", events: [] };
     }
-    if (ctx.transaction === undefined) {
-      const receipt = blockedReceipt(a.ref, b.ref, "Atomic BatchAction requires a host transaction boundary (RIFT-849/810/835/837)");
-      ctx.link("swapped", receipt);
-      return { status: "negated", reason: "impossible", events: [] };
-    }
     let outcome: ActionOutcome;
     let afterA: ReturnType<ResolveContext["object"]>;
     let afterB: ReturnType<ResolveContext["object"]>;
     try {
-      ({ outcome, afterA, afterB } = ctx.transaction(() => {
-        const result = capability.perform(batch);
-        const currentA = ctx.object(a.ref);
-        const currentB = ctx.object(b.ref);
-        const committed = result.status === "done" && result.receipt?.status === "committed" &&
-          result.receipt.actions.length === 2 && result.receipt.actions.every(action => action.status === "done");
-        const moved = committed && currentA !== null && currentB !== null &&
-          sameLocation(currentA.location!, originB) && sameLocation(currentB.location!, originA);
-        if (!moved) throw new Error("Atomic BatchAction did not commit both relocations");
-        return { outcome: result, afterA: currentA, afterB: currentB };
-      }));
+      outcome = capability.perform(batch);
+      afterA = ctx.object(a.ref);
+      afterB = ctx.object(b.ref);
     } catch (error) {
       if (error instanceof TypeError || error instanceof Error && /Unknown action type: batch/.test(error.message)) {
         const receipt = blockedReceipt(a.ref, b.ref, "BatchAction consumer unavailable (RIFT-849/810/835/837)");
@@ -218,6 +205,13 @@ export default {
       actionReceipt: outcome.receipt as unknown as Value
     };
     ctx.link("swapped", receipt);
+    if (outcome.receipt?.status === "rolled-back") {
+      return {
+        status: "negated",
+        reason: outcome.status === "replaced" ? "replaced" : outcome.status === "prevented" ? "skipped" : "impossible",
+        events: [...outcome.events],
+      };
+    }
     return { status: "executed", events: [...outcome.events], linkedValues: { swapped: receipt } };
   }
 } satisfies InstructionDef<SwapArgs>;

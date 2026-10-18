@@ -261,6 +261,7 @@ export default {
     const movements: Value[] = [];
     let reason: "replaced" | "skipped" | "impossible" | undefined;
     let blockedReason: string | undefined;
+    let actionReceipt: ActionOutcome["receipt"] | undefined;
     if (amount > 0) {
       if (mode === "recall") {
         if (typeof to === "object" && "kind" in to) {
@@ -283,6 +284,7 @@ export default {
               continue;
             }
             const outcome = performRecall(ctx, ref);
+            actionReceipt ??= outcome.receipt;
             events.push(...outcome.events);
             if (outcome.status !== "done") {
               reason ??= outcome.status === "prevented" ? "skipped" : outcome.status;
@@ -331,7 +333,8 @@ export default {
     const receipt: Value = {
       count: moved.length, objects: moved.map(refValue), movements,
       ...(mode === "recall" ? { mode } : {}),
-      ...(blockedReason === undefined ? {} : { blockedReason })
+      ...(blockedReason === undefined ? {} : { blockedReason }),
+      ...(actionReceipt === undefined ? {} : { receipt: actionReceipt as unknown as Value })
     };
     ctx.link(linkKey, receipt);
     return reason ? { status: "negated", reason, events } :
