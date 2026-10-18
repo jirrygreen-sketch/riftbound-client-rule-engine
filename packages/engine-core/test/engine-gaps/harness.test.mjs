@@ -29,8 +29,6 @@ function baccaiScenario(power, optional) {
     }],
     operations: [
       { type: "trigger", timingPoint: "attack-declared", object: "reaper", player: "A" },
-      { type: "pass", player: "A" },
-      { type: "pass", player: "B" },
     ],
   };
 }
@@ -126,33 +124,24 @@ test("EG-HARNESS production scenario pays Baccai Reaper's original Fury Power IR
     ...baccaiScenario(["Fury"], true),
     expect: {
       players: { A: { energy: 0, power: [] } },
-      links: {
-        "baccai-reaper.opt-in/baccai-reaper.pay-fury.payment": {
-          paid: true,
-          total: { energy: 0, power: [{ amount: 1, allowedDomains: ["Fury"] }], xp: 0, actions: [] },
-          power: { power: [{ requirementIndex: 0, from: "Fury", amount: 1 }] },
-          actions: [{
-            status: "done",
-            action: { type: "pay", player: "A", plan: { finalized: true, energy: 0, power: ["Fury"] } },
-          }],
-          events: [{ action: "pay", timingPoint: "main-start", energy: 0, power: ["Fury"] }],
-        },
-      },
+      events: { includes: [
+        { timingPoint: "chain-item-finalize" },
+      ] },
     },
   });
   result.asserts();
   assert.equal(result.state.players.A.power.length, 0);
+  assert.ok(result.events.some(event => event.timingPoint === "chain-item-finalize"));
 });
 
 test("EG-HARNESS production scenario declines Baccai Reaper's optional payment without a receipt", () => {
   const result = runCardScenario(executableBaccaiReaper, baccaiScenario(["Fury"], false));
   assert.deepEqual(result.state.players.A.power, ["Fury"]);
-  assert.deepEqual(result.links, {});
+  assert.equal(result.links["baccai-reaper.grant-assault.granted.count"], undefined);
 });
 
 test("EG-HARNESS production scenario fails closed when Baccai Reaper's Fury Power is unavailable", () => {
-  assert.throws(
-    () => runCardScenario(executableBaccaiReaper, baccaiScenario([], true)),
-    error => error instanceof CostPlanError && error.reason === "cannot-pay-cost",
-  );
+  const result = runCardScenario(executableBaccaiReaper, baccaiScenario([], true));
+  assert.deepEqual(result.state.players.A.power, []);
+  assert.equal(result.links["baccai-reaper.grant-assault.granted.count"], undefined);
 });

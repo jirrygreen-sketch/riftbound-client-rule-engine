@@ -84,6 +84,13 @@ test('EG-TRIGGERS: original Baccai pure payment gate is moved to Finalize', () =
   f.binding.registerProgramTriggers(f.engine, f.get('reaper'));
   f.engine.emit({ timingPoint: 'turn-end' });
   f.engine.advance();
+  const [item] = f.engine.items;
+  assert.equal(item?.status, 'finalized');
+  assert.equal(item?.payment?.paid, true);
+  assert.deepEqual(item?.payment?.total.power, [{ amount: 1, allowedDomains: ['Fury'] }]);
+  assert.deepEqual(item?.payment?.actions.map(entry => entry.action), [
+    { type: 'pay', player: 'A', plan: { finalized: true, energy: 0, power: ['Fury'] } }
+  ]);
   assert.deepEqual(f.kernel.player('A').power, []);
   assert.ok(f.engine.trace.some(entry => entry.step === 'finalized' && entry.item === 'trigger:1'));
   assert.equal(baccaiReaper.status, 'judge-required');
@@ -209,18 +216,19 @@ test('EG-TRIGGERS: unknown leading shape fails closed at binding', () => {
 });
 
 test('EG-TRIGGERS: trigger conditions are evaluated at the event timing point', () => {
-  const source = triggered(kennen)[0];
-  const program = withAbility(kennen, {
-    ...source,
-    body: [{ id: 'draw-choice', op: 'choice.optional', args: { body: c([{ id: 'draw', op: 'effect.draw', args: { amount: c(1) } }]) } }],
-    trigger: { ...source.trigger, condition: { kind: 'never' } }
-  });
+  const program = cardProgram('test:eg-triggers-condition', [], [{
+    kind: 'triggered',
+    trigger: { at: 'turn-end', filter: { event: 'turn-end' }, condition: { kind: 'never' } },
+    optional: false,
+    body: [{ id: 'draw', op: 'effect.draw', args: { amount: c(1) } }]
+  }]);
   const f = fixture({
-    programs: [program], energy: { A: 3 }, power: { A: ['Body'] },
-    setup(builder) { builder.hand('kennen', { cardId: program.canonicalCardId }); }
+    programs: [program],
+    setup(builder) { builder.unit('watcher', { cardId: program.canonicalCardId, location: field('one') }); }
   });
-  f.play('kennen');
-  while (f.engine.items.length) f.engine.pass(f.engine.priority);
+  f.binding.registerProgramTriggers(f.engine, f.get('watcher'));
+  f.engine.emit({ timingPoint: 'turn-end' });
+  f.engine.advance();
   assert.deepEqual(pendingItems(f.engine).filter(item => item.startsWith('trigger:')), []);
   assert.ok(!f.asked.some(request => request.id.includes('trigger:1')));
 });
