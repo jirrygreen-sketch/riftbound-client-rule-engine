@@ -9,11 +9,14 @@ import { cardRegistryById } from "../../../../../packages/card-dsl/dist/cards/re
 import recycleDef from "../../../../../packages/engine-core/dist/effects/instructions/effect.recycle.js";
 import playDef from "../../../../../packages/engine-core/dist/effects/instructions/effect.play.js";
 import keyword from "../../../../../packages/engine-core/dist/effects/instructions/continuous.grant-keyword.js";
-import { translateObjectFilter } from "../../../../../packages/engine-core/dist/programs/filters.js";
+import { translateObjectFilter, translateInstructionTargets } from "../../../../../packages/engine-core/dist/programs/filters.js";
 import { translateCost } from "../../../../../packages/engine-core/dist/programs/play.js";
 import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { world, runInstruction } from "../../../../../packages/engine-core/dist/effects/testing/index.js";
 
@@ -27,10 +30,11 @@ test("program passes validateCardProgram and is judge-required", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason ?? "", /continuous\.grant-keyword/);
   assert.match(program.judgeReason ?? "", /默认 static binder/);
-  assert.match(program.judgeReason ?? "", /KeywordDef/);
+  assert.match(program.judgeReason ?? "", /运行时授予的关键词没有展开/);
   assert.match(program.judgeReason ?? "", /cost\.modify\/cost\.pay/);
   assert.match(program.judgeReason ?? "", /运行时授予/);
   assert.match(program.judgeReason ?? "", /designation/);
+  assert.match(program.judgeReason ?? "", /conquered/);
   assert.match(program.sourceText, /Your Mechs each have \[Assault\]/);
 });
 
@@ -57,7 +61,10 @@ test("conquer trigger is optional, self-scoped, and links recycle into play", ()
   assert.equal(trigger.kind, "triggered");
   assert.equal(trigger.optional, true);
   assert.equal(trigger.trigger.at, "conquer");
-  assert.deepEqual(trigger.trigger.filter, { event: "conquer", filter: { role: "self" } });
+  // The closed EventPattern discriminant for the conquer timing point is
+  // "conquered" (events/pipeline-match.ts maps it onto conquer), and the
+  // anchor is this card (383.4.c.2.a).
+  assert.deepEqual(trigger.trigger.filter, { event: "conquered", filter: { source: "self" } });
   assert.equal(trigger.body.length, 2);
 
   const [recycle, play] = trigger.body;
@@ -209,6 +216,59 @@ test("the card retains its blocked discount declaration and recycle reference li
 test.todo(
   "consume runtime-granted Assault as attacker-only Might (807.1.c/.d.1), with designation/combatRole alignment"
 );
+
+test("Rumble, Hotheaded: the production binder really grants Assault but the grant never becomes Might", () => {
+  // 807.1.c/.d.1: the ability-layer grant lands (measured keywords [{ id:
+  // "Assault", value: 1 }]) while the arithmetic consumption does not, so the
+  // same Mech keeps its printed Might. This is the first recorded gap.
+  const { engine, kernel } = fixture({ cards: [
+    { id: "rumble", cardId: CANONICAL, tags: ["Mech"], might: 4 },
+    { id: "friendly-mech", tags: ["Mech"], might: 3 },
+    { id: "enemy-mech", owner: "B", controller: "B", tags: ["Mech"], might: 3 }
+  ] });
+  for (const id of ["rumble", "friendly-mech", "enemy-mech"]) {
+    engine.commit({ type: "move-zone", object: kernel.ref(id), to: "base", location: { type: "base", player: kernel.getObject(id).controller } });
+  }
+  createEngineStaticBinder(engine).bindStatic(program.abilities[0], kernel.getObject("rumble"));
+  engine.layers.setObjects(kernel.objects);
+  assert.deepEqual(engine.layers.evaluate(kernel.ref("friendly-mech")).keywords, [{ id: "Assault", value: 1 }]);
+  assert.equal(engine.layers.evaluate(kernel.ref("friendly-mech")).might, 3);
+  assert.deepEqual(engine.layers.evaluate(kernel.ref("enemy-mech")).keywords, []);
+});
+
+test("Rumble, Hotheaded: the rewritten conquer trigger registers but cannot match a real conquer wave", () => {
+  // 383.4.c / 383.4.c.2.a: the closed discriminant and the source anchor are now
+  // registrable, but the production Score wave emits only
+  // { player, details: { battlefieldId } }, so the translated object anchor is
+  // undefined on the event and the matcher fails closed.
+  const { engine, kernel } = fixture({ cards: [{ id: "rumble", cardId: CANONICAL, tags: ["Mech"], might: 4 }] });
+  const [, trigger] = program.abilities;
+  // The recycle target keeps its printed relative anchor, which the program
+  // binding still rejects (asserted below); this registration view replaces
+  // only that clause so the trigger filter itself can be measured.
+  const registrationBody = [{ ...trigger.body[0], targets: [{ ...trigger.body[0].targets[0], filter: { zone: "board", controller: "controller", type: "unit" } }] }];
+  const lifted = { ...program, status: "executable", judgeReason: undefined, abilities: [program.abilities[0], { ...trigger, body: registrationBody }] };
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const ids = binding.registerProgramTriggers(engine, kernel.getObject("rumble"));
+  assert.equal(ids.length, 1);
+  const [registration] = [...engine.pipeline.checkpoint().triggers.values()];
+  assert.deepEqual(registration.spec, {
+    at: "conquer",
+    filter: { event: "conquered", object: { objectId: "rumble" } }
+  });
+  assert.doesNotThrow(() => assertTriggerSpec(registration.spec));
+  const emission = { timingPoint: "conquer", kind: "conquer", player: "A", details: { battlefieldId: "bf1" } };
+  assert.equal(matchesTriggerEvent(registration.spec.filter, emission, "A"), false);
+  // A payload that did carry this unit would match, which isolates the gap to
+  // the missing battlefield/object identity in the real emission.
+  assert.equal(matchesTriggerEvent(registration.spec.filter, { ...emission, object: kernel.getObject("rumble") }, "A"), true);
+
+  // The printed recycle clause itself still cannot be translated.
+  assert.throws(
+    () => translateInstructionTargets(trigger.body),
+    (error) => error.code === "judge-required" && /Unsupported filter field role/.test(error.message)
+  );
+});
 
 
 test("Rumble, Hotheaded: the default static binder registers the original friendly-Mech Assault aura", () => {

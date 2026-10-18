@@ -26,15 +26,22 @@ import type { CardProgram } from "../../ir/index.js";
  * - 470.1 / 470.3: finishing the Conquer is the Scoring process; this ability
  *   itself only draws, it does not gain points.
  *
- * Status: judge-required. The conquer timing point itself is no longer the gap:
- * turn/flow.ts's Score wave now emits `conquer` (recorded by the RIFT-270
- * timing-point producer audit in docs/rules/timing-point-producers.md), so the older
- * "no merged module emits conquer" note is stale. The remaining gaps are:
+ * Status: judge-required, re-checked 2026-10-17. The conquer timing point itself
+ * is no longer the gap: turn/flow.ts's Score wave now emits `conquer` (recorded by
+ * the RIFT-270 timing-point producer audit in docs/rules/timing-point-producers.md),
+ * and the printed discriminant now uses the closed EVENT_PATTERN_TYPES value
+ * "conquered" (events/pipeline-match.ts maps it onto the conquer timing point), so
+ * the older "no merged module emits conquer" note and the invalid discriminant are
+ * both gone. The remaining gaps are:
  * 1. the battlefield-relative "here" restriction has no EventPattern vocabulary:
- *    the card keeps the 053.3 `here: true` placeholder, which the events/trigger-spec
- *    validator rejects (unknown field) and programs/filters.ts translateTriggerFilter
- *    rejects as well ("Unsupported filter field here"), so the ability cannot
- *    register through the merged CardProgram trigger adapter (RIFT-257).
+ *    the card keeps the 053.3 `here: true` placeholder, which the merged
+ *    events/trigger-spec validator rejects as an unknown field and
+ *    programs/filters.ts translateTriggerFilter rejects as well ("Unsupported
+ *    filter field here"), so the ability cannot register through the merged
+ *    CardProgram trigger adapter (RIFT-257). EventPattern's `details` matcher
+ *    could compare details.battlefieldId in principle, but a static program
+ *    cannot know the runtime battlefield id, so the restriction stays
+ *    non-executable.
  * 2. the count still needs the Mode-of-Play teammate relation (471.1.a,
  *    315.2.b.3): no merged ObjectFilter / PlayerSelector / Expr expands
  *    `controller: "you-or-ally"` to the controller and their allies. The count's
@@ -53,11 +60,14 @@ export default {
   status: "judge-required",
   judgeReason:
     "The conquer timing point is merged (turn/flow.ts emits it in the Score wave; the RIFT-270 producer audit records " +
-    "this in docs/rules/timing-point-producers.md), but the printed ability " +
+    "this in docs/rules/timing-point-producers.md) and the printed discriminant now uses the closed EVENT_PATTERN_TYPES " +
+    "value \"conquered\" (events/pipeline-match.ts maps it onto conquer), but the printed ability " +
     "(383.4.c / 473.2.a) still cannot run end to end, and nothing is approximated: (1) the battlefield-relative \"here\" " +
-    "restriction has no EventPattern vocabulary — the 053.3 `here: true` placeholder is rejected by the events/trigger-spec " +
-    "validator (unknown-field) and by programs/filters.ts translateTriggerFilter (\"Unsupported filter field " +
-    "here\"), so the CardProgram trigger cannot register through the merged RIFT-257 adapter; (2) the count still lacks the " +
+    "restriction has no EventPattern vocabulary — the 053.3 `here: true` placeholder is rejected both by the merged " +
+    "trigger-spec validator as an unknown field and by programs/filters.ts " +
+    "translateTriggerFilter (\"Unsupported filter field here\"), and although EventPattern.details can compare " +
+    "details.battlefieldId in principle, a static card program cannot know the runtime battlefield id, so the CardProgram " +
+    "trigger cannot register through the merged RIFT-257 adapter; (2) the count still lacks the " +
     "Mode-of-Play teammate relation of 471.1.a / 315.2.b.3: no merged ObjectFilter / PlayerSelector / Expr expands " +
     "controller: you-or-ally into the controller and allies. The actual count path is evaluateExpression -> queryObjects: " +
     "it already queries Battlefield snapshots and resolves exclude: self, without calling translateObjectFilter. " +
@@ -72,9 +82,14 @@ export default {
       trigger: {
         at: "conquer",
         // "here" is this Battlefield (053.3) and "you" its Controller
-        // (190.6.d); sibling battlefield programs keep the same placeholder
-        // spelling while battlefield-relative trigger filtering is missing.
-        filter: { event: "conquer", here: true, player: "controller" }
+        // (190.6.d). The discriminant uses the closed EVENT_PATTERN_TYPES value
+        // "conquered" (pipeline-match maps it onto the conquer timing point),
+        // and PlayerSelector "self" is "the trigger's controller performed the
+        // action" (events/trigger-spec.ts); "controller" is not a valid
+        // PlayerSelector and is therefore not used here. The surviving
+        // placeholder is only the battlefield identity, which a static program
+        // cannot express (judgeReason).
+        filter: { event: "conquered", here: true, player: "self" }
       },
       optional: false,
       body: [
