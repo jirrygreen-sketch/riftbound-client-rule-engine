@@ -11,6 +11,8 @@ import type {
   ResolveContext,
   Value
 } from "../contract.js";
+import { CostPlanError } from "../../cost/plan-types.js";
+import { buildEffectPlayCostPlan } from "../play/index.js";
 
 /**
  * Arguments for the limited Play effect.
@@ -21,10 +23,13 @@ import type {
  * being played automatically. `object` is an Expr that evaluates to one
  * ObjectRef and is useful for an already-linked object.
  *
- * `player`, `location`, `cost`, and `amount` are Expr values. `cost` must
- * evaluate to an already-finalized cost plan; this primitive never derives
- * printed costs or implements an ignored-cost rule. `linkKey` receives the
- * actual number of successful plays and defaults to `"played"`.
+ * `player`, `location`, `cost`, `ignoreCost`, `ignoreCosts`, and `amount` are
+ * Expr values. A missing `cost` is finalized from the selected card's trusted
+ * program/catalog characteristics. Existing `cost.modify` descriptors and
+ * complete CostPlan values are converted to the chain's flat finalized plan;
+ * later additional costs and increases stay in the resulting total. Unknown
+ * descriptors fail closed. `linkKey` receives the actual number of successful
+ * plays and defaults to `"played"`.
  *
  * The operation follows Core Rules v1.5 420.3, 420.3.a–c and 420.4: a game
  * effect Play is a Limited Action, uses the normal Play procedure unless the
@@ -52,6 +57,8 @@ export interface EffectPlayArgs {
   readonly player?: Expr;
   readonly location?: Expr;
   readonly cost?: Expr;
+  readonly ignoreCost?: Expr;
+  readonly ignoreCosts?: Expr;
   readonly amount?: Expr;
   readonly linkKey?: string;
 }
@@ -87,7 +94,7 @@ function parseArgs(value: unknown): EffectPlayArgs {
   if (value.pick !== undefined && (typeof value.pick !== "string" || value.pick.length === 0)) {
     throw new TypeError("effect.play pick must be a non-empty PickSpec id");
   }
-  for (const key of ["object", "player", "location", "cost", "amount"]) {
+  for (const key of ["object", "player", "location", "cost", "ignoreCost", "ignoreCosts", "amount"]) {
     if (value[key] !== undefined && !isExpr(value[key])) {
       throw new TypeError(`effect.play ${key} must be an Expr`);
     }
@@ -230,12 +237,26 @@ const execute: InstructionDef<EffectPlayArgs>["execute"] = (ctx, args) => {
   const events: GameEvent[] = [];
   let played = 0;
   for (const object of selected) {
+    let finalized: FinalizedCostPlan | undefined;
+    try {
+      finalized = buildEffectPlayCostPlan(ctx, {
+        object,
+        player,
+        ...(args.cost === undefined ? {} : { cost: ctx.evaluate(args.cost) }),
+        ...(args.ignoreCost === undefined ? {} : { ignoreCost: ctx.evaluate(args.ignoreCost) }),
+        ...(args.ignoreCosts === undefined ? {} : { ignoreCosts: ctx.evaluate(args.ignoreCosts) })
+      });
+    } catch (error) {
+      if (error instanceof CostPlanError) return negated("impossible", events);
+      throw error;
+    }
+    const effectiveCost = finalized ?? cost;
     const outcome = ctx.perform({
       type: "play",
       object,
       player,
       ...(location === undefined ? {} : { location }),
-      ...(cost === undefined ? {} : { cost })
+      ...(effectiveCost === undefined ? {} : { cost: effectiveCost })
     });
     events.push(...outcome.events);
     if (outcome.status !== "done") {
