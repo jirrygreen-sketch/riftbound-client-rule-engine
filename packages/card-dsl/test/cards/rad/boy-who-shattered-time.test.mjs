@@ -9,6 +9,10 @@ import empowerDef from "../../../../engine-core/dist/effects/keywords/Empower.js
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { isDurationAlias } from "../../../../engine-core/dist/layers/ops/index.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 
 const CANONICAL_ID =
   "card.hash-ad1eab15fd49b5de8236cadaa8e7c053d23218fb204a265a51a5ae2311445f11";
@@ -43,6 +47,11 @@ test("rad-139-167 Boy Who Shattered Time: identity, status and verbatim sourceTe
   assert.match(program.judgeReason, /下一张打出的单位/);
   assert.match(program.judgeReason, /grant-ability/);
   assert.match(program.judgeReason, /163\.2\.b/);
+  // Fourth-sweep refresh: the cost.modify argument shape is itself refused and
+  // the duration vocabulary has no next-unit window.
+  assert.match(program.judgeReason, /Invalid cost\.modify argument: appliesTo/);
+  assert.match(program.judgeReason, /next-unit/);
+  assert.match(program.judgeReason, /expandProgram/);
   assert.equal(program.judgeReason.includes("KeywordDef 尚无归属任务号"), false);
 });
 
@@ -244,3 +253,97 @@ test.todo(
     "unit and expire it at the turn-end timing point — needs continuous.grant-ability and " +
     "the delayed/end-of-turn duration (CR 317.1.a / 135.4.b / 801.3.a)"
 );
+
+// --- 2026-10-18 re-sweep: measured carrier/schema gaps ---
+test("rad-139-167 Boy Who Shattered Time re-sweep: expandProgram drops params.cost even though the field validates", () => {
+  // The contract type carries only keyword/value, and programs/keywords.ts calls
+  // def.expand({ value, host }) without consulting params. Measured: adding the
+  // printed cost as params.cost still validates, but the expansion falls back to
+  // the default { kind: "empower" } — which production then rejects.
+  const withParams = {
+    ...program,
+    abilities: [
+      {
+        kind: "keyword",
+        keyword: "empower",
+        params: {
+          cost: {
+            kind: "activated",
+            energy: { kind: "constant", value: 1 },
+            payments: [{ kind: "exhaust", object: "self" }]
+          }
+        }
+      },
+      ...program.abilities.slice(1)
+    ]
+  };
+  assert.equal(validateCardProgram(withParams).ok, true);
+
+  const kernel = world()
+    .unit("ekko", { zone: "board", types: ["legend"], controller: "A" })
+    .build();
+  const expansion = expandProgram(withParams, kernel.getObject("ekko"));
+  const expandedKeyword = expansion.expanded.filter(ability => ability.kind === "activated");
+  assert.equal(expandedKeyword.length, 1);
+  assert.deepEqual(expandedKeyword.map(ability => ability.cost), [{ kind: "empower" }]);
+  assert.equal(
+    expandedKeyword.some(ability => ability.cost.payments?.[0]?.kind === "exhaust"),
+    false,
+    "the printed 1 Energy + Exhaust cost never reaches the expansion"
+  );
+});
+
+test("rad-139-167 Boy Who Shattered Time re-sweep: the authored cost.modify shape is refused by the merged primitive", () => {
+  // The card writes appliesTo/energy/power/duration, which are not the
+  // primitive's argument vocabulary; cost.modify blocks instead of producing a
+  // cost plan for the wrong target. The correct modifier form does execute,
+  // which is exactly why the remaining gap is the deferred window, not the op.
+  const kernel = world()
+    .unit("ekko", { zone: "board", types: ["legend"], controller: "A" })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("ekko") });
+  const [reduce] = disempowerAbility.body;
+  assert.throws(
+    () => runInstruction(costModify, reduce.args, { world: scoped }),
+    /Invalid cost\.modify argument: appliesTo/
+  );
+
+  const run = runInstruction(
+    costModify,
+    {
+      id: "boy-who-shattered-time.reduce-next-unit",
+      modifiers: [
+        { kind: "reduce", resource: "energy", amount: { kind: "constant", value: 2 }, id: "discount" }
+      ]
+    },
+    { world: scoped }
+  );
+  assert.equal(run.result.status, "executed");
+  // The plan is linked for this source only; nothing binds it to a later play.
+  assert.ok(run.linked.cost);
+});
+
+test("rad-139-167 Boy Who Shattered Time re-sweep: the duration vocabulary has no next-unit window", () => {
+  // 163.2.b needs a one-shot "next unit played this turn" window. The merged
+  // aliases cover this-turn/permanent/while-source-in-zone/until only.
+  for (const alias of ["this-turn", "end-of-turn", "this-combat", "end-of-combat", "permanent", "while-source-in-zone"]) {
+    assert.equal(isDurationAlias(alias), true, alias);
+  }
+  for (const alias of ["next-unit", "next-unit-played-this-turn", { type: "next-unit" }]) {
+    assert.equal(isDurationAlias(alias), false, JSON.stringify(alias));
+  }
+});
+
+test("rad-139-167 Boy Who Shattered Time re-sweep: no registered op can grant a whole ability", () => {
+  // "Kill me at end of turn." needs a temporary triggered ability attached to a
+  // unit that does not exist yet. continuous.grant-keyword/continuous.keyword
+  // only carry keyword ids and numbers, and continuous.grant-ability is not
+  // registered at all.
+  assert.equal(instructionDefinitionsById.has("continuous.grant-ability"), false);
+  assert.equal([...instructionDefinitionsById.keys()].some(id => id.endsWith("grant-ability")), false);
+  assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), true);
+  // The instruction the card authors is therefore unreachable in production.
+  const [grant] = disempowerAbility.body.slice(1);
+  assert.equal(grant.op, "continuous.grant-ability");
+  assert.equal(instructionDefinitionsById.has(grant.op), false);
+});

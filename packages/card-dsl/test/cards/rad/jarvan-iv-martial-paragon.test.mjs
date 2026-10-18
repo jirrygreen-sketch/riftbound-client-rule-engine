@@ -10,6 +10,10 @@ import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { actionTimings } from "../../../../engine-core/dist/layers/rules/query.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { evaluateExpression } from "../../../../engine-core/dist/effects/interpreter/expr.js";
 import action from "../../../../engine-core/dist/effects/keywords/Action.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
@@ -33,6 +37,9 @@ test("rad-091-167 Jarvan IV, Martial Paragon: validates, identity and source tex
   // Point at the merged binder/query behaviour that actually rejects the grant.
   assert.match(program.judgeReason, /translateObjectFilter|staticFilter/);
   assert.match(program.judgeReason, /appliesTo/);
+  assert.match(program.judgeReason, /RIFT-710/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /matchesObjectFilter/);
   assert.doesNotMatch(program.judgeReason, /静态绑定器拒绝 keyword 过滤字段，无法选出/);
   // The Deploy location consumer remains a real gap, but the reason must no
   // longer rest on a missing binder entry point.
@@ -205,4 +212,80 @@ test("rad-091-167 Jarvan IV, Martial Paragon boundary: the trigger condition's c
     translateTriggerFilter(program.abilities[1].trigger.filter, "jarvan", "conquer"),
     { event: "conquer", object: { objectId: "jarvan" } }
   );
+});
+
+// --- 2026-10-18 re-sweep: measured re-expansion and condition behaviour ---
+test("rad-091-167 Jarvan IV re-sweep: the merged re-expansion turns a granted Action into a real timing licence, but is not the production engine", () => {
+  // RIFT-710's KeywordGrantLayerEngine expands the granted Action keyword into
+  // its continuous.timing declaration, and layers/rules then reports the
+  // showdown licence. Production is not wired to that engine: ChainEngine still
+  // constructs the plain LayerEngine (where the keyword only lands in
+  // object.keywords), and programs/lifecycle.ts binds statics to it.
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .unit("gear", { zone: "board", controller: "A", types: ["gear"] })
+    .unit("src", { zone: "board", controller: "A" })
+    .build();
+  const context = source => bindResolveContext(kernel, { source, controller: source.controller });
+  const layers = new KeywordGrantLayerEngine(kernel.objects, { context });
+  layers.addContinuous({
+    id: "grant-action",
+    layer: "ability",
+    source: kernel.ref("src"),
+    filter: { objectId: "gear", zone: "board", zoneEntryId: 1 },
+    effect: { kind: "continuous.grant-keyword", keyword: "Action" }
+  }, { type: "permanent" });
+
+  const snapshot = layers.evaluate(kernel.ref("gear"));
+  assert.deepEqual(snapshot.keywords.map(keyword => keyword.id), ["Action"]);
+  assert.deepEqual(actionTimings(layers.registry, kernel.ref("gear"), snapshot, "A"), ["showdown"]);
+  // The same ability-layer registration on the production LayerEngine leaves
+  // only the keyword: applyAbility writes object.keywords, never the
+  // grants/timings the rule query reads. The entry is rebuilt from the card's
+  // declared shape rather than reusing the re-expansion engine's registry,
+  // because that engine pins its own generated expansions into the registry it
+  // was handed.
+  const plain = createLayerEngine(kernel.objects, [{
+    effect: {
+      id: "grant-action",
+      layer: "ability",
+      source: kernel.ref("src"),
+      filter: { objectId: "gear", zone: "board", zoneEntryId: 1 },
+      effect: { kind: "continuous.grant-keyword", keyword: "Action" }
+    },
+    duration: { type: "permanent" },
+    timestamp: 1
+  }]);
+  assert.deepEqual(plain.evaluate(kernel.ref("gear")).keywords.map(keyword => keyword.id), ["Action"]);
+  assert.deepEqual(actionTimings(plain.registry, kernel.ref("gear"), plain.evaluate(kernel.ref("gear")), "A"), []);
+});
+
+test("rad-091-167 Jarvan IV re-sweep: the authored conquer condition is not honestly evaluable on a real board", () => {
+  // The gate must count only friendly gear with [Deploy] at the source's
+  // battlefield. On a real board with one Deploy gear and two plain gear at two
+  // battlefields the authored count evaluates to 0 (the keyword key is dropped
+  // by the query matcher while sameLocationAs is not resolved by the reference
+  // kernel query), so the trigger would be suppressed even though the printed
+  // condition holds.
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .unit("jarvan", { zone: "board", controller: "A", types: ["unit"], location: { type: "battlefield", id: "bf1" } })
+    .unit("deploy-gear", { zone: "board", controller: "A", types: ["gear"], keywords: [{ id: "Deploy" }], location: { type: "battlefield", id: "bf1" } })
+    .unit("plain-gear", { zone: "board", controller: "A", types: ["gear"], location: { type: "battlefield", id: "bf1" } })
+    .unit("far-gear", { zone: "board", controller: "A", types: ["gear"], keywords: [{ id: "Deploy" }], location: { type: "battlefield", id: "bf2" } })
+    .unit("enemy-gear", { zone: "board", owner: "B", controller: "B", types: ["gear"], location: { type: "battlefield", id: "bf1" } })
+    .build();
+  const source = kernel.getObject("jarvan");
+  const environment = {
+    context: bindResolveContext(kernel, { source, controller: "A" }),
+    host: source.ref,
+    linked: () => undefined,
+    canLookBack: () => true,
+    isIgnored: () => false
+  };
+  const condition = program.abilities[1].trigger.condition;
+  assert.equal(evaluateExpression(condition.left, environment), 0);
+  assert.equal(evaluateCondition(condition, environment), false);
 });

@@ -40,9 +40,19 @@ import type { CardProgram } from "../../ir/index.js";
  *    later in the turn. The Duration vocabulary (permanent / end-of-turn /
  *    end-of-combat / while-source-in-zone / until) has no one-shot "next unit"
  *    window either (same one-shot-window gap as ogn/raging-firebrand).
+ * 3. The authored grant instruction is itself refused by the merged primitive:
+ *    runInstruction(continuous.grant-keyword, instruction.args) throws
+ *    'continuous.grant-keyword appliesTo must evaluate to "self"' because the
+ *    destination is a deferred target selector rather than the source. The
+ *    declared TargetSpec (min 0, up-to 1) cannot name a unit that does not exist
+ *    at Finalize either.
  * The trigger side: the conquer timing point and CardProgram TriggerRegistration
  * are merged; 190.6 battlefield-controller resolution and the source battlefield
- * identity binding are still missing.
+ * identity binding are still missing — measured: translateTriggerFilter rejects
+ * the authored details field with "Unsupported filter field details", so the
+ * registration fails closed before the details comparison could run.
+ * The granted [Accelerate] expansion is merged (805.1.b), but its own static
+ * kind accelerate.cost has no layer mapping and binding it fails closed.
  * The intended body is preserved below so the missing pieces stay auditable.
  * Dependencies: the source battlefield identity binding and the one-shot
  * "next unit" window.
@@ -52,18 +62,22 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处卡内缺口加注册接线依赖，均不近似实现：" +
+    "(2026-10-18 第四轮复核实测) 三处卡内缺口加注册接线依赖，均不近似实现：" +
     "(1) 「the next unit you play this turn has [Accelerate]」的关键词授予本身已可执行——continuous.grant-keyword " +
     "注册 ability 图层效果，merged LayerEngine 会把 [Accelerate] 加到目标单位上（golden 用真实解释器 + 图层引擎执行）；" +
     "仍缺的是本回合稍后第一个合资格单位的 one-shot 窗口与延迟安装消费方，不能在 Finalize 时提前锁定该单位。" +
     "(2) 「the next unit you play」这个一次性窗口没有 IR 形状：ObjectSelector 只有 self/source/target/pick/linked，" +
     "ObjectFilter 没有 greatest/last-created 量词，TargetSpec 按 CR 355.5 必须在 finalize 时锁定已经存在的对象（该单位本回合稍后才打出），" +
     "Duration 只有 permanent/end-of-turn/end-of-combat/while-source-in-zone/until，没有 one-shot「next unit」期限（同 ogn/raging-firebrand 的缺口）。" +
+    "(3) 本卡写下的授予指令本身被原语拒绝：runInstruction(continuous.grant-keyword, instruction.args) 实测抛 " +
+    "「continuous.grant-keyword appliesTo must evaluate to \"self\"」，因为目的地是延迟目标选择器而不是来源；" +
+    "声明的 TargetSpec（min 0、up-to 1）也无法指向 Finalize 时还不存在的单位。" +
     "触发侧：conquer 时点与 CardProgram TriggerRegistration 已合入，但 190.6 的战场能力控制者解析" +
     "以及 details.battlefieldId 与本战场宿主的绑定仍缺——注册路径实测拒绝 details 声明" +
     "（programs/filters.ts 的 translateTriggerFilter 抛 ProgramBindingError「Unsupported filter field details」），" +
     "且即便透传，details 也是与 turn/flow.ts:102 发射的真实 battlefieldId 做字面比较，" +
-    "「self」占位永远不会匹配；one-shot「next unit」窗口也未合入。不近似实现。",
+    "「self」占位永远不会匹配；one-shot「next unit」窗口也未合入（实测 isDurationAlias(\"next-unit\") === false）。" +
+    "授予的 [Accelerate] 展开已合入（805.1.b），但其 static kind accelerate.cost 没有 layer 映射，绑定实测 fail-closed。不近似实现。",
   sourceText:
     "When you conquer here, the next unit you play this turn has [Accelerate]. " +
     "(You may pay :rb_energy_1: and a Power of its Domain as an additional cost to have it enter ready.)",
