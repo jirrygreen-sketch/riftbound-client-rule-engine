@@ -64,6 +64,14 @@ export interface DuelMovementRuleContext {
   /** Supply the layered snapshot when a movement effect uses rich object filters. */
   readonly objectForUnit?: (unit: DuelUnit) => ObjectSnapshot | null;
 }
+/** Trusted current-state readers for the transactional second validation pass. */
+export interface DuelStandardMoveRecheckContext {
+  readonly unit: (unitId: string) => {
+    readonly readied: boolean;
+    readonly hasGanking: boolean;
+  };
+  readonly validate: (unitId: string) => void;
+}
 /** One Move event per moved unit; the array as a whole expresses the single group action 144.3. */
 export interface DuelMoveEvent {
   readonly objectId: string;
@@ -87,6 +95,13 @@ export interface DuelStandardMoveResult {
   readonly board: DuelBoard;
   readonly readiness: DuelReadiness;
   readonly group: DuelStandardMoveGroup;
+}
+/** Detached, internal order for one already validated Standard Move group. */
+export interface DuelStandardMovePlan {
+  readonly actor: string;
+  readonly unitIds: readonly string[];
+  readonly destinationLocationId: string;
+  readonly origins: readonly { readonly objectId: string; readonly locationId: string }[];
 }
 
 const READINESS_FIELDS = ['objectId', 'readied', 'hasGanking'] as const;
@@ -224,9 +239,50 @@ export function moveDuelUnitsStandard(
   board: DuelBoard, readiness: unknown, request: unknown,
   rules?: DuelMovementRuleContext,
 ): DuelStandardMoveResult {
+  const { board: checked, records, plan } = checkedStandardMove(board, readiness, request, rules);
+  const { actor, unitIds, destinationLocationId } = plan;
+  // 144.2/144.3.c: the exhaustion cost is paid simultaneously for the whole group.
+  const selected = new Set(unitIds);
+  const nextReadiness: DuelReadiness = records.map(entry => ({
+    objectId: entry.objectId,
+    readied: selected.has(entry.objectId) ? false : entry.readied,
+    hasGanking: entry.hasGanking,
+  }));
+  const origins = new Map(plan.origins.map(entry => [entry.objectId, entry.locationId]));
+  let nextBoard = restoreDuelBoard(checked);
+  const events: DuelMoveEvent[] = [];
+  for (const unitId of unitIds) {
+    nextBoard = relocateDuelUnit(nextBoard, unitId, destinationLocationId);
+    events.push({
+      objectId: unitId, actor,
+      fromLocationId: origins.get(unitId)!, toLocationId: destinationLocationId,
+    });
+  }
+  // Post-conditions: the board is valid and readiness still matches it exactly.
+  assertDuelBoard(nextBoard);
+  checkedReadiness(nextBoard, nextReadiness);
+  return {
+    board: nextBoard,
+    readiness: nextReadiness,
+    group: {
+      kind: 'standard-move',
+      actor,
+      destinationLocationId,
+      objectIds: [...unitIds],
+      exhaustedCount: unitIds.length,
+      events,
+      requiresMoveTriggers: true,
+      requiresOpenCleanup: true,
+    },
+  };
+}
+
+function checkedStandardMove(
+  board: DuelBoard, readiness: unknown, request: unknown, rules?: DuelMovementRuleContext,
+) {
   assertDuelBoard(board);
   const records = checkedReadiness(board, readiness);
-  const { actor, unitUIDs, destinationLocationId, timing } = checkedRequest(board, request);
+  const { actor, unitUIDs: unitIds, destinationLocationId, timing } = checkedRequest(board, request);
   // 144.1.a/144.1.b: only an Open Main Phase may hold this action.
   check(timing.phase === 'main', 'timing phase must be main');
   check(timing.stateOpen, 'timing state must be Open');
@@ -250,7 +306,7 @@ export function moveDuelUnitsStandard(
   // 144.4.a/144.4.b: a base destination is only ever the actor's own base.
   if (destinationBase) check(destinationBase.ownerPlayerId === actor, 'destination is another player’s base');
 
-  for (const unitId of unitUIDs) {
+  for (const unitId of unitIds) {
     const unit = unitsById.get(unitId)!;
     check(unit.controllerPlayerId === actor, `unit ${unitId} is not controlled by the actor`);
     check(readinessById.get(unitId)!.readied, `unit ${unitId} is not readied to move`);
@@ -274,39 +330,61 @@ export function moveDuelUnitsStandard(
         `unit ${unitId} needs Ganking to move battlefield to battlefield`);
     }
   }
+  const plan: DuelStandardMovePlan = Object.freeze({
+    actor,
+    unitIds: Object.freeze([...unitIds]),
+    destinationLocationId,
+    origins: Object.freeze(unitIds.map(objectId => Object.freeze({
+      objectId, locationId: unitsById.get(objectId)!.locationId,
+    }))),
+  });
+  return { board, records, plan };
+}
 
-  // 144.2/144.3.c: the exhaustion cost is paid simultaneously for the whole group.
-  const selected = new Set(unitUIDs);
-  const nextReadiness: DuelReadiness = records.map(entry => ({
-    objectId: entry.objectId,
-    readied: selected.has(entry.objectId) ? false : entry.readied,
-    hasGanking: entry.hasGanking,
-  }));
-  const origins = new Map(unitUIDs.map(unitId => [unitId, unitsById.get(unitId)!.locationId]));
-  let nextBoard = restoreDuelBoard(board);
-  const events: DuelMoveEvent[] = [];
-  for (const unitId of unitUIDs) {
-    nextBoard = relocateDuelUnit(nextBoard, unitId, destinationLocationId);
-    events.push({
-      objectId: unitId, actor,
-      fromLocationId: origins.get(unitId)!, toLocationId: destinationLocationId,
-    });
-  }
-  // Post-conditions: the board is valid and readiness still matches it exactly.
-  assertDuelBoard(nextBoard);
-  checkedReadiness(nextBoard, nextReadiness);
-  return {
-    board: nextBoard,
-    readiness: nextReadiness,
-    group: {
-      kind: 'standard-move',
-      actor,
-      destinationLocationId,
-      objectIds: [...unitUIDs],
-      exhaustedCount: unitUIDs.length,
-      events,
-      requiresMoveTriggers: true,
-      requiresOpenCleanup: true,
-    },
-  };
+/** Validate a complete group before a caller-owned transaction pays any cost. */
+export function inspectDuelStandardMove(
+  board: DuelBoard, readiness: unknown, request: unknown, rules?: DuelMovementRuleContext,
+): DuelStandardMovePlan {
+  return checkedStandardMove(board, readiness, request, rules).plan;
+}
+
+/** Re-read the live unit state immediately before one Exhaust + Move pair. */
+export function assertDuelStandardMoveUnitStillLegal(
+  board: DuelBoard, plan: DuelStandardMovePlan, unitId: string,
+  recheck: DuelStandardMoveRecheckContext,
+  rules?: DuelMovementRuleContext,
+  stage: 'before-exhaust' | 'after-exhaust' = 'before-exhaust',
+): void {
+  assertDuelBoard(board);
+  check(plan.unitIds.includes(unitId), `unit ${unitId} is not part of this Standard Move`);
+  const unit = board.units.find(candidate => candidate.objectId === unitId);
+  check(unit !== undefined, `request.unitUIDs unknown unit ${unitId}`);
+  const live = recheck.unit(unitId);
+  check(unit.controllerPlayerId === plan.actor, `unit ${unitId} is not controlled by the actor`);
+  if (stage === 'before-exhaust') check(live.readied, `unit ${unitId} is not readied to move`);
+  const origin = plan.origins.find(entry => entry.objectId === unitId)?.locationId;
+  check(origin !== undefined, `unit ${unitId} has no planned origin`);
+  check(origin !== plan.destinationLocationId, `unit ${unitId} is already at the destination`);
+  const bases = new Set(board.bases.map(base => base.locationId));
+  const fields = new Set(board.battlefields.map(field => field.locationId));
+  const destinationIsBase = bases.has(plan.destinationLocationId);
+  const destinationIsField = fields.has(plan.destinationLocationId);
+  check(destinationIsBase || destinationIsField, `unknown destination ${plan.destinationLocationId}`);
+  if (destinationIsBase) check(board.bases.some(base => base.locationId === plan.destinationLocationId &&
+    base.ownerPlayerId === plan.actor), 'destination is another player’s base');
+  const unitRef = rules?.refForUnit?.(unit) ?? { id: unit.objectId, zoneEntryId: 1 };
+  const unitObject = rules?.objectForUnit?.(unit);
+  const ruleView = rules === undefined ? null : queryMovement(rules.registry, unitRef, unitObject, plan.actor);
+  const actionRestrictions = rules === undefined ? [] : queryRestrictions(
+    rules.registry, 'move', unitRef, unitObject, plan.actor,
+  ).flatMap(entry => entry.name === undefined ? [] : [entry.name]);
+  const route = bases.has(origin) ? 'base-to-battlefield' :
+    destinationIsBase ? 'battlefield-to-base' : 'battlefield-to-battlefield';
+  check(ruleView === null || (ruleView.canMove && !routeBlocked(
+    [...ruleView.restrictions, ...actionRestrictions], route,
+  )), `unit ${unitId} is prohibited from moving`);
+  if (bases.has(origin)) check(destinationIsField, `unit ${unitId} may only leave a base for a battlefield`);
+  else check(destinationIsBase || live.hasGanking || ruleView?.canGank === true,
+    `unit ${unitId} needs Ganking to move battlefield to battlefield`);
+  recheck.validate(unitId);
 }
