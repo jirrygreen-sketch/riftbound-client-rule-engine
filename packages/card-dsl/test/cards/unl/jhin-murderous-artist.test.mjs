@@ -37,10 +37,13 @@ test("unl-022-219 Jhin, Murderous Artist: identity, status, judgeReason and verb
   assert.match(program.judgeReason, /rainbow/);
   assert.match(program.judgeReason, /163\.2\.b/);
   // Both keyword definitions and their static shapes are present; the remaining
-  // gaps are the target-tax / movement consumers and object-moved event wiring.
+  // gaps are the target-tax layer mapping, the movement permission shape and the
+  // object-moved event wiring.
   assert.match(program.judgeReason, /target\.tax/);
-  assert.match(program.judgeReason, /movement/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /permission\.routes/);
   assert.match(program.judgeReason, /object-moved/);
+  assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
 test("unl-022-219 Jhin, Murderous Artist: [Deflect] and [Ganking] keyword declarations", () => {
@@ -97,6 +100,56 @@ test("unl-022-219 Jhin, Murderous Artist: the program binding resolves the trigg
   const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
   const translated = translateTriggerFilter(movedTrigger.trigger.filter, "jhin");
   assert.deepEqual(translated, { event: "object-moved", object: { objectId: "jhin" } });
+});
+
+test("unl-022-219 Jhin, Murderous Artist: [Deflect] has no layer mapping and [Ganking] registers an unreadable permission", () => {
+  // 809.1.c: programs/statics.ts layerFor rejects the target.tax expansion
+  // outright. 810.1.b: the continuous.movement expansion registers, but the
+  // movement() query reads permission.routes, so a string permission yields no
+  // routes and canGank stays false.
+  return Promise.all([
+    import("../../../../engine-core/dist/programs/index.js"),
+    import("../../../../engine-core/dist/layers/rules/query.js"),
+    import("../../../../engine-core/dist/effects/testing/index.js"),
+    import("../../../../engine-core/dist/events/action-adapter.js"),
+    import("../../../../engine-core/dist/chain/engine.js")
+  ]).then(([{ createProgramBinding, createEngineStaticBinder }, { movement }, { world }, { createActionPipelineHost, bindResolveContext }, { ChainEngine }]) => {
+    const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+    const kernel = world().unit("jhin", { cardId: CANONICAL_ID, types: ["unit"], might: 4 }).build();
+    const source = kernel.getObject("jhin");
+    const expanded = binding.inspect(source).abilities.filter(entry => entry.kind === "static");
+    assert.deepEqual(expanded.map(entry => entry.effect.kind), ["target.tax", "continuous.movement"]);
+
+    const host = createActionPipelineHost({
+      checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+      restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+      objects: () => kernel.objects,
+      perform: action => kernel.perform(action),
+      choose: request => kernel.choose(request),
+      context: (snapshot, controller, timingPoint) => bindResolveContext(kernel, { source: snapshot, controller, timingPoint })
+    });
+    const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+    const binder = createEngineStaticBinder(engine);
+    assert.throws(
+      () => binder.bindStatic(expanded[0], source),
+      error => {
+        assert.equal(error.name, "ProgramBindingError");
+        assert.equal(error.code, "judge-required");
+        assert.match(error.message, /target\.tax has no layer mapping/);
+        return true;
+      }
+    );
+    const handle = binder.bindStatic(expanded[1], source);
+    try {
+      const view = movement(engine.layers.registry, source.ref, source, "A");
+      assert.equal(view.canGank, false);
+      assert.deepEqual(view.permissions, []);
+      assert.equal(engine.layers.registry.list().length, 1);
+    } finally {
+      handle.unbind();
+    }
+    assert.deepEqual(engine.layers.registry.list(), []);
+  });
 });
 
 test("unl-022-219 Jhin, Murderous Artist golden: the Energy half alone is a real merged addition", () => {

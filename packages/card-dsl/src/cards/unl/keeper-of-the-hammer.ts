@@ -23,7 +23,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - 414.3 / 414.1.a / 414.4：「Draw 1」是 effect.draw，抽牌者缺省为能力控制者，
  *   牌库顺序与 Burn Out（432）由内核拥有。
  *
- * status = judge-required（唯一缺口是「me」的 Legend Zone 归属）：
+ * status = judge-required（按 2026-10-17 HEAD 复核；唯一缺口是「me」的 Legend Zone 归属）：
  * - 「:rb_exhaust:」是「Exhaust me」的费用。CR 107.4.a / 107.4.c 规定传奇在 Legend
  *   Zone 中且是 Game Object，107.4.d.1 允许效果添加传奇；但契约的 ZoneId
  *   （effects/contract.ts）只有 hand/deck/rune-deck/trash/banishment/board/
@@ -32,9 +32,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   object on the Board"），传奇自身无法通过费用管线的合法性检查。这是 effect.exhaust.ts
  *   文件头已记录的同一契约缺口（见回复里的契约变更请求），本卡不把费用横置近似成
  *   effect.exhaust 的状态改变。
- * - 触发式能力的 hold 时点（turn/flow.ts 已发出）、effect.xp、启动能力的 xp +
- *   exhaust 费用计划形状与 effect.draw 都已合入，golden 用真实费用计划、真实解释器与
- *   参考内核执行；只有 Legend Zone 归属这一处依赖保持缺口。
+ * - 触发式能力的 hold 时点（turn/flow.ts 已发出，held 拼写经 pipeline-match.ts 映射）、
+ *   effect.xp、启动能力的 xp + exhaust 费用计划形状与 effect.draw 都已合入：实测 hold 发射
+ *   能经 registerProgramTriggers 生成触发项并结算 gain 1 XP，真实费用计划在 Board 对象上
+ *   完整支付；只有 Legend Zone 归属这一处依赖保持缺口（传奇对象在 chain，exhaust 支付
+ *   以 cannot-pay-cost 拒绝）。
  *
  * 依赖：契约补充 legend-zone（ZoneId / 费用支付对象合法性）与现有费用计划接线。
  * 本卡没有其他未合入依赖。
@@ -49,8 +51,9 @@ const keeperOfTheHammer = {
     "但契约的 ZoneId（effects/contract.ts）只有 hand/deck/rune-deck/trash/banishment/board/rune-zone/chain，没有 legend-zone；" +
     "cost/payment.ts 的 exhaust 支付检查明确要求对象在 board / rune-zone（An exhaust cost requires a ready controlled object on the Board），" +
     "传奇自身无法通过费用管线的合法性检查。本卡不把费用横置近似成 effect.exhaust 的状态改变（会漏掉 415.4/415.5 的可完成性与 415.1.b 的重复横置检查）。" +
-    "其余部分均已合入：hold 时点由 turn/flow.ts 的计分波发出（CR 315.2.b.2/471.2/473.2.b）、effect.xp 的 gain 1 XP（728/730.1/733）、" +
-    "启动能力的 xp + exhaust 费用计划形状与 effect.draw 的 Draw 1（414.1.a/414.3），golden 用真实费用计划与参考内核执行。" +
+    "其余部分均已合入并有实测：held 拼写经 events/trigger-spec.ts 的封闭词表与 pipeline-match.ts 映射注册，turn/flow.ts 的计分波发出 hold（CR 315.2.b.2/471.2/473.2.b）后" +
+    "触发项进入链并结算 gain 1 XP（728/730.1/733）；启动能力的 xp + exhaust 费用计划在 Board 对象上真实支付，effect.draw 抽 1（414.1.a/414.3）。" +
+    "传奇本体在 chain（game/lifecycle.ts 的 create-token），同一费用计划对其实测抛 cannot-pay-cost，故整卡仍不可执行。" +
     "依赖：契约补充 legend-zone（ZoneId / 费用支付对象合法性）与现有费用计划接线。",
   abilities: [
     {

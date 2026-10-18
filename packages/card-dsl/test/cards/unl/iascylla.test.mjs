@@ -40,6 +40,12 @@ test("unl-050-219 Iascylla: identity, status, judgeReason and verbatim sourceTex
   assert.match(program.judgeReason, /trigger\.delayed/);
   assert.match(program.judgeReason, /391\.2/);
   assert.match(program.judgeReason, /359\.3\.f\.3\.b/);
+  // The held spelling is part of the closed vocabulary and registers; the live
+  // gap is the unit-less production hold emission, not the trigger schema.
+  assert.match(program.judgeReason, /订阅实测注册成功/);
+  assert.match(program.judgeReason, /trigger\.delayed/);
+  assert.match(program.judgeReason, /turn\/flow\.ts/);
+  assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
 test("unl-050-219 Iascylla: 'When I hold' is a hold trigger scoped to this card (383.4.d)", () => {
@@ -206,11 +212,11 @@ test("unl-050-219 Iascylla: the production interpreter has no trigger.delayed op
   assert.deepEqual(context.delayedTriggers, []);
 });
 
-test("unl-050-219 Iascylla: the internal delayed-trigger seam is not reachable from card instructions", () => {
-  // chain/engine.ts wires ResolveContext.registerDelayedTrigger, and the pipeline
-  // honours registration.delayed (delayed abilities outlive their source). No
-  // registered instruction consumes that seam, so a card cannot create the delayed
-  // ability; this pins the seam the missing opcode would need to use (CR 393).
+test("unl-050-219 Iascylla: the held subscription registers, but the production Score wave carries no unit", () => {
+  // chain/engine.ts wires ResolveContext.registerDelayedTrigger and the pipeline
+  // honours registration.delayed (CR 393); no registered instruction consumes the
+  // seam, so a card cannot create the delayed ability. The hold subscription
+  // itself is registrable, so the live blocker is the payload, not the schema.
   const kernel = world().unit("iascylla", { controller: "A" }).build();
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("iascylla") });
   context.registerDelayedTrigger(
@@ -225,6 +231,35 @@ test("unl-050-219 Iascylla: the internal delayed-trigger seam is not reachable f
     false,
     "effects/instructions must still lack the card-facing trigger.delayed op"
   );
+});
+
+test("unl-050-219 Iascylla: the held subscription registers but the unit-less Score wave never matches it", () => {
+  // events/trigger-spec.ts accepts `held` and pipeline-match.ts maps it to the
+  // runtime `hold` point, so registerProgramTriggers succeeds. turn/flow.ts's
+  // Score wave emits { player, details:{ battlefieldId } } with no participating
+  // unit, so the { source: "self" } filter cannot match it (CR 359.3.f.3.b).
+  return import("../../../../engine-core/dist/programs/index.js").then(async ({ createProgramBinding }) => {
+    const { registerProgramTriggers, triggerRegistrations } = await import("../../../../engine-core/dist/programs/triggers.js");
+    const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+    const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+    const f = fixture({ cards: [{ id: "iascylla", cardId: CANONICAL_ID, types: ["unit"], might: 6 }] });
+    f.engine.commit({ type: "move-zone", object: f.kernel.ref("iascylla"), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
+    const source = f.kernel.getObject("iascylla");
+    const [registration] = triggerRegistrations(binding.registry, source);
+    assert.equal(registration.spec.at, "hold");
+    assert.deepEqual(registration.spec.filter, { event: "held", object: { objectId: "iascylla" } });
+    assert.deepEqual(
+      registerProgramTriggers(binding.registry, f.engine, source),
+      [`program:iascylla:${source.ref.zoneEntryId}:0`]
+    );
+
+    // The real production Score-wave shape carries no object, so nothing enqueues.
+    f.engine.emit({ timingPoint: "hold", player: "A", details: { battlefieldId: "battlefield-1" } });
+    assert.equal(f.engine.items.length, 0);
+    // A hold emission that does carry the held unit matches the same registration.
+    f.engine.emit({ timingPoint: "hold", object: source, player: "A", details: { battlefieldId: "battlefield-1" } });
+    assert.deepEqual(f.engine.items.map(item => item.body[0].id), ["iascylla.delayed-move"]);
+  });
 });
 
 test.todo(

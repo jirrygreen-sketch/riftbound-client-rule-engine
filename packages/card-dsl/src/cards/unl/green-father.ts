@@ -29,14 +29,20 @@ import type { CardProgram } from "../../ir/index.js";
  *   （有限行动，439.2），被替代的牌进入 Banishment（439.5），token 可在计分时
  *   Swap Back（439.7）。359.3.f.1「that battlefield」指触发事件里的那个战场。
  *
- * status = judge-required：
- * - 缺 CR 439 的 Replace 行动、effect.replace 与 187.8 的 Brush 战场 token，
- *   包括原战场放逐、关联追踪与 439.7 的 Swap Back；replacement/ 的事件替代并非此行动。
- * - 缺把 conquer/hold 的 details.battlefieldId 绑定为「that battlefield」的 LocationSelector。
- * - programs/triggers.ts 未把前置 may/exhaust 转为 Finalize 的 cost / mayAtFinalize（383.3.a/b）；
- *   另缺 Legend Zone 生命周期：game/lifecycle.ts 把传奇创建在 chain，仅另记 legendZone；
- *   触发默认在 board 激活，横置费用也只接受 board/rune-zone（107.4.a/c）。
- * 保留不可执行声明供审查；横置子效果测试不能证明传奇费用与 Replace 已执行。
+ * status = judge-required（按 2026-10-17 HEAD 复核；缺口不近似实现）：
+ * - 触发拼写已改为封闭词表 conquered/held（pipeline-match.ts 映射到运行期
+ *   conquer/hold）：实测两个订阅都能注册，生产形状的 hold 与本控制者 conquer 发射
+ *   都能命中并生成触发项。
+ * - 缺 CR 439.1/439.3 的 Replace 行动：registry.generated.ts 没有 effect.replace，
+ *   replacement/ 的事件替代规划不是 Replace/Swap-Back，187.8 的 Brush 战场 token
+ *   也不在 effect.token 的定义表（后者同时缺 439.5 放逐关联与 439.7 换回）。
+ * - 缺把 conquer/hold 的 details.battlefieldId 绑定为「that battlefield」的载荷选择器
+ *   （359.3.f.1）；"that battlefield" 没有可用的 ObjectSelector/LocationSelector 形态。
+ * - programs/triggers.ts 未把前置 may/exhaust 转为 Finalize 的 cost / mayAtFinalize
+ *   （383.3.a/383.3.b、204.3）。
+ * - 仍缺 Legend Zone 生命周期：game/lifecycle.ts 把传奇创建在 chain，仅另记
+ *   legendZone；ZoneId 没有 legend-zone，横置费用也只接受 board/rune-zone（107.4.a/c）。
+ * 保留不可执行声明供审查；横置子效果与触发注册测试不能证明 Replace 与传奇费用已执行。
  */
 const greenFather = {
   canonicalCardId:
@@ -44,14 +50,24 @@ const greenFather = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 CR 439.1/439.3 的 Replace 行动与 effect.replace，以及 187.8 的 Brush 战场 token（含自身能力）、439.5 原战场放逐关联与 439.7 Swap Back；replacement/ 的事件替代不能代替此行动。缺将 conquer/hold 载荷 details.battlefieldId 绑定为 that battlefield 的位置选择器。缺 programs/triggers.ts 将前置 may/exhaust 转为 TriggerRegistration.cost / mayAtFinalize 的适配（383.3.a/383.3.b、204.3），以及 Legend Zone 的生命周期与横置费用对象接线（107.4.a/107.4.c）：game/lifecycle.ts 把传奇创建在 chain，仅另记 legendZone 报告，无法满足 board 触发区域及 board/rune-zone 横置费用。",
+    "触发拼写已改用封闭词表 conquered/held（events/trigger-spec.ts 的 EVENT_PATTERN_TYPES；pipeline-match.ts 映射到运行期 conquer/hold），" +
+    "实测两个订阅都能经 registerProgramTriggers 注册，且 turn/flow.ts 形状的 hold 发射与本控制者 conquer 发射都能命中并生成触发项。仍缺（均不近似实现）：" +
+    "(1) CR 439.1/439.3 的 Replace 行动没有已注册原语——registry.generated.ts 无 effect.replace，replacement/ 的事件替代规划不能代替 Replace；" +
+    "187.8 的 Brush 战场 token 也不在 effect.token 的 DEFINITIONS（recruit/sand-soldier/mech/reflection/tentacle），并缺 439.5 的原战场放逐关联与 439.7 的 Swap Back。" +
+    "(2)「that battlefield」无法绑定：conquer/hold 的生产发射只有 { player, details: { battlefieldId } }（turn/flow.ts 的计分波），没有时点载荷选择器，" +
+    "359.3.f.1 要求指称该触发事件里的战场，不能用结算时来源位置替代。" +
+    "(3) 前置「you may/exhaust me」没有成为触发基础费用：programs/triggers.ts 不把 choice.optional 与前置费用提取为 TriggerRegistration.cost / mayAtFinalize（383.3.a/383.3.b、204.3）。" +
+    "(4) Legend Zone 归属仍缺：ZoneId（effects/contract.ts）只有 hand/deck/rune-deck/trash/banishment/board/rune-zone/chain；game/lifecycle.ts 用 create-token 把传奇创建到 chain 并只另记 report.legendZone，" +
+    "而 cost/payment.ts 的 exhaust 支付要求对象在 board/rune-zone（107.4.a/107.4.c、415.4/415.5）。" +
+    "已真实执行：两个触发的注册与命中、choice.optional 的拒绝分支、effect.exhaust 本体（golden）。",
   abilities: [
     {
       kind: "triggered",
       trigger: {
         at: "conquer",
         // 383.4.c.2.b：「引用执行征服的玩家」的 Conquer Effect。
-        filter: { event: "conquer", player: "self" }
+        // 事件名用封闭词表 conquered（pipeline-match.ts 映射到运行期 conquer）。
+        filter: { event: "conquered", player: "self" }
       },
       // 383.3.a / 403.1：效果开头的「you may」是触发自身的 Finalize 决定。
       optional: true,
@@ -110,7 +126,8 @@ const greenFather = {
       trigger: {
         at: "hold",
         // 383.4.d.2.b：「引用执行固守的玩家」的 Hold Effect。
-        filter: { event: "hold", player: "self" }
+        // 事件名用封闭词表 held（pipeline-match.ts 映射到运行期 hold）。
+        filter: { event: "held", player: "self" }
       },
       optional: true,
       body: [
