@@ -118,7 +118,7 @@ export function assertStandardMoveBatchAction(action: { readonly type: string })
 /**
  * Validate the entire group, then commit each unit's Exhaust + move-location
  * pair under one pipeline batch. The host and pipeline checkpoints cover the
- * group: a rejected/replaced action, stale later unit or changed rule restores
+ * group: a rejected action, stale later unit or changed rule restores
  * the batch start. Trigger scans remain deferred until all pairs commit.
  */
 export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMoveBatchResult {
