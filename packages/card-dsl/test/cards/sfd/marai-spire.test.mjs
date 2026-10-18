@@ -28,6 +28,9 @@ test("sfd-211-221 Marai Spire: program validates, is registered and keeps identi
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
+  assert.match(program.judgeReason, /repeat\.cost/);
+  assert.match(program.judgeReason, /Finalize/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("sfd-211-221 Marai Spire: static Repeat-cost discount scoped to friendly Repeat sources", () => {
