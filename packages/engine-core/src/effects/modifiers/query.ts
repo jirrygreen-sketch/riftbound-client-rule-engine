@@ -39,7 +39,16 @@ function appliesToMatches(entryAppliesTo: unknown, queryScope: unknown): boolean
   if (queryScope === undefined) return entryAppliesTo === undefined;
   if (entryAppliesTo === undefined) return false;
   if (entryAppliesTo === "any" || entryAppliesTo === "all") return true;
-  return JSON.stringify(entryAppliesTo) === JSON.stringify(queryScope);
+  return stable(entryAppliesTo) === stable(queryScope);
+}
+
+function stable(value: unknown): string {
+  if (Array.isArray(value)) return "[" + value.map(stable).join(",") + "]";
+  if (typeof value === "object" && value !== null) {
+    return "{" + Object.keys(value as Record<string, unknown>).sort().map(key =>
+      JSON.stringify(key) + ":" + stable((value as Record<string, unknown>)[key])).join(",") + "}";
+  }
+  return JSON.stringify(value);
 }
 
 export interface ModifierQueryOptions {
@@ -49,9 +58,16 @@ export interface ModifierQueryOptions {
   readonly anchors?: readonly unknown[];
 }
 
-function controllerOf(entry: RegisteredContinuousEffect): string | undefined {
+function controllerOf(
+  entry: RegisteredContinuousEffect,
+  object: (ref: ObjectRef) => unknown = () => null,
+): string | undefined {
   const sourcePlayer = effectRecord(entry).sourcePlayer;
-  return typeof sourcePlayer === "string" ? sourcePlayer : undefined;
+  if (typeof sourcePlayer === "string") return sourcePlayer;
+  const source = entry.effect.source;
+  if (source === undefined) return undefined;
+  const controller = record(object(source)).controller;
+  return typeof controller === "string" ? controller : undefined;
 }
 
 function filterContext(options: ModifierQueryOptions): FilterMatchContext {
@@ -105,13 +121,16 @@ export interface BonusDamageGrant {
   readonly sourcePlayer?: string;
 }
 
-function grantFrom(entry: RegisteredContinuousEffect): Record<string, unknown> {
+function grantFrom(
+  entry: RegisteredContinuousEffect,
+  object: (ref: ObjectRef) => unknown,
+): Record<string, unknown> {
   const effect = effectRecord(entry);
   return {
     id: entry.effect.id,
     amount: effect.amount,
     appliesTo: effect.appliesTo,
-    sourcePlayer: controllerOf(entry),
+    sourcePlayer: controllerOf(entry, object),
   };
 }
 
@@ -127,10 +146,10 @@ export function bonusDamageGrantsForDeal(
 ): readonly BonusDamageGrant[] {
   return activeEntries(registry, object)
     .filter(entry => kindOf(entry) === "continuous.bonus-damage")
-    .filter(entry => controllerOf(entry) === options.controller)
+    .filter(entry => controllerOf(entry, object) === options.controller)
     .filter(entry => appliesToMatches(effectRecord(entry).appliesTo, options.appliesTo))
     .filter(entry => entryFilterMatches(entry, options, object))
-    .map(entry => grantFrom(entry) as unknown as BonusDamageGrant)
+    .map(entry => grantFrom(entry, object) as unknown as BonusDamageGrant)
     .filter(grant => typeof grant.amount === "number" && Number.isSafeInteger(grant.amount) && grant.amount > 0);
 }
 
@@ -160,10 +179,10 @@ export function lethalThresholdFor(
 ): readonly LethalThresholdGrant[] {
   return activeEntries(registry, object)
     .filter(entry => kindOf(entry) === "continuous.lethal-threshold")
-    .filter(entry => controllerOf(entry) === options.controller)
+    .filter(entry => controllerOf(entry, object) === options.controller)
     .filter(entry => appliesToMatches(effectRecord(entry).appliesTo, options.appliesTo))
     .filter(entry => entryFilterMatches(entry, options, object))
-    .map(entry => grantFrom(entry) as unknown as LethalThresholdGrant)
+    .map(entry => grantFrom(entry, object) as unknown as LethalThresholdGrant)
     .filter(grant => typeof grant.amount === "number" && Number.isSafeInteger(grant.amount) && grant.amount > 0);
 }
 
@@ -187,11 +206,11 @@ export function additionalMightReductions(
 ): readonly MightReductionModifier[] {
   return activeEntries(registry, object)
     .filter(entry => kindOf(entry) === "continuous.modify-might-reduction")
-    .filter(entry => controllerOf(entry) === options.controller)
+    .filter(entry => controllerOf(entry, object) === options.controller)
     .filter(entry => effectRecord(entry).mode === "additional")
     .filter(entry => appliesToMatches(effectRecord(entry).appliesTo, options.appliesTo))
     .filter(entry => entryFilterMatches(entry, options, object))
-    .map(entry => grantFrom(entry) as unknown as MightReductionModifier)
+    .map(entry => grantFrom(entry, object) as unknown as MightReductionModifier)
     .filter(grant => typeof grant.amount === "number" && Number.isSafeInteger(grant.amount) && grant.amount !== 0);
 }
 
