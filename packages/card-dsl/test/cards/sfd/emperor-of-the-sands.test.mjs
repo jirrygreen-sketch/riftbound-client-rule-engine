@@ -42,7 +42,7 @@ test("sfd-197-221 Emperor of the Sands: identity, ruleset, status, judgeReason a
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /054\.2/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /Condition\/Expr/);
   assert.match(program.judgeReason, /821\.1\.c/);
   assert.match(program.judgeReason, /107\.4/);
   // The controller-relative Base binding is no longer a gap; the reason must
@@ -235,7 +235,7 @@ test("sfd-197-221 Emperor of the Sands: merged history queries identify the cont
 
 test.todo(
   "sfd-197-221 Emperor of the Sands: the pre-activation only-if Restriction needs condition.history as a " +
-    "Condition/Expr (054.2; RIFT-359); objectFilter history counting itself is covered above"
+    "Condition/Expr (054.2); objectFilter history counting itself is covered above"
 );
 
 test.todo(
