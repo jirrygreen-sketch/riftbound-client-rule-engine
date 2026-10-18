@@ -62,9 +62,10 @@ function registerModifier(worldState, {
 function registerReduction(worldState, {
   source = worldState.ref('source-a'), controller, targetMight = undefined,
 } = {}) {
+  const { objects: _objects, ...args } = stupefyDebuff.args;
   const run = runOn(worldState, mightOp, {
-    ...stupefyDebuff.args,
-    target: c('target'),
+    ...args,
+    objects: c({ kind: 'target', id: 'target' }),
   }, { source, controller, targets: { target: [worldState.ref('target')] } });
   assert.equal(run.result.status, 'executed');
   return worldState.continuousEffects.at(-1).effect;
@@ -111,8 +112,13 @@ function chainFixture(programs, { targetMight = 5, controller = 'A' } = {}) {
     programs,
     turnPlayer: controller,
     setup: builder => {
-      builder.hand('spell', {
-        owner: controller, types: ['spell'], might: null, energy: 0, power: null,
+      builder.hand('spell-modifier', {
+        owner: controller, cardId: programs[0].canonicalCardId,
+        types: ['spell'], might: null, energy: 0, power: null,
+      });
+      builder.hand('spell-reduction', {
+        owner: controller, cardId: programs[1].canonicalCardId,
+        types: ['spell'], might: null, energy: 0, power: null,
       });
       builder.unit('victim', {
         owner: 'A', controller: 'A', might: targetMight, energy: null, power: null,
@@ -125,14 +131,9 @@ test('CR 479.4.b: default ChainEngine consumes Mel additional reduction with Stu
   const reduction = reductionProgram('test:reduction', { amount: -2 });
   const modifier = modifierProgram('test:modifier');
   const f = chainFixture([reduction, modifier]);
-  f.get('spell').cardId = modifier.canonicalCardId;
-  f.play('spell');
+  f.play('spell-modifier');
   settle(f.engine);
-  const sameSpell = f.kernel.getObject('spell');
-  sameSpell.cardId = reduction.canonicalCardId;
-  sameSpell.zone = 'hand';
-  f.engine.setPhase('main');
-  f.engine.execute(f.binding.describePlay({ type: 'play', player: 'A', object: f.kernel.ref('spell') }, f.kernel.getObject('spell')));
+  f.play('spell-reduction');
   settle(f.engine);
 
   assert.equal(f.snapshot('victim').might, 2, '5 - 2 base reduction - 1 additional reduction');
@@ -226,11 +227,10 @@ test('default LayerEngine expands printed and granted Shield and effect.shield-v
   const f = fixture({
     programs: [program],
     setup: builder => {
-      builder.hand('spell', { types: ['spell'], might: null, energy: 0, power: null });
+      builder.hand('spell', { cardId: program.canonicalCardId, types: ['spell'], might: null, energy: 0, power: null });
       builder.unit('ally', { might: 3, energy: null, power: null, combatRole: 'defender', keywords: [{ id: 'Shield' }] });
     },
   });
-  f.kernel.getObject('spell').cardId = program.canonicalCardId;
   f.play('spell');
   settle(f.engine);
   assert.equal(f.kernel.linked('read-shield.shieldValue'), 6);
@@ -258,11 +258,10 @@ test('Shield Value remains readable for an attacker while the Might contribution
   const f = fixture({
     programs: [program],
     setup: builder => {
-      builder.hand('spell', { types: ['spell'], might: null, energy: 0, power: null });
+      builder.hand('spell', { cardId: program.canonicalCardId, types: ['spell'], might: null, energy: 0, power: null });
       builder.unit('ally', { might: 3, energy: null, power: null, combatRole: 'attacker', keywords: [{ id: 'Shield', value: 1 }] });
     },
   });
-  f.kernel.getObject('spell').cardId = program.canonicalCardId;
   f.play('spell');
   settle(f.engine);
   assert.equal(f.kernel.linked('read.shieldValue'), 3);
