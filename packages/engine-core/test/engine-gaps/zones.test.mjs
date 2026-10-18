@@ -312,4 +312,3 @@ test("EG-ZONES recycle from rejects a fractional request before asking or mutati
   }, { world: kernel }), /non-negative safe integer/);
   assert.deepEqual(kernel.stateForTest(), before);
 });
-
