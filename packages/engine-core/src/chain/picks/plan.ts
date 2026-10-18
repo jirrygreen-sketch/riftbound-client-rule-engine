@@ -1,5 +1,6 @@
 import type { Instruction, PickSpec, PickZoneSlice } from '@riftbound/card-dsl';
 import type { ObjectRef, ResolveContext } from '../../effects/contract.js';
+import { linkedPickExpression } from '../../target/picks/plan.js';
 
 /** Internal chain data, never a public projection of a secret zone. */
 export interface OrderedPickPlan {
@@ -13,19 +14,64 @@ export class OrderedPickError extends Error {
 }
 
 const own = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key);
+const sameJson = (left: unknown, right: unknown): boolean => JSON.stringify(left) === JSON.stringify(right);
+
+function linkedSource(spec: PickSpec): PickSpec['linked'] | undefined {
+  return spec.linked ?? linkedPickExpression(spec);
+}
+
+/**
+ * A pick id is one logical Resolve binding even when later instructions repeat
+ * its declaration so their selectors can resolve it. Repeated declarations may
+ * omit restrictions, but they may never widen a restriction or change source.
+ */
+function mergeDeclarations(previous: PickSpec, next: PickSpec): PickSpec {
+  const previousLinked = linkedSource(previous);
+  const nextLinked = linkedSource(next);
+  if (!sameJson(previous.zoneSlice, next.zoneSlice) || !sameJson(previousLinked, nextLinked) ||
+      !sameJson(previous.exclude, next.exclude)) {
+    throw new OrderedPickError(`conflicting declarations for pick id ${previous.id}`);
+  }
+  if (previous.filter !== undefined && next.filter !== undefined && !sameJson(previous.filter, next.filter)) {
+    throw new OrderedPickError(`conflicting filters for pick id ${previous.id}`);
+  }
+  if (previous.selection !== undefined && next.selection !== undefined && previous.selection !== next.selection) {
+    throw new OrderedPickError(`conflicting selection modes for pick id ${previous.id}`);
+  }
+  const min = previous.min === undefined ? next.min : next.min === undefined ? previous.min : Math.max(previous.min, next.min);
+  const finiteMax = (value: number | null | undefined): number => value === null || value === undefined ? Number.POSITIVE_INFINITY : value;
+  const maxValue = Math.min(finiteMax(previous.max), finiteMax(next.max));
+  const max = Number.isFinite(maxValue) ? maxValue : previous.max === null || next.max === null ? null : undefined;
+  if (min !== undefined && max !== null && max !== undefined && min > max) {
+    throw new OrderedPickError(`conflicting bounds for pick id ${previous.id}`);
+  }
+  const filter = previous.filter ?? next.filter;
+  const selection = previous.selection ?? next.selection;
+  return Object.freeze({
+    ...previous,
+    ...(filter === undefined ? {} : { filter }),
+    ...(min === undefined ? {} : { min }),
+    ...(max === undefined ? {} : { max }),
+    ...(selection === undefined ? {} : { selection })
+  });
+}
 
 /** Explicit sources are bindings, not player decisions or target requirements. */
 function checkSource(spec: PickSpec): void {
-  if (spec.ordered !== true || spec.selection !== 'all' || !Array.isArray(spec.options) || spec.options.length ||
-    ['filter', 'min', 'max'].some(key => own(spec, key)) || own(spec, 'zoneSlice') === own(spec, 'linked')) {
-    throw new OrderedPickError(`${spec.id} requires exactly one source, options: [], ordered: true, selection: all, and no filter or bounds`);
+  if (spec.ordered !== true || !Array.isArray(spec.options) || spec.options.length ||
+      own(spec, 'zoneSlice') === own(spec, 'linked')) {
+    throw new OrderedPickError(`${spec.id} requires exactly one ordered source and options: []`);
+  }
+  if (own(spec, 'zoneSlice') &&
+      (spec.selection !== 'all' || ['filter', 'min', 'max'].some(key => own(spec, key)))) {
+    throw new OrderedPickError(`${spec.id} zoneSlice requires selection: all and no filter or bounds`);
   }
   if (spec.exclude !== undefined && spec.linked === undefined) throw new OrderedPickError('an exclusion requires a linked source');
 }
 
 /** Traverse actual control bodies only; ordinary argument data cannot declare picks. */
 export function pickSpecs(body: readonly Instruction[]): PickSpec[] {
-  const result: PickSpec[] = [], ids = new Set<string>();
+  const result: PickSpec[] = [], byId = new Map<string, number>();
   function visit(instructions: readonly Instruction[], repeated = false): void {
     for (const instruction of instructions) {
       for (const spec of instruction.picks ?? []) {
@@ -41,8 +87,13 @@ export function pickSpecs(body: readonly Instruction[]): PickSpec[] {
           checkSource(spec);
         }
         if (repeated && spec.zoneSlice) throw new OrderedPickError('a repeated zone slice needs an iteration-specific Finalize lifecycle');
-        if (ids.has(spec.id)) throw new OrderedPickError(`duplicate source id ${spec.id}`);
-        ids.add(spec.id); result.push(spec);
+        const existing = byId.get(spec.id);
+        if (existing === undefined) {
+          byId.set(spec.id, result.length);
+          result.push(spec);
+        } else {
+          result[existing] = mergeDeclarations(result[existing]!, spec);
+        }
       }
       const expression = instruction.args.body;
       if (['sequence', 'repeat', 'choice.optional'].includes(instruction.op) && expression &&
