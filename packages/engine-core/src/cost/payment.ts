@@ -1,13 +1,30 @@
 import type { ResolveContext } from '../effects/contract.js';
-import { DUEL_DOMAINS, planDuelRunePayment, type DuelRunePool } from './resources.js';
+import { DUEL_DOMAINS } from './resources.js';
+import {
+  prepareResourcePayment, resourcePoolFromDomains,
+  type ResourcePool, type ResourcePayment, type ResourcePaymentOptions
+} from './resource-provenance.js';
 import {
   CostPlanError, type CostPaymentOptions, type CostPaymentReceipt, type CostPlan,
   type PreparedCostAction, type PreparedCostPayment
 } from './plan-types.js';
-import { add, count, freezeCost, invalid, orderedById } from './plan-values.js';
+import { count, freezeCost, invalid, orderedById } from './plan-values.js';
 
 function cannotPay(message: string, action?: PreparedCostAction): never {
   throw new CostPlanError('cannot-pay-cost', message, action);
+}
+
+/**
+ * Allocate the resource portion of a locked CostPlan against a provenance-aware
+ * inventory. The host owns that inventory and must consume these exact lots in
+ * its Finalize transaction together with the plan's nonstandard costs.
+ * This is read-only: it does not route a Universal/limited lot to a legacy host
+ * whose PlayerSnapshot/gain-power/pay contracts cannot preserve it.
+ */
+export function prepareCostPlanResourcePayment(
+  pool: ResourcePool, plan: Pick<CostPlan, 'total'>, options: ResourcePaymentOptions = {}
+): ResourcePayment {
+  return prepareResourcePayment(pool, { energy: plan.total.energy, power: plan.total.power }, options);
 }
 
 function checkAction(ctx: ResolveContext, payment: PreparedCostAction): void {
@@ -36,15 +53,14 @@ function checkAction(ctx: ResolveContext, payment: PreparedCostAction): void {
 export function prepareCostPayment(ctx: ResolveContext, plan: CostPlan, options: CostPaymentOptions = {}): PreparedCostPayment {
   if (plan.finalized !== true || plan.player !== ctx.controller || plan.source.id !== ctx.source.ref.id || plan.source.zoneEntryId !== ctx.source.ref.zoneEntryId) invalid('Payment must use this source and controller’s finalized cost plan');
   const player = ctx.player(plan.player);
-  const powerPool = { Fury: 0, Calm: 0, Mind: 0, Body: 0, Chaos: 0, Order: 0, any: 0 };
   for (const domain of player.power) {
     if (!DUEL_DOMAINS.includes(domain)) invalid('Invalid Power domain in player snapshot');
-    powerPool[domain] = add(powerPool[domain], 1);
   }
-  const pool: DuelRunePool = { energy: count(player.energy, 'Player Energy'), power: powerPool };
+  const energy = count(player.energy, 'Player Energy');
   let power;
   try {
-    power = planDuelRunePayment(pool, { energy: plan.total.energy, power: plan.total.power }, options.power);
+    const pool = resourcePoolFromDomains(energy, player.power);
+    power = prepareCostPlanResourcePayment(pool, plan, { power: options.power }).power;
   } catch (error) {
     if (!(error instanceof TypeError)) throw error;
     cannotPay(error.message);
