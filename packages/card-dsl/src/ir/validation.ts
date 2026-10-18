@@ -229,7 +229,7 @@ function validateExpr(value: unknown, path: string, context: ValidationContext):
   } else if (kind === "linked" || kind === "linked-value") {
     valid = validateString(value.instructionId, `${path}.instructionId`, context, "Expected a linked instruction id.") && valid;
     if (hasOwn(value, "key")) {
-      valid = validateString(value.key, `${path}.key`, context, "Expected a linked value key.") && valid;
+      valid = validateString(value.key, `${path}.key`, context, "Expected a linked value key.", SYMBOL_PATTERN) && valid;
     }
     if (typeof value.instructionId === "string") {
       const instructionId = value.instructionId as string;
@@ -668,6 +668,15 @@ function validatePick(value: unknown, path: string, context: ValidationContext):
     return false;
   }
   let valid = validateString(value.id, `${path}.id`, context, "Expected a pick id.", SYMBOL_PATTERN);
+  const allowedFields = new Set([
+    "id", "options", "ordered", "zoneSlice", "linked", "exclude", "filter", "min", "max", "selection"
+  ]);
+  for (const key of Object.keys(value)) {
+    if (!allowedFields.has(key)) {
+      addIssue(context, `${path}.${key}`, "unknown-field", "PickSpec does not allow this field.");
+      valid = false;
+    }
+  }
   const orderedSource = hasOwn(value, "zoneSlice") || hasOwn(value, "linked");
   if (!Array.isArray(value.options) || (!orderedSource && value.options.length === 0)) {
     addIssue(context, `${path}.options`, "invalid-pick-options", "Expected at least one non-target pick option.");
@@ -684,13 +693,21 @@ function validatePick(value: unknown, path: string, context: ValidationContext):
     valid = false;
   }
   if (orderedSource) {
-    if (value.ordered !== true || value.selection !== "all" || !Array.isArray(value.options) || value.options.length !== 0 ||
-      hasOwn(value, "filter") || hasOwn(value, "min") || hasOwn(value, "max")) {
-      addIssue(context, path, "invalid-ordered-pick-source", "An ordered source requires options: [], ordered: true, selection: all, and no filter or selection bounds; perform subset choices in the resolving instruction.");
+    if (value.ordered !== true || !Array.isArray(value.options) || value.options.length !== 0) {
+      addIssue(context, path, "invalid-ordered-pick-source", "An explicit source requires options: [], ordered: true, and exactly one source.");
       valid = false;
     }
     if (hasOwn(value, "zoneSlice") && hasOwn(value, "linked")) {
       addIssue(context, path, "ambiguous-pick-source", "Use exactly one zone slice or linked result source.");
+      valid = false;
+    }
+    if (hasOwn(value, "zoneSlice") && (value.selection !== "all" || hasOwn(value, "filter") ||
+      hasOwn(value, "min") || hasOwn(value, "max"))) {
+      addIssue(context, path, "invalid-zone-slice-restriction", "A zone slice is a Finalize source and requires selection: all with no filter or bounds; Resolve restrictions belong to linked sources.");
+      valid = false;
+    }
+    if (hasOwn(value, "linked") && value.selection === "all") {
+      addIssue(context, `${path}.selection`, "invalid-linked-selection", "A linked Resolve source supports selection one, any, or up-to.");
       valid = false;
     }
   }
