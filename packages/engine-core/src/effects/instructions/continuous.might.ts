@@ -58,6 +58,7 @@
  */
 import type {
   ChoiceVisibility,
+  ContinuousEffectSpec,
   Expr,
   GameEvent,
   InstructionDef,
@@ -340,6 +341,31 @@ export function evaluateArgument(ctx: ResolveContext, argument: Expr | Value): V
   return isExpr(argument) ? ctx.evaluate(argument) : (argument as Value);
 }
 
+/**
+ * Repeated Chain settlements can legitimately derive the same source-local
+ * settlement counter because interpreter-local link writes are path-qualified.
+ * Preserve the first deterministic id, then disambiguate only actual registry
+ * collisions. Chain transactions roll back all retries together on failure.
+ */
+export function addContinuousWithUniqueId(
+  ctx: ResolveContext,
+  effect: ContinuousEffectSpec,
+  duration: Parameters<ResolveContext["addContinuous"]>[1]
+): ContinuousEffectSpec {
+  let candidate = effect;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      ctx.addContinuous(candidate, duration);
+      return candidate;
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.startsWith("Continuous effect already registered:")) {
+        throw error;
+      }
+      candidate = { ...effect, id: effect.id + ":retry-" + String(attempt + 1) };
+    }
+  }
+}
+
 /** 442.2 风格的 Board 判定：非 Board 区域的对象不再接收修改（359.3.e.8）。 */
 function isBoardObject(snapshot: ObjectSnapshot | null): snapshot is ObjectSnapshot {
   return snapshot !== null && !NON_BOARD_ZONES.has(snapshot.zone);
@@ -585,7 +611,7 @@ export function executeMight(
       return { target, effect: registration.effect };
     });
     for (const registration of registrations) {
-      ctx.addContinuous(registration.effect, resolveContinuousDuration(duration, sourceRef));
+      addContinuousWithUniqueId(ctx, registration.effect, resolveContinuousDuration(duration, sourceRef));
       count += 1;
       affected.push(refValue(registration.target.ref));
     }

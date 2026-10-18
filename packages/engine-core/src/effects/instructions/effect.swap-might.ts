@@ -6,7 +6,7 @@
  */
 import type { Expr, InstructionDef, InstructionResult, ObjectRef, ResolveContext, Value } from "../contract.js";
 import { buildMightSpec, isDurationAlias, resolveContinuousDuration, settlementIdentity } from "../../layers/ops/index.js";
-import { argsSchema as mightSchema, evaluateArgument } from "./continuous.might.js";
+import { addContinuousWithUniqueId, argsSchema as mightSchema, evaluateArgument } from "./continuous.might.js";
 
 export interface SwapMightArgs {
   readonly targets: Expr | Value;
@@ -96,7 +96,7 @@ const swapMight = {
     const effects = [left, right].map((snapshot, index) => buildMightSpec("effect.swap-might", ctx.source.ref,
       { ref: snapshot.ref, snapshot }, "add", index === 0 ? difference : -difference, String(index + 1), settlement));
     for (const registration of effects) {
-      ctx.addContinuous(registration.effect, resolveContinuousDuration(duration, ctx.source.ref));
+      addContinuousWithUniqueId(ctx, registration.effect, resolveContinuousDuration(duration, ctx.source.ref));
     }
     return { status: "executed", events: [], linkedValues: receipt([left.ref, right.ref]) };
   }

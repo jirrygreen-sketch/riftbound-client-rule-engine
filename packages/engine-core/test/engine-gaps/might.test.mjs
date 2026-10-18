@@ -11,6 +11,7 @@ import { instructionDefinitionsById } from "../../dist/effects/instructions/regi
 import herald from "../../../card-dsl/dist/cards/rad/herald-of-the-emperor.js";
 import switcheroo from "../../../card-dsl/dist/cards/sfd/switcheroo.js";
 import dragonForm from "../../../card-dsl/dist/cards/ven/dragon-form.js";
+import feline from "../../../card-dsl/dist/cards/ven/fretful-feline.js";
 
 const c = value => ({ kind: "constant", value });
 const at = id => ({ type: "battlefield", id });
@@ -374,6 +375,26 @@ test("Might operands reuse the interpreter's arithmetic expressions at resolutio
   })]);
   assert.equal(f.snapshot("friend").might, 8);
   assert.equal(f.snapshot("friend").printed.might, 3);
+});
+
+test("original Fretful Feline settles two ready triggers without reusing an effect id", () => {
+  const f = runtime(world().player("A", { energy: 6, power: [] })
+    .hand("feline", { cardId: feline.canonicalCardId, types: ["unit"], energy: 6, power: null, might: 5 }), [feline]);
+  f.play("feline");
+  settle(f.engine);
+  assert.equal(f.snapshot("feline").might, 5);
+  assert.equal(f.engine.commit({ type: "ready", object: f.kernel.ref("feline") }).status, "done");
+  settle(f.engine);
+  assert.equal(f.snapshot("feline").might, 7);
+  assert.equal(f.engine.commit({ type: "exhaust", object: f.kernel.ref("feline") }).status, "done");
+  f.engine.advance();
+  assert.equal(f.engine.commit({ type: "ready", object: f.kernel.ref("feline") }).status, "done");
+  settle(f.engine);
+  assert.equal(f.snapshot("feline").might, 9);
+  const entries = f.engine.layers.registry.snapshot().filter(entry => entry.effect.effect.kind === "continuous.might");
+  assert.equal(entries.length, 2);
+  assert.equal(new Set(entries.map(entry => entry.effect.id)).size, 2);
+  assert.equal(feline.status, "judge-required");
 });
 
 test("a null Energy expression rejects Base Might resolution without inventing a zero or retaining earlier effects", () => {
