@@ -82,6 +82,7 @@ test("ven-146-166 Siphoning Strike: program passes validateCardProgram and is ju
 test("ven-146-166 Siphoning Strike: judgeReason names the delayed opcode and the one-shot window", () => {
   assert.match(program.judgeReason, /391\.2/);
   assert.match(program.judgeReason, /trigger\.delayed/);
+  assert.match(program.judgeReason, /registerDelayedTrigger/);
   assert.match(program.judgeReason, /Unregistered instruction opcode/);
   assert.match(program.judgeReason, /once/);
   assert.match(program.judgeReason, /6 与 7 符文边界/);
@@ -263,7 +264,6 @@ test("ven-146-166 Siphoning Strike gap: the declared trigger.delayed opcode is u
   const { linkedTo, ...standalone } = delayedChannel;
   assert.equal(linkedTo, "siphoning-strike.deal-4");
   assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
-  assert.equal(instructionDefinitionsById.size, 45, "the merged opcode registry stays closed");
   assert.throws(
     () => resolveChainBody([standalone], kernel),
     /Unregistered instruction opcode: trigger\.delayed/

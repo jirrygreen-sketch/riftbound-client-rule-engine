@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/shock-blast.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { collectCostModifications } from "../../../../engine-core/dist/cost/discounts/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import damageDefinition from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
@@ -38,6 +40,7 @@ test("ven-059-166 Shock Blast: judgeReason names the cost-modification wiring an
   assert.match(program.judgeReason, /no layer mapping/);
   assert.match(program.judgeReason, /Empowered/);
   assert.match(program.judgeReason, /conditionMatches/);
+  assert.match(program.judgeReason, /collectCostModifications/);
   assert.match(program.judgeReason, /442\.1\.a/);
   assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-91/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
@@ -204,4 +207,20 @@ test("ven-059-166 Shock Blast gap: the Empowered gate is descriptive and unknown
     kind: "expression",
     value: { kind: "constant", value: "you-control-something-empowered" }
   });
+});
+
+test("ven-059-166 Shock Blast evidence: the merged cost collector rejects the named Empowered gate", () => {
+  const kernel = world()
+    .unit("shock-blast", { cardId: CANONICAL, owner: "A", controller: "A", energy: 3 })
+    .build();
+  const source = kernel.getObject("shock-blast");
+  const context = bindResolveContext(kernel, { source, controller: "A" });
+  assert.throws(
+    () => collectCostModifications(
+      context,
+      { id: "shock-blast-play", cost: { kind: "explicit", energy: { kind: "constant", value: 3 } } },
+      { statics: [{ id: "shock-blast", source: source.ref, ability: discount }] }
+    ),
+    /Descriptive cost predicates require an authoritative condition adapter/
+  );
 });

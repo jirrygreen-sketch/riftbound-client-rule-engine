@@ -23,13 +23,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 产出冻结费用计划链接），旧缺口「没有 cost.modify 原语」已过时；-2/minimum 的
  * 费用计划 golden 已真实执行。
  *
- * status 判定（cards/README.md 第 2 节，RIFT-618 第三轮复核 2026-10-17）：judge-required。
+ * status 判定（cards/README.md 第 2 节，持续复核 2026-10-18）：judge-required。
  * 仍缺两条（均实测，不近似实现）：
- * 1. 没有把 static continuous.cost-modification 安装到被施放法术费用计划的路径：
- *    programs/statics.ts 的 layerFor() 抛无图层映射，且 staticTarget() 连 appliesTo
- *    "spell-play-cost" 都不接受——本任务实测 bindStatic 先抛 ProgramBindingError
- *    "Unsupported static appliesTo \"spell-play-cost\""。cost.modify 原语已合入
- *    （reduce/minimum/356.4 语义），但它只产链接值、不消费卡内 static。
+ * 1. 费用收集器已经能消费显式 StaticCostAbility，但没有把 static
+ *    continuous.cost-modification 安装到被施放法术费用计划的路径：
+ *    programs/statics.ts 的 staticTarget() 连 appliesTo "spell-play-cost" 都不接受，
+ *    本任务实测 bindStatic 先抛 ProgramBindingError
+ *    "Unsupported static appliesTo \"spell-play-cost\""；卡牌 static 仍无法进入该通道。
  * 2. 门槛「spells with [Flow] you play from your trash」需要读被施放牌此刻的关键词与
  *    本次打出来源区域：冻结的 ObjectFilter 没有关键词谓词，持续效果也不接收
  *    被施放牌的 keyword/source-zone；程序用具名谓词记录该门槛（fail-closed），
@@ -68,11 +68,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两条当前缺口（复核 2026-10-17，RIFT-618；均不近似实现）：" +
-    "(1) 没有把 static continuous.cost-modification 安装到被施放法术费用计划的路径：programs/statics.ts 的 " +
-    "layerFor() 无该 kind 的图层映射，staticTarget() 也不接受 appliesTo \"spell-play-cost\"——本任务实测 " +
-    "bindStatic 抛 ProgramBindingError（Unsupported static appliesTo）；cost.modify 原语已合入" +
-    "（reduce/minimum/356.4 语义），但它只产链接值、不消费卡内 static。" +
+    "两条当前缺口（持续复核 2026-10-18；均不近似实现）：" +
+    "(1) cost.modify 原语与费用收集器 collectCostModifications/finalizeCostPlan 已能消费显式 static 来源，" +
+    "但没有把 static continuous.cost-modification 安装到被施放法术费用计划的路径：programs/statics.ts 的 layerFor()/staticTarget() " +
+    "连 appliesTo \"spell-play-cost\" 都不接受——本任务实测 bindStatic 抛 " +
+    "ProgramBindingError（Unsupported static appliesTo），卡牌 static 仍无法进入该通道。" +
     "(2) 门槛「spells with [Flow] you play from your trash」（829.1.c）需要读取被施放牌此刻的关键词与本次打出的来源区域：" +
     "冻结 ObjectFilter 没有关键词谓词，持续效果也不接收被施放牌的 keyword/source-zone，程序只能用具名谓词占位，" +
     "不放宽成「你打出的所有法术」。" +

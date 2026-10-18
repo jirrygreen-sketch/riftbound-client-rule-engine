@@ -22,7 +22,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   linked-ignored 连坐，凭空发明条件）。
  * - [Flow]（829）同其他卡：只声明关键词身份，展开归 keywords/Flow.ts。
  *
- * status 判定（cards/README.md 第 2 节，RIFT-618 第三轮复核 2026-10-17）：
+ * status 判定（cards/README.md 第 2 节，持续复核 2026-10-18）：
  * judge-required。位置选择器批次合入后目的地已是可执行 IR：Expr kind "location" 的
  * { kind: "choose", id, filter } 由 interpreter/locations.ts 的 normalizeMoveArguments
  * 在 effect.move 参数边界解析，target/location/candidates.ts 提供候选。本任务 golden
@@ -32,7 +32,7 @@ import type { CardProgram } from "../../ir/index.js";
  * 需要把费用从卡牌侧传到 KeywordDef.expand 的 params.cost（契约 3.8.3），但
  * 契约 3.1 的 KeywordAbility 只有 keyword/value 字段，programs/keywords.ts 的
  * expandProgram 也只调用 def.expand({ value, host })；展开出的 flow.cost 没有进入
- * CostPlanInput.modifications 的消费方，且 829.1.b.1 排除法术自身指令离链的收据缺失。
+ * CostPlanInput.baseModifications 的消费方，且 829.1.b.1 排除法术自身指令离链的收据缺失。
  * 属共享契约变更请求（见最终回复），不在本卡近似实现。
  */
 const shurikenFlip = {
@@ -40,10 +40,10 @@ const shurikenFlip = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "唯一当前缺口是 [Flow] 的印刷费用不可达（复核 2026-10-17，RIFT-618；不近似实现）：" +
+    "唯一当前缺口是 [Flow] 的印刷费用不可达（持续复核 2026-10-18；不近似实现）：" +
     "829.1.c 的 3 Energy + 1 rainbow rune 需要经契约 3.8.3 的 params.cost 进入 KeywordDef.expand，" +
     "但契约 3.1 的 KeywordAbility 只有 keyword/value，programs/keywords.ts 的 expandProgram 只调用 " +
-    "def.expand({ value, host })；展开出的 flow.cost 也没有进入 CostPlanInput.modifications 的消费方，" +
+    "def.expand({ value, host })；展开出的 flow.cost 也没有进入 CostPlanInput.baseModifications 的消费方，" +
     "829.1.b.1 的「排除法术自身指令造成的离链」收据同样缺失，属共享契约变更请求。" +
     "已合入且有真实执行证据：已合入的 LocationExpr（Expr kind \"location\" + symbolic choose）经 " +
     "interpreter/locations.ts 与 target/location/candidates.ts 解析成合法目的地；golden 用真实解释器 + " +

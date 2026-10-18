@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/stargazer.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { collectCostModifications } from "../../../../engine-core/dist/cost/discounts/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -62,6 +64,7 @@ test("ven-098-166 Stargazer: identity, status, judgeReason and verbatim sourceTe
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /356\.4\.e/);
   assert.match(program.judgeReason, /layerFor/);
+  assert.match(program.judgeReason, /collectCostModifications/);
   assert.match(program.judgeReason, /829\.1\.c/);
   assert.ok(!/RIFT-89|RIFT-91/.test(program.judgeReason));
 });
@@ -152,4 +155,20 @@ test("ven-098-166 Stargazer gap: the Flow-from-trash gate stays a named fail-clo
   assert.equal(ability.condition.value.value, "spell-with-flow-played-from-your-trash");
   assert.equal(ability.condition.kind === "always", false);
   assert.deepEqual(effect.when.value, { spellHasKeyword: "flow", playedFromZone: "trash" });
+});
+
+test("ven-098-166 Stargazer evidence: the merged cost collector still rejects the Flow-from-trash predicate", () => {
+  const base = world()
+    .unit("stargazer", { cardId: CANONICAL_ID, owner: "A", controller: "A" })
+    .card("flow-spell", { owner: "A", controller: "A", zone: "trash", types: ["spell"], energy: 5, power: null })
+    .build();
+  const context = bindResolveContext(base, { source: base.getObject("flow-spell"), controller: "A" });
+  assert.throws(
+    () => collectCostModifications(
+      context,
+      { id: "stargazer-flow-play", cost: { kind: "explicit", energy: { kind: "constant", value: 5 } } },
+      { statics: [{ id: "stargazer", source: base.getObject("stargazer").ref, ability }] }
+    ),
+    /Descriptive cost predicates require an authoritative condition adapter/
+  );
 });

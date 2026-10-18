@@ -9,6 +9,7 @@ import move from "../../../../engine-core/dist/effects/instructions/effect.move.
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/index.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { queryLocationCandidates } from "../../../../engine-core/dist/target/location/candidates.js";
@@ -60,6 +61,7 @@ test("ven-140-166 Shuriken Flip: judgeReason names only the current Flow cost ga
   assert.match(program.judgeReason, /829\.1\.c/);
   assert.match(program.judgeReason, /params\.cost/);
   assert.match(program.judgeReason, /KeywordAbility/);
+  assert.match(program.judgeReason, /baseModifications/);
   assert.match(program.judgeReason, /契约变更请求/);
   assert.match(program.judgeReason, /不近似实现/);
   // RIFT-357's LocationExpr is merged and must be named as landed, never as a gap.
@@ -115,6 +117,22 @@ test("ven-140-166 Shuriken Flip: damage with an up-to-one target and an independ
   assert.equal(instructionDefinitionsById.get("effect.damage"), damage);
   assert.equal(instructionDefinitionsById.get("effect.move"), move);
   assert.equal(keywordDefinitionsById.has("Flow"), true);
+});
+
+test("ven-140-166 Shuriken Flip evidence: the merged Flow expansion has no card-side printed cost", () => {
+  const kernel = world()
+    .object("shuriken", { cardId: CARD_ID, zone: "trash", types: ["spell"], owner: "A", controller: "A" })
+    .build();
+  const expanded = expandProgram(program, kernel.getObject("shuriken"));
+  const flowCost = expanded.expanded.find(
+    (ability) => ability.kind === "static" && ability.effect.kind === "flow.cost"
+  );
+  assert.ok(flowCost);
+  assert.equal(flowCost.effect.sourceZone, "trash");
+  assert.equal(flowCost.effect.cost, undefined);
+  const replacement = expanded.expanded.find((ability) => ability.kind === "replacement");
+  assert.ok(replacement);
+  assert.equal(replacement.replaces.event, "object-leaves-chain");
 });
 
 test("ven-140-166 Shuriken Flip golden: the whole declared body executes against locked targets", () => {
