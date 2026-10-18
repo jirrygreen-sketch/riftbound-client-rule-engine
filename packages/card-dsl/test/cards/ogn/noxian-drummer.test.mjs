@@ -8,9 +8,27 @@ const { world } = await import(new URL("effects/testing/index.js", engineCore));
 // resolveChainBody is the production card-body entry point
 // (chain/engine.ts resolveChainBody(item.body, context)).
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
+const { createProgramBinding, translateTriggerFilter } = await import(new URL("programs/index.js", engineCore));
+const { validateTriggerSpec } = await import(new URL("events/trigger-spec.js", engineCore));
+const { bindResolveContext, createActionPipelineHost } = await import(new URL("events/action-adapter.js", engineCore));
+const { ChainEngine } = await import(new URL("chain/engine.js", engineCore));
 
 const READ_ID = "noxian-drummer.read-here";
 const PLAY_ID = "noxian-drummer.play-recruit";
+
+/** A real ChainEngine so registration goes through the real pipeline validation. */
+function realEngine(kernel) {
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error("Unexpected choice: " + request.id); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  return new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+}
 
 test("ogn-222-298 Noxian Drummer: program validates and has expected identity", () => {
   const result = validateCardProgram(program);
@@ -23,6 +41,12 @@ test("ogn-222-298 Noxian Drummer: program validates and has expected identity", 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /object-moved/);
+  // 2026-10-17 re-sweep: the reason now records the closed event-name
+  // vocabulary as the first blocker and the missing toZone payload second.
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /invalid-event-type/);
+  assert.match(program.judgeReason, /toZone/);
+  assert.match(program.judgeReason, /requiresMoveTriggers/);
   assert.equal(
     program.sourceText,
     "When I move to a battlefield, play a 1 :rb_might: Recruit unit token here. " +
@@ -104,9 +128,52 @@ test("ogn-222-298 Noxian Drummer golden: the effect body plays a 1-Might Recruit
   assert.equal(tokens[0].controller, "A");
 });
 
-test.todo(
-  "ogn-222-298 Noxian Drummer: object-moved trigger filter — the pipeline now emits the point " +
-    "(RIFT-270), the program binding now expresses 'this card moved' through objectId: 'self', but " +
-    "the emitted event does not fill toZone, so the toZone: 'battlefield' filter never matches; the duel Standard Move " +
-    "result is not submitted to the pipeline yet"
-);
+test("ogn-222-298 Noxian Drummer: the object-moved subscription is refused by the closed event-name vocabulary", () => {
+  // 2026-10-17 re-sweep measurement: events/trigger-spec.ts accepts only its
+  // closed EVENT_PATTERN_TYPES list, which has no object-moved entry, while
+  // translateTriggerFilter keeps the declared event name as-is. The alias
+  // mapping in pipeline-match.ts runs after this validation.
+  const kernel = world().unit("drummer", { cardId: program.canonicalCardId, owner: "A", controller: "A", types: ["unit"], might: 3 }).build();
+  const source = kernel.getObject("drummer");
+  const filter = translateTriggerFilter(program.abilities[0].trigger.filter, source.ref.id, program.abilities[0].trigger.at);
+  assert.deepEqual(filter, { event: "object-moved", object: { objectId: source.ref.id }, toZone: "battlefield" });
+  const validation = validateTriggerSpec({ at: program.abilities[0].trigger.at, filter });
+  assert.equal(validation.ok, false);
+  assert.deepEqual(validation.issues.map(issue => [issue.path, issue.code]), [
+    ["trigger.filter.event", "invalid-event-type"]
+  ]);
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  assert.throws(
+    () => binding.registerProgramTriggers(realEngine(kernel), source),
+    { name: "TriggerSpecValidationError", message: /^trigger\.filter\.event:/ }
+  );
+});
+
+test("ogn-222-298 Noxian Drummer: the object-moved emission carries no toZone for the battlefield filter", () => {
+  // RIFT-270 emits the timing point from events/action-adapter.ts, but that
+  // emission only fills object/player/amount: toZone/toKind stay undefined, so
+  // the card's toZone: "battlefield" filter can never match. turn/flow.ts also
+  // re-emits object-enters-battlefield for a move-location, and that name is
+  // outside the same closed vocabulary.
+  const kernel = world().unit("drummer", { cardId: program.canonicalCardId, owner: "A", controller: "A", types: ["unit"], might: 3, location: { type: "base", player: "A" } }).build();
+  const emissions = [];
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error("Unexpected choice: " + request.id); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: () => true
+  });
+  const execution = host.execute({ type: "move-location", object: kernel.ref("drummer"), to: { type: "battlefield", id: "battlefield-1" } });
+  assert.equal(execution.outcome.status, "done");
+  assert.deepEqual(kernel.getObject("drummer").location, { type: "battlefield", id: "battlefield-1" });
+  const moved = execution.emissions.find(emission => emission.timingPoint === "object-moved");
+  assert.ok(moved);
+  assert.equal(moved.object.ref.id, "drummer");
+  assert.equal(moved.toZone, undefined);
+  assert.equal(moved.details?.toLocationId, undefined);
+  assert.equal(validateTriggerSpec({ at: "object-moved", filter: { event: "object-moved", objectId: "self", toZone: "battlefield" } }).ok, false);
+  assert.equal(validateTriggerSpec({ at: "object-enters-battlefield", filter: { event: "object-enters-battlefield", objectId: "self" } }).ok, false);
+});

@@ -18,26 +18,20 @@ import type { CardProgram } from "../../ir/index.js";
  * - 414.3: "Draw 1." is resolved with effect.draw; the implicit drawer is the
  *   ability controller (190.6.d).
  *
- * Status: judge-required — after the RIFT-270 audit the trigger side is
- * closer: `beginning-start` is emitted by turn/flow.ts (enter('beginning'))
- * for the turn player, but that does not restrict a subscription to its own
- * controller's turn. Two gaps remain:
- * - "your Beginning Phase" needs a player: "self" event filter. The matcher
- *   supports it, but translateTriggerFilter adds event: "beginning-start" and
- *   the production assertTriggerSpec rejects that event name. The placeholder
- *   filter below is empty and would match either player's Beginning Phase;
- * - it needs to evaluate "you control a facedown card at a battlefield", and
- *   the engine's ObjectFilter/ZoneId have no facedown-zone spelling: zones are
- *   deck/hand/board/battlefield/base/rune-zone/… (107.3.e says a Facedown Zone
- *   is not a location, and 107.3.a makes it a sub-zone of a battlefield), and
- *   the ZoneId type has no facedown member; an object's `faceDown` flag is only
- *   readable through `states: \"face-down\"`, which no merged query scopes to a
- *   battlefield Facedown Zone (355.9.a.3); `condition.value`'s count query is
- *   the only evaluation path and it reuses the same filter vocabulary;
- * - program trigger registration, the `beginning-start` producer and the
- *   events/pipeline.ts TriggerCondition fallback are merged; without the
- *   Facedown Zone spelling that fallback's object/zone query still has no
- *   battlefield sub-zone to count face-down cards from.
+ * Status: judge-required（2026-10-17 复核）。`beginning-start` 由 turn/flow.ts 在回合玩家
+ * Beginning Phase 发出（RIFT-270），CardProgram 触发注册与 events/pipeline.ts 的
+ * TriggerCondition 回退都已合入；两处已实测的缺口：
+ * - "your Beginning Phase" 需要 player: "self" 过滤。matcher 支持它，但
+ *   translateTriggerFilter 只要收到 player 就会补 event: "beginning-start"，
+ *   而 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 是封闭枚举（无该名称），
+ *   validateTriggerSpec / registerTrigger 实测拒绝。当前 filter: {} 因此匹配双方回合。
+ * - "you control a facedown card at a battlefield" 需要 Facedown Zone 词汇：
+ *   107.3.a/107.3.e/355.9.a.3 的 Facedown Zone 是战场的子区域、不是 location，
+ *   ZoneId（effects/contract.ts）与 OBJECT_FILTER_ZONES 都没有 facedown 成员，
+ *   faceDown 只能经 states 读取；触发条件的求值走宿主适配器自己的 query，
+ *   test-kernel.matchesQueryFilter 只认 type/tags/controller/owner/zone/location/combatRole
+ *   并对未知键返回 true，game-server.host.matchesFilter 只认 zone/type/owner/controller
+ *   且按字面比较——两者都不实现本从句。
  * The draw half is executed in isolation by the golden test; nothing is
  * approximated to make the condition pass.
  */
@@ -46,15 +40,22 @@ const mushroomPouch = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺\"战场上你自己的面朝下牌\"的可求值条件：引擎 ObjectFilter/ZoneId 没有 Facedown Zone 拼写" +
-    "（107.3.a/107.3.e：Facedown Zone 是战场的子区域、不是 location；ZoneId 无 facedown 成员），" +
-    "faceDown 只能经 states 读取而没有任何已合入查询能把它限定到战场的 Facedown Zone（355.9.a.3），" +
-    "condition.value 的 count 求值复用同一套 filter 词汇，无法判定该从句。" +
-    "beginning-start 已由 turn/flow.ts 在回合玩家 Beginning Phase 发出（RIFT-270），CardProgram 触发注册也已合入；" +
-    "仍缺 \"your Beginning Phase\" 的生产过滤：当前 filter: {} 会匹配双方回合，产生方的 player 载荷不会自动限定己方；" +
-    "matchesTriggerEvent 虽支持 player: \"self\"，但 translateTriggerFilter 即使只收到 player 也会补 event: \"beginning-start\"，而 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 没有该名称，assertTriggerSpec 拒绝注册，尚不能在卡牌范围内接通己方阶段过滤（315.2.a.1）。" +
-    "触发条件求值也已合入回退路径：events/pipeline.ts 在宿主缺 testTrigger 时用 evaluateTriggerCondition 经上下文 query 求值，生产事件不依赖 testTrigger 成员。" +
-    "当前缺口是己方 Beginning Phase 过滤接线与 Facedown Zone 词汇：该回退求值复用同一套 ObjectFilter/ZoneId 词汇，没有可限定位面朝下牌的战场子区域。Draw 1（414.3）已合入并由 golden 单独执行；不近似实现。",
+    "两处已实测的当前缺口：(1) \"your Beginning Phase\" 的己方过滤：beginning-start 已由 turn/flow.ts 在回合玩家 " +
+    "Beginning Phase 发出（RIFT-270），但 translateTriggerFilter 只要收到 player 就会补 event: \"beginning-start\"，" +
+    "而 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 是封闭枚举（无 beginning-start），validateTriggerSpec 实测返回 " +
+    "trigger.filter.event/invalid-event-type、registerTrigger 抛 TriggerSpecValidationError；" +
+    "matchesTriggerEvent 本身支持 player: \"self\"，缺的是注册校验面的词汇/翻译。当前 filter: {} 因此会匹配双方回合。" +
+    "(2) \"a facedown card at a battlefield\" 的求值：107.3.a/107.3.e/355.9.a.3 的 Facedown Zone 是战场的子区域、不是 " +
+    "location，ZoneId（effects/contract.ts）与 OBJECT_FILTER_ZONES 都没有 facedown 成员，faceDown 只能经 states 读取。" +
+    "触发条件的求值路径是 events/pipeline.ts 的 evaluateTriggerCondition → host.context(...).query(filter)，用的是宿主适配器" +
+    "自己的 query，而两个已合入适配器都不实现本从句需要的键：effects/testing/test-kernel.ts 的 matchesQueryFilter 只认 " +
+    "type/tags/controller/owner/zone/location/combatRole，其余键直接返回 true（实测 states 被忽略），" +
+    "所以 {states: \"face-down\"} 会连自身与 Base 上的面朝下牌一起计入（实测命中 3 个对象、条件为真）；" +
+    "apps/game-server 的 host.matchesFilter 只认 zone/type/owner/controller 并按字面比较（实测控制者不解析），" +
+    "故条件恒为假。撤销的中立拼写也不存在：zone 只有 board（没有 battlefield 子区域），location: \"battlefield\" " +
+    "在参考内核里与 location 对象字面比较、永不命中。" +
+    "chain/engine.ts 的指令 ctx.query 能解析 controller:self + states + location 并经 layers/filter 命中战场上那一个面朝下牌，" +
+    "但触发条件不走该路径。Draw 1（414.3）已合入并由 golden 单独执行；不近似实现。",
   abilities: [
     {
       kind: "triggered",
