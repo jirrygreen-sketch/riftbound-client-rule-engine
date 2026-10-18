@@ -44,7 +44,7 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  * "If you play me to a battlefield" 的保留条件形状：需要"本次打出选择的入场位置是战场"这一
  * 事实。ObjectSnapshot 的 location 特征只有在对象已进场后才有值，而入场替代在换区前做决定；
  * 该读取不被已合入的表达式求值支持，取不到信息时解释器按 MissingInformation 处理（fail closed），
- * 入场替代还需保留并检查该条件（RIFT-359）。
+ * 入场替代还需保留并检查该条件。
  */
 const PLAYED_TO_BATTLEFIELD: Condition = {
   kind: "compare",

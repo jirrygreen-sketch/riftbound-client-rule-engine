@@ -28,7 +28,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   分配给我"；只声明不重写（契约 3.7）。括注 "(I must be assigned combat damage first.)"
  *   是 815.1.b 的提醒文本，不另写指令。
  *
- * 2026-10-17 复核：仍为 judge-required，当前缺口见 judgeReason。
+ * 2026-10-18 复核：仍为 judge-required，当前缺口见 judgeReason。
  * 已有原语、关键词定义或通用适配器不代表本卡完整生产路径可执行。
  */
 const abilities: Ability[] = [
@@ -69,8 +69,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺静态 cost.additional/cost.modify 到 Finalize optionalAdditional/discounts 的翻译（356.2.b.1/356.4），费用计划目前只消费调用方显式提供的组件。" +
-    "condition.result 已合入，但本卡 grantedBy 尚无生产方用 selectedAdditional 支付决定启用 3 Energy 减费（356.4.f.1），不能无条件减费。" +
+    "当前缺口（2026-10-18 实测）：cost/discounts/collect.ts 能消费调用方显式提供的 optionalAdditional 与 discounts，" +
+    "但没有 CardProgram 到 CostPlanInput 的生产适配把本卡的 cost.additional/cost.modify 安装进 Finalize（356.2.b.1/356.4）。" +
+    "collect.ts 的支持字段也不包含 grantedBy，因而不能用 selectedAdditional 的支付决定启用 3 Energy 减费（356.4.f.1），不能无条件减费。" +
     "缺 Ambush 的 play-location-permission 与手牌来源的条件 Reaction 接线（822.1.b/822.1.c）；chain.canAct 已有 timing 查询，仍不能执行完整许可。" +
     "缺 Tank 的 continuous.combat 到战斗伤害分配器的优先级消费方（815.1.b/815.1.c）。",
   abilities,

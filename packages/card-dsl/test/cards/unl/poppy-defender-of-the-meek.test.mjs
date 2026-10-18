@@ -4,6 +4,9 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/poppy-defender-of-the-meek.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-c54e80533d4de83be156d119811d549cd348fa8bda54774a52cd58b3c451f3cf";
@@ -28,7 +31,7 @@ test("unl-178-219 Poppy, Defender of the Meek: identity, status, judgeReason and
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /356\.2\.b/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
-  assert.match(program.judgeReason, /condition\.result/);
+  assert.match(program.judgeReason, /selectedAdditional|grantedBy/);
   assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
@@ -66,12 +69,47 @@ test("unl-178-219 Poppy, Defender of the Meek: the granted discount is 3 Energy,
   assert.equal(discount.condition, undefined);
 });
 
+test("unl-178-219 Poppy golden: a caller-supplied optional XP cost and discount are finalized and paid", () => {
+  const base = world()
+    .player("A", { energy: 10, xp: 3, power: ["Order"] })
+    .hand("poppy", { owner: "A", controller: "A", types: ["unit"], energy: 6, power: ["Order"] })
+    .build();
+  const context = base.clone({ sourceSnapshot: base.getObject("poppy") });
+  const plan = buildCostPlan(context, {
+    id: "poppy:play",
+    cost: { kind: "printed" },
+    optionalAdditional: [{
+      id: additionalCost.effect.id,
+      kind: "additional",
+      selected: true,
+      cost: { payments: additionalCost.effect.payments }
+    }],
+    discounts: [{
+      id: "poppy:xp-discount",
+      resource: discount.effect.resource,
+      amount: discount.effect.amount
+    }]
+  });
+
+  assert.deepEqual(plan.selectedAdditional, [{ id: additionalCost.effect.id, kind: "additional" }]);
+  assert.equal(plan.total.energy, 3);
+  assert.equal(plan.total.xp, 3);
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Order"] }]);
+
+  const receipt = payCostPlan(context, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(context.player("A").energy, 7);
+  assert.equal(context.player("A").xp, 0);
+  assert.deepEqual(receipt.additional, [{ id: additionalCost.effect.id, kind: "additional", paid: true }]);
+});
+
 test.todo(
   "unl-178-219 Poppy, Defender of the Meek: charge the optional 3-XP additional cost during Finalize and feed the discount — " +
     "wire the declared cost.additional and cost.modify components into the CardProgram -> CostPlan path"
 );
 test.todo(
-  "unl-178-219 Poppy, Defender of the Meek: gate the 3-Energy discount on the paid decision (356.4.f.1) by binding the original play decision to grantedBy (condition.result already exists)"
+  "unl-178-219 Poppy, Defender of the Meek: gate the 3-Energy discount on the paid decision (356.4.f.1) — " +
+    "the cost collector rejects the declared grantedBy field, so selectedAdditional is not yet connected to this discount"
 );
 test.todo(
   "unl-178-219 Poppy, Defender of the Meek: bind [Ambush] location permission and the in-hand conditional Reaction scope (822.1.b/c); chain.canAct already queries timing"
