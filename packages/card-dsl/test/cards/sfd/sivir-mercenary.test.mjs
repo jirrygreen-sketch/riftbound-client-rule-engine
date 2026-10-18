@@ -12,6 +12,13 @@
 // that really produces a battlefield route under its own engine. The printed
 // expectations that still cannot run are TODO rows; the current wrong value is
 // never asserted as the printed outcome.
+//
+// Re-measured against the merged harness: RIFT-707 made runCardScenario rethrow
+// lifecycle binding errors (attachProgramLifecycle(engine, error => { throw })),
+// so the whole-card scenario cannot run while the Accelerate expansion has no
+// layer mapping. The real play flow therefore runs through ChainEngine with the
+// production error collector, and the harness refusal is asserted separately
+// instead of being hidden.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -79,8 +86,9 @@ test("sfd-143-221 Sivir, Mercenary: identity, ruleset, status, judgeReason and v
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   // The refreshed reason states the measured gaps: the unreadable spent amount,
-  // the unassembled keyword re-expansion engine, and the missing Accelerate
-  // play-cost producer.
+  // the unassembled keyword re-expansion engine (including its non-fail-closed
+  // condition path on this card's own gate), and the missing Accelerate
+  // play-cost producer plus the missing 805.2.b payment gate.
   assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
   assert.match(program.judgeReason, /spent/);
   assert.match(program.judgeReason, /powerSpentThisTurn/);
@@ -89,9 +97,15 @@ test("sfd-143-221 Sivir, Mercenary: identity, ruleset, status, judgeReason and v
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /permission\.routes/);
   assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /fail-closed/);
   assert.match(program.judgeReason, /accelerate\.cost/);
   assert.match(program.judgeReason, /translateCost/);
   assert.match(program.judgeReason, /no layer mapping/);
+  // 805.2.b: the reason names the measured missing payment gate and the
+  // RIFT-707 harness behavior instead of the retired "no pay event" wording.
+  assert.match(program.judgeReason, /selectedAdditional/);
+  assert.match(program.judgeReason, /805\.2\.b/);
+  assert.match(program.judgeReason, /RIFT-707/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -175,31 +189,100 @@ test("sfd-143-221 Sivir, Mercenary: the merged continuous.might primitive regist
   assert.equal(kernel.getObject("sivir").buffs, 0);
 });
 
-test("sfd-143-221 Sivir, Mercenary: the printed 4 Energy + 1 Chaos Power play really pays through the card-program path", () => {
-  const scenario = runCardScenario(lifted, {
-    players: { A: { energy: 20, power: [...ALL_POWER] }, B: {} },
-    objects: [
-      { id: "card", program: lifted, types: ["unit"], zone: "hand", energy: 4, power: ["Chaos"], might: 4 },
-    ],
-    operations: [{ type: "play", object: "card", player: "A" }],
-    expect: {
-      players: { A: { energy: 16 } },
-      objects: { card: { zone: "board", location: { type: "base", player: "A" }, might: 4, buffs: 0, keywords: [] } },
-      events: { includes: [{ timingPoint: "card-played" }, { timingPoint: "object-enters-base" }] },
-    },
+// The real play flow: ChainEngine + the program's own describePlay, with the
+// production lifecycle error collector that the game server installs.
+function playThroughEngine({ staticBinder } = {}) {
+  const binding = createProgramBinding({ cardPrograms: [lifted], ...(staticBinder ? { staticBinder } : {}) });
+  const board = fixture({
+    cards: [{ id: "sivir", cardId: CARD_ID, types: ["unit"], energy: 4, power: ["Chaos"], might: 4 }],
+    describePlay: binding.describePlay,
   });
-  scenario.asserts();
-  // 805.2.b/805.6: the optional [1][C] is never charged, so the paid total is the
-  // printed 4 Energy alone (16 remains, not 15) and no Accelerate payment exists.
-  assert.equal(scenario.events.some(event => event.action?.type === "pay"), false);
-  assert.equal(scenario.state.players.A.energy, 16);
-  const played = scenario.state.objects.find(object => object.cardId === CARD_ID);
+  board.kernel.addPlayer("A", { energy: 20, power: ["Chaos", "Chaos", "Order"] });
+  const errors = [];
+  binding.attachLifecycle(board.engine, error => errors.push(String(error.message)));
+  // The host closes over the kernel, so an own property records the actions the
+  // real Finalize commits (the reference kernel does not deduct Power, so the
+  // paid plan — not the pool — is the authoritative measurement).
+  const committed = [];
+  const perform = board.kernel.perform.bind(board.kernel);
+  board.kernel.perform = action => { committed.push(action); return perform(action); };
+  const outcome = board.engine.commit({ type: "play", object: board.kernel.ref("sivir"), player: "A" });
+  let guard = 0;
+  while (board.engine.items.length && guard++ < 20) board.engine.advance();
+  return { board, binding, committed, errors, outcome };
+}
+
+test("sfd-143-221 Sivir, Mercenary: the printed 4 Energy + 1 Chaos Power play really pays through the card-program path", () => {
+  const { board, binding, committed, errors, outcome } = playThroughEngine();
+  assert.equal(outcome.status, "done");
+  // 805.1.b/805.2: the printed base cost is 4 Energy plus one Chaos Power, and
+  // the real Finalize locks and pays exactly that plan. There is no optional
+  // Accelerate [1][C] component: the plan carries no selectedAdditional at all,
+  // so the final cost the pipeline really charges is the printed base alone.
+  const payments = committed.filter(action => action.type === "pay");
+  assert.equal(payments.length, 1);
+  assert.deepEqual(payments[0].plan, { finalized: true, energy: 4, power: ["Chaos"] });
+  assert.equal(board.kernel.player("A").energy, 16);
+  const draft = binding.describePlay(
+    { type: "play", object: board.kernel.ref("sivir"), player: "A" },
+    board.kernel.getObject("sivir")
+  );
+  assert.equal(draft.cost, undefined);
+  assert.deepEqual(draft.body, []);
+  // The card's own Accelerate expansion cannot be bound at all, so the lifecycle
+  // reports exactly that failure instead of silently ignoring the printed cost.
+  assert.deepEqual(errors, ["Static ability kind accelerate.cost has no layer mapping"]);
+  assert.equal(board.engine.pipeline.events.some(event => event.timingPoint === "card-played"), true);
+  assert.equal(board.engine.pipeline.events.some(event => event.timingPoint === "object-enters-base"), true);
+});
+
+test("sfd-143-221 Sivir, Mercenary: the ready entry comes from the unconditional replacement, not from a paid Accelerate cost", () => {
+  // Control: the same real play flow with an empty static binder (the public
+  // ProgramBinding hook) disables both the static and the replacement binding.
+  // The unit then enters exhausted, which is why the ready entry in the
+  // production-binder run is attributable to the 805.6 replacement firing
+  // without the 805.2.b payment gate rather than to an entry default.
+  const control = playThroughEngine({ staticBinder: {} });
+  assert.equal(control.outcome.status, "done");
+  assert.deepEqual(control.errors, []);
+  assert.equal(control.board.kernel.getObject("sivir").exhausted, true);
+
+  const { board, errors } = playThroughEngine();
+  const played = board.kernel.getObject("sivir");
+  assert.equal(played.zone, "board");
+  assert.equal(played.location.type, "base");
   assert.equal(played.might, 4);
-  assert.deepEqual(played.keywords, []);
   assert.equal(played.buffs, 0);
-  // Measured deviation: the merged entry replacement is unconditional, so the
-  // unit still lands ready even though the printed optional cost was not paid.
+  // The printed clause is off, so the unit holds no granted [Ganking] and its
+  // Might stays at the printed 4 (the equivalent of the retired scenario's
+  // "keywords: []" / "might: 4" observations on the entered permanent).
+  assert.deepEqual(played.keywords, []);
   assert.equal(played.exhausted, false);
+  assert.deepEqual(errors, ["Static ability kind accelerate.cost has no layer mapping"]);
+  // 805.6.a: the replacement rewrites the entry orientation, so the permanent
+  // never passes through a separate becomes-ready event.
+  assert.equal(board.engine.pipeline.events.some(event => event.timingPoint === "object-readied"), false);
+});
+
+test("sfd-143-221 Sivir, Mercenary: the scenario harness fails closed on the unbound Accelerate expansion", () => {
+  // RIFT-707: runCardScenario rethrows lifecycle binding errors, so the merged
+  // generic harness refuses to report a whole-card result this program cannot
+  // produce. The rejection is the evidence; the wrong value is never asserted.
+  assert.throws(
+    () => runCardScenario(lifted, {
+      players: { A: { energy: 20, power: [...ALL_POWER] }, B: {} },
+      objects: [
+        { id: "card", program: lifted, types: ["unit"], zone: "hand", energy: 4, power: ["Chaos"], might: 4 },
+      ],
+      operations: [{ type: "play", object: "card", player: "A" }],
+    }),
+    error => {
+      assert.equal(error.name, "ProgramBindingError");
+      assert.equal(error.code, "judge-required");
+      assert.match(error.message, /accelerate\.cost has no layer mapping/);
+      return true;
+    }
+  );
 });
 
 test("sfd-143-221 Sivir, Mercenary: the merged cost pipeline really charges the printed optional [1]+[C] Accelerate cost", () => {
@@ -419,6 +502,61 @@ test.todo(
     "unevaluable-condition path throws instead of failing closed, so the spent-read condition from " +
     "the first TODO must be readable before the printed grant can be live"
 );
+
+test("sfd-143-221 Sivir, Mercenary: the re-expansion engine cannot evaluate this card's own spent gate and throws", () => {
+  // The merged re-expander evaluates a grant's condition through the plain
+  // interpreter, which has no reader for "spent at least [A][A] this turn".
+  // Feeding this card's real declaration in therefore throws instead of failing
+  // closed the way programs/statics.ts does, so the printed grant cannot be
+  // attached to the engine as-is.
+  const kernel = world().unit("sivir", { might: 4, location: { type: "battlefield", id: "bf-1" } }).build();
+  const context = source => bindResolveContext(kernel, { source, controller: source.controller });
+  const layers = new KeywordGrantLayerEngine(kernel.objects, { context });
+  layers.addContinuous({
+    id: "sivir-mercenary.ganking-grant",
+    layer: "ability",
+    source: kernel.ref("sivir"),
+    filter: { objectId: "sivir", zoneEntryId: kernel.ref("sivir").zoneEntryId, zone: "board" },
+    effect: {
+      kind: "continuous.grant-keyword",
+      appliesTo: "self",
+      keyword: { id: "Ganking" },
+      condition: gankingStatic.condition
+    }
+  }, { type: "permanent" });
+  assert.throws(
+    () => layers.evaluate(kernel.ref("sivir")),
+    error => error.constructor.name === "MissingInformation" && /powerSpentThisTurn/.test(error.message)
+  );
+
+  // Control: the same engine really does grant (and re-expand) Ganking when the
+  // condition is one the merged interpreter can evaluate.
+  const second = world().unit("sivir", { might: 4, location: { type: "battlefield", id: "bf-1" } }).build();
+  const secondLayers = new KeywordGrantLayerEngine(second.objects, {
+    context: source => bindResolveContext(second, { source, controller: source.controller })
+  });
+  secondLayers.addContinuous({
+    id: "sivir-mercenary.ganking-grant",
+    layer: "ability",
+    source: second.ref("sivir"),
+    filter: { objectId: "sivir", zoneEntryId: second.ref("sivir").zoneEntryId, zone: "board" },
+    effect: {
+      kind: "continuous.grant-keyword",
+      appliesTo: "self",
+      keyword: { id: "Ganking" },
+      condition: {
+        kind: "compare",
+        left: { kind: "object-property", object: "self", property: "exhausted" },
+        operator: "eq",
+        right: { kind: "constant", value: false }
+      }
+    }
+  }, { type: "permanent" });
+  const granted = secondLayers.evaluate(second.ref("sivir"));
+  assert.equal(granted.keywords.some(keyword => keyword.id.toLowerCase() === "ganking"), true);
+  assert.deepEqual(secondLayers.keywordAbilities(second.ref("sivir")).map(ability => ability.effect.kind),
+    ["continuous.movement"]);
+});
 
 test("sfd-143-221 Sivir, Mercenary: the production layer engine writes the keyword but produces no movement route (810.1.b/810.1.c)", () => {
   const kernel = world().unit("sivir", { might: 4, location: { type: "battlefield", id: "bf-1" } }).build();

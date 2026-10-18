@@ -22,7 +22,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status 判定（cards/README.md 第 2 节）：judge-required，缺口以 judgeReason 为准；
  * 执行证据在本卡 golden，模板金标为 templates/keyword-static-static-673.test.mjs。
  *
- * 2026-10-18 复核（逐项对照合并源码实测）：
+ * 2026-10-18 复核（逐项对照合并源码实测，本卡 golden 保留原始测量）：
  * - "spent at least [A][A] this turn" 仍无可求值路径（真实缺口）。合并 Expr 的取值面只有
  *   constant/literal/location/object-property/object-attribute/linked(-value)/count/arithmetic 与
  *   RIFT-711 的 player-property/turn-number/player-turn-count/object-designation；powerSpentThisTurn
@@ -41,17 +41,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   beginDuelStandardMoveV2 只收调用方传入的 trustedGanking（cardplay-unit-v2.ts 传 services.ganking），
  *   从不传 DuelMovementRuleContext，所以 zones/movement.ts 既不查图层关键词也不查 ruleView，
  *   movement().canGank 实测在生产同构路径上仍为 false。
- *   此外该引擎对无法求值的条件直接抛出（changes() 未按 programs/statics.ts 那样 fail-closed），
- *   把本卡的条件接进去会抛 MissingInformation（实测）。加上第一项的支出门槛永不成立，
- *   本卡印刷的 [Ganking] 目前不可达。
+ *   另实测：把本卡自身的 "spent at least [A][A]" 条件接进该引擎，evaluate 直接抛 MissingInformation
+ *   （changes() 未像 programs/statics.ts 那样 fail-closed）。叠加第一项，印刷的 [Ganking] 不可达。
  * - [Accelerate]：KeywordDef 的费用声明与 805.6 入场替代、cost/cost-plan.ts 的 accelerate
  *   OptionalCostInput、chain/engine.ts resolve() 的 selectedAdditional 消费都已合入，
  *   缺的是卡牌声明→CostPlanInput 的生产接线：programs/play.ts translateCost 对展开的 cost 抛
  *   "Unsupported play cost field optional"，programs/statics.ts layerFor 没有 accelerate.cost 映射
  *   （实测 ProgramBindingError "Static ability kind accelerate.cost has no layer mapping"），
  *   也没有任何 producer 读取 accelerate.cost 静态声明去生成 { kind: "accelerate" } 费用组。
- *   实测偏差：可选 [1][C] 从不收取（场景打出只付印刷 4 Energy、无 pay 事件），
- *   而入场替代仍无条件生效，单位因此未付费就进 ready——805.2.b/805.6 的付费门控缺失。
+ *   实测偏差（真实 play flow）：只付印刷 4 Energy + 1 Chaos Power（20→16 Energy，Power 不变，
+ *   selectedAdditional 为空），而 805.6 入场替代仍无条件生效——同一场景换成空 binder 后单位改为
+ *   exhausted 进场，说明未付费就进 ready 来自替代本身，805.2.b 的付费门控缺失。
+ *   另外 RIFT-707 之后场景 harness 会把该绑定错误直接抛出，整卡场景因此在 harness 上不可执行。
  * 依赖：本回合 Power 支出金额的读取接口、KeywordGrantLayerEngine 的生产装配（含移动入口的
  *   DuelMovementRuleContext 或等价 trusted 评估器）与条件 fail-closed、
  *   accelerate.cost→CostPlanInput.optionalAdditional 的生产接线。
@@ -124,15 +125,18 @@ const program = {
     "但没有任何生产装配安装该引擎：ChainEngine 默认用普通 LayerEngine、TurnFlow 用同样非授权的 TurnPhaseLayers，" +
     "只有 RIFT-710 测试导入它；生产移动入口 beginDuelStandardMoveV2 也只收调用方传入的 trustedGanking，" +
     "从不传 DuelMovementRuleContext，所以生产同构路径上 canGank 仍为 false。" +
-    "该引擎对无法求值的条件还会直接抛出（changes() 未 fail-closed），" +
-    "把本卡条件接进去抛 MissingInformation；叠加 (1) 的门槛永不成立，印刷的 [Ganking] 不可达。" +
+    "另实测：把本卡自身的支出条件接进该引擎，evaluate 直接抛 MissingInformation（changes() 未按 " +
+    "programs/statics.ts 那样 fail-closed）；叠加 (1) 的门槛永不成立，印刷的 [Ganking] 不可达。" +
     "(4) [Accelerate] 的卡牌接线缺失：KeywordDef 的 accelerate.cost 声明与 805.6 入场就绪替代、" +
     "cost/cost-plan.ts 的 accelerate 可选费用组、chain/engine.ts resolve() 的 selectedAdditional 消费都已合入，" +
     "但 programs/play.ts translateCost 对展开的 cost 抛 Unsupported play cost field optional，" +
     "programs/statics.ts layerFor 没有 accelerate.cost 映射（实测 ProgramBindingError Static ability kind " +
     "accelerate.cost has no layer mapping），且没有 producer 从该声明生成 { kind: \"accelerate\" } 费用组；" +
-    "场景实测打出只付印刷 4 Energy、无 pay 事件，可选 [1][C] 从不收取，" +
-    "而 805.6 入场替代仍无条件生效，单位未付费即 ready（805.2.b 的付费门控缺失）。" +
+    "真实 play flow 实测只发生基础费用的 pay 动作（Energy 20 → 16，Power 池不变），" +
+    "CostPlan.selectedAdditional 为空、可选 [1][C] 从不收取，" +
+    "而 805.6 入场替代仍无条件生效；同一场景换成空 binder 后单位改为 exhausted 进场，" +
+    "说明未付费即 ready 来自替代本身（805.2.b 的付费门控缺失）。" +
+    "RIFT-707 起场景 harness 会把该绑定错误直接抛出（不再吞掉），整卡场景在 harness 上不可执行。" +
     "依赖：本回合 Power 支出金额的读取接口、KeywordGrantLayerEngine 的生产装配与条件 fail-closed、" +
     "accelerate.cost → CostPlanInput.optionalAdditional 的生产接线。",
   abilities,
