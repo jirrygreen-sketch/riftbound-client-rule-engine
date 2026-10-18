@@ -22,19 +22,22 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Power；430.2.a 规定 Add 能力结算时不传递 Priority/Focus，但该窗口属链/费用管线。
  * - 括号里的提醒句不是独立能力（430 附近的提醒文本口径）。
  *
- * status = judge-required（按 2026-10-17 合入批次复核；缺口不近似实现）：
+ * status = judge-required（按 2026-10-17 HEAD 复核；缺口不近似实现）：
  * - [A]（任意域 Power，135.2.e.5 / 163.2.b）不可表达：契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order
  *   六域封闭集合，effect.resources 的文件头明确记录 Universal Power 不可表达、绝不用某个域近似；
  *   本卡把 [A] 记为描述性的 power: [rainbow]（与已合入 ogn/daughter-of-the-void 同一记法），原语对其返回
  *   negated(impossible)——golden 锁定这条失败证据，而不是选一个域冒充。
- * - [Deflect]（809.1.c 的目标税）/[Ganking]（810.1.b 的战场间移动许可）的 KeywordDef 都已合入，
- *   programs/keywords.ts 也会展开它们；静态绑定已存在，但 target.tax 没有映射到目标计划的消费方，
- *   而 Ganking 的 permission 形状仍没有被移动规则查询消费。
+ * - [Deflect]（809.1.c 的目标税）的 KeywordDef 已合入，target/tax/ 也已实现显式 Deflect 的目标税规划；
+ *   但卡牌 static 绑定仍不可用：programs/statics.ts 的 layerFor 对 target.tax 抛 ProgramBindingError
+ *   "Static ability kind target.tax has no layer mapping"，展开的目标税没有生产消费方。
+ * - [Ganking]（810.1.b 的战场间移动许可）的展开能经 createEngineStaticBinder.bindStatic 注册，
+ *   但展开写的是 permission: "battlefield-to-battlefield"（字符串）：layers/rules/query.ts 的 movement()
+ *   只从 permission.routes 生成 routes，实测查询结果 canGank=false、permissions=[]，移动规则读不到许可。
  * - object-moved 触发缺注册路径：programs/filters.ts 把 {source:"self"} 归一化为宿主 object 过滤器，
  *   但封闭 EVENT_PATTERN_TYPES 没有 "object-moved"（别名是 zone-entered/zone-left），registerProgramTriggers
  *   抛 invalid-event-type；且 move-location 的发射不带 timing-points.ts 声明的起止地点载荷。
  * 可真实执行的部分：Add 的 1 Energy 半段（effect.resources 的 energy 参数）与关键词声明的结构校验。
- * 依赖：通用 Power 表达（契约变更）、target.tax / movement permission 消费方、
+ * 依赖：通用 Power 表达（契约变更）、target.tax 的图层映射、continuous.movement 的 routes 形状被移动规则消费、
  * object-moved 触发拼写与移动事件载荷。
  */
 const abilities: Ability[] = [
@@ -69,16 +72,19 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处缺口，均不近似实现（已按 2026-10-17 合入批次复核）：" +
+    "三处缺口，均不近似实现（已按 2026-10-17 HEAD 复核）：" +
     "(1) [Add] :rb_rune_rainbow: 的 [A] 任意域 Power 不可表达：契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order " +
     "六域封闭集合，effect.resources 的文件头明确记录 163.2.b 的 Universal Power 不可表达、绝不用某个域近似；" +
     "本卡以描述性 power: [rainbow] 保留记号，原语对其返回 negated(impossible)，golden 锁定该失败证据而不是选一个域冒充。" +
-    "(2) [Deflect]/[Ganking] 的 KeywordDef 已合入且卡牌 static 已有绑定路径；但 target.tax 尚未接入目标计划的额外费用，" +
-    "Ganking 的 continuous.movement permission 形状也尚未被移动规则查询消费。" +
+    "(2) [Deflect] 的 KeywordDef 已合入，target/tax/ 也实现了显式 Deflect 的目标税规划；但卡牌 static 绑定仍失败：" +
+    "programs/statics.ts 的 layerFor 对 target.tax 抛 ProgramBindingError（no layer mapping），展开没有生产消费方。" +
+    "[Ganking] 的 continuous.movement 能注册，但展开的 permission 是字符串 \"battlefield-to-battlefield\"，" +
+    "layers/rules/query.ts 的 movement() 只读 permission.routes，实测 canGank=false、permissions=[]，移动规则读不到许可。" +
     "(3) object-moved 触发无法注册：封闭 EVENT_PATTERN_TYPES（events/trigger-spec.ts）不含 \"object-moved\"，" +
     "registerProgramTriggers 因此抛 invalid-event-type；move-location 的发射也不带 timing-points.ts 声明的起止地点载荷。" +
     "已可真实执行的部分：effect.resources 的 1 Energy 半段（golden 覆盖）。" +
-    "依赖：通用 Power 表达（契约变更）、target.tax / movement permission 消费方、object-moved 触发拼写与移动事件载荷。",
+    "依赖：通用 Power 表达（契约变更）、target.tax 的图层映射、continuous.movement 的 routes 形状被移动规则消费、" +
+    "object-moved 触发拼写与移动事件载荷。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +

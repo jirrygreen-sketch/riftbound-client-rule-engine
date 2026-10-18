@@ -35,8 +35,10 @@ test("unl-002-219 Inferna: identity, status, judgeReason and verbatim sourceText
   assert.match(program.judgeReason, /822\.1\.b/);
   // Both KeywordDefs and CardProgram static binding are merged; the reason names
   // the remaining location-permission and designation consumers.
-  assert.match(program.judgeReason, /play-location-permission|Finalize/);
+  assert.match(program.judgeReason, /play-location-permission/);
+  assert.match(program.judgeReason, /playDestinationIsLegal/);
   assert.match(program.judgeReason, /combatRole|designation/);
+  assert.match(program.judgeReason, /evaluateCondition/);
   assert.doesNotMatch(program.judgeReason, /RIFT-81|RIFT-91|RIFT-102|RIFT-257|RIFT-259|RIFT-266/);
   // The reason names the live binder rejections rather than a vague placeholder.
   assert.match(program.judgeReason, /no layer mapping|layerFor/);

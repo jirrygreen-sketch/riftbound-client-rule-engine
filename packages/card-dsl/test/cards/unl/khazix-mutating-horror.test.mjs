@@ -6,6 +6,12 @@ import program from "../../../dist/cards/unl/khazix-mutating-horror.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/engine.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { registerProgramTriggers, triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID =
   "card.hash-6080c717cf342299d6073468f9de4f808e7a244d4edd6bbe1ec9d6a519127a24";
@@ -37,6 +43,12 @@ test("unl-143-219 Kha'Zix, Mutating Horror: identity, status, judgeReason and ve
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /Ambush/);
+  // The merged subscription path is recorded as executable; the live gaps name
+  // the missing combat producer and the unconsumed relative-location anchor.
+  assert.match(program.judgeReason, /matchesFilter/);
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /383\.2\.a\.1/);
+  assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
 test("unl-143-219 Kha'Zix, Mutating Horror: unvalued Ambush plus attack and defend triggers", () => {
@@ -128,6 +140,87 @@ test("unl-143-219 Kha'Zix, Mutating Horror golden: +2 Might registers for this t
   assert.equal(layers.evaluate(kernel.ref("khazix")).might, 4);
 });
 
+test("unl-143-219 Kha'Zix, Mutating Horror: both declared triggers register in production with the host anchor", () => {
+  // 383.4.e / 383.4.f: attack-declared and defense-declared are part of the
+  // closed EVENT_PATTERN_TYPES vocabulary, and programs/filters.ts normalizes
+  // source:"self" to this host, so both subscriptions install.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const f = fixture({ cards: [{ id: "khazix", cardId: CARD_ID, types: ["unit"], might: 4 }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("khazix"), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
+  const source = f.kernel.getObject("khazix");
+  assert.deepEqual(
+    triggerRegistrations(binding.registry, source).map(entry => [entry.spec.at, entry.spec.filter]),
+    [
+      ["attack-declared", { event: "attack-declared", object: { objectId: "khazix" } }],
+      ["defense-declared", { event: "defense-declared", object: { objectId: "khazix" } }]
+    ]
+  );
+  assert.deepEqual(
+    registerProgramTriggers(binding.registry, f.engine, source),
+    [`program:khazix:${source.ref.zoneEntryId}:1`, `program:khazix:${source.ref.zoneEntryId}:2`]
+  );
+});
+
+test("unl-143-219 Kha'Zix, Mutating Horror gap: the 'alone here' condition is fail-closed on the production host query", () => {
+  // 383.2.a.1 / 740.2.a: the condition counts enemy units at the source's
+  // location. Without a testTrigger bridge the EventPipeline evaluates it
+  // through PipelineHost.context().query; that host surface compares
+  // controller/owner literally and does not resolve sameLocationAs, so the
+  // condition is false even with exactly one enemy unit here.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const f = fixture({ cards: [{ id: "khazix", cardId: CARD_ID, types: ["unit"], might: 4 }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("khazix"), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
+  const source = f.kernel.getObject("khazix");
+  const [registration] = triggerRegistrations(binding.registry, source);
+  const condition = registration.spec.condition;
+  assert.deepEqual(condition.left.filter, {
+    type: "unit",
+    controller: "opponent",
+    sameLocationAs: "source"
+  });
+
+  const evaluate = kernel => {
+    const host = createActionPipelineHost({
+      checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+      restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+      objects: () => kernel.objects,
+      perform: action => kernel.perform(action),
+      choose: request => kernel.choose(request),
+      context: (snapshot, controller, timingPoint) => bindResolveContext(kernel, { source: snapshot, controller, timingPoint })
+    });
+    const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+    // EventPipeline.scan without a testTrigger bridge uses PipelineHost.context.
+    const context = host.context(kernel.getObject("khazix"), "A", "attack-declared");
+    return evaluateCondition(condition, {
+      context,
+      event: {},
+      linked: key => context.linked(key),
+      canLookBack: () => true,
+      isIgnored: () => false,
+      query: filter => context.query(filter)
+    });
+  };
+
+  const alone = world()
+    .unit("khazix", { owner: "A", controller: "A", might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy-here", { owner: "B", controller: "B", might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const far = world()
+    .unit("khazix", { owner: "A", controller: "A", might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy-far", { owner: "B", controller: "B", might: 3, location: { type: "battlefield", id: "bf-9" } })
+    .build();
+  assert.equal(alone.query({ type: "unit", controller: "opponent", sameLocationAs: "source" }).length, 0);
+  // Both boards evaluate false: the host query cannot express "here", so the
+  // printed condition can never become true through this path.
+  assert.equal(evaluate(alone), false);
+  assert.equal(evaluate(far), false);
+  assert.equal(alone.query({ type: "unit", controller: "B" }).length, 1);
+});
+
 test.todo(
   "unl-143-219 Kha'Zix, Mutating Horror: fire the attack-declared / defense-declared triggers from the real " +
     "combat workflow (CR 383.4.e / 383.4.f) so the supported Might and XP body enters the chain"
@@ -135,4 +228,9 @@ test.todo(
 test.todo(
   "unl-143-219 Kha'Zix, Mutating Horror: [Ambush] (CR 822.1.b/822.1.c) is consumed by the play flow for its " +
     "valid battlefield locations and Reaction permission"
+);
+test.todo(
+  "unl-143-219 Kha'Zix, Mutating Horror: the 'if an enemy unit is alone here' condition resolves its " +
+    "sameLocationAs anchor through the production host query (the reference kernel and EngineRuntimeHost " +
+    "currently only compare zone/type/owner/controller)"
 );

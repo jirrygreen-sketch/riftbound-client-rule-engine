@@ -21,13 +21,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   battlefield" uses the merged source-location expression over the captured
  *   trigger source, rather than the source object's later live location.
  *
- * Status: judge-required (re-verified against the merged sources). The remaining gap
- * is the object-moved event vocabulary and the Destination payload: the closed
- * EVENT_PATTERN_TYPES (events/trigger-spec.ts) has no "object-moved" spelling even
- * though the timing point exists, and programs/filters.ts rejects the Destination
- * gate outright (translateTriggerFilter throws ProgramBindingError "Unsupported
- * filter field movedToBattlefield"). action-adapter.ts also emits object-moved
- * without fromKind/toKind/fromLocationId/toLocationId, so no matcher could test the
+ * Status: judge-required (re-verified against the merged sources, 2026-10-17). The
+ * remaining gap is the object-moved event vocabulary and the Destination payload:
+ * the closed EVENT_PATTERN_TYPES (events/trigger-spec.ts) has no "object-moved"
+ * spelling even though the timing point exists, and validateTriggerSpec rejects the
+ * registration with invalid-event-type. The Destination gate is now carried by the
+ * already-supported EventPattern fields (source:"self" + toZone:"battlefield")
+ * instead of the unsupported descriptive movedToBattlefield key, and the host anchor
+ * uses the preserved source: "self" spelling (the nested object: "self" form is
+ * dropped by programs/filters.ts). action-adapter.ts still emits object-moved without
+ * fromKind/toKind/fromLocationId/toLocationId, so no matcher could test the
  * Destination even after the vocabulary is extended (449.2, 359.3.f.3). The merged
  * location expression resolves the captured source snapshot, so later moves or zone
  * exits do not redirect this instruction (359.3.f.3). The original optional body has
@@ -39,9 +42,11 @@ export default {
   status: "judge-required",
   judgeReason:
     "仍缺 object-moved 触发的生产绑定（CR 449.2、359.3.f.3）：封闭 EVENT_PATTERN_TYPES 未收录 object-moved" +
-    "（validateTriggerSpec 以 invalid-event-type 拒绝该订阅）；programs/filters.ts 的 translateTriggerFilter 对目的地限制抛 " +
-    "ProgramBindingError（Unsupported filter field movedToBattlefield）；同时 action-adapter.ts 的 object-moved 发射不带 " +
-    "fromKind/toKind/fromLocationId/toLocationId，即使补上词汇也没有可匹配的目的地载荷。" +
+    "（validateTriggerSpec 以 invalid-event-type 拒绝该订阅）；目的地闸门已改用已支持的事件模式字段 " +
+    "source:\"self\" + toZone:\"battlefield\"（translateTriggerFilter 实测能保留宿主 objectId 与 toZone），" +
+    "原来的描述性 movedToBattlefield 键只被 translateObjectFilter 拒绝、无法表达目的地。" +
+    "action-adapter.ts 的 object-moved 发射仍不带 fromKind/toKind/fromLocationId/toLocationId，" +
+    "即使补上词汇也没有可匹配的 toZone 载荷。" +
     "选中的敌方单位、源快照捕获（359.3.f.3）与 effect.move 本体已有真实执行证据。",
   abilities: [
     {
@@ -50,13 +55,12 @@ export default {
         at: "object-moved",
         filter: {
           event: "object-moved",
-          filter: {
-            // “When I move”：事件对象是本卡。
-            object: "self",
-            // “to a battlefield”：目的地种类必须为战场（449.2）；事件载荷未填充，
-            // 该键是描述性占位（见 judgeReason 第 1 点）。
-            movedToBattlefield: true
-          }
+          // “When I move”：事件对象是本卡。用被 translateTriggerFilter 保留的
+          // source: "self" 拼写，嵌套 object: "self" 会被静默丢弃。
+          source: "self",
+          // “to a battlefield”：目的地种类必须为战场（449.2）。用已支持的 EventPattern
+          // toZone 字段表达；生产 object-moved 发射未填充该载荷，因此仍需词汇 + 载荷接线。
+          toZone: "battlefield"
         }
       },
       optional: true,
