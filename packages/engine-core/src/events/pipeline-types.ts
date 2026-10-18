@@ -8,6 +8,8 @@ import type { TargetFinalizeOptions, TargetRequirement } from '../target/target-
 export interface TimingEmission {
   readonly timingPoint: TimingPointId;
   readonly kind?: string;
+  /** Identity of the atomic action batch that produced this emission. */
+  readonly batchId?: string;
   readonly object?: ObjectSnapshot;
   readonly source?: ObjectSnapshot;
   readonly target?: ObjectSnapshot;
@@ -20,6 +22,33 @@ export interface TimingEmission {
   readonly simultaneousGroup?: string;
 }
 export type PipelineEvent = GameEvent & TimingEmission & { readonly action?: GameAction; readonly eventId: number };
+
+export type TriggerRuleMode = 'additional' | 'multiply' | 'suppress';
+
+export interface TriggerRuleContext {
+  readonly registration: TriggerRegistration;
+  readonly source: ObjectSnapshot;
+  /** The live incarnation of the rule source, when the rule has one. */
+  readonly ruleSource?: ObjectSnapshot;
+  readonly controller: PlayerId;
+  readonly event: PipelineEvent;
+}
+
+/**
+ * A collection-stage rule.  Rules are deliberately expressed as predicates
+ * over the authoritative trigger snapshot rather than card text so unknown
+ * printed semantics remain judge-required until their adapter is proven.
+ */
+export interface TriggerRule {
+  readonly id: string;
+  readonly mode: TriggerRuleMode;
+  readonly source?: ObjectSnapshot;
+  readonly activeZones?: readonly string[];
+  readonly delayed?: boolean;
+  readonly boundToIncarnation?: boolean;
+  readonly amount?: number | ((context: TriggerRuleContext) => number);
+  readonly matches: (context: TriggerRuleContext) => boolean;
+}
 
 export interface TriggerRegistration {
   readonly id: string;
@@ -37,6 +66,8 @@ export interface TriggerRegistration {
   readonly targets?: readonly { readonly requirement: TargetRequirement; readonly options?: Omit<TargetFinalizeOptions, 'isPending' | 'onTargetsFinalized' | 'onTargeted' | 'taxAdapter'> }[];
   readonly boundToIncarnation?: boolean;
   readonly expiresAt?: TimingPointId;
+  /** Optional explicit cap for a once scope; omitted means one occurrence. */
+  readonly maxPerScope?: number;
 }
 export interface TriggerSnapshot {
   readonly registration: TriggerRegistration;
@@ -44,6 +75,10 @@ export interface TriggerSnapshot {
   readonly controller: PlayerId;
   readonly event: PipelineEvent;
   readonly frequencyKey: string | null;
+  readonly frequencyLimit?: number;
+  readonly occurrence?: number;
+  readonly multiplicity?: number;
+  readonly batchId?: string;
 }
 export interface ActionExecution {
   readonly outcome: ActionOutcome;

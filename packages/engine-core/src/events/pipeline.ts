@@ -2,14 +2,22 @@ import type { ActionOutcome, GameAction, ObjectSnapshot, PlayerId } from '../eff
 import { getTimingPoint } from './timing-points.js';
 import { matchesTriggerEvent } from './pipeline-match.js';
 import { assertTriggerSpec } from './trigger-spec.js';
-import type { ActionExecution, PipelineClock, PipelineEvent, PipelineHost, ReplacementRegistration, TimingEmission, TriggerRegistration, TriggerSnapshot } from './pipeline-types.js';
+import type { ActionExecution, PipelineClock, PipelineEvent, PipelineHost, ReplacementRegistration, TimingEmission, TriggerRegistration, TriggerRule, TriggerRuleContext, TriggerSnapshot } from './pipeline-types.js';
 import { evaluateCondition } from '../effects/interpreter/condition.js';
 import { MissingInformation } from '../effects/interpreter/values.js';
+import { bindEventHistory } from '../effects/interpreter/expr-ext/event-history.js';
+import { resolveRuleAmount } from './trigger-rules/index.js';
 
-function evaluateTriggerCondition(host: PipelineHost, registration: TriggerRegistration, event: PipelineEvent, source: ObjectSnapshot): boolean {
+function evaluateTriggerCondition(
+  pipeline: { readonly events: readonly PipelineEvent[] },
+  host: PipelineHost,
+  registration: TriggerRegistration,
+  event: PipelineEvent,
+  source: ObjectSnapshot,
+): boolean {
   const condition = registration.spec.condition;
   if (condition === undefined) return true;
-  const context = host.context(source, registration.controller, event.timingPoint);
+  const context = bindEventHistory(host.context(source, registration.controller, event.timingPoint), pipeline);
   return evaluateCondition(condition as unknown as import("@riftbound/card-dsl").Condition, {
     context,
     event,
@@ -25,9 +33,11 @@ export class EventPipeline {
   private log: PipelineEvent[] = [];
   private triggers = new Map<string, TriggerRegistration>();
   private replacements = new Map<string, ReplacementRegistration>();
-  private consumed = new Set<string>();
+  private consumed = new Map<string, number>();
   private replacementUses = new Set<string>();
+  private rules = new Map<string, TriggerRule>();
   private sequence = 0;
+  private batchSequence = 0;
   private scanQueue: PipelineEvent[] = [];
   private scanning = false;
   private suspended = 0;
@@ -45,43 +55,75 @@ export class EventPipeline {
     this.triggers.set(registration.id, structuredClone(registration));
   }
   unregisterTrigger(id: string): void { this.triggers.delete(id); }
+  registerTriggerRule(rule: TriggerRule): void {
+    if (!rule.id || rule.id.trim().length === 0) throw new TypeError('Trigger rule id must be non-empty');
+    if (this.rules.has(rule.id)) throw new Error(`Duplicate trigger rule ${rule.id}`);
+    this.rules.set(rule.id, rule);
+  }
+  unregisterTriggerRule(id: string): void { this.rules.delete(id); }
+  /** Alias used by adapters that distinguish multiplicity from suppression. */
+  registerMultiplicityRule(rule: TriggerRule): void {
+    if (rule.mode !== 'additional' && rule.mode !== 'multiply') throw new TypeError('Multiplicity rule must add or multiply triggers');
+    this.registerTriggerRule(rule);
+  }
+  registerSuppressionRule(rule: TriggerRule): void {
+    if (rule.mode !== 'suppress') throw new TypeError('Suppression rule must suppress triggers');
+    this.registerTriggerRule(rule);
+  }
   registerReplacement(registration: ReplacementRegistration): void {
     if (this.replacements.has(registration.id)) throw new Error(`Duplicate replacement ${registration.id}`);
     this.replacements.set(registration.id, registration);
   }
-  private frequencyKey(registration: TriggerRegistration, source: ObjectSnapshot): string | null {
+  private frequencyKey(registration: TriggerRegistration, source: ObjectSnapshot, event: PipelineEvent): string | null {
     const scope = registration.spec.once;
     if (!scope) return null;
-    const value = scope === 'per-game' ? 'game' : scope === 'per-object' ? `${source.ref.id}:${source.ref.zoneEntryId}` : this.clock[scope.slice(4) as keyof PipelineClock];
+    const value = scope === 'per-game' ? 'game' :
+      scope === 'per-object' ? `${source.ref.id}:${source.ref.zoneEntryId}` :
+      scope === 'per-batch' ? (event.batchId ?? `event:${event.eventId}`) :
+      this.clock[scope.slice(4) as keyof PipelineClock];
     return JSON.stringify([registration.id, source.ref, scope, value]);
   }
   consume(snapshot: TriggerSnapshot): boolean {
     if (snapshot.frequencyKey === null) return true;
-    if (this.consumed.has(snapshot.frequencyKey)) return false;
-    this.consumed.add(snapshot.frequencyKey);
+    const limit = snapshot.frequencyLimit ?? 1;
+    const used = this.consumed.get(snapshot.frequencyKey) ?? 0;
+    if (used >= limit) return false;
+    this.consumed.set(snapshot.frequencyKey, used + 1);
     return true;
   }
   checkpoint() {
-    return { log: [...this.log], triggers: new Map(this.triggers), consumed: new Set(this.consumed), replacementUses: new Set(this.replacementUses), sequence: this.sequence, scanQueue: [...this.scanQueue], clock: { ...this.clock }, turnPlayer: this.turnPlayer };
+    return { log: [...this.log], triggers: new Map(this.triggers), replacements: new Map(this.replacements), rules: new Map(this.rules), consumed: new Map(this.consumed), replacementUses: new Set(this.replacementUses), sequence: this.sequence, batchSequence: this.batchSequence, scanQueue: [...this.scanQueue], clock: { ...this.clock }, turnPlayer: this.turnPlayer };
   }
   restore(state: ReturnType<EventPipeline['checkpoint']>): void {
-    this.log = state.log; this.triggers = state.triggers; this.consumed = state.consumed; this.replacementUses = state.replacementUses; this.sequence = state.sequence; this.scanQueue = state.scanQueue;
+    this.log = state.log; this.triggers = state.triggers; this.replacements = state.replacements; this.rules = state.rules; this.consumed = state.consumed; this.replacementUses = state.replacementUses; this.sequence = state.sequence; this.batchSequence = state.batchSequence; this.scanQueue = state.scanQueue;
     Object.assign(this.clock, state.clock); this.turnPlayer = state.turnPlayer;
   }
   /** Timings from rules modules and committed actions share exactly one scanner. */
   emit(emission: TimingEmission, action?: GameAction): PipelineEvent {
-    getTimingPoint(emission.timingPoint);
-    if (emission.timingPoint === 'turn-start') this.clock.turn++;
-    if (emission.timingPoint === 'combat-start') this.clock.combat++;
-    if (emission.timingPoint === 'showdown-open') this.clock.showdown++;
-    if (['awaken-start', 'beginning-start', 'channel-start', 'draw-start', 'main-start', 'turn-end'].includes(emission.timingPoint)) this.clock.phase++;
-    const event: PipelineEvent = Object.freeze(structuredClone({ type: 'task-resolved' as const, seq: this.sequence + 1, eventId: ++this.sequence, turnNumber: this.clock.turn, activePlayerId: this.turnPlayer, taskId: `pipeline:${this.sequence}`, sourceCardId: emission.source?.cardId ?? emission.object?.cardId ?? '', reason: emission.kind ?? emission.timingPoint, autoResolved: true as const, ...emission, ...(action ? { action } : {}) }));
-    this.log.push(event);
-    this.onEvent?.(event);
-    this.scanQueue.push(event);
-    this.drain();
-    return event;
+    return this.emitBatch([emission], action)[0]!;
   }
+  /** Publish one atomic wave. All emitted timings share one batch identity. */
+  emitBatch(emissions: readonly TimingEmission[], action?: GameAction, batchId?: string): readonly PipelineEvent[] {
+    if (emissions.length === 0) return [];
+    const sharedBatchId = emissions.find(emission => emission.batchId !== undefined)?.batchId ?? emissions.find(emission => emission.simultaneousGroup !== undefined)?.simultaneousGroup;
+    const resolvedBatchId = batchId ?? sharedBatchId ?? this.nextBatchId();
+    const events: PipelineEvent[] = [];
+    for (const [batchIndex, emission] of emissions.entries()) {
+      getTimingPoint(emission.timingPoint);
+      if (emission.timingPoint === 'turn-start') this.clock.turn++;
+      if (emission.timingPoint === 'combat-start') this.clock.combat++;
+      if (emission.timingPoint === 'showdown-open') this.clock.showdown++;
+      if (['awaken-start', 'beginning-start', 'channel-start', 'draw-start', 'main-start', 'turn-end'].includes(emission.timingPoint)) this.clock.phase++;
+      const event: PipelineEvent = Object.freeze(structuredClone({ type: 'task-resolved' as const, seq: this.sequence + 1, eventId: ++this.sequence, turnNumber: this.clock.turn, activePlayerId: this.turnPlayer, taskId: `pipeline:${this.sequence}`, sourceCardId: emission.source?.cardId ?? emission.object?.cardId ?? '', reason: emission.kind ?? emission.timingPoint, autoResolved: true as const, ...emission, batchId: resolvedBatchId, batchIndex, batchSize: emissions.length, ...(action ? { action } : {}) }));
+      events.push(event);
+      this.log.push(event);
+      this.onEvent?.(event);
+      this.scanQueue.push(event);
+    }
+    this.drain();
+    return events;
+  }
+  private nextBatchId(): string { return `pipeline-batch:${++this.batchSequence}`; }
   private drain(): void {
     if (!this.scanning && !this.suspended) {
       this.scanning = true;
@@ -89,7 +131,10 @@ export class EventPipeline {
         let scans = 0;
         while (this.scanQueue.length) {
           if (++scans > 10000) throw new Error('Trigger cascade exceeded the rules-task budget');
-          const wave = this.scanQueue.splice(0);
+          const first = this.scanQueue[0]!;
+          let end = 1;
+          while (end < this.scanQueue.length && this.scanQueue[end]!.batchId === first.batchId) end++;
+          const wave = this.scanQueue.splice(0, end);
           this.scan(wave);
           for (const next of wave) for (const [id, registration] of this.triggers) if (registration.expiresAt === next.timingPoint) this.triggers.delete(id);
         }
@@ -106,7 +151,7 @@ export class EventPipeline {
     const events: PipelineEvent[] = [];
     for (const group of groups.values()) {
       this.suspended++;
-      try { for (const emission of group) events.push(this.emit(emission, action)); }
+      try { events.push(...this.emitBatch(group, action)); }
       finally { this.suspended--; }
       this.drain();
     }
@@ -121,6 +166,7 @@ export class EventPipeline {
   }
   private scan(events: readonly PipelineEvent[]): void {
     const hits: TriggerSnapshot[] = [];
+    const collected = new Map<string, number>();
     for (const event of events) {
     for (const registration of this.triggers.values()) {
       if (registration.spec.at !== event.timingPoint) continue;
@@ -134,22 +180,29 @@ export class EventPipeline {
       const controller = registration.delayed ? registration.controller : captured.controller;
       if (!matchesTriggerEvent(registration.spec.filter, event, controller)) continue;
       if (registration.spec.condition) {
-        if (this.host.testTrigger) {
-          try {
-            if (!this.host.testTrigger(registration, event, captured)) continue;
-          } catch (error) {
-            // Older host adapters evaluated only the live object context.  A
-            // predicate that needs the immutable event payload can therefore
-            // surface MissingInformation; retry through the canonical event-
-            // aware evaluator instead of dropping the trigger wave.
-            if (!(error instanceof MissingInformation)) throw error;
-            if (!evaluateTriggerCondition(this.host, registration, event, captured)) continue;
-          }
-        } else if (!evaluateTriggerCondition(this.host, registration, event, captured)) continue;
+        try {
+          // The pipeline evaluator has the captured source, immutable event,
+          // and relative-player context.  A legacy host hook is only a fallback
+          // for conditions that genuinely need host-specific information.
+          if (!evaluateTriggerCondition(this, this.host, registration, event, captured)) continue;
+        } catch (error) {
+          if (!(error instanceof MissingInformation) || !this.host.testTrigger) throw error;
+          if (!this.host.testTrigger(registration, event, captured)) continue;
+        }
       }
-      const frequencyKey = this.frequencyKey(registration, captured);
-      if (frequencyKey !== null && this.consumed.has(frequencyKey)) continue;
-      hits.push({ registration, source: captured, controller, event, frequencyKey });
+      const frequencyKey = this.frequencyKey(registration, captured, event);
+      const frequencyLimit = registration.maxPerScope ?? (registration.spec.once === undefined ? undefined : 1);
+      if (frequencyKey !== null && (this.consumed.get(frequencyKey) ?? 0) >= (frequencyLimit ?? 1)) continue;
+      const context: TriggerRuleContext = { registration, source: captured, controller, event };
+      const effect = this.triggerRuleEffect(context);
+      if (effect.suppressed) continue;
+      const alreadyCollected = frequencyKey === null ? 0 : collected.get(frequencyKey) ?? 0;
+      const remaining = frequencyKey === null ? effect.multiplicity : Math.max(0, (frequencyLimit ?? 1) - alreadyCollected);
+      const copies = Math.min(effect.multiplicity, remaining);
+      for (let occurrence = 0; occurrence < copies; occurrence++) {
+        hits.push({ registration, source: captured, controller, event, frequencyKey, frequencyLimit, occurrence, multiplicity: effect.multiplicity, batchId: event.batchId });
+        if (frequencyKey !== null) collected.set(frequencyKey, alreadyCollected + occurrence + 1);
+      }
     }
     }
     const start = this.turnOrder.indexOf(this.turnPlayer);
@@ -175,6 +228,26 @@ export class EventPipeline {
       }
       for (const hit of own) this.onTrigger(structuredClone(hit));
     }
+  }
+  private triggerRuleEffect(context: TriggerRuleContext): { readonly suppressed: boolean; readonly multiplicity: number } {
+    let multiplicity = 1;
+    const rules = [...this.rules.values()].sort((left, right) => left.id.localeCompare(right.id));
+    for (const rule of rules) {
+      let ruleSource: ObjectSnapshot | undefined;
+      if (rule.source !== undefined) {
+        const current = this.host.objects().find(object => object.ref.id === rule.source!.ref.id);
+        const source = current ?? context.event.object;
+        if (rule.boundToIncarnation && source?.ref.zoneEntryId !== rule.source.ref.zoneEntryId) continue;
+        if (!rule.delayed && (!source || !(rule.activeZones ?? ['board']).includes(source.zone))) continue;
+        ruleSource = source;
+      }
+      if (!rule.matches({ ...context, ...(ruleSource === undefined ? {} : { ruleSource }) })) continue;
+      if (rule.mode === 'suppress') return { suppressed: true, multiplicity: 0 };
+      const amount = resolveRuleAmount(rule, context);
+      multiplicity = rule.mode === 'additional' ? multiplicity + amount : multiplicity * amount;
+      if (!Number.isSafeInteger(multiplicity) || multiplicity < 0) throw new RangeError(`Invalid trigger multiplicity after ${rule.id}`);
+    }
+    return { suppressed: false, multiplicity };
   }
   commit(action: GameAction): ActionOutcome {
     const checkpoint = this.host.checkpoint(), own = this.checkpoint();

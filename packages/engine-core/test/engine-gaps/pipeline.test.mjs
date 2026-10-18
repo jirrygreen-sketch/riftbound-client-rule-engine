@@ -1,0 +1,178 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { fixture, trigger, resolveAll } from '../chain/helpers.mjs';
+import {
+  additionalTriggerRule,
+  createTriggerRuleStaticBinder,
+  suppressTriggerRule,
+  triggerRuleFromStaticEffect,
+} from '../../dist/events/trigger-rules/index.js';
+import { createProgramBinding } from '../../dist/programs/index.js';
+import frigidJewel from '../../../card-dsl/dist/cards/unl/frigid-jewel.js';
+import karthusEternal from '../../../card-dsl/dist/cards/ogn/karthus-eternal.js';
+
+test('EG-PIPELINE: one per-batch trigger is collected for an atomic multi-object draw, then a new batch is independent', () => {
+  const f = fixture();
+  trigger(f, 'once-per-batch', { body: [], spec: { at: 'card-drawn', once: 'per-batch' } });
+
+  f.engine.commit({ type: 'draw', player: 'A', amount: 2 });
+  assert.equal(f.engine.items.length, 1);
+  assert.equal(f.engine.items[0].trigger.batchId, f.engine.pipeline.events.find(event => event.timingPoint === 'card-drawn').batchId);
+
+  f.engine.advance();
+  resolveAll(f.engine);
+  f.engine.commit({ type: 'draw', player: 'A', amount: 1 });
+  assert.equal(f.engine.items.length, 1);
+  assert.notEqual(f.engine.items[0].trigger.batchId, f.engine.pipeline.events[0].batchId);
+});
+
+test('EG-PIPELINE: relative player filtering uses the authoritative event player', () => {
+  const f = fixture();
+  trigger(f, 'self-score', { body: [], spec: { at: 'score', filter: { event: 'scored', player: 'self' } } });
+  trigger(f, 'opponent-score', { body: [], spec: { at: 'score', filter: { event: 'scored', player: 'opponent' } } });
+
+  f.engine.pipeline.emitBatch([{ timingPoint: 'score', kind: 'scored', player: 'A', amount: 1 }]);
+  assert.deepEqual(f.engine.items.map(item => item.trigger.registration.id), ['self-score']);
+  f.engine.advance();
+  resolveAll(f.engine);
+  f.engine.pipeline.emitBatch([{ timingPoint: 'score', kind: 'scored', player: 'B', amount: 1 }]);
+  assert.deepEqual(f.engine.items.map(item => item.trigger.registration.id), ['opponent-score']);
+});
+
+test('EG-PIPELINE: collection-stage multiplicity creates independent pending items', () => {
+  const f = fixture({ choose: request => request.type === 'mode' ? request.options.at(-1) : undefined });
+  trigger(f, 'amplified', { body: [], spec: { at: 'card-drawn' } });
+  f.engine.pipeline.registerMultiplicityRule(additionalTriggerRule({
+    id: 'test-amplifier',
+    matches: ({ event }) => event.timingPoint === 'card-drawn' && event.player === 'A',
+  }));
+
+  f.engine.commit({ type: 'draw', player: 'A', amount: 1 });
+  assert.equal(f.engine.items.length, 2);
+  assert.deepEqual(f.engine.items.map(item => item.trigger.registration.id), ['amplified', 'amplified']);
+  assert.deepEqual(f.engine.items.map(item => item.trigger.multiplicity), [2, 2]);
+});
+
+test('EG-PIPELINE: source-scoped suppression follows zone lifecycle and is collected before chain entry', () => {
+  const f = fixture();
+  trigger(f, 'temporary', { body: [], activeZones: ['board', 'hand'], spec: { at: 'card-drawn' } });
+  f.engine.pipeline.registerSuppressionRule(suppressTriggerRule({
+    id: 'test-suppression',
+    source: f.kernel.getObject('source'),
+    activeZones: ['board'],
+    matches: ({ registration, event }) => registration.id === 'temporary' && event.timingPoint === 'card-drawn',
+  }));
+
+  f.engine.commit({ type: 'draw', player: 'A', amount: 1 });
+  assert.equal(f.engine.items.length, 0);
+
+  f.engine.commit({ type: 'move-zone', object: f.kernel.ref('source'), to: 'hand' });
+  f.engine.pipeline.emitBatch([{ timingPoint: 'card-drawn', player: 'A', amount: 1 }]);
+  assert.equal(f.engine.items.length, 1);
+});
+
+test('EG-PIPELINE: malformed trigger ordering rolls back events, frequency usage, and dynamic rules', () => {
+  const f = fixture({ choose: request => request.type === 'mode' ? 'missing' : undefined });
+  trigger(f, 'one', { body: [], spec: { at: 'turn-end', once: 'per-turn' } });
+  trigger(f, 'two', { body: [], spec: { at: 'turn-end' } });
+  f.engine.pipeline.registerTriggerRule(additionalTriggerRule({
+    id: 'rollback-rule',
+    matches: ({ event }) => event.timingPoint === 'turn-end',
+  }));
+
+  assert.throws(() => f.engine.emit({ timingPoint: 'turn-end' }), /Invalid trigger order/);
+  assert.equal(f.engine.pipeline.events.length, 0);
+  assert.equal(f.engine.items.length, 0);
+
+  // The rule remains registered after a failed action checkpoint, while the
+  // failed batch and its once reservation do not.
+  const before = f.engine.pipeline.events.length;
+  f.engine.pipeline.unregisterTrigger('two');
+  f.engine.emit({ timingPoint: 'turn-end' });
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === 'turn-end').length, 1);
+  assert.equal(f.engine.items.length, 1);
+});
+
+test('EG-PIPELINE: original Frigid Jewel IR reaches the production binding and fires once for a two-card draw', () => {
+  const program = { ...frigidJewel, status: 'executable', judgeReason: undefined };
+  const f = fixture({
+    choose: request => {
+      if (request.type === 'select-objects' && request.id === 'target:frigid-jewel.friendly-unit') {
+        return [request.options.find(option => option.id === 'ally')];
+      }
+      return undefined;
+    },
+  });
+  f.kernel.addObject({
+    ...f.kernel.getObject('source'),
+    ref: { id: 'jewel', zoneEntryId: 1 },
+    cardId: program.canonicalCardId,
+    types: ['gear'],
+    zone: 'board',
+    location: { type: 'base', player: 'A' },
+  }, 'board');
+  f.kernel.addObject({
+    ...f.kernel.getObject('source'),
+    ref: { id: 'ally', zoneEntryId: 1 },
+    cardId: 'card:ally',
+    types: ['unit'],
+    zone: 'board',
+    location: { type: 'base', player: 'A' },
+  }, 'board');
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  assert.deepEqual(binding.registerProgramTriggers(f.engine, f.kernel.getObject('jewel')), ['program:jewel:1:0']);
+
+  assert.equal(f.engine.commit({ type: 'draw', player: 'A', amount: 2 }).status, 'done');
+  assert.equal(f.engine.items.length, 1);
+  assert.equal(f.engine.items[0].trigger.registration.id, 'program:jewel:1:0');
+  assert.equal(f.engine.items[0].trigger.batchId, f.engine.pipeline.events.find(event => event.timingPoint === 'card-drawn').batchId);
+
+  f.engine.advance();
+  resolveAll(f.engine);
+  assert.equal(f.kernel.continuousEffects.length, 1);
+  assert.deepEqual(f.kernel.continuousEffects[0].effect.filter.objectId, 'ally');
+  assert.deepEqual(program.abilities, frigidJewel.abilities);
+  assert.equal(frigidJewel.status, 'judge-required');
+});
+
+test('EG-PIPELINE: raw static multiplicity IR binds at entry and unbinds at exit', () => {
+  const f = fixture();
+  const source = f.kernel.getObject('source');
+  const rule = triggerRuleFromStaticEffect(karthusEternal.abilities[0].effect, source);
+  assert.equal(rule.mode, 'additional');
+  assert.equal(rule.amount, 1);
+  const binder = createTriggerRuleStaticBinder(f.engine.pipeline);
+  const handle = binder.bindStatic(karthusEternal.abilities[0], source);
+  assert.equal(f.engine.pipeline.rules.size, 1);
+  handle.unbind();
+  assert.equal(f.engine.pipeline.rules.size, 0);
+});
+
+test('EG-PIPELINE: evidence-backed static multiplicity applies only to matching Deathknell triggers', () => {
+  const f = fixture({ choose: request => request.type === 'mode' ? request.options.at(-1) : undefined });
+  const source = f.kernel.getObject('source');
+  const rule = triggerRuleFromStaticEffect({
+    kind: 'continuous.trigger-multiplicity',
+    mode: 'additional',
+    amount: { kind: 'constant', value: 1 },
+    appliesTo: { keyword: 'deathknell', controller: 'controller', zone: 'board' },
+  }, source);
+  f.engine.pipeline.registerTriggerRule(rule);
+  trigger(f, 'deathknell', { body: [], spec: { at: 'object-killed', filter: { objectId: 'source' } } });
+  trigger(f, 'plain', { body: [], spec: { at: 'object-killed', filter: { objectId: 'source' } } });
+  const object = { ...source, keywords: [{ id: 'Deathknell' }] };
+  f.engine.pipeline.emitBatch([{ timingPoint: 'object-killed', object, player: 'A', batchId: 'death-batch' }]);
+  assert.deepEqual(f.engine.items.map(item => item.trigger.registration.id), ['deathknell', 'deathknell']);
+});
+
+test('EG-PIPELINE: an invalid static trigger-rule shape fails closed before registration', () => {
+  const f = fixture();
+  assert.throws(() => triggerRuleFromStaticEffect({
+    kind: 'continuous.trigger-multiplicity',
+    mode: 'additional',
+    amount: { kind: 'constant', value: 1 },
+    appliesTo: { keyword: 'deathknell', unsupported: true },
+  }, f.kernel.getObject('source')), /Unsupported static trigger appliesTo field unsupported/);
+  assert.equal(f.engine.pipeline.rules.size, 0);
+});
+
