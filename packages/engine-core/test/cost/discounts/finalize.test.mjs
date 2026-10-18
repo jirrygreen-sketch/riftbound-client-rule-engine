@@ -57,10 +57,18 @@ test('Herald of Scales discounts Dragon cards by tag and honors only its own min
 });
 
 test('Production Surge uses a real friendly Mech predicate and does not count an enemy Mech', () => {
-  const ctx = ctxFrom(world().hand('card', { types: ['spell'], energy: 3, power: [] }).unit('mech', { tags: ['Mech'] }));
+  const ctx = ctxFrom(world()
+    .hand('card', { types: ['spell'], energy: 3, power: [] })
+    .unit('mech', { tags: ['Mech'] })
+    .hand('hand-mech', { types: ['unit'], tags: ['Mech'] })
+    .card('trash-mech', { types: ['unit'], tags: ['Mech'], zone: 'trash' })
+    .deck('deck-mech', { types: ['unit'], tags: ['Mech'] }));
   const sources = staticsFor(ctx, surge, 'card');
   assert.equal(build(ctx, sources).total.energy, 1);
   assert.equal(ctx.perform({ type: 'take-control', object: ctx.ref('mech'), player: 'B' }).status, 'done');
+  assert.equal(build(ctx, sources).total.energy, 3);
+  assert.equal(ctx.perform({ type: 'take-control', object: ctx.ref('mech'), player: 'A' }).status, 'done');
+  assert.equal(ctx.perform({ type: 'return-to-hand', object: ctx.ref('mech') }).status, 'done');
   assert.equal(build(ctx, sources).total.energy, 3);
 });
 

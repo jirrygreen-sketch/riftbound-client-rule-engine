@@ -117,9 +117,15 @@ export function evaluateCostValue(value: unknown, env: CostEnvironment): Value {
       }
       const subjectTypes: Record<string, string | null> = { objects: null, cards: null, units: 'unit', gear: 'gear', gears: 'gear', runes: 'rune' };
       if (typeof expr.subject !== 'string' || !Object.hasOwn(subjectTypes, expr.subject)) blocked(`Unsupported cost count subject ${String(expr.subject)}`);
+      const filter = record(literal(expr.filter ?? {}));
+      // CR 356.4 conditions that count live permanents inspect the current
+      // board by default. An explicit zone remains authoritative (for
+      // example, Rhasa's cards in your trash).
+      const scopedFilter = (expr.subject === 'units' || expr.subject === 'gear' || expr.subject === 'gears') &&
+        !Object.hasOwn(filter, 'zone') ? { ...filter, zone: 'board' } : filter;
       return env.ctx.query({}).filter(object =>
         (subjectTypes[expr.subject as string] === null || object.types.includes(subjectTypes[expr.subject as string]!)) &&
-        (expr.subject !== 'cards' || !object.isToken) && matchesCostFilter(expr.filter ?? {}, object, env)
+        (expr.subject !== 'cards' || !object.isToken) && matchesCostFilter(scopedFilter, object, env)
       ).length;
     }
     case 'object-property': case 'object-attribute': {

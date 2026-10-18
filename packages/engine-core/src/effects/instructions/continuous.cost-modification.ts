@@ -6,7 +6,7 @@
  */
 import type { ContinuousEffectSpec, InstructionDef, InstructionResult, ObjectFilter, ResolveContext } from '../contract.js';
 import { continuousId, isExpression } from '../../layers/rules/registration.js';
-import { isDurationAlias, resolveContinuousDuration } from '../../layers/ops/index.js';
+import { isDurationAlias, resolveContinuousDuration, settlementIdentity } from '../../layers/ops/index.js';
 import { asValue } from '../interpreter/values.js';
 import { blocked, literal, matchesCostFilter, record } from '../../cost/discounts/values.js';
 
@@ -56,6 +56,19 @@ function bindFilter(ctx: ResolveContext, value: unknown): Record<string, unknown
   return filter;
 }
 
+function registerWithUniqueId(ctx: ResolveContext, spec: ContinuousEffectSpec, duration: Parameters<ResolveContext['addContinuous']>[1]): ContinuousEffectSpec {
+  let candidate = spec;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      ctx.addContinuous(candidate, duration);
+      return candidate;
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.startsWith('Continuous effect already registered:')) throw error;
+      candidate = { ...spec, id: `${spec.id}:retry-${attempt + 1}` };
+    }
+  }
+}
+
 const definition = {
   op: 'continuous.cost-modification',
   argsSchema: { parse },
@@ -86,7 +99,14 @@ const definition = {
     if (typeof scope === 'string' && !['play-cost', 'spell-play-cost', 'activated-ability-cost', 'self', 'source', 'self-play-cost'].includes(scope)) blocked('Unknown continuous cost scope');
     const appliesTo = typeof scope === 'object' && scope !== null ? bindFilter(ctx, scope) : scope;
     if (typeof scope !== 'string' && (scope === null || typeof scope !== 'object' || Array.isArray(scope))) blocked('Continuous cost scope must be a supported name or object filter');
-    const filter = bindFilter(ctx, args.filter === undefined ? { controller: ctx.controller } : read(ctx, args.filter));
+    // An explicit appliesTo object already names the affected player/object;
+    // adding the default controller filter would make cross-player taxes and
+    // increases impossible to reach. Keep the friendly default only when the
+    // caller supplied neither scope nor filter.
+    const filter = bindFilter(ctx,
+      args.filter === undefined && args.appliesTo === undefined
+        ? { controller: ctx.controller }
+        : args.filter === undefined ? {} : read(ctx, args.filter));
     if (targets !== undefined) filter.objectRefs = targets;
     const env = { ctx, source: ctx.source };
     matchesCostFilter(filter, ctx.source, env);
@@ -105,12 +125,19 @@ const definition = {
     };
     const instance = args.instanceId === undefined ? undefined : asValue(read(ctx, args.instanceId));
     if (instance !== undefined && (typeof instance !== 'string' || !instance.trim())) blocked('Cost modifier instanceId must be a nonempty string');
+    const settlement = settlementIdentity(
+      ctx.source.ref,
+      'continuous.cost-modification',
+      key => ctx.linked(key),
+      (key, value) => ctx.link(key, value),
+      instance as string | undefined,
+    );
     const spec: ContinuousEffectSpec = {
-      id: continuousId('continuous-cost-modification', ctx, instance, { effect, filter, duration }),
+      id: continuousId('continuous-cost-modification', ctx, settlement, { effect, filter, duration }),
       layer: 'arithmetic', source: ctx.source.ref, filter: asValue(filter) as ObjectFilter, effect
     };
-    ctx.addContinuous(spec, duration);
-    ctx.link('registered', { id: spec.id });
+    const registered = registerWithUniqueId(ctx, spec, duration);
+    ctx.link('registered', { id: registered.id });
     return { status: 'executed', events: [] };
   }
 } satisfies InstructionDef<ContinuousCostModificationArgs>;

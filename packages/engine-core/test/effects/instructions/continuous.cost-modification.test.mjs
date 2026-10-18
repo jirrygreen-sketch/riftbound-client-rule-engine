@@ -8,6 +8,7 @@ import { ContinuousEffectRegistry } from '../../../dist/layers/duration.js';
 import { LayerEngine } from '../../../dist/layers/engine.js';
 import { finalizeCostPlan } from '../../../dist/cost/discounts/index.js';
 import { CostPlanError } from '../../../dist/cost/plan-types.js';
+import { fixture, resolveAll } from '../../chain/helpers.mjs';
 
 const c = value => ({ kind: 'constant', value });
 const args = (values = {}) => ({ resource: c('energy'), amount: c(-2), ...values });
@@ -39,6 +40,14 @@ test('continuous.cost-modification is generated into the real registry and runs 
   assert.equal(plan(ctx, registry, 'enemy').total.energy, 3);
   assert.deepEqual(registry.expireAt({ id: 'turn-end' }, ref => ctx.object(ref)), [ctx.continuousEffects[0].effect.id]);
   assert.equal(plan(ctx, registry).total.energy, 3);
+});
+
+test('an explicit appliesTo player is not narrowed by the default source controller filter', () => {
+  const ctx = setup();
+  runInstruction(instruction, args({ amount: c(2), stage: c('increase'), appliesTo: c({ type: 'spell', controller: 'B' }) }), { world: ctx });
+  const payment = ctx.clone({ sourceSnapshot: ctx.getObject('enemy'), controller: 'B' });
+  const continuous = ctx.continuousEffects.map(({ effect, duration }, i) => ({ effect, duration, timestamp: i, sequence: i }));
+  assert.equal(finalizeCostPlan(payment, { id: 'enemy', cost: { kind: 'printed' } }, { continuous }).total.energy, 5);
 });
 
 test('lifetimes: this combat, explicit until/player, permanent, and while-source-in-zone', () => {
@@ -104,6 +113,22 @@ test('repeated registrations get distinct deterministic identities and stack wit
   assert.notEqual(ctx.continuousEffects[0].effect.id, ctx.continuousEffects[1].effect.id);
   assert.deepEqual(ctx.continuousEffects, other.continuousEffects);
   assert.equal(plan(ctx, registryOf(ctx)).total.energy, 0);
+});
+
+test('independent ChainEngine settlements receive distinct replayable registration ids', () => {
+  const settle = f => {
+    const body = [{ id: 'discount', op: 'continuous.cost-modification', args: { resource: c('energy'), amount: c(-1), duration: c('this-turn') } }];
+    for (const id of ['activation-1', 'activation-2']) {
+      f.engine.execute(f.draft(id, { body }));
+      resolveAll(f.engine);
+    }
+    return f.engine.layers.registry.list().map(entry => entry.effect.id);
+  };
+  const first = settle(fixture());
+  const replay = settle(fixture());
+  assert.equal(first.length, 2);
+  assert.notEqual(first[0], first[1]);
+  assert.deepEqual(first, replay);
 });
 
 test('Power [A] increases accept all Domains; explicit discount stage uses a positive magnitude', () => {
