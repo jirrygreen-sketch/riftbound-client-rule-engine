@@ -128,6 +128,12 @@ function assertPick(spec: PickSpec): void {
       `${spec.id} linked options require exactly one linked-value with instructionId and key`
     );
   }
+  if (linkedPickExpression(spec) !== undefined && (own(spec, "zoneSlice") || own(spec, "linked") || own(spec, "exclude"))) {
+    throw new PickSelectionError(
+      "invalid-pick",
+      `${spec.id} linked options must be the sole source; zoneSlice/linked/exclude cannot also be declared`
+    );
+  }
 }
 
 function count(value: number, label: string): number {

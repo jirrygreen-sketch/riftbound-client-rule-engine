@@ -10,7 +10,7 @@ import { ChainEngine } from "../../dist/chain/engine.js";
 import { pickSpecs } from "../../dist/chain/picks/plan.js";
 import { bindResolveContext, createActionPipelineHost } from "../../dist/events/action-adapter.js";
 import { createProgramBinding, translateInstructionTargets } from "../../dist/programs/index.js";
-import { linkedPickExpression } from "../../dist/target/picks/plan.js";
+import { linkedPickExpression, PickSelectionError, resolveNonTargetPick } from "../../dist/target/picks/plan.js";
 
 const c = value => ({ kind: "constant", value });
 const refIds = refs => refs.map(ref => ref.id);
@@ -81,9 +81,9 @@ function testObject(id, values = {}) {
   };
 }
 
-function start(f, body, sourceId = "source") {
+function start(f, body, sourceId = "source", controller = "A") {
   f.engine.enqueue({
-    id: "linked-pick-body", controller: "A", source: f.kernel.getObject(sourceId),
+    id: "linked-pick-body", controller, source: f.kernel.getObject(sourceId),
     kind: "triggered", speed: "normal", body
   });
   f.engine.advance();
@@ -134,6 +134,28 @@ test("original linked-value option shapes validate and identical repeat declarat
     const binding = createProgramBinding({ cardPrograms: [admitted] });
     assert.equal(binding.registry.inspect(program.canonicalCardId)?.status, "executable");
   }
+});
+
+test("linked options are the sole source and malformed or duplicate links fail closed", () => {
+  const f = runtime(world().player("A").base("source", { controller: "A", owner: "A" }));
+  const linked = { kind: "linked-value", instructionId: "look", key: "viewed" };
+  const valid = { id: "valid", options: [linked] };
+  const invalid = [
+    { ...valid, id: "mixed", options: [linked, "static"] },
+    { ...valid, id: "duplicate", options: [linked, linked] },
+    { ...valid, id: "incomplete", options: [{ kind: "linked-value", instructionId: "look" }] },
+    { ...valid, id: "with-slice", zoneSlice: { zone: "deck", from: "top" } },
+    { ...valid, id: "with-explicit", linked },
+    { ...valid, id: "with-exclude", exclude: { kind: "linked-value", instructionId: "used", key: "objects" } }
+  ];
+  for (const spec of invalid) {
+    assert.throws(
+      () => resolveNonTargetPick(f.kernel, spec, { phase: "resolve" }),
+      error => error instanceof PickSelectionError && error.code === "invalid-pick",
+      spec.id
+    );
+  }
+  assert.equal(f.kernel.linked("look.viewed"), undefined);
 });
 
 function ivernFixture() {
@@ -214,6 +236,32 @@ test("Ivern original IR keeps linked choice in Resolve, privately filters top th
   assert.deepEqual(replay.kernel.stateForTest(), first.kernel.stateForTest());
   assert.deepEqual(replay.kernel.linkedSnapshot(), first.kernel.linkedSnapshot());
   assert.deepEqual(timings(replay), timings(first));
+});
+
+test("the private look and linked choice remain isolated to a B-controlled ability", () => {
+  const reveal = structuredClone(ivernBody[2].args.body.value[0]);
+  const f = runtime(world()
+    .player("A")
+    .player("B")
+    .base("b-source", { controller: "B", owner: "B", might: 2 })
+    .unit("b-nurturer", { controller: "B", owner: "B", might: 4 })
+    .deck("b-top-unit", { owner: "B", types: ["unit"] })
+    .deck("b-second-gear", { owner: "B", types: ["gear"] })
+    .deck("b-third-unit", { owner: "B", types: ["unit"] }));
+  start(f, [structuredClone(ivernBody[0]), structuredClone(ivernBody[1]), reveal], "b-nurturer", "B");
+  assert.deepEqual(refIds(f.engine.items[0].pickPlans[0].refs), ["b-third-unit", "b-second-gear", "b-top-unit"]);
+  f.engine.pass(f.engine.priority);
+  const request = awaitOnResolve(f, false);
+  assert.equal(request.chooser, "B");
+  assert.equal(request.visibility, "chooser-only");
+  assert.deepEqual(refIds(request.options), ["b-third-unit", "b-top-unit"]);
+  // AwaitChoice rolls the private look back; its eventual replay must be the
+  // B-owned look represented by the locked three-card source and private pick.
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "became-target").length, 0);
+  f.answers.set(request.id, [request.options[0]]);
+  f.engine.pass(f.engine.priority);
+  finishWithoutChoices(f);
+  assert.deepEqual(refIds(f.kernel.linked("ivern-nurturer.reveal-unit-opt/ivern-nurturer.reveal-unit.revealed")), ["b-top-unit"]);
 });
 
 test("Blind Fury original reveal and linked option banish one card without a target plan", () => {

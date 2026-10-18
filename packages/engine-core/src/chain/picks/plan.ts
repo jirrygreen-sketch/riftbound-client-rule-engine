@@ -20,6 +20,15 @@ function linkedSource(spec: PickSpec): PickSpec['linked'] | undefined {
   return spec.linked ?? linkedPickExpression(spec);
 }
 
+function sourceCount(spec: PickSpec): number {
+  return Number(spec.zoneSlice !== undefined) + Number(spec.linked !== undefined) +
+    Number(linkedPickExpression(spec) !== undefined);
+}
+
+function isLinkedOptionsCompatibility(spec: PickSpec): boolean {
+  return linkedPickExpression(spec) !== undefined && spec.ordered === undefined;
+}
+
 /**
  * A pick id is one logical Resolve binding even when later instructions repeat
  * its declaration so their selectors can resolve it. Repeated declarations may
@@ -58,8 +67,8 @@ function mergeDeclarations(previous: PickSpec, next: PickSpec): PickSpec {
 
 /** Explicit sources are bindings, not player decisions or target requirements. */
 function checkSource(spec: PickSpec): void {
-  if (spec.ordered !== true || !Array.isArray(spec.options) || spec.options.length ||
-      own(spec, 'zoneSlice') === own(spec, 'linked')) {
+  if ((!isLinkedOptionsCompatibility(spec) && spec.ordered !== true) || !Array.isArray(spec.options) ||
+      (!isLinkedOptionsCompatibility(spec) && spec.options.length) || sourceCount(spec) !== 1) {
     throw new OrderedPickError(`${spec.id} requires exactly one ordered source and options: []`);
   }
   if (own(spec, 'zoneSlice') &&
@@ -82,8 +91,10 @@ export function pickSpecs(body: readonly Instruction[]): PickSpec[] {
         // IR validator. A zoneSlice/linked source without its ordered marker
         // must fail closed; silently omitting it would turn a malformed pick
         // into an empty binding.
-        if (spec.zoneSlice !== undefined || spec.linked !== undefined) {
-          if (spec.ordered !== true) throw new OrderedPickError(`${spec.id} requires ordered: true for an explicit source`);
+        if (spec.zoneSlice !== undefined || spec.linked !== undefined || linkedPickExpression(spec) !== undefined) {
+          if ((spec.zoneSlice !== undefined || spec.linked !== undefined) && spec.ordered !== true) {
+            throw new OrderedPickError(`${spec.id} requires ordered: true for an explicit source`);
+          }
           checkSource(spec);
         }
         if (repeated && spec.zoneSlice) throw new OrderedPickError('a repeated zone slice needs an iteration-specific Finalize lifecycle');
@@ -128,7 +139,7 @@ export function pickSpecs(body: readonly Instruction[]): PickSpec[] {
 
 /** The explicit ordered subset retained for the Finalize source lifecycle. */
 export function orderedPickSpecs(body: readonly Instruction[]): PickSpec[] {
-  return pickSpecs(body).filter(spec => spec.ordered === true).map(spec => {
+  return pickSpecs(body).filter(spec => spec.ordered === true || isLinkedOptionsCompatibility(spec)).map(spec => {
     checkSource(spec);
     return spec;
   });
