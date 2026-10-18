@@ -37,7 +37,9 @@ test("unl-138-219 The List: identity, ruleset, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /choice\.name/);
   assert.match(program.judgeReason, /namedTag/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /arithmetic 图层/);
+  assert.match(program.judgeReason, /本回合结束清理时到期/);
   assert.match(program.judgeReason, /setTargets/);
   assert.match(program.judgeReason, /702/);
   assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);

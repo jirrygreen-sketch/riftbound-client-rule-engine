@@ -31,7 +31,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *     eq / ne / lt / lte / gt / gte / in，无法把运行期命名的标签与对象的 tags 比较；若只写
  *     { type: "unit" } 会把「具有所命名标签」这一限制悄悄丢掉。程序里保留 namedTag: true 这一
  *     记录性键，它没有已合入消费方，仅用于可审查性。
- * (3)「-2 :rb_might: this turn」的修正本体已可执行：continuous.might 原语（RIFT-91）把
+ * (3)「-2 :rb_might: this turn」的修正本体已可执行：continuous.might 原语把
  *     本回合修正注册进 arithmetic 图层并在本回合结束清理时到期，golden 用真实解释器 +
  *     图层引擎断言目标单位 Might 下降 2。整卡仍不可执行：没有命名标签的选择原语，目标上
  *     的 namedTag 限制也没有消费方，golden 只能以 setTargets 预锁目标来覆盖已可执行的
@@ -103,7 +103,7 @@ export default {
     "(2)「the named tag」没有可求值形态：ObjectFilter 是静态字段合取、Condition 只有 eq/ne/lt/lte/gt/gte/in，" +
     "无法把运行期命名的标签与对象 tags 比较；程序保留记录性键 namedTag: true（同 rad/sirens-song 记录 movedThisTurn 的写法），" +
     "它没有已合入消费方，只为可审查性存在，不把限制改写成别的谓词。" +
-    "(3)「-2 :rb_might: this turn」的修正本体已可执行（702 / 703 的 Buff 计数器不是本效果）：continuous.might 原语（RIFT-91）" +
+    "(3)「-2 :rb_might: this turn」的修正本体已可执行（702 / 703 的 Buff 计数器不是本效果）：continuous.might 原语" +
     "已把本回合修正注册进 arithmetic 图层并在本回合结束清理时到期，golden 用真实解释器与图层引擎断言目标单位 Might 下降 2。" +
     "整卡仍不可执行：没有命名标签的选择原语，目标上的 namedTag 限制也没有消费方，" +
     "golden 只能以 setTargets 预锁目标来覆盖已可执行的修正半段。",
