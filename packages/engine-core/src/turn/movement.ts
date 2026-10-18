@@ -18,7 +18,7 @@ import {
 
 export interface StandardMoveBatchHost {
   /** Public checkpoint/restore/commit/scan surface; a ChainEngine adapts this from its pipeline. */
-  readonly pipeline: Pick<EventPipeline, 'checkpoint' | 'restore' | 'commit' | 'deferTriggerScan'>;
+  readonly pipeline: StandardMovePipelineSurface;
   /** State checkpoint/restore belonging to the same host as the pipeline. */
   readonly checkpoint: () => unknown;
   readonly restore: (checkpoint: unknown) => void;
@@ -35,6 +35,9 @@ export interface StandardMoveBatchHost {
   readonly rules?: DuelMovementRuleContext;
   readonly transactionId?: string;
 }
+
+type StandardMovePipelineSurface = Pick<EventPipeline,
+  'checkpoint' | 'restore' | 'commit' | 'deferTriggerScan' | 'events'>;
 
 export interface StandardMovePipelinePort {
   readonly checkpoint: () => unknown;
@@ -79,6 +82,15 @@ function batchAction(action: GameAction, transactionId: string, index: number): 
     batchId: transactionId,
     cause: 'standard-move',
   }) as GameAction;
+}
+
+function batchHints(action: GameAction): { readonly actionId?: string; readonly batchId?: string; readonly cause?: string } {
+  const hints = action as GameAction & { readonly actionId?: string; readonly batchId?: string; readonly cause?: string };
+  return {
+    ...(hints.actionId === undefined ? {} : { actionId: hints.actionId }),
+    ...(hints.batchId === undefined ? {} : { batchId: hints.batchId }),
+    ...(hints.cause === undefined ? {} : { cause: hints.cause }),
+  };
 }
 
 function receipt(
@@ -136,6 +148,7 @@ export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMo
 
   const hostCheckpoint = host.checkpoint();
   const pipelineCheckpoint = host.pipeline.checkpoint();
+  const beforeEvents = host.pipeline.events;
   const actions: ActionReceipt['actions'][number][] = [];
   const exhausted: ObjectRef[] = [];
   const moved: ObjectRef[] = [];
@@ -184,6 +197,7 @@ export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMo
         const movedOutcome: ActionOutcome = host.pipeline.commit(
           batchAction({ type: 'move-location', object: ref, to: host.destination }, transactionId, ++index),
         );
+        const moveActionId = `${transactionId}:${index}`;
         actions.push({ type: 'move-location', status: movedOutcome.status });
         if (movedOutcome.status !== 'done' && movedOutcome.status !== 'replaced') {
           throw new StandardMoveBatchError('move-rejected',
@@ -192,6 +206,12 @@ export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMo
         const after = host.object(unitId);
         if (after === null || after.location === null || locationId(after.location) !== locationId(host.destination)) {
           throw new StandardMoveBatchError('move-not-committed', `Move for ${unitId} did not commit its destination`);
+        }
+        const moves = host.pipeline.events.filter(event => event.timingPoint === 'object-moved' &&
+          (event.details as Record<string, unknown> | undefined)?.actionId === moveActionId);
+        if (moves.length !== 1 || moves[0]?.details?.fromLocationId === moves[0]?.details?.toLocationId ||
+          moves[0]?.details?.cause !== 'standard-move') {
+          throw new StandardMoveBatchError('move-event-invalid', `Move for ${unitId} did not publish one move-location event`);
         }
         exhausted.push(ref);
         moved.push(ref);
@@ -202,6 +222,7 @@ export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMo
         exhausted: Object.freeze([...exhausted]),
         moved: Object.freeze([...moved]),
         requiresOpenCleanup: true as const,
+        events: Object.freeze(host.pipeline.events.slice(beforeEvents.length)),
       });
     });
   } catch (error) {

@@ -243,6 +243,8 @@ export function moveDuelUnitsStandard(
 ): DuelStandardMoveResult {
   const { board: checked, records, plan } = checkedStandardMove(board, readiness, request, rules);
   const { actor, unitIds, destinationLocationId } = plan;
+  const checkedUnitIds = new Set(checked.units.map(unit => unit.objectId));
+  check(unitIds.every(unitId => checkedUnitIds.has(unitId)), 'selected unit is missing from the Board');
   // 144.2/144.3.c: the exhaustion cost is paid simultaneously for the whole group.
   const selected = new Set(unitIds);
   const nextReadiness: DuelReadiness = records.map(entry => ({
@@ -391,3 +393,4 @@ export function assertDuelStandardMoveUnitStillLegal(
     `unit ${unitId} needs Ganking to move battlefield to battlefield`);
   recheck.validate(unitId);
 }
+
