@@ -1,3 +1,6 @@
+// RIFT-662: execution evidence for the grant and exhaust path lives in
+// ../templates/activated-activated-continuous-grant-key-662.test.mjs; this
+// file keeps the README §4.1 layer 1/2 checks and the gap evidence.
 import assert from "node:assert/strict";
 import test from "node:test";
 

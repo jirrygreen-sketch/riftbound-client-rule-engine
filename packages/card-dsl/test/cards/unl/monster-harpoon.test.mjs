@@ -1,3 +1,5 @@
+// RIFT-702 execution evidence for the supported Deal 2 branch is parameterized in
+// ../templates/keyword-play-effect-damage-effect-damage-702.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 

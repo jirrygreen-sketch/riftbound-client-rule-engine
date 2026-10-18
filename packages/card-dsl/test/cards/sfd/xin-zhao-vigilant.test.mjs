@@ -1,4 +1,4 @@
-// Template execution evidence: ../templates/keyword-replacement-effect-ready-678.test.mjs.
+// Template execution evidence: ../templates/keyword-replacement-effect-ready-700.test.mjs.
 // False-condition and Tank regressions keep printed expectations under TODO.
 import assert from "node:assert/strict";
 import test from "node:test";

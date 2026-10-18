@@ -23,10 +23,12 @@ export interface ContinuousCostModificationArgs {
   readonly duration?: unknown;
   readonly target?: unknown;
   readonly instanceId?: unknown;
+  readonly grantedBy?: unknown;
 }
 
-const KEYS = new Set(['resource', 'amount', 'stage', 'minimum', 'domains', 'domain', 'universal', 'appliesTo', 'filter', 'duration', 'target', 'instanceId']);
+const KEYS = new Set(['resource', 'amount', 'stage', 'minimum', 'domains', 'domain', 'universal', 'appliesTo', 'filter', 'duration', 'target', 'instanceId', 'grantedBy']);
 const DOMAINS = ['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order'];
+const ONE_SHOT_WINDOWS = new Set(['next-card-played-this-turn', 'next-unit-played-this-turn', 'next-spell-played-this-turn', 'next-gear-played-this-turn', 'per-turn-first-play']);
 
 function parse(value: unknown): ContinuousCostModificationArgs {
   const args = record(value);
@@ -96,7 +98,7 @@ const definition = {
     if ((universal === true || domain === 'any') && Array.isArray(domains) && DOMAINS.some(item => !domains.includes(item))) blocked('Universal Power cannot restrict domains');
     if (resource === 'energy' && (domains !== undefined || domain !== undefined || universal !== undefined)) blocked('Energy modifiers cannot select Power domains');
     const scope = args.appliesTo === undefined ? 'play-cost' : read(ctx, args.appliesTo);
-    if (typeof scope === 'string' && !['play-cost', 'spell-play-cost', 'activated-ability-cost', 'self', 'source', 'self-play-cost'].includes(scope)) blocked('Unknown continuous cost scope');
+    if (typeof scope === 'string' && !['play-cost', 'spell-play-cost', 'activated-ability-cost', 'self', 'source', 'self-play-cost', ...ONE_SHOT_WINDOWS].includes(scope)) blocked('Unknown continuous cost scope');
     const appliesTo = typeof scope === 'object' && scope !== null ? bindFilter(ctx, scope) : scope;
     if (typeof scope !== 'string' && (scope === null || typeof scope !== 'object' || Array.isArray(scope))) blocked('Continuous cost scope must be a supported name or object filter');
     // An explicit appliesTo object already names the affected player/object;
@@ -112,8 +114,13 @@ const definition = {
     matchesCostFilter(filter, ctx.source, env);
     if (typeof appliesTo === 'object' && appliesTo !== null) matchesCostFilter(appliesTo, ctx.source, env);
     const durationValue = args.duration === undefined ? 'permanent' : read(ctx, args.duration);
-    if (!isDurationAlias(durationValue)) blocked('Unknown continuous cost modification duration');
-    const duration = resolveContinuousDuration(durationValue, ctx.source.ref);
+    const window = typeof durationValue === 'string' && ONE_SHOT_WINDOWS.has(durationValue) ? durationValue : undefined;
+    if (window === undefined && !isDurationAlias(durationValue)) blocked('Unknown continuous cost modification duration');
+    // One-shot play windows are consumed by authoritative Finalize history,
+    // so they stay registered until the turn owner records a successful play.
+    const duration = window === undefined ? resolveContinuousDuration(durationValue as Parameters<typeof resolveContinuousDuration>[0], ctx.source.ref) : resolveContinuousDuration('permanent', ctx.source.ref);
+    const grantedBy = args.grantedBy === undefined ? undefined : read(ctx, args.grantedBy);
+    if (grantedBy !== undefined && (typeof grantedBy !== 'string' || !grantedBy.trim())) blocked('Cost modifier grantedBy must be a nonempty additional cost id');
     if (amount === 0) return { status: 'negated', reason: 'skipped', events: [] };
     const effect = {
       kind: 'continuous.cost-modification', resource, amount, appliesTo,
@@ -121,7 +128,9 @@ const definition = {
       ...(minimum === undefined ? {} : { minimum }),
       ...(domains === undefined ? {} : { domains }),
       ...(domain === undefined ? {} : { domain }),
-      ...(universal === undefined ? {} : { universal })
+      ...(universal === undefined ? {} : { universal }),
+      ...(window === undefined ? {} : { window }),
+      ...(grantedBy === undefined ? {} : { grantedBy })
     };
     const instance = args.instanceId === undefined ? undefined : asValue(read(ctx, args.instanceId));
     if (instance !== undefined && (typeof instance !== 'string' || !instance.trim())) blocked('Cost modifier instanceId must be a nonempty string');

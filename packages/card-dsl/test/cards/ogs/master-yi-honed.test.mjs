@@ -1,4 +1,4 @@
-// Template execution evidence: ../templates/keyword-replacement-effect-ready-678.test.mjs.
+// Template execution evidence: ../templates/keyword-replacement-effect-ready-700.test.mjs.
 // Ganking remains blocked; the template's paid ready entry is partial evidence.
 import assert from "node:assert/strict";
 import test from "node:test";

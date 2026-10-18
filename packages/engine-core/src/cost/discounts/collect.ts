@@ -1,4 +1,4 @@
-import type { Ability } from '@riftbound/card-dsl';
+import type { Ability, CostSpec } from '@riftbound/card-dsl';
 import type { Domain, ObjectRef, ObjectSnapshot, ResolveContext, ZoneId } from '../../effects/contract.js';
 import type { RegisteredContinuousEffect } from '../../layers/types.js';
 import { isDurationActive } from '../../layers/duration.js';
@@ -27,7 +27,68 @@ export interface CostDiscountSources {
 
 const DOMAINS: readonly Domain[] = ['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order'];
 const KINDS = new Set(['continuous.cost-modification', 'cost.modify']);
-const FIELDS = new Set(['kind', 'resource', 'amount', 'minimum', 'stage', 'appliesTo', 'filter', 'component', 'alternative', 'universal', 'domain', 'domains', 'fromZone', 'when', 'per', 'duration', 'value', 'reductions', 'history']);
+const FIELDS = new Set(['kind', 'resource', 'amount', 'minimum', 'stage', 'appliesTo', 'filter', 'component', 'alternative', 'universal', 'domain', 'domains', 'fromZone', 'when', 'per', 'duration', 'value', 'reductions', 'history', 'grantedBy', 'window']);
+const ADDITIONAL_FIELDS = new Set(['kind', 'id', 'appliesTo', 'optional', 'stage', 'payments', 'filter', 'fromZone', 'when']);
+const ONE_SHOT_WINDOWS = new Set(['next-card-played-this-turn', 'next-unit-played-this-turn', 'next-spell-played-this-turn', 'next-gear-played-this-turn', 'per-turn-first-play']);
+
+export interface CostPlanMetadata {
+  readonly additional: Readonly<Record<string, { readonly sourceId: string }>>;
+  readonly grantedBy: Readonly<Record<string, string>>;
+}
+
+interface CollectedCostPlanInput extends CostPlanInput {
+  /** Private hand-off from collection to Finalize; ignored by buildCostPlan. */
+  readonly __costDiscountMetadata?: CostPlanMetadata;
+}
+
+function freezePlan<T>(value: T): T {
+  if (value !== null && typeof value === 'object') {
+    for (const child of Object.values(value as Record<string, unknown>)) freezePlan(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+export function decorateCostPlan(plan: CostPlan, metadata: CostPlanMetadata | undefined): CostPlan {
+  if (metadata === undefined || (Object.keys(metadata.additional).length === 0 && Object.keys(metadata.grantedBy).length === 0)) return plan;
+  const copy = structuredClone(plan) as unknown as {
+    selectedAdditional: Array<Record<string, unknown>>;
+    discounts: Array<Record<string, unknown>>;
+    components: CostPlan['components'];
+  };
+  copy.selectedAdditional = copy.selectedAdditional.map(entry => {
+    if (metadata.additional[String(entry.id)] === undefined) return entry;
+    const component = copy.components.find(item => item.id === String(entry.id));
+    // The component's frozen CostAmount is the exact amount that Finalize
+    // committed for this optional decision. Payment later adds `paid: true`
+    // without losing this quantity (356.4.f.1).
+    return { ...entry, paidAmount: component?.cost };
+  });
+  copy.discounts = copy.discounts.map(discount => {
+    const grantedBy = metadata.grantedBy[String(discount.id)];
+    return grantedBy === undefined ? discount : { ...discount, grantedBy };
+  });
+  return freezePlan(copy) as unknown as CostPlan;
+}
+
+function windowMatches(effect: Record<string, unknown>, env: CostEnvironment, sources: CostDiscountSources): boolean {
+  const duration = literal(effect.duration);
+  const window = literal(effect.window) ?? (ONE_SHOT_WINDOWS.has(String(duration)) ? duration : undefined);
+  if (window === undefined) return true;
+  if (!ONE_SHOT_WINDOWS.has(String(window))) blocked(`Unsupported static cost window ${String(window)}`);
+  if (sources.purpose === 'activate') blocked('Card-play cost windows do not cover activated abilities');
+  const current = env.ctx.source;
+  if (window === 'next-unit-played-this-turn' && !current.types.includes('unit')) return false;
+  if (window === 'next-spell-played-this-turn' && !current.types.includes('spell')) return false;
+  if (window === 'next-gear-played-this-turn' && !current.types.includes('gear')) return false;
+  const previous = turnPlays(env).some(play => play.player === env.ctx.controller &&
+    (window === 'next-card-played-this-turn' || window === 'per-turn-first-play' ||
+      (window === 'next-unit-played-this-turn' && play.object.types.includes('unit')) ||
+      (window === 'next-spell-played-this-turn' && play.object.types.includes('spell')) ||
+      (window === 'next-gear-played-this-turn' && play.object.types.includes('gear'))) &&
+    matchesCostFilter(effect.filter ?? {}, play.object, env));
+  return !previous;
+}
 
 function scopeMatches(effect: Record<string, unknown>, env: CostEnvironment, sources: CostDiscountSources): boolean {
   const scope = literal(effect.appliesTo);
@@ -41,6 +102,8 @@ function scopeMatches(effect: Record<string, unknown>, env: CostEnvironment, sou
   } else if (scope === 'play-cost' || scope === 'optional-additional-costs-you-pay') {
     if (sources.purpose === 'activate') return false;
     if (scope === 'optional-additional-costs-you-pay' && env.ctx.controller !== env.source.controller) return false;
+  } else if (typeof scope === 'string' && ONE_SHOT_WINDOWS.has(scope)) {
+    if (!windowMatches({ ...effect, window: scope }, env, sources)) return false;
   } else if (scope !== undefined) {
     const filter = { ...record(scope) };
     // "Your spells that choose me" is a relation to the locked target set.
@@ -75,7 +138,105 @@ export function collectCostModifications(ctx: ResolveContext, input: CostPlanInp
   const discounts: CostDiscount[] = [...(input.discounts ?? [])];
   const increases = [...(input.increases ?? [])];
   const seen = new Set<string>();
-  if ((input.optionalAdditional ?? []).some(cost => cost.selected === undefined)) {
+  const grantedBy: Record<string, string> = {};
+  const additionalMetadata: Record<string, { sourceId: string }> = {};
+  const optionalAdditional = [...(input.optionalAdditional ?? [])];
+  const mandatoryAdditional = [...(input.mandatoryAdditional ?? [])];
+  const optionalById = new Map(optionalAdditional.map(cost => [cost.id, cost]));
+  const mandatoryById = new Map(mandatoryAdditional.map(cost => [cost.id, cost]));
+  const staticAdditionalIds = new Set<string>();
+
+  function validateAdditionalFields(effect: Record<string, unknown>): void {
+    for (const key of Object.keys(effect)) if (!ADDITIONAL_FIELDS.has(key)) blocked(`Unsupported additional cost field ${key}`);
+    if (typeof effect.id !== 'string' || !effect.id.trim()) blocked('Additional costs require a stable id');
+    if (effect.optional !== true && effect.optional !== false) blocked('Additional costs require an explicit optional flag');
+    const stage = literal(effect.stage);
+    if (stage !== 'optional-additional' && stage !== 'mandatory-additional') blocked('Additional costs require an explicit stage');
+    if ((effect.optional === true) !== (stage === 'optional-additional')) blocked('Additional cost optional flag does not match its stage');
+    if (!Array.isArray(effect.payments) || effect.payments.length === 0) blocked('Additional costs require payment entries');
+  }
+
+  function registerAdditional(effect: Record<string, unknown>, sourceId: string): void {
+    validateAdditionalFields(effect);
+    const id = effect.id as string;
+    if (staticAdditionalIds.has(id)) blocked('Additional cost sources require unique stable ids');
+    staticAdditionalIds.add(id);
+    const stage = literal(effect.stage);
+    if (stage === 'optional-additional') {
+      const existing = optionalById.get(id);
+      if (existing !== undefined) {
+        if (existing.selected === undefined) {
+          const selected = ctx.choose<boolean>({ id: `${input.id}:optional:${id}`, type: 'optional', chooser: ctx.controller, visibility: 'public' });
+          if (typeof selected !== 'boolean') blocked('An optional additional cost can only be selected once');
+          const resolved = { ...existing, selected };
+          const index = optionalAdditional.findIndex(cost => cost.id === id);
+          if (index >= 0) optionalAdditional[index] = resolved;
+          optionalById.set(id, resolved);
+        }
+        if (optionalById.get(id)?.selected === true) validateDynamicChoice(effect);
+        additionalMetadata[id] = { sourceId };
+        return;
+      }
+    } else {
+      const existing = mandatoryById.get(id);
+      if (existing !== undefined) {
+        additionalMetadata[id] = { sourceId };
+        return;
+      }
+    }
+    if (stage === 'optional-additional') {
+      const selected = ctx.choose<boolean>({ id: `${input.id}:optional:${id}`, type: 'optional', chooser: ctx.controller, visibility: 'public' });
+      if (typeof selected !== 'boolean') blocked('An optional additional cost can only be selected once');
+      if (selected) validateDynamicChoice(effect);
+      const value = { id, kind: 'additional' as const, selected, cost: { kind: 'explicit' as const, payments: effect.payments as CostSpec['payments'] } };
+      optionalAdditional.push(value);
+      optionalById.set(id, value);
+    } else {
+      const value = { id, cost: { kind: 'explicit' as const, payments: effect.payments as CostSpec['payments'] } };
+      mandatoryAdditional.push(value);
+      mandatoryById.set(id, value);
+    }
+    additionalMetadata[id] = { sourceId };
+  }
+
+  function validateDynamicChoice(effect: Record<string, unknown>): void {
+    for (const payment of effect.payments as readonly Record<string, unknown>[]) {
+      const choice = payment?.choice;
+      const choiceRecord = choice !== null && typeof choice === 'object' && !Array.isArray(choice) ? choice as Record<string, unknown> : undefined;
+      const options = choiceRecord?.options;
+      if (choice !== undefined && (choiceRecord === undefined || !Array.isArray(options) ||
+        options.some((option: unknown) => option === null || typeof option !== 'object'))) {
+        blocked('Dynamic additional-cost choices require a Finalize object-candidate adapter');
+      }
+    }
+  }
+
+  function additionalSelected(id: string): boolean {
+    const optional = optionalById.get(id);
+    if (optional !== undefined) return optional.selected === true;
+    if (mandatoryById.has(id)) return true;
+    blocked(`Cost discount grants unknown additional cost ${id}`);
+  }
+
+  // Static cost.additional declarations are collected before modifiers so a
+  // grantedBy discount can read the player's actual optional decision.
+  for (const binding of sources.statics ?? []) {
+    const source = ctx.object(binding.source);
+    if (source === null) continue;
+    if (source.zone !== 'board' && !sameRef(source.ref, ctx.source.ref)) continue;
+    const effect = record(binding.ability.effect);
+    if (effect.kind !== 'cost.additional') continue;
+    const env: CostEnvironment = { ctx, source, finalizedPlaysThisTurn: sources.finalizedPlaysThisTurn };
+    if (!scopeMatches(effect, env, sources)) continue;
+    if (binding.ability.condition !== undefined && !testCostCondition(binding.ability.condition, env)) continue;
+    if (effect.when !== undefined && !testCostCondition(literal(effect.when), env)) continue;
+    registerAdditional(effect, binding.id);
+  }
+
+  // Explicit caller-supplied optional entries still need to be decided before
+  // collecting modifiers. Static declarations above are the only entries for
+  // which this collector is allowed to ask the Finalize optional prompt.
+  if (optionalAdditional.some(cost => cost.selected === undefined)) {
     blocked('Cost modifier collection requires optional additional cost decisions before collection');
   }
 
@@ -89,13 +250,9 @@ export function collectCostModifications(ctx: ResolveContext, input: CostPlanInp
     if (!scopeMatches(effect, env, sources)) return;
     if (condition !== undefined && !testCostCondition(condition, env)) return;
     if (effect.when !== undefined && !testCostCondition(literal(effect.when), env)) return;
+    if (!windowMatches(effect, env, sources)) return;
     const duration = literal(effect.duration);
-    if (duration === 'per-turn-first-play') {
-      if (sources.purpose === 'activate') blocked('First-play cost windows do not cover activated abilities');
-      const previous = turnPlays(env).some(play => play.player === ctx.controller &&
-        matchesCostFilter(effect.filter ?? {}, play.object, env));
-      if (previous) return;
-    } else if (duration !== undefined && duration !== 'permanent') blocked(`Unsupported static cost window ${String(duration)}`);
+    if (duration !== undefined && duration !== 'permanent' && !ONE_SHOT_WINDOWS.has(String(duration))) blocked(`Unsupported static cost window ${String(duration)}`);
     if (effect.history !== undefined) {
       const item = record(literal(effect.history));
       if (item.scope !== 'turn' || item.action !== 'play' || item.player !== 'controller') blocked('Unsupported cost history source');
@@ -120,6 +277,13 @@ export function collectCostModifications(ctx: ResolveContext, input: CostPlanInp
 
     for (const [modifierIndex, modifier] of modifiers.entries()) {
       if (modifier !== effect && Object.keys(modifier).some(key => !['resource', 'amount', 'domain', 'domains', 'universal', 'minimum'].includes(key))) blocked('Unsupported cost reduction entry');
+      let grantedById: string | undefined;
+      if (effect.grantedBy !== undefined) {
+        const grant = literal(effect.grantedBy);
+        if (typeof grant !== 'string' || !grant.trim()) blocked('Cost grants require a stable additional cost id');
+        grantedById = grant;
+        if (!additionalSelected(grant)) continue;
+      }
       let amount = costInteger(modifier.amount, env, true);
       if (effect.per !== undefined) amount *= costInteger(effect.per, env);
       if (!Number.isSafeInteger(amount)) blocked('Cost modification amount overflow');
@@ -146,7 +310,10 @@ export function collectCostModifications(ctx: ResolveContext, input: CostPlanInp
         if (resource === 'energy' && (domains !== undefined || selected.universal !== undefined || selected.domain !== undefined)) blocked('Energy modifiers cannot select Power domains');
         const magnitude = Math.abs(selectedAmount);
         const minimum = costInteger(selected.minimum ?? effect.minimum ?? 0, env);
-        if (discount) discounts.push({ id: modifierId, resource, amount: costLiteral(magnitude), ...(minimum === 0 ? {} : { minimum: costLiteral(minimum) }), ...(component === undefined ? {} : { component: component as string }), ...(domains === undefined ? {} : { domains }) });
+        if (discount) {
+          discounts.push({ id: modifierId, resource, amount: costLiteral(magnitude), ...(minimum === 0 ? {} : { minimum: costLiteral(minimum) }), ...(component === undefined ? {} : { component: component as string }), ...(domains === undefined ? {} : { domains }) });
+          if (grantedById !== undefined) grantedBy[modifierId] = grantedById;
+        }
         else {
           if (minimum !== 0 || component !== undefined) blocked('Cost increases cannot carry a discount minimum or component');
           increases.push({ id: modifierId, cost: resource === 'energy' ? { energy: costLiteral(magnitude) } : { payments: [{ kind: 'power', amount: costLiteral(magnitude), allowedDomains: domains ?? DOMAINS }] } });
@@ -171,13 +338,22 @@ export function collectCostModifications(ctx: ResolveContext, input: CostPlanInp
     if (!matchesCostFilter(entry.effect.filter, ctx.source, env)) continue;
     collect(entry.effect.id, entry.effect.effect, source);
   }
-  return { ...input, discounts, increases };
+  const collected: CollectedCostPlanInput = {
+    ...input,
+    optionalAdditional,
+    mandatoryAdditional,
+    discounts,
+    increases,
+    __costDiscountMetadata: { additional: additionalMetadata, grantedBy }
+  };
+  return collected;
 }
 
 /** Finalize-facing entry: collect once, choose discount order, then freeze the existing CostPlan. */
 export function finalizeCostPlan(ctx: ResolveContext, input: CostPlanInput, sources: CostDiscountSources = {}): CostPlan {
-  const collected = collectCostModifications(ctx, input, sources);
-  if (collected.discountOrder !== undefined) return buildCostPlan(ctx, collected);
+  const collected = collectCostModifications(ctx, input, sources) as CollectedCostPlanInput;
+  const metadata = collected.__costDiscountMetadata;
+  if (collected.discountOrder !== undefined) return decorateCostPlan(buildCostPlan(ctx, collected), metadata);
   const groups = new Map<string, CostDiscount[]>();
   for (const discount of collected.discounts ?? []) {
     const key = JSON.stringify([discount.component, discount.resource]);
@@ -195,5 +371,5 @@ export function finalizeCostPlan(ctx: ResolveContext, input: CostPlanInput, sour
       order.push(remaining.splice(index, 1)[0]!.id);
     }
   }
-  return buildCostPlan(ctx, { ...collected, discountOrder: order });
+  return decorateCostPlan(buildCostPlan(ctx, { ...collected, discountOrder: order }), metadata);
 }

@@ -1,5 +1,6 @@
 import type { ObjectSnapshot, PlayerId } from '../../effects/contract.js';
 import type { TimingEmission } from '../pipeline-types.js';
+import { withActionPayload } from './payload.js';
 
 export interface AbilityActivationProof {
   readonly status: 'committed' | 'cancelled' | 'countered' | 'invalid';
@@ -8,6 +9,8 @@ export interface AbilityActivationProof {
   readonly sourceId: string;
   readonly abilityId: string;
   readonly source?: ObjectSnapshot;
+  readonly actionId?: string;
+  readonly batchId?: string;
 }
 
 function nonEmpty(value: string, name: string): string {
@@ -31,7 +34,7 @@ export function deriveAbilityActivatedEmission(
     throw new TypeError('sourceId does not match source snapshot');
   }
   if (proof.status !== 'committed') return null;
-  return {
+  const emission: TimingEmission = {
     timingPoint: 'ability-activated',
     kind: 'ability-activated',
     source: proof.source,
@@ -44,4 +47,14 @@ export function deriveAbilityActivatedEmission(
     },
     simultaneousGroup: proof.chainItemId,
   };
+  if (proof.actionId === undefined && proof.batchId === undefined) return emission;
+  return withActionPayload(emission, {
+    actionId: proof.actionId,
+    batchId: proof.batchId,
+    playerId: proof.playerId,
+    responsiblePlayerId: proof.playerId,
+    effectControllerPlayerId: proof.playerId,
+    sourceId: proof.sourceId,
+    objectId: proof.sourceId,
+  });
 }

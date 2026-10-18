@@ -42,24 +42,24 @@ test('keywords-accelerate-paid-enters-ready: paying the [1][C] additional cost e
   assert.equal(unit.exhausted, false);
   assert.deepEqual(unit.location, { type: 'base', player: 'A' });
   // 805.1.b / 805.2: the locked Finalize plan charges the printed 3 Energy plus
-  // the additional 1 Energy. The scenario's [C] half is a Power requirement of
-  // its own (asserted by the domain-mismatch case below); the reference kernel's
-  // `pay` action only moves Energy and XP.
+  // the additional [1][C] cost. The real payment receipt must spend one Fury
+  // Power as well as the additional Energy.
   assert.equal(f.kernel.player('A').energy, 1, 'base 3 + accelerate 1 Energy were paid');
+  assert.deepEqual(f.kernel.player('A').power, [], 'base Fury + accelerate [C] were paid');
   assert.deepEqual(f.engine.items, []);
 });
 
-test('keywords-accelerate-not-paid-enters-exhausted (cost half): declining charges only the printed cost', () => {
+test('keywords-accelerate-not-paid-cost-half: declining charges only the printed cost', () => {
   const f = fixture(position());
   playAccelerate(f, false);
 
   const unit = f.get('u1');
   assert.equal(unit.zone, 'board');
   assert.equal(f.kernel.player('A').energy, 2);
-  assert.deepEqual(f.kernel.player('A').power, ['Fury', 'Fury']);
+  assert.deepEqual(f.kernel.player('A').power, ['Fury']);
 });
 
-test.todo('keywords-accelerate-not-paid-enters-exhausted (CR 805.1.b/805.6): without payment the unit must enter exhausted and 805.6.a must not fire — blocked: the Accelerate keyword expansion registers its entry-orientation replacement unconditionally (src/effects/keywords/Accelerate.ts `replaces` has no paid-cost condition and src/replacement/bind.ts cannot read the Finalize payment receipt), so declining the optional cost still lands the unit ready. The real cost plan is asserted in the sibling test instead');
+test.todo('keywords-accelerate-not-paid-enters-exhausted (CR 805.1.b/805.6) [EG-COSTBIND, EG-STATIC, EG-REPLACEMENT]: the printed cost is paid correctly, but the merged replacement binding cannot yet gate the entry-ready replacement on the optional Accelerate payment receipt, so the declined branch still enters ready; the cost plan and paid branch remain executable above');
 
 test('keywords-accelerate-enters-ready-not-a-ready-trigger: the unit is never exhausted, so no object-readied timing is emitted', () => {
   const f = fixture(position());
@@ -127,6 +127,6 @@ test('keywords-accelerate-on-board-no-function: an on-Board unit exposes no Acce
   assert.equal(f.get('u1').exhausted, true);
 });
 
-test.todo('keywords-accelerate-enters-ready-not-a-ready-trigger (805.6/805.6.a watcher): “whenever a friendly unit becomes ready” abilities need a triggered ability bound to the object-readied timing point — the reference interpreter has no TriggerSpec/EventPattern surface for an arbitrary watcher’s printed text, so the scenario runs only its Accelerate half above');
+test.todo('keywords-accelerate-enters-ready-not-a-ready-trigger (805.6/805.6.a watcher) [EG-TRIGGERS]: an arbitrary printed “whenever a friendly unit becomes ready” watcher still needs production trigger binding; the Accelerate replacement itself is verified above without emitting object-readied');
 
-test.todo('keywords-accelerate-* via the raw YAML command shape: the YAML `play … pay: { energy, power } choices: { accelerate }` command vocabulary and the `rejected: { reason }` receipts come from the old duel session, not from the merged chain/cost layers; these tests drive the merged Finalize cost plan instead');
+test.todo('keywords-accelerate-* via the raw YAML command shape [EG-CONTRACT]: the YAML `play … pay: { energy, power } choices: { accelerate }` command vocabulary and its receipts belong to the old duel session; these tests cover the merged Finalize cost plan instead');

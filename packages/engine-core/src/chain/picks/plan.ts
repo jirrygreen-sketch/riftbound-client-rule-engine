@@ -24,13 +24,22 @@ function checkSource(spec: PickSpec): void {
 }
 
 /** Traverse actual control bodies only; ordinary argument data cannot declare picks. */
-export function orderedPickSpecs(body: readonly Instruction[]): PickSpec[] {
+export function pickSpecs(body: readonly Instruction[]): PickSpec[] {
   const result: PickSpec[] = [], ids = new Set<string>();
   function visit(instructions: readonly Instruction[], repeated = false): void {
     for (const instruction of instructions) {
       for (const spec of instruction.picks ?? []) {
-        if (!own(spec, 'zoneSlice') && !own(spec, 'linked')) continue;
-        checkSource(spec);
+        if (!spec || typeof spec.id !== 'string' || spec.id.length === 0) {
+          throw new OrderedPickError('every PickSpec needs a non-empty id');
+        }
+        // Keep explicit source validation on the runtime path as well as the
+        // IR validator. A zoneSlice/linked source without its ordered marker
+        // must fail closed; silently omitting it would turn a malformed pick
+        // into an empty binding.
+        if (spec.zoneSlice !== undefined || spec.linked !== undefined) {
+          if (spec.ordered !== true) throw new OrderedPickError(`${spec.id} requires ordered: true for an explicit source`);
+          checkSource(spec);
+        }
         if (repeated && spec.zoneSlice) throw new OrderedPickError('a repeated zone slice needs an iteration-specific Finalize lifecycle');
         if (ids.has(spec.id)) throw new OrderedPickError(`duplicate source id ${spec.id}`);
         ids.add(spec.id); result.push(spec);
@@ -40,10 +49,38 @@ export function orderedPickSpecs(body: readonly Instruction[]): PickSpec[] {
         (expression.kind === 'constant' || expression.kind === 'literal') && Array.isArray(expression.value)) {
         visit(expression.value as unknown as readonly Instruction[], repeated || instruction.op === 'repeat');
       }
+      // Mode bodies are control bodies just like sequence/optional bodies.
+      // Inspect only the declared `modes` field so arbitrary argument data
+      // cannot smuggle a PickSpec into the lifecycle walk.
+      const modes = instruction.args.modes;
+      if (instruction.op === 'choice.mode' && modes &&
+        (modes.kind === 'constant' || modes.kind === 'literal') && Array.isArray(modes.value)) {
+        for (const mode of modes.value) {
+          if (!mode || typeof mode !== 'object' || Array.isArray(mode)) continue;
+          const modeBody = (mode as { readonly body?: unknown }).body;
+          if (Array.isArray(modeBody)) {
+            visit(modeBody as unknown as readonly Instruction[], repeated);
+            continue;
+          }
+          if (!modeBody || typeof modeBody !== 'object') continue;
+          const body = modeBody as { readonly kind?: unknown; readonly value?: unknown };
+          if ((body.kind === 'constant' || body.kind === 'literal') && Array.isArray(body.value)) {
+            visit(body.value as unknown as readonly Instruction[], repeated);
+          }
+        }
+      }
     }
   }
   visit(body);
   return result;
+}
+
+/** The explicit ordered subset retained for the Finalize source lifecycle. */
+export function orderedPickSpecs(body: readonly Instruction[]): PickSpec[] {
+  return pickSpecs(body).filter(spec => spec.ordered === true).map(spec => {
+    checkSource(spec);
+    return spec;
+  });
 }
 
 function checkFinalizeInput(value: unknown, seen = new WeakSet<object>()): void {

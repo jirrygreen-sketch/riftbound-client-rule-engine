@@ -11,6 +11,15 @@ const FILTER_KEYS = new Set([
   "zone", "location", "states", "state", "tags", "characteristics", "isToken"
 ]);
 
+function eventPlayer(event: { readonly timingPoint: string; readonly player?: string; readonly object?: ObjectSnapshot }): string | undefined {
+  // A discard is performed by the player whose Hand card moves to their Trash
+  // (CR 423.1). The action adapter's event.player records the effect controller,
+  // which can differ when an effect discards an opponent's card. The immutable
+  // action-time object snapshot identifies the actual discarder and survives a
+  // later zone change such as Recycle.
+  return event.timingPoint === "card-discarded" ? event.object?.controller : event.player;
+}
+
 function matches(filter: ObjectFilter, object: ObjectSnapshot, controller: string): boolean {
   const playerMatches = (expected: unknown, actual: string): boolean =>
     expected === undefined || expected === "any" ||
@@ -82,7 +91,7 @@ export function bindEventHistory(context: ResolveContext, pipeline: Pick<EventPi
         }
       }
       return events.slice(start).filter(event => {
-        if (event.timingPoint !== query.timingPoint || query.player !== undefined && event.player !== query.player) return false;
+        if (event.timingPoint !== query.timingPoint || query.player !== undefined && eventPlayer(event) !== query.player) return false;
         const object = event.object;
         if (query.object && (object?.ref.id !== query.object.id || object.ref.zoneEntryId !== query.object.zoneEntryId)) return false;
         if (object && excluded.has(object.ref.id)) return false;

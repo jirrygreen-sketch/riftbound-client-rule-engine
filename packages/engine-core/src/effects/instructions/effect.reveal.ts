@@ -30,6 +30,7 @@
  * revealedCount: number，供后续指令及 “if you do” 使用；ignored 不写链接。
  */
 import type { Expr } from "@riftbound/card-dsl";
+import { disclosedRefs, isInspectExpression } from "./effect.inspect.js";
 import type {
   ActionOutcome,
   GameEvent,
@@ -71,31 +72,6 @@ function isRef(value: unknown): value is ObjectRef {
     && typeof value.zoneEntryId === "number" && Number.isSafeInteger(value.zoneEntryId) && value.zoneEntryId >= 0;
 }
 
-function isValue(value: unknown, active = new Set<object>()): value is Value {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (!Array.isArray(value) && !isRecord(value)) return false;
-  if (active.has(value)) return false;
-  active.add(value);
-  const valid = Object.values(value).every(item => isValue(item, active));
-  active.delete(value);
-  return valid;
-}
-
-function isExpr(value: unknown): value is Expr {
-  if (!isRecord(value)) return false;
-  switch (value.kind) {
-    case "literal": case "constant": return isValue(value.value);
-    case "object-property": return isRef(value.object) && isId(value.property);
-    case "object-attribute": return isRef(value.object) && isId(value.attribute);
-    case "linked": case "linked-value":
-      return isId(value.instructionId) && (value.key === undefined || isId(value.key));
-    case "count": return isId(value.subject)
-      && (value.filter === undefined || (isRecord(value.filter) && isValue(value.filter)));
-    default: return false;
-  }
-}
-
 const argsSchema: Schema<EffectRevealArgs> = {
   parse(value: unknown): EffectRevealArgs {
     if (!isRecord(value)) throw new Error("effect.reveal: args must be an object");
@@ -103,7 +79,7 @@ const argsSchema: Schema<EffectRevealArgs> = {
       if (!ARG_KEYS.has(key)) throw new Error("effect.reveal: unsupported argument " + key);
     }
     for (const key of ["player", "zone", "count"] as const) {
-      if (value[key] !== undefined && !isExpr(value[key])) {
+      if (value[key] !== undefined && !isInspectExpression(value[key])) {
         throw new Error("effect.reveal: " + key + " must be an Expr");
       }
     }
@@ -206,7 +182,9 @@ function execute(ctx: ResolveContext, args: EffectRevealArgs): InstructionResult
     }
     const outcome = ctx.perform({ type: "reveal", object: ref });
     events.push(...outcome.events);
-    if (outcome.status === "done") performed.push({ id: ref.id, zoneEntryId: ref.zoneEntryId });
+    if (outcome.status === "done") performed.push(...disclosedRefs([ref], outcome).map(actual => ({
+      id: actual.id, zoneEntryId: actual.zoneEntryId
+    })));
     else failure ??= outcome.status;
   }
   const linkedValues = { revealed: performed, revealedCount: performed.length };

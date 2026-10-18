@@ -25,7 +25,9 @@ import type { CardProgram } from "../../ir/index.js";
  * - 条件型 Restriction 已有适配，但本卡 use-only-to-play-spells 没有资源来源/
  *   用途追踪及支付消费路径，无法保证该资源只用于打出法术。
  * - 程序绑定将其作为普通 activated 项，未接 Add 的立即结算及支付中启动路径。
- * Universal Power 属契约级缺口；限制消费和 Add Reaction 窗口仍缺运行时消费方。
+ * - Legend Zone（CR 107.4.a–d）不在 ZoneId 中，费用支付只接受 board/rune-zone 的横置对象
+ *   （415.4/415.5），传奇无法在真实区域支付 :rb_exhaust:。
+ * Universal Power 属契约级缺口；限制消费、Add Reaction 窗口与 Legend Zone 仍缺运行时支持。
  */
 const daughterOfTheVoid = {
   canonicalCardId:
@@ -35,7 +37,9 @@ const daughterOfTheVoid = {
   judgeReason:
     "缺任意域 Universal Power 的 gain-power 表达与支付（CR 163.2.b）：Domain 仍为六域联合，effect.resources 不支持待定 rainbow 值。" +
     "另缺 use-only-to-play-spells 的资源来源/用途追踪及支付限制消费方；普通 Condition 限制适配不能保证该点 Power 只用于打出法术。" +
-    "describeActivate 也未将本能力路由至 Add 的立即结算（430.2/430.2.a）与支付中启动窗口（430.3）。",
+    "describeActivate 也未将本能力路由至 Add 的立即结算（430.2/430.2.a）与支付中启动窗口（430.3）。" +
+    "另缺 CR 107.4.a–d 的 Legend Zone：ZoneId/ZoneDestination 没有 legend-zone，费用支付只接受 board/rune-zone 的横置对象（415.4/415.5），" +
+    "传奇无法在真实区域支付 :rb_exhaust:；golden 的 Board 装置只是部分证据。",
   abilities: [
     {
       kind: "activated",

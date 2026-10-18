@@ -41,6 +41,7 @@ const empower = {
     "827.1.c.2", "827.1.c.3", "827.1.c.4", "827.1.c.5", "827.2", "827.2.a", "827.3", "827.4"
   ],
   expand(input: EmpowerInput): readonly Ability[] {
+    const instanceId = typeof input.params?.instanceId === "string" ? input.params.instanceId : undefined;
     const multiple = input.params?.multiple === undefined ? false : input.params.multiple;
     const limit = input.params?.limit;
     const timing = input.params?.timing === undefined ? "action" : input.params.timing;
@@ -64,7 +65,9 @@ const empower = {
         condition: multiple ? { kind: "always" } : notEmpowered
       },
       body: [{
-        id: `empower:${input.host.canonicalCardId}`,
+        id: instanceId === undefined
+          ? `empower:${input.host.canonicalCardId}`
+          : `empower:${input.host.canonicalCardId}:${instanceId}`,
         op: "effect.empower",
         // The primitive's default selection is its source (827.1.b.1).
         args: {

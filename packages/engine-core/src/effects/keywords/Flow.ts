@@ -56,9 +56,14 @@ const flow = {
   stacking: "separate",
   expand(input: FlowKeywordInput): readonly Ability[] {
     const cost = flowCost(input);
+    const instanceId = typeof input.params?.instanceId === "string" ? input.params.instanceId : undefined;
+    const banishId = instanceId === undefined
+      ? `flow:${input.host.canonicalCardId}:banish`
+      : `flow:${input.host.canonicalCardId}:${instanceId}:banish`;
     const costEffect = {
       kind: "flow.cost",
       appliesTo: "self",
+      ...(instanceId === undefined ? {} : { instanceId }),
       // Contract §3.8 binds the live host at resolution; static IR uses the
       // symbolic selector rather than a runtime/card-catalog identity.
       host: "self",
@@ -89,7 +94,7 @@ const flow = {
         },
         with: [
           {
-            id: `flow:${input.host.canonicalCardId}:banish`,
+            id: banishId,
             op: "effect.banish",
             args: {
               // effect.banish accepts the symbolic source selector as the
