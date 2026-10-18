@@ -1,6 +1,6 @@
 import type { Ability, Expr, Value } from "@riftbound/card-dsl";
 
-import type { CardContextRef, KeywordDef } from "../keyword-contract.js";
+import type { KeywordDef } from "../keyword-contract.js";
 
 /**
  * Deploy — Core Rules v1.5 rule 830.
@@ -53,8 +53,9 @@ const deploy = {
   keyword: "Deploy",
   valued: false,
   stacking: "single",
-  expand(input: { readonly value?: number; readonly host: CardContextRef }): readonly Ability[] {
+  expand(input: Parameters<KeywordDef["expand"]>[0]): readonly Ability[] {
     void input.value;
+    const instanceId = typeof input.params?.instanceId === "string" ? input.params.instanceId : undefined;
     return [
       {
         kind: "static",
@@ -68,7 +69,7 @@ const deploy = {
         },
         optional: false,
         body: [{
-          id: "deploy.kill-self",
+          id: instanceId === undefined ? "deploy.kill-self" : `deploy.kill-self:${instanceId}`,
           op: "effect.kill",
           args: { self: constant(true) }
         }]

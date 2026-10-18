@@ -32,22 +32,28 @@ const equip = {
     "818.4",
     "818.5"
   ],
-  expand(): readonly Ability[] {
+  expand(input): readonly Ability[] {
+    const instanceId = typeof input.params?.instanceId === "string" ? input.params.instanceId : undefined;
+    const targetId = instanceId === undefined ? "equip-target" : `equip-target:${instanceId}`;
+    const attachId = instanceId === undefined ? "equip-attach" : `equip-attach:${instanceId}`;
     return [{
       kind: "activated",
       timing: "action",
-      cost: {
+      // A printed Equip cost is authoritative when present. The legacy
+      // `equip` payment remains an explicit unsupported placeholder for old
+      // projections that have no printed cost; it is never coerced to free.
+      cost: input.params?.cost ?? {
         kind: "activated",
         payments: [{ kind: "equip", value: constant({ kind: "source" }) }]
       },
       body: [{
-        id: "equip-attach",
+        id: attachId,
         op: "effect.attach",
         args: {
-          host: constant({ kind: "target", id: "equip-target" })
+          host: constant({ kind: "target", id: targetId })
         },
         targets: [{
-          id: "equip-target",
+          id: targetId,
           filter: { type: "unit", controller: "self" },
           min: 1,
           max: 1,
