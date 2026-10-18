@@ -13,6 +13,10 @@
     "./duel": {
       "types": "./dist/duel/index.d.ts",
       "default": "./dist/duel/index.js"
+    },
+    "./ir": {
+      "types": "./dist/ir/index.d.ts",
+      "default": "./dist/ir/index.js"
     }
   },
   "files": [

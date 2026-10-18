@@ -52,3 +52,6 @@ export * from './activate.js';
 export * from './triggers.js';
 export * from './statics.js';
 export * from './lifecycle.js';
+
+/** Public contract aliases used by coordinator-owned program registration. */
+export type { KeywordDef, KeywordExpansionInput, KeywordParameterMap, KeywordStacking } from '../effects/keyword-contract.js';

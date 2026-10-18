@@ -13,6 +13,7 @@ import type {
   Zone,
   GameState
 } from "../state.js";
+import type { ActionReceipt, ContractGameAction, PrimitiveCostPaymentReceipt } from "../effects/contract.js";
 
 export type CreateGameOptions = {
   players: readonly {
@@ -77,6 +78,28 @@ export interface CommandResult {
   state: GameState;
   events: readonly GameEvent[];
   error: EngineError | null;
+}
+
+/** Coordinator-owned atomic boundary for state + event + receipt updates. */
+export interface EngineTransactionBoundary {
+  readonly id?: string;
+  checkpoint(): unknown;
+  restore(checkpoint: unknown): void;
+  commit(receipt: ActionReceipt): void;
+  rollback(receipt: ActionReceipt): void;
+}
+
+/** A batch submitted through the primitive contract. */
+export interface EngineBatchRequest {
+  readonly type: "batch";
+  readonly actions: readonly ContractGameAction[];
+  readonly transactionId?: string;
+}
+
+/** The committed payment evidence attached to a command/result boundary. */
+export interface EnginePaymentReceipt {
+  readonly payment: PrimitiveCostPaymentReceipt;
+  readonly stateVersion?: number;
 }
 
 export type LegacyPromptReconcileStatus =
