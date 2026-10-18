@@ -67,6 +67,9 @@ test('matchesRelativeOwner matches ownership rather than control', () => {
   assert.equal(matchesRelativeOwner('self', 'A', anchor), true, 'self resolves to the anchor controller, not owner');
   assert.equal(matchesRelativeOwner('self', 'A', stolen), false, 'the stolen unit no longer matches the anchor controller');
   assert.equal(matchesRelativeOwner('opponent', 'A', enemyAnchor), true, 'the original owner is the anchor opponent');
+  assert.equal(matchesRelativeOwner('opponent', 'B', anchor), true, 'opposition is relative to the controller');
+  assert.equal(matchesRelativeOwner('opponent', 'C', anchor), true, 'any non-controller owner is opposing');
+  assert.equal(matchesRelativeOwner('opponent', 'A', anchor), false, 'the controller owner is not opposing');
 });
 
 test('matchesRelativeLocation resolves here/base/battlefield through the anchor', () => {
