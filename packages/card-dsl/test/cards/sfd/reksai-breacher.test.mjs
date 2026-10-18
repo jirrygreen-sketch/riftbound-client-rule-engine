@@ -23,6 +23,8 @@ import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { evaluateExtendedExpression } from "../../../../engine-core/dist/effects/interpreter/expr-ext/index.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-6eb6345b70c561ae3d2ed335eb50fdd0958d942af912aaceba44ad0038813815";
@@ -84,16 +86,15 @@ test("sfd-029-221 Rek'Sai, Breacher: identity, ruleset, status and verbatim text
   );
 });
 
-test("sfd-029-221 Rek'Sai, Breacher: judgeReason names the current registration, predicate and condition gaps", () => {
+test("sfd-029-221 Rek'Sai, Breacher: judgeReason names the current registration, predicate and cost gaps", () => {
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /staticFilter/);
   assert.match(program.judgeReason, /playedFromZoneNot/);
   assert.match(program.judgeReason, /createEngineStaticBinder/);
   assert.match(program.judgeReason, /accelerate\.cost has no layer mapping/);
-  assert.match(program.judgeReason, /designation/);
-  assert.match(program.judgeReason, /combatRole/);
-  assert.match(program.judgeReason, /evaluateCondition/);
-  assert.match(program.judgeReason, /Might.*3/);
+  assert.match(program.judgeReason, /playedFromZoneNot/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /attacker 条件/);
   assert.match(program.judgeReason, /Unsupported static filter field playedFromZoneNot/);
   // RIFT-257/258/261 are merged; the reason names the concrete consumers that
   // are still missing instead of an in-progress cost batch.
@@ -157,7 +158,7 @@ test("sfd-029-221 Rek'Sai, Breacher golden: the merged grant primitive really gi
   assert.deepEqual(layers.evaluate(context.ref("enemy-poro")).keywords, []);
 });
 
-test("sfd-029-221 Rek'Sai, Breacher: [Assault] uses designation while the object contract exposes combatRole", () => {
+test("sfd-029-221 Rek'Sai, Breacher: Assault's declared condition uses designation", () => {
   const definition = keywordDefinitionsById.get("Assault");
   assert.ok(definition, "the merged Assault KeywordDef must be registered");
   const [expansion] = definition.expand({ value: undefined, host: { canonicalCardId: CARD_ID } });
@@ -173,13 +174,9 @@ test("sfd-029-221 Rek'Sai, Breacher: [Assault] uses designation while the object
     right: { kind: "constant", value: "attacker" }
   });
 
-  // The production static binder evaluates the compare condition through the
-  // base interpreter (effects/interpreter/condition.ts -> expr.ts), which has no
-  // "designation" property: the missing characteristic throws MissingInformation
-  // and the binder's catch-all treats it as false, so printed Might 3 stays 3.
-  // The extended evaluator that maps designation to combatRole
-  // (effects/interpreter/expr-ext/evaluate.ts) is not on that path. Measured
-  // below with a real attacker designation.
+  // The ordinary production binder still evaluates this direct synthetic
+  // declaration through the base interpreter; the runtime-grant re-expander
+  // uses the extended designation/combatRole alias, as the next test proves.
   const executable = {
     ...program,
     canonicalCardId: "card.synthetic-reksai-assault",
@@ -204,53 +201,30 @@ test("sfd-029-221 Rek'Sai, Breacher: [Assault] uses designation while the object
   assert.equal(board.engine.layers.snapshot(board.kernel.ref("rekai")).might, 3);
 });
 
-test("sfd-029-221 Rek'Sai, Breacher: a real attacker designation still does not reach the Assault Might", () => {
-  // 807.1.c/.d.1: Assault 2 must read the attacker designation. The reference
-  // kernel really carries it, and the extended evaluator really reads it — but
-  // the production static binder resolves the condition through the BASE
-  // interpreter, so the merged path still yields printed Might 3. Both halves are
-  // measured here so the remaining gap is unambiguous.
-  // createEngineStaticBinder, createLayerEngine and evaluateExtendedExpression
-  // are imported at the top of this file.
+test("sfd-029-221 Rek'Sai, Breacher: the merged keyword layer consumes Assault on an attacker", () => {
+  // 807.1.c/.d.1: the merged re-expander aliases KeywordDef's designation to
+  // ObjectSnapshot.combatRole and applies the attacker-only Might effect.
   const kernel = world()
     .unit("rekai", { owner: "A", controller: "A", might: 3, zone: "board", combatRole: "attacker" })
     .unit("defender", { owner: "B", controller: "B", might: 3, zone: "board", combatRole: "defender" })
     .build();
-  const source = kernel.getObject("rekai");
-  const [expansion] = keywordDefinitionsById.get("Assault").expand({ value: undefined, host: { canonicalCardId: CARD_ID } });
-
-  // The extended evaluator does map designation onto combatRole.
-  const extendedEnvironment = {
-    context: kernel.clone({ sourceSnapshot: source }), host: source.ref,
-    linked: () => undefined, canLookBack: () => true, isIgnored: () => false
-  };
-  assert.equal(evaluateExtendedExpression(expansion.condition.left, extendedEnvironment), "attacker");
-
-  // The production static binder does not use it: the attacker keeps Might 3.
-  for (const id of ["rekai", "defender"]) {
-    const layers = createLayerEngine(kernel.objects, []);
-    const binder = createEngineStaticBinder({
-      layers,
-      pipeline: { host: { objects: () => kernel.objects, context: (snapshot) => kernel.clone({ sourceSnapshot: snapshot }) } }
-    });
-    binder.bindStatic({ kind: "static", effect: expansion.effect, condition: expansion.condition }, kernel.getObject(id));
-    layers.setObjects(kernel.objects);
-    assert.equal(layers.evaluate(kernel.ref(id)).might, 3, `${id} must stay at the printed Might`);
-    // The layer registration exists; only the condition never becomes true.
-    const [entry] = layers.registry.list();
-    assert.equal(entry.effect.layer, "arithmetic");
-    assert.equal(entry.effect.effect.kind, "continuous.might");
-  }
-
-  // Without the condition the same expansion really does add 2 Might, which
-  // proves the arithmetic path itself is merged.
-  const unconditional = createLayerEngine(kernel.objects, []);
-  createEngineStaticBinder({
-    layers: unconditional,
-    pipeline: { host: { objects: () => kernel.objects, context: (snapshot) => kernel.clone({ sourceSnapshot: snapshot }) } }
-  }).bindStatic({ kind: "static", effect: { ...expansion.effect, amount: { kind: "constant", value: 2 } } }, source);
-  unconditional.setObjects(kernel.objects);
-  assert.equal(unconditional.evaluate(source.ref).might, 5);
+  const layers = new KeywordGrantLayerEngine(kernel.objects, {
+    context: source => bindResolveContext(kernel, { source, controller: source.controller })
+  });
+  layers.addContinuous({
+    id: "reksai.assault-grant",
+    layer: "ability",
+    source: kernel.ref("rekai"),
+    filter: { objectId: "rekai", zone: "board" },
+    effect: { kind: "continuous.grant-keyword", keyword: "Assault" }
+  }, { type: "permanent" });
+  assert.equal(layers.evaluate(kernel.ref("rekai")).might, 4);
+  assert.deepEqual(layers.evaluate(kernel.ref("rekai")).keywords, [{ id: "Assault", value: 1 }]);
+  assert.equal(layers.evaluate(kernel.ref("defender")).might, 3);
+  assert.equal(evaluateExtendedExpression(
+    { kind: "object-property", object: "self", property: "designation" },
+    { context: kernel.clone({ sourceSnapshot: kernel.getObject("rekai") }), host: kernel.ref("rekai"), linked: () => undefined, canLookBack: () => true, isIgnored: () => false }
+  ), "attacker");
 });
 
 test.todo(
@@ -268,11 +242,6 @@ test.todo(
     "pipeline and entry replacement (CR 805.1.b, 805.2.b, 805.6.a) — no consumer turns the keyword expansion's " +
     "accelerate.cost static declaration into CostPlanInput (createEngineStaticBinder throws " +
     "\"Static ability kind accelerate.cost has no layer mapping\")"
-);
-test.todo(
-  "sfd-029-221 Rek'Sai, Breacher: [Assault] needs its compare(object-property(self, designation)) condition aligned " +
-    "with the ObjectSnapshot combatRole characteristic (or a designation producer); the production static binder " +
-    "evaluates the condition and fails closed when designation is absent, so the unit remains at Might 3 - upstream contract alignment"
 );
 
 // Direct evidence for the first recorded gap: the production static binder

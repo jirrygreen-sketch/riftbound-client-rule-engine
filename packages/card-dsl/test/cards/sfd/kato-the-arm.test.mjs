@@ -38,18 +38,20 @@ test("sfd-112-221 Kato the Arm: identity, ruleset, status and verbatim text", ()
 test("sfd-112-221 Kato the Arm: judgeReason names the current gaps", () => {
   assert.match(program.judgeReason, /object-moved/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
-  assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /continuous\.might/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /两段体/);
   assert.match(program.judgeReason, /registerTrigger/);
   assert.match(program.judgeReason, /invalid-event-type/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /target Finalize/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
 test("sfd-112-221 Kato the Arm: [Deflect] is declared without a value (809.1.b.3)", () => {
   assert.deepEqual(deflectKeyword, { kind: "keyword", keyword: "deflect" });
   assert.equal(deflectKeyword.value, undefined);
-  // RIFT-83's KeywordDef is registered and expands to the merged target.tax
-  // static effect, whose consumer is still pending (RIFT-90/91).
+  // The registered KeywordDef expands to the merged target.tax static effect;
+  // its production consumer is still pending.
   const definition = keywordDefinitionsById.get("Deflect");
   assert.equal(definition, deflect);
   const expansion = definition.expand({ host: { canonicalCardId: CARD_ID } });
@@ -130,8 +132,8 @@ test("sfd-112-221 Kato the Arm: the Might grant reads the source's Might at reso
 });
 
 /**
- * Production query path, reproduced for the reference kernel: the RIFT-257
- * binding translates the card's `controller: "controller"` spelling to "self"
+ * Production query path, reproduced for the reference kernel: the binding
+ * translates the card's `controller: "controller"` spelling to "self"
  * (programs/filters.ts normalizePlayer), then chain/engine.ts normalizes "self"
  * to the item's controller and matches through layers/filter.ts.
  */
@@ -234,5 +236,5 @@ test.todo(
 
 test.todo(
   "sfd-112-221 Kato the Arm: [Deflect]'s target.tax expansion (809.1.c/809.1.d) must append the Power tax " +
-    "when an opponent's spell or ability chooses this unit (RIFT-90/91)"
+    "when an opponent's spell or ability chooses this unit through the production binder and target Finalize"
 );

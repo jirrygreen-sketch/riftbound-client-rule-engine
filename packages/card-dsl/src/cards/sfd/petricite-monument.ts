@@ -30,7 +30,8 @@ import type { CardProgram } from "../../ir/index.js";
  *    EVENT_PATTERN_TYPES vocabulary (validation fails closed), and the turn
  *    flow's beginning-start emission carries no object.
  * 2. the continuous.grant-keyword primitive and the static binder are merged, so
- *    the Deflect grant now really lands in the ability layer. The Finalize
+ *    the Deflect grant now really lands in the ability layer; the merged
+ *    KeywordGrantLayerEngine can also re-expand it to target.tax. The Finalize
  *    target.tax consumer is merged too (TargetTaxSpec + taxAdapter + mandatory
  *    additional-cost booking), but chain/engine.ts books that tax as an Energy
  *    constant instead of any-Domain Power (809.1.c.1), and the static binder has
@@ -47,7 +48,7 @@ export default {
     "但 beginning-start 触发的 filter.event 用的时点名与 TriggerSpec 词汇表不一致（events/trigger-spec.ts），" +
     "且 turn/flow.ts 的 beginning-start 载荷不含对象，无法把 kill 绑到本永久物。" +
     "(2) \"Friendly units have [Deflect]\" 的 continuous.grant-keyword 原语与 static 绑定已合入，" +
-    "授予现在能真正落到 ability 图层；Finalize 的 target.tax 消费方（TargetTaxSpec + taxAdapter + " +
+    "授予现在能真正落到 ability 图层，KeywordGrantLayerEngine 也能把它重展开为 target.tax；Finalize 的 target.tax 消费方（TargetTaxSpec + taxAdapter + " +
     "mandatoryAdditional 记账）也已合入，但 chain/engine.ts 把税记成 Energy 常量而非任意域 Power（809.1.c.1），" +
     "且 static 绑定没有把被授予关键字的 target.tax 映射成实时计划税。" +
     "No approximate implementation is provided; the executable Temporary sub-effect is covered in isolation.",

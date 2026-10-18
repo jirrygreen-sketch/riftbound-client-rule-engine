@@ -44,10 +44,13 @@ test("sfd-065-221 Forecaster: program passes validateCardProgram and is judge-re
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("sfd-065-221 Forecaster: judgeReason names the current binding and expansion gaps", () => {
+test("sfd-065-221 Forecaster: judgeReason names the current dynamic Vision gap", () => {
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /817\.1\.b/);
   assert.match(program.judgeReason, /运行时获得的 Vision/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /triggered Predict/);
+  assert.match(program.judgeReason, /production lifecycle/);
   assert.doesNotMatch(program.judgeReason, /RIFT-257|RIFT-258|RIFT-83/);
   assert.equal(keywordDefinitionsById.has("Vision"), true);
   assert.equal(keywordDefinitionsById.get("Vision").stacking, "separate");
@@ -204,6 +207,6 @@ test("sfd-065-221 Forecaster golden: the production static binder installs the f
 
 test.todo(
   "sfd-065-221 Forecaster: expand a runtime-gained Vision per instance into its 817.1.b Predict " +
-    "trigger with a real controller and ordered deck-top binding; expandProgram currently only " +
-    "consumes printed/declared keywords"
+    "trigger with a real controller and ordered deck-top binding; the merged re-expander is static-only " +
+    "and the production lifecycle does not register this dynamic ability"
 );

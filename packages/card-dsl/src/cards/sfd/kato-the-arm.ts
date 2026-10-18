@@ -26,14 +26,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （continuous.might；effect.buff 文件头明确临时 Might 修改不属 Buff 计数），数值在结算时读
  *   来源的有效 Might（143.2.a）。既不是 Buff 计数，也不是「设值」。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）——两处缺口：
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-18）——两处缺口：
  * 1. 触发无法注册：object-moved 虽在 timing-points.ts 的封闭时点表里（refs 421.1/449.1/
  *    449.2），但 trigger-spec.ts 的 EVENT_PATTERN_TYPES 没有 "object-moved"（只有
- *    "conquered"/"held"/…），RIFT-257 的 pipeline.registerTrigger → assertTriggerSpec 会在
+ *    "conquered"/"held"/…），pipeline.registerTrigger → assertTriggerSpec 会在
  *    卡牌触发注册时报 invalid-event-type；本卡的 toZone: "battlefield" 过滤因此无法送达。
  *    需要事件词汇表补 "object-moved"（及 toKind/toZone 载荷匹配）后才能注册。
- * 2. 「my keywords」的描述性读法：指令体用 continuous.grant-keyword 运行时读取来源快照
- *    （RIFT-258 已合入 primitive），但由于 (1) 触发无法注册，整条能力无从进入链。
+ * 2. 「my keywords」与 Might 两段体本身已由解释器真实注册；合入的
+ *    KeywordGrantLayerEngine 也能消费其中的静态关键词展开。由于 (1) 触发无法注册，
+ *    整条能力仍无从进入链；另外来源 Deflect 的 target.tax 仍没有 production binder/ChainEngine
+ *    到 target Finalize 的接线。
  * 已执行证据：两段效果（关键词授予 + Might 授予）经解释器真实注册 ability/arithmetic
  *    层效果并读到运行时值（golden 用链式查询归一化执行），但不构成整卡可执行。
  * 不把 "equal to my Might" 写成常量，也不把临时修正近似成 Buff 计数器。
@@ -111,17 +113,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "实测（2026-10-17）两处缺口，均不近似实现：(1) 触发无法注册——object-moved 是 events/timing-points.ts 的封闭时点" +
+    "实测（2026-10-18）两处缺口，均不近似实现：(1) 触发无法注册——object-moved 是 events/timing-points.ts 的封闭时点" +
     "（refs 421.1/449.1/449.2，events/action-adapter.ts 也为 move-location 发出该事件），但 events/trigger-spec.ts " +
     "的 EVENT_PATTERN_TYPES 封闭词汇表没有 \"object-moved\"，pipeline.registerTrigger → assertTriggerSpec " +
-    "会在注册本卡触发时报 invalid-event-type（实测 registerProgramTriggers 抛 TriggerSpecValidationError），" +
-    "toZone: \"battlefield\" 过滤无从匹配（需要：词汇表成员与事件载荷的 toKind/toZone 字段）。(2) 由于 (1)，" +
-    "「my keywords」经 continuous.grant-keyword 的运行时读取与「+ my Might」的 continuous.might 都到不了结算；" +
-    "两段体已用解释器 + 链式查询归一化真实执行注册（ability/arithmetic 层、this-turn 期限），但不构成整卡执行证据。" +
+    "会在注册本卡触发时报 invalid-event-type（实测程序触发注册抛 TriggerSpecValidationError），" +
+    "toZone: \"battlefield\" 过滤无从匹配（需要：词汇表成员与事件载荷的 toKind/toZone 字段）。(2) 「my keywords」与" +
+    "「+ my Might」两段体已经由解释器真实执行，KeywordGrantLayerEngine 也能消费静态关键词展开，但来源 Deflect 的" +
+    "target.tax 仍没有 production binder/ChainEngine 到 target Finalize 的接线，且 (1) 使整条能力无法由真实 Move 触发。" +
     "不把 \"equal to my Might\" 写成常量，也不把临时修正近似成 Buff 计数器（703）。" +
-    "[Deflect] 声明本身可校验，其 target.tax 展开没有生产消费方（programs/statics.ts 的 layerFor 抛 no layer mapping），" +
-    "且结算换算按 Energy 记账而 809.1.c.1 要求任意域 Power。" +
-    "依赖：EVENT_PATTERN_TYPES 的 object-moved 词汇与移动载荷绑定 + target.tax 的 statics 接线。",
+    "[Deflect] 声明本身可校验，其 target.tax 仍没有生产消费方，且 target Finalize 必须按 809.1.c.1 记为任意域 Power。" +
+    "依赖：EVENT_PATTERN_TYPES 的 object-moved 词汇与移动载荷绑定 + target.tax 的 production 接线。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +

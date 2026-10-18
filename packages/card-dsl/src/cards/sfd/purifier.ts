@@ -30,17 +30,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   and are never turned into 0 (no cost is declared on this program at all).
  *
  * status (cards/README.md section 2): judge-required. The printed +1 Might still
- * has no executable expansion, so the grant must not be claimed as running:
+ * has no complete executable path:
  * 1. The static-binder path exists (programs/statics.ts resolves the ability
  *    controller and registers the CardProgram filter into layers/LayerEngine;
- *    the golden exercises it in memory), but production card-program lifecycles
- *    are not wired end-to-end yet.
- * 2. No consumer expands a granted keyword into its KeywordDef. layers/engine.ts
- *    only records the keyword characteristic via `applyKeyword`; nothing reads a
- *    granted Assault and applies the arithmetic "while I am an attacker, +X [M]"
- *    effect that effects/keywords/Assault.ts defines. Declaring the keyword is
- *    not the same as applying it, so 807.1.c's +1 Might never happens.
- * 3. The Equipment propagation path (718.3: an Attached card's Effect Text is
+ *    the golden exercises it in memory). KeywordGrantLayerEngine can now
+ *    re-expand a runtime Assault into its attacker-conditioned Might effect,
+ *    but production card-program lifecycles still use the ordinary layer path
+ *    and do not feed granted keywords into that re-expander.
+ * 2. The Equipment propagation path (718.3: an Attached card's Effect Text is
  *    appended to its Top-Most card) has no executable bridge, so a granted
  *    Assault cannot reach the equipped unit through the attached Equipment.
  * Dependencies: the granted-keyword expansion consumer and the 718.3 Equipment
@@ -56,15 +53,12 @@ export default {
     "已能经 engine-core programs/statics 的绑定执行：golden 经 createProgramBinding + attachLifecycle 实证" +
     "己方 Equipment 得到 Assault、对手 Equipment 与无 Equipment 标签的 Gear 不受，detach 后消失；" +
     "仍判 judge-required 的当前缺口：" +
-    "(1) 没有消费方把被授予的关键词展开成 KeywordDef——layers/engine.ts 只写入关键词特征，" +
-    "没有任何已合入路径读取被授予的 Assault 并产出 effects/keywords/Assault.ts 定义的" +
-    "「作为攻击者 +X [M]」算术静态效果（807.1.c），所以印刷的 +1 Might 不会发生；" +
-    "(2) 718.3 的 Attached 卡 Effect Text 追加到 Top-Most 卡的传播没有可执行桥接，" +
-    "被授予的 Assault 因此到不了该 Equipment 所装备的单位；" +
-    "(3) 生产端接线已合入（apps/game-server 的 engine-runtime 调 createProgramBinding + attachLifecycle），" +
-    "但该生命周期不把授予的关键词喂给任何展开消费者，所以 (1) 仍是本卡的阻断点。" +
-    "RIFT-667 复核实测：授予记录为 { id: \"Assault\", value: undefined }（807.1.b.3 无印刷数值），" +
-    "该授予不会产出任何 Might。不近似实现（不写成单卡专用结算，也不改成数值修正）。",
+    "(1) KeywordGrantLayerEngine 已能把被授予的 Assault 展开成 effects/keywords/Assault.ts 定义的" +
+    "「作为攻击者 +X [M]」算术静态效果（807.1.c），但 production card-program lifecycle 仍使用普通 layer path，" +
+    "没有把授予关键词喂给该 re-expander；(2) 718.3 的 Attached 卡 Effect Text 追加到 Top-Most 卡的传播没有可执行桥接，" +
+    "被授予的 Assault 因此到不了该 Equipment 所装备的单位。" +
+    "复核实测：授予记录为 { id: \"Assault\", value: undefined }（807.1.b.3 无印刷数值）；" +
+    "普通 layer path 仍只保留该特征，不能据此宣称生产端已产出 Might。不近似实现（不写成单卡专用结算，也不改成数值修正）。",
   abilities: [
     {
       kind: "static",
