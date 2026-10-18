@@ -66,4 +66,3 @@ export const buildGrantTagSpec = (
   effectIdSuffix: string,
   settlement = "settlement-0",
 ): ContinuousEffectSpec => buildTraitTagSpec(op, sourceRef, target, tag, effectIdSuffix, settlement, "grant-tag");
-

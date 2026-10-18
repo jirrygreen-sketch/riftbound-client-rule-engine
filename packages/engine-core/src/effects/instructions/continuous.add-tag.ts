@@ -434,4 +434,3 @@ const continuousAddTag = {
 } satisfies InstructionDef<ContinuousAddTagArgs>;
 
 export default continuousAddTag;
-

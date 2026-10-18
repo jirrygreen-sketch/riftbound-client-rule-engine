@@ -32,10 +32,13 @@ test("continuous.add-tag is registered through the default production assembly f
   assert.equal(kernel.continuousEffects[0].effect.layer, "trait");
   assert.equal(kernel.continuousEffects[0].effect.effect.kind, "add-tag");
 
-  const effective = engineFor(kernel).evaluate(kernel.ref("ivern"));
+  const layers = engineFor(kernel);
+  const effective = layers.evaluate(kernel.ref("ivern"));
   assert.ok(effective.tags.includes("Bird"));
   assert.equal(effective.energy, null);
   assert.equal(effective.power, null);
+  assert.equal(layers.removeContinuous(kernel.continuousEffects[0].effect.id), true);
+  assert.equal(layers.evaluate(kernel.ref("ivern")).tags.includes("Bird"), false);
 });
 
 test("trait registrations expire at the declared boundary and do not follow a new zone entry", () => {
@@ -112,5 +115,23 @@ test("stale objects are ignored and a required choice rolls back until answered"
     tag: literal("Poro"), layer: literal("trait"), object: literal(descriptor),
   }, { world: badAnswerWorld, answers: { "ivern-tag-target": [badRef] } }), /choice answer/);
   assert.equal(badAnswerWorld.continuousEffects.length, 0);
+});
+
+test("a required choice with no legal options is rejected without registering", () => {
+  const kernel = withSource(world().unit("ivern").build(), "ivern");
+  const run = runInstruction(addTag, {
+    tag: literal("Bird"),
+    layer: literal("trait"),
+    object: literal({
+      kind: "choose",
+      id: "ivern-no-gear",
+      filter: { type: "gear", zone: "board" },
+      min: 1,
+      max: 1,
+    }),
+  }, { world: kernel });
+  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
+  assert.deepEqual(run.linked.affected, { count: 0, objects: [] });
+  assert.equal(kernel.continuousEffects.length, 0);
 });
 
