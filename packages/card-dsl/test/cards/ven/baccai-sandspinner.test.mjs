@@ -92,6 +92,8 @@ test("ven-001-166 Baccai Sandspinner: identity, ruleset, status, judgeReason and
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   // judgeReason 必须点名真正的缺口，而不是泛泛的「未实现」。
+  // Refreshed 2026-10-18: the reason carries the re-sweep date, names the
+  // isolated KeywordGrantLayerEngine vs default lifecycle difference, and stays RIFT-free.
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /827\.1\.c\.1/);
   assert.match(program.judgeReason, /Unsupported cost kind: empower/);
@@ -102,7 +104,10 @@ test("ven-001-166 Baccai Sandspinner: identity, ruleset, status, judgeReason and
   assert.match(program.judgeReason, /Chain Finalize/);
   assert.match(program.judgeReason, /no layer mapping/);
   assert.match(program.judgeReason, /selectorMatches/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /2026-10-18 复核/);
   assert.ok(!/RIFT-89|RIFT-90|RIFT-91/.test(program.judgeReason));
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });

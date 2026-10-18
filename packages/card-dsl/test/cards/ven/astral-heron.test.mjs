@@ -26,9 +26,13 @@ test("ven-044-166 Astral Heron: identity, status, judgeReason and verbatim sourc
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
+  // Refreshed 2026-10-18: reason carries the re-sweep date and stays RIFT-free.
   assert.match(program.judgeReason, /next-card/);
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /at-battlefield/);
+  assert.match(program.judgeReason, /383\.1\.b/);
+  assert.match(program.judgeReason, /2026-10-18 复核/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.doesNotMatch(program.judgeReason, /Universal Power.*不可表示|closed six-domain/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });

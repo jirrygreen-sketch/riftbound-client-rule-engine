@@ -69,9 +69,14 @@ test("ven-016-166 Eclipse Dragon: identity, ruleset, status, judgeReason and ver
   assert.match(program.judgeReason, /805\.1\.b/);
   assert.match(program.judgeReason, /object-moved/);
   assert.match(program.judgeReason, /optionalAdditional/);
-  assert.match(program.judgeReason, /RIFT-120/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  // Refreshed 2026-10-18: stale task citations (RIFT-120/RIFT-359) were replaced
+  // with the technical gaps they stood for: the move-location payload and the
+  // relative controller selector.
+  assert.match(program.judgeReason, /move-location/);
+  assert.match(program.judgeReason, /相对控制者选择符/);
+  assert.match(program.judgeReason, /2026-10-18 复核/);
   assert.doesNotMatch(program.judgeReason, /RIFT-89/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -151,5 +156,5 @@ test.todo(
 test.todo(
   "ven-016-166 Eclipse Dragon: fire 'When I move' — program trigger translation already binds the source object ID, " +
     "but EVENT_PATTERN_TYPES excludes object-moved, so assertTriggerSpec rejects registration; the move-location " +
-    "emission also lacks location payload, and the rune-count controller selector needs RIFT-359"
+    "emission also lacks location payload, and the rune-count controller selector needs the relative controller selector"
 );

@@ -1,7 +1,7 @@
 import type { Ability, CardProgram } from "../../ir/index.js";
 
 /**
- * baccai-sandspinner — M2 源码复核（2026-10-18）。
+ * baccai-sandspinner — M2 源码复核（2026-10-18，本轮 re-sweep 措辞精修）。
  * CR v1.5 827.1.c.1：Empower 印刷费用为 5 Energy；827.1.c.3 的控制 4 或更少符文时减 3 Energy。
  * 442.1.a/828.1.b.1：依赖能力只在宿主 Empowered 时有效。
  *
@@ -20,9 +20,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    empowered 字段、engine-runtime/host.ts 也不提供。
  * 4. KeywordGrantLayerEngine 已能在独立 adapter 中重展开 granted Assault 2 / Deflect 1，
  *    并按 combatRole/designation 计算攻击者 Might；默认 CardProgram lifecycle 仍使用基础
- *    LayerEngine，所以生产图层只登记关键词，不消费 Assault 修正。Deflect 展开的
- *    { kind: "target.tax" } 仍在 bindStatic 抛 'no layer mapping'，Chain Finalize 也没有
- *    Power 目标税消费方。
+ *    LayerEngine（该层只被 engine-core 自身测试构造，未从任何公开入口导出，
+ *    turn/flow.ts 与 apps/game-server 均不构造），所以生产图层只登记关键词，
+ *    不消费 Assault 修正。Deflect 展开的 { kind: "target.tax" } 仍在 bindStatic 抛
+ *    'no layer mapping'，Chain Finalize 也没有 Power 目标税消费方。
  */
 const abilities: Ability[] = [
   {
@@ -88,7 +89,8 @@ export default {
     "(3) 442.1.a/828.1.b.1 的 Empowered 门控：卡牌用 object-property(self, \"empowered\")，实测参考内核路径可求值（Empower 后 keywords 出现 deflect 1 与 assault 2），" +
     "但 ObjectSnapshot 契约没有 empowered 字段、engine-runtime/host.ts 也不提供。" +
     "(4) continuous.grant-keyword 本身已合入；独立 KeywordGrantLayerEngine adapter 可把 granted Assault 2 / Deflect 1 " +
-    "重展开，并按 combatRole/designation 计算攻击者 Might，但默认 CardProgram lifecycle 仍使用基础 LayerEngine，" +
+    "重展开，并按 combatRole/designation 计算攻击者 Might，但默认 CardProgram lifecycle 仍使用基础 LayerEngine" +
+    "（该层只被 engine-core 自身测试构造，未从任何公开入口导出，turn/flow.ts 与 apps/game-server 均不构造），" +
     "生产图层只登记关键词而不消费该修正。809.1.c 的 Deflect Power 目标税仍没有生产适配器——Deflect 展开的 " +
     "target.tax 在 bindStatic 抛 \"no layer mapping\"，Chain Finalize 没有 Power tax 消费方。不近似实现。",
   abilities,

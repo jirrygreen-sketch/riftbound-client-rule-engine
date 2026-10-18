@@ -30,9 +30,11 @@ test("ven-116-166 Dragon Form: program passes validateCardProgram and is judge-r
 
 test("ven-116-166 Dragon Form: judgeReason names the trait layer setting, the duration and Flow", () => {
   // 143.2.a trait-altering set and the remaining Flow parameter/receipt/matching integration.
+  // Refreshed 2026-10-18: the reason carries the re-sweep date and stays RIFT-free.
   assert.match(program.judgeReason, /143\.2\.a/);
   assert.match(program.judgeReason, /continuous\.base-might/);
   assert.match(program.judgeReason, /set-might/);
+  assert.match(program.judgeReason, /2026-10-18 复核/);
   assert.doesNotMatch(program.judgeReason, /RIFT-9\d/);
   assert.doesNotMatch(program.judgeReason, /RIFT-120/);
   assert.doesNotMatch(program.judgeReason, /RIFT-257/);
@@ -44,6 +46,7 @@ test("ven-116-166 Dragon Form: judgeReason names the trait layer setting, the du
   assert.match(program.judgeReason, /143\.2\.c\.1/);
   assert.match(program.judgeReason, /set-trait/);
   assert.match(program.judgeReason, /programs\/statics/);
+  assert.match(program.judgeReason, /2026-10-18 复核/);
   assert.match(program.judgeReason, /不近似实现/);
 });
 
