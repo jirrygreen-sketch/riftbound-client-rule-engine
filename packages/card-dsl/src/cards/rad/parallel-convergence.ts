@@ -21,7 +21,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   source is the ability itself) that targets one unit; "at a battlefield" is
  *   only a targeting restriction (355.10.b), not a target on the battlefield.
  *
- * Status: judge-required (2026-10-17 recheck, both halves probed). The damage
+ * Status: judge-required (2026-10-18 recheck, both halves probed). The damage
  * half below is fully covered by the merged `effect.damage` primitive and is
  * executed by the golden test. The additional cost is not, and it is not
  * approximated:
@@ -35,7 +35,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   absent from the NonstandardCostAction set
  *   (`exhaust | discard | recycle | kill | reveal | spend-buff`).
  * - the battlefield restriction uses TargetSpec.location, which the existing
- *   Finalize target plan already understands (355.10.b).
+ *   Finalize target plan already understands (355.10.b) and which
+ *   programs/filters.ts keeps intact (measured: the translated TargetSpec keeps
+ *   `location: { type: "battlefield" }`).
  * The 356.2.a.1 mandatory-additional-cost posting and return-to-hand payment
  * kind remain blocked. The RIFT-685 template row
  * (test/cards/templates/play-effect-damage-685.test.mjs) runs the card's own program
@@ -49,11 +51,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "2026-10-17 复核：伤害半段已用 effect.damage 真实执行（已有真实执行证据）；仍缺“return a friendly unit to its owner's hand”" +
+    "2026-10-18 复核：伤害半段已用 effect.damage 真实执行（已有真实执行证据）；仍缺“return a friendly unit to its owner's hand”" +
     "强制附加费用的费用管线：programs/play.ts translateCost 先拒绝该 Spec（实测 Additional costs are not bound for ...），" +
     "cost/plan-values.ts readCost 也不接受 CostSpec.kind \"additional\"（Unsupported cost kind: additional），" +
     "且 payments 没有 return-to-hand 种类，NonstandardCostAction 也不接受 return-to-hand/move-zone，无法在 Finalize 投放 356.2.a.1 的 mandatory-additional。" +
-    "战场限制已改用现有 TargetSpec.location，目标翻译不再是缺口；" +
+    "战场限制已改用现有 TargetSpec.location，且 production 目标翻译保留该字段（实测），因此目标翻译不再是缺口；" +
     "模板 play-effect-damage-685 用本卡自身程序经真实链实测：play 在绑定期即被 Additional costs are not bound for play:<id> 拒绝，" +
     "而原始伤害 body 经真实目标翻译/Finalize/解析单独结算 5 点；两者都不代表已支付附加费用。" +
     "不近似实现：不用 effect.zone 在结算期补做费用动作。",

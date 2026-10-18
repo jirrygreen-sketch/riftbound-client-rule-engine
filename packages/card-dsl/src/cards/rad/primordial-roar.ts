@@ -28,7 +28,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   (355.10.a: cards revealed from hand are private; a unit picked from the
  *   board is a pick, not a target).
  *
- * 2026-10-17 再复核：整卡仍为 judge-required；当前缺口见 judgeReason。
+ * 2026-10-18 再复核：整卡仍为 judge-required；当前缺口见 judgeReason。
  * 已合入原语与关键词声明不等于生产链路可执行；局部执行证据见同名单卡测试。
  */
 export default {
@@ -36,9 +36,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Show Off]（CR 832.1）仍缺 Finalize 的真实展示选择与锁定快照生产者（832.1.c.2、832.1.d.1）：ShowOff.ts 仅产出 cost.reveal，chain/cost 没有消费并记录 objects-shown-off 结果。" +
-    "关键词 slug show-off 与注册键 Show Off 不一致；programs/keywords.ts definitionFor 仅忽略大小写，报 no executable KeywordDef，而带空格拼写不通过 IR 校验。KeywordAbility 也没有传入印刷 Object 子句与实例标识的参数通道。" +
-    "占位 effect.show-off 仍是 Unregistered instruction opcode，不能在 Resolve 冒充 Finalize 展示。condition.result 已合入，缺的是可读的每实例展示结果与 shownMight 锁定值，不是通用谓词。伤害子指令已真实执行；保留锁定值引用，不改读单位当前 Might。",
+    "三项当前缺口（2026-10-18 实测，均不近似实现）：" +
+    "(1) [Show Off] 的 Finalize 展示选择与锁定快照没有生产者（832.1.c.2、832.1.d.1）：effects/keywords/ShowOff.ts 只展开出 static cost.reveal 声明，" +
+    "该 kind 既不在 instructions 注册表里，也被 programs/statics.ts 的 layerFor 以 “Static ability kind cost.reveal has no layer mapping” 拒绝（实测）；" +
+    "chain/cost 没有消费该声明并记录 objects-shown-off 结果（objects-shown-off 时点存在，但没有 Finalize 侧写入方）。" +
+    "(2) 声明侧也不可绑定：关键词 slug \"show-off\" 与注册键 \"Show Off\" 不一致，programs/keywords.ts 的 definitionFor 仅做大小写折叠，" +
+    "实测 expandProgram 抛 “Keyword show-off has no executable KeywordDef”，而带空格拼写不通过 card-dsl 的 IR 校验（小写 symbol 要求）；" +
+    "另外 ShowOff 未接受数值，带 value 的实例被 “Keyword Show Off does not accept a value” 拒绝（实测 832.1.b 的 Object 子句也仍无参数通道）。" +
+    "(3) 占位 effect.show-off 仍是 Unregistered instruction opcode（实测 registry 无该条目），不能在 Resolve 冒充 Finalize 展示。" +
+    "condition.result 与 linked-value 已合入，缺的是可读的每实例展示结果与 shownMight 锁定值，不是通用谓词。伤害子指令已真实执行；保留锁定值引用，不改读单位当前 Might。",
   abilities: [
     { kind: "keyword", keyword: "show-off", value: 1 },
     {

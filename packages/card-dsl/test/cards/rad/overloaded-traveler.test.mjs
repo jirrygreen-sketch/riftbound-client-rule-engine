@@ -13,6 +13,7 @@ import { createActionPipelineHost, bindResolveContext } from "../../../../engine
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-adfd644e08c5d8afc96ca8c90b7a573a5e333bba2b2fb4d364ea5830160dc459";
@@ -74,7 +75,6 @@ test("rad-072-167 Overloaded Traveler: program passes validateCardProgram with t
 test("rad-072-167 Overloaded Traveler: judgeReason names the conditional Might, the Deploy predicate, and the type mismatch", () => {
   // Rule anchors stay durable as engine dependencies merge.
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /\[Deploy\]/);
   assert.match(program.judgeReason, /830\.3/);
   assert.match(program.judgeReason, /143\.2/);
@@ -83,6 +83,10 @@ test("rad-072-167 Overloaded Traveler: judgeReason names the conditional Might, 
   // only the keyword predicate.
   assert.match(program.judgeReason, /has-keyword/);
   assert.match(program.judgeReason, /object\.controller === object\.controller/);
+  // RIFT-359's condition/predicate work merged; the reason must name the merged
+  // code that still rejects the two clauses rather than the closed task id.
+  assert.doesNotMatch(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /Unsupported filter field/);
   // The catalog types this printing as a Spell with Might 2 while the text is a
   // permanent unit's static ability.
   assert.match(program.judgeReason, /Spell/);
@@ -273,6 +277,34 @@ test("rad-072-167 Overloaded Traveler: no merged filter or condition form evalua
     false,
     "no evaluable keyword predicate is exposed by the merged layer engine"
   );
+});
+
+test("rad-072-167 Overloaded Traveler: the relative-player anchor fails closed in the interpreter query, too", () => {
+  // The reason claims the two merged paths fail in opposite directions; the
+  // second half is the interpreter's set query, which compares the selector
+  // string literally to a player id.
+  const kernel = world()
+    .unit("traveler", { controller: "A", owner: "A", might: 2, location: { type: "battlefield", id: "bf-1" } })
+    .object("friendly-gear", { types: ["gear"], controller: "A", owner: "A", zone: "board", location: { type: "battlefield", id: "bf-1" }, energy: null, power: null })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("traveler") });
+  assert.equal(context.query({ type: "gear", controller: "A" }).length, 1);
+  assert.equal(context.query({ type: "gear", controller: "self" }).length, 0,
+    "controller: self is compared as a player id, so a real friendly gear does not match");
+  assert.equal(context.query({ type: "gear", controller: "any" }).length, 0,
+    "the relative spelling is not broadened on this path either");
+});
+
+test("rad-072-167 Overloaded Traveler gap: the production filter rejects a keyword qualifier in every spelling", () => {
+  // 830.3 makes "[Deploy]" a checkable characteristic, but no merged filter
+  // spelling can carry it: unknown keys pass through the layer matcher and are
+  // refused by the production translator.
+  for (const filter of [{ type: "gear", keywords: ["Deploy"] }, { type: "gear", keyword: "Deploy" }]) {
+    assert.throws(
+      () => translateObjectFilter(filter),
+      error => error.code === "judge-required" && /Unsupported filter field/.test(error.message)
+    );
+  }
 });
 
 test("rad-072-167 Overloaded Traveler: the declared +1 Might really computes in the merged arithmetic layer", () => {

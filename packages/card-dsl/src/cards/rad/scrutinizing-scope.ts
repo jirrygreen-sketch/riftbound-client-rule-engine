@@ -30,7 +30,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   [Energy 1], [Exhaust] as the cost (CR v1.5 145.1 Units / 151.1 Gear;
  *   159.2 lists only Action and Reaction as a spell's non-executable keywords).
  *
- * Status: judge-required, re-reviewed 2026-10-17. RIFT-358 closed the ordered
+ * Status: judge-required, re-reviewed 2026-10-18. RIFT-358 closed the ordered
  * deck-top half: the reveal step declares `picks` with
  * `zoneSlice: { zone: "deck", from: "top", count: 1 }` and the chain adapter
  * locks the actual deck-top reference at Finalize (production execution
@@ -38,7 +38,12 @@ import type { CardProgram } from "../../ir/index.js";
  * `choice.hidden-guess`: no merged primitive lets another player declare a
  * private card-type guess, and no link-value producer feeds that guess to the
  * compare/in membership test, so both branches remain fail-closed without a
- * written guess.
+ * written guess. Measured 2026-10-18: `choice.hidden-guess` is absent from
+ * `instructionDefinitionsById` (handing this card's own body to the production
+ * interpreter throws "Unregistered instruction opcode: choice.hidden-guess"),
+ * and `ChoiceRequest` has no player-choice form either (optional / mode /
+ * select-objects / order / number only), so "Choose an opponent" has no
+ * producer of its own.
  */
 export default {
   canonicalCardId: "card.hash-b08afbe6dc630f67287c7ab652b90f17c81abfd9d7f94bda47eae324899ce111",
@@ -46,7 +51,9 @@ export default {
   status: "judge-required",
   judgeReason:
     "缺原语 choice.hidden-guess（指定对手在私密信息约束下声明一个卡类猜测，并把它与公开揭示对象的类型比较）：" +
-    "CR 1.5 128.3 / 425 / 135.2.b.7，见 docs/plans/survey/unclassified-rad-sfd.md 第 25 条。" +
+    "CR 1.5 128.3 / 425 / 135.2.b.7，见 docs/plans/survey/unclassified-rad-sfd.md 第 25 条；" +
+    "实测 instructionDefinitionsById 无该 op，把本卡自身 body 交给生产解释器直接抛 “Unregistered instruction opcode: choice.hidden-guess”。" +
+    "同缺“Choose an opponent”的玩家选择形态：effects/contract.ts 的 ChoiceRequest 只有 optional / mode / select-objects / order / number。" +
     "“类型数组包含”本身已可表达（解释器的 compareValues 把 in 实现为左值属于右数组，右值可用 object-property 读揭示牌的 types），" +
     "但猜测值没有任何生产者：没有 guess 链接值时条件读不到值、分支 fail-closed（两条分支因此各自带该 condition，非玩家选择，故不写 choice.mode）。" +
     "“Reveal the top card of your Main Deck”已由 PickSpec.zoneSlice 在 Finalize 锁定真实牌库顶引用并交给 effect.reveal（golden 已真实执行该步；" +

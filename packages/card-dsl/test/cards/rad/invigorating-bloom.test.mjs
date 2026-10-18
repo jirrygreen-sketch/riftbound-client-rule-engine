@@ -12,11 +12,35 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/rad/invigorating-bloom.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { readCost } from "../../../../engine-core/dist/cost/plan-values.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+
+/** Minimal engine so the production static binder can be exercised directly. */
+function binderFor(kernel) {
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("Unexpected choice"); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: () => true
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  return createEngineStaticBinder(engine);
+}
 
 const CANONICAL =
   "card.hash-22d854738a427311b36ac63f3aaf6f45c1c921fc638e338c8a2144a374c635e7";
@@ -50,6 +74,11 @@ test("rad-035-167 Invigorating Bloom: identity, status, judgeReason and verbatim
   assert.match(program.judgeReason, /费用侧没有 filter\/query 形状/);
   assert.match(program.judgeReason, /710/);
   assert.match(program.judgeReason, /cardType Unit/);
+  // The refreshed reason records the two measured rejections and the Mighty
+  // layer gap with merged code names.
+  assert.match(program.judgeReason, /Unsupported payment field: filter/);
+  assert.match(program.judgeReason, /mightGte/);
+  assert.match(program.judgeReason, /condition\.value has no layer mapping/);
   // The old reason cited cost/plan-values.ts as a *filter* gap and claimed the
   // keyword declaration alone was the missing piece; the merged binder rejects
   // the exact-reference requirement instead.
@@ -192,6 +221,46 @@ test("rad-035-167 Invigorating Bloom boundary: the Mighty-unit cost half is not 
     /exact object reference/i
   );
   assert.equal(context.getObject("mighty-unit").exhausted, false);
+});
+
+test("rad-035-167 Invigorating Bloom gap: a filter-shaped cost payment and a Mighty predicate are both rejected", () => {
+  // Both halves of the printed cost clause are measured here: the payment
+  // schema has no filter entry at all, and the filter vocabulary has no
+  // current-Might predicate for CR 710.
+  const kernel = world().unit("bloom", { might: 3 }).unit("mighty-unit", { might: 5 }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("bloom") });
+  assert.throws(
+    () => readCost(
+      context,
+      { payments: [{ kind: "exhaust", filter: { type: "unit", characteristics: { might: 5 } } }] },
+      { id: "bloom.activate" },
+      "bloom.activate"
+    ),
+    error => error.name === "CostPlanError" && /Unsupported payment field: filter/.test(error.message)
+  );
+  for (const filter of [{ type: "unit", mighty: true }, { type: "unit", mightGte: 5 }]) {
+    assert.throws(
+      () => translateObjectFilter(filter),
+      error => error.code === "judge-required" && /Unsupported filter field/.test(error.message)
+    );
+  }
+  // characteristics is a literal equality test, not the 710 threshold: a unit
+  // with Might 6 does not satisfy a Might-5 characteristic clause.
+  assert.equal(matchesObjectFilter({ characteristics: { might: 5 } }, { ...kernel.getObject("mighty-unit"), might: 6 }), false);
+  assert.equal(matchesObjectFilter({ characteristics: { might: 5 } }, kernel.getObject("mighty-unit")), true);
+});
+
+test("rad-035-167 Invigorating Bloom gap: Mighty's condition.value description has no static layer mapping", () => {
+  // effects/keywords/Mighty.ts does describe 706-711 as condition.value, but the
+  // production static binder cannot register that kind, so its predicate is not
+  // reachable from the cost-selection path either.
+  const kernel = world().unit("mighty-unit", { might: 5 }).build();
+  const [mighty] = keywordDefinitionsById.get("Mighty").expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(mighty.effect.kind, "condition.value");
+  assert.throws(
+    () => binderFor(kernel).bindStatic(mighty, kernel.getObject("mighty-unit")),
+    /Static ability kind condition\.value has no layer mapping/
+  );
 });
 
 test.todo(

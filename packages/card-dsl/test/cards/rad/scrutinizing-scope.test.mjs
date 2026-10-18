@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/rad/scrutinizing-scope.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -33,6 +34,10 @@ test("rad-064-167 Scrutinizing Scope: judgeReason names the guess primitive and 
   assert.match(program.judgeReason, /compareValues/);
   assert.match(program.judgeReason, /zoneSlice/);
   assert.match(program.judgeReason, /128\.3/);
+  // The refreshed reason records the measured missing opcode and the missing
+  // player-choice form as well.
+  assert.match(program.judgeReason, /Unregistered instruction opcode: choice\.hidden-guess/);
+  assert.match(program.judgeReason, /ChoiceRequest/);
   // RIFT-358 merged the ordered deck-top supply; the reason must now say the
   // reveal half is executable instead of asking for an ordered producer.
   assert.match(program.judgeReason, /PickSpec\.zoneSlice/);
@@ -234,6 +239,21 @@ test.todo(
     "choice.hidden-guess primitive (private declarative guess + comparison against the revealed " +
     "card's type, CR 1.5 128.3/425/135.2.b.7) — unmerged (survey section 25)."
 );
+
+test("rad-064-167 Scrutinizing Scope gap: the authored body stops at the unregistered guess opcode", () => {
+  // Measured gate from judgeReason: the card's own body cannot be resolved
+  // because choice.hidden-guess has no instruction definition, and the merged
+  // ChoiceRequest union has no player-choice form for "Choose an opponent".
+  const kernel = world().unit("scope", { types: ["spell"], zone: "chain" }).deck(["top"], { owner: "A" }).build();
+  assert.throws(
+    () => resolveChainBody(ability.body, kernel.clone({ sourceSnapshot: kernel.getObject("scope") })),
+    /Unregistered instruction opcode: choice\.hidden-guess/
+  );
+  // No registered instruction produces the opponent choice either (the shared
+  // player-selection gap other cards record as target.player).
+  assert.equal(instructionDefinitionsById.has("choice.hidden-guess"), false);
+  assert.equal(instructionDefinitionsById.has("target.player"), false);
+});
 
 test.todo(
   "rad-064-167 Scrutinizing Scope: 'Choose an opponent. They guess a card type' needs a producer for the " +
