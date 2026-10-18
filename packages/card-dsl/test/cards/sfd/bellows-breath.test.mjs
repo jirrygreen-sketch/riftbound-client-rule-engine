@@ -1,5 +1,5 @@
 // Execution evidence for the merged Deal 1 half of Bellows Breath lives in the
-// RIFT-652 template suite:
+// Parameterized template suite:
 //   ../templates/keyword-play-effect-damage-652.test.mjs
 // The card stays judge-required: the 355.11 group requirement ("at the same
 // location") has no evaluating consumer, and the [Repeat] additional cost is

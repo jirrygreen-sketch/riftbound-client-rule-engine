@@ -264,11 +264,6 @@ test.todo(
 );
 
 test.todo(
-  "sfd-011-221 Angle Shot: the printed [Reaction] Closed-State permission (813, 159.2.b) needs the " +
-    "keyword expansion plus the chain's canAct timing query."
-);
-
-test.todo(
   "sfd-011-221 Angle Shot: the detach mode consumes the already-chosen Equipment as its non-target " +
     "selection; the chain must pass the first TargetSpec's locked reference into that pick's option set " +
     "(436.3)."

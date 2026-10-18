@@ -30,8 +30,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   is written.
  *
  * Status: judge-required. The damage instruction is merged and is executed by
- * the RIFT-652 parameterized template suite (including a partially stale
- * target set), but two dependencies are unmerged and not approximated:
+ * the parameterized template suite (including a partially stale target set),
+ * but two dependencies are unmerged and not approximated:
  * - the 355.11 group requirement "same location" (the merged target plan carries
  *   kind/group as data but evaluates no group-level coherence and no
  *   legal-subset re-choice of 355.11.b);
@@ -41,7 +41,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   exist, but no code connects the card-declared additional cost to the
  *   spell-play Finalize or feeds the paid count to the resolution
  *   (programs/play.ts translateCost rejects `kind: "additional"` and the
- *   `optional` field, measured 2026-10-17: "Unsupported play cost field
+ *   `optional` field, measured 2026-10-18: "Unsupported play cost field
  *   optional").
  */
 const bellowsBreath = {
