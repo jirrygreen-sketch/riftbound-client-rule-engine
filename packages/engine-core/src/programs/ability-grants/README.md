@@ -27,6 +27,12 @@ currently needs a non-null card id because the existing trigger adapter reads
 the program through that id. Unknown ability bodies/costs are not implemented
 or made executable by structural validation.
 
+`projectStaticAbilityGrant` and `projectAbilityGrantInstruction` convert the
+authored single-installer shapes into the same per-object ability-layer
+registration stream. They preserve the original complete ability and source,
+and use the instruction path plus target incarnation as a deterministic
+settlement identity. They do not add another resolver, scanner, or state store.
+
 ## Required owner changes (not included in this workstream)
 
 1. **EG-STATIC / EG-ADAPTER:** map `continuous.grant-ability` and
@@ -51,12 +57,11 @@ or made executable by structural validation.
    the complete effective abilities to `activationAbilities`,
    `describeActivate` and inspection. These modules only provide queries and
    binding/removal handles, not a second event scanner or resolver.
-4. **EG-CONTRACT / EG-ADAPTER:** provide a deterministic resolution identity
-   to continuous registrations. The helper now falls back to the stable
-   instruction path plus the target's incarnation, so repeated instruction
-   paths do not collide and no process-global counter is needed. A caller that
-   resolves the same instruction path repeatedly against the same incarnation
-   must still supply an explicit `settlementId`. Minimal additive seam:
+4. **EG-CONTRACT / EG-ADAPTER:** retain a per-resolution identity on the
+   context for repeated resolutions of one authored instruction path against
+   the same target incarnation. The fallback is the stable instruction path
+   plus target incarnation, so distinct instruction paths and targets do not
+   collide without a process-global counter. Minimal additive seam:
 
    ```ts
    interface ResolveContext {

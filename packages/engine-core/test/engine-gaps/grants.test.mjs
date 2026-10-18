@@ -96,13 +96,12 @@ test('effective keyword expansion preserves printed costs and independent Equip 
 test('static and instruction grant projections use the live source as the unique installer', () => {
   const aura = program('aura', [{ kind: 'static', effect: { kind: 'continuous.grant-ability',
     filter: { type: 'unit', controller: 'self', sameLocationAs: 'self' }, ability: ready } }]);
-  const f = runtime(world().unit('source', { cardId: 'aura', location: at('one') })
+  const f = runtime(world().battlefield('source', { cardId: 'aura', types: ['battlefield'], location: at('one') })
     .unit('hero', { cardId: 'hero', location: at('one') }));
   f.enter('source');
   const source = f.snapshot('source');
   const objects = f.engine.layers.evaluateAll();
   const grantSource = { ref: source.ref, snapshot: source, controller: source.controller,
-    registry: f.engine.layers.registry,
     object: ref => f.engine.layers.snapshot(ref),
     query: filter => objects.filter(object => (filter.objectId === undefined || object.ref.id === filter.objectId) &&
       (filter.type === undefined || object.types.includes(filter.type))) };

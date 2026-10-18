@@ -1,5 +1,5 @@
 import type { Ability, Condition, Instruction } from '@riftbound/card-dsl';
-import type { ContinuousEffectSpec, ObjectFilter, ObjectRef, ObjectSnapshot, PlayerId, ResolveContext } from '../../effects/contract.js';
+import type { ContinuousEffectSpec, Expr, ObjectFilter, ObjectRef, ObjectSnapshot, PlayerId, ResolveContext } from '../../effects/contract.js';
 import { evaluateCondition } from '../../effects/interpreter/condition.js';
 import { queryObjects } from '../../effects/interpreter/selectors.js';
 import { MissingInformation } from '../../effects/interpreter/values.js';
@@ -10,7 +10,7 @@ import { effectId, isDurationAlias, resolveContinuousDuration, targetFilter } fr
 import { refKey, sameRef } from '../../layers/types.js';
 import { translateObjectFilter } from '../filters.js';
 import { expandEffectiveKeywords, type EffectiveKeywordExpansion, type KeywordChange } from '../keyword-grants.js';
-import { abilitySettlementIdentity, evaluate, fields, grantedAbilities, ignoredKeywords } from './instruction.js';
+import { abilitySettlementIdentity, fields, grantedAbilities, ignoredKeywords } from './instruction.js';
 
 export interface AbilityQueryScope { readonly operation: string; readonly player: PlayerId; }
 export interface AbilityGrantSource {
@@ -18,8 +18,6 @@ export interface AbilityGrantSource {
   /** Current source used for relative filters and conditions. */
   readonly snapshot: ObjectSnapshot;
   readonly controller: PlayerId;
-  /** Active registrations, normally the owner's layer-engine registry. */
-  readonly registry: ContinuousEffectRegistry;
   /** Owner's current layer view, including copy/trait/arithmetic results. */
   readonly object: (ref: ObjectRef) => ObjectSnapshot | null;
   readonly query: (filter: ObjectFilter) => readonly ObjectSnapshot[];
@@ -36,6 +34,14 @@ export interface EffectiveAbilities extends EffectiveKeywordExpansion {
 function environment(context: ResolveContext) {
   return { context, host: context.source.ref, linked: (key: string) => context.linked(key),
     canLookBack: () => true, isIgnored: () => false };
+}
+function argument(ctx: ResolveContext, value: unknown): unknown {
+  if (typeof value !== 'object' || value === null || !('kind' in value)) return value;
+  const kind = String(value.kind);
+  if (!['constant', 'literal', 'linked', 'linked-value', 'object-property', 'object-attribute', 'count', 'arithmetic',
+    'player-property', 'turn-number', 'player-turn-count', 'object-designation'].includes(kind)) return value;
+  if ((kind === 'constant' || kind === 'literal') && 'value' in value) return value.value;
+  return ctx.evaluate(value as Expr);
 }
 function sourceContext(source: AbilityGrantSource, anchor: ObjectSnapshot): ResolveContext {
   return {
@@ -186,16 +192,17 @@ export function projectAbilityGrantInstruction(
     throw new TypeError('Ability projection requires a grant/ignore instruction');
   }
   const args = fields(instruction.args);
-  const selected = source.query(translateObjectFilter(fields(args.filter ?? {})));
   const context = sourceContext(source, source.snapshot);
+  const filter = fields(argument(context, args.filter ?? {}));
+  const selected = source.query(translateObjectFilter(filter));
   const effect: Record<string, unknown> = instruction.op === 'continuous.grant-ability'
-    ? { kind: instruction.op, abilities: grantedAbilities(evaluate(context, args.ability ?? args.abilities)) }
-    : { kind: instruction.op, ignores: ignoredKeywords(evaluate(context, args.ignores)),
-      operation: evaluate(context, args.operation), players: evaluate(context, args.players) };
-  const rawDuration = evaluate(context, args.duration ?? 'permanent');
+    ? { kind: instruction.op, abilities: grantedAbilities(argument(context, args.ability ?? args.abilities)) }
+    : { kind: instruction.op, ignores: ignoredKeywords(argument(context, args.ignores)),
+      operation: argument(context, args.operation), players: argument(context, args.players) };
+  const rawDuration = argument(context, args.duration ?? 'permanent');
   if (!isDurationAlias(rawDuration)) throw new TypeError('Unknown ability grant duration');
   const duration = resolveContinuousDuration(rawDuration, source.ref);
-  const settlement = abilitySettlementIdentity(context, instruction.op, instruction.id, evaluate(context, args.settlementId));
+  const settlement = abilitySettlementIdentity(context, instruction.op, instruction.id, argument(context, args.settlementId));
   return Object.freeze(selected.map((object, index) => Object.freeze({
     id: effectId(instruction.op, source.ref, { ref: object.ref, snapshot: object }, String(index),
       `${instruction.id}:${settlement}`),
