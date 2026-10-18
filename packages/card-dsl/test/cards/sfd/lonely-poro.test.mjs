@@ -1,3 +1,8 @@
+// RIFT-680: per-card validation, identity, structure and draw-body behavior.
+// Additional real trigger-pipeline execution evidence (including gap behavior)
+// lives in the
+// parameterized template suite:
+// test/cards/templates/keyword-triggered-object-killed-effect-d-680.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
 

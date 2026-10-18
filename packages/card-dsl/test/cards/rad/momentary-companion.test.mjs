@@ -10,6 +10,9 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
+// Execution evidence for the supported card-played/grant body:
+// templates/keyword-triggered-card-played-continuous-704.test.mjs.
+
 const CARD_ID = "card.hash-acd7471a82a9a0d5caee4793bb24dd67313afca36a5e9b63e8e43bb188c5e0d4";
 const SOURCE_TEXT =
   "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +

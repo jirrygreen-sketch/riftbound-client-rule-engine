@@ -5,7 +5,7 @@ import type { CardProgram } from "../../ir/index.js";
  * Re-verified 2026-10-17 against the merged engine. Tank assignment priority
  * and condition-gated entry remain current blockers; the condition and entry
  * rewrite both have merged consumers, but not in the same decision.
- * RIFT-678 retains the exact two-other-friendly-base-unit condition and tests
+ * RIFT-700 retains the exact two-other-friendly-base-unit condition and tests
  * the satisfied entry plus false-condition boundaries in the template golden.
  */
 export default {

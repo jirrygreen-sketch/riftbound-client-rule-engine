@@ -1,3 +1,7 @@
+// RIFT-654 template execution evidence: ../templates/activated-activated-effect-resources-654.test.mjs
+// (whole-card activation is pending; the original Exhaust cost, original [Add] 1 Energy body and
+// exhausted-source boundary execute as partial evidence). The card stays judge-required for the pre-cost Legion history gate, the kind=add
+// activation bridge and the Legend Zone asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -15,7 +19,9 @@ const SOURCE_TEXT =
   ":rb_exhaust:: [Reaction], [Legion] — [Add] :rb_energy_1:. (Abilities that add resources " +
   "can't be reacted to. Get the effect if you've played a card this turn.)";
 
-const [ability] = program.abilities;
+// cards README section 5: [Legion] is declared as a keyword ability; the
+// dependent activated [Add] ability follows it.
+const [legionKeyword, ability] = program.abilities;
 const [addEnergy] = ability.body;
 
 test("ogn-253-298 Hand of Noxus: program passes validateCardProgram", () => {
@@ -30,17 +36,22 @@ test("ogn-253-298 Hand of Noxus: identity, status, and verbatim sourceText", () 
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Legion/);
-  assert.match(program.judgeReason, /812\.1\.b\.1/);
-  assert.match(program.judgeReason, /condition\.history \/ condition\.predicate/);
+  assert.match(program.judgeReason, /812\.1\.c/);
+  assert.match(program.judgeReason, /condition\.predicate/);
   assert.match(program.judgeReason, /cards-finalized-this-turn/);
   assert.match(program.judgeReason, /translateRestriction/);
   assert.match(program.judgeReason, /describeActivate/);
   assert.match(program.judgeReason, /430\.2\.a/);
+  assert.match(program.judgeReason, /107\.4/);
   assert.ok(!/RIFT-\d+/.test(program.judgeReason));
 });
 
 test("ogn-253-298 Hand of Noxus: Reaction activation with the printed Exhaust cost", () => {
-  assert.equal(program.abilities.length, 1);
+  // 812.1 / 812.1.a / 812.3: the printed [Legion] is a declared keyword; its
+  // expansion belongs to effects/keywords/Legion.ts (contract 3.7).
+  assert.equal(program.abilities.length, 2);
+  assert.deepEqual(legionKeyword, { kind: "keyword", keyword: "legion" });
+  assert.equal(legionKeyword.value, undefined);
   assert.equal(ability.kind, "activated");
   // 813.1.c/813.1.d + 430.3: [Reaction] Add ability activation permission.
   assert.equal(ability.timing, "reaction");
@@ -53,8 +64,10 @@ test("ogn-253-298 Hand of Noxus: Reaction activation with the printed Exhaust co
 test("ogn-253-298 Hand of Noxus: [Legion] gate preserved as a restriction shape", () => {
   // 812.1 / 812.1.b.1 / 812.1.c: Legion gates the dependent ability on having
   // played another card this turn, excluding the Legion card itself. The gate
-  // is declared as a restriction carrying the history comparison; its
-  // activation binder must consume a Finalize-history query before paying costs.
+  // expands to a condition.predicate static carrying the history payload, but
+  // ActivatedAbility has no condition slot, so the printed gate is additionally
+  // kept as a restriction; its activation binder must consume a Finalize-history
+  // query before paying costs.
   assert.equal(ability.restriction.kind, "legion");
   assert.deepEqual(ability.restriction.condition, {
     kind: "compare",

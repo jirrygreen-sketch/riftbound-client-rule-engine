@@ -1,3 +1,6 @@
+// RIFT-662: execution evidence for the grant body and XP cost lives in
+// ../templates/activated-activated-continuous-grant-key-662.test.mjs; this
+// file keeps the README §4.1 layer 1/2 checks and the gap evidence.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -51,6 +54,11 @@ test("unl-126-219 Megatusk: identity, status, judgeReason and verbatim sourceTex
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /810/);
+  assert.match(program.judgeReason, /重展开/);
+  assert.match(program.judgeReason, /生命周期/);
+  assert.match(program.judgeReason, /permission\.routes/);
+  assert.match(program.judgeReason, /静态绑定/);
+  assert.match(program.judgeReason, /effect\.move/);
 });
 
 test("unl-126-219 Megatusk: 3 XP base cost, Action timing, no printed Exhaust", () => {
@@ -68,7 +76,8 @@ test("unl-126-219 Megatusk: 3 XP base cost, Action timing, no printed Exhaust", 
 test("unl-126-219 Megatusk: the grant names Ganking with an end-of-turn duration and 'here' scope", () => {
   assert.equal(grant.id, "megatusk.grant-ganking");
   assert.equal(grant.op, "continuous.grant-keyword");
-  assert.deepEqual(grant.args.keyword, { kind: "constant", value: "ganking" });
+  // 810.3：被注册的 KeywordId 是大小写敏感的 "Ganking"（keywords/Ganking.ts）。
+  assert.deepEqual(grant.args.keyword, { kind: "constant", value: "Ganking" });
   // 801.3.a.2 / 317.2.c: the granted keyword carries the printed "this turn" duration.
   assert.deepEqual(grant.args.duration, { kind: "constant", value: "end-of-turn" });
   assert.equal(grant.linkedTo, undefined);
@@ -109,7 +118,8 @@ test("unl-126-219 Megatusk golden: the merged grant registers Ganking only for y
     "megatusk"
   ]);
   const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
-  assert.deepEqual(layers.evaluate(kernel.ref("ally-here")).keywords, [{ id: "ganking", value: undefined }]);
+  // 810.3：授予后的特征按注册的 KeywordId "Ganking" 可引用（随 IR 大小写修正）。
+  assert.deepEqual(layers.evaluate(kernel.ref("ally-here")).keywords, [{ id: "Ganking", value: undefined }]);
   assert.deepEqual(layers.evaluate(kernel.ref("ally-elsewhere")).keywords, []);
   assert.deepEqual(layers.evaluate(kernel.ref("enemy-here")).keywords, []);
 });
@@ -136,6 +146,7 @@ test("unl-126-219 Megatusk golden: insufficient XP is refused instead of paid pa
 
 test.todo(
   "unl-126-219 Megatusk: give your units here [Ganking] this turn (801.3.a.2 granted keyword + 810 " +
-    "expansion) — the grant and ability-layer registration execute, but zones/movement.ts and effect.move " +
-    "do not consume the continuous.movement permission (810.1.c/144.4.c)"
+    "expansion) — the grant and ability-layer registration execute, but the dynamically granted keyword " +
+    "is not re-expanded into a lifecycle-bound continuous.movement permission (810.1.c/144.4.c.1); " +
+    "effect.move relocation itself does not require Ganking"
 );
