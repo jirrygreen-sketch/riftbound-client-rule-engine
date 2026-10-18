@@ -43,12 +43,14 @@ test("sfd-078-221 Temporal Portal: program validates and is judge-required", () 
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.deepEqual(result.issues, []);
   assert.equal(program.status, "judge-required");
-  // The refreshed reason keeps the three measured gaps (rejected printed
+  // The refreshed reason keeps the four measured gaps (rejected printed
   // shape, missing one-shot next-spell window, missing dynamic Repeat cost
-  // consumer); the marker assertions now target those measured facts.
+  // consumer, and the test kernel not removing Power); the marker assertions
+  // target those measured facts.
   assert.match(program.judgeReason, /amount/);
   assert.match(program.judgeReason, /one-shot next-spell|下一个法术/);
   assert.match(program.judgeReason, /820\.1\.c\.1/);
+  assert.match(program.judgeReason, /player\.power/);
 });
 
 test("sfd-078-221 Temporal Portal: identity, ruleset, status and verbatim source text", () => {
@@ -87,7 +89,7 @@ test("sfd-078-221 Temporal Portal: the body grants Repeat to the next spell at a
   assert.equal(grantRepeat.linkedTo, undefined);
 });
 
-test("sfd-078-221 Temporal Portal: Universal Power and Exhaust are payable through the real cost pipeline", () => {
+test("sfd-078-221 Temporal Portal: the real cost pipeline selects Universal Power and pays Exhaust", () => {
   // 135.2.e.5.a / 415.4 / 415.5：每个任意域 Power 都能支付 [A]，并同时横置来源。
   for (const domain of ALL_SIX_DOMAINS) {
     const built = world()

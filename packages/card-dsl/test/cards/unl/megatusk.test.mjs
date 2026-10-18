@@ -54,6 +54,11 @@ test("unl-126-219 Megatusk: identity, status, judgeReason and verbatim sourceTex
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /810/);
+  assert.match(program.judgeReason, /重展开/);
+  assert.match(program.judgeReason, /生命周期/);
+  assert.match(program.judgeReason, /permission\.routes/);
+  assert.match(program.judgeReason, /静态绑定/);
+  assert.match(program.judgeReason, /effect\.move/);
 });
 
 test("unl-126-219 Megatusk: 3 XP base cost, Action timing, no printed Exhaust", () => {
@@ -141,6 +146,7 @@ test("unl-126-219 Megatusk golden: insufficient XP is refused instead of paid pa
 
 test.todo(
   "unl-126-219 Megatusk: give your units here [Ganking] this turn (801.3.a.2 granted keyword + 810 " +
-    "expansion) — the grant and ability-layer registration execute, but zones/movement.ts and effect.move " +
-    "do not consume the continuous.movement permission (810.1.c/144.4.c)"
+    "expansion) — the grant and ability-layer registration execute, but the dynamically granted keyword " +
+    "is not re-expanded into a lifecycle-bound continuous.movement permission (810.1.c/144.4.c.1); " +
+    "effect.move relocation itself does not require Ganking"
 );

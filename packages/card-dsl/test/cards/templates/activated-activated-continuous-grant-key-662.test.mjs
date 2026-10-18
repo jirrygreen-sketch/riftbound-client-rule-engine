@@ -10,6 +10,8 @@
 // This file is additive execution evidence: the per-card layer 1 (validation
 // and identity), layer 2 (structure), negative-evidence and boundary
 // assertions stay in each card's own test file.
+// Unsupported behavior is represented by TODO rows that state the correct
+// v1.5 outcome; no known gap is accepted as a passing golden.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -74,8 +76,9 @@ const rows = [
       objects: [portalObject()],
       operations: [{ type: "activate", object: "temporal-portal", player: "A" }],
       expect: {
-        // 135.2.e.5.a / 415.5: the printed [A] and Exhaust really resolve; the
-        // Gear keeps its printed energy 3 / power null (never rewritten to 0).
+        // 415.5: the Exhaust payment resolves. The plan selects the printed [A]
+        // (135.2.e.5.a); actual player Power deduction is a pending TODO below.
+        // The Gear keeps its printed energy 3 / power null (never rewritten to 0).
         objects: { "temporal-portal": { zone: "board", energy: 3, power: null, exhausted: true } },
         events: {
           includes: [
@@ -94,6 +97,9 @@ const rows = [
         ["pay", "done"],
         ["exhaust", "done"],
       ]);
+      // The receipt records the selected Body Power. Full resource deduction is
+      // a separate pending assertion below because TestWorld.pay currently
+      // leaves player.power unchanged.
       assert.deepEqual(item.payment.power.power, [{ requirementIndex: 0, from: "Body", amount: 1 }]);
     },
   },
@@ -132,10 +138,10 @@ const rows = [
         result.links["megatusk.grant-ganking.granted.objects"].map(ref => ref.id),
         ["ally-here", "megatusk"],
       );
-      // Gap evidence: the granted characteristic does not become a movement
-      // permission (810.1.c / 144.4.c); the consumer gap is asserted below.
+      // The characteristic grant is supported evidence. The correct movement
+      // expectation is kept in the pending golden below instead of accepting
+      // canGank:false as normal behavior.
       const byId = new Map(result.state.objects.map(object => [object.ref.id, object]));
-      assert.deepEqual(byId.get("megatusk").movement, { allowed: true, canMove: true, canGank: false, restrictions: [] });
       assert.deepEqual(byId.get("ally-here").keywords.map(keyword => keyword.id), ["Ganking"]);
     },
   },
@@ -183,12 +189,57 @@ const rows = [
   },
 ];
 
+// These rows state the correct v1.5 outcome even though the current engine
+// cannot execute it yet. Keeping them as explicit TODO goldens prevents a
+// known gap from being frozen as acceptable behavior.
+const pendingRows = [
+  {
+    name: "sfd-078-221 Temporal Portal: paying [A] removes one Body Power",
+    canonicalCardId: temporalPortal.canonicalCardId,
+    program: temporalPortalSlice,
+    scenario: {
+      ...rows[0].scenario,
+      expect: {
+        players: { A: { power: [] } },
+        objects: { "temporal-portal": { zone: "board", energy: 3, power: null, exhausted: true } },
+      },
+    },
+  },
+  {
+    name: "unl-126-219 Megatusk: granted Ganking permits battlefield-to-battlefield movement",
+    canonicalCardId: megatusk.canonicalCardId,
+    program: megatuskSlice,
+    scenario: {
+      ...rows[1].scenario,
+      expect: {
+        players: { A: { xp: 2 } },
+        objects: {
+          megatusk: { keywords: [{ id: "Ganking" }], movement: { canGank: true } },
+          "ally-here": { keywords: [{ id: "Ganking" }], movement: { canGank: true } },
+          "ally-elsewhere": { keywords: [], movement: { canGank: false } },
+          "enemy-here": { keywords: [], movement: { canGank: false } },
+        },
+      },
+    },
+  },
+];
+
+const pendingReasons = [
+  "engine-core testing/test-kernel.ts pay currently records player Power in the receipt but does not remove it from player.power",
+  "a dynamically granted Ganking characteristic is not re-expanded into a lifecycle-bound continuous.movement permission (CR 810.1.c / 144.4.c.1)",
+];
+
 const templateCases = defineTemplateSuite("RIFT-662 activated || continuous.grant-keyword", rows);
 for (const [index, templateCase] of templateCases.entries()) {
   test(templateCase.name, () => {
     const result = templateCase.run();
     rows[index].verify(result);
   });
+}
+
+const pendingCases = defineTemplateSuite("RIFT-662 pending correct v1.5 outcome", pendingRows);
+for (const [index, templateCase] of pendingCases.entries()) {
+  test(templateCase.name, { todo: pendingReasons[index] }, templateCase.run);
 }
 
 test("RIFT-662 boundary: Temporal Portal without any Power cannot pay its printed [A]", () => {
