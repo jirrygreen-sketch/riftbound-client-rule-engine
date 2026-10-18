@@ -7,7 +7,7 @@ import type { CardProgram } from "../../ir/index.js";
  * The second clause affects enemy units AND gear, but only spell/ability ready actions.
  * These are blocked continuous.restrict declarations, not executable layer registrations.
  *
- * status 判定（2026-10-17 复核）：judge-required。continuous.restrict 原语与
+ * status 判定（2026-10-18 复核）：judge-required。continuous.restrict 原语与
  * layers/rules/query.ts 的 restrictions() 查询已合入，但两条声明都还不能经生产 static binder 注册：
  * - programs/statics.ts 的 staticFilter 对 filter.controller: "opponent" 抛
  *   "Static controller:opponent filter needs a relative-player query"（实测，两条能力同因失败）。

@@ -41,10 +41,10 @@ const foxFire = {
   judgeReason:
     "缺分组目标与总 Might 约束：'any number of units at a battlefield with total Might 4 or less' 是 355.11 的分组要求" +
     "（同一战场 + 组内 Might 合计 ≤ 4），TargetSpec.location 已能表达 battlefield，但 target-plan 仍只有 min/max 与单体合法性，" +
-    "kind:\"group\" 字段不会执行组内一致性或 Might 合计，" +
+    "kind:\"group\" 只是声明字段，target-plan.ts 没有任何执行路径做组内一致性或 Might 合计，" +
     "也没有 355.11.b/355.11.b.1 的结算时合法子集重选（CR 本条示例正是 Fox-Fire）；" +
     "[Hidden]（811）的费用侧已合入（cost.hidden 的 buildHiddenCostPlan：hide 锁 1 点任意域 Power、play 忽略印刷基础费，cost/kinds/hidden.ts 与 cost-plan.ts 有执行证据），" +
-    "但仍缺 811.1.c/811.1.d 的流程绑定：Hide 自由行动、facedown 区域处理与下回合 Reaction 打出的许可/时机（programs/statics.ts 的 layerFor 也还没有 cost.hidden 映射）。" +
+    "但仍缺 811.1.c/811.1.d 的流程绑定：Hide 自由行动、facedown 区域处理与下回合 Reaction 打出的许可/时机（keywords/Hidden.ts 仍标记 RIFT-89/RIFT-91 待办，programs/statics.ts 的 layerFor 也还没有 cost.hidden 映射）。" +
     "Kill 原语本身已合入并有执行测试；不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },

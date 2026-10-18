@@ -20,7 +20,7 @@ import type { CardProgram } from "../../ir/index.js";
  * executable.
  *
  * Status: judge-required. Every category choice is a resolution-time, per-player,
- * non-target choice (measured 2026-10-17):
+ * non-target choice (measured 2026-10-18):
  * - the choosers are all players (355.10.e: objects chosen in whole or in part by
  *   other players are not targeted; 355.10.a: hand cards are not public, so the
  *   hand choice can never be a target either); `ResolveContext.choose` asks one
@@ -49,7 +49,7 @@ const divineJudgment = {
   status: "judge-required",
   judgeReason:
     "「Recycle the rest」的指代范围需裁定（本文件按其字面读作四类保留集合的补集，需 judge 确认）；" +
-    "三处执行缺口（均为 2026-10-17 实测，不近似实现）：" +
+    "三处执行缺口（均为 2026-10-18 实测，不近似实现）：" +
     "（1）多玩家顺序选择不可执行：本卡 body 的 choice.each-player 不在指令注册表中" +
     "（解释器抛 Unregistered instruction opcode: choice.each-player）；choose 只支持单个 chooser，" +
     "IR 无法命名运行时玩家（355.10.e）。" +

@@ -19,7 +19,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   字段，没有许可字段，故按同类先例（sfd/dauntless-vanguard.ts 的
  *   `play-location-permission` 静态效果）表达两条能力，由 layers/Finalize 消费。
  *
- * status 判定（README 第 2 节，2026-10-17 复核）：judge-required。三处已实测的当前缺口：
+ * status 判定（README 第 2 节，2026-10-18 复核）：judge-required。三处已实测的当前缺口：
  * 1. 两条声明用的 effect kind `play-location-permission` 没有静态层映射：programs/statics.ts 的
  *    layerFor 对其抛 "Static ability kind play-location-permission has no layer mapping"（实测），
  *    生产 static binder 无法注册任何一条许可。
