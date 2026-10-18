@@ -12,6 +12,34 @@ function references(value: unknown): ObjectRef[] {
   return [];
 }
 
+function eventBinding(context: ExpressionContext["context"], role: "it"): ObjectRef {
+  if (typeof context.eventObject !== "function") {
+    throw new MissingInformation("No event object binding is available");
+  }
+  const binding = context.eventObject(role);
+  if (binding === null) throw new MissingInformation("The triggering event has no it object");
+  if (!Number.isSafeInteger(binding.eventId) || binding.eventId <= 0 ||
+    binding.role !== role || typeof binding.ref.id !== "string" || binding.ref.id.length === 0 ||
+    !Number.isSafeInteger(binding.ref.zoneEntryId) || binding.ref.zoneEntryId < 0 ||
+    binding.snapshot.ref.id !== binding.ref.id ||
+    binding.snapshot.ref.zoneEntryId !== binding.ref.zoneEntryId) {
+    throw new MissingInformation("Invalid event object binding");
+  }
+  return { id: binding.ref.id, zoneEntryId: binding.ref.zoneEntryId };
+}
+
+const EVENT_SELECTOR = Symbol("event-object-selector");
+type EventSelectorRef = ObjectRef & { readonly [EVENT_SELECTOR]: true };
+
+function eventSelectorRef(context: ExpressionContext["context"], role: "it"): ObjectRef {
+  const ref = eventBinding(context, role);
+  return Object.freeze({ id: ref.id, zoneEntryId: ref.zoneEntryId, [EVENT_SELECTOR]: true }) as EventSelectorRef;
+}
+
+function isEventSelectorRef(ref: ObjectRef): boolean {
+  return (ref as Partial<EventSelectorRef>)[EVENT_SELECTOR] === true;
+}
+
 /** Preserve selection order and zone identity; never rebind a stale target by id. */
 export function resolveObjectSelector(selector: ObjectSelector, environment: Pick<ExpressionContext, "context" | "host" | "linked">): ObjectRef[] {
   const context = environment.context;
@@ -22,6 +50,10 @@ export function resolveObjectSelector(selector: ObjectSelector, environment: Pic
   }
   const key = Object.keys(selector)[0]!;
   const id = (selector as Readonly<Record<string, unknown>>)[key];
+  if (key === "event") {
+    if (id !== "it") throw new Error("Invalid event ObjectSelector role");
+    return [eventSelectorRef(context, id)];
+  }
   if (!["target", "pick", "linked"].includes(key) || typeof id !== "string" || id.length === 0) throw new Error("Invalid ObjectSelector");
   if (key === "target") return context.targets(id);
   if (key === "pick") return references(context.picks(id));
@@ -37,6 +69,9 @@ export function resolveObjectSelector(selector: ObjectSelector, environment: Pic
 }
 
 export function selectorSnapshot(ref: ObjectRef, environment: ExpressionContext, source = false): ObjectSnapshot {
+  if (isEventSelectorRef(ref)) {
+    return structuredClone(environment.context.eventObject!("it")!.snapshot);
+  }
   if (!source && environment.isIgnored(ref)) throw new MissingInformation(`Ignored object: ${ref.id}`);
   const context = environment.context;
   let snapshot = context.object(ref);
@@ -86,12 +121,12 @@ export function queryObjects(filter: ObjectFilter, environment: ExpressionContex
       let refs: ObjectRef[];
       try {
         refs = resolveObjectSelector(value as ObjectSelector, environment)
-          .filter(ref => value === "source" || !environment.isIgnored(ref));
+          .filter(ref => value === "source" || isEventSelectorRef(ref) || !environment.isIgnored(ref));
       } catch {
         refs = [];
       }
       const snapshots = refs.flatMap(ref => {
-        try { return [selectorSnapshot(ref, environment, value === "source")]; } catch { return []; }
+        try { return [selectorSnapshot(ref, environment, value === "source" || isEventSelectorRef(ref))]; } catch { return []; }
       });
       anchors.push({ key, refs, snapshots });
     }
@@ -107,9 +142,9 @@ export function queryObjects(filter: ObjectFilter, environment: ExpressionContex
   const anchorSnapshots = (selector: unknown): readonly ObjectSnapshot[] => {
     try {
       const refs = resolveObjectSelector(selector as ObjectSelector, environment)
-        .filter(ref => selector === "source" || !environment.isIgnored(ref));
+        .filter(ref => selector === "source" || isEventSelectorRef(ref) || !environment.isIgnored(ref));
       return refs.flatMap(ref => {
-        try { return [selectorSnapshot(ref, environment, selector === "source")]; } catch { return []; }
+        try { return [selectorSnapshot(ref, environment, selector === "source" || isEventSelectorRef(ref))]; } catch { return []; }
       });
     } catch {
       return [];

@@ -1,4 +1,4 @@
-// CR v1.4 rules 465.2.a-c4: the narrow combat-damage assignment kernel.
+// CR v1.5 rules 467.2.a-c.9: the narrow combat-damage assignment kernel.
 //
 // This module only builds and validates a basic assignment plan.  It does not
 // deal damage, perform Showdown/Kill/Recall, score, or run Cleanup.  The state
@@ -51,6 +51,8 @@ export interface DuelBaseCombatMightInput {
   readonly locationId: string;
   readonly fieldId: string;
   readonly existingDamage: number;
+  /** Current designation is part of the layer query, never caller-supplied. */
+  readonly combatRole?: 'attacker' | 'defender';
 }
 
 export interface DuelBaseCombatSourceEffectProof {
@@ -60,8 +62,30 @@ export interface DuelBaseCombatSourceEffectProof {
   readonly assignmentModifier: 'proven-none';
   /** No prevention/replacement applies to this assignment and that absence was proven. */
   readonly preventionReplacement: 'proven-none';
-  /** No Tank/Backline/other assignment-priority requirement is bound here. */
-  readonly keywordPriority: 'proven-none';
+  /** The assignment-priority query was evaluated, including the no-keyword case. */
+  readonly keywordPriority: 'proven-none' | 'validated';
+  /** Optional source-qualified result for the assignment-priority query. */
+  readonly assignmentRules?: DuelBaseCombatAssignmentRules;
+}
+
+/** A source-qualified combat-damage assignment fact for one live Unit. */
+export interface DuelBaseCombatAssignmentRule {
+  readonly uid: string;
+  /** 467.2.c.10: a Unit that cannot be dealt damage is exempt from mandatory assignment. */
+  readonly canReceiveDamage?: boolean;
+  /** 815.1.b / 826.3, as read from the current ability layer. */
+  readonly tank?: boolean;
+  readonly backline?: boolean;
+  /** Total damage that must be assigned for lethal, after applicable replacements. */
+  readonly lethalDamage?: number;
+  /** Explicit per-target assignment bounds, when a sourced effect supplies them. */
+  readonly minAssignable?: number;
+  readonly maxAssignable?: number;
+}
+
+export interface DuelBaseCombatAssignmentRules {
+  readonly status: 'validated' | 'proven-none';
+  readonly units?: readonly DuelBaseCombatAssignmentRule[];
 }
 
 export interface DuelBaseCombatSourceEffectService {
@@ -71,6 +95,16 @@ export interface DuelBaseCombatSourceEffectService {
     readonly fieldId: string;
     readonly unitUIDs: readonly string[];
   }) => DuelBaseCombatSourceEffectProof | null | undefined;
+  /** Reads the current layer's combat-assignment effects.  This is optional for
+   * the historical proven-none path, but mandatory when keywordPriority is
+   * validated.  The callback is host authority; it is never wire input. */
+  readonly assignmentRules?: (request: {
+    readonly stateVersion: number;
+    readonly fieldId: string;
+    readonly unitUIDs: readonly string[];
+  }) => DuelBaseCombatAssignmentRules | null | undefined;
+  /** Alias accepted by early production adapters during the contract handoff. */
+  readonly combatPriority?: DuelBaseCombatSourceEffectService['assignmentRules'];
   /** Evaluates current Might from authoritative context supplied by this module. */
   readonly currentMight: (unit: DuelBaseCombatMightInput) => number;
 }
@@ -84,6 +118,7 @@ export interface TrustedDuelBaseCombatFacts {
   readonly fieldId: string;
   readonly evaluateCurrentMight: (unit: DuelBaseCombatMightInput) => number;
   readonly proveBasicCombat: DuelBaseCombatSourceEffectService['proveBasicCombat'];
+  readonly readAssignmentRules?: NonNullable<DuelBaseCombatSourceEffectService['assignmentRules']>;
   readonly _trustedBaseCombatFacts: true;
 }
 
@@ -190,8 +225,154 @@ function proofIsComplete(value: unknown): value is DuelBaseCombatSourceEffectPro
   return value.currentMight === 'validated' &&
     value.assignmentModifier === 'proven-none' &&
     value.preventionReplacement === 'proven-none' &&
-    value.keywordPriority === 'proven-none';
+    (value.keywordPriority === 'proven-none' || value.keywordPriority === 'validated');
 }
+
+function nonnegativeInteger(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    blocked('source-effect-proof-incomplete', `${label} must be a nonnegative safe integer`);
+  }
+  return value;
+}
+
+function booleanOrDefault(value: unknown, fallback: boolean, label: string): boolean {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'boolean') blocked('source-effect-proof-incomplete', `${label} must be boolean`);
+  return value;
+}
+
+interface NormalizedAssignmentRules {
+  readonly status: 'validated' | 'proven-none';
+  readonly byUID: ReadonlyMap<string, DuelBaseCombatAssignmentRule>;
+}
+
+function normalizeAssignmentRules(
+  value: unknown,
+  unitUIDs: readonly string[],
+): NormalizedAssignmentRules {
+  if (!isRecord(value) || (value.status !== 'validated' && value.status !== 'proven-none')) {
+    blocked('source-effect-proof-incomplete', 'assignment rules must have a validated status');
+  }
+  const rawUnits = value.units === undefined ? [] : denseArray(value.units, 'assignmentRules.units');
+  const expected = new Set(unitUIDs);
+  const byUID = new Map<string, DuelBaseCombatAssignmentRule>();
+  for (let index = 0; index < rawUnits.length; index++) {
+    const raw = rawUnits[index];
+    if (!isRecord(raw)) blocked('source-effect-proof-incomplete', `assignmentRules.units[${index}] must be a record`);
+    const uid = text(raw.uid, `assignmentRules.units[${index}].uid`);
+    if (!expected.has(uid) || byUID.has(uid)) {
+      blocked('source-effect-proof-incomplete', `assignmentRules has an unknown or duplicate Unit ${uid}`);
+    }
+    const tank = booleanOrDefault(raw.tank, false, `assignmentRules.units[${index}].tank`);
+    const backline = booleanOrDefault(raw.backline, false, `assignmentRules.units[${index}].backline`);
+    const canReceiveDamage = booleanOrDefault(raw.canReceiveDamage, true,
+      `assignmentRules.units[${index}].canReceiveDamage`);
+    const lethalDamage = raw.lethalDamage === undefined ? undefined :
+      nonnegativeInteger(raw.lethalDamage, `assignmentRules.units[${index}].lethalDamage`);
+    const minAssignable = raw.minAssignable === undefined ? undefined :
+      nonnegativeInteger(raw.minAssignable, `assignmentRules.units[${index}].minAssignable`);
+    const maxAssignable = raw.maxAssignable === undefined ? undefined :
+      nonnegativeInteger(raw.maxAssignable, `assignmentRules.units[${index}].maxAssignable`);
+    if (minAssignable !== undefined && maxAssignable !== undefined && minAssignable > maxAssignable) {
+      blocked('source-effect-proof-incomplete', `assignmentRules.units[${index}] has inverted bounds`);
+    }
+    byUID.set(uid, Object.freeze({ uid, tank, backline, canReceiveDamage,
+      ...(lethalDamage === undefined ? {} : { lethalDamage }),
+      ...(minAssignable === undefined ? {} : { minAssignable }),
+      ...(maxAssignable === undefined ? {} : { maxAssignable }) }));
+  }
+  if (value.status === 'proven-none' && byUID.size > 0) {
+    blocked('source-effect-proof-incomplete', 'proven-none assignment rules cannot contain keyword facts');
+  }
+  if (value.status === 'validated' && byUID.size !== unitUIDs.length) {
+    blocked('source-effect-proof-incomplete', 'validated assignment rules must cover every Combat Unit');
+  }
+  return { status: value.status, byUID };
+}
+
+function readAssignmentRules(
+  facts: TrustedDuelBaseCombatFacts,
+  proof: DuelBaseCombatSourceEffectProof,
+  context: ParsedCombatContext,
+): NormalizedAssignmentRules {
+  const unitUIDs = immutableList([
+    ...context.attackers.map(unit => unit.uid),
+    ...context.defenders.map(unit => unit.uid),
+  ]);
+  const supplied = proof.assignmentRules ?? (() => {
+    if (facts.readAssignmentRules === undefined) return undefined;
+    try {
+      return facts.readAssignmentRules({ stateVersion: context.stateVersion,
+        fieldId: context.fieldId, unitUIDs });
+    } catch (error) {
+      blocked('source-effect-proof-missing', `assignment-priority proof failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  })();
+  if (proof.keywordPriority === 'proven-none') {
+    if (supplied !== undefined) {
+      const normalized = normalizeAssignmentRules(supplied, unitUIDs);
+      if (normalized.status !== 'proven-none' || normalized.byUID.size !== 0) {
+        blocked('source-effect-proof-incomplete', 'assignment priority was claimed proven-none but rules were supplied');
+      }
+    }
+    return { status: 'proven-none', byUID: new Map() };
+  }
+  if (supplied === undefined || supplied === null) {
+    blocked('source-effect-proof-missing', 'validated keyword priority requires assignment rules');
+  }
+  const normalized = normalizeAssignmentRules(supplied, unitUIDs);
+  if (normalized.status !== 'validated') {
+    blocked('source-effect-proof-incomplete',
+      'validated keyword priority requires validated assignment rules');
+  }
+  return normalized;
+}
+
+/**
+ * Compile the existing `continuous.combat` IR into the source-qualified
+ * assignment facts consumed by this module.  The compiler intentionally knows
+ * only the closed Tank/Backline shapes from 815/826; an unfamiliar combat
+ * effect remains unavailable instead of becoming a guessed priority.
+ */
+export function deriveDuelCombatAssignmentRulesFromIR(
+  effects: readonly unknown[],
+  unitUIDs: readonly string[],
+): DuelBaseCombatAssignmentRules {
+  if (!Array.isArray(unitUIDs) || unitUIDs.length === 0 ||
+      unitUIDs.some(uid => typeof uid !== 'string' || uid.trim().length === 0) ||
+      new Set(unitUIDs).size !== unitUIDs.length) {
+    blocked('source-effect-proof-incomplete', 'combat assignment rules require unique live Unit IDs');
+  }
+  const expected = new Set(unitUIDs);
+  const entries = new Map<string, { uid: string; tank: boolean; backline: boolean }>();
+  for (let index = 0; index < effects.length; index++) {
+    const raw = effects[index];
+    if (!isRecord(raw)) blocked('source-effect-proof-incomplete', `combat effect ${index} must be a record`);
+    const effect = isRecord(raw.effect) ? raw.effect : raw;
+    // The assignment reader may receive the complete current ability layer.
+    // Unrelated continuous effects are inert here; every combat-assignment
+    // effect must still match one of the two sourced shapes below.
+    if (effect.kind !== 'continuous.combat') continue;
+    const filter = isRecord(raw.filter) ? raw.filter : undefined;
+    if (effect.mode !== 'damage-assignment' ||
+        effect.damage !== 'lethal' || effect.controllerScope !== 'same-controller') {
+      blocked('source-effect-proof-incomplete', `unsupported continuous.combat assignment effect at ${index}`);
+    }
+    const uid = filter?.objectId ?? raw.uid ?? effect.uid;
+    if (typeof uid !== 'string' || !expected.has(uid)) {
+      blocked('source-effect-proof-incomplete', `combat effect ${index} is not bound to a live Unit`);
+    }
+    const current = entries.get(uid) ?? { uid, tank: false, backline: false };
+    if (effect.priority === 'first' && effect.excludesKeyword === 'Tank') current.tank = true;
+    else if (effect.priority === 'last' && effect.excludesKeyword === 'Backline') current.backline = true;
+    else blocked('source-effect-proof-incomplete', `unsupported Tank/Backline effect at ${index}`);
+    entries.set(uid, current);
+  }
+  const units = unitUIDs.map(uid => entries.get(uid) ?? { uid, tank: false, backline: false });
+  return Object.freeze({ status: 'validated' as const, units: immutableList(units) });
+}
+
+export const compileDuelCombatPriorityRules = deriveDuelCombatAssignmentRulesFromIR;
 
 /**
  * Bind a source/effect service at the trusted seam.  The service must explicitly
@@ -209,11 +390,16 @@ export function createTrustedDuelBaseCombatFacts(
       typeof service.proveBasicCombat !== 'function') {
     blocked('missing-trusted-facts', 'source/effect service must provide Might and basic-combat proof');
   }
+  const readAssignmentRules = service.assignmentRules ?? service.combatPriority;
+  if (readAssignmentRules !== undefined && typeof readAssignmentRules !== 'function') {
+    blocked('missing-trusted-facts', 'assignment-priority service must be callable');
+  }
   const result = immutable({
     basedOnStateVersion,
     fieldId,
     evaluateCurrentMight: service.currentMight,
     proveBasicCombat: service.proveBasicCombat,
+    ...(readAssignmentRules === undefined ? {} : { readAssignmentRules }),
     _trustedBaseCombatFacts: true as const,
   });
   trustedFacts.add(result);
@@ -342,7 +528,7 @@ function parseState(state: DuelBaseCombatState, fieldId: string): ParsedCombatCo
 function factsForPlan(
   facts: TrustedDuelBaseCombatFacts | null | undefined,
   context: ParsedCombatContext,
-): TrustedDuelBaseCombatFacts {
+): { readonly facts: TrustedDuelBaseCombatFacts; readonly assignmentRules: NormalizedAssignmentRules } {
   if (facts === null || facts === undefined) {
     blocked('missing-trusted-facts', 'validated current Might and source-effect proof are required');
   }
@@ -370,9 +556,9 @@ function factsForPlan(
   }
   if (!proofIsComplete(proof)) {
     blocked('source-effect-proof-incomplete',
-      'assignment modifiers, prevention/replacement, and keyword priority must each be proven absent');
+      'assignment modifiers and prevention/replacement must be proven absent; keyword priority must be proven absent or validated');
   }
-  return facts;
+  return { facts, assignmentRules: readAssignmentRules(facts, proof, context) };
 }
 
 export interface DuelBaseCombatUnitBasis {
@@ -381,6 +567,15 @@ export interface DuelBaseCombatUnitBasis {
   readonly existingDamage: number;
   /** Positive damage still required to make this currently non-lethal unit lethal. */
   readonly lethalNeed: number;
+  /** Total assigned damage that constitutes lethal under the current layer. */
+  readonly lethalDamage: number;
+  /** 467.2.c.10: false targets are omitted from mandatory assignment ordering. */
+  readonly canReceiveDamage: boolean;
+  /** Effective assignment priority after reading Tank/Backline. */
+  readonly assignmentPriority: 'first' | 'normal' | 'last' | 'choice';
+  readonly priorityOptions: readonly ('first' | 'last')[];
+  readonly minAssignable: number;
+  readonly maxAssignable: number | null;
 }
 
 export interface DuelBaseCombatSidePlan {
@@ -419,6 +614,7 @@ function checkedMight(
       locationId: unit.locationId,
       fieldId: context.fieldId,
       existingDamage: unit.existingDamage,
+      combatRole: unit.controllerPlayerId === context.attackerPlayerId ? 'attacker' : 'defender',
     });
   } catch (error) {
     blocked('current-might-invalid', `current Might evaluation failed for ${unit.uid}: ${error instanceof Error ? error.message : String(error)}`);
@@ -432,19 +628,39 @@ function checkedMight(
 function basisFor(
   facts: TrustedDuelBaseCombatFacts,
   context: ParsedCombatContext,
+  assignmentRules: NormalizedAssignmentRules,
   units: readonly ParsedCombatUnit[],
 ): readonly DuelBaseCombatUnitBasis[] {
   return immutableList(units.map(unit => {
     const currentMight = checkedMight(facts, unit, context);
+    const rule = assignmentRules.byUID.get(unit.uid);
+    const canReceiveDamage = rule?.canReceiveDamage ?? true;
+    const lethalDamage = rule?.lethalDamage ?? currentMight;
+    if (!Number.isSafeInteger(lethalDamage) || lethalDamage < 0) {
+      blocked('source-effect-proof-incomplete', `lethal damage threshold for ${unit.uid} is invalid`);
+    }
+    const minAssignable = rule?.minAssignable ?? 1;
+    const maxAssignable = rule?.maxAssignable ?? null;
+    if (maxAssignable !== null && maxAssignable < minAssignable) {
+      blocked('source-effect-proof-incomplete', `assignment bounds for ${unit.uid} are inverted`);
+    }
+    const tank = rule?.tank === true;
+    const backline = rule?.backline === true;
+    const assignmentPriority = tank && backline ? 'choice' : tank ? 'first' : backline ? 'last' : 'normal';
+    const priorityOptions = tank && backline ? immutableList(['first', 'last'] as const) :
+      assignmentPriority === 'first' ? immutableList(['first'] as const) :
+      assignmentPriority === 'last' ? immutableList(['last'] as const) : immutableList([] as const);
     // Lethal damage is non-zero and at least current Might.  A zero-Might,
     // zero-damage unit therefore needs one positive point, never zero.
-    const alreadyLethal = unit.existingDamage > 0 && unit.existingDamage >= currentMight;
+    const alreadyLethal = canReceiveDamage && unit.existingDamage > 0 && unit.existingDamage >= lethalDamage;
     if (alreadyLethal) {
       blocked('cleanup-required', `${unit.uid} is already lethal but remains on the board`);
     }
-    const deficit = currentMight - unit.existingDamage;
-    const lethalNeed = deficit > 0 ? deficit : 1;
-    return immutable({ uid: unit.uid, currentMight, existingDamage: unit.existingDamage, lethalNeed });
+    const deficit = lethalDamage - unit.existingDamage;
+    const lethalNeed = canReceiveDamage ? (deficit > 0 ? deficit : 1) : 0;
+    return immutable({ uid: unit.uid, currentMight, existingDamage: unit.existingDamage,
+      lethalDamage, lethalNeed, canReceiveDamage, assignmentPriority, priorityOptions,
+      minAssignable, maxAssignable });
   }));
 }
 
@@ -470,9 +686,9 @@ export function planDuelBaseCombatDamage(
   trustedFacts: TrustedDuelBaseCombatFacts,
 ): DuelBaseCombatPlan {
   const context = parseState(state, fieldId);
-  const facts = factsForPlan(trustedFacts, context);
-  const attackers = basisFor(facts, context, context.attackers);
-  const defenders = basisFor(facts, context, context.defenders);
+  const bound = factsForPlan(trustedFacts, context);
+  const attackers = basisFor(bound.facts, context, bound.assignmentRules, context.attackers);
+  const defenders = basisFor(bound.facts, context, bound.assignmentRules, context.defenders);
   const plan = immutable({
     kind: 'duel-base-combat-damage-plan' as const,
     basedOnStateVersion: context.stateVersion,
@@ -583,6 +799,7 @@ function snapshotOrderedUIDAmounts(
     const uid = Object.getOwnPropertyDescriptor(item, 'uid');
     const amount = Object.getOwnPropertyDescriptor(item, 'amount');
     if (itemKeys.length !== 2 || !itemKeys.includes('uid') || !itemKeys.includes('amount') ||
+        itemKeys.some(key => key !== 'uid' && key !== 'amount') ||
         uid === undefined || !('value' in uid) ||
         amount === undefined || !('value' in amount)) {
       blocked('invalid-allocation', `orderedUIDAmounts[${index}] must contain data uid and amount only`);
@@ -608,6 +825,7 @@ function snapshotOrderedUIDAmounts(
     const uid = Object.getOwnPropertyDescriptor(item, 'uid');
     const amount = Object.getOwnPropertyDescriptor(item, 'amount');
     if (itemKeys.length !== 2 || !itemKeys.includes('uid') || !itemKeys.includes('amount') ||
+        itemKeys.some(key => key !== 'uid' && key !== 'amount') ||
         uid === undefined || !('value' in uid) || !Object.is(uid.value, snapshot.uid) ||
         amount === undefined || !('value' in amount) || !Object.is(amount.value, snapshot.amount)) {
       blocked('invalid-allocation', 'orderedUIDAmounts changed while being read');
@@ -632,6 +850,8 @@ function validateOrder(
   const seen = new Set<string>();
   let assignedTotal = 0;
   const result: DuelBaseCombatAssignment[] = [];
+  let normalStarted = false;
+  let lastStarted = false;
   for (let index = 0; index < snapshot.length; index++) {
     const item = snapshot[index];
     if (item === undefined) blocked('invalid-allocation', 'orderedUIDAmounts snapshot is incomplete');
@@ -639,10 +859,44 @@ function validateOrder(
     const amount = positiveSafe(item.amount, `orderedUIDAmounts[${index}].amount`);
     const target = byUID.get(uid);
     if (target === undefined) blocked('invalid-allocation', `${uid} is not an opposing unit in this plan`);
+    if (!target.canReceiveDamage) blocked('invalid-allocation', `${uid} cannot be dealt damage in this Combat`);
     if (seen.has(uid)) blocked('invalid-allocation', `${uid} is assigned more than once`);
+
+    // A Unit with both Tank and Backline resolves one exclusionary requirement
+    // through the actual assignment order (467.2.c.8/.9). The order is already
+    // the client choice, so it remains the only wire input.
+    let mode: 'first' | 'normal' | 'last';
+    if (target.assignmentPriority === 'choice') {
+      mode = normalStarted || lastStarted ? 'last' : 'first';
+    } else {
+      mode = target.assignmentPriority;
+    }
+    const pendingFixedFirst = side.targets.some(candidate => !seen.has(candidate.uid) &&
+      candidate.uid !== uid && candidate.canReceiveDamage && candidate.assignmentPriority === 'first');
+    const pendingFixedNormal = side.targets.some(candidate => !seen.has(candidate.uid) &&
+      candidate.uid !== uid && candidate.canReceiveDamage && candidate.assignmentPriority === 'normal');
+    if (mode === 'first' && (normalStarted || lastStarted)) {
+      blocked('invalid-allocation', `${uid} cannot be assigned as Tank after a later-priority Unit`);
+    }
+    if (mode === 'normal' && (lastStarted || pendingFixedFirst)) {
+      blocked('invalid-allocation', `${uid} is not currently a legal damage-assignment priority`);
+    }
+    if (mode === 'last' && (pendingFixedFirst || pendingFixedNormal)) {
+      blocked('invalid-allocation', `${uid} cannot be assigned Backline damage before other Units are lethal`);
+    }
+    if (mode === 'normal') normalStarted = true;
+    if (mode === 'last') lastStarted = true;
+
+    if (amount < target.minAssignable) {
+      blocked('invalid-allocation', `${uid} must receive at least ${target.minAssignable} assigned damage`);
+    }
+    if (target.maxAssignable !== null && amount > target.maxAssignable) {
+      blocked('invalid-allocation', `${uid} cannot receive more than ${target.maxAssignable} assigned damage`);
+    }
     seen.add(uid);
 
-    const unitsRemainingAfterThis = side.targets.length - seen.size;
+    const unitsRemainingAfterThis = side.targets.filter(candidate =>
+      candidate.canReceiveDamage && !seen.has(candidate.uid)).length;
     if (amount < target.lethalNeed && index < snapshot.length - 1) {
       blocked('invalid-allocation',
         `${uid} must receive lethal damage (${target.lethalNeed}) before another unit receives damage`);
