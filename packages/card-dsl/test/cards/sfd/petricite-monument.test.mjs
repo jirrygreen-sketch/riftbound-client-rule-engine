@@ -33,6 +33,7 @@ test("sfd-104-221 Petricite Monument: identity, ruleset, status, judgeReason and
   assert.match(program.judgeReason, /816\.1\.b/);
   assert.match(program.judgeReason, /Temporary/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });

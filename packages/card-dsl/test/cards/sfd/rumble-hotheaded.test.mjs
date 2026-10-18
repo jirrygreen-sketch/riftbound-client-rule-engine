@@ -19,6 +19,8 @@ import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-s
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { world, runInstruction } from "../../../../../packages/engine-core/dist/effects/testing/index.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL = "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870";
 
@@ -29,8 +31,8 @@ test("program passes validateCardProgram and is judge-required", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason ?? "", /continuous\.grant-keyword/);
-  assert.match(program.judgeReason ?? "", /默认 static binder/);
-  assert.match(program.judgeReason ?? "", /运行时授予的关键词没有展开/);
+  assert.match(program.judgeReason ?? "", /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason ?? "", /production lifecycle/);
   assert.match(program.judgeReason ?? "", /cost\.modify\/cost\.pay/);
   assert.match(program.judgeReason ?? "", /运行时授予/);
   assert.match(program.judgeReason ?? "", /designation/);
@@ -213,27 +215,26 @@ test("the card retains its blocked discount declaration and recycle reference li
 });
 
 
-test.todo(
-  "consume runtime-granted Assault as attacker-only Might (807.1.c/.d.1), with designation/combatRole alignment"
-);
-
-test("Rumble, Hotheaded: the production binder really grants Assault but the grant never becomes Might", () => {
-  // 807.1.c/.d.1: the ability-layer grant lands (measured keywords [{ id:
-  // "Assault", value: 1 }]) while the arithmetic consumption does not, so the
-  // same Mech keeps its printed Might. This is the first recorded gap.
-  const { engine, kernel } = fixture({ cards: [
-    { id: "rumble", cardId: CANONICAL, tags: ["Mech"], might: 4 },
-    { id: "friendly-mech", tags: ["Mech"], might: 3 },
-    { id: "enemy-mech", owner: "B", controller: "B", tags: ["Mech"], might: 3 }
-  ] });
-  for (const id of ["rumble", "friendly-mech", "enemy-mech"]) {
-    engine.commit({ type: "move-zone", object: kernel.ref(id), to: "base", location: { type: "base", player: kernel.getObject(id).controller } });
-  }
-  createEngineStaticBinder(engine).bindStatic(program.abilities[0], kernel.getObject("rumble"));
-  engine.layers.setObjects(kernel.objects);
-  assert.deepEqual(engine.layers.evaluate(kernel.ref("friendly-mech")).keywords, [{ id: "Assault", value: 1 }]);
-  assert.equal(engine.layers.evaluate(kernel.ref("friendly-mech")).might, 3);
-  assert.deepEqual(engine.layers.evaluate(kernel.ref("enemy-mech")).keywords, []);
+test("Rumble, Hotheaded: the merged keyword layer consumes Assault as attacker-only Might", () => {
+  const kernel = world()
+    .unit("rumble", { owner: "A", controller: "A", tags: ["Mech"], zone: "board", might: 4, combatRole: null })
+    .unit("friendly-mech", { owner: "A", controller: "A", tags: ["Mech"], zone: "board", might: 3, combatRole: "attacker" })
+    .unit("enemy-mech", { owner: "B", controller: "B", tags: ["Mech"], zone: "board", might: 3, combatRole: "attacker" })
+    .build();
+  const layers = new KeywordGrantLayerEngine(kernel.objects, {
+    context: source => bindResolveContext(kernel, { source, controller: source.controller })
+  });
+  layers.addContinuous({
+    id: "rumble.assault-grant",
+    layer: "ability",
+    source: kernel.ref("rumble"),
+    filter: { zone: "board", controller: "A", tags: ["Mech"], type: "unit" },
+    effect: { kind: "continuous.grant-keyword", keyword: "Assault", keywordValue: 1 }
+  }, { type: "permanent" });
+  assert.deepEqual(layers.evaluate(kernel.ref("friendly-mech")).keywords, [{ id: "Assault", value: 1 }]);
+  assert.equal(layers.evaluate(kernel.ref("friendly-mech")).might, 4);
+  assert.deepEqual(layers.evaluate(kernel.ref("enemy-mech")).keywords, []);
+  assert.equal(layers.evaluate(kernel.ref("enemy-mech")).might, 3);
 });
 
 test("Rumble, Hotheaded: the rewritten conquer trigger registers but cannot match a real conquer wave", () => {

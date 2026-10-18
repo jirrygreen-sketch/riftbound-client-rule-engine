@@ -4,10 +4,9 @@
 // binding its own static ability with the production binder) lives in
 // `test/cards/templates/static-667.test.mjs`.
 //
-// The card stays judge-required: layers/engine.ts only records the granted keyword
-// characteristic, nothing expands a granted keyword through
-// effects/keywords/Assault.ts, and there is no 718.3 Attached-card propagation
-// bridge. Nothing here approximates the printed +1 Might.
+// The card stays judge-required: the merged KeywordGrantLayerEngine can expand
+// the granted Assault in isolation, but production lifecycle wiring and the
+// 718.3 Attached-card propagation bridge are still absent.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -17,6 +16,9 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 
 const CANONICAL_ID = "card.hash-d6988e3c4bfaf3cd84e8451ade514abc99df9e47acaa479d8e17bd78b14d1db5";
 const SOURCE_TEXT =
@@ -101,19 +103,42 @@ test("sfd-183-221 Purifier: the production binder grants Assault to your Equipme
   assert.deepEqual(engine.layers.snapshot(mine.ref).keywords, []);
 });
 
-test("sfd-183-221 Purifier: judgeReason names the measured expansion gaps", () => {
-  // Re-probed 2026-10-17 (RIFT-667): the grant really happens and really is
-  // Equipment-scoped, but it produces no Might anywhere.
-  assert.match(program.judgeReason, /KeywordDef/);
+test("sfd-183-221 Purifier: the merged keyword layer expands the granted Assault", () => {
+  const kernel = world()
+    .unit("purifier", { owner: "A", controller: "A", zone: "board", might: null })
+    .unit("blade", {
+      owner: "A", controller: "A", zone: "board", types: ["gear"], tags: ["Equipment"],
+      might: 3, combatRole: "attacker"
+    })
+    .unit("enemy-blade", { owner: "B", controller: "B", zone: "board", types: ["gear"], tags: ["Equipment"], might: 3, combatRole: "attacker" })
+    .build();
+  const layers = new KeywordGrantLayerEngine(kernel.objects, {
+    context: source => bindResolveContext(kernel, { source, controller: source.controller })
+  });
+  layers.addContinuous({
+    id: "purifier.grant",
+    layer: "ability",
+    source: kernel.ref("purifier"),
+    filter: { zone: "board", controller: "A", tags: ["Equipment"] },
+    effect: { kind: "continuous.grant-keyword", keyword: "Assault" }
+  }, { type: "permanent" });
+  const blade = layers.evaluate(kernel.ref("blade"));
+  assert.deepEqual(blade.keywords, [{ id: "Assault", value: 1 }]);
+  assert.equal(blade.might, 4);
+  assert.deepEqual(layers.evaluate(kernel.ref("enemy-blade")).keywords, []);
+  assert.equal(layers.evaluate(kernel.ref("enemy-blade")).might, 3);
+});
+
+test("sfd-183-221 Purifier: judgeReason names the measured propagation gaps", () => {
+  // Re-probed 2026-10-18 (RIFT-667): the standalone re-expander now reads the
+  // granted Assault, while production lifecycle and attachment propagation remain.
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /effects\/keywords\/Assault\.ts/);
   assert.match(program.judgeReason, /Assault/);
   assert.match(program.judgeReason, /718\.3/);
 });
 
 test.todo(
-  "sfd-183-221 Purifier: the granted Assault must give the equipped unit +1 Might while it is an attacker " +
-    "(CR 807.1.c) - nothing reads a granted keyword and applies effects/keywords/Assault.ts's expansion"
-);
-test.todo(
   "sfd-183-221 Purifier: 718.3 propagation of the granted Assault from the attached card to its equipped unit " +
-    "- no executable bridge exists"
+    "- no executable bridge exists; production lifecycle also does not feed granted keywords into the re-expander"
 );
