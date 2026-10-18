@@ -205,15 +205,15 @@ test('EG-MOVE pipeline batch commits Exhaust and move-location with one batch id
   const f = boardRuntime();
   const board = f.fixture.state.board;
   const result = commitStandardMoveThroughPipeline(f.port, {
-    board, unitIds: ['u1', 'u2'], actor: 'A', destination: field('a1'), timing,
+    board, unitIds: ['u2', 'g1'], actor: 'A', destination: field('a1'), timing,
     readiness: readinessFor(board), ref: id => ({ id, zoneEntryId: 1 }), transactionId: 'move-1',
   });
   assert.equal(result.receipt.status, 'committed');
   assert.deepEqual(result.receipt.actions.map(action => action.type), ['exhaust', 'move-location', 'exhaust', 'move-location']);
   assert.equal(result.requiresOpenCleanup, true);
-  const moved = f.port.objects().filter(object => object.location?.id === 'a1');
-  assert.deepEqual(moved.map(object => object.ref.id).sort(), ['u1', 'u2']);
-  assert.ok(moved.every(object => object.exhausted));
+  const moved = f.port.objects().filter(object => ['u2', 'g1'].includes(object.ref.id));
+  assert.deepEqual(moved.map(object => object.ref.id).sort(), ['g1', 'u2']);
+  assert.ok(moved.every(object => object.exhausted && object.location?.id === 'a1'));
 });
 
 test('EG-MOVE a rejected second move rolls back the first Exhaust + Move and its event log', () => {
@@ -228,7 +228,7 @@ test('EG-MOVE a rejected second move rolls back the first Exhaust + Move and its
     checkpoint: f.port.checkpoint, restore: f.port.restore, objects: f.port.objects,
     perform: f.port.perform, choose: f.port.choose, context: f.port.context,
   }), ['A', 'B'], 'A');
-  const before = f.port.objects();
+  const before = structuredClone(f.port.objects());
   assert.throws(() => commitStandardMoveBatch({
     pipeline, checkpoint: f.port.checkpoint, restore: f.port.restore, board: f.fixture.state.board,
     unitIds: ['u1', 'u2'], actor: 'A', destination: field('a1'), timing,
@@ -236,13 +236,13 @@ test('EG-MOVE a rejected second move rolls back the first Exhaust + Move and its
     object: id => f.port.objects().find(object => object.ref.id === id) ?? null,
   }), error => error instanceof StandardMoveBatchError && error.code === 'move-rejected' &&
     error.receipt?.status === 'rolled-back');
-  assert.deepEqual(f.port.objects(), before);
+  assert.deepEqual(structuredClone(f.port.objects()), before);
   assert.equal(pipeline.events.filter(event => event.timingPoint === 'object-moved').length, 0);
 });
 
 test('EG-MOVE live recheck rejects a later unit moved by a replacement and rolls back the prior pair', () => {
   const f = boardRuntime();
-  const before = f.port.objects();
+  const before = structuredClone(f.port.objects());
   const original = f.port.perform;
   f.port.perform = action => {
     const outcome = original(action);
@@ -262,7 +262,7 @@ test('EG-MOVE live recheck rejects a later unit moved by a replacement and rolls
     readiness: readinessFor(f.fixture.state.board), ref: id => ({ id, zoneEntryId: 1 }),
     object: id => f.port.objects().find(object => object.ref.id === id) ?? null,
   }), /left its planned origin|moved/);
-  assert.deepEqual(f.port.objects(), before);
+  assert.deepEqual(structuredClone(f.port.objects()), before);
 });
 
 test('EG-MOVE Recall cannot enter the Standard Move batch', () => {
@@ -271,29 +271,21 @@ test('EG-MOVE Recall cannot enter the Standard Move batch', () => {
 });
 
 test('EG-MOVE production preflight rejects an active Showdown before any Exhaust', () => {
-  const f = lifecycleFixture();
-  const withContest = placeDuelUnit(f.state.board, {
-    objectId: 'contender', controllerPlayerId: 'B', locationId: f.battlefieldA,
-  });
-  const cleanup = applyOpenDuelCleanup(withContest);
-  const staged = cleanup.battlefields.find(entry => entry.locationId === f.battlefieldA);
-  const withShowdown = staged?.showdown === 'staged'
-    ? beginDuelShowdown(cleanup, f.battlefieldA)
-    : (() => {
-      let controlled = placeDuelUnit(createDuelBoard(selectDuelBattlefields([
-        { playerId: 'A', battlefields: [
-          { instanceId: 'a1', cardId: 'print-a1' }, { instanceId: 'a2', cardId: 'print-a2' },
-          { instanceId: 'a3', cardId: 'print-a3' }] },
-        { playerId: 'B', battlefields: [
-          { instanceId: 'b1', cardId: 'print-b1' }, { instanceId: 'b2', cardId: 'print-b2' },
-          { instanceId: 'b3', cardId: 'print-b3' }] },
-      ], () => 0)), { objectId: 'holder', controllerPlayerId: 'A', locationId: f.battlefieldA });
-      controlled = applyOpenDuelCleanup(controlled);
-      controlled = beginDuelShowdown(controlled, f.battlefieldA);
-      return controlled;
-    })();
-  assert.throws(() => inspectDuelStandardMove(withShowdown, readinessFor(withShowdown), {
-    actor: 'A', unitUIDs: ['u1'], destinationLocationId: f.battlefieldB, timing,
+  const board = createDuelBoard(selectDuelBattlefields([
+    { playerId: 'A', battlefields: [
+      { instanceId: 'a1', cardId: 'print-a1' }, { instanceId: 'a2', cardId: 'print-a2' },
+      { instanceId: 'a3', cardId: 'print-a3' }] },
+    { playerId: 'B', battlefields: [
+      { instanceId: 'b1', cardId: 'print-b1' }, { instanceId: 'b2', cardId: 'print-b2' },
+      { instanceId: 'b3', cardId: 'print-b3' }] },
+  ], () => 0));
+  const location = board.battlefields[0].locationId;
+  let current = placeDuelUnit(board, { objectId: 'holder', controllerPlayerId: 'A', locationId: location });
+  current = applyOpenDuelCleanup(current);
+  current = beginDuelShowdown(current, location);
+  const readiness = current.units.map(unit => ({ objectId: unit.objectId, readied: true, hasGanking: false }));
+  assert.throws(() => inspectDuelStandardMove(current, readiness, {
+    actor: 'A', unitUIDs: ['holder'], destinationLocationId: current.battlefields[1].locationId, timing,
   }), /active Showdown or Combat/);
 });
 

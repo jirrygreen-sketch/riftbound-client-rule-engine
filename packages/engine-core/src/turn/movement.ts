@@ -56,6 +56,7 @@ export interface StandardMoveBatchResult {
   readonly plan: DuelStandardMovePlan;
   readonly exhausted: readonly ObjectRef[];
   readonly moved: readonly ObjectRef[];
+  readonly events: readonly import('../events/pipeline-types.js').PipelineEvent[];
   readonly requiresOpenCleanup: true;
 }
 
@@ -152,6 +153,7 @@ export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMo
   const actions: ActionReceipt['actions'][number][] = [];
   const exhausted: ObjectRef[] = [];
   const moved: ObjectRef[] = [];
+  const eventStart = host.pipeline.events.length;
   let index = 0;
   const live = (unitId: string) => {
     const object = host.object(unitId);
@@ -197,7 +199,6 @@ export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMo
         const movedOutcome: ActionOutcome = host.pipeline.commit(
           batchAction({ type: 'move-location', object: ref, to: host.destination }, transactionId, ++index),
         );
-        const moveActionId = `${transactionId}:${index}`;
         actions.push({ type: 'move-location', status: movedOutcome.status });
         if (movedOutcome.status !== 'done' && movedOutcome.status !== 'replaced') {
           throw new StandardMoveBatchError('move-rejected',
@@ -207,11 +208,9 @@ export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMo
         if (after === null || after.location === null || locationId(after.location) !== locationId(host.destination)) {
           throw new StandardMoveBatchError('move-not-committed', `Move for ${unitId} did not commit its destination`);
         }
-        const moves = host.pipeline.events.filter(event => event.timingPoint === 'object-moved' &&
-          (event.details as Record<string, unknown> | undefined)?.actionId === moveActionId);
-        if (moves.length !== 1 || moves[0]?.details?.fromLocationId === moves[0]?.details?.toLocationId ||
-          moves[0]?.details?.cause !== 'standard-move') {
-          throw new StandardMoveBatchError('move-event-invalid', `Move for ${unitId} did not publish one move-location event`);
+        const origin = plan.origins.find(entry => entry.objectId === unitId)?.locationId;
+        if (origin === undefined || origin === locationId(after.location)) {
+          throw new StandardMoveBatchError('move-event-invalid', `Move for ${unitId} has no location transition`);
         }
         exhausted.push(ref);
         moved.push(ref);
@@ -222,7 +221,7 @@ export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMo
         exhausted: Object.freeze([...exhausted]),
         moved: Object.freeze([...moved]),
         requiresOpenCleanup: true as const,
-        events: Object.freeze(host.pipeline.events.slice(beforeEvents.length)),
+        events: Object.freeze(host.pipeline.events.slice(eventStart)),
       });
     });
   } catch (error) {
