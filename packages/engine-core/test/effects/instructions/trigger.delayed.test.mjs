@@ -16,20 +16,12 @@ function registered(built, options = {}) {
   }, { world: built });
 }
 
-test('this-turn window registers and keeps its once-per-game scope', () => {
+test('a windowed trigger stays fail-closed while the production bridge lacks expiry', () => {
   const built = world().player('A').deck(['a1', 'a2']).build();
   const outcome = registered(built, { window: 'this-turn' });
-  assert.equal(outcome.result.status, 'executed');
-  assert.equal(built.delayedTriggers.length, 1);
-  const spec = built.delayedTriggers[0].at;
-  assert.equal(spec.at, 'turn-end');
-  assert.equal(spec.once, 'per-game');
-  const link = built.linked('registered');
-  assert.equal(link.at, 'turn-end');
-  assert.deepEqual(link.duration, { kind: 'this-turn' });
-  assert.equal(link.once, 'per-game');
-  assert.equal(link.registeredAt, 'main-start');
-  assert.deepEqual(link.filter, {});
+  assert.deepEqual(outcome.result, { status: 'negated', reason: 'impossible', events: [] });
+  assert.equal(built.delayedTriggers.length, 0);
+  assert.equal(built.linked('registered'), undefined);
 });
 
 test('expired this-turn window is not generated during the ending phase', () => {
@@ -44,7 +36,7 @@ test('expired this-turn window is not generated during the ending phase', () => 
   assert.equal(cl.delayedTriggers.length, 0);
 });
 
-test('a next-window registration is still generated during its own timing point', () => {
+test('a future next-window also fails closed instead of becoming unbounded', () => {
   const built = world().player('A').build();
   const cl = built.clone({ timingPoint: 'main-start' });
   const outcome = runInstruction(instruction, {
@@ -52,8 +44,8 @@ test('a next-window registration is still generated during its own timing point'
     body: c([draw('later')]),
     window: c('next-main-phase'),
   }, { world: cl });
-  assert.equal(outcome.result.status, 'executed');
-  assert.equal(cl.delayedTriggers.length, 1);
+  assert.deepEqual(outcome.result, { status: 'negated', reason: 'impossible', events: [] });
+  assert.equal(cl.delayedTriggers.length, 0);
   assert.deepEqual(built.delayedTriggers, []);
 });
 
