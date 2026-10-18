@@ -3,9 +3,17 @@
 //
 // The card prints two keywords in one block, so the runnable evidence is the
 // two declarations plus the merged Assault/Shield KeywordDef expansions for
-// this exact card identity. The layer wiring that would add +2 Might while
-// attacking or defending is still missing (see judgeReason and the test.todo
-// entries at the bottom).
+// this exact card identity. Re-checked 2026-10-17/18: the expansions, the
+// summed stacking (CR 807.2/814.2) and the production static binder all run.
+// The card stays judge-required for two measured reasons (judgeReason): the
+// expansions read the ObjectSnapshot property "designation", which does not
+// exist (contract 3.8 exposes combatRole) and fail closed, and no combat
+// transaction produces a designation at all (combat/flow.ts throws
+// combat-start-transaction, CR 466.2). RIFT-711's expr-ext maps
+// designation -> combatRole, but the merged integration boundary says the
+// default interpreter and static binder still do not dispatch it; the control
+// tests below show that aligning the property value alone already produces the
+// printed +2 through the same production path.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -17,7 +25,14 @@ import shield from "../../../../engine-core/dist/effects/keywords/Shield.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
-import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { evaluateExtendedExpression } from "../../../../engine-core/dist/effects/interpreter/expr-ext/index.js";
+import { evaluateExpression } from "../../../../engine-core/dist/effects/interpreter/expr.js";
+import { MissingInformation } from "../../../../engine-core/dist/effects/interpreter/values.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-4cb8d7a21af85e64b1351cadd5764e7d72532c46a93c2c85289c8c4351c33818";
@@ -37,14 +52,19 @@ test("ogs-007-024 Garen, Rugged: identity, status, judgeReason and verbatim sour
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   // README section 2: the reason must name the missing semantics and the
-  // dependent tasks, not just "needs support".
+  // dependent tasks, not just "needs support". Re-probed 2026-10-18: the two
+  // live blockers are the missing `designation` snapshot property and the
+  // absent combat-role producer; the expr-ext mapping exists but is not
+  // dispatched by the production condition path.
   assert.match(program.judgeReason, /Assault/);
   assert.match(program.judgeReason, /Shield/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /designation/);
-  assert.match(program.judgeReason, /conditionMatches/);
   assert.match(program.judgeReason, /Unavailable characteristic/);
+  assert.match(program.judgeReason, /RIFT-711/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
+  assert.match(program.judgeReason, /466\.2/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -149,26 +169,34 @@ test("ogs-007-024 Garen, Rugged: the generated card registry exposes the program
 });
 
 test("ogs-007-024 Garen, Rugged golden: the production binder fails closed on the missing designation characteristic", () => {
-  // 复核 2026-10-17: the KeywordDef expansion and the production static binder
-  // are both merged. The expansion's compare reads "designation", which the
-  // ObjectSnapshot contract does not carry, so the condition wrapper swallows
-  // the missing-information error and no +2 is ever applied.
+  // 复核 2026-10-17/18: the KeywordDef expansion and the production static
+  // binder are both merged. The expansion's compare reads "designation", which
+  // the ObjectSnapshot contract does not carry, so the condition wrapper
+  // swallows the missing-information error and no +2 is ever applied. The
+  // registration itself really happens (registry has the entry) and its
+  // bound condition evaluates false against the live attacker snapshot.
   const expansion = assault.expand({ value: program.abilities[0].value, host: HOST })[0];
-  const { engine, kernel } = fixture({ cards: [{ id: "garen", might: 5, combatRole: "attacker" }] });
-  engine.commit({ type: "move-zone", object: kernel.ref("garen"), to: "base", location: { type: "base", player: "A" } });
+  const { engine, kernel } = engineFixture({ might: 5, combatRole: "attacker" });
   createEngineStaticBinder(engine).bindStatic(expansion, kernel.getObject("garen"));
   assert.equal(engine.layers.registry.list().length, 1);
   engine.layers.setObjects(kernel.objects);
-  assert.equal(engine.layers.evaluate(kernel.ref("garen")).might, 5);
+  const snapshot = engine.layers.evaluate(kernel.ref("garen"));
+  assert.equal(snapshot.might, 5);
+  assert.equal(snapshot.combatRole, "attacker");
+  assert.equal(snapshot.designation, undefined);
+  const [entry] = engine.layers.registry.list();
+  assert.equal(entry.effect.effect.condition(snapshot), false);
 });
 
-test("ogs-007-024 Garen, Rugged golden: layers/engine.ts ignores the compare predicate and applies +2 unconditionally", () => {
+test("ogs-007-024 Garen, Rugged golden: a raw object-shaped compare condition is not evaluated by layers/engine.ts", () => {
   // Same merged layer engine, but with a raw continuous registration that still
-  // carries the object-shaped compare condition (as a bound static would once
-  // the characteristic name lines up). conditionMatches does not evaluate
-  // `compare`, so a defender wrongly receives the attacker-only +2.
-  const { engine, kernel } = fixture({ cards: [{ id: "garen", might: 5, combatRole: "defender" }] });
-  engine.commit({ type: "move-zone", object: kernel.ref("garen"), to: "base", location: { type: "base", player: "A" } });
+  // carries the object-shaped compare condition. conditionMatches does not
+  // evaluate `compare`, so a defender would wrongly receive the attacker-only
+  // +2. This documents the engine's fail-open behavior for hand-registered
+  // object conditions; it is NOT this card's blocker, because the production
+  // binder always wraps ability.condition into a function (see the two golden
+  // tests above and below).
+  const { engine, kernel } = engineFixture({ might: 5, combatRole: "defender" });
   engine.layers.addContinuous({
     id: "garen-rugged.raw-assault",
     layer: "arithmetic",
@@ -190,9 +218,106 @@ test("ogs-007-024 Garen, Rugged golden: layers/engine.ts ignores the compare pre
   assert.equal(engine.layers.evaluate(kernel.ref("garen")).might, 7);
 });
 
-test.todo(
-  "Garen, Rugged: CR 807.2 / 814.2 (with CR 466.2.c.3) — a second Assault or Shield source sums per keyword, " +
-    "and role exclusivity keeps the two +2s from stacking in one Combat; the keyword stacking \"sum\" and the " +
-    "combat/derived-might narrow path are merged, but execution still depends on the designation " +
-    "characteristic and the layers compare consumer"
-);
+test("ogs-007-024 Garen, Rugged golden: CR 807.2 / 814.2 sums a printed and a declared instance per keyword", () => {
+  // 807.2 / 814.2: Assault or Shield granted by an additional source sums into a
+  // single value. expandProgram merges the card's declared instances with the
+  // printed keyword entries and calls the KeywordDef once with the summed
+  // value, so the expansion keeps exactly one static per keyword.
+  const source = {
+    ...kernelSource(),
+    keywords: [{ id: "Assault", value: 2 }]
+  };
+  const expanded = expandProgram(program, source);
+  const statics = expanded.abilities.filter(ability => ability.kind === "static");
+  assert.deepEqual(
+    statics.map(ability => [ability.effect.kind, ability.effect.amount]),
+    [
+      ["continuous.might", { kind: "constant", value: 4 }],
+      ["continuous.might", { kind: "constant", value: 2 }]
+    ]
+  );
+  // The declaration/expansion boundary still fails closed for execution: the
+  // merged program registry refuses this judge-required identity.
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  assert.throws(() => binding.registry.get(CANONICAL_ID), error => {
+    assert.equal(error.code, "judge-required");
+    return true;
+  });
+  // An unequipped control: without a printed Assault instance the declared
+  // value stays 2, so the 4 above is the summed value, not a doubling bug.
+  const alone = expandProgram(program, { ...kernelSource(), keywords: [] });
+  assert.deepEqual(
+    alone.abilities.filter(ability => ability.kind === "static").map(ability => ability.effect.amount),
+    [{ kind: "constant", value: 2 }, { kind: "constant", value: 2 }]
+  );
+});
+
+test("ogs-007-024 Garen, Rugged golden control: aligning the expansion to combatRole produces the printed +2 through the production binder", () => {
+  // Control for the only changed input: the expansion's condition property is
+  // re-pointed from the absent "designation" to the merged ObjectSnapshot
+  // characteristic "combatRole" (contract 3.8). Everything else — the
+  // KeywordDef amount, the production static binder, the layer engine and the
+  // real ChainEngine fixture — stays untouched. CR 807.1.c/.d.1: +2 exactly
+  // while the Unit holds the Attacker designation and never while defending or
+  // outside combat.
+  const expansion = assault.expand({ value: program.abilities[0].value, host: HOST })[0];
+  const aligned = {
+    ...expansion,
+    condition: { ...expansion.condition, left: { ...expansion.condition.left, property: "combatRole" } }
+  };
+  const measured = {};
+  for (const role of ["attacker", "defender", undefined]) {
+    const { engine, kernel } = engineFixture(role === undefined ? { might: 5 } : { might: 5, combatRole: role });
+    createEngineStaticBinder(engine).bindStatic(aligned, kernel.getObject("garen"));
+    engine.layers.setObjects(kernel.objects);
+    measured[String(role)] = engine.layers.evaluate(kernel.ref("garen")).might;
+  }
+  assert.deepEqual(measured, { attacker: 7, defender: 5, undefined: 5 });
+});
+
+test("ogs-007-024 Garen, Rugged golden: designation resolves only in the merged expr-ext evaluator, not in the production interpreter", () => {
+  // RIFT-711 merged evaluateExtendedExpression, which maps both
+  // object-property("designation") and object-designation to combatRole. Its
+  // README records the integration boundary explicitly: the default
+  // interpreter (effects/interpreter/expr.ts) and programs/statics.ts do not
+  // dispatch the extension yet. This test executes both evaluators against the
+  // same live attacker snapshot so the remaining dependency is measured, not
+  // assumed.
+  const { kernel } = engineFixture({ might: 5, combatRole: "attacker" });
+  const context = kernel.clone({ source: kernel.ref("garen"), sourceSnapshot: kernel.getObject("garen") });
+  const environment = {
+    context,
+    linked: (id, key) => context.linked(key === undefined ? id : `${id}.${key}`),
+    canLookBack: () => false,
+    isIgnored: () => false
+  };
+  const designation = { kind: "object-property", object: "self", property: "designation" };
+  assert.throws(() => evaluateExpression(designation, environment), error => {
+    assert.ok(error instanceof MissingInformation);
+    assert.match(error.message, /Unavailable characteristic: designation/);
+    return true;
+  });
+  assert.equal(evaluateExtendedExpression(designation, environment), "attacker");
+  assert.equal(evaluateExtendedExpression({ kind: "object-designation", object: "self" }, environment), "attacker");
+});
+
+/** A ChainEngine over a single board Unit, so the production binder and layer
+ * engine run on a live pipeline instead of a hand-built snapshot list. */
+function engineFixture(values) {
+  const kernel = world().unit("garen", values).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("Unexpected choice"); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  return { engine, kernel };
+}
+
+/** The keyword-expansion host snapshot for this card identity. */
+function kernelSource() {
+  return { ...world().unit("garen", { might: 5, cardId: CANONICAL_ID }).build().getObject("garen") };
+}
