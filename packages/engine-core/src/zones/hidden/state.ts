@@ -174,7 +174,11 @@ export function assertHiddenState(state: HiddenState): void {
     }
     if (key !== hiddenRefKey(card.ref)) fail('invalid-state', `played Hidden key ${key} does not match its reference`);
     assertCard({ ...card, originZone: 'hand' }, `playedFromHidden.${key}`);
+    if (card.playedToBattlefieldId !== null && typeof card.playedToBattlefieldId !== 'string') {
+      fail('invalid-state', `playedFromHidden.${key}.playedToBattlefieldId must be a Battlefield id or null`);
+    }
     safeInteger(card.playedTurn, `playedFromHidden.${key}.playedTurn`);
+    if (card.playedToBattlefieldId !== null) text(card.playedToBattlefieldId, `playedFromHidden.${key}.playedToBattlefieldId`);
     if (card.playedTurn < card.hiddenTurn) fail('invalid-state', `played Hidden card ${key} was played before it was hidden`);
     if (refs.has(key)) fail('invalid-state', `Hidden card ${key} is both facedown and played`);
   }
@@ -363,7 +367,17 @@ function transition(
   opensChain: boolean,
   revealsToAll: boolean
 ): HiddenZoneTransition {
-  return { reason, object: cloneRef(card.ref), from, to, battlefieldId, player: playerId, opensChain, revealsToAll };
+  return {
+    reason,
+    object: cloneRef(card.ref),
+    owner: card.owner,
+    from,
+    to,
+    battlefieldId,
+    player: playerId,
+    opensChain,
+    revealsToAll
+  };
 }
 
 /** Apply the 811.1.b Hide action to the Hidden sidecar. */

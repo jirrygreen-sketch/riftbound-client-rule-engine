@@ -42,7 +42,10 @@ export interface PlayedFromHidden {
   readonly owner: PlayerId;
   readonly controller: PlayerId;
   readonly kind: HiddenCardKind;
+  /** Battlefield where the card was hidden. */
   readonly battlefieldId: string;
+  /** Battlefield where a Hidden permanent was played; null for a Spell. */
+  readonly playedToBattlefieldId: string | null;
   readonly hiddenTurn: number;
   readonly playedTurn: number;
   readonly reactionUnlocked: boolean;
@@ -73,9 +76,14 @@ export type HiddenTransitionReason =
 export interface HiddenZoneTransition {
   readonly reason: HiddenTransitionReason;
   readonly object: ObjectRef;
+  /** Owner whose Trash/Hand receives the object when it leaves its zone. */
+  readonly owner: PlayerId;
   readonly from: HiddenOriginZone | 'facedown';
   readonly to: 'facedown' | 'chain' | 'trash';
+  /** Battlefield provenance where the card was hidden. */
   readonly battlefieldId: string;
+  /** Actual Battlefield destination for a permanent, when known. */
+  readonly destinationBattlefieldId?: string;
   readonly player: PlayerId;
   readonly opensChain: boolean;
   readonly revealsToAll: boolean;
@@ -91,7 +99,10 @@ export interface HiddenTargetScope {
 
 export interface HiddenPlayProvenance {
   readonly object: ObjectRef;
+  /** Battlefield where the card was hidden. */
   readonly battlefieldId: string;
+  /** Battlefield where a permanent was played; null for a Spell. */
+  readonly playedToBattlefieldId: string | null;
   readonly playedTurn: number;
   readonly reactionUnlocked: boolean;
   readonly targetScope: HiddenTargetScope;

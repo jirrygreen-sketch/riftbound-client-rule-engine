@@ -58,6 +58,16 @@ function safeTurn(turn: number): void {
   if (!Number.isSafeInteger(turn) || turn < 0) fail('invalid-turn', 'Hidden play turn must be a non-negative safe integer');
 }
 
+function textBattlefieldId(value: string): void {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    fail('invalid-destination', 'A Hidden permanent destination must be a Battlefield id');
+  }
+}
+
+function sameRef(left: ObjectRef, right: ObjectRef): boolean {
+  return left.id === right.id && left.zoneEntryId === right.zoneEntryId;
+}
+
 function cloneRef(ref: ObjectRef): ObjectRef { return { id: ref.id, zoneEntryId: ref.zoneEntryId }; }
 
 function cloneTransition(transition: HiddenZoneTransition): HiddenZoneTransition {
@@ -68,12 +78,14 @@ function transition(reason: HiddenTransitionReason, card: PlayedFromHidden): Hid
   return {
     reason,
     object: cloneRef(card.ref),
+    owner: card.owner,
     from: 'facedown',
     // A card played from facedown always enters the public Chain first. The
     // permanent reaches the Board only after Chain resolution, so both card
     // kinds use the same transition destination here.
     to: 'chain',
     battlefieldId: card.battlefieldId,
+    ...(card.playedToBattlefieldId === null ? {} : { destinationBattlefieldId: card.playedToBattlefieldId }),
     player: card.controller,
     opensChain: true,
     revealsToAll: true
@@ -105,7 +117,7 @@ function kindFromSnapshot(snapshot: ObjectSnapshot): HiddenCardKind {
 function targetScope(card: PlayedFromHidden): HiddenTargetScope {
   const explicit = (card.explicitTargetExceptions ?? []).map(cloneRef);
   return {
-    battlefieldId: card.battlefieldId,
+    battlefieldId: card.playedToBattlefieldId ?? card.battlefieldId,
     bypassedByExplicitRestriction: explicit.length > 0,
     explicitTargetExceptions: explicit
   };
@@ -182,6 +194,7 @@ export function playFromHidden(state: HiddenState, input: HiddenPlayInput): Hidd
     provenance: {
       object: cloneRef(plan.played.ref),
       battlefieldId: plan.played.battlefieldId,
+      playedToBattlefieldId: plan.played.playedToBattlefieldId,
       playedTurn: plan.played.playedTurn,
       reactionUnlocked: plan.played.reactionUnlocked,
       targetScope: targetScope(plan.played)
@@ -210,26 +223,28 @@ function planPlayFromHidden(state: HiddenState, input: HiddenPlayInput): PlayPla
   safeTurn(turn);
   if (turn !== state.turn) fail('invalid-turn', `Hidden play must use current turn ${state.turn}`);
   if (!isHiddenReactionUnlocked(hidden.hiddenTurn, turn)) fail('not-unlocked', 'A Hidden card gains Reaction beginning on the next turn');
-  if (hidden.kind !== 'spell' && input.destinationBattlefieldId !== hidden.battlefieldId) {
-    fail('invalid-destination', 'A Hidden permanent must be played to its hiding Battlefield');
+  const playedToBattlefieldId = hidden.kind === 'spell'
+    ? null
+    : input.destinationBattlefieldId ?? hidden.battlefieldId;
+  if (playedToBattlefieldId !== null) {
+    textBattlefieldId(playedToBattlefieldId);
   }
   if (input.requiresTargets === true && (input.targets === undefined || input.targets.length === 0)) {
     fail('invalid-target', 'A Hidden card with required targets has no legal target selection');
   }
   const exceptions = input.explicitTargetExceptions ?? [];
-  if (exceptions.some((ref, index) => exceptions.findIndex(candidate =>
-    candidate.id === ref.id && candidate.zoneEntryId === ref.zoneEntryId) !== index)) {
+  if (exceptions.some((ref, index) => exceptions.findIndex(candidate => sameRef(candidate, ref)) !== index)) {
     fail('invalid-target', 'Each explicit Hidden target exception must be unique');
   }
   for (const ref of exceptions) {
-    if (!input.targets?.some(target => target.ref.id === ref.id && target.ref.zoneEntryId === ref.zoneEntryId)) {
+    if (!input.targets?.some(target => sameRef(target.ref, ref))) {
       fail('invalid-target', 'An explicit Hidden target exception must name a selected target');
     }
   }
   if (input.targets !== undefined && input.targets.length > 0) {
     const exceptional = new Set(exceptions.map(ref => `${ref.id}:${ref.zoneEntryId}`));
     if (!input.targets.every(target => exceptional.has(`${target.ref.id}:${target.ref.zoneEntryId}`) ||
-        targetAtBattlefield(target, hidden.battlefieldId))) {
+        targetAtBattlefield(target, playedToBattlefieldId ?? hidden.battlefieldId))) {
       fail('invalid-target', 'Each Hidden target needs battlefield scope or its own printed exception');
     }
   }
@@ -238,7 +253,8 @@ function planPlayFromHidden(state: HiddenState, input: HiddenPlayInput): PlayPla
   // no legal target exists; the sidecar cannot invent that card-specific fact.
   const played: PlayedFromHidden = {
     ref: cloneRef(hidden.ref), owner: hidden.owner, controller: hidden.controller,
-    kind: hidden.kind, battlefieldId: hidden.battlefieldId, hiddenTurn: hidden.hiddenTurn,
+    kind: hidden.kind, battlefieldId: hidden.battlefieldId, playedToBattlefieldId,
+    hiddenTurn: hidden.hiddenTurn,
     playedTurn: turn, reactionUnlocked: true,
     ...(exceptions.length > 0 ? {
       bypassedByExplicitRestriction: true,
@@ -266,6 +282,7 @@ export function playedFromHidden(state: HiddenState, ref: ObjectRef): HiddenPlay
   if (!card) return null;
   return {
     object: cloneRef(card.ref), battlefieldId: card.battlefieldId,
+    playedToBattlefieldId: card.playedToBattlefieldId,
     playedTurn: card.playedTurn, reactionUnlocked: card.reactionUnlocked,
     targetScope: targetScope(card)
   };

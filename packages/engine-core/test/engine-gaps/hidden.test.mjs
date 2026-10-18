@@ -146,6 +146,7 @@ test('EG-HIDDEN Hide pays [A], occupies one Facedown Zone, and does not open a C
   assert.deepEqual(result.result.transition, {
     reason: 'hide',
     object: snapshot.ref,
+    owner: 'A',
     from: 'hand',
     to: 'facedown',
     battlefieldId: 'bf-1',
@@ -300,6 +301,45 @@ test('EG-HIDDEN next-turn play removes the card, opens the Chain, and retains or
     ref: { id: 'target-2', zoneEntryId: 1 },
     location: { type: 'battlefield', id: 'bf-2' }
   }), false);
+  assert.equal(result.transition.owner, 'A');
+  assert.equal(result.transition.battlefieldId, 'bf-1');
+  assert.equal(result.transition.destinationBattlefieldId, 'bf-1');
+  assert.equal(result.provenance.playedToBattlefieldId, 'bf-1');
+});
+
+test('EG-HIDDEN permanent play uses the actual destination battlefield for its play-effect targets', () => {
+  const snapshot = card('relocated-hidden-unit');
+  let state = createHiddenState([
+    { battlefieldId: 'bf-1', controller: 'A' },
+    { battlefieldId: 'bf-2', controller: 'A' }
+  ], 3);
+  state = hideCard(state, {
+    card: snapshot,
+    player: 'A',
+    battlefieldId: 'bf-1',
+    openState: true
+  }).state;
+  state = setTurn(state, 4);
+  const target = {
+    ref: { id: 'unit-at-destination', zoneEntryId: 1 },
+    location: { type: 'battlefield', id: 'bf-2' }
+  };
+  const result = playFromHidden(state, {
+    object: snapshot.ref,
+    player: 'A',
+    destinationBattlefieldId: 'bf-2',
+    targets: [target]
+  });
+
+  assert.equal(result.transition.battlefieldId, 'bf-1', 'hiding origin remains provenance');
+  assert.equal(result.transition.destinationBattlefieldId, 'bf-2');
+  assert.equal(result.provenance.playedToBattlefieldId, 'bf-2');
+  assert.equal(result.provenance.targetScope.battlefieldId, 'bf-2');
+  assert.equal(isHiddenTargetLegal(result.provenance, target), true);
+  assert.equal(isHiddenTargetLegal(result.provenance, {
+    ref: { id: 'unit-at-origin', zoneEntryId: 1 },
+    location: { type: 'battlefield', id: 'bf-1' }
+  }), false);
 });
 
 test('EG-HIDDEN rejects current-turn play, wrong permanent destination, and out-of-scope targets', () => {
@@ -312,7 +352,7 @@ test('EG-HIDDEN rejects current-turn play, wrong permanent destination, and out-
   );
   state = setTurn(state, 4);
   assert.throws(
-    () => playFromHidden(state, { object: snapshot.ref, player: 'A', destinationBattlefieldId: 'bf-2' }),
+    () => playFromHidden(state, { object: snapshot.ref, player: 'A', destinationBattlefieldId: '' }),
     error => error instanceof HiddenZoneError && error.code === 'invalid-destination'
   );
 
@@ -419,6 +459,7 @@ test('EG-HIDDEN capacity reduction and loss of Battlefield control recover cards
   // must still report the loss even when it briefly changes hands back.
   const cleaned = cleanupLostControl(controlled, { 'bf-1': 'B' });
   assert.deepEqual(cleaned.discarded.map(item => item.ref.id), ['a']);
+  assert.equal(cleaned.transitions[0].owner, 'A');
   assert.equal(cleaned.transitions[0].revealsToAll, true);
   assert.equal(getFacedownZone(cleaned.state, 'bf-1').cards.length, 0);
   assert.equal(findHiddenCard(cleaned.state, a.ref), null);

@@ -24,6 +24,7 @@ function transition(card: HiddenCard, player: PlayerId, reason: 'control-loss-cl
   return {
     reason,
     object: cloneRef(card.ref),
+    owner: card.owner,
     from: 'facedown',
     to: 'trash',
     battlefieldId: card.battlefieldId,
