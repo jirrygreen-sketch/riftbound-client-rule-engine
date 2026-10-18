@@ -5,11 +5,10 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/frozen-fortress.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
-import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
-import { translateInstructionTargets, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL =
   "card.hash-09252b56d2b61d29cf38395a75ff54e4d386d4bfa33c0754a32ef693dd912c1a";
@@ -56,10 +55,12 @@ test("unl-212-219 Frozen Fortress: judgeReason names the stale claims and the su
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /effect\.damage/);
   assert.match(program.judgeReason, /TargetSpec/);
-  // The emission and TriggerRegistration claims are stale: both merged (turn
-  // flow + programs/triggers.ts), so the reason no longer cites them as gaps.
-  assert.ok(!/没有.*emit|触发注册/.test(program.judgeReason));
-  assert.match(program.judgeReason, /programs\/triggers\.ts/);
+  // Third-sweep refresh: the phase-trigger half is merged AND faithful, so the
+  // reason now records that measured behavior instead of claiming the closed
+  // event vocabulary blocks registration.
+  assert.match(program.judgeReason, /registerProgramTriggers/);
+  assert.match(program.judgeReason, /ignored\/mistargeted/);
+  assert.doesNotMatch(program.judgeReason, /phase-owned trigger 的管线注册\/过滤语义/);
 });
 
 test("unl-212-219 Frozen Fortress: the beginning-start trigger deals a fixed 1 with no target declared", () => {
@@ -70,9 +71,8 @@ test("unl-212-219 Frozen Fortress: the beginning-start trigger deals a fixed 1 w
   // Scoring Step of 315.2.b runs ("This happens before scoring.").
   assert.equal(ability.trigger.at, "beginning-start");
   // "each player's": the trigger is not gated on the Battlefield's controller
-  // (190.6.b covers the uncontrolled case). `at` is the phase timing point;
-  // the pipeline event enum has no phase discriminant (see the source gap),
-  // so the IR filter intentionally names no closed event type.
+  // (190.6.b covers the uncontrolled case). `at` is the phase timing point, so
+  // the IR filter deliberately names no closed event type.
   assert.deepEqual(ability.trigger.filter, {});
   assert.equal(ability.trigger.once, undefined);
   assert.equal(ability.trigger.condition, undefined);
@@ -134,49 +134,55 @@ test("unl-212-219 Frozen Fortress: an empty set mistargets instead of inventing 
   assert.equal(kernel.getObject("elsewhere").damage, 0);
 });
 
-test("unl-212-219 Frozen Fortress: the merged trigger path can carry the beginning-start trigger", () => {
-  // 315.2.a.1: the timing point is emitted by the turn flow, and
-  // programs/triggers.ts does shape CardProgram triggers; the production
-  // path is still gated by this card's judged executable status.
-  const f = fixture({ cards: [{ id: "fortress", cardId: CANONICAL, types: ["battlefield"] }] });
-  // ProgramRegistry.get gates on status === "executable", which is exactly
-  // this card's judged gap; assert the gate first, then use the registry's
-  // status-free inspect() to show the merged translation path can carry
-  // this trigger shape.
-  const binding = createProgramBinding({ cardPrograms: [program] });
+test("unl-212-219 Frozen Fortress: the merged trigger path registers and fires only on Beginning Phase starts (CR 315.2.a.1)", () => {
+  // Third-sweep evidence: the registration is gated on status (this card is
+  // judge-required) only for the shipped program; the executable view really
+  // registers. The Registration's `at` selects the phase, so the empty event
+  // filter fires on both players' beginning-start and on no other phase timing —
+  // which is exactly "each player's Beginning Phase".
+  const f = fixture({ cards: [{ id: "fortress", cardId: CANONICAL, types: ["battlefield"], controller: "A" }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("fortress"), to: "battlefield", location: { type: "battlefield", id: "bf-1" } });
   const source = f.kernel.getObject("fortress");
+
+  // The shipped program is gated by ProgramRegistry because it stays
+  // judge-required; the executable view is the merged registration path.
+  const shipped = createProgramBinding({ cardPrograms: [program] });
   assert.throws(
-    () => binding.registerProgramTriggers(f.engine, source),
+    () => shipped.registerProgramTriggers(f.engine, source),
     error => error instanceof Error && error.name === "ProgramBindingError"
   );
-  // inspect() is status-free. The remaining engine gap is that the trigger
-  // filter enum has no phase discriminator: translating the card's phase-only
-  // filter yields {} and that cannot correctly express "this timing point".
-  // This exercises the merged registration path and documents that boundary.
-  const inspected = binding.inspect(source);
-  assert.equal(inspected.program.canonicalCardId, CANONICAL);
-  const [triggered] = expandProgram(inspected.program, { ...source, keywords: [] }).abilities.filter(item => item.kind === "triggered");
-  assert.equal(triggered.trigger.at, "beginning-start");
-  const registration = {
-    id: `program:fortress:${source.ref.zoneEntryId}:0`,
-    source,
-    controller: source.controller,
-    spec: { at: triggered.trigger.at, filter: translateTriggerFilter(triggered.trigger.filter, source.ref.id, "") },
-    body: translateInstructionTargets(triggered.body),
-    optional: triggered.optional,
-    activeZones: ["board"],
-    boundToIncarnation: true
-  };
-  // The phase-only filter has no closed event discriminant, so translation
-  // leaves an empty ObjectFilter. Pipeline validation accepts it, but an
-  // empty object filter does not express "this timing point": the merged
-  // scanner would match every event at beginning-start and every otherwise
-  // compatible event. This asserts the boundary without faking semantics.
+
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const ids = binding.registerProgramTriggers(f.engine, source);
+  assert.equal(ids.length, 1);
+  const registration = f.engine.pipeline.triggers.get(ids[0]);
+  assert.equal(registration.spec.at, "beginning-start");
   assert.deepEqual(registration.spec.filter, {});
-  f.engine.pipeline.registerTrigger(registration);
-  assert.equal(f.engine.pipeline.triggers.size, 1);
-  f.engine.pipeline.unregisterTrigger(registration.id);
+
+  const fired = [];
+  f.engine.pipeline.onTrigger = snapshot => fired.push([snapshot.event.timingPoint, snapshot.event.player]);
+  for (const [timingPoint, player] of [
+    ["beginning-start", "A"], ["main-start", "A"], ["channel-start", "B"],
+    ["beginning-start", "B"], ["awaken-start", "B"], ["beginning-end", "A"]
+  ]) {
+    f.engine.pipeline.emit({ timingPoint, player });
+  }
+  assert.deepEqual(fired, [["beginning-start", "A"], ["beginning-start", "B"]]);
+  f.engine.pipeline.unregisterTrigger(ids[0]);
   assert.equal(f.engine.pipeline.triggers.size, 0);
+});
+
+test("unl-212-219 Frozen Fortress boundary: the untargeted body really deals nothing through the chain adapter (CR 355.10.d)", () => {
+  // Third-sweep evidence for the surviving gap: the program carries no
+  // TargetSpec (registering one would wrongly make every unit a target), and
+  // effect.damage only reads ctx.targets, so the card's own instruction is
+  // reported ignored/mistargeted and no damage is dealt.
+  const kernel = world().unit("own-here", { owner: "A" }).unit("enemy-here", { owner: "B" }).build();
+  const outcome = resolveChainBody(ability.body, kernel);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(kernel.getObject("own-here").damage, 0);
+  assert.equal(kernel.getObject("enemy-here").damage, 0);
 });
 
 test.todo(

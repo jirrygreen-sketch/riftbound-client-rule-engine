@@ -12,7 +12,7 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import grant from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
-import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -38,12 +38,15 @@ test("unl-208-219 Black Flame Altar: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /staticFilter/);
   assert.match(program.judgeReason, /Unsupported static filter field keywords/);
   assert.match(program.judgeReason, /combatRole/);
-  // Third-sweep refresh: RIFT-359's merged predicates do not cover player-side
-  // keyword filtering or defender identity, so the reason names the concrete
-  // missing wirings instead of that task.
+  // Third-sweep refresh: the reason names the concrete missing wirings (keyword
+  // characteristic filter, layer location matching, granted-keyword
+  // re-expansion, defender identity condition) plus the Battlefield Board
+  // lifecycle, instead of the merged task references.
   assert.match(program.judgeReason, /applyLayer/);
   assert.match(program.judgeReason, /matchesObjectFilter/);
   assert.doesNotMatch(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /object-enters-board/);
+  assert.match(program.judgeReason, /不会重新进入关键词展开/);
   // The reason now names where the reference comparison really sits: the binder
   // resolves sameLocationAs to source.location, and the *layer application*
   // path compares that structured value by reference.
@@ -184,6 +187,66 @@ test("unl-208-219 Black Flame Altar: the granted Shield's defender clause is sti
   assert.equal(Object.hasOwn(shielded, "designation"), false);
   assert.equal(f.engine.layers.evaluate(shielded.ref).might, 3,
     "the defender bonus must not be claimed while designation is unreadable");
+});
+
+test("unl-208-219 Black Flame Altar: a layer-granted Shield lands on the snapshot but never becomes a Might modifier (CR 814.1.c/814.1.d)", () => {
+  // Third-sweep evidence for gap (3): the grant really writes Shield 1 into the
+  // recipient's layered keywords, but nothing re-expands that granted keyword
+  // into its static continuous.might, so the defender clause never contributes.
+  const f = fixture({ cards: [
+    { id: "altar", cardId: CANONICAL, types: ["battlefield"], energy: null, power: null, zone: "board", controller: "A", location: { type: "battlefield", id: "bf-1" } },
+    { id: "shielded-defender", types: ["unit"], might: 3, combatRole: "defender", controller: "A", zone: "board", location: { type: "battlefield", id: "bf-1" } }
+  ] });
+  for (const id of ["altar", "shielded-defender"]) {
+    f.engine.commit({ type: "move-zone", object: f.kernel.ref(id), to: "board", location: { type: "battlefield", id: "bf-1" } });
+  }
+  const grant = {
+    kind: "static",
+    effect: {
+      kind: "continuous.grant-keyword",
+      keywords: [{ id: "Shield", value: 1 }],
+      layer: "ability",
+      filter: { objectId: "shielded-defender", zone: "board" }
+    }
+  };
+  const handle = createEngineStaticBinder(f.engine).bindStatic(grant, f.kernel.getObject("altar"));
+  f.engine.layers.setObjects(f.kernel.objects);
+  const layered = f.engine.layers.evaluate(f.kernel.ref("shielded-defender"));
+  // The grant itself worked: Shield 1 is on the layered characteristic list.
+  assert.deepEqual(layered.keywords.map(keyword => [keyword.id, keyword.value]), [["Shield", 1]]);
+  // 814.1.c would add +1 while defending, but no expansion is registered, so
+  // the arithmetic result stays at the printed Might.
+  assert.equal(f.engine.layers.registry.list().length, 1);
+  assert.equal(layered.might, 3);
+  // And the Shield KeywordDef's own condition still reads a characteristic the
+  // contract never exposes, so even a direct binding cannot contribute.
+  const [expansion] = keywordDefinitionsById.get("Shield").expand({ host: { canonicalCardId: CANONICAL }, value: 1 });
+  const direct = createEngineStaticBinder(f.engine).bindStatic(expansion, f.kernel.getObject("shielded-defender"));
+  const [directEntry] = f.engine.layers.registry.list().slice(-1);
+  assert.equal(directEntry.effect.filter.objectId, "shielded-defender");
+  assert.equal(directEntry.effect.effect.condition(f.kernel.getObject("shielded-defender")), false);
+  handle.unbind();
+  direct.unbind();
+});
+
+test("unl-208-219 Black Flame Altar: production binds only on object-enters-board, which a Chain-zone Battlefield never emits", () => {
+  // Third-sweep evidence for gap (4): game/lifecycle.ts creates Battlefields as
+  // Chain-zone tokens, so the merged lifecycle never reaches this card's
+  // static binding at all.
+  const f = fixture({ cards: [
+    { id: "altar", cardId: CANONICAL, types: ["battlefield"], energy: null, power: null, controller: "A" }
+  ] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("altar"), to: "chain" });
+  const source = f.kernel.getObject("altar");
+  assert.equal(source.zone, "chain");
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const lifecycle = binding.attachLifecycle(f.engine);
+  assert.deepEqual(f.engine.layers.registry.list(), []);
+  // Binding the declaration directly from the Chain fails even earlier than the
+  // keyword gate: a Chain-zone source has no location for sameLocationAs:self.
+  assert.throws(() => createEngineStaticBinder(f.engine).bindStatic(ability, source),
+    /sameLocationAs source has no location/);
+  lifecycle.detach();
 });
 
 test.todo("black-flame-altar: bind the Temporary keyword gate to the here-scoped unit set (CR 053.3/816.3; needs a keyword filter field and value-based structured location matching in the layer path)");

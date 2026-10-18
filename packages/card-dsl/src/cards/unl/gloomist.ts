@@ -20,12 +20,19 @@ import type { CardProgram } from "../../ir/index.js";
  * - 414.3 / 414.1.a：「draw 1」是 effect.draw，抽牌者缺省为能力控制者（190.6.d），
  *   牌库顺序与 Burn Out（414.4 / 432）由内核拥有。
  *
- * status = judge-required：
+ * status = judge-required（2026-10-18 复核）：
  * - ally 的固守触发缺 2v2 队友关系与 PlayerSelector（491.8/491.8.e）。
+ * - 本卡的触发连注册都过不了：filter 写成事件名 "hold"，而封闭 EVENT_PATTERN_TYPES
+ *   （events/trigger-spec.ts）只接受 "held"/"conquered"/"scored" 等拼写；实测
+ *   registerProgramTriggers 抛 TriggerSpecValidationError（invalid-event-type）。
+ *   改成 "held" 后 player:"self" 能按注册来源的 controller 触发（实测 A 的 hold 触发），
+ *   但这只覆盖「自己固守」，无法表达 383.4.d.2.b 的「你或一个队友固守」——真实 hold 发射只有
+ *   { timingPoint, player }、没有 object，PlayerSelector 也没有队友形态。
  * - programs/triggers.ts 未把前置 may/exhaust 指令转换为 TriggerRegistration 的
- *   cost / mayAtFinalize；链本身已有费用支付能力，但本卡仍在 Resolve 才横置（383.3.a/b）。
- * - game/lifecycle.ts 仅把传奇创建在 chain 并另记 legendZone 报告，未进入真实传奇区域；
- *   触发默认仅在 board 激活，横置费用也只接受 board/rune-zone（107.4.a/c）。
+ *   cost / mayAtFinalize；链本身已有费用支付能力（cost 计划确实能构造出 exhaust 动作），
+ *   但本卡仍在 Resolve 才横置（383.3.a/b）。
+ * - game/lifecycle.ts 仅把传奇创建在 chain 并另记 legendZone 报告（实测真实对局里传奇仍是 chain 区 token），
+ *   未进入真实传奇区域；触发默认仅在 board 激活，横置费用也只接受 board/rune-zone（107.4.a/c）。
  */
 export default {
   canonicalCardId:
@@ -33,7 +40,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 ally 固守的 2v2 队友关系与 PlayerSelector（CR 491.8/491.8.e）。缺本卡前置费用的程序适配（383.3.a/383.3.b、204.3、415.4/415.5）：programs/triggers.ts 未把前置 you may/exhaust 转为 TriggerRegistration.cost / mayAtFinalize，当前 choice.optional + effect.exhaust 在 Resolve 执行，不能代替 Finalize 的费用检查。缺 Legend Zone 的生命周期与费用对象接线（107.4.a/107.4.c）：game/lifecycle.ts 把传奇创建在 chain，仅另记 legendZone 报告；触发默认在 board 激活，cost/payment.ts 的 exhaust 也只接受 board/rune-zone。",
+    "四处当前缺口（2026-10-18 复核）：(1) ally 固守的 2v2 队友关系与 PlayerSelector（CR 491.8/491.8.e）。" +
+    "(2) 触发注册本身失败：filter 用事件名 \"hold\"，封闭 EVENT_PATTERN_TYPES（events/trigger-spec.ts）只接受 \"held\" 等拼写，" +
+    "实测 registerProgramTriggers 抛 TriggerSpecValidationError（invalid-event-type）。改成 \"held\" 后 player:\"self\" 能按注册来源的 controller 触发（实测 A 的 hold 触发），" +
+    "但这只覆盖「自己固守」：真实 hold 发射只有 { timingPoint, player }、没有 object（实测），PlayerSelector 也没有队友形态，" +
+    "无法表达 383.4.d.2.b 的「你或一个队友固守」。" +
+    "(3) 前置费用的程序适配（383.3.a/383.3.b、204.3、415.4/415.5）：programs/triggers.ts 未把前置 you may/exhaust 转为 " +
+    "TriggerRegistration.cost / mayAtFinalize，当前 choice.optional + effect.exhaust 在 Resolve 执行，不能代替 Finalize 的费用检查。" +
+    "(4) Legend Zone 的生命周期与费用对象接线（107.4.a/107.4.c）：game/lifecycle.ts 把传奇创建在 chain，仅另记 legendZone 报告" +
+    "（实测真实对局里传奇仍是 chain 区 token）；触发默认在 board 激活，cost/payment.ts 的 exhaust 也只接受 board/rune-zone。",
   abilities: [
     {
       kind: "triggered",
