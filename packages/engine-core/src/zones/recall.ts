@@ -1,27 +1,31 @@
-import type { GameEvent, LocationRef, ObjectRef, ObjectSnapshot, ResolveContext } from "../effects/contract.js";
+import type {
+  ActionOutcome, ContractGameAction, GameEvent, LocationRef, ObjectRef,
+  ObjectSnapshot, RecallAction, ResolveContext
+} from "../effects/contract.js";
 import { sameLocation } from "../target/location/ref.js";
 
 /**
  * Recall is the relocation of a Permanent to its Base without being a Move
- * (CR v1.5 457). The engine vocabulary has no dedicated Recall game action
- * yet, so this helper drives the identity-preserving physical relocation
- * through the existing move-location action and marks the seam explicitly:
+ * (CR v1.5 457). The additive contract now has RecallAction, but the default
+ * production adapters have not yet installed its capability. This helper
+ * submits the independent action when the host exposes that capability and
+ * otherwise fails closed with a blocked receipt:
  *
  * - 458.1: a Recall must not trigger abilities keyed to Move actions. The
  *   reference kernel records move-location history and the action adapter
  *   emits object-moved for it, so until owners add a distinct Recall action
- *   the Move-trigger vocabulary remains judge-required for real cards. Callers
- *   must not read move-location history or object-moved timings as Move
- *   evidence for a recall performed here (see the EG-RECALL contract change
- *   request for the dedicated action and history distinction).
+ *   a Recall never becomes move-location and therefore cannot emit
+ *   object-moved or create Move history. Until the 849/810/835/837 consumers
+ *   install RecallAction, callers receive negated/impossible rather than an
+ *   approximation through Move.
  * - 458.3: a Recall is not prevented by Move restrictions, so legality is not
  *   evaluated through the Location module's Move permissions (allowsMove /
  *   movement restrictions / 451.2 two-controller occupancy). Only the printed
  *   object shape and the Base-of-its-controller destination are enforced.
  * - 458.2 / 460: the relocation changes position while preserving object
- *   identity (the same zone entry) and its damage and statuses. move-location
- *   relocates the same zone entry, which is the engine's identity-preserving
- *   path; statuses are preserved because nothing resets them.
+ *   identity (the same zone entry) and its damage and statuses. Those
+ *   obligations belong to the RecallAction consumer and are not simulated by
+ *   this primitive when that consumer is unavailable.
  * - 459: Gear is a Permanent and can be recalled exactly like a Unit.
  * - The Cleanup recall-action obligation (CR 323.6) stays with turn flow.
  *
@@ -49,6 +53,8 @@ export interface RecallOutcome {
   readonly object: ObjectRef;
   readonly from: LocationRef | null;
   readonly to: LocationRef | null;
+  readonly blockedReason?: string;
+  readonly receipt?: ActionOutcome["receipt"];
 }
 
 export interface RecallOptions {
@@ -79,7 +85,23 @@ export function performRecall(ctx: ResolveContext, ref: ObjectRef, options: Reca
   if (sameLocation(from, destination)) {
     return { status: "done", events: [], count: 0, object: refOf(ref), from, to: from };
   }
-  const outcome = ctx.perform({ type: "move-location", object: refOf(ref), to: destination });
+  const recall: RecallAction = { type: "recall", object: refOf(ref), player: before!.controller };
+  // ResolveContext still freezes perform() to GameAction. The additive
+  // ContractGameAction capability is probed without lying to that type: a
+  // future consumer must accept the independent recall action at runtime.
+  const perform = ctx.perform as unknown as (action: ContractGameAction) => ActionOutcome;
+  let outcome: ActionOutcome;
+  try {
+    outcome = perform(recall);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      return {
+        status: "impossible", events: [], count: 0, object: refOf(ref), from, to: null,
+        blockedReason: "RecallAction consumer unavailable (RIFT-849/810/835/837)"
+      };
+    }
+    throw error;
+  }
   const after = outcome.status === "done" ? ctx.object(refOf(ref)) : null;
   const moved = after !== null && after.zone === "board" && after.location !== null &&
     !sameLocation(from, after.location);
@@ -89,6 +111,7 @@ export function performRecall(ctx: ResolveContext, ref: ObjectRef, options: Reca
     count: moved ? 1 : 0,
     object: refOf(ref),
     from,
-    to: moved ? after.location : null
+    to: moved ? after.location : null,
+    ...(outcome.receipt === undefined ? {} : { receipt: outcome.receipt })
   };
 }
