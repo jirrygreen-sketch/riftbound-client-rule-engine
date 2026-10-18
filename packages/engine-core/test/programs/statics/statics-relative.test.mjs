@@ -86,8 +86,8 @@ test('unconsumed kinds fail before registration even with a declared layer', () 
   for (const kind of [
     'continuous.bonus-damage', 'continuous.lethal-threshold', 'continuous.grant-ability',
     'continuous.grant-abilities', 'continuous.modify-might-reduction',
-    'cost.hidden',
-    'requirement', 'applied-cost',
+    'continuous.cost-modification', 'cost.additional', 'cost.modify', 'target.tax',
+    'cost.hidden', 'requirement', 'applied-cost',
   ]) {
     for (const layer of [undefined, 'ability', 'arithmetic']) {
       assert.throws(() => binder.bindStatic({ kind: 'static', effect: { kind, layer } }, f.kernel.getObject('source')),
@@ -321,16 +321,7 @@ test('layerFor covers supported continuous effect kinds with contract 3.4 layers
     ['continuous.add-tag', 'trait'],
     ['continuous.grant-keyword', 'ability'],
     ['continuous.restrict', 'ability'],
-    ['continuous.deck', 'ability'],
-    ['continuous.permission', 'ability'],
-    ['continuous.location', 'ability'],
-    ['continuous.ability-count', 'ability'],
-    ['continuous.resource', 'ability'],
     ['continuous.combat', 'ability'],
-    ['continuous.cost-modification', 'ability'],
-    ['cost.additional', 'ability'],
-    ['cost.modify', 'ability'],
-    ['target.tax', 'ability'],
     ['continuous.might', 'arithmetic'],
     ['might', 'arithmetic'],
     ['buff', 'arithmetic'],
@@ -340,7 +331,7 @@ test('layerFor covers supported continuous effect kinds with contract 3.4 layers
     assert.equal(layerFor({ kind }), layer, 'layerFor(' + kind + ')');
   }
   assert.throws(() => layerFor({ kind: 'continuous.might', layer: 'trait' }), error => error.code === 'judge-required');
-  for (const kind of ['condition.predicate', 'play-location-permission', 'cost.reveal', 'totally-unknown-kind', 'continuous.bonus-damage', 'continuous.lethal-threshold', 'continuous.grant-ability', 'continuous.grant-abilities', 'continuous.modify-might-reduction', 'cost.hidden']) {
+  for (const kind of ['condition.predicate', 'play-location-permission', 'cost.reveal', 'totally-unknown-kind', 'continuous.bonus-damage', 'continuous.lethal-threshold', 'continuous.grant-ability', 'continuous.grant-abilities', 'continuous.cost-modification', 'continuous.modify-might-reduction', 'cost.additional', 'cost.hidden', 'cost.modify', 'target.tax']) {
     assert.throws(
       () => layerFor({ kind }),
       error => error.code === 'judge-required' && /has no layer mapping/.test(error.message),
@@ -359,9 +350,9 @@ test('layerFor explicitly blocks unconsumed continuous kinds emitted by merged c
     }
   }
   assert.ok(kinds.size > 0, 'merged programs expose continuous kinds');
-  const supported = new Set(['continuous.might', 'continuous.grant-keyword', 'continuous.keyword', 'continuous.movement', 'continuous.restrict', 'continuous.combat', 'continuous.cost-modification']);
+  const supported = new Set(['continuous.might', 'continuous.grant-keyword', 'continuous.keyword', 'continuous.movement', 'continuous.restrict', 'continuous.combat']);
   const blocked = new Set([
-    'continuous.bonus-damage',
+    'continuous.bonus-damage', 'continuous.cost-modification',
     'continuous.facedown-capacity', 'continuous.grant-abilities', 'continuous.grant-ability',
     'continuous.ignore-abilities', 'continuous.ignore-ability', 'continuous.ignore-target-tax',
     'continuous.lethal-threshold', 'continuous.modify-might-reduction', 'continuous.play-permission',
@@ -374,16 +365,12 @@ test('layerFor explicitly blocks unconsumed continuous kinds emitted by merged c
   }
 });
 
-test('merged rule and Finalize collectors receive layerFor-supported static declarations', () => {
+test('the merged combat rule consumer accepts its layerFor declaration', () => {
   const f = fixture({ cards: [{ id: 'host', types: ['unit'], might: 5 }] });
   board(f, 'host');
   const binder = createEngineStaticBinder(f.engine);
   for (const effect of [
     { kind: 'continuous.combat', flags: ['tank'] },
-    { kind: 'continuous.cost-modification', resource: 'energy', amount: -1 },
-    { kind: 'cost.additional', id: 'extra', optional: false, stage: 'mandatory-additional', payments: [{ kind: 'energy', amount: { kind: 'constant', value: 1 } }] },
-    { kind: 'cost.modify', resource: 'energy', amount: 1, stage: 'increase' },
-    { kind: 'target.tax', value: { kind: 'constant', value: 1 } },
   ]) {
     const before = f.engine.layers.registry.list().length;
     binder.bindStatic({ kind: 'static', effect }, f.kernel.getObject('host'));

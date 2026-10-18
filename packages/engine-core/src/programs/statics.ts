@@ -79,24 +79,10 @@ const LAYER_BY_KIND: Readonly<Record<string, LayerName>> = {
   'continuous.movement': 'ability',
   'continuous.restrict': 'ability',
   'continuous.timing': 'ability',
-  'continuous.deck': 'ability',
-  'continuous.deck-limit': 'ability',
-  'continuous.permission': 'ability',
-  'continuous.location': 'ability',
-  'continuous.requirement': 'ability',
-  'continuous.applied-cost': 'ability',
-  'continuous.ability-count': 'ability',
-  'continuous.usage': 'ability',
-  'continuous.resource': 'ability',
-  'continuous.modify-resource': 'ability',
-  'continuous.resource-limit': 'ability',
-  // These kinds are read by merged production rule-query and Finalize
-  // collectors. Their consumers validate payloads and ignore unknown flags.
+  // The merged rule-query layer reads this declaration directly. Other
+  // ContinuousEffect kinds remain blocked until their production path is
+  // connected end to end; standalone collectors are not enough evidence.
   'continuous.combat': 'ability',
-  'continuous.cost-modification': 'ability',
-  'cost.additional': 'ability',
-  'cost.modify': 'ability',
-  'target.tax': 'ability',
   'restriction': 'ability',
 };
 
