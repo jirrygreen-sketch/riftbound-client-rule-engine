@@ -5,7 +5,10 @@ import {
   EFFECT_IR_V2_RULESET,
   validateCardProgram
 } from "@riftbound/card-dsl";
-import { CONTRACT_ACTION_CAPABILITY_VERSION } from "../../dist/effects/contract.js";
+import {
+  CONTRACT_ACTION_CAPABILITY_VERSION,
+  requireContractActionCapability
+} from "../../dist/effects/contract.js";
 import { evaluateExpression } from "../../dist/effects/interpreter/expr.js";
 import {
   resolveObjectSelector,
@@ -171,6 +174,7 @@ test("the legacy GameAction surface remains closed while Recall/Batch use the ve
     player: "A"
   };
   assert.equal("contractActions" in kernel, false);
+  assert.throws(() => requireContractActionCapability(kernel), /unavailable or unsupported/);
 
   const calls = [];
   const context = bindResolveContext(kernel, {
@@ -182,7 +186,14 @@ test("the legacy GameAction surface remains closed while Recall/Batch use the ve
       }
     }
   });
+  assert.throws(
+    () => requireContractActionCapability(bindResolveContext(kernel, {
+      contractActions: { version: "unsupported", perform: () => ({ status: "done", events: [] }) }
+    })),
+    /unavailable or unsupported/
+  );
   assert.equal(context.contractActions.version, "riftbound.contract-actions.v1");
+  assert.equal(requireContractActionCapability(context), context.contractActions);
   assert.equal(context.contractActions.perform(recall).status, "done");
   assert.deepEqual(calls, [recall]);
 });

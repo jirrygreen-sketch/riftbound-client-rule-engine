@@ -308,6 +308,17 @@ export interface ContractActionCapability {
   perform(action: ContractGameAction): ActionOutcome;
 }
 
+/** Return the selected action bridge or fail closed before any action is submitted. */
+export function requireContractActionCapability(
+  context: Pick<ResolveContext, "contractActions">,
+): ContractActionCapability {
+  const capability = context.contractActions;
+  if (capability === undefined || capability.version !== CONTRACT_ACTION_CAPABILITY_VERSION) {
+    throw new Error("Contract action capability unavailable or unsupported");
+  }
+  return capability;
+}
+
 /** A frozen event-role snapshot, keyed to the pipeline event that supplied it. */
 export interface EventObjectBinding {
   readonly eventId: number;
