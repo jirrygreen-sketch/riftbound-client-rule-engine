@@ -36,11 +36,12 @@ test("ven-134-166 Kayle, Justified: identity, status, judgeReason and verbatim s
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /442\.1\.c\.1/);
-  assert.match(program.judgeReason, /empoweredCount|per-object 许可/);
+  assert.match(program.judgeReason, /object-property \"empowered\"|per-object 许可/);
   // Merged since the last sweep: the Empower KeywordDef now exists; the cost
   // carrier and the per-Empower layer consumer are the remaining gaps.
   assert.match(program.judgeReason, /Unsupported cost kind empower/);
   assert.match(program.judgeReason, /perEmpower/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.doesNotMatch(program.judgeReason, /没有 Empower \/ Empowered 的 KeywordDef/);
   // Merged capabilities must no longer be cited as gaps (RIFT-87/257/258):
   // the static -> layers registration path is merged.
@@ -72,7 +73,7 @@ test("ven-134-166 Kayle, Justified: +2 Might per Empowered instance and the thre
   assert.equal(mightPerEmpower.effect.appliesTo, "self");
 
   // "[Deflect 3] and [Ganking]" while Empowered three times: a keyword grant with
-  // a gate on the Empowered count (no predicate exists yet).
+  // a gate on the Empowered count (the production snapshot still lacks the field).
   assert.equal(keywordGrant.kind, "static");
   assert.equal(keywordGrant.effect.kind, "continuous.grant-keyword");
   assert.deepEqual(keywordGrant.effect.keywords, [
@@ -83,7 +84,7 @@ test("ven-134-166 Kayle, Justified: +2 Might per Empowered instance and the thre
   assert.deepEqual(keywordGrant.condition.left, {
     kind: "object-property",
     object: "self",
-    property: "empoweredCount"
+    property: "empowered"
   });
   assert.equal(keywordGrant.condition.operator, "gte");
   assert.deepEqual(keywordGrant.condition.right, { kind: "constant", value: 3 });
@@ -153,8 +154,8 @@ test("ven-134-166 probe: the static binder registers empower-limit, might and th
   const evaluated = f.engine.layers.evaluate(f.kernel.ref("kayle"));
   assert.equal(evaluated.might, 3, "perEmpower has no consumer, so might is unchanged");
 
-  // The keyword grant registered too, but its Empowered-count gate evaluates to
-  // false (no predicate), so no Deflect/Ganking keyword is exposed.
+  // The keyword grant registered too, but its Empowered-count gate cannot read
+  // the production snapshot field, so no Deflect/Ganking keyword is exposed.
   assert.deepEqual(evaluated.keywords, []);
 });
 
@@ -193,9 +194,17 @@ test("ven-134-166 Kayle probe: the arithmetic layer ignores perEmpower, so +2/in
   assert.deepEqual(mightPerEmpower.effect.perEmpower, { kind: "constant", value: 2 });
 });
 
-test("ven-134-166 Kayle probe: the three-times Empowered gate reads a characteristic the snapshot does not expose", () => {
+test("ven-134-166 Kayle probe: the three-times Empowered gate reads a field the snapshot does not expose", () => {
   const kernel = kayleWorld();
-  const context = bindResolveContext(kernel, { source: kernel.getObject("kayle") });
+  const fullSnapshot = kernel.getObject("kayle");
+  const productionSnapshot = Object.fromEntries(
+    Object.entries(fullSnapshot).filter(([key]) => key !== "empowered")
+  );
+  const context = bindResolveContext(kernel, {
+    source: productionSnapshot,
+    object: ref => ref.id === "kayle" ? productionSnapshot : kernel.object(ref),
+    lastKnown: ref => ref.id === "kayle" ? productionSnapshot : kernel.lastKnown(ref)
+  });
   const environment = {
     context,
     host: kernel.ref("kayle"),
@@ -206,6 +215,6 @@ test("ven-134-166 Kayle probe: the three-times Empowered gate reads a characteri
   };
   assert.throws(
     () => evaluateCondition(keywordGrant.condition, environment),
-    error => /Unavailable characteristic: empoweredCount/.test(error.message)
+    error => /Unavailable characteristic: empowered/.test(error.message)
   );
 });

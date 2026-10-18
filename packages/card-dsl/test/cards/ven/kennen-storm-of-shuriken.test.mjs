@@ -7,6 +7,7 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createEngineStaticBinder, createProgramBinding, translateTriggerFilter } from "../../../../engine-core/dist/programs/index.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
@@ -42,9 +43,10 @@ test("ven-113-166 Kennen: identity, ruleset, status, judgeReason and exact sourc
   assert.equal(program.sourceText, SOURCE_TEXT);
   // Flow 半段与 conquer 发射都缺消费方；Burn 半段已可执行。
   assert.match(program.judgeReason, /Invalid continuous\.grant-keyword argument: cost/);
-  assert.match(program.judgeReason, /continuous\.grant-keyword|RIFT-258/);
+  assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /conquer/);
   assert.doesNotMatch(program.judgeReason, /没有 continuous\.grant-keyword 原语|RIFT-120/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("ven-113-166 Kennen: the play trigger is a mandatory [Burn 2]", () => {
@@ -76,7 +78,7 @@ test("ven-113-166 Kennen: the conquer trigger grants Flow equal to the spell's c
   assert.equal(onConquer.kind, "triggered");
   assert.equal(onConquer.trigger.at, "conquer");
   assert.deepEqual(onConquer.trigger.filter, {
-    event: "conquer",
+    event: "conquered",
     filter: { source: "self" }
   });
   assert.equal(onConquer.optional, false);
@@ -219,15 +221,27 @@ test("ven-113-166 Kennen probe: Flow's merged expansion cannot bind its cost sta
   );
 });
 
-test("ven-113-166 Kennen probe: the card's 'conquer' filter is rejected by the production event vocabulary", () => {
+test("ven-113-166 Kennen probe: the legal conquered filter still needs source payload on emission", () => {
   const translated = translateTriggerFilter(onConquer.trigger.filter, "kennen-1", "conquer");
-  assert.deepEqual(translated, { event: "conquer", object: { objectId: "kennen-1" } });
-  assert.throws(
-    () => assertTriggerSpec({ at: "conquer", filter: translated }),
-    error => error.issues?.some(issue => issue.path === "trigger.filter.event") || /值必须属于/.test(error.message)
-  );
-  // The closed EVENT_PATTERN_TYPES value is "conquered"; only that spelling passes.
-  const fixed = translateTriggerFilter({ event: "conquered", filter: { source: "self" } }, "kennen-1", "conquer");
-  assert.deepEqual(fixed, { event: "conquered", object: { objectId: "kennen-1" } });
-  assert.doesNotThrow(() => assertTriggerSpec({ at: "conquer", filter: fixed }));
+  assert.deepEqual(translated, { event: "conquered", object: { objectId: "kennen-1" } });
+  assert.doesNotThrow(() => assertTriggerSpec({ at: "conquer", filter: translated }));
+
+  const kernel = world().unit("kennen-1", {
+    cardId: CANONICAL_ID,
+    types: ["unit"],
+    zone: "board",
+    location: { type: "battlefield", id: "A-bf-1" }
+  }).build();
+  // turn/flow.ts currently emits only player/details for conquer, so the
+  // source:self selector cannot match the real production payload.
+  assert.equal(matchesTriggerEvent(
+    translated,
+    { kind: "conquer", player: "A", details: { battlefieldId: "A-bf-1" } },
+    "A"
+  ), false);
+  assert.equal(matchesTriggerEvent(
+    translated,
+    { kind: "conquer", object: kernel.getObject("kennen-1"), player: "A", details: { battlefieldId: "A-bf-1" } },
+    "A"
+  ), true);
 });

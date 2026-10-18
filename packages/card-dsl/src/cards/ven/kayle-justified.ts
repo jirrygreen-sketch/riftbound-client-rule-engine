@@ -22,33 +22,27 @@ import type { CardProgram } from "../../ir/index.js";
  * - 828.1.b/[Deflect 3]/[Ganking]：达到三次后获得的两个关键词（809 Deflect、
  *   810 Ganking），由依赖条件 + 关键词授予表达。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。复核（2026-10-17，
- * RIFT-613 第三轮 M2 覆盖率复核）：Empower/Empowered KeywordDef 已合入
- *（effects/keywords/Empower.ts，RIFT-593）；continuous.might 与 continuous.grant-keyword
- * 原语、静态效果→layers 的注册路径（programs/statics.ts 的 createEngineStaticBinder，
- * attachProgramLifecycle 缺省使用它）都已合入，test.mjs 的 probe 覆盖了各静态的绑定行为。
- * 仍缺的是印刷费用承载通道、可叠加 Empowered 状态的图层谓词与对象侧许可读取、
- * per-Empower 图层求值、Deflect/Ganking 的生产消费方，见 judgeReason。
+ * status 判定（cards/README.md 第 2 节）：judge-required。复核（2026-10-18）：
+ * Empower/Empowered KeywordDef、continuous.might、continuous.grant-keyword 以及
+ * 静态效果到 layers 的注册路径均已合入并有局部执行证据。仍缺印刷费用承载、
+ * 多次 Empower 许可与计数的生产读取、per-Empower 图层求值，以及授予后的
+ * Deflect/Ganking 生产消费接线，见 judgeReason。
  */
 export default {
   canonicalCardId: "card.hash-bc9496bbf6f7cd918c02c302dd1a30bdc473b07744028532891c56fa80672908",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口（2026-10-17 RIFT-613 复核实测）：(1) Empower/Empowered 关键词已合入" +
-    "（effects/keywords/Empower.ts，RIFT-593），但印刷费用没有承载通道：KeywordAbility 只有 " +
-    "keyword/value，expandProgram 只传 value/host，实测本卡展开出的 activated.cost 是 " +
-    "{ kind: \"empower\" }（不含 3 Energy），describeActivate 以 \"Unsupported cost kind empower\" 拒绝。" +
-    "(2) 442.1.c.1『可被 Empower 三次』仍缺对象侧许可读取方与计数谓词：effect.empower 的 " +
-    "multiple/limit 参数已存在，但没有任何图层/关键词侧持有并读取该 per-object 许可，" +
-    "静态 empower-limit 本身在 programs/statics.ts 被拒（\"Static ability kind empower-limit " +
-    "has no layer mapping\"）；ObjectSnapshot（effects/contract.ts）也不声明 Empowered 计数，" +
-    "实测 object-property \"empoweredCount\" 抛 MissingInformation、静态门条件捕获后为 false。" +
-    "(3)『+2/每次』没有消费方：continuous.might 能绑定进 layers，但 arithmetic 层只读 " +
-    "amount/value/delta，不读 perEmpower，实测 Kayle 的 Might 恒为 3；continuous.grant-keyword " +
-    "能注册 [Deflect 3] / [Ganking] 的 ability 层，但计数门条件依赖缺口 (2) 且 Deflect 的 " +
-    "target.tax / Ganking 的移动许可都没有生产消费方。依赖可叠加 Empowered 状态的图层谓词与" +
-    "对象侧许可读取、印刷费用承载通道。不近似实现。",
+    "三处当前缺口，均不近似实现：(1) 827.1.c.1 的印刷 3 Energy 没有费用承载通道：" +
+    "KeywordAbility 只有 keyword/value，expandProgram 只传 value/host，实测本卡展开出的 " +
+    "activated.cost 是 { kind: \"empower\" }，describeActivate 以 \"Unsupported cost kind empower\" 拒绝。" +
+    "(2) 442.1.c.1 的多次 Empower 许可没有生产读取方：effect.empower 已支持 multiple/limit，" +
+    "但 empower-limit 在 programs/statics.ts 绑定时抛 \"Static ability kind empower-limit has no layer mapping\"；" +
+    "生产 ObjectSnapshot 也不声明 empowered 计数，三次门控对 object-property \"empowered\" 的读取以 " +
+    "MissingInformation 失败闭合。(3) per-Empower 算术与授予关键词没有完整消费方：" +
+    "continuous.might 只消费 amount/value/delta，实测 perEmpower 不改变 Might；" +
+    "continuous.grant-keyword 能登记 [Deflect 3]/[Ganking]，但授予后的 target.tax 与" +
+    "battlefield-to-battlefield 移动许可没有接入默认 CardProgram/ChainEngine 消费路径。",
   abilities: [
     {
       // 印刷费 3 Energy 见 judgeReason；不伪造启动能力。
@@ -94,7 +88,7 @@ export default {
         left: {
           kind: "object-property",
           object: "self",
-          property: "empoweredCount"
+          property: "empowered"
         },
         operator: "gte",
         right: { kind: "constant", value: 3 }

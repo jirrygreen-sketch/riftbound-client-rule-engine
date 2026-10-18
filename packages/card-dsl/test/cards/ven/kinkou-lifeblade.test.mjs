@@ -17,6 +17,8 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 // card-dsl has no dependency edge on engine-core (engine-core depends on
@@ -51,6 +53,7 @@ test("ven-093-166 Kinkou Lifeblade: identity, ruleset, status, judgeReason and v
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /Ganking/);
   assert.doesNotMatch(program.judgeReason, /RIFT-91 只合入|没有 .*continuous\.grant-keyword/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -100,6 +103,17 @@ test.todo(
     "'Use only if not Empowered') needs KeywordAbility params.cost and programs/keywords printed-cost forwarding"
 );
 
+test("kinkou-lifeblade: the Empower activation still exposes an unsupported cost plan", () => {
+  const kernel = world().unit("kinkou-lifeblade", { cardId: CANONICAL }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("kinkou-lifeblade") });
+  const activation = expandProgram(program, context.source).expanded.find(ability => ability.kind === "activated");
+  assert.deepEqual(activation.cost, { kind: "empower" });
+  assert.throws(
+    () => buildCostPlan(context, { id: "kinkou-lifeblade.empower", cost: activation.cost }),
+    /Unsupported cost kind: empower/
+  );
+});
+
 test.todo(
   "ven-093-166 Kinkou Lifeblade: both [Empowered][>] dependent abilities (828.1.b.1) need an Empowered status " +
     "contract (442.1.a); the merged continuous.might and continuous.grant-keyword primitives " +
@@ -146,6 +160,14 @@ test("kinkou-lifeblade: the actual static binder follows Empower and Disempower 
   assert.equal(engine.layers.evaluate(source.ref).might, 3);
   assert.equal(engine.layers.evaluate(source.ref).buffs, 0);
   assert.ok(engine.layers.evaluate(source.ref).keywords.some(keyword => keyword.id === "Ganking"));
+  const movementQuery = movement(
+    engine.layers.registry,
+    source.ref,
+    engine.layers.evaluate(source.ref),
+    "A"
+  );
+  assert.equal(movementQuery.canGank, false);
+  assert.equal(movementQuery.battlefieldToBattlefield, false);
   assert.equal(engine.commit({ type: "disempower", object: source.ref }).status, "done");
   engine.advance();
   assert.equal(engine.layers.evaluate(source.ref).might, 2);

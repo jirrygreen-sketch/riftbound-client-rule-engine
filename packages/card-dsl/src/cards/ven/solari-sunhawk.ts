@@ -22,8 +22,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Value 与 809.1.c/809.1.c.1 的对手附加 Power 费用由关键词展开负责。
  * - 143.2 / 143.2.a："+1 :rb_might:" 是算术图层的 Might 修正，不是 702 的 Buff 计数器。
  *
- * 复核（2026-10-17 RIFT-618 第三轮 M2 覆盖率复核；结论以源码与本任务 golden 实测为准）：
- * - Empower KeywordDef 已合入（effects/keywords/Empower.ts，RIFT-593）并会展开
+ * 复核（2026-10-18；结论以源码与本任务 golden 实测为准）：
+ * - Empower KeywordDef 已合入（effects/keywords/Empower.ts）并会展开
  *   827.1.c.1 的启动费用与 “Use only if not Empowered” 限制；+1 Might 与 [Deflect 2]
  *   的图层产出（continuous.might / continuous.grant-keyword）也已可由生产 binder 求值。
  * - 本卡仍不能 executable：印刷的 2 Energy 无法到达 expand，Empowered 门控没有可求值谓词，
@@ -35,10 +35,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   expandProgram 调用 def.expand({ value, host }) 时不传 params.cost（契约 3.8.3）。
  *   本任务实测：展开出的费用是 { kind: "empower" }，buildCostPlan 抛
  *   CostPlanError "Unsupported cost kind: empower"，因此 2 Energy 尚未成为可支付的费用。
- * 2. 没有 Empowered 状态谓词（442.1.a/828.1.b.1）：ObjectSnapshot 没有 empowered 字段、
- *   Condition 词表也没有对应谓词，程序里的 "empowered" expression 只是描述性占位。
- *   本任务实测：用生产 binder 绑定 mightGrant 后，未 Empowered 的 Solari Sunhawk 也求解出
- *   +1 Might（layers/engine.ts 的 conditionMatches 对未知 kind 落回 true）。
+ * 2. 没有 Empowered 状态谓词（442.1.a/828.1.b.1）：程序现在使用与参考内核一致的
+ *   object-property "empowered" 比较，但生产 ObjectSnapshot 没有该字段，且 layers/engine.ts
+ *   的 conditionMatches 尚不解释 compare/object-property，未知条件会 fail-open。
  * 3. [Deflect 2] 的税没有生产收集方（809.1.c/809.1.c.1）：continuous.grant-keyword 可把
  *   deflect 2 加入图层关键词列表，但没有消费方把该关键词转成 target.tax；
  *   chain/engine.ts 的 finalizeTargetPlan 不传 tax 选项（target/target-plan.ts 只在调用方
@@ -64,8 +63,10 @@ const abilities: Ability[] = [
       appliesTo: "self"
     },
     condition: {
-      kind: "expression",
-      value: { kind: "constant", value: "empowered" }
+      kind: "compare",
+      left: { kind: "object-property", object: "self", property: "empowered" },
+      operator: "gte",
+      right: { kind: "constant", value: 1 }
     }
   },
   {
@@ -77,8 +78,10 @@ const abilities: Ability[] = [
       keywords: [{ id: "deflect", value: 2 }]
     },
     condition: {
-      kind: "expression",
-      value: { kind: "constant", value: "empowered" }
+      kind: "compare",
+      left: { kind: "object-property", object: "self", property: "empowered" },
+      operator: "gte",
+      right: { kind: "constant", value: 1 }
     }
   }
 ];
@@ -89,14 +92,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三条当前缺口（复核 2026-10-17，RIFT-618；均不近似实现）：" +
+    "三条当前缺口（复核 2026-10-18；均不近似实现）：" +
     "(1) 印刷的 2 Energy 无法到达 KeywordDef.expand（827.1.c.1）：KeywordAbility 只有 keyword/value，" +
     "programs/keywords.ts 调用 def.expand({ value, host }) 时不传 params.cost（契约 3.8.3）；本任务实测" +
     "展开出的启动费用是 { kind: \"empower\" }，buildCostPlan 抛 CostPlanError " +
     "\"Unsupported cost kind: empower\"。" +
     "(2) 没有 Empowered 状态谓词（442.1.a/828.1.b.1）：ObjectSnapshot 无 empowered 字段、Condition 词表" +
-    "无该谓词，程序里的 empowered expression 只是描述性占位；本任务实测用生产 binder 绑定 mightGrant 后，" +
-    "未 Empowered 的 Solari Sunhawk 也求解出 +1 Might（conditionMatches 对未知 kind 落回 true）。" +
+    "无该谓词；程序虽已使用 object-property \"empowered\" 比较，生产 ObjectSnapshot 没有该字段，" +
+    "layers/engine.ts 的 conditionMatches 也尚不解释该比较，未知条件当前 fail-open。" +
     "(3) [Deflect 2] 的税没有生产收集方（809.1.c/809.1.c.1）：continuous.grant-keyword 能把 deflect 2 加入" +
     "图层关键词列表，但没有消费方把关键词转成 target.tax；chain/engine.ts 的 finalizeTargetPlan 不传 tax" +
     "选项，本任务 golden 实测选择带 Deflect 2 的单位不产生任何税，也不因不可支付被拒绝。" +
