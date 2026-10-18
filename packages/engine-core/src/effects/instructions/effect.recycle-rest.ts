@@ -98,9 +98,12 @@ function parseArgs(value: unknown): RecycleRestArgs {
   if (value.keptKey === undefined || value.zones === undefined) {
     throw new TypeError("effect.recycle-rest requires keptKey and zones");
   }
+  const keptKey = parse("keptKey", value.keptKey);
+  const zones = parse("zones", value.zones);
+  if (zones.kind === "constant" || zones.kind === "literal") parseZones(zones.value);
   return {
-    keptKey: parse("keptKey", value.keptKey),
-    zones: parse("zones", value.zones),
+    keptKey,
+    zones,
     ...(value.linkKey === undefined ? {} : { linkKey: parse("linkKey", value.linkKey) })
   };
 }
@@ -138,7 +141,14 @@ export default {
       throw new TypeError("effect.recycle-rest linkKey must evaluate to a nonempty string");
     }
     const zones = parseZones(ctx.evaluate(args.zones));
-    const kept = new Set(linkedRefs(ctx.linked(keptKey)).map(refKey));
+    const keptValue = ctx.linked(keptKey);
+    const keptRefs = linkedRefs(keptValue);
+    const hasKeptInput = Array.isArray(keptValue) || isRef(keptValue) ||
+      isRecord(keptValue) && Array.isArray(keptValue.objects);
+    if (hasKeptInput && keptRefs.length === 0) {
+      return { status: "ignored", reason: "mistargeted" };
+    }
+    const kept = new Set(keptRefs.map(refKey));
     const seen = new Set<string>();
     const candidates: ObjectSnapshot[] = [];
     for (const zone of zones) {
