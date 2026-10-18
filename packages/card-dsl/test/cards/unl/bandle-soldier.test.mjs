@@ -1,4 +1,5 @@
-// Template execution evidence: ../templates/keyword-replacement-effect-ready-678.test.mjs.
+// Template execution evidence: ../templates/keyword-replacement-effect-ready-700.test.mjs
+// (the earlier 678 evidence remains in the package history).
 // The 2/3 XP boundary remains blocked; standalone ready is only a subeffect.
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -76,13 +77,16 @@ test("unl-151-219 Bandle Soldier: the dependent ability is an entry replacement,
   assert.equal(enterReady.linkedTo, undefined);
 });
 
-test("unl-151-219 Bandle Soldier: the 3-XP gate remains an unbound descriptive placeholder", () => {
+test("unl-151-219 Bandle Soldier: the 3-XP gate retains the controller-xp IR shape but remains unbound", () => {
   // 824.1.b.1 / 824.1.c：Dependent Ability 只在控制者有 3+ XP 时生效。
-  // XP 不是 ObjectSnapshot 特征，Condition 也没有读取它的形态（见 judgeReason），
-  // 此 expression 只记录意图；非空字符串会被视为 true，不能证明 XP 门槛已执行。
+  // XP 不是 ObjectSnapshot 特征，Condition 也没有读取它的形态（见 judgeReason）。
+  // The compare/count shape records the printed gate without pretending that
+  // the current interpreter can evaluate PlayerSnapshot.xp.
   assert.deepEqual(enterReadyAbility.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "level-active:3" }
+    kind: "compare",
+    left: { kind: "count", subject: "controller-xp", filter: { player: "controller" } },
+    operator: "gte",
+    right: { kind: "constant", value: 3 }
   });
 });
 
