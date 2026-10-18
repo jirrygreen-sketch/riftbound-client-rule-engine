@@ -29,7 +29,8 @@ import { isTimingPointId, type TimingPointId } from "../../events/timing-points.
 import { evaluateCondition } from "../interpreter/condition.js";
 import { arithmetic, equalValues } from "../interpreter/values.js";
 import { resolveObjectSelector } from "../interpreter/selectors.js";
-import { createContractActionCapability, executeContractAction, isKnownContractAction, type ContractActionCapability } from "../../events/contract-actions/bridge.js";
+import { createContractActionCapability, executeContractAction, isKnownContractAction, killBatch, type ContractActionCapability } from "../../events/contract-actions/bridge.js";
+import { disempowerTransition } from "../../zones/empower-state.js";
 
 export { AwaitChoice } from "../contract.js";
 
@@ -296,26 +297,10 @@ export class TestWorld implements ResolveContext {
 
   perform(input: GameAction | LegacyBoardTokenAction): ActionOutcome {
     let action: GameAction = input.type === "create-token" && input.to === undefined ? { ...input, to: "board" } : input;
-    const applied = new Set<number>();
-    while (true) {
-      let rewritten = false;
-      for (const [index, hook] of this.state.replacements.entries()) {
-        if (applied.has(index)) continue;
-        const replacement = hook(action, this);
-        if (replacement === null) continue;
-        applied.add(index);
-        if (typeof replacement === "object") {
-          if (replacement.status === "rewrite") {
-            action = replacement.action;
-            rewritten = true;
-            break;
-          }
-          const status = replacement.status === "prevent" ? "prevented" : replacement.status;
-          return { status, events: [makeEvent(this.state, action.type, this.timingPoint, { outcome: status })] };
-        }
-        return { status: replacement, events: [makeEvent(this.state, action.type, this.timingPoint, { outcome: replacement })] };
-      }
-      if (!rewritten) break;
+    const rewritten = this.rewriteReplacement(action);
+    if (rewritten !== null) {
+      if (rewritten.status === 'done' && 'action' in rewritten) action = rewritten.action;
+      else return rewritten;
     }
     const ref = actionObject(action);
     const object = ref === undefined ? undefined : this.object(ref) ?? undefined;
@@ -375,6 +360,7 @@ export class TestWorld implements ResolveContext {
       objects: () => this.objects,
       perform: leaf => this.perform(leaf as GameAction),
       performContract: leaf => this.performContract(leaf),
+      performBatchLeaf: (leaf, batchId) => this.performBatchLeaf(leaf, batchId),
     }, { transactionId: action.transactionId });
     if (execution.outcome.status !== 'done') return execution.outcome;
     const recallEvents: TestEvent[] = [];
@@ -395,6 +381,44 @@ export class TestWorld implements ResolveContext {
       this.state.history.push({ action: structuredClone(step.action), ...(object === undefined ? {} : { object }), timingPoint: this.timingPoint, turn: 1, combat: 0 });
     }
     return { ...execution.outcome, events: [...execution.outcome.events, ...recallEvents] };
+  }
+
+  private performBatchLeaf(action: GameAction, batchId: string): ActionOutcome {
+    if (action.type !== 'kill') return this.perform(action);
+    const object = this.current(action.object);
+    if (object === null || object.zone !== 'board') return { status: 'impossible', events: [] };
+    const rewritten = this.rewriteReplacement(action);
+    if (rewritten === null) return this.perform(action);
+    if (rewritten.status !== 'done' || !('action' in rewritten)) return rewritten;
+    if (rewritten.action.type !== 'kill' || refKey(rewritten.action.object) !== refKey(action.object)) {
+      return { status: 'impossible', events: [] };
+    }
+    return this.perform(rewritten.action);
+  }
+
+  private rewriteReplacement(action: GameAction): { readonly status: 'done'; readonly action: GameAction } | ActionOutcome | null {
+    const applied = new Set<number>();
+    let current = action;
+    while (true) {
+      let rewritten = false;
+      for (const [index, hook] of this.state.replacements.entries()) {
+        if (applied.has(index)) continue;
+        const replacement = hook(current, this);
+        if (replacement === null) continue;
+        applied.add(index);
+        if (typeof replacement === 'object') {
+          if (replacement.status === 'rewrite') {
+            current = replacement.action;
+            rewritten = true;
+            break;
+          }
+          const status = replacement.status === 'prevent' ? 'prevented' : replacement.status;
+          return { status, events: [makeEvent(this.state, current.type, this.timingPoint, { outcome: status })] };
+        }
+        return { status: replacement, events: [makeEvent(this.state, current.type, this.timingPoint, { outcome: replacement })] };
+      }
+      if (!rewritten) return { status: 'done', action: current };
+    }
   }
 
   private apply(action: GameAction): ActionOutcome {
@@ -461,7 +485,14 @@ export class TestWorld implements ResolveContext {
       case "spend-xp": { const player = this.state.players.get(action.player); if (!player || action.amount < 0 || player.xp < action.amount) return fail("prevented"); player.xp -= action.amount; return done(action.amount as Value); }
       case "buff": case "spend-buff": { const object = this.current(action.object); if (!object || action.amount < 0 || (action.type === "spend-buff" && object.buffs < action.amount)) return fail("prevented"); object.buffs += action.type === "buff" ? action.amount : -action.amount; return done(object.buffs as Value); }
       case "empower": { const object = this.current(action.object); if (!object) return fail(); const amount = action.amount ?? 1; object.empowered += amount; return done(object.empowered as Value); }
-      case "disempower": { const object = this.current(action.object); if (!object) return fail(); object.empowered = 0; return done(); }
+      case "disempower": {
+        const object = this.current(action.object);
+        if (!object) return fail();
+        const transition = disempowerTransition(object);
+        if (!transition.changed) return fail("prevented");
+        object.empowered = transition.currentCount;
+        return done();
+      }
       case "add-counter": case "remove-counter": { const object = this.current(action.object); if (!object || action.amount < 0) return fail(); const prior = object.counters.get(action.counter) ?? 0; const next = action.type === "add-counter" ? prior + action.amount : Math.max(0, prior - action.amount); object.counters.set(action.counter, next); return done(next as Value); }
       case "create-token": {
         if (!this.state.players.has(action.player)) return fail();

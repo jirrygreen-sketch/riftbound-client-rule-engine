@@ -2,13 +2,14 @@ import type {
   ActionOutcome,
   ActionReceipt,
   BatchAction,
+  CONTRACT_ACTION_CAPABILITY_VERSION,
   ContractGameAction,
+  ContractActionCapability,
   GameAction,
   LocationRef,
   ObjectSnapshot,
 } from '../../effects/contract.js';
-
-export const CONTRACT_ACTIONS_VERSION = 'riftbound.contract-actions.v1' as const;
+export { CONTRACT_ACTION_CAPABILITY_VERSION };
 
 /** The state seam consumed by the contract-action bridge. */
 export interface ContractActionBridgePort {
@@ -17,6 +18,8 @@ export interface ContractActionBridgePort {
   objects(): readonly ObjectSnapshot[];
   perform(action: GameAction): ActionOutcome;
   performContract?(action: ContractGameAction): ActionOutcome;
+  /** Batch-aware replacement seam; receives the common batch identity. */
+  performBatchLeaf?(action: GameAction, batchId: string): ActionOutcome;
 }
 
 export interface ContractActionStep {
@@ -32,10 +35,7 @@ export interface ContractActionExecution {
   readonly steps: readonly ContractActionStep[];
 }
 
-export interface ContractActionCapability {
-  readonly version: typeof CONTRACT_ACTIONS_VERSION;
-  perform(action: ContractGameAction): ActionOutcome;
-}
+export type { ContractActionCapability };
 
 export interface ExecuteContractActionOptions {
   readonly transactionId?: string;
@@ -88,6 +88,14 @@ function sameRef(
   return left.id === right.id && left.zoneEntryId === right.zoneEntryId;
 }
 
+function killedInTrash(before: readonly ObjectSnapshot[], after: readonly ObjectSnapshot[], action: Extract<ContractGameAction, { type: 'kill' }>): boolean {
+  const previous = before.find(object => sameRef(object.ref, action.object));
+  const current = after.find(object => object.ref.id === action.object.id);
+  return previous?.zone === 'board' && current !== undefined && current.zone === 'trash' &&
+    current.ref.zoneEntryId > action.object.zoneEntryId &&
+    current.owner === previous.owner && current.controller === previous.controller;
+}
+
 /** A Recall keeps the exact incarnation and every non-location field unchanged. */
 function recallPreservedState(before: readonly ObjectSnapshot[], after: readonly ObjectSnapshot[], action: Extract<ContractGameAction, { type: 'recall' }>): boolean {
   const previous = before.find(object => sameRef(object.ref, action.object));
@@ -112,6 +120,16 @@ export function contractActionReachedDestination(
       sameLocation(object.location, { type: 'base', player: object.controller });
   }
   return true;
+}
+
+/** Verify Kill against its pre-action snapshot; the object must leave Board into its owner's Trash. */
+export function contractActionCompleted(
+  action: ContractGameAction,
+  before: readonly ObjectSnapshot[],
+  after: readonly ObjectSnapshot[],
+): boolean {
+  return contractActionReachedDestination(action, after) &&
+    (action.type !== 'kill' || killedInTrash(before, after, action));
 }
 
 function receiptStatus(status: ActionOutcome['status']): ReceiptActionStatus {
@@ -228,7 +246,9 @@ export function executeContractAction(
       const before = structuredClone(port.objects());
       const outcome = leaf.type === 'recall' && port.performContract !== undefined
         ? port.performContract(leaf)
-        : port.perform(leaf as GameAction);
+        : leaf.type === 'kill' && port.performBatchLeaf !== undefined
+          ? port.performBatchLeaf(leaf, transactionId ?? options.transactionId ?? 'batch')
+          : port.perform(leaf as GameAction);
       attempted.push(receiptStatus(outcome.status));
       if (outcome.status !== 'done') {
         port.restore(checkpoint);
@@ -238,7 +258,7 @@ export function executeContractAction(
         );
       }
       const after = structuredClone(port.objects());
-      if (!contractActionReachedDestination(leaf, after) ||
+      if (!contractActionCompleted(leaf, before, after) ||
           leaf.type === 'recall' && !recallPreservedState(before, after, leaf)) {
         port.restore(checkpoint);
         return rollbackResult(
@@ -277,7 +297,19 @@ export function executeContractAction(
 export function createContractActionCapability(
   perform: (action: ContractGameAction) => ActionOutcome,
 ): ContractActionCapability {
-  return { version: CONTRACT_ACTIONS_VERSION, perform };
+  return { version: CONTRACT_ACTION_CAPABILITY_VERSION, perform };
+}
+
+/** Construct the one transactional representation of a multi-object Kill instruction. */
+export function killBatch(
+  objects: readonly { readonly id: string; readonly zoneEntryId: number }[],
+  transactionId?: string,
+): BatchAction {
+  return {
+    type: 'batch',
+    ...(transactionId === undefined ? {} : { transactionId }),
+    actions: objects.map(object => ({ type: 'kill', object })),
+  };
 }
 
 export type { BatchAction };

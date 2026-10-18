@@ -13,19 +13,21 @@ import {
   type ActionPayloadContext,
 } from './producers/payload.js';
 import {
-  CONTRACT_ACTIONS_VERSION,
+  CONTRACT_ACTION_CAPABILITY_VERSION,
   ContractActionRollbackError,
+  contractActionCompleted,
   executeContractAction,
   type ContractActionBridgePort,
   type ContractActionCapability,
 } from './contract-actions/bridge.js';
 export {
-  CONTRACT_ACTIONS_VERSION,
+  CONTRACT_ACTION_CAPABILITY_VERSION,
   ContractActionRollbackError,
   contractActionReachedDestination,
   createContractActionCapability,
   executeContractAction,
   isKnownContractAction,
+  killBatch,
 } from './contract-actions/bridge.js';
 export type {
   ContractActionBridgePort,
@@ -40,6 +42,7 @@ export interface ActionStatePort extends Omit<PipelineHost, 'execute'> {
   perform(action: GameAction): ActionOutcome;
   /** Optional direct seam for actions outside the closed GameAction union. */
   performContract?(action: import('../effects/contract.js').ContractGameAction): ActionOutcome;
+  performBatchLeaf?(action: GameAction, batchId: string): ActionOutcome;
   /** Optional command identity supplied by a journal or a batch coordinator. */
   actionId?: (action: GameAction) => string | undefined;
   /** Optional identity shared by all primitive actions in one submitted batch. */
@@ -283,6 +286,7 @@ export function createActionPipelineHost(port: ActionStatePort): PipelineHost {
       objects: () => port.objects(),
       perform: leaf => port.perform(leaf),
       ...(port.performContract === undefined ? {} : { performContract: leaf => port.performContract!(leaf) }),
+      ...(port.performBatchLeaf === undefined ? {} : { performBatchLeaf: (leaf, batchId) => port.performBatchLeaf!(leaf, batchId) }),
     }, { transactionId: action.type === 'batch' ? action.transactionId ?? batchId : batchId });
     if (execution.outcome.status !== 'done') return { outcome: execution.outcome, emissions: [] };
     const observations = execution.steps.flatMap(step => {
@@ -313,12 +317,12 @@ export function createActionPipelineHost(port: ActionStatePort): PipelineHost {
       : { ...execution.outcome, events: [...execution.outcome.events, ...observations] };
     const emissions: TimingEmission[] = [];
     for (const step of execution.steps) {
-      if (step.action.type !== 'move-location') continue;
-      const leaf = step.action as Extract<GameAction, { type: 'move-location' }>;
+      if (step.action.type !== 'move-location' && step.action.type !== 'kill') continue;
+      const leaf = step.action as Extract<GameAction, { type: 'move-location' | 'kill' }>;
       const before = step.before.find(object => object.ref.id === leaf.object.id &&
         object.ref.zoneEntryId === leaf.object.zoneEntryId);
       const after = step.after.find(object => object.ref.id === leaf.object.id &&
-        object.ref.zoneEntryId === leaf.object.zoneEntryId);
+        (leaf.type === 'kill' ? object.zone === 'trash' : object.ref.zoneEntryId === leaf.object.zoneEntryId));
       if (before === undefined || after === undefined) continue;
       const stepContext = payloadContext(
         actionId,
@@ -326,19 +330,20 @@ export function createActionPipelineHost(port: ActionStatePort): PipelineHost {
         active,
         active?.source,
         after.controller,
-        'move',
+        leaf.type === 'kill' ? 'kill' : 'move',
         active?.controller,
       );
+      const timingPoint: TimingPointId = leaf.type === 'kill' ? 'object-killed' : 'object-moved';
       emissions.push(withActionPayload({
-        timingPoint: 'object-moved',
-        kind: 'object-moved',
+        timingPoint,
+        kind: timingPoint,
         object: structuredClone(after),
         source: active?.source,
         player: after.controller,
         simultaneousGroup: batchId,
       }, {
         ...actionPayload(leaf, before, after, stepContext),
-        ...transitionPayload(leaf, before, after, stepContext),
+        ...(leaf.type === 'move-location' ? transitionPayload(leaf, before, after, stepContext) : {}),
       }, { before, after }));
     }
     return { outcome, emissions };
@@ -350,10 +355,11 @@ export function createActionPipelineHost(port: ActionStatePort): PipelineHost {
     objects: () => port.objects(),
     perform: leaf => port.perform(leaf),
     ...(port.performContract === undefined ? {} : { performContract: leaf => port.performContract!(leaf) }),
+    ...(port.performBatchLeaf === undefined ? {} : { performBatchLeaf: (leaf, batchId) => port.performBatchLeaf!(leaf, batchId) }),
   });
 
   const contractActions: ContractActionCapability = {
-    version: CONTRACT_ACTIONS_VERSION,
+    version: CONTRACT_ACTION_CAPABILITY_VERSION,
     perform(action) {
       const actionId = `action:${++sequence}`;
       const batchId = action.type === 'batch' ? action.transactionId ?? actionId : actionId;
