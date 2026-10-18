@@ -36,9 +36,9 @@ import type { Ability, CardProgram, TriggerSpec } from "../../ir/index.js";
  *   消费者，但绑定先行失败，Deploy 仍不可执行；hold 触发的 { here: true } 过滤器会被
  *   translateTriggerFilter/translateObjectFilter 拒绝（实测 Unsupported filter field here）。
  *   turn/flow.ts 的清理召回已有 Deploy 豁免，无需卡侧近似。
- * - choice.mode 会被 chain/engine.ts 的 assertFinalizationSurface 与
- *   programs/play.ts 的 validateSurface 拒绝（“Mode choices require a Finalize/Resolve
- *   choice-plan adapter”），两个 card-played/object-moved 触发都过不了 Play 管线绑定。
+ * - choice.mode 会被 chain/engine.ts 的 assertFinalizationSurface 拒绝
+ *   （“Mode choices require a Finalize/Resolve choice-plan adapter”）；两个
+ *   card-played/object-moved triggered ability 都需要 Chain Finalize 的 choice-plan 适配器。
  * - “Deal 2 to enemy units here” 的 “here”：引擎侧已经支持两种位置锚点，但都不是可用形式——
  *   (a) 过滤器的 sameLocationAs 锚点由解释器集合查询实现，生产 translateObjectFilter 拒绝该键
  *   （绑定即失败），生产 Finalize 的 matchesObjectFilter 又对未识别键静默放行，直接把别处
@@ -125,8 +125,9 @@ const program = {
     "但绑定先行失败，Deploy 仍不可执行；hold 触发的 { here: true } 过滤器被 " +
     "translateTriggerFilter/translateObjectFilter 拒绝（实测 Unsupported filter field here）。" +
     "turn/flow.ts 的清理召回已有 Deploy 豁免。" +
-    "(2) choice.mode 被 chain/engine.ts 的 assertFinalizationSurface 与 programs/play.ts 的 validateSurface 拒绝" +
-    "（需要 Finalize/Resolve choice-plan 适配器），两个 card-played/object-moved 触发都过不了 Play 管线绑定。" +
+    "(2) choice.mode 被 chain/engine.ts 的 assertFinalizationSurface 拒绝" +
+    "（需要 Chain Finalize/Resolve 的 choice-plan 适配器）；两个 card-played/object-moved " +
+    "triggered ability 都因此无法完成 Finalize。" +
     "“Deal 2 to enemy units here” 的 here 锚点两种形式仍都不可用：过滤器的 sameLocationAs 被 translateObjectFilter 拒绝" +
     "（绑定即失败；IR 校验器本身接受该键），生产 Finalize 的 matchesObjectFilter 又对未识别键静默放行（别处单位也命中）；" +
     "TargetSpec.location 的 { kind: \"source-location\" } 已被 target-plan/interpreter 支持按来源地点求值，" +

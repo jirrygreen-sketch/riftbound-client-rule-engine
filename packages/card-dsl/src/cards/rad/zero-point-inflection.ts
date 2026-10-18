@@ -45,10 +45,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   not the card(s) drawn by this event — so it cannot express "other" for a
  *   multi-card draw;
  * - per-card card-drawn emissions (action-adapter.ts, one per drawn object,
- *   amount 1, shared simultaneousGroup) are each fully scanned (pipeline
- *   publish() drains each group before scanning the next), so even an
- *   expressible hand-size condition would re-fire the whole trigger body on
- *   intermediate hand states inside one draw action.
+ *   amount 1, each with its own simultaneousGroup) are each fully scanned.
+ *   The draw action completes before events are emitted from the final `after`
+ *   snapshot, so pipeline publish() scanning groups separately can re-fire the
+ *   whole trigger body for one draw action against the same final hand state;
+ *   batch-level event binding or deduplication is still missing.
  * The discard / kill / score half uses only merged primitives (effect.discard
  * with "all", effect.kill with self: true, effect.score) and is executed by the
  * golden test.
@@ -66,9 +67,9 @@ export default {
     "被求值器忽略，count 只使用 filter）；" +
     "(2) 现有 count 表达式可以查询抽牌提交后的手牌，但 count 的 exclude 锚点只能解析为" +
     "ObjectSelector（卡牌程序来源对象），不是本次 draw 事件抽到的牌，因而无法在多张抽牌时表达“other”。" +
-    "(3) 抽多张牌时 action-adapter 为每张牌各发一个 card-drawn 事件（amount 1、共享 simultaneousGroup），" +
-    "而 pipeline 的 publish 会先完整扫完前一组再发下一组——即使条件可表达，也会在同一 draw action 的" +
-    "中间手牌状态下把整个触发体重复执行。" +
+    "(3) 抽多张牌时 action-adapter 为每张牌各发一个 card-drawn 事件（amount 1、每张牌使用不同的 " +
+    "simultaneousGroup），抽牌 action 完成后事件基于最终 after 快照生成；pipeline 的 publish 按组分别扫描，" +
+    "因此同一 draw action 可能在相同的最终手牌状态上重复触发，仍缺批次级事件绑定或去重。" +
     "另有卡牌数据问题：目录把该印刷标为 Spell，但文本是留在场上、随后被自身触发“kill this”的永久物（两个持续触发）；" +
     "Spell 结算后进弃牌堆（CR 1.5 157/351.2），“kill this”与持续触发都不成立，本任务不改数据、不推断真实卡型。" +
     "“discard your hand / kill this / They score 1 point”三半段用已合入原语表达，并有真实执行证据。",

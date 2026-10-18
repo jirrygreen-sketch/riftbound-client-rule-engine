@@ -242,7 +242,7 @@ test.todo(
 );
 test.todo(
   "rad-146-167 The Ball: object-moved 触发端到端（421.1/449.1 移动成功时点 + 来源身份锚定 + Ganking 许可）——" +
-    "触发注册已合入，但 choice.mode 会被 programs/play.ts 的 validateSurface 拒绝（需要 choice-plan 适配器）"
+    "触发注册已合入，但 choice.mode 会被 chain/engine.ts 的 assertFinalizationSurface 拒绝（需要 Chain Finalize 的 choice-plan 适配器）"
 );
 test.todo(
   "rad-146-167 The Ball: card-played 触发端到端订阅（383.4.a / 407）——触发注册已合入，" +

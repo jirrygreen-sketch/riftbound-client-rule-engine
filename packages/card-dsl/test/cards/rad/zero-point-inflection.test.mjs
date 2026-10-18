@@ -247,8 +247,9 @@ test.todo(
     "the trigger condition is attached and really evaluated (programs/triggers.ts + evaluateTriggerCondition), " +
     "but no expression can reference the per-card card-drawn event object or the original draw action's batch " +
     "amount (CountExpr.subject is ignored; count uses only filter), and the count exclude anchor resolves only " +
-    "to the program source, so 'other' for a multi-card draw cannot be expressed. Per-card emissions are also " +
-    "fully scanned group by group, so an expressible condition would still re-fire on intermediate hand states."
+    "to the program source, so 'other' for a multi-card draw cannot be expressed. Each card-drawn event has its " +
+    "own simultaneousGroup, and pipeline scans groups separately after the draw action's final after snapshot, so " +
+    "an expressible condition could still re-fire on the same final hand state without batch-level binding or dedupe."
 );
 
 test.todo(
