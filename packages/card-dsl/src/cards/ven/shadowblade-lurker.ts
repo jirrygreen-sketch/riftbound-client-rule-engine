@@ -17,17 +17,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status 判定（cards/README.md 第 2 节，2026-10-18 持续复核）：judge-required。
  * 三处缺口都不近似实现：
- * 1. 没有把卡牌 static 费用改写装进 Finalize 费用计划的消费者：cost.modify 原语与
- *    cost/cost-plan.ts 的减费求值已合入，但 programs/statics.ts 的 layerFor() 对
- *    continuous.cost-modification 没有 cost-modification 图层映射（fail-closed 抛
- *    judge-required），也没有消费方把 CardProgram static 装进 CostPlanInput.discounts。
+ * 1. 费用收集器已经能消费显式 StaticCostAbility，但卡牌生命周期仍不能把本 static
+ *    注册到该通道：programs/statics.ts 的 layerFor() 对 continuous.cost-modification
+ *    没有 cost-modification 图层映射（fail-closed 抛 judge-required），所以
+ *    CardProgram static 仍无法进入 CostPlanInput.discounts。
  *    程序按契约形状声明折扣，不自行改写任何费用。
  * 2. “cards with my name” 是名称自指：合并过滤器只按字面值比较（layers/filter.ts 的
  *    characteristicsMatch 用 ===，参考内核同理），没有读取宿主当前名称的谓词；382.4 的复制
  *    改名情形同样落在该谓词上。因此 count 的 filter 只记录区域与拥有者，名称条件见本段说明，
  *    不用任何字面名字近似（否则会把“同名”错误地实现成某一张具体的牌）。
- * 3. 折扣基数「每张同名牌减 2 Energy」需要在费用计划里按集合计数求值（356.4.b），与第 1 点
- *    同批落地；test.todo 记录这两个依赖。
+ * 3. 折扣基数「每张同名牌减 2 Energy」仍不能由费用收集器求值：collectCostModifications
+ *    只接受数值或受支持的 count 表达式，当前 `per: "card-with-my-name-in-your-trash"`
+ *    仍是描述性字符串；与第 2 点的动态名称谓词同批。
  */
 const abilities: Ability[] = [
   {
@@ -56,15 +57,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口（持续复核 2026-10-18，均不近似实现）：(1) 没有把卡牌 static 费用改写装进 " +
-    "Finalize 费用计划的消费者——" +
-    "cost.modify 原语（effects/instructions/cost.modify.ts）与 cost/cost-plan.ts 的减费求值已合入，" +
+    "三处缺口（持续复核 2026-10-18，均不近似实现）：(1) 费用收集器 " +
+    "cost.modify 原语与 collectCostModifications/finalizeCostPlan 已能消费显式 StaticCostAbility，" +
     "但 programs/statics.ts 的 layerFor() 对 continuous.cost-modification 没有 cost-modification 映射" +
-    "（fail-closed 抛 judge-required），也没有消费方把 CardProgram static 装进 CostPlanInput.discounts；" +
+    "（fail-closed 抛 judge-required），卡牌生命周期仍无法把 CardProgram static 注册进 " +
+    "CostPlanInput.discounts；" +
     "(2)「for each card with my name in your trash」的名称自指没有可求值谓词：" +
     "合并过滤器（layers/filter.ts 的 characteristics、参考内核 matchesFilter）只做字面相等比较，读不到宿主的当前名称，" +
     "382.4 的改名情形同样无法处理；用字面名字写死会把“同名”变成某一具体牌，因此 count 的 filter 只记录 zone/owner；" +
-    "(3) 折扣基数需在费用计划里按集合计数求值（356.4.b/356.4.e），与第 1 点同批。" +
+    "(3) 折扣基数的 per 值仍是未支持的描述性字符串：费用收集器只接受数值或受支持的 count 表达式，" +
+    "无法求值“每张同名牌”（356.4.b/356.4.e），与第 2 点同批。" +
     "依赖：static → CostPlanInput.discounts 的接线与名称谓词（对象名称的运行时读取）。",
   abilities,
   sourceText: "I cost :rb_energy_2: less for each card with my name in your trash."

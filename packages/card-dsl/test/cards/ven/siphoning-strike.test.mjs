@@ -82,6 +82,7 @@ test("ven-146-166 Siphoning Strike: program passes validateCardProgram and is ju
 test("ven-146-166 Siphoning Strike: judgeReason names the delayed opcode and the one-shot window", () => {
   assert.match(program.judgeReason, /391\.2/);
   assert.match(program.judgeReason, /trigger\.delayed/);
+  assert.match(program.judgeReason, /registerDelayedTrigger/);
   assert.match(program.judgeReason, /Unregistered instruction opcode/);
   assert.match(program.judgeReason, /once/);
   assert.match(program.judgeReason, /6 与 7 符文边界/);

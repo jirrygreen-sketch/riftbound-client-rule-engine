@@ -26,7 +26,7 @@ import type { CardProgram } from "../../ir/index.js";
  * 阻塞集中在延迟触发，不近似实现：
  * 1. 缺卡牌可用的延迟触发 op："When it dies this turn" 是本法术创建的延迟触发能力
  *    （390/391.2/392/393，窗口为本回合 317.2.c）。ResolveContext.registerDelayedTrigger
- *    在契约 3.6 与 chain/engine.ts 都已存在，但 effects/instructions/ 没有注册的
+ *    与 chain/engine.ts 的内部注册通道已存在，但 effects/instructions/ 没有卡牌可用的
  *    trigger.delayed opcode——resolveChainBody 对该指令实测抛
  *    "Unregistered instruction opcode: trigger.delayed"。
  * 2. 一次性窗口没有「该对象这一次死亡」的形状：TriggerSpec.once 只有
@@ -43,7 +43,7 @@ const siphoningStrike = {
   judgeReason:
     "延迟触发仍有缺口（持续复核 2026-10-18；均不近似实现）：" +
     "(1) effects/instructions/ 没有卡牌可用的 trigger.delayed opcode：契约 3.6 与 chain/engine.ts 的 " +
-    "ResolveContext.registerDelayedTrigger 已存在（instructions/registry.generated.ts 里没有 trigger.delayed），" +
+    "ResolveContext.registerDelayedTrigger 内部注册通道已存在（instructions/registry.generated.ts 里没有 trigger.delayed），" +
     "resolveChainBody 对本卡声明的 " +
     "\"trigger.delayed\" 抛 Error \"Unregistered instruction opcode: trigger.delayed\"，" +
     "卡牌数据无法自行创建 390/391.2/392/393 的延迟能力。" +

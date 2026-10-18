@@ -29,9 +29,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    layers/engine.ts 的 conditionMatches 只识别 always/never/type/has-tag/has-keyword，
  *    未知 kind 落回 true。程序里只保留具名描述门槛，绝不写成恒真条件或近似成“你控制某个单位”。
  * 2. continuous.cost-modification 的静态声明没有消费方：cost.modify 原语与
- *    cost/cost-plan.ts 的减费求值已合入，但 programs/statics.ts 的 layerFor() 对
- *    continuous.cost-modification 抛 ProgramBindingError（无图层映射），也没有消费方把
- *    CardProgram static 装进 CostPlanInput.discounts。本任务 golden 实测该绑定失败。
+ *    cost/discounts 的收集与 Finalize 求值已合入，但 programs/statics.ts 的 layerFor() 对
+ *    continuous.cost-modification 抛 ProgramBindingError（无图层映射），所以卡牌 static
+ *    仍无法注册进 CostPlanInput.discounts。本任务 golden 实测该绑定失败。
  * 3. 已支持部分：「Deal 4 to a unit at a battlefield」（418.1，含 355.9.b 的位置限制）由
  *    golden 用真实解释器 + 参考内核执行（含目标失效的 ignored 边界）。
  * 依赖：static → Finalize 费用计划的减费安装路径与 Empowered 状态谓词（442.1.a/828.2）。
@@ -96,9 +96,9 @@ export default {
   judgeReason:
     "两条当前缺口（持续复核 2026-10-18；均不近似实现）：" +
     "(1) 减费没有可执行路径：「This costs :rb_energy_2: less」按 356.4.b/356.4.a 在 Finalize 折扣步骤套用，" +
-    "cost.modify 原语与 cost/cost-plan.ts 的减费求值已合入，但 programs/statics.ts 的 layerFor() 对 " +
-    "continuous.cost-modification 没有图层映射（本任务实测 bindStatic 抛 " +
-    "\"Static ability kind continuous.cost-modification has no layer mapping\"），也没有消费方把 " +
+    "cost/discounts 的 collectCostModifications/finalizeCostPlan 已能消费显式 static 来源，" +
+    "但 programs/statics.ts 的 layerFor() 对 continuous.cost-modification 没有图层映射（本任务实测 bindStatic 抛 " +
+    "\"Static ability kind continuous.cost-modification has no layer mapping\"），卡牌生命周期仍无法把 " +
     "CardProgram static 装进 CostPlanInput.discounts。" +
     "(2) 门槛「if you control something that's [Empowered]」没有已合入谓词：ObjectSnapshot 无 empowered 字段，" +
     "layers/engine.ts 的 conditionMatches 只识别 always/never/type/has-tag/has-keyword 并对其余 kind 落回 true；" +
