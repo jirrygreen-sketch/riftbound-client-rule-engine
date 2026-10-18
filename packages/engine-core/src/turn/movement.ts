@@ -149,11 +149,10 @@ export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMo
 
   const hostCheckpoint = host.checkpoint();
   const pipelineCheckpoint = host.pipeline.checkpoint();
-  const beforeEvents = host.pipeline.events;
+  const beforeEventCount = host.pipeline.events.length;
   const actions: ActionReceipt['actions'][number][] = [];
   const exhausted: ObjectRef[] = [];
   const moved: ObjectRef[] = [];
-  const eventStart = host.pipeline.events.length;
   let index = 0;
   const live = (unitId: string) => {
     const object = host.object(unitId);
@@ -221,7 +220,7 @@ export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMo
         exhausted: Object.freeze([...exhausted]),
         moved: Object.freeze([...moved]),
         requiresOpenCleanup: true as const,
-        events: Object.freeze(host.pipeline.events.slice(eventStart)),
+        events: Object.freeze(host.pipeline.events.slice(beforeEventCount)),
       });
     });
   } catch (error) {

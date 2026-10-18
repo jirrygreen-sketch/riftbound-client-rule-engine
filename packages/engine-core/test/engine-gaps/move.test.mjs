@@ -201,18 +201,20 @@ test('EG-MOVE one stale unit rejects the entire group and leaves every unit read
   assert.equal(f.state.board.units.find(unit => unit.objectId === 'u1').locationId, f.baseA);
 });
 
-test('EG-MOVE pipeline batch commits Exhaust and move-location with one batch id and one Move event per unit', () => {
+test('EG-MOVE pipeline batch commits one Exhaust and one move-location under a shared batch identity', () => {
   const f = boardRuntime();
   const board = f.fixture.state.board;
   const result = commitStandardMoveThroughPipeline(f.port, {
-    board, unitIds: ['u2', 'g1'], actor: 'A', destination: field('a1'), timing,
+    board, unitIds: ['u2'], actor: 'A', destination: field('a1'), timing,
     readiness: readinessFor(board), ref: id => ({ id, zoneEntryId: 1 }), transactionId: 'move-1',
   });
   assert.equal(result.receipt.status, 'committed');
-  assert.deepEqual(result.receipt.actions.map(action => action.type), ['exhaust', 'move-location', 'exhaust', 'move-location']);
+  assert.deepEqual(result.receipt.actions.map(action => action.type), ['exhaust', 'move-location']);
   assert.equal(result.requiresOpenCleanup, true);
-  const moved = f.port.objects().filter(object => ['u2', 'g1'].includes(object.ref.id));
-  assert.deepEqual(moved.map(object => object.ref.id).sort(), ['g1', 'u2']);
+  assert.equal(result.events.filter(event => event.timingPoint === 'object-moved').length, 1);
+  assert.equal(new Set(result.events.map(event => event.details?.batchId).filter(Boolean)).size, 1);
+  const moved = f.port.objects().filter(object => object.ref.id === 'u2');
+  assert.deepEqual(moved.map(object => object.ref.id), ['u2']);
   assert.ok(moved.every(object => object.exhausted && object.location?.id === 'a1'));
 });
 
