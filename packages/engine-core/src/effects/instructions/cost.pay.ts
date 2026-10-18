@@ -222,7 +222,8 @@ const execute: InstructionDef<CostPayArgs>["execute"] = (ctx, args): Instruction
   }
   const options: CostPaymentOptions = {
     ...(args.power !== undefined ? { power: arg(args.power) as unknown as CostPaymentOptions["power"] } : {}),
-    ...(args.nonstandardOrder !== undefined ? { nonstandardOrder: arg(args.nonstandardOrder) as unknown as CostPaymentOptions["nonstandardOrder"] } : {})
+    ...(args.nonstandardOrder !== undefined ? { nonstandardOrder: arg(args.nonstandardOrder) as unknown as CostPaymentOptions["nonstandardOrder"] } : {}),
+    ...(ctx.transaction === undefined ? {} : { transaction: ctx.transaction })
   };
   // Do not catch CostPlanError: even a later prevented action must abort the
   // enclosing transaction instead of committing earlier resource payments.
