@@ -178,9 +178,14 @@ export default {
       ctx.link("swapped", receipt);
       return { status: "negated", reason: "impossible", events: [] };
     }
+    if (ctx.transaction === undefined) {
+      const receipt = blockedReceipt(a.ref, b.ref, "Atomic BatchAction requires a host transaction boundary (RIFT-849/810/835/837)");
+      ctx.link("swapped", receipt);
+      return { status: "negated", reason: "impossible", events: [] };
+    }
     let outcome: ActionOutcome;
     try {
-      outcome = capability.perform(batch);
+      outcome = ctx.transaction(() => capability.perform(batch));
     } catch (error) {
       if (error instanceof TypeError || error instanceof Error && /Unknown action type: batch/.test(error.message)) {
         const receipt = blockedReceipt(a.ref, b.ref, "BatchAction consumer unavailable (RIFT-849/810/835/837)");
