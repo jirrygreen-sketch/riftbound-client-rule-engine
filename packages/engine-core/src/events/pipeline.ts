@@ -312,6 +312,7 @@ export class EventPipeline {
   }
   private triggerRuleEffect(context: TriggerRuleContext): { readonly suppressed: boolean; readonly multiplicity: number } {
     let multiplicity = 1;
+    let multiplicityMode: 'additional' | 'multiply' | undefined;
     const rules = [...this.rules.values()].sort((left, right) => left.id.localeCompare(right.id));
     for (const rule of rules) {
       let ruleSource: ObjectSnapshot | undefined;
@@ -325,6 +326,10 @@ export class EventPipeline {
       const ruleContext = { ...context, ...(ruleSource === undefined ? {} : { ruleSource }) };
       if (!rule.matches(ruleContext)) continue;
       if (rule.mode === 'suppress') return { suppressed: true, multiplicity: 0 };
+      if (multiplicityMode !== undefined && multiplicityMode !== rule.mode) {
+        throw new RangeError('Additional and multiply trigger rules require an authoritative ordering');
+      }
+      multiplicityMode = rule.mode;
       const amount = resolveRuleAmount(rule, ruleContext);
       multiplicity = rule.mode === 'additional' ? multiplicity + amount : multiplicity * amount;
       if (!Number.isSafeInteger(multiplicity) || multiplicity < 0) throw new RangeError(`Invalid trigger multiplicity after ${rule.id}`);

@@ -4,6 +4,7 @@ import { fixture, trigger, resolveAll } from '../chain/helpers.mjs';
 import {
   additionalTriggerRule,
   createTriggerRuleStaticBinder,
+  multiplyTriggerRule,
   suppressTriggerRule,
   triggerRuleFromStaticEffect,
 } from '../../dist/events/trigger-rules/index.js';
@@ -342,6 +343,26 @@ test('EG-PIPELINE: malformed trigger caps and rule amounts fail closed at regist
     matches: () => true,
   }), /nonnegative safe integer/);
   assert.equal(f.engine.pipeline.rules.size, 0);
+});
+
+test('EG-PIPELINE: unordered additional and multiply rules roll back instead of choosing an id order', () => {
+  const f = fixture();
+  trigger(f, 'ordered-by-rule', { body: [], spec: { at: 'card-drawn' } });
+  f.engine.pipeline.registerTriggerRule(additionalTriggerRule({
+    id: 'z-additional',
+    matches: ({ event }) => event.timingPoint === 'card-drawn',
+  }));
+  f.engine.pipeline.registerTriggerRule(multiplyTriggerRule({
+    id: 'a-multiply',
+    amount: 2,
+    matches: ({ event }) => event.timingPoint === 'card-drawn',
+  }));
+
+  const before = f.kernel.player('A').deckSize;
+  assert.throws(() => f.engine.commit({ type: 'draw', player: 'A', amount: 1 }), /authoritative ordering/);
+  assert.equal(f.kernel.player('A').deckSize, before);
+  assert.equal(f.engine.pipeline.events.length, 0);
+  assert.equal(f.engine.items.length, 0);
 });
 
 test('EG-PIPELINE: event and trigger snapshots preserve the same immutable event identity', () => {
