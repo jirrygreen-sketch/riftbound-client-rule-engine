@@ -1,6 +1,6 @@
-// Scenario execution evidence: ../../templates/static-642.test.mjs.
-// This file keeps the validation and identity checks plus the key structural
-// assertions; the real execution path for this card lives in that template row.
+// Binding-gap scenarios: ../../templates/static-642.test.mjs.
+// Local damage tests cover supported subeffects with an explicit bonus; they
+// do not prove Annie's continuous grant and do not change her published status.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -32,6 +32,10 @@ test("ogs-001-024 Annie, Fiery: program validates and is judge-required", () => 
 test("ogs-001-024 Annie, Fiery: judgeReason names the missing Bonus Damage grant primitive", () => {
   assert.match(program.judgeReason, /continuous\.bonus-damage/);
   assert.match(program.judgeReason, /staticTarget/);
+  assert.match(program.judgeReason, /layerFor/);
+  assert.match(program.judgeReason, /args\.bonus/);
+  assert.match(program.judgeReason, /715\.3/);
+  assert.match(program.judgeReason, /715\.4/);
   assert.doesNotMatch(program.judgeReason, /RIFT-257/);
 });
 
@@ -42,6 +46,9 @@ test("ogs-001-024 Annie, Fiery: one static +1 Bonus Damage grant for the control
   assert.equal(ability.condition, undefined);
   assert.equal(ability.effect.kind, "continuous.bonus-damage");
   assert.deepEqual(ability.effect.amount, { kind: "constant", value: 1 });
+  assert.deepEqual(ability.effect.appliesTo, {
+    kind: "constant", value: "controller-spells-and-abilities"
+  });
   assert.deepEqual(ability.effect.filter, {
     type: ["spell", "ability"],
     controller: "controller"
@@ -83,10 +90,56 @@ test("ogs-001-024 Annie, Fiery: a negative Bonus Damage is not applied (CR 714.2
   assert.equal(kernel.getObject("u1").damage, 3);
 });
 
+test("ogs-001-024 Annie, Fiery supported subeffect: an explicit +1 bonus increases the split total once (CR 715.3)", () => {
+  const kernel = world().unit("u1").unit("u2").build();
+  const targets = [kernel.ref("u1"), kernel.ref("u2")];
+  const args = {
+    amount: { kind: "constant", value: 5 },
+    bonus: program.abilities[0].effect.amount,
+    divide: true,
+    target: "targets"
+  };
+  const waiting = runInstruction(damage, args, { world: kernel, targets: { targets } });
+  assert.equal(waiting.result, null);
+  assert.equal(waiting.asked.request.type, "number");
+  assert.equal(waiting.asked.request.max, 5, "six total damage leaves at least one for the second target");
+  assert.equal(kernel.getObject("u1").damage, 0);
+  assert.equal(kernel.getObject("u2").damage, 0);
+
+  const run = runInstruction(damage, args, {
+    world: kernel,
+    targets: { targets },
+    answers: { "effect.damage:divide:0": 2, "effect.damage:divide:1": 4 }
+  });
+  assert.equal(run.asked, null);
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.getObject("u1").damage, 2);
+  assert.equal(kernel.getObject("u2").damage, 4);
+  assert.equal(run.linked.dealt, 6);
+  assert.equal(run.linked.dealtCount, 2);
+  assert.deepEqual(run.linked.dealtTo, [
+    { target: targets[0], amount: 2 },
+    { target: targets[1], amount: 4 }
+  ]);
+  assert.deepEqual(run.events.map(event => event.action), ["damage", "damage"]);
+});
+
+test("ogs-001-024 Annie, Fiery supported subeffect: an explicit bonus creates no Deal without targets", () => {
+  const kernel = world().unit("bystander").build();
+  const run = runInstruction(damage, {
+    amount: { kind: "constant", value: 3 },
+    bonus: program.abilities[0].effect.amount,
+    target: "targets"
+  }, { world: kernel, targets: { targets: [] } });
+  assert.equal(run.result.status, "ignored");
+  assert.equal(run.result.reason, "mistargeted");
+  assert.equal(kernel.getObject("bystander").damage, 0);
+  assert.deepEqual(run.events, []);
+  assert.equal(run.linked.dealt, undefined);
+});
+
 test("ogs-001-024 Annie, Fiery golden: the production static binder rejects this grant at bind time", () => {
-  // 复核 2026-10-17: the production static binding path (createEngineStaticBinder,
-  // wired into the chain lifecycle) is merged, so the stale RIFT-257 half is gone.
-  // What blocks this card today is the binder itself: layerFor has no
+  // Binding-gap probe, not a passing printed-card scenario: layerFor has no
   // continuous.bonus-damage layer mapping and staticTarget cannot express an
   // action-scoped grant, so the ability never reaches a layer.
   const { engine, kernel } = fixture({ cards: [{ id: "annie", cardId: program.canonicalCardId, might: 4 }] });
@@ -129,13 +182,13 @@ test("ogs-001-024 Annie, Fiery golden: the production trigger/static lifecycle s
 test.todo(
   "ogs-001-024 Annie, Fiery: the continuous +1 Bonus Damage grant reaches Deal actions " +
     "created by this controller's spells and abilities (CR 712-715, 418.4/418.5) — " +
-    "needs a continuous.bonus-damage opcode plus a layers/statics action-scope mapping and a " +
-    "damage-pipeline consumer; today bindStatic fails on the missing layer mapping"
+    "needs a continuous.bonus-damage grant and a layers/statics action-scope mapping; " +
+    "today staticTarget rejects appliesTo before layerFor can run"
 );
 
 test.todo(
   "ogs-001-024 Annie, Fiery: the continuous +1 Bonus Damage grant reaches Deal actions " +
     "created by this controller's spells and abilities (CR 712-715, 418.4/418.5) — " +
-    "the static layer has no continuous.bonus-damage mapping and the damage pipeline has no " +
-    "consumer that derives a Bonus Damage grant from this static ability"
+    "needs a damage-pipeline consumer that collects and sums controller-scoped static grants, " +
+    "including split totals (715.3) and no-Deal handling (715.4)"
 );
