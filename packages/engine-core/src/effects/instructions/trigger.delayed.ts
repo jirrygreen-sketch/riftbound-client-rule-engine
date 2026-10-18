@@ -137,6 +137,13 @@ export default {
       }
       return { status: 'negated', reason: 'impossible', events: [] };
     }
+    // CR v1.5 391.2/392 limits a delayed ability to its specified time. An
+    // omitted window/once leaves the production bridge without a lifetime it
+    // can prove; registering it forever would invent semantics and duplicate
+    // the trigger on every matching wave.
+    if (once === undefined) {
+      return { status: 'negated', reason: 'impossible', events: [] };
+    }
     const spec = assertDelayedSpec({ at, filter: filter!, ...(once ? { once } : {}) });
     if (spec === null) return { status: 'negated', reason: 'impossible', events: [] };
     ctx.registerDelayedTrigger(spec, body as readonly Instruction[]);

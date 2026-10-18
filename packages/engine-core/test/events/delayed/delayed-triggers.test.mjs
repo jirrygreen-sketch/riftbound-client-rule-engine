@@ -126,7 +126,7 @@ test('the once scope consumes only the first matching wave', () => {
   assert.equal(f.engine.items.length, 0);
 });
 
-test('a no-window registration without once remains event-driven instead of inventing a lifetime', () => {
+test('the helper preserves an explicitly unbounded registration without inventing once', () => {
   resetDelayedTriggerSequence();
   const f = fixture();
   delayed(f, 'event-driven', { at: 'object-killed' });

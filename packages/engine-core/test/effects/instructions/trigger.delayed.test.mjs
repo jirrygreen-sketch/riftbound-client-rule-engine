@@ -64,7 +64,7 @@ test('unknown window and unknown once scope fail closed', () => {
 
 test('card filters spell the controller as controller and the pipeline does not', () => {
   const built = world().player('A').unit('ally').build();
-  const outcome = registered(built, { filter: { controller: 'controller', zone: 'board' } });
+  const outcome = registered(built, { filter: { controller: 'controller', zone: 'board' }, once: 'per-game' });
   assert.equal(outcome.result.status, 'executed');
   const spec = built.delayedTriggers[0].at;
   assert.deepEqual(spec.filter, { controller: 'self', zone: 'board' });
@@ -137,18 +137,18 @@ test('eventFilter requires a real EventPattern and never becomes an object id', 
   const outcome = runInstruction(instruction, {
     at: c('card-played'), body: c([draw('delayed-draw')]),
     eventFilter: c({ event: 'card-played', object: { type: 'unit' } }),
+    once: c('per-game'),
   }, { world: built });
   assert.equal(outcome.result.status, 'executed');
   assert.deepEqual(built.delayedTriggers[0].at.filter, { event: 'card-played', object: { type: 'unit' } });
 });
 
-test('default no-window registration is not approximated as a once scope', () => {
+test('a no-window registration without once fails closed instead of inventing a lifetime', () => {
   const built = world().player('A').build();
   const outcome = registered(built);
-  assert.equal(outcome.result.status, 'executed');
-  assert.equal(built.delayedTriggers.length, 1);
-  assert.equal(built.delayedTriggers[0].at.once, undefined);
-  assert.equal(built.linked('registered').once, undefined);
+  assert.deepEqual(outcome.result, { status: 'negated', reason: 'impossible', events: [] });
+  assert.equal(built.delayedTriggers.length, 0);
+  assert.equal(built.linked('registered'), undefined);
 });
 
 test('unsupported arguments are rejected before a choice or registration can mutate state', () => {
