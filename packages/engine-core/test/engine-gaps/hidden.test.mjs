@@ -81,6 +81,7 @@ test('EG-HIDDEN production keyword expansion authorizes Hide while conditional H
     card: snapshot,
     player: 'A',
     battlefieldId: 'bf-1',
+    openState: true,
     abilities: expanded
   });
   assert.equal(hidden.card.ref.id, snapshot.ref.id);
@@ -91,9 +92,19 @@ test('EG-HIDDEN production keyword expansion authorizes Hide while conditional H
       card: snapshot,
       player: 'A',
       battlefieldId: 'bf-1',
+      openState: true,
       abilities: conditional
     }),
     error => error instanceof HiddenZoneError && error.code === 'judge-required'
+  );
+});
+
+test('EG-HIDDEN requires explicit Open State instead of treating omitted state as open', () => {
+  const snapshot = card('open-state-required');
+  const state = createHiddenState([{ battlefieldId: 'bf-1', controller: 'A' }], 2);
+  assert.throws(
+    () => hideCard(state, { card: snapshot, player: 'A', battlefieldId: 'bf-1' }),
+    error => error instanceof HiddenZoneError && error.code === 'closed-state'
   );
 });
 
@@ -125,6 +136,7 @@ test('EG-HIDDEN Hide pays [A], occupies one Facedown Zone, and does not open a C
     card: snapshot,
     player: 'A',
     battlefieldId: 'bf-1',
+    openState: true,
     ctx: context,
     costId: 'hide:hidden-unit'
   });
@@ -151,9 +163,9 @@ test('EG-HIDDEN rejects an occupied Facedown Zone before paying and preserves re
   const second = card('second');
   const { context } = sourceContext(second, { power: ['Fury'] });
   let state = createHiddenState([{ battlefieldId: 'bf-1', controller: 'A' }], 2);
-  state = hideCard(state, { card: first, player: 'A', battlefieldId: 'bf-1' }).state;
+  state = hideCard(state, { card: first, player: 'A', battlefieldId: 'bf-1', openState: true }).state;
   assert.throws(
-    () => hideWithCost(state, { card: second, player: 'A', battlefieldId: 'bf-1', ctx: context, costId: 'hide:second' }),
+    () => hideWithCost(state, { card: second, player: 'A', battlefieldId: 'bf-1', openState: true, ctx: context, costId: 'hide:second' }),
     error => error instanceof HiddenZoneError && error.code === 'occupied'
   );
   assert.equal(getFacedownZone(state, 'bf-1').cards[0].ref.id, 'first');
@@ -184,11 +196,12 @@ test('EG-HIDDEN Bandle Tree production restriction raises only its own Facedown 
   );
   const first = card('first');
   const second = card('second');
-  let filled = hideCard(state, { card: first, player: 'A', battlefieldId: 'bf-1' }).state;
+  let filled = hideCard(state, { card: first, player: 'A', battlefieldId: 'bf-1', openState: true }).state;
   filled = hideCard(filled, {
     card: second,
     player: 'A',
     battlefieldId: 'bf-1',
+    openState: true,
     capacityRuleSource: { battlefield, registry }
   }).state;
   assert.equal(getFacedownZone(filled, 'bf-1').cards.length, 2);
@@ -206,6 +219,7 @@ test('EG-HIDDEN failed [A] payment rolls back the proposed Hide transition', () 
       card: snapshot,
       player: 'A',
       battlefieldId: 'bf-1',
+      openState: true,
       ctx: context,
       costId: 'hide:unpaid'
     }),
@@ -224,6 +238,7 @@ test('EG-HIDDEN rejects a stale current source before planning or payment', () =
       source: null,
       player: 'A',
       battlefieldId: 'bf-1',
+      openState: true,
       ctx: context,
       costId: 'hide:stale'
     }),
@@ -236,7 +251,7 @@ test('EG-HIDDEN from-Hidden play ignores base cost but pays a declared additiona
   const snapshot = card('fee-bearing', { energy: 7 });
   const { context } = sourceContext(snapshot);
   let state = createHiddenState([{ battlefieldId: 'bf-1', controller: 'A' }], 2);
-  state = hideCard(state, { card: snapshot, player: 'A', battlefieldId: 'bf-1' }).state;
+  state = hideCard(state, { card: snapshot, player: 'A', battlefieldId: 'bf-1', openState: true }).state;
   state = setTurn(state, 3);
 
   const result = playFromHiddenWithCost(state, {
@@ -258,7 +273,7 @@ test('EG-HIDDEN from-Hidden play ignores base cost but pays a declared additiona
 test('EG-HIDDEN next-turn play removes the card, opens the Chain, and retains origin Battlefield scope', () => {
   const snapshot = card('hidden-unit');
   let state = createHiddenState([{ battlefieldId: 'bf-1', controller: 'A' }], 5);
-  state = hideCard(state, { card: snapshot, player: 'A', battlefieldId: 'bf-1' }).state;
+  state = hideCard(state, { card: snapshot, player: 'A', battlefieldId: 'bf-1', openState: true }).state;
   state = setTurn(state, 6);
 
   assert.equal(isHiddenReactionUnlocked(5, 5), false);
@@ -290,7 +305,7 @@ test('EG-HIDDEN next-turn play removes the card, opens the Chain, and retains or
 test('EG-HIDDEN rejects current-turn play, wrong permanent destination, and out-of-scope targets', () => {
   const snapshot = card('hidden-unit');
   let state = createHiddenState([{ battlefieldId: 'bf-1', controller: 'A' }], 3);
-  state = hideCard(state, { card: snapshot, player: 'A', battlefieldId: 'bf-1' }).state;
+  state = hideCard(state, { card: snapshot, player: 'A', battlefieldId: 'bf-1', openState: true }).state;
   assert.throws(
     () => playFromHidden(state, { object: snapshot.ref, player: 'A', destinationBattlefieldId: 'bf-1' }),
     error => error instanceof HiddenZoneError && error.code === 'not-unlocked'
@@ -303,7 +318,7 @@ test('EG-HIDDEN rejects current-turn play, wrong permanent destination, and out-
 
   const spell = card('hidden-spell', { types: ['spell'] });
   let spellState = createHiddenState([{ battlefieldId: 'bf-1', controller: 'A' }], 3);
-  spellState = hideCard(spellState, { card: spell, player: 'A', battlefieldId: 'bf-1' }).state;
+  spellState = hideCard(spellState, { card: spell, player: 'A', battlefieldId: 'bf-1', openState: true }).state;
   spellState = setTurn(spellState, 4);
   assert.throws(
     () => playFromHidden(spellState, {
@@ -320,16 +335,19 @@ test('EG-HIDDEN rejects current-turn play, wrong permanent destination, and out-
     player: 'A',
     turn: 4,
     requiresTargets: true,
-    explicitlyBypassesTargetScope: true,
+    explicitTargetExceptions: [{ id: 'other', zoneEntryId: 1 }],
     targets: [{ ref: { id: 'other', zoneEntryId: 1 }, location: { type: 'battlefield', id: 'bf-2' } }]
   });
   assert.equal(bypassed.provenance.targetScope.bypassedByExplicitRestriction, true);
+  assert.deepEqual(bypassed.provenance.targetScope.explicitTargetExceptions, [
+    { id: 'other', zoneEntryId: 1 }
+  ]);
 });
 
 test('EG-HIDDEN from-Hidden play rejects a stale source before opening the Chain', () => {
   const snapshot = card('stale-play');
   let state = createHiddenState([{ battlefieldId: 'bf-1', controller: 'A' }], 3);
-  state = hideCard(state, { card: snapshot, player: 'A', battlefieldId: 'bf-1' }).state;
+  state = hideCard(state, { card: snapshot, player: 'A', battlefieldId: 'bf-1', openState: true }).state;
   state = setTurn(state, 4);
   assert.throws(
     () => playFromHidden(state, {
@@ -343,12 +361,55 @@ test('EG-HIDDEN from-Hidden play rejects a stale source before opening the Chain
   assert.equal(getFacedownZone(state, 'bf-1').cards.length, 1);
 });
 
+test('EG-HIDDEN applies 811.1.d.4 exceptions per target and rejects an unreported exception', () => {
+  const snapshot = card('per-target-exception', { types: ['spell'] });
+  let state = createHiddenState([{ battlefieldId: 'bf-1', controller: 'A' }], 3);
+  state = hideCard(state, {
+    card: snapshot,
+    player: 'A',
+    battlefieldId: 'bf-1',
+    openState: true
+  }).state;
+  state = setTurn(state, 4);
+  const local = { id: 'local', zoneEntryId: 1 };
+  const remote = { id: 'remote', zoneEntryId: 1 };
+  const result = playFromHidden(state, {
+    object: snapshot.ref,
+    player: 'A',
+    targets: [
+      { ref: local, location: { type: 'battlefield', id: 'bf-1' } },
+      { ref: remote, location: { type: 'battlefield', id: 'bf-2' } }
+    ],
+    explicitTargetExceptions: [remote]
+  });
+  assert.equal(isHiddenTargetLegal(result.provenance, {
+    ref: local,
+    location: { type: 'battlefield', id: 'bf-1' }
+  }), true);
+  assert.equal(isHiddenTargetLegal(result.provenance, {
+    ref: remote,
+    location: { type: 'battlefield', id: 'bf-2' }
+  }), true);
+  assert.equal(isHiddenTargetLegal(result.provenance, {
+    ref: { id: 'third', zoneEntryId: 1 },
+    location: { type: 'battlefield', id: 'bf-2' }
+  }), false);
+  assert.throws(
+    () => playFromHidden(state, {
+      object: snapshot.ref,
+      player: 'A',
+      targets: [{ ref: remote, location: { type: 'battlefield', id: 'bf-2' } }]
+    }),
+    error => error instanceof HiddenZoneError && error.code === 'invalid-target'
+  );
+});
+
 test('EG-HIDDEN capacity reduction and loss of Battlefield control recover cards at the rule-defined boundary', () => {
   const a = card('a');
   const b = card('b');
   let state = createHiddenState([{ battlefieldId: 'bf-1', controller: 'A', capacity: 2 }], 1);
-  state = hideCard(state, { card: a, player: 'A', battlefieldId: 'bf-1' }).state;
-  state = hideCard(state, { card: b, player: 'A', battlefieldId: 'bf-1' }).state;
+  state = hideCard(state, { card: a, player: 'A', battlefieldId: 'bf-1', openState: true }).state;
+  state = hideCard(state, { card: b, player: 'A', battlefieldId: 'bf-1', openState: true }).state;
   const reduced = setFacedownCapacity(state, 'bf-1', 1);
   assert.deepEqual(reduced.discarded.map(item => item.ref.id), ['b']);
   assert.equal(getFacedownZone(reduced.state, 'bf-1').cards.length, 1);
@@ -366,7 +427,7 @@ test('EG-HIDDEN capacity reduction and loss of Battlefield control recover cards
 test('EG-HIDDEN cleanup uses the canonical Battlefield control snapshot and fails closed when it is missing', () => {
   const hidden = card('snapshot-control');
   let state = createHiddenState([{ battlefieldId: 'bf-1', controller: 'A' }], 1);
-  state = hideCard(state, { card: hidden, player: 'A', battlefieldId: 'bf-1' }).state;
+  state = hideCard(state, { card: hidden, player: 'A', battlefieldId: 'bf-1', openState: true }).state;
   state = setBattlefieldController(state, 'bf-1', 'B').state;
 
   assert.throws(
@@ -381,7 +442,7 @@ test('EG-HIDDEN cleanup uses the canonical Battlefield control snapshot and fail
 test('EG-HIDDEN restored sidecars are detached and preserve next-turn provenance', () => {
   const hidden = card('restored');
   let state = createHiddenState([{ battlefieldId: 'bf-1', controller: 'A' }], 2);
-  state = hideCard(state, { card: hidden, player: 'A', battlefieldId: 'bf-1' }).state;
+  state = hideCard(state, { card: hidden, player: 'A', battlefieldId: 'bf-1', openState: true }).state;
   const restored = restoreHiddenState(structuredClone(state));
 
   assert.deepEqual(restored, state);

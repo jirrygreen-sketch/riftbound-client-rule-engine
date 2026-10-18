@@ -48,6 +48,8 @@ export interface PlayedFromHidden {
   readonly reactionUnlocked: boolean;
   /** Proven card-text exception to 811.1.d.2/.3, when one was established. */
   readonly bypassedByExplicitRestriction?: boolean;
+  /** Per-target card-text exceptions required by 811.1.d.4. */
+  readonly explicitTargetExceptions?: readonly ObjectRef[];
 }
 
 /**
@@ -83,6 +85,8 @@ export interface HiddenTargetScope {
   readonly battlefieldId: string;
   /** `false` means this target is governed by 811.1.d.2/.3. */
   readonly bypassedByExplicitRestriction: boolean;
+  /** Targets whose printed restriction overrides the battlefield scope. */
+  readonly explicitTargetExceptions: readonly ObjectRef[];
 }
 
 export interface HiddenPlayProvenance {

@@ -33,12 +33,8 @@ export interface HiddenPlayInput {
   readonly targets?: readonly HiddenPlayTarget[];
   /** Set when the printed spell/play effect requires at least one target. */
   readonly requiresTargets?: boolean;
-  /**
-   * 811.1.d.2/.3 allows a card's explicit targeting text to make the normal
-   * Battlefield restriction impossible.  The card program, rather than this
-   * helper, proves that exception; callers set this only after that proof.
-   */
-  readonly explicitlyBypassesTargetScope?: boolean;
+  /** Targets whose printed text independently proves an 811.1.d.4 exception. */
+  readonly explicitTargetExceptions?: readonly ObjectRef[];
 }
 
 export interface HiddenPlayResult {
@@ -106,8 +102,13 @@ function kindFromSnapshot(snapshot: ObjectSnapshot): HiddenCardKind {
   fail('not-hidden-card', `Object ${snapshot.ref.id} is not a Spell, Unit, or Gear`);
 }
 
-function targetScope(card: PlayedFromHidden, bypassed: boolean): HiddenTargetScope {
-  return { battlefieldId: card.battlefieldId, bypassedByExplicitRestriction: bypassed };
+function targetScope(card: PlayedFromHidden): HiddenTargetScope {
+  const explicit = (card.explicitTargetExceptions ?? []).map(cloneRef);
+  return {
+    battlefieldId: card.battlefieldId,
+    bypassedByExplicitRestriction: explicit.length > 0,
+    explicitTargetExceptions: explicit
+  };
 }
 
 function targetAtBattlefield(target: HiddenPlayTarget, battlefieldId: string): boolean {
@@ -126,7 +127,11 @@ export function isHiddenTargetLegal(
   provenance: Pick<HiddenPlayProvenance, 'targetScope'>,
   target: HiddenPlayTarget
 ): boolean {
-  return provenance.targetScope.bypassedByExplicitRestriction || targetAtBattlefield(target, provenance.targetScope.battlefieldId);
+  if (!target || typeof target !== 'object' || Array.isArray(target) || !target.ref || typeof target.ref !== 'object') return false;
+  return targetAtBattlefield(target, provenance.targetScope.battlefieldId) ||
+    provenance.targetScope.explicitTargetExceptions.some(ref =>
+      ref.id === target.ref.id && ref.zoneEntryId === target.ref.zoneEntryId
+    );
 }
 
 export function hiddenTargetScope(
@@ -179,7 +184,7 @@ export function playFromHidden(state: HiddenState, input: HiddenPlayInput): Hidd
       battlefieldId: plan.played.battlefieldId,
       playedTurn: plan.played.playedTurn,
       reactionUnlocked: plan.played.reactionUnlocked,
-      targetScope: targetScope(plan.played, input.explicitlyBypassesTargetScope === true)
+      targetScope: targetScope(plan.played)
     },
     transition: cloneTransition(transitionResult),
     cardKind: plan.played.kind,
@@ -211,9 +216,21 @@ function planPlayFromHidden(state: HiddenState, input: HiddenPlayInput): PlayPla
   if (input.requiresTargets === true && (input.targets === undefined || input.targets.length === 0)) {
     fail('invalid-target', 'A Hidden card with required targets has no legal target selection');
   }
-  if (input.targets !== undefined && input.targets.length > 0 && input.explicitlyBypassesTargetScope !== true) {
-    if (!input.targets.every(target => targetAtBattlefield(target, hidden.battlefieldId))) {
-      fail('invalid-target', 'Hidden spell targets must be at the hiding Battlefield');
+  const exceptions = input.explicitTargetExceptions ?? [];
+  if (exceptions.some((ref, index) => exceptions.findIndex(candidate =>
+    candidate.id === ref.id && candidate.zoneEntryId === ref.zoneEntryId) !== index)) {
+    fail('invalid-target', 'Each explicit Hidden target exception must be unique');
+  }
+  for (const ref of exceptions) {
+    if (!input.targets?.some(target => target.ref.id === ref.id && target.ref.zoneEntryId === ref.zoneEntryId)) {
+      fail('invalid-target', 'An explicit Hidden target exception must name a selected target');
+    }
+  }
+  if (input.targets !== undefined && input.targets.length > 0) {
+    const exceptional = new Set(exceptions.map(ref => `${ref.id}:${ref.zoneEntryId}`));
+    if (!input.targets.every(target => exceptional.has(`${target.ref.id}:${target.ref.zoneEntryId}`) ||
+        targetAtBattlefield(target, hidden.battlefieldId))) {
+      fail('invalid-target', 'Each Hidden target needs battlefield scope or its own printed exception');
     }
   }
   // An empty target set is a legal no-target spell.  A caller that knows the
@@ -223,7 +240,10 @@ function planPlayFromHidden(state: HiddenState, input: HiddenPlayInput): PlayPla
     ref: cloneRef(hidden.ref), owner: hidden.owner, controller: hidden.controller,
     kind: hidden.kind, battlefieldId: hidden.battlefieldId, hiddenTurn: hidden.hiddenTurn,
     playedTurn: turn, reactionUnlocked: true,
-    ...(input.explicitlyBypassesTargetScope === true ? { bypassedByExplicitRestriction: true } : {})
+    ...(exceptions.length > 0 ? {
+      bypassedByExplicitRestriction: true,
+      explicitTargetExceptions: exceptions.map(cloneRef)
+    } : {})
   };
   return { state, played };
 }
@@ -247,7 +267,7 @@ export function playedFromHidden(state: HiddenState, ref: ObjectRef): HiddenPlay
   return {
     object: cloneRef(card.ref), battlefieldId: card.battlefieldId,
     playedTurn: card.playedTurn, reactionUnlocked: card.reactionUnlocked,
-    targetScope: targetScope(card, card.bypassedByExplicitRestriction === true)
+    targetScope: targetScope(card)
   };
 }
 

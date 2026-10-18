@@ -383,7 +383,7 @@ export function hideCard(state: HiddenState, input: HideCardInput): HideCardResu
   const turn = input.turn ?? state.turn;
   safeInteger(turn, 'hide turn');
   if (turn !== state.turn) fail('invalid-turn', `Hide must use current turn ${state.turn}`);
-  if (input.openState === false) fail('closed-state', 'Hide is only legal in an Open State');
+  if (input.openState !== true) fail('closed-state', 'Hide requires an authoritative Open State');
   const origin = originZone(card);
   const permission = hiddenPermission(card, input.abilities);
   if (permission === 'judge-required') fail('judge-required', 'Conditional Hidden permission requires authoritative condition evaluation');
