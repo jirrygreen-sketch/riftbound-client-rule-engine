@@ -3,7 +3,7 @@ import type { ChoiceRequest, Instruction, InstructionDef, ObjectRef, ResolveCont
 import type { InstructionRegistry, InterpreterOptions } from '../../effects/interpreter.js';
 import { bindResolveContext } from '../../events/action-adapter.js';
 import { MissingInformation } from '../../effects/interpreter/values.js';
-import { PickSelectionError, resolveNonTargetPick } from '../../target/picks/plan.js';
+import { PickSelectionError, linkedPickExpression, queryPickCandidates, resolveNonTargetPick } from '../../target/picks/plan.js';
 import { OrderedPickError, orderedPickSpecs, pickSpecs } from './plan.js';
 
 function isObjectRef(value: unknown): value is ObjectRef {
@@ -48,21 +48,44 @@ function choose<T>(context: ResolveContext, request: ChoiceRequest<T>): T {
 /** Bridge actual inspect/reveal/choice.order results to the primitive pick APIs. */
 export function orderedPickResolver(body: readonly Instruction[]): InterpreterOptions['picks'] {
   const byId = new Map(pickSpecs(body)
-    .filter(spec => spec.linked !== undefined || spec.filter !== undefined)
+    .filter(spec => spec.linked !== undefined || linkedPickExpression(spec) !== undefined || spec.filter !== undefined)
     .map(spec => [spec.id, spec]));
-  const cache = new WeakMap<ResolveContext, Map<string, readonly PickOutput[]>>();
+  // One resolver is constructed per Resolve attempt. Cache one answer for all
+  // instruction-local contexts in that settlement so a reused pick id remains
+  // one logical choice; a retry or later settlement gets a fresh resolver.
+  const cache = new Map<string, readonly PickOutput[]>();
   return (id, context, hasResult) => {
     const spec = byId.get(id);
-    if (spec && [spec.linked, spec.exclude].some(expression => expression && !hasResult(expression.instructionId))) {
+    const source = spec?.linked ?? (spec === undefined ? undefined : linkedPickExpression(spec));
+    if (spec && [source, spec.exclude].some(expression => expression && !hasResult(expression.instructionId))) {
       throw new MissingInformation(`Unavailable linked pick ${id}`);
     }
     if (!spec) return undefined;
-    const cached = cache.get(context)?.get(id);
+    let candidates;
+    try {
+      candidates = queryPickCandidates(context, spec, { phase: 'resolve' });
+    } catch (error) {
+      if (error instanceof PickSelectionError && error.code === 'missing-result') {
+        throw new MissingInformation(error.message);
+      }
+      throw error;
+    }
+    const cacheKey = JSON.stringify({
+      id,
+      controller: context.controller,
+      source,
+      exclude: spec.exclude,
+      filter: spec.filter,
+      min: spec.min,
+      max: spec.max,
+      selection: spec.selection,
+      offered: candidates.offered,
+      invalid: candidates.invalid
+    });
+    const cached = cache.get(cacheKey);
     if (cached) return cached.map(value => typeof value === 'string' ? value : { ...value });
     const values = linkedValues(context, spec);
-    let byContext = cache.get(context);
-    if (!byContext) { byContext = new Map(); cache.set(context, byContext); }
-    byContext.set(id, Object.freeze(values.map(value => typeof value === 'string' ? value : Object.freeze({ ...value }))));
+    cache.set(cacheKey, Object.freeze(values.map(value => typeof value === 'string' ? value : Object.freeze({ ...value }))));
     return values.map(value => typeof value === 'string' ? value : { ...value });
   };
 }

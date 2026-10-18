@@ -294,12 +294,19 @@ function validatePlayerSelector(value: unknown, path: string, context: Validatio
 function validateObjectSelector(value: unknown, path: string, context: ValidationContext): boolean {
   if (value === "self" || value === "source") return true;
   if (!isRecord(value) || Object.keys(value).length !== 1 ||
-    !["target", "pick", "linked"].includes(Object.keys(value)[0]!)) {
-    addIssue(context, path, "invalid-object-selector", "Expected self, source, or exactly one target, pick, or linked id; runtime ObjectRefs are not IR selectors.");
+    !["target", "pick", "linked", "event"].includes(Object.keys(value)[0]!)) {
+    addIssue(context, path, "invalid-object-selector", "Expected self, source, or exactly one target, pick, linked, or event selector; runtime ObjectRefs are not IR selectors.");
     return false;
   }
   const key = Object.keys(value)[0]!;
   const id = value[key];
+  if (key === "event") {
+    if (id !== "it") {
+      addIssue(context, `${path}.event`, "invalid-event-object-role", "Expected the event role it.");
+      return false;
+    }
+    return true;
+  }
   if (!validateString(id, `${path}.${key}`, context, "Expected a selector id.", SYMBOL_PATTERN)) return false;
   if (key === "linked") {
     context.instructionReferences.push({ id, path: `${path}.linked` });
