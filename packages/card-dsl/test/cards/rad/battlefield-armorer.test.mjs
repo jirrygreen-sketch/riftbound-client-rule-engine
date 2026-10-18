@@ -7,6 +7,7 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [triggered] = program.abilities;
@@ -27,6 +28,8 @@ test("rad-130-167 Battlefield Armorer: program validates and has expected identi
   );
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  assert.ok(program.judgeReason.includes("incarnation"));
+  assert.ok(program.judgeReason.includes("CostPlanError"));
   assert.equal(
     program.sourceText,
     "When a friendly gear at a battlefield dies, you may pay :rb_energy_1: to return it to its owner's hand."
@@ -175,3 +178,19 @@ test.todo(
     "it left the board (355.10.c / 359.3.e.13); the merged pick/target system only resolves objects that are " +
     "still in their zone and has no event-object selector"
 );
+
+test("Battlefield Armorer resweep: death retains the battlefield snapshot while Trash gets a new incarnation", () => {
+  const f = fixture({ cards: [{ id: "gear", types: ["gear"], energy: 0 }] });
+  f.engine.advance();
+  f.engine.execute(f.card("gear", { kind: "gear", body: [], location: { type: "battlefield", id: "bf-1" } }));
+  const dying = f.engine.layers.evaluate(f.kernel.ref("gear"));
+  assert.equal(f.engine.commit({ type: "kill", object: dying.ref }).status, "done");
+  const events = f.engine.pipeline.events.filter(event => event.timingPoint === "object-killed");
+  assert.equal(events.length, 1);
+  assert.deepEqual(events[0].object, dying);
+  assert.equal(matchesTriggerEvent(triggered.trigger.filter, events[0], "A"), true);
+  const inTrash = f.kernel.getObject("gear");
+  assert.equal(inTrash.zone, "trash");
+  assert.equal(inTrash.ref.id, dying.ref.id);
+  assert.notEqual(inTrash.ref.zoneEntryId, dying.ref.zoneEntryId);
+});

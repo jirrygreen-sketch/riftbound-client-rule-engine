@@ -1,3 +1,6 @@
+// Scenario execution evidence: ../../templates/static-642.test.mjs.
+// This file keeps the validation and identity checks plus the key structural
+// assertions; the real execution path for this card lives in that template row.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -154,6 +157,21 @@ test("ogn-055-298 Wielder of Water golden: the production static binder does not
   const handle = createEngineStaticBinder(engine).bindStatic(staticAbility, kernel.getObject("wielder"));
   assert.equal(engine.layers.evaluate(kernel.ref("wielder")).might, 2);
   handle?.unbind();
+});
+
+test("ogn-055-298 Wielder of Water golden: a defending lone unit gains +2 for either controller", () => {
+  for (const controller of ["A", "B"]) {
+    const kernel = world()
+      .unit("wielder", { owner: controller, controller, might: 2, combatRole: "defender", location: { type: "battlefield", id: "bf-1" } })
+      .build();
+    const engine = chainEngineFor(kernel);
+    const handle = createEngineStaticBinder(engine).bindStatic(staticAbility, kernel.getObject("wielder"));
+    assert.equal(engine.layers.evaluate(kernel.ref("wielder")).might, 4);
+    assert.equal(engine.items.length, 0);
+    assert.equal(kernel.events.length, 0);
+    handle.unbind();
+    assert.equal(engine.layers.evaluate(kernel.ref("wielder")).might, 2);
+  }
 });
 
 test.todo(

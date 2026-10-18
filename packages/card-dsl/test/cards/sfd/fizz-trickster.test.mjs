@@ -6,6 +6,8 @@ import program from "../../../dist/cards/sfd/fizz-trickster.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import play from "../../../../engine-core/dist/effects/instructions/effect.play.js";
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
+import attach from "../../../../engine-core/dist/effects/instructions/effect.attach.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-2ec80d5a21eaf14b1c8f15f0a61f40ed1d29d8ff68bc87b3e69ce652dbfe74fd";
@@ -45,8 +47,10 @@ test("sfd-140-221 Fizz, Trickster: identity, ruleset, status, judgeReason and ve
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /costEnergyLte/);
   assert.match(program.judgeReason, /356\.1\.b\.2/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-90 已合入的是 v1\.5 target plan/);
   assert.match(program.judgeReason, /所选对象.*费用计划/);
+  // The stale "RIFT-90 will deliver the predicate" framing is gone; the merged
+  // RIFT-90 target plan is now named explicitly as not covering the predicate.
   assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-257|RIFT-261/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -78,7 +82,8 @@ test("sfd-140-221 Fizz, Trickster: contract 3.9 may-shape wraps the play and the
 
   // 355.7 / 355.12: the trash spell is chosen, so it is a target locked together
   // with the may-action. 356.1.c / 206's printed-cost ceiling stays descriptive
-  // (no merged filter reads costEnergyLte — see judgeReason).
+  // (no merged filter reads costEnergyLte — see judgeReason); the production
+  // binder fails closed on it instead of treating it as a working restriction.
   assert.equal(mayPlay.targets.length, 1);
   const [target] = mayPlay.targets;
   assert.equal(target.id, TRASH_TARGET);
@@ -191,8 +196,8 @@ test("sfd-140-221 Fizz, Trickster golden: a trash spell that already left makes 
 
 test.todo(
   "sfd-140-221 Fizz, Trickster: enforce the 'Energy cost no more than 3' printed-cost ceiling at Finalize " +
-    "(356.1.c / 206) once a cost predicate is merged (RIFT-90) — the reference filter ignores the " +
-    "descriptive key, so it must never be treated as a working restriction"
+    "(356.1.c / 206) once a printed-cost predicate is merged — the ObjectFilter has no cost key and the " +
+    "production binder rejects costEnergyLte, so it must never be treated as a working restriction"
 );
 
 test.todo(
@@ -212,3 +217,49 @@ test.todo(
     "pipeline with the source-identity filter evaluated (383.4.a / 420.4.a) once the printed-cost " +
     "predicate and played-object link are available to the executable program"
 );
+
+test("sfd-140-221 Fizz, Trickster: the production trigger binding rejects the descriptive printed-cost ceiling", () => {
+  // Evidence for gap (1): the body target's costEnergyLte key is descriptive IR
+  // only. triggerRegistrations runs the production adapter over the card's own
+  // body and fails closed instead of silently ignoring the ceiling.
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const kernel = world().unit("fizz", { cardId: CARD_ID, types: ["unit"], zone: "board" }).build();
+  const engine = {
+    pipeline: {
+      registerTrigger() { throw new Error("the registration itself must not be reached"); },
+      unregisterTrigger() {}
+    }
+  };
+  assert.throws(
+    () => binding.registerProgramTriggers(engine, kernel.getObject("fizz")),
+    (error) => {
+      assert.match(error.message, /Unsupported filter field costEnergyLte/);
+      return true;
+    }
+  );
+});
+
+test("sfd-140-221 Fizz, Trickster: effect.play links only the played count, so the recycle cannot name the card (current gap)", () => {
+  // Evidence for gap (3): the linked value the card's own recycle instruction
+  // reads is a number, and effect.attach/effect.recycle style object selections
+  // accept source/target/pick/choose only — never a bare count.
+  const kernel = world().player("A").card("sp", { types: ["spell"], owner: "A", zone: "trash", energy: 3, power: ["Chaos"] }).build();
+  const run = runInstruction(
+    play,
+    { target: TRASH_TARGET, linkKey: "played" },
+    { world: kernel, targets: { [TRASH_TARGET]: [kernel.ref("sp")] } }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.equal(typeof run.linked.played, "number");
+  assert.equal(run.linked.played, 1);
+  assert.deepEqual(Object.keys(run.linked), ["played"]);
+  assert.throws(
+    () => runInstruction(
+      attach,
+      { objects: { kind: "constant", value: 1 }, host: { kind: "constant", value: { kind: "source" } } },
+      { world: kernel }
+    ),
+    /selection must name source, target, pick, or choose/
+  );
+});

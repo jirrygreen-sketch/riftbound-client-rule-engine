@@ -19,11 +19,16 @@ import type { CardProgram } from "../../ir/index.js";
  * - "Deal 10" 是 effect.damage（418.1.c：每个仍合法目标一条伤害动作）。
  * - "Draw 2" 是 effect.draw（414.3）；player 省略即能力控制者（190.6.d）。
  *
- * 状态：judge-required。效果本身（effect.damage + effect.draw）两个原语都已合入，
- *   并在 golden 里用测试内核分别真实执行；但本印刷的 cardType 在官方印刷与本地
- *   目录之间冲突（Spell vs Unit），而类型决定这段文本是"法术的 play 能力"还是
- *   "单位的打出触发"（383.4.a），在数据修正前不能宣称整卡可执行。
- *   目录修正属卡牌数据任务，不在本任务写范围内，因此不近似实现、不改数据。
+ * 状态：judge-required（2026-10-18 复核）。原"法术整卡走链的费用/结算接入仍属协调任务"
+ *   的说法已过时：programs/play.ts 的 describePlay 与 chain/engine.ts 的 Finalize/Resolve
+ *   已能把本程序的 play 能力打成真实链项并结算（golden 用 createProgramBinding +
+ *   ChainEngine 经 describePlay 打出 9 Energy / 1 Order、对锁定单位造成 10 点伤害并抽 2 张）。
+ *   剩余唯一缺口是本印刷的 cardType 冲突：本地 deck-catalog 记 cardType "Unit"、might null，
+ *   而同源官方图印的是 SPELL；cardType 决定这段裸效果文本是法术的 play 能力（420.1）
+ *   还是永久物的打出效果（383.4.a）——实测 describePlay 按 source.types 派生 chain kind，
+ *   同一程序在 spell / unit / gear 三种 source 下分别产出 spell / unit / gear 的链项——
+ *   还是永久物的打出效果（383.4.a），生产 host 按目录类型构造 source，改类型会改变
+ *   这张牌是否进入 Board。目录修正属卡牌数据任务，不在本任务写范围内，因此不近似实现、不改数据。
  */
 export default {
   canonicalCardId:
@@ -32,9 +37,12 @@ export default {
   status: "judge-required",
   judgeReason:
     "本地目录把本印刷记为 Unit 且 might=null，但同源官方图印的是 Spell（RAD 里 rad-012/025/035/039/059/087/108/136 八张同属此类）；" +
-    "cardType 决定这句裸效果文本是法术的 play 能力（420.1）还是单位的打出触发（383.4.a），在目录修正前不宣称整卡可执行。" +
-    "效果本身不缺原语：effect.damage 与 effect.draw 均已合入，golden 已用测试内核分别真实执行；" +
-    "法术整卡走链的费用/结算接入仍属协调任务。",
+    "cardType 决定这句裸效果文本是法术的 play 能力（420.1）还是单位的打出触发（383.4.a）——" +
+    "实测 programs/play.ts 的 describePlay 按 source.types 派生 chain kind，同一程序在 spell / unit / gear 三种 source 下" +
+    "分别产出 spell / unit / gear 的链项，而生产 host 按目录类型构造 source——在目录修正前不宣称整卡可执行。" +
+    "效果本身与原语、生产绑定均不缺：effect.damage 与 effect.draw 已合入，golden 已用测试内核分别真实执行，" +
+    "并用 createProgramBinding + ChainEngine 经 describePlay 打出：9 Energy/1 Order 的费用计划建成、" +
+    "锁定单位受到 10 点伤害、控制者抽 2 张、法术离链入 Trash。唯一缺口是上述目录类型冲突。",
   abilities: [
     {
       kind: "play",

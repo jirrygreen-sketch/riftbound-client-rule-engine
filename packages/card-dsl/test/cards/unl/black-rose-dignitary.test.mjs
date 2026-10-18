@@ -7,8 +7,11 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import assault from "../../../../engine-core/dist/effects/keywords/Assault.js";
 import channel from "../../../../engine-core/dist/effects/instructions/effect.channel.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-8797765d08c9c34c140c5971815c031caaf8974b4575d37dea511ac5a37f6016";
@@ -35,6 +38,10 @@ test("unl-152-219 Black Rose Dignitary: identity, status, judgeReason and verbat
   assert.match(program.judgeReason, /trigger\.leave/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /combatRole/);
+  // Third-sweep refresh: the reason now names the actual evaluation path and
+  // the measured failure instead of the older "binder fail-closes" wording.
+  assert.match(program.judgeReason, /evaluateExpression/);
+  assert.match(program.judgeReason, /Unregistered instruction opcode/);
   assert.doesNotMatch(program.judgeReason, /RIFT-(82|91|120|257)/);
 });
 
@@ -119,9 +126,48 @@ test.todo(
     "KeywordDef currently reads designation while ObjectSnapshot exposes combatRole; the production " +
     "binder fail-closes the missing property instead of evaluating the attacker condition"
 );
-test.todo(
-  "unl-152-219 Black Rose Dignitary: expand [Deathknell] (subscribe object-killed, removal from the " +
-    "chain when the death is replaced per 808.1.d.1, last-known information recorded pre-chain per " +
-    "808.1.d.3) — the KeywordDef still references the unregistered trigger.leave op and its death " +
-    "replacement/LKI semantics are not executable"
-);
+
+test("unl-152-219 Black Rose Dignitary boundary: the [Assault] expansion binds but contributes nothing to a real attacker (CR 807.1.c/807.1.d)", () => {
+  // Third-sweep evidence: the expansion reaches the production static binder as
+  // an arithmetic continuous.might +1, but its condition reads `designation`
+  // through the base evaluator, and ObjectSnapshot carries `combatRole`, so the
+  // condition fail-closes and the printed Might stays unchanged.
+  // A zone transition clears the designation (contract 3.8) and production
+  // combat has no Attacker producer yet, so the reference test kernel supplies
+  // the characteristic through its documented object builder — the same
+  // convention the merged contract tests use for combatRole.
+  const f = fixture({ cards: [] });
+  f.kernel.addObject({
+    ref: { id: "host", zoneEntryId: 1 },
+    cardId: CANONICAL_ID,
+    name: "Black Rose Dignitary",
+    types: ["unit"], tags: [], keywords: [], owner: "A", controller: "A",
+    zone: "board", location: { type: "battlefield", id: "bf-1" },
+    might: 2, energy: 3, power: null, exhausted: false, damage: 0, stunned: false,
+    buffs: 0, attachedTo: null, faceDown: false, isToken: false, combatRole: "attacker"
+  });
+  const source = f.kernel.getObject("host");
+  assert.equal(source.combatRole, "attacker");
+  const [expansion] = keywordDefinitionsById.get("Assault").expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expansion.effect.kind, "continuous.might");
+  assert.equal(expansion.effect.amount.value, 1);
+  createEngineStaticBinder(f.engine).bindStatic(expansion, source);
+  const [entry] = f.engine.layers.registry.list();
+  assert.equal(entry.effect.effect.amount, 1);
+  assert.equal(entry.effect.effect.condition(source), false,
+    "the attacker condition must not claim a contribution while designation is unreadable");
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.equal(f.engine.layers.evaluate(source.ref).might, 2);
+});
+
+test("unl-152-219 Black Rose Dignitary boundary: the [Deathknell] expansion body cannot execute (CR 808.1.c/808.1.d)", () => {
+  // Third-sweep evidence: subscription succeeds, but the expanded body's op has
+  // no InstructionDef, so the real chain adapter throws when the effect runs.
+  const [deathknellExpansion] = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL_ID } });
+  const body = deathknellExpansion.body;
+  assert.equal(body.length, 1);
+  assert.equal(body[0].op, "trigger.leave");
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+  const kernel = world().player("A").rune(["top-rune"]).build();
+  assert.throws(() => resolveChainBody(body, kernel), /Unregistered instruction opcode: trigger\.leave/);
+});

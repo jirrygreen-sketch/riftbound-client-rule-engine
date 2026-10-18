@@ -9,23 +9,25 @@ import type { CardProgram } from "../../ir/index.js";
  * 规则依据（CR v1.5）：356.4 的每折扣实例最低费用（356.4.e）与费用修改顺序；
  * cost.modify / buildCostPlan 已合入 discounts、minimum 与零地板（356.4.f）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，当前真实缺口：
- * - 没有把卡程序 static 的 continuous.cost-modification 接进打出费用计划的管线
- *   （statics 不映射该 kind，chain finalize 也不读卡程序 static）。
- * - Expr.count 只查询当前对象集合，没有 cards-played-this-turn 的按回合打牌历史
- *   计数来源，折扣数量无处求值。
- * 依赖：卡程序 static→费用接线、按回合打牌历史计数、356.4.e 最低费语义消费。
- * 不近似实现（不把动态折扣写成固定值）。
+ * status 判定（cards/README.md 第 2 节）：judge-required，复核 2026-10-18：
+ * - programs/statics.ts 仍不把卡程序 static 的 continuous.cost-modification 接进打出费用计划。
+ * - 已合入的 cost/discounts/collect.ts 能在调用方提供 finalizedPlaysThisTurn 时读取
+ *   cards-played-this-turn，并应用 356.4.e 的每折扣最低费用；缺的是 chain/engine.ts
+ *   将本卡静态绑定和本回合 Finalize 历史传给该收集器。
+ * 不把已合入的历史求值能力重复列为缺口，也不把动态折扣写成固定值。
  */
 export default {
   canonicalCardId: "card.hash-cf0a755fb6b4deccfb2863c8b92871864f69bfbf69522b1c4d98870a89afc0c4",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "『每张本回合已打出的牌减 1，最低费用 1』需要 CardProgram→CostPlan 接线：cost.modify 与 buildCostPlan 已合入 discounts/minimum/零地板，" +
-    "但没有任何管线把卡程序 static 的 continuous.cost-modification 接进打出费用计划（statics 不映射该 kind，chain finalize 不读卡程序 static）；" +
-    "Expr.count 只查询当前对象集合，没有 cards-played-this-turn 的按回合打牌历史计数来源，折扣数量无处求值；" +
-    "356.4.e 的每折扣最低费用语义也没有卡牌侧消费者。保留声明，不近似实现。",
+    "当前唯一阻断是 CardProgram static 到生产 Finalize 的接线（2026-10-18 实测；356.4.e）：" +
+    "programs/statics.ts 的 layerFor 对 continuous.cost-modification 仍抛出 " +
+    "\"Static ability kind continuous.cost-modification has no layer mapping\"，chain/engine.ts 也没有把 " +
+    "本卡静态绑定交给 cost/discounts/collect.ts。该收集器已支持本卡的 cards-played-this-turn 表达式，" +
+    "但只有调用方提供 finalizedPlaysThisTurn 才能读取权威本回合 Finalize 历史并应用最低费用；生产打出路径尚未传入这两项，" +
+    "所以本卡仍不能按每张已打出牌减 1。已合入的 cost.modify/buildCostPlan 与 356.4.e 最低费语义由局部 golden 覆盖，" +
+    "不近似实现。",
   abilities: [
     {
       kind: "static",

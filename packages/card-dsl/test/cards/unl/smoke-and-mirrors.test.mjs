@@ -7,6 +7,9 @@ import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { buildHiddenCostPlan } from "../../../../engine-core/dist/cost/kinds/hidden.js";
+import { prepareCostPayment } from "../../../../engine-core/dist/cost/payment.js";
+import { DUEL_DOMAINS } from "../../../../engine-core/dist/cost/resources.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -33,7 +36,7 @@ test("unl-083-219 Smoke and Mirrors: identity, status, judgeReason and verbatim 
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /effect\.swap-location/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /TargetPlan.*跨 TargetSpec/);
   assert.match(program.judgeReason, /cost\.hidden|facedown/);
   // The Temporary keyword itself is merged; the gap is the
   // cross-target keyword predicate, which the judgeReason now records.
@@ -104,6 +107,30 @@ test("unl-083-219 Smoke and Mirrors golden: the independent Draw 1 draws one car
   assert.equal(kernel.player("A").deckSize, 1);
 });
 
+test("unl-083-219 Smoke and Mirrors: Hidden costs already plan any-domain Power and waive the printed base", () => {
+  const kernel = world()
+    .player("A", { energy: 2, power: ["Calm"] })
+    .hand("smoke", { types: ["spell"], energy: 2, power: null })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("smoke") });
+  const before = context.snapshot();
+  const hide = buildHiddenCostPlan(context, { id: "smoke.hide-cost", mode: "hide" });
+  assert.deepEqual(hide.printed, { energy: 2, power: null });
+  assert.equal(hide.total.energy, 0);
+  assert.deepEqual(hide.total.power, [{ allowedDomains: DUEL_DOMAINS, amount: 1 }]);
+  const payment = prepareCostPayment(context, hide);
+  assert.deepEqual(payment.actions[0].action.plan, { finalized: true, energy: 0, power: ["Calm"] });
+
+  const laterPlay = buildHiddenCostPlan(context, {
+    id: "smoke.hidden-play-cost", mode: "play",
+    mandatoryAdditional: [{ id: "additional", cost: { energy: { kind: "constant", value: 1 } } }]
+  });
+  assert.deepEqual(laterPlay.printed, { energy: 2, power: null });
+  assert.equal(laterPlay.total.energy, 1);
+  assert.deepEqual(laterPlay.total.power, []);
+  assert.deepEqual(context.snapshot(), before);
+});
+
 test("unl-083-219 Smoke and Mirrors: the merged Temporary keyword definition kills its host", () => {
   const temporary = keywordDefinitionsById.get("Temporary");
   assert.ok(temporary, "effects/keywords/Temporary.ts must be registered");
@@ -143,7 +170,7 @@ test("unl-083-219 Smoke and Mirrors: the pair-relation target filter is accepted
 });
 
 test.todo(
-  "unl-083-219 Smoke and Mirrors: execute the atomic pair swap (CR 448.1/448.3) — RIFT-9 effect.swap-location is unmerged; " +
+  "unl-083-219 Smoke and Mirrors: execute the atomic pair swap (CR 448.1/448.3) — effect.swap-location is not implemented; " +
     "two sequential effect.move instructions are not an equivalent substitute"
 );
 
@@ -154,5 +181,5 @@ test.todo(
 
 test.todo(
   "unl-083-219 Smoke and Mirrors: 'another unit you control at a different location' needs the pair-relation re-check at " +
-    "Finalize/Resolve (CR 355.7 / RIFT-357 TargetPlan)"
+    "Finalize/Resolve (CR 355.7; TargetPlan cross-spec relation binding)"
 );

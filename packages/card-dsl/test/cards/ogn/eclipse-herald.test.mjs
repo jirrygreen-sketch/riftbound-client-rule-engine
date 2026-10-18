@@ -8,6 +8,7 @@ import ready from "../../../../engine-core/dist/effects/instructions/effect.read
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL =
   "card.hash-67719b3d2e3e5ab46c7824a9f7d294656d3d356fc92ad47c06b92e52e7f62fc1";
@@ -28,6 +29,9 @@ test("ogn-059-298 Eclipse Herald: identity, ruleset, status, judgeReason and sou
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /行动责任玩家/);
   assert.match(program.judgeReason, /unit-stunned/);
+  assert.match(program.judgeReason, /settlement/);
+  assert.match(program.judgeReason, /指令路径前缀/);
+  assert.match(program.judgeReason, /重复注册/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -176,4 +180,28 @@ test("Eclipse Herald original body readies only its source and grants Might even
     layers.advance({ id: "turn-end" });
     assert.equal(layers.snapshot(kernel.ref("herald")).might, 7);
   }
+});
+
+test("Eclipse Herald: original body stacks +1 Might across distinct Chain resolutions", {
+  todo: "Chain settlement counter reads an unqualified key after writing an instruction-path-qualified key"
+}, () => {
+  const f = fixture({ cards: [{ id: "herald", cardId: CANONICAL, types: ["unit"], might: 7, exhausted: true }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("herald"), to: "base", location: { type: "base", player: "A" } });
+  f.engine.advance();
+
+  // Isolate the original body; the Stun responsibility/trigger gap remains a
+  // separate TODO. Each resolution uses the real Chain interpreter and layers.
+  for (let index = 1; index <= 2; index++) {
+    f.engine.enqueue(f.draft(`herald-trigger-${index}`, {
+      kind: "triggered", source: f.kernel.getObject("herald"), body: triggered.body
+    }));
+    f.engine.advance();
+    resolveAll(f.engine);
+    assert.equal(f.engine.layers.snapshot(f.kernel.ref("herald")).might, 7 + index);
+    assert.equal(f.kernel.getObject("herald").exhausted, false);
+    assert.equal(f.engine.layers.snapshot(f.kernel.ref("source")).might, 2);
+  }
+  f.engine.emit({ timingPoint: "turn-end" });
+  f.engine.advance();
+  assert.equal(f.engine.layers.snapshot(f.kernel.ref("herald")).might, 7);
 });

@@ -31,9 +31,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 对局实际的 Standard Move / Ganking 战场间移动尚未接入唯一事件管线：duel 侧的
  *   standard-move-executor-v2.ts 只把 requiresMoveTriggers 交给外层调用方，没有已合入模块把它
  *   的移动结果提交为 move-location 动作，因此真正的 Standard Move 不会发布 object-moved。
- * - "something else that's exhausted" 的 PickSpec 仍无解析入口：chain Finalize 只处理 TargetSpec
- *   （target/target-plan.ts 的 finalizePick 没有生产调用方，只在 engine-core 测试里被调用），
- *   ctx.picks 仍由装配层提供；本卡的 filter 还要求"排除来源自身"与 exhausted 状态的组合判定。
+ * - "something else that's exhausted" 的普通 PickSpec 仍无解析入口：chain Finalize 现在能锁定
+ *   显式 zoneSlice 的有序来源，但不会为普通 PickSpec 运行候选查询；target/target-plan.ts 的
+ *   finalizePick 没有生产调用方（只在 engine-core 测试里被调用），ctx.picks 仍由装配层提供；
+ *   本卡的 filter 还要求"排除来源自身"与 exhausted 状态的组合判定。
  * - [Accelerate] 的展开（accelerate.cost static）没有静态层映射：programs/statics.ts 的 layerFor
  *   抛 "Static ability kind accelerate.cost has no layer mapping"（实测），Finalize 也没有读取该
  *   声明的消费者；[Ganking] 的 continuous.movement 标量 permission 与 movement() 所需的
@@ -98,8 +99,9 @@ const program = {
     "（2）对局实际的 Standard Move / Ganking 战场间移动未接入唯一事件管线：duel 侧 " +
     "standard-move-executor-v2.ts 只把 requiresMoveTriggers 交给外层调用方，没有已合入模块把移动结果" +
     "提交为 move-location 动作。（3）“something else that's exhausted” 的非目标选择" +
-    "（355.10.d/355.10.d.1，picks 不触发成为目标）没有解析入口：chain Finalize 只处理 TargetSpec，" +
-    "finalizePick 只在 engine-core 测试里被调用、无生产调用方，PickSpec 的 filter 解析仍缺。" +
+    "（355.10.d/355.10.d.1，picks 不触发成为目标）仍没有普通 PickSpec 的解析入口：chain Finalize " +
+    "虽已支持显式 zoneSlice 有序来源，但不会为本卡的 PickSpec 运行候选查询；finalizePick 只在 " +
+    "engine-core 测试里被调用、无生产调用方，PickSpec 的 filter 解析仍缺。" +
     "（4）[Accelerate] 展开的 accelerate.cost 没有静态层映射（programs/statics.ts 的 layerFor 抛" +
     "“Static ability kind accelerate.cost has no layer mapping”，实测），[Ganking] 的 continuous.movement" +
     "标量 permission 与 movement() 所需的 permission.routes 不匹配，注册后 canGank 仍为 false（实测）。" +

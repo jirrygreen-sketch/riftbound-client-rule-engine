@@ -1,11 +1,16 @@
+// Execution evidence for the merged effect.damage / [Reaction] halves of Cannon
+// Barrage lives in the RIFT-652 template suite:
+//   ../templates/keyword-play-effect-damage-652.test.mjs
+// The card stays judge-required: its "all enemy units in combat" set is not a
+// target (355.10.d) and effect.damage has no non-target set form, plus the
+// combat designation producer (740.2.c) is still missing. This file keeps
+// validation, identity and the key structure only.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/cannon-barrage.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { abilitySpeed, expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -28,6 +33,7 @@ test("Cannon Barrage program is structurally valid and judge-required", () => {
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /740\.2\.c/);
   assert.match(program.judgeReason, /非目标/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("Cannon Barrage identity and printed text match the catalog", () => {
@@ -47,18 +53,17 @@ test("Cannon Barrage structure: [Reaction] and a described set-damage instructio
   // The printed amount is fixed per unit, so this is not 355.14 split damage.
   assert.equal(dealTwo.args.divide, undefined);
   // Non-combat Deal: the card deals 2 to units that are in combat, it is not
-  // combat-step damage (418.6.c).
+  // combat-step damage (418.6.c / 418.7).
   assert.equal(dealTwo.args.combat, undefined);
-});
-
-test("Cannon Barrage structure: 'all enemy units in combat' is not declared as a target", () => {
   // 355.10.d: an object mentioned only as a programmatic selection is not
   // Targeted ("Kill all units at battlefields" doesn't target anything), so
   // declaring a TargetSpec would wrongly report became-target events.
   assert.equal(dealTwo.targets, undefined);
   assert.equal(dealTwo.picks, undefined);
-  // The described set carries the 740.2.c combat designation it needs.
-  assert.deepEqual(dealTwo.args.target, {
+  // The described set carries the 740.2.c combat designation it needs, in the
+  // same { kind: "query", filter } descriptor shape effect.ready / effect.heal
+  // consume. effect.damage has no such consumer, which is the judgeReason gap.
+  assert.deepEqual(dealTwo.args.objects, {
     kind: "constant",
     value: {
       kind: "query",
@@ -72,38 +77,6 @@ test("Cannon Barrage structure: 'all enemy units in combat' is not declared as a
   assert.equal(dealTwo.linkedTo, undefined);
   assert.equal(dealTwo.condition, undefined);
 });
-
-test("Cannon Barrage golden: the printed 2 damage executes over the locked in-combat set", () => {
-  // The "in combat" characteristic is the judged part; with the set locked the
-  // merged effect.damage deals the card's printed 2 to each selected unit.
-  const kernel = world()
-    .unit("enemy-attacker", { owner: "B", controller: "B" })
-    .unit("enemy-bystander", { owner: "B", controller: "B" })
-    .unit("friendly-unit", { owner: "A", controller: "A" })
-    .build();
-  const run = runInstruction(
-    damage,
-    { amount: dealTwo.args.amount, target: "in-combat-set" },
-    { world: kernel, targets: { "in-combat-set": [kernel.ref("enemy-attacker")] } }
-  );
-
-  assert.equal(run.result.status, "executed");
-  assert.equal(kernel.getObject("enemy-attacker").damage, 2);
-  assert.equal(kernel.getObject("enemy-bystander").damage, 0);
-  assert.equal(kernel.getObject("friendly-unit").damage, 0);
-  assert.equal(run.linked.dealt, 2);
-});
-
-test.todo(
-  "Cannon Barrage: dealing damage to a programmatically selected set needs either a " +
-    "set/query form of effect.damage or a target-system set requirement (355.10.d.1)."
-);
-
-test.todo(
-  "Cannon Barrage: the 'in combat' test needs the existing combatRole field connected to its " +
-    "live designation producer in CombatFlow (contract 3.8 item 1, 740.2.c); until " +
-    "that state is published the set cannot be evaluated."
-);
 
 test("Cannon Barrage: its Reaction declaration is admitted by the real chain during a Closed State", () => {
   const f = fixture();

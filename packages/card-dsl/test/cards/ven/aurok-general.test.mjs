@@ -1,4 +1,8 @@
+// Execution evidence for this card lives in ../templates/keyword-static-671.test.mjs (README 4.1); this
+// card stays judge-required for the gaps asserted below.
 import assert from "node:assert/strict";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
@@ -54,7 +58,7 @@ test("ven-130-166 Aurok General: the Empowered dependent aura shape", () => {
   // “Your units that are [Empowered] (including me)”: a controller-scoped unit
   // filter with the 442.1.a Empowered status gate. The continuous.might primitive
   // and its card-side registration path are merged; only the Empowered predicate
-  // remains descriptive here.
+  // recipient filter remains a blocked declaration here.
   assert.deepEqual(aura.effect.filter, {
     type: "unit",
     zone: "board",
@@ -66,7 +70,7 @@ test("ven-130-166 Aurok General: the Empowered dependent aura shape", () => {
 test("ven-130-166 Aurok General: continuous.might is merged (RIFT-258) and really moves the arithmetic layer", () => {
   assert.equal(instructionDefinitionsById.has("continuous.might"), true);
 
-  // 本卡的依赖能力是「你控制的 Empowered 单位 +2 [M]」。Empowered 门控仍未实现，
+  // 本卡的依赖能力是「你控制的 Empowered 单位 +2 [M]」。目标状态过滤仍未接通，
   // 但 478 / 478.1.a 的注册与算术求值路径已合入：用本卡声明的 amount 真实执行一次，
   // 断言注册进 ability 之外的正确图层并真的改变有效 Might。
   const kernel = world()
@@ -99,18 +103,56 @@ test("ven-130-166 Aurok General: continuous.might is merged (RIFT-258) and reall
 });
 
 test.todo(
-  "ven-130-166 Aurok General: [Empower] expansion (827.1.c.1: 3 Energy + 1 Order Power, " +
-    "'use only if not Empowered') needs an Empower KeywordDef — none is merged"
+  "ven-130-166 Aurok General: bind printed 3 Energy + 1 Order Power through KeywordAbility.params.cost and expandProgram (827.1.c.1)"
 );
 
 test.todo(
-  "ven-130-166 Aurok General: the +2 Might aura's Empowered gate (442.1.a / 828.1.b.1) needs an " +
-    "ObjectSnapshot/Condition predicate — 'empowered: true' resolves to the layers' unknown-kind " +
-    "default (true) today, so the dependent ability cannot be bound as written"
+  "ven-130-166 Aurok General: bind dynamic empowered > 0 recipient filtering including multiple-Empowered units, not just exact count 1 (442.1.c.1 / 828.1.b.1)"
 );
 
 test.todo(
-  "ven-130-166 Aurok General: the Empower/Empowered KeywordDefs and the 442.1.a Empowered status " +
-    "predicate are pending — until they land, 827.1.c.1 and the 828.1.b.1 gate cannot expand " +
-    "(see judgeReason)"
+  "ven-130-166 Aurok General: integrate source gate, eligible-recipient filter and printed-cost Empower activation with authoritative state (442.1.a / 828.1.b.1)"
 );
+
+test("aurok-general: the merged Empower definition expands through the real program adapter", () => {
+  const kernel = world().unit("keyword-host", {
+    cardId: program.canonicalCardId, energy: null, power: null
+  }).build();
+  const { expanded } = expandProgram(program, kernel.getObject("keyword-host"));
+  assert.equal(expanded.length, 1);
+  const [activation] = expanded;
+  assert.equal(activation.kind, "activated");
+  assert.equal(activation.timing, "action");
+  // The missing printed-cost bridge must never turn this into a free activation.
+  assert.deepEqual(activation.cost, { kind: "empower" });
+  assert.deepEqual(activation.restriction, { kind: "empower", condition: {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq", right: { kind: "constant", value: 0 }
+  } });
+  assert.equal(activation.body[0].id, `empower:${program.canonicalCardId}`);
+  assert.equal(activation.body[0].op, "effect.empower");
+  assert.deepEqual(activation.body[0].args, { amount: { kind: "constant", value: 1 } });
+  assert.deepEqual(activation.body[0].condition, activation.restriction.condition);
+  assert.equal(activation.body[0].targets, undefined);
+  assert.equal(program.status, "judge-required");
+});
+
+test("aurok-general: the source gate evaluates the actual empowered state", () => {
+  const kernel = world().unit("gate-host", { energy: null, power: null }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("gate-host") });
+  const body = [{ id: "gate", op: "condition.predicate", args: {
+    condition: { kind: "constant", value: aura.condition }
+  } }];
+  const evaluate = () => {
+    const outcome = runAbilityBody(body, context);
+    assert.equal(outcome.status, "executed");
+    return outcome.results[0].result.linkedValues.value;
+  };
+  assert.equal(evaluate(), false);
+  assert.equal(context.perform({ type: "empower", object: context.ref("gate-host") }).status, "done");
+  assert.equal(evaluate(), true);
+  assert.equal(context.perform({ type: "disempower", object: context.ref("gate-host") }).status, "done");
+  assert.equal(evaluate(), false);
+  assert.deepEqual(context.events.map(event => event.action), ["empower", "disempower"]);
+});

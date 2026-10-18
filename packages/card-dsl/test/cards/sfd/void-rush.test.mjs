@@ -5,6 +5,10 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/void-rush.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import reveal from "../../../../engine-core/dist/effects/instructions/effect.reveal.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-cd92b45de0981074325a5119213251cd97706ab04339f5fe7339e69c8761258a";
@@ -14,9 +18,10 @@ const SOURCE_TEXT =
 
 const [play] = program.abilities;
 const revealInstruction = play.body[0];
-const mayPlay = play.body[1];
+const costPlan = play.body[1];
+const mayPlay = play.body[2];
 const playInstruction = mayPlay.args.body.value[0];
-const drawRest = play.body[2];
+const drawRest = play.body[3];
 
 test("sfd-188-221 Void Rush: program validates, is registered and stays judge-required", () => {
   const result = validateCardProgram(program);
@@ -26,11 +31,14 @@ test("sfd-188-221 Void Rush: program validates, is registered and stays judge-re
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // README section 2: the reason names the concrete current gaps and task numbers.
+  // README section 2: the reason names the concrete measured current gaps.
   assert.match(program.judgeReason, /cost\.modify/);
-  assert.match(program.judgeReason, /356\.4/);
-  assert.match(program.judgeReason, /RIFT-358/);
   assert.match(program.judgeReason, /LITERAL_FIELDS/);
+  assert.match(program.judgeReason, /Invalid cost\.modify modifier argument: value/);
+  assert.match(program.judgeReason, /cost\.modify id must be a non-empty string/);
+  assert.match(program.judgeReason, /linked 对象印刷费投影|FinalizedCostPlan/);
+  assert.match(program.judgeReason, /420\.3/);
+  assert.match(program.judgeReason, /414\.1/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -44,6 +52,7 @@ test("sfd-188-221 Void Rush structure: printed cost, ordered deck-top reveal, op
     play.body.map((instruction) => [instruction.id, instruction.op]),
     [
       ["void-rush.reveal", "effect.reveal"],
+      ["void-rush.cost-plan", "cost.modify"],
       ["void-rush.may-play", "choice.optional"],
       ["void-rush.draw-rest", "effect.zone"]
     ]
@@ -57,10 +66,32 @@ test("sfd-188-221 Void Rush structure: printed cost, ordered deck-top reveal, op
   assert.equal(revealInstruction.picks.length, 1);
   const [topTwo] = revealInstruction.picks;
   assert.equal(topTwo.id, "void-rush.top-two");
-  assert.equal(topTwo.selection, "up-to");
-  assert.equal(topTwo.min, 0);
-  assert.equal(topTwo.max, 2);
-  assert.deepEqual(topTwo.options, ["deck-top-two-of-controller"]);
+  assert.deepEqual(topTwo, {
+    id: "void-rush.top-two",
+    options: [],
+    ordered: true,
+    selection: "all",
+    zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 2 } }
+  });
+});
+
+test("sfd-188-221 Void Rush structure: the merged cost.modify really declares the [2] energy discount plan", () => {
+  // CR 356.4: the reduction is a real plan step, not a cost-plan-request.
+  // What the plan costs (the selected revealed card's printed cost) and how
+  // the plan crosses into effect.play/Finalize remain blocked (judgeReason 1).
+  assert.equal(costPlan.op, "cost.modify");
+  assert.deepEqual(costPlan.args.id, { kind: "constant", value: "void-rush.cost-plan" });
+  assert.deepEqual(costPlan.args.modifier, {
+    kind: "constant",
+    value: {
+      kind: "reduce",
+      resource: "energy",
+      amount: { kind: "constant", value: 2 },
+      minimum: { kind: "constant", value: 0 }
+    }
+  });
+  assert.equal(costPlan.linkedTo, undefined);
+  assert.equal(costPlan.picks, undefined);
 });
 
 test("sfd-188-221 Void Rush structure: the play inside the optional body names the reduced-cost requirement", () => {
@@ -73,8 +104,9 @@ test("sfd-188-221 Void Rush structure: the play inside the optional body names t
   assert.equal(playInstruction.op, "effect.play");
   assert.deepEqual(playInstruction.args.pick, { kind: "constant", value: "void-rush.played-card" });
   assert.deepEqual(playInstruction.args.cost, {
-    kind: "constant",
-    value: { kind: "cost-plan-request", from: "printed", reduction: { energy: 2 } }
+    kind: "linked-value",
+    instructionId: "void-rush.cost-plan",
+    key: "cost"
   });
   assert.equal(playInstruction.picks.length, 1);
   const [played] = playInstruction.picks;
@@ -100,11 +132,13 @@ test("sfd-188-221 Void Rush structure: pending Draw names all remaining revealed
   const [remaining] = drawRest.picks;
   assert.equal(remaining.id, "void-rush.remaining");
   assert.equal(remaining.selection, "all");
-  assert.equal(remaining.min, 0);
-  assert.equal(remaining.max, 2);
-  assert.deepEqual(remaining.options, [
-    { kind: "linked-value", instructionId: "void-rush.reveal", key: "revealed" }
-  ]);
+  assert.deepEqual(remaining, {
+    id: "void-rush.remaining",
+    options: [],
+    ordered: true,
+    selection: "all",
+    linked: { kind: "linked-value", instructionId: "void-rush.reveal", key: "revealed" }
+  });
 });
 
 test("sfd-188-221 Void Rush golden: the ordered deck-top reveal executes with a caller-supplied pick", () => {
@@ -135,6 +169,152 @@ test("sfd-188-221 Void Rush golden: a short deck reveals what is there instead o
   assert.deepEqual(run.linked.revealed, [kernel.ref("only-card")]);
 });
 
-test.todo("Void Rush: hand the selected revealed card's printed plan with the existing [2] Energy discount to effect.play/Finalize (356.4/420.3)");
-test.todo("Void Rush: bind ordered reveal picks through the real chain adapter (RIFT-358)");
-test.todo("Void Rush: Draw the actual unplayed revealed objects and emit draw events even when optional play is declined (414.1); the pending effect.zone block cannot implement Draw");
+test("Void Rush chain: the merged Finalize locks the ordered deck-top reveal source", () => {
+  const f = fixture();
+  f.engine.advance();
+  const top = f.kernel.zoneSlice("A", "deck", "top", 2).map(object => object.ref);
+  // The real production chain adapter captures the zoneSlice pick source at
+  // Finalize and locks the ordered refs for resolution; the optional play and
+  // pending draw stay blocked (see judgeReason 1 and 3).
+  f.engine.enqueue({
+    id: "void-rush-chain", kind: "triggered", controller: "A", source: f.kernel.getObject("source"),
+    body: [revealInstruction]
+  });
+  f.engine.advance();
+  assert.equal(f.engine.items[0].status, "finalized");
+  assert.equal(f.engine.items[0].pickPlans.length, 1);
+  assert.equal(f.engine.items[0].pickPlans[0].id, "void-rush.top-two");
+  assert.deepEqual(f.engine.items[0].pickPlans[0].refs, top);
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "card-revealed"), false);
+  resolveAll(f.engine);
+  assert.equal(f.engine.items.length, 0);
+  assert.deepEqual(f.kernel.linked("void-rush.reveal.revealed"), top);
+  // Revealed cards stay revealed where they are (425.1.a.2).
+  assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id), ["A:deck:1", "A:deck:2", "A:deck:3", "A:deck:4"]);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "card-revealed").length, 2);
+});
+
+test("Void Rush primitive subpath: cost.modify freezes a genuine [2] Energy discount plan on an explicit printed cost", () => {
+  const kernel = world().player("A", { energy: 20 }).hand("void-rush", { types: ["spell"], energy: 2, power: [] }).build();
+  const run = runInstruction(costModify, {
+    id: "void-rush.cost-plan",
+    printed: { id: "void-rush", cardType: "Spell", energy: 2, power: 0, domains: [] },
+    modifier: {
+      kind: "reduce",
+      resource: "energy",
+      amount: { kind: "constant", value: 2 },
+      minimum: { kind: "constant", value: 0 }
+    }
+  }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  const plan = run.linked.cost;
+  assert.equal(plan.player, "A");
+  assert.equal(plan.total.energy, 0);
+  assert.deepEqual(plan.total.power, []);
+  assert.equal(plan.finalized, true);
+  assert.deepEqual(plan.discounts.map(value => [value.before, value.after]), [[2, 0]]);
+});
+
+test("Void Rush primitive subpath: cost.pay consumes the plan produced by cost.modify", () => {
+  const kernel = world().player("A", { energy: 20 }).hand("void-rush", { types: ["spell"], energy: 2, power: [] }).build();
+  const run = runInstruction(costModify, {
+    id: "void-rush.cost-plan",
+    printed: { id: "void-rush", cardType: "Spell", energy: 2, power: 0, domains: [] },
+    modifier: {
+      kind: "reduce",
+      resource: "energy",
+      amount: { kind: "constant", value: 2 },
+      minimum: { kind: "constant", value: 0 }
+    }
+  }, { world: kernel });
+  const paid = runInstruction(costPay, { cost: { kind: "constant", value: run.linked.cost } }, { world: kernel });
+  assert.equal(paid.result.status, "executed");
+  assert.equal(paid.linked.payment.total.energy, 0);
+  // The [2] discount is consumed from the actual cost.modify result. The
+  // selected-card plan handoff into effect.play remains the recorded gap.
+  assert.equal(kernel.player("A").energy, 20);
+  assert.deepEqual(kernel.events.map(event => event.action), ["pay"]);
+});
+
+test("Void Rush chain: the original cost-plan IR is still blocked by the adapter's literal decoding", () => {
+  const f = fixture();
+  f.engine.advance();
+  // Measured production behavior for the authored IR: without a LITERAL_FIELDS
+  // entry the constant-wrapped id itself reaches the primitive's schema.
+  assert.throws(() => resolveChainBody([costPlan], f.kernel), /cost\.modify id must be a non-empty string \(or supply source\)/);
+  // Unwrapping only the id (the natural first adapter fix) then fails on the
+  // constant-wrapped modifier envelope.
+  const idUnwrapped = { ...costPlan, args: { ...costPlan.args, id: costPlan.args.id.value } };
+  assert.throws(() => resolveChainBody([idUnwrapped], f.kernel), /Invalid cost\.modify modifier argument: value/);
+  // A hand-written full unwrap does freeze a plan on the *chain source* (the
+  // fixture's base), which is exactly why it cannot stand in for the printed
+  // gap: the plan describes the wrong card. Reported here as measured evidence.
+  const fullyUnwrapped = { ...costPlan, args: { id: costPlan.args.id.value, modifier: costPlan.args.modifier.value } };
+  const outcome = resolveChainBody([fullyUnwrapped], f.kernel);
+  assert.equal(outcome.results[0].result.status, "executed");
+  const plan = outcome.linkedValues["void-rush.cost-plan.cost"];
+  assert.equal(plan.finalized, true);
+  assert.equal(plan.source.id, "source");
+  assert.notEqual(plan.source.id, "void-rush");
+});
+
+test("Void Rush chain: the decode failure aborts the whole Finalize, so the reveal never resolves and nothing is played", () => {
+  // Feed the card's real reveal + cost-plan body through the production chain
+  // adapter. The adapter fails to decode cost.modify inside the Finalize
+  // transaction, so the locked reveal is rolled back; no play, draw, or
+  // discarded card from this card may be claimed.
+  const f = fixture();
+  f.engine.advance();
+  assert.throws(
+    () => {
+      f.engine.enqueue({
+        id: "void-rush-body", kind: "triggered", controller: "A",
+        source: f.kernel.getObject("source"), body: [revealInstruction, costPlan]
+      });
+      f.engine.advance();
+      while (f.engine.items.length) f.engine.pass(f.engine.priority);
+    },
+    /cost\.modify id must be a non-empty string \(or supply source\)/
+  );
+  assert.equal(f.kernel.linked("void-rush.reveal.revealed"), undefined);
+  assert.equal(f.engine.pipeline.events.some((event) => event.timingPoint === "card-revealed"), false);
+  assert.equal(f.kernel.zone("A", "deck").length, 4);
+  assert.equal(f.kernel.player("A").handSize, 0);
+});
+
+test("Void Rush direct execution: the optional play cannot bind the reveal and the pending move-to-hand is not Draw", () => {
+  // With the pick plans locked for the reveal, the merged interpreter resolves
+  // the authored [reveal, optional play] body: the optional's body reads the
+  // linked revealed refs, but the link scope is not visible from the nested
+  // instruction, so the play is ignored and nothing moves to hand.
+  const kernel = world().player("A", { energy: 20 }).deck(["c1", "c2", "c3", "c4"]).build();
+  kernel.setAnswers({ "void-rush.may-play/optional": true });
+  // The reveal's ordered pick comes from the Finalize lock in the production
+  // path; here the direct interpreter call supplies the same locked refs so the
+  // optional branch itself is what is being measured.
+  const top = kernel.zoneSlice("A", "deck", "top", 2).map((object) => object.ref);
+  const outcome = resolveChainBody([revealInstruction, mayPlay], kernel, {
+    picks: (id) => id === "void-rush.top-two" ? top : undefined
+  });
+  assert.deepEqual(kernel.linked("void-rush.reveal.revealed"), top);
+  assert.equal(kernel.linked("void-rush.reveal.revealedCount"), 2);
+  assert.equal(kernel.zone("A", "deck").length, 4);
+  assert.equal(kernel.zone("A", "hand").length, 0);
+  // The optional body's own play is measured as ignored(mistargeted): the card
+  // was supposed to be played from the locked reveal, but no revealed card is
+  // reachable as a playable pick from the nested instruction.
+  assert.deepEqual(outcome.results.map((entry) => [entry.path.join("/"), entry.result.status, entry.result.reason]), [
+    ["void-rush.reveal", "executed", undefined],
+    ["void-rush.may-play/void-rush.play", "ignored", "mistargeted"],
+    ["void-rush.may-play", "ignored", "mistargeted"]
+  ]);
+  // The pending move-to-hand declaration is not a draw: with the reveal link
+  // present, the ordered pick resolver still cannot address the unplayed refs
+  // as a Draw set, and no card-drawn event is produced (414.1).
+  const linked = world().player("A", { energy: 20 }).deck(["d1", "d2", "d3", "d4"]).build();
+  linked.link("void-rush.reveal.revealed", linked.zoneSlice("A", "deck", "top", 2).map((object) => object.ref));
+  const drawRun = resolveChainBody([drawRest], linked);
+  assert.equal(drawRun.results[0].result.status, "ignored");
+  assert.equal(linked.zone("A", "hand").length, 0);
+  assert.equal(linked.events.filter((event) => event.action === "draw").length, 0);
+});

@@ -1,3 +1,4 @@
+// Execution evidence for keyword expansion is consolidated in ../templates/keyword-only.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -10,7 +11,7 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
-import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { translateInstructionTargets, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 /** Minimal engine so the production static binder can be exercised directly. */
@@ -57,15 +58,16 @@ test("rad-156-167 Demacian Standard: program validates and has expected identity
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-358/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /Deploy/);
-  // RIFT-357 (runtime locations) is merged and no longer the blocker: the
-  // remaining gaps are the here anchor, the trigger-collected attacker choice,
-  // and Deploy's missing continuous.location layer mapping.
+  // RIFT-357 (runtime locations), RIFT-358 (ordered picks / Finalize) and
+  // RIFT-257/267 are merged, so the reason must name merged code or live rule
+  // anchors only: the here anchor, the attack body's relative location filter,
+  // the trigger-collected attacker choice, and Deploy's missing
+  // continuous.location layer mapping.
   assert.match(program.judgeReason, /Unsupported filter field here/);
+  assert.match(program.judgeReason, /Unsupported filter field sameLocationAs/);
   assert.match(program.judgeReason, /no layer mapping/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-357/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257|RIFT-267|RIFT-357|RIFT-358/);
 });
 
 test("rad-156-167 Demacian Standard: Deploy + attack-here might body + hold return body", () => {
@@ -187,6 +189,19 @@ test("rad-156-167 Demacian Standard: both here anchors are still rejected, never
   }
 });
 
+test("rad-156-167 Demacian Standard: the attack body's 'here' target filter is refused too", () => {
+  // The +2 Might TargetSpec expresses "a friendly unit ... attack here" with the
+  // source-relative location anchor, but the production body translator
+  // (programs/play.ts uses translateInstructionTargets) accepts neither the
+  // relative-player spelling nor sameLocationAs, so the body cannot reach the
+  // chain as written. Assert the real rejection instead of rewriting the card's
+  // rule text into an absolute player id.
+  assert.throws(
+    () => translateInstructionTargets(program.abilities[1].body),
+    /Unsupported filter field sameLocationAs/
+  );
+});
+
 test("rad-156-167 Demacian Standard: the Deploy expansion still cannot bind to a layer", () => {
   // 830.1.b: Deploy's KeywordDef expands to a continuous.location static
   // ability. The merged program binder maps no layer for that kind, so the
@@ -208,7 +223,8 @@ test("rad-156-167 Demacian Standard: the Deploy expansion still cannot bind to a
 
 test.todo(
   "rad-156-167 Demacian Standard: 攻击触发里“one of them”的选择（触发条件收集该处攻击者后由控制者选一）" +
-    "依赖触发选择与模式/目标 Finalize 落地（RIFT-358）"
+    "需要触发条件收集到的攻击者集合与触发式选择，当前 TriggerRegistration 载荷不带该集合，" +
+    "Finalize 的 TargetSpec 只能按 filter 现场查询并会发出 became-target（355.9 / 466.2.c）"
 );
 
 test("rad-156-167 Demacian Standard: +2 Might this turn registers an arithmetic-layer modifier through the real interpreter", () => {

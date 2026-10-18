@@ -1,3 +1,10 @@
+// Golden test for Cleave (ogn-004-298) — layers 1 and 2 of cards/README §4
+// (validation/identity and structure).
+//
+// Execution evidence (the real play through the generic card scenario harness:
+// 1 Energy payment, locked board-unit target, ability-layer Assault 3 result and
+// the empty-Board boundary) lives in the RIFT-681 parameterized template golden:
+// test/cards/templates/keyword-play-continuous-grant-keyword-681.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -35,6 +42,7 @@ test("ogn-004-298 Cleave: program validates, is registered and stays judge-requi
   assert.match(program.judgeReason, /二次展开|KeywordDef\.expand/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /combatRole/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -157,6 +165,7 @@ test.todo(
 );
 test.todo(
   "ogn-004-298 Cleave: the granted Assault's +3 Might is computed by the merged Assault " +
-    "KeywordDef (effects/keywords/Assault.ts) once the granted keyword is expanded and the " +
-    "attacker designation is mapped from the layers combatRole (CR 807.1.c/807.1.d.1, combat flow)"
+    "KeywordDef (effects/keywords/Assault.ts) once the merged KeywordGrantLayerEngine re-expansion (which " +
+    "aliases designation to combatRole) is attached to production assembly instead of the plain LayerEngine " +
+    "(CR 807.1.c/807.1.d.1, combat flow)"
 );

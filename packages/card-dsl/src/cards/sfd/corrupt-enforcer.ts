@@ -31,7 +31,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - combat-result 时点没有发射方：events/action-adapter.ts 只按已提交游戏动作派生时点，
  *   combat/ 的胜负判定（468.3）尚未接入事件管线，全仓库没有 combat-result 的 emit；
  *   // 「I win」的胜者绑定同样需要该发射路径。
- * 依赖：move-location 的触发注册与终点载荷、combat-result 发射（RIFT-33/RIFT-124）。
+ * 依赖：EVENT_PATTERN_TYPES 的 move-location 词条与其终点载荷、combat-result 发射与胜负绑定。
  * 两条正文指令（effect.discard / effect.draw）已合入并有 golden 执行证据；不近似实现触发判定
  * （不把任何移动都当作「移动到战场」，不把 combat-result 改成别的时点）。
  */
@@ -82,18 +82,17 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "object-moved 触发无法注册：events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 不含 object-moved，" +
-    "registerTrigger 抛 TriggerSpecValidationError；即便注册成功，events/action-adapter.ts 的 " +
-    "move-location 映射也不填 toZone/toKind（zone-enter/leave 分支才有这些字段），因此 " +
-    "toZone: \"battlefield\" 无法命中；" +
-    "449.1/449.2 的起点终点、458 的 Recall 排除据此无法执行。" +
-    "内层 source: \"self\" 已由 translateTriggerFilter 转成宿主 objectId。" +
-    "第二条「When I win a combat」同样不可执行：combat-result 时点没有发射方（events/action-adapter.ts " +
-    "只为已提交游戏动作派生时点，combat/ 的 468.3 胜负判定尚未接入事件管线，全仓库无 combat-result 的 emit），" +
-    "「I win」的胜者绑定也需要该发射路径。" +
-    "两条正文指令已合入：effect.discard（423.1/423.1.a 弃 1，弃牌者为控制者）与 effect.draw（414.1/414.3 抽 1），" +
+    "两条触发都订阅不上（2026-10-18 实测）：" +
+    "（1）events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 不含 object-moved，注册抛 TriggerSpecValidationError" +
+    "（invalid-event-type@trigger.filter.event，实测）；即使绕过词汇表，events/action-adapter.ts 的 " +
+    "move-location 映射也只发出 timingPoint 载荷，不填 toZone/toKind（实测 emitted event 的 fromZone/toZone 均为 undefined），" +
+    "因此 \"移动到战场\"（449.1/449.2）与 458 的 Recall 排除都无法命中；内层 source: \"self\" 已由 translateTriggerFilter 转成宿主 objectId。" +
+    "（2）combat-result 同样不在 EVENT_PATTERN_TYPES（实测 invalid-event-type），且没有发射方：" +
+    "events/action-adapter.ts 只为已提交游戏动作派生时点，combat/ 的胜负判定（468.3/468.4）尚未接入事件管线，" +
+    "全仓库没有 combat-result 的 emit；「I win」的胜者绑定也需要该发射路径。" +
+    "两条正文指令本身已合入：effect.discard（423.1/423.1.a 弃 1，弃牌者为控制者）与 effect.draw（414.1/414.3 抽 1），" +
     "golden 用参考内核真实执行，但触发判定不近似实现。" +
-    "依赖：move-location 的触发注册与终点载荷、combat-result 发射与胜负绑定（RIFT-33/RIFT-124）。",
+    "依赖：EVENT_PATTERN_TYPES 的 move-location/combat-result 词条、move-location 的终点载荷、combat-result 发射与胜负绑定。",
   abilities,
   sourceText:
     "When I move to a battlefield, discard 1.\n" +

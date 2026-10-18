@@ -44,6 +44,11 @@ test("ogn-079-298: identity, exact source text, pure data and explicit blocked s
   // Restored pre-resweep assertion /players\/scoreAtLeast|dynamic static/.
   assert.match(program.judgeReason, /players\/scoreAtLeast|dynamic static|scoreAtLeast/);
   assert.match(program.judgeReason, /applyMightMinimums|minimum/);
+  // 2026-10-17 re-sweep: the reason now states the measured behaviour instead
+  // of claiming the condition is unconditionally true.
+  assert.match(program.judgeReason, /relation/);
+  assert.match(program.judgeReason, /queryObjects|count/);
+  assert.match(program.judgeReason, /relative-player query/);
   assert.equal(program.sourceText, "If an opponent's score is within 3 points of the Victory Score, I enter ready.\nStunned enemy units here have -8 :rb_might:, to a minimum of 1 :rb_might:.");
   assert.deepEqual(JSON.parse(JSON.stringify(program)), program);
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -87,15 +92,48 @@ test("Leona: the opponent/Victory Score condition is not a real player predicate
     relation: "opponent",
     scoreAtLeast: { relativeTo: "victory-score", offset: -3 }
   });
-  // The merged evaluator only counts a set; the players/score predicates are
-  // not interpreted, so the condition is vacuously true even with no opponent
-  // anywhere near the Victory Score.
+  // The merged evaluator only counts a set (expr.ts count -> queryObjects),
+  // so the players/relation/scoreAtLeast predicates are not interpreted at all.
+  // The measured outcome is "a count of board objects", not a score check:
+  // false with no unrelated board object and true once one is added, whatever
+  // the scores are.
   const environment = context === undefined
     ? { context: null, host: source.ref, linked: () => undefined, canLookBack: () => true, isIgnored: () => false }
     : { context, host: source.ref, linked: () => undefined, canLookBack: () => true, isIgnored: () => false };
   assert.notEqual(environment.context, null, "the production chain context must be constructible for this probe");
   assert.equal(kernel.player("B").score, 0);
+  // The world holds the Leona card itself, and the query has no zone/location
+  // restriction to exclude it, so the count is already 1 here; the point is
+  // that the scores are never read.
   assert.equal(evaluateCondition(condition, environment), true);
+  const noObjects = world().player("A", { energy: 20, score: 0 }).player("B", { energy: 20, score: 0 }).build();
+  assert.equal(evaluateCondition(condition, {
+    context: noObjects, host: null, linked: () => undefined, canLookBack: () => true,
+    isIgnored: () => false, query: filter => noObjects.query(filter)
+  }), false);
+});
+
+test("Leona: the same condition flips on an unrelated board object regardless of scores", () => {
+  const condition = program.abilities[0].condition;
+  for (const [opponentScore, boardUnits] of [[8, 0], [0, 0], [8, 1], [1, 1], [8, 2]]) {
+    const kernel = world()
+      .player("A", { energy: 20, score: 0 })
+      .player("B", { energy: 20, score: opponentScore })
+      .build();
+    for (let index = 0; index < boardUnits; index++) {
+      kernel.addObject({
+        ref: { id: "filler-" + index, zoneEntryId: 1 }, cardId: "card:filler", name: "filler",
+        types: ["unit"], tags: [], keywords: [], owner: "A", controller: "A", zone: "board",
+        location: null, might: 2, energy: 1, power: ["Fury"], exhausted: false, damage: 0,
+        stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
+      }, "board");
+    }
+    const observed = evaluateCondition(condition, {
+      context: kernel, host: null, linked: () => undefined, canLookBack: () => true,
+      isIgnored: () => false, query: filter => kernel.query(filter)
+    });
+    assert.equal(observed, boardUnits > 0, `opponentScore=${opponentScore} boardUnits=${boardUnits}`);
+  }
 });
 
 test("Leona: the relative-opponent aura filter is still refused by the static binder", () => {
@@ -145,4 +183,4 @@ test("Leona: permanent -8 Might applies only to stunned enemies here with printe
 });
 
 test.todo("Leona: entry replacement evaluates any opponent against current Victory Score at distances 3/4, including non-eight modes; never emit ready-after-entry");
-test.todo("Leona: real continuous aura at Might 1/8/9/10; preserve friendly/unstunned/other-location units and expire applicability as state changes");
+test.todo("Leona: the continuous -8 aura first needs programs/statics.ts to bind controller: \"opponent\" (currently ProgramBindingError: Static controller:opponent filter needs a relative-player query); then real Might 1/8/9/10, friendly/unstunned/other-location preservation, and per-effect minimum:1 clamping through the layer engine (only the layers/ops applyMightMinimums helper has it)");

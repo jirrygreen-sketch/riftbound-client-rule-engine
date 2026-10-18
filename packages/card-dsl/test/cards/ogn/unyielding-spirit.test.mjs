@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import unyieldingSpirit from "../../../dist/cards/ogn/unyielding-spirit.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [speed, prevention] = unyieldingSpirit.abilities;
 const [preventInstruction] = prevention.with;
@@ -58,8 +60,8 @@ test("Unyielding Spirit structure: [Reaction] keyword + damage replacement", () 
 });
 
 test("Unyielding Spirit: the prevention is not approximated with a merged primitive", () => {
-  // No registered instruction implements prevention, and the card must not be
-  // spelled with a damage/heal instruction or a no-op closure: "prevent" and
+  // The replacement.prevent instruction is the merged prevention primitive, and
+  // the card must not be spelled with a damage/heal instruction or a no-op closure: "prevent" and
   // "heal" are different actions (438.1.a.1: Prevent includes applied Bonus
   // Damage in its total; 438.4: fully prevented damage was never dealt).
   assert.equal(preventInstruction.op, "replacement.prevent");
@@ -73,18 +75,46 @@ test("Unyielding Spirit: the prevention is not approximated with a merged primit
 });
 
 test("Unyielding Spirit: no duration field exists on the replacement ability form", () => {
-  // The printed "this turn" window is carried by the pending instruction's
-  // duration argument because contract 3.1's replacement ability has no
-  // duration field; the ability itself must therefore not pretend to own one.
+  // The printed "this turn" window is carried by replacement.prevent's
+  // duration argument. Contract 3.1 keeps the window on the instruction,
+  // rather than adding a second ability-level duration field.
   assert.equal(prevention.duration, undefined);
   assert.deepEqual(preventInstruction.args.duration, { kind: "constant", value: "this-turn" });
+});
+
+test("Unyielding Spirit evidence: the merged primitive is rejected only at the ability-level binder", () => {
+  const kernel = world()
+    .card("unyielding-spirit", { zone: "chain", owner: "A", types: ["spell"] })
+    .build();
+  const hostRef = kernel.ref("unyielding-spirit");
+  const deps = {
+    host: {
+      object: ref => kernel.object(ref),
+      objects: () => kernel.objects,
+      context: () => kernel
+    },
+    pipeline: {
+      clock: { turn: 1 },
+      registerReplacement: () => {},
+      unregisterReplacement: () => {}
+    }
+  };
+  assert.throws(
+    () => bindReplacement(
+      { replaces: prevention.replaces, with: prevention.with },
+      hostRef,
+      deps
+    ),
+    /Unsupported replacement opcode: replacement\.prevent/
+  );
 });
 
 test.todo(
   "Unyielding Spirit execution: a replacement.prevent instruction must let the card install " +
     "a damage replacement whose total is 'all' (438.1.b.1.c) and whose window ends with the " +
-    "turn, and the frozen damage GameAction needs a spell/ability vs combat discriminator " +
-    "(438.1.b: the action records the source of the damage being prevented)"
+    "turn; the ability-level binder must consume the merged primitive, and the frozen damage " +
+    "GameAction needs a spell/ability vs combat discriminator (438.1.b: the action records the " +
+    "source of the damage being prevented)"
 );
 
 test.todo(

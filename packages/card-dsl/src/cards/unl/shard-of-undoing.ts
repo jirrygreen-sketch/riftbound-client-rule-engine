@@ -19,20 +19,28 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Beginning 阶段（beginning-start → beginning-end）。
  * - 383.3.e.1 / 383.1 的 "The first time … each turn" 是每回合一次的频度限制。
  *
- * status = judge-required（缺口不近似实现）：
+ * status = judge-required（2026-10-18 复核，缺口不近似实现）：
  * - "during your Beginning Phase" 的阶段窗口没有可执行的触发器过滤：TriggerSpec 的
  *   ObjectFilter / EventPattern 只有对象特征与 fromZone/toZone/amount/details 等键
- *   （events/trigger-spec.ts 的 validateTriggerSpec 还拒绝额外键），没有"事件发生在哪个
- *   回合/阶段"的谓词；ObjectSnapshot 也不暴露阶段。已合入的 beginning-start 时点
+ *   （events/trigger-spec.ts 的 validateTriggerSpec 还拒绝额外键；programs/filters.ts 的
+ *   translateTriggerFilter 也会以 "Unsupported filter field duringPhase" 拒绝，实测），
+ *   没有"事件发生在哪个回合/阶段"的谓词；ObjectSnapshot 也不暴露阶段。已合入的 beginning-start 时点
  *   （timing-points.ts）是阶段开始时刻，与"本阶段内任意时刻发生的死亡"不等价——
  *   写成 beginning-start 会漏掉本阶段后续时点造成的死亡，写成无条件 once: "per-turn"
  *   会把其它阶段的死亡也算进来，两者都是错误近似。
  * - "each opponent" 的扇出缺原语：effect.kill 每一条指令只读取一个 picks 集合，没有
  *   按对手逐个绑定"由该对手选择并支付"的循环（与 ogn/kings-edict、rad/suave-negotiator
  *   的 target.player / 多玩家选择缺口同源）。
- * - 通用 CardProgram → TriggerRegistration 接线已合入，但本卡的阶段字段仍无法通过
- *   programs/filters.ts 绑定；不能把它删掉或误当作无条件触发。
- * 已合入部分由 golden 真实执行：effect.kill 消费 picks（429.1.a.1 / 429.6）。
+ * - 通用 CardProgram → TriggerRegistration 接线已合入，且 trigger.once="per-turn" 能通过校验，
+ *   但没有消费方认识 duringPhase：扁平写法会被 programs/filters.ts 的 translateTriggerFilter
+ *   以 "Unsupported filter field duringPhase" 拒绝（实测），而本卡现在这种带嵌套 object 的写法
+ *   会把该字段静默丢弃、产出无阶段限制的 per-turn 触发（实测）；不能把它删掉或误当作无条件触发。
+ * - "each opponent" 的扇出缺口还有一个可执行的旁证：picks 的 options 只是记录性占位，
+ *   programs 与 chain 都不消费 "runtime:..." 前缀的选项（chain/picks/plan.ts 只接受
+ *   zoneSlice/linked 两种显式来源），所以 effect.kill 实际依赖调用方在 Finalize 时提供
+ *   已经逐对手选好的 picks 集合。
+ * 已合入部分由 golden 真实执行：effect.kill 消费 picks（429.1.a.1 / 429.6），
+ * 并在被替代时如实返回 negated/replaced（359.2.c）。
  * 依赖：阶段窗口谓词 / 事件载荷扩展（契约变更请求）、多玩家逐对手选择原语（RIFT-9
  * target.player 家族）；不近似实现。
  */
@@ -83,16 +91,21 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处缺口：(1)「during your Beginning Phase」的阶段窗口没有可执行的触发器过滤：TriggerSpec 的 ObjectFilter / " +
+    "三处缺口（2026-10-18 复核）：(1)「during your Beginning Phase」的阶段窗口没有可执行的触发器过滤：TriggerSpec 的 ObjectFilter / " +
     "EventPattern 只有对象特征与 fromZone/toZone/amount/details 等键（events/trigger-spec.ts 的 " +
     "validateTriggerSpec 还拒绝额外键），没有「事件发生在哪个回合/阶段」的谓词，ObjectSnapshot 也不暴露阶段；" +
     "beginning-start 时点（315.2.a.1）只是阶段开始时刻，与「本阶段内任意时刻的死亡」不等价——写成它会漏掉" +
     "本阶段后续时点造成的死亡，写成无条件 once: \"per-turn\" 又会把其它阶段的死亡算进来，两者都是错误近似。" +
     "(2)「each opponent」缺逐对手扇出：effect.kill 每条指令只读一个 picks 集合，没有按对手逐个绑定" +
-    "「由该对手选择并消灭」的循环（与 ogn/kings-edict、rad/suave-negotiator 的玩家选择缺口同源）。" +
-    "(3) 通用 CardProgram→TriggerRegistration 接线已合入，但该阶段字段仍不能绑定；不能把它删掉或误当作无条件触发。" +
+    "「由该对手选择并消灭」的循环（与 ogn/kings-edict、rad/suave-negotiator 的玩家选择缺口同源）；" +
+    "picks.options 里的 runtime:one-unit-per-opponent 只是记录性占位，chain/picks/plan.ts 只接受 " +
+    "zoneSlice/linked 两种显式来源，programs 与 chain 都不消费 runtime: 前缀的选项。" +
+    "(3) 通用 CardProgram→TriggerRegistration 接线已合入，trigger.once 可绑定，但没有消费方认识 duringPhase：" +
+    "扁平写法会被 programs/filters.ts 的 translateTriggerFilter 以 \"Unsupported filter field duringPhase\" 拒绝（实测），" +
+    "而本卡现在这种带嵌套 object 的写法会把该字段静默丢弃、产出无阶段限制的 per-turn 触发（实测）；" +
+    "两种结果都不能接受，也不能把它删掉或误当作无条件触发。" +
     "已合入部分由 golden 真实执行：effect.kill 消费 picks（429.1.a.1 / 429.6）。依赖：阶段窗口谓词 / " +
-    "事件载荷扩展（契约变更请求）、多玩家逐对手选择原语（RIFT-9 target.player 家族）；不近似实现。",
+    "事件载荷扩展（契约变更请求）、多玩家逐对手选择（target.player 家族）；不近似实现。",
   abilities,
   sourceText:
     "The first time a friendly unit dies during your Beginning Phase each turn, " +

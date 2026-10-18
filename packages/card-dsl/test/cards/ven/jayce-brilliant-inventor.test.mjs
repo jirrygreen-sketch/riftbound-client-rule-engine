@@ -6,6 +6,7 @@ import program from "../../../dist/cards/ven/jayce-brilliant-inventor.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { finalizePick } from "../../../../engine-core/dist/target/target-plan.js";
 import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
@@ -45,8 +46,9 @@ test("ven-068-166 Jayce: identity, status, judgeReason and verbatim sourceText",
   assert.match(program.judgeReason, /per-turn/);
   assert.match(program.judgeReason, /PickSpec/);
   assert.doesNotMatch(program.judgeReason, /RIFT-(89|90|91|120|257|258|87)/);
-  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /filter 型 PickSpec 的生产解析管线/);
   assert.match(program.judgeReason, /Unsupported filter field isToken/);
+  assert.match(program.judgeReason, /finalizeOrderedPickPlans/);
 });
 
 test("ven-068-166 Jayce: the printed 'or' becomes two independent card-played triggers", () => {
@@ -264,4 +266,41 @@ test("ven-068-166 probe: the gear-half trigger filter fails to bind on isToken",
     "the whole card's trigger registration aborts; neither half reaches the chain"
   );
   assert.ok(f.kernel.getObject("real-gear"), "the gear play itself succeeds");
+});
+
+test("ven-068-166 probe: the production chain never finalizes the filter-based pick, so the optional ready resolves to nothing", () => {
+  // chain/engine.ts Finalize calls finalizeOrderedPickPlans, which only accepts
+  // zoneSlice/linked source picks; finalizePick itself has no production caller.
+  const selection = playReady.picks[0];
+  assert.equal(selection.selection, "one");
+  assert.deepEqual(selection.filter, { exclude: "self", states: "exhausted" });
+  assert.equal(selection.options.length, 1, "options is a descriptive placeholder, not the live candidate set");
+
+  const kernel = jayceWorld();
+  const kernelWithSource = kernel.clone({ sourceSnapshot: kernel.getObject("jayce") });
+  // A caller that supplies the locked pick gets a real ready (the primitive is
+  // merged); the production chain never does, so this must stay judge-required.
+  kernelWithSource.setPicks("jayce-brilliant-inventor.exhausted-other", [kernelWithSource.ref("exhausted-ally")]);
+  const plan = finalizePick(kernelWithSource, {
+    id: selection.id,
+    options: [kernelWithSource.ref("exhausted-ally")],
+    min: 1,
+    max: 1,
+    selection: "one"
+  });
+  assert.deepEqual(plan.selected, [kernelWithSource.ref("exhausted-ally")]);
+
+  // Without a caller, ctx.picks(id) is empty and effect.ready resolves as
+  // ignored/mistargeted instead of readying anything.
+  const bare = jayceWorld();
+  bare.setAnswers({ "jayce-brilliant-inventor.play-me.may-ready/optional": true });
+  const outcome = runAbilityBody(playMe.body, bare);
+  assert.equal(outcome.status, "partial");
+  // The ready instruction and its choice.optional wrapper both end ignored: the
+  // pick resolves empty, so nothing is readied.
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["jayce-brilliant-inventor.play-me.may-ready.ready-other", "ignored"],
+    ["jayce-brilliant-inventor.play-me.may-ready", "ignored"]
+  ]);
+  assert.equal(bare.getObject("exhausted-ally").exhausted, true);
 });

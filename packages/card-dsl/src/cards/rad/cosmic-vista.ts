@@ -47,17 +47,11 @@ export default {
   judgeReason:
     "两处当前缺口，均不近似实现：" +
     "（1）触发条件「if your Rune Deck is empty」属 TriggerSpec.condition（383.2.a.1），" +
-    "RIFT-359 的条件适配已合入：host 提供 testTrigger 时事件管线调用它，未提供时回退到 host.context 求值；" +
-    "但条件里的符号 owner（filter { owner: \"self\" }）在该回退路径不被归一：生产 host 的 query" +
-    "（apps/game-server 的 engine-runtime/host.ts）把 \"self\" 与玩家 id 字面比较，「你的符文牌库」恒计 0，" +
-    "非空符文牌库也被误判为空；只有 ChainEngine 的 resolve 上下文（chain/engine.ts）归一符号 owner/controller，" +
-    "而它不喂触发条件求值。" +
-    "（2）「when you hold here」的 here 锚点不在封闭 EventPattern 词表里：assertTriggerSpec 抛 \"EventPattern 不允许此字段\"，" +
-    "程序绑定路径的 translateTriggerFilter 也抛 \"Unsupported filter field here\"（均已实测），" +
-    "因此无法把触发注册到本卡的战场；payload 侧 details.battlefieldId 已随 hold/score 波发出。" +
-    "事件名本身不是缺口：{ event: \"held\", player: \"self\" } 可正常翻译并通过校验。" +
-    "已合入部分：hold 时点由 turn/flow.ts 的 scheduleScore 随结构化 Score 波（hold / score / points-gained）发出（RIFT-124），" +
-    "效果本体「score 1 point」= 获得 1 点（470.1 / 470.2 / 194.1.c）用已合入的 effect.score 表达并有真实执行用例；触发半段保持 judge-required。",
+    "但生产 host 的 query 不把 filter { owner: \"self\" } 归一为触发能力控制者；非空符文牌库会被误判为空。" +
+    "（2）「when you hold here」的 here 锚点不在封闭 EventPattern 词表里：assertTriggerSpec 拒绝该字段，" +
+    "translateTriggerFilter 也抛 \"Unsupported filter field here\"，因此无法把触发注册到本卡战场；hold/score 事件虽携带 battlefieldId，" +
+    "当前没有把它绑定为来源战场。事件名 held 本身可翻译。" +
+    "effect.score（470.1 / 470.2 / 194.1.c）及 hold timing point 已有真实执行证据，但触发半段仍不可执行。",
   sourceText: "When you hold here, if your Rune Deck is empty, you score 1 point.",
   abilities: [
     {

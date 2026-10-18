@@ -27,14 +27,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * 仍缺两处（不近似实现）：
  * 1. [Accelerate]（805）的展开虽已合入，但没有消费方把卡牌的 keyword 能力接进 Finalize
- *    的费用计划：cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，programs/play.ts
- *    对 additional-cost 类字段直接判 judge-required 失败。
+ *    的费用计划：cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，accelerate.cost
+ *    静态效果在 programs/statics.ts 的 layerFor 没有图层映射（实测 "Static ability kind
+ *    accelerate.cost has no layer mapping"），programs/play.ts 产出的 draft 也不带 cost
+ *    字段（实测 undefined），805.1.b 的 [1][域] 因此永不收费。
  * 2. [Ganking] 的 movement() 查询已经由 Standard Move 的 moveDuelUnitsStandard 消费；
  *    "When I move" 的订阅仍不可注册：events/trigger-spec.ts 的封闭 EVENT_PATTERN_TYPES
- *    没有 object-moved 事件名（只有 zone-entered/zone-left 等别名），本卡的
- *    `{ event: "object-moved", filter: { source: "self" } }` 会被 validateTriggerSpec
- *    直接拒绝（invalid-event-type + unknown-field）；Standard Move 的战场间移动仍未接入
- *    object-moved 事件管线（449.2、458.1 的 Recall 排除）。
+ *    没有 object-moved 事件名，本卡的 `{ event: "object-moved", filter: { source: "self" } }`
+ *    会被 validateTriggerSpec 直接拒绝（实测 invalid-event-type + unknown-field，
+ *    没有任何等价拼写可注册）；Standard Move 的战场间移动仍未接入 object-moved 事件管线
+ *    （449.2、458.1 的 Recall 排除），action-adapter 的 move-location 事件也不带
+ *    fromZone/toZone。
  * body 的 gain 1 XP（effect.xp，730.1）已合入，golden 用解释器 + 参考内核真实执行。
  */
 const abilities: Ability[] = [
@@ -67,10 +70,13 @@ export default {
     "Accelerate/Ganking 的 KeywordDef、continuous.movement 指令、movement() 查询与卡牌程序绑定均已合入，" +
     "但仍有两处缺口，均不近似实现：" +
     "(1) [Accelerate]（805）没有消费方把卡牌 keyword 能力接进 Finalize 费用计划：cost/cost-plan.ts 只消费调用方传入的 " +
-    "optionalAdditional，chain/engine.ts 只读已生成的计划（programs/play.ts 对 additional-cost 类字段直接判 judge-required 失败）。" +
+    "optionalAdditional，chain/engine.ts 只读已生成的计划；accelerate.cost 静态效果在 programs/statics.ts 的 layerFor " +
+    "没有图层映射（实测 \"Static ability kind accelerate.cost has no layer mapping\"），programs/play.ts 产出的 draft 也不带 " +
+    "cost 字段（实测 undefined），805.1.b 的 [1][域] 永不收费。" +
     "(2) “When I move”的订阅不可注册：events/trigger-spec.ts 的封闭 EVENT_PATTERN_TYPES 没有 object-moved 事件名，" +
     "本卡的 `{ event: \"object-moved\", filter: { source: \"self\" } }` 会被 validateTriggerSpec 直接拒绝" +
-    "（invalid-event-type + unknown-field），Standard Move 的战场间移动也尚未接入 object-moved 事件管线（449.2、458.1）。" +
+    "（实测 invalid-event-type + unknown-field，无等价拼写），Standard Move 的战场间移动也尚未接入 object-moved 事件管线" +
+    "（449.2、458.1），action-adapter 的 move-location 事件同样不带 fromZone/toZone。" +
     "gain 1 XP（effect.xp，730.1）已合入并在 golden 中真实执行。",
   abilities,
   sourceText:

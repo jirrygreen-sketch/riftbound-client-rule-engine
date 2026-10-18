@@ -37,6 +37,7 @@ test("ven-142-166 Dominus: program passes validateCardProgram and is judge-requi
 });
 
 test("ven-142-166 Dominus: judgeReason distinguishes the missing grant from supported doubling and [A]", () => {
+  // Refreshed 2026-10-18: the reason carries the re-sweep date and stays RIFT-free.
   assert.match(program.judgeReason, /continuous\.grant-ability/);
   assert.match(program.judgeReason, /433/);
   assert.match(program.judgeReason, /condition\.value/);
@@ -46,6 +47,7 @@ test("ven-142-166 Dominus: judgeReason distinguishes the missing grant from supp
   assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
   assert.match(program.judgeReason, /163\.2\.b/);
+  assert.match(program.judgeReason, /2026-10-18 复核/);
   assert.match(program.judgeReason, /不近似实现/);
 });
 

@@ -22,31 +22,40 @@ import type { CardProgram } from "../../ir/index.js";
  *   turn (317.2.c), it resolves at the turn-end timing point, and it plays NEW
  *   Bomb tokens equal to the number killed.
  *
- * Status: judge-required. The kill half really executes (the golden runs the
- * card's own instruction through the chain adapter); the delayed half still
- * cannot:
- * - the card-facing delayed-instruction op is not available: Delayed Abilities
- *   are created by the resolving spell, not owned by a permanent (393), so the
- *   existing timing registration hook cannot be represented by this program;
+ * Status: judge-required (2026-10-17 recheck). The kill half really executes
+ * (the golden runs the card's own instruction through the chain adapter); the
+ * delayed half still cannot:
+ * - the card-facing delayed-instruction op is not available:
+ *   instructionDefinitionsById has no trigger.delayed, and the interpreter's
+ *   `delayed` channel is only the ResolveContext.registerDelayedTrigger hook
+ *   (effects/contract.ts) that no registered op can reach from card data.
+ *   Delayed Abilities are created by the resolving spell, not owned by a
+ *   permanent (393), so a card-owned triggered ability would be wrong;
+ * - "that many" has no count: effect.kill links the killed ObjectRef list under
+ *   `killed` and no numeric count key, while effect.token requires a numeric
+ *   amount — a linked object list negates as impossible (observed);
  * - "to a single battlefield" is a non-target play-location choice (355.10.b).
- *   LocationExpr can now choose a battlefield once, and effect.token can read
- *   that bound location. Its candidate query still needs the complete location
- *   list: the expression path only derives locations mentioned by objects and
- *   does not pass external LocationState for otherwise unrepresented fields;
+ *   LocationExpr can choose a battlefield once and effect.token can read that
+ *   bound location, but the candidate query only derives locations mentioned by
+ *   current objects: an otherwise unrepresented battlefield is absent unless
+ *   the caller supplies external LocationState (observed);
  * - the Bomb definition (187.12) carries its own Deploy and Deathknell
  *   abilities, which the merged effect.token definition table still does not
- *   include.
+ *   include (`bomb` negates with token-definition-or-abilities-judge-required).
  */
 export default {
   canonicalCardId: "card.hash-adaaf974cd82ebaff6aa819c452460671fea4a56efdd3d88174b6e787957c96a",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口：(1) trigger.delayed 未注册，无法从法术结算创建独立于来源存续的延迟能力（390/391.2/393），" +
-    "也无法将 effect.kill 的 killed 对象列表捕获为延迟执行时的固定数量；registerDelayedTrigger 钩子本身已存在。" +
-    "(2) effect.token 仍缺 187.12 的 Bomb 定义及 Deploy/Deathknell 正文绑定（440.2.c 的链上创建/play 交接已存在）。" +
-    "(3) 355.10.b 的单一战场非目标选择已能表达，但 LocationExpr 候选路径未接入完整 LocationState 列表，" +
-    "只能从对象 location 推导战场，未覆盖不被这些位置引用的空战场。不近似实现。",
+    "当前缺口（实测）：(1) instructionDefinitionsById 无 trigger.delayed，卡牌数据无法创建独立于来源存续的延迟能力" +
+    "（390/391.2/393）；registerDelayedTrigger 只是 ResolveContext 钩子，没有已注册原语消费它。" +
+    "(2) 「that many」没有固定数量：effect.kill 只在 killed 链接对象列表、没有数值计数，" +
+    "effect.token 的 amount 需要数字，传链接对象列表会 negated/impossible。" +
+    "(3) effect.token 仍缺 187.12 的 Bomb 定义及 Deploy/Deathknell 正文绑定（440.2.c 的链上创建/play 交接已合入，" +
+    "但 bomb 请求实测 negated）。" +
+    "(4) 355.10.b 的单一战场非目标选择可表达，但 LocationExpr 只能从对象 location 推导候选，" +
+    "未被任何对象位置引用的空战场需要调用方传入完整 LocationState。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

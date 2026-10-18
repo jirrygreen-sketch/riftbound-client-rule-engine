@@ -1,10 +1,16 @@
 // Golden test for War Scout (rad-008-167).
 //
-// The +2 Might clause is now executable with the merged continuous.might
+// Execution evidence (the real play -> card-played -> Finalize target lock ->
+// continuous.might +2, plus the non-Board illegal-target boundary) lives in
+// the RIFT-660 parameterized template golden:
+// test/cards/templates/keyword-triggered-card-played-continuous-660.test.mjs.
+// The +2 Might clause is executable with the merged continuous.might
 // instruction (RIFT-258) and the real layer engine. [Accelerate] itself is
 // merged, but no play flow writes the optional [1][Fury] additional cost into
 // Finalize optionalAdditional / selectedAdditional yet, so the card stays
-// judge-required.
+// judge-required. This file keeps validation, identity, verbatim text,
+// declared status and the key structure of the printed abilities; the
+// interpreter goldens below still execute the card's own body.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -55,7 +61,13 @@ test("rad-008-167: keyword declaration plus card-played trigger with a +2 Might 
   assert.equal(instruction.op, "continuous.might");
   assert.deepEqual(instruction.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(instruction.args.duration, { kind: "constant", value: "this-turn" });
-  assert.deepEqual(instruction.args.target, { kind: "constant", value: MIGHT_TARGET });
+  // 作用对象是 objects 的 { kind: "target", id } 选择符：生产链的
+  // resolveChainBody 在结算时按 ctx.targets(id) 解析该值（RIFT-660 实测
+  // 修正；旧的 target 参数拼写在生产链上不会命中 TargetSpec）。
+  assert.deepEqual(instruction.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: MIGHT_TARGET }
+  });
   // “a unit” 是任意单位的目标选择（352/355.9），min=max=1。
   assert.equal(instruction.targets.length, 1);
   const [spec] = instruction.targets;
@@ -83,7 +95,7 @@ test("rad-008-167: the continuous.might body really grants +2 Might for the turn
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("war-scout") });
   scoped.setTargets(MIGHT_TARGET, [scoped.ref("other")]);
   // 用默认解释器注册表执行卡牌原始 body：continuous.might 已注册（RIFT-258），
-  // target 参数在解释器求值后按 TargetSpec id 解析。
+  // objects 的 { kind: "target", id } 值在解释器求值后按 TargetSpec id 解析。
   const outcome = runAbilityBody(program.abilities[1].body, scoped);
   assert.equal(outcome.status, "executed", JSON.stringify(outcome.results));
   assert.deepEqual(

@@ -30,7 +30,10 @@ test("unl-127-219 Mister Root: identity, status, judgeReason and verbatim source
   assert.match(program.judgeReason, /Accelerate/);
   assert.match(program.judgeReason, /move-location/);
   assert.match(program.judgeReason, /449\.1/);
-  assert.match(program.judgeReason, /toZone/);
+  assert.match(program.judgeReason, /object-moved/);
+  assert.match(program.judgeReason, /validateTriggerSpec/);
+  assert.match(program.judgeReason, /accelerate\.cost/);
+  assert.match(program.judgeReason, /no layer mapping/);
 });
 
 test("unl-127-219 Mister Root: unvalued Accelerate keyword plus the move-to-battlefield trigger", () => {
@@ -100,6 +103,107 @@ test.todo(
 );
 test.todo(
   "unl-127-219 Mister Root: subscribe 'When I move to a battlefield' for real (CR 449.1/449.2 targets and " +
-    "458/458.1 Recall exclusion) — action-adapter.ts leaves toZone/toKind/toLocationId unset on object-moved and the " +
-    "inner source: self anchor has no consumer"
+    "458/458.1 Recall exclusion) — the closed EVENT_PATTERN_TYPES has no object-moved entry (validateTriggerSpec rejects " +
+    "every spelling) and action-adapter.ts leaves fromZone/toZone unset on move-location"
 );
+
+test("unl-127-219 Mister Root: the move trigger cannot be registered through the merged closed vocabulary", async () => {
+  // 421.1 / 449.1/449.2 / 458/458.1 need a real Move trigger, but the closed
+  // EVENT_PATTERN_TYPES vocabulary has no object-moved entry: the card's own
+  // filter is rejected and so is every equivalent spelling, so this cannot be
+  // approximated by subscribing to a neighbouring event.
+  const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
+  const { validateTriggerSpec, EVENT_PATTERN_TYPES } = await import("../../../../engine-core/dist/events/trigger-spec.js");
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+
+  assert.equal(EVENT_PATTERN_TYPES.includes("object-moved"), false);
+  const spec = validateTriggerSpec({ at: "object-moved", filter: triggered.trigger.filter });
+  assert.equal(spec.ok, false);
+  assert.ok(spec.issues.some(issue => issue.code === "invalid-event-type"));
+  // The nested self anchor is unrepresentable too: the closed EventPattern has
+  // no filter field.
+  assert.ok(spec.issues.some(issue => issue.code === "unknown-field"));
+
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const f = fixture({
+    cards: [{ id: "root", cardId: CARD_ID, types: ["unit"], energy: 2, power: [], might: 1 }]
+  });
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("root"),
+    to: "board",
+    location: { type: "battlefield", id: "bf-1" }
+  });
+  const source = { ...f.kernel.getObject("root"), cardId: CARD_ID, zone: "board" };
+  // registerTrigger validates the spec and throws before any subscription is
+  // stored; the message lists the closed vocabulary the card's event is absent
+  // from.
+  assert.throws(
+    () => binding.registerProgramTriggers(f.engine, source),
+    /trigger\.filter\.event: 值必须属于 zone-entered/
+  );
+  assert.equal(f.engine.pipeline.triggers.size ?? 0, 0);
+});
+
+test("unl-127-219 Mister Root golden: a real move-location carries no from/to zone payload", async () => {
+  // events/action-adapter.ts maps move-location onto the object-moved timing
+  // point but publishes neither fromZone nor toZone (timing-points.ts declares
+  // them as payloadFields), so 449.1/449.2 cannot be evaluated.
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+  const f = fixture({ cards: [{ id: "root", types: ["unit"], energy: 2, power: [], might: 1 }] });
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("root"),
+    to: "board",
+    location: { type: "battlefield", id: "bf-1" }
+  });
+  f.engine.commit({
+    type: "move-location",
+    object: f.kernel.ref("root"),
+    to: { type: "battlefield", id: "bf-2" }
+  });
+  const [moved] = f.engine.pipeline.events.filter(event => event.timingPoint === "object-moved");
+  assert.ok(moved, "move-location must publish the object-moved timing point");
+  assert.equal(moved.fromZone, undefined);
+  assert.equal(moved.toZone, undefined);
+  assert.equal(f.kernel.getObject("root").location.id, "bf-2");
+});
+
+test("unl-127-219 Mister Root: the Accelerate static declaration cannot enter the production layer path", async () => {
+  // 805.1.b: the merged KeywordDef publishes a static accelerate.cost
+  // declaration, but programs/statics.ts's layerFor has no mapping for it, and
+  // the play draft the merged describePlay builds carries no cost at all.
+  const { createProgramBinding, createEngineStaticBinder } = await import("../../../../engine-core/dist/programs/index.js");
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const f = fixture({
+    cards: [{ id: "root", cardId: CARD_ID, types: ["unit"], energy: 2, power: [], might: 1 }],
+    describePlay: binding.describePlay
+  });
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("root"),
+    to: "board",
+    location: { type: "battlefield", id: "bf-1" }
+  });
+  const source = { ...f.kernel.getObject("root"), cardId: CARD_ID, zone: "board" };
+  const [accelerate] = binding.inspect(source).abilities.filter(ability => ability.kind === "static");
+  assert.equal(accelerate.effect.kind, "accelerate.cost");
+  assert.equal(accelerate.effect.cost.optional, true);
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(accelerate, source),
+    /Static ability kind accelerate\.cost has no layer mapping/
+  );
+
+  const draft = binding.describePlay(
+    { type: "play", player: "A", object: f.kernel.ref("root") },
+    f.kernel.getObject("root")
+  );
+  assert.equal(draft.cost, undefined);
+  assert.equal(draft.body.length, 0);
+});

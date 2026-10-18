@@ -5,6 +5,9 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/hextech-disc.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import tokenDefinition from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 
@@ -45,6 +48,10 @@ test("ven-087-166 Hextech Disc: identity, ruleset, status, judgeReason and verba
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /Disempower/);
   assert.match(program.judgeReason, /440\.2\.c/);
+  assert.match(program.judgeReason, /Unsupported cost kind empower/);
+  assert.match(program.judgeReason, /Unsupported payment kind: disempower/);
+  assert.match(program.judgeReason, /card-program adapter/);
+  assert.doesNotMatch(program.judgeReason, /没有 \"empower\"\/\"empowered\" 展开的 KeywordDef/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -130,17 +137,71 @@ test("ven-087-166 Hextech Disc: the merge-able half of the cost (energy + exhaus
   assert.equal(bound.getObject("hextech-disc").exhausted, true);
 });
 
-test.todo(
-  "ven-087-166 Hextech Disc: [Empower] (exhaust the source, CR 827.1.c.1/415.5) needs an Empower/Empowered " +
-    "KeywordDef — keywords/registry.generated.ts has no \"empower\"/\"empowered\" entry"
-);
-test.todo(
-  "ven-087-166 Hextech Disc: paying \"Disempower this\" (CR 443.2/443.2.a) needs the disempower payment kind in " +
-    "cost/plan-values.ts readCost, whose nonstandard kinds are only " +
-    "exhaust/discard/recycle/kill/reveal/spend-buff"
-);
-test.todo(
-  "ven-087-166 Hextech Disc: the production Chain-side receiver for a played token (440.2.c / 185.2.a) and the " +
-    "card-program describePlay adapter are unmerged: routeAction requires a bound card program for play actions, " +
-    "and a token has no cardId to bind; the reference kernel run above proves the token definition and play handoff only"
-);
+test("ven-087-166 Hextech Disc probe: the merged Empower expansion loses the printed exhaust cost", () => {
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const kernel = world().player("A").player("B")
+    .unit("hextech-disc", {
+      cardId: CARD_ID,
+      types: ["gear"],
+      might: null,
+      energy: 4,
+      power: ["Body"],
+      zone: "board",
+      location: { type: "base", player: "A" }
+    })
+    .build();
+  const expanded = binding.inspect(kernel.getObject("hextech-disc")).abilities.filter(a => a.kind === "activated");
+  assert.equal(expanded.length, 2, "declared activation + merged Empower expansion");
+  const empowered = expanded.at(-1);
+  // 827.1.c: the printed cost is exhausting the source, but the expansion has
+  // no carrier for it: KeywordAbility has no params field.
+  assert.deepEqual(empowered.cost, { kind: "empower" });
+  assert.throws(
+    () => binding.describeActivate(kernel.getObject("hextech-disc"), "A", 1),
+    error => error.code === "judge-required" && /Unsupported cost kind empower/.test(error.message)
+  );
+});
+
+test("ven-087-166 Hextech Disc probe: the printed Disempower payment is rejected by the merged cost plan", () => {
+  const kernel = discWorld();
+  const bound = kernel.clone({ source: kernel.ref("hextech-disc"), sourceSnapshot: kernel.getObject("hextech-disc") });
+  assert.throws(
+    () => buildCostPlan(bound, { id: "cost:hextech-disc", cost: activated.cost }),
+    error => error.reason === "judge-required" && /Unsupported payment kind: disempower/.test(error.message)
+  );
+});
+
+test("ven-087-166 Hextech Disc probe: the production chain has no receiver for a played token", () => {
+  const kernel = world().player("A").player("B")
+    .deck(["A:d"], { owner: "A" }).deck(["B:d"], { owner: "B" })
+    .rune(["A:r"], { owner: "A" }).rune(["B:r"], { owner: "B" })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host,
+    cleanup: () => false
+  });
+  const created = engine.commit({
+    type: "create-token",
+    player: "A",
+    token: { cardId: null, name: "Mech", types: ["unit"], tags: ["Mech"], might: 3, energy: null, power: null },
+    to: "chain"
+  });
+  assert.equal(created.status, "done");
+  // routeAction requires a bound card program (describePlay); a token has no
+  // cardId, so the play handoff cannot be dispatched without an adapter.
+  assert.throws(
+    () => engine.commit({ type: "play", object: created.result, player: "A", location: { type: "base", player: "A" } }),
+    /Play action requires a card-program adapter/
+  );
+});

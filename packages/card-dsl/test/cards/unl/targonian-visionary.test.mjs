@@ -1,3 +1,6 @@
+// Scenario execution evidence: ../templates/static-644.test.mjs (one parameterized row per card).
+// This card stays judge-required; the template row pins the object-count gate over-applying +4
+// at 0 XP through the production static binder.
 import assert from "node:assert/strict";
 import test from "node:test";
 

@@ -25,19 +25,21 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  * - 416.1 / 416.1.b / 416.1.c：重置用 effect.ready；已就绪对象不会再次被重置。
  *
  * status = judge-required（缺口均不近似实现）：
+ * 复核（2026-10-17，RIFT-613 第三轮 M2 覆盖率复核，实测见 test.mjs 的 probe 用例）：
  * 1. 触发注册与消费已合入：registerProgramTriggers 把 CardProgram 的 triggered 能力
  *    注册成 TriggerRegistration，事件管线扫描 card-played；TriggerSpec.once 的 per-turn
- *    频率由 pipeline.consume 在 Finalize 消费。探针测试给出 play-me 半真实
- *    进链的执行证据；
- * 2. 非目标 pick 没有生产解析入口（RIFT-358 进行中）：effect.ready 的 pick 在解释器里
- *    读 ctx.picks(id)，生产链路没有人调用 finalizePick / 向玩家提供 PickSpec 的选项集，
- *    pick 静默解析为空；选择最终由 choice.optional 的 “you may” 承接，不 ready 任何对象；
- * 3. 触发过滤器翻译不支持 type/isToken：translateTriggerFilter 对嵌套 event filter
- *    走 else 分支时删除 type，translateObjectFilter 随后拒绝 isToken 并抛
- *    "Unsupported filter field isToken"，gear 半因此无法注册，并使整张卡的
- *    触发注册中止（探针测试固定该行为）。
- * 依赖：RIFT-358（pick 解析管线）与 translateTriggerFilter / translateObjectFilter
- *    的 type、isToken 支持。
+ *    频率由 pipeline.consume 在 Finalize 消费。play-me 半已进链并有探针证据；
+ * 2. 非目标 pick 仍没有生产解析入口：chain/engine.ts 的 Finalize 只调用
+ *    finalizeOrderedPickPlans，而 chain/picks/plan.ts 的 orderedPickSpecs 只接受带
+ *    zoneSlice / linked 的来源型 PickSpec；本卡的 filter 型 PickSpec（exclude:self +
+ *    states:exhausted）不会进 plan，解释器 ctx.picks(id) 解析为空、静默不 ready 任何对象
+ *    （target/target-plan.ts 的 finalizePick 只有单元测试调用，生产链路无调用方）；
+ * 3. “non-token gear” 的过滤器翻译失败：translateTriggerFilter 把嵌套 event filter 摊平后
+ *    由 translateObjectFilter 处理，后者拒绝 isToken，实测 registerProgramTriggers 抛
+ *    ProgramBindingError "Unsupported filter field isToken"；gear 半因此无法注册，并使
+ *    整张卡的触发注册中止（triggerRegistrations 对 abilities 做 flatMap，一次抛出即整体失败）。
+ * 依赖：filter 型 PickSpec 的生产 Finalize 解析管线（RIFT-358 后续）与
+ *    translateTriggerFilter / translateObjectFilter 的 isToken 支持。
  * effect.ready 与 choice.optional 本体已合入，golden 用真实解释器 + 参考内核执行
  * 接受/拒绝两条路径。
  */
@@ -107,16 +109,18 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) 触发注册与消费已合入：registerProgramTriggers 把 CardProgram 的 triggered 能力注册成 " +
-    "TriggerRegistration，事件管线扫描 card-played；TriggerSpec.once 的 per-turn 频率由 pipeline.consume " +
-    "在 Finalize 消费（探针测试给出 play-me 半真实进链的执行证据）；(2) 「something besides me that's " +
-    "exhausted」是 355.10.d/355.10.d.1 的非目标 pick：解释器读 ctx.picks(id)，但生产链路没有人调用 " +
-    "finalizePick / 向玩家提供 PickSpec 的选项集，pick 静默解析为空（RIFT-358 进行中），选择最终由 " +
-    "choice.optional 的 “you may” 承接，不 ready 任何对象；(3) “non-token gear” 的过滤器翻译失败：" +
-    "translateTriggerFilter 对嵌套 event filter 走 else 分支时删除 type，translateObjectFilter 拒绝 " +
-    "isToken 并抛 “Unsupported filter field isToken”，gear 半因此无法注册，并使整张卡的触发注册中止（探针测试）。" +
-    "effect.ready 与 choice.optional 本体已合入，golden 用真实解释器 + 参考内核执行接受/拒绝两条路径；" +
-    "不近似实现（不把“something besides me”改成来源自身，也不把非目标选择写成 TargetSpec）。",
+    "三处缺口（2026-10-17 RIFT-613 复核实测）：(1) 触发注册与消费已合入：registerProgramTriggers 把 triggered " +
+    "能力注册成 TriggerRegistration，事件管线扫描 card-played，TriggerSpec.once 的 per-turn 频率由 " +
+    "pipeline.consume 在 Finalize 消费（play-me 半有探针证据）；(2) 非目标 pick 没有生产解析入口：" +
+    "chain/engine.ts 的 Finalize 只调用 finalizeOrderedPickPlans，chain/picks/plan.ts 的 orderedPickSpecs " +
+    "只接受 zoneSlice / linked 来源型 PickSpec，本卡的 filter 型 pick（exclude:self + states:exhausted）" +
+    "不会进 plan，ctx.picks(id) 解析为空、静默不 ready 任何对象；target/target-plan.ts 的 finalizePick " +
+    "只有单元测试调用，生产链路无调用方。(3)「non-token gear」的过滤器翻译失败：translateTriggerFilter " +
+    "摊平嵌套 event filter 后交给 translateObjectFilter，后者拒绝 isToken，实测 registerProgramTriggers 抛 " +
+    "ProgramBindingError \"Unsupported filter field isToken\"，gear 半无法注册并使整张卡的触发注册中止" +
+    "（triggerRegistrations 对 abilities 做 flatMap）。effect.ready 与 choice.optional 本体已合入，golden 用" +
+    "真实解释器 + 参考内核执行接受/拒绝两条路径；不近似实现（不把\"something besides me\"改成来源自身，" +
+    "也不把非目标选择写成 TargetSpec）。依赖 filter 型 PickSpec 的生产解析管线与 isToken 过滤支持。",
   abilities,
   sourceText:
     "When you play me or the first time you play a non-token gear each turn, you may ready " +

@@ -7,6 +7,11 @@ import ready from "../../../../engine-core/dist/effects/instructions/effect.read
 import shield from "../../../../engine-core/dist/effects/keywords/Shield.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindStaticAbility, createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CARD_ID =
   "card.hash-fc7374c39848c88e67ed66b36519a4f64f748f14266f0341692d6f5db092e3e4";
@@ -23,6 +28,10 @@ test("rad-077-167 Wrath of the Freljord: program validates and is judge-required
   assert.match(program.judgeReason, /369\.3/);
   assert.match(program.judgeReason, /syntheticEnter/);
   assert.match(program.judgeReason, /designation/);
+  assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /Unavailable characteristic: designation/);
+  // README section 2: the reason names merged code that fails, never a task id.
+  assert.equal(/RIFT-\d+/.test(program.judgeReason), false);
 });
 
 test("rad-077-167 Wrath of the Freljord: sourceText is the verbatim deck-catalog ability text", () => {
@@ -112,3 +121,68 @@ test.todo(
     "therefore catches MissingInformation and evaluates the condition to false, so the bonus " +
     "cannot be claimed executable until the designation feature is added."
 );
+
+test("rad-077-167 Wrath of the Freljord: the production Shield gate stays false while the combatRole twin evaluates (814.1.d)", () => {
+  // The gap is the property name, not the layer pipeline: the real static binder
+  // registers the expansion's continuous.might, but its `designation` condition
+  // throws MissingInformation against a defender snapshot and the binder's catch
+  // makes it permanently false. The equivalent combatRole reading resolves.
+  const kernel = world().player("A").player("B")
+    .unit("wrath", {
+      controller: "A", owner: "A", might: 7, combatRole: "defender", zone: "board",
+      location: { type: "battlefield", id: "bf-1" }, keywords: [{ id: "Shield", value: 3 }]
+    })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`Unexpected choice: ${request.id}`); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const snapshot = { ...kernel.getObject("wrath"), cardId: CARD_ID };
+  const [expansion] = shield.expand({ host: { canonicalCardId: CARD_ID }, value: 3 });
+  const handle = bindStaticAbility(createEngineStaticBinder(engine), expansion, snapshot);
+  engine.layers.setObjects(kernel.objects);
+  assert.deepEqual(engine.layers.registry.list().map(entry => entry.effect.effect.kind), ["continuous.might"]);
+  assert.equal(engine.layers.evaluate(snapshot.ref).might, 7, "the defender gate never opens");
+  handle.unbind();
+
+  // The condition itself is unevaluable through the default expression path...
+  const context = bindResolveContext(kernel, { source: snapshot, controller: "A", timingPoint: "chain-item-resolve" });
+  const environment = {
+    context, host: snapshot.ref, linked: () => undefined, canLookBack: () => true, isIgnored: () => false
+  };
+  assert.throws(
+    () => evaluateCondition(expansion.condition, environment),
+    /Unavailable characteristic: designation/
+  );
+  // ...while the same comparison over ObjectSnapshot.combatRole returns true.
+  assert.equal(
+    evaluateCondition({
+      kind: "compare",
+      left: { kind: "object-property", object: "self", property: "combatRole" },
+      operator: "eq",
+      right: { kind: "constant", value: "defender" }
+    }, environment),
+    true
+  );
+  const combatRolePredicate = runAbilityBody([{
+    id: "wrath.combat-role-gate",
+    op: "condition.predicate",
+    args: {
+      condition: {
+        kind: "constant",
+        value: {
+          kind: "compare",
+          left: { kind: "object-property", object: "self", property: "combatRole" },
+          operator: "eq",
+          right: { kind: "constant", value: "defender" }
+        }
+      }
+    }
+  }], kernel, undefined, { host: kernel.ref("wrath") });
+  assert.equal(combatRolePredicate.results[0].result.linkedValues.value, true);
+});

@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/twilight-step.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-f8d896c2ca5339609e26be4f09c5f2b54a57e4cae02b10efbb3319f94414f084";
 const SOURCE_TEXT =
@@ -33,10 +35,9 @@ test("ven-105-166 Twilight Step: identity, ruleset, status and exact source text
 test("ven-105-166 Twilight Step: judgeReason names the Might predicate, destination and Flow gaps", () => {
   assert.match(program.judgeReason, /mightLte/);
   assert.match(program.judgeReason, /143\.2\.a/);
-  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /355\.4/);
-  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /Flow/);
+  assert.match(program.judgeReason, /合法目的地集合/);
   assert.doesNotMatch(program.judgeReason, /RIFT-83|RIFT-90|RIFT-260|RIFT-261/);
   assert.match(program.judgeReason, /不近似实现/);
 });
@@ -95,15 +96,36 @@ test("ven-105-166 Twilight Step: the merged Move instruction is what the card ca
   assert.deepEqual(moveUnit.args.objects.value, { target: "twilight-step.unit" });
 });
 
+test("ven-105-166 Twilight Step golden: effect.move relocates the locked unit when Finalize supplies a concrete destination", () => {
+  const kernel = world()
+    .unit("unit", { owner: "A", controller: "A", might: 2, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const run = runInstruction(
+    move,
+    {
+      objects: moveUnit.args.objects,
+      to: { kind: "constant", value: { type: "battlefield", id: "bf-2" } },
+      amount: moveUnit.args.amount,
+      linkKey: moveUnit.args.linkKey
+    },
+    { world: kernel, targets: { "twilight-step.unit": [kernel.ref("unit")] } }
+  );
+
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(kernel.getObject("unit").location, { type: "battlefield", id: "bf-2" });
+  assert.deepEqual(run.events.map(event => event.action), ["move-location"]);
+  assert.deepEqual(run.linked.moved.objects, [{ id: "unit", zoneEntryId: 1 }]);
+});
+
 test.todo(
   "ven-105-166 Twilight Step: enforce the 'Might 3 or less' targeting restriction with effective Might " +
-    "(CR 143.2.a / 355.9.b) — needs the effective-Might predicate and condition wiring (RIFT-359); unknown filter keys are " +
+    "(CR 143.2.a / 355.9.b) — needs the effective-Might predicate and condition wiring; unknown filter keys are " +
     "silently ignored today, which would make every unit a legal target"
 );
 
 test.todo(
   "ven-105-166 Twilight Step: choose a valid destination for the moved unit at Finalize (CR 355.4 / " +
-    "355.4.a) — needs the legal-destination set reader wired into the target plan (RIFT-357); effect.move's " +
+    "355.4.a) — needs the legal-destination set reader wired into the target plan; effect.move's " +
     "choose form requires concrete LocationRefs that static IR cannot write"
 );
 

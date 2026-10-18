@@ -6,6 +6,9 @@ import program from "../../../dist/cards/unl/shadow-watcher.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
+// Execution evidence for the supported replacement body is also covered by
+// ../templates/replacement-effect-ready-655.test.mjs; the assertions below
+// retain the card-specific identity, condition, structure, and edge cases.
 const CANONICAL_ID =
   "card.hash-914ae0a53b785c0cddd76d977413c9c36d1bc8a2bd78e0f3a1d68a71ae5f718e";
 const SOURCE_TEXT =

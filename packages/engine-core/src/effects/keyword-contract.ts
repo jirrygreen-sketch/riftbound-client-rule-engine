@@ -1,4 +1,4 @@
-import type { Ability, CostSpec, KeywordId, Value } from "@riftbound/card-dsl";
+import type { Ability, CostSpec, KeywordId, ObjectSelector, Value } from "@riftbound/card-dsl";
 
 /**
  * Reference to the card that hosts a keyword, passed to {@link KeywordDef.expand}.
@@ -17,6 +17,19 @@ export interface CardContextRef {
  */
 export type KeywordStacking = "sum" | "single" | "separate";
 
+/** Printed parameters carried by one keyword instance into its expansion. */
+export interface KeywordParameterMap {
+  readonly cost?: CostSpec;
+  readonly object?: ObjectSelector;
+  readonly [key: string]: Value | CostSpec | undefined;
+}
+
+export interface KeywordExpansionInput {
+  readonly value?: number;
+  readonly host: CardContextRef;
+  readonly params?: KeywordParameterMap;
+}
+
 /**
  * One keyword per file under `effects/keywords/<keyword>.ts`, default-exported
  * and indexed by `keyword` in the generated registry (P0 contract 3.7).
@@ -33,7 +46,7 @@ export interface KeywordDef {
   expand(input: {
     readonly value?: number;
     readonly host: CardContextRef;
-    /** Printed keyword parameters, e.g. Equip's cost (P0 contract 3.8). */
+    /** Printed keyword parameters, including structured cost/object mappings. */
     readonly params?: { readonly cost?: CostSpec; readonly [key: string]: Value | CostSpec | undefined };
   }): readonly Ability[];
   /** Core Rules v1.5 rule numbers backing the expansion. */

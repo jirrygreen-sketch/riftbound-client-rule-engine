@@ -4,6 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/void-burrower.js";
 
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
+
 import { buildExhaustCostPlan, canPayCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
@@ -57,7 +59,8 @@ test("sfd-187-221 Void Burrower: identity, ruleset, status, judgeReason and verb
   // The four recorded blockers, including the identity's printing difference.
   assert.match(program.judgeReason, /conquer/);
   assert.match(program.judgeReason, /mayAtFinalize/);
-  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /LITERAL_FIELDS/);
+  assert.match(program.judgeReason, /mayAtFinalize/);
   assert.match(program.judgeReason, /sfd-243-221/);
   assert.match(program.judgeReason, /428\.1/);
 });
@@ -98,8 +101,10 @@ test("sfd-187-221 Void Burrower: conquer trigger, leading may, exhaust, reveal, 
   assert.deepEqual(revealTopTwo.picks, [
     {
       id: "void-burrower.top-two",
-      options: ["dynamic:top-two-main-deck-cards"],
-      selection: "all"
+      options: [],
+      ordered: true,
+      selection: "all",
+      zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 2 } }
     }
   ]);
   assert.equal(revealTopTwo.targets, undefined);
@@ -267,6 +272,32 @@ test("Void Burrower supported recycle subpath: all revealed cards recycle when n
   assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["d3", "d1", "d2"]);
 });
 
-test.todo("Void Burrower: translate the leading may/exhaust into mayAtFinalize and TriggerRegistration.cost (383.3.a/b, 404.1.b.1)");
-test.todo("Void Burrower: supply ordered picks and decode effect.reveal.pick through the production chain (RIFT-358), with a real printed play-cost plan");
+test("Void Burrower: the merged chain Finalize locks the ordered top-two reveal source", () => {
+  const f = fixture();
+  f.engine.advance();
+  const top = f.kernel.zoneSlice("A", "deck", "top", 2).map(object => object.ref);
+  // The chain-representable reveal/recycle suffix under test. The optional play
+  // stays in the covered resolveChainBody subpath tests: the chain host's play
+  // action router needs the production describePlay adapter (see judgeReason 1),
+  // so the leading exhaust and the Finalize may/cost wiring remain blocked.
+  f.engine.enqueue({
+    id: "void-burrower-chain", kind: "triggered", controller: "A", source: f.kernel.getObject("source"),
+    body: [revealTopTwo, recycleRest]
+  });
+  f.engine.advance();
+  assert.equal(f.engine.items[0].status, "finalized");
+  assert.equal(f.engine.items[0].pickPlans.length, 1, "Finalize must capture the ordered top-two source");
+  assert.equal(f.engine.items[0].pickPlans[0].id, "void-burrower.top-two");
+  assert.deepEqual(f.engine.items[0].pickPlans[0].refs, top);
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "card-revealed"), false);
+  resolveAll(f.engine);
+  assert.deepEqual(f.kernel.linked("void-burrower.reveal-top-two.revealed"), top);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "card-revealed").length, 2);
+  // Revealed cards stay revealed where they are (425.1.a.2); the linked recycle
+  // consumes the locked refs and sends both to their owner's deck bottom.
+  assert.equal(f.kernel.events.some(event => event.action === "play"), false);
+  assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id), ["A:deck:3", "A:deck:4", "A:deck:1", "A:deck:2"]);
+});
+
+test.todo("Void Burrower: translate the leading may/exhaust into mayAtFinalize and TriggerRegistration.cost, and wire the chain play path's describePlay adapter (383.3.a/b, 404.1.b.1)");
 test.todo("Void Burrower: resolve sfd-243-221's banish-then-play printing difference before canonical execution (428.1/420.3)");

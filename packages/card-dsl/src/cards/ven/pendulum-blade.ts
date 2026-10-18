@@ -15,10 +15,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   成为附着动作的 Top-Most Card。
  * - 135.2.e.4 / 163.2.b：印刷的 :rb_rune_fury: 是 1 点 Fury Power（本卡无能量费用）。
  *
- * status = judge-required：卡牌关键词展开与 describeActivate 接线已存在，effect.attach 可真实执行。
- * 仍缺 KeywordAbility → expand params.cost 的印刷费用传递，以及 Equip.ts 对该费用的消费；
- * 展开仍声明 payments:[{kind:"equip"}]，费用计划没有对应支付语义（818.1.c）。
- * 不把 Gear 的打出费用当成 Equip 费，也不把 Equip 降级成裸 effect.attach。
+ * 当前执行边界见 judgeReason 与对应 golden；保留所有印刷语义。
  */
 /**
  * 818.1.c：印刷的 Equip 费用是 1 点 Fury Power；value 记印刷资源符号数，costDomain 记该
@@ -37,9 +34,7 @@ export default {
   canonicalCardId: "card.hash-cf2885ca18787660c4888723a93f4322d32c6a6fcb218d79e11353307fbbe53c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason:
-    "[Equip] 的印刷费用（1 Fury Power，818.1.c / 135.2.e.4）仍缺绑定：KeywordAbility 只有 keyword/value，programs/keywords.ts 未传递 params.cost，Equip.ts 也未读取该参数；描述性的 costDomain 不能产生可支付费用。" +
-    "Equip 展开仍给出 payments:[{kind:\"equip\"}]，cost/plan-values.ts 无此支付种类，不能生成 1 Fury Power 的计划。通用 Power 支付、activationAbilities / describeActivate 与 effect.attach 已存在；仅附件 body 的真实执行不证明 Equip 费用可用，也不将 Gear 的 3 Energy 打出费用充作 Equip 费。",
+  judgeReason: "当前缺口是印刷 Equip 费用的绑定与消费（818.1.c / 135.2.e.4）：KeywordAbility / programs/keywords.ts 仍未传 params.cost，Equip.ts 不读取该参数而输出 payments:[{kind:\"equip\"}]，cost/plan-values.ts 没有 equip 支付种类。costDomain 描述字段无法生成 1 Fury Power 的费用计划。通用 Power 支付、activationAbilities / describeActivate 与 effect.attach 已存在；附件 body 已真实执行，但不将 Gear 的 3 Energy 打出费用充作 Equip 费。",
   abilities: [equip],
   sourceText:
     "[Equip] :rb_rune_fury: (:rb_rune_fury:: Attach this to a unit you control.)"

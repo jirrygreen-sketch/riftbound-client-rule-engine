@@ -23,29 +23,19 @@ import type { CardProgram } from "../../ir/index.js";
  * - [Flow]（829）：829.1.c 的格式 "Flow [Cost]" 与 829.1.b 的「用 Flow 打出后本卡离开 Chain
  *   时改为放逐」；卡只声明关键词身份（契约 3.7/README 第 5 节）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。唯一未合入的依赖是 [Flow]：
- * 829.1.b/829.1.c 需要 RIFT-261 的费用消费方（暴露可选择的备选费用、保留 null 印刷费用、
- * 记录实付的 Flow 实例）与 RIFT-260 的替代注册/排序路径（并区分本卡自身执行造成的离链），
- * 两者都未合入，关键词展开（keywords/Flow.ts）因此没有可执行链路。
- * 其余两半都是已合入原语并有 golden 执行证据：effect.empower 的 disempower 模式
- * （443.1/443.1.a/443.1.a.1，含未 Empowered 时的空效果）与 effect.kill 的 Might ≤ 3 分支
- * （429.1.a.1 + 143.2.a.1 的 compare）。不近似实现：不把 Disempower 改成 Might/Buff 操作，
- * 也不把 Flow 降级为普通费用。
+ * status = judge-required。已合入依赖与剩余生产接线已重新核对（2026-10-18 逐条实测）；
+ * 当前真实缺口以 judgeReason 为准，子效果执行不证明整卡可执行。
  */
 const lacerate = {
   canonicalCardId: "card.hash-918c7c0acc1cff3bf6bc9579ca9dc1dfeec36e9b894becddb7b0eb8918a44cad",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "唯一未合入的依赖是 [Flow]（829）：829.1.b/829.1.c 的备选费用与「离开 Chain 时改为放逐」替代需要 " +
-    "RIFT-261（费用消费方暴露可选择的备选费用、保留 null 印刷费用、记录实付 Flow 实例）与 " +
-    "RIFT-260（替代注册/排序，并区分本卡自身执行造成的离链），两者都未合入；" +
-    "keywords/Flow.ts 的展开因此没有可执行链路。不把 Flow 降级成普通费用。" +
-    "「If it's [Empowered], disempower it」按 443.1.a.1（对未 Empowered 的对象执行 Disempower " +
-    "什么也不发生）与无条件 Disempower 结果等价，已由已合入的 effect.empower（mode: disempower）" +
-    "执行；「kill it if it has 3 :rb_might: or less」用 429.1.a.1 的 effect.kill 加上 143.2.a.1 的 " +
-    "Effective Might compare 条件执行。两条都有 golden 真实执行证据（含未 Empowered 的空效果与 " +
-    "Might > 3 不消灭的边界）。",
+    "仍缺：(1) KeywordAbility / programs/keywords.ts 未传 params.cost，无法把印刷 Flow 费用 4 Energy + 2 Order Power 交给关键词展开（829.1.c）；" +
+    "(2) programs/play.ts 未把 flow.cost 接入从 trash 打出的许可与备选费用，也未把实付 Flow 实例关联离链放逐及自身指令离链例外（829.1.b.1）；不把 Flow 降级成普通费用。" +
+    "实测展开后 Flow 的 static flow.cost 在 programs/statics.ts 的 layerFor 抛 no layer mapping，programs/play.ts 的 describePlay 也直接以本卡的 judge-required 状态拒绝。" +
+    "(3) effect.empower 的 disempower 模式交给参考内核后会清空全部 Empowered 状态（实测 2 层 Empower 后剩 0），尚不满足 443.1.b 的多重状态只移除一层；" +
+    "443.1.a.1 的未 Empowered 空效果也仍会产生 disempower 动作事件（实测 events 含 disempower，仅 board 状态不变）。",
   abilities: [
     { kind: "keyword", keyword: "flow" },
     {

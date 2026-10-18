@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
@@ -76,7 +79,7 @@ test("apprentice-mage: judgeReason names every missing dependency", () => {
   assert.match(program.judgeReason, /effect\.inspect/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /442\.1\.a/);
-  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /KeywordAbility\.params\.cost/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -108,8 +111,10 @@ test("apprentice-mage: Empower 2 is declared, and the might bonus is an Empowere
     amount: { kind: "constant", value: 1 }
   });
   assert.deepEqual(might.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "empowered" }
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
   });
 });
 
@@ -124,7 +129,7 @@ test("apprentice-mage: 'when I become Empowered' subscribes to empowered-changed
   assert.equal(triggered.trigger.once, undefined);
 });
 
-test("apprentice-mage: Predict 2 is inspect(2) -> recycle(chosen) -> order(top, 2 - recycled)", () => {
+test("apprentice-mage: Predict 2 is inspect(2) -> recycle(chosen) -> order(top, inspected - recycled)", () => {
   assert.deepEqual(triggered.body.map(instruction => instruction.id), [
     "apprentice-mage.predict-look",
     "apprentice-mage.predict-recycle",
@@ -154,12 +159,16 @@ test("apprentice-mage: Predict 2 is inspect(2) -> recycle(chosen) -> order(top, 
   assert.equal(putBack.op, "effect.order");
   assert.deepEqual(putBack.args.destination, { kind: "constant", value: "top" });
   assert.deepEqual(putBack.args.chooseOrder, { kind: "constant", value: true });
-  // 437.1.a：放回张数是 2 - 实际回收张数，用 linked-value 计算而不是写死。
+  // 437.1.a/437.4：实际查看数减回收数，短牌库不会重新排序已回收牌。
   assert.deepEqual(putBack.args.count, {
     kind: "arithmetic",
     operator: "sub",
     operands: [
-      { kind: "constant", value: 2 },
+      {
+        kind: "linked-value",
+        instructionId: "apprentice-mage.predict-look",
+        key: "inspected"
+      },
       {
         kind: "linked-value",
         instructionId: "apprentice-mage.predict-recycle",
@@ -233,23 +242,89 @@ test("apprentice-mage: looking at the top 2 is an ordered read, never a set quer
 });
 
 test.todo(
-  "apprentice-mage: [Empower] 2 activation and the 828.1.d empowered-changed trigger (including " +
-    "the increase-direction filter from 828.1.c), pending the Empower/Empowered KeywordDefs " +
-    "and the increase-direction trigger filter"
+  "apprentice-mage: bind printed 2 Energy through KeywordAbility.params.cost and expandProgram (827.1.c.1)"
 );
 test.todo(
-  "apprentice-mage: '+1 :rb_might:' through the layers engine with the empowered predicate " +
-    "(828.1.b.1/828.1.c, CR 442.1.a) — continuous.might is merged (RIFT-258), the 442.1.a " +
-    "predicate is not: layers/engine.ts conditionMatches falls back to true for unknown kinds"
+  "apprentice-mage: integrate the tested +1 Might gate with authoritative empowered state and binary action limits (442.1.a-c / 828.1.c)"
 );
 test.todo(
-  "apprentice-mage: execute effect.inspect with the contract 3.6 symbolic player selector " +
-    "(player: { object: 'source', property: 'controller' }) through the production resolver; " +
-    "the reference golden currently substitutes a concrete player value while this binding path is pending"
+  "apprentice-mage: effect.inspect must accept the symbolic source player expression and receive an ordered top-deck PickSpec/zoneSlice binding (437.1.a)"
 );
 
 test.todo(
-  "apprentice-mage: the Empower/Empowered KeywordDefs, the 442.1.a Empowered status predicate and " +
-    "the empowered-changed direction filter are pending — until they land, 827.1.c.1, 828.1.c and " +
-    "828.1.d cannot expand (see judgeReason)"
+  "apprentice-mage: empowered-changed needs actual previousCount/currentCount and increase-direction matching (828.1.d)"
 );
+
+// The card remains judge-required: this binds only its supported static clause.
+// State changes use real actions; the original static ability is never rewritten.
+test("apprentice-mage: the dependent static follows live Empower and Disempower actions", () => {
+  const { kernel, engine } = fixture({ cards: [{
+    id: "host", cardId: program.canonicalCardId, types: ["unit"],
+    might: 2, energy: null, power: null
+  }] });
+  assert.equal(engine.commit({
+    type: "move-zone", object: kernel.ref("host"), to: "battlefield",
+    location: { type: "battlefield", id: "bf-gate" }
+  }).status, "done");
+  const binding = createEngineStaticBinder(engine).bindStatic(might, kernel.getObject("host"));
+  let snapshot = engine.layers.snapshot(kernel.ref("host"));
+  assert.equal(snapshot.might, 2);
+  assert.equal(snapshot.energy, null);
+  assert.equal(snapshot.power, null);
+
+  assert.equal(engine.commit({ type: "empower", object: kernel.ref("host") }).status, "done");
+  snapshot = engine.layers.snapshot(kernel.ref("host"));
+  assert.equal(snapshot.empowered, 1);
+  assert.equal(snapshot.might, 3);
+
+  assert.equal(engine.commit({ type: "disempower", object: kernel.ref("host") }).status, "done");
+  snapshot = engine.layers.snapshot(kernel.ref("host"));
+  assert.equal(snapshot.empowered, 0);
+  assert.equal(snapshot.might, 2);
+  assert.deepEqual(engine.pipeline.events.filter(event => event.timingPoint === "empowered-changed")
+    .map(event => event.action.type), ["empower", "disempower"]);
+  binding.unbind();
+});
+
+test("apprentice-mage: the merged Empower definition expands through the real program adapter", () => {
+  const kernel = world().unit("keyword-host", {
+    cardId: program.canonicalCardId, energy: null, power: null
+  }).build();
+  const { expanded } = expandProgram(program, kernel.getObject("keyword-host"));
+  assert.equal(expanded.length, 1);
+  const [activation] = expanded;
+  assert.equal(activation.kind, "activated");
+  assert.equal(activation.timing, "action");
+  // The missing printed-cost bridge must never turn this into a free activation.
+  assert.deepEqual(activation.cost, { kind: "empower" });
+  assert.deepEqual(activation.restriction, { kind: "empower", condition: {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq", right: { kind: "constant", value: 0 }
+  } });
+  assert.equal(activation.body[0].id, `empower:${program.canonicalCardId}`);
+  assert.equal(activation.body[0].op, "effect.empower");
+  assert.deepEqual(activation.body[0].args, { amount: { kind: "constant", value: 1 } });
+  assert.deepEqual(activation.body[0].condition, activation.restriction.condition);
+  assert.equal(activation.body[0].targets, undefined);
+  assert.equal(program.status, "judge-required");
+});
+
+// Supported Predict subeffects use the existing concrete-player helper while
+// the symbolic inspect-player binding remains explicitly judge-required.
+test("apprentice-mage: Predict never puts recycled cards back from a short Main Deck (437.4)", () => {
+  for (const ids of [[], ["only"], ["one", "two"]]) {
+    const kernel = world().deck(ids).build();
+    const looked = kernel.zoneSlice("A", "deck", "top", 2).map(object => object.ref);
+    kernel.setPicks("apprentice-mage.predict-top-2", looked);
+    kernel.setAnswers({ [PREDICT_CHOICE_ID]: looked });
+    const outcome = resolveChainBody(predictBody(), kernel);
+    assert.equal(outcome.status, "executed", JSON.stringify(ids));
+    assert.equal(outcome.linkedValues["apprentice-mage.predict-look.inspected"], ids.length);
+    assert.equal(outcome.linkedValues["apprentice-mage.predict-recycle.recycledCount"], ids.length);
+    assert.equal(outcome.linkedValues["apprentice-mage.predict-put-back.ordered"], 0);
+    assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ids);
+    assert.equal(kernel.player("A").handSize, 0);
+    assert.equal(kernel.events.some(event => event.action === "order-top"), false);
+  }
+});

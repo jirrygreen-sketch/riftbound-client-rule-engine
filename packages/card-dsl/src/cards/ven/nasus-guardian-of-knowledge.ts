@@ -69,8 +69,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口是死亡触发的“here”位置锚点（383.2.c.3.b / 808.1.d.3）：translateObjectFilter 仍拒绝 sameLocationAs，events/pipeline-match.ts 的 matchesTriggerEvent / matchesTriggerObject 也没有比较事件对象 location 与来源位置的路径。" +
-    "解释器的集合查询与静态图层虽已支持 sameLocationAs，但未接入事件触发过滤，不能用任意位置的敌方单位死亡替代。TriggerSpec.once 的 per-turn 消费与 effect.channel 的 amount:1 / exhausted:true 动作载荷已可用；参考内核尚忽略 channel-rune.exhausted，横置入场仍缺执行证据。",
+    "三处当前缺口（2026-10-17 RIFT-733 复核实测）：" +
+    "(1) 死亡触发的“here”位置锚点（383.2.c.3.b / 808.1.d.3）：programs/filters.ts 的 translateObjectFilter 仍以 " +
+    "ProgramBindingError(judge-required) Unsupported filter field sameLocationAs 拒绝该字段，" +
+    "programs/triggers.ts 的 triggerRegistrations 因而实测抛出 ProgramBindingError(judge-required)，触发无法注册；" +
+    "events/pipeline-match.ts 的 matchesTriggerEvent / matchesTriggerObject 也没有比较事件对象 location 与来源位置的路径。" +
+    "解释器内部的集合查询（selectors.ts）与静态绑定（programs/statics.ts）已支持同位置锚点，但未接入事件触发过滤，" +
+    "不得用任意位置的敌方单位死亡近似。" +
+    "(2) TriggerSpec.once 的 per-turn 消费（pipeline.ts 的 frequencyKey/consume）已合入，但依赖 (1) 的注册成功，" +
+    "尚无 383.3.e.1 单回合一次的执行证据。" +
+    "(3) effect.channel 的 amount:1 / exhausted:true 动作载荷已可用，但参考内核 test-kernel.ts 的 channel-rune " +
+    "分支忽略 action.exhausted，横置入场缺执行证据（生产内核 apps/game-server/src/engine-runtime/host.ts 会消费该字段）。",
   abilities,
   sourceText: "Once each turn, when an enemy unit here dies, channel 1 rune exhausted."
 } satisfies CardProgram;

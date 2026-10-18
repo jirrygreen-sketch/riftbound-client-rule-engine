@@ -21,29 +21,14 @@ import type { CardProgram } from "../../ir/index.js";
  * - [Flow]（829）是费用改写关键词：印刷费用为 5 Energy + 2 rainbow Power。展开归
  *   effects/keywords/Flow，本卡只声明关键词。
  *
- * status = judge-required（复核 2026-10-17，见 judgeReason）：目标选择时的相对 Might 限制没有可求值谓词，
- * 因此该目标当前不能被合法 Finalize；程序保留描述性限制键，并把同一个比较写成指令级 condition
- * （结算时重验，359.3.e.2），绝不把限制去掉（去掉会变成“消灭任意敌方单位”）。
+ * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。
  */
 const publicExecution = {
   canonicalCardId: "card.hash-c0e71d5f247d83c5854d4a20f7ece28e38086a6726e768eae11da9b47b22991b",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1)「an enemy unit with less Might than it」的目标合法性限制没有可求值谓词：" +
-    "355.9.b / 355.8 要求在 Finalize 选择目标时就满足该限制（143.2.a 的有效 Might 比较），" +
-    "但冻结的 ObjectFilter 没有 Might 谓词，已合入的过滤器（layers/filter.ts 的 matchesObjectFilter、" +
-    "测试内核的 matchesFilter）只按 type/zone/controller/tags/characteristics 等字段匹配，" +
-    "未知键（程序里的 mightLessThanTarget）被忽略——把它当已实现会让本卡能消灭任意敌方单位。" +
-    "（进行中 RIFT-359 条件谓词 / RIFT-360 目标税侧与 target-plan 的相对谓词接线。）" +
-    "TargetPlan 的锁定/合法性检查（target/target-plan.ts 的 finalizeTargetPlan / isLegal）已合入，" +
-    "但相对特征谓词仍没有生产接线。" +
-    "(2) Flow 的 KeywordDef 与展开已注册（effects/keywords/Flow.ts），且 KeywordDef 已接受契约 3.8.3 的 params.cost；" +
-    "但 KeywordAbility/卡牌程序消费方仍未把印刷的 5 能量 + 2 Rainbow Power 转发到 expand，" +
-    "同时 flow.cost 的替代费用消费与 replacement.event 的打出后放逐接线仍未合入（829.1.b.1/.c.1），" +
-    "因此“从弃牌区按其 Flow 费用打出、然后放逐”的许可与替代结算缺失。" +
-    "已合入部分：effect.kill 本体（429.1/429.2.a）与两目标锁定后的相对 Might 比较（143.2.a 的有效 Might 读法）" +
-    "由 golden 用真实原语执行；相对比较写成指令级 condition（359.3.e.2 的结算重验），不近似目标期限制。",
+    "当前缺口：(1) 相对有效 Might 目标限制 mightLessThanTarget（355.9.b/143.2.a）未被 programs/filters.ts 或 target/target-plan.ts 消费；结算期 compare 与 effect.kill 已执行，不能代替 Finalize 和 Resolve 的目标合法性重验。(2) Flow KeywordDef 接受 params.cost，费用计划支持 baseModifications.kind=flow，但 KeywordAbility / programs/keywords.ts 只传 keyword/value，未传递本卡印刷的 5 Energy + 2 [A]；flow.cost 也没有 static 绑定到 Trash 打出许可、替代费用选择及 Flow 实例回执。replacement/planner.ts 仍不支持 Flow 展开的 effect.banish，829.1.b.1 的离链延迟放逐与自身指令离链例外尚无 Flow 回执消费者。通用 replacement 绑定已经存在，缺的是这些 Flow 专用接线。不近似实现。",
   abilities: [
     // 829.1 / 829.1.c：印刷的 [Flow] 替代费用关键词，只声明不重写展开。
     { kind: "keyword", keyword: "flow" },

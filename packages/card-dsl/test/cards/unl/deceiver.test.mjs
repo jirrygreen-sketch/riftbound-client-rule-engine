@@ -8,6 +8,8 @@ import { createProgramBinding } from "../../../../engine-core/dist/programs/inde
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { translateInstructionTargets, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-6ea8e63a198fef36cfbb65b0e39e0cf0f4206a9abd810a75bf107bcaad25da29";
@@ -210,6 +212,30 @@ test("unl-199-219 Deceiver: the merged Temporary definition is available for the
   assert.equal(keywordDefinitionsById.has("Temporary"), true);
 });
 
+test("unl-199-219 Deceiver: declining either optional body performs no payment or token action", () => {
+  // This is the resolution-level optional wrapper only; the trigger's
+  // Finalize decision and upfront base payment remain separate blockers.
+  for (const ability of [conquer, hold]) {
+    const kernel = world()
+      .unit("deceiver", { types: ["legend"], might: null, exhausted: false })
+      .hand("retained-card")
+      .build();
+    const context = kernel.clone({ sourceSnapshot: kernel.getObject("deceiver") });
+    context.setAnswers({ [`${ability.body[0].id}/optional`]: false });
+    const before = context.snapshot();
+    const result = resolveChainBody(ability.body, context);
+    assert.deepEqual(result.results.map(entry => [entry.id, entry.result.status, entry.result.reason]), [
+      [ability.body[0].id, "negated", "skipped"]
+    ]);
+    assert.deepEqual(result.events, []);
+    assert.deepEqual(context.events, []);
+    assert.equal(context.getObject("deceiver").exhausted, false);
+    assert.equal(context.getObject("retained-card").zone, "hand");
+    assert.equal(context.query({ type: "unit", zone: "board" }).length, 0);
+    assert.deepEqual(context.snapshot(), before);
+  }
+});
+
 test.todo(
   "unl-199-219 Deceiver: pay 'discard 1 and exhaust me' as the trigger's base cost at Finalize " +
     "(CR 383.3.b / 204.3 / 415.4-415.5) — TriggeredAbility has no base-cost slot and the production Finalize adapter does not consume the nested payment"
@@ -223,8 +249,7 @@ test.todo(
     "effect.copy's \"effect\" mode remains blocked by copy-layer-traits-exceptions-and-attachment-duration-unavailable"
 );
 test.todo(
-  "unl-199-219 Deceiver: bind 'there' from the conquer / hold payload — the sealed timing points declare no " +
-    "payloadFields and the IR has no event-object battlefield selector"
+  "unl-199-219 Deceiver: bind 'there' from the conquer / hold details.battlefieldId — IR has no event battlefield selector for token destination and same-location target selection"
 );
 test("unl-199-219 Deceiver: the trigger filter now passes assertTriggerSpec, but the body anchor blocks registration", () => {
   // 383.4.c.2.b / 383.4.d.2.b: the shipped event vocabulary is "conquered"/"held"

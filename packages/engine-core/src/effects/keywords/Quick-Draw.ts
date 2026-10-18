@@ -27,7 +27,10 @@ const quickDraw = {
     "819.2",
     "819.3"
   ],
-  expand({ host }): readonly Ability[] {
+  expand({ host, params }): readonly Ability[] {
+    const instanceId = typeof params?.instanceId === "string" ? params.instanceId : undefined;
+    const targetId = instanceId === undefined ? "quick-draw-unit" : `quick-draw-unit:${instanceId}`;
+    const attachId = instanceId === undefined ? "quick-draw-attach" : `quick-draw-attach:${instanceId}`;
     const source = { canonicalCardId: host.canonicalCardId };
     return [
       {
@@ -51,13 +54,13 @@ const quickDraw = {
         },
         optional: false,
         body: [{
-          id: "quick-draw-attach",
+          id: attachId,
           op: "effect.attach",
           args: {
-            host: constant({ kind: "target", id: "quick-draw-unit" })
+            host: constant({ kind: "target", id: targetId })
           },
           targets: [{
-            id: "quick-draw-unit",
+            id: targetId,
             filter: { type: "unit", controller: "self" },
             min: 1,
             max: 1,

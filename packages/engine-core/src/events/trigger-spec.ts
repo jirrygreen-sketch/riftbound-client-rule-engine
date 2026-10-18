@@ -1,4 +1,9 @@
-import { getTimingPoint, isTimingPointId, type TimingPointId } from "./timing-points.js";
+import {
+  getTimingPoint,
+  isTimingPointId,
+  TIMING_POINT_ALIASES,
+  type TimingPointId
+} from "./timing-points.js";
 
 export const TRIGGER_ONCE_SCOPES = [
   "per-turn",
@@ -7,6 +12,7 @@ export const TRIGGER_ONCE_SCOPES = [
   "per-showdown",
   "per-chain",
   "per-object",
+  "per-batch",
   "per-game"
 ] as const;
 
@@ -69,6 +75,7 @@ export interface ObjectFilter {
 }
 
 export const EVENT_PATTERN_TYPES = [
+  // Producer/event spellings retained for wire and card-program compatibility.
   "zone-entered",
   "zone-left",
   "object-entered-zone",
@@ -94,10 +101,92 @@ export const EVENT_PATTERN_TYPES = [
   "conquered",
   "held",
   "scored",
-  "final-point"
+  "final-point",
+
+  // Timing-point spellings.  These are aliases for the same physical event,
+  // not additional emitted events.  Internal contested timings are omitted:
+  // Core rule 190.3.d forbids card abilities from subscribing to them.
+  "turn-start",
+  "awaken-start",
+  "awaken-end",
+  "beginning-start",
+  "beginning-end",
+  "channel-start",
+  "channel-end",
+  "draw-start",
+  "draw-end",
+  "main-start",
+  "main-end",
+  "turn-end",
+  "cleanup-start",
+  "cleanup-end",
+  "object-enters-zone",
+  "object-leaves-zone",
+  "object-enters-board",
+  "object-leaves-board",
+  "object-enters-battlefield",
+  "object-leaves-battlefield",
+  "object-enters-base",
+  "object-leaves-base",
+  "object-enters-deck",
+  "object-leaves-deck",
+  "object-enters-hand",
+  "object-leaves-hand",
+  "object-enters-rune-deck",
+  "object-leaves-rune-deck",
+  "object-enters-rune-zone",
+  "object-leaves-rune-zone",
+  "object-enters-trash",
+  "object-leaves-trash",
+  "object-enters-banishment",
+  "object-leaves-banishment",
+  "object-enters-chain",
+  "object-leaves-chain",
+  "showdown-open",
+  "showdown-close",
+  "combat-end",
+  "chain-item-finalize",
+  "chain-item-resolve",
+  "conquer",
+  "hold",
+  "score",
+  "object-moved",
+  "card-drawn",
+  "card-discarded",
+  "damage-dealt",
+  "unit-stunned",
+  "xp-gained",
+  "buff-added",
+  "buff-spent",
+  "empowered-changed",
+  "card-recycled",
+  "card-banished",
+  "card-revealed",
+  "objects-shown-off",
+  "card-hidden",
+  "card-burned",
+  "cards-looked-at",
+  "object-attached",
+  "might-changed",
+  "ability-activated",
+  "combat-start",
+  "combat-result",
+  "points-gained"
 ] as const;
 
 export type EventPatternType = (typeof EVENT_PATTERN_TYPES)[number];
+
+/**
+ * Return the timing identity behind either an event or timing-point spelling.
+ * Validation uses this identity when `event`, `type`, and `kind` are supplied
+ * together, so equivalent aliases are accepted while unrelated discriminants
+ * remain a strict validation error.
+ */
+export function canonicalEventPatternType(value: EventPatternType): EventPatternType {
+  return (Object.prototype.hasOwnProperty.call(TIMING_POINT_ALIASES, value)
+    ? TIMING_POINT_ALIASES[value as keyof typeof TIMING_POINT_ALIASES]
+    : value) as EventPatternType;
+}
 
 export type EventPatternScalar = string | number | boolean | null;
 export type EventPatternValue = EventPatternScalar | readonly EventPatternScalar[];
@@ -367,7 +456,7 @@ function validateEventPatternInternal(
     for (const key of discriminants) {
       validateEnumValue(value[key], EVENT_PATTERN_TYPES, `${path}.${key}`, issues, "invalid-event-type");
     }
-    const names = discriminants.map(key => value[key]);
+    const names = discriminants.map(key => canonicalEventPatternType(value[key] as EventPatternType));
     if (new Set(names).size !== 1) addIssue(issues, path, "conflicting-event-types", "event、type、kind 必须一致。");
   }
   for (const key of ["object", "source", "target"] as const) {

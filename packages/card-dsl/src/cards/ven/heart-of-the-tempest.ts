@@ -35,8 +35,9 @@ import type { CardProgram } from "../../ir/index.js";
  *    spend-buff（readCost 实测 CostPlanError）。
  *
  * 已合入部分的执行证据：触发 body “empower me” 用 effect.empower；“Give a unit
- * [Assault 2] this turn” 用 continuous.grant-keyword（RIFT-258），golden 通过真实
- * 解释器注册 ability 层效果并断言本回合到期。
+ * [Assault 2] this turn” 用 continuous.grant-keyword，独立 KeywordGrantLayerEngine
+ * adapter 可重展开 Assault 并计算攻击者 Might；golden 通过真实解释器注册 ability 层效果
+ * 并断言本回合到期。默认 CardProgram lifecycle 尚未接入该关键词展开 adapter。
  */
 export default {
   canonicalCardId: "card.hash-aa310ded3ca355bccab78b17783adac7b21e0b2477c14135b2cf52ebad7d96a5",
@@ -48,8 +49,9 @@ export default {
     "fromZone 载荷，程序里以描述性 notFromHand 记录（契约变更请求）；(2) “Disempower me” 作为费用需要 " +
     "disempower 付费种类（443.2.a），cost/plan-values.ts 的非标准费用只支持 " +
     "exhaust/discard/recycle/kill/reveal/spend-buff（readCost 实测 CostPlanError）；指令级 cost.pay / " +
-    "cost.modify 原语均已注册，与本卡的启动费用路径无关。“empower me” 本体用已合入的 effect.empower；" +
-    "“Give a unit [Assault 2] this turn” 已由 continuous.grant-keyword（this-turn 期限）真实执行并由 golden 覆盖。",
+    "cost.modify 原语均已注册，与本卡的启动费用路径无关。 “empower me” 本体用已合入的 effect.empower；" +
+    "“Give a unit [Assault 2] this turn” 已由 continuous.grant-keyword 真实执行，独立 " +
+    "KeywordGrantLayerEngine adapter 可计算攻击者 Might，但默认 CardProgram lifecycle 尚未接入该 adapter。",
   abilities: [
     {
       kind: "triggered",

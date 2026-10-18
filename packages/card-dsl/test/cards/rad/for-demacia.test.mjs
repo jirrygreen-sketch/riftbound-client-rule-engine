@@ -1,3 +1,11 @@
+// Golden test for For Demacia! (rad-117-167) — layers 1 and 2 of cards/README §4
+// (validation/identity and structure).
+//
+// Execution evidence (the real play through the generic card scenario harness:
+// 3 Energy payment, battlefield target, sameLocationAs-scoped friendly set, the
+// ability-layer Shield 2 registration and the empty-set boundary) lives in the
+// RIFT-681 parameterized template golden:
+// test/cards/templates/keyword-play-continuous-grant-keyword-681.test.mjs.
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -8,6 +16,36 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { expandEffectiveKeywords, KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { runCardScenario } from "../../../../engine-core/dist/effects/testing/scenario/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+
+/** Minimal engine so the production static binder can be exercised directly. */
+function binderFor() {
+  const kernel = world().player("A").player("B").unit("caster", { owner: "A", role: "unit" }).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: () => { throw new Error("Unexpected choice"); },
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  return createEngineStaticBinder(engine);
+}
+
+function sourceSnapshot() {
+  return world().player("A").unit("caster", { owner: "A", types: ["spell"] }).build().getObject("caster");
+}
 
 const CANONICAL = "card.hash-88b2b6a8fd884959d1de40824d4d5035cc609570087e598ecc6e808b8b3cc790";
 const SOURCE_TEXT =
@@ -58,6 +96,20 @@ test("For Demacia! identity, ruleset, status and printed text", () => {
   assert.doesNotMatch(program.judgeReason, /该原语未注册/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
+});
+
+test("For Demacia!: the [Reaction] expansion really reaches the production static binder and is refused there", () => {
+  // 813.1.c: Reaction expands to a continuous.timing static ability. The real
+  // production binder (createEngineStaticBinder on a ChainEngine) refuses its
+  // appliesTo:[card,activated-ability] shape, and expandProgram still reports
+  // the keyword as declared; the play body itself is unaffected.
+  const [timingAbility] = expandProgram({ ...program, status: "executable", judgeReason: undefined }, sourceSnapshot())
+    .expanded.filter(ability => ability.kind === "static");
+  assert.equal(timingAbility.effect.kind, "continuous.timing");
+  assert.throws(
+    () => binderFor().bindStatic(timingAbility, sourceSnapshot()),
+    /Unsupported static appliesTo/
+  );
 });
 
 test("For Demacia! structure: [Reaction], printed cost, battlefield target plus Shield 2 grant", () => {
@@ -174,36 +226,111 @@ test("For Demacia! golden: the granted Shield really lands in the ability layer 
   );
 });
 
-test("For Demacia! golden: the granted Shield cannot be honoured as printed yet (814.1.d)", () => {
+test("For Demacia! golden: the default layer engine ignores the Shield designation condition", () => {
   // Shield's merged expansion (effects/keywords/Shield.ts) is a
   // continuous.might static ability gated on `designation === "defender"`.
-  // The merged arithmetic layer ignores that Compare condition (layers/engine.ts
-  // conditionMatches only implements always/never/type/has-tag/has-keyword), so
-  // the +2 Might would apply unconditionally: 814.1.d has no consumer. This
-  // pins the actual current behaviour instead of assuming the grant works.
-  const shielded = unit("allyHere", { keywords: [{ id: "Shield", value: 2 }], might: 2 });
-  const spec = {
-    id: "shield",
-    layer: "arithmetic",
-    source: shielded.ref,
-    filter: { objectId: "allyHere" },
-    effect: {
-      kind: "continuous.might",
-      mode: "add",
-      appliesTo: "self",
-      amount: { kind: "constant", value: 2 }
-    },
-    condition: {
-      kind: "compare",
-      left: { kind: "object-property", object: "self", property: "designation" },
-      operator: "eq",
-      right: { kind: "constant", value: "defender" }
-    }
-  };
-  const engine = createLayerEngine([shielded], [{ effect: spec, duration: { type: "permanent" } }]);
-  // The condition is not evaluated, so the +2 lands even without a defender
-  // designation — the reason the card stays judge-required.
-  assert.equal(engine.evaluate(shielded.ref).might, 4);
+  // layers/engine.ts conditionMatches only implements
+  // always/never/type/has-tag/has-keyword and returns true for any other
+  // condition, so the +2 Might lands for every combat role. This pins the
+  // actual current behaviour instead of assuming the gate holds.
+  const [shieldMight] = keywordDefinitionsById.get("Shield").expand({
+    value: 2,
+    host: { canonicalCardId: CANONICAL }
+  });
+  assert.deepEqual(shieldMight.condition, {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "designation" },
+    operator: "eq",
+    right: { kind: "constant", value: "defender" }
+  });
+
+  for (const combatRole of ["defender", "attacker", null]) {
+    const shielded = unit("allyHere", { keywords: [{ id: "Shield", value: 2 }], might: 2, combatRole });
+    const spec = {
+      id: "shield",
+      layer: "arithmetic",
+      source: shielded.ref,
+      filter: { objectId: "allyHere" },
+      effect: {
+        ...shieldMight.effect,
+        amount: shieldMight.effect.amount.value,
+        condition: shieldMight.condition
+      }
+    };
+    const engine = createLayerEngine([shielded], [{ effect: spec, duration: { type: "permanent" } }]);
+    // The condition is never evaluated, so the +2 lands even without the
+    // Defender designation — the reason the card stays judge-required.
+    assert.equal(engine.evaluate(shielded.ref).might, 4, "combatRole=" + combatRole);
+  }
+});
+
+/**
+ * The card's own play body, resolved against a real board with the concrete
+ * controller substituted for the one relative-player spelling the reference
+ * kernel compares literally (the production chain context does this in
+ * chain/engine.ts; the fixtures above already rely on the same override).
+ */
+function grantedShieldBoard(combatRole) {
+  const kernel = world()
+    .unit("bf", { types: ["battlefield"], location: { type: "battlefield", id: "bf-9" } })
+    .unit("allyHere", { might: 2, location: { type: "battlefield", id: "bf-9" }, ...(combatRole === undefined ? {} : { combatRole }) })
+    .unit("allyElsewhere", { might: 2, location: { type: "battlefield", id: "bf-1" } })
+    .unit("foeHere", { owner: "B", controller: "B", might: 5, location: { type: "battlefield", id: "bf-9" } })
+    .build();
+  const raw = kernel.query.bind(kernel);
+  kernel.query = filter => raw({
+    ...filter,
+    ...(filter.controller === "self" ? { controller: "A" } : {}),
+    ...(filter.controller === "opponent" ? { controller: "B" } : {})
+  });
+  kernel.setTargets("for-demacia.battlefield", [kernel.ref("bf")]);
+  return kernel;
+}
+
+test("For Demacia! re-sweep: the production engine never expands the granted Shield, so the +2 never lands", () => {
+  // The grant itself executes on the merged primitive: the keyword reaches the
+  // ally's keyword list with its value. But the production LayerEngine performs
+  // no KeywordDef expansion, so Shield's functional text (814.1.c) never
+  // becomes an arithmetic effect and the Might stays printed.
+  const kernel = grantedShieldBoard("defender");
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.equal(outcome.status, "executed");
+
+  const entries = kernel.snapshot().continuous.map(entry => ({ effect: entry.effect, duration: entry.duration }));
+  assert.equal(entries.length, 1);
+  const engine = createLayerEngine(kernel.query({}), entries);
+  const ally = engine.evaluate(kernel.ref("allyHere"));
+  assert.deepEqual(ally.keywords, [{ id: "Shield", value: 2 }]);
+  assert.equal(ally.might, 2);
+  // The unit is a defender and still gets nothing back from a fresh evaluation.
+  assert.deepEqual(expandEffectiveKeywords(kernel.getObject("allyHere")).abilities, []);
+});
+
+test("For Demacia! re-sweep: the merged re-expansion engine honours the defender gate, but is not the production engine", () => {
+  // RIFT-710's KeywordGrantLayerEngine expands the granted Shield and evaluates
+  // its designation condition against combatRole: a defender gains +2, an
+  // attacker and a unit outside combat do not. Production is not wired to that
+  // engine (ChainEngine constructs the plain LayerEngine; programs/lifecycle.ts
+  // binds statics to it), and combatRole still has no combat producer.
+  for (const [combatRole, expected] of [["defender", 2], ["attacker", 0], [null, 0]]) {
+    const kernel = grantedShieldBoard(combatRole);
+    assert.equal(resolveChainBody(play.body, kernel).status, "executed");
+    assert.deepEqual(kernel.snapshot().continuous.map(entry => entry.effect.filter), [
+      { objectId: "allyHere", zone: "board", zoneEntryId: 1 }
+    ]);
+
+    const context = source => bindResolveContext(kernel, { source, controller: source.controller });
+    const layers = new KeywordGrantLayerEngine(kernel.query({}), { context });
+    for (const entry of kernel.snapshot().continuous) layers.addContinuous(entry.effect, entry.duration);
+
+    const ally = layers.evaluate(kernel.ref("allyHere"));
+    assert.deepEqual(ally.keywords, [{ id: "Shield", value: 2 }]);
+    assert.equal(ally.might - 2, expected, "combatRole=" + combatRole);
+    // The battlefield by-stander and the opponent never qualify.
+    assert.equal(layers.evaluate(kernel.ref("allyElsewhere")).might, 2);
+    assert.equal(layers.evaluate(kernel.ref("foeHere")).might, 5);
+    assert.deepEqual(layers.evaluate(kernel.ref("foeHere")).keywords, []);
+  }
 });
 
 test.todo(
@@ -213,8 +340,53 @@ test.todo(
     "(contract 3.8 combatRole exists but no producer sets it)"
 );
 
-test.todo(
-  "For Demacia!: resolve the printed play body through the production target/chain path, including locking the " +
-    "chosen battlefield before the friendly-unit set is evaluated; current golden coverage invokes the body with " +
-    "that battlefield target already locked"
-);
+test("For Demacia!: the printed play really locks the chosen battlefield before the friendly set is evaluated", () => {
+  // 355.10.d / 053.3: the battlefield is the locked target; the friendly units
+  // are programmatically selected from its location afterwards. This runs the
+  // whole printed program through the production ProgramBinding + ChainEngine +
+  // EventPipeline path with the real target lock, real 3 Energy payment and
+  // the real sameLocationAs anchor resolution; nothing is pre-locked by hand.
+  const result = runCardScenario({ ...program, status: "executable", judgeReason: undefined }, {
+    players: { A: { energy: 3 } },
+    objects: [
+      { id: "spell", cardId: CANONICAL, types: ["spell"], zone: "hand", energy: 3, power: null },
+      { id: "bf1", types: ["battlefield"], zone: "board", location: { type: "battlefield", id: "bf1" }, energy: null, power: null, might: null },
+      { id: "bf2", types: ["battlefield"], zone: "board", location: { type: "battlefield", id: "bf2" }, energy: null, power: null, might: null },
+      { id: "allyHere", owner: "A", controller: "A", types: ["unit"], zone: "board", location: { type: "battlefield", id: "bf2" }, might: 2, combatRole: "defender" },
+      { id: "allyElsewhere", owner: "A", controller: "A", types: ["unit"], zone: "board", location: { type: "battlefield", id: "bf1" }, might: 3 },
+      { id: "foeHere", owner: "B", controller: "B", types: ["unit"], zone: "board", location: { type: "battlefield", id: "bf2" }, might: 5 },
+    ],
+    answers: { "target:for-demacia.battlefield": ["bf2"] },
+    operations: [
+      { type: "play", object: "spell", player: "A" },
+      { type: "pass", player: "A" },
+      { type: "pass", player: "B" },
+    ],
+  });
+
+  const byId = new Map(result.state.objects.map(object => [object.ref.id, object]));
+  // The real 3 Energy printed cost was paid by the chain.
+  assert.equal(result.state.players.A.energy, 0);
+  assert.equal(byId.get("spell").zone, "trash");
+  // Only the friendly unit at the locked battlefield keeps the granted keyword;
+  // the other friendly unit and the opponent are untouched.
+  assert.deepEqual(byId.get("allyHere").keywords, [{ id: "Shield", value: 2 }]);
+  assert.deepEqual(byId.get("allyElsewhere").keywords, []);
+  assert.deepEqual(byId.get("foeHere").keywords, []);
+  assert.equal(byId.get("allyHere").might, 2);
+  // The battlefield itself was really locked as the target, never a unit.
+  assert.deepEqual(
+    result.events.filter(event => event.timingPoint === "became-target").map(event => event.target.ref.id),
+    ["bf2"]
+  );
+  const events = result.events.map(event => event.timingPoint);
+  const finalizeIndex = events.indexOf("chain-item-finalize");
+  const targetIndex = events.indexOf("became-target");
+  const playIndex = events.indexOf("card-played");
+  assert.ok(finalizeIndex >= 0 && targetIndex >= 0 && playIndex >= 0);
+  assert.ok(targetIndex < finalizeIndex && finalizeIndex < playIndex, events.join(","));
+  assert.deepEqual(result.links["for-demacia.grant-shield.granted"], {
+    count: 1,
+    objects: [{ id: "allyHere", zoneEntryId: 1 }]
+  });
+});

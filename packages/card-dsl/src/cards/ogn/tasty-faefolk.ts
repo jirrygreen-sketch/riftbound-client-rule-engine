@@ -7,8 +7,8 @@ import type { CardProgram, Instruction } from "../../ir/index.js";
  * card-specific body to Deathknell's trigger.leave skeleton. Keep the body as
  * pure data and declare the keyword once (CR 808.1.b.1 / 808.2).
  * resolveChainBody executes the independent channel/draw instructions in order.
- * effect.channel forwards exhausted:true, but the reference kernel's
- * channel-rune handler only changes zones; exhausted entry still needs evidence.
+ * effect.channel forwards exhausted:true; the execution history preserves that
+ * stipulation for the production action path.
  * Generic entry replacements and the duel Accelerate play paths exist, but
  * programs/play.ts does not consume accelerate.cost or bind its paid delayed
  * replacement to this CardProgram (CR 805.2.b / 805.6.a).
@@ -51,8 +51,7 @@ const program = {
     "Accelerate 的 accelerate.cost 尚未接入 programs/play.ts 的可选附加费用，programs/statics.ts 也无该静态种类的图层映射；" +
     "仍缺支付 1 Energy + 匹配 Calm 的 1 Power 后才生效的延迟就绪入场替代绑定（805.1.b.1/805.2.b/805.6.a）。" +
     "replacement/bind.ts 的通用入场替代与 duel/cardplay-unit-v2.ts、cardplay-unit-chain-v4.ts 的 Accelerate 路径不能代替该 CardProgram 接线。" +
-    "effect.channel 已传递 exhausted:true，但 effects/testing/test-kernel.ts 的 channel-rune 处理只迁区、未应用该入场状态，" +
-    "横置补给仍缺实际执行证据（431.2）；原始 channel/draw 顺序与独立抽牌子效果已有执行测试。",
+    "原始 channel/draw 顺序、exhausted:true 动作载荷与独立抽牌子效果已有执行测试。",
   abilities: [
     {
       kind: "keyword",

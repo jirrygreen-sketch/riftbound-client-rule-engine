@@ -4,8 +4,22 @@ import { getTimingPoint, isTimingPointId } from "../events/timing-points.js";
 import { refKey, sameRef, type RegisteredContinuousEffect, type TimingEvent } from "./types.js";
 
 function assertDuration(duration: Duration): void {
-  if (duration.type === "until" && !isTimingPointId(duration.at)) {
-    throw new RangeError(`Unknown duration timing point: ${duration.at}`);
+  if (!duration || typeof duration !== "object") throw new TypeError("Invalid continuous effect duration");
+  switch (duration.type) {
+    case "permanent": case "end-of-turn": case "end-of-combat": return;
+    case "until":
+      if (!isTimingPointId(duration.at)) throw new RangeError(`Unknown duration timing point: ${duration.at}`);
+      if (duration.player !== undefined && (typeof duration.player !== "string" || duration.player.length === 0)) {
+        throw new TypeError("Duration player must be a non-empty id");
+      }
+      return;
+    case "while-source-in-zone":
+      if (!duration.source || typeof duration.source.id !== "string" || duration.source.id.length === 0 ||
+        !Number.isSafeInteger(duration.source.zoneEntryId) || duration.source.zoneEntryId < 0) {
+        throw new TypeError("Duration requires a valid source zone identity");
+      }
+      return;
+    default: throw new TypeError("Unknown continuous effect duration");
   }
 }
 
@@ -31,7 +45,7 @@ export function isDurationActive(
 ): boolean {
   assertDuration(duration);
   if (duration.type === "while-source-in-zone") {
-    return duration.source !== undefined && object(duration.source) !== null;
+    return sameRef(duration.source, object(duration.source)?.ref);
   }
   return event === undefined || !durationMatches(duration, event);
 }
@@ -50,6 +64,10 @@ export function durationExpiryTiming(duration: Duration): TimingPointId | null {
 export class ContinuousEffectRegistry {
   private readonly entries = new Map<string, RegisteredContinuousEffect>();
   private nextSequence = 1;
+  private version = 0;
+
+  /** Includes direct registry mutations and transaction restoration. */
+  get revision(): number { return this.version; }
 
   register(effect: ContinuousEffectSpec, duration: Duration, timestamp = this.nextSequence): RegisteredContinuousEffect {
     if (!effect || typeof effect.id !== "string" || effect.id.length === 0) {
@@ -60,6 +78,7 @@ export class ContinuousEffectRegistry {
     if (!Number.isSafeInteger(timestamp) || timestamp < 0) throw new RangeError("timestamp must be a non-negative safe integer");
     const entry = Object.freeze({ effect, duration, timestamp, sequence: this.nextSequence++ });
     this.entries.set(effect.id, entry);
+    this.version++;
     return entry;
   }
 
@@ -68,10 +87,13 @@ export class ContinuousEffectRegistry {
   }
 
   remove(id: string): boolean {
-    return this.entries.delete(id);
+    const removed = this.entries.delete(id);
+    if (removed) this.version++;
+    return removed;
   }
 
   clear(): void {
+    if (this.entries.size) this.version++;
     this.entries.clear();
   }
 
@@ -99,7 +121,7 @@ export class ContinuousEffectRegistry {
     for (const entry of this.list()) {
       if (entry.duration.type === "while-source-in-zone" || entry.duration.type === "permanent") continue;
       if (durationMatches(entry.duration, event)) {
-        this.entries.delete(entry.effect.id);
+        this.remove(entry.effect.id);
         expired.push(entry.effect.id);
       }
     }
@@ -110,7 +132,7 @@ export class ContinuousEffectRegistry {
     const expired: string[] = [];
     for (const entry of this.list()) {
       if (entry.duration.type === "while-source-in-zone" && !isDurationActive(entry.duration, undefined, object)) {
-        this.entries.delete(entry.effect.id);
+        this.remove(entry.effect.id);
         expired.push(entry.effect.id);
       }
     }

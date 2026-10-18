@@ -26,9 +26,13 @@ test("ven-044-166 Astral Heron: identity, status, judgeReason and verbatim sourc
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
+  // Refreshed 2026-10-18: reason carries the re-sweep date and stays RIFT-free.
   assert.match(program.judgeReason, /next-card/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /cost\.modify/);
+  assert.match(program.judgeReason, /at-battlefield/);
+  assert.match(program.judgeReason, /383\.1\.b/);
+  assert.match(program.judgeReason, /2026-10-18 复核/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.doesNotMatch(program.judgeReason, /Universal Power.*不可表示|closed six-domain/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -115,16 +119,13 @@ test("ven-044-166 Astral Heron golden: cost.modify applies a generic any-domain 
 });
 
 test.todo(
-  "ven-044-166 Astral Heron: apply the next-card discount while determining total cost (356.4) — cost.modify " +
-    "is merged, but no one-shot next-card window is registered into a Finalize cost plan (RIFT-89)"
+  "ven-044-166 Astral Heron: register, consume and expire a next-card discount in the next Finalize cost plan (356.4)"
 );
 
 test.todo(
-  "ven-044-166 Astral Heron: evaluate \"if I'm at a battlefield\" as a trigger condition (383.2.a.1) — the " +
-    "location predicate has no trigger/continuous landing path (RIFT-91)"
+  "ven-044-166 Astral Heron: bind a source battlefield Location predicate at trigger time (383.2.a.1)"
 );
 
 test.todo(
-  "ven-044-166 Astral Heron: resolve the card-played trigger end to end — static registration landed via " +
-    "RIFT-257, but the 383.2.c.1 condition evaluation still has no card-usable path"
+  "ven-044-166 Astral Heron: track first card-played history even before entry or while the battlefield condition is false; once-per-turn consumption alone is insufficient (383.1.b)"
 );

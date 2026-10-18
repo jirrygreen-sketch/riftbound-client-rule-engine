@@ -4,9 +4,11 @@ import { CostPlanError, type CostComponentInput, type CostPlan, type CostPlanInp
 import type { ObjectSnapshot, ResolveContext } from "../../effects/contract.js";
 import { bindResolveContext } from "../../events/action-adapter.js";
 import {
-  finalizeTargetPlan, queryTargetCandidates, TargetSelectionError,
+  finalizeTargetPlan, queryTargetCandidates,
+  resolveTargetPlan as resolveTargetPlanBase, TargetSelectionError,
   type TargetCandidateOptions, type TargetFinalizeOptions, type TargetPlan,
-  type TargetRequirement, type TargetTaxAdapter, type TargetTaxAppendResult, type TargetTaxRequest
+  type TargetRequirement, type TargetResolveOptions, type TargetResolution,
+  type TargetTaxAdapter, type TargetTaxAppendResult, type TargetTaxRequest
 } from "../target-plan.js";
 import { collectTargetTaxes, deflectCost, type CollectedTargetTax, type TargetTaxCollectionOptions } from "./collect.js";
 
@@ -84,7 +86,8 @@ export class TargetTaxCostAdapter implements TargetTaxAdapter {
       const target = this.context.object(request.target);
       if (!target) throw new TargetSelectionError("invalid-target-choice", "Target tax reference is no longer valid");
       const cost = deflectCost(request.amount);
-      if (target.controller === this.context.controller || target.zone !== "board" || request.amount === 0) return { status: "appended" };
+      if (target.controller === this.context.controller || target.zone !== "board" || request.amount === 0 ||
+          this.options.ignoreDeflect === true || this.options.ignoreTax === true) return { status: "appended" };
       const next = this.preview([{ id: "deflect", stage: "mandatory-additional", cost }]);
       if (next) { this.state = next; return { status: "appended" }; }
       this.state = baseline;
@@ -97,13 +100,13 @@ export class TargetTaxCostAdapter implements TargetTaxAdapter {
     }
   }
 
-  private taxes(target: ObjectSnapshot): readonly CollectedTargetTax[] {
+  private collectTaxes(target: ObjectSnapshot): readonly CollectedTargetTax[] {
     return collectTargetTaxes(this.context, target, this.options);
   }
 
   private candidates(options: TargetCandidateOptions): TargetCandidateOptions {
     return { ...options, isLegal: (target, phase) =>
-      (options.isLegal?.(target, phase) ?? true) && this.preview(this.taxes(target)) !== null };
+      (options.isLegal?.(target, phase) ?? true) && this.preview(this.collectTaxes(target)) !== null };
   }
 
   queryTargetCandidates(requirement: TargetRequirement, options: TargetCandidateOptions = {}) {
@@ -121,7 +124,7 @@ export class TargetTaxCostAdapter implements TargetTaxAdapter {
           const taxes = event.targets.flatMap(ref => {
             const target = this.context.object(ref);
             if (!target) throw new TargetSelectionError("invalid-target-choice", "Target disappeared before tax collection");
-            return this.taxes(target);
+            return this.collectTaxes(target);
           });
           const next = this.preview(taxes);
           if (!next) throw new TargetSelectionError("target-tax-unpayable", "The combined target taxes and base cost are not payable");
@@ -133,6 +136,24 @@ export class TargetTaxCostAdapter implements TargetTaxAdapter {
       this.state = baseline;
       throw error;
     }
+  }
+
+  /** Resolve-time legality recheck; no tax is collected or refunded here. */
+  resolveTargetPlan(plan: TargetPlan, options: TargetResolveOptions = {}): TargetResolution {
+    return resolveTargetPlanBase(this.context, plan, options);
+  }
+
+  /** Reselect through this adapter so the replacement choice is priced too. */
+  reselectTargetPlan(
+    plan: TargetPlan,
+    options: Omit<TaxedTargetFinalizeOptions, "mode" | "repeatIndex" | "reselected"> = {}
+  ): TargetPlan {
+    return this.finalizeTargetPlan(plan.requirement, {
+      ...options,
+      mode: plan.mode,
+      repeatIndex: plan.repeatIndex,
+      reselected: true,
+    });
   }
 }
 

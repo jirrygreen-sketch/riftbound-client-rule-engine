@@ -23,8 +23,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   accelerate.cost 的 Finalize optionalAdditional 消费：engine.ts 已读取
  *   selectedAdditional 中的 accelerate → ready，但没有任何打出流程把 805.1.b 的
  *   附加费 [1][Fury] 写进 selectedAdditional 并收取（805 附加费收取未接线）。
- * - “give a unit +2 :rb_might: this turn” 已用已合入的 continuous.might
- *   经解释器 + 图层内核真实执行。
+ * - "give a unit +2 :rb_might: this turn" 已用已合入的 continuous.might
+ *   经解释器 + 图层内核真实执行；RIFT-660 的模板场景再走生产链
+ *   （play → card-played → Finalize 目标锁定 → continuous.might），并把
+ *   作用对象写成 objects 的 { kind: "target" } 值。
  * golden 用解释器 + 参考内核真实执行 continuous.might 的 +2 与 end-of-turn 期限。
  */
 const abilities: Ability[] = [
@@ -40,8 +42,12 @@ const abilities: Ability[] = [
         args: {
           amount: { kind: "constant", value: 2 },
           duration: { kind: "constant", value: "this-turn" },
-          // 作用对象经 TargetSpec 读取（continuous.might 的 target 参数按 ctx.targets(id) 解析）。
-          target: { kind: "constant", value: "war-scout.unit" }
+          // 作用对象经 TargetSpec 读取：objects 的 { kind: "target", id }
+          // 值在结算时按 ctx.targets(id) 解析。生产链的 resolveChainBody
+          // 只把已求值的 objects 值交给 continuous.might；把 TargetSpec id
+          // 包在 target 参数里会在该路径上被当成选择描述符而失效（RIFT-660
+          // 模板场景实测：目标不变且无 affected 链接）。
+          objects: { kind: "constant", value: { kind: "target", id: "war-scout.unit" } }
         },
         targets: [
           {
@@ -64,10 +70,11 @@ const program = {
   status: "judge-required",
   judgeReason:
     "[Accelerate] 展开与 805.6 入场替代已合入；当前真实缺口是 805.1.b 的可选附加费 [1][Fury] 收取：" +
-    "accelerate.cost 声明没有 Finalize optionalAdditional 消费方——chain/engine.ts（src/chain/engine.ts:431）已支持读取 " +
+    "accelerate.cost 声明没有 Finalize optionalAdditional 消费方——chain/engine.ts 的 resolve 分支已支持读取 " +
     "selectedAdditional 中的 accelerate 并让单位就绪，但没有任何打出流程把该附加费写入 " +
     "selectedAdditional 并收取（CR 805 的附加费收取未接线）。" +
-    "“give a unit +2 :rb_might: this turn” 已用已合入的 continuous.might 真实执行（golden 覆盖），" +
+    "“give a unit +2 :rb_might: this turn” 已用已合入的 continuous.might 真实执行，并经 RIFT-660 模板场景走生产链" +
+    "（play → card-played → Finalize 目标锁定 → continuous.might，见 test/cards/templates/keyword-triggered-card-played-continuous-660.test.mjs），" +
     "但不据此宣称整卡可执行。不近似实现。",
   abilities,
   sourceText:

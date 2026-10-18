@@ -23,20 +23,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - [Ganking]（810.1.b / 144.4.c.1）：为单位的标准移动增加“战场→战场”许可。
  * 四条都是"只声明关键词"（契约 3.1 / 3.7、README 第 5 节），展开与消费归 effects/keywords/ 与 layers。
  *
- * status = judge-required。自本程序初写后合入的依赖：Assault 的 KeywordDef（RIFT-264～268）、
- * continuous.might 指令（RIFT-258）、CardProgram 绑定（RIFT-257）。
- *
- * 仍缺四处（不近似实现）：
- * - Accelerate 的 accelerate.cost 静态效果没有 Finalize/费用计划消费方，入场就绪也没有
- *   replacement.enter 接线（chain/engine.ts 只读调用方传入的费用计划；programs/play.ts 对
- *   additional-cost 类字段直接判 judge-required 失败）；
- * - Assault 2 需要 807.1.d 的 Attacker designation 与求值后的图层修正：ObjectSnapshot.combatRole
- *   已进入 HEAD（契约 3.8），但战斗角色 designation 没有产生方（combat/flow.ts 仍抛
- *   combat-start-transaction），layers/engine.ts 的 conditionMatches 也不求值该 compare 条件（按 true 处理）；
- * - Deflect 的 target.tax 接线：target/target-plan.ts 已有 Deflect 税的部分支持（TargetFinalizeOptions.tax
- *   与 taxAdapter），但 layers/rules/query.ts 没有 target.tax 查询、关键词展开也没有接线进 Finalize；
- * - Ganking 的 continuous.movement 许可需要移动系统读取（movement() 查询已合入但没有调用方）。
- * 任一未接线即不能宣称整卡可执行；golden 只做身份、结构与已合入展开文件的形状校验，缺依赖写 test.todo。
+ * 2026-10-18 复核：仍为 judge-required，当前缺口见 judgeReason。
+ * 四条关键词的展开都能校验通过，静态展开也都能被生产 binder 接受（Assault/Ganking 能注册图层，
+ * Accelerate 的费用声明与入场替代能绑定），但没有任何生产消费方把关键字接进打出费用、
+ * 战斗角色条件求值、目标税收取或移动许可读取。展开可绑定 ≠ 整卡可执行。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -52,15 +42,23 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "Assault 的 KeywordDef（RIFT-264～268）、continuous.might（RIFT-258）与卡牌程序绑定（RIFT-257）已合入，" +
-    "但仍缺四处管线接线，缺一即不能宣称整卡可执行，均不近似实现：" +
-    "(1) Accelerate 的 accelerate.cost 静态效果没有 Finalize/费用计划消费方，805.2.b/805.6 的入场就绪也没有 replacement.enter 接线" +
-    "（chain/engine.ts 只读调用方传入的费用计划；programs/play.ts 对 additional-cost 类字段直接判 judge-required 失败）。" +
-    "(2) Assault 2（807.1.c）需要 807.1.d 的 Attacker designation 与求值后的 continuous.might 图层：ObjectSnapshot.combatRole 已进入 HEAD（契约 3.8），" +
-    "但战斗角色 designation 没有产生方（combat/flow.ts 仍抛 combat-start-transaction），layers/engine.ts 的 conditionMatches 也不求值该 compare 条件（按 true 处理）。" +
-    "(3) [Deflect]（809.1.b.3 省略数值时按 1）的 target.tax 接线：target/target-plan.ts 已有 Deflect 税的部分支持" +
-    "（TargetFinalizeOptions.tax 与 taxAdapter），但 layers/rules/query.ts 没有 target.tax 查询，关键词展开也没有接线进 Finalize。" +
-    "(4) Ganking 的 continuous.movement 许可需要移动系统读取（movement() 查询已合入但没有调用方）。",
+    "四条关键词的展开都能通过 validateCardProgram，但都还没有可执行的生产消费路径，均不近似实现：" +
+    "(1) [Accelerate]（805.1.b/805.2.b/805.6）：费用计划（cost/cost-plan.ts 的 optionalAdditional kind \"accelerate\"）与链的就绪入场消费（chain/engine.ts 读取 selectedAdditional 的 accelerate）都已合入，" +
+    "展开的 accelerate.cost 静态声明与入场替代也能绑定（实测 expandProgram(inspect) + createEngineStaticBinder.bindReplacement 成功）；" +
+    "缺的是把卡牌 keyword 生产接线到 CostPlanInput：programs/play.ts 的 translateCost 对展开的 cost 仍抛 \"Unsupported play cost field optional\"，" +
+    "accelerate.cost 静态声明在 programs/statics.ts 仍抛 \"Static ability kind accelerate.cost has no layer mapping\"，没有任何 play producer 读取它生成 { kind: \"accelerate\" } 费用组。" +
+    "(2) [Assault 2]（807.1.c/807.1.d.1）：展开静态能力现在能通过生产 binder 绑定（实测 bindStatic 成功、图层层 kind continuous.might），" +
+    "但 programs/statics.ts 的 abilityEnvironment 用基础解释器求值 ability.condition，读到 object-property(self, \"designation\") 时抛 MissingInformation 并按 false 兜底，" +
+    "所以 +2 对任何角色都不生效（实测 attacker/defender/null 三种 combatRole 下 Might 均不变）；" +
+    "把 designation 映射到 combatRole 的扩展求值器（effects/interpreter/expr-ext/）没有任何生产调用方（grep 全 src 无 importer），" +
+    "且 combat/flow.ts 的 startCombat 仍抛 \"combat-start-transaction\"，没有真正的 Attacker designation 生产方。" +
+    "(3) [Deflect]（809.1.c/809.1.c.1）：target/tax 的 collectTargetTaxes 与 TargetTaxCostAdapter 已合入，但没有 Chain Finalize 消费方（grep 全 src 无调用），" +
+    "而 chain/engine.ts 的税回调把 tax.amount 直接当成 Energy 记入 mandatoryAdditional，无法表达 809.1.c.1 的任意域 Power；" +
+    "静态声明在 programs/statics.ts 也仍抛 \"Static ability kind target.tax has no layer mapping\"。" +
+    "(4) [Ganking]（810.1.b/144.4.c.1）：展开的 continuous.movement 能通过 binder 绑定并注册到 ability 层，" +
+    "但 layers/rules/query.ts 的 movement() 只读 effect.permission.routes，而展开给的是字符串 permission: \"battlefield-to-battlefield\"，" +
+    "实测 canGank 仍为 false（改成 { routes: [...] } 拼写才会 true）；标准移动本身也仍抛 \"standard-move-transaction\"。" +
+    "依赖：keyword→CostPlanInput 生产接线、static 条件的 designation 扩展求值接线与战斗角色指派、target/tax 的 Chain Finalize 消费、continuous.movement 许可拼写统一。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_fury: as an additional cost to have me enter ready.)\n" +

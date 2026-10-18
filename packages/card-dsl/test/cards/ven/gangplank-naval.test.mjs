@@ -4,6 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/gangplank-naval.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { expandProgram, translateCost } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL =
   "card.hash-b5e0e99c33e99ceb92c979c2c0f321e1350559022b999c6941a10dfd1d0d8508";
@@ -59,7 +61,8 @@ test("ven-086-166 Gangplank: the Empowered clause is a would/instead replacement
 test("ven-086-166 Gangplank: the replacing instruction gives the source +3 Might", () => {
   assert.equal(replacement.with.length, 1);
   assert.equal(mightRider.id, "gangplank.give-plus-3-might");
-  // 479.4.e.1 的算术层增加（“instead” 的替换结果）；op 未注册（见 judgeReason 第 3 条）。
+  // 479.4.e.1 的算术层增加（“instead” 的替换结果）；原语已注册，但 replacement planner
+  // 尚不接受该替换体（见 judgeReason 第 3 条）。
   assert.equal(mightRider.op, "continuous.might");
   assert.deepEqual(mightRider.args.amount, { kind: "constant", value: 3 });
   assert.deepEqual(mightRider.args.duration, { kind: "constant", value: "this-turn" });
@@ -71,10 +74,26 @@ test("ven-086-166 Gangplank: the replacing instruction gives the source +3 Might
   assert.equal(mightRider.targets, undefined);
 });
 
-test.todo(
-  "ven-086-166 Gangplank: [Empower] 2 Body Power activation (827.1.c.1 cost.activated + effect.empower, " +
-    "'Use only if not Empowered') needs an Empower KeywordDef — none is merged"
-);
+test("ven-086-166 Gangplank: merged Empower expands, but its printed Body Power cost is not carried", () => {
+  const f = fixture({
+    cards: [{ id: "gangplank", cardId: CANONICAL, types: ["unit"], might: 6 }]
+  });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("gangplank"), to: "base" });
+  const expanded = expandProgram(program, f.kernel.getObject("gangplank"));
+  const [expandedEmpower] = expanded.expanded;
+  assert.equal(expandedEmpower.kind, "activated");
+  assert.deepEqual(expandedEmpower.cost, { kind: "empower" });
+  assert.deepEqual(expandedEmpower.restriction.condition, {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq",
+    right: { kind: "constant", value: 0 }
+  });
+  assert.throws(
+    () => translateCost(expandedEmpower.cost, "gangplank-naval.empower", "activate"),
+    /Unsupported cost kind empower/
+  );
+});
 
 test.todo(
   "ven-086-166 Gangplank: the three replaced outcomes ('would stun me, give me -:rb_might:, or return me to hand') " +

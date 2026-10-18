@@ -7,20 +7,27 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import shield from "../../../../engine-core/dist/effects/keywords/Shield.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { evaluateExpression } from "../../../../engine-core/dist/effects/interpreter/expr.js";
+import { evaluateExtendedExpression } from "../../../../engine-core/dist/effects/interpreter/expr-ext/index.js";
+import { MissingInformation } from "../../../../engine-core/dist/effects/interpreter/values.js";
 
 const CANONICAL_ID =
   "card.hash-2b68503e65fe0121f9346680649fa82fb83b4edc1e53b3a7416db4848ce941c6";
 const SOURCE_TEXT = "[Shield] (+1 :rb_might: while I'm a defender.)";
 const HOST = { canonicalCardId: CANONICAL_ID };
 
-/** A real ChainEngine harness used for the production lifecycle negative proof.
+/** A real ChainEngine harness used for the production lifecycle proofs.
  * The canonical combat snapshot exposes combatRole; this card's Shield
  * expansion still reads designation, so the positive combat case remains
- * judge-required until that mapping exists in production.
+ * judge-required until the merged expr-ext mapping reaches the production
+ * condition path (see judgeReason). `objects()` is the raw view the layer
+ * engine consumes; feeding an already-layered view back would double-apply the
+ * arithmetic modification, so the control test below uses this raw view.
  */
 function fixture() {
   let combat = null;
@@ -29,17 +36,18 @@ function fixture() {
     .player("B", { energy: 20 })
     .hand("zephyr", { cardId: CANONICAL_ID, types: ["unit"], energy: 6, power: ["Calm"], might: 6 })
     .build();
+  const viewObjects = () => combat === null
+    ? kernel.objects
+    : kernel.objects.map(object => object.ref.id === "zephyr"
+      ? { ...object, combatRole: combat }
+      : object);
   const host = createActionPipelineHost({
     checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
     restore: checkpoint => {
       kernel.restore(checkpoint.state);
       kernel.copyLinkedFrom(checkpoint.links);
     },
-    objects: () => combat === null
-      ? kernel.objects
-      : kernel.objects.map(object => object.ref.id === "zephyr"
-        ? { ...object, combatRole: combat }
-        : object),
+    objects: viewObjects,
     perform: action => kernel.perform(action),
     choose: () => {
       throw new Error("Unexpected choice");
@@ -54,7 +62,7 @@ function fixture() {
     host,
     cleanup: () => false
   });
-  return { engine, kernel, setCombat: value => { combat = value; } };
+  return { engine, kernel, setCombat: value => { combat = value; }, viewObjects };
 }
 
 function play(f, id = "zephyr", draftId = "play-zephyr") {
@@ -89,6 +97,12 @@ test("ogs-005-024 Zephyr Sage: identity, verbatim sourceText and the merged regi
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /designation/);
+  // Re-probed 2026-10-18: the two live blockers are the merged-but-unwired
+  // expr-ext dispatch boundary (RIFT-711) and the absent combat-role producer.
+  assert.match(program.judgeReason, /RIFT-711/);
+  assert.match(program.judgeReason, /MissingInformation/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
+  assert.match(program.judgeReason, /466\.2/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
@@ -174,7 +188,7 @@ test("ogs-005-024 Zephyr Sage regression: a real combatRole snapshot remains unm
   const handle = createEngineStaticBinder(f.engine).bindStatic(ability, source);
 
   f.setCombat("defender");
-  f.engine.layers.setObjects(f.engine.pipeline.host.objects());
+  f.engine.layers.setObjects(f.viewObjects());
   const ref = f.kernel.ref("zephyr");
   const snapshot = f.engine.layers.snapshot(ref);
   assert.equal(snapshot.combatRole, "defender");
@@ -185,11 +199,86 @@ test("ogs-005-024 Zephyr Sage regression: a real combatRole snapshot remains unm
   handle.unbind();
 });
 
+test("ogs-005-024 Zephyr Sage golden control: pointing the expansion at combatRole grants exactly +1 while defending", () => {
+  // Control for the only changed input: the Shield expansion's condition
+  // property is re-pointed from the absent "designation" to the merged
+  // ObjectSnapshot characteristic "combatRole" (contract 3.8). The amount (1),
+  // the production static binder, the real ChainEngine pipeline and the raw
+  // layer input all stay untouched. CR 814.1.c/814.1.d.1: +1 exactly while the
+  // Unit holds the Defender designation, nothing while attacking or outside
+  // Combat.
+  const [ability] = shield.expand({ host: HOST });
+  const aligned = {
+    ...ability,
+    condition: { ...ability.condition, left: { ...ability.condition.left, property: "combatRole" } }
+  };
+  const measured = {};
+  for (const role of ["defender", "attacker", null]) {
+    const f = fixture();
+    play(f);
+    const handle = createEngineStaticBinder(f.engine).bindStatic(aligned, f.kernel.getObject("zephyr"));
+    f.setCombat(role);
+    // The raw view is asserted first: the modification is applied by the layer
+    // engine exactly once (6 -> 7), never by re-feeding a layered snapshot.
+    assert.equal(f.viewObjects().find(object => object.ref.id === "zephyr").might, 6);
+    f.engine.layers.setObjects(f.viewObjects());
+    measured[String(role)] = f.engine.layers.evaluate(f.kernel.ref("zephyr")).might;
+    assert.equal(f.kernel.getObject("zephyr").might, 6, "the kernel keeps the printed Might; only the layer view changes");
+    handle.unbind();
+  }
+  assert.deepEqual(measured, { defender: 7, attacker: 6, null: 6 });
+});
+
+test("ogs-005-024 Zephyr Sage: designation resolves only in the merged expr-ext evaluator, not in the production interpreter", () => {
+  // RIFT-711 merged evaluateExtendedExpression, which maps both
+  // object-property("designation") and object-designation to combatRole. Its
+  // README records the integration boundary explicitly: the default
+  // interpreter (effects/interpreter/expr.ts) and programs/statics.ts do not
+  // dispatch the extension yet. Both evaluators run here against the same live
+  // defender snapshot, so the remaining dependency is measured, not assumed.
+  const kernel = world().unit("zephyr", { cardId: CANONICAL_ID, types: ["unit"], might: 6, combatRole: "defender" }).build();
+  const context = kernel.clone({ source: kernel.ref("zephyr"), sourceSnapshot: kernel.getObject("zephyr") });
+  const environment = {
+    context,
+    linked: (id, key) => context.linked(key === undefined ? id : `${id}.${key}`),
+    canLookBack: () => false,
+    isIgnored: () => false
+  };
+  const designation = { kind: "object-property", object: "self", property: "designation" };
+  assert.throws(() => evaluateExpression(designation, environment), error => {
+    assert.ok(error instanceof MissingInformation);
+    assert.match(error.message, /Unavailable characteristic: designation/);
+    return true;
+  });
+  assert.equal(context.object(kernel.ref("zephyr")).combatRole, "defender");
+  assert.equal(evaluateExtendedExpression(designation, environment), "defender");
+  assert.equal(evaluateExtendedExpression({ kind: "object-designation", object: "self" }, environment), "defender");
+});
+
+test("ogs-005-024 Zephyr Sage golden: CR 814.2 sums a granted Shield into the declared instance", () => {
+  // 814.2: Shield granted by an additional source sums into a single Shield
+  // Value. expandProgram merges the declared instance with the printed keyword
+  // entry and calls the KeywordDef once with the summed value, so exactly one
+  // static remains for this identity.
+  const kernel = world().unit("zephyr", { cardId: CANONICAL_ID, types: ["unit"], might: 6 }).build();
+  const source = { ...kernel.getObject("zephyr"), keywords: [{ id: "Shield", value: 1 }] };
+  const expanded = expandProgram({ ...program, status: "executable", judgeReason: undefined }, source);
+  const statics = expanded.abilities.filter(ability => ability.kind === "static");
+  assert.equal(statics.length, 1);
+  assert.deepEqual(statics[0].effect.amount, { kind: "constant", value: 2 });
+  assert.deepEqual(
+    statics[0].condition.right,
+    { kind: "constant", value: "defender" }
+  );
+});
+
 test.todo(
   "ogs-005-024 Zephyr Sage: the production combat snapshot's combatRole must satisfy " +
     "Shield's Defender designation condition and grant exactly +1 Might (CR 814.1.c/814.1.d.1) — " +
-    "blocked because the merged Shield expansion reads designation while ObjectSnapshot exposes " +
-    "combatRole; a positive test must use the production snapshot without manually injecting designation"
+    "blocked by two merged-yet-unwired paths, both measured by the goldens above: RIFT-711's " +
+    "evaluateExtendedExpression maps designation -> combatRole but the default interpreter and " +
+    "programs/statics.ts do not dispatch it, and no combat transaction produces a designation " +
+    "(combat/flow.ts throws combat-start-transaction, CR 466.2 / RIFT-124 follow-up)"
 );
 
 test("ogs-005-024 Zephyr Sage: the inspected lifecycle expansion retains one summed Shield static (CR 814.2)", () => {

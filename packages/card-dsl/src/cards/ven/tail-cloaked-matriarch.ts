@@ -30,14 +30,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 单位按零基础费用计划打到基地）已真实执行。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required，缺口均不近似实现：
- * 1. keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，827.1.c.1 的启动费用
- *    与“仅当未 Empowered 时”限制、828.1.b.1/828.1.d 的依赖能力门槛都无法展开（RIFT-83/84 批次
- *    不含它们，需新任务）。
- * 2. 442.1.a 的 Empowered 二元状态不在 ObjectSnapshot / Condition 里，empowered-changed 的
- *    载荷也没有增加方向过滤的消费方（同 souls-reflection/covert-informant 的记录，RIFT-87）。
+ * 1. Empower KeywordDef 已注册，但 KeywordAbility 只有 keyword/value，expandProgram 只传
+ *    value/host，不能把本卡印刷的 2 Energy + 1 Chaos Power 送入 params.cost；展开会落到
+ *    默认的 unsupported `cost.kind: "empower"`，所以启动费用仍不能支付。
+ * 2. 442.1.a 的 Empowered 二元状态不在 ObjectSnapshot / Condition 里；empowered-changed
+ *    的 action adapter 也没有把 previous/current count 或增加方向填入触发载荷，因此依赖触发
+ *    仍不能端到端执行。
  * 3. “with Energy cost no more than [3] and Power cost no more than [A]” 需要印刷费用上限比较：
  *    costEnergyLte / costPowerLte 尚无消费方，programs/filters.ts 会拒绝这些描述性键，
- *    因此还不能执行印刷费用上限筛选（RIFT-359）。[A]（135.2.e.5.a/163.2.b）
+ *    因此还不能执行印刷费用上限筛选。[A]（135.2.e.5.a/163.2.b）
  *    已能通过费用系统的六域 allowedDomains 表达，任意域 Power 费用表示不是缺口。
  * 4. “ignoring its cost” 需要费用管线为**已被选中的那张牌**产出 ignore-base 的 Finalize 计划
  *    （356.1.b.1）；cost/cost-plan.ts 能表达 ignore-base，但没有卡牌程序 → 费用计划的接线。
@@ -129,13 +130,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺口（复核 2026-10-17，均不近似实现）：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，" +
-    "827.1.c.1 的「2 Energy + 1 Chaos Power：Empower me，仅当未 Empowered 时启动」与 828.1.d 的依赖能力门槛" +
-    "都无法展开（RIFT-83/84 批次不含它们，需新的关键词任务）；(2) 442.1.a 的 Empowered 二元状态不在 " +
-    "ObjectSnapshot / Condition 里，empowered-changed 载荷也没有增加方向过滤的消费方" +
-    "（EVENT_PATTERN_TYPES 无 empowerment 判别值，载荷无 direction 字段）；" +
+    "缺口（复核 2026-10-17，均不近似实现）：(1) Empower KeywordDef 已注册，但 KeywordAbility 只有 " +
+    "keyword/value，expandProgram 只传 value/host，无法把本卡的 2 Energy + 1 Chaos Power 送入 params.cost；" +
+    "展开会落到默认的 unsupported cost.kind: empower，故启动费用仍不能支付；(2) 442.1.a 的 Empowered " +
+    "二元状态不在 ObjectSnapshot / Condition 里，empowered-changed 的 action adapter 也没有填入 " +
+    "previous/current count 或增加方向，依赖触发仍不能端到端执行；" +
     "(3)「with Energy cost no more than :rb_energy_3: and Power cost no more than :rb_rune_rainbow:」需要印刷费用上限比较，" +
-    "但 costEnergyLte / costPowerLte 只有描述性记录，尚无印刷费用上限谓词消费方（RIFT-359）；" +
+    "但 costEnergyLte / costPowerLte 只有描述性记录，尚无印刷费用上限谓词消费方；" +
     "[A] 任意域 Power（135.2.e.5.a / 163.2.b）已能通过费用系统的六域 allowedDomains 表达，不是缺口；" +
     "(4)「ignoring its cost」需要费用管线为被选中的那张牌产出 ignore-base 的 Finalize 计划（356.1.b.1），" +
     "cost/cost-plan.ts 能表达 ignore-base 但没有卡牌 → 计划的接线。" +

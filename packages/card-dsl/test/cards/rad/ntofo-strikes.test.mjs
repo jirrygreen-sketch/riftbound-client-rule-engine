@@ -8,6 +8,11 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { evaluateExtendedExpression } from "../../../../engine-core/dist/effects/interpreter/expr-ext/evaluate.js";
+import { expandEffectiveKeywords, KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const [speed, play] = program.abilities;
 const [grantShield, shieldValue, dealShield] = play.body;
@@ -41,12 +46,16 @@ test("rad-148-167 Ntofo Strikes: program validates and has expected identity", (
 });
 
 test("rad-148-167 Ntofo Strikes: judgeReason records only the remaining Shield-value read", () => {
-  // The keyword-grant dependency is merged; the reason must say so instead of
-  // still listing it as a gap, and must name the real remaining one.
+  // The keyword-grant dependency is merged; the reason must name the two real
+  // remaining ones: the unreadable keyword value and the unwired granted-keyword
+  // expansion on the production layer engine.
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /RIFT-258/);
   assert.match(program.judgeReason, /effect\.shield-value/);
   assert.match(program.judgeReason, /814\.2/);
+  assert.match(program.judgeReason, /RIFT-710/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /MissingInformation/);
   assert.equal(/RIFT-91/.test(program.judgeReason), false);
 });
 
@@ -94,6 +103,123 @@ test("rad-148-167 Ntofo Strikes: the authored three-instruction body stops at th
   // Nothing was actually granted or dealt: the body is not silently settled.
   assert.equal(scoped.continuousEffects.length, 0);
   assert.equal(scoped.getObject("enemy").damage, 0);
+});
+
+/**
+ * The card's own body, resolved with the relative-player spellings bound the
+ * way the production chain context binds them (chain/engine.ts rewrites
+ * controller/owner self/opponent to the item's concrete player before
+ * matchesObjectFilter runs). The reference kernel compares those scalars
+ * literally, so the same rewrite is applied here.
+ */
+function productionQuery(kernel, controller) {
+  const raw = kernel.query.bind(kernel);
+  return filter => raw({
+    ...filter,
+    ...(filter.controller === "self" ? { controller } : {}),
+    ...(filter.controller === "opponent" ? { controller: "any" } : {}),
+    ...(filter.owner === "self" ? { owner: controller } : {}),
+    ...(filter.owner === "opponent" ? { owner: "any" } : {})
+  });
+}
+
+test("rad-148-167 Ntofo Strikes re-sweep: the granted Shield stays a keyword on the production layer engine", () => {
+  // The grant executes and the keyword reaches the ally. The production
+  // LayerEngine performs no KeywordDef expansion, so Shield's functional text
+  // (814.1.c) never becomes Might and the damage half has nothing correct to
+  // read. This pins the measured production state of the grant half.
+  const kernel = world()
+    .unit("ksante", { might: 4, controller: "A", owner: "A" })
+    .unit("enemy", { might: 5, controller: "B", owner: "B" })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("ksante") });
+  const query = productionQuery(scoped, "A");
+  Object.defineProperty(scoped, "query", { value: query, configurable: true });
+  scoped.setTargets("ntofo-strikes.friendly-unit", [kernel.ref("ksante")]);
+  scoped.setTargets("ntofo-strikes.enemy-unit", [kernel.ref("enemy")]);
+
+  const outcome = runAbilityBody([grantShield], scoped);
+  assert.equal(outcome.status, "executed");
+  const entries = scoped.continuousEffects.map(entry => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 }));
+  assert.equal(entries.length, 1);
+
+  const engine = createLayerEngine(scoped.objects, entries);
+  // The grant stores the card's own spelling, so the raw layer keyword is
+  // "Shield" here (consult-the-heavens declares the lowercase spelling).
+  assert.deepEqual(engine.evaluate(kernel.ref("ksante")).keywords, [{ id: "Shield", value: 2 }]);
+  // The printed Might is unchanged: no expansion contributed the +2.
+  assert.equal(engine.evaluate(kernel.ref("ksante")).might, 4);
+  assert.deepEqual(expandEffectiveKeywords(scoped.getObject("ksante")).abilities, []);
+});
+
+test("rad-148-167 Ntofo Strikes re-sweep: the re-expansion engine supplies the +2 only while defending, but is not production", () => {
+  // RIFT-710's KeywordGrantLayerEngine expands the granted Shield through its
+  // KeywordDef and evaluates the designation condition against combatRole. That
+  // makes the granted Shield real for a defender — and still not reachable from
+  // ChainEngine, which constructs the plain LayerEngine.
+  for (const [combatRole, expected] of [["defender", 6], ["attacker", 4], [null, 4]]) {
+    const kernel = world()
+      .unit("ksante", { might: 4, controller: "A", owner: "A", combatRole })
+      .unit("enemy", { might: 5, controller: "B", owner: "B" })
+      .build();
+    const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("ksante") });
+    Object.defineProperty(scoped, "query", { value: productionQuery(scoped, "A"), configurable: true });
+    scoped.setTargets("ntofo-strikes.friendly-unit", [kernel.ref("ksante")]);
+    assert.equal(runAbilityBody([grantShield], scoped).status, "executed");
+
+    const context = source => bindResolveContext(scoped, { source, controller: source.controller });
+    const layers = new KeywordGrantLayerEngine(scoped.objects, { context });
+    for (const entry of scoped.continuousEffects) layers.addContinuous(entry.effect, entry.duration);
+
+    const ally = layers.evaluate(scoped.ref("ksante"));
+    assert.deepEqual(ally.keywords, [{ id: "Shield", value: 2 }]);
+    assert.equal(ally.might, expected, "combatRole=" + combatRole);
+  }
+
+  const kernel = world().player("A").player("B").unit("src", { zone: "board", controller: "A" }).build();
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host: createActionPipelineHost({
+      checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+      restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+      objects: () => kernel.objects,
+      perform: action => kernel.perform(action),
+      choose: request => kernel.choose(request),
+      context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+    }),
+    cleanup: () => false
+  });
+  assert.equal(engine.layers.constructor.name, "LayerEngine");
+});
+
+test("rad-148-167 Ntofo Strikes re-sweep: no merged expression reads the summed Shield Value (814.1.b.2 / 814.2)", () => {
+  // The authored amount must be the *number* of the unit's summed Shield Value.
+  // Neither spelling works: \"shield\" is not an ObjectSnapshot characteristic,
+  // and \"keywords\" yields the list rather than the sum.
+  const kernel = world()
+    .unit("ally", { might: 4, keywords: [{ id: "Shield", value: 2 }, { id: "Shield", value: 2 }] })
+    .unit("enemy", { owner: "B", might: 5 })
+    .build();
+  const environment = {
+    context: bindResolveContext(kernel, { source: kernel.getObject("ally"), controller: "A" }),
+    host: kernel.ref("ally"),
+    linked: () => undefined,
+    canLookBack: () => true,
+    isIgnored: () => false
+  };
+  assert.throws(
+    () => evaluateExtendedExpression({ kind: "object-property", object: "self", property: "shield" }, environment),
+    /Unavailable characteristic: shield/
+  );
+  assert.deepEqual(
+    evaluateExtendedExpression({ kind: "object-property", object: "self", property: "keywords" }, environment),
+    [{ id: "Shield", value: 2 }, { id: "Shield", value: 2 }]
+  );
+  // The merged re-expansion does know the summed value; only the expression
+  // layer lacks a read for it.
+  assert.deepEqual(expandEffectiveKeywords(kernel.getObject("ally")).keywords, [{ id: "Shield", value: 4 }]);
 });
 
 test("rad-148-167 Ntofo Strikes: structure — Action keyword, Shield grant, Shield-value read, linked damage", () => {

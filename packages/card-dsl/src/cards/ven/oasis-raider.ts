@@ -23,8 +23,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 053.1/355.10.g："me" 是能力宿主自身，不是目标。
  *
  * status = judge-required：beginning-start 的发出与 CardProgram triggered 注册、符文数量条件、
- * continuous.might 和 continuous.grant-keyword 的图层注册均已可执行；仍缺动态授予的 Ganking
- * 关键词如何展开成 continuous.movement；Standard Move 已能消费 movement rule query。
+ * continuous.might 和 continuous.grant-keyword 的图层注册均已可执行；默认 CardProgram/ChainEngine
+ * 仍缺动态授予的 Ganking 关键词重绑定为 continuous.movement，以及该许可到 Standard Move 的生产接线。
  * 不把当前 1v1 TurnFlow 之外的多人量化当作本卡缺口，也不用 Buff 计数近似 Might。
  */
 const abilities: Ability[] = [
@@ -81,8 +81,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口是动态 Ganking 的移动许可消费（810.1.b / 810.1.c）：continuous.grant-keyword 已向宿主能力图层授予本回合有效的 Ganking，但 programs/keywords.ts 只在绑定时展开关键词，未把结算中新授予的关键词转成 continuous.movement，或接入 Standard Move 的 hasGanking 派生。" +
-    "beginning-start、符文数量比较、continuous.might 及关键词授予/到期均有已支持路径；zones/movement.ts 已消费 movement rule query，不能再把通用移动查询列为缺口。",
+    "当前唯一未完成的能力是动态 Ganking 的移动许可消费（810.1.b / 810.1.c）：" +
+    "continuous.grant-keyword 已向宿主能力图层授予本回合有效的 Ganking，但默认 " +
+    "CardProgram/ChainEngine 路径没有在结算后重绑 KeywordDef 为 continuous.movement；实测图层关键词存在，而 movement() 的 " +
+    "canGank 仍为 false。beginning-start、符文数量比较、continuous.might、关键词授予与到期均有真实执行证据，" +
+    "不能用静态 Ganking 或 Buff 计数替代该动态许可。",
   abilities,
   sourceText:
     "If you control fewer runes than an opponent at the start of your Beginning Phase, give me " +

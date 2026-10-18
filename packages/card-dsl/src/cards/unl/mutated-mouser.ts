@@ -19,19 +19,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   815.2 多实例冗余；815.3 是可读取特征。同样只声明关键词，展开（continuous.combat 分配要求）
  *   由 effects/keywords/Tank.ts 负责。括号内是提醒文本（135.2.d.3 无游戏功能），本文件不重复实现。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。两个关键词的 KeywordDef、关键词展开
- * 路径与静态能力绑定均已合入。
- * 整卡仍不可执行的两处缺口（不近似实现）：
- * - 814.1.d 的 Defender designation 虽然已作为 `ObjectSnapshot.combatRole` 进入 HEAD（契约 3.8），
- *   但 layers/engine.ts 的 conditionMatches 仍只识别 always/never/type/has-tag/has-keyword：
- *   Shield 展开里的 compare(object-property(self,'designation') eq 'defender') 不被求值，
- *   未识别条件按 true 处理，+2 Might 会在非防守身份下也生效。战斗角色事务本身也还没发出角色
- *   designation（combat/flow.ts 仍抛 combat-start-transaction，CR 466.2）。
- * - 815.1.b/815.1.c 的战斗伤害分配不读取分配优先级要求：combat/base-combat-allocation.ts 明确写着
- *   "No Tank/Backline/other assignment-priority requirement is bound here"，continuous.combat 展开
- *   （layers/ops/index.ts 的注释也承认）没有图层或战斗消费方，Tank 的全部功能无处执行。
- * 依赖：layers 的 compare/designation 条件求值与战斗角色 designation 事务、战斗伤害分配工作流（815）。
- * 不近似实现：不把 Shield 写成普通数值加算，也不把 Tank 写成静态数值。
+ * 2026-10-18 复核：仍为 judge-required，当前缺口见 judgeReason。
+ * 已有原语、关键词定义或通用适配器不代表本卡完整生产路径可执行。
  */
 const abilities: Ability[] = [
   // 814.1.b.2：印刷的 Shield Value 是 2（该值由 keywords/Shield.ts 展开，卡内不重写）。
@@ -46,15 +35,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两个关键词的展开文件（814 的 effects/keywords/Shield.ts、815 的 effects/keywords/Tank.ts）与关键词展开/静态绑定路径都已合入，" +
-    "但整卡仍缺两处可执行路径：" +
-    "(1) 814.1.d 的 Defender designation 虽已作为 ObjectSnapshot.combatRole 进入 HEAD（契约 3.8），但 layers/engine.ts 的 " +
-    "conditionMatches 只识别 always/never/type/has-tag/has-keyword：Shield 展开里的 " +
-    "compare(object-property(self,'designation') eq 'defender') 不被求值，未识别条件按 true 处理，" +
-    "+2 [M] 因此会在非防守身份下也生效；战斗角色 designation 本身也还没有产生方（combat/flow.ts 仍抛 combat-start-transaction，CR 466.2）。" +
-    "(2) 815.1.b/815.1.c 的战斗伤害分配不读取分配优先级要求：combat/base-combat-allocation.ts 明确写着 " +
-    "“No Tank/Backline/other assignment-priority requirement is bound here”，continuous.combat 展开没有图层或战斗消费方，" +
-    "Tank 的全部功能无处执行。依赖：layers 的 compare/designation 条件求值与战斗角色 designation 事务、战斗伤害分配工作流（815）。不近似实现。",
+    "两处当前缺口（2026-10-18 实测，均不近似实现）：" +
+    "(1) [Shield 2]（814.1.d/814.1.d.1）的 designation 条件仍不可求值：programs/statics.ts 把 compare 条件包成 evaluateCondition 可调用的函数，" +
+    "而默认识别器只认 ObjectSnapshot 的自有字段，object-property(self, \"designation\") 抛 MissingInformation、静态绑定器捕获后返回 false；" +
+    "interpreter/expr-ext/evaluate.ts 已有 designation → combatRole 映射，但没有接入主 dispatch 与 programs/statics.ts（expr-ext/README 的 integration boundary）。" +
+    "实测：attacker/defender/无身份三种快照下条件恒为 false、打印 Might 1 都不加成（不能无条件 +2）。" +
+    "同时战斗角色本身也还没有产出方：combat/flow.ts 仍在 combat-start-transaction 阻塞（466.2）。" +
+    "(2) [Tank]（815.1.b/815.1.c）的 continuous.combat 没有战斗伤害分配消费方：static binder 能登记该 registration，" +
+    "但 layers/engine.ts 没有该 kind 的求值分支，combat/base-combat-allocation.ts 只接受 keywordPriority: \"proven-none\" 的基础分配证明。",
   abilities,
   sourceText:
     "[Shield 2] (+2 :rb_might: while I'm a defender.)\n" +

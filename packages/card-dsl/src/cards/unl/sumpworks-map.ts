@@ -21,11 +21,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （events/trigger-spec.ts）表达「计分玩家不是本能力控制者」。
  * - 414.1 / 414.3 / 190.6.d：draw 1 = effect.draw，隐含的 you 是能力控制者。
  *
- * status = judge-required：effect.draw 本体、score 时点和 Temporary 的 kill 展开都有真实
- * 解释器证据，但完整卡牌生命周期仍受两个当前契约缺口阻断。Temporary 展开把
- * beginning-start 写入 EventPattern，而该词目前不在封闭的事件模式词表；Reaction 展开
- * 的 continuous.timing appliesTo 形状也尚未被程序静态绑定器消费。因此不能把局部解释器
- * 证据提升为整卡 executable。
+ * status = judge-required（2026-10-18 复核）：effect.draw 本体与 score 时点都已在 golden
+ * 里真实执行，score 触发器实测能注册并在真实 score 发射上被排队；但完整卡牌生命周期仍受
+ * 两个当前缺口阻断：
+ * - Temporary 展开把 beginning-start 写进 EventPattern，而该词不在封闭的事件模式词表
+ *   （EVENT_PATTERN_TYPES），实测 assertTriggerSpec 直接抛 TriggerSpecValidationError，
+ *   所以 Temporary 的 kill 触发器无法随卡注册；
+ * - Reaction 展开的 static continuous.timing 带 appliesTo: ["card", "activated-ability"]，
+ *   实测程序静态绑定器抛 "Unsupported static appliesTo ["card","activated-ability"]"，
+ *   Closed State 许可无法从本卡声明接入（即使去掉 appliesTo，图层也只登记许可、
+ *   card 级许可的消费方仍待接线）。
+ * 因此不能把局部解释器证据提升为整卡 executable。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "reaction" },
@@ -55,11 +61,13 @@ export default {
   status: "judge-required",
   judgeReason:
     "两处当前契约缺口阻断完整生命周期，均不近似实现：(1) Temporary KeywordDef 的 " +
-    "beginning-start 触发体使用合法时点，但该事件目前不在 EventPattern 的封闭词表中，" +
-    "所以 CardProgram 的触发注册无法绑定；(2) Reaction KeywordDef 的 continuous.timing 展开" +
-    "使用 card/activated-ability 的 appliesTo 数组，程序静态绑定器尚未消费该形状，Closed State" +
-    "许可不能从本卡声明接入。score 触发改用封闭词表中的 scored 映射到 score 时点；draw、" +
-    "Temporary 的 kill body 均有解释器执行证据。",
+    "beginning-start 触发体使用合法时点，但该事件名不在 EventPattern 的封闭词表中" +
+    "（EVENT_PATTERN_TYPES 只收 zone-entered/object-entered-zone/…/scored/final-point），" +
+    "实测 assertTriggerSpec 抛 TriggerSpecValidationError，所以 CardProgram 的触发注册无法绑定；" +
+    "(2) Reaction KeywordDef 的 continuous.timing 展开使用 card/activated-ability 的 appliesTo 数组，" +
+    "程序静态绑定器尚未消费该形状（实测抛 Unsupported static appliesTo），Closed State" +
+    "许可不能从本卡声明接入。score 触发实测能注册（program:<source> 经 registerProgramTriggers 成功），" +
+    "draw 与 Temporary 的 kill body 均有解释器执行证据。",
   abilities,
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +

@@ -5,7 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/sfd/chem-baroness.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
@@ -20,7 +20,7 @@ const SOURCE_TEXT =
 const [holdTrigger, goldBonus] = program.abilities;
 const optionalAbility = holdTrigger.body[0];
 const optionalBody = optionalAbility.args.body.value;
-const [payExhaust, playGold] = optionalBody;
+const [prepareExhaust, payExhaust, readBase, playGold] = optionalBody;
 
 const legendWorld = ({ exhausted = false } = {}) => {
   const base = world()
@@ -45,6 +45,8 @@ test("sfd-201-221 Chem-Baroness: identity, ruleset, status, judgeReason and verb
   assert.match(program.judgeReason, /143\.4/);
   assert.match(program.judgeReason, /Victory Score/);
   assert.match(program.judgeReason, /ally/);
+  assert.match(program.judgeReason, /TriggerRegistration\.cost/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("sfd-201-221 Chem-Baroness: 'when you or an ally hold' is a Hold Effect for the controller", () => {
@@ -82,14 +84,40 @@ test("sfd-201-221 Chem-Baroness: the may-body pays the exhaust cost then plays a
     value: "Exhaust Chem-Baroness to play a Gold gear token exhausted?"
   });
   assert.deepEqual(optionalBody.map(instruction => [instruction.id, instruction.op]), [
+    ["chem-baroness.prepare-exhaust", "cost.modify"],
     ["chem-baroness.pay-exhaust", "cost.pay"],
+    ["chem-baroness.read-base", "condition.value"],
     ["chem-baroness.play-gold", "effect.token"]
   ]);
 
   // "exhaust me": 415.4/415.5 — the exhaust is a cost, not effect.exhaust's
-  // state change.
+  // state change. cost.modify locks the payable plan and cost.pay charges it;
+  // lifting that plan into Finalize is the remaining gap (judgeReason).
+  assert.deepEqual(prepareExhaust.args, {
+    id: { kind: "constant", value: "chem-baroness.prepare-exhaust" },
+    cost: {
+      kind: "constant",
+      value: {
+        kind: "activated",
+        payments: [{ kind: "exhaust", object: "self" }]
+      }
+    }
+  });
+  assert.equal(payExhaust.linkedTo, "chem-baroness.prepare-exhaust");
   assert.deepEqual(payExhaust.args, {
-    payments: { kind: "constant", value: [{ kind: "exhaust", object: "self" }] }
+    cost: {
+      kind: "linked-value",
+      instructionId: "chem-baroness.prepare-exhaust",
+      key: "cost"
+    }
+  });
+
+  // The token destination is the ability controller's Base, resolved to a
+  // concrete PlayerId at resolution (440.2.b.1 / 107.1.c).
+  assert.equal(readBase.op, "condition.value");
+  assert.deepEqual(readBase.args, {
+    value: { kind: "location", value: "ability-controller-base" },
+    key: { kind: "constant", value: "base" }
   });
 
   // "play a Gold gear token exhausted": 187.5's Gold definition, the 440.2.c /
@@ -98,9 +126,14 @@ test("sfd-201-221 Chem-Baroness: the may-body pays the exhaust cost then plays a
     token: { kind: "constant", value: "gold" },
     amount: { kind: "constant", value: 1 },
     mode: { kind: "constant", value: "play" },
+    location: {
+      kind: "linked-value",
+      instructionId: "chem-baroness.read-base",
+      key: "base"
+    },
     linkKey: { kind: "constant", value: "goldToken" }
   });
-  assert.equal(playGold.linkedTo, "chem-baroness.pay-exhaust");
+  assert.equal(playGold.linkedTo, "chem-baroness.read-base");
 });
 
 test("sfd-201-221 Chem-Baroness: declining the hold trigger pays nothing and creates nothing", () => {
@@ -121,29 +154,29 @@ test("sfd-201-221 Chem-Baroness: declining the hold trigger pays nothing and cre
 
 test("sfd-201-221 Chem-Baroness: the printed exhaust cost is charged as a real exhaust payment", () => {
   const kernel = legendWorld();
-  const plan = buildCostPlan(kernel, {
-    id: "cost:chem-baroness",
-    cost: { kind: "activated", payments: payExhaust.args.payments.value }
-  });
+  // The card's own cost.modify/cost.pay pair charges the legend for real through
+  // the interpreter. The production chain path additionally cannot literalize
+  // cost.modify's `id`, so the pair never silently resolves there.
+  const outcome = runAbilityBody([prepareExhaust, payExhaust], kernel);
 
-  assert.deepEqual(plan.total.actions.map(entry => entry.action.type), ["exhaust"]);
-  const receipt = payCostPlan(kernel, plan);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["chem-baroness.prepare-exhaust", "executed"],
+    ["chem-baroness.pay-exhaust", "executed"]
+  ]);
+  const planned = outcome.results[0].result.linkedValues.cost;
+  assert.deepEqual(planned.total.actions.map(entry => entry.action.type), ["exhaust"]);
+  const receipt = outcome.results[1].result.linkedValues.payment;
   assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay", "exhaust"]);
   assert.equal(kernel.getObject("chem-baroness").exhausted, true);
-});
 
-test("sfd-201-221 Chem-Baroness: the exhaust cost is charged as a real payment through the merged cost plan", () => {
-  // 415.4/415.5: "exhaust me" is a cost, so it is charged by the cost plan and
-  // not by effect.exhaust. The declared payment really exhausts the legend.
-  const kernel = legendWorld();
-  const plan = buildCostPlan(kernel, {
-    id: "cost:chem-baroness:exhaust",
-    cost: { kind: "activated", payments: [{ kind: "exhaust", object: "self" }] }
-  });
-  assert.deepEqual(plan.total.actions.map((entry) => entry.action.type), ["exhaust"]);
-  const receipt = payCostPlan(kernel, plan);
-  assert.equal(receipt.paid, true);
-  assert.equal(kernel.getObject("chem-baroness").exhausted, true);
+  const chainKernel = legendWorld();
+  assert.throws(
+    () => resolveChainBody([prepareExhaust, payExhaust], chainKernel),
+    error => error instanceof TypeError && /cost\.modify id/.test(error.message)
+  );
+  assert.equal(chainKernel.getObject("chem-baroness").exhausted, false);
 });
 
 test("sfd-201-221 Chem-Baroness: an unfulfilled Gold play preserves the legend and creates no substitute token", () => {
@@ -165,23 +198,29 @@ test("sfd-201-221 Chem-Baroness: an unfulfilled Gold play preserves the legend a
   assert.deepEqual(kernel.events, []);
 });
 
-test("sfd-201-221 Chem-Baroness: the declared cost.pay shape is rejected by the merged payments parser", () => {
-  // CR 415.4/415.5: "exhaust me" is the trigger's cost. The card declares the
-  // nonstandard payment array; cost.pay's payments parser only accepts the
-  // { energy, power, xp } descriptor form, so the authored shape fails closed
-  // with cannot-pay-cost instead of silently skipping the cost.
+test("sfd-201-221 Chem-Baroness golden: the Gold play fails closed on the unmerged token definition", () => {
+  // 187.5: Gold carries its own ability, so the frozen token table keeps it
+  // judge-required. The card's own authored instruction reports that measured
+  // outcome: nothing is created and no substitute token stands in.
   const kernel = legendWorld();
-  assert.throws(
-    () => resolveChainBody([payExhaust], kernel),
-    (error) => {
-      assert.equal(error.name, "CostPlanError");
-      assert.equal(error.reason, "cannot-pay-cost");
-      return true;
-    }
+  const outcome = resolveChainBody([readBase, playGold], kernel);
+
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map((result) => [result.id, result.result.status]), [
+    ["chem-baroness.read-base", "executed"],
+    ["chem-baroness.play-gold", "negated"]
+  ]);
+  // The interpreter scopes link keys by instruction path.
+  assert.equal(
+    outcome.linkedValues["chem-baroness.play-gold.goldToken"].blockedReason,
+    "token-definition-or-abilities-judge-required"
   );
-  // Nothing was paid and no Gold token was created by the failed attempt.
-  assert.equal(kernel.getObject("chem-baroness").exhausted, false);
+  // The Base really resolved to the ability controller's own seat first.
+  assert.deepEqual(outcome.linkedValues["chem-baroness.read-base.base"], { type: "base", player: "A" });
   assert.deepEqual(kernel.objects.filter((object) => object.isToken), []);
+  // 415.4/415.5: the cost is charged independently of the token outcome, so the
+  // legend really ends up exhausted.
+  assert.equal(kernel.getObject("chem-baroness").exhausted, false);
 });
 
 test("sfd-201-221 Chem-Baroness: the Victory Score and ally facts are absent from the merged context", () => {

@@ -23,7 +23,7 @@ test("The Dreaming Tree program validates and is judge-required", () => {
   assert.match(program.judgeReason, /383\.4\.b/);
   assert.match(program.judgeReason, /触发注册路径已存在/);
   assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /testTrigger/);
+  assert.match(program.judgeReason, /载荷|chooser/);
   assert.ok(!/RIFT-357/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -101,13 +101,13 @@ test("The Dreaming Tree golden: an unbound chooser negates the draw instead of d
 
 test.todo(
   "The Dreaming Tree trigger payload binding: 'they draw 1' must resolve the choosing " +
-    "player's controller from the became-target event (383.4.b.2); the existing trigger " +
-    "registration path also needs to bind the event payload into the body"
+    "player's controller from the became-target event (383.4.b.2); the existing registration " +
+    "path still needs to bind that event payload into the body"
 );
 
 test.todo(
   "The Dreaming Tree scope: 'a friendly unit here with a spell' needs the 053.3 'here' " +
-    "referent in the event matcher (sameLocationAs is implemented only by the interpreter's " +
-    "set-query path, not events/pipeline-match.ts), the chooser-relative 'friendly' check, " +
-    "and 190.6's controller of the Battlefield ability"
+    "referent in the trigger translator/matcher (programs/filters.ts currently rejects " +
+    "sameLocationAs), the chooser-relative 'friendly' check, and 190.6's controller of the " +
+    "Battlefield ability"
 );

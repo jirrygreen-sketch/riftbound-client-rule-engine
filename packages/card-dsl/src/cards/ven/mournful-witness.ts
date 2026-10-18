@@ -14,8 +14,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   （events/timing-points.ts；events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 有
  *   "combat-ended"，events/pipeline-match.ts 把它映射到 combat-end）。
  * - “a combat that I was in” 需要 Attacker/Defender designation（323.2、466.2.c.3、
- *   468.7.a）；契约 3.8 第 1 条的 ObjectSnapshot.combatRole 只在契约层冻结了字段设计，
- *   engine-core 的 ObjectSnapshot 尚无该特征，事件载荷也不带角色信息。
+ *   468.7.a）；ObjectSnapshot.combatRole 已存在，但
+ *   468.7.a 清除 designation 后仍需要本次参战历史，不能只查询当前角色。
  * - 442.1 / 442.1.b / 442.1.c：“empower me” 是 Empower 动作——把对象渲染为 Empowered；
  *   已 Empowered 的对象不能再次 Empower，重做时“nothing additional happens”。
  *   Empower 的来源自身不是目标（827.1.b.1 对关键词的同一原则），已合入的 effect.empower
@@ -23,27 +23,22 @@ import type { CardProgram } from "../../ir/index.js";
  * - 828.1.a / 828.1.b.1：[Empowered][>] 是 Dependent Keyword，整段功能等价于“当我拥有
  *   Empowered 状态时，此牌获得 [Text]”，本条为静态 +2 Might（479 的算术图层）。
  *
- * status = judge-required（三处缺口均不近似实现）：
- * 1. combat-end 时点没有发射方：combat/ 批次尚未把战斗结束接入事件管线（全仓库没有
- *    combat-end 的 emit 调用，combat/flow.ts 对战斗开始/伤害直接抛 TurnCombatBlockedError），
- *    触发无法进入链（combat 事件生产批次）；
- * 2. “a combat that I was in” 需要 combatRole/designation 特征，引擎侧未落地；
- * 3. “+2 [M]” 的 continuous.might 静态形状与图层求值已合入；本卡仍缺 Empowered
- *    状态门控的生产消费方。
- * body 的 “empower me” 只用已合入的 effect.empower，golden 用真实解释器与参考内核执行程序
- * 原始 body（含已 Empowered 时“什么都不发生”的 442.1.b/442.1.c 边界），照实记录原语返回结果。
+ * 当前执行边界见 judgeReason 与对应 golden；保留所有印刷语义。
  */
 export default {
   canonicalCardId: "card.hash-9306105a8f30f0954fec4a0757dc246561b8408b00e76f9d104c939964b55bd0",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) combat-end 时点（468.7/468.7.b）没有发射方——combat/ 未把战斗结束接入事件管线，" +
-    "全仓库没有 combat-end 的 emit 调用，触发无法进入链（combat 事件生产批次）；(2) “a combat that I was in”" +
-    "需要 Attacker/Defender designation（323.2、466.2.c.3、468.7.a），契约 3.8 的 ObjectSnapshot.combatRole" +
-    "尚未落地、事件载荷不带角色信息；(3)「I have +2 :rb_might:」的 continuous.might 静态形状已合入，" +
-    "但 Empowered 状态门控尚无生产消费方。body 的「empower me」只用已合入的 effect.empower（442.1；来源自身不是目标），" +
-    "golden 用真实解释器执行并覆盖已 Empowered 时什么都不发生的边界。不近似实现。",
+    "三处当前缺口（2026-10-17 RIFT-733 复核实测）：" +
+    "(1) 468.7/468.7.b 的 combat-end 没有生产发射方：combat/flow.ts 的 cleanup/advance 只发 contested-applied/control-lost/showdown 等，" +
+    "且 start() 对 staged combat 直接抛 TurnCombatBlockedError('combat-start-transaction')；duel/engagement-executor-v2.ts 里的 " +
+    "combat-end 只是 gate 名称而非 emission。触发因此无法在战斗结束时点绑定。" +
+    "(2) “a combat that I was in”缺参战历史：ObjectSnapshot.combatRole 只是当前 designation，468.7.a 清除 Attacker/Defender 后无法回看本次战斗是否参战。" +
+    "(3) [Empowered][>] 的 continuous.might 静态门控读 object-property \"empowered\"，而 effects/contract.ts 的 ObjectSnapshot 未声明该特征；" +
+    "生产内核 apps/game-server/src/engine-runtime/host.ts 把 empower/disempower 落到 buffs 且不暴露 empowered，" +
+    "programs/statics.ts 的条件求值捕获失败后返回 false，静态 +2 Might 在生产不可证明（参考内核的 effect.empower、compare 与 continuous.might 已真实执行）。" +
+    "不近似实现战斗触发与状态门控。",
   abilities: [
     {
       kind: "triggered",
@@ -59,6 +54,13 @@ export default {
           args: {
             // 442.1 / 827.1.b.1：Empower 的对象是来源自身，且不是目标。
             objects: { kind: "constant", value: { kind: "source" } }
+          },
+          // 442.1.b/c：已 Empowered 时不再次提交 Empower 动作。
+          condition: {
+            kind: "compare",
+            left: { kind: "object-property", object: "self", property: "empowered" },
+            operator: "eq",
+            right: { kind: "constant", value: 0 }
           }
         }
       ]
@@ -73,11 +75,12 @@ export default {
         amount: { kind: "constant", value: 2 },
         appliesTo: "self"
       },
-      // 828.1.c：仅在宿主拥有 Empowered 状态时生效；该门槛没有可求值的谓词，
-      // 以描述性 expression 记录（同已合入的 applied-researchers / grumpy-rockbear）。
+      // 828.1.c：状态门槛由生产静态绑定器求值。
       condition: {
-        kind: "expression",
-        value: { kind: "constant", value: "empowered" }
+        kind: "compare",
+        left: { kind: "object-property", object: "self", property: "empowered" },
+        operator: "gte",
+        right: { kind: "constant", value: 1 }
       }
     }
   ],

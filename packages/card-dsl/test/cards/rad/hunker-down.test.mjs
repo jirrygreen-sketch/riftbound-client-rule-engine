@@ -9,6 +9,7 @@ const { bindResolveContext } = await import(new URL("events/action-adapter.js", 
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", engineCore));
 const { default: ready } = await import(new URL("effects/instructions/effect.ready.js", engineCore));
 const { default: draw } = await import(new URL("effects/instructions/effect.draw.js", engineCore));
+const { default: moveInstruction } = await import(new URL("effects/instructions/effect.move.js", engineCore));
 const { matchesObjectFilter } = await import(new URL("layers/filter.js", engineCore));
 const { createContinuousEffectRegistry } = await import(new URL("layers/duration.js", engineCore));
 const { movement } = await import(new URL("layers/rules/query.js", engineCore));
@@ -71,6 +72,40 @@ test("rad-034-167 Hunker Down: judge-required names the remaining effect-Move re
   assert.match(program.judgeReason, /effect\.move/);
   assert.match(program.judgeReason, /move-location/);
   assert.match(program.judgeReason, /054\.1|451/);
+});
+
+test("rad-034-167 Hunker Down gap: a real effect Move ignores the recorded cannot-move restriction (054.1 / 451)", () => {
+  // Evidence for the remaining gap: the restriction really registers and the
+  // Standard Move kernel consumes it, but the card's own restriction does not
+  // stop an effect Move, which still relocates the unit.
+  const kernel = world()
+    .unit("ally", { owner: "A", controller: "A", exhausted: true, location: { type: "base", player: "A" } })
+    .unit("marker", { location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  kernel.setTargets("hunker-down.unit", [kernel.ref("ally")]);
+  const { outcome, registry } = runCardBody(kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(movement(registry, kernel.ref("ally"), kernel.getObject("ally")).canMove, false);
+
+  const moved = runInstruction(
+    moveInstruction,
+    {
+      objects: { kind: "constant", value: { target: "probe.unit" } },
+      to: { kind: "constant", value: { type: "battlefield", id: "bf-1" } }
+    },
+    { world: kernel, targets: { "probe.unit": [kernel.ref("ally")] } }
+  );
+  // The real merged primitive moves the unit anyway: no restriction is consulted.
+  assert.equal(moved.result.status, "executed");
+  assert.deepEqual(moved.linked.moved.movements, [{
+    object: { id: "ally", zoneEntryId: 1 },
+    from: { type: "base", player: "A" },
+    to: { type: "battlefield", id: "bf-1" }
+  }]);
+  assert.deepEqual(kernel.getObject("ally").location, { type: "battlefield", id: "bf-1" });
+  // The recorded restriction is still active; the effect-Move path just does not
+  // read it.
+  assert.equal(movement(registry, kernel.ref("ally"), kernel.getObject("ally")).canMove, false);
 });
 
 test("rad-034-167 Hunker Down: [Reaction], ready, the no-move restriction, then an unlinked draw", () => {
@@ -335,7 +370,8 @@ test("rad-034-167 Hunker Down golden: effect.draw alone moves the top card to ha
 
 test.todo(
   "rad-034-167 Hunker Down: an effect Move must preserve the readied unit's location while cannot-move is active " +
-    "(054.1 / 451); move-location still needs to consume the same continuous restriction as Standard Move"
+    "(054.1 / 451); move-location still needs to consume the same continuous restriction as Standard Move — " +
+    "the merged effect.move primitive currently relocates the unit anyway"
 );
 test.todo(
   "rad-034-167 Hunker Down: admit the complete CardProgram through describePlay only after effect-Move restriction " +

@@ -26,53 +26,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   临时 Might 修改（317.2.c 期限、143.2.a 的 Might 口径），归 layers 的 continuous.might
  *   （不是 Buff 计数，见 702/703）。“it” 回指被移动的单位（359.3.e.14 的链接示例）。
  *
- * status = judge-required（四处缺口，均不近似实现）：
- * 1. 目的地不可表达为已合入形状：effect.move 的 to 只接受静态 LocationRef、controller-base 或
- *    静态候选列表；本卡的目的地是“第一个目标（所选战场）”，需要运行期 Location 选择器
- *    （target.location 属未合入原语），本程序用描述性目的地标记 fail-closed，绝不落到错误地点。
- * 2. 两个目标之间的“不同地点”分组限制（355.11）没有已合入的目标计划支持；并且第一个目标
- *    “battlefield you control” 需要 190 的战场控制状态谓词（过滤器没有 battlefield 控制字段，
- *    layers/filter.ts 只按对象字段匹配）。
- * 3. 「give it +2 Might this turn」已可用合入的 continuous.might（targets 形状）表达；
- *    真实注册证据由 golden 执行（见 judgeReason 第 3 条措辞）。
- * 4. 「[Hidden]」的可执行路径缺失：keywords/Hidden.ts 的 cost.hidden 持续效果没有消费方
- *    （Hide 动作、facedown 区域、从 facedown 免费打出都属隐藏费用消费路径），811.1.d.2 的目标收窄同样
- *    依赖该消费方与目标系统。
- * 已合入并真实执行：effect.move 的移动本体（静态目的地替代）与 continuous.might 的算术层注册；
- * golden 用参考内核断言真实 move-location、描述性目的地被解释器拒绝，以及 +2 Might 的
- * end-of-turn 注册。依赖：位置/条件目标计划（RIFT-357/RIFT-359）与 cost.hidden 消费路径。
+ * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。
  */
-
-/**
- * 描述性目的地标记，不是可执行 LocationRef：effect.move 的 destination() 只接受
- * base/battlefield 字面量或静态候选列表，本形状会被直接拒绝（fail-closed），
- * 因此不会把单位移到错误的地点（见 judgeReason 第 1 条）。
- */
-const CHOSEN_BATTLEFIELD = {
-  kind: "destination-selector",
-  filter: { type: "battlefield", controller: "self" }
-} as const;
 
 export default {
   canonicalCardId: "card.hash-fa3fca39f51f36c4a7eaf70e836d2271f5e26b7994a64cbafa1b79ec0ea7dad7",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均不近似实现：(1) 目的地不可表达——355.4/355.4.a 的目的地是“第一个目标（所选战场）”，" +
-    "需要运行期 Location 选择器（target.location 属未合入原语，RIFT-357）；effect.move 的 to 只接受静态 LocationRef / " +
-    "controller-base / 静态候选列表，程序只保留描述性目的地标记，解释器会拒绝该形状而不是把单位移到错误地点。" +
-    "(2) 两个目标之间的「at a different location」是 355.11 的分组限制，合并目标计划没有该形状；" +
-    "「a battlefield you control」还需要 190 的战场控制状态谓词（layers/filter.ts 只按对象字段匹配）。" +
-    "(3)「give it +2 :rb_might: this turn」用合入的 continuous.might（targets 形状）记录为带 end-of-turn 期限的" +
-    "算术层注册（317.2.c/143.2.a），golden 用真实解释器执行该注册；它仍链接在 Move 指令后，实际生效还依赖" +
-    "第 (1)(2) 条的目标/地点计划。" +
-    "(4) [Hidden] 的可执行路径缺失：keywords/Hidden.ts 的 cost.hidden 没有消费方（Hide 动作、facedown 区域、" +
-    "从 facedown 免费打出属隐藏费用消费路径），811.1.d.2 的目标收窄同样依赖该消费方与目标系统。" +
-    "已合入并真实执行：effect.move 的移动本体与 355.9.a.1 的单位目标形状；golden 用参考内核断言真实 move-location，" +
-    "并断言描述性目的地被解释器拒绝（原地不动的守卫）；continuous.might 的 +2 注册同样用真实解释器执行。" +
-    "依赖：RIFT-357/RIFT-359 与 cost.hidden 消费路径。",
+    "仍缺目标与 Hidden 的生产接线：(1) 355.11 的 differentLocationThan 跨目标限制尚未进入 programs/filters.ts / target-plan；「battlefield you control」还须从 190 的地点控制状态构造合法目标，不能按普通永久物字段猜测。(2) target.location 与解释器的符号地点已合入，355.4/355.4.a 的 Move 目的地现为 location/target-location，原始 body 可执行 Move 后 continuous.might +2 this-turn；这不证明第 (1) 条的合法性已被验证。(3) Hidden KeywordDef 与 buildHiddenCostPlan 的 hide/play 费用已合入，但 cost.hidden 尚未绑定 Hide 动作、facedown 区域及 811.1.d.2 的逐目标战场收窄；普通打出与隐藏打出均需各自合法。保留 judge-required，不近似实现。",
   abilities: [
-    // 811.1：Hidden 只声明关键词；展开与消费方见 judgeReason 第 4 条。
+    // 811.1：Hidden 只声明关键词；展开与消费方见 judgeReason 第 3 条。
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "reaction" },
     {
@@ -86,7 +50,7 @@ export default {
       body: [
         {
           // 「Move that unit to that battlefield」：451 的效果移动，目标是被移动的友方单位；
-          // 目的地是第一个目标（所选战场），当前只有描述性标记（见 judgeReason 第 1 条）。
+          // 目的地是第一个目标（所选战场），由解释器从所选战场解析 LocationRef。
           id: "resonating-strike.move-unit",
           op: "effect.move",
           args: {
@@ -96,7 +60,7 @@ export default {
               // 不是 effect.ready / effect.empower 的 { kind: "target", id } 形状。
               value: { target: "resonating-strike.friendly-unit" }
             },
-            to: { kind: "constant", value: CHOSEN_BATTLEFIELD },
+            to: { kind: "location", value: { kind: "target-location", target: "resonating-strike.battlefield" } },
             amount: { kind: "constant", value: 1 },
             linkKey: { kind: "constant", value: "moved" }
           },

@@ -149,7 +149,27 @@ test.todo(
     "their own abilities stay blocked with receipts naming the missing definition"
 );
 
-test.todo(
-  "Satchel Charge: effect.token still needs the dynamic LocationExpr argument bridge, and the " +
-    "location candidate producer must include empty battlefields (355.4 / 451.1)"
-);
+test("Satchel Charge: effect.token still rejects the dynamic LocationExpr argument", () => {
+  // 355.4/355.4.a: the authored destination is a runtime location choice, but
+  // the merged effect.token argsSchema has no location-Expr bridge yet and
+  // reject it instead of placing the Bomb at a made-up location.
+  const kernel = world().unit("occupant", { location: { type: "battlefield", id: "battlefield-2" } }).build();
+  assert.throws(
+    () => runInstruction(
+      token,
+      {
+        token: { kind: "constant", value: "recruit" },
+        amount: { kind: "constant", value: 1 },
+        mode: { kind: "constant", value: "play" },
+        location: { kind: "location", value: {
+          kind: "choose",
+          id: "satchel-charge.battlefield-destination",
+          filter: { type: "battlefield" }
+        } },
+        linkKey: { kind: "constant", value: "bombToken" }
+      },
+      { world: kernel, answers: { "satchel-charge.battlefield-destination": { type: "battlefield", id: "battlefield-2" } } }
+    ),
+    /Invalid effect\.token argument: location/
+  );
+});

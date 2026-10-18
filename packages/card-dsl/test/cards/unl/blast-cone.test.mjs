@@ -12,6 +12,10 @@ const { payCostPlan } = await import(new URL("cost/payment.js", ENGINE));
 const move = (await import(new URL("effects/instructions/effect.move.js", ENGINE))).default;
 const stun = (await import(new URL("effects/instructions/effect.stun.js", ENGINE))).default;
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
+const { queryLocationCandidates } = await import(new URL("target/location/candidates.js", ENGINE));
+const { translateTriggerFilter } = await import(new URL("programs/filters.js", ENGINE));
+const { ProgramRegistry } = await import(new URL("programs/registry.js", ENGINE));
+const { triggerRegistrations } = await import(new URL("programs/triggers.js", ENGINE));
 
 const CANONICAL_ID =
   "card.hash-3ffea48ff592a10eca59908e205019c7f50fddff02d49b1eede58694d9b2b348";
@@ -44,12 +48,13 @@ test("unl-133-219 Blast Cone: identity, ruleset, status, judgeReason and verbati
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /355\.4/);
-  assert.match(program.judgeReason, /runtime|运行期/);
+  assert.match(program.judgeReason, /355\.4\.a/);
+  assert.match(program.judgeReason, /exclude/);
   assert.match(program.judgeReason, /412\.4/);
   assert.match(program.judgeReason, /ObjectSelector/);
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /TriggeredAbility/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-(89|120|257)/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
   assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
@@ -82,7 +87,9 @@ test("unl-133-219 Blast Cone: 'you may move an enemy unit' wraps the Move inside
     selection: "one"
   });
   // 355.4 / 355.4.a: the destination is chosen from runtime-legal Locations; the
-  // static IR only carries the descriptive marker (see judgeReason).
+  // merged location face cannot express 355.4.a's "other than the units'
+  // current Location" constraint, so the static IR only carries the descriptive
+  // marker (see judgeReason).
   assert.deepEqual(moveInstruction.args.to, {
     kind: "constant",
     value: {
@@ -348,10 +355,58 @@ test("unl-133-219 Blast Cone golden: the printed exhaust cost is payable and the
   assert.equal(outcome.linkedValues["blast-cone.stun-moved-unit.stunned"].count, 1);
 });
 
-test.todo(
-  "unl-133-219 Blast Cone: choose the Move destination from runtime-legal Locations (CR 355.4 / 355.4.a / 451.1) — " +
-    "the card has no producer that enumerates the runtime-legal destinations; effect.move only consumes a caller-supplied candidate list"
-);
+test("unl-133-219 Blast Cone: the merged location-candidate surface still offers the moved unit's current Location (355.4.a)", () => {
+  // The merged runtime location face (LocationTargetSpec +
+  // Expr.kind "location"), but 355.4.a's "other than the Units' current
+  // Location" exclusion has no predicate: chooseLocations never injects
+  // LocationCandidateOptions.exclude and matchesFilter has no current-location
+  // key. The candidate list a card could declare therefore still contains the
+  // unit's current Location, so writing it would hand the player an illegal
+  // destination (picking it makes effect.move return executed without moving).
+  const kernel = world()
+    .unit("enemy-unit", {
+      types: ["unit"],
+      zone: "board",
+      location: battlefield(),
+      controller: "B",
+      owner: "B"
+    })
+    .object("bf-shell", { owner: "B", controller: "B", types: ["battlefield"], zone: "board", location: null })
+    .build();
+
+  assert.equal(
+    queryLocationCandidates(kernel, { type: "any" }).some(location => location.type === "battlefield" && location.id === "bf-1"),
+    true,
+    "the moved unit's current Location is still a candidate, so 355.4.a is unsatisfied"
+  );
+});
+
+test("unl-133-219 Blast Cone: the merged trigger registration carries neither a base cost nor the may decision (383.3.b)", () => {
+  // TriggerRegistration.cost/mayAtFinalize exist and chain/engine consumes them
+  // at Finalize, but programs/triggers.ts copies only body/optional/spec, so the
+  // card's own "exhaust this" step stays an in-body cost.pay instruction that
+  // the interpreter cannot execute from the CC body. The golden above pays the
+  // printed cost through the real cost plan and the primitive bodies; the
+  // trigger's base-cost binding is still missing.
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const source = {
+    ref: { id: "blast-cone", zoneEntryId: 1 }, cardId: CANONICAL_ID, name: "Blast Cone",
+    types: ["gear"], tags: [], keywords: [], owner: "A", controller: "A", zone: "board",
+    location: baseOf("A"), might: null, energy: 4, power: ["Chaos"], exhausted: false,
+    damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
+  };
+  const registrations = triggerRegistrations(registry, source);
+  assert.deepEqual(registrations.map(entry => entry.spec.at), ["card-played", "object-moved"]);
+  assert.deepEqual(registrations.map(entry => entry.cost ?? null), [null, null]);
+  assert.deepEqual(registrations.map(entry => entry.mayAtFinalize ?? null), [null, null]);
+  // The move trigger's filter really binds through the production translator;
+  // the responsibility payload (412.4/412.5) is what is still missing.
+  assert.deepEqual(
+    translateTriggerFilter(moveTrigger.trigger.filter, "blast-cone", "object-moved"),
+    { event: "object-moved", object: { type: "unit", controller: "opponent" }, player: "self" }
+  );
+});
+
 test.todo(
   "unl-133-219 Blast Cone: expose the acting player of a Move so 'you move an enemy unit' can filter it (CR 412.4 / " +
     "412.5) — the object-moved emission records the moved object's original controller, not the acting player"

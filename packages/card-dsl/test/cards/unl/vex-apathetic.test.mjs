@@ -169,8 +169,8 @@ test.todo(
 );
 test.todo(
   "unl-150-219 Vex, Apathetic: evaluate 'while I'm at a battlefield' before the trigger is queued " +
-    "(CR 383.2.a.1, 808.1.d.3 last-known location) — the pipeline requires a host.testTrigger adapter " +
-    "that the trigger host still lacks the condition evaluator"
+    "(CR 383.2.a.1, 808.1.d.3 last-known location) — the generic condition fallback exists, but the " +
+    "production trigger context still lacks a stable last-known source location"
 );
 test.todo(
   "unl-150-219 Vex, Apathetic: enforce 'they can't move it this turn' against the Move action and " +

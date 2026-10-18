@@ -12,8 +12,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "When I become exhausted"：415.1.b（从就绪变为横置的瞬间）、时点 object-exhausted
  *   （415.1 / 415.1.c）。
  * - "choose one that hasn't been chosen this turn"：303 / 319 的"本回合已作过的选择"记录；
- *   RIFT-9 调研为 rad-043-167 / rad-179-167 规划的专用原语是
- *   `choice.exclusive-once-per-turn`（把多个模式分支绑定到同一回合历史收据，并限制每个
+ *   本卡需要等价于 `choice.exclusive-once-per-turn` 的历史能力（把多个模式分支绑定到同一回合历史收据，并限制每个
  *   分支在该回合最多被选择一次）。IR 的 `choice.mode`（契约 3.9）只保证单次结算内
  *   count=1 / different=true，不能承载"本回合未选过"这一跨触发历史，故整卡 judge-required。
  * - "[Buff] me"：Buffs（702）——effect.buff mode "buff" 放在自身（702.2.a、702.3.a）。
@@ -21,7 +20,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "[do X] to [do Y]" 是**指令内费用**（355.10.c.1 / 404.1.b.1），费用未支付时 Y 不得结算。
  *   费用计划确实支持 spend-buff 支付（cost/plan-values.ts 与 cost/payment.ts 的
  *   spend-buff 分支，检查 Buff 数量并提交 spend-buff 动作），但没有把它作为“指令内费用”
- *   接进卡牌 body 的指令原语（effects/instructions/ 无 cost.pay/effect.spend-buff 门控）。
+ *   接进卡牌 body 的符号费用计划绑定与支付作用域；cost.pay 原语本身已合入。
  *   已合入的 effect.buff mode "spend" 只描述"消耗一个 Buff"这一动作，本身不是费用：
  *   按契约 3.4，negated 的指令其后续链接指令仍会尽可能执行，因此不能把
  *   `effect.buff(spend)` + linkedTo 当作"支付失败则不 Stun / 不 Ready"。
@@ -29,22 +28,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - [Stun] 与 ready：424（Stunned 状态；424.1.a.1 已 Stunned 不再重复）与 416.1（Ready）；
  *   两者原语 effect.stun / effect.ready 已合入。
  *
- * status 判定（README 第 2 节，2026-10-17 复核）：judge-required。缺口（均实测）：
- * - `choice.exclusive-once-per-turn`（本回合未选过的分支记录，303 / 319）：IR 的 choice.mode
- *   只在单次结算内保证 count=1 / different=true，不能承载跨触发的回合历史（无已分配任务号）。
- * - 指令内 Buff 支付门控：实测在 0 个 Buff 时，spend 指令 negated/skipped，但 linkedTo 的
- *   stun 与 ready 仍然 executed（敌人照样被 Stun、自己被 Ready）——证明 linkedTo 不是
- *   「支付成功才结算」的门控。cost.pay 原语已合入，但 success-gated payment body 仍缺
- *   （cost/kinds/README.md 契约变更请求 #2）；已合入的 effect.buff mode "spend" 不构成门控。
- * - 整条触发体的 choice.mode 还进不了生产链：实测 chain/engine.ts 的
- *   assertFinalizationSurface 抛 ChainContractBlockedError「Mode choices require a
- *   Finalize/Resolve choice-plan adapter」。
- * CardProgram → TriggerRegistration 已有生产适配器；嵌套 {source:"self"}
- * 锚点经 translateTriggerFilter 已能翻译成
- * {event:"object-exhausted", object:{objectId:"src"}}，翻译后的 registration 也通过
- * 严格校验。触发绑定不再是本卡缺口。
- * 分支结构已按契约 3.9 用 choice.mode 完整写出，已合入的 effect.buff / effect.stun /
- * effect.ready 在 golden 测试里用解释器 + 参考内核真实执行。
+ * 2026-10-17 再复核：整卡仍为 judge-required；当前缺口见 judgeReason。
+ * 已合入原语与关键词声明不等于生产链路可执行；局部执行证据见同名单卡测试。
  */
 
 const MYSELF = "riven-broken-blade.self";
@@ -96,8 +81,8 @@ const abilities: Ability[] = [
                 id: "riven-broken-blade.stun-mode",
                 body: [
                   {
-                    // "Spend my buff to ..." 的支付侧：RIFT-9 规划的费用式 effect.spend-buff
-                    // 未注册；此处用已合入的 effect.buff mode "spend" 记录"消耗一个 Buff"，
+                    // "Spend my buff to ..." 的费用计划仍缺 body 绑定；
+                    // 此处用已合入的 effect.buff mode "spend" 保留消耗结构，
                     // 但它不构成对下一条指令的费用门控（见 judgeReason）。
                     id: "riven-broken-blade.spend-buff-for-stun",
                     op: "effect.buff",
@@ -179,19 +164,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处缺口（2026-10-17 复核，均实测，不近似实现）：(1) 「choose one that hasn't been chosen this turn」" +
-    "需要跨触发的回合历史收据（303 / 319）；IR 的 choice.mode 只在单次结算内保证 count=1/different=true，" +
-    "没有 choice.exclusive-once-per-turn 之类原语（无已分配任务号）。" +
-    "(2) 「Spend my buff to [Stun]/ready」的「[do X] to [do Y]」是指令内费用（355.10.c.1/404.1.b.1）：" +
-    "实测在 0 个 Buff 时 spend 指令 negated/skipped 而 linkedTo 的 stun 与 ready 仍然 executed" +
-    "（敌人照样被 Stun、自己被 Ready），证明 linkedTo 不是「支付成功才结算」的门控；" +
-    "cost.pay 原语已合入，但 success-gated payment body 仍缺（cost/kinds/README.md 契约变更请求 #2）。" +
-    "已合入的 effect.buff mode \"spend\" 只是消耗动作，按契约 3.4 的 negated 语义" +
-    "不构成对后续链接指令的费用门控（不把 spend-buff 降级为普通 Might 修改，见文件头注释）。" +
-    "(3) 整条触发体的 choice.mode 进不了生产链：实测 chain/engine.ts 的 assertFinalizationSurface 抛 " +
-    "ChainContractBlockedError「Mode choices require a Finalize/Resolve choice-plan adapter」。" +
-    "已合入的 effect.buff / effect.stun / effect.ready 由 golden 测试用解释器 + 参考内核真实执行。" +
-    "依赖：success-gated payment body（cost/kinds/README.md 契约变更请求 #2）、Finalize/Resolve choice-plan 适配器。",
+    "「choose one that has not been chosen this turn」缺跨触发的每模式回合历史（CR 303、319）；choice.mode different 只约束单次选择，没有 choice.exclusive-once-per-turn 等价的历史消费。生产 Finalize 还缺 choice-plan adapter。" +
+    "「Spend my buff to Stun/ready」是指令内费用（355.10.c.1、404.1.b.1）：现有 effect.buff spend + linkedTo 在无 Buff 时仍会执行后续，不能作为支付门控。" +
+    "cost.pay、费用计划的 spend-buff 支付和 condition.result 均已合入；缺的是把静态符号 self 绑定到运行时 Buff 的指令内费用（需要 effect.spend-buff 或等价的 body 费用计划）以及支付成功后的 success-gated Stun/Ready 门控（203.3），并非 Buff 支付原语尚未实现。" +
+    "object-exhausted 触发适配及 buff/stun/ready 子效果已有真实执行证据，不能把这些局部证据算作整卡执行。",
   abilities,
   sourceText:
     "When I become exhausted, choose one that hasn't been chosen this turn —\n" +

@@ -83,10 +83,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "仅剩一处缺口：[Deflect]（809.1.a）的 KeywordDef 展开（effects/keywords/Deflect.ts 的 static " +
+    "实测（2026-10-17）仅剩一处缺口：[Deflect]（809.1.a）的 KeywordDef 展开（effects/keywords/Deflect.ts 的 static " +
     "target.tax）与 target/target-plan.ts 的 tax 追加（taxAdapter → mandatoryAdditional）都已合入，" +
     "但没有生产方把永久物上的 target.tax 接进目标选择：programs/statics.ts 的 layerFor 对 " +
-    "target.tax 抛 ProgramBindingError（Static ability kind target.tax has no layer mapping），" +
+    "target.tax 抛 ProgramBindingError（no layer mapping，实测），" +
     "chain/engine.ts 只把调用方显式传入的 tax 变成 mandatoryAdditional，" +
     "且已合入换算按 Energy 记账而 809.1.c.1 要求任意域 Power（同 ogn/pouty-poro）。" +
     "其余已可执行并有真实执行测试：" +
@@ -94,8 +94,8 @@ const program = {
     "ResolveContext.addContinuous 注册 arithmetic 图层效果、appliesTo: \"self\" 指称宿主并按 " +
     "this-turn 到期（317.1.a/468.7.c），绝不用 Buff 计数近似（702/703）；" +
     "(2) 两条触发（became-target，383.4.b；object-readied，416/412.4）经卡牌程序绑定 " +
-    "（programs/）注册为真实订阅，golden 用真实 ChainEngine 执行 became-target 发射与真实 " +
-    "ready 动作。不近似实现（不省略 Deflect 的追加费用）。",
+    "（programs/）注册为真实订阅（实测 registerProgramTriggers 注册 2 条），golden 用真实 ChainEngine " +
+    "执行 became-target 发射与真实 ready 动作。不近似实现（不省略 Deflect 的追加费用）。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +

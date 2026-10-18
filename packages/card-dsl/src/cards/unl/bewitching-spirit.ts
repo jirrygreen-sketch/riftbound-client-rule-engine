@@ -14,6 +14,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * Unregistered instruction opcode），本程序只保留该占位以记录印刷语义，
  * 不能以固定座位、所有玩家或静态 PickSpec.options 代替。card-played 触发绑定、
  * effect.discard 与链接值读取均已合入（golden 用真实原语执行）。
+ *
+ * 第三轮复核：RIFT-359 新增的是事件/结果谓词（played-from-hand、event-printed、
+ * result），与本卡的玩家目标无关；RIFT-360 新增的是目标税成本计划，同样不提供
+ * 玩家选择请求。玩家目标契约与结果绑定仍是唯一缺口。
  */
 const chosenPlayer = "bewitching-spirit.chosen-player";
 
@@ -66,7 +70,8 @@ export default {
     "当前缺口（CR v1.5 355.7/355.9.a）：「choose a player」需要在 Finalize 锁定当前对局的一名玩家并把结果绑定到 effect.discard.player；" +
     "现有 TargetSpec 与 ResolveContext.targets() 只承载 ObjectRef[]，ChoiceRequest 的封闭集合（optional/mode/select-objects/order/number）没有玩家目标请求，" +
     "解释器对 target.player 抛 Unregistered instruction opcode（golden 已实证）。不能以固定座位、所有玩家或静态 PickSpec.options 代替该玩家目标。" +
-    "card-played 触发绑定、effect.discard 与 linked-value 读取已合入，golden 用真实原语执行弃牌（含空手 impossible 分支）；仍需上游扩展玩家目标契约及其结果绑定。",
+    "card-played 触发绑定、effect.discard 与 linked-value 读取已合入，golden 用真实原语执行弃牌（含空手 impossible 分支）；" +
+    "RIFT-359（事件/结果谓词）与 RIFT-360（目标税成本计划）都不提供玩家选择请求，故仍需上游扩展玩家目标契约及其结果绑定。",
   abilities,
   sourceText: "When you play me, choose a player. They discard 1."
 } satisfies CardProgram;

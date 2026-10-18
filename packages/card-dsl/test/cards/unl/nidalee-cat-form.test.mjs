@@ -36,6 +36,9 @@ test("unl-114-219 Nidalee, Cat Form: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /combat-result/);
   assert.match(program.judgeReason, /468\.3/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /play-location-permission/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
 });
 
 test("unl-114-219 Nidalee, Cat Form: [Ambush] stays a keyword declaration (822)", () => {
@@ -121,6 +124,81 @@ test("unl-114-219 Nidalee, Cat Form: the merged Ambush KeywordDef publishes the 
   // 822.1.b/822.1.c: the placement permission plus the conditional Reaction grant.
   assert.deepEqual(expansion.map(ability => ability.effect.kind), ["play-location-permission", "continuous.timing"]);
   assert.equal(expansion[1].effect.location.battlefield.controller, "controller");
+});
+
+test("unl-114-219 Nidalee, Cat Form: neither Ambush declaration reaches the production layer path", async () => {
+  // 822.1.b/822.1.c: both published declarations are structural only today. The
+  // static binder rejects the placement permission for want of a layer mapping
+  // and then rejects the timing grant's appliesTo spelling, so the rule queries
+  // that Finalize would use still see nothing.
+  const { createProgramBinding, createEngineStaticBinder } = await import("../../../../engine-core/dist/programs/index.js");
+  const { playLocations } = await import("../../../../engine-core/dist/layers/rules/query.js");
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const f = fixture({
+    cards: [{ id: "nidalee", cardId: CANONICAL_ID, types: ["unit"], energy: 3, power: [], might: 4 }]
+  });
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("nidalee"),
+    to: "board",
+    location: { type: "battlefield", id: "bf-1" }
+  });
+  const source = { ...f.kernel.getObject("nidalee"), cardId: CANONICAL_ID, zone: "board" };
+  const statics = binding.inspect(source).abilities.filter(ability => ability.kind === "static");
+  assert.deepEqual(statics.map(ability => ability.effect.kind), ["play-location-permission", "continuous.timing"]);
+
+  const binder = createEngineStaticBinder(f.engine);
+  assert.throws(
+    () => binder.bindStatic(statics[0], source),
+    /Static ability kind play-location-permission has no layer mapping/
+  );
+  assert.throws(
+    () => binder.bindStatic(statics[1], source),
+    /Unsupported static appliesTo \["card"\]/
+  );
+  assert.deepEqual(f.engine.layers.registry.list(), []);
+  const view = playLocations(f.engine.layers.registry, source.ref, source, "A");
+  assert.deepEqual(view.permissions, []);
+  assert.deepEqual(view.restrictions, []);
+});
+
+test("unl-114-219 Nidalee, Cat Form: the combat-result trigger is outside the closed event vocabulary", async () => {
+  // 468.3.a/468.3.c: the win trigger needs a combat-result subscription, but the
+  // closed EVENT_PATTERN_TYPES has no such event name, so the card's own filter
+  // cannot be registered and "I win" has no producer to consume.
+  const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
+  const { validateTriggerSpec, EVENT_PATTERN_TYPES } = await import("../../../../engine-core/dist/events/trigger-spec.js");
+  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+
+  assert.equal(EVENT_PATTERN_TYPES.includes("combat-result"), false);
+  const translated = translateTriggerFilter(combatWin.trigger.filter, "nidalee");
+  assert.deepEqual(translated, { event: "combat-result", object: { objectId: "nidalee" } });
+  const spec = validateTriggerSpec({ at: "combat-result", filter: translated });
+  assert.equal(spec.ok, false);
+  assert.deepEqual(spec.issues.map(issue => issue.code), ["invalid-event-type"]);
+
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const f = fixture({
+    cards: [{ id: "nidalee", cardId: CANONICAL_ID, types: ["unit"], energy: 3, power: [], might: 4 }]
+  });
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("nidalee"),
+    to: "board",
+    location: { type: "battlefield", id: "bf-1" }
+  });
+  const source = { ...f.kernel.getObject("nidalee"), cardId: CANONICAL_ID, zone: "board" };
+  assert.throws(
+    () => binding.registerProgramTriggers(f.engine, source),
+    /trigger\.filter\.event: 值必须属于 zone-entered/
+  );
 });
 
 test.todo(

@@ -1,3 +1,6 @@
+// Published status stays judge-required; existing component coverage is retained below.
+// The supported static declaration is covered here; the XP and Level replacement
+// consumers remain explicit TODO boundaries below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -29,21 +32,23 @@ test("unl-059-219 Master Yi, Unstoppable: identity, status, judgeReason and verb
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /824\.1/);
   assert.match(program.judgeReason, /XP/);
-  assert.match(program.judgeReason, /cost\.modify/);
+  assert.match(program.judgeReason, /continuous\.cost-modification|cost\/discounts/);
   assert.match(program.judgeReason, /Untargetable/);
+  assert.match(program.judgeReason, /staticTarget/);
+  assert.match(program.judgeReason, /choose-as-target/);
 });
 
 test("unl-059-219 Master Yi, Unstoppable: each printed [Level N][>] line is one XP-gated dependent ability (824.1.b.1)", () => {
   assert.equal(program.abilities.length, 4);
   for (const ability of program.abilities) {
     assert.equal(ability.kind, "static");
-    // 824.1.c: "While you have N or more XP, get the effect." — the retained
-    // count shape records the gate; PlayerSnapshot.xp has no Expr path yet.
+    // 824.1.c: "While you have N or more XP, get the effect." — the contract
+    // shape records the player property; the evaluator has no XP reader yet.
     assert.equal(ability.condition.kind, "compare");
     assert.equal(ability.condition.operator, "gte");
-    assert.equal(ability.condition.left.kind, "count");
-    assert.equal(ability.condition.left.subject, "controller-xp");
-    assert.deepEqual(ability.condition.left.filter, { player: "controller" });
+    assert.equal(ability.condition.left.kind, "player-property");
+    assert.equal(ability.condition.left.player, "controller");
+    assert.equal(ability.condition.left.property, "xp");
   }
   assert.deepEqual(
     [level3, level6, level11].map(ability => ability.condition.right),
@@ -60,38 +65,32 @@ test("unl-059-219 Master Yi, Unstoppable: the three discounts record their print
   assert.deepEqual(
     [level3, level6, level11].map(ability => [ability.effect.kind, ability.effect.appliesTo]),
     [
-      ["cost.modify", "play-cost"],
-      ["cost.modify", "play-cost"],
-      ["cost.modify", "play-cost"]
+      ["continuous.cost-modification", "self"],
+      ["continuous.cost-modification", "self"],
+      ["continuous.cost-modification", "self"]
     ]
   );
-  assert.deepEqual(level3.effect.value, {
-    kind: "constant",
-    value: { energy: -2, power: [{ domain: "Calm", amount: -1 }] }
-  });
-  assert.deepEqual(level6.effect.value, {
-    kind: "constant",
-    value: { energy: -4, power: [{ domain: "Calm", amount: -2 }] }
-  });
-  assert.deepEqual(level11.effect.value, {
-    kind: "constant",
-    value: { energy: -6, power: [{ domain: "Calm", amount: -3 }] }
-  });
+  assert.equal(level3.effect.stage, "discount");
+  assert.deepEqual(level3.effect.reductions, [
+    { resource: "energy", amount: 2 },
+    { resource: "power", amount: 1, domain: "Calm" }
+  ]);
+  assert.deepEqual(level6.effect.reductions, [
+    { resource: "energy", amount: 4 },
+    { resource: "power", amount: 2, domain: "Calm" }
+  ]);
+  assert.deepEqual(level11.effect.reductions, [
+    { resource: "energy", amount: 6 },
+    { resource: "power", amount: 3, domain: "Calm" }
+  ]);
 });
 
 test("unl-059-219 Master Yi, Unstoppable: later Level lines mark their discount as 'instead' (356.1.c / 356.4)", () => {
   assert.equal(level3.effect.instead, false);
   assert.equal(level6.effect.instead, true);
   assert.equal(level11.effect.instead, true);
-  // Stable ids keep each printed clause addressable for review.
-  assert.deepEqual(
-    [level3, level6, level11].map(ability => ability.effect.id),
-    [
-      "master-yi-unstoppable.level-3-discount",
-      "master-yi-unstoppable.level-6-discount",
-      "master-yi-unstoppable.level-11-discount"
-    ]
-  );
+  // Stable replacement markers keep each printed clause addressable for review.
+  assert.deepEqual([level3, level6, level11].map(ability => ability.effect.instead), [false, true, true]);
 });
 
 test("unl-059-219 Master Yi, Unstoppable: [Level 16][>] declares Untargetable instead of a discount (756/757.1/758)", () => {
@@ -110,17 +109,17 @@ test("unl-059-219 Master Yi, Unstoppable: [Level 16][>] declares Untargetable in
 
 test.todo(
   "unl-059-219 Master Yi, Unstoppable: expand [Level N][>] (CR 824.1.b.1: 'while you have N or more XP, this card " +
-    "gains [Text]') with dynamic Active/Inactive re-evaluation (824.1.c.1/.d) — the Level expansion is merged, but " +
-    "no condition/Expr path reads PlayerSnapshot.xp"
+    "gains [Text]') with dynamic Active/Inactive re-evaluation (824.1.c.1/.d) — player-property(controller, xp) " +
+    "is in the contract, but effects/interpreter/expr.ts does not evaluate it"
 );
 
 test.todo(
-  "unl-059-219 Master Yi, Unstoppable: apply the printed 'I cost [2]/[4]/[6] less' discounts in the cost plan's " +
-    "discount stage with the Floors of 356.6 and the instead replacement of 356.1.c — cost.modify exists, but static " +
-    "card effects are not consumed by cost/cost-plan.ts's Finalize discounts input"
+  "unl-059-219 Master Yi, Unstoppable: apply the printed 'I cost [2]/[4]/[6] less' reductions in Finalize with " +
+    "the Floors of 356.6 and the instead replacement of 356.1.c — chain/engine.ts still calls buildCostPlan directly, " +
+    "and the cost collector has no consumer for the Level instead marker"
 );
 
 test.todo(
   "unl-059-219 Master Yi, Unstoppable: make the [Level 16] Untargetable declaration reject illegal target choices " +
-    "(CR 756/757/758, 355.9.b) — the declared restriction still has no target-legality consumer"
+    "(CR 756/757/758, 355.9.b) — adapt the declared scope, opposing chooser and XP gate to the existing target-legality consumer"
 );

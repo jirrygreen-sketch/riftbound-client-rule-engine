@@ -4,8 +4,11 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/frozen-fortress.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL =
   "card.hash-09252b56d2b61d29cf38395a75ff54e4d386d4bfa33c0754a32ef693dd912c1a";
@@ -47,12 +50,17 @@ test("unl-212-219 Frozen Fortress: identity, ruleset, status and verbatim source
   assert.equal(cardProgramsById.get(program.canonicalCardId), program);
 });
 
-test("unl-212-219 Frozen Fortress: judgeReason names the emission, set-damage and registration gaps", () => {
+test("unl-212-219 Frozen Fortress: judgeReason names the stale claims and the surviving set-damage gap", () => {
   assert.match(program.judgeReason, /beginning-start/);
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /effect\.damage/);
   assert.match(program.judgeReason, /TargetSpec/);
-  assert.match(program.judgeReason, /TriggerRegistration/);
+  // Third-sweep refresh: the phase-trigger half is merged AND faithful, so the
+  // reason now records that measured behavior instead of claiming the closed
+  // event vocabulary blocks registration.
+  assert.match(program.judgeReason, /registerProgramTriggers/);
+  assert.match(program.judgeReason, /ignored\/mistargeted/);
+  assert.doesNotMatch(program.judgeReason, /phase-owned trigger 的管线注册\/过滤语义/);
 });
 
 test("unl-212-219 Frozen Fortress: the beginning-start trigger deals a fixed 1 with no target declared", () => {
@@ -63,8 +71,9 @@ test("unl-212-219 Frozen Fortress: the beginning-start trigger deals a fixed 1 w
   // Scoring Step of 315.2.b runs ("This happens before scoring.").
   assert.equal(ability.trigger.at, "beginning-start");
   // "each player's": the trigger is not gated on the Battlefield's controller
-  // (190.6.b covers the uncontrolled case), and no payload names a player yet.
-  assert.deepEqual(ability.trigger.filter, { event: "beginning-start" });
+  // (190.6.b covers the uncontrolled case). `at` is the phase timing point, so
+  // the IR filter deliberately names no closed event type.
+  assert.deepEqual(ability.trigger.filter, {});
   assert.equal(ability.trigger.once, undefined);
   assert.equal(ability.trigger.condition, undefined);
 
@@ -125,10 +134,56 @@ test("unl-212-219 Frozen Fortress: an empty set mistargets instead of inventing 
   assert.equal(kernel.getObject("elsewhere").damage, 0);
 });
 
-test.todo(
-  "unl-212-219 Frozen Fortress: the beginning-start timing point needs an emitter for the turn " +
-    "player's Beginning Phase (CR 315.2/315.2.a.1) before the trigger can enter the chain"
-);
+test("unl-212-219 Frozen Fortress: the merged trigger path registers and fires only on Beginning Phase starts (CR 315.2.a.1)", () => {
+  // Third-sweep evidence: the registration is gated on status (this card is
+  // judge-required) only for the shipped program; the executable view really
+  // registers. The Registration's `at` selects the phase, so the empty event
+  // filter fires on both players' beginning-start and on no other phase timing —
+  // which is exactly "each player's Beginning Phase".
+  const f = fixture({ cards: [{ id: "fortress", cardId: CANONICAL, types: ["battlefield"], controller: "A" }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("fortress"), to: "battlefield", location: { type: "battlefield", id: "bf-1" } });
+  const source = f.kernel.getObject("fortress");
+
+  // The shipped program is gated by ProgramRegistry because it stays
+  // judge-required; the executable view is the merged registration path.
+  const shipped = createProgramBinding({ cardPrograms: [program] });
+  assert.throws(
+    () => shipped.registerProgramTriggers(f.engine, source),
+    error => error instanceof Error && error.name === "ProgramBindingError"
+  );
+
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const ids = binding.registerProgramTriggers(f.engine, source);
+  assert.equal(ids.length, 1);
+  const registration = f.engine.pipeline.triggers.get(ids[0]);
+  assert.equal(registration.spec.at, "beginning-start");
+  assert.deepEqual(registration.spec.filter, {});
+
+  const fired = [];
+  f.engine.pipeline.onTrigger = snapshot => fired.push([snapshot.event.timingPoint, snapshot.event.player]);
+  for (const [timingPoint, player] of [
+    ["beginning-start", "A"], ["main-start", "A"], ["channel-start", "B"],
+    ["beginning-start", "B"], ["awaken-start", "B"], ["beginning-end", "A"]
+  ]) {
+    f.engine.pipeline.emit({ timingPoint, player });
+  }
+  assert.deepEqual(fired, [["beginning-start", "A"], ["beginning-start", "B"]]);
+  f.engine.pipeline.unregisterTrigger(ids[0]);
+  assert.equal(f.engine.pipeline.triggers.size, 0);
+});
+
+test("unl-212-219 Frozen Fortress boundary: the untargeted body really deals nothing through the chain adapter (CR 355.10.d)", () => {
+  // Third-sweep evidence for the surviving gap: the program carries no
+  // TargetSpec (registering one would wrongly make every unit a target), and
+  // effect.damage only reads ctx.targets, so the card's own instruction is
+  // reported ignored/mistargeted and no damage is dealt.
+  const kernel = world().unit("own-here", { owner: "A" }).unit("enemy-here", { owner: "B" }).build();
+  const outcome = resolveChainBody(ability.body, kernel);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(kernel.getObject("own-here").damage, 0);
+  assert.equal(kernel.getObject("enemy-here").damage, 0);
+});
 
 test.todo(
   "unl-212-219 Frozen Fortress: 'deal 1 to each unit here' needs an untargeted set-damage form " +
@@ -136,8 +191,3 @@ test.todo(
     "only reads Finalize-locked TargetSpecs today"
 );
 
-test.todo(
-  "unl-212-219 Frozen Fortress: register the program's triggered ability as a TriggerRegistration " +
-    "and resolve it for each player's Beginning Phase including the uncontrolled-Battlefield case " +
-    "(CR 190.6.a/190.6.b) — needs RIFT-33 / contract §7.2 batch 5"
-);

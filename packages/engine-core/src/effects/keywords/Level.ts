@@ -59,11 +59,14 @@ const level = {
     // all keywords, so a missing Level value is represented as null (missing
     // information) rather than inventing a numeric default or activating it.
     const threshold = input.value ?? null;
+    const instanceId = typeof input.params?.instanceId === "string" ? input.params.instanceId : undefined;
     const predicate: Ability = {
       kind: "static",
       effect: {
         kind: "condition.predicate",
-        id: `level:${input.host.canonicalCardId}:${String(threshold)}:predicate`,
+        id: instanceId === undefined
+          ? `level:${input.host.canonicalCardId}:${String(threshold)}:predicate`
+          : `level:${input.host.canonicalCardId}:${instanceId}:${String(threshold)}:predicate`,
         link: "active",
         predicate: LEVEL_PREDICATE,
         subject: "self",

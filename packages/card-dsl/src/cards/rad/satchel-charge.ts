@@ -19,22 +19,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   被「打出」的 token 按 440.2.c / 185.2.a 先在链上生成再由 play 接手；reminder 里的
  *   [Deploy] / [Deathknell] 是 token 自身能力（187.12），不是本卡的独立指令。
  *
- * status = judge-required（不近似实现），按合入后的 [Action] 关键词、effect.move /
- * effect.token 原语与 src/programs/*（打出/关键词绑定）复核：
- * 1. Bomb 的定义仍不在 effect.token 的 DEFINITIONS 表（recruit / sand-soldier / mech /
- *    reflection / tentacle）；带自身能力的 token（含 Bomb、Gold，CR 187.5 / 187.12）
- *    被 effect.token 显式阻断（blockedReason: token-definition-or-abilities-judge-required）。
- *    这是 token 定义表扩充的依赖，不是 IR 形状问题。
- * 2. 目的地是运行期选择（355.4 / 355.4.a）：已合入的 LocationExpr 能让
- *    effect.move 求值可用候选地点，但合并的候选来源没有注入空战场，因此「to a battlefield」
- *    在没有已知驻场对象时仍可能没有选项；effect.token 的动态 LocationExpr 也尚未接到
- *    其解释器参数边界。本卡保留这些真实边界，不落到错误地点。
- * 3. [Action] 关键词（keywords/Action.ts）与 effect.move / effect.token
- *    原语本身已合入，被移动的友方单位按 355.10 / 355.9.a.1 声明为目标，golden 对
- *    Move 半段与 Bomb 阻断路径做真实执行。
- *
- * 依赖：token 定义表扩充（Bomb，187.12）、空战场候选来源与 effect.token 的
- * LocationExpr 参数桥。
+ * status = judge-required（2026-10-17 复核）。仍有两处真实缺口：
+ * 1. Bomb 定义不在 effect.token 的 DEFINITIONS 表（recruit / sand-soldier / mech /
+ *    reflection / tentacle）；带自身能力的 token（含 Bomb，CR 187.12）被 effect.token
+ *    显式阻断（blockedReason: token-definition-or-abilities-judge-required）。
+ * 2. effect.token 只接受静态 LocationRef / 静态候选列表，未把 Expr kind "location"
+ *    （355.4 / 355.4.a 的运行期选择）接入其解释器参数边界；且合并的 Location 候选
+ *    来源没有注入空战场，effect.move 的「to a battlefield」也可能没有选项。
+ * 已合入且被 golden 真实执行的半段：[Action]、被移动单位的目标声明（355.10）、
+ * effect.move 的规则内移动（451）、以及 effect.token 对可用定义的 play 交付路径。
+ * 依赖：Bomb token 定义（187.12）、LocationExpr 参数桥与空战场候选来源。
  */
 
 /** 355.4 / 355.4.a 的运行期 Battlefield 选择；候选来源缺口见 judgeReason。 */
@@ -53,10 +47,11 @@ const satchelCharge = {
     "不在 effect.token 的 DEFINITIONS 表，带能力的 token 定义被 effect.token 显式阻断" +
     "（blockedReason: token-definition-or-abilities-judge-required）。(2)「Move a friendly unit」没有印刷目的地，" +
     "已按 CR 355.4 / 355.4.a / 451.1 写成 LocationExpr 运行期选择；但候选来源没有注入空战场，" +
-    "且 effect.token 的动态 LocationExpr 尚未接到解释器参数边界，故仍不能覆盖所有合法落点。" +
+    "且 effect.token 的动态 LocationExpr 尚未接到解释器参数边界（实测 effect.token argsSchema 拒绝 location 的 " +
+    "location Expr：Invalid effect.token argument），故仍不能覆盖所有合法落点。" +
     "[Action] 关键词与 effect.move / effect.token 原语本身已合入；被移动的友方单位按 355.10 / 355.9.a.1 声明为目标，" +
-    "Move 半段与 Bomb 阻断路径由 golden 真实执行。依赖：token 定义表扩充（187.12）、" +
-    "空战场候选来源与 effect.token 的 LocationExpr 参数桥。",
+    "Move 半段、战场候选解析与 Bomb 阻断路径由 golden 真实执行。" +
+    "依赖：token 定义表扩充（187.12）、空战场候选来源与 effect.token 的 LocationExpr 参数桥。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

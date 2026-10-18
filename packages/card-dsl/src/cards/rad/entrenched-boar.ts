@@ -65,10 +65,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "CR 368.1/369.3/317.2.c：缺同一次可选入场改写成功后，按新入区身份登记本回合 continuous.restrict 的事务路径。" +
-    "replacement.enter 只改入场朝向，replacement/planner.ts 不能规划 choice.optional 或 continuous.restrict（BlockedReplacementError）；" +
-    "replacement.event/replaces.event 的 optional 和通用 condition.predicate 不会把接受替代的事实绑定到入场后的禁止注册。" +
-    "CR 054/144.1/144.2：zones/movement.ts 已能消费移动限制，不能用先横置再 ready 代替入场替代。",
+    "CR 369.3 / 370.1.b.1 / 317.2.c：缺接受 optional 入场替代后，按新入区身份原子登记本回合 continuous.restrict 的事务。replacement/planner.ts 不能计划 choice.optional / continuous.restrict；replacement.event 的 args.instead 在 bind.ts 只读裸指令数组，与 IR 的 Expr 参数冲突，且可选声明未传入 ReplacementRegistration.optional。condition.predicate 不能代替接受替代与新身份的事务绑定；已有 replacement.enter 与移动限制消费不足以执行整张卡。",
   abilities,
   sourceText: "You may have me enter ready. If you do, I can't move this turn."
 } satisfies CardProgram;

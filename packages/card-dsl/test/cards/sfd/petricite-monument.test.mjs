@@ -1,3 +1,5 @@
+// Execution evidence for this card lives in ../templates/keyword-static-671.test.mjs (README 4.1); this
+// card stays judge-required for the gaps asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -31,6 +33,7 @@ test("sfd-104-221 Petricite Monument: identity, ruleset, status, judgeReason and
   assert.match(program.judgeReason, /816\.1\.b/);
   assert.match(program.judgeReason, /Temporary/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -106,5 +109,6 @@ test.todo(
 );
 test.todo(
   "sfd-104-221 Petricite Monument: the granted [Deflect] layer value is live, but the target.tax " +
-    "reader and any-Domain Power tax booking (809.1.c.1) are still missing."
+    "plan mapping from the static binder is still missing, and the merged Finalize tax consumer " +
+    "books the tax as Energy instead of any-Domain Power (809.1.c.1)."
 );

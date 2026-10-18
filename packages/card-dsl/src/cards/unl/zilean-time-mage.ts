@@ -23,10 +23,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status = judge-required（2026-10-17 复核）：
  * 替代绑定已经消费 condition，并支持 { linked: "replacement.object" } 事件对象绑定；
  * EventPipeline 已能用 actions 数组替代一个动作，也已支持 optional / oncePerTurn 注册。
- * 真正缺口是卡牌替代声明到每回合重置限次的桥接、来源位置类型谓词（RIFT-359），以及
- * 原 token + Chain 上的额外副本两次 play 的 planner / copy 支持，并继承 375 的原事件修正。
- * replacement.event 的 optional 已可声明，但其 window 只有 permanent / next-time-this-turn，
- * 不等于每回合一次；不把已合入的替代管线、费用、事件对象绑定再次列作缺失依赖。
+ * 当前缺口见 judgeReason：卡牌替代声明到每回合重置限次的桥接、替代 planner 的两次 play，
+ * 以及来源位置的可执行谓词。不把已合入的替代管线、费用、事件对象绑定再次列作缺失依赖。
  */
 const abilities: Ability[] = [
   {
@@ -37,7 +35,7 @@ const abilities: Ability[] = [
       event: "card-played",
       filter: { type: "unit", characteristics: { isToken: true }, controller: "self" }
     },
-    // 描述来源位置的意图；尚需可执行的位置类型 Condition（RIFT-359）。
+    // 描述来源位置的意图；仍缺可执行的来源位置谓词（见 judgeReason）。
     condition: {
       kind: "expression",
       value: { kind: "constant", value: "source-at-a-battlefield" }
@@ -69,13 +67,17 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "仍缺：(1) 383.3.e/386.1 的「Once each turn」卡牌替代声明到每回合重置限次的绑定；" +
-    "EventPipeline.oncePerTurn 已实现，但 ReplacementAbility/bindReplacement 尚无对应桥接，" +
-    "replacement.event 的 next-time-this-turn 只是一回合的一次性窗口，不能替代每回合重置。" +
-    "(2) replacement planner 尚需把「原 token + 额外副本」规划为两次 play，" +
-    "包括 Chain 上创建副本和继承原事件修正（375）；effect.copy 的 play 模式仍 blocked。" +
-    "(3)「while I'm at a battlefield」需来源 LocationRef.type 的可执行 Condition（RIFT-359）；" +
-    "现有描述性常量只是意图记录。事件对象 replacement.object、可选应用与多动作替代本身均已合入。",
+    "仍缺（2026-10-17 复核；事件对象 replacement.object、可选应用与多动作替代本身均已合入）：" +
+    "(1) 383.3.e/386.1 的「Once each turn」没有卡牌声明到每回合重置限次的桥接：EventPipeline 的 registration.oncePerTurn 已实现（按 turn 记 key），" +
+    "但 ReplacementAbility（card-dsl IR）没有该字段，bindReplacement 产出的 registration 上 oncePerTurn 为 undefined（golden 实证），" +
+    "replacement.event 的 window 只有 permanent / next-time-this-turn，不能替代每回合重置；alternatively「you may」的可选性同样没有卡牌侧声明通道。" +
+    "(2) 替代体不可规划：binding 的 with 指令 op 是 replacement.play-with-additional-copy，replacement/planner.ts 没有该分支，" +
+    "实测 createEngineStaticBinder(engine).bindReplacement 抛 \"Unsupported replacement opcode: replacement.play-with-additional-copy\"；" +
+    "planner 也没有「原 token + 额外副本」的两次 play（含 Chain 上创建副本并继承原事件修正，CR 375）" +
+    "——effect.copy 的 play 模式仍 blocked（\"copy-action-cannot-create-a-pending-chain-object\"，实测判 negated/impossible）。" +
+    "(3)「while I'm at a battlefield」仍只有 source-at-a-battlefield 描述性常量：Condition/evaluator/binder 没有可执行的来源位置谓词。" +
+    "该常量被 evaluateCondition 当作真值常量（实测战场与基地两种位置都判 true），因此不能用现有形状证明位置门槛；" +
+    "ObjectFilter 的 location 键只表示对象自身的位置，不能读取「来源当前在哪」。",
   abilities,
   sourceText:
     "Once each turn, if you would play a token unit while I'm at a battlefield, you may play that token " +

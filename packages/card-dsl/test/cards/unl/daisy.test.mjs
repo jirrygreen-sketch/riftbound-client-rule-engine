@@ -39,8 +39,9 @@ test("unl-196-219 Daisy!: identity, status, judgeReason and verbatim sourceText"
   // the unmapped static cost.modify, the missing cross-object tag-union count,
   // and the unbindable dynamic location anchor.
   assert.match(program.judgeReason, /cost\.modify/);
+  assert.match(program.judgeReason, /cost\/discounts\/collect/);
   assert.match(program.judgeReason, /no layer mapping/);
-  assert.match(program.judgeReason, /CostPlanInput\.discounts/);
+  assert.match(program.judgeReason, /chain\/engine/);
   assert.match(program.judgeReason, /ObjectFilter\.tags/);
   assert.match(program.judgeReason, /evaluateExpression/);
   assert.match(program.judgeReason, /queryObjects/);

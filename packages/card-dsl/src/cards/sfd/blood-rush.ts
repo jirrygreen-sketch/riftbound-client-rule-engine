@@ -35,38 +35,34 @@ import type { CardProgram } from "../../ir/index.js";
  *   existence. The permanent layer registration is scoped to the target's
  *   zone-entry identity; Assault's attacker condition is a separate gate.
  *
- * Status: judge-required, with both gaps named:
- * - the [Assault 2] grant now has a merged instruction op
- *   (`effects/instructions/continuous.grant-keyword.ts`) that registers an
- *   ability-layer keyword for a duration, but runtime granted keywords are not
- *   passed through the KeywordDef expansion path that turns Assault into its
- *   attacker-conditioned `continuous.might` effect. The existing Assault
- *   expansion also names the `designation` property while ObjectSnapshot
- *   exposes `combatRole`; no safe runtime Might result can be claimed.
+ * Status: judge-required, with one remaining gap (re-probed 2026-10-18):
  * - the [Repeat] additional cost cannot be charged or read back: the Repeat
  *   keyword, effect.repeat and the cost-plan `optionalAdditional` input exist,
  *   but no code turns a card program's declared optional additional cost into
  *   the spell-play Finalize collection, and the paid-instance count has no
  *   binding for the resolution (820.1.c.1 / 820.1.d.1).
- * The unit target and the Assault 2 value it would receive are recorded for
- * review; nothing is approximated (no Buff counter stands in for Assault's
- * conditional +2 Might).
+ * The merged KeywordGrantLayerEngine now expands the runtime Assault 2 grant,
+ * aliases the printed designation condition to ObjectSnapshot.combatRole, and
+ * produces the attacker-only +2 Might in the card's execution golden.
+ *
+ * Execution evidence: test/cards/templates/
+ * keyword-play-continuous-grant-keyword-681.test.mjs runs the printed base cost
+ * and the Assault 2 grant row through the generic scenario harness, and pins the
+ * declared [Repeat] cost failing closed in translateCost. The program stays
+ * judge-required for that remaining gap.
  */
 export default {
   canonicalCardId: "card.hash-01042b9eeb52d036e7ddeb7a52f785ab5acaf5fc08d6923554a753376d2b7529",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1)「Give a unit [Assault 2]」的 continuous.grant-keyword 指令原语" +
-    "（ability 图层 + 时限）已合入并能登记授予的关键词，但运行时授予关键词没有进入 KeywordDef 展开路径，" +
-    "无法把 Assault 转成攻击者期间的 continuous.might；现有 Assault 展开还读取 designation，而 ObjectSnapshot " +
-    "提供的是 combatRole，特征字段也未对齐，故不能声称已有安全的 Might 结果。把 [Assault 2] 声明成这张法术自身的关键词会描述错误的对象，故不这样写。" +
-    "(2) [Repeat] :rb_energy_1: 的可选附加费用无法收取或回读：Repeat 关键词、effect.repeat 与 cost 计划的 optionalAdditional 输入已合入，" +
-    "但没有把卡牌程序声明的可选附加费用接进法术打出 Finalize 收取的接线，已付实例数也没有供结算读取的绑定（820.1.c.1 / 820.1.d.1）。" +
-    "卡片保留可审查的结构：目标单位（355.5/355.7/355.9.a.1）、Assault 2 数值、820.1.c 的 1 能量印刷费用与显式 pay/decline 选择。" +
-    "不用 Buff 计数冒充 Assault 的条件 +2 Might。依赖：运行时授予关键词的 KeywordDef/Assault 消费路径与 " +
-    "designation/combatRole 特征对齐、" +
-    "Repeat 附加费用的 Finalize 收取与已付实例绑定。",
+    "仅剩一处依赖未合入，不近似实现（2026-10-18 复核；执行 golden 已覆盖 Assault 运行时展开）：" +
+    "[Repeat] :rb_energy_1: 的附加费用无法收取：programs/play.ts 的 translateCost 对 kind:\"additional\" fail-closed" +
+    "（\"Additional costs are not bound\"），卡牌程序声明的可选附加费用因此进不了 CostPlanInput.optionalAdditional，" +
+    "已付实例数也没有供结算读取以额外执行一次的绑定（820.1.c.1 / 820.1.d.1）；golden 直接订住该 fail-closed 行为。" +
+    "[Assault 2] 的 continuous.grant-keyword 已由 KeywordGrantLayerEngine 经过 KeywordDef 展开，" +
+    "并将 Assault 的 designation 条件映射到 ObjectSnapshot.combatRole；执行测试证明攻击者获得 +2 Might，" +
+    "因此不再把该路径列为缺口。依赖：Repeat 附加费用的 Finalize 收取与已付实例绑定。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
@@ -74,7 +70,7 @@ export default {
       // [Repeat] :rb_energy_1: (820.1.c): the printed additional cost is
       // declared with an explicit pay/decline choice (820.1.b makes paying
       // optional). The consumer is the spell-play cost plan; no merged code
-      // reads this today, which is part of judgeReason.
+      // reads this today, which is the remaining judgeReason.
       cost: {
         kind: "additional",
         payments: [
@@ -93,7 +89,8 @@ export default {
         {
           // "Give a unit [Assault 2]" — the granted keyword id, its printed
           // value and the chosen unit use the merged keyword-grant primitive;
-          // the keyword's Might behavior still needs its consumer (see judgeReason).
+          // KeywordGrantLayerEngine re-expands this runtime grant through the
+          // Assault KeywordDef; the Repeat payment remains the only blocker.
           id: "blood-rush.grant-assault-2",
           op: "continuous.grant-keyword",
           args: {

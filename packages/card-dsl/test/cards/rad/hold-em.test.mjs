@@ -7,6 +7,12 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-6241ef3881abbc30d79cdaf37ca912ade70c601045279aed082fc727f4ace85c";
 const SOURCE_TEXT =
@@ -33,9 +39,113 @@ test("rad-070-167 Hold 'Em: judgeReason names the cost-plan wiring and the histo
   // cards README section 2: the reason must name the missing primitive/rule and
   // the dependency task instead of a stale description.
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /CostPlanInput\.discounts|static-program binder/);
+  assert.match(program.judgeReason, /finalizeCostPlan/);
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /objectFilter/);
+  // Second-sweep refresh: name the observed binder failure and the missing
+  // Condition kind instead of a generic "no consumer". 2026-10-18 refresh:
+  // the merged collector and its measured predicate limits are the live gap.
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /condition\.history/);
+  assert.match(program.judgeReason, /finalizeCostPlan/);
+  assert.match(program.judgeReason, /Unsupported finalized-card history filter/);
+});
+
+test("rad-070-167 Hold 'Em gap: the production static binder rejects the discount declaration", () => {
+  // The discount is authored per the contract, but the merged binder has no
+  // layer for it, so it can never reach a play's CostPlanInput.discounts.
+  const f = fixture({ cards: [{ id: "src", cardId: CANONICAL, types: ["spell"], energy: 3, power: [] }] });
+  const binder = createEngineStaticBinder(f.engine);
+  assert.throws(
+    () => binder.bindStatic(discount, f.kernel.getObject("src")),
+    /continuous\.cost-modification has no layer mapping/
+  );
+  assert.deepEqual(f.engine.layers.registry.list(), []);
+});
+
+test("rad-070-167 Hold 'Em gap: a printed-cost plan receives no discount without caller-supplied input", () => {
+  // cost/cost-plan.ts applies only the discounts the caller passes, so the
+  // declared card effect leaves the printed 3 Energy cost untouched.
+  const base = world().hand("src", { types: ["spell"], energy: 3 }).build();
+  const ctx = base.clone({ sourceSnapshot: base.getObject("src") });
+  const plan = buildCostPlan(ctx, {
+    id: "play",
+    cost: { kind: "printed" },
+    printed: { id: "src", cardType: "Spell", domains: ["Body"], energy: 3, power: 0 }
+  });
+  assert.equal(plan.total.energy, 3);
+  assert.deepEqual(plan.discounts, []);
+});
+
+test("rad-070-167 Hold 'Em gap: the declared gate is a descriptive constant, and Condition has no history kind", () => {
+  // The gate is not executable: it evaluates truthy regardless of the turn's
+  // history, and the merged Condition evaluator has no history kind that could
+  // gate a static cost effect.
+  const kernel = world().build();
+  const environment = { context: kernel, linked: () => undefined, canLookBack: () => true, isIgnored: () => false };
+  assert.equal(evaluateCondition(discount.condition, environment), true);
+  assert.equal(discount.condition.kind, "expression");
+  assert.equal(discount.condition.value.kind, "constant");
+  assert.throws(() => evaluateCondition({ kind: "history" }, environment), /Unsupported condition: history/);
+});
+
+test("rad-070-167 Hold 'Em gap: the merged collector refuses the declared gate and the type-filtered history instead of discounting", () => {
+  // The collector is the merged consumer for this declaration kind. Both halves
+  // of the printed gate fail closed there, so no approximation can slip in:
+  // the descriptive expression is rejected, and the only evaluable play history
+  // (count/cards-played-this-turn) has no unit-or-gear filter or destination.
+  const kernel = world().hand("src", { types: ["spell"], energy: 3 }).build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("src") });
+  const source = { id: "hold-em", source: ctx.ref("src"), ability: discount };
+  assert.throws(
+    () => finalizeCostPlan(ctx, { id: "play", cost: { kind: "printed" } }, { statics: [source], finalizedPlaysThisTurn: [] }),
+    error => error instanceof CostPlanError && error.reason === "judge-required" &&
+      /Descriptive cost predicates require an authoritative condition adapter/.test(error.message)
+  );
+
+  // The same declaration with an *evaluable* gate still cannot express
+  // "a unit or gear … to a battlefield this turn".
+  const evaluable = {
+    ...discount,
+    condition: {
+      kind: "compare",
+      left: {
+        kind: "count",
+        subject: "cards-played-this-turn",
+        filter: { player: "controller", type: "unit" }
+      },
+      operator: "gte",
+      right: { kind: "constant", value: 1 }
+    }
+  };
+  assert.throws(
+    () => finalizeCostPlan(ctx, { id: "play", cost: { kind: "printed" } }, {
+      statics: [{ id: "hold-em", source: ctx.ref("src"), ability: evaluable }],
+      finalizedPlaysThisTurn: []
+    }),
+    error => error instanceof CostPlanError && error.reason === "judge-required" &&
+      /Unsupported finalized-card history filter/.test(error.message)
+  );
+
+  // Without an object filter the count is evaluable but blind to both printed
+  // clauses: a spell played this turn satisfies it (the printed text requires a
+  // unit or gear played to a battlefield).
+  const blind = {
+    ...evaluable,
+    condition: {
+      ...evaluable.condition,
+      left: { ...evaluable.condition.left, filter: { player: "controller" } }
+    }
+  };
+  const blindPlan = finalizeCostPlan(ctx, { id: "play", cost: { kind: "printed" } }, {
+    statics: [{ id: "hold-em", source: ctx.ref("src"), ability: blind }],
+    finalizedPlaysThisTurn: [{ object: { ...ctx.getObject("src"), types: ["spell"] }, player: "A" }]
+  });
+  assert.equal(blindPlan.total.energy, 1);
+  assert.ok(
+    blindPlan.selectedAdditional.length === 0 && blindPlan.discounts.length === 1,
+    "the unfiltered history discounts a spell play, which is not the printed gate"
+  );
 });
 
 test("rad-070-167 Hold 'Em: structure — Action keyword and the printed energy-3 cost", () => {

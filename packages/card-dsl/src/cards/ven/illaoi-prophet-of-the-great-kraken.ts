@@ -3,7 +3,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
 /**
  * Illaoi, Prophet of the Great Kraken (ven-109-166; 同一 canonical 身份的另一印刷为 ven-182-166) —
  * Unit, Chaos, tags Bilgewater/Illaoi/Champion。
- * 6 Energy, no printed Power（`power: null`，不是 0），Might 4。
+ * 6 Energy, no printed Power（power: null，不是 0），Might 4。
  *
  * sourceText（packages/card-data/data/deck-catalog.json, ven-109-166，逐字；ven-182-166 文本相同）：
  *   When you play me or when I score, play a :rb_energy_1: :rb_might: Tentacle unit token from Bilgewater.
@@ -11,33 +11,29 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * 规则依据（Core Rules v1.5）：
  * - 383.4.a：“When you play me” 是 Play Effect（时点 card-played，420.4.a 在打出完成后触发）。
- * - 470.1 / 470.3 / 473.2：“when I score” 里的 “score” 指 Scoring 过程（不是 “Score X points”），
- *   对应封闭时点 "score"（events/timing-points.ts，ruleRefs 470.1/470.3/471/473.2）。
+ * - 470.3 / 473.2：“when I score” 指 Scoring 过程（不是 “Score X points”），对应封闭时点
+ *   "score"（events/timing-points.ts，ruleRefs 470.1/470.3/471/473.2）；473.2 要求 Trigger Score
+ *   能力在“被计分的那个 Battlefield”触发。
  * - 187.10：“a 1 :rb_might: Tentacle unit token from Bilgewater” 是无领域、1 Might、Bilgewater
- *   标签的单位 token；effect.token 的冻结定义表 id "tentacle" 正是该定义（might 1、tags
- *   ["Bilgewater"]、energy/power 均为 null，绝不写成 0）。
- * - 440.2.c / 185.2.a / 350.2 / 354：“play a … token” 先在链上创建，再由打出流程接手；
- *   effect.token 的 mode "play" 走的正是这条路径。
- * - 143.2.a / 475–477：“I have +1 :rb_might: for each token unit you control” 是算术图层的持续
- *   Might 修正，不是 702 的 Buff 计数器（本卡不放置任何 Buff）。
+ *   标签的单位 token；effect.token 的冻结定义表 id "tentacle" 正是该定义。
+ * - 143.2.a / 475–477：“+1 :rb_might: for each token unit you control” 是算术图层的持续
+ *   Might 修正。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，两处缺口均不近似实现：
- * 1. “when I score” 的 score 时点与 details.battlefieldId 已由 turn/flow.ts 发布到
- *    共享事件管线，触发注册本身也已合入；剩余缺口是 473.2 的宿主位置关联：
- *    translateTriggerFilter 把 source: "self" 翻译为事件 object 的自身引用，
- *    但 score emission 只有 player/details，没有 object，pipeline matcher 没有把宿主
- *    location 与 details.battlefieldId 做连接，因此无法只在 Illaoi 所在战场得分时触发。
- * 2. “I have +1 :rb_might: for each token unit you control” 需要卡牌侧的 continuous.might 注册入口
- *    与按集合计数求值 amount 的能力（layers/engine.ts 的 valueOf 不求值 count，
- *    count/compare）；“token unit” 的合取谓词同样缺失——已合入过滤器把数组 type 当 OR 处理，
- *    type: \"token\" 会一并匹配 token gear（如 Gold），因此这里按同批卡（sfd/azir-sovereign、
- *    sfd/renata-glasc-industrialist）的写法只记录 isToken 过滤并在此说明该缺口。
- * 3. card-played 的触发注册依赖已合入的生产链路（programs/triggers.ts
- *    registerProgramTriggers → events/pipeline.registerTrigger），但它只在卡牌被打出时
- *    才会绑定（attachProgramLifecycle 在 object-enters-board/chain 时 attach），score 触发
- *    的注册因此同样卡在第 1 点的 score 管线缺口上。
- * 已支持部分：“play a 1 Might Tentacle unit token” 用已合入的 effect.token（mode \"play\"，187.10
- * 定义）在 golden 中真实执行，含从链上创建到打出、以及控制器归属与 null 费用的校验。
+ * status = judge-required（2026-10-18 M2 复核，三处当前缺口，均为实测，不近似实现）：
+ * 1. score 触发的过滤器无法注册：卡牌写 { event: "score", ... }，但实测
+ *    EVENT_PATTERN_TYPES 里是判别值 "scored"（管线映射到 score 时点），"score" 不是合法事件类名，
+ *    registerTrigger 抛 TriggerSpecValidationError；用闭合拼写 "scored" 可以注册，但第二条缺口
+ *    仍拦住整条链。
+ * 2. 473.2 的宿主位置关联缺失：score emission 只带 player 与 details.battlefieldId，没有 object，
+ *    而 translateTriggerFilter 把 source:"self" 翻译成事件 object 的自身引用；实测用闭合拼写
+ *    "scored" 注册后发出真实的 score 事件，链上没有任何条目（pipeline-matcher 没有把宿主
+ *    location 与 details.battlefieldId 做连接），无法只在 Illaoi 所在战场得分时触发。
+ * 3. “+1 Might for each token unit you control” 无法求值：(a) 图层不计算 count 量——实测
+ *    layers/engine.ts 的 valueOf 不求值 count（amount 退化为 0，建出一个 Tentacle 后 Might
+ *    仍是 4）；(b) “token unit” 的合取谓词缺失——实测 layers/filter.ts 的 typeMatches 对
+ *    type: "token" 同时命中 token gear（如 Gold），无法只匹配 token 单位。
+ * 已支持部分：“play a 1 Might Tentacle unit token” 用已合入的 effect.token（mode "play"，187.10
+ * 定义）在 golden 中真实执行，含从链上创建到打出、控制器归属与 null 费用的校验。
  */
 const abilities: Ability[] = [
   {
@@ -119,17 +115,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1)「when I score」的 score 时点与 details.battlefieldId 已由 " +
-    "turn/flow.ts 发布到共享事件管线，programs/triggers.ts 的注册也已合入；剩余缺口是 " +
-    "473.2 的宿主位置关联：translateTriggerFilter 把 source:\"self\" 翻译为事件 object 的自身引用，" +
-    "但 score emission 只有 player/details，没有 object，pipeline matcher 没有把宿主 location 与 " +
-    "details.battlefieldId 做连接，因此无法只在 Illaoi 所在战场得分时触发。" +
-    "(2)「I have +1 :rb_might: for each token unit you control」需要卡牌侧 continuous.might 注册入口与按集合计数求值 " +
-    "amount 的能力（layers/engine.ts 的 valueOf 不求值 count，图层 conditionMatches 也不求值 count/compare）；「token unit」的合取谓词同样缺失" +
-    "——已合入过滤器把数组 type 当 OR，type: \"token\" 会一并匹配 token gear（如 Gold），因此按同批卡" +
-    "（sfd/azir-sovereign、sfd/renata-glasc-industrialist）只记录 isToken 过滤并在此说明该缺口。" +
-    "已支持部分：「play a 1 Might Tentacle unit token」用已合入的 effect.token（mode \"play\"，187.10" +
-    "定义）在 golden 中真实执行，含从链上创建到打出、以及控制器归属与 null 费用的校验。",
+    "三处缺口，均实测、不近似实现：(1) score 触发的过滤器无法注册——实测 EVENT_PATTERN_TYPES 里是判别值 \"scored\"（映射到 score 时点），" +
+    "卡牌写的 \"score\" 不是合法事件类名，registerTrigger 抛 TriggerSpecValidationError；" +
+    "(2) 473.2 的宿主位置关联缺失——score emission 只带 player 与 details.battlefieldId、没有 object，" +
+    "而 translateTriggerFilter 把 source:\"self\" 翻成事件 object 的自身引用；实测改用闭合拼写 \"scored\" 注册后发出真实 score 事件，" +
+    "链上没有任何条目，无法只在 Illaoi 所在战场得分时触发；" +
+    "(3)「I have +1 :rb_might: for each token unit you control」无法求值——(a) 图层不计算 count 量（实测 layers/engine.ts 的 valueOf 不求值 count，" +
+    "amount 退化为 0，建出一个 Tentacle 后 Might 仍是 4）；(b)「token unit」的合取谓词缺失——实测 typeMatches 对 type: \"token\" 同时命中 token gear。" +
+    "已支持部分：「play a 1 Might Tentacle unit token」用已合入的 effect.token（mode \"play\"，187.10 定义）在 golden 中真实执行，" +
+    "含从链上创建到打出、控制器归属与 null 费用的校验。",
   abilities,
   sourceText:
     "When you play me or when I score, play a :rb_energy_1: :rb_might: Tentacle unit token from Bilgewater.\n" +

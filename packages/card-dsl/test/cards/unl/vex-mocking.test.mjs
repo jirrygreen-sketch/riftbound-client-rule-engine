@@ -6,7 +6,10 @@ import program from "../../../dist/cards/unl/vex-mocking.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-6c81da534f503cae7bc5118d6be12f7c349fa24deecee1dad3aff06abb20eefd";
@@ -32,7 +35,13 @@ test("unl-055-219 Vex, Mocking: identity, status, judgeReason and verbatim sourc
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /unit-stunned/);
   assert.match(program.judgeReason, /that battlefield/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-(91|120|257)/);
+  // The refreshed reason records the measured state: the timing point now fires
+  // through the real ChainEngine and the subscription registers, while the
+  // event-location payload and the Shield/Tank combat consumers are the gaps.
+  assert.match(program.judgeReason, /action-adapter/);
+  assert.match(program.judgeReason, /位置载荷/);
+  assert.match(program.judgeReason, /expr-ext/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
 });
 
 test("unl-055-219 Vex, Mocking: [Shield] and [Tank] are declared as unvalued keywords (814.1, 815.1)", () => {
@@ -50,12 +59,14 @@ test("unl-055-219 Vex, Mocking: 'When you [Stun] an enemy unit' subscribes to un
   assert.equal(stunTrigger.trigger.at, "unit-stunned");
   assert.equal(isTimingPointId("unit-stunned"), true);
   // 412.4/412.5: the ability triggers on a Stun the controller is responsible
-  // for; Vex is not the source of that Stun, so the filter names the event object
-  // (the stunned unit) instead of scoping itself as the source.
+  // for; the timing point supplies the event object to this bare ObjectFilter.
   assert.deepEqual(stunTrigger.trigger.filter, {
-    event: "unit-stunned",
-    object: { type: "unit", zone: "board", controller: "opponent" }
+    type: "unit",
+    zone: "board",
+    controller: "opponent"
   });
+  const validated = validateTriggerSpec(stunTrigger.trigger);
+  assert.equal(validated.ok, true, JSON.stringify(validated.ok ? [] : validated.issues));
   assert.equal(stunTrigger.trigger.condition, undefined);
   assert.equal(stunTrigger.trigger.once, undefined);
   // 383.3.a: the leading "you may" is the trigger's own Finalize decision.
@@ -152,17 +163,88 @@ test("unl-055-219 Vex, Mocking golden: the descriptive destination marker is rej
   assert.deepEqual(scoped.snapshot(), before);
 });
 
-test.todo(
-  "unl-055-219 Vex, Mocking: emit the unit-stunned timing point from the production chain (CR 424.1) and register " +
-    "this card's trigger — the emitter lives only in the action-pipeline adapter, which ChainEngine does not install (production action emitter)"
-);
+test("unl-055-219 Vex, Mocking golden: the real ChainEngine emits unit-stunned and queues this card's trigger", () => {
+  // 424.1 / 383.3: Stun is a rules action; the production ChainEngine builds its
+  // EventPipeline with the events/action-adapter.ts host, so a committed stun
+  // publishes unit-stunned and the registered subscription becomes a Pending
+  // Item. The golden runs that path instead of hand-emitting the timing point.
+  const f = fixture();
+  const vex = f.kernel.addObject({
+    ref: { id: "vex", zoneEntryId: 1 },
+    cardId: null,
+    name: "Vex, Mocking",
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "battlefield-2" },
+    might: 5,
+    energy: null,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  });
+  const filter = translateTriggerFilter(stunTrigger.trigger.filter, "vex", "unit-stunned");
+  assert.deepEqual(filter, { type: "unit", zone: "board", controller: "opponent" });
+  const spec = { at: "unit-stunned", filter };
+  assert.equal(validateTriggerSpec(spec).ok, true);
+  f.engine.pipeline.registerTrigger({
+    id: "vex:unit-stunned",
+    source: f.kernel.getObject(vex.id),
+    controller: "A",
+    spec,
+    body: stunTrigger.body,
+    activeZones: ["board"],
+    boundToIncarnation: true
+  });
+  const enemy = f.kernel.addObject({
+    ref: { id: "enemy", zoneEntryId: 1 },
+    cardId: null,
+    name: "Enemy",
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    owner: "B",
+    controller: "B",
+    zone: "board",
+    location: { type: "battlefield", id: "battlefield-1" },
+    might: 3,
+    energy: null,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  });
+  assert.equal(f.engine.commit({ type: "stun", object: enemy }).status, "done");
+  assert.equal(f.kernel.getObject("enemy").stunned, true);
+  assert.equal(f.engine.pipeline.events.filter((event) => event.timingPoint === "unit-stunned").length, 1);
+  assert.deepEqual(f.engine.pipeline.events
+    .filter((event) => event.timingPoint === "unit-stunned")
+    .map((event) => event.object.ref.id), ["enemy"]);
+  assert.deepEqual(f.engine.items.map((item) => item.kind), ["triggered"]);
+  // The event carries the object but no location payload, which is the gap the
+  // "that battlefield" reason records.
+  assert.equal(f.engine.pipeline.events.find((event) => event.timingPoint === "unit-stunned").details, undefined);
+});
 
 test.todo(
   "unl-055-219 Vex, Mocking: bind 'that battlefield' to the stunned unit's location (CR 359.3.f.1) — needs an " +
-    "event-object/event-location selector and a location destination for effect.move"
+    "event-location selector and a location destination for effect.move"
 );
 
 test.todo(
   "unl-055-219 Vex, Mocking: apply [Shield]'s defender-gated +1 Might (CR 814.1.c/814.1.d.1) and [Tank]'s " +
-    "damage-assignment priority (CR 815.1.c) — no layer or combat consumer for the expanded keywords (combat designation and damage-assignment consumers)"
+    "damage-assignment priority (CR 815.1.c) — the combatRole designation and expr-ext reader are merged but the " +
+    "default condition/layer dispatch never calls the extension, and continuous.combat has no combat consumer"
 );

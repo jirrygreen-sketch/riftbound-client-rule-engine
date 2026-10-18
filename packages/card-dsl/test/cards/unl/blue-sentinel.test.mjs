@@ -4,6 +4,29 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/blue-sentinel.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { registryById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import resources from "../../../../engine-core/dist/effects/instructions/effect.resources.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+
+/** Minimal engine so the production static binder can be exercised directly. */
+function binderFor(kernel) {
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: (request) => { throw new Error(`Unexpected choice: ${request.id}`); },
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  return createEngineStaticBinder(engine);
+}
 
 const CANONICAL_ID =
   "card.hash-cc5b4c7c8552ab416ee26137732c2e83c4df87b7e9fed57fdc4d1c19b390bcba";
@@ -85,10 +108,49 @@ test("unl-087-219 Blue Sentinel: 'When I hold' schedules the [Add] for the next 
   assert.equal(addPower.targets, undefined);
 });
 
-test.todo(
-  "unl-087-219 Blue Sentinel: execute the [Add] :rb_rune_rainbow: body through effect.resources once Universal Power " +
-    "is representable (CR 163.2.b / 430.1) — no execution scenario is claimed here"
-);
+test("unl-087-219 Blue Sentinel: the [A] body really negates through effect.resources while a named domain executes", () => {
+  // 163.2.b / 135.2.e.5 / 430.1: [A] is Universal Power. The closed Domain set
+  // has no value for it, so the primitive negates the authored ["rainbow"] form
+  // instead of substituting a domain; the same shape with a real domain executes,
+  // which shows the rejection is the Universal Power gap and not a broken body.
+  const kernel = world().unit("sentinel", { owner: "A", controller: "A" }).build();
+  const rejected = runInstruction(resources, { power: addPower.args.power }, { world: kernel });
+  assert.deepEqual(rejected.result, { status: "negated", reason: "impossible", events: [] });
+  assert.deepEqual(kernel.events, []);
+
+  const accepted = runInstruction(
+    resources,
+    { power: { kind: "constant", value: ["Mind"] } },
+    { world: kernel }
+  );
+  assert.equal(accepted.result.status, "executed");
+  assert.deepEqual(accepted.linked.resources.power, ["Mind"]);
+});
+
+test("unl-087-219 Blue Sentinel: the multiplicity declaration is refused by the production static binder", () => {
+  // 383.4.d.2.b: "trigger an additional time" edits trigger collection. The
+  // merged binder cannot consume the declaration: its appliesTo shape is not a
+  // supported static target, and removing appliesTo only reaches the missing
+  // layer mapping. It must not be approximated by repeat at resolution.
+  const kernel = world()
+    .unit("sentinel", { owner: "A", controller: "A", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const binder = binderFor(kernel);
+  assert.throws(() => binder.bindStatic(multiplicity, kernel.getObject("sentinel")), /Unsupported static appliesTo/);
+  const { appliesTo, ...effect } = multiplicity.effect;
+  assert.throws(
+    () => binder.bindStatic({ ...multiplicity, effect }, kernel.getObject("sentinel")),
+    /has no layer mapping/
+  );
+});
+
+test("unl-087-219 Blue Sentinel: trigger.delayed is not a registered instruction opcode (391.2 / 392)", () => {
+  // No effects/instructions entry consumes ctx.registerDelayedTrigger; the
+  // program keeps the descriptive shape and the fail-closed state is pinned by
+  // the instruction registry.
+  assert.equal(registryById.has("trigger.delayed"), false);
+  assert.equal(registryById.has("effect.resources"), true);
+});
 
 test.todo(
   "unl-087-219 Blue Sentinel: 'trigger an additional time' consumed at trigger collection " +

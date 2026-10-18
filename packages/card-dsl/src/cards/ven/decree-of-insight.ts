@@ -38,8 +38,8 @@ const abilities: Ability[] = [
               type: "unit",
               zone: "board",
               controller: "opponent",
-              // 描述性限制，不是可求值谓词："Body unit" 需要按 power 含 Body 过滤，
-              // 已合入的查询消费方不读该键（见 judgeReason 第 2 点）。
+              // 描述性限制：Body 是领域特征，不能以印刷 Power 费用替代。
+              // programs/filters 未支持此键，整卡保持阻塞。
               targetRestriction: "domain-body"
             },
             min: 1,
@@ -58,7 +58,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺 809.1.c 的目标税生产读取/忽略路径：continuous.ignore-target-tax 尚未绑定到本法术 Finalize 的 Deflect 费用计划（RIFT-360）。134 的 Body 领域还缺独立领域特征与成员谓词（RIFT-359）；ObjectSnapshot.power 是力量费用域，不能替代领域。",
+    "仍缺 809.1.c 的 continuous.ignore-target-tax 绑定与 Finalize 消费：programs/statics 无此 kind 的图层映射，" +
+    "target/tax 已支持 Deflect Power 费用，但没有本法术的忽略入口，Chain Finalize 也未接入该忽略声明。" +
+    "134 的 Body 领域仍缺 ObjectSnapshot 独立领域特征与成员筛选；programs/filters 拒绝 targetRestriction，" +
+    "ObjectSnapshot.power 是印刷力量费用，不能替代领域或漏掉 power:null 的 Body 单位。",
   abilities,
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +

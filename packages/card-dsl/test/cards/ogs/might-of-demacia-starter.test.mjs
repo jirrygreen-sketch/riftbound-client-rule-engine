@@ -1,10 +1,10 @@
 // Golden test for Might of Demacia, Starter (ogs-023-024).
 //
-// The card is judge-required: the conquer timing point is never emitted into
-// the single event pipeline carries no "that battlefield" referent (CR 359.3.f)
-// to count units against, and a conditional trigger registration needs a host
-// testTrigger adapter. The runnable evidence is validation/identity/structure
-// plus a real execution of the card's own effect.draw body.
+// The card is judge-required: TurnFlow emits conquer with the conquered
+// battlefield in details.battlefieldId, but the trigger condition cannot bind
+// that event referent (CR 359.3.f) to the unit-count filter, and the trigger
+// has no Legend Zone lifecycle. The runnable evidence is validation/identity/
+// structure plus a real execution of the card's own effect.draw body.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -37,10 +37,10 @@ test("ogs-023-024 Might of Demacia, Starter: identity, status, judgeReason and v
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /conquer/);
   assert.match(program.judgeReason, /turn\/flow\.ts/);
+  assert.match(program.judgeReason, /details\.battlefieldId/);
   assert.match(program.judgeReason, /that battlefield/);
-  assert.match(program.judgeReason, /testTrigger/);
+  assert.match(program.judgeReason, /conquering-battlefield-units/);
   assert.match(program.judgeReason, /Legend Zone/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -120,8 +120,8 @@ test("ogs-023-024 Might of Demacia, Starter: the merged Score wave emits conquer
   // turn/flow.ts publishes the whole Score trigger wave atomically for a
   // committed score action (CR 383.4.c / 471.1 / 473.2.a); the conquer emission
   // carries the conquered battlefield as details.battlefieldId. The card-side
-  // gap is the battlefield-relative counting condition and the CardProgram
-  // trigger binding, not the emission itself (see judgeReason).
+  // gap is the battlefield-relative counting condition and the Legend Zone
+  // lifecycle, not the emission itself (see judgeReason).
   const conquer = getTimingPoint("conquer");
   assert.equal(conquer.emittedBy, "scoring");
   assert.deepEqual(conquer.ruleRefs, ["468.5.d", "471.1", "473.2.a"]);
@@ -130,13 +130,13 @@ test("ogs-023-024 Might of Demacia, Starter: the merged Score wave emits conquer
 test.todo(
   "Might of Demacia, Starter: count your units at THAT battlefield from the conquer event " +
     "(CR 383.2.a.1 trigger condition + 359.3.f referent + 355.10.d automatic selection) — blocked " +
-    "because the count/compare condition reads no event payload, EventPattern has no " +
-    "event-current-battlefield anchor, and a conditional registration needs the host " +
-    "testTrigger adapter (contract change request)"
+    "because the count condition has no event-battlefield anchor: details.battlefieldId is not bound " +
+    "to the filter and subject: conquering-battlefield-units is not consumed for counting " +
+    "(contract change request)"
 );
 
 test.todo(
   "Might of Demacia, Starter: the trigger registers from the Legend Zone (CR 107.4.c / 174.2.b) and " +
     "enters the chain as a Pending Item — blocked because the frozen ZoneId has no legend zone " +
-    "(contract 3.5); the CardProgram trigger binding itself (RIFT-257) is merged"
+    "(contract 3.5) and programs/lifecycle.ts does not register triggers from that zone"
 );

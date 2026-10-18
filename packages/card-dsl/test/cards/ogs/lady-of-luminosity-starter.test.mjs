@@ -1,12 +1,13 @@
 // Golden test for Lady of Luminosity, Starter (ogs-021-024).
 //
-// The trigger is the card-played timing point (contract 3.5; chain/engine.ts
-// emits it after a spell/unit/gear resolves) and the effect is the merged
-// effect.draw. What is missing is the cost gate: CR 206 requires the PRINTED
-// (or copied) cost, but no pipeline event carries a played card's cost, and
-// the frozen filter shapes have no cost-gte predicate. The runnable evidence
-// is therefore validation/identity/structure plus a real execution of the
-// card's own effect.draw instructions.
+// Whole-card execution evidence (the printed-cost gate, the "you play" gate
+// and the Draw 1 body through the real chain path) lives in
+// test/cards/templates/triggered-card-played-effect-draw-656.test.mjs. This file
+// keeps validation, identity, structure and the remaining Legend Zone gap.
+//
+// The merged event-printed predicate reads the production card-played cost
+// snapshot. These tests execute the trigger's actual gate and Draw 1 body;
+// registering a Legend in its own zone remains explicitly blocked.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -60,9 +61,11 @@ test("ogs-021-024 Lady of Luminosity, Starter: card-played trigger filtered to s
   assert.equal(ability.trigger.filter.event, "card-played");
   assert.deepEqual(ability.trigger.filter.object, { type: "spell" });
   assert.equal(ability.trigger.filter.player, "self");
-  // The cost gate has no predicate of its own; it rides on the event payload
-  // key that the current pipeline never sets (see judgeReason and the TODO).
-  assert.deepEqual(ability.trigger.filter.details, { printedEnergyCostAtLeast: 5 });
+  assert.equal(ability.trigger.filter.details, undefined);
+  assert.deepEqual(ability.trigger.condition, {
+    kind: "event-printed", object: "object", characteristic: "energy",
+    operator: "gte", right: { kind: "constant", value: 5 }
+  });
 });
 
 test("ogs-021-024 Lady of Luminosity, Starter: the trigger filter is a valid engine EventPattern", () => {
@@ -108,59 +111,69 @@ test("ogs-021-024 Lady of Luminosity, Starter: the printed Energy cost is never 
   assert.equal(/\"power\"\s*:/.test(serialized), false);
 });
 
-test("ogs-021-024 Lady of Luminosity, Starter golden: a real played spell emits card-played with no cost payload", () => {
-  // 复核 2026-10-17: drive the production chain. The emitted card-played event
-  // carries the played spell object and player only; details is undefined, so
-  // this card's cost gate cannot match and the gate must not be relaxed to
-  // "any spell". A spell of printed cost 5 is used to make the intent explicit.
-  let captured = null;
+function playThroughGate({ printed = 5, paid = printed, types = ["spell"], player = "A" } = {}) {
   const f = fixture({
-    turnOrder: ["A", "B"],
-    turnPlayer: "A",
+    turnPlayer: player,
     energy: 20,
-    cards: [{ id: "five-cost-spell", types: ["spell"], energy: 5, power: [] }]
+    cards: [{ id: "played-card", types, energy: printed, power: [], owner: player, controller: player }]
   });
+  // Isolate the supported trigger on a synthetic Board source. This does not
+  // relocate the Legend or claim its unsupported source-zone lifecycle works.
   f.engine.pipeline.registerTrigger({
-    id: "lady.watch",
+    id: "lady.cost-gate",
     source: f.kernel.getObject("source"),
     controller: "A",
-    spec: { at: "card-played", filter: {} },
-    body: [],
-    activeZones: ["chain", "board", "trash"]
+    spec: ability.trigger,
+    body: ability.body,
+    optional: ability.optional
   });
-  f.engine.pipeline.onTrigger = (snapshot) => { captured = snapshot.event; };
-  f.engine.execute(f.card("five-cost-spell", {
+  f.engine.execute(f.card("played-card", {
+    controller: player,
+    kind: types.includes("spell") ? "spell" : "unit",
+    body: [],
     cost: {
-      id: "cost:five-cost-spell",
-      cost: { kind: "explicit", energy: { kind: "constant", value: 5 }, power: { kind: "constant", value: [] } }
+      id: "cost:played-card",
+      cost: { kind: "explicit", energy: { kind: "constant", value: paid }, power: { kind: "constant", value: [] } }
     }
   }));
   resolveAll(f.engine);
-  assert.ok(captured, "the merged chain emits card-played for a played spell");
-  assert.equal(captured.timingPoint, "card-played");
-  assert.equal(captured.object.types.includes("spell"), true);
-  assert.equal(captured.player, "A");
-  assert.equal(captured.details, undefined, "no printed-cost payload is attached");
-  assert.equal("action" in captured, false);
-  assert.equal(matchesTriggerEvent(ability.trigger.filter, captured, "A"), false);
+  const played = f.engine.pipeline.events.find(event => event.timingPoint === "card-played");
+  assert.ok(played, "the real play must produce card-played");
+  assert.equal(played.object.types.includes(types[0]), true);
+  assert.equal(played.player, player);
+  assert.equal(played.details.printed.energy, printed);
+  assert.equal("action" in played, false);
+  assert.equal(f.kernel.player(player).energy, 20 - paid);
+  return { ...f, played };
+}
+
+test("ogs-021-024 Lady of Luminosity, Starter golden: the real printed Energy gate draws only for your 5+ cost spell", () => {
+  for (const printed of [4, 5, 6]) {
+    const { kernel, played } = playThroughGate({ printed });
+    assert.equal(matchesTriggerEvent(ability.trigger.filter, played, "A"), true);
+    assert.equal(kernel.player("A").handSize, printed >= 5 ? 1 : 0);
+    assert.equal(kernel.player("A").deckSize, printed >= 5 ? 3 : 4);
+    assert.equal(kernel.events.filter(event => event.action === "draw").length, printed >= 5 ? 1 : 0);
+  }
+  for (const options of [{ printed: 5, types: ["unit"] }, { printed: 5, player: "B" }]) {
+    const { kernel, played } = playThroughGate(options);
+    assert.equal(matchesTriggerEvent(ability.trigger.filter, played, "A"), false);
+    assert.equal(kernel.player("A").handSize, 0);
+    assert.equal(kernel.events.filter(event => event.action === "draw").length, 0);
+  }
 });
 
-test.todo(
-  "Lady of Luminosity, Starter: trigger only for a spell whose PRINTED (or copied) Energy cost is 5+ " +
-    "(CR 206) — blocked because PipelineEvent/TimingEmission carry no printed cost or cost plan and the " +
-    "frozen ObjectFilter/EventPattern have no cost-gte predicate (cost-gte / condition.value; the " +
-    "existing continuous-effect instructions do not read costs, " +
-    "same gap as sfd/sunken-temple and sfd/show-of-strength); the card-played event's details never " +
-    "contain printedEnergyCostAtLeast today, so the trigger cannot fire truthfully"
-);
+test("ogs-021-024 Lady of Luminosity, Starter golden: CR 206 uses printed cost despite paying less or more", () => {
+  for (const [printed, paid, draws] of [[5, 1, 1], [4, 7, 0]]) {
+    const { kernel, played } = playThroughGate({ printed, paid });
+    assert.equal(played.details.object.printed.energy, printed);
+    assert.equal(kernel.player("A").handSize, draws);
+    assert.equal(kernel.events.filter(event => event.action === "draw").length, draws);
+  }
+});
 
 test.todo(
   "Lady of Luminosity, Starter: the trigger registers at card-played for this spell's controller and " +
     "enters the chain (contract 3.5) — the trigger registration path exists, but the Legend source zone " +
     "(CR 107.4.c / 174.2.b) is not a frozen ZoneId (default activeZones is ['board'])"
-);
-
-test.todo(
-  "Lady of Luminosity, Starter: CR 206.1 scope — the gate ignores cost increases/discounts and only " +
-    "reads the printed or copied cost (Sky Splitter example) once the payload/predicate exists"
 );

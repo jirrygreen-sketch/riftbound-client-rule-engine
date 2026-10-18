@@ -27,10 +27,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 424.1 / 424.1.a.1：Stun 是二元状态，已 Stunned 的单位不再被 Stun；括号内的「本回合不
  *   造成战斗伤害」是 424.1.b 的规则结果，不是独立指令。
  *
- * status = judge-required（README 第 2 节），缺口逐条列出且不近似实现：
- * (1) Move 目的地在运行期选择（355.4.a），卡程序没有运行期合法 Location 的枚举生产方；
- *     effect.move 已支持由调用方提供的静态候选列表，因此程序保留描述性占位（执行时被原语拒绝，
- *     fail closed）。
+ * status = judge-required（README 第 2 节，2026-10-18 复核），缺口逐条列出且不近似实现：
+ * (1) Move 目的地在运行期选择（355.4.a）：位置选择面已合入（target/location 的
+ *     chooseLocations + Expr.kind "location"），但候选集合表达不出 355.4.a 的合法性——
+ *     chooseLocations 只提供 type/kind、occupied、open、controlled、contested、hasUnits、
+ *     player/owner/controller 这些谓词，LocationCandidateOptions.exclude 需要调用方注入而
+ *     解释器不传。实测 type:"any" 的候选包含被移动单位的当前位置，也包含并非其控制者的基地；
+ *     写进 IR 会把非法目的地交给玩家（选中当前位置时 effect.move 静默不移动却返回 executed）。
+ *     程序因此保留描述性占位，effect.move 在目的地上 fail closed
+ *     （实测 TypeError: effect.move to must be a location, controller-base, or location choice）。
  * (2) you move an enemy unit 缺可判定载荷：events/action-adapter.ts 为 move-location 生成的
  *     object-moved 事件把 player 记成被移动对象的原控制者（move-location 动作不带 player），
  *     也没有 cause 归因，因此无法按 412.4 / 412.5 过滤「由你执行」的移动（同 ogn/radiant-dawn
@@ -38,10 +43,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * (3) it 无法指称触发载荷的对象：冻结的 ObjectSelector 集合是 self / source / target / pick /
  *     linked，没有事件对象选择器（同 ogn/back-alley-bar 的契约变更请求）；下方 TargetSpec 只是
  *     让指代有名字的声明式替身，不是该效果做出的目标选择（355.10.c）。
- * (4) 383.3.b 的“exhaust this”紧跟触发效果的 may，按规则属于触发能力基础费用，但契约 3.1
- *     的 TriggeredAbility 没有 cost 槽位。已合入的 cost.pay 只接受标量资源计划或已 finalized 的
- *     CostPlan；当前卡内的非标准横置费用没有可供 Finalize 读取的生产形态，不能把它当作普通
- *     结算指令近似。卡牌 triggered 注册本身已经接通。
+ * (4) 383.3.b 的“exhaust this”紧跟触发效果的 may，按规则属于触发能力基础费用。
+ *     TriggerRegistration.cost/mayAtFinalize 已存在且 chain/engine 在 Finalize 消费，但
+ *     programs/triggers.ts 只搬运 body/optional/spec，不把 CC 内嵌的 cost.pay 提取进
+ *     TriggerRegistration.cost；契约 3.1 的 TriggeredAbility 也没有 cost 槽位。实测该触发的
+ *     registration.cost === null、mayAtFinalize === null，因此仍不能把它当作普通结算指令近似。
+ *     卡牌 triggered 注册本身已经接通。
  * effect.move 与 effect.stun 本体已合入，golden 真实执行这两条原语路径。
  */
 const abilities: Ability[] = [
@@ -160,17 +167,19 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处当前缺口，均不近似实现：(1) Move 目的地在运行期选择（355.4 / 355.4.a / 451.1），卡程序没有运行期合法 Location 的枚举生产方；" +
-    "effect.move 已支持由调用方提供的静态候选列表，程序仍保留描述性占位，执行时被原语拒绝；" +
-    "程序保留描述性占位，执行时被原语拒绝，不为玩家猜目的地。" +
+    "四处当前缺口，均不近似实现（2026-10-18 复核）：(1) Move 目的地在运行期选择（355.4 / 355.4.a / 451.1）：位置选择面已合入，" +
+    "但候选集合没有 355.4.a 要求的 exclude-current-location 谓词（解释器 chooseLocations 不注入 LocationCandidateOptions.exclude，" +
+    "matchesFilter 也没有 current 谓词）；实测 type:\"any\" 的候选包含被移动单位的当前位置，写进 IR 会把非法目的地交给玩家，" +
+    "因此保留被 effect.move 拒绝的描述性占位（fail closed），不猜目的地。" +
     "(2)「you move an enemy unit」缺可判定载荷：events/action-adapter.ts 的 object-moved 事件把 player 记成被移动对象的原控制者" +
     "（move-location 动作不带 player），也没有 cause 归因，无法按 412.4 / 412.5 过滤「由你执行」的移动（同 ogn/radiant-dawn 的责任归因缺口）。" +
     "(3)「it」是被移动单位，而冻结的 ObjectSelector 集合（self / source / target / pick / linked）没有事件对象选择器" +
     "（同 ogn/back-alley-bar 的契约变更请求）；程序里的 TargetSpec 是声明式替身（355.10.c：触发条件与费用里的对象不是目标），" +
     "不是该效果做出的目标选择。" +
-    "(4)「you may exhaust this to [Stun] it」中横置费用按 383.3.b 属于触发能力基础费用，但契约 3.1 的 TriggeredAbility 没有 cost 槽位；" +
-    "已合入的 cost.pay 只接受标量资源计划或已 finalized 的 CostPlan，当前卡内的非标准横置费用没有可供 Finalize 读取的生产形态，" +
-    "不能把它当作普通结算指令近似。CardProgram 的 triggered 注册已经接通。effect.move 与 effect.stun 本体已合入，golden 真实执行这两条原语路径。",
+    "(4)「you may exhaust this to [Stun] it」中横置费用按 383.3.b 属于触发能力基础费用；TriggerRegistration.cost/mayAtFinalize 已合入且 Finalize 会消费它们，" +
+    "但 programs/triggers.ts 不把 body 内嵌的 cost.pay 提取进 TriggerRegistration.cost，契约 3.1 的 TriggeredAbility 也没有 cost 槽位" +
+    "（实测 registration.cost === null、mayAtFinalize === null），不能把它当作普通结算指令近似。" +
+    "CardProgram 的 triggered 注册已经接通。effect.move 与 effect.stun 本体已合入，golden 真实执行这两条原语路径。",
   abilities,
   sourceText:
     "When you play this, you may move an enemy unit.\n" +

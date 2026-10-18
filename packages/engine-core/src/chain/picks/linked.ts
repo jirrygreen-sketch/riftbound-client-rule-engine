@@ -3,33 +3,33 @@ import type { ChoiceRequest, Instruction, InstructionDef, ObjectRef, ResolveCont
 import type { InstructionRegistry, InterpreterOptions } from '../../effects/interpreter.js';
 import { bindResolveContext } from '../../events/action-adapter.js';
 import { MissingInformation } from '../../effects/interpreter/values.js';
-import { OrderedPickError, orderedPickSpecs } from './plan.js';
+import { PickSelectionError, resolveNonTargetPick } from '../../target/picks/plan.js';
+import { OrderedPickError, orderedPickSpecs, pickSpecs } from './plan.js';
 
-function resultRefs(context: ResolveContext, expression: PickSpec['linked'], id: string): ObjectRef[] {
-  if (!expression || !expression.key) throw new OrderedPickError('a linked source needs an explicit result key');
-  // Use the interpreter's instruction-scoped evaluator, including repeat scope
-  // and ignored-link handling. Never read a previous item's persisted alias.
-  const value = context.evaluate(expression);
-  if (value === null) throw new MissingInformation(`Unavailable linked pick ${id}`);
-  if (!Array.isArray(value)) throw new OrderedPickError(`${id} must link an object-reference list`);
-  const refs = value.map(value => {
-    if (value === null || typeof value !== 'object' || Array.isArray(value) ||
-      typeof value.id !== 'string' || value.id.length === 0 || typeof value.zoneEntryId !== 'number' ||
-      !Number.isSafeInteger(value.zoneEntryId) || value.zoneEntryId < 0) {
-      throw new OrderedPickError(`${id} linked an invalid object reference`);
-    }
-    return { id: value.id, zoneEntryId: value.zoneEntryId };
-  });
-  if (new Set(refs.map(ref => JSON.stringify([ref.id, ref.zoneEntryId]))).size !== refs.length) {
-    throw new OrderedPickError(`${id} linked duplicate object references`);
-  }
-  return refs;
+function isObjectRef(value: unknown): value is ObjectRef {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) &&
+    typeof (value as { id?: unknown }).id === 'string' &&
+    typeof (value as { zoneEntryId?: unknown }).zoneEntryId === 'number' &&
+    Number.isSafeInteger((value as { zoneEntryId: number }).zoneEntryId) &&
+    (value as { zoneEntryId: number }).zoneEntryId >= 0;
 }
 
-function linkedRefs(context: ResolveContext, spec: PickSpec): ObjectRef[] {
-  const refs = resultRefs(context, spec.linked, spec.id);
-  const excluded = new Set(spec.exclude === undefined ? [] : resultRefs(context, spec.exclude, spec.id).map(ref => JSON.stringify([ref.id, ref.zoneEntryId])));
-  return refs.filter(ref => !excluded.has(JSON.stringify([ref.id, ref.zoneEntryId])));
+type PickOutput = ObjectRef | string;
+
+function linkedValues(context: ResolveContext, spec: PickSpec): PickOutput[] {
+  try {
+    const result = resolveNonTargetPick(context, spec, { phase: 'resolve' });
+    return result.selected.map(value => {
+      if (isObjectRef(value)) return { id: value.id, zoneEntryId: value.zoneEntryId };
+      if (typeof value === 'string') return value;
+      throw new OrderedPickError(`${spec.id} must resolve object references or player values`);
+    });
+  } catch (error) {
+    if (error instanceof PickSelectionError && error.code === 'missing-result') {
+      throw new MissingInformation(error.message);
+    }
+    throw error;
+  }
 }
 
 function choose<T>(context: ResolveContext, request: ChoiceRequest<T>): T {
@@ -47,13 +47,23 @@ function choose<T>(context: ResolveContext, request: ChoiceRequest<T>): T {
 
 /** Bridge actual inspect/reveal/choice.order results to the primitive pick APIs. */
 export function orderedPickResolver(body: readonly Instruction[]): InterpreterOptions['picks'] {
-  const byId = new Map(orderedPickSpecs(body).filter(spec => spec.linked !== undefined).map(spec => [spec.id, spec]));
+  const byId = new Map(pickSpecs(body)
+    .filter(spec => spec.linked !== undefined || spec.filter !== undefined)
+    .map(spec => [spec.id, spec]));
+  const cache = new WeakMap<ResolveContext, Map<string, readonly PickOutput[]>>();
   return (id, context, hasResult) => {
     const spec = byId.get(id);
     if (spec && [spec.linked, spec.exclude].some(expression => expression && !hasResult(expression.instructionId))) {
       throw new MissingInformation(`Unavailable linked pick ${id}`);
     }
-    return spec ? linkedRefs(context, spec) : undefined;
+    if (!spec) return undefined;
+    const cached = cache.get(context)?.get(id);
+    if (cached) return cached.map(value => typeof value === 'string' ? value : { ...value });
+    const values = linkedValues(context, spec);
+    let byContext = cache.get(context);
+    if (!byContext) { byContext = new Map(); cache.set(context, byContext); }
+    byContext.set(id, Object.freeze(values.map(value => typeof value === 'string' ? value : Object.freeze({ ...value }))));
+    return values.map(value => typeof value === 'string' ? value : { ...value });
   };
 }
 

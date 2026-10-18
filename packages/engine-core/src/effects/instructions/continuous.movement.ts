@@ -136,6 +136,7 @@ export default {
       filter: mergeFilter(filter, target),
       effect: {
         kind: "movement",
+        sourcePlayer: ctx.controller,
         ...(addsPermission && route !== undefined ? { permission: route } : {}),
         ...(restrictions.length > 0 ? { restrictions } : {}),
         ...(target.refs.length > 0 ? { targetRefs: target.refs } : {}),

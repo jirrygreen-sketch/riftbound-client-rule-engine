@@ -3,8 +3,12 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/plaza-guardian.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createTargetTaxAdapter } from "../../../../engine-core/dist/target/tax/adapter.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { finalizeTargetPlan } from "../../../../engine-core/dist/target/target-plan.js";
 
 const CANONICAL_ID =
@@ -55,9 +59,9 @@ test("ven-064-166 Plaza Guardian: identity, status, judgeReason and verbatim sou
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /continuous\.cost-modification/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /target-plan/);
-  assert.match(program.judgeReason, /RIFT-360/);
+  assert.match(program.judgeReason, /discounts/);
+  assert.match(program.judgeReason, /target\/tax\/collect\.ts/);
+  assert.match(program.judgeReason, /809\.1\.c\.1/);
 });
 
 test("ven-064-166 Plaza Guardian: the printed discount is a static cost modification scoped to itself", () => {
@@ -76,6 +80,7 @@ test("ven-064-166 Plaza Guardian: the discount is -1 energy per gear the control
   assert.equal(discount.operands.length, 1);
   const [count] = discount.operands;
   assert.equal(count.kind, "count");
+  assert.equal(count.subject, "gear");
   // 355.9.a.1：“gear” 指 Board 上的 gear；“you control” 用控制器占位符。
   assert.deepEqual(count.filter, { type: "gear", controller: "self", zone: "board" });
 });
@@ -125,8 +130,8 @@ test("ven-064-166 golden: units are not gear and do not reduce the cost", () => 
 
 test.todo(
   "ven-064-166 Plaza Guardian: read the static continuous.cost-modification into the Finalize cost plan " +
-    "(356.4 / 356.4.b / 356.4.g; cost.modify + 费用计划接线，RIFT-89) and assert a 10-energy printed cost drops " +
-    "by the number of controlled gear"
+    "(356.4 / 356.4.b / 356.4.g); collectCostModifications/finalizeCostPlan execute below, but " +
+    "programs/statics.ts and chain/engine.ts must supply active declarations before payment"
 );
 
 test("ven-064-166 Plaza Guardian golden: finalizing a choice of this permanent appends the Deflect tax request", () => {
@@ -134,11 +139,14 @@ test("ven-064-166 Plaza Guardian golden: finalizing a choice of this permanent a
   // （TargetTaxSpec → appendTargetTax）必须收到该请求。链级把税记成 Energy 而非
   // 809.1.c.1 的任意域 Power，且没有 Deflect 关键词 → taxAdapter 的自动接线，
   // 这两个缺口仍让整卡保持 judge-required（见 judgeReason 第 2 条）。
-  const kernel = world()
-    .unit("plaza-guardian", { types: ["unit"], controller: "A", might: 4 })
+  const kernel = world().player("A", { power: ["Mind"] })
+    .unit("plaza-guardian", { types: ["unit"], owner: "B", controller: "B", might: 8 })
     .build();
   const ref = kernel.ref("plaza-guardian");
   const requests = [];
+  const taxAdapter = createTargetTaxAdapter(kernel, { id: "opposing-spell", cost: { kind: "explicit" } }, { kind: "spell" });
+  const taxEffect = expandProgram(program, kernel.getObject("plaza-guardian")).expanded
+    .find(ability => ability.kind === "static" && ability.effect.kind === "target.tax").effect;
   const plan = finalizeTargetPlan(kernel, {
     id: "spell-target",
     filter: { type: "unit", zone: "board" },
@@ -147,11 +155,11 @@ test("ven-064-166 Plaza Guardian golden: finalizing a choice of this permanent a
     selection: "one"
   }, {
     selected: [ref],
-    tax: { kind: "deflect", amount: 1 },
+    tax: { kind: "deflect", amount: taxEffect.value.value },
     taxAdapter: {
       appendTargetTax: request => {
         requests.push(request);
-        return { status: "appended" };
+        return taxAdapter.appendTargetTax(request);
       }
     }
   });
@@ -162,13 +170,18 @@ test("ven-064-166 Plaza Guardian golden: finalizing a choice of this permanent a
   assert.equal(requests[0].amount, 1);
   assert.equal(requests[0].payer, "A");
   assert.deepEqual(requests[0].target, ref);
+  assert.equal(taxAdapter.costPlan.total.energy, 0);
+  assert.deepEqual(taxAdapter.costPlan.total.power, [{
+    amount: 1, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]
+  }]);
 });
 
 test("ven-064-166 Plaza Guardian golden: an unpayable Deflect tax rejects the choice", () => {
   // 809.1.d：付不出追加费用的目标不能被锁定；unpayable 结果在通知前抛出。
-  const kernel = world()
-    .unit("plaza-guardian", { types: ["unit"], controller: "A", might: 4 })
+  const kernel = world().player("A", { energy: 100, power: [] })
+    .unit("plaza-guardian", { types: ["unit"], owner: "B", controller: "B", might: 8 })
     .build();
+  const taxAdapter = createTargetTaxAdapter(kernel, { id: "opposing-spell", cost: { kind: "explicit" } }, { kind: "spell" });
   assert.throws(
     () =>
       finalizeTargetPlan(
@@ -178,10 +191,42 @@ test("ven-064-166 Plaza Guardian golden: an unpayable Deflect tax rejects the ch
           selected: [kernel.ref("plaza-guardian")],
           tax: { kind: "deflect", amount: 1 },
           taxAdapter: {
-            appendTargetTax: () => ({ status: "unpayable", reason: "no power available" })
+            appendTargetTax: request => taxAdapter.appendTargetTax(request)
           }
         }
       ),
     error => error.code === "target-tax-unpayable"
   );
 });
+
+for (const gears of [0, 1, 3, 12]) {
+  test(`ven-064-166 Plaza Guardian regression: its original static discounts and pays 10 Energy with ${gears} controlled gear`, () => {
+    const builder = world().player("A", { energy: 10 })
+      .hand("guardian", { cardId: CANONICAL_ID, types: ["unit"], energy: 10, power: null, might: 8 })
+      .unit("enemy-gear", { owner: "B", types: ["gear"] })
+      .hand("held-gear", { types: ["gear"] })
+      .unit("friendly-unit", { might: 2 });
+    for (let index = 0; index < gears; index++) builder.object(`gear-${index}`, { types: ["gear"], zone: "board" });
+    const base = builder.build();
+    const kernel = base.clone({ sourceSnapshot: base.getObject("guardian") });
+    const plan = finalizeCostPlan(kernel, { id: "guardian:discount", cost: { kind: "printed" } }, {
+      statics: [{ id: "guardian:gear-discount", source: kernel.ref("guardian"), ability: costReduction }],
+      purpose: "play", originZone: "hand"
+    });
+    assert.equal(plan.printed.energy, 10);
+    assert.equal(plan.printed.power, null, "no printed Power remains null");
+    assert.equal(plan.total.energy, Math.max(0, 10 - gears));
+    assert.deepEqual(plan.total.power, []);
+    assert.equal(plan.discounts.length, gears === 0 ? 0 : 1);
+    if (gears) {
+      assert.equal(plan.discounts[0].before, 10);
+      assert.equal(plan.discounts[0].after, Math.max(0, 10 - gears));
+      assert.equal(plan.discounts[0].amount, gears);
+    }
+    const receipt = payCostPlan(kernel, plan);
+    assert.equal(receipt.paid, true);
+    assert.equal(kernel.player("A").energy, Math.min(gears, 10));
+    assert.equal(kernel.getObject("guardian").zone, "hand", "partial cost evidence does not pretend the card was played");
+    assert.equal(kernel.getObject("guardian").power, null);
+  });
+}

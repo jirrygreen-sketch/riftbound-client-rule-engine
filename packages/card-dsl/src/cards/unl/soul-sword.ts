@@ -17,10 +17,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   costDomain 记录该 Power 的领域 Calm（沿用 sfd/warmogs-armor 等已合入字段），
  *   value: 1 记录印刷的 1 个符文符号数。
  *
- * status = judge-required（缺口不近似实现）：
+ * status = judge-required（2026-10-17 对源码复核，缺口不近似实现）：
  * - 已合入的 Equip 展开（effects/keywords/Equip.ts）声明的启动费用是
- *   payments: [{ kind: "equip", value: { kind: "source" } }]，而 cost/plan-values.ts 的
- *   readCost 对未知支付种类直接 blocked，实测 buildCostPlan 抛 CostPlanError
+ *   payments: [{ kind: "equip", value: { kind: "source" } }]，cost/plan-values.ts 的
+ *   readCost 支付种类白名单为 energy/xp/power/exhaust/discard/recycle/kill/reveal/spend-buff，
+ *   对 equip 直接 blocked，实测 buildCostPlan 抛 CostPlanError
  *   （reason "judge-required"，message "Unsupported payment kind: equip"）——印刷的
  *   1 Calm Power 目前无法通过既有费用管线支付，本印刷又不含能量部分，没有可退化的支付路径。
  *   （Ogn 侧的卡牌级测试仍在跑 Equip 的展开体：attach 目标与 effect.attach 都已合入，
@@ -39,7 +40,8 @@ export default {
   status: "judge-required",
   judgeReason:
     "Equip 的启动费用尚不能在费用管线里支付：已合入的 Equip 展开（effects/keywords/Equip.ts）声明 " +
-    "payments: [{ kind: \"equip\", value: { kind: \"source\" } }]，而 cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked，" +
+    "payments: [{ kind: \"equip\", value: { kind: \"source\" } }]，而 cost/plan-values.ts 的 readCost " +
+    "支付种类白名单为 energy/xp/power/exhaust/discard/recycle/kill/reveal/spend-buff，对 equip 直接 blocked，" +
     "实测 buildCostPlan 抛 CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）；" +
     "本印刷的 Equip 费用是 1 个 Calm 符文符号（818.1.c 的 [Cost] 部分），不含能量部分，因此没有可退化的支付路径。" +
     "通用程序适配器已能展开并校验 KeywordAbility，但 Equip 展开没有读取本卡的 Calm 费用参数，仍生成不受 " +

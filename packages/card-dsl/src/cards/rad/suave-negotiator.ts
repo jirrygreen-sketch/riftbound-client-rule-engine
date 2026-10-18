@@ -20,12 +20,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   读取同一 pick 的 PlayerId，由内核按 355.10.e（由其他玩家参与选定的集合）确认非目标。
  *
  * status = judge-required：effect.draw 与 card-played 时点已合入，golden 用解释器 +
- * 参考内核真实执行「双方各抽 1」（pick 由测试内核 provision），但整卡仍不能执行：
+ * 参考内核真实执行「双方各抽 1」（pick 由测试内核 provision），但整卡仍不能执行
+ * （2026-10-17 逐条实测）：
  * - 「把对手集合解析为 PlayerId 并在 Finalize 锁定」没有已合入实现：ChoiceRequest 只有
- *   optional / mode / select-objects / order / number，契约 3.6 的 targets() 只返回
- *   ObjectRef[]，没有玩家目标/玩家选择形状；触发注册的生产链已合入（programs/triggers.ts），
- *   但 pick 解析（dynamic:opponent-players）没有 Finalize 生产解析。
- * 依赖：玩家目标/选择（target.player 或 choice 扩展）；
+ *   optional / mode / select-objects（options 为 ObjectRef[]）/ order / number，
+ *   契约 3.6 的 targets() 只返回 ObjectRef[]，没有玩家目标/玩家选择形状；
+ *   触发注册的生产链已合入（programs/triggers.ts），但 picks 只由
+ *   chain/picks/plan.ts 的 zoneSlice/linked 两类显式绑定填充，
+ *   options: ["dynamic:opponent-players"] 这类描述性标记没有生产解析
+ *   （chain/picks/README.md：描述性字符串永不被解析为可执行行为）。
+ * 依赖：玩家选择形状（PlayerId 的 pick/target）与其 Finalize 解析；
  * 附带契约变更请求：请为玩家目标/玩家 pick 增补 EffectIR 形状。
  */
 const abilities: Ability[] = [
@@ -73,7 +77,8 @@ const program = {
     "但契约 3.6 的 `targets()` 只返回 ObjectRef[]，没有玩家目标形状；ChoiceRequest 也没有选择玩家的请求类型" +
     "（只有 optional/mode/select-objects/order/number），所以「把对手集合解析为 PlayerId 并在 Finalize 锁定」" +
     "没有已合入实现：card-played 触发的生产注册已合入（programs/triggers.ts），" +
-    "但 dynamic:opponent-players 的 pick 解析没有 Finalize 生产解析。这里用非目标 pick（ctx.picks() 允许 PlayerId）" +
+    "但 picks 的生产绑定只由 chain/picks/plan.ts 的 zoneSlice/linked 两类显式来源填充，" +
+    "dynamic:opponent-players 这类描述性标记没有解析方（chain/picks/README.md 明确其永不被当作可执行行为）。这里用非目标 pick（ctx.picks() 允许 PlayerId）" +
     "+ 动态选项标记保留可审查结构；effect.draw 的 player/pick 与「You draw 1」半段已合入并在 golden 测试中真实执行" +
     "（card-played 时点由 chain/engine.ts 产生，pick 绑定 PlayerId 的路径由测试内核 provision）。" +
     "依赖：玩家目标/选择（target.player 或 choice 扩展）。附带契约变更请求：请为玩家目标/玩家 pick 增补 EffectIR 形状。",

@@ -61,8 +61,8 @@ test("unl-074-219 Frigid Jewel: program validates and is judge-required", () => 
   // condition evaluation (host.testTrigger / event payload).
   assert.match(program.judgeReason, /drawIndexThisTurn/);
   assert.match(program.judgeReason, /testTrigger/);
-  assert.match(program.judgeReason, /RIFT-120/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /事件载荷/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
 });
 
 test("unl-074-219 Frigid Jewel: identity, ruleset, status and verbatim source text", () => {
@@ -96,7 +96,7 @@ test("unl-074-219 Frigid Jewel: +2 Might this turn in the merged continuous.migh
   ]);
   assert.deepEqual(mightInstruction.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(mightInstruction.args.duration, { kind: "constant", value: "end-of-turn" });
-  // RIFT-258: the merged primitive takes the merged objects selector; the
+  // The merged primitive takes the merged objects selector; the
   // authored layer/targets-only shapes are not part of its args schema.
   assert.equal(mightInstruction.args.mode, undefined);
   assert.equal(mightInstruction.args.layer, undefined);
@@ -177,5 +177,5 @@ test.todo(
   "unl-074-219 Frigid Jewel: evaluate \"your second card each turn\" from the card-drawn payload's " +
     "drawIndexThisTurn at trigger time (CR 383.1.b / 383.2.a.1) — events/pipeline.ts requires a host " +
     "testTrigger adapter for conditioned registrations and no merged host provides one, and " +
-    "Condition/Expr cannot read event payloads (RIFT-120 follow-up)"
+    "Condition/Expr cannot read event payloads"
 );

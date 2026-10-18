@@ -1,3 +1,5 @@
+// Scenario execution evidence: ../templates/static-666.test.mjs (one row per card plus condition boundaries).
+// This file retains validation, identity, and key IR structure checks; whole-card status stays judge-required until all consumers exist.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -7,6 +9,8 @@ import program from "../../../dist/cards/ogn/eager-apprentice.js";
 import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 
 const CANONICAL = "card.hash-e5d8b2e1e9ee0d9e2669fae947f4252a33dfc970df9cd39ad8477263b66fccc6";
 
@@ -18,6 +22,8 @@ test("Eager Apprentice program validates and is judge-required", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /cost\.modify|CostPlanInput\.discounts|cost\/cost-plan/);
+  assert.match(program.judgeReason, /chain\/engine\.ts.*buildCostPlan/);
+  assert.match(program.judgeReason, /cost\/discounts\.finalizeCostPlan/);
   assert.equal(
     program.sourceText,
     "While I'm at a battlefield, the Energy costs for spells you play is reduced by :rb_energy_1:, to a minimum of :rb_energy_1:."
@@ -117,4 +123,55 @@ test("Eager Apprentice discount component includes additional Energy without rew
   assert.equal(kernel.player("A").energy, 1);
   assert.equal(kernel.getObject("spell").energy, null);
   assert.equal(kernel.getObject("spell").power, null);
+});
+
+test("Eager Apprentice original static is collected with its battlefield, player, type and minimum checks", () => {
+  // This exercises the merged collector, whose production Chain Finalize binding remains pending.
+  for (const [location, owner, type, energy, expected] of [
+    ["battlefield", "A", "spell", 3, 2],
+    ["base", "A", "spell", 3, 3],
+    ["battlefield", "B", "spell", 3, 3],
+    ["battlefield", "A", "unit", 3, 3],
+    ["battlefield", "A", "spell", 1, 1],
+    ["battlefield", "A", "spell", 0, 0]
+  ]) {
+    const initial = world().player(owner, { energy: 10 })
+      .unit("apprentice", { cardId: CANONICAL, location: { type: location, id: "field" } })
+      .hand("card", { owner, types: [type], energy, power: null }).build();
+    const ctx = initial.clone({ sourceSnapshot: initial.getObject("card"), controller: owner });
+    const plan = finalizeCostPlan(ctx, { id: "eager:collected", cost: { kind: "printed" } }, {
+      statics: [{ id: "eager:static", source: ctx.ref("apprentice"), ability: program.abilities[0] }]
+    });
+    assert.equal(plan.total.energy, expected, JSON.stringify([location, owner, type, energy]));
+    assert.deepEqual(plan.printed, { energy, power: null });
+    assert.deepEqual(plan.total.power, []);
+    if (expected < energy) {
+      assert.deepEqual(plan.discounts.map(entry => [entry.amount, entry.minimum, entry.before, entry.after]), [[1, 1, energy, expected]]);
+    }
+    const receipt = payCostPlan(ctx, plan);
+    assert.equal(receipt.paid, true);
+    assert.deepEqual(receipt.events.map(event => event.action), ["pay"]);
+    assert.equal(ctx.player(owner).energy, 10 - expected);
+    assert.equal(ctx.getObject("card").power, null);
+  }
+});
+
+test("Eager Apprentice collector rechecks movement and zone incarnation instead of caching the condition", () => {
+  const initial = world().unit("apprentice", { cardId: CANONICAL })
+    .hand("spell", { types: ["spell"], energy: 3, power: null }).build();
+  const ctx = initial.clone({ sourceSnapshot: initial.getObject("spell") });
+  const source = ctx.ref("apprentice");
+  const sources = { statics: [{ id: "eager:static", source, ability: program.abilities[0] }] };
+  const plan = () => finalizeCostPlan(ctx, { id: "eager:movement", cost: { kind: "printed" } }, sources);
+  assert.equal(plan().total.energy, 2);
+  assert.equal(ctx.perform({ type: "move-location", object: source, to: { type: "base", player: "A" } }).status, "done");
+  assert.deepEqual(ctx.ref("apprentice"), source);
+  assert.equal(plan().total.energy, 3);
+  assert.equal(ctx.perform({ type: "move-location", object: source, to: { type: "battlefield", id: "other-field" } }).status, "done");
+  assert.equal(plan().total.energy, 2);
+  assert.equal(ctx.perform({ type: "return-to-hand", object: source }).status, "done");
+  assert.equal(plan().total.energy, 3);
+  assert.equal(ctx.perform({ type: "move-zone", object: ctx.ref("apprentice"), to: "board", location: { type: "battlefield", id: "field" } }).status, "done");
+  assert.notDeepEqual(ctx.ref("apprentice"), source);
+  assert.equal(plan().total.energy, 3, "the old source binding cannot affect a new zone entry");
 });

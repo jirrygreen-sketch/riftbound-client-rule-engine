@@ -33,20 +33,49 @@ import type { CardProgram } from "../../ir/index.js";
  *   (702/703 remove/add counters). continuous.might now registers the actual
  *   arithmetic-layer effect with an end-of-turn duration.
  *
- * Status: judge-required only for Repeat integration. programs/play.ts rejects
- * its additional CostSpec instead of populating CostPlanInput.optionalAdditional.
- * The paid Repeat count and re-selection must also reach the interpreter
- * (820.1.c.1/820.1.d.1/820.2). The targeted Might effect is executed and expired
- * in the golden tests; no Buff counters substitute for it.
+ * Status: judge-required（2026-10-18 逐条对源码复核）. The targeted Might effect is
+ * executed and expired in the golden tests; no Buff counters substitute for it.
+ * Two Repeat links are still missing (neither approximated):
+ * - The card-declared optional additional cost never reaches Finalize:
+ *   programs/play.ts's translateCost rejects `kind: "additional"` and the
+ *   `optional` field with ProgramBindingError("Unsupported play cost field
+ *   optional"), and no merged consumer converts a card's Repeat declaration into
+ *   CostPlanInput.optionalAdditional. The planner itself does accept such a
+ *   component (measured: buildCostPlan with
+ *   `{ id, kind: "repeat", cost }` adds a second component and really charges
+ *   it), so the missing link is the card-program → Finalize wiring, not the plan.
+ * - The paid instance count never reaches resolution: KeywordDef.expand is
+ *   called by programs/keywords.ts with only keyword/value/host, so the printed
+ *   Repeat cost is dropped (the expanded static always carries
+ *   `cost: { energy: 0 }`), and no consumer turns the printed declaration into an
+ *   optionalAdditional entry whose `selected` result could drive the
+ *   interpreter's repeat node. A paid/declined receipt IS readable through
+ *   `condition.predicate` `result: "cost.optional-additional-paid"`, but that
+ *   yields a boolean, and the merged repeat node accepts only a non-negative
+ *   integer count (measured error: "Repeat count must be a non-negative safe
+ *   integer"), so no card-side expression can derive 0/1 repetitions from it.
  */
 const feralStrength = {
   canonicalCardId: "card.hash-21fa1dc89f8491be1ad8d778109c30c1266a2ee3c7b7b49e5da837edba0103ee",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "continuous.might 已合入：卡面 +2 Might 经解释器注册 arithmetic 图层，this-turn 映射为 end-of-turn（143.2.a/317.2.c），并有真实增益和到期测试。剩余是 Repeat 接线（820.1.c.1/820.1.d.1/820.2）：programs/play.ts 的 translateCost 拒绝 kind: additional 及 optional/keyword 字段，describePlay 未把本卡可选费用送入已有 CostPlanInput.optionalAdditional，也未把已付实例数接到 repeat 节点并重选目标。费用计划本身支持可选附加费用与付费回执；不能因此把卡面 Repeat 标为可执行。",
+    "continuous.might 已合入：卡面 +2 Might 经解释器注册 arithmetic 图层，this-turn 映射为 end-of-turn（143.2.a/317.2.c），并有真实增益和到期测试。" +
+    "剩余是两段 Repeat 接线（820.1.c.1/820.1.d.1/820.2），均不近似实现：" +
+    "(1) 卡面声明的可选附加费用到不了 Finalize：programs/play.ts 的 translateCost 对 kind additional 与 optional 字段实测抛 " +
+    "ProgramBindingError(\"Unsupported play cost field optional\")，也没有消费方把卡程序的 Repeat 声明转成 CostPlanInput.optionalAdditional" +
+    "（费用计划本身接受该组件：实测 buildCostPlan 传入 { id, kind: \"repeat\", cost } 会追加组件并真实扣费）。" +
+    "(2) 已付实例数到不了解算：programs/keywords.ts 调 KeywordDef.expand 时只传 keyword/value/host，印刷 Repeat 费用被丢弃" +
+    "（展开出的静态恒为 cost: { energy: 0 }）；付费回执虽可由 condition.predicate 的 " +
+    "result: \"cost.optional-additional-paid\" 读出，但那是布尔值，而解释器 repeat 节点只接受非负整数（实测 " +
+    "\"Repeat count must be a non-negative safe integer\"），卡侧无法据此表达 0/1 次额外执行。" +
+    "依赖：PlayAbility 可选附加费用 → Finalize 的消费者与印刷 Repeat 费用的 keyword 参数入口；" +
+    "不能因此把卡面 Repeat 标为可执行。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
+    // Keep the printed keyword identity; its nonnumeric cost remains on the
+    // play CostSpec until the keyword parameter contract is connected.
+    { kind: "keyword", keyword: "repeat" },
     {
       kind: "play",
       // 印刷基础费用（2 energy、无 power）由 catalog 在 Finalize 绑定；此处 cost

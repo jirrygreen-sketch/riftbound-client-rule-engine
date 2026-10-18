@@ -41,20 +41,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：（1）“a gear with [Deploy]” 无法过滤——CR 830.1.a/830.3 的 Deploy 是 " +
-    "Gear 的关键词特征，但 ObjectFilter 的公开词汇没有 keywords 成员，写进去会被触发匹配器静默忽略" +
-    "（当前过滤器没有关键词特征读取），因此不能作为条件。" +
-    "（2）效果开头 “you may exhaust me and pay :rb_rune_rainbow:” 按 CR 383.3.b.1 是触发能力的基础费用、" +
-    "必须在 Finalize 支付（415.4 / 415.5），但触发能力注册没有把正文里的 cost.pay 转成基础费用计划；" +
-    "TriggerRegistration.cost 字段存在但 programs/triggers.ts:32-40 不填（TriggeredAbility IR 也没有 cost 字段，" +
-    "ir/types.ts:393-398）；" +
-    "[A] 的费用要求已可用 payments 的 allowedDomains 六域列表表达并支付（CR 135.2.e.5.a），" +
-    "缺口是触发费用接线而非通用 Power 支付；契约 ZoneId 也没有 Legend Zone" +
-    "（CR 107.4），传奇自身无法作为横置费用的对象。" +
-    "（3）“that battlefield” 仍缺触发事件物体的位置绑定：LocationExpr / target-location 及 effect.move 的地点适配已合入，" +
-    "可读取已绑定目标或地点选择的 LocationRef，但尚未把 card-played 事件中的装备位置绑定到本能力；不能用额外选择目标近似替代。" +
-    "被移动的友方单位是目标（CR 355.10 / 355.9.a.1），结构已按此声明。" +
-    "依赖触发能力基础费用接线、Legend 费用对象，以及事件物体的关键词与位置绑定。",
+    "三处缺口，均不近似实现：（1）“a gear with [Deploy]” 需要 CR 830.1.a/830.3 的关键词特征过滤，" +
+    "但 ObjectFilter/TriggerPattern 没有可求值的 keywords 成员；写入未知字段会退化成任意装备。" +
+    "（2）CR 383.3.b.1、415.4/415.5 要求触发能力的 exhaust 与 [A] Power 在 Finalize 作为基础费用支付，" +
+    "当前 TriggeredAbility 没有把正文 cost.pay 接入基础费用计划，且 ZoneId 没有 Legend Zone 供横置费用引用。" +
+    "（3）“that battlefield” 需要绑定 card-played 事件物体的位置；LocationExpr 与 effect.move 能读取已绑定地点，" +
+    "但事件物体的 LocationRef 尚未进入本能力上下文。友方单位目标结构与 [A] 六域支付本体已有执行证据，不能用额外目标替代上述绑定。",
   abilities: [
     {
       kind: "triggered",

@@ -1,6 +1,11 @@
 import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
 
-/** CR v1.5 194.3/194.3.a、359.2.c、383.3.a、421.1。首段 may 属 Finalize，可选触发不再重复包 choice.optional。 */
+/**
+ * CR v1.5 194.3/194.3.a、359.2.c、383.3.a、421.1。首段 may 属 Finalize，可选触发不再重复包 choice.optional。
+ *
+ * 复核（2026-10-18，M2 覆盖率复核）：四条缺口逐项实测仍成立（见 judgeReason 与 golden）；
+ * 新增实测证据：入场替代的 condition 在 replacement/bind.ts 的入场分支上不被求值。
+ */
 const moveEnemiesHome: Instruction = {
   id: "corrupted-dragon.move-enemies-home",
   op: "effect.move",
@@ -31,7 +36,7 @@ const moveEnemiesHome: Instruction = {
         sameLocationAs: "self",
         // “each with 5 :rb_might: or less”：143.2.a 的有效 Might 上限。冻结的
         // ObjectFilter 没有 Might 谓词（同 unl/conscription 的 mightLte 记录），
-        // 该键仍为描述性占位；数值谓词依赖 RIFT-359。
+        // 该键仍为描述性占位；生产翻译器会以 "Unsupported filter field mightLte" 拒绝它（实测）。
         mightLte: 5
       },
       // 355.13："any number" 允许选择 0 个。
@@ -54,7 +59,8 @@ const abilities: Ability[] = [
     condition: {
       // 需要当前 Victory Score（194.3/194.3.a）与双方分数；PlayerSnapshot 只有 score，
       // 没有 victoryScore 读数，Condition 也没有该谓词（同 ogn/chem-baroness）。
-      // 描述性记录，不是可求值语义（见 judgeReason 第 2 条）。
+      // 描述性记录，不是可求值语义（见 judgeReason 第 1、2 条）：实测该入场替代分支连
+      // condition 都不求值，所以这个字符串既不通过也不拦截——它只是缺口备忘。
       kind: "expression",
       value: { kind: "constant", value: "your-score-not-within-3-of-victory-score" }
     },
@@ -82,7 +88,21 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "入场替代仍缺 194.3/194.3.a 的当前 Victory Score 与自身分数的条件读取；现有 Expr 不能读取玩家分数或可变胜利分数，原条件字符串仅作描述。攻击能力的 mightLte: 5 需要有效 Might 数值谓词（143.2.a，RIFT-359），programs/filters 还不能翻译 sameLocationAs 的符号位置锚点。此外 combat/ 尚未发出 attack-declared，需要把实际取得战斗身份的路径接入现有事件管线。",
+    "四处当前缺口（2026-10-18 复核，均为实测）：(1) 入场替代（194.3/194.3.a、359.2.c）无法读当前 Victory Score：" +
+    "PlayerSnapshot 只有 score、没有 victoryScore 读数（engine-runtime/host.ts 的玩家快照同样没有），Condition 的谓词集合" +
+    "（RIFT-359 增补的 played-from-hand / played-from-zone / event-printed / result）不含任一玩家分数或可变胜利阈值，Expr 也没有对应读取路径；" +
+    "硬编码默认 8 就是臆造，故条件字符串仅作描述。" +
+    "(2) 该入场替代条件在替代注册路径上不被求值：replacement/bind.ts 的 matchesEnterAction 入场分支只做 filterMatchesSnapshot，" +
+    "condition 仅在 matchFor 的静态事件分支求值——实测 runCardScenario 打进本卡时，authored 描述条件、all[never, 描述条件]、" +
+    "以及删掉 condition 三种情形都同样 ready 入场，条件被忽略。" +
+    "(3) 攻击能力的 mightLte: 5 与 sameLocationAs 都还不能进生产目标计划：实测 translateObjectFilter 分别抛 " +
+    "\"Unsupported filter field sameLocationAs\" 与 \"Unsupported filter field mightLte\"（allowed 集合只有 " +
+    "objectId/cardId/type/zone/location/controller/owner/states/tags/characteristics），触发注册在翻译阶段就失败；" +
+    "143.2.a 的有效 Might 阈值谓词与符号位置锚点的翻译都仍未合入。" +
+    "(4) combat/ 尚未发出 attack-declared：实测跑完真实回合不含该时点，combat/flow.ts 的 advance() 在进入 Combat 时直接抛 " +
+    "TurnCombatBlockedError('combat-start-transaction')，没有任何 emit('attack-declared') 调用。" +
+    "已合入并用真实内核执行验证的部分：effect.move 的 objects/to（421.1 的 controller-base）、「any number」含 0（355.13），" +
+    "以及 effect.ready 的入场 body（经真实替代注册链进入 ready）。不近似实现。",
   abilities,
   sourceText:
     "If your score is not within 3 points of the Victory Score, I enter ready.\n" +

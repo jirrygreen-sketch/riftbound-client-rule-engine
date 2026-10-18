@@ -8,7 +8,13 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { registerProgramTriggers, triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { finalizeOrderedPickPlans } from "../../../../engine-core/dist/chain/picks/plan.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL =
   "card.hash-497476b6bf664a9e54c9954d3fc830b826e1dac396852919e2a91beb9ae35129";
@@ -21,6 +27,9 @@ const [killCost, score] = optional.args.body.value;
 const [sacrificeSpec] = killCost.picks;
 
 const OPTIONAL_ID = "bottled-constellation.may-kill-opt/optional";
+
+/** The program as the production registry sees it (status still judge-required). */
+const executableView = { ...program, status: "executable", judgeReason: undefined };
 
 /**
  * The reference kernel compares filter values literally, so the symbolic
@@ -36,7 +45,7 @@ function substituteController(value, playerId) {
 }
 
 /** Bottled Constellation plus three other friendly permanents and one enemy unit. */
-function fixture() {
+function fixtureWorld() {
   const base = world()
     .unit("bottled-constellation", {
       types: ["gear"],
@@ -75,8 +84,12 @@ test("ven-067-166 Bottled Constellation: identity, ruleset, status, judgeReason 
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /383\.3\.b/);
-  assert.match(program.judgeReason, /Finalize/);
-  assert.match(program.judgeReason, /PickSpec/);
+  assert.match(program.judgeReason, /383\.3\.b\.1/);
+  assert.match(program.judgeReason, /TriggerSpecValidationError/);
+  assert.match(program.judgeReason, /main-start/);
+  assert.match(program.judgeReason, /mayAtFinalize/);
+  assert.match(program.judgeReason, /min 3 \/ max 3/);
+  assert.match(program.judgeReason, /finalizeOrderedPickPlans/);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
@@ -108,9 +121,7 @@ test("ven-067-166 Bottled Constellation: 'you may' wraps the chosen instructions
 });
 
 test("ven-067-166 Bottled Constellation: the kill is a non-target cost within instructions with exactly 3 picks", () => {
-  // 355.10.c.1 / 740.4.a: "[do X] to [do Y]" costs do not target. The CR's own
-  // example uses this sentence shape ("When I hold, you may kill another
-  // friendly unit here to draw 1").
+  // 355.10.c.1 / 740.4.a: "[do X] to [do Y]" costs do not target.
   assert.equal(killCost.op, "effect.kill");
   assert.equal(killCost.targets, undefined);
   assert.deepEqual(killCost.args.picks, {
@@ -142,7 +153,7 @@ test("ven-067-166 Bottled Constellation: the kill is a non-target cost within in
 });
 
 test("ven-067-166 Bottled Constellation golden: accepting kills exactly the three chosen permanents and scores 1", () => {
-  const kernel = fixture();
+  const kernel = fixtureWorld();
   kernel.setPicks("bottled-constellation.sacrificed", [
     kernel.ref("friendly-unit-1"),
     kernel.ref("friendly-gear"),
@@ -173,7 +184,7 @@ test("ven-067-166 Bottled Constellation golden: accepting kills exactly the thre
 });
 
 test("ven-067-166 Bottled Constellation golden: declining the choice neither kills nor scores", () => {
-  const kernel = fixture();
+  const kernel = fixtureWorld();
   kernel.setPicks("bottled-constellation.sacrificed", [
     kernel.ref("friendly-unit-1"),
     kernel.ref("friendly-gear"),
@@ -193,7 +204,7 @@ test("ven-067-166 Bottled Constellation golden: declining the choice neither kil
 });
 
 test("ven-067-166 Bottled Constellation golden: a non-target pick leaves the enemy unit and other permanents alone", () => {
-  const kernel = fixture();
+  const kernel = fixtureWorld();
   kernel.setPicks("bottled-constellation.sacrificed", [
     kernel.ref("friendly-unit-1"),
     kernel.ref("friendly-unit-2"),
@@ -214,11 +225,93 @@ test("ven-067-166 Bottled Constellation golden: a non-target pick leaves the ene
   assert.equal(kernel.getObject("enemy-unit").zone, "board");
 });
 
+test("ven-067-166 Bottled Constellation boundary: the resolver does not enforce the exactly-3 pick bounds", () => {
+  // 383.3.b requires exactly three permanents. The card declares min 3 / max 3 on
+  // its PickSpec, but effect.kill resolves whatever refs ctx.picks supplies and
+  // never re-checks those bounds: one supplied pick still executes. That is the
+  // measured reason the card cannot be executable yet (judgeReason item 3).
+  const kernel = world()
+    .player("A")
+    .unit("source", { types: ["gear"], might: null })
+    .unit("friendly-1", { owner: "A", controller: "A" })
+    .unit("friendly-2", { owner: "A", controller: "A" })
+    .unit("friendly-3", { owner: "A", controller: "A" })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("source") });
+  context.setPicks("bottled-constellation.sacrificed", [context.ref("friendly-1")]);
+
+  const outcome = resolveChainBody(bodyForKernel().flatMap(node => node.args.body.value), context);
+
+  // Only the single supplied permanent was killed; the other two survive, so the
+  // short payment is silently accepted instead of failing the ability.
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["bottled-constellation.kill-cost", "executed"],
+    ["bottled-constellation.score", "executed"]
+  ]);
+  assert.equal(context.getObject("friendly-1").zone, "trash");
+  assert.equal(context.getObject("friendly-2").zone, "board");
+  assert.equal(context.getObject("friendly-3").zone, "board");
+});
+
+test("ven-067-166 Bottled Constellation evidence: the authored main-start filter is rejected by the trigger vocabulary", () => {
+  // 316.1/316.4: "your Main Phase" is the ability controller's turn. The
+  // closed EVENT_PATTERN_TYPES list has no main-start discriminant, so the
+  // production registration fails; an empty filter is not a substitute because
+  // it would also subscribe to the opponent's Main Phase (measured below).
+  const registry = new ProgramRegistry([executableView]);
+  const { engine, kernel } = fixture({ cards: [{
+    id: "bottled", cardId: CANONICAL, types: ["gear"], might: null, energy: 10, power: ["Mind"]
+  }] });
+  const registrations = triggerRegistrations(registry, kernel.getObject("bottled"));
+  assert.deepEqual(registrations.map(registration => [registration.spec.at, registration.spec.filter]),
+    [["main-start", { event: "main-start", player: "self" }]]);
+  assert.throws(
+    () => registerProgramTriggers(registry, engine, kernel.getObject("bottled")),
+    (error) => error instanceof Error && /trigger\.filter\.event/.test(error.message)
+  );
+  // "player: self" cannot be expressed without an event discriminant, so the
+  // fallback would also match the opponent's Main Phase.
+  assert.equal(matchesTriggerEvent({}, { timingPoint: "main-start", player: "B" }, "A"), true);
+});
+
+test("ven-067-166 Bottled Constellation evidence: the trigger carries no leading cost and no pick lock", () => {
+  // judgeReason items 2 and 3: the cost-within-instructions of 383.3.b would be
+  // paid at Finalize, but the card's triggered shape has no cost field and the
+  // program trigger adapter produces no cost / mayAtFinalize. The filter+min/max
+  // pick spec is not locked or re-checked either.
+  const registry = new ProgramRegistry([executableView]);
+  const { kernel } = fixture({ cards: [{
+    id: "bottled", cardId: CANONICAL, types: ["gear"], might: null, energy: 10, power: ["Mind"]
+  }] });
+  const registrations = triggerRegistrations(registry, kernel.getObject("bottled"));
+  assert.equal(registrations.length, 1);
+  assert.equal(registrations[0].cost, undefined);
+  assert.equal(registrations[0].mayAtFinalize, undefined);
+  assert.equal(Object.hasOwn(triggered, "cost"), false);
+  assert.equal(instructionDefinitionsById.has("choice.optional"), false);
+
+  const pickContext = kernel.clone({
+    controller: "A",
+    sourceSnapshot: kernel.getObject("bottled")
+  });
+  assert.deepEqual(finalizeOrderedPickPlans(pickContext, triggered.body), []);
+});
+
 test.todo(
-  "ven-067-166 Bottled Constellation: the leading \"kill 3 …\" must be paid as the triggered ability's base cost at " +
-    "Finalize (383.3.b) - the frozen TriggeredAbility shape has no cost field/producer"
+  "ven-067-166 Bottled Constellation: the leading \"kill 3 ...\" must be paid as the triggered " +
+    "ability's base cost at Finalize (383.3.b/383.3.b.1) - TriggeredAbility has no cost field and " +
+    "programs/triggers.ts produces no cost / mayAtFinalize for it"
 );
+
 test.todo(
-  "ven-067-166 Bottled Constellation: the exactly-3 PickSpec must lock at Finalize and revalidate at Resolve " +
-    "(383.3.b; min 3/max 3), rather than relying on caller-provided picks"
+  "ven-067-166 Bottled Constellation: enforce the exactly-3 PickSpec bounds at resolution " +
+    "(383.3.b) - effect.kill consumes whatever ctx.picks supplies and finalizeOrderedPickPlans " +
+    "has no lock path for filter+min/max picks"
 );
+
+test.todo(
+  "ven-067-166 Bottled Constellation: register the main-start subscription with the turn player " +
+    "anchored - EVENT_PATTERN_TYPES has no main-start discriminant and an empty filter would " +
+    "subscribe to the opponent's Main Phase too"
+);
+

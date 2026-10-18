@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
@@ -8,6 +9,8 @@ import program from "../../../dist/cards/ven/threshold-of-the-gray.js";
 // layout instead of the package name.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL =
   "card.hash-f3d497c8272c7189495fd4ff73a5a4450b60af7a9e559bdf73d4c3e1380bfcc3";
@@ -128,6 +131,55 @@ test("ven-166-166 Threshold of the Gray golden: a replaced Energy gain is negate
     energy: 0,
     power: []
   });
+});
+
+test("ven-166-166 Threshold of the Gray probe: the printed seats negate when executed verbatim", () => {
+  // Executed evidence for judgeReason point 1/3: the placeholder seats
+  // "event-combat-attacker"/"event-combat-defender" are not PlayerIds, so the
+  // card's own body (TargetSpecs stripped; none are declared) negates both Adds.
+  const kernel = world().player("A").player("B").build();
+  const outcome = resolveChainBody(
+    ability.body.map(({ targets, ...rest }) => rest),
+    kernel
+  );
+
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason]), [
+    ["threshold-of-the-gray.add-attacker", "negated", "impossible"],
+    ["threshold-of-the-gray.add-defender", "negated", "impossible"]
+  ]);
+  assert.equal(kernel.player("A").energy, 0);
+  assert.equal(kernel.player("B").energy, 0);
+});
+
+test("ven-166-166 Threshold of the Gray probe: the 053.3 here anchor is rejected by the production binder", () => {
+  // Executed evidence for judgeReason point 2: the trigger's "here" filter is a
+  // documented placeholder for the missing relative-battlefield anchor, and
+  // programs/filters.ts fails closed on it before registration.
+  assert.throws(
+    () => translateTriggerFilter(ability.trigger.filter, "threshold", ability.trigger.at),
+    (error) => error instanceof Error && /Unsupported filter field here/.test(error.message)
+  );
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const kernel = world().player("A").unit("threshold", { cardId: CANONICAL }).build();
+  assert.throws(
+    () => binding.registerProgramTriggers({ pipeline: { registerTrigger: () => {}, unregisterTrigger: () => {} } }, kernel.getObject("threshold")),
+    (error) => error instanceof Error && /Unsupported filter field here/.test(error.message)
+  );
+});
+
+test("ven-166-166 Threshold of the Gray probe: combat-start has no producer in the merged combat flow", () => {
+  // Executed evidence for judgeReason point 2: the only combat-start site is the
+  // blocked transaction in combat/flow.ts; the pipeline merely increments its
+  // combat clock when some other caller supplies the timing point.
+  const flowSource = readFileSync(
+    new URL("../../../../engine-core/src/combat/flow.ts", import.meta.url),
+    "utf8"
+  );
+  assert.match(flowSource, /combat-start-transaction/);
+  assert.match(flowSource, /Combat start needs an atomic simultaneous timing wave \+ roles \(CR 466\.2\)/);
+  const emitSites = [...flowSource.matchAll(/emit\(\s*'([a-z-]+)'/g)].map((match) => match[1]);
+  assert.ok(!emitSites.includes("combat-start"), `flow.ts emits ${JSON.stringify(emitSites)}`);
 });
 
 test.todo(

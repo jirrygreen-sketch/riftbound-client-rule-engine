@@ -1,3 +1,4 @@
+// RIFT-684 execution evidence is also covered by templates/play-effect-kill-684.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -87,7 +88,7 @@ test("unl-180-219 The Ruination golden: a locked set is killed, showing the prim
 
 test.todo(
   "unl-180-219 The Ruination: 'Kill all units' needs an untargeted each/all set selection consumed by effect.kill " +
-    "(RIFT-9 target.many; CR 355.10.d, 355.10.d.1) so every unit on the Board dies with no choice step and no " +
+    "(CR 355.10.d, 355.10.d.1) so every unit on the Board dies with no choice step and no " +
     "became-target events, including a unit that is also a gear (178.3)"
 );
 
@@ -95,4 +96,3 @@ test.todo(
   "unl-180-219 The Ruination: the kill attribution (429.5) and the object-killed timing point for each killed unit " +
     "(Deathknell, replacement effects) are emitted by the engine's single event pipeline, not by this card"
 );
-

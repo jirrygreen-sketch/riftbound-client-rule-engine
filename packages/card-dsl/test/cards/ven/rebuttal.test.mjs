@@ -4,6 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/rebuttal.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import control from "../../../../engine-core/dist/effects/instructions/effect.control.js";
 import counter from "../../../../engine-core/dist/effects/instructions/effect.counter.js";
 import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
@@ -53,9 +54,9 @@ test("ven-152-166 Rebuttal: judgeReason names the real branch, printed-cost pred
   assert.match(program.judgeReason, /payments\.power/);
   assert.match(program.judgeReason, /750-755/);
   assert.match(program.judgeReason, /753\.2/);
-  assert.match(program.judgeReason, /RIFT-357/);
-  assert.match(program.judgeReason, /RIFT-358/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /通用地点选择/);
+  assert.match(program.judgeReason, /choice\.remake-chain-item-choices/);
+  assert.match(program.judgeReason, /condition\.result/);
   assert.doesNotMatch(program.judgeReason, /RIFT-(89|90|120)/);
   assert.doesNotMatch(program.judgeReason, /cost\.pay 原语虽已注册/);
   assert.doesNotMatch(program.judgeReason, /没有 \[A\] 付费种类/);
@@ -121,12 +122,10 @@ test("ven-152-166 Rebuttal: paying [A], taking control and remaking choices all 
   });
   assert.deepEqual(gainControl.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(gainControl.args.linkKey, { kind: "constant", value: "rebuttal-controlled" });
-  assert.deepEqual(gainControl.condition, {
-    kind: "compare",
-    left: { kind: "linked-value", instructionId: "rebuttal.pay-rainbow", key: "paid" },
-    operator: "eq",
-    right: { kind: "constant", value: true }
-  });
+  // The merged payer throws on every failure. Its receipt is nested under
+  // payment, so a nonexistent top-level paid link must not suppress control.
+  // Successful payment and failure-abort semantics are executed below.
+  assert.equal(gainControl.condition, undefined);
 
   // "you may make new choices for it" is the 750-755 procedure; 752.1 narrows
   // the remake classes and 753 requires remaking all of them.
@@ -249,7 +248,7 @@ test("ven-152-166 Rebuttal golden: both merged clauses ignore a chain item that 
 test.todo(
   "ven-152-166 Rebuttal: 'a spell with Energy cost no more than :rb_energy_4:' must restrict target legality by the " +
     "printed/copied cost (CR 206 / 206.1, ignoring paid additional costs) — needs a printed-cost target predicate in the " +
-    "target/chain condition plan (RIFT-359); today the descriptive energyMax key is evaluated by no merged code"
+    "target/chain condition plan (programs/filters.ts); today the descriptive energyMax key is evaluated by no merged code"
 );
 
 test.todo(
@@ -260,5 +259,46 @@ test.todo(
 test.todo(
   "ven-152-166 Rebuttal: 'you may make new choices for it' (CR 750-755) needs chain/target-plan re-selection: remake " +
     "locations/modes/destinations/targets only (752.1), remake all of them (753/753.3), negate when no legal choice exists " +
-    "(753.2), re-trigger targeting effects (754) and ignore resulting to-play costs (755) — RIFT-357/RIFT-358/RIFT-359"
+    "(753.2), re-trigger targeting effects (754) and ignore resulting to-play costs (755) — chain item choice-plan rebuild adapter"
+);
+
+for (const domain of ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]) {
+  test(`ven-152-166 Rebuttal regression: the original paid body authorizes ${domain} payment and then gains control`, () => {
+    const base = world().player("A", { power: [domain] })
+      .object("enemy-spell", chainSpell("enemy-spell", "B", 3))
+      .object("rebuttal", chainSpell("rebuttal", "A", 1)).build();
+    const kernel = base.clone({ sourceSnapshot: base.getObject("rebuttal") });
+    kernel.setTargets(chosenSpell.id, [kernel.ref("enemy-spell")]);
+    kernel.setAnswers({ "rebuttal.may-remake-choices/optional": false });
+    const outcome = resolveChainBody(paidMode.body, kernel);
+    assert.equal(outcome.results.find(entry => entry.id === payRainbow.id).result.status, "executed");
+    assert.equal(outcome.results.find(entry => entry.id === gainControl.id).result.status, "executed");
+    assert.equal(outcome.linkedValues[`${payRainbow.id}.payment`].paid, true);
+    assert.deepEqual(outcome.linkedValues[`${payRainbow.id}.payment`].actions[0].action.plan.power, [domain]);
+    // The reference kernel's pay action currently consumes Energy/XP only.
+    // Assert the real finalized Power allocation, not a fabricated pool debit.
+    assert.equal(kernel.getObject("enemy-spell").controller, "A");
+    assert.equal(kernel.getObject("enemy-spell").owner, "B");
+    assert.equal(kernel.getObject("enemy-spell").zone, "chain");
+    assert.deepEqual(outcome.events.map(event => event.action), ["pay", "take-control"]);
+    assert.equal(outcome.results.some(entry => entry.id === remakeChoices.id), false, "declining remaking does not call the blocked node");
+  });
+}
+
+test("ven-152-166 Rebuttal regression: an unpayable original paid body aborts before control", () => {
+  const base = world().player("A", { energy: 100, power: [] })
+    .object("enemy-spell", chainSpell("enemy-spell", "B", 3))
+    .object("rebuttal", chainSpell("rebuttal", "A", 1)).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("rebuttal") });
+  kernel.setTargets(chosenSpell.id, [kernel.ref("enemy-spell")]);
+  assert.throws(() => resolveChainBody(paidMode.body, kernel), error => error.reason === "cannot-pay-cost");
+  assert.equal(kernel.getObject("enemy-spell").controller, "B");
+  assert.equal(kernel.getObject("enemy-spell").zone, "chain");
+  assert.equal(kernel.player("A").energy, 100, "Energy cannot replace the optional [A]");
+  assert.deepEqual(kernel.events, []);
+});
+
+test.todo(
+  "ven-152-166 Rebuttal: verify the Power pool debit when TestWorld.perform(pay) consumes plan.power; " +
+    "the paid-body regressions verify allocation, receipt and control, not resource depletion"
 );

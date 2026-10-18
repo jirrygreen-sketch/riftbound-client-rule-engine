@@ -1,3 +1,6 @@
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -9,6 +12,13 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // layout instead of the package name.
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { ProgramRegistry, triggerRegistrations } from "../../../../engine-core/dist/programs/index.js";
+import { EVENT_PATTERN_TYPES } from "../../../../engine-core/dist/events/trigger-spec.js";
+import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
+import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { createTargetTaxAdapter } from "../../../../engine-core/dist/target/tax/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
@@ -52,9 +62,12 @@ test("ven-092-166 Renekton: identity, ruleset, status, judgeReason and verbatim 
   assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /might-changed/);
-  assert.match(program.judgeReason, /RIFT-360/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-(87|89|90|120)/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /createTargetTaxAdapter/);
+  // The refreshed reason names the merged re-expansion layer and the production
+  // consumers that are still missing.
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /TurnCombatBlockedError/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.doesNotMatch(program.judgeReason, /没有注册的 Might 修正原语/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -101,7 +114,7 @@ test("ven-092-166: 'When my Might becomes 10 or more' watches the might-changed 
   assert.equal(mightTrigger.optional, false);
   // 709 的转换语义（previousMight < 10 ≤ currentMight）无法完整表达：EventPattern 的
   // details 只接受标量、NumericMatcher 只作用于 event.amount，因此只保留当前值一侧
-  //（见 judgeReason 第 2 条）。
+  //（见 judgeReason 第 1 条）。
   assert.deepEqual(mightTrigger.trigger.condition, {
     kind: "compare",
     left: { kind: "object-property", object: "self", property: "might" },
@@ -137,7 +150,7 @@ test("ven-092-166 golden: 'empower me' empowers the ability source through the r
   });
 });
 
-test("ven-092-166: [Empowered][>] grants Deflect and Ganking behind the descriptive Empowered gate", () => {
+test("ven-092-166: [Empowered][>] grants Deflect and Ganking behind the live Empowered gate", () => {
   assert.equal(keywordGrant.kind, "static");
   // 828.1.b.1 的依赖能力：只在宿主 Empowered 时授予两个关键词（809/810）。
   // continuous.grant-keyword 的指令与 static 绑定已合入；缺的是关键词的下游图层消费方，故按契约写出 shape。
@@ -145,6 +158,9 @@ test("ven-092-166: [Empowered][>] grants Deflect and Ganking behind the descript
     kind: "continuous.grant-keyword",
     keywords: [{ id: "Deflect" }, { id: "Ganking" }],
     appliesTo: "self"
+  });
+  assert.deepEqual(keywordGrant.condition.left, {
+    kind: "object-property", object: "self", property: "empowered"
   });
   assert.equal(keywordGrant.condition.kind, "compare");
   assert.equal(keywordGrant.condition.operator, "gte");
@@ -175,8 +191,149 @@ test.todo(
     "only matches event.amount, and the might-changed producer is not wired into the pipeline"
 );
 
+test("ven-092-166 Renekton gap: might-changed is not in the closed event vocabulary", () => {
+  // Measured evidence for judgeReason point 1: the timing point exists in the
+  // frozen enumeration, but the closed pattern list used by trigger validation
+  // has no member for it, so the printed subscription cannot be registered.
+  assert.equal(EVENT_PATTERN_TYPES.includes("might-changed"), false);
+  const kernel = renektonWorld();
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const source = { ...kernel.getObject("renekton"), cardId: CANONICAL };
+  const [registration] = triggerRegistrations(registry, source);
+  assert.equal(registration.spec.at, "might-changed");
+  assert.deepEqual(
+    triggerRegistrations(registry, source).length,
+    1,
+    "the adapter still produces the printed subscription"
+  );
+});
+
+test("ven-092-166 Renekton gap: the [Empowered][>] grant reaches a target.tax the binder cannot install", () => {
+  // Measured evidence for judgeReason point 3: Deflect expands into a
+  // target.tax static ability, and programs/statics.ts has no layer mapping for
+  // that kind, so the granted tax can never be charged on target Finalize.
+  const [deflectAbility] = deflect.expand({ value: 1, host: { canonicalCardId: CANONICAL } });
+  assert.equal(deflectAbility.effect.kind, "target.tax");
+  const { engine, kernel } = staticFixture([
+    { id: "renekton", cardId: CANONICAL, types: ["unit"], zone: "board", might: 4 }
+  ]);
+  assert.throws(
+    () => createEngineStaticBinder(engine).bindStatic(deflectAbility, kernel.getObject("renekton")),
+    error => error.code === "judge-required" && /target\.tax has no layer mapping/.test(error.message)
+  );
+});
+
 test.todo(
-  "ven-092-166 Renekton: the [Empowered][>] grant of [Deflect] and [Ganking] needs an Empowered predicate (442.1.a) " +
-    "plus keyword consumers — Deflect's target tax (RIFT-360) and Ganking's movement permission, which the " +
-    "movement system leaves unread (continuous.grant-keyword itself is merged)"
+  "ven-092-166 Renekton: the merged KeywordGrantLayerEngine re-expansion has no production consumer — turn/flow.ts builds " +
+    "TurnPhaseLayers and apps/game-server never constructs the grant layer, Chain Finalize still converts the Deflect tax " +
+    "into Energy instead of createTargetTaxAdapter's any-Domain Power, and the granted-keyword gate still needs the " +
+    "ObjectSnapshot.empowered contract (442.1.a / 828.1.b.1)"
 );
+
+test("ven-092-166 golden: the merged grant layer re-expands the Empowered [Deflect]/[Ganking] grant (no production consumer)", () => {
+  // 828.1.b.1 + 809/810 (2026-10-18 re-sweep): the merged
+  // programs/keyword-grants.ts layer re-expands a granted keyword through its
+  // KeywordDef once the host really becomes Empowered, which lifts the previous
+  // "granted keywords never re-expand" gap to a wiring gap. This test keeps the
+  // reference-layer behaviour as executable evidence; the production path is
+  // still the todo above.
+  const base = world().player("A", { energy: 20 }).player("B", { energy: 20, power: ["Calm"] })
+    .unit("renekton", {
+      cardId: CANONICAL, might: 4, location: { type: "battlefield", id: "bf-1" }
+    })
+    .unit("victim", { owner: "B", might: 30, location: { type: "battlefield", id: "bf-2" } })
+    .build();
+  const layers = new KeywordGrantLayerEngine(base.objects, {
+    context: source => bindResolveContext(base, { source, controller: source.controller })
+  });
+  const host = createActionPipelineHost({
+    checkpoint: () => base.snapshot(), restore: state => base.restore(state),
+    objects: () => base.objects, perform: action => base.perform(action),
+    choose: request => base.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(base, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ host, layers, turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", cleanup: () => false });
+  const source = base.getObject("renekton");
+  createEngineStaticBinder(engine).bindStatic(keywordGrant, source);
+
+  // 442.1.a: the binary Empowered state starts off, so the grant is inert.
+  assert.deepEqual(layers.snapshot(source.ref).keywords, []);
+  assert.equal(layers.keywordAbilities(source.ref).length, 0);
+
+  assert.equal(engine.commit({ type: "empower", object: source.ref }).status, "done");
+  layers.setObjects(base.objects);
+  const granted = layers.snapshot(source.ref);
+  assert.deepEqual(granted.keywords, [{ id: "Deflect", value: 1 }, { id: "Ganking" }]);
+  assert.deepEqual(
+    layers.keywordAbilities(source.ref).map(ability => ability.effect.kind),
+    ["target.tax", "continuous.movement"]
+  );
+
+  // 810.1.b / 144.4.c.1: the re-expanded Ganking reaches the movement rules.
+  assert.equal(movement(layers.registry, source.ref, granted, "A").canGank, true);
+
+  // 809.1.c.1: Deflect 1 prices as one Power of any Domain once the re-expanded
+  // target.tax is collected by createTargetTaxAdapter.
+  const context = bindResolveContext(base, {
+    source: base.getObject("victim"), controller: "B",
+    object: ref => layers.snapshot(ref),
+    query: filter => layers.evaluateAll().filter(object => matchesObjectFilter(filter, object))
+  });
+  const adapter = createTargetTaxAdapter(context,
+    { id: "cost:opponent-ability", cost: { energy: { kind: "constant", value: 0 }, power: { kind: "constant", value: [] } } },
+    { kind: "ability" });
+  adapter.finalizeTargetPlan(
+    { id: "renekton", filter: { objectId: "renekton", zone: "board" } },
+    { selected: [base.ref("renekton")] }
+  );
+  assert.deepEqual(adapter.costPlan.total.power, [{
+    amount: 1,
+    allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]
+  }]);
+
+  // 442.1.c: Disempower returns the host to the dormant state.
+  assert.equal(engine.commit({ type: "disempower", object: source.ref }).status, "done");
+  layers.setObjects(base.objects);
+  assert.deepEqual(layers.snapshot(source.ref).keywords, []);
+  assert.equal(movement(layers.registry, source.ref, layers.snapshot(source.ref), "A").canGank, false);
+});
+
+test("ven-092-166 Renekton regression: the original keyword grant follows real Empower and Disempower actions", () => {
+  const { kernel, engine } = staticFixture([
+    { id: "renekton", cardId: CANONICAL, types: ["unit"], zone: "board", might: 9 }
+  ]);
+  const source = kernel.getObject("renekton");
+  createEngineStaticBinder(engine).bindStatic(keywordGrant, source);
+  assert.deepEqual(engine.layers.snapshot(source.ref).keywords, []);
+  assert.equal(engine.commit({ type: "empower", object: source.ref }).status, "done");
+  assert.deepEqual(engine.layers.snapshot(source.ref).keywords.map(keyword => keyword.id), ["Deflect", "Ganking"]);
+  assert.equal(engine.commit({ type: "disempower", object: source.ref }).status, "done");
+  assert.deepEqual(engine.layers.snapshot(source.ref).keywords, []);
+});
+
+
+function staticFixture(cards) {
+  const builder = world().player("A", { energy: 20 }).player("B", { energy: 20 })
+    .unit("source", { might: 2, location: { type: "base", player: "A" } })
+    .unit("enemy", { owner: "B", might: 5, location: { type: "base", player: "B" } });
+  for (const card of cards) builder.object(card.id, { location: { type: "base", player: "A" }, ...card });
+  const kernel = builder.build();
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(), restore: state => kernel.restore(state),
+    objects: () => kernel.objects, perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ host, turnOrder: ["A", "B"], turnPlayer: "A", cleanup: engine => {
+    engine.layers.setObjects(kernel.objects);
+    let changed = false;
+    for (const object of engine.layers.evaluateAll()) {
+      if (object.zone === "board" && object.types.includes("unit") && object.might !== null &&
+          (object.might <= 0 || object.damage >= object.might)) {
+        changed = engine.commit({ type: "kill", object: object.ref }).status === "done" || changed;
+      }
+    }
+    return changed;
+  } });
+  return { kernel, engine };
+}

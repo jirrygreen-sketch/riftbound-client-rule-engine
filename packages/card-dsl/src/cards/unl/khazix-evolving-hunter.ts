@@ -24,25 +24,29 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  * - "an enemy unit here"：355.7/355.9.a 的目标；"here" 是 359.3.f 的指代，用契约 3.6 的
  *   sameLocationAs: "source" 锚点表达（与已合入的 rad/ezreal-dashing 同型）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（按 2026-10-17 合入批次复核）。
+ * status 判定（cards/README.md 第 2 节）：judge-required（按 2026-10-17 HEAD 复核）。
  * 四处缺口，均不近似实现：
  * 1. [Hunt] 的 KeywordDef 与展开已存在，programs/keywords.ts 也会展开它；但展开写的事件拼写是
- *    "conquer"/"hold"，而封闭 EVENT_PATTERN_TYPES 用的是
- *    "conquered"/"held"（events/trigger-spec.ts + pipeline-match.ts 的 EVENT_NAMES），
- *    registerProgramTriggers 抛 invalid-event-type；conquer 发射也不带征服单位
- *    （turn/flow.ts 的 Score 波只发 player/details），source:"self" 匹配不到（823.1.c.1）。
+ *    "conquer"/"hold"，封闭 EVENT_PATTERN_TYPES 用的是 "conquered"/"held"
+ *    （events/trigger-spec.ts + pipeline-match.ts 的 EVENT_NAMES），registerProgramTriggers
+ *    抛 invalid-event-type；conquer 发射也不带征服单位（turn/flow.ts 的 Score 波只发 player/details），
+ *    source:"self" 匹配不到（823.1.c.1）。
  * 2. 指令内费用 "spend 3 XP"（740.4.a/740.4.a.2；730.2）没有已注册原语：effects/instructions/
  *    下没有 cost.xp，cost/ 也没有把该支付变成 Finalize 可选选择 + 回执的接线。
  *    "you may" 的拒绝路径因此不可执行；golden 只断言声明的形状。
  * 3. attack-declared 时点没有生产者：docs/rules/timing-point-producers.md 记为“待后续——需要
  *    Combat start/role designation 的原子 timing wave”，combat/flow.ts 明确抛
  *    combat-start-transaction。
- * 4. 两条声明都无法注册：Hunt 的 "conquer"/"hold" 拼写不在封闭词汇表内，攻击触发的 body
- *    又带 sameLocationAs 过滤键（programs/filters.ts 拒绝）；虽然 engine-core 的 TargetSpec
- *    位置解析已有 location-of 运行时能力，但当前 card-dsl 校验仍把该相对位置当作
- *    LocationFilter 拒绝，不能在本卡内借此绕过 sameLocationAs 缺口。
- * body 的 effect.damage（动态 Might 数额 + sameLocationAs 锚点）已合入，golden 用链适配器 +
- * 参考内核真实执行卡程序原始参数；"pay 3 XP to" 的代价目前只以未注册的 cost.xp 指令形状保留
+ * 4. 攻击触发的注册与生产求解都不可用：触发 filter 用 source:"self"（programs/filters.ts
+ *    实测转成宿主 objectId），但 body 的 sameLocationAs 目标过滤键被 translateObjectFilter
+ *    拒绝（Unsupported filter field sameLocationAs，registerProgramTriggers 抛
+ *    ProgramBindingError）；即使绕过绑定，EventPipeline.scan 通过 PipelineHost.context().query
+ *    求值条件/目标，而 host 的 query 不解析 sameLocationAs（参考内核实测返回 0 个候选），
+ *    game-server 的 EngineRuntimeHost.matchesFilter 同样只比较 zone/type/owner/controller，
+ *    所以不能在本卡内用相对位置锚点执行。
+ * body 的 effect.damage（动态 Might 数额）已合入，golden 用链适配器 + 参考内核真实执行
+ * 卡程序的原始参数（此处目标候选由测试内核的 query 提供）；"pay 3 XP to" 的代价目前只以
+ * 未注册的 cost.xp 指令形状保留
  * （见 judgeReason 第 2 点），没有近似成其它原语。
  */
 const ENEMY_UNIT_HERE = "khazix-evolving-hunter.enemy-unit-here";
@@ -127,7 +131,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口（已按 2026-10-17 合入批次复核）：(1) [Hunt]（823）的 KeywordDef 与展开已存在，且 " +
+    "四处缺口（已按 2026-10-17 HEAD 复核）：(1) [Hunt]（823）的 KeywordDef 与展开已存在，且 " +
     "programs/keywords.ts 会展开它，但展开写的事件拼写是 \"conquer\"/\"hold\"，封闭 EVENT_PATTERN_TYPES（events/trigger-spec.ts，" +
     "配 pipeline-match.ts 的 EVENT_NAMES 别名）用的是 \"conquered\"/\"held\"，registerProgramTriggers 抛 invalid-event-type；" +
     "conquer 发射也不带征服单位（turn/flow.ts 的 Score 波只发 player/details），source:\"self\" 匹配不到（823.1.c.1）。" +
@@ -136,11 +140,12 @@ export default {
     "\"you may\" 的拒绝路径因此不可执行。" +
     "(3) attack-declared 时点（383.4.e 的 Attack Trigger）没有生产者：docs/rules/timing-point-producers.md 记为待后续，" +
     "combat/flow.ts 遇到 staged combat 直接抛 combat-start-transaction。" +
-    "(4) 触发没有可用注册路径：Hunt 展开的 " +
-    "\"conquer\"/\"hold\" 拼写不被封闭 EVENT_PATTERN_TYPES 接受，body 的 sameLocationAs 过滤键也被 " +
-    "programs/filters.ts 拒绝；engine-core 虽已具备 TargetSpec 的 location-of 运行时解析，当前 card-dsl 校验仍把该相对位置当作 " +
-    "LocationFilter 拒绝，无法在本卡内绕过 sameLocationAs 缺口。" +
-    "effect.damage 的动态 Might 数额与 sameLocationAs 锚点已合入并在 golden 中真实执行（卡程序原始参数）。不近似实现。",
+    "(4) 攻击触发的注册与生产求解都不可用：filter 的 source:\"self\" 能经 translateTriggerFilter 转成宿主 objectId，" +
+    "但 body 的 sameLocationAs 目标过滤键被 translateObjectFilter 以 Unsupported filter field sameLocationAs 拒绝" +
+    "（registerProgramTriggers 抛 ProgramBindingError）；即使绕过绑定，EventPipeline 条件/目标经 " +
+    "PipelineHost.context().query 求值，host query 不解析 sameLocationAs（参考内核实测 0 个候选），" +
+    "game-server 的 EngineRuntimeHost.matchesFilter 也只比较 zone/type/owner/controller。" +
+    "effect.damage 的动态 Might 数额已合入，golden 用链适配器 + 参考内核真实执行卡程序原始参数。不近似实现。",
   abilities,
   sourceText:
     "[Hunt] (When I conquer or hold, gain 1 XP.)\n" +

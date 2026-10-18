@@ -1,5 +1,9 @@
 // Golden test for Watchful Curator (rad-037-167).
 //
+// Scenario execution evidence: ../templates/static-642.test.mjs.
+// This file keeps the validation/identity checks and the key structural
+// assertions; the real execution path for this card lives in that template row.
+//
 // judge-required: the static grant of [Deflect] is executable, but the target-tax
 // production and any-domain Power payment chain is still missing.
 // The production evidence is createEngineStaticBinder().bindStatic registering
@@ -20,6 +24,9 @@ import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createTargetTaxAdapter } from "../../../../engine-core/dist/target/tax/index.js";
+import { prepareCostPayment } from "../../../../engine-core/dist/cost/payment.js";
+import { DUEL_DOMAINS } from "../../../../engine-core/dist/cost/resources.js";
 
 const CANONICAL =
   "card.hash-dc5774a38ed543aac39bd40a45c96e08acddedf25a91e979a8a3576715ec1a5b";
@@ -105,8 +112,11 @@ test("rad-037-167 Watchful Curator: identity, status, judgeReason and verbatim s
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /options\.tax/);
+  assert.match(program.judgeReason, /target Finalize/);
+  assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /Energy mandatoryAdditional/);
   assert.match(program.judgeReason, /任意域 Power/);
+  assert.doesNotMatch(program.judgeReason, /改写为授予值/);
   assert.doesNotMatch(program.judgeReason, /RIFT-360/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -202,6 +212,43 @@ test("rad-037-167 Watchful Curator: the Deflect expansion the granted keyword fe
   assert.equal(grant.effect.kind, "continuous.grant-keyword");
 });
 
+test("rad-037-167 Watchful Curator: the merged Deflect target-tax adapter plans any-domain Power for the granted gear", () => {
+  // The card's static grant is exercised above through the real LayerEngine.
+  // Feed that resulting Deflect characteristic into the merged target-tax
+  // planner and assert the actual cost shape that the production Chain still
+  // needs to consume.
+  const kernel = world()
+    .player("A")
+    .player("B", { energy: 2, power: ["Calm"] })
+    .hand("spell", { owner: "B", controller: "B", types: ["spell"], energy: 2, power: [] })
+    .object("gear", {
+      owner: "A",
+      controller: "A",
+      types: ["gear"],
+      zone: "board",
+      location: { type: "base", player: "A" },
+      keywords: [{ id: "Deflect" }]
+    })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.object("spell"), controller: "B" });
+  const adapter = createTargetTaxAdapter(
+    context,
+    { id: "watchful-curator.tax", cost: { kind: "printed" }, domains: ["Calm"] },
+    { kind: "spell" }
+  );
+  const plan = adapter.finalizeTargetPlan(
+    { id: GRANT_TARGET, filter: { type: "gear", zone: "board" }, min: 1, max: 1, selection: "one" },
+    { selected: [context.ref("gear")] }
+  );
+  assert.deepEqual(plan.selected, [context.ref("gear")]);
+  assert.deepEqual(adapter.costPlan.total.power, [{ allowedDomains: DUEL_DOMAINS, amount: 1 }]);
+  assert.deepEqual(prepareCostPayment(context, adapter.costPlan).actions[0].action.plan, {
+    finalized: true,
+    energy: 2,
+    power: ["Calm"]
+  });
+});
+
 test("rad-037-167 Watchful Curator: the production static binder registers the grant for the layer engine", () => {
   // createEngineStaticBinder is the production adapter used by
   // attachProgramLifecycle; it turns bindStatic calls into ContinuousEffectSpec
@@ -234,7 +281,7 @@ test("rad-037-167 Watchful Curator: the production static binder registers the g
 });
 
 test.todo(
-  "rad-037-167 Watchful Curator: selecting granted-Deflect gear must append its target.tax " +
-    "automatically, require an any-domain Power payment per CR 809.1.c/809.1.c.1, and reject " +
-    "Finalize/Resolve when the opponent cannot pay; the production tax adapter and any-domain Power payment chain are still missing."
+  "rad-037-167 Watchful Curator: the static grant must feed the merged target-tax adapter " +
+    "during production target Finalize, require an any-domain Power payment per CR 809.1.c/809.1.c.1, " +
+    "and reject Finalize/Resolve when the opponent cannot pay; CardProgram/static and Chain wiring are still missing."
 );

@@ -1,3 +1,6 @@
+// Template execution evidence: ../templates/static-645.test.mjs.
+// This card remains judge-required; the template covers only the traversable
+// lifecycle and preserves the first-activation/cost wiring gap.
 import assert from "node:assert/strict";
 import test from "node:test";
 

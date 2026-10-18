@@ -8,8 +8,15 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { ChainContractBlockedError } from "../../../../engine-core/dist/chain/engine.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL =
   "card.hash-ab6b3fd38bb2a4975bf416bdfc074f82b2ad97c5aa662fe337dcb43a9074612d";
@@ -73,7 +80,9 @@ test("ven-080-166: the conquer trigger is an optional kill of one gear", () => {
   // 383.4.c.1："When I conquer" 是 Conquer Effect；封闭时点 conquer。
   assert.equal(ability.trigger.at, "conquer");
   assert.deepEqual(ability.trigger.filter, {
-    event: "conquer",
+    // 判别式取封闭词汇表 spelling："conquered"（EVENT_PATTERN_TYPES），
+    // pipeline-match 的 EVENT_NAMES 把它映射到 conquer 时点。
+    event: "conquered",
     filter: { source: "self" }
   });
   assert.equal(ability.trigger.condition, undefined);
@@ -86,6 +95,47 @@ test("ven-080-166: the conquer trigger is an optional kill of one gear", () => {
   assert.equal(optional.linkedTo, undefined);
   assert.equal(optional.args.body.kind, "constant");
   assert.equal(optional.args.body.value.length, 1);
+});
+
+test("ven-080-166: the printed conquer trigger now registers through the real program binder", () => {
+  // RIFT-733: the shipped program used the non-vocabulary spelling
+  // event: "conquer", which assertTriggerSpec rejected with
+  // invalid-event-type, so the ability never reached triggerRegistrations.
+  // The closed vocabulary spells it "conquered" (EVENT_PATTERN_TYPES) and
+  // pipeline-match maps that to the conquer timing point.
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const registry = new ProgramRegistry([lifted]);
+  const f = fixture();
+  const source = { ...f.kernel.getObject("source"), cardId: CANONICAL };
+
+  const registrations = triggerRegistrations(registry, source);
+  assert.equal(registrations.length, 1);
+  const [registration] = registrations;
+  assert.equal(registration.spec.at, "conquer");
+  // The translated pattern keeps the self anchor and the vocabulary spelling.
+  assert.deepEqual(registration.spec.filter, {
+    event: "conquered",
+    object: { objectId: "source" }
+  });
+  assert.equal(registration.optional, true);
+  assert.doesNotThrow(() => assertTriggerSpec(registration.spec));
+});
+
+test("ven-080-166: the merged conquer emission really matches the bound trigger pattern", () => {
+  const { kernel, host } = fixture();
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const source = { ...kernel.getObject("source"), cardId: CANONICAL };
+  const [registration] = triggerRegistrations(new ProgramRegistry([lifted]), source);
+
+  // A real scoring emission carries the conquer payload (no object for the
+  // scoring player unless the action names one); the self-object anchor is
+  // exercised against the object-bearing form the TurnFlow score wave emits.
+  const emission = { timingPoint: "conquer", kind: "conquer", player: "A", object: kernel.getObject("source"), details: { battlefieldId: "bf-1" } };
+  assert.equal(matchesTriggerEvent(registration.spec.filter, emission, "A"), true);
+  // A different object never satisfies the self anchor.
+  const foreign = { ...emission, object: kernel.getObject("enemy") };
+  assert.equal(matchesTriggerEvent(registration.spec.filter, foreign, "A"), false);
+  assert.equal(host.execute({ type: "score", player: "A", amount: 1 }).outcome.status, "done");
 });
 
 test("ven-080-166: the chosen body kills one gear and carries the Might gate", () => {
@@ -220,6 +270,31 @@ test("ven-080-166 golden: a stale gear is ignored by the original optional body"
   assert.equal(kernel.getObject("gear-piece").zone, "trash");
 });
 
+test("ven-080-166: the chain still refuses the nested gear target at Finalize", () => {
+  // RIFT-733: with the conquer spelling fixed the trigger now registers, so
+  // the next real seam is the nested target inside choice.optional. The chain
+  // Finalize rejects it before any target lock and the trigger stays pending.
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const f = fixture({
+    cards: [{ id: "demolitionist", cardId: CANONICAL, types: ["unit"], energy: 2, might: 1 }],
+    describePlay: binding.describePlay,
+    choose: request => (request.type === "optional" ? true : undefined)
+  });
+  binding.attachLifecycle(f.engine, () => {});
+
+  f.engine.commit({ type: "play", object: f.kernel.ref("demolitionist"), player: "A" });
+  f.engine.advance();
+  f.engine.emit({ timingPoint: "conquer", object: f.kernel.getObject("demolitionist"), player: "A" });
+  assert.deepEqual(f.engine.items.map(item => item.id + ":" + item.status), ["trigger:1:pending"]);
+
+  assert.throws(() => f.engine.advance(), error =>
+    error instanceof ChainContractBlockedError &&
+    /Nested\/repeated targets require an interpreter target-selection lifecycle adapter/.test(error.message));
+  // The rolled-back advance leaves the trigger pending and locks no target.
+  assert.deepEqual(f.engine.items.map(item => item.id + ":" + item.status), ["trigger:1:pending"]);
+});
+
 test.todo(
   "ven-080-166 Noxian Demolitionist: enforce Energy cost <= host effective Might in the Finalize legal-target " +
     "set (355.9.b / 143.2.a); a resolution-time condition cannot replace the dynamic target predicate (RIFT-359)"
@@ -227,5 +302,7 @@ test.todo(
 
 test.todo(
   "ven-080-166 Noxian Demolitionist: lock and revalidate the gear TargetSpec nested inside choice.optional " +
-    "through the chain target lifecycle before resolving the accepted may-body"
+    "through the chain target lifecycle before resolving the accepted may-body — chain/engine.ts " +
+    "assertFinalizationSurface still throws ChainContractBlockedError('Nested/repeated targets require an " +
+    "interpreter target-selection lifecycle adapter') for this body"
 );

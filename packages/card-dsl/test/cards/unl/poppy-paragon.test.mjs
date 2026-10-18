@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { createTargetTaxAdapter } from "../../../../engine-core/dist/target/tax/index.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/poppy-paragon.js";
@@ -32,10 +35,11 @@ test("unl-116-219 Poppy, Paragon: identity, status, judgeReason and verbatim sou
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /Deflect/);
   assert.match(program.judgeReason, /809\.1\.c/);
+  assert.match(program.judgeReason, /BoundTargetTax/);
   assert.match(program.judgeReason, /Victory Score/);
   assert.match(program.judgeReason, /194\.3/);
   // The reason must refuse to hard-code the default Victory Score of 8.
-  assert.match(program.judgeReason, /硬编码 8 就是臆造/);
+  assert.match(program.judgeReason, /不能硬编码胜利分数 8/);
   assert.doesNotMatch(program.judgeReason, /RIFT-\d+|缺 CardProgram → TriggerRegistration 适配器/);
 });
 
@@ -62,8 +66,11 @@ test("unl-116-219 Poppy, Paragon: 'When you play me' is a mandatory card-played 
 test("unl-116-219 Poppy, Paragon: the if clause is the trigger condition, not an instruction condition", () => {
   // 383.2.a.1: the trailing “if …” belongs to the trigger condition and is
   // evaluated when the ability triggers. The Victory Score has no read path, so
-  // the condition stays a named predicate instead of a hard-coded comparison.
-  assert.deepEqual(playTrigger.trigger.condition, {
+  // the condition keeps the named predicate as its documented shape and is
+  // explicitly blocked by never instead of a hard-coded comparison.
+  assert.equal(playTrigger.trigger.condition.kind, "all");
+  assert.deepEqual(playTrigger.trigger.condition.conditions[0], { kind: "never" });
+  assert.deepEqual(playTrigger.trigger.condition.conditions[1], {
     kind: "expression",
     value: { kind: "constant", value: "opponent-score-within-3-of-victory-score" }
   });
@@ -163,6 +170,57 @@ test.todo(
     "(CR 809.1.c/809.1.c.1) by adding a target.tax query and feeding the Finalize tax adapter from layers"
 );
 
+test("unl-116-219 Poppy, Paragon golden: the blocked Victory-Score gate keeps the play trigger off the chain", async () => {
+  // The named predicate alone would be true for any non-empty string (the
+  // merged expression evaluator coerces it), so the never block is what keeps
+  // the printed condition closed until a real Victory Score read exists.
+  const { evaluateCondition } = await import("../../../../engine-core/dist/effects/interpreter/condition.js");
+  const { world } = await import("../../../../engine-core/dist/effects/testing/index.js");
+
+  const kernel = world().player("A").player("B").build();
+  const environment = {
+    context: kernel, linked: () => undefined, canLookBack: () => false, isIgnored: () => false,
+    query: filter => kernel.query(filter)
+  };
+  assert.equal(kernel.player("A").score, 0);
+  assert.equal(kernel.player("B").score, 0);
+  assert.equal(evaluateCondition(playTrigger.trigger.condition.conditions[1], environment), true);
+  assert.equal(evaluateCondition(playTrigger.trigger.condition, environment), false);
+});
+
+test("unl-116-219 Poppy, Paragon golden: a real play publishes card-played but adds no chain item", async () => {
+  const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
+  const { fixture, resolveAll } = await import("../../../../engine-core/test/chain/helpers.mjs");
+
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const f = fixture({
+    cards: [{ id: "poppy", cardId: CANONICAL_ID, types: ["unit"], energy: 5, power: [], might: 5 }],
+    describePlay: binding.describePlay
+  });
+  const source = f.kernel.getObject("poppy");
+  const ids = binding.registerProgramTriggers(f.engine, { ...source, cardId: CANONICAL_ID, zone: "hand" });
+  assert.equal(ids.length, 1);
+
+  const hits = [];
+  f.engine.pipeline.onTrigger = snapshot => hits.push(snapshot.registration.id);
+  f.engine.execute({
+    id: "play:poppy", controller: "A", kind: "unit", speed: "normal",
+    source: f.kernel.getObject("poppy"), object: f.kernel.ref("poppy"), location: { type: "battlefield", id: "bf-1" }, body: []
+  });
+  resolveAll(f.engine);
+
+  // 359 / 383.4.a: the play really reached the card-played timing point.
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "card-played").length, 1);
+  // The blocked condition keeps the trigger out, so neither the ready half nor
+  // the XP half ever ran.
+  assert.deepEqual(hits, []);
+  assert.equal(f.kernel.player("A").xp, 0);
+  assert.equal(f.kernel.player("B").xp, 0);
+  assert.equal(f.kernel.getObject("poppy").exhausted, true);
+});
+
 test("unl-116-219 Poppy, Paragon: every deck-level dependency of the trigger is merged", () => {
   // 383.4.a.1: "When you play me" is a Play Effect, so the merged card-played
   // timing and the card-program registration path cover the subscription itself. The
@@ -174,4 +232,37 @@ test("unl-116-219 Poppy, Paragon: every deck-level dependency of the trigger is 
   const [tax] = keywordDefinitionsById.get("Deflect").expand({ value: 1, host: { canonicalCardId: CANONICAL_ID } });
   assert.equal(tax.effect.kind, "target.tax");
   assert.deepEqual(tax.effect.value, { kind: "constant", value: 1 });
+});
+
+test("unl-116-219 Poppy, Paragon golden: its expanded Deflect charges any-domain Power through the merged tax adapter", () => {
+  for (const [controller, power, payable, expectedTax] of [
+    ["B", ["Mind"], true, 1],
+    ["A", [], true, 0],
+    ["B", [], false, 1]
+  ]) {
+    const initial = world().player("A", { energy: 20, power })
+      .hand("spell", { types: ["spell"], energy: 1, power: [] })
+      .unit("poppy", { owner: "B", controller, cardId: CANONICAL_ID, might: 5 }).build();
+    const kernel = initial.clone({ sourceSnapshot: initial.getObject("spell") });
+    const target = kernel.getObject("poppy");
+    const expanded = createProgramBinding({ cardPrograms: [program] }).inspect(target).abilities;
+    const tax = expanded.find(ability => ability.kind === "static" && ability.effect.kind === "target.tax");
+    assert.ok(tax);
+    const adapter = createTargetTaxAdapter(kernel, { id: "choose-poppy", cost: { kind: "printed" } }, {
+      kind: "spell", effects: [{ id: "poppy-deflect", target: target.ref, effect: tax.effect }]
+    });
+    const requirement = { id: "poppy", filter: { type: "unit", zone: "board" }, min: 1, max: 1 };
+    assert.deepEqual(adapter.queryTargetCandidates(requirement), payable ? [target.ref] : []);
+    if (!payable) {
+      // Energy alone cannot cover Deflect (809.1.c.1).
+      assert.equal(kernel.player("A").energy, 20);
+      continue;
+    }
+    assert.deepEqual(adapter.finalizeTargetPlan(requirement, { selected: [target.ref] }).selected, [target.ref]);
+    assert.equal(adapter.costPlan.total.energy, 1);
+    assert.equal(adapter.costPlan.total.power.reduce((sum, item) => sum + item.amount, 0), expectedTax);
+    const receipt = payCostPlan(kernel, adapter.costPlan);
+    assert.deepEqual(receipt.actions[0].action.plan.power, power);
+    assert.equal(kernel.player("A").energy, 19);
+  }
 });

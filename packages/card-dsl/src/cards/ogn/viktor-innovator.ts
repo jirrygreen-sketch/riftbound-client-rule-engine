@@ -2,16 +2,23 @@ import type { CardProgram } from "../../ir/index.js";
 
 /**
  * Viktor, Innovator — CR v1.5 383.2.a.1, 187.1, 185.2.a, 440.2.c.
- * Trigger registration and token Expr dispatch are merged. Resolve the ability
- * controller's base through condition.value before playing the Recruit there.
- * Trigger-time turn ownership remains blocked (RIFT-359).
+ * 复核 2026-10-17：token 半段已有真实执行证据；「on an opponent's turn」仍缺
+ * 可在 Condition/Expr 里读取事件回合归属的谓词，占位常量恒真会过度触发。
  */
 const viktorInnovator = {
   canonicalCardId: "card.hash-27a69aef36a430f79f170618dfa72e36b2605b39fa8a3a67366ac01669844aa0",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「on an opponent's turn」需要 CR 383.2.a.1 的触发时回合归属谓词；Condition/Expr 目前不能读取事件的 activePlayerId，常数字符串占位不构成语义（条件谓词 RIFT-359）。",
+    "「on an opponent's turn」仍缺触发时回合归属谓词（2026-10-17 复核，CR 383.2.a.1）：" +
+    "条件里保留的表达式只是常量占位，evaluateCondition 对 expression 取 Boolean(常量) 恒真，" +
+    "实测把本卡放到控制者自己的回合、以 card-played 触发，生产注册后照样追加了 1 个触发链项。" +
+    "事件本身携带 activePlayerId（events/pipeline.ts 构造的 PipelineEvent 有该字段），" +
+    "但 Condition/Expr 没有读取它的成员，也没有与之比较的相对回合归属谓词；" +
+    "已合入的 predicate 只覆盖 played-from-hand / played-from-zone / event-printed / result，均不涉及回合归属。" +
+    "没有该谓词就不能声称整卡可执行；不从常量占位近似放行。" +
+    "已合入并有执行证据：触发注册接线、condition.value 解析能力控制者基地，以及 effect.token 的 play 模式" +
+    "（先在链上生成再打入基地，token 无印刷费用、1 Might）。",
   abilities: [
     {
       kind: "triggered",

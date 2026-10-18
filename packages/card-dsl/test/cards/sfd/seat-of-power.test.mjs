@@ -8,6 +8,7 @@ import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL =
   "card.hash-8ad41dd9ba742358d12656164c456e4f9cc43b4712fcb9c9f120661d5c208fac";
@@ -65,9 +66,13 @@ test("sfd-217-221: conquer trigger whose draw amount is the qualifying battlefie
   // 053.3 "here" + 190.6.d "you"; sibling battlefield programs keep this
   // placeholder spelling while battlefield-relative trigger filtering is missing.
   assert.deepEqual(ability.trigger.filter, {
-    event: "conquer",
+    // The closed EventPattern discriminant for the conquer timing point
+    // (events/pipeline-match.ts maps conquered -> conquer).
+    event: "conquered",
     here: true,
-    player: "controller"
+    // "you" is the ability controller (190.6.d); PlayerSelector "self" is the
+    // frozen vocabulary for "the trigger controller performed the action".
+    player: "self"
   });
   assert.equal(ability.optional, false);
   assert.equal(ability.trigger.once, undefined);
@@ -107,7 +112,7 @@ test("sfd-217-221: the card keeps the printed count/here spellings instead of ap
   assert.deepEqual(drawInstruction.args.amount.filter.controller, "you-or-ally");
   assert.equal(drawInstruction.args.amount.filter.exclude, "self");
   assert.equal(ability.trigger.filter.here, true);
-  assert.equal(ability.trigger.filter.player, "controller");
+  assert.equal(ability.trigger.filter.player, "self");
   // No hard-coded 1 for the "for each" amount, and no second draw instruction.
   assert.equal(ability.body.length, 1);
   assert.equal(drawInstruction.args.amount.kind, "count");
@@ -153,24 +158,25 @@ test("sfd-217-221: zero qualifying battlefields draws zero cards", () => {
 
 test("sfd-217-221: the trigger keeps the printed battlefield-relative here restriction instead of a substitute event", () => {
   // Durable guard: the card must keep the printed "conquer here" restriction.
-  // While the EventPattern vocabulary has no battlefield-relative anchor the
-  // spec must fail closed (never silently register a broader conquer trigger
-  // that would draw on every battlefield); once the anchor lands the same
-  // printed restriction is what gets validated.
+  // The discriminant is now a legal closed value, but the battlefield-relative
+  // anchor still has no vocabulary, so the spec must keep failing closed — never
+  // silently register a broader conquer trigger that would draw on every
+  // battlefield. A static program cannot substitute a concrete battlefield id
+  // either, because the id only exists at runtime in details.battlefieldId.
   assert.equal(ability.trigger.at, "conquer");
   assert.equal(ability.trigger.filter.here, true);
   const validation = validateTriggerSpec(ability.trigger);
-  if (!validation.ok) {
-    // Until the vocabulary lands, every rejection must concern exactly the
-    // printed placeholders (here / conquer / controller selector) — never a
-    // silently narrowed or substituted trigger.
-    const paths = [...new Set(validation.issues.map((issue) => issue.path))].sort();
-    assert.deepEqual(paths, [
-      "trigger.filter.event",
-      "trigger.filter.here",
-      "trigger.filter.player"
-    ]);
-  }
+  assert.equal(validation.ok, false, "the printed here restriction still has no vocabulary");
+  assert.deepEqual([...new Set(validation.issues.map((issue) => issue.path))], ["trigger.filter.here"]);
+  assert.equal(ability.trigger.filter.event, "conquered");
+  assert.equal(ability.trigger.filter.player, "self");
+
+  // The merged card-program adapter rejects the same placeholder, so no
+  // faithful registration exists yet (RIFT-257 binding path).
+  assert.throws(
+    () => translateTriggerFilter(ability.trigger.filter, "seat", "conquer"),
+    (error) => error.code === "judge-required" && /Unsupported filter field here/.test(error.message)
+  );
 });
 
 test.todo(

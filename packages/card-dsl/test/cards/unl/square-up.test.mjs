@@ -1,3 +1,10 @@
+// Golden test for Square Up (unl-017-219) — layers 1 and 2 of cards/README §4
+// (validation/identity and structure).
+//
+// Execution evidence (4 Energy payment, board-unit target, end-of-turn
+// ability-layer Assault 4 registration and the Assault-stacking boundary) lives
+// in the parameterized template golden:
+// test/cards/templates/keyword-play-continuous-grant-keyword-681.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -6,6 +13,9 @@ import program from "../../../dist/cards/unl/square-up.js";
 import grantKeyword from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-e4dc01dd2f105796f021b575a0dcf055c0b996025247706f3605affedf193ce6";
@@ -31,7 +41,12 @@ test("unl-017-219 Square Up: identity, status, judgeReason and verbatim sourceTe
   assert.match(program.judgeReason, /Assault/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /Repeat/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /combatRole/);
+  // 2026-10-18 re-sweep: the reason names the measured production gaps.
+  assert.match(program.judgeReason, /expr-ext/);
+  assert.match(program.judgeReason, /repeat\.cost/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
 });
 
 test("unl-017-219 Square Up: [Repeat] declared plus a duration-bounded Assault 4 grant to one unit", () => {
@@ -94,10 +109,60 @@ test("unl-017-219 Square Up golden: the printed target receives Assault 4 throug
   assert.deepEqual(layers.snapshot(target).keywords, []);
 });
 
+test("unl-017-219 Square Up golden: the granted Assault 4 gate is failed closed by the production static binder (CR 807.1.c / 807.1.d.1)", () => {
+  // The grant lands on the unit, but 807.1.c's Might modification only applies
+  // while the unit is an attacker. The Assault expansion gates it on
+  // compare(object-property(self, "designation"), eq, "attacker") and the
+  // production binder evaluates that gate with the base interpreter, which has
+  // no "designation" characteristic: the read raises MissingInformation and the
+  // catch turns the gate into false, so no role gains Might. The merged
+  // expr-ext evaluator already maps designation to combatRole but has no
+  // production caller, and combat/flow.ts still blocks at
+  // combat-start-transaction before any role exists.
+  const [assaultExpansion] = keywordDefinitionsById.get("Assault").expand({
+    value: 4,
+    host: { canonicalCardId: CANONICAL_ID }
+  });
+  assert.equal(assaultExpansion.condition.left.property, "designation");
+
+  const results = ["attacker", "defender", null].map(combatRole => {
+    const f = fixture({ cards: [] });
+    const source = { ...f.kernel.getObject("source"), might: 3, combatRole };
+    const handle = createEngineStaticBinder(f.engine).bindStatic(assaultExpansion, source);
+    const layered = createLayerEngine([source], f.engine.layers.registry.list()).evaluate(source.ref);
+    handle.unbind();
+    return [combatRole, layered.might];
+  });
+  assert.deepEqual(results, [
+    // 807.1.d.1 would need 7 for the attacker; the real layer result is flat.
+    ["attacker", 3],
+    ["defender", 3],
+    [null, 3]
+  ]);
+});
+
+test("unl-017-219 Square Up: the Repeat expansion's repeat.cost declaration is still refused by the production binder", () => {
+  // 820.1.a / 820.1.c: the printed "Repeat - Discard 1" is an optional
+  // additional cost. The merged Repeat keyword expands a static repeat.cost
+  // declaration, but programs/statics.ts has no layer for that kind, so the
+  // declaration cannot be bound and the card's keyword never reaches Finalize.
+  const [repeatCost] = keywordDefinitionsById.get("Repeat").expand({
+    host: { canonicalCardId: CANONICAL_ID }
+  });
+  assert.equal(repeatCost.kind, "static");
+  assert.equal(repeatCost.effect.kind, "repeat.cost");
+  const f = fixture({ cards: [] });
+  const source = f.kernel.getObject("source");
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(repeatCost, source),
+    /Static ability kind repeat\.cost has no layer mapping/
+  );
+});
+
 test.todo(
-  "unl-017-219 Square Up: the granted Assault expands to +4 Might while the unit is an attacker " +
-    "(807.1.c / 807.1.d.1) — the current condition evaluator does not consume combatRole/designation " +
-    "(RIFT-359)"
+  "unl-017-219 Square Up: the granted Assault expires with the turn and then contributes +4 Might while " +
+    "the unit is an attacker (807.1.c / 807.1.d.1 / 317.2.c) — the grant and its expiry are executed in the " +
+    "template golden; the designation gate needs the expr-ext read wired into the static-condition evaluator"
 );
 test.todo(
   "unl-017-219 Square Up: paying Repeat's printed Discard 1 cost executes the spell's effect one additional time " +

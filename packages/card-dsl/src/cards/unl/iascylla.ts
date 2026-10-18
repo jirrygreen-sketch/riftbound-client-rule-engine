@@ -22,19 +22,21 @@ import type { CardProgram } from "../../ir/index.js";
  * - 355.5.b / 359.3.f.3.b：该延迟触发的选择（移动哪个敌方单位）在其 finalize 时
  *   才做出，因此 TargetSpec 随 choice.optional 节点声明，而不是在 hold 触发时锁定。
  *
- * status = judge-required（按当前 HEAD 复核；缺口不近似实现）：
+ * status = judge-required（按 2026-10-17 HEAD 复核；缺口不近似实现）：
+ * - hold 订阅本身已可注册：封闭词表 held 经 pipeline-match.ts 映射到运行期 hold，实测
+ *   registerProgramTriggers 成功注册该触发，且手工带上本卡对象的 hold 发射能命中。
+ * - 但生产 hold 发射不带参与固守的单位对象：turn/flow.ts 的计分波只发
+ *   { player, details: { battlefieldId } }，{ source: "self" } 订阅因此不会命中，
+ *   359.3.f.3.b 要求的「生成延迟触发时锁定她固守的战场」没有来源。
  * - 卡牌侧延迟注册仍不可执行：解释器没有 trigger.delayed 的已注册指令实现，实测把
- *   本卡的原始 body 交给生产解释器即抛 Error "Unregistered instruction opcode: trigger.delayed"。
+ *   本卡的原始 body 交给生产解释器即抛 "Unregistered instruction opcode: trigger.delayed"。
  *   内部 ResolveContext.registerDelayedTrigger 接缝（chain/engine.ts 注册 delayed 触发器）只有
  *   引擎内部调用方，没有任何 effects/instructions 消费它；卡牌无法自行创建延迟能力。
  * - “at the start of your next Main Phase” 的一次性窗口仍缺：封闭时点表只有 main-start，
  *   没有「控制者下一次 Main Phase 的 main-start」相对窗口，注册发生在固守结算（Beginning）后，
  *   同一回合的 main-start 无法区分。
- * - 「this battlefield」的固守地点仍无法锁定：hold 的 Score 波只有 player/details.battlefieldId
- *   （turn/flow.ts 的 scheduleScore），事件不带参与固守的单位对象，{ source: "self" } 订阅因此
- *   不会命中，359.3.f.3.b 要求的“生成延迟触发时锁定她固守的战场”没有来源。
- * 通用 source-location/linked-location 已合入；缺口是生产事件的参与单位与地点捕获，不能用
- * 结算时宿主的位置替代（359.3.f.3.b）。
+ * 通用 source-location/linked-location 已合入；缺口是延迟注册指令入口、相对窗口与生产事件的
+ * 参与单位/地点捕获，不能用结算时宿主的位置替代（359.3.f.3.b）。
  */
 
 /**
@@ -53,14 +55,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺：(1) trigger.delayed 的卡牌指令入口——effects/instructions 没有已注册实现，实测把本卡原始 body 交给生产解释器抛 " +
+    "仍缺（均不近似实现）：(1) 生产 hold 发射不带参与固守的单位对象——turn/flow.ts 的计分波只发 { player, details: { battlefieldId } }，" +
+    "{ source: \"self\" } 订阅实测注册成功但在该发射上不会命中；359.3.f.3.b 要求生成延迟触发时锁定她固守的战场，来源不存在。" +
+    "(2) trigger.delayed 的卡牌指令入口——effects/instructions 没有已注册实现，实测把本卡原始 body 交给生产解释器抛 " +
     "\"Unregistered instruction opcode: trigger.delayed\"；内部 registerDelayedTrigger 接缝只由引擎内部调用。" +
-    "(2) 控制者下一次 main-start 的一次性窗口（CR 391.2/392/393）：封闭表只有 main-start，没有相对「下一个」Main Phase 的窗口，" +
+    "(3) 控制者下一次 main-start 的一次性窗口（CR 391.2/392/393）：封闭表只有 main-start，没有相对「下一个」Main Phase 的窗口，" +
     "而注册发生在固守结算（Beginning）之后，同一回合的 main-start 无法区分。" +
-    "(3) hold 的 Score 波仅带 player/details.battlefieldId（turn/flow.ts），没有参与固守的单位对象，" +
-    "{ source: \"self\" } 订阅不会命中，359.3.f.3.b 的「生成延迟触发时锁定她固守的战场」没有来源；" +
-    "还需把该 battlefieldId 锁进延迟能力，以保持宿主随后移动或离场后的地点指代。" +
-    "effect.move 本体与 355.5.b 的目标锁定已有执行证据（golden）。",
+    "effect.move 本体、355.5.b 的目标锁定与 held 订阅注册已有执行证据（golden）。",
   abilities: [
     {
       kind: "triggered",

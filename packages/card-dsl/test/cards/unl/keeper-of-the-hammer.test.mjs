@@ -34,6 +34,11 @@ test("unl-203-219 Keeper of the Hammer: identity, status, judgeReason and verbat
   assert.match(program.judgeReason, /legend-zone/);
   assert.match(program.judgeReason, /107\.4/);
   assert.match(program.judgeReason, /cost\/payment\.ts/);
+  // The merged halves are named as executable; the live gap is the Legend
+  // object's zone in the exhaust payment.
+  assert.match(program.judgeReason, /held 拼写/);
+  assert.match(program.judgeReason, /cannot-pay-cost/);
+  assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
 test("unl-203-219 Keeper of the Hammer: 'When you hold, gain 1 XP' is one mandatory Hold Effect", () => {
@@ -137,6 +142,65 @@ test("unl-203-219 Keeper of the Hammer golden: the printed body runs through the
   assert.deepEqual(outcome.events.map(event => event.action), ["gain-xp"]);
 });
 
+test("unl-203-219 Keeper of the Hammer golden: the held subscription registers and the hold emission gains 1 XP through the chain", () => {
+  // 383.4.d.2.b / 473.2.b: the closed `held` spelling registers against the
+  // runtime `hold` point, so turn/flow.ts's Beginning Score wave reaches this
+  // ability and the merged effect.xp body resolves through the real ChainEngine.
+  return Promise.all([
+    import("../../../../engine-core/dist/programs/index.js"),
+    import("../../../../engine-core/dist/programs/triggers.js"),
+    import("../../../../engine-core/dist/effects/testing/index.js"),
+    import("../../../../engine-core/dist/events/action-adapter.js"),
+    import("../../../../engine-core/dist/chain/engine.js")
+  ]).then(([{ createProgramBinding }, { registerProgramTriggers, triggerRegistrations }, { world }, { createActionPipelineHost, bindResolveContext }, { ChainEngine }]) => {
+    const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+    const kernel = world().unit("poppy", { cardId: CANONICAL_ID, types: ["legend"], might: null }).build();
+    const source = kernel.getObject("poppy");
+    const [registration] = triggerRegistrations(binding.registry, source);
+    assert.equal(registration.spec.at, "hold");
+    assert.deepEqual(registration.spec.filter, { event: "held", player: "self" });
+
+    const host = createActionPipelineHost({
+      checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+      restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+      objects: () => kernel.objects,
+      perform: action => kernel.perform(action),
+      choose: request => { throw new Error(`Unexpected choice ${request.id}`); },
+      context: (snapshot, controller, timingPoint) => bindResolveContext(kernel, { source: snapshot, controller, timingPoint })
+    });
+    const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "beginning", host, cleanup: () => false });
+    assert.deepEqual(registerProgramTriggers(binding.registry, engine, source), [`program:poppy:${source.ref.zoneEntryId}:0`]);
+
+    engine.emit({ timingPoint: "hold", player: "A", details: { battlefieldId: "battlefield-1" } });
+    assert.equal(engine.items.length, 1);
+    engine.advance();
+    let guard = 0;
+    while (engine.items.length && guard++ < 20) engine.pass(engine.priority);
+    assert.equal(kernel.player("A").xp, 1);
+    assert.equal(kernel.player("B").xp, 0);
+    assert.equal(engine.pipeline.events.filter(event => event.timingPoint === "xp-gained").length, 1);
+  });
+});
+
+test("unl-203-219 Keeper of the Hammer gap: the same exhaust plan is unpayable while the legend sits in the Chain", () => {
+  // CR 107.4.a/107.4.c: the legend is a Legend Zone object and must be able to
+  // pay an exhaust cost. game/lifecycle.ts creates it in the Chain and only
+  // records report.legendZone, so the merged payer rejects it.
+  const kernel = world()
+    .player("A", { xp: 4 })
+    .unit("poppy", { zone: "board", types: ["legend"], controller: "A", exhausted: false })
+    .build();
+  kernel.perform({ type: "move-zone", object: kernel.ref("poppy"), to: "chain" });
+  const ctx = kernel.clone({ sourceSnapshot: kernel.object(kernel.ref("poppy")) });
+  assert.equal(ctx.object(ctx.ref("poppy")).zone, "chain");
+  assert.throws(
+    () => payCostPlan(ctx, buildCostPlan(ctx, { id: "keeper-of-the-hammer", cost: drawAbility.cost })),
+    error => error?.reason === "cannot-pay-cost"
+  );
+  assert.equal(ctx.player("A").xp, 4);
+  assert.equal(ctx.object(ctx.ref("poppy")).exhausted, false);
+});
+
 test("unl-203-219 Keeper of the Hammer golden: fewer than 3 XP fails the cost before any exhaust", () => {
   const kernel = world()
     .player("A", { xp: 2 })
@@ -162,6 +226,6 @@ test.todo(
     "the same object identity (CR 107.4.a/107.4.c; ZoneId and exhaust-cost legality contract)"
 );
 test.todo(
-  "unl-203-219 Keeper of the Hammer: the hold timing point reaches this ability through the trigger-to-chain " +
-    "pipeline, and the activated CardProgram body reaches the ChainDraft adapter"
+  "unl-203-219 Keeper of the Hammer: the activated CardProgram body reaches the ChainDraft adapter once the " +
+    "Legend object has a Legend Zone membership"
 );

@@ -35,22 +35,26 @@ import type { CardProgram } from "../../ir/index.js";
  *   lifetime (it lasts as long as the condition holds), not a Buff counter
  *   (702) and not a one-shot effect.
  *
- * Status: judge-required (2026-10-17 recheck, each half probed). The merged
+ * Status: judge-required (2026-10-18 recheck, each half probed). The merged
  * program lifecycle and continuous.might binding are available: the static
  * registers and the condition really gates the +1 Might. The remaining gaps:
  * - no filter path evaluates the "[Deploy]" keyword qualifier. layers/filter.ts
  *   ignores unknown keys (`keywords` returns true for a gear without Deploy),
- *   and `characteristics.keywords` compares a list to a scalar; the 
- *   interpreter's Expr/Condition vocabulary has no keyword predicate either
- *   (evaluateCondition throws "Unsupported condition: has-keyword").
+ *   and `characteristics.keywords` compares a list to a scalar (measured: the
+ *   array spelling is false even for a gear that really has Deploy); the
+ *   interpreter's Condition vocabulary has no keyword predicate either
+ *   (evaluateCondition throws "Unsupported condition: has-keyword"), and
+ *   programs/filters.ts rejects both `keywords` and `keyword` with
+ *   "Unsupported filter field".
  * - the condition's relative player anchor is unsupported, and the two merged
  *   query paths fail in opposite directions: layers/filter.ts resolves
  *   `controller: "self"` as object.controller === object.controller, so an
- *   opposed gear at the same battlefield satisfies the clause (probed: enemy
+ *   opposed gear at the same battlefield satisfies the clause (probed: opposed
  *   gear -> true, would grant +1 with no friendly gear), while the interpreter
  *   set query compares the string literally to a player id, so a real friendly
- *   gear does not satisfy it (probed: false). A literal id works, but a card
- *   program must not hardcode a player.
+ *   gear does not satisfy it (probed: controller "self" -> 0 matches, controller
+ *   "any" -> 0, explicit "A" -> the real matches). A literal id works, but a
+ *   card program must not hardcode a player.
  * - plus the catalog's Spell/Unit mismatch (reported, not fixed here).
  */
 export default {
@@ -58,18 +62,20 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "2026-10-17 复核后仍有两处规则缺口与一处数据问题（均实测）：" +
+    "2026-10-18 复核后仍有两处规则缺口与一处数据问题（均实测）：" +
     "(1) continuous.might 的静态绑定路径已合入且条件真的生效，但任何过滤路径都求不出 [Deploy] 关键词谓词（CR 830.3）：" +
-    "layers/filter.ts 对未知键（keywords）恒真（实测无 Deploy 的 gear 也匹配），characteristics.keywords 则把列表与标量比较；" +
-    "解释器的 Expr/Condition 词表也没有关键词谓词（实测 evaluateCondition 抛 Unsupported condition: has-keyword）；" +
-    "该谓词属于 RIFT-359 条件/谓词工作流，不能用未知 filter 字段近似。" +
+    "layers/filter.ts 对未知键（实测 keywords: [\"Deploy\"] 对没有 Deploy 的 gear 也匹配）恒真，" +
+    "characteristics.keywords 把列表与标量比较（对真有 Deploy 的 gear 也判 false）；" +
+    "解释器的 Condition 词表没有关键词谓词（实测 evaluateCondition 抛 Unsupported condition: has-keyword），" +
+    "programs/filters.ts 也同时拒绝 keywords 与 keyword（Unsupported filter field）。" +
+    "通用测试台实测：带 [Deploy] 的 gear 与不带 [Deploy] 的 gear 同样让来源从 2 变成 3。" +
     "(2) 条件的相对玩家锚点在两条已合并查询路径上都不成立，且失败方向相反：" +
     "layers/filter.ts 把 controller: \"self\" 解析成 object.controller === object.controller，" +
     "实测同战场的敌方 gear 也满足该 clause（会凭空获得 +1 Might）；" +
-    "解释器集合查询则把该字符串按玩家 id 字面比较，实测真正的友方 gear 反而判 false（fail-closed）。" +
-    "显式玩家 id 才行，但卡程序不能写死玩家，故仍需来源相对语义。" +
+    "解释器集合查询则把该字符串按玩家 id 字面比较，实测场上确有友方 gear 时 controller: \"self\" 仍返回 0 条（fail-closed），" +
+    "只有显式玩家 id 才能匹配，但卡程序不能写死玩家，故仍需来源相对语义。" +
     "(3) card-data 把本印刷标为 Spell 且 might=2，但文本是永久 Unit 的静态 Might 能力（CR 143.2）；" +
-    "本任务不修改该数据问题。依赖 RIFT-359；不近似实现。",
+    "本任务不修改该数据问题。不近似实现。",
   abilities: [
     {
       kind: "static",

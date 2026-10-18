@@ -1,8 +1,12 @@
+// The entry replacement and the cost collector each have real execution
+// evidence below; the production joins that remain unavailable stay TODO.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/monch.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
@@ -29,7 +33,7 @@ test("unl-035-219 Monch: identity, status, judgeReason and verbatim sourceText",
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /356\.4/);
-  assert.match(program.judgeReason, /cost\.modify/);
+  assert.match(program.judgeReason, /continuous\.cost-modification/);
   assert.match(program.judgeReason, /replacement\/bind\.ts/);
   assert.match(program.judgeReason, /369\.3/);
   // Replacement binding and its filter shape are merged; the remaining reason
@@ -44,7 +48,9 @@ test("unl-035-219 Monch: the -2 energy discount is declared as a gated cost modi
   assert.equal(costModification.effect.kind, "continuous.cost-modification");
   assert.equal(costModification.effect.resource, "energy");
   assert.deepEqual(costModification.effect.amount, { kind: "constant", value: -2 });
-  assert.equal(costModification.effect.appliesTo, "self-play-cost");
+  // "self" is the current self-scope spelling; the remaining gap is the
+  // missing CardProgram-to-Finalize production join, not the scope spelling.
+  assert.equal(costModification.effect.appliesTo, "self");
   assert.equal(costModification.effect.filter, undefined);
 });
 
@@ -104,7 +110,7 @@ test("unl-035-219 Monch golden: a source that already entered ready is not readi
 });
 
 test("unl-035-219 Monch golden: the merged replacement layer binds the declared entry replacement", () => {
-  // RIFT-260's bindReplacement accepts this card's { replaces, with } shape and
+  // The merged bindReplacement path accepts this card's { replaces, with } shape and
   // intercepts the board-entry move, correcting the orientation before the
   // permanent lands (CR 369.3 / 805.6). The binding is created with the real
   // chain fixture; the card's own declared body drives it.
@@ -147,33 +153,50 @@ test("unl-035-219 Monch: the printed condition is an opponent-scoped stunned-uni
   assert.deepEqual(enterReady.replaces.filter, { self: true, exhausted: true });
 });
 
-test("unl-035-219 Monch: the two printed effects share the one gating condition (383.2.a.1)", () => {
+test("unl-035-219 Monch: the two printed effects share the one passive condition (364.3.a)", () => {
   // Both halves are gated by the same lead-in clause, which the card states once
   // and reuses; the golden pins that they cannot drift apart.
   assert.equal(costModification.kind, "static");
   assert.equal(enterReady.kind, "replacement");
   assert.deepEqual(costModification.condition, enterReady.condition);
-  // The condition is compared against the merged evaluator's vocabulary; the
-  // layer/replacement consumers for it are the recorded gaps (test.todo).
+  // The production static binder wraps evaluateCondition; the remaining
+  // consumers are Finalize discounts and conditional entry replacement.
   assert.equal(costModification.condition.kind, "compare");
   assert.deepEqual(costModification.condition.right, { kind: "constant", value: 1 });
 });
 
-test.todo(
-  "unl-035-219 Monch: install the printed -2 energy discount into the play's finalized cost plan " +
-    "(CR 356.4/356.4.a) — cost/cost-plan.ts only applies caller-supplied CostPlanInput.discounts, " +
-    "programs/play.ts's translateCost rejects the discount field, so the static cost.modify effect is not " +
-    "consumed by Finalize"
-);
+test("unl-035-219 Monch golden: the merged cost collector applies the conditional -2 Energy discount and pays it", () => {
+  const kernel = world()
+    .player("A", { energy: 10 })
+    .player("B")
+    .hand("monch", { owner: "A", controller: "A", types: ["unit"], energy: 6, power: [] })
+    .unit("stunned-enemy", { owner: "B", controller: "B", zone: "board", stunned: true })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("monch"), controller: "A" });
+  const statics = [{ id: "monch:discount", source: context.ref("monch"), ability: costModification }];
+  const plan = finalizeCostPlan(context, { id: "monch:play", cost: { kind: "printed" } }, { statics, purpose: "play" });
+
+  assert.equal(plan.total.energy, 4);
+  assert.equal(plan.printed.energy, 6);
+  assert.equal(plan.discounts.length, 1);
+  assert.equal(payCostPlan(context, plan).paid, true);
+  assert.equal(context.player("A").energy, 6);
+
+  context.perform({ type: "move-zone", object: context.ref("stunned-enemy"), to: "trash" });
+  assert.equal(
+    finalizeCostPlan(context, { id: "monch:play-again", cost: { kind: "printed" } }, { statics, purpose: "play" }).total.energy,
+    6,
+    "the condition is re-evaluated against the current board"
+  );
+});
+
 test.todo(
   "unl-035-219 Monch: register the 'I enter ready' board-entry replacement before the zone change " +
     "(CR 143.4/359.2.c/369.3) — replacement/bind.ts binds this shape, but entry interception " +
     "does not evaluate the ability condition before applying the replacement; a post-entry effect.ready must not be substituted"
 );
 test.todo(
-  "unl-035-219 Monch: evaluate 'if an opponent controls a stunned unit' on both halves — layers/engine.ts " +
-    "conditionMatches has no compare branch and replacement/bind.ts's entry path returns before " +
-    "testCondition"
+  "unl-035-219 Monch: evaluate 'if an opponent controls a stunned unit' on the entry replacement — replacement/bind.ts intercepts the chain entry before testCondition"
 );
 test.todo(
   "unl-035-219 Monch: fire the play-time cost modification and entry replacement from the real play flow " +

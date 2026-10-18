@@ -42,12 +42,15 @@ test("sfd-074-221 Pickpocket: program validates, is registered and stays judge-r
   );
 });
 
-test("sfd-074-221 Pickpocket: judgeReason names the cost filter, receipt and Gold-token gaps", () => {
+test("sfd-074-221 Pickpocket: judgeReason names current cost/Gold/entry gaps and the merged kill receipt", () => {
   assert.match(program.judgeReason, /206/);
   assert.match(program.judgeReason, /costEnergyLte/);
   assert.match(program.judgeReason, /359\.3\.e\.14\.b/);
   assert.match(program.judgeReason, /187\.5/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /linked-value \+ compare/);
+  assert.match(program.judgeReason, /非空 killed 回执/);
+  assert.match(program.judgeReason, /184\.1\/185\.2\.d/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-90|condition\.result|没有动作\/费用回执绑定/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -89,10 +92,15 @@ test("sfd-074-221 Pickpocket: the kill and the Gold play keep their declared sha
   assert.equal(killInstruction.targets, undefined);
   assert.equal(killInstruction.linkedTo, undefined);
   // 359.3.e.14.b: "If you do" directly references the kill action, so the Gold
-  // play is deliberately not chained with linkedTo (which would not gate on the
-  // action) and no invented condition is attached (see judgeReason).
+  // play reads the actual killed receipt. linkedTo alone would still allow a
+  // negated kill through (359.3.e.14.b); the nonempty-receipt condition gates it.
   assert.equal(killInstruction.condition, undefined);
-  assert.equal(tokenInstruction.condition, undefined);
+  assert.deepEqual(tokenInstruction.condition, {
+    kind: "compare",
+    left: { kind: "linked-value", instructionId: KILL_ID, key: "killed" },
+    operator: "ne",
+    right: { kind: "constant", value: [] }
+  });
   assert.equal(tokenInstruction.linkedTo, undefined);
 
   // 440.2.c / 185.2.a: a played token is created on the Chain; 184.1/185.2.d:
@@ -151,6 +159,77 @@ test("sfd-074-221 Pickpocket golden: declining skips the kill and leaves the gea
   assert.deepEqual(outcome.events, []);
 });
 
+test("sfd-074-221 Pickpocket kill receipt: only a successful kill reaches the original Gold instruction", () => {
+  const kernel = world()
+    .unit("pickpocket", { might: 3 })
+    .unit("cheap-gear", { types: ["gear"], energy: 1 })
+    .build();
+  const gearRef = kernel.ref("cheap-gear");
+  const outcome = resolveWith(kernel, { gearRef, accepted: true });
+
+  assert.equal(resultFor(outcome, KILL_ID).result.status, "executed");
+  assert.deepEqual(resultFor(outcome, KILL_ID).result.linkedValues.killed, [gearRef]);
+  assert.equal(kernel.getObject("cheap-gear").zone, "trash");
+  assert.deepEqual(outcome.events.map((event) => event.action), ["kill"]);
+  // The real token primitive writes this receipt only when its gate opens.
+  // Gold/entry exhaustion are still unsupported: no substitute token is used.
+  assert.deepEqual(resultFor(outcome, TOKEN_ID).result, {
+    status: "negated", reason: "impossible", events: []
+  });
+  assert.deepEqual(outcome.linkedValues[`${MAY_ID}/${TOKEN_ID}.goldToken`], {
+    amount: 0, objects: [], objectsComplete: true
+  });
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(kernel.pendingItems, []);
+  assert.equal(kernel.objects.some((object) => object.isToken), false);
+});
+
+for (const actionOutcome of ["replaced", "prevented", "impossible"]) {
+  test(`sfd-074-221 Pickpocket kill receipt: ${actionOutcome} kill does not reach Gold`, () => {
+    const kernel = world()
+      .unit("pickpocket", { might: 3 })
+      .unit("cheap-gear", { types: ["gear"], energy: 1 })
+      .build();
+    kernel.addReplacement((action) => action.type === "kill" ? actionOutcome : null);
+    const outcome = resolveWith(kernel, { gearRef: kernel.ref("cheap-gear"), accepted: true });
+
+    const killed = resultFor(outcome, KILL_ID).result;
+    assert.equal(killed.status, "negated");
+    assert.equal(killed.reason, actionOutcome === "replaced" ? "replaced" : "impossible");
+    assert.equal(killed.linkedValues, undefined);
+    assert.equal(kernel.getObject("cheap-gear").zone, "board");
+    assert.deepEqual(outcome.events.map((event) => [event.action, event.outcome]), [["kill", actionOutcome]]);
+    assert.deepEqual(resultFor(outcome, TOKEN_ID).result, {
+      status: "ignored", reason: "mistargeted"
+    });
+    assert.equal(outcome.linkedValues[`${MAY_ID}/${KILL_ID}.killed`], undefined);
+    assert.equal(outcome.linkedValues[`${MAY_ID}/${TOKEN_ID}.goldToken`], undefined);
+    assert.equal(outcome.status, "partial");
+    assert.deepEqual(kernel.pendingItems, []);
+    assert.equal(kernel.objects.some((object) => object.isToken), false);
+  });
+}
+
+test("sfd-074-221 Pickpocket kill receipt: a stale target leaves the gear in hand and never reaches Gold", () => {
+  const kernel = world()
+    .unit("pickpocket", { might: 3 })
+    .unit("cheap-gear", { types: ["gear"], energy: 1 })
+    .build();
+  const gearRef = kernel.ref("cheap-gear");
+  assert.equal(kernel.perform({ type: "return-to-hand", object: gearRef }).status, "done");
+  assert.equal(kernel.object(gearRef), null);
+  const outcome = resolveWith(kernel, { gearRef, accepted: true });
+
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map((entry) => entry.id), [MAY_ID]);
+  assert.deepEqual(resultFor(outcome, MAY_ID).result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(kernel.getObject("cheap-gear").zone, "hand");
+  assert.deepEqual(outcome.linkedValues, {});
+  assert.deepEqual(outcome.events, []);
+  assert.deepEqual(kernel.pendingItems, []);
+  assert.equal(kernel.objects.some((object) => object.isToken), false);
+});
+
 test("sfd-074-221 Pickpocket golden: the declared kill instruction kills its locked gear (CR 429)", () => {
   const kernel = world().unit("enemy-gear", { types: ["gear"], owner: "B", controller: "B", energy: 4 }).build();
   const run = runInstruction(
@@ -166,11 +245,7 @@ test("sfd-074-221 Pickpocket golden: the declared kill instruction kills its loc
 
 test.todo(
   "sfd-074-221 Pickpocket: enforce 'a gear with Energy cost no more than 1' as a working target restriction " +
-    "(CR 206 printed-cost comparison; the ObjectFilter has no cost predicate and unknown keys are ignored — RIFT-90)"
-);
-test.todo(
-  "sfd-074-221 Pickpocket: gate the Gold token play on the kill receipt ('If you do', CR 359.3.e.14.b) once " +
-    "the frozen IR has an action-result binding (condition.result) and the CardProgram play binding is available"
+    "(CR 206 printed-cost comparison; programs/filters.ts rejects costEnergyLte and the target filter has no cost consumer)"
 );
 test.todo(
   "sfd-074-221 Pickpocket: play a Gold gear token exhausted — CR 187.5 Gold definition and " +

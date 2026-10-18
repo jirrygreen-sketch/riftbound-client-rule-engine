@@ -4,6 +4,13 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/pyke-returned.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-409271324918d19e0c793fcbe4bce41cb7805a7f78155c1a3a115ce79c2140c2";
@@ -32,11 +39,108 @@ test("unl-145-219 Pyke, Returned: identity, status, judgeReason and verbatim sou
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /184\.1|185\.2\.d/);
   assert.match(program.judgeReason, /RIFT-62/);
+  // 2026-10-18 re-sweep: the LKI binding is merged (pipeline passes the captured
+  // last-known source into the condition context); the remaining condition gap
+  // is the location predicate vocabulary, and the reason now says so.
   assert.match(program.judgeReason, /host\.testTrigger/);
-  assert.match(program.judgeReason, /captured last-known|LKI/);
+  assert.match(program.judgeReason, /captured last-known/);
+  assert.match(program.judgeReason, /LocationRef/);
+  assert.match(program.judgeReason, /matchesObjectFilter/);
+  assert.match(program.judgeReason, /Invalid effect\.token argument: exhausted/);
+  assert.match(program.judgeReason, /no layer mapping/);
   assert.doesNotMatch(program.judgeReason, /触发注册生产方|没有生产方|RIFT-120/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
+
+test("unl-145-219 Pyke, Returned golden: the printed Gold play is still impossible on the merged token primitive (CR 187.5)", () => {
+  // 187.5: the Gold gear token carries its own Reaction ability, so
+  // effect.token's frozen DEFINITIONS table has no entry for it. Running the
+  // card's own args therefore negates with "impossible" instead of inventing a
+  // definition -- and a supported token definition still cannot model the
+  // printed exhausted entry.
+  const kernel = world().build();
+  const gold = runInstruction(token, playGold.args, { world: kernel });
+  assert.equal(gold.result.status, "negated");
+  assert.equal(gold.result.reason, "impossible");
+  assert.equal(gold.linked.goldToken.amount, 0);
+  assert.deepEqual(gold.events, []);
+
+  // 184.1 / 185.2.d: entry state is not an effect.token argument; passing one is
+  // rejected outright rather than silently ignored.
+  assert.throws(
+    () => runInstruction(token, {
+      ...playGold.args,
+      token: { kind: "constant", value: "recruit" },
+      exhausted: { kind: "constant", value: true }
+    }, { world: world().build() }),
+    /Invalid effect\.token argument: exhausted/
+  );
+});
+
+test("unl-145-219 Pyke, Returned: the two location readers still disagree about \"at a battlefield\"", () => {
+  // 383.2.a.1 keeps "while I'm at a battlefield" as a pre-chain trigger
+  // condition. Evaluating it needs a "located at some battlefield" predicate:
+  // the production ResolveContext.query only accepts an exact LocationRef while
+  // the layer filter only accepts the generic spelling, so the authored
+  // condition (count with location: "battlefield") never sees the source and
+  // the layer reader would accept it for a unit in a Base as well.
+  const kernel = world()
+    .unit("onField", { owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("atBase", { owner: "A", location: { type: "base", player: "A" } })
+    .build();
+  const context = bindResolveContext(kernel, { source: kernel.getObject("onField"), controller: "A" });
+  assert.deepEqual(context.query({ location: "battlefield" }).map(object => object.ref.id), []);
+  assert.deepEqual(context.query({ location: { type: "battlefield" } }).map(object => object.ref.id), []);
+  assert.deepEqual(
+    context.query({ location: { type: "battlefield", id: "bf-1" } }).map(object => object.ref.id),
+    ["onField"]
+  );
+  // The layer reader is the mirror image: it understands the generic
+  // "at a battlefield" spelling and rejects the exact-ref one outright, so no
+  // single spelling is shared by both readers.
+  assert.equal(matchesObjectFilter({ location: "battlefield" }, kernel.getObject("onField")), true);
+  assert.equal(matchesObjectFilter({ location: "battlefield" }, kernel.getObject("atBase")), false);
+  assert.equal(matchesObjectFilter({ location: { type: "battlefield", id: "bf-1" } }, kernel.getObject("onField")), false);
+});
+
+test("unl-145-219 Pyke, Returned: [Hidden] and [Backline] bind at most one of their expansions", () => {
+  // 811 / 826: the two keywords are declared, never re-implemented. Their
+  // expansions are real IR, and the merged production binder accepts Backline's
+  // continuous.combat registration while Hidden's cost.hidden declaration has
+  // no layer mapping -- so the Hide action and the damage-assignment order are
+  // both still unconsumed.
+  const f = fixture({ cards: [] });
+  const source = {
+    ...f.kernel.getObject("source"),
+    cardId: program.canonicalCardId,
+    keywords: [],
+    location: { type: "battlefield", id: "bf-1" }
+  };
+  const expanded = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  }).inspect(source).abilities;
+  const statics = expanded.filter(ability => ability.kind === "static");
+  assert.deepEqual(statics.map(ability => ability.effect.kind), ["cost.hidden", "continuous.combat"]);
+  const binder = createEngineStaticBinder(f.engine);
+  const outcomes = statics.map(ability => {
+    try {
+      binder.bindStatic(ability, source);
+      return [ability.effect.kind, "bound"];
+    } catch (error) {
+      return [ability.effect.kind, error.message];
+    }
+  });
+  assert.deepEqual(outcomes, [
+    ["cost.hidden", "Static ability kind cost.hidden has no layer mapping"],
+    ["continuous.combat", "bound"]
+  ]);
+});
+
+test.todo(
+  "unl-145-219 Pyke, Returned: evaluate \"while I'm at a battlefield\" against the captured " +
+    "last-known source (CR 383.2.a.1 / 808.1.d.3) - the pipeline already binds the captured " +
+    "snapshot into the condition context; the shared reader needs a \"located at some battlefield\" predicate"
+);
 
 test("unl-145-219 Pyke, Returned: [Hidden] and [Backline] are declared, not re-implemented", () => {
   // 契约 3.7 / README 第 5 节：关键词只声明；811 的 cost.hidden 与 826 的伤害分配顺序由
@@ -118,7 +222,7 @@ test.todo(
 test.todo(
   "unl-145-219 Pyke, Returned: register the 'once each turn' death trigger and evaluate the " +
     "'while I'm at a battlefield' condition against the source's last-known location before the " +
-    "trigger is queued (CR 383.2.a.1 / 383.3.e.1, 808.1.d.3) — host.testTrigger and the " +
-    "CardProgram -> TriggerRegistration/lifecycle path are merged; the remaining gap is binding " +
-    "the captured last-known source location into the condition ResolveContext"
+    "trigger is queued (CR 383.2.a.1 / 383.3.e.1, 808.1.d.3) — host.testTrigger, the CardProgram -> " +
+    "TriggerRegistration/lifecycle path and the captured last-known source binding are merged; the " +
+    "remaining gap is the shared location-predicate spelling measured above"
 );

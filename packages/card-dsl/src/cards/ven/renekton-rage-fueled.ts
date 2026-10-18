@@ -26,37 +26,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   TargetSpec（写了会错误触发“成为目标”，355.7/754），只保留非目标集合描述符。
  *   "here" 是来源当前所在地点（053 的指称、359.3.f 的 referent 语义）。
  *
- * status = judge-required（三处依赖均不近似实现）：
- * 1. 非目标集合的伤害形态缺失：已合入的 effect.damage 只经 ctx.targets(TargetSpec id)
- *    读受击集合，没有 effect.ready / effect.heal 那样的 { kind: "query", filter } 分支，
- *    因此“all enemy units here”不可执行；用 TargetSpec 近似会错误触发成为目标。
- * 2. attack-declared 时点没有发射方：combat/ 批次尚未把取得 Attacker 身份接入事件管线
- *    （combat/flow.ts 对战斗开始显式抛 TurnCombatBlockedError；全仓库没有 attack-declared
- *    的 emit 调用），触发无法进入链；CardProgram → TriggerRegistration 的通用路径已合入。
- * 3. [Accelerate] 的展开与 cost-planner 词汇虽已合入，但没有任何生产方把卡牌上的
- *    keyword 能力接进打出流程：cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，
- *    没有从 accelerate.cost 静态效果生成费用组件的路径（同上批 sfd/blazing-scorcher 的
- *    判定）。
- * “if you control 4 or fewer runes” 这一 Trigger Condition 是真实可求值的（golden 用
- * condition.predicate + 参考内核执行真实计数）。
+ * 当前缺口以 judgeReason 为准；已合入的原语与通用适配不再列为缺失。
  */
 export default {
   canonicalCardId: "card.hash-4ea204b4fa413be39f3508c65d93d8ef270e1bb64d97edf9a216efa7d50394f4",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1)「deal 2 to all enemy units here」是非目标整组伤害（355.10.d/355.10.d.1），" +
-    "但已合入的 effect.damage 只接受 Finalize 锁定的 TargetSpec（ctx.targets(id)），没有 " +
-    "effect.ready/effect.heal 那样的 { kind: \"query\", filter } 集合分支；用 TargetSpec 近似会" +
-    "错误触发成为目标（355.7/754），故只保留非目标集合描述符（依赖 effect.damage 的 query 集合形态）。" +
-    "(2) attack-declared 时点（383.4.e）没有发射方：combat/ 未把 Attacker 身份接入事件管线，" +
-    "combat/flow.ts 对战斗开始直接抛 TurnCombatBlockedError，全仓库没有 attack-declared 的 emit，" +
-    "触发无法进入链；CardProgram → TriggerRegistration 的通用路径已由 programs/triggers.ts + lifecycle.ts 合入。(3) [Accelerate]（805）的展开文件已合入，但没有任何" +
-    "生产方把卡牌上的 keyword 能力接进打出流程——cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，" +
-    "没有从 accelerate.cost 静态效果生成 1 Energy + 1 Fury Power 费用组件与 805.6 入场就绪替代的路径" +
-    "（费用规划器的 additional/optional 词汇已合入，缺的是卡牌侧生产路径）。" +
-    "Trigger Condition「4 or fewer runes」本身可真实求值，" +
-    "golden 用已合入的解释器执行真实计数。不近似实现。",
+    "当前缺口：(1) effect.damage 仍要求 args.target 为 TargetSpec id，没有 objects/query 非目标集合分支；355.10.d 的「all enemy units here」不能替换为目标集合（355.7/754）。(2) attack-declared（383.4.e）仍无生产发射方，combat/flow.ts 在 combat-start-transaction 阻断，未分配 Attacker/Defender 身份；通用程序触发绑定及 4/5 runes 条件求值已经存在。(3) Accelerate 已展开为 accelerate.cost 与入场替代，费用计划也能消费 selected optionalAdditional，chain/engine.ts 已按 kind=accelerate 让单位进入 ready；但 programs/statics.ts 的 layerFor 不绑定 accelerate.cost，programs/play.ts 不从关键词生成 1 Energy + 1 Fury Power 的可选追加组件，故尚无印刷关键词 → Finalize 的完整接线。不近似实现。",
   abilities: [
     // 805.1.b：费用固定为 [1] + 一个与单位域匹配的 Power，keyword 不带数值（805.4 多个实例冗余）。
     { kind: "keyword", keyword: "accelerate" },

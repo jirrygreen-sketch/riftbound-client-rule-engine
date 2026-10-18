@@ -86,7 +86,11 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "CR 423.3/355.10.c：activation 的 Discard 1 仍缺 filter 式非目标费用选择，choiceObjects 只接受精确 ObjectRef；有序 zoneSlice/linked picks 不会枚举费用选项。CR 807.1.c/807.1.d.1：Assault 展开仍读 designation，该属性既不在 ObjectSnapshot 也不在解释器表达式环境；combatRole 字段虽已存在，缺关键词条件到该战斗角色的绑定，通用 condition.predicate 不会补齐该事实。CR 356.1.b.1：缺把忽略基础费用且保留其他费用调整的 CostPlan 适配为 effect.play/Chain Finalize 消费的费用形状；常量 finalized 零计划不能替代该流程。入场朝向已可用 replacement.enter 表达并绑定。",
+    "CR 423.3 / 355.10.c：Discard 1 的费用候选尚未由 CardProgram Finalize 绑定到控制者手牌的精确 ObjectRef，" +
+    "cost/plan-values.ts 的 choiceObjects 不枚举该费用候选。CR 807.1.c / 807.1.d.1：Assault 展开读取 designation，" +
+    "而生产 ObjectSnapshot 与解释器环境没有可用的 designation 条件绑定；已有 combatRole 不能由 condition.predicate 自动替代。" +
+    "CR 356.1.b.1 / 356.1.b.3：CostPlan 能记录 ignore-base，但 effect.play 仍只接收 finalized 费用，" +
+    "缺少把忽略基础费用适配到嵌套 play/Finalize、同时保留追加费用和费用增加的路径；常量零费用不能替代该语义。",
   abilities,
   sourceText:
     "I enter ready.\n" +

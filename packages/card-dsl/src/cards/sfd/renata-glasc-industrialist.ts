@@ -24,8 +24,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * Current review:
  * CR v1.5 143.4/184.1/185.2.d and 369.1/369.3: entering ready is an
  * entry replacement, not a later Ready action (805.6). Default replacement
- * binding and replacement.object exist; cross-object token entry orientation
- * remains blocked. The with body is declarative pending that adapter.
+ * binding and replacement.object exist; the body uses that non-target binding.
+ * Cross-object entry orientation and create-token interception remain blocked.
+ * The static entry detector only accepts self/source and rejects this linked
+ * body during binding; cross-object orientation must preserve the entry move.
  */
 const abilities: Ability[] = [
   {
@@ -39,28 +41,13 @@ const abilities: Ability[] = [
         id: "renata.tokens-enter-ready",
         op: "effect.ready",
         args: {
-          // Names the entering token of the replaced event. Deliberately NOT
-          // "source" (that is this unit). This remains a blocked placeholder:
-          // 355.10.c requires a non-target replacement.object binding once
-          // cross-object token entry replacement is supported.
+          // 355.10.c: bind the intercepted token without choosing a target.
+          // "source" would refer to Renata, not the entering token.
           objects: {
             kind: "constant",
-            value: { kind: "target", id: "renata.entering-token" }
+            value: { linked: "replacement.object" }
           }
-        },
-        // Declarative stand-in for the entering token of the replaced event,
-        // following the merged Zhonya's Hourglass convention (the object is not
-        // a target choice the replacement makes, 355.10.c); the real binding
-        // must use replacement.object once token entry rewriting is supported.
-        targets: [
-          {
-            id: "renata.entering-token",
-            filter: { type: "token", controller: "controller" },
-            min: 1,
-            max: 1,
-            selection: "one"
-          }
-        ]
+        }
       }
     ]
   }
@@ -71,7 +58,12 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「Your tokens enter ready」缺跨对象的 token 入场朝向替代（CR v1.5 143.4/184.1/185.2.d、369.1/369.3、805.6）：replacement.enter 的 matchesEnterAction 只处理宿主自己的 move-zone 入场，replacement.event 的 object-enters-board 映射也只有 move-zone、没有 create-token；effect.token 的创建动作不提供朝向改写（Entry overrides are not supported）。被替代对象已有 replacement.object 链接，但当前 with 中的 TargetSpec 不能代替非目标的入场对象绑定。依赖：可替代的 create-token/后续 token 入场动作及跨对象入场状态改写；事后 effect.ready 会增加状态事件，不等价。",
+    "缺跨对象 token 入场朝向替代（CR v1.5 143.4/184.1/185.2.d/369.3/805.6）：" +
+    "replacement.enter 已合入，但 matchesEnterAction 仅处理宿主自己的 chain→board move-zone；" +
+    "本卡已用非目标 replacement.object 表达进入的 token，规划器可解析，但 bindReplacement 的静态入场识别仅接受 self/source，" +
+    "绑定时抛 Unsupported entry body target value；缺跨对象入场朝向及原 move-zone 动作保留。object-enters-board 映射也没有 create-token，" +
+    "TokenSpec/create-token/play 不提供入场朝向覆盖（Entry overrides are not supported）。" +
+    "依赖：跨对象入场朝向与原入场动作保留、可拦截的 create-token 入口；事后就绪不等价。",
   abilities,
   sourceText: "Your tokens enter ready."
 } satisfies CardProgram;

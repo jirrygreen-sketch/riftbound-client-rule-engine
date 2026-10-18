@@ -28,18 +28,29 @@ import type { CardProgram } from "../../ir/index.js";
  *   gated on an event history: "you've played a unit or gear to a battlefield
  *   this turn".
  *
- * Status: judge-required — the Might clause is executable and covered by the
- * golden test, but the printed discount cannot be installed or gated yet:
+ * Status: judge-required（2026-10-18 复核）— the Might clause is executable and
+ * covered by the golden test, but the printed discount cannot be installed or
+ * gated yet:
  * - the card-static cost modification has no consumer: cost/cost-plan.ts only
- *   applies discounts supplied by the caller in CostPlanInput.discounts, and
- *   the current static-program binder does not translate this effect into that
- *   per-play cost plan;
+ *   applies discounts supplied by the caller in CostPlanInput.discounts (observed:
+ *   a plain printed-cost plan keeps energy 3), and programs/statics.ts
+ *   `layerFor` rejects `continuous.cost-modification` with "has no layer mapping",
+ *   so the static-program binder cannot translate this effect into that plan;
+ *   chain/engine.ts's Finalize also calls buildCostPlan directly, so the merged
+ *   collector (cost/discounts/collect.ts) never runs on a real play;
  * - the gate needs an event history with an object filter ("a unit or gear")
- *   and the play destination ("to a battlefield"). HistoryQuery (contract 3.8)
- *   carries `objectFilter` and is reachable only through the
- *   `condition.history` instruction, which cannot gate a static cost effect;
- *   the play destination is still not part of the query. The gate below stays
- *   a descriptive constant that must not be executed.
+ *   and the play destination ("to a battlefield"). The merged collector does
+ *   read `condition` through its own evaluator, but that evaluator accepts only
+ *   always/never/expression/compare/not/all/any and refuses descriptive values
+ *   (measured: `expression` of a `constant` string throws "Descriptive cost
+ *   predicates require an authoritative condition adapter"), while the evaluable
+ *   `count`/`cards-played-this-turn` subject accepts only the `player` filter
+ *   (measured: adding `type` throws "Unsupported finalized-card history
+ *   filter") and carries no play destination at all. HistoryQuery (contract 3.8)
+ *   carries `objectFilter` and is reachable only through the `condition.history`
+ *   instruction — a resolve-time instruction that cannot gate a static cost
+ *   effect, and Condition has no history kind at all.
+ * The gate below stays a descriptive constant that must not be executed.
  * Dependencies: a CardProgram-static-to-CostPlan discount binding plus a
  * play-destination history predicate for the discount gate.
  * Not approximated: the discount is declared, never silently applied.
@@ -49,9 +60,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口：(1) programs/statics 未把 continuous.cost-modification 转为打出时的 CostPlanInput.discounts；" +
-    "(2) Condition/Expr 无历史计数表达式可在构建费用计划时门控 static 减费。" +
-    "HistoryQuery 的 objectFilter 已可筛选历史单位/装备，但它读取动作前对象快照，不能检验 play 动作的战场落点；" +
+    "当前缺口（2026-10-18 实测）：(1) 生产静态绑定仍拒本声明——programs/statics.ts 的 layerFor 对 " +
+    "continuous.cost-modification 抛 no layer mapping，chain/engine.ts 的 Finalize 只调用 " +
+    "buildCostPlan，不调用 cost/discounts/collect.ts 的 finalizeCostPlan，因此场上 static 永远不会" +
+    "进入这笔折扣（收集器只能由调用者显式传 sources）。(2) 减费门控不可求值：收集器的条件求值器" +
+    "拒绝描述性值（实测 expression + constant 字符串抛「Descriptive cost predicates require an " +
+    "authoritative condition adapter」），而可求值的 count subject cards-played-this-turn 只接受 player " +
+    "过滤器（实测加 type 抛「Unsupported finalized-card history filter」），也拿不到 play 的战场落点；" +
+    "Condition 没有历史种类（求值 { kind: history } 抛 Unsupported condition），condition.history 是 " +
+    "Resolve 期指令，无法在构建费用计划时门控 static 减费。" +
+    "HistoryQuery 的 objectFilter 已能筛选历史单位/装备，但它读取动作前快照，不含 play 目的地，" +
     "尚缺该 destination 历史谓词。continuous.might 的 +3/this-turn 已有执行证据，不近似减费条件。",
   abilities: [
     { kind: "keyword", keyword: "action" },

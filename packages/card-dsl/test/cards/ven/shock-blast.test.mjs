@@ -4,6 +4,10 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/shock-blast.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { collectCostModifications } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import damageDefinition from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
@@ -33,10 +37,12 @@ test("ven-059-166 Shock Blast: program passes validateCardProgram with the catal
 test("ven-059-166 Shock Blast: judgeReason names the cost-modification wiring and the Empowered predicate", () => {
   assert.match(program.judgeReason, /356\.4\.b/);
   assert.match(program.judgeReason, /continuous\.cost-modification/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /no layer mapping/);
   assert.match(program.judgeReason, /Empowered/);
   assert.match(program.judgeReason, /conditionMatches/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /collectCostModifications/);
+  assert.match(program.judgeReason, /442\.1\.a/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-91/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -166,16 +172,55 @@ test("ven-059-166 Shock Blast golden: a target that left the Board before resolu
   assert.deepEqual(outcome.events, []);
 });
 
-test.todo(
-  "ven-059-166 Shock Blast: 'This costs :rb_energy_2: less' needs the static self cost modification to be " +
-    "read by the Finalize cost plan (356.4.b / 356.4.c.2, never below 0) — the continuous.cost-modification " +
-    "declaration has no card-side consumer yet: cost.modify and the cost-plan discount evaluation are merged, " +
-    "but programs/statics.ts layerFor() has no cost-modification mapping (fail-closed) and no consumer installs " +
-    "the CardProgram static into CostPlanInput.discounts (RIFT-89)"
-);
+test("ven-059-166 Shock Blast gap: the merged static binder refuses continuous.cost-modification", () => {
+  // Executed evidence for judgeReason point 1: the production binder has no
+  // layer for the declared static, so no Finalize cost plan can read the -2.
+  const kernel = world().unit("shock-blast", {}).build();
+  const source = kernel.getObject("shock-blast");
+  const binder = createEngineStaticBinder({ layers: createLayerEngine([source]) });
+  assert.throws(
+    () => binder.bindStatic(discount, source),
+    /Static ability kind continuous\.cost-modification has no layer mapping/
+  );
+});
 
-test.todo(
-  "ven-059-166 Shock Blast: 'if you control something that's [Empowered]' needs an Empowered state " +
-    "predicate (CR 828.2) in Condition / layers/engine.ts conditionMatches — the merged evaluator only " +
-    "knows always/never/type/has-tag/has-keyword and treats unknown conditions as true (RIFT-91)"
-);
+test("ven-059-166 Shock Blast gap: the Empowered gate is descriptive and unknown conditions fall back to true", () => {
+  // layers/engine.ts conditionMatches treats an unknown condition kind as true,
+  // so the near-miss predicate must stay a named description, not a real gate.
+  const kernel = world().unit("shock-blast", {}).build();
+  const snapshot = kernel.getObject("shock-blast");
+  const engine = createLayerEngine([snapshot], [{
+    effect: {
+      id: "shock-blast.gate",
+      layer: "arithmetic",
+      source: snapshot.ref,
+      filter: { objectId: "shock-blast" },
+      effect: { kind: "continuous.might", amount: { kind: "constant", value: 2 }, condition: discount.condition }
+    },
+    duration: { type: "permanent" },
+    timestamp: 1,
+    sequence: 1
+  }]);
+  // The unknown kind is not rejected; it silently satisfies the gate.
+  assert.equal(engine.evaluate(snapshot.ref).might, snapshot.might + 2);
+  assert.deepEqual(discount.condition, {
+    kind: "expression",
+    value: { kind: "constant", value: "you-control-something-empowered" }
+  });
+});
+
+test("ven-059-166 Shock Blast evidence: the merged cost collector rejects the named Empowered gate", () => {
+  const kernel = world()
+    .unit("shock-blast", { cardId: CANONICAL, owner: "A", controller: "A", energy: 3 })
+    .build();
+  const source = kernel.getObject("shock-blast");
+  const context = bindResolveContext(kernel, { source, controller: "A" });
+  assert.throws(
+    () => collectCostModifications(
+      context,
+      { id: "shock-blast-play", cost: { kind: "explicit", energy: { kind: "constant", value: 3 } } },
+      { statics: [{ id: "shock-blast", source: source.ref, ability: discount }] }
+    ),
+    /Descriptive cost predicates require an authoritative condition adapter/
+  );
+});

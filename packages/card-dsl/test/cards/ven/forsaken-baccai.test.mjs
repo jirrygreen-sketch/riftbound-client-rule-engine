@@ -4,6 +4,9 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/forsaken-baccai.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { registerProgramTriggers, triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
@@ -17,10 +20,15 @@ const SOURCE_TEXT =
 const [ability] = program.abilities;
 const [grant] = ability.body;
 
+/** The program as the production registry sees it (status still judge-required). */
+const executableView = { ...program, status: "executable", judgeReason: undefined };
+
 /**
- * 参考内核按字面值比较 filter，而 IR 里的 "self"/"opponent" 是契约 3.6 的符号选择符；
- * 执行用例把这一处符号绑定到真实玩家 id；仅证明比较原语，生产 testTrigger 接线与相对玩家
- * 归一化仍缺失（见 judgeReason 与 evidence 用例）。
+ * The reference kernel compares filter values literally while the IR uses the
+ * contract 3.6 symbolic selectors "self"/"opponent"; the execution cases bind
+ * that one symbol to real player ids. They prove the comparison primitives only;
+ * production testTrigger wiring and relative-player normalisation stay missing
+ * (see judgeReason and the evidence cases).
  */
 function substitutePlayers(value, playerId, opponentId) {
   if (Array.isArray(value)) return value.map(item => substitutePlayers(item, playerId, opponentId));
@@ -34,12 +42,12 @@ function substitutePlayers(value, playerId, opponentId) {
   );
 }
 
-/** 133.5.a.1 / 431.1：符文区里的 rune 才是「你控制的符文」。 */
+/** 133.5.a.1 / 431.1: only runes in the Rune Zone are controlled. */
 function runeDeck(player, total) {
   return Array.from({ length: total }, (_, index) => `${player}-rune-${index + 1}`);
 }
 
-/** 给每名玩家建一个符文牌库，再按其 channeled 张数 channel（431.1）。 */
+/** Build each player's Rune Deck, then channel the requested count (431.1). */
 function runeZoneWorld({ aRuneDeck, aChanneled, bRuneDeck, bChanneled }) {
   const kernel = world()
     .rune(runeDeck("A", aRuneDeck), { owner: "A" })
@@ -53,7 +61,7 @@ function runeZoneWorld({ aRuneDeck, aChanneled, bRuneDeck, bChanneled }) {
   return kernel;
 }
 
-/** 用真实解释器求值触发条件。 */
+/** Evaluate the trigger condition through the real interpreter. */
 function evaluateCondition(condition, kernel) {
   const outcome = resolveChainBody(
     [
@@ -84,6 +92,7 @@ test("ven-005-166 Forsaken Baccai: identity, ruleset, status, judgeReason and ve
   assert.match(program.judgeReason, /beginning-start/);
   assert.match(program.judgeReason, /TriggerSpecValidationError/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /matchesTriggerEvent/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -91,13 +100,14 @@ test("ven-005-166 Forsaken Baccai: identity, ruleset, status, judgeReason and ve
 test("ven-005-166 Forsaken Baccai: beginning-start trigger with the rune-count condition (383.2.a.1)", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "triggered");
-  // 315.2.a.1：Beginning Step 开始时结算游戏效果；"your" 是控制者的回合。
+  // 315.2.a.1: the Beginning Step's start settles game effects; "your" is the
+  // ability controller's turn.
   assert.equal(ability.trigger.at, "beginning-start");
   assert.deepEqual(ability.trigger.filter, { event: "beginning-start", player: "self" });
   assert.equal(ability.trigger.once, undefined);
   assert.equal(ability.optional, false);
 
-  // 383.2.a.1：紧跟触发条件的 "If you control fewer runes than an opponent" 属触发条件。
+  // 383.2.a.1: "If you control fewer runes than an opponent" is the trigger condition.
   const condition = ability.trigger.condition;
   assert.equal(condition.kind, "compare");
   assert.equal(condition.operator, "lt");
@@ -114,35 +124,36 @@ test("ven-005-166 Forsaken Baccai: beginning-start trigger with the rune-count c
 
 test("ven-005-166 Forsaken Baccai: '+1 Might this turn' is a temporary arithmetic-layer modification", () => {
   assert.equal(grant.op, "continuous.might");
-  // 143.2.a / 475–477：Might 修正在算术图层结算，期限是本回合（end-of-turn）。
+  // 143.2.a / 475-477: the Might change settles in the arithmetic layer this turn.
   assert.deepEqual(grant.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(grant.args.duration, { kind: "constant", value: "end-of-turn" });
-  // 053.1 / 355.10.g："me" 是能力宿主，不是目标。
+  // 053.1 / 355.10.g: "me" is the ability host, not a target.
   assert.deepEqual(grant.args.objects, { kind: "constant", value: { kind: "source" } });
   assert.equal(grant.targets, undefined);
   assert.equal(grant.picks, undefined);
   assert.equal(grant.linkedTo, undefined);
-  // 702/703：绝不写成 Buff 计数。
+  // 702/703: never a Buff counter.
   assert.notEqual(grant.op, "effect.buff");
 });
 
 test("ven-005-166 Forsaken Baccai golden: the fewer-runes condition really evaluates (133.5.a.1 / 431.1)", () => {
   const condition = substitutePlayers(ability.trigger.condition, "A", "B");
 
-  // 我方 2 个符文、对手 3 个："fewer runes than an opponent" 成立。
+  // Two own runes against three: "fewer runes than an opponent" holds.
   const behind = runeZoneWorld({ aRuneDeck: 2, aChanneled: 2, bRuneDeck: 3, bChanneled: 3 });
   assert.equal(evaluateCondition(condition, behind), true);
   assert.equal(behind.query({ type: "rune", controller: "A", zone: "rune-zone" }).length, 2);
   assert.equal(behind.query({ type: "rune", controller: "B", zone: "rune-zone" }).length, 3);
 
-  // 双方各 2 个：数量相等也不算「更少」。
+  // Both at two: a tie is not "fewer".
   const tied = runeZoneWorld({ aRuneDeck: 2, aChanneled: 2, bRuneDeck: 2, bChanneled: 2 });
   assert.equal(evaluateCondition(condition, tied), false);
 });
 
 test("ven-005-166 Forsaken Baccai golden: runes still in the Rune Deck are not 'controlled' (431.1)", () => {
   const condition = substitutePlayers(ability.trigger.condition, "A", "B");
-  // 我方 3 张符文留在符文牌库（一张都没 channel）：符文区为空、对手有 1 个，条件仍成立。
+  // Three own runes stay in the Rune Deck (none channeled): the Rune Zone is
+  // empty while the opponent has one, so the condition still holds.
   const unchanneled = runeZoneWorld({ aRuneDeck: 3, aChanneled: 0, bRuneDeck: 1, bChanneled: 1 });
   assert.equal(unchanneled.query({ type: "rune", controller: "A", zone: "rune-zone" }).length, 0);
   assert.equal(evaluateCondition(condition, unchanneled), true);
@@ -160,41 +171,45 @@ test("ven-005-166 Forsaken Baccai golden: the body registers +1 Might on its hos
   assert.deepEqual(context.continuousEffects[0].duration, { type: "end-of-turn" });
 });
 
+/** 2026-10-18 negative evidence: trigger vocabulary and relative-player binding. */
+test("ven-005-166 Forsaken Baccai evidence: the authored beginning-start filter is rejected by the trigger vocabulary", () => {
+  const registry = new ProgramRegistry([executableView]);
+  const f = fixture({ cards: [{ id: "baccai", cardId: CARD_ID, types: ["unit"], might: 2 }] });
+  const registrations = triggerRegistrations(registry, f.kernel.getObject("baccai"));
+  assert.deepEqual(
+    registrations.map(registration => [registration.spec.at, registration.spec.filter]),
+    [["beginning-start", { event: "beginning-start", player: "self" }]]
+  );
+  // 315.2.a.1: beginning-start is a timing point id, and the EventPattern
+  // vocabulary only accepts event class names, so the production registration
+  // cannot subscribe this card.
+  assert.throws(
+    () => registerProgramTriggers(registry, f.engine, f.kernel.getObject("baccai")),
+    /trigger\.filter\.event/
+  );
+  // An empty filter would register, but it also subscribes to the opponent's
+  // Beginning Phase, losing the "your" limitation.
+  assert.equal(matchesTriggerEvent({}, { timingPoint: "beginning-start", player: "B" }, "A"), true);
+});
+
+test("ven-005-166 Forsaken Baccai evidence: symbolic self/opponent rune counts need an absolute player binding", () => {
+  // 383.2.a.1 / 133.5.a.1 / 431.1: the trigger condition goes through the kernel
+  // test() path, where the symbolic selectors are never normalised.
+  const authored = substitutePlayers(ability.trigger.condition, "self", "opponent");
+  const kernel = runeZoneWorld({ aRuneDeck: 1, aChanneled: 1, bRuneDeck: 2, bChanneled: 2 });
+  assert.equal(kernel.test(authored), false, "symbolic self/opponent never match literal player ids");
+  assert.equal(kernel.test(substitutePlayers(ability.trigger.condition, "A", "B")), true, "an absolute binding satisfies the same gate");
+});
+
 test.todo(
   "ven-005-166 Forsaken Baccai: 'fewer runes than an opponent' in modes with three or more players " +
     "needs an existential quantifier over opponents; Condition/Expr can only compare two count " +
     "expressions, so the program records the two-player comparison (contract change request)"
 );
 
-
 test.todo(
   "ven-005-166 Forsaken Baccai: beginning-start trigger registration needs the authored " +
-    "{ event: \"beginning-start\" } spelling accepted by EVENT_PATTERN_TYPES plus source-relative " +
+    "{ event: beginning-start } spelling accepted by EVENT_PATTERN_TYPES plus source-relative " +
     "self/opponent rune count binding in the trigger condition path (383.2.a.1)"
 );
 
-/** 复核（2026-10-17）负向证据：触发注册词汇与相对玩家条件求值两处缺口。 */
-test("ven-005-166 Forsaken Baccai evidence: the authored beginning-start filter is rejected by the trigger vocabulary", () => {
-  const f = fixture({ cards: [{ id: "baccai", cardId: CARD_ID, types: ["unit"], might: 2 }] });
-  f.engine.commit({ type: "move-zone", object: f.kernel.ref("baccai"), to: "base" });
-  const source = f.kernel.getObject("baccai");
-  // 315.2.a.1：beginning-start 是时点 id；TriggerSpec 的 EventPattern 词汇只接受事件类名，
-  // 所以生产能力在本卡上无法注册（空 filter 才能注册，但表达不了 "your Beginning Phase"）。
-  assert.throws(
-    () => f.engine.pipeline.registerTrigger({
-      id: "forsaken-baccai.authored",
-      source, controller: "A",
-      spec: { at: "beginning-start", filter: { event: "beginning-start", player: "self" } },
-      body: ability.body, optional: ability.optional, activeZones: ["board"], boundToIncarnation: true
-    }),
-    /trigger\.filter\.event/
-  );
-});
-
-test("ven-005-166 Forsaken Baccai evidence: symbolic self/opponent rune counts need an absolute player binding", () => {
-  // 383.2.a.1 / 133.5.a.1 / 431.1：触发条件经内核 test() 求值，符号选择符没有归一化。
-  const authored = substitutePlayers(ability.trigger.condition, "self", "opponent");
-  const kernel = runeZoneWorld({ aRuneDeck: 1, aChanneled: 1, bRuneDeck: 2, bChanneled: 2 });
-  assert.equal(kernel.test(authored), false, "symbolic self/opponent never match literal player ids");
-  assert.equal(kernel.test(substitutePlayers(ability.trigger.condition, "A", "B")), true, "an absolute binding satisfies the same gate");
-});

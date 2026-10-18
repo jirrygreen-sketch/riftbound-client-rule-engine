@@ -259,3 +259,46 @@ test("rad-114-167 Riven, Deserter: the usage limit has no rules adapter and the 
   );
 });
 
+test("rad-114-167 Riven, Deserter: the interpreter honors both anchors, so only the production translation is missing", () => {
+  // CR 415.1 / 355.9.b: "another friendly unit" is the board minus the source,
+  // and "me" is the host. The reference interpreter's set query already
+  // implements both anchors (355.9.b/359.3.h); the card is blocked by
+  // programs/filters.ts, not by a missing ObjectSelector vocabulary.
+  const kernel = world().player("A")
+    .unit("riven", { might: 5, controller: "A" })
+    .unit("ally", { controller: "A" })
+    .unit("enemy", { controller: "B", owner: "B" })
+    .build();
+  const snapshot = kernel.getObject("riven");
+  const scoped = kernel.clone({ sourceSnapshot: snapshot, host: snapshot.ref });
+  const boardCount = (filter, expected) => {
+    const outcome = runAbilityBody([{
+      id: "riven.anchor",
+      op: "condition.predicate",
+      args: {
+        condition: {
+          kind: "constant",
+          value: {
+            kind: "compare",
+            left: { kind: "count", subject: "objects", filter },
+            operator: "eq",
+            right: { kind: "constant", value: expected }
+          }
+        }
+      }
+    }], scoped);
+    assert.equal(
+      outcome.linkedValues["riven.anchor.value"],
+      true,
+      `${JSON.stringify(filter)} must select exactly ${expected} object(s)`
+    );
+  };
+
+  // The host itself is never part of "another friendly unit".
+  boardCount({ type: "unit", zone: "board", exclude: "source" }, 2);
+  // "me"/self resolves to the host alone.
+  boardCount({ type: "unit", object: "self" }, 1);
+  // Control: an unanchored board query is the full three-unit board.
+  boardCount({}, 3);
+});
+

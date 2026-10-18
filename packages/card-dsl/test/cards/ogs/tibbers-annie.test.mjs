@@ -130,6 +130,5 @@ test.todo(
   "ogs-018-024 Tibbers, Annie: 'deal 3 to all units at battlefields' resolves as a non-target set " +
     "(CR 355.10.d, 418.1.c/418.1.d, 754) — effect.damage still reads only ctx.targets(TargetSpec id) " +
     "and has no { kind: 'query', filter } selector like effect.ready, so instruction.targets must not " +
-    "stand in for it; setFilter remains a descriptive placeholder (same batch gap as rad/avalanche); " +
-    "the { self: true } trigger half is merged (RIFT-257)"
+    "stand in for it; setFilter remains a descriptive placeholder, and simultaneous set application is missing"
 );

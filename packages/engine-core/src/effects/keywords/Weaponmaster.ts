@@ -43,7 +43,13 @@ const weaponmaster = {
     "821.2",
     "821.3"
   ],
-  expand({ host }): readonly Ability[] {
+  expand({ host, params }): readonly Ability[] {
+    const instanceId = typeof params?.instanceId === "string" ? params.instanceId : undefined;
+    const targetId = instanceId === undefined ? "weaponmaster-equipment" : `weaponmaster-equipment:${instanceId}`;
+    const choiceId = instanceId === undefined ? "weaponmaster-choice" : `weaponmaster-choice:${instanceId}`;
+    const costId = instanceId === undefined ? "weaponmaster-cost" : `weaponmaster-cost:${instanceId}`;
+    const payId = instanceId === undefined ? "weaponmaster-pay" : `weaponmaster-pay:${instanceId}`;
+    const attachId = instanceId === undefined ? "weaponmaster-attach" : `weaponmaster-attach:${instanceId}`;
     const source = { canonicalCardId: host.canonicalCardId };
     return [{
       kind: "triggered",
@@ -57,10 +63,10 @@ const weaponmaster = {
       optional: false,
       body: [
         {
-          id: "weaponmaster-choice",
+          id: choiceId,
           op: "sequence",
           targets: [{
-            id: "weaponmaster-equipment",
+            id: targetId,
             filter: { type: "gear", controller: "self", tags: ["Equipment"] },
             min: 0,
             max: 1,
@@ -71,7 +77,7 @@ const weaponmaster = {
             left: {
               kind: "count",
               subject: "objects",
-              filter: { object: { target: "weaponmaster-equipment" } }
+              filter: { object: { target: targetId } }
             },
             operator: "gt",
             right: constant(0)
@@ -79,10 +85,10 @@ const weaponmaster = {
           args: {
             body: constant([
               {
-                id: "weaponmaster-cost",
+                id: costId,
                 op: "cost.modify",
                 args: {
-                  source: constant({ kind: "target", id: "weaponmaster-equipment" }),
+                  source: constant({ kind: "target", id: targetId }),
                   modifier: constant({
                     kind: "reduce-equip-cost",
                     resource: "power",
@@ -92,19 +98,19 @@ const weaponmaster = {
                 }
               },
               {
-                id: "weaponmaster-pay",
+                id: payId,
                 op: "cost.pay",
-                linkedTo: "weaponmaster-cost",
+                linkedTo: costId,
                 args: {
-                  cost: linked("weaponmaster-cost", "cost")
+                  cost: linked(costId, "cost")
                 }
               },
               {
-                id: "weaponmaster-attach",
+                id: attachId,
                 op: "effect.attach",
-                linkedTo: "weaponmaster-pay",
+                linkedTo: payId,
                 args: {
-                  objects: constant({ kind: "target", id: "weaponmaster-equipment" }),
+                  objects: constant({ kind: "target", id: targetId }),
                   host: constant({ kind: "source" })
                 }
               }

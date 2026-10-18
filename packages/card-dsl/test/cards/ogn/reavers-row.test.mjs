@@ -3,12 +3,14 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/reavers-row.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
 // effect.move declares Expr-typed arguments, so the body runs through the
 // production chain adapter, which preserves the Expr nodes for the primitive's
 // own schema validation (engine-core/src/chain/interpreter-adapter.ts).
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { getTimingPoint, isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL = "card.hash-50eea6ceaf8ca3375c963141d772172c81248799d0edc1429deefe6b8b1862e0";
 const HERE = { type: "battlefield", id: "battlefield-1" };
@@ -42,7 +44,22 @@ test("ogn-285-298 Reaver's Row: program validates and is judge-required", () => 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /defense-declared/);
   assert.match(program.judgeReason, /combat\/flow\.ts/);
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /Unsupported filter field sameLocationAs/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-281|d8e60ac/);
   assert.equal(program.sourceText, "When you defend here, you may move a friendly unit here to base.");
+});
+
+test("ogn-285-298: production target translation still rejects the same-location anchor", () => {
+  // The IR shape is accepted, but the production adapter is the remaining
+  // blocker for Finalize: it cannot translate sameLocationAs into the frozen
+  // target query. The execution goldens below deliberately supply a locked
+  // target to exercise the already merged move primitive without hiding this
+  // adapter gap.
+  assert.throws(
+    () => translateInstructionTargets(program.abilities[0].body),
+    /Unsupported filter field sameLocationAs/
+  );
 });
 
 test("ogn-285-298: defend trigger with an optional move wrapped in choice.optional", () => {
@@ -52,7 +69,7 @@ test("ogn-285-298: defend trigger with an optional move wrapped in choice.option
   assert.deepEqual(ability.trigger.filter, {
     event: "defense-declared",
     here: true,
-    player: "controller"
+    player: "self"
   });
   // "you may": the ability is optional AND the chosen instruction lives inside
   // the choice body (contract 3.9), never a bare choice + linkedTo.
@@ -143,12 +160,25 @@ test("ogn-285-298: the trigger names the defense-declared timing point with the 
   assert.equal(isTimingPointId("defense-declared"), true);
   assert.equal(ability.trigger.filter.event, "defense-declared");
   assert.equal(ability.trigger.filter.here, true);
-  assert.equal(ability.trigger.filter.player, "controller");
+  assert.equal(ability.trigger.filter.player, "self");
   assert.deepEqual(getTimingPoint("defense-declared").ruleRefs, ["323.2", "383.4.f", "466.2.c"]);
 });
 
+test("ogn-285-298: trigger validation isolates the unsupported battlefield-relative here anchor", () => {
+  const result = validateTriggerSpec(ability.trigger);
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.issues, [
+    {
+      path: "trigger.filter.here",
+      code: "unknown-field",
+      message: "EventPattern 不允许此字段。"
+    }
+  ]);
+});
+
 test.todo(
-  "ogn-285-298: defense-declared 由 combat/ 发出（每场战斗只检查一次，383.4.f.2.a）并进链；here 需要战场相对锚点；" +
-    "Finalize 按 controller \"self\" + sameLocationAs \"self\" 在守方战场上的友方单位中锁定目标" +
+  "ogn-285-298: defense-declared 由 combat/ 发出（每场战斗只检查一次，383.4.f.2.a）并进链；" +
+    "Finalize 还需把 controller \"self\" + sameLocationAs \"self\" 的目标适配接入生产翻译，" +
+    "并在守方战场上的友方单位中锁定目标" +
     "（参考内核按字面值比较过滤器，不解析 PlayerSelector）"
 );

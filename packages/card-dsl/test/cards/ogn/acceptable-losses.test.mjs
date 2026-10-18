@@ -1,3 +1,8 @@
+// Scenario evidence: ../templates/keyword-play-effect-kill-682.test.mjs.
+// Main-phase admission only; the per-player effect remains blocked below.
+// RIFT-701 group evidence: ../templates/keyword-play-effect-kill-701.test.mjs
+// (Action admission, 1 Energy payment and the no-became-target shape); the
+// per-player chooser gap (355.10.e / 412.1) stays recorded in judgeReason.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -15,6 +20,7 @@ const [pickSpec] = killInstruction.picks;
 test("ogn-179-298 Acceptable Losses: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
+  assert.deepEqual(result.issues, []);
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");

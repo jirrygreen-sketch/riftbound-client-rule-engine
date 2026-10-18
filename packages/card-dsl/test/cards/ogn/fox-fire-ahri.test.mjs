@@ -7,6 +7,8 @@ import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { buildHiddenKindCostPlan, payHiddenCostPlan } from "../../../../engine-core/dist/cost/kinds/index.js";
+import { DUEL_DOMAINS } from "../../../../engine-core/dist/cost/resources.js";
 
 const CARD_ID = "card.hash-a8491bd5b3202938d1600eec9d2435158dffdf3ceda1be6ceaa50336f2e25393";
 
@@ -35,6 +37,12 @@ test("ogn-256-298 Fox-Fire judgeReason names the group and total-Might gap", () 
   assert.match(program.judgeReason, /355\.11/);
   assert.match(program.judgeReason, /total Might/);
   assert.match(program.judgeReason, /同一战场/);
+  assert.match(program.judgeReason, /target-plan\.ts 没有任何执行路径/);
+  assert.match(program.judgeReason, /811\.1\.c\/811\.1\.d/);
+  assert.match(program.judgeReason, /Hide 自由行动/);
+  assert.match(program.judgeReason, /facedown 区域处理/);
+  assert.match(program.judgeReason, /下回合 Reaction/);
+  assert.match(program.judgeReason, /layerFor 也还没有 cost\.hidden 映射/);
   assert.match(program.judgeReason, /cost\.hidden/);
 });
 
@@ -53,8 +61,8 @@ test("ogn-256-298 Fox-Fire structure: [Hidden] + [Action] and an any-number grou
   assert.equal(killInstruction.linkedTo, undefined);
 
   // "any number ... at a battlefield": 355.13 lets the controller choose zero
-  // targets, and 355.11 makes the group need one shared battlefield plus the
-  // total-Might <= 4 constraint that is still missing (see judgeReason).
+  // targets, and kind:"group" is a declared field: the target-plan reader has
+  // no execution path for group consistency or a total-Might sum (see judgeReason).
   assert.equal(killInstruction.targets.length, 1);
   assert.equal(targetSpec.id, "fox-fire-units");
   assert.deepEqual(targetSpec.filter, { type: "unit", zone: "board" });
@@ -111,4 +119,35 @@ test("ogn-256-298 Fox-Fire golden: choosing zero units is legal for any-number t
   assert.equal(run.result.reason, "mistargeted");
   assert.equal(kernel.getObject("untouched-unit").zone, "board");
   assert.equal(run.events.length, 0);
+});
+
+test("ogn-256-298 Fox-Fire golden: the merged Hidden cost planner locks the hide plan and the play plan ignores the printed base", () => {
+  // The [Hidden] keyword cost side is merged (cost/kinds/hidden.ts); this
+  // executes the real planner + payer for both modes. The kill half above
+  // stays the blocked part (judgeReason); the 811.1.c/811.1.d flow binding
+  // (Hide action, facedown zone, next-turn Reaction play) is not wired.
+  const fixture = () => {
+    const kernel = world()
+      .player("A", { energy: 20, power: ["Fury"] })
+      .hand("fox-fire", { types: ["spell"], energy: 3, power: null })
+      .build();
+    return kernel.clone({ sourceSnapshot: kernel.getObject("fox-fire") });
+  };
+
+  const hideContext = fixture();
+  const hidePlan = buildHiddenKindCostPlan(hideContext, { id: "fox-fire:hide", mode: "hide" });
+  assert.deepEqual(hidePlan.total.power, [{ amount: 1, allowedDomains: DUEL_DOMAINS }]);
+  assert.equal(hidePlan.total.energy, 0);
+  assert.equal(hidePlan.printed.energy, 3);
+  assert.equal(hidePlan.printed.power, null);
+  const hideReceipt = payHiddenCostPlan(hideContext, hidePlan);
+  assert.equal(hideReceipt.paid, true);
+  assert.deepEqual(hideReceipt.actions[0].action.plan.power, ["Fury"]);
+
+  const playContext = fixture();
+  const playPlan = buildHiddenKindCostPlan(playContext, { id: "fox-fire:play", mode: "play" });
+  assert.equal(playPlan.printed.energy, 3);
+  assert.equal(playPlan.total.energy, 0);
+  const playReceipt = payHiddenCostPlan(playContext, playPlan);
+  assert.equal(playReceipt.paid, true);
 });

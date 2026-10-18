@@ -1,3 +1,8 @@
+// RIFT-648 template execution evidence: ../templates/empty-648.test.mjs.
+// The template rows play this Gear through the real chain and assert the
+// printed-cost, target-restriction and Equip-payment boundaries; this file
+// keeps validation, identity, the keyword structure and the merged
+// effect.attach slice.
 import assert from "node:assert/strict";
 import test from "node:test";
 

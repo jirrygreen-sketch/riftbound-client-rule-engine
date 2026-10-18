@@ -30,11 +30,11 @@ test("rad-012-167 Runeblade Anvil: program validates and has expected identity",
     "When you play this or when this leaves the board, banish the top card of your Main Deck. Until your next Ending Phase, you may play that card. (You still pay its costs.)\n" +
       ":rb_energy_2::rb_rune_chaos:, :rb_exhaust:: Kill this."
   );
-  assert.match(program.judgeReason, /play/);
   assert.match(program.judgeReason, /Banishment/);
   assert.match(program.judgeReason, /play-permission/);
-  assert.match(program.judgeReason, /your next Ending Phase/);
   assert.match(program.judgeReason, /until \+ turn-end \+ player/);
+  assert.match(program.judgeReason, /golden/);
+  assert.doesNotMatch(program.judgeReason, /触发的注册路径也已合入/);
 });
 
 test("rad-012-167: play trigger, leave-board trigger and the activated Kill-this ability", () => {
@@ -107,12 +107,36 @@ test("rad-012-167: the activated ability kills the source (429.1.a.1)", () => {
   assert.deepEqual(outcome.linkedValues[`${KILL_SELF}.killed`], [{ id: "anvil", zoneEntryId: 1 }]);
 });
 
-test.todo(
-  "rad-012-167 Runeblade Anvil: “Until your next Ending Phase, you may play that card. (You still " +
-    "pay its costs.)” 仍需要 from-Banishment 打出许可原语：已合入的 " +
-    "continuous.timing/location/restrict 都不改写可打出区域，effect.play 只消费已 Finalize 的" +
-    "费用计划；期限本身已可由 until + turn-end + player 表达"
-);
+test("rad-012-167 Runeblade Anvil: the from-Banishment play permission is still an unregistered opcode", () => {
+  // The only remaining gap: the permission itself. Lifting the shipped program
+  // in memory drives the real binding, which must keep fail-closing on the
+  // unregistered opcode instead of falling back to effect.play.
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const kernel = world()
+    .card("anvil", { cardId: program.canonicalCardId, types: ["unit"], energy: 1, power: ["Chaos"], zone: "board" })
+    .deck(["top", "second"], { owner: "A" })
+    .build();
+  const [registration] = triggerRegistrations(binding.registry, kernel.getObject("anvil"));
+  assert.equal(registration.body[1].op, "effect.play-permission");
+  // The shipped linked read has no producer, so the permission instruction is
+  // ignored fail-closed instead of silently playing the banished card.
+  const outcome = resolveChainBody(registration.body, kernel.clone({ sourceSnapshot: kernel.getObject("anvil") }));
+  assert.deepEqual(outcome.results.map((result) => [result.op, result.result.status]), [
+    ["effect.banish", "executed"],
+    ["effect.play-permission", "ignored"]
+  ]);
+  // With a resolvable selector the merged interpreter dispatch reaches the
+  // unregistered opcode and throws instead of approximating a play permission.
+  assert.throws(
+    () => resolveChainBody(
+      [{ id: "permission", op: "effect.play-permission", args: { objects: { kind: "constant", value: "source" }, zone: { kind: "constant", value: "banishment" } } }],
+      kernel.clone({ sourceSnapshot: kernel.getObject("anvil") })
+    ),
+    /Unregistered instruction opcode: effect\.play-permission/
+  );
+});
 
 test("rad-012-167 Runeblade Anvil: the existing until duration expires only at the controller's next turn-end", () => {
   // This exercises only the merged duration matcher. It grants no permission

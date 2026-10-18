@@ -7,6 +7,10 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c";
 
@@ -26,12 +30,15 @@ test("sfd-070-221 Wages of Pain: judge-required for Gold token/intrinsic ability
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // The judgeReason must name the actual, current gaps (contract 3.1).
+  // The judgeReason must name the actual, current measured gaps (contract 3.1).
   assert.match(program.judgeReason, /Gold/);
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /811\.1\.d\.2/);
+  assert.match(program.judgeReason, /token-definition-or-abilities-judge-required/);
+  assert.match(program.judgeReason, /Invalid effect\.token argument: entersExhausted/);
+  assert.match(program.judgeReason, /no layer mapping/);
   assert.match(program.sourceText, /Deal 3 to a unit at a battlefield./);
   assert.match(program.sourceText, /Play a Gold gear token exhausted./);
 });
@@ -101,5 +108,43 @@ test("sfd-070-221 Wages of Pain golden execution: a stale battlefield target is 
   assert.equal(run.events.length, 0);
 });
 
-test.todo("Wages of Pain: play CR 187.5 Gold with its intrinsic resource ability and exhausted entry state (184.1/185.2.d)");
-test.todo("Wages of Pain: Hide, unlock on the next turn and play for free as a Reaction with the original battlefield target restriction (811.1.b/811.1.d.2)");
+test("sfd-070-221 Wages of Pain: the Gold token really is unavailable in the frozen table, and the entry stipulation is rejected", () => {
+  // 187.5 Gold needs its own intrinsic ability; effect.token documents that such
+  // definitions stay blocked, and the merged primitive negates instead of
+  // creating an ability-less gear stand-in.
+  const kernel = world().build();
+  const { entersExhausted: _entersExhausted, ...withoutEntryOverride } = tokenInstruction.args;
+  const run = runInstruction(token, withoutEntryOverride, { world: kernel });
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  assert.deepEqual(run.linked["goldToken"], { amount: 0, objects: [], objectsComplete: true });
+  // The card's destination is the relative `controller` base the IR keeps as a
+  // symbolic player; once that selector is resolved to a PlayerId the primitive
+  // reaches the frozen table and reports the real Gold-specific block.
+  const resolved = runInstruction(token, {
+    ...withoutEntryOverride,
+    location: { kind: "constant", value: { type: "base", player: "A" } }
+  }, { world: kernel });
+  assert.equal(resolved.result.status, "negated");
+  assert.equal(resolved.linked["goldToken"].blockedReason, "token-definition-or-abilities-judge-required");
+  assert.equal(resolved.linked["goldToken"].createdAmount, 0);
+  assert.equal(kernel.query({}).length, 0, "no Gold object may be created while the definition is blocked");
+  // 184.1/185.2.d: the entry stipulation is not a supported argument at all.
+  assert.throws(
+    () => runInstruction(token, tokenInstruction.args, { world: kernel }),
+    /Invalid effect\.token argument: entersExhausted/
+  );
+});
+
+test("sfd-070-221 Wages of Pain: Hidden's cost.hidden declaration has no production consumer (811.1.b)", () => {
+  const hidden = keywordDefinitionsById.get("Hidden");
+  assert.ok(hidden, "effects/keywords/Hidden.ts must be registered");
+  const [ability] = hidden.expand({ host: { canonicalCardId: CARD_ID } });
+  assert.deepEqual(ability, { kind: "static", effect: { kind: "cost.hidden" } });
+  const { engine, kernel } = fixture();
+  const binder = createEngineStaticBinder(engine);
+  assert.throws(
+    () => binder.bindStatic(ability, kernel.getObject("source")),
+    (error) => /Static ability kind cost\.hidden has no layer mapping/.test(String(error.message))
+  );
+});

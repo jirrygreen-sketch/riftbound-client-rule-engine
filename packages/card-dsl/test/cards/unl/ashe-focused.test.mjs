@@ -8,6 +8,8 @@ import banish from "../../../../engine-core/dist/effects/instructions/effect.ban
 import reveal from "../../../../engine-core/dist/effects/instructions/effect.reveal.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { createProgramBinding, registerProgramTriggers } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -63,10 +65,13 @@ test("unl-169-219 Ashe, Focused: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /355\.7/);
   assert.match(program.judgeReason, /391\.5/);
   assert.match(program.judgeReason, /registerDelayedTrigger/);
-  // Second-sweep refresh: the delayed engine entry is merged (pipeline skips the
-  // activeZones filter for delayed registrations); the remaining gap is the card
-  // command side declaration plus the banished-incarnation window.
+  // Third-sweep refresh: the delayed engine entry is merged (pipeline skips the
+  // activeZones filter for delayed registrations), and the authored hold
+  // placeholder cannot even register - the closed event vocabulary spells the
+  // timing "held" and the player selector has no chosen-opponent form.
   assert.match(program.judgeReason, /events\/pipeline\.ts/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /TriggerSpecValidationError/);
   assert.match(program.judgeReason, /linkKey/);
   assert.doesNotMatch(program.judgeReason, /已有引擎入口/);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -252,3 +257,25 @@ test("unl-169-219 Ashe, Focused: the merged delayed-trigger entry still fires af
 test.todo("ashe-focused: lock a chosen opponent as a player target and bind reveal/banish/hold to that player (CR 355.7/355.9.a)");
 
 test.todo("ashe-focused: declare the delayed linked hold return from card data with the exact banished incarnation (CR 391.5/391.5.a) — the engine entry that survives source exit is covered above");
+
+test("unl-169-219 Ashe, Focused: the authored hold placeholder cannot register under the closed trigger vocabulary (383.4.d)", () => {
+  // Evidence for gap (2): the printed "When they hold" is not yet expressible.
+  // The closed EventPattern vocabulary spells the timing "held", and
+  // PlayerSelector only accepts self/opponent/any/{playerId}; the card records
+  // the printed meaning as a placeholder. Binding the real program therefore
+  // fails as a whole, so no seat is silently guessed.
+  assert.throws(
+    () => assertTriggerSpec({ at: holdEffect.trigger.at, filter: holdEffect.trigger.filter }),
+    error => error.name === "TriggerSpecValidationError" && /trigger\.filter\.event/.test(error.message)
+  );
+
+  const executable = { ...program, status: "executable", judgeReason: undefined };
+  const binding = createProgramBinding({ cardPrograms: [executable] });
+  const f = fixture({ cards: [{ id: "ashe", cardId: CANONICAL_ID, types: ["unit"], energy: 1, power: [] }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("ashe"), to: "board", location: { type: "battlefield", id: "bf-1" } });
+  // programs/triggers.ts translates the declared filter and the pipeline's
+  // assertTriggerSpec then rejects the placeholder, so the whole program fails
+  // to bind instead of silently subscribing some other seat.
+  assert.throws(() => registerProgramTriggers(binding.registry, f.engine, f.kernel.getObject("ashe")),
+    /trigger\.filter\.event/);
+});

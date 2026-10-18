@@ -7,6 +7,11 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import discard from "../../../../engine-core/dist/effects/instructions/effect.discard.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ChainContractBlockedError } from "../../../../engine-core/dist/chain/engine.js";
+import { validateEventPattern } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-36cf830f15dc595f32cf4fbd561b4fda41ceeefd4c262f212067596def69e2cb";
@@ -154,3 +159,54 @@ test.todo(
 test.todo(
   "ven-111-166 Minah Swiftfoot: run the finalized choice.mode selection through the current Finalize/Resolve path"
 );
+
+// RIFT-733: the three refreshed gaps, each pinned against the real production seam.
+test("ven-111-166 Minah Swiftfoot: a multi-player list is impossible for the merged draw/discard primitives", () => {
+  // 355.10.d "each player" needs per-seat fan-out. effect.draw/effect.discard take
+  // one PlayerId; a player list evaluates to negated/impossible, and the
+  // descriptive "each-player" string is not a real player id at all.
+  const kernel = world().player("A").player("B").deck(["a1"], { owner: "A" }).deck(["b1"], { owner: "B" }).build();
+  const multi = runInstruction(draw, { amount: { kind: "constant", value: 1 }, player: { kind: "constant", value: ["A", "B"] } }, { world: kernel });
+  assert.deepEqual(multi.result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(kernel.player("A").handSize, 0);
+  assert.equal(kernel.player("B").handSize, 0);
+  // The descriptive placeholder is not a player id: draw negates as impossible
+  // and discard reaches the kernel's unknown-player read.
+  const placeholder = runInstruction(
+    draw,
+    { amount: { kind: "constant", value: 1 }, player: { kind: "constant", value: "each-player" } },
+    { world: kernel }
+  );
+  assert.equal(placeholder.result.status, "negated");
+  assert.equal(placeholder.result.reason, "impossible");
+  assert.throws(
+    () => runInstruction(discard, { amount: { kind: "constant", value: 1 }, player: { kind: "constant", value: "each-player" } }, { world: kernel }),
+    /Unknown player each-player/
+  );
+});
+
+test("ven-111-166 Minah Swiftfoot: the closed trigger vocabulary rejects the authored Move pattern", () => {
+  // events/trigger-spec.ts EVENT_PATTERN_TYPES has no "object-moved", so
+  // EventPipeline.registerTrigger refuses the program trigger (invalid-event-type).
+  const result = validateEventPattern({ event: "object-moved" });
+  assert.equal(result.ok, false);
+  assert.equal(result.issues[0].code, "invalid-event-type");
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const f = fixture();
+  const source = { ...f.kernel.getObject("source"), cardId: CANONICAL_ID };
+  assert.equal(triggerRegistrations(binding.registry, source).length, 1);
+  assert.throws(
+    () => binding.registerProgramTriggers(f.engine, source),
+    error => error.issues?.[0]?.code === "invalid-event-type"
+  );
+});
+
+test("ven-111-166 Minah Swiftfoot: the chain Finalize still refuses the mode choice", () => {
+  const f = fixture();
+  const source = f.kernel.getObject("source");
+  assert.throws(
+    () => f.engine.execute({ id: "minah-body", source, controller: "A", kind: "triggered", speed: "reaction", body: ability.body }),
+    error => error instanceof ChainContractBlockedError &&
+      /Mode choices require a Finalize\/Resolve choice-plan adapter/.test(error.message)
+  );
+});

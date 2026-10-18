@@ -1,3 +1,4 @@
+// Execution evidence for keyword expansion is consolidated in ../templates/keyword-only.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -52,8 +53,10 @@ test("sfd-016-221 Recurve Bow: identity, ruleset, status, judgeReason and verbat
   // The judgeReason names the missing payment path and the real dependencies.
   assert.match(program.judgeReason, /Equip/);
   assert.match(program.judgeReason, /Unsupported payment kind: equip/);
-  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /params\.cost/);
+  assert.match(program.judgeReason, /cost\.pay \/ cost\.modify/);
+  // The dependency sentence must not cite a merged cost task as still pending.
+  assert.doesNotMatch(program.judgeReason, /依赖：[^。]*RIFT-/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The generated registry indexes this exact program object.
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -151,12 +154,12 @@ test("sfd-016-221 Recurve Bow: the merged Equip expansion really attaches this G
   assert.deepEqual(run.events.map((event) => event.action), ["attach"]);
 });
 
-test.todo("sfd-016-221 Recurve Bow: paying the printed Fury Equip cost (CR 818.1.b / 818.1.c.3) needs an equip payment kind in cost/plan-values.ts; the KeywordDef.expand signature already exposes params.cost but Equip.ts does not read it yet (contract 3.8 item 3; RIFT-261 follow-up).");
-test.todo("sfd-016-221 Recurve Bow: the card-program -> keyword expansion path is merged (RIFT-257 programs/keywords.ts); the activation cost becomes payable once the equip payment kind and the printed-cost binding exist, at which point payCostPlan can be exercised end to end.");
+test.todo("sfd-016-221 Recurve Bow: paying the printed Fury Equip cost (CR 818.1.b / 818.1.c.3) needs an equip payment kind in cost/plan-values.ts; the KeywordDef.expand signature already exposes params.cost but Equip.ts does not read it yet (contract 3.8 item 3).");
+test.todo("sfd-016-221 Recurve Bow: the card-program -> keyword expansion path is merged (programs/keywords.ts); the activation cost becomes payable once the equip payment kind and the printed-cost binding exist, at which point payCostPlan can be exercised end to end.");
 // Direct evidence for the two printed-cost gaps recorded in the judgeReason:
-// the merged cost pipeline refuses the equip payment kind outright, and the
-// Equip KeywordDef still ignores the params.cost carrier promised by
-// contract 3.8 item 3.
+// the merged cost pipeline (including RIFT-261's cost.pay / cost.modify kinds)
+// refuses the equip payment kind outright, and the Equip KeywordDef still
+// ignores the params.cost carrier promised by contract 3.8 item 3.
 import { buildCostPlan, CostPlanError } from "../../../../engine-core/dist/cost/index.js";
 
 test("sfd-016-221 Recurve Bow: the merged cost pipeline rejects the equip payment kind (CR 818.1.b / 818.1.c.2)", () => {
@@ -179,7 +182,8 @@ test("sfd-016-221 Recurve Bow: Equip.expand still ignores params.cost, so the pr
   // params.cost. The merged Equip.ts signature accepts the carrier but its
   // expand body never reads it — the returned activation cost stays the bare
   // equip payment kind, which the cost pipeline then blocks (see the test
-  // above). This locks the exact unbound shape until RIFT-261 lands.
+  // above). This locks the exact unbound shape while the printed-cost binding
+  // (contract 3.8 item 3) is still missing.
   const definition = keywordDefinitionsById.get("Equip");
   const [expansion] = definition.expand({
     value: equip.value,

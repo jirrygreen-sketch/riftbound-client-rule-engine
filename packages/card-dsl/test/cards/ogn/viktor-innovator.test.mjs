@@ -6,6 +6,11 @@ import program from "../../../dist/cards/ogn/viktor-innovator.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { registerProgramTriggers } from "../../../../engine-core/dist/programs/triggers.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const [ability] = program.abilities;
 const c = value => ({ kind: "constant", value });
@@ -24,8 +29,11 @@ test("Viktor, Innovator identity and judge-required reason", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /opponent's turn/);
-  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /activePlayerId/);
+  // Re-probed 2026-10-17: the placeholder gate is truthy, so the missing
+  // predicate is the only thing standing between this card and over-triggering.
+  assert.match(program.judgeReason, /恒真/);
+  assert.equal(/RIFT-359/.test(program.judgeReason), false);
   assert.equal(
     program.sourceText,
     "When you play a card on an opponent's turn, play a 1 :rb_might: Recruit unit token in your base."
@@ -116,7 +124,40 @@ test("Viktor, Innovator: the authored token body executes once through the produ
   });
 });
 
-test.todo("Viktor, Innovator: evaluate opponent-turn ownership at trigger time (CR 383.2.a.1; RIFT-359)");
+test("Viktor, Innovator boundary: the placeholder condition is truthy, so the card fires on its controller's own turn (CR 383.2.a.1)", () => {
+  // Re-probed 2026-10-17: expression conditions take Boolean(value), and the
+  // authored constant string is always truthy. Driving the real card-played wave
+  // on the controller's own turn therefore appends a trigger item, which is the
+  // over-trigger the missing turn-ownership predicate has to prevent.
+  const f = fixture({ cards: [{ id: "viktor", cardId: program.canonicalCardId, types: ["unit"], energy: 5, power: ["Mind"], might: 5 }] });
+  const context = bindResolveContext(f.kernel, { host: f.kernel.ref("source") });
+  assert.equal(evaluateCondition(ability.trigger.condition, {
+    context, host: f.kernel.ref("source"), linked: () => undefined, canLookBack: () => true, isIgnored: () => false
+  }), true);
+  assert.deepEqual(ability.trigger.condition.value, c("active-player-is-opponent-of-controller"));
+
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("viktor"), to: "board", location: { type: "base", player: "A" } });
+  f.engine.advance();
+  // turnPlayer is A and the ability controller is A: this is the controller's own turn.
+  assert.equal(f.engine.pipeline.turnPlayer, "A");
+  assert.equal(f.kernel.getObject("viktor").controller, "A");
+  registerProgramTriggers(new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]), f.engine, f.kernel.getObject("viktor"));
+  f.engine.pipeline.emit({ timingPoint: "card-played", object: f.kernel.getObject("source"), source: f.kernel.getObject("source"), player: "A", fromZone: "hand" });
+  assert.deepEqual(f.engine.items.map(item => item.source.ref.id), ["viktor"]);
+});
+
+test("Viktor, Innovator boundary: the event carries activePlayerId, but no Condition or Expr member reads it (CR 383.2.a.1)", () => {
+  // Re-probed 2026-10-17: the pipeline event really does carry the turn owner,
+  // so the data is present; what is missing is the predicate surface. The merged
+  // predicate condition kinds cover play origin, printed characteristics and
+  // finalized results only.
+  const f = fixture({ cards: [] });
+  f.engine.pipeline.emit({ timingPoint: "card-played", object: f.kernel.getObject("source"), source: f.kernel.getObject("source"), player: "A", fromZone: "hand" });
+  const [event] = f.engine.pipeline.events.filter(candidate => candidate.timingPoint === "card-played");
+  assert.equal(event.activePlayerId, "A");
+  assert.equal(event.player, "A");
+});
+
 for (const controller of ["A", "B"]) {
   for (const sourceLocation of [{ type: "base", player: controller }, { type: "battlefield", id: "bf-1" }]) {
     test(`Viktor, Innovator: authored body plays one Recruit into ${controller}'s base from ${sourceLocation.type}`, () => {

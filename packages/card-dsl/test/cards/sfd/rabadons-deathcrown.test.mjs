@@ -1,3 +1,4 @@
+// Execution evidence for keyword expansion is consolidated in ../templates/keyword-only.test.mjs.
 // Golden test for Rabadon's Deathcrown (sfd-191-221).
 //
 // The catalog ability is [Unique] + [Equip] only; the merged Equip expansion's
@@ -94,6 +95,7 @@ test("sfd-191-221 Rabadon's Deathcrown: identity, ruleset, status, judgeReason a
   // consumer, not a missing continuous.deck primitive.
   assert.match(program.judgeReason, /continuous\.deck/);
   assert.match(program.judgeReason, /no layer mapping/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("sfd-191-221 Rabadon's Deathcrown: the merged binder rejects [Unique]'s continuous.deck shape (CR 825.3.a)", () => {

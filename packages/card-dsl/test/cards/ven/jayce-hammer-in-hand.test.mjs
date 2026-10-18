@@ -10,7 +10,9 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { ChainContractBlockedError } from "../../../../engine-core/dist/chain/engine.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import assault from "../../../../engine-core/dist/effects/keywords/Assault.js";
 import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
@@ -18,6 +20,9 @@ import ganking from "../../../../engine-core/dist/effects/keywords/Ganking.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL =
   "card.hash-cb3b4ba5c7faf7ff8048c29675e218c4b9fa878972899ec9a88ecfb730c74cf2";
@@ -52,8 +57,12 @@ test("ven-088-166 Jayce: identity, ruleset, status, judgeReason and verbatim sou
     "the reason names only current gaps: " + program.judgeReason);
   // Real gap 1: the chain adapter rejects mode choices at Finalize.
   assert.match(program.judgeReason, /choice\.mode|Finalize\/Resolve choice-plan/);
-  // Real gap 2: keyword consumers (Deflect tax pipeline is work in progress).
-  assert.match(program.judgeReason, /RIFT-360/);
+  // The isolated keyword adapter is merged, but the default CardProgram
+  // lifecycle and Deflect Power payment path are not wired.
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /designation/);
+  assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /battlefield-to-battlefield/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -176,8 +185,92 @@ test("ven-088-166 probe: the ready trigger enters the chain, then mode choice st
   assert.deepEqual(f.kernel.getObject("hammer").keywords, []);
 });
 
-test.todo(
-  "ven-088-166 Jayce: the granted keywords cannot take effect until their consumers exist — Assault's " +
-    "combat bonus needs the 807.1.d.1 attacker designation, Ganking needs the 810.1.c battlefield movement " +
-    "consumer, and Deflect's target-tax pipeline is in progress (RIFT-360)"
-);
+test("ven-088-166 Jayce probe: the default lifecycle still does not re-expand the granted Assault", () => {
+  const base = world().unit("hammer", { zone: "board", might: 5, combatRole: "attacker" }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("hammer") });
+  const outcome = runAbilityBody([assault2.body[0]], kernel);
+  assert.equal(outcome.status, "executed");
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects, { timingPoint: "combat-start" });
+  // The isolated KeywordGrantLayerEngine adapter aliases combatRole to the
+  // keyword definition's designation property. The default lifecycle still
+  // uses LayerEngine and only exposes the granted keyword.
+  const evaluated = layers.evaluate(base.ref("hammer"));
+  assert.equal(evaluated.combatRole, "attacker");
+  assert.equal(evaluated.might, 5);
+  assert.ok(!Object.hasOwn(evaluated, "designation"));
+});
+
+test("ven-088-166 Jayce golden: the merged keyword adapter re-expands Assault, Deflect and Ganking", () => {
+  const base = world().unit("hammer", {
+    cardId: CANONICAL, types: ["unit"], zone: "board", might: 5,
+    combatRole: "attacker", location: { type: "battlefield", id: "bf-1" }
+  }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("hammer") });
+  const outcome = runAbilityBody(
+    [assault2.body[0], deflect2.body[0], gankingMode.body[0]],
+    kernel
+  );
+  assert.equal(outcome.status, "executed");
+  const layers = new KeywordGrantLayerEngine(kernel.objects, {
+    context: source => bindResolveContext(kernel, { source, controller: source.controller })
+  });
+  for (const entry of kernel.continuousEffects) {
+    layers.addContinuous(entry.effect, entry.duration, entry.timestamp);
+  }
+  const snapshot = layers.snapshot(kernel.ref("hammer"));
+  assert.deepEqual(snapshot.keywords, [
+    { id: "Assault", value: 2 },
+    { id: "Deflect", value: 2 },
+    { id: "Ganking" }
+  ]);
+  assert.equal(snapshot.might, 7);
+  assert.equal(snapshot.movement.canGank, true);
+  assert.deepEqual(layers.keywordAbilities(kernel.ref("hammer")).map(ability => ability.effect.kind), [
+    "continuous.might", "target.tax", "continuous.movement"
+  ]);
+});
+
+test("ven-088-166 Jayce probe: the granted Deflect's static tax has no production binding", () => {
+  const base = world().player("A").player("B")
+    .unit("hammer", { cardId: CANONICAL, types: ["unit"], zone: "board", location: { type: "base", player: "A" } })
+    .deck(["A:d"], { owner: "A" }).deck(["B:d"], { owner: "B" })
+    .rune(["A:r"], { owner: "A" }).rune(["B:r"], { owner: "B" })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: base.snapshot(), links: base.clone() }),
+    restore: checkpoint => { base.restore(checkpoint.state); base.copyLinkedFrom(checkpoint.links); },
+    objects: () => base.objects,
+    perform: action => base.perform(action),
+    choose: request => base.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(base, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const [staticDeflect] = deflect.expand({ value: 2, host: { canonicalCardId: CANONICAL } });
+  assert.throws(
+    () => createEngineStaticBinder(engine).bindStatic(staticDeflect, base.getObject("hammer")),
+    error => error.code === "judge-required" && /Static ability kind target\.tax has no layer mapping/.test(error.message)
+  );
+});
+
+test("ven-088-166 Jayce probe: the granted Ganking permission binds, but no production caller consumes it", () => {
+  const base = world().player("A").player("B")
+    .unit("hammer", { cardId: CANONICAL, types: ["unit"], zone: "board", location: { type: "base", player: "A" } })
+    .deck(["A:d"], { owner: "A" }).deck(["B:d"], { owner: "B" })
+    .rune(["A:r"], { owner: "A" }).rune(["B:r"], { owner: "B" })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("hammer") });
+  const outcome = runAbilityBody([gankingMode.body[0]], kernel);
+  assert.equal(outcome.status, "executed");
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  const evaluated = layers.evaluate(base.ref("hammer"));
+  // The ability-layer record exists, but LayerEngine's applyAbility only reads a
+  // nested `movement` object; Ganking.ts expands a flat permission string, so the
+  // derived snapshot never reports the route and movement() also sees no routes.
+  assert.equal(evaluated.movement.canGank, false);
+  // layers/rules/query.ts reads permission.routes; the keyword's flat
+  // `permission` string never populates that shape, so the rule query also
+  // reports no battlefield-to-battlefield route.
+  const rules = movement(layers.registry, base.ref("hammer"), base.getObject("hammer"), "A");
+  assert.equal(rules.canGank, false);
+  assert.deepEqual(rules.permissions, []);
+});

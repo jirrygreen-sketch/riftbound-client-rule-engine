@@ -1,3 +1,4 @@
+import empowerKeyword from "../../../../engine-core/dist/effects/keywords/Empower.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -55,7 +56,7 @@ test("ven-054-166 Questionable Tome: identity, ruleset, status, judgeReason and 
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /disempower/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /cost\/plan-values/);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
@@ -130,10 +131,34 @@ test("ven-054-166 Questionable Tome golden: the Draw 1 body really draws through
 
 test.todo(
   "ven-054-166 Questionable Tome: \"Disempower this\" as activation cost (404.1.a / 443.2.a) needs a disempower payment kind " +
-    "in cost/plan-values.ts - readCost's supported kinds are energy/power/xp/exhaust/discard/recycle/kill/reveal/spend-buff (RIFT-89); " +
+    "in cost/plan-values.ts - readCost's supported kinds are energy/power/xp/exhaust/discard/recycle/kill/reveal/spend-buff (cost/plan-values.ts); " +
     "the resolve-time effect.empower disempower is an effect, not a Finalize cost (204.3)"
 );
 test.todo(
   "ven-054-166 Questionable Tome: [Empower] with the exhaust-only cost must expand to a \"use only if not Empowered\" activated " +
-    "ability (827.1.c.1 / 415.5) - no Empower/Empowered KeywordDef exists in effects/keywords/registry.generated.ts (RIFT-81~88 batch)"
+    "ability (827.1.c.1 / 415.5) - the registered Empower KeywordDef still needs KeywordAbility/programs/keywords.ts params.cost forwarding"
 );
+
+test("ven-054-166 Questionable Tome: the merged Empower expansion pays Exhaust and empowers through its original body", () => {
+  const kernel = tomeWorld();
+  // Exercise the registered keyword with the printed cost; this does not add
+  // params to the CardProgram or bypass its judge-required binding guard.
+  const [ability] = empowerKeyword.expand({ host: { canonicalCardId: CANONICAL },
+    params: { cost: { kind: "activated", payments: [{ kind: "exhaust", object: "self" }] } } });
+  const plan = buildCostPlan(kernel, { id: "tome:empower", cost: ability.cost });
+  const receipt = payCostPlan(kernel, plan);
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay", "exhaust"]);
+  assert.equal(plan.total.energy, 0);
+  assert.deepEqual(plan.total.power, []);
+  const result = resolveChainBody(ability.body, kernel);
+  assert.equal(result.results[0].result.status, "executed");
+  assert.equal(kernel.getObject("questionable-tome").exhausted, true);
+  assert.equal(kernel.getObject("questionable-tome").empowered, 1);
+  assert.equal(kernel.player("A").energy, 1, "the Empower cost contains no Energy");
+  assert.equal(kernel.getObject("questionable-tome").power, null);
+  const again = resolveChainBody(ability.body, kernel);
+  assert.deepEqual(again.results[0].result, { status: "negated", reason: "skipped", events: [] },
+    "the expansion rechecks not Empowered at Resolve");
+  assert.equal(kernel.getObject("questionable-tome").empowered, 1);
+});

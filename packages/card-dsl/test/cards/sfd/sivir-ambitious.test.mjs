@@ -11,6 +11,9 @@ import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipelin
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { createTargetTaxAdapter } from "../../../../engine-core/dist/target/tax/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
@@ -46,6 +49,15 @@ test("sfd-120-221 Sivir, Ambitious: judgeReason names the excess-damage, conquer
   assert.match(program.judgeReason, /征服宿主/);
   assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
   assert.match(program.judgeReason, /809\.1\.c\/809\.1\.c\.1/);
+  assert.match(program.judgeReason, /programs\/statics\.ts/);
+  assert.match(program.judgeReason, /chain\/engine\.ts::finalize/);
+  assert.match(program.judgeReason, /CostPlan/);
+  // Every gap in the reason must be one of the three measured blockers; the
+  // merged surfaces (the tax-adapter arithmetic, the conquer emitter and the
+  // binding translator) may only be described as merged.
+  assert.match(program.judgeReason, /MissingInformation/);
+  assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /has no layer mapping/);
 });
 
 test("sfd-120-221 Sivir, Ambitious: [Deflect 2] is declared with its printed value, not expanded", () => {
@@ -268,11 +280,141 @@ test("sfd-120-221 Sivir, Ambitious: energy cannot substitute for the two-Power r
   assert.deepEqual(kernel.events, []);
 });
 
+function deflectWorld(kind, power = ["Calm", "Chaos"], energy = 1) {
+  const kernel = world()
+    .player("A", { energy, power })
+    .object("chooser", {
+      types: [kind === "spell" ? "spell" : "unit"],
+      zone: kind === "spell" ? "hand" : "board",
+      location: kind === "spell" ? null : { type: "base", player: "A" },
+      energy: 1,
+      power: []
+    })
+    .unit("sivir", {
+      cardId: CANONICAL,
+      owner: "B",
+      energy: 6,
+      power: ["Body", "Body", "Body"],
+      might: 7
+    })
+    .build();
+  const context = bindResolveContext(kernel, { source: kernel.getObject("chooser"), controller: "A" });
+  // inspect expands the shipped judge-required program without lifting its
+  // status. Only the supported Deflect sub-effect is bound to this target plan;
+  // production static/Chain integration and the conquer ability remain blocked.
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const taxes = binding.inspect(kernel.getObject("sivir")).abilities
+    .filter(ability => ability.kind === "static" && ability.effect.kind === "target.tax");
+  assert.equal(taxes.length, 1);
+  assert.deepEqual(taxes[0].effect, { kind: "target.tax", value: { kind: "constant", value: 2 } });
+  const adapter = createTargetTaxAdapter(context, {
+    id: `sivir-deflect:${kind}`,
+    cost: { energy: { kind: "constant", value: 1 } }
+  }, {
+    kind,
+    effects: [{ id: "sivir.deflect", target: kernel.ref("sivir"), effect: taxes[0].effect }]
+  });
+  return { kernel, context, adapter };
+}
+
+const deflectTarget = {
+  id: "sivir",
+  filter: { type: "unit", zone: "board", controller: "B" },
+  min: 1,
+  max: 1
+};
+
+for (const kind of ["spell", "ability"]) {
+  test(`sfd-120-221 Sivir, Ambitious golden: the expanded Deflect 2 taxes an opposing ${kind} through real target and cost plans`, () => {
+    const { kernel, context, adapter } = deflectWorld(kind);
+    const finalized = adapter.finalizeTargetPlan(deflectTarget, { selected: [kernel.ref("sivir")] });
+    assert.deepEqual(finalized.selected, [kernel.ref("sivir")]);
+    assert.deepEqual(adapter.costPlan.components.map(component => component.stage), ["base", "mandatory-additional"]);
+    assert.equal(adapter.costPlan.total.energy, 1);
+    assert.deepEqual(adapter.costPlan.total.power, [{ amount: 2, allowedDomains: DUEL_DOMAINS }]);
+
+    const receipt = payCostPlan(context, adapter.costPlan);
+    assert.equal(receipt.paid, true);
+    assert.deepEqual(receipt.power.power, [
+      { requirementIndex: 0, from: "Calm", amount: 1 },
+      { requirementIndex: 0, from: "Chaos", amount: 1 }
+    ]);
+    // The reference kernel does not deduct Power; verify the real allocator's
+    // payment action, without claiming Power pool deduction or Chain wiring.
+    assert.deepEqual(receipt.actions.map(entry => entry.action), [{
+      type: "pay", player: "A", plan: { finalized: true, energy: 1, power: ["Calm", "Chaos"] }
+    }]);
+    assert.deepEqual(kernel.events.map(event => event.action), ["pay"]);
+    assert.equal(kernel.player("A").energy, 0);
+    assert.equal(kernel.getObject("sivir").damage, 0);
+    assert.equal(program.status, "judge-required");
+  });
+}
+
+test("sfd-120-221 Sivir, Ambitious golden: the real target-tax adapter excludes Sivir with only one Power despite abundant Energy", () => {
+  const { kernel, adapter } = deflectWorld("spell", ["Body"], 10);
+  const before = kernel.snapshot();
+  assert.deepEqual(adapter.queryTargetCandidates(deflectTarget), []);
+  assert.throws(
+    () => adapter.finalizeTargetPlan(deflectTarget, { selected: [kernel.ref("sivir")] }),
+    error => error.code === "no-legal-targets"
+  );
+  assert.deepEqual(kernel.snapshot(), before);
+  assert.equal(adapter.costPlan.total.energy, 1);
+  assert.deepEqual(adapter.costPlan.total.power, []);
+  assert.deepEqual(kernel.events, []);
+});
+
+test("sfd-120-221 Sivir, Ambitious golden: the original may body ignores unavailable excess damage and never deals a fixed amount", () => {
+  const kernel = world()
+    .unit("sivir", { cardId: CANONICAL, might: 7 })
+    .unit("enemy", { owner: "B", might: 12 })
+    .build();
+  kernel.setAnswers({ "sivir-ambitious.may-deal/optional": true });
+  kernel.setTargets("sivir-ambitious.enemy-unit", [kernel.ref("enemy")]);
+  const context = bindResolveContext(kernel, { source: kernel.getObject("sivir") });
+  const outcome = runAbilityBody(conquerTrigger.body, context);
+
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    [readExcess.id, "ignored"],
+    [dealDamage.id, "ignored"],
+    [mayDeal.id, "ignored"]
+  ]);
+  assert.equal(outcome.results.find(entry => entry.id === dealDamage.id).result.reason, "linked-ignored");
+  assert.deepEqual(outcome.events, []);
+  assert.equal(outcome.linkedValues[readExcess.id], undefined);
+  assert.equal(kernel.getObject("enemy").damage, 0);
+  assert.deepEqual(kernel.events, []);
+});
+
 test.todo(
-  "sfd-120-221 Sivir, Ambitious: [Deflect 2]'s expansion (effects/keywords/Deflect.ts target.tax) is consumed by " +
-    "the target pipeline so opponents must pay :rb_rune_rainbow::rb_rune_rainbow: to choose Sivir " +
-    "(809.1.c/809.1.c.1) — the chain must append the existing any-domain Power payment; it currently appends an Energy cost"
+  "sfd-120-221 Sivir, Ambitious: programs/statics.ts must bind target.tax and chain/engine.ts::finalize must " +
+    "consume the existing target/tax adapter's CostPlan instead of converting the Deflect amount to Energy (809.1.c/809.1.c.1)"
 );
+
+// The live production rejection for gap (3): the expanded [Deflect 2] static is
+// not merely unwired at the Chain — the merged static binder cannot install it.
+test("sfd-120-221 Sivir, Ambitious: the merged static binder rejects the expanded Deflect target.tax (809.1.c)", () => {
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .unit("sivir", { cardId: CANONICAL, owner: "B", energy: 6, power: ["Body", "Body", "Body"], might: 7 })
+    .build();
+  const { engine } = fixture({ cards: [{ id: "chooser", cardId: CANONICAL, types: ["unit"], might: 2 }] });
+  const binder = createEngineStaticBinder(engine);
+  const tax = createProgramBinding({ cardPrograms: [program] }).inspect(kernel.getObject("sivir")).abilities
+    .find((ability) => ability.kind === "static" && ability.effect.kind === "target.tax");
+  assert.ok(tax, "[Deflect 2] must still expand to a static target.tax");
+  assert.throws(
+    () => binder.bindStatic(tax, kernel.getObject("sivir")),
+    (error) => {
+      assert.match(error.message, /target\.tax has no layer mapping/);
+      return true;
+    }
+  );
+  // Fail closed: nothing was half-registered.
+  assert.deepEqual(engine.layers.registry.list(), []);
+});
 
 test.todo(
   "sfd-120-221 Sivir, Ambitious: \"that much\" resolves from the wired excess-damage total once the statistic " +

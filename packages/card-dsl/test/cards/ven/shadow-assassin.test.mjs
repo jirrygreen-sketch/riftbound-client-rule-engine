@@ -11,6 +11,9 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
+// Execution evidence for the supported replacement body is also covered by
+// ../templates/replacement-effect-ready-655.test.mjs; the assertions below
+// retain the card-specific identity, condition, structure, and edge cases.
 const CARD_ID =
   "card.hash-101dc13865ec4192cab5368a9a51d1582968c98f57b52ab293cd35e4c5313b0c";
 const SOURCE_TEXT = "I enter ready if you have a card with my name in your trash.";
@@ -34,12 +37,11 @@ test("ven-013-166 Shadow Assassin: identity, ruleset, status, judgeReason and ve
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  // judgeReason 必须点名 369.3 的入场替代缺口、同名谓词与过滤键归一化。
-  assert.match(program.judgeReason, /359\.2\.c\/369\.3/);
+  // judgeReason must name the current entry-condition and same-name gaps.
+  assert.match(program.judgeReason, /replacement\/bind\.ts/);
+  assert.match(program.judgeReason, /ability\.condition/);
   assert.match(program.judgeReason, /132\.1\/132\.3\/132\.4/);
-  // The merged binder executes the substitution; the unmerged part is the
-  // production registration path plus the name/placeholder predicates.
-  assert.match(program.judgeReason, /bindReplacement/);
+  assert.match(program.judgeReason, /sameNameAs/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });

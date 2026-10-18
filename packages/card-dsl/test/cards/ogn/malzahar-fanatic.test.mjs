@@ -6,6 +6,7 @@ import program from "../../../dist/cards/ogn/malzahar-fanatic.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const [action, activated] = program.abilities;
 const c = value => ({ kind: "constant", value });
@@ -27,6 +28,8 @@ test("Malzahar, Fanatic identity, ruleset and judge-required reason", () => {
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /Universal/);
   assert.match(program.judgeReason, /ObjectRef/);
+  assert.match(program.judgeReason, /430\.2\/430\.2\.a/);
+  assert.match(program.judgeReason, /DuelPowerSource/);
   assert.equal(
     program.sourceText,
     "Kill a friendly unit or gear, :rb_exhaust:: [Action] — [Add] :rb_rune_rainbow::rb_rune_rainbow:. " +
@@ -150,3 +153,19 @@ test.todo(
   "Malzahar, Fanatic: [Add] [A][A] needs a contract change for Universal Power (CR 163.2.b / 135.2.e.5) — " +
     "either a Universal member of the closed Domain type or a dedicated gain-universal-power action"
 );
+
+test("Malzahar original Add body cannot invent named-domain Power while Universal is unrepresentable", () => {
+  const initial = world().player("A", { energy: 2, power: ["Mind"] })
+    .unit("malzahar", { cardId: program.canonicalCardId }).build();
+  const ctx = initial.clone({ sourceSnapshot: initial.getObject("malzahar") });
+  const before = ctx.snapshot();
+  const result = resolveChainBody(activated.body, ctx);
+  assert.deepEqual(result.results.map(entry => [entry.id, entry.result.status, entry.result.reason]), [
+    ["malzahar.add-universal", "negated", "impossible"]
+  ]);
+  assert.deepEqual(result.events, []);
+  assert.deepEqual(ctx.player("A").power, ["Mind"]);
+  assert.deepEqual(ctx.snapshot(), before);
+});
+
+test.todo("Malzahar: classify the resource ability as kind:add so Finalize and resolution do not pass Priority/Focus (CR 430.2/430.2.a)");

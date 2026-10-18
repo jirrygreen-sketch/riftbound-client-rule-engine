@@ -36,7 +36,8 @@ const masterBingwen = {
     "Weaponmaster expansion and cost.modify/cost.pay are merged. The actual cost.modify Equipment source " +
     "branch still fails closed with judge-required before payment: the chosen card's authoritative Equip-cost " +
     "binding for this host is missing (821.1.c.2), not merely the discount arithmetic. The original body also " +
-    "hits a chain/interpreter-adapter.ts argument gap: constant modifier Exprs are not decoded for cost.modify. reduce-equip-cost also " +
+    "hits a measured chain/interpreter-adapter.ts argument gap (TypeError: Invalid cost.modify modifier argument: value): " +
+    "constant modifier Exprs are not decoded for cost.modify. reduce-equip-cost also " +
     "requires original [A]/[C] symbol provenance for the [A]-only reduction (821.1.c.3). The card's play cost " +
     "cannot substitute for Equip cost; attach alone does not prove the full play effect.",
   abilities: [{ kind: "keyword", keyword: "weaponmaster" }],

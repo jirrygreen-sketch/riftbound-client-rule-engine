@@ -23,14 +23,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   作为费用的 Burn 写成 cost.pay（原语已合入），但 cost.pay 的 payments 形状只接受
  *   energy/power/xp 键；kind burn 使费用计划返回 cannotPay 并抛 CostPlanError
  *   （cost/plan-values.ts 的非标准种类只有 exhaust/discard/recycle/kill/reveal/spend-buff，
- *   没有 burn——RIFT-89 的付费种类缺口）。
+ *   没有 burn）。
  * - “give me +1 :rb_might: this turn”：临时 Might 修正（479.4.e.1；到期在 315.4 / 317.2.c
  *   的回合结束清理），属 layers 的 continuous.might，不是 Buff 计数器（702/703）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，缺口见 judgeReason。
- * golden 用真实解释器执行拒绝分支、continuous.might 本体与 object-moved 触发绑定；
- * 触发绑定检查止于注册描述：事件生产与 self 过滤翻译已合入，但触发校验器的封闭事件
- * 判别值尚不接受 object-moved。未合入部分（burn 付费种类、Finalize 时机、事件判别）写 test.todo。
+ * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。
  */
 const abilities: Ability[] = [
   {
@@ -56,7 +53,7 @@ const abilities: Ability[] = [
                 id: "shadow-order-disciple.pay-burn-1",
                 // 740.4.a.2：触发能力效果首段的费用在 Finalization 支付。[Burn 1] 是
                 // 441.1 的费用型 Burn；cost.pay 原语已合入，但其 payments 键只接受
-                // energy/power/xp，burn 会在费用计划里 cannotPay（RIFT-89）。此外绑定器
+                // energy/power/xp，burn 会在费用计划里 cannotPay。此外绑定器
                 // 尚未把该节点提取到 TriggerRegistration.cost；此 body 是待绑定的记录，
                 // 不代表费用已在 Finalize 支付，也不以结算期 effect.mill 冒充费用。
                 op: "cost.pay",
@@ -71,7 +68,7 @@ const abilities: Ability[] = [
                 id: "shadow-order-disciple.give-plus-1-might",
                 // 「give me +1 :rb_might: this turn」：临时 Might 修正（479.4.e.1，
                 // 到期在 315.4 / 317.2.c 的回合结束清理），用已合入的 continuous.might
-                // 原语（arithmetic 图层；RIFT-91）。
+                // 原语（arithmetic 图层）。
                 op: "continuous.might",
                 linkedTo: "shadow-order-disciple.pay-burn-1",
                 args: {
@@ -95,22 +92,19 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 费用型 Burn 不可支付——“[Burn 1] to …” 是 740.4.a.2 在 Finalization " +
-    "支付的费用（441.1 定义 Burn、441.3.a 限定其只在效果或费用指示时执行）；cost.pay 原语已合入，但其 " +
-    "payments 形状只接受 energy/power/xp 键，kind burn 使费用计划返回 cannotPay 并抛 CostPlanError，" +
-    "cost/plan-values.ts 的非标准付费种类只有 exhaust/discard/recycle/kill/reveal/spend-buff，没有 burn" +
-    "（RIFT-89 的付费种类缺口）。(2) 前置费用与可选决策的 Finalize 时机未接线：programs/triggers.ts " +
-    "保留 choice.optional 内的 cost.pay，没有提取为 TriggerRegistration.cost，也没有设置 mayAtFinalize；" +
-    "optional: true 只被事件管线用于入链前筛选，结算 body 仍有一次 choice.optional。383.3.a 要求首段 may " +
-    "在 Finalize 决定，383.3.b/383.3.b.1 与 740.4.a.2 要求前置费用付清才可完成 Finalize。仅补 burn " +
-    "种类仍会把付款留到 Resolve。绑定检查验证费用与选择仍保留在 body。(3) 触发注册描述的 " +
-    "spec.filter.event 为 object-moved，但 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 不接受此值，" +
-    "registerProgramTriggers 仍被 invalid-event-type 拒绝；事件生产与过滤翻译已合入不等于注册成功。" +
-    "已合入并可用：continuous.might 原语（RIFT-91，479.4.e.1 的临时 Might 修正，this-turn " +
-    "别名映射为 end-of-turn 到期）以 appliesTo: self 表达 “me”；object-moved 时点及其生产接线、" +
-    "translateTriggerFilter 的 self 锚点解析与 RIFT-257 的程序触发注册（registerProgramTriggers）均已合入，" +
-    "golden 分别真实执行 continuous.might 与触发过滤匹配。依赖：RIFT-89（burn 付费种类）及 " +
-    "programs/triggers.ts 的前置费用/可选决策 Finalize 适配、触发事件判别值 object-moved 对齐（421.1）。不近似实现。",
+    "三处缺口，均不近似实现：" +
+    "(1) 费用型 Burn 不可支付——“[Burn 1] to …” 是 740.4.a.2 在 Finalization 支付的费用（441.1 定义 Burn、441.3.a 限定其只在效果或费用指示时执行）；" +
+    "cost.pay 原语已合入，但其 payments 形状只接受 energy/power/xp 键，golden 实测 kind burn 使费用计划抛 " +
+    "CostPlanError judge-required（cost/plan-values.ts 的非标准付费种类只有 exhaust/discard/recycle/kill/reveal/spend-buff）。" +
+    "(2) 前置费用与可选决策的 Finalize 时机未接线：programs/triggers.ts 保留 choice.optional 内的 cost.pay，" +
+    "registerProgramTriggers 输出的 TriggerRegistration.cost/mayAtFinalize 仍为 undefined（golden 诊断），" +
+    "optional: true 只被事件管线用于入链前筛选，结算 body 仍有一次 choice.optional。383.3.a 要求首段 may 在 Finalize 决定，" +
+    "383.3.b/383.3.b.1 与 740.4.a.2 要求前置费用付清才可完成 Finalize；仅补 burn 种类仍会把付款留到 Resolve。" +
+    "(3) 触发注册描述的 spec.filter.event 为 object-moved，但 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 不接受此值——" +
+    "registerProgramTriggers 实测抛 TriggerSpecValidationError（trigger.filter.event invalid-event-type，注册 0 条）；" +
+    "object-moved 的时点定义与 action-adapter 事件生产已合入，但不等于注册成功。" +
+    "已合入并真实执行：continuous.might 原语（479.4.e.1 的临时 Might 修正，this-turn 映射为 end-of-turn 到期）以 appliesTo: self 表达 “me”、" +
+    "object-moved 事件生产、translateTriggerFilter 的 self 锚点解析与 effect.mill 的 Burn 动作语义。",
   abilities,
   sourceText:
     "When I move, you may [Burn 1] to give me +1 :rb_might: this turn. (To Burn 1, put the top card " +

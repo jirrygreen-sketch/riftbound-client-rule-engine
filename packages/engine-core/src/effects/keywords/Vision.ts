@@ -53,11 +53,18 @@ import type { KeywordDef } from "../keyword-contract.js";
 const PREDICT_AMOUNT = 1;
 
 const HOST_ENTERED_BOARD_FILTER = Object.freeze({
-  objectId: "self",
-  "object.id": "self"
+  // `objectId: "self"` is the additive symbolic host selector understood by
+  // the trigger adapter. The old `object.id` alias was an object-filter field
+  // and made production registration fail closed as unsupported.
+  objectId: "self"
 } as const);
 
-function expand(input: { readonly value?: number; readonly host: { readonly canonicalCardId: string } }): readonly Ability[] {
+function expand(input: Parameters<KeywordDef["expand"]>[0]): readonly Ability[] {
+  const instanceId = typeof input.params?.instanceId === "string" ? input.params.instanceId : undefined;
+  const lookId = instanceId === undefined ? "vision-look" : `vision-look:${instanceId}`;
+  const recycleId = instanceId === undefined ? "vision-recycle" : `vision-recycle:${instanceId}`;
+  const choiceId = instanceId === undefined ? undefined : `vision-select:${instanceId}`;
+  const picksSpecId = instanceId === undefined ? "vision-top" : `vision-top:${instanceId}`;
   return [
     {
       kind: "triggered",
@@ -68,26 +75,28 @@ function expand(input: { readonly value?: number; readonly host: { readonly cano
       },
       body: [
         {
-          id: "vision-look",
+          id: lookId,
           op: "effect.inspect",
           args: {
             player: { kind: "constant", value: "A" },
             zone: { kind: "constant", value: "deck" },
+            scope: { kind: "constant", value: "top" },
             amount: { kind: "constant", value: PREDICT_AMOUNT },
-            picksSpecId: { kind: "constant", value: "vision-top" },
+            picksSpecId: { kind: "constant", value: picksSpecId },
             choose: { kind: "constant", value: true },
             chooseCount: { kind: "constant", value: { min: 0, max: PREDICT_AMOUNT } },
+            ...(choiceId === undefined ? {} : { choiceId: { kind: "constant" as const, value: choiceId } }),
             pickedKey: { kind: "constant", value: "vision-picked" },
             choosePicksKey: { kind: "constant", value: "vision-recycle" }
           }
         },
         {
-          id: "vision-recycle",
+          id: recycleId,
           op: "effect.recycle",
           args: {
-            objects: { kind: "linked", instructionId: "vision-look", key: "vision-recycle" }
+            objects: { kind: "linked", instructionId: lookId, key: "vision-recycle" }
           },
-          linkedTo: "vision-look"
+          linkedTo: lookId
         }
       ]
     }

@@ -1,4 +1,4 @@
-import type { Ability } from "@riftbound/card-dsl";
+import type { Ability, CostSpec, Value } from "@riftbound/card-dsl";
 import type { CardContextRef, KeywordDef } from "../keyword-contract.js";
 
 /**
@@ -61,13 +61,16 @@ const REPEAT_RULE_REFS = [
   "820.3.a"
 ] as const;
 
-const REPEAT_COST_DEFAULT = { energy: 0 } as const;
+// Missing printed cost is unsupported information. In particular, do not
+// turn a null/omitted print into a free 0-Energy Repeat.
+const REPEAT_COST_DEFAULT = { kind: "repeat" } as const;
 
 interface RepeatKeywordInput {
   readonly value?: number;
   readonly host: CardContextRef;
   /** 印刷的 “Repeat [Cost]” 费用描述；缺省时按无费用实例声明。 */
-  readonly cost?: Readonly<Record<string, unknown>>;
+  readonly cost?: CostSpec;
+  readonly params?: Readonly<Record<string, Value | CostSpec | undefined>> & { readonly cost?: CostSpec };
 }
 
 const repeat = {
@@ -79,7 +82,8 @@ const repeat = {
   // 每支付一个实例多执行一次——不能合并为单个（"sum"）也不能只算一次（"single"）。
   stacking: "separate",
   expand(input: RepeatKeywordInput): readonly Ability[] {
-    const cost = input.cost ?? REPEAT_COST_DEFAULT;
+    const cost = input.params?.cost ?? input.cost ?? REPEAT_COST_DEFAULT;
+    const instanceId = typeof input.params?.instanceId === "string" ? input.params.instanceId : undefined;
     return [
       {
         kind: "static",
@@ -88,6 +92,7 @@ const repeat = {
           appliesTo: "self",
           host: input.host.canonicalCardId,
           count: 1,
+          ...(instanceId === undefined ? {} : { instanceId }),
           cost
         }
       }

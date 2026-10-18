@@ -19,7 +19,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （CR 394–398：398 明确规定组件能力只能与同一组能力影响的对象互动）。
  * - "(You must pay its costs.)" 要求按正常 Play 流程支付该单位的印刷费用（420.3）。
  *
- * Status: judge-required. Re-checked 2026-10-17 against merged source:
+ * Status: judge-required. Re-checked 2026-10-18 against merged source:
  * the trash banishment executes and links its receipt (golden), and the normal
  * printed-cost path through effect.play -> Chain Finalize works when the pick is
  * provisioned (golden). The blocker is that record's lifetime and provenance:
@@ -104,7 +104,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "仍缺跨能力、按本卡入区身份保存的 Linked Ability 放逐记录（CR 394–398/428.3.a，2026-10-17 复核）：" +
+    "仍缺跨能力、按本卡入区身份保存的 Linked Ability 放逐记录（CR 394–398/428.3.a，2026-10-18 复核）：" +
     "放逐本身可执行且会写出 { count, objects, source } 回执（golden 已断言），但该回执只存在于解析该效果时的解释器/ResolveContext linked 作用域——" +
     "同一个响应内可读，跨链项（本卡是触发器解析后再单独启动能力）不可读；chain/picks/plan.ts 的 ordered pick plan 也按链项现算，不是按来源保存的历史。" +
     "合并代码里没有按本卡入区身份持久保存并在下一次启动时恢复的对象关联，effect.play 的 Finalize 选牌因此无法限定为“本卡放逐的单位”，" +

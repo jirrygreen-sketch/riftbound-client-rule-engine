@@ -38,11 +38,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
  * - HistoryQuery 已支持 objectFilter 并可计数本回合打出的 Equipment；但 condition.history
- *   目前是 body 指令，不是 Condition/Expr，不能供给启动前的 Restriction（054.2，RIFT-359）。
+ *   目前是 body 指令，不是启动前 Restriction 所需的 Condition/Expr（054.2）。
  * - ZoneId 没有 Legend Zone（107.4），而费用支付只接受 board/rune-zone 的横置对象；
  *   静态绑定、token 目的地与横置费用测试使用 Board 宿主，只证明各自支持的部分。
  * - programs/statics.ts 已能把原始 grant-keyword 注册进 ability 图层，并绑定相对控制者。
- *   Weaponmaster 仍缺权威 Equip 费用与原始 [A] 符号来源，cost.modify 不会近似折扣（821.1.c.2/c.3）。
+ *   Weaponmaster KeywordDef 已合入并展开出完整 triggered Equip 能力，但静态图层引擎对
+ *   动态 triggered 能力 fail-closed（需要 lifecycle binder），权威 Equip 费用绑定也仍缺，
+ *   cost.modify 不会近似折扣（821.1.c.2/c.3）。
  * 不把部分能力的执行证据当作整卡已可执行。
  */
 const abilities: Ability[] = [
@@ -112,12 +114,13 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "（1）HistoryQuery 已支持 objectFilter 查询 Equipment 打出记录，但 condition.history 仅为 body 指令，" +
-    "不能作为启动前 Restriction 的 Condition/Expr（054.2，条件谓词 RIFT-359）；" +
+    "不能作为启动前 Restriction 的 Condition/Expr（054.2）；" +
     "（2）ZoneId 尚无 Legend Zone（CR 107.4），而费用支付只接受 board/rune-zone 的横置对象（415.4/415.5），" +
     "传奇自身无法在真实区域支付 :rb_exhaust:；" +
-    "（3）Weaponmaster 仍缺权威 Equip 费用绑定与原始 [A] 符号来源，cost.modify 的 Equipment source 分支" +
-    "按 judge-required 阻断（cost.modify.ts 实测 CostPlanError: 821.1.c.2 missing authoritative Equip-cost binding），" +
-    "无法计算 821.1.c.2/c.3 的准确减费。" +
+    "（3）Weaponmaster KeywordDef 已合入（effects/keywords/Weaponmaster.ts），展开产出完整 triggered Equip 能力，" +
+    "但 KeywordGrantLayerEngine.staticEffects 对动态 triggered 能力 fail-closed（需要 lifecycle binder，" +
+    "实测 judge-required），且权威 Equip 费用绑定仍缺：cost.modify 实测 CostPlanError " +
+    "\"821.1.c.2 missing authoritative Equip-cost binding\"，无法计算 821.1.c.2/c.3 的准确减费。" +
     "相对控制者 Base 的 token 目的地已由 condition.value→linked-value 绑定并由 golden 真实执行，不再列为缺口。",
   abilities,
   sourceText:

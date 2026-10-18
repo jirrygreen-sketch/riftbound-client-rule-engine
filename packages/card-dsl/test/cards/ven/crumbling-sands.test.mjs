@@ -1,5 +1,12 @@
+// Partial execution evidence for the merged counter primitive is consolidated
+// in ../templates/keyword-play-effect-counter-676.test.mjs and extended by
+// Crumbling Sands' own per-card scenario row in
+// ../templates/keyword-play-effect-counter-699.test.mjs; the history gate
+// remains judge-required until a Finalize-time history requirement adapter
+// exists.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { expandProgram, abilitySpeed } from "../../../../engine-core/dist/programs/keywords.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { canAct } from "../../../../engine-core/dist/layers/rules/query.js";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -130,10 +137,26 @@ test("ven-039-166 Crumbling Sands boundary: a spell that already left the Chain 
 test("crumbling-sands: the review records the current blockers", () => {
   assert.match(program.judgeReason, /355\.8/);
   assert.match(program.judgeReason, /Requirement.condition/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /condition\.history/);
+  assert.match(program.judgeReason, /translateRequirements/);
+  assert.match(program.judgeReason, /needs a rules adapter/);
 });
 
-test.todo("crumbling-sands: 355.8/355.17: evaluate opponent spell-play history as a Finalize Requirement.condition (RIFT-359)");
+test("crumbling-sands: condition.history is a body instruction, so the Finalize requirement cannot bind", () => {
+  // The requirement gate is a named Requirement, while the only history-counting
+  // facility is the interpreter's condition.history body op — not a Condition.
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const kernel = world()
+    .player("A", { energy: 10, power: ["Calm"] })
+    .hand("sands", { types: ["spell"], energy: 1, power: ["Calm"], cardId: CANONICAL })
+    .build();
+  assert.throws(
+    () => binding.describePlay({ type: "play", object: kernel.ref("sands"), player: "A" }, kernel.getObject("sands")),
+    error => error.name === "ProgramBindingError" && /needs a rules adapter/.test(error.message)
+  );
+});
+
+test.todo("crumbling-sands: 355.8/355.17: evaluate opponent spell-play history as a Finalize Requirement.condition");
 
 test("Crumbling Sands supported body: the authored counter body resolves through the production interpreter adapter", () => {
   const kernel = world().build();

@@ -30,15 +30,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   runtime ObjectRef, so each source reads ObjectSnapshot.ref through an
  *   object-property expression over its selector.
  *
- * Status: judge-required — two dependencies are not merged:
- * - the second choice belongs to a Reflexive Trigger (388.1 / 388.2 / 389.1 /
- *   389.2): the errata boundary creates a new Pending Item that makes its own
- *   target selection, which is not the spell's Finalize selection (355.5.b).
- *   No merged ability or instruction form creates a reflexive Pending Item;
- *   the missing primitive is a reflexive Pending Item.
- * - "another enemy unit at its destination" is a target whose legality depends
- *   on the first Move's actual result; that ordering is the target/reflexive
- *   lifecycle work, not card data.
+ * Status: judge-required — measured 2026-10-17:
+ * - 388.1/388.2/389.1/389.2, 355.5.b: the second choice belongs to a Reflexive
+ *   Trigger that creates its own Pending Item. No merged ability or instruction
+ *   form creates one: `trigger.reflexive` is not in the instruction registry
+ *   (the interpreter throws "Unregistered instruction opcode: trigger.reflexive").
+ * - "another enemy unit at its destination" uses the sameLocationAs and exclude
+ *   target anchors, and programs/filters.ts translateObjectFilter still throws
+ *   "Unsupported filter field sameLocationAs" when this card's own program goes
+ *   through describePlay, so the mutual-damage half cannot be bound as written:
+ *   no producer resolves the moved unit's destination or excludes the moved unit
+ *   during Finalize/Resolve.
  * The Move Destination now uses the merged target.location selector: the
  * instruction declares a runtime Location choice and consumes it through a
  * LocationExpr. It is covered by the golden execution below; this removes the
@@ -53,12 +55,17 @@ const dragonsRage = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两段依赖未合入：(1)「Then choose another enemy unit at its destination」按 S-ORIGINS 勘误属于反身触发" +
+    "两段缺口（均为 2026-10-17 实测，不近似实现）：" +
+    "(1) 反身触发无创建者：「Then choose another enemy unit at its destination」按 S-ORIGINS 勘误属于反身触发" +
     "（388.1/388.2/389.1/389.2、355.5.b：第二个目标由新 Pending Item 自行 Finalize，不是在原咒语的 Finalize 选择），" +
-    "已合入的 IR 没有任何创建反身 Pending Item 的能力/指令形态，需要新增 trigger.reflexive；" +
-    "(2) 第二个单位的目标合法性依赖第一步 Move 的实际结果，属目标/反身生命周期工作。" +
-    "本地目录仍是旧文本（无「Then do this:」），刷新目录带有勘误文本，而本地 catalog 仍是旧文本；这是资料问题。" +
-    "互伤半段只用已合入的 effect.damage（动态 amount/source）并由 golden 执行，不近似实现缺失部分。",
+    "而已合入的 IR 没有任何创建反身 Pending Item 的能力/指令形态——trigger.reflexive 不在指令注册表中" +
+    "（解释器抛 Unregistered instruction opcode: trigger.reflexive）。" +
+    "(2) 第二个单位的目标合法性依赖第一步 Move 的实际结果：目标过滤器使用 sameLocationAs 与 exclude 锚点，" +
+    "而 programs/filters.ts 的 translateObjectFilter 对本卡自己的程序抛" +
+    "「Unsupported filter field sameLocationAs」，describePlay 无法产出可定案的草稿，" +
+    "也没有生产者把「被移动单位的目的地」与「排除被移动单位」接入 Finalize/Resolve。" +
+    "本地目录仍是旧文本（无「Then do this:」），刷新目录带有勘误文本；这是资料问题。" +
+    "Move 的 runtime 目的地选择（target.location）与互伤半段的 effect.damage（动态 amount/source）本身已合入并由 golden 执行。",
   sourceText:
     "Move an enemy unit. Then choose another enemy unit at its destination. " +
     "They deal damage equal to their Mights to each other.",
@@ -122,7 +129,9 @@ const dragonsRage = {
             {
               id: "other-unit-there",
               // "another enemy unit at its destination": an enemy unit at the
-              // moved unit's Location, excluding the moved unit itself.
+              // moved unit's Location, excluding the moved unit itself. Both
+              // anchors are rejected by the production binder today (see
+              // judgeReason), so this target cannot be finalized in production.
               filter: {
                 type: "unit",
                 controller: "opponent",

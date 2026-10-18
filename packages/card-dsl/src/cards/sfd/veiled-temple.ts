@@ -134,7 +134,7 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "触发绑定仍缺 battlefield-relative 的「here」：已合入的时点发射方（由 turn/flow.ts 的 scheduleScore('conquer') 发出 conquer 时点，载荷 details.battlefieldId）" +
-    "与程序侧已合入的 conquer 消费路径之间没有把载荷解析成位置过滤的消费方——EventPattern 没有 here 锚点，programs/filters.ts translateObjectFilter 对 `here` 直接 fail-closed" +
+    "与程序侧已合入的 conquer 消费路径之间没有把载荷解析成位置过滤的消费方——发射方虽提供 details.battlefieldId，EventPattern 没有 here 锚点，programs/filters.ts translateObjectFilter 对 `here` 直接 fail-closed" +
     "（ProgramBindingError judge-required），照原样绑定会报错、去掉则会把「here」近似成任意战场的征服。" +
     "触发体本身已可执行：「may ready a friendly gear」（403.1/355.7/355.12，目标随 may 动作锁定）走 effect.ready（416.1），" +
     "「If it's an Equipment」用已合入的 Condition 与契约 3.6 对象锚点求值（compare/in + object-property(target).tags），" +

@@ -20,21 +20,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   故不写 linkedTo（055 / 359.3.e.11：能做什么做什么）。
  * - 括号内是 Temporary 的规则释义，不是本卡的额外指令。
  *
- * status = judge-required：
- * 两处当前缺口：(1) without [Temporary]（CR 355.9.b/816.3）需要当前关键词特征过滤，programs/filters.ts 不接受
- * withoutKeyword，不能安全选择不带 Temporary 的单位。(2) continuous.grant-keyword 已授予的 Temporary 需要刷新宿主触发订阅；
- * programs/lifecycle.ts 只在进入 Board/Chain 时注册触发，chain/ 的 addContinuous 只更新图层并请求 cleanup，
- * 未将新授予的关键词接入 beginning-start 订阅（816.1.b/816.1.c）。已有关键词定义、一般卡牌触发注册与图层绑定均已合入。
+ * 2026-10-18 复核：整卡仍为 judge-required；当前生产缺口见 judgeReason。
+ * 已支持子效果的执行证据保留在对应 golden；不以原语存在替代整卡可执行性。
  */
 const program = {
   canonicalCardId: "card.hash-20160abc2cd3adac87c1b0f03192e12ab9103b22ffbd5a8468e4072e00264025",
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处当前缺口：(1) without [Temporary]（CR 355.9.b/816.3）需要当前关键词特征过滤，programs/filters.ts 不接受 " +
-    "withoutKeyword，不能安全选择不带 Temporary 的单位。(2) continuous.grant-keyword 已授予的 Temporary 需要刷新宿主触发订阅；" +
-    "programs/lifecycle.ts 只在进入 Board/Chain 时注册触发，chain/ 的 addContinuous 只更新图层并请求 cleanup，" +
-    "未将新授予的关键词接入 beginning-start 订阅（816.1.b/816.1.c）。已有关键词定义、一般卡牌触发注册与图层绑定均已合入。",
+    "当前缺口：(1) without [Temporary] 需要实时关键词特征过滤，programs/filters.ts 不接受 withoutKeyword，无法在 Finalize/Resolve 严格限制目标（CR 355.9.b/816.3）。" +
+    "(2) continuous.grant-keyword 新授予 Temporary 后缺 beginning-start 订阅刷新；chain/ 的 addContinuous 只更新图层并请求 cleanup，默认 programs/lifecycle.ts 只在进区时注册；" +
+    "KeywordGrantLayerEngine 虽已支持静态关键词重展开，对 Temporary 的动态 triggered 展开仍 fail-closed（816.1.b/816.1.c）。Temporary 定义、一般触发绑定与 effect.draw 已存在。",
   abilities: [
     {
       kind: "play",

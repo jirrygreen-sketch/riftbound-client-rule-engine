@@ -100,6 +100,8 @@ test("ven-073-166 Jagged Cutlass: identity, ruleset, status, judgeReason and ver
   assert.ok(!/RIFT-89/.test(program.judgeReason), "RIFT-89 is merged; the reason names only the current payment-kind gap");
   assert.ok(!/RIFT-87/.test(program.judgeReason), "the keyword wiring is merged");
   assert.match(program.judgeReason, /params\.cost/);
+  assert.match(program.judgeReason, /RIFT-613/);
+  assert.match(program.judgeReason, /kind: \"source\"/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 

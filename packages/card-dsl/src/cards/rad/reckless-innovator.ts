@@ -26,30 +26,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   draw 只有在该支付完成后才发生，故 draw 用 linkedTo 依赖支付指令（同
  *   sfd/sunken-temple 的 pay → draw 结构）。
  *
- * status = judge-required（README 第 2 节，2026-10-17 复核）。当前缺口，均实测、不近似实现：
- * 1. Accelerate 的 KeywordDef 已合入（RIFT-266 系列 / Accelerate.ts），替换半段能绑定
- *    （实测 createEngineStaticBinder.bindReplacement 注册并 cancel 正常），但可支付半段
- *    进不了生产：accelerate.cost 这个 static 声明在 programs/statics.ts 的 layerFor 无图层
- *    映射，实测 createEngineStaticBinder.bindStatic 抛 judge-required「Static ability kind
- *    accelerate.cost has no layer mapping」；卡牌侧的 keyword 能力也不会展开成 Finalize 的
- *    optionalAdditional 条目（chain/engine.ts 的 cost input 只来自调用方与印刷 CostSpec），
- *    因此 805.2.b「付费后才挂上替代」的判定无从成立。
- * 2. Gold gear token 定义仍不在 effect.token 的 DEFINITIONS 表内（该表只有
- *    recruit/sand-soldier/mech/reflection/tentacle；187.5 的 Gold 自带能力，按原语
- *    文件说明保持 blocked/judge-required），mode "play" 返回 negated +
- *    blockedReason token-definition-or-abilities-judge-required。
- * 3. “exhausted” 是入场状态改写（143.4 / 185.2.d），create-token 动作与 effect.token
- *    都不支持入场状态；先创建再补横置会多出一次“成为横置”事件，不等价。
- * 4. 模式二的 “Pay :rb_rune_chaos: to draw 1” 是指令内费用（355.10.c.1）：cost.pay 原语
- *    已合入（effects/instructions/cost.pay.ts；CR 203.3 失败必须 throw、调用方必须提供
- *    事务），golden 已用事务包装真实执行 pay → draw 并验证不足回滚；仍缺 success-gated
- *    payment body（cost/kinds/README.md 契约变更请求 #2），draw 只能凭 linkedTo 门控。
- * 5. 整条触发体的 choice.mode 进不了 Finalize：实测 chain/engine.ts 的
- *    assertFinalizationSurface 抛 ChainContractBlockedError「Mode choices require a
- *    Finalize/Resolve choice-plan adapter」。
- * 依赖：success-gated payment body（契约变更请求）、Finalize/Resolve choice-plan 适配器、
- * Accelerate 静态声明的图层/打出流程接线（原记 RIFT-120，现已合入的绑定层即拒绝该 kind）、
- * Gold token 定义（187.5）。
+ * 2026-10-18 再复核：整卡仍为 judge-required；当前缺口见 judgeReason。
+ * 已合入原语与关键词声明不等于生产链路可执行；局部执行证据见同名单卡测试。
+ * 本轮把 Accelerate 的费用缺口写成两条实测结果：programs/statics.ts 的 layerFor
+ * 对 accelerate.cost 报 “no layer mapping”，programs/play.ts 的 translateCost 对
+ * kind "additional-cost" 报 “Additional costs are not bound”；两条都在 Finalize 之前失败。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -137,23 +118,22 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "五处缺口（2026-10-17 复核，均实测，不近似实现）：(1) Accelerate 的 KeywordDef 已合入，替换半段能绑定" +
-    "（实测 bindReplacement 注册并 cancel 正常），但可支付半段进不了生产：accelerate.cost 这个 static 声明在 " +
-    "programs/statics.ts 的 layerFor 无图层映射（实测 createEngineStaticBinder.bindStatic 抛 judge-required" +
-    "「Static ability kind accelerate.cost has no layer mapping」）；卡牌 keyword 也不会展开成 Finalize 的 " +
-    "optionalAdditional 条目，805.2.b「付费后才挂上替代」的判定无从成立。" +
-    "(2) Gold gear token 定义（187.5，自带 " +
-    "\"[Reaction][>] Kill this, [E]: [Add] [A]\" 能力）仍不在 effect.token 的 DEFINITIONS 表内，" +
-    "mode \"play\" 返回 negated 与 blockedReason token-definition-or-abilities-judge-required。" +
-    "(3) “exhausted” 是 token 入场状态改写（143.4 / 185.2.d），create-token 与 effect.token 都不支持入场状态，" +
-    "先创建再补横置会多出一次“成为横置”事件，不等价。(4) “Pay :rb_rune_chaos: to draw 1” 是指令内费用" +
-    "（355.10.c.1）：cost.pay 原语已合入（CR 203.3 失败必须 throw、调用方必须提供事务），" +
-    "golden 已用事务包装真实执行 pay → draw 并验证不足回滚；仍缺 success-gated payment body" +
-    "（cost/kinds/README.md 契约变更请求 #2），draw 只能凭 linkedTo 门控。" +
-    "(5) 整条触发体的 choice.mode 进不了 Finalize：实测 chain/engine.ts 的 assertFinalizationSurface 抛 " +
-    "ChainContractBlockedError「Mode choices require a Finalize/Resolve choice-plan adapter」。" +
-    "依赖：success-gated payment body、Finalize/Resolve choice-plan 适配器、Accelerate 静态声明的图层/打出流程接线、" +
-    "Gold token 定义（187.5）。",
+    "四项当前真实缺口（2026-10-18 实测）：" +
+    "(1) Accelerate 的 KeywordDef 已合入，但两条费用通路都断在 Finalize 之前：programs/statics.ts 的 " +
+    "layerFor 对展开的 accelerate.cost 抛 “Static ability kind accelerate.cost has no layer mapping”；" +
+    "programs/play.ts 的 translateCost 先拒绝展开里的 optional 字段（“Unsupported play cost field optional”），" +
+    "去掉该字段后又以 “Additional costs are not bound” 拒绝 kind \"additional-cost\"（356.2、805.2.b）；" +
+    "Finalize 的 optionalAdditional 选择/支付因此拿不到本卡的 accelerate.cost。" +
+    "仅付费后才启用的入场替代（805.6）也随之不可达。" +
+    "(2) Gold gear token（187.5，带自身 \"[Reaction][>] Kill this, [E]: [Add] [A]\"）不在 effect.token 的冻结定义表：" +
+    "对 \"gold\" 执行返回 negated(impossible, token-definition-or-abilities-judge-required)，" +
+    "TokenSpec 也没有承载 token 自带能力的字段。" +
+    "(3) 印刷的 \"exhausted\" 入场状态（143.4、185.2.d）没有入口：effect.token 的 argsSchema 拒绝 " +
+    "entersExhausted（实测 “Invalid effect.token argument: entersExhausted”），创建后再 effect.exhaust 是另一个动作，不能代替入场状态。" +
+    "(4) cost.pay 与 effect.draw 都已真实执行（成功支付 Chaos→draw、缺 Power 时抛 CostPlanError 并回滚），" +
+    "但 " + "\"Pay X to draw 1\" 仍缺 success-gated payment body/savepoint（355.10.c.1、203.3）：" +
+    "现只有 linkedTo 依赖，不构成「支付成功才抽」的语义。" +
+    "此外 choice.mode 的解释器可执行，生产 chain Finalize 仍缺 Finalize/Resolve choice-plan adapter。以上任一缺口都阻止整卡 executable。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_chaos: as an additional cost to have me enter ready.)\n" +

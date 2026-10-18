@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
@@ -8,7 +9,11 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
 import { buildCostPlan, prepareCostPayment } from "../../../../engine-core/dist/cost/index.js";
+import { collectCostModifications } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL =
   "card.hash-c78464f75c9c394d39ba60be62b2e010158f2a4a17cebed21a59e9bf42bd8207";
@@ -42,7 +47,15 @@ test("ven-045-166 Helm of Suppression: identity, ruleset, status, judgeReason an
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
   assert.match(program.judgeReason, /Unsupported static appliesTo/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  // Merged since the last sweep: cost/discounts can derive the increase from the
+  // same declaration shape. The remaining gap is the binding (no caller feeds
+  // the bound static in) plus the Empowered predicate and the field channel.
+  assert.match(program.judgeReason, /collectCostModifications/);
+  assert.match(program.judgeReason, /insteadOf/);
+  assert.match(program.judgeReason, /additionalPower/);
+  assert.match(program.judgeReason, /empowered/);
+  assert.match(program.judgeReason, /Unsupported cost kind empower/);
+  assert.doesNotMatch(program.judgeReason, /没有 Empower\/Empowered KeywordDef/);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
@@ -178,11 +191,59 @@ test("ven-045-166 Helm of Suppression: the cost plan accepts every Domain for th
   }
 });
 
-test.todo(
-  "ven-045-166 Helm of Suppression: [Empower] 4 Energy + 1 Calm Power must expand to its activation cost with the " +
-    "\"use only if not Empowered\" restriction (827.1.c.1 / 442.1.b) - no Empower/Empowered KeywordDef exists in " +
-    "effects/keywords/registry.generated.ts (full program binding: 'Keyword empower has no executable KeywordDef')"
-);
+test("ven-045-166 Helm of Suppression probe: the merged Empower expansion loses the printed 4 Energy + 1 Calm Power cost", () => {
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const source = { ...world().unit("helm", { cardId: program.canonicalCardId, types: ["gear"], zone: "board", energy: 4, power: ["Calm"], location: { type: "base", player: "A" } }).build().getObject("helm"), };
+  const expanded = binding.inspect(source).abilities.filter(candidate => candidate.kind === "activated");
+  assert.equal(expanded.length, 1, "the merged Empower KeywordDef expands to one activated ability");
+  // The keyword expansion is real, but the printed cost never reaches it:
+  // KeywordAbility has no params field and expandProgram passes only value/host.
+  assert.deepEqual(expanded[0].cost, { kind: "empower" });
+  assert.equal(empower.value, 4);
+  assert.equal(empower.costDomain, "Calm");
+});
+
+test("ven-045-166 Helm of Suppression probe: the printed Empower activation is rejected by the chain cost translator", () => {
+  const kernel = world().player("A").player("B")
+    .unit("helm", { cardId: program.canonicalCardId, types: ["gear"], zone: "board", energy: 4, power: ["Calm"], location: { type: "base", player: "A" } })
+    .deck(["A:d"], { owner: "A" }).deck(["B:d"], { owner: "B" })
+    .rune(["A:r"], { owner: "A" }).rune(["B:r"], { owner: "B" })
+    .build();
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  assert.throws(
+    () => binding.describeActivate(kernel.getObject("helm"), "A", 0),
+    error => error.code === "judge-required" && /Unsupported cost kind empower/.test(error.message)
+  );
+});
+
+test("ven-045-166 Helm of Suppression probe: the static cost increase is rejected before any cost plan sees it", () => {
+  const kernel = world().unit("helm", { cardId: program.canonicalCardId, types: ["gear"], zone: "board", location: { type: "base", player: "A" } }).build();
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const statics = binding.inspect(kernel.getObject("helm")).abilities.filter(candidate => candidate.kind === "static");
+  assert.equal(statics.length, 2);
+  for (const stat of statics) {
+    assert.equal(stat.effect.appliesTo, "spell-play-cost");
+  }
+});
+
+test("ven-045-166 Helm of Suppression probe: neither Empowered branch can be evaluated from the frozen snapshot", () => {
+  const kernel = spellContext();
+  const [empower, baseIncrease, empoweredIncrease] = program.abilities;
+  const base = { context: kernel, host: kernel.ref("spell"), linked: () => undefined, canLookBack: () => true, isIgnored: () => false, query: () => kernel.objects };
+  // The nonempty expression string is truthy without reading any state.
+  assert.equal(evaluateCondition(baseIncrease.condition, base), false, "not(expression) evaluates as not(true)");
+  assert.equal(evaluateCondition(empoweredIncrease.condition, base), true, "the expression string itself evaluates truthy");
+  assert.throws(
+    () => evaluateCondition({ kind: "compare", left: { kind: "object-property", object: "self", property: "empoweredCount" }, operator: "gte", right: { kind: "constant", value: 3 } }, base),
+    error => /Unavailable characteristic: empoweredCount/.test(error.message)
+  );
+  // The frozen ObjectSnapshot contract (effects/contract.ts) declares neither
+  // `empowered` nor `empoweredCount`, so no card-side cost gate can read the
+  // status the printed "instead" branch depends on.
+  const contract = readFileSync(new URL("../../../../engine-core/src/effects/contract.ts", import.meta.url), "utf8");
+  const snapshotInterface = contract.slice(contract.indexOf("export interface ObjectSnapshot"), contract.indexOf("export interface PlayerSnapshot"));
+  assert.doesNotMatch(snapshotInterface, /empowered/);
+});
 test.todo(
   "ven-045-166 Helm of Suppression: the static cost increase must be installed on an opposing spell's cost plan - " +
     "buildCostPlan only reads caller-supplied CostPlanInput.increases and ProgramStaticBinder.staticTarget rejects " +
@@ -193,3 +254,84 @@ test.todo(
   "ven-045-166 Helm of Suppression: apply [1] or [1][A] according to the source's Empowered state (828.1.c) — " +
     "the nonempty expression string does not query that state; needs a real predicate (in-progress RIFT-359)"
 );
+
+test("ven-045-166 Helm of Suppression probe: the merged collector derives the increase but no caller binds it", () => {
+  // Re-measured 2026-10-18: the old reason said there was no static→cost-plan
+  // consumer. cost/discounts is merged and it does derive the printed +1 Energy
+  // from the card's own declaration shape, so that half of the claim is stale.
+  // What remains is the binding path: ProgramStaticBinder.staticTarget rejects
+  // appliesTo "spell-play-cost", so Chain Finalize never sees the declaration.
+  const kernel = world()
+    .unit("helm", { controller: "A", types: ["gear"], location: { type: "base", player: "A" } })
+    .hand("opposing-spell", { types: ["spell"], energy: 2, power: null, owner: "B", controller: "B" })
+    .build();
+  const source = kernel.getObject("helm");
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("opposing-spell") });
+  const collected = collectCostModifications(
+    context,
+    { id: "opposing-spell", cost: { kind: "explicit", energy: { kind: "constant", value: 2 } } },
+    {
+      statics: [{
+        id: "helm-of-suppression-base-increase",
+        source: source.ref,
+        // The printed +1 Energy, with only the state predicate replaced by the
+        // live-source spelling the collector can evaluate.
+        ability: {
+          kind: "static",
+          effect: { ...baseIncrease.effect },
+          condition: {
+            kind: "compare",
+            left: { kind: "object-property", object: "self", property: "empowered" },
+            operator: "eq",
+            right: { kind: "constant", value: 0 }
+          }
+        }
+      }],
+      purpose: "play"
+    }
+  );
+  assert.deepEqual(collected.increases.map((increase) => [increase.id, increase.cost.energy]), [
+    ["helm-of-suppression-base-increase:0:total", { kind: "constant", value: 1 }]
+  ]);
+
+  // The Empowered branch's own spelling still cannot pass through the same
+  // collector: insteadOf is not part of the accepted field set.
+  assert.throws(
+    () => collectCostModifications(
+      context,
+      { id: "opposing-spell", cost: { kind: "explicit", energy: { kind: "constant", value: 2 } } },
+      {
+        statics: [{
+          id: "helm-of-suppression-empowered-increase",
+          source: source.ref,
+          ability: {
+            kind: "static",
+            effect: { ...empoweredIncrease.effect },
+            condition: {
+              kind: "compare",
+              left: { kind: "object-property", object: "self", property: "empowered" },
+              operator: "gte",
+              right: { kind: "constant", value: 1 }
+            }
+          }
+        }],
+        purpose: "play"
+      }
+    ),
+    (error) => error.constructor.name === "CostPlanError" &&
+      /Unsupported cost modification field insteadOf/.test(error.message)
+  );
+
+  // And the production binder still refuses to install either declaration, which
+  // is why the merged collector is unreachable from Chain Finalize.
+  assert.throws(
+    () => createEngineStaticBinder(fixture({ cards: [] }).engine).bindStatic(baseIncrease, source),
+    error => error.constructor.name === "ProgramBindingError" &&
+      /Unsupported static appliesTo "spell-play-cost"/.test(error.message)
+  );
+  assert.throws(
+    () => createEngineStaticBinder(fixture({ cards: [] }).engine).bindStatic(empoweredIncrease, source),
+    error => error.constructor.name === "ProgramBindingError" &&
+      /Unsupported static appliesTo "spell-play-cost"/.test(error.message)
+  );
+});

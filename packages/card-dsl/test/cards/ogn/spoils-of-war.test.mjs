@@ -5,8 +5,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import spoilsOfWar from "../../../dist/cards/ogn/spoils-of-war.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
-import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
 
 const [speed, costModification, play] = spoilsOfWar.abilities;
 const [drawInstruction] = play.body;
@@ -19,9 +18,8 @@ test("Spoils of War program is structurally valid and judge-required", () => {
   assert.match(spoilsOfWar.judgeReason, /continuous\.cost-modification/);
   assert.match(spoilsOfWar.judgeReason, /history|历史/);
   assert.match(spoilsOfWar.judgeReason, /Finalize/);
-  // 复核后写入的真实缺口证据：图层映射与生产运行时的占位实现。
-  assert.match(spoilsOfWar.judgeReason, /has no layer mapping/);
-  assert.match(spoilsOfWar.judgeReason, /engine-runtime\/host\.ts/);
+  assert.match(spoilsOfWar.judgeReason, /finalizeCostPlan|CostPlanInput\.discounts/);
+  assert.match(spoilsOfWar.judgeReason, /history|历史/);
   assert.equal(spoilsOfWar.rulesetVersion, "core-1.5");
   assert.equal(
     spoilsOfWar.canonicalCardId,
@@ -105,42 +103,29 @@ test("Spoils of War golden: an empty deck draws nothing but still resolves", () 
   assert.deepEqual(run.events.map((event) => event.action), ["draw"]);
 });
 
-test("Spoils of War: the production static binder rejects the discount's ability kind (current gap)", () => {
-  // programs/statics.ts layerFor 对 continuous.cost-modification 没有映射；用真实
-  // attachLifecycle 证明静态折扣无法安装到 Finalize 的费用计划。
-  // 以 executable 形态提交本体，才能走到 static binder（judge-required 会在 registry
-  // 查找时先抛出 judgeReason，够不到图层映射这一步）。
-  const forged = { ...spoilsOfWar, status: "executable" };
-  delete forged.judgeReason;
-  assert.equal(validateCardProgram(forged).ok, true);
-  const state = fixture({
-    cards: [{ id: "spoils", cardId: spoilsOfWar.canonicalCardId, types: ["spell"] }]
-  });
-  const errors = [];
-  const binding = createProgramBinding({ cardPrograms: [forged] });
-  binding.attachLifecycle(state.engine, (error) => errors.push(String(error && error.message)));
+test("Spoils of War current gap: Finalize fails closed on the enemy-death history condition", () => {
+  const kernel = world()
+    .player("A", { energy: 4, power: ["Body"] })
+    .hand("spoils", {
+      cardId: spoilsOfWar.canonicalCardId,
+      types: ["spell"],
+      energy: 4,
+      power: ["Body"]
+    })
+    .unit("fallen-enemy", { owner: "B", controller: "B", zone: "board" })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("spoils") });
 
-  // attachProgramLifecycle binds static abilities on Board entry only
-  // (programs/lifecycle.ts), so a Spell's static ability never registers while
-  // the card sits on the Chain where its discount would have to apply.
-  state.engine.commit({ type: "move-zone", object: state.kernel.ref("spoils"), to: "chain" });
-  assert.deepEqual(errors, []);
-  assert.deepEqual(state.engine.layers.registry.list(), []);
-
-  // And even when the binder is reached, the kind has no layer mapping, so the
-  // -2 Energy discount still cannot install itself into a Finalize cost plan.
-  state.engine.commit({
-    type: "move-zone",
-    object: state.kernel.ref("spoils"),
-    to: "board",
-    location: { type: "base", player: "A" }
-  });
-  assert.equal(
-    errors.includes("Static ability kind continuous.cost-modification has no layer mapping"),
-    true,
-    JSON.stringify(errors)
+  assert.throws(
+    () => finalizeCostPlan(
+      context,
+      { id: "spoils-of-war.play", cost: { kind: "printed" } },
+      {
+        statics: [{ id: "spoils-of-war.static", source: context.source.ref, ability: costModification }]
+      }
+    ),
+    error => error?.reason === "judge-required" && /condition|history/.test(String(error?.message))
   );
-  assert.deepEqual(state.engine.layers.registry.list(), []);
 });
 
 test("Spoils of War: the test kernel evaluates the declared history predicate, the production runtime cannot", () => {

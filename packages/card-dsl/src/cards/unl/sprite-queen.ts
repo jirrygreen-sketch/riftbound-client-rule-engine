@@ -21,17 +21,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（缺口均不近似实现）：
  * - Sprite token 定义（187.2）不在 effect.token 的冻结定义表内（recruit / sand-soldier /
- *   mech / reflection / tentacle）；带自身关键词的定义按原语文档保持 blocked（RIFT-62）。
+ *   mech / reflection / tentacle）；带自身关键词的定义按原语文档保持 blocked。
  * - “ready” 是入场状态改写（143.4 / 184.1 / 185.2.d）：create-token / play 不支持入场状态
  *   覆盖，先创建再补一次 effect.ready 会产生错误的“成为就绪”事件，不近似实现。
  * - “to your base” 需要相对能力控制者的 LocationRef：effect.token 的 location 只接受字面
  *   LocationRef，卡程序没有构建 controller-base 的表达式形态（effect.move 有 "controller-base"，
  *   effect.token 没有；ogn/altar-to-unity 记录同一缺口）。
- * - Sprite token 自身需要的 [Temporary] KeywordDef 已合入，但本卡的 beginning-start 触发
- *   仍不能通过当前封闭 EventPattern 词表注册；只有在 token 定义、入场状态和
- *   controller-relative location 可表达且该触发过滤器可注册后，token 才能进入这条路径。
- * 依赖：Sprite token 定义表、入场状态、beginning-start EventPattern 注册与
- * effect.token 的 controller-relative location 契约变更请求。
+ * - Sprite token 自身需要的 [Temporary] KeywordDef 已合入，但 beginning-start 不是当前
+ *   TriggerSpec EventPattern 的合法事件类型，故本卡该触发仍不能注册；token 仍受前述定义表、
+ *   入场状态和 controller-relative location 限制。
+ * 依赖：Sprite token 定义表、入场状态、beginning-start 触发绑定与
+ * effect.token 的 controller-relative location 支持。
  */
 const abilities: Ability[] = [
   {
@@ -91,14 +91,14 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "四处缺口，均不近似实现：(1) Sprite token 定义（187.2：3 Might、无领域、Fae 标签、带 [Temporary]）不在 effect.token 的冻结定义表" +
-    "（recruit/sand-soldier/mech/reflection/tentacle），带自身关键词的定义按原语文档保持 blocked（RIFT-62）。" +
+    "（recruit/sand-soldier/mech/reflection/tentacle），带自身关键词的定义按原语文档保持 blocked。" +
     "(2)「ready」是入场状态改写（143.4 / 184.1 / 185.2.d）：create-token/play 不支持入场状态覆盖，先创建再补一次 effect.ready 会多出" +
     "「成为就绪」事件，不是同一语义。" +
     "(3)「to your base」需要相对能力控制者的 LocationRef：effect.token 的 location 只接受字面 LocationRef，" +
     "卡程序没有 controller-base 的表达式形态（effect.move 有 \"controller-base\"，effect.token 没有；ogn/altar-to-unity 同缺口）。" +
-    "(4) Sprite token 自身的 [Temporary] KeywordDef 已合入，但 beginning-start 触发过滤器仍受当前封闭 EventPattern 词表限制；" +
+    "(4) Sprite token 自身的 [Temporary] KeywordDef 已合入，但 beginning-start 不是当前 TriggerSpec EventPattern 的合法事件类型，" +
     "token 仍受前述定义表、ready 入场状态和 controller-relative location 限制。" +
-    "依赖：Sprite token 定义表、入场状态、beginning-start EventPattern 注册与 effect.token 的 controller-relative location 契约变更请求。",
+    "依赖：Sprite token 定义表、入场状态、beginning-start 触发绑定与 effect.token 的 controller-relative location 支持。",
   abilities,
   sourceText:
     "When you play me or at the start of your Beginning Phase, play a ready 3 :rb_might: Sprite unit token with [Temporary] " +

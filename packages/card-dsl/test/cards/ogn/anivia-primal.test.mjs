@@ -1,3 +1,4 @@
+// Supported trigger/damage execution evidence: ../templates/triggered-attack-declared-effect-damage-706.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
 

@@ -204,9 +204,8 @@ test.todo(
 );
 test.todo(
   "rad-043-167 Riven, Broken Blade: make spending the Buff an in-instruction cost ([do X] to [do Y], CR 355.10.c.1 / " +
-    "404.1.b.1) so a failed spend blocks the Stun / ready branch — the cost plan pays spend-buff but no " +
-    "in-instruction cost.pay path is merged — cost.pay itself is merged, the open piece is the success-gated " +
-    "payment body (cost/kinds/README.md contract change request #2)"
+    "404.1.b.1) so a failed spend blocks the Stun / ready branch — the merged cost plan pays spend-buff, but the card body still lacks an effect.spend-buff/equivalent binding and success-gated continuation " +
+    "(203.3)"
 );
 
 test("rad-043-167 Riven, Broken Blade: without a Buff the linkedTo Stun still lands (no payment gate)", () => {

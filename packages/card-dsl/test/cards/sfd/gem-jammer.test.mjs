@@ -1,10 +1,8 @@
 // Golden test for Gem Jammer (sfd-007-221).
 //
 // The card-played trigger is bound through the production CardProgram adapter
-// (RIFT-257) and resolved by the real ChainEngine; the grant itself executes
-// through the merged continuous.grant-keyword primitive (RIFT-258) with the
-// Ganking KeywordDef registered (RIFT-83). The remaining gap is the semantic
-// consumption of a runtime-granted keyword, so the card stays judge-required.
+// and resolved by the real ChainEngine. The merged keyword-grant re-expander
+// now consumes Ganking; production lifecycle wiring remains the card's gap.
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -15,6 +13,9 @@ import { createProgramBinding } from "../../../../engine-core/dist/programs/inde
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture, resolveAll, stages } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -29,8 +30,13 @@ const registrations = (kernel) =>
   kernel.continuousEffects.map((entry) => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 }));
 
 const effectiveKeywords = (kernel, id) =>
-  createLayerEngine(kernel.objects, registrations(kernel))
-    .evaluate(kernel.ref(id))
+  (() => {
+    const layers = new KeywordGrantLayerEngine(kernel.objects, {
+      context: source => bindResolveContext(kernel, { source, controller: source.controller })
+    });
+    for (const entry of registrations(kernel)) layers.addContinuous(entry.effect, entry.duration, entry.timestamp);
+    return layers.evaluate(kernel.ref(id));
+  })()
     .keywords.map((keyword) => keyword.id);
 
 test("sfd-007-221 Gem Jammer: program passes validateCardProgram and is judge-required", () => {
@@ -44,10 +50,12 @@ test("sfd-007-221 Gem Jammer: program passes validateCardProgram and is judge-re
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("sfd-007-221 Gem Jammer: judgeReason names the current semantic-consumption gap", () => {
+test("sfd-007-221 Gem Jammer: judgeReason names the current lifecycle wiring gap", () => {
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /810/);
   assert.match(program.judgeReason, /运行时获得的 Ganking/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /production lifecycle/);
   assert.doesNotMatch(program.judgeReason, /RIFT-83|RIFT-91|RIFT-257|RIFT-258/);
   assert.equal(keywordDefinitionsById.has("Ganking"), true);
   assert.equal(keywordDefinitionsById.get("Ganking").stacking, "single");
@@ -107,7 +115,12 @@ test("sfd-007-221 Gem Jammer golden: the grant registers Ganking only on the loc
   // Granting to an enemy unit is legal for "a unit" (no controller filter).
   assert.deepEqual(effectiveKeywords(kernel, "unit-2"), ["Ganking"]);
   assert.deepEqual(effectiveKeywords(kernel, "unit-1"), []);
-  const layers = createLayerEngine(kernel.objects, registrations(kernel));
+  const layers = new KeywordGrantLayerEngine(kernel.objects, {
+    context: source => bindResolveContext(kernel, { source, controller: source.controller })
+  });
+  for (const entry of registrations(kernel)) layers.addContinuous(entry.effect, entry.duration, entry.timestamp);
+  assert.equal(layers.evaluate(kernel.ref("unit-2")).movement.canGank, true);
+  assert.equal(movement(layers.registry, kernel.ref("unit-2"), layers.evaluate(kernel.ref("unit-2")), "A").canGank, true);
   assert.equal(layers.expireAt("turn-end").length, 1);
   assert.deepEqual(layers.evaluate(kernel.ref("unit-2")).keywords, []);
 });
@@ -126,7 +139,7 @@ test("sfd-007-221 Gem Jammer golden: a stale locked target makes the grant ignor
 
 test("sfd-007-221 Gem Jammer: the reference pipeline plays the same program shape and resolves the grant", () => {
   // The production adapter turns this program's card-played trigger into a
-  // registration (RIFT-257) once the card is executable; assert the full path
+  // registration once the card is executable; assert the full path
   // with the card's own trigger/body over a synthetic identity, the same
   // convention as the merged trigger-registration tests.
   const playable = {
@@ -189,9 +202,3 @@ test("sfd-007-221 Gem Jammer: the reference pipeline plays the same program shap
   );
   assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref("gem")).keywords, []);
 });
-
-test.todo(
-  "sfd-007-221 Gem Jammer: a runtime-granted Ganking must expand into its 810.1.b/810.1.c " +
-    "battlefield-to-battlefield Standard Move permission and the movement legality check must " +
-    "consume it — no consumer expands gained keywords or calls layers/rules movement() at rule time"
-);

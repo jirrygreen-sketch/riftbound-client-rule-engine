@@ -23,11 +23,19 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *   单位 → 选目标；424.1 / 424.1.a：Stun 是效果型受限动作，effect.stun 已合入。
  *   括注 "(It doesn't deal combat damage this turn.)" 是 424.1.b 的提醒文本。
  *
- * status = judge-required：
- * 两处当前缺口：(1) If you play me to a battlefield（CR 143.4/359.2.c/369.3）需要打出时选择的入场位置；
- * 替代条件上下文没有读取该目的地的入口，replacement/bind.ts 的 matchesEnterAction 分支也未检查 ability.condition（RIFT-359）。
- * (2) enemy unit attacking here 的 sameLocationAs/combatRole 过滤尚未贯通：ObjectSnapshot 已有 combatRole，
- * 解释器已支持 sameLocationAs，但 programs/filters.ts 拒绝这两个目标过滤字段，chain/ 的图层过滤也不读取 combatRole。
+ * status = judge-required（2026-10-18 对源码逐条复核）：
+ * 两处当前缺口：(1) If you play me to a battlefield（CR 143.4/359.2.c/369.3）读不出"本次打出的目的地"：
+ * replacement/bind.ts 的 matchesEnterAction 分支只校验 replaces.filter，不检查 ability.condition
+ * （condition 只在非入场事件分支里经 testCondition 求值）；该条件用的
+ * object-property(self, "shadow.played-to-battlefield") 也不在 ObjectSnapshot 特征里，
+ * 实测把本卡的替代绑定到真实入场流程时，进入 Base 与进入战场都会 matches()（无法区分），
+ * 因此直接绑定就是错误近似。(2) enemy unit attacking here 的过滤仍未贯通：ObjectSnapshot 已有 combatRole，
+ * 解释器与层 filter 支持 sameLocationAs，但 programs/filters.ts 的 translateObjectFilter 白名单拒绝
+ * sameLocationAs 与 combatRole（实测 "Unsupported filter field sameLocationAs"）；
+ * 把 combatRole 改放进 characteristics 时，生产 ResolveContext.query（测试内核的 matchesQueryFilter）
+ * 对 characteristics 不做求值而直接放过，实测 atk 与 idle 两个单位都入选（过度匹配），
+ * 而 layers/filter.ts 的 characteristicsMatch 才会区分（atk true / idle false）——两种写法都不能
+ * 单独得到"确实是攻击者且在同一战场"的目标集合。
  * Action 启动、替代绑定与 [A] 费用均已有可用接口；[A] 按 135.2.e.5.a 表示为允许六域支付的一个 Power 费用，
  * 不需要把任意域费用误当成新增 Universal Power 资源。
  */
@@ -36,7 +44,7 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  * "If you play me to a battlefield" 的保留条件形状：需要"本次打出选择的入场位置是战场"这一
  * 事实。ObjectSnapshot 的 location 特征只有在对象已进场后才有值，而入场替代在换区前做决定；
  * 该读取不被已合入的表达式求值支持，取不到信息时解释器按 MissingInformation 处理（fail closed），
- * 入场替代还需保留并检查该条件（RIFT-359）。
+ * 入场替代还需保留并检查该条件。
  */
 const PLAYED_TO_BATTLEFIELD: Condition = {
   kind: "compare",
@@ -120,10 +128,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处当前缺口：(1) If you play me to a battlefield（CR 143.4/359.2.c/369.3）需要打出时选择的入场位置；" +
-    "替代条件上下文没有读取该目的地的入口，replacement/bind.ts 的 matchesEnterAction 分支也未检查 ability.condition（RIFT-359）。" +
+    "两处当前缺口：(1) If you play me to a battlefield（CR 143.4/359.2.c/369.3）读不出「本次打出的目的地」：" +
+    "replacement/bind.ts 的 matchesEnterAction 分支只校验 replaces.filter、不检查 ability.condition" +
+    "（condition 只在非入场事件分支里经 testCondition 求值），" +
+    "程序里用的 object-property(self, \"shadow.played-to-battlefield\") 也不在 ObjectSnapshot 特征中；" +
+    "实测把该替代绑到真实入场流程时，进入 Base 与进入战场都会 matches()，无法区分，直接绑定即错误近似。" +
     "(2) enemy unit attacking here 的 sameLocationAs/combatRole 过滤尚未贯通：ObjectSnapshot 已有 combatRole，" +
-    "解释器已支持 sameLocationAs，但 programs/filters.ts 拒绝这两个目标过滤字段，chain/ 的图层过滤也不读取 combatRole。" +
+    "解释器已支持 sameLocationAs，但 programs/filters.ts 的 translateObjectFilter 白名单拒绝这两个字段" +
+    "（实测 \"Unsupported filter field sameLocationAs\"）；把 combatRole 改放进 characteristics 会过度匹配：" +
+    "生产 ResolveContext.query（测试内核 matchesQueryFilter）不对 characteristics 求值、直接放过，" +
+    "实测攻击者与非攻击者两个单位都入选，而只有 layers/filter.ts 的 characteristicsMatch 区分二者" +
+    "（atk true / idle false），两种写法都不能单独得到「确实是攻击者且在同一战场」的目标集合。" +
     "Action 启动、替代绑定与 [A] 费用均已有可用接口；[A] 按 135.2.e.5.a 表示为允许六域支付的一个 Power 费用，" +
     "不需要把任意域费用误当成新增 Universal Power 资源。",
   abilities,

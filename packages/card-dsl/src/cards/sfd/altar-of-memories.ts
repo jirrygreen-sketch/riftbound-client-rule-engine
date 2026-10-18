@@ -24,17 +24,26 @@ import type { CardProgram } from "../../ir/index.js";
  *   （ZoneDestination "deck-top"/"deck-bottom"），顶端/底端由结算期的目的地选择决定
  *   （effect.zone 的 choice 形式）。"your Main Deck" 是能力控制者的主牌库（375.1）。
  *
- * 当前复核：保持 judge-required；具体未接通路径见 judgeReason。
+ * 当前复核（2026-10-18，逐条对源码）：保持 judge-required。前导费用已从不可支付的
+ * 裸数组改写成已合入的可支付形状（cost.modify 锁定计划 + cost.pay 收取），真实缺口只剩
+ * 「触发能力的基础费用必须在 Finalize 支付」的绑定层（383.3.b.1）：CardProgram 的
+ * TriggeredAbility 契约没有费用字段，programs/triggers.ts 也不从正文提取。见 judgeReason。
  */
 export default {
   canonicalCardId: "card.hash-fae74af4b0507308396536f4f9d367af185a5d09b03c11aa0a1c4db55655778b",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "CR 383.3.b/383.3.b.1 把开头的 “you may exhaust me to draw 1” 视为该触发能力的基础费用，必须在 Finalize 支付（415.4/415.5/405.2）：" +
-    "contract.ts 的 TriggeredAbility 没有 cost 字段，卡程序无法声明这条费用；programs/triggers.ts 生成的 TriggerRegistration 从不填 TriggerRegistration.cost，" +
-    "链的 finalize 因此拿不到锁定计划（chain/engine.ts 只在 item.cost 存在时调用 buildCostPlan），而 body 里 cost.pay 的 payments 数组并不是它支持的锁定计划形状（已注册的 cost.pay 只接受 finalized 计划）。" +
-    "缺触发费用的 Finalize 选择、可支付性检查与事务消费：既不能在 Resolve 才横置，也不能只凭 optional 被接受就免费抽牌。",
+    "仍缺 383.3.b/383.3.b.1（415.4/415.5/740.4.a.2）要求的前导基础费用在 Finalize 支付：" +
+    "CR 把紧跟 “you may” 的 “exhaust me” 视为该触发能力的基础费用，必须在骰定/定稿（Finalize）时支付并把横置动作并入同一个事务，" +
+    "但契约 3.1 的 TriggeredAbility 没有费用字段，programs/triggers.ts 也从不从正文提取费用或 383.3.a 的 Finalize “you may” 决定，" +
+    "因此生成的 TriggerRegistration.cost/mayAtFinalize 恒为 undefined；chain/engine.ts 只在 item.cost 存在时才调用 buildCostPlan 支付。" +
+    "现状：正文已按已合入的可支付形状声明该费用（cost.modify 锁定 { kind: \"activated\", payments: [{ kind: \"exhaust\", object: \"self\" }] }，" +
+    "cost.pay 经 linked-value 收取），解释器上能真实锁定计划并横置来源（golden 断言），" +
+    "但生产链路径（chain/interpreter-adapter.ts）不会把 cost.modify 的 id 字面量化，实测抛 TypeError（\"cost.modify id must be a non-empty string\"），" +
+    "即这段费用在正文里根本走不到 Resolve；无论哪种情形都缺 383.3.b.1 的 Finalize 支付。" +
+    "依赖：触发能力的费用字段/提取接线（card-dsl 契约 3.1 + programs/triggers.ts 的 cost/mayAtFinalize 提取）与 cost.modify 的链路径字面量化。" +
+    "不近似实现：不把横置降级成结算期的 effect.exhaust，也不让可选被接受就等于免费抽牌。",
   abilities: [
     {
       kind: "triggered",
@@ -62,12 +71,32 @@ export default {
               kind: "constant",
               value: [
                 {
-                  id: "altar-of-memories.pay-exhaust",
-                  // 383.3.b / 383.3.b.1：横置自身是基础费用，Finalize 支付；
-                  // cost.pay 原语与费用管线接线见 judgeReason。
-                  op: "cost.pay",
+                  // 383.3.b / 383.3.b.1：横置自身是基础费用。cost.modify 先把可支付的
+                  // 计划锁进 linked value（cost/plan-values.ts 支持 { kind: "exhaust", object: "self" }），
+                  // 再由 cost.pay 收取；缺的是把这段前导费用提升到 Finalize（见 judgeReason）。
+                  id: "altar-of-memories.prepare-exhaust",
+                  op: "cost.modify",
                   args: {
-                    payments: { kind: "constant", value: [{ kind: "exhaust", object: "self" }] }
+                    id: { kind: "constant", value: "altar-of-memories.prepare-exhaust" },
+                    cost: {
+                      kind: "constant",
+                      value: {
+                        kind: "activated",
+                        payments: [{ kind: "exhaust", object: "self" }]
+                      }
+                    }
+                  }
+                },
+                {
+                  id: "altar-of-memories.pay-exhaust",
+                  op: "cost.pay",
+                  linkedTo: "altar-of-memories.prepare-exhaust",
+                  args: {
+                    cost: {
+                      kind: "linked-value",
+                      instructionId: "altar-of-memories.prepare-exhaust",
+                      key: "cost"
+                    }
                   }
                 },
                 {

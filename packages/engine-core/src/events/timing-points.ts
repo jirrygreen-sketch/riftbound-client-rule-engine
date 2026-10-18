@@ -746,6 +746,43 @@ export const TIMING_POINT_IDS = Object.freeze(
   TIMING_POINTS.map(point => point.id)
 ) as readonly TimingPointId[];
 
+/**
+ * EventPattern names are intentionally allowed to use either the timing-point
+ * spelling (for example `conquer`) or the event spelling used by a producer
+ * and by card text (for example `conquered`).  Keep that compatibility table
+ * separate from TIMING_POINTS: aliases do not create a second emitted timing
+ * point, and therefore do not change the v1.5 timing-point audit or replay
+ * identity.
+ */
+export const TIMING_POINT_ALIASES = Object.freeze({
+  "zone-entered": "object-enters-zone",
+  "zone-left": "object-leaves-zone",
+  "object-entered-zone": "object-enters-zone",
+  "object-left-zone": "object-leaves-zone",
+  "object-targeted": "became-target",
+  "showdown-opened": "showdown-open",
+  "showdown-closed": "showdown-close",
+  "combat-ended": "combat-end",
+  "chain-item-finalized": "chain-item-finalize",
+  "chain-item-resolved": "chain-item-resolve",
+  conquered: "conquer",
+  held: "hold",
+  scored: "score"
+} as const satisfies Readonly<Record<string, TimingPointId>>);
+
+export type TimingPointAlias = keyof typeof TIMING_POINT_ALIASES;
+export type TimingPointReference = TimingPointId | TimingPointAlias;
+
+export function isTimingPointAlias(value: unknown): value is TimingPointAlias {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(TIMING_POINT_ALIASES, value);
+}
+
+/** Resolve an event/timing alias without changing the emitted timing id. */
+export function resolveTimingPointId(value: string): TimingPointId | undefined {
+  if (isTimingPointId(value)) return value;
+  return isTimingPointAlias(value) ? TIMING_POINT_ALIASES[value] : undefined;
+}
+
 export interface TimingPointCoverage {
   readonly segment: string;
   readonly timingPointIds: readonly TimingPointId[];

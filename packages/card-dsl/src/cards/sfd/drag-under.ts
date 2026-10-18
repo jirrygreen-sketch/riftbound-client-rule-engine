@@ -16,9 +16,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   alters the printed cost at Finalize while the card is outside the hand.
  *   The cost.modify instruction is merged, but programs/statics.ts has no
  *   layer mapping for it (layerFor throws judge-required), so a card's static
- *   cost effect never reaches CostPlanInput.discounts; the fromZone
- *   "any-except-hand" constraint also has no consumer, so the reduction
- *   cannot be applied as printed.
+ *   cost effect never reaches CostPlanInput.discounts. The merged cost collector
+ *   uses fromZone "not-hand" together with the pre-play originZone; this card
+ *   uses that closed vocabulary rather than a descriptive alias.
  * - "Kill a unit at a battlefield" is one target (355.10: "Kill a unit at a
  *   battlefield" targets the unit; "at a battlefield" is a restriction,
  *   355.10.b) executed with the merged effect.kill primitive. The restriction
@@ -34,10 +34,11 @@ const dragUnder = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺静态费用效果到 Finalize 费用计划的绑定（CR 366.2、356.4）：" +
-    "cost.modify 指令已能生成折扣计划，但 programs/statics.ts 的 layerFor 对静态 kind \"cost.modify\" 直接抛出 " +
-    "\"Static ability kind cost.modify has no layer mapping\"，卡牌静态折扣无法进入 CostPlanInput.discounts；" +
-    "fromZone: \"any-except-hand\" 同样没有消费方，无法限定该效果只在此卡不在手牌时生效。" +
+    "仍缺静态费用效果到 Finalize 费用计划的生产绑定（2026-10-18 实测；CR 366.2、356.4）：" +
+    "cost.modify 指令和 cost/discounts/collect.ts 已能生成折扣计划，且 fromZone: \"not-hand\" 会在提供打出前 " +
+    "originZone 时正确门控；但 programs/statics.ts 的 layerFor 对静态 kind \"cost.modify\" 仍抛出 " +
+    "\"Static ability kind cost.modify has no layer mapping\"，chain/engine.ts 也仍直接走 buildCostPlan，" +
+    "没有把本卡静态声明、打出前来源区域和该折扣送入 CostPlanInput.discounts。" +
     "\"Kill a unit at a battlefield\" 已改用已合入的目标位置过滤（targets[].location: { type: \"battlefield\" }，355.10/355.10.b），" +
     "golden 经生产目标翻译与 Finalize 真实执行：战场单位被消灭、Base 单位被拒绝。不近似实现：不给战场本身另加选择目标，不把折扣写成固定费用。",
   sourceText:
@@ -53,7 +54,7 @@ const dragUnder = {
         resource: "energy",
         amount: { kind: "constant", value: -2 },
         appliesTo: "self",
-        fromZone: "any-except-hand"
+        fromZone: "not-hand"
       }
     },
     {

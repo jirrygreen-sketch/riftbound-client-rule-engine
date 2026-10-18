@@ -20,6 +20,9 @@ test("ogn-031-298 Raging Firebrand: program validates and is judge-required", ()
   assert.match(program.judgeReason, /one-shot/);
   assert.match(program.judgeReason, /卡牌触发绑定已合入/);
   assert.match(program.judgeReason, /一次性费用修正窗口/);
+  assert.match(program.judgeReason, /continuous\.cost-modification/);
+  assert.match(program.judgeReason, /per-turn-first-play/);
+  assert.match(program.judgeReason, /self 约束/);
   assert.ok(!/cost\.pay\/cost\.modify 未合入/.test(program.judgeReason));
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -38,8 +41,8 @@ test("ogn-031-298 Raging Firebrand: card-played self trigger carrying a one-shot
   const [ability] = program.abilities;
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "card-played");
-  // The engine validator rejects the older { self: true } spelling; the played
-  // card identifies itself through its canonical id.
+  // Validation accepts this canonical-id filter, but source identity still
+  // needs a validated self-binding adapter; see the separate execution TODO.
   assert.deepEqual(ability.trigger.filter, {
     event: "card-played",
     object: { canonicalCardId: CARD_ID }
@@ -106,7 +109,8 @@ test("ogn-031-298 Raging Firebrand golden: a second plan with the same discount 
 test.todo(
   "ogn-031-298 Raging Firebrand: execute the discount — register a one-shot next-spell cost " +
     "modification, assert the following spell's finalized cost plan is 5 energy cheaper and that a " +
-    "second spell costs full — the cost.modify arithmetic and the card-program trigger binding " +
-    "(RIFT-257 registerProgramTriggers/attachProgramLifecycle) are merged, but the one-shot " +
+    "second spell costs full — cost.modify, continuous.cost-modification and the cost/discounts collector are merged, but the one-shot " +
     "'next spell this turn' window that carries the plan onto a later Finalize is still missing."
 );
+
+test.todo("Raging Firebrand: self card-played trigger must ignore another copy with the same canonicalCardId (CR 383.4.a)");

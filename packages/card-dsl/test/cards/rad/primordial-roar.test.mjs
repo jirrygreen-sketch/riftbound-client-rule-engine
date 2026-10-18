@@ -9,6 +9,10 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CANONICAL = "card.hash-8b6deb587569a3df7032c50ff6c443facba501038a4e6e1fb77f5aedbedb57cf";
 const [showOff, play] = program.abilities;
@@ -41,6 +45,10 @@ test("rad-082-167 Primordial Roar: judgeReason names the merged keyword and the 
   assert.match(program.judgeReason, /Unregistered instruction opcode|not a registered instruction op/);
   assert.match(program.judgeReason, /832\.1/);
   assert.match(program.judgeReason, /832\.1\.d\.1/);
+  // The refreshed reason names the measured layer rejection and the value
+  // rejection as well, so the remaining gap is reproducible from the text.
+  assert.match(program.judgeReason, /cost\.reveal has no layer mapping/);
+  assert.match(program.judgeReason, /does not accept a value/);
   assert.equal(/RIFT-\d+/.test(program.judgeReason), false);
 });
 
@@ -222,4 +230,28 @@ test("rad-082-167 Primordial Roar: effect.show-off is not a registered instructi
     (error) => /Unregistered instruction opcode: effect\.show-off/.test(error.message)
   );
   assert.equal(keywordDefinitionsById.get("Show Off").expand({ host: { canonicalCardId: CANONICAL } })[0].effect.kind, "cost.reveal");
+});
+
+test("rad-082-167 Primordial Roar gap: the cost.reveal expansion has no static layer mapping", () => {
+  // 832.1.c.2 keeps the Show Off decision in Finalize, and the merged keyword
+  // expansion really produces a cost.reveal declaration — but the production
+  // static binder cannot register that kind, so nothing can consume it.
+  const [reveal] = keywordDefinitionsById.get("Show Off").expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(reveal.effect.kind, "cost.reveal");
+  assert.equal(instructionDefinitionsById.has("cost.reveal"), false);
+  const kernel = world().unit("host", { types: ["unit"], keywords: [{ id: "Show Off" }] }).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("Unexpected choice"); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: () => true
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  assert.throws(
+    () => createEngineStaticBinder(engine).bindStatic(reveal, kernel.getObject("host")),
+    /Static ability kind cost\.reveal has no layer mapping/
+  );
 });

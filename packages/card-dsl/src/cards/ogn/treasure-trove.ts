@@ -2,18 +2,25 @@ import type { CardProgram } from "../../ir/index.js";
 
 /**
  * Treasure Trove — CR v1.5 383.2.c.3/383.2.c.3.a–b, 414, 431.2, 429.
- * Card-program trigger and activated bindings are merged. The remaining gap
- * is unregistering the source before the deferred leave-event scan completes.
- * The leave timing uses the action producer's object-left-zone event kind.
+ * 复核 2026-10-17：离场触发的注册顺序缺口仍在，参考测试内核的 channel 也不消费
+ * exhausted:true；启动杀自身与抽牌半段有真实执行证据。
  */
 const treasureTrove = {
   canonicalCardId: "card.hash-42b87e27f1b0c57a6160fc790e9257e741e6d8ec2e0f7a846d8aa0f6bcbe04f2",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "CR 383.2.c.3/383.2.c.3.a–b 的自身离场触发仍受生命周期扫描顺序阻塞：events/pipeline.publish 暂停扫描期间，programs/lifecycle 的 emit 在 object-leaves-board 后立即 detachSource 并注销订阅，随后 drain 已无法扫描到本卡的离场触发。" +
-    "应在离场事件完成扫描并捕获最后已知信息后解绑；不能省略生命周期或手动发出离场事件替代。触发 IR 已对齐真实生产者的 kind object-left-zone。" +
-    "CardProgram 触发/启动绑定、self 归一化、Chaos Power 与 exhaust 费用规划均已合入；draw、channel exhausted 与 kill-self 已有真实执行证据。参考测试内核的 channel-rune 还未消费 exhausted:true（431.2），故当前证据只验证横置入场动作参数与区域迁移，不能声称已验证横置状态；整卡等待离场扫描/解绑顺序与该动作消费修复。",
+    "两处缺口（2026-10-17 复核）：" +
+    "(1) CR 383.2.c.3/383.2.c.3.a–b 的自身离场触发被生命周期解绑顺序吃掉：" +
+    "programs/lifecycle.ts 的 detachSource 在 pipeline.emit 返回后立即执行（leavesBoard 判定含 object-leaves-board），" +
+    "而 pipeline.publish 是在 suspended>0 期间先发事件、出组后才 drain；解绑发生在扫描之前。" +
+    "实测经生产 attachLifecycle 注册后 kill 本卡，订阅数由 1 变 0，手牌与符文区均无变化（抽 1 与 Channel 1 都没发生）。" +
+    "应在离场事件完成扫描并捕获最后已知信息后解绑；不能省略生命周期或手动发出离场事件替代。" +
+    "(2) 431.2 的 exhausted:true 在参考测试内核里不落地：effects/testing/test-kernel.ts 的 channel-rune 分支只搬区域、" +
+    "不把 exhausted 写进入场状态，实测 channel 1 exhausted 后该符文 exhausted 仍为 false（game-server 的 engine-runtime/host.ts 已消费该字段，" +
+    "所以这只是参考内核的覆盖缺口，不能拿它当整卡通过证据）。" +
+    "已合入并有执行证据：CardProgram 触发/启动绑定与 self 归一化、Chaos Power + exhaust 的费用规划与支付回执、" +
+    "启动杀自身（effect.kill self）、离场 body 的 draw 与 channel 动作参数、以及触发过滤只匹配本卡真实生产者发出的 object-left-zone 事件。",
   abilities: [
     {
       kind: "triggered",

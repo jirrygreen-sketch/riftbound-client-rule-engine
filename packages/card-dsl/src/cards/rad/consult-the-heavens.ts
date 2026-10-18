@@ -24,13 +24,29 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - [Predict]（437.1 / 437.3.a / 437.4）：看牌库顶一张并选择是否回收它；数值省略时按 1 张。
  *   Predict 的查看 + 选择由 effect.inspect，回收由 effect.recycle，二者均已合入。
  *
- * status = judge-required（2026-10-17 第三轮复核，见 judgeReason）：授予与 Predict 两半的
- * 指令都已可用（grant 经解释器 + 图层求值，Predict 经 inspect + recycle），但 [Reaction] 的
- * 展开在卡牌程序绑定路径上失败：`programs/statics.ts` 对 `continuous.timing` 的
- * `appliesTo: ["card", "activated-ability"]` 抛 “Unsupported static appliesTo”（实测）；
- * [Shield] 的展开体（`continuous.might`）能绑定，但 814.1.d.1 的 Defender designation
- * 仍不是 ObjectSnapshot 的求值特征。Predict 已使用契约 3.6 的 PickSpec.zoneSlice，
- * 由真实 ChainEngine 在 Finalize 锁定控制者主牌库顶一张，结算时查看并选择回收或保留。
+ * status = judge-required（2026-10-18 第五轮源码复核，逐项实测）：
+ * 1. [Reaction] 的 continuous.timing 展开仍被 programs/statics.ts 的 staticTarget 拒绝
+ *    （appliesTo:[card,activated-ability] → "Unsupported static appliesTo"）。实测把该程序
+ *    接到生产绑定（createProgramBinding + attachProgramLifecycle）并提交
+ *    object-enters-board 后，生命周期回调收到该错误、图层注册表为空、
+ *    actionTimings() 返回 []。声明的 reaction 关键词本身仍让 describePlay 得到
+ *    speed "reaction"（实测），链许可由 chain/engine.ts 的 canAct + layers/rules 的
+ *    canAct 判定，所以这一条只影响 layers 侧的许可登记，不改变打出速度。
+ * 2. [Shield 2] 的授予半段可执行（continuous.grant-keyword 注册 ability 图层效果），
+ *    但生产默认的 LayerEngine 根本不展开被授予的关键词：实测经真实解释器授予后
+ *    Shield 只停在 object.keywords，Might 保持印刷值（814.1.c 的 +2 不生效）；
+ *    expandEffectiveKeywords 对该关键词求值得到的是 continuous.might + designation
+ *    条件的 static 展开，而生产链路没有任何调用方把该展开注册回图层。
+ *    RIFT-710 的 KeywordGrantLayerEngine 会展开并按 designation 条件求值
+ *    （实测 defender 时 Might 3→5，attacker/无角色时保持 3），但它不是生产默认
+ *    （ChainEngine 仍构造 LayerEngine，programs/lifecycle.ts 也绑到该引擎）。
+ * 3. combatRole 已存在于 ObjectSnapshot，expr-ext 也能把 designation 映射到它；
+ *    但没有任何生产方写入 combatRole（combat/flow.ts 在 staged combat 抛
+ *    combat-start-transaction），因此即便接线也无法在真实战斗里得到 defender。
+ * 4. 默认 LayerEngine 的 conditionMatches 对未实现的 compare 条件返回 true：实测
+ *    把 Shield 展开的条件 Might 直接注册到默认引擎时，defender/attacker/无角色都读到
+ *    +2（814.1.d.1 被违反）。若后续只把展开接进默认引擎而不接条件求值器，就会无条件加 Might。
+ * Predict 的 zoneSlice + inspect/recycle 已通过真实 ChainEngine 验证，不能列作缺口。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "reaction" },
@@ -132,15 +148,20 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两半指令都已合入并各有真实执行证据（[Shield 2] 授予经 continuous.grant-keyword 建 ability 层注册、" +
-    "end-of-turn 到期；[Predict] 经 PickSpec.zoneSlice + effect.inspect + effect.recycle，" +
-    "真实 ChainEngine 验证控制者牌库顶引用与回收/保留两条路径，437.1/437.3.a/437.4），但整卡仍有两处真实缺口：" +
-    "[Reaction]（813.1.c）的展开体是 continuous.timing static，programs/statics.ts 对其 " +
-    "appliesTo: [\"card\", \"activated-ability\"] 抛 \"Unsupported static appliesTo\"（实测），" +
-    "展开无法经 CardProgram 注册；814.1.d.1 的 Defender designation 仍未成为 " +
-    "ObjectSnapshot 特征（契约 3.8 combatRole，无产生方），Shield 的 +2 只能作为层注册被读出，暂不能按防守身份求值。" +
-    "另见数据问题：本印刷在本地目录被记为 cardType Unit，而能力文本是法术式措辞（[Reaction] / [Predict]），" +
-    "与同批 rad-034-167 Hunker Down（Spell）不一致。不近似实现。",
+    "(2026-10-18 第五轮复核实测) (1) [Reaction]（813.1.c）的 continuous.timing static 展开仍因 " +
+    "appliesTo:[card,activated-ability] 被 programs/statics.ts 拒绝为 Unsupported static appliesTo：" +
+    "实测生产绑定（createProgramBinding + attachProgramLifecycle）在该时点收到该错误、图层注册表为空、" +
+    "actionTimings() 返回 []；reaction 关键词声明仍让 describePlay 得到 speed \"reaction\"（实测），" +
+    "链许可走 chain/engine.ts 的 canAct + layers/rules。" +
+    "(2) [Shield 2]（814.1.c/814.1.d.1）的授予半段可执行，但生产默认 LayerEngine 不展开被授予的关键词：" +
+    "实测经真实解释器授予后 Shield 只停在 object.keywords，Might 保持印刷值，+2 不生效。" +
+    "RIFT-710 的 KeywordGrantLayerEngine 会展开并按 designation 求值（实测 defender Might 3→5，attacker/无角色保持 3），" +
+    "但不是生产默认（ChainEngine 仍构造 LayerEngine，programs/lifecycle.ts 也绑到它）。" +
+    "(3) 没有生产方写入 combatRole（combat/flow.ts 抛 combat-start-transaction），即便接线也没有真实 defender。" +
+    "(4) 默认 LayerEngine 的 conditionMatches 对未实现的 compare 条件返回 true：实测把展开的条件 Might 注册到默认引擎时，" +
+    "defender/attacker/无角色都读到 +2，违反 814.1.d.1。" +
+    "zoneSlice/Predict 的 ChainEngine 查看、回收/保留路径已有执行证据，不是缺口。" +
+    "目录的 cardType Unit 与法术式原文尚待 card-data 核实，本任务不改类型、原文或 null 印刷值。",
   abilities,
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +

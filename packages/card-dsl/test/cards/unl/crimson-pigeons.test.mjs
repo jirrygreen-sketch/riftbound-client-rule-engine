@@ -1,3 +1,8 @@
+// RIFT-668 partial execution / boundaries: ../templates/static-668.test.mjs.
+// Published status stays judge-required; existing component coverage is retained below.
+// Scenario execution evidence: ../templates/static-644.test.mjs (one parameterized row per card).
+// This card stays judge-required; the template row pins the executable-view lifecycle plus the
+// recorded combatRole / relative-player gaps, and backs the root cause asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -33,6 +38,11 @@ test("unl-154-219 Crimson Pigeons: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /combat\/flow\.ts|turn\/flow\.ts/);
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /layers\/filter\.ts/);
+  // Third-sweep refresh: the reason now records the measured count-set result
+  // (relative player unresolved) and the characteristics.combatRole spelling
+  // that the matcher really evaluates.
+  assert.match(program.judgeReason, /characteristics\.combatRole/);
+  assert.match(program.judgeReason, /controller: "controller"/);
 });
 
 test("unl-154-219 Crimson Pigeons: one static +2 Might modifier scoped to itself", () => {
@@ -98,6 +108,67 @@ test("unl-154-219 Crimson Pigeons boundary: the layer filter ignores combatRole,
     assert.equal(matchesObjectFilter({ combatRole: "attacker" }, kernel.getObject(id)), true);
   }
   assert.equal(selfAttacking.left.property, "combatRole");
+});
+
+test("unl-154-219 Crimson Pigeons boundary: the authored relative filter matches no object, so the 'another unit' count is 0", () => {
+  // Third-sweep evidence for the refreshed judgeReason, measured against the
+  // production static binder plus layer engine. programs/statics.ts stores
+  // controller:"controller" verbatim and layers/filter.ts compares that literal
+  // against each object's controller value, so the "another unit you control"
+  // set is empty even with a same-location friendly attacker present.
+  const [, withAnotherAttacker] = ability.condition.conditions;
+  const authored = withAnotherAttacker.left.filter;
+  assert.equal(authored.controller, "controller");
+
+  const conditionFor = filter => ({
+    ...ability.condition,
+    conditions: [
+      ability.condition.conditions[0],
+      { ...withAnotherAttacker, left: { ...withAnotherAttacker.left, filter } }
+    ]
+  });
+  // The reference kernel supplies combatRole, which production combat never
+  // assigns (contract 3.8) and a zone change would clear.
+  const unit = (id, overrides = {}) => ({
+    ref: { id, zoneEntryId: 1 }, cardId: null, name: id, types: ["unit"], tags: [], keywords: [],
+    owner: "A", controller: "A", zone: "board", location: { type: "battlefield", id: "bf-1" },
+    might: 3, energy: null, power: null, exhausted: false, damage: 0, stunned: false,
+    buffs: 0, attachedTo: null, faceDown: false, isToken: false, combatRole: "attacker",
+    ...overrides
+  });
+  const evaluate = (filter, ally) => {
+    const board = fixture({ cards: [] });
+    board.kernel.addObject(unit("pigeons", { cardId: program.canonicalCardId }));
+    if (ally) board.kernel.addObject(ally);
+    const host = board.kernel.getObject("pigeons");
+    createEngineStaticBinder(board.engine).bindStatic({ ...ability, condition: conditionFor(filter) }, host);
+    board.engine.layers.setObjects(board.kernel.objects);
+    const [entry] = board.engine.layers.registry.list();
+    return entry.effect.effect.condition(host);
+  };
+
+  const friendlyAttacker = unit("ally", { might: 2 });
+  const friendlyDefender = unit("ally", { might: 2, combatRole: "defender" });
+  const distantAttacker = unit("ally", { might: 2, location: { type: "battlefield", id: "bf-2" } });
+
+  // Authored spelling: the literal "controller" gate rejects every candidate,
+  // so even a same-location friendly attacker leaves the count at 0.
+  assert.equal(evaluate(authored, friendlyAttacker), false);
+  assert.equal(evaluate(authored, null), false);
+  // Resolving the player by hand makes the count reach 1, which shows the
+  // blocker is the relative player and not the location anchor: selectors.ts
+  // really consumes sameLocationAs/exclude, so a distant ally still fails.
+  const literalController = { ...authored, controller: "A" };
+  assert.equal(evaluate(literalController, friendlyAttacker), true);
+  assert.equal(evaluate(literalController, distantAttacker), false);
+  assert.equal(evaluate(literalController, null), false);
+  // ...but then blocker (2) shows up: the layer matcher never reads a combatRole
+  // key, so a defender ally satisfies the "attacker" filter too.
+  assert.equal(evaluate(literalController, friendlyDefender), true);
+  // characteristics.combatRole is the spelling the matcher really evaluates.
+  const characteristics = (({ combatRole, ...rest }) => ({ ...rest, characteristics: { combatRole } }))(literalController);
+  assert.equal(evaluate(characteristics, friendlyAttacker), true);
+  assert.equal(evaluate(characteristics, friendlyDefender), false);
 });
 
 test("unl-154-219 Crimson Pigeons boundary: the static ability binds, but the condition's relative filter has no production consumer", () => {

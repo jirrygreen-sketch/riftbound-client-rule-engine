@@ -22,33 +22,37 @@ import type { CardProgram } from "../../ir/index.js";
  *   对手决定，其 chooser/target 都是那名玩家（355.10.e：由其他玩家参与选定的集合
  *   不是目标），目的地与第一条移动相同（359.3.f.3 的结果绑定）。
  *
- * status = judge-required（RIFT-329 复核；三处缺口均不近似实现）：
- * - 运行期 Location 选择仍缺失：effect.move 的 to 只接受字面 LocationRef、
- *   "controller-base" 或字面 LocationRef 候选列表；把运行期才成立的
- *   "battlefields you control" 写成 { kind: "choose", options: [...] } 会在
- *   argsSchema 阶段被拒，因为卡程序没有地点候选枚举生产方。
- * - 玩家目标/选择仍缺失：ChoiceRequest 只有 optional/mode/select-objects/order/number，
- *   没有玩家选择；target.player 也没有指令文件，"对手集合"的解析、锁定与
- *   "由该玩家来选"的 chooser 绑定没有已合入路径。
- * - "the same battlefield" 的结果绑定不可用：effect.move 只把整份回执写进
- *   <linkKey>（默认 "moved"），解释器的 linked-value 逐字按 `<id>.<key>` 取值，
- *   既不支持 `movements.0.to` 这样的路径，回执本身也不是 LocationRef
- *   （把它当 to 传入会被原语拒绝，文件内的链接键只是保留形状）。
- * 依赖：运行期 Location 候选枚举与结果绑定、玩家目标/选择（target.player）。
+ * status = judge-required（2026-10-17 复核；缺口均不近似实现）：
+ * - RIFT-357 的位置选择面已合入：指令可声明 LocationTargetSpec，`to` 用
+ *   Expr.kind "location" + { kind: "target-location", target: <spec id> } 读取运行期选定的
+ *   LocationRef；同一能力内后续指令重复引用同一 spec id 时复用第一次的绑定
+ *   （解释器的 locations 作用域），因此 "the same battlefield" 不再缺结果选择器。
+ *   实测两条 effect.move 共用同一绑定各自成功移动一次，产生两条 move-location。
+ * - 仍缺（355.4.a / 190.4 / 190.6）：候选集合没有「排除被移动单位当前位置」谓词
+ *   （chooseLocations 不注入 LocationCandidateOptions.exclude），也无法从战场控制状态
+ *   枚举「你控制但当前没有单位的战场」：queryLocationCandidates 只把活动对象的地点与
+ *   基地计入候选，战场控制本身没有可查询的生产状态。实测 type:"any" 的候选包含单位
+ *   当前所在战场。
+ * - 仍缺（355.7 / 355.9.a）："choose an opponent" 是玩家选择；target.player 没有
+ *   已注册指令（registry.generated 中不存在），执行到该指令会抛
+ *   Unregistered instruction opcode: target.player；"由该玩家来选" 的 chooser 绑定
+ *   同样没有已合入路径（PickSpec 的 chooser 键不被解释器消费）。
+ * 依赖：355.4.a 的当前位置排除谓词、战场控制的生产查询、target.player 与 chooser 绑定。
  */
 const callToBattle = {
   canonicalCardId: "card.hash-1d05a8db288bc071a9e9736106ed0815284bac8ec41b7795f5d4b43e4a75217c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1)「to a battlefield you control」是 CR 355.4/355.4.a 的 Finalize 目的地选择，" +
-    "合法地点取决于运行时战场控制状态；effect.move 的 to 只接受字面 LocationRef、controller-base 或字面 LocationRef 候选列表，" +
-    "写成 { kind: \"choose\", options: [...] } 会在 argsSchema 阶段被拒，因为卡程序没有地点候选枚举生产方。" +
-    "(2)「choose an opponent」按 CR 355.7/355.9.a 是玩家选择，但 ChoiceRequest 只有 optional/mode/select-objects/order/number，" +
-    "没有玩家选择；target.player 也没有已注册指令文件，对手集合的解析、锁定与 chooser 绑定没有路径。" +
-    "(3)「They move a unit they control to the same battlefield」的 359.3.f.3 结果绑定不可用：effect.move 只把整份回执写进 " +
-    "<linkKey>，解释器的 linked-value 逐字按 <id>.<key> 取值（不支持 movements.0.to 这样的路径），回执本身也不是 LocationRef。" +
-    "依赖：运行期 Location 候选枚举与结果绑定、玩家目标/选择（target.player）。",
+    "两处缺口，均不近似实现：(1)「to a battlefield you control」的候选集合仍不完整（355.4 / 355.4.a / 190.4 / 190.6）：" +
+    "已按合入的 LocationTargetSpec + target-location 绑定在结算选择阶段取值，但候选集合没有排除被移动单位当前位置的谓词" +
+    "（解释器 chooseLocations 不注入 LocationCandidateOptions.exclude），也无法从战场控制状态枚举「你控制但当前无单位的战场」" +
+    "（queryLocationCandidates 只把活动对象的地点与基地计入候选）；实测 type:\"any\" 的候选包含单位当前所在战场。" +
+    "(2)「choose an opponent」按 355.7/355.9.a 是玩家选择：target.player 没有已注册指令（执行的实测报 " +
+    "Unregistered instruction opcode: target.player），ChoiceRequest 也没有玩家选择形态，PickSpec 的 chooser 绑定不被解释器消费。" +
+    "已合入并已实测：RIFT-357 位置选择面（LocationTargetSpec + Expr.kind location）、两条 effect.move 复用同一战场绑定完成 " +
+    "359.3.f.3 的「the same battlefield」（各自产生 move-location），以及被移动单位的目标声明。" +
+    "依赖：355.4.a 的当前位置排除谓词、战场控制的生产查询、target.player 与 chooser 绑定。",
   abilities: [
     {
       kind: "play",
@@ -61,16 +65,21 @@ const callToBattle = {
               kind: "constant",
               value: { target: "call-to-battle.friendly-unit" }
             },
-            // 355.4 / 355.4.a：目的地由控制者在 Finalize 选择（"你控制的战场"）。
-            to: {
-              kind: "constant",
-              value: {
-                kind: "choose",
-                id: "call-to-battle.destination",
-                options: ["battlefields-you-control"]
-              }
-            }
+            // 355.4 / 355.4.a：目的地由控制者在结算选择阶段选定（"你控制的战场"）；
+            // 候选集合来自本指令的 LocationTargetSpec（controller 绑定能力控制者）。
+            // 355.4.a 的当前位置排除仍缺（见 judgeReason）。
+            to: { kind: "location", value: { kind: "target-location", target: "call-to-battle.destination" } }
           },
+          locations: [
+            {
+              id: "call-to-battle.destination",
+              type: "battlefield",
+              controller: "controller",
+              min: 1,
+              max: 1,
+              selection: "one"
+            }
+          ],
           targets: [
             {
               id: "call-to-battle.friendly-unit",
@@ -91,19 +100,15 @@ const callToBattle = {
           }
         },
         {
-          // "They move a unit they control to the same battlefield"：移动的
-          // objects（他们控制的单位）、chooser（所选对手）与目的地（同一战场）
-          // 都需要未合入的绑定（见 judgeReason）；此处保留形状。
+          // "They move a unit they control to the same battlefield"：目的地复用第一条
+          // 指令选定的同一 LocationSpec 绑定（359.3.f.3）；被移动单位与 chooser 仍依赖
+          // 未合入的 target.player（见 judgeReason），此处保留形状。
           id: "call-to-battle.opponent-moves-unit",
           op: "effect.move",
           linkedTo: "call-to-battle.choose-opponent",
           args: {
             objects: { kind: "constant", value: { pick: "call-to-battle.opponent-unit" } },
-            to: {
-              kind: "linked-value",
-              instructionId: "call-to-battle.move-own-unit",
-              key: "movements.0.to"
-            }
+            to: { kind: "location", value: { kind: "target-location", target: "call-to-battle.destination" } }
           },
           picks: [
             {

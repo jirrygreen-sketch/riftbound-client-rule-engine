@@ -23,12 +23,17 @@ import type { CardProgram } from "../../ir/index.js";
  * - 424.1 / 424.1.a：Stun 是效果型受限动作；effect.stun 已合入并由此提交 stun 动作。
  * - 括注 "(It doesn't deal combat damage this turn.)" 是 424.1.b 的提醒文本，不另写指令。
  *
- * status 判定（README 第 2 节）：judge-required —— 两处依赖未合入，均不近似实现：
- * 1. [Ambush]（822）的关键词展开已合入，但其打出位置许可与 Reaction 时间许可
- *    （continuous.timing + 位置许可）没有消费方（依赖 RIFT-84）。
- * 2. attack-declared 时点在封闭枚举中声明但没有已合入发射方：combat/ 的流程（引擎批 5 /
- *    RIFT-31/33/77）不发出该时点，且没有把 CardProgram 触发注册进 TriggerRegistration 的
- *    路径已合入，但触发在真实链路上不可达（同 icevale-archer 的判定）。
+ * status 判定（README 第 2 节，2026-10-17 复核）：judge-required —— 三处实测缺口，均不近似实现：
+ * 1. [Ambush]（822.1.b/822.1.c）的关键词展开已合入（两个 static 声明），但没有消费方：
+ *    createEngineStaticBinder（programs/statics.ts）对 play-location-permission 抛
+ *    "no layer mapping"，对 continuous.timing 抛 "Unsupported static appliesTo [\"card\"]"，
+ *    因此位置许可与条件 Reaction 都进不了图层；Chain 的 canAct/describePlay 也不读这两类声明。
+ * 2. attack-declared 时点在封闭枚举中声明但没有已合入发射方：combat/ 的流程不发出该时点
+ *    （start-combat 仍以 TurnCombatBlockedError("combat-start-transaction") 阻断），触发在真实链路上不可达。
+ * 3. 触发过滤的 sameLocationAs 锚点在卡牌绑定路径被拒：translateTriggerFilter/
+ *    translateObjectFilter（programs/filters.ts）对目标过滤的 sameLocationAs 抛
+ *    "Unsupported filter field sameLocationAs"，因此本卡的 attack-declared 订阅即使有时点也无法注册
+ *    （缺陷记录在引擎事件/过滤批次，不再引用已完成的任务号）。
  * "When I attack, [Stun] an enemy unit here" 的结构、目标过滤与 sameLocationAs 锚点已用
  * 已合入的 effect.stun + 解释器/参考内核真实执行验证（见 golden）。
  */
@@ -38,14 +43,19 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入：(1) [Ambush]（822.1.b/822.1.c）的关键词展开已合入，但" +
-    "其「可向有你控制单位的战场打出」的位置许可与「按此方式打出时具有 [Reaction]」的时间许可" +
-    "（continuous.timing + 位置许可）都没有消费方，依赖 RIFT-84（Ambush/Hidden 消费接线）。" +
-    "(2) attack-declared 时点虽然在封闭枚举中（events/timing-points.ts），但没有已合入的发射方——" +
-    "combat/ 不发射战斗时点（引擎批 5 / RIFT-31/33/77）；CardProgram 的 triggered ability 注册接线已合入，" +
-    "但触发在真实链路上仍不可达。" +
-    "「When I attack, [Stun] an enemy unit here」的触发结构、目标过滤（controller: opponent + sameLocationAs 锚点）" +
-    "与 effect.stun 动作已在 golden 中用解释器与参考内核真实执行；整卡不因此标记 executable，不近似实现 Ambush。",
+    "三处实测缺口，均不近似实现：(1) [Ambush]（822.1.b/822.1.c）的两个 static 展开（play-location-permission 与 " +
+    "continuous.timing）没有图层消费方——createEngineStaticBinder（programs/statics.ts）分别抛 " +
+    "\"Static ability kind play-location-permission has no layer mapping\" 与 \"Unsupported static appliesTo [\\\"card\\\"]\"，" +
+    "Chain 的 describePlay/canAct 也不读位置许可或条件 Reaction：programs/play.ts 只转发 action.location；" +
+    "即便把位置声明直接塞进注册表，layers/rules/query.ts 的 playLocations() 读的是 effect.permission 字符串，" +
+    "而本展开写的是 value（822.1.b 的战场筛选），golden 实测 permissions 仍为空；" +
+    "continuous.timing 的 grants 能被 actionTimings() 读出，但注册本身先被 binder 的 appliesTo 白名单拒绝。" +
+    "(2) events/timing-points.ts 的 attack-declared 没有发射方：combat/flow.ts 的 start-combat 仍以 " +
+    "TurnCombatBlockedError(\"combat-start-transaction\") 阻断，战斗角色/伤害交易未接线，触发在真实链路上不可达。" +
+    "(3) 目标过滤的 sameLocationAs 锚点被卡牌绑定路径拒绝——programs/filters.ts 的 translateObjectFilter/" +
+    "translateTriggerFilter 对它抛 \"Unsupported filter field sameLocationAs\"，因此 attack-declared 订阅的注册本身会失败。" +
+    "「When I attack, [Stun] an enemy unit here」的触发结构、目标过滤与 effect.stun 动作已在 golden 中用解释器与参考内核真实执行；" +
+    "整卡不因此标记 executable。",
   abilities: [
     // 822.1：印刷的 [Ambush]（无印刷数值，不写 value）。
     { kind: "keyword", keyword: "ambush" },

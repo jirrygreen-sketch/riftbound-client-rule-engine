@@ -22,20 +22,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （layers/filter.ts 的 matchesObjectFilter 比较 object.location.type，
  *   同 ven-060-166 sky-crusier）。
  *
- * status = judge-required（缺口均不近似实现）：
- * 1. 减费没有可执行路径：(a) continuous.cost-modification 的静态声明没有卡牌侧消费方——
- *    cost.modify 原语与 cost/cost-plan.ts 的减费求值已合入，但 programs/statics.ts 的
- *    layerFor() 对 continuous.cost-modification 没有 cost-modification 映射（fail-closed
- *    抛 judge-required），也没有消费方把 CardProgram static 装进 CostPlanInput.discounts
- *    （依赖 RIFT-89 的接线）；(b) “你控制某物是
- *    [Empowered]” 的谓词没有已合入实现：Contract 的 Condition 没有 empowered 谓词，
+ * status = judge-required（2026-10-18 持续复核；缺口以本轮实测为准）：
+ * 1. 「This costs :rb_energy_2: less」是 356.4.b 的减费，按 356.4.a 由本牌提供、在 Finalize 的
+ *    费用折扣步骤套用（356.4.c.2 保证该分量不为负）。“你控制某物是 [Empowered]”的门槛
+ *    （828.2：Empowered 是可检查特征）仍没有已合入谓词：ObjectSnapshot 没有 empowered 字段，
  *    layers/engine.ts 的 conditionMatches 只识别 always/never/type/has-tag/has-keyword，
- *    Empowered 状态也不是 ObjectSnapshot 特征（同 ven/055-166 applied-researchers 的登记）。
- *    程序里只保留可审查的描述性门槛（具名谓词），绝不写成恒定 true 的条件。
- * 2. 已支持部分：effect.damage 的“Deal 4 to a unit at a battlefield”由 golden 用解释器 +
- *    参考内核真实执行（含位置过滤匹配与失效目标 ignored 的边界）；减费与 Empowered 门槛写
- *    test.todo。
- * 依赖：RIFT-89（费用计划与静态减费接线）、RIFT-91（图层条件求值与 Empowered 谓词）。
+ *    未知 kind 落回 true。程序里只保留具名描述门槛，绝不写成恒真条件或近似成“你控制某个单位”。
+ * 2. continuous.cost-modification 的静态声明没有消费方：cost.modify 原语与
+ *    cost/discounts 的收集与 Finalize 求值已合入，但 programs/statics.ts 的 layerFor() 对
+ *    continuous.cost-modification 抛 ProgramBindingError（无图层映射），所以卡牌 static
+ *    仍无法注册进 CostPlanInput.discounts。本任务 golden 实测该绑定失败。
+ * 3. 已支持部分：「Deal 4 to a unit at a battlefield」（418.1，含 355.9.b 的位置限制）由
+ *    golden 用真实解释器 + 参考内核执行（含目标失效的 ignored 边界）。
+ * 依赖：static → Finalize 费用计划的减费安装路径与 Empowered 状态谓词（442.1.a/828.2）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "action" },
@@ -95,15 +94,18 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "减费没有可执行路径，均不近似实现：(1)「This costs :rb_energy_2: less」是 356.4.b 的减费、按 356.4.a 由本牌提供、" +
-    "在 Finalize 的费用计算折扣步骤套用（356.4.c.2 保证该分量不为负），但 continuous.cost-modification 的静态声明没有卡牌侧消费方：" +
-    "cost.modify 原语（effects/instructions/cost.modify.ts）与 cost/cost-plan.ts 的减费求值已合入，但 programs/statics.ts 的 " +
-    "layerFor() 对 continuous.cost-modification 没有 cost-modification 映射（fail-closed 抛 judge-required），也没有消费方把 " +
-    "CardProgram static 装进 CostPlanInput.discounts（RIFT-89 的接线缺口）。(2) 门槛「if you control something that's [Empowered]」没有已合入谓词：契约的 Condition 没有 empowered 谓词，" +
-    "layers/engine.ts 的 conditionMatches 只识别 always/never/type/has-tag/has-keyword，Empowered（828.2 的可检查特征）也不是 " +
-    "ObjectSnapshot 特征；程序里只保留具名描述门槛，绝不写成恒真条件或近似成“你控制某个单位”。" +
-    "已支持部分：「Deal 4 to a unit at a battlefield」是已合入的 effect.damage（418.1）且目标限制按 355.9.b 声明，golden 真实执行" +
-    "（含位置过滤与目标失效时的 ignored 边界）。依赖：RIFT-89（费用计划与静态减费接线）、RIFT-91（图层条件求值与 Empowered 谓词）。",
+    "两条当前缺口（持续复核 2026-10-18；均不近似实现）：" +
+    "(1) 减费没有可执行路径：「This costs :rb_energy_2: less」按 356.4.b/356.4.a 在 Finalize 折扣步骤套用，" +
+    "cost/discounts 的 collectCostModifications/finalizeCostPlan 已能消费显式 static 来源，" +
+    "但 programs/statics.ts 的 layerFor() 对 continuous.cost-modification 没有图层映射（本任务实测 bindStatic 抛 " +
+    "\"Static ability kind continuous.cost-modification has no layer mapping\"），卡牌生命周期仍无法把 " +
+    "CardProgram static 装进 CostPlanInput.discounts。" +
+    "(2) 门槛「if you control something that's [Empowered]」没有已合入谓词：ObjectSnapshot 无 empowered 字段，" +
+    "layers/engine.ts 的 conditionMatches 只识别 always/never/type/has-tag/has-keyword 并对其余 kind 落回 true；" +
+    "程序里只保留具名描述门槛，不写成恒真条件或近似成「你控制某个单位」。" +
+    "已支持部分：「Deal 4 to a unit at a battlefield」是 effect.damage（418.1），目标限制按 355.9.b 声明，" +
+    "golden 真实执行（含位置过滤与目标失效时的 ignored）。依赖：static → Finalize 费用计划安装路径、" +
+    "Empowered 状态谓词（442.1.a/828.2）。",
   abilities,
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +

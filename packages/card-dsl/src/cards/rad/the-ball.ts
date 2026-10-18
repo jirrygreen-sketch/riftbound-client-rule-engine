@@ -21,22 +21,39 @@ import type { Ability, CardProgram, TriggerSpec } from "../../ir/index.js";
  *   different true），两个模式各自把指令包在 `body` 里。
  * - “Draw 1”＝ `effect.draw`（414.3，默认抽牌者为能力控制者，190.6.d）。
  * - “Deal 2 to enemy units here”＝ `effect.damage`；355.10.d 的 “all units” 类效果按特征程序化
- *   选定，不构成目标，所以用 `selection: "all"` 的目标规范承载“此处所有敌方单位”（损坏集合），
- *   并用 `sameLocationAs: "source"` 锚点把集合限制在“here”，controller 锚点为 opponent。
+ *   选定，所以用 `selection: "all"` 的目标规范承载“此处所有敌方单位”，controller 锚点为 opponent。
+ *   “here” 目前只能写在过滤器的 sameLocationAs 锚点上；解释器集合查询支持它，IR 校验器
+ *   也接受该键（2026-10-18 实测 probe3 ok:true），但生产 translateObjectFilter 拒绝该键、
+ *   生产 Finalize 的 matchesObjectFilter 又静默放行。
+ *   引擎的 TargetSpec.location 符号选择器是更合适的形状，但 CardProgram 校验器
+ *   （ir/validation.ts）还不接受（见 judgeReason 与最终回复的契约变更请求）。
  *
- * 缺口（不近似实现，故 judge-required；触发注册与 keyword 展开的生产绑定链已合入）：
+ * 缺口（2026-10-18 实测；不近似实现，故 judge-required）：
  * - Deploy 的展开声明 continuous.location 与 hold 触发，但 continuous.location 没有
- *   layerFor 映射（programs/statics.ts 绑定卡牌 static 时抛 judge-required），也没有
- *   Finalize 位置校验调用方；hold 触发的 { here: true } 过滤器会被
- *   translateTriggerFilter/translateObjectFilter 拒绝（Unsupported filter field here）。
- *   turn/flow.ts 的清理召回已有 Deploy 豁免（约 319 行），无需卡侧近似。
- * - “Deal 2 to enemy units here” 的 sameLocationAs 锚点只在解释器集合查询中实现，
- *   生产链的 translateObjectFilter 白名单拒绝该键（绑定即失败）；choice.mode 还会被
- *   programs/play.ts 的 validateSurface 拒绝（“Mode choices require a Finalize/Resolve
- *   choice-plan adapter”），两个 card-played/object-moved 触发都过不了 Play 管线绑定。
+ *   layerFor 映射（programs/statics.ts 绑定卡牌 static 实测抛 judge-required
+ *   “Static ability kind continuous.location has no layer mapping”）。
+ *   chain/engine.ts 已有 playDestinationIsLegal → layers/rules/playLocations 的位置校验
+ *   消费者，但绑定先行失败，Deploy 仍不可执行；hold 触发的 { here: true } 过滤器会被
+ *   translateTriggerFilter/translateObjectFilter 拒绝（实测 Unsupported filter field here）。
+ *   turn/flow.ts 的清理召回已有 Deploy 豁免，无需卡侧近似。
+ * - choice.mode 会被 chain/engine.ts 的 assertFinalizationSurface 拒绝
+ *   （“Mode choices require a Finalize/Resolve choice-plan adapter”）；两个
+ *   card-played/object-moved triggered ability 都需要 Chain Finalize 的 choice-plan 适配器。
+ * - “Deal 2 to enemy units here” 的 “here”：引擎侧已经支持两种位置锚点，但都不是可用形式——
+ *   (a) 过滤器的 sameLocationAs 锚点由解释器集合查询实现，生产 translateObjectFilter 拒绝该键
+ *   （绑定即失败），生产 Finalize 的 matchesObjectFilter 又对未识别键静默放行，直接把别处
+ *   敌方单位也算进来（355.10.d / 421.1）；
+ *   (b) TargetSpec.location 的符号选择器 `{ kind: "source-location" }` 由 target/target-plan.ts
+ *   与 interpreter/selectors.ts 支持并按来源地点求值，但 CardProgram 校验器
+ *   （packages/card-dsl/src/ir/validation.ts 的 validateTarget）把非具体 LocationRef 的
+ *   location 一律交给 validateLocationFilter，实测抛 invalid-location-kind ——
+ *   属共享契约缺口（契约变更请求见最终回复）。
+ *   另外 selection: "all" 的 TargetSpec 会在 Finalize 锁定并逐个发 became-target，而 355.10.d 的
+ *   all-units 效果不构成目标选择——Resolve 期非目标集合的生命周期仍缺（同类缺口见 ogn/peak-guardian 的 TODO）。
  *
- * 可执行部分：`[Ganking]` 已合入关键词；`choice.mode` + `effect.draw` / `effect.damage` 分支已在
- * golden 中用解释器 + 参考内核真实执行（含 sameLocationAs 锚点在解释器集合查询中的行为）。
+ * 可执行部分：`[Ganking]` 已合入关键词（生产 binder 可登记 continuous.movement）；
+ * `choice.mode` + `effect.draw` / `effect.damage` 分支已在 golden 中用解释器 + 参考内核真实执行
+ * （含 source-location 锚点把集合限制在来源所在地点）。
  */
 const modeAbility = (id: string, trigger: TriggerSpec): Ability => ({
   kind: "triggered",
@@ -78,6 +95,8 @@ const modeAbility = (id: string, trigger: TriggerSpec): Ability => ({
                       filter: {
                         type: "unit",
                         controller: "opponent",
+                        // 355.10.d / 421.1 的“here”：解释器集合查询与 IR 校验器都支持该锚点，
+                        // 生产绑定与 Finalize 过滤尚不支持（见 judgeReason）。
                         sameLocationAs: "source"
                       },
                       selection: "all"
@@ -98,17 +117,26 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺 [Deploy] 展开的消费者（830.1.b：只能打到战场、对手在此固守时消灭、非单位 Gear 清理不召回）：触发注册" +
-    "（programs/triggers.ts 经 attachProgramLifecycle）与 keyword 展开（programs/keywords.ts）已合入，" +
-    "但 Deploy 展开的 continuous.location 没有 layerFor 映射（卡牌 static 绑定" +
-    "实测抛 judge-required），也没有 Finalize 位置校验调用方；hold 触发的 { here: true } 过滤器会被 " +
-    "translateTriggerFilter/translateObjectFilter 拒绝（Unsupported filter field here）。turn/flow.ts 的清理召回" +
-    "已有 Deploy 豁免。" +
-    "另 “Deal 2 to enemy units here” 的 sameLocationAs（here）锚点只在解释器的集合查询里实现" +
-    "（interpreter/selectors.ts），生产 translateObjectFilter 拒绝该键（绑定即失败），直接接线会把别处" +
-    "的敌方单位也算进来（355.10.d / 421.1）；choice.mode 会被 programs/play.ts 的 validateSurface 拒绝" +
-    "（需要 Finalize/Resolve choice-plan 适配器），两个 card-played/object-moved 触发都过不了 Play 管线绑定。" +
-    "已可执行部分：Ganking 关键词、choice.mode + effect.draw / effect.damage 分支（golden 真实执行）；不近似实现。",
+    "2026-10-18 复核，当前真实缺口（均不近似实现）：" +
+    "(1) [Deploy]（830.1.b）：触发注册（programs/triggers.ts 经 attachProgramLifecycle）与 keyword 展开" +
+    "（programs/keywords.ts）已合入，但 Deploy 展开的 continuous.location 没有 layerFor 映射" +
+    "（卡牌 static 绑定实测抛 judge-required \"Static ability kind continuous.location has no layer mapping\"）；" +
+    "chain/engine.ts 已有 playDestinationIsLegal → layers/rules/playLocations 的位置校验消费者，" +
+    "但绑定先行失败，Deploy 仍不可执行；hold 触发的 { here: true } 过滤器被 " +
+    "translateTriggerFilter/translateObjectFilter 拒绝（实测 Unsupported filter field here）。" +
+    "turn/flow.ts 的清理召回已有 Deploy 豁免。" +
+    "(2) choice.mode 被 chain/engine.ts 的 assertFinalizationSurface 拒绝" +
+    "（需要 Chain Finalize/Resolve 的 choice-plan 适配器）；两个 card-played/object-moved " +
+    "triggered ability 都因此无法完成 Finalize。" +
+    "“Deal 2 to enemy units here” 的 here 锚点两种形式仍都不可用：过滤器的 sameLocationAs 被 translateObjectFilter 拒绝" +
+    "（绑定即失败；IR 校验器本身接受该键），生产 Finalize 的 matchesObjectFilter 又对未识别键静默放行（别处单位也命中）；" +
+    "TargetSpec.location 的 { kind: \"source-location\" } 已被 target-plan/interpreter 支持按来源地点求值，" +
+    "但 CardProgram 校验器（ir/validation.ts 的 validateTarget）实测抛 invalid-location-kind，" +
+    "属共享契约缺口（见最终回复的契约变更请求）。" +
+    "另 selection: \"all\" 的 TargetSpec 会在 Finalize 锁定并逐个发 became-target，" +
+    "而 355.10.d 的 all-units 效果不构成目标选择——Resolve 期非目标集合生命周期仍缺。" +
+    "已可执行部分：Ganking 关键词（生产 binder 可登记 continuous.movement）、choice.mode + effect.draw / " +
+    "effect.damage 分支（golden 真实执行）。",
   abilities: [
     { kind: "keyword", keyword: "deploy" },
     { kind: "keyword", keyword: "ganking" },

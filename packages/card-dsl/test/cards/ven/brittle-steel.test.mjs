@@ -1,3 +1,9 @@
+// Scenario evidence: ../templates/keyword-play-effect-kill-682.test.mjs.
+// Original hand-play body and real Reaction invalidation; Flow remains blocked.
+// RIFT-701 group evidence: ../templates/keyword-play-effect-kill-701.test.mjs
+// (original hand play: Finalize locks one enemy gear, effect.kill really kills
+// it and publishes its killed link, plus the no-legal-target boundary); the
+// Flow cost/banish wiring (829.1.b/829.1.c) stays recorded in judgeReason.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -5,6 +11,12 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/brittle-steel.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-045b07d4199255ec6dcfd300272520972fba1ee89dc4e3cfe4e63f1f6b6c95e3";
@@ -30,11 +42,14 @@ test("ven-003-166 Brittle Steel: identity, ruleset, status, judgeReason and verb
   assert.equal(cardRegistryById.get(CANONICAL), program);
   // README section 2: name the exact missing pieces (the Flow cost channel and
   // the Flow consumers) and the rules they come from.
+  // Refreshed 2026-10-18: the reason carries the re-sweep date and stays RIFT-free.
   assert.match(program.judgeReason, /Flow/);
   assert.match(program.judgeReason, /829\.1\.c/);
-  assert.match(program.judgeReason, /params\.cost|3\.8\.3/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-260/);
+  assert.match(program.judgeReason, /3\.8\.3/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /Unsupported replacement opcode/);
+  assert.match(program.judgeReason, /2026-10-18 复核/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -116,11 +131,94 @@ test("ven-003-166 Brittle Steel boundary: an already-killed gear ignores the ins
   assert.equal(run.events.length, 0);
 });
 
+const engineFor = (kernel) => {
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`Unexpected choice ${request.id}`); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  return new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+};
+
+test("ven-003-166 Brittle Steel: the [Flow] expansion registers neither a cost plan nor a replacement", () => {
+  // 829.1.c.1: the printed Flow cost is 4 energy + 1 Fury power, but the printed
+  // text cannot reach expand (contract 3.8.3 production side), so the expansion
+  // carries no cost at all. 829.1.b.1's delayed banishment cannot bind either.
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .unit("brittle-steel", { types: ["spell"], zone: "board", owner: "A", controller: "A" })
+    .build();
+  const source = kernel.getObject("brittle-steel");
+  const expanded = expandProgram(program, source);
+  assert.deepEqual(expanded.expanded.map(ability => ability.kind), ["static", "replacement"]);
+  const [flowCost, flowBanish] = expanded.expanded;
+  // The declared cost effect has no cost member: nothing carried the printed
+  // Flow cost from the card into the keyword.
+  assert.equal(flowCost.effect.kind, "flow.cost");
+  assert.equal(Object.hasOwn(flowCost.effect, "cost"), false);
+  assert.equal(flowBanish.replaces.event, "object-leaves-chain");
+
+  const engine = engineFor(kernel);
+  const binder = createEngineStaticBinder(engine);
+  assert.throws(
+    () => binder.bindStatic(flowCost, source),
+    /Static ability kind flow\.cost has no layer mapping/
+  );
+  assert.throws(
+    () => binder.bindReplacement(flowBanish, source),
+    /Unsupported replacement opcode: effect\.banish/
+  );
+});
+
+test("ven-003-166 Brittle Steel: the cost planner can price a Flow alternate, but nothing feeds it into plan-building", () => {
+  // The merged base modifications really understand "flow": given the printed
+  // 4 energy + 1 Fury power, the planner replaces the base cost of a spell in
+  // Trash and refuses a source that is not a Trash spell. The missing half is the
+  // production path from the card's flow.cost declaration into baseModifications
+  // (see the previous test): the card cannot declare the cost, and the binder
+  // rejects the declaration's layer.
+  const c = value => ({ kind: "constant", value });
+  const flowCost = { energy: c(4), power: c(1) };
+  const trashSpell = world()
+    .player("A", { energy: 10, power: ["Fury"] })
+    .object("brittle-steel", { types: ["spell"], zone: "trash", owner: "A", controller: "A", power: ["Fury"] })
+    .build();
+  const plan = buildCostPlan(trashSpell.clone({ sourceSnapshot: trashSpell.getObject("brittle-steel") }), {
+    id: "flow",
+    domains: ["Fury"],
+    cost: { kind: "explicit", energy: c(2), power: c(1) },
+    baseModifications: [{ kind: "flow", id: "flow-1", cost: flowCost }]
+  });
+  assert.deepEqual(plan.total.energy, 4);
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Fury"] }]);
+  const charged = trashSpell.clone({ sourceSnapshot: trashSpell.getObject("brittle-steel") });
+  assert.equal(payCostPlan(charged, plan).paid, true);
+  assert.equal(charged.player("A").energy, 6);
+
+  // 829.1.c: Flow only replaces the cost when playing the spell from Trash.
+  const onBoard = world()
+    .player("A", { energy: 10, power: ["Fury"] })
+    .unit("brittle-steel", { types: ["spell"], zone: "board", owner: "A", controller: "A", power: ["Fury"] })
+    .build();
+  assert.throws(
+    () => buildCostPlan(onBoard.clone({ sourceSnapshot: onBoard.getObject("brittle-steel") }), {
+      id: "flow",
+      domains: ["Fury"],
+      cost: { kind: "explicit", energy: c(2), power: c(1) },
+      baseModifications: [{ kind: "flow", id: "flow-1", cost: flowCost }]
+    }),
+    /Flow replaces the base cost only when playing a spell from Trash/
+  );
+});
+
 test.todo(
   "ven-003-166 Brittle Steel: play from trash for the printed Flow cost (4 energy + 1 Fury power, " +
-    "829.1.c.1) then banish it (829.1.b.1 delayed replacement) — the FlowKeywordInput consumer accepts " +
-    "cost/params.cost, but the KeywordAbility IR has no field shape and expandProgram does not pass it " +
-    "(contract 3.8.3 production side unmerged; RIFT-261 alternate-cost consumer); replacement binding " +
-    "runs through programs/statics.ts → replacement/bind.ts, but replacement/pattern.ts has no " +
-    "object-leaves-chain matcher or leavingInstruction action marker (RIFT-260)"
+    "829.1.c.1) then banish it (829.1.b.1 delayed replacement) — the KeywordAbility IR has no field shape " +
+    "and expandProgram does not pass the printed cost (contract 3.8.3 production side), programs/statics has " +
+    "no layer for flow.cost, and replacement/pattern.ts has no object-leaves-chain matcher or " +
+    "leavingInstruction action marker"
 );

@@ -8,7 +8,6 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 
 test("nasus-ascended: passes validateCardProgram and is judge-required", () => {
@@ -29,14 +28,14 @@ test("nasus-ascended: passes validateCardProgram and is judge-required", () => {
   );
 });
 
-test("nasus-ascended: judgeReason names the missing keyword expansions and layers", () => {
+test("nasus-ascended: judgeReason names the missing printed costs, target tax and conquer bindings", () => {
   assert.match(program.judgeReason, /empower/i);
   assert.match(program.judgeReason, /empowered/i);
   assert.match(program.judgeReason, /827\.1\.c\.1/);
   assert.match(program.judgeReason, /828\.1\.c/);
   assert.match(program.judgeReason, /Deflect/);
   assert.match(program.judgeReason, /target\.tax/);
-  assert.match(program.judgeReason, /RIFT-360/);
+  assert.match(program.judgeReason, /target\/tax\/collect\.ts/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -57,10 +56,8 @@ test("nasus-ascended: the merged keyword binding expands the declared [Deflect 2
     .unit("nasus", { zone: "board" })
     .build();
 
-  // 只声明 Deflect：展开为 target.tax（卡牌侧不重写 809.1.c 的附加费用）。
-  const deflectOnly = { ...program, abilities: program.abilities.filter(ability => ability.keyword !== "empower") };
-  const local = new ProgramRegistry([{ ...deflectOnly, status: "executable", judgeReason: undefined }]);
-  const expanded = expandProgram(local.get(program.canonicalCardId), kernel.getObject("nasus"));
+  // Empower now expands too; inspect the actual complete declaration.
+  const expanded = expandProgram(program, kernel.getObject("nasus"));
   assert.deepEqual(
     expanded.expanded.filter(ability => ability.kind === "static").map(ability => ability.effect),
     [{ kind: "target.tax", value: { kind: "constant", value: 2 } }]
@@ -71,12 +68,17 @@ test("nasus-ascended: the Empowered dependent ability is a self-scoped conquer t
   const ability = program.abilities[2];
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.optional, false);
-  assert.equal(ability.trigger.at, "conquered");
+  assert.equal(ability.trigger.at, "conquer");
   assert.deepEqual(ability.trigger.filter, {
     event: "conquered",
     filter: { source: "self" }
   });
-  assert.equal(ability.trigger.condition, undefined);
+  assert.deepEqual(ability.trigger.condition, {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
+  });
   // 383.4.c.2.c：征服得分被替代时触发仍然发生，所以不把得分成功写成触发条件。
   assert.equal(ability.trigger.once, undefined);
 });
@@ -110,21 +112,33 @@ test("nasus-ascended: the same body does not score for a non-controller", () => 
   const kernel = world().player("A").player("B").build();
   // 把控制者换成 B 后，"you score" 的隐含指向随之改变（190.6.d），
   // 仍然只有能力控制者得点。
-  Object.defineProperty(kernel, "controller", { value: "B" });
-  const outcome = resolveChainBody(ability.body, kernel);
+  const bound = kernel.clone({ controller: "B" });
+  const outcome = resolveChainBody(ability.body, bound);
   assert.equal(outcome.status, "executed");
-  assert.equal(kernel.player("B").score, 1);
-  assert.equal(kernel.player("A").score, 0);
+  assert.equal(bound.player("B").score, 1);
+  assert.equal(bound.player("A").score, 0);
 });
 
 test.todo(
   "nasus-ascended: [Deflect 2]'s merged target.tax expansion needs the card-side static binding " +
     "into the TargetPlan tax adapter so an opposing spell that chooses this unit appends 2 Power of " +
-    "any Domain (809.1.c/809.1.c.1/809.1.d; RIFT-360)"
+    "any Domain (809.1.c/809.1.c.1/809.1.d; static kind mapping and chain tax consumption)"
 );
 test.todo(
   "nasus-ascended: [Empower] 8 activation (827.1.c.1 cost.activated + effect.empower, " +
     "'play only if not Empowered' 827.1.c.5) and the Empowered-state gate on the dependent " +
-    "ability (828.1.c) need the Empower/Empowered KeywordDefs plus the " +
-    "Empowered predicate in Condition/ObjectSnapshot"
+    "ability (828.1.c) need the printed params.cost binding and ObjectSnapshot empowered contract; the KeywordDef is merged"
 );
+
+test("nasus-ascended golden: the conquer gate observes the live Empowered state", () => {
+  const base = world().unit("nasus", { cardId: program.canonicalCardId }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("nasus") });
+  const gate = program.abilities[2].trigger.condition;
+  assert.equal(kernel.test(gate), false);
+  const activation = expandProgram(program, kernel.source).expanded.find(ability => ability.kind === "activated");
+  assert.equal(resolveChainBody(activation.body, kernel).status, "executed");
+  assert.equal(kernel.test(gate), true);
+  assert.equal(kernel.getObject("nasus").empowered, 1);
+  assert.equal(kernel.perform({ type: "disempower", object: kernel.ref("nasus") }).status, "done");
+  assert.equal(kernel.test(gate), false);
+});

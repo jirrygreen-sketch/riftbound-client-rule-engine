@@ -1,8 +1,8 @@
 import type { Ability, CardProgram } from "../../ir/index.js";
 
 /**
- * Red Brambleback (unl-029-219) — Unit, 4 energy, 1 power, Might 4, Fury,
- * tag Ionia.
+ * Red Brambleback（unl-029-219）— Unit, 4 energy, 1 power, Might 4, Fury,
+ * tag Ionia。
  *
  * sourceText（packages/card-data/data/deck-catalog.json, unl-029-219，逐字）：
  *   [Accelerate] (You may pay :rb_energy_1::rb_rune_fury: as an additional cost
@@ -20,28 +20,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   对 Hold 的处理）而进入链的 conquer effects 没有真正发生 Conquer，因此不会因本卡而额外触发。
  *   该改写不是结算期的 repeat（820 的 Repeat 是可选附加费用关键词，语义完全不同）。
  * - “When I conquer, [Buff] a friendly unit.”：383.4.c / 383.4.c.1 / 383.4.c.2.a 的 Conquer Effect，
- *   时点用封闭表的 conquer；355.9 / 355.10 “a friendly unit” 是单个选目标（355.7 的 pick 不是目标）。
+ *   时点用闭表的 conquer；355.9 / 355.10 “a friendly unit” 是单个选目标（355.7 的 pick 不是目标）。
  *   [Buff] 是 702.2.a 的 Buff 动作——玩家选择一个单位并在其上放置一个 buff 标记；
  *   702.3/702.3.a 规定一个单位同时只能有一个 Buff（已有 Buff 的单位仍然合法可选，只是不再放置），
  *   由已合入的 effect.buff（mode buff）执行，+1 [M] 由 703 的图层规则推导。
  *
- * status = judge-required（缺口不近似实现）。自本程序初写后合入的依赖：conquer 时点已由
- * turn/flow.ts 的 Score 波次真实发出、effect.buff 原语与卡牌程序绑定（RIFT-257）。
- * 仍缺三处：
- * - conquer 订阅缺单位归属：scoring 波次只发 player + details（timing-points.ts 的 conquer
- *   没有声明 payloadFields），383.4.c.2 要绑的“在这里征服的这张单位”没有归属字段；
- *   管线映射（events/pipeline-match.ts）把闭表的 conquered 归并为运行时 conquer，卡片 filter
- *   必须使用受支持的 event: "conquered" 拼写，不能写运行时 timing point conquer。
- * - “trigger an additional time” 没有引擎模型：Ability 的六种形状没有触发倍率，
- *   ContinuousEffect.kind 没有倍率消费者，触发收集阶段（events/）也没有倍率接口
- *   （与已合入 ogn/karthus-eternal、rad/detonation-amplifier 记录同一缺口，按 Karthus 先例写 static 声明）。
- * - [Accelerate] 的展开文件已合入，但没有消费者把卡牌 keyword 能力接进 Finalize 费用计划与
- *   replacement.enter 管线（chain/engine.ts 只读调用方传入的费用计划；programs/play.ts 对
- *   additional-cost 类字段直接判 judge-required 失败）。
- * 已合入并可真实执行的部分：conquer 触发结构 + effect.buff 本体（golden 用解释器 + 参考内核执行）。
+ * status = judge-required（2026-10-17 复核，缺口不近似实现）。
+ * 已合入并可真实执行的部分：conquer 时点由 turn/flow.ts 的 Score 波次真实发出、effect.buff 原语与卡牌程序绑定（RIFT-257），
+ * 事件过滤器用闭表的 conquered 拼写可通过 assertTriggerSpec 注册，[Accelerate] 展开出的
+ * 入场替代（805.6）本身也能被 replacement/ 绑定。
+ * 仍缺三处（见 judgeReason）：conquer 载荷缺单位归属、触发收集阶段没有倍率接口、
+ * [Accelerate] 的费用声明（accelerate.cost）没有消费方（translateCost 拒绝其形状，
+ * programs/statics.ts 也拒绝该 kind 的图层映射）。
  * 数据问题：同一身份的异画 unl-029a-219 在本地目录丢失 Ionia 标签（见 docs/plans/survey/data-issues-recheck.md），
  * 本任务按 unl-029-219 的原文书写，不改卡牌数据。
- * 依赖：触发倍率接口（events/）、Accelerate 费用与入场替代接线。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -103,18 +95,23 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "conquer 时点已由 turn/flow.ts 的 Score 波次真实发出，effect.buff 与卡牌程序绑定（RIFT-257）也已合入；" +
-    "但仍有三处缺口，均不近似实现：(1) conquer 订阅缺单位归属：scoring 波次只发 player + details" +
-    "（timing-points.ts 的 conquer 未声明 payloadFields；events/pipeline-match.ts 把 conquered 归并为 conquer），" +
-    "383.4.c.2 的“在这里征服的这张单位”没有归属字段可绑（同 ogn/sigil-of-the-storm 的归属缺口）；" +
-    "事件过滤器使用闭表的 conquered 拼写，注册前 assertTriggerSpec 已可通过。" +
+    "仍有三处当前缺口，均不近似实现：" +
+    "(1) conquer 订阅缺单位归属：turn/flow.ts 发出的 conquer 只带 { battlefieldId }（timing-points.ts 的 conquer 条目没有声明 payloadFields），" +
+    "而 programs/triggers.ts 把 { source: \"self\" } 翻译成 { event: \"conquered\", object: { objectId: <本卡> } }；" +
+    "实测该过滤器对只带 player + battlefieldId 的 conquer 事件不匹配（事件里没有承载征服单位的 object），" +
+    "加上 object 才匹配。383.4.c.2 的“在这里征服的这张单位”没有归属字段可绑（同 ogn/sigil-of-the-storm 的归属缺口）。" +
     "(2)「Your conquer effects for conquering here trigger an additional time.」" +
     "（383.4.c.3 的 Conquer Effects 触发收集改写；383.4.g.2 用本卡自己的例子区分“真正 Conquer”与“被激活的触发”）" +
-    "没有引擎模型：Ability 的六种形状没有触发倍率，ContinuousEffect.kind 没有倍率消费者，触发收集阶段（events/）也没有倍率接口" +
-    "——与已合入 ogn/karthus-eternal、rad/detonation-amplifier 记录同一缺口，按 Karthus 先例保留 static 声明而不用结算期 " +
-    "repeat 近似（820 的 Repeat 是可选附加费用关键词，语义不同）。(3) [Accelerate] 的展开文件虽已合入，" +
-    "但没有消费者把卡牌 keyword 能力接进 Finalize 费用计划与 replacement.enter 管线（chain/engine.ts 只读调用方传入的费用计划；" +
-    "programs/play.ts 对 additional-cost 类字段直接判 judge-required 失败）。" +
-    "已可真实执行的部分：conquer 触发结构 + effect.buff 本体（golden 用解释器 + 参考内核执行 702.3.a 的重复 Buff 边界）。" +
+    "没有引擎模型：Ability 的六种形状没有触发倍率，ContinuousEffect.kind 没有倍率消费者，触发收集阶段（events/）也没有倍率接口；" +
+    "static 绑定实测先被 staticTarget 拒绝（\"Unsupported static appliesTo {\"trigger\":\"conquer\",…}\"），" +
+    "即使去掉 appliesTo 也会因 continuous.trigger-multiplicity 无图层映射而失败——与已合入 ogn/karthus-eternal、" +
+    "rad/detonation-amplifier 记录同一缺口，按 Karthus 先例保留 static 声明而不用结算期 repeat 近似（820 的 Repeat 是可选附加费用关键词，语义不同）。" +
+    "(3) [Accelerate] 的展开文件虽已合入，但没有消费者：programs/play.ts 的 translateCost 对 additional-cost 类字段判 judge-required" +
+    "（实测抛 \"Unsupported play cost field optional\"），展开出的 static accelerate.cost 在 programs/statics.ts 也抛 " +
+    "\"Static ability kind accelerate.cost has no layer mapping\"，所以无法把卡牌 keyword 接进 Finalize 费用计划与 replacement.enter 管线" +
+    "（805.2.b/805.6；展开出的 replacement 形状本身可绑定）。" +
+    "已可真实执行的部分：conquer 触发结构（conquered 拼写通过 assertTriggerSpec 注册、翻译后的 object 过滤正确）" +
+    "+ effect.buff 本体（golden 用解释器 + 参考内核执行 702.3.a 的重复 Buff 边界）。" +
     "依赖：conquer 载荷的单位归属、触发倍率接口（events/）、Accelerate 费用与入场替代接线。",
   abilities,
   sourceText:

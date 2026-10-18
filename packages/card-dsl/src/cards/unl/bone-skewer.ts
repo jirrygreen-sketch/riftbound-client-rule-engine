@@ -53,15 +53,33 @@ import type { CardProgram } from "../../ir/index.js";
  *   silently changing it into part of the resolving spell. [Stun] itself is the
  *   merged effect.stun primitive (424.1 / 424.1.a).
  *
- * status = judge-required (README section 2). Nothing is approximated: the
- * hidden-cost expansion, the opponent selection, the ignore-all-costs play and
- * the reflexive Stun each name their missing piece, and the golden test
- * executes only the merged halves (the battlefield target, the full-hand reveal
- * and the non-target pick).
+ * status = judge-required (README section 2, rechecked 2026-10-17 with executed
+ * evidence). Nothing is approximated: the hidden-cost expansion, the opponent
+ * selection, the ignore-all-costs play and the reflexive Stun each name their
+ * missing piece, and the golden test executes only the merged halves (the
+ * battlefield target, the full-hand reveal and the non-target pick).
+ * - [Hidden]: the merged KeywordDef still only expands to { kind: "static",
+ *   effect: { kind: "cost.hidden" } }; binding that expansion through the
+ *   production static binder throws "Static ability kind cost.hidden has no
+ *   layer mapping", and no cost.hidden consumer exists.
+ * - "An opponent": target.player is not a registered instruction (executing the
+ *   card body stops with "Unregistered instruction opcode: target.player"), and
+ *   ChoiceRequest has no player-selection form.
+ * - "ignoring any and all costs" (356.5.a): the cost system does expose
+ *   ignoreAllCosts on the planner input (cost.modify), but the interpreter path
+ *   cannot drive it: chain/interpreter-adapter.ts's LITERAL_FIELDS does not decode
+ *   cost.modify's declared literal arguments, so the Expr-wrapped id/ignoreAllCosts
+ *   reach the primitive as objects and the body throws while the raw spelling is
+ *   rejected as an invalid expression by validation. Nothing therefore produces a
+ *   finalized zero-cost plan, and effect.play still requires one: it negates the
+ *   descriptive non-finalized marker.
+ * - "When they do, [Stun] it" (388.1/389.1): no registered opcode creates a
+ *   reflexive Pending Item (registry.generated has no trigger.reflexive).
  *
- * Dependencies: the cost.hidden consumer and a finalized zero-cost play plan
- * for CR 356.5.a, target.player for the opponent choice, and trigger.reflexive
- * for "When they do".
+ * Dependencies: the cost.hidden consumer, a finalized zero-cost play plan for CR
+ * 356.5.a (including the cost.modify literal decoding the chain adapter lacks),
+ * target.player for the opponent choice, and trigger.reflexive for "When they
+ * do".
  */
 export default {
   canonicalCardId:
@@ -75,7 +93,9 @@ export default {
     "「在所有对手中选一个玩家」没有形态（ogn/mindsplitter 记为 target.player 缺口）；本程序用带文档说明的占位 pick 绑定该对手。" +
     "(3)「They play that unit to that battlefield, ignoring any and all costs」按 356.5.a 是把总费用置 0；" +
     "已合入的 effect.play 明确要求 cost 参数是费用系统产出的已 Finalize 计划，它既不推导印刷费用也不实现忽略费用规则" +
-    "（ogn/portal-rescue 的同一缺口），本卡只保留描述性的未 Finalize 改写标记，effect.play 会拒绝它而不是按印刷费用打出。" +
+    "（ogn/portal-rescue 的同一缺口）；cost.modify 的 ignoreAllCosts 虽已合入，但 chain/interpreter-adapter.ts 的 LITERAL_FIELDS 不解码 cost.modify 的声明字面量，" +
+    "解释器路径会把 Expr 包裹的 id/ignoreAllCosts 原样传给原语而抛错（原始字符串拼写又被校验器判为 invalid-expression），因此本卡只保留描述性的未 Finalize 改写标记，" +
+    "effect.play 会拒绝它而不是按印刷费用打出。" +
     "(4)「When they do, [Stun] it」是反身触发（388.1/388.2/389.1，由 “When they do” 识别，结算后另建 Pending Item）：" +
     "已合入的 IR 没有任何创建反身 Pending Item 的能力/指令形态（ogn/dragons-rage-lee-sin 记为 trigger.reflexive），" +
     "写成普通后续指令会把反身触发偷偷变成咒语的结算部分。" +

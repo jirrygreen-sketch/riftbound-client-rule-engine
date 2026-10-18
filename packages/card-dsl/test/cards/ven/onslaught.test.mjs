@@ -1,3 +1,11 @@
+// Execution evidence: ../templates/keyword-play-continuous-might-683.test.mjs
+// (RIFT-683). That suite's rows run this program's original abilities, printed
+// base cost, Board-unit target and continuous.might body through the real card
+// scenario harness (including the turn-end expiry and ignored-target boundary);
+// its measured-gate test expands the [Flow] keyword through the production
+// binder and asserts the real rejection of flow.cost and of the leave-chain
+// banish. This file keeps the validation, identity, structure and
+// primitive-level evidence.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -10,6 +18,9 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { createEngineStaticBinder, createProgramBinding, expandProgram } from "../../../../engine-core/dist/programs/index.js";
+import { planInstruction } from "../../../../engine-core/dist/replacement/planner.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-3d956150539f05acad046c9b3b303490605a2e9f9546aa9bc58fb0b8256412a9";
 const SOURCE_TEXT =
@@ -36,11 +47,13 @@ test("ven-081-166 Onslaught: identity, ruleset, status and exact source text", (
 });
 
 test("ven-081-166 Onslaught: judgeReason names the remaining Flow cost and chain-exit gaps", () => {
+  assert.match(program.judgeReason, /flow\.cost/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /effect\.banish/);
+  assert.match(program.judgeReason, /params\.cost/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /317\.2\.c/);
-  assert.match(program.judgeReason, /params\.cost/);
-  assert.match(program.judgeReason, /Flow/);
-  assert.match(program.judgeReason, /replacement/);
+  assert.match(program.judgeReason, /describePlay/);
   assert.match(program.judgeReason, /不近似实现/);
 });
 
@@ -138,7 +151,44 @@ test("ven-081-166 Onslaught golden: a target that left the board receives no con
 });
 
 test.todo(
-  "ven-081-166 Onslaught: select and record the separate Flow instance with its printed 4 Energy cost " +
-    "via params.cost, permit the Trash play, and consume the leave-chain banish replacement " +
-    "(829.1.b / 829.1.b.1 / 829.1.c.3)"
+  "ven-081-166 Onslaught: play the spell from Trash for its printed 4 Energy flow cost and banish it " +
+    "when it leaves the chain (829.1.b/829.1.b.1/829.1.c.1); measured in " +
+    "keyword-play-continuous-might-683.test.mjs."
 );
+
+test("ven-081-166 Onslaught evidence: the merged Flow expansion still cannot bind, banish, or play from Trash", () => {
+  // Re-measured 2026-10-18 across the three recorded Flow gaps.
+  const source = world()
+    .object("onslaught", { cardId: CARD_ID, types: ["spell"], zone: "hand", energy: 4, power: null, might: null })
+    .build()
+    .getObject("onslaught");
+  const expanded = expandProgram(program, source).expanded;
+  const flowCost = expanded.find((ability) => ability.kind === "static" && ability.effect.kind === "flow.cost");
+  assert.ok(flowCost, "the merged Flow KeywordDef expands to a static flow.cost");
+  assert.throws(
+    () => createEngineStaticBinder(fixture({ cards: [] }).engine).bindStatic(flowCost, source),
+    error => error.constructor.name === "ProgramBindingError" &&
+      /Static ability kind flow\.cost has no layer mapping/.test(error.message)
+  );
+
+  const replacement = expanded.find((ability) => ability.kind === "replacement");
+  assert.deepEqual(replacement.with.map((instruction) => instruction.op), ["effect.banish"]);
+  assert.throws(
+    () => planInstruction(replacement.with[0], {
+      hostRef: source.ref,
+      sourceZone: "chain",
+      replacedObject: source.ref,
+      controller: "A"
+    }, { host: {}, controller: "A", evaluate: (expr) => expr?.value }),
+    error => error.constructor.name === "BlockedReplacementError" &&
+      /Unsupported replacement opcode: effect\.banish/.test(error.message)
+  );
+
+  // The printed 4 Energy never reaches the Flow expansion, and the production
+  // play path refuses the card, so no trash play or leave-chain banish exists.
+  assert.equal(program.abilities[0].value, undefined);
+  assert.throws(
+    () => createProgramBinding({ cardPrograms: [program] }).describePlay({ type: "play", object: source.ref, player: "A" }, source),
+    error => error.code === "judge-required" && /Flow 消费链/.test(error.message)
+  );
+});

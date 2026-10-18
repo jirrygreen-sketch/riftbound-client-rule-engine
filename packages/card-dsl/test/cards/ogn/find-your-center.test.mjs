@@ -9,6 +9,7 @@ import channel from "../../../../engine-core/dist/effects/instructions/effect.ch
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
 
 const CANONICAL = "card.hash-e3ecc6164765d02357568348735bbb2eb8e6ed9a6a919fd16c4dde83bf5c765e";
 
@@ -26,7 +27,11 @@ test("Find Your Center identity, ruleset, status and printed text", () => {
   assert.equal(findYourCenter.rulesetVersion, "core-1.5");
   assert.equal(findYourCenter.status, "judge-required");
   assert.match(findYourCenter.judgeReason, /cost\.modify/);
+  assert.match(findYourCenter.judgeReason, /programs\/statics\.ts/);
+  assert.match(findYourCenter.judgeReason, /programs\/play\.ts/);
   assert.match(findYourCenter.judgeReason, /Victory Score/);
+  assert.match(findYourCenter.judgeReason, /cost\/discounts\.finalizeCostPlan/);
+  assert.match(findYourCenter.judgeReason, /exhausted:true/);
   assert.equal(cardRegistryById.get(findYourCenter.canonicalCardId), findYourCenter);
   assert.equal(
     findYourCenter.sourceText,
@@ -59,7 +64,7 @@ test("Find Your Center [Action] expands to the merged showdown timing declaratio
 test("Find Your Center cost ability records the [2] discount and its predicate", () => {
   assert.equal(costAbility.kind, "static");
   assert.equal(costAbility.effect.kind, "cost.modify");
-  assert.deepEqual(costAbility.effect.value, { kind: "constant", value: { energy: -2 } });
+  assert.deepEqual(costAbility.effect.amount, { kind: "constant", value: -2 });
   assert.equal(costAbility.effect.resource, "energy");
   assert.equal(costAbility.effect.appliesTo, "play-cost");
   // The predicate is a named expression, NOT a hard-coded comparison against
@@ -147,3 +152,18 @@ test("Find Your Center original body still channels when Draw is prevented", () 
 test.todo("Find Your Center: read current Victory Score in the condition (CR 194.3/194.3.a) and bind the static discount into Finalize");
 
 test.todo("Find Your Center: apply channel-rune.exhausted to actual rune entry state in the reference kernel (CR 431.2)");
+
+test("Find Your Center collector blocks the unresolved Victory Score predicate instead of granting an unconditional discount", () => {
+  for (const score of [0, 5, 8]) {
+    const initial = world().player("B", { score })
+      .hand("center", { cardId: CANONICAL, types: ["spell"], energy: 3, power: null }).build();
+    const ctx = initial.clone({ sourceSnapshot: initial.getObject("center") });
+    assert.throws(() => finalizeCostPlan(ctx, { id: "center:cost", cost: { kind: "printed" } }, {
+      statics: [{ id: "center:static", source: ctx.ref("center"), ability: costAbility }]
+    }), error => error.reason === "judge-required" && /authoritative condition adapter/.test(error.message));
+    assert.equal(ctx.player("B").score, score);
+    assert.equal(ctx.getObject("center").zone, "hand");
+    assert.equal(ctx.getObject("center").power, null);
+    assert.equal(ctx.history({ action: "pay", player: "A" }), 0);
+  }
+});
