@@ -10,7 +10,6 @@ const field = id => ({ type: 'battlefield', id });
 const base = player => ({ type: 'base', player });
 const one = field('battlefield-1');
 const two = field('battlefield-2');
-const c = value => ({ kind: 'constant', value });
 
 function fixture({ enemy = false } = {}) {
   const kernel = world()
@@ -214,6 +213,11 @@ const rollbackCases = [
     name: 'first-leg prevent',
     hook: action => action.type === 'move-location' && action.object.id === 'a' ? 'prevented' : null,
     statuses: ['prevented', 'impossible'],
+  },
+  {
+    name: 'first-leg replace',
+    hook: action => action.type === 'move-location' && action.object.id === 'a' ? 'replaced' : null,
+    statuses: ['replaced', 'impossible'],
   },
   {
     name: 'second-leg rewrite',

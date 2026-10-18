@@ -29,7 +29,7 @@ import { isTimingPointId, type TimingPointId } from "../../events/timing-points.
 import { evaluateCondition } from "../interpreter/condition.js";
 import { arithmetic, equalValues } from "../interpreter/values.js";
 import { resolveObjectSelector } from "../interpreter/selectors.js";
-import { createContractActionCapability, executeContractAction, type ContractActionCapability } from "../../events/contract-actions/bridge.js";
+import { createContractActionCapability, executeContractAction, isKnownContractAction, type ContractActionCapability } from "../../events/contract-actions/bridge.js";
 
 export { AwaitChoice } from "../contract.js";
 
@@ -166,7 +166,6 @@ export class TestWorld implements ResolveContext {
   private readonly pickSets: Map<string, readonly (ObjectRef | PlayerId | string)[]>;
   private answers: Map<string, unknown>;
   private readonly linkedValues: Map<string, Value>;
-  readonly contractActions: ContractActionCapability;
 
   constructor(options: { seed?: number; source?: ObjectRef; sourceSnapshot?: ObjectSnapshot; controller?: PlayerId; timingPoint?: TimingPointId; state?: WorldState; targets?: Map<string, ObjectRef[]>; picks?: Map<string, readonly (ObjectRef | PlayerId | string)[]>; answers?: Map<string, unknown>; linked?: Map<string, Value> } = {}) {
     this.state = options.state ?? freshState(options.seed ?? 0x52494654);
@@ -176,7 +175,6 @@ export class TestWorld implements ResolveContext {
     this.pickSets = options.picks ?? new Map();
     this.answers = options.answers ?? new Map();
     this.linkedValues = options.linked ?? new Map();
-    this.contractActions = createContractActionCapability(action => this.performContract(action));
     const source = options.sourceSnapshot ?? (options.source ? this.object(options.source) : this.listObjects()[0]);
     this.source = source ?? defaultObject("source", this.controller);
   }
@@ -188,6 +186,9 @@ export class TestWorld implements ResolveContext {
   get continuousEffects(): readonly { effect: ContinuousEffectSpec; duration: Duration }[] { return this.state.continuous; }
   get delayedTriggers(): readonly { at: TriggerSpec; body: readonly Instruction[] }[] { return this.state.delayed; }
   get randomState(): number { return this.state.randomState; }
+  get contractActions(): ContractActionCapability {
+    return createContractActionCapability(action => this.performContract(action));
+  }
   ref(id: string): ObjectRef { const object = this.state.objects.get(id); if (!object) throw new Error(`Unknown object ${id}`); return cloneRef(object.ref); }
   setAnswers(answers: Record<string, unknown>): void { this.answers = new Map(Object.entries(answers)); }
   setTargets(id: string, refs: readonly ObjectRef[]): void { this.targetSets.set(id, refs.map(cloneRef)); }
@@ -328,6 +329,9 @@ export class TestWorld implements ResolveContext {
 
   /** Authoritative contract-action entry used by the default ResolveContext. */
   performContract(input: ContractGameAction): ActionOutcome {
+    if (!isKnownContractAction(input)) {
+      return { status: 'impossible', events: [], receipt: { status: 'rejected', actions: [{ type: (input as { type: ContractGameAction['type'] }).type, status: 'impossible' }] } };
+    }
     if (input.type === 'recall') return this.performRecall(input);
     if (input.type === 'batch') return this.performBatch(input);
     if (input.type === 'hide') {
@@ -373,22 +377,24 @@ export class TestWorld implements ResolveContext {
       performContract: leaf => this.performContract(leaf),
     }, { transactionId: action.transactionId });
     if (execution.outcome.status !== 'done') return execution.outcome;
+    const recallEvents: TestEvent[] = [];
     for (const step of execution.steps) {
       if (step.action.type !== 'recall') continue;
-      const before = step.before.find(object => refKey(object.ref) === refKey(step.action.object));
-      const after = step.after.find(object => refKey(object.ref) === refKey(step.action.object));
+      const recall = step.action as RecallAction;
+      const before = step.before.find(object => refKey(object.ref) === refKey(recall.object));
+      const after = step.after.find(object => refKey(object.ref) === refKey(recall.object));
       const event = makeEvent(this.state, 'recall', this.timingPoint, {
         object: before,
         details: { recall: true, from: before?.location, to: after?.location },
       });
-      execution.outcome.events = [...execution.outcome.events, event];
+      recallEvents.push(event);
     }
     for (const step of execution.steps) {
       const ref = 'object' in step.action ? step.action.object : undefined;
       const object = ref === undefined ? undefined : step.before.find(candidate => refKey(candidate.ref) === refKey(ref));
       this.state.history.push({ action: structuredClone(step.action), ...(object === undefined ? {} : { object }), timingPoint: this.timingPoint, turn: 1, combat: 0 });
     }
-    return execution.outcome;
+    return { ...execution.outcome, events: [...execution.outcome.events, ...recallEvents] };
   }
 
   private apply(action: GameAction): ActionOutcome {
@@ -530,8 +536,8 @@ export class TestWorld implements ResolveContext {
       players: new Map([...this.state.players].map(([id, player]) => [id, { ...player, power: [...player.power], runes: [...player.runes], zones: Object.fromEntries(ZONES.map(zone => [zone, [...player.zones[zone]]])) as Record<ZoneId, string[]> }])),
       lastKnown: new Map([...this.state.lastKnown].map(([key, value]) => [key, copySnapshot(value)])),
       pending: new Map([...this.state.pending].map(([id, item]) => [id, { ...item, object: cloneRef(item.object) }])),
-      events: [...this.state.events],
-      history: [...this.state.history],
+      events: structuredClone(this.state.events),
+      history: structuredClone(this.state.history),
       continuous: [...this.state.continuous],
       delayed: [...this.state.delayed],
       replacements: [...this.state.replacements]

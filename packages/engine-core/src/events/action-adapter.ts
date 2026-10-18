@@ -19,6 +19,21 @@ import {
   type ContractActionBridgePort,
   type ContractActionCapability,
 } from './contract-actions/bridge.js';
+export {
+  CONTRACT_ACTIONS_VERSION,
+  ContractActionRollbackError,
+  contractActionReachedDestination,
+  createContractActionCapability,
+  executeContractAction,
+  isKnownContractAction,
+} from './contract-actions/bridge.js';
+export type {
+  ContractActionBridgePort,
+  ContractActionCapability,
+  ContractActionExecution,
+  ContractActionStep,
+  ExecuteContractActionOptions,
+} from './contract-actions/bridge.js';
 
 /** State storage remains the caller's responsibility; this adapter owns event derivation. */
 export interface ActionStatePort extends Omit<PipelineHost, 'execute'> {
@@ -272,14 +287,15 @@ export function createActionPipelineHost(port: ActionStatePort): PipelineHost {
     if (execution.outcome.status !== 'done') return { outcome: execution.outcome, emissions: [] };
     const observations = execution.steps.flatMap(step => {
       if (step.action.type !== 'recall') return [];
+      const recall = step.action as Extract<import('../effects/contract.js').ContractGameAction, { type: 'recall' }>;
       if (step.outcome.events.some(event => (event as { action?: unknown }).action === 'recall')) return [];
-      const object = step.after.find(candidate => candidate.ref.id === step.action.object.id &&
-        candidate.ref.zoneEntryId === step.action.object.zoneEntryId);
+      const object = step.after.find(candidate => candidate.ref.id === recall.object.id &&
+        candidate.ref.zoneEntryId === recall.object.zoneEntryId);
       return [{
         type: 'task-resolved' as const,
         seq: 0,
         turnNumber: 1,
-        activePlayerId: active?.controller ?? step.action.player,
+        activePlayerId: active?.controller ?? recall.player,
         taskId: `${actionId}:recall`,
         sourceCardId: object?.cardId ?? '',
         reason: 'recall',
@@ -287,7 +303,7 @@ export function createActionPipelineHost(port: ActionStatePort): PipelineHost {
         action: 'recall',
         details: {
           recall: true,
-          from: step.before.find(candidate => candidate.ref.id === step.action.object.id)?.location,
+          from: step.before.find(candidate => candidate.ref.id === recall.object.id)?.location,
           to: object?.location,
         },
       } as unknown as import('@riftbound/protocol').GameEvent];

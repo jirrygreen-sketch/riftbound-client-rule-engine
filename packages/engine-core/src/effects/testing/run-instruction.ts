@@ -1,6 +1,7 @@
 import type { ActionOutcome, InstructionDef, InstructionResult, ObjectRef, PlayerId, Value } from "../contract.js";
 import { AwaitChoice } from "../contract.js";
 import type { TestWorld } from "./test-kernel.js";
+import { ContractActionRollbackError } from "../../events/contract-actions/bridge.js";
 
 export interface RunInstructionOptions {
   world: TestWorld;
@@ -33,8 +34,8 @@ export function runInstruction<A>(def: InstructionDef<A>, args: A, options: RunI
   } catch (error) {
     // A rejected contract batch is a completed primitive outcome only after the
     // caller-visible world has been restored to its pre-instruction checkpoint.
-    if (error && typeof error === 'object' && 'outcome' in error) {
-      const outcome = (error as { outcome: ActionOutcome }).outcome;
+    if (error instanceof ContractActionRollbackError) {
+      const outcome: ActionOutcome = error.outcome;
       if (outcome.status !== 'done' && outcome.receipt?.status === 'rolled-back') {
         options.world.restore(targetWorld.snapshot());
         options.world.copyLinkedFrom(targetWorld);

@@ -44,9 +44,12 @@ export interface ExecuteContractActionOptions {
 }
 
 export class ContractActionRollbackError extends Error {
-  constructor(readonly outcome: ActionOutcome) {
+  readonly outcome: ActionOutcome;
+
+  constructor(outcome: ActionOutcome) {
     super(`Contract action rolled back (${outcome.receipt?.status ?? 'unknown'})`);
     this.name = 'ContractActionRollbackError';
+    this.outcome = outcome;
   }
 }
 
@@ -169,12 +172,12 @@ function receiptStatusFromThrown(error: unknown): ReceiptActionStatus {
   return 'impossible';
 }
 
-function validContractAction(action: unknown): action is ContractGameAction {
+export function isKnownContractAction(action: unknown): action is ContractGameAction {
   if (!record(action) || typeof action.type !== 'string') return false;
   if (action.type === 'batch') {
     return Array.isArray(action.actions) &&
       (action.transactionId === undefined || typeof action.transactionId === 'string') &&
-      action.actions.every(validContractAction);
+      action.actions.every(isKnownContractAction);
   }
   if (action.type === 'recall') return record(action.object) &&
     typeof action.object.id === 'string' && typeof action.object.zoneEntryId === 'number' &&
@@ -197,7 +200,7 @@ export function executeContractAction(
   port: ContractActionBridgePort,
   options: ExecuteContractActionOptions = {},
 ): ContractActionExecution {
-  if (!validContractAction(action)) return { outcome: rejected(action), steps: [] };
+  if (!isKnownContractAction(action)) return { outcome: rejected(action), steps: [] };
   if (action.type === 'hide') return { outcome: rejected(action), steps: [] };
 
   const transactionId = action.type === 'batch'
