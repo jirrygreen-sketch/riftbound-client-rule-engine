@@ -17,6 +17,8 @@ import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -155,9 +157,12 @@ test("ven-001-166 review evidence: the grant primitive is merged", () => {
   assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), true);
 });
 
-test("ven-001-166 golden: the [Empowered] grant shape really registers Deflect 1 and Assault 2 through layers", () => {
+test("ven-001-166 golden: the [Empowered] grant shape re-expands Deflect 1 and Assault 2 through the merged keyword adapter", () => {
   const kernel = world()
-    .unit("baccai-sandspinner", { types: ["unit"], zone: "board", owner: "A", controller: "A", might: 6 })
+    .unit("baccai-sandspinner", {
+      types: ["unit"], zone: "board", owner: "A", controller: "A", might: 6,
+      combatRole: "attacker", location: { type: "battlefield", id: "bf-1" }
+    })
     .build();
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("baccai-sandspinner") });
   const body = [{
@@ -172,19 +177,18 @@ test("ven-001-166 golden: the [Empowered] grant shape really registers Deflect 1
 
   assert.equal(outcome.status, "executed");
   assert.equal(context.continuousEffects.length, 1);
-  const registrations = context.continuousEffects.map((entry, index) => ({
-    effect: entry.effect,
-    duration: entry.duration,
-    timestamp: index + 1
-  }));
-  const layers = createLayerEngine(context.objects, registrations);
-  const evaluated = layers.evaluate(context.ref("baccai-sandspinner"));
+  const layers = new KeywordGrantLayerEngine(context.objects, {
+    context: source => bindResolveContext(context, { source, controller: source.controller })
+  });
+  for (const entry of context.continuousEffects) {
+    layers.addContinuous(entry.effect, entry.duration, entry.timestamp);
+  }
+  const evaluated = layers.snapshot(context.ref("baccai-sandspinner"));
   assert.deepEqual(
     evaluated.keywords.map(keyword => [keyword.id, keyword.value]),
-    [["deflect", 1], ["assault", 2]]
+    [["Deflect", 1], ["Assault", 2]]
   );
-  // 807.1.c：Assault 2 只在「我是攻击者时 +2 [M]」；未指定 combatRole 时不该加 Might。
-  assert.equal(evaluated.might, 6);
+  assert.equal(evaluated.might, 8);
 });
 
 test("ven-001-166 golden: the '4 or fewer runes' condition really evaluates on the rune zone (133.5.a.1)", () => {
@@ -294,10 +298,10 @@ test("baccai-sandspinner evidence: no layer selector can express runes you contr
   assert.equal(matchesObjectFilter({ type: "rune", controller: "A", zone: "rune-zone" }, runeOf("B", "B")), false);
 });
 
-test("baccai-sandspinner evidence: the granted Assault 2 does not add Might on the real layer engine", () => {
-  // 807.1.c: "while I am an attacker, I have +2 [M]". A granted keyword entry
-  // reaches the layer snapshot, but the Assault expansion condition reads
-  // "designation", which the default interpreter cannot evaluate, so Might stays put.
+test("baccai-sandspinner evidence: the default lifecycle still does not re-expand the granted Assault 2", () => {
+  // The merged KeywordGrantLayerEngine adapter covers designation/combatRole
+  // aliasing. attachProgramLifecycle still uses the base LayerEngine, so the
+  // production lifecycle exposes only the keyword registration.
   const { engine, kernel } = fixture({
     cards: [{ id: "spinner", cardId: CARD_ID, types: ["unit"], might: 6, energy: null, power: null, combatRole: "attacker" }]
   });
@@ -335,6 +339,7 @@ test.todo(
 );
 test.todo(
   "ven-001-166 Baccai Sandspinner: re-expand the granted Assault 2 into the attacker Might bonus and " +
-    "route layered Deflect into a Power target tax in Chain Finalize (807.1.c / 809.1.c / 828.1.c)"
+    "route layered Deflect into a Power target tax in the default CardProgram lifecycle; the isolated " +
+    "KeywordGrantLayerEngine adapter already covers Assault's combatRole/designation alias (807.1.c / 809.1.c / 828.1.c)"
 );
 

@@ -6,9 +6,11 @@ import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/
 import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { translateInstructionTargets, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
@@ -269,10 +271,9 @@ test("ambessa-respected-and-feared evidence: the printed 1 Energy + 2 Order Powe
   );
 });
 
-test("ambessa-respected-and-feared evidence: granted Assault 2 never adds the attacker Might", () => {
-  // 807.1.c: the granted keyword reaches the layer keyword list, but Assault's
-  // own expansion condition reads "designation", which the default interpreter
-  // cannot evaluate - Might stays at the printed 5 even while attacking.
+test("ambessa-respected-and-feared evidence: the default lifecycle still does not re-expand the granted Assault", () => {
+  // The merged KeywordGrantLayerEngine adapter covers re-expansion; the default
+  // CardProgram lifecycle still uses LayerEngine and only exposes the keyword.
   const { engine, kernel } = fixture({ cards: [{
     id: "host", cardId: program.canonicalCardId, types: ["unit"],
     might: 5, energy: null, power: null, combatRole: "attacker"
@@ -285,6 +286,38 @@ test("ambessa-respected-and-feared evidence: granted Assault 2 never adds the at
   assert.equal(snapshot.might, 5);
   assert.equal(snapshot.combatRole, null, "the production host does not carry the designation");
   binding.unbind();
+});
+
+test("ambessa-respected-and-feared golden: the merged keyword-grant adapter applies Assault 2 to an attacker", () => {
+  const kernel = world().unit("host", {
+    cardId: program.canonicalCardId,
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    might: 5,
+    combatRole: "attacker",
+    location: { type: "battlefield", id: "bf-1" },
+    energy: null,
+    power: null
+  }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("host") });
+  const outcome = runAbilityBody([{
+    id: "ambessa.grant-assault",
+    op: "continuous.grant-keyword",
+    args: {
+      keyword: { kind: "constant", value: assaultGrant.effect.keyword },
+      value: assaultGrant.effect.value,
+      appliesTo: { kind: "constant", value: "self" }
+    }
+  }], context);
+  assert.equal(outcome.status, "executed");
+  const layers = new KeywordGrantLayerEngine(kernel.objects, {
+    context: source => bindResolveContext(kernel, { source, controller: source.controller })
+  });
+  for (const entry of context.continuousEffects) layers.addContinuous(entry.effect, entry.duration, entry.timestamp);
+  const snapshot = layers.snapshot(kernel.ref("host"));
+  assert.deepEqual(snapshot.keywords, [{ id: "Assault", value: 2 }]);
+  assert.equal(snapshot.might, 7);
 });
 
 test("ambessa-respected-and-feared evidence: the attack target filter is rejected before any binding", () => {

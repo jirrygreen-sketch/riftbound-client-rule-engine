@@ -26,10 +26,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 2. 触发内的支付步没有生产接线：cost.pay 原语可用且 golden 产出 receipt，但参考内核的
  *    pay 动作只扣 energy/xp——实测持有 1 个 Fury Power 连续支付两次都返回 paid 且池不变；
  *    engine-runtime/host.ts 的 pay() 同样只处理 energy/xp/exhaust/recycle，Power 不被扣减。
- * 3. 授予的 [Assault 2] 不展开：实测 granted assault 只出现在 layers 的 keywords 列表，
- *    might 不变（Assault 自身条件读 "designation"，默认解释器抛
- *    MissingInformation: Unavailable characteristic: designation），807.1.c 的
- *    “攻击者时 +2 Might” 不会发生。
+ * 3. KeywordGrantLayerEngine 已能在独立 adapter 中重展开授予的 [Assault 2]，并按
+ *    combatRole/designation 计算攻击者 Might；默认 CardProgram lifecycle 仍使用基础
+ *    LayerEngine，所以生产触发结算只会看到关键词注册，不会消费该 Might 修正。
  * 4. 攻击身份读数缺失：ObjectSnapshot.combatRole 字段虽已声明，但没有生产写入方
  *    （engine-runtime/host.ts 恒定 combatRole: null），即使时点接通也无法判定本卡是攻击者。
  * 已支持部分：choice.optional 的“可以”语义（契约 3.9，拒绝时整条被选指令跳过）由 golden 用真实
@@ -90,8 +89,9 @@ export default {
     "CardProgram 触发的静态注册本身已可用（实测 registerProgramTriggers 注册成功），缺的是时点发射。" +
     "(2) 触发内的支付步没有生产接线：cost.pay 原语可用且 golden 产出 receipt，但参考内核 pay 只扣 energy/xp——" +
     "实测持有 1 个 Fury Power 连续支付两次都返回 paid 且池不变；engine-runtime/host.ts 的 pay() 同样不处理 Power，Power 不会被扣减。" +
-    "(3) 授予的 [Assault 2] 不展开：实测 granted assault 只出现在 layers 的 keywords 列表，might 不变（Assault 条件读 \"designation\"，" +
-    "默认解释器抛 MissingInformation），807.1.c 的“攻击者时 +2 Might”不会发生。" +
+    "(3) KeywordGrantLayerEngine 已能在独立 adapter 中把授予的 [Assault 2] 按 combatRole/designation " +
+    "重展开并计算攻击者 Might；但默认 CardProgram lifecycle 仍使用基础 LayerEngine，生产触发结算只看到关键词注册，" +
+    "不会消费该 Might 修正。" +
     "(4) 攻击身份读数缺失：ObjectSnapshot.combatRole 虽已声明，但没有生产写入方（engine-runtime/host.ts 恒定 null），无法判定攻击者。" +
     "已支持部分：choice.optional 的“可以”语义与 cost.pay receipt 由 golden 用真实解释器 + 参考内核执行。不近似实现。",
   abilities,

@@ -21,7 +21,7 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *   另一个战场”。按 README 第 5 节只声明关键词，展开（continuous.movement 形状）
  *   由 effects/keywords/Ganking.ts 负责。
  *
- * 复核（2026-10-17，M2 覆盖率复核）：执行证据在
+ * 复核（2026-10-18，M2 覆盖率复核）：执行证据在
  * templates/keyword-static-static-673.test.mjs。RIFT-593 的 Empower KeywordDef
  * （effects/keywords/Empower.ts）已合入，Empowered 状态也用 `empowered` 属性暴露给
  * object-property 谓词（与本卡门控一致，见下），因此旧的「无 KeywordDef / 无状态谓词」
@@ -38,6 +38,9 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *    kill / reveal / spend-buff，其余一律 blocked(`Unsupported payment kind`)。实测
  *    describeActivate 直接抛 “Unsupported cost kind empower”，故 [Empower] 目前
  *    既不能定价也不能支付，整卡保持 judge-required。
+ * 3. Ganking 的重展开已有独立 KeywordGrantLayerEngine adapter，可把
+ *    continuous.movement 许可写入 layered movement；默认 attachProgramLifecycle 仍安装
+ *    基础 LayerEngine，生产卡牌只登记关键词而不消费战场间移动许可。
  * 已合入并用真实执行验证的部分：「I have +2 :rb_might:」的算术图层授予、
  * 「and [Ganking]」的 ability 图层关键词授予，以及 828.1.c 门控（object-property
  * self.empowered）在真实 static 绑定下按 Empowered 状态开关。不近似实现：
@@ -95,7 +98,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处当前缺口，均不近似实现：(1) 印刷的 Empower 费用送不进展开——827.1.c 的 “[Cost]: Empower this” 是 " +
+    "三处当前缺口，均不近似实现：(1) 印刷的 Empower 费用送不进展开——827.1.c 的 “[Cost]: Empower this” 是 " +
     "CostSpec，而契约 3.1 的 KeywordAbility 只有 keyword / value，programs/keywords.ts 的 expandProgram " +
     "仍以 def.expand({ value, host }) 调用、不传契约 3.8.3 的 params.cost，卡层无法把印刷的 3 Energy 作为" +
     "可执行费用声明（keyword.value 只保留符号数记录，不是费用），" +
@@ -103,11 +106,13 @@ export default {
     "remain an unsupported cost kind, so binding fails closed”）。(2) 费用管线不认识 empower 支付种类：" +
     "cost/plan-values.ts 的 readCost 对非资源支付只接受 exhaust / discard / recycle / kill / reveal / spend-buff，" +
     "其余 blocked(\"Unsupported payment kind\")；实测 describeActivate 抛 “Unsupported cost kind empower on " +
-    "activate:src:1:A:1”，[Empower] 既不能定价也不能支付。" +
-    "已合入并用真实执行验证的部分：RIFT-593 的 Empower KeywordDef 已存在，「I have +2 :rb_might:」的算术图层授予、" +
-    "「and [Ganking]」的 ability 图层关键词授予，以及 828.1.c 的 Empowered 门控（object-property self.empowered，" +
+    "activate:src:1:A:1”，[Empower] 既不能定价也不能支付。(3) Ganking 的重展开已有独立 " +
+    "KeywordGrantLayerEngine adapter，可把 continuous.movement 许可写入 layered movement；默认 " +
+    "attachProgramLifecycle 仍安装基础 LayerEngine，生产卡牌只登记关键词而不消费战场间移动许可。" +
+    "已合入并用真实执行验证的部分：Empower KeywordDef、「I have +2 :rb_might:」的算术图层授予、" +
+    "「and [Ganking]」的关键词授予，以及 828.1.c 的 Empowered 门控（object-property self.empowered，" +
     "与 Empower.ts 展开读同一属性；信息缺失时门控不成立而不是当成 0）都有可执行证据。" +
-    "依赖：契约 3.8.3 的 KeywordAbility params 生产侧接线与 empower 费用种类。",
+    "依赖：契约 3.8.3 的 KeywordAbility params 生产侧接线、empower 费用种类与默认生命周期的关键词展开接线。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_3: (:rb_energy_3:: Empower me. Use only if not Empowered.)\n" +

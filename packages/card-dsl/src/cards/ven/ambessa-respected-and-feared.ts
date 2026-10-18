@@ -13,10 +13,10 @@ import type { CardProgram } from "../../ir/index.js";
  * 2. Empowered 状态：本卡用 object-property(self, "empowered") 门控，实测该条件在参考
  *    内核路径上可求值（Empower 后授予 Assault 2），但 ObjectSnapshot 契约没有 empowered
  *    字段，engine-runtime/host.ts 也不提供；442.1.b/c 的二元状态限制没有统一生产适配。
- * 3. 授予的关键词不展开：实测 granted assault 2 只出现在 layers 的 keywords 列表里，
- *    might 不变（Assault 自身条件读 "designation"，默认解释器抛
- *    MissingInformation: Unavailable characteristic: designation），807.1.c 的
- *    “攻击者时 +2 Might” 不会发生。
+ * 3. 关键词重展开已有独立的 KeywordGrantLayerEngine adapter：它会把 granted Assault 2
+ *    与 combatRole/designation 别名接起来并真实计算攻击者 Might；但默认
+ *    attachProgramLifecycle 仍使用基础 LayerEngine，卡牌授予不会进入生产重展开路径，
+ *    所以这段孤立 adapter 证据不能把整卡升为 executable。
  * 4. 攻击触发的目标选择无法绑定：translateInstructionTargets 实测抛
  *    ProgramBindingError('Unsupported filter field sameLocationAs')，355.9/355.10.g 的
  *    “此处 Might 更低的敌方单位” 无法生产；攻击时点本身也没有发射方（466.2 的
@@ -32,8 +32,9 @@ export default {
     "生产 buildCostPlan 对该 kind 抛 CostPlanError('Unsupported cost kind: empower')。" +
     "(2) 442.1.a/828.1.b.1 的 Empowered 门控：卡牌用 object-property(self, \"empowered\")，实测在参考内核路径上可求值（Empower 后授予 Assault 2），" +
     "但 ObjectSnapshot 契约没有 empowered 字段、engine-runtime/host.ts 也不提供，442.1.b/c 的二元状态限制没有统一生产适配。" +
-    "(3) 807.1.c 的授予展开缺失：实测 granted assault 2 只出现在 layers 的 keywords 列表，might 不变（Assault 自身条件读 \"designation\"，" +
-    "默认解释器抛 MissingInformation），\"攻击者时 +2 Might\" 不会发生。" +
+    "(3) 807.1.c 的授予重展开已有独立 KeywordGrantLayerEngine adapter，可在隔离图层中把 Assault 2 " +
+    "按 combatRole/designation 计算攻击者 Might；但默认 attachProgramLifecycle 仍使用基础 LayerEngine，" +
+    "生产卡牌授予不会进入该重展开路径，不能把 adapter 子集证据当作整卡 executable。" +
     "(4) 828.1.b.1 的攻击触发目标无法绑定：translateInstructionTargets 实测抛 ProgramBindingError('Unsupported filter field sameLocationAs')，" +
     "355.9/355.10.g 的此处 Might 更低敌方单位不可生产；attack-declared 也没有发射方（combat/flow.ts 仍以 " +
     "TurnCombatBlockedError('combat-start-transaction') 阻断，466.2）。不近似实现。",
