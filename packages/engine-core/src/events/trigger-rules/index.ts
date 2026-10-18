@@ -238,4 +238,3 @@ export function resolveRuleAmount(rule: TriggerRule, context: TriggerRuleContext
 export function sameBatch(left: PipelineEvent, right: PipelineEvent): boolean {
   return left.batchId !== undefined && left.batchId === right.batchId;
 }
-

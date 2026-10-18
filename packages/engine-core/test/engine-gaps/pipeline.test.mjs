@@ -418,4 +418,3 @@ test('EG-PIPELINE: event and trigger snapshots preserve the same immutable event
   assert.deepEqual(binding.ref, oldIt);
   assert.deepEqual(triggerEventObjectBinding({ ...trigger, event: { ...trigger.event, it: undefined } }, 'it'), null);
 });
-
