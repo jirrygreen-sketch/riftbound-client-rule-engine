@@ -134,4 +134,3 @@ test("a required choice with no legal options is rejected without registering", 
   assert.deepEqual(run.linked.affected, { count: 0, objects: [] });
   assert.equal(kernel.continuousEffects.length, 0);
 });
-
