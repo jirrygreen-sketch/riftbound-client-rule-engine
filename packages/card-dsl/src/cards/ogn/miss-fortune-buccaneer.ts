@@ -72,7 +72,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处已实测的当前缺口（RIFT-675 通用测试台复核）：" +
+    "三处已实测的当前缺口（通用测试台实测复核）：" +
     "(1) 两条声明用的 effect kind `play-location-permission` 没有静态层映射——programs/statics.ts 的 " +
     "layerFor 抛 “Static ability kind play-location-permission has no layer mapping”，生产 static binder " +
     "无法注册任何一条许可。" +
