@@ -170,7 +170,7 @@ test('EG-TRIGGERS: buff event reflexively enqueues and finalizes the ready trigg
       'target:mistfall.buffed-unit': ['friendly']
     },
     setup(builder) {
-      builder.unit('mistfall', { cardId: program.canonicalCardId, power: ['Body'], exhausted: true, location: field('one') });
+      builder.unit('mistfall', { cardId: program.canonicalCardId, power: ['Body'], location: field('one') });
       builder.unit('friendly', { owner: 'A', power: ['Body'], exhausted: true, location: field('one') });
     }
   });
@@ -187,7 +187,7 @@ test('EG-TRIGGERS: buff event reflexively enqueues and finalizes the ready trigg
     const item = f.engine.items.at(-1);
     if (item) f.engine.pass(item.controller);
   }
-  assert.equal(f.get('mistfall').exhausted, false);
+  assert.equal(f.get('mistfall').exhausted, true);
   assert.equal(f.get('friendly').exhausted, false);
   assert.deepEqual(f.kernel.player('A').power, []);
   assert.ok(f.engine.pipeline.events.some(event => event.timingPoint === 'object-exhausted' && event.object?.ref.id === 'mistfall'));
@@ -200,7 +200,7 @@ test('EG-TRIGGERS: declining the ready may leaves its cost unpaid', () => {
     programs: [program], energy: { A: 5 }, power: { A: ['Body'] },
     answers: { 'finalize:trigger:1:optional': false },
     setup(builder) {
-      builder.unit('mistfall', { cardId: program.canonicalCardId, power: ['Body'], exhausted: true, location: field('one') });
+      builder.unit('mistfall', { cardId: program.canonicalCardId, power: ['Body'], location: field('one') });
       builder.unit('friendly', { owner: 'A', power: ['Body'], exhausted: true, location: field('one') });
     }
   });
@@ -217,7 +217,7 @@ test('EG-TRIGGERS: declining the ready may leaves its cost unpaid', () => {
     JSON.stringify(f.engine.trace)
   );
   assert.deepEqual(f.kernel.player('A').power, ['Body']);
-  assert.equal(f.get('mistfall').exhausted, true);
+  assert.equal(f.get('mistfall').exhausted, false);
   assert.equal(f.get('friendly').exhausted, true);
 });
 
@@ -319,5 +319,18 @@ test('EG-TRIGGERS: a leading optional outside the bound shape keeps the scan que
     const item = f.engine.items.at(-1);
     if (item) f.engine.pass(item.controller);
   }
+  assert.ok(f.asked.some(request => request.id === 'legacy.choice/optional'));
   assert.equal(f.kernel.player('A').deckSize, 1);
 });
+// EG-TRIGGERS: production binding for trigger conditions, leading may/cost,
+// event snapshots, and reflexive Pending items.
+//
+// Rule basis (CR-v1.5):
+// - 383.3.a (:2698): the controller answers a leading "you may"/"they may".
+// - 383.3.b.1 (:2728): the cost is paid to finalize the Triggered Ability.
+// - 383.2.c (:2639): the Trigger Condition is evaluated after the inciting
+//   event, during trigger scan and before Finalize.
+//
+// Scenarios use the card programs' original IR through the default production
+// binding. The one admission-shape synthesis in the no-target case changes
+// only the target filter because the real printing can target itself.

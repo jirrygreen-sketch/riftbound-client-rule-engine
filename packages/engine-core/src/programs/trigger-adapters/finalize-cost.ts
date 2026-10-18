@@ -1,5 +1,5 @@
-import type { CostPayment, CostSpec } from '@riftbound/card-dsl';
-import type { Domain, Expr } from '../../effects/contract.js';
+import type { CostSpec } from '@riftbound/card-dsl';
+import type { Domain } from '../../effects/contract.js';
 import { DUEL_DOMAINS } from '../../cost/resources.js';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -39,7 +39,7 @@ export function costPayArgsToCostSpec(args: Record<string, unknown>): CostSpec |
     const arrayPayments = asConstantArray(args.payments);
     if (recordPayments !== undefined) {
       for (const key of Object.keys(recordPayments)) {
-      const value = recordPayments[key];
+        const value = recordPayments[key];
         if (key === 'energy') {
           if (typeof value !== 'number' || value < 0 || energy !== undefined) return undefined;
           energy = value;
@@ -105,7 +105,6 @@ export function costPayArgsToCostSpec(args: Record<string, unknown>): CostSpec |
   const spec: Record<string, unknown> = {};
   if (energy !== undefined) spec.energy = { kind: 'constant', value: energy };
   if (xp !== undefined) spec.payments = [{ kind: 'xp', amount: { kind: 'constant', value: xp } }];
-  if (power !== undefined) spec.power = { kind: 'constant', value: [...power] };
   if (payments.length) spec.payments = [...(spec.payments as readonly unknown[] ?? []), ...payments];
   if (!Object.keys(spec).length) return undefined;
   return spec as unknown as CostSpec;
