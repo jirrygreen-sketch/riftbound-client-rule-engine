@@ -6,7 +6,7 @@ import type { ObjectSnapshot } from '../../effects/contract.js';
 import { MissingInformation } from '../../effects/interpreter/values.js';
 import { ProgramBindingError } from '../errors.js';
 import { evaluateStaticPredicate } from './predicates.js';
-import { liveSource, record, sameRef, staticConditionMatches } from './model.js';
+import { record, sameRef, staticConditionMatches } from './model.js';
 
 export type StaticCapabilityKind =
   | 'cost'
@@ -25,21 +25,6 @@ export interface StaticCapabilityRecord {
   readonly ordinal: number;
 }
 
-interface StaticCapabilityState {
-  readonly records: Map<string, StaticCapabilityRecord>;
-}
-
-const states = new WeakMap<ChainEngine, StaticCapabilityState>();
-
-function state(engine: ChainEngine): StaticCapabilityState {
-  let current = states.get(engine);
-  if (current === undefined) {
-    current = { records: new Map() };
-    states.set(engine, current);
-  }
-  return current;
-}
-
 export function bindStaticCapability(
   engine: ChainEngine,
   kind: StaticCapabilityKind,
@@ -48,25 +33,59 @@ export function bindStaticCapability(
   source: ObjectSnapshot,
   ordinal: number,
 ): { readonly unbind: () => void } {
-  const records = state(engine).records;
-  if (records.has(id)) throw new ProgramBindingError('invalid-program', `Duplicate static capability ${id}`);
-  records.set(id, { id, kind, source: source.ref, ability, ordinal });
-  return { unbind: () => { records.delete(id); } };
+  if (engine.layers.registry.get(id) !== undefined) {
+    throw new ProgramBindingError('invalid-program', `Duplicate static capability ${id}`);
+  }
+  engine.layers.addContinuous({
+    id,
+    layer: 'ability',
+    source: source.ref,
+    filter: {},
+    effect: {
+      kind: 'static.capability',
+      capabilityKind: kind,
+      ability,
+      ordinal,
+    } as never,
+  }, { type: 'permanent' });
+  return { unbind: () => { engine.layers.removeContinuous(id); } };
 }
 
 export function staticCapabilities(engine: ChainEngine, kind?: StaticCapabilityKind): readonly StaticCapabilityRecord[] {
-  return Object.freeze([...state(engine).records.values()]
-    .filter(binding => kind === undefined || binding.kind === kind)
-    .sort((left, right) => left.ordinal - right.ordinal || left.id.localeCompare(right.id)));
+  const records: StaticCapabilityRecord[] = [];
+  for (const entry of engine.layers.registry.list()) {
+    const effect = record(entry.effect.effect);
+    if (effect.kind !== 'static.capability' || typeof effect.capabilityKind !== 'string' ||
+        !['cost', 'target-tax', 'ignore-target-tax', 'hidden', 'play-location', 'predicate', 'modifier'].includes(effect.capabilityKind) ||
+        entry.effect.source === undefined || typeof effect.ordinal !== 'number' ||
+        typeof effect.ability !== 'object' || effect.ability === null) continue;
+    const binding: StaticCapabilityRecord = {
+      id: entry.effect.id,
+      kind: effect.capabilityKind as StaticCapabilityKind,
+      source: entry.effect.source,
+      ability: effect.ability as Extract<Ability, { kind: 'static' }>,
+      ordinal: effect.ordinal,
+    };
+    if (kind === undefined || binding.kind === kind) records.push(binding);
+  }
+  return Object.freeze(records.sort((left, right) => left.ordinal - right.ordinal || left.id.localeCompare(right.id)));
 }
 
 function sourceSnapshot(engine: ChainEngine, ref: ObjectRef): ObjectSnapshot | null {
-  return liveSource(engine, ref);
+  const objects = engine.pipeline.host.objects();
+  return objects.find(object => sameRef(object.ref, ref)) ?? null;
 }
 
 function active(engine: ChainEngine, binding: StaticCapabilityRecord): boolean {
-  const source = sourceSnapshot(engine, binding.source);
+  const live = sourceSnapshot(engine, binding.source);
+  const source = live ?? engine.pipeline.host.objects().find(object => object.ref.id === binding.source.id) ?? null;
   return source !== null && staticConditionMatches(engine, source, binding.ability.condition);
+}
+
+function currentSource(engine: ChainEngine, binding: StaticCapabilityRecord): ObjectSnapshot | null {
+  const exact = sourceSnapshot(engine, binding.source);
+  if (exact !== null) return exact;
+  return engine.pipeline.host.objects().find(object => object.ref.id === binding.source.id && object.cardId !== null) ?? null;
 }
 
 function additionalFrom(binding: StaticCapabilityRecord): Extract<Ability, { kind: 'static' }> | null {
@@ -96,9 +115,14 @@ function additionalFrom(binding: StaticCapabilityRecord): Extract<Ability, { kin
 /** Cost declarations are handed to the existing Finalize cost collector. */
 export function staticCostSources(engine: ChainEngine): readonly StaticCostAbility[] {
   return Object.freeze(staticCapabilities(engine, 'cost').flatMap(binding => {
-    if (!active(engine, binding)) return [];
-    const ability = additionalFrom(binding) ?? binding.ability;
-    return [{ id: binding.id, source: binding.source, ability }];
+    const source = currentSource(engine, binding);
+    if (source === null || !staticConditionMatches(engine, source, binding.ability.condition)) return [];
+    const original = record(binding.ability.effect);
+    const ability = additionalFrom(binding) ?? ({
+      ...binding.ability,
+      effect: Object.fromEntries(Object.entries(original).filter(([key]) => key !== 'sourcePlayer' && key !== 'costModification')),
+    } as Extract<Ability, { kind: 'static' }>);
+    return [{ id: binding.id, source: source.ref, ability }];
   }));
 }
 
@@ -108,8 +132,22 @@ export function boundTargetTaxes(engine: ChainEngine): readonly BoundTargetTax[]
     if (!active(engine, binding)) return [];
     const effect = record(binding.ability.effect);
     if (effect.kind !== 'target.tax') return [];
-    return [{ id: binding.id, target: binding.source, effect: effect as never }];
+    const source = currentSource(engine, binding);
+    if (source === null || !staticConditionMatches(engine, source, binding.ability.condition)) return [];
+    return [{ id: binding.id, target: source.ref, effect: effect as never }];
   }));
+}
+
+/** The host-filtered static source for one paid target. */
+export function boundTargetTaxFor(engine: ChainEngine, target: ObjectRef): BoundTargetTax | null {
+  const live = engine.pipeline.host.objects().find(object => sameRef(object.ref, target));
+  if (live === undefined) return null;
+  const binding = staticCapabilities(engine, 'target-tax').find(binding =>
+    binding.source.id === target.id && staticConditionMatches(engine, live, binding.ability.condition));
+  if (binding === undefined) return null;
+  const effect = record(binding.ability.effect);
+  if (effect.kind !== 'target.tax') return null;
+  return { id: binding.id, target: live.ref, effect: effect as never };
 }
 
 export function ignoresTargetTax(engine: ChainEngine, player?: string): boolean {
@@ -140,7 +178,21 @@ export function hiddenPermissionFor(engine: ChainEngine, sourceOrRef: ObjectSnap
 }
 
 export function activeStaticModifiers(engine: ChainEngine): readonly StaticCapabilityRecord[] {
-  return Object.freeze(staticCapabilities(engine, 'modifier').filter(binding => active(engine, binding)));
+  return Object.freeze(engine.layers.registry.list().flatMap(entry => {
+    const effect = record(entry.effect.effect);
+    if (!['continuous.bonus-damage', 'continuous.lethal-threshold', 'continuous.modify-might-reduction'].includes(String(effect.kind)) ||
+        entry.effect.source === undefined) return [];
+    const source = engine.pipeline.host.objects().find(object => sameRef(object.ref, entry.effect.source!)) ??
+      engine.pipeline.host.objects().find(object => object.ref.id === entry.effect.source!.id);
+    if (source === undefined || effect.staticCondition !== undefined && !(effect.staticCondition as (object: ObjectSnapshot) => boolean)(source)) return [];
+    return [{
+      id: entry.effect.id,
+      kind: 'modifier' as const,
+      source: entry.effect.source,
+      ability: { kind: 'static' as const, effect: effect as never },
+      ordinal: entry.sequence,
+    }];
+  }));
 }
 
 export function staticPredicateActive(engine: ChainEngine, source: ObjectSnapshot | ObjectRef, predicateId?: string): boolean {
@@ -159,6 +211,19 @@ export function staticPredicateActive(engine: ChainEngine, source: ObjectSnapsho
 }
 
 export function playLocationCapabilities(engine: ChainEngine): readonly StaticCapabilityRecord[] {
-  return staticCapabilities(engine, 'play-location').filter(binding => active(engine, binding));
+  return Object.freeze(engine.layers.registry.list().flatMap(entry => {
+    const effect = record(entry.effect.effect);
+    if (effect.kind !== 'location' || entry.effect.source === undefined) return [];
+    const source = engine.pipeline.host.objects().find(object => sameRef(object.ref, entry.effect.source!)) ??
+      engine.pipeline.host.objects().find(object => object.ref.id === entry.effect.source!.id);
+    if (source === undefined || effect.staticCondition !== undefined && !(effect.staticCondition as (object: ObjectSnapshot) => boolean)(source)) return [];
+    return [{
+      id: entry.effect.id,
+      kind: 'play-location' as const,
+      source: entry.effect.source,
+      ability: { kind: 'static' as const, effect: effect as never },
+      ordinal: entry.sequence,
+    }];
+  }));
 }
 

@@ -44,6 +44,24 @@ export function liveSource(engine: ChainEngine, ref: ObjectRef): ObjectSnapshot 
   return engine.pipeline.host.objects().find(object => sameRef(object.ref, ref)) ?? null;
 }
 
+/**
+ * Lifecycle entry events can carry the pre-move incarnation while the host has
+ * already committed the new one. Rebind only when id and printed identity
+ * agree; a same-id object of another card must never inherit this program.
+ */
+export function bindingSource(engine: ChainEngine, source: ObjectSnapshot): ObjectSnapshot {
+  const exact = liveSource(engine, source.ref);
+  if (exact !== null) return exact;
+  const current = engine.pipeline.host.objects().find(object =>
+    object.ref.id === source.ref.id && object.cardId === source.cardId);
+  if (current !== undefined) return current;
+  // Some lifecycle hosts emit the entry event before the committed object is
+  // visible through host.objects(). In that narrow case the event snapshot is
+  // already the post-entry state; use it when the snapshot itself is on board.
+  if (source.zone === 'board') return source;
+  return source;
+}
+
 export function sourceSelector(value: unknown): boolean {
   if (value === true || value === 'self' || value === 'source') return true;
   const item = record(literal(value));
@@ -51,7 +69,8 @@ export function sourceSelector(value: unknown): boolean {
 }
 
 export function sourceSelfFilter(source: ObjectSnapshot): ObjectFilter {
-  return { objectId: source.ref.id, zoneEntryId: source.ref.zoneEntryId } as ObjectFilter;
+  void source;
+  return {} as ObjectFilter;
 }
 
 function append(target: AnyRecord, key: string, value: unknown): void {
@@ -155,6 +174,11 @@ export function mergeStaticFilters(left: unknown, right: unknown): AnyRecord {
 }
 
 const PLAYER_ALIASES = new Set(['self', 'source', 'controller', 'you', 'caster', 'opponent', 'their', 'caster-opponent']);
+const SUPPORTED_STATIC_SCOPES = new Set([
+  'self', 'source', 'card', 'play-cost', 'spell-play-cost', 'play-spell-cost',
+  'optional-additional-costs-you-pay', 'empower-activation-cost', 'activated-ability-cost',
+  'empower-cost', 'repeat-additional-cost', 'deal-actions',
+]);
 
 /** Convert the evidence-backed appliesTo aliases into either an object filter or an action scope. */
 export function normalizeAppliesTo(value: unknown): { readonly kind: 'object'; readonly filter: AnyRecord } | { readonly kind: 'scope'; readonly value: unknown } | null {
@@ -171,9 +195,16 @@ export function normalizeAppliesTo(value: unknown): { readonly kind: 'object'; r
   }
   if (resolved === 'spells-and-abilities') return { kind: 'object', filter: { type: ['spell', 'ability'] } };
   if (resolved === 'all-players' || resolved === 'all') return { kind: 'object', filter: {} };
-  if (typeof resolved === 'string') return { kind: 'scope', value: resolved };
+  if (typeof resolved === 'string') {
+    if (!SUPPORTED_STATIC_SCOPES.has(resolved)) {
+      throw new ProgramBindingError('judge-required', `Unsupported static appliesTo ${JSON.stringify(resolved)}`);
+    }
+    return { kind: 'scope', value: resolved };
+  }
   if (Array.isArray(resolved)) {
-    if (resolved.every(item => typeof item === 'string')) return { kind: 'scope', value: [...resolved] };
+    if (resolved.every(item => typeof item === 'string' && SUPPORTED_STATIC_SCOPES.has(item))) {
+      return { kind: 'scope', value: [...resolved] };
+    }
     throw new ProgramBindingError('judge-required', `Unsupported static appliesTo ${JSON.stringify(resolved)}`);
   }
   const item = record(resolved);
@@ -207,7 +238,7 @@ function baseLayerFilter(filter: AnyRecord): AnyRecord {
 export function staticObjectMatches(filter: AnyRecord, object: ObjectSnapshot, source: ObjectSnapshot): boolean {
   const normalized = normalizeStaticFilter(filter);
   const base = baseLayerFilter(normalized);
-  const normalizedController = base.controller === 'controller' || base.controller === 'you' ? 'self' : base.controller;
+  const normalizedController = base.controller === 'controller' || base.controller === 'you' || base.controller === 'self' ? 'self' : base.controller;
   if (base.controller !== undefined) base.controller = normalizedController;
   if (!matchesObjectFilter(base, object as never, { controller: source.controller, anchor: source })) return false;
   for (const key of ['object', 'source'] as const) {
@@ -232,7 +263,7 @@ export function staticObjectMatches(filter: AnyRecord, object: ObjectSnapshot, s
 }
 
 export function abilityEnvironment(engine: ChainEngine, source: ObjectSnapshot) {
-  const current = liveSource(engine, source.ref) ?? source;
+  const current = bindingSource(engine, source);
   const base = engine.pipeline.host.context(current, current.controller, engine.layers.currentTimingPoint ?? 'cleanup-start');
   const context = new Proxy(base, { get(target, key) {
     if (key === 'object') return (ref: ObjectRef) => engine.layers.snapshot(ref) ?? target.object(ref);
@@ -262,6 +293,12 @@ export function staticConditionMatches(engine: ChainEngine, source: ObjectSnapsh
   }
 }
 
+export function throwStaticConditionDefect(engine: ChainEngine, source: ObjectSnapshot, condition: unknown): void {
+  if (condition === undefined || condition === true || condition === false || typeof condition === 'function') return;
+  try { evaluateCondition(condition as Condition, abilityEnvironment(engine, source)); }
+  catch (error) { if (!(error instanceof MissingInformation)) throw error; }
+}
+
 /**
  * Rule consumers receive absolute object identities for the current query.
  * The getter is evaluated after control/location/keyword changes, so a single
@@ -275,14 +312,18 @@ export function createLiveRuleFilter(
 ): ObjectFilter {
   const normalized = normalizeStaticFilter(filter);
   const output = baseLayerFilter(normalized) as AnyRecord;
+  delete output.objectId;
+  delete output.id;
+  delete output.zoneEntryId;
   Object.defineProperty(output, 'objectId', {
     enumerable: true,
     configurable: false,
     get: () => {
       const current = liveSource(engine, source.ref);
-      if (current === null || !staticConditionMatches(engine, current, condition)) return [];
+      const bound = current ?? bindingSource(engine, source);
+      if (!staticConditionMatches(engine, bound, condition)) return [];
       return engine.pipeline.host.objects()
-        .filter(object => staticObjectMatches(normalized, object, current))
+        .filter(object => staticObjectMatches(normalized, object, bound))
         .map(object => object.ref.id);
     },
   });
@@ -301,8 +342,7 @@ export function effectCondition(engine: ChainEngine, ability: Extract<Ability, {
   const normalized = filter === undefined ? undefined : normalizeStaticFilter(filter);
   if (condition === undefined && normalized === undefined) return undefined;
   return (object: ObjectSnapshot): boolean => {
-    const current = liveSource(engine, source.ref);
-    if (current === null) return false;
+    const current = bindingSource(engine, source);
     if (normalized !== undefined && !staticObjectMatches(normalized, object, current)) return false;
     return staticConditionMatches(engine, current, condition);
   };
