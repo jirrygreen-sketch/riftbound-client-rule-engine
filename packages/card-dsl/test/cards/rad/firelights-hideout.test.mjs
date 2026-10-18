@@ -9,6 +9,11 @@ import { runInstruction, world } from "../../../../engine-core/dist/effects/test
 import grant from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
 import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { isDurationAlias } from "../../../../engine-core/dist/layers/ops/index.js";
 
 const CANONICAL =
   "card.hash-b0fa1aa611f78286913c3002834a073dcdd58ad0678ff45714b3accf84b68c72";
@@ -206,4 +211,95 @@ test.todo(
   "rad-162-167 Firelights' Hideout: subscribe the conquer trigger and resolve it for the " +
     "Battlefield's controller (383.4.c.2.b, 190.6.d) — needs the source battlefield identity binding"
 );
+
+// --- 2026-10-18 re-sweep: measured primitive/registration refusals ---
+test("rad-162-167 Firelights' Hideout re-sweep: the authored grant is refused by the merged primitive", () => {
+  // The card's deferred destination is a target selector, but
+  // continuous.grant-keyword only accepts appliesTo: "self". The primitive
+  // blocks instead of registering a grant on the wrong object.
+  assert.deepEqual(grantInstruction.args.appliesTo, {
+    kind: "constant",
+    value: { target: "firelights-hideout.next-unit" }
+  });
+  const kernel = world()
+    .unit("battlefield", { types: ["battlefield"], location: { type: "battlefield", id: "bf-1" } })
+    .unit("later-unit", { might: 3 })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("battlefield") });
+  assert.throws(
+    () => runInstruction(grant, grantInstruction.args, { world: scoped }),
+    /continuous\.grant-keyword appliesTo must evaluate to "self"/
+  );
+  // The declared TargetSpec also cannot lock a unit that does not exist yet: it
+  // is authored min 0 / up-to 1 by design (CR 355.5).
+  assert.deepEqual(grantInstruction.targets, [
+    {
+      id: "firelights-hideout.next-unit",
+      filter: { type: "unit", controller: "controller" },
+      min: 0,
+      max: 1,
+      selection: "up-to"
+    }
+  ]);
+});
+
+test("rad-162-167 Firelights' Hideout re-sweep: the conquer registration refuses the details field", () => {
+  // The trigger's "here" anchor is authored as details.battlefieldId, but the
+  // production filter translation has no details vocabulary, so registration
+  // fails closed rather than subscribing to every battlefield's conquer.
+  assert.deepEqual(ability.trigger.filter, {
+    event: "conquer",
+    player: "self",
+    details: { battlefieldId: "self" }
+  });
+  assert.throws(
+    () => translateTriggerFilter(ability.trigger.filter, "firelights-hideout"),
+    error => error.code === "judge-required" && /Unsupported filter field details/.test(error.message)
+  );
+});
+
+test("rad-162-167 Firelights' Hideout re-sweep: the granted Accelerate expansion has no layer mapping for its cost half", () => {
+  // effects/keywords/Accelerate.ts expands into a static accelerate.cost
+  // declaration plus an object-enters-board replacement. The replacement binds,
+  // the static half fails closed: programs/statics.ts layerFor has no mapping
+  // for accelerate.cost, so the additional cost can never be offered through
+  // the layer engine.
+  const expansion = keywordDefinitionsById.get("Accelerate").expand({
+    host: { canonicalCardId: program.canonicalCardId }
+  });
+  assert.deepEqual(expansion.map(ability => [ability.kind, ability.effect?.kind ?? ability.replaces?.event]), [
+    ["static", "accelerate.cost"],
+    ["replacement", "object-enters-board"]
+  ]);
+
+  const kernel = world().unit("unit", { might: 3 }).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  const binder = createEngineStaticBinder(engine);
+  assert.throws(
+    () => binder.bindStatic(expansion[0], kernel.getObject("unit")),
+    error => error.code === "judge-required" && /accelerate\.cost has no layer mapping/.test(error.message)
+  );
+  assert.equal(typeof binder.bindReplacement(expansion[1], kernel.getObject("unit")).unbind, "function");
+});
+
+test("rad-162-167 Firelights' Hideout re-sweep: the Duration vocabulary still has no one-shot next-unit window", () => {
+  // The card's "this turn" lifetime is expressible, but the one-shot "next
+  // unit" window it scopes is not part of the merged duration vocabulary.
+  assert.equal(isDurationAlias("this-turn"), true);
+  assert.equal(isDurationAlias("next-unit"), false);
+  for (const candidate of ["next-unit-played", { type: "next-unit" }, { type: "until-next-unit" }]) {
+    assert.equal(isDurationAlias(candidate), false, JSON.stringify(candidate));
+  }
+});
 

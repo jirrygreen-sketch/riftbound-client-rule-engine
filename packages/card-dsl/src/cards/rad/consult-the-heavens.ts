@@ -24,12 +24,24 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - [Predict]（437.1 / 437.3.a / 437.4）：看牌库顶一张并选择是否回收它；数值省略时按 1 张。
  *   Predict 的查看 + 选择由 effect.inspect，回收由 effect.recycle，二者均已合入。
  *
- * status = judge-required（2026-10-17 源码复核）：
- * - Reaction 展开的 appliesTo:[card,activated-ability] 仍被 staticTarget 拒绝。
- * - combatRole 已存在于 ObjectSnapshot，expr-ext 也能把 designation 映射到它；
- *   但默认 expr.ts / programs/statics.ts 没有消费该扩展，Shield 展开仍读取 designation。
- * - continuous.grant-keyword 只授予 keyword 特征；生产生命周期尚不重新展开临时授予的
- *   Shield 并绑定它的条件 Might。还需真实战斗角色的生产与到期路径。
+ * status = judge-required（2026-10-18 第四轮源码复核，逐项实测）：
+ * 1. [Reaction] 的 continuous.timing 展开仍被 programs/statics.ts 的 staticTarget 拒绝
+ *    （appliesTo:[card,activated-ability] → "Unsupported static appliesTo"）。声明的
+ *    reaction 关键词本身仍让 describePlay 得到 speed "reaction"，链许可由
+ *    chain/engine.ts 的 canAct + layers/rules 的 canAct 判定，所以这一条只影响
+ *    layers 侧的许可登记，不改变打出速度。
+ * 2. [Shield 2] 的授予半段可执行（continuous.grant-keyword 注册 ability 图层效果），
+ *    但生产默认的 LayerEngine 根本不展开被授予的关键词：实测经真实解释器授予后
+ *    Shield 只停在 object.keywords，Might 保持印刷值（814.1.c 的 +2 不生效）。
+ *    RIFT-710 的 KeywordGrantLayerEngine 会展开并按 designation 条件求值
+ *    （实测 defender 时 Might 3→5，attacker/无角色时保持 3），但它不是生产默认
+ *    （ChainEngine 仍构造 LayerEngine，programs/lifecycle.ts 也绑到该引擎）。
+ * 3. combatRole 已存在于 ObjectSnapshot，expr-ext 也能把 designation 映射到它；
+ *    但没有任何生产方写入 combatRole（combat/flow.ts 在 staged combat 抛
+ *    combat-start-transaction），因此即便接线也无法在真实战斗里得到 defender。
+ * 4. 默认 LayerEngine 的 conditionMatches 对未实现的 compare 条件返回 true：实测
+ *    把 Shield 展开的条件 Might 直接注册到默认引擎时，defender/attacker/无角色都读到
+ *    +2（814.1.d.1 被违反）。若后续只把展开接进默认引擎而不接条件求值器，就会无条件加 Might。
  * Predict 的 zoneSlice + inspect/recycle 已通过真实 ChainEngine 验证，不能列作缺口。
  */
 const abilities: Ability[] = [
@@ -132,9 +144,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "(1) [Reaction]（CR 813.1.c）的 continuous.timing static 展开仍因 appliesTo:[card,activated-ability] 被 programs/statics.ts 拒绝为 Unsupported static appliesTo。" +
-    "(2) [Shield 2]（814.1.d.1）的 combatRole 已是 ObjectSnapshot 特征；但 Shield 展开读取 designation，" +
-    "expr-ext 的别名映射未接入默认表达式/静态条件求值。continuous.grant-keyword 还仅授予特征，缺临时 Shield 到条件 Might 展开的生命周期及战斗角色生产。" +
+    "(2026-10-18 第四轮复核实测) (1) [Reaction]（813.1.c）的 continuous.timing static 展开仍因 " +
+    "appliesTo:[card,activated-ability] 被 programs/statics.ts 拒绝为 Unsupported static appliesTo；" +
+    "reaction 关键词声明仍让 describePlay 得到 speed \"reaction\"，链许可走 chain/engine.ts 的 canAct + layers/rules。" +
+    "(2) [Shield 2]（814.1.c/814.1.d.1）的授予半段可执行，但生产默认 LayerEngine 不展开被授予的关键词：" +
+    "实测经真实解释器授予后 Shield 只停在 object.keywords，Might 保持印刷值，+2 不生效。" +
+    "RIFT-710 的 KeywordGrantLayerEngine 会展开并按 designation 求值（实测 defender Might 3→5，attacker/无角色保持 3），" +
+    "但不是生产默认（ChainEngine 仍构造 LayerEngine，programs/lifecycle.ts 也绑到它）。" +
+    "(3) 没有生产方写入 combatRole（combat/flow.ts 抛 combat-start-transaction），即便接线也没有真实 defender。" +
+    "(4) 默认 LayerEngine 的 conditionMatches 对未实现的 compare 条件返回 true：实测把展开的条件 Might 注册到默认引擎时，" +
+    "defender/attacker/无角色都读到 +2，违反 814.1.d.1。" +
     "zoneSlice/Predict 的 ChainEngine 查看、回收/保留路径已有执行证据，不是缺口。" +
     "目录的 cardType Unit 与法术式原文尚待 card-data 核实，本任务不改类型、原文或 null 印刷值。",
   abilities,

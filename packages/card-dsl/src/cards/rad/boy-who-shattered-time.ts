@@ -31,21 +31,25 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 135.2.e.5 / 163.2.b：减费值里的 :rb_rune_rainbow: 是 [A]（任意域）Power；
  *   费用计划用空领域列表表达通用 Power，绝不用某个域近似。
  *
- * status = judge-required（逐个保留证据，不近似实现）：
- * - [Empower] 的 KeywordDef、限制条件和 effect.empower 已合入；但
- *   KeywordAbility 仍只有 keyword/value 字段，不能承载契约 3.8.3 的 params.cost。
- *   本卡声明因此按默认 cost: { kind: "empower" } 展开，production
- *   describeActivate 在 Finalize 前以 “Unsupported cost kind empower” fail-closed；
- *   不能把 value: 1 当作印刷的 1 Energy + Exhaust，也不能在卡文件里重写关键词。
+ * status = judge-required（2026-10-18 第四轮复核，逐项实测，不近似实现）：
+ * - [Empower] 的 KeywordDef、限制条件和 effect.empower 仍已合入；但
+ *   KeywordAbility（ir/types.ts:481）仍只有 keyword/value，不能承载契约 3.8.3 的
+ *   params.cost。实测把 params.cost 注入该能力后 validateCardProgram 仍通过，但
+ *   programs/keywords.ts 的 expandProgram 一律调 def.expand({ value, host })，
+ *   展开出的 cost 仍是默认 { kind: "empower" }，production describeActivate 因此在
+ *   Finalize 前以 “Unsupported cost kind empower” fail-closed；不能把 value: 1 当作
+ *   印刷的 1 Energy + Exhaust，也不能在卡文件里重写关键词。
  * - 费用管线不接受 “Disempower me” 作为费用：cost/plan-values.ts 支持的支付种类只有
  *   energy / power / xp / exhaust / discard / recycle / kill / reveal / spend-buff，
  *   kind: "disempower" 会被 readCost 以 judge-required 拒绝（443 的 Disempower 是
  *   受限动作，不在费用管线里）；golden 锁定该拒绝证据；
- * - “下一张打出的单位”的减费窗口没有 cost.modify 的消费方；原语只为一个已知费用计划
- *   生成折扣后的 FinalizedCostPlan；
+ * - “下一张打出的单位”的减费窗口仍无消费方，而且本卡写下的 cost.modify 形状实测被
+ *   原语拒绝：runInstruction(cost.modify, args) 抛 “Invalid cost.modify argument:
+ *   appliesTo”（原语只收 id/source/cost/modifier(s) 等）。原语只为已知费用计划生成
+ *   折扣后的 FinalizedCostPlan，没有把折扣延迟绑定到本回合下一张单位的能力；
+ *   Duration 词汇实测也没有 “next-unit”（isDurationAlias("next-unit") === false）。
  * - “Kill me at end of turn.” 的临时能力授予与回合结束到期需要 continuous.grant-ability
- *   与延迟触发（现有持续效果指令只提供 might / grant-keyword / keyword / combat /
- *   movement / timing / restrict / location / deck，没有 grant-ability）；
+ *   与延迟触发：instructionDefinitionsById 实测 45 个已注册 op 里没有该 id。
  * - [A] 通用 Power 的数值本身已可由费用计划表达；真正缺的是把它绑定到下一张单位的费用窗口。
  */
 const abilities: Ability[] = [
@@ -120,18 +124,21 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "[Empower] 的 KeywordDef、未 Empowered 限制与 effect.empower 已合入（827.1.c / 442），" +
-    "但 KeywordAbility 仍只有 keyword/value，不能承载契约 3.8.3 的 params.cost；本卡按默认 " +
-    "cost: { kind: \"empower\" } 展开，production describeActivate 实测以 \"Unsupported cost kind empower\" fail-closed，" +
+    "(2026-10-18 第四轮复核实测) [Empower] 的 KeywordDef、未 Empowered 限制与 effect.empower 仍已合入（827.1.c / 442），" +
+    "但 KeywordAbility（ir/types.ts:481）仍只有 keyword/value，不能承载契约 3.8.3 的 params.cost。" +
+    "实测注入 params.cost 后 validateCardProgram 仍通过，但 programs/keywords.ts 的 expandProgram 只调 def.expand({ value, host })，" +
+    "展开出的 cost 仍是默认 { kind: \"empower\" }，production describeActivate 因此以 \"Unsupported cost kind empower\" fail-closed；" +
     "不能把 value: 1 当作印刷的 1 Energy + Exhaust，也不能在卡文件里重写关键词。" +
     "费用管线不接受 “Disempower me” 作为费用：cost/plan-values.ts 支持的支付种类只有 energy / power / xp / " +
     "exhaust / discard / recycle / kill / reveal / spend-buff，kind: \"disempower\" 会被 readCost 以 judge-required 拒绝" +
-    "（443 的 Disempower 是受限动作）。cost.modify 原语已合入，但仍缺“本回合下一张打出的单位”窗口的消费方，" +
+    "（443 的 Disempower 是受限动作）。" +
+    "「下一张打出的单位」的减费窗口仍无消费方，且本卡写下的 cost.modify 形状实测被原语拒绝" +
+    "（runInstruction 抛 \"Invalid cost.modify argument: appliesTo\"：原语只收 id/source/cost/modifier(s)）；" +
+    "Duration 词汇实测也没有 next-unit（isDurationAlias(\"next-unit\") === false）。" +
+    "「Kill me at end of turn.」需要 continuous.grant-ability 与回合结束到期（317.1.a / 135.4.b），" +
+    "已注册的 45 个 op 里没有该 id（instructionDefinitionsById 实测）。" +
     "减费值里的 [A]（135.2.e.5 / 163.2.b 任意域 Power）可由空领域的通用 Power 费用计划表达，不选一个域近似。" +
-    "“Kill me at end of turn.” 需要 continuous.grant-ability 与回合结束到期（317.1.a / 135.4.b 的临时能力授予与到期），" +
-    "已合入的持续效果指令清单里没有 grant-ability。" +
-    "依赖：KeywordAbility → KeywordDef.params.cost 的契约/绑定接线、下一张单位的费用窗口消费方、" +
-    "grant-ability 持续效果；不近似实现。",
+    "依赖：KeywordAbility → KeywordDef.params.cost 的契约/绑定接线、下一张单位的费用窗口消费方、grant-ability 持续效果；不近似实现。",
   abilities,
   sourceText:
     "[Empower] —  :rb_energy_1:, :rb_exhaust: (Use only if not Empowered.)\n" +

@@ -19,17 +19,25 @@ import type { CardProgram, TargetSpec } from "../../ir/index.js";
  *   - 本回合授予关键词需要带 end-of-turn 期限的 continuous.grant-keyword 持续效果
  *     （契约 3.4：关键词授予落在 ability 图层）。
  *
- * status = judge-required（不近似实现）：
+ * status = judge-required（2026-10-18 第四轮复核，逐项实测，不近似实现）：
  * 1. continuous.grant-keyword 原语已合入（RIFT-258），并且写在 args.objects 里的集合查询会
  *    经解释器解析 sameLocationAs 锚点（effects/interpreter/selectors.ts 的 queryObjects），
  *    因此「friendly units there」按所选战场筛选单位是可执行的——golden 用真实解释器
  *    执行该指令并断言只有该战场的友方单位拿到 [Shield 2]。
- * 2. 仍缺的是关键词授予之后的行为：Shield 的展开（effects/keywords/Shield.ts）是 continuous.might 静态效果
- *    + designation === "defender" 条件，而战斗系统尚未给 ObjectSnapshot 写入 defender 指定；
- *    即使授予已登记，+2 Might 也不会在任何战斗里生效（814.1.d）。
- * 3. 本卡是 play 正文指令，CardProgram static 能力的绑定不参与本卡结算。
+ * 2. 仍缺关键词授予之后的行为。生产默认的 LayerEngine 根本不展开被授予的关键词：
+ *    实测经真实解释器授予后 Shield 只停在 object.keywords，Might 保持印刷值，
+ *    814.1.c 的 +2 不生效。RIFT-710 的 KeywordGrantLayerEngine 会展开 Shield 并按
+ *    designation 条件求值（实测 defender +2、attacker/无角色不加），但它不是生产默认
+ *    （ChainEngine 仍构造 LayerEngine，programs/lifecycle.ts 也绑到该引擎）。
+ * 3. 默认 LayerEngine 的 conditionMatches 对未实现的 compare 条件返回 true：实测把 Shield
+ *    展开的条件 Might 直接注册到默认引擎时，defender/attacker/无角色都读到 +2，
+ *    违反 814.1.d.1。若只把展开接进默认引擎而不接条件求值器，+2 会无条件生效。
+ * 4. 战斗角色本身没有生产方：combat/flow.ts 在 staged combat 抛 combat-start-transaction，
+ *    因此即便接线也没有真实 defender 可用于 814.1.d 的判定。
+ * 5. 本卡是 play 正文指令，CardProgram static 能力的绑定不参与本卡结算。
  *
- * 依赖：Shield 的 defender designation 特征与图层条件求值（814.1.d）。
+ * 依赖：授予关键词的再展开接线（生产 LayerEngine 或等价生命周期）、图层条件求值器、
+ * 以及 combatRole 的战斗指定生产方（814.1.d）。
  * RIFT-681 的模板参数化 golden（test/cards/templates/
  * keyword-play-continuous-grant-keyword-681.test.mjs）经通用测试台真实执行 3 能量支付、
  * 战场筛选与 [Shield 2] 授予，并覆盖「所选战场没有友方单位」的边界。
@@ -39,13 +47,15 @@ const forDemacia = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "唯一未合入的依赖是 [Shield 2] 授予之后的行为（814.1.c/814.1.d.1）：战场筛选与本回合授予已可执行——" +
-    "continuous.grant-keyword 原语经通用测试台真实支付 3 能量、锁定所选战场，并由 sameLocationAs 集合查询" +
-    "断言只有该战场的友方单位在 ability 图层拿到 Shield 2 与 end-of-turn 期限（317.2.c）。" +
-    "缺的是 Shield 的展开：它要求 object-property(self, \"designation\") === \"defender\"，" +
-    "但生产 ObjectSnapshot 只有 combatRole（默认 null），layers 没有 designation 读取器，战斗系统也没有指定产生方，" +
-    "该 +2 Might 在真实图层计算里无法只在防御者状态下生效。" +
-    "依赖：814.1.d 的 designation 特征与战斗指定，以及 Shield 展开条件的图层求值。" +
+    "(2026-10-18 第四轮复核实测) 战场筛选与本回合授予仍可执行：continuous.grant-keyword 原语经通用测试台真实支付 3 能量、" +
+    "锁定所选战场，并由 sameLocationAs 集合查询断言只有该战场的友方单位在 ability 图层拿到 Shield 2 与 end-of-turn 期限（317.2.c）。" +
+    "仍缺的是 Shield 授予之后的行为（814.1.c/814.1.d.1）：" +
+    "(1) 生产默认 LayerEngine 不展开被授予的关键词——实测授予后 Shield 只停在 object.keywords，Might 保持印刷值，+2 不生效；" +
+    "RIFT-710 的 KeywordGrantLayerEngine 会展开并按 designation 求值（实测 defender +2、attacker/无角色不加），" +
+    "但不是生产默认（ChainEngine 仍构造 LayerEngine，programs/lifecycle.ts 也绑到它）；" +
+    "(2) 默认 LayerEngine 的 conditionMatches 对未实现的 compare 条件返回 true，实测把展开的条件 Might 注册到默认引擎时" +
+    "defender/attacker/无角色都读到 +2，违反 814.1.d.1；" +
+    "(3) combatRole 没有生产方（combat/flow.ts 抛 combat-start-transaction），即便接线也没有真实 defender。" +
     "战场按 170 / 170.7 / 355.10.a.1 是目标；受影响单位按 355.10.d 不是目标。[Reaction] 声明本身可校验，不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },

@@ -28,16 +28,23 @@ import type { CardProgram } from "../../ir/index.js";
  *   instruction depend on the grant (359.3.e.14: a linked instruction that
  *   references the granted object).
  *
- * Status: judge-required. 2026-10-17 recheck: the keyword-grant half is now
- * merged and executable (`continuous.grant-keyword` + Shield KeywordDef) and
- * is proven by the golden test, so that gap is deleted. One gap remains, not
+ * Status: judge-required. 2026-10-18 fourth recheck: the keyword-grant half is
+ * merged and executable (`continuous.grant-keyword`), and two gaps remain, not
  * approximated:
  * - no expression reads a keyword's value: ObjectSnapshot.keywords is a list of
  *   { id, value } entries (814.1.b.2 Shield Value, 814.2 summed instances) and
  *   the frozen Expr forms only read snapshot properties, so "damage equal to
- *   its [Shield]" has no expression form. Reading `keywords` as an amount is
- *   not interchangeable: it yields the list, and effect.damage requires a
- *   number. The pending effect.shield-value op records the missing read.
+ *   its [Shield]" has no expression form. Measured: reading
+ *   object-property(self, "shield") throws MissingInformation (no such
+ *   characteristic) and reading `keywords` yields the list, which
+ *   effect.damage needs as a number. The pending effect.shield-value op is
+ *   still unregistered (45 registered ops, none is it).
+ * - the granted Shield's functional text is not consumed on the production
+ *   path: the default LayerEngine performs no KeywordDef expansion, so the
+ *   granted Shield never becomes the +2 Might of 814.1.c (the merged
+ *   KeywordGrantLayerEngine does expand it and honours the designation gate,
+ *   but it is not the engine ChainEngine constructs and is not what
+ *   programs/lifecycle.ts binds statics to).
  * The damage instruction's target structure (one enemy unit, 355.7) and its
  * linkage to the grant are expressed.
  */
@@ -46,13 +53,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "2026-10-17 复核：授予半段已可执行（continuous.grant-keyword（RIFT-258）+ Shield KeywordDef），" +
-    "不再列为缺口。当前只剩一处缺口，不近似实现：" +
-    "「deal damage equal to its [Shield]」需要读取关键词数值：ObjectSnapshot.keywords 是 { id, value } 列表，" +
-    "814.2 规定多个 Shield 实例相加成单一 Shield Value，而冻结的 Expr 形式只能读快照属性，没有读取关键词数值的表达式，" +
-    "把 keywords 当 amount 读只能得到列表（effect.damage 需要数值，实测 negated/impossible），" +
-    "已在数据里记下待补的 effect.shield-value（registry 未注册该 op）。" +
-    "依赖：读取 ObjectSnapshot.keyword value 的表达式或原语；不近似实现。",
+    "(2026-10-18 第四轮复核实测) 授予半段已可执行（continuous.grant-keyword（RIFT-258））。两处当前缺口，不近似实现：" +
+    "(1)「deal damage equal to its [Shield]」需要读取关键词数值：ObjectSnapshot.keywords 是 { id, value } 列表，" +
+    "814.2 规定多个 Shield 实例相加成单一 Shield Value，而冻结的 Expr 形式只能读快照属性；" +
+    "实测 object-property(self, \"shield\") 抛 MissingInformation（快照无该特征），把 keywords 当 amount 读只能得到列表，" +
+    "effect.damage 需要数值（实测 negated/impossible）；已注册的 45 个 op 里没有 effect.shield-value。" +
+    "(2) 生产默认 LayerEngine 不展开被授予的关键词，授予的 Shield 不会变成 814.1.c 的 +2 Might；" +
+    "RIFT-710 的 KeywordGrantLayerEngine 会展开并按 designation 求值，但不是 ChainEngine 构造的引擎，" +
+    "programs/lifecycle.ts 绑定的也不是它。" +
+    "依赖：读取 ObjectSnapshot.keyword value 的表达式或原语，以及授予关键词的再展开接线；不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

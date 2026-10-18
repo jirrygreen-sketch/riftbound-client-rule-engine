@@ -19,6 +19,7 @@ import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { expandEffectiveKeywords, KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 /** Minimal engine so the production static binder can be exercised directly. */
@@ -64,15 +65,18 @@ test("rad-025-167 Consult the Heavens: identity, status, judgeReason and verbati
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.ok(program.judgeReason.includes("combatRole"));
-  assert.ok(program.judgeReason.includes("expr-ext"));
-  assert.ok(program.judgeReason.includes("生命周期"));
-  // README §2: Reaction timing and Defender designation remain blocked;
-  // Predict now has an ordered source consumed by the real chain.
+  // README §2: Reaction timing and the granted-Shield lifecycle remain blocked.
+  // The merged re-expansion engine exists but is not the production layer
+  // engine, and the default engine's condition matcher ignores the Shield
+  // comparison. Predict now has an ordered source consumed by the real chain.
   assert.match(program.judgeReason, /Reaction/);
   assert.match(program.judgeReason, /Unsupported static appliesTo/);
   assert.match(program.judgeReason, /zoneSlice/);
   assert.match(program.judgeReason, /ChainEngine/);
   assert.match(program.judgeReason, /814\.1\.d\.1/);
+  assert.match(program.judgeReason, /RIFT-710/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /conditionMatches/);
   assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   // The reported catalog data issue is recorded in the program header, not by
   // rewriting the text: this printing is catalogued as a Unit with no Might.
@@ -383,3 +387,107 @@ test.todo(
   "Consult the Heavens: data issue (not changed) — the local catalog records printing rad-025-167 as cardType Unit with energy 1 / " +
     "power null / might null while its text is spell-shaped ([Reaction]/[Predict]), unlike the sibling rad-034-167 Hunker Down (Spell)"
 );
+
+// --- 2026-10-18 re-sweep: measured production gaps for the two blocked halves ---
+test("Consult the Heavens re-sweep: the production layer engine never expands the granted Shield, so the +2 never lands", () => {
+  // The grant itself executes: continuous.grant-keyword registers an
+  // ability-layer effect and the keyword reaches object.keywords. The
+  // production LayerEngine, however, does not run KeywordDef expansion, so
+  // Shield's functional text (814.1.c, +2 Might while a defender) never
+  // becomes an arithmetic effect.
+  const kernel = world()
+    .unit("hero", { zone: "board", controller: "A", might: 3, combatRole: "defender" })
+    .unit("src", { zone: "board", controller: "A" })
+    .build();
+  kernel.setTargets("consult-the-heavens.unit", [kernel.ref("hero")]);
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("src") });
+
+  const outcome = runAbilityBody([grantShield], scoped);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["consult-the-heavens.grant-shield", "executed"]
+  ]);
+
+  const entries = scoped.continuousEffects.map(entry => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 }));
+  const engine = createLayerEngine(scoped.objects, entries);
+  const snapshot = engine.evaluate(scoped.ref("hero"));
+  // The keyword is registered...
+  assert.deepEqual(snapshot.keywords, [{ id: "shield", value: 2 }]);
+  // ...but the Might stays at its printed value for a defender.
+  assert.equal(snapshot.might, 3);
+  // No KeywordDef expansion is produced on this path at all.
+  assert.deepEqual(expandEffectiveKeywords(scoped.getObject("hero")).abilities, []);
+});
+
+test("Consult the Heavens re-sweep: the merged re-expansion engine honours the defender gate, but is not the production engine", () => {
+  // RIFT-710's KeywordGrantLayerEngine expands the granted Shield through its
+  // KeywordDef and evaluates the designation condition against combatRole:
+  // a defender gains +2, everyone else does not. The reason this still is not
+  // usable in production is the wiring — ChainEngine constructs the plain
+  // LayerEngine and programs/lifecycle.ts binds statics to that engine.
+  for (const [combatRole, expectedMight] of [["defender", 5], ["attacker", 3], [null, 3]]) {
+    const kernel = world()
+      .unit("hero", { zone: "board", controller: "A", might: 3, combatRole })
+      .unit("src", { zone: "board", controller: "A" })
+      .build();
+    kernel.setTargets("consult-the-heavens.unit", [kernel.ref("hero")]);
+    const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("src") });
+    assert.equal(runAbilityBody([grantShield], scoped).status, "executed");
+
+    const layers = new KeywordGrantLayerEngine(scoped.objects, {
+      context: source => bindResolveContext(scoped, { source, controller: source.controller })
+    });
+    for (const entry of scoped.continuousEffects) layers.addContinuous(entry.effect, entry.duration);
+
+    const snapshot = layers.evaluate(scoped.ref("hero"));
+    assert.deepEqual(snapshot.keywords, [{ id: "Shield", value: 2 }]);
+    assert.equal(snapshot.might, expectedMight, "combatRole=" + combatRole);
+    assert.deepEqual(
+      layers.keywordAbilities(scoped.ref("hero")).map(ability => [ability.effect.kind, ability.effect.amount]),
+      [["continuous.might", { kind: "constant", value: 2 }]]
+    );
+  }
+
+  const kernel = world().player("A").player("B").unit("src", { zone: "board", controller: "A" }).build();
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host: createActionPipelineHost({
+      checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+      restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+      objects: () => kernel.objects,
+      perform: action => kernel.perform(action),
+      choose: request => kernel.choose(request),
+      context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+    }),
+    cleanup: () => false
+  });
+  assert.equal(engine.layers.constructor.name, "LayerEngine");
+});
+
+test("Consult the Heavens re-sweep: the default condition matcher ignores the Shield comparison and would add Might for every role", () => {
+  // layers/engine.ts conditionMatches only implements always/never/type/
+  // has-tag/has-keyword and returns true for anything else. Registering the
+  // expanded Shield Might on that engine therefore loses the 814.1.d.1
+  // defender gate entirely: every role reads +2.
+  const [shieldMight] = keywordDefinitionsById.get("Shield").expand({ value: 2, host: { canonicalCardId: CANONICAL } });
+  for (const combatRole of ["defender", "attacker", null]) {
+    const kernel = world().unit("hero", { zone: "board", controller: "A", might: 3, combatRole }).build();
+    const engine = createLayerEngine(kernel.objects, [{
+      effect: {
+        id: "shield-might",
+        layer: "arithmetic",
+        source: kernel.ref("hero"),
+        filter: { objectId: "hero", zone: "board" },
+        effect: {
+          ...shieldMight.effect,
+          amount: shieldMight.effect.amount.value,
+          condition: shieldMight.condition
+        }
+      },
+      duration: { type: "permanent" }
+    }]);
+    assert.equal(engine.evaluate(kernel.ref("hero")).might, 5, "combatRole=" + combatRole);
+  }
+});

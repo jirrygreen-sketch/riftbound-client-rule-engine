@@ -16,6 +16,9 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { expandEffectiveKeywords, KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL = "card.hash-88b2b6a8fd884959d1de40824d4d5035cc609570087e598ecc6e808b8b3cc790";
 const SOURCE_TEXT =
@@ -182,36 +185,111 @@ test("For Demacia! golden: the granted Shield really lands in the ability layer 
   );
 });
 
-test("For Demacia! golden: the granted Shield cannot be honoured as printed yet (814.1.d)", () => {
+test("For Demacia! golden: the default layer engine ignores the Shield designation condition", () => {
   // Shield's merged expansion (effects/keywords/Shield.ts) is a
   // continuous.might static ability gated on `designation === "defender"`.
-  // The merged arithmetic layer ignores that Compare condition (layers/engine.ts
-  // conditionMatches only implements always/never/type/has-tag/has-keyword), so
-  // the +2 Might would apply unconditionally: 814.1.d has no consumer. This
-  // pins the actual current behaviour instead of assuming the grant works.
-  const shielded = unit("allyHere", { keywords: [{ id: "Shield", value: 2 }], might: 2 });
-  const spec = {
-    id: "shield",
-    layer: "arithmetic",
-    source: shielded.ref,
-    filter: { objectId: "allyHere" },
-    effect: {
-      kind: "continuous.might",
-      mode: "add",
-      appliesTo: "self",
-      amount: { kind: "constant", value: 2 }
-    },
-    condition: {
-      kind: "compare",
-      left: { kind: "object-property", object: "self", property: "designation" },
-      operator: "eq",
-      right: { kind: "constant", value: "defender" }
-    }
-  };
-  const engine = createLayerEngine([shielded], [{ effect: spec, duration: { type: "permanent" } }]);
-  // The condition is not evaluated, so the +2 lands even without a defender
-  // designation — the reason the card stays judge-required.
-  assert.equal(engine.evaluate(shielded.ref).might, 4);
+  // layers/engine.ts conditionMatches only implements
+  // always/never/type/has-tag/has-keyword and returns true for any other
+  // condition, so the +2 Might lands for every combat role. This pins the
+  // actual current behaviour instead of assuming the gate holds.
+  const [shieldMight] = keywordDefinitionsById.get("Shield").expand({
+    value: 2,
+    host: { canonicalCardId: CANONICAL }
+  });
+  assert.deepEqual(shieldMight.condition, {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "designation" },
+    operator: "eq",
+    right: { kind: "constant", value: "defender" }
+  });
+
+  for (const combatRole of ["defender", "attacker", null]) {
+    const shielded = unit("allyHere", { keywords: [{ id: "Shield", value: 2 }], might: 2, combatRole });
+    const spec = {
+      id: "shield",
+      layer: "arithmetic",
+      source: shielded.ref,
+      filter: { objectId: "allyHere" },
+      effect: {
+        ...shieldMight.effect,
+        amount: shieldMight.effect.amount.value,
+        condition: shieldMight.condition
+      }
+    };
+    const engine = createLayerEngine([shielded], [{ effect: spec, duration: { type: "permanent" } }]);
+    // The condition is never evaluated, so the +2 lands even without the
+    // Defender designation — the reason the card stays judge-required.
+    assert.equal(engine.evaluate(shielded.ref).might, 4, "combatRole=" + combatRole);
+  }
+});
+
+/**
+ * The card's own play body, resolved against a real board with the concrete
+ * controller substituted for the one relative-player spelling the reference
+ * kernel compares literally (the production chain context does this in
+ * chain/engine.ts; the fixtures above already rely on the same override).
+ */
+function grantedShieldBoard(combatRole) {
+  const kernel = world()
+    .unit("bf", { types: ["battlefield"], location: { type: "battlefield", id: "bf-9" } })
+    .unit("allyHere", { might: 2, location: { type: "battlefield", id: "bf-9" }, ...(combatRole === undefined ? {} : { combatRole }) })
+    .unit("allyElsewhere", { might: 2, location: { type: "battlefield", id: "bf-1" } })
+    .unit("foeHere", { owner: "B", controller: "B", might: 5, location: { type: "battlefield", id: "bf-9" } })
+    .build();
+  const raw = kernel.query.bind(kernel);
+  kernel.query = filter => raw({
+    ...filter,
+    ...(filter.controller === "self" ? { controller: "A" } : {}),
+    ...(filter.controller === "opponent" ? { controller: "B" } : {})
+  });
+  kernel.setTargets("for-demacia.battlefield", [kernel.ref("bf")]);
+  return kernel;
+}
+
+test("For Demacia! re-sweep: the production engine never expands the granted Shield, so the +2 never lands", () => {
+  // The grant itself executes on the merged primitive: the keyword reaches the
+  // ally's keyword list with its value. But the production LayerEngine performs
+  // no KeywordDef expansion, so Shield's functional text (814.1.c) never
+  // becomes an arithmetic effect and the Might stays printed.
+  const kernel = grantedShieldBoard("defender");
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.equal(outcome.status, "executed");
+
+  const entries = kernel.snapshot().continuous.map(entry => ({ effect: entry.effect, duration: entry.duration }));
+  assert.equal(entries.length, 1);
+  const engine = createLayerEngine(kernel.query({}), entries);
+  const ally = engine.evaluate(kernel.ref("allyHere"));
+  assert.deepEqual(ally.keywords, [{ id: "Shield", value: 2 }]);
+  assert.equal(ally.might, 2);
+  // The unit is a defender and still gets nothing back from a fresh evaluation.
+  assert.deepEqual(expandEffectiveKeywords(kernel.getObject("allyHere")).abilities, []);
+});
+
+test("For Demacia! re-sweep: the merged re-expansion engine honours the defender gate, but is not the production engine", () => {
+  // RIFT-710's KeywordGrantLayerEngine expands the granted Shield and evaluates
+  // its designation condition against combatRole: a defender gains +2, an
+  // attacker and a unit outside combat do not. Production is not wired to that
+  // engine (ChainEngine constructs the plain LayerEngine; programs/lifecycle.ts
+  // binds statics to it), and combatRole still has no combat producer.
+  for (const [combatRole, expected] of [["defender", 2], ["attacker", 0], [null, 0]]) {
+    const kernel = grantedShieldBoard(combatRole);
+    assert.equal(resolveChainBody(play.body, kernel).status, "executed");
+    assert.deepEqual(kernel.snapshot().continuous.map(entry => entry.effect.filter), [
+      { objectId: "allyHere", zone: "board", zoneEntryId: 1 }
+    ]);
+
+    const context = source => bindResolveContext(kernel, { source, controller: source.controller });
+    const layers = new KeywordGrantLayerEngine(kernel.query({}), { context });
+    for (const entry of kernel.snapshot().continuous) layers.addContinuous(entry.effect, entry.duration);
+
+    const ally = layers.evaluate(kernel.ref("allyHere"));
+    assert.deepEqual(ally.keywords, [{ id: "Shield", value: 2 }]);
+    assert.equal(ally.might - 2, expected, "combatRole=" + combatRole);
+    // The battlefield by-stander and the opponent never qualify.
+    assert.equal(layers.evaluate(kernel.ref("allyElsewhere")).might, 2);
+    assert.equal(layers.evaluate(kernel.ref("foeHere")).might, 5);
+    assert.deepEqual(layers.evaluate(kernel.ref("foeHere")).keywords, []);
+  }
 });
 
 test.todo(
