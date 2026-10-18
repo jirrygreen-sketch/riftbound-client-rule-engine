@@ -56,7 +56,7 @@ test("sfd-092-221 Combat Chef: judgeReason names the missing cost opcodes and de
   assert.match(program.judgeReason, /Weaponmaster/);
   assert.match(program.judgeReason, /821\.1\.c\.2/);
   assert.match(program.judgeReason, /821\.1\.c\.3/);
-  assert.match(program.judgeReason, /judgeRequired/);
+  assert.match(program.judgeReason, /judge-required/);
   assert.match(program.judgeReason, /Unsupported payment kind/);
   assert.match(program.judgeReason, /params\.cost/);
   assert.doesNotMatch(program.judgeReason, /RIFT-261|RIFT-257/);

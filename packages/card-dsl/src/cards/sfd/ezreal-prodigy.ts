@@ -19,7 +19,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   在该组件加入费用时应用（356.4.c 的示例正是本卡）；356.4.f.1 规定"可选附加费用是否已付"
  *   看的是玩家做出的支付决定。"[A]" 是 163.2.b 的 Universal Power（任意域力量）。
  *
- * Status: judge-required. The discard/draw body executes with merged primitives.
+ * Status: judge-required (2026-10-18 re-check). The discard/draw body executes with merged primitives.
  * cost.modify and buildCostPlan already support discounts on selected optional
  * components and retain the decision to pay even for a zero total (356.4.f.1).
  * The missing adapter is the static scope: programs/statics.ts cannot bind
@@ -75,7 +75,12 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "弃 1 抽 2 已由 effect.discard/effect.draw 真实执行。静态减费仍缺入口：programs/statics.ts 的 layerFor 不识别 continuous.cost-modification，staticTarget 也不接受 optional-additional-costs-you-pay；所以卡面不能向 Finalize 注册该折扣。cost.modify 和 buildCostPlan 已支持按组件 ID 折扣，optionalAdditional 也保留支付决定（356.4.c/356.4.f.1），但没有把本卡的可选附加费用范围和每次 energy 或 power 的选择编译为相应 CostPlanInput.discounts 的适配器。163.2.b 的 [A] 作为此处 Power 减费不需要伪造具名域：CostDiscount.resource=power 已可减少 Power 需求；这不等于产生 Universal Power 资源。剩余依赖是 static → 可选附加费用组件折扣的绑定，整卡 judge-required。",
+    "当前唯一阻断是 static → 可选附加费用组件折扣的生产绑定（2026-10-18 实测，CR 356.4/356.4.c/356.4.f.1）：弃 1 抽 2 已由 effect.discard/effect.draw 真实执行；" +
+    "cost/discounts/collect.ts、cost.modify 和 buildCostPlan 已支持按组件 ID 收集折扣、在 CostPlanInput.discounts 的 selected optionalAdditional 上展开本卡范围，" +
+    "并对 Energy / Universal Power（163.2.b）两种减费分支做真实选择。生产 programs/statics.ts 的 layerFor 仍不识别 " +
+    "continuous.cost-modification，staticTarget 也不接受 optional-additional-costs-you-pay，chain/engine.ts 因而不会在 Finalize " +
+    "把本卡静态声明和可选费用决定交给该收集器。Power 减费是费用需求的减少，不需要伪造一个 Universal Power 资源；" +
+    "在该静态绑定接线合入前整卡保持 judge-required。",
   abilities,
   sourceText:
     "When you play me, discard 1, then draw 2.\n" +

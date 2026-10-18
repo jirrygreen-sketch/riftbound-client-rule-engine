@@ -27,7 +27,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 435.1 / 435.1.f-g："attach it to me" 是 Attach 动作，附着宿主是本单位（"me"）。
  * - 150.1 / 150.4：Equipment 是 Gear 上的标签；"If it's an Equipment" 是对被移动 gear 的标签判定。
  *
- * 当前复核：保持 judge-required；具体未接通路径见 judgeReason。
+ * 当前复核（2026-10-18，逐项实测）：保持 judge-required；具体未接通路径见 judgeReason。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "weaponmaster" },
@@ -160,10 +160,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "可选附加费用（356.2.b/356.2.b.1）未接通：static cost.additional 在 programs/statics.ts 的 layerFor 没有图层映射（\"Static ability kind cost.additional has no layer mapping\"），" +
-    "programs/play.ts 的 translateCost 也拒绝 additional 字段，故费用进不了 Finalize 的 optionalAdditional；356.4.f.1 的支付决定回执同样没有 CardProgram Condition 可读，不能无条件移动敌方装备。" +
-    "effect.control 对 duration { type: \"while-source-in-zone\" } 仍以 negated/impossible + blockedReason 返回（缺 479.2.a/482.3 的持续控制到期与最后控制者恢复；359.3.e.16 的官方例子正是本卡）。" +
-    "Weaponmaster 仍缺权威 Equip 费用绑定与原始 [A] 符号来源：cost.modify 的 reduce-equip-cost 与 source-目标形态都主动抛 CostFailure judge-required（821.1.c.2-.3 的 [A] 不可由 allowedDomains 还原），不能用装备的打出费或普通 Power 折扣代替。",
+    "三处当前缺口（2026-10-18 实测；均不近似实现）:" +
+    "（1）可选附加费用（356.2.b/356.2.b.1）仍未接通：programs/statics.ts 的 layerFor 对 static cost.additional 抛出 " +
+    "\"Static ability kind cost.additional has no layer mapping\"，programs/play.ts 的 translateCost 也拒绝 additional / " +
+    "additional-cost 字段；因此费用不能进入 Finalize 的 optionalAdditional，356.4.f.1 的支付决定也没有 CardProgram 回执可读，" +
+    "触发体不能无条件移动敌方装备。" +
+    "（2）effect.control 对 duration { type: \"while-source-in-zone\" } 仍返回 negated/impossible + blockedReason，缺 479.2.a/482.3 的持续控制到期与底层控制者恢复；359.3.e.16 的官方例子正是本卡。" +
+    "（3）Weaponmaster 的 Equip 费用仍无权威绑定：cost.modify 的 reduce-equip-cost 对 source/装备对象形态抛 CostPlanError judge-required（821.1.c.2-.3 的 [A] 不能由普通 allowedDomains 折扣还原），且 cost/plan-values.ts 的 equip payment 仍无读取路径；不能用装备的打出费或普通 Power 折扣代替。",
   abilities,
   sourceText:
     "[Weaponmaster]\n" +
