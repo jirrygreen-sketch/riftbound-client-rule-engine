@@ -7,7 +7,9 @@ import divineJudgment from "../../../card-dsl/dist/cards/ogn/divine-judgment.js"
 import downwell from "../../../card-dsl/dist/cards/sfd/downwell.js";
 import reinforce from "../../../card-dsl/dist/cards/ogn/reinforce.js";
 import banish from "../../dist/effects/instructions/effect.banish.js";
+import recycle from "../../dist/effects/instructions/effect.recycle.js";
 import recycleRest from "../../dist/effects/instructions/effect.recycle-rest.js";
+import zone from "../../dist/effects/instructions/effect.zone.js";
 import { instructionDefinitionsById } from "../../dist/effects/instructions/registry.generated.js";
 import { AwaitChoice, runInstruction, world } from "../../dist/effects/testing/index.js";
 import { cardProgram, fixture, settle } from "../rules/keywords/support.mjs";
@@ -178,8 +180,8 @@ test("EG-ZONES recycle-rest original Divine Judgment args recycle the current co
       builder.unit("rest-unit", { location: field("one") });
       builder.object("kept-gear", { types: ["gear"], zone: "board", location: field("one") });
       builder.object("rest-gear", { types: ["gear"], zone: "board", location: field("one") });
-      builder.hand("kept-hand", { types: ["card"] });
-      builder.hand("rest-hand", { types: ["card"] });
+      builder.hand("kept-hand", { types: ["spell"] });
+      builder.hand("rest-hand", { types: ["unit"] });
       builder.object("kept-rune", { types: ["rune"], zone: "rune-zone" });
       builder.object("rest-rune", { types: ["rune"], zone: "rune-zone" });
     },
@@ -193,6 +195,55 @@ test("EG-ZONES recycle-rest original Divine Judgment args recycle the current co
   assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id).filter(id => id.startsWith("rest-")).sort(), ["rest-gear", "rest-hand", "rest-unit"]);
   assert.deepEqual(f.kernel.zone("A", "rune-deck").map(ref => ref.id).filter(id => id === "rest-rune"), ["rest-rune"]);
   assert.deepEqual(run.linked.recycledRest.map(ref => ref.id).sort(), ["rest-gear", "rest-hand", "rest-rune", "rest-unit"]);
+});
+
+test("EG-ZONES recycle-rest refuses a missing kept receipt instead of recycling the whole set", () => {
+  const kernel = world().unit("unit").build();
+  const before = kernel.stateForTest();
+  const run = runInstruction(recycleRest, {
+    keptKey: c("missing-kept"),
+    zones: c([{ zone: "board", types: ["unit"] }]),
+  }, { world: kernel });
+  assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
+  assert.deepEqual(kernel.stateForTest(), before);
+});
+
+test("EG-ZONES recycle-rest treats an explicit empty kept collection as a valid full complement", () => {
+  const kernel = world().unit("unit").build();
+  const run = runInstruction(recycleRest, {
+    keptKey: c("empty-kept"),
+    zones: c([{ zone: "board", types: ["unit"] }]),
+  }, { world: kernel, linked: { "empty-kept": [] } });
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(run.linked.recycledRest.map(ref => ref.id), ["unit"]);
+  assert.equal(kernel.getObject("unit").zone, "deck");
+});
+
+test("EG-ZONES recycle and zone preserve partial actual results after a replacement", () => {
+  const recycleWorld = world().card("blocked", { zone: "trash" }).card("moved", { zone: "trash" }).build();
+  recycleWorld.addReplacement(action => action.type === "recycle" && action.object.id === "blocked" ? "replaced" : null);
+  const recycled = runInstruction(recycle, {
+    objects: c([recycleWorld.ref("blocked"), recycleWorld.ref("moved")]),
+    linkKey: c("actual"),
+  }, { world: recycleWorld });
+  assert.equal(recycled.result.status, "negated");
+  assert.equal(recycled.result.reason, "replaced");
+  assert.deepEqual(recycled.linked.actual.map(ref => ref.id), ["moved"]);
+  assert.equal(recycleWorld.getObject("blocked").zone, "trash");
+  assert.equal(recycleWorld.getObject("moved").zone, "deck");
+
+  const zoneWorld = world().unit("blocked").unit("moved").build();
+  zoneWorld.addReplacement(action => action.type === "return-to-hand" && action.object.id === "blocked" ? "prevented" : null);
+  const zoneRefs = [zoneWorld.ref("blocked"), zoneWorld.ref("moved")];
+  const moved = runInstruction(zone, {
+    objects: c({ linked: "selected" }),
+    to: c("hand"),
+  }, { world: zoneWorld, linked: { selected: zoneRefs } });
+  assert.equal(moved.result.status, "negated");
+  assert.equal(moved.result.reason, "impossible");
+  assert.deepEqual(moved.linked.movedObjects.map(ref => ref.id), ["moved"]);
+  assert.equal(zoneWorld.getObject("blocked").zone, "board");
+  assert.equal(zoneWorld.getObject("moved").zone, "hand");
 });
 
 test("EG-ZONES recycle-rest preserves stale kept refs and a replacement result without reviving them", () => {
@@ -216,6 +267,36 @@ test("EG-ZONES malformed selectors and stale zone entries fail closed before mut
   const before = kernel.stateForTest();
   assert.throws(() => recycleRest.argsSchema.parse({ keptKey: c("kept"), zones: c([{ zone: "limbo" }]) }), /invalid zone/);
   assert.throws(() => recycleRest.argsSchema.parse({ keptKey: c("kept"), zones: c([{ zone: "board", types: [1] }]) }), /types/);
+  assert.deepEqual(kernel.stateForTest(), before);
+});
+
+test("EG-ZONES recycle from a multi-owner zone asks the controller and routes each owner's card to its own deck", () => {
+  const kernel = world()
+    .card("own", { zone: "trash", owner: "A", types: ["unit"] })
+    .card("enemy", { zone: "trash", owner: "B", types: ["unit"] })
+    .build();
+  const args = { from: { zone: "trash", owner: "all", amount: c(1) } };
+  const asked = runInstruction(recycle, args, { world: kernel });
+  assert.ok(asked.asked instanceof AwaitChoice);
+  assert.equal(asked.asked.request.chooser, "A");
+  assert.deepEqual(asked.asked.request.options.map(ref => ref.id).sort(), ["enemy", "own"]);
+  const answer = [asked.asked.request.options.find(ref => ref.id === "enemy")];
+  const run = runInstruction(recycle, args, {
+    world: kernel,
+    answers: { [asked.asked.request.id]: answer },
+  });
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.zone("A", "deck").some(ref => ref.id === "enemy"), false);
+  assert.equal(kernel.zone("B", "deck").some(ref => ref.id === "enemy"), true);
+  assert.equal(kernel.zone("A", "trash").some(ref => ref.id === "own"), true);
+});
+
+test("EG-ZONES recycle from rejects a fractional request before asking or mutating", () => {
+  const kernel = world().card("card", { zone: "trash" }).build();
+  const before = kernel.stateForTest();
+  assert.throws(() => runInstruction(recycle, {
+    from: { zone: "trash", amount: c(1.5) },
+  }, { world: kernel }), /non-negative safe integer/);
   assert.deepEqual(kernel.stateForTest(), before);
 });
 

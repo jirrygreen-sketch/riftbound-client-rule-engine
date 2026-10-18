@@ -108,11 +108,11 @@ function parseArgs(value: unknown): RecycleRestArgs {
   };
 }
 
-function linkedRefs(value: Value | undefined): ObjectRef[] {
-  if (Array.isArray(value)) return value.filter(isRef);
+function linkedRefs(value: Value | undefined): ObjectRef[] | null {
+  if (Array.isArray(value)) return value.every(isRef) ? value : null;
   if (isRef(value)) return [value];
-  if (isRecord(value) && Array.isArray(value.objects)) return value.objects.filter(isRef);
-  return [];
+  if (isRecord(value) && Array.isArray(value.objects)) return value.objects.every(isRef) ? value.objects : null;
+  return null;
 }
 
 function refKey(ref: ObjectRef): string {
@@ -121,7 +121,8 @@ function refKey(ref: ObjectRef): string {
 
 function matchesZone(snapshot: ObjectSnapshot, zone: RecycleRestZone): boolean {
   return snapshot.zone === zone.zone &&
-    (zone.types === undefined || zone.types.some(type => snapshot.types.includes(type)));
+    (zone.types === undefined || zone.types.some(type =>
+      type === "card" ? !snapshot.isToken && snapshot.cardId !== null : snapshot.types.includes(type)));
 }
 
 function refValue(ref: ObjectRef): Value {
@@ -143,9 +144,7 @@ export default {
     const zones = parseZones(ctx.evaluate(args.zones));
     const keptValue = ctx.linked(keptKey);
     const keptRefs = linkedRefs(keptValue);
-    const hasKeptInput = Array.isArray(keptValue) || isRef(keptValue) ||
-      isRecord(keptValue) && Array.isArray(keptValue.objects);
-    if (hasKeptInput && keptRefs.length === 0) {
+    if (keptRefs === null) {
       return { status: "ignored", reason: "mistargeted" };
     }
     const kept = new Set(keptRefs.map(refKey));

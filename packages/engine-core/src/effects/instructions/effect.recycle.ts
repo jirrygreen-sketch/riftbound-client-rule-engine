@@ -186,10 +186,10 @@ function flattenObjectRefs(value: unknown): ObjectRef[] {
 }
 
 function requestAmount(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error("effect.recycle from.amount must evaluate to a finite number");
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error("effect.recycle from.amount must evaluate to a non-negative safe integer");
   }
-  return Math.max(0, Math.floor(value));
+  return value;
 }
 
 /** Live (still valid) references among the candidates, in the given order. */
