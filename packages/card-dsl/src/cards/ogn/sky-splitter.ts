@@ -12,22 +12,18 @@ import type { CardProgram } from "../../ir/index.js";
  * Catalog evidence (packages/card-data/data/deck-catalog.json, dataVersion
  * 2026-10-12-official-gallery): energy 8, power 1 (Fury), might null, tags [].
  *
- * Status: judge-required. The damage body executes; two cost dependencies remain:
- * - "This spell's Energy cost is reduced by ..." is a discount applied while the
- *   spell is being played, not an instruction that resolves on the chain
- *   (356.4.b: "reduced by [amount]"; 356.4.d orders total-cost discounts after
- *   component discounts). `cost.modify` and `buildCostPlan` apply supplied
- *   discounts, but `programs/play.ts` only translates the play ability's cost;
- *   it does not collect this static ability into `CostPlanInput.discounts`.
- *   `programs/lifecycle.ts` binds statics on Board entry, and the layer binder
- *   has no cost.modify mapping. This spell needs its own discount during
- *   Finalize while being played from Hand, not an on-Board layer effect.
- * - The discount amount is an aggregate over a filtered set: "the highest Might
- *   among units you control". The frozen IR has `count` plus arithmetic over
- *   explicit operands (including arithmetic.max), but no collection aggregate.
+ * Status: judge-required (rechecked 2026-10-18). The damage body and numeric
+ * cost planner execute; two production cost dependencies remain:
+ * - the merged `finalizeCostPlan` collector is not called by the default
+ *   CardProgram/Chain Finalize path for a spell's own static discount. The
+ *   play translator still supplies only the declared base cost, so the static
+ *   self-discount never reaches `CostPlanInput.discounts` while this card is
+ *   played from Hand.
+ * - the discount amount is an aggregate over a filtered set: "the highest
+ *   Might among units you control". The collector evaluates `count` and
+ *   arithmetic expressions, but has no collection aggregate that reads the
+ *   current Might of every controlled Board unit (including Base) at 356.4.g.
  *   The amount below remains descriptive metadata, not an executable Expr.
- *   The future consumer must read current Might for all controlled units on
- *   Board, including Base, at 356.4.g, without requiring a chosen unit.
  *
  * Already implemented: buildCostPlan orders component/total discounts, applies
  * each discount's own minimum (356.4.e, the Sky Splitter + Eager Apprentice
@@ -42,11 +38,10 @@ const skySplitter = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺少第 356.4.a/d/g 步消费本牌 static cost.modify 的 Finalize 接线：" +
-    "programs/play 只翻译 play.cost，未收集 static 折扣到 CostPlanInput.discounts；" +
-    "lifecycle 只在 Board 入区绑定 static，图层 binder 也没有 cost.modify 映射，无法在从 Hand 打出时应用自身折扣。" +
-    "另缺在 356.4.g 对所操控的全部 Board 单位（含基地）当前 Might 取最高值的集合聚合表达式；" +
-    "arithmetic.max 只接受显式 operands，不能对动态查询集合取最大值，故 amount 保持描述性占位。",
+    "当前两处生产缺口（复核 2026-10-18，356.4.a/d/g）：默认 CardProgram/Chain Finalize 没有调用已合入的 " +
+    "finalizeCostPlan/collectCostModifications 来收集本牌 static cost.modify，故从 Hand 打出时自我 Energy 折扣仍不会进入 CostPlanInput.discounts；" +
+    "同时费用收集器没有对所操控的全部 Board 单位（含基地）按当前 Might 求最高值的集合聚合表达式，现有 arithmetic.max 只接受显式 operands。" +
+    "damage 5、目标地点复核和费用计划的数值顺序已有真实执行证据；不把描述性 aggregate 占位近似成固定数值。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "This spell's Energy cost is reduced by the highest Might among units you control.\n" +

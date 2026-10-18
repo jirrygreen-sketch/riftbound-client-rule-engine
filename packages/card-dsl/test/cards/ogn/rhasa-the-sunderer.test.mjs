@@ -8,6 +8,8 @@ import program from "../../../dist/cards/ogn/rhasa-the-sunderer.js";
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
 const { buildCostPlan } = await import(new URL("cost/cost-plan.js", engineCore));
+const { finalizeCostPlan } = await import(new URL("cost/discounts/index.js", engineCore));
+const { payCostPlan } = await import(new URL("cost/payment.js", engineCore));
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
 
 const CANONICAL = "card.hash-026fc6f43de0b92460fc9a27186ea0fb19fcaa6b9a6bfbb64fb1901c9425c852";
@@ -25,7 +27,7 @@ test("rhasa-the-sunderer: identity, ruleset, status, judgeReason and sourceText"
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /layerFor/);
+  assert.match(program.judgeReason, /finalizeCostPlan|ChainEngine|buildCostPlan/);
   assert.match(program.judgeReason, /continuous\.cost-modification/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -137,12 +139,66 @@ test("rhasa-the-sunderer golden: the same reduction drops a 10-energy printed co
   assert.deepEqual(unchanged.components.map((component) => component.cost.energy), [10]);
 });
 
-test.todo(
-  "rhasa-the-sunderer: read the static continuous.cost-modification from the card program into the " +
-    "Finalize cost plan (356.4; the static binder must produce a CostDiscount and resolve owner=\"self\") and assert the " +
-    "actual payment of 7 energy"
-);
+test("rhasa-the-sunderer golden: Finalize collects the card static discount and pays the resulting plan", () => {
+  const kernel = world()
+    .player("A", { energy: 10, power: ["Chaos"] })
+    .hand("rhasa", {
+      cardId: program.canonicalCardId,
+      types: ["unit"],
+      energy: 10,
+      power: ["Chaos"]
+    })
+    .card("trash-a", { zone: "trash", owner: "A", controller: "A" })
+    .card("trash-b", { zone: "trash", owner: "A", controller: "A" })
+    .card("trash-c", { zone: "trash", owner: "A", controller: "A" })
+    .card("enemy-trash", { zone: "trash", owner: "B", controller: "B" })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("rhasa") });
+  const plan = finalizeCostPlan(
+    context,
+    { id: "rhasa-the-sunderer.play", cost: { kind: "printed" } },
+    {
+      statics: [{ id: "rhasa-the-sunderer.static", source: context.source.ref, ability: staticAbility }],
+      originZone: "hand"
+    }
+  );
 
-test.todo(
-  "rhasa-the-sunderer: 356.6 energy floor when the trash holds 10 or more cards (cost 0, never negative)"
-);
+  assert.equal(plan.total.energy, 7);
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Chaos"] }]);
+  assert.deepEqual(plan.discounts.map(discount => [discount.id, discount.before, discount.after]), [
+    ["rhasa-the-sunderer.static:0:total", 10, 7]
+  ]);
+
+  const receipt = payCostPlan(context, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(context.player("A").energy, 3);
+  assert.deepEqual(receipt.power.power, [{ requirementIndex: 0, from: "Chaos", amount: 1 }]);
+  assert.equal(context.getObject("rhasa").zone, "hand");
+});
+
+test("rhasa-the-sunderer golden: Finalize applies the Energy floor with ten trash cards", () => {
+  const builder = world()
+    .player("A", { energy: 10, power: ["Chaos"] })
+    .hand("rhasa", {
+      cardId: program.canonicalCardId,
+      types: ["unit"],
+      energy: 10,
+      power: ["Chaos"]
+    });
+  for (let index = 0; index < 10; index += 1) {
+    builder.card(`trash-${index}`, { zone: "trash", owner: "A", controller: "A" });
+  }
+  const kernel = builder.build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("rhasa") });
+  const plan = finalizeCostPlan(
+    context,
+    { id: "rhasa-the-sunderer.floor", cost: { kind: "printed" } },
+    {
+      statics: [{ id: "rhasa-the-sunderer.static", source: context.source.ref, ability: staticAbility }]
+    }
+  );
+
+  assert.equal(plan.total.energy, 0);
+  assert.equal(plan.discounts[0].after, 0);
+  assert.equal(plan.total.energy < 0, false);
+});

@@ -7,6 +7,7 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { translateCost } from "../../../../engine-core/dist/programs/play.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
 import {
   finalizeTargetPlan,
   queryTargetCandidates
@@ -37,7 +38,7 @@ test("Sky Splitter program is valid EffectIR v2 data and judge-required", () => 
   assert.match(program.judgeReason, /CostPlanInput\.discounts|Finalize|cost\.modify/);
   assert.match(program.judgeReason, /356\.4/);
   assert.match(program.judgeReason, /聚合|aggregate/);
-  assert.match(program.judgeReason, /356\.4\.g/);
+  assert.match(program.judgeReason, /356\.4\.(?:a\/d\/g|g)/);
   assert.match(program.judgeReason, /arithmetic\.max/);
   assert.match(program.judgeReason, /Hand/);
 });
@@ -190,12 +191,23 @@ test("Sky Splitter damage rechecks battlefield location when the locked unit mov
   assert.equal(kernel.history({ action: "damage" }), 0);
 });
 
-test.todo(
-  "Sky Splitter: Finalize must collect the spell's static self-discount while " +
-    "playing from Hand and evaluate a filtered maximum of current controlled " +
-    "Board-unit Might (including Base) at 356.4.g; arithmetic.max only accepts " +
-    "explicit operands, so aggregate metadata stays non-executable."
-);
+test("Sky Splitter current gap: Finalize fails closed on the unimplemented Might aggregate", () => {
+  const kernel = withSpell(world()
+    .player("A", { energy: 8, power: ["Fury"] })
+    .unit("seven-might-unit", { owner: "A", might: 7 }), "hand");
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("sky-splitter") });
+
+  assert.throws(
+    () => finalizeCostPlan(
+      context,
+      { id: "sky-splitter.play", cost: { kind: "printed" } },
+      {
+        statics: [{ id: "sky-splitter.static", source: context.source.ref, ability: costModifier }]
+      }
+    ),
+    error => error?.reason === "judge-required" && /aggregate|expression/.test(String(error?.message))
+  );
+});
 
 test("Sky Splitter supported cost-plan component: 356.4.e orders each discount's own minimum", () => {
   // Explicit caller-supplied numeric discounts exercise the merged planner,
