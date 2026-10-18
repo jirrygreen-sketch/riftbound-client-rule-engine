@@ -15,6 +15,9 @@ import { evaluateExpression } from "../../../../engine-core/dist/effects/interpr
 // The production static binder installs card static abilities into
 // the merged layer engine; the chain fixture provides that engine.
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -46,10 +49,18 @@ test("ven-014-166 Shadow Fiend: identity, ruleset, status, judgeReason and verba
   assert.match(program.judgeReason, /bindStatic/);
   assert.match(program.judgeReason, /ObjectSnapshot/);
   assert.match(program.judgeReason, /designation/);
+  // Refreshed 2026-10-18: the reason now names the merged re-expansion layer and
+  // the production consumers that are still missing.
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /TurnCombatBlockedError/);
   // Deleted stale assertions (2026-10-18 re-sweep): the previous reason cited
   // the merged RIFT-672 / RIFT-697 template tasks as part of the gap text.
   assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
+  // Deleted stale assertion (2026-10-18 re-sweep): "授予后的关键词也不会随图层变化重新展开"
+  // is no longer true now that programs/keyword-grants.ts re-expands grants; the
+  // refreshed reason states the remaining wiring gap instead.
+  assert.doesNotMatch(program.judgeReason, /也不会随图层变化重新展开/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -109,11 +120,86 @@ test.todo(
     "the 'use only if not Empowered' restriction"
 );
 test.todo(
-  "ven-014-166 Shadow Fiend: [Assault 3] while Empowered through the layers engine — needs a " +
-    "card-side continuous.grant-keyword op plus the card-side registration entry point; the grant " +
-    "itself installs through the merged static binder, while production ObjectSnapshot still " +
-    "lacks the live empowered count used by the gate"
+  "ven-014-166 Shadow Fiend: the merged KeywordGrantLayerEngine re-expansion has no production consumer — " +
+    "turn/flow.ts builds TurnPhaseLayers and apps/game-server never constructs the grant layer, the " +
+    "granted-keyword gate still needs the ObjectSnapshot.empowered contract (442.1.a / 828.1.c), and " +
+    "Assault's attacker gate needs a production combatRole publisher (combat/flow.ts still throws " +
+    "TurnCombatBlockedError('combat-start-transaction'))"
 );
+
+test("ven-014-166 golden: the merged grant layer re-expands the Empowered [Assault 3] grant (no production consumer)", () => {
+  // 828.1.c + 807.1.c (2026-10-18 re-sweep): the merged
+  // programs/keyword-grants.ts layer re-expands a granted keyword through its
+  // KeywordDef once the host really becomes Empowered, so Assault 3 reaches the
+  // arithmetic layer as +3 Might on the attacker. This is the reference-layer
+  // evidence; the production path is still the todo above.
+  const base = world().player("A", { energy: 20 }).player("B", { energy: 20 })
+    .unit("fiend", {
+      cardId: CARD_ID, might: 2, combatRole: "attacker", location: { type: "battlefield", id: "bf-1" }
+    })
+    .unit("victim", { owner: "B", might: 30, location: { type: "battlefield", id: "bf-2" } })
+    .build();
+  const layers = new KeywordGrantLayerEngine(base.objects, {
+    context: source => bindResolveContext(base, { source, controller: source.controller })
+  });
+  const host = createActionPipelineHost({
+    checkpoint: () => base.snapshot(), restore: state => base.restore(state),
+    objects: () => base.objects, perform: action => base.perform(action),
+    choose: request => base.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(base, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ host, layers, turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", cleanup: () => false });
+  const source = base.getObject("fiend");
+  createEngineStaticBinder(engine).bindStatic(assault, source);
+
+  // 442.1.a: the dependent ability is dormant until the real Empower action runs.
+  assert.deepEqual(layers.snapshot(source.ref).keywords, []);
+  assert.equal(layers.snapshot(source.ref).might, 2, "printed Might only while not Empowered");
+
+  assert.equal(engine.commit({ type: "empower", object: source.ref }).status, "done");
+  layers.setObjects(base.objects);
+  const active = layers.snapshot(source.ref);
+  assert.deepEqual(active.keywords, [{ id: "Assault", value: 3 }]);
+  assert.deepEqual(layers.keywordAbilities(source.ref).map(ability => ability.effect.kind), ["continuous.might"]);
+  // 807.1.c: Assault 3 is an attacker-gated +3 Might, so 2 + 3 = 5.
+  assert.equal(active.might, 5);
+
+  // 807.1.d.1: the same Empowered grant contributes nothing while defending.
+  const defending = grantFixture("defender");
+  assert.equal(defending.engine.commit({ type: "empower", object: defending.source.ref }).status, "done");
+  defending.layers.setObjects(defending.base.objects);
+  assert.deepEqual(defending.layers.snapshot(defending.source.ref).keywords, [{ id: "Assault", value: 3 }]);
+  assert.equal(defending.layers.snapshot(defending.source.ref).might, 2, "Assault needs the Attacker designation");
+
+  // 442.1.c: Disempower removes the granted keyword and its Might bonus.
+  assert.equal(engine.commit({ type: "disempower", object: source.ref }).status, "done");
+  layers.setObjects(base.objects);
+  assert.deepEqual(layers.snapshot(source.ref).keywords, []);
+  assert.equal(layers.snapshot(source.ref).might, 2);
+});
+
+/** The same world with one real Empower/Disempower-capable grant layer. */
+function grantFixture(combatRole) {
+  const base = world().player("A", { energy: 20 }).player("B", { energy: 20 })
+    .unit("fiend", {
+      cardId: CARD_ID, might: 2, combatRole, location: { type: "battlefield", id: "bf-1" }
+    })
+    .unit("victim", { owner: "B", might: 30, location: { type: "battlefield", id: "bf-2" } })
+    .build();
+  const layers = new KeywordGrantLayerEngine(base.objects, {
+    context: source => bindResolveContext(base, { source, controller: source.controller })
+  });
+  const host = createActionPipelineHost({
+    checkpoint: () => base.snapshot(), restore: state => base.restore(state),
+    objects: () => base.objects, perform: action => base.perform(action),
+    choose: request => base.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(base, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ host, layers, turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", cleanup: () => false });
+  const source = base.getObject("fiend");
+  createEngineStaticBinder(engine).bindStatic(assault, source);
+  return { base, layers, engine, source };
+}
 
 test("ven-014-166 Shadow Fiend gap: the printed 2 Energy + 1 Fury Power Empower cost is not carried", () => {
   // Measured evidence for judgeReason point 1: the registered KeywordDef keeps
