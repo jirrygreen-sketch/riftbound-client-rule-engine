@@ -27,18 +27,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处当前缺口（2026-10-17 RIFT-733 复核实测）：" +
-    "(1) 授予的 Assault 3 缺动态关键词展开与角色谓词消费：continuous.grant-keyword 已把关键词写入 ability 层，" +
-    "但 programs/lifecycle.ts 只在登记时绑定一次，不会按授予后的关键词变化重新展开 KeywordDef；" +
-    "Assault.ts 展开的条件读 object-property \"designation\"，而已有的 ObjectSnapshot.combatRole 没有映射到该属性，" +
-    "无法证明 807.1.c 的攻击时 +3 Might。" +
-    "(2) 印刷 Flow 的 3 Energy + 1 Fury Power 没有承载通道：KeywordAbility 只有 keyword/value，" +
-    "programs/keywords.ts 的 expandProgram 一律调 def.expand({ value, host })、不读 params.cost（契约 3.8.3），" +
-    "Flow.ts 因此展开出不含 cost 的 flow.cost；" +
-    "该静态效果在 programs/statics.ts 实测被拒（\"Static ability kind flow.cost has no layer mapping\"），" +
-    "而其 object-leaves-chain replacement 在 replacement/bind.ts 实测抛 BlockedReplacementError " +
-    "\"Unsupported replacement opcode: effect.banish\"，829.1.b.1 的已支付实例与离链放逐同样无消费路径。" +
-    "effect.ready、continuous.grant-keyword 与到期移除已有真实执行证据；不近似实现这两处缺口。",
+    "两处当前缺口，均不近似实现：(1) 授予的 Assault 3 缺默认生产路径上的动态关键词重绑定与角色谓词消费：" +
+    "continuous.grant-keyword 已把关键词写入 ability 层，但默认 programs/lifecycle.ts/ChainEngine 不会按授予后的" +
+    "关键词变化重新展开 KeywordDef；Assault.ts 的 807.1.c 条件读取 designation，当前只有 combatRole，" +
+    "因此实测攻击者仍不获得 +3 Might。(2) 印刷 Flow 的 3 Energy + 1 Fury Power 没有承载通道：" +
+    "KeywordAbility 只有 keyword/value，expandProgram 不传 params.cost，Flow.ts 展开的 flow.cost 静态在 " +
+    "programs/statics.ts 被拒（\"Static ability kind flow.cost has no layer mapping\"），object-leaves-chain 的 " +
+    "effect.banish replacement 在 replacement/bind.ts 被拒（\"Unsupported replacement opcode: effect.banish\"）。" +
+    "effect.ready、关键词授予与到期移除已有真实执行证据。",
   abilities: [
     // 829.1.a：Flow 在法术上；卡只声明关键词（展开见 judgeReason 第 2 条）。
     { kind: "keyword", keyword: "flow" },

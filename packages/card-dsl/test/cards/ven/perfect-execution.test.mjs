@@ -42,6 +42,7 @@ test("ven-012-166 Perfect Execution: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /programs\/lifecycle\.ts/);
   assert.match(program.judgeReason, /params\.cost|3\.8\.3/);
   assert.ok(!/RIFT-9 清单|没有已合入原语/.test(program.judgeReason));
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("ven-012-166 Perfect Execution: [Flow] declared, printed cost, and the Assault grant is not a Might hack", () => {
@@ -210,7 +211,7 @@ test.todo(
     "and delayed replacement consumers are not wired"
 );
 
-// RIFT-733: the refreshed gaps, pinned against the real production seam.
+// The refreshed gaps are pinned against the real production seam.
 test("ven-012-166 Perfect Execution: the printed Flow cost cannot reach the keyword expansion", () => {
   // programs/keywords.ts calls def.expand({ value, host }) and KeywordAbility has
   // no params carrier (contract 3.8.3), so Flow.ts expands a flow.cost static

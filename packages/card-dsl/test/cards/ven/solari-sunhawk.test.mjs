@@ -57,10 +57,12 @@ test("ven-122-166 Solari Sunhawk: the [Empowered] dependent clause grants +1 Mig
   assert.equal(mightGrant.effect.layer, "arithmetic");
   assert.equal(mightGrant.effect.appliesTo, "self");
   assert.deepEqual(mightGrant.effect.amount, { kind: "constant", value: 1 });
-  // 442.1.a 的 Empowered 状态没有可求值谓词：用显式谓词字符串占位，不手写状态判定。
+  // 442.1.a 的 Empowered 状态门控使用参考内核维护的对象属性；生产快照仍缺该字段。
   assert.deepEqual(mightGrant.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "empowered" }
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
   });
 
   // 814.1.b.2/814.1.b.3：印刷值 2；展开由 effects/keywords/Deflect.ts 负责。
@@ -154,10 +156,9 @@ test("ven-122-166 Solari Sunhawk gap: the printed 2 Energy never reaches the Emp
   );
 });
 
-test("ven-122-166 Solari Sunhawk gap: the Empowered gate is not enforced by the layer engine", () => {
-  // 442.1.a: the frozen ObjectSnapshot carries no empowered characteristic, so
-  // the authored expression condition cannot read the status. The merged
-  // conditionMatches falls through to true and the +1 Might applies anyway.
+test("ven-122-166 Solari Sunhawk gap: the Empowered gate cannot read production state", () => {
+  // 442.1.a: the frozen ObjectSnapshot carries no empowered characteristic,
+  // and the raw layer engine does not interpret this compare condition yet.
   const kernel = world().unit("sunhawk", {
     controller: "controller", might: 3, location: { type: "base", player: "controller" }
   }).build();
