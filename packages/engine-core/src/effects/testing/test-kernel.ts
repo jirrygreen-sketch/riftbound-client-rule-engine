@@ -388,12 +388,21 @@ export class TestWorld implements ResolveContext {
     const object = this.current(action.object);
     if (object === null || object.zone !== 'board') return { status: 'impossible', events: [] };
     const rewritten = this.rewriteReplacement(action);
-    if (rewritten === null) return this.perform(action);
+    if (rewritten === null) {
+      const outcome = this.perform(action);
+      return outcome.status === 'done' ? { ...outcome, events: [...outcome.events, makeEvent(this.state, 'kill', this.timingPoint, { batchId })] } : outcome;
+    }
     if (rewritten.status !== 'done' || !('action' in rewritten)) return rewritten;
     if (rewritten.action.type !== 'kill' || refKey(rewritten.action.object) !== refKey(action.object)) {
       return { status: 'impossible', events: [] };
     }
-    return this.perform(rewritten.action);
+    const outcome = this.perform(rewritten.action);
+    return outcome.status === 'done' ? { ...outcome, events: [...outcome.events, makeEvent(this.state, 'kill', this.timingPoint, { batchId })] } : outcome;
+  }
+
+  /** Capability consumer used by the action adapter for all-Kill batches. */
+  performBatchLeafForCapability(action: GameAction, batchId: string): ActionOutcome {
+    return this.performBatchLeaf(action, batchId);
   }
 
   private rewriteReplacement(action: GameAction): { readonly status: 'done'; readonly action: GameAction } | ActionOutcome | null {

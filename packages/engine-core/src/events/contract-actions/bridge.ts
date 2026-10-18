@@ -1,13 +1,13 @@
-import type {
-  ActionOutcome,
-  ActionReceipt,
-  BatchAction,
+import {
   CONTRACT_ACTION_CAPABILITY_VERSION,
-  ContractGameAction,
-  ContractActionCapability,
-  GameAction,
-  LocationRef,
-  ObjectSnapshot,
+  type ActionOutcome,
+  type ActionReceipt,
+  type BatchAction,
+  type ContractGameAction,
+  type ContractActionCapability,
+  type GameAction,
+  type LocationRef,
+  type ObjectSnapshot,
 } from '../../effects/contract.js';
 export { CONTRACT_ACTION_CAPABILITY_VERSION };
 
@@ -92,7 +92,7 @@ function killedInTrash(before: readonly ObjectSnapshot[], after: readonly Object
   const previous = before.find(object => sameRef(object.ref, action.object));
   const current = after.find(object => object.ref.id === action.object.id);
   return previous?.zone === 'board' && current !== undefined && current.zone === 'trash' &&
-    current.ref.zoneEntryId > action.object.zoneEntryId &&
+    current.ref.zoneEntryId >= action.object.zoneEntryId &&
     current.owner === previous.owner && current.controller === previous.controller;
 }
 
@@ -178,6 +178,10 @@ function leafActions(action: ContractGameAction): readonly ContractGameAction[] 
   return [action];
 }
 
+function isObjectIdentity(ref: { readonly id: string; readonly zoneEntryId: number } | undefined): boolean {
+  return ref !== undefined && ref.id.length > 0 && Number.isSafeInteger(ref.zoneEntryId) && ref.zoneEntryId >= 0;
+}
+
 function receiptStatusFromThrown(error: unknown): ReceiptActionStatus {
   if (record(error) && typeof error.status === 'string' &&
       ['replaced', 'prevented', 'impossible'].includes(error.status)) {
@@ -195,6 +199,7 @@ export function isKnownContractAction(action: unknown): action is ContractGameAc
   if (action.type === 'batch') {
     return Array.isArray(action.actions) &&
       (action.transactionId === undefined || typeof action.transactionId === 'string') &&
+      action.actions.length > 0 &&
       action.actions.every(isKnownContractAction);
   }
   if (action.type === 'recall') return record(action.object) &&
@@ -205,6 +210,7 @@ export function isKnownContractAction(action: unknown): action is ContractGameAc
     typeof action.object.id === 'string' && typeof action.object.zoneEntryId === 'number' &&
     Number.isSafeInteger(action.object.zoneEntryId) &&
     typeof action.player === 'string';
+  if (action.type === 'kill') return record(action.object) && isObjectIdentity(action.object as { id: string; zoneEntryId: number });
   return GAME_ACTION_TYPES.has(action.type as GameAction['type']);
 }
 
@@ -225,6 +231,25 @@ export function executeContractAction(
     ? action.transactionId ?? options.transactionId
     : options.transactionId;
   const leaves = leafActions(action);
+  if (leaves.length === 0) return { outcome: rejected(action), steps: [] };
+  const killBatchAction = action.type === 'batch' && leaves.every(leaf => leaf.type === 'kill');
+  if (killBatchAction && port.performBatchLeaf === undefined) {
+    return {
+      outcome: {
+        status: 'impossible',
+        events: [],
+        receipt: {
+          ...(action.transactionId === undefined ? {} : { transactionId: action.transactionId }),
+          status: 'rejected',
+          actions: leaves.map(leaf => ({ type: leaf.type, status: 'impossible' })),
+        },
+      },
+      steps: [],
+    };
+  }
+  if (killBatchAction && new Set(leaves.map(leaf => 'object' in leaf ? `${leaf.object.id}:${leaf.object.zoneEntryId}` : '')).size !== leaves.length) {
+    return { outcome: rejected(action), steps: [] };
+  }
   const types = leaves.map(leaf => leaf.type);
   const attempted: ReceiptActionStatus[] = [];
   const steps: ContractActionStep[] = [];
@@ -246,7 +271,7 @@ export function executeContractAction(
       const before = structuredClone(port.objects());
       const outcome = leaf.type === 'recall' && port.performContract !== undefined
         ? port.performContract(leaf)
-        : leaf.type === 'kill' && port.performBatchLeaf !== undefined
+        : leaf.type === 'kill' && killBatchAction && port.performBatchLeaf !== undefined
           ? port.performBatchLeaf(leaf, transactionId ?? options.transactionId ?? 'batch')
           : port.perform(leaf as GameAction);
       attempted.push(receiptStatus(outcome.status));
@@ -278,6 +303,10 @@ export function executeContractAction(
     );
   }
 
+  const leafEvents = steps.flatMap(step => step.outcome.events);
+  const batchEvents = action.type === 'batch'
+    ? leafEvents.filter(event => (event as { batchId?: unknown }).batchId === transactionId)
+    : leafEvents;
   const receipt: ActionReceipt = {
     ...(transactionId === undefined ? {} : { transactionId }),
     status: 'committed',
@@ -286,7 +315,7 @@ export function executeContractAction(
   return {
     outcome: {
       status: 'done',
-      events: steps.flatMap(step => step.outcome.events),
+      events: batchEvents,
       receipt,
     },
     steps,

@@ -1,4 +1,12 @@
-import type { ActionOutcome, ChoiceRequest, GameAction, ObjectSnapshot, PlayerId, ResolveContext } from '../effects/contract.js';
+import {
+  requireContractActionCapability,
+  type ActionOutcome,
+  type ChoiceRequest,
+  type GameAction,
+  type ObjectSnapshot,
+  type PlayerId,
+  type ResolveContext,
+} from '../effects/contract.js';
 import type { PipelineHost, TimingEmission } from './pipeline-types.js';
 import { type TimingPointId } from './timing-points.js';
 import { deriveMightChangedEmissions } from './producers/might-change.js';
@@ -29,6 +37,7 @@ export {
   isKnownContractAction,
   killBatch,
 } from './contract-actions/bridge.js';
+export { requireContractActionCapability } from '../effects/contract.js';
 export type {
   ContractActionBridgePort,
   ContractActionCapability,
@@ -316,13 +325,49 @@ export function createActionPipelineHost(port: ActionStatePort): PipelineHost {
       ? execution.outcome
       : { ...execution.outcome, events: [...execution.outcome.events, ...observations] };
     const emissions: TimingEmission[] = [];
+    const allBefore = execution.steps[0]?.before ?? [];
+    const allAfter = execution.steps.at(-1)?.after ?? [];
+    if (execution.steps.some(step => step.action.type === 'kill')) {
+      const batchContext = payloadContext(
+        actionId,
+        batchId,
+        active,
+        active?.source,
+        active?.controller,
+        'kill',
+        active?.controller,
+      );
+      emissions.push(...deriveZoneChangeEmissions(allBefore, allAfter, {
+        actionId,
+        batchId,
+        player: active?.controller,
+        effectController: active?.controller,
+        source: active?.source,
+        cause: 'kill',
+        simultaneousGroup: batchId,
+      }));
+      for (const step of execution.steps) {
+        if (step.action.type !== 'kill') continue;
+        const kill = step.action as Extract<GameAction, { type: 'kill' }>;
+        const before = step.before.find(object => object.ref.id === kill.object.id && object.ref.zoneEntryId === kill.object.zoneEntryId);
+        if (before === undefined) continue;
+        emissions.push(withActionPayload({
+          timingPoint: 'object-killed',
+          kind: 'object-killed',
+          object: structuredClone(before),
+          source: active?.source,
+          player: active?.controller ?? before.controller,
+          simultaneousGroup: batchId,
+        }, actionPayload(kill, before, undefined, batchContext), { before }));
+      }
+    }
     for (const step of execution.steps) {
-      if (step.action.type !== 'move-location' && step.action.type !== 'kill') continue;
-      const leaf = step.action as Extract<GameAction, { type: 'move-location' | 'kill' }>;
+      if (step.action.type !== 'move-location') continue;
+      const leaf = step.action as Extract<GameAction, { type: 'move-location' }>;
       const before = step.before.find(object => object.ref.id === leaf.object.id &&
         object.ref.zoneEntryId === leaf.object.zoneEntryId);
       const after = step.after.find(object => object.ref.id === leaf.object.id &&
-        (leaf.type === 'kill' ? object.zone === 'trash' : object.ref.zoneEntryId === leaf.object.zoneEntryId));
+        object.ref.zoneEntryId === leaf.object.zoneEntryId);
       if (before === undefined || after === undefined) continue;
       const stepContext = payloadContext(
         actionId,
@@ -330,20 +375,20 @@ export function createActionPipelineHost(port: ActionStatePort): PipelineHost {
         active,
         active?.source,
         after.controller,
-        leaf.type === 'kill' ? 'kill' : 'move',
+        'move',
         active?.controller,
       );
-      const timingPoint: TimingPointId = leaf.type === 'kill' ? 'object-killed' : 'object-moved';
+      const timingPoint: TimingPointId = 'object-moved';
       emissions.push(withActionPayload({
         timingPoint,
         kind: timingPoint,
         object: structuredClone(after),
         source: active?.source,
-        player: after.controller,
+        player: active?.controller ?? before.controller,
         simultaneousGroup: batchId,
       }, {
         ...actionPayload(leaf, before, after, stepContext),
-        ...(leaf.type === 'move-location' ? transitionPayload(leaf, before, after, stepContext) : {}),
+        ...transitionPayload(leaf, before, after, stepContext),
       }, { before, after }));
     }
     return { outcome, emissions };
@@ -363,9 +408,22 @@ export function createActionPipelineHost(port: ActionStatePort): PipelineHost {
     perform(action) {
       const actionId = `action:${++sequence}`;
       const batchId = action.type === 'batch' ? action.transactionId ?? actionId : actionId;
+      if (action.type === 'batch' && action.actions.length > 0 && action.actions.every(leaf => leaf.type === 'kill')) {
+        const execution = executeContractAction(action, {
+          checkpoint,
+          restore,
+          objects: () => port.objects(),
+          perform: leaf => port.perform(leaf),
+          ...(port.performBatchLeaf === undefined ? {} : { performBatchLeaf: (leaf, id) => port.performBatchLeaf!(leaf, id) }),
+        }, { transactionId: batchId });
+        return execution.outcome;
+      }
       return executeContract(action, actionId, batchId).outcome;
     },
   };
+  // Fail at host construction when the shared contract owner has not installed
+  // the versioned capability this adapter exposes.
+  requireContractActionCapability({ contractActions });
 
   return {
     checkpoint,

@@ -32,6 +32,7 @@ function fixture({ enemy = false } = {}) {
     objects: () => kernel.objects,
     perform: action => kernel.perform(action),
     performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
     choose,
     context: (source, controller, timingPoint) => bindResolveContext(kernel, {
       source,
@@ -288,4 +289,137 @@ test('unknown contract action types fail closed without changing state or histor
   assert.equal(outcome.receipt.status, 'rejected');
   assert.deepEqual(outcome.receipt.actions, [{ type: 'unknown-contract-action', status: 'impossible' }]);
   assert.deepEqual(f.kernel.stateForTest(), before);
+});
+
+test('Batch Kill fails closed without a batch-aware leaf consumer', () => {
+  const kernel = world().unit('a').unit('b').build();
+  let checkpoints = 0;
+  const host = createActionPipelineHost({
+    checkpoint: () => { checkpoints += 1; return kernel.snapshot(); },
+    restore: checkpoint => kernel.restore(checkpoint),
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error('unexpected choice'); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+  });
+  const outcome = host.execute({
+    type: 'batch',
+    transactionId: 'kill:missing-consumer',
+    actions: [
+      { type: 'kill', object: kernel.ref('a') },
+      { type: 'kill', object: kernel.ref('b') },
+    ],
+  }).outcome;
+  assert.equal(outcome.status, 'impossible');
+  assert.equal(outcome.receipt.status, 'rejected');
+  assert.equal(checkpoints, 0);
+  assert.equal(kernel.getObject('a').zone, 'board');
+  assert.equal(kernel.getObject('b').zone, 'board');
+});
+
+test('an empty Batch is rejected before checkpoint or action submission', () => {
+  const f = fixture();
+  let checkpoints = 0;
+  const host = createActionPipelineHost({
+    checkpoint: () => { checkpoints += 1; return f.kernel.snapshot(); },
+    restore: checkpoint => f.kernel.restore(checkpoint),
+    objects: () => f.kernel.objects,
+    perform: action => f.kernel.perform(action),
+    choose: () => { throw new Error('unexpected choice'); },
+    context: (source, controller, timingPoint) => bindResolveContext(f.kernel, { source, controller, timingPoint }),
+  });
+  const outcome = host.execute({ type: 'batch', actions: [] }).outcome;
+  assert.equal(outcome.status, 'impossible');
+  assert.equal(outcome.receipt.status, 'rejected');
+  assert.equal(checkpoints, 0);
+});
+
+test('Batch Kill commits simultaneous deaths with one identity before trigger scanning', () => {
+  const f = fixture();
+  const a = f.kernel.getObject('a');
+  const b = f.kernel.getObject('b');
+  const action = {
+    type: 'batch',
+    transactionId: 'kill:simultaneous',
+    actions: [
+      { type: 'kill', object: a.ref },
+      { type: 'kill', object: b.ref },
+    ],
+  };
+  const observed = [];
+  f.engine.pipeline.registerTrigger({
+    id: 'death-observer',
+    source: a,
+    controller: 'A',
+    spec: { at: 'object-killed', filter: { event: 'object-killed' }, once: 'per-batch' },
+    body: [],
+  });
+  const previousOnTrigger = f.engine.pipeline.onTrigger;
+  f.engine.pipeline.onTrigger = snapshot => {
+    observed.push({ event: snapshot.event, bothInTrash: f.kernel.getObject('a').zone === 'trash' && f.kernel.getObject('b').zone === 'trash' });
+    previousOnTrigger(snapshot);
+  };
+  const outcome = f.engine.commit(action);
+
+  assert.equal(outcome.status, 'done');
+  assert.equal(outcome.receipt.status, 'committed');
+  assert.deepEqual(outcome.receipt.actions, [
+    { type: 'kill', status: 'done' },
+    { type: 'kill', status: 'done' },
+  ]);
+  assert.equal(f.kernel.getObject('a').zone, 'trash');
+  assert.equal(f.kernel.getObject('b').zone, 'trash');
+  const killed = f.engine.pipeline.events.filter(event => event.timingPoint === 'object-killed');
+  assert.equal(killed.length, 2);
+  assert.ok(killed.every(event => event.batchId === 'kill:simultaneous'));
+  assert.ok(killed.every(event => event.simultaneousGroup === 'kill:simultaneous'));
+  assert.equal(observed.length, 1);
+  assert.equal(observed[0].bothInTrash, true);
+  assert.equal(f.kernel.history({ action: 'kill', object: a.ref }), 1);
+  assert.equal(f.kernel.history({ action: 'kill', object: b.ref }), 1);
+});
+
+for (const [name, hook, expectedStatus] of [
+  ['replacement', action => action.type === 'kill' && action.object.id === 'b' ? 'replaced' : null, 'replaced'],
+  ['prevention', action => action.type === 'kill' && action.object.id === 'b' ? 'prevented' : null, 'prevented'],
+  ['throw', action => { if (action.type === 'kill' && action.object.id === 'b') throw new Error('kill leaf failed'); return null; }, 'impossible'],
+]) {
+  test(`Batch Kill rolls back all deaths and events on ${name}`, () => {
+    const f = fixture();
+    const before = f.kernel.stateForTest();
+    f.kernel.addReplacement(hook);
+    const outcome = f.engine.commit({
+      type: 'batch',
+      transactionId: `kill:${name}`,
+      actions: [
+        { type: 'kill', object: f.kernel.ref('a') },
+        { type: 'kill', object: f.kernel.ref('b') },
+      ],
+    });
+    assert.equal(outcome.status, expectedStatus);
+    assert.equal(outcome.receipt.status, 'rolled-back');
+    assert.equal(outcome.receipt.actions[0].status, 'done');
+    assert.notEqual(outcome.receipt.actions[1].status, 'done');
+    assert.deepEqual(f.kernel.stateForTest(), before);
+    assert.equal(f.kernel.getObject('a').zone, 'board');
+    assert.equal(f.kernel.getObject('b').zone, 'board');
+    assert.equal(f.kernel.history({ action: 'kill' }), 0);
+    assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === 'object-killed'), false);
+    assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === 'object-enters-trash'), false);
+  });
+}
+
+test('the reference kernel disempowers exactly one status and treats zero as no transition', () => {
+  const kernel = world().unit('subject').build();
+  const ref = kernel.ref('subject');
+  assert.equal(kernel.perform({ type: 'empower', object: ref, amount: 1, multiple: true, limit: 3 }).status, 'done');
+  assert.equal(kernel.perform({ type: 'empower', object: ref, amount: 1, multiple: true, limit: 3 }).status, 'done');
+  assert.equal(kernel.getObject('subject').empowered, 2);
+  assert.equal(kernel.perform({ type: 'disempower', object: ref }).status, 'done');
+  assert.equal(kernel.getObject('subject').empowered, 1);
+  assert.equal(kernel.perform({ type: 'disempower', object: ref }).status, 'done');
+  assert.equal(kernel.getObject('subject').empowered, 0);
+  const before = kernel.getObject('subject');
+  assert.equal(kernel.perform({ type: 'disempower', object: ref }).status, 'prevented');
+  assert.deepEqual(kernel.getObject('subject'), before);
 });
