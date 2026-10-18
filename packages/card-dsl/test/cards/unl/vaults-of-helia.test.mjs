@@ -4,7 +4,12 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/vaults-of-helia.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import continuousCostModification from "../../../../engine-core/dist/effects/instructions/continuous.cost-modification.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 
 const CANONICAL_ID =
   "card.hash-0b929c2c78280ff14e852a6d803fa3e55251591cfc73088ec115c83af1360d7e";
@@ -43,10 +48,10 @@ test("unl-219-219 Vaults of Helia: identity, status, judgeReason and verbatim so
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /cost\.modify/);
+  assert.match(program.judgeReason, /cost\/buildCostPlan/);
   assert.match(program.judgeReason, /356\.3/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /continuous\.cost-modification/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.match(program.judgeReason, /hold/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -58,7 +63,7 @@ test("unl-219-219 Vaults of Helia: hold trigger for this Battlefield's controlle
   // and "you" its controller (190.6.d). No "may": the trigger is mandatory.
   assert.equal(ability.trigger.at, "hold");
   assert.deepEqual(ability.trigger.filter, {
-    event: "hold",
+    event: "held",
     here: true,
     player: "controller"
   });
@@ -71,8 +76,8 @@ test("unl-219-219 Vaults of Helia: one +1 Energy increase for the controller's n
   assert.equal(ability.body.length, 1);
   assert.equal(increase.id, "vaults-of-helia.increase-unit-cost");
   // 356.3: a play-cost increase, not a resolution-time resource action; the
-  // primitive is present, while static installation remains the judged gap.
-  assert.equal(increase.op, "cost.modify");
+  // primitive registers a future arithmetic-layer modification.
+  assert.equal(increase.op, "continuous.cost-modification");
   assert.deepEqual(increase.args.resource, { kind: "constant", value: "energy" });
   assert.deepEqual(increase.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(increase.args.appliesTo, { kind: "constant", value: "play-cost" });
@@ -104,20 +109,38 @@ test("unl-219-219 Vaults of Helia: the announced increase really raises a merged
   assert.deepEqual(component.original, { energy: 1, power: [], xp: 0, actions: [] });
 });
 
-test.todo(
-  "unl-219-219 Vaults of Helia: install the +1 Energy increase on the later plays of the hold " +
-    "player's non-token units (356.3) — no merged path feeds a CardProgram static ability into a " +
-    "later CostPlanInput.increases; the cost.modify primitive is present but its static installation is missing (RIFT-261)"
-);
+test("unl-219-219 Vaults of Helia golden: the merged continuous cost primitive registers the non-token-unit increase", () => {
+  const kernel = world()
+    .player("A", { energy: 10 })
+    .card("vaults", { types: ["battlefield"], zone: "board", controller: "A", owner: "A" })
+    .hand("unit", { types: ["unit"], zone: "hand", controller: "A", owner: "A", energy: 3, power: [] })
+    .hand("token-unit", { types: ["unit"], zone: "hand", controller: "A", owner: "A", energy: 3, power: [], isToken: true })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("vaults"), controller: "A" });
+  const run = runInstruction(continuousCostModification, increase.args, { world: context });
+  assert.equal(run.result.status, "executed");
+  assert.equal(context.continuousEffects.length, 1);
+
+  const registry = new ContinuousEffectRegistry();
+  for (const entry of context.continuousEffects) registry.register(entry.effect, entry.duration);
+  const unitContext = context.clone({ sourceSnapshot: context.getObject("unit"), controller: "A" });
+  const tokenContext = context.clone({ sourceSnapshot: context.getObject("token-unit"), controller: "A" });
+  assert.equal(finalizeCostPlan(unitContext, { id: "unit-play", cost: { kind: "printed" } }, { continuous: registry.list() }).total.energy, 4);
+  assert.equal(finalizeCostPlan(tokenContext, { id: "token-play", cost: { kind: "printed" } }, { continuous: registry.list() }).total.energy, 3);
+
+  assert.equal(registry.expireAt({ id: "turn-end" }, ref => context.object(ref)).length, 1);
+  assert.equal(finalizeCostPlan(unitContext, { id: "unit-after-turn", cost: { kind: "printed" } }, { continuous: registry.list() }).total.energy, 3);
+});
+
+test("unl-219-219 Vaults of Helia: the held event spelling is accepted but the here referent still blocks registration", () => {
+  const source = world().card("vaults", { cardId: CANONICAL_ID, types: ["battlefield"], zone: "board", controller: "A", owner: "A" }).build().getObject("vaults");
+  assert.throws(
+    () => triggerRegistrations(new ProgramRegistry([program]), source),
+    error => error?.code === "judge-required" && /Unsupported filter field here/.test(error.message)
+  );
+});
 
 test.todo(
-  "unl-219-219 Vaults of Helia: emit the hold timing point from scoring (315.2.b.2, 471.2, " +
-    "473.2.b) into the chain/events pipeline and register this CardProgram's triggered ability, " +
-    "including the 053.3 'here' referent — hold is emitted by turn/flow.ts now, but the here filter " +
-    "is rejected by programs/filters.ts until the RIFT-31/RIFT-33 here payload exists"
-);
-
-test.todo(
-  "unl-219-219 Vaults of Helia: expire the increase at end of turn ('this turn') as a duration " +
-    "opened by the hold trigger, using the layers end-of-turn duration once the registration path exists"
+  "unl-219-219 Vaults of Helia: connect the held trigger's battlefield identity and install its " +
+    "registered duration into the real scoring-to-Finalize path (053.3/356.3)"
 );

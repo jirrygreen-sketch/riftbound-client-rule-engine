@@ -18,18 +18,17 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *   replacement 形状表达，不能用事后的 effect.ready 近似（effect.ready 文档明确不参与入场替代，
  *   会产生多余的“成为就绪”事件）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（按 2026-10-17 合入批次复核；RIFT-677 再核）。
- * - 减费没有可执行路径：cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts 时应用折扣，
- *   没有任何已合入路径把卡牌的静态/持续减费装进这次打出的费用计划；programs/play.ts 的 translateCost
- *   明确对 additional/discount 字段 judgeRequired，静态 cost.modify 尚未接入费用计划
- *   （同类缺口见 sfd/ornns-forge、ogn/eager-apprentice）。
+ * status 判定（cards/README.md 第 2 节）：judge-required（2026-10-18 复核）。
+ * - cost/discounts/collect.ts 已能从调用方提供的 StaticCostAbility 收集本卡的
+ *   continuous.cost-modification，并正确求值“对手控制着 Stunned 单位”的条件；
+ *   但 chain/engine.ts 的 Finalize 仍直接调用 buildCostPlan，CardProgram 静态能力没有进入该收集器。
  * - replacement/bind.ts 已能绑定
  *   { replaces, with } 形状并改写入场取向，golden 用真实链 fixture 绑定卡程序声明的替代体验证；
  *   但绑定时的条件不会在 entry interception 前求值；本卡的 entry filter 必须使用
  *   replacement 绑定器读取的 self 形状。
  * - createEngineStaticBinder 已用 evaluateCondition 包装静态条件，旧的“图层不识别
  *   compare”不是当前缺口；本卡仍缺费用消费者，且 entry interception 不评估条件。
- * 依赖：费用计划的减费安装、entry replacement 的条件求值。
+ * 依赖：CardProgram 静态费用能力到 finalizeCostPlan 的生产接线、entry replacement 的条件求值。
  * 不近似实现：不用事后 effect.ready 代替入场替代。
  */
 const OPPONENT_STUNNED_UNIT: Condition = {
@@ -79,19 +78,17 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "仍缺费用与条件接线，均不近似实现（已按 2026-10-17 合入批次复核）：" +
-    "(1) “I cost :rb_energy_2: less” 属 356.4 的 Finalize 减费阶段，但 cost/cost-plan.ts 只在调用方显式提供 " +
-    "CostPlanInput.discounts 时应用折扣，没有任何已合入路径把卡牌的静态/持续减费装进这次打出的费用计划；" +
-    "programs/play.ts 的 translateCost 对 additional/discount 字段直接 judgeRequired，静态 cost.modify 尚未接入费用计划。" +
+    "仍缺费用与条件接线，均不近似实现（2026-10-18 实测）：" +
+    "(1) “I cost :rb_energy_2: less” 属 356.4 的 Finalize 减费阶段；cost/discounts/collect.ts 在收到显式 StaticCostAbility 时已能收集并计算本卡的 " +
+    "continuous.cost-modification，但 chain/engine.ts 的生产 Finalize 仍直接调用 buildCostPlan，没有把 CardProgram 静态能力交给该收集器。" +
     "(2) “I enter ready” 是入场替代（143.4/359.2.c/369.3）：replacement/bind.ts 已能绑定 " +
     "{ replaces, with } 并改写入场取向（golden 用真实链 fixture 绑定卡程序声明的替代体验证，无多余“成为就绪”事件），" +
     "但 entry interception 会先于 ability.condition 命中，条件不会阻止不满足门槛的就绪入场；" +
     "本卡的 replacement filter 已按绑定器契约使用 self 形状。" +
-    "已修正旧评估：旧的图层 compare 缺口已过时：createEngineStaticBinder 会用 evaluateCondition 包装条件；" +
+    "已修正旧评估：图层 compare 缺口已过时：createEngineStaticBinder 会用 evaluateCondition 包装条件；" +
     "仍需将同一“对手控制着 Stunned 单位”条件用于 Finalize 减费及入场替代（CR 364.3.a/424.1.a）。" +
-    "已修（RIFT-677）：折扣作用域原写作合成 token appliesTo: \"self-play-cost\"，programs/statics.ts 的 staticTarget 以 \"Unsupported static appliesTo\" 先行拒绝，" +
-    "把费用消费方缺失掩盖成过滤器拼写问题；现按已合入词汇写作 \"self\"（同 sfd/void-drone），真实缺口回到 layerFor 的 continuous.cost-modification 无映射。" +
-    "执行证据：test/cards/templates/static-replacement-effect-ready-677.test.mjs；真实入场支持部分通过，费用与反例仍阻塞。" +
+    "折扣作用域使用已合入的 \"self\" 词汇，真实缺口是费用收集器的生产接线而非过滤器拼写。" +
+    "执行证据：本卡 golden 真实验证入场替代；费用收集器的条件与算术另由本卡新增 golden 验证，生产费用接线与入场条件反例仍阻塞。" +
     "依赖：费用计划减费安装、entry replacement 的条件求值。",
   abilities,
   sourceText: "If an opponent controls a stunned unit, I cost :rb_energy_2: less and enter ready."

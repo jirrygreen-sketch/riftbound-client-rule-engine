@@ -188,7 +188,7 @@ test("unl-194-219 Shadow golden: lacking Power prevents payment before exhaustin
 });
 
 test.todo(
-  "unl-194-219 Shadow: read the chosen play destination and evaluate the conditional entry replacement before the board move (CR 143.4/359.2.c/369.3; RIFT-359)"
+  "unl-194-219 Shadow: read the chosen play destination and evaluate the conditional entry replacement before the board move (CR 143.4/359.2.c/369.3)"
 );
 test.todo(
   "unl-194-219 Shadow: retain sameLocationAs and combatRole through programs target translation and chain layer filtering (CR 355.9/424.1); ObjectSnapshot already carries attacker/defender identity"

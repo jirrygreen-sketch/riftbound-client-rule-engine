@@ -21,7 +21,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 756 / 757 / 757.1 / 758：最后一条 Level 能力授予 Untargetable（"can't be chosen by
  *   enemy spells and abilities"）。
  *
- * 2026-10-17 复核：仍为 judge-required，当前缺口见 judgeReason。
+ * 2026-10-18 复核：仍为 judge-required，当前缺口见 judgeReason。
  * 已有原语、关键词定义或通用适配器不代表本卡完整生产路径可执行。
  */
 
@@ -42,31 +42,31 @@ const DISCOUNTS: readonly PrintedDiscount[] = [
 
 /**
  * 824.1.b.1：每一条 [Level N][>] 展开为一个受 XP 门槛约束的依赖能力。
- * 减费本身是不可执行的描述性声明（见 judgeReason）；XP 门槛按 824.1.c 的"控制者有 N 点
- * 或更多 XP"写成保留形状（合并 Condition 读不到 PlayerSnapshot.xp）。
+ * XP 门槛使用契约已有的 player-property 形状；解释器和费用收集器仍未把
+ * PlayerSnapshot.xp 接入该形状（见 judgeReason）。
  */
 function levelAbility(discount: PrintedDiscount): Ability {
   return {
     kind: "static",
     effect: {
-      kind: "cost.modify",
-      id: discount.id,
-      appliesTo: "play-cost",
-      // 356.4.b："cost [amount] less" 的减费量（Energy 与 Calm Power 两个分量）。
-      value: {
-        kind: "constant",
-        value: {
-          energy: -discount.energy,
-          power: [{ domain: "Calm", amount: -discount.calmPower }]
-        }
-      },
+      // 356.4.b/c：the printed line has one Energy and one Calm Power
+      // reduction. `reductions` is the merged cost collector's multi-resource
+      // shape; the Level replacement marker remains descriptive until the
+      // collector can consume it.
+      kind: "continuous.cost-modification",
+      appliesTo: "self",
+      stage: "discount",
+      reductions: [
+        { resource: "energy", amount: discount.energy },
+        { resource: "power", amount: discount.calmPower, domain: "Calm" }
+      ],
       // "instead"：后一条 Level 能力取代前一条的减费（356.1.c / 356.4 的减费阶段）。
       instead: discount.instead
     },
     // 824.1.c："While you have N+ XP, get the effect."；保留形状，见 judgeReason。
     condition: {
       kind: "compare",
-      left: { kind: "count", subject: "controller-xp", filter: { player: "controller" } },
+      left: { kind: "player-property", player: "controller", property: "xp" },
       operator: "gte",
       right: { kind: "constant", value: discount.level }
     }
@@ -88,7 +88,7 @@ const abilities: Ability[] = [
     },
     condition: {
       kind: "compare",
-      left: { kind: "count", subject: "controller-xp", filter: { player: "controller" } },
+      left: { kind: "player-property", player: "controller", property: "xp" },
       operator: "gte",
       right: { kind: "constant", value: 16 }
     }
@@ -101,9 +101,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Level 的 controller-xp 表达式读取 PlayerSnapshot.xp 与随控制者/XP 变化重判的路径（824.1.c/824.1.c.1/824.1.d）；count 只查询对象，不读取 subject。" +
-    "缺静态 cost.modify 到 Finalize discounts 的翻译，以及三级减费的 instead 覆盖（356.4/356.6）；programs/statics.ts 不映射 cost.modify。" +
-    "Untargetable 已有 chain/engine.ts 的 choose-as-target 限制消费方，但本卡 continuous.restrict 的 appliesTo: spells-and-abilities 不被 staticTarget 接受，chooser: opponent 与条件也未完整映射到规则查询（756/757.1/758）。",
+    "当前缺口（2026-10-18 实测）：(1) Level 条件已改用契约支持的 player-property(controller, xp) 形状，但 effects/interpreter/expr.ts 不求值 player-property，" +
+    "cost/discounts/values.ts 的费用条件求值也没有 PlayerSnapshot.xp 读取，因此 824.1.c/824.1.c.1/824.1.d 的 XP 动态激活与失活仍不可执行。" +
+    "(2) cost/discounts/collect.ts 已能收集 continuous.cost-modification 的 Energy/Power reductions，但 chain/engine.ts Finalize 仍直接调用 buildCostPlan；" +
+    "CardProgram 静态能力没有进入该收集器，且三级减费的 instead 覆盖没有可消费字段，不能把三行减费近似为叠加。" +
+    "(3) Level 16 的 Untargetable choose-as-target 限制已有链消费器，但 programs/statics.ts 的 staticTarget 不接受 appliesTo: spells-and-abilities，" +
+    "也没有把 chooser: opponent 与 XP 门槛接入生产规则查询（756/757.1/758）。",
   abilities,
   sourceText:
     "[Level 3][>] I cost :rb_energy_2::rb_rune_calm: less. (While you have 3+ XP, get the effect.)\n" +
