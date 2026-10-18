@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AwaitChoice } from '../../dist/effects/contract.js';
 import { resolveChainBody } from '../../dist/chain/interpreter-adapter.js';
+import { createProgramBinding } from '../../dist/programs/index.js';
 import { fixture, resolveAll } from '../chain/helpers.mjs';
 
 /** Unwrap a choice.optional literal body; production cards nest these. */
@@ -20,22 +21,18 @@ async function card(name) {
   return cardCache.get(name);
 }
 
-// The card DSL wraps every top-level argument in an Expr envelope; production
-// primitive schemas require literal metadata fields. These fixtures execute the
-// original IR through resolveChainBody and the ChainEngine without hand-settling.
-
-
-// A triggered ability finalized by the chain locks its targets through
-// TargetPlan; resolution re-derives the same set from those plans.
+// These ten isolated IR regressions exercise adapter primitives, with explicit
+// target/pick contexts or drafts. They do NOT satisfy representative-card
+// default-assembly acceptance: the unmodified programs are judge-required, and
+// nested target/cost binding has additional Finalize dependencies. Keep those
+// guards and card statuses intact. Default-assembly regressions follow below
+// using explicitly synthetic programs, not reclassified official cards.
 test('kennen keeper of balance: pay cost and stun literal targets pass the adapter', async () => {
   const program = await card('ven/kennen-keeper-of-balance');
   const [optIn] = program.abilities[1].body;
   const f = fixture();
   f.kernel.addObject({ ref: { id: 'enemy-unit', zoneEntryId: 1 }, cardId: 'card:enemy-unit', name: 'enemy-unit', types: ['unit'], owner: 'B', controller: 'B', zone: 'board', location: { type: 'battlefield', id: 'battlefield-1' }, might: 2 });
-  // The nested optional instructions carry a targets requirement, so the
-  // production finalize surface (EG-FINALIZE) blocks the full ChainEngine
-  // path. Resolve the pay/stun body through the production adapter and the
-  // locked-target context instead.
+  // Isolate argument decoding; this is not a substitute for EG-FINALIZE.
   const inner = optIn.args.body.value;
   const pay = inner.find(instruction => instruction.op === 'cost.pay');
   const stun = inner.find(instruction => instruction.op === 'effect.stun');
@@ -201,9 +198,9 @@ test('fresh beans: exhaust choose literal runs and the linked draw follows', asy
   assert.equal(f.kernel.player('A').handSize, 1);
 });
 
-// Fretful Feline is the exact production regression for the settlement
-// counter: the second ready settlement must register its own identity and not
-// collide with the first (CR 416.1/416.2, 478.1, 317.2.c).
+// Isolate Fretful Feline's settlement counter: the second real ready transition
+// must register its own identity (CR 416.1/416.2, 478.1, 317.2.c). Trigger binding
+// is supplied explicitly here; this does not prove the default card lifecycle.
 test('fretful feline: repeated ready settlements register distinct identities', async () => {
   const program = await card('ven/fretful-feline');
   const [body] = program.abilities[0].body;
@@ -216,10 +213,12 @@ test('fretful feline: repeated ready settlements register distinct identities', 
     spec: { at: 'object-readied', filter: { event: 'object-readied', object: { objectId: 'cat' } } },
     body: [body]
   });
+  f.engine.commit({ type: 'exhaust', object: f.kernel.ref('cat') });
   f.engine.commit({ type: 'ready', object: f.kernel.ref('cat') });
   f.engine.advance();
   resolveAll(f.engine);
   assert.equal(f.engine.layers.evaluate(f.kernel.ref('cat')).might, 7);
+  f.engine.commit({ type: 'exhaust', object: f.kernel.ref('cat') });
   f.engine.commit({ type: 'ready', object: f.kernel.ref('cat') });
   f.engine.advance();
   resolveAll(f.engine);
@@ -232,8 +231,7 @@ test('fretful feline: repeated ready settlements register distinct identities', 
   assert.equal(f.kernel.linked('__continuous.settlement.continuous.might.cat.1'), 2);
 });
 
-// Two independent worlds produce byte-identical registration ids, so a
-// settlement can be replayed from the event log without divergence.
+// Two independent worlds produce identical ids for the same action sequence.
 test('fretful feline: settlement identities replay identically across worlds', async () => {
   const program = await card('ven/fretful-feline');
   const [body] = program.abilities[0].body;
@@ -248,6 +246,7 @@ test('fretful feline: settlement identities replay identically across worlds', a
       body: [body]
     });
     for (let round = 1; round <= 2; round += 1) {
+      f.engine.commit({ type: 'exhaust', object: f.kernel.ref('cat') });
       f.engine.commit({ type: 'ready', object: f.kernel.ref('cat') });
       f.engine.advance();
       resolveAll(f.engine);
@@ -283,9 +282,7 @@ test('rift herald: inspect Expr envelopes pass through unchanged', async () => {
 });
 
 // 359.3.e.5/e.6: a locked target that leaves the board is ignored, not forced.
-// The production finalize surface (EG-FINALIZE) blocks the full ChainEngine
-// path for this nested body, so the adapter path plus a stale locked target
-// stands in for the removed chain item the engine would append.
+// This isolates stale-reference handling; default card assembly remains blocked.
 test('kennen keeper of balance: mistargeted stun after the unit leaves is ignored', async () => {
   const program = await card('ven/kennen-keeper-of-balance');
   const [optIn] = program.abilities[1].body;
@@ -307,3 +304,139 @@ test('kennen keeper of balance: mistargeted stun after the unit leaves is ignore
   assert.equal(f.kernel.objects.filter(object => object.zone === 'hand' && object.stunned).length, 0);
 });
 
+const constant = value => ({ kind: 'constant', value });
+const continuousCases = [
+  { op: 'continuous.might', args: { amount: constant(2) }, key: 'affected' },
+  { op: 'continuous.keyword', args: { keyword: constant('Shield'), value: constant(2) }, key: 'granted' },
+  { op: 'continuous.grant-keyword', args: { keyword: constant('Shield'), value: constant(2) }, key: 'granted' }
+];
+
+// Synthetic programs exercise the unchanged default activation, Finalize and
+// Resolve adapters. No official status/IR, context methods or registries are
+// patched, and no selected targets/picks or trigger registrations are injected.
+function assembledFixture(id, body) {
+  const program = {
+    canonicalCardId: `synthetic:adapter:${id}`,
+    rulesetVersion: 'core-1.5',
+    status: 'executable',
+    sourceText: '[synthetic adapter regression]',
+    abilities: [{ kind: 'activated', timing: 'reaction', cost: { energy: constant(1) }, body }]
+  };
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const f = fixture({ cards: [
+    { id: 'actor', cardId: program.canonicalCardId, types: ['gear'], might: 1, energy: null, power: [] },
+    { id: 'unit', types: ['unit'], might: 3, energy: 1, power: [] }
+  ], describePlay: binding.describePlay });
+  // Establish the initial Board using real actions before activating anything.
+  for (const id of ['actor', 'unit']) {
+    assert.equal(f.engine.commit({
+      type: 'move-zone', object: f.kernel.ref(id), to: 'base', location: { type: 'base', player: 'A' }
+    }).status, 'done');
+  }
+  f.engine.advance();
+  binding.attachLifecycle(f.engine);
+  return { ...f, activate: () => f.engine.execute(binding.describeActivate(f.kernel.getObject('actor'), 'A')) };
+}
+
+for (const { op, args, key } of continuousCases) {
+  for (const kind of ['constant', 'literal']) {
+    test(`default assembly: ${op} decodes ${kind} filter and affects only Board units`, () => {
+      const instruction = { id: 'filtered-effect', op, args: {
+        ...args, filter: { kind, value: { type: 'unit', zone: 'board' } }
+      } };
+      const f = assembledFixture(`${op}:${kind}`, [instruction]);
+      const actorBefore = f.engine.layers.evaluate(f.kernel.ref('actor'));
+      f.activate();
+      const item = f.engine.items[0];
+      assert.equal(item.status, 'finalized');
+      assert.equal(item.payment.paid, true);
+      resolveAll(f.engine);
+
+      const affected = ['enemy', 'source', 'unit'].map(id => f.kernel.ref(id));
+      assert.deepEqual(f.kernel.linkedSnapshot()[`filtered-effect.${key}`], { count: 3, objects: affected });
+      assert.equal(f.engine.layers.registry.snapshot().length, 3);
+      for (const ref of affected) {
+        const before = f.kernel.object(ref);
+        const after = f.engine.layers.evaluate(ref);
+        if (op === 'continuous.might') assert.equal(after.might, before.might + 2);
+        else assert.equal(after.keywords.find(keyword => keyword.id.toLowerCase() === 'shield')?.value, 2);
+      }
+      assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref('actor')), actorBefore);
+      assert.equal(f.kernel.getObject('actor').energy, null);
+      assert.deepEqual(f.engine.trace.filter(event => event.item === item.id &&
+        ['finalized', 'resolved', 'removed'].includes(event.step)).map(event => event.step),
+      ['finalized', 'resolved', 'removed']);
+      assert.equal(f.engine.items.length, 0);
+    });
+  }
+}
+
+// Isolated schema regressions: malformed IR cannot pass ProgramRegistry, so
+// exercise adapter dispatch directly. This also checks the combat primitive
+// without inventing behavior for its separate, missing combat consumer.
+for (const op of [...continuousCases.map(entry => entry.op), 'continuous.combat']) {
+  test(`adapter schema: ${op} rejects a literal non-object filter before execution`, () => {
+    const body = [{ id: 'invalid-filter', op, args: {
+      filter: constant('unit'), ...(op === 'continuous.might' ? { amount: constant(2) } :
+        op === 'continuous.combat' ? { flags: constant(['tank']) } : { keyword: constant('Shield') })
+    } }];
+    const f = fixture();
+    const state = f.kernel.snapshot();
+    const links = f.kernel.linkedSnapshot();
+    assert.throws(() => resolveChainBody(body,
+      f.host.context(f.kernel.getObject('source'), 'A', 'chain-item-resolve')),
+    /filter must be an object filter/);
+    assert.deepEqual(f.kernel.snapshot(), state);
+    assert.deepEqual(f.kernel.linkedSnapshot(), links);
+  });
+}
+
+test('default assembly: AwaitChoice rolls back registrations and retry consumes one settlement id', () => {
+  const body = [{ id: 'buff-units', op: 'continuous.might', args: {
+    filter: constant({ type: 'unit', zone: 'board' }), amount: constant(2), duration: constant('this-turn')
+  } }, { id: 'may-draw', op: 'choice.optional', args: {
+    body: constant([{ id: 'draw', op: 'effect.draw', args: { amount: constant(1) } }])
+  } }];
+  const run = () => {
+    const f = assembledFixture('retry', body);
+    f.activate();
+    f.engine.pass('A');
+    const state = f.kernel.snapshot();
+    const events = f.engine.pipeline.events;
+    const links = f.kernel.linkedSnapshot();
+    const items = f.engine.items;
+    let request;
+    for (let retry = 0; retry < 2; retry += 1) {
+      assert.throws(() => f.engine.pass('B'), error => {
+        assert.ok(error instanceof AwaitChoice);
+        if (request) assert.deepEqual(error.request, request);
+        request = error.request;
+        return true;
+      });
+      assert.deepEqual(f.kernel.snapshot(), state);
+      assert.deepEqual(f.engine.items, items);
+      assert.deepEqual(f.engine.pipeline.events, events);
+      assert.deepEqual(f.kernel.linkedSnapshot(), links);
+      assert.deepEqual(f.engine.layers.registry.snapshot(), []);
+    }
+    f.answers.set(request.id, true);
+    f.engine.pass('B');
+    assert.equal(f.engine.layers.registry.snapshot().length, 3);
+    assert.equal(f.engine.layers.evaluate(f.kernel.ref('unit')).might, 5);
+    assert.equal(f.kernel.player('A').handSize, 1);
+    const counter = `__continuous.settlement.continuous.might.actor.${f.kernel.ref('actor').zoneEntryId}`;
+    assert.equal(f.kernel.linked(counter), 1);
+    f.activate();
+    resolveAll(f.engine);
+    assert.equal(f.engine.layers.registry.snapshot().length, 6);
+    assert.equal(f.engine.layers.evaluate(f.kernel.ref('unit')).might, 7);
+    assert.equal(f.kernel.player('A').handSize, 2);
+    assert.equal(f.kernel.player('A').energy, 18);
+    assert.equal(f.kernel.linked(counter), 2);
+    const ids = f.engine.layers.registry.snapshot().map(entry => entry.effect.id);
+    assert.equal(new Set(ids).size, 6);
+    assert.equal(f.engine.items.length, 0);
+    return ids;
+  };
+  assert.deepEqual(run(), run());
+});

@@ -49,10 +49,10 @@ const LITERAL_FIELDS: Readonly<Record<string, readonly string[]>> = {
     'baseModifications', 'optionalAdditional', 'mandatoryAdditional',
     'discountOrder', 'modifier', 'modifiers', 'ignoreAllCosts', 'linkKey'
   ],
-  'continuous.might': ['target', 'pick', 'choose'],
-  'continuous.combat': ['target', 'pick', 'choose'],
-  'continuous.keyword': ['target', 'pick', 'choose'],
-  'continuous.grant-keyword': ['target', 'pick', 'choose']
+  'continuous.might': ['target', 'pick', 'choose', 'filter'],
+  'continuous.combat': ['target', 'pick', 'choose', 'filter'],
+  'continuous.keyword': ['target', 'pick', 'choose', 'filter'],
+  'continuous.grant-keyword': ['target', 'pick', 'choose', 'filter']
 };
 function primitiveArgs(op: string, value: unknown, definition: InstructionDef<unknown>): unknown {
   const raw = { ...(value as { primitiveArgs: Record<string, unknown> }).primitiveArgs };
