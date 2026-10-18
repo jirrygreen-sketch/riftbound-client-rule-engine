@@ -14,6 +14,10 @@ import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js"
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { fixture as turnFixture } from "../../../../engine-core/test/turn/helpers.mjs";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { evaluateExtendedExpression } from "../../../../engine-core/dist/effects/interpreter/expr-ext/index.js";
 
 /** Drain the merged chain until it blocks; used to reach the combat gate. */
 function settleTurn(flow) {
@@ -46,10 +50,16 @@ test("unl-006-219 Sharkling: identity, status, judgeReason and verbatim sourceTe
   assert.match(program.judgeReason, /Accelerate/);
   assert.match(program.judgeReason, /805\.6/);
   assert.match(program.judgeReason, /optionalAdditional/);
-  assert.match(program.judgeReason, /play producer|替代生命周期/);
+  assert.match(program.judgeReason, /play producer/);
+  assert.match(program.judgeReason, /Unsupported play cost field optional/);
+  assert.match(program.judgeReason, /no layer mapping/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /combat-start-transaction/);
-  assert.match(program.judgeReason, /conditionMatches/);
+  // 2026-10-18 re-sweep: the reason names the measured production gap
+  // (the base interpreter reads "designation" off ObjectSnapshot and fails
+  // closed) instead of the stale "unknown conditions are treated as true" one.
+  assert.match(program.judgeReason, /abilityEnvironment/);
+  assert.match(program.judgeReason, /expr-ext/);
 });
 
 test("unl-006-219 Sharkling: unvalued Accelerate plus Assault 4, in printed order", () => {
@@ -214,32 +224,36 @@ test("unl-006-219 Sharkling golden: the Assault 4 Might modification itself regi
   assert.equal(layered.might, 5);
 });
 
-test("unl-006-219 Sharkling: the Assault designation gate is still observable in the merged layer result", () => {
-  // 807.1.d.1: Assault applies only while the unit holds the Attacker
-  // designation. The IR keeps that gate as a compare condition, while the
-  // current layer vocabulary cannot evaluate designation; preserving the
-  // non-attacker result records the supported arithmetic half and the live
-  // reason this card remains judge-required.
+test("unl-006-219 Sharkling golden: the production binder fails the Assault 4 gate closed, so no role gains Might (CR 807.1.d.1)", () => {
+  // 807.1.d.1: Assault 4 must apply exactly while the unit holds the Attacker
+  // designation. The IR keeps that gate as
+  // compare(object-property(self, "designation"), eq, "attacker").
+  // programs/statics.ts evaluates ability.condition with the base interpreter:
+  // ObjectSnapshot has no "designation" characteristic, the read raises
+  // MissingInformation and the binder's catch turns the gate into false. The
+  // +4 therefore never lands - for a real attacker either - until the
+  // designation read is wired (the merged expr-ext evaluator already maps it to
+  // combatRole but has no production caller).
   const [ability] = assault.expand({ value: program.abilities[1].value, host: HOST });
   assert.equal(ability.condition.kind, "compare");
   assert.equal(ability.condition.left.property, "designation");
   assert.deepEqual(ability.condition.right, { kind: "constant", value: "attacker" });
 
-  const kernel = world().unit("sharkling", { owner: "A", might: 3, combatRole: null }).build();
-  const snapshot = kernel.getObject("sharkling");
-  const layered = createLayerEngine([snapshot], [{
-    effect: {
-      id: "assault-4",
-      layer: "arithmetic",
-      source: snapshot.ref,
-      filter: { objectId: "sharkling" },
-      effect: ability.effect,
-      condition: ability.condition
-    },
-    duration: { type: "permanent" }
-  }]).evaluate(snapshot.ref);
-  assert.equal(snapshot.combatRole, null);
-  assert.equal(layered.might, 7);
+  const results = ["attacker", "defender", null].map(combatRole => {
+    const f = fixture({ cards: [] });
+    const source = { ...f.kernel.getObject("source"), might: 3, combatRole };
+    const handle = createEngineStaticBinder(f.engine).bindStatic(ability, source);
+    const layered = createLayerEngine([source], f.engine.layers.registry.list()).evaluate(source.ref);
+    handle.unbind();
+    return [combatRole, layered.might];
+  });
+  assert.deepEqual(results, [
+    // 807.1.d.1 would need 7 for the attacker; the real production layer result
+    // is the unmodified 3 for every role, because the gate cannot be evaluated.
+    ["attacker", 3],
+    ["defender", 3],
+    [null, 3]
+  ]);
 });
 
 test("unl-006-219 Sharkling: the generated card registry exposes the program under its canonical id", () => {
@@ -267,15 +281,37 @@ test("unl-006-219 Sharkling: the merged combat flow never designates an attacker
   assert.equal(f.kernel.getObject("source").combatRole, null);
 });
 
-test("unl-006-219 Sharkling: the merged layer engine ignores the designation gate and applies Assault 4 anyway", () => {
-  // The remaining blocker on the layers side: conditionMatches only understands
-  // always/never/type/has-tag/has-keyword and treats an unknown kind as true,
-  // so the authored compare(designation) gate cannot be bound without making
-  // the +4 unconditional -- which this card must not do.
-  const [ability] = assault.expand({ value: program.abilities[1].value, host: HOST });
-  const kernel = world().unit("idle", { owner: "A", might: 3, combatRole: null }).build();
-  const snapshot = kernel.getObject("idle");
-  const layered = createLayerEngine([snapshot], [{
+test("unl-006-219 Sharkling: only the uncalled expr-ext evaluator can read the printed designation", () => {
+  // The gate's real missing input: the expansion asks for "designation", the
+  // snapshot only carries combatRole, and the mapping between them lives in
+  // effects/interpreter/expr-ext/. The base interpreter (the one the production
+  // static binder uses) raises MissingInformation; the extended evaluator
+  // resolves the very same expression to the live combatRole. The card
+  // therefore keeps the contract spelling instead of rewriting it, until the
+  // extended read is wired into the static-condition path.
+  const [ability] = assault.expand({ value: 4, host: HOST });
+  assert.equal(ability.condition.left.property, "designation");
+
+  const kernel = world().unit("attacker", { owner: "A", combatRole: "attacker" }).build();
+  const context = kernel.clone({ source: kernel.ref("attacker"), sourceSnapshot: kernel.getObject("attacker") });
+  const environment = {
+    context,
+    host: kernel.ref("attacker"),
+    linked: () => undefined,
+    canLookBack: () => true,
+    isIgnored: () => false
+  };
+  assert.throws(() => evaluateCondition(ability.condition, environment), /Unavailable characteristic: designation/);
+  assert.equal(evaluateExtendedExpression(ability.condition.left, environment), "attacker");
+
+  // The second, distinct boundary: handing the same raw IR condition straight to
+  // the layer engine (no production binder) makes the unknown condition kind
+  // fall through to true, so the +4 lands for a non-attacker too. That is the
+  // approximation this card must not ship -- which is why the card keeps the
+  // authored condition and stays judge-required.
+  const idle = world().unit("idle", { owner: "A", might: 3, combatRole: null }).build();
+  const snapshot = idle.getObject("idle");
+  const raw = createLayerEngine([snapshot], [{
     effect: {
       id: "assault-4",
       layer: "arithmetic",
@@ -287,19 +323,19 @@ test("unl-006-219 Sharkling: the merged layer engine ignores the designation gat
     duration: { type: "permanent" }
   }]).evaluate(snapshot.ref);
   assert.equal(snapshot.combatRole, null);
-  assert.equal(layered.might, 7);
+  assert.equal(raw.might, 7);
 });
 
 test.todo(
   "unl-006-219 Sharkling: pay the optional Accelerate cost [1][Fury] during the play and let the unit enter " +
-    "ready instead of exhausted (CR 805.1.b.1 / 805.2.b / 805.6) — the merged cost plan and bindReplacement both " +
-    "handle it above; no merged producer feeds a card's keyword abilities into cost/cost-plan.ts optionalAdditional " +
-    "or into the replacement lifecycle"
+    "ready instead of exhausted (CR 805.1.b.1 / 805.2.b / 805.6) — the merged cost plan, the chain's " +
+    "selectedAdditional check and bindReplacement all handle it above; no merged producer feeds the card's keyword " +
+    "into CostPlanInput (translateCost still rejects the expansion's cost shape)"
 );
 
 test.todo(
   "unl-006-219 Sharkling: apply Assault 4 as +4 Might exactly while the unit holds the Attacker designation " +
-    "(CR 807.1.c / 807.1.d.1) — both halves are now pinned by executable evidence above: the merged layer engine " +
-    "applies the Might modification unconditionally (an unknown condition kind is treated as true), and the merged " +
-    "combat transaction blocks at combat-start-transaction before any Attacker designation exists"
+    "(CR 807.1.c / 807.1.d.1) — both halves are pinned by executable evidence above: the production binder fails the " +
+    "designation gate closed (no role gains Might), and the merged combat transaction blocks at " +
+    "combat-start-transaction before any Attacker designation exists"
 );

@@ -7,6 +7,7 @@ import move from "../../../../engine-core/dist/effects/instructions/effect.move.
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { translateObjectFilter, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { fixture as turnFixture } from "../../../../engine-core/test/turn/helpers.mjs";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 
 /** Drain the merged chain until it blocks; used to reach the combat gate. */
 function settleTurn(flow) {
@@ -64,6 +65,9 @@ test("unl-137-219 Sinister Poro: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /CostSpec|Finalize/);
   assert.match(program.judgeReason, /sameLocationAs/);
+  // 2026-10-18 re-sweep: the reason names the measured arg-shape rejection too.
+  assert.match(program.judgeReason, /Invalid cost\.pay argument: energy/);
+  assert.match(program.judgeReason, /payments/);
 });
 
 test("unl-137-219 Sinister Poro: attack-declared self trigger with the printed may cost as the Finalize decision", () => {
@@ -102,6 +106,22 @@ test("unl-137-219 Sinister Poro: 1 Energy recorded as the trigger's base cost, t
   assert.deepEqual(moveEnemy.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(moveEnemy.args.linkKey, { kind: "constant", value: "moved" });
   assert.equal(moveEnemy.picks, undefined);
+});
+
+test("unl-137-219 Sinister Poro golden: the recorded cost.pay is descriptive only and is refused by the merged primitive", () => {
+  // 383.3.b.1: the printed 1 Energy is the triggered ability's base cost, paid
+  // during Finalize. Because contract 3.1's TriggeredAbility has no CostSpec
+  // slot, the card records the payment in its body. That record is not an
+  // executable instruction: the merged cost.pay primitive accepts only
+  // { cost, power, nonstandardOrder, payments, linkKey } and rejects the
+  // authored energy key, which is why the card cannot be promoted yet.
+  assert.deepEqual(payEnergy.args, { energy: { kind: "constant", value: 1 } });
+  const kernel = world().player("A", { energy: 1 }).build();
+  assert.throws(
+    () => runInstruction(costPay, payEnergy.args, { world: kernel }),
+    /Invalid cost\.pay argument: energy/
+  );
+  assert.equal(kernel.player("A").energy, 1);
 });
 
 test("unl-137-219 Sinister Poro: 'an enemy unit here' is one opponent-controlled unit at my location", () => {
@@ -168,8 +188,8 @@ test("unl-137-219 Sinister Poro golden: the card's own printed Move args run on 
 
 test.todo(
   "unl-137-219 Sinister Poro: charge the printed 1 Energy as the triggered ability's base cost at Finalize " +
-    "(CR 383.3.b.1 / 415.4-415.5) — contract 3.1's TriggeredAbility has no CostSpec field and no cost.pay " +
-    "primitive in the triggered-ability cost position"
+    "(CR 383.3.b.1 / 415.4-415.5) — contract 3.1's TriggeredAbility has no CostSpec field for a base cost, and the " +
+    "recorded body cost.pay is rejected by the merged primitive (see the execution test above)"
 );
 test.todo(
   "unl-137-219 Sinister Poro: fire the attack-declared trigger from the real combat workflow (CR 383.4.e / 466.2.c) " +

@@ -17,6 +17,8 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { createEngineStaticBinder, translateCost } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { getTimingPoint } from "../../../../engine-core/dist/events/timing-points.js";
 
 const CANONICAL_ID =
   "card.hash-cc540d8a2bbd62d237f265dc99b08da25c4499af36778a1dc01cf4165c0b9553";
@@ -274,6 +276,67 @@ test("unl-029-219 Red Brambleback: [Accelerate]'s expansion is not consumed by t
     () => createEngineStaticBinder(f.engine).bindStatic(costDeclaration, f.kernel.getObject("brambleback")),
     /Static ability kind accelerate\.cost has no layer mapping/
   );
+});
+
+test("unl-029-219 Red Brambleback golden: the Accelerate entry replacement binds even though its cost half does not", () => {
+  // 805.6 / 805.6.a: the expansion's second half is an object-enters-board
+  // replacement that turns the exhausted entry ready. It binds through the
+  // production replacement binder and rewrites a real move-zone onto the Board,
+  // so only the cost half of [Accelerate] is still missing.
+  const [, replacement] = keywordDefinitionsById.get("Accelerate").expand({
+    host: { canonicalCardId: CANONICAL_ID }
+  });
+  const kernel = world()
+    .unit("brambleback", {
+      zone: "hand",
+      types: ["unit"],
+      power: ["Fury"],
+      exhausted: false,
+      cardId: CANONICAL_ID
+    })
+    .build();
+  const hostRef = kernel.ref("brambleback");
+  const bound = bindReplacement(replacement, hostRef, {
+    host: { object: ref => kernel.object(ref), objects: () => kernel.objects, context: () => kernel },
+    pipeline: { clock: { turn: 1 }, registerReplacement: () => {} }
+  });
+
+  // Hand -> Chain, then 143.4's default exhausted chain-zone entry state.
+  assert.equal(kernel.perform({ type: "move-zone", object: hostRef, to: "chain" }).status, "done");
+  const chainRef = kernel.ref("brambleback");
+  assert.equal(kernel.perform({ type: "exhaust", object: chainRef }).status, "done");
+
+  const entering = {
+    type: "move-zone",
+    object: chainRef,
+    to: "base",
+    location: { type: "base", player: "A" }
+  };
+  assert.equal(bound.registration.matches(entering, entering), true);
+  const applied = bound.registration.apply(entering, entering);
+  assert.deepEqual(applied.actions.map(action => action.type), ["ready", "move-zone"]);
+  for (const action of applied.actions) assert.equal(kernel.perform(action).status, "done");
+  const entered = kernel.getObject("brambleback");
+  assert.equal(entered.zone, "board");
+  assert.equal(entered.exhausted, false);
+});
+
+test("unl-029-219 Red Brambleback: the conquer payload still carries no conquering unit for the source filter", () => {
+  // 383.4.c.2: the authored filter binds the trigger to *this* unit. The real
+  // scoring wave publishes { player, details.battlefieldId } only, so the
+  // translated self filter matches nothing; adding an object would make it
+  // match. This pins gap (1) against the merged matcher rather than the
+  // contract text.
+  const translated = translateTriggerFilter(
+    conquerTrigger.trigger.filter,
+    "brambleback",
+    conquerTrigger.trigger.at
+  );
+  const wave = { timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" } };
+  assert.equal(matchesTriggerEvent(translated, wave, "A"), false);
+  assert.equal(matchesTriggerEvent(translated, { ...wave, object: unitSnapshot() }, "A"), true);
+  // 471.1/473.2.a: the closed timing point itself is registered and triggerable.
+  assert.equal(getTimingPoint(conquerTrigger.trigger.at).triggerable === false, false);
 });
 
 test("unl-029-219 Red Brambleback: the card's `source: self` anchor translates to the conquering unit's object filter", () => {

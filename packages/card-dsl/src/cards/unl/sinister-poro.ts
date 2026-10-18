@@ -21,11 +21,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   表达（与 ogn/maddened-marauder、ogn/fight-or-flight 同一写法）；448.3.a 的“移动到当前位置”
  *   不适用（Base 与战场必然不同）。
  *
- * status = judge-required（缺口不近似实现）：
- * - “pay :rb_energy_1:” 的 Finalize 语义没有接线：契约 3.1 的 TriggeredAbility 没有 CostSpec
- *   字段（只有 activated/play 带 cost），因此 383.3.b.1 的“付 1 能量才算成立”与拒绝即移出链的
+ * status = judge-required（2026-10-18 复核，缺口不近似实现）：
+ * - "pay :rb_energy_1:" 的 Finalize 语义没有接线：契约 3.1 的 TriggeredAbility 没有 CostSpec
+ *   字段（只有 activated/play 带 cost），因此 383.3.b.1 的"付 1 能量才算成立"与拒绝即移出链的
  *   行为无法表达；把付费写进 body 只会在结算时执行，错过 415.4/415.5 与 203.3 的支付校验，
- *   也做不出“付不出则不触发”的负例。
+ *   也做不出"付不出则不触发"的负例。注意本卡现在记录的 cost.pay 用的是 energy 键，
+ *   而已合入的 cost.pay 原语只接受 { cost | power | nonstandardOrder | payments | linkKey }，
+ *   实测该 IR 直接抛 "Invalid cost.pay argument: energy"——它不是可执行的记录，
+ *   只是费用的描述性占位（同理见 programs/play.ts 对 body 内 cost.pay 的处理）。
  * - attack-declared 在已合入代码里没有发射路径：combat/flow.ts 的 startCombat 仍抛
  *   "combat-start-transaction"（攻击/防守角色需要原子的同时时点波次；同 rad/ezreal-dashing、
  *   sfd/lucian-gunslinger 的记录），触发无法在真实内核里被订阅。
@@ -47,7 +50,9 @@ export default {
     "383.3.b/383.3.b.1 把它当作触发能力的基础费用（必须在 Finalize 支付，付不出则整条触发移出链），" +
     "383.3.e.2.a/b 的 “you may” 也是在 Finalize 决定的；契约 3.1 的 TriggeredAbility 没有 CostSpec 字段" +
     "（只有 activated/play 带 cost），因此“付 1 能量才成立 / 拒绝即移出链 / 415.4-415.5 的付得出校验”" +
-    "都无法表达；把 cost.pay 放进 body 只会在结算时执行。" +
+    "都无法表达；把 cost.pay 放进 body 只会在结算时执行，而且本卡记录的 { energy: 1 } 形状不是原语可执行形状：" +
+    "已合入的 cost.pay 只接受 { cost | power | nonstandardOrder | payments | linkKey }，" +
+    "实测该 args 直接抛 “Invalid cost.pay argument: energy”。" +
     "(2) attack-declared 时点（383.4.e）在已合入代码里没有发射方：combat/flow.ts 的 startCombat 仍抛 " +
     "\"combat-start-transaction\"（攻击/防守角色需要原子的同时时点波次），触发无法被真实订阅" +
     "（同 rad/ezreal-dashing、sfd/lucian-gunslinger 的记录）。另外，programs/filters.ts 的 translateObjectFilter " +

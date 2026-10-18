@@ -10,6 +10,8 @@ import stun from "../../../../engine-core/dist/effects/instructions/effect.stun.
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 
 const CANONICAL_ID =
   "card.hash-4c764cb6248ef9337fc1c8769d4b74fc1d4c1fff6a9e8d00ca6753a560b3e74b";
@@ -39,6 +41,11 @@ test("unl-194-219 Shadow: identity, status, judgeReason and verbatim sourceText"
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /shadow\.played-to-battlefield/);
   assert.match(program.judgeReason, /Unsupported filter field sameLocationAs/);
+  // 2026-10-18 re-sweep: the reason names the measured characteristics
+  // over-match instead of the stale "three units all false" wording.
+  assert.match(program.judgeReason, /characteristics/);
+  assert.match(program.judgeReason, /matchesQueryFilter/);
+  assert.match(program.judgeReason, /characteristicsMatch/);
 });
 
 test("unl-194-219 Shadow: 'I enter ready' is an entry replacement, never a create-then-ready pair", () => {
@@ -236,4 +243,49 @@ test("unl-194-219 Shadow: sameLocationAs and combatRole are still rejected by th
     sameLocationAs: "source",
     combatRole: "attacker"
   });
+});
+
+test("unl-194-219 Shadow: moving combatRole into characteristics over-matches in the production target query", () => {
+  // CR 424.1 / 355.9: the printed target is "an enemy unit attacking here", so
+  // an idle unit at the same Battlefield must never be selectable. Since
+  // translateObjectFilter refuses combatRole outright, the only field that
+  // survives translation is characteristics. The production ResolveContext.query
+  // (the test kernel's matchesQueryFilter) ignores characteristics values and
+  // lets them through, so BOTH the real attacker and the idle bystander become
+  // candidates. Only layers/filter.ts characteristicsMatch distinguishes them,
+  // which is why neither spelling can express the printed target set yet.
+  const kernel = world()
+    .unit("attacker", { owner: "B", combatRole: "attacker", location: { type: "battlefield", id: "bf-1" } })
+    .unit("bystander", { owner: "B", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const context = bindResolveContext(kernel, { source: kernel.getObject("attacker"), controller: "A" });
+  const filter = { type: "unit", owner: "B", characteristics: { combatRole: "attacker" } };
+  assert.deepEqual(
+    context.query(filter).map(object => object.ref.id),
+    ["attacker", "bystander"]
+  );
+  // The layer matcher is the only reader that would filter the bystander out.
+  assert.equal(matchesObjectFilter(filter, kernel.getObject("attacker")), true);
+  assert.equal(matchesObjectFilter(filter, kernel.getObject("bystander")), false);
+});
+
+test("unl-194-219 Shadow: the produced \"here\" location spellings disagree between the two readers", () => {
+  // 053.3 / 359.3.f: "here" must resolve to the source's Battlefield. The
+  // production query accepts only an exact LocationRef and rejects the generic
+  // "battlefield" spelling, while the layer filter does the opposite. A generic
+  // "at a battlefield" predicate (Pyke, Returned) or a partial kind filter
+  // therefore cannot be evaluated by one shared reader.
+  const kernel = world()
+    .unit("onField", { owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("atBase", { owner: "A", location: { type: "base", player: "A" } })
+    .build();
+  const context = bindResolveContext(kernel, { source: kernel.getObject("onField"), controller: "A" });
+  assert.deepEqual(context.query({ location: "battlefield" }).map(object => object.ref.id), []);
+  assert.equal(matchesObjectFilter({ location: "battlefield" }, kernel.getObject("onField")), true);
+  assert.deepEqual(
+    context.query({ location: { type: "battlefield", id: "bf-1" } }).map(object => object.ref.id),
+    ["onField"]
+  );
+  assert.equal(matchesObjectFilter({ location: { type: "battlefield", id: "bf-1" } }, kernel.getObject("onField")), false);
+  assert.deepEqual(context.query({ location: { type: "battlefield" } }).map(object => object.ref.id), []);
 });

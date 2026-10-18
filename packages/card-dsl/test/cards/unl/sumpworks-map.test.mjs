@@ -10,6 +10,11 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { bindStaticAbility, createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-47a542464232c8294d831009e0eeadaef69bf895aacfa6489afba4c08f3c2440";
@@ -33,6 +38,10 @@ test("unl-085-219 Sumpworks Map: identity, ruleset, judge-required status and ve
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /EventPattern/);
   assert.match(program.judgeReason, /continuous\.timing/);
+  // 2026-10-18 re-sweep: the reason names the measured rejections.
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /TriggerSpecValidationError/);
+  assert.match(program.judgeReason, /Unsupported static appliesTo/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
@@ -90,4 +99,69 @@ test("unl-085-219 Sumpworks Map golden: the merged effect.draw alone draws the d
   assert.equal(run.result.status, "executed");
   assert.equal(kernel.player("A").handSize, 1);
   assert.equal(kernel.player("A").deckSize, 2);
+});
+
+test("unl-085-219 Sumpworks Map golden: the printed score trigger registers and is queued by a real score emission", () => {
+  // 470.1 / 473.2: the closed "scored" spelling maps onto the score timing
+  // point. Registering the card's own trigger through the production binding
+  // makes it a real subscription, and a committed score emission queues it.
+  const f = fixture({ cards: [] });
+  const source = { ...f.kernel.getObject("source"), cardId: program.canonicalCardId, keywords: [] };
+  const ids = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined, abilities: [triggered] }]
+  }).registerProgramTriggers(f.engine, source);
+  assert.deepEqual(ids, ["program:source:1:0"]);
+  const queued = [];
+  f.engine.pipeline.onTrigger = snapshot => queued.push(snapshot);
+  f.engine.pipeline.emit({ timingPoint: "score", player: "B", details: { battlefieldId: "bf-1" } });
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].registration.spec.at, "score");
+  assert.deepEqual(queued[0].registration.spec.filter, { event: "scored", player: "opponent" });
+  assert.equal(queued[0].controller, "A");
+  assert.equal(queued[0].event.player, "B");
+});
+
+test("unl-085-219 Sumpworks Map: [Temporary]'s beginning-start trigger body is still outside the closed event vocabulary", () => {
+  // 816.1 / 816.1.b: Temporary expands a kill trigger at the controller's
+  // Beginning Phase start. The expansion writes event: "beginning-start", which
+  // is a legal timing point but not a legal EventPattern name, so the
+  // registration is rejected outright instead of subscribing.
+  const [temporaryTrigger] = keywordDefinitionsById.get("Temporary").expand({
+    host: { canonicalCardId: program.canonicalCardId }
+  });
+  assert.equal(temporaryTrigger.trigger.at, "beginning-start");
+  assert.deepEqual(temporaryTrigger.trigger.filter, { event: "beginning-start", player: "self" });
+  assert.throws(
+    () => assertTriggerSpec({ at: temporaryTrigger.trigger.at, filter: temporaryTrigger.trigger.filter }),
+    (error) => error.name === "TriggerSpecValidationError" && /trigger\.filter\.event/.test(error.message)
+  );
+  // 816.1.b's kill body itself is the merged effect.kill primitive.
+  assert.deepEqual(temporaryTrigger.body.map(instruction => instruction.op), ["effect.kill"]);
+});
+
+test("unl-085-219 Sumpworks Map: [Reaction]'s continuous.timing expansion is still refused by the static binder", () => {
+  // 813.1.c / 813.1.d: Reaction grants the Closed State play permission through
+  // a static continuous.timing effect. The expansion's appliesTo array
+  // (["card", "activated-ability"]) has no consumer in programs/statics.ts, so
+  // the declaration fails closed; dropping it registers the layer effect, which
+  // pins the blocker to the unconsumed appliesTo shape rather than to the kind.
+  const [reactionStatic] = keywordDefinitionsById.get("Reaction").expand({
+    host: { canonicalCardId: program.canonicalCardId }
+  });
+  assert.deepEqual(reactionStatic.effect.appliesTo, ["card", "activated-ability"]);
+  const f = fixture({ cards: [] });
+  const source = { ...f.kernel.getObject("source"), cardId: program.canonicalCardId, keywords: [] };
+  const binder = createEngineStaticBinder(f.engine);
+  assert.throws(
+    () => bindStaticAbility(binder, reactionStatic, source),
+    /Unsupported static appliesTo/
+  );
+  const handle = bindStaticAbility(binder, {
+    ...reactionStatic,
+    effect: { ...reactionStatic.effect, appliesTo: undefined }
+  }, source);
+  const [entry] = f.engine.layers.registry.list();
+  handle.unbind();
+  assert.equal(entry.effect.layer, "ability");
+  assert.deepEqual(entry.effect.effect.grants, ["showdown", "closed-state"]);
 });

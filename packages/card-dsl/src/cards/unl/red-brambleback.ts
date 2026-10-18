@@ -27,9 +27,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（2026-10-17 复核，缺口不近似实现）。
  * 已合入并可真实执行的部分：conquer 时点由 turn/flow.ts 的 Score 波次真实发出、effect.buff 原语与卡牌程序绑定（RIFT-257），
- * 事件过滤器用闭表的 conquered 拼写可通过 assertTriggerSpec 注册。
+ * 事件过滤器用闭表的 conquered 拼写可通过 assertTriggerSpec 注册，[Accelerate] 展开出的
+ * 入场替代（805.6）本身也能被 replacement/ 绑定。
  * 仍缺三处（见 judgeReason）：conquer 载荷缺单位归属、触发收集阶段没有倍率接口、
- * [Accelerate] 的费用与入场替代没有消费方。
+ * [Accelerate] 的费用声明（accelerate.cost）没有消费方（translateCost 拒绝其形状，
+ * programs/statics.ts 也拒绝该 kind 的图层映射）。
  * 数据问题：同一身份的异画 unl-029a-219 在本地目录丢失 Ionia 标签（见 docs/plans/survey/data-issues-recheck.md），
  * 本任务按 unl-029-219 的原文书写，不改卡牌数据。
  */

@@ -24,17 +24,22 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   440.2.c / 185.2.a / 350.2 / 354 要求被“打出”的 token 先在链上创建、再交给打出流程；
  *   184.1 / 185.2.d 允许创建效果规定入场状态（此处 "exhausted"），它不是一次横置动作。
  *
- * status = judge-required（缺口不近似实现）：
+ * status = judge-required（2026-10-18 对源码逐条复核，缺口不近似实现）：
  * - effect.token 的冻结 DEFINITIONS 表只有 recruit/sand-soldier/mech/reflection/tentacle，
- *   没有 gold（该文件明确“自带其他能力的定义，包括 Gold，保持 blocked/judge-required”，187.5）；
- *   create-token 也不支持入场状态改写（184.1/185.2.d，143.4 的默认横置入场例外）——
- *   先创建再补一次 effect.exhaust 会多出一次“成为横置”事件，故不近似。
- * - “while I'm at a battlefield” 的进链前条件仍依赖宿主把
- *   events/pipeline.ts 传入的 captured last-known source 绑定到 condition ResolveContext；
- *   CardProgram → TriggerRegistration 转换与生命周期 attach/detach 已由
- *   programs/triggers.ts / programs/lifecycle.ts 合入。当前 IR 只能记录
- *   object:self, location:battlefield，不能自行携带死亡前位置。
- * 依赖：RIFT-62 后续（Gold 定义、链上创建与入场状态改写）以及条件宿主的 LKI 绑定。
+ *   没有 gold（该文件明确"自带其他能力的定义，包括 Gold，保持 blocked/judge-required"，187.5）；
+ *   实测 token: "gold" 返回 negated/impossible。create-token 也不支持入场状态改写
+ *   （184.1/185.2.d，143.4 的默认横置入场例外）：多传一个 exhausted 参数会抛
+ *   "Invalid effect.token argument: exhausted"——先创建再补一次 effect.exhaust 会多出一次
+ *   "成为横置"事件，故不近似。
+ * - "while I'm at a battlefield" 的进链前条件缺可求值的位置谓词：条件写成
+ *   count(objects, { object: "self", location: "battlefield" })，但生产求值器读的
+ *   location 只认具名 LocationRef——ResolveContext.query 实测对 location: "battlefield" 返回空集，
+ *   {"type":"battlefield"} 同样空集，只有 {"type":"battlefield","id":"bf-1"} 才命中；
+ *   layers/filter.ts 的 matchesObjectFilter 恰好相反（"battlefield" true、具名 ref false），
+ *   两个读取器没有共同的"某处战场"拼写。host.testTrigger 已经把 captured last-known source
+ *   绑定进 condition ResolveContext（events/pipeline.ts 的 scan 传入 captured），
+ *   所以该条件在路径上可求值，缺的是位置谓词本身。
+ * 依赖：RIFT-62 后续（Gold 定义、链上创建与入场状态改写）以及"位于任一战场"的位置谓词。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "hidden" },
@@ -97,16 +102,24 @@ export default {
   judgeReason:
     "缺 Gold gear token 的可执行路径：「play a Gold gear token exhausted」需要 187.5 的 Gold 定义" +
     "（effect.token 的冻结 DEFINITIONS 表只有 recruit/sand-soldier/mech/reflection/tentacle，" +
-    "自带其他能力的定义按该文件说明保持 blocked）与 440.2.c/185.2.a/350.2/354 的链上创建 + 打出流程，" +
+    "自带其他能力的定义按该文件说明保持 blocked；实测 token: gold 返回 negated/impossible）" +
+    "与 440.2.c/185.2.a/350.2/354 的链上创建 + 打出流程，" +
     "以及 184.1/185.2.d 的入场状态改写（143.4 是单位默认横置入场的例外来源）；" +
-    "create-token 不支持入场状态规定，先创建再补一次 effect.exhaust 会产生错误的「成为横置」事件，故不近似。" +
-    "另一处缺口是触发条件：「while I'm at a battlefield」（383.2.a.1 的附加条件属触发条件）需要" +
-    "host.testTrigger 把 pipeline 传入的 captured last-known source 绑定到 condition ResolveContext；" +
-    "CardProgram → TriggerRegistration 的转换与 lifecycle attach/detach 已合入，当前 IR 只能记录" +
-    "object:self + location:battlefield，不能自行携带死亡前位置。" +
+    "effect.token 支持的模式与目的地参数里没有入场状态槽位，实测多传 exhausted 会抛" +
+    "「Invalid effect.token argument: exhausted」；先创建再补一次 effect.exhaust 会产生错误的" +
+    "「成为横置」事件，故不近似。" +
+    "另一处缺口是触发条件的位置谓词：「while I'm at a battlefield」（383.2.a.1 的附加条件属触发条件）" +
+    "写成 count(objects, { object: self, location: battlefield })，但生产求值器读的 location 只认具名" +
+    "LocationRef——生产 ResolveContext.query 对标量拼写 location: battlefield 与 {type: battlefield} 均返回空集，" +
+    "只有带具名战场 id 的 {type: battlefield, id: bf-1} 才命中；layers/filter.ts 的 matchesObjectFilter 恰好相反" +
+    "（只认标量 battlefield、不接受具名 ref 与 {type: battlefield}），两个读取器没有共同的「位于任一战场」拼写。" +
+    "host.testTrigger 已把 pipeline 传入的 captured last-known source 绑定进 condition ResolveContext" +
+    "（CardProgram → TriggerRegistration 转换与 lifecycle attach/detach 亦已合入），" +
+    "路径本身可求值，缺的只是该位置谓词。" +
     "[Hidden]（811）与 [Backline]（826）只按契约 3.7 声明关键词；两者的 KeywordDef 已合入，" +
-    "其展开消费方（静态 cost.hidden 的 Hide 动作、continuous.combat 的伤害分配顺序）仍需接入 Hide 动作与战斗伤害分配工作流。" +
-    "依赖：RIFT-62 后续（Gold 定义、链上创建与入场状态改写）以及条件宿主的 LKI 绑定。",
+    "展开实测为 cost.hidden（生产 binder 抛「Static ability kind cost.hidden has no layer mapping」）" +
+    "与 continuous.combat（该 kind 目前只作为图层登记存在，没有伤害分配消费方）。" +
+    "依赖：RIFT-62 后续（Gold 定义、链上创建与入场状态改写）以及「位于任一战场」的位置谓词。",
   abilities,
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +

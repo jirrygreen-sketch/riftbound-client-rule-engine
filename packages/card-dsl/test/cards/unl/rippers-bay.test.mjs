@@ -7,6 +7,9 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import channel from "../../../../engine-core/dist/effects/instructions/effect.channel.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding, translateTriggerFilter } from "../../../../engine-core/dist/programs/index.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL =
   "card.hash-3d96eb343671872c717cc1217d0c5e82368ec20ade63cc420ecdaf7d9aee1cef";
@@ -38,6 +41,11 @@ test("unl-214-219 Ripper's Bay: judgeReason names the event-player, location and
   assert.match(program.judgeReason, /object-enters-hand/);
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /payments/);
+  // 2026-10-18 re-sweep: the reason also names the measured pattern-name
+  // rejection and the dropped "here" clause.
+  assert.match(program.judgeReason, /object-entered-zone/);
+  assert.match(program.judgeReason, /TriggerSpecValidationError/);
+  assert.match(program.judgeReason, /fromZone/);
   assert.doesNotMatch(program.judgeReason, /没有生产者|生产方.*支付|CostPlan.*生产/);
 });
 
@@ -183,6 +191,71 @@ test("unl-214-219 Ripper's Bay: a short Rune Deck channels as much as possible (
   assert.equal(run.result.status, "executed");
   assert.equal(run.linked.channeled, 0);
   assert.equal(kernel.player("A").runePool.length, 0);
+});
+
+test("unl-214-219 Ripper's Bay: the authored trigger cannot be registered, and the closed spelling drops \"here\"", () => {
+  // 383.2.c.3.b: the "here" check needs the returned unit's former Battlefield.
+  // Two measured defects block the subscription:
+  //  (a) the authored filter names the timing point id "object-enters-hand",
+  //      but EventPattern only admits the closed pattern names; the translated
+  //      spec fails validation and registerProgramTriggers throws;
+  //  (b) with the admitted "object-entered-zone" spelling the here clause is
+  //      dropped by programs/filters.ts, so the registration would match a unit
+  //      returning from any zone.
+  const translated = translateTriggerFilter(ability.trigger.filter, "rippers-bay", ability.trigger.at);
+  assert.deepEqual(translated, { event: "object-enters-hand", object: { type: "unit" } });
+  assert.throws(
+    () => assertTriggerSpec({ at: ability.trigger.at, filter: translated }),
+    (error) => error.name === "TriggerSpecValidationError" && /trigger\.filter\.event/.test(error.message)
+  );
+
+  const f = fixture({ cards: [] });
+  const source = { ...f.kernel.getObject("source"), cardId: program.canonicalCardId, keywords: [] };
+  assert.throws(
+    () => createProgramBinding({
+      cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+    }).registerProgramTriggers(f.engine, source),
+    (error) => error.name === "TriggerSpecValidationError"
+  );
+
+  // The admitted spelling registers, but the "here" clause is gone: the filter
+  // keeps the entering object and its zone only.
+  const widened = translateTriggerFilter(
+    { event: "object-entered-zone", object: { type: "unit" }, here: true },
+    "rippers-bay",
+    "object-enters-hand"
+  );
+  assert.deepEqual(widened, { event: "object-entered-zone", object: { type: "unit" } });
+  assert.equal(Object.hasOwn(widened, "here"), false);
+  assert.doesNotThrow(() => assertTriggerSpec({ at: "object-enters-hand", filter: widened }));
+});
+
+test("unl-214-219 Ripper's Bay: the return-to-hand emission carries no former Battlefield", () => {
+  // 053.3: "here" is the departing unit's Battlefield. The merged
+  // object-enters-hand emission exposes the entering object and fromZone=board
+  // only: ZoneChangeProducerContext.details is { cause }, so nothing in the
+  // payload identifies which Battlefield the unit left.
+  const f = fixture({ cards: [{ id: "unit", types: ["unit"] }] });
+  // Put the unit on the Battlefield first: the fixture builds cards into hand.
+  assert.equal(f.engine.pipeline.commit({
+    type: "move-zone",
+    object: f.kernel.ref("unit"),
+    to: "board",
+    location: { type: "battlefield", id: "bf-1" }
+  }).status, "done");
+  const seen = [];
+  f.engine.pipeline.onEvent = event => seen.push(event);
+  // Commit through the pipeline so the real zone-change emissions are derived.
+  assert.equal(f.engine.pipeline.commit({ type: "return-to-hand", object: f.kernel.ref("unit") }).status, "done");
+  const entries = seen.filter(event => event.timingPoint === "object-enters-hand");
+  assert.equal(entries.length, 1);
+  const [entry] = entries;
+  assert.equal(entry.fromZone, "board");
+  assert.equal(entry.toZone, "hand");
+  assert.equal(entry.details?.battlefieldId, undefined);
+  // The card stops at the Battlefield's own location, so the printed clause is
+  // not dropped: it stays in the authored filter (see the structural test).
+  assert.equal(ability.trigger.filter.here, true);
 });
 
 test.todo(
