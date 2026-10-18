@@ -38,7 +38,11 @@ test("ogn-256-298 Fox-Fire judgeReason names the group and total-Might gap", () 
   assert.match(program.judgeReason, /total Might/);
   assert.match(program.judgeReason, /同一战场/);
   assert.match(program.judgeReason, /target-plan\.ts 没有任何执行路径/);
-  assert.match(program.judgeReason, /keywords\/Hidden\.ts 仍标记 RIFT-89\/RIFT-91 待办/);
+  assert.match(program.judgeReason, /811\.1\.c\/811\.1\.d/);
+  assert.match(program.judgeReason, /Hide 自由行动/);
+  assert.match(program.judgeReason, /facedown 区域处理/);
+  assert.match(program.judgeReason, /下回合 Reaction/);
+  assert.match(program.judgeReason, /layerFor 也还没有 cost\.hidden 映射/);
   assert.match(program.judgeReason, /cost\.hidden/);
 });
 
