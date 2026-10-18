@@ -60,7 +60,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺两处：(1) Empower KeywordDef 已注册，827.1.c.1 的 Exhaust 费用与未 Empowered 限制可展开，但 KeywordAbility / programs/keywords.ts 不传递 params.cost，不能把本卡印刷的横置费用交给展开器；ObjectSnapshot 的 empowered 状态也待生产契约统一。(2) Disempower this 是 404.1.a/415.5 的启动费用，cost/plan-values.ts 仍不支持 disempower 支付种类（443.2.a）；已有 effect.empower 的结算动作不能替代 Finalize 支付。energy/exhaust 费用及 effect.draw 已真实执行，仍保持 judge-required，不近似实现。",
+    "当前缺口：(1) Empower KeywordDef 已接受 params.cost，能展开本卡横置费用与未 Empowered 限制（827.1.c.1/415.5）；但 KeywordAbility / programs/keywords.ts 仍只传 keyword/value，未传印刷费用，展开的 cost.kind=empower 无法支付。ObjectSnapshot 仍未声明 empowered，生产状态读取与 442.1.b 的重复 Empower 限制须统一。(2) Disempower this 是 Finalize 启动费用（404.1.a/443.2.a），cost/plan-values.ts 尚无 disempower 支付种类。已有 effect.empower 的 Disempower 结算动作不能替代费用支付。Energy/Exhaust 支付、抽 1 与参数化 Empower 展开已有子效果执行证据；整卡保持 judge-required，不近似实现。",
   abilities,
   sourceText:
     "[Empower] —  :rb_exhaust: (Pay the cost: Empower me. Use only if not Empowered.)\n" +

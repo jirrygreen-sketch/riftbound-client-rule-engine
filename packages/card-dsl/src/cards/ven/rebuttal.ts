@@ -43,7 +43,7 @@ const rebuttal = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺三段：(1) CR 206 的印刷或复制 Energy <= 4 目标限制 energyMax 未被 programs/filters.ts 或 target-plan 合法性谓词消费；已有 event-printed 条件只读事件特征，不能替代链上目标候选过滤。(2) choice.mode 虽可由解释器执行，programs/play.ts 与 chain/engine.ts 仍以缺 Finalize/Resolve choice-plan 适配器阻断；已合入 cost.pay 的 payments.power 和 linked-value 可记录结算付费。(3) CR 750-755 的 making new choices 仍无 choice.remake-chain-item-choices 节点及已 Finalize 链项计划重建：752.1 只重选 location/mode/destination/target，753/753.3 必须全部重选并沿用限制，753.2 无合法选择则 negated，754 再触发成为目标，755 忽略因此产生的 to-play 费用。通用地点选择与 condition.result 已合入，缺的是上述组合接线。不近似实现。",
+    "当前缺口：(1) CR 206 的印刷或复制 Energy <= 4 目标限制 energyMax 未被 programs/filters.ts 或 target/target-plan.ts 消费；event-printed 只读事件特征，不能替代链上目标过滤。(2) choice.mode 已能在解释器运行，但 programs/play.ts 与 chain/engine.ts 仍缺 Finalize/Resolve choice-plan 适配器。cost.pay 的 payments.power 已可规划 [A] 并产出支付回执，成功回执写在 payment；支付失败抛错并中止 body，因此控制分支依序链接支付，不读取不存在的顶层 paid。(3) CR 750-755 的 choice.remake-chain-item-choices 与已 Finalize 链项计划重建仍未实现：752.1 仅重选 location/mode/destination/target，753/753.3 全部重选且沿用限制，753.2 无合法选择则 negated，754 再触发成为目标，755 忽略新增 to-play 费用。通用地点选择和 condition.result 已合入，缺的是上述组合接线。不近似实现。",
   abilities: [
     // 813.1.c.1：印刷的 [Reaction] 只声明，展开与 Closed State 准入归关键词注册表与 chain。
     { kind: "keyword", keyword: "reaction" },
@@ -69,7 +69,7 @@ const rebuttal = {
                   body: [
                     {
                   // 结算期支付 [A]：135.2.e.5.a / 163.2.b 的任意域 Power 由数值 1 表达；
-                  // cost.pay 的 payment receipt 可由后续 linked-value 读取。
+                  // cost.pay 失败抛错；成功后才按 linkedTo 继续取得控制。
                   id: "rebuttal.pay-rainbow",
                   op: "cost.pay",
                   args: {
@@ -86,12 +86,6 @@ const rebuttal = {
                     objects: { kind: "constant", value: { target: CHOSEN_SPELL } },
                     amount: { kind: "constant", value: 1 },
                     linkKey: { kind: "constant", value: "rebuttal-controlled" }
-                  },
-                  condition: {
-                    kind: "compare",
-                    left: { kind: "linked-value", instructionId: "rebuttal.pay-rainbow", key: "paid" },
-                    operator: "eq",
-                    right: { kind: "constant", value: true }
                   }
                     },
                     {
