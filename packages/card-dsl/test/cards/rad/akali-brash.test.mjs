@@ -5,6 +5,10 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/akali-brash.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 
 const FIRST_MOVE = "akali-brash.add-first-move";
 const SECOND_MOVE_BANISH = "akali-brash.banish-top";
@@ -14,7 +18,7 @@ test("rad-015-167 Akali, Brash: program validates and has expected identity", ()
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.equal(program.status, "judge-required");
-  assert.ok(program.judgeReason.includes("self-moves-this-turn/history-record"));
+  assert.ok(program.judgeReason.includes("The second time I move each turn"));
   assert.ok(program.judgeReason.includes("move-location"));
   assert.equal(
     program.canonicalCardId,
@@ -30,8 +34,61 @@ test("rad-015-167 Akali, Brash: program validates and has expected identity", ()
   assert.match(program.judgeReason, /condition\.history/);
   assert.match(program.judgeReason, /effect\.play-permission/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
-  assert.match(program.judgeReason, /invalid-event-type/);
+  assert.match(program.judgeReason, /TriggerSpecValidationError/);
+  assert.match(program.judgeReason, /Unsupported condition/);
   assert.doesNotMatch(program.judgeReason, /RIFT-(257|261)/);
+});
+
+test("rad-015-167 Akali, Brash: the two move triggers really cannot register (421.1 / 449.1)", () => {
+  // The production registration path validates trigger.filter.event against the
+  // closed EVENT_PATTERN_TYPES vocabulary, and object-moved is not in it, so a
+  // program that declares these triggers cannot be bound at all.
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const kernel = world().unit("akali", { cardId: program.canonicalCardId, types: ["unit"], zone: "board" }).build();
+  const registrations = triggerRegistrations(registry, kernel.getObject("akali"));
+  assert.equal(registrations.length, 2);
+  const f = fixture({ cards: [] });
+  assert.throws(
+    () => f.engine.pipeline.registerTrigger(registrations[0]),
+    error => error.name === "TriggerSpecValidationError" &&
+      /trigger\.filter\.event/.test(error.message)
+  );
+});
+
+test("rad-015-167 Akali, Brash: the second-move ordinal history has no evaluable Condition", () => {
+  // 383.1: "the second time I move each turn" needs host-scoped move history.
+  // The trigger condition's count falls through to the object query (the subject
+  // is ignored and a bare object count is truthy), and there is no history
+  // Condition kind to replace it with.
+  const kernel = world().unit("akali", { types: ["unit"], zone: "board" }).build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("akali") });
+  const environment = {
+    context: ctx,
+    host: ctx.ref("akali"),
+    linked: () => undefined,
+    canLookBack: () => true,
+    isIgnored: () => false,
+    query: () => kernel.objects
+  };
+  // The authored condition keeps its fail-closed placeholder filter, so the
+  // count is 0 and the ordinal gate is never satisfied today.
+  assert.equal(evaluateCondition(program.abilities[1].trigger.condition, environment), false);
+  const bare = { kind: "compare", left: { kind: "count", subject: "self-moves-this-turn" }, operator: "gte", right: { kind: "constant", value: 2 } };
+  assert.equal(evaluateCondition(bare, environment), false, "only the object count is read");
+  assert.throws(() => evaluateCondition({ kind: "history" }, environment), /Unsupported condition: history/);
+});
+
+test("rad-015-167 Akali, Brash: [Add] :rb_rune_rainbow: still has no Universal Power representation", () => {
+  // 135.2.e.5 / 163.2.b: the printed symbol is Power of any Domain. The merged
+  // primitive accepts only the closed six-domain list, so the declaration fails
+  // closed instead of being approximated by one domain.
+  const kernel = world().player("A", { energy: 0 }).build();
+  const [gain] = program.abilities[0].body;
+  const outcome = resolveChainBody([gain], kernel);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(kernel.player("A").energy, 0, "no partial Energy is granted when [A] is unexpressible");
+  assert.equal(kernel.player("A").power.length, 0);
 });
 
 test("rad-015-167: first-move resource trigger and second-move banish trigger", () => {
@@ -102,18 +159,6 @@ test("rad-015-167: the second-move body banishes the deck top through real effec
   assert.equal(outcome.linkedValues[`${SECOND_MOVE_BANISH}.akaliBanishCount`], 1);
 });
 
-test.todo(
-  "rad-015-167 Akali, Brash: Universal Power（[A]，135.2.e.5 / 163.2.b）无可执行表达——" +
-    "契约 3.6 的 Domain 是六域封闭枚举，effect.resources 明确不可用任一域近似"
-);
-test.todo(
-  "rad-015-167 Akali, Brash: the object-moved timing point must join EVENT_PATTERN_TYPES " +
-    "(events/trigger-spec.ts) before registerProgramTriggers can subscribe the two move triggers"
-);
-test.todo(
-  "rad-015-167 Akali, Brash: “The second time I move each turn” 的序数条件需要按对象范围的历史序数谓词" +
-    "（condition.history 目前只给动作计数，即便它已消费契约 3.8 的 exclude/objectFilter）"
-);
 test.todo(
   "rad-015-167 Akali, Brash: “Until your next Ending Phase, you may play that card.” 的期限化" +
     "打出许可原语 effect.play-permission 缺失（未注册）"

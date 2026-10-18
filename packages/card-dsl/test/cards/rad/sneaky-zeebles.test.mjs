@@ -7,6 +7,8 @@ import resources from "../../../../engine-core/dist/effects/instructions/effect.
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID =
   "card.hash-36af4340a3b4308d5a0aaf002e73ae4fb29bec09c724487100a7387c8f819063";
@@ -38,7 +40,7 @@ test("rad-076-167 Sneaky Zeebles: 'When I conquer' subscribes to the conquer tim
   assert.equal(triggered.kind, "triggered");
   assert.equal(triggered.trigger.at, "conquer");
   assert.deepEqual(triggered.trigger.filter, {
-    event: "conquer",
+    event: "conquered",
     filter: { source: "self" }
   });
   assert.equal(triggered.optional, false);
@@ -124,7 +126,7 @@ test("rad-076-167 Sneaky Zeebles: the registered conquer trigger does not match 
   const snapshot = { ...kernel.getObject("zeebles"), cardId: CARD_ID };
   const registry = new Map([[CARD_ID, program]]);
   const [registration] = triggerRegistrations(registry, snapshot);
-  assert.deepEqual(registration.spec.filter, { event: "conquer", object: { objectId: "zeebles" } });
+  assert.deepEqual(registration.spec.filter, { event: "conquered", object: { objectId: "zeebles" } });
   assert.equal(
     matchesTriggerEvent(registration.spec.filter, { timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" } }, "A"),
     false,
@@ -135,6 +137,23 @@ test("rad-076-167 Sneaky Zeebles: the registered conquer trigger does not match 
     true,
     "the same filter matches once a conquering object is supplied"
   );
+});
+
+test("rad-076-167 Sneaky Zeebles: the closed 'conquered' spelling actually registers on a real pipeline", () => {
+  // 383.4.c / 471.1: "When I conquer" subscribes to the conquer timing point. The
+  // printed wording "conquer" is not the closed pattern vocabulary name, so the
+  // program declares "conquered"; this test proves the registration path accepts
+  // that spelling (the payload half stays the gap asserted above).
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const kernel = world()
+    .player("A")
+    .unit("zeebles", { cardId: CARD_ID, controller: "A", owner: "A", zone: "board" })
+    .build();
+  const [registration] = triggerRegistrations(registry, kernel.getObject("zeebles"));
+  assert.deepEqual(registration.spec.filter, { event: "conquered", object: { objectId: "zeebles" } });
+  const f = fixture({ cards: [] });
+  f.engine.pipeline.registerTrigger(registration);
+  assert.equal(f.engine.pipeline.triggers.has(registration.id), true);
 });
 
 test.todo(

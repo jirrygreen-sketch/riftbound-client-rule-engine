@@ -17,13 +17,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "banish the top card of your Main Deck" = effect.banish 的牌库顶区域选择（zoneSlice，417/428）；
  * - "Until your next Ending Phase, you may play that card" = 带期限的打出许可（见 judgeReason）。
  *
- * status = judge-required（2026-10-17 源码复核）：
- * - object-moved 有 move-location 动作生产者，但不在 EVENT_PATTERN_TYPES，无法订阅。
- * - Universal Power 仍不在 Domain/gain-power 形状中；不能选一个域代替 [A]。
- * - condition.history 已能计数、比较并消费 objectFilter/exclude，但 trigger.condition
- *   的 count 只查询当前对象，不读取历史；“self-moves-this-turn”不是可执行 subject。
- *   仍需按宿主、当前回合的第 1/2 次移动条件绑定，不能声称历史计数原语不存在。
- * - effect.play-permission 尚未注册，且缺到下次 Ending Phase 的许可生命周期。
+ * status = judge-required（2026-10-18 源码复核，逐条实测）：
+ * - object-moved 有 move-location 动作生产者，但不在 EVENT_PATTERN_TYPES；
+ *   registerTrigger 实测抛 TriggerSpecValidationError（trigger.filter.event 必须是
+ *   封闭词表成员），因此两条触发都无法订阅。
+ * - [Add] :rb_rune_rainbow: 的 Universal Power 仍不在 Domain/gain-power 形状中：
+ *   effect.resources 对 ["rainbow"] 实测 negated/impossible；不能选一个域代替 [A]。
+ * - “The second time I move each turn” 的历史计数不可求值：本卡条件里的 count 走
+ *   解释器查询，只按当前对象集合求值（实测 subject 被忽略、对任意对象返回真），
+ *   condition.history 指令能计数却不是 Condition；trigger.condition 没有历史种类
+ *   （求值 { kind: history } 实测抛 Unsupported condition），仍需按宿主、当前回合的
+ *   第 1/2 次移动绑定。
+ * - effect.play-permission 尚未注册（不在 instruction opcode 表），且缺到下次
+ *   Ending Phase 的许可生命周期。
  * 能量子效果、移动事件生产及牌库顶 banish 可独立执行，不代表完整触发可用。
  */
 const abilities: Ability[] = [
@@ -97,11 +103,16 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) object-moved 已由 events/action-adapter.ts 的 move-location 发出，但不在 EVENT_PATTERN_TYPES，订阅被 invalid-event-type 拒绝。" +
-    "(2) Universal Power（CR 163.2.b）不在 Domain/gain-power 的六域形状中，effect.resources 不能表达 [A]。" +
-    "(3) condition.history 已提供动作计数和数值比较；缺的是 trigger.condition 中按宿主、当前回合读取移动历史的绑定：" +
-    "当前 count 只查询对象，self-moves-this-turn/history-record 占位不会产生第 2 次移动语义（383.1）。" +
-    "(4) effect.play-permission 未注册，缺从 banishment 打出指定对象、仍支付费用并在你的下次 Ending Phase 到期的许可（CR 317 / 428）。",
+    "(1) object-moved 已由 events/action-adapter.ts 的 move-location 发出，但不在 EVENT_PATTERN_TYPES：" +
+    "registerTrigger 实测抛 TriggerSpecValidationError（trigger.filter.event 必须属于封闭词表），两条触发都订阅不上。" +
+    "(2) [Add] :rb_rune_rainbow: 的 Universal Power（CR 163.2.b / 135.2.e.5）不在 Domain/gain-power 的六域形状中，" +
+    "effect.resources 对 [\"rainbow\"] 实测 negated/impossible；不得用某个域近似。" +
+    "(3)「The second time I move each turn」的序数历史不可求值：trigger.condition 没有历史种类" +
+    "（求值 { kind: history } 实测抛 Unsupported condition），Condition 里的 count 在解释器里只按当前对象集合求值" +
+    "（实测 subject 被忽略、对任意对象返回真），condition.history 指令能真正计数却只存在于 Resolve 期，" +
+    "仍需按宿主、当前回合绑定移动历史（383.1）。" +
+    "(4) effect.play-permission 未注册（不在 instruction opcode 表），并缺从 banishment 打出指定对象、" +
+    "仍支付费用并在你的下次 Ending Phase 到期的许可生命周期（CR 317 / 428）。",
   abilities,
   sourceText:
     "The first time I move each turn, [Add] :rb_energy_1::rb_rune_rainbow:.\n" +

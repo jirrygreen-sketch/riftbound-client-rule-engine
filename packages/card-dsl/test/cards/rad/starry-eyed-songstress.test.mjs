@@ -8,6 +8,8 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/starry-eyed-songstress.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import modify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { bindStaticAbility, createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
@@ -36,6 +38,10 @@ test("rad-151-167 Starry-Eyed Songstress: identity, status, judgeReason, and ver
   assert.match(program.judgeReason, /cost\.(additional|modify|pay)/);
   assert.match(program.judgeReason, /layerFor/);
   assert.match(program.judgeReason, /legend-zone/);
+  // 2026-10-18 refresh: the merged collector is the other consumer candidate and
+  // it refuses this declaration's additionalCost field.
+  assert.match(program.judgeReason, /additionalCost/);
+  assert.match(program.judgeReason, /board\/rune-zone/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -144,6 +150,35 @@ test("rad-151-167 Starry-Eyed Songstress: the declared static still has no produ
     () => bindStaticAbility(createEngineStaticBinder(engine), { ...ability, effect: { ...ability.effect, appliesTo: "self" } }, kernel.getObject("songstress")),
     /Static ability kind cost\.modify has no layer mapping/
   );
+});
+
+test("rad-151-167 Starry-Eyed Songstress: the merged collector refuses the declared optional additional cost", () => {
+  // The merged collector is the other candidate consumer for this declaration
+  // kind. It rejects the card's `additionalCost` field outright, so the printed
+  // optional cost cannot be installed from the program (356.2.b.1).
+  const kernel = world()
+    .player("A", { energy: 5 })
+    .object("songstress", { types: ["legend"], zone: "board", location: { type: "base", player: "A" } })
+    .hand("spell", { types: ["spell"], energy: 3, power: [] })
+    .build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("spell") });
+  assert.throws(
+    () => finalizeCostPlan(ctx, { id: "spell-play", cost: { kind: "printed" } }, {
+      statics: [{ id: "songstress:0", source: ctx.ref("songstress"), ability }]
+    }),
+    error => error instanceof CostPlanError && error.reason === "judge-required" &&
+      /Unsupported cost modification field additionalCost/.test(error.message)
+  );
+
+  // Rewriting the declaration into the collector's own vocabulary would drop the
+  // printed additional cost entirely and discount unconditionally, so it is not a
+  // faithful substitution; the measured result is recorded to keep that visible.
+  const rewritten = { kind: "static", effect: { kind: "continuous.cost-modification", resource: "energy", amount: { kind: "constant", value: -2 }, appliesTo: "spell-play-cost" } };
+  const plan = finalizeCostPlan(ctx, { id: "spell-play", cost: { kind: "printed" } }, {
+    statics: [{ id: "songstress:0", source: ctx.ref("songstress"), ability: rewritten }]
+  });
+  assert.equal(plan.total.energy, 1, "an unconditional rewrite would discount without the printed exhaust cost");
+  assert.equal(plan.total.actions.length, 0, "...and would pay none of the printed cost");
 });
 
 // The whole card stays blocked: cost.modify has no layer mapping in

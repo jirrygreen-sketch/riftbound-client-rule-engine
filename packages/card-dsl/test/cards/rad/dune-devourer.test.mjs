@@ -5,6 +5,8 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/dune-devourer.js";
 import Deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
@@ -20,7 +22,8 @@ test("rad-125-167 Dune Devourer: program validates and has expected identity", (
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /translateCost/);
   assert.match(program.judgeReason, /Unsupported play cost field optional/);
-  assert.match(program.judgeReason, /optional-additional-cost-paid/);
+  assert.match(program.judgeReason, /cost\/discounts\/collect\.ts/);
+  assert.match(program.judgeReason, /356\.4\.f\.1/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /layerFor/);
   assert.match(program.judgeReason, /continuous\.cost-modification/);
@@ -108,6 +111,82 @@ test("Dune Devourer: the optional kill payment executes once its non-target choi
   }
 });
 
+test("Dune Devourer: the merged collector really kills the chosen friendly unit for the optional cost", () => {
+  // CR 356.2.b.1: the merged collector resolves the non-target PickSpec with
+  // ctx.picks/ctx.choose and charges the kill through the real payment path.
+  // This is the executable half of the printed card; the decision-gated
+  // discount is asserted separately below.
+  const [payment] = program.abilities[1].cost.payments;
+  const kernel = world()
+    .player("A", { energy: 6 })
+    .hand("devourer", { types: ["unit"], energy: 4, power: [] })
+    .unit("friendly", { controller: "A" })
+    .unit("enemy", { owner: "B", controller: "B" })
+    .build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("devourer") });
+  const pick = { ...payment.choice, options: [ctx.ref("friendly")] };
+  ctx.setPicks(pick.id, [ctx.ref("friendly")]);
+  const plan = finalizeCostPlan(ctx, {
+    id: "play",
+    cost: { kind: "printed" },
+    optionalAdditional: [{ id: "kill-friendly", kind: "additional", selected: true, cost: { payments: [{ ...payment, choice: pick }] } }]
+  });
+  const receipt = payCostPlan(ctx, plan);
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.additional, [{ id: "kill-friendly", kind: "additional", paid: true }]);
+  assert.equal(ctx.getObject("friendly").zone, "trash", "the chosen friendly unit is killed");
+  assert.equal(ctx.getObject("enemy").zone, "board", "the non-target cost choice never touches another player's unit");
+  assert.equal(ctx.player("A").energy, 2);
+  assert.deepEqual(ctx.events.map(event => event.action), ["pay", "kill"]);
+});
+
+test("Dune Devourer: the printed decision-gated -2 Energy discount still fails closed in the merged collector", () => {
+  // 356.4.d vs 356.4.f.1: the printed text discounts the TOTAL cost only when the
+  // player decided to pay. The merged collector's component scope
+  // (optional-additional-costs-you-pay) discounts only that component, so a
+  // 0-Energy kill component keeps the total at 4; a plain total-cost discount
+  // fires even when the player declined, and the descriptive gate is refused.
+  const [payment] = program.abilities[1].cost.payments;
+  const discount = program.abilities[2];
+  const setup = () => {
+    const kernel = world()
+      .player("A", { energy: 6 })
+      .hand("devourer", { types: ["unit"], energy: 4, power: [] })
+      .unit("friendly", { controller: "A" })
+      .build();
+    const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("devourer") });
+    const pick = { ...payment.choice, options: [ctx.ref("friendly")] };
+    ctx.setPicks(pick.id, [ctx.ref("friendly")]);
+    return { ctx, pick };
+  };
+  const sources = (ctx, ability) => ({ statics: [{ id: "dune-devourer:2", source: ctx.ref("devourer"), ability }] });
+  const input = (pick, selected) => ({
+    id: "play",
+    cost: { kind: "printed" },
+    optionalAdditional: [{ id: "kill-friendly", kind: "additional", selected, cost: { payments: [{ ...payment, choice: pick }] } }]
+  });
+
+  const paid = setup();
+  assert.throws(
+    () => finalizeCostPlan(paid.ctx, input(paid.pick, true), sources(paid.ctx, discount)),
+    error => error instanceof CostPlanError && error.reason === "judge-required" &&
+      /Descriptive cost predicates require an authoritative condition adapter/.test(error.message),
+    "the authored gate is descriptive, so it is refused instead of silently applied"
+  );
+
+  const declared = setup();
+  const componentScoped = { ...discount, condition: undefined, effect: { ...discount.effect, appliesTo: "optional-additional-costs-you-pay" } };
+  const componentPlan = finalizeCostPlan(declared.ctx, input(declared.pick, true), sources(declared.ctx, componentScoped));
+  assert.equal(componentPlan.total.energy, 4, "the component scope cannot subtract 2 from a 0-Energy kill component");
+  assert.deepEqual(componentPlan.discounts.map(entry => [entry.component, entry.amount, entry.after]), [["kill-friendly", 2, 0]]);
+
+  const declined = setup();
+  const ungated = { ...discount, condition: undefined };
+  const declinedPlan = finalizeCostPlan(declined.ctx, input(declined.pick, false), sources(declined.ctx, ungated));
+  assert.equal(declinedPlan.total.energy, 2, "an ungated total discount fires even when the cost was declined (356.4.f.1 wants the decision)");
+  assert.deepEqual(declinedPlan.declinedAdditional, ["kill-friendly"]);
+});
+
 test("Dune Devourer: production play binding still rejects the optional additional cost", () => {
   const kernel = world()
     .hand("devourer", { cardId: CANONICAL, types: ["unit"], energy: 4, power: [] })
@@ -137,5 +216,7 @@ test("Dune Devourer: merged Deflect and cost-modification declarations still sto
   );
 });
 
-test.todo('Dune Devourer: bind optional kill cost, friendly-unit choices and the decision-dependent Energy discount at Finalize (CR 356.2.b/356.4.f.1)');
+test.todo(
+  'Dune Devourer: bind the optional kill cost from the CardProgram into Finalize and apply the printed total-cost -2 only when the player decided to pay (CR 356.2.b/356.2.b.1/356.4.d/356.4.f.1) — programs/play.ts translateCost rejects the declared cost, and the collector has no paid-decision predicate for a total-cost discount'
+);
 test.todo('Dune Devourer: bind Deflect target.tax through the program static layer and collect it at Finalize (CR 809.1.c)');
