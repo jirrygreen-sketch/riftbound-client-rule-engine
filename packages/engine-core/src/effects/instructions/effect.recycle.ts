@@ -154,8 +154,12 @@ function parseArgs(value: unknown): RecycleArgs {
     };
   }
   if (value.linkKey !== undefined) {
-    if (!isExpr(value.linkKey)) throw new Error("effect.recycle linkKey must be a card-dsl Expr");
-    args.linkKey = value.linkKey;
+    if (isExpr(value.linkKey)) args.linkKey = value.linkKey;
+    else if (typeof value.linkKey === "string" && value.linkKey.length > 0) {
+      args.linkKey = { kind: "constant", value: value.linkKey };
+    } else {
+      throw new Error("effect.recycle linkKey must be a non-empty string or card-dsl Expr");
+    }
   }
   if (args.target === undefined && args.objects === undefined && args.from === undefined) {
     throw new Error("effect.recycle requires at least one of target, objects, or from");
