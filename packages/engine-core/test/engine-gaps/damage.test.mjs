@@ -13,6 +13,8 @@ import { resolveChainBody } from "../../dist/chain/interpreter-adapter.js";
 import effectDamage from "../../dist/effects/instructions/effect.damage.js";
 import { AwaitChoice, runInstruction, world } from "../../dist/effects/testing/index.js";
 import { runCardScenario } from "../../dist/effects/testing/scenario/index.js";
+import { ContinuousEffectRegistry } from "../../dist/layers/duration.js";
+import { bindResolveContext } from "../../dist/events/action-adapter.js";
 import firestorm from "../../../card-dsl/dist/cards/ogs/firestorm.js";
 import volibear from "../../../card-dsl/dist/cards/ogn/volibear-furious.js";
 import avalanche from "../../../card-dsl/dist/cards/rad/avalanche.js";
@@ -474,4 +476,173 @@ test("zero damage over a non-empty set commits no action and negates as impossib
   assert.equal(run.events.length, 0);
   assert.equal(kernel.getObject("enemy-1").damage, 0);
   assert.equal(kernel.history({ action: "damage" }), 0);
+});
+
+test("production modifier registry adds Bonus Damage per target and before a divide", () => {
+  const kernel = damageSetup();
+  const registry = new ContinuousEffectRegistry();
+  registry.register({
+    id: "fixture-bonus",
+    layer: "ability",
+    source: kernel.ref("ally"),
+    filter: {},
+    effect: {
+      kind: "continuous.bonus-damage",
+      amount: 1,
+      appliesTo: "deal-actions",
+      sourcePlayer: "A",
+    },
+  }, { type: "permanent" });
+  const base = kernel.clone({ sourceSnapshot: kernel.getObject("ally"), controller: "A" });
+  base.setTargets("enemies", [kernel.ref("enemy-1"), kernel.ref("enemy-2")]);
+  const context = bindResolveContext(base, { continuousEffects: registry });
+  const outcome = effectDamage.execute(context, effectDamage.argsSchema.parse({
+    amount: literal(2), target: "enemies",
+  }));
+  assert.equal(outcome.status, "executed");
+  assert.equal(context.getObject("enemy-1").damage, 3);
+  assert.equal(context.getObject("enemy-2").damage, 3);
+
+  const splitBase = kernel.clone({ sourceSnapshot: kernel.getObject("ally"), controller: "A" });
+  splitBase.setTargets("enemies", [kernel.ref("enemy-1"), kernel.ref("enemy-2")]);
+  splitBase.setAnswers({ "effect.damage:divide:0": 2, "effect.damage:divide:1": 1 });
+  const split = bindResolveContext(splitBase, { continuousEffects: registry });
+  const divided = effectDamage.execute(split, effectDamage.argsSchema.parse({
+    amount: literal(2), target: "enemies", divide: true,
+  }));
+  assert.equal(divided.status, "executed");
+  assert.equal(split.getObject("enemy-1").damage, 2);
+  assert.equal(split.getObject("enemy-2").damage, 1);
+});
+
+test("explicit bonus and a production registry grant are summed exactly once", () => {
+  const kernel = damageSetup();
+  const registry = new ContinuousEffectRegistry();
+  registry.register({
+    id: "fixture-registry-bonus",
+    layer: "ability",
+    source: kernel.ref("ally"),
+    filter: {},
+    effect: { kind: "continuous.bonus-damage", amount: 2, appliesTo: "deal-actions", sourcePlayer: "A" },
+  }, { type: "permanent" });
+  const base = kernel.clone({ sourceSnapshot: kernel.getObject("ally"), controller: "A" });
+  base.setTargets("enemies", [kernel.ref("enemy-1")]);
+  const context = bindResolveContext(base, { continuousEffects: registry });
+  const outcome = effectDamage.execute(context, effectDamage.argsSchema.parse({
+    amount: literal(1), bonus: literal(3), target: "enemies",
+  }));
+  assert.equal(outcome.status, "executed");
+  assert.equal(context.getObject("enemy-1").damage, 6);
+  assert.equal(outcome.linkedValues.dealt, 6);
+});
+
+test("Bonus Damage does not turn a zero-base Deal into an actual Deal (CR 715.4)", () => {
+  const kernel = damageSetup();
+  const registry = new ContinuousEffectRegistry();
+  registry.register({
+    id: "fixture-zero-base-bonus",
+    layer: "ability",
+    source: kernel.ref("ally"),
+    filter: {},
+    effect: { kind: "continuous.bonus-damage", amount: 1, appliesTo: "deal-actions", sourcePlayer: "A" },
+  }, { type: "permanent" });
+  const base = kernel.clone({ sourceSnapshot: kernel.getObject("ally"), controller: "A" });
+  base.setTargets("enemies", [kernel.ref("enemy-1")]);
+  const context = bindResolveContext(base, { continuousEffects: registry });
+  const outcome = effectDamage.execute(context, effectDamage.argsSchema.parse({
+    amount: literal(0), target: "enemies",
+  }));
+  assert.equal(outcome.status, "negated");
+  assert.equal(context.getObject("enemy-1").damage, 0);
+  assert.equal(context.history({ action: "damage" }), 0);
+});
+
+test("a scoped grant still applies to the Deal source it names", () => {
+  const kernel = damageSetup();
+  const registry = new ContinuousEffectRegistry();
+  registry.register({
+    id: "self-scoped-bonus",
+    layer: "ability",
+    source: kernel.ref("enemy-1"),
+    filter: {},
+    effect: { kind: "continuous.bonus-damage", amount: 1, appliesTo: "deal-actions", sourcePlayer: "A", scope: { source: "self" } },
+  }, { type: "permanent" });
+  const base = kernel.clone({ sourceSnapshot: kernel.getObject("ally"), controller: "A" });
+  base.setTargets("enemies", [kernel.ref("enemy-2")]);
+  const context = bindResolveContext(base, { continuousEffects: registry });
+  const outcome = effectDamage.execute(context, effectDamage.argsSchema.parse({
+    amount: literal(2), target: "enemies",
+  }));
+  assert.equal(outcome.status, "executed");
+  assert.equal(context.getObject("enemy-2").damage, 3);
+});
+
+test("controller spell/ability scope is consumed once and wildcard scope is not double counted", () => {
+  const kernel = damageSetup();
+  const registry = new ContinuousEffectRegistry();
+  registry.register({
+    id: "controller-scoped-bonus",
+    layer: "ability",
+    source: kernel.ref("ally"),
+    filter: {},
+    effect: { kind: "continuous.bonus-damage", amount: 1, appliesTo: "controller-spells-and-abilities", sourcePlayer: "A" },
+  }, { type: "permanent" });
+  registry.register({
+    id: "wildcard-bonus",
+    layer: "ability",
+    source: kernel.ref("ally"),
+    filter: {},
+    effect: { kind: "continuous.bonus-damage", amount: 2, appliesTo: "any", sourcePlayer: "A" },
+  }, { type: "permanent" });
+  const base = kernel.clone({ sourceSnapshot: kernel.getObject("ally"), controller: "A" });
+  base.setTargets("enemies", [kernel.ref("enemy-1")]);
+  const context = bindResolveContext(base, { continuousEffects: registry });
+  const outcome = effectDamage.execute(context, effectDamage.argsSchema.parse({
+    amount: literal(1), target: "enemies",
+  }));
+  assert.equal(outcome.status, "executed");
+  assert.equal(context.getObject("enemy-1").damage, 4);
+});
+
+test("a source-scoped generic grant does not leak to another Deal source", () => {
+  const kernel = damageSetup();
+  const registry = new ContinuousEffectRegistry();
+  registry.register({
+    id: "other-source-only",
+    layer: "ability",
+    source: kernel.ref("enemy-1"),
+    filter: {},
+    effect: {
+      kind: "continuous.bonus-damage", amount: 1, appliesTo: "deal-actions",
+      sourcePlayer: "A", scope: { source: kernel.ref("enemy-1") },
+    },
+  }, { type: "permanent" });
+  const base = kernel.clone({ sourceSnapshot: kernel.getObject("ally"), controller: "A" });
+  base.setTargets("enemies", [kernel.ref("enemy-2")]);
+  const context = bindResolveContext(base, { continuousEffects: registry });
+  const outcome = effectDamage.execute(context, effectDamage.argsSchema.parse({
+    amount: literal(2), target: "enemies",
+  }));
+  assert.equal(outcome.status, "executed");
+  assert.equal(context.getObject("enemy-2").damage, 2);
+});
+
+test("the production bonus-damage primitive registers a grant consumed by a real Deal", async () => {
+  const { instructionDefinitionsById } = await import("../../dist/effects/instructions/registry.generated.js");
+  const bonus = instructionDefinitionsById.get("continuous.bonus-damage");
+  const kernel = damageSetup();
+  const registered = runInstruction(bonus, {
+    amount: literal(1), appliesTo: literal("deal-actions"), duration: literal("permanent"),
+  }, { world: kernel });
+  assert.equal(registered.result.status, "executed");
+  const registry = new ContinuousEffectRegistry();
+  for (const entry of kernel.continuousEffects) registry.register(entry.effect, entry.duration);
+  const base = kernel.clone({ sourceSnapshot: kernel.getObject("ally"), controller: "A" });
+  base.setTargets("enemies", [kernel.ref("enemy-1")]);
+  const context = bindResolveContext(base, { continuousEffects: registry });
+  const dealt = effectDamage.execute(context, effectDamage.argsSchema.parse({
+    amount: literal(2), target: "enemies",
+  }));
+  assert.equal(dealt.status, "executed");
+  assert.equal(base.getObject("enemy-1").damage, 3);
 });

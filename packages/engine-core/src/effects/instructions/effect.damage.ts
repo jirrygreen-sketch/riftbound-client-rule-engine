@@ -1,4 +1,6 @@
-import type { Expr, GameEvent, InstructionDef, InstructionResult, ObjectFilter, ObjectRef, ResolveContext, Schema, Value } from "../contract.js";
+import type { Expr, GameEvent, InstructionDef, InstructionResult, ObjectFilter, ObjectRef, ObjectSnapshot, ResolveContext, Schema, Value } from "../contract.js";
+import { bonusDamageForDeal, bonusDamageGrantsForDeal } from "../modifiers/query.js";
+import type { ContinuousEffectRegistry } from "../../layers/duration.js";
 
 /**
  * effect.damage — 造成 / 分配伤害（Deal Damage）。
@@ -44,8 +46,10 @@ import type { Expr, GameEvent, InstructionDef, InstructionResult, ObjectFilter, 
  * - 同时伤害：对每个仍合法的目标分别提交一次 GameAction "damage"，对应
  *   CR 418.1.c（伤害分别标记在每个单位上）；418.1.d 的同时性由内核/事件
  *   管线表达（如合并为时点），原语不合并动作。
- * - Bonus Damage 的来源授予（如 Annie, Fiery "你的法术 +1"）由持续效果/
- *   图层系统算好后经 bonus 表达式传入；本原语只做加总（714）与施加（715.2）。
+ * - Bonus Damage 的来源授予（如 Annie, Fiery "你的法术 +1"）通过
+ *   `bonusDamageForDeal` 按 controller、Deal scope、source 汇总；
+ *   显式 bonus 表达式保留为独立输入。两者相加后只施加一次（714），并在
+ *   divide 前作用于总伤害（715.3）；没有实际 Deal 时不产生链接（715.4）。
  * - 超额分配（355.14.h，目标多于可分时由控制者裁撤目标）属于 target.many /
  *   目标系统职责；本原语只在答案非法（超出剩余、非正整数）时 negated。
  * - 0 与负数：CR 418.1.e/418.1.e.1 规定只有正整数伤害才会被造成。基础额
@@ -213,6 +217,83 @@ function toNonNegativeInteger(value: Value): number {
   return integer > 0 ? integer : 0;
 }
 
+/**
+ * The frozen primitive contract has no modifier-registry member yet. A host
+ * may provide the same registry as a runtime capability; contexts without it
+ * keep their prior behavior. The registry itself stays authoritative and is
+ * never copied or mutated here.
+ */
+function continuousEffectsOf(ctx: ResolveContext): ContinuousEffectRegistry | null {
+  const candidate = (ctx as ResolveContext & { readonly continuousEffects?: unknown }).continuousEffects;
+  if (candidate === null || typeof candidate !== "object") return null;
+  const registry = candidate as Partial<ContinuousEffectRegistry>;
+  return typeof registry.active === "function" ? registry as ContinuousEffectRegistry : null;
+}
+
+function sourceScopeMatches(scope: unknown, source: ObjectRef): boolean {
+  if (scope === null || typeof scope !== "object" || Array.isArray(scope)) return true;
+  const expected = (scope as Record<string, unknown>).source;
+  if (expected === undefined || expected === null || expected === "any" || expected === "all" ||
+      expected === "self" || expected === "source") return true;
+  return isObjectRef(expected) && sameRef(expected, source);
+}
+
+function explicitSourceScoped(scope: unknown): boolean {
+  if (scope === null || typeof scope !== "object" || Array.isArray(scope)) return false;
+  const value = (scope as Record<string, unknown>).source;
+  return value !== undefined && value !== null && value !== "any" && value !== "all" &&
+    value !== "self" && value !== "source";
+}
+
+function filterMatchesSource(filter: ObjectFilter, source: ObjectRef): boolean {
+  for (const [key, expected] of Object.entries(filter)) {
+    if (key === "objectId" && expected !== source.id) return false;
+    if (key === "zoneEntryId" && expected !== source.zoneEntryId) return false;
+  }
+  return true;
+}
+
+function grantedBonusForDeal(
+  ctx: ResolveContext,
+  registry: ContinuousEffectRegistry,
+  source: ObjectRef,
+): number {
+  const object = (ref: ObjectRef) => ctx.object(ref);
+  const common = { controller: ctx.controller, source, anchors: [ctx.source] } as const;
+  // Use the production query for the aggregate (CR 714). Grants with an
+  // explicitly named source are subtracted and re-added only when they match,
+  // because the generic query exposes instances but does not narrow scope.
+  const allGeneric = bonusDamageGrantsForDeal(
+    registry,
+    { ...common, appliesTo: "deal-actions" },
+    object,
+  )
+    .filter(grant => {
+      const entry = registry.get(grant.id);
+      return entry === undefined || filterMatchesSource(entry.effect.filter, source);
+    });
+  const genericTotal = bonusDamageForDeal(registry, { ...common, appliesTo: "deal-actions" }, object);
+  const filteredOut = allGeneric.filter(grant => explicitSourceScoped(grant.scope) && !sourceScopeMatches(grant.scope, source))
+    .reduce((sum, grant) => sum + grant.amount, 0);
+  const generic = genericTotal - filteredOut;
+  // The modifier query treats `deal-actions` and `any` as one scope. The card
+  // DSL also carries the explicit controller spell/ability scope, so add only
+  // grants that name that exact scope; this avoids double counting wildcards.
+  const controllerScoped = bonusDamageGrantsForDeal(
+    registry,
+    { ...common, appliesTo: "controller-spells-and-abilities" },
+    object,
+  )
+    .filter(grant => {
+      const entry = registry.get(grant.id);
+      return entry === undefined || filterMatchesSource(entry.effect.filter, source);
+    })
+    .filter(grant => grant.appliesTo === "controller-spells-and-abilities")
+    .filter(grant => !explicitSourceScoped(grant.scope) || sourceScopeMatches(grant.scope, source))
+    .reduce((sum, grant) => sum + grant.amount, 0);
+  return generic + controllerScoped;
+}
+
 function sameRef(left: ObjectRef, right: ObjectRef): boolean {
   return left.id === right.id && left.zoneEntryId === right.zoneEntryId;
 }
@@ -277,10 +358,18 @@ const effectDamage = {
     }
 
     // 动态数额与 Bonus Damage（CR 714：多个 bonus 由传入表达式先行加总；
-    // 714.2：非正 bonus 不生效；715.2：每个目标分别增加）。
+    // 714.2：非正 bonus 不生效；715.2：每个目标分别增加）。显式 bonus 是
+    // 调用方提供的表达式；生产 registry 的授予另行汇总，二者是不同的
+    // 数据源，同一个注册不会因两条路径而被重复计数。
     const base = toNonNegativeInteger(ctx.evaluate(args.amount));
-    const bonus = args.bonus === undefined ? 0 : toNonNegativeInteger(ctx.evaluate(args.bonus));
-    const perTarget = base + bonus;
+    const explicitBonus = args.bonus === undefined ? 0 : toNonNegativeInteger(ctx.evaluate(args.bonus));
+    const registry = continuousEffectsOf(ctx);
+    const grantedBonus = registry === null ? 0 : grantedBonusForDeal(ctx, registry, sourceRef);
+    const bonus = explicitBonus + grantedBonus;
+    // CR 715.4: a Deal with a non-positive base amount performs no action, so
+    // Bonus Damage is not applied merely to create a damage action. This guard
+    // applies to explicit and registered bonuses alike.
+    const perTarget = base <= 0 ? 0 : base + bonus;
 
     // 受击集合：target = Finalize/Resolve 后的锁定目标（355.7；355.14 只对
     // 这类已锁目标 divide）；objects = 程序化非目标集合（355.10.d/.e–f）或
