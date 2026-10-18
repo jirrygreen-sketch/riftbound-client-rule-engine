@@ -1,17 +1,42 @@
-import type { ChoiceRequest, ObjectRef, ResolveContext, Value } from "../contract.js";
+import type { ChoiceRequest, ChoiceVisibility, ObjectRef, PlayerId, ResolveContext, Value } from "../contract.js";
 import { equalValues, integer, record, string } from "./values.js";
 import { objectRef } from "./history.js";
 
 export function choiceMetadata(args: Readonly<Record<string, Value>>, context: ResolveContext) {
   const chooser = args.chooser === undefined ? context.controller : string(args.chooser, "Chooser");
-  const visibility = args.visibility ?? "public";
-  if (visibility !== "public" && visibility !== "chooser-only"
-    && !(Array.isArray(visibility) && visibility.every(player => typeof player === "string"))) {
-    throw new Error("Invalid choice visibility");
-  }
+  const visibility = choiceVisibility(args.visibility);
   return {
     chooser,
-    visibility: visibility as ChoiceRequest<unknown>["visibility"],
+    visibility,
+    ...(args.prompt === undefined ? {} : { prompt: string(args.prompt, "Choice prompt") })
+  };
+}
+
+/** Validate a choice visibility without weakening the frozen ChoiceRequest contract. */
+export function choiceVisibility(value: Value | undefined): ChoiceVisibility {
+  const visibility = value ?? "public";
+  if (visibility !== "public" && visibility !== "chooser-only"
+    && !(Array.isArray(visibility) && visibility.every(player => typeof player === "string" && player.length > 0))) {
+    throw new Error("Invalid choice visibility");
+  }
+  return visibility as ChoiceVisibility;
+}
+
+/**
+ * Build metadata for a choice whose chooser was resolved by a player-scope
+ * instruction. Keeping this in the shared choice helper makes the request
+ * shape identical for target.player and the per-player instructions.
+ */
+export function playerChoiceMetadata(
+  args: Readonly<Record<string, Value>>,
+  chooser: PlayerId,
+  context: ResolveContext
+): Pick<ChoiceRequest<unknown>, "chooser" | "visibility" | "prompt"> {
+  if (typeof chooser !== "string" || chooser.length === 0) throw new Error("Chooser must be a PlayerId");
+  const visibility = choiceVisibility(args.visibility);
+  return {
+    chooser,
+    visibility,
     ...(args.prompt === undefined ? {} : { prompt: string(args.prompt, "Choice prompt") })
   };
 }
