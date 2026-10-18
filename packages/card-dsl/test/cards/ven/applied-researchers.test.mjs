@@ -41,12 +41,23 @@ test("applied-researchers: passes validateCardProgram and is judge-required", ()
 });
 
 test("applied-researchers: judgeReason names the current cost-plan and Empowered gaps", () => {
+  // Refreshed 2026-10-18: the spell-play-cost discount consumer merged into
+  // cost/discounts/collect.ts, so the reason now names the remaining production
+  // bridge instead of a missing consumer channel.
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /827\.1\.c\.1/);
   assert.match(program.judgeReason, /828\.1\.c/);
   assert.match(program.judgeReason, /CostPlanInput\.discounts/);
+  assert.match(program.judgeReason, /collectCostModifications/);
+  assert.match(program.judgeReason, /finalizeCostPlan/);
+  assert.match(program.judgeReason, /layerFor/);
   assert.match(program.judgeReason, /356\.4\.e/);
   assert.match(program.judgeReason, /spell-play-cost/);
+  // Keep the shared 673 template's field assertion and distinguish the existing
+  // discount consumer from the missing production bridge that populates it.
+  assert.match(program.judgeReason, /卡程序 static 到 CostPlanInput\.discounts 的生产桥接尚未接通/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
+  assert.match(program.judgeReason, /2026-10-18 复核/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -84,7 +95,8 @@ test("applied-researchers: the Power component is 1 Power of any Domain without 
 
 test("applied-researchers: the declared discount components carry the 356.4.e shape", () => {
   // 缺口形状（见 judgeReason 与下方 TODO）：continuous.cost-modification 不是指令
-  // （static 效果走 bindStatic），费用计划侧也没有读它的折扣通道。
+  // （static 效果走 bindStatic）；费用计划侧的折扣消费通道已合入，缺的是卡程序到
+  // 该通道的生产桥接（2026-10-18 复核）。
   assert.equal(powerDiscount.effect.resource, "power");
   assert.equal(energyDiscount.effect.resource, "energy");
   assert.equal(energyDiscount.effect.minimum, 1);

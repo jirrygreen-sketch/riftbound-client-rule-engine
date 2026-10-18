@@ -58,13 +58,16 @@ test("ven-022-166 Endless Riches: identity, ruleset, status, judgeReason and ver
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
+  // Refreshed 2026-10-18: the reason carries the re-sweep date and stays RIFT-free.
   assert.match(program.judgeReason, /444\.1/);
   assert.match(program.judgeReason, /420\.1\.a/);
   assert.match(program.judgeReason, /ACTION_KINDS/);
   assert.match(program.judgeReason, /continuous\.play-permission/);
   assert.match(program.judgeReason, /BlockedReplacementError/);
+  assert.match(program.judgeReason, /2026-10-18 复核/);
   assert.doesNotMatch(program.judgeReason, /RIFT-120/);
   assert.doesNotMatch(program.judgeReason, /RIFT-112/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 

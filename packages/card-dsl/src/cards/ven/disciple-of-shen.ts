@@ -18,7 +18,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   门控条件：同地点（359.3.f 的 sameLocationAs 宿主）、其它单位恰好 1 个（355.9.c 的
  *   "other" 排除来源自身），写作 static ability 的 condition（契约 3.4）。
  *
- * status = judge-required（2026-10-18 M2 复核，四处当前缺口，均为实测，不近似实现）：
+ * status = judge-required（2026-10-18 M2 复核，本轮 re-sweep 措辞精修；四处当前缺口，均为实测，不近似实现）：
  * 1. [Hidden] 展开成 { kind: "cost.hidden" } 的 static，但实测
  *    createEngineStaticBinder().bindStatic 对它抛 ProgramBindingError
  *    ('Static ability kind cost.hidden has no layer mapping')，attachLifecycle 的 onError 会
@@ -31,8 +31,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    “不同战场”的单位同样返回 true，位置与“其它”语义都不参与匹配（355.9.c、359.3.f）。
  * 4. KeywordGrantLayerEngine 已能在独立 adapter 中重展开 Shield 3，并把
  *    combatRole/defender 别名接到 814.1.c 的 +3 Might；默认 CardProgram lifecycle 仍使用
- *    基础 LayerEngine，生产授予只登记关键词而不消费该修正，且战斗流程没有稳定写入
- *    defender designation 的统一接线。
+ *    基础 LayerEngine（该层只被 engine-core 自身测试构造，未从任何公开入口导出，
+ *    turn/flow.ts 与 apps/game-server 均不构造），生产授予只登记关键词而不消费该修正，
+ *    且战斗流程没有稳定写入 defender designation 的统一接线。
  * golden 中的 condition.predicate 只覆盖解释器路径，且测试内核的玩家 id 恰好字面叫
  * “controller”——它不证明生产链路。
  */
@@ -73,7 +74,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均实测、不近似实现：(1) [Hidden] 展开的 { kind: \"cost.hidden\" } static 在 bindStatic 抛 " +
+    "四处缺口（2026-10-18 复核，均实测、不近似实现）：(1) [Hidden] 展开的 { kind: \"cost.hidden\" } static 在 bindStatic 抛 " +
     "ProgramBindingError('Static ability kind cost.hidden has no layer mapping')，attachLifecycle 的 onError 会吞掉（fail-closed）；" +
     "811.1.d/811.5 的藏牌、811.6 的后续 [Reaction] 与 0 能量打出都没有执行路径。" +
     "(2) 授予（continuous.grant-keyword 的静态注册入口已合入）侧的相对玩家选择符无法求值：实测 layers/filter.ts 的 selectorMatches 把 controller: \"controller\" 当字面字符串比较" +
@@ -81,7 +82,8 @@ export default {
     "(3) 条件的 sameLocationAs/exclude 在图层匹配器里被忽略：实测 matchesObjectFilter 对“不同战场”的单位同样返回 true，" +
     "位置与“其它”语义都不参与匹配（355.9.c、359.3.f）。" +
     "(4) continuous.grant-keyword 后的 Shield 重展开已有独立 KeywordGrantLayerEngine adapter，" +
-    "可按 combatRole/defender 别名计算 814.1.c 的 +3 Might；默认 CardProgram lifecycle 仍使用基础 LayerEngine，" +
+    "可按 combatRole/defender 别名计算 814.1.c 的 +3 Might；默认 CardProgram lifecycle 仍使用基础 LayerEngine" +
+    "（该层只被 engine-core 自身测试构造，未从任何公开入口导出，turn/flow.ts 与 apps/game-server 均不构造），" +
     "生产授予只登记关键词，战斗流程也没有稳定写入 defender designation 的统一接线。" +
     "golden 的 condition.predicate 只覆盖解释器路径，且测试内核的玩家 id 恰好字面叫 \"controller\"。",
   abilities,

@@ -42,11 +42,14 @@ test("ven-003-166 Brittle Steel: identity, ruleset, status, judgeReason and verb
   assert.equal(cardRegistryById.get(CANONICAL), program);
   // README section 2: name the exact missing pieces (the Flow cost channel and
   // the Flow consumers) and the rules they come from.
+  // Refreshed 2026-10-18: the reason carries the re-sweep date and stays RIFT-free.
   assert.match(program.judgeReason, /Flow/);
   assert.match(program.judgeReason, /829\.1\.c/);
   assert.match(program.judgeReason, /3\.8\.3/);
   assert.match(program.judgeReason, /no layer mapping/);
   assert.match(program.judgeReason, /Unsupported replacement opcode/);
+  assert.match(program.judgeReason, /2026-10-18 复核/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -172,7 +175,7 @@ test("ven-003-166 Brittle Steel: the [Flow] expansion registers neither a cost p
 });
 
 test("ven-003-166 Brittle Steel: the cost planner can price a Flow alternate, but nothing feeds it into plan-building", () => {
-  // RIFT-261's base modifications really understand "flow": given the printed
+  // The merged base modifications really understand "flow": given the printed
   // 4 energy + 1 Fury power, the planner replaces the base cost of a spell in
   // Trash and refuses a source that is not a Trash spell. The missing half is the
   // production path from the card's flow.cost declaration into baseModifications

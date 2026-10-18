@@ -22,7 +22,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   打出后本卡在离开 Chain 时改为放逐。卡只声明关键词身份（契约 3.7/README 第 5 节），
  *   展开（keywords/Flow.ts 的 flow.cost + 延迟替代）归关键词注册表。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。两处依赖未合入，均不近似实现：
+ * status 判定（cards/README.md 第 2 节）：judge-required（2026-10-18 复核）。
+ * 两处依赖未合入，均不近似实现：
  * (1) Trait-Altering 层的 Base Might 设值没有已注册的卡牌侧原语：effects/instructions/ 的
  *     注册表没有 continuous.base-might / set-base-might；continuous.might 的 set 模式落在
  *     算术层（buildMightSpec 产 kind:"set-might"），不等于 143.2.a 的 Trait 层设值；
@@ -42,7 +43,7 @@ const dragonForm = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1)「Its base Might becomes 5 this turn」是 143.2.a 的 Trait-Altering " +
+    "两处依赖未合入（2026-10-18 复核），均不近似实现：(1)「Its base Might becomes 5 this turn」是 143.2.a 的 Trait-Altering " +
     "层设值（该条规则的示例正是本句，非算术层加减、非 CR 702 的 Buff 计数），effects/instructions/ " +
     "仍无 continuous.base-might / set-base-might，" +
     "continuous.might 的 set 模式属算术层（buildMightSpec 产 kind:\"set-might\"），不等于 143.2.a 的 Trait 层设值；" +

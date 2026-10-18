@@ -79,6 +79,8 @@ test("ven-117-166 Disciple of Shen: identity, ruleset, status, judgeReason and v
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   // [Hidden] 无结算消费方；授予侧注册入口已合入，但条件选择符不解析。
+  // Refreshed 2026-10-18: the reason names the isolated KeywordGrantLayerEngine vs
+  // default lifecycle difference and stays RIFT-free.
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
@@ -87,7 +89,10 @@ test("ven-117-166 Disciple of Shen: identity, ruleset, status, judgeReason and v
   assert.match(program.judgeReason, /selectorMatches/);
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /designation/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /2026-10-18 复核/);
   assert.doesNotMatch(program.judgeReason, /RIFT-89/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("ven-117-166 Disciple of Shen: [Hidden] is declared as a bare keyword (contract 3.7)", () => {
