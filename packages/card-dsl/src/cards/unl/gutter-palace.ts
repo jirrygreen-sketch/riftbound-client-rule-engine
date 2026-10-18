@@ -117,7 +117,7 @@ const abilities: Ability[] = [
           amount: { kind: "constant", value: 1 },
           // 440.2.c / 185.2.a：Play ... token 先在链上生成再由打出流程接手。
           mode: { kind: "constant", value: "play" },
-          // 355.2 / RIFT-357：地点在打出流程中选择；LocationExpr 的候选过滤
+          // 355.2：地点在打出流程中选择；LocationExpr 的候选过滤
           // 覆盖控制者 Base 与控制者所控制的 Battlefield。
           location: {
             kind: "location",
@@ -139,7 +139,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 CR 187.7 的 Bird token 定义及其 [Deflect] 能力装配：effect.token 仅定义 recruit/sand-soldier/mech/reflection/tentacle。缺 355.2 的目的地适配：LocationSelector 能选择合法位置，但 effect.token 的 argsSchema 不接受 LocationExpr，链适配器仍传入原始表达式。缺启动费用 PickSpec 到 Finalize 精确手牌引用的动态绑定（423.1.a/423.3）。beginning-start 的 exact-count 条件还需统一宿主查询：EventPipeline 直接使用 PipelineHost.context().query，未转换本卡 controller 相对玩家与 battlefield 类型过滤（315.2.a.1/383.2.a.1）。",
+    "（2026-10-18 复核）缺 CR 187.7 的 Bird token 定义及其 [Deflect] 能力装配：effect.token 仅定义 recruit/sand-soldier/mech/reflection/tentacle。缺 355.2 的目的地适配：LocationSelector 能选择合法位置，但 effect.token 的 argsSchema 不接受 LocationExpr，链适配器仍传入原始表达式。缺启动费用 PickSpec 到 Finalize 精确手牌引用的动态绑定（423.1.a/423.3）。beginning-start 的 exact-count 条件还需统一宿主查询：EventPipeline 直接使用 PipelineHost.context().query，未转换本卡 controller 相对玩家与 battlefield 类型过滤（315.2.a.1/383.2.a.1）。",
   abilities,
   sourceText:
     "At the start of your Beginning Phase, if you have exactly 4 cards in hand and exactly 4 units at battlefields, you win the game.\n" +

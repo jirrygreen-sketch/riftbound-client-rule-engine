@@ -40,7 +40,7 @@ test("unl-109-219 Blood Rose: identity, ruleset, status, judgeReason and verbati
   assert.match(program.judgeReason, /383\.3\.b/);
   assert.match(program.judgeReason, /TriggeredAbility/);
   assert.match(program.judgeReason, /Finalize/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-(89|120|257)/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
   assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 

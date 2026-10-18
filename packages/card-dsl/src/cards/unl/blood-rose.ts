@@ -28,7 +28,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 416.1 / 416.1.b / 416.1.c：Ready 是 416.1 的动作；已就绪的对象再次 Ready 不再发生任何事
  *   （golden 覆盖该边界）。
  *
- * status = judge-required（README 第 2 节，2026-10-17 复核）：第一条触发能力仍缺 383.3.b 的触发式能力
+ * status = judge-required（README 第 2 节，2026-10-18 复核）：第一条触发能力仍缺 383.3.b 的触发式能力
  * 基础费用接线：TriggerRegistration.cost/mayAtFinalize 已存在且 chain/engine 在 Finalize 消费它们，
  * 但 programs/triggers.ts 只搬运 body/optional/spec，不把 choice.optional 里的 cost.pay 提取成
  * TriggerRegistration.cost（实测该触发的 registration.cost === null、mayAtFinalize === null），
@@ -125,7 +125,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "第一条触发能力仍有一个当前缺口，且不近似实现：383.3.b / 383.3.b.1 规定" +
+    "（2026-10-18 复核）第一条触发能力仍有一个当前缺口，且不近似实现：383.3.b / 383.3.b.1 规定" +
     "「When you play a unit, you may pay :rb_energy_1: to gain 1 XP.」里紧跟 you may 的费用是该触发能力的基础费用" +
     "（只有支付后才会 Finalize 到链上）；TriggerRegistration.cost/mayAtFinalize 已合入且 chain/engine 在 Finalize 消费它们，" +
     "但 programs/triggers.ts 只搬运 body/optional/spec，不把 body 内嵌的 cost.pay 提取成 TriggerRegistration.cost" +
