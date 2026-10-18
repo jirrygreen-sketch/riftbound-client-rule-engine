@@ -174,7 +174,7 @@ export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMo
           batchAction({ type: 'exhaust', object: ref }, transactionId, ++index),
         );
         actions.push({ type: 'exhaust', status: exhaustedOutcome.status });
-        if (exhaustedOutcome.status !== 'done') {
+        if (exhaustedOutcome.status !== 'done' && exhaustedOutcome.status !== 'replaced') {
           throw new StandardMoveBatchError('exhaust-rejected',
             `Exhaust for ${unitId} was ${exhaustedOutcome.status}`);
         }
@@ -185,7 +185,7 @@ export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMo
           batchAction({ type: 'move-location', object: ref, to: host.destination }, transactionId, ++index),
         );
         actions.push({ type: 'move-location', status: movedOutcome.status });
-        if (movedOutcome.status !== 'done') {
+        if (movedOutcome.status !== 'done' && movedOutcome.status !== 'replaced') {
           throw new StandardMoveBatchError('move-rejected',
             `Move for ${unitId} was ${movedOutcome.status}`);
         }

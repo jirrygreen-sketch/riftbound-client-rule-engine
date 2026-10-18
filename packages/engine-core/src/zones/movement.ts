@@ -67,6 +67,8 @@ export interface DuelMovementRuleContext {
 /** Trusted current-state readers for the transactional second validation pass. */
 export interface DuelStandardMoveRecheckContext {
   readonly unit: (unitId: string) => {
+    readonly controllerPlayerId: string;
+    readonly locationId: string;
     readonly readied: boolean;
     readonly hasGanking: boolean;
   };
@@ -360,10 +362,11 @@ export function assertDuelStandardMoveUnitStillLegal(
   const unit = board.units.find(candidate => candidate.objectId === unitId);
   check(unit !== undefined, `request.unitUIDs unknown unit ${unitId}`);
   const live = recheck.unit(unitId);
-  check(unit.controllerPlayerId === plan.actor, `unit ${unitId} is not controlled by the actor`);
+  check(live.controllerPlayerId === plan.actor, `unit ${unitId} is not controlled by the actor`);
   if (stage === 'before-exhaust') check(live.readied, `unit ${unitId} is not readied to move`);
   const origin = plan.origins.find(entry => entry.objectId === unitId)?.locationId;
   check(origin !== undefined, `unit ${unitId} has no planned origin`);
+  check(live.locationId === origin, `unit ${unitId} left its planned origin`);
   check(origin !== plan.destinationLocationId, `unit ${unitId} is already at the destination`);
   const bases = new Set(board.bases.map(base => base.locationId));
   const fields = new Set(board.battlefields.map(field => field.locationId));
