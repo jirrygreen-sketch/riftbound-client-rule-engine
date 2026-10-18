@@ -13,6 +13,8 @@ import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { translateCost } from "../../../../engine-core/dist/programs/play.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 
 const CANONICAL_ID = "card.hash-e524222421455ebe13a4bfa061de0e5c349605918aaa2b3745828fe2443798e1";
 const SOURCE_TEXT =
@@ -53,6 +55,11 @@ test("sfd-040-221 Thwonk!: judgeReason names the remaining Repeat wiring", () =>
   assert.match(program.judgeReason, /Unsupported play cost field optional/);
   assert.match(program.judgeReason, /repeat\.cost has no layer mapping/);
   assert.match(program.judgeReason, /820\.1\.d\.1/);
+  // 2026-10-18 re-sweep: the two measured halves, including why the receipt
+  // cannot drive the repeat node today.
+  assert.match(program.judgeReason, /cost\.optional-additional-paid/);
+  assert.match(program.judgeReason, /Repeat count must be a non-negative safe integer/);
+  assert.match(program.judgeReason, /programs\/keywords\.ts/);
 });
 
 test("sfd-040-221 Thwonk!: [Action] keyword plus the printed [Repeat] additional cost", () => {
@@ -190,3 +197,102 @@ test.todo(
   "sfd-040-221 Thwonk!: the Stunned consequences and expiry — no combat damage (424.1.b) and removal in the " +
     "end-of-turn cleanup step 3d (424.1.a.2) — belong to combat / turn, not to this card."
 );
+
+test("sfd-040-221 Thwonk!: the paid Repeat receipt is a boolean the repeat node cannot consume (820.1.d.1)", () => {
+  // Live evidence for the second half of the refreshed reason. The receipt is
+  // readable as a predicate, but the merged repeat node requires a
+  // non-negative integer count, so the printed "repeat this spell's effect"
+  // cannot be derived card-side from the paid/declined decision.
+  const kernel = world()
+    .player("A", { energy: 6 })
+    .deck(["d1", "d2"])
+    .object("thwonk-source", { cardId: CANONICAL_ID, types: ["spell"], zone: "board", energy: 2, power: null })
+    .build();
+  const cost = {
+    plan: {
+      components: [{ id: "thwonk.repeat-payment", stage: "optional-additional" }],
+      selectedAdditional: [{ id: "thwonk.repeat-payment", kind: "repeat" }],
+      declinedAdditional: []
+    },
+    receipt: { paid: true, additional: [{ id: "thwonk.repeat-payment", kind: "repeat", paid: true }] }
+  };
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("thwonk-source") });
+
+  const read = runAbilityBody(
+    [{ id: "thwonk.read-repeat", op: "condition.predicate", args: { condition: { kind: "constant", value: { kind: "result", result: "cost.optional-additional-paid", id: "thwonk.repeat-payment" } } } }],
+    context,
+    undefined,
+    { cost }
+  );
+  assert.equal(read.results[0].result.linkedValues.value, true);
+
+  const repeated = kernel.clone({ sourceSnapshot: kernel.getObject("thwonk-source") });
+  assert.throws(
+    () => runAbilityBody(
+      [
+        { id: "thwonk.read-repeat", op: "condition.predicate", args: { condition: { kind: "constant", value: { kind: "result", result: "cost.optional-additional-paid", id: "thwonk.repeat-payment" } } } },
+        {
+          id: "thwonk.repeat",
+          op: "repeat",
+          linkedTo: "thwonk.read-repeat",
+          args: {
+            count: { kind: "linked-value", instructionId: "thwonk.read-repeat", key: "value" },
+            body: { kind: "constant", value: [{ id: "thwonk.draw", op: "effect.draw", args: { amount: { kind: "constant", value: 1 } } }] }
+          }
+        }
+      ],
+      repeated,
+      undefined,
+      { cost }
+    ),
+    /Repeat count must be a non-negative safe integer/
+  );
+  assert.equal(repeated.player("A").handSize, 0, "no repetitions ran");
+});
+
+test("sfd-040-221 Thwonk!: no keyword ability carries the printed Repeat cost", () => {
+  // Live evidence for the first half of the second gap. The printed 2 Energy
+  // lives only on the play CostSpec; the card declares no `repeat` keyword
+  // ability, and programs/keywords.ts would forward only keyword/value/host
+  // even if it did (Repeat.expand's `cost` parameter is never supplied). So the
+  // merged keyword registry cannot recover the printed cost for this card, and
+  // the shipped CostSpec is the only carrier — which translateCost rejects.
+  const keywords = program.abilities.filter((ability) => ability.kind === "keyword").map((ability) => ability.keyword);
+  assert.deepEqual(keywords, ["action"]);
+  assert.equal(keywords.includes("repeat"), false);
+
+  const kernel = world()
+    .object("thwonk-source", { cardId: CANONICAL_ID, types: ["spell"], zone: "board", energy: 2, power: null })
+    .build();
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const expanded = expandProgram(lifted, kernel.getObject("thwonk-source")).expanded;
+  assert.equal(
+    expanded.some((ability) => ability.kind === "static" && ability.effect.kind === "repeat.cost"),
+    false,
+    "nothing in the card can expand to a repeat.cost static"
+  );
+
+  const play = program.abilities.find((ability) => ability.kind === "play");
+  assert.equal(play.cost.payments[0].amount.value, 2);
+});
+
+test("sfd-040-221 Thwonk!: the merged cost planner really accepts an optional Repeat component", () => {
+  // The plan side is merged and really charges: the missing link is the
+  // card-program → Finalize wiring.
+  const kernel = world().player("A", { energy: 6, power: ["Calm"] })
+    .object("thwonk-source", { cardId: CANONICAL_ID, types: ["spell"], zone: "board", energy: 2, power: null })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("thwonk-source") });
+  context.setAnswers({ "thwonk-plan:optional:thwonk.repeat": true });
+  const plan = buildCostPlan(context, {
+    id: "thwonk-plan",
+    cost: { kind: "printed" },
+    optionalAdditional: [{
+      id: "thwonk.repeat",
+      kind: "repeat",
+      cost: { energy: { kind: "constant", value: 2 } }
+    }]
+  });
+  assert.deepEqual(plan.selectedAdditional, [{ id: "thwonk.repeat", kind: "repeat" }]);
+  assert.equal(plan.total.energy, 4);
+});

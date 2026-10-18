@@ -9,11 +9,18 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/prodigal-explorer.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { translateRestriction } from "../../../../engine-core/dist/programs/play.js";
+import { describeActivate } from "../../../../engine-core/dist/programs/activate.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 
 const CARD_ID = "card.hash-0f2d2889821a45fbe61cc42c0f59fd9c445a9a0a9cab9d8af29603770ea28aff";
 const SOURCE_TEXT =
   ":rb_exhaust:: [Reaction] — Draw 1. Use only if you've chosen enemy units and/or gear twice this turn " +
   "with spells or unit abilities.";
+const [ability] = program.abilities;
 
 test("sfd-199-221 Prodigal Explorer: program validates and is registered by canonicalCardId", () => {
   const result = validateCardProgram(program);
@@ -55,6 +62,94 @@ test("sfd-199-221 Prodigal Explorer: one [Reaction]-speed activated ability exha
   // 404.1.a / 415.5: the leading :rb_exhaust: is the cost "Exhaust me"; 415.4
   // requires the action to be completable.
   assert.deepEqual(ability.cost.payments, [{ kind: "exhaust", object: "self" }]);
+});
+
+test("sfd-199-221 Prodigal Explorer golden: the printed exhaust cost really locks a plan (415.5)", () => {
+  // 404.1.a / 415.5: the leading :rb_exhaust: is the ability's cost. The plan
+  // side is merged and really locks one exhaust action, exactly like the
+  // RIFT-689 template golden (which plays the legend on the Board).
+  const kernel = world()
+    .player("A", { energy: 5 })
+    .object("explorer", {
+      cardId: CARD_ID,
+      types: ["legend"],
+      zone: "board",
+      location: { type: "base", player: "A" },
+      energy: null,
+      power: null,
+      exhausted: false
+    })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("explorer") });
+
+  const plan = buildCostPlan(context, { id: "prodigal-explorer", cost: ability.cost });
+  assert.deepEqual(plan.total.actions.map((entry) => entry.action.type), ["exhaust"]);
+  const receipt = payCostPlan(context, plan);
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.actions.map((entry) => entry.action.type), ["pay", "exhaust"]);
+  assert.equal(context.getObject("explorer").exhausted, true);
+});
+
+test("sfd-199-221 Prodigal Explorer: a legend created on the chain cannot pay the exhaust cost (CR 107.4)", () => {
+  // Live evidence for the legend-host gap in the judgeReason: the match builder
+  // creates the legend as a chain token and never moves it into a Legend Zone,
+  // so the merged cost payment rejects the exhaust (415.4/415.5) and no
+  // activation can happen in the production layout.
+  const kernel = world()
+    .player("A", { energy: 5 })
+    .object("explorer", {
+      cardId: CARD_ID,
+      types: ["legend"],
+      zone: "chain",
+      location: null,
+      energy: null,
+      power: null,
+      exhausted: false
+    })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("explorer") });
+  assert.equal(context.getObject("explorer").zone, "chain");
+
+  assert.throws(
+    () => payCostPlan(context, buildCostPlan(context, { id: "prodigal-explorer", cost: ability.cost })),
+    (error) => error?.name === "CostPlanError" && error?.reason === "cannot-pay-cost"
+  );
+  assert.equal(context.getObject("explorer").exhausted, false);
+});
+
+test("sfd-199-221 Prodigal Explorer: the use-only-if restriction still has no rules adapter (054.2)", () => {
+  // Live evidence for gap (2): the production description path fails closed on
+  // the printed "Use only if" clause, so the 054.2 gate is not executable.
+  assert.throws(
+    () => translateRestriction(ability.restriction, "prodigal-explorer"),
+    (error) => error.name === "ProgramBindingError" && /use-only-if needs a rules adapter/.test(error.message)
+  );
+  const kernel = world()
+    .object("explorer", { cardId: CARD_ID, types: ["legend"], zone: "board", location: { type: "base", player: "A" }, energy: null, power: null })
+    .build();
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  assert.throws(
+    () => describeActivate(registry, kernel.getObject("explorer"), "A"),
+    (error) => /use-only-if needs a rules adapter/.test(error.message)
+  );
+});
+
+test("sfd-199-221 Prodigal Explorer: became-target history counting cannot answer the printed condition (754)", () => {
+  // Live evidence for gap (1): TestWorld.history counts committed GameActions,
+  // while became-target is a Chain timing point; choosing a target therefore
+  // never shows up, and there is no "chosen with spells or unit abilities"
+  // provenance dimension at all.
+  const kernel = world()
+    .player("A", { energy: 5 })
+    .unit("enemy-unit", { owner: "B", controller: "B", might: 2 })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("enemy-unit") });
+  // A real selected target, recorded through the merged became-target emitter.
+  context.setTargets("prodigal-explorer.unit", [context.ref("enemy-unit")]);
+
+  assert.equal(context.targets("prodigal-explorer.unit").length, 1);
+  assert.equal(context.history({ scope: "turn", timingPoint: "became-target" }), 0);
+  assert.equal(context.history({ scope: "turn", timingPoint: "became-target", objectFilter: { controller: "opponent" } }), 0);
 });
 
 test("sfd-199-221 Prodigal Explorer: the printed 'use only if' clause stays a restriction", () => {

@@ -11,6 +11,8 @@ const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { buildCostPlan } = await import(new URL("cost/index.js", ENGINE));
 const { payCostPlan } = await import(new URL("cost/payment.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
+const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", ENGINE));
+const { queryLocationCandidates } = await import(new URL("target/location/index.js", ENGINE));
 const token = (await import(new URL("effects/instructions/effect.token.js", ENGINE))).default;
 
 const CANONICAL = "card.hash-1a195f8245b52279e6972886278ad1ad1a5802773ad4affa1e6ecff419aad1aa";
@@ -48,12 +50,16 @@ test("sfd-168-221 Vanguard Armory: program validates, is registered and stays ju
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // README section 2: the reason names the missing per-token destination reading
-  // and the rule it depends on.
-  assert.match(program.judgeReason, /355\.2/);
-  assert.match(program.judgeReason, /LocationRef/);
-  assert.match(program.judgeReason, /amount=3/);
-  assert.match(program.judgeReason, /choiceId/);
+  // README section 2: the reason names the measured remaining gap. The
+  // per-token choice itself is expressible (see the repeat golden below); what
+  // is missing is the 355.2.a candidate source that would enumerate an empty
+  // controlled battlefield.
+  assert.match(program.judgeReason, /355\.2\.a/);
+  assert.match(program.judgeReason, /candidates\.ts/);
+  assert.match(program.judgeReason, /allRefs/);
+  assert.match(program.judgeReason, /repeat/);
+  assert.match(program.judgeReason, /condition\.value/);
+  assert.match(program.judgeReason, /linked-value/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -80,9 +86,11 @@ test("sfd-168-221 Vanguard Armory: three Recruit tokens played through the chain
   assert.deepEqual(playRecruits.args.amount, { kind: "constant", value: 3 });
   // 440.2.c / 185.2.a: a NEW token is created on the Chain and handed to play.
   assert.deepEqual(playRecruits.args.mode, { kind: "constant", value: "play" });
-  // 355.2/355.2.a: each token's location is chosen when it is played; the merged
-  // effect.token cannot express a per-token choice, so no location is pinned
-  // here (writing one Base or one Battlefield would delete the printed option).
+  // 355.2/355.2.a: each token's location is chosen when it is played. The
+  // shipped program pins no location here (writing one Base or one Battlefield
+  // would delete the printed option); the merged repeat + effect.token +
+  // linked-location path that can express the per-token choice is exercised by
+  // the golden below.
   assert.equal(playRecruits.args.location, undefined);
   assert.equal(playRecruits.args.locations, undefined);
   assert.equal(playRecruits.args.choiceId, undefined);
@@ -154,9 +162,159 @@ test("sfd-168-221 Vanguard Armory golden: the printed token body plays three 1-M
   }
 });
 
-test.todo(
-  "sfd-168-221 Vanguard Armory: letting the controller choose each token's location (CR 355.2/" +
-    "355.2.a: its Base or a Battlefield it controls) needs a merged reader that turns the legal " +
-    "location set into concrete LocationRefs plus the finalize-time play-location choice " +
-    "for each token; effect.token only accepts one fixed location or one choice for the whole instruction."
-);
+test("sfd-168-221 Vanguard Armory golden: each token really chooses its own location through the merged path", () => {
+  // 355.2 / 355.2.a: "Play three 1 [M] Recruit unit tokens. (You may play them to
+  // different locations.)". The merged interpreter expresses one choice per
+  // token: a repeat node iterates the effect.token body, and each iteration
+  // resolves its own LocationRef (condition.value + the location "choose"
+  // selector) which effect.token consumes through a linked value. Nothing about
+  // the token, its amount, or its play mode is substituted here — the points
+  // differing from the shipped program are the location arguments the shipped
+  // program cannot yet fill (see judgeReason).
+  const body = [
+    {
+      id: "vanguard-armory.play-recruits",
+      op: "repeat",
+      args: {
+        count: { kind: "constant", value: 3 },
+        body: {
+          kind: "constant",
+          value: [
+            {
+              id: "vanguard-armory.choose-location",
+              op: "condition.value",
+              args: {
+                value: {
+                  kind: "location",
+                  value: {
+                    kind: "choose",
+                    id: "vanguard-armory.destination",
+                    filter: { controller: "controller" }
+                  }
+                }
+              }
+            },
+            {
+              id: "vanguard-armory.play-recruit",
+              op: "effect.token",
+              args: {
+                token: playRecruits.args.token,
+                amount: { kind: "constant", value: 1 },
+                mode: playRecruits.args.mode,
+                location: {
+                  kind: "linked-value",
+                  instructionId: "vanguard-armory.choose-location",
+                  key: "value"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ];
+
+  const baseA = { type: "base", player: "A" };
+  const field = { type: "battlefield", id: "bf-a" };
+  // Filenames follow the production convention: the battlefield object's ref id
+  // is the same id its occupants sit at (game/lifecycle.ts creates battlefields
+  // as tokens and uses their id as the location identity).
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .object("bf-a", {
+      owner: "A", controller: "A", types: ["battlefield"], zone: "board", location: null, might: null, energy: null, power: null
+    })
+    .unit("scout", { owner: "A", controller: "A", location: field, might: 1 })
+    .build();
+
+  const asked = [];
+  let index = 0;
+  const proxy = new Proxy(kernel, {
+    get(target, key) {
+      if (key === "choose") {
+        return (request) => {
+          asked.push({ id: request.id, options: request.options });
+          // Alternate the two legal locations so the tokens really land apart.
+          const answer = request.options[index++ % request.options.length];
+          return answer;
+        };
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
+
+  const outcome = resolveChainBody(body, proxy);
+
+  assert.equal(outcome.status, "executed");
+  // One location question per token, each with its own choice id.
+  assert.equal(asked.length, 3);
+  assert.deepEqual(asked.map((entry) => entry.id), [
+    "vanguard-armory.play-recruits/0/vanguard-armory.choose-location/vanguard-armory.destination",
+    "vanguard-armory.play-recruits/1/vanguard-armory.choose-location/vanguard-armory.destination",
+    "vanguard-armory.play-recruits/2/vanguard-armory.choose-location/vanguard-armory.destination"
+  ]);
+  for (const entry of asked) assert.deepEqual(entry.options, [field, baseA]);
+
+  const recruits = kernel.query({ zone: "board", type: "unit" }).filter((object) => object.isToken);
+  assert.equal(recruits.length, 3);
+  assert.deepEqual(recruits.map((recruit) => recruit.location), [field, baseA, field]);
+  for (const recruit of recruits) {
+    assert.equal(recruit.name, "Recruit");
+    assert.equal(recruit.might, 1);
+    assert.deepEqual(recruit.tags, ["Recruit"]);
+    assert.equal(recruit.controller, "A");
+  }
+});
+
+test("sfd-168-221 Vanguard Armory: the legal-location source still omits an empty controlled battlefield (355.2.a)", () => {
+  // Live evidence for the judgeReason gap. CR 355.2.a allows playing a unit to a
+  // Battlefield the controller controls, but target/location/candidates.ts
+  // allRefs collects locations only from objects that already sit at one plus
+  // the players' Bases. An empty controlled battlefield is therefore absent
+  // from the choice set, so a card program cannot express the printed option.
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .object("bf-a", {
+      owner: "A", controller: "A", types: ["battlefield"], zone: "board", location: null, might: null, energy: null, power: null
+    })
+    .object("bf-b", {
+      owner: "B", controller: "B", types: ["battlefield"], zone: "board", location: null, might: null, energy: null, power: null
+    })
+    .build();
+
+  // With no unit standing anywhere, the only controlled candidate is the Base.
+  assert.deepEqual(
+    queryLocationCandidates(kernel, { controller: "controller" }, { players: ["A", "B"] }),
+    [{ type: "base", player: "A" }]
+  );
+  assert.deepEqual(
+    kernel.query({ zone: "board", type: "battlefield" }).map((object) => object.ref.id),
+    ["bf-a", "bf-b"],
+    "the empty battlefields are real Board objects; only the candidate source misses them"
+  );
+
+  // Once a friendly unit stands on battlefield-a, it appears — the candidate
+  // source is the occupying object, not the battlefield itself.
+  const occupied = world()
+    .player("A")
+    .player("B")
+    .object("bf-a", {
+      owner: "A", controller: "A", types: ["battlefield"], zone: "board", location: null, might: null, energy: null, power: null
+    })
+    .unit("scout", { owner: "A", controller: "A", location: { type: "battlefield", id: "bf-a" }, might: 1 })
+    .build();
+  assert.deepEqual(
+    queryLocationCandidates(occupied, { controller: "controller" }, { players: ["A", "B"] }),
+    [{ type: "battlefield", id: "bf-a" }, { type: "base", player: "A" }]
+  );
+
+  // The battlefield objects themselves are visible to a Board query, so the
+  // missing link is the candidate source, not the object model.
+  assert.deepEqual(
+    occupied.query({ zone: "board", type: "battlefield" }).map((object) => object.ref.id),
+    ["bf-a"]
+  );
+});

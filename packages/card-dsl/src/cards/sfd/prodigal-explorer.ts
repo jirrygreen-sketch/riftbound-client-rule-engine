@@ -41,9 +41,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   programs/activate.ts 的 translateRestriction 对本卡的 use-only-if 实测 fail-closed 抛
  *   "restriction ... kind use-only-if needs a rules adapter"；chain Finalize 只检查调用方传入的 condition。
  *   054.2 的门因此不可执行。
- * - 契约 3.6 的 ZoneId 没有 Legend Zone（CR 107.4；108.3 是 Champion Zone）：传奇不能表示为 Board 对象，415.5/415.4 的
- *   "横置我" 费用缺少可执行宿主（费用计划只接受 board/rune-zone 上的对象，cost/payment.ts 的
- *   checkAction；同 ogn/the-boss）。
+ * - 契约 3.6 的 ZoneId 没有 Legend Zone（CR 107.4；108.3 是 Champion Zone）：实测 game/lifecycle.ts 把传奇
+ *   create-token 到 chain 后不再移动，费用计划因此拒付（cost/payment.ts 的 checkAction 只接受 board/rune-zone 上的
+ *   对象，实测抛 CostPlanError(cannot-pay-cost) "An exhaust cost requires a ready controlled object on the Board"），
+ *   415.5/415.4 的 "横置我" 费用缺少可执行宿主（同 ogn/the-boss）。TestWorld 的 zoneSlice 对 legend 也直接抛 TypeError。
  * - 启动能力 → 链的生产接线已合入（programs/activate.ts describeActivate；服务端 runtime 的 activate
  *   命令），scenario 测试台也走 describeActivate + ChainEngine；但服务端在启动前就调用
  *   assertCanControl，且传奇在 game/lifecycle.ts 里仍建在 chain 上，实际启动不成立。
@@ -99,7 +100,10 @@ const program = {
     "translateRestriction 实测抛 \"restriction ... kind use-only-if needs a rules adapter\"，" +
     "chain Finalize 也只检查调用方传入的 condition，054.2 的 only 门无法执行。" +
     "（3）契约 3.6 的 ZoneId（hand/deck/rune-deck/trash/banishment/board/rune-zone/chain）没有 Legend Zone（CR 107.4），" +
-    "415.5/415.4 的费用式「横置我」缺少可执行宿主：费用计划只接受 board/rune-zone 上的对象（cost/payment.ts 的 checkAction；同 ogn/the-boss）。" +
+    "而 game/lifecycle.ts 把传奇 create-token 到 chain 后不再移动（实测费用计划因此拒付：" +
+    "cost/payment.ts 的 checkAction 只接受 board/rune-zone 上的对象，抛 CostPlanError(cannot-pay-cost) " +
+    "\"An exhaust cost requires a ready controlled object on the Board\"；TestWorld 的 zoneSlice 对 legend 同样抛 TypeError），" +
+    "415.5/415.4 的费用式「横置我」缺少可执行宿主（同 ogn/the-boss）。" +
     "（4）[Reaction] 启动许可（813.1.c.2）可由 programs/activate.ts 声明为 ChainDraft.speed，chain.canAct 也已读取 " +
     "actionTimings 合并的 continuous.timing 图层许可（chain/engine.ts）；但服务端在启动前调用 assertCanControl，" +
     "且 game/lifecycle.ts 仍把传奇建在 chain 上，费用宿主（Legend Zone）不成立。" +

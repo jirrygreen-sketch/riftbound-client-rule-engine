@@ -225,6 +225,24 @@ test.todo(
     "card facedown, and permits its later facedown Reaction play"
 );
 
+test("sfd-017-221 Sudden Storm: the engine zone vocabulary still has no facedown zone (811.1.b)", () => {
+  // Live evidence for the blocker: the Hide action's storage zone does not exist
+  // in the engine contract. TestWorld only knows the eight contract zones, and
+  // asking for facedown reads through to an undefined bucket rather than a
+  // supported zone.
+  const kernel = world().object("storm", {
+    cardId: CANONICAL,
+    types: ["spell"],
+    zone: "board",
+    energy: 3,
+    power: null
+  }).build();
+  let failed = false;
+  try { kernel.zoneSlice("A", "facedown", "top"); } catch { failed = true; }
+  assert.equal(failed, true, "facedown is not a supported engine zone");
+  assert.equal(kernel.getObject("storm").faceDown, false);
+});
+
 // Real execution evidence for the printed [Action] permission (806.1.c): the
 // declaration alone drives the draft speed, so the merged chain admits the spell
 // during a Showdown with Focus and refuses it in an opponent's ordinary Main

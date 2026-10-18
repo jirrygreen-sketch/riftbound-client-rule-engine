@@ -33,13 +33,18 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required (2026-10-18 review). The Stun clause and Attacker
  * target predicate are merged and exercised by the golden tests. The remaining
- * blocker is the Finalize collection of the optional [Repeat] additional cost
- * and the paid-count to interpreter-repeat wiring (820.1.c.1, 820.1.d.1):
- * programs/play.ts translateCost still rejects the `cost.kind`/`optional`
- * spelling with a judge-required ProgramBindingError, effects/keywords/Repeat.ts
- * expands to a static `repeat.cost` the static binder rejects ("Static ability
- * kind repeat.cost has no layer mapping"), and no resolver feeds the paid
- * instance count into the interpreter's repeat node.
+ * blockers are the two Repeat links (820.1.c.1, 820.1.d.1), neither
+ * approximated:
+ * - programs/play.ts translateCost still rejects the `cost.kind`/`optional`
+ *   spelling with a judge-required ProgramBindingError, so the printed cost
+ *   never reaches Finalize.
+ * - effects/keywords/Repeat.ts expands to a static `repeat.cost` the static
+ *   binder rejects ("Static ability kind repeat.cost has no layer mapping"),
+ *   and programs/keywords.ts calls expand with only keyword/value/host, so the
+ *   printed 2 Energy is dropped. No resolver feeds a paid instance count into
+ *   the interpreter's repeat node; the receipt is readable only as a boolean
+ *   `result: "cost.optional-additional-paid"`, while the repeat node requires a
+ *   non-negative integer count.
  */
 const thwonk = {
   canonicalCardId: "card.hash-e524222421455ebe13a4bfa061de0e5c349605918aaa2b3745828fe2443798e1",
@@ -51,8 +56,10 @@ const thwonk = {
     "当前阻断是「[Repeat] :rb_energy_2:」的附加费用：programs/play.ts 的 translateCost 实测对该 play cost 抛 " +
     "ProgramBindingError（reason=judge-required，\"Unsupported play cost field optional\"），" +
     "effects/keywords/Repeat.ts 展开出的 static repeat.cost 也被静态绑定器以" +
-    "「Static ability kind repeat.cost has no layer mapping」拒绝，" +
-    "且已付实例数尚未接入解释器 repeat 结算（820.1.c.1、820.1.d.1）。",
+    "「Static ability kind repeat.cost has no layer mapping」拒绝（programs/keywords.ts 调 expand 时只传 keyword/value/host，" +
+    "印刷的 2 Energy 被丢弃）；且已付实例数尚未接入解释器 repeat 结算（820.1.c.1、820.1.d.1）：" +
+    "付费回执只能由 condition.predicate 的 result: \"cost.optional-additional-paid\" 读成布尔值，" +
+    "而 repeat 节点只接受非负整数（实测 \"Repeat count must be a non-negative safe integer\"）。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
