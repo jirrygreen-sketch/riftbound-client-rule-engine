@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_TURN_LIMIT,
   HEADLESS_SEEDS,
+  replayHeadlessJournal,
+  runHeadlessGames,
+  type HeadlessJournal,
   M1_DECK_IDS,
   buildM1Deck,
   runHeadlessGame,
@@ -14,12 +18,28 @@ describe("M1 headless dual-bot regression", () => {
     expect(summary.pairings).toHaveLength(6);
     expect(summary.pairings.every(pairing => pairing.games === 5)).toBe(true);
     expect(summary.results).toHaveLength(30);
-    expect(summary.exceptions).toBe(0);
+    expect(summary.exceptions, JSON.stringify(summary.results.filter(result => result.exceptions.length))).toBe(0);
     expect(summary.gamesWithReplayMismatch).toBe(0);
     expect(summary.gamesWithPrivacyLeak).toBe(0);
-    expect(summary.results.every(result => result.winner !== null)).toBe(true);
+    expect(summary.results.every(result => result.victoryScore === 8)).toBe(true);
+    expect(summary.results.every(result => result.termination !== "concede")).toBe(true);
+    expect(summary.winners).toBe(summary.terminationReasons.winner);
+    expect(summary.winnerRatio).toBe(summary.winners / summary.games);
+    expect(summary.completed + summary.blocked + summary.terminationReasons.guard).toBe(30);
+    for (const result of summary.results) {
+      expect(result.privacyChecks).toBeGreaterThanOrEqual(6);
+      if (result.termination === "winner") {
+        expect(result.winner).not.toBeNull();
+        expect(result.scores[result.winner!]).toBeGreaterThanOrEqual(8);
+        expect(result.battleStats.scores).toBeGreaterThan(0);
+      } else {
+        expect(result.winner).toBeNull();
+        if (result.termination === "blocked") expect(result.blockers.length).toBeGreaterThan(0);
+        if (result.termination === "guard") expect(result.guardReason).not.toBeNull();
+      }
+    }
     expect(summary.results.every(result => result.judgeRequiredRejections >= 0)).toBe(true);
-    expect(summary.actionCoverage.commands.concede).toBe(30);
+    expect(summary.actionCoverage.commands.concede).toBe(0);
     expect(summary.judgeRequiredCardCounts.length).toBeGreaterThan(0);
   }, 600_000);
 
@@ -42,9 +62,112 @@ describe("M1 headless dual-bot regression", () => {
     expect(second.turnNumber).toBe(first.turnNumber);
     expect(second.termination).toBe(first.termination);
     expect(second.eventCount).toBe(first.eventCount);
+    expect(second.journalDigest).toBe(first.journalDigest);
+    expect(second.projectionDigests).toEqual(first.projectionDigests);
+    expect(first.replayMatches).toBe(true);
+    expect(first.privacySafe).toBe(true);
     expect(second.judgeRequiredCards).toEqual(first.judgeRequiredCards);
     expect(second.actionCoverage).toEqual(first.actionCoverage);
     expect(second.replayMatches).toBe(true);
     expect(second.privacySafe).toBe(true);
   }, 30_000);
+
+  it("keeps blocked runs unfinished instead of awarding a concession win", () => {
+    const result = runHeadlessGame(HEADLESS_SEEDS[0]!);
+    expect(result.actionCoverage.commands.concede).toBe(0);
+    expect(result.victoryScore).toBe(8);
+    expect(result.replayMatches).toBe(true);
+    expect(result.exceptions).toEqual([]);
+    if (result.blockers.length) {
+      expect(result.termination).toBe("blocked");
+      expect(result.winner).toBeNull();
+      expect(result.blockers.every(blocker => blocker.code && blocker.message)).toBe(true);
+    } else {
+      expect(result.termination).toBe("winner");
+      expect(result.scores[result.winner!]).toBeGreaterThanOrEqual(8);
+    }
+  });
+
+  it("answers target choices through the ResolveContext instead of throwing AwaitChoice", () => {
+    const result = runHeadlessGame("RIFT-739-natural-1");
+    expect(result.actionCoverage.choices["select-objects"]).toBeGreaterThan(0);
+    expect(result.exceptions).toEqual([]);
+    expect(result.replayMatches).toBe(true);
+    expect(result.privacySafe).toBe(true);
+    expect(result.actionCoverage.commands.concede).toBe(0);
+  }, 30_000);
+
+  it("preserves unsupported source-trigger diagnostics without advancing or fabricating a winner", () => {
+    const result = runHeadlessGame(HEADLESS_SEEDS[2]!, { decks: ["fiora-sfd", "vex-unl"] });
+    expect(result.replayMatches).toBe(true);
+    expect(result.exceptions).toEqual([]);
+    expect(result.actionCoverage.commands.concede).toBe(0);
+    if (result.termination === "blocked") {
+      expect(result.winner).toBeNull();
+      expect(result.blockers).toEqual(expect.arrayContaining([expect.objectContaining({
+        name: "TriggerSpecValidationError", code: "unsupported-trigger-spec", message: expect.stringContaining("trigger.filter.event"),
+      })]));
+    } else {
+      expect(result.termination).toBe("winner");
+      expect(result.scores[result.winner!]).toBeGreaterThanOrEqual(8);
+    }
+  }, 30_000);
+
+  it("rejects altered journal commands, events and state even when scores and winner still match", () => {
+    let journal: HeadlessJournal | undefined;
+    const result = runHeadlessGame(HEADLESS_SEEDS[0]!, { onJournal: value => { journal = value; } });
+    expect(journal).toBeDefined();
+    expect(result.replayMatches).toBe(true);
+    expect(replayHeadlessJournal(journal!)).toBe(true);
+    const wrongCommand = structuredClone(journal!);
+    const first = wrongCommand.commands[0]!;
+    const changedCommand = first.command.type === "play" || first.command.type === "move"
+      ? { ...first.command, object: { ...first.command.object, zoneEntryId: -1 } }
+      : { type: "pass" as const, player: "unknown-player" };
+    expect(replayHeadlessJournal({ ...journal!, commands: [{ ...first, command: changedCommand }, ...journal!.commands.slice(1)] })).toBe(false);
+    expect(replayHeadlessJournal({ ...journal!, events: journal!.events.slice(1) })).toBe(false);
+    expect(replayHeadlessJournal({ ...journal!, final: { ...journal!.final, stateDigest: "altered" } })).toBe(false);
+    expect(replayHeadlessJournal({ ...journal!, commands: journal!.commands.map(entry => ({ ...entry,
+      failure: entry.failure ? { ...entry.failure, message: "altered" } : { name: "Error", code: "fake", message: "fake" } })) })).toBe(false);
+  }, 30_000);
+
+  it("aggregates actual winners, turns and committed battle events", () => {
+    const summary = runHeadlessGames(2, HEADLESS_SEEDS.slice(0, 2));
+    expect(summary.averageTurns).toBe(summary.totalTurns / 2);
+    expect(summary.winners).toBe(summary.results.filter(result => result.termination === "winner").length);
+    expect(summary.winsByPlayer.A! + summary.winsByPlayer.B!).toBe(summary.winners);
+    expect(Object.values(summary.terminationReasons).reduce((sum, count) => sum + count, 0)).toBe(2);
+    for (const key of Object.keys(summary.battleStats) as (keyof typeof summary.battleStats)[]) {
+      expect(summary.battleStats[key]).toBe(summary.results.reduce((sum, result) => sum + result.battleStats[key], 0));
+    }
+    expect(Object.values(summary.blockerReasons).reduce((sum, count) => sum + count, 0))
+      .toBe(summary.results.reduce((sum, result) => sum + result.blockers.length, 0));
+  }, 30_000);
+
+  it.each([
+    [{ maxTurns: 1 }, "turn-limit"],
+    [{ maxActions: 1 }, "action-limit"],
+  ] as const)("leaves the match unfinished at guard %j", (limits, reason) => {
+    const result = runHeadlessGame(HEADLESS_SEEDS[0]!, { decks: ["vi-unl", "rumble-sfd"], ...limits });
+    expect(result.termination).toBe("guard");
+    expect(result.guardReason).toBe(reason);
+    expect(result.winner).toBeNull();
+    expect(result.actionCoverage.commands.concede).toBe(0);
+    expect(result.actionCoverage.commands.idle).toBe(1);
+    expect(result.turnNumber).toBe(2);
+    expect(result.replayMatches).toBe(true);
+    expect(result.privacySafe).toBe(true);
+  });
+
+  it("uses a forty-turn default and rejects invalid guards", () => {
+    expect(DEFAULT_TURN_LIMIT).toBe(40);
+    for (const invalid of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => runHeadlessGame("invalid", { maxTurns: invalid })).toThrow(RangeError);
+      expect(() => runHeadlessGame("invalid", { maxActions: invalid })).toThrow(RangeError);
+    }
+  });
+
+  // This gate cannot be implemented by fixtures or hand-written settlement.
+  // See src/headless/README.md for the engine contracts required to enable it.
+  it.todo("wins several fixed-seed official games by eight-point scoring through real movement and combat");
 });
