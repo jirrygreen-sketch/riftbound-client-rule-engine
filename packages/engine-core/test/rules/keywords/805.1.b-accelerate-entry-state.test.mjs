@@ -42,10 +42,10 @@ test('keywords-accelerate-paid-enters-ready: paying the [1][C] additional cost e
   assert.equal(unit.exhausted, false);
   assert.deepEqual(unit.location, { type: 'base', player: 'A' });
   // 805.1.b / 805.2: the locked Finalize plan charges the printed 3 Energy plus
-  // the additional 1 Energy. The scenario's [C] half is a Power requirement of
-  // its own (asserted by the domain-mismatch case below); the reference kernel's
-  // `pay` action only moves Energy and XP.
+  // the additional [1][C] cost. The real payment receipt must spend one Fury
+  // Power as well as the additional Energy.
   assert.equal(f.kernel.player('A').energy, 1, 'base 3 + accelerate 1 Energy were paid');
+  assert.deepEqual(f.kernel.player('A').power, [], 'base Fury + accelerate [C] were paid');
   assert.deepEqual(f.engine.items, []);
 });
 

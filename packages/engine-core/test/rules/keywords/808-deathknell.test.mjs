@@ -89,3 +89,5 @@ test('keywords-deathknell-removed-when-death-replaced (808.1.d.1): a replaced ki
   assert.equal(f.get('u1').zone, 'board');
   assert.deepEqual(f.get('u1').location, { type: 'base', player: 'A' });
 });
+
+test.todo('keywords-deathknell-removed-after-pending (808.1.d.1 removal half) [EG-COMBAT, EG-REPLACEMENT]: if the Deathknell Pending item has already entered the Chain and the death is then replaced (for example by combat lethal-damage resolution being replaced with heal plus Recall), that item must be removed from the Chain; CombatFlow.dealDamage currently throws simultaneous-damage-transaction and ChainEngine has no public retraction transaction that ties a collected object-killed trigger to the later replacement result');

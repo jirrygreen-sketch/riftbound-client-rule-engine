@@ -112,3 +112,21 @@ test("Deathknell trigger.leave executes against a real killed incarnation", () =
   assert.ok(Object.entries(outcome.linkedValues).some(([key, value]) => key.endsWith(".leaveCause") && value === "kill"));
   assert.ok(Object.entries(outcome.linkedValues).some(([key, value]) => key.endsWith(".left") && value === true));
 });
+
+test("Deathknell trigger.leave rejects a non-Kill departure without publishing leave links", () => {
+  const kernel = world().unit("host-unit", {
+    cardId: HOST,
+    location: { type: "battlefield", id: "bf1" }
+  }).build();
+  const source = kernel.getObject("host-unit");
+  assert.equal(kernel.perform({ type: "return-to-hand", object: source.ref }).status, "done");
+  const context = kernel.clone({ sourceSnapshot: source, timingPoint: "object-killed" });
+
+  const [ability] = deathknell.expand({ host: { canonicalCardId: HOST } });
+  const outcome = runAbilityBody(ability.body, context, instructionDefinitionsById);
+
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.deepEqual(outcome.linkedValues, {});
+  assert.equal(context.getObject("host-unit").zone, "hand");
+});

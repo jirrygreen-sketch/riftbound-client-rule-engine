@@ -12,7 +12,11 @@ import vision from '../../../dist/effects/keywords/Vision.js';
 import { expandProgram } from '../../../dist/programs/index.js';
 import { instructionDefinitionsById } from '../../../dist/effects/instructions/registry.generated.js';
 import { validateTriggerSpec } from '../../../dist/events/trigger-spec.js';
-import { fixture, settle, world } from './support.mjs';
+import { createProgramBinding } from '../../../dist/programs/index.js';
+import { TurnFlow } from '../../../dist/turn/flow.js';
+import { bindResolveContext, createActionPipelineHost } from '../../../dist/events/action-adapter.js';
+import { AwaitChoice } from '../../../dist/effects/contract.js';
+import { world } from './support.mjs';
 
 const TEMPORARY_CARD = 'test:temporary-unit';
 const VISION_CARD = 'test:vision-unit';
@@ -83,18 +87,66 @@ test('keywords-temporary-killed-at-controller-beginning-phase: production regist
   const result = validateTriggerSpec({ at: ability.trigger.at, filter: ability.trigger.filter });
   assert.equal(result.ok, true, result.ok ? '' : JSON.stringify(result.issues));
 
-  const f = fixture({ programs: [program(TEMPORARY_CARD)], setup: w => w.unit('u1', {
-    cardId: TEMPORARY_CARD,
-    zone: 'board',
-    keywords: [{ id: 'Temporary' }]
-  }) });
-  const ids = f.binding.registerProgramTriggers(f.engine, f.get('u1'));
+  const builder = world().player('A').player('B')
+    .base('source', { might: 4 })
+    .deck(['A:deck:0'], { owner: 'A' }).deck(['B:deck:0'], { owner: 'B' })
+    .rune(['A:rune:0'], { owner: 'A' }).rune(['B:rune:0'], { owner: 'B' })
+    .unit('u1', {
+      cardId: TEMPORARY_CARD,
+      location: { type: 'battlefield', id: 'bf1' },
+      keywords: [{ id: 'Temporary' }]
+    })
+    .unit('survivor', { location: { type: 'battlefield', id: 'bf2' } });
+  const kernel = builder.build();
+  const answers = new Map();
+  const choose = request => {
+    if (answers.has(request.id)) return answers.get(request.id);
+    if (request.type === 'select-objects' && request.min === request.max && request.options.length === request.min) {
+      return [...request.options];
+    }
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  const flow = new TurnFlow({
+    host,
+    player: id => kernel.player(id),
+    turnOrder: ['A', 'B'],
+    battlefields: [{ id: 'bf1', controller: 'A' }, { id: 'bf2', controller: 'A' }]
+  });
+  const binding = createProgramBinding({ cardPrograms: [program(TEMPORARY_CARD)] });
+  const ids = binding.registerProgramTriggers(flow.chain, kernel.getObject('u1'));
   assert.equal(ids.length, 1);
-  f.engine.emit({ timingPoint: 'beginning-start', player: 'A' });
-  f.engine.advance();
-  settle(f.engine);
-  assert.equal(f.get('u1').zone, 'trash');
-  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === 'object-killed').length, 1);
+  const mark = flow.chain.pipeline.events.length;
+  const startError = (() => { try { flow.start(); return null; } catch (error) { return error; } })();
+  assert.equal(startError, null, startError instanceof Error ? startError.message : String(startError));
+  let passes = 0;
+  while (flow.phase !== 'main') {
+    assert.ok(++passes <= 30, 'real TurnFlow did not reach Main Phase');
+    if (flow.chain.items.length) flow.pass(flow.chain.priority);
+    else flow.advance();
+  }
+
+  const events = flow.chain.pipeline.events.slice(mark);
+  const timings = events.map(event => event.timingPoint);
+  const killAt = timings.indexOf('object-killed');
+  assert.ok(killAt >= 0, 'TurnFlow Beginning produced the real Kill');
+  const scoreAt = timings.indexOf('score');
+  assert.ok(scoreAt >= 0, 'the same Beginning produced a real Score wave from the surviving Battlefield');
+  assert.equal(timings.includes('beginning-end'), true, 'the real Beginning Phase completed');
+  assert.ok(timings.indexOf('beginning-start') < killAt);
+  assert.ok(killAt < scoreAt, 'Temporary killed its host before the Beginning Scoring wave');
+  assert.ok(timings.indexOf('hold') > killAt);
+  assert.equal(kernel.getObject('u1').zone, 'trash');
+  assert.equal(kernel.player('A').score, 1);
+  assert.deepEqual(flow.scored('A'), ['bf2']);
 });
 
 test.todo('keywords-vision-trigger-on-played / keywords-vision-multiple-instances-trigger-separately (817.1.c, 817.2.b) [EG-TARGETS, EG-ADAPTER]: the objectId host filter now registers and the effect.inspect/effect.recycle body is present, but production execution still lacks the ordered top-card PickSpec and controller binding needed for Predict; the authored shape is asserted above');

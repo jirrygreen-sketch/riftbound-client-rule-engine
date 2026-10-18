@@ -70,7 +70,7 @@ test('keywords-hunt-gains-xp-on-conquer: the merged effect.xp instruction grants
   assert.equal(context.player('B').xp, 0);
 });
 
-test('keywords-hunt-gains-xp-on-conquer: production binding resolves a real attributed conquer event', () => {
+test('keywords-hunt-gains-xp-on-conquer: constructed-event unit evidence for production trigger binding', () => {
   const f = fixture({ programs: [program], setup: w => w.unit('u1', {
     cardId: HUNT_CARD,
     might: 3,
@@ -80,6 +80,8 @@ test('keywords-hunt-gains-xp-on-conquer: production binding resolves a real attr
   const ids = f.binding.registerProgramTriggers(f.engine, f.get('u1'));
   assert.equal(ids.length, 2);
 
+  // This event is constructed by the test. It proves production trigger binding
+  // and effect.xp settlement only; it is not a real scoring producer.
   f.engine.emit({ timingPoint: 'conquer', object: f.get('u1'), player: 'A', details: { battlefieldId: 'bf1' } });
   f.engine.advance();
   settle(f.engine);
