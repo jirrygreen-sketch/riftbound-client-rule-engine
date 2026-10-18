@@ -22,22 +22,27 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   Power cost（832.1.d.1 的锁定值）。
  * - 414.3："draw 2" 是 effect.draw。
  *
- * 状态：judge-required。缺的是 Show Off / Predict 这条链路本身
- * （以已合入的 effects/keywords/ShowOff.ts 头部清单为准）：
- * - "reveal a card from hand or pick another friendly one"要求一条把"手牌
- *   revealed 结果"与"场上 picked 结果"合成同一组的非目标选择（832.1.c.3），
- *   现有 PickSpec 只能给固定 options 列表，没有"手牌或友方场上对象"的合成选项；
- * - "Predict equal to its Power cost"要从展示时锁定的快照里读 Power cost
- *   （832.1.d.1），当前没有任何指令把展示快照写进链接值（effect.reveal 只链接
- *   refs / 数量）；
- * - "Recycle any of them and put the rest back in any order"是 Predict 的两段
- *   选择（437.1.a）叠加在同一批已看卡上，[Predict] 也还没有 KeywordDef 统一编排。
- * 因此只写出有依据的骨架（play 能力 + Predict 的 reject/reorder 结构），
+ * 状态：judge-required（2026-10-18 复核）。缺的是 Show Off / Predict 这条链路本身
+ * （以已合入的 effects/keywords/ShowOff.ts 头部清单为准，并逐条实测）：
+ * 1. 关键词 id 拼写不一致：注册表以 KeywordDef.keyword（"Show Off"）为键，
+ *    programs/keywords.ts 的 definitionFor 只做大小写折叠（compile 用
+ *    compare(keyword.toLowerCase())），因此 slug "show-off" 实测抛
+ *    “Keyword show-off has no executable KeywordDef”；改用注册键拼写 "show off" 时
+ *    展开能跑通，但 card-dsl 的 IR 校验要求小写 symbol（"Expected a lowercase
+ *    keyword id"），卡牌写不出同时满足两边的拼写。属共享契约/生成器范围。
+ * 2. cost.reveal / Finalize 展示与合法性管线未合入：Show Off 展开成 static
+ *    cost.reveal（832.1.c.2 在 Finalize 决策），programs/statics.ts 的 layerFor 报
+ *    “Static ability kind cost.reveal has no layer mapping”，instructions 注册表里
+ *    也没有 cost.reveal，所以展示声明无处消费。832.1.c.3 还要求把「从手牌展示」与
+ *    「从友方场上拾取」合成同一组展示对象，现有 PickSpec 只有固定 options，无法表达。
+ * 3. objects-shown-off 时点已在 events/timing-points.ts 注册，但没有链上链接/快照
+ *    消费方，832.1.d.1 要求读取展示那一刻锁定的 Power cost；effect.reveal 只链接
+ *    refs/数量（实测 { revealed, revealedCount }），没有原语产出 shownPowerCost 锁定值。
+ * 4. condition.result 的逐实例链接值没有消费方（832.2 的多个 Show Off 实例不得合并成
+ *    一个布尔）；[Predict]（437.1 / 437.3）也没有 KeywordDef 统一编排看顶、可回收、任意顺序放回。
+ * 因此只写出有依据的骨架（play 能力 + Predict 的 inspect/recycle/order 结构），
  * 不把 Show Off 近似成"随便展示一张"或把 Power cost 近似成固定张数。
- * 依赖：cost.reveal / Finalize 展示与合法性管线、objects-shown-off
- * 快照消费（832.1.d.1）、condition.result 的逐实例链接值，以及
- * [Predict] KeywordDef（437.1 / 437.3 的编排）与 ShowOff 的 Object 参数扩展；
- * 其中「展示快照 + 手牌/场上合成选项选择」是本任务最终回复里的契约变更请求。
+ * 其中「展示快照 + 手牌/场上合成选项选择」与关键词 id 拼写是本任务最终回复的契约变更请求。
  */
 /** "When you play me, if you showed off a card, [Predict] …, then draw 2." 的正文骨架。 */
 const predictBody: readonly Instruction[] = [
@@ -155,17 +160,22 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Show Off / [Predict] 的 Finalize 与结算链路（CR 832.1 / 437；以已合入的" +
-    " effects/keywords/ShowOff.ts 头部依赖清单为准）：(1) cost.reveal / Finalize" +
-    " 展示与合法性管线未合入，832.1.c.3 要求把「从手牌展示」与「从友方" +
-    "场上拾取」合成同一组展示对象，现有 PickSpec 只有固定 options，无法表达这种合成选项；" +
-    "(2) objects-shown-off 时点已在 events/timing-points.ts 注册，但没有链上链接/快照" +
-    "消费方，832.1.d.1 要求读取展示那一刻锁定的 Power cost，effect.reveal 只链接引用与" +
-    "数量、不写展示快照，没有原语产出 shownPowerCost 这类锁定值；(3) condition.result" +
-    " 的逐实例链接值没有消费方（832.2 的多个 Show Off 实例不得合并成一个布尔）；" +
-    "(4) [Predict]（437.1 / 437.3）没有 KeywordDef 统一编排看顶、可回收、任意顺序放回。" +
-    "Predict 与抽牌的结构已按 437 写出并有结构测试与 inspect/recycle/order 真实执行；" +
-    "整卡依赖上述 Finalize/快照/链接契约与 [Predict] KeywordDef（见最终回复的契约变更请求）。",
+    "四项当前真实缺口（2026-10-18 实测）：" +
+    "(1) show off 的关键词拼写两边不一致：效果注册表以 KeywordDef.keyword（\"Show Off\"）为键，" +
+    "programs/keywords.ts 的 definitionFor 只做大小写折叠，卡牌写的 slug \"show-off\" 实测抛 " +
+    "“Keyword show-off has no executable KeywordDef”；改成注册键拼写能展开，但 card-dsl 的 IR 校验" +
+    "要求小写 symbol，报 “Expected a lowercase keyword id”——卡牌侧无法写出同时满足两边的拼写。" +
+    "(2) Show Off 展开为 static cost.reveal（832.1.c.2 在 Finalize 决策），但 programs/statics.ts 的 " +
+    "layerFor 报 “Static ability kind cost.reveal has no layer mapping”，instructions 注册表里也没有 " +
+    "cost.reveal；832.1.c.3 还要求把「从手牌展示」与「从友方场上拾取」合成同一组展示对象，现有 " +
+    "PickSpec 只有固定 options，无法表达这种合成选项。" +
+    "(3) objects-shown-off 时点已在 events/timing-points.ts 注册，但没有链上链接/快照消费方；" +
+    "832.1.d.1 要求读取展示那一刻锁定的 Power cost，而 effect.reveal 只写 { revealed, revealedCount }，" +
+    "没有原语产出 shownPowerCost 这类锁定值。" +
+    "(4) condition.result 的逐实例链接值没有消费方（832.2 的多个 Show Off 实例不得合并成一个布尔）；" +
+    "[Predict]（437.1 / 437.3）也没有 KeywordDef 统一编排看顶、可回收、任意顺序放回。" +
+    "Predict 与抽牌的结构已按 437 写出，并有结构测试与 inspect/recycle/order 真实执行；" +
+    "整卡依赖上述 Finalize/快照/链接契约、[Predict] KeywordDef 与关键词拼写（见最终回复的契约变更请求）。",
   abilities,
   sourceText:
     "[Show Off] a card. (As you play me, you may reveal a card from hand or pick another friendly one.)\n" +

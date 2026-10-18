@@ -49,6 +49,8 @@ test("rad-088-167 Staunch Survivor: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /designation/);
+  // README section 2: the reason must name the merged code that fails, never a task id.
+  assert.equal(/RIFT-\d+/.test(program.judgeReason), false);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 

@@ -24,8 +24,11 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   的事件与替代语义（414.1.a），因此该子效果不支持升级整卡状态。
  * - "Otherwise, recycle it"：417.1 / 417.1.a 的 Recycle 把牌放到其拥有者主牌库**底部**。
  *
- * 2026-10-17 再复核：整卡仍为 judge-required；当前缺口见 judgeReason。
+ * 2026-10-18 再复核：整卡仍为 judge-required；当前缺口见 judgeReason。
  * 已合入原语与关键词声明不等于生产链路可执行；局部执行证据见同名单卡测试。
+ * 本轮复核把「draw it」缺口写成实测结果：effect.draw 的 pick 只用来确定抽牌者，
+ * 抽的仍是该玩家牌库顶；被锁定/揭示的引用只能经 effect.zone 移入手牌，
+ * 该动作产出 return-to-hand，不是 Draw（414.1.a），也不是事件/替代证据。
  */
 
 const revealTop: Instruction = {
@@ -144,10 +147,20 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「When I move」的 object-moved 时点与 move-location 生产映射已合入，但 EVENT_PATTERN_TYPES 尚无该事件；validateTriggerSpec 返回 invalid-event-type，真实触发注册仍被拒绝（CR 421.1、449）。" +
-    "Mighty（707/708/711）可由 condition.predicate 计算一次，并用已合入的 condition.result 选择 if/otherwise 分支；不再依赖不存在的专用 if/otherwise 节点。显式 zoneSlice 与 linked pick 已替换牌库顶字符串占位。" +
-    "「draw it」还缺以已揭示引用为对象的 Draw 动作/原语：现有 effect.draw 只能抽当前牌库顶或选抽牌者，effect.zone to hand 实际产生 return-to-hand，不能作为 Draw 的事件、替代与触发证据（414.1.a）。" +
-    "当前有序 pick 在 Finalize 锁定引用，而本卡要求 Resolve 时揭示当时牌库顶；还需 Resolve 时有序来源捕获。保留 effect.zone 仅验证已揭牌移动至手牌的子效果，整卡保持 judge-required。",
+    "三处当前真实缺口（2026-10-18 实测）：" +
+    "(1)「When I move」的 object-moved 时点（421.1/449）与 move-location 生产映射都已存在，" +
+    "但封闭的 EVENT_PATTERN_TYPES 词表不含 " + "\"object-moved\"：validateTriggerSpec 返回 invalid-event-type，" +
+    "programs/triggers.ts 因此在注册前失败，pipeline 里 0 条注册。" +
+    "(2)「draw it」还缺以已揭示引用为对象的 Draw 原语：effect.draw 的 pick 只用于确定抽牌者" +
+    "（实测 pick 指向牌库底一张时，抽走的仍是当时牌库顶，链接值为 {drawn, drawnTo}），" +
+    "不能抽「这一张」；effect.zone to hand 产生的是 return-to-hand 动作（414.1.a 的 Draw 事件、" +
+    "替代效果与抽牌触发都不同），只能作为「该牌移入手牌」的子效果证据。" +
+    "(3) 现有有序 pick 在 Finalize 锁定引用，而本卡要求 Resolve 时揭示当时的牌库顶；" +
+    "需要 Resolve 期有序来源捕获（否则揭示的可能是已经变化的牌）。" +
+    "Mighty（707/708/711）已由 condition.predicate 按印刷 Might 计算一次，并用已合入的 condition.result" +
+    "选择互斥的 if/otherwise 分支（draw 与 recycle 各由条件门控，不再依赖专用 if/otherwise 节点）；" +
+    "显式 zoneSlice 与 linked pick 已替换此前的牌库顶字符串占位。" +
+    "三处缺口关闭前保持 judge-required，不近似实现。",
   abilities,
   sourceText:
     "When I move, reveal the top card of your Main Deck. If it's [Mighty], draw it. Otherwise, recycle it. (A unit is Mighty while it has 5+ :rb_might:.)"

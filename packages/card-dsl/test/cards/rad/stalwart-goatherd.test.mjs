@@ -34,8 +34,11 @@ test("rad-083-167 Stalwart Goatherd: validates, identity and source text", () =>
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Energy cost/);
+  assert.match(program.judgeReason, /energyLte/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /combatRole/);
+  // README section 2: the reason names the merged code that fails, not a task id.
+  assert.equal(/RIFT-\d+/.test(program.judgeReason), false);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
