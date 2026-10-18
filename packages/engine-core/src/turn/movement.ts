@@ -10,6 +10,7 @@ import { createActionPipelineHost } from '../events/action-adapter.js';
 import {
   assertDuelStandardMoveUnitStillLegal,
   inspectDuelStandardMove,
+  type DuelStandardMoveRecheckContext,
   type DuelMovementRuleContext,
   type DuelStandardMovePlan,
   type DuelStandardMoveRequest,
@@ -166,7 +167,7 @@ export function commitStandardMoveBatch(host: StandardMoveBatchHost): StandardMo
       hasGanking: object.keywords.some(keyword => keyword.id.toLowerCase() === 'ganking'),
     };
   };
-  const recheck = {
+  const recheck: DuelStandardMoveRecheckContext = {
     unit: live,
     validate: (unitId: string) => {
       const object = live(unitId);
