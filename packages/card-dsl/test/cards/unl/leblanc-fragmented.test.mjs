@@ -43,6 +43,10 @@ test("unl-172-219 LeBlanc, Fragmented: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /MissingInformation/);
   assert.match(program.judgeReason, /383\.2\.a\.1/);
   assert.match(program.judgeReason, /Unregistered instruction opcode/);
+  // The exported op registry really carries no trigger.* primitive, and the
+  // designation mapping exists only in the unwired expr-ext module.
+  assert.match(program.judgeReason, /45 个 op/);
+  assert.match(program.judgeReason, /expr-ext/);
   assert.doesNotMatch(program.judgeReason, /layers 的条件求值也不读 compare|未识别条件按 true/);
 });
 
@@ -177,6 +181,17 @@ test("unl-172-219 LeBlanc, Fragmented: merging [Assault] leaves an Attacker with
   assert.equal(typeof registration.effect.effect.condition, "function");
   assert.equal(f.engine.layers.evaluate(source.ref).might, 3);
   handle.unbind();
+});
+
+test("unl-172-219 LeBlanc, Fragmented: the merged op registry really has no trigger.leave opcode", async () => {
+  // The Deathknell gap is not a spelling problem: the generated instruction
+  // registry carries 45 ops and none of them is a trigger.* primitive, so the
+  // keyword's expansion body cannot resolve anywhere in the interpreter.
+  const { registry } = await import("../../../../engine-core/dist/effects/instructions/registry.generated.js");
+  assert.equal(registry.length, 45);
+  const ops = registry.map(entry => entry.op ?? entry.id ?? entry.keyword);
+  assert.equal(ops.filter(op => typeof op === "string" && op.startsWith("trigger.")).length, 0);
+  assert.equal(ops.includes("trigger.leave"), false);
 });
 
 test("unl-172-219 LeBlanc, Fragmented: the [Deathknell] expansion body still needs the unregistered trigger.leave op (808.1.d)", () => {

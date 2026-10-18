@@ -23,7 +23,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   授予作用域由本卡的 static 效果声明。括号内是 [Tank] 的提醒文字（135.2.d.1/d.3），
  *   不影响规则，不另写指令。
  *
- * status = judge-required（2026-10-17 复核）：半段已验证可执行，唯一剩余缺口不近似实现：
+ * status = judge-required（2026-10-18 复核）：半段已验证可执行，唯一剩余缺口不近似实现：
  * - "give me +1 [M] this turn" 已被真实执行：解释器登记 arithmetic 层的 continuous.might，
  *   图层求值给出 Might +1，end-of-turn 到期按 315.4 移除（golden 断言注册、加成与到期）。
  * - "Your token units have [Tank]" 的静态授予也已被真实绑定：本卡的 static 效果在
@@ -32,6 +32,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （mode damage-assignment，priority first），layers 没有该 kind 的求值分支，combat 的
  *   基础分配内核要求调用方提供 keywordPriority: "proven-none" 的证明，没有任何已合入路径
  *   读取该注册来排定 815.1.c 的 lethal-first 顺序——所以授予本身可执行，授予的规则行为不可执行。
+ *   实测：static binder 接受该 registration（layer=["ability"]），但 layers 的 evaluate 不会
+ *   因它改变任何快照，combat/base-combat-allocation.ts 只接受 keywordPriority: "proven-none"。
  * golden 保留 Might 体、Tank 静态绑定与触发注册的真实执行证据，并为战斗分配消费者留 TODO。
  *
  * 依赖：Tank 的 continuous.combat 消费者（815.1.c 战斗伤害分配顺序）。
@@ -90,7 +92,7 @@ export default {
     "唯一当前缺口是 Tank 的战斗伤害分配消费者（815.1.c 的 lethal-first 顺序）：keywords/Tank.ts 的展开是 " +
     "`continuous.combat`（mode damage-assignment、priority first），而 layers/engine.ts 没有该 kind 的求值分支，" +
     "combat/base-combat-allocation.ts 的基础分配内核要求调用方证明 keywordPriority: \"proven-none\"，" +
-    "没有任何已合入路径读取该注册来排定分配顺序。" +
+    "没有任何已合入路径读取该注册来排定分配顺序（实测：registration 能绑定但不改变图层快照，战斗分配仍只接受 proven-none）。" +
     "两个效果半段都有真实执行证据：continuous.might 的算术登记 + 图层加成 + end-of-turn 到期（315.4），" +
     "以及 continuous.grant-keyword 的 static 绑定（实测只授予控制者的 token units）；card-played 触发注册也已合入。" +
     "在战斗分配消费者合入前保持 judge-required。",

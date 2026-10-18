@@ -66,8 +66,11 @@ test("unl-116-219 Poppy, Paragon: 'When you play me' is a mandatory card-played 
 test("unl-116-219 Poppy, Paragon: the if clause is the trigger condition, not an instruction condition", () => {
   // 383.2.a.1: the trailing “if …” belongs to the trigger condition and is
   // evaluated when the ability triggers. The Victory Score has no read path, so
-  // the condition stays a named predicate instead of a hard-coded comparison.
-  assert.deepEqual(playTrigger.trigger.condition, {
+  // the condition keeps the named predicate as its documented shape and is
+  // explicitly blocked by never instead of a hard-coded comparison.
+  assert.equal(playTrigger.trigger.condition.kind, "all");
+  assert.deepEqual(playTrigger.trigger.condition.conditions[0], { kind: "never" });
+  assert.deepEqual(playTrigger.trigger.condition.conditions[1], {
     kind: "expression",
     value: { kind: "constant", value: "opponent-score-within-3-of-victory-score" }
   });
@@ -166,6 +169,57 @@ test.todo(
   "unl-116-219 Poppy, Paragon: the target.tax layer effect is read when an opponent chooses this unit " +
     "(CR 809.1.c/809.1.c.1) by adding a target.tax query and feeding the Finalize tax adapter from layers"
 );
+
+test("unl-116-219 Poppy, Paragon golden: the blocked Victory-Score gate keeps the play trigger off the chain", async () => {
+  // The named predicate alone would be true for any non-empty string (the
+  // merged expression evaluator coerces it), so the never block is what keeps
+  // the printed condition closed until a real Victory Score read exists.
+  const { evaluateCondition } = await import("../../../../engine-core/dist/effects/interpreter/condition.js");
+  const { world } = await import("../../../../engine-core/dist/effects/testing/index.js");
+
+  const kernel = world().player("A").player("B").build();
+  const environment = {
+    context: kernel, linked: () => undefined, canLookBack: () => false, isIgnored: () => false,
+    query: filter => kernel.query(filter)
+  };
+  assert.equal(kernel.player("A").score, 0);
+  assert.equal(kernel.player("B").score, 0);
+  assert.equal(evaluateCondition(playTrigger.trigger.condition.conditions[1], environment), true);
+  assert.equal(evaluateCondition(playTrigger.trigger.condition, environment), false);
+});
+
+test("unl-116-219 Poppy, Paragon golden: a real play publishes card-played but adds no chain item", async () => {
+  const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
+  const { fixture, resolveAll } = await import("../../../../engine-core/test/chain/helpers.mjs");
+
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const f = fixture({
+    cards: [{ id: "poppy", cardId: CANONICAL_ID, types: ["unit"], energy: 5, power: [], might: 5 }],
+    describePlay: binding.describePlay
+  });
+  const source = f.kernel.getObject("poppy");
+  const ids = binding.registerProgramTriggers(f.engine, { ...source, cardId: CANONICAL_ID, zone: "hand" });
+  assert.equal(ids.length, 1);
+
+  const hits = [];
+  f.engine.pipeline.onTrigger = snapshot => hits.push(snapshot.registration.id);
+  f.engine.execute({
+    id: "play:poppy", controller: "A", kind: "unit", speed: "normal",
+    source: f.kernel.getObject("poppy"), object: f.kernel.ref("poppy"), location: { type: "battlefield", id: "bf-1" }, body: []
+  });
+  resolveAll(f.engine);
+
+  // 359 / 383.4.a: the play really reached the card-played timing point.
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "card-played").length, 1);
+  // The blocked condition keeps the trigger out, so neither the ready half nor
+  // the XP half ever ran.
+  assert.deepEqual(hits, []);
+  assert.equal(f.kernel.player("A").xp, 0);
+  assert.equal(f.kernel.player("B").xp, 0);
+  assert.equal(f.kernel.getObject("poppy").exhausted, true);
+});
 
 test("unl-116-219 Poppy, Paragon: every deck-level dependency of the trigger is merged", () => {
   // 383.4.a.1: "When you play me" is a Play Effect, so the merged card-played

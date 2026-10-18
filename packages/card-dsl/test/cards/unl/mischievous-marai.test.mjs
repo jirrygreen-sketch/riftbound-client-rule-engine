@@ -91,10 +91,12 @@ test("unl-003-219 Mischievous Marai: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /811\.1\.b/);
   assert.match(program.judgeReason, /card-played/);
-  // The remaining gaps are the Facedown/Hide consumer and play-location
-  // payload; lifecycle binding itself is already merged.
+  // The remaining gaps are the Facedown/Hide consumer and the production
+  // target filter's source-relative location anchor; the play-location gate is
+  // now expressed through the merged event-object location.
   assert.match(program.judgeReason, /Facedown|Hide/);
-  assert.match(program.judgeReason, /details/);
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /no layer mapping/);
 });
 
 test("unl-003-219 Mischievous Marai: Hidden keyword plus a self play trigger dealing 2", () => {
@@ -106,14 +108,15 @@ test("unl-003-219 Mischievous Marai: Hidden keyword plus a self play trigger dea
 
   // 383.4.a: "When you play me…" is this card's Play Effect, subscribed at the
   // card-played timing point (359 / 407) with the event object the played unit.
+  // 143.4 / 359.2.c: the unit may be played to a Base or a Battlefield, so the
+  // printed "to a battlefield" is the event object's own location kind.
   assert.equal(triggered.kind, "triggered");
   assert.equal(triggered.trigger.at, "card-played");
   assert.equal(triggered.optional, false);
   assert.deepEqual(triggered.trigger.filter, {
     event: "card-played",
-    object: { type: "unit", controller: "self" },
-    player: "self",
-    details: { playedTo: "battlefield" }
+    object: { type: "unit", controller: "self", zone: "battlefield" },
+    player: "self"
   });
   assert.equal(triggered.trigger.once, undefined);
 });
@@ -215,19 +218,82 @@ test("unl-003-219 Mischievous Marai: the generated card registry exposes the pro
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
-test("unl-003-219 Mischievous Marai: the 'to a battlefield' gate is a concrete card-played detail", async () => {
+test("unl-003-219 Mischievous Marai: the 'to a battlefield' gate normalises onto the event object", async () => {
   // 143.4 / 359.2.c: a unit may be played to a Base or a Battlefield, so the
-  // printed "to a battlefield" is a real condition on the play event, not a
-  // redundant restatement of "played". The card therefore states it as the
-  // card-played detail that the merged matcher would compare, and the golden
-  // pins that the subscription stays a detail match (the payload producer is
-  // the recorded gap, see test.todo).
+  // printed "to a battlefield" is a real condition on the play event. The
+  // merged card-played emission carries the entered permanent with its
+  // location, and the merged matcher reads zone: "battlefield" as
+  // location.type, so the subscription is a plain object filter with no
+  // details payload to fill.
   const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
   const translated = translateTriggerFilter(triggered.trigger.filter, "marai");
-  assert.deepEqual(translated.details, { playedTo: "battlefield" });
+  assert.equal(translated.details, undefined);
   assert.equal(translated.event, "card-played");
-  assert.deepEqual(translated.object, { type: "unit", controller: "self" });
+  assert.deepEqual(translated.object, { type: "unit", controller: "self", zone: "battlefield" });
   assert.equal(translated.player, "self");
+});
+
+test("unl-003-219 Mischievous Marai golden: the real card-played event matches the battlefield gate only", async () => {
+  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  const { matchesTriggerEvent } = await import("../../../../engine-core/dist/events/pipeline-match.js");
+  const { validateTriggerSpec } = await import("../../../../engine-core/dist/events/trigger-spec.js");
+  const { fixture, resolveAll } = await import("../../../../engine-core/test/chain/helpers.mjs");
+  const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
+
+  // The card's body still carries the unsupported target anchor, so the
+  // production program binding refuses the whole subscription. The merged
+  // matcher is exercised against the real card-played emission of a real play
+  // instead, with the card's own translated trigger filter.
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const blocked = fixture({ cards: [{ id: "marai", cardId: CANONICAL_ID, types: ["unit"], energy: 2, power: [], might: 2 }] });
+  assert.throws(
+    () => binding.registerProgramTriggers(
+      blocked.engine,
+      { ...blocked.kernel.getObject("marai"), cardId: CANONICAL_ID, zone: "board" }
+    ),
+    /Unsupported filter field sameLocationAs/
+  );
+
+  function cardPlayed(location) {
+    const playBinding = createProgramBinding({
+      cardPrograms: [{
+        canonicalCardId: CANONICAL_ID,
+        rulesetVersion: EFFECT_IR_V2_RULESET,
+        status: "executable",
+        sourceText: "RIFT-729 synthetic Marai play vehicle",
+        abilities: [{ kind: "play", body: [] }]
+      }]
+    });
+    const f = fixture({
+      cards: [{ id: "marai", cardId: CANONICAL_ID, types: ["unit"], energy: 2, power: [], might: 2 }],
+      describePlay: playBinding.describePlay
+    });
+    f.engine.execute({
+      id: "play:marai", controller: "A", kind: "unit", speed: "normal",
+      source: f.kernel.getObject("marai"), object: f.kernel.ref("marai"), location, body: []
+    });
+    resolveAll(f.engine);
+    const [event] = f.engine.pipeline.events.filter(candidate => candidate.timingPoint === "card-played");
+    assert.ok(event, "the real chain must publish a card-played event");
+    return { f, event };
+  }
+
+  const filter = translateTriggerFilter(triggered.trigger.filter, "marai");
+  assert.equal(validateTriggerSpec({ at: "card-played", filter }).ok, true);
+
+  // 143.4 / 359.2.c: both destinations are legal plays, but only the
+  // battlefield one satisfies the printed condition.
+  const battlefield = cardPlayed({ type: "battlefield", id: "bf-1" });
+  assert.deepEqual(battlefield.event.object.location, { type: "battlefield", id: "bf-1" });
+  assert.equal(matchesTriggerEvent(filter, battlefield.event, "A"), true);
+
+  const base = cardPlayed({ type: "base", player: "A" });
+  assert.deepEqual(base.event.object.location, { type: "base", player: "A" });
+  assert.equal(matchesTriggerEvent(filter, base.event, "A"), false);
+
+  // "you play me": the opponent's play of the same card does not match.
+  assert.equal(matchesTriggerEvent(filter, { ...battlefield.event, player: "B" }, "A"), false);
 });
 
 test("unl-003-219 Mischievous Marai: the declared Hidden keyword expands to the cost.hidden declaration", async () => {
@@ -247,7 +313,7 @@ test.todo(
 );
 
 test.todo(
-  "unl-003-219 Mischievous Marai: fire 'When you play me to a battlefield' from the real chain flow " +
-    "(CR 383.4.a) — the card-played event carries no play-location payload, so the printed location " +
-    "condition cannot be matched because the event has no play-location payload"
+  "unl-003-219 Mischievous Marai: bind the 'an enemy unit here' target through the production target filter " +
+    "(CR 053.3 / 355.9.a.1) — programs/filters.ts rejects the contract 3.6 sameLocationAs anchor and " +
+    "TargetSpec.location cannot express a source-relative location"
 );
