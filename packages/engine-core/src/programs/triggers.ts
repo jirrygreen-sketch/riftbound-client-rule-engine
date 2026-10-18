@@ -7,7 +7,7 @@ import { ProgramBindingError } from './errors.js';
 import { translateInstructionTargets, translateTriggerFilter } from './filters.js';
 import { expandProgram } from './keywords.js';
 import { ProgramRegistry } from './registry.js';
-import { adaptLeadingChoice } from './trigger-adapters/leading-choice.js';
+import { adaptLeadingChoice, isCostPay } from './trigger-adapters/leading-choice.js';
 
 export function triggerRegistrations(registry: ProgramRegistry, source: ObjectSnapshot): readonly TriggerRegistration[] {
   const program = registry.get(source.cardId);
@@ -20,6 +20,17 @@ export function triggerRegistrations(registry: ProgramRegistry, source: ObjectSn
       const body = translateInstructionTargets(ability.body) as any;
       const filter = translateTriggerFilter(ability.trigger.filter as Record<string, unknown>, source.ref.id, ability.trigger.at as TimingPointId);
       const adapted = adaptLeadingChoice(source, body);
+      const leadingChoice = body[0]?.op === 'choice.optional';
+      if (leadingChoice && !adapted) {
+        const nested = body[0]?.args?.body;
+        const first = nested?.kind === 'constant' && Array.isArray(nested.value) ? nested.value[0] : undefined;
+        throw new ProgramBindingError(
+          'judge-required',
+          isCostPay(first)
+            ? `Trigger ${index} on ${program.canonicalCardId} has an unsupported leading cost shape`
+            : `Trigger ${index} on ${program.canonicalCardId} has an unsupported leading may shape`
+        );
+      }
       return [{
         id: `program:${source.ref.id}:${source.ref.zoneEntryId}:${index}`,
         source,
@@ -27,7 +38,11 @@ export function triggerRegistrations(registry: ProgramRegistry, source: ObjectSn
         spec: { at: ability.trigger.at as TimingPointId, filter: filter as any, ...(ability.trigger.condition ? { condition: ability.trigger.condition as any } : {}), ...(ability.trigger.once ? { once: ability.trigger.once } : {}) },
         body: adapted?.body ?? body,
         optional: adapted ? false : ability.optional,
-        ...(adapted ? { mayAtFinalize: true as const, cost: adapted.cost, ...(adapted.targets.length ? { targets: adapted.targets } : {}) } : {}),
+        ...(adapted ? {
+          mayAtFinalize: true as const,
+          ...(adapted.cost ? { cost: adapted.cost } : {}),
+          ...(adapted.targets.length ? { targets: adapted.targets } : {})
+        } : {}),
         activeZones: (() => {
           const at = ability.trigger.at;
           if (at === 'object-enters-chain' || at === 'object-leaves-chain') return ['chain'];

@@ -47,8 +47,17 @@ export function costPayArgsToCostSpec(args: Record<string, unknown>): CostSpec |
           if (typeof value !== 'number' || value < 0 || xp !== undefined) return undefined;
           xp = value;
         } else if (key === 'power') {
-          if (power !== undefined) return undefined;
-          const domains = typeof value === 'number' ? undefined : domainList(value);
+          if (power !== undefined || payments.some(payment => payment.kind === 'power')) return undefined;
+          if (typeof value === 'number') {
+            if (!Number.isSafeInteger(value) || value < 0) return undefined;
+            if (value > 0) payments.push({
+              kind: 'power',
+              amount: { kind: 'constant', value },
+              allowedDomains: [...DUEL_DOMAINS]
+            });
+            continue;
+          }
+          const domains = domainList(value);
           if (domains === undefined) return undefined;
           power = domains;
         } else return undefined;
@@ -105,6 +114,13 @@ export function costPayArgsToCostSpec(args: Record<string, unknown>): CostSpec |
   const spec: Record<string, unknown> = {};
   if (energy !== undefined) spec.energy = { kind: 'constant', value: energy };
   if (xp !== undefined) spec.payments = [{ kind: 'xp', amount: { kind: 'constant', value: xp } }];
+  if (power !== undefined) {
+    payments.unshift({
+      kind: 'power',
+      amount: { kind: 'constant', value: 1 },
+      allowedDomains: [...power]
+    });
+  }
   if (payments.length) spec.payments = [...(spec.payments as readonly unknown[] ?? []), ...payments];
   if (!Object.keys(spec).length) return undefined;
   return spec as unknown as CostSpec;

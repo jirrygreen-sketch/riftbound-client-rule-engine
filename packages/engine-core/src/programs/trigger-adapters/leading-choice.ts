@@ -11,7 +11,7 @@ const constantArray = (expression: unknown): readonly unknown[] | undefined =>
     ? expression.value as readonly unknown[]
     : undefined;
 
-const isCostPay = (instruction: unknown): instruction is Instruction & { readonly args: Record<string, unknown> } =>
+export const isCostPay = (instruction: unknown): instruction is Instruction & { readonly args: Record<string, unknown> } =>
   isRecord(instruction) && (instruction as { op?: unknown }).op === 'cost.pay' && isRecord((instruction as { args?: unknown }).args);
 
 const isEffectInstruction = (instruction: unknown): boolean => isRecord(instruction) && typeof (instruction as { op?: unknown }).op === 'string' && String((instruction as { op?: unknown }).op).startsWith('effect.');
@@ -40,21 +40,23 @@ function stripCostLinks(instruction: Instruction, costId: string): Instruction {
 }
 
 /**
- * Detect the leading optional-cost spelling covered by CR 383.3.a/.b.1:
- * choice.optional wrapping a non-empty body whose first instruction is cost.pay.
- * The choice becomes the registration-level mayAtFinalize question and the
- * cost becomes a registration-level CostSpec; the Finalize payment receipt is
- * linked under the cost instruction id so cost.pay would still link it, but
- * the cost instruction itself is dropped from the resolve body because the
- * interpreter would otherwise pay the cost twice.
- * Anything outside that closed shape returns undefined and stays judge-required.
+ * Move a leading choice.optional to Finalize (CR 383.3.a). A body without a
+ * leading cost keeps its effect instructions unchanged. A leading cost.pay is
+ * also moved into the registration CostPlan (CR 383.3.b.1); its receipt is
+ * linked under the removed instruction id and the instruction is dropped from
+ * Resolve so it cannot be paid twice.
+ *
+ * The adapter covers only the evaluated constant-array effect spelling. A
+ * leading choice with any other nested operation is not a safe executable
+ * interpretation and must fail closed instead of falling back to the scan-time
+ * optional question.
  */
 export function adaptLeadingChoice(
   source: ObjectSnapshot,
   body: readonly Instruction[]
 ): {
   readonly mayAtFinalize: true;
-  readonly cost: CostPlanInput;
+  readonly cost?: CostPlanInput;
   readonly body: readonly Instruction[];
   readonly targets: readonly { readonly requirement: TargetRequirement }[];
 } | undefined {
@@ -66,7 +68,15 @@ export function adaptLeadingChoice(
   const nested = constantArray(args.body);
   if (!nested?.length) return undefined;
   const [first, ...rest] = nested as readonly Instruction[];
-  if (!isCostPay(first)) return undefined;
+  if (!isCostPay(first)) {
+    if (!nested.every(isEffectInstruction)) return undefined;
+    const adapted = (nested as readonly Instruction[]).map(instruction => hoistTargets(instruction));
+    return {
+      mayAtFinalize: true,
+      body: adapted.map(entry => entry.instruction),
+      targets: adapted.flatMap(entry => entry.targets.map(requirement => ({ requirement })))
+    };
+  }
   if (!rest.length || !rest.every(isEffectInstruction)) return undefined;
   const cost = costPayArgsToCostSpec(first.args);
   if (!cost) return undefined;
