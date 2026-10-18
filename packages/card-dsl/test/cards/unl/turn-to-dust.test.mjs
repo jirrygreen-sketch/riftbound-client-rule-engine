@@ -98,8 +98,9 @@ test("unl-070-219 Turn to Dust golden: a gear that left the Board is mistargeted
 });
 
 test("unl-070-219 Turn to Dust golden: the granted Temporary expansion is a real 816.1.b kill of the host", async () => {
-  // RIFT-265's Temporary KeywordDef really expands to the 816.1.b trigger body;
-  // the golden executes that body (the missing half is only its registration
+  // The Temporary KeywordDef (merged in RIFT-265) really expands to the 816.1.b
+  // trigger body; the golden executes that body (the missing half is only its
+  // registration
   // when the keyword is granted at runtime - see judgeReason).
   const { default: temporary } = await import("../../../../engine-core/dist/effects/keywords/Temporary.js");
   const [expansion] = temporary.expand({ host: { canonicalCardId: CANONICAL_ID } });
