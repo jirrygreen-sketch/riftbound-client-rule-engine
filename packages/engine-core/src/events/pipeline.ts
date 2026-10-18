@@ -22,10 +22,10 @@ function explicitBatchIdentity(emission: TimingEmission): string | undefined {
       throw new TypeError('Timing batch identity must be a non-empty string');
     }
   }
-  if (emission.batchId !== undefined && emission.simultaneousGroup !== undefined &&
-      emission.batchId !== emission.simultaneousGroup) {
-    throw new TypeError('Timing emission has conflicting batch identities');
-  }
+  // Action producers use batchId for the enclosing atomic action and
+  // simultaneousGroup for a named timing wave within it. The enclosing batch
+  // identity is authoritative; simultaneousGroup is only a fallback when no
+  // action batch was supplied.
   return emission.batchId ?? emission.simultaneousGroup;
 }
 
@@ -166,12 +166,17 @@ export class EventPipeline {
       throw new TypeError('Timing batch identity must be a non-empty string');
     }
     const explicitBatchIds = new Set<string>();
+    const fallbackGroups = new Set<string>();
     for (const emission of emissions) {
       const identity = explicitBatchIdentity(emission);
-      if (identity !== undefined) explicitBatchIds.add(identity);
+      if (emission.batchId !== undefined) explicitBatchIds.add(identity!);
+      else if (identity !== undefined) fallbackGroups.add(identity);
     }
     if (explicitBatchIds.size > 1) throw new TypeError('Timing emissions in one atomic batch must share a batch identity');
-    const sharedBatchId = explicitBatchIds.values().next().value;
+    if (explicitBatchIds.size === 0 && fallbackGroups.size > 1) {
+      throw new TypeError('Timing emissions in one atomic batch must share a simultaneous group');
+    }
+    const sharedBatchId = explicitBatchIds.values().next().value ?? fallbackGroups.values().next().value;
     if (batchId !== undefined && sharedBatchId !== undefined && batchId !== sharedBatchId) {
       throw new TypeError('Explicit batch identity conflicts with emission batch identity');
     }

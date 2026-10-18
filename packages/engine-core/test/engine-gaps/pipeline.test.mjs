@@ -290,6 +290,21 @@ test('EG-PIPELINE: conflicting explicit batch identities fail before publishing 
   assert.equal(f.engine.items.length, 0);
 });
 
+test('EG-PIPELINE: a named simultaneous wave remains inside its enclosing atomic action batch', () => {
+  const f = fixture();
+  trigger(f, 'once-wave', {
+    body: [],
+    spec: { at: 'conquer', filter: {}, once: 'per-batch' },
+  });
+  const events = f.engine.pipeline.emitBatch([
+    { timingPoint: 'conquer', player: 'A', batchId: 'action-batch', simultaneousGroup: 'score-wave' },
+    { timingPoint: 'score', kind: 'scored', player: 'A', batchId: 'action-batch', simultaneousGroup: 'score-wave' },
+  ]);
+  assert.deepEqual(events.map(event => event.batchId), ['action-batch', 'action-batch']);
+  assert.deepEqual(events.map(event => event.simultaneousGroup), ['score-wave', 'score-wave']);
+  assert.equal(f.engine.items.length, 1);
+});
+
 test('EG-PIPELINE: an explicit once cap permits N finalizations per turn and then stops', () => {
   const f = fixture();
   trigger(f, 'twice-per-turn', {
