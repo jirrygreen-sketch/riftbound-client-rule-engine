@@ -1,6 +1,6 @@
 // RIFT-654 template execution evidence: ../templates/activated-activated-effect-resources-654.test.mjs
-// (printed [Reaction] + Exhaust cost and the real [Add] 1 Energy body, plus the exhausted-source
-// boundary). The card stays judge-required for the pre-cost Legion history gate, the kind=add
+// (whole-card activation is pending; the original Exhaust cost, original [Add] 1 Energy body and
+// exhausted-source boundary execute as partial evidence). The card stays judge-required for the pre-cost Legion history gate, the kind=add
 // activation bridge and the Legend Zone asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";

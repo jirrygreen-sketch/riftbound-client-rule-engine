@@ -1,5 +1,5 @@
 // RIFT-654 template execution evidence: ../templates/activated-activated-effect-resources-654.test.mjs
-// (printed Exhaust cost through the real chain plus the exhausted-source boundary). The card stays
+// (whole-card activation is pending; the original Exhaust slice and exhausted-source boundary execute as partial evidence). The card stays
 // judge-required for the banish payment kind, Universal Power, the resource-use restriction and
 // the Legend Zone asserted below.
 import assert from "node:assert/strict";

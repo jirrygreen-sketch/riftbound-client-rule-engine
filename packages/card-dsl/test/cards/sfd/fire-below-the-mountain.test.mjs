@@ -1,6 +1,6 @@
 // RIFT-654 template execution evidence: ../templates/activated-activated-effect-resources-654.test.mjs
-// (printed [Reaction] + Exhaust cost through the real chain, plus the exhausted-source and
-// no-invented-Domain [A] boundaries). The card stays judge-required for Universal Power, the
+// (whole-card activation is pending; the original Exhaust cost, original [A] body, exhausted-source
+// and no-invented-Domain boundaries execute as partial evidence). The card stays judge-required for Universal Power, the
 // resource-use restriction, the kind=add bridge and the missing Legend Zone asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";

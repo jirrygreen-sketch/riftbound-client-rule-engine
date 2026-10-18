@@ -1,30 +1,21 @@
-// RIFT-654: template-level golden for the five judge-required cards whose IR
-// signature is activated+activated||effect.resources (ability kind | timing |
-// instruction sequence).
+// RIFT-654: template evidence for five judge-required cards with the
+// activated+activated||effect.resources shape.
 //
-// Each row runs through the generic card-scenario harness, which binds the
-// program with createProgramBinding, executes the printed ability on the real
-// ChainEngine and reports pipeline events, player/object snapshots and links.
-// The harness refuses judge-required programs, so every row passes a test-only
-// execution view that promotes the status and removes exactly the declaration
-// the merged binder cannot translate yet: the resource-use restriction on
-// Daughter of the Void, Iron Revenant and Fire Below the Mountain, Hand of
-// Noxus's pre-cost [Legion] gate (its keyword declaration and expansion are
-// kept), and Iron Revenant's banish payment kind. The source IR is never
-// changed here, and removing those declarations is why these rows are
-// partial-path evidence while the cards stay judge-required (see each
-// program's judgeReason). Nothing printed is invented: keyword, cost, timing,
-// body and printed nulls are carried verbatim.
-//
-// The [A] Universal Power body (CR 135.2.e.5 / 163.2.b) has no value in the
-// closed six-domain Domain union, so no row asserts that an unsupported Add
-// succeeds; only the printed Exhaust/Reaction cost slice and Hand of Noxus's
-// translatable [Add] 1 Energy are executed as the cards print them.
+// Whole-card rows below keep the published program byte-for-byte and are TODO
+// rows until every documented dependency lands. The executable probes use the
+// card's original cost payment and body; where the full cost is unsupported,
+// only the named original payment slice is isolated and the full-cost failure
+// is asserted alongside it. These probes are partial evidence, never a claim
+// that the card's complete activation path executes.
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
-import { defineTemplateSuite, runCardScenario } from "../../../../engine-core/dist/effects/testing/scenario/index.js";
+import { defineTemplateSuite } from "../../../../engine-core/dist/effects/testing/scenario/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 import daughterOfTheVoid from "../../../dist/cards/ogn/daughter-of-the-void.js";
 import handOfNoxus from "../../../dist/cards/ogn/hand-of-noxus.js";
@@ -32,48 +23,29 @@ import ironRevenant from "../../../dist/cards/rad/iron-revenant.js";
 import fireBelowTheMountain from "../../../dist/cards/sfd/fire-below-the-mountain.js";
 import gold from "../../../dist/cards/sfd/gold.js";
 
-/**
- * Test-only view. `runCardScenario` rejects judge-required programs, so the
- * status is promoted for the row while the printed identity, text, ability,
- * cost, timing and body stay untouched. `dropRestriction` / `dropBanishPayment`
- * remove only the declarations named as gaps in the matching judgeReason.
- */
-function executionView(program, { dropRestriction = false, dropBanishPayment = false } = {}) {
-  return {
-    ...program,
-    status: "executable",
-    judgeReason: undefined,
-    abilities: program.abilities.map((ability) => {
-      const next = dropRestriction && ability.restriction !== undefined
-        ? (({ restriction: _restriction, ...rest }) => rest)(ability)
-        : { ...ability };
-      if (dropBanishPayment && next.cost?.payments !== undefined) {
-        return {
-          ...next,
-          cost: {
-            ...next.cost,
-            payments: next.cost.payments.filter((payment) => payment.kind !== "banish")
-          }
-        };
-      }
-      return next;
-    })
-  };
-}
+const programs = [
+  daughterOfTheVoid,
+  handOfNoxus,
+  ironRevenant,
+  fireBelowTheMountain,
+  gold,
+];
 
-const daughterSupported = executionView(daughterOfTheVoid, { dropRestriction: true });
-const handSupported = executionView(handOfNoxus, { dropRestriction: true });
-const ironSupported = executionView(ironRevenant, { dropRestriction: true, dropBanishPayment: true });
-const fireSupported = executionView(fireBelowTheMountain, { dropRestriction: true });
-const goldExecutable = executionView(gold);
+const activatedAbility = (program) => {
+  const ability = program.abilities.find(entry => entry.kind === "activated");
+  assert.ok(ability, `${program.canonicalCardId} must retain its activated ability`);
+  return ability;
+};
 
-/**
- * CR 107.4.c: the Champion Legend is a Legend, and the catalog prints no
- * Energy / Power / Might, so null is never rewritten to 0. The scenario harness
- * only knows the closed ZoneId union (no legend-zone), so the row places the
- * legend on the Board as the closest representable zone; the missing production
- * Legend Zone stays in the matching judgeReason and is NOT claimed as executed.
- */
+const activate = (id) => [
+  { type: "activate", object: id, player: "A" },
+  { type: "pass", player: "A" },
+  { type: "pass", player: "B" },
+];
+
+// The Legend Zone is absent from the frozen ZoneId union. These scenarios use a
+// Board host as partial harness evidence; every whole-card row remains TODO and
+// no result below is presented as a production Legend activation.
 const legendSource = (program, id, extra = {}) => ({
   id,
   cardId: program.canonicalCardId,
@@ -84,215 +56,79 @@ const legendSource = (program, id, extra = {}) => ({
   energy: null,
   power: null,
   might: null,
-  ...extra
+  ...extra,
 });
 
-/** 430.2.a: an activated Add finalizes and resolves with two passes on the empty chain. */
-const activate = (id) => [
-  { type: "activate", object: id, player: "A" },
-  { type: "pass", player: "A" },
-  { type: "pass", player: "B" }
-];
-
-// One independently named row per canonical card, each with its own scenario
-// and its own expectation. The expectation covers the printed, currently
-// executable slice only; the judged gaps stay in judgeReason and in the
-// matching per-card goldens.
-const rows = [
+// One independent whole-card row per canonical identity. The original program
+// (including restriction and every printed payment) is passed to the scenario
+// harness. It stays TODO until its judgeReason gaps are executable.
+const wholeCardRows = defineTemplateSuite("RIFT-654 whole-card activation", [
   {
-    name: "Daughter of the Void — [Reaction] + printed Exhaust cost pays through the real chain",
+    name: "Daughter of the Void keeps the spell-use restriction and Universal Power body",
     canonicalCardId: daughterOfTheVoid.canonicalCardId,
-    program: daughterSupported,
+    program: daughterOfTheVoid,
     scenario: {
       players: { A: { energy: 3, power: ["Fury"] } },
-      objects: [legendSource(daughterSupported, "daughter")],
+      objects: [legendSource(daughterOfTheVoid, "daughter")],
       operations: activate("daughter"),
       expect: {
-        objects: { daughter: { zone: "board", exhausted: true, energy: null, power: null } },
-        events: { sequence: [
-          { action: { type: "exhaust", object: { id: "daughter" } } },
-          { timingPoint: "chain-item-finalize" },
-          { timingPoint: "chain-item-resolve" }
-        ] }
-      }
-    }
+        players: { A: { energy: 3 } },
+        objects: { daughter: { exhausted: true, energy: null, power: null } },
+      },
+    },
   },
   {
-    name: "Hand of Noxus — [Add] 1 Energy executes on the printed Exhaust cost",
+    name: "Hand of Noxus cannot pay Exhaust without another finalized card this turn",
     canonicalCardId: handOfNoxus.canonicalCardId,
-    program: handSupported,
+    program: handOfNoxus,
     scenario: {
       players: { A: { energy: 0 } },
-      objects: [legendSource(handSupported, "noxus")],
+      objects: [legendSource(handOfNoxus, "noxus")],
       operations: activate("noxus"),
       expect: {
-        objects: { noxus: { zone: "board", exhausted: true, energy: null, power: null } },
-        players: { A: { energy: 1 } },
-        links: { "hand-of-noxus.add-energy.resources": { player: "A", energy: 1, power: [] } },
-        events: { sequence: [
-          { action: { type: "exhaust", object: { id: "noxus" } } },
-          { timingPoint: "chain-item-finalize" },
-          { timingPoint: "chain-item-resolve" }
-        ] }
-      }
-    }
+        players: { A: { energy: 0 } },
+        objects: { noxus: { exhausted: false, energy: null, power: null } },
+      },
+    },
   },
   {
-    name: "Iron Revenant — printed Exhaust cost pays; the Banish payment and [A] Add stay judged",
+    name: "Iron Revenant cannot activate without a unit or gear to banish from Trash",
     canonicalCardId: ironRevenant.canonicalCardId,
-    program: ironSupported,
+    program: ironRevenant,
     scenario: {
-      players: { A: { energy: 3 } },
-      objects: [legendSource(ironSupported, "revenant")],
+      players: { A: { energy: 3, power: ["Order"] } },
+      objects: [legendSource(ironRevenant, "revenant")],
       operations: activate("revenant"),
       expect: {
-        objects: { revenant: { zone: "board", exhausted: true, energy: null, power: null } },
-        events: { sequence: [
-          { action: { type: "exhaust", object: { id: "revenant" } } },
-          { timingPoint: "chain-item-finalize" },
-          { timingPoint: "chain-item-resolve" }
-        ] }
-      }
-    }
+        players: { A: { energy: 3, power: ["Order"] } },
+        objects: { revenant: { exhausted: false, energy: null, power: null } },
+      },
+    },
   },
   {
-    name: "Fire Below the Mountain — [Reaction] + printed Exhaust cost pays through the real chain",
+    name: "Fire Below the Mountain keeps the gear-use restriction and Universal Power body",
     canonicalCardId: fireBelowTheMountain.canonicalCardId,
-    program: fireSupported,
+    program: fireBelowTheMountain,
     scenario: {
-      players: { A: { energy: 3 } },
-      objects: [legendSource(fireSupported, "fire")],
+      players: { A: { energy: 3, power: ["Calm"] } },
+      objects: [legendSource(fireBelowTheMountain, "fire")],
       operations: activate("fire"),
       expect: {
-        objects: { fire: { zone: "board", exhausted: true, energy: null, power: null } },
-        events: { sequence: [
-          { action: { type: "exhaust", object: { id: "fire" } } },
-          { timingPoint: "chain-item-finalize" },
-          { timingPoint: "chain-item-resolve" }
-        ] }
-      }
-    }
+        players: { A: { energy: 3 } },
+        objects: { fire: { exhausted: true, energy: null, power: null } },
+      },
+    },
   },
   {
-    name: "Gold — 'Kill this, Exhaust this' pays and the token reaches the Trash",
+    name: "Gold pays Kill+Exhaust and its Universal Power body remains pending",
     canonicalCardId: gold.canonicalCardId,
-    program: goldExecutable,
+    program: gold,
     scenario: {
-      players: { A: { energy: 3 } },
+      players: { A: { energy: 3, power: ["Mind"] } },
       objects: [{
         id: "gold-token",
         cardId: gold.canonicalCardId,
-        program: goldExecutable,
-        isToken: true,
-        types: ["gear"],
-        tags: ["Token"],
-        zone: "board",
-        location: { type: "base", player: "A" },
-        // sfd-t03 prints no Energy / Power / Might; null is never rewritten to 0.
-        energy: null,
-        power: null,
-        might: null
-      }],
-      operations: activate("gold-token"),
-      expect: {
-        objects: { "gold-token": { zone: "trash", exhausted: true, energy: null, power: null } },
-        events: { sequence: [
-          { action: { type: "exhaust", object: { id: "gold-token" } } },
-          { action: { type: "kill", object: { id: "gold-token" } } },
-          { timingPoint: "chain-item-finalize" },
-          { timingPoint: "chain-item-resolve" }
-        ] }
-      }
-    }
-  }
-];
-
-const programByCanonicalId = new Map([
-  [daughterOfTheVoid.canonicalCardId, daughterOfTheVoid],
-  [handOfNoxus.canonicalCardId, handOfNoxus],
-  [ironRevenant.canonicalCardId, ironRevenant],
-  [fireBelowTheMountain.canonicalCardId, fireBelowTheMountain],
-  [gold.canonicalCardId, gold]
-]);
-
-test("RIFT-654: the execution-view rows keep every source program judge-required", () => {
-  assert.deepEqual(rows.map((row) => row.canonicalCardId), [
-    daughterOfTheVoid.canonicalCardId,
-    handOfNoxus.canonicalCardId,
-    ironRevenant.canonicalCardId,
-    fireBelowTheMountain.canonicalCardId,
-    gold.canonicalCardId
-  ]);
-  for (const program of programByCanonicalId.values()) {
-    assert.equal(program.status, "judge-required");
-    assert.ok(program.judgeReason?.trim());
-  }
-});
-
-for (const row of defineTemplateSuite("RIFT-654 activated+activated|| effect.resources", rows)) {
-  test(row.name, () => {
-    const source = programByCanonicalId.get(row.canonicalCardId);
-    assert.equal(source?.status, "judge-required");
-    const result = row.run();
-    assert.ok(result, "scenario result is returned");
-  });
-}
-
-// Boundary group 1, one row per card (415.1.b / 415.4): an already exhausted
-// source cannot pay the printed Exhaust cost, so the real Finalize cost plan
-// refuses the activation instead of resolving it. The scenario runner surfaces
-// that refusal as a CostPlanError.
-const exhaustedSourceRows = [
-  {
-    name: "Daughter of the Void — an exhausted legend cannot pay Exhaust again",
-    canonicalCardId: daughterOfTheVoid.canonicalCardId,
-    program: daughterSupported,
-    scenario: {
-      players: { A: { energy: 3 } },
-      objects: [legendSource(daughterSupported, "daughter", { exhausted: true })],
-      operations: activate("daughter")
-    }
-  },
-  {
-    name: "Hand of Noxus — an exhausted legend cannot pay Exhaust again",
-    canonicalCardId: handOfNoxus.canonicalCardId,
-    program: handSupported,
-    scenario: {
-      players: { A: { energy: 0 } },
-      objects: [legendSource(handSupported, "noxus", { exhausted: true })],
-      operations: activate("noxus")
-    }
-  },
-  {
-    name: "Iron Revenant — an exhausted legend cannot pay Exhaust again",
-    canonicalCardId: ironRevenant.canonicalCardId,
-    program: ironSupported,
-    scenario: {
-      players: { A: { energy: 3 } },
-      objects: [legendSource(ironSupported, "revenant", { exhausted: true })],
-      operations: activate("revenant")
-    }
-  },
-  {
-    name: "Fire Below the Mountain — an exhausted legend cannot pay Exhaust again",
-    canonicalCardId: fireBelowTheMountain.canonicalCardId,
-    program: fireSupported,
-    scenario: {
-      players: { A: { energy: 3 } },
-      objects: [legendSource(fireSupported, "fire", { exhausted: true })],
-      operations: activate("fire")
-    }
-  },
-  {
-    name: "Gold — an exhausted token cannot pay Exhaust again",
-    canonicalCardId: gold.canonicalCardId,
-    program: goldExecutable,
-    scenario: {
-      players: { A: { energy: 3 } },
-      objects: [{
-        id: "gold-token",
-        cardId: gold.canonicalCardId,
-        program: goldExecutable,
+        program: gold,
         isToken: true,
         types: ["gear"],
         tags: ["Token"],
@@ -301,112 +137,218 @@ const exhaustedSourceRows = [
         energy: null,
         power: null,
         might: null,
-        exhausted: true
       }],
-      operations: activate("gold-token")
-    }
-  }
-];
-
-for (const [index, golden] of defineTemplateSuite("RIFT-654 boundary: exhausted source", exhaustedSourceRows).entries()) {
-  const row = exhaustedSourceRows[index];
-  test(golden.name, () => {
-    assert.throws(() => golden.run(), (error) => {
-      assert.ok(error instanceof CostPlanError, `${row.canonicalCardId} should fail in the real cost plan, got ${error?.name}`);
-      assert.equal(error.reason, "cannot-pay-cost");
-      return true;
-    });
-  });
-}
-
-// Boundary group 2: the same printed cost is unpayable once the source has
-// already left the Board, which is the other permanent rule boundary of this
-// template (415.1.b / 415.4 / 429.2.a) and needs no missing dependency to hold.
-const spentSourceRows = [
-  {
-    name: "Gold — a token already in the Trash cannot pay 'Kill this, Exhaust this' again",
-    canonicalCardId: gold.canonicalCardId,
-    program: goldExecutable,
-    scenario: {
-      players: { A: { energy: 3 } },
-      objects: [{
-        id: "gold-token",
-        cardId: gold.canonicalCardId,
-        program: goldExecutable,
-        isToken: true,
-        types: ["gear"],
-        tags: ["Token"],
-        zone: "trash",
-        location: null,
-        energy: null,
-        power: null,
-        might: null
-      }],
-      operations: activate("gold-token")
+      operations: activate("gold-token"),
+      expect: {
+        players: { A: { energy: 3 } },
+        objects: { "gold-token": { zone: "trash", energy: null, power: null } },
+      },
     },
-    expectedMessage: /ready controlled object on the Board/
+  },
+]);
+
+test("RIFT-654: every whole-card row retains its judge-required source program", () => {
+  assert.deepEqual(wholeCardRows.map(row => row.canonicalCardId), programs.map(program => program.canonicalCardId));
+  for (const program of programs) {
+    assert.equal(program.status, "judge-required");
+    assert.ok(program.judgeReason?.trim());
   }
+});
+
+for (const [index, row] of wholeCardRows.entries()) {
+  const program = programs[index];
+  test(row.name, { todo: program.judgeReason }, () => {
+    assert.equal(row.canonicalCardId, program.canonicalCardId);
+    if (program.status === "executable") return row.run();
+  });
+}
+
+function sourceContext(program, id, { energy = 3, power = [], source = {} } = {}) {
+  const kernel = world()
+    .player("A", { energy, power })
+    .unit(id, {
+      cardId: program.canonicalCardId,
+      types: ["legend"],
+      zone: "board",
+      energy: null,
+      power: null,
+      ...source,
+    })
+    .build();
+  return kernel.clone({ sourceSnapshot: kernel.getObject(id) });
+}
+
+function payOriginalCost(program, id, options = {}) {
+  const ability = activatedAbility(program);
+  const context = sourceContext(program, id, options);
+  const plan = buildCostPlan(context, { id: `${id}:original-cost`, cost: ability.cost });
+  const receipt = payCostPlan(context, plan);
+  return { ability, context, plan, receipt };
+}
+
+function assertUniversalBodyFailsClosed(program, id, initial) {
+  const { ability, context, receipt } = payOriginalCost(program, id, initial);
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay", "exhaust"]);
+  assert.equal(context.getObject(id).exhausted, true);
+  assert.equal(context.player("A").energy, initial.energy);
+  assert.deepEqual(context.player("A").power, initial.power);
+
+  const outcome = resolveChainBody(ability.body, context);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(context.player("A").energy, initial.energy, "[A] must never add Energy");
+  assert.deepEqual(context.player("A").power, initial.power, "[A] must never become a chosen Domain");
+  assert.deepEqual(outcome.events, []);
+}
+
+// Original cost/body probes. Hand is the only card whose complete printed cost
+// and body are both representable; the four [A] bodies must fail closed until
+// Universal Power is represented. Iron isolates its original Exhaust payment
+// only after separately proving that the full original Banish+Exhaust cost is
+// rejected by the merged cost vocabulary.
+test("RIFT-654 evidence: Daughter pays its original Exhaust cost and original [A] body fails closed", () => {
+  assertUniversalBodyFailsClosed(daughterOfTheVoid, "daughter", { energy: 3, power: ["Fury"] });
+});
+
+test("RIFT-654 evidence: Hand pays its original Exhaust cost and original [Add] 1 Energy body", () => {
+  const initial = { energy: 2, power: ["Order"] };
+  const { ability, context, receipt } = payOriginalCost(handOfNoxus, "noxus", initial);
+  assert.equal(receipt.total.energy, 0);
+  assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay", "exhaust"]);
+  assert.equal(context.getObject("noxus").exhausted, true);
+  assert.equal(context.player("A").energy, initial.energy);
+
+  const beforeEvents = context.events.length;
+  const outcome = resolveChainBody(ability.body, context);
+  assert.equal(outcome.status, "executed");
+  assert.equal(context.player("A").energy, initial.energy + 1);
+  assert.deepEqual(context.player("A").power, initial.power);
+  assert.deepEqual(outcome.linkedValues["hand-of-noxus.add-energy.resources"], {
+    player: "A", energy: 1, power: [],
+  });
+  assert.deepEqual(context.events.slice(beforeEvents).map(event => event.action), ["gain-energy"]);
+});
+
+test("RIFT-654 evidence: Iron keeps its full Banish cost rejected and isolates only the original Exhaust payment", () => {
+  const ability = activatedAbility(ironRevenant);
+  const fullContext = sourceContext(ironRevenant, "revenant", { energy: 4, power: ["Order"] });
+  assert.throws(
+    () => buildCostPlan(fullContext, { id: "revenant:full-cost", cost: ability.cost }),
+    error => error instanceof CostPlanError && /Unsupported payment kind: banish/i.test(error.message),
+  );
+  assert.equal(fullContext.getObject("revenant").exhausted, false);
+  assert.equal(fullContext.player("A").energy, 4);
+
+  const exhaustPayment = ability.cost.payments.find(payment => payment.kind === "exhaust");
+  assert.ok(exhaustPayment, "Iron Revenant must retain its original Exhaust payment");
+  const context = sourceContext(ironRevenant, "revenant", { energy: 4, power: ["Order"] });
+  const plan = buildCostPlan(context, {
+    id: "revenant:original-exhaust-slice",
+    cost: { kind: "activated", payments: [exhaustPayment] },
+  });
+  const receipt = payCostPlan(context, plan);
+  assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay", "exhaust"]);
+  assert.equal(context.getObject("revenant").exhausted, true);
+  assert.equal(context.player("A").energy, 4);
+
+  const outcome = resolveChainBody(ability.body, context);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(context.player("A").energy, 4);
+  assert.deepEqual(context.player("A").power, ["Order"]);
+});
+
+test("RIFT-654 evidence: Fire pays its original Exhaust cost and original [A] body fails closed", () => {
+  assertUniversalBodyFailsClosed(fireBelowTheMountain, "fire", { energy: 5, power: ["Calm"] });
+});
+
+test("RIFT-654 evidence: Gold pays its full original Kill+Exhaust cost and [A] body fails closed", () => {
+  const initial = { energy: 6, power: ["Mind"] };
+  const { ability, context, receipt } = payOriginalCost(gold, "gold-token", initial);
+  assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay", "exhaust", "kill"]);
+  assert.equal(context.getObject("gold-token").zone, "trash");
+  assert.equal(context.player("A").energy, initial.energy);
+
+  const outcome = resolveChainBody(ability.body, context);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(context.player("A").energy, initial.energy);
+  assert.deepEqual(context.player("A").power, initial.power);
+});
+
+// Negated boundary: all four [A] cards use their original body. The exact
+// Energy and Power snapshots make an unrelated resource mutation observable.
+const negatedRows = [
+  { program: daughterOfTheVoid, id: "daughter", initial: { energy: 3, power: ["Fury"] } },
+  { program: ironRevenant, id: "revenant", initial: { energy: 4, power: ["Order"] } },
+  { program: fireBelowTheMountain, id: "fire", initial: { energy: 5, power: ["Calm"] } },
+  { program: gold, id: "gold-token", initial: { energy: 6, power: ["Mind"] } },
 ];
 
-for (const [index, golden] of defineTemplateSuite("RIFT-654 boundary: spent source", spentSourceRows).entries()) {
-  const row = spentSourceRows[index];
-  test(golden.name, () => {
-    assert.throws(() => golden.run(), (error) => {
-      assert.ok(error instanceof CostPlanError, `${row.canonicalCardId} should fail in the real cost plan, got ${error?.name}`);
-      assert.equal(error.reason, "cannot-pay-cost");
-      assert.match(error.message, row.expectedMessage);
-      return true;
-    });
+for (const row of negatedRows) {
+  test(`RIFT-654 boundary negated: ${row.program.canonicalCardId} [${row.id}] preserves the complete resource pool`, () => {
+    const context = sourceContext(row.program, row.id, row.initial);
+    const outcome = resolveChainBody(activatedAbility(row.program).body, context);
+    assert.equal(outcome.status, "partial");
+    assert.deepEqual(outcome.results[0].result, { status: "negated", reason: "impossible", events: [] });
+    assert.equal(context.player("A").energy, row.initial.energy);
+    assert.deepEqual(context.player("A").power, row.initial.power);
+    assert.deepEqual(context.events, []);
   });
 }
 
-// Boundary group 3 (negated). [A] Universal Power (CR 135.2.e.5.b / 163.2.b) is
-// not representable today, so the printed [Add] fails closed instead of gaining
-// a chosen Domain. The assertion does not lock today's refusal in as the
-// expected result (RIFT-189 already had to remove those): it checks the part
-// that must hold whether or not the contract lands, i.e. the added Power is
-// never one of the six Domains, while the printed Exhaust cost is really paid.
-const SIX_DOMAINS = ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"];
+// Already-exhausted source boundary through the original payment objects. Iron
+// uses its original Exhaust slice because the full cost is blocked earlier by
+// the still-missing Banish payment kind.
+const exhaustedRows = [
+  { program: daughterOfTheVoid, id: "daughter", energy: 3, power: ["Fury"] },
+  { program: handOfNoxus, id: "noxus", energy: 0, power: [] },
+  { program: ironRevenant, id: "revenant", energy: 4, power: ["Order"], slice: true },
+  { program: fireBelowTheMountain, id: "fire", energy: 5, power: ["Calm"] },
+  { program: gold, id: "gold-token", energy: 6, power: ["Mind"] },
+];
 
-for (const { name, program, sourceId, canonicalCardId } of [
-  {
-    name: "Daughter of the Void — [A] power never becomes a chosen Domain",
-    program: daughterSupported,
-    sourceId: "daughter",
-    canonicalCardId: daughterOfTheVoid.canonicalCardId
-  },
-  {
-    name: "Fire Below the Mountain — [A] power never becomes a chosen Domain",
-    program: fireSupported,
-    sourceId: "fire",
-    canonicalCardId: fireBelowTheMountain.canonicalCardId
-  }
-]) {
-  test(`RIFT-654 boundary negated: ${name} [${canonicalCardId}]`, () => {
-    const result = runCardScenario(program, {
-      players: { A: { energy: 3, power: [] } },
-      objects: [legendSource(program, sourceId)],
-      operations: activate(sourceId)
-    });
-    // The printed :rb_exhaust: cost (415.4/415.5) is actually paid...
-    assert.equal(result.state.objects.find(object => object.ref.id === sourceId).exhausted, true);
-    // ...and the [A] addition never lands as one of the six Domains, with or
-    // without the Universal Power contract.
-    for (const power of result.state.players.A.power) {
-      assert.equal(SIX_DOMAINS.includes(power), false, `${power} would be an invented Domain for [A]`);
-    }
+for (const row of exhaustedRows) {
+  test(`RIFT-654 boundary exhausted source: ${row.program.canonicalCardId} [${row.id}]`, () => {
+    const ability = activatedAbility(row.program);
+    const context = sourceContext(row.program, row.id, { energy: row.energy, power: row.power, source: { exhausted: true } });
+    const payments = row.slice
+      ? [ability.cost.payments.find(payment => payment.kind === "exhaust")]
+      : ability.cost.payments;
+    assert.ok(payments.every(Boolean));
+    assert.throws(
+      () => payCostPlan(context, buildCostPlan(context, {
+        id: `${row.id}:exhausted`,
+        cost: { kind: "activated", payments },
+      })),
+      error => error instanceof CostPlanError && error.reason === "cannot-pay-cost",
+    );
+    assert.equal(context.getObject(row.id).exhausted, true);
+    assert.equal(context.player("A").energy, row.energy);
+    assert.deepEqual(context.player("A").power, row.power);
   });
 }
 
-// The condition-not-satisfied boundary of this template cannot be executed yet,
-// so it stays an explicit TODO rather than an assertion that would lock today's
-// gap in as expected behavior: Hand of Noxus's printed [Legion] gate (CR
-// 812.1.b.1 / 812.1.c) must refuse activation before the Exhaust cost is paid
-// when no other card was finalized this turn. The merged expansion publishes the
-// history predicate, but the pre-cost activation binder and the ActivatedAbility
-// condition slot are still missing (see its judgeReason).
+test("RIFT-654 boundary spent source: Gold in Trash cannot pay its original Kill+Exhaust cost", () => {
+  const context = sourceContext(gold, "gold-token", { energy: 6, power: ["Mind"], source: {
+    zone: "trash",
+    location: null,
+  } });
+  assert.throws(
+    () => payCostPlan(context, buildCostPlan(context, {
+      id: "gold-token:spent",
+      cost: activatedAbility(gold).cost,
+    })),
+    error => error instanceof CostPlanError && error.reason === "cannot-pay-cost",
+  );
+  assert.equal(context.getObject("gold-token").zone, "trash");
+  assert.equal(context.player("A").energy, 6);
+  assert.deepEqual(context.player("A").power, ["Mind"]);
+});
+
+// The condition-not-satisfied boundary is preserved as a whole-card TODO. A
+// primitive Exhaust payment succeeding in isolation does not bypass Legion.
 test.todo(
-  "RIFT-654 boundary condition-not-satisfied: Hand of Noxus — with no other card finalized this turn the " +
-    "[Legion] gate must refuse activation before the Exhaust cost is paid (CR 812.1.b.1 / 812.1.c); the " +
-    "pre-cost history binder and the ActivatedAbility condition slot are still missing"
+  "RIFT-654 boundary condition-not-satisfied: Hand of Noxus with no other finalized card must refuse the original activation before Exhaust; the pre-cost Legion history binder and ActivatedAbility condition slot are still missing",
 );

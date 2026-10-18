@@ -1,6 +1,6 @@
 // RIFT-654 template execution evidence: ../templates/activated-activated-effect-resources-654.test.mjs
-// (printed [Reaction] + Exhaust cost through the real chain, plus the exhausted-source and
-// no-invented-Domain [A] boundaries). The "[A] negated" and "original-body-partial" goldens
+// (whole-card activation is pending; the original Exhaust cost, original [A] body, exhausted-source
+// and no-invented-Domain boundaries execute as partial evidence). The "[A] negated" and "original-body-partial" goldens
 // below assert the documented missing Universal Power representation and stay aligned with the
 // TODO entries. The card stays judge-required for that representation, the resource-use
 // restriction and the Legend Zone asserted below.

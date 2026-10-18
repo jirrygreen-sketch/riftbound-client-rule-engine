@@ -1,7 +1,7 @@
 // Golden test for the Gold gear token (sfd-t03).
 // RIFT-654 template execution evidence: ../templates/activated-activated-effect-resources-654.test.mjs
-// (the same 'Kill this, Exhaust this' payment through the generic scenario harness plus the
-// exhausted-source and spent-source boundaries). The card stays judge-required for the
+// (whole-card activation is pending; the original 'Kill this, Exhaust this' payment, original [A] body,
+// exhausted-source and spent-source boundaries execute as partial evidence). The card stays judge-required for the
 // [A] Universal Power add and for the kind=add activation bridge into 430.2.a/430.3.
 //
 // The activated ability's two real halves — the nonstandard `kill` + `exhaust`
