@@ -18,7 +18,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   this turn”：Bonus Damage（418.4/418.5、712–715.2）由 effect.damage 的 bonus 形参承载
  *   （714 多个实例相加、714.1 只能为正）；数量是“本回合本卡已造成伤害的次数”。
  *
- * status = judge-required（2026-10-17 逐条对源码复核，RIFT-685 模板证据见
+ * status = judge-required（2026-10-18 逐条对源码复核；模板执行证据见
  * test/cards/templates/play-effect-damage-685.test.mjs；缺口不近似实现）：
  * - 重新打出当前结算中的法术没有已合入路径：effect.play 只对某个区域里的对象提交 play
  *   动作（显式覆盖费用时要求 finalized 费用计划；effect.play 的文件头明确它不会递归结算，也不授予额外
@@ -43,7 +43,7 @@ const dancingGrenade = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1)「Its controller may play this spell again for :rb_rune_rainbow:」" +
+    "（2026-10-18 复核）三处依赖未合入，均不近似实现：(1)「Its controller may play this spell again for :rb_rune_rainbow:」" +
     "没有已合入路径——effect.play 提交 play 动作（显式覆盖费用时要求已 Finalize 的费用计划），" +
     "其文件头明确它不递归结算链项、也不授予额外许可，因此不能重放正在结算的链项；来源、嵌套重放顺序与次数归属需要官方裁定，本地调研 " +
     "（docs/plans/survey/unclassified-unl.md 第 7 条）据此把本卡判为 judge-required（158.3 / 418.4 / 418.5 / 420.3 " +

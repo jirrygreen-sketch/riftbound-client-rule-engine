@@ -5,7 +5,7 @@
 //
 // Template-level execution evidence lives in
 // test/cards/templates/keyword-triggered-object-killed-conditio-679.test.mjs
-// (RIFT-679, README 4.1): the authored death trigger binds and resolves through
+// (README 4.1): the authored death trigger binds and resolves through
 // the generic scenario harness (controller B's base is the linked destination)
 // and the 187.7 Bird request negates with the frozen-definition blocked reason.
 // This file keeps the validation, structure and fail-closed dependency
@@ -48,6 +48,7 @@ test("unl-153-219 Carrion Dredger: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /Bird/);
   assert.match(program.judgeReason, /trigger\.leave/);
   assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /Energy additional cost/);
   assert.match(program.judgeReason, /token-definition-or-abilities-judge-required/);
 });
 

@@ -27,8 +27,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 424.1 / 424.1.a.1：Stun 是二元状态，已 Stunned 的单位不再被 Stun；括号内的「本回合不
  *   造成战斗伤害」是 424.1.b 的规则结果，不是独立指令。
  *
- * status = judge-required（README 第 2 节，2026-10-17 复核），缺口逐条列出且不近似实现：
- * (1) Move 目的地在运行期选择（355.4.a）：RIFT-357 的位置选择面已合入（target/location 的
+ * status = judge-required（README 第 2 节，2026-10-18 复核），缺口逐条列出且不近似实现：
+ * (1) Move 目的地在运行期选择（355.4.a）：位置选择面已合入（target/location 的
  *     chooseLocations + Expr.kind "location"），但候选集合表达不出 355.4.a 的合法性——
  *     chooseLocations 只提供 type/kind、occupied、open、controlled、contested、hasUnits、
  *     player/owner/controller 这些谓词，LocationCandidateOptions.exclude 需要调用方注入而
@@ -167,7 +167,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处当前缺口，均不近似实现：(1) Move 目的地在运行期选择（355.4 / 355.4.a / 451.1）：RIFT-357 的位置选择面已合入，" +
+    "四处当前缺口，均不近似实现（2026-10-18 复核）：(1) Move 目的地在运行期选择（355.4 / 355.4.a / 451.1）：位置选择面已合入，" +
     "但候选集合没有 355.4.a 要求的 exclude-current-location 谓词（解释器 chooseLocations 不注入 LocationCandidateOptions.exclude，" +
     "matchesFilter 也没有 current 谓词）；实测 type:\"any\" 的候选包含被移动单位的当前位置，写进 IR 会把非法目的地交给玩家，" +
     "因此保留被 effect.move 拒绝的描述性占位（fail closed），不猜目的地。" +

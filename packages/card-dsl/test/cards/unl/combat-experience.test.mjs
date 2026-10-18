@@ -32,10 +32,11 @@ test("unl-031-219 Combat Experience: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /824\.1/);
   assert.match(program.judgeReason, /XP/);
-  // The current gap is the missing XP read, refreshed 2026-10-17; the reason
-  // must name the evaluator that ignores the count subject.
-  assert.match(program.judgeReason, /subject/);
-  assert.match(program.judgeReason, /expr\.ts/);
+  // The current gap is the missing default dispatch for the new player-state
+  // expression, refreshed 2026-10-18.
+  assert.match(program.judgeReason, /player-property/);
+  assert.match(program.judgeReason, /expr-ext\/evaluate\.ts/);
+  assert.match(program.judgeReason, /Unsupported expression/);
 });
 
 test("unl-031-219 Combat Experience: [Reaction] plus the +1/+3 instead branches on one chosen unit", () => {
@@ -79,18 +80,25 @@ test("unl-031-219 Combat Experience: [Reaction] plus the +1/+3 instead branches 
   assert.equal(plusThreeInstead.condition.kind, "compare");
   assert.equal(plusThreeInstead.condition.operator, "gte");
   assert.deepEqual(plusThreeInstead.condition.right, { kind: "constant", value: 6 });
-  assert.equal(plusThreeInstead.condition.left.kind, "count");
-  assert.equal(plusThreeInstead.condition.left.subject, "controller-xp");
+  assert.deepEqual(plusThreeInstead.condition.left, {
+    kind: "player-property",
+    player: "controller",
+    property: "xp"
+  });
   assert.equal(plusOne.linkedTo, undefined);
   assert.equal(plusThreeInstead.linkedTo, undefined);
 });
 
 test("unl-031-219 Combat Experience golden: the non-Level branch registers +1 Might until turn end", () => {
+  // The default card-program condition path remains blocked by the XP gate;
+  // execute the merged continuous.might primitive directly to retain evidence
+  // for the printed +1 branch without bypassing that gate.
   const kernel = world().unit("unit", { owner: "A", controller: "A", might: 4 }).build();
-  kernel.setTargets("combat-experience.unit", [kernel.ref("unit")]);
-  const outcome = resolveChainBody([plusOne], kernel);
-  assert.equal(outcome.status, "executed");
-  assert.equal(outcome.results[0].result.status, "executed");
+  const outcome = runInstruction(might, plusOne.args, {
+    world: kernel,
+    targets: { "combat-experience.unit": [kernel.ref("unit")] }
+  });
+  assert.equal(outcome.result.status, "executed");
   assert.equal(kernel.continuousEffects.length, 1);
   assert.equal(kernel.continuousEffects[0].effect.effect.kind, "continuous.might");
   assert.equal(kernel.continuousEffects[0].effect.effect.amount, 1);
@@ -105,27 +113,20 @@ test("unl-031-219 Combat Experience golden: the non-Level branch registers +1 Mi
   assert.equal(engine.evaluate(kernel.ref("unit")).might, 4);
 });
 
-test("unl-031-219 Combat Experience boundary: the retained XP gate really counts objects, not the controller's XP (CR 824.1.b.1)", () => {
-  // Re-probed 2026-10-17: the merged interpreter evaluates `count` as
-  // queryObjects(filter).length and ignores `subject`, so the authored gate is
-  // not an XP read. These two kernels keep the object count and the XP total
-  // moving in opposite directions and assert exactly that inversion.
-  const withXpNoObjects = world().player("A", { xp: 6 }).unit("unit", { might: 4 }).build();
-  const withObjectsNoXp = world().player("A", { xp: 0 });
-  for (let index = 0; index < 7; index++) withObjectsNoXp.unit(`unit-${index}`, { might: 4 });
-  const populated = withObjectsNoXp.build();
-
-  const evaluate = (kernel) => resolveChainBody([{
-    id: "check-level-six",
-    op: "condition.predicate",
-    args: { condition: { kind: "constant", value: plusThreeInstead.condition } }
-  }], kernel).linkedValues["check-level-six.value"];
-
-  assert.equal(evaluate(withXpNoObjects), false);
-  assert.equal(evaluate(populated), true);
-  // Neither run is XP-gated: the "instead" branches therefore cannot be
-  // selected by this condition, so the card keeps judge-required.
-  assert.match(program.judgeReason, /不是 XP/);
+test("unl-031-219 Combat Experience boundary: the authored XP gate reaches the default interpreter and remains unsupported", () => {
+  // Re-probed 2026-10-18: the IR now names the correct player-property, but
+  // the default condition path has no player-property dispatch. The production
+  // adapter therefore fails closed instead of silently counting board objects.
+  const kernel = world().player("A", { xp: 6 }).unit("unit", { might: 4 }).build();
+  assert.throws(
+    () => resolveChainBody([{
+      id: "check-level-six",
+      op: "condition.predicate",
+      args: { condition: { kind: "constant", value: plusThreeInstead.condition } }
+    }], kernel),
+    /Unsupported expression: player-property/
+  );
+  assert.match(program.judgeReason, /effects\/interpreter\/expr\.ts/);
 });
 
 

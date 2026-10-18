@@ -28,7 +28,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   算术图层），"this turn" 的期限由 317.2.c 的同时到期清理结束；effect.buff 的文件头
  *   明确临时 Might 归 continuous.might，绝不能用 Buff 计数器（702）近似。
  *
- * status = judge-required（2026-10-17 逐条对源码复核；缺口不近似实现）：
+ * status = judge-required（2026-10-18 逐条对源码复核；缺口不近似实现）：
  * - 启动 body 已可执行：continuous.might 原语、arithmetic 图层注册与 end-of-turn duration
  *   均合入，args.objects 读取本指令自己的 TargetSpec（355.5 / 契约 3.6）后真实登记 +2 Might；
  *   不把它近似成 Buff 计数器。
@@ -98,7 +98,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "唯一剩余缺口是 CR 817 Vision 的生产装配：Vision KeywordDef 展开出的 object-enters-board 触发带 filter " +
+    "（2026-10-18 复核）唯一剩余缺口是 CR 817 Vision 的生产装配：Vision KeywordDef 展开出的 object-enters-board 触发带 filter " +
     "{ objectId: \"self\", \"object.id\": \"self\" }，而 programs/filters.ts 的 translateObjectFilter 以 " +
     "\"Unsupported filter field object.id\" 拒绝该字段（实测 registerProgramTriggers 抛 ProgramBindingError），" +
     "因此该触发目前无法注册；展开期的 player 仍是占位 \"A\" 而不是真实控制者；展开体也没有为 top-card " +

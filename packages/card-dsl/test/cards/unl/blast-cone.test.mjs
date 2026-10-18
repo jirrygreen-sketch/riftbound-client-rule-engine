@@ -54,7 +54,7 @@ test("unl-133-219 Blast Cone: identity, ruleset, status, judgeReason and verbati
   assert.match(program.judgeReason, /ObjectSelector/);
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /TriggeredAbility/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-(89|120|257)/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
   assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
@@ -356,7 +356,7 @@ test("unl-133-219 Blast Cone golden: the printed exhaust cost is payable and the
 });
 
 test("unl-133-219 Blast Cone: the merged location-candidate surface still offers the moved unit's current Location (355.4.a)", () => {
-  // RIFT-357 merged the runtime location face (LocationTargetSpec +
+  // The merged runtime location face (LocationTargetSpec +
   // Expr.kind "location"), but 355.4.a's "other than the Units' current
   // Location" exclusion has no predicate: chooseLocations never injects
   // LocationCandidateOptions.exclude and matchesFilter has no current-location

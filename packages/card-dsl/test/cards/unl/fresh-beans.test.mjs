@@ -40,12 +40,14 @@ test("unl-011-219 Fresh Beans: program validates and is judge-required", () => {
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.deepEqual(result.issues, []);
   assert.equal(program.status, "judge-required");
-  // The trigger registration path is merged (RIFT-257); what remains is the
-  // showdown predicate and the exhaust-as-trigger-cost wiring (RIFT-261).
+  // The trigger registration path is merged; what remains is the showdown
+  // predicate and the exhaust-as-trigger-cost wiring.
   assert.match(program.judgeReason, /showdown/i);
   assert.match(program.judgeReason, /383\.3\.b/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /testTrigger/);
+  assert.match(program.judgeReason, /TriggeredAbility/);
+  assert.match(program.judgeReason, /cost\.pay/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
 });
 
 test("unl-011-219 Fresh Beans: identity, ruleset, status and verbatim source text", () => {
@@ -75,7 +77,7 @@ test("unl-011-219 Fresh Beans: card-played unit trigger with the showdown clause
 });
 
 test("unl-011-219 Fresh Beans: the merged registration path produces the card-played subscription", () => {
-  // RIFT-257: the card-played subscription is produced from the card program,
+  // The card-played subscription is produced from the card program,
   // carrying the declared showdown condition for the trigger-time evaluator.
   const { judgeReason, ...rest } = program;
   const binding = createProgramBinding({ cardPrograms: [{ ...rest, status: "executable" }] });
@@ -178,7 +180,7 @@ test.todo(
 test.todo(
   "unl-011-219 Fresh Beans: pay the leading \"exhaust this\" as the trigger's base cost at Finalize " +
     "(CR 383.3.b / 404.1.b.1 / 415.4-415.5) and drop the trigger when the gear is already exhausted — " +
-    "TriggeredAbility has no cost field and the cost.pay wiring is still on RIFT-261"
+    "TriggeredAbility has no cost field and cost.pay cannot supply the trigger base cost"
 );
 
 test.todo(
