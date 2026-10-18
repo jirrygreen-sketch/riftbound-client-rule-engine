@@ -24,8 +24,8 @@ import type { CardProgram } from "../../ir/index.js";
  *       "Unsupported filter field exclude"，本卡订阅在注册阶段即失败；
  *   （b）events/pipeline-match.ts 的 matchesTriggerObject 只读 objectId/cardId/type/controller/
  *       owner/zone/location/states/tags/characteristics，没有 exclude 分支；
- *   （c）参考内核的 matchesQueryFilter/matchesFilter 同样不读该键（只认 type/tag/controller/
- *       owner/zone/location 等）。
+ *   （c）参考内核的 matchesQueryFilter 不认该键（只认 type/tag/types/tags/controller/owner/
+ *       zone/location/combatRole），matchesFilter 走 Object.hasOwn 白名单、对该键恒为 false。
  *   解释器侧的 queryObjects（effects/interpreter/selectors.ts）虽实现了 exclude，但它只服务指令内
  *   的集合查询，接不到触发订阅。把 exclude: "self" 当成已实现会让「本卡自身死亡」也触发 +1 XP，
  *   属于把错误行为当预期，故整卡保持 judge-required（结构性声明保留给评审，绝不当作可执行过滤）。
@@ -42,7 +42,8 @@ export default {
     "card-program → TriggerRegistration 适配器与 429.1.a.1.b 所需的 object-killed 死亡前快照路径已经合入；但触发过滤的「另一个」（383.4.a.4 / 740.1.a）" +
     "仍无可执行消费者：programs/filters.ts 的 translateObjectFilter 对 exclude 抛 \"Unsupported filter field exclude\"（订阅注册即失败），" +
     "events/pipeline-match.ts 的 matchesTriggerObject 只读 objectId/cardId/type/controller/owner/zone/location/states/tags/characteristics，" +
-    "参考内核的 matchesQueryFilter/matchesFilter 也不读该键；解释器侧 queryObjects 的 exclude 只服务指令集合查询，接不到触发订阅。" +
+    "参考内核的 matchesQueryFilter 不认该键、matchesFilter 走 Object.hasOwn 白名单对该键恒为 false；" +
+    "解释器侧 queryObjects 的 exclude 只服务指令集合查询，接不到触发订阅。" +
     "若把 exclude: \"self\" 当成已实现，本卡自身死亡也会触发 +1 XP，因此排除条件仍不可判定。" +
     "触发效果本体 effect.xp（730.1，1 XP）已合入，golden 用解释器 + 参考内核真实执行该 1 点 XP。" +
     "依赖：程序过滤器与触发匹配对 exclude/another 锚点的翻译与消费。",
