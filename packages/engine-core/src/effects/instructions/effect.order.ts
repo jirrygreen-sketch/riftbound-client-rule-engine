@@ -1,5 +1,6 @@
 import type {
   Expr,
+  GameEvent,
   InstructionDef,
   ObjectRef,
   PlayerId,
@@ -118,7 +119,7 @@ function normalize(ctx: ResolveContext, args: EffectOrderArgs): NormalizedArgs {
   let count = 1;
   if (args.count !== undefined) {
     const evaluated = ctx.evaluate(args.count);
-    if (typeof evaluated !== "number" || !Number.isInteger(evaluated) || evaluated < 0) {
+    if (typeof evaluated !== "number" || !Number.isSafeInteger(evaluated) || evaluated < 0) {
       invalid("count must evaluate to a non-negative integer, got " + String(evaluated));
     }
     count = evaluated;
@@ -191,7 +192,7 @@ export default {
       const snapshot = ctx.object(ref);
       if (snapshot === null) continue;
       if (snapshot.owner !== args.player || snapshot.zone !== "deck") continue;
-      live.push(cloneRef(ref));
+      if (!live.some(candidate => sameRef(candidate, ref))) live.push(cloneRef(ref));
     }
     if (live.length === 0) {
       return { status: "ignored", reason: "mistargeted" };
@@ -211,19 +212,13 @@ export default {
           " of your Main Deck in any order"
       };
       const answer = ctx.choose<ObjectRef[]>(request);
-      const picked = Array.isArray(answer)
-        ? answer.filter(ref =>
-            typeof ref === "object" && ref !== null &&
-            live.some(candidate => sameRef(candidate, ref)))
-        : [];
-      if (picked.length === 0) {
-        // 答案未提供合法顺序时保持确定性默认（正常流程不会发生；引擎负责重放
-        // 时提供合法答案）。
-        ordered = live;
-      } else {
-        const rest = live.filter(candidate => !picked.some(ref => sameRef(candidate, ref)));
-        ordered = [...picked.map(cloneRef), ...rest];
+      if (!Array.isArray(answer) || answer.length !== live.length ||
+          answer.some(ref => typeof ref !== "object" || ref === null ||
+            !live.some(candidate => sameRef(candidate, ref))) ||
+          new Set(answer.map(ref => JSON.stringify([ref.id, ref.zoneEntryId]))).size !== live.length) {
+        invalid("order answer must be an exact permutation of the available references");
       }
+      ordered = answer.map(cloneRef);
     }
 
     if (args.destination === "top") {
@@ -236,7 +231,7 @@ export default {
       if (outcome.status !== "done") {
         return {
           status: "negated",
-          reason: outcome.status === "replaced" ? "replaced" : "impossible",
+          reason: outcome.status === "replaced" ? "replaced" : outcome.status === "prevented" ? "skipped" : "impossible",
           events: [...outcome.events]
         };
       }
@@ -248,25 +243,22 @@ export default {
       };
     }
 
-    // 底部：逐张 move-zone 到 deck-bottom。先放回的更靠近底，末张在列表末尾，
-    // 使 zone 数组顺序与“距底距离”一致。
-    const events = [];
+    // Move each card to deck-bottom in the requested order. A negated action
+    // preserves earlier moves and does not prevent later ones (CR 055 /
+    // 359.3.e.11); exceptions are rolled back by the enclosing transaction.
+    const events: GameEvent[] = [];
+    let moved = 0;
+    let failure: "replaced" | "skipped" | "impossible" | undefined;
     for (const ref of ordered) {
-      const outcome = ctx.perform({
-        type: "move-zone",
-        object: ref,
-        to: "deck-bottom"
-      });
+      const outcome = ctx.perform({ type: "move-zone", object: ref, to: "deck-bottom" });
       events.push(...outcome.events);
       if (outcome.status !== "done") {
-        return {
-          status: "negated",
-          reason: outcome.status === "replaced" ? "replaced" : "impossible",
-          events
-        };
-      }
+        failure ??= outcome.status === "replaced" ? "replaced" : outcome.status === "prevented" ? "skipped" : "impossible";
+      } else moved++;
     }
-    ctx.link("ordered", ordered.length);
-    return { status: "executed", events, linkedValues: { ordered: ordered.length } };
+    ctx.link("ordered", moved);
+    return failure === undefined
+      ? { status: "executed", events, linkedValues: { ordered: moved } }
+      : { status: "negated", reason: failure, events };
   }
 } satisfies InstructionDef<EffectOrderArgs>;
