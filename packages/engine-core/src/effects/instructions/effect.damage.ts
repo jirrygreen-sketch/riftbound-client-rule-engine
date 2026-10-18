@@ -259,7 +259,8 @@ function grantedBonusForDeal(
   source: ObjectRef,
 ): number {
   const object = (ref: ObjectRef) => ctx.object(ref);
-  const common = { controller: ctx.controller, source, anchors: [ctx.source] } as const;
+  const dealSource = ctx.object(source) ?? ctx.lastKnown(source);
+  const common = { controller: ctx.controller, source, anchors: [dealSource] } as const;
   // Use the production query for the aggregate (CR 714). Grants with an
   // explicitly named source are subtracted and re-added only when they match,
   // because the generic query exposes instances but does not narrow scope.

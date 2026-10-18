@@ -563,9 +563,9 @@ test("a scoped grant still applies to the Deal source it names", () => {
   registry.register({
     id: "self-scoped-bonus",
     layer: "ability",
-    source: kernel.ref("enemy-1"),
+    source: kernel.ref("ally"),
     filter: {},
-    effect: { kind: "continuous.bonus-damage", amount: 1, appliesTo: "deal-actions", sourcePlayer: "A", scope: { source: "self" } },
+    effect: { kind: "continuous.bonus-damage", amount: 1, appliesTo: "deal-actions", sourcePlayer: "A", scope: { source: kernel.ref("ally") } },
   }, { type: "permanent" });
   const base = kernel.clone({ sourceSnapshot: kernel.getObject("ally"), controller: "A" });
   base.setTargets("enemies", [kernel.ref("enemy-2")]);
@@ -625,6 +625,29 @@ test("a source-scoped generic grant does not leak to another Deal source", () =>
   }));
   assert.equal(outcome.status, "executed");
   assert.equal(context.getObject("enemy-2").damage, 2);
+});
+
+test("an explicit Deal source uses that source for Bonus Damage scope", () => {
+  const kernel = damageSetup();
+  const registry = new ContinuousEffectRegistry();
+  registry.register({
+    id: "source-specific-bonus",
+    layer: "ability",
+    source: kernel.ref("enemy-1"),
+    filter: {},
+    effect: {
+      kind: "continuous.bonus-damage", amount: 1, appliesTo: "deal-actions",
+      sourcePlayer: "A", scope: { source: kernel.ref("enemy-1") },
+    },
+  }, { type: "permanent" });
+  const base = kernel.clone({ sourceSnapshot: kernel.getObject("ally"), controller: "A" });
+  base.setTargets("enemies", [kernel.ref("enemy-2")]);
+  const context = bindResolveContext(base, { continuousEffects: registry });
+  const outcome = effectDamage.execute(context, effectDamage.argsSchema.parse({
+    amount: literal(2), source: literal(kernel.ref("enemy-1")), target: "enemies",
+  }));
+  assert.equal(outcome.status, "executed");
+  assert.equal(context.getObject("enemy-2").damage, 3);
 });
 
 test("the production bonus-damage primitive registers a grant consumed by a real Deal", async () => {
