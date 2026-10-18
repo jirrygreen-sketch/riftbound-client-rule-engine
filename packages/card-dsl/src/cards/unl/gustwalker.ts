@@ -22,31 +22,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   - "and [Ganking]" 是关键词授予（810：Ganking 为被动能力关键词，给标准移动增加
  *     战场到战场的许可，810.1.c.1 不移除原有选项）。
  *
- * status = judge-required（缺口不近似实现）；执行证据见
- * templates/keyword-static-static-673.test.mjs。
- * 1. Hunt 的 conquer/hold：turn/flow 的 score 分支会以玩家为发射方发出 conquer/hold
- *    事件（不是拼写缺失），但事件载荷不带 object，[Hunt 2] 的 "When I"（self 归属）
- *    无法命中；Hunt 数值求和本身已由 expandProgram 实现。
- * 2. Level 依赖式关键词的展开仍不能读取玩家 XP：824.1.c 需要可求值的「控制者 XP ≥ N」谓词，
- *    合并 IR 的 Condition 只有 always/never/expression/compare/all/any/not，
- *    PlayerSnapshot.xp 没有进入 Expr / 谓词求值的路径（count 会静默数对象，不抛错）；
- *    824.1.c.1 / .d 的动态激活 / 失活依赖同一谓词。
- * 3. 静态绑定可注册 "+1 :rb_might:" 与 "[Ganking]" 的授予，但移动规则尚未把
- *    运行时授予的 Ganking characteristic 消费为战场到战场许可。
- * 依赖：Hunt 事件载荷、Level 的实时 XP 谓词、Ganking 移动许可消费接线。
+ * 2026-10-18 复核：整卡仍为 judge-required；当前生产缺口见 judgeReason。
+ * 已支持子效果的执行证据保留在对应 golden；不以原语存在替代整卡可执行性。
  */
 const gustwalker = {
   canonicalCardId: "card.hash-a232dcd643d13b743c5bad3125bacbefc6b2ef53b24aa91708ec80fc13447153",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) Hunt 的 conquer/hold 事件在 turn/flow 的 score 分支以玩家为发射方存在（不是拼写缺失），但事件载荷不带 object，" +
-    "[Hunt 2] 的 When I（self 归属）无法命中；Hunt 数值求和已由 expandProgram 实现；" +
-    "(2) [Level 3][>] 依赖式关键词（824.1.b.1）仍不能读取玩家 XP：824.1.c / .d 需要可求值的控制者 XP ≥ 3 谓词与动态失活，" +
-    "合并 IR 的 Condition 读不到 PlayerSnapshot.xp（count 只会静默数对象）；现用 never 显式阻断保留的 controller-xp 查询，禁止以对象数代替 XP；" +
-    "(3) 静态绑定可注册 Might 与 Ganking 授予，但移动规则尚未把运行时授予的 Ganking " +
-    "characteristic 消费为战场到战场许可。" +
-    "依赖：Hunt 事件载荷、Level 实时 XP 谓词、Ganking 移动许可消费接线。",
+    "当前缺口：(1) Hunt.ts 仍用 conquer/hold 作过滤事件名，EVENT_PATTERN_TYPES 只接受 conquered/held，registerProgramTriggers 报 invalid-event-type；turn/flow.ts 的计分事件也未携带征服或固守单位 object，不能命中 When I（823.1.c.1）。" +
+    "(2) [Level 3] 仍缺实时控制者 XP 查询与动态失活（824.1.c/824.1.d）：Expr.count 忽略 controller-xp 的 subject 而只数对象，condition.predicate 无静态映射；保留 never 阻断。" +
+    "(3) 静态绑定可注册 Might 与 Ganking 授予；KeywordGrantLayerEngine 已把 Ganking 的 permission 规范为 permission.routes，但默认 lifecycle 未接入该适配器，标准移动已有 registry 规则查询接口，但缺默认生命周期将该适配器结果接入移动路径（810.1.c）。",
   abilities: [
     { kind: "keyword", keyword: "hunt", value: 2 },
     {

@@ -17,6 +17,7 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 
 const CANONICAL_ID =
   "card.hash-3237f73ddd77661179f659d36e72559c7bdf667aadbeeb1a45d74e35b239ea35";
@@ -47,6 +48,8 @@ test("unl-047-219 Mosstomper: identity, status, judgeReason and verbatim sourceT
   assert.match(program.judgeReason, /conquered/);
   assert.match(program.judgeReason, /programs\/filters\.ts/);
   assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /Energy/);
   assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
@@ -174,6 +177,16 @@ test("unl-047-219 Mosstomper golden: the arithmetic +1 Might and the Deflect gra
   assert.equal(snapshot.might, 4);
   // 809.1.b.3: the granted Deflect carries the presumed value of 1.
   assert.deepEqual(snapshot.keywords, [{ id: "deflect", value: 1 }]);
+
+  const effective = new KeywordGrantLayerEngine(context.objects, {
+    context: source => context.clone({ sourceSnapshot: source, controller: source.controller })
+  });
+  for (const entry of context.continuousEffects) effective.addContinuous(entry.effect, entry.duration);
+  assert.equal(effective.evaluate(context.ref("mosstomper")).might, 4);
+  assert.deepEqual(effective.evaluate(context.ref("mosstomper")).keywords, [{ id: "Deflect", value: 1 }]);
+  assert.deepEqual(effective.keywordAbilities(context.ref("mosstomper")).map(ability => [ability.effect.kind, ability.effect.value]), [
+    ["target.tax", { kind: "constant", value: 1 }]
+  ]);
 });
 
 test.todo(

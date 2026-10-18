@@ -42,6 +42,8 @@ test("unl-075-219 Gustwalker: identity, ruleset, status, judgeReason, sourceText
   assert.match(program.judgeReason, /824\.1/);
   assert.match(program.judgeReason, /静态绑定可注册/);
   assert.match(program.judgeReason, /Ganking/);
+  assert.match(program.judgeReason, /invalid-event-type/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
   assert.doesNotMatch(program.judgeReason, /823\.2.*未接线/);
   assert.doesNotMatch(program.judgeReason, /RIFT-91/);
   assert.doesNotMatch(program.judgeReason, /无卡牌持续效果注册路径/);
@@ -132,4 +134,23 @@ test("unl-075-219 Gustwalker golden: the merged Hunt body really gains XP", () =
   const outcome = resolveChainBody(conquer.body, kernel);
   assert.equal(outcome.results[0].result.status, "executed");
   assert.equal(kernel.player("A").xp, 2);
+});
+
+test("unl-075-219 Gustwalker golden: both Hunt bodies credit the current controller rather than the owner", () => {
+  const huntDef = keywordDefinitionsById.get("Hunt");
+  for (const ability of huntDef.expand({ value: hunt.value, host: { canonicalCardId: CANONICAL } })) {
+    const kernel = world()
+      .player("A", { xp: 3 })
+      .player("B", { xp: 1 })
+      .unit("gustwalker", { owner: "A", controller: "B", might: 3 })
+      .build();
+    const context = kernel.clone({ sourceSnapshot: kernel.getObject("gustwalker"), controller: "B" });
+    const result = resolveChainBody(ability.body, context);
+    assert.equal(result.status, "executed");
+    assert.equal(result.results[0].result.linkedValues.gained, 2);
+    assert.equal(result.results[0].result.linkedValues.gainedTo, "B");
+    assert.equal(context.player("A").xp, 3);
+    assert.equal(context.player("B").xp, 3);
+    assert.deepEqual(context.events.map(event => event.action), ["gain-xp"]);
+  }
 });

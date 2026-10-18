@@ -11,6 +11,7 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 
 const CANONICAL_ID =
   "card.hash-bd653b8aaef730f2cda1c769f847ec6222a08a3ec41066a74de13321000d898d";
@@ -119,8 +120,8 @@ test("unl-041-219 Allay, Eager Admirer golden: the declared aura really grants D
   // RIFT-258 merged the continuous.grant-keyword primitive; the card's static
   // declaration maps onto the merged argument shape (objects: query/filter) and
   // the layer engine then grants the keyword to exactly the same-location
-  // friendly units (801.3.a / 809.1.c). No receiver re-expansion exists yet, so
-  // the tax half stays judged.
+  // friendly units (801.3.a / 809.1.c). Receiver re-expansion is available in
+  // the opt-in adapter; its default lifecycle/tax integration stays judged.
   const base = world()
     .unit("allay", { types: ["unit"], controller: "A", location: { type: "battlefield", id: "bf-1" }, might: 3 })
     .unit("ally-here", { controller: "A", location: { type: "battlefield", id: "bf-1" }, might: 2 })
@@ -165,9 +166,22 @@ test("unl-041-219 Allay, Eager Admirer golden: the declared aura really grants D
   assert.deepEqual(layers.evaluate(base.ref("ally-elsewhere")).keywords, []);
   assert.deepEqual(layers.evaluate(base.ref("enemy-here")).keywords, []);
   assert.deepEqual(layers.evaluate(base.ref("allay")).keywords, []);
+
+  const effective = new KeywordGrantLayerEngine(base.objects, {
+    context: source => bindResolveContext(base, { source, controller: source.controller })
+  });
+  for (const entry of base.continuousEffects) effective.addContinuous(entry.effect, entry.duration);
+  assert.deepEqual(effective.evaluate(base.ref("ally-here")).keywords, [{ id: "Deflect", value: 1 }]);
+  const [tax] = effective.keywordAbilities(base.ref("ally-here"));
+  assert.equal(tax.kind, "static");
+  assert.equal(tax.effect.kind, "target.tax");
+  assert.deepEqual(tax.effect.value, { kind: "constant", value: 1 });
+  for (const id of ["allay", "ally-elsewhere", "enemy-here"]) {
+    assert.deepEqual(effective.keywordAbilities(base.ref(id)), []);
+  }
 });
 
 test.todo(
   "unl-041-219 Allay, Eager Admirer: support the source-relative exclude:self filter in the static binder, " +
-    "then derive and re-expand Deflect target.tax on every affected receiver (CR 809.1.c/809.1.d)"
+    "then integrate effective Deflect expansion with the default lifecycle and target tax payment (CR 809.1.c/809.1.d)"
 );
