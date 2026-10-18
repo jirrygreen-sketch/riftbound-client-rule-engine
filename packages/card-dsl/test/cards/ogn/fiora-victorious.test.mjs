@@ -111,7 +111,8 @@ for (const [initial, amount, expectedKeywords] of [
   [5, -1, []]
 ]) {
   test(`Fiora, Victorious: recheck conditional keywords after effective Might changes ${initial} to ${initial + amount} through continuous.might (CR 478.3/478.4)`, {
-    todo: "createEngineStaticBinder condition must use the current effective-Might evaluation snapshot"
+    todo: "production assembly does not attach createEngineStaticBinder's static binding to the merged " +
+      "KeywordGrantLayerEngine re-expansion that already rechecks this threshold"
   }, () => {
     const f = fixture({ cards: [{ id: "fiora", cardId: CANONICAL, types: ["unit"], might: initial }] });
     f.engine.commit({ type: "move-zone", object: f.kernel.ref("fiora"), to: "base", location: { type: "base", player: "A" } });

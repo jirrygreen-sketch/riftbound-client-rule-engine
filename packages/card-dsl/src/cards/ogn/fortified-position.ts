@@ -35,7 +35,8 @@ export default {
   judgeReason:
     "continuous.grant-keyword 已能把 [Shield 2] 注册到所选单位并保留 end-of-combat duration；" +
     "但 programs/filters.ts 的 production trigger translator 仍拒绝 defense-declared 过滤器中的 here 字段，" +
-    "且 Shield 展开条件读取 designation；expr-ext/evaluate.ts 虽能把它映射到 combatRole，生产条件回调尚未接入该扩展，" +
+    "且 Shield 展开条件读取 designation；KeywordGrantLayerEngine 的重展开环境虽把它别名到 combatRole，" +
+    "生产装配未接入该引擎，生产条件回调也没有接入 expr-ext/evaluate.ts 的映射，" +
     "故 CR 814.1.c/814.1.d.1 的 defender 条件尚未形成可执行消费链。",
   sourceText:
     "When you defend here, choose a unit. It gains [Shield 2] this combat. (+2 :rb_might: while it's a defender.)",

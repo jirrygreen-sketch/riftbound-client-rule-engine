@@ -165,6 +165,7 @@ test.todo(
 );
 test.todo(
   "ogn-004-298 Cleave: the granted Assault's +3 Might is computed by the merged Assault " +
-    "KeywordDef (effects/keywords/Assault.ts) once the granted keyword is expanded and the " +
-    "attacker designation is mapped from the layers combatRole (CR 807.1.c/807.1.d.1, combat flow)"
+    "KeywordDef (effects/keywords/Assault.ts) once the merged KeywordGrantLayerEngine re-expansion (which " +
+    "aliases designation to combatRole) is attached to production assembly instead of the plain LayerEngine " +
+    "(CR 807.1.c/807.1.d.1, combat flow)"
 );
