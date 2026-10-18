@@ -5,9 +5,9 @@
 // production binder) lives in `test/cards/templates/static-667.test.mjs`.
 //
 // The card stays judge-required: continuous.cost-modification has no layer
-// mapping, no pipeline compiles the declaration into CostPlanInput.discounts, and
-// neither the per-target condition nor the Universal Power alternative is
-// representable. Nothing here approximates the printed effect.
+// mapping and the production chain does not pass the static binding and locked
+// targets into Finalize. The merged collector evidence below does not claim a
+// production binding.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -16,6 +16,7 @@ import program from "../../../dist/cards/sfd/irelia-graceful.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-4226ae419dd851644c384f3f4d645badcec767b55055e62cb45fcc436ec55e03";
@@ -70,16 +71,75 @@ test("sfd-141-221 Irelia, Graceful: the production binder refuses the declared d
   assert.deepEqual(layers.registry.list(), []);
 });
 
+test("sfd-141-221 Irelia, Graceful: the merged cost collector honors the locked target and Universal Power choice", () => {
+  const makeContext = (cost) => {
+    const kernel = world()
+      .player("A", { energy: 10, power: ["Mind"] })
+      .unit("irelia", { cardId: CARD_ID, location: { type: "battlefield", id: "bf-1" } })
+      .hand("spell", { types: ["spell"], energy: 2, power: [] })
+      .build();
+    const context = kernel.clone({
+      source: kernel.ref("spell"),
+      sourceSnapshot: kernel.getObject("spell"),
+      controller: "A"
+    });
+    return { context, binding: { id: "irelia-static", source: kernel.ref("irelia"), ability }, cost };
+  };
+
+  const unrelated = makeContext({ energy: { kind: "constant", value: 2 } });
+  assert.equal(
+    finalizeCostPlan(unrelated.context, {
+      id: "spell",
+      cost: unrelated.cost
+    }, {
+      statics: [unrelated.binding],
+      targets: []
+    }).total.energy,
+    2
+  );
+
+  const primary = makeContext({ energy: { kind: "constant", value: 2 } });
+  primary.context.setAnswers({ "spell:modifier:irelia-static:0:total:resource": "primary" });
+  assert.equal(
+    finalizeCostPlan(primary.context, {
+      id: "spell",
+      cost: primary.cost
+    }, {
+      statics: [primary.binding],
+      targets: [primary.context.ref("irelia")]
+    }).total.energy,
+    1
+  );
+
+  const alternative = makeContext({
+    energy: { kind: "constant", value: 2 },
+    payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["Mind"] }]
+  });
+  alternative.context.setAnswers({ "spell:modifier:irelia-static:0:total:resource": "alternative" });
+  const plan = finalizeCostPlan(alternative.context, {
+    id: "spell",
+    cost: alternative.cost
+  }, {
+    statics: [alternative.binding],
+    targets: [alternative.context.ref("irelia")]
+  });
+  assert.equal(plan.total.energy, 2);
+  assert.deepEqual(plan.total.power, []);
+});
+
 test("sfd-141-221 Irelia, Graceful: judgeReason names the measured consumer gaps", () => {
-  // Re-probed 2026-10-17 (RIFT-667).
+  // Re-probed 2026-10-18: the collector is executable; the production
+  // static-to-Finalize bridge is still missing.
   assert.match(program.judgeReason, /staticTarget/);
   assert.match(program.judgeReason, /layerFor/);
-  assert.match(program.judgeReason, /CostPlanInput\/CostDiscount/);
+  assert.match(program.judgeReason, /finalizeCostPlan/);
+  assert.match(program.judgeReason, /锁定目标/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
 test.todo(
   "sfd-141-221 Irelia, Graceful: a spell that chooses me must really cost 1 Energy or 1 Universal Power less " +
-    "(CR 355.6 / 356.4.b / 163.2.b) - needs a CardProgram -> Finalize discount consumer with a per-target " +
-    "condition and a representable [A] alternative (contract change request)"
+    "(CR 355.6 / 356.4.b / 163.2.b) - needs the production CardProgram -> Finalize discount consumer " +
+    "to pass the locked target set and static binding into finalizeCostPlan"
 );

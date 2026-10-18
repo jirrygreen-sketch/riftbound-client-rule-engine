@@ -141,7 +141,8 @@ test("sfd-192-221 Shurelya's Requiem: identity, ruleset, status, judgeReason and
   assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
   assert.match(program.judgeReason, /Equip 支付种类/);
   assert.match(program.judgeReason, /params\.cost/);
-  assert.match(program.judgeReason, /TriggerRegistration/);
+  assert.match(program.judgeReason, /effect\.ready/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("sfd-192-221 Shurelya's Requiem: Unique, rainbow Equip and a card-played play effect", () => {

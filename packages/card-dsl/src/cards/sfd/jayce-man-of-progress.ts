@@ -34,15 +34,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   在触发结算时尚未由玩家选定；Duration 词汇（permanent/end-of-turn/end-of-combat/while-source-in-zone）
  *   也没有 one-shot「本回合的下一张」窗口（同 rad/firelights-hideout、ogn/raging-firebrand 的缺口）。
  * - 「ignoring its Energy cost」需要费用管线生成只把 Base Energy 置 0、保留 Power 的 finalized plan
- *   （356.1.b.2）：effect.play 只接受已 finalize 的计划、从不推导印刷费用；RIFT-257 的
- *   programs/play.ts translateCost 也对卡面的 cost 字段转 judge-required（discount/ignore 等键被拒），
- *   没有卡牌程序入口，而且计划必须在被选牌确定之后才能生成（RIFT-261 费用种类/费用计划批次）。
+ *   （356.1.b.2）：effect.play 只接受已 finalize 的计划、从不推导印刷费用；programs/play.ts
+ *   translateCost 也对卡面的 cost 字段转 judge-required（discount/ignore 等键被拒），没有卡牌
+ *   程序入口，而且计划必须在被选牌确定之后才能生成。
  * - 「a gear with Energy cost no more than :rb_energy_7:」需要印刷费用上限比较（206）：ObjectFilter
  *   没有费用谓词、已合入过滤器会静默忽略未知键（同 sfd/sandshifter、sfd/pickpocket 的缺口）。
  * effect.kill 与 choice.optional 已合入，golden 用锁定目标真实执行 kill 半段（接受/拒绝/目标失效），
  * 并用真实管道验证触发注册的形状。
- * 依赖：RIFT-261（费用种类与 ignore-cost 接线）、RIFT-90（印刷费用谓词）、
- * 一次性许可窗口（RIFT-91 后续）。
+ * 依赖：印刷费用上限谓词、一次性本回合后续打出许可窗口，以及只忽略 Energy 的 finalized
+ * cost plan 生产与 effect.play 交接。
  */
 const abilities: Ability[] = [
   {
@@ -148,10 +148,13 @@ const program = {
     "仍缺印刷费用过滤、许可窗口与费用计划，不近似实现：" +
     "「play a gear with Energy cost no more than :rb_energy_7: from hand this turn」需要 206 的印刷费用上限比较（ObjectFilter 无费用谓词，未知键被静默忽略，同 sfd/sandshifter），" +
     "以及「本回合稍后」的一次性许可窗口：ObjectFilter 没有 greatest/last-created 量词，TargetSpec 必须锁定 Finalize 时已存在的对象（355.5），Duration 也没有 one-shot「本回合的下一张」期限（同 rad/firelights-hideout 的缺口）。" +
-    "「ignoring its Energy cost」按 356.1.b.2 只把 Base Energy 置 0、Power 照付（印刷提示亦然）：effect.play 只接受已 finalize 的计划、从不推导印刷费用，" +
-    "RIFT-257 的 translateCost 对卡面 cost 字段直接转 judge-required、cost/ 也没有 ignore-base 的卡牌程序入口，且计划必须在被选牌确定后才生成（RIFT-261）。" +
-    "effect.kill、choice.optional 与 killed 回执均已合入，golden 用锁定目标真实执行 kill 半段（接受/拒绝/目标失效三分支）并验证回执闸门。" +
-    "依赖：RIFT-261（费用种类与 ignore-cost）、RIFT-90（印刷费用谓词）、一次性许可窗口（RIFT-91 后续）。",
+    "「ignoring its Energy cost」按 356.1.b.2 只把 Base Energy 置 0、Power 照付（印刷提示亦然）：" +
+    "effect.play 只接受已 finalize 的计划、从不推导印刷费用，programs/play.ts translateCost 对卡面 " +
+    "cost 字段仍把 discount/ignore 等键转为 judge-required，费用管线也没有卡牌程序入口；计划必须在" +
+    "被选牌确定后才生成。effect.kill、choice.optional 与 killed 回执均已合入，golden 用锁定目标真实执行" +
+    "kill 半段（接受/拒绝/目标失效三分支）并验证回执闸门。" +
+    "仍缺：印刷费用上限谓词、一次性本回合后续打出许可窗口，以及只忽略 Energy 的 finalized cost plan " +
+    "生产与 effect.play 交接。",
   abilities,
   sourceText:
     "When you play me, you may kill a friendly gear. If you do, you may play a gear with Energy cost no more than :rb_energy_7: from hand this turn, ignoring its Energy cost. (You must still pay its Power cost.)"

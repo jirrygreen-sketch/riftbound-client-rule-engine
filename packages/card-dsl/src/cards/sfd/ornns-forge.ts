@@ -35,20 +35,19 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Re-checked 2026-10-17 against merged sources. The cost.modify/cost.pay primitives are merged and " +
-    "the primitive really applies the declared -1 Energy delta to a caller-supplied plan, but the " +
-    "printed discount is still not executable, and nothing is approximated: (1) the production static " +
+    "Re-checked 2026-10-18 against merged sources. The cost.modify/cost.pay primitives and the " +
+    "cost/discounts/collect.ts first-play/history collector are merged; a caller that supplies the static " +
+    "binding and finalized-play history gets the declared -1 Energy discount. The printed discount is still " +
+    "not executable in the production card path, and nothing is approximated: (1) the production static " +
     "binder refuses this shape — programs/statics.ts staticTarget rejects the authored appliesTo anchor " +
     "(\"Unsupported static appliesTo \\\"play-cost\\\"\") before any filter is translated, and " +
     "layerFor then rejects the kind itself (\"Static ability kind cost.modify has no layer mapping\"; " +
     "the layer union is only copy/trait/ability/arithmetic, CR 356.4); (2) no CardProgram → " +
     "CostPlanInput consumer exists — chain/engine.ts Finalize builds the cost plan from the caller's own " +
     "input only, so the declared discount never reaches a plan (CR 356.4 / 356.4.f). The 'first " +
-    "friendly non-token gear played each turn' window additionally needs per-turn state plus " +
-    "history-gated expiry after the first qualifying play (CR 356.4.b): the merged vocabulary has " +
-    "neither a condition kind (ir.validation CONDITION_KINDS has no history member) nor a " +
-    "ContinuousEffect shape that expires on a counted play, and history counting is only reachable " +
-    "through ResolveContext.history.",
+    "friendly non-token gear played each turn' window is only isolated evidence: chain/engine.ts still " +
+    "does not pass the static binding or finalized-play history into Finalize. The production path still " +
+    "needs the CardProgram → Finalize bridge and the authoritative turn history supplied by the caller.",
   sourceText:
     "While you control this battlefield, the first friendly non-token gear played each turn costs :rb_energy_1: less.",
   abilities: [

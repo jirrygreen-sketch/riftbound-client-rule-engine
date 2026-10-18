@@ -40,6 +40,8 @@ test("sfd-055-221 Needlessly Large Yordle: identity, ruleset, status, judgeReaso
   assert.match(program.judgeReason, /Shield/);
   assert.match(program.judgeReason, /Tank/);
   assert.match(program.judgeReason, /designation/);
+  assert.match(program.judgeReason, /Hold/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 

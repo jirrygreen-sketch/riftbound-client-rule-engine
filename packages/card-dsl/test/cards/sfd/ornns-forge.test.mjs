@@ -4,9 +4,9 @@
 // ability with the production binder) lives in
 // `test/cards/templates/static-667.test.mjs`.
 //
-// The card stays judge-required: cost.modify has no layer mapping, no CardProgram
-// -> Finalize consumer exists, and the per-turn first-play window is not
-// expressible. Nothing here approximates the printed discount.
+// The card stays judge-required: the production binder has no cost layer and
+// the chain has no CardProgram -> Finalize consumer. The merged collector's
+// first-play history is exercised here without claiming a production binding.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -16,6 +16,8 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL = "card.hash-44e95dd0a87b7dfcd7565b73a33e204f85c97ac82e004a6127ff7ed649fb41ad";
 const SOURCE_TEXT =
@@ -65,6 +67,35 @@ test("sfd-213-221 Ornn's Forge component: the merged cost.modify primitive reall
   assert.equal(run.result.status, "executed");
   assert.equal(run.linked.cost.total.energy, 2);
   assert.deepEqual(run.linked.cost.total.power, []);
+});
+
+test("sfd-213-221 Ornn's Forge: the merged collector honors the first qualifying gear history", () => {
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .battlefield("forge", { cardId: CANONICAL, types: ["battlefield"] })
+    .hand("first", { types: ["gear"], energy: 2, power: [], isToken: false })
+    .hand("second", { types: ["gear"], energy: 2, power: [], isToken: false })
+    .build();
+  const binding = { id: "forge-static", source: kernel.ref("forge"), ability };
+  const input = id => ({
+    id,
+    cost: { energy: { kind: "constant", value: 2 } }
+  });
+  const context = id => bindResolveContext(kernel, {
+    source: kernel.getObject(id),
+    controller: "A"
+  });
+  const firstPlan = finalizeCostPlan(context("first"), input("first"), {
+    statics: [binding],
+    finalizedPlaysThisTurn: []
+  });
+  assert.equal(firstPlan.total.energy, 1);
+
+  const secondPlan = finalizeCostPlan(context("second"), input("second"), {
+    statics: [binding],
+    finalizedPlaysThisTurn: [{ object: kernel.getObject("first"), player: "A" }]
+  });
+  assert.equal(secondPlan.total.energy, 2);
 });
 
 test("sfd-213-221 Ornn's Forge: the production static binder refuses this cost-plan shape", () => {
