@@ -23,11 +23,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   限定每个 battlefield 每回合只能 Score 一次，473.2.b 是该次 Scoring 的 Hold 触发口径。
  *   因此减费量是本回合 Hold 得分次数（点数）的函数：每 1 点减 2 Energy 与 1 Calm Power。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
+ * status 判定（cards/README.md 第 2 节）：judge-required（实测复核 2026-10-17）。
  * - [Shield 5] 的展开已合入（effects/keywords/Shield.ts），但其 static continuous.might 的
  *   条件读 "designation"：对象快照只有 combatRole（effects/contract.ts），
- *   layers/engine.ts 的 conditionMatches 也不求值 compare 条件，因此该 +5 Might
- *   恒不生效（实测绑定后 Might 保持 4）。
+ *   默认求值器对 designation 报 Unavailable characteristic，layers/engine.ts 的
+ *   conditionMatches 也不求值 compare 条件（effects/interpreter/expr-ext 的
+ *   designation 求值器尚未接入默认 dispatch/图层），因此该 +5 Might 恒不生效
+ *   （实测 combatRole 为 defender 时
+ *   Might 仍保持印刷值 4）。
  * - [Tank] 的 KeywordDef 已合入，programs/statics.ts 也能把它登记进 ability 图层，
  *   但 continuous.combat 没有图层分支（layers/ops/index.ts 记为 persisted-only），
  *   combat/base-combat-allocation.ts 只接受 keywordPriority: "proven-none"，
@@ -64,7 +67,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处当前缺口：(1)[Shield 5] 的展开（effects/keywords/Shield.ts 的 static continuous.might，814.1.c）已合入，" +
+    "实测（2026-10-17）三处当前缺口：(1)[Shield 5] 的展开（effects/keywords/Shield.ts 的 static continuous.might，814.1.c）已合入，" +
     "但条件读 \"designation\"（814.1.d/814.1.d.1），对象快照只有 combatRole，" +
     "且 layers/engine.ts 的 conditionMatches 不求值 compare，绑定后 Might 恒不增加。" +
     "(2)[Tank] 的 KeywordDef 已合入且 static 绑定能登记 continuous.combat，" +

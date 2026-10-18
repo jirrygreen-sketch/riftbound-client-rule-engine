@@ -79,11 +79,11 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "效果体已可执行：continuous.might 指令已合入（RIFT-258），\"give me +2 :rb_might: this turn\" 经 appliesTo: \"self\" " +
-    "解析为能力宿主，结算时经 ResolveContext.addContinuous 注册 arithmetic 图层效果、duration \"this-turn\" 映射为回合结束到期" +
-    "（317.1.a/468.7.c）；生产 body 适配器（chain/interpreter-adapter.ts）的执行证据在 " +
+    "实测 2026-10-17（HEAD 9be41b14）效果体已可执行：continuous.might 指令已合入，\"give me +2 :rb_might: this turn\" 经 " +
+    "appliesTo: \"self\" 解析为能力宿主，结算时经 ResolveContext.addContinuous 注册 arithmetic 图层效果、duration " +
+    "\"this-turn\" 映射为回合结束到期（317.1.a/468.7.c）；生产 body 适配器（chain/interpreter-adapter.ts）的执行证据在 " +
     "test/cards/templates/triggered-object-moved-continuous-might-687.test.mjs。" +
-    "整卡仍不可执行（两处实测缺口，2026-10-17）：" +
+    "整卡仍不可执行（两处实测缺口）：" +
     "(1) 触发无法注册——object-moved 已有时点定义（timing-points.ts，triggerable）且 events/action-adapter.ts 已把 " +
     "move-location 映射到该时点，但封闭的 EVENT_PATTERN_TYPES 词表不含 object-moved（events/trigger-spec.ts），" +
     "assertTriggerSpec 以 invalid-event-type 拒绝带 event 的 EventPattern；实测 registerProgramTriggers 抛 " +

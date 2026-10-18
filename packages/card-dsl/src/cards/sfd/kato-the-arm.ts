@@ -56,7 +56,8 @@ const abilities: Ability[] = [
     optional: false,
     body: [
       {
-        // "my keywords"：来源当前关键词的授予；continuous.grant-keyword 未注册（见 judgeReason 第 2 点）。
+        // "my keywords"：来源当前关键词的授予；continuous.grant-keyword 本体已合入
+        // 并经解释器执行（见下方 golden），整卡仍因触发无法注册而不可执行。
         id: "kato-the-arm.grant-keywords",
         op: "continuous.grant-keyword",
         args: {
@@ -110,15 +111,17 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处缺口，均不近似实现：(1) 触发无法注册——object-moved 是 events/timing-points.ts 的封闭时点" +
+    "实测（2026-10-17）两处缺口，均不近似实现：(1) 触发无法注册——object-moved 是 events/timing-points.ts 的封闭时点" +
     "（refs 421.1/449.1/449.2，events/action-adapter.ts 也为 move-location 发出该事件），但 events/trigger-spec.ts " +
-    "的 EVENT_PATTERN_TYPES 封闭词汇表没有 \"object-moved\"，RIFT-257 的 pipeline.registerTrigger → assertTriggerSpec " +
-    "会在注册本卡触发时报 invalid-event-type，toZone: \"battlefield\" 过滤无从匹配（need：词汇表与事件载荷的 " +
-    "toKind/toZone 字段）。(2) 由于 (1)，「my keywords」经 continuous.grant-keyword（RIFT-258 已合入本卡所需 primitive）" +
-    "的运行时读取与「+ my Might」的 continuous.might 都到不了结算；两段体已用解释器 + 链式查询归一化真实执行注册" +
-    "（ability/arithmetic 层、this-turn 期限），但不构成整卡执行证据。" +
+    "的 EVENT_PATTERN_TYPES 封闭词汇表没有 \"object-moved\"，pipeline.registerTrigger → assertTriggerSpec " +
+    "会在注册本卡触发时报 invalid-event-type（实测 registerProgramTriggers 抛 TriggerSpecValidationError），" +
+    "toZone: \"battlefield\" 过滤无从匹配（需要：词汇表成员与事件载荷的 toKind/toZone 字段）。(2) 由于 (1)，" +
+    "「my keywords」经 continuous.grant-keyword 的运行时读取与「+ my Might」的 continuous.might 都到不了结算；" +
+    "两段体已用解释器 + 链式查询归一化真实执行注册（ability/arithmetic 层、this-turn 期限），但不构成整卡执行证据。" +
     "不把 \"equal to my Might\" 写成常量，也不把临时修正近似成 Buff 计数器（703）。" +
-    "[Deflect] 声明本身可校验，其 target.tax 展开的消费方属 RIFT-90/91。依赖：EVENT_PATTERN_TYPES 的 object-moved 词汇与移动载荷绑定。",
+    "[Deflect] 声明本身可校验，其 target.tax 展开没有生产消费方（programs/statics.ts 的 layerFor 抛 no layer mapping），" +
+    "且结算换算按 Energy 记账而 809.1.c.1 要求任意域 Power。" +
+    "依赖：EVENT_PATTERN_TYPES 的 object-moved 词汇与移动载荷绑定 + target.tax 的 statics 接线。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +
