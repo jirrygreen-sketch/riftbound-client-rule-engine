@@ -277,7 +277,11 @@ const rows = [
     program: archerView,
     declared(program) {
       assert.match(program.judgeReason, /sameLocationAs/);
-      assert.match(program.judgeReason, /RIFT-89/);
+      // 2026-10-17: the merged chain cost plan is no longer a gap; the live gap
+      // is the missing leading-cost adapter (no TriggerRegistration.cost /
+      // mayAtFinalize on this trigger declaration).
+      assert.match(program.judgeReason, /TriggerRegistration\.cost/);
+      assert.match(program.judgeReason, /mayAtFinalize/);
       assert.match(program.judgeReason, /triggered-attack-declared-continuous-mig-705\.test\.mjs/);
     },
     scenario: {
@@ -307,7 +311,8 @@ const rows = [
       "\"Unsupported filter field sameLocationAs\") while translating the body target's \"a unit here\" anchor, so the " +
       "pipeline registers 0 triggers and the printed effect, cost and target lock never happen. Attack timing also has " +
       "no producer (combat/flow.ts throws TurnCombatBlockedError for the combat-start role transaction, CR 466.2), and " +
-      "the leading optional 1-energy cost (383.3.b) has no carrier in the frozen triggered-ability IR (RIFT-89).",
+      "the leading optional 1-energy cost (383.3.b) has no carrier in the frozen triggered-ability IR and " +
+      "programs/triggers.ts does not lift it into TriggerRegistration.cost / mayAtFinalize.",
     supported: {
       makeWorld: () => world()
         .unit("archer", { owner: "A", controller: "A", might: 2, location: BF1 })
@@ -757,8 +762,8 @@ test.todo(
 
 test.todo(
   "RIFT-705 Icevale Archer: the leading optional 1-energy cost (383.3.b) has no carrier in the frozen " +
-    "triggered-ability IR, and the Finalize cost-planning entry is not connected (RIFT-89); the ability expresses " +
-    "the Finalize decision through optional: true only",
+    "triggered-ability IR, and programs/triggers.ts does not lift it into TriggerRegistration.cost / " +
+    "mayAtFinalize; the ability expresses the Finalize decision through optional: true only",
 );
 
 test.todo(

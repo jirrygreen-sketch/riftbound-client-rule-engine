@@ -6,8 +6,8 @@
 // test/cards/templates/static-static-675.test.mjs.
 // Existing per-card behavior and structure assertions are retained here;
 // the template suite supplies additional execution evidence.
-// RIFT-651 template execution evidence (pending XP-history gating and Ganking
-// movement consumption): packages/card-dsl/test/cards/templates/static-static-651.test.mjs
+// Additional pending scenario rows live in
+// test/cards/templates/static-static-651.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -16,7 +16,10 @@ import program from "../../../dist/cards/unl/wily-newtfish.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
+import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-55487ff54a21b4f984b21e9ef2babc80760bd74a2128eac7bd6665ff81432f9e";
@@ -82,8 +85,71 @@ test("unl-108-219 Wily Newtfish: the merged keyword registry knows Ganking", asy
   assert.equal(keywordDefinitionsById.has("Ganking"), true);
 });
 
+/**
+ * Bind the card's two static abilities through the real production binder and
+ * return the live layer registry plus the kernel. The published program stays
+ * judge-required; the probe only swaps the metadata status, exactly as the
+ * scenario harness does, so every ability, filter and condition stays the card's
+ * own text.
+ */
+function productionStaticBinding() {
+  const ID = program.canonicalCardId;
+  const view = { ...program, status: "executable", judgeReason: undefined };
+  const f = fixture({ cards: [{ id: "newtfish", cardId: ID, types: ["unit"], might: 4 }] });
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("newtfish"),
+    to: "battlefield",
+    location: { type: "battlefield", id: "bf-1" },
+  });
+  f.engine.advance();
+  const source = f.kernel.getObject("newtfish");
+  const binding = createProgramBinding({ cardPrograms: [view] });
+  const binder = createEngineStaticBinder(f.engine);
+  for (const ability of binding.inspect(source).abilities) {
+    if (ability.kind === "static") binder.bindStatic(ability, source);
+  }
+  return { f, source };
+}
+
+test("unl-108-219 Wily Newtfish gap: the production binder grants the bonus at 0 XP", () => {
+  // 364.3's gate must not be true with no XP gained this turn. Measured through
+  // the real static binder: condition.left is a `count` over a live set query,
+  // and filter: { player: "controller" } is not read, so the descriptive subject
+  // falls back to the host itself and the print is granted.
+  const { f, source } = productionStaticBinding();
+  assert.equal(f.kernel.player("A").xp, 0);
+  const evaluated = f.engine.layers.evaluate(source.ref);
+  assert.equal(evaluated.printed.might, 4);
+  assert.equal(evaluated.might, 5, "the +1 is granted with 0 XP (measured gap, 364.3)");
+  assert.deepEqual(evaluated.keywords.map(keyword => keyword.id), ["Ganking"]);
+  // The declared condition is compiled to a per-object predicate; both entries
+  // really evaluate to true today, which is exactly the missing turn-history
+  // consumer rather than a structure problem.
+  for (const entry of f.engine.layers.registry.list()) {
+    assert.equal(typeof entry.effect.effect.condition, "function");
+    assert.equal(entry.effect.effect.condition(source), true);
+    assert.equal(entry.effect.filter.objectId, source.ref.id);
+  }
+});
+
+test("unl-108-219 Wily Newtfish gap: a granted Ganking keyword does not become a movement permission", () => {
+  // 810.1.c / 144.4.c: the granted keyword must add the Battlefield->Battlefield
+  // Standard Move option. Measured: the layer snapshot carries Ganking, but the
+  // rule query only consumes continuous.movement permission.routes, so canGank
+  // stays false and the Standard Move readiness has no production evaluator.
+  const { f, source } = productionStaticBinding();
+  const evaluated = f.engine.layers.evaluate(source.ref);
+  assert.deepEqual(evaluated.keywords.map(keyword => keyword.id), ["Ganking"]);
+  assert.equal(evaluated.movement.canGank, false);
+  const queried = movement(f.engine.layers.registry, source.ref, source, source.controller);
+  assert.equal(queried.canGank, false, "the granted keyword is not read as a movement permission");
+  assert.equal(queried.battlefieldToBattlefield, false);
+  assert.deepEqual(queried.permissions, []);
+});
+
 test("unl-108-219 Wily Newtfish golden: the declared +1 Might really applies to the host alone", () => {
-  // RIFT-258's continuous.might resolves the declared { object: "self" } selector
+  // The merged continuous.might resolves the declared { object: "self" } selector
   // (interpreter selectors: queryObjects consumes object anchors) and the
   // arithmetic layer applies +1 Might to the host only.
   const base = world()
@@ -130,17 +196,19 @@ test("unl-108-219 Wily Newtfish golden: the declared +1 Might really applies to 
 
 test.todo(
   "unl-108-219 Wily Newtfish: the movement system must consume the granted [Ganking] permission " +
-    "(810.1.c / 144.4.c) — zones/movement.ts and effect.move never read it, and layers/rules/query.ts#movement " +
-    "only reads continuous.movement's permission.routes form, not the granting keyword"
+    "(810.1.c / 144.4.c) — layers/rules/query.ts#movement reads only continuous.movement's permission.routes, " +
+    "not a granted Ganking keyword (measured: canGank stays false while the layered host carries Ganking), and " +
+    "the Standard Move has no production assembly for its trusted Ganking evaluator / DuelMovementRuleContext " +
+    "(moveDuelUnitsWithMetadata has no caller outside tests)"
 );
 
 test.todo(
   "unl-108-219 Wily Newtfish: evaluate 'you've gained XP this turn' (364.3 / 730.1) for a static ability — " +
-    "the frozen Condition algebra has no history node and layers/engine.ts conditionMatches only knows " +
-    "always/never/type/has-tag/has-keyword, returning true for everything else"
+    "the merged Condition algebra has no history node, the interpreter's count runs a live set query that ignores " +
+    "filter.player, and nothing consumes controller-xp-gained-this-turn turn history"
 );
 test.todo(
   "unl-108-219 Wily Newtfish: make the production static binder honour the XP gate — " +
-    "programs/statics.ts and attachProgramLifecycle can register the ContinuousEffectSpec, but Condition/LayerEngine " +
-    "cannot evaluate the controller's XP history and must not activate the effect unconditionally"
+    "programs/statics.ts and attachProgramLifecycle compile the declared Condition into a per-object predicate, " +
+    "but the count half counts the host itself at 0 XP, so the effect activates unconditionally (measured)"
 );
