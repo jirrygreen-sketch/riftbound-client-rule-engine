@@ -16,6 +16,7 @@ export interface HeadlessCard extends MatchCard {
   readonly canonicalCardId: string;
   readonly cardType: string;
   readonly domains: readonly string[];
+  readonly tags: readonly string[];
   readonly energy: number | null;
   readonly power: number | null;
   readonly might: number | null;
@@ -38,6 +39,10 @@ interface M1Candidate {
 
 interface CatalogCard {
   readonly canonicalCardId: string;
+  readonly name: string;
+  readonly cardType: string;
+  readonly domains: readonly string[];
+  readonly tags: readonly string[];
   readonly energy: number | null;
   readonly power: number | null;
   readonly might: number | null;
@@ -83,17 +88,22 @@ function physicalCard(
   ordinal: number,
 ): HeadlessCard {
   const printed = catalogByCanonical.get(entry.canonicalCardId);
+  if (!printed) {
+    throw new Error(`Card catalog is missing M1 printing ${entry.canonicalCardId}`);
+  }
+  const cardType = printed.cardType;
   return {
     id: `${seat}:${zone}:${ordinal}:${entry.canonicalCardId}`,
     cardId: entry.canonicalCardId,
     canonicalCardId: entry.canonicalCardId,
-    name: entry.name,
-    cardType: entry.cardType,
-    domains: [...entry.domains],
-    types: typesFor(entry.cardType),
-    energy: printed?.energy ?? null,
-    power: printed?.power ?? null,
-    might: printed?.might ?? null,
+    name: printed.name,
+    cardType,
+    domains: [...printed.domains],
+    tags: [...printed.tags],
+    types: typesFor(cardType),
+    energy: printed.energy,
+    power: printed.power,
+    might: printed.might,
   };
 }
 
