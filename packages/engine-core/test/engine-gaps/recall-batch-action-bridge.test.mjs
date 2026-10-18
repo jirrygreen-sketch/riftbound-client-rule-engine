@@ -170,6 +170,35 @@ test('run-instruction context exposes the same contract capability and commits R
   assert.equal(source.history({ action: 'recall' }), 1);
 });
 
+test('Recall capability replay is deterministic across identical kernels', () => {
+  const instruction = {
+    op: 'test.contract-recall-replay',
+    argsSchema: { parse: value => value },
+    execute(ctx) {
+      const outcome = ctx.contractActions.perform({
+        type: 'recall',
+        object: ctx.source.ref,
+        player: ctx.source.controller,
+      });
+      return outcome.status === 'done'
+        ? { status: 'executed', events: [...outcome.events], linkedValues: { receipt: outcome.receipt } }
+        : { status: 'negated', reason: 'impossible', events: [...outcome.events] };
+    },
+  };
+  const run = () => {
+    const kernel = world().unit('subject', { damage: 2, exhausted: true, stunned: true, location: one }).build();
+    return runInstruction(instruction, {}, {
+      world: kernel.clone({ sourceSnapshot: kernel.getObject('subject') }),
+    });
+  };
+  const first = run();
+  const second = run();
+  assert.deepEqual(first.result, second.result);
+  assert.deepEqual(first.events, second.events);
+  assert.deepEqual(first.world.stateForTest(), second.world.stateForTest());
+  assert.deepEqual(first.linked, second.linked);
+});
+
 test('a successful Batch commits both relocations, their histories, Move events, simultaneous identity, and one receipt', () => {
   const f = fixture();
   const a = f.kernel.getObject('a');

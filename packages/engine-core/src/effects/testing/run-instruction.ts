@@ -1,7 +1,8 @@
-import type { ActionOutcome, InstructionDef, InstructionResult, ObjectRef, PlayerId, Value } from "../contract.js";
+import type { ActionOutcome, InstructionDef, InstructionResult, ObjectRef, PlayerId, ResolveContext, Value } from "../contract.js";
 import { AwaitChoice } from "../contract.js";
 import type { TestWorld } from "./test-kernel.js";
-import { ContractActionRollbackError } from "../../events/contract-actions/bridge.js";
+import { bindResolveContext } from "../../events/action-adapter.js";
+import { ContractActionRollbackError, createContractActionCapability } from "../../events/contract-actions/bridge.js";
 
 export interface RunInstructionOptions {
   world: TestWorld;
@@ -26,8 +27,11 @@ export function runInstruction<A>(def: InstructionDef<A>, args: A, options: RunI
   for (const [id, picks] of Object.entries(options.picks ?? {})) targetWorld.setPicks(id, picks);
   targetWorld.setAnswers(options.answers ?? {});
   for (const [key, value] of Object.entries(options.linked ?? {})) targetWorld.link(key, value);
+  const context: ResolveContext = bindResolveContext(targetWorld, {
+    contractActions: createContractActionCapability(action => targetWorld.performContract(action)),
+  });
   try {
-    const result = def.execute(targetWorld, def.argsSchema.parse(args));
+    const result = def.execute(context, def.argsSchema.parse(args));
     options.world.restore(targetWorld.snapshot());
     options.world.copyLinkedFrom(targetWorld);
     return { result, events: targetWorld.events.slice(initialEventCount), world: options.world, linked: linkedRecord(targetWorld), asked: null };

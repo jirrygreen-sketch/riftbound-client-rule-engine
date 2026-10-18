@@ -29,7 +29,7 @@ import { isTimingPointId, type TimingPointId } from "../../events/timing-points.
 import { evaluateCondition } from "../interpreter/condition.js";
 import { arithmetic, equalValues } from "../interpreter/values.js";
 import { resolveObjectSelector } from "../interpreter/selectors.js";
-import { createContractActionCapability, executeContractAction, isKnownContractAction, killBatch, type ContractActionCapability } from "../../events/contract-actions/bridge.js";
+import { executeContractAction, isKnownContractAction } from "../../events/contract-actions/bridge.js";
 import { disempowerTransition } from "../../zones/empower-state.js";
 
 export { AwaitChoice } from "../contract.js";
@@ -187,9 +187,6 @@ export class TestWorld implements ResolveContext {
   get continuousEffects(): readonly { effect: ContinuousEffectSpec; duration: Duration }[] { return this.state.continuous; }
   get delayedTriggers(): readonly { at: TriggerSpec; body: readonly Instruction[] }[] { return this.state.delayed; }
   get randomState(): number { return this.state.randomState; }
-  get contractActions(): ContractActionCapability {
-    return createContractActionCapability(action => this.performContract(action));
-  }
   ref(id: string): ObjectRef { const object = this.state.objects.get(id); if (!object) throw new Error(`Unknown object ${id}`); return cloneRef(object.ref); }
   setAnswers(answers: Record<string, unknown>): void { this.answers = new Map(Object.entries(answers)); }
   setTargets(id: string, refs: readonly ObjectRef[]): void { this.targetSets.set(id, refs.map(cloneRef)); }
