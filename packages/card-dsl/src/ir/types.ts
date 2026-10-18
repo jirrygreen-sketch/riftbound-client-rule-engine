@@ -112,8 +112,8 @@ export type ObjectRelation =
 /** A relation is a filter predicate, never an implicit target selection. */
 export type RelationFilter = Readonly<Record<string, Value>> & {
   readonly relation: ObjectRelation;
-  readonly object?: ObjectSelector | EventRoleSelector;
-  readonly other?: ObjectSelector | EventRoleSelector;
+  readonly object?: ObjectSelector | EventObjectSelector;
+  readonly other?: ObjectSelector | EventObjectSelector;
 };
 
 /** A JSON-like filter whose object-valued anchors contain static selectors. */
@@ -298,25 +298,25 @@ export interface ExpressionCondition {
 }
 
 /** A role in the event payload supplied while a trigger is tested. */
-export type EventRoleSelector = "object" | "source" | "target" | "it";
+export type EventObjectSelector = "object" | "source" | "target" | "it";
 
 /** A card-play provenance predicate.  The event payload, not the current zone, is authoritative. */
 export interface PlayedFromHandCondition {
   readonly kind: "played-from-hand" | "playedFromHand";
-  readonly object?: EventRoleSelector;
+  readonly object?: EventObjectSelector;
 }
 
 /** A card-play provenance predicate for an explicitly named origin zone. */
 export interface PlayedFromZoneCondition {
   readonly kind: "played-from-zone" | "playedFromZone";
   readonly zone: string;
-  readonly object?: EventRoleSelector;
+  readonly object?: EventObjectSelector;
 }
 
 /** A comparison against a printed/copied characteristic carried by an event object. */
 export interface PrintedCharacteristicCondition {
   readonly kind: "event-printed" | "printed-characteristic" | "event-printed-characteristic";
-  readonly object: EventRoleSelector;
+  readonly object: EventObjectSelector;
   readonly characteristic: "energy" | "power" | "might";
   readonly operator: ConditionOperator;
   readonly right: Expr;
@@ -339,14 +339,14 @@ export interface ResultCondition {
 export interface RelationCondition {
   readonly kind: "relation";
   readonly relation: ObjectRelation;
-  readonly left: EventRoleSelector | ObjectSelector;
-  readonly right?: EventRoleSelector | ObjectSelector;
+  readonly left: EventObjectSelector | ObjectSelector;
+  readonly right?: EventObjectSelector | ObjectSelector;
 }
 
 /** Presence test for the object bound by an event's pronoun (`it`). */
 export interface EventItCondition {
   readonly kind: "event-it";
-  readonly object?: EventRoleSelector;
+  readonly object?: EventObjectSelector;
 }
 
 /** A v1.5 condition clause; its scope is the instruction or ability field owning it. */
