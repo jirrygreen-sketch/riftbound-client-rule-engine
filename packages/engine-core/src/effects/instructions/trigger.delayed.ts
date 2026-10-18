@@ -79,11 +79,12 @@ type OnceScope = (typeof ONCE_SCOPES)[number];
  * referenced at creation, so at/filter/once values are evaluated here and
  * stored on the registration (LKI).
  *
- * The window (duration/window, 392) is enforced two ways: 359.3.e.16 rejects
- * registrations whose expiry timing point has already passed, and the merged
- * per-game scope keeps a one-shot window from retriggering. The frozen
- * registration contract cannot carry a window, so the full expiry lifecycle
- * lives in the delay-expiry layer (events/delayed).
+ * The frozen registration contract cannot carry a window. For the same
+ * reason, this instruction cannot safely register a windowed ability through
+ * the production bridge: doing so would leave it active after its expiry.
+ * Windowed registrations therefore remain fail-closed until the bridge can
+ * carry `expiresAt`; the helper lifecycle in events/delayed is already ready
+ * for that adapter change.
  */
 export default {
   op: 'trigger.delayed',
@@ -128,23 +129,19 @@ export default {
       if (duration === undefined) {
         return { status: 'negated', reason: 'impossible', events: [] };
       }
-      // 359.3.e.16: a "this turn" window whose expiry timing point has begun
-      // before registration does not generate the ability (the Ending Phase's
-      // own example registers during turn-end). A "next ..." window always
-      // opens on a later occurrence of its timing point, so until-windows are
-      // never rejected by the current point alone.
+      // 359.3.e.16 rejects a duration that has already ended. For a future
+      // window, the production registration still needs expiresAt to stop at
+      // the end of that window. ResolveContext cannot pass expiresAt, so a
+      // successful registration here would invent an unbounded ability.
       if (duration.kind === 'this-turn' && isTimingPointPassed(ctx.timingPoint, DELAYED_EXPIRES_AT)) {
         return { status: 'negated', reason: 'impossible', events: [] };
       }
-      once = once ?? 'per-game';
+      return { status: 'negated', reason: 'impossible', events: [] };
     }
     const spec = assertDelayedSpec({ at, filter: filter!, ...(once ? { once } : {}) });
     if (spec === null) return { status: 'negated', reason: 'impossible', events: [] };
     ctx.registerDelayedTrigger(spec, body as readonly Instruction[]);
-    ctx.link('registered', {
-      at, filter: filter!, ...(duration ? { duration } : {}), ...(once ? { once } : {}),
-      registeredAt: ctx.timingPoint,
-    });
+    ctx.link('registered', { at, filter: filter!, ...(once ? { once } : {}), registeredAt: ctx.timingPoint });
     return { status: 'executed', events: [] };
   },
 } as const;
