@@ -4,6 +4,12 @@ export type DuelDomain = (typeof DUEL_DOMAINS)[number];
 export type DuelPowerSource = DuelDomain | 'any';
 const POWER_SOURCES = Object.freeze([...DUEL_DOMAINS, 'any'] as const);
 
+/** Normalize explicit source spellings only; an [A] cost is not a source. */
+export function normalizeDuelPowerSource(value: unknown): DuelPowerSource {
+  if (value === 'universal' || value === 'universal-power') return 'any';
+  return powerSource(value);
+}
+
 export interface DuelRunePool {
   readonly energy: number;
   readonly power: Readonly<Record<DuelPowerSource, number>>;
