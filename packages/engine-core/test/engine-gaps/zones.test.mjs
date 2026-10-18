@@ -169,9 +169,9 @@ test("EG-ZONES original Reinforce choose + filter consumes the ordered top-five 
 });
 
 test("EG-ZONES recycle-rest original Divine Judgment args recycle the current complement and preserve stale receipt identity", () => {
+  const choose = structuredClone(playBody(divineJudgment)[0]);
   const instruction = structuredClone(playBody(divineJudgment)[1]);
-  delete instruction.linkedTo;
-  const program = wrapBody("test:eg-zones-divine-rest", [instruction]);
+  const program = wrapBody("test:eg-zones-divine-rest", [choose, instruction]);
   const f = fixture({
     programs: [program],
     setup(builder) {
@@ -186,14 +186,28 @@ test("EG-ZONES recycle-rest original Divine Judgment args recycle the current co
     },
   });
   const kept = ["kept-unit", "kept-gear", "kept-hand", "kept-rune"].map(id => f.kernel.ref(id));
-  f.kernel.link("divine-judgment-kept", kept.map(refValue));
-  // The original instruction is the second body instruction; its linkedTo is
-  // intentionally not used by this isolated seam.
-  const run = runInstruction(recycleRest, instruction.args, { world: f.kernel, linked: { "divine-judgment-kept": kept.map(refValue) } });
-  assert.equal(run.result.status, "executed");
+  const bind = {
+    id: "divine-judgment-choose",
+    op: "condition.value",
+    args: {
+      value: c(kept.map(refValue)),
+      key: c("divine-judgment-kept"),
+    },
+  };
+  f.engine.execute({
+    id: "divine-rest-body",
+    controller: "A",
+    source: f.get("kept-unit"),
+    kind: "activated",
+    speed: "normal",
+    body: [bind, instruction],
+  });
+  f.engine.pass("A");
+  f.engine.pass("B");
+  settle(f.engine);
   assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id).filter(id => id.startsWith("rest-")).sort(), ["rest-gear", "rest-hand", "rest-unit"]);
   assert.deepEqual(f.kernel.zone("A", "rune-deck").map(ref => ref.id).filter(id => id === "rest-rune"), ["rest-rune"]);
-  assert.deepEqual(run.linked.recycledRest.map(ref => ref.id).sort(), ["rest-gear", "rest-hand", "rest-rune", "rest-unit"]);
+  assert.deepEqual(f.kernel.linked("divine-judgment-recycle-rest.recycledRest").map(ref => ref.id).sort(), ["rest-gear", "rest-hand", "rest-rune", "rest-unit"]);
 });
 
 test("EG-ZONES recycle-rest refuses a missing kept receipt instead of recycling the whole set", () => {
