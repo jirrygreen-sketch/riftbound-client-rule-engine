@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { defineTemplateSuite, runCardScenario } from "../../../../src/effects/testing/scenario/index.ts";
-import { ProgramBindingError } from "../../../../src/programs/errors.ts";
+import { defineTemplateSuite, runCardScenario } from "../../../../dist/effects/testing/scenario/index.js";
+import { ProgramBindingError } from "../../../../dist/programs/errors.js";
 
 const constant = value => ({ kind: "constant", value });
 const makeProgram = abilities => ({

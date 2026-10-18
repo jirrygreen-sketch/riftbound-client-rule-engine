@@ -357,6 +357,16 @@ export function runCardScenario(program: CardProgram, scenario: CardScenario): C
   });
   binding.attachLifecycle(engine, error => { throw error; });
   addInitialProgramObjects(kernel, engine, boardProgramIds);
+  // Setup transitions clear combatRole through the kernel move path; restore the
+  // declared role afterwards so static conditions can observe it. This only
+  // restores declarative setup state and never touches post-operation state.
+  const postSetup = kernel.snapshot();
+  for (const object of scenario.objects ?? []) {
+    if (object.combatRole === undefined) continue;
+    const restored = postSetup.objects.get(object.id);
+    if (restored) postSetup.objects.set(object.id, { ...restored, combatRole: object.combatRole });
+  }
+  kernel.restore(postSetup);
   // Setup transitions establish lifecycle registrations; they are not scenario actions.
   const initialEventCount = engine.pipeline.events.length;
   if (scenario.priority && scenario.turnPlayer && scenario.priority !== engine.priority) {
