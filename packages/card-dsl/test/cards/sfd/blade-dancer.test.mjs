@@ -11,6 +11,9 @@ import ready from "../../../../engine-core/dist/effects/instructions/effect.read
 import { CostPlanError } from "../../../../engine-core/dist/cost/index.js";
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { ChainContractBlockedError } from "../../../../engine-core/dist/chain/engine.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-d511bb90ed51ac962aec938d769d68fb16ec0ef21f47c232f727712726e31cf1";
@@ -51,7 +54,8 @@ test("sfd-195-221 Blade Dancer: identity, ruleset, status, judgeReason and verba
   assert.match(program.judgeReason, /Legend Zone/);
   assert.match(program.judgeReason, /ObjectSelector/);
   assert.match(program.judgeReason, /355\.18/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-(257|261|64)/);
+  assert.match(program.judgeReason, /Nested\/repeated targets/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
 });
 
 test("sfd-195-221 Blade Dancer: 'when you choose a friendly unit' is a Targeting Effect at became-target", () => {
@@ -133,7 +137,9 @@ test("sfd-195-221 Blade Dancer: the may-body pays the exhaust cost then readies 
 test("sfd-195-221 Blade Dancer: 'when you conquer' is a Conquer Effect paying 1 energy to ready me", () => {
   assert.equal(conquerEffect.kind, "triggered");
   assert.equal(conquerEffect.trigger.at, "conquer");
-  assert.deepEqual(conquerEffect.trigger.filter, { event: "conquer", player: "self" });
+  // The closed EventPattern discriminant for the conquer timing point is
+  // "conquered"; "conquer" is rejected as invalid-event-type.
+  assert.deepEqual(conquerEffect.trigger.filter, { event: "conquered", player: "self" });
   assert.equal(conquerEffect.trigger.once, undefined);
   assert.equal(conquerEffect.optional, true);
   assert.equal(conquerOptional.id, "blade-dancer.may-ready-self");
@@ -255,6 +261,20 @@ test("sfd-195-221 Blade Dancer: the mixed rainbow/exhaust cost plan executes thr
   ]);
 });
 
+test("sfd-195-221 Blade Dancer: the production chain cannot literalize the declared cost pair", () => {
+  // 383.3.b.1: the leading cost must be payable at Finalize. programs/triggers.ts
+  // extracts none, and the chain's own Expr envelope cannot literalize
+  // cost.modify's `id`, so the declared pair fails closed instead of silently
+  // charging at Resolve.
+  const kernel = legendWorld();
+  kernel.addPlayer("A", { power: ["Fury"] });
+  assert.throws(
+    () => resolveChainBody(optionalBody.slice(0, 2), kernel),
+    error => error instanceof TypeError && /cost\.modify id/.test(error.message)
+  );
+  assert.equal(kernel.getObject("blade-dancer").exhausted, false);
+});
+
 test("sfd-195-221 Blade Dancer: the printed exhaust cost is charged as a real exhaust payment", () => {
   // 415.4/415.5: the leading :rb_exhaust: is a cost, not effect.exhaust's state
   // change. The merged cost plan charges it against the ready source.
@@ -341,6 +361,34 @@ test("sfd-195-221 Blade Dancer: the merged trigger registration still carries no
     assert.equal(registration.cost, undefined);
     assert.equal(registration.mayAtFinalize, undefined);
   }
+
+  // The translated specs really pass the closed vocabulary, so the remaining
+  // blocker is the ability cost (above) and the legend zone, not the trigger.
+  for (const registration of registrations) assert.doesNotThrow(() => assertTriggerSpec(registration.spec));
+  assert.deepEqual(registrations.map(registration => registration.spec.filter), [
+    { event: "became-target", target: { type: "unit", controller: "self" }, player: "self" },
+    { event: "conquered", player: "self" }
+  ]);
+});
+
+test("sfd-195-221 Blade Dancer: the real chain blocks the nested chosen-unit target before Finalize", () => {
+  // 355.6/355.7: "ready it" re-selects through a TargetSpec nested inside the
+  // optional body. assertFinalizationSurface only collects top-level targets, so
+  // the production chain refuses the item instead of resolving the chosen unit.
+  const f = fixture({ cards: [{ id: "blade-dancer", cardId: CARD_ID, types: ["legend", "unit"] }] });
+  assert.throws(
+    () => f.engine.execute({
+      id: "blade-dancer.choose",
+      controller: "A",
+      source: f.kernel.getObject("blade-dancer"),
+      kind: "triggered",
+      speed: "action",
+      body: targetingEffect.body
+    }),
+    error => error instanceof ChainContractBlockedError &&
+      /Nested\/repeated targets require an interpreter target-selection lifecycle adapter/.test(error.message)
+  );
+  assert.equal(optionalBody[2].targets.length, 1);
 });
 
 test("sfd-195-221 Blade Dancer: the merged exhaust payment still requires a Board or Rune-Zone object", () => {

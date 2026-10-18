@@ -9,7 +9,9 @@ import { translateObjectFilter } from "../../../../engine-core/dist/programs/fil
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { ChainContractBlockedError } from "../../../../engine-core/dist/chain/engine.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-a08970a66c071f3fd82fd5a9ca7f63e01c9674666037e987829b498e9b9b58db";
@@ -55,8 +57,10 @@ test("sfd-125-221 Fae Porter: judgeReason names event subscription and leading c
   assert.match(program.judgeReason, /449\.1\/449\.2/);
   assert.match(program.judgeReason, /458/);
   assert.match(program.judgeReason, /163\.1\/163\.2/);
-  assert.match(program.judgeReason, /383\.3\.b/);
+  assert.match(program.judgeReason, /383\.3\.b\.1/);
   assert.match(program.judgeReason, /TriggerRegistration.cost/);
+  assert.match(program.judgeReason, /Nested\/repeated targets/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("sfd-125-221 Fae Porter: 'when I move to a battlefield' subscribes to object-moved", () => {
@@ -212,6 +216,26 @@ test.todo(
   "sfd-125-221 Fae Porter: admit object-moved into EVENT_PATTERN_TYPES and bind the moved source/" +
     "battlefield restriction to the existing producer (449.1/449.2, Recall excluded by 458)"
 );
+
+test("sfd-125-221 Fae Porter: the real chain blocks the nested friendly-unit target before Finalize", () => {
+  // 355.9.a.1/355.10: "move a unit you control" is a TargetSpec inside the
+  // optional body. assertFinalizationSurface only collects top-level targets, so
+  // the production chain refuses the item instead of resolving the selection.
+  const f = fixture({ cards: [{ id: "fae-porter", cardId: CANONICAL, types: ["unit"] }] });
+  assert.throws(
+    () => f.engine.execute({
+      id: "fae-porter.moved",
+      controller: "A",
+      source: f.kernel.getObject("fae-porter"),
+      kind: "triggered",
+      speed: "action",
+      body: ability.body
+    }),
+    error => error instanceof ChainContractBlockedError &&
+      /Nested\/repeated targets require an interpreter target-selection lifecycle adapter/.test(error.message)
+  );
+  assert.equal(body[2].targets.length, 1);
+});
 
 test.todo(
   "sfd-125-221 Fae Porter: lift leading may/pay into TriggerRegistration.cost/mayAtFinalize " +

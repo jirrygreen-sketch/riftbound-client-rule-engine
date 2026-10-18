@@ -35,8 +35,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   existence. The permanent layer registration is scoped to the target's
  *   zone-entry identity; Assault's attacker condition is a separate gate.
  *
- * Status: judge-required, with both gaps named:
- * - the [Assault 2] grant now has a merged instruction op
+ * Status: judge-required, with both gaps named (re-probed 2026-10-18):
+ * - the [Assault 2] grant has a merged instruction op
  *   (`effects/instructions/continuous.grant-keyword.ts`) that registers an
  *   ability-layer keyword for a duration, but runtime granted keywords are not
  *   passed through the KeywordDef expansion path that turns Assault into its
@@ -52,7 +52,7 @@ import type { CardProgram } from "../../ir/index.js";
  * review; nothing is approximated (no Buff counter stands in for Assault's
  * conditional +2 Might).
  *
- * RIFT-681 execution evidence: test/cards/templates/
+ * Execution evidence: test/cards/templates/
  * keyword-play-continuous-grant-keyword-681.test.mjs runs the printed base cost
  * and the Assault 2 grant row through the generic scenario harness, and pins the
  * declared [Repeat] cost failing closed in translateCost. The program stays
@@ -63,11 +63,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现（RIFT-681 模板 golden 给出了真实证据边界）：" +
+    "两处依赖未合入，均不近似实现（2026-10-18 复核；模板 golden 给出真实证据边界）：" +
     "(1)「Give a unit [Assault 2]」的 continuous.grant-keyword 指令原语已能登记 ability 图层的 Assault 2" +
-    "（golden 以目录印刷基础费用 1 能量、power null 的测试视图打出，并断言 chosen 单位读取到 Assault 2），但运行时授予的关键词不进入 " +
-    "KeywordDef 展开路径，且 Assault 展开读取 designation 而 ObjectSnapshot 只提供 combatRole，" +
-    "无法得到攻击者期间的条件 +2 Might。把 [Assault 2] 声明成这张法术自身的关键词会描述错误的对象，故不这样写。" +
+    "（golden 以目录印刷基础费用 1 能量、power null 的测试视图打出，并断言 chosen 单位读取到 Assault 2），" +
+    "但运行时授予的关键词不进入 KeywordDef 展开路径（实测：授予后图层快照只有 keywords=[{id:\"Assault\",value:2}]，" +
+    "Might 仍是印刷值 3，攻击者期间的条件 +2 Might 未产生），且 Assault 的展开条件读 designation 这个特征名，" +
+    "而 ObjectSnapshot 暴露的是 combatRole（effects/keywords/Assault.ts 的 condition 左侧仍是 object-property designation），" +
+    "因此没有安全的运行时 Might 结论。把 [Assault 2] 声明成这张法术自身的关键词会描述错误的对象，故不这样写。" +
     "(2) [Repeat] :rb_energy_1: 的附加费用无法收取：programs/play.ts 的 translateCost 对 kind:\"additional\" fail-closed" +
     "（\"Additional costs are not bound\"），卡牌程序声明的可选附加费用因此进不了 CostPlanInput.optionalAdditional，" +
     "已付实例数也没有供结算读取以额外执行一次的绑定（820.1.c.1 / 820.1.d.1）；golden 直接订住该 fail-closed 行为。" +

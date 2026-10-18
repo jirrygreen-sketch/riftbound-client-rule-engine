@@ -469,26 +469,25 @@ const moreRows = [
     verify(result) {
       const [ability] = published(IDS.forgottenMonument).abilities;
       assert.equal(ability.effect.kind, "continuous.restrict");
-      assert.equal(ability.effect.restriction, "score");
-      assert.equal(ability.effect.appliesTo, "this-battlefield");
+      assert.deepEqual(ability.effect.actions, ["score"]);
+      assert.equal(ability.effect.restriction, "forgotten-monument");
+      // 470.1/471: "here" is the ability host, so the merged source-relative
+      // anchor binds to this battlefield's exact zone entry.
+      assert.equal(ability.effect.appliesTo, "self");
       assert.deepEqual(ability.effect.until, { perPlayerTurn: 3 });
       const source = snapshot("monument", { types: ["battlefield"], location: HERE, energy: null, power: null });
-      // The merged binder has no battlefield identity for this anchor.
-      expectBindingError(ability, source, /^Unsupported static appliesTo "this-battlefield"$/);
+      // The declaration itself now binds through the production binder.
+      const bound = bindStatic(ability, source);
+      assert.equal(bound.error, null, "the merged binder resolves the self anchor");
+      assert.deepEqual(bound.engine.layers.registry.list().map(entry => entry.effect.filter), [
+        { objectId: source.ref.id, zone: "board", zoneEntryId: source.ref.zoneEntryId }
+      ]);
+      assert.deepEqual(restrictions(bound.engine.layers.registry, "score").map(entry => entry.name), ["forgotten-monument"]);
+      assert.deepEqual(restrictions(bound.engine.layers.registry, "move"), []);
+      bound.handle?.unbind();
       assert.equal(result.state.players.A.score, 0);
-      // Control: the merged restriction query is real. A registration built
-      // from the same declaration vocabulary reaches restrictions("score") when
-      // the anchor is an absolute filter.
-      const control = fixture({ cards: [] }).engine;
-      control.layers.addContinuous({
-        id: "rift-667-monument-control",
-        layer: "ability",
-        source: source.ref,
-        filter: { objectId: "monument", zone: "board" },
-        effect: { kind: "restriction", actions: ["score"], restriction: "forgotten-monument" },
-      }, { type: "permanent" });
-      assert.deepEqual(restrictions(control.layers.registry, "score").map(entry => entry.name), ["forgotten-monument"]);
-      assert.deepEqual(restrictions(control.layers.registry, "move"), []);
+      // The remaining gap is the consumer: nothing in scoring/scoring.ts reads
+      // this registry, and the printed window has no slot on the restriction.
       return result;
     },
   },
@@ -996,8 +995,9 @@ test.todo(
 );
 test.todo(
   "RIFT-667 Forgotten Monument [" + IDS.forgottenMonument + "]: no player may score here until their third turn (CR 470.1 / 471) - " +
-    "the static binder cannot resolve appliesTo \"this-battlefield\" without a concrete battlefield identity, scoring/scoring.ts never " +
-    "queries the restriction registry, and there is no per-player turn-ordinal vocabulary for \"their third turn\"",
+    "the source-relative anchor now binds through the production static binder and reaches restrictions(\"score\"), but " +
+    "scoring/scoring.ts never queries the restriction registry and continuous.restrict has no window slot for " +
+    "\"their third turn\"",
 );
 test.todo(
   "RIFT-667 Irelia, Graceful [" + IDS.ireliaGraceful + "]: a spell that chooses me must cost 1 Energy or 1 Universal Power less " +

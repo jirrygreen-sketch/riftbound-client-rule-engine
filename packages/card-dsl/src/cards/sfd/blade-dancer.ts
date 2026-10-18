@@ -20,6 +20,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   控制者解释（events/pipeline-match.ts 的 playerMatches 只归一化 self/opponent）。
  * - "When you conquer" 是 Conquer Effect（383.4.c/383.4.c.2.b：引用做出 Conquer 的玩家的能力）；
  *   封闭时点 conquer（refs 468.5.d/471.1/473.2.a）由 turn/flow.ts 的计分 wave 发出。
+ *   EventPattern 的封闭判别词是 "conquered"（events/trigger-spec.ts 的 EVENT_PATTERN_TYPES；
+ *   events/pipeline-match.ts 把时点 conquer 映射为 "conquered"），写 "conquer" 会被
+ *   assertTriggerSpec 以 invalid-event-type 拒绝。
  * - 两处 "you may" 都是效果首段的可选项（403.1/383.3.a：控制者在 Finalization 决定是否执行该
  *   触发式能力），因此 TriggeredAbility.optional = true；同时按契约 3.9 把被选指令包进
  *   choice.optional 的 body（不写 choice + linkedTo），与 azir-sovereign/veiled-temple 同型。
@@ -34,7 +37,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "ready it"：it 是触发事件里被选中的那个友方单位（本次 choose 的对象）。静态 IR 不能写运行时
  *   ObjectRef（契约 3.6），这里用 TargetSpec 作占位选择符，与 mistfall/pirates-haven 同型。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-18）。
  * 依赖与缺口见 judgeReason；golden 测试用解释器 + 参考内核真实执行已合入的 effect.ready、
  * 混合费用计划和能量支付（不是整卡执行证据）。
  * 不近似实现：不用 effect.exhaust 冒充费用式横置，不把 choose 写成 pick，不选一个域冒充 [A]。
@@ -128,7 +131,8 @@ const abilities: Ability[] = [
   {
     kind: "triggered",
     // "When you conquer"：383.4.c.2.b 的 Conquer Effect（引用做出 Conquer 的玩家）。
-    trigger: { at: "conquer", filter: { event: "conquer", player: "self" } },
+    // 封闭判别词是 "conquered"（时点仍是 conquer）。
+    trigger: { at: "conquer", filter: { event: "conquered", player: "self" } },
     optional: true,
     body: [
       {
@@ -185,18 +189,20 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "当前仍有四处生产缺口，均不近似实现：(1) 两段印刷费用虽已用 cost.modify/cost.pay 在局部正文中建模并由 golden 真实支付，" +
-    "但 card-dsl 的 TriggeredAbility 契约没有顶层 CostSpec（只有 ActivatedAbility 与 TriggerRegistration.cost），" +
-    "程序无法声明让 Finalize 锁定并原子支付的能力费用；" +
-    "triggerRegistrations 也只保留 spec/body/optional/activeZones，不传递费用。" +
-    "(2) CR 107.4 的 Legend Zone 不在 effects/contract.ts 的 ZoneId 联合里（该联合只有 hand/deck/rune-deck/trash/banishment/board/rune-zone/chain），" +
-    "而 cost/payment.ts 的 exhaust 费用只允许 board 或 rune-zone，传奇来源在生产环境无法作为费用对象绑定。" +
-    "(3) ready it 必须引用 became-target 事件中实际选中的对象；现有 ObjectSelector 只有 self/source/target/pick/linked，" +
-    "没有事件对象选择符，TargetSpec 只能重新选择一个目标。" +
-    "(4) chain/engine.ts 发出的 became-target 事件把 player 设为链项控制者（`player: item.controller`），" +
-    "不保留 355.18 所需的实际选择者字段；跨控制效果无法可靠匹配 player: self。" +
-    "已合入的 cost.modify/cost.pay、Universal Power 数值支付、effect.ready 与 conquer 时点均由 golden 覆盖局部真实执行；" +
-    "不把任何已合入原语再列为缺失。",
+    "仍缺三处（2026-10-18 逐条实测；conquer 订阅词已按封闭词表改为 \"conquered\"）：" +
+    "（1）两段印刷费用（383.3.b/383.3.b.1/740.4.a.2）虽已用 cost.modify/cost.pay 在正文中建模并由 golden 在解释器上真实支付" +
+    "（生产链路径不会把 cost.modify 的 id 字面量化，实测抛 TypeError \"cost.modify id must be a non-empty string\"，因此该对指令在正文里到不了 Resolve），" +
+    "但契约 3.1 的 TriggeredAbility 没有顶层 CostSpec（只有 ActivatedAbility 与 TriggerRegistration.cost），" +
+    "programs/triggers.ts 也不从正文提取费用或 383.3.a 的 Finalize 「you may」决定，triggerRegistrations 因此只产出 " +
+    "spec/body/optional/activeZones 且 cost/mayAtFinalize 恒为 undefined，Finalize 拿不到锁定计划。" +
+    "（2）CR 107.4 的 Legend Zone 不在 effects/contract.ts 的 ZoneId 联合里（该联合只有 hand/deck/rune-deck/trash/banishment/board/rune-zone/chain），" +
+    "而 cost/payment.ts 的 exhaust 费用只接受 board 或 rune-zone 上的就绪受控对象，传奇来源无法作为费用对象绑定（实测 cannot-pay-cost）。" +
+    "（3）「ready it」必须引用 became-target 事件里实际选中的对象：链在 Finalize 发出的 became-target 把 player 设为链项控制者" +
+    "（chain/engine.ts `player: item.controller`），不保留 355.18 所需的实际选择者；且 ObjectSelector 只有 self/source/target/pick/linked，" +
+    "没有事件对象选择符，TargetSpec 只能重新选一个目标。可选 body 内的该 TargetSpec 同时被 assertFinalizationSurface 以 " +
+    "\"Nested/repeated targets require an interpreter target-selection lifecycle adapter\" 阻断。" +
+    "已合入并由 golden 覆盖真实执行：cost.modify/cost.pay、Universal Power 数值支付、effect.ready、conquer 订阅的注册与校验；" +
+    "不把任何已合入原语再列为缺失，也不近似实现。",
   abilities,
   sourceText:
     "When you choose a friendly unit, you may exhaust me and pay :rb_rune_rainbow: to ready it.\n" +
