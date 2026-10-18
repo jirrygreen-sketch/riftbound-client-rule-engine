@@ -362,10 +362,32 @@ test("EG-RECALL swap rolls back the first relocation when the second is prevente
   assert.deepEqual(kernel.stateForTest(), before);
 });
 
+for (const behavior of ["first-rewrite", "first-prevent", "second-rewrite", "throw"]) {
+  test("EG-RECALL swap never reports committed for batch behavior " + behavior, () => {
+    const kernel = scenario();
+    const a = kernel.getObject("hero");
+    const b = kernel.getObject("anchor");
+    const before = kernel.stateForTest();
+    const { perform } = withBatchCapability(kernel, behavior);
+    let result;
+    if (behavior === "throw") {
+      assert.throws(() => runWithContractActions(swap, { objects: c([{ target: "a" }, { target: "b" }]) }, kernel, {
+        targets: { a: [kernel.ref("hero")], b: [kernel.ref("anchor")] },
+      }, perform), /batch bridge exploded/);
+    } else {
+      assert.throws(() => runWithContractActions(swap, { objects: c([{ target: "a" }, { target: "b" }]) }, kernel, {
+        targets: { a: [kernel.ref("hero")], b: [kernel.ref("anchor")] },
+      }, perform), /did not commit both relocations/);
+    }
+    assert.deepEqual(kernel.getObject("hero"), a);
+    assert.deepEqual(kernel.getObject("anchor"), b);
+    assert.deepEqual(kernel.stateForTest(), before);
+  });
+}
+
 test("EG-RECALL swap rolls back the whole transaction in the production ChainEngine when the second relocation fails", () => {
-  // resolveChainBody has no transaction; ChainEngine.resolve is the
-  // production path whose atomic rollback turns the prevented second leg
-  // into an error for the whole instruction.
+  // The default production context has no BatchAction consumer. The primitive
+  // must return a blocked receipt without any relocation or Move observation.
   const program = cardProgram("test:swap-rollback", [{
     id: "swap", op: "effect.swap-location",
     args: { objects: c([{ target: "a" }, { target: "b" }]) },
@@ -387,7 +409,7 @@ test("EG-RECALL swap rolls back the whole transaction in the production ChainEng
   f.engine.pass("B");
   assert.deepEqual(f.get("a").location, battlefield);
   assert.deepEqual(f.get("b").location, second);
-  assert.match(String(f.kernel.linked("swapped").blockedReason), /BatchAction consumer unavailable/);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-moved").length, 0);
 });
 
 test("EG-RECALL swap invalid destination in production rejects the whole instruction before any relocation", () => {
@@ -416,14 +438,12 @@ test("EG-RECALL swap invalid destination in production rejects the whole instruc
 test("EG-RECALL runs the original Conscription recall instruction through the default production assembly", () => {
   const ability = conscription.abilities.find(item => item.kind === "play");
   const recall = ability.body[2];
-  const standalone = recall;
   assert.equal(recall.op, "effect.move");
   assert.equal(recall.args.mode.value, "recall");
   assert.deepEqual(recall.args.to, c("controller-base"));
-  // The printed target lives on the take-control instruction; this stripped
-  // fixture exercises only the recall leg, without changing the original IR.
-  // The card's mightLte restriction stays judge-required and is not faked.
-  const program = cardProgram("test:recall-conscription", [standalone]);
+  // Keep the complete printed body and target/link relationships. The default
+  // adapter must reject the unsupported mightLte filter before any Recall.
+  const program = cardProgram("test:recall-conscription", ability.body);
   const f = programFixture({
     programs: [program], energy: { A: 5 }, power: { A: [] },
     setup(builder) {
@@ -431,20 +451,18 @@ test("EG-RECALL runs the original Conscription recall instruction through the de
       builder.unit("owner", {});
     },
   });
-  f.play("spell");
-  assert.throws(() => { f.engine.pass("A"); f.engine.pass("B"); }, /Unknown or forward instruction link/);
+  assert.throws(() => f.play("spell"), /Unsupported filter field mightLte/);
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-moved").length, 0);
 });
 
 test("EG-RECALL runs the original Glowstone recall instruction through the default production assembly", () => {
   const ability = glowstone.abilities.find(item => item.kind === "activated");
   const recall = ability.body[1];
-  const standalone = recall;
   assert.equal(recall.op, "effect.move");
   assert.equal(recall.args.objects.value, "source");
   assert.equal(recall.args.to.value, "controller-base");
   assert.equal(recall.args.mode.value, "recall");
-  assert.equal(standalone.args.objects.value, "source");
+  // Keep the complete activated ability and its printed Disempower cost.
   const program = { ...glowstone, abilities: [ability] };
   const f = programFixture({
     programs: [program], energy: { A: 0 }, power: { A: [] },
@@ -453,24 +471,19 @@ test("EG-RECALL runs the original Glowstone recall instruction through the defau
   assert.throws(() => f.activate("glow"), /Unsupported payment kind|disempower/i);
   assert.deepEqual(f.get("glow").location, battlefield);
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-moved").length, 0);
-  assert.match(String(f.kernel.linked("recalled").blockedReason), /RecallAction consumer unavailable/);
 });
 
 test("EG-RECALL runs the original Smoke and Mirrors swap instruction through the default production assembly", () => {
   const ability = smokeAndMirrors.abilities.find(item => item.kind === "play");
   const swap = ability.body[0];
-  const standalone = swap;
   assert.equal(swap.op, "effect.swap-location");
   assert.deepEqual(swap.args.objects.value, [{ target: "smoke-and-mirrors.unit-a" }, { target: "smoke-and-mirrors.unit-b" }]);
-  // The printed unit-b filter uses exclude/locationRelation, which the current
-  // TargetPlan contract does not consume; those unsupported relationship fields
-  // remain judge-required and are not faked. The fixture's separate locked
-  // answers select the same printed pair for this execution evidence without
-  // changing the original targets.
-  const program = cardProgram("test:swap-smoke-and-mirrors", [standalone]);
+  // Keep the complete printed body and its exclude/locationRelation targets.
+  // The default adapter must reject that unsupported relationship before any
+  // swap action is submitted.
+  const program = cardProgram("test:swap-smoke-and-mirrors", ability.body);
   const f = programFixture({
     programs: [program], energy: { A: 5 }, power: { A: [] },
-    answers: { "target:smoke-and-mirrors.unit-a": ["one"] },
     setup(builder) {
       builder.hand("spell", { cardId: program.canonicalCardId, types: ["spell"], energy: 0, power: [] });
       builder.unit("one");
@@ -478,8 +491,7 @@ test("EG-RECALL runs the original Smoke and Mirrors swap instruction through the
       builder.object("destination", { types: ["battlefield"], energy: null, power: null });
     },
   });
-  f.play("spell");
-  assert.throws(() => { f.engine.pass("A"); f.engine.pass("B"); }, /Unsupported filter field|No legal targets/);
+  assert.throws(() => f.play("spell"), /Unsupported filter field exclude/);
   assert.deepEqual(f.get("one").location, battlefield);
   assert.deepEqual(f.get("two").location, second);
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-moved").length, 0);

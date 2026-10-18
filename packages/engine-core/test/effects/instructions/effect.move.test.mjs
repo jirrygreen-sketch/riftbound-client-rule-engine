@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import move from "../../../src/effects/instructions/effect.move.ts";
 import { AwaitChoice, runInstruction, world } from "../../../src/effects/testing/index.ts";
+import { bindResolveContext } from "../../../src/events/action-adapter.ts";
 
 const literal = value => ({ kind: "constant", value });
 const target = id => literal({ target: id });
@@ -141,6 +142,42 @@ test("effect.move source defaults to the ability source and a same-location dest
   assert.equal(moved.linked.moved.count, 1);
 });
 
+test("effect.move enforces one shared destination rule for direct constants and linked values", () => {
+  const kernel = world().unit("mover").unit("other", { owner: "B", location: second }).build();
+  kernel.addPlayer("C", {});
+  kernel.addObject({ ...kernel.getObject("other"), ref: { id: "c-unit", zoneEntryId: 1 }, owner: "C", controller: "C" }, "board");
+  const blocked = runInstruction(move, { objects: target("units"), to: literal(second) }, {
+    world: kernel, targets: { units: [kernel.ref("mover")] }
+  });
+  assert.equal(blocked.result.status, "negated");
+  assert.equal(blocked.result.reason, "impossible");
+  assert.equal(blocked.events.length, 0);
+  assert.deepEqual(kernel.getObject("mover").location, battlefield);
+  const linked = runInstruction(move, {
+    objects: target("units"), to: { kind: "linked-value", instructionId: "location", key: "there" }
+  }, { world: kernel, targets: { units: [kernel.ref("mover")] }, linked: { there: second } });
+  assert.equal(linked.result.status, "negated");
+  assert.equal(linked.result.reason, "impossible");
+  assert.equal(linked.events.length, 0);
+  assert.deepEqual(kernel.getObject("mover").location, battlefield);
+});
+
+test("effect.move rejects a common destination illegal for any selected object before moving", () => {
+  const kernel = world().unit("a").unit("b").build();
+  kernel.addPlayer("C", {});
+  const b = kernel.getObject("b");
+  kernel.addObject({ ...b, ref: { id: "enemy-b", zoneEntryId: 1 }, owner: "B", controller: "B", location: second }, "board");
+  kernel.addObject({ ...b, ref: { id: "enemy-c", zoneEntryId: 1 }, owner: "C", controller: "C", location: second }, "board");
+  const before = kernel.stateForTest();
+  const run = runInstruction(move, { objects: target("units"), to: literal(second), amount: literal(2) }, {
+    world: kernel, targets: { units: [kernel.ref("a"), kernel.ref("b")] }
+  });
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  assert.equal(run.events.length, 0);
+  assert.deepEqual(kernel.stateForTest(), before);
+});
+
 test("effect.move suspends both non-target decisions and replays atomically with stable options", () => {
   const kernel = world().unit("z").unit("a").hand("not-on-board").build();
   const selectedArgs = {
@@ -270,17 +307,36 @@ test("ogs-011-024 Flash moves its two friendly targets to Base without readying 
   assert.deepEqual(run.events.map(event => event.action), ["move-location", "move-location"]);
 });
 
-test("effect.move recall relocates the object to its controller Base without Move restrictions (CR 457-460)", () => {
+test("effect.move recall submits an independent Recall action and never a Move (CR 457-460)", () => {
   const kernel = setup();
   const unit = kernel.getObject("unit");
-  const run = runInstruction(move, { ...args, to: literal("controller-base"), mode: literal("recall") }, { world: kernel, targets: targets(kernel) });
-  assert.equal(run.result.status, "executed");
-  assert.equal(run.linked.moved.count, 1);
+  const calls = [];
+  const target = kernel.clone();
+  target.setTargets("units", [target.ref("unit")]);
+  const context = bindResolveContext(target, {
+    contractActions: {
+      version: "riftbound.contract-actions.v1",
+      perform: action => {
+        calls.push(structuredClone(action));
+        const current = target.getObject(action.object.id);
+        const from = current.location;
+        current.location = base(current.controller);
+        target.addObject(current, "board");
+        return { status: "done", events: [{ type: "task-resolved", seq: 1, turnNumber: 1, activePlayerId: "A", taskId: "recall:1", sourceCardId: "test", reason: "recall", autoResolved: true, timingPoint: "object-recalled", action: structuredClone(action), from, to: current.location }], receipt: { status: "committed", actions: [{ type: "recall", status: "done" }] } };
+      },
+    },
+  });
+  const parsed = move.argsSchema.parse({ ...args, to: literal("controller-base"), mode: literal("recall") });
+  const result = move.execute(context, parsed);
+  kernel.restore(target.snapshot());
+  kernel.copyLinkedFrom(target);
+  assert.equal(result.status, "executed");
+  assert.deepEqual(calls, [{ type: "recall", object: unit.ref, player: "A" }]);
+  assert.deepEqual(result.events.map(event => event.action.type), ["recall"]);
   assert.deepEqual(kernel.getObject("unit"), { ...unit, location: base("A") });
   assert.equal(kernel.getObject("unit").damage, 2);
   assert.equal(kernel.getObject("unit").exhausted, true);
-  assert.deepEqual(run.events.map(event => event.action), ["move-location"]);
-  assert.equal(kernel.history({ action: "move-location" }), 1);
+  assert.equal(kernel.history({ action: "move-location" }), 0);
 });
 
 test("effect.move does not move cards from non-Board zones or non-permanents", () => {

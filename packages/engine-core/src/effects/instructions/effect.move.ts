@@ -214,22 +214,27 @@ function chooseDestination(ctx: ResolveContext, to: Destination): LocationRef | 
 function resolveDestinationForObjects(
   ctx: ResolveContext, objects: readonly ObjectRef[], to: Destination
 ): LocationRef | "controller-base" | null {
+  const knownLocations: LocationRef[] = [...new Map([
+    ...ctx.query({ zone: "board" }).flatMap(object => object.location === null ? [] : [object.location]),
+    ...objects.map(ref => ctx.object(ref)!.location!).filter(location => location.type === "base"),
+    ...(to === "controller-base" ? [] : "kind" in to ? to.options : [to]),
+  ].map(location => [location.type === "base" ? `base:${location.player}` : `battlefield:${location.id}`, location] as const)).values()];
   if (to === "controller-base") {
     const legal = objects.every(ref => {
       const object = ctx.object(ref)!;
       const destination: LocationRef = { type: "base", player: object.controller };
       return sameLocation(object.location!, destination) ||
-        queryMoveDestinations(ctx, [ref], {}).some(candidate => sameLocation(candidate, destination));
+        queryMoveDestinations(ctx, [ref], {}, { locations: knownLocations.map(ref => ({ ref })) }).some(candidate => sameLocation(candidate, destination));
     });
     return legal ? to : null;
   }
   if (!("kind" in to)) {
     const current = objects.every(ref => sameLocation(ctx.object(ref)!.location!, to));
-    return current || queryMoveDestinations(ctx, objects, {}).some(candidate => sameLocation(candidate, to)) ? to : null;
+    return current || queryMoveDestinations(ctx, objects, {}, { locations: knownLocations.map(ref => ({ ref })) }).some(candidate => sameLocation(candidate, to)) ? to : null;
   }
   const options = to.options.filter(location =>
     objects.every(ref => sameLocation(ctx.object(ref)!.location!, location)) ||
-    queryMoveDestinations(ctx, objects, {}).some(candidate => sameLocation(candidate, location)));
+    queryMoveDestinations(ctx, objects, {}, { locations: knownLocations.map(ref => ({ ref })) }).some(candidate => sameLocation(candidate, location)));
   if (options.length === 0) return null;
   return chooseDestination(ctx, { ...to, options });
 }
