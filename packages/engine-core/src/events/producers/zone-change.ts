@@ -1,9 +1,13 @@
 import type { ObjectSnapshot, PlayerId } from '../../effects/contract.js';
 import type { TimingEmission } from '../pipeline-types.js';
 import { isTimingPointId, type TimingPointId } from '../timing-points.js';
+import { actionPayload, withActionPayload } from './payload.js';
 
 export interface ZoneChangeProducerContext {
+  readonly actionId?: string;
+  readonly batchId?: string;
   readonly player?: PlayerId;
+  readonly effectController?: PlayerId;
   readonly source?: ObjectSnapshot;
   readonly cause?: string;
   readonly simultaneousGroup?: string;
@@ -17,10 +21,6 @@ function zoneTimings(prefix: 'object-enters-' | 'object-leaves-', object: Object
   const names = [`${prefix}zone`, `${prefix}${object.zone}`];
   if (object.zone === 'board' && object.location) names.push(`${prefix}${object.location.type}`);
   return [...new Set(names.filter(isTimingPointId))];
-}
-
-function details(context: ZoneChangeProducerContext): Readonly<Record<string, unknown>> | undefined {
-  return context.cause === undefined ? undefined : { cause: context.cause };
 }
 
 /**
@@ -45,7 +45,7 @@ export function deriveZoneChangeEmissions(
     const current = currentById.get(previous.ref.id);
     if (current !== undefined && sameIncarnation(previous, current)) continue;
     for (const timingPoint of zoneTimings('object-leaves-', previous)) {
-      emissions.push({
+      const emission: TimingEmission = {
         timingPoint,
         kind: 'object-left-zone',
         object: previous,
@@ -53,9 +53,19 @@ export function deriveZoneChangeEmissions(
         player: context.player ?? previous.controller,
         fromZone: previous.zone,
         toZone: current?.zone,
-        details: details(context),
         simultaneousGroup: context.simultaneousGroup ?? previous.ref.id,
-      });
+      };
+      const payload = actionPayload(
+        { type: 'move-zone', object: previous.ref, to: current?.zone ?? previous.zone } as never,
+        previous,
+        current,
+        { actionId: context.actionId, batchId: context.batchId, effectController: context.effectController, source: context.source, cause: context.cause, player: context.player },
+      );
+      const enriched = context.actionId !== undefined || context.batchId !== undefined ||
+        context.effectController !== undefined || context.source !== undefined;
+      emissions.push(enriched
+        ? withActionPayload(emission, payload, { before: previous, after: current })
+        : { ...emission, details: context.cause === undefined ? undefined : { cause: context.cause } });
     }
   }
 
@@ -63,7 +73,7 @@ export function deriveZoneChangeEmissions(
     const previous = previousById.get(current.ref.id);
     if (previous !== undefined && sameIncarnation(previous, current)) continue;
     for (const timingPoint of zoneTimings('object-enters-', current)) {
-      emissions.push({
+      const emission: TimingEmission = {
         timingPoint,
         kind: 'object-entered-zone',
         object: current,
@@ -71,9 +81,19 @@ export function deriveZoneChangeEmissions(
         player: context.player ?? current.controller,
         fromZone: previous?.zone,
         toZone: current.zone,
-        details: details(context),
         simultaneousGroup: context.simultaneousGroup ?? current.ref.id,
-      });
+      };
+      const payload = actionPayload(
+        { type: 'move-zone', object: current.ref, to: current.zone } as never,
+        previous,
+        current,
+        { actionId: context.actionId, batchId: context.batchId, effectController: context.effectController, source: context.source, cause: context.cause, player: context.player },
+      );
+      const enriched = context.actionId !== undefined || context.batchId !== undefined ||
+        context.effectController !== undefined || context.source !== undefined;
+      emissions.push(enriched
+        ? withActionPayload(emission, payload, { before: previous, after: current })
+        : { ...emission, details: context.cause === undefined ? undefined : { cause: context.cause } });
     }
   }
 
