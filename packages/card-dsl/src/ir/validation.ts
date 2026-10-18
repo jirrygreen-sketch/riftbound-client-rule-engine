@@ -6,7 +6,6 @@ import {
   type Condition,
   type CostSpec,
   type Expr,
-  type EventObjectRole,
   type Instruction,
   type LocationSelector,
   type LocationTargetSpec,
@@ -63,7 +62,6 @@ const CONDITION_KINDS = new Set([
   "event-it"
 ]);
 const EVENT_OBJECT_SELECTORS = new Set(["object", "source", "target", "it"]);
-const OBJECT_SELECTOR_EVENT_ROLES = new Set<EventObjectRole>(["it"]);
 const OBJECT_RELATIONS = new Set([
   "same-location",
   "different-location",
@@ -303,7 +301,7 @@ function validateObjectSelector(value: unknown, path: string, context: Validatio
   const key = Object.keys(value)[0]!;
   const id = value[key];
   if (key === "event") {
-    if (typeof id !== "string" || !OBJECT_SELECTOR_EVENT_ROLES.has(id as EventObjectRole)) {
+    if (id !== "it") {
       addIssue(context, `${path}.event`, "invalid-event-object-role", "Expected the event role it.");
       return false;
     }

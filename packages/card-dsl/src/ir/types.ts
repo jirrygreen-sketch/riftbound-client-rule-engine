@@ -87,9 +87,10 @@ export type ObjectSelector =
   | { readonly linked: string }
   /**
    * The immutable object role captured from the triggering event. This is a
-   * referent (CR v1.5 359.3.f.3), never an object choice or target.
+   * referent (CR v1.5 359.3.f.3), never an object choice or target. Runtime
+   * validation requires this to be the sole key.
    */
-  | { readonly event: EventObjectRole };
+  | { readonly event: EventObjectRole; readonly [key: string]: string };
 
 /** Event roles that a resolving instruction may name without choosing them. */
 export type EventObjectRole = "it";
@@ -111,8 +112,8 @@ export type ObjectRelation =
 /** A relation is a filter predicate, never an implicit target selection. */
 export type RelationFilter = Readonly<Record<string, Value>> & {
   readonly relation: ObjectRelation;
-  readonly object?: ObjectSelector | EventObjectSelector;
-  readonly other?: ObjectSelector | EventObjectSelector;
+  readonly object?: ObjectSelector;
+  readonly other?: ObjectSelector;
 };
 
 /** A JSON-like filter whose object-valued anchors contain static selectors. */
@@ -297,25 +298,25 @@ export interface ExpressionCondition {
 }
 
 /** A role in the event payload supplied while a trigger is tested. */
-export type EventObjectSelector = "object" | "source" | "target" | "it";
+export type EventRoleSelector = "object" | "source" | "target" | "it";
 
 /** A card-play provenance predicate.  The event payload, not the current zone, is authoritative. */
 export interface PlayedFromHandCondition {
   readonly kind: "played-from-hand" | "playedFromHand";
-  readonly object?: EventObjectSelector;
+  readonly object?: EventRoleSelector;
 }
 
 /** A card-play provenance predicate for an explicitly named origin zone. */
 export interface PlayedFromZoneCondition {
   readonly kind: "played-from-zone" | "playedFromZone";
   readonly zone: string;
-  readonly object?: EventObjectSelector;
+  readonly object?: EventRoleSelector;
 }
 
 /** A comparison against a printed/copied characteristic carried by an event object. */
 export interface PrintedCharacteristicCondition {
   readonly kind: "event-printed" | "printed-characteristic" | "event-printed-characteristic";
-  readonly object: EventObjectSelector;
+  readonly object: EventRoleSelector;
   readonly characteristic: "energy" | "power" | "might";
   readonly operator: ConditionOperator;
   readonly right: Expr;
@@ -338,14 +339,14 @@ export interface ResultCondition {
 export interface RelationCondition {
   readonly kind: "relation";
   readonly relation: ObjectRelation;
-  readonly left: EventObjectSelector | ObjectSelector;
-  readonly right?: EventObjectSelector | ObjectSelector;
+  readonly left: EventRoleSelector | ObjectSelector;
+  readonly right?: EventRoleSelector | ObjectSelector;
 }
 
 /** Presence test for the object bound by an event's pronoun (`it`). */
 export interface EventItCondition {
   readonly kind: "event-it";
-  readonly object?: EventObjectSelector;
+  readonly object?: EventRoleSelector;
 }
 
 /** A v1.5 condition clause; its scope is the instruction or ability field owning it. */
