@@ -211,32 +211,17 @@ function chooseDestination(ctx: ResolveContext, to: Destination): LocationRef | 
  * Location rules here. A multi-object Move is rejected as a whole when no one
  * destination is legal for every selected zone entry (CR 451.2).
  */
-function commonMoveDestination(
-  ctx: ResolveContext, objects: readonly ObjectRef[], to: Destination
-): LocationRef | "controller-base" | null {
-  if (objects.length === 0) return null;
-  const legal = queryMoveDestinations(ctx, objects, {});
-  const requested: LocationRef[] = to === "controller-base"
-    ? [...new Map(objects.map(ref => {
-      const object = ctx.object(ref);
-      const location: LocationRef = { type: "base", player: object!.controller };
-      return [`base:${object!.controller}`, location] as const;
-    })).values()]
-    : "kind" in to ? [...to.options] : [to];
-  return requested.find(location =>
-    objects.every(ref => sameLocation(ctx.object(ref)!.location!, location)) ||
-    legal.some(candidate => sameLocation(candidate, location))
-  ) ?? null;
-}
-
 function resolveDestinationForObjects(
   ctx: ResolveContext, objects: readonly ObjectRef[], to: Destination
 ): LocationRef | "controller-base" | null {
   if (to === "controller-base") {
-    const bases = [...new Set(objects.map(ref => ctx.object(ref)!.controller))]
-      .map(player => ({ type: "base" as const, player }));
-    return bases.find(location => objects.every(ref => sameLocation(ctx.object(ref)!.location!, location)) ||
-      queryMoveDestinations(ctx, objects, {}).some(candidate => sameLocation(candidate, location))) ?? null;
+    const legal = objects.every(ref => {
+      const object = ctx.object(ref)!;
+      const destination: LocationRef = { type: "base", player: object.controller };
+      return sameLocation(object.location!, destination) ||
+        queryMoveDestinations(ctx, [ref], {}).some(candidate => sameLocation(candidate, destination));
+    });
+    return legal ? to : null;
   }
   if (!("kind" in to)) {
     const current = objects.every(ref => sameLocation(ctx.object(ref)!.location!, to));

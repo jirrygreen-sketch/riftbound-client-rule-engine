@@ -8,6 +8,8 @@ import { queryMoveDestinations } from "../../dist/target/location/candidates.js"
 import { createLayerEngine } from "../../dist/layers/engine.js";
 import { cardProgram, fixture as programFixture } from "../rules/keywords/support.mjs";
 import { AwaitChoice, runInstruction, world } from "../../dist/effects/testing/index.js";
+import { bindResolveContext } from "../../dist/events/action-adapter.js";
+import { asValue } from "../../dist/effects/interpreter/values.js";
 import conscription from "../../../card-dsl/dist/cards/unl/conscription.js";
 import glowstone from "../../../card-dsl/dist/cards/ven/glowstone.js";
 import smokeAndMirrors from "../../../card-dsl/dist/cards/unl/smoke-and-mirrors.js";
@@ -18,7 +20,7 @@ const second = { type: "battlefield", id: "battlefield-2" };
 const contested = { type: "battlefield", id: "battlefield-3" };
 const base = player => ({ type: "base", player });
 const withSource = (kernel, id) => kernel.clone({ sourceSnapshot: kernel.getObject(id) });
-const recallArgs = to => ({
+const recallArgs = (to = "controller-base") => ({
   objects: c({ target: "units" }), to: c(to), mode: c("recall"), linkKey: c("recalled"),
 });
 
@@ -35,14 +37,95 @@ const targets = kernel => ({ units: [kernel.ref("hero")] });
 const recallRun = (kernel, to = "controller-base") =>
   runInstruction(move, recallArgs(to), { world: kernel, targets: targets(kernel) });
 
+/** A capability-only test port. It changes positions but never invokes perform. */
+function withContractActions(kernel, perform) {
+  return bindResolveContext(kernel, {
+    contractActions: { version: "riftbound.contract-actions.v1", perform },
+  });
+}
+
+function runWithContractActions(def, args, kernel, options, perform) {
+  const target = kernel.clone();
+  for (const [id, refs] of Object.entries(options.targets ?? {})) target.setTargets(id, refs);
+  target.setAnswers(options.answers ?? {});
+  const context = withContractActions(target, perform);
+  const result = def.execute(context, def.argsSchema.parse(args));
+  kernel.restore(target.snapshot());
+  kernel.copyLinkedFrom(target);
+  return { result, events: result?.events ?? [], linked: target.linkedSnapshot(), asked: null };
+}
+
+function recallCapability(calls, status = "done") {
+  return action => {
+    calls.push(structuredClone(action));
+    return status === "done"
+      ? { status: "done", events: [], receipt: { status: "committed", actions: [{ type: "recall", status: "done" }] } }
+      : { status, events: [] };
+  };
+}
+
+function mutateRecall(kernel, action) {
+  const object = kernel.getObject(action.object.id);
+  if (object === null) return null;
+  const from = object.location;
+  object.location = base(object.controller);
+  kernel.addObject(object, "board");
+  return { object, from };
+}
+
+function recallWithCapability(kernel, { status = "done", throwError } = {}) {
+  const calls = [];
+  const context = withContractActions(kernel, action => {
+    calls.push(structuredClone(action));
+    if (throwError !== undefined) throw throwError;
+    if (status === "done") {
+      kernel.link("recall.calls", asValue(calls));
+      const changed = mutateRecall(kernel, action);
+      if (changed === null) return { status: "impossible", events: [] };
+      const { object, from } = changed;
+      const event = {
+        type: "task-resolved", seq: calls.length, turnNumber: 1, activePlayerId: "A",
+        taskId: `recall:${calls.length}`, sourceCardId: "test-capability", reason: "recall",
+        autoResolved: true, timingPoint: "object-recalled", action: structuredClone(action),
+        object: { ...object, location: from }, from, to: object.location,
+      };
+      return { status: "done", events: [event], receipt: { status: "committed", actions: [{ type: "recall", status: "done" }] } };
+    }
+    return { status, events: [] };
+  });
+  return { calls, context };
+}
+
+function withRecallCapability(kernel, { status = "done", throwError } = {}) {
+  const calls = [];
+  const perform = action => {
+    calls.push(structuredClone(action));
+    if (throwError !== undefined) throw throwError;
+    if (status !== "done") return { status, events: [] };
+    const changed = mutateRecall(kernel, action);
+    if (changed === null) return { status: "impossible", events: [] };
+    const { object, from } = changed;
+    const event = {
+      type: "task-resolved", seq: calls.length, turnNumber: 1, activePlayerId: "A",
+      taskId: `recall:${calls.length}`, sourceCardId: "test-capability", reason: "recall",
+      autoResolved: true, timingPoint: "object-recalled", action: structuredClone(action),
+      object: { ...object, location: from }, from, to: object.location,
+    };
+    return { status: "done", events: [event], receipt: { status: "committed", actions: [{ type: "recall", status: "done" }] } };
+  };
+  return { calls, perform };
+}
+
 test("EG-RECALL moves a Board Permanent to its controller Base without a destination choice", () => {
   const kernel = scenario();
   const before = kernel.getObject("hero");
-  const run = recallRun(kernel);
+  const { calls, perform } = withRecallCapability(kernel);
+  const run = runWithContractActions(move, recallArgs(), kernel, { targets: targets(kernel) }, perform);
   assert.equal(run.result.status, "executed");
-  assert.deepEqual(run.events.map(event => event.action), ["move-location"]);
+  assert.deepEqual(calls, [{ type: "recall", object: before.ref, player: "A" }]);
+  assert.deepEqual(run.events.map(event => event.action.type), ["recall"]);
   assert.deepEqual(kernel.getObject("hero"), { ...before, location: base("A") });
-  assert.equal(kernel.history({ action: "move-location", object: before.ref }), 1);
+  assert.equal(kernel.history({ action: "move-location", object: before.ref }), 0);
   assert.deepEqual(run.linked.recalled, {
     count: 1,
     objects: [before.ref],
@@ -55,7 +138,8 @@ test("EG-RECALL preserves statuses and relocates only its bound selection", () =
   const kernel = scenario();
   const anchor = kernel.getObject("anchor");
   const enemy = kernel.getObject("enemy");
-  const run = recallRun(kernel);
+  const { perform } = withRecallCapability(kernel);
+  const run = runWithContractActions(move, recallArgs(), kernel, { targets: targets(kernel) }, perform);
   assert.equal(kernel.getObject("hero").exhausted, true);
   assert.equal(kernel.getObject("hero").damage, 2);
   assert.equal(kernel.getObject("hero").stunned, true);
@@ -67,10 +151,12 @@ test("EG-RECALL preserves statuses and relocates only its bound selection", () =
 
 test("EG-RECALL recalls an enemy unit to its current controller Base (B's Base)", () => {
   const kernel = scenario();
-  const run = runInstruction(move, recallArgs("controller-base"), {
-    world: kernel, targets: { units: [kernel.ref("enemy")] },
-  });
+  const { calls, perform } = withRecallCapability(kernel);
+  const run = runWithContractActions(move, recallArgs("controller-base"), kernel, {
+    targets: { units: [kernel.ref("enemy")] },
+  }, perform);
   assert.equal(run.result.status, "executed");
+  assert.deepEqual(calls, [{ type: "recall", object: kernel.ref("enemy"), player: "B" }]);
   assert.deepEqual(kernel.getObject("enemy").location, base("B"));
   assert.deepEqual(run.linked.recalled.movements, [{ object: kernel.ref("enemy"), from: battlefield, to: base("B") }]);
 });
@@ -89,7 +175,10 @@ test("EG-RECALL rejects an explicit destination that is not the object's control
 
 test("EG-RECALL honors an explicit controller Base destination only for the matching controller", () => {
   const kernel = scenario();
-  const run = recallRun(kernel, { type: "base", player: "A" });
+  const { perform } = withRecallCapability(kernel);
+  const run = runWithContractActions(move, recallArgs({ type: "base", player: "A" }), kernel, {
+    targets: targets(kernel),
+  }, perform);
   assert.equal(run.result.status, "executed");
   assert.deepEqual(kernel.getObject("hero").location, base("A"));
 });
@@ -130,9 +219,10 @@ test("EG-RECALL treats an object already at its controller Base as no recall out
 
 test("EG-RECALL recalls a Gear permanent to its controller Base", () => {
   const kernel = withSource(world().unit("gear", { types: ["gear"], might: 2, damage: 1 }).build(), "gear");
-  const run = runInstruction(move, recallArgs("controller-base"), {
-    world: kernel, targets: { units: [kernel.ref("gear")] },
-  });
+  const { perform } = withRecallCapability(kernel);
+  const run = runWithContractActions(move, recallArgs("controller-base"), kernel, {
+    targets: { units: [kernel.ref("gear")] },
+  }, perform);
   assert.equal(run.result.status, "executed");
   assert.deepEqual(kernel.getObject("gear").location, base("A"));
   assert.equal(kernel.getObject("gear").damage, 1);
@@ -171,9 +261,10 @@ test("EG-RECALL keeps Move restrictions on effect.move while Recall bypasses the
   const restricted = queryMoveDestinations(kernel, [kernel.ref("hero")], {}, { registry: layers.registry });
   assert.deepEqual(restricted, []);
   const before = kernel.stateForTest();
-  const recall = runInstruction(move, recallArgs("controller-base"), {
-    world: kernel, targets: targets(kernel),
-  });
+  const { perform } = withRecallCapability(kernel);
+  const recall = runWithContractActions(move, recallArgs("controller-base"), kernel, {
+    targets: targets(kernel),
+  }, perform);
   assert.equal(recall.result.status, "executed");
   assert.deepEqual(kernel.getObject("hero").location, base("A"));
 });

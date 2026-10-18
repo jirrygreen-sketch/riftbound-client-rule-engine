@@ -1,6 +1,6 @@
 import type {
-  ActionOutcome, ContractGameAction, GameEvent, LocationRef, ObjectRef,
-  ObjectSnapshot, RecallAction, ResolveContext
+  ActionOutcome, GameEvent, LocationRef, ObjectRef, ObjectSnapshot,
+  RecallAction, ResolveContext
 } from "../effects/contract.js";
 import { sameLocation } from "../target/location/ref.js";
 
@@ -89,10 +89,21 @@ export function performRecall(ctx: ResolveContext, ref: ObjectRef, options: Reca
   // ResolveContext still freezes perform() to GameAction. The additive
   // ContractGameAction capability is probed without lying to that type: a
   // future consumer must accept the independent recall action at runtime.
-  const perform = ctx.perform as unknown as (action: ContractGameAction) => ActionOutcome;
+  // The versioned contract capability is additive. Use it when the host has
+  // installed the owner task's bridge; do not probe the legacy perform()
+  // method with an action outside its closed GameAction type.
+  const capability = (ctx as ResolveContext & {
+    readonly contractActions?: { readonly perform: (action: RecallAction) => ActionOutcome };
+  }).contractActions;
+  if (capability === undefined) {
+    return {
+      status: "impossible", events: [], count: 0, object: refOf(ref), from, to: null,
+      blockedReason: "RecallAction consumer unavailable (RIFT-849/810/835/837)"
+    };
+  }
   let outcome: ActionOutcome;
   try {
-    outcome = perform(recall);
+    outcome = capability.perform(recall);
   } catch (error) {
     if (error instanceof TypeError || error instanceof Error && /Unknown action type: recall/.test(error.message)) {
       return {

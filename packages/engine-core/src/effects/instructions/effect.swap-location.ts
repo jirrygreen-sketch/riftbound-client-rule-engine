@@ -25,7 +25,7 @@
  * the kernel's existing Move seam; no Recall semantics are claimed here.
  */
 import type {
-  ActionOutcome, BatchAction, ContractGameAction, Expr, GameEvent, InstructionDef,
+  ActionOutcome, BatchAction, Expr, GameEvent, InstructionDef,
   InstructionResult, LocationRef, ObjectRef, ObjectSelector, ResolveContext, Value
 } from "../contract.js";
 import { sameLocation } from "../../target/location/ref.js";
@@ -170,10 +170,17 @@ export default {
         { type: "move-location", object: b.ref, to: originA }
       ]
     };
-    const perform = ctx.perform as unknown as (action: ContractGameAction) => ActionOutcome;
+    const capability = (ctx as ResolveContext & {
+      readonly contractActions?: { readonly perform: (action: BatchAction) => ActionOutcome };
+    }).contractActions;
+    if (capability === undefined) {
+      const receipt = blockedReceipt(a.ref, b.ref, "BatchAction consumer unavailable (RIFT-849/810/835/837)");
+      ctx.link("swapped", receipt);
+      return { status: "negated", reason: "impossible", events: [] };
+    }
     let outcome: ActionOutcome;
     try {
-      outcome = perform(batch);
+      outcome = capability.perform(batch);
     } catch (error) {
       if (error instanceof TypeError || error instanceof Error && /Unknown action type: batch/.test(error.message)) {
         const receipt = blockedReceipt(a.ref, b.ref, "BatchAction consumer unavailable (RIFT-849/810/835/837)");
