@@ -13,10 +13,16 @@
  * - amount: nonnegative safe integer upper bound, default 1; insufficient
  *   objects means as many as possible (359.3.e.11). Zero performs no action
  *   or choice. Object and destination choice ids must be distinct.
- * - mode: move (default) or recall. Recall is explicitly BLOCKED: the frozen
- *   move-location action cannot distinguish a Recall from a Move. A nonzero
- *   recall returns negated/impossible with blockedReason in its receipt, and
- *   submits no substitute move-zone or move-location action (457-460).
+ * - mode: move (default) or recall. Recall (CR v1.5 457-460) is its own
+ *   action path: each selected Board Permanent is relocated to its current
+ *   controller's Base through the identity-preserving move-location seam
+ *   exposed by zones/recall.ts, so the same zone entry, its damage and its
+ *   statuses survive (458.2, 460, 459). A Recall is not a Move, so the
+ *   destination cannot be chosen and Move restrictions are bypassed (458.3);
+ *   an explicit Base destination is honored only when it is that object's
+ *   controller's Base. Until the contract owners add a distinct Recall game
+ *   action, move-location history and object-moved timings remain an open
+ *   458.1 seam (documented in recall.ts), not a completed Move-trigger story.
  * - linkKey: nonempty result key, default moved. Receipt { count, objects,
  *   movements: [{ object, from, to }] } captures actual successful movement,
  *   also on partial negation. A same-location instruction moves nothing.
@@ -42,6 +48,7 @@ import type {
   Expr, GameEvent, InstructionDef, InstructionResult, LocationRef, ObjectFilter,
   ObjectRef, ResolveContext, Value
 } from "../contract.js";
+import { performRecall } from "../../zones/recall.js";
 
 export interface MoveArgs {
   readonly objects?: Expr;
@@ -220,11 +227,39 @@ export default {
     const moved: ObjectRef[] = [];
     const movements: Value[] = [];
     let reason: "replaced" | "skipped" | "impossible" | undefined;
-    let blockedReason: string | undefined;
     if (amount > 0) {
       if (mode === "recall") {
-        reason = "impossible";
-        blockedReason = "Recall requires an action distinct from Move (CR v1.5 457-460)";
+        if (typeof to === "object" && "kind" in to) {
+          throw new TypeError("effect.move recall cannot choose a destination (CR v1.5 457)");
+        }
+        if (refs.length === 0 && !(selected.kind === "choose" && selected.min === 0)) {
+          reason = "impossible";
+        } else {
+          const objects = chooseRefs(ctx, selected, refs, amount);
+          for (const ref of objects) {
+            const before = ctx.object(ref);
+            const explicit = to === "controller-base" ? null : to;
+            // A Recall destination is always the Base of the object's current
+            // controller (CR v1.5 457); any other explicit location, including
+            // the other player's Base or a Battlefield, is impossible.
+            if (before?.zone === "board" && before.location !== null &&
+                before.types.some(type => type === "unit" || type === "gear") &&
+                explicit !== null && !sameLocation(explicit, { type: "base", player: before.controller })) {
+              reason ??= "impossible";
+              continue;
+            }
+            const outcome = performRecall(ctx, ref);
+            events.push(...outcome.events);
+            if (outcome.status !== "done") {
+              reason ??= outcome.status === "prevented" ? "skipped" : outcome.status;
+              continue;
+            }
+            if (outcome.count > 0) {
+              moved.push(ref);
+              movements.push({ object: refValue(ref), from: locationValue(outcome.from!), to: locationValue(outcome.to!) });
+            }
+          }
+        }
       } else if (refs.length === 0 && !(selected.kind === "choose" && selected.min === 0)) {
         reason = "impossible";
       } else {
@@ -254,8 +289,7 @@ export default {
       }
     }
     const receipt: Value = {
-      count: moved.length, objects: moved.map(refValue), movements,
-      ...(blockedReason === undefined ? {} : { blockedReason })
+      count: moved.length, objects: moved.map(refValue), movements, ...(mode === "recall" ? { mode } : {})
     };
     ctx.link(linkKey, receipt);
     return reason ? { status: "negated", reason, events } :

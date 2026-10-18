@@ -270,17 +270,17 @@ test("ogs-011-024 Flash moves its two friendly targets to Base without readying 
   assert.deepEqual(run.events.map(event => event.action), ["move-location", "move-location"]);
 });
 
-test("effect.move recall is explicitly blocked rather than emitting an incorrect Move or zone change", () => {
+test("effect.move recall relocates the object to its controller Base without Move restrictions (CR 457-460)", () => {
   const kernel = setup();
-  const before = kernel.stateForTest();
+  const unit = kernel.getObject("unit");
   const run = runInstruction(move, { ...args, to: literal("controller-base"), mode: literal("recall") }, { world: kernel, targets: targets(kernel) });
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.equal(run.linked.moved.count, 0);
-  assert.match(run.linked.moved.blockedReason, /Recall.*457-460/);
-  assert.equal(run.events.length, 0);
-  assert.deepEqual(kernel.stateForTest(), before);
-  assert.equal(kernel.history({ action: "move-location" }), 0);
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.moved.count, 1);
+  assert.deepEqual(kernel.getObject("unit"), { ...unit, location: base("A") });
+  assert.equal(kernel.getObject("unit").damage, 2);
+  assert.equal(kernel.getObject("unit").exhausted, true);
+  assert.deepEqual(run.events.map(event => event.action), ["move-location"]);
+  assert.equal(kernel.history({ action: "move-location" }), 1);
 });
 
 test("effect.move does not move cards from non-Board zones or non-permanents", () => {
