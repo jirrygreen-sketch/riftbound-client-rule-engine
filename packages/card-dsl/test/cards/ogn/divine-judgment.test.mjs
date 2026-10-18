@@ -177,7 +177,7 @@ test("ogn-244-298 Divine Judgment golden: the merged recycle primitive recycles 
   assert.equal(kernel.zone("A", "deck").at(-1).id, "trashed-card");
 });
 
-test("ogn-244-298 Divine Judgment golden: effect.recycle cannot express a complement and never splits destinations", () => {
+test("ogn-244-298 Divine Judgment golden: effect.recycle cannot express a complement", () => {
   // Two kept units and one spare: "recycle the rest" must pick the spare by
   // subtraction, but the primitive only takes an amount from a zone (or an
   // explicit object list). Recycling the amount recycles whichever cards the
@@ -196,10 +196,36 @@ test("ogn-244-298 Divine Judgment golden: effect.recycle cannot express a comple
   assert.equal(run.result.status, "executed");
   assert.equal(kernel.getObject("kept-a").zone, "deck");
   assert.equal(kernel.getObject("spare").zone, "board");
-  // A rune would have to go to the Rune Deck (417.1.b); the primitive branches
-  // by the object's own types, so a mixed board/rune complement cannot be
-  // expressed by one call.
   assert.deepEqual(Object.keys(run.result.linkedValues).sort(), ["recycled", "recycledCount"]);
+});
+
+test("ogn-244-298 Divine Judgment golden: effect.recycle routes mixed objects by type and owner", () => {
+  const kernel = world()
+    .deck("main-a", { owner: "A" })
+    .deck("main-b", { owner: "B" })
+    .rune("rune-a", { owner: "A" })
+    .card("unit-A", { zone: "board", types: ["unit"], owner: "A" })
+    .card("gear-B", { zone: "board", types: ["gear"], owner: "B" })
+    .hand("hand-B", { types: ["card"], owner: "B" })
+    .card("rune-A", { zone: "rune-zone", types: ["rune"], owner: "A" })
+    .build();
+  const refs = ["unit-A", "gear-B", "hand-B", "rune-A"].map(id => kernel.ref(id));
+
+  const run = runInstruction(
+    recycle,
+    { objects: { kind: "constant", value: refs } },
+    { world: kernel }
+  );
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.result.linkedValues.recycledCount, 4);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["main-a", "unit-A"]);
+  assert.deepEqual(kernel.zone("B", "deck").map(ref => ref.id), ["main-b", "gear-B", "hand-B"]);
+  assert.deepEqual(kernel.zone("A", "rune-deck").map(ref => ref.id), ["rune-a", "rune-A"]);
+  assert.equal(kernel.getObject("unit-A").zone, "deck");
+  assert.equal(kernel.getObject("gear-B").zone, "deck");
+  assert.equal(kernel.getObject("hand-B").zone, "deck");
+  assert.equal(kernel.getObject("rune-A").zone, "rune-deck");
 });
 
 test("ogn-244-298 Divine Judgment current gap: the program cannot be described for play by the production binder", () => {

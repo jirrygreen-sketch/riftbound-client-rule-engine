@@ -20,7 +20,7 @@ import type { CardProgram } from "../../ir/index.js";
  * executable.
  *
  * Status: judge-required. Every category choice is a resolution-time, per-player,
- * non-target choice (measured 2026-10-17):
+ * non-target choice (measured 2026-10-18):
  * - the choosers are all players (355.10.e: objects chosen in whole or in part by
  *   other players are not targeted; 355.10.a: hand cards are not public, so the
  *   hand choice can never be a target either); `ResolveContext.choose` asks one
@@ -34,12 +34,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   caller-supplied option lists (the `dynamic:…` option strings declared here are
  *   descriptive only — nothing parses them);
  * - "Recycle the rest" needs a complement selection (all units/gear/runes/hand
- *   cards outside the chosen set). effect.recycle only takes N from ONE zone
- *   (`from.zone` + `amount`) or a target/objects list, so it can express "recycle
- *   your 3 units" but not "recycle everything that was not kept", and no merged
- *   primitive splits the destination by card type (units/gear/hand cards -> Main
- *   Deck bottom; runes -> Rune Deck bottom, 417.1.a/417.1.b). `effect.recycle-rest`
- *   is likewise unregistered.
+ *   cards outside the chosen set). effect.recycle can recycle an explicit object
+ *   list and the kernel already routes each object by type and owner (units/gear/
+ *   hand cards -> the owner's Main Deck bottom; runes -> the owner's Rune Deck
+ *   bottom, 417.1.a/417.1.b/417.1.c), but it cannot derive "everything that was
+ *   not kept" from the four picks. `effect.recycle-rest` is likewise unregistered.
  * The structure below keeps the four pick specifications and the recycle-rest
  * shape so the remaining work is reviewable; nothing is approximated.
  */
@@ -49,16 +48,15 @@ const divineJudgment = {
   status: "judge-required",
   judgeReason:
     "「Recycle the rest」的指代范围需裁定（本文件按其字面读作四类保留集合的补集，需 judge 确认）；" +
-    "三处执行缺口（均为 2026-10-17 实测，不近似实现）：" +
+    "三处执行缺口（均为 2026-10-18 实测，不近似实现）：" +
     "（1）多玩家顺序选择不可执行：本卡 body 的 choice.each-player 不在指令注册表中" +
     "（解释器抛 Unregistered instruction opcode: choice.each-player）；choose 只支持单个 chooser，" +
     "IR 无法命名运行时玩家（355.10.e）。" +
     "（2）四类选择（2 units / 2 gear / 2 runes / 2 cards in hand）都需要运行时对象集合：" +
     "PickSpec.options 是静态值，本卡保留的 dynamic:… 字符串只是描述性数据、没有任何解析者；" +
     "手牌按 355.10.a 非公开、按 355.10.e 整套选择不是 target。" +
-    "（3）「Recycle the rest」需要补集选择与按类型分发目的地：effect.recycle 只能从单一区域取 N 张" +
-    "（from.zone + amount）或按 target/objects 列表，无法表达「除保留集合外的全部」，" +
-    "也不区分目的地（units/gear/手牌→主牌库底、runes→符文牌库底，417.1.a/417.1.b/417.1.c）；" +
+    "（3）「Recycle the rest」需要补集选择：effect.recycle 可按 target/objects 列表回收，内核已按对象类型与所有者" +
+    "自动分流到主牌库底或符文牌库底（417.1.a/417.1.b/417.1.c），但无法从四类保留集合计算「除保留集合外的全部」；" +
     "effect.recycle-rest 同样未注册。",
   abilities: [
     {
