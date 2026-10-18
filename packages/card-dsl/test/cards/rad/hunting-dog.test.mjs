@@ -26,6 +26,7 @@ import { instructionDefinitionsById } from "../../../../engine-core/dist/effects
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { collectTargetTaxes, deflectCost } from "../../../../engine-core/dist/target/tax/collect.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { fixture as keywordFixture, settle } from "../../../../engine-core/test/rules/keywords/support.mjs";
 
 const CANONICAL = "card.hash-883ac11e924326f2848f19e337d6d2f7e70dc660d572f974d06708fc1f752353";
 const SOURCE_TEXT =
@@ -54,7 +55,12 @@ test("rad-119-167 Hunting Dog: judgeReason names the Bird definition, Deathknell
   assert.match(program.judgeReason, /target\.tax/);
   // Second-sweep refresh: the reason records the observed negations/binding failure.
   assert.match(program.judgeReason, /token-definition-or-abilities-judge-required/);
+  assert.match(program.judgeReason, /DEFINITIONS/);
   assert.match(program.judgeReason, /no layer mapping/);
+  // 808.1.d.2/.3: the reason must record the measured subscription lifecycle,
+  // not just that the expansion body is unregistered.
+  assert.match(program.judgeReason, /object-leaves-board/);
+  assert.match(program.judgeReason, /Triggered Item/);
 });
 
 test("rad-119-167 Hunting Dog gap: the 187.7 Bird definition is absent, so the token request negates", () => {
@@ -203,6 +209,64 @@ test.todo(
     "effect.token's definition table; the request currently negates with " +
     "token-definition-or-abilities-judge-required"
 );
+
+test("rad-119-167 Hunting Dog gap: a real kill drops the program's death subscription before the scan", () => {
+  // Control program: the same object-killed self-trigger shape whose body uses
+  // only registered instructions, so the subscription lifecycle can be measured
+  // without the unregistered trigger.leave body. CR 808.1.d.2 requires the
+  // trigger to be added as a Pending Item, and this is the merged path that must
+  // carry it.
+  const control = {
+    canonicalCardId: "test.rift-764.hunting-dog.control",
+    rulesetVersion: "core-1.5",
+    status: "executable",
+    sourceText: "Control: when I die, draw 1.",
+    abilities: [{
+      kind: "triggered",
+      trigger: { at: "object-killed", filter: { self: true } },
+      optional: false,
+      body: [{ id: "control.draw", op: "effect.draw", args: { amount: { kind: "constant", value: 1 } } }]
+    }]
+  };
+  const f = keywordFixture({
+    programs: [control],
+    setup: w => w.hand("unit", { cardId: control.canonicalCardId, owner: "A", controller: "A", types: ["unit"], might: 3 })
+  });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("unit"), to: "board" });
+  settle(f.engine);
+  assert.deepEqual(f.errors, []);
+  assert.deepEqual(
+    [...f.engine.pipeline.triggers.values()].map(registration => [registration.spec.at, registration.activeZones]),
+    [["object-killed", ["board"]]]
+  );
+
+  const handBefore = f.kernel.player("A").handSize;
+  f.engine.commit({ type: "kill", object: f.kernel.ref("unit") });
+  settle(f.engine);
+
+  // The committed kill really emits object-killed, but the lifecycle detach on
+  // object-leaves-board removes the registration first, so no Triggered Item is
+  // ever created and the death effect never resolves.
+  assert.equal(f.engine.pipeline.triggers.size, 0);
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "object-killed"), true);
+  assert.deepEqual(f.engine.items, []);
+  assert.equal(f.kernel.player("A").handSize, handBefore);
+  assert.equal(f.get("unit").zone, "trash");
+});
+
+test("rad-119-167 Hunting Dog gap: the merged Deathknell expansion body never reaches a registered op", () => {
+  // 808.1.c.1: [Effect] comes from the card, but the keyword skeleton the merged
+  // Deathknell def expands still binds trigger.leave, which has no instruction
+  // definition. Assert both halves so the reason's wording stays reproducible.
+  const [expansion] = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL } });
+  assert.deepEqual(expansion.body.map(entry => entry.op), ["trigger.leave"]);
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+  const kernel = world().unit("dog", { types: ["unit"] }).build();
+  assert.throws(
+    () => resolveChainBody(expansion.body, kernel.clone({ sourceSnapshot: kernel.getObject("dog") })),
+    /Unregistered instruction opcode: trigger\.leave/
+  );
+});
 test("rad-119-167 Hunting Dog golden: your base follows the ability controller even when the source has another owner", () => {
   for (const controller of ["A", "B"]) {
     const base = world().unit("dog", {

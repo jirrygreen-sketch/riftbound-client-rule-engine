@@ -20,7 +20,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   no pick is declared, so no "becomes a target" trigger is emitted
  *   (355.6/355.7). Every unit takes 3 (418.1.c) simultaneously (418.1.d).
  *
- * Status: judge-required (re-verified 2026-10-17, RIFT-685 template evidence in
+ * Status: judge-required (re-verified 2026-10-18; template evidence in
  * test/cards/templates/play-effect-damage-685.test.mjs). The printed set is
  * selected by characteristics and is explicitly not a target (355.10.d), but
  * the merged `effect.damage` primitive reads its affected set from
@@ -35,6 +35,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   merged effect.ready / effect.heal accept, `{ kind: "query", filter }`
  *   (RIFT-685 normalization; "all units" is the complete-set semantics of a
  *   set query, so there is no separate `selection` key);
+ * - the sibling merged primitives really do carry that shape: feeding
+ *   `{ kind: "query", filter: { type: "unit" } }` to `effect.heal` resolves
+ *   (status executed), while the same descriptor handed to `effect.damage`
+ *   throws "effect.damage args.target must be a TargetSpec id string"
+ *   (measured 2026-10-18);
  * - the card's own play already runs end to end through the real chain: the
  *   printed 5 Energy + 2 Body Power is paid, no TargetSpec is declared so no
  *   object ever becomes a target (355.10.d), and resolving the body is
@@ -54,15 +59,19 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺“按特征选中整组对象、且不作为目标”的批量伤害路径：已合入的 effect.damage 只经 ctx.targets(TargetSpec id) 读受击集合，" +
-    "而“all units in bases”按 355.10.d 不由玩家选择、不是目标，声明 TargetSpec 会错误触发“成为目标”相关触发。" +
-    "「in bases」的限制本身已可表达（layers/filter.ts 与 layers/rules/query.ts 按 object.location.type 求值字符串 " +
-    "location:\"base\"，程序已改用该求值拼写，并按 effect.ready / effect.heal 的 {kind:'query', filter} 形状记录集合）；" +
-    "模板 play-effect-damage-685 已用本卡自身 body 经真实链实测：5 能量 + 2 Body Power 支付完成、没有任何对象 became-target，" +
-    "结算时 effect.damage 在 parseArgs 阶段以 “args.target must be a TargetSpec id string” 拒绝。" +
-    "现有目标系统（target/target-plan.ts）只走 " +
-    "TargetSpec 并为每个被选对象发 became-target，355.10.d / 355.10.d.1 明确排除按特征选中的集合，" +
-    "因此不能复用。repeat/choice 组合也无法逐成员结算而不引入假目标；仍缺非目标的批量集合伤害原语。不近似实现。",
+    "仍缺「按特征选中整组对象、且不作为目标」的批量伤害路径（2026-10-18 复核）：" +
+    "已合入的 effect.damage（effects/instructions/effect.damage.ts）只经 ctx.targets(TargetSpec id) 读受击集合，" +
+    "argsSchema 要求 args.target 为非空字符串，传入 objects 会在 parseArgs 抛 " +
+    "“effect.damage args.target must be a TargetSpec id string”（实测）；" +
+    "同一 {kind:'query', filter} 描述符交给已合入的 effect.heal 则真实执行成功，说明缺的是伤害原语的非目标集合分支，不是集合描述符本身。" +
+    "“all units in bases”按 355.10.d / 355.10.d.1 由特征程序化选出、玩家无从选择，因此不是目标；" +
+    "声明 TargetSpec 会经 target/target-plan.ts 给每个被选对象发 became-target（chain/engine.ts 的 onTargeted），违反 355.10.d 与 355.7。" +
+    "「in bases」限制本身可表达：layers/filter.ts 对字符串 location 求值 object.location.type，实测基地单位匹配、战场单位不匹配；" +
+    "但 layers/filter.ts 对未知键恒真、characteristics 只做字面相等，因此不能用它近似批量子集语义。" +
+    "现有 repeat/choice 组合无法逐成员结算而不引入假目标（choice.mode 只选择模式、effect.repeat 的 count 是数字），" +
+    "仍缺非目标批量集合伤害原语（同 ogn/flurry-of-blades、ogs/firestorm 的同一缺口）。" +
+    "模板 play-effect-damage-685 用本卡自身 body 经真实链实测：5 能量 + 2 Body Power 支付完成、没有任何对象 became-target，" +
+    "结算在 parseArgs 阶段被拒绝。不近似实现。",
   abilities: [
     {
       kind: "play",

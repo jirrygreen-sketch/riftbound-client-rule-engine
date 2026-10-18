@@ -47,6 +47,9 @@ test("rad-051-167 Parallel Convergence: judgeReason names the missing return-to-
   // The damage half is merged and executed; it must not be presented as a gap.
   assert.match(program.judgeReason, /effect\.damage/);
   assert.match(program.judgeReason, /真实执行证据/);
+  // The refreshed reason records that the battlefield restriction is no longer
+  // a gap (the production translator keeps the location selector).
+  assert.match(program.judgeReason, /目标翻译不再是缺口/);
 });
 
 test("rad-051-167 Parallel Convergence: the program's cost never reaches the plan (356.2.a.1)", () => {
@@ -91,6 +94,24 @@ test("rad-051-167 Parallel Convergence: battlefield restriction survives product
     max: 1,
     selection: "one"
   }]);
+});
+
+test("rad-051-167 Parallel Convergence: the body really evaluates the locked battlefield target through the merged primitive", () => {
+  // The damage half is production-reachable with the card's own amount and
+  // TargetSpec; the remaining gap is the additional cost only, so the reason
+  // must not present the targeting restriction as a blocker.
+  const kernel = world()
+    .unit("convergence", { types: ["spell"], zone: "chain" })
+    .unit("at-battlefield", { owner: "B", location: { type: "battlefield", id: "bf-1" }, might: 8 })
+    .build();
+  const run = runInstruction(
+    damage,
+    { amount: dealInstruction.args.amount, target: targetSpec.id },
+    { world: kernel, targets: { [targetSpec.id]: [kernel.ref("at-battlefield")] } }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.dealt, 5);
+  assert.equal(kernel.getObject("at-battlefield").damage, 5);
 });
 
 test("rad-051-167 Parallel Convergence: structure — printed cost plus the mandatory additional cost", () => {
