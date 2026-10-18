@@ -135,13 +135,14 @@ const continuousLethalThreshold = {
     }
     const duration: DurationAlias = rawDuration;
     const sourceRef = ctx.source.ref;
+    const rawSettlementId = args.settlementId === undefined ? undefined : evaluateArgument(ctx, args.settlementId);
+    if (rawSettlementId !== undefined && !isId(rawSettlementId)) {
+      throw new TypeError("continuous.lethal-threshold settlementId must be a non-empty string");
+    }
     const settlement = settlementIdentity(
       sourceRef, "continuous.lethal-threshold",
       key => ctx.linked(key), (key, value) => ctx.link(key, value),
-      args.settlementId === undefined ? undefined :
-        typeof evaluateArgument(ctx, args.settlementId) === "string"
-        ? String(evaluateArgument(ctx, args.settlementId))
-        : undefined,
+      rawSettlementId,
     );
     const effect: Record<string, unknown> = {
       kind: "continuous.lethal-threshold",

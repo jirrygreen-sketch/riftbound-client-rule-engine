@@ -118,6 +118,9 @@ export interface BonusDamageGrant {
   readonly id: string;
   readonly amount: number;
   readonly appliesTo?: unknown;
+  readonly scope?: unknown;
+  readonly source?: ObjectRef;
+  readonly settlement?: string;
   readonly sourcePlayer?: string;
 }
 
@@ -130,6 +133,9 @@ function grantFrom(
     id: entry.effect.id,
     amount: effect.amount,
     appliesTo: effect.appliesTo,
+    scope: effect.scope,
+    source: entry.effect.source,
+    settlement: effect.settlement,
     sourcePlayer: controllerOf(entry, object),
   };
 }
@@ -165,6 +171,8 @@ export interface LethalThresholdGrant {
   readonly id: string;
   readonly amount: number;
   readonly appliesTo?: unknown;
+  readonly source?: ObjectRef;
+  readonly settlement?: string;
   readonly sourcePlayer?: string;
 }
 
@@ -191,6 +199,8 @@ export interface MightReductionModifier {
   readonly mode: string;
   readonly amount: number;
   readonly appliesTo?: unknown;
+  readonly source?: ObjectRef;
+  readonly settlement?: string;
   readonly sourcePlayer?: string;
 }
 

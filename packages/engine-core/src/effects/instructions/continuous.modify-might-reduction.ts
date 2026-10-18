@@ -148,13 +148,14 @@ const continuousModifyMightReduction = {
     }
     const duration: DurationAlias = rawDuration;
     const sourceRef = ctx.source.ref;
+    const rawSettlementId = args.settlementId === undefined ? undefined : evaluateArgument(ctx, args.settlementId);
+    if (rawSettlementId !== undefined && !isId(rawSettlementId)) {
+      throw new TypeError("continuous.modify-might-reduction settlementId must be a non-empty string");
+    }
     const settlement = settlementIdentity(
       sourceRef, "continuous.modify-might-reduction",
       key => ctx.linked(key), (key, value) => ctx.link(key, value),
-      args.settlementId === undefined ? undefined :
-        typeof evaluateArgument(ctx, args.settlementId) === "string"
-        ? String(evaluateArgument(ctx, args.settlementId))
-        : undefined,
+      rawSettlementId,
     );
     const effect: Record<string, unknown> = {
       kind: "continuous.modify-might-reduction",

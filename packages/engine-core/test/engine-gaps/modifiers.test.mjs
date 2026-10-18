@@ -106,6 +106,9 @@ test('modifiers-primitives: impossible / invalid-argument boundaries reject with
     [thresholdOp, { amount: c(1.5) }, 'safe integer'],
     [mightReductionOp, { mode: c('additional'), amount: c(-1.5) }, 'safe integer'],
     [mightReductionOp, { mode: c('additional'), amount: c(-1), extra: c(1) }, 'Invalid continuous.modify-might-reduction argument'],
+    [bonusOp, { amount: c(1), settlementId: c('') }, 'settlementId must be a non-empty string'],
+    [thresholdOp, { amount: c(1), settlementId: c(1) }, 'settlementId must be a non-empty string'],
+    [mightReductionOp, { mode: c('additional'), amount: c(-1), settlementId: c(1) }, 'settlementId must be a non-empty string'],
   ]) {
     const kernel = build();
     assert.throws(() => runOn(kernel, op, args), error => error instanceof TypeError && String(error).includes(message));
@@ -153,11 +156,20 @@ test('modifiers-queries: controller, appliesTo, filter anchors and windows selec
   // applies to the same Deal as the spell-scoped grant.
   assert.deepEqual(bonusDamageForDeal(registry, spellScope, objects), 5);
   assert.deepEqual(bonusDamageForDeal(registry, { controller: 'A', appliesTo: 'deal-actions' }, objects), 3);
-  assert.deepEqual(bonusDamageGrantsForDeal(registry, spellScope, objects).map(g => g.amount), [2, 3]);
+  assert.deepEqual(bonusDamageGrantsForDeal(registry, spellScope, objects).map(g => ({
+    amount: g.amount, source: g.source.id, settlement: g.settlement,
+  })), [
+    { amount: 2, source: 'Abase', settlement: 'settlement-1' },
+    { amount: 3, source: 'Abase', settlement: 'settlement-2' },
+  ]);
   assert.deepEqual(bonusDamageForDeal(registry, { controller: 'A' }, objects), 0);
   assert.deepEqual(bonusDamageForDeal(registry, { controller: 'B', appliesTo: 'next-spell-you-play' }, objects), 0);
-  assert.deepEqual(lethalThresholdFor(registry, { controller: 'A' }, objects).map(g => g.amount), [7]);
-  assert.deepEqual(additionalMightReductions(registry, { controller: 'A' }, objects).map(g => g.amount), [-2]);
+  assert.deepEqual(lethalThresholdFor(registry, { controller: 'A' }, objects).map(g => ({
+    amount: g.amount, source: g.source.id, settlement: g.settlement,
+  })), [{ amount: 7, source: 'Abase', settlement: 'settlement-1' }]);
+  assert.deepEqual(additionalMightReductions(registry, { controller: 'A' }, objects).map(g => ({
+    amount: g.amount, source: g.source.id, settlement: g.settlement,
+  })), [{ amount: -2, source: 'Abase', settlement: 'settlement-1' }]);
 
   registry.expireAt({ id: 'turn-end', player: 'A' }, objects);
   // The end-of-turn grants expire; the permanent 'any' grant keeps applying.
