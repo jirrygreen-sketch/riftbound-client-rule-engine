@@ -3,20 +3,18 @@
  * 指令入口，docs/plans/2026-10-15-p0-contract.md 3.4 / 3.8）。
  *
  * 规则依据（CR v1.5）：
- * - 478 / 478.1.a：连续效果按 copy → trait → ability → arithmetic 分层结算，
+ * - 475 / 479：连续效果按 copy → trait → ability → arithmetic 分层结算，
  *   Might 修改位于 arithmetic 图层；本原语注册 arithmetic 层 spec。
  * - 143.2.c：Might 引用时小于 0 按 0 引用（143.2.c.1 实际值仍存在并参与
- *   计算）—— 终值钳制由图层引擎 applyArithmetic 完成（might < 0 → 0）。
- * - 478.1.c（Siphon Power 例子）："-1 to a minimum of 1" 是逐条修改各自钳制
- *   （6/6 被两个 -1(最小 1) 修改后是 4/6：6 → 5 → 4）。通用引擎只做终值 0 钳制，所以本
- *   原语把印刷下限写进 effect.minimum，由 layers/ops 的 applyMightMinimums
- *   helper 按 CR 478.1.c 的顺序钳制消费（引擎通用路径缺口见最终回复）。
+ *   计算）—— 负数的引用投影由图层引擎完成。
+ * - 479.4.b / 479.4.e：非被动效果的逐条最小值在结算时快照成实际增减量，
+ *   之后按 arithmetic 层先增加、后减少的顺序应用；不会在后续重算时重新钳制。
  * - 317.1.a / 317.2.c / 468.7.c：持续性 Game Effect 的持续时间（this turn 在
  *   Expiration Step 到期、this combat 在 combat-end 到期）。
  *
  * 参数（argsSchema 校验 IR 形状：字面值即全量校验，Expr 按形状校验、结算时
- * 求值；解释器 instruction() 会先把每个 arg 的 Expr 求值再传入 execute，所以
- * execute 接受的是已求值字面值，同时兼容未求值的 Expr）：
+ * 求值；直接解释器会预先求值，而生产 Chain adapter 保留原始 Expr，
+ * execute 同时消费这两种入口）：
  * - target?: string — TargetSpec id，经 ctx.targets(id) 读取（355.10.g）。
  * - pick?: string — PickSpec id，经 ctx.picks(id) 读取（契约 3.4：pick 不触发
  *   成为目标类触发）。
@@ -31,10 +29,10 @@
  *   直写。target / pick / choose / objects / filter 至多给一个；都不给时作用
  *   对象是来源自身。
  * - amount?: Expr / number — 增量（可负）；mode "set" 时是目标值。缺省 0。
- * - mode?: Expr / "add" | "set" — 缺省 "add"；"set" 写 kind "set-might"（设为
- *   一个值，替代而非叠加，478.1.a arithmetic 语义）。
- * - minimum?: Expr / number — 本条修改的印刷值下限（CR 478.1.c），非负整数，
- *   写入 effect.minimum。
+ * - mode?: Expr / "add" | "set" — 缺省 "add"；"set" 写 kind "set-might"，
+ *   按结算时的目标值与当前 Might 之差生成 snapshotDelta（479.4.b）。
+ * - minimum?: Expr / number — 本条修改的印刷值下限（CR 479.4.b），非负整数，
+ *   由 buildMightSpec 快照成该条修改的实际增减量，同时保留 effect.minimum。
  * - duration?: Expr / 字符串别名 | { type: "until", at, player? } |
  *   { type: "while-source-in-zone" } — 缺省 "permanent"；别名映射见
  *   layers/ops/index.ts resolveContinuousDuration。
@@ -75,18 +73,20 @@ import type {
 } from "../contract.js";
 import {
   buildMightSpec,
+  effectId,
   isDurationAlias,
   resolveContinuousDuration,
   settlementIdentity,
+  targetFilter,
   type DurationAlias,
   type OpsTarget
 } from "../../layers/ops/index.js";
 
 /** Args accepted after interpreter evaluation (literal values fully validated). */
 export interface ContinuousMightArgs {
-  readonly target?: string;
-  readonly pick?: string;
-  readonly choose?: {
+  readonly target?: Expr | string;
+  readonly pick?: Expr | string;
+  readonly choose?: Expr | {
     readonly id: string;
     readonly filter?: ObjectFilter;
     readonly chooser?: PlayerId;
@@ -96,7 +96,7 @@ export interface ContinuousMightArgs {
     readonly max?: number;
   };
   readonly objects?: Expr | Value;
-  readonly filter?: ObjectFilter;
+  readonly filter?: Expr | ObjectFilter;
   readonly amount?: Expr | Value;
   readonly mode?: Expr | Value;
   readonly minimum?: Expr | Value;
@@ -164,14 +164,24 @@ function isExpr(value: unknown): value is Expr {
   if (!isRecord(value)) return false;
   switch (value.kind) {
     case "constant": case "literal": return "value" in value && isValue(value.value);
-    case "object-property": return isRef(value.object) && isId(value.property);
-    case "object-attribute": return isRef(value.object) && isId(value.attribute);
+    case "object-property": return isSelector(value.object) && isId(value.property);
+    case "object-attribute": return isSelector(value.object) && isId(value.attribute);
     case "linked": case "linked-value":
       return isId(value.instructionId) && (value.key === undefined || isId(value.key));
     case "count":
       return isId(value.subject) && (value.filter === undefined || isFilter(value.filter));
+    case "arithmetic":
+      return Array.isArray(value.operands) && value.operands.every(isExpr) &&
+        (["add", "mul", "multiply", "min", "max"].includes(String(value.operator)) && value.operands.length > 0 ||
+         ["sub", "subtract", "div", "divide"].includes(String(value.operator)) && value.operands.length === 2 ||
+         value.operator === "neg" && value.operands.length === 1);
     default: return false;
   }
+}
+
+function isSelector(value: unknown): boolean {
+  return value === "self" || value === "source" || isRef(value) || isRecord(value) &&
+    Object.keys(value).length === 1 && ["target", "pick", "linked"].some(key => isId(value[key]));
 }
 
 function isVisibility(value: unknown): value is ChoiceVisibility {
@@ -314,7 +324,7 @@ function parseArgs(value: unknown): ContinuousMightArgs {
   return value as unknown as ContinuousMightArgs;
 }
 
-const argsSchema: Schema<ContinuousMightArgs> = {
+export const argsSchema: Schema<ContinuousMightArgs> = {
   parse: parseArgs,
   safeParse: (value: unknown) => {
     try {
@@ -326,7 +336,7 @@ const argsSchema: Schema<ContinuousMightArgs> = {
 };
 
 /** Expr 经 ctx.evaluate 求值（取值时机即调用时，契约 3.6）；字面值原样使用。 */
-function evaluateArgument(ctx: ResolveContext, argument: Expr | Value): Value {
+export function evaluateArgument(ctx: ResolveContext, argument: Expr | Value): Value {
   return isExpr(argument) ? ctx.evaluate(argument) : (argument as Value);
 }
 
@@ -404,13 +414,22 @@ const NON_BOARD_ZONES: ReadonlySet<ZoneId> = new Set<ZoneId>([
 ]);
 
 function resolveSelection(ctx: ResolveContext, args: ContinuousMightArgs): Selection {
-  if (args.target !== undefined) return { kind: "target", id: args.target };
-  if (args.pick !== undefined) return { kind: "pick", id: args.pick };
-  if (args.filter !== undefined) return { kind: "query", filter: args.filter };
-  if (args.choose !== undefined) return parseSelection(
-    { ...(args.choose as Record<string, unknown>), kind: "choose" } as Value,
-    "continuous.might"
-  );
+  if (args.target !== undefined || args.pick !== undefined) {
+    const kind = args.target !== undefined ? "target" : "pick";
+    const id = evaluateArgument(ctx, (args.target ?? args.pick)!);
+    if (!isId(id)) throw new TypeError("continuous.might " + kind + " must evaluate to a spec id string");
+    return { kind, id };
+  }
+  if (args.filter !== undefined) {
+    const filter = evaluateArgument(ctx, args.filter);
+    if (!isFilter(filter)) throw new TypeError("continuous.might filter must evaluate to an object filter");
+    return { kind: "query", filter };
+  }
+  if (args.choose !== undefined) {
+    const choice = evaluateArgument(ctx, args.choose);
+    if (!isRecord(choice)) throw new TypeError("continuous.might choose must evaluate to a choice descriptor");
+    return parseSelection({ ...choice, kind: "choose" } as Value, "continuous.might");
+  }
   if (args.appliesTo !== undefined) return { kind: "source" };
   if (args.objects === undefined) return { kind: "source" };
   return parseSelection(evaluateArgument(ctx, args.objects), "continuous.might");
@@ -447,13 +466,13 @@ function resolveCandidates(ctx: ResolveContext, selection: Selection): { status:
   }
 }
 
-// Note: scripts/gen-registries.mjs statically scans for the op literal after
-// the "const <name> =" declaration, so this definition cannot carry a type
-// annotation between the name and the initializer (same as effect.buff).
-const continuousMight = {
-  op: "continuous.might",
-  argsSchema,
-  execute(ctx: ResolveContext, args: ContinuousMightArgs): InstructionResult {
+/** Shared selection, lifetime and receipt handling for arithmetic/base Might. */
+export function executeMight(
+  ctx: ResolveContext,
+  args: ContinuousMightArgs,
+  layer: "arithmetic" | "trait" = "arithmetic"
+): InstructionResult {
+    const op = layer === "trait" ? "continuous.base-might" : "continuous.might";
     const events: GameEvent[] = [];
     const affected: Value[] = [];
     let count = 0;
@@ -484,6 +503,9 @@ const continuousMight = {
       throw new TypeError('continuous.might mode must evaluate to "add" or "set"');
     }
     const mode: "add" | "set" = rawMode;
+    if (layer === "trait" && mode !== "set") {
+      throw new TypeError("continuous.base-might only supports setting Base Might");
+    }
 
     const rawAmount = args.amount === undefined ? 0 : evaluateArgument(ctx, args.amount);
     if (typeof rawAmount !== "number" || !Number.isSafeInteger(rawAmount)) {
@@ -504,7 +526,7 @@ const continuousMight = {
     if (rawSettlementId !== undefined && !isId(rawSettlementId)) {
       throw new TypeError("continuous.might settlementId must be a non-empty string");
     }
-    const settlement = settlementIdentity(ctx.source.ref, "continuous.might", key => ctx.linked(key), (key, value) => ctx.link(key, value), rawSettlementId);
+    const settlement = settlementIdentity(ctx.source.ref, op, key => ctx.linked(key), (key, value) => ctx.link(key, value), rawSettlementId);
     const rawAppliesTo = args.appliesTo === undefined ? undefined : evaluateArgument(ctx, args.appliesTo);
     if (rawAppliesTo !== undefined && rawAppliesTo !== "self") {
       throw new TypeError('continuous.might appliesTo must evaluate to "self"');
@@ -527,28 +549,45 @@ const continuousMight = {
     }
 
     const sourceRef = ctx.source.ref;
-    let suffix = 0;
-    for (const ref of resolution.refs) {
+    // Read every operand before registering any effect. A registration can
+    // change another selected object's derived Might through a passive ability.
+    const targets: OpsTarget[] = resolution.refs.flatMap(ref => {
       const snapshot = ctx.object(ref);
-      if (snapshot === null) continue;
-      suffix += 1;
-      const target: OpsTarget = {
-        ref,
-        snapshot,
-        ...(minimum === undefined ? {} : { minimum })
-      };
+      return snapshot === null ? [] : [{ ref, snapshot, ...(minimum === undefined ? {} : { minimum }) }];
+    });
+    const registrations = targets.map((target, index) => {
+      const suffix = String(index + 1);
+      if (layer === "trait") {
+        return { target, effect: {
+          id: effectId(op, sourceRef, target, suffix, settlement),
+          layer,
+          source: sourceRef,
+          filter: targetFilter(target),
+          effect: { kind: "continuous.base-might", value: { kind: "constant" as const, value: amount } }
+        } };
+      }
+      if (mode === "set" && target.snapshot.might === null) {
+        throw new TypeError("continuous.might cannot snapshot an unavailable Might");
+      }
       const registration = buildMightSpec(
-        "continuous.might",
+        op,
         sourceRef,
         target,
         mode,
         amount,
-        String(suffix),
+        suffix,
         settlement
       );
+      const delta = registration.effect.effect.snapshotDelta;
+      if (typeof delta === "number" && !Number.isSafeInteger(delta)) {
+        throw new RangeError("continuous.might snapshot delta must be a safe integer");
+      }
+      return { target, effect: registration.effect };
+    });
+    for (const registration of registrations) {
       ctx.addContinuous(registration.effect, resolveContinuousDuration(duration, sourceRef));
       count += 1;
-      affected.push(refValue(ref));
+      affected.push(refValue(registration.target.ref));
     }
 
     if (count === 0) {
@@ -557,7 +596,12 @@ const continuousMight = {
     }
     const values = writeLinks();
     return { status: "executed", events: [...events], linkedValues: values };
-  }
+}
+
+const continuousMight = {
+  op: "continuous.might",
+  argsSchema,
+  execute: executeMight
 } satisfies InstructionDef<ContinuousMightArgs>;
 
 export default continuousMight;
