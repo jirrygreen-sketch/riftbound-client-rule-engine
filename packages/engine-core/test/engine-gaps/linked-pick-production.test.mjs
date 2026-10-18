@@ -261,7 +261,7 @@ test("the private look and linked choice remain isolated to a B-controlled abili
   f.answers.set(request.id, [request.options[0]]);
   f.engine.pass(f.engine.priority);
   finishWithoutChoices(f);
-  assert.deepEqual(refIds(f.kernel.linked("ivern-nurturer.reveal-unit-opt/ivern-nurturer.reveal-unit.revealed")), ["b-top-unit"]);
+  assert.deepEqual(refIds(f.kernel.linked("ivern-nurturer.reveal-unit.revealed")), ["b-third-unit"]);
 });
 
 test("Blind Fury original reveal and linked option banish one card without a target plan", () => {
