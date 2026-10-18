@@ -62,6 +62,10 @@ export interface ObjectFilterMatchContext extends FilterMatchContext {
   readonly legacy?: boolean;
 }
 
+function isDirectAnchor(value: ObjectFilterMatchContext | RelativeFilterAnchor): value is RelativeFilterAnchor {
+  return typeof (value as AnyRecord).ref === "object";
+}
+
 function legacyMatchesObjectFilter(value: AnyRecord, object: LayeredObjectSnapshot): boolean {
   const objectId = value.objectId ?? value.id;
   if (objectId !== undefined && objectId !== object.ref.id) return false;
@@ -99,7 +103,7 @@ export function matchesObjectFilter(
   contextOrAnchor?: ObjectFilterMatchContext | RelativeFilterAnchor | null,
 ): boolean {
   if (!filter || typeof filter !== "object") return true;
-  let context: ObjectFilterMatchContext = contextOrAnchor !== null && contextOrAnchor !== undefined && "ref" in contextOrAnchor
+  let context: ObjectFilterMatchContext = contextOrAnchor !== null && contextOrAnchor !== undefined && isDirectAnchor(contextOrAnchor)
     ? { anchor: contextOrAnchor, controller: contextOrAnchor.controller }
     : contextOrAnchor ?? { anchor: contextOrAnchor };
   const resolveAnchor = filterAnchor(filter);
@@ -136,7 +140,7 @@ export function matchesObjectFilter(
     }
   }
 
-  const location = literal(value.location);
+  const location = value.location;
   if (isRelativeLocation(location) || typeof location === "string") {
     if (!matchesRelativeLocation(location, object, anchor)) return false;
     return matchesObjectPredicates({ ...value, location: undefined }, object, context);

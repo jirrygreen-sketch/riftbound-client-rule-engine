@@ -213,6 +213,15 @@ test('query contexts and direct hosts combine shared predicates with relative st
   }
 });
 
+test('sameLocationAs resolves its own object selector while location remains a concrete comparison', () => {
+  const candidate = snapshot({ ref: { id: 'same-location', zoneEntryId: 205 } });
+  const elsewhere = snapshot({ ref: { id: 'elsewhere', zoneEntryId: 206 }, location: { type: 'battlefield', id: 'battlefield-2' } });
+  assert.equal(matchesObjectFilter({ sameLocationAs: "source" }, candidate, { anchor }), true);
+  assert.equal(matchesObjectFilter({ sameLocationAs: "source" }, elsewhere, { anchor }), false);
+  assert.equal(matchesObjectFilter({ sameLocationAs: "self" }, candidate, { anchor }), true);
+  assert.equal(matchesObjectFilter({ sameLocationAs: "self" }, elsewhere, { anchor }), false);
+});
+
 test('query contexts retain controller overrides, references, and printed-cost comparisons', () => {
   const candidate = snapshot({ controller: 'B', might: 2, energy: 1, power: [] });
   const comparison = snapshot({ ref: { id: 'comparison', zoneEntryId: 202 }, might: 3, energy: 2, power: [] });
