@@ -1,9 +1,22 @@
 import type { ObjectFilter, ObjectRef } from "@riftbound/card-dsl";
 import type { LayeredObjectSnapshot } from "../types.js";
 import type { RelativeFilterAnchor } from "./types.js";
-import { concreteLocation, locationKey, relativeLocation, sameLocation } from "./location.js";
+import { concreteLocation, isRelativeLocation, locationKey, relativeLocation, sameLocation } from "./location.js";
 
 type AnyRecord = Record<string, unknown>;
+
+// Static bindings own their live host lookup. Keep it out of the serializable
+// filter and the shared layer engine; ordinary queries can still pass a host.
+const anchors = new WeakMap<object, () => RelativeFilterAnchor | null>();
+
+export function bindFilterAnchor<T extends object>(filter: T, resolve: () => RelativeFilterAnchor | null): T {
+  anchors.set(filter, resolve);
+  return filter;
+}
+
+export function filterAnchor(filter: object): (() => RelativeFilterAnchor | null) | undefined {
+  return anchors.get(filter);
+}
 
 function sameRef(left: ObjectRef | null | undefined, right: ObjectRef | null | undefined): boolean {
   return left?.id === right?.id && left?.zoneEntryId === right?.zoneEntryId;
@@ -35,7 +48,7 @@ export function matchesRelativeController(value: unknown, actual: string, anchor
   if (resolved === "any") return true;
   if (resolved === "opponent" || resolved === "their" || resolved === "caster-opponent") return anchor?.controller !== undefined && actual !== anchor.controller;
   if (resolved === "self" || resolved === "source" || resolved === "controller" || resolved === "you" || resolved === "caster") {
-    return anchor?.controller === undefined ? true : actual === anchor.controller;
+    return anchor?.controller !== undefined && actual === anchor.controller;
   }
   const player = relativePlayer(resolved, anchor);
   if (player === null) return anchor?.controller === undefined || actual !== anchor.controller;
@@ -48,7 +61,7 @@ export function matchesRelativeOwner(value: unknown, actual: string, anchor?: Re
   if (resolved === undefined || resolved === "any") return true;
   if (resolved === "opponent" || resolved === "their" || resolved === "caster-opponent") return anchor?.controller !== undefined && actual !== anchor.controller;
   if (resolved === "self" || resolved === "source" || resolved === "controller" || resolved === "you" || resolved === "caster") {
-    return anchor?.controller === undefined ? actual === anchor?.controller : actual === anchor.controller;
+    return anchor?.controller !== undefined && actual === anchor.controller;
   }
   const player = relativePlayer(resolved, anchor);
   if (player === null) return anchor?.controller === undefined || actual !== anchor.controller;
@@ -65,7 +78,8 @@ export function matchesRelativeLocation(
   if (resolved === undefined) return true;
   const relative = relativeLocation(resolved, anchor);
   if (relative !== undefined) return sameLocation(object.location, relative);
-  if (typeof resolved === "string") return object.location?.type === resolved || locationKey(object.location) === resolved;
+  if (typeof resolved === "string") return object.location?.type === resolved || locationKey(object.location) === resolved ||
+    object.location?.type === "battlefield" && object.location.id === resolved;
   const concrete = concreteLocation(resolved);
   if (concrete !== undefined) return sameLocation(object.location, concrete);
   return false;
@@ -74,7 +88,7 @@ export function matchesRelativeLocation(
 export function matchesRelativeRegion(value: unknown, object: LayeredObjectSnapshot): boolean {
   const resolved = selectorValue(value);
   if (resolved === undefined) return true;
-  if (resolved === "board") return object.zone === "board" && object.location?.type === "battlefield";
+  if (resolved === "board") return object.zone === "board";
   if (resolved === "base" || resolved === "battlefield") return object.location?.type === resolved;
   if (typeof resolved === "string") return object.location?.type === resolved || object.location?.type === "battlefield" && object.location.id === resolved;
   const concrete = concreteLocation(resolved);
@@ -102,12 +116,13 @@ export function isSupportedRelativeFilterValue(value: unknown): boolean {
   const resolved = selectorValue(value);
   return resolved === "self" || resolved === "source" || resolved === "controller" || resolved === "you" || resolved === "caster" ||
     resolved === "opponent" || resolved === "their" || resolved === "caster-opponent" || resolved === "here" || resolved === "any" ||
-    typeof resolved === "string" || (typeof resolved === "object" && resolved !== null && !Array.isArray(resolved) && "playerId" in resolved);
+    typeof resolved === "string" || (typeof resolved === "object" && resolved !== null && !Array.isArray(resolved) && typeof (resolved as AnyRecord).playerId === "string");
 }
 
 export function hasRelativeAnchor(filter: ObjectFilter | AnyRecord): boolean {
   const value = filter as AnyRecord;
+  const players = ["self", "source", "controller", "you", "caster", "opponent", "their", "caster-opponent"];
   return value.other === true || value.exclude !== undefined || value.here === true || value.sameLocationAs !== undefined ||
-    value.position !== undefined || value.location !== undefined && typeof value.location === "object" ||
-    value.controller === "opponent" || value.owner === "opponent" || value.controller === "self" || value.owner === "self";
+    value.position !== undefined || isRelativeLocation(value.location) ||
+    players.includes(String(selectorValue(value.controller))) || players.includes(String(selectorValue(value.owner)));
 }

@@ -3,7 +3,8 @@ import type { ChainEngine } from '../chain/engine.js';
 import type { ContinuousEffectSpec, ObjectRef, ObjectSnapshot } from '../effects/contract.js';
 import { evaluateCondition } from '../effects/interpreter/condition.js';
 import { matchesObjectFilter } from '../layers/filter.js';
-import { isRelativeLocation } from '../layers/relative/location.js';
+import { concreteLocation, isRelativeLocation } from '../layers/relative/location.js';
+import { bindFilterAnchor, hasRelativeAnchor, isSupportedRelativeFilterValue } from '../layers/relative/filter.js';
 import { bindReplacement as bindReplacementRegistration } from '../replacement/bind.js';
 import { ProgramBindingError } from './errors.js';
 
@@ -53,9 +54,8 @@ function literal(value: unknown): unknown {
 }
 
 const LAYER_BY_KIND: Readonly<Record<string, LayerName>> = {
-  // Contract 3.4 order: copy → trait → ability → arithmetic. Every known
-  // ContinuousEffect family is assigned explicitly; unknown effects still
-  // fail closed instead of being guessed from a substring.
+  // Contract 3.4 order: copy → trait → ability → arithmetic. Only kinds with
+  // an actual layer or rule-query consumer are executable here.
   'copy': 'copy',
   'copy-object': 'copy',
   'copy-text': 'copy',
@@ -66,64 +66,65 @@ const LAYER_BY_KIND: Readonly<Record<string, LayerName>> = {
   'continuous.add-type': 'trait',
   'continuous.add-tag': 'trait',
   'continuous.remove-tag': 'trait',
+  'set-property': 'trait',
+  'set-trait': 'trait',
+  'trait': 'trait',
   'continuous.might': 'arithmetic',
-  'continuous.bonus-damage': 'arithmetic',
-  'continuous.modify-might-reduction': 'arithmetic',
-  'continuous.lethal-threshold': 'arithmetic',
   'set-might': 'arithmetic',
   'might': 'arithmetic',
   'buff': 'arithmetic',
-  'continuous.combat': 'ability',
-  'continuous.cost-modification': 'ability',
-  'continuous.deck': 'ability',
-  'continuous.facedown-capacity': 'ability',
-  'continuous.grant-abilities': 'ability',
-  'continuous.grant-ability': 'ability',
   'continuous.grant-keyword': 'ability',
   'grant-keyword': 'ability',
-  'continuous.ignore-abilities': 'ability',
-  'continuous.ignore-ability': 'ability',
-  'continuous.ignore-target-tax': 'ability',
   'continuous.keyword': 'ability',
-  'continuous.location': 'ability',
   'continuous.movement': 'ability',
-  'continuous.play-permission': 'ability',
   'continuous.restrict': 'ability',
-  'continuous.target-restriction': 'ability',
   'continuous.timing': 'ability',
-  'continuous.trigger-multiplicity': 'ability',
-  'continuous.trigger-suppression': 'ability',
-  'continuous.test': 'ability',
-  'requirement': 'ability',
   'restriction': 'ability',
-  'applied-cost': 'ability',
-  'target.tax': 'ability',
-  'accelerate.cost': 'ability',
-  'repeat.cost': 'ability',
-  'cost.additional': 'ability',
-  'cost.hidden': 'ability',
-  'cost.modify': 'ability',
-  'cost.activated': 'ability',
-  'cost.printed': 'ability',
-  'cost.exhaust': 'ability',
-  'cost-modification': 'ability',
 };
 
 export function layerFor(effect: AnyRecord): LayerName {
   const declared = effect.layer;
-  if (declared === 'copy' || declared === 'trait' || declared === 'ability' || declared === 'arithmetic') return declared;
   const kind = String(effect.kind ?? '').toLowerCase();
   const mapped = LAYER_BY_KIND[kind];
-  if (mapped !== undefined) return mapped;
+  if (mapped !== undefined) {
+    if (declared !== undefined && declared !== mapped) {
+      throw new ProgramBindingError('judge-required', `Static ability kind ${kind} requires layer ${mapped}`);
+    }
+    return mapped;
+  }
   throw new ProgramBindingError('judge-required', `Static ability kind ${String(effect.kind ?? '<missing>')} has no layer mapping`);
 }
 
 function normalizedEffect(effect: AnyRecord): AnyRecord {
   const kind = String(effect.kind ?? '').toLowerCase();
+  if (kind === 'continuous.might') {
+    const mode = literal(effect.mode) ?? 'add';
+    if (mode === 'set') return { ...effect, kind: 'set-might', value: effect.amount ?? effect.value };
+    if (mode === 'multiply') return { ...effect, kind: 'multiply-might' };
+    if (mode !== 'add') throw new ProgramBindingError('judge-required', `Unsupported static Might mode ${String(mode)}`);
+  }
+  if (kind === 'continuous.base-might') return { ...effect, kind: 'set-property', property: 'might', value: effect.amount ?? effect.value };
+  if (['continuous.set-type', 'continuous.set-types', 'continuous.add-type', 'continuous.add-tag', 'continuous.remove-tag'].includes(kind)) {
+    return { ...effect, kind: kind.slice('continuous.'.length) };
+  }
   if (kind === 'continuous.restrict') return { ...effect, kind: 'restriction' };
-  if (kind === 'continuous.require') return { ...effect, kind: 'requirement' };
-  if (kind === 'continuous.applied-cost') return { ...effect, kind: 'applied-cost' };
   return effect;
+}
+
+function numericLayerValue(value: unknown): boolean {
+  const resolved = literal(value);
+  if (typeof resolved === 'number') return Number.isFinite(resolved);
+  const expression = record(resolved);
+  if (['add', 'subtract', 'multiply'].includes(String(expression.kind))) {
+    return numericLayerValue(expression.left) && numericLayerValue(expression.right);
+  }
+  if (expression.kind === 'object-property' || expression.kind === 'object-attribute') {
+    const object = record(expression.object);
+    const ref = record(object.ref ?? object);
+    return typeof ref.id === 'string' && typeof ref.zoneEntryId === 'number' &&
+      typeof (expression.property ?? expression.attribute) === 'string';
+  }
+  return false;
 }
 
 function sourceSelector(value: unknown): boolean {
@@ -135,24 +136,10 @@ function sourceSelector(value: unknown): boolean {
   return false;
 }
 
-function relativeSelector(value: unknown): boolean {
-  if (sourceSelector(value)) return true;
-  if (value === 'controller' || value === 'you' || value === 'caster' || value === 'opponent' || value === 'their' || value === 'caster-opponent' || value === 'here') return true;
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    const item = value as AnyRecord;
-    if (item.kind === 'constant' || item.kind === 'literal') return relativeSelector(item.value);
-    if (item.kind === 'relative' || item.kind === 'location') return item.value === undefined || relativeSelector(item.value);
-    if (item.source !== undefined) return relativeSelector(item.source);
-    if ('playerId' in item) return typeof item.playerId === 'string';
-  }
-  return false;
-}
-
 /**
  * Static card filters are authored relative to the ability source. The layer
- * engine consumes absolute ObjectFilter values, so resolve the source-relative
- * player and location anchors once while preserving the layer's per-query
- * matching of zone, state, and characteristics.
+ * binder supplies a live source lookup; keep player and location selectors
+ * symbolic so movement and control changes do not freeze the aura's targets.
  */
 export function staticFilter(effect: AnyRecord, source: ObjectSnapshot, rawFilter: AnyRecord = record(effect.filter)): ObjectFilter {
   const raw = rawFilter;
@@ -160,17 +147,13 @@ export function staticFilter(effect: AnyRecord, source: ObjectSnapshot, rawFilte
   for (const [key, rawValue] of Object.entries(raw)) {
     const value = literal(rawValue);
     if (key === 'controller' || key === 'owner') {
-      if (value === 'controller' || value === 'you' || value === 'caster' || value === 'self') output[key] = source.controller;
-      else if (value === 'opponent' || value === 'their' || value === 'caster-opponent') throw new ProgramBindingError('judge-required', `Static ${key}:opponent filter needs a relative-player query`);
-      else output[key] = value;
+      if (!isSupportedRelativeFilterValue(value)) throw new ProgramBindingError('judge-required', `Unsupported static ${key} selector ${String(value)}`);
+      output[key] = value;
     } else if (key === 'tag') output.tags = [...(Array.isArray(output.tags) ? output.tags : []), value];
     else if (key === 'types') output.type = value;
     else if (key === 'sameLocationAs') {
-      if (!relativeSelector(value)) throw new ProgramBindingError('judge-required', 'Static sameLocationAs requires a supported relative anchor');
+      if (!isRelativeLocation(value)) throw new ProgramBindingError('judge-required', 'Static sameLocationAs requires a supported relative anchor');
       output.sameLocationAs = value;
-      // Bind-time concrete fallback for evaluators without an anchor; the
-      // symbolic field above still wins whenever an anchor is supplied.
-      if (relativeSelector(value) && source.zone === 'board' && source.location !== null) output.location = source.location;
     } else if (key === 'object' || key === 'source') {
       if (sourceSelector(value)) {
         output.objectId = source.ref.id;
@@ -188,10 +171,12 @@ export function staticFilter(effect: AnyRecord, source: ObjectSnapshot, rawFilte
       if (value !== true) throw new ProgramBindingError('judge-required', 'Static here filter must be true');
       output.here = true;
     } else if (key === 'location' || key === 'position') {
-      if (isRelativeLocation(value) && !relativeSelector(value)) throw new ProgramBindingError('judge-required', `Unsupported static ${key} anchor`);
+      if (typeof value !== 'string' && !isRelativeLocation(value) && concreteLocation(value) === undefined) {
+        throw new ProgramBindingError('judge-required', `Unsupported static ${key} anchor`);
+      }
       output[key] = value;
     } else if (key === 'region') {
-      if (typeof value !== 'string' && !(typeof value === 'object' && value !== null)) throw new ProgramBindingError('judge-required', 'Static region must be a location or region name');
+      if (typeof value !== 'string' && concreteLocation(value) === undefined) throw new ProgramBindingError('judge-required', 'Static region must be a location or region name');
       output.region = value;
     } else if (['objectId', 'zoneEntryId', 'cardId', 'canonicalCardId', 'type', 'types', 'zone', 'states', 'state', 'tags', 'keywords', 'keyword', 'hasKeyword', 'characteristics'].includes(key)) {
       output[key] = value;
@@ -212,7 +197,7 @@ function staticTarget(effect: AnyRecord, source: ObjectSnapshot): ObjectFilter {
   }
   if (appliesTo === 'opponent') return { controller: 'opponent' } as ObjectFilter;
   if (appliesTo === 'friendly-units') return { type: 'unit', controller: 'self' } as ObjectFilter;
-  if (appliesTo === 'units-here') return { type: 'unit', controller: 'self', here: true } as ObjectFilter;
+  if (appliesTo === 'units-here') return { type: 'unit', here: true } as ObjectFilter;
   if (appliesTo === 'all-players' || appliesTo === 'all') return {} as ObjectFilter;
   if (appliesTo !== undefined && appliesTo !== null) {
     throw new ProgramBindingError('judge-required', `Unsupported static appliesTo ${JSON.stringify(appliesTo)}`);
@@ -241,6 +226,37 @@ function abilityEnvironment(engine: ChainEngine, source: ObjectSnapshot) {
   };
 }
 
+/** The rule-query adapter has its own (absolute) filter reader. Resolve its
+ * supported player fields on access, rather than freezing them at bind time.
+ * Rich relative fields must wait for that reader to share matchesObjectFilter.
+ */
+function bindRuleFilter(filter: ObjectFilter, effect: AnyRecord, ability: Extract<Ability, { kind: 'static' }>, engine: ChainEngine, source: ObjectSnapshot): void {
+  const kind = String(normalizedEffect(effect).kind);
+  if (!['restriction', 'continuous.movement', 'continuous.timing'].includes(kind)) return;
+  const { controller, owner, here, sameLocationAs, position, location, ...rest } = filter;
+  if (hasRelativeAnchor(rest) || ['region', 'keywords', 'keyword', 'hasKeyword'].some(key => key in filter) ||
+      ability.condition !== undefined || effect.condition !== undefined) {
+    throw new ProgramBindingError('judge-required', `Static ${kind} needs a relative rule-filter consumer`);
+  }
+  const relative = here === true || sameLocationAs !== undefined || isRelativeLocation(position) || isRelativeLocation(location);
+  if (position !== undefined && !isRelativeLocation(position) || relative && location !== undefined && !isRelativeLocation(location)) {
+    throw new ProgramBindingError('judge-required', `Static ${kind} needs a compound location rule-filter consumer`);
+  }
+  if (relative) {
+    // The rule reader compares this live location by value. Unlike a captured
+    // bind-time location it follows move-location without reinstalling effects.
+    Object.defineProperty(filter, 'location', { enumerable: true, get: () => engine.layers.snapshot(source.ref)?.location ?? null });
+  }
+  for (const [key, value] of Object.entries({ controller, owner })) {
+    if (['opponent', 'their', 'caster-opponent'].includes(String(value))) {
+      throw new ProgramBindingError('judge-required', `Static ${kind} needs a relative opponent rule-filter consumer`);
+    }
+    if (['self', 'source', 'controller', 'you', 'caster'].includes(String(value))) {
+      Object.defineProperty(filter, key, { enumerable: true, get: () => engine.layers.snapshot(source.ref)?.controller ?? null });
+    }
+  }
+}
+
 function bindStaticToLayers(
   engine: ChainEngine,
   ability: Extract<Ability, { kind: 'static' }>,
@@ -250,6 +266,8 @@ function bindStaticToLayers(
   const effect = record(ability.effect);
   const filter = staticTarget(effect, source);
   const layer = layerFor(effect);
+  bindRuleFilter(filter, effect, ability, engine, source);
+  bindFilterAnchor(filter, () => engine.layers.snapshot(source.ref));
   const id = `program-static:${source.ref.id}:${source.ref.zoneEntryId}:${ordinal}`;
   const condition = ability.condition
     ? (_object: ObjectSnapshot) => {
@@ -262,6 +280,13 @@ function bindStaticToLayers(
     }
     : undefined;
   const resolvedEffect = normalizedEffect(effect);
+  if (resolvedEffect.kind === 'continuous.movement' && typeof resolvedEffect.permission === 'string') {
+    throw new ProgramBindingError('judge-required', 'Static continuous.movement needs a structured movement-permission consumer');
+  }
+  if ((layer === 'arithmetic' || String(effect.kind).toLowerCase() === 'continuous.base-might') &&
+      !numericLayerValue(resolvedEffect.amount ?? resolvedEffect.value ?? resolvedEffect.delta)) {
+    throw new ProgramBindingError('judge-required', `Static ${String(effect.kind)} needs a supported numeric layer value`);
+  }
   const spec: ContinuousEffectSpec = {
     id,
     layer,

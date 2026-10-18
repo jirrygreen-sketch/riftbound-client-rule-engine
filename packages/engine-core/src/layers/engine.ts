@@ -399,12 +399,9 @@ export class LayerEngine {
     layer: typeof LAYER_ORDER[number],
     effects: readonly RegisteredContinuousEffect[],
   ): void {
-    const applicable = effects.filter(entry => {
-      const source = entry.effect.source === undefined ? null : this.resolve(entry.effect.source) ?? this.raw(entry.effect.source);
-      return entry.effect.layer === layer &&
-      matchesObjectFilter(entry.effect.filter as ObjectFilter, target, source) &&
-      conditionMatches(record(entry.effect.effect), target);
-    });
+    const applicable = effects.filter(entry => entry.effect.layer === layer &&
+      matchesObjectFilter(entry.effect.filter as ObjectFilter, target) &&
+      conditionMatches(record(entry.effect.effect), target));
     if (layer === "arithmetic") {
       applyArithmetic(target, applicable, ref => this.resolve(ref));
       return;

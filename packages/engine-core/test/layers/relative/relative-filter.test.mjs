@@ -46,9 +46,12 @@ test('matchesRelativeController resolves self/you/controller against the anchor'
 });
 
 test('matchesRelativeController fails closed without an anchor for relative forms', () => {
-  assert.equal(matchesRelativeController('self', 'A', null), true, 'self falls back to absolute match without an anchor');
-  assert.equal(matchesRelativeController('opponent', 'B', null), false, 'opponent needs a controller anchor');
-  assert.equal(matchesRelativeController('opponent', 'A', undefined), false);
+  for (const selector of ['self', 'source', 'you', 'controller', 'caster', 'opponent', 'their', 'caster-opponent']) {
+    for (const host of [null, undefined]) {
+      assert.equal(matchesRelativeController(selector, 'A', host), false, `${selector} needs a controller anchor`);
+      assert.equal(matchesRelativeOwner(selector, 'A', host), false, `${selector} needs an owner anchor`);
+    }
+  }
 });
 
 test('matchesRelativeController supports wrapped and absolute selectors', () => {
@@ -113,7 +116,8 @@ test('matchesRelativeRegion matches board and battlefield kinds without an ancho
   const battlefield = snapshot({});
   const base = snapshot({ location: { type: 'base', player: 'A' } });
   assert.equal(matchesRelativeRegion('board', battlefield), true);
-  assert.equal(matchesRelativeRegion('board', base), false);
+  assert.equal(matchesRelativeRegion('board', base), true, 'CR 107.1 includes Bases in the Board');
+  assert.equal(matchesRelativeRegion('board', snapshot({ zone: 'hand', location: null })), false);
   assert.equal(matchesRelativeRegion('battlefield', battlefield), true);
   assert.equal(matchesRelativeRegion('battlefield', base), false);
 });
@@ -135,22 +139,22 @@ test('matchesObjectFilter applies relative selectors only through the anchor', (
   assert.equal(matchesObjectFilter(filter, enemy, anchor), true);
   assert.equal(matchesObjectFilter(filter, ally, anchor), false, 'the anchor controller is not an opponent');
   assert.equal(matchesObjectFilter(filter, enemy, null), false, 'opponent needs an anchor');
-  assert.equal(matchesObjectFilter({ type: 'unit', controller: 'self' }, ally, null), true, 'absolute self falls back to historical behavior');
+  assert.equal(matchesObjectFilter({ type: 'unit', controller: 'self' }, ally, null), false, 'an explicit missing host cannot resolve self');
 });
 
-test('matchesObjectFilter ignores relative fields without an anchor', () => {
+test('matchesObjectFilter fails closed for unbound location and exclusion anchors', () => {
   const here = snapshot({});
   const elsewhere = snapshot({ location: { type: 'battlefield', id: 'battlefield-2' } });
   const selfSnapshot = snapshot({ ref: { id: 'unit', zoneEntryId: 1 } });
   const otherObject = snapshot({ ref: { id: 'other', zoneEntryId: 2 } });
-  // Historical no-anchor behavior: relative position/location forms are skipped.
-  assert.equal(matchesObjectFilter({ type: 'unit', sameLocationAs: 'self' }, here, null), true);
-  assert.equal(matchesObjectFilter({ type: 'unit', sameLocationAs: 'self' }, elsewhere, null), true, 'the field is neither applied nor failed');
-  assert.equal(matchesObjectFilter({ type: 'unit', here: true }, elsewhere, undefined), true);
-  assert.equal(matchesObjectFilter({ type: 'unit', position: 'here' }, elsewhere, null), true);
-  // Historical exclusion behavior: without an anchor nothing is excluded.
-  assert.equal(matchesObjectFilter({ type: 'unit', other: true }, selfSnapshot, null), true, 'other:true keeps the object without an anchor');
-  assert.equal(matchesObjectFilter({ type: 'unit', exclude: 'self' }, selfSnapshot, null), true, 'exclude:self keeps the object without an anchor');
+  // Relative location and exclusion fields cannot match without a host.
+  assert.equal(matchesObjectFilter({ type: 'unit', sameLocationAs: 'self' }, here, null), false);
+  assert.equal(matchesObjectFilter({ type: 'unit', sameLocationAs: 'self' }, elsewhere, null), false, 'unresolved here must not become board-wide');
+  assert.equal(matchesObjectFilter({ type: 'unit', here: true }, elsewhere, null), false);
+  assert.equal(matchesObjectFilter({ type: 'unit', position: 'here' }, elsewhere, null), false);
+  // An exclusion must identify the source incarnation.
+  assert.equal(matchesObjectFilter({ type: 'unit', other: true }, selfSnapshot, null), false, 'other:true requires the source');
+  assert.equal(matchesObjectFilter({ type: 'unit', exclude: 'self' }, selfSnapshot, null), false, 'exclude:self requires the source');
   // With an anchor the same filters still apply.
   assert.equal(matchesObjectFilter({ type: 'unit', other: true }, selfSnapshot, selfSnapshot), false);
   assert.equal(matchesObjectFilter({ type: 'unit', other: true }, otherObject, selfSnapshot), true);
@@ -159,6 +163,19 @@ test('matchesObjectFilter ignores relative fields without an anchor', () => {
   // Structured object locations keep matching without an anchor.
   assert.equal(matchesObjectFilter({ type: 'unit', location: { type: 'battlefield', id: 'battlefield-1' } }, here, null), true);
   assert.equal(matchesObjectFilter({ type: 'unit', location: { type: 'battlefield', id: 'battlefield-2' } }, here, null), false);
+});
+
+test('legacy queries that omit the host preserve their old matching semantics', () => {
+  const object = snapshot({});
+  assert.equal(matchesObjectFilter({ type: 'unit', other: true }, object), true);
+  assert.equal(matchesObjectFilter({ type: 'unit', here: true }, object), true);
+  assert.equal(matchesObjectFilter({ type: 'unit', owner: 'self' }, object), true);
+  assert.equal(matchesObjectFilter({ type: 'unit', controller: 'self' }, object), true);
+  assert.equal(matchesObjectFilter({ type: 'unit', controller: 'controller' }, object), false);
+  assert.equal(matchesObjectFilter({ type: 'unit', location: { ...object.location } }, object), false);
+  assert.equal(matchesObjectFilter({ type: 'unit', location: { ...object.location } }, object, anchor), true);
+  assert.equal(matchesObjectFilter({ type: 'unit', keyword: 'missing' }, object), true);
+  assert.equal(matchesObjectFilter({ type: 'unit', keyword: 'missing' }, object, anchor), false);
 });
 
 test('matchesObjectFilter supports here, sameLocationAs, and keywords', () => {

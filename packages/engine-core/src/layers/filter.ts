@@ -8,6 +8,7 @@ import {
   matchesRelativeOwner,
   matchesRelativePosition,
   matchesRelativeRegion,
+  filterAnchor,
 } from "./relative/filter.js";
 
 type FilterValue = unknown;
@@ -52,11 +53,19 @@ function keywordMatches(value: FilterValue, object: LayeredObjectSnapshot): bool
   return values.every(item => object.keywords.some(keyword => keyword.id === String(item)));
 }
 
+function legacyPlayerMatches(value: unknown, actual: string, controller: string): boolean {
+  if (value === undefined || value === "any") return true;
+  if (value === "self") return actual === controller;
+  if (value === "opponent") return actual !== controller;
+  if (typeof value === "object" && value !== null && "playerId" in value) return (value as AnyRecord).playerId === actual;
+  return value === actual;
+}
+
 /**
  * Match an engine ObjectFilter. Relative fields are evaluated against the
- * optional static-ability host supplied by the layer engine. Callers that do
- * not have a host retain the historical self/opponent behavior for simple
- * filters, while host-relative anchors fail closed when no host exists.
+ * optional static-ability host supplied by the static binder. Callers that do
+ * omit a host retain the legacy matcher used by old runtimes. An explicit
+ * null host or a static binding uses the strict relative matcher instead.
  */
 export function matchesObjectFilter(
   filter: ObjectFilter | Record<string, unknown>,
@@ -64,28 +73,35 @@ export function matchesObjectFilter(
   anchor?: RelativeFilterAnchor | null,
 ): boolean {
   if (!filter || typeof filter !== "object") return true;
+  const resolveAnchor = filterAnchor(filter);
+  const legacy = anchor === undefined && resolveAnchor === undefined;
+  if (anchor === undefined && resolveAnchor !== undefined) {
+    anchor = resolveAnchor();
+    if (anchor === null) return false;
+  }
   const value = filter as AnyRecord;
   const objectId = value.objectId ?? value.id;
   if (objectId !== undefined && objectId !== object.ref.id) return false;
   const zoneEntryId = value.zoneEntryId;
-  if (zoneEntryId !== undefined && zoneEntryId !== object.ref.zoneEntryId) return false;
+  if (!legacy && zoneEntryId !== undefined && zoneEntryId !== object.ref.zoneEntryId) return false;
   const cardId = value.cardId ?? value.canonicalCardId;
   if (cardId !== undefined && cardId !== object.cardId) return false;
   if (!typeMatches(value.type ?? value.types, object)) return false;
   if (!zoneMatches(value.zone, object)) return false;
-  if (value.location !== undefined && !matchesRelativeLocation(value.location, object, anchor)) return false;
-  if (value.region !== undefined && !matchesRelativeRegion(value.region, object)) return false;
-  if (value.position !== undefined && anchor !== undefined && anchor !== null && !matchesRelativePosition(value.position, object, anchor)) return false;
-  if (value.here !== undefined && value.here !== true) return false;
-  // Without an anchor the caller has no way to resolve relative fields, so the
-  // historical behavior skips them instead of failing the whole filter.
-  if (anchor !== undefined && anchor !== null) {
+  if (legacy) {
+    if (value.location !== undefined && value.location !== object.location && object.location?.type !== value.location) return false;
+  } else if (value.location !== undefined && !matchesRelativeLocation(value.location, object, anchor)) return false;
+  if (!legacy && value.region !== undefined && !matchesRelativeRegion(value.region, object)) return false;
+  if (legacy) {
+    if (!legacyPlayerMatches(value.controller, object.controller, object.controller)) return false;
+    if (!legacyPlayerMatches(value.owner, object.owner, object.controller)) return false;
+  } else {
+    if (value.position !== undefined && !matchesRelativePosition(value.position, object, anchor)) return false;
+    if (value.here !== undefined && value.here !== true) return false;
     if (value.here === true && !matchesRelativePosition("here", object, anchor)) return false;
     if (value.sameLocationAs !== undefined && !matchesRelativePosition(value.sameLocationAs, object, anchor)) return false;
-  }
-  if (!matchesRelativeController(value.controller, object.controller, anchor)) return false;
-  if (!matchesRelativeOwner(value.owner, object.owner, anchor)) return false;
-  if (anchor !== undefined && anchor !== null) {
+    if (!matchesRelativeController(value.controller, object.controller, anchor)) return false;
+    if (!matchesRelativeOwner(value.owner, object.owner, anchor)) return false;
     if (!matchesRelativeExclusion(value.exclude, object, anchor)) return false;
     if (!matchesRelativeExclusion(value.other, object, anchor)) return false;
   }
@@ -94,7 +110,7 @@ export function matchesObjectFilter(
     const tags = list(value.tags) ?? [value.tags];
     if (!tags.every(tag => object.tags.includes(String(tag)))) return false;
   }
-  if (!keywordMatches(value.keyword ?? value.keywords ?? value.hasKeyword, object)) return false;
+  if (!legacy && !keywordMatches(value.keyword ?? value.keywords ?? value.hasKeyword, object)) return false;
   if (!characteristicsMatch(value.characteristics, object)) return false;
   return true;
 }
