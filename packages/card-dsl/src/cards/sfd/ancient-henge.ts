@@ -19,17 +19,19 @@ import type { CardProgram } from "../../ir/index.js";
  * - 430.1/430.5: [Add] puts Energy/Power into the Rune Pool; [A] is Universal Power
  *   (135.2.e.5/163.2.b).
  *
- * 当前复核：保持 judge-required；具体未接通路径见 judgeReason。
+ * 当前复核（2026-10-18，逐项实测）：保持 judge-required；具体未接通路径见 judgeReason。
  */
 export default {
   canonicalCardId: "card.hash-d07e48aa4c135d7523968d576a0ed10afd4b5574804fc3baa31b2d60b20f46a3",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "CR 204.3/204.3.a 的 “Pay any amount of Energy” 在 Resolve 时选择并支付：已注册原语表（effects/instructions/registry.generated.ts）里没有 cost.pay-any，" +
-    "现有 cost.pay 只接受已锁定的 Finalize 计划（payments 形式的数组也不是它的可支付计划形状），没有「任意金额询问 + 成功作用域 + 实付量链接」这条路径，故本卡首条指令无法执行。" +
-    "[A] Universal Power（135.2.e.5/163.2.b）缺独立资源表示：effect.resources 只接受已关闭的 Domain 集合，rainbow 会被判为 impossible，绝不用某个有色域近似。" +
-    "programs/activate.ts 把本能力描述为 activated 链项（kind: \"activated\"），而 430.2/430.2.a 要求 add 能力立即结算且在支付期间不可被响应；没有消费者按 add 处理该 draft。",
+    "三处当前缺口（2026-10-18 实测；均不近似实现）：" +
+    "CR 204.3/204.3.a 的“Pay any amount of Energy”需要 Resolve 时询问金额、成功支付并把实付量链接给后续 [Add]，" +
+    "但 effects/instructions/registry.generated.ts 没有 cost.pay-any；现有 cost.pay 只接受已锁定的 Finalize 计划，因此本卡首条指令仍会以未注册原语失败。" +
+    "[A] Universal Power（135.2.e.5/163.2.b）作为要加入 Rune Pool 的资源仍不在 effect.resources 的六域 Domain 表示内，rainbow 请求必须保持 impossible，不能近似成具名域。" +
+    "启动费用的横置、describeActivate 草稿和 effect.resources 的局部执行都已合入，但 programs/activate.ts 仍把本能力描述为 kind: \"activated\"；" +
+    "chain/engine.ts 的 430.2/430.2.a add 路径只接受 kind: \"add\"，没有把本能力分类为立即结算的 Add 链项。",
   abilities: [
     {
       kind: "activated",

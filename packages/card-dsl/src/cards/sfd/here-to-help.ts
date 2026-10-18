@@ -37,7 +37,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   `finalized: true` — so the -3 reduction cannot be authored as executable
  *   data here.
  *
- * Current status: judge-required. Hidden's runtime Hide/facedown/free-play
+ * Current status: judge-required (2026-10-18 re-check). Hidden's runtime Hide/facedown/free-play
  * consumer and a finalized -3 Energy cost plan for the picked Unit are absent.
  * Location choice is already executable: condition.value captures a
  * LocationExpr and effect.play reads its linked value through the existing
@@ -49,12 +49,12 @@ const hereToHelp = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Hidden] 的展开与 cost.hidden 费用构建/支付已合入，但没有消费方：Hide 自由行动、facedown 区域与从 facedown " +
-    "免费打出仍未接入运行期（811.1.b/811.1.c），effects/keywords/Hidden.ts 只声明静态 cost.hidden。" +
-    "effect.play 的原语 schema 要求 cost 为 finalized 的 FinalizedCostPlan（既非本卡 printed 费用，也不接受未完成计划）；" +
-    "cost.modify 只能按能力自身来源或显式 CostSpec 构建计划，没有按本卡 pick 读取所选手牌单位的权威费用、" +
-    "应用 -3 Energy 折扣并接入该单位打出/Finalize 的生产绑定（356.4/356.6），不能用本法术的费用替代。" +
-    "LocationSelector 与运行期受控战场选择已合入并由 golden 执行，不再列为依赖。",
+    "两处当前缺口（2026-10-18 实测；均不近似实现）：[Hidden] 的展开与 cost.hidden 费用构建/支付已合入，" +
+    "但没有 Hide 自由行动、facedown 区域与从 facedown 免费打出的运行期消费方（811.1.b/811.1.c），" +
+    "effects/keywords/Hidden.ts 目前只声明静态 cost.hidden。" +
+    "所选手牌单位的 -3 Energy 打出也仍无法接线：effect.play 的 schema 要求 finalized 的 FinalizedCostPlan，" +
+    "而 cost.modify/CostPlan 只按能力自身来源或显式 CostSpec 建计划，没有按本卡 PickSpec 读取该单位的权威印刷费用、" +
+    "应用 356.4/356.6 折扣并在该单位的 Play/Finalize 事务中支付。LocationSelector 与受控战场选择已合入并由 golden 执行，不再列为依赖。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },
