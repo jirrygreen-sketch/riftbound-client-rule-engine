@@ -1,10 +1,101 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { ChainEngine } from '../../dist/chain/engine.js';
 import { AwaitChoice } from '../../dist/effects/contract.js';
 import { runInstruction, world } from '../../dist/effects/testing/index.js';
 import { bindResolveContext, createActionPipelineHost } from '../../dist/events/action-adapter.js';
+import { EventPipeline } from '../../dist/events/pipeline.js';
+
+const typeProbeSource = `
+import type {
+  ContractGameAction,
+  GameAction,
+} from "../../src/effects/contract.js";
+import {
+  bindResolveContext,
+  createActionPipelineHost,
+  type ContractActionPipelineHost,
+} from "../../src/events/action-adapter.js";
+import type { ActionExecution, PipelineHost } from "../../src/events/pipeline-types.js";
+import { world } from "../../src/effects/testing/index.js";
+
+const kernel = world().unit("unit").build();
+const host = createActionPipelineHost({
+  checkpoint: () => kernel.snapshot(),
+  restore: checkpoint => kernel.restore(checkpoint as ReturnType<typeof kernel.snapshot>),
+  objects: () => kernel.objects,
+  perform: action => kernel.perform(action),
+  choose: request => {
+    throw new Error(request.id);
+  },
+  context: (source, controller, timingPoint) => bindResolveContext(kernel, {
+    source,
+    controller,
+    timingPoint,
+  }),
+});
+
+const recall: ContractGameAction = {
+  type: "recall",
+  object: { id: "unit", zoneEntryId: 1 },
+  player: "A",
+};
+const batch: ContractGameAction = {
+  type: "batch",
+  transactionId: "typed:static",
+  actions: [{ type: "kill", object: { id: "unit", zoneEntryId: 1 } }],
+};
+
+const execution: ActionExecution = host.executeContract(recall);
+const contractHost: ContractActionPipelineHost = host;
+const legacyHost: PipelineHost = host;
+const legacyMove: GameAction = {
+  type: "move-location",
+  object: { id: "unit", zoneEntryId: 1 },
+  to: { type: "base", player: "A" },
+};
+const legacyExecution: ActionExecution = host.executeContract(legacyMove);
+
+// @ts-expect-error Recall remains outside the legacy GameAction union.
+const invalidLegacyRecall: GameAction = recall;
+// @ts-expect-error The legacy execute seam remains closed to contract-only actions.
+const invalidLegacyExecution = host.execute(recall);
+
+void [execution, contractHost, legacyHost, batch, legacyExecution, invalidLegacyRecall, invalidLegacyExecution];
+`;
+
+test('the typed contract execution seam stays assignable without widening legacy actions', async () => {
+  const { default: typescript } = await import('typescript');
+  const options = {
+    noEmit: true,
+    strict: true,
+    skipLibCheck: true,
+    target: typescript.ScriptTarget.ES2022,
+    module: typescript.ModuleKind.NodeNext,
+    moduleResolution: typescript.ModuleResolutionKind.NodeNext,
+  };
+  const virtualPath = fileURLToPath(new URL('./recall-batch-action-bridge.virtual-types.ts', import.meta.url));
+  const compilerHost = typescript.createCompilerHost(options);
+  const getSourceFile = compilerHost.getSourceFile.bind(compilerHost);
+  compilerHost.fileExists = fileName => fileName === virtualPath || typescript.sys.fileExists(fileName);
+  compilerHost.readFile = fileName => fileName === virtualPath ? typeProbeSource : typescript.sys.readFile(fileName);
+  compilerHost.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) =>
+    fileName === virtualPath
+      ? typescript.createSourceFile(fileName, typeProbeSource, languageVersion, true)
+      : getSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile);
+  const compiled = typescript.createProgram(
+    [virtualPath],
+    options,
+    compilerHost,
+  );
+  const diagnostics = typescript.getPreEmitDiagnostics(compiled);
+  assert.deepEqual(
+    diagnostics.map(diagnostic => typescript.flattenDiagnosticMessageText(diagnostic.messageText, '\n')),
+    [],
+  );
+});
 
 const field = id => ({ type: 'battlefield', id });
 const base = player => ({ type: 'base', player });
@@ -116,6 +207,85 @@ test('an ordinary Move still consumes and is stopped by the same Move-only rule'
   assert.deepEqual(f.kernel.getObject('a').location, one);
   assert.equal(f.kernel.history({ action: 'move-location', object: before.ref }), 0);
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === 'object-moved').length, 0);
+});
+
+test('typed executeContract returns the real same-wave emissions without publishing or double-executing', () => {
+  const f = fixture();
+  const checkpoint = f.host.checkpoint();
+  const action = {
+    type: 'batch',
+    transactionId: 'typed:kill-wave',
+    actions: [
+      { type: 'kill', object: f.kernel.ref('a') },
+      { type: 'kill', object: f.kernel.ref('b') },
+    ],
+  };
+  const execution = f.host.executeContract(action);
+  assert.equal(execution.outcome.status, 'done');
+  assert.equal(execution.outcome.receipt.status, 'committed');
+  assert.equal(execution.emissions.filter(event => event.timingPoint === 'object-killed').length, 2);
+  assert.ok(execution.emissions.every(event => event.simultaneousGroup === 'typed:kill-wave'));
+  assert.equal(f.engine.pipeline.events.length, 0);
+  assert.equal(f.kernel.history({ action: 'kill' }), 2);
+
+  f.host.restore(checkpoint);
+  assert.equal(f.kernel.getObject('a').zone, 'board');
+  assert.equal(f.kernel.getObject('b').zone, 'board');
+  assert.equal(f.kernel.history({ action: 'kill' }), 0);
+  assert.equal(f.engine.pipeline.events.length, 0);
+});
+
+test('typed executeContract hands one atomic wave to EventPipeline for a single trigger scan', () => {
+  const f = fixture();
+  const observed = [];
+  const pipeline = new EventPipeline(f.host, ['A', 'B'], 'A');
+  pipeline.registerTrigger({
+    id: 'typed-death-observer',
+    source: f.kernel.getObject('a'),
+    controller: 'A',
+    spec: { at: 'object-killed', filter: { event: 'object-killed' }, once: 'per-batch' },
+    body: [],
+  });
+  pipeline.onTrigger = snapshot => observed.push({
+    snapshot,
+    bothInTrash: f.kernel.getObject('a').zone === 'trash' && f.kernel.getObject('b').zone === 'trash',
+  });
+  const execution = f.host.executeContract({
+    type: 'batch',
+    transactionId: 'typed:scan-wave',
+    actions: [
+      { type: 'kill', object: f.kernel.ref('a') },
+      { type: 'kill', object: f.kernel.ref('b') },
+    ],
+  });
+  const published = pipeline.emitBatch(execution.emissions);
+  assert.equal(published.length, execution.emissions.length);
+  assert.ok(published.every(event => event.batchId === 'typed:scan-wave'));
+  assert.equal(observed.length, 1);
+  assert.equal(observed[0].bothInTrash, true);
+  assert.equal(pipeline.events.filter(event => event.timingPoint === 'object-killed').length, 2);
+});
+
+test('typed executeContract rollback leaves no emissions and restores the host checkpoint', () => {
+  const f = fixture();
+  f.kernel.addReplacement(action => action.type === 'kill' && action.object.id === 'b' ? 'prevented' : null);
+  const checkpoint = f.host.checkpoint();
+  const execution = f.host.executeContract({
+    type: 'batch',
+    transactionId: 'typed:rollback',
+    actions: [
+      { type: 'kill', object: f.kernel.ref('a') },
+      { type: 'kill', object: f.kernel.ref('b') },
+    ],
+  });
+  assert.equal(execution.outcome.status, 'prevented');
+  assert.equal(execution.outcome.receipt.status, 'rolled-back');
+  assert.deepEqual(execution.emissions, []);
+  assert.equal(f.kernel.getObject('a').zone, 'board');
+  assert.equal(f.kernel.getObject('b').zone, 'board');
+  assert.equal(f.kernel.history({ action: 'kill' }), 0);
+  f.host.restore(checkpoint);
+  assert.equal(f.kernel.getObject('a').zone, 'board');
 });
 
 test('Recall uses the recalled Permanent controller Base and rejects stale or foreign-controller actions atomically', () => {
