@@ -125,3 +125,17 @@ test('the once scope consumes only the first matching wave', () => {
   assert.equal(first, 1);
   assert.equal(f.engine.items.length, 0);
 });
+
+test('a no-window registration without once remains event-driven instead of inventing a lifetime', () => {
+  resetDelayedTriggerSequence();
+  const f = fixture();
+  delayed(f, 'event-driven', { at: 'object-killed' });
+  f.engine.emit({ timingPoint: 'object-killed', object: f.kernel.getObject('enemy') });
+  f.engine.advance();
+  assert.equal(f.engine.items.length, 1);
+  resolveAll(f.engine);
+  f.engine.emit({ timingPoint: 'object-killed', object: f.kernel.getObject('enemy') });
+  f.engine.advance();
+  assert.equal(f.engine.items.length, 1);
+  assert.equal(f.engine.pipeline.checkpoint().triggers.get('event-driven').spec.once, undefined);
+});

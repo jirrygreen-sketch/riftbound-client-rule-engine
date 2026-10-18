@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import instruction from '../../../dist/effects/instructions/trigger.delayed.js';
 import { runInstruction, world } from '../../../dist/effects/testing/index.js';
+import { resolveChainBody } from '../../../dist/chain/interpreter-adapter.js';
 
 const c = (value) => ({ kind: 'constant', value });
 const draw = (id = 'draw') => ({ id, op: 'effect.draw', args: { amount: c(1) } });
@@ -160,4 +161,57 @@ test('unsupported arguments are rejected before a choice or registration can mut
   }, { world: built }), /Unsupported trigger\.delayed argument/);
   assert.equal(built.linked('registered'), undefined);
   assert.equal(built.delayedTriggers.length, 0);
+});
+
+test('the default chain interpreter registers a bounded explicit once scope', () => {
+  const built = world().player('A').build();
+  const body = [{
+    id: 'default-chain-registration',
+    op: 'trigger.delayed',
+    args: {
+      at: c('object-killed'),
+      filter: c({ cardId: 'card:victim' }),
+      once: c('per-game'),
+      body: c([draw('delayed-draw')]),
+    },
+  }];
+  const result = resolveChainBody(body, built);
+  assert.equal(result.results[0].result.status, 'executed');
+  assert.equal(built.delayedTriggers.length, 1);
+  assert.equal(built.delayedTriggers[0].at.at, 'object-killed');
+  assert.equal(built.delayedTriggers[0].at.once, 'per-game');
+  assert.deepEqual(built.delayedTriggers[0].at.filter, { cardId: 'card:victim' });
+});
+
+test('the default chain interpreter leaves no registration when an argument is unsupported', () => {
+  const built = world().player('A').build();
+  assert.throws(() => resolveChainBody([{
+    id: 'unsupported-chain-registration',
+    op: 'trigger.delayed',
+    args: {
+      at: c('turn-end'),
+      uses: c(3),
+      body: c([draw('delayed-draw')]),
+    },
+  }], built), /Unsupported trigger\.delayed argument/);
+  assert.equal(built.delayedTriggers.length, 0);
+  assert.equal(built.linked('registered'), undefined);
+});
+
+test('the default chain interpreter passes a real EventPattern through unchanged', () => {
+  const built = world().player('A').build();
+  const eventPattern = { event: 'card-played', object: { type: 'unit' } };
+  const result = resolveChainBody([{
+    id: 'event-pattern-registration',
+    op: 'trigger.delayed',
+    args: {
+      at: c('card-played'),
+      eventFilter: c(eventPattern),
+      once: c('per-game'),
+      body: c([draw('delayed-draw')]),
+    },
+  }], built);
+  assert.equal(result.results[0].result.status, 'executed');
+  assert.deepEqual(built.delayedTriggers[0].at.filter, eventPattern);
+  assert.equal(built.delayedTriggers[0].at.once, 'per-game');
 });
