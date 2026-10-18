@@ -66,6 +66,19 @@ test('a delayed registration keeps firing after its source leaves the board', ()
   assert.equal(f.kernel.player('A').handSize, 1);
 });
 
+test('a delayed registration keeps the source snapshot captured at creation', () => {
+  resetDelayedTriggerSequence();
+  const f = fixture();
+  const capturedLocation = f.kernel.getObject('source').location;
+  delayed(f, 'lki', { duration: { kind: 'this-turn' } });
+  f.engine.commit({ type: 'move-location', object: f.kernel.ref('source'), to: { type: 'battlefield', id: 'other' } });
+  f.engine.commit({ type: 'take-control', object: f.kernel.ref('source'), player: 'B' });
+  const registration = f.engine.pipeline.checkpoint().triggers.get('lki');
+  assert.deepEqual(registration.source.location, capturedLocation);
+  assert.equal(registration.source.controller, 'A');
+  assert.equal(registration.controller, 'A');
+});
+
 test('expiry runs after the wave scan, so a same-point window still fires', () => {
   resetDelayedTriggerSequence();
   const f = fixture();
