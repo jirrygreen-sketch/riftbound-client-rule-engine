@@ -66,7 +66,8 @@ export default {
     "spell-play-cost 折扣消费通道已合入（cost/discounts/collect.ts 的 collectCostModifications / " +
     "finalizeCostPlan 可接受 StaticCostAbility 并执行 1 Energy + 1 任意域 Power 折扣及 356.4.e 的" +
     "单条最低 1 Energy），但 programs/statics.ts 的 layerFor 仍不识别该 kind，Chain Finalize 也未接 " +
-    "finalizeCostPlan——没有把卡程序 static 送进该通道的生产桥接，折扣无法进入法术 Finalize 费用计划。",
+    "finalizeCostPlan，卡程序 static 到 CostPlanInput.discounts 的生产桥接尚未接通，折扣无法进入" +
+    "法术 Finalize 费用计划。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_3: (:rb_energy_3:: Empower me. Use only if not Empowered.)\n" +

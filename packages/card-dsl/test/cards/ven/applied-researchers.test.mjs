@@ -47,15 +47,15 @@ test("applied-researchers: judgeReason names the current cost-plan and Empowered
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /827\.1\.c\.1/);
   assert.match(program.judgeReason, /828\.1\.c/);
+  assert.match(program.judgeReason, /CostPlanInput\.discounts/);
   assert.match(program.judgeReason, /collectCostModifications/);
   assert.match(program.judgeReason, /finalizeCostPlan/);
   assert.match(program.judgeReason, /layerFor/);
   assert.match(program.judgeReason, /356\.4\.e/);
   assert.match(program.judgeReason, /spell-play-cost/);
-  // Deleted stale assertion (2026-10-18 re-sweep): "CostPlanInput.discounts 消费通道
-  // 尚无" no longer holds — the channel exists; its replacement above asserts the
-  // merged collectCostModifications/finalizeCostPlan entry points and the missing
-  // layerFor/Chain Finalize production bridge instead.
+  // Keep the shared 673 template's field assertion and distinguish the existing
+  // discount consumer from the missing production bridge that populates it.
+  assert.match(program.judgeReason, /卡程序 static 到 CostPlanInput\.discounts 的生产桥接尚未接通/);
   assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.match(program.judgeReason, /2026-10-18 复核/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
