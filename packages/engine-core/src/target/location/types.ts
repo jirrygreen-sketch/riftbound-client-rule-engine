@@ -1,5 +1,6 @@
 import type { LocationFilter, LocationRef, LocationTargetSpec } from "@riftbound/card-dsl";
 import type { ObjectRef, ObjectSnapshot, PlayerId, ResolveContext } from "../../effects/contract.js";
+import type { ContinuousEffectRegistry } from "../../layers/duration.js";
 
 export type { LocationFilter, LocationRef, LocationTargetSpec };
 
@@ -18,7 +19,12 @@ export interface LocationCandidateOptions {
   readonly players?: readonly PlayerId[];
   readonly opponent?: PlayerId;
   readonly exclude?: readonly LocationRef[];
+  /** A Move destination must differ from the selected object's current location. */
   readonly current?: LocationRef | null;
+  /** Current zone-bound objects whose common legal Move destinations are queried. */
+  readonly moving?: readonly ObjectRef[];
+  /** Ability-layer rule queries supplied by the host that owns the registry. */
+  readonly registry?: ContinuousEffectRegistry;
 }
 
 export interface LocationEnvironment extends LocationCandidateOptions {
