@@ -157,7 +157,7 @@ export function inspectFilter(value: unknown, label = "effect.inspect"): ObjectF
   const anchors = new Set<string>(OBJECT_FILTER_ANCHORS);
   const allowed = new Set([
     ...anchors, "other", "self", "role", "here", "relation",
-    "objectId", "id", "cardId", "canonicalCardId", "type", "types",
+    "object.id", "objectId", "id", "cardId", "canonicalCardId", "type", "types",
     "controller", "owner", "zone", "zoneEntryId", "location", "locationType",
     "tags", "tag", "states", "state", "characteristics", "keyword", "keywords", "hasKeyword",
     "damaged", "buffed", "empowered", "mightLt", "mightLessThan",
@@ -170,6 +170,10 @@ export function inspectFilter(value: unknown, label = "effect.inspect"): ObjectF
   const put = (key: string, entry: unknown): void => {
     if (key in output && JSON.stringify(output[key]) !== JSON.stringify(entry)) reject(`Conflicting filter field ${key}`);
     output[key] = entry;
+  };
+  const append = (key: string, entry: unknown): void => {
+    const values = Array.isArray(entry) ? entry : [entry];
+    output[key] = [...new Set([...(Array.isArray(output[key]) ? output[key] as unknown[] : []), ...values])];
   };
   for (const [key, entry] of Object.entries(value)) {
     if (!allowed.has(key)) reject(`Unsupported filter field ${key}`);
@@ -190,12 +194,12 @@ export function inspectFilter(value: unknown, label = "effect.inspect"): ObjectF
         put("controller", "self");
         put("exclude", "self");
       }
-    } else if (key === "object.id" || key === "id") {
+    } else if (key === "object.id" || key === "id" || key === "objectId") {
       if (entry === "self" || entry === "source") put("object", entry);
       else put("objectId", entry);
     } else if (key === "types") put("type", entry);
-    else if (key === "tag" || key === "tags") put("tags", Array.isArray(entry) ? entry : [entry]);
-    else if (key === "state" || key === "states") put("states", Array.isArray(entry) ? entry : [entry]);
+    else if (key === "tag" || key === "tags") append("tags", entry);
+    else if (key === "state" || key === "states") append("states", entry);
     else if (key === "controller" || key === "owner") {
       put(key, entry === "controller" || entry === "you" ? "self" : entry === "their" ? "opponent" : entry);
     } else if (key === "zoneEntryId" && (!Number.isSafeInteger(entry) || (entry as number) < 0)) {

@@ -6,7 +6,7 @@ import calledShot from "../../../card-dsl/dist/cards/sfd/called-shot.js";
 import candlelitSanctum from "../../../card-dsl/dist/cards/ogn/the-candlelit-sanctum.js";
 import { AwaitChoice, world } from "../../dist/effects/testing/index.js";
 import { resolveChainBody } from "../../dist/chain/interpreter-adapter.js";
-import { disclosedRefs } from "../../dist/effects/instructions/effect.inspect.js";
+import { disclosedRefs, inspectFilter } from "../../dist/effects/instructions/effect.inspect.js";
 import { fixture, resolveAll } from "../chain/helpers.mjs";
 
 const c = value => ({ kind: "constant", value });
@@ -359,6 +359,13 @@ test("inspect filter accepts the shared legacy selector spellings and still cons
   assert.deepEqual(ids(request.options), ["eligible-gear"]);
   assert.equal(request.visibility, "chooser-only");
   assert.equal(request.chooser, "A");
+});
+
+test("inspect filter canonicalizes object.id/objectId and merges repeated tag/state spellings", () => {
+  assert.deepEqual(inspectFilter({ "object.id": "source" }), { object: "source" });
+  assert.deepEqual(inspectFilter({ objectId: "self" }), { object: "self" });
+  assert.deepEqual(inspectFilter({ tag: "Dragon", tags: ["Dragon", "Mech"] }), { tags: ["Dragon", "Mech"] });
+  assert.deepEqual(inspectFilter({ state: "ready", states: ["ready", "buffed"] }), { states: ["ready", "buffed"] });
 });
 
 test("inspect filter resolves source-location and self selectors without widening the inspected set", () => {
