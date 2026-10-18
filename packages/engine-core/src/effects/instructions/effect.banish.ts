@@ -14,14 +14,16 @@
  * so direct primitive tests and interpreter dispatch use the same definition.
  * - objects: defaults to source. Evaluates to "self" / "source", { target: id },
  *   { pick: id }, { linked: key }, { zone, player?, from? }, or
- *   { choose: id, filter, chooser?, visibility? }. Targets come only from
+ *   { choose: id, filter, chooser?, visibility?, from? }. Targets come only from
  *   ctx.targets; non-target picks come only from ctx.picks. Linked selections
  *   accept a captured ObjectRef/list or this primitive's result record.
  *   Zone selections use zoneSlice, including top/bottom of Main/Rune Decks;
  *   player defaults to controller and from to top. A choose selector is a
  *   non-target set query followed by choose(select-objects); its id must be
  *   unique in the resolving program, chooser defaults to controller, and
- *   visibility defaults to chooser-only. It grants no Look/Reveal permission.
+ *   visibility defaults to chooser-only. Its optional from selector restricts
+ *   the choice to a linked collection, pick, target, source, or query before
+ *   applying the ObjectFilter. It grants no Look/Reveal permission.
  * - amount: nonnegative safe integer upper bound; defaults to all candidates
  *   except choose, which defaults to one. Excess requests banish as many as
  *   possible (055, 359.3.e.11); zero performs no action or choice. Zone slices
@@ -61,7 +63,10 @@ type Selection =
   | { readonly kind: "source" }
   | { readonly kind: "target" | "pick" | "linked"; readonly id: string }
   | { readonly kind: "zone"; readonly zone: ZoneId; readonly player: string; readonly from: "top" | "bottom" }
-  | { readonly kind: "choose"; readonly id: string; readonly filter: ObjectFilter; readonly chooser: string; readonly visibility: ChoiceVisibility };
+  | {
+    readonly kind: "choose"; readonly id: string; readonly filter: ObjectFilter; readonly chooser: string;
+    readonly visibility: ChoiceVisibility; readonly from?: Exclude<Selection, { readonly kind: "choose" }>;
+  };
 
 const ZONES: readonly ZoneId[] = ["hand", "deck", "rune-deck", "trash", "banishment", "board", "rune-zone", "chain"];
 
@@ -149,10 +154,15 @@ function selection(ctx: ResolveContext, value: Value): Selection {
       return { kind: "zone", zone: value.zone as ZoneId, player: value.player ?? ctx.controller, from: value.from ?? "top" };
     }
     const visibility = value.visibility ?? "chooser-only";
-    if (onlyKeys(value, ["choose", "filter", "chooser", "visibility"]) && isId(value.choose) &&
+    if (onlyKeys(value, ["choose", "filter", "chooser", "visibility", "from"]) && isId(value.choose) &&
         isRecord(value.filter) && isValue(value.filter) && (value.chooser === undefined || isId(value.chooser)) &&
         (visibility === "public" || visibility === "chooser-only" || Array.isArray(visibility) && visibility.every(isId))) {
-      return { kind: "choose", id: value.choose, filter: value.filter, chooser: value.chooser ?? ctx.controller, visibility };
+      const from = value.from === undefined ? undefined : selection(ctx, value.from as Value);
+      if (from?.kind === "choose") throw new TypeError("effect.banish choose.from cannot be another choose selector");
+      return {
+        kind: "choose", id: value.choose, filter: value.filter, chooser: value.chooser ?? ctx.controller,
+        visibility, ...(from === undefined ? {} : { from })
+      };
     }
   }
   throw new TypeError("effect.banish objects must evaluate to a symbolic source, target, pick, linked, zone, or choose selector");
@@ -166,7 +176,7 @@ function refValue(ref: ObjectRef): Value {
   return { id: ref.id, zoneEntryId: ref.zoneEntryId };
 }
 
-function candidates(ctx: ResolveContext, selected: Selection, amount: number | undefined): ObjectRef[] {
+function sourceValues(ctx: ResolveContext, selected: Selection, amount: number | undefined): readonly unknown[] {
   let values: readonly unknown[];
   switch (selected.kind) {
     case "source": values = [ctx.source.ref]; break;
@@ -179,8 +189,15 @@ function candidates(ctx: ResolveContext, selected: Selection, amount: number | u
       break;
     }
     case "zone": values = ctx.zoneSlice(selected.player, selected.zone, selected.from, amount).map(object => object.ref); break;
-    case "choose": values = ctx.query(selected.filter).map(object => object.ref); break;
+    case "choose": values = selected.from === undefined
+      ? ctx.query(selected.filter).map(object => object.ref)
+      : sourceValues(ctx, selected.from, undefined);
   }
+  return values;
+}
+
+function candidates(ctx: ResolveContext, selected: Selection, amount: number | undefined): ObjectRef[] {
+  const values = sourceValues(ctx, selected, amount);
   const refs: ObjectRef[] = [];
   for (const value of values) {
     if (isRef(value) && ctx.object(value) !== null && !refs.some(ref => sameRef(ref, value))) {
@@ -188,6 +205,11 @@ function candidates(ctx: ResolveContext, selected: Selection, amount: number | u
     }
   }
   if (selected.kind === "choose") {
+    const allowed = new Set(ctx.query(selected.filter).map(object => `${object.ref.id}:${object.ref.zoneEntryId}`));
+    for (let index = refs.length - 1; index >= 0; index--) {
+      const ref = refs[index]!;
+      if (!allowed.has(`${ref.id}:${ref.zoneEntryId}`)) refs.splice(index, 1);
+    }
     refs.sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : left.zoneEntryId - right.zoneEntryId);
   }
   return refs;

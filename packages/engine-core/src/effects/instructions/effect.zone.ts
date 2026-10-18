@@ -4,17 +4,20 @@ import type {
   GameEvent,
   InstructionDef,
   LocationRef,
+  ObjectFilter,
   ObjectRef,
   ResolveContext,
+  Value,
   ZoneDestination
 } from "../contract.js";
 
 /**
  * Moves the selected objects through the closed GameAction vocabulary.
  *
- * `target` names a finalized TargetSpec and is resolved with `ctx.targets()`;
- * `pick` names a non-target PickSpec and is resolved with `ctx.picks()`.
- * Exactly one is required. `amount`, `to`, and `location` are Expr values,
+ * `objects` accepts the established source/self, finalized target, non-target
+ * pick, linked collection, and current-query selection shapes. The legacy
+ * `target` and `pick` arguments remain supported. Exactly one selection form
+ * is required. `amount`, `to`, and `location` are Expr values,
  * evaluated during resolution. `choice` is an optional non-target mode choice
  * for the destination and is resolved with `ctx.choose()` when `to` is absent.
  * A missing amount means all selected objects; an amount larger than the
@@ -41,6 +44,7 @@ export interface EffectZoneChoice {
 }
 
 export interface EffectZoneArgs {
+  readonly objects?: Expr;
   readonly target?: string;
   readonly pick?: string;
   readonly amount?: Expr;
@@ -70,6 +74,22 @@ function isExpr(value: unknown): value is Expr {
   return isRecord(value) && typeof value.kind === "string";
 }
 
+function isRef(value: unknown): value is ObjectRef {
+  return isRecord(value) && typeof value.id === "string" && value.id.length > 0 &&
+    typeof value.zoneEntryId === "number" && Number.isSafeInteger(value.zoneEntryId) &&
+    value.zoneEntryId >= 0;
+}
+
+function isValue(value: unknown, ancestors = new Set<unknown>()): value is Value {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (!isRecord(value) && !Array.isArray(value) || ancestors.has(value)) return false;
+  ancestors.add(value);
+  const valid = Object.values(value).every(entry => isValue(entry, ancestors));
+  ancestors.delete(value);
+  return valid;
+}
+
 function isDestination(value: unknown): value is ZoneDestination {
   return typeof value === "string" && DESTINATIONS.includes(value as ZoneDestination);
 }
@@ -77,10 +97,16 @@ function isDestination(value: unknown): value is ZoneDestination {
 function parseArgs(value: unknown): EffectZoneArgs {
   if (!isRecord(value)) throw new TypeError("effect.zone args must be an object");
 
+  let objects: Expr | undefined;
+  if (value.objects !== undefined) {
+    if (isExpr(value.objects)) objects = value.objects;
+    else if (isValue(value.objects)) objects = { kind: "constant", value: value.objects };
+    else throw new TypeError("effect.zone objects must be a card-dsl Expr or evaluated value");
+  }
   const target = value.target;
   const pick = value.pick;
-  if ((target === undefined) === (pick === undefined)) {
-    throw new TypeError("effect.zone requires exactly one of target or pick");
+  if ([objects, target, pick].filter(item => item !== undefined).length !== 1) {
+    throw new TypeError("effect.zone requires exactly one of objects, target, or pick");
   }
   if (target !== undefined && typeof target !== "string") {
     throw new TypeError("effect.zone target must be a TargetSpec id");
@@ -119,23 +145,79 @@ function parseArgs(value: unknown): EffectZoneArgs {
     }
   }
 
-  return value as EffectZoneArgs;
+  return {
+    ...(objects === undefined ? {} : { objects }),
+    ...(target === undefined ? {} : { target } as { target: string }),
+    ...(pick === undefined ? {} : { pick } as { pick: string }),
+    ...(amount === undefined ? {} : { amount }),
+    ...(to === undefined ? {} : { to }),
+    ...(location === undefined ? {} : { location }),
+    ...(choice === undefined ? {} : { choice: choice as unknown as EffectZoneChoice })
+  };
 }
 
-function selectedObjects(ctx: ResolveContext, args: EffectZoneArgs): ObjectRef[] {
-  const selected = args.target !== undefined ? ctx.targets(args.target) : ctx.picks(args.pick!);
-  const seen = new Set<string>();
-  const objects: ObjectRef[] = [];
-  for (const candidate of selected) {
-    if (typeof candidate !== "object" || candidate === null ||
-      typeof candidate.id !== "string" || typeof candidate.zoneEntryId !== "number") continue;
-    const ref = candidate as ObjectRef;
-    const key = `${ref.id}:${ref.zoneEntryId}`;
-    if (seen.has(key) || ctx.object(ref) === null) continue;
-    seen.add(key);
-    objects.push({ id: ref.id, zoneEntryId: ref.zoneEntryId });
+type Selection =
+  | { readonly kind: "self" | "source" }
+  | { readonly kind: "target" | "pick" | "linked"; readonly id: string }
+  | { readonly kind: "query"; readonly filter: ObjectFilter };
+
+function selection(value: unknown): Selection {
+  if (value === "self") return { kind: "self" };
+  if (value === "source") return { kind: "source" };
+  if (!isRecord(value)) throw new TypeError("effect.zone objects must evaluate to a supported selector");
+  if (Object.keys(value).length === 1) {
+    for (const kind of ["target", "pick", "linked"] as const) {
+      if (typeof value[kind] === "string" && value[kind].length > 0) return { kind, id: value[kind] };
+    }
   }
-  return objects;
+  if (value.kind === "source" && Object.keys(value).length === 1) return { kind: "source" };
+  if ((value.kind === "target" || value.kind === "pick" || value.kind === "linked") &&
+      typeof value.id === "string" && value.id.length > 0 && Object.keys(value).length === 2) {
+    return { kind: value.kind, id: value.id };
+  }
+  if (value.kind === "query" && isRecord(value.filter) && isValue(value.filter)) {
+    return { kind: "query", filter: value.filter };
+  }
+  throw new TypeError("effect.zone objects must evaluate to self/source, target, pick, linked, or query");
+}
+
+function linkedRefs(value: Value | undefined): ObjectRef[] {
+  if (Array.isArray(value)) return value.filter(isRef);
+  if (isRef(value)) return [value];
+  if (isRecord(value) && Array.isArray(value.objects)) return value.objects.filter(isRef);
+  return [];
+}
+
+function selectedObjects(ctx: ResolveContext, args: EffectZoneArgs): {
+  refs: ObjectRef[];
+  target: boolean;
+  staleInput: boolean;
+} {
+  const selected: Selection = args.objects === undefined
+    ? args.target !== undefined
+      ? { kind: "target", id: args.target }
+      : { kind: "pick", id: args.pick! }
+    : selection(ctx.evaluate(args.objects));
+  let values: readonly unknown[];
+  switch (selected.kind) {
+    case "self": values = [ctx.source.ref]; break;
+    case "source": values = [ctx.source.ref]; break;
+    case "target": values = ctx.targets(selected.id); break;
+    case "pick": values = ctx.picks(selected.id); break;
+    case "linked": values = linkedRefs(ctx.linked(selected.id)); break;
+    case "query": values = ctx.query(selected.filter).map(object => object.ref); break;
+  }
+  const seen = new Set<string>();
+  const refs: ObjectRef[] = [];
+  for (const candidate of values) {
+    if (!isRef(candidate) || ctx.object(candidate) === null) continue;
+    const key = `${candidate.id}:${candidate.zoneEntryId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    refs.push({ id: candidate.id, zoneEntryId: candidate.zoneEntryId });
+  }
+  const staleInput = values.length > 0 && refs.length === 0;
+  return { refs, target: selected.kind === "target", staleInput };
 }
 
 function evaluateDestination(ctx: ResolveContext, args: EffectZoneArgs): ZoneDestination {
@@ -201,10 +283,10 @@ function actionFor(ctx: ResolveContext, destination: ZoneDestination, object: Ob
   return { type: "move-zone" as const, object, to: destination };
 }
 
-function negated(reason: "replaced" | "prevented" | "impossible", events: readonly GameEvent[]) {
+function negated(reason: "replaced" | "skipped" | "impossible", events: readonly GameEvent[]) {
   return {
     status: "negated" as const,
-    reason: reason === "replaced" ? "replaced" as const : "impossible" as const,
+    reason,
     events: [...events]
   };
 }
@@ -213,8 +295,10 @@ export default {
   op: "effect.zone",
   argsSchema: { parse: parseArgs },
   execute(ctx: ResolveContext, args: EffectZoneArgs) {
-    const objects = selectedObjects(ctx, args);
-    if (objects.length === 0) return { status: "ignored", reason: "mistargeted" };
+    const selected = selectedObjects(ctx, args);
+    if (selected.refs.length === 0 && (selected.target || selected.staleInput)) {
+      return { status: "ignored", reason: "mistargeted" };
+    }
 
     let destination: ZoneDestination;
     let location: LocationRef | undefined;
@@ -222,7 +306,7 @@ export default {
     try {
       destination = evaluateDestination(ctx, args);
       location = evaluateLocation(ctx, args.location);
-      amount = evaluateAmount(ctx, args, objects.length);
+      amount = evaluateAmount(ctx, args, selected.refs.length);
     } catch (error) {
       if (error instanceof RangeError || error instanceof TypeError) {
         return negated("impossible", []);
@@ -230,30 +314,38 @@ export default {
       throw error;
     }
 
-    const chosen = objects.slice(0, amount);
+    const chosen = selected.refs.slice(0, amount);
     const events: GameEvent[] = [];
     const movedIds: string[] = [];
+    const movedObjects: Value[] = [];
+    let failure: "replaced" | "skipped" | "impossible" | undefined;
     for (const object of chosen) {
       let outcome;
       try {
         outcome = ctx.perform(actionFor(ctx, destination, object, location));
       } catch (error) {
-        if (error instanceof RangeError) return negated("impossible", events);
+        if (error instanceof RangeError) {
+          failure ??= "impossible";
+          continue;
+        }
         throw error;
       }
       events.push(...outcome.events);
-      if (outcome.status !== "done") return negated(outcome.status, events);
+      if (outcome.status !== "done") {
+        failure ??= outcome.status === "replaced" ? "replaced" : outcome.status === "prevented" ? "skipped" : "impossible";
+        continue;
+      }
       movedIds.push(object.id);
+      const current = ctx.query({}).find(candidate => candidate.ref.id === object.id);
+      if (current) movedObjects.push({ id: current.ref.id, zoneEntryId: current.ref.zoneEntryId });
     }
 
     const moved = movedIds.length;
     ctx.link("moved", moved);
     ctx.link("movedIds", movedIds);
+    ctx.link("movedObjects", movedObjects);
     ctx.link("destination", destination);
-    return {
-      status: "executed",
-      events: [...events],
-      linkedValues: { moved, movedIds, destination }
-    };
+    if (failure) return negated(failure, events);
+    return { status: "executed", events: [...events], linkedValues: { moved, movedIds, movedObjects, destination } };
   }
 } satisfies InstructionDef<EffectZoneArgs>;
