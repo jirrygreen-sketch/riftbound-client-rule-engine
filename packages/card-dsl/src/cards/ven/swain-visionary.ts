@@ -25,28 +25,30 @@ import type { Ability, CardProgram, Condition, Instruction } from "../../ir/inde
  * - 470.2 / 194.1.c：“you score 1 point” = effect.score（已合入原语，缺省
  *   得点者为能力控制者，190.6.d 的隐含指向）。
  *
- * 复核（2026-10-17 RIFT-618 第三轮 M2 覆盖率复核；结论以源码与本任务 golden 实测为准）：
- * HistoryQuery 的 objectFilter/exclude 维度、condition.history/condition.predicate 原语、
- * conquer 触发的注册适配器（registerProgramTriggers + 生命周期接线）都已合入，且
- * effect.score 与 condition.history 都有真实执行证据。但整卡仍不能 executable：
- * 1. [Vision]（817.1.b/817.1.c 的 Predict）展开体不可执行：keywords/Vision.ts 的
- *    effect.inspect 在 scope "top" 需要上游有序 picks 绑定 <picksSpecId>，而展开体自身没有
+ * 复核（2026-10-17 M2 覆盖率持续复核；结论以源码与本任务 golden 实测为准）：
+ * HistoryQuery 的 objectFilter 维度、condition.history/condition.predicate 原语、conquer
+ * 触发的注册适配器（registerProgramTriggers + 生命周期接线）都已合入，effect.score 与
+ * condition.history 都有真实执行证据；本卡在本次复核中把触发 filter 的事件判别词改为封闭
+ * 词表的 "conquered"（原 "conquer" 被 assertTriggerSpec 以 invalid-event-type 拒绝）。
+ * 整卡仍不能 executable：
+ * 1. [Vision]（817.1.b/817.1.c 的 Predict）展开体不可绑定也不可执行：keywords/Vision.ts 的
+ *    自进场 filter 用 "object.id" 键，programs/filters.ts 的 translateObjectFilter 以
+ *    "Unsupported filter field object.id" 拒绝，registerProgramTriggers 直接失败；
+ *    展开体的 effect.inspect 在 scope "top" 需要上游有序 picks 绑定 <picksSpecId>，而它自身没有
  *    声明任何带 zoneSlice 的 PickSpec——本任务实测 finalizeOrderedPickPlans(expanded.body)
- *    返回 0 个计划，inspect 以 inspected: 0 执行（看牌与可选回收无法完成）。这是生产方
- *    接线缺口（有序 top picks），不在本卡内近似实现。
+ *    返回 0 个计划，inspect 以 inspected: 0 执行；player 仍是常量 "A" 占位。
+ *    这是关键词展开的生产接线缺口（filter 键与有序 top picks），不在本卡内近似实现。
  * 2. 卡内三件套条件无法求值：383.2.a.1 的 “if you've played a non-token unit, a non-token
  *    gear, and a spell this turn” 用 count + subject "cards-played-this-turn" 记录，但
  *    effects/interpreter/expr.ts 的 count 只调用 query(filter)，不消费 subject；本任务实测
- *    subject 被忽略、现场集合查询把「仍拿在手里」的牌也计入（把手牌单位/装备/法术查询出 2 个
- *    单位而不是 0），所以条件既不读打出历史、也会把未打出的牌算进去。Condition 词表里没有
+ *    subject 被忽略、现场集合查询把「仍拿在手里」的牌也计入（3 张手牌即让合取为 true），
+ *    所以条件既不读打出历史、也会把未打出的牌算进去。Condition 词表里没有
  *    「本回合打出过某类别」的谓词；要用 condition.predicate/result 表达需要新的谓词契约。
  * 3. 征服触发的单位身份：conquer 事件由 turn/flow.ts 的 scoring 发射，只带 player +
  *    details.battlefieldId（没有 object）；translateTriggerFilter 把 source: "self" 解析成
  *    pattern.object = { objectId }，本任务实测按真实载荷匹配为 false、补上对象后才为 true。
- * 已合入且有执行证据：effect.score（470.2）真实加分；condition.history 原语（含
- * objectFilter/isToken 维度）真实执行；连续效果/倍率等与本卡无关。
- * 依赖：（a）Vision 展开的有序 top picks 生产接线；（b）本回合打出历史的触发条件谓词；
- * （c）conquer/held 事件的单位身份载荷。
+ * 依赖：（a）Vision 展开的 filter 键与有序 top picks 生产接线；（b）本回合打出历史的触发
+ * 条件谓词；（c）conquer/held 事件的单位身份载荷。
  */
 
 /** 383.2.a.1：紧跟 Condition 的 if 从句属于触发条件，逐项按历史维度表达。 */
@@ -105,7 +107,9 @@ const abilities: Ability[] = [
     kind: "triggered",
     trigger: {
       at: "conquer",
-      filter: { event: "conquer", filter: { source: "self" } },
+      // 封闭判别词是 "conquered"（events/trigger-spec.ts 的 EVENT_PATTERN_TYPES
+      // 与 pipeline-match.ts 的 conquered → conquer 映射）；TimingPoint 仍是 "conquer"。
+      filter: { event: "conquered", filter: { source: "self" } },
       // 383.2.a.1：if 从句是触发条件，三条历史维度都必须成立。
       condition: conquerCondition
     },
@@ -119,19 +123,22 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处当前缺口（复核 2026-10-17，RIFT-618；均不近似实现）：" +
-    "(1) [Vision]（817.1.b/817.1.c）的展开体不可执行：keywords/Vision.ts 的 effect.inspect 以 scope top + " +
-    "picksSpecId 运行，但展开体没有声明任何带 zoneSlice 的有序 PickSpec，本任务实测 " +
-    "finalizeOrderedPickPlans(expanded.body) 返回 0 个计划、inspect 以 inspected: 0 执行，看牌与可选回收无法完成。" +
+    "三处当前缺口（复核 2026-10-17；均不近似实现）：" +
+    "(1) [Vision]（817.1.b/817.1.c）的展开体不可绑定也不可执行：keywords/Vision.ts 的自进场 filter 使用 " +
+    "\"object.id\" 键，programs/filters.ts 的 translateObjectFilter 以 \"Unsupported filter field object.id\" 拒绝，" +
+    "registerProgramTriggers 直接失败；即便绕过 filter，展开体的 effect.inspect 也没有声明任何带 zoneSlice 的" +
+    "有序 PickSpec，本任务实测 finalizeOrderedPickPlans(expanded.body) 返回 0 个计划、inspect 以 inspected: 0 执行，" +
+    "player 仍是常量 \"A\" 占位，看牌与可选回收无法完成。" +
     "(2) 卡内三件套条件无法求值：count 表达式只消费 filter，effects/interpreter/expr.ts 不读 subject；" +
-    "本任务实测 subject: \"cards-played-this-turn\" 被忽略、现场集合查询把手牌里的牌也计入，" +
+    "本任务实测 subject: \"cards-played-this-turn\" 被忽略、现场集合查询把手牌里的牌也计入（3 张手牌即让合取为 true），" +
     "Condition 词表也没有「本回合打出过某类别」的谓词（383.2.a.1）。" +
     "(3) 征服触发的单位身份：turn/flow.ts 的 scoring 只发射 { player, details: { battlefieldId } }（无 object），" +
     "translateTriggerFilter 把 source: \"self\" 解析成 pattern.object = { objectId }，" +
     "本任务实测按真实载荷匹配为 false、补上对象后才为 true。" +
+    "已修：触发 filter 的事件判别词改为封闭词表的 \"conquered\"（原 \"conquer\" 被 assertTriggerSpec 以 invalid-event-type 拒绝）。" +
     "已合入且有执行证据：effect.score（470.2）真实加分；HistoryQuery / condition.history 原语（objectFilter/isToken 维度）" +
     "真实执行；conquer 触发的注册适配器与 lifecycle 接线都已合入。" +
-    "依赖：Vision 展开的有序 top picks、本回合打出历史的触发条件谓词、scoring 事件的单位身份载荷。",
+    "依赖：Vision 展开的 filter 键与有序 top picks 生产接线、本回合打出历史的触发条件谓词、scoring 事件的单位身份载荷。",
   abilities,
   sourceText:
     "[Vision] (When you play me, look at the top card of your Main Deck. You may recycle it.)\n" +
