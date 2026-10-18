@@ -21,8 +21,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   已合入的 count 表达式 + sameLocationAs 锚点，从 move 的结果读引用（359.3.e.14）。
  * - 「they each get +1 :rb_might: this turn」：临时 Might 修正是图层算术（143.2.a 的有效
  *   Might；317.2.c 本回合到期），不是 Buff 计数器（CR 702）。continuous.might 原语已合入：引用数组形状真实注册图层并返回受影响收据（golden 有执行证据）；卡面
- *   “sameLocationAs 集合选择器” 不在原语接受的选择器词汇里（objects 与 appliesTo:"self"
- *   之外的查询锚点会被原语拒绝），同位置集合读取属目标/位置计划。
+ *   objects.kind=query 经解释器读取 sameLocationAs 集合，不产生额外目标；
+ *   目的地占据者关系和 Expiration Step 的接线仍受阻（见 judgeReason）。
  * - [Flow]（829）是费用改写关键词；卡面只声明关键词，展开归 effects/keywords/Flow。
  *
  * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。
@@ -32,14 +32,7 @@ const shadowDash = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1)「they each get +1 :rb_might: this turn」的临时 Might 修正原语已合入：continuous.might" +
-    "接受引用数组 / { objects: [refs] } 形状并真实注册图层（143.2.a 有效 Might、317.2.c 本回合到期，" +
-    "golden 有执行证据）；卡面需要的「sameLocationAs 集合选择器」不在该原语的选择器词汇里" +
-    "（objects 与 appliesTo:'self' 之外的查询锚点会被拒绝），同位置集合读取依赖目标/位置计划；" +
-    "不用 effect.buff 近似（CR 702 的 Buff 是计数器，不是 Might 修改）。" +
-    "条件「exactly two units there」用已合入的 count 表达式 + sameLocationAs 锚点读 move 收据（359.3.e.14），" +
-    "golden 用真实解释器执行该判定；[Flow] KeywordDef 与 params.cost 输入已存在，但卡程序仍未把印刷的 5 Energy + 2 [A]" +
-    "传入 KeywordDef，也没有把 Flow alternate cost 与弃牌区打出及 then-banish replacement 接入生产链。",
+    "当前缺口：(1) 目的地「a battlefield where you have units」（355.4/451.1）要求按单位控制者筛选占据者；target/location/candidates.ts 的 hasUnits 只读任意单位占据，controller 则指战场控制者，尚无 unitController 谓词消费者，不能用「你控制的已占据战场」近似。(2) continuous.might 已支持 objects.kind=query，经解释器解析 sameLocationAs 与真实 move 收据，能非目标地给恰好两名友军 +1（143.2.a）；但 end-of-turn 期限仍在 turn-end 到期，未对齐 317.2.c 的 Expiration Step。(3) Flow KeywordDef 接受 params.cost，KeywordAbility / programs/keywords.ts 未传本卡 5 Energy + 2 [A]，flow.cost 尚未绑定 Trash 打出许可、替代费用实例选择及 replacement/planner.ts 仍不支持 Flow 展开的 effect.banish，829.1.b.1 的离链延迟放逐/自身指令离链例外。不近似实现。",
   abilities: [
     // 829.1 / 829.1.c：印刷的 [Flow] 替代费用关键词，只声明不重写展开。
     { kind: "keyword", keyword: "flow" },
@@ -60,7 +53,8 @@ const shadowDash = {
             {
               id: "shadow-dash.battlefield",
               type: "battlefield",
-              controller: "controller",
+              // 描述性占据者关系；不是战场 controller（见 judgeReason）。
+              unitController: "controller",
               hasUnits: true,
               min: 1,
               max: 1,
@@ -87,13 +81,16 @@ const shadowDash = {
           args: {
             amount: { kind: "constant", value: 1 },
             duration: { kind: "constant", value: "end-of-turn" },
-            appliesTo: {
+            objects: {
               kind: "constant",
               value: {
-                type: "unit",
-                zone: "board",
-                controller: "self",
-                sameLocationAs: { linked: "shadow-dash.move-enemy-unit" }
+                kind: "query",
+                filter: {
+                  type: "unit",
+                  zone: "board",
+                  controller: "self",
+                  sameLocationAs: { linked: "shadow-dash.move-enemy-unit" }
+                }
               }
             }
           },

@@ -9,6 +9,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/renekton-rage-fueled.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import accelerateKeyword from "../../../../engine-core/dist/effects/keywords/Accelerate.js";
+import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
@@ -241,3 +242,24 @@ test.todo(
     "entry) needs a card-program → cost-plan/entry-replacement wiring — the cost planner accepts " +
     "optional additional costs, but no producer turns accelerate.cost on a card program into that plan"
 );
+
+for (const selected of [true, false]) test(`ven-019-166 Renekton: the merged Accelerate cost planner ${selected ? "selects" : "declines"} one Energy and Fury Power`, () => {
+  const base = world().player("A", { energy: 7, power: ["Fury"] })
+    .hand("renekton", { cardId: CANONICAL_ID, types: ["unit"], energy: 6, power: null, might: 6 }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("renekton") });
+  const plan = buildCostPlan(kernel, {
+    id: "renekton:accelerate", cost: { kind: "printed" }, domains: ["Fury"],
+    optionalAdditional: [{ id: "renekton:accelerate", kind: "accelerate", selected }]
+  });
+  assert.equal(plan.printed.energy, 6);
+  assert.equal(plan.printed.power, null);
+  assert.equal(plan.total.energy, selected ? 7 : 6);
+  assert.deepEqual(plan.total.power, selected ? [{ amount: 1, allowedDomains: ["Fury"] }] : []);
+  assert.equal(plan.selectedAdditional.length, selected ? 1 : 0);
+  if (selected) assert.equal(plan.selectedAdditional[0].kind, "accelerate");
+  const receipt = payCostPlan(kernel, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(kernel.player("A").energy, selected ? 0 : 1);
+  assert.deepEqual(receipt.actions[0].action.plan.power, selected ? ["Fury"] : []);
+  assert.equal(kernel.getObject("renekton").power, null);
+});

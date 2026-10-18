@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/plaza-guardian.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createTargetTaxAdapter } from "../../../../engine-core/dist/target/tax/adapter.js";
@@ -78,6 +80,7 @@ test("ven-064-166 Plaza Guardian: the discount is -1 energy per gear the control
   assert.equal(discount.operands.length, 1);
   const [count] = discount.operands;
   assert.equal(count.kind, "count");
+  assert.equal(count.subject, "gear");
   // 355.9.a.1：“gear” 指 Board 上的 gear；“you control” 用控制器占位符。
   assert.deepEqual(count.filter, { type: "gear", controller: "self", zone: "board" });
 });
@@ -127,8 +130,8 @@ test("ven-064-166 golden: units are not gear and do not reduce the cost", () => 
 
 test.todo(
   "ven-064-166 Plaza Guardian: read the static continuous.cost-modification into the Finalize cost plan " +
-    "(356.4 / 356.4.b / 356.4.g; cost.modify + 费用计划接线，programs/statics.ts) and assert a 10-energy printed cost drops " +
-    "by the number of controlled gear"
+    "(356.4 / 356.4.b / 356.4.g); collectCostModifications/finalizeCostPlan execute below, but " +
+    "programs/statics.ts and chain/engine.ts must supply active declarations before payment"
 );
 
 test("ven-064-166 Plaza Guardian golden: finalizing a choice of this permanent appends the Deflect tax request", () => {
@@ -195,3 +198,35 @@ test("ven-064-166 Plaza Guardian golden: an unpayable Deflect tax rejects the ch
     error => error.code === "target-tax-unpayable"
   );
 });
+
+for (const gears of [0, 1, 3, 12]) {
+  test(`ven-064-166 Plaza Guardian regression: its original static discounts and pays 10 Energy with ${gears} controlled gear`, () => {
+    const builder = world().player("A", { energy: 10 })
+      .hand("guardian", { cardId: CANONICAL_ID, types: ["unit"], energy: 10, power: null, might: 8 })
+      .unit("enemy-gear", { owner: "B", types: ["gear"] })
+      .hand("held-gear", { types: ["gear"] })
+      .unit("friendly-unit", { might: 2 });
+    for (let index = 0; index < gears; index++) builder.object(`gear-${index}`, { types: ["gear"], zone: "board" });
+    const base = builder.build();
+    const kernel = base.clone({ sourceSnapshot: base.getObject("guardian") });
+    const plan = finalizeCostPlan(kernel, { id: "guardian:discount", cost: { kind: "printed" } }, {
+      statics: [{ id: "guardian:gear-discount", source: kernel.ref("guardian"), ability: costReduction }],
+      purpose: "play", originZone: "hand"
+    });
+    assert.equal(plan.printed.energy, 10);
+    assert.equal(plan.printed.power, null, "no printed Power remains null");
+    assert.equal(plan.total.energy, Math.max(0, 10 - gears));
+    assert.deepEqual(plan.total.power, []);
+    assert.equal(plan.discounts.length, gears === 0 ? 0 : 1);
+    if (gears) {
+      assert.equal(plan.discounts[0].before, 10);
+      assert.equal(plan.discounts[0].after, Math.max(0, 10 - gears));
+      assert.equal(plan.discounts[0].amount, gears);
+    }
+    const receipt = payCostPlan(kernel, plan);
+    assert.equal(receipt.paid, true);
+    assert.equal(kernel.player("A").energy, Math.min(gears, 10));
+    assert.equal(kernel.getObject("guardian").zone, "hand", "partial cost evidence does not pretend the card was played");
+    assert.equal(kernel.getObject("guardian").power, null);
+  });
+}

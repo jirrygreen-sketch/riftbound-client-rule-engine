@@ -9,6 +9,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/riven-shattered.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import attach from "../../../../engine-core/dist/effects/instructions/effect.attach.js";
 import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import weaponmaster from "../../../../engine-core/dist/effects/keywords/Weaponmaster.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
@@ -61,20 +62,19 @@ const rivenWorld = () => {
     .unit("riven", { might: 3, location: BATTLEFIELD })
     .unit("enemy-here", { might: 2, controller: "B", owner: "B", location: BATTLEFIELD })
     .unit("enemy-elsewhere", { might: 2, controller: "B", owner: "B", location: OTHER_BATTLEFIELD })
+    .object("sword", { types: ["gear"], tags: ["Equipment"], zone: "board", location: BATTLEFIELD })
+    .object("axe", { types: ["gear"], tags: ["Equipment"], zone: "board", location: BATTLEFIELD })
     .build();
-  for (const id of ["sword", "axe"]) {
-    kernel.addObject({
-      ...kernel.getObject("riven"),
-      ref: { id, zoneEntryId: 1 },
-      cardId: `card:${id}`,
-      name: id,
-      types: ["gear"],
-      tags: ["Equipment"],
-      zone: "board",
-      location: BATTLEFIELD,
-      attachedTo: kernel.ref("riven")
-    }, "board");
-  }
+  const attached = runInstruction(attach, {
+    objects: { kind: "constant", value: { kind: "target", id: "setup-equipment" } },
+    host: { kind: "constant", value: { kind: "target", id: "setup-host" } },
+    amount: { kind: "constant", value: 2 }
+  }, { world: kernel, targets: {
+    "setup-equipment": [kernel.ref("sword"), kernel.ref("axe")], "setup-host": [kernel.ref("riven")]
+  } });
+  assert.equal(attached.result.status, "executed");
+  assert.deepEqual(attached.events.map(event => event.action), ["attach", "attach"]);
+  for (const id of ["sword", "axe"]) assert.deepEqual(kernel.getObject(id).attachedTo, kernel.ref("riven"));
   return kernel.clone({ source: kernel.ref("riven"), sourceSnapshot: kernel.getObject("riven") });
 };
 

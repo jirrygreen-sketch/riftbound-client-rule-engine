@@ -15,7 +15,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   821.1.c.1 明确该 Equipment 不必拥有 Equip 能力，821.1.c.6 说明这次不会真的启动
  *   Equip 能力、也不会选中拥有 Weaponmaster 的单位。按契约 3.7 卡牌只声明关键词，
  *   展开（cost.modify / cost.pay / effect.attach 的序列）归 keywords/Weaponmaster.ts
- *   （已在 engine-core/src/effects/keywords/Weaponmaster.ts 合入，但仍是 judge-required）。
+ *   （已合入；剩余费用接线见 judgeReason）。
  * - 383.4.e / 383.4.e.1 / 383.4.e.2："When I attack" 是 Attack Trigger，即在单位第一次
  *   取得 Attacker 指定时触发（383.4.e.2.a 说明每次战斗只检查一次）；封闭时点
  *   events/timing-points.ts 的 "attack-declared"（ruleRefs 323.2/383.4.e/466.2.c），
@@ -30,19 +30,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   再乘印刷常量 2（contract 3.4 的 arithmetic 图层外的实数计算）。战斗与非战斗伤害由
  *   combat: false 区分（本条是效果伤害，不是 467 的战斗伤害）。
  *
- * status = judge-required（三处缺口均不近似实现）：
- * 1. [Weaponmaster] 的展开文件（effects/keywords/Weaponmaster.ts）虽然已合入，但其引用的
- *    cost.modify / cost.pay 原语在 821.1.c.2 的 Equip 费用语义上没有消费方：
- *    cost.modify 的 reduce-equip-cost 分支会按“821.1.c.2 缺权威 Equip 费用绑定”设计性抛出，
- *    费用计算与支付不会执行。
- * 2. CardProgram → TriggerRegistration 的通用路径已由 programs/triggers.ts + lifecycle.ts
- *    接入，但 programs/filters.ts 尚不支持 TargetSpec 的 sameLocationAs（053.3/355.11，RIFT-359），
- *    所以本卡的注册在目标翻译处仍被 judge-required 阻断。
- * 3. attack-declared 时点没有发射方：combat/ 不把 Attacker 指定接入事件管线（全仓库没有
- *    attack-declared 的 emit 调用，同 sfd/azir-sovereign、sfd/lucian-gunslinger 的记录）。
- * 依赖：权威 Equip 费用绑定与 reduce-equip-cost 消费方、sameLocationAs 目标过滤适配、战斗触发发射。
- * 已合入的 effect.damage 与 count + attachedTo 锚点在模板 golden 中用真实目标与真实附着关系执行，
- * 不手改 frame / attachedTo。
+ * 当前缺口以 judgeReason 为准；已合入的原语与通用适配不再列为缺失。
  */
 const abilities: Ability[] = [
   // 821.1.c：Weaponmaster 只声明关键词身份；减费、目标选择与附着序列归已合入的
@@ -115,18 +103,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：" +
-    "(1) [Weaponmaster] 展开出的 cost.modify reduce-equip-cost 没有可用消费方：chain/interpreter-adapter.ts 的 LITERAL_FIELDS 没有为 cost.modify " +
-    "解包 source/modifier，expanded 序列经链解释器执行时 modifier 仍以 Expr 包装到达原语，parseModifier 实测抛 " +
-    "TypeError \"Invalid cost.modify modifier argument: value\"；即使按 primitive 字面形状直接调用，cost.modify.execute 也会按 821.1.c.2 " +
-    "缺权威 Equip 费用绑定抛 CostPlanError(judge-required)，费用与附着不会执行。" +
-    "(2) programs/filters.ts 不支持 TargetSpec 的 sameLocationAs（053.3/355.11）：本卡注册实测在目标翻译处被 " +
-    "ProgramBindingError \"Unsupported filter field sameLocationAs\" 阻断，注册 0 条触发。" +
-    "(3) attack-declared 时点（323.2 / 383.4.e / 466.2.c）没有发射方：combat/ 不把 Attacker 指定接入事件管线（全仓库没有 attack-declared 的 emit 调用）。" +
-    "「choose an enemy unit here」按 355.9.b 声明为被选目标（sameLocationAs: \"self\" 的 053.3 here 锚点），" +
-    "「Deal 2 to it for each Equipment attached to me」用 count + attachedTo 锚点在结算时读取附着数量（418.1）；" +
-    "effect.damage 本体已合入，模板 golden（test/cards/templates/keyword-triggered-attack-declared-effect-664.test.mjs）" +
-    "用真实目标与真实附着关系执行并断言 2 x 附着数。",
+    "当前缺口：(1) Weaponmaster 展开的 cost.modify / cost.pay / effect.attach 序列尚不可执行：chain/interpreter-adapter.ts 的 LITERAL_FIELDS 不解包 source/modifier；即使直接调用字面原语，reduce-equip-cost 仍因缺权威 Equip 费用绑定及 [A]/[C] 费用符号来源而阻断（821.1.c.2/821.1.c.3）。(2) programs/filters.ts 的目标翻译仍拒绝 sameLocationAs（053.3/355.11），无法注册原始敌方 here 目标；解释器本身已能解析此锚点，2 × attachedTo Equipment 计数及 effect.damage 已有子效果证据。(3) combat/flow.ts 仍在 combat-start-transaction 阻断，attack-declared（383.4.e/466.2）没有生产发射方。整卡保持 judge-required，不近似实现。",
   abilities,
   sourceText:
     "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)\n" +

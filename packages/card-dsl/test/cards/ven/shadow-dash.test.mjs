@@ -4,6 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/shadow-dash.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 // Card bodies run through the chain's own interpreter adapter — the production
 // entry point that re-wraps Expr arguments for the registered primitives.
@@ -66,13 +67,12 @@ test("ven-148-166 Shadow Dash: program passes validateCardProgram as judge-requi
 });
 
 test("ven-148-166 Shadow Dash: judgeReason names the remaining Might and Flow gaps", () => {
-  // README §2: the reason names the missing selector/primitive and the owner.
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /143\.2\.a/);
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /unitController/);
+  assert.match(program.judgeReason, /317\.2\.c/);
   assert.match(program.judgeReason, /Flow/);
-  // The might primitive is merged; the remaining gap is the same-location
-  // selector vocabulary, not a missing op.
-  assert.match(program.judgeReason, /sameLocationAs 集合选择器/);
   assert.match(program.judgeReason, /params\.cost/);
 });
 
@@ -107,7 +107,7 @@ test("ven-148-166 Shadow Dash: Move targets one enemy Board unit and declares it
   assert.deepEqual(moveEnemyUnit.locations, [{
     id: "shadow-dash.battlefield",
     type: "battlefield",
-    controller: "controller",
+    unitController: "controller",
     hasUnits: true,
     min: 1,
     max: 1,
@@ -136,15 +136,19 @@ test("ven-148-166 Shadow Dash: the Might grant is a same-location set gated on e
   assert.equal(grantMight.picks, undefined);
   assert.deepEqual(grantMight.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(grantMight.args.duration, { kind: "constant", value: "end-of-turn" });
-  assert.deepEqual(grantMight.args.appliesTo, {
+  assert.deepEqual(grantMight.args.objects, {
     kind: "constant",
     value: {
-      type: "unit",
-      zone: "board",
-      controller: "self",
-      sameLocationAs: { linked: "shadow-dash.move-enemy-unit" }
+      kind: "query",
+      filter: {
+        type: "unit",
+        zone: "board",
+        controller: "self",
+        sameLocationAs: { linked: "shadow-dash.move-enemy-unit" }
+      }
     }
   });
+  assert.equal(grantMight.args.appliesTo, undefined);
   assert.equal(grantMight.condition.kind, "compare");
   assert.equal(grantMight.condition.operator, "eq");
   assert.deepEqual(grantMight.condition.right, { kind: "constant", value: 2 });
@@ -188,58 +192,56 @@ test("ven-148-166 Shadow Dash golden: the declared LocationTargetSpec moves the 
   assert.deepEqual(run.events.map((event) => event.action), ["move-location"]);
 });
 
-test("ven-148-166 Shadow Dash golden: the exactly-two condition reads the moved location and gates the grant", () => {
-  // `alliesAt` is where the controller's units actually sit; `movedTo` is the
-  // location the move receipt records (359.3.e.14). The condition must count the
-  // units at the location the enemy unit moved to — not "two units anywhere".
-  const conditioned = (allyCount, { alliesAt = "bf-2", movedTo = "bf-2", extra = 0 } = {}) => {
-    const builder = world().unit("cast-source", { owner: "A", controller: "A", types: ["spell"], zone: "chain" });
-    for (let index = 0; index < allyCount; index++) {
-      builder.unit(`ally-${index}`, { owner: "A", controller: "A", location: { type: "battlefield", id: alliesAt } });
+test("ven-148-166 Shadow Dash golden: the original body moves, counts its genuine receipt and grants exactly two allies Might", () => {
+  const execute = (allyCount, { elsewhere = 0, extraAllyHere = 0 } = {}) => {
+    const builder = world()
+      .object("cast-source", { types: ["spell"], zone: "chain" })
+      .unit("enemy-unit", { owner: "B", location: { type: "battlefield", id: "bf-1" } })
+      .unit("enemy-at-destination", { owner: "B", might: 4, location: { type: "battlefield", id: "bf-2" } })
+      .object("bf-2", { owner: "B", types: ["battlefield"], zone: "board", location: null });
+    for (let index = 0; index < allyCount + extraAllyHere; index++) {
+      builder.unit(`ally-${index}`, { might: 3, location: { type: "battlefield", id: "bf-2" } });
     }
-    for (let index = 0; index < extra; index++) {
-      builder.unit(`elsewhere-${index}`, { owner: "A", controller: "A", location: { type: "battlefield", id: "bf-9" } });
+    for (let index = 0; index < elsewhere; index++) {
+      builder.unit(`elsewhere-${index}`, { might: 3, location: { type: "battlefield", id: "bf-9" } });
     }
-    const kernel = builder.unit("enemy-unit", { owner: "B", controller: "B", location: { type: "battlefield", id: movedTo } }).build();
-    const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("cast-source") });
-    // The move receipt the production body would have written (359.3.e.14);
-    // the enemy unit is present at the destination so the location resolves.
-    scoped.link("shadow-dash.move-enemy-unit", {
-      count: 1,
-      objects: [kernel.ref("enemy-unit")],
-      movements: [
-        {
-          object: kernel.ref("enemy-unit"),
-          from: { type: "battlefield", id: "bf-1" },
-          to: { type: "battlefield", id: movedTo }
-        }
-      ]
-    });
-    const outcome = resolveChainBody(
-      [{ id: "shadow-dash.condition-probe", op: "condition.predicate", args: { condition: { kind: "constant", value: grantMight.condition } } }],
-      chainKernel(scoped)
-    );
-    return outcome.linkedValues["shadow-dash.condition-probe.value"];
+    const base = builder.build();
+    const kernel = base.clone({ sourceSnapshot: base.getObject("cast-source") });
+    kernel.setTargets(enemySpec.id, [kernel.ref("enemy-unit")]);
+    kernel.setAnswers({ "shadow-dash.move-enemy-unit/location%3Ashadow-dash.battlefield": { type: "battlefield", id: "bf-2" } });
+    const outcome = resolveChainBody(play.body, chainKernel(kernel));
+    const layers = createLayerEngine(kernel.objects, kernel.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 })));
+    const qualifies = allyCount + extraAllyHere === 2;
+    assert.deepEqual(kernel.getObject("enemy-unit").location, { type: "battlefield", id: "bf-2" });
+    assert.deepEqual(outcome.linkedValues[`${moveEnemyUnit.id}.movedEnemy`].objects, [kernel.ref("enemy-unit")]);
+    assert.equal(outcome.results[0].result.status, "executed");
+    assert.equal(outcome.results[1].result.status, qualifies ? "executed" : "negated");
+    if (!qualifies) assert.equal(outcome.results[1].result.reason, "skipped");
+    assert.deepEqual(outcome.events.map(event => event.action), ["move-location"], "the Might set creates no extra targets");
+    assert.equal(kernel.continuousEffects.length, qualifies ? 2 : 0);
+    for (let index = 0; index < allyCount + extraAllyHere; index++) {
+      assert.equal(layers.evaluate(kernel.ref(`ally-${index}`)).might, qualifies ? 4 : 3);
+    }
+    for (let index = 0; index < elsewhere; index++) assert.equal(layers.evaluate(kernel.ref(`elsewhere-${index}`)).might, 3);
+    assert.equal(layers.evaluate(kernel.ref("enemy-at-destination")).might, 4);
+    if (qualifies) {
+      assert.equal(outcome.linkedValues[`${grantMight.id}.affected.count`], 2);
+      assert.deepEqual(outcome.linkedValues[`${grantMight.id}.affected.objects`], [kernel.ref("ally-0"), kernel.ref("ally-1")]);
+      for (const entry of kernel.continuousEffects) assert.deepEqual(entry.duration, { type: "end-of-turn" });
+    }
+    return qualifies;
   };
-
-  assert.equal(conditioned(2), true);
-  assert.equal(conditioned(1), false);
-  assert.equal(conditioned(3), false);
-  // The same-location anchor is not a blanket "you have two units anywhere":
-  // two of your units at another battlefield do not satisfy "exactly two units
-  // there" at the destination.
-  assert.equal(conditioned(2, { alliesAt: "bf-9", movedTo: "bf-2" }), false);
-  // The count is location-scoped: two units at the destination plus one more at
-  // a different battlefield still satisfies "exactly two units there".
-  assert.equal(conditioned(2, { alliesAt: "bf-2", movedTo: "bf-2", extra: 1 }), true);
+  assert.equal(execute(2), true);
+  assert.equal(execute(1), false);
+  assert.equal(execute(3), false);
+  // Two allies elsewhere plus one here do not satisfy "exactly two there".
+  assert.equal(execute(1, { elsewhere: 2 }), false);
+  assert.equal(execute(2, { elsewhere: 1 }), true);
 });
 
 test("ven-148-166 Shadow Dash golden: the merged continuous.might registers a per-object layer from refs", () => {
-  // The card's same-location selector is not in the merged primitive's
-  // vocabulary (judgeReason gap 2), so this golden runs the merged
-  // continuous.might on the ref-array shape it does accept and asserts the
-  // layer registration plus the affected receipt. It proves the primitive, not
-  // the card's selector.
+  // Keep the earlier explicit-reference coverage alongside the original
+  // query-selector body test above. Both use the merged primitive.
   const kernel = world().unit("friend", { zone: "board" }).build();
   const run = runInstruction(
     might,
@@ -262,31 +264,9 @@ test("ven-148-166 Shadow Dash golden: the merged continuous.might registers a pe
   assert.ok(Object.hasOwn(run.linked, "__continuous.settlement.continuous.might.source.1"));
 });
 
-test("ven-148-166 Shadow Dash golden: the same-location filter selector is rejected by the merged primitive", () => {
-  // Fail-closed: the card's appliesTo filter with sameLocationAs is not a
-  // selector the merged primitive accepts, so feeding it the card's real shape
-  // must throw rather than silently apply the grant to the wrong set.
-  const kernel = world().unit("friend", { zone: "board" }).build();
-  assert.throws(
-    () => runInstruction(
-      might,
-      {
-        amount: grantMight.args.amount,
-        duration: grantMight.args.duration,
-        appliesTo: grantMight.args.appliesTo
-      },
-      { world: kernel }
-    ),
-    /continuous\.might appliesTo must evaluate to "self"/
-  );
-  // The rejected instruction never committed anything (fail closed).
-  assert.deepEqual(kernel.events, []);
-});
-
 test.todo(
-  "Shadow Dash: 'they each get +1 :rb_might: this turn' (143.2.a effective Might, 317.2.c end-of-turn expiry) needs a card-facing " +
-    "continuous.might selector for the same-location set; the merged primitive accepts refs/{objects:[refs]} shapes " +
-    "(executed above) but rejects the card's sameLocationAs filter anchor, which belongs to the target/location plan"
+  "Shadow Dash: target/location must enforce unitController against battlefield occupants (355.4/451.1), " +
+    "and end-of-turn duration must expire at the 317.2.c Expiration Step; the original query Might body executes above"
 );
 
 test.todo(

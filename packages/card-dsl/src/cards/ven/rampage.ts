@@ -34,7 +34,7 @@ const rampage = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺卡程序到可选追加费用的 Finalize 绑定：CR 356.2.b 的 1 Body Power 必须生成 CostPlanInput.optionalAdditional；当前 payments.power.choice 是描述性 pay/decline 数据，cost/plan-values.ts 不接受 Power payment 带 choice，不能当成已绑定费用。condition.result 与 chain/engine.ts 的 cost plan/payment receipt 转发已合入，+2 continuous.might 现按 356.4.f.1 的 cost.additional 回执门控，付费/拒付/折扣到零有真实计划与解释器证据。完整互伤还须验证图层有效 Might 的读取、双向伤害的同一结算组（418.1.d），以及重复目标声明的 Finalize 计划。保留 judge-required，不近似实现。",
+    "当前缺口：(1) 356.2.b 的可选 1 Body Power 尚无卡程序 → CostPlanInput.optionalAdditional 的 Finalize 绑定；现有 payments.power.choice 是描述性 pay/decline 数据，cost/plan-values.ts 将其视为非法 Power 对象选择。condition.result、chain/engine.ts 的真实费用计划和支付回执转发已合入，356.4.f.1 的 cost.additional 门控及 continuous.might 注册已有付费/拒付/折扣到零执行证据。(2) 两条 effect.damage 仍逐条提交，未接入 418.1.d 的同一伤害组：需要按有效 Might 取双向伤害并在同一事件波扫描触发，不能把两次独立伤害原语测试当成整组执行证据。(3) this-turn 的图层期限仍在 turn-end 到期，早于 317.2.c 的 Expiration Step。友方目标只声明一次供两处指令引用；保留 judge-required，不近似实现。",
   abilities: [
     {
       kind: "play",
@@ -126,16 +126,7 @@ const rampage = {
               property: "ref"
             },
             target: { kind: "constant", value: "rampage.friendly-unit" }
-          },
-          targets: [
-            {
-              id: "rampage.friendly-unit",
-              filter: { type: "unit", zone: "board", controller: "self" },
-              min: 1,
-              max: 1,
-              selection: "one"
-            }
-          ]
+          }
         }
       ]
     }
