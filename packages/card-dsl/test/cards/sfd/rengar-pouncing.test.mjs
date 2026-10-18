@@ -1,3 +1,10 @@
+// Golden test for Rengar, Pouncing (sfd-025-221).
+//
+// Execution evidence (the printed 3 energy / 1 Fury payment and the Reaction
+// play through a real Chain) lives in the RIFT-698 parameterized template
+// golden: test/cards/templates/keyword-keyword-static-698.test.mjs.
+// This file keeps validation, identity, verbatim text, declared status and the
+// key structure of the printed abilities.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -135,19 +142,6 @@ test("sfd-025-221 Rengar, Pouncing: the merged binder expands the declared keywo
   assert.equal(typeof assault.condition.left, "object");
 });
 
-test.todo(
-  "sfd-025-221 Rengar, Pouncing: the expanded Assault condition must read a real attacker " +
-    "designation (807.1.d.1), aligned with combatRole through the default static binder"
-);
-
-
-
-test.todo(
-  "sfd-025-221 Rengar, Pouncing: 'a battlefield you're attacking' is accepted as a play destination " +
-    "by Finalize with a hand-zone static permission adapter and attacker-battlefield predicate (349, 355.17.b)"
-);
-
-
 test("sfd-025-221 Rengar, Pouncing: printed Reaction speed allows a real response on the opponent's turn", () => {
   // Isolate the supported Reaction clause. This draft does not register the
   // blocked Assault or attacking-battlefield permission, and plays to base.
@@ -181,7 +175,6 @@ test("sfd-025-221 Rengar, Pouncing: printed Reaction speed allows a real respons
   assert.equal(engine.trace.filter(event => event.step === "resolved").length, 2);
 });
 
-
 test("sfd-025-221 Rengar, Pouncing: Reaction timing is accepted in a real closed chain", () => {
   const { engine, kernel, draft } = fixture({ cards: [{ id: "rengar", cardId: CARD_ID, owner: "B", controller: "B", energy: 3, power: ["Fury"], might: 3 }] });
   engine.execute(draft("reaction-timing-probe", { speed: "normal" }));
@@ -196,3 +189,12 @@ test("sfd-025-221 Rengar, Pouncing: Reaction timing is accepted in a real closed
   assert.equal(engine.canAct("B", "action", source.ref, source), false);
   assert.equal(engine.canAct("B", "normal", source.ref, source), false);
 });
+
+test.todo(
+  "sfd-025-221 Rengar, Pouncing: the expanded Assault condition must read a real attacker " +
+    "designation (807.1.d.1), aligned with combatRole through the default static binder"
+);
+test.todo(
+  "sfd-025-221 Rengar, Pouncing: 'a battlefield you're attacking' is accepted as a play destination " +
+    "by Finalize with a hand-zone static permission adapter and attacker-battlefield predicate (349, 355.17.b)"
+);

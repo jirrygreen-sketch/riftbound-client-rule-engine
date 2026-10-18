@@ -4,6 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/shadowblade-lurker.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { collectCostModifications } from "../../../../engine-core/dist/cost/discounts/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -51,8 +53,9 @@ test("ven-096-166 Shadowblade Lurker: identity, status, judgeReason and verbatim
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /cost\.modify/);
+  assert.match(program.judgeReason, /collectCostModifications/);
   assert.match(program.judgeReason, /356\.4\.b/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /CostPlanInput\.discounts/);
 });
 
 test("ven-096-166 Shadowblade Lurker: one static Energy discount scoped to itself", () => {
@@ -119,11 +122,28 @@ test("ven-096-166 golden: the reduction is -2 Energy per counted card", () => {
   assert.equal(outcome.linkedValues["shadowblade-lurker.reduction.delta"], -6);
 });
 
+test("ven-096-166 Shadowblade Lurker evidence: the merged cost collector rejects the descriptive per-card count", () => {
+  const kernel = world()
+    .unit("shadowblade", { cardId: CANONICAL_ID, owner: "A", controller: "A", energy: 5 })
+    .card("trash-card", { zone: "trash", owner: "A" })
+    .build();
+  const source = kernel.getObject("shadowblade");
+  const context = bindResolveContext(kernel, { source, controller: "A" });
+  assert.throws(
+    () => collectCostModifications(
+      context,
+      { id: "shadowblade-play", cost: { kind: "explicit", energy: { kind: "constant", value: 5 } } },
+      { statics: [{ id: "shadowblade", source: source.ref, ability }] }
+    ),
+    /Unsupported cost modification field count/
+  );
+});
+
 test.todo(
   "ven-096-166 Shadowblade Lurker: install the static -2 per-card Energy discount on the Finalize cost " +
-    "plan — cost.modify and the cost-plan discount evaluation are merged, but programs/statics.ts layerFor() " +
-    "has no cost-modification mapping for continuous.cost-modification (fail-closed) and no consumer installs " +
-    "the CardProgram static into CostPlanInput.discounts (RIFT-89)"
+    "plan — collectCostModifications/finalizeCostPlan can consume explicit static sources, but " +
+    "programs/statics.ts layerFor() has no cost-modification mapping for continuous.cost-modification " +
+    "and the CardProgram lifecycle cannot register the static"
 );
 
 test.todo(

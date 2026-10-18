@@ -38,10 +38,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   request;
  * - `effect.move` explicitly blocks its recall mode: "Recall requires an action
  *   distinct from Move (CR 457-460)" and submits no substitute Move;
- * - a "buffed unit you control" (CR 702.2.a: a unit with a Buff counter) has no
- *   predicate in the EventPattern/ObjectFilter vocabulary or the replacement
- *   matchers (`replacement/pattern.ts` normalizes unknown keys away), so the
- *   declared `buffed: true` filter would over-match; it is intent data only;
+ * - a "buffed unit you control" (CR 702.2.a) is expressible through the merged
+ *   `characteristics: { buffs: 1 }` predicate. Rule 702.3 caps a unit at one
+ *   Buff, and the replacement matcher compares that characteristic directly;
  * - the lifecycle can bind a ReplacementRegistration once these body
  *   instructions are plannable, so registration itself is not the remaining
  *   card-local gap.
@@ -59,11 +58,9 @@ const program = {
     "② “you may pay ... instead” 的决策虽有 replacement.event { optional } 的位置，但卡牌侧无法在冻结 IR 里拼写该 wrapper 的 instead 指令体" +
     "（validateInstruction 只接受 Expr 参数，绑定层要求原始指令数组），见契约变更请求；" +
     "③ effect.move 的 recall 模式仍被显式阻断（Recall 是与 Move 不同的动作，CR 457-460，封闭 GameAction 集合没有对应动作）；" +
-    "④ “buffed 单位”（CR 702.2.a：身上有 Buff 计数）在 EventPattern/ObjectFilter 词汇与替代匹配器（replacement/pattern.ts 会把未知键归一化掉）中都没有谓词，" +
-    "replaces.filter 的 buffed: true 只是意图声明，绑定后会过度匹配；" +
     "已合入并已改写：被替代事件对象用契约 3.6 的 { linked: \"replacement.object\" }，with 体的 buff/move/exhaust 选择符与替代 planner 形状一致。" +
     "能力 2（When you conquer, ready me）用已合入的 effect.ready 与 conquer 时点，有真实执行测试；整卡因能力 1 保持 judge-required。" +
-    "当前缺口：替代规划器的 cost.pay 支付动作、replacement.event 的 raw instead 指令体、CR 457-460 的 Recall 动作，以及 CR 702.2.a 的 buffed 谓词（契约变更请求）。",
+    "当前缺口：替代规划器的 cost.pay 支付动作、replacement.event 的 raw instead 指令体，以及 CR 457-460 的 Recall 动作（契约变更请求）。",
   abilities: [
     {
       kind: "replacement",
@@ -74,11 +71,9 @@ const program = {
           // Engine PlayerSelector vocabulary (events/trigger-spec.ts): "self"
           // means the ability controller, i.e. "a unit you control".
           controller: "self",
-          // "buffed" (CR 702.2.a: a unit with a Buff counter) has no merged
-          // predicate field in either EventPattern/ObjectFilter vocabulary; it
-          // is recorded here for the replacement pipeline work named in
-          // judgeReason and is never treated as true by accident.
-          buffed: true
+          // 702.2.a / 702.3: a Unit with its one Buff counter is buffed;
+          // characteristics.buffs is compared by replacement/pattern.ts.
+          characteristics: { buffs: 1 }
         }
       },
       with: [

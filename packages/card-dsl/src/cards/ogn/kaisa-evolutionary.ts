@@ -2,7 +2,8 @@ import type { CardProgram } from "../../ir/index.js";
 
 /**
  * Kai'Sa, Evolutionary (ogn-112-298), CR v1.5 355.10.a / 356.1.b.2 / 810.
- * 当前复核：费用规划器可只忽略 Energy 并保留 Power；整卡仍缺动态目标比较、
+ * 当前复核（2026-10-17）：费用规划器可只忽略 Energy 并保留 Power（golden 覆盖）；
+ * 整卡仍缺触发注册的事件名词汇（conquer → conquered）、动态目标比较（energyLessThan）、
  * 嵌套打出的目标/费用生命周期、打出对象引用，以及 Ganking 的许可适配。
  */
 const kaisaEvolutionary = {
@@ -10,12 +11,18 @@ const kaisaEvolutionary = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺四条接线：(1) 候选法术印刷 Energy < 控制者当前 points 的动态目标比较（355.10.a）；" +
-    "programs/filters.ts 拒绝 energyLessThan，现有事件/结果谓词不能比较候选与玩家分数。" +
-    "(2) choice.optional 内的目标须接入嵌套 Finalize，并按实际选牌生成 ignore-base-energy 费用计划，" +
-    "保留印刷 Power 与后续附加费用（356.1.b.2/.3）；当前 { finalized: true, energy: 0 } 常量未携带 Power。" +
-    "(3) Then recycle it 需要打出对象的当前引用及结算顺序；effect.play 只链接 played 次数，playedObjects 无生产者。" +
-    "(4) Ganking 的 continuous.movement 字符串 permission 未适配 movement 查询所读的 permission.routes（810.1.b）。",
+    "四处已实测的当前缺口：(1) 触发注册先失败在事件名的封闭拼写上：本卡 filter 的 event: \"conquer\" 经 " +
+    "translateTriggerFilter 保留后由 validateTriggerSpec 拒绝（触发词表只有 \"conquered\"），" +
+    "registerProgramTriggers 实测抛 TriggerSpecValidationError/invalid-event-type（471.1 / 473.2.a）。" +
+    "(2) 候选法术印刷 Energy < 控制者当前 points 的动态目标比较（355.10.a）没有生产词汇：" +
+    "programs/filters.ts 的 translateObjectFilter 拒绝 energyLessThan，现有事件/结果谓词只处理" +
+    "played-from/printed-characteristic/result，不能比较候选牌与玩家分数。" +
+    "(3) choice.optional 内的目标须接入嵌套 Finalize，并按实际选牌生成 ignore-base-energy 费用计划，保留印刷 Power 与" +
+    "后续附加费用（356.1.b.2/.3）；cost.modify/buildCostPlan 已能由调用方给定选牌后生成该计划（golden 覆盖），" +
+    "但把该计划绑定到卡内指令的生产生产者仍缺：当前 IR 的 { finalized: true, energy: 0 } 常量不携带 Power。" +
+    "(4) Then recycle it 需要打出对象的当前引用；effect.play 只链接 played 次数，playedObjects 无生产者。" +
+    "另：Ganking 展开的 continuous.movement 字符串 permission 与 movement 查询所读的 permission.routes 仍不一致" +
+    "（layers/rules/query.ts 只读 routes；实测 canGank=false），依赖该路由适配（810.1.b）。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "ganking" },
     {

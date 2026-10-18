@@ -32,13 +32,11 @@ import type { CardProgram } from "../../ir/index.js";
  * - [A] 费用可以通过 power payment + 六域 allowedDomains 表达并支付（135.2.e.5.a）。
  *   costDomain: "rainbow" 记录印刷费用；仍缺 programs/keywords.ts 到 params.cost 的
  *   印刷费用传递，以及 Equip 展开到现有 power payment 的转换。
- * - Quick-Draw 展开的打出触发依赖 event.source 身份：展开 filter 是
- *   source: { canonicalCardId }，而 chain/engine.ts 的 card-played 事件只带 object/player
- *   （golden 在真实链上打出本卡后实测事件键里没有 source）；events/pipeline-match.ts 只在
- *   event.source 存在时匹配 source 过滤，因此该触发永远不会命中。
+ * - RIFT-359 已给 card-played 补齐 event.source 与印刷特征快照；Quick-Draw
+ *   的来源身份过滤现在可命中，golden 通过真实打出、触发、目标选择和附着验证。
  *
- * golden 测试真实执行已合入的两段：Quick-Draw 展开的 effect.attach 本体与 Equip 展开的
- * effect.attach 本体（都以 Finalize 锁定的目标上下文运行），并为每个缺口补上直接执行证据；
+ * golden 测试真实执行 Quick-Draw 打出触发与附着，以及 Equip 的 effect.attach 本体，
+ * 并为每个剩余缺口保留直接执行证据；
  * 整卡能力仍以 test.todo 标注。
  */
 const abilities = [
@@ -56,7 +54,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "四处当前缺口，均不近似实现：" +
+    "三处当前缺口，均不近似实现：" +
     "（1）[Temporary] 的 KeywordDef 已合入（effects/keywords/Temporary.ts），816.1.b/816.1.c 的" +
     "触发体用已合入的 effect.kill 真实执行（golden）；但展开出的触发订阅 beginning-start，而 events/trigger-spec.ts 的 " +
     "EVENT_PATTERN_TYPES 封闭词表仍不含 beginning-start，events/pipeline.ts 注册路径会调 assertTriggerSpec 并抛 " +
@@ -65,11 +63,10 @@ const program = {
     "costDomain: \"rainbow\" 保留印刷记号，但 programs/keywords.ts 只向 expand 传 value/host，尚未传递 params.cost。" +
     "（3）已合入的 Equip 展开声明 payments: [{ kind: \"equip\" }]，而 cost/plan-values.ts 的支付种类不含 equip，" +
     "尚未将该声明转换为现有 power payment，启动费用目前无法在 Finalize 支付（golden 实测 CostPlanError \"Unsupported payment kind: equip\"）。" +
-    "（4）Quick-Draw 展开（effects/keywords/Quick-Draw.ts）依赖 card-played 事件携带本卡身份：events/pipeline-match.ts 只在 event.source " +
-    "存在时匹配 source 过滤，chain/engine.ts 的 card-played 事件只带 object/player——golden 在真实链上打出本卡后取到的事件键里没有 source，" +
-    "登记过的 source: { canonicalCardId } 触发因此永不命中。" +
-    "依赖：EventPattern 词表补齐 beginning-start、Equip 印刷费用参数传递与支付种类转换、card-played 事件载荷身份。" +
-    "golden 只把已合入的 Quick-Draw attach 与 Equip attach 本体当真执行证据，不据此宣称整卡可执行。",
+    "Quick-Draw 的 event.source 身份已由 RIFT-359 合入，真实 card-played 事件可命中本卡来源过滤，" +
+    "golden 通过真实打出、触发进入链、锁定目标和 effect.attach 验证。" +
+    "依赖：EventPattern 词表补齐 beginning-start、Equip 印刷费用参数传递与支付种类转换。" +
+    "golden 验证 Quick-Draw 的真实打出触发与附着，以及 Equip attach 本体；整卡仍保持 judge-required。",
   abilities,
   sourceText:
     "[Quick-Draw] (This has [Reaction]. When you play it, attach it to a unit you control.)\n" +

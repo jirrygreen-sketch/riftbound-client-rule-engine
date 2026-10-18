@@ -240,7 +240,8 @@ test("ogn-069-298 Last Stand golden: a target lost before resolution ignores eve
 
 test.todo(
   "Last Stand: granting [Temporary] (816.1.b: kill this at the start of its controller's Beginning Phase, " +
-    "before scoring) needs dynamic keyword-grant trigger registration so the Temporary expansion actually subscribes " +
-    "to beginning-start; 816.2 makes multiple instances redundant and " +
+    "before scoring) needs dynamic keyword-grant trigger registration: production assembly attaches the plain " +
+    "LayerEngine instead of the merged KeywordGrantLayerEngine, and the Temporary expansion's beginning-start " +
+    "spec is rejected by the closed EVENT_PATTERN_TYPES list; 816.2 makes multiple instances redundant and " +
     "124.1 clears temporary modifications on zone change"
 );

@@ -1,3 +1,5 @@
+// Template evidence: ../templates/keyword-play-continuous-might-653.test.mjs.
+// Whole-card scenarios remain blocked by Repeat; existing body goldens remain valid.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -9,6 +11,9 @@ import { describePlay } from "../../../../engine-core/dist/programs/play.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 
 const CANONICAL_ID = "card.hash-21fa1dc89f8491be1ad8d778109c30c1266a2ee3c7b7b49e5da837edba0103ee";
 const SOURCE_TEXT =
@@ -16,7 +21,8 @@ const SOURCE_TEXT =
   "[Repeat] :rb_energy_2: (You may pay the additional cost to repeat this spell's effect.)\n" +
   "Give a unit +2 :rb_might: this turn.";
 
-const [reaction, play] = program.abilities;
+const reaction = program.abilities.find(ability => ability.keyword === "reaction");
+const play = program.abilities.find(ability => ability.kind === "play");
 const [might] = play.body;
 const targetSpec = might.targets[0];
 
@@ -41,12 +47,19 @@ test("sfd-034-221 Feral Strength: judgeReason names the Might primitive and the 
   assert.match(program.judgeReason, /translateCost/);
   assert.match(program.judgeReason, /820\.2/);
   assert.match(program.judgeReason, /820\.1/);
+  // 2026-10-18 re-sweep: name the two measured halves and drop the merged tasks.
+  assert.match(program.judgeReason, /Unsupported play cost field optional/);
+  assert.match(program.judgeReason, /optionalAdditional/);
+  assert.match(program.judgeReason, /cost\.optional-additional-paid/);
+  assert.match(program.judgeReason, /Repeat count must be a non-negative safe integer/);
+  assert.doesNotMatch(program.judgeReason, /repeat\.cost 尚无图层映射/);
 });
 
 test("sfd-034-221 Feral Strength: [Reaction] keyword plus the printed [Repeat] additional cost", () => {
-  assert.equal(program.abilities.length, 2);
+  assert.equal(program.abilities.length, 3);
   // 813: speed keyword (pure permission; the registry owns the expansion).
   assert.deepEqual(reaction, { kind: "keyword", keyword: "reaction" });
+  assert.deepEqual(program.abilities[1], { kind: "keyword", keyword: "repeat" });
   assert.equal(reaction.value, undefined);
 
   assert.equal(play.kind, "play");
@@ -159,4 +172,99 @@ test("sfd-034-221 Feral Strength: play binding rejects the printed Repeat additi
     () => describePlay(registry, { type: "play", object: source.ref, player: "A" }, source),
     error => error.code === "judge-required" && /Unsupported play cost field optional/.test(error.message)
   );
+});
+
+test("sfd-034-221 Feral Strength: the prod keyword expansion drops the printed Repeat cost", () => {
+  // Live evidence for gap (2): programs/keywords.ts only forwards
+  // keyword/value/host to KeywordDef.expand, so the merged Repeat expansion is
+  // authored without the card's printed cost and can only declare a 0-Energy
+  // instance. Nothing consumes the printed `kind: "additional"` declaration.
+  const kernel = world()
+    .card("feral", { cardId: program.canonicalCardId, types: ["spell"], zone: "hand", energy: 2, power: null })
+    .build();
+  const source = kernel.getObject("feral");
+  const expanded = expandProgram({ ...program, status: "executable", judgeReason: undefined }, source).expanded;
+  const repeatStatic = expanded.find((ability) => ability.kind === "static" && ability.effect.kind === "repeat.cost");
+  assert.ok(repeatStatic, "the merged Repeat keyword expands to a repeat.cost static");
+  // The printed 2 Energy is nowhere in the expansion.
+  assert.deepEqual(repeatStatic.effect.cost, { energy: 0 });
+  assert.equal(JSON.stringify(repeatStatic.effect).includes('"value":2'), false);
+});
+
+test("sfd-034-221 Feral Strength: the paid Repeat receipt is a boolean the repeat node cannot consume", () => {
+  // Live evidence for the second half of gap (2). The receipt is readable as a
+  // predicate, but the merged repeat node requires a non-negative integer
+  // count, so no card-side expression derives 0/1 repetitions from it (820.1.d.1).
+  const kernel = world().player("A", { energy: 6 }).deck(["d1", "d2"])
+    .card("feral", { cardId: program.canonicalCardId, types: ["spell"], zone: "board", energy: 2, power: null })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("feral") });
+  const cost = {
+    plan: {
+      components: [{ id: "feral-strength.repeat-payment", stage: "optional-additional" }],
+      selectedAdditional: [{ id: "feral-strength.repeat-payment", kind: "repeat" }],
+      declinedAdditional: []
+    },
+    receipt: { paid: true, additional: [{ id: "feral-strength.repeat-payment", kind: "repeat", paid: true }] }
+  };
+
+  const read = runAbilityBody(
+    [{ id: "feral.read-repeat", op: "condition.predicate", args: { condition: { kind: "constant", value: { kind: "result", result: "cost.optional-additional-paid", id: "feral-strength.repeat-payment" } } } }],
+    context,
+    undefined,
+    { cost }
+  );
+  assert.equal(read.results[0].result.status, "executed");
+  assert.equal(read.results[0].result.linkedValues.value, true);
+
+  // Feeding that bound boolean to the merged repeat node fails closed.
+  const repeated = kernel.clone({ sourceSnapshot: kernel.getObject("feral") });
+  assert.throws(
+    () => runAbilityBody(
+      [
+        { id: "feral.read-repeat", op: "condition.predicate", args: { condition: { kind: "constant", value: { kind: "result", result: "cost.optional-additional-paid", id: "feral-strength.repeat-payment" } } } },
+        {
+          id: "feral.repeat",
+          op: "repeat",
+          linkedTo: "feral.read-repeat",
+          args: {
+            count: { kind: "linked-value", instructionId: "feral.read-repeat", key: "value" },
+            body: { kind: "constant", value: [{ id: "feral.draw", op: "effect.draw", args: { amount: { kind: "constant", value: 1 } } }] }
+          }
+        }
+      ],
+      repeated,
+      undefined,
+      { cost }
+    ),
+    /Repeat count must be a non-negative safe integer/
+  );
+  assert.equal(repeated.player("A").handSize, 0, "no repetitions ran");
+});
+
+test("sfd-034-221 Feral Strength: the merged cost planner really accepts an optional Repeat component", () => {
+  // The plan side of the gap is merged and really charges: the missing link is
+  // the card-program → Finalize wiring that this card's declaration cannot reach.
+  const kernel = world().player("A", { energy: 6, power: ["Calm"] })
+    .card("feral", { cardId: program.canonicalCardId, types: ["spell"], zone: "board", energy: 2, power: null })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("feral") });
+  context.setAnswers({ "feral-plan:optional:feral.repeat": true });
+
+  const plan = buildCostPlan(context, {
+    id: "feral-plan",
+    cost: { kind: "printed" },
+    optionalAdditional: [{
+      id: "feral.repeat",
+      kind: "repeat",
+      cost: { energy: { kind: "constant", value: 2 } }
+    }]
+  });
+
+  assert.deepEqual(plan.selectedAdditional, [{ id: "feral.repeat", kind: "repeat" }]);
+  assert.deepEqual(plan.components.map((component) => [component.id, component.stage]), [
+    ["base", "base"],
+    ["feral.repeat", "optional-additional"]
+  ]);
+  assert.equal(plan.total.energy, 4);
 });

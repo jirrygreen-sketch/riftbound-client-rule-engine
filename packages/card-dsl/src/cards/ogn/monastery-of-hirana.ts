@@ -36,10 +36,10 @@ import type { CardProgram } from "../../ir/index.js";
  * draw gated on the spend's own linked result ("spentCount") so the draw is
  * not paid for with nothing. The merged instructions are exercised end to end
  * by the golden test; the conquer/hold/score wave itself is already emitted by
- * turn/flow's scoring step (RIFT-270). The remaining `here` gap is narrower
- * than RIFT-357's merged selectors: trigger filters still go through
- * programs/filters.ts (statics already resolve sameLocationAs, the trigger
- * path does not yet bind here to the payload identity).
+ * turn/flow's scoring step (RIFT-270). The remaining `here` gap is the trigger
+ * adapter itself: programs/filters.ts translateTriggerFilter still rejects the
+ * `here` key, so the merged sameLocationAs selectors (statics/interpreter) are
+ * not consumed by the trigger path yet.
  */
 export default {
   canonicalCardId: "card.hash-7616fe7692fc8b3e1bf7fcdbe41d93a4d08639e4c541b02a6378293a286e0550",
@@ -48,7 +48,7 @@ export default {
   judgeReason:
     "仍缺两段可执行连线，不近似实现：(1) 383.3.a/383.3.b 的形状——「you may」是效果首个部分，决定发生在触发能力 finalization 时，「spend a buff」作为 " +
     "cost within instructions 取其 base cost（355.10.c.1 / 383.3.b.1 / 357）；TriggeredAbility 没有 cost 字段，虽有 cost.pay 的 spend-buff 原语，仍没有把它在 Finalize 锁定的触发能力费用适配器；合并的 effect.buff 只能在结算后报 skipped，" +
-    "裸 choice.optional 会在玩家接受时必然花掉 buff。触发点已由 turn/flow 的计分步骤原子发出（RIFT-270）；但 here 位置锚点仍未连到 scoring 载荷的 details.battlefieldId——RIFT-357 已合入 target/location 选择器与 statics 的 sameLocationAs，触发过滤路径（programs/filters.ts）仍拒绝 here，需要把注册源战场绑定为载荷过滤的触发侧适配。" +
+    "裸 choice.optional 会在玩家接受时必然花掉 buff。触发点已由 turn/flow 的计分步骤原子发出（RIFT-270）；但 here 位置锚点仍未连到 scoring 载荷的 details.battlefieldId——RIFT-357 已合入 target/location 选择器，statics/interpreter 也已支持 sameLocationAs，而触发过滤路径（programs/filters.ts 的 translateTriggerFilter）仍对 here 抛 judge-required，触发事件本身也没有可直接匹配注册战场的 object/details 词汇；需要把注册源战场绑定为载荷过滤的触发侧适配。" +
     "其余（702.2.b.1/.2 的 spend-buff 限制、spentCount 门控的 effect.draw 414.3）均已合入并由 golden 真实执行。",
   sourceText: "When you conquer here, you may spend a buff to draw 1.",
   abilities: [

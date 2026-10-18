@@ -13,6 +13,12 @@ import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
+import { CombatFlow } from "../../../../engine-core/dist/combat/flow.js";
+import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+
 const CANONICAL = "card.hash-62965a5787d4b9aff0b49316615355a97d59939503fd28b217e578ee755f0d63";
 const SOURCE_TEXT =
   "[Disarm] (When I attack, give an enemy unit here -1 :rb_might: this turn.)\n" +
@@ -139,15 +145,64 @@ test("Siren of the Shallows execution: the [Ganking] expansion registers a conti
   assert.equal(ganking.valued, false);
 });
 
-test.todo(
-  "Siren of the Shallows: the [Disarm] attack trigger must fire from a real attack-declared emission — " +
-    "no producer emits attack-declared yet (combat/flow.ts blocks the role transaction) and the " +
-    "keyword expansion's sameLocationAs trigger filter cannot be translated yet"
-);
+test("Siren of the Shallows: the Disarm trigger still cannot bind through the production filter translator", () => {
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const kernel = world()
+    .card("siren", { cardId: CANONICAL, types: ["unit"], might: 1, zone: "board" })
+    .build();
+  assert.throws(
+    () => triggerRegistrations(binding.registry, kernel.getObject("siren")),
+    (error) => error.code === "judge-required" && /Unsupported filter field sameLocationAs/.test(error.message)
+  );
+  // 466.2: the role transaction itself is still blocked: CombatFlow exposes no
+  // attack-declared producer and dealDamage() remains a blocked transaction, so
+  // no real attack-declared emission exists for this trigger to consume.
+  const flow = new CombatFlow(
+    fixture().engine,
+    fixture().host,
+    [{ id: "bf-1", controller: null }, { id: "bf-2", controller: null }],
+    () => {}
+  );
+  assert.throws(
+    () => flow.dealDamage(),
+    (error) => error.code === "simultaneous-damage-transaction"
+  );
+});
 
-test.todo(
-  "Siren of the Shallows: [Ganking] must reach MovementPermissions.canGank — the expansion writes an " +
-    "effect.permission string while layers/rules/query.ts reads effect.permission.routes, and the " +
-    "card program -> keyword -> layer binding has no consumer for the keyword spelling"
-);
+test("Siren of the Shallows: [Ganking]'s authored expansion still does not reach MovementPermissions.canGank", () => {
+  // 810.1.b: the keyword expansion writes a string permission; the merged
+  // movement query reads effect.permission.routes, so registering the authored
+  // expansion verbatim leaves canGank false until the shapes are aligned.
+  const expansion = ganking.expand({ host: { canonicalCardId: CANONICAL } });
+  const kernel = world().unit("siren", { might: 1 }).build();
+  const self = kernel.getObject("siren");
+  const engine = createLayerEngine([self]);
+  engine.register({
+    id: "siren-ganking",
+    source: self.ref,
+    filter: { objectId: self.ref.id, zone: "board" },
+    layer: "ability",
+    effect: expansion[0].effect
+  }, { type: "permanent" });
+  assert.deepEqual(movement(engine.registry, self.ref, self, "A"), {
+    allowed: true,
+    canMove: true,
+    canGank: false,
+    battlefieldToBattlefield: false,
+    restrictions: [],
+    permissions: []
+  });
+  // The routes shape continuous.movement itself registers is what the query
+  // consumes; the keyword expansion has not been aligned to it yet.
+  engine.register({
+    id: "siren-ganking-routes",
+    source: self.ref,
+    filter: { objectId: self.ref.id, zone: "board" },
+    layer: "ability",
+    effect: { kind: "continuous.movement", permission: { routes: ["battlefield-to-battlefield"], source: "battlefield", destination: "battlefield", move: "standard" } }
+  }, { type: "permanent" });
+  assert.equal(movement(engine.registry, self.ref, self, "A").canGank, true);
+});
 

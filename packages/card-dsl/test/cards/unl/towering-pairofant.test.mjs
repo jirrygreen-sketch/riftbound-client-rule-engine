@@ -1,3 +1,5 @@
+// Template execution evidence: ../templates/keyword-replacement-effect-ready-700.test.mjs.
+// A real spell/cleanup supplies death history; no-death entry remains blocked.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -8,6 +10,8 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import assault, { ASSAULT_DEFAULT_VALUE } from "../../../../engine-core/dist/effects/keywords/Assault.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runCardScenario } from "../../../../engine-core/dist/effects/testing/scenario/index.js";
+import hextechRay from "../../../dist/cards/ogn/hextech-ray.js";
 
 const CANONICAL_ID =
   "card.hash-236b348b03423e44bd4951c615315452d5da4f0e0be98b47ebafeddb51fe1f8a";
@@ -79,31 +83,35 @@ test("unl-008-219 Towering Pairofant: 'I enter ready' is an entry replacement ga
   });
 });
 
-test("unl-008-219 Towering Pairofant: the merged replacement binder accepts the entry rewrite", async () => {
+test("unl-008-219 Towering Pairofant: the merged replacement binder accepts the entry rewrite", () => {
   // RIFT-260's bindReplacement consumes the 369.3 entry-state spelling: the
   // body's effect.ready on "source" is planned as the ready action that lands on
   // the chain-zone permanent, so this half of the ability is really bindable.
-  const { bindReplacement } = await import("../../../../engine-core/dist/replacement/index.js");
-  const kernel = world().unit("pairofant", { zone: "board", controller: "A", exhausted: true }).build();
-  const deps = {
-    host: {
-      object: ref => kernel.object(ref),
-      objects: () => kernel.objects,
-      context: (source, controller) => kernel.clone({ sourceSnapshot: source, controller })
-    },
-    pipeline: { clock: { turn: 1 }, registerReplacement: () => {}, unregisterReplacement: () => {} }
-  };
-  const bound = bindReplacement(
-    { replaces: enterReady.replaces, with: enterReady.with, condition: undefined },
-    kernel.ref("pairofant"),
-    deps
-  );
-  assert.equal(bound.registration.id, "replacement:pairofant:1");
-  // The entry path carries the declared ready orientation (bind.ts
-  // matchesEnterAction on the chain-zone permanent); a direct board move is not
-  // that action, so only the registration contract is asserted here.
-  assert.equal(typeof bound.registration.matches, "function");
-  assert.equal(typeof bound.registration.apply, "function");
+  // Only metadata changes in the probe: the original keyword, condition and
+  // replacement body all reach the production lifecycle and pipeline.
+  const result = runCardScenario({ ...program, status: "executable", judgeReason: undefined }, {
+    players: { A: { energy: 7, power: ["Fury"] } },
+    objects: [
+      { id: "pairofant", cardId: CANONICAL_ID, types: ["unit"], zone: "hand", energy: 6, power: null, might: 6 },
+      { id: "ray", program: hextechRay, types: ["spell"], zone: "hand", energy: 1, power: ["Fury"] },
+      { id: "victim", owner: "B", types: ["unit"], zone: "board", might: 3 }
+    ],
+    answers: { "target:hextech-ray.unit-at-battlefield": ["victim"] },
+    operations: [
+      { type: "play", object: "ray", player: "A" },
+      { type: "pass", player: "A" },
+      { type: "pass", player: "B" },
+      { type: "play", object: "pairofant", player: "A" }
+    ],
+    expect: {
+      objects: { pairofant: { zone: "board", exhausted: false, energy: 6, power: null, might: 6 }, victim: { zone: "trash" } },
+      players: { A: { energy: 0 } },
+      events: { sequence: [{ timingPoint: "object-killed", object: { ref: "victim" } }, { timingPoint: "object-enters-board", object: { ref: "pairofant", exhausted: false } }] }
+    }
+  });
+  result.asserts();
+  assert.ok(result.events.some(event => event.timingPoint === "object-enters-board"));
+  assert.equal(result.events.some(event => event.timingPoint === "object-readied"), false);
 });
 
 test("unl-008-219 Towering Pairofant: the replacement body's effect.ready readies the source", () => {

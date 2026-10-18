@@ -2,10 +2,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
 
 /**
  * Tideturner — CR v1.5 811, 383.4.a, 355.4–355.7, 448.3.
- * Capture both original locations before either Move. Hidden and the nested
- * Finalize target lifecycle remain blocked; the swap body has execution evidence.
- * Location expressions are available to general expressions; the swap already
- * resolves its destinations through linked values.
+ * 复核 2026-10-17：交换体已有执行证据，仍缺 Hidden 的整套区域/行动生命周期与
+ * 嵌套目标在真实 Finalize 上的生命周期适配。
  */
 const abilities: Ability[] = [
   {
@@ -111,9 +109,18 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "[Hidden] 仍缺 Hide 行动、Facedown Zone、战场控制与回合归属驱动的次回合解锁，以及从藏牌区以 Reaction/0 Energy 打出的生产路径（CR 811.1.b–811.1.d、811.5）；cost.hidden 的静态展开尚无对应生命周期消费。" +
-    "交换体的 condition.value / effect.move 已可执行，CardProgram 触发注册与 self 过滤归一化也已合入；但友方目标在 choice.optional 的嵌套 body 内，programs/play.validateSurface 与 chain/engine.assertFinalizationSurface 会拒绝该目标生命周期，需保留 355.5/355.12 的 Finalize 选择语义。" +
-    "依赖：Hidden 的区域/行动集成与嵌套目标 Finalize 适配；通用 location 表达式可经 condition.value 求值并写入 linked-value，本卡交换体也已通过 linked-value 绑定原始位置，不缺位置绑定；不以剥离 TargetSpec 或直接移动状态冒充完整打出。",
+    "两处缺口（2026-10-17 复核）：" +
+    "(1) [Hidden]（CR 811.1.b–811.1.d、811.5）仍缺 Hide 行动、Facedown Zone 与回合归属驱动的次回合解锁，" +
+    "以及从藏牌区以 Reaction/0 Energy 打出的生产路径；关键词展开的 cost.hidden 也没有消费方——" +
+    "programs/statics.ts::layerFor 实测抛 ProgramBindingError \"Static ability kind cost.hidden has no layer mapping\"，" +
+    "ZoneId 里没有藏牌区，cost/kinds/hidden.ts 只锁定与支付计划，明确把 Hide/play 许可与区域留给 zone/timing 负责人。" +
+    "(2) 友方目标位于 choice.optional 的嵌套 body 内，真实 chain 打出时 " +
+    "chain/engine.ts::assertFinalizationSurface 抛 ChainContractBlockedError " +
+    "\"Nested/repeated targets require an interpreter target-selection lifecycle adapter\"" +
+    "（programs/play.ts::validateSurface 是同一判定的复制）；修它必须保留 355.5/355.12 的 Finalize 选择语义，" +
+    "不能靠剥离 TargetSpec 或直接改状态绕过。" +
+    "已有执行证据的部分：condition.value 经通用 location 表达式取值写入 linked-value，两次 effect.move 都读链接目的地，" +
+    "交换体实测把两个单位的位置互换，CardProgram 触发注册与 self 归一化也已合入。",
   abilities,
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +

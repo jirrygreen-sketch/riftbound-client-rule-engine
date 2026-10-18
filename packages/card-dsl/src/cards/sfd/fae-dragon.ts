@@ -22,12 +22,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "play a Gold gear token exhausted"：440.2.c / 185.2.a / 350.2 / 354（被"打出"的 token 先在
  *   链上创建再由 play 接手）、184.1 / 185.2.d（入场状态改写）、187.5（Gold 的印刷定义）。
  *
- * Status: judge-required. The first triggered body's buff primitive executes.
- * The second still needs the Gold definition (187.5), exhausted entry
- * (184.1/185.2.d), a buff-spent event-pattern registration, and a relative
- * controller-base token destination. timing-points.ts/action-adapter.ts already
- * define/produce buff-spent, but EVENT_PATTERN_TYPES cannot subscribe to it.
- * The create-on-chain/play handoff (440.2.c/185.2.a) is already merged.
+ * Status: judge-required (re-probed 2026-10-18). The first triggered body's buff
+ * primitive executes. The second still needs the Gold definition (187.5),
+ * exhausted entry (184.1/185.2.d) and a buff-spent event-pattern registration.
+ * timing-points.ts/action-adapter.ts already define/produce buff-spent, but
+ * EVENT_PATTERN_TYPES cannot subscribe to it. The create-on-chain/play handoff
+ * (440.2.c/185.2.a) and the controller-relative Base destination are merged.
  */
 const abilities: Ability[] = [
   {
@@ -69,15 +69,30 @@ const abilities: Ability[] = [
     optional: false,
     body: [
       {
+        // 440.2.b.1 / 107.1.c：目的地是能力控制者的 Base，在结算期求值。
+        // 原语要求具体 PlayerId，静态 IR 不能写 controller 符号。
+        id: "fae-dragon.read-base",
+        op: "condition.value",
+        args: {
+          value: { kind: "location", value: "ability-controller-base" },
+          key: { kind: "constant", value: "base" }
+        }
+      },
+      {
         id: "fae-dragon.play-gold-token",
         op: "effect.token",
+        linkedTo: "fae-dragon.read-base",
         args: {
           token: { kind: "constant", value: "gold" },
           amount: { kind: "constant", value: 1 },
           // 440.2.c / 185.2.a：被「打出」的 token 先在链上创建。
           mode: { kind: "constant", value: "play" },
           // 记号目的地：Gear token 在控制者 Base 生成（440.2.b.1 的永久物默认）。
-          location: { kind: "constant", value: { type: "base", player: "controller" } },
+          location: {
+            kind: "linked-value",
+            instructionId: "fae-dragon.read-base",
+            key: "base"
+          },
           // 184.1/185.2.d exhausted entry is blocked; TokenArgs has no entry
           // override. Do not invent an argument or append effect.exhaust.
           linkKey: { kind: "constant", value: "goldToken" }
@@ -92,7 +107,18 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "第二条能力仍受阻：(1) Gold（187.5，自带 [Reaction][>] Kill this, [E]: [Add] [A]）不在 effect.token 的可执行定义中；(2) exhausted 是入场规定（184.1/185.2.d），当前 TokenArgs/创建与打出动作没有该入口，事后 effect.exhaust 会产生额外横置事件，不能替代（143.4）；(3) buff-spent 虽在 timing-points.ts/action-adapter.ts 中，但不在 EVENT_PATTERN_TYPES，事件管线不能注册此订阅（702.2.b/705）；(4) effect.token 的 LocationRef 需要实际 PlayerId，没有相对 controller-base 的目的地记法。链上创建/play 路径（440.2.c/185.2.a）与第一条 effect.buff 的 0…4 目标均已合入，后者有真实执行测试。程序绑定本身已存在；仅这些具体缺口保持 judge-required。",
+    "第二条能力仍受阻（2026-10-18 实测）：" +
+    "（1）Gold（187.5，自带 [Reaction][>] Kill this, [E]: [Add] [A]）不在 effect.token 的可执行定义中，" +
+    "实测执行返回 negated + blockedReason \"token-definition-or-abilities-judge-required\"；" +
+    "（2）exhausted 是入场规定（184.1/185.2.d），当前 TokenArgs/创建与打出动作没有该入口，" +
+    "事后 effect.exhaust 会产生额外横置事件，不能替代（143.4）；" +
+    "（3）buff-spent 虽在 timing-points.ts/action-adapter.ts 中，但不在 EVENT_PATTERN_TYPES，" +
+    "事件管线不能注册此订阅（702.2.b/705；实测 assertTriggerSpec 抛 invalid-event-type）；" +
+    "（4）入场状态改写的付费/替代门控没有接线：805.6/805.6.a 那类「付费后以就绪进场」的延迟替代" +
+    "在打出流程里没有消费方，本卡要的「以横置进场」同样只能靠原语入口支持，而该入口不存在。" +
+    "已合入并由 golden 覆盖：链上创建/play 路径（440.2.c/185.2.a）、第一条 effect.buff 的 0…4 目标，" +
+    "以及控制者相对 Base 目的地的结算期求值（condition.value + linked-value）。" +
+    "程序绑定本身已存在；仅这些具体缺口保持 judge-required。",
   abilities,
   sourceText:
     "When you play me, buff up to four friendly units. (Give each a +1 :rb_might: buff if it doesn't have one.)\n" +

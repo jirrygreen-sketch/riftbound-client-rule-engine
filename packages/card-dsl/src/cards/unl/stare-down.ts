@@ -44,9 +44,8 @@ import type { CardProgram } from "../../ir/index.js";
  * descriptive set marker cannot execute, and the XP half is real and executed by
  * the golden test.
  *
- * Dependencies: a set/query object selection for effect.move plus a Might
- * comparison predicate and a location anchor read from another selected object
- * (location workstream RIFT-357 and conditional predicate workstream RIFT-359).
+ * Dependencies: an untargeted set/query object selection for effect.move plus a
+ * Might comparison predicate and a location anchor read from another selected object.
  */
 export default {
   canonicalCardId:
@@ -60,10 +59,11 @@ export default {
     "没有「全部匹配过滤器的对象」形式；若写成 choose 选择，就把它偷偷变成玩家选择（与 355.10.d.1「永不可能有选择」相反）。" +
     "本文件把该集合保留为描述性且 fail-closed 的标记 { kind: \"set-selector\", ... }：effect.move 的解析器会直接拒绝它，" +
     "不会误移单位（cataclysm / demon-shade 的目的地选择器同一做法），golden 断言该拒绝。" +
-    "(2)「at that battlefield」需要从所选战场读出运行期 LocationRef，「less Might than the chosen unit」需要与另一个已选对象的" +
-    "有效 Might 做数值比较；冻结的 ObjectFilter 词表没有这两种谓词（ogn/gust 记录了 Might 阈值的同一缺口），" +
+    "(2)「at that battlefield」需要从所选战场读出运行期 LocationRef（sameLocationAs），「less Might than the chosen unit」需要与另一个已选对象的" +
+    "有效 Might 做数值比较（mightLessThan）；冻结的 ObjectFilter 词表没有这两种谓词（ogn/gust 记录了 Might 阈值的同一缺口），" +
     "也没有任何已合入表达式能读取他者 Might（sfd/soraka-wanderer 记录该缺口）。" +
-    "依赖：effect.move 的集合/查询选择、Might 比较谓词与目标地点锚点（RIFT-357 / RIFT-359）。" +
+    "依赖：effect.move 的无目标集合/查询选择、Might 比较谓词与从另一目标读取地点的锚点；" +
+    "当前 location target 选择只锁定所选战场，不能替代这些对象集合与跨对象比较。" +
     "已合入并由 golden 真实执行的部分：两个目标声明（友方单位 + 战场）与「Gain 1 XP」（effect.xp，728–730.1）。",
   abilities: [
     {

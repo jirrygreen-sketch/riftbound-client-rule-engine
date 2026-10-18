@@ -8,6 +8,11 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { deriveAbilityActivatedEmission } from "../../../../engine-core/dist/events/producers/ability-activation.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
 
 const CANONICAL_ID =
   "card.hash-913749be19f87a0f632bd0690ad0490bb254a346584c09e1b8c3244137f609a7";
@@ -18,7 +23,7 @@ const SOURCE_TEXT =
 const [ability] = program.abilities;
 const [readyRunes] = ability.body;
 
-/** 符文按契约 ZoneId 位于 rune-zone（CR 107.1.c 的 Base 读法见 judgeReason 第 4 条）。 */
+/** 符文按契约 ZoneId 位于 rune-zone。 */
 const runeSnapshot = (id, exhausted) => ({
   ref: { id, zoneEntryId: 1 },
   cardId: "card:" + id,
@@ -92,9 +97,70 @@ test("ven-145-166: card and activation events have separate optional subscriptio
     assert.equal(ability.optional, true);
     assert.equal(ability.trigger.filter.event, ability.trigger.at);
     assert.equal(ability.trigger.filter.filter.player, "self");
-    assert.equal(ability.trigger.filter.filter.energyCostAtLeast, 7);
   }
   assert.deepEqual(ability.trigger.filter.filter.types, ["unit", "gear"]);
+  assert.deepEqual(ability.trigger.condition, {
+    kind: "event-printed", object: "object", characteristic: "energy",
+    operator: "gte", right: { kind: "constant", value: 7 }
+  });
+  assert.equal(program.abilities[1].trigger.filter.filter.energyCostAtLeast, 7);
+});
+
+test("Curator card-played binding: match friendly units/gear but require explicit printed event data", () => {
+  const kernel = world().unit("curator", { energy: null })
+    .unit("six", { energy: 6 }).unit("seven", { energy: 7 })
+    .object("gear", { types: ["gear"], zone: "board", energy: 9 })
+    .unit("enemy", { owner: "B", energy: 9 })
+    .object("spell", { types: ["spell"], zone: "chain", energy: 9 })
+    .unit("unprinted", { energy: null }).build();
+  const filter = translateTriggerFilter(ability.trigger.filter, "curator", "card-played");
+  for (const [id, expectedMatch] of [
+    ["six", true], ["seven", true], ["gear", true], ["enemy", false], ["spell", false]
+  ]) {
+    const object = kernel.getObject(id);
+    const event = { timingPoint: "card-played", object, player: object.controller };
+    assert.equal(matchesTriggerEvent(filter, event, "A"), expectedMatch, id);
+    // A bare snapshot is insufficient: actual Chain events supply details.printed.
+    assert.throws(() => evaluateCondition(ability.trigger.condition, { context: kernel, event }),
+      /Event payload has no printed energy characteristic/, id);
+  }
+  assert.throws(() => evaluateCondition(ability.trigger.condition, {
+    context: kernel, event: { object: kernel.getObject("unprinted") }
+  }), /Event payload has no printed energy characteristic/);
+  assert.equal(kernel.getObject("unprinted").energy, null);
+});
+
+test("Curator card-played predicate: actual Chain events preserve printed Energy independently of payment", () => {
+  for (const [energy, expected] of [[6, false], [7, true], [9, true]]) {
+    const kernel = world().base("curator", { types: ["legend"], energy: null })
+      .hand("played-unit", { types: ["unit"], energy, power: null, might: 3 })
+      .deck(["a-top", "a-next"]).deck(["b-top", "b-next"], { owner: "B" })
+      .rune(["a-rune"]).rune(["b-rune"], { owner: "B" }).build();
+    const host = createActionPipelineHost({
+      checkpoint: () => kernel.snapshot(), restore: state => kernel.restore(state),
+      objects: () => kernel.objects, perform: action => kernel.perform(action),
+      choose: request => kernel.choose(request),
+      context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+    });
+    const flow = new TurnFlow({ host, player: id => kernel.player(id), turnOrder: ["A", "B"],
+      battlefields: [{ id: "bf1", controller: null }, { id: "bf2", controller: null }] });
+    flow.start();
+    assert.equal(flow.phase, "main");
+    assert.equal(flow.chain.commit({ type: "gain-energy", player: "A", amount: 10 }).status, "done");
+    // A vanilla unit has no body; its entry, payment and event still use the real Chain.
+    flow.execute({ id: `play-${energy}`, source: kernel.getObject("played-unit"), controller: "A", kind: "unit",
+      speed: "normal", body: [], cost: {
+        id: `discounted-${energy}`, cost: { energy: { kind: "constant", value: energy } },
+        discounts: [{ id: "energy-discount", resource: "energy", amount: { kind: "constant", value: energy - 1 } }]
+      } });
+    while (flow.chain.items.length) flow.pass(flow.chain.priority);
+    const [event] = flow.chain.pipeline.events.filter(event => event.timingPoint === "card-played");
+    assert.equal(event.details.printed.energy, energy);
+    assert.equal(event.details.printed.power, null);
+    assert.equal(kernel.player("A").energy, 9);
+    assert.equal(evaluateCondition(ability.trigger.condition, { context: kernel, event }), expected);
+    assert.equal(kernel.getObject("played-unit").zone, "board");
+  }
 });
 
 test("ven-145-166: both subscriptions carry the same ready effect with distinct instruction ids", () => {
@@ -197,7 +263,7 @@ test("curator-of-the-sands: the review records the current blockers", () => {
   assert.match(program.judgeReason, /Finalize/);
 });
 
-test.todo("curator-of-the-sands: 206/206.1: compare event card printed Energy or activated ability base cost with 7 (RIFT-359)");
+test.todo("curator-of-the-sands: 206.1: supply activated ability base Energy separately; card-played printed Energy is covered through actual Chain events");
 
 test.todo("curator-of-the-sands: 383.3.b: pay exhaust-self as the triggered ability base cost during Finalize");
 

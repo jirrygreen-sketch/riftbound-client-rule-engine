@@ -34,7 +34,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   CardProgram → 费用计划的接线；参考内核的 effect.play 需要调用方提供已 Finalize 的费用计划，
  *   不能自行推导。
  * 依赖：condition.predicate/history 的求值、HistoryQuery 的按卡身份排除或等价谓词、
- * 依赖能力正文的绑定；以及 RIFT-261 的区域许可与替代费用 Finalize 接线。
+ * 依赖能力正文的绑定；以及区域许可与替代费用 Finalize 接线。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "legion" },
@@ -68,8 +68,8 @@ const program = {
     "exclude?: ObjectSelector（按对象排除），不是 812.1.c 的按卡身份排除；也没有 binder 把依赖能力 [Text] 挂上谓词。" +
     "(2)「You may play me from your trash for [3][Fury]」需要 366.1 的区域许可适配器与 356.1.a 的替代费用计划接线：" +
     "programs/play.ts 的 translateRestriction 对 kind \"play-from-zone\" 以 “needs a rules adapter” 拒绝；已合入 cost/ " +
-    "只消费调用方传入的费用计划，尚无 CardProgram → 费用计划的接线（RIFT-261）。" +
-    "依赖：condition.predicate/history 的求值、按卡身份排除或等价谓词、依赖能力正文绑定，以及 RIFT-261（区域许可与费用接线）。" +
+    "只消费调用方传入的费用计划，尚无 CardProgram → 费用计划的接线。" +
+    "依赖：condition.predicate/history 的求值、按卡身份排除或等价谓词、依赖能力正文绑定，以及区域许可与费用接线。" +
     "本卡不平铺成无条件能力，也不把 Trash 打出近似成手牌打出；golden 只做身份与结构校验。",
   abilities,
   sourceText:

@@ -29,32 +29,33 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  * - 括注 "(When I die, get the effect. You must still pay its Power cost.)" 是 808.1.c 与
  *   356.1.b.2 的提醒文本，不另写指令。
  *
- * status 判定（README 第 2 节）：judge-required —— 四处依赖未合入，均不近似实现：
- * 1. "look at the top 3 cards" 的有序来源未接线：effect.inspect 的 top 范围明确要求上游按
- *    区域顺序提供 picksSpecId（文件头记录 query 不保证顺序；zoneSlice 未接进查看指令），
- *    静态 IR 写不出结算期的牌库顶引用（RIFT-64/66 的后续）。
- * 2. "reveal a unit from among them" 的成员筛选缺可求值形态：需要"从已查看的 3 张里选 1 张
- *    单位"，而 effect.reveal 的 pick 只按已提供的引用集合读取、没有类型成员过滤谓词
- *    （ObjectFilter 的 type 匹配是同一对象上的判定，无法在这一步把"已查看集合"再按 unit 收窄）；
- *    且 chain/interpreter-adapter.ts 的 LITERAL_FIELDS 未解码 effect.reveal 的 pick 字段，
- *    链式派发会以 "pick must be a non-empty id" 拒绝（契约变更请求，同 diana-lunari 记录）。
- * 3. "[Deathknell]" 的 KeywordDef 展开使用未注册的 trigger.leave 原语；808.1.d.1–d.3 的
- *    死亡被替代移出链与最后已知信息仍需该关键词展开接入事件/链管线（RIFT-82）。
- * 4. "Play a unit from your hand … ignoring its Energy cost" 需要为所选牌生成 base Energy 为 0、
- *    Power 保留的 finalized 费用计划：cost.printed/cost.pay 原语本体已合入，但没有生产方为“打出所选牌”
- *    生成这种计划（effect.play 只接受调用方已 finalize 的计划，卡牌程序不得自行推导打印费用，
- *    同 soulgorger 的判定）。
- * 程序保留 "look → optional(reveal + 取到手上) → recycle 其余" 的顺序与 effect.play 的调用形状，
- * golden 用解释器与参考内核真实执行已合入的 recycle 与可选包装部分。
+ * status 判定（README 第 2 节，2026-10-17 逐条对源码复核）：judge-required —— 三处缺口，
+ * 均不近似实现：
+ * 1. "reveal a unit from among them" 的成员筛选仍缺可求值形态：需要"从已查看的 3 张里选 1 张
+ *    单位"，而 effect.reveal 的 pick 只按已提供的引用集合读取（effect.reveal 文件头 425.4.a：
+ *    展示后继续移动由后续指令处理），PickSpec.filter 对 linked 来源没有消费方，
+ *    ObjectFilter 的 type 匹配只是同一对象上的判定，无法在这一步把"已查看集合"再按 unit 收窄。
+ *    （原本一并记录的 chain/interpreter-adapter.ts LITERAL_FIELDS 未解码 effect.reveal.pick
+ *    已修复：该字段现在会解包成字面量 id。）
+ * 2. "[Deathknell]" 的 KeywordDef 展开仍引用未注册的 trigger.leave 原语
+ *    （effects/instructions/registry.generated.ts 无该 op）；808.1.d.1–d.3 的触发收集、
+ *    死亡被替代移出链与最后已知信息仍需该 op 接入事件/链管线。
+ * 3. "Play a unit from your hand … ignoring its Energy cost" 需要为所选牌生成 base Energy 为 0、
+ *    Power 保留的 finalized 费用计划：cost.printed/cost.pay/cost.modify 原语本体已合入，
+ *    但没有生产方为“打出所选牌”生成这种计划（cost.modify 只读 ctx.source 或显式 printed，
+ *    没有 linked 对象的印刷费投影；effect.play 只接受调用方已 finalize 的计划），
+ *    卡牌程序不得自行推导打印费用（同 soulgorger 的判定）。
+ * "look at the top 3 cards" 的有序来源已随 RIFT-358 合入：本卡的 PickSpec 声明显式有序来源，
+ * chain Finalize 用 ctx.zoneSlice 锁定真实牌库顶并保序，golden 真实执行该锁定路径。
+ * 程序保留 "look → optional(reveal + 取到手上) → recycle 其余" 的顺序与 effect.play 的调用形状。
  *
- * 依赖：RIFT-64/66（有序牌库顶查看的卡牌接线）、RIFT-82（Deathknell trigger.leave 展开）、
- * cost 计划生产方。
+ * 依赖：选择集合成员谓词（reveal 的 unit 收窄）、trigger.leave 原语、cost 计划生产方。
  */
 
 /**
- * "look at the top 3 cards of your Main Deck" 的有序 picks。选项集合由上游按区域顺序
- * 在结算期提供（契约 3.6 zoneSlice 语义），静态 IR 只记录"牌库顶 3 张"这一意图。
- * 该占位字符串不是运行时 ObjectRef，也未被任何已合入原语当作候选集消费。
+ * "look at the top 3 cards of your Main Deck" 的有序 picks。本卡的 PickSpec 用
+ * 契约 3.6 / RIFT-358 的显式有序来源（options: []、ordered: true、selection: "all"、
+ * zoneSlice）声明"牌库顶 3 张"，Finalize 用 ctx.zoneSlice 锁定真实区域顺序。
  */
 const TOP_THREE_LINK = "rift-herald.top-three";
 
@@ -95,11 +96,11 @@ const body: Instruction[] = [
     picks: [
       {
         id: TOP_THREE_LINK,
-        options: ["top-3-cards-of-your-main-deck-in-zone-order"],
-        min: 0,
-        max: 3,
+        // 契约 3.6 / RIFT-358：显式有序来源；query 顺序绝不被采用。
+        options: [],
+        ordered: true,
         selection: "all",
-        filter: { owner: "self", zone: "deck" }
+        zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 3 } }
       }
     ]
   },
@@ -227,19 +228,22 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处依赖未合入：(1)「look at the top 3 cards of your Main Deck」的有序来源未接线——effect.inspect 的 " +
-    "top 范围明确要求上游按区域顺序提供 picksSpecId（query 不保证牌库顺序，zoneSlice 未接进查看指令），" +
-    "静态 IR 写不出结算期的牌库顶引用（RIFT-64/66 的后续）。(2)「reveal a unit from among them」缺少" +
-    "「已查看集合按 unit 收窄」的成员筛选谓词，且 chain/interpreter-adapter.ts 的 LITERAL_FIELDS 未解码 " +
-    "effect.reveal 的 pick 字段，链式派发以 \"pick must be a non-empty id\" 拒绝（契约变更请求）。" +
-    "(3) [Deathknell]（808.1）的 KeywordDef 展开使用未注册的 trigger.leave 原语，808.1.d.1–d.3 的触发收集、" +
-    "死亡被替代移出链与最后已知信息仍需该关键词展开接入事件/链管线（RIFT-82）。(4)「Play a unit from your hand … " +
-    "ignoring its Energy cost」需要为所选牌生成 base Energy=0、Power 保留的 finalized 费用计划" +
-    "（356.1.b.2）；cost.printed/cost.pay 原语本体已合入，但没有生产方为“打出所选牌”生成这种计划，" +
-    "effect.play 只接受调用方已 finalize 的计划，卡牌程序不得自行推导被选牌的印刷费用，也不把 null 写成 0" +
-    "（同 soulgorger 的判定）。" +
-    "程序保留 look → optional(reveal + 取到手上) → recycle 其余的顺序与 effect.play 调用形状；" +
-    "golden 用解释器与参考内核真实执行 recycle 与可选包装/链接部分，其余缺口写 test.todo。不近似实现。",
+    "三处当前缺口（2026-10-17 对源码复核，均不近似实现）：(1)「reveal a unit from among them」缺少" +
+    "「已查看集合按 unit 收窄」的成员筛选：effect.reveal 只按 ctx.picks 读取已提供的引用集合" +
+    "（425.4.a：展示后继续移动由后续指令处理），PickSpec.filter 对 linked 来源没有消费方，" +
+    "无法在这一步把 looked-at 3 张按 unit 过滤；chain/interpreter-adapter.ts 的 LITERAL_FIELDS " +
+    "已解码 effect.reveal.pick，该段不再是缺口。(2) [Deathknell]（808.1）的 KeywordDef 展开仍引用" +
+    "未注册的 trigger.leave 原语（effects/instructions/registry.generated.ts 无该 op），" +
+    "808.1.d.1–d.3 的触发收集、死亡被替代移出链与最后已知信息仍需该 op 接入事件/链管线。" +
+    "(3)「Play a unit from your hand … ignoring its Energy cost」需要为所选牌生成 base Energy=0、" +
+    "Power 保留的 finalized 费用计划（356.1.b.2）；cost.printed/cost.pay/cost.modify 原语本体已合入，" +
+    "但没有生产方为“打出所选牌”生成这种计划（cost.modify 无 linked 对象印刷费投影，" +
+    "effect.play 只接受调用方已 finalize 的计划），卡牌程序不得自行推导被选牌的印刷费用，" +
+    "也不把 null 写成 0（同 soulgorger 的判定）。「look at the top 3 cards」的有序来源已由合并后的 " +
+    "zoneSlice 有序 pick 生命周期承担：" +
+    "本卡的 PickSpec 是显式有序来源（options: []、ordered: true、selection: \"all\"、zoneSlice），" +
+    "Finalize 用 ctx.zoneSlice 锁定真实牌库顶三张并保序，golden 真实执行该锁定路径以及 " +
+    "look → optional(reveal+取到手牌) → recycle 其余的顺序。",
   abilities,
   sourceText:
     "When I move to a battlefield, look at the top 3 cards of your Main Deck. You may reveal a unit from among them and draw it. Recycle the rest.\n" +

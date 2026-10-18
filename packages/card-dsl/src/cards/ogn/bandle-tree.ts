@@ -24,9 +24,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   activated one (contract §3.1).
  *
  * Status rationale (contract §3.1, cards README §2): the raised occupancy
- * limit is a continuous restriction, and the merged continuous.restrict
- * primitive can register a numeric cap, while the static-program binder only
- * preserves this declaration and does not normalize its cap/location fields.
+ * limit is a continuous restriction. The merged continuous.restrict
+ * primitive registers a numeric cap (mode "limit") and the ability-layer
+ * binder can register this declaration, but neither the binder's raw
+ * restriction shape nor a consumer turns the registered amount into the
+ * per-battlefield Facedown Zone occupancy limit that a Hide action reads.
  * The card stays judge-required because the Hide/facedown path has no consumer for the
  * raised Facedown Zone maximum: cost.hidden and the occupancy check are not
  * connected to a playable Hide action, so "an additional card here" cannot be
@@ -39,7 +41,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Missing the battlefield-scoped Facedown Zone capacity consumer for continuous.restrict (CR 107.3.b.1): programs/statics.ts does not translate this static amount/location declaration into the numeric cap read by Hide. cost.hidden only plans/pays costs; Hide, facedown occupancy/control checks and next-turn unlocking still lack a connected action/zone path (422.2.a, 811.1.b). The additional slot must preserve Hidden eligibility and its normal cost.",
+    "Missing the battlefield-scoped Facedown Zone capacity consumer for continuous.restrict (CR 107.3.b.1): " +
+    "the static binder records amount 1, but no Hide action reads it as an increase to this battlefield's normal one-card cap. " +
+    "cost.hidden already plans [A], but the effects test-kernel pay action does not debit Power; its receipt is not proof of payment. " +
+    "The cost wrapper does not bind Hidden eligibility, facedown movement, occupancy/control checks " +
+    "or next-turn play permission to an action (107.3.c/d, 422.2.a, 811.1.b). The extra slot must remain local, preserve " +
+    "the normal cost, and follow the battlefield's current controller.",
   sourceText: "You may hide an additional card here.",
   abilities: [
     {

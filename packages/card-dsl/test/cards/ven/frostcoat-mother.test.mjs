@@ -1,9 +1,21 @@
+// Golden test for Frostcoat Mother (ven-032-166).
+//
+// Execution evidence (the registered per-rune cost rewrite behind its
+// fail-closed bind, the Empowered-gated +3 Might with its Disempower boundary
+// and the blocked printed [Empower] activation) lives in the RIFT-673
+// parameterized template golden:
+// test/cards/templates/keyword-static-static-673.test.mjs.
+// Original behavior and structure assertions remain in this file; the
+// template adds execution evidence without replacing these checks.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/frostcoat-mother.js";
-import { createEngineStaticBinder, expandProgram } from "../../../../engine-core/dist/programs/index.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { createEngineStaticBinder, expandProgram, translateCost } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
@@ -18,6 +30,7 @@ test("ven-032-166 Frostcoat Mother: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
 test("ven-032-166 Frostcoat Mother: identity, status, judgeReason and verbatim sourceText", () => {
@@ -30,7 +43,9 @@ test("ven-032-166 Frostcoat Mother: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /Empowered/);
   assert.match(program.judgeReason, /expandProgram/);
   assert.match(program.judgeReason, /appliesTo/);
-  assert.match(program.judgeReason, /费用消费方/);
+  assert.match(program.judgeReason, /rune-you-control/);
+  assert.match(program.judgeReason, /Unsupported cost kind empower/);
+  assert.match(program.judgeReason, /442\.1\.a/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -51,10 +66,14 @@ test("ven-032-166 Frostcoat Mother: 'costs 1 less for each rune you control' is 
     appliesTo: "empower-activation-cost",
     per: "rune-you-control",
     minimum: 0,
-    value: {
-      kind: "count",
-      subject: "runes",
-      filter: { type: "rune", controller: "self", zone: "rune-zone" }
+    amount: {
+      kind: "arithmetic",
+      operator: "neg",
+      operands: [{
+        kind: "count",
+        subject: "runes",
+        filter: { type: "rune", controller: "self", zone: "rune-zone" }
+      }]
     }
   });
   assert.equal(costReduction.condition, undefined);
@@ -71,19 +90,33 @@ test("ven-032-166 Frostcoat Mother: the [Empowered][>] dependent ability is +3 M
     amount: { kind: "constant", value: 3 }
   });
   assert.deepEqual(might.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "empowered" }
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
   });
 });
 
-test.todo(
-  "ven-032-166 Frostcoat Mother: expand [Empower] 12 with the 827.1.c.3 per-rune cost rewrite and the " +
-    "827.1.c.5 'use only if not Empowered' restriction — no Empower KeywordDef and no cost consumer"
-);
+test("ven-032-166 Frostcoat Mother: merged Empower expands, but the printed cost cannot cross the card-program boundary", () => {
+  const { source } = hostFor(program, "frostcoat");
+  const expanded = expandProgram(program, source);
+  const [expandedEmpower] = expanded.expanded;
+  assert.equal(expandedEmpower.kind, "activated");
+  assert.deepEqual(expandedEmpower.cost, { kind: "empower" });
+  assert.deepEqual(expandedEmpower.restriction.condition, {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq",
+    right: { kind: "constant", value: 0 }
+  });
+  assert.throws(
+    () => translateCost(expandedEmpower.cost, "frostcoat.empower", "activate"),
+    /Unsupported cost kind empower/
+  );
+});
 
 test.todo(
-  "ven-032-166 Frostcoat Mother: register the Empowered-gated +3 Might (828.1.b.1, 143.2.a) — no card-side " +
-    "Empowered status predicate"
+  "ven-032-166 Frostcoat Mother: integrate printed Empower cost and production state (827.1.c.1, 442.1); static subset is covered in the template"
 );
 
 /** 复核（2026-10-17）负向证据：关键词展开与减费静态绑定两处缺口。 */
@@ -93,15 +126,10 @@ function hostFor(programUnderTest, id) {
   return { f, source: f.kernel.getObject(id) };
 }
 
-test("ven-032-166 Frostcoat Mother evidence: expandProgram rejects the missing Empower KeywordDef", () => {
-  const { source } = hostFor(program, "frostcoat");
-  assert.throws(
-    () => expandProgram(program, source),
-    /Keyword empower has no executable KeywordDef/
-  );
-});
+// 2026-10-17 RIFT-618: deleted the stale "expandProgram rejects the missing Empower KeywordDef"
+// assertion — effects/keywords/Empower.ts is merged, so that absence claim is no longer true.
 
-test("ven-032-166 Frostcoat Mother evidence: the cost modification cannot bind and the Empowered gate is unenforced", () => {
+function assertCostModificationAndEmpoweredGate() {
   const { f, source } = hostFor(program, "frostcoat");
   const binder = createEngineStaticBinder(f.engine);
   // 827.1.c.3：减费声明要作为 Empower 启动费用的改写被消费；当前 staticTarget 直接失败关闭。
@@ -109,11 +137,77 @@ test("ven-032-166 Frostcoat Mother evidence: the cost modification cannot bind a
     () => binder.bindStatic(costReduction, source),
     /Unsupported static appliesTo "empower-activation-cost"/
   );
-  // 828.1.b.1：+3 Might 的 Empowered 门控没有求值形态；该声明本身可进图层，但不受状态约束。
+  // 828.1.b.1：直接绑定原始 static；状态由真实动作改变，不以常量字符串开启。
   const handle = binder.bindStatic(might, source);
   f.engine.layers.setObjects(f.kernel.objects);
-  assert.equal(f.engine.layers.evaluate(f.kernel.ref("frostcoat")).might, 6);
+  assert.equal(f.engine.layers.evaluate(f.kernel.ref("frostcoat")).might, 3);
+  assert.equal(f.engine.commit({ type: "empower", object: source.ref }).status, "done");
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.equal(f.engine.layers.evaluate(source.ref).might, 6);
+  assert.equal(f.engine.commit({ type: "disempower", object: source.ref }).status, "done");
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.equal(f.engine.layers.evaluate(source.ref).might, 3);
   handle.unbind();
   f.engine.layers.setObjects(f.kernel.objects);
   assert.equal(f.engine.layers.evaluate(f.kernel.ref("frostcoat")).might, 3);
+}
+
+test("ven-032-166 Frostcoat Mother evidence: the cost modification cannot bind and the Empowered gate is unenforced", () => {
+  assertCostModificationAndEmpoweredGate();
+});
+
+test("ven-032-166 Frostcoat Mother evidence: the cost modification stays blocked while the corrected Empowered gate follows live state", () => {
+  assertCostModificationAndEmpoweredGate();
+});
+
+test("ven-032-166 Frostcoat Mother evidence: the printed per-rune discount reaches no cost plan", () => {
+  // 827.1.c.3 / 206.1: the printed "1 less for each rune you control" is part of
+  // determining this Empower cost. Re-measured 2026-10-18 through the merged
+  // collector: the declared per is still the descriptive string
+  // "rune-you-control", so a recognized scope rejects the whole modifier; and
+  // under its own scope the declaration is skipped entirely. Both results leave
+  // the printed 12 Energy untouched rather than becoming a free activation.
+  const f = fixture({
+    cards: [{ id: "frostcoat", cardId: program.canonicalCardId, types: ["unit"], might: 3 }]
+  });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("frostcoat"), to: "base" });
+  f.engine.advance();
+  for (const id of ["r1", "r2", "r3", "enemy-rune"]) {
+    f.kernel.addObject({
+      ref: { id, zoneEntryId: 1 }, cardId: "rune", name: "rune", types: ["rune"], tags: [],
+      keywords: [], owner: id === "enemy-rune" ? "B" : "A", controller: id === "enemy-rune" ? "B" : "A",
+      zone: "rune-zone", location: null, combatRole: null, might: null, energy: null, power: null,
+      exhausted: false, damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
+    }, "rune-zone");
+  }
+  const source = f.kernel.getObject("frostcoat");
+  const context = f.kernel.clone({ sourceSnapshot: source, controller: "A" });
+  const plan = (effect) => finalizeCostPlan(
+    context,
+    { id: "frostcoat-empower", cost: { kind: "explicit", energy: { kind: "constant", value: 12 } } },
+    { statics: [{ id: "frostcoat", source: source.ref, ability: { kind: "static", effect } }], purpose: "activate" }
+  );
+
+  // The declared scope is not a consumer scope at all.
+  assert.equal(plan(costReduction.effect).total.energy, 12);
+  assert.deepEqual(plan(costReduction.effect).discounts, []);
+
+  // Even under the recognized activated-ability scope the descriptive per
+  // string cannot be evaluated, so the declaration fails closed instead of
+  // silently discounting. Only the printed expression with per removed would
+  // produce a value, which is not what the program declares.
+  assert.throws(
+    () => plan({ ...costReduction.effect, appliesTo: "activated-ability-cost" }),
+    (error) => error.constructor.name === "CostPlanError" &&
+      /Cost modification requires a safe integer amount/.test(error.message)
+  );
+
+  // The interpreter's own count evaluation reaches the printed negative value
+  // only with an absolute player id; the authored controller:self spelling
+  // counts 0, so no in-card path yields the per-rune magnitude today.
+  const counted = runAbilityBody(
+    [{ id: "frostcoat.count", op: "condition.value", args: { value: costReduction.effect.amount } }],
+    context
+  );
+  assert.equal(counted.results[0].result.linkedValues.value, -0);
 });

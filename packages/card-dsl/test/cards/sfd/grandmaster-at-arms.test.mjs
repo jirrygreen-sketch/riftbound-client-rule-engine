@@ -1,3 +1,8 @@
+// RIFT-648 template execution evidence: ../templates/empty-648.test.mjs.
+// The template rows run both printed activations through the real
+// createProgramBinding + ChainEngine path on a Board-hosted source and record
+// the exhausted-source and missing-target boundaries; this file keeps
+// validation, identity, the two cost/target structures and the Legend-Zone gap.
 import assert from "node:assert/strict";
 import test from "node:test";
 

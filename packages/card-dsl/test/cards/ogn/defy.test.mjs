@@ -1,3 +1,9 @@
+// Partial execution evidence for the merged counter primitive is consolidated
+// in ../templates/keyword-play-effect-counter-676.test.mjs and extended by
+// Defy's own per-card scenario row in
+// ../templates/keyword-play-effect-counter-699.test.mjs; Defy's printed cost
+// restriction remains judge-required until Finalize can compare printed costs
+// (CR 206).
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -6,11 +12,15 @@ import defy from "../../../dist/cards/ogn/defy.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import counter from "../../../../engine-core/dist/effects/instructions/effect.counter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { evaluatePrintedCharacteristic } from "../../../../engine-core/dist/effects/interpreter/predicates/printed.js";
 
 const CANONICAL = "card.hash-62dafcca4e54056f0f4c441cffa5d06b600b5993b1e3cbd18574fe8feb466684";
 
 const [keyword, play] = defy.abilities;
 const [counterInstruction] = play.body;
+const forged = { ...defy, status: "executable", judgeReason: undefined };
 
 const chainSpell = (id, owner, energy) => ({
   zone: "chain",
@@ -38,6 +48,7 @@ test("Defy identity, ruleset, status and printed text", () => {
   );
   assert.match(defy.judgeReason, /206/);
   assert.match(defy.judgeReason, /energyMax/);
+  assert.match(defy.judgeReason, /RIFT-359/);
   assert.equal(cardRegistryById.get(defy.canonicalCardId), defy);
 });
 
@@ -46,7 +57,11 @@ test("Defy keeps the printed [Reaction] keyword (CR 813) and one play ability", 
   assert.deepEqual(keyword, { kind: "keyword", keyword: "reaction" });
   assert.equal(keyword.value, undefined);
   assert.equal(play.kind, "play");
-  assert.equal(play.cost, undefined);
+  assert.deepEqual(play.cost, {
+    kind: "cost.printed",
+    energy: { kind: "constant", value: 1 },
+    power: { kind: "constant", value: 1 }
+  });
 });
 
 test("Defy target: one chain spell carrying the cost restriction as descriptive keys", () => {
@@ -104,8 +119,49 @@ test("Defy golden: a spell that already left the chain is ignored (359.3.e)", ()
   assert.equal(run.events.length, 0);
 });
 
+test("Defy current gap: the card's own program cannot even be described for play (translateObjectFilter rejects energyMax)", () => {
+  // programs/filters.ts translateObjectFilter runs over every TargetSpec when a
+  // card program is bound. It allows a fixed key set, so the card's own
+  // descriptive cost keys throw before Finalize can ever consider the target.
+  const state = fixture({ cards: [{ id: "defy", cardId: CANONICAL, types: ["spell"], energy: 1, power: ["Calm"] }] });
+  const binding = createProgramBinding({ cardPrograms: [forged] });
+  assert.throws(
+    () => binding.describePlay({ type: "play", object: state.kernel.ref("defy"), player: "A" }, state.kernel.getObject("defy")),
+    error => error instanceof Error && /Unsupported filter field energyMax/.test(error.message)
+  );
+});
+
+test("Defy current gap: RIFT-359's printed-characteristic predicate only reads an event payload, never a target filter", () => {
+  // The merged condition vocabulary covers "a printed characteristic carried by
+  // an event object". That is not a TargetSpec filter: it needs an event
+  // payload, and it cannot restrict which chain spells are legal choices.
+  assert.throws(
+    () => evaluatePrintedCharacteristic(
+      { kind: "printed-characteristic", object: "object", characteristic: "energy", operator: "lte", right: { kind: "constant", value: 4 } },
+      { context: world().build(), linked: () => undefined, canLookBack: () => true, isIgnored: () => false }
+    ),
+    error => error instanceof Error && /no object/.test(error.message)
+  );
+  // With a payload it does compare the printed cost, which is the capability
+  // the card would need to borrow for its target legality.
+  const kernel = world().object("enemy-spell", chainSpell("enemy-spell", "B", 6)).build();
+  const context = kernel;
+  const evaluates = evaluatePrintedCharacteristic(
+    { kind: "printed-characteristic", object: "object", characteristic: "energy", operator: "lte", right: { kind: "constant", value: 4 } },
+    {
+      context,
+      event: { object: { printedEnergy: 3 } },
+      linked: () => undefined,
+      canLookBack: () => true,
+      isIgnored: () => false
+    }
+  );
+  assert.equal(evaluates, true);
+});
+
 test.todo(
   "Defy cost restriction (CR 206): finalize the chain-spell target against its printed/copied " +
     "Energy cost (<= 4) and printed Power requirement (<= 1 rainbow), ignoring paid additional costs - " +
-    "needs a printed-cost target predicate (RIFT-359)"
+    "needs a printed-cost target filter or a printed-cost target expression the Finalize candidate query can evaluate"
 );
+

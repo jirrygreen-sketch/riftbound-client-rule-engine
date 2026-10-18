@@ -1,131 +1,66 @@
+// RIFT-667 single-card golden: validation, identity and the key IR structure of
+// Trifarian War Camp. The real execution evidence for this card (its own scenario
+// through the generic card harness plus the measured outcome of binding its own
+// static ability with the production binder) lives in
+// `test/cards/templates/static-667.test.mjs`.
+//
+// The card stays judge-required: the registered arithmetic filter carries the
+// source LocationRef value, but layers/filter.ts compares structured locations by
+// reference and layer snapshots are cloned, so the +1 reaches no unit. Nothing
+// here approximates the printed effect.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/trifarian-war-camp.js";
-import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 
 const CANONICAL = "card.hash-ca6330500fc019b19ccf0df937fc22945cc8bf28a51c21eaef572c53cc31387f";
 const SOURCE_TEXT = "Units here have +1 :rb_might:. (This includes attackers.)";
-
 const [ability] = program.abilities;
 
-function unit(id, overrides = {}) {
-  return {
-    ref: { id, zoneEntryId: 1 },
-    cardId: "card:" + id,
-    name: id,
-    types: ["unit"],
-    tags: [],
-    keywords: [],
-    owner: "A",
-    controller: "A",
-    zone: "board",
-    location: { type: "battlefield", id: "battlefield-1" },
-    might: 2,
-    energy: 1,
-    power: ["Fury"],
-    exhausted: false,
-    damage: 0,
-    stunned: false,
-    buffs: 0,
-    attachedTo: null,
-    faceDown: false,
-    isToken: false,
-    ...overrides
-  };
-}
-
-/** Isolate the declared arithmetic operation from the blocked here filter. */
-function layeredEngine(objects) {
-  const engine = createLayerEngine(objects, [
-    {
-      effect: {
-        id: "trifarian-war-camp",
-        layer: ability.effect.layer,
-        filter: { type: "unit", zone: "board" },
-        effect: ability.effect
-      },
-      duration: { type: "permanent" },
-      timestamp: 1
-    }
-  ]);
-  engine.setObjects(objects);
-  return engine;
-}
-
-test("Trifarian War Camp program validates and is judge-required", () => {
+test("ogn-294-298 Trifarian War Camp: program validates and keeps identity", () => {
   const result = validateCardProgram(program);
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
   assert.deepEqual(result.issues, []);
-  assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
-  assert.equal(program.rulesetVersion, "core-1.5");
+  assert.equal(cardProgramsById.get(CANONICAL), program);
   assert.equal(program.canonicalCardId, CANONICAL);
+  assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /LocationRef/);
-  assert.match(program.judgeReason, /对象引用比较/);
-  assert.match(program.judgeReason, /layers\/filter/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("Trifarian War Camp structure: one arithmetic-layer +1 Might static, scoped to this Battlefield", () => {
+test("ogn-294-298 Trifarian War Camp: one arithmetic-layer +1 Might static scoped to this Battlefield", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "static");
   assert.equal(ability.condition, undefined);
-
-  // 479.3.b: "have" grants the ability; 479.4/479.4.a: +1 Might is the
-  // arithmetic layer, applied as an increase (479.4.e.1).
+  // 479.3.b / 479.4 / 479.4.a / 479.4.e.1: "have" grants the ability and +1
+  // Might is an arithmetic-layer increase.
   assert.equal(ability.effect.kind, "continuous.might");
   assert.equal(ability.effect.mode, "add");
   assert.equal(ability.effect.layer, "arithmetic");
   assert.deepEqual(ability.effect.amount, { kind: "constant", value: 1 });
-
-  // 053.3: "here" is this Battlefield. It covers every unit at the location
-  // (both controllers) and makes no attacker/defender distinction — the printed
-  // reminder "(This includes attackers.)" is exactly why no combat-role or
-  // designation condition is written here.
+  // 053.3: "here" is this Battlefield; it covers both controllers and makes no
+  // attacker/defender distinction (hence the printed reminder).
   assert.deepEqual(ability.effect.filter, {
     type: "unit",
     zone: "board",
     sameLocationAs: "self"
   });
   assert.equal(ability.effect.filter.controller, undefined);
-  assert.equal(ability.effect.condition, undefined);
 });
 
-test("Trifarian War Camp arithmetic component: +1 Might executes through the arithmetic layer", () => {
-  const unitHere = unit("unit-here");
-  const enemyHere = unit("enemy-here", { owner: "B", controller: "B", might: 5 });
-  const engine = layeredEngine([unitHere, enemyHere]);
-
-  // Both controllers' units get the bonus: the card says "Units here", not
-  // "your units here".
-  assert.equal(engine.evaluate(unitHere.ref).might, 3);
-  assert.equal(engine.evaluate(enemyHere.ref).might, 6);
-  // The printed Might characteristics and everything else are untouched.
-  assert.equal(engine.evaluate(unitHere.ref).printed.might, 2);
-  assert.deepEqual(engine.evaluate(unitHere.ref).types, ["unit"]);
-});
-
-test("Trifarian War Camp: the production static binder registers the source-relative location and removes its effect", async () => {
-  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
-  const { createEngineStaticBinder } = await import("../../../../engine-core/dist/programs/statics.js");
-  const f = fixture({ cards: [{ id: "camp", cardId: CANONICAL, types: ["battlefield"], energy: null, power: null }] });
-  const here = { type: "battlefield", id: "battlefield-1" };
-  f.engine.commit({ type: "move-zone", object: f.kernel.ref("camp"), to: "board", location: here });
-  const source = f.kernel.getObject("camp");
-  const handle = createEngineStaticBinder(f.engine).bindStatic(ability, source);
-  const [entry] = f.engine.layers.registry.list();
-  assert.deepEqual(entry.effect.source, source.ref);
-  assert.equal(entry.effect.layer, "arithmetic");
-  assert.equal(entry.effect.effect.amount, 1);
-  assert.deepEqual(entry.effect.filter, { type: "unit", zone: "board", location: here });
-  assert.deepEqual(entry.duration, { type: "permanent" });
-  handle.unbind();
-  assert.deepEqual(f.engine.layers.registry.list(), []);
+test("ogn-294-298 Trifarian War Camp: judgeReason names the measured location-comparison gap", () => {
+  // Re-probed 2026-10-17 (RIFT-667): the production binder really registers this
+  // declaration, and the registered filter really matches only an identical
+  // location object; cloned layer snapshots never match.
+  assert.match(program.judgeReason, /matchesObjectFilter/);
+  assert.match(program.judgeReason, /LocationRef/);
+  assert.match(program.judgeReason, /battlefield/);
 });
 
 test.todo(
-  "Trifarian War Camp: bound here grants +1 only to both players' units at this Battlefield (CR 053.3 / 479.4; " +
-    "BLOCKED: layers/filter.matchesObjectFilter compares cloned LocationRef objects by reference instead of by " +
-    "battlefield id/base-player value, so units at the same Battlefield currently miss the aura)."
+  "ogn-294-298 Trifarian War Camp: both controllers' units at this battlefield must gain the printed +1 Might " +
+    "(CR 053.3 / 479.4) - layers/filter.ts must compare the here location by battlefield id (and base by player) " +
+    "instead of by object reference"
 );

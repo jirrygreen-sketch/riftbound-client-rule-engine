@@ -1,9 +1,15 @@
+// Execution evidence for keyword expansion is consolidated in ../templates/keyword-only.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/sfd/laurent-duelist.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/engine.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CARD_ID = "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6";
 
@@ -70,6 +76,44 @@ test("the merged Assault expansion resolves the keyword into a +2 Might static a
     operator: "eq",
     right: { kind: "constant", value: "attacker" }
   });
+});
+
+test("the designation condition still cannot be evaluated by the default expression path", () => {
+  // 807.1.d.1: the expansion gates on the rules characteristic "designation".
+  // The merged default evaluator only reads snapshot-own properties, so the
+  // condition fails closed with a measured MissingInformation instead of
+  // inventing an attacker-only Might bonus. (RIFT-711's extended evaluator is
+  // not wired into the default dispatch yet.)
+  const kernel = world().unit("duelist", { might: 4, combatRole: "attacker" }).build();
+  const source = kernel.getObject("duelist");
+  const [staticAbility] = expandProgram(program, source).expanded;
+  assert.throws(
+    () => evaluateCondition(staticAbility.condition, {
+      context: bindResolveContext(kernel, { source }),
+      host: kernel.ref("duelist"),
+      linked: () => undefined,
+      canLookBack: () => true,
+      isIgnored: () => false
+    }),
+    /Unavailable characteristic: designation/
+  );
+});
+
+test("even with the Attacker combatRole the production binder leaves Might at its printed 4", () => {
+  // The measured gap from judgeReason: assigning combatRole does not make the
+  // attack bonus effective, because nothing writes the designation producer and
+  // the default condition consumer does not evaluate the compare.
+  const kernel = world().unit("duelist", { cardId: CARD_ID, might: 4, combatRole: "attacker" }).build();
+  const source = kernel.getObject("duelist");
+  const layers = createLayerEngine(kernel.objects);
+  const binder = createEngineStaticBinder({ layers, pipeline: { host: {
+    objects: () => kernel.objects,
+    context: (snapshot, controller, timingPoint) => kernel.context(snapshot, controller, timingPoint)
+  } } });
+  for (const ability of expandProgram(program, source).expanded) {
+    if (ability.kind === "static") binder.bindStatic(ability, source);
+  }
+  assert.equal(layers.evaluate(kernel.ref("duelist")).might, 4);
 });
 
 test.todo(

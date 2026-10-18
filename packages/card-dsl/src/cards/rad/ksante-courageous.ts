@@ -63,7 +63,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处未合入依赖：(1) [Accelerate] 展开（805.1.b 的附加费 [1][Body] 与 805.6 入场就绪替代）虽已写在 " +
+    "三处当前缺口：(1) [Accelerate] 展开（805.1.b 的附加费 [1][Body] 与 805.6 入场就绪替代）虽已写在 " +
     "effects/keywords/Accelerate.ts，但 accelerate.cost 静态效果绑定即抛 “Static ability kind accelerate.cost has no layer mapping”" +
     "（programs/statics.ts 的 layerFor），programs/play.ts 也只从 CostPlanInput 读 optionalAdditional，没有卡牌侧生产方" +
     "把该静态费用声明接入打出 Finalize；805.6 的入场就绪替代本体可绑定（golden 有执行证据）。" +

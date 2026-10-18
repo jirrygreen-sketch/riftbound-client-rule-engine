@@ -23,22 +23,24 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   限定每个 battlefield 每回合只能 Score 一次，473.2.b 是该次 Scoring 的 Hold 触发口径。
  *   因此减费量是本回合 Hold 得分次数（点数）的函数：每 1 点减 2 Energy 与 1 Calm Power。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
+ * status 判定（cards/README.md 第 2 节）：judge-required（实测复核 2026-10-17）。
  * - [Shield 5] 的展开已合入（effects/keywords/Shield.ts），但其 static continuous.might 的
  *   条件读 "designation"：对象快照只有 combatRole（effects/contract.ts），
- *   layers/engine.ts 的 conditionMatches 也不求值 compare 条件，因此该 +5 Might
- *   恒不生效（实测绑定后 Might 保持 4）。
+ *   默认求值器对 designation 报 Unavailable characteristic，layers/engine.ts 的
+ *   conditionMatches 也不求值 compare 条件（effects/interpreter/expr-ext 的
+ *   designation 求值器尚未接入默认 dispatch/图层），因此该 +5 Might 恒不生效
+ *   （实测 combatRole 为 defender 时
+ *   Might 仍保持印刷值 4）。
  * - [Tank] 的 KeywordDef 已合入，programs/statics.ts 也能把它登记进 ability 图层，
  *   但 continuous.combat 没有图层分支（layers/ops/index.ts 记为 persisted-only），
  *   combat/base-combat-allocation.ts 只接受 keywordPriority: "proven-none"，
  *   815.1.c.1/.c.2 因此无法执行。
  * - 减费需要两件未合入的支撑：(1) 把卡牌 static 减费效果接进 Finalize 费用计划的消费者
  *   （programs/statics.ts 的 layerFor 对 continuous.cost-modification 抛
- *   ProgramBindingError；cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts
- *   时应用折扣，接不到卡声明）；(2) 「本回合 Hold 得分的点数」这一历史计数：
- *   冻结的 Expr 词汇只按对象集合求值，layers/engine.ts 的 valueOf 无 count 分支
- *   （constant/object-property/object-ref/add-subtract-multiply 之外一律原样返回），
- *   而 HistoryQuery 只经 condition.history 指令使用，静态费用效果引用不到它。
+ *   ProgramBindingError；cost/discounts/collect.ts 只能消费调用方传入的静态绑定）；(2)
+ *   「本回合 Hold 得分的点数」这一历史计数：费用求值器只提供对象集合和已 Finalize 的打牌历史，
+ *   没有 Hold/Score 点数历史；当前 per: "point-scored-from-holding-this-turn" 也没有可执行的
+ *   CostPlan 表达式。不能把它近似成固定减费。
  * 不近似实现（不把 Tank 写成数值修正，不把减费写成固定 2 点，也不把「每点」近似为常数）。
  */
 const abilities: Ability[] = [
@@ -64,7 +66,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处当前缺口：(1)[Shield 5] 的展开（effects/keywords/Shield.ts 的 static continuous.might，814.1.c）已合入，" +
+    "实测（2026-10-17）三处当前缺口：(1)[Shield 5] 的展开（effects/keywords/Shield.ts 的 static continuous.might，814.1.c）已合入，" +
     "但条件读 \"designation\"（814.1.d/814.1.d.1），对象快照只有 combatRole，" +
     "且 layers/engine.ts 的 conditionMatches 不求值 compare，绑定后 Might 恒不增加。" +
     "(2)[Tank] 的 KeywordDef 已合入且 static 绑定能登记 continuous.combat，" +
@@ -73,10 +75,10 @@ const program = {
     "815.1.c.1/.c.2 无法执行。" +
     "(3)「I cost :rb_energy_2::rb_rune_calm: less for each point you scored from holding this turn」需要：" +
     "把卡牌 static 减费效果接进 Finalize 费用计划的消费者（programs/statics.ts 的 layerFor 对 " +
-    "continuous.cost-modification 抛 ProgramBindingError；cost/cost-plan.ts 只在调用方显式传入 " +
-    "CostPlanInput.discounts 时应用折扣）；以及「本回合 Hold 得分的点数」这一历史计数——" +
-    "冻结的 Expr 词汇只按对象集合求值，layers/engine.ts 的 valueOf 无 count 分支，" +
-    "读不到本回合 score/hold 的事件次数（HistoryQuery 只经 condition.history 指令使用，静态费用效果引用不到）。" +
+    "continuous.cost-modification 抛 ProgramBindingError；cost/discounts/collect.ts 只能消费调用方显式 " +
+    "传入的静态绑定）；以及「本回合 Hold 得分的点数」这一历史计数——费用求值器只提供对象集合和已 " +
+    "Finalize 的打牌历史，没有 Hold/Score 点数历史，当前 per: \"point-scored-from-holding-this-turn\" " +
+    "也没有可执行的 CostPlan 表达式。" +
     "不近似实现。",
   abilities,
   sourceText:

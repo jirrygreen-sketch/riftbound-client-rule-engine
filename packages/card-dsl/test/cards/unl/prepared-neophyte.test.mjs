@@ -1,3 +1,8 @@
+// RIFT-668 partial execution / boundaries: ../templates/static-668.test.mjs.
+// Published status stays judge-required; existing component coverage is retained below.
+// Scenario execution evidence: ../templates/static-644.test.mjs (one parameterized row per card).
+// This card stays judge-required; the template row pins the over-applied +4 (object count, not
+// spent Energy) through the production static binder.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -28,8 +33,10 @@ test("unl-004-219 Prepared Neophyte: identity, status, judgeReason and verbatim 
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /HistoryQuery/);
-  // The reason names the missing payment amount and conditional-layer reads.
-  assert.match(program.judgeReason, /conditionMatches/);
+  // The reason names the missing payment-amount reader and the merged binder
+  // that evaluates the declared compare as an object count.
+  assert.match(program.judgeReason, /evaluateCondition|interpreter\/expr\.ts/);
+  assert.match(program.judgeReason, /count/);
   assert.doesNotMatch(program.judgeReason, /RIFT-\d+|没有 continuous\.might 的文件|无调用方/);
 });
 

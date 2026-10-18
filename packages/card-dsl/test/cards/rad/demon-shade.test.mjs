@@ -8,6 +8,14 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { evaluateExpression } from "../../../../engine-core/dist/effects/interpreter/expr.js";
+import { queryLocationCandidates } from "../../../../engine-core/dist/target/location/candidates.js";
+import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
+import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 
 const CANONICAL = "card.hash-c4b9b8b1ea96f69164e5303d652fe97e69e6f81ce7b8f455b1a108203dd67a45";
 const SOURCE_TEXT =
@@ -194,4 +202,110 @@ test("Demon Shade: the [Ganking] grant really registers an ability-layer keyword
   // 317.2.c: the this-turn grant expires at the turn-end timing.
   engine.expireAt("turn-end", "A");
   assert.deepEqual(engine.evaluate(kernel.ref("friendly")).keywords, []);
+});
+
+// --- 2026-10-18 re-sweep: measured gaps for the mode choice, the open set and the movement licence ---
+test("Demon Shade re-sweep: the production play draft is refused before Finalize because choice.mode has no plan adapter", () => {
+  // programs/play.ts validateSurface rejects choice.mode outright, and
+  // chain/engine.ts assertFinalizationSurface repeats the block at Finalize. The
+  // card therefore never reaches a resolvable chain item, whatever the
+  // destination or grant arguments say.
+  assert.equal(mode.op, "choice.mode");
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const kernel = world()
+    .unit("spell", {
+      cardId: program.canonicalCardId,
+      zone: "chain",
+      types: ["spell"],
+      controller: "A",
+      owner: "A",
+      energy: 3,
+      power: ["Fury"]
+    })
+    .build();
+  assert.throws(
+    () => binding.describePlay({ type: "play", player: "A", object: kernel.ref("spell") }, kernel.getObject("spell")),
+    /Mode choices require a Finalize\/Resolve choice-plan adapter/
+  );
+});
+
+test("Demon Shade re-sweep: the count expression cannot express the 170.11.c open set", () => {
+  // RIFT-359 shipped condition predicates, but none of them tests set
+  // emptiness. A count query is available, yet its filter goes through
+  // matchesObjectFilter, which ignores unknown keys — so open/occupied/
+  // controlled all match every object and the count is identical for an
+  // occupied and an empty battlefield.
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .base("bf-open", { types: ["battlefield"], zone: "board", controller: "A" })
+    .base("bf-taken", { types: ["battlefield"], zone: "board", owner: "B", controller: "B" })
+    .unit("occupant", { zone: "board", owner: "B", controller: "B", location: { type: "battlefield", id: "bf-taken" } })
+    .unit("mover", { zone: "board", controller: "A", location: { type: "base", player: "A" } })
+    .build();
+  const source = kernel.getObject("mover");
+  const environment = {
+    context: bindResolveContext(kernel, { source, controller: "A" }),
+    host: source.ref,
+    linked: () => undefined,
+    canLookBack: () => true,
+    isIgnored: () => false
+  };
+  const count = filter => evaluateExpression({ kind: "count", subject: "battlefield", filter }, environment);
+  assert.equal(count({ type: "battlefield" }), 2);
+  // The predicate keys are silently ignored, so every spelling counts the same
+  // set — the reason the "no open battlefields" guard cannot be authored.
+  assert.equal(count({ type: "battlefield", occupied: false, controlled: false }), 2);
+  assert.equal(count({ type: "battlefield", open: true }), 2);
+  // A real context only knows the battlefields that some object stands on, so
+  // an unoccupied battlefield is absent from the candidate set entirely.
+  assert.deepEqual(
+    queryLocationCandidates(environment.context, { type: "battlefield", occupied: false, controlled: false }),
+    []
+  );
+});
+
+test("Demon Shade re-sweep: the merged re-expansion turns the granted Ganking into a real movement permission, but is not the production engine", () => {
+  // RIFT-710's KeywordGrantLayerEngine expands the granted Ganking and
+  // layers/rules/query movement() then reports the battlefield-to-battlefield
+  // route. LayerEngine proper only rewrites the keyword list, and ChainEngine
+  // constructs that plain engine.
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .unit("hero", { zone: "board", controller: "A", might: 2 })
+    .unit("src", { zone: "board", controller: "A" })
+    .build();
+  kernel.setTargets("demon-shade.granted-unit", [kernel.ref("hero")]);
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("src") });
+  const outcome = runAbilityBody([{ ...grantInstruction, targets: undefined }], scoped);
+  assert.equal(outcome.status, "executed");
+
+  const entries = scoped.continuousEffects.map(entry => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 }));
+  const plain = createLayerEngine(scoped.objects, entries);
+  assert.deepEqual(plain.evaluate(kernel.ref("hero")).keywords.map(keyword => keyword.id), ["Ganking"]);
+  assert.equal(movement(new ContinuousEffectRegistry(), kernel.ref("hero"), plain.evaluate(kernel.ref("hero")), "A").canGank, false);
+
+  const context = source => bindResolveContext(scoped, { source, controller: source.controller });
+  const layers = new KeywordGrantLayerEngine(scoped.objects, { context });
+  for (const entry of scoped.continuousEffects) layers.addContinuous(entry.effect, entry.duration);
+  const granted = layers.evaluate(kernel.ref("hero"));
+  assert.deepEqual(granted.keywords.map(keyword => keyword.id), ["Ganking"]);
+  assert.equal(movement(layers.registry, kernel.ref("hero"), granted, "A").canGank, true);
+
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host: createActionPipelineHost({
+      checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+      restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+      objects: () => kernel.objects,
+      perform: action => kernel.perform(action),
+      choose: request => kernel.choose(request),
+      context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+    }),
+    cleanup: () => false
+  });
+  assert.equal(engine.layers.constructor.name, "LayerEngine");
 });

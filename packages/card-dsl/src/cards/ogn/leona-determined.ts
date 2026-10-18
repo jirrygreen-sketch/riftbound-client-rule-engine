@@ -20,23 +20,33 @@ import type { CardProgram } from "../../ir/index.js";
  * - 424.1 / 424.1.a / 424.1.a.1 / 424.1.b / 424.1.c：Stun 是效果型受限动作；已 Stunned 的
  *   单位不能被再次 Stun；Stunned 单位在战斗伤害步骤不贡献 Might（即不造成战斗伤害）。
  *
- * status: judge-required —— [Shield] 的展开、continuous.might 图层注册和卡牌 static 生命周期
- * 已合入，golden 已覆盖 +1 Might 的注册路径；但 Shield 展开的 condition 读取
- * designation === "defender"，而当前 ObjectSnapshot 只有 combatRole，条件会缺少可读的
- * Defender 特征。另一个生产接线缺口是攻击效果的 TargetSpec 使用 sameLocationAs: "source"，
- * programs/filters.ts 尚不接受该字段，故同地点约束不能按声明绑定。
- * "When I attack, stun an enemy unit here" 的 effect.stun 本体已在解释器中真实执行。
+ * status: judge-required（2026-10-17 复核）—— 两处已实测缺口：
+ * 1. [Shield] 的 KeywordDef 展开、continuous.might 图层注册与 static 生命周期已合入，
+ *    但展开条件读 designation === "defender"，默认求值（expr.ts）只查 ObjectSnapshot 自身字段，
+ *    对 designation 抛 MissingInformation、statics 包装吞成 false；实测 combatRole="defender" 时
+ *    might 仍为印刷值。RIFT-711 的 expr-ext/evaluate.ts 已支持该映射，但没有接进
+ *    expr.ts / layers/engine.ts / programs/statics.ts。
+ * 2. 攻击效果的 TargetSpec 用 sameLocationAs: "source"，programs/filters.ts 的
+ *    translateObjectFilter 允许字段集合不含该锚点，translateInstructionTargets 实测抛
+ *    "Unsupported filter field sameLocationAs"，整条触发注册失败。
+ * "When I attack, stun an enemy unit here" 的 effect.stun 本体与解释器侧同地点查询
+ * （effects/interpreter/selectors.ts 的 sameLocationAs 锚点）已在解释器中真实执行。
  */
 const leonaDetermined = {
   canonicalCardId: "card.hash-5cbcf053019f85d2ed95e9f9710c31e3286d72d0e93b515699b5b03dc6f9d0e4",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Shield]（814.1.c，未写数值按 814.1.b.3 = 1）的 KeywordDef 与 continuous.might 图层注册已合入，" +
-    "但展开条件读取 designation === \"defender\"，当前 ObjectSnapshot 只提供 combatRole，缺少可执行的 Defender 特征映射；" +
-    "同一攻击触发中的 TargetSpec 还使用 sameLocationAs: \"source\"，而 programs/filters.ts 的生产翻译器拒绝该字段，" +
-    "所以“here”约束不能按声明绑定。attack-declared、effect.stun 及解释器侧同地点查询已有真实执行证据。" +
-    "依赖：combatRole/designation 条件映射与 TargetSpec sameLocationAs 的生产翻译。",
+    "两处已实测的当前缺口：(1) [Shield]（814.1.c，未写数值按 814.1.b.3 = 1）的 KeywordDef 与 continuous.might " +
+    "图层注册已合入，但展开条件读取 designation === \"defender\" 没有生产派发：effects/interpreter/condition.ts → expr.ts " +
+    "只查 ObjectSnapshot 自身字段，对 property \"designation\" 抛 MissingInformation、包装层吞成 false；" +
+    "实测 combatRole=\"defender\" 时 might 仍为印刷值，+1 恒不生效。RIFT-711 的 expr-ext/evaluate.ts 已能把 " +
+    "designation/object-designation 映射到 combatRole，但 expr.ts、layers/engine.ts、programs/statics.ts 未引用它（0 处导入）。" +
+    "(2) 攻击触发的 TargetSpec 使用 sameLocationAs: \"source\"，而 programs/filters.ts 的 translateObjectFilter 允许字段集合" +
+    "不含该锚点，translateInstructionTargets 实测抛 \"Unsupported filter field sameLocationAs\"，" +
+    "所以 registerProgramTriggers 整条注册失败、“here”约束不能按声明绑定（359.3.f.1/f.2）。" +
+    "attack-declared、effect.stun 与解释器侧同地点查询（effects/interpreter/selectors.ts 的 sameLocationAs 锚点）" +
+    "已有真实执行证据。依赖：combatRole/designation 条件派发与 TargetSpec sameLocationAs 的生产翻译。",
   sourceText:
     "[Shield] (+1 :rb_might: while I'm a defender.)\n" +
     "When I attack, stun an enemy unit here. (It doesn't deal combat damage this turn.)",

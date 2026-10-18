@@ -25,11 +25,14 @@ import type { CardContextRef, KeywordDef } from "../keyword-contract.js";
 const HUNT_DEFAULT_VALUE = 1;
 const HUNT_TIMING_POINTS = ["conquer", "hold"] as const satisfies readonly TimingPointId[];
 
-function expand({ value, host }: { readonly value?: number; readonly host: CardContextRef }): readonly Ability[] {
+function expand({ value, host, params }: Parameters<KeywordDef["expand"]>[0]): readonly Ability[] {
   const huntValue = value ?? HUNT_DEFAULT_VALUE;
+  const instanceId = typeof params?.instanceId === "string" ? params.instanceId : undefined;
   return HUNT_TIMING_POINTS.map((timingPoint): Ability => {
     const instruction: Instruction = {
-      id: `hunt:${host.canonicalCardId}:${timingPoint}:xp`,
+      id: instanceId === undefined
+        ? `hunt:${host.canonicalCardId}:${timingPoint}:xp`
+        : `hunt:${host.canonicalCardId}:${instanceId}:${timingPoint}:xp`,
       op: "effect.xp",
       args: { amount: { kind: "constant", value: huntValue } }
     };

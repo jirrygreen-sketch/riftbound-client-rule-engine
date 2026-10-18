@@ -1,14 +1,18 @@
+// Template execution evidence: ../templates/play-effect-damage-685.test.mjs.
+// This file keeps validation/identity and the key structural assertions; the
+// real-path rows live in that template suite. The card stays judge-required:
+// the mandatory return-to-hand additional cost is not bound.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/rad/parallel-convergence.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
+import { readCost } from "../../../../engine-core/dist/cost/plan-values.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { translateCost } from "../../../../engine-core/dist/programs/play.js";
-import { translateObjectFilter, translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
-import { readCost } from "../../../../engine-core/dist/cost/plan-values.js";
 
 const CANONICAL = "card.hash-84ee715c26888cfa3850f44083e64823f41b5db0dc23a4f0511c4eb127d52175";
 const [play] = program.abilities;
@@ -31,21 +35,25 @@ test("rad-051-167 Parallel Convergence: program passes validateCardProgram with 
 });
 
 test("rad-051-167 Parallel Convergence: judgeReason names the missing return-to-hand cost kind", () => {
-  // The reason names the printed clause plus the two structural gaps.
+  // The reason names the printed clause plus the two structural gates, and
+  // points at the template row that runs the real chain.
   assert.match(program.judgeReason, /return a friendly unit to its owner's hand/);
-  assert.match(program.judgeReason, /355\.1\.a/);
-  assert.match(program.judgeReason, /356\.2\.b\.1/);
+  assert.match(program.judgeReason, /356\.2\.a\.1/);
   assert.match(program.judgeReason, /Unsupported cost kind: additional/);
   assert.match(program.judgeReason, /Additional costs are not bound/);
-  assert.match(program.judgeReason, /Structured location filters need a concrete location identity/);
+  assert.match(program.judgeReason, /TargetSpec\.location/);
+  assert.match(program.judgeReason, /play-effect-damage-685/);
   assert.equal(/RIFT-89|RIFT-261/.test(program.judgeReason), false);
   // The damage half is merged and executed; it must not be presented as a gap.
   assert.match(program.judgeReason, /effect\.damage/);
   assert.match(program.judgeReason, /真实执行证据/);
+  // The refreshed reason records that the battlefield restriction is no longer
+  // a gap (the production translator keeps the location selector).
+  assert.match(program.judgeReason, /目标翻译不再是缺口/);
 });
 
-test("rad-051-167 Parallel Convergence: the program's cost never reaches the plan (355.1.a / 356.2.b.1)", () => {
-  // 356.2.b.1 mandatory additional costs belong in the Finalize plan, but the
+test("rad-051-167 Parallel Convergence: the program's cost never reaches the plan (356.2.a.1)", () => {
+  // 356.2.a.1 mandatory additional costs belong in the Finalize plan, but the
   // production adapter refuses the whole authored CostSpec before that: the
   // card data's cost kind "additional" is not a kind it can bind. This is the
   // first of the two recorded gates.
@@ -55,8 +63,8 @@ test("rad-051-167 Parallel Convergence: the program's cost never reaches the pla
   );
 
   // Second gate: even a hand-built plan cannot post this cost, because
-  // readCost rejects both the kind and the payment kind; the frozen GameAction
-  // set has no return-to-hand action either.
+  // readCost rejects both the kind and the payment kind; NonstandardCostAction
+  // excludes the existing return-to-hand GameAction.
   const kernel = world().unit("ally", { might: 2 }).build();
   assert.throws(
     () => readCost(kernel, { kind: "additional", energy: { kind: "constant", value: 2 }, power: { kind: "constant", value: 1 } }, { id: "x" }, "cost"),
@@ -76,25 +84,34 @@ test("rad-051-167 Parallel Convergence: the program's cost never reaches the pla
   );
 });
 
-test("rad-051-167 Parallel Convergence: the battlefield target filter cannot bind in the production translator", () => {
-  // The damage half executes (below), but its "at a battlefield" restriction is
-  // a structured location filter: programs/filters.ts needs a concrete
-  // battlefield identity, so the Finalize target plan cannot be built from the
-  // authored spec even though the instruction itself is merged.
-  assert.deepEqual(targetSpec.filter, { type: "unit", location: { type: "battlefield" } });
-  assert.throws(
-    () => translateObjectFilter(targetSpec.filter),
-    error => error.code === "judge-required" &&
-      /Structured location filters need a concrete location identity/.test(error.message)
+test("rad-051-167 Parallel Convergence: battlefield restriction survives production target translation", () => {
+  const [translated] = translateInstructionTargets(play.body);
+  assert.deepEqual(translated.targets, [{
+    id: "unit-at-battlefield",
+    filter: { type: "unit", zone: "board" },
+    location: { type: "battlefield" },
+    min: 1,
+    max: 1,
+    selection: "one"
+  }]);
+});
+
+test("rad-051-167 Parallel Convergence: the body really evaluates the locked battlefield target through the merged primitive", () => {
+  // The damage half is production-reachable with the card's own amount and
+  // TargetSpec; the remaining gap is the additional cost only, so the reason
+  // must not present the targeting restriction as a blocker.
+  const kernel = world()
+    .unit("convergence", { types: ["spell"], zone: "chain" })
+    .unit("at-battlefield", { owner: "B", location: { type: "battlefield", id: "bf-1" }, might: 8 })
+    .build();
+  const run = runInstruction(
+    damage,
+    { amount: dealInstruction.args.amount, target: targetSpec.id },
+    { world: kernel, targets: { [targetSpec.id]: [kernel.ref("at-battlefield")] } }
   );
-  assert.throws(
-    () => translateInstructionTargets(play.body),
-    error => error.code === "judge-required" &&
-      /Structured location filters need a concrete location identity/.test(error.message)
-  );
-  // The interpreter-side location vocabulary does understand battlefield
-  // locations; the gap is the production filter translation.
-  assert.equal(typeof translateInstructionTargets, "function");
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.dealt, 5);
+  assert.equal(kernel.getObject("at-battlefield").damage, 5);
 });
 
 test("rad-051-167 Parallel Convergence: structure — printed cost plus the mandatory additional cost", () => {
@@ -134,32 +151,16 @@ test("rad-051-167 Parallel Convergence: structure — one damage instruction tar
   // location ("at a battlefield" is a targeting restriction, 355.10.b).
   assert.equal(dealInstruction.targets.length, 1);
   assert.equal(targetSpec.id, "unit-at-battlefield");
-  assert.deepEqual(targetSpec.filter, { type: "unit", location: { type: "battlefield" } });
+  assert.deepEqual(targetSpec.filter, { type: "unit", zone: "board" });
+  assert.deepEqual(targetSpec.location, { type: "battlefield" });
   assert.equal(targetSpec.min, 1);
   assert.equal(targetSpec.max, 1);
   assert.equal(targetSpec.selection, "one");
 });
 
-test("rad-051-167 Parallel Convergence: the damage half deals 5 to the locked battlefield unit", () => {
-  const kernel = world()
-    .unit("battlefield-unit")
-    .base("base-unit")
-    .build();
-  const run = runInstruction(
-    damage,
-    { amount: dealInstruction.args.amount, target: targetSpec.id },
-    { world: kernel, targets: { [targetSpec.id]: [kernel.ref("battlefield-unit")] } }
-  );
-
-  assert.equal(run.result.status, "executed");
-  assert.equal(kernel.getObject("battlefield-unit").damage, 5);
-  assert.equal(kernel.getObject("base-unit").damage, 0);
-  assert.deepEqual(run.events.map(event => event.action), ["damage"]);
-  assert.equal(run.result.linkedValues.dealt, 5);
-  assert.equal(run.result.linkedValues.dealtCount, 1);
-});
-
 test("rad-051-167 Parallel Convergence: a stale battlefield target is ignored, not redirected (359.3.e)", () => {
+  // Card-specific boundary kept here: the scenario harness cannot invalidate a
+  // locked target between Finalize and Resolve.
   const kernel = world().unit("battlefield-unit").unit("other-unit").build();
   const stale = kernel.ref("battlefield-unit");
   kernel.perform({ type: "move-zone", object: stale, to: "hand" });
@@ -177,6 +178,5 @@ test("rad-051-167 Parallel Convergence: a stale battlefield target is ignored, n
 test.todo(
   "rad-051-167 Parallel Convergence: collecting the mandatory additional cost 'return a friendly " +
     "unit to its owner's hand' during Finalize needs a return-to-hand cost payment kind and the " +
-    "mandatory-additional stage in the cost plan (cost/plan-values.ts readCost accepts only " +
-    "exhaust/discard/recycle/kill/reveal/spend-buff and rejects kind additional)."
+    "mandatory-additional stage in the cost plan."
 );

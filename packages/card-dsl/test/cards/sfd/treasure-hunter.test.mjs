@@ -4,6 +4,10 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/treasure-hunter.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CANONICAL = "card.hash-391b4e14a6ac07093188b967dee259bef4f8692e3d1e87e6bb28cf249f3e788a";
 const SOURCE_TEXT = "When I move, play a Gold gear token exhausted.";
@@ -30,6 +34,12 @@ test("sfd-130-221 Treasure Hunter: judgeReason names the current token gaps", ()
   assert.match(program.judgeReason, /143\.4/);
   assert.match(program.judgeReason, /LocationExpr/);
   assert.match(program.judgeReason, /ability-controller-base/);
+  // 2026-10-18 re-sweep: the trigger-side blocker and the token-side syntax gap
+  // are both named with their measured errors.
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /invalid-event-type/);
+  assert.match(program.judgeReason, /token-definition-or-abilities-judge-required/);
+  assert.match(program.judgeReason, /Invalid effect\.token argument/);
 });
 
 test("sfd-130-221 Treasure Hunter: 'when I move' subscribes to object-moved scoped to this unit", () => {
@@ -67,3 +77,49 @@ test.todo(
     "(184.1 / 185.2.d); effect.token also needs to consume the contract LocationExpr " +
     "ability-controller-base as a runtime LocationRef."
 );
+
+// Live evidence for the refreshed reason: the declared trigger cannot register,
+// the declared token arguments fail the frozen schema, and the Gold definition
+// itself is absent from the merged token table.
+test("sfd-130-221 Treasure Hunter: the object-moved trigger cannot register (EventPattern vocabulary)", () => {
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const { engine, kernel } = fixture({ cards: [{ id: "hunter", cardId: CANONICAL, types: ["unit"], might: 1 }] });
+  engine.commit({ type: "move-zone", object: kernel.ref("hunter"), to: "battlefield", location: { type: "battlefield", id: "bf-1" } });
+  assert.throws(
+    () => binding.registerProgramTriggers(engine, kernel.getObject("hunter")),
+    (error) => {
+      assert.equal(error.name, "TriggerSpecValidationError");
+      assert.deepEqual([...new Set(error.issues.map((issue) => issue.code))], ["invalid-event-type"]);
+      assert.equal(error.issues[0].path, "trigger.filter.event");
+      return true;
+    }
+  );
+  assert.equal(engine.pipeline.checkpoint().triggers.size, 0);
+});
+
+test("sfd-130-221 Treasure Hunter: the printed token arguments are not accepted by effect.token", () => {
+  for (const key of ["location", "entersExhausted"]) {
+    assert.throws(
+      () => token.argsSchema.parse({ token: instruction.args.token, [key]: instruction.args[key] }),
+      new RegExp(`Invalid effect\\.token argument: ${key}`)
+    );
+  }
+  // A schema-legal spelling reaches the frozen definition table and records the
+  // missing Gold definition instead of inventing one.
+  const kernel = world().player("A", { energy: 5 }).unit("hunter", { might: 1, location: { type: "base", player: "A" } }).build();
+  const run = runInstruction(
+    token,
+    {
+      token: instruction.args.token,
+      amount: instruction.args.amount,
+      mode: instruction.args.mode,
+      location: { kind: "constant", value: { type: "base", player: "A" } },
+      linkKey: instruction.args.linkKey
+    },
+    { world: kernel }
+  );
+  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(run.linked.goldToken.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.equal(run.linked.goldToken.amount, 0);
+});

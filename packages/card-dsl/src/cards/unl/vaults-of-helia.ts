@@ -19,8 +19,8 @@ import type { CardProgram } from "../../ir/index.js";
  * - “this turn” 是本回合期限：由时点驱动的到期（契约 3.5），起于 hold 结算、止于
  *   回合结束。
  *
- * status = judge-required（逐个记录缺口，复核 2026-10-17；不近似实现）：
- * 1. cost.modify 原语与 CostPlan 的 increase 阶段已合入，但仍缺把该触发效果安装到
+ * status = judge-required（逐个记录缺口，复核 2026-10-18；不近似实现）：
+ * 1. continuous.cost-modification 原语与 CostPlan 的 increase 阶段已合入，但仍缺把该触发效果安装到
  *    “本回合稍后打出”的 CardProgram→CostPlan 路径；
  *    cost/buildCostPlan 虽接受 increases（356.3 阶段）且 golden 证明算术成立，但只作用于
  *    调用方提供的单次计划，没有任何已合入路径把 CardProgram 的 static 能力放进后续打出的
@@ -30,20 +30,20 @@ import type { CardProgram } from "../../ir/index.js";
  *    复核实测 registerProgramTriggers 对整卡 fail-closed。
  * 3. 本回合期限需要与时点绑定：layers 的 Duration 有 end-of-turn，但没有“hold 之后到回合结束”
  *    这条由触发开启的费用期限的已合入接线。
- * 依赖：CardProgram→CostPlan 的静态加费接线（RIFT-261）、RIFT-31/RIFT-33 的 here 载荷。
+ * 依赖：CardProgram→CostPlan 的静态加费接线，以及 hold 事件的 here 载荷。
  */
 export default {
   canonicalCardId: "card.hash-0b929c2c78280ff14e852a6d803fa3e55251591cfc73088ec115c83af1360d7e",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) cost.modify 原语与 cost/buildCostPlan 的 356.3 increases 阶段已合入，" +
+    "三处缺口，均不近似实现（2026-10-18 实测）：(1) continuous.cost-modification 原语与 cost/buildCostPlan 的 356.3 increases 阶段已合入，" +
     "但没有任何路径把本触发能力安装进本回合后续打出的 CostPlanInput.increases，" +
     "该生产接线仍缺。" +
-    "(2) 触发侧：hold 时点（383.4.d、315.2.b.2、471.2、473.2.b）现已由 turn/flow.ts 的 Score wave 发出，但没有已合入订阅方把卡牌程序的 triggered ability 注册成触发" +
-    "但 programs/filters.ts 以 \"Unsupported filter field here\" 拒绝 here: true（053.3 的占位）；复核实测 registerProgramTriggers 对整卡 fail-closed。" +
+    "(2) 触发侧：hold 时点（383.4.d、315.2.b.2、471.2、473.2.b）现已由 turn/flow.ts 的 Score wave 发出，事件模式应使用已合入的 \"held\" 拼写映射到 hold；" +
+    "但 programs/filters.ts 仍以 \"Unsupported filter field here\" 拒绝 here: true（053.3 的占位），复核实测 registerProgramTriggers 对整卡 fail-closed。" +
     "(3) 「this turn」需要由触发开启、回合结束到期的费用期限：layers 的 Duration 可表达 end-of-turn，但没有 hold 触发开启该期限的已合入接线。" +
-    "程序保留 non-token 单位的过滤形状（185.1.a 的 token 性质、356.7 的付款玩家）；依赖 CardProgram→CostPlan 的静态加费接线（RIFT-261）与 RIFT-31/RIFT-33 的 here 载荷。不近似实现。",
+    "程序保留 non-token 单位的过滤形状（185.1.a 的 token 性质、356.7 的付款玩家）；依赖 CardProgram→CostPlan 的静态加费接线，以及 hold 事件的 here 载荷。不近似实现。",
   sourceText: "When you hold here, your non-token units cost :rb_energy_1: more to play this turn.",
   abilities: [
     {
@@ -52,16 +52,18 @@ export default {
         at: "hold",
         // “here” 是本战场、“you” 是战场控制者（053.3、190.6.d）；here 占位键等待
         // scoring 载荷（见 judgeReason 第 2 点）。
-        filter: { event: "hold", here: true, player: "controller" }
+        // The trigger contract accepts the event-pattern spelling "held" and
+        // maps it to the hold timing point; `here` remains unavailable.
+        filter: { event: "held", here: true, player: "controller" }
       },
       // 原文没有 “may”，是强制触发；加费本身由费用计划在打出时施加。
       optional: false,
       body: [
         {
           id: "vaults-of-helia.increase-unit-cost",
-          // 356.3 / 356.4：这是费用增加阶段的声明（不是结算期的资源动作）；
-          // cost.modify 原语已合入；CardProgram→CostPlan 的安装仍是 judgeReason 第 1 点。
-          op: "cost.modify",
+          // 356.3：持续费用改写由已合入的 primitive 注册为 arithmetic-layer
+          // effect，供本回合稍后 Finalize 收集；它不是结算期的资源动作。
+          op: "continuous.cost-modification",
           args: {
             resource: { kind: "constant", value: "energy" },
             amount: { kind: "constant", value: 1 },

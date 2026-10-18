@@ -6,6 +6,7 @@ import program from "../../../dist/cards/unl/scryers-bloom.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", ENGINE));
+const { finalizeOrderedPickPlans } = await import(new URL("chain/picks/plan.js", ENGINE));
 const { buildCostPlan } = await import(new URL("cost/cost-plan.js", ENGINE));
 const { payCostPlan } = await import(new URL("cost/payment.js", ENGINE));
 const { world } = await import(new URL("effects/testing/index.js", ENGINE));
@@ -36,19 +37,17 @@ test("unl-136-219 Scryer's Bloom: program passes validateCardProgram", () => {
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
 });
 
-test("unl-136-219 Scryer's Bloom: identity, ruleset, status, judgeReason and verbatim sourceText", () => {
+test("unl-136-219 Scryer's Bloom: identity, ruleset, status and verbatim sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
+  // RIFT-358 landed the ordered zone-slice lifecycle: the remaining cited gap
+  // ("programs/ 与 chain/ 没有从真实牌库 zoneSlice 自动提供这组 top-2 picks 的路径")
+  // is closed, so the program is executable and carries no judgeReason.
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
-  assert.match(program.judgeReason, /replacement\.enter/);
-  assert.match(program.judgeReason, /149\.1/);
-  assert.match(program.judgeReason, /zoneSlice/);
-  assert.match(program.judgeReason, /effect\.inspect/);
-  assert.match(program.judgeReason, /RIFT-358/);
-  assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
 test("unl-136-219 Scryer's Bloom: 'This enters exhausted' is an entry-state rewrite, not an exhaust action", () => {
@@ -103,10 +102,19 @@ test("unl-136-219 Scryer's Bloom: Predict 2 orders only the inspected cards that
   assert.deepEqual(look.args.player, {
     kind: "linked-value", instructionId: viewer.id, key: "value"
   });
-  // 437.1.a: the ordered top-2 source is supplied upstream under this stable id.
+  // 437.1.a / contract 3.6: the ordered top-2 source is the card's own explicit
+  // zone slice, locked by the merged chain Finalize (RIFT-358).
   assert.deepEqual(look.args.picksSpecId, {
     kind: "constant",
     value: "scryers-bloom.predict-top-2"
+  });
+  const [topTwoPick] = look.picks;
+  assert.deepEqual(topTwoPick, {
+    id: "scryers-bloom.predict-top-2",
+    options: [],
+    ordered: true,
+    selection: "all",
+    zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 2 } }
   });
   assert.equal(look.linkedTo, undefined);
 
@@ -314,6 +322,84 @@ test("unl-136-219 Scryer's Bloom golden: recycling the only inspected card leave
   assert.deepEqual(kernel.events.map(event => event.action), ["look", "recycle"]);
 });
 
-test.todo(
-  "unl-136-219 Scryer's Bloom: bind ordered top-2 picks from the real Main Deck zoneSlice to Predict (CR 437.1.a/437.4; RIFT-358); viewer binding and entry replacement already have execution evidence"
-);
+test("unl-136-219 Scryer's Bloom golden: the production chain Finalize locks the real Main Deck top 2 for Predict (RIFT-358)", () => {
+  // 437.1.a / contract 3.6: chain/picks/plan.ts is the sole ordering authority.
+  // The card's own zoneSlice declaration is locked against the real Main Deck,
+  // not an unordered query and not a hand-provided pick set.
+  const kernel = bloomWorld(["top", "second", "third"]);
+  const context = bindResolveContext(kernel, {
+    source: kernel.getObject("scryers-bloom"),
+    controller: "A"
+  });
+  const plans = finalizeOrderedPickPlans(context, activated.body);
+
+  assert.equal(plans.length, 1);
+  const [plan] = plans;
+  assert.equal(plan.id, "scryers-bloom.predict-top-2");
+  // The locked slice is the real top two of the Main Deck, in zone order.
+  assert.deepEqual(plan.refs.map(ref => ref.id), ["top", "second"]);
+  assert.deepEqual(plan.refs, kernel.zoneSlice("A", "deck", "top", 2).map(entry => entry.ref));
+
+  // The locked references are what Resolve reads back through ctx.picks: run
+  // the whole printed body against them and assert the real zone churn.
+  kernel.setPicks(plan.id, plan.refs);
+  kernel.setAnswers({ [SELECT_ID]: [plan.refs[0]], [PUT_BACK_ORDER_ID]: [plan.refs[1]] });
+  const outcome = resolveChainBody(activated.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.linkedValues["scryers-bloom.predict-look.inspected"], 2);
+  assert.equal(outcome.linkedValues["scryers-bloom.predict-recycle.recycledCount"], 1);
+  assert.deepEqual(kernel.events.map(event => event.action), ["look", "recycle", "order-top", "draw", "gain-xp"]);
+  // The recycled card went to the bottom of its owner's Main Deck (417.1.a /
+  // 417.1.b); the other looked-at card was put back on top (437.1.a) and then
+  // drawn by the independent "then draw 1" sentence (414.3).
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["third", "top"]);
+  assert.equal(kernel.getObject("second").zone, "hand");
+  assert.equal(kernel.player("A").xp, 1);
+});
+
+test("unl-136-219 Scryer's Bloom golden: a short Main Deck locks the available slice and Predict does as much as possible (437.4)", () => {
+  const kernel = bloomWorld(["only-card"]);
+  const context = bindResolveContext(kernel, {
+    source: kernel.getObject("scryers-bloom"),
+    controller: "A"
+  });
+  const [plan] = finalizeOrderedPickPlans(context, activated.body);
+
+  // 437.4.a: an undersized deck does not Burn Out; the slice holds what exists.
+  assert.deepEqual(plan.refs.map(ref => ref.id), ["only-card"]);
+  kernel.setPicks(plan.id, plan.refs);
+  kernel.setAnswers({ [SELECT_ID]: [], [PUT_BACK_ORDER_ID]: plan.refs });
+  const outcome = resolveChainBody(activated.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.linkedValues["scryers-bloom.predict-look.inspected"], 1);
+  assert.deepEqual(kernel.events.map(event => event.action), ["look", "order-top", "draw", "gain-xp"]);
+  assert.equal(kernel.player("A").handSize, 1);
+  assert.equal(kernel.player("A").xp, 1);
+});
+
+test("unl-136-219 Scryer's Bloom golden: an empty Main Deck locks an empty slice without Burn Out", () => {
+  const kernel = bloomWorld([]);
+  const context = bindResolveContext(kernel, {
+    source: kernel.getObject("scryers-bloom"),
+    controller: "A"
+  });
+  const [plan] = finalizeOrderedPickPlans(context, activated.body);
+
+  assert.deepEqual(plan.refs, []);
+  kernel.setPicks(plan.id, plan.refs);
+  const outcome = resolveChainBody(activated.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  // 437.4 / 432.1.c: nothing was looked at, nothing was recycled or ordered;
+  // "then draw 1" is still attempted (the reference kernel records the draw
+  // action and draws 0 of the requested 1 card) and "Gain 1 XP" remains an
+  // independent sentence (414.3 / 730.1).
+  assert.equal(outcome.linkedValues["scryers-bloom.predict-look.inspected"], 0);
+  assert.equal(outcome.linkedValues["scryers-bloom.predict-recycle.recycledCount"], 0);
+  assert.equal(outcome.linkedValues["scryers-bloom.draw.drawn"], 0);
+  assert.deepEqual(kernel.events.map(event => event.action), ["draw", "gain-xp"]);
+  assert.equal(kernel.player("A").handSize, 0);
+  assert.equal(kernel.player("A").xp, 1);
+});

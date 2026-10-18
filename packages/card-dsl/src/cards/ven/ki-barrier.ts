@@ -22,32 +22,33 @@ import type { CardProgram } from "../../ir/index.js";
  * - 括号内文字是 438.5 的提示文本（"Opponents can assign it extra combat damage to kill it"
  *   说明战斗伤害仍可被分配、超出 Prevent Value 的部分照常标记），不构成第二条能力。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。三处依赖未合入，均不近似实现：
- * (1) 卡牌程序无法安装伤害预防替代：ResolveContext（契约 3.6）只有 addContinuous /
- *     registerDelayedTrigger，没有替代效果注册接口，effects/instructions 也没有
- *     replacement.prevent 原语；effects/keywords/ 下不存在任何预防展开（同型记录见
- *     ogn/unyielding-spirit、rad/firebrand-raider）。
- * (2) Prevent Value 的跟踪与消费没有实现：438.3 要求在被影响单位上保留剩余额度并按后续伤害事件递减，
- *     ObjectSnapshot 没有该字段，damage GameAction 也只有 {source, target, amount, combat}，
- *     无法表达「接下来 7 点」的部分防止与递减。
- * (3) "this turn" 的期限：契约 3.1 的 replacement 能力没有 duration 字段，
- *     需要 replacement 自身的本回合到期/清理接线，不能借用 continuous.might 的 duration。
- * 本文件保留可审查的声明形状（目标 + Prevent 语义 + 7 点 + this-turn），不写成伤害减免的近似实现。
+ * 复核（2026-10-18，逐条实测）：replacement.prevent 已注册，原语的 this-turn 数值额度可以
+ * 累计消费、部分预防，不再缺原语或基础 Prevent Value 消费。整卡仍 judge-required，当前缺口是：
+ * (1) 原语读取额外的 ResolveContext.replacement（host + pipeline），冻结契约 3.6 没有此入口；
+ *     实测把本卡原始 play body 交给 chain/interpreter-adapter.ts 的 resolveChainBody 会抛
+ *     BlockedReplacementError（replacement instruction requires ResolveContext.replacement
+ *     dependencies），ChainEngine.context 与解释器 instructionContext 都不转发该扩展。
+ * (2) 原语把 { target: "ki-barrier.unit" } 降为 objectId 过滤，未绑定 zoneEntryId；
+ *     目标离场再入场后不应继承旧预防（124/124.1）。
+ * (3) this-turn 的 active() 仅比较 pipeline.clock.turn（实测：下一次 turn-start 后不再预防，
+ *     但本回合结束到下一次 turn-start 之间的窗口里仍然在预防）；317.2.c 的 Expiration Special
+ *     Cleanup 只清 continuous 图层，尚未使预防替代在该清理步骤到期。
+ * (4) 额度当前封装在替代闭包中；战斗致死分配还需要读取剩余 Prevent Value（438.5.a）。
+ * 保留目标 + 7 点 + this-turn 的准确声明，不近似实现。
  */
 const kiBarrier = {
   canonicalCardId: "card.hash-c7314bf7e9131668bdd7205b5d3fbea9f04822a76c74bdac078317dc203fae52",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1) 卡牌程序无法安装伤害预防替代——ResolveContext（契约 3.6）只有 " +
-    "addContinuous / registerDelayedTrigger，没有替代效果注册接口，effects/instructions 也没有 " +
-    "replacement.prevent 原语（同型记录见 ogn/unyielding-spirit、rad/firebrand-raider）。" +
-    "(2) Prevent Value 的跟踪与部分递减没有实现：438.1/438.1.b.1 的 Prevent Value 7、438.2 的" +
-    "「按实际防止量减少伤害」事件与 438.3/438.3.a 的额度递减要求在被影响单位上保留剩余额度，" +
-    "ObjectSnapshot 没有该字段，冻结的 damage GameAction 也只有 {source, target, amount, combat}，" +
-    "无法表达「接下来 7 点」的部分防止。" +
-    "(3)「this turn」的期限：契约 3.1 的 replacement 能力没有 duration 字段，需要 replacement 自身的 " +
-    "本回合到期/清理接线。" +
+    "replacement.prevent 原语及 this-turn Prevent Value 的累计消费、部分预防已合入（438.1/438.2/438.3）；" +
+    "当前缺口：(1) 原语需要 ResolveContext.replacement（host + pipeline），契约 3.6 尚无此入口，" +
+    "ChainEngine.context 未提供、解释器 instructionContext 未转发；实测把本卡原始 play body 交给 " +
+    "resolveChainBody 抛 BlockedReplacementError，延迟替代（438.7）无法从卡本体安装。" +
+    "(2) 原语将目标选择器降为 objectId，未保留 zoneEntryId，缺少 124/124.1 要求的离场再入场失效。" +
+    "(3) duration:this-turn 仅比较 pipeline.clock.turn，未接入 317.2.c 的 Expiration Special Cleanup 到期：" +
+    "实测下一次 turn-start 之后不再预防，但本回合结束到下一次 turn-start 之间的窗口里仍会继续预防。" +
+    "(4) 剩余额度封装在替代闭包中，战斗致死分配没有读取 Prevent Value 的接线（438.5.a）。不近似实现。" +
     "「Choose a unit」的目标声明本身按 355.7/355.9.a.1 正确；[Reaction]（813.1/813.1.c）关键词已合入。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
@@ -57,13 +58,13 @@ const kiBarrier = {
         {
           // 438.1/438.1.b.1/438.7：结算中的法术创建延迟替代效果，被替代事件是
           // 「本回合对该单位将造成的伤害」，Prevent Value 为 7（438.3 的额度递减）。
-          // 替代注册与 Prevent Value 消费方未合入，因此声明为未注册 op（见 judgeReason）。
+          // 原语已注册并能消费额度；解释器的替代依赖接线、目标身份与清理到期仍缺（见 judgeReason）。
           id: "ki-barrier.prevent-7",
           op: "replacement.prevent",
           args: {
             amount: { kind: "constant", value: 7 },
             duration: { kind: "constant", value: "this-turn" },
-            target: { kind: "constant", value: "ki-barrier.unit" }
+            target: { kind: "constant", value: { target: "ki-barrier.unit" } }
           },
           targets: [
             {

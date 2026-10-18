@@ -10,6 +10,10 @@ import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { fixture as chainFixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -36,9 +40,14 @@ test("unl-056-219 Yuumi, Magical Cat: identity, status, judgeReason and verbatim
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /sameLocationAs\/exclude/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /translateObjectFilter/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
   assert.match(program.judgeReason, /Tank/);
   assert.match(program.judgeReason, /815\.1\.b/);
+  // The refreshed reason keeps the three measured blockers and adds the merged
+  // designation fact that the default dispatch still cannot reach.
+  assert.match(program.judgeReason, /combat-start-transaction/);
+  assert.match(program.judgeReason, /translateObjectFilter/);
 });
 
 test("unl-056-219 Yuumi, Magical Cat: 'attack or defend' becomes two triggers over the shared printed text (383.4.e.1/383.4.f.1)", () => {
@@ -206,9 +215,44 @@ test.todo(
   "unl-056-219 Yuumi, Magical Cat: combat produces the unit attack/defense designation and Pending trigger " +
     "once per combat (CR 383.4.e.2/f.2 / 466.2.c; combat-start-transaction)"
 );
+
+test("unl-056-219 Yuumi, Magical Cat gap: the production program binding rejects the printed target filter", () => {
+  // 355.9.b / 355.9.c / 359.3.f.1: "one of your other units here" needs both the
+  // sameLocationAs and exclude anchors. ChainEngine's play/trigger path goes
+  // through programs/filters.ts, whose object-filter whitelist refuses both, so
+  // this card's body cannot be bound at all even though the interpreter resolves
+  // the same anchors when a locked target is supplied (the golden above).
+  const f = chainFixture();
+  const { judgeReason: _reason, ...withoutReason } = program;
+  const binding = createProgramBinding({ cardPrograms: [{ ...withoutReason, status: "executable" }] });
+  const source = { ...f.kernel.getObject("source"), cardId: CANONICAL_ID, name: "Yuumi, Magical Cat" };
+  assert.throws(
+    () => triggerRegistrations(binding.registry, source),
+    /Unsupported filter field sameLocationAs/
+  );
+  // The trigger subscription itself binds (both triggers filter only on the
+  // source), which is why the gap is the body's target filter and not the
+  // attack/defense subscription shape.
+  for (const ability of program.abilities) {
+    const translated = translateTriggerFilter(ability.trigger.filter, "yuumi", ability.trigger.at);
+    assert.deepEqual(translated, { event: ability.trigger.at, object: { objectId: "yuumi" } });
+  }
+});
+
+test("unl-056-219 Yuumi, Magical Cat gap: the default expression dispatch cannot read the defender/attacker designation for granted keywords", () => {
+  // 801.3.a grants Tank for the turn and Tank's own expansion binds to the
+  // granted keyword; the grant itself is real (see the golden above). The layer
+  // side still cannot evaluate the designation-based gates because the default
+  // dispatch never calls effects/interpreter/expr-ext, which the Towering
+  // Combatant/Assault goldens pin the same way.
+  const [tank] = keywordDefinitionsById.get("Tank").expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(tank.effect.kind, "continuous.combat");
+  assert.equal(tank.effect.mode, "damage-assignment");
+  assert.equal(tank.effect.priority, "first");
+});
 test.todo(
   "unl-056-219 Yuumi, Magical Cat: Finalize binds sameLocationAs/exclude for the chosen other friendly unit " +
-    "here (CR 355.9 / 359.3.f.1; RIFT-359)"
+    "here (CR 355.9 / 359.3.f.1; card-program target-binding adapter)"
 );
 test.todo(
   "unl-056-219 Yuumi, Magical Cat: combat consumes the granted Tank's lethal-first damage-assignment " +

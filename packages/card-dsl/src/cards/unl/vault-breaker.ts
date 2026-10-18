@@ -21,8 +21,14 @@ import type { CardProgram } from "../../ir/index.js";
  * - continuous.grant-keyword 已合入，卡内两条授予可通过解释器注册到 ability 层并在回合结束到期；
  *   golden 覆盖该半段。
  * - 即使授予落地，Assault 的展开（keywords/Assault.ts）是“宿主是 attacker 时 +X Might”的静态
- *   图层效果，需要 ObjectSnapshot 的 attacker designation；Ganking 的展开（keywords/Ganking.ts）
- *   是 continuous.movement 许可，也没有消费方（移动系统尚未读该许可）。
+ *   图层效果，门控是 compare(object-property self "designation" eq "attacker")。designation 事实本身
+ *   已合入（ObjectSnapshot.combatRole，由 expr-ext 求值器读取），但默认条件/图层分派仍不接 expr-ext
+ *   （condition.ts 的 evaluateCondition 只走 evaluateExpression、statics.ts 把条件异常吞成 false、
+ *   layers/engine.ts 不调用 resolveLayerEffectExpressions），且战斗流程尚未授予 attacker designation。
+ * - Ganking 的展开（keywords/Ganking.ts）是 continuous.movement 许可，移动系统不读该许可：
+ *   layers/rules/query.ts 的 movement() 只认 effect.permission.routes，而展开写的是
+ *   permission: "battlefield-to-battlefield"，golden 实测 canGank/battlefieldToBattlefield 仍为 false；
+ *   combat/flow.ts 的标准移动也仍以 standard-move-transaction 阻断。
  * 本卡仍有 Assault/Ganking 消费缺口，golden 覆盖关键词授予与期限，不把授权近似成 Buff。
  */
 const vaultBreaker = {
@@ -33,8 +39,13 @@ const vaultBreaker = {
     "「Give a unit [Assault 2] and [Ganking] this turn」的 continuous.grant-keyword 原语已合入，" +
     "可真实注册同一目标的两个 ability-layer 授予并在 end-of-turn 到期（golden 覆盖）。整卡仍缺：" +
     "Assault 的展开（keywords/Assault.ts，807.1.c）" +
-    "是条件于宿主 attacker designation 的 static continuous.might，而 designation 尚未进入 ObjectSnapshot；" +
-    "Ganking 的展开（keywords/Ganking.ts，810.1.b）是 continuous.movement 移动许可，移动系统没有该许可的消费方。" +
+    "是条件于宿主 attacker designation 的 static continuous.might：designation 事实已由 ObjectSnapshot.combatRole + " +
+    "effects/interpreter/expr-ext/evaluate.ts 提供，但默认条件/图层分派仍不接 expr-ext（condition.ts 的 evaluateCondition " +
+    "只走 evaluateExpression、programs/statics.ts 把条件异常吞成 false、layers/engine.ts 不调用 resolveLayerEffectExpressions），" +
+    "且 combat/flow.ts 的战斗开始仍以 combat-start-transaction 阻断，没有为攻击单位授予 designation；" +
+    "Ganking 的展开（keywords/Ganking.ts，810.1.b）是 continuous.movement 移动许可，移动系统没有该许可的消费方" +
+    "（layers/rules/query.ts 的 movement() 只读 effect.permission.routes，展开写的是 permission: \"battlefield-to-battlefield\"，" +
+    "golden 实测 canGank 仍为 false；combat/flow.ts 的标准移动也仍以 standard-move-transaction 阻断）。" +
     "本回合期限（317.2.c）由该原语记录；不近似实现（不写成 Buff 计数，也不省略 Ganking）。",
   abilities: [
     { kind: "keyword", keyword: "action" },

@@ -25,15 +25,18 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *   属指令级替代；本程序按互斥条件写成两个分支，绝不表达成 "先 draw 1 再补 draw 1"。
  * - 424.1.b / 括注："(When I die, get the effect.)" 是 808.1.c 的提醒文本，不另写指令。
  *
- * status 判定（README 第 2 节，2026-10-17 按当前合入源码复核）：judge-required。
+ * status 判定（README 第 2 节，2026-10-18 按当前合入源码复核）：judge-required。
  * 三处缺口均实测，不近似实现：
- * 1. Assault（807.1.c）的展开读宿主 "designation"，而 ObjectSnapshot 提供 combatRole：
+ * 1. Assault（807.1.c）的展开读宿主 "designation"，而 ObjectSnapshot 只有 combatRole：
  *    programs/statics.ts 把条件包成 evaluateCondition 并捕获 MissingInformation 返回 false，
  *    因此已声明 attacker 的单位也拿不到 +1（实测打印 Might 3 的攻击者仍是 3）。
+ *    interpreter/expr-ext 已把 object-property/object-attribute 的 "designation" 映射到
+ *    combatRole，但该扩展未接入默认识别器与静态绑定器（expr-ext/README 的 integration
+ *    boundary：主 dispatch、programs/statics.ts 与 layers 都未改），所以缺口仍在。
  * 2. Deathknell（808.1）的 KeywordDef 展开体仍引用未注册的 trigger.leave
- *    （registry.generated.ts 只有 42 个 op，无 trigger.* 条目）；解释器对该指令体实测抛
- *    "Unregistered instruction opcode: trigger.leave"，808.1.d.1 的离场处理与
- *    808.1.d.2/.d.3 的 last-known 记录仍缺。
+ *    （effects/instructions/registry.generated.ts 共 45 个 op，且没有任何 trigger.* 条目）；
+ *    解释器对该指令体实测抛 "Unregistered instruction opcode: trigger.leave"，
+ *    808.1.d.1 的离场处理与 808.1.d.2/.d.3 的 last-known 记录仍缺。
  * 3. "If it's your Beginning Phase"（383.2.a.1）没有可读的阶段特征：卡内占位特征名让
  *    object-property 求值抛 MissingInformation，解释器把 draw-1 与 draw-2 两条分支都置为
  *    ignored/mistargeted（实测两条都是 ignored）；367 的 "draw 2 instead" 也要在这之上才能区分。
@@ -96,11 +99,13 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处当前缺口（2026-10-17 实测，均不近似实现）：" +
-    "(1) [Assault]（807.1.c）的展开读宿主 \"designation\"，而 ObjectSnapshot 提供 combatRole：" +
+    "(1) [Assault]（807.1.c）的展开读宿主 \"designation\"，而 ObjectSnapshot 只有 combatRole：" +
     "programs/statics.ts 的静态绑定把条件包成 evaluateCondition 调用并在 MissingInformation 时返回 false，" +
-    "因此已声明 attacker 的单位也拿不到 +1（实测打印 Might 3 的攻击者仍是 3）；需要 designation 与 combatRole 的字段对齐。" +
+    "因此已声明 attacker 的单位也拿不到 +1（实测打印 Might 3 的攻击者仍是 3）；" +
+    "interpreter/expr-ext/evaluate.ts 已实现 designation → combatRole 的映射，但该扩展未接入默认识别器/静态绑定器" +
+    "（expr-ext/README 的 integration boundary），需要 coordinator 把主 dispatch 与 programs/statics.ts 接上。" +
     "(2) [Deathknell]（808.1）的 KeywordDef 展开体仍引用未注册的 trigger.leave" +
-    "（effects/instructions/registry.generated.ts 只有 42 个 op，无 trigger.* 条目）；解释器对该指令体实测抛 " +
+    "（effects/instructions/registry.generated.ts 共 45 个 op，且没有任何 trigger.* 条目）；解释器对该指令体实测抛 " +
     "\"Unregistered instruction opcode: trigger.leave\"，808.1.d.1 的离场处理与 808.1.d.2/.d.3 的 last-known 记录仍缺。" +
     "(3)「If it's your Beginning Phase」（383.2.a.1）需要一个可读的阶段特征：ObjectSnapshot 没有阶段字段，" +
     "卡内占位特征名让 compare 抛 MissingInformation，解释器把 draw-1 与 draw-2 两条分支都置为 ignored/mistargeted" +

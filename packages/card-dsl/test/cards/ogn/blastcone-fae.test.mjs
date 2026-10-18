@@ -1,3 +1,13 @@
+// Golden test for Blastcone Fae (ogn-097-298).
+//
+// Execution evidence (the real play -> card-played -> continuous.might path,
+// the target lock, the -2 with the printed floor of 1 and the Illegal-target
+// boundary) lives in the RIFT-660 parameterized template golden:
+// test/cards/templates/keyword-triggered-card-played-continuous-660.test.mjs.
+// This file keeps validation, identity, verbatim text, declared
+// judge-required status and the key structure of the printed abilities; the
+// interpreter golden below still executes the card's own body on the
+// reference kernel, and the Hidden todo records the remaining keyword gap.
 import assert from "node:assert/strict";
 import test from "node:test";
 

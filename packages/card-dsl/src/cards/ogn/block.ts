@@ -29,8 +29,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   assignment path has no consumer for it (base-combat-allocation.ts records
  *   "No Tank/Backline/other assignment-priority requirement is bound here"),
  *   so the printed assignment order is not enforced;
- * - dynamically granted Shield/Tank are not re-expanded; Shield's expansion
- *   reads designation while ObjectSnapshot exposes combatRole (814.1.d).
+ * - the KeywordGrantLayerEngine re-expansion is merged, but production assembly
+ *   (the turn-phase layers and the chain engine's default LayerEngine) does not
+ *   attach it; Shield's merged continuous.might expansion also stays gated by a
+ *   designation characteristic while ObjectSnapshot only exposes combatRole and
+ *   that mapping is still not wired into production, so the defender condition
+ *   has no producer (814.1.d).
  * Not approximated: the [Tank] half is not dropped, and the Shield
  * value is not baked into a Might change (814.1.c: Shield is +X Might only
  * while the unit is a defender).
@@ -41,8 +45,10 @@ const block = {
   status: "judge-required",
   judgeReason:
     "缺 Hidden 的 Hide/Facedown Zone 行动、控制权与下回合解锁接线；cost.hidden 费用规划不提供这些许可（CR 811.1.b/c），" +
-    "以及 811.1.d.2 的背面法术本战场目标限制。continuous.grant-keyword 动态授予 Shield/Tank 后尚未重展开；" +
-    "Shield 读取 designation 而 ObjectSnapshot 暴露 combatRole，仍需把合并后的 Shield 值接到 Defender 条件（814.1.c/d、814.2）。" +
+    "以及 811.1.d.2 的背面法术本战场目标限制。KeywordGrantLayerEngine 的重展开已合入，但生产装配（TurnPhaseLayers 与 " +
+    "ChainEngine 默认 LayerEngine）尚未接入该引擎；" +
+    "Shield 展开的 continuous.might 仍由 designation 特征条件守门（ObjectSnapshot 暴露 combatRole，生产侧缺 designation 映射），" +
+    "需把合并后的 Shield 值接到该 Defender 条件（814.1.c/d、814.2）。" +
     "Tank 的 continuous.combat 致死优先指派也无战斗消费者（815.1.b/c.2）。",
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +

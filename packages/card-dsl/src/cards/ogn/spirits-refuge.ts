@@ -25,19 +25,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   契约 3.7 把关键词授予归 continuous.keyword / continuous.grant-keyword 持续效果，
  *   图层在 ability 层把关键词加到目标快照上。
  *
- * status = judge-required（复核 2026-10-17，两处缺口均可实测）：
- * - effect.buff、continuous.grant-keyword、Buff 特征过滤和 static 图层绑定都能用解释器
- *   与测试内核真实执行（见 golden）；
- * - 但「if they didn't already」需要在每个候选单位上读取已有 Deflect：过滤/条件词表没有
- *   可求值的否定关键词谓词，而授予会按 809.2 把数值**相加**而不是视为冗余——实测对已有
- *   Deflect 2 的单位再授予 1 点会得到 Deflect 3，与印刷文本的「if they didn't already」
- *   相反；
- * - Deflect 的 KeywordDef 只声明 target.tax 展开，而生产 static binder 的 layerFor 没有
- *   该 kind 的图层映射（实测抛 “Static ability kind target.tax has no layer mapping”），
- *   目标管线也只接受调用方显式传入的税；链在收税时把 tax.amount 记为 Energy 的
- *   mandatoryAdditional，而 809.1.c.1 要求这笔税用**任意域 Power** 支付。
- * 已合入部分：Play Effect 触发 + effect.buff（含 702.3 的“已有 buff 不重复”），
- * golden 测试真实执行；另两条缺口各自有真实执行/真实绑定的否定证据。
+ * status = judge-required（复核 2026-10-18）：
+ * - effect.buff、Buff 过滤、continuous.grant-keyword 和静态绑定均已有执行证据。
+ * - “if they didn't already” 仍缺逐候选单位的否定关键词谓词；直接授予会按
+ *   809.2 叠加，不能替代本卡的“不重复授予”。
+ * - KeywordGrantLayerEngine 已能展开授予的 Deflect；createTargetTaxAdapter 已能把
+ *   该关键词计为任意域 Power，golden 检查真实目标 Finalize 与费用分配。
+ *   但默认 ChainEngine 未接入这两个适配器：默认 static binder 仍无 target.tax
+ *   映射，链自行收集 tax.amount 后写成 Energy mandatoryAdditional（违反 809.1.c.1）。
+ * 适配器执行证据不代表整卡或默认链路已可执行。
  */
 const abilities: Ability[] = [
   {
@@ -103,16 +99,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处当前缺口（复核 2026-10-17，均实测）。(1)「Friendly buffed units have [Deflect] if they " +
-    "didn't already.」需要在每个候选单位上读取已有 Deflect 的可求值否定关键词谓词：过滤/条件词表" +
-    "没有这个谓词，而授予按 809.2 对数值求和而不是视为冗余——实测对已有 Deflect 2 的单位再授予 " +
-    "1 点得到 Deflect 3，与印刷文本的「if they didn't already」相反，所以不能直接授予。" +
-    "(2) [Deflect] 的 target.tax 没有消费路径：effects/keywords/Deflect.ts 只声明 static target.tax，" +
-    "而生产 static binder 的 layerFor 没有该 kind 的图层映射（实测抛「Static ability kind target.tax " +
-    "has no layer mapping」）；目标管线只接受调用方显式传入的税，且链把 tax.amount 记为 Energy 的 " +
-    "mandatoryAdditional（chain/engine.ts），不符合 809.1.c.1 要求的任意域 Power 支付。" +
-    "已合入并由 golden 真实执行：Play Effect 触发、effect.buff（含 702.3 的“已有 buff 不重复”）、" +
-    "continuous.grant-keyword 与 Buff 特征过滤的图层授予。不近似实现。",
+    "当前缺口（复核 2026-10-18）：(1)「Friendly buffed units have [Deflect] if they didn't already」" +
+    "缺逐候选单位读取已有 Deflect 的否定关键词谓词；直接 continuous.grant-keyword 会按 809.2 " +
+    "把已有 Deflect 数值相加，不能表达本卡的不重复授予。(2) 默认 ChainEngine / attachProgramLifecycle " +
+    "未接入 KeywordGrantLayerEngine 的授予关键词展开与 createTargetTaxAdapter 的完整费用计划：" +
+    "programs/statics.ts 仍拒绝 target.tax（target.tax has no layer mapping），chain/engine.ts " +
+    "自行收集 tax.amount 后记为 Energy mandatoryAdditional，违反 809.1.c.1 的任意域 Power 要求。" +
+    "依赖：候选单位关键词谓词、默认链路的动态关键词与目标税适配器集成。不近似实现。",
   abilities,
   sourceText:
     "When you play this, buff a friendly unit. (If it doesn't have a buff, it gets a " +

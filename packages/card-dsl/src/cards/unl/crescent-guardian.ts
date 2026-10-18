@@ -22,7 +22,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   359.2.c 的“横置进场”替换成“就绪进场”。805.6.a（Accelerate 的同型规则）明确这种
  *   入场替代不是先横置再就绪、也不触发“成为就绪”类能力。
  *
- * Status: judge-required. Re-checked 2026-10-17 against merged source:
+ * Status: judge-required. Re-checked 2026-10-17 (RIFT-677) against merged source:
  * condition.history really counts committed play actions by card type (golden
  * verified), the replacement binder drives the entry-orientation rewrite
  * for the host's own Board entry, and the condition.result predicate added with
@@ -35,6 +35,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * replacement/bind.ts matches the entry action before evaluating the condition;
  * (3) the printed "If you've played a spell this turn" applicability is a
  * history query, and no static-cost condition reads history.
+ * RIFT-677 corrected the payment spelling to the merged cost vocabulary:
+ * cost/plan-values.ts reads a Power payment's domain list from `allowedDomains`
+ * and blocks any other field ("Unsupported payment field: domain"), so the
+ * printed 1 Chaos Power is declared as allowedDomains: ["Chaos"], matching the
+ * merged frostcoat-cub / akshan-mischievous / blast-corps-cadet declarations.
  */
 const abilities: Ability[] = [
   {
@@ -44,17 +49,23 @@ const abilities: Ability[] = [
     // 1 点 Chaos Power 是独立的附加费用组件。
     effect: {
       kind: "cost.additional",
+      id: "crescent-guardian.additional-cost",
       appliesTo: "self",
       optional: true,
       stage: "optional-additional",
-      payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, domain: "Chaos" }]
+      // 163.2 / 204.2：1 点 Chaos Power；cost/plan-values.ts 只读 allowedDomains，
+      // 写 domain 会被 blocked("Unsupported payment field: domain")，因此按合并词汇声明。
+      payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["Chaos"] }]
     },
     // 356.2.b.1：该可选费用的适用条件是“你本回合打过法术”。按卡类型区分的历史
     // 查询已由 condition.history 支持，但没有读取 condition.history 的静态费用
-    // 条件，因此这里保留具名占位（见 judgeReason 第 3 点），不用恒真条件冒充。
+    // 条件，因此这里声明具名的历史结果依赖；未接线时缺读数必须阻塞，不能用非空字符串冒充 true。
     condition: {
-      kind: "expression",
-      value: { kind: "constant", value: "you-played-a-spell-this-turn" }
+      kind: "result",
+      result: "crescent-guardian.spell-history",
+      key: "count",
+      operator: "gte",
+      right: { kind: "constant", value: 1 }
     }
   },
   {
@@ -66,11 +77,12 @@ const abilities: Ability[] = [
       filter: { self: true, exhausted: true }
     },
     // 356.4.f.1 的“If you do”应以支付决定为准。condition.result 已能读费用回执，
-    // 但当前没有路径把本卡 static cost.additional 的支付回执交给 replacement
-    //（见 judgeReason 第 1、2 点），所以不能用该谓词假装已经接通。
+    // 当前仍缺 static cost.additional → 回执 → replacement 的传递。
+    // 使用现有 result 谓词精确引用这笔费用，缺回执时不得把字符串占位当成 true。
     condition: {
-      kind: "expression",
-      value: { kind: "constant", value: "crescent-guardian.additional-cost-was-paid" }
+      kind: "result",
+      result: "cost.additional",
+      id: "crescent-guardian.additional-cost"
     },
     with: [
       {
@@ -95,7 +107,11 @@ export default {
     "(2) 入场重写的开闸（CR 356.4.f.1/359.2.c/369.3/805.6.a）：replacement/bind.ts 的 entry 路径在匹配入场动作时先返回、" +
     "不评估 ability.condition（实测 never 条件仍把横置入场改成就绪），所以即使将来有回执，本卡的门控也不会被消费；" +
     "(3) 适用条件“If you've played a spell this turn”：condition.history 已能按 action=play 与 objectFilter.type=spell 统计，" +
-    "但没有把该历史查询接到静态费用适用条件的消费者；卡内保留具名占位，不写成恒真条件。" +
+    "但没有把该历史查询接到静态费用适用条件的消费者；卡内用 result 声明 crescent-guardian.spell-history.count 读数依赖，缺少历史结果生产方与静态费用消费者。" +
+    "已修：支付门控改用 condition.result，明确引用 crescent-guardian.additional-cost，缺回执不再按非空字符串判真。" +
+    "已修（RIFT-677）：附加费用组件原写作 domain: \"Chaos\"，而 cost/plan-values.ts 的 readCost 只认 allowedDomains 并对其余字段 blocked（\"Unsupported payment field: domain\"），" +
+    "现按合并词汇写作 allowedDomains: [\"Chaos\"]（同 sfd/frostcoat-cub、sfd/akshan-mischievous、sfd/blast-corps-cadet）。" +
+    "执行证据：test/cards/templates/static-replacement-effect-ready-677.test.mjs；整卡费用与条件边界保持阻塞。" +
     "已合入并可执行：replacement 的入场朝向重写本体（effect.ready）与 condition.result 的费用回执谓词。",
   abilities,
   sourceText:

@@ -15,21 +15,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   the Energy component decided during Finalize (355.1 / 355.1.a, 356.4.b,
  *   356.4.d), with 356.4.e (a discount's minimum only limits that discount) and
  *   356.6 (Energy cannot be reduced below 0). It is declared as a static
- *   continuous.cost-modification ability, the shape the merged cost planner
- *   (buildCostPlan) takes as an input discount. Two current consumers are
- *   missing, both measured on 2026-10-17, so the card is judge-required:
- *   - buildCostPlan accepts caller-provided discounts/baseModifications, but
- *     the production static binder has no cost-plan consumer for
- *     continuous.cost-modification: programs/statics.ts layerFor rejects the
- *     kind ("Static ability kind continuous.cost-modification has no layer
- *     mapping"), so no card ability can install this discount at Finalize;
- *   - the discount's condition ("an enemy unit has died this turn") needs a
- *     Finalize-time history predicate over death events of enemy units. The
- *     chain's CostPlanInput has no when/history evaluator, and the server
- *     runtime's ResolveContext is a stub for both halves
- *     (apps/game-server/src/engine-runtime/host.ts: a constant-zero history and
- *     a test that only handles always/never), so a relative-opponent death
- *     predicate cannot gate a production discount;
+ *   continuous.cost-modification ability, the shape the merged Finalize cost
+ *   collector consumes when its condition is supported. Two current
+ *   production consumers are missing (rechecked 2026-10-18), so the card is
+ *   judge-required:
+ *   - the default CardProgram/Chain Finalize path still calls buildCostPlan
+ *     directly and does not collect a card's own static discount into
+ *     CostPlanInput.discounts;
+ *   - the discount's condition ("an enemy unit has died this turn") uses a
+ *     HistoryQuery shape that cost/discounts/values.ts does not evaluate, and
+ *     the game-server ResolveContext exposes only a placeholder history
+ *     implementation. A relative-opponent death predicate therefore cannot
+ *     gate the production discount;
  * - "Draw 2." is a plain effect.draw (414.3) and is independent of the
  *   discount: it resolves whenever the spell resolves.
  */
@@ -38,16 +35,12 @@ const spoilsOfWar = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处当前消费缺口（复核 2026-10-17，均实测；355.1/355.1.a、356.4.b/d、356.4.e、356.6）：" +
-    "(1) buildCostPlan 只接受调用方提供的 discounts / baseModifications，而生产 static binder 没有 " +
-    "continuous.cost-modification 的费用计划消费方——programs/statics.ts 的 layerFor 对该 kind 抛 " +
-    "「Static ability kind continuous.cost-modification has no layer mapping」（实测），" +
-    "因此本卡的静态能力无法在 Finalize 安装该折扣。" +
-    "(2) 条件「本回合有敌方单位死亡」需要按对象过滤、按相对玩家限定的死亡事件历史谓词：" +
-    "CostPlanInput 没有 when/history 求值器，且服务端运行时的 ResolveContext 两半都是占位实现" +
-    "（apps/game-server/src/engine-runtime/host.ts 的 history 恒为 0、test 只处理 always/never），" +
-    "无法在 Finalize 用相对 opponent 的历史判定门控折扣。" +
-    "Draw 2 部分只用已合入的 effect.draw（414.3），可独立执行，golden 覆盖正常/空牌库/短牌库。",
+    "两处当前生产缺口（复核 2026-10-18；355.1/355.1.a、356.4.b/d、356.4.e、356.6）：" +
+    "(1) engine-core 已合入 finalizeCostPlan 的静态折扣收集，但默认 CardProgram/Chain Finalize 仍直接调用 buildCostPlan，" +
+    "没有把本卡的 continuous.cost-modification static ability 接进 CostPlanInput.discounts；" +
+    "(2) 条件「本回合有敌方单位死亡」需要按 objectFilter 和相对 opponent 读取死亡历史，" +
+    "cost/discounts/values.ts 的条件求值器与 apps/game-server/src/engine-runtime/host.ts 的 ResolveContext 都没有该生产适配器。" +
+    "Draw 2 只用已合入的 effect.draw（414.3），golden 覆盖正常、空牌库与短牌库；不近似实现费用条件。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

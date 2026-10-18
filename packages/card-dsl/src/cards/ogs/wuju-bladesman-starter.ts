@@ -1,29 +1,28 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Wuju Bladesman, Starter (ogs-019-024) — Legend, Calm/Body, 标签 Master Yi/Champion。
+ * Wuju Bladesman, Starter (ogs-019-024).
+ * CR v1.5 363/364.3.a: conditional Passive Ability, evaluated outside the chain.
+ * A friendly defender (466.2.c.3, 814.1.d) is alone if no other friendly unit
+ * shares its location (740.2.a). The +2 is an arithmetic continuous.might aura.
  *
- * sourceText（packages/card-data/data/deck-catalog.json, ogs-019-024）：
- *   While a friendly unit defends alone, it gets +2 :rb_might:.
- *
- * 规则依据（CR v1.5）：
- * - 363 / 364 / 364.2 / 364.3.a：“While …” 是条件式 Passive Ability（陈述事实）；
- *   持续效果不进链（契约 3.5：持续效果由 layers 按图层计算）。
- * - 740.1.a：friendly = 与控制者同一名玩家（或队友）；190.6.d：隐含 "you" 即
- *   能力控制者；191.1：每名玩家控制自己的 Champion Legend。
- * - 740.2.a："alone" = 同一 location 上没有其他友方单位；"defends" 按 814.1.d
- *   的用词惯例指战斗中取得 Defender designation（466.2.c.3），因此条件是
- *   「该友方单位是防守方且身边没有其他友方单位」。
- * - 契约 3.8：ObjectSnapshot.combatRole 承载当次战斗的 Attacker / Defender 指定。
- * - 契约 3.7 / 3.1：+2 Might 属于 continuous.might 静态效果，由 layers 计算，
- *   卡牌只声明静态能力，不写单卡结算代码。
- * - 174 / 174.6：Legend 可以拥有 Passive Ability；107.4.c / 174.2.b：Legend 始终
- *   留在 Legend Zone。
- *
- * status = judge-required：见 judgeReason。continuous.might 本体、契约 3.8 的
- * combatRole 快照字段与卡牌程序绑定都已合入，但 “defends alone” 谓词仍没有求值器
- * （staticFilter 对 defendsAlone 直接抛 Unsupported static filter field；layers/filter.ts
- * 不读 combatRole/designation，也不支持“同 location 没有其他友方单位”型排除）。不近似实现。
+ * status = judge-required（复核 2026-10-17/18，缺口已实测）：
+ * - 已合入且实测可用：static continuous.might 的登记（生产 binder 能注册 arithmetic
+ *   层效果）；controller: "self" 的相对归一化（归一为来源玩家 ID）；
+ *   layers/filter.ts 的 characteristics 匹配会读 combatRole（对照注册
+ *   characteristics: { combatRole: "defender" } 时，友方防守者 +2、友方攻击者与敌方
+ *   防守者不变）。
+ * - 仍缺两条生产路径（见 judgeReason）：(1) 「defends alone」的逐接收者静态谓词——
+ *   staticFilter 直接拒绝 defendsAlone 键；生产 condition 由 bindStaticToLayers 用
+ *   abilityEnvironment(engine, source) 求值、只绑定来源自身且忽略接收对象；
+ *   exclude 锚点被 staticFilter 拒绝，sameLocationAs 归一出的 location 对象在
+ *   layers/filter.ts 的“引用同一性/类型字符串”比较下也无法匹配克隆快照的同位置单位。
+ *   (2) Legend Zone（107.4.c、174.2.b、174.6）不在 effects/contract.ts 的 ZoneId
+ *   词汇表（"hand" | "deck" | "rune-deck" | "trash" | "banishment" | "board" |
+ *   "rune-zone" | "chain"），参考内核的 zone 词汇表同样没有 legend，卡牌无法作为
+ *   Legend Zone 来源绑定静态生命周期。
+ * 程序保留印刷形状（arithmetic +2、controller self、defendsAlone 描述性键）供审查；
+ * 不近似实现。
  */
 const wujuBladesmanStarter = {
   canonicalCardId:
@@ -31,19 +30,16 @@ const wujuBladesmanStarter = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不属于本卡 write scope：(1)「defends alone」谓词仍无法求值——它需要 " +
-    "(a) 该单位在当前战斗中持有 Defender designation（CR 466.2.c.3 / 814.1.d）：契约 3.8 的 " +
-    "ObjectSnapshot.combatRole 已合入（effects/contract.ts）" +
-    "并可由参考内核设置，但 programs/statics.ts staticFilter 对 defendsAlone 直接抛 " +
-    "Unsupported static filter field defendsAlone，layers/filter.ts 的 matchesObjectFilter " +
-    "不读 combatRole，也不存在把 combatRole 暴露给过滤器谓词的接点；" +
-    "(b) 同一 location 上没有其他友方单位（CR 740.2.a）：冻结 ObjectFilter 没有该排除型条件，" +
-    "matchesObjectFilter 也不支持；(2) Legend 的来源区域是 Legend Zone（CR 107.4.c / 174.2.b），契约 ZoneId（effects/contract.ts）" +
-    "与参考内核都没有该区域，静态能力的来源区域也无处声明。" +
-    "已合入的部分：continuous.might（RIFT-258）、卡牌静态能力接线（RIFT-257：" +
-    "attachProgramLifecycle/bindStaticToLayers 经 evaluateCondition 求静态条件）都已合入。" +
-    "依赖：RIFT-91 后续（layers combatRole/排除谓词）、Legend 来源区域扩展" +
-    "（契约变更请求）。不近似实现。",
+    "复核 2026-10-17/18（均为实测）：已合入部分是 static continuous.might 登记、controller/self 相对归一化与 layers/filter.ts 的 characteristics 消费" +
+    "（对照注册 characteristics: { combatRole: 'defender' } 时友方防守者 +2、友方攻击者与敌方防守者不变）。整卡仍不可执行，缺两条生产路径：" +
+    "(1) defends alone（CR 466.2.c.3/814.1.d/740.2.a）的逐接收者静态谓词——programs/statics.ts staticFilter 直接拒绝 defendsAlone 键" +
+    "（Unsupported static filter field defendsAlone）；生产 condition 由 bindStaticToLayers 以 abilityEnvironment(engine, source) 求值，" +
+    "只绑定来源自身、忽略接收对象（把条件换成来源自身可判定的事实即可看到 +2 落到无关友方单位），因此无法表达「接收单位是防守者且同位置无其他友方单位」；" +
+    "exclude 锚点同样被 staticFilter 拒绝（需要动态相对过滤器），sameLocationAs 归一出的 location 对象在 layers/filter.ts 的" +
+    "引用同一性/类型字符串比较下匹配不到克隆快照的同位置单位（相对锚点与 location 匹配属 RIFT-708 进行中工作，该分支也未实现 alone/友方计数）。" +
+    "(2) Legend Zone（CR 107.4.c/174.2.b/174.6）不在 effects/contract.ts 的 ZoneId 词汇表中，参考内核 zone 词汇表也无 legend，" +
+    "本卡无法作为 Legend Zone 来源取得静态生命周期绑定。依赖：逐接收者的 combatRole + 同位置友方计数静态谓词（RIFT-708 后续）、" +
+    "Legend Zone 生命周期支持（契约变更请求）。不近似实现。",
   abilities: [
     {
       kind: "static",

@@ -24,8 +24,8 @@ import type { CardProgram } from "../../ir/index.js";
  * 1. "here" has no evaluable anchor: the emitted hold event carries the held
  *    Battlefield only as a payload detail (details.battlefieldId), and the
  *    static filter cannot reference its own host's runtime location id;
- *    the `here: true` key below is the documented placeholder, and the
- *    engine-side trigger translation rejects it.
+ *    the `here: true` key below is the documented placeholder, and
+ *    programs/filters.ts rejects it before registration.
  */
 const startippedPeak = {
   canonicalCardId: "card.hash-3baf147c819e802d3468d8c30b6fb475909fc861e0dda2bdaa7adba32bfc23e9",
@@ -37,7 +37,7 @@ const startippedPeak = {
     "能力本体只用已合入的 effect.channel（exhausted=true 对应 431.2 的入场限定），并用契约 3.9 的 choice.optional 包装“you may”。" +
     "整卡仍不可执行：(1)「here」没有可求值的锚点——事件只以 details 载荷携带战场 id，" +
     "静态 filter 读不到宿主运行时的地点身份，程序里的 here=true 是等待载荷绑定的占位键，" +
-    "当前 translateTriggerFilter 会以 unsupported filter field 拒绝它；需要将 hold 载荷的 battlefieldId 与能力宿主绑定。",
+    "当前 programs/filters.ts 的 translateTriggerFilter 会以 unsupported filter field 拒绝它；需要将 hold 载荷的 battlefieldId 与能力宿主绑定。",
   sourceText: "When you hold here, you may channel 1 rune exhausted.",
   abilities: [
     {

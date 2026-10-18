@@ -16,34 +16,22 @@
  * - 150.1–150.3：Equipment 是带 Equipment 标签的 Gear，可以有 Equip；本地 catalog 的
  *   tags 为 ["Equipment"]，与 818.1.a 一致。
  *
- * status = judge-required（缺可支付的费用路径，不近似实现）。已合入的部分：KeywordDef.expand 的
- * params（契约 3.8 第 3 条）、Equip KeywordDef（RIFT-87/264～268 关键词批次）与 CardProgram
- * 绑定（RIFT-257）——programs/activate.ts 的 describeActivate 能为本卡给出
- * { kind: "activated", timing: "action", cost.payments: [{ kind: "equip" }] } 的链草稿，
- * 展开体末步的 effect.attach 也真实附着（golden 执行）。仍然缺的部分：
- * - 费用管线 cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked：golden 实测
- *   buildCostPlan 抛 CostPlanError（reason "judge-required"，message
- *   "Unsupported payment kind: equip"），即 818.1.b / 818.1.c 的启动费用目前无法支付；
- * - 印刷的 1 点 Fury Power 也还没有从 KeywordAbility 流到 expand 的 params.cost 的调用方
- *   （programs/keywords.ts 的 expandProgram 只传 value/host）。
- * 依赖：RIFT-261（cost.pay / cost.modify 与 Equip 费用计划接线）。不把 Equip 降级成裸 effect.attach
- * （那会绕开 818.1.c.4 的费用改写与 355 的 Finalize 流程）。
+ * status = judge-required：Equip 展开、启动草稿与 effect.attach 已存在，仍缺本卡的装备费绑定。
+ * programs/keywords.ts 未将印刷的 1 Fury Power 传入 params.cost，Equip.ts 也未消费该参数，
+ * 而是生成 { kind: "equip" } 支付项；cost/plan-values.ts::readCost 不支持该支付种类。
+ * cost.pay / cost.modify 的存在不等于 818.1.b / 818.1.c.2–4 的装备费已接入 Finalize，
+ * 因而保留关键词声明，不用裸 effect.attach 绕过费用。
  */
 export default {
   canonicalCardId: "card.hash-2d46595233b37a0868857eab035ad4fa4dc53fc8c932d35ad32cca2c54ff06d2",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "印刷的 [Equip] 费用（1 点 Fury Power，818.1.c.2）仍无法支付，但缺失环节已收窄到费用管线：" +
-    "KeywordDef.expand 的 params（契约 3.8 第 3 条）、Equip KeywordDef（RIFT-87）与 CardProgram 绑定" +
-    "（RIFT-257）都已合入——describeActivate 能返回带着 { kind: \"equip\" } 支付分量的启动草稿，" +
-    "展开体末步 effect.attach 也真实执行。费用管线 cost/plan-values.ts 的 readCost 仍对未知支付种类直接 " +
-    "blocked —— golden 实测 buildCostPlan 抛 CostPlanError（reason \"judge-required\"，message " +
-    "\"Unsupported payment kind: equip\"）；同时印刷费用还没有从 KeywordAbility 流到 expand 的 " +
-    "params.cost 的调用方（契约 3.8 第 3 条的 expand params.cost；programs/keywords.ts 只传 value/host，故 818.1.c.2 的" +
-    "装备费形状目前只由 KeywordAbility 的 value/costDomain 描述）。" +
-    "依赖：进行中的 RIFT-261（cost.pay / cost.modify 与 Equip 费用计划接线）。" +
-    "不近似实现（不把 Equip 降级成裸 effect.attach）。",
+    "缺 [Equip] 印刷费用到启动 Finalize 的绑定（CR 818.1.b、818.1.c.2–4）：" +
+    "programs/keywords.ts 未把本卡的 1 Fury Power 从 value/costDomain 传入 expand params.cost；" +
+    "effects/keywords/Equip.ts 也未消费 params.cost，仍生成 { kind: \"equip\" } 支付项，" +
+    "cost/plan-values.ts::readCost 因 Unsupported payment kind: equip 而阻断。" +
+    "不能用 Gear 的印刷打出费用（1 Energy、Power null）代替装备费，也不能用裸 effect.attach 绕过费用。",
   abilities: [
     { kind: "keyword", keyword: "equip", value: 1, costDomain: "Fury" }
   ],

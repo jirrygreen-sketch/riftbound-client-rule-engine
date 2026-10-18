@@ -1,13 +1,29 @@
+// Golden test for Thousand-Tailed Watcher (ogn-116-298).
+//
+// Execution evidence (the real play -> card-played -> enemy-set
+// continuous.might -3 with floor 1, plus the no-enemy negated set) lives in
+// the RIFT-660 parameterized template golden:
+// test/cards/templates/keyword-triggered-card-played-continuous-660.test.mjs.
+// This file keeps validation, identity, verbatim text, declared
+// judge-required status and the key structure of the printed abilities; the
+// interpreter/layer goldens below still execute the card's own body and the
+// Accelerate boundary probes record the remaining keyword gap.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/thousand-tailed-watcher.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { registerProgramTriggers } from "../../../../engine-core/dist/programs/triggers.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [accelerate, triggered] = program.abilities;
@@ -27,6 +43,12 @@ test("Thousand-Tailed Watcher identity and judge-required reason", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Accelerate/);
+  // Re-probed 2026-10-17: the gap is the production path from the expanded
+  // accelerate.cost static to CostPlan.optionalAdditional, plus the unpaid-entry
+  // rewrite, not the cost planner itself.
+  assert.match(program.judgeReason, /layerFor/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /describePlay/);
   assert.match(program.judgeReason, /optionalAdditional/);
   assert.match(program.judgeReason, /805\.6\.a/);
   assert.equal(
@@ -149,4 +171,104 @@ test("Thousand-Tailed Watcher: merged binding normalizes the own-play anchor and
   assert.equal(expanded.expanded[1].with[0].op, "effect.ready");
 });
 
-test.todo("Thousand-Tailed Watcher: bind the paid Accelerate optionalAdditional choice to the delayed enter-ready replacement without object-readied (CR 805.2.b / 805.6.a)");
+test("Thousand-Tailed Watcher golden: the merged play trigger debuffs enemy units through the real pipeline", () => {
+  // Executed end to end through the production trigger registration and the
+  // real ChainEngine: the authored body is not re-staged here, the card-played
+  // wave itself drives it. CR 478.1.c clamps per modification (3 - 3 would fall
+  // below the floor of 1, so enemy-3 snapshots as -2).
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const f = fixture({ cards: [
+    { id: "watcher", cardId: program.canonicalCardId, types: ["unit"], energy: 1, power: ["Mind"], might: 7 },
+    { id: "enemy-3", owner: "B", controller: "B", types: ["unit"], might: 3 },
+    { id: "enemy-5", owner: "B", controller: "B", types: ["unit"], might: 5 },
+    { id: "ally", owner: "A", controller: "A", types: ["unit"], might: 4 }
+  ] });
+  for (const id of ["watcher", "enemy-3", "enemy-5", "ally"]) {
+    f.engine.commit({ type: "move-zone", object: f.kernel.ref(id), to: "board", location: { type: "base", player: f.kernel.getObject(id).owner } });
+  }
+  assert.deepEqual(registerProgramTriggers(registry, f.engine, f.kernel.getObject("watcher")), [
+    "program:watcher:2:1"
+  ]);
+
+  f.engine.pipeline.emit({
+    timingPoint: "card-played", object: f.kernel.getObject("watcher"), source: f.kernel.getObject("watcher"),
+    player: "A", fromZone: "hand"
+  });
+  assert.equal(f.engine.items.length, 1);
+  f.engine.advance();
+  resolveAll(f.engine);
+  assert.equal(f.engine.items.length, 0);
+
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.equal(f.engine.layers.evaluate(f.kernel.ref("enemy-3")).might, 1);
+  assert.equal(f.engine.layers.evaluate(f.kernel.ref("enemy-5")).might, 2);
+  assert.equal(f.engine.layers.evaluate(f.kernel.ref("ally")).might, 4);
+  assert.equal(f.engine.layers.evaluate(f.kernel.ref("watcher")).might, 7);
+  // 355.10.d: the enemy set was selected by characteristics, so no
+  // became-target timing point may appear for it.
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "became-target"), false);
+});
+
+test("Thousand-Tailed Watcher boundary: the expanded accelerate.cost has no production binder (CR 805.1.b)", () => {
+  // Re-probed 2026-10-17: the keyword expansion is dense (a static cost
+  // declaration plus the delayed replacement), but the production static binder
+  // used by attachProgramLifecycle refuses the cost declaration, so the plan can
+  // never contain an accelerate component.
+  const kernel = world().unit("watcher", { cardId: program.canonicalCardId }).build();
+  const expanded = expandProgram(program, kernel.getObject("watcher"));
+  const [costDeclaration] = expanded.expanded;
+  assert.equal(costDeclaration.kind, "static");
+  assert.equal(costDeclaration.effect.kind, "accelerate.cost");
+
+  const f = fixture({ cards: [{ id: "watcher", cardId: program.canonicalCardId, types: ["unit"], energy: 1, power: ["Mind"], might: 3 }] });
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(costDeclaration, f.kernel.getObject("watcher")),
+    (error) => error.code === "judge-required" && /accelerate\.cost/.test(error.message) && /no layer mapping/.test(error.message)
+  );
+  assert.deepEqual(f.engine.layers.registry.list(), []);
+});
+
+test("Thousand-Tailed Watcher boundary: describePlay forwards no optional additional cost, so Finalize never offers Accelerate (CR 805.2)", () => {
+  // The play draft carries only the ability's own cost field; the expanded
+  // static declaration is not consulted, so a ChainItem never receives a
+  // CostPlan and its selectedAdditional stays empty.
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const f = fixture({ cards: [{ id: "watcher", cardId: program.canonicalCardId, types: ["unit"], energy: 1, power: ["Mind"], might: 3 }] });
+  f.kernel.addPlayer("A", { power: ["Mind"] });
+  binding.attachLifecycle(f.engine, () => {});
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("watcher"), to: "chain" });
+  f.engine.advance();
+  const draft = binding.describePlay({ type: "play", object: f.kernel.ref("watcher"), player: "A" }, f.kernel.getObject("watcher"));
+  assert.equal(draft.cost, undefined);
+});
+
+test("Thousand-Tailed Watcher boundary: the delayed enter-ready replacement readies an UNPAID unit, so it cannot be bound as written (CR 805.2.b / 805.6.a)", () => {
+  // Re-probed 2026-10-17: binding the expanded replacement straight to the
+  // pipeline makes the unit enter ready although no Accelerate fee was ever
+  // collected. That is exactly why 805.2.b's "only after paying" decision has to
+  // exist before this shape can ship; the assertion is the wrong behaviour, not
+  // a licence to ship it.
+  const f = fixture({ cards: [{ id: "watcher", cardId: program.canonicalCardId, types: ["unit"], energy: 1, power: ["Mind"], might: 3 }] });
+  const kernel = world().unit("watcher", { cardId: program.canonicalCardId }).build();
+  const [, replacement] = expandProgram(program, kernel.getObject("watcher")).expanded;
+  createEngineStaticBinder(f.engine).bindReplacement(replacement, f.kernel.getObject("watcher"));
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("watcher"), to: "chain" });
+  f.engine.advance();
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("watcher"), to: "board", location: { type: "base", player: "A" } });
+  assert.equal(f.kernel.getObject("watcher").zone, "board");
+  assert.equal(f.kernel.getObject("watcher").exhausted, false, "unpaid Accelerate must not ready the unit");
+  // Control: a unit without any Accelerate declaration goes through the very
+  // same ChainEngine resolve path and really does enter exhausted (CR 359.2.c),
+  // so the false above is the replacement's doing rather than a permissive host.
+  const control = { canonicalCardId: "card.hash-ogn-watcher-control", rulesetVersion: "core-1.5", status: "executable",
+    sourceText: "[test control] no Accelerate", abilities: [{ kind: "play", body: [] }] };
+  const controlBinding = createProgramBinding({ cardPrograms: [control] });
+  const cf = fixture({ cards: [{ id: "control", cardId: control.canonicalCardId, types: ["unit"], energy: 1, power: ["Mind"], might: 3 }] });
+  cf.kernel.addPlayer("A", { power: ["Mind"] });
+  cf.engine.commit({ type: "move-zone", object: cf.kernel.ref("control"), to: "chain" });
+  cf.engine.advance();
+  cf.engine.execute(controlBinding.describePlay({ type: "play", object: cf.kernel.ref("control"), player: "A" }, cf.kernel.getObject("control")));
+  resolveAll(cf.engine);
+  assert.equal(cf.kernel.getObject("control").zone, "board");
+  assert.equal(cf.kernel.getObject("control").exhausted, true);
+});

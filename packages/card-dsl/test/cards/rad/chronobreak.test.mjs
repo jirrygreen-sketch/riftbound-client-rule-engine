@@ -4,7 +4,9 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/chronobreak.js";
 import banish from "../../../../engine-core/dist/effects/instructions/effect.banish.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveLocationSelector } from "../../../../engine-core/dist/target/location/index.js";
 
 const [play] = program.abilities;
 const [pay, banishInstruction, playBack] = play.body;
@@ -42,6 +44,65 @@ test("rad-140-167 Chronobreak: judgeReason names the variable cost, lost locatio
   assert.match(program.judgeReason, /356\.1\.b\.1/);
   assert.doesNotMatch(program.judgeReason, /RIFT-357|RIFT-358/);
 });
+
+test("rad-140-167 Chronobreak: 'ignoring its cost' is expressible, but the variable Power X is not", () => {
+  // 356.1.b.1 / 356.1.b.3: a base-cost rewrite really zeroes the base while later
+  // additional costs still apply. That half of the play-back clause is now
+  // executable; "pay any amount of Power" is not: the cost pipeline evaluates a
+  // payment amount through ctx.evaluate, which requires an Expr, so a chosen
+  // amount has no representation (204.2.a / 135.2.b.5).
+  const kernel = world().player("A", { energy: 9 }).hand("chronobreak", { types: ["spell"], energy: 2, power: [] }).build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("chronobreak") });
+  const ignored = buildCostPlan(ctx, {
+    id: "ignored-play",
+    cost: { kind: "printed" },
+    baseModifications: [{ kind: "ignore-base", id: "chronobreak.ignore", ignore: "resources" }],
+    mandatoryAdditional: [{ id: "later-additional", cost: { energy: { kind: "constant", value: 1 } } }]
+  });
+  assert.deepEqual(ignored.total, { energy: 1, power: [], xp: 0, actions: [] });
+  assert.deepEqual(ignored.modifications, [{ kind: "ignore-base", id: "chronobreak.ignore", ignore: "resources" }]);
+
+  assert.throws(
+    () => buildCostPlan(ctx, {
+      id: "variable",
+      cost: { kind: "printed" },
+      mandatoryAdditional: [{ id: "x", cost: { payments: [{ kind: "power", amount: { kind: "choose", id: "chronobreak.x" } }] } }]
+    }),
+    /Power must be a nonnegative safe integer/
+  );
+});
+
+test("rad-140-167 Chronobreak: the pre-Banish location is kept as last-known but no merged selector can read it", () => {
+  // 428 / 124: Banish gives the card a new object identity, so "the same
+  // location" must come from the pre-move snapshot. The kernel keeps it, but the
+  // banish receipt publishes only post-move refs and the merged location
+  // selectors resolve through ctx.object(...) (the current location).
+  const kernel = world().player("A", { energy: 9 }).unit("u1", { location: { type: "battlefield", id: "bf-1" } }).build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("u1") });
+  const original = ctx.ref("u1");
+  const run = runInstruction(banish, banishArgs(1), {
+    world: ctx,
+    targets: { [targetId]: [original] }
+  });
+  assert.equal(run.result.status, "executed");
+  assert.equal(ctx.getObject("u1").zone, "banishment");
+  assert.deepEqual(ctx.lastKnown(original).location, { type: "battlefield", id: "bf-1" });
+  const [banishedRef] = run.linked["chronobreak.banishedObjects"];
+  assert.equal(banishedRef.zoneEntryId, original.zoneEntryId + 1, "124: the banished card is a new object");
+  assert.throws(
+    () => resolveLocationSelector(
+      { kind: "linked-location", instructionId: "chronobreak.banish", key: "chronobreak.banishedObjects" },
+      { context: ctx, host: original, linked: key => run.linked[key] }
+    ),
+    /Linked value has no runtime location/
+  );
+});
+
+test.todo(
+  "rad-140-167 Chronobreak: a per-object owner chooser and an effect.play-back producer/consumer " +
+    "(420.3 / 420.4) — the ignored-cost rewrite itself is expressible (baseModifications ignore-base), " +
+    "but effect.play takes one player plus one location for the whole selection and effect.play-back is not a registered opcode"
+);
 
 test("rad-140-167 Chronobreak: structure — mandatory variable Power cost plus banish and play-back", () => {
   assert.equal(program.abilities.length, 1);

@@ -34,12 +34,12 @@ test("unl-148-219 Cursed Sarcophagus: identity, status, judgeReason and verbatim
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // README 第 2 节：judgeReason 必须点名缺哪个语义与依赖任务。
+  // README 第 2 节：judgeReason 必须点名缺失的语义与当前依赖。
   assert.match(program.judgeReason, /394/);
   assert.match(program.judgeReason, /428\.3\.a/);
   assert.match(program.judgeReason, /Finalize/);
   assert.match(program.judgeReason, /effect\.play/);
-  // Re-probed 2026-10-17: the receipt exists for one resolution but has no
+  // Re-probed 2026-10-18: the receipt exists for one resolution but has no
   // incarnation-scoped persistence for the later activation.
   assert.match(program.judgeReason, /ResolveContext|linked 作用域/);
   assert.match(program.judgeReason, /ordered pick plan/);

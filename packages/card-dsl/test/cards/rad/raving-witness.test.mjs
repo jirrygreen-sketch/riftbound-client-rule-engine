@@ -4,22 +4,24 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/raving-witness.js";
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
+import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import reveal from "../../../../engine-core/dist/effects/instructions/effect.reveal.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import { mightyCondition } from "../../../../engine-core/dist/effects/keywords/Mighty.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ReferenceTestKernel, runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { finalizeOrderedPickPlans } from "../../../../engine-core/dist/chain/picks/plan.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 
 const CARD_ID =
   "card.hash-5100d228a6eda08c0fbbe5b5f17f74b70f6df76adde914277019866a34ba54b2";
 
 const [triggered] = program.abilities;
-const [revealTop, drawIfMighty, recycleOtherwise] = triggered.body;
+const [revealTop, checkMighty, drawIfMighty, recycleOtherwise] = triggered.body;
 
 test("rad-074-167 Raving Witness: program validates and is judge-required", () => {
   const result = validateCardProgram(program);
@@ -33,6 +35,10 @@ test("rad-074-167 Raving Witness: program validates and is judge-required", () =
   assert.match(program.judgeReason, /object-moved/);
   assert.match(program.judgeReason, /invalid-event-type/);
   assert.match(program.judgeReason, /return-to-hand/);
+  assert.match(program.judgeReason, /condition.result/);
+  assert.match(program.judgeReason, /Resolve.*有序来源捕获/);
+  assert.match(program.judgeReason, /Draw.*原语/);
+  assert.match(program.judgeReason, /414\.1\.a/);
   assert.equal(/RIFT-\d+/.test(program.judgeReason), false);
 });
 
@@ -53,7 +59,7 @@ test("rad-074-167 Raving Witness: 'When I move' subscribes to the successful mov
     filter: { source: "self" }
   });
   assert.equal(triggered.optional, false);
-  assert.equal(triggered.body.length, 3);
+  assert.equal(triggered.body.length, 4);
 });
 
 test("rad-074-167 Raving Witness: the reveal reads the deck top through an ordered pick (425.1 / RIFT-66)", () => {
@@ -65,9 +71,10 @@ test("rad-074-167 Raving Witness: the reveal reads the deck top through an order
   assert.equal(revealTop.args.zone, undefined);
   assert.equal(revealTop.args.count, undefined);
   assert.equal(revealTop.picks.length, 1);
-  assert.equal(revealTop.picks[0].min, 1);
-  assert.equal(revealTop.picks[0].max, 1);
-  assert.equal(revealTop.picks[0].selection, "one");
+  assert.deepEqual(revealTop.picks[0], {
+    id: "raving-witness.top-card", options: [], ordered: true, selection: "all",
+    zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 1 } }
+  });
 });
 
 test("rad-074-167 Raving Witness: the Mighty branch moves the revealed card to hand (707/708/711)", () => {
@@ -79,33 +86,41 @@ test("rad-074-167 Raving Witness: the Mighty branch moves the revealed card to h
     kind: "constant",
     value: "raving-witness.revealed-card"
   });
-  // 707/708: Mighty is Might >= 5; 711: a card in a non-board zone is judged by its printed Might.
-  assert.deepEqual(drawIfMighty.condition, {
-    kind: "compare",
-    left: {
-      kind: "object-property",
-      object: { linked: "raving-witness.reveal-top" },
-      property: "might"
-    },
-    operator: "gte",
-    right: { kind: "constant", value: 5 }
+  // 707/708/711: snapshot the unit-only, non-null, printed >=5 predicate once.
+  assert.equal(checkMighty.op, "condition.predicate");
+  assert.equal(checkMighty.linkedTo, revealTop.id);
+  assert.deepEqual(checkMighty.args.condition.value, {
+    kind: "all",
+    conditions: [
+      {
+        kind: "compare",
+        left: { kind: "count", subject: "objects", filter: { type: "unit", object: { linked: revealTop.id } } },
+        operator: "gt", right: { kind: "constant", value: 0 }
+      },
+      {
+        kind: "compare",
+        left: { kind: "object-property", object: { linked: revealTop.id }, property: "might" },
+        operator: "ne", right: { kind: "constant", value: null }
+      },
+      {
+        kind: "compare",
+        left: { kind: "object-property", object: { linked: revealTop.id }, property: "might" },
+        operator: "gte", right: { kind: "constant", value: 5 }
+      }
+    ]
   });
+  assert.deepEqual(drawIfMighty.condition, { kind: "result", result: checkMighty.id, key: "value" });
+  assert.deepEqual(drawIfMighty.picks, [{
+    id: "raving-witness.revealed-card", options: [], ordered: true, selection: "all",
+    linked: { kind: "linked-value", instructionId: revealTop.id, key: "revealed" }
+  }]);
 });
 
 test("rad-074-167 Raving Witness: the otherwise branch recycles the same revealed card to the deck bottom (417.1.a)", () => {
   assert.equal(recycleOtherwise.id, "raving-witness.recycle-not-mighty");
   assert.equal(recycleOtherwise.op, "effect.recycle");
   assert.equal(recycleOtherwise.linkedTo, "raving-witness.reveal-top");
-  assert.deepEqual(recycleOtherwise.condition, {
-    kind: "compare",
-    left: {
-      kind: "object-property",
-      object: { linked: "raving-witness.reveal-top" },
-      property: "might"
-    },
-    operator: "lt",
-    right: { kind: "constant", value: 5 }
-  });
+  assert.deepEqual(recycleOtherwise.condition, { kind: "not", condition: drawIfMighty.condition });
   assert.deepEqual(recycleOtherwise.args.objects, {
     kind: "linked-value",
     instructionId: "raving-witness.reveal-top",
@@ -113,7 +128,7 @@ test("rad-074-167 Raving Witness: the otherwise branch recycles the same reveale
   });
   // The two branches are gated on complementary conditions over one locked object, so neither
   // can silently move a card the other already handled.
-  assert.equal(drawIfMighty.condition.left.object.linked, recycleOtherwise.condition.left.object.linked);
+  assert.equal(recycleOtherwise.condition.condition.result, checkMighty.id);
 });
 
 test("rad-074-167 Raving Witness: effect.reveal publicly reveals the picked top card without moving it (425.1.a.2)", () => {
@@ -151,6 +166,26 @@ test("rad-074-167 Raving Witness: the revealed card can be drawn to hand by effe
   // The kernel routes a move to hand through the closed return-to-hand action.
 });
 
+test("rad-074-167 Raving Witness boundary: effect.draw cannot draw the revealed card, only name its drawer", () => {
+  // 414.1.a: a Draw takes the top card; the primitive's pick names WHO draws.
+  // Pointing the pick at a non-top card still draws the real top card, so it
+  // cannot implement "draw it". The revealed card is therefore moved by
+  // effect.zone, whose action is the closed return-to-hand (pinned above).
+  const kernel = world().deck(["top", "middle", "bottom"]).build();
+  const bottom = kernel.zoneSlice("A", "deck", "bottom", 1)[0].ref;
+  const run = runInstruction(
+    draw,
+    { amount: { kind: "constant", value: 1 }, pick: "raving-witness.revealed-card" },
+    { world: kernel, picks: { "raving-witness.revealed-card": [bottom] } }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.drawn, 1);
+  assert.equal(run.linked.drawnTo, "A");
+  assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["top"]);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["middle", "bottom"]);
+  assert.equal(kernel.getObject("bottom").zone, "deck", "the highlighted card is never the one drawn");
+});
+
 test("rad-074-167 Raving Witness: the otherwise branch recycles the revealed card to the bottom of its owner's deck (417.1.a)", () => {
   const kernel = world().deck(["not-mighty", "second", "third"]).build();
   const top = kernel.zoneSlice("A", "deck", "top", 1)[0].ref;
@@ -183,12 +218,6 @@ test("rad-074-167 Raving Witness: Mighty threshold executes at 5 and above (CR 7
 });
 
 test.todo(
-  "rad-074-167 Raving Witness: if/otherwise control structure — contract 3.9 has only sequence / " +
-    "repeat / choice.optional / choice.mode, so two complementary instruction conditions cannot " +
-    "guarantee the exclusive branch (contract change request in the task reply)"
-);
-
-test.todo(
   "rad-074-167 Raving Witness: object-moved is not in the engine EVENT_PATTERN_TYPES — " +
     "validateTriggerSpec reports invalid-event-type (the timing point itself exists), so the " +
     "event vocabulary needs the move event before this trigger can register"
@@ -202,14 +231,12 @@ test("rad-074-167 Raving Witness: the as-printed body executes both branches aga
     const kernel = world()
       .unit("witness", { might: 3 })
       .card("bottom", { zone: "deck", might: 1 })
-      .card("top", { zone: "deck", might })
+      .card("top", { zone: "deck", types: ["unit"], might })
       .build();
     const [top] = kernel.zoneSlice("A", "deck", "top", 1);
     assert.equal(top.ref.id, "top", "the ordered slice names the real deck top");
     const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("witness") });
-    scoped.setPicks("raving-witness.top-card", [top.ref]);
-    scoped.setPicks("raving-witness.revealed-card", [top.ref]);
-    scoped.setAnswers({ "raving-witness.reveal-top/effect.reveal": [top.ref] });
+    for (const plan of finalizeOrderedPickPlans(scoped, triggered.body)) scoped.setPicks(plan.id, plan.refs);
 
     const outcome = resolveChainBody(triggered.body, scoped);
 
@@ -220,6 +247,7 @@ test("rad-074-167 Raving Witness: the as-printed body executes both branches aga
       outcome.results.map(entry => [entry.id, entry.result.status]),
       [
         ["raving-witness.reveal-top", expectedReveal],
+        ["raving-witness.check-mighty", "executed"],
         ["raving-witness.draw-mighty", expectedDraw],
         ["raving-witness.recycle-not-mighty", expectedRecycle]
       ],
@@ -258,4 +286,44 @@ test("rad-074-167 Raving Witness: object-moved is missing from the merged event 
   const result = validateTriggerSpec(registration.spec);
   assert.equal(result.ok, false);
   assert.deepEqual(result.issues.map(issue => issue.code), ["invalid-event-type"]);
+});
+
+// CR 707/708: a non-unit or a unit without printed Might is not Mighty.
+// Before the snapshot predicate, both ordered null comparisons were ignored.
+for (const [name, types, might] of [
+  ["null Might unit", ["unit"], null],
+  ["null Might spell", ["spell"], null],
+  ["non-unit with numeric Might", ["gear"], 6]
+]) test(`rad-074-167 Raving Witness regression: ${name} is recycled by the otherwise branch`, () => {
+  const kernel = world().unit("witness", { might: 3 })
+    .card("bottom", { zone: "deck", might: 1 })
+    .card("top", { zone: "deck", types, might, energy: null, power: null }).build();
+  // WorldBuilder currently defaults null Might to 1. Construct the initial
+  // immutable fixture with its exact printed characteristic; no game action
+  // or settlement has occurred yet, and execution uses the unchanged kernel.
+  const initial = kernel.snapshot();
+  const scoped = new ReferenceTestKernel({
+    sourceSnapshot: kernel.getObject("witness"),
+    state: { ...initial, objects: new Map([...initial.objects].map(([id, object]) =>
+      [id, id === "top" ? { ...object, might } : object])) }
+  });
+  for (const plan of finalizeOrderedPickPlans(scoped, triggered.body)) scoped.setPicks(plan.id, plan.refs);
+  const outcome = resolveChainBody(triggered.body, scoped);
+  assert.deepEqual(outcome.events.map(event => event.action), ["reveal", "recycle"]);
+  assert.deepEqual(scoped.zone("A", "deck").map(ref => ref.id), ["bottom", "top"]);
+  assert.equal(outcome.linkedValues["raving-witness.check-mighty.value"], false);
+  assert.equal(scoped.getObject("top").might, might);
+  assert.equal(scoped.getObject("top").energy, null);
+  assert.equal(scoped.getObject("top").power, null);
+  assert.equal(scoped.player("A").handSize, 0);
+});
+
+test("rad-074-167 Raving Witness: empty deck reveals and moves no object", () => {
+  const kernel = world().unit("witness", { might: 3 }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("witness") });
+  for (const plan of finalizeOrderedPickPlans(scoped, triggered.body)) scoped.setPicks(plan.id, plan.refs);
+  const outcome = resolveChainBody(triggered.body, scoped);
+  assert.deepEqual(outcome.events, []);
+  assert.equal(scoped.player("A").deckSize, 0);
+  assert.equal(scoped.player("A").handSize, 0);
 });

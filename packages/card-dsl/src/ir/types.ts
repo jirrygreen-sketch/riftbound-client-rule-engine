@@ -84,14 +84,44 @@ export type ObjectSelector =
   | "source"
   | { readonly target: string }
   | { readonly pick: string }
-  | { readonly linked: string };
+  | { readonly linked: string }
+  /**
+   * The immutable object role captured from the triggering event. This is a
+   * referent (CR v1.5 359.3.f.3), never an object choice or target. Runtime
+   * validation requires this to be the sole key.
+   */
+  | { readonly event: EventObjectRole; readonly [key: string]: string };
+
+/** Event roles that a resolving instruction may name without choosing them. */
+export type EventObjectRole = "it";
 
 /** Object-valued anchors, distinct from scalar filter fields such as objectId. */
-export const OBJECT_FILTER_ANCHORS = ["object", "source", "target", "host", "attachedTo", "sameLocationAs", "exclude"] as const;
+export const OBJECT_FILTER_ANCHORS = ["object", "source", "target", "it", "host", "attachedTo", "sameLocationAs", "differentLocationFrom", "exclude"] as const;
+
+/** Relations used by the v1.5 object/event filter contract. */
+export type ObjectRelation =
+  | "same-location"
+  | "different-location"
+  | "same-controller"
+  | "different-controller"
+  | "same-owner"
+  | "different-owner"
+  | "another"
+  | "other";
+
+/** A relation is a filter predicate, never an implicit target selection. */
+export type RelationFilter = Readonly<Record<string, Value>> & {
+  readonly relation: ObjectRelation;
+  readonly object?: ObjectSelector | EventObjectSelector;
+  readonly other?: ObjectSelector | EventObjectSelector;
+};
 
 /** A JSON-like filter whose object-valued anchors contain static selectors. */
 export type ObjectFilter = Readonly<Record<string, Value>> & {
   readonly [key in typeof OBJECT_FILTER_ANCHORS[number]]?: ObjectSelector;
+} & {
+  /** Legacy scalar labels and structured relation filters are carried as JSON values. */
+  readonly relation?: Value;
 };
 
 /** A literal value expression, such as a printed amount or a named mode. */
@@ -147,6 +177,44 @@ export interface CountExpr {
   readonly filter?: ObjectFilter;
 }
 
+/** A single player; never infer opponents from objects visible on the Board. */
+export type PlayerSelector =
+  | "controller"
+  | { readonly id: string }
+  | { readonly controllerOf: ObjectSelector }
+  | { readonly ownerOf: ObjectSelector }
+  | { readonly pick: string };
+
+/** Numeric player facts available through ResolveContext's read capabilities. */
+export type PlayerProperty =
+  | "points" | "score" | "energy" | "xp"
+  | "handSize" | "handCount" | "deckSize" | "deckCount"
+  | "runeDeckSize" | "runeDeckCount" | "trashSize" | "trashCount";
+
+/** Read a current player fact. Omitted player means the ability controller. */
+export interface PlayerPropertyExpr {
+  readonly kind: "player-property";
+  readonly player?: PlayerSelector;
+  readonly property: PlayerProperty;
+}
+
+/** Number of turns begun in the game, including the current turn (0 before it). */
+export interface TurnNumberExpr {
+  readonly kind: "turn-number";
+}
+
+/** Number of turns begun by one player, including their current turn, if any. */
+export interface PlayerTurnCountExpr {
+  readonly kind: "player-turn-count";
+  readonly player?: PlayerSelector;
+}
+
+/** Current Attacker/Defender designation, or null outside those designations. */
+export interface ObjectDesignationExpr {
+  readonly kind: "object-designation";
+  readonly object: ObjectSelector;
+}
+
 /** A literal instruction body; its contents are executed only by a control node. */
 export type InstructionBodyExpr = ConstantExpr<readonly Instruction[]> | LiteralExpr<readonly Instruction[]>;
 
@@ -170,6 +238,10 @@ export type Expr =
   | LinkedValueExpr
   | LinkedExpr
   | CountExpr
+  | PlayerPropertyExpr
+  | TurnNumberExpr
+  | PlayerTurnCountExpr
+  | ObjectDesignationExpr
   | ArithmeticExpr
   | InstructionBodyExpr;
 
@@ -226,7 +298,7 @@ export interface ExpressionCondition {
 }
 
 /** A role in the event payload supplied while a trigger is tested. */
-export type EventObjectSelector = "object" | "source" | "target";
+export type EventObjectSelector = "object" | "source" | "target" | "it";
 
 /** A card-play provenance predicate.  The event payload, not the current zone, is authoritative. */
 export interface PlayedFromHandCondition {
@@ -263,6 +335,20 @@ export interface ResultCondition {
   readonly value?: Expr;
 }
 
+/** Compare two event roles or symbolic objects without re-selecting either one. */
+export interface RelationCondition {
+  readonly kind: "relation";
+  readonly relation: ObjectRelation;
+  readonly left: EventObjectSelector | ObjectSelector;
+  readonly right?: EventObjectSelector | ObjectSelector;
+}
+
+/** Presence test for the object bound by an event's pronoun (`it`). */
+export interface EventItCondition {
+  readonly kind: "event-it";
+  readonly object?: EventObjectSelector;
+}
+
 /** A v1.5 condition clause; its scope is the instruction or ability field owning it. */
 export type Condition =
   | AlwaysCondition
@@ -275,7 +361,9 @@ export type Condition =
   | PlayedFromHandCondition
   | PlayedFromZoneCondition
   | PrintedCharacteristicCondition
-  | ResultCondition;
+  | ResultCondition
+  | RelationCondition
+  | EventItCondition;
 
 /** A target selection specification that participates in target-trigger rules. */
 export interface TargetSpec {
@@ -320,9 +408,15 @@ export interface PickSpec {
 /** A single payment component in a v1.5 cost plan. */
 export interface CostPayment {
   readonly kind: string;
+  readonly id?: string;
   readonly amount?: Expr;
   readonly value?: Expr;
   readonly choice?: PickSpec;
+  /** Resource provenance; `universal-power` is distinct from a named Domain. */
+  readonly source?: "energy" | "power" | "universal-power" | "xp" | "object" | string;
+  readonly allowedDomains?: readonly string[];
+  readonly universal?: boolean;
+  readonly parameters?: Readonly<Record<string, Expr>>;
   readonly [key: string]: unknown;
 }
 
@@ -334,7 +428,34 @@ export interface CostSpec {
   readonly power?: Expr;
   readonly rune?: Expr;
   readonly discard?: PickSpec;
+  readonly parameters?: Readonly<Record<string, Expr>>;
+  /** A stable receipt key for conditions that read the finalized payment. */
+  readonly receiptKey?: string;
+  /** Explicitly marks a Universal Power source; never coerces to a named Domain. */
+  readonly universal?: boolean;
   readonly [key: string]: unknown;
+}
+
+/** A stable, serializable payment entry emitted by a Finalize transaction. */
+export interface CostReceiptEntry {
+  readonly id?: string;
+  readonly kind: string;
+  readonly paid: boolean;
+  readonly amount?: Value;
+  readonly source?: string;
+  readonly universal?: boolean;
+  readonly [key: string]: Value | undefined;
+}
+
+/** The read-only receipt shape exposed to a later condition or linked result. */
+export interface CostReceipt {
+  readonly id?: string;
+  readonly paid: boolean;
+  readonly status?: "paid" | "declined" | "rejected" | "rolled-back";
+  readonly entries?: readonly CostReceiptEntry[];
+  readonly additional?: readonly CostReceiptEntry[];
+  readonly universalPower?: number;
+  readonly [key: string]: Value | readonly CostReceiptEntry[] | undefined;
 }
 
 /** A forced precondition that must hold before an ability can be played. */
@@ -385,6 +506,9 @@ export interface EventPattern {
   readonly event?: string;
   readonly type?: string;
   readonly filter?: ObjectFilter;
+  /** The event's pronoun-bound object (`it`), kept separate from source/target. */
+  readonly it?: ObjectFilter;
+  readonly relations?: readonly RelationFilter[];
   readonly [key: string]: unknown;
 }
 
@@ -440,6 +564,8 @@ export interface KeywordAbility {
   readonly kind: "keyword";
   readonly keyword: KeywordId;
   readonly value?: number;
+  /** Printed keyword parameters (for example Equip/Empower costs). */
+  readonly params?: Readonly<Record<string, Value | CostSpec | undefined>>;
 }
 
 /** A mandatory or optional ability subscribed to a timing point. */

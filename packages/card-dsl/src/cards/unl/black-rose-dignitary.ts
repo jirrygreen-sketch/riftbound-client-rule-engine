@@ -19,14 +19,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （本卡规定 “exhausted”），用已合入的 effect.channel（amount 1、exhausted true）。
  *   431.4.b 明确“由游戏效果指示的 Channel”正是该原语覆盖的范围（Channel Phase 的常规 Channel 不属这里）。
  *
- * status = judge-required（缺口不近似实现）：
+ * status = judge-required（缺口不近似实现，2026-10-18 复核）：
  * - [Assault] 的 KeywordDef 展开、卡牌程序静态绑定和 arithmetic 图层已经接通；但展开条件读取
- *   `designation`，而 ObjectSnapshot 提供的是 `combatRole`，生产绑定器对缺失属性 fail-closed，
- *   因而不能只在攻击者期间应用 +1 Might。
+ *   `designation`，而 ObjectSnapshot 提供的是 `combatRole`。静态绑定条件经
+ *   programs/statics.ts 的 abilityEnvironment 走基础 evaluateExpression（读到 combatRole 的是
+ *   expr-ext 扩展求值器，此路径不经过它），对不存在的 designation 抛 MissingInformation 后
+ *   fail-closed：实测 attacker 单位的 might 仍停在印刷值，因而不能只在攻击者期间应用 +1 Might。
  * - [Deathknell] 的 KeywordDef 展开与 object-killed 触发注册已经接通；展开体仍引用没有
- *   InstructionDef 的 trigger.leave，且死亡被替代时移除触发、最后已知信息和离场前收集的完整
- *   语义尚未由该原语承载。
- * 依赖：契约 3.8 的 combatRole/Attacker 特征、trigger.leave 原语及其死亡替代/LKI 语义。
+ *   InstructionDef 的 trigger.leave（instructions/registry.generated.ts 无该 op），实测经
+ *   resolveChainBody 执行展开体抛 "Unregistered instruction opcode: trigger.leave"；
+ *   死亡被替代时移除触发、最后已知信息和离场前收集的完整语义同样尚未由该原语承载。
+ * 依赖：静态条件求值路径的 combatRole/Attacker 特征、trigger.leave 原语及其死亡替代/LKI 语义。
  * Channel 本体（effect.channel，431.1/431.2）已合入，golden 用解释器 + 参考内核真实执行。
  */
 const abilities: Ability[] = [
@@ -61,13 +64,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处当前缺口，均不近似实现：(1) [Assault]（807.1.c/807.1.d）的 KeywordDef 展开、卡牌程序静态绑定和 arithmetic 图层" +
-    "已经接通，但展开条件读取 designation，而 ObjectSnapshot 提供的是 combatRole；生产绑定器对缺失属性 fail-closed，" +
-    "不能只在攻击者期间应用 +1 Might。(2) [Deathknell] 的 KeywordDef 展开与 object-killed" +
-    "触发注册已经接通，但展开体仍引用没有 InstructionDef 的 trigger.leave；死亡被替代时移除触发、" +
-    "最后已知信息和离场前收集的语义也没有可执行承载。依赖：契约 3.8 的 combatRole/Attacker 特征、" +
-    "trigger.leave 原语及其死亡替代/LKI 语义。Channel 1 rune exhausted 本体（effect.channel，431.1/431.2）已合入，" +
-    "golden 用解释器 + 参考内核真实执行该半段。",
+    "两处当前缺口，均不近似实现（2026-10-18 复核）：(1) [Assault]（807.1.c/807.1.d）的 KeywordDef 展开、" +
+    "卡牌程序静态绑定和 arithmetic 图层已经接通，但展开条件读取 designation，而 ObjectSnapshot 提供的是 combatRole；" +
+    "静态绑定条件经 programs/statics.ts 的 abilityEnvironment 走基础 evaluateExpression（能读 combatRole 的 expr-ext " +
+    "扩展求值器不在该路径上），对缺失属性抛 MissingInformation 后 fail-closed，实测 attacker 单位 might 仍为印刷值，" +
+    "不能只在攻击者期间应用 +1 Might。" +
+    "(2) [Deathknell] 的 KeywordDef 展开与 object-killed 触发注册已经接通，但展开体仍引用没有 InstructionDef 的 " +
+    "trigger.leave：instructions/registry.generated.ts 无该 op，实测经 resolveChainBody 执行展开体抛 " +
+    "\"Unregistered instruction opcode: trigger.leave\"；死亡被替代时移除触发、最后已知信息和离场前收集的语义" +
+    "同样没有可执行承载。依赖：静态条件求值路径的 combatRole/Attacker 特征、trigger.leave 原语及其死亡替代/LKI 语义。" +
+    "Channel 1 rune exhausted 本体（effect.channel，431.1/431.2）已合入，golden 用解释器 + 参考内核真实执行该半段。",
   abilities,
   sourceText:
     "[Assault] (+1 :rb_might: while I'm an attacker.)\n" +

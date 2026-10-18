@@ -7,6 +7,13 @@ import ganking from "../../../../engine-core/dist/effects/keywords/Ganking.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { registerProgramTriggers } from "../../../../engine-core/dist/programs/triggers.js";
+import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
+import { movement as queryMovement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-03848f0e530587876003913478c758509f6b05e8b89b33575cb4fd9da70f9cf1";
@@ -35,6 +42,23 @@ function moveYasuo(kernel, destination) {
   );
 }
 
+/** Real ChainEngine on the reference kernel, used for binding/rule-query probes. */
+function yasuoEngine() {
+  const kernel = world()
+    .unit("yasuo", { cardId: CANONICAL, might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`unexpected choice ${request.id}`); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  return { kernel, engine };
+}
+
 test("ogn-205-298 Yasuo, Windrider: program validates and has expected identity", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
@@ -44,14 +68,48 @@ test("ogn-205-298 Yasuo, Windrider: program validates and has expected identity"
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /effect\.score/);
   assert.match(program.judgeReason, /470\.2/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  // The pipeline already evaluates event predicates; the missing history
+  // predicate must distinguish this turn's real Moves and simultaneous hits.
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /invalid-event-type/);
+  assert.match(program.judgeReason, /condition\.history/);
+  assert.match(program.judgeReason, /testTrigger/);
+  assert.match(program.judgeReason, /Recall/);
+  assert.match(program.judgeReason, /383\.1\.b/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /Ganking/);
-  assert.match(program.judgeReason, /第 N 次/);
-  // The movement consumer exists; the remaining gap is production assembly.
-  assert.match(program.judgeReason, /RIFT-347/);
+  assert.match(program.judgeReason, /The third time I move in a turn/);
+  // The movement consumer exists; the remaining gaps are production assembly
+  // (rules context + permission normalization) and the server's trusted
+  // Ganking evaluator rejecting this card. RIFT-347 is merged, so the reason
+  // must not present it as an outstanding dependency.
+  assert.doesNotMatch(program.judgeReason, /RIFT-347/);
   assert.match(program.judgeReason, /canGank/);
-  assert.match(program.judgeReason, /生产装配.*DuelMovementRuleContext/);
+  assert.match(program.judgeReason, /DuelMovementRuleContext/);
+  assert.match(program.judgeReason, /standard-move-executor-v2/);
+  assert.match(program.judgeReason, /authoritative-runtime-p4/);
+  assert.match(program.judgeReason, /permission\.routes/);
   assert.equal(program.sourceText, SOURCE_TEXT);
+});
+
+test("ogn-205-298 Yasuo, Windrider golden: Move history is specific to this object and excludes zone transitions", () => {
+  const base = world()
+    .unit("yasuo", { might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .unit("other-unit", { might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .hand("arrival", { types: ["unit"], might: 2 })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("yasuo") });
+  assert.equal(kernel.perform({ type: "move-zone", object: kernel.ref("arrival"), to: "battlefield", location: { type: "battlefield", id: "bf-2" } }).status, "done");
+  assert.equal(kernel.perform({ type: "move-location", object: kernel.ref("other-unit"), to: { type: "battlefield", id: "bf-2" } }).status, "done");
+  for (const destination of ["bf-2", "bf-1", "bf-2"]) assert.equal(moveYasuo(kernel, destination).result.status, "executed");
+  const outcome = runAbilityBody([{
+    id: "yasuo-history", op: "condition.history",
+    args: { query: literal({ action: "move-location", object: kernel.ref("yasuo"), scope: "turn" }), operator: literal("eq"), right: literal(3) }
+  }], kernel);
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(outcome.results[0].result.linkedValues, { count: 3, value: true });
+  assert.equal(kernel.history({ action: "move-location" }), 4);
+  assert.equal(kernel.player("A").score, 0);
 });
 
 test("ogn-205-298 Yasuo, Windrider: Ganking keyword plus a third-move trigger that scores 1 point", () => {
@@ -206,14 +264,88 @@ test("ogn-205-298 Yasuo, Windrider golden: the merged history query counts this 
   assert.equal(afterThree.results[0].result.linkedValues.value, true);
 });
 
+test("ogn-205-298 Yasuo, Windrider boundary: the closed event vocabulary rejects object-moved before registration (383.1.b)", () => {
+  // The trigger needs the object-moved timing point, but the closed
+  // EVENT_PATTERN_TYPES list ends at final-point; assertTriggerSpec fails, so
+  // the production lifecycle can never register this ability.
+  const { kernel, engine } = yasuoEngine();
+  const executable = { ...program, status: "executable", judgeReason: undefined };
+  assert.throws(
+    () => registerProgramTriggers(new ProgramRegistry([executable]), engine, kernel.getObject("yasuo")),
+    error => error.name === "TriggerSpecValidationError" &&
+      error.issues.some(issue => issue.code === "invalid-event-type" && issue.path === "trigger.filter.event")
+  );
+  // Nothing was registered, so a real committed Move cannot score the point.
+  assert.deepEqual(kernel.events.filter(event => event.action === "score"), []);
+});
+
+test("ogn-205-298 Yasuo, Windrider boundary: the TriggerSpec count expression cannot read this turn's Move history (383.1.b)", () => {
+  // The merged condition.history instruction does count real move-location
+  // actions (previous golden), but the authored TriggerSpec condition is a
+  // count expression, which resolves as a set query over current objects.
+  // A unit on the board therefore counts 1 regardless of how often it moved.
+  const kernel = yasuoWorld();
+  const authored = triggered.trigger.condition;
+  assert.equal(kernel.test(authored), false);
+  assert.equal(
+    runAbilityBody([{ id: "yasuo-windrider.count-moves", op: "condition.value", args: { value: authored.left } }], kernel)
+      .results[0].result.linkedValues.value,
+    1
+  );
+  assert.equal(moveYasuo(kernel, "bf-2").result.status, "executed");
+  assert.equal(
+    runAbilityBody([{ id: "yasuo-windrider.count-moves", op: "condition.value", args: { value: authored.left } }], kernel)
+      .results[0].result.linkedValues.value,
+    1
+  );
+  assert.equal(kernel.test(authored), false);
+
+  // The real history instruction the card would need is a body op, not a
+  // TriggerSpec condition, and only the reference kernel implements the query.
+  const history = runAbilityBody([{
+    id: "yasuo-windrider.count-moves",
+    op: "condition.history",
+    args: { query: literal({ action: "move-location", object: kernel.ref("yasuo"), scope: "turn" }), operator: literal("eq"), right: literal(3) }
+  }], kernel);
+  assert.equal(history.results[0].result.linkedValues.count, 1);
+  assert.equal(history.results[0].result.linkedValues.value, false);
+});
+
+test("ogn-205-298 Yasuo, Windrider boundary: production Standard Move does not consume the Ganking permission (810.1.b/144.4.c)", () => {
+  // The keyword expansion binds to the ability layer, but the registered
+  // effect keeps the string permission while the rule query reads
+  // permission.routes, and no production caller assembles DuelMovementRuleContext.
+  const { kernel, engine } = yasuoEngine();
+  createEngineStaticBinder(engine).bindStatic(
+    ganking.expand({ host: { canonicalCardId: CANONICAL } })[0],
+    kernel.getObject("yasuo")
+  );
+  const registration = engine.layers.registry.list()[0];
+  assert.equal(registration.effect.layer, "ability");
+  assert.deepEqual(registration.effect.effect.permission, "battlefield-to-battlefield");
+  assert.equal(registration.effect.effect.permission.routes, undefined);
+
+  // The rule query reads permission.routes, so the same registration that the
+  // production binder created still reports canGank: false.
+  const registry = new ContinuousEffectRegistry();
+  for (const entry of engine.layers.registry.list()) registry.register(entry.effect, entry.duration);
+  const view = queryMovement(registry, kernel.ref("yasuo"), kernel.getObject("yasuo"), "A");
+  assert.equal(view.canGank, false);
+  assert.equal(view.battlefieldToBattlefield, false);
+  assert.deepEqual(view.permissions, []);
+});
+
 test.todo(
   "ogn-205-298 Yasuo, Windrider: the trigger condition 'the third time I move in a turn' (383.1.b) needs a " +
     "history predicate in the Condition vocabulary (the merged condition.history is an instruction op, not a " +
-    "TriggerSpec condition) and an exactly-once Nth-occurrence shape"
+    "TriggerSpec condition) plus an exactly-once Nth-occurrence shape (383.1.b), and the trigger cannot even " +
+    "register while object-moved is absent from EVENT_PATTERN_TYPES"
 );
 
 test.todo(
   "ogn-205-298 Yasuo, Windrider: [Ganking]'s expansion execution (810.1.c / 144.4.c Battlefield→Battlefield " +
-    "Standard Move) — RIFT-347's optional rules bridge already consumes canGank; production must assemble " +
-    "DuelMovementRuleContext and normalize the keyword's string permission to permission.routes"
+    "Standard Move) — RIFT-347's optional rules bridge already consumes canGank, but production must assemble " +
+    "DuelMovementRuleContext for duel/standard-move-executor-v2.ts, normalize the keyword's string permission " +
+    "to permission.routes, and stop apps/game-server's authoritative-runtime-p4.ts trusted Ganking evaluator " +
+    "from throwing 'unresolved movement keyword' for this card"
 );

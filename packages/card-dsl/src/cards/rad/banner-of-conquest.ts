@@ -71,7 +71,7 @@ const bannerOfConquest = {
     "events/pipeline-match.ts 才把 held 映射到 hold 时点），展开的 filter 还带 here，而 here 不是 " +
     "EventPattern 字段（programs/filters.ts 直接拒绝）；turn/flow.ts 的 hold 发射也只带 " +
     "details.battlefieldId。" +
-    "(3)「Friendly units here have [Assault]」经已合入的静态绑定（RIFT-349）进入 ability 图层，但授予到不了" +
+    "(3)「Friendly units here have [Assault]」经静态绑定进入 ability 图层，但授予到不了" +
     "源战场上的单位：staticFilter 登记源位置快照，而 layers/filter.ts 按位置对象同一性比较，读取又返回新" +
     "克隆（实测登记的授予匹配不到任何单位）。即便锚点能解析，授予的 Assault 也不会产生 Might：layers/engine.ts " +
     "的 applyKeyword 只记录关键词 id，Assault 展开（以 Attacker designation 为条件的 arithmetic 修正，" +

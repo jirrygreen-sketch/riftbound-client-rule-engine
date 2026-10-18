@@ -24,7 +24,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   控制者的所有友方单位增加许可（while-on-board）。
  * - 提醒文字 "(When I conquer or hold, gain 2 XP.)" 是提醒文本（135.2.d.3），不另写能力。
  *
- * status = judge-required：Hunt 的展开与触发翻译已合入，但仍有四类缺口：
+ * status = judge-required；执行证据在 templates/keyword-static-static-673.test.mjs。
+ * Hunt 的展开与触发翻译已合入，但仍有四类缺口：
  * - Hunt 展开产生 event: conquer/hold，而 EventPattern 的校验枚举只收 conquered/held；
  *   虽然 matcher 有别名映射，registerTrigger 仍先拒绝该过滤器，不能真实注册。
  * - turn/flow.ts 的 Score 波只携带 player + details.battlefieldId，没有单位对象；

@@ -63,7 +63,7 @@ test("ven-089-166 Wild Claw: judgeReason names the cost reduction, the 'it' refe
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /356\.1\.c/);
   assert.match(program.judgeReason, /356\.6/);
-  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /有序 picks/);
   assert.doesNotMatch(program.judgeReason, /RIFT-9|RIFT-89|RIFT-90/);
   assert.match(program.judgeReason, /effect\.play/);
   assert.match(program.judgeReason, /effect\.empower/);
@@ -247,6 +247,13 @@ test("ven-089-166 Wild Claw golden: the chosen card is banished and the rest is 
   // "You may banish a unit or gear from among them": the chosen gear leaves its
   // Main Deck zone for its owner's Banishment (428.1 / 428.2).
   assert.equal(resultFor(outcome, "wild-claw.banish-chosen-card").result.status, "executed");
+  // effect.play is deliberately fail-closed until a dynamic printed-cost
+  // producer supplies a finalized plan; the preceding banish still commits.
+  assert.deepEqual(resultFor(outcome, "wild-claw.play-it").result, {
+    status: "negated",
+    reason: "impossible",
+    events: []
+  });
   assert.deepEqual(kernel.zone("A", "banishment").map(ref => ref.id), ["gear-b"]);
   // The chosen card's old deck reference is stale, so "recycle the rest" recycles
   // exactly the other four looked-at cards (417.1.a / 417.4), and the unlooked
@@ -273,5 +280,5 @@ test.todo(
 test.todo(
   "ven-089-166 Wild Claw: restrict the inspected choice to a unit or gear (CR 417.6-style type restriction) — " +
     "effect.inspect's resolve-time choose does not read the PickSpec filter, so the declared filter is descriptive " +
-    "until the ordered-pick/filter consumer from RIFT-358 is complete"
+    "until an ordered-pick/filter consumer is available"
 );

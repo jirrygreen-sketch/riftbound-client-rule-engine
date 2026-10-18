@@ -11,12 +11,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 809.1 / 809.1.a：Deflect 是被动能力关键词，通常出现在 Permanents 上；809.1.b.3：印刷省略
  *   数值时按 1；809.1.c：功能文本是“对手用咒语或能力选择我时要多支付 1 点任意域力量”。
  * - 809.2：同一对象上来自多个来源的 Deflect 数值相加（Deflect Value 求和）——本句给每个
- *   友方 gear 授予 1 点，与 gear 自身可能已有的 Deflect 相加。
+ *   友方 gear 授予 1 点，与 gear 自身可能已有的 Deflect 相加；当前 LayerEngine 的
+ *   keyword grant expansion 已保留该叠加语义。
  * - 809.3：是否拥有 Deflect 是永久物的特征，可被其他游戏效果检查/引用。
  * - “Your gear”：由本卡控制者控制的 gear（190 的控制定义）；授予本身是持续效果（把关键词
  *   附加到对象上），归图层/持续效果（Contract 3.4 的 ability 图层，continuous.grant-keyword）。
  *
- * status 判定（README 第 2 节）：judge-required。授予 Deflect 的生产绑定与图层结算
+ * status 判定（README 第 2 节，2026-10-18 复核）：judge-required。授予 Deflect 的生产绑定与图层结算
  * 已合入，但目标选择税与收费链路仍未完成，不能把关键词可读性当作整卡可执行。
  * 当前缺口是目标税的生产接线与正确的任意域 Power 支付链路。
  * - 生产绑定：构造时 validateCardProgram 通过；createEngineStaticBinder.bindStatic 把
@@ -30,11 +31,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   注册路径把本卡 static 绑进真实图层引擎，断言匹配集。
  *
  * judge-required 原因：
- * - Deflect.expand 虽产生 target.tax，但 target/target-plan.ts 只有在调用方显式提供
- *   options.tax 时才把税追加到 TargetPlan；从授予的关键词自动生成目标税的生产接线尚未合入。
- * - chain/engine.ts 当前把 TargetTax 转成 Energy mandatoryAdditional；CR 809.1.c /
- *   809.1.c.1 要求对手支付任意域 Power，因此缺少正确的 Power 支付与无法支付时的
- *   Finalize/Resolve 阻断链路。
+ * - Deflect.expand、TargetTaxCostAdapter 与 any-domain Power 规划已合入，但从本卡授予的
+ *   keyword expansion 到目标 Finalize 的活动税集合仍没有生产接线；target-plan.ts 的
+ *   taxAdapter 只能由调用方显式提供，不能自动看到本卡授予的 Deflect。
+ * - chain/engine.ts 当前仍把旧 tax callback 的金额转成 Energy mandatoryAdditional，未使用
+ *   target/tax/adapter.ts 的完整 CostPlan；CR 809.1.c / 809.1.c.1 所需的任意域 Power、
+ *   累计不可支付时的 Finalize/Resolve 阻断和支付回滚没有进入卡牌生产路径。
+ * - ReferenceTestKernel 的 perform(pay) 仍忽略 Power 扣减，局部 payment receipt 不能作为
+ *   端到端资源消费证据。
  */
 const abilities: Ability[] = [
   {
@@ -56,12 +60,12 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "Deflect 的关键词展开与 static→LayerEngine 绑定已合入，" +
-    "但整卡仍缺目标税和收费链路：(1) Deflect.expand 虽产生 target.tax，" +
-    "target/target-plan.ts 的 taxSpecs/appendTaxes 只有调用方显式提供 options.tax 时才追加税，" +
-    "当前没有从授予的 Deflect 自动生成该 options.tax 的生产接线；" +
-    "(2) chain/engine.ts 当前把目标税转换为 Energy mandatoryAdditional，" +
-    "而 CR 809.1.c/809.1.c.1 要求支付任意域 Power，且缺少无法支付时阻断 Finalize/Resolve 的完整链路；" +
+    "Deflect 的关键词展开、809.2 的叠加以及 TargetTaxCostAdapter 的 any-domain Power 规划器已合入并有独立执行证据，" +
+    "但整卡仍缺生产接线：(1) CardProgram 的 static→LayerEngine grant 产生的 target.tax 没有绑定到 target Finalize；programs/statics.ts 没有把 target.tax/keyword expansion 导出为活动税集合，" +
+    "因此 target-plan.ts 的 taxAdapter 只能由调用方显式提供，无法自动看到本卡授予的 Deflect；" +
+    "(2) chain/engine.ts 仍使用旧的 tax callback，把每个税额写成 Energy mandatoryAdditional，未使用 target/tax/adapter.ts 的完整 CostPlan，" +
+    "所以 CR 809.1.c/809.1.c.1 所需任意域 Power、累计不可支付时的 Finalize 阻断和支付回滚都没有进入卡牌生产路径；" +
+    "(3) ReferenceTestKernel 的 perform(pay) 仍忽略 Power 扣减，不能把局部付款 receipt 当作端到端资源消费证据。" +
     "不近似宣称可执行。",
   abilities,
   sourceText:

@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/sky-crusier.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import damageDefinition from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -32,6 +34,7 @@ test("sky-crusier: judgeReason names the discard-cost selection gap and its depe
   assert.match(program.judgeReason, /gear-in-controller-hand/);
   assert.match(program.judgeReason, /Finalize/);
   assert.match(program.judgeReason, /effect\.discard/);
+  assert.match(program.judgeReason, /423\.3/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -138,9 +141,45 @@ test("sky-crusier: a target that left its zone before resolution makes the damag
   assert.equal(outcome.results[0].result.reason, "mistargeted");
 });
 
+test("sky-crusier gap: the descriptive hand candidate is rejected by the merged cost planner", () => {
+  // Executed evidence for the remaining gap: plan-values.ts choiceObjects
+  // requires pre-listed ObjectRef candidates, so the printed "Discard a gear"
+  // selection has no runtime resolution path and fails closed (423.1.a/423.3).
+  const kernel = world().player("A").hand("gear-1", { types: ["gear"] }).build();
+  assert.throws(
+    () => buildCostPlan(kernel, { id: "sky-crusier", cost: ability.cost }),
+    /Cost requires an exact object reference/
+  );
+});
+
+test("sky-crusier golden: with an explicit gear candidate the printed cost plan really pays", () => {
+  // The merged halves have execution evidence: with the caller-supplied exact
+  // reference the plan charges 1 Energy, discards the gear and exhausts the
+  // source. The missing half is only resolving "a gear" from the hand at runtime.
+  const base = world().player("A", { energy: 5 }).unit("sky-crusier", { controller: "A" })
+    .hand("gear-1", { types: ["gear"] }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("sky-crusier") });
+  const gear = kernel.ref("gear-1");
+  const plan = buildCostPlan(kernel, {
+    id: "sky-crusier",
+    cost: {
+      kind: "activated",
+      energy: { kind: "constant", value: 1 },
+      payments: [{ kind: "discard", objects: [gear] }, { kind: "exhaust", object: "self" }]
+    }
+  });
+  assert.equal(plan.total.energy, 1);
+  assert.deepEqual(plan.total.actions.map(entry => entry.action.type), ["discard", "exhaust"]);
+  const receipt = payCostPlan(kernel, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(kernel.getObject("gear-1").zone, "trash");
+  assert.equal(kernel.getObject("sky-crusier").exhausted, true);
+  assert.equal(kernel.player("A").energy, 4);
+});
+
 test.todo(
-  "sky-crusier: build and charge the 1 Energy + discard-a-gear + exhaust cost at Finalize " +
-    "(423.3 requires the discard to be completable) — cost/plan-values.ts still demands exact " +
-    "pre-listed ObjectRef candidates, and no merged path resolves the descriptive PickSpec " +
-    "candidate 'gear-in-controller-hand' against the paying player's hand at runtime"
+  "sky-crusier: resolve the printed 'Discard a gear' candidate from the paying player's hand at " +
+    "Finalize (423.1.a/423.3) — cost/plan-values.ts choiceObjects accepts only pre-listed exact " +
+    "ObjectRef options, so no merged path turns the descriptive 'gear-in-controller-hand' PickSpec " +
+    "into the paying player's runtime selection"
 );

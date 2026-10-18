@@ -63,6 +63,11 @@ test("unl-023-219 Katarina, Reckless: identity, status, judgeReason and verbatim
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.match(program.judgeReason, /GameAction 封闭集合里没有 hide/);
   assert.match(program.judgeReason, /Facedown Zone/);
+  // The live reason must name the EventPattern shape requirement and the
+  // provenance payload that makes the face-down gate fail closed.
+  assert.match(program.judgeReason, /Unsupported filter field details/);
+  assert.match(program.judgeReason, /playedFromZone/);
+  assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
 test("unl-023-219 Katarina, Reckless: the hide trigger waits on the card-hidden timing point", () => {
@@ -85,13 +90,15 @@ test("unl-023-219 Katarina, Reckless: the hide trigger waits on the card-hidden 
 
 test("unl-023-219 Katarina, Reckless: the second trigger is one enemy-unit damage target", () => {
   // 359 / 383.4.a: the event is a card being played; the face-down provenance
-  // is part of the missing payload (see judgeReason) and is not faked.
+  // is part of the missing payload (see judgeReason) and is not faked. The
+  // nested empty filter is the production translator's required shape.
   assert.equal(faceDownTrigger.kind, "triggered");
   assert.equal(faceDownTrigger.trigger.at, "card-played");
   assert.deepEqual(faceDownTrigger.trigger.filter, {
     event: "card-played",
-    details: { fromFaceDown: true },
-    player: "self"
+    player: "self",
+    filter: {},
+    details: { fromFaceDown: true }
   });
   assert.equal(faceDownTrigger.optional, false);
   assert.equal(dealTwo.id, "katarina-reckless.deal-two");
@@ -114,8 +121,10 @@ test("unl-023-219 Katarina, Reckless: the second trigger is one enemy-unit damag
 
 test("unl-023-219 Katarina, Reckless: the merged program binding exposes both declared triggers", async () => {
   // programs/keywords.ts + programs/filters.ts parse the card and expose both
-  // declared triggered abilities with their anchors.
+  // declared triggered abilities with their anchors. Only the card-played
+  // subscription registers: its nested filter keeps details.fromFaceDown.
   const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
+  const { registerProgramTriggers, triggerRegistrations } = await import("../../../../engine-core/dist/programs/triggers.js");
   const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
   const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
   const f = fixture({ cards: [{ id: "katarina", cardId: CANONICAL_ID, types: ["unit"], energy: 1, power: [], might: 5 }], describePlay: binding.describePlay });
@@ -133,6 +142,28 @@ test("unl-023-219 Katarina, Reckless: the merged program binding exposes both de
   // The card-played ability carries the ability-controller player anchor.
   const cardPlayed = abilities.find(ability => ability.kind === "triggered" && ability.trigger.at === "card-played");
   assert.equal(cardPlayed.trigger.filter.player, "self");
+
+  // The card-hidden spelling is still outside EVENT_PATTERN_TYPES, so its
+  // subscription fails the closed-vocabulary validation; the card-played half
+  // registers on its own and retains the details gate.
+  const { validateTriggerSpec } = await import("../../../../engine-core/dist/events/trigger-spec.js");
+  const hidden = validateTriggerSpec({
+    at: "card-hidden",
+    filter: { event: "card-hidden", player: "self" }
+  });
+  assert.equal(hidden.ok, false);
+  assert.deepEqual(hidden.issues.map(issue => issue.code), ["invalid-event-type"]);
+  const playOnly = { ...program, status: "executable", judgeReason: undefined, abilities: [program.abilities[1]] };
+  const playBinding = createProgramBinding({ cardPrograms: [playOnly] });
+  const [playRegistration] = triggerRegistrations(playBinding.registry, snapshot);
+  assert.deepEqual(playRegistration.spec.filter, {
+    event: "card-played",
+    player: "self",
+    details: { fromFaceDown: true }
+  });
+  assert.deepEqual(registerProgramTriggers(playBinding.registry, f.engine, snapshot), [
+    `program:katarina:${snapshot.ref.zoneEntryId}:0`
+  ]);
 });
 
 test("unl-023-219 Katarina, Reckless golden: 'ready me' readies the exhausted source", () => {
@@ -209,6 +240,6 @@ test.todo(
     "the ready body (CR 422.1; event-pattern adapter)"
 );
 test.todo(
-  "unl-023-219 Katarina, Reckless: register the fromFaceDown card-played filter and route only matching " +
-    "plays into the damage body (CR 811.1.d; provenance filter adapter)"
+  "unl-023-219 Katarina, Reckless: carry a Facedown Zone origin (or equivalent 811.1.d fact) in the " +
+    "card-played payload and route only matching plays into the damage body"
 );

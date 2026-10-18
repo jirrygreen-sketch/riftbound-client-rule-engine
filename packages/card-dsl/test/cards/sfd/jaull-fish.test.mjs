@@ -1,9 +1,11 @@
+// Execution evidence for keyword expansion is consolidated in ../templates/keyword-only.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/sfd/jaull-fish.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 
@@ -42,24 +44,66 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /cost.modify/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /mightGte/);
+  assert.match(program.judgeReason, /finalizeCostPlan/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.match(program.judgeReason, /Mighty/);
   assert.ok(program.sourceText.includes("[Accelerate]"));
   assert.ok(program.sourceText.includes("cost :rb_energy_2: less for each of your [Mighty] units"));
 });
 
 test("abilities: exactly one unvalued Accelerate keyword ability", () => {
-  assert.equal(program.abilities.length, 1);
+  assert.equal(program.abilities.length, 2);
   const ability = program.abilities[0];
   assert.equal(ability.kind, "keyword");
   assert.equal(ability.keyword, "accelerate");
   assert.equal(ability.value, undefined);
 });
 
+test("the Mighty discount keeps the full count expression and fails closed at the current cost predicate gap", () => {
+  const discount = program.abilities[1];
+  assert.equal(discount.kind, "static");
+  assert.equal(discount.effect.kind, "continuous.cost-modification");
+  assert.equal(discount.effect.resource, "energy");
+  assert.equal(discount.effect.appliesTo, "self");
+  assert.deepEqual(discount.effect.amount, {
+    kind: "arithmetic",
+    operator: "multiply",
+    operands: [
+      { kind: "constant", value: 2 },
+      {
+        kind: "count",
+        subject: "units",
+        filter: { type: "unit", controller: "self", zone: "board", mightGte: 5 }
+      }
+    ]
+  });
+
+  const kernel = world()
+    .player("A", { energy: 10 })
+    .unit("jaull", { cardId: CARD_ID, might: 3 })
+    .unit("mighty", { might: 5 })
+    .build();
+  const context = kernel.clone({
+    source: kernel.ref("jaull"),
+    sourceSnapshot: kernel.getObject("jaull"),
+    controller: "A"
+  });
+  assert.throws(
+    () => finalizeCostPlan(context, {
+      id: "jaull",
+      cost: { energy: { kind: "constant", value: 2 } }
+    }, {
+      statics: [{ id: "jaull-mighty-discount", source: kernel.ref("jaull"), ability: discount }]
+    }),
+    error => error?.reason === "judge-required" && /Unsupported cost filter field mightGte/.test(error.message)
+  );
+});
+
 test("the merged Accelerate expansion resolves the declared keyword into cost + enter-ready abilities", () => {
   // 805.1/805.1.b: the optional additional cost [1][C]; 805.6: paying it replaces
   // the exhausted entry with a ready entry. The expansion is owned by
-  // effects/keywords/Accelerate.ts and resolved by RIFT-257's expandProgram —
+  // effects/keywords/Accelerate.ts and resolved by expandProgram —
   // the card only declares the keyword (contract 3.7).
   const expanded = expandProgram(program, snapshot());
   assert.deepEqual(expanded.expanded.map((ability) => ability.kind), ["static", "replacement"]);
@@ -84,7 +128,6 @@ test("golden: the expanded enter-ready replacement really readies the entering u
 
 test.todo(
   "'I cost 2 less per Mighty unit' static cost reduction via cost.modify counting controller's " +
-    "Mighty units (356.4/356.4.b; the cost.modify primitive is merged, but programs/statics.ts layerFor " +
-    "rejects static cost.modify with no layer mapping, cost/cost-plan.ts still reads only caller-supplied " +
-    "discounts — RIFT-261 in flight, and the Mighty count has no cost-side entry point)"
+    "Mighty units (356.4/356.4.b; the count expression is declared, but the production static-to-Finalize " +
+    "bridge and a mightGte-aware cost predicate are still missing)"
 );

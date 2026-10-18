@@ -6,6 +6,7 @@ import program from "../../../dist/cards/sfd/bushwhack.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -33,6 +34,8 @@ test("sfd-004-221 Bushwhack: judge-required for Hidden, the entry replacement an
   assert.match(program.judgeReason, /replacement\.enter/);
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /Entry overrides are not supported/);
+  assert.match(program.judgeReason, /host\/source/);
+  assert.match(program.judgeReason, /ResolveContext\.replacement/);
 });
 
 test("sfd-004-221 Bushwhack: [Hidden] expands through the merged keyword registry", () => {
@@ -103,8 +106,7 @@ test("sfd-004-221 Bushwhack structure: [Hidden], the entry-ready stipulation and
 
   // "Play a Gold gear token exhausted": CR 187.5's Gold definition, the
   // 440.2.c / 185.2.a chain-create + play path and the 143.4 / 185.2.d entry
-  // stipulation. All three are unmerged (see judgeReason), so the instruction is
-  // declared for review and its execution stays a test.todo.
+  // stipulation. Gold's definition and entry override remain judge-required.
   assert.equal(goldToken.op, "effect.token");
   assert.deepEqual(goldToken.args.token, { kind: "constant", value: "gold" });
   assert.deepEqual(goldToken.args.amount, { kind: "constant", value: 1 });
@@ -117,7 +119,7 @@ test("sfd-004-221 Bushwhack structure: [Hidden], the entry-ready stipulation and
   assert.equal(goldToken.linkedTo, undefined);
 
   // The sentences are independent (no reference between them, 359.3.e.14), so
-  // the unmerged entry replacement does not gate the token instruction.
+  // the unsupported cross-object entry replacement does not gate the token instruction.
   assert.equal(enterReady.linkedTo, undefined);
 });
 
@@ -130,12 +132,26 @@ test.todo(
 test.todo(
   "sfd-004-221 Bushwhack: 'Friendly units enter ready this turn' is an entry replacement (143.4 / " +
     "184.1 / 185.2.d; 805.6 says it is not 'enter exhausted then become ready'), so it needs a " +
-    "body-level temporary replacement.enter registration and the replaced-event object binding — the " +
-    "merged replacement family only consumes replacement.enter declarations inside bound replacement abilities"
+    "cross-object this-turn entry orientation including create-token, plus production forwarding of " +
+    "ResolveContext.replacement; the merged replacement.enter only orients host/source entries"
 );
 
 test.todo(
   "sfd-004-221 Bushwhack: playing the Gold gear token needs the CR 187.5 definition (with its own " +
-    "printed ability) in the token table, the 440.2.c / 185.2.a chain-create + play handoff, and the " +
+    "printed ability) in the token table and an entry override on the existing chain-create/play handoff for the " +
     "exhausted entry stipulation of 143.4 / 185.2.d"
 );
+
+test("sfd-004-221 Bushwhack: merged entry primitive cannot broaden the spell to a host-only replacement", () => {
+  const definition = instructionDefinitionsById.get(enterReady.op);
+  assert.equal(definition.op, "replacement.enter");
+  assert.deepEqual(definition.argsSchema.parse(enterReady.args), enterReady.args);
+  const kernel = world().unit("friendly", { exhausted: true }).build();
+  const before = kernel.objects;
+  assert.throws(() => runInstruction(definition, enterReady.args, { world: kernel }), {
+    name: "BlockedReplacementError",
+    message: /appliesTo must identify the host\/source object/
+  });
+  assert.deepEqual(kernel.objects, before);
+  assert.deepEqual(kernel.events, []);
+});

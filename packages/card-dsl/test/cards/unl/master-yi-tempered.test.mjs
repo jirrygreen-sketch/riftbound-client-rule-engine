@@ -1,3 +1,12 @@
+// Golden test for Master Yi, Tempered (unl-113-219).
+//
+// Execution evidence (the real printed 4 Energy payment, the registered
+// [Level 6] grants with their unresolved XP gate, the fail-closed Hunt trigger
+// registration and the blocked printed expectations) lives in the RIFT-673
+// parameterized template golden:
+// test/cards/templates/keyword-static-static-673.test.mjs.
+// Original behavior and structure assertions remain in this file; the
+// template adds execution evidence without replacing these checks.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -8,6 +17,9 @@ import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-s
 import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 
 const CANONICAL_ID =
   "card.hash-c32a0493f88b4c947cb3f7806d8ba125b166dd6478a848bb39f1da87aed3ae92";
@@ -38,12 +50,13 @@ test("unl-113-219 Master Yi, Tempered: identity, status, judgeReason and verbati
   // consumer.
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.match(program.judgeReason, /controller-xp/);
-  // Re-checked against the merged sources: the Level gate is ignored (not
-  // fail-closed), Level's own predicate has no layer mapping, and the granted
+  // The authored Level gate is explicitly blocked; the engine still has no
+  // player XP evaluator or layer mapping for Level's own predicate. Granted
   // Ganking shape does not satisfy the movement query.
   assert.match(program.judgeReason, /TriggerSpecValidationError/);
   assert.match(program.judgeReason, /condition\.predicate/);
   assert.match(program.judgeReason, /permission\.routes/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
   assert.doesNotMatch(program.judgeReason, /未识别条件按 true/);
 });
 
@@ -56,14 +69,17 @@ test("unl-113-219 Master Yi, Tempered: [Hunt 2] carries its printed Hunt Value",
 test("unl-113-219 Master Yi, Tempered: [Level 6][>] gates both grants on 6 or more XP", () => {
   for (const ability of [deflectGrant, gankingGrant]) {
     assert.equal(ability.kind, "static");
-    assert.equal(ability.condition.kind, "compare");
-    assert.equal(ability.condition.operator, "gte");
-    assert.deepEqual(ability.condition.right, { kind: "constant", value: 6 });
+    assert.equal(ability.condition.kind, "all");
+    assert.deepEqual(ability.condition.conditions[0], { kind: "never" });
+    const pending = ability.condition.conditions[1];
+    assert.equal(pending.kind, "compare");
+    assert.equal(pending.operator, "gte");
+    assert.deepEqual(pending.right, { kind: "constant", value: 6 });
     // 824.1.c / 824.1.c.1 / 824.1.d: the gate is the controller's XP and must
     // re-evaluate as it changes; the shape is retained, not evaluated.
-    assert.equal(ability.condition.left.kind, "count");
-    assert.equal(ability.condition.left.subject, "controller-xp");
-    assert.deepEqual(ability.condition.left.filter, { player: "controller" });
+    assert.equal(pending.left.kind, "count");
+    assert.equal(pending.left.subject, "controller-xp");
+    assert.deepEqual(pending.left.filter, { player: "controller" });
   }
 });
 
@@ -108,6 +124,51 @@ test("unl-113-219 Master Yi, Tempered: Hunt 2 expands to the conquer/hold XP tri
   ]);
 });
 
+test("unl-113-219 Master Yi, Tempered golden: either Hunt body really credits 2 XP to its controller", async () => {
+  const { default: huntDefinition } = await import("../../../../engine-core/dist/effects/keywords/Hunt.js");
+  for (const ability of huntDefinition.expand({ value: hunt.value, host: { canonicalCardId: CANONICAL_ID } })) {
+    const kernel = world()
+      .player("A", { xp: 1 })
+      .player("B", { xp: 4 })
+      .unit("yi", { owner: "A", controller: "B", might: 4 })
+      .build();
+    const context = kernel.clone({ sourceSnapshot: kernel.getObject("yi"), controller: "B" });
+    const result = resolveChainBody(ability.body, context);
+    assert.equal(result.status, "executed");
+    assert.equal(result.results[0].result.linkedValues.gained, 2);
+    assert.equal(result.results[0].result.linkedValues.gainedTo, "B");
+    assert.equal(context.player("A").xp, 1);
+    assert.equal(context.player("B").xp, 6);
+    assert.deepEqual(context.events.map(event => event.action), ["gain-xp"]);
+  }
+});
+
+test("unl-113-219 Master Yi, Tempered golden: the opt-in adapter expands the Ganking grant into movement rules", () => {
+  // Exercise only the supported grant primitive and adapter. The original
+  // Level condition remains blocked; this does not install the Level ability.
+  const kernel = world().unit("yi", { might: 4, location: { type: "battlefield", id: "bf-1" } }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("yi") });
+  const result = resolveChainBody([{
+    id: "yi.ganking-grant-primitive", op: gankingGrant.effect.kind,
+    args: {
+      keyword: { kind: "constant", value: gankingGrant.effect.keyword },
+      appliesTo: { kind: "constant", value: "self" }
+    }
+  }], context);
+  assert.equal(result.status, "executed");
+  const layers = new KeywordGrantLayerEngine(context.objects, {
+    context: source => context.clone({ sourceSnapshot: source, controller: source.controller })
+  });
+  for (const entry of context.continuousEffects) layers.addContinuous(entry.effect, entry.duration);
+  const current = layers.evaluate(context.ref("yi"));
+  assert.deepEqual(current.keywords, [{ id: "Ganking" }]);
+  assert.equal(current.movement.canGank, true);
+  const rules = movement(layers.registry, current.ref, current, "A");
+  assert.equal(rules.canGank, true);
+  assert.equal(rules.battlefieldToBattlefield, true);
+  assert.deepEqual(layers.keywordAbilities(current.ref).map(ability => ability.effect.permission), ["battlefield-to-battlefield"]);
+});
+
 test("unl-113-219 Master Yi, Tempered: the Level expansion publishes the 6+ XP predicate for the layers pipeline", async () => {
   const { default: level } = await import("../../../../engine-core/dist/effects/keywords/Level.js");
   const [predicate] = level.expand({ value: 6, host: { canonicalCardId: CANONICAL_ID } });
@@ -127,7 +188,7 @@ test("unl-113-219 Master Yi, Tempered: the card's own grants are registered as s
   assert.deepEqual(program.abilities.filter(ability => ability.kind === "static").map(ability => [
     ability.effect.kind,
     ability.effect.keyword,
-    ability.condition.right.value
+    ability.condition.conditions[1].right.value
   ]), [
     ["continuous.grant-keyword", "Deflect", 6],
     ["continuous.grant-keyword", "Ganking", 6]
@@ -177,10 +238,9 @@ test("unl-113-219 Master Yi, Tempered: Hunt's conquer/hold spelling is rejected 
   }));
 });
 
-test("unl-113-219 Master Yi, Tempered: the [Level 6][>] gate is ignored, so both keywords are granted at every XP total (CR 824.1.c.1/824.1.d)", () => {
-  // The authored condition reads count(subject: "controller-xp"), which the
-  // context does not know. The count degenerates to a plain object count and
-  // passes the >= 6 threshold, so the grants never deactivate.
+test("unl-113-219 Master Yi, Tempered: the unresolved [Level 6][>] query stays blocked rather than counting objects as XP (CR 824.1.c.1/824.1.d)", () => {
+  // The old count expression read objects, granting Level at zero XP. The
+  // authored never guard blocks that unsupported read until player XP is wired.
   for (const xp of [0, 5, 6, 10]) {
     const f = fixture({
       cards: [{ id: "yi", cardId: CANONICAL_ID, types: ["unit"], energy: 4, power: ["Body"], might: 4 }]
@@ -199,8 +259,8 @@ test("unl-113-219 Master Yi, Tempered: the [Level 6][>] gate is ignored, so both
     assert.equal(f.kernel.player("A").xp, xp);
     assert.deepEqual(
       f.engine.layers.evaluate(source.ref).keywords.map((keyword) => keyword.id),
-      ["Deflect", "Ganking"],
-      `XP ${xp} must not activate the 6+ XP dependent text`
+      [],
+      `XP ${xp}: unresolved player query must remain explicitly blocked`
     );
     ganking.unbind();
     deflect.unbind();

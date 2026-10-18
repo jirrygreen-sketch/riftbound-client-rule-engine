@@ -6,6 +6,9 @@ import program from "../../../dist/cards/unl/blighted-battleaxe.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-21de7fcaef3e38ea7173a7b6b370c00cc4d0e2893c34cafde3a98ee7b65ac558";
 const SOURCE_TEXT =
@@ -117,3 +120,33 @@ test.todo(
     "through the cost plan and attach the gear end-to-end: readCost rejects the \"equip\" payment kind, and the " +
     "frozen KeywordAbility has no field for the printed Energy symbol count, so the activation must not be run free"
 );
+
+test("unl-019-219 Blighted Battleaxe: the production activation path still reaches the rejected Equip payment", () => {
+  // programs/activate.ts builds the real activation draft: the merged Equip
+  // expansion declares payments: [{ kind: "equip" }] and describeActivate keeps
+  // it, but readCost blocks the unknown payment kind, so no production path can
+  // pay the printed 1 Energy + 1 Fury Power cost.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const source = {
+    ref: { id: "battleaxe", zoneEntryId: 1 }, cardId: CARD_ID, name: "Blighted Battleaxe",
+    types: ["gear"], tags: ["Equipment"], keywords: [], owner: "A", controller: "A", zone: "board",
+    location: { type: "base", player: "A" }, might: 4, energy: 4, power: [], exhausted: false,
+    damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
+  };
+  const draft = binding.describeActivate(source, "A");
+  assert.deepEqual(draft.cost.cost.payments, [
+    { kind: "equip", value: { kind: "constant", value: { kind: "source" } } }
+  ]);
+  assert.deepEqual(draft.body.map(step => step.op), ["effect.attach"]);
+
+  const kernel = world()
+    .unit("battleaxe", { types: ["gear"], owner: "A", controller: "A", energy: 4, power: null })
+    .build();
+  assert.throws(
+    () => buildCostPlan(kernel, { id: "equip:test", cost: draft.cost.cost }),
+    (error) => error instanceof CostPlanError && error.reason === "judge-required"
+      && /Unsupported payment kind: equip/.test(error.message)
+  );
+});

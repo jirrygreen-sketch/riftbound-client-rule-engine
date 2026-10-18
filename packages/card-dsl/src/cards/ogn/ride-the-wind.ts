@@ -14,13 +14,12 @@ import type { CardProgram } from "../../ir/index.js";
  * - "Move a friendly unit" is one "effect.move" instruction (451) targeting a
  *   unit the controller controls. "a friendly unit" is a choice of a specific
  *   game object (355.7 / 355.9.b, "unit you control"), i.e. a TargetSpec, not
- *   a characteristic set query. The destination is chosen in Finalize per
- *   355.4 (a valid Location other than the unit's current one), so the program
- *   records the destination as the merged primitive's "choose" shape with a
- *   runtime-derived option set (the effect.move contract: "options is a
- *   nonempty list of legal LocationRefs from target.location") and deliberately
- *   does NOT pin a concrete location — naming one would be making the player's
- *   choice for them.
+ *   a characteristic set query. The LocationTargetSpec / LocationSelector /
+ *   candidate-query machinery for the destination is merged (RIFT-357), but
+ *   this card still needs its Finalize binding, a predicate that excludes the
+ *   selected unit's current Location (355.4.a), and a producer that supplies
+ *   the legal destination set to effect.move. The program therefore keeps the
+ *   destination as reviewable data and does not pin a concrete location.
  * - "and ready it": the same chosen unit is read back with the ObjectSelector
  *   { target: "ride-the-wind.friendly-unit" }, so the ready applies to the unit
  *   the Move was performed on ("it"). The two instructions are NOT linked with
@@ -35,28 +34,23 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required — both instructions are expressible with merged
  * primitives and are executed in the golden test. The card as a whole is
- * still not executable: choosing the
- * Move destination is a Finalize-time choice for the spell's controller
- * (355.4 / 355.4.a). The chain's current Finalize surface only finalizes
- * "instruction.targets" TargetSpecs and blocks nested/repeated targets
- * (chain/engine.ts assertFinalizationSurface), and the interpreter's
- * "effect.move" destination argument is a fixed Expr (controller-base, a
- * LocationRef, or a { kind: "choose", options } location list) with no merged
- * provider turning "any legal Location other than the current one" into that
- * list. That lifecycle is the pending chain/target Finalize work;
- * until it lands the card stays judge-required and the golden test supplies
- * the destination the acting player chose, the same way it supplies
- * Finalize-locked targets.
+ * still not executable: the Move destination is a Finalize-time choice for
+ * the spell's controller (355.4 / 355.4.a). The remaining gaps are the
+ * destination's Finalize binding, exclusion of the selected unit's current
+ * Location, and the legal-destination producer (see judgeReason). Until those
+ * are connected, the golden test supplies the destination the acting player
+ * chose, the same way it supplies Finalize-locked targets.
  */
 const rideTheWind = {
   canonicalCardId: "card.hash-2df39111dd690c251a044601ce12b0c17ee57b43f9d29ce2de47654b25a9110c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺「Move 目标地点」的 Finalize 选择生命周期：CR 355.4/355.4.a 要求由法术控制者选择该单位当前地点以外的合法 Location，" +
-    "而链的 Finalize 目前只处理 instruction.targets 的 TargetSpec，且禁止嵌套/重复目标（chain/engine.ts assertFinalizationSurface），" +
-    "解释器侧 effect.move 的 to 只是固定 Expr（controller-base / LocationRef / { kind: choose } 列表）：没有已合入机制把「除当前地点外的任意合法地点」变成该 Expr，" +
-    "写死一个地点就是替玩家发明选择。Move 与 ready 两条指令本身只用已合入原语表达并有执行测试（含 359.3.e.14.b 的 Move 被 negate 后 ready 仍执行）；仍依赖 LocationTargetSpec 与排除当前地点的合法目的地选择在 Finalize 生命周期中落地。",
+    "缺「Move 目标地点」的三个精确接线依赖：CR 355.4/355.4.a 要求由法术控制者选择该单位当前地点以外的合法 Location；" +
+    "RIFT-357 已合入 LocationTargetSpec、LocationSelector、地点候选查询和地点 Expr，但本卡仍缺 (a) 将地点选择声明接入该 Move 的 Finalize 生命周期，" +
+    "(b) LocationTargetSpec/候选查询中排除所选单位当前地点的谓词，及 (c) 把该单位的合法目的地集合供给 effect.move 的生产者。" +
+    "因此不能写死一个地点替玩家发明选择。Move 与 ready 两条指令本身只用已合入原语表达并有执行测试（含 359.3.e.14.b 的 Move 被 negate 后 ready 仍执行）；" +
+    "仍保持 judge-required，不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

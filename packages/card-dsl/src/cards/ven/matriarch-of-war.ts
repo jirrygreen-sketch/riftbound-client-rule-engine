@@ -17,32 +17,17 @@ import type { CardProgram } from "../../ir/index.js";
  * - “Ready a unit” 是普通目标效果（355.9.a.1：未特别说明时 “unit” 指 Board 上的单位），
  *   使用已合入的 effect.ready（416.1–416.3）。
  *
- * status = judge-required（两处当前缺口均不近似实现）：
- * 1. 触发过滤缺“增加方向”与“something else”宿主排除键，且 EVENT_PATTERN_TYPES 没有
- *    empowerment 事件判别值（empowered-changed 的载荷不带 direction，EventPattern 无
- *    exclude；见 Soul's Reflection 的同型缺口）；已合入的 translateObjectFilter 仍会
- *    以 unsupported filter field 拒绝 other/direction（契约变更请求）；
- * 2. cost/plan-values.ts 没有 disempower 付费种类；[A] 任意域 Power 已用六域封闭
- *    Domain 集合表达，不再是缺口。
- * 依赖：事件载荷/触发器过滤扩展（契约变更请求）与 disempower 费用种类；Ready 半段已可用
- * effect.ready 真实执行。
+ * status = judge-required。已合入依赖与剩余生产接线已重新核对；
+ * 当前真实缺口以 judgeReason 为准，子效果执行不证明整卡可执行。
  */
 export default {
   canonicalCardId: "card.hash-bf30c710a85c78a9c386b4d6c5d52a3aa4ff1d9d0eba7b82b1ba9ef0917f2b94",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1) “When you empower something else” 的触发器过滤不可表达——封闭时点 " +
-    "empowered-changed（442.2.a）的载荷/EventPattern 没有增加方向（empower 与 disempower " +
-    "共用该时点，443.1），也没有排除宿主自身的 “something else” 键（EVENT_PATTERN_TYPES 无 " +
-    "empowerment 判别值，validateTriggerSpec 会拒绝该 event 拼写；已合入的过滤适配器仍无法消费 " +
-    "translateObjectFilter 也只接受白名单字段，other/direction 会被判为 unsupported filter field）；" +
-    "(2) “Disempower me” " +
-    "作为费用需要 disempower 付费种类（443.2.a），cost/plan-values.ts 的非标准费用只支持 " +
-    "exhaust/discard/recycle/kill/reveal/spend-buff；:rb_rune_rainbow: 是任意域 " +
-    "Power [A]（135.2.e.5.a、163.2.b），已按六域封闭集合表达。依赖事件载荷/过滤器扩展 " +
-    "（契约变更请求）与 disempower 费用种类；“Ready a unit” " +
-    "本体用已合入的 effect.ready 可执行。不近似实现。",
+    "仍缺：(1) empowered-changed 不在 EVENT_PATTERN_TYPES，触发适配器不消费 other/direction，事件未区分前后状态及实际动作玩家，无法实现 When you empower something else（442.2.a / 828.1.d）；" +
+    "(2) cost/plan-values.ts 尚无 disempower 支付种类（443.2.a），因此即便 rainbow 任意域 1 Power 已正确表达，整条费用仍不可支付；" +
+    "(3) 参考内核 empower 对已 Empowered 对象仍累加，缺 442.1.b/.c 的二元状态幂等保证。",
   abilities: [
     {
       kind: "triggered",
@@ -73,10 +58,10 @@ export default {
       timing: "action",
       cost: {
         kind: "activated",
-        // :rb_rune_rainbow: = [A]；任意一个封闭域都可支付，因此列出六域。
-        power: { kind: "constant", value: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] },
         payments: [
           { kind: "disempower", object: "self" },
+          { kind: "power", amount: { kind: "constant", value: 1 },
+            allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] },
           { kind: "exhaust", object: "self" }
         ]
       },

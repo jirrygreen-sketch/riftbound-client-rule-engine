@@ -11,7 +11,9 @@ const fadingMemories = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺「战场上的单位或任意 Gear」的析取目标适配：programs/filters.ts 与 Chain 的 ObjectFilter 消费路径没有按类型分支的 OR，当前宽过滤器还会包含 Base 单位，不能当作完整目标限制（CR 355.9.b/355.10.b）。continuous.grant-keyword 与 Temporary 的 beginning-start/kill 展开已存在，但 programs/lifecycle.ts 未订阅图层关键词变化并更新 Temporary 触发注册，不能保证授予后在其控制者 Beginning Phase、计分前消灭（CR 816.1.b/816.1.c）。",
+    "仍缺「战场上的单位或任意 Gear」的位置析取适配：typeMatches 已支持类型数组 OR，但 programs/filters.ts 与 Chain 的 ObjectFilter 消费路径没有按类型分支的位置谓词（战场单位须在 battlefield、Gear 须在 board 任意位置），当前宽过滤器还会包含 Base 单位，不能当作完整目标限制（CR 355.9.b/355.10.b）。" +
+    "continuous.grant-keyword 与 Temporary 的 beginning-start/kill KeywordDef 展开已存在，但生产装配仍用普通 LayerEngine，未接入 KeywordGrantLayerEngine 的重展开；" +
+    "且 beginning-start 尚不在生产触发词表内，programs/lifecycle.ts 也未订阅图层关键词变化来注册 Temporary 触发，不能保证授予后在其控制者 Beginning Phase、计分前消灭（CR 816.1.b/816.1.c）。",
   abilities: [
     {
       kind: "play",

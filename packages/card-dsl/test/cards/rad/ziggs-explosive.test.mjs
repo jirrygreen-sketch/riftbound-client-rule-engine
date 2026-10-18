@@ -72,11 +72,14 @@ test("rad-112-167 Ziggs, Explosive: judgeReason names the current gaps only", ()
   assert.match(program.judgeReason, /continuous\.location/);
   assert.match(program.judgeReason, /trigger\.leave/);
   assert.match(program.judgeReason, /combat-start-transaction/);
-  // 2026-10-17: the static-binder, hold-filter and token-argument rejections are
+  // 2026-10-18: the static-binder, hold-filter and token-argument rejections are
   // observed, so each must be named rather than only described.
   assert.match(program.judgeReason, /Invalid effect\.token argument: location/);
   assert.match(program.judgeReason, /has no layer mapping/);
   assert.match(program.judgeReason, /Unsupported filter field here/);
+  // The merged 830.1.b.3 cleanup exemption is recorded as already merged.
+  assert.match(program.judgeReason, /recall-action/);
+  assert.match(program.judgeReason, /不再是缺口/);
   assert.doesNotMatch(program.judgeReason, /RIFT-357|RIFT-82|RIFT-257|RIFT-33|RIFT-124/);
   assert.doesNotMatch(program.judgeReason, /cleanup 的非单位 Deploy 免召回/);
 });

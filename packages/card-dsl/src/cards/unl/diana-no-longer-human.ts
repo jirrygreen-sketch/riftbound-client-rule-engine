@@ -73,7 +73,9 @@ export default {
     "另一半已可执行并已实测：\"When you play a spell, give me +2 :rb_might: this turn\" 由 continuous.might + " +
     "end-of-turn duration 承载，programs/triggers.ts 按单位 activeZones=['board'] 注册 card-played 触发，" +
     "chain 在结算完成时 emit card-played（chain/engine.ts），golden 在真实 ChainEngine 上验证友方咒语 +2、" +
-    "敌方咒语不触发与回合末到期；保留 +2 的 arithmetic-layer 形状，不用 Buff 计数器近似。" +
+    "敌方咒语不触发与回合末到期；RIFT-660 模板场景再走生产链（真实打出咒语 → card-played → 触发结算 → layers，" +
+    "见 test/cards/templates/keyword-triggered-card-played-continuous-660.test.mjs），" +
+    "保留 +2 的 arithmetic-layer 形状，不用 Buff 计数器近似。" +
     "依赖：Ambush 的位置/时机消费方与静态绑定映射。",
   abilities,
   sourceText:

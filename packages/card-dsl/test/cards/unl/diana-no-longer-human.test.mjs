@@ -1,3 +1,13 @@
+// Golden test for Diana, No Longer Human (unl-149-219).
+//
+// Execution evidence (a real allied-spell play -> card-played -> self +2
+// continuous.might, plus the opponent's-spell boundary) lives in the RIFT-660
+// parameterized template golden:
+// test/cards/templates/keyword-triggered-card-played-continuous-660.test.mjs.
+// This file keeps validation, identity, verbatim text, declared
+// judge-required status and the key structure of the printed abilities; the
+// production-binding goldens below still execute the merged trigger half and
+// record the remaining Ambush gap.
 import assert from "node:assert/strict";
 import test from "node:test";
 

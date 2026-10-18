@@ -16,7 +16,7 @@ const SOURCE_TEXT =
   "Banish a friendly unit, then its owner plays it to any battlefield, ignoring its cost.";
 
 const [reactionKeyword, playAbility] = program.abilities;
-const [banishFriendlyUnit, playToBattlefield] = playAbility.body;
+const [chooseBattlefield, banishFriendlyUnit, playToBattlefield] = playAbility.body;
 const targetSpec = banishFriendlyUnit.targets[0];
 
 // The reference kernel compares filter values literally, so the card layer's
@@ -46,7 +46,7 @@ test("unl-184-219 Thrill of the Hunt: identity, status, judgeReason and verbatim
   assert.match(program.judgeReason, /ignoreAllCosts/);
   assert.match(program.judgeReason, /finalized plan/);
   assert.match(program.judgeReason, /355\.4/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(90|91)/);
 });
 
 test("unl-184-219 Thrill of the Hunt: [Reaction] plus a linked banish-then-play pair", () => {
@@ -59,8 +59,21 @@ test("unl-184-219 Thrill of the Hunt: [Reaction] plus a linked banish-then-play 
   assert.equal(playAbility.cost, undefined);
   assert.deepEqual(
     playAbility.body.map((instruction) => instruction.id),
-    ["thrill-of-the-hunt.banish-friendly-unit", "thrill-of-the-hunt.play-to-battlefield"]
+    [
+      "thrill-of-the-hunt.choose-battlefield",
+      "thrill-of-the-hunt.banish-friendly-unit",
+      "thrill-of-the-hunt.play-to-battlefield"
+    ]
   );
+
+  assert.equal(chooseBattlefield.op, "condition.value");
+  assert.deepEqual(chooseBattlefield.locations, [{
+    id: "thrill-of-the-hunt.battlefield",
+    type: "battlefield",
+    min: 1,
+    max: 1,
+    selection: "one"
+  }]);
 
   // "Banish a friendly unit" — one Board unit controlled by this ability's
   // controller (355.7 / 355.9.a.1 / 355.9.b).
@@ -97,12 +110,11 @@ test("unl-184-219 Thrill of the Hunt: the play half reads the receipt ref, the o
     object: { target: "thrill-of-the-hunt.friendly-unit" },
     property: "owner"
   });
-  // "to any battlefield" is a Finalize-time Location choice (355.4/355.4.a);
-  // the merged IR has no runtime Location selector, so the marker is
-  // descriptive and the interpreter rejects it instead of guessing.
+  // "to any battlefield" is a Finalize-time Location choice (355.4/355.4.a).
   assert.deepEqual(playToBattlefield.args.location, {
-    kind: "constant",
-    value: { kind: "destination-selector", filter: { type: "battlefield" } }
+    kind: "linked-value",
+    instructionId: "thrill-of-the-hunt.choose-battlefield",
+    key: "location"
   });
   // "ignoring its cost": base Energy and base Power zeroed (356.1.b.1) with
   // the 356.6 floor; the descriptor is explicitly not a finalized plan.
@@ -152,18 +164,28 @@ test("unl-184-219 Thrill of the Hunt golden: the banished unit reaches Banishmen
 });
 
 test("unl-184-219 Thrill of the Hunt golden: the play half fails closed while the ignore-cost plan has no producer", () => {
-  const kernel = world().base("hunted", { owner: "A", types: ["unit"], might: 2 }).build();
+  const kernel = world()
+    .base("hunted", { owner: "A", types: ["unit"], might: 2 })
+    .object("bf-1", { types: ["battlefield"], zone: "board", location: null, owner: "B", controller: "B" })
+    .unit("bf-occupant", { location: { type: "battlefield", id: "bf-1" }, owner: "B", controller: "B" })
+    .build();
+  kernel.setAnswers({
+    "thrill-of-the-hunt.choose-battlefield/location%3Athrill-of-the-hunt.battlefield": {
+      type: "battlefield",
+      id: "bf-1"
+    }
+  });
   kernel.setTargets(targetSpec.id, [kernel.ref("hunted")]);
 
   const outcome = resolveChainBody(bodyWithoutTargetSpecs, kernel);
 
   assert.equal(outcome.status, "partial");
   assert.deepEqual(outcome.results.map((result) => [result.id, result.result.status]), [
+    ["thrill-of-the-hunt.choose-battlefield", "executed"],
     ["thrill-of-the-hunt.banish-friendly-unit", "executed"],
     ["thrill-of-the-hunt.play-to-battlefield", "negated"]
   ]);
-  // The unit stays in Banishment: it is never played at the printed cost, and
-  // the descriptive destination is rejected rather than approximated.
+  // The unit stays in Banishment: it is never played without a finalized cost.
   assert.equal(kernel.getObject("hunted").zone, "banishment");
   assert.equal(outcome.linkedValues["thrill-of-the-hunt.banish-friendly-unit.banishedObject"].zoneEntryId, 2);
   assert.deepEqual(outcome.events.map((event) => event.action), ["banish"]);
@@ -201,7 +223,17 @@ test("unl-184-219 Thrill of the Hunt golden: an unfinalized ignore-cost plan nev
 });
 
 test("unl-184-219 Thrill of the Hunt golden: a banish that cannot happen leaves the linked play ignored too (359.3.e.14.a)", () => {
-  const kernel = world().base("hunted", { owner: "A", types: ["unit"], might: 2 }).build();
+  const kernel = world()
+    .base("hunted", { owner: "A", types: ["unit"], might: 2 })
+    .object("bf-1", { types: ["battlefield"], zone: "board", location: null, owner: "B", controller: "B" })
+    .unit("bf-occupant", { location: { type: "battlefield", id: "bf-1" }, owner: "B", controller: "B" })
+    .build();
+  kernel.setAnswers({
+    "thrill-of-the-hunt.choose-battlefield/location%3Athrill-of-the-hunt.battlefield": {
+      type: "battlefield",
+      id: "bf-1"
+    }
+  });
   const stale = kernel.ref("hunted");
   // The unit already left the Board after finalization.
   kernel.perform({ type: "return-to-hand", object: stale });
@@ -210,9 +242,10 @@ test("unl-184-219 Thrill of the Hunt golden: a banish that cannot happen leaves 
   const outcome = resolveChainBody(bodyWithoutTargetSpecs, kernel);
 
   assert.equal(outcome.status, "partial");
-  assert.deepEqual(outcome.results.map((result) => result.result), [
-    { status: "ignored", reason: "mistargeted" },
-    { status: "ignored", reason: "linked-ignored" }
+  assert.deepEqual(outcome.results.map(({ result }) => [result.status, result.reason]), [
+    ["executed", undefined],
+    ["ignored", "mistargeted"],
+    ["ignored", "linked-ignored"]
   ]);
   assert.equal(kernel.getObject("hunted").zone, "hand");
 });
@@ -220,9 +253,25 @@ test("unl-184-219 Thrill of the Hunt golden: a banish that cannot happen leaves 
 test.todo(
   "unl-184-219 Thrill of the Hunt: materialize the ignore-cost plan (base Energy and base Power costs set to zero, CR 356.1.b.1, floor 0 per 356.6, keeping 356.1.b.3 additional costs) — cost.modify with ignoreAllCosts (CR 356.5) is merged, but no merged path freezes the card's descriptive plan into a finalized FinalizedCostPlan that effect.play accepts"
 );
-test.todo(
-  "unl-184-219 Thrill of the Hunt: offer \"to any battlefield\" as a runtime Location choice other than the unit's current location (CR 355.4/355.4.a/451.1; target.location is unmerged - RIFT-90/RIFT-91)"
-);
+test("unl-184-219 Thrill of the Hunt golden: the battlefield choice is resolved before the linked play", () => {
+  const kernel = world()
+    .base("hunted", { owner: "A", types: ["unit"], might: 2 })
+    .object("bf-1", { types: ["battlefield"], zone: "board", location: null, owner: "B", controller: "B" })
+    .unit("bf-occupant", { location: { type: "battlefield", id: "bf-1" }, owner: "B", controller: "B" })
+    .build();
+  kernel.setAnswers({
+    "thrill-of-the-hunt.choose-battlefield/location%3Athrill-of-the-hunt.battlefield": {
+      type: "battlefield",
+      id: "bf-1"
+    }
+  });
+  const outcome = resolveChainBody([chooseBattlefield], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.linkedValues["thrill-of-the-hunt.choose-battlefield.location"], {
+    type: "battlefield",
+    id: "bf-1"
+  });
+});
 test.todo(
   "unl-184-219 Thrill of the Hunt: enforce the printed [Reaction] Closed-State permission through the keyword registry and the chain's canAct (CR 813.1.c / 309.1.a) — the Reaction KeywordDef expands to continuous.timing, the layers rules query reads it and chain canAct consults it, but the match/turn flow never attaches the program lifecycle, so a production engine cannot consume the grant"
 );

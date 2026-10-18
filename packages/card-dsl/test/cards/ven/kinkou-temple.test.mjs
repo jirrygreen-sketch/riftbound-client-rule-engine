@@ -1,14 +1,17 @@
+// Template execution evidence: ../templates/static-645.test.mjs.
+// This card remains judge-required; the template covers only the traversable
+// lifecycle and keeps the unsupported Tank/location gate explicit below.
 import assert from "node:assert/strict";
 import test from "node:test";
-
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/kinkou-temple.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import tank from "../../../../engine-core/dist/effects/keywords/Tank.js";
+
 // card-dsl has no dependency edge on engine-core (engine-core depends on
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
-import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
-import tank from "../../../../engine-core/dist/effects/keywords/Tank.js";
 
 const CANONICAL =
   "card.hash-0148fea511f023ebe4f6e9b7dd701d1290558c9cbf8bcd877bccd4cda78e5875";
@@ -78,7 +81,7 @@ test("ven-159-166 Kinkou Temple: identity, ruleset, status and exact source text
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /keywords/);
   assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /staticFilter/);
   assert.doesNotMatch(program.judgeReason, /没有.*static.*注册|registerContinuousEffect 没有调用方|RIFT-91/);
   // The golden must prove the new program reaches the shared generated index,
   // not just the file system (scripts/gen-registries.mjs builds it from src/cards/**).
@@ -153,6 +156,6 @@ test.todo(
 );
 
 test.todo(
-  "ven-159-166 Kinkou Temple: verify the RIFT-257 static binder's sameLocationAs/self anchor against a production " +
-    "CardProgram lifecycle once the keyword predicate is available"
+  "ven-159-166 Kinkou Temple: verify the merged static binder's sameLocationAs/self anchor against a production " +
+    "CardProgram lifecycle, including type/id comparison for distinct structured location snapshots"
 );

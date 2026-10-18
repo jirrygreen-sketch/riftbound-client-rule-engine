@@ -22,12 +22,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 442.1 / 442.2.a：把对象变为 Empowered 的 Empower 动作；443.1 定义 Disempower；
  *   两者都是 Limited Action（442.3.a / 443.2.a），只在游戏效果指示时执行。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
- * 已支持部分：effect.empower 是已合入原语，golden 用真实解释器 + 参考内核执行 "empower a
- * legend, unit, or gear" 半段（锁定选择由 Finalize 提供）；拒绝分支同样用真实解释器执行；
- * card-played 触发的注册与匹配（383.4.a / 407）已合入（RIFT-120 批次的 chain/events 管线），
- * golden 用真实 EventPipeline 断言本卡的 filter 命中打出事件。
- * 缺口见 judgeReason，不近似实现。
+ * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。
  */
 const abilities: Ability[] = [
   {
@@ -56,8 +51,7 @@ const abilities: Ability[] = [
                 // 740.4.a.2：触发能力效果首段的费用在 Finalization 支付。disempower 是
                 // 443.2 的 Limited Action；当前 cost/plan-values.ts 的非标准费用种类只支持
                 // exhaust/discard/recycle/kill/reveal/spend-buff，没有 disempower
-                //（同 ven-143-166 Master of Shadows），且 cost.pay 没有已合入的原语文件
-                //（RIFT-89）。形状如实记录，不把费用降级成结算效果。
+                //（同 ven-143-166 Master of Shadows）。cost.pay 已合入，缺支付种类与 Finalize 提取。
                 op: "cost.pay",
                 args: {
                   payments: {
@@ -120,14 +114,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) 费用步骤不可执行——“disempower something you control” 是 740.4.a 的费用（740.4.a.2 在" +
-    "Finalization 支付），但 cost/plan-values.ts 的非标准费用种类只有 exhaust/discard/recycle/kill/reveal/" +
-    "spend-buff，没有 disempower（443.2.a），所以 cost.pay 原语无法支付这笔费用（RIFT-89 的支付种类缺口，" +
-    "同 ven-143-166 Master of Shadows）；(2) legend 目标无法结算——" +
-    "目标里的 legend 指 Legend Zone（355.9.a.4），契约 ZoneId 没有 legend-zone（108.3），effect.empower 的" +
-    "isBoardObject 只接受 Board 对象，所以传奇目标当前无法结算——依赖契约补充与 RIFT-91/RIFT-90 的图层/目标管线。" +
-    "已支持部分：effect.empower 本体（442.1）与拒绝分支的 choice.optional（403.1）都由 golden 用真实解释器 +" +
-    "参考内核执行。不近似实现（不把费用写成结算效果，也不把传奇排除在目标类型之外）。",
+    "仍缺两段接线，均不近似实现：(1) CR 740.4.a.2 要求首段「disempower something you control」在触发能力 Finalization 支付，" +
+    "但 cost/plan-values.ts 的非标准费用种类只有 exhaust/discard/recycle/kill/reveal/spend-buff（443.2.a 的 Disempower 是 Limited Action）：" +
+    "kind \"disempower\" 让费用计划以 judge-required 抛 CostPlanError，cost.pay 的 payments 形状又不含该键，golden 实测接受可选分支后" +
+    "以 CostPlanError(cannot-pay-cost) \"cost.pay requires a valid, payable finalized cost plan\" 终止；" +
+    "programs/triggers.ts 也没有把该首段 cost.pay 提取进 TriggerRegistration.cost/mayAtFinalize，" +
+    "结算期支付因此同样不能满足 740.4.a.2，也不能用 effect.empower 替代费用。" +
+    "(2) legend 目标按 355.9.a.4 位于 Legend Zone，但契约 ZoneId 无 legend-zone，effect.empower 只接受 Board 对象；" +
+    "目标类型折取因此还须分别限定 Board 上的 unit/gear 与 Legend Zone 的 legend。" +
+    "已支持并真实执行：card-played 事件与 { source: \"self\" } 触发的翻译/注册、choice.optional 的「可以」语义、effect.empower 对 Board 对象的 Empower。",
   abilities,
   sourceText:
     "When you play me, you may disempower something you control to empower a legend, unit, or gear."

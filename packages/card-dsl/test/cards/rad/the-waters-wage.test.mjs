@@ -3,6 +3,10 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/the-waters-wage.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { buildHiddenCostPlan, payHiddenCostPlan } from "../../../../engine-core/dist/cost/kinds/hidden.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
 const CANONICAL = "card.hash-98b3c6e4016c853f5b0a9bdc4963a2a929fcb2930a1f1484367e5c546015fe0c";
@@ -31,6 +35,9 @@ test("The Waters' Wage identity, ruleset, status and printed text", () => {
   assert.match(program.judgeReason, /185\.2\.d/);
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /entry override/);
+  assert.match(program.judgeReason, /played-from-zone/);
+  assert.match(program.judgeReason, /trigger\.event/);
+  assert.match(program.judgeReason, /当前回合玩家/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -83,7 +90,52 @@ test.todo(
 
 test.todo(
   "The Waters' Wage: 'If it's your turn and you played this from face down' needs an executable predicate for the " +
-    "facedown play result (CR 811.1.d) and the current turn player. The [Hidden] KeywordDef and cost.hidden are merged, " +
-    "but cost/kinds/hidden.ts only locks the Hide plan and payment: hidden-play permission, facedown free-play " +
-    "consumption and the next-turn Reaction permission (continuous.timing) are still unwired."
+    "spell's original play-zone input and current turn player. played-from-zone is merged and reads authentic " +
+    "card-played provenance, but the spell body runs before its own event. Hidden Hide/play cost plans are merged; " +
+    "permissions, next-turn Reaction and production payment selection still need wiring (CR 811.1.b / 811.6)."
 );
+
+
+test("The Waters' Wage: played-from-zone reads the real hand-play event without inferring facedown", () => {
+  // Only the provenance subsystem is exercised; Gold/Hidden remain blocked.
+  const { engine, kernel } = fixture({ cards: [{
+    id: "wage", cardId: CANONICAL, types: ["spell"], energy: 1, power: null
+  }] });
+  engine.execute({
+    id: "wage-provenance", controller: "A", source: kernel.getObject("wage"),
+    kind: "spell", speed: "normal", body: []
+  });
+  resolveAll(engine);
+  const event = engine.pipeline.events.find(event => event.timingPoint === "card-played" && event.object?.ref.id === "wage");
+  assert.ok(event);
+  assert.equal(event.fromZone, "hand");
+  assert.equal(event.details.playedFromZone, "hand");
+  const context = kernel.clone({ sourceSnapshot: event.source });
+  for (const [zone, expected] of [["hand", true], ["facedown", false]]) {
+    const outcome = resolveChainBody([{
+      id: "wage.read-origin", op: "condition.predicate",
+      args: { condition: { kind: "constant", value: { kind: "played-from-zone", zone } } }
+    }], context, { event });
+    assert.equal(outcome.results[0].result.status, "executed");
+    assert.equal(outcome.linkedValues["wage.read-origin.value"], expected);
+  }
+  assert.equal(kernel.getObject("wage").zone, "trash");
+});
+
+test("The Waters' Wage: Hidden's play planner already ignores base cost while paying an added fee", () => {
+  const kernel = world().player("A", { energy: 4 })
+    .hand("wage", { cardId: CANONICAL, types: ["spell"], energy: 1, power: null }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("wage") });
+  const plan = buildHiddenCostPlan(context, {
+    id: "wage.hidden-play-plan", mode: "play", cost: { kind: "printed" },
+    mandatoryAdditional: [{ id: "fee", cost: { energy: { kind: "constant", value: 2 } } }]
+  });
+  assert.equal(plan.base.energy, 1);
+  assert.equal(plan.components.find(component => component.id === "base").cost.energy, 0);
+  assert.equal(plan.total.energy, 2);
+  const receipt = payHiddenCostPlan(context, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(context.player("A").energy, 2);
+  assert.deepEqual(receipt.events.map(event => event.action), ["pay"]);
+  assert.equal(context.getObject("wage").power, null);
+});

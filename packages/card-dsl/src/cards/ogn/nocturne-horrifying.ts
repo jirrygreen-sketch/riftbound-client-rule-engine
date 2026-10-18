@@ -26,21 +26,21 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * “reveal”，也没有 “banish me / If you do” 的部分，且用触发式措辞。两者不能同时成立，
  * 该文本冲突属需要裁定的问题，本程序不改写官方数据，只按本地 sourceText 逐字保留。
  *
- * status 判定（README 第 2 节）：judge-required。复核 RIFT-260 后缺的原语是：
- * 1. 从秘密区域（牌库顶被查看时）打出卡牌的许可与打出位置/合法性（420.3.b、355.2 默认
- *    只有手牌能被正常打出；`effect.play` 只接受由调用方给出的 finalized cost plan，
- *    没有任何“从牌库打出”的权限来源）；
- * 2. 替代费用 “for [A]” 的费用计划生成（356.1.a 把 Base Cost 替换为 1 点任意域 Power）：
- *    `cost.modify` 原语已经合入，但本卡仍缺把该替代费用写成可由 Finalize 消费的有效
- *    CostPlan，并把计划写进 `effect.play` 的链接值；
- * 3. 370.1.c.1 要求的“秘密区域内的替代效果与事件同时生效”的替代管线：RIFT-260 的
- *    replacement/ 已合入事件拦截与注册面（bindReplacement/replacement.event，可匹配
- *    card-revealed/ reveal 动作），但没有“被查看（look）”这一秘密区域事件的匹配
- *    （ACTION_KINDS 无 look），也没有 370.1.c.1 的同刻生效语义；且本卡的文字是触发式措辞（见冲突）；
- * 4. `look` 动作使用 `objects` 数组，但事件适配器只读取单个 `object`/`target`，
- *    `cards-looked-at` 因此没有被看牌的 `object` 载荷；触发过滤器嵌套的
- *    `objectId: "self"` 也没有绑定为来源 ID，两段事件/身份接线均仍缺失。
- * 依赖：RIFT-260 后续的秘密区域替代事件与 look 事件的许可/位置适配，以及 370.1.c.1 文本的裁定。
+ * status 判定（README 第 2 节，2026-10-17 复核）：judge-required。当前生产缺口：
+ * 1. 事件名词汇：卡片 filter 的 `event: "cards-looked-at"` 经 translateTriggerFilter 原样保留，
+ *    而 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 是封闭枚举（无该名称），
+ *    validateTriggerSpec 实测返回 invalid-event-type，registerProgramTriggers 抛 TriggerSpecValidationError；
+ * 2. `look` 动作的载荷是 `objects` 数组，events/action-adapter.ts 只取单个 `object`/`target`，
+ *    实测 look 发射的 cards-looked-at 事件 `object` 为 null，嵌套 `{ object: { objectId: "self" } }`
+ *    因此拿不到本卡身份（扁平 `objectId: "self"` 虽能被 translateTriggerFilter 绑定，但事件端没有对象可比）；
+ * 3. 从秘密区域（牌库顶被查看时）打出卡牌的许可与位置/合法性（420.3.b、355.2）没有任何权限来源；
+ * 4. 替代费用 “for [A]” 的费用计划生产接线（356.1.a）：`cost.modify` 原语能在 interpreter 里生成显式
+ *    alternate CostPlan，但 chain/interpreter-adapter 的 LITERAL_FIELDS 没有解包 `id`/`cost`/`linkKey`，
+ *    实测抛 "cost.modify id must be a non-empty string"；Finalize 也未把该计划接到从秘密区域打出的 effect.play；
+ * 5. 370.1.c.1 的同刻生效语义：replacement/ 的通用事件拦截与注册面已合入，但 replacement/pattern.ts 的
+ *    ACTION_KINDS 是封闭映射（无 look 动作）；且本卡的文字是触发式措辞（见文末冲突记录）。
+ * 依赖：look 事件的注册词汇与 object 载荷、秘密区域打出许可、CardProgram→Finalize 的费用字面量解包，
+ * 以及 370.1.c.1 文本的裁定。
  */
 const abilities: Ability[] = [
   {
@@ -69,11 +69,22 @@ const abilities: Ability[] = [
                 id: "nocturne-horrifying.alternate-cost",
                 op: "cost.modify",
                 args: {
-                  mode: { kind: "constant", value: "replace" },
-                  // 356.1.a：“play me for [A]” 以 1 个任意域 Power 替换印刷费用。
-                  resource: { kind: "constant", value: "power" },
-                  amount: { kind: "constant", value: 1 },
-                  domains: { kind: "constant", value: ["rainbow"] },
+                  // 356.1.a：“play me for [A]” 以一个六域均可支付的 Power
+                  // CostSpec 替换印刷费用。cost.modify 的生产原语要求显式 id 与
+                  // CostSpec；其字面量解包仍是当前 chain adapter 的缺口。
+                  id: { kind: "constant", value: "nocturne-horrifying.alternate-cost" },
+                  cost: {
+                    kind: "constant",
+                    value: {
+                      payments: [
+                        {
+                          kind: "power",
+                          amount: { kind: "constant", value: 1 },
+                          allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]
+                        }
+                      ]
+                    }
+                  },
                   linkKey: { kind: "constant", value: "plan" }
                 }
               },
@@ -108,17 +119,23 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "仍不可执行，缺口不近似实现：(1) 文本/规则冲突——CR v1.5 370.1.c.1 把这段文本引为替代效果 “As you look at or " +
-    "reveal me from the top of your deck, you may banish me. If you do, you may play me for [A].”，" +
-    "而本地 sourceText 只有触发式 “look at … and see me, you may play me for :rb_rune_rainbow:.”；" +
-    "(2) 缺生产接线——从被查看的牌库顶（秘密区域）打出卡牌的许可与位置校验，以及把已合入的 cost.modify " +
-    "替代费用原语产出的有效 CostPlan 写入 effect.play（effect.play 只接受调用方给的 finalized plan）；" +
-    "(3) RIFT-260 的 replacement/ 已合入通用事件拦截与注册面（bindReplacement/replacement.event，" +
-    "可匹配 card-revealed/reveal），但没有「被查看（look）」秘密区域事件的匹配（ACTION_KINDS 无 look），" +
-    "370.1.c.1 的同刻生效语义仍缺；" +
-    "(4) cards-looked-at 的事件/身份接线仍缺：look 动作使用 objects 数组，action-adapter 只读取单个 object/target，未生成被看牌的 object 载荷；" +
-    "translateTriggerFilter 对嵌套 objectId:self 也未绑定为注册来源 ID（383.2.c）。" +
-    "依赖：RIFT-260 后续秘密区域替代事件与 look 事件的许可适配、以及 370.1.c.1 文本的裁定。不近似实现。",
+    "仍不可执行，缺口按 2026-10-17 实测重列：(1) 文本/规则冲突——CR v1.5 370.1.c.1 把这段文本引为替代效果 " +
+    "“As you look at or reveal me from the top of your deck, you may banish me. If you do, you may play me for [A].”，" +
+    "而本地 sourceText 只有触发式 “look at … and see me, you may play me for :rb_rune_rainbow:.”，措辞不能同时成立，需裁定。" +
+    "(2) 触发注册在第 4 点的事件名上失败：本卡 filter 的 event: \"cards-looked-at\" 被 translateTriggerFilter 保留，" +
+    "events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 是封闭枚举（无该名称），validateTriggerSpec 实测返回 " +
+    "trigger.filter.event/invalid-event-type，registerProgramTriggers 抛 TriggerSpecValidationError。" +
+    "(3) 即使放行事件名，身份与载荷仍缺：look 动作（contract.ts）载荷是 objects 数组，" +
+    "events/action-adapter.ts 只取单个 object/target，实测 look 发射的 cards-looked-at 事件 object 为 null，" +
+    "所以嵌套 { object: { objectId: \"self\" } } 拿不到本卡身份（383.2.c / 432.1.c）；" +
+    "换成扁平 objectId: \"self\" 虽能被 translateTriggerFilter 绑定为注册源对象，但事件端没有对象可比。" +
+    "(4) 从被查看的牌库顶（秘密区域）打出卡牌的许可与位置校验没有生产来源（420.3.b / 355.2）；" +
+    "chain/interpreter-adapter 的 LITERAL_FIELDS 也未解包 cost.modify 的 id/cost/linkKey，" +
+    "按 CardProgram 运行实测在 “cost.modify id must be a non-empty string (or supply source)” 处失败，" +
+    "即使补上也要把该 CostPlan 接到从秘密区域打出的 effect.play（effect.play 只接受调用方给的 finalized plan）。" +
+    "(5) replacement/ 的通用事件拦截与注册面已合入，但 replacement/pattern.ts 的 ACTION_KINDS 是封闭映射" +
+    "（只含 move-zone/kill/ready/exhaust/damage/score/play/reveal），没有 look 动作，370.1.c.1 的同刻生效语义仍缺。" +
+    "依赖：look 事件的注册词汇与 object 载荷、秘密区域打出许可、CardProgram→Finalize 的费用字面量解包，以及 370.1.c.1 文本的裁定。不近似实现。",
   abilities,
   sourceText:
     "[Ganking] (I can move from battlefield to battlefield.)\n" +

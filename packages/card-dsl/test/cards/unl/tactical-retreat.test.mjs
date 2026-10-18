@@ -32,6 +32,9 @@ test("unl-175-219 Tactical Retreat: program validates and keeps its identity", (
   assert.match(program.judgeReason, /457/);
   assert.match(program.judgeReason, /next time/);
   assert.match(program.judgeReason, /replacement\.object/);
+  assert.match(program.judgeReason, /replacementDependencies/);
+  assert.match(program.judgeReason, /Finalize target adapter/);
+  assert.doesNotMatch(program.judgeReason, /instead must be an instruction body/);
 });
 
 test("unl-175-219 Tactical Retreat: [Reaction] plus the printed 2 energy cost", () => {
@@ -59,6 +62,9 @@ test("unl-175-219 Tactical Retreat: the chosen friendly unit is a target, not pa
   // The printed "the next time ... this turn" one-occurrence window is the
   // merged window spelling bound to the pipeline's current turn.
   assert.deepEqual(replacement.args.window, { kind: "constant", value: "next-time-this-turn" });
+  // The selected unit is the replacement's event object; the Finalize target
+  // adapter that would consume this spelling is still missing.
+  assert.deepEqual(replacement.args.object, { kind: "constant", value: "tactical-retreat.chosen-unit" });
   assert.deepEqual(replacement.targets, [
     {
       id: "tactical-retreat.chosen-unit",
@@ -68,6 +74,19 @@ test("unl-175-219 Tactical Retreat: the chosen friendly unit is a target, not pa
       selection: "one"
     }
   ]);
+});
+
+test("unl-175-219 Tactical Retreat golden: registered replacement.event fails closed at its missing Finalize target adapter", () => {
+  const base = world()
+    .unit("ally", { owner: "controller", controller: "controller", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const kernel = base.clone({ controller: "controller", sourceSnapshot: base.getObject("ally") });
+  kernel.setTargets("tactical-retreat.chosen-unit", [kernel.ref("ally")]);
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("ally") });
+  assert.throws(
+    () => resolveChainBody(play.body, context),
+    (error) => error.name === "BlockedReplacementError" && /Finalize target adapter/.test(error.message)
+  );
 });
 
 test("unl-175-219 Tactical Retreat: the instead-body heals, exhausts, then recalls the same unit", () => {
@@ -172,9 +191,9 @@ test("unl-175-219 Tactical Retreat golden: the card's ability binds as a real on
     .build();
   const ref = kernel.ref("ally");
   const registrations = [];
-  // The merged binder spells the instead-body as a raw instruction array (see
-  // the judgeReason: the frozen Instruction.args expression wrapper and this
-  // array field disagree).
+  // The ability-level binder consumes a raw instruction array. The registered
+  // replacement.event instruction unwraps the CardProgram constant body before
+  // handing it to that binder; this old shape mismatch is no longer a gap.
   const bound = bindReplacement(
     {
       replaces: {},
@@ -245,28 +264,21 @@ test("unl-175-219 Tactical Retreat golden: the merged recall mode refuses to app
 test.todo(
   "unl-175-219 Tactical Retreat: register the card's death replacement so the chosen unit's death is intercepted, " +
     "with the printed one-occurrence 'the next time ... this turn' window and its end-of-turn expiry " +
-    "(CR 368.1/369.1/370.1.a.1) from the card program — the merged bindReplacement consumes replacement abilities, " +
-    "but this play-body declaration still needs a production binding path"
+    "(CR 368.1/369.1/370.1.a.1) from the card program — replacement.event is registered, but the production " +
+    "ResolveContext still lacks the replacement/replacementDependencies extension needed by the play body"
 );
 
 test.todo(
   "unl-175-219 Tactical Retreat: bind the replaced event's unit into the replacement body so 'it' stays the " +
     "intercepted unit instead of a new choice (CR 355.10.c) — the merged { linked: \"replacement.object\" } selector is " +
-    "consumed by the planner above; the remaining piece is carrying the finalized TargetSpec choice into the " +
-    "replacement binding (a ReplacementAbility has no TargetSpec slot)"
+    "consumed by the planner above; the remaining piece is the Finalize target adapter for replacement.event.object " +
+    "and the chosen TargetSpec"
 );
 
 test.todo(
   "unl-175-219 Tactical Retreat: clear the marked damage through the replacement plan — the merged planner maps an " +
     "absent effect.heal amount to 1 instead of the primitive's 'clear all marked damage' semantics, so the heal half " +
     "cannot be planned by the replacement body yet (CR 419.1); the interpreter executes it correctly above"
-);
-
-test.todo(
-  "unl-175-219 Tactical Retreat: declare the replacement instead-body in the merged binder's instruction-array " +
-    "spelling — Instruction.args types every field as an Expr, so validateCardProgram accepts only a constant-wrapped " +
-    "body while bindReplacement rejects it (\"replacement.event instead must be an instruction body\"); the two halves " +
-    "of the frozen contract have to agree"
 );
 
 test.todo(

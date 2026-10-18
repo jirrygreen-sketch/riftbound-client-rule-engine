@@ -5,9 +5,12 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/honeyfruit.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import resources from "../../../../engine-core/dist/effects/instructions/effect.resources.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-2cbed9b8e8e6bad981a52533e2be7f623180aac30aad920891bc32d9fedb7d7d";
 const SOURCE_TEXT =
@@ -19,17 +22,32 @@ const [enterExhausted, reactionAdd, levelSixAdd] = program.abilities;
 const [universalPower] = reactionAdd.body;
 const [energyAndPower] = levelSixAdd.body;
 
+const executableProgram = () => {
+  const { judgeReason, ...rest } = program;
+  return { ...rest, status: "executable" };
+};
+
+const gearSnapshot = (overrides = {}) => ({
+  ref: { id: "honeyfruit", zoneEntryId: 1 }, cardId: CARD_ID, name: "Honeyfruit", types: ["gear"],
+  tags: [], keywords: [], owner: "A", controller: "A", zone: "board",
+  location: { type: "base", player: "A" }, might: null, energy: 2, power: null, exhausted: false,
+  damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false, combatRole: null,
+  ...overrides
+});
+
 test("unl-049-219 Honeyfruit: program validates and is judge-required", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.deepEqual(result.issues, []);
   assert.equal(program.status, "judge-required");
-  // Replacement registration and activation description are merged; the
-  // remaining gaps are Universal Power, the [Level N] predicate and Add timing.
+  // The entry rewrite and the exhaust cost are merged and exercised below; the
+  // remaining gaps are Universal Power, the Level 6 XP predicate and Add timing.
   assert.equal(enterExhausted.with[0].op, "replacement.enter");
   assert.match(program.judgeReason, /rainbow/);
+  assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /824\.1/);
   assert.match(program.judgeReason, /dependent-keyword/);
+  assert.match(program.judgeReason, /condition\.predicate/);
   assert.match(program.judgeReason, /430\.2\.a/);
 });
 
@@ -59,9 +77,9 @@ test("unl-049-219 Honeyfruit: 'This enters exhausted.' is an entry rewrite, not 
 });
 
 test("unl-049-219 Honeyfruit golden: the merged replacement pipeline rewrites the board entry", () => {
-  // replacement.enter is bound through replacement/bind.ts; the entry
-  // rewrite happens before the move commits, so no separate becomes-exhausted
-  // timing is produced on the Board (CR 143.4 / 359.2.d).
+  // replacement.enter is bound through replacement/bind.ts; the entry rewrite
+  // happens before the move commits, so no separate becomes-exhausted timing is
+  // produced on the Board (CR 143.4 / 359.2.d).
   const kernel = world()
     .unit("honeyfruit", { types: ["gear"], energy: 2, power: null, zone: "hand", location: null })
     .build();
@@ -98,6 +116,31 @@ test("unl-049-219 Honeyfruit golden: the merged replacement pipeline rewrites th
   assert.deepEqual(kernel.events.map((event) => event.action), ["move-zone", "exhaust", "move-zone"]);
 });
 
+test("unl-049-219 Honeyfruit golden: the production lifecycle lands the Gear exhausted (CR 359.2.d)", () => {
+  // The card's own replacement ability, bound through the production
+  // createEngineStaticBinder, rewrites the entry orientation: the Gear enters
+  // exhausted instead of the ready default for a Non-Unit Gear.
+  const f = fixture({ cards: [{ id: "honeyfruit", cardId: CARD_ID, types: ["gear"], energy: 2, zone: "hand" }] });
+  // The production lifecycle binds the replacement while the permanent is
+  // still in its printed zone, then follows its newest incarnation onto the
+  // Chain so it can intercept the move that carries it to the Board.
+  const handle = createEngineStaticBinder(f.engine).bindReplacement(enterExhausted, f.kernel.getObject("honeyfruit"));
+  assert.equal(f.engine.commit({ type: "move-zone", object: f.kernel.ref("honeyfruit"), to: "chain" }).status, "done");
+  const onChain = f.kernel.getObject("honeyfruit");
+  assert.equal(onChain.zone, "chain");
+  const outcome = f.engine.pipeline.commit({
+    type: "move-zone",
+    object: onChain.ref,
+    to: "base",
+    location: { type: "base", player: "A" }
+  });
+  assert.equal(outcome.status, "replaced");
+  const entered = f.kernel.getObject("honeyfruit");
+  assert.equal(entered.zone, "board");
+  assert.equal(entered.exhausted, true);
+  handle?.unbind?.();
+});
+
 test("unl-049-219 Honeyfruit: the Reaction Add ability is exhaust-cost and adds one universal Power", () => {
   assert.equal(reactionAdd.kind, "activated");
   // 813.1.d: the printed "[Reaction][>]" is this ability's own speed permission.
@@ -132,20 +175,63 @@ test("unl-049-219 Honeyfruit: the [Level 6] clause is a dependent-keyword abilit
 });
 
 test("unl-049-219 Honeyfruit: the merged activation adapter describes the Reaction Add ability", () => {
-  // describeActivate produces the ChainDraft for the Reaction Add
-  // ability, including its exhaust cost and the declared body.
-  const { judgeReason, ...rest } = program;
-  const binding = createProgramBinding({ cardPrograms: [{ ...rest, status: "executable" }] });
-  const source = {
-    ref: { id: "honeyfruit", zoneEntryId: 1 }, cardId: CARD_ID, name: "Honeyfruit", types: ["gear"],
-    tags: [], keywords: [], owner: "A", controller: "A", zone: "board",
-    location: { type: "base", player: "A" }, might: null, energy: 2, power: null, exhausted: false,
-    damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false, combatRole: null
-  };
+  // describeActivate produces the ChainDraft for the Reaction Add ability,
+  // including its exhaust cost and the declared body.
+  const binding = createProgramBinding({ cardPrograms: [executableProgram()] });
+  const source = gearSnapshot();
   assert.equal(binding.activationAbilities(source).length, 2);
   const draft = binding.describeActivate(source, "A", 0);
   assert.equal(draft.speed, "reaction");
   assert.equal(draft.kind, "activated");
+});
+
+test("unl-049-219 Honeyfruit: Universal Power has no executable representation (gap 1)", () => {
+  // Evidence for gap (1): the merged effect.resources primitive only accepts the
+  // closed six-domain set, so the printed [A] is impossible rather than being
+  // approximated by a chosen domain (CR 163.2.b / 430.5).
+  const kernel = world().player("A", { energy: 0, power: [] }).build();
+  const run = runInstruction(resources, { power: { kind: "constant", value: ["rainbow"] } }, { world: kernel });
+  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
+  assert.deepEqual(kernel.player("A").power, []);
+  assert.deepEqual(run.events, []);
+});
+
+test("unl-049-219 Honeyfruit: the Level 6 predicate has no layer consumer (gap 2)", () => {
+  // Evidence for gap (2): the Level keyword expands to a condition.predicate,
+  // but programs/statics.ts has no layer mapping for that kind, so the XP gate
+  // cannot be bound to either Level branch (CR 824.1.c/824.1.d).
+  const f = fixture({ cards: [{ id: "honeyfruit", cardId: CARD_ID, types: ["gear"], energy: 2, zone: "board" }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("honeyfruit"), to: "board", location: { type: "base", player: "A" } });
+  const host = f.kernel.getObject("honeyfruit");
+  const withLevel = { ...host, keywords: [{ id: "Level", value: 6 }] };
+  const expanded = expandProgram(executableProgram(), withLevel);
+  const predicate = expanded.abilities.find(ability => ability.kind === "static" && ability.effect.kind === "condition.predicate");
+  assert.ok(predicate, "the Level keyword must expand to a condition.predicate");
+  assert.equal(predicate.effect.query, "controller-xp");
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(predicate, withLevel),
+    /Static ability kind condition\.predicate has no layer mapping/
+  );
+});
+
+test("unl-049-219 Honeyfruit: the Level 6 activation cannot even be described (gap 2)", () => {
+  // Evidence for gap (2): programs/play.ts rejects the dependent-keyword
+  // restriction, so the second activated ability has no describable ChainDraft
+  // even before any XP value is read.
+  const binding = createProgramBinding({ cardPrograms: [executableProgram()] });
+  assert.throws(
+    () => binding.describeActivate(gearSnapshot(), "A", 1),
+    /kind dependent-keyword needs a rules adapter/
+  );
+});
+
+test("unl-049-219 Honeyfruit: the original Level Add body grants no partial Energy for unsupported Universal Power", () => {
+  const kernel = world().player("A", { energy: 3, power: ["Calm"] }).build();
+  const run = runInstruction(resources, energyAndPower.args, { world: kernel });
+  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(kernel.player("A").energy, 3);
+  assert.deepEqual(kernel.player("A").power, ["Calm"]);
+  assert.deepEqual(run.events, []);
 });
 
 test("unl-049-219 Honeyfruit golden: the printed 1 Energy half is granted by the merged primitive", () => {
@@ -171,14 +257,6 @@ test.todo(
 test.todo(
   "unl-049-219 Honeyfruit: [Level 6][>] dependent-keyword expansion (CR 824.1.c / 824.1.d) needs an XP predicate " +
     "readable from Condition plus dynamic deactivation — the merged Level KeywordDef emits condition.predicate + " +
-    "controller-xp, but layers/engine.ts does not consume it and PlayerSnapshot.xp is not Expr-readable"
+    "controller-xp, but programs/statics.ts has no layer mapping for it, layers/engine.ts does not consume it, and " +
+    "PlayerSnapshot.xp is not Expr-readable"
 );
-
-test("unl-049-219 Honeyfruit: the original Level Add body grants no partial Energy for unsupported Universal Power", () => {
-  const kernel = world().player("A", { energy: 3, power: ["Calm"] }).build();
-  const run = runInstruction(resources, energyAndPower.args, { world: kernel });
-  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
-  assert.equal(kernel.player("A").energy, 3);
-  assert.deepEqual(kernel.player("A").power, ["Calm"]);
-  assert.deepEqual(run.events, []);
-});

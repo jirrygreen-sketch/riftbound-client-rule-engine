@@ -1,3 +1,5 @@
+// Scenario execution evidence: ../templates/static-666.test.mjs (one row per card plus condition boundaries).
+// This file retains validation, identity, and key IR structure checks; whole-card status stays judge-required until all consumers exist.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -10,6 +12,7 @@ import { restrictions } from "../../../../engine-core/dist/layers/rules/query.js
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { buildHiddenCostPlan, payHiddenCostPlan } from "../../../../engine-core/dist/cost/kinds/hidden.js";
 
 const [ability] = program.abilities;
 const literal = (value) => ({ kind: "constant", value });
@@ -49,6 +52,7 @@ test("ogn-278-298 Bandle Tree: identity, ruleset, status and printed text", () =
   assert.match(program.judgeReason, /continuous\.restrict/);
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /Facedown Zone|facedown/i);
+  assert.match(program.judgeReason, /107\.3\.c\/d/);
 });
 
 test("ogn-278-298 Bandle Tree: one static ability raising this battlefield's facedown limit", () => {
@@ -100,3 +104,31 @@ test.todo(
   "ogn-278-298 Bandle Tree: hiding an extra card must grant no discount and must not let cards " +
     "without Hidden be hidden (CR 422.2.a / 811.1.b)"
 );
+
+test("Bandle Tree Hidden plan still requests one any-domain Power", () => {
+  // Planning/submission is supported; actual Power debit and the Hide action remain pending.
+  for (const domain of ["Fury", "Chaos"]) {
+    const initial = world().player("A", { energy: 4, power: [domain] })
+      .unit("tree", { cardId: program.canonicalCardId, types: ["battlefield"] })
+      .hand("hidden-card", { types: ["spell"], energy: 3, power: null, keywords: [{ id: "Hidden" }] }).build();
+    const ctx = initial.clone({ sourceSnapshot: initial.getObject("hidden-card") });
+    const plan = buildHiddenCostPlan(ctx, { id: "tree:hide-payment", mode: "hide", domains: [] });
+    assert.equal(plan.total.energy, 0);
+    assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] }]);
+    assert.deepEqual(plan.printed, { energy: 3, power: null });
+    const receipt = payHiddenCostPlan(ctx, plan);
+    assert.equal(receipt.paid, true);
+    assert.deepEqual(receipt.events.map(event => event.action), ["pay"]);
+    assert.equal(ctx.player("A").energy, 4);
+    assert.deepEqual(receipt.actions[0].action.plan.power, [domain]);
+    assert.equal(ctx.getObject("hidden-card").zone, "hand");
+  }
+});
+
+test("Bandle Tree Hidden payment debits the required Power", { todo: "effects/testing/test-kernel.ts pay does not consume plan.power; outside card write scope (CR 357.2 / 811.1.b)" }, () => {
+  const initial = world().player("A", { power: ["Chaos"] }).hand("hidden-card", { energy: 3, power: null }).build();
+  const ctx = initial.clone({ sourceSnapshot: initial.getObject("hidden-card") });
+  const plan = buildHiddenCostPlan(ctx, { id: "tree:power-debit", mode: "hide", domains: [] });
+  assert.equal(payHiddenCostPlan(ctx, plan).paid, true);
+  assert.deepEqual(ctx.player("A").power, []);
+});

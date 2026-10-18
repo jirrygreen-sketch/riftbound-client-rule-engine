@@ -63,21 +63,23 @@ test("unl-112-219 Irresistible Faefolk: identity, status, judgeReason and verbat
   assert.match(program.judgeReason, /fromKind|toLocationId/);
   assert.doesNotMatch(program.judgeReason, /RIFT-90|RIFT-91|RIFT-120|RIFT-257|RIFT-270/);
   // The reason must name the live translator/schema rejections, not a placeholder.
-  assert.match(program.judgeReason, /translateTriggerFilter|movedToBattlefield/);
+  assert.match(program.judgeReason, /translateTriggerFilter/);
+  assert.match(program.judgeReason, /toZone/);
   assert.match(program.judgeReason, /invalid-event-type/);
   assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
-test("unl-112-219 Irresistible Faefolk: 'When I move to a battlefield' keeps the Destination gate as a placeholder", () => {
+test("unl-112-219 Irresistible Faefolk: 'When I move to a battlefield' carries the Destination gate in supported fields", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "object-moved");
-  // 449.2: the Destination kind must be a Battlefield; the event payload is not
-  // populated, so `movedToBattlefield` records the gap (volibear-imposing's
-  // movedToOtherThanSourceLocation is the documented precedent).
+  // 449.2: the Destination kind must be a Battlefield. The gate uses the closed
+  // EventPattern toZone field plus the preserved host anchor; the production
+  // move emission still does not populate toZone, which is the recorded gap.
   assert.deepEqual(ability.trigger.filter, {
     event: "object-moved",
-    filter: { object: "self", movedToBattlefield: true }
+    source: "self",
+    toZone: "battlefield"
   });
   assert.equal(ability.trigger.once, undefined);
 });
@@ -184,18 +186,19 @@ test("unl-112-219 Irresistible Faefolk golden: the original move subinstruction 
 test("unl-112-219 Irresistible Faefolk: object-moved exists as a timing point but is outside the EventPattern vocabulary", () => {
   // 421.1 / 449.2: object-moved is a closed timing point, yet the closed
   // EventPattern vocabulary has no such spelling, so the production registration
-  // rejects the subscription before the Destination could ever be tested.
+  // rejects the subscription before the Destination could ever be tested. The
+  // card's own anchor and Destination gate survive program translation.
   assert.equal(isTimingPointId("object-moved"), true);
   assert.equal(EVENT_PATTERN_TYPES.includes("object-moved"), false);
-  assert.throws(
-    () => translateTriggerFilter(ability.trigger.filter, "faefolk", "object-moved"),
-    error => {
-      assert.equal(error.name, "ProgramBindingError");
-      assert.match(error.message, /Unsupported filter field movedToBattlefield/);
-      return true;
-    }
-  );
-  const result = validateTriggerSpec({ at: "object-moved", filter: { event: "object-moved" } });
+  assert.deepEqual(translateTriggerFilter(ability.trigger.filter, "faefolk", "object-moved"), {
+    event: "object-moved",
+    object: { objectId: "faefolk" },
+    toZone: "battlefield"
+  });
+  const result = validateTriggerSpec({
+    at: "object-moved",
+    filter: translateTriggerFilter(ability.trigger.filter, "faefolk", "object-moved")
+  });
   assert.equal(result.ok, false);
   assert.deepEqual(result.issues.map(issue => issue.code), ["invalid-event-type"]);
 });
@@ -204,5 +207,5 @@ test.todo(
   "unl-112-219 Irresistible Faefolk: populate the object-moved payload (fromKind / toKind / fromLocationId / toLocationId) and match 'to a battlefield' against the Destination (449.2) — the action adapter omits those fields and the closed EVENT_PATTERN_TYPES has no object-moved spelling"
 );
 test.todo(
-  "unl-112-219 Irresistible Faefolk: register the object-moved triggered ability in production after the event payload and EventPattern vocabulary accept the Destination gate; the body already resolves the {object: \"self\"} anchor"
+  "unl-112-219 Irresistible Faefolk: register the object-moved triggered ability in production after the event payload and EventPattern vocabulary accept the Destination gate; the body already resolves the captured source location"
 );

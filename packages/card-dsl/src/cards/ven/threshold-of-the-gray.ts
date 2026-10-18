@@ -27,23 +27,25 @@ import type { CardProgram } from "../../ir/index.js";
  *   也没有把时点载荷暴露给卡程序的通道，程序里的 "event-combat-attacker" /
  *   "event-combat-defender" 是缺事件参与者选择器的占位值，不是伪造的席位。
  *
- * status = judge-required（复核 2026-10-16；缺口在触发与接收者绑定，不近似实现）：
+ * status = judge-required（复核 2026-10-17；缺口在触发与接收者绑定，不近似实现）：
  * 1. 没有事件参与者选择器："the attacker and defender" 是本次战斗的两个事件参与者，
  *    冻结 IR 的 PlayerSelector 只有 self/opponent/any/{playerId}，effect.resources 也只接受
  *    求值为 PlayerId 的 Expr 或对象控制者，没有把 combat-start 载荷（attackerId/defenderId）
  *    暴露给卡程序的通道；ObjectSnapshot.combatRole 已进入 effects/contract.ts，但战斗
- *    designation 的写入方仍未实现（combat/flow.ts 的 start 事务会抛
- *    combat-start-transaction）。
- * 2. combat-start 时点仍未发射：combat/flow.ts 的战斗开始事务尚未实现（主动抛出
- *    combat-start-transaction），事件管线只在收到该时点时递增战斗计数；
- *    docs/rules/timing-point-producers.md 仍将该时点标为"待后续"。
- *    卡牌程序绑定（src/programs/triggers.ts）已能注册 CardProgram 的
- *    triggered ability，190.6 的战场能力控制者解析仍未接线；filter 的 here: true 是
- *    053.3 的战场指代占位（静态 filter 读不到事件出的战场，且会被 programs/filters.ts
- *    以 judge-required 拒绝，fail closed）。
+ *    designation 的写入方仍未实现。
+ * 2. combat-start 时点仍未发射：combat/flow.ts:151 的战斗开始事务主动抛
+ *    combat-start-transaction（"Combat start needs an atomic simultaneous timing wave +
+ *    roles (CR 466.2)"），全仓库没有 combat-start 的 emit 调用；事件管线只在收到该时点时
+ *    递增战斗计数（events/pipeline.ts 的 clock.combat++），docs/rules/timing-point-producers.md
+ *    仍把 attack-declared / defense-declared / combat-start 标为"待后续"。卡牌程序绑定
+ *    （src/programs/triggers.ts）已能注册 CardProgram 的 triggered ability，但 190.6 的战场
+ *    能力控制者解析仍未接线；本条 filter 的 here: true 是 053.3 的战场指代占位，本任务实测
+ *    translateTriggerFilter 直接抛 "Unsupported filter field here"，注册 fail closed。
  * 3. 已支持部分由 golden 真实执行：effect.resources 的"各加 1 Energy、不加 Power"语义
- *    （golden 把攻守两个席位作为参数补齐后执行卡片自身的 body）；席位如何从 combat-start
- *    绑定见第 1 点，保持 test.todo，不近似绑定。
+ *    （把攻守两个席位作为参数补齐后执行卡片自身的 body）；席位如何从 combat-start
+ *    绑定见第 1 点，保持 test.todo，不近似绑定。卡内 IR 中的
+ *    "event-combat-attacker"/"event-combat-defender" 仍是缺选择器的占位值，本任务实测
+ *    resolveChainBody 直接执行原始 body 时两条指令都是 negated/impossible。
  * 依赖：战斗开始/designation 事务（combat-start 发射）、事件参与者选择器（契约变更请求）、
  * 053.3 here 锚点 / 190.6 战场能力绑定。
  */
@@ -56,14 +58,16 @@ export default {
     "466.2.c.3 取得身份），而冻结 IR 没有事件参与者选择器：events/trigger-spec.ts 的 PlayerSelector 只有 " +
     "self/opponent/any/{playerId}，effect.resources 只接受求值为 PlayerId 的 Expr 或对象控制者，" +
     "也没有把 combat-start 时点载荷（attackerId/defenderId）暴露给卡程序的通道；契约 3.8 的 ObjectSnapshot.combatRole " +
-    "虽已进入 engine-core 的 effects/contract.ts，但 combat designation 的写入方仍未实现（combat/flow.ts 的战斗开始事务主动抛 " +
-    "combat-start-transaction；同 ogn/obelisk-of-power、rad/rakelstake 的缺口）。" +
-    "程序中的 \"event-combat-attacker\"/\"event-combat-defender\" 是缺选择器的占位值，不可执行。" +
-    "(2) combat-start 时点（466.1/466.2.b）仍未发射：combat/flow.ts 的战斗开始事务尚未实现（主动抛 combat-start-transaction），" +
-    "事件管线仅在该时点递增战斗计数，docs/rules/timing-point-producers.md 仍标为待后续；卡牌程序绑定" +
-    "（src/programs/triggers.ts）已能注册 CardProgram 的 triggered ability，190.6 的战场能力控制者解析仍未接线；" +
-    "filter 的 here: true 是 053.3 的占位（静态 filter 读不到事件出的战场），会被 programs/filters.ts " +
-    "以 judge-required 拒绝（fail closed）。" +
+    "虽已进入 engine-core 的 effects/contract.ts，但 combat designation 的写入方仍未实现（同 ogn/obelisk-of-power、" +
+    "rad/rakelstake 的缺口）。" +
+    "程序中的 \"event-combat-attacker\"/\"event-combat-defender\" 是缺选择器的占位值，本任务实测原样执行 " +
+    "resolveChainBody 得到两条 negated/impossible，不可执行。" +
+    "(2) combat-start 时点（466.1/466.2.b）仍未发射：combat/flow.ts:151 的战斗开始事务主动抛 " +
+    "combat-start-transaction（\"Combat start needs an atomic simultaneous timing wave + roles (CR 466.2)\"），" +
+    "事件管线仅在该时点递增战斗计数（events/pipeline.ts），docs/rules/timing-point-producers.md 仍标为待后续；" +
+    "卡牌程序绑定（src/programs/triggers.ts）已能注册 CardProgram 的 triggered ability，190.6 的战场能力控制者解析仍未接线；" +
+    "filter 的 here: true 是 053.3 的占位（静态 filter 读不到事件出的战场），本任务实测 translateTriggerFilter " +
+    "直接抛 \"Unsupported filter field here\"，程序注册 fail closed。" +
     "(3) 效果本体已合入：effect.resources 的「各加 1 Energy、不加 Power」（430.1/430.2/430.5）在 golden 中于补齐两个席位后真实执行；" +
     "席位如何自 combat-start 载荷绑定见第 1 点（保持 test.todo，不近似实现）。" +
     "依赖：战斗开始/designation 事务（combat-start 发射）、事件参与者选择器（契约变更请求）、" +

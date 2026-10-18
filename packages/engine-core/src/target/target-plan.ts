@@ -564,3 +564,8 @@ export const finalizeTargets = finalizeTargetPlan;
 export const resolveTargets = resolveTargetPlan;
 export const retestTargetPlan = resolveTargetPlan;
 export const queryTargets = queryTargetCandidates;
+
+// Non-target PickSpec lifecycle lives beside target planning but is deliberately
+// exported from this stable target entry point so callers can distinguish the
+// two APIs without adding target callbacks to picks.
+export * from "./picks/index.js";

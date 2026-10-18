@@ -36,13 +36,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   production chain adapter and asserts the real registration, the doubled
  *   effective Might, expiry and the lost-target edge.
  * - "Give it [Temporary]" uses continuous.grant-keyword. The ability layer
- *   carries the Temporary keyword, but a dynamically granted keyword is not
- *   re-expanded into a trigger registration, so 816.1.b's "kill this at the
- *   start of your Beginning Phase" trigger never fires. Measured: the
- *   Temporary expansion's `beginning-start` spec is rejected by the closed
- *   EVENT_PATTERN_TYPES list (events/trigger-spec.ts) before any registration,
- *   and no merged producer re-runs keyword expansion for a dynamic grant. The
- *   grant is not dropped or faked into a direct kill.
+ *   carries the Temporary keyword, but production never re-expands it into a
+ *   trigger registration: the KeywordGrantLayerEngine re-expansion is merged,
+ *   yet production assembly attaches the plain LayerEngine, and the Temporary
+ *   expansion's beginning-start spec is rejected by the closed
+ *   EVENT_PATTERN_TYPES list (events/trigger-spec.ts) before any registration.
+ *   The 816.1.b Beginning Phase kill never fires. The grant is not dropped or
+ *   faked into a direct kill.
  * - [Action] (806) is declared as a keyword ability, but its expansion is still
  *   refused by the production static binder: `programs/statics.ts` throws
  *   "Unsupported static appliesTo [\"card\",\"activated-ability\"]" for the
@@ -57,7 +57,8 @@ const lastStand = {
     "「Double a friendly unit's Might this turn」（CR 433.1 的 Doubling）已可执行：condition.value 捕获目标当前 Might" +
     "（433.1/433.1.a）后由 continuous.might 以 add + this-turn 期限注册，golden 用生产链适配器执行并断言翻倍、" +
     "end-of-turn 到期与目标丢失边界。整卡仍不可执行：「Give it [Temporary]」的 continuous.grant-keyword" +
-    "已能把 Temporary 写进 ability 层，但动态授予的关键词不会重新注册其 beginning-start 触发，且该时点仍不在" +
+    "已能把 Temporary 写进 ability 层，但生产不会把动态授予的关键词重展开成触发注册：KeywordGrantLayerEngine 的重展开已合入，" +
+    "生产装配仍用普通 LayerEngine；且 beginning-start 时点仍不在" +
     "EVENT_PATTERN_TYPES 闭集内（实测 Temporary 展开的 spec 被 assertTriggerSpec 以 invalid-event-type 拒绝）；" +
     "816.1.b「在控制者 Beginning Phase 开始时消灭它」不会运行。[Action]（806）的展开是 " +
     "continuous.timing static，programs/statics.ts 对其 appliesTo: [\"card\", \"activated-ability\"] 抛 " +

@@ -31,7 +31,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「I can't be chosen by enemy spells and abilities」是 CR v1.5 756/757.1、758/758.1 的分类 Untargetable。continuous.restrict 的默认 static 绑定已存在，ChainEngine.targetIsLegal 也已把 restrictions() 接到 target/target-plan.ts 的 Finalize/Resolve isLegal；剩余缺口是 enemy chooser 与 spell/ability sources 的类别条件。当前 static 的 mode:untargetable/chooser/sources 不会转成 actions/具来源限定的 restriction，rules/query.ts 也不判定这些字段；一条无条件 target 禁止会误伤友方效果。依赖：选择者相对来源控制者及来源类别的限制表示、查询与目标重验适配。",
+    "「I can't be chosen by enemy spells and abilities」是 CR v1.5 756/757.1、758/758.1 的分类 Untargetable。continuous.restrict 的默认 static 绑定已存在，ChainEngine.targetIsLegal 也已把 restrictions() 接到 target/target-plan.ts 的 Finalize/Resolve isLegal；剩余缺口是 enemy chooser 与 spell/ability sources 的类别条件。当前 static 的 mode:untargetable/chooser/sources 不会转成 actions/具来源限定的 restriction，rules/query.ts 也不判定这些字段；无 actions 的 restriction 实际匹配任意动作，实测友方 Hextech Ray 也被 no-legal-targets 拒绝（static-668.test.mjs 的可运行 TODO 保留友方可选的印刷期望）。依赖：选择者相对来源控制者及来源类别的限制表示、查询与目标重验适配。",
   abilities: [
     {
       kind: "static",

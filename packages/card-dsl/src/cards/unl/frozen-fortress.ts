@@ -26,25 +26,26 @@ import type { CardProgram } from "../../ir/index.js";
  *   targeting triggers would fire wrongly).
  * - 053.3: "here" is this Battlefield.
  *
- * Status (packages/card-dsl/src/cards/README.md §2): judge-required — three
- * merged gaps, none approximated:
- * 1. no merged module emits `beginning-start` into the single event pipeline
- *    for the turn player's Beginning Phase (mushroom-pouch, loose-cannon and
- *    the-arenas-greatest record the same gap), so the trigger cannot enter the
- *    chain;
- * 2. there is no merged primitive for an untargeted set damage: effect.damage
- *    reads its victims from ctx.targets(TargetSpec.id) only, and 355.10.d
- *    forbids registering "each unit here" as a TargetSpec. The primitive call
- *    below therefore carries no TargetSpec and cannot deal the damage today
- *    (the golden test executes the same fixed-amount damage with a
- *    test-side locked set to show the printed number and the per-unit
- *    handling, exactly like ogn/anivia-primal);
- * 3. no merged subscriber registers a CardProgram's triggered ability as a
- *    TriggerRegistration, and 190.6's uncontrolled-Battlefield responsibility
- *    ("each player's") has no producer.
- * Dependencies: the turn module's beginning-start emission plus RIFT-33 /
- * RIFT-120 trigger registration (contract §7.2 batch 5), and an untargeted
- * set-damage form over a "here" set anchor.
+ * Status (packages/card-dsl/src/cards/README.md §2): judge-required —
+ * re-measured 2026-10-18, one gap remains:
+ * 1. effect.damage still reads its victims from ctx.targets(TargetSpec.id)
+ *    only, and 355.10.d forbids registering "each unit here" as a TargetSpec —
+ *    the primitive call below therefore carries no TargetSpec: probed through
+ *    the production chain adapter it reports ignored/mistargeted and deals 0
+ *    damage (the golden test executes the same fixed-amount damage with a
+ *    test-side locked set to show the printed number and the per-unit handling,
+ *    exactly like ogn/anivia-primal).
+ * The trigger half is now merged and faithful: registration through
+ * createProgramBinding().registerProgramTriggers succeeds, and because the
+ * Registration's `at` already selects the phase, the empty event filter fires
+ * exactly on `beginning-start` emissions and never on other phase timings
+ * (probed for both players' Beginning Phases, which is what "each player's
+ * Beginning Phase" asks for). The earlier claim that the closed
+ * EVENT_PATTERN_TYPES vocabulary blocked this card was wrong: the vocabulary
+ * applies to the event NAME inside the filter, and this card deliberately names
+ * no event.
+ * Dependencies: an untargeted set-damage form over a "here" set anchor
+ * (effect.damage set/query shape, engine follow-up).
  */
 export default {
   canonicalCardId:
@@ -52,15 +53,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) beginning-start 时点（CR 315.2.a.1）没有被任何已合入模块为回合玩家的 Beginning Phase " +
-    "emit 进唯一事件管线，触发无法进链（同 ogn/mushroom-pouch、ogn/loose-cannon、ogn/the-arenas-greatest 的缺口；" +
-    "依赖 RIFT-33 / 契约 §7.2 批 5 回合接线）。(2)「deal 1 to each unit here」按 355.10.d/355.10.d.1 是程序化选定的集合、不是目标，" +
+    "剩余缺口（CR 355.10.d/355.10.d.1、053.3，2026-10-18 复核）：「deal 1 to each unit here」是程序化选定的集合、不是目标，" +
     "而已合入的 effect.damage 只从 ctx.targets(TargetSpec.id) 读取受害者（没有集合/query 形态）；" +
     "把它写成 selection \"all\" 的 TargetSpec 会错误登记「成为目标」（355.9/754），属近似实现，故本卡不写 TargetSpec，" +
-    "该指令当前无法造成伤害（golden 只按同 ogn/anivia-primal 的分层做法，用测试侧锁定集合执行同一固定数额伤害）。" +
-    "(3) 没有已合入订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration，" +
-    "190.6.b 的无控制者战场由回合玩家负责也没有生产者。依赖：回合模块的 beginning-start 发射 + 触发注册（契约 §7.2 批 5）、" +
-    "以及带「here」集合锚点的无目标集合伤害形态。",
+    "实测经生产链适配器执行本卡 body 得到 ignored/mistargeted、0 伤害（golden 只按同 ogn/anivia-primal 的分层做法，" +
+    "用测试侧锁定集合执行同一固定数额伤害）。" +
+    "触发半段已合入且忠实：createProgramBinding().registerProgramTriggers 能注册本卡，Registration 的 at 已经选定 phase，" +
+    "空事件过滤器因此只在 beginning-start 上触发、不会在其他 phase 时点触发（实测双方玩家的 Beginning Phase 都触发，正合「each player's」）。" +
+    "早先「封闭 EVENT_PATTERN_TYPES 挡住本卡」的说法不成立：该词汇约束的是 filter 里的事件名，而本卡有意不写事件名。" +
+    "依赖：带「here」集合锚点的无目标集合伤害形态（effect.damage 的集合/query 形态，引擎后续）。",
   sourceText:
     "At the start of each player's Beginning Phase, deal 1 to each unit here. (This happens before scoring.)",
   abilities: [
@@ -70,9 +71,10 @@ export default {
         at: "beginning-start",
         // "each player's Beginning Phase": every player's, not only the
         // Battlefield controller's (190.6.b covers the uncontrolled case).
-        // The turn player/phase ownership is the timing producer's job; the
-        // filter names no player and no battlefield payload exists yet.
-        filter: { event: "beginning-start" }
+        // The Registration's `at` already selects the phase timing, so the
+        // filter deliberately names no closed event type; probed, this fires on
+        // every Beginning Phase and on no other phase timing.
+        filter: {}
       },
       optional: false,
       body: [

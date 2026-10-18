@@ -6,6 +6,7 @@ import program from "../../../dist/cards/rad/seraphine-not-alone.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { createProgramBinding, ProgramBindingError } from "../../../../engine-core/dist/programs/index.js";
 import { attachProgramLifecycle } from "../../../../engine-core/dist/programs/lifecycle.js";
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
@@ -238,6 +239,7 @@ function bindingFixture({ exhaustedAllies = 0, executable = true } = {}) {
   const candidate = { ...program };
   if (executable) {
     candidate.status = "executable";
+    // judgeReason must not survive on an executable program.
     delete candidate.judgeReason;
   }
   const binding = createProgramBinding({ cardPrograms: [candidate] });
@@ -321,6 +323,46 @@ test("rad-138-167 Seraphine, Not Alone: shipped judge-required binding fails exp
   assert.deepEqual(engine.pipeline.events, savedEvents);
   assert.equal(engine.pipeline.checkpoint().triggers.size, 0);
   assert.equal(engine.items.length, 0);
+});
+
+test("rad-138-167 Seraphine, Not Alone: the declared per(count) static really registers but is not consumed", () => {
+  // The card is lifted only to let the merged static binder run; the declared
+  // per(count) shape is registered verbatim and the layer engine ignores it.
+  const candidate = { ...program, status: "executable" };
+  delete candidate.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [candidate] });
+  const kernel = world().unit("seraphine", { might: 1 }).unit("ally-exhausted", { exhausted: true }).build();
+  const self = kernel.getObject("seraphine");
+  const engine = createLayerEngine([self]);
+  const staticAbility = candidate.abilities.find((ability) => ability.kind === "static");
+  const { effect } = staticAbility;
+  engine.register({
+    id: "seraphine-might",
+    source: self.ref,
+    filter: { objectId: self.ref.id, zone: "board" },
+    layer: effect.layer,
+    effect: {
+      kind: effect.kind,
+      mode: effect.mode,
+      amount: effect.amount,
+      per: effect.per
+    }
+  }, { type: "permanent" });
+  assert.equal(engine.registry.list().length, 1);
+  assert.deepEqual(engine.registry.list()[0].effect.effect.per, {
+    kind: "count",
+    subject: "units",
+    filter: {
+      type: "unit",
+      zone: "board",
+      controller: "controller",
+      states: "exhausted",
+      exclude: "self"
+    }
+  });
+  // Actual observed behavior: numberValue reads only the scalar amount, so the
+  // Might is 1 + 1 (fixed) regardless of how many other units are exhausted.
+  assert.equal(engine.evaluate(self.ref).might, 2);
 });
 
 for (const exhaustedAllies of [0, 3]) {

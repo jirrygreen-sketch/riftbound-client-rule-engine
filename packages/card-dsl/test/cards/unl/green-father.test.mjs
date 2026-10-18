@@ -3,9 +3,12 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/green-father.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { registerProgramTriggers, triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import exhaust from "../../../../engine-core/dist/effects/instructions/effect.exhaust.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-cbd7d8a764f8a0a4bf62c8365cd14d5dd5deb06823365bffea237f2d3dd757a6";
@@ -41,10 +44,18 @@ test("unl-195-219 Green Father: identity, status, judgeReason and verbatim sourc
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /Replace/);
-  assert.match(program.judgeReason, /439\./);
+  // The reason must name the live gaps: the Replace action / Brush token, the
+  // battlefield payload selector, the trigger base-cost binding and the Legend
+  // Zone ownership. Merged vocabulary spellings are recorded as executable.
+  assert.match(program.judgeReason, /effect\.replace/);
+  assert.match(program.judgeReason, /439\.1/);
+  assert.match(program.judgeReason, /439\.7/);
   assert.match(program.judgeReason, /187\.8/);
   assert.match(program.judgeReason, /107\.4/);
+  assert.match(program.judgeReason, /359\.3\.f\.1/);
+  assert.match(program.judgeReason, /mayAtFinalize/);
+  assert.match(program.judgeReason, /legendZone|legend-zone/);
+  assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
 test("unl-195-219 Green Father: 'conquer or hold' is two named triggers, not one custom timing point", () => {
@@ -52,12 +63,14 @@ test("unl-195-219 Green Father: 'conquer or hold' is two named triggers, not one
   // 383.4.c.2.b: a Conquer Effect that references the player conquering.
   assert.equal(conquer.kind, "triggered");
   assert.equal(conquer.trigger.at, "conquer");
-  assert.deepEqual(conquer.trigger.filter, { event: "conquer", player: "self" });
+  // 383.4.c.2.b: the event spelling uses the closed vocabulary `conquered`
+  // (pipeline-match.ts maps it to the runtime `conquer` timing point).
+  assert.deepEqual(conquer.trigger.filter, { event: "conquered", player: "self" });
   assert.equal(conquer.optional, true);
   // 383.4.d.2.b: a Hold Effect that references the player holding.
   assert.equal(hold.kind, "triggered");
   assert.equal(hold.trigger.at, "hold");
-  assert.deepEqual(hold.trigger.filter, { event: "hold", player: "self" });
+  assert.deepEqual(hold.trigger.filter, { event: "held", player: "self" });
   assert.equal(hold.optional, true);
 });
 
@@ -182,10 +195,61 @@ test("unl-195-219 Green Father golden: an already-exhausted legend cannot be exh
   assert.deepEqual(run.events, []);
 });
 
-test.todo(
-  "unl-195-219 Green Father: execute the CR 439.3 Replace action — the closed GameAction set has no replace " +
-    "and the card-program effect.replace binding is still required (contract change request)"
-);
+test("unl-195-219 Green Father: both closed-vocabulary triggers register and the production Score wave hits them", () => {
+  // events/trigger-spec.ts accepts conquered/held; pipeline-match.ts maps them to
+  // the runtime conquer/hold timing points emitted by turn/flow.ts's Score wave.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const f = fixture({
+    cards: [{ id: "green-father", cardId: CANONICAL_ID, types: ["legend"], might: null }],
+    // CR 383.3.a: the printed "you may" is the trigger's own optional decision.
+    choose: request => request.type === "optional" ? true : undefined
+  });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("green-father"), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
+  const source = f.kernel.getObject("green-father");
+  const registrations = triggerRegistrations(binding.registry, source);
+  assert.deepEqual(registrations.map(entry => [entry.spec.at, entry.spec.filter]), [
+    ["conquer", { event: "conquered", player: "self" }],
+    ["hold", { event: "held", player: "self" }]
+  ]);
+  const ids = registerProgramTriggers(binding.registry, f.engine, source);
+  assert.deepEqual(ids, ["program:green-father:2:0", "program:green-father:2:1"]);
+
+  // The opponent's conquer is not this controller's trigger.
+  f.engine.emit({ timingPoint: "conquer", player: "B", details: { battlefieldId: "battlefield-1" } });
+  assert.equal(f.engine.items.length, 0);
+  // The controller's hold emission enqueues the hold half's body.
+  f.engine.emit({ timingPoint: "hold", player: "A", details: { battlefieldId: "battlefield-1" } });
+  assert.deepEqual(f.engine.items.map(item => item.body[0].id), ["green-father.hold-may"]);
+
+  // The fresh engine's controller conquer enqueues the conquer half instead.
+  const g = fixture({
+    cards: [{ id: "green-father", cardId: CANONICAL_ID, types: ["legend"], might: null }],
+    choose: request => request.type === "optional" ? true : undefined
+  });
+  g.engine.commit({ type: "move-zone", object: g.kernel.ref("green-father"), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
+  registerProgramTriggers(binding.registry, g.engine, g.kernel.getObject("green-father"));
+  g.engine.emit({ timingPoint: "conquer", player: "A", details: { battlefieldId: "battlefield-1" } });
+  assert.deepEqual(g.engine.items.map(item => item.body[0].id), ["green-father.conquer-may"]);
+});
+
+test("unl-195-219 Green Father: the production interpreter still rejects effect.replace, and no Replace action exists", async () => {
+  // CR 439.1/439.3: the Replace action is not in the closed GameAction set, and
+  // registry.generated.ts has no effect.replace opcode, so the card body cannot
+  // resolve its Replace half. The placeholder never silently succeeds.
+  const kernel = world()
+    .unit("green-father", { zone: "board", types: ["legend"], controller: "A" })
+    .build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("green-father") });
+  ctx.setAnswers({ "green-father.conquer-may/optional": true });
+  assert.throws(
+    () => runAbilityBody([conquerMay], ctx),
+    /Unregistered instruction opcode: effect\.replace/
+  );
+  const { instructionDefinitionsById } = await import("../../../../engine-core/dist/effects/instructions/registry.generated.js");
+  assert.equal(instructionDefinitionsById.has("effect.replace"), false);
+});
 test.todo(
   "unl-195-219 Green Father: add the CR 187.8 Brush battlefield token definition (its own +1 [M] ability and the " +
     "CR 439.7 Swap Back) to the frozen effect.token table"

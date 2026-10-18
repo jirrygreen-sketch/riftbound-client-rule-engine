@@ -18,20 +18,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "Increase its Might to 5"；475 / 479.2 定义图层顺序。
  * - "this turn" = end-of-turn 期限，由时点驱动的期限清理负责（契约 3.5）。
 
- * status = judge-required（README 第 2 节）。缺口：
- * 1. 没有已注册的「把 Base Might 设为 N（本回合）」原语：已合入的
- *    effects/instructions/continuous.might.ts 无论 mode "add" 还是 "set" 都注册
- *    layer: "arithmetic" 的效果（mode "set" 写 kind "set-might"，engine.ts 的
- *    applyArithmetic 消费），仍是 479.4 的算术图层；Trait-Altering 图层的
- *    Base Might 设值（479.2 的 Base Might 行）没有对应的指令原语；
- *    trait 图层本身已有 set-property(might) 消费，缺的是从卡牌指令注册到该层的入口
- *    （continuous.trait / set-base-might 都没有文件），把 Base Might 当有效 Might
- *    处理会改变 143.2.a.1 与 479.2/479.4 的分层语义。
+ * status = judge-required（README 第 2 节，2026-10-17 复核）。缺口：
+ * 1. 没有已注册的「把 Base Might 设为 N（本回合）」原语：instructionDefinitionsById
+ *    没有 continuous.base-might，continuous.might 的 argsSchema 也拒绝显式 `layer` 参数；
+ *    该原语无论 mode "add" 还是 "set" 都注册 layer: "arithmetic" 的效果
+ *    （mode "set" 写 kind "set-might"，engine.ts 的 applyArithmetic 消费），
+ *    仍是 479.4 的算术图层。trait 图层本身已有 set-property(might) 消费
+ *    （实测可设值并在回合末到期），缺的只是从卡牌指令注册到该层的入口，
+ *    把 Base Might 当有效 Might 处理会改变 143.2.a.1 与 479.2/479.4 的分层语义。
  * 下面保留有依据的形状：card-played 自发触发 + 目标式（己方单位）的
  * continuous.base-might 指令与本回合期限；golden 测试做结构断言，并单独用已合入原语
  * 做对照执行（continuous.might 的 arithmetic 设值真实生效、并在回合末到期），
  * 不把它当作本卡的 Base Might 语义。
- * 依赖：Trait-Altering 图层的 Base Might 设值原语。
+ * 依赖：Trait-Altering 图层的 Base Might 设值原语（指令注册 + 参数形状）。
  */
 const abilities: Ability[] = [
   {
@@ -68,8 +67,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺把 Base Might 设为 5 并持续本回合的卡牌指令入口（143.2.a.1 / 479.2）。" +
-    "layers/engine 的 trait 图层已支持 set-property(might)，但没有已注册的 continuous.base-might 原语将正文绑定到它；" +
+    "缺把 Base Might 设为 5 并持续本回合的卡牌指令入口（143.2.a.1 / 479.2）：" +
+    "instructionDefinitionsById 没有 continuous.base-might，continuous.might 的 argsSchema 拒绝 layer 参数；" +
+    "layers/engine 的 trait 图层已支持 set-property(might) 并在回合末到期（实测），但没有已注册原语把卡牌正文绑定到它；" +
     "continuous.might 的 add/set 始终注册 arithmetic 图层（479.4），不能代替本卡的 Trait-Altering 语义。",
   abilities,
   sourceText: "When you play me, choose a friendly unit. Its base Might becomes 5 this turn."

@@ -11,6 +11,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Conquer 的单位；468.5.d / 471.1 / 473.2.a 定义 Conquer 的成立条件。封闭时点 "conquer"
  *   （events/timing-points.ts，ruleRefs 468.5.d/471.1/473.2.a）承载该条件；383.4.c.2.c 说明
  *   即使得分被否定或替代该触发仍然发生，因此触发不写得分成败条件。
+ *   事件判别式用封闭词汇表的 "conquered"（events/trigger-spec.ts 的 EVENT_PATTERN_TYPES；
+ *   events/pipeline-match.ts 的 EVENT_NAMES 把 "conquered" 映射到 conquer 时点）。旧 sfd 卡
+ *   写作 "conquer" 会在 assertTriggerSpec 被 invalid-event-type 拒绝，本卡不沿用该拼写。
  * - 403.1 / 契约 3.9：效果首段的 "you may" 是触发能力自身的可选执行（optional = true），
  *   被选指令包进 choice.optional 的 body，不写 choice + linkedTo。
  * - 355.7 / 355.9.a.1："kill a gear" 指名的对象是目标（"gear" 未另有说明时指 Board 上的
@@ -29,7 +32,10 @@ const abilities: Ability[] = [
     kind: "triggered",
     trigger: {
       at: "conquer",
-      filter: { event: "conquer", filter: { source: "self" } }
+      // 事件判别式用封闭词汇表的 "conquered"：validateTriggerSpec 以 invalid-event-type
+      // 拒绝 "conquer"（EVENT_PATTERN_TYPES 无该值），而 pipeline-match 的 EVENT_NAMES
+      // 把 "conquered" 映射到 conquer 时点，语义相同。
+      filter: { event: "conquered", filter: { source: "self" } }
     },
     optional: true,
     body: [
@@ -92,8 +98,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处当前缺口：(1) “with Energy cost no more than my Might”要求在 Finalize 合法目标集合中比较目标印刷 Energy cost 与宿主有效 Might（355.9.b / 143.2.a）。queryTargetCandidates 虽有 isLegal 回调，CardProgram TargetSpec → Chain 的绑定未提供此 object-property 谓词；effect.kill 的结算期 condition 不能替代选择时的限制，energy:null 也不能换算为 0。" +
-    "(2) gear TargetSpec 嵌在 choice.optional 的 body 内，chain/engine.ts 的 assertFinalizationSurface 拒绝嵌套目标，缺少 Finalize 锁定、目标事件与 Resolve 重验生命周期。conquer 事件、触发注册、optional 选择和 kill 原语已存在；真实 body 的接受、拒绝、放弃及空印刷值路径仅证明已支持部分。",
+    "两处当前缺口（2026-10-17 RIFT-733 复核实测）：" +
+    "(1) “with Energy cost no more than my Might”要求在 Finalize 的合法目标集合里比较目标印刷 Energy cost 与宿主有效 Might" +
+    "（355.9.b / 143.2.a）。queryTargetCandidates 的 isLegal 回调只接受宿主提供的谓词，" +
+    "CardProgram 的 TargetSpec 没有把该 object-property 比较翻译进去（programs/filters.ts 只翻译 filter 字段），" +
+    "effect.kill 的结算期 condition 也不能替代选择时的限制；energy:null 仍按无印刷值处理，不换算为 0。" +
+    "(2) gear TargetSpec 嵌在 choice.optional 的 body 内，chain/engine.ts 的 assertFinalizationSurface 实测抛 " +
+    "ChainContractBlockedError \"Nested/repeated targets require an interpreter target-selection lifecycle adapter\"，" +
+    "缺 Finalize 锁定、became-target 与 Resolve 重验生命周期。" +
+    "已支持的触发注册（object-killed/ conquered 判别式均在封闭词汇表内）、optional 选择与 kill 原语由 golden 真实执行；" +
+    "接受、拒绝、放弃与空印刷值路径只证明已支持部分。",
   abilities,
   sourceText: "When I conquer, you may kill a gear with Energy cost no more than my Might."
 } satisfies CardProgram;

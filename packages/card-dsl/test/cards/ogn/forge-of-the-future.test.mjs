@@ -5,25 +5,15 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/forge-of-the-future.js";
 import tokenDefinition from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import recycleDefinition from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
-import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [playTrigger, activated] = program.abilities;
 
 const withSource = (builder, id) => {
   const kernel = builder.build();
   return kernel.clone({ sourceSnapshot: kernel.object(kernel.ref(id)) });
-};
-
-/** A cost.pay stand-in that drives the real merged cost plan + payment pipeline. */
-const costProbe = {
-  op: "cost.probe",
-  argsSchema: { parse: value => value },
-  execute(context, args) {
-    const receipt = payCostPlan(context, buildCostPlan(context, args));
-    return { status: "executed", events: [...receipt.events], linkedValues: { paid: receipt.paid } };
-  }
 };
 
 test("forge-of-the-future: passes validateCardProgram", () => {
@@ -150,14 +140,17 @@ test("forge-of-the-future golden: the printed card-played event is what the trig
 
 test("forge-of-the-future golden: \"Kill this\" is paid as a real kill CostAction", () => {
   const context = withSource(world().base("forge-of-the-future", { types: ["gear"] }), "forge-of-the-future");
+  // Production finalizes the activated CostSpec with the real planner and the
+  // payment instruction executes that locked plan (chain/engine.ts finalize).
+  const plan = buildCostPlan(context, { id: "forge-of-the-future:cost", cost: activated.cost });
   const run = runInstruction(
-    costProbe,
-    { id: "forge-of-the-future:cost", cost: activated.cost },
+    costPay,
+    { cost: { kind: "constant", value: plan } },
     { world: context }
   );
 
   assert.equal(run.result.status, "executed");
-  assert.equal(run.result.linkedValues.paid, true);
+  assert.equal(run.result.linkedValues.payment.paid, true);
   // CR 429.1 / 429.2.a: the kill moves the Gear from the Board to its Trash.
   assert.equal(context.getObject("forge-of-the-future").zone, "trash");
   // The cost plan submits its resource `pay` plan first, then the nonstandard

@@ -19,32 +19,28 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   token 以横置状态入场。Gold gear token 的印刷定义见 187.5。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。两处当前真实缺口：
- * - 触发条件 "from face down" 无法在触发过滤里判定：EventPattern/ObjectFilter 的公开
- *   词汇只有 states（ready/exhausted/stunned/attached/face-down）与 zone，而
- *   OBJECT_FILTER_ZONES（events/trigger-spec.ts）没有 facedown-zone；card-played 事件
- *   载荷也不携带打出前的来源区域（chain/engine.ts 的 emit 只带 object/player），
- *   events/pipeline-match.ts 的 details 匹配因此永远命不中。IR 里用
- *   details.fromFaceDown 声明该缺失载荷字段，fail-closed 而不是把普通打出的牌算进来。
+ * - 触发条件 "from face down" 已用 RIFT-359 合入的 played-from-zone 谓词表达，
+ *   读取 card-played 的来源区域事实；但当前 ZoneId/Hidden 打出路径没有 Facedown Zone
+ *   的生产接线，真实游戏事件无法产生该来源值，故仍 fail-closed。
  * - token 体：Gold 定义（187.5，自带 "[Reaction][>] Kill this, [E]: [Add] [A]"）不在
  *   effect.token 的冻结定义表里——该文件明确 Gold 等自带能力的定义保持 blocked/judge-required；
  *   mode "play" 的链上创建与交接本身已由原语支持并执行；"exhausted" 是入场规定
  *   （184.1/185.2.d），但当前 effect.token 不支持入场状态改写，effect.exhaust 的事后横置
  *   会多一次「成为横置」事件、错过 143.4，故不近似。
- * 依赖：card-played 来源区域载荷与 facedown zone 词汇、exhausted 入场状态、Gold 冻结定义。
+ * 依赖：Facedown Zone/Hidden 打出路径、exhausted 入场状态、Gold 冻结定义。
  */
 const abilities: Ability[] = [
   {
     kind: "triggered",
     trigger: {
       at: "card-played",
-      // "when you play a card from face down"：必须是你打出的、且来自面朝下区域。
-      // "由你打出"由 player 表达；面朝下来源在合并载荷里没有字段（见 judgeReason），
-      // 这里用 details.fromFaceDown 明确声明，宁可 fail-closed 也不放宽成任意打出。
+      // "when you play a card from face down"：必须是你打出的牌；来源区域由
+      // played-from-zone 条件读取 card-played 的事件载荷，而不是把普通打出算进去。
       filter: {
         event: "card-played",
-        player: "self",
-        details: { fromFaceDown: true }
-      }
+        player: "self"
+      },
+      condition: { kind: "played-from-zone", zone: "facedown", object: "object" }
     },
     optional: false,
     body: [
@@ -72,15 +68,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "触发条件「when you play a card from face down」没有可求值路径：CR 355.9.a.3 / 107.3.e 的 Facedown Zone " +
-    "不在 ObjectFilter 的 zone 词汇里（events/trigger-spec.ts 的 OBJECT_FILTER_ZONES 无 facedown-zone），" +
-    "card-played 时点的载荷也不携带打出前的来源区域（chain/engine.ts 的 emit 只给 object/player），" +
-    "因此无法判定该牌是否从面朝下打出（需要 card-played 载荷增加来源区域字段，且 facedown 不在 zone 词汇里）。" +
+    "触发条件「when you play a card from face down」已改用 played-from-zone 谓词读取 card-played 来源事实，" +
+    "对应 CR 355.9.a.3 / 107.3.a / 107.3.e；但当前 ZoneId/Hidden 打出路径没有 CR 107.3 的 Facedown Zone 生产接线，真实游戏事件不会产生 " +
+    "zone=facedown 的来源值，因此该条件仍按 fail-closed 处理，不能把普通 card-played 当成满足。" +
     "token 体仍不可完整执行：Gold gear token（CR 187.5 自带 [Reaction][>] Kill this, [E]: [Add] [A]）" +
     "不在 effect.token 的冻结定义表里（该文件明确 Gold 等自带能力的定义保持 blocked/judge-required）；" +
     "mode \"play\" 按 440.2.c/185.2.a/350.2/354 的链上创建与交接本身已可执行；但「exhausted」是入场规定（184.1/185.2.d），" +
     "当前 effect.token 不支持入场状态改写，effect.exhaust 的事后横置会多一次「成为横置」事件并错过 143.4，故不近似。" +
-    "依赖：card-played 来源区域载荷与 facedown zone 支持、Gold token 冻结定义、exhausted 入场状态。",
+    "依赖：Facedown Zone/Hidden 打出生产接线、Gold token 冻结定义、exhausted 入场状态。",
   abilities,
   sourceText: "When you play a card from face down, play a Gold gear token exhausted."
 } satisfies CardProgram;

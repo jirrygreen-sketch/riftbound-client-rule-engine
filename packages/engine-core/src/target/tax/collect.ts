@@ -17,6 +17,14 @@ export interface TargetTaxCollectionOptions {
   /** Abilities may have a unit/gear as their source; never infer this from its type. */
   readonly kind: "spell" | "ability";
   /**
+   * 809.1.c / 764-767: the current payment procedure may make Deflect
+   * inactive.  This only suppresses value-based Deflect declarations; an
+   * explicit card-text target tax remains active.
+   */
+  readonly ignoreDeflect?: boolean;
+  /** Alias used by Finalize callers that model the temporary ignore window. */
+  readonly ignoreTax?: boolean;
+  /**
    * When supplied, this is the complete active tax set, including expanded
    * Deflect. Otherwise use the target's current layered Deflect keywords.
    * Using one representation prevents charging an expanded keyword twice.
@@ -57,12 +65,13 @@ export function collectTargetTaxes(
   if (target.zone !== "board") return [];
   if (options.effects === undefined) {
     // CR 809.1.c limits Deflect specifically to opposing choosers.
-    if (target.controller === context.controller) return [];
+    if (target.controller === context.controller || options.ignoreDeflect === true || options.ignoreTax === true) return [];
     const amount = deflectAmount(target);
     return amount === 0 ? [] : [{ id: "deflect", stage: "mandatory-additional", cost: deflectCost(amount) }];
   }
   const ids = new Set<string>();
   const deflect = new Map<CollectedTargetTax["stage"], number>();
+  const ignoreDeflect = options.ignoreDeflect === true || options.ignoreTax === true;
   const explicit = options.effects.flatMap(binding => {
     if (binding.target.id !== target.ref.id || binding.target.zoneEntryId !== target.ref.zoneEntryId) return [];
     if (!binding.id || ids.has(binding.id)) throw new CostPlanError("invalid-cost-plan", "Bound target taxes require unique non-empty IDs per target");
@@ -83,8 +92,9 @@ export function collectTargetTaxes(
     let cost = effect.cost;
     if (cost !== undefined && effect.value !== undefined) throw new CostPlanError("invalid-cost-plan", "Target tax cannot specify both cost and Deflect value");
     if (cost === undefined) {
-      if (target.controller === context.controller) return [];
       if (effect.value === undefined) throw new CostPlanError("judge-required", "Target tax needs an explicit cost or Deflect value");
+      if (ignoreDeflect) return [];
+      if (target.controller === context.controller) return [];
       const value = evaluate(effect.value);
       if (typeof value !== "number") throw new CostPlanError("invalid-cost-plan", "Deflect value must evaluate to a number");
       deflectCost(value);

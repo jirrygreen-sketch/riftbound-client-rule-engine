@@ -24,7 +24,7 @@ test("rad-093-167 Disposal Expert: validates, identity and source text", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   // README §2: the reason names the current condition and location gaps.
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /matchesEnterAction.*ability condition/);
   assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /Disarm/);
@@ -230,7 +230,7 @@ test.todo(
   "disposal-expert: the 'if you control no other units' gate on the entry replacement — the merged form-2 entry" +
     " declaration (bind.ts matchesEnterAction) does not evaluate the ability condition, and the form-3" +
     " replacement.event alternative reads args.instead as a raw array while the card IR validator requires an Expr;" +
-    " the condition consumer remains an engine-side gap (RIFT-359 / RIFT-260 follow-up)"
+    " the condition consumer remains an engine-side gap (CR 369.3 / 370.1)"
 );
 
 test.todo(

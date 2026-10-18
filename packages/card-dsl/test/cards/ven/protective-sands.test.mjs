@@ -7,11 +7,13 @@ import program from "../../../dist/cards/ven/protective-sands.js";
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
+import { ProgramBindingError, ProgramRegistry, triggerRegistrations } from "../../../../engine-core/dist/programs/index.js";
 import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
 
 const CANONICAL =
@@ -66,6 +68,10 @@ test("ven-162-166 Protective Sands: identity, ruleset, status and exact source t
   assert.match(program.judgeReason, /740\.4\.a\.2/);
   assert.match(program.judgeReason, /TriggeredAbility/);
   assert.ok(!/RIFT-261（分支未合入）|cost\.pay\/ cost\.modify 属仍在进行/.test(program.judgeReason));
+  // Deleted stale assertion (2026-10-18 re-sweep): the previous reason cited
+  // the merged RIFT-257 / RIFT-261 dependencies. The refreshed reason names
+  // the live translator refusal and the missing Finalize cost binding.
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("ven-162-166 Protective Sands: conquer-here trigger with the rune-count trigger condition", () => {
@@ -304,6 +310,38 @@ test.todo(
     "TriggeredAbility has no cost field and CardProgram -> TriggerRegistration cost/mayAtFinalize " +
     "binding is still missing"
 );
+
+test("ven-162-166 Protective Sands gap: the printed here anchor blocks production trigger registration", () => {
+  // Measured evidence for judgeReason point 2: the conquer timing point, its
+  // real emission and the card-played-style registration path all exist, but
+  // the card's own here key is refused by the merged translator, so the real
+  // binding registers nothing.
+  const kernel = world().unit("sands", { cardId: CANONICAL, types: ["battlefield"], location: { type: "battlefield", id: "bf1" } }).build();
+  const source = kernel.getObject("sands");
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  assert.throws(
+    () => triggerRegistrations(registry, source),
+    error => error instanceof ProgramBindingError && error.code === "judge-required" &&
+      /Unsupported filter field here/.test(error.message)
+  );
+});
+
+test("ven-162-166 Protective Sands gap: the accepted may-body errs instead of paying when energy is short", () => {
+  // Measured evidence for judgeReason point 1: the 1-Energy payment is still a
+  // settlement-time instruction. With zero energy the merged primitive raises
+  // cannot-pay-cost (CR 203.3) rather than the trigger being rejected at
+  // Finalize as 740.4.a.2 requires, and nothing is drawn.
+  const kernel = world().player("A", { energy: 0 }).deck(["top-card"]).build();
+  kernel.setAnswers({ [OPTIONAL_ID]: true });
+
+  assert.throws(
+    () => resolveChainBody(ability.body, kernel),
+    error => error instanceof CostPlanError && error.reason === "cannot-pay-cost"
+  );
+  assert.equal(kernel.player("A").energy, 0);
+  assert.equal(kernel.zone("A", "hand").length, 0);
+  assert.equal(kernel.zone("A", "deck").length, 1);
+});
 
 test.todo(
   "ven-162-166 Protective Sands: bind \"here\" to the conquer event's battlefield payload (053.3) and resolve " +

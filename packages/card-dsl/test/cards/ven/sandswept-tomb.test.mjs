@@ -1,3 +1,6 @@
+// Template execution evidence: ../templates/static-645.test.mjs.
+// This card remains judge-required; the template covers lifecycle traversal
+// while the target-plan and cost wiring remain pending.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -6,6 +9,7 @@ import program from "../../../dist/cards/ven/sandswept-tomb.js";
 // card-dsl has no dependency edge on engine-core (engine-core depends on
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
+import { collectCostModifications } from "../../../../engine-core/dist/cost/discounts/index.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -133,14 +137,26 @@ test("ven-164-166 Sandswept Tomb golden: without the discount the same spell sti
 
 test.todo(
   "ven-164-166 Sandswept Tomb: install the static discount on the chosen spell's cost plan — the cost.modify " +
-    "primitive and the buildCostPlan discount channel are merged (executed below), but programs/statics.ts " +
-    "layerFor has no ability-layer mapping for continuous.cost-modification and translateCost still judge-requires " +
-    "the discount cost field, so the card-program wiring to Finalize is unmerged"
+    "primitive, buildCostPlan and static collector are merged, but programs/statics.ts layerFor needs a cost route " +
+    "and chain/engine.ts must call finalizeCostPlan with the active sources and locked targets"
 );
 
 test.todo(
   "ven-164-166 Sandswept Tomb: evaluate 'chooses one or more units here that are friendly to it' (355.7/355.15, 053.3 " +
     "'here', 740.1.a 'friendly to it') against the spell's finalized target plan — the frozen Condition has no " +
-    "played-spell-target predicate (TargetPlan is consumed inside the chain only), layers/filter.ts does " +
-    "not read the sameLocationAs anchor, and no selector reads 'the controller of the spell being played'"
+    "played-spell-target predicate in testCostCondition; the collector accepts locked targets but only consumes " +
+    "the chooses-source relation, not friendly occupants of the source battlefield"
 );
+
+test("ven-164-166 Sandswept Tomb: the new static collector keeps its target-dependent predicate blocked", () => {
+  const base = world().hand("spell", { types: ["spell"], energy: 0, power: ["Mind"] })
+    .object("tomb", { types: ["battlefield"], zone: "board", location: null })
+    .unit("friendly", { location: { type: "battlefield", id: "tomb" } }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("spell") });
+  assert.throws(() => collectCostModifications(kernel, { id: "tomb:discount", cost: { kind: "printed" } }, {
+    statics: [{ id: "tomb:discount", source: kernel.ref("tomb"), ability }],
+    targets: [kernel.ref("friendly")], purpose: "play"
+  }), error => error.reason === "judge-required" && /Descriptive cost predicates/.test(error.message));
+  assert.deepEqual(kernel.events, []);
+  assert.equal(kernel.getObject("spell").zone, "hand");
+});

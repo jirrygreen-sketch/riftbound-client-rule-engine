@@ -22,13 +22,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   effects/keywords/Quick-Draw.ts（其文件头也把 continuous.timing 与 card-played
  *   附着触发标为未合入）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
- * 已支持：continuous.grant-keyword（RIFT-258）及生产静态绑定器可授予手牌 Equipment
- * quick-draw；真正的 Quick-Draw 展开也能经 createEngineStaticBinder 注册 timing。
- * 尚缺：expandProgram/abilitySpeed 未消费图层授予的关键词；grantsFor 不读 timing
- * 的 value 字段；staticTarget 默认 zone: board 不能覆盖手牌；Quick-Draw 的触发过滤
- * 使用 event.source，而真实 card-played 事件携带 event.object。正确的 Reaction
- * 时序和附着触发保留可执行 TODO，不把缺失许可当作通过预期。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-18）。
+ * 已支持：continuous.grant-keyword 及生产静态绑定器可授予手牌 Equipment quick-draw；
+ * KeywordGrantLayerEngine 也能重新展开 Quick-Draw 的静态 timing，但它会对动态的 attach
+ * 触发 fail-closed，production lifecycle 仍只按印刷关键词安装能力。
+ * 尚缺：actionTimings 只读取 grants/timings，不能消费 Quick-Draw 展开的 `value: reaction`；
+ * 静态展开默认的来源绑定仍只覆盖 Board，手牌上的 Reaction 许可没有生产时序路径；
+ * production lifecycle 仍不会把图层授予的动态 attach 能力注册到链上。现有印刷 Quick-Draw
+ * 的 card-played 触发可以匹配 event.object 并执行附着；这条路径不再列为缺口。
  * Deflect 的 target.tax 到目标费用的接线及任意域 Power 记账也仍缺（809.1.c.1）。
  * 不近似实现（不把授予写成逐张手牌的副本，也不把 Quick-Draw 近似为 Reaction 声明）。
  */
@@ -50,17 +51,11 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "continuous.grant-keyword（RIFT-258）与生产静态绑定已支持，仍缺四条 Quick-Draw 路径：" +
-    "(1) expandProgram/abilitySpeed（programs/keywords.ts）不读取图层授予的关键词，" +
-    "手牌 Equipment 虽已获得 quick-draw，其展开触发及 Reaction 速度仍未接入。" +
-    "(2) 真正的 Quick-Draw continuous.timing 已能经 createEngineStaticBinder 注册，" +
-    "但使用 value: reaction；layers/rules/query.ts 的 grantsFor 只读 grants/timings，" +
-    "无法消费该许可（819.1.b/c）。(3) 生命周期仅在进入 board 时安装静态效果，" +
-    "programs/statics.ts 的 staticTarget 默认只匹配" +
-    "来源在 board 的对象，尚不覆盖手牌中的 Quick-Draw 时序。" +
-    "(4) Quick-Draw 的原始触发过滤使用 source: {canonicalCardId}，" +
-    "translateTriggerFilter 将其绑定到 event.source，而真实 card-played 事件携带 " +
-    "event.object，附着触发（819.1.d）不能匹配。" +
+    "continuous.grant-keyword 与生产静态绑定已支持，KeywordGrantLayerEngine 也能消费图层授予的 Quick-Draw 静态 timing，" +
+    "但仍有三条当前生产缺口：(1) 该 re-expander 对 Quick-Draw 的动态 attach 触发 fail-closed，" +
+    "production lifecycle 仍只按印刷关键词安装能力；(2) Quick-Draw 使用 value: reaction，" +
+    "layers/rules/query.ts 的 grantsFor 只读 grants/timings，无法消费该许可（819.1.b/c）；" +
+    "(3) 生命周期的 staticTarget 默认只匹配来源在 board 的对象，尚不覆盖手牌中的 Quick-Draw 时序；" +
     "此外 [Deflect] 的展开（static target.tax）已合入，但没有生产方把永久物上的 target.tax 接进目标选择与追加费用，" +
     "且已合入换算按 Energy 记账而 809.1.c.1 要求任意域 Power（同 ogn/pouty-poro）。" +
     "不近似实现（不把授予写成逐张手牌副本，也不把 Quick-Draw 近似为单独的 Reaction 声明）。",

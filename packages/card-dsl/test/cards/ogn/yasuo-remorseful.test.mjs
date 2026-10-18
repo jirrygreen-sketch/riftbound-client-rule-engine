@@ -1,3 +1,4 @@
+// Supported trigger/damage execution evidence: ../templates/triggered-attack-declared-effect-damage-706.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -10,6 +11,8 @@ import { bindResolveContext } from "../../../../engine-core/dist/events/action-a
 import { translateInstructionTargets, translateTriggerFilter, translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { resolveLocationSelector } from "../../../../engine-core/dist/target/location/ref.js";
 import { queryTargetCandidates } from "../../../../engine-core/dist/target/target-plan.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-751e2b1c16ab2529b3d0bf37e5309cfde9a7b41589d08799cf53a9a8ef42e5e8";
 const SOURCE_TEXT = "When I attack, deal damage equal to my Might to an enemy unit here.";
@@ -50,12 +53,11 @@ test("ogn-076-298: identity, exact source text, pure data and judge-required sta
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // 复核后的三处当前缺口（均有实测证据）。
+  // Current production target and combat-event gaps; the self filter is bound.
   assert.match(program.judgeReason, /Unsupported filter field sameLocationAs/);
   assert.match(program.judgeReason, /invalid-location-filter|invalid-location-kind/);
-  assert.match(program.judgeReason, /Expected a filter object/);
   assert.match(program.judgeReason, /TurnCombatBlockedError/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /target\/location/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.deepEqual(JSON.parse(JSON.stringify(program)), program);
@@ -66,29 +68,28 @@ test("Yasuo: mandatory attack trigger fires only on the host's first attacker de
   assert.equal(attack.kind, "triggered");
   assert.deepEqual(attack.trigger, {
     at: "attack-declared",
-    filter: { object: "self" },
+    filter: { event: "attack-declared", source: "self" },
     once: "per-combat"
   });
   assert.equal(attack.optional, false);
   assert.equal(attack.body.length, 1);
 });
 
-test("Yasuo: the declared object-self trigger filter is still unbound by the production translator", () => {
-  // 额外实测缺口：programs/filters.ts 的 translateTriggerFilter 只把 source /
-  // role / self:true / objectId:"self" 归一化成 objectId，单独写 { object: "self" }
-  // 会走 translateObjectFilter 并抛 "Expected a filter object"。
-  assert.throws(
-    () => translateTriggerFilter(attack.trigger.filter, "yasuo-ref", "attack-declared"),
-    (error) => {
-      assert.equal(String(error.message), "Expected a filter object");
-      return true;
-    }
-  );
-  // 同一意图的已合入写法会得到正确绑定，说明缺的是该拼写的适配：
+test("Yasuo: the authored attack trigger binds self through the production translator", () => {
   assert.deepEqual(
-    translateTriggerFilter({ event: "attack-declared", filter: { source: "self" } }, "yasuo-ref", "attack-declared"),
+    translateTriggerFilter(attack.trigger.filter, "yasuo-ref", "attack-declared"),
     { event: "attack-declared", object: { objectId: "yasuo-ref" } }
   );
+  for (const controller of ["A", "B"]) {
+    const kernel = world()
+      .unit("yasuo", { owner: controller, cardId: CANONICAL, might: 6 })
+      .unit("other-unit", { owner: controller, might: 3 })
+      .build();
+    const source = kernel.getObject("yasuo");
+    const filter = translateTriggerFilter(attack.trigger.filter, source.ref.id, "attack-declared");
+    assert.equal(matchesTriggerEvent(filter, { timingPoint: "attack-declared", object: source }, controller), true);
+    assert.equal(matchesTriggerEvent(filter, { timingPoint: "attack-declared", object: kernel.getObject("other-unit") }, controller), false);
+  }
 });
 
 test("Yasuo: dynamic source Might damages exactly one enemy here, without artificial linking", () => {
@@ -190,6 +191,49 @@ test("Yasuo golden subeffect: damage uses current Might, not the printed six", (
   assert.equal(kernel.getObject("enemy").damage, 7);
   assert.equal(kernel.getObject("yasuo").damage, 0);
   assert.deepEqual(run.events.map(event => event.action), ["damage"]);
+});
+
+test("Yasuo golden body: current Might damages an enemy here and ignores that target after it moves away", () => {
+  // Exercise the original spec/body on the real chain. Production program
+  // target translation and the combat-event producer remain separate gaps.
+  for (const controller of ["A", "B"]) {
+    const opponent = controller === "A" ? "B" : "A";
+    for (const movesAway of [false, true]) {
+      const f = fixture({ turnPlayer: controller, cards: [
+        { id: "yasuo", owner: controller, cardId: CANONICAL, types: ["unit"], might: 7 },
+        { id: "enemy-here", owner: opponent, types: ["unit"], might: 10 },
+        { id: "enemy-elsewhere", owner: opponent, types: ["unit"], might: 10 }
+      ] });
+      for (const id of ["yasuo", "enemy-here", "enemy-elsewhere"]) {
+        assert.equal(f.engine.commit({ type: "move-zone", object: f.kernel.ref(id), to: "battlefield", location: { type: "battlefield", id: id === "enemy-elsewhere" ? "bf2" : "bf1" } }).status, "done");
+      }
+      f.engine.advance();
+      const source = f.kernel.getObject("yasuo");
+      f.engine.pipeline.registerTrigger({
+        id: "yasuo-supported-body", source, controller,
+        spec: { ...attack.trigger, filter: translateTriggerFilter(attack.trigger.filter, source.ref.id, attack.trigger.at) },
+        body: attack.body, optional: attack.optional
+      });
+      f.answers.set("target:enemy-here", [f.kernel.ref("enemy-here")]);
+      f.engine.emit({ timingPoint: "attack-declared", object: source, player: controller });
+      f.engine.advance();
+      assert.equal(f.engine.items[0].status, "finalized");
+      if (movesAway) assert.equal(f.engine.commit({ type: "move-location", object: f.kernel.ref("enemy-here"), to: { type: "battlefield", id: "bf2" } }).status, "done");
+      f.engine.advance();
+      resolveAll(f.engine);
+      assert.equal(f.kernel.getObject("enemy-here").damage, movesAway ? 0 : 7);
+      assert.equal(f.kernel.getObject("enemy-elsewhere").damage, 0);
+      assert.equal(f.kernel.getObject("yasuo").damage, 0);
+      const hits = f.engine.pipeline.events.filter(event => event.timingPoint === "damage-dealt");
+      assert.equal(hits.length, movesAway ? 0 : 1);
+      if (!movesAway) {
+        assert.deepEqual(hits[0].action, { type: "damage", source: source.ref, target: f.kernel.ref("enemy-here"), amount: 7, combat: false });
+        assert.deepEqual(f.kernel.linked("deal-might.dealtTo"), [{ target: f.kernel.ref("enemy-here"), amount: 7 }]);
+      } else {
+        assert.equal(f.kernel.linked("deal-might.dealtTo"), undefined);
+      }
+    }
+  }
 });
 
 test("Yasuo golden subeffect: the raw resolve-context query does not honour the anchor either", () => {

@@ -12,7 +12,7 @@ const karthusEternal = {
   judgeReason:
     "缺 Deathknell 触发收集倍率：continuous.trigger-multiplicity 没有图层映射或规则查询，" +
     "EventPipeline.scan 不读取 additional 次数；须在收集期生成额外的独立触发项（808.1/808.2、383.4.g.2），" +
-    "不能用结算期 effect.repeat 替代。staticTarget 也拒绝按 deathknell 关键词、控制者与区域筛选的 appliesTo，" +
+    "不能用结算期 effect.repeat 替代。staticTarget 也拒绝按 Deathknell 关键词、控制者与区域筛选的 appliesTo，" +
     "尚不能按当前关键词特征识别受影响实例（808.3）。Deathknell 展开体的 trigger.leave 未注册，" +
     "卡牌正文尚未接到死亡触发。",
   sourceText: "Your [Deathknell] effects trigger an additional time.",
@@ -24,7 +24,7 @@ const karthusEternal = {
         mode: "additional",
         amount: { kind: "constant", value: 1 },
         appliesTo: {
-          keyword: "deathknell",
+          keyword: "Deathknell",
           controller: "controller",
           zone: "board"
         }

@@ -27,13 +27,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   但已合入的 keywords/Equip.ts 展开只用 payments: [{ kind: "equip" }]，既没有读取
  *   印刷参数，也没有把 XP 计入费用计划——见 judgeReason。
  *
- * status = judge-required（缺口不近似实现）：
+ * status = judge-required（2026-10-17 对源码复核，缺口不近似实现）：
  * - 已合入的 Equip 展开与费用管线不匹配：keywords/Equip.ts 展开出的激活费用是
- *   payments: [{ kind: "equip" }]，而 readCost 对未知支付种类直接 blocked（实测
+ *   payments: [{ kind: "equip" }]，readCost 的支付种类白名单不含 equip，实测
  *   buildCostPlan 抛 CostPlanError reason "judge-required"、message
- *   "Unsupported payment kind: equip"）；818.1.c.3 允许的这条非资源费用因此
- *   无法在 Finalize 生效（本卡没有 818.1.c.4 的费用改写文本，缺的是把印刷费用送进
- *   费用计划）。
+ *   "Unsupported payment kind: equip"；818.1.c.3 允许的这条非资源费用因此
+ *   无法在 Finalize 生效。缺的是把本卡印刷的 1 XP 送进费用计划的支付种类/参数接线
+ *   （本卡没有 818.1.c.4 的费用改写文本）。
  * "When you play this, gain 1 XP" 用已合入的 effect.xp 由 golden 真实执行；不近似实现
  * Equip 的 XP 支付。依赖：Equip 支付种类与印刷费用参数的契约/费用管线接线、关键词展开读取印刷参数。
  */
@@ -76,7 +76,8 @@ const program = {
     "Equip 的 XP 费用无可执行路径：(1) 已合入的 keywords/Equip.ts 展开出的启动费用是 " +
     "payments: [{ kind: \"equip\" }]，cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked" +
     "（实测 buildCostPlan 抛 CostPlanError reason \"judge-required\"、message " +
-    "\"Unsupported payment kind: equip\"），也没有读取本卡印刷的 1 XP 费用" +
+    "\"Unsupported payment kind: equip\"；readCost 的支付种类白名单为 " +
+    "energy/xp/power/exhaust/discard/recycle/kill/reveal/spend-buff），也没有读取本卡印刷的 1 XP 费用" +
     "（818.1.c.3 / 818.1.c.4）；(2) 契约 3.1 的 KeywordAbility 没有费用参数槽，印刷的 " +
     "\"Spend 1 XP\" 只能以 value: 1 记录数量并在本字段说明单位（见回复的契约变更请求）；" +
     "(3) 通用卡牌程序→关键词展开接线已合入，但 Equip 展开仍因上述支付种类而无法通过最终绑定。\"When you play this, gain 1 XP\"（728 / 730.1）已用合入的 " +

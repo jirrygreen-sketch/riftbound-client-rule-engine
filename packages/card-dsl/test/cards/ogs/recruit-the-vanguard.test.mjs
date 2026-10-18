@@ -24,9 +24,10 @@ test("ogs-015-024 Recruit the Vanguard: program passes validateCardProgram and i
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // README section 2: the reason names the missing location reading and tasks.
+  assert.match(program.judgeReason, /target\/location\/candidates\.ts/);
   assert.match(program.judgeReason, /LocationRef/);
+  assert.match(program.judgeReason, /effect\.token/);
   assert.match(program.judgeReason, /355\.2/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -138,12 +139,13 @@ test("ogs-015-024 Recruit the Vanguard golden: a prevented play retains the toke
 
 test.todo(
   "Recruit the Vanguard battlefield destination: 'a battlefield you control' needs a merged reader that turns the " +
-    "controlled-battlefield set into concrete LocationRefs (355.2) before the destination options can be offered " +
-    "at Finalize — no merged surface exposes battlefield control as LocationRefs (contract change request)"
+    "controlled-battlefield set into concrete LocationRefs (355.2): target/location/candidates.ts can resolve " +
+    "them, but effect.token does not evaluate the card's query descriptor into that candidate set " +
+    "(contract change request)"
 );
 
 test.todo(
   "Recruit the Vanguard full chain play: pay 6 energy, enforce the [Action] Showdown permission, and choose the " +
-    "destination during Finalize (355.2) instead of at resolution " +
-    "(依赖 355.2 的打出位置选择与 [Action] Showdown 权限的 continuous.timing 接线)"
+    "destination during each token's own Finalize (355.2) instead of sharing one choice across all four plays " +
+    "(依赖 355.2 的逐 token 打出位置选择)"
 );

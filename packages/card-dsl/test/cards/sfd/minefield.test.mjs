@@ -5,6 +5,7 @@ import program from "../../../dist/cards/sfd/minefield.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 test("minefield: passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -20,13 +21,26 @@ test("minefield: triggered conquer structure", () => {
   assert.equal(ability.trigger.at, "conquer");
   assert.equal(ability.trigger.filter.event, "conquered");
   assert.equal(ability.trigger.filter.here, true);
-  assert.equal(ability.trigger.filter.player, "controller");
+  // 470/471 + events/trigger-spec.ts 的封闭 PlayerSelector：能力控制者的契约拼写是
+  // "self"（programs/filters.ts 的 normalizePlayer 同样归一为该能力控制者）。此前
+  // 的 "controller" 只是非契约别名，闭合校验会报 invalid-player-selector，
+  // 下面用真实校验器断言现在只剩 here 一处真实缺口。
+  assert.equal(ability.trigger.filter.player, "self");
   assert.equal(ability.optional, false);
   assert.equal(ability.body.length, 1);
   const instruction = ability.body[0];
   assert.equal(instruction.op, "effect.mill");
   assert.deepEqual(instruction.args.amount, { kind: "constant", value: 2 });
   assert.equal(instruction.args.player, undefined);
+});
+
+test("minefield: the closed trigger validator now only refuses the printed here anchor", () => {
+  const result = validateTriggerSpec(program.abilities[0].trigger);
+  assert.equal(result.ok, false);
+  assert.deepEqual(
+    result.issues.map((issue) => [issue.path, issue.code]),
+    [["trigger.filter.here", "unknown-field"]]
+  );
 });
 
 test("minefield: the printed `here` anchor is still refused at production binding", () => {

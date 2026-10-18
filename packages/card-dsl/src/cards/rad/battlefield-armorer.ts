@@ -28,12 +28,14 @@ import type { CardProgram } from "../../ir/index.js";
  * expressible: the trigger matcher matches the `zone: "battlefield"` filter
  * against the pre-move snapshot (`location?.type`), so the filter below is
  * evaluated by the merged matcher and has a golden execution test. The
- * remaining gap:
+ * remaining gaps:
  * - "return it to its owner's hand" needs an event-object selector: the gear
  *   has already left the Board when the trigger resolves, and the merged
  *   pick/target system cannot name it (CR 355.10.c / 359.3.e.13);
- * The cost.pay primitive and CardProgram → TriggerRegistration binding are
- * merged; the payment uses the current `payments` shape below.
+ * - Optional payment still needs a savepoint/skip boundary: cost.pay throws on
+ *   failure, while choice.optional only models the player accepting/declining.
+ * The cost.pay primitive and trigger binding are merged; the payment uses the
+ * current `payments` shape below.
  * No semantics are approximated: the ability keeps its declared shape.
  */
 export default {
@@ -41,11 +43,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "唯一缺口是「return it … to its owner's hand」需要在对象已离场后按事件对象回收（355.10.c / 359.3.e.13），" +
-    "当前 pick/target 只能引用仍在原区的对象，ObjectSelector 没有事件对象形式；" +
-    "cost.pay 的 payments 形状与 CardProgram → TriggerRegistration 绑定均已合入，并由测试覆盖。" +
-    "「died at a battlefield」的 355.10.b 限制已可由合并匹配器的 zone:\"battlefield\" 过滤表达" +
-    "（pipeline-match.ts 用换区前快照的 location.type 求值）并有真实匹配执行测试；不近似实现。",
+    "缺死亡事件对象到 Trash 当前 incarnation 的符号绑定：object-killed 的 object 保留换区前快照，" +
+    "当前 pick/target 不会把旧 zoneEntryId 自动重绑（CR 124 / 355.10.c / 359.3.e.13）；" +
+    "ObjectSelector 没有事件对象形式，dynamic:dying-gear 也不是可执行 PickSpec 来源。" +
+    "还需成本内可选支付的失败跳过/事务边界：cost.pay 在不可支付时抛 CostPlanError，" +
+    "现有 choice.optional 没有支付失败后仅跳过 return 的适配（203.3）。",
   abilities: [
     {
       kind: "triggered",
@@ -90,7 +92,7 @@ export default {
                       id: "battlefield-armorer.dying-gear",
                       // The dying gear is identified by the trigger event
                       // itself; the merged pick system cannot enumerate an
-                      // object that already left the board (356.10.c /
+                      // object that already left the board (355.10.c /
                       // 359.3.e.13 — see judgeReason).
                       options: ["dynamic:dying-gear"],
                       min: 1,

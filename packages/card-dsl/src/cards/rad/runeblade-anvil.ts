@@ -18,27 +18,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   已合入；
  * - ":rb_energy_2::rb_rune_chaos:, :rb_exhaust:: Kill this." 是启动能力（400 起）：
  *   费用 2 能量 + 1 Chaos Power + 横置自身，效果 Kill this（429.1.a.1）。
- * - "you may play that card" 是游戏效果给出的打出许可（355.4/420.3 的 Play 流程由
- *   效果指令发起），需要一条「指定区域的对象在指定期限内可被打出」的许可通道；
- *   已合入的 continuous.* 原语只覆盖速度、落点、移动与限制/要求，effect.play 只结算
- *   已 Finalize 的费用计划，二者都不建立该许可。
-
- * status: judge-required（不近似实现），按合入后的 continuous.* / cost.* 与
- * src/programs/*（触发注册）复核：
- * - “Until your next Ending Phase, you may play that card. (You still pay its costs.)”
- *   仍缺“从 Banishment 可打出该牌”许可。已合入的 continuous.timing
- *   只登记速度许可，continuous.location 只登记落点许可，continuous.restrict 只登记
- *   限制/要求——都不改写可打出区域；effect.play 只消费已 Finalize 的费用计划
- *   （effects/instructions/effect.play.ts），并不建立许可。
- *   layers/duration.ts 已可用 { type: "until", at: "turn-end", player: controller }
- *   表达该期限；其他玩家的 turn-end 不会使它过期，不需要新增期限字面量。
- *   程序保留 effect.play-permission 形状；该 opcode 未注册，解释器会 fail-closed。
- * - 牌库顶放逐（zoneSlice top，417/428）与启动能力的 Kill this（429.1.a.1）已合入，
- *   卡牌侧只声明形状，golden 真实执行这两段。
- * - 离场触发（object-leaves-board，383.2.c.3）时点已由 events/action-adapter.ts 的
- *   zoneTimings 产生；CardProgram 触发的注册路径也已合入（src/programs/triggers.ts，
- *   绑定测试验证两个触发都能注册），整卡仍因从 Banishment 打出许可缺口保持 judge-required。
+ * - "Until your next Ending Phase, you may play that card" 是游戏效果给出的打出许可
+ *   （355.4/420.3 的 Play 流程由效果指令发起），需要一条「指定区域的对象在指定期限内
+ *   可被打出」的许可通道；已合入的 continuous.* 原语只覆盖速度、落点、移动与限制/要求，
+ *   effect.play 只结算已 Finalize 的费用计划，二者都不建立该许可。
  *
+ * status: judge-required（2026-10-17 复核）。缺口只剩「从 Banishment 打出该牌的许可」：
+ * effect.play-permission 仍不在 effects/instructions 注册表（解释器 fail-closed）。
+ * 已合入且被 golden 真实执行的半段：牌库顶放逐（zoneSlice top，417/428）、启动能力的
+ * Kill this（429.1.a.1）、层 duration 的「你的下一个结束步骤」到期语义，以及两个触发
+ * 经 src/programs/triggers.ts 的真实注册。
  * 依赖：from-Banishment 打出许可原语。
  */
 const abilities: Ability[] = [
@@ -127,16 +116,13 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺「从 Banishment 打出指定牌的许可」：\"Until your next Ending Phase, you may play that card. " +
+    "缺「从 Banishment 打出指定牌的许可」原语：\"Until your next Ending Phase, you may play that card. " +
     "(You still pay its costs.)\" 需要把刚被放逐的牌标成可在指定期限内从 Banishment 打出（费用照付）。" +
     "已合入的 continuous.timing 只登记速度许可、continuous.location 只登记落点许可、continuous.restrict 只登记限制/要求，" +
-    "都不改写可打出区域；effect.play 只消费已 Finalize 的费用计划，不建立许可。" +
-    "期限已可用 layers/duration.ts 的 until + turn-end + player 表达，其他玩家结束时保留，指定玩家结束时失效。" +
-    "程序保留 effect.play-permission 形状（该 opcode 未注册，解释器 fail-closed），不近似实现。" +
-    "牌库顶放逐（zoneSlice top，417/428）与启动能力 Kill this（429.1.a.1）已按已合入原语声明；" +
-    "离场触发（object-leaves-board，383.2.c.3）的时点已由事件管线产生，" +
-    "CardProgram 触发的注册路径也已合入（src/programs/triggers.ts），绑定测试验证两个触发都能注册。" +
-    "不近似实现。",
+    "都不改写可打出区域；effect.play 只消费已 Finalize 的费用计划，不建立许可；effect.play-permission 仍未注册（解释器 fail-closed）。" +
+    "期限已可用 layers/duration.ts 的 until + turn-end + player 表达（golden 真实执行：其他玩家结束时保留，指定玩家结束时失效）。" +
+    "牌库顶放逐（zoneSlice top，417/428）与启动能力 Kill this（429.1.a.1）已按已合入原语真实执行；" +
+    "离场触发（object-leaves-board，383.2.c.3）与打出触发均已经 src/programs/triggers.ts 注册。不近似实现。",
   abilities,
   sourceText:
     "When you play this or when this leaves the board, banish the top card of your Main Deck. Until your next Ending Phase, you may play that card. (You still pay its costs.)\n" +

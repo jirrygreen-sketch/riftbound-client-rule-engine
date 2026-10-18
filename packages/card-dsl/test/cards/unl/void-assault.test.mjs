@@ -4,6 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/void-assault.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { queryLocationCandidates } from "../../../../engine-core/dist/target/location/candidates.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -29,13 +31,13 @@ test("unl-202-219 Void Assault: identity, status, judgeReason and verbatim sourc
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   // The destination is a Finalize-time Location choice with no merged runtime
-  // selector, and the nested-target Finalize surface blocks the shape.
+  // candidate predicate yet (355.4.a): the current location is not excluded and
+  // the "allowed to be present" limit (451.2) has no consumer.
   assert.match(program.judgeReason, /355\.4/);
   assert.match(program.judgeReason, /355\.4\.a/);
-  assert.match(program.judgeReason, /451\.1/);
-  assert.match(program.judgeReason, /RIFT-357/);
-  assert.match(program.judgeReason, /RIFT-358/);
-  assert.match(program.judgeReason, /assertFinalizationSurface/);
+  assert.match(program.judgeReason, /451\.2/);
+  assert.match(program.judgeReason, /LocationTargetSpec/);
+  assert.match(program.judgeReason, /LocationCandidateOptions\.exclude/);
   // The reminder is the combat procedure, not a third instruction.
   assert.match(program.judgeReason, /466\.2\.c\.1/);
 });
@@ -59,14 +61,28 @@ test("unl-202-219 Void Assault: two independent effect.move instructions, friend
   for (const instruction of [moveFriendly, moveEnemy]) {
     assert.equal(instruction.op, "effect.move");
     assert.deepEqual(instruction.args.amount, { kind: "constant", value: 1 });
-    // The printed destination is absent, so the Move's destination is chosen
-    // during Finalize (355.4/355.4.a); the marker is descriptive and the
-    // interpreter rejects it instead of moving the unit somewhere wrong.
-    assert.deepEqual(instruction.args.to, {
-      kind: "constant",
-      value: { kind: "destination-selector", filter: { type: "location" } }
-    });
   }
+  // The printed destination is absent, so each Move chooses its own destination
+  // through the merged runtime location surface (355.4 / 355.4.a): a
+  // LocationTargetSpec supplies the candidate set and target-location reads the
+  // binding; the IR never pins a battlefield.
+  assert.deepEqual(moveFriendly.args.to, {
+    kind: "location",
+    value: { kind: "target-location", target: "void-assault.destination-1" }
+  });
+  assert.deepEqual(moveFriendly.locations, [
+    { id: "void-assault.destination-1", type: "any", min: 1, max: 1, selection: "one" }
+  ]);
+  assert.deepEqual(moveEnemy.args.to, {
+    kind: "location",
+    value: { kind: "target-location", target: "void-assault.destination-2" }
+  });
+  assert.deepEqual(moveEnemy.locations, [
+    { id: "void-assault.destination-2", type: "any", min: 1, max: 1, selection: "one" }
+  ]);
+  // Two separate destination specs: the second Move is not bound to the first's
+  // battlefield (355.4 asks for a destination per Move).
+  assert.notEqual(moveFriendly.locations[0].id, moveEnemy.locations[0].id);
 
   // 355.7 / 355.9.a.1 / 355.10: each moved unit is a target with its own
   // controller restriction.
@@ -169,11 +185,111 @@ test("unl-202-219 Void Assault golden: a stale enemy reference is mistargeted in
   assert.deepEqual(run.events, []);
 });
 
+test("unl-202-219 Void Assault golden: each printed Move picks its own destination from the runtime location surface", () => {
+  // 355.4 / 355.4.a: the printed destination is absent, so each Move chooses at
+  // resolution. The card's own LocationTargetSpec feeds the merged
+  // chooseLocations path and target-location reads that binding; both moves are
+  // executed by the real interpreter, not by a hand-written relocation.
+  const kernel = world()
+    .unit("friendly", { owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy", { owner: "B", location: { type: "battlefield", id: "bf-1" } })
+    .unit("anchor-a", { owner: "A", location: { type: "battlefield", id: "bf-2" } })
+    .unit("anchor-b", { owner: "B", location: { type: "battlefield", id: "bf-3" } })
+    .build();
+  const context = kernel.clone({
+    sourceSnapshot: kernel.getObject("friendly"),
+    controller: "A"
+  });
+  context.setTargets("void-assault.friendly-unit", [kernel.ref("friendly")]);
+  context.setTargets("void-assault.enemy-unit", [kernel.ref("enemy")]);
+  // The interpreter prefixes each instruction's location choice with its id.
+  context.setAnswers({
+    "void-assault.move-friendly-unit/location%3Avoid-assault.destination-1": {
+      type: "battlefield",
+      id: "bf-2"
+    },
+    "void-assault.move-enemy-unit/location%3Avoid-assault.destination-2": {
+      type: "battlefield",
+      id: "bf-3"
+    }
+  });
+
+  const { targets: _friendlyTargets, ...friendlyMove } = moveFriendly;
+  const { targets: _enemyTargets, ...enemyMove } = moveEnemy;
+  const outcome = resolveChainBody([friendlyMove, enemyMove], context);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["void-assault.move-friendly-unit", "executed"],
+    ["void-assault.move-enemy-unit", "executed"]
+  ]);
+  assert.deepEqual(context.getObject("friendly").location, { type: "battlefield", id: "bf-2" });
+  assert.deepEqual(context.getObject("enemy").location, { type: "battlefield", id: "bf-3" });
+  assert.deepEqual(context.events.map(event => event.action), ["move-location", "move-location"]);
+});
+
+test("unl-202-219 Void Assault gap: the destination candidates still offer the moved unit's current location (355.4.a)", () => {
+  // 355.4.a requires a Location other than the Units' current Location. The
+  // merged candidate query does not exclude it, and the interpreter accepts
+  // that answer: the move is executed as a zero-length move instead of being
+  // rejected. Pinned so the reason's first gap cannot silently disappear.
+  const kernel = world()
+    .unit("friendly", { owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const context = kernel.clone({
+    sourceSnapshot: kernel.getObject("friendly"),
+    controller: "A"
+  });
+  context.setTargets("void-assault.friendly-unit", [kernel.ref("friendly")]);
+  context.setAnswers({
+    "void-assault.move-friendly-unit/location%3Avoid-assault.destination-1": {
+      type: "battlefield",
+      id: "bf-1"
+    }
+  });
+  const { targets: _targets, ...lockedMove } = moveFriendly;
+  const outcome = resolveChainBody([lockedMove], context);
+
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["void-assault.move-friendly-unit", "executed"]
+  ]);
+  assert.deepEqual(context.getObject("friendly").location, { type: "battlefield", id: "bf-1" });
+  assert.deepEqual(context.events, []);
+});
+
+test("unl-202-219 Void Assault gap: the destination candidates ignore 355.4.a's presence limit (451.2)", () => {
+  // CR 451.2: a Unit cannot Move to a Battlefield that already has units from two
+  // other players. The merged candidate query the card's LocationTargetSpec feeds
+  // has no such predicate, so that battlefield is offered as a legal destination.
+  const kernel = world()
+    .player("C", { energy: 0 })
+    .unit("mover", { owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("their-unit", { owner: "B", location: { type: "battlefield", id: "bf-2" } })
+    .unit("third-unit", { owner: "C", location: { type: "battlefield", id: "bf-2" } })
+    .build();
+  const context = kernel.clone({
+    sourceSnapshot: kernel.getObject("mover"),
+    controller: "A"
+  });
+  const candidates = queryLocationCandidates(context, { type: "battlefield" }, {
+    players: ["A", "B", "C"],
+    opponent: "B"
+  });
+
+  assert.deepEqual(candidates, [
+    { type: "battlefield", id: "bf-1" },
+    { type: "battlefield", id: "bf-2" }
+  ]);
+  // The current location is offered too, which is the other half of the gap.
+  assert.deepEqual(queryLocationCandidates(context, { type: "any" }, { players: ["A", "B", "C"], opponent: "B" })[0],
+    { type: "battlefield", id: "bf-1" });
+});
+
 test.todo(
-  "unl-202-219 Void Assault: offer each Move's destination as a runtime Location choice other than the moved unit's current location (CR 355.4/355.4.a/451.1; effect.move's to only accepts static LocationRef/controller-base/static option lists and target.location still needs RIFT-357)"
+  "unl-202-219 Void Assault: exclude the moved unit's current location from each destination's candidate set (CR 355.4.a; chooseLocations does not inject LocationCandidateOptions.exclude, so the current battlefield is offered and accepted)"
 );
 test.todo(
-  "unl-202-219 Void Assault: finalize the two separate target specs and their destinations through the production chain (chain/engine.ts assertFinalizationSurface blocks nested targets; ordered independent picks still need RIFT-358)"
+  "unl-202-219 Void Assault: enforce 355.4.a's 'allowed to be present' limit for the chosen destination, including 451.2 (a Battlefield already holding units from two other players) — effect.move performs the move regardless"
 );
 test.todo(
   "unl-202-219 Void Assault: emit the Contested/attacker-defender designations and the ensuing Showdown or Combat for the moves (CR 452-455, 466.2.c.1-c.3; the reminder is the combat procedure, not a card instruction - engine turn/combat batches)"

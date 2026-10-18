@@ -34,13 +34,18 @@ test("ven-108-166 Forgotten Relic: identity, ruleset, status, judgeReason and ve
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  // The reason names the two real gaps: the reflexive trigger and the result binding.
+  // The reason names the two still-real gaps: the Reflexive Pending Item shape
+  // and its target-finalize lifecycle. The old "no result condition exists"
+  // claim was re-measured and removed: condition.result is merged and reads the
+  // burn receipt asserted below.
   assert.match(program.judgeReason, /trigger\.reflexive/);
-  assert.match(program.judgeReason, /结果条件/);
+  assert.match(program.judgeReason, /condition\.result/);
   assert.match(program.judgeReason, /388\.1/);
   assert.match(program.judgeReason, /355\.5\.b/);
   assert.match(program.judgeReason, /Unregistered instruction opcode/);
   assert.match(program.judgeReason, /ChainContractBlockedError/);
+  assert.match(program.judgeReason, /Reflexive Pending Item/);
+  assert.doesNotMatch(program.judgeReason, /没有结果条件/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -232,6 +237,47 @@ test("ven-108-166 Forgotten Relic evidence: trigger.reflexive is not a registere
     () => runAbilityBody([onPlayBurn, onPlayReflexive], kernel),
     /Unregistered instruction opcode: trigger\.reflexive/,
   );
+});
+
+test("ven-108-166 Forgotten Relic evidence: the merged condition.result reads the burn receipt (441.1.a)", () => {
+  // Re-measured 2026-10-18: the old judgeReason claimed no result condition
+  // existed ("条件求值只认 always/never/expression/compare/all/any/not").
+  // condition.result is merged and it discriminates on the burn receipt, so the
+  // recorded gap is now only the reflexive item and its cross-item binding.
+  const gate = {
+    id: "forgotten-relic.burn-gate",
+    op: "condition.value",
+    condition: { kind: "result", result: "forgotten-relic.burn-on-play", key: "burnedCard" },
+    args: { value: { kind: "constant", value: 1 } }
+  };
+
+  // A real Burn 1 writes burnedCard, so the result condition is true and the
+  // guarded instruction runs.
+  const burned = world().deck(["burned-card", "next"]).build();
+  const burnedOutcome = resolveChainBody([onPlayBurn, gate], burned);
+  assert.deepEqual(
+    burnedOutcome.results.map((entry) => [entry.id, entry.result.status]),
+    [["forgotten-relic.burn-on-play", "executed"], ["forgotten-relic.burn-gate", "executed"]]
+  );
+
+  // An empty Main Deck still performs the Burn (as many as possible: zero) and
+  // writes burnedCard: null, so the same result condition is false and the
+  // guarded instruction is skipped instead of fabricating a Might value.
+  const empty = world().build();
+  const emptyOutcome = resolveChainBody([onPlayBurn, gate], empty);
+  assert.equal(emptyOutcome.results[1].result.status, "negated");
+  assert.equal(emptyOutcome.results[1].result.reason, "skipped");
+
+  // The remaining cross-item gap: the printed link key is written by the
+  // reflexive item ("burned: linked-value … link: forgotten-relic.burned-card"),
+  // not by the Burn itself, so the printed body cannot read it yet. This is the
+  // measured reason the instruction stays unexecutable rather than approximated.
+  const burnedCardLink = onPlayReflexive.args.link.value;
+  assert.equal(burnedOutcome.linkedValues[burnedCardLink], undefined);
+  assert.deepEqual(burnedOutcome.linkedValues["forgotten-relic.burn-on-play.burnedCard"], {
+    id: "burned-card",
+    zoneEntryId: 1
+  });
 });
 
 test("ven-108-166 Forgotten Relic evidence: a reflexive body with its own selection is blocked at Finalize", () => {

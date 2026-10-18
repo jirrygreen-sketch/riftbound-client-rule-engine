@@ -5,7 +5,9 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/rad/scrutinizing-scope.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-b08afbe6dc630f67287c7ab652b90f17c81abfd9d7f94bda47eae324899ce111";
 const [ability] = program.abilities;
@@ -27,12 +29,20 @@ test("rad-064-167 Scrutinizing Scope: program passes validateCardProgram with th
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("rad-064-167 Scrutinizing Scope: judgeReason names the guess primitive, the containment gap, the deck-top ordering, and the type mismatch", () => {
+test("rad-064-167 Scrutinizing Scope: judgeReason names the guess primitive and the remaining type data problem", () => {
   assert.match(program.judgeReason, /choice\.hidden-guess/);
   assert.match(program.judgeReason, /compareValues/);
   assert.match(program.judgeReason, /zoneSlice/);
   assert.match(program.judgeReason, /128\.3/);
-  assert.match(program.judgeReason, /有序 pick/);
+  // The refreshed reason records the measured missing opcode and the missing
+  // player-choice form as well.
+  assert.match(program.judgeReason, /Unregistered instruction opcode: choice\.hidden-guess/);
+  assert.match(program.judgeReason, /ChoiceRequest/);
+  // RIFT-358 merged the ordered deck-top supply; the reason must now say the
+  // reveal half is executable instead of asking for an ordered producer.
+  assert.match(program.judgeReason, /PickSpec\.zoneSlice/);
+  assert.match(program.judgeReason, /golden/);
+  assert.doesNotMatch(program.judgeReason, /没有已合入的提供者/);
   // The card-type data problem must be stated, not silently resolved.
   assert.match(program.judgeReason, /Spell/);
   assert.match(program.judgeReason, /145\.1\/151\.1/);
@@ -65,11 +75,26 @@ test("rad-064-167 Scrutinizing Scope: structure — guess, reveal the deck top, 
   // (190.6.d's implied "you"), which is what "your Main Deck" means.
   assert.equal(reveal.id, "scrutinizing-scope.reveal-top");
   assert.equal(reveal.op, "effect.reveal");
-  assert.equal(Object.hasOwn(reveal.args, "player"), false);
-  assert.deepEqual(reveal.args.zone, { kind: "constant", value: "deck" });
-  assert.deepEqual(reveal.args.count, { kind: "constant", value: 1 });
+  assert.deepEqual(reveal.args.pick, {
+    kind: "constant",
+    value: "scrutinizing-scope.deck-top"
+  });
+  // RIFT-358: the real deck-top reference is an ordered, Finalize-locked pick;
+  // effect.reveal never infers card order from ctx.query.
+  assert.deepEqual(reveal.picks, [
+    {
+      id: "scrutinizing-scope.deck-top",
+      options: [],
+      ordered: true,
+      zoneSlice: {
+        zone: "deck",
+        from: "top",
+        count: { kind: "constant", value: 1 }
+      },
+      selection: "all"
+    }
+  ]);
   assert.equal(reveal.targets, undefined);
-  assert.equal(reveal.picks, undefined);
 
   // The branch is not a player choice: no choice.mode appears anywhere.
   assert.equal(
@@ -215,16 +240,51 @@ test.todo(
     "card's type, CR 1.5 128.3/425/135.2.b.7) — unmerged (survey section 25)."
 );
 
+test("rad-064-167 Scrutinizing Scope gap: the authored body stops at the unregistered guess opcode", () => {
+  // Measured gate from judgeReason: the card's own body cannot be resolved
+  // because choice.hidden-guess has no instruction definition, and the merged
+  // ChoiceRequest union has no player-choice form for "Choose an opponent".
+  const kernel = world().unit("scope", { types: ["spell"], zone: "chain" }).deck(["top"], { owner: "A" }).build();
+  assert.throws(
+    () => resolveChainBody(ability.body, kernel.clone({ sourceSnapshot: kernel.getObject("scope") })),
+    /Unregistered instruction opcode: choice\.hidden-guess/
+  );
+  // No registered instruction produces the opponent choice either (the shared
+  // player-selection gap other cards record as target.player).
+  assert.equal(instructionDefinitionsById.has("choice.hidden-guess"), false);
+  assert.equal(instructionDefinitionsById.has("target.player"), false);
+});
+
 test.todo(
   "rad-064-167 Scrutinizing Scope: 'Choose an opponent. They guess a card type' needs a producer for the " +
     "guessed-type link the compare/in membership test reads (CR 128.3 / 425 / 135.2.b.7)."
 );
 
-test.todo(
-  "rad-064-167 Scrutinizing Scope: 'Reveal the top card of your Main Deck' needs the ordered deck-top " +
-    "reference supplied to effect.reveal as an upstream ordered pick; the merged zoneSlice provides the " +
-    "ordered read, but effect.reveal reads ctx.query and no merged producer hands it the deck-top refs."
-);
+test("rad-064-167 Scrutinizing Scope: the ordered deck-top pick locks the real top card and effect.reveal reveals it", () => {
+  // RIFT-358: the declared PickSpec.zoneSlice is locked at Finalize and handed to
+  // effect.reveal as a non-target pick; no ctx.query ordering is involved. The
+  // production ChainEngine supplies the Finalize lock.
+  const board = fixture({ choose: request => request.type === "optional" ? true : undefined });
+  board.engine.execute({
+    id: "scope-reveal",
+    controller: "A",
+    source: board.kernel.getObject("source"),
+    kind: "activated",
+    speed: "reaction",
+    body: [reveal]
+  });
+  // The top card is locked by the ordered pick at Finalize, before resolution.
+  assert.deepEqual(board.engine.items[0].pickPlans[0].refs, [board.kernel.ref("A:deck:1")]);
+  for (let index = 0; index < 6 && board.engine.items.length; index++) {
+    board.engine.pass(board.engine.priority);
+  }
+  assert.equal(board.engine.items.length, 0);
+  assert.deepEqual(board.kernel.zoneSlice("A", "deck", "top", 2).map((object) => object.ref.id), ["A:deck:1", "A:deck:2"],
+    "reveal does not move or reorder the deck");
+  assert.deepEqual(board.kernel.linked("scrutinizing-scope.reveal-top.revealed").map((ref) => ref.id), ["A:deck:1"]);
+  assert.equal(board.kernel.linked("scrutinizing-scope.reveal-top.revealedCount"), 1);
+  assert.deepEqual(board.engine.pipeline.events.filter((event) => event.timingPoint === "card-revealed").map((event) => event.object.ref.id), ["A:deck:1"]);
+});
 
 test.todo(
   "rad-064-167 Scrutinizing Scope: this printing's card type is inconsistent with its rules text " +

@@ -22,6 +22,7 @@ test("rad-101-167 An Offer You Can't Refuse: program validates and is judge-requ
   assert.match(program.judgeReason, /185\.2\.d/);
   assert.match(program.judgeReason, /Its controller/);
   assert.match(program.judgeReason, /argsSchema/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-261/);
 });
 
 test("rad-101-167 An Offer You Can't Refuse: identity, ruleset, status and verbatim source text", () => {

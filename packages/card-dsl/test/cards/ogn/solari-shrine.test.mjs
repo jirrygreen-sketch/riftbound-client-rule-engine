@@ -10,6 +10,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // (the default interpreter would hand effect.draw an already-evaluated literal).
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL = "card.hash-3f69a145be4d251c39abc78150e49fb2f5cf77555f18e1d30c3814c595b0f3f1";
 
@@ -50,6 +51,7 @@ test("ogn-072-298 Solari Shrine: program passes validateCardProgram", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /429\.5\.c\.1/);
   assert.match(program.judgeReason, /object-killed/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.equal(
     program.sourceText,
     "When you kill a stunned enemy unit, you may exhaust this to draw 1."
@@ -169,6 +171,32 @@ test("Solari Shrine golden: a Shrine that left the board is ignored instead of e
   // Only the Shrine itself is in hand (it left the board); the linked draw never happened.
   assert.equal(kernel.player("A").handSize, 1);
   assert.deepEqual(kernel.zone("A", "hand"), [kernel.ref("solari-shrine")]);
+});
+
+test("Solari Shrine: the current object-killed event carries the victim controller, not the kill-effect controller", () => {
+  const kernel = world()
+    .unit("killer", { owner: "A", controller: "A", zone: "board" })
+    .unit("victim", { owner: "B", controller: "B", zone: "board", stunned: true })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => {
+      kernel.restore(checkpoint.state);
+      kernel.copyLinkedFrom(checkpoint.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+
+  const execution = host.execute({ type: "kill", object: kernel.ref("victim") });
+  const killed = execution.emissions.find(event => event.timingPoint === "object-killed");
+  assert.ok(killed);
+  assert.equal(killed.object.ref.id, "victim");
+  assert.equal(killed.player, "B");
+  assert.equal(killed.source, undefined);
 });
 
 test.todo(

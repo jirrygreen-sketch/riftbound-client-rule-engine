@@ -129,3 +129,77 @@ test.todo(
   "otterpus: commit a structural score-to-draw replacement through TurnFlow's real conquer/hold scoring " +
     "transaction, preserving control and the score ledger (470.1 / 471); replaced-scoring remains blocked"
 );
+
+// RIFT-733: the refreshed gaps, pinned against the real production seam.
+test("otterpus: a score by the other player is answered with a draw for the controller", () => {
+  // replacement/planner.ts resolves effect.draw's player from args.target and
+  // otherwise falls back to planner.controller. ReplacementPlanInput binds only
+  // replacement.object, so "they draw 1 instead" has no event-player payload
+  // selector: B's score is currently planned as a draw for the ability
+  // controller, which is not the printed effect (485.7 / 487.7).
+  const kernel = world()
+    .player("A").player("B")
+    .unit("otterpus", { zone: "board", cardId: program.canonicalCardId })
+    .deck(["top", "next"]).deck(["b-top", "b-next"], { owner: "B" })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const pipeline = new EventPipeline(host, ["A", "B"], "A");
+  const { registration } = bindReplacement(replacement, kernel.ref("otterpus"), {
+    host: {
+      object: ref => kernel.object(ref),
+      objects: () => kernel.objects,
+      context: (source, controller) => host.context(source, controller, "score")
+    },
+    pipeline
+  });
+  const score = { type: "score", player: "B", amount: 1 };
+  assert.equal(registration.matches(score, score), true);
+  // The planned action really draws for A, not for the scoring player B.
+  assert.deepEqual(registration.apply(score, score), {
+    status: "replace",
+    actions: [{ type: "draw", player: "A", amount: 1 }]
+  });
+});
+
+test("otterpus: the per-player turn window is a descriptive constant, not an evaluable predicate", () => {
+  // card-dsl has no player-turn ordinal beyond condition.history's action/timing
+  // counts, so the program keeps an explicit descriptive constant (485.7 / 487.7
+  // / 490.7 / 491.7). Evaluating it as an expression would return the string
+  // itself (truthy), which is exactly why it must not be treated as a predicate.
+  assert.deepEqual(replacement.condition, {
+    kind: "expression",
+    value: { kind: "constant", value: "per-player-turn-is-first-or-second" }
+  });
+  const kernel = world().player("A").player("B").build();
+  const condition = {
+    kind: "compare",
+    left: replacement.condition.value,
+    operator: "eq",
+    right: { kind: "constant", value: "per-player-turn-is-first-or-second" }
+  };
+  // The placeholder compares equal to itself: a constant string carries no
+  // player identity, so this condition cannot distinguish A's first turn from
+  // B's third.
+  assert.equal(kernel.test(condition), true);
+  assert.equal(typeof kernel.test({ kind: "compare", left: { kind: "constant", value: "x" }, operator: "eq", right: { kind: "constant", value: "x" } }), "boolean");
+});
+
+test("otterpus: the structural Score replacement is still refused by TurnFlow", async () => {
+  // turn/flow.ts throws TurnCombatBlockedError('replaced-scoring') when a Score
+  // action is replaced, so the replacement cannot commit a real point-to-draw
+  // swap through the scoring transaction (470.1 / 471).
+  const { fixture: turnFixture } = await import("../../../../engine-core/test/turn/helpers.mjs");
+  const f = turnFixture({ fields: [{ id: "bf1", controller: "A" }, { id: "bf2", controller: null }],
+    setup: w => w.unit("guard", { location: { type: "battlefield", id: "bf1" } }) });
+  f.flow.chain.pipeline.registerReplacement({ id: "point-to-draw", matches: action => action.type === "score",
+    apply: action => ({ status: "replace", actions: [{ type: "draw", player: action.player, amount: 1 }] }) });
+  assert.throws(() => f.flow.start(), error => error.status === "blocked" && error.code === "replaced-scoring");
+  assert.equal(f.kernel.player("A").score, 0);
+});

@@ -32,18 +32,24 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The merged effect.mill primitive executes the deck-top-to-trash action and the card program " +
-    "binding is merged, but the card is still judge-required: programs/filters.ts rejects the printed `here` " +
-    "filter key (ProgramBindingError: Unsupported filter field here), and the scoring conquer emission in " +
-    "turn/flow.ts publishes only player/details ({ battlefieldId }) with no battlefield object, while " +
-    "translateTriggerFilter copies `details` verbatim — so a battlefield-relative host-location comparison " +
-    "(CR 468.5.d / 471.1 / 473.2.a) cannot be formed from this card's own identity. The supported mill " +
-    "body is tested in isolation.",
+    "实测 2026-10-17（HEAD 9be41b14）：effect.mill 原语与卡牌程序绑定都已合入，整卡仍不可执行，缺的是 " +
+    "「conquer here」的战场相对锚点：programs/filters.ts 的 translateTriggerFilter 拒绝 printed here " +
+    "键（ProgramBindingError: Unsupported filter field here），而 turn/flow.ts 的 conquer 发射只发布 " +
+    "player/details（{ battlefieldId }）、没有 battlefield 对象，translateTriggerFilter 又原样复制 " +
+    "details，因此无法从本卡身份构成“本战场”比较（CR 468.5.d / 471.1 / 473.2.a）。" +
+    "触发过滤器的控制者锚点已按闭合词表写成 player: self（validateTriggerSpec 现在只剩 here 一处 " +
+    "unknown-field，不再是 invalid-player-selector；programs/filters.ts 的 normalizePlayer 同样归一为 self）。" +
+    "已支持的 mill 本体经真实解释器执行（黄金测试断言 top 2 进 trash 与牌序）。依赖：Battlefield-relative " +
+    "conquer 锚点（here 键或等价载荷绑定）；不近似实现（不订阅任意 conquer）。",
   sourceText: "When you conquer here, put the top 2 cards of your Main Deck into your trash.",
   abilities: [
     {
       kind: "triggered",
-      trigger: { at: "conquer", filter: { event: "conquered", here: true, player: "controller" } },
+      // 470/471: "you" 是能力控制者。闭合词表的拼写是 player: "self"
+      // （events/trigger-spec.ts 的 PlayerSelector），programs/filters.ts 的
+      // normalizePlayer 同样把 self 归一为该能力控制者；"controller" 只是
+      // 旧的非契约别名，会被 validateTriggerSpec 拒绝（invalid-player-selector）。
+      trigger: { at: "conquer", filter: { event: "conquered", here: true, player: "self" } },
       optional: false,
       body: [
         {

@@ -12,6 +12,15 @@ export type { GameEvent, TimingPointId };
 export type PlayerId = string;
 /** The six Riftbound domains. */
 export type Domain = "Fury" | "Calm" | "Mind" | "Body" | "Chaos" | "Order";
+/** A payment source that can satisfy any Domain requirement (CR v1.5 163.2.b).
+ * `universal` is the contract spelling; `any` is retained for the existing
+ * duel resource adapter, and `universal-power` mirrors card-dsl receipts.
+ */
+export type UniversalPowerSource = "universal" | "any" | "universal-power";
+export type PowerPaymentSource = Domain | UniversalPowerSource;
+export type FacedownZoneId = "facedown";
+/** An immutable event role that can be referenced without choosing an object. */
+export type EventObjectRole = "it";
 /** Zones named by the primitive contract. */
 export type ZoneId = "hand" | "deck" | "rune-deck" | "trash" | "banishment" | "board" | "rune-zone" | "chain";
 /** A Base or Battlefield on the Board. */
@@ -50,6 +59,8 @@ export interface ObjectSnapshot {
   readonly buffs: number;
   readonly attachedTo: ObjectRef | null;
   readonly faceDown: boolean;
+  /** Battlefield provenance for a facedown object; absent for legacy adapters. */
+  readonly facedownLocation?: LocationRef | null;
   readonly isToken: boolean;
 }
 
@@ -68,6 +79,9 @@ export interface PlayerSnapshot {
   readonly deckCount: number;
   readonly runeDeckSize: number;
   readonly runeDeckCount: number;
+  /** Facedown Zone counts are optional until the Hide consumer is installed. */
+  readonly facedownSize?: number;
+  readonly facedownCount?: number;
 }
 
 /** A parser compatible with schema libraries without a runtime dependency. */
@@ -135,11 +149,33 @@ export type Duration =
 /** A finalized payment plan; primitive actions do not calculate printed costs. */
 export interface FinalizedCostPlan {
   readonly finalized: true;
+  readonly planId?: string;
   readonly energy?: number;
   readonly power?: readonly Domain[];
+  /** Universal Power is kept separate from named Domains and is never coerced. */
+  readonly universalPower?: number;
+  readonly powerSources?: readonly { readonly source: PowerPaymentSource; readonly amount: number }[];
   readonly xp?: number;
   readonly exhaust?: readonly ObjectRef[];
   readonly recycle?: readonly ObjectRef[];
+  readonly parameters?: Readonly<Record<string, Value>>;
+  readonly receipt?: PrimitiveCostPaymentReceipt;
+}
+
+/** A stable payment receipt. It is evidence, never a second state authority. */
+export interface PrimitiveCostPaymentReceipt {
+  readonly planId?: string;
+  readonly paid: boolean;
+  readonly status: "paid" | "declined" | "rejected" | "rolled-back";
+  readonly payments: readonly {
+    readonly id?: string;
+    readonly kind: string;
+    readonly paid: boolean;
+    readonly amount?: number;
+    readonly source?: PowerPaymentSource | "energy" | "xp" | "object" | string;
+    readonly universal?: boolean;
+  }[];
+  readonly universalPower?: number;
 }
 /** Printed characteristics used when creating a token. */
 export interface TokenSpec {
@@ -245,6 +281,53 @@ export type GameAction =
   /** Declare a winner. */
   | { readonly type: "win"; readonly player: PlayerId };
 
+/** Additive action vocabulary for the Hide/Recall/transaction consumers. */
+export interface HideAction {
+  readonly type: "hide";
+  readonly object: ObjectRef;
+  readonly player: PlayerId;
+  readonly location: Extract<LocationRef, { type: "battlefield" }>;
+  readonly cost?: FinalizedCostPlan;
+}
+export interface RecallAction {
+  readonly type: "recall";
+  readonly object: ObjectRef;
+  readonly player: PlayerId;
+}
+export interface BatchAction {
+  readonly type: "batch";
+  readonly actions: readonly (GameAction | HideAction | RecallAction | BatchAction)[];
+  readonly transactionId?: string;
+}
+export type ContractGameAction = GameAction | HideAction | RecallAction | BatchAction;
+
+/** Versioned, optional bridge for actions outside the legacy closed GameAction. */
+export const CONTRACT_ACTION_CAPABILITY_VERSION = "riftbound.contract-actions.v1" as const;
+export interface ContractActionCapability {
+  readonly version: typeof CONTRACT_ACTION_CAPABILITY_VERSION;
+  perform(action: ContractGameAction): ActionOutcome;
+}
+
+/** Return the selected action bridge or fail closed before any action is submitted. */
+export function requireContractActionCapability(
+  context: Pick<ResolveContext, "contractActions">,
+): ContractActionCapability {
+  const capability = context.contractActions;
+  if (capability === undefined || capability.version !== CONTRACT_ACTION_CAPABILITY_VERSION) {
+    throw new Error("Contract action capability unavailable or unsupported");
+  }
+  return capability;
+}
+
+/** A frozen event-role snapshot, keyed to the pipeline event that supplied it. */
+export interface EventObjectBinding {
+  readonly eventId: number;
+  readonly role: EventObjectRole;
+  /** The exact event-time identity, never looked up again by id. */
+  readonly ref: ObjectRef;
+  readonly snapshot: ObjectSnapshot;
+}
+
 /** @deprecated Existing Board token calls are normalized to an explicit to: "board". */
 export type LegacyBoardTokenAction = Omit<Extract<GameAction, { readonly type: "create-token"; readonly to: "board" }>, "to"> & { readonly to?: undefined };
 
@@ -254,8 +337,15 @@ export type LegacyBoardTokenAction = Omit<Extract<GameAction, { readonly type: "
  * ObjectRef list in zone order. Other results depend on the action.
  */
 export type ActionOutcome =
-  | { readonly status: "done"; readonly events: readonly GameEvent[]; readonly result?: Value }
-  | { readonly status: "replaced" | "prevented" | "impossible"; readonly events: readonly GameEvent[] };
+  | { readonly status: "done"; readonly events: readonly GameEvent[]; readonly result?: Value; readonly receipt?: ActionReceipt }
+  | { readonly status: "replaced" | "prevented" | "impossible"; readonly events: readonly GameEvent[]; readonly receipt?: ActionReceipt };
+
+/** Receipt for an atomic action batch, including a deterministic rollback marker. */
+export interface ActionReceipt {
+  readonly transactionId?: string;
+  readonly status: "committed" | "rolled-back" | "rejected";
+  readonly actions: readonly { readonly type: ContractGameAction["type"]; readonly status: "done" | "replaced" | "prevented" | "impossible" }[];
+}
 
 /** The only state and decision capabilities available to a primitive. */
 export interface ResolveContext {
@@ -285,9 +375,23 @@ export interface ResolveContext {
   perform(action: GameAction): ActionOutcome;
   /** @deprecated Include to: "board" when creating a Board token. */
   perform(action: LegacyBoardTokenAction): ActionOutcome;
+  /**
+   * Read the immutable object bound by a triggering event. The returned
+   * snapshot must retain the event's id + zoneEntryId and must not be rebound
+   * to a later incarnation. Contexts without a trigger binding omit this
+   * capability; consumers then fail closed.
+   */
+  eventObject?(role: EventObjectRole): EventObjectBinding | null;
+  /**
+   * Optional versioned consumer for Hide/Recall/atomic Batch actions. Existing
+   * contexts remain valid without it; callers must fail closed when absent.
+   */
+  readonly contractActions?: ContractActionCapability;
   link(key: string, value: Value): void;
   addContinuous(effect: ContinuousEffectSpec, duration: Duration): void;
   registerDelayedTrigger(at: TriggerSpec, body: readonly Instruction[]): void;
+  /** Optional outer transaction seam; existing contexts remain valid without it. */
+  readonly transaction?: <T>(run: () => T) => T;
 }
 
 export interface ExecutedInstructionResult { readonly status: "executed"; readonly events: GameEvent[]; readonly linkedValues?: Record<string, Value>; }

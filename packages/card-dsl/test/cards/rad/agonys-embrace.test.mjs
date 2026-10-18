@@ -7,6 +7,9 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import discard from "../../../../engine-core/dist/effects/instructions/effect.discard.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -28,15 +31,16 @@ test("rad-153-167 Agony's Embrace: identity, status, judgeReason, and verbatim s
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  assert.ok(program.judgeReason.includes("fromZone"));
+  assert.ok(program.judgeReason.includes("activePlayerId"));
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The gap must stay concrete: the missing action/zone/event fact and the missing
   // turn-player predicate, each with the merged interface that rejects it.
   assert.match(program.judgeReason, /Hide 动作/);
   assert.match(program.judgeReason, /facedown-zone/);
   assert.match(program.judgeReason, /355\.9\.a\.3/);
-  assert.match(program.judgeReason, /Unsupported filter field details/);
   assert.match(program.judgeReason, /notYourTurn/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -49,6 +53,7 @@ test("rad-153-167 Agony's Embrace: once-per-turn card-played trigger for this co
   // details.fromFaceDown premise (see judgeReason) instead of matching ordinary plays.
   assert.deepEqual(ability.trigger.filter, {
     event: "card-played",
+    object: {},
     player: "self",
     details: { fromFaceDown: true }
   });
@@ -139,9 +144,39 @@ test("rad-153-167 Agony's Embrace: the merged Discard 1 half really discards the
 test.todo(
   "rad-153-167 Agony's Embrace: recognize 'a card played from face down' in the card-played " +
     "trigger (CR 355.9.a.3 / 107.3.e; needs the Hide action, the Facedown Zone and a card-played " +
-    "from-zone payload plus the RIFT-257 card-program trigger binding)"
+    "from-zone payload plus the trigger registration path)"
 );
 test.todo(
   "rad-153-167 Agony's Embrace: evaluate 'if it's not your turn' against the current turn player " +
     "(CR 304 / 383.2.b; needs a turn-player predicate in Condition/Expr)"
 );
+
+test("Agony's Embrace resweep: translated trigger registers and ignores a real ordinary play", () => {
+  const origin = "hand";
+  const f = fixture({ cards: [{ id: "played", types: ["unit"], energy: 0, power: null, might: 2 }] });
+  const filter = translateTriggerFilter(ability.trigger.filter, "source", ability.trigger.at);
+  assert.deepEqual(filter, ability.trigger.filter);
+  const spec = { ...ability.trigger, filter };
+  assert.doesNotThrow(() => assertTriggerSpec(spec));
+  f.engine.pipeline.registerTrigger({
+    id: "agonys-embrace-filter", source: f.kernel.getObject("source"), controller: "A", spec, body: ability.body
+  });
+  f.engine.advance();
+  const source = f.kernel.getObject("played");
+  // A normal card play proves the merged provenance path, not the still
+  // unavailable Hide/from-facedown path of this legend's trigger.
+  f.engine.execute(f.card("played", { kind: "unit", body: [] }));
+  resolveAll(f.engine);
+  const events = f.engine.pipeline.events.filter(event => event.timingPoint === "card-played");
+  assert.equal(events.length, 1);
+  assert.equal(events[0].player, "A");
+  assert.equal(events[0].fromZone, origin);
+  assert.deepEqual(events[0].source, source);
+  assert.equal(events[0].details.playedFromZone, origin);
+  assert.equal(events[0].details.playedFromHand, origin === "hand");
+  assert.deepEqual(events[0].details.printed, { energy: 0, power: null, might: 2 });
+  assert.equal(f.kernel.getObject("played").zone, "board");
+  assert.equal(f.kernel.player("A").handSize, 0);
+  assert.equal(f.kernel.player("A").deckSize, 4);
+  assert.equal(f.engine.items.length, 0);
+});

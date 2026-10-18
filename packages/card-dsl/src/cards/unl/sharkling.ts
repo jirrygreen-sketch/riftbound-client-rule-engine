@@ -22,23 +22,23 @@ import type { CardProgram } from "../../ir/index.js";
  *   生效；807.2 多来源相加、合并为一个 Assault Value；807.3 这是可引用特征。展开归
  *   effects/keywords/Assault.ts（RIFT-81）。
  *
- * status = judge-required（缺口不近似实现）：
+ * status = judge-required（2026-10-18 复核，缺口不近似实现）：
  * - [Accelerate]（805）的两半都已合入：cost/cost-plan.ts 的 optionalAdditional 支持
- *   kind "accelerate"（805.1.b 的固定 [1][C]、805.1.b.1 的域匹配力量，golden 用真实
- *   buildCostPlan 断言支付与拒绝两条路径），replacement/ 的入场替代也能把 805.6 的
- *   "exhausted=true 横置入场" 改写成就绪入场（golden 用 bindReplacement + 真实 move-zone 验证）。
- *   仍缺的是把本卡 keyword 接进打出流程的生产消费：没有 play producer 读取 accelerate.cost
- *   静态效果来生成 { kind: "accelerate" } 费用组，也没有把该展开接入本卡的替代生命周期。
- * - [Assault 4] 的展开是 static continuous.might + designation 条件，图层算术修正本身可用
- *   （continuous.might 原语 + LayerEngine），但 807.1.d 的 Attacker designation 只在 RIFT-124
- *   的 combat 流程里产生，combat 的角色事务仍抛 combat-start-transaction，没有已合入的
- *   designation 消费者；而且 Assault 展开用的 condition.kind 是 compare(object-property
- *   (self, "designation"))，图层条件词表（layers/engine.ts 的 conditionMatches）只认
- *   always/never/type/has-tag/has-keyword，未知条件按 true —— 实测把该展开绑定到非攻击者
- *   仍会加 4 Might（3 → 7），直接绑定就是近似实现。
+ *   kind "accelerate"（805.1.b 的固定 [1][C]、805.1.b.1 的域匹配力量），chain/engine.ts
+ *   在 resolve 时读 selectedAdditional 决定 805.6 的就绪入场，replacement/ 的入场替代
+ *   本身也能绑定。仍缺的是把本卡 keyword 接进打出流程的生产消费：programs/play.ts 的
+ *   translateCost 对展开的 cost 抛 "Unsupported play cost field optional"，
+ *   accelerate.cost 静态声明在 programs/statics.ts 抛 "no layer mapping"，
+ *   没有任何 play producer 读取它来生成 { kind: "accelerate" } 费用组。
+ * - [Assault 4] 的展开是 static continuous.might + designation 条件。生产 binder 现在能
+ *   登记该静态能力（图层层 arithmetic/continuous.might），但 programs/statics.ts 用基础
+ *   解释器求值 ability.condition；object-property(self, "designation") 在 ObjectSnapshot
+ *   上不存在，读失败被兜底为 false，因此 +4 对攻击者同样不生效（实测 attacker/defender/null
+ *   三种 combatRole 下 Might 均不变）。把 designation 映射到 combatRole 的扩展求值器
+ *   （effects/interpreter/expr-ext/）没有生产调用方，combat/flow.ts 的 startCombat 也仍抛
+ *   "combat-start-transaction"，即没有真正的 Attacker designation 生产方。
  *
- * 依赖：Accelerate 费用组与替代生命周期的生产消费、RIFT-124 的攻击者 designation 与图层
- * 条件对 designation/combatRole 的消费。
+ * 依赖：keyword→CostPlanInput 的生产接线、static 条件的 designation 扩展求值接线与战斗角色指派。
  */
 export default {
   canonicalCardId:
@@ -46,18 +46,23 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两个关键词的展开都已合入，但仍没有消费方把它们接进打出与图层流程：" +
+    "两个关键词的展开都已合入并能通过校验，但仍没有生产消费方，均不近似实现：" +
     "(1) [Accelerate]（805）——effects/keywords/Accelerate.ts 的 accelerate.cost 静态费用声明与 805.6 的 " +
     "object-enters-board 入场替代本身可用：cost/cost-plan.ts 的 optionalAdditional 支持 kind \"accelerate\"（805.1.b 的 " +
-    "固定 [1][C] 与 805.1.b.1 的域匹配力量，golden 用真实 buildCostPlan 断言支付/拒绝），replacement/ 的 bindReplacement " +
-    "也能把横置入场改写成就绪入场（golden 用真实 move-zone 验证）。缺的是卡牌 keyword → 费用组/替代生命周期的生产接线：" +
-    "没有 play producer 读取 accelerate.cost 生成 { kind: \"accelerate\" } 费用组，也没有把该展开接入本卡的替代生命周期。" +
-    "(2) [Assault 4]（807）——continuous.might 图层算术修正本身可用，但 807.1.d 的 Attacker designation 只在 RIFT-124 的 " +
-    "combat 流程产生（角色事务仍抛 combat-start-transaction），且 Assault 展开用的 " +
-    "compare(object-property(self, \"designation\"), eq, \"attacker\") 不在图层条件词表内" +
-    "（layers/engine.ts 的 conditionMatches 只认 always/never/type/has-tag/has-keyword，未知条件按 true）——" +
-    "实测把该展开绑定到非攻击者仍会加 4 Might（3 → 7），直接绑定即近似实现。" +
-    "依赖：Accelerate 费用组与替代生命周期的生产消费、RIFT-124 的攻击者 designation 与图层条件消费。" +
+    "固定 [1][C] 与 805.1.b.1 的域匹配力量），chain/engine.ts 在 resolve 单位时按 selectedAdditional 决定就绪入场，" +
+    "replacement/ 的 bindReplacement 也能把横置入场改写成就绪入场（golden 用真实 move-zone 验证）。缺的是卡牌 keyword → " +
+    "费用组的生产接线：programs/play.ts 的 translateCost 对展开的 cost 仍抛 \"Unsupported play cost field optional\"，" +
+    "accelerate.cost 静态声明在 programs/statics.ts 仍抛 \"Static ability kind accelerate.cost has no layer mapping\"，" +
+    "没有任何 play producer 读取它生成 { kind: \"accelerate\" } 费用组，也没有把该展开接入本卡的替代生命周期。" +
+    "(2) [Assault 4]（807）——continuous.might 图层算术修正本身可用且生产 binder 现在能登记该静态能力" +
+    "（实测 bindStatic 成功、图层层 arithmetic），但 807.1.d 的 Attacker designation 读不到：" +
+    "programs/statics.ts 的 abilityEnvironment 用基础解释器求值 ability.condition，" +
+    "object-property(self, \"designation\") 不在 ObjectSnapshot 上，MissingInformation 被兜底为 false，" +
+    "所以 +4 对攻击者也不生效（实测 attacker/defender/null 三种 combatRole 下 Might 均不变）；" +
+    "把 designation 映射到 combatRole 的扩展求值器（effects/interpreter/expr-ext/）没有生产调用方，" +
+    "combat/flow.ts 的 startCombat 仍抛 \"combat-start-transaction\"（CR 466.2 需要原子的同时时点波次与角色指派），" +
+    "即没有真正的 Attacker designation 生产方。" +
+    "依赖：keyword→CostPlanInput 的生产接线、static 条件的 designation 扩展求值接线与战斗角色指派。" +
     "不近似实现（不把 Assault 4 写成恒定的 +4，也不手改费用）。",
   abilities: [
     // 805.1.b：费用固定为 [1][C]，keyword 不带数值；805.4：多个实例冗余。

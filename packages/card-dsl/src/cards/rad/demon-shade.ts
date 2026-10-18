@@ -24,7 +24,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   continuous.grant-keyword 持续效果（契约 3.4：关键词授予落在 ability 图层）。
  *   reminder 括号是 Ganking 的释义（810.1.b），不是独立指令。
  *
- * status = judge-required（2026-10-17 第三轮复核，不近似实现）：
+ * status = judge-required（2026-10-18 第四轮复核，逐项实测，不近似实现）：
  * 1. 目的地已按 RIFT-357 的合并形状改写为运行期 Location 选择
  *    （Expr kind "location" → kind "choose"，filter { type: battlefield, open: true }），
  *    170.11.c 的 open 谓词与 355.4/355.4.a 的选择语义都已有实现；仍缺的是**候选来源**：
@@ -36,15 +36,24 @@ import type { CardProgram } from "../../ir/index.js";
  *    被单位占据的战场不会通过 open 过滤，也就无法被选中。
  * 2. [Ganking] 的本回合授予用的 continuous.grant-keyword 已合入（RIFT-258，ability 层注册 +
  *    end-of-turn 到期）；缺的是 810.1.c 移动许可的消费方。
- * 3. 「if there are no open battlefields」是没有对象的集合谓词：现有 compare（eq/ne/lt/lte/gt/
- *    gte/in）无法对集合表达空判定，也没有 condition.predicate 的集合空判定；本卡不发明语义
- *    （依赖 RIFT-359 的集合谓词）。
- * 4. 原文 "Choose a friendly unit, then choose one" 要求先选单位再选模式（355.5 在 355.3 之前），
- *    该 Finalize 顺序属于目标与模式选择计划（RIFT-358）；两个分支各自声明一个友方
- *    单位目标，只有被执行的模式会结算。
+ * 3. 「if there are no open battlefields」的空判定：RIFT-359 已合入 condition.predicate，
+ *    但它提供的谓词是 played-from-hand / played-from-zone / printed-characteristic /
+ *    result，仍没有「某集合为空」的判定；compare 只比较两个值表达式。实测
+ *    evaluateExpression({ kind: "count", subject: "battlefield", filter: {...} }) 可以对
+ *    已知战场计数（本例 2），但 count 的 filter 经 matchesObjectFilter 处理未知键时
+ *    把 open/occupied/controlled 一律当作命中（实测三种 filter 都返回 2），无法表达
+ *    170.11.c 的 open 集合；本卡不发明语义。
+ * 4. 原文 "Choose a friendly unit, then choose one" 要求先选单位再选模式（355.5 在 355.3 之前）。
+ *    RIFT-358 已合入有序 zone pick 与链接值，但 choice.mode 本身仍不可结算：实测
+ *    programs/play.ts 的 describePlay（以及 chain/engine.ts 的 assertFinalizationSurface）
+ *    对 choice.mode 抛 "Mode choices require a Finalize/Resolve choice-plan adapter"，
+ *    因此本卡连 play 草案都拿不到；两个分支各自声明一个友方单位目标，只有被执行的模式会结算。
  *
- * 复核（2026-10-17 第三轮复核）：continuous.grant-keyword 与 CardProgram 绑定路径均已合入；
- * open 战场候选来源、集合空判定、Finalize 顺序和 Ganking 移动许可消费仍未形成完整执行链。
+ * 复核（2026-10-18 第四轮复核实测）：continuous.grant-keyword 与 CardProgram 绑定路径均已合入，
+ * 但授予的 Ganking 在生产默认 LayerEngine 上不会展开成 810.1.c 的移动许可
+ * （RIFT-710 的 KeywordGrantLayerEngine 会展开，实测 movement().canGank 变为 true，
+ * 但它不是 ChainEngine 构造的引擎，programs/lifecycle.ts 绑定的也不是它）；
+ * open 战场候选来源、集合空判定、模式选择计划与移动许可消费仍未形成完整执行链。
  *
  * 数据问题（不改数据）："battlefield.Give" 缺空格/换行，两个功能子句被粘在一起；sourceText
  * 按逐字要求保留原样。
@@ -62,18 +71,25 @@ const demonShade = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处当前缺口（2026-10-17 第三轮复核），均不近似实现：" +
+    "四处当前缺口（2026-10-18 第四轮复核实测），均不近似实现：" +
     "(1) 目的地已按 RIFT-357 的合并形状写成运行期 Location 选择（Expr kind \"location\"，" +
     "170.11.c 的 open 过滤 { type: battlefield, open: true }，355.4 / 355.4.a / 451.1），" +
     "但候选来源仍未接线：target/location/candidates.ts 的 allRefs 只从对象当前地点、玩家 Base 与调用方传入的 " +
     "LocationState 收集候选，合并的调用方（interpreter.ts prepareLocations / normalizeMoveArguments）都不传 locations，" +
     "因此没有被单位占据的战场（170.11.c 的 open 战场）根本不在候选里，Location 选择会以 \"Location choice has no options\" 阻断。" +
     "(2)「Give it [Ganking] this turn」的 continuous.grant-keyword 已合入（RIFT-258，ability 层注册 + " +
-    "end-of-turn 到期）并有真实执行测试；缺的是 810.1.c 的移动许可消费方。(3)「if there are no open battlefields」" +
-    "是没有对象的集合谓词，现有 compare（eq/ne/lt/lte/gt/gte/in）无法对集合表达空判定（依赖 RIFT-359 的 " +
-    "condition.predicate）。(4) 原文 \"Choose a friendly unit, then choose one\" 要求先选单位再选模式" +
-    "（355.5 在 355.3 之前），该 Finalize 顺序属于目标与模式选择计划（RIFT-358）；两个分支各自声明一个友方" +
-    "单位目标，只有被执行的模式会结算。被选友方单位按 355.10 / 355.9.a.1 是目标。",
+    "end-of-turn 到期）并有真实执行测试；仍缺 810.1.c 的移动许可消费方：生产默认 LayerEngine 不展开被授予的" +
+    "关键词（RIFT-710 的 KeywordGrantLayerEngine 会展开，实测 movement().canGank 变 true，" +
+    "但它不是 ChainEngine 构造的引擎，programs/lifecycle.ts 绑定的也不是它）。" +
+    "(3)「if there are no open battlefields」的空判定仍缺：RIFT-359 的 condition.predicate 只提供 " +
+    "played-from-hand / played-from-zone / printed-characteristic / result，没有集合空判定；" +
+    "实测 count 可对已知战场计数（本例 2），但其 filter 经 matchesObjectFilter 时把未知键 " +
+    "open/occupied/controlled 一律视为命中（三种 filter 都返回 2），无法表达 170.11.c 的 open 集合。" +
+    "(4) 原文 \"Choose a friendly unit, then choose one\" 要求先选单位再选模式（355.5 在 355.3 之前）；" +
+    "RIFT-358 已合入有序 zone pick 与链接值，但 choice.mode 本身仍不可结算——实测 programs/play.ts 的 " +
+    "describePlay 与 chain/engine.ts 的 assertFinalizationSurface 都抛 " +
+    "\"Mode choices require a Finalize/Resolve choice-plan adapter\"，本卡连 play 草案都拿不到；" +
+    "两个分支各自声明一个友方单位目标，只有被执行的模式会结算。被选友方单位按 355.10 / 355.9.a.1 是目标。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     {

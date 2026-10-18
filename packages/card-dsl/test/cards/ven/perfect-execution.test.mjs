@@ -9,6 +9,9 @@ import grantKeyword from "../../../../engine-core/dist/effects/instructions/cont
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import flow from "../../../../engine-core/dist/effects/keywords/Flow.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-9b9d80a33d320406e0f8cd8f3d1302432ecb3631b32fe7d448639224c253e235";
 const SOURCE_TEXT =
@@ -36,9 +39,10 @@ test("ven-012-166 Perfect Execution: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /807\.1\.c/);
   assert.match(program.judgeReason, /combatRole|designation/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /programs\/lifecycle\.ts/);
   assert.match(program.judgeReason, /params\.cost|3\.8\.3/);
   assert.ok(!/RIFT-9 清单|没有已合入原语/.test(program.judgeReason));
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("ven-012-166 Perfect Execution: [Flow] declared, printed cost, and the Assault grant is not a Might hack", () => {
@@ -163,6 +167,9 @@ test("ven-012-166 Perfect Execution golden: the grant instruction registers an a
   const evaluated = layers.evaluate(locked);
   assert.deepEqual(evaluated.keywords.map((keyword) => [keyword.id, keyword.value]), [["Assault", 3]]);
   assert.equal(evaluated.might, 2);
+  assert.equal(layers.advance({ id: "turn-end" }).length, 1);
+  assert.deepEqual(layers.evaluate(locked).keywords, []);
+  assert.equal(layers.evaluate(locked).might, 2);
 });
 
 test("ven-012-166 Perfect Execution golden: the original body uses its locked unit target for both effects", () => {
@@ -195,7 +202,7 @@ test("ven-012-166 Perfect Execution golden: the original body uses its locked un
 test.todo(
   "ven-012-166 Perfect Execution: [Assault 3] actually adds +3 Might while the granted unit is an attacker " +
     "(807.1.c / 807.2) — keywords/Assault.ts expands to a designation-eq-attacker condition, but the " +
-    "combatRole-to-designation predicate mapping is not wired into the layer consumer (in-flight RIFT-359)"
+    "combatRole-to-designation predicate mapping is not wired into the layer consumer (dynamic keyword rebinding and the designation mapping remain unconnected)"
 );
 
 test.todo(
@@ -203,3 +210,52 @@ test.todo(
     "banish it — the printed cost cannot reach KeywordDef.expand (contract 3.8.3), and the Flow alternate-cost " +
     "and delayed replacement consumers are not wired"
 );
+
+// The refreshed gaps are pinned against the real production seam.
+test("ven-012-166 Perfect Execution: the printed Flow cost cannot reach the keyword expansion", () => {
+  // programs/keywords.ts calls def.expand({ value, host }) and KeywordAbility has
+  // no params carrier (contract 3.8.3), so Flow.ts expands a flow.cost static
+  // with no cost at all. Its replacement body (effect.banish) is also rejected
+  // by the replacement planner, so 829.1.b.1 has no consumer path.
+  const [expandedStatic, expandedReplacement] = flow.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.deepEqual(expandedStatic.effect, {
+    kind: "flow.cost",
+    appliesTo: "self",
+    host: "self",
+    sourceZone: "trash"
+  });
+  const f = fixture();
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(expandedStatic, f.kernel.getObject("source")),
+    error => error.code === "judge-required" && /Static ability kind flow\.cost has no layer mapping/.test(error.message)
+  );
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindReplacement(expandedReplacement, f.kernel.getObject("source")),
+    error => error.name === "BlockedReplacementError" && /Unsupported replacement opcode: effect\.banish/.test(error.message)
+  );
+});
+
+test("ven-012-166 Perfect Execution: the granted Assault never changes Might without a designation mapping", () => {
+  // Assault.ts gates the arithmetic layer on object-property "designation"; the
+  // frozen ObjectSnapshot exposes only combatRole, so an attacker has no
+  // readable designation and the granted +3 Might never lands (807.1.c).
+  const kernel = world().unit("ally", { might: 2, combatRole: "attacker" }).build();
+  const locked = kernel.ref("ally");
+  const run = runInstruction(
+    grantKeyword,
+    {
+      keyword: grantInstruction.args.keyword.value,
+      value: grantInstruction.args.value.value,
+      duration: grantInstruction.args.duration.value,
+      objects: { kind: "target", id: "perfect-execution.unit" }
+    },
+    { world: kernel, targets: { [unitSpec.id]: [locked] } }
+  );
+  assert.equal(run.result.status, "executed");
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects, { timingPoint: "combat-start" });
+  const evaluated = layers.evaluate(locked);
+  assert.deepEqual(evaluated.keywords.map(keyword => [keyword.id, keyword.value]), [["Assault", 3]]);
+  assert.equal(evaluated.combatRole, "attacker");
+  assert.equal(Object.hasOwn(evaluated, "designation"), false);
+  assert.equal(evaluated.might, 2);
+});

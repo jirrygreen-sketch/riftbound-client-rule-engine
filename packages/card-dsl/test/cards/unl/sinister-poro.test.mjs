@@ -5,6 +5,21 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/sinister-poro.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateObjectFilter, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { fixture as turnFixture } from "../../../../engine-core/test/turn/helpers.mjs";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+
+/** Drain the merged chain until it blocks; used to reach the combat gate. */
+function settleTurn(flow) {
+  let budget = 0;
+  while (flow.chain.items.length) {
+    if (++budget > 100) throw new Error("Nonterminating test chain");
+    flow.pass(flow.chain.priority);
+  }
+  flow.advance();
+}
+
+const timingsOf = (flow) => flow.chain.pipeline.events.map((event) => event.timingPoint);
 
 const CARD_ID =
   "card.hash-012e505f18f7dd78843bcdd1d710fa4398ff99390018e2e21b662d53ed596e01";
@@ -50,6 +65,9 @@ test("unl-137-219 Sinister Poro: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /CostSpec|Finalize/);
   assert.match(program.judgeReason, /sameLocationAs/);
+  // 2026-10-18 re-sweep: the reason names the measured arg-shape rejection too.
+  assert.match(program.judgeReason, /Invalid cost\.pay argument: energy/);
+  assert.match(program.judgeReason, /payments/);
 });
 
 test("unl-137-219 Sinister Poro: attack-declared self trigger with the printed may cost as the Finalize decision", () => {
@@ -88,6 +106,22 @@ test("unl-137-219 Sinister Poro: 1 Energy recorded as the trigger's base cost, t
   assert.deepEqual(moveEnemy.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(moveEnemy.args.linkKey, { kind: "constant", value: "moved" });
   assert.equal(moveEnemy.picks, undefined);
+});
+
+test("unl-137-219 Sinister Poro golden: the recorded cost.pay is descriptive only and is refused by the merged primitive", () => {
+  // 383.3.b.1: the printed 1 Energy is the triggered ability's base cost, paid
+  // during Finalize. Because contract 3.1's TriggeredAbility has no CostSpec
+  // slot, the card records the payment in its body. That record is not an
+  // executable instruction: the merged cost.pay primitive accepts only
+  // { cost, power, nonstandardOrder, payments, linkKey } and rejects the
+  // authored energy key, which is why the card cannot be promoted yet.
+  assert.deepEqual(payEnergy.args, { energy: { kind: "constant", value: 1 } });
+  const kernel = world().player("A", { energy: 1 }).build();
+  assert.throws(
+    () => runInstruction(costPay, payEnergy.args, { world: kernel }),
+    /Invalid cost\.pay argument: energy/
+  );
+  assert.equal(kernel.player("A").energy, 1);
 });
 
 test("unl-137-219 Sinister Poro: 'an enemy unit here' is one opponent-controlled unit at my location", () => {
@@ -154,10 +188,51 @@ test("unl-137-219 Sinister Poro golden: the card's own printed Move args run on 
 
 test.todo(
   "unl-137-219 Sinister Poro: charge the printed 1 Energy as the triggered ability's base cost at Finalize " +
-    "(CR 383.3.b.1 / 415.4-415.5) — contract 3.1's TriggeredAbility has no CostSpec field and no cost.pay " +
-    "primitive in the triggered-ability cost position"
+    "(CR 383.3.b.1 / 415.4-415.5) — contract 3.1's TriggeredAbility has no CostSpec field for a base cost, and the " +
+    "recorded body cost.pay is rejected by the merged primitive (see the execution test above)"
 );
 test.todo(
   "unl-137-219 Sinister Poro: fire the attack-declared trigger from the real combat workflow (CR 383.4.e / 466.2.c) " +
     "— the timing point exists but combat/ has no emit path wired yet"
 );
+
+test("unl-137-219 Sinister Poro: the printed 'here' anchor is still rejected by the production target translator", () => {
+  // 359.3.f / 740.1.b: \"an enemy unit here\" needs sameLocationAs: source.
+  // The merged translator still refuses that field, so the declared TargetSpec
+  // is kept as the authored shape rather than approximated by any enemy unit.
+  assert.throws(
+    () => translateObjectFilter(targetSpec.filter),
+    (error) => error.name === "ProgramBindingError" && /Unsupported filter field sameLocationAs/.test(error.message)
+  );
+  // The trigger filter itself does translate, so the missing "here" anchor is
+  // the only target-side gap here.
+  assert.deepEqual(translateTriggerFilter({ event: "attack-declared", filter: { source: "self" } }, "sinister-poro", "attack-declared"), {
+    event: "attack-declared",
+    object: { objectId: "sinister-poro" }
+  });
+});
+
+test("unl-137-219 Sinister Poro: combat still has no attack-declared emission path (CR 383.4.e / 466.2.c)", () => {
+  // The printed trigger can never fire until a combat transaction emits the
+  // attacker designation. The merged combat flow refuses to start that
+  // transaction, so the timing point remains unreachable.
+  // A unit moves onto a battlefield already held by an opposing unit. The
+  // merged combat flow stages Combat and then blocks before any partial start:
+  // "combat-start-transaction" (CR 466.2 needs an atomic simultaneous timing
+  // wave + Attacker/Defender designation). No attacker is ever designated, so
+  // the printed attack trigger can never be reached.
+  const f = turnFixture({
+    fields: [{ id: "bf1", controller: "B" }, { id: "bf2", controller: null }],
+    setup: (w) => w.unit("defender", { owner: "B", location: { type: "battlefield", id: "bf1" } })
+  });
+  f.flow.start();
+  f.flow.execute(f.draft("move-to-enemy", [{ id: "move", op: "effect.move", args: { to: { kind: "constant", value: { type: "battlefield", id: "bf1" } } } }]));
+  assert.throws(
+    () => settleTurn(f.flow),
+    (error) => error.status === "blocked" && error.code === "combat-start-transaction"
+  );
+  assert.equal(f.flow.battlefields[0].staged, "combat");
+  // No attack-declared event was ever emitted by the pipeline.
+  assert.equal(timingsOf(f.flow).includes("combat-start"), false);
+  assert.equal(f.flow.chain.pipeline.events.filter(event => event.timingPoint === "attack-declared").length, 0);
+});

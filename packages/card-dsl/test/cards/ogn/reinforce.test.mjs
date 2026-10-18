@@ -13,7 +13,14 @@ import costModify from "../../../../engine-core/dist/effects/instructions/cost.m
 // literal envelope so the merged primitives validate and evaluate them
 // themselves. The golden runs use that same path.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { finalizeOrderedPickPlans } from "../../../../engine-core/dist/chain/picks/plan.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { finalizeCostPlan } from "../../../../engine-core/dist/cost/discounts/index.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 
 const CARD_ID = "card.hash-c2c17a54e193d86678b7e7bb36f02bf0db8c677c91f7ac73a0fa57cb2acc8be5";
 const SOURCE_TEXT =
@@ -31,10 +38,13 @@ const resultFor = (outcome, id) => outcome.results.find(result => result.id === 
  * installed as the source snapshot and the deck is stacked top-to-bottom.
  */
 function reinforceWorld(cards = ["unit-a", "spell-a", "spell-b", "spell-c", "spell-d", "deeper"]) {
-  const kernel = world()
-    .object("reinforce", { zone: "chain", types: ["spell"], owner: "A", controller: "A", energy: 5 })
-    .deck(cards, { owner: "A" })
-    .build();
+  const builder = world()
+    .object("reinforce", { zone: "chain", types: ["spell"], owner: "A", controller: "A", energy: 5 });
+  for (let index = cards.length - 1; index >= 0; index--) {
+    const id = cards[index];
+    builder.card(id, { owner: "A", types: id.startsWith("spell") ? ["spell"] : ["unit"], zone: "deck" });
+  }
+  const kernel = builder.build();
   // The ordered deck-top provider the merged effect.inspect requires for a
   // non-zero top look (contract 3.6 zoneSlice; query order is not a deck order).
   kernel.setPicks("reinforce.top-five", kernel.zone("A", "deck").slice(0, 5));
@@ -59,9 +69,15 @@ test("ogn-062-298 Reinforce judgeReason names the current cost-plan and selectio
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /356\.1\.c/);
   assert.match(program.judgeReason, /356\.6/);
-  assert.match(program.judgeReason, /FinalizedCostPlan/);
-  assert.match(program.judgeReason, /picksSpecId/);
-  assert.match(program.judgeReason, /unit/);
+  assert.match(program.judgeReason, /finalized CostPlan|FinalizedCostPlan|effect\.play/);
+  assert.match(program.judgeReason, /effect\.banish/);
+  assert.match(program.judgeReason, /object: \{ pick: \"reinforce\.top-five\" \}/);
+  assert.doesNotMatch(program.judgeReason, /inspect.*没有候选过滤|从 5 张中选 unit.*无法表达/);
+  // RIFT-66's ordered zoneSlice source merged with the RIFT-358 Finalize
+  // lifecycle, so the reason must name the landed mechanism, not the old
+  // picksSpecId delivery note.
+  assert.match(program.judgeReason, /zoneSlice/);
+  assert.match(program.judgeReason, /RIFT-358/);
 });
 
 test("ogn-062-298 Reinforce structure: no speed keyword, look -> may(banish -> play) -> recycle", () => {
@@ -79,14 +95,16 @@ test("ogn-062-298 Reinforce structure: no speed keyword, look -> may(banish -> p
   ]);
 
   // "Look at the top 5 cards of your Main Deck" — private look, top scope,
-  // 5 cards, with the pick as a non-target choice (0 or 1 cards).
+  // 5 cards. The later banish instruction owns the non-target choice.
   assert.equal(lookTopFive.op, "effect.inspect");
   assert.deepEqual(lookTopFive.args.amount, { kind: "constant", value: 5 });
   assert.deepEqual(lookTopFive.args.scope, { kind: "constant", value: "top" });
   assert.deepEqual(lookTopFive.args.zone, { kind: "constant", value: "deck" });
   assert.deepEqual(lookTopFive.args.picksSpecId, { kind: "constant", value: "reinforce.top-five" });
-  assert.deepEqual(lookTopFive.args.choose, { kind: "constant", value: true });
-  assert.deepEqual(lookTopFive.args.chooseCount, { kind: "constant", value: { min: 0, max: 1 } });
+  assert.equal(lookTopFive.args.choose, undefined);
+  assert.equal(lookTopFive.args.chooseCount, undefined);
+  assert.equal(lookTopFive.args.choiceId, undefined);
+  assert.equal(lookTopFive.args.choosePicksKey, undefined);
   assert.equal(lookTopFive.targets, undefined);
 
   // "you" is bound as a data value (the ability controller, 190.6.d) because
@@ -114,7 +132,14 @@ test("ogn-062-298 Reinforce structure: no speed keyword, look -> may(banish -> p
   assert.equal(banishChosenUnit.op, "effect.banish");
   assert.deepEqual(banishChosenUnit.args.objects, {
     kind: "constant",
-    value: { linked: "selectedCard" }
+    value: {
+      choose: "reinforce.pick-unit",
+      filter: {
+        object: { pick: "reinforce.top-five" },
+        type: "unit"
+      },
+      visibility: "chooser-only"
+    }
   });
   assert.equal(banishChosenUnit.linkedTo, undefined);
 
@@ -225,11 +250,11 @@ test("ogn-062-298 Reinforce golden: a short Main Deck is looked at as far as pos
   assert.equal(kernel.player("A").deckSize, 1);
 });
 
-test("ogn-062-298 Reinforce golden: accepting the may banishes the chosen card and recycles the rest", () => {
+test("ogn-062-298 Reinforce golden: banish choose filters to units among the looked-at top five", () => {
   const kernel = reinforceWorld();
   const looked = kernel.zone("A", "deck").slice(0, 5);
   kernel.setAnswers({
-    "reinforce.look-top-five/reinforce.pick-unit": [looked[0]],
+    "reinforce.may-banish-and-play/reinforce.banish-chosen-unit/reinforce.pick-unit": [looked[0]],
     "reinforce.may-banish-and-play/optional": true
   });
 
@@ -262,7 +287,6 @@ test("ogn-062-298 Reinforce golden: accepting the may banishes the chosen card a
 test("ogn-062-298 Reinforce golden: declining the may still recycles every looked-at card", () => {
   const kernel = reinforceWorld();
   kernel.setAnswers({
-    "reinforce.look-top-five/reinforce.pick-unit": [],
     "reinforce.may-banish-and-play/optional": false
   });
 
@@ -292,7 +316,7 @@ test("ogn-062-298 Reinforce golden: the banished card is a new object, so its ol
   const kernel = reinforceWorld();
   const looked = kernel.zone("A", "deck").slice(0, 5);
   kernel.setAnswers({
-    "reinforce.look-top-five/reinforce.pick-unit": [looked[0]],
+    "reinforce.may-banish-and-play/reinforce.banish-chosen-unit/reinforce.pick-unit": [looked[0]],
     "reinforce.may-banish-and-play/optional": true
   });
   const outcome = resolveChainBody(playAbility.body, kernel);
@@ -325,14 +349,197 @@ test("ogn-062-298 Reinforce golden: the merged play primitive refuses the unfina
   assert.equal(run.events.length, 0);
 });
 
+test("ogn-062-298 Reinforce golden: a caller-supplied finalized discounted plan lets effect.play execute", () => {
+  const kernel = world()
+    .player("A", { energy: 4 })
+    .object("rescued", {
+      zone: "banishment",
+      types: ["unit"],
+      owner: "A",
+      controller: "A",
+      energy: 4,
+      power: []
+    })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("rescued") });
+  const plan = finalizeCostPlan(context, {
+    id: "reinforce.selected-card",
+    cost: { kind: "printed" },
+    discounts: [{
+      id: "reinforce.energy-five",
+      resource: "energy",
+      amount: { kind: "constant", value: 5 },
+      minimum: { kind: "constant", value: 0 }
+    }]
+  });
+  assert.equal(plan.total.energy, 0);
+  assert.equal(payCostPlan(context, plan).paid, true);
+
+  const run = runInstruction(
+    play,
+    {
+      object: { kind: "constant", value: context.ref("rescued") },
+      cost: { kind: "constant", value: plan }
+    },
+    { world: context }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.equal(context.getObject("rescued").zone, "board");
+  assert.deepEqual(run.events.map(event => event.action), ["pay", "play"]);
+});
+
 test.todo(
   "Reinforce: materialize the reduced cost plan (printed base cost of the banished card minus 5 Energy, " +
     "never below 0 per CR 356.1.c/356.6) and play it out of Banishment as a Limited Action (420.3/420.3.a) - " +
     "cost.modify is merged, but the card-program/Finalize producer for the selected card's printed cost and effect.play plan is missing"
 );
 
-test.todo(
-  "Reinforce: the ordered deck-top provider for effect.inspect's non-zero top scope in the production " +
-    "lifecycle (contract 3.6 zoneSlice; the chain Finalize surface only locks instruction.targets), plus an " +
-    "executable unit-only filter for the inspect choice"
-);
+/**
+ * Production-chain fixture: the spell starts in Hand, the chain Finalizes the
+ * declared zoneSlice against the real deck order, and the optional decision
+ * plus the banish choose arrive as AwaitChoice requests whose ids include the
+ * instruction path.
+ */
+function chainFixture(deck = ["unit-a", "spell-a", "unit-b", "spell-b", "spell-c", "unit-sixth"]) {
+  const builder = world()
+    .player("A", { energy: 20 })
+    .player("B", { energy: 20 })
+    .hand("reinforce", { cardId: program.canonicalCardId, types: ["spell"], energy: 0, power: [], might: null })
+  for (let index = deck.length - 1; index >= 0; index--) {
+    const id = deck[index];
+    builder.card(id, { owner: "A", types: id.startsWith("spell") ? ["spell"] : ["unit"], zone: "deck" });
+  }
+  const kernel = builder.build();
+  const answers = new Map();
+  const requests = [];
+  const decide = (request) => {
+    requests.push(request);
+    if (answers.has(request.id)) return answers.get(request.id);
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: decide,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose: decide })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  return {
+    kernel,
+    engine,
+    answers,
+    requests,
+    draft: () => ({
+      id: "play-reinforce",
+      controller: "A",
+      source: kernel.getObject("reinforce"),
+      kind: "spell",
+      speed: "normal",
+      body: translateInstructionTargets(playAbility.body)
+    })
+  };
+}
+
+test("ogn-062-298 Reinforce golden: the chain locks the deck top and banish filters units", () => {
+  // The production path: Finalize locks the declared zoneSlice refs from the
+  // real deck order before any look happens. The optional decision then opens
+  // effect.banish's non-target choose, whose filter is restricted to unit
+  // refs among that locked top-five pick.
+  const f = chainFixture();
+  f.engine.execute(f.draft());
+  f.engine.advance();
+
+  const locked = f.engine.items[0].pickPlans;
+  assert.deepEqual(locked.map((plan) => [plan.id, plan.refs.map((ref) => ref.id)]), [
+    ["reinforce.top-five", ["unit-a", "spell-a", "unit-b", "spell-b", "spell-c"]]
+  ]);
+  // CR 128.3: a look is an effect, so nothing was looked at before Resolve.
+  assert.equal(
+    f.engine.pipeline.events.filter((event) => event.timingPoint === "cards-looked-at").length,
+    0
+  );
+
+  const optionalChoice = (() => {
+    try {
+      f.engine.pass("A");
+      f.engine.pass("B");
+    } catch (error) {
+      assert.ok(error instanceof AwaitChoice, String(error));
+      return error.request;
+    }
+    throw new Error("the optional banish decision must be requested during Resolve");
+  })();
+
+  assert.equal(optionalChoice.id, "reinforce.may-banish-and-play/optional");
+  assert.equal(optionalChoice.type, "optional");
+  f.answers.set(optionalChoice.id, true);
+
+  let banishChoice = null;
+  try {
+    f.engine.pass("B");
+  } catch (error) {
+    assert.ok(error instanceof AwaitChoice, String(error));
+    banishChoice = error.request;
+  }
+  assert.equal(banishChoice?.id, "reinforce.may-banish-and-play/reinforce.banish-chosen-unit/reinforce.pick-unit");
+  assert.equal(banishChoice?.type, "select-objects");
+  assert.deepEqual(banishChoice?.options.map((ref) => ref.id), ["unit-a", "unit-b"]);
+  assert.equal(banishChoice?.min, 1);
+  assert.equal(banishChoice?.max, 1);
+  assert.ok(!banishChoice?.options.some((ref) => ref.id === "spell-a" || ref.id === "spell-b" || ref.id === "spell-c"));
+  assert.ok(!banishChoice?.options.some((ref) => ref.id === "unit-sixth"));
+  f.answers.set(banishChoice.id, [banishChoice.options.find((ref) => ref.id === "unit-b")]);
+
+  let guard = 0;
+  while (f.engine.items.length && guard++ < 20) f.engine.pass(f.engine.priority);
+
+  assert.deepEqual(f.kernel.zone("A", "banishment").map((ref) => ref.id), ["unit-b"]);
+  // The play half negates on the missing finalized cost plan (judgeReason):
+  // the banished card stays in Banishment and never enters Board.
+  assert.deepEqual(f.kernel.zone("A", "board").map((ref) => ref.id), []);
+  // The played card's old reference is stale, so exactly the four remaining
+  // looked-at cards recycle to the deck bottom (417.1.a / 417.4).
+  assert.deepEqual(f.kernel.zone("A", "deck").map((ref) => ref.id), [
+    "unit-sixth", "unit-a", "spell-a", "spell-b", "spell-c"
+  ]);
+});
+
+test("ogn-062-298 Reinforce golden: finalizeOrderedPickPlans locks the ordered deck slice itself", () => {
+  // Direct Finalize unit coverage for the merged RIFT-66/RIFT-358 lifecycle:
+  // the chain locks refs from the real zone order, a short deck locks only the
+  // cards that exist, and the spec keeps the contract-3.6 ordered source shape.
+  const longDeck = world()
+    .player("A")
+    .deck(["d1", "d2", "d3", "d4", "d5", "d6"], { owner: "A" })
+    .build();
+  const longContext = longDeck.clone({ sourceSnapshot: longDeck.getObject("d1"), controller: "A" });
+  const [topFive] = finalizeOrderedPickPlans(longContext, playAbility.body);
+  assert.equal(topFive.id, "reinforce.top-five");
+  assert.deepEqual(topFive.refs.map((ref) => ref.id), ["d1", "d2", "d3", "d4", "d5"]);
+
+  // The spec itself keeps the contract-3.6 ordered source shape: options stays
+  // empty, the whole slice is selected, and the only source is the zoneSlice.
+  const [declared] = lookTopFive.picks;
+  assert.deepEqual(declared, {
+    id: "reinforce.top-five",
+    options: [],
+    ordered: true,
+    selection: "all",
+    zoneSlice: {
+      zone: "deck",
+      from: "top",
+      count: { kind: "constant", value: 5 }
+    }
+  });
+
+  const shortDeck = world()
+    .player("A")
+    .deck(["only-card"], { owner: "A" })
+    .build();
+  const shortContext = shortDeck.clone({ sourceSnapshot: shortDeck.getObject("only-card"), controller: "A" });
+  const [shortPlan] = finalizeOrderedPickPlans(shortContext, playAbility.body);
+  // 432.1.c: a short deck is looked at as far as possible.
+  assert.deepEqual(shortPlan.refs.map((ref) => ref.id), ["only-card"]);
+});

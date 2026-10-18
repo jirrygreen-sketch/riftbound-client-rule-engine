@@ -1,3 +1,11 @@
+// RIFT-697 execution evidence: ../templates/keyword-static-697.test.mjs runs the card's
+// exported abilities through the generic scenario harness and keeps the documented
+// clauses judge-required.
+// RIFT-672 execution evidence: ../templates/keyword-static-672.test.mjs (supported paths only).
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -31,8 +39,8 @@ test("ven-007-166 Punching Poro: identity, ruleset, status, judgeReason and verb
   assert.match(program.judgeReason, /827\.1\.c\.2/);
   assert.match(program.judgeReason, /discard/);
   assert.match(program.judgeReason, /empowered/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /params\.cost/);
+  assert.match(program.judgeReason, /ObjectSnapshot/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -58,10 +66,12 @@ test("ven-007-166 Punching Poro: the Empowered dependent ability is a gated +1 M
   });
   // 143.2.a/475–477 的算术图层修正；不是 Buff 计数（702/703）。
   assert.notEqual(might.effect.kind, "effect.buff");
-  // 828.1.c 的门控用显式谓词占位，不手写状态判定。
+  // 828.1.c 的门控读取来源当前 Empowered 状态。
   assert.deepEqual(might.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "empowered" }
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
   });
   // 不把依赖能力写成无条件能力：条件必须存在。
   assert.notEqual(might.condition.kind, "always");
@@ -69,8 +79,8 @@ test("ven-007-166 Punching Poro: the Empowered dependent ability is a gated +1 M
 
 test.todo(
   "ven-007-166 Punching Poro: activate [Empower] by discarding 1 card (827.1.c.1 / 827.1.c.2) with the " +
-    "'use only if not Empowered' restriction — needs the Empower/Empowered KeywordDef and the " +
-    "RIFT-89 cost-plan wiring (the discard component exists in cost/plan-values.ts but no module " +
+    "'use only if not Empowered' restriction — Empower KeywordDef exists; KeywordAbility and programs/keywords.ts need " +
+    "params.cost forwarding and symbolic hand-pick binding (the discard component exists in cost/plan-values.ts but no module " +
     "reads the card program's Empower cost)"
 );
 
@@ -78,8 +88,8 @@ test("ven-007-166 Punching Poro golden: the declared +1 Might really applies in 
   // The static → layers binding entry point is merged (programs/statics.ts
   // createEngineStaticBinder, RIFT-91 batch). This golden executes the card's
   // own declared arithmetic effect in the merged layer engine; the 828.1.c
-  // Empowered gate stays judged (see judgeReason), so the program itself must
-  // not run as an unconditional ability.
+  // Empowered condition is covered through the real static binder below; the
+  // full keyword cost binding remains judge-required.
   const host = {
     ref: { id: "punching-poro", zoneEntryId: 1 },
     name: "Punching Poro",
@@ -116,3 +126,45 @@ test("ven-007-166 Punching Poro golden: the declared +1 Might really applies in 
   assert.equal(engine.evaluate(host.ref).might, 3);
   assert.equal(engine.evaluate(host.ref).printed.might, 2);
 });
+
+test("ven-007-166 Punching Poro regression: the original static gate follows real Empower/Disempower actions", () => {
+  const { kernel, engine } = staticFixture([
+    { id: "poro", cardId: CARD_ID, types: ["unit"], zone: "board", might: 2, power: null }
+  ]);
+  const source = kernel.getObject("poro");
+  createEngineStaticBinder(engine).bindStatic(might, source);
+  assert.equal(engine.layers.snapshot(source.ref).might, 2, "dependent ability is inactive before Empower");
+  assert.equal(engine.commit({ type: "empower", object: source.ref }).status, "done");
+  assert.equal(engine.layers.snapshot(source.ref).might, 3, "the real state activates the dependent ability");
+  assert.equal(engine.layers.snapshot(kernel.ref("source")).might, 2, "the bonus is self only");
+  assert.equal(engine.commit({ type: "disempower", object: source.ref }).status, "done");
+  assert.equal(engine.layers.snapshot(source.ref).might, 2, "dependent ability ends immediately");
+  assert.equal(kernel.getObject("poro").power, null);
+});
+
+
+function staticFixture(cards) {
+  const builder = world().player("A", { energy: 20 }).player("B", { energy: 20 })
+    .unit("source", { might: 2, location: { type: "base", player: "A" } })
+    .unit("enemy", { owner: "B", might: 5, location: { type: "base", player: "B" } });
+  for (const card of cards) builder.object(card.id, { location: { type: "base", player: "A" }, ...card });
+  const kernel = builder.build();
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(), restore: state => kernel.restore(state),
+    objects: () => kernel.objects, perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ host, turnOrder: ["A", "B"], turnPlayer: "A", cleanup: engine => {
+    engine.layers.setObjects(kernel.objects);
+    let changed = false;
+    for (const object of engine.layers.evaluateAll()) {
+      if (object.zone === "board" && object.types.includes("unit") && object.might !== null &&
+          (object.might <= 0 || object.damage >= object.might)) {
+        changed = engine.commit({ type: "kill", object: object.ref }).status === "done" || changed;
+      }
+    }
+    return changed;
+  } });
+  return { kernel, engine };
+}

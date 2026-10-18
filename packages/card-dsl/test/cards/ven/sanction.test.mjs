@@ -105,11 +105,12 @@ test("ven-035-166 Sanction: mode 2 disempowers an Empowered unit then schedules 
   assert.equal(disempowerUnit.op, "effect.empower");
   assert.deepEqual(disempowerUnit.args.mode, { kind: "constant", value: "disempower" });
   // "a unit that's [Empowered]": the state restriction is recorded, never
-  // widened to any unit (the merged matcher has no empowered predicate).
+  // widened to any unit; the state characteristic remains explicit and fails
+  // closed until production snapshots expose empowered.
   assert.deepEqual(disempowerUnit.targets, [
     {
       id: "sanction.empowered-unit",
-      filter: { type: "unit", zone: "board", empowered: true },
+      filter: { type: "unit", zone: "board", characteristics: { empowered: true } },
       min: 1,
       max: 1,
       selection: "one"
@@ -230,8 +231,8 @@ test.todo(
 
 test.todo(
   "ven-035-166 Sanction: restrict mode 2's target to an Empowered unit and rely on 442.1.b/443.1.a " +
-    "(Empower/Disempower affect only the current state) — ObjectSnapshot exposes no Empowered state and the " +
-    "merged filter vocabulary has no empowered predicate (contract gap recorded in effect.empower)"
+  "(Empower/Disempower affect only the current state) — the IR keeps characteristics.empowered, " +
+    "but production ObjectSnapshot does not expose the live empowered count"
 );
 
 test.todo(

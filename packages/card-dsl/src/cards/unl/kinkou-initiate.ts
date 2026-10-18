@@ -23,19 +23,22 @@ import type { CardProgram } from "../../ir/index.js";
  *   board units the controller controls aside from the host, and "total Might"
  *   sums their Effective Might.
  *
- * Status: judge-required. Re-checked against the merged instruction, program-
- * binding and continuous-effect implementations:
+ * Status: judge-required（2026-10-18 逐项实测复核）：
  * - The printed gate still needs the sum of a filtered set's Might. `count`
  *   counts matching objects and `object-property` reads one object's
  *   characteristic; no merged Expr returns Σ Effective Might of "your other
- *   units" (contract 3.2 Expr has no sum/reduce form). The retained `count`
- *   subject/filter records that gap and is not an approximation of the 5-Might
- *   total.
+ *   units" — contract 3.2's Expr union is constant/literal/location/
+ *   object-property/object-attribute/linked(-value)/count/player-property/
+ *   turn-number/player-turn-count/object-designation/arithmetic/instruction-body,
+ *   and `arithmetic` only reduces a fixed operand list (add/sub/mul/div/min/max/neg),
+ *   never a set. The retained `count` subject/filter records that gap and is not
+ *   an approximation of the 5-Might total: the two really diverge, e.g. one other
+ *   unit with Might 5 makes the printed total 5 while count reads 1 (实测该局面不抽牌).
  * - The `card-played` trigger, `exclude` selector, and draw body do bind:
  *   programs/filters.ts translates `{source: "self"}` to the host object id,
  *   programs/triggers.ts registers the subscription, and the interpreter's
  *   query path consumes `exclude`. The remaining blocker is the missing
- *   sum-over-set value expression, so the card stays fail-closed.
+ *   sum-over-set value expression.
  * Dependencies: a sum-over-set Expr (reduce Effective Might over the selected
  *   units). Not approximated.
  */
@@ -44,15 +47,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺「合计 Might」值表达式：'if your other units have total Might 5 or more' 需要把一组对象" +
+    "唯一当前缺口是「合计 Might」值表达式：'if your other units have total Might 5 or more' 需要把一组对象" +
     "（你控制的、除我以外的场上单位）的 Effective Might（143.2.a.1）求和后与 5 比较，" +
-    "但冻结的 Expr 只有 count（计数）与 object-property（读单个对象特征），没有 sum-over-set / reduce 形式；" +
-    "contract 3.2 的 Expr 需要新增该值表达式。程序里 count 的 subject " +
-    "'other-friendly-units-total-might' 只是该缺口的描述性占位，不近似实现印刷语义。" +
+    "但 contract 3.2 的封闭 Expr 只有 count（计数）、object-property（读单个对象特征）与" +
+    "arithmetic（对固定操作数列表做 add/sub/mul/div/min/max/neg），没有 sum-over-set / reduce 形式；" +
+    "需要为 Expr 新增该值表达式。程序里 count 的 subject " +
+    "'other-friendly-units-total-might' 只是该缺口的描述性占位，不近似实现印刷语义——两者实测会分叉：" +
+    "一个 Might 5 的其他单位让印刷总 Might 为 5 而 count 只读到 1，该局面下本卡不抽牌。" +
     "已合入并可由 golden 真实执行的部分：card-played 触发（programs/filters.ts 把 {source: \"self\"} 归一化为宿主对象、" +
     "programs/triggers.ts 注册订阅）、解释器查询对 exclude 的消费，以及 effect.draw 抽 1 张。" +
-    "唯一剩余阻塞是 sum-over-set 表达式：仍没有把其他单位的 Effective Might 求和后与 5 比较的 Expr；" +
-    "保留的 count 形状只记录对象集合，不近似印刷总 Might。依赖：sum-over-set / reduce Effective Might 表达式。",
+    "依赖：sum-over-set / reduce Effective Might 值表达式。",
   abilities: [
     {
       kind: "triggered",

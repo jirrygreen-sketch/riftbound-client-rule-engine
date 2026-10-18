@@ -28,6 +28,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * continuous.timing 两条声明）。
  *
  * 仍缺三处（不近似实现）：
+ * 0. 实测第一阻塞点：生产 static 绑定先把本卡自己的 play-location-permission 判
+ *    「Static ability kind play-location-permission has no layer mapping」fail-closed，
+ *    Ambush 展开的 continuous.timing 也因 appliesTo: ["card"] 被拒（
+ *    「Unsupported static appliesTo ["card"]」）。因此这两条声明连图层都进不去。
  * 1. [Ambush] 的 continuous.timing 消费查询已经合入：
  *    chain.canAct() 调用 actionTimings()，layers/rules 也能读取 timing grants；
  *    当前缺口是 Ambush 展开的 location-scoped timing（appliesTo: ["card"] +

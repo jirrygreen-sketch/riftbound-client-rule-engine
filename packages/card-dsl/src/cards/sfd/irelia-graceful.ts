@@ -17,7 +17,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 该减费由本卡作为 Passive Ability 授予，属 366.2 一类在可打出区域始终生效的改费能力。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
- * - 没有消费方把 CardProgram 的 static 改费效果接进 Finalize 的费用计划，生产绑定阶段就有两道拒绝：
+ * - cost/discounts/collect.ts 已能在调用方提供静态绑定、锁定目标集合和支付者选择时收集本卡的折扣：
+ *   target relation 会按精确 ObjectRef 匹配，Universal Power alternative 也会按六个 Domain 的 Power
+ *   需求处理。没有消费方把 CardProgram 的 static 改费效果接进生产 Finalize，生产绑定阶段仍有两道拒绝：
  *   (a) programs/statics.ts 的 staticTarget 不接受本卡的 appliesTo 形状，抛
  *   ProgramBindingError（Unsupported static appliesTo {"type":"spell","object":"self"}）；
  *   (b) 即使把 appliesTo 换成 "self" 简写，layerFor 对 continuous.cost-modification 仍抛
@@ -25,10 +27,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   而 cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts 时应用折扣
  *   （356.4 / 356.4.c / 356.4.d 的组件与总价顺序、356.4.e 的每条折扣最低值都由该管线负责）；
  *   cost.modify / cost.pay 原语本身已合入，但没有任何管线把卡牌 static 声明编译成这笔折扣。
- * - CostPlanInput/CostDiscount 没有"仅当该法术以本卡为目标时"的维度（355.6 的 choose = Targeting）。
- * - "or [A]" 的 Universal Power（163.2.b）无法用封闭 Domain 类型与 CostDiscount.resource 表达；
- *   effect.resources 明确记录 [A] 保持 unsupported、绝不用具名域近似（与 sfd/glasc-mixologist 同款缺口）。
- * - 打印文本里的 "or" 还需要支付者在这两个资源之间做选择，费用计划的 discount 形状没有该选择位。
+ * - chain/engine.ts Finalize 仍直接使用调用方给出的 CostPlanInput，没有把卡程序 static 声明转换为
+ *   CostDiscount，也没有把实际锁定目标集合和静态绑定传入 finalizeCostPlan；因此这张卡的生产打出路径
+ *   仍然无法应用折扣。
  * 不近似实现：不把 [A] 写成某个具名域，也不在卡层直接改写打出费用。
  */
 const abilities: Ability[] = [
@@ -62,13 +63,11 @@ const program = {
     "（Unsupported static appliesTo {\"type\":\"spell\",\"object\":\"self\"}）；" +
     "(b) 即使改用 \"self\" 简写，layerFor 对 continuous.cost-modification 仍抛 ProgramBindingError" +
     "（Static ability kind continuous.cost-modification has no layer mapping）。" +
-    "而 cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts 时应用折扣" +
-    "（356.4 / 356.4.c / 356.4.d 的组件与总价顺序、356.4.e 的每条折扣自带最低值都由该管线负责；" +
-    "cost.modify / cost.pay 原语的执行已合入，但没有任何管线把卡牌 static 声明编译成这笔折扣），" +
-    "且 CostPlanInput/CostDiscount 没有" +
-    "「仅当该法术以本卡为目标」的维度（355.6 的 choose = Targeting，需要目标条件折扣的消费方）。" +
-    "同时「or :rb_rune_rainbow:」的 [A] 是 163.2.b 的 Universal Power：封闭 Domain 类型与 CostDiscount.resource 不表达，" +
-    "effect.resources 明确保持 unsupported、绝不用具名域近似；打印文本的二选一还需要费用计划的支付者选择位，当前没有。" +
+    "cost/discounts/collect.ts 已能在调用方提供静态绑定、锁定目标集合和支付者选择时处理这两项语义：" +
+    "{ type: \"spell\", object: \"self\" } 会按精确目标引用匹配，Universal Power alternative 会转换为" +
+    "可由六个 Domain 支付的 Power 折扣。仍缺生产接线：programs/statics.ts 的 staticTarget 不接受本卡" +
+    " appliesTo 形状，改用 self 简写后 layerFor 对 continuous.cost-modification 仍抛 ProgramBindingError；" +
+    "chain/engine.ts Finalize 也没有把 CardProgram static、实际锁定目标和静态绑定传给 finalizeCostPlan。" +
     "不近似实现。",
   abilities,
   sourceText: "Your spells that choose me cost :rb_energy_1: or :rb_rune_rainbow: less."

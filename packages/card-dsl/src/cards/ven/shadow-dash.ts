@@ -21,41 +21,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   已合入的 count 表达式 + sameLocationAs 锚点，从 move 的结果读引用（359.3.e.14）。
  * - 「they each get +1 :rb_might: this turn」：临时 Might 修正是图层算术（143.2.a 的有效
  *   Might；317.2.c 本回合到期），不是 Buff 计数器（CR 702）。continuous.might 原语已合入：引用数组形状真实注册图层并返回受影响收据（golden 有执行证据）；卡面
- *   “sameLocationAs 集合选择器” 不在原语接受的选择器词汇里（objects 与 appliesTo:"self"
- *   之外的查询锚点会被原语拒绝），同位置集合读取属目标/位置计划。
+ *   objects.kind=query 经解释器读取 sameLocationAs 集合，不产生额外目标；
+ *   目的地占据者关系和 Expiration Step 的接线仍受阻（见 judgeReason）。
  * - [Flow]（829）是费用改写关键词；卡面只声明关键词，展开归 effects/keywords/Flow。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，两处执行缺口见 judgeReason；
- * 条件判定本身用已合入表达式表达，golden 用真实解释器执行。
+ * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。
  */
-
-/**
- * 描述性目的地标记，不是可执行的 LocationRef：effect.move 的 to 只接受静态 LocationRef、
- * "controller-base" 或静态候选列表，所以该形状会被原语直接拒绝（fail-closed），不会把敌方
- * 单位移到某个猜测的战场。真实目的地选择属 355.4 的地点计划（见 judgeReason 第 1 点）。
- */
-const A_BATTLEFIELD_WHERE_YOU_HAVE_UNITS = {
-  kind: "destination-selector",
-  filter: { type: "battlefield" },
-  whereYouHaveUnits: true
-} as const;
-
 const shadowDash = {
   canonicalCardId: "card.hash-d36d553ad15f3dd8bd9c05be30069fca4730d573292d1f2d05ddc4cc468b099f",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1)「to a battlefield where you have units」是一次运行期的 Move 目的地选择" +
-    "（355.4 / 355.4.a 的合法目的地，451.1 的目的地限制）：冻结 IR 没有运行期 Location 选择器，" +
-    "已合入的 effect.move 的 to 只接受静态 LocationRef / \"controller-base\" / 静态候选列表，" +
-    "程序只保留描述性目的地标记，原语直接拒绝该形状而不是把敌方单位移到错误的地点。依赖运行期 target/location plan。" +
-    "(2)「they each get +1 :rb_might: this turn」的临时 Might 修正原语已合入：continuous.might" +
-    "接受引用数组 / { objects: [refs] } 形状并真实注册图层（143.2.a 有效 Might、317.2.c 本回合到期，" +
-    "golden 有执行证据）；卡面需要的「sameLocationAs 集合选择器」不在该原语的选择器词汇里" +
-    "（objects 与 appliesTo:'self' 之外的查询锚点会被拒绝），同位置集合读取依赖目标/位置计划；" +
-    "不用 effect.buff 近似（CR 702 的 Buff 是计数器，不是 Might 修改）。" +
-    "条件「exactly two units there」用已合入的 count 表达式 + sameLocationAs 锚点读 move 收据（359.3.e.14），" +
-    "golden 用真实解释器执行该判定；[Flow]（829）的关键词展开仍未合入（RIFT-266），卡面只声明印刷关键词。",
+    "当前缺口：(1) 目的地「a battlefield where you have units」（355.4/451.1）要求按单位控制者筛选占据者；target/location/candidates.ts 的 hasUnits 只读任意单位占据，controller 则指战场控制者，尚无 unitController 谓词消费者，不能用「你控制的已占据战场」近似。(2) continuous.might 已支持 objects.kind=query，经解释器解析 sameLocationAs 与真实 move 收据，能非目标地给恰好两名友军 +1（143.2.a）；但 end-of-turn 期限仍在 turn-end 到期，未对齐 317.2.c 的 Expiration Step。(3) Flow KeywordDef 接受 params.cost，KeywordAbility / programs/keywords.ts 未传本卡 5 Energy + 2 [A]，flow.cost 尚未绑定 Trash 打出许可、替代费用实例选择及 replacement/planner.ts 仍不支持 Flow 展开的 effect.banish，829.1.b.1 的离链延迟放逐/自身指令离链例外。不近似实现。",
   abilities: [
     // 829.1 / 829.1.c：印刷的 [Flow] 替代费用关键词，只声明不重写展开。
     { kind: "keyword", keyword: "flow" },
@@ -68,10 +45,22 @@ const shadowDash = {
           op: "effect.move",
           args: {
             objects: { kind: "constant", value: { target: "shadow-dash.enemy-unit" } },
-            to: { kind: "constant", value: A_BATTLEFIELD_WHERE_YOU_HAVE_UNITS },
+            to: { kind: "location", value: { kind: "target-location", target: "shadow-dash.battlefield" } },
             amount: { kind: "constant", value: 1 },
             linkKey: { kind: "constant", value: "movedEnemy" }
           },
+          locations: [
+            {
+              id: "shadow-dash.battlefield",
+              type: "battlefield",
+              // 描述性占据者关系；不是战场 controller（见 judgeReason）。
+              unitController: "controller",
+              hasUnits: true,
+              min: 1,
+              max: 1,
+              selection: "one"
+            }
+          ],
           targets: [
             {
               id: "shadow-dash.enemy-unit",
@@ -92,13 +81,16 @@ const shadowDash = {
           args: {
             amount: { kind: "constant", value: 1 },
             duration: { kind: "constant", value: "end-of-turn" },
-            appliesTo: {
+            objects: {
               kind: "constant",
               value: {
-                type: "unit",
-                zone: "board",
-                controller: "self",
-                sameLocationAs: { linked: "shadow-dash.move-enemy-unit" }
+                kind: "query",
+                filter: {
+                  type: "unit",
+                  zone: "board",
+                  controller: "self",
+                  sameLocationAs: { linked: "shadow-dash.move-enemy-unit" }
+                }
               }
             }
           },

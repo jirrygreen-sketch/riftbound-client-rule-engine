@@ -1,3 +1,4 @@
+// Execution evidence for keyword expansion is consolidated in ../templates/keyword-only.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -6,6 +7,8 @@ import program from "../../../dist/cards/unl/towering-combatant.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { evaluateExtendedExpression } from "../../../../engine-core/dist/effects/interpreter/expr-ext/index.js";
 import { requirements, restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -67,12 +70,14 @@ test("unl-099-219 Towering Combatant: identity, status, judgeReason and verbatim
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /base-combat-allocation/);
-  // RIFT-349 merged the CardProgram -> layers binder, so the reason no longer
-  // lists a missing registration path as the blocker; the current gap must be
-  // the designation predicate and the absent combat consumer.
-  assert.match(program.judgeReason, /RIFT-349/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-257\b/);
-  assert.match(program.judgeReason, /designation/);
+  // The refreshed reason names the three observed surfaces that keep the
+  // designation gate inert (default condition dispatch, the binder's
+  // swallow-as-false wrapper, the missing layer expression resolution) plus the
+  // absent combat consumer. It names no merged task as an outstanding blocker.
+  assert.match(program.judgeReason, /expr-ext/);
+  assert.match(program.judgeReason, /resolveLayerEffectExpressions/);
+  assert.match(program.judgeReason, /proven-none/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
   assert.match(program.judgeReason, /continuous\.combat/);
 });
 
@@ -117,16 +122,30 @@ test("unl-099-219 Towering Combatant: [Tank] expands to a continuous.combat requ
 });
 
 test("unl-099-219 Towering Combatant: the production binder registers both expansions, and the defending +2 still never applies", () => {
-  // RIFT-349 landed the CardProgram -> layers binder, so both keyword
-  // expansions really do get registered. The golden pins what still fails:
-  // Shield 2 is gated on object-property "designation", the merged snapshot
-  // exposes only combatRole, the binder wrapper swallows MissingInformation as
-  // false, and a genuine Defender therefore keeps its printed Might.
+  // The CardProgram -> layers binder is merged, so both keyword expansions
+  // really do get registered. The golden pins what still fails: Shield 2 is
+  // gated on object-property "designation", the merged default condition
+  // dispatch does not route that spelling through the expr-ext evaluator, the
+  // binder wrapper swallows the resulting MissingInformation as false, and a
+  // genuine Defender therefore keeps its printed Might.
   const f = fixture();
   const ref = boardUnit(f, { combatRole: "defender" });
   const source = f.kernel.getObject("towering-combatant");
   assert.equal(source.combatRole, "defender");
   assert.equal(Object.hasOwn(source, "designation"), false);
+  // The designation fact itself is merged: the expr-ext evaluator reads the
+  // contract 3.8 combatRole for both spellings. This half is only reachable
+  // through the extension entry point, not through the default dispatch below.
+  const extended = {
+    context: f.kernel.clone({ source: f.kernel.ref("towering-combatant"), sourceSnapshot: source }),
+    linked: () => undefined,
+    canLookBack: () => false,
+    isIgnored: () => false
+  };
+  for (const expr of [
+    { kind: "object-designation", object: "self" },
+    { kind: "object-property", object: "self", property: "designation" }
+  ]) assert.equal(evaluateExtendedExpression(expr, extended), "defender");
   const binder = createEngineStaticBinder(f.engine);
   const [shieldExpansion] = keywordDefinitionsById.get("Shield").expand({ value: shield.value, host: { canonicalCardId: CANONICAL_ID } });
   // 814.1.c / 814.1.d.1: the expansion is +2 Might gated on the Defender designation.
@@ -141,6 +160,12 @@ test("unl-099-219 Towering Combatant: the production binder registers both expan
     property: "designation"
   });
   assert.deepEqual(shieldExpansion.condition.right, { kind: "constant", value: "defender" });
+  // The default evaluator still rejects the property spelling, and the binder's
+  // condition wrapper turns that failure into a hard false.
+  assert.throws(
+    () => evaluateCondition(shieldExpansion.condition, extended),
+    /Unavailable characteristic: designation/
+  );
   const shieldHandle = binder.bindStatic(shieldExpansion, source);
   f.engine.layers.setObjects(f.kernel.objects);
   const [shieldRegistration] = f.engine.layers.registry.list();
@@ -148,6 +173,7 @@ test("unl-099-219 Towering Combatant: the production binder registers both expan
   assert.equal(shieldRegistration.effect.effect.kind, "continuous.might");
   assert.equal(shieldRegistration.effect.effect.amount, 2);
   assert.equal(typeof shieldRegistration.effect.effect.condition, "function");
+  assert.equal((shieldRegistration.effect.effect.condition)(source), false);
   // 814.1.c / 814.1.d.1: as a defender the Might should be 5; it stays 3.
   assert.equal(f.engine.layers.snapshot(ref).might, 3);
   assert.equal(f.engine.layers.snapshot(ref).keywords.length, 0);
@@ -183,10 +209,10 @@ test("unl-099-219 Towering Combatant: the registered [Tank] ability is inert for
 });
 
 test("unl-099-219 Towering Combatant: registration-path claims in the old golden are gone", () => {
-  // The previous golden asserted "no merged path registers a CardProgram static
-  // ability into layers" by hand-building a raw ContinuousEffectSpec and pinning
-  // the un-gated +2. RIFT-349 merged that path, so the replacement assertions
-  // above go through the real binder instead.
+  // The older golden asserted "no merged path registers a CardProgram static
+  // ability into layers" by hand-building a raw ContinuousEffectSpec. That path
+  // is merged, so the replacement assertions above go through the real binder
+  // and pin the still-unwired expression/condition dispatch instead.
   const binding = createEngineStaticBinder(fixture().engine);
   assert.equal(typeof binding.bindStatic, "function");
   assert.equal(program.judgeReason.includes("createEngineStaticBinder"), true);
@@ -194,13 +220,14 @@ test("unl-099-219 Towering Combatant: registration-path claims in the old golden
 
 test.todo(
   "unl-099-219 Towering Combatant: honour Shield 2's 'I'm a defender' condition (CR 814.1.c/814.1.d.1) - " +
-    "keywords/Shield.ts reads object-property designation while the merged ObjectSnapshot exposes only " +
-    "combatRole, so the +2 never applies (engine-core keywords fix + designation producer, RIFT-359)"
+    "the designation fact is readable through effects/interpreter/expr-ext/evaluate.ts, but the default " +
+    "dispatch (condition.ts evaluateCondition, programs/statics.ts wrapper, layers/engine.ts) never calls " +
+    "the extension, so the +2 never applies (expr-ext integration in the default condition/layer path)"
 );
 test.todo(
   "unl-099-219 Towering Combatant: execute [Tank] by binding the 815.1.b / 815.1.c.1-.2 combat-damage " +
-    "assignment requirement - the Tank KeywordDef is merged (RIFT-264) and its continuous.combat " +
+    "assignment requirement - the Tank KeywordDef is merged and its continuous.combat " +
     "registration is accepted, but combat/base-combat-allocation.ts binds no assignment priority " +
-    "and no merged consumer reads it (RIFT-258 follow-up / combat workstream)"
+    "and no merged consumer reads it (continuous.combat combat-damage-assignment consumer)"
 );
 

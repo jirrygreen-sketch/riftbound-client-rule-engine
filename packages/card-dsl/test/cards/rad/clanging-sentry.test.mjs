@@ -1,3 +1,6 @@
+// Scenario execution evidence: ../../templates/static-642.test.mjs.
+// This file keeps the validation and identity checks plus the key structural
+// assertions; the real execution path for this card lives in that template row.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -8,6 +11,10 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { expandEffectiveKeywords, KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL = "card.hash-664329985c0c826779032a079e87a5c433f6be42cbfb4f724f81fd89fcc9a90a";
 const SOURCE_TEXT =
@@ -80,14 +87,22 @@ test("rad-055-167 Clanging Sentry: identity, ruleset, status, judgeReason and so
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // The reason must name the actual remaining gap — dynamic Disarm trigger
-  // consumption — not the already-merged static binder or grant instruction.
+  // The reason must name the actual remaining gap — the re-expansion
+  // consumer is merged (RIFT-710) but is not the production layer engine, and
+  // the attack-declared emitter plus the dynamic-trigger lifecycle binder are
+  // still missing — not the already-merged static binder or grant instruction.
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /动态/);
-  // The current gap is both the dynamic keyword re-expansion consumer and the
+  assert.match(program.judgeReason, /RIFT-710/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /not 是生产默认|不是生产默认/);
+  // The current gap is both the dynamic-trigger lifecycle binder and the
   // missing attack-declared emitter; the reason must not claim a producer exists.
   assert.match(program.judgeReason, /attack-declared/);
+  assert.match(program.judgeReason, /lifecycle binder/);
   assert.match(program.judgeReason, /combat-start-transaction/);
+  // 831.2's summing path is name-checked with the measured same-spelling defect.
+  assert.match(program.judgeReason, /831\.2/);
+  assert.match(program.judgeReason, /applyKeyword/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -201,3 +216,129 @@ test.todo(
   "rad-055-167 Clanging Sentry: produce the attack-declared timing event from the combat flow " +
     "without the current combat-start-transaction block"
 );
+
+// --- 2026-10-18 re-sweep: the merged re-expansion is real but not production ---
+test("rad-055-167 Clanging Sentry re-sweep: the merged re-expansion sums Disarm and builds the 831.1.d attack trigger", () => {
+  // RIFT-710's expandEffectiveKeywords is the merged consumer for a granted
+  // keyword: it merges instances through the KeywordDef (831.2) and returns the
+  // expanded abilities. Measured here on the card's own printed value.
+  const snapshot = world()
+    .unit("mech", { owner: "A", tags: ["Mech"], zone: "board", keywords: [{ id: "Disarm", value: 3 }] })
+    .build()
+    .getObject("mech");
+
+  const expansion = expandEffectiveKeywords(snapshot, [
+    { kind: "grant", keywords: [{ id: "disarm", value: 1 }] }
+  ]);
+
+  // 831.2: the printed Disarm 3 and the granted Disarm 1 collapse into one
+  // summed value, and the expansion yields exactly one attack trigger.
+  assert.deepEqual(expansion.keywords, [{ id: "Disarm", value: 4 }]);
+  assert.deepEqual(expansion.abilities.map(ability => [ability.kind, ability.trigger.at]), [
+    ["triggered", "attack-declared"]
+  ]);
+});
+
+test("rad-055-167 Clanging Sentry re-sweep: the production chain engine still runs the plain LayerEngine, so the grant never re-expands", () => {
+  // ChainEngine defaults to LayerEngine (chain/engine.ts). The declared static
+  // grant therefore only lands as a raw ability-layer keyword on that engine and
+  // is never fed back through expandEffectiveKeywords; a granted triggered
+  // Disarm can never be registered on attack-declared.
+  const kernel = sentryWorld();
+  const context = source => bindResolveContext(kernel, { source, controller: source.controller });
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host,
+    cleanup: () => false
+  });
+
+  assert.equal(engine.layers.constructor.name, "LayerEngine");
+
+  // The production binder registers the card's declared static grant, but the
+  // registration only rewrites the keyword list; no keyword expansion is
+  // produced and the layer engine exposes no keywordAbilities consumer at all.
+  createEngineStaticBinder(engine).bindStatic(grant, kernel.getObject("clanging-sentry"));
+  engine.layers.setObjects(kernel.objects);
+
+  const granted = createLayerEngine(
+    kernel.objects,
+    engine.layers.registry.list().map(entry => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 }))
+  ).evaluate(kernel.ref("mech"));
+  assert.deepEqual(granted.keywords, [{ id: "disarm", value: 1 }]);
+  assert.equal(typeof engine.layers.keywordAbilities, "undefined");
+});
+
+test("rad-055-167 Clanging Sentry re-sweep: a granted triggered Disarm fails closed even on the re-expansion engine", () => {
+  // Injecting the merged KeywordGrantLayerEngine is not enough on its own:
+  // Disarm's KeywordDef expands to a triggered ability (831.1.d), and the
+  // engine's staticEffects accepts only static expansions. It blocks instead of
+  // silently dropping the attack trigger.
+  const kernel = sentryWorld();
+  const context = source => bindResolveContext(kernel, { source, controller: source.controller });
+  const layers = new KeywordGrantLayerEngine(kernel.objects, { context });
+  layers.addContinuous({
+    id: "clanging-sentry.grant-disarm",
+    layer: "ability",
+    source: kernel.ref("clanging-sentry"),
+    filter: { objectId: "mech", zone: "board", zoneEntryId: 1 },
+    effect: { kind: "continuous.grant-keyword", keyword: "disarm", keywordValue: 1 }
+  }, { type: "permanent" });
+
+  assert.throws(
+    () => layers.evaluate(kernel.ref("mech")),
+    error => error.code === "judge-required" && /Dynamic triggered keyword abilities need a lifecycle binder/.test(error.message)
+  );
+});
+
+test("rad-055-167 Clanging Sentry re-sweep: the production static binder overwrites a same-spelling printed Disarm instead of summing it (831.2)", () => {
+  // This card grants through a *static* ability, so its production path is
+  // bindStaticToLayers: one ability-layer registration with no arithmetic
+  // companion. applyKeyword then looks the keyword up by exact id, so the
+  // granted lowercase "disarm" replaces a printed lowercase "disarm" rather
+  // than summing under 831.2. The uppercase printed spelling is stored as a
+  // second instance and does sum once the merged re-expansion runs, so both
+  // data-reachable spellings are pinned here. By contrast the instruction path
+  // (continuous.grant-keyword) registers an arithmetic companion and sums
+  // correctly; the goldens above cover that half.
+  for (const [printed, expected, expanded] of [
+    [[{ id: "disarm", value: 3 }], [{ id: "disarm", value: 1 }], [{ id: "Disarm", value: 1 }]],
+    [[{ id: "Disarm", value: 3 }], [{ id: "Disarm", value: 3 }, { id: "disarm", value: 1 }], [{ id: "Disarm", value: 4 }]]
+  ]) {
+    const kernel = world()
+      .unit("mech", { owner: "A", tags: ["Mech"], zone: "board", keywords: printed })
+      .unit("clanging-sentry", { owner: "A", tags: ["Mech"], zone: "board" })
+      .build();
+    const host = createActionPipelineHost({
+      checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+      restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+      objects: () => kernel.objects,
+      perform: action => kernel.perform(action),
+      choose: request => kernel.choose(request),
+      context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+    });
+    const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+    createEngineStaticBinder(engine).bindStatic(grant, kernel.getObject("clanging-sentry"));
+    engine.layers.setObjects(kernel.objects);
+
+    const entries = engine.layers.registry.list().map(entry => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 }));
+    // The printed value stays on the raw object snapshot; the layer rewrite is
+    // what loses it. Capture both so the defect is unambiguous.
+    assert.deepEqual(kernel.getObject("mech").keywords, printed);
+    const evaluated = createLayerEngine(kernel.objects, entries).evaluate(kernel.ref("mech"));
+    assert.deepEqual(evaluated.keywords, expected);
+    assert.deepEqual(
+      expandEffectiveKeywords({ ...kernel.getObject("mech"), keywords: evaluated.keywords }).keywords,
+      expanded
+    );
+  }
+});

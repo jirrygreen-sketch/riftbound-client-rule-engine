@@ -38,6 +38,11 @@ test("unl-119-219 Kha'Zix, Evolving Hunter: identity, status, judgeReason and ve
   // conquer/hold event spelling and payload, not a missing definition.
   assert.match(program.judgeReason, /KeywordDef 与展开已存在/);
   assert.match(program.judgeReason, /conquer 发射也不带征服单位/);
+  // The target anchor's real rejection point and the host query limitation are
+  // named instead of a stale card-dsl validation claim.
+  assert.match(program.judgeReason, /Unsupported filter field sameLocationAs/);
+  assert.match(program.judgeReason, /EngineRuntimeHost\.matchesFilter/);
+  assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
 test("unl-119-219 Kha'Zix, Evolving Hunter: [Hunt] omits the value, which is Hunt 1 (823.1.c.2)", () => {
@@ -55,6 +60,53 @@ test("unl-119-219 Kha'Zix, Evolving Hunter: the merged Hunt definition expands t
     { kind: "constant", value: 1 },
     { kind: "constant", value: 1 }
   ]);
+});
+
+test("unl-119-219 Kha'Zix, Evolving Hunter: the merged Hunt expansion is rejected by the closed event vocabulary", async () => {
+  // 823.1.c.1: the definition emits conquering/holding triggers, but its
+  // "conquer"/"hold" spellings are not in EVENT_PATTERN_TYPES (the closed
+  // vocabulary uses conquered/held), so registration fails before any unit
+  // payload question arises.
+  const { default: huntDefinition } = await import("../../../../engine-core/dist/effects/keywords/Hunt.js");
+  const { validateTriggerSpec } = await import("../../../../engine-core/dist/events/trigger-spec.js");
+  const expansion = huntDefinition.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  for (const ability of expansion) {
+    const validation = validateTriggerSpec({ at: ability.trigger.at, filter: ability.trigger.filter });
+    assert.equal(validation.ok, false);
+    assert.deepEqual(validation.issues.map(issue => issue.code), ["unknown-field", "invalid-event-type"]);
+  }
+  // The closed spelling that does register maps to the same runtime timing point.
+  const { matchesTriggerEvent } = await import("../../../../engine-core/dist/events/pipeline-match.js");
+  const conquerEvent = { timingPoint: "conquer", kind: "conquer", player: "A" };
+  assert.equal(matchesTriggerEvent({ event: "conquered", player: "self" }, conquerEvent, "A"), true);
+});
+
+test("unl-119-219 Kha'Zix, Evolving Hunter gap: the attack body's sameLocationAs anchor is rejected by the production translator", async () => {
+  // 359.3.f / contract 3.6: the printed "here" is expressed with
+  // sameLocationAs:"source". programs/filters.ts translateObjectFilter rejects
+  // the key, so registerProgramTriggers cannot install the attack ability; and
+  // the PipelineHost query surface (both the reference kernel and the server
+  // runtime host) does not resolve that anchor either.
+  const { translateObjectFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  assert.throws(
+    () => translateObjectFilter(enemyUnitSpec.filter),
+    error => {
+      assert.equal(error.name, "ProgramBindingError");
+      assert.match(error.message, /Unsupported filter field sameLocationAs/);
+      return true;
+    }
+  );
+
+  const kernel = world()
+    .unit("khazix", { owner: "A", controller: "A", might: 5, location: { type: "battlefield", id: "bf-1" } })
+    .unit("here", { owner: "B", controller: "B", might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  // The reference host query ignores the relative anchor, so a far-away enemy
+  // would be offered as an "here" candidate if the binding were bypassed.
+  assert.deepEqual(kernel.query(enemyUnitSpec.filter), []);
+  // Dropping only the unsupported anchor exposes the single enemy unit that the
+  // production binding cannot express.
+  assert.equal(kernel.query({ type: "unit", controller: "B" }).length, 1);
 });
 
 test("unl-119-219 Kha'Zix, Evolving Hunter: the declared 'here' anchor resolves against the source's location", async () => {

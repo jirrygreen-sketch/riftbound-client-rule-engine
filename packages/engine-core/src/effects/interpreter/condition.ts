@@ -1,7 +1,7 @@
 import type { Condition } from "../contract.js";
 import { evaluateExpression, type ExpressionContext } from "./expr.js";
 import { evaluatePredicateCondition } from "./predicates/index.js";
-import { compareValues } from "./values.js";
+import { compareValues, MissingInformation } from "./values.js";
 
 export function evaluateCondition(condition: Condition, environment: ExpressionContext): boolean {
   switch (condition.kind) {
@@ -23,7 +23,11 @@ export function evaluateCondition(condition: Condition, environment: ExpressionC
     case "printed-characteristic":
     case "event-printed-characteristic":
     case "result":
+    case "relation":
+    case "event-it":
       return evaluatePredicateCondition(condition, environment as import("./predicates/types.js").PredicateContext);
-    default: throw new Error(`Unsupported condition: ${String((condition as { kind: unknown }).kind)}`);
+    // Propagate unavailability through logical negation. Returning false here
+    // would make `not(unknown)` authorize an unsupported ability.
+    default: throw new MissingInformation(`Unsupported condition: ${String((condition as { kind: unknown }).kind)}`);
   }
 }

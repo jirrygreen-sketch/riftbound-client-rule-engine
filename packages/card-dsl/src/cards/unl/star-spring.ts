@@ -53,7 +53,7 @@ import type { CardProgram } from "../../ir/index.js";
  *    the event-player selector, per-player once key, and card-played destination/non-token payload are not
  *    present in the frozen event contract. Nothing is approximated.
  * Dependencies: event-player selector, per-player once frequency, and play-location/non-token payload
- * (contract change requests; location workstream RIFT-357).
+ * in the card-played event contract.
  */
 export default {
   canonicalCardId:
@@ -70,7 +70,7 @@ export default {
     "（程序里的 once 是 printed 频度的记录占位，here/nonToken 键同样记录意图）。" +
     "(3) CardProgram → TriggerRegistration 的生产绑定已合入，但本声明仍缺事件玩家选择器、per-player once 频度，以及 card-played 的打出地点/非 token 载荷，" +
     "因此无法把 190.6.c 的选择者和 here 限制翻译成可执行过滤器。" +
-    "依赖：事件玩家选择器、per-player once 频度与打出地点/非 token 载荷（契约变更请求；位置工作流 RIFT-357）。" +
+    "依赖：事件玩家选择器、per-player once 频度与打出地点/非 token 载荷的事件契约。" +
     "golden 用参考内核真实执行可选包装与 effect.move（移动到该单位自己的 Base），并用目标过滤器形状断言「另一个、你控制、在此」的意图。",
   sourceText:
     "The first time a player plays a non-token unit here each turn, they may move another unit they control here to its base.",

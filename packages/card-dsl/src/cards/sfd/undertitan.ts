@@ -27,7 +27,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required. The Might half now executes end to end; the replacement
  * half still lacks its registration consumer:
- * - The merged continuous.might instruction (RIFT-258) registers a per-object
+ * - The merged continuous.might instruction registers a per-object
  *   arithmetic-layer effect with an end-of-turn lifetime. The golden drives the
  *   card's own instruction through the interpreter, the reference kernel and the
  *   layer engine, and asserts that only the other friendly units get +2, that

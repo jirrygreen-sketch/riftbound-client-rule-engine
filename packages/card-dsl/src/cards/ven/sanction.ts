@@ -25,22 +25,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   所以是目标（355.7）；【Empowered】是 442.2/828.2 的状态特征，第二条模式以此限制目标合法性
  *   （355.9.b）。
  *
- * status = judge-required（三处缺口，均不近似实现）：
- * 1. 「at end of turn」的延迟注册没有卡牌可用原语：契约 3.6 只在 ResolveContext 暴露
- *    registerDelayedTrigger，effects/instructions 里没有任何已注册的 trigger.delayed op
- *    （与 ogn Imperial Decree、sfd Hostile Takeover 同口径）；把到期动作写成卡自身的
- *    triggered 能力违反 391.1/393（延迟能力由结算中的法术创建，不依附于在场永久物）。
- * 2. 【Empowered】目标限制不可表达：ObjectSnapshot 不暴露 Empowered 状态（effect.empower
- *    文件头亦记录该契约缺口），合并过滤器词汇没有 empowered 谓词；写 characteristics 占位键
- *    会被匹配器当作普通等值字段而不匹配，但更重要的是 442.1.b/443.1.a 的“只影响当前 Empowered
- *    的对象”同样由动作层负责，卡层没有可如实声明的方式。这里用描述性谓词记录该限制，绝不
- *    放宽成“任意单位”。
- * 3. 模式选择在结算期执行：与 rad/lost-to-the-sands 相同，生产打出链路在
- *    programs/play.ts validateSurface 对任何 choice.mode 直接 judge-required（"Mode choices
- *    require a Finalize/Resolve choice-plan adapter"），355.3 的 Finalize 选择计划适配器未合入；
- *    解释器侧的 choice.mode 本体已合入，golden 用 resolveChainBody + setAnswers 真实执行两个
- *    模式分支（empower 事件 / empower→disempower 事件序列）。
- * 依赖：trigger.delayed 原语、Empowered 谓词与 442.1.b/443.1.a 的动作层语义、Finalize 选择计划适配器。
+ * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。
  */
 export default {
   canonicalCardId: "card.hash-cc029bf96714e13a2e9bbc9f58b4d2a300a4d50e4257125afc218854ce4b3acf",
@@ -50,8 +35,8 @@ export default {
     "三处缺口，均不近似实现：(1)「Disempower it at end of turn」/「Empower it at end of turn」按 391.2 是该法术结算时创建的 Delayed Ability，" +
     "但 effects/instructions 没有卡牌可用的 trigger.delayed op 去调用 ResolveContext.registerDelayedTrigger（契约 3.6 只暴露接口；" +
     "同 ogn Imperial Decree / sfd Hostile Takeover 判定），写成卡自身 triggered 能力违反 391.1/393。" +
-    "(2)「a unit that's [Empowered]」的目标限制不可表达：ObjectSnapshot 不暴露 Empowered 状态（effect.empower 文件头记录的契约缺口），" +
-    "合并过滤器词汇没有 empowered 谓词，442.1.b/443.1.a 的动作层语义同样未合入；程序只写描述性谓词，不放宽为任意单位。" +
+    "(2)「a unit that's [Empowered]」的目标限制不可表达：生产 ObjectSnapshot 不暴露 live empowered 计数，" +
+    "因此 characteristics.empowered 只能失败闭合；442.1.b/443.1.a 的 effect.empower 动作本体已合入，程序不放宽为任意单位。" +
     "(3) 模式选择在结算期执行：生产打出链路在 programs/play.ts 的 validateSurface 对 choice.mode 直接 judge-required" +
     "（“Mode choices require a Finalize/Resolve choice-plan adapter”，同 rad/lost-to-the-sands），355.3 要求的 " +
     "Finalize 选择计划适配器未合入；解释器侧 choice.mode 本体已合入，golden 用 resolveChainBody + 参考内核 " +
@@ -153,8 +138,9 @@ export default {
                       targets: [
                         {
                           id: "sanction.empowered-unit",
-                          // empowered: true 是描述性谓词（合并匹配器不识别），绝不放宽为任意单位。
-                          filter: { type: "unit", zone: "board", empowered: true },
+                          // characteristics.empowered 是待接线的状态特征；生产快照缺失时
+                          // 匹配器失败闭合，绝不放宽为任意单位。
+                          filter: { type: "unit", zone: "board", characteristics: { empowered: true } },
                           min: 1,
                           max: 1,
                           selection: "one"

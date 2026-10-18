@@ -8,6 +8,12 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-2958889db75762be77762e57c20843ec822b4e17041923975b21d9edc0fd4494";
@@ -17,6 +23,16 @@ const SOURCE_TEXT =
 
 const [hunt, levelMight, levelEnterReady] = program.abilities;
 const enterReadyInstruction = levelEnterReady.with[0];
+
+const executableProgram = () => ({ ...program, status: "executable", judgeReason: undefined });
+const unitSnapshot = (overrides = {}) => ({
+  ref: { id: "scorchclaw", zoneEntryId: 1 }, cardId: CANONICAL_ID, name: "Scorchclaw",
+  types: ["unit"], tags: [], keywords: [{ id: "Level", value: 3 }, { id: "Hunt", value: 2 }],
+  owner: "A", controller: "A", zone: "board", location: { type: "base", player: "A" },
+  might: 3, energy: 3, power: ["Fury"], exhausted: false, damage: 0, stunned: false, buffs: 0,
+  attachedTo: null, faceDown: false, isToken: false, combatRole: null,
+  ...overrides
+});
 
 test("unl-016-219 Scorchclaw: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -30,11 +46,13 @@ test("unl-016-219 Scorchclaw: identity, status, judgeReason and verbatim sourceT
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Hunt/);
-  assert.match(program.judgeReason, /824\.1/);
-  assert.match(program.judgeReason, /continuous\.might/);
+  assert.match(program.judgeReason, /823\.1\.c\.1/);
   assert.match(program.judgeReason, /battlefieldId/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /824\.1/);
   assert.match(program.judgeReason, /condition\.predicate/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  // The merged pieces are named as merged instead of being listed as blockers.
+  assert.match(program.judgeReason, /continuous\.might、replacement\.enter 与 programs\/ 的图层\/替代绑定均已合入/);
 });
 
 test("unl-016-219 Scorchclaw: [Hunt 2] declares the printed Hunt Value as a keyword only", () => {
@@ -172,6 +190,92 @@ test("unl-016-219 Scorchclaw golden: a prevented ready body leaves the source ex
   assert.deepEqual(outcome.events.map(event => ({ action: event.action, outcome: event.outcome })), [
     { action: "ready", outcome: "prevented" }
   ]);
+});
+
+test("unl-016-219 Scorchclaw: the real conquer emission carries no Hunt host, so the subscription never matches (gap 1)", () => {
+  // Evidence for gap (1): turn/flow.ts publishes conquer with only a
+  // battlefieldId detail; programs/triggers.ts translates { source: "self" } into
+  // an object filter on this unit, which cannot match an event without the
+  // conquering unit (CR 823.1.c.1).
+  const expanded = expandProgram(executableProgram(), unitSnapshot());
+  for (const ability of expanded.abilities.filter(candidate => candidate.kind === "triggered")) {
+    const translated = translateTriggerFilter(ability.trigger.filter, "scorchclaw", ability.trigger.at);
+    assert.deepEqual(translated, { event: ability.trigger.at, object: { objectId: "scorchclaw" } });
+    const bareEmission = {
+      timingPoint: ability.trigger.at,
+      player: "A",
+      details: { battlefieldId: "bf-1" }
+    };
+    assert.equal(matchesTriggerEvent(translated, bareEmission, "A"), false,
+      "an emission without the host object must not satisfy the self filter");
+    assert.equal(matchesTriggerEvent(translated, { ...bareEmission, object: unitSnapshot() }, "A"), true,
+      "the same filter matches once the conquering unit is present");
+  }
+});
+
+test("unl-016-219 Scorchclaw golden: the XP gate cannot be evaluated by the merged Condition vocabulary (gap 2)", () => {
+  // Evidence for gap (2): the count expression counts objects, not the
+  // controller's XP. Four unrelated objects make the gte-3 clause true, and two
+  // objects make it false, with XP unchanged.
+  const environment = kernel => ({
+    context: kernel,
+    host: kernel.ref("scorchclaw"),
+    linked: () => undefined,
+    canLookBack: () => true,
+    isIgnored: () => false
+  });
+  const fourObjects = world()
+    .player("A", { xp: 0 })
+    .unit("scorchclaw")
+    .unit("a").unit("b").unit("c")
+    .build();
+  const twoObjects = world().player("A", { xp: 0 }).unit("scorchclaw").unit("a").build();
+  assert.equal(evaluateCondition(levelMight.condition, environment(fourObjects)), true);
+  assert.equal(evaluateCondition(levelMight.condition, environment(twoObjects)), false);
+  for (const kernel of [fourObjects, twoObjects]) assert.equal(kernel.player("A").xp, 0);
+  assert.equal(levelMight.condition.left.subject, "controller-xp",
+    "the authored subject records the intended XP gate that no evaluator reads");
+});
+
+test("unl-016-219 Scorchclaw: the Level predicate expansion has no layer mapping (gap 2)", () => {
+  // Evidence for gap (2): programs/statics.ts rejects the expanded
+  // condition.predicate, so the dependent ability cannot be bound to a live XP
+  // gate (CR 824.1.b.1/824.1.c/824.1.d).
+  const snapshot = unitSnapshot();
+  const expanded = expandProgram(executableProgram(), snapshot);
+  const predicate = expanded.abilities.find(candidate => candidate.kind === "static" && candidate.effect.kind === "condition.predicate");
+  assert.ok(predicate, "the Level keyword must expand to a condition.predicate");
+  assert.equal(predicate.effect.query, "controller-xp");
+  const f = fixture({ cards: [{ id: "scorchclaw", cardId: CANONICAL_ID, types: ["unit"], energy: 3, power: ["Fury"], zone: "board" }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("scorchclaw"), to: "board", location: { type: "base", player: "A" } });
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(predicate, f.kernel.getObject("scorchclaw")),
+    /Static ability kind condition\.predicate has no layer mapping/
+  );
+});
+
+test("unl-016-219 Scorchclaw: matchesEnterAction ignores the ability condition (gap 3)", () => {
+  // Evidence for gap (3): replacement/bind.ts's entry branch does not consult
+  // ability.condition, so the XP-gated "enter ready" cannot be shown to respect
+  // its gate (RIFT-359 bridge).
+  const withNever = { ...levelEnterReady, condition: { kind: "never" } };
+  const entries = [];
+  for (const [label, ability] of [["never", withNever], ["always", { ...levelEnterReady, condition: { kind: "always" } }]]) {
+    const f = fixture({ cards: [{ id: "scorchclaw", cardId: CANONICAL_ID, types: ["unit"], energy: 3, power: ["Fury"], zone: "hand" }] });
+    // Bind from the printed zone so the registration follows the host onto the
+    // Chain, exactly as the merged lifecycle attaches replacements.
+    const handle = createEngineStaticBinder(f.engine).bindReplacement(ability, f.kernel.getObject("scorchclaw"));
+    f.engine.commit({ type: "move-zone", object: f.kernel.ref("scorchclaw"), to: "chain" });
+    const onChain = f.kernel.getObject("scorchclaw");
+    // CR 359.2.c makes the entering Unit exhausted; the entry filter reads it.
+    f.kernel.addObject({ ...onChain, exhausted: true });
+    const host = f.kernel.getObject("scorchclaw");
+    const entry = { type: "move-zone", object: host.ref, to: "base", location: { type: "base", player: "A" } };
+    entries.push([label, f.engine.pipeline.commit(entry).status]);
+    handle?.unbind?.();
+  }
+  // Both gates behave identically: the condition is not consulted on this path.
+  assert.deepEqual(entries, [["never", "replaced"], ["always", "replaced"]]);
 });
 
 test.todo(

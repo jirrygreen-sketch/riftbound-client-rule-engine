@@ -1,3 +1,4 @@
+// Execution evidence for keyword expansion is consolidated in ../templates/keyword-only.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -62,6 +63,8 @@ test("sfd-127-221 Master Bingwen: judgeReason names the remaining cost-plan depe
   assert.match(program.judgeReason, /821\.1\.c\.2/);
   assert.match(program.judgeReason, /reduce-equip-cost/);
   assert.match(program.judgeReason, /\[A\]/);
+  assert.match(program.judgeReason, /Invalid cost\.modify modifier argument/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("sfd-127-221 Master Bingwen: exactly one unvalued Weaponmaster keyword ability", () => {

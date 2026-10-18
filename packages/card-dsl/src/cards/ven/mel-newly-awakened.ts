@@ -27,25 +27,13 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  * - 479.4 / 479.4.b：“give an additional -1 :rb_might:” 是算术图层上的数值修正，
  *   按 479.4.b 在处理时锁定（snapshotting），不是 Buff 计数器（702）。
  *
- * status = judge-required（三处缺口均不近似实现）：
- * 1. keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，
- *    827.1.c.1 的启动费用与“仅当未 Empowered 时”限制、828.1.b.1 的依赖能力都无法
- *    展开（已合入的关键词批次不含它们）；
- * 2. “Your spells and abilities can't be countered” 是静态禁止（continuous.restrict
- *    族）：封闭 GameAction 集合没有“禁止 Counter”动作，卡牌程序也没有注册进
- *    chain 的 Counter 校验尚未消费该 restriction；
- * 3. “would give -:rb_might: … an additional -1 :rb_might:” 需要“修正正在发生的
- *    Might 减量”的持续效果消费方：契约 3.6 的封闭 GameAction 集合没有 Might 修改
- *    动作，也没有卡侧消费正在发生的 Might 减量的数值修正原语。
- * 依赖新的 Empower/Empowered 关键词任务、Counter restriction 消费方、以及 Might 减量修正
- * 消费方。“When you play me, draw 1” 半段用已合入的
- * effect.draw 真实执行（golden）。
+ * 当前执行边界见 judgeReason 与对应 golden；保留所有印刷语义。
  */
 
-/** 442.1.a / 828.1.c：Empowered 门槛（描述性谓词，见 judgeReason）。 */
+/** 442.1.a / 828.1.c：读取 Empower 的真实状态计数。 */
 const empoweredGate: Condition = {
   kind: "compare",
-  left: { kind: "object-property", object: "self", property: "empoweredCount" },
+  left: { kind: "object-property", object: "self", property: "empowered" },
   operator: "gte",
   right: { kind: "constant", value: 1 }
 };
@@ -68,7 +56,7 @@ const abilities: Ability[] = [
     ]
   },
   {
-    // 印刷费 3 Energy 见 judgeReason；KeywordAbility 没有承载印刷费用的字段。
+    // 印刷费 3 Energy 仍待 KeywordAbility → expand params.cost 绑定。
     kind: "keyword",
     keyword: "empower"
   },
@@ -84,7 +72,7 @@ const abilities: Ability[] = [
   },
   {
     // [Empowered][>]「… would give -:rb_might: … an additional -1 :rb_might:」：
-    // 479.4.b 的算术修正叠加；字段是描述性声明（见 judgeReason 第 3 条）。
+    // 479.4.b 的算术修正叠加；该数值修正仍待专门消费方（见 judgeReason）。
     kind: "static",
     effect: {
       kind: "continuous.modify-might-reduction",
@@ -100,17 +88,7 @@ export default {
   canonicalCardId: "card.hash-881035c8e14e8d3c7fa7299235e42c62bb45a5ba4a64f90a6f663abf348954cb",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason:
-    "三处缺口：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef：827.1.c.1 的" +
-    "「3 Energy：Empower me，仅当未 Empowered 时启动」与 828.1.b.1 的依赖能力都无展开实现（已合入的关键词" +
-    "批次不含它们，需要新的关键词任务）；(2) 「Your spells and abilities can't be countered」是 426.1/426.2" +
-    " 的静态禁止（continuous.restrict 族）：虽然原语已合入，但 Counter 校验尚未消费该 restriction，" +
-    "卡牌程序也没有可执行的 Counter 禁止接线；" +
-    "(3) 「would give -:rb_might: … gives an additional -1 :rb_might:」需要对正在发生的 Might 减量做叠加修正，" +
-    "契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，也没有卡侧消费正在发生的 Might 减量的原语，" +
-    "并依赖 442.1.a/828.1.c 的 Empowered 谓词。" +
-    "“When you play me, draw 1” 半段用已合入的 effect.draw 真实执行；不近似实现（不把禁止写成假校验、" +
-    "不把 -1 :rb_might: 叠加写成 effect.buff）。",
+  judgeReason: "当前缺口：(1) Empower.ts 的 KeywordDef 已合入，但 KeywordAbility / programs/keywords.ts 未传 params.cost，无法绑定印刷的 3 Energy（827.1.c.1）；ObjectSnapshot 契约仍未声明 empowered，参考内核已有该计数和 compare 求值。(2) continuous.restrict 的规则查询已存在，但 chain/engine.ts 的 counter 路径未查询禁止 Counter 的规则，且 programs/statics.ts 不支持 controller-spells-and-abilities 范围（426.1/426.2）。(3) continuous.modify-might-reduction 没有修改正在发生的 Might 减量的消费方，无法按 479.4.b 为选中单位追加 -1。Empowered 门槛读取真实 empowered 计数；effect.draw 已有执行证据，不近似实现。",
   abilities,
   sourceText:
     "When you play me, draw 1.\n" +

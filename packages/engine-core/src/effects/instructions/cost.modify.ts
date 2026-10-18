@@ -23,7 +23,8 @@
  *   mandatoryAdditional: existing `CostPlanInput` vocabulary.
  * - modifier / modifiers: `{ kind: 'reduce' | 'increase' |
  *   'reduce-equip-cost', resource: 'energy' | 'power', amount, minimum?,
- *   domains?, powerOrder?, component?, id? }`. Increases are appended in CR
+ *   domains?, powerOrder?, component?, grantedBy?, id? }`. `grantedBy` gates a
+ *   discount on a selected additional-cost component (356.4.f.1). Increases are appended in CR
  *   356 order. `reduce-equip-cost` stays judge-required: the current plan
  *   loses [A]/[C] symbol provenance (821.1.c.3). Never treat it as a generic
  *   Power discount. Each other modifier is one discount instance with its own
@@ -47,6 +48,7 @@ import type {
 } from "../contract.js";
 import { CostPlanError, type CostPlanInput } from "../../cost/plan-types.js";
 import { buildCostPlan } from "../../cost/cost-plan.js";
+import { decorateCostPlan } from "../../cost/discounts/collect.js";
 
 export interface CostModifierInput {
   readonly kind: "reduce" | "increase" | "reduce-equip-cost";
@@ -56,6 +58,8 @@ export interface CostModifierInput {
   readonly domains?: readonly Domain[];
   readonly powerOrder?: readonly number[];
   readonly component?: string;
+  /** Apply this modifier only when the named optional additional cost was selected. */
+  readonly grantedBy?: string;
   readonly id?: string;
 }
 
@@ -86,6 +90,7 @@ const MODIFIER_KEYS = new Set([
   "domains",
   "powerOrder",
   "component",
+  "grantedBy",
   "id"
 ]);
 
@@ -148,6 +153,9 @@ function parseModifier(value: unknown, label: string): CostModifierInput {
   if (value.component !== undefined && (typeof value.component !== "string" || !value.component.length)) {
     throw new TypeError("cost.modify modifier.component must be a non-empty string");
   }
+  if (value.grantedBy !== undefined && (typeof value.grantedBy !== "string" || !value.grantedBy.length)) {
+    throw new TypeError("cost.modify modifier.grantedBy must be a non-empty additional cost id");
+  }
   if (value.id !== undefined && (typeof value.id !== "string" || !value.id.length)) {
     throw new TypeError("cost.modify modifier.id must be a non-empty string");
   }
@@ -206,7 +214,7 @@ export class CostFailure extends CostPlanError {
 
 function modifiersToCostPlanInput(args: CostModifyArgs & { readonly id: string }): CostPlanInput {
   const modifiers = [...(args.modifier === undefined ? [] : [args.modifier]), ...(args.modifiers ?? [])];
-  const discounts: { id: string; component?: string; resource: "energy" | "power"; amount: Expr; minimum?: Expr; domains?: readonly Domain[]; powerOrder?: readonly number[] }[] = [];
+  const discounts: { id: string; component?: string; resource: "energy" | "power"; amount: Expr; minimum?: Expr; domains?: readonly Domain[]; powerOrder?: readonly number[]; grantedBy?: string }[] = [];
   const increases: { id: string; cost: { energy?: Expr; power?: Expr } }[] = [];
   for (const [index, modifier] of modifiers.entries()) {
     const id = modifier.id ?? `${args.id}:modifier:${index}`;
@@ -214,8 +222,19 @@ function modifiersToCostPlanInput(args: CostModifyArgs & { readonly id: string }
       throw new CostPlanError("judge-required", "821.1.c.3: Equip discounts require original [A] symbols; allowedDomains cannot distinguish [A] from [C]");
     }
     if (modifier.kind === "increase") {
+      if (modifier.grantedBy !== undefined) {
+        throw new CostPlanError("judge-required", "grantedBy is only supported for discounts");
+      }
       increases.push({ id, cost: { [modifier.resource]: modifier.amount } });
       continue;
+    }
+    if (modifier.grantedBy !== undefined) {
+      const optional = args.optionalAdditional?.find(component => component.id === modifier.grantedBy);
+      const mandatory = args.mandatoryAdditional?.some(component => component.id === modifier.grantedBy);
+      if (optional === undefined && !mandatory) {
+        throw new CostPlanError("judge-required", `grantedBy refers to unknown additional cost ${modifier.grantedBy}`);
+      }
+      if (optional !== undefined && optional.selected !== true) continue;
     }
     discounts.push({
       id,
@@ -224,7 +243,8 @@ function modifiersToCostPlanInput(args: CostModifyArgs & { readonly id: string }
       ...(modifier.minimum !== undefined ? { minimum: modifier.minimum } : {}),
       ...(modifier.domains !== undefined ? { domains: modifier.domains } : {}),
       ...(modifier.powerOrder !== undefined ? { powerOrder: modifier.powerOrder } : {}),
-      ...(modifier.component !== undefined ? { component: modifier.component } : {})
+      ...(modifier.component !== undefined ? { component: modifier.component } : {}),
+      ...(modifier.grantedBy !== undefined ? { grantedBy: modifier.grantedBy } : {})
     });
   }
   return {
@@ -262,7 +282,19 @@ const execute: InstructionDef<CostModifyArgs>["execute"] = (ctx, args): Instruct
       // are a valid fallback. Keep the original trigger source/host intact.
       throw new CostPlanError("judge-required", `821.1.c.2: missing authoritative Equip-cost binding for ${equipment.ref.id}; original [A]/[C] symbols required`);
     }
-    const plan = buildCostPlan(ctx, modifiersToCostPlanInput({ ...args, id: args.id! }));
+    const requestedModifiers = [...(args.modifier === undefined ? [] : [args.modifier]), ...(args.modifiers ?? [])];
+    const grantIds = new Set(requestedModifiers.flatMap(modifier => modifier.grantedBy === undefined ? [] : [modifier.grantedBy]));
+    const optionalAdditional = args.optionalAdditional?.map(component => grantIds.has(component.id) && component.selected === undefined
+      ? { ...component, selected: ctx.choose<boolean>({ id: `${args.id}:optional:${component.id}`, type: 'optional', chooser: ctx.controller, visibility: 'public' }) }
+      : component);
+    const normalized = modifiersToCostPlanInput({ ...args, ...(optionalAdditional === undefined ? {} : { optionalAdditional }), id: args.id! });
+    const modifierList = requestedModifiers;
+    const grantedBy = Object.fromEntries(modifierList.flatMap((modifier, index) => {
+      if (modifier.grantedBy === undefined || modifier.kind === 'increase') return [];
+      const id = modifier.id ?? `${args.id}:modifier:${index}`;
+      return [[id, modifier.grantedBy]];
+    }));
+    const plan = decorateCostPlan(buildCostPlan(ctx, normalized), { additional: {}, grantedBy });
     const key = args.linkKey ?? "cost";
     ctx.link(key, plan as unknown as Value);
     return { status: "executed", events: [], linkedValues: { [key]: plan as unknown as Value } };

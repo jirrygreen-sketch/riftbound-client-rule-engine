@@ -14,20 +14,30 @@ import type { CardProgram } from "../../ir/index.js";
  *   步骤同时到期），属 arithmetic 图层（478 / 478.1.a）。
  * - [Flow]（829 / 829.1.a / 829.1.b / 829.1.c）：Flow 是法术上的被动关键词，功能等价于
  *   "你可以从废牌堆以 Flow 费用打出此牌，然后放逐它"；印刷费用为 :rb_energy_4:（4 Energy）。
- *   按 README 第 5 节本卡只声明关键词身份，展开与费用改写归 effects/keywords/Flow.ts。
+ *   按 README 第 5 节本卡只声明关键词身份，展开与费用改写归 effects/keywords/Flow.ts
+ *   （flow.cost 静态费用声明 + object-leaves-chain 延迟替代 829.1.b.1）。
  *
- * status = judge-required：continuous.might 的卡牌侧原语和 arithmetic 图层注册已合入并可执行；
- * 仍缺 Flow 的完整消费链。Flow.ts 已声明 alternate-cost、Trash 打出许可和离链 banish replacement，
- * 但费用选择、Flow 实例记录、离链替代消费和印刷 Flow 费用的 params.cost 传递尚未接入。
- * golden 覆盖校验、身份、结构和 +6 Might 的真实图层执行；Flow 半段以 test.todo 注明当前缺口。
+ * 当前执行边界见 judgeReason 与对应 golden；保留所有印刷语义。
+ * 2026-10-17 复核（RIFT-683）：+6 Might 半段与 317.2.c 到期已由测试台经生产路径
+ * （ProgramBinding → ChainEngine → EventPipeline）真实执行，证据在
+ * test/cards/templates/keyword-play-continuous-might-683.test.mjs 与本卡 golden；
+ * Flow 的整段仍无消费方，故整卡维持 judge-required。
  */
 const onslaught = {
   canonicalCardId: "card.hash-3d956150539f05acad046c9b3b303490605a2e9f9546aa9bc58fb0b8256412a9",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Flow]（829.1）的消费链仍有具体缺口：programs/keywords.ts 未把印刷的 4 Energy Flow 费用通过 params.cost 传给展开，programs/statics.ts 也不能映射 Flow.ts 产生的 flow.cost，缺少从 Trash 打出、选择并记录独立 Flow 费用实例的绑定。" +
-    "Flow 的离链 replacement 还使用描述性的 flow-cost-selected 与 leavingInstruction:false，未接到已支付实例及链退出原因，不能正确执行 829.1.b / 829.1.b.1。通用费用计划、replacement 注册与 continuous.might 已合入；+6 Might 的 arithmetic 效果及回合结束到期（143.2.a / 317.2.c）有真实执行证据，不用 effect.buff 代替，不近似实现。",
+    "当前缺口仅在 Flow 消费链（829.1.b / 829.1.b.1 / 829.1.b.2 / 829.1.c.1 / 829.1.c.3）。实测三处：" +
+    "(1) 展开虽已产出 static flow.cost 与 object-leaves-chain 替代，但 programs/statics.ts 的 layerFor 对 flow.cost 抛 no layer mapping，" +
+    "Flow 的备选费用既没有进入 Finalize 的费用选择，也没有实付实例回执（829.1.c.1/829.1.c.3）；" +
+    "(2) 该替代的 body 是 effect.banish，而 replacement/planner.ts 的可用 opcode 集合不含 effect.banish（实测 Unsupported replacement opcode: effect.banish），" +
+    "离开链时的放逐（829.1.b.1）无法执行；" +
+    "(3) KeywordAbility / programs/keywords.ts 未把印刷的 4 Energy 通过 params.cost 传给 Flow.expand，" +
+    "从 Trash 打出的许可与 cost 选择器也未接进打出流程。" +
+    "已真实执行的半段：+6 Might 经 continuous.might 注册 arithmetic 图层并按 317.2.c 于回合末到期，" +
+    "测试台打出路径有真实增益与到期证据（含目标离场 ignored 边界）；programs/play.ts 的 describePlay 仍以本卡的 judge-required 状态拒绝，" +
+    "所以生产打出流程到不了这些子效果。不据此宣称整卡可执行，不近似实现 Flow。",
   abilities: [
     // 829.1.c：印刷 "[Flow] :rb_energy_4:"；费用本身归 Flow.ts 的展开（见 judgeReason）。
     { kind: "keyword", keyword: "flow" },

@@ -23,20 +23,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "Draw 1" = effect.draw（414.1 / 414.3，已合入原语）；抽牌者缺省为能力控制者
  *   （190.6.d 的隐含 "you"）。
  *
- * status = judge-required（缺口逐个列出，均不近似实现）：
- * 1. effects/keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef：
- *    827.1.c.1 的起动费用（横置自身 + effect.empower）、442.1.b / 827.1.c.5 的
- *    "仅当未 Empowered"限制都没有展开实现（RIFT-81~88 关键词批次不含它们）。
- * 2. "Disempower this" 作为启动费用无法支付：cost/plan-values.ts 的 readCost 只接受
- *    energy/power/xp/exhaust/discard/recycle/kill/reveal/spend-buff 这些支付种类，
- *    kind: "disempower" 会被以 CostPlanError（reason "judge-required"）阻断（RIFT-89）。
- *    已合入的 effect.empower 原语能在结算期执行 disempower 动作，但那是效果而不是费用
- *    （204.3 / 443.2.a 要求费用在 Finalize 支付），不能用来替代。
- * 3. 降解费用（443.1.a：只作用于当前 Empowered 的对象；443.1.a.1：未 Empowered 时什么
- *    也不做）由动作层拥有，本卡不重复实现。
- * 依赖：新增 Empower/Empowered 关键词任务与 RIFT-89（disempower 支付种类）。
- * 已合入的 effect.draw 与费用计划中的 energy + exhaust 两段由 golden 用真实原语执行；
- * 第三条费用缺口使本条启动能力仍不可完整支付，故整卡不标 executable。
+ * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。
  */
 const abilities: Ability[] = [
   // 827.1.b/827.1.c：印刷的 [Empower] 费用是横置自身。value 省略（该关键词不带印刷数值），
@@ -73,15 +60,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) effects/keywords/registry.generated.ts 没有 Empower/Empowered 的 " +
-    "KeywordDef（RIFT-81~88 批次不含）：827.1.c.1 的『横置自身：Empower me，仅当未 Empowered 时启动』" +
-    "（415.5 的 Exhaust 费用、442.1.b/827.1.c.5 的限制）没有展开实现；" +
-    "(2) 『Disempower this』作为启动能力的基础费用（404.1.a/415.5，443.2.a 的 Disempower 是受限动作）" +
-    "无法支付：cost/plan-values.ts 的 readCost 只接受 energy/power/xp/exhaust/discard/recycle/kill/" +
-    "reveal/spend-buff，kind: \"disempower\" 会被 CostPlanError（reason \"judge-required\"）阻断（RIFT-89）。" +
-    "已合入的 effect.empower 能在结算期执行 disempower，但 204.3/443.2.a 要求费用在 Finalize 支付，" +
-    "不能用结算效果替代。依赖新增 Empower/Empowered 关键词任务与 RIFT-89 的 disempower 支付种类；" +
-    "效果本体 effect.draw（414.3）与费用计划的 energy/exhaust 两段已由 golden 真实执行。",
+    "当前缺口：(1) Empower KeywordDef 已接受 params.cost，能展开本卡横置费用与未 Empowered 限制（827.1.c.1/415.5）；但 KeywordAbility / programs/keywords.ts 仍只传 keyword/value，未传印刷费用，展开的 cost.kind=empower 无法支付。ObjectSnapshot 仍未声明 empowered，生产状态读取与 442.1.b 的重复 Empower 限制须统一。(2) Disempower this 是 Finalize 启动费用（404.1.a/443.2.a），cost/plan-values.ts 尚无 disempower 支付种类。已有 effect.empower 的 Disempower 结算动作不能替代费用支付。Energy/Exhaust 支付、抽 1 与参数化 Empower 展开已有子效果执行证据；整卡保持 judge-required，不近似实现。",
   abilities,
   sourceText:
     "[Empower] —  :rb_exhaust: (Pay the cost: Empower me. Use only if not Empowered.)\n" +

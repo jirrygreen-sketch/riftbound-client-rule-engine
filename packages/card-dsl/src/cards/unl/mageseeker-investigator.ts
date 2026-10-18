@@ -19,7 +19,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   PlayerSnapshot.power / FinalizedCostPlan.power 只有六域值，cost/README.md 的
  *   契约请求 2 记录该缺口。
  *
- * status = judge-required（2026-10-17 按当前合入源码复核，缺口实测，不近似实现）:
+ * status = judge-required（2026-10-18 按当前合入源码复核，缺口实测，不近似实现）:
  * 1. Applied Cost 可以经 `continuous.restrict`（mode `applied-cost`）用指令路径真实登记，
  *    layers/rules/query.ts 的 appliedCosts() 也能按动作名读回（实测读回 actions:["move"]
  *    与完整 cost）；但没有任何消费方把它接进标准移动的费用计划（204.4.b 要求付费与移动同一
@@ -58,6 +58,9 @@ const abilities: Ability[] = [
       destination: { kind: "self-battlefield" },
       // 204.4.b / 204.4.c：由执行该 Game Action 的对手随动作支付；付不出则不能执行。
       payer: "moving-player",
+      // "Opponents" is an additional relative-player gate, not every mover.
+      // Descriptive only until the Applied Cost consumer resolves this scope.
+      payerScope: "opponent",
       // 135.2.e.5 / 163.2.b：:rb_rune_rainbow: 是任意域 Power（[A]）。
       resource: "power",
       domain: "any",
@@ -73,7 +76,7 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口（2026-10-17 实测）：(1) Applied Cost 可经 continuous.restrict 的 applied-cost 模式用指令路径真实登记，" +
+    "当前缺口（2026-10-18 实测）：(1) Applied Cost 可经 continuous.restrict 的 applied-cost 模式用指令路径真实登记，" +
     "layers/rules/query.ts 的 appliedCosts() 也按动作名读回（golden 已断言），但仍没有移动费用计划消费方；" +
     "204.4.b 要求付费与 Game Action 同一时机，不能改写成触发式/入链费用。(2) [A]（135.2.e.5 / 163.2.b 的任意域 Power）没有可执行表达：" +
     "六域封闭枚举下没有 universal 值，cost/README.md 的契约请求 2 明确要求保留 universal 源、不能用某一色替代。" +
@@ -84,7 +87,8 @@ const program = {
     "对卡面采用的 `continuous.restrict` + mode applied-cost 会保留 kind \"restriction\"；appliedCosts() 只匹配 applied-cost，" +
     "实测静态绑定后 registered effect 为 { kind: \"restriction\", mode: \"applied-cost\", actions: [\"move\"] } 且 appliedCosts(\"move\") 为空" +
     "（同一形状经 continuous.restrict 指令路径登记时 kind 是 applied-cost，读回正常）；卡内已改用查询实际读取的复数 actions 拼写。" +
-    "依赖：Applied Cost 的移动消费、universal Power、移动批次计数，以及“my battlefield”的运行期位置锚定。" +
+    "依赖：Applied Cost 的移动消费、universal Power、移动批次计数，以及“my battlefield”的运行期位置锚定；" +
+    "payerScope: opponent 保留原文 Opponents 的相对付款人门槛，仍需消费方按本卡当前控制者解析，不能向己方移动收费。" +
     "指令路径的登记已有局部执行证据；不近似实现。",
   abilities,
   sourceText:

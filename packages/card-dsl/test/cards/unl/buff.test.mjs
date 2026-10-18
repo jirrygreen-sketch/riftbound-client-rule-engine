@@ -1,3 +1,7 @@
+// RIFT-648 template execution evidence: ../templates/empty-648.test.mjs.
+// The template row keeps this token's printed null Energy/Power untouched and
+// asserts that the card itself registers no ability; this file keeps
+// validation, identity and the effect.buff limit evidence.
 import assert from "node:assert/strict";
 import test from "node:test";
 

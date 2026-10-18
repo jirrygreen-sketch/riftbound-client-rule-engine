@@ -120,8 +120,13 @@ export default {
     const amount = args.amount === undefined ? undefined : ctx.evaluate(args.amount);
     const cost = args.cost === undefined ? undefined : ctx.evaluate(args.cost);
     const kind = raw === "require" ? "requirement" : raw === "applied-cost" ? "applied-cost" : "restriction";
-    const hasContent = actionNames.length > 0 ||
-      (typeof restriction === "string" && restriction.trim().length > 0);
+    // applied-cost is meaningful with a cost payload even when the card does
+    // not carry a named restriction.  Keeping this separate also preserves
+    // fail-closed behavior for empty prohibit/require/limit declarations.
+    const hasContent = raw === "applied-cost"
+      ? cost !== undefined
+      : actionNames.length > 0 ||
+        (typeof restriction === "string" && restriction.trim().length > 0);
     if (!hasContent) return { status: "negated", reason: "impossible", events: [] };
     const filter = args.appliesTo === undefined ? undefined : appliesTo(ctx.evaluate(args.appliesTo));
     const effect: Record<string, unknown> = { kind };
@@ -139,7 +144,11 @@ export default {
       layer: "ability",
       source: ctx.source.ref,
       filter: mergeFilter(filter, target),
-      effect: { ...effect, ...(target.refs.length > 0 ? { targetRefs: target.refs } : {}) } as ContinuousEffectSpec["effect"],
+      effect: {
+        ...effect,
+        sourcePlayer: ctx.controller,
+        ...(target.refs.length > 0 ? { targetRefs: target.refs } : {}),
+      } as unknown as ContinuousEffectSpec["effect"],
     };
     ctx.addContinuous(spec, durationOf(durationArg, ctx));
     ctx.link("registered", { id: spec.id, duration: durationArg });

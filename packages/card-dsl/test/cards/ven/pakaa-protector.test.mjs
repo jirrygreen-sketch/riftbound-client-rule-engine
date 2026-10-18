@@ -11,7 +11,14 @@ import { runInstruction, world } from "../../../../engine-core/dist/effects/test
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
-import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { finalizeOrderedPickPlans } from "../../../../engine-core/dist/chain/picks/plan.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
+import { validateEventPattern } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 
 const CANONICAL_ID =
   "card.hash-f4d87dfb750f0f23070558bd76ae0fba7b17e9097fe44c0034f1eb55e6bb564e";
@@ -25,6 +32,13 @@ const [intoTrash, mightThisTurn] = otherwiseMode.args.body.value;
 
 const resultFor = (outcome, id) => outcome.results.find(result => result.id === id);
 
+// Execute the same source producer as ChainEngine Finalize; never infer deck order from query.
+// This helper only supplies the initial source. The reveal -> trash link is resolved by the adapter.
+const resolveBody = kernel => {
+  for (const plan of finalizeOrderedPickPlans(kernel, ability.body)) kernel.setPicks(plan.id, plan.refs);
+  return resolveChainBody(ability.body, kernel);
+};
+
 test("ven-033-166 Pakaa Protector: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
@@ -36,12 +50,11 @@ test("ven-033-166 Pakaa Protector: identity, status, judgeReason and verbatim so
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /effect\.reveal/);
-  assert.match(program.judgeReason, /zoneSlice|ordered picks/);
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-358/);
-  assert.match(program.judgeReason, /condition\.predicate/);
-  assert.match(program.judgeReason, /LITERAL_FIELDS/);
+  assert.match(program.judgeReason, /Finalize/);
+  assert.match(program.judgeReason, /Resolve/);
+  assert.match(program.judgeReason, /zoneSlice/);
+  assert.match(program.judgeReason, /linked PickSpec/);
+  assert.match(program.judgeReason, /414\.1\.a/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -63,9 +76,12 @@ test("ven-033-166 Pakaa Protector: reveal records one Main Deck card without cla
   assert.equal(revealTop.id, "pakaa-protector.reveal-top");
   assert.equal(revealTop.op, "effect.reveal");
   assert.deepEqual(revealTop.args, {
-    zone: { kind: "constant", value: "deck" },
-    count: { kind: "constant", value: 1 }
+    pick: { kind: "constant", value: "pakaa-protector.top-card" }
   });
+  assert.deepEqual(revealTop.picks, [{
+    id: "pakaa-protector.top-card", options: [], ordered: true, selection: "all",
+    zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 1 } }
+  }]);
   assert.equal(revealTop.targets, undefined);
   assert.equal(revealTop.linkedTo, undefined);
 });
@@ -116,8 +132,8 @@ test("ven-033-166 Pakaa Protector: a saved type predicate selects exactly one pr
   assert.equal(intoTrash.linkedTo, revealTop.id);
   assert.deepEqual(intoTrash.picks, [{
     id: "pakaa-protector.revealed-card",
-    options: [{ kind: "linked-value", instructionId: revealTop.id, key: "revealed" }],
-    min: 1, max: 1, selection: "one"
+    options: [], ordered: true, selection: "all",
+    linked: { kind: "linked-value", instructionId: revealTop.id, key: "revealed" }
   }]);
   assert.equal(mightThisTurn.op, "continuous.might");
   assert.deepEqual(mightThisTurn.args.amount, { kind: "constant", value: 2 });
@@ -145,12 +161,12 @@ test("ven-033-166 Pakaa Protector golden: the merged reveal primitive displays t
 });
 
 test("ven-033-166 Pakaa Protector golden: the original body automatically draws a revealed unit", () => {
-  // A one-card deck is unambiguous. Multi-card ordered reveal remains blocked.
+  // A one-card deck follows the same ordered binding as a longer deck.
   const base = world().unit("pakaa", { might: 4 })
     .deck(["top-unit"], { types: ["unit"] }).build();
   const kernel = base.clone({ sourceSnapshot: base.getObject("pakaa") });
   const revealed = kernel.ref("top-unit");
-  const outcome = resolveChainBody(ability.body, kernel);
+  const outcome = resolveBody(kernel);
 
   assert.equal(outcome.status, "partial");
   assert.equal(resultFor(outcome, revealTop.id).result.status, "executed");
@@ -171,9 +187,7 @@ test("ven-033-166 Pakaa Protector golden: the original otherwise branch trashes 
   const base = world().unit("pakaa", { might: 2 }).unit("other", { might: 3 })
     .deck(["top-spell"], { types: ["spell"] }).build();
   const kernel = base.clone({ sourceSnapshot: base.getObject("pakaa") });
-  // Locked non-target selection only: linked PickSpec production is still pending.
-  kernel.setPicks("pakaa-protector.revealed-card", kernel.zoneSlice("A", "deck", "top", 1).map(object => object.ref));
-  const outcome = resolveChainBody(ability.body, kernel);
+  const outcome = resolveBody(kernel);
 
   assert.equal(outcome.status, "partial");
   assert.deepEqual(resultFor(outcome, unitMode.id).result, { status: "negated", reason: "skipped", events: [] });
@@ -197,7 +211,7 @@ test("ven-033-166 Pakaa Protector golden: the original otherwise branch trashes 
 
 test("ven-033-166 Pakaa Protector golden: an empty reveal ignores both branches without granting Might", () => {
   const kernel = world().unit("pakaa", { might: 4 }).build();
-  const outcome = resolveChainBody(ability.body, kernel);
+  const outcome = resolveBody(kernel);
   assert.equal(outcome.status, "partial");
   assert.equal(resultFor(outcome, revealTop.id).result.status, "negated");
   assert.deepEqual(resultFor(outcome, branch.id).result, { status: "ignored", reason: "mistargeted" });
@@ -267,17 +281,98 @@ test("ven-033-166 Pakaa Protector golden: a real move emission matches only the 
   assert.equal(matchesTriggerEvent(pattern, otherEmission, "A"), false);
 });
 
+test("ven-033-166 Pakaa Protector golden: the original body resolves automatic ordered and linked picks through the ChainEngine", () => {
+  for (const isUnit of [true, false]) {
+    const initial = world().unit("pakaa", { cardId: CANONICAL_ID, might: 4,
+      location: { type: "base", player: "A" } })
+      .deck(["top-card", "second-card"], { types: [isUnit ? "unit" : "spell"] }).build();
+    const kernel = initial.clone({ sourceSnapshot: initial.getObject("pakaa") });
+    const host = createActionPipelineHost({
+      checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+      restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+      objects: () => kernel.objects, perform: action => kernel.perform(action),
+      choose: request => { throw new AwaitChoice(request); },
+      context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+    });
+    const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host,
+      cleanup: chain => {
+        chain.layers.setObjects(kernel.objects);
+        const lethal = chain.layers.evaluateAll().filter(object => object.zone === "board" &&
+          object.types.includes("unit") && object.might !== null && (object.might <= 0 || object.damage >= object.might));
+        for (const object of lethal) chain.commit({ type: "kill", object: object.ref });
+        return lethal.length > 0;
+      }
+    });
+    const f = { engine, kernel };
+    const deckBefore = f.kernel.zoneSlice("A", "deck", "top").map(object => object.ref.id);
+    const source = f.kernel.getObject("pakaa");
+    const top = f.kernel.ref("top-card");
+    // The move event's matcher is covered separately; its production registration remains blocked.
+    // Here the original body runs on the actual chain with the real card as source.
+    f.engine.execute({ id: "pakaa-body", source, controller: "A", kind: "activated", speed: "reaction", body: ability.body });
+    assert.deepEqual(f.engine.items[0].pickPlans[0].refs, [top]);
+    assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "card-revealed"), false);
+    resolveAll(f.engine);
+    assert.equal(f.kernel.getObject("top-card").zone, isUnit ? "hand" : "trash");
+    assert.deepEqual(f.kernel.zoneSlice("A", "deck", "top").map(object => object.ref.id), deckBefore.slice(1));
+    assert.deepEqual(f.kernel.linked(`${revealTop.id}.revealed`), [top]);
+    assert.equal(f.kernel.linked(`${branch.id}.value`), isUnit);
+    assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "card-revealed").length, 1);
+    assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "became-target").length, 0);
+    f.engine.layers.setObjects(f.kernel.objects);
+    assert.equal(f.engine.layers.evaluate(source.ref).might, isUnit ? 4 : 6);
+    assert.equal(f.engine.layers.evaluate(source.ref).buffs, 0);
+    if (!isUnit) {
+      assert.equal(f.engine.layers.advance({ id: "turn-end" }).length, 1);
+      assert.equal(f.engine.layers.evaluate(source.ref).might, 4);
+    }
+  }
+});
+
 test.todo(
-  "ven-033-166 Pakaa Protector: produce the locked Main Deck top-card ordered pick (425.1, RIFT-358); " +
-    "zoneSlice ordering must reach the card selection path"
+  "ven-033-166 Pakaa Protector: read the current top card at Resolve, after an intervening response " +
+    "changes deck order; Finalize zoneSlice currently locks the earlier top (425.1 / 414.1.a / 359.3)"
 );
 
 test.todo(
-  "ven-033-166 Pakaa Protector: unwrap effect.reveal's pick Expr in the chain interpreter adapter " +
-    "so the original body can consume the ordered pick without a test-boundary argument conversion"
+  "ven-033-166 Pakaa Protector: register the source-scoped object-moved event pattern; " +
+    "events/trigger-spec.ts EVENT_PATTERN_TYPES does not admit the producer's event name (383.1 / 421.1)"
 );
 
-test.todo(
-  "ven-033-166 Pakaa Protector: resolve linked-value options into the revealed-card PickSpec binding " +
-    "before effect.zone; interpreter instructionContext.picks currently delegates only to the caller's picks"
-);
+// RIFT-733: the refreshed gaps, pinned against the real production seam.
+test("ven-033-166 Pakaa Protector: the closed trigger vocabulary rejects the authored Move pattern", () => {
+  // events/trigger-spec.ts EVENT_PATTERN_TYPES has no "object-moved";
+  // EventPipeline.registerTrigger therefore refuses the program trigger, so the
+  // printed "When I move" ability never subscribes (383.1 / 421.1).
+  const result = validateEventPattern({ event: "object-moved" });
+  assert.equal(result.ok, false);
+  assert.equal(result.issues[0].code, "invalid-event-type");
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const f = fixture();
+  const source = { ...f.kernel.getObject("source"), cardId: CANONICAL_ID };
+  assert.equal(triggerRegistrations(binding.registry, source).length, 1);
+  assert.throws(
+    () => binding.registerProgramTriggers(f.engine, source),
+    error => error.issues?.[0]?.code === "invalid-event-type"
+  );
+});
+
+test("ven-033-166 Pakaa Protector: an intervening recycle leaves the Finalize-locked top card stale", () => {
+  // chain/picks/plan.ts locks the ordered top card during Finalize, but this
+  // trigger reads its deck top during Resolve (425.1 / 414.1.a): after a
+  // response reorders the deck the locked reference is no longer the top card,
+  // so "draw it" and "put it in your trash" cannot be proven equivalent.
+  const base = world().unit("pakaa", { might: 4, cardId: CANONICAL_ID })
+    .deck(["top-card", "second-card"], { types: ["unit"] }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("pakaa") });
+  const plan = finalizeOrderedPickPlans(kernel, ability.body);
+  assert.deepEqual(plan.map(entry => entry.refs.map(ref => ref.id)), [["top-card"]]);
+  // A real intervening response changes the deck top: a card is recycled to the
+  // bottom, so the Finalize lock still names a card that is no longer the top.
+  assert.equal(kernel.perform({ type: "recycle", object: kernel.ref("top-card") }).status, "done");
+  const newTop = kernel.zoneSlice("A", "deck", "top", 1)[0];
+  assert.equal(newTop.ref.id, "second-card");
+  // The Finalize lock still names the old card, which is no longer the top.
+  assert.notEqual(plan[0].refs[0].id, newTop.ref.id);
+  assert.equal(kernel.getObject(plan[0].refs[0].id).zone, "deck");
+});

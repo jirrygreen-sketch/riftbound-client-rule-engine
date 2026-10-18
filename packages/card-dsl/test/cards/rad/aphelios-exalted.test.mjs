@@ -36,10 +36,13 @@ test("rad-179-167 Aphelios, Exalted: identity, ruleset, status, judgeReason and 
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  assert.ok(program.judgeReason.includes("object.attachedTo / action.host"));
+  assert.ok(program.judgeReason.includes("attachedTo: self"));
   assert.match(program.judgeReason, /choice\.exclusive-once-per-turn/);
   assert.match(program.judgeReason, /ChainContractBlockedError/);
   assert.match(program.judgeReason, /object-attached/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -277,12 +280,12 @@ test.todo(
 test.todo(
   "rad-179-167 Aphelios, Exalted: execute a mode choice during trigger resolution — chain/engine.ts " +
     "assertFinalizationSurface throws ChainContractBlockedError for choice.mode (needs a Finalize/Resolve " +
-    "choice-plan adapter, RIFT-120 follow-up)"
+    "choice-plan adapter)"
 );
 
 test.todo(
   "rad-179-167 Aphelios, Exalted: filter object-attached events to this unit as the attach host — " +
-    "events/action-adapter.ts only carries the attached Equipment, so 'to me' is not expressible " +
+    "the host is already in object.attachedTo/action.host but source-relative attachedTo filtering is missing " +
     "(contract change request)"
 );
 
@@ -290,3 +293,19 @@ test.todo(
   "rad-179-167 Aphelios, Exalted: the object-attached event name must join EVENT_PATTERN_TYPES " +
     "(events/trigger-spec.ts) before registerProgramTriggers can subscribe the attach trigger"
 );
+
+test("Aphelios, Exalted resweep: real attach events retain the Equipment and its host", () => {
+  const f = fixture({ cards: [{ id: "equipment", types: ["gear"], tags: ["Equipment"], energy: 0 }] });
+  f.engine.advance();
+  f.engine.execute(f.card("equipment", { kind: "gear", body: [] }));
+  const equipment = f.kernel.ref("equipment");
+  const host = f.kernel.ref("source");
+  assert.equal(f.engine.commit({ type: "attach", object: equipment, host }).status, "done");
+  const events = f.engine.pipeline.events.filter(event => event.timingPoint === "object-attached");
+  assert.equal(events.length, 1);
+  assert.deepEqual(events[0].action, { type: "attach", object: equipment, host });
+  assert.deepEqual(events[0].object.ref, equipment);
+  assert.deepEqual(events[0].object.attachedTo, host);
+  assert.deepEqual(events[0].object.tags, ["Equipment"]);
+  assert.deepEqual(f.kernel.getObject("equipment").attachedTo, host);
+});

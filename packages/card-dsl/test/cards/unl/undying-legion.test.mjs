@@ -36,7 +36,7 @@ test("unl-025-219 Undying Legion: identity, status, judgeReason and verbatim sou
   assert.match(program.judgeReason, /Legion\.ts/);
   // 366.1 / 356.1.a: the trash play permission and alternate cost.
   assert.match(program.judgeReason, /366\.1/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /CardProgram.*费用计划|费用计划.*接线/);
   assert.doesNotMatch(program.judgeReason, /RIFT-(82|257)/);
 });
 
@@ -133,5 +133,5 @@ test.todo(
 test.todo(
   "unl-025-219 Undying Legion: the printed trash play permission (CR 366.1 / 420.1.a) and the 356.1.a alternate" +
     " cost are consumed by Finalize legality and the cost plan — translateRestriction still rejects play-from-zone" +
-    " without a rules adapter, and CardProgram-to-CostPlan wiring is still missing (RIFT-261)"
+    " without a rules adapter, and CardProgram-to-CostPlan wiring is still missing"
 );

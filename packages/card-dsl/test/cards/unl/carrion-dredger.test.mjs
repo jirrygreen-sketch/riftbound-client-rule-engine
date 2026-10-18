@@ -1,3 +1,15 @@
+// Golden test for Carrion Dredger (unl-153-219).
+// The Deathknell declaration, the object-killed trigger and the token request
+// shape and controller-relative base binding are verifiable; the Bird
+// definition and Deathknell/Deflect consumers remain judged (see judgeReason).
+//
+// Template-level execution evidence lives in
+// test/cards/templates/keyword-triggered-object-killed-conditio-679.test.mjs
+// (README 4.1): the authored death trigger binds and resolves through
+// the generic scenario harness (controller B's base is the linked destination)
+// and the 187.7 Bird request negates with the frozen-definition blocked reason.
+// This file keeps the validation, structure and fail-closed dependency
+// assertions for the same canonical identity.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -8,6 +20,8 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { registryById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-eecb1b7c0e454c85db65c33eaab1cd2d826115fe40c063e70baa81ad2bf8a7d7";
@@ -33,6 +47,9 @@ test("unl-153-219 Carrion Dredger: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /187\.7/);
   assert.match(program.judgeReason, /Bird/);
   assert.match(program.judgeReason, /trigger\.leave/);
+  assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /Energy additional cost/);
+  assert.match(program.judgeReason, /token-definition-or-abilities-judge-required/);
 });
 
 test("unl-153-219 Carrion Dredger: [Deathknell] is declared (contract 3.7)", () => {
@@ -89,6 +106,41 @@ test.todo(
   "unl-153-219 Carrion Dredger: add the CR 187.7 1-Might Bird token definition (domainless, Bird tag, " +
     "Deflect keyword) to effect.token's frozen definitions so mode \"play\" has an executable path"
 );
+
+test("unl-153-219 Carrion Dredger: the card's own \"bird\" token id is rejected, not substituted (187.7)", () => {
+  // The frozen token table has no Bird entry, so executing the card's own
+  // argument is negated with the blocked reason and creates nothing; another
+  // defined token is never used as a stand-in.
+  const kernel = world().unit("dredger", { owner: "A", controller: "A" }).build();
+  const run = runInstruction(
+    token,
+    {
+      token: playBird.args.token,
+      amount: playBird.args.amount,
+      mode: playBird.args.mode,
+      location: { kind: "constant", value: { type: "base", player: "A" } }
+    },
+    { world: kernel }
+  );
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  assert.equal(run.linked.token.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.equal(run.linked.token.createdAmount, 0);
+  assert.deepEqual(kernel.objects.filter(object => object.isToken), []);
+});
+
+test("unl-153-219 Carrion Dredger: the [Deathknell] expansion adds a trigger.leave body with no registered opcode", () => {
+  // 808.1.c/808.1.d: the keyword's expansion is meant to be bound to the printed
+  // effect, but the merged registry has no trigger.leave instruction and the
+  // expansion therefore contributes a second object-killed trigger whose body
+  // cannot run. Both facts are pinned here.
+  assert.equal(registryById.has("trigger.leave"), false);
+  const registered = keywordDefinitionsById.get("Deathknell");
+  assert.ok(registered, "effects/keywords/Deathknell.ts must be registered");
+  const [expansion] = registered.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expansion.trigger.at, "object-killed");
+  assert.deepEqual(expansion.body.map(instruction => instruction.op), ["trigger.leave"]);
+});
 test("unl-153-219 Carrion Dredger golden: the original location instruction resolves either controller's base (440.4)", () => {
   assert.deepEqual(token.argsSchema.parse(playBird.args), playBird.args);
   for (const controller of ["A", "B"]) {

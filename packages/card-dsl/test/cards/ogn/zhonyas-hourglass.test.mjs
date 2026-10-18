@@ -11,10 +11,16 @@ const { world } = await import(new URL("effects/testing/index.js", ENGINE));
 const { default: move } = await import(new URL("effects/instructions/effect.move.js", ENGINE));
 const { default: kill } = await import(new URL("effects/instructions/effect.kill.js", ENGINE));
 const { planReplacementBody, bindReplacement } = await import(new URL("replacement/index.js", ENGINE));
+const { createEngineStaticBinder } = await import(new URL("programs/index.js", ENGINE));
+const { keywordDefinitionsById: hiddenDefinitionsById } = await import(
+  new URL("effects/keywords/registry.generated.js", ENGINE)
+);
+const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
 
 const [hidden, replacement] = program.abilities;
 const [killThis, recall, exhaust] = replacement.with;
 const literal = (value) => ({ kind: "constant", value });
+const CANONICAL_ID = "card.hash-876fbb11303be19701acffe6831c8d2c74d73130b38f29962ed2cef06bc76387";
 
 test("zhonyas-hourglass: passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -31,7 +37,11 @@ test("zhonyas-hourglass: identity, ruleset, status and printed text", () => {
   assert.match(program.judgeReason, /effect\.move/);
   assert.match(program.judgeReason, /457/);
   assert.match(program.judgeReason, /replacement\.object/);
+  assert.match(program.judgeReason, /replacement\.event/);
+  assert.match(program.judgeReason, /cost\.hidden/);
+  assert.match(program.judgeReason, /no layer mapping/);
   assert.doesNotMatch(program.judgeReason, /RIFT-(260|84)/);
+  assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(
     program.sourceText,
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +
@@ -163,8 +173,52 @@ test("zhonyas-hourglass: the full replacement binding stops at the missing Recal
       hostRef,
       { host: { object: ref => kernel.getObject(ref.id), objects: () => kernel.objects, context: () => kernel }, pipeline }
     ),
-    /Recall action exists|mode "recall" is blocked/
+    /no Recall action exists|mode "recall" is blocked/
   );
+});
+
+test("zhonyas-hourglass: the static replacement shape has no one-shot window", () => {
+  // CR 369.1 / 370.2: the printed "the next time" limits this replacement to a
+  // single death. The static ability shape has no window field, so the bound
+  // registration matches a second qualifying kill too — which is why the card
+  // cannot ship the static form as the printed effect.
+  const registered = [];
+  const pipeline = { clock: { turn: 1 }, registerReplacement: registration => registered.push(registration), unregisterReplacement() {} };
+  const kernel = world()
+    .unit("zhonyas-hourglass", { types: ["gear"], zone: "board", location: { type: "base", player: "A" } })
+    .unit("friendly-unit", { zone: "board", location: { type: "battlefield", id: "battlefield-1" } })
+    .unit("friendly-unit-2", { zone: "board", location: { type: "battlefield", id: "battlefield-1" } })
+    .build();
+  bindReplacement(
+    { replaces: replacement.replaces, with: [killThis, exhaust] },
+    kernel.ref("zhonyas-hourglass"),
+    { host: { object: ref => kernel.getObject(ref.id), objects: () => kernel.objects, context: () => kernel }, pipeline }
+  );
+  const [registration] = registered;
+  assert.equal(registration.oncePerTurn ?? false, false);
+  const firstKill = { type: "kill", object: kernel.ref("friendly-unit") };
+  const secondKill = { type: "kill", object: kernel.ref("friendly-unit-2") };
+  assert.equal(registration.matches(firstKill, firstKill), true);
+  assert.equal(registration.matches(secondKill, secondKill), true);
+});
+
+test("zhonyas-hourglass: [Hidden]'s cost.hidden declaration has no layer consumer", () => {
+  // 811.1.b / 811.1.c.2: hiding and the facedown play path need a consumer for
+  // the declared static cost.hidden effect; the production binder refuses it at
+  // bind time, so the printed [Hidden] permission is not executable.
+  const { engine, kernel } = fixture({
+    cards: [{ id: "zhonyas-hourglass", cardId: CANONICAL_ID, types: ["gear"], energy: 2 }]
+  });
+  assert.equal(engine.commit({ type: "move-zone", object: kernel.ref("zhonyas-hourglass"), to: "board" }).status, "done");
+  const expansion = hiddenDefinitionsById.get("Hidden");
+  assert.ok(expansion, "the merged Hidden KeywordDef must be registered");
+  const [declaration] = expansion.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.deepEqual(declaration.effect, { kind: "cost.hidden" });
+  assert.throws(
+    () => createEngineStaticBinder(engine).bindStatic(declaration, kernel.getObject("zhonyas-hourglass")),
+    /Static ability kind cost\.hidden has no layer mapping/
+  );
+  assert.deepEqual(engine.layers.registry.list(), []);
 });
 
 test("zhonyas-hourglass golden: a blocked Recall attempt leaves the unit's location and status unchanged", () => {
@@ -189,9 +243,9 @@ test("zhonyas-hourglass golden: a blocked Recall attempt leaves the unit's locat
 });
 
 test.todo(
-  "zhonyas-hourglass: encode the printed 'the next time' one-shot lifetime using the " +
-    "replacement.event window; the current frozen replacement ability shape cannot carry its raw instead instruction array " +
-    "(CardProgram stores Instruction.args as Expr while bindReplacement requires a bare array)"
+  "zhonyas-hourglass: encode the printed 'the next time' one-shot lifetime with a static replacement " +
+    "window that survives across turns; the current replacement ability shape only binds permanent " +
+    "static registrations, while replacement.event runtime dependencies are unavailable to the ordinary card ResolveContext"
 );
 
 test.todo(

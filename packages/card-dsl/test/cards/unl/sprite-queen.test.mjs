@@ -4,6 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/sprite-queen.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL_ID =
   "card.hash-a97b1d53f5a78ced95c65e0fe9618e56618fed2e7c141b9fd84485c40632768f";
@@ -30,7 +32,7 @@ test("unl-084-219 Sprite Queen: identity, status, judgeReason and verbatim sourc
   assert.match(program.judgeReason, /143\.4/);
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /EventPattern/);
-  assert.match(program.judgeReason, /RIFT-62/);
+  assert.match(program.judgeReason, /beginning-start/);
   assert.match(program.judgeReason, /controller-relative/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
@@ -77,13 +79,22 @@ test("unl-084-219 Sprite Queen: both branches play the printed CR 187.2 Sprite t
   assert.equal(playAtBeginning.id, "sprite-queen.play-sprite-at-beginning");
 });
 
+test("unl-084-219 Sprite Queen fail-closed: beginning-start is a timing point, not an EventPattern event", () => {
+  const filter = translateTriggerFilter(atBeginning.trigger.filter, "sprite-queen");
+  assert.equal(filter.event, "beginning-start");
+  assert.throws(
+    () => assertTriggerSpec({ at: atBeginning.trigger.at, filter }),
+    /event|事件/
+  );
+});
+
 test.todo(
   "unl-084-219 Sprite Queen: execute the Sprite play end-to-end (CR 187.2 / 440.2.c) once the definition and a " +
     "controller-relative base location are available — no execution scenario is claimed here"
 );
 
 test.todo(
-  "unl-084-219 Sprite Queen: register the 3 Might Sprite definition (CR 187.2) in the effect.token table — RIFT-62"
+  "unl-084-219 Sprite Queen: register the 3 Might Sprite definition (CR 187.2) in the effect.token table"
 );
 test.todo(
   "unl-084-219 Sprite Queen: 'ready' as an entry-state override for the played token (CR 143.4 / 184.1 / 185.2.d) — " +

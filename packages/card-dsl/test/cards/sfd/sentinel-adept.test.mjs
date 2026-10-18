@@ -1,3 +1,4 @@
+// Execution evidence for keyword expansion is consolidated in ../templates/keyword-only.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -59,16 +60,13 @@ test("sfd-008-221 Sentinel Adept: judgeReason names the current cost-opcode and 
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /821\.1\.c\.2/);
   assert.match(program.judgeReason, /821\.1\.c\.3/);
-  assert.match(program.judgeReason, /RIFT-261/);
   // Refreshed reason: both cost opcodes are registered; the real blocker is the
   // judge-required raise inside cost.modify's Weaponmaster branch.
   assert.match(program.judgeReason, /both opcodes/);
   assert.match(program.judgeReason, /are registered/);
-  // The card-played source-identity payload is the second merged-but-incomplete
-  // path: the expansion filters on event.source, which the production event
-  // does not carry yet.
-  assert.match(program.judgeReason, /event\.source/);
-  assert.match(program.judgeReason, /pipeline-match/);
+  assert.match(program.judgeReason, /card-played event/);
+  assert.match(program.judgeReason, /includes source/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("sfd-008-221 Sentinel Adept: exactly one unvalued Weaponmaster keyword ability", () => {
@@ -118,13 +116,10 @@ test("sfd-008-221 Sentinel Adept golden: declining to choose an Equipment leaves
   assert.deepEqual(kernel.events, []);
 });
 
-test("sfd-008-221 Sentinel Adept: the source-identity filter needs a payload the production card-played event does not carry yet", () => {
-  // The expansion filters on event.source (this card's identity). The
-  // production card-played event from chain/engine.ts carries object/player
-  // only, and events/pipeline-match.ts only matches a source filter when
-  // event.source exists. This locks both durable halves: the card must keep the
-  // host-bound source filter rather than rewrite the trigger onto an unrelated
-  // event, and the matcher must keep the source discriminator strict.
+test("sfd-008-221 Sentinel Adept: the production card-played source payload matches only this host", () => {
+  // The expansion filters on event.source (this card's identity), and the
+  // production card-played event now carries that source payload. The matcher
+  // remains strict for an unrelated source.
   const [triggered] = weaponmaster.expand({ host });
   assert.deepEqual(triggered.trigger.filter, {
     event: "card-played",
@@ -160,8 +155,7 @@ test("sfd-008-221 Sentinel Adept: the source-identity filter needs a payload the
   };
 
   // The source discriminator must stay strict: it matches only when the event
-  // reports this card itself as the source (the payload the production
-  // card-played event still lacks), never an unrelated card.
+  // reports this card itself as the source, never an unrelated card.
   assert.equal(
     matchesTriggerEvent(triggered.trigger.filter, { ...productionEvent, source: productionEvent.object }, "A"),
     true
@@ -180,9 +174,6 @@ test("sfd-008-221 Sentinel Adept: the source-identity filter needs a payload the
     ),
     false
   );
-  // Without a source payload the strict filter cannot match; this records the
-  // current production event shape rather than claiming the card runs.
-  assert.equal(matchesTriggerEvent(triggered.trigger.filter, productionEvent, "A"), false);
 });
 
 test.todo(
@@ -190,8 +181,8 @@ test.todo(
     "reduced by [A], then attach it to me even if it is already attached (821.1.c / " +
     "821.1.c.2 / 821.1.c.3) — blocked because the registered cost.modify Weaponmaster branch " +
     "raises judge-required until an authoritative Equip-cost binding exists (821.1.c.2) and " +
-    "original [A]/[C] symbols survive cost planning (821.1.c.3, in-progress RIFT-261); the " +
-    "merged RIFT-257 adapter already registers the trigger"
+    "original [A]/[C] symbols survive cost planning (821.1.c.3); the merged event adapter already " +
+    "registers the trigger and supplies its source identity"
 );
 // Direct evidence for the second recorded gap: the expansion's cost.modify
 // step reaches the merged interpreter with the Weaponmaster modifier attached

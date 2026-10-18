@@ -8,6 +8,8 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import damageDefinition from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { buildCostPlan, prepareCostPayment } from "../../../../engine-core/dist/cost/index.js";
+import { expandProgram, translateCost } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-f4f95f0992a519e07673e9e9d3ea66ae5196b1e0be2c8a2847aa8697cfdccf53";
 const SOURCE_TEXT =
@@ -51,7 +53,8 @@ test("ven-133-166 Glowstone: identity, ruleset, status, judgeReason and verbatim
 test("ven-133-166 Glowstone: Empower 2, and the Disempower/exhaust activation that hands control away", () => {
   assert.equal(program.abilities.length, 3);
   // 827.1.c: the printed Empower cost is two [A]. The cost plan supports it via
-  // six allowedDomains; keyword expansion and cost binding remain blocked.
+  // six allowedDomains; the merged keyword expands, but the card-side printed
+  // CostSpec still cannot cross the KeywordAbility/expandProgram boundary.
   assert.deepEqual(empower, { kind: "keyword", keyword: "empower", value: 2 });
 
   // 443.2.a Disempower + 415.3.a/415.5 exhaust are the printed costs.
@@ -181,11 +184,28 @@ test("ven-133-166 Glowstone: the cost plan allocates the printed two [A] from sa
   }
 });
 
-test.todo(
-  "ven-133-166 Glowstone: the printed Empower cost of two :rb_rune_rainbow: (Universal Power [A], CR 135.2.e.5.a/163.2.b) " +
-    "needs an Empower/Empowered KeywordDef and activation-cost binding (827.1.c.1); [A] resource allocation itself " +
-    "is supported by kind:power with six allowedDomains"
-);
+test("ven-133-166 Glowstone: merged Empower expands, but its printed [A] cost is not carried", () => {
+  const f = fixture({
+    cards: [{ id: "glowstone", cardId: CARD_ID, types: ["gear"], might: null, energy: 2, power: [] }]
+  });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("glowstone"), to: "base" });
+  const expanded = expandProgram(program, f.kernel.getObject("glowstone"));
+  const [expandedEmpower] = expanded.expanded;
+  assert.equal(expandedEmpower.kind, "activated");
+  assert.deepEqual(expandedEmpower.cost, { kind: "empower" });
+  assert.deepEqual(expandedEmpower.restriction.condition, {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq",
+    right: { kind: "constant", value: 0 }
+  });
+  assert.throws(
+    () => translateCost(expandedEmpower.cost, "glowstone.empower", "activate"),
+    /Unsupported cost kind empower/
+  );
+  // The resource planner remains independently executable once the card-side
+  // [A] cost is supplied to it explicitly (the preceding golden covers this).
+});
 test.todo(
   "ven-133-166 Glowstone: paying \"Disempower this\" (CR 443.2/443.2.a) needs the disempower payment kind in " +
     "cost/plan-values.ts readCost"

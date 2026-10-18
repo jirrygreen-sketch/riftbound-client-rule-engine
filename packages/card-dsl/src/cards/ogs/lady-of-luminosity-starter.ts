@@ -19,12 +19,11 @@ import type { CardProgram } from "../../ir/index.js";
  * - 174 / 174.7：Legend 可以有 Triggered Ability；107.4.c / 174.2.b：始终留在
  *   Legend Zone。
  *
- * status = judge-required（复核 2026-10-17）：费用门槛（“costs [5] or more”）仍没有
- * 已合入的求值路径——chain/engine.ts 的 card-played emission 只带 object/player，
- * PipelineEvent.details 为空，也不存在 206 要求的“印刷/复制费用 ≥ 5 Energy”谓词。
- * 触发结构（card-played + 主体 effect.draw）都可执行；但不能在没有费用信息时把门槛
- * 近似成“任意法术”，因此整卡保持 judge-required，golden 只执行已支持的部分
- * （见 judgeReason 与 test.todo）。Legend 的来源区域缺口同样未合入。
+ * status = judge-required：RIFT-359 已合入 card-played 的印刷费用快照与
+ * event-printed 谓词；费用门槛现在通过 trigger.condition 判定，并由真实打出、
+ * 支付及抽牌测试覆盖。剩余缺口是 Legend Zone（107.4.c / 174.2.b）尚无 ZoneId，
+ * programs/triggers.ts 的永久物 card-played activeZones 仍固定为 ['board']。
+ * 不把 Legend 放到 Board 来宣称整卡可执行。
  */
 const ladyOfLuminosityStarter = {
   canonicalCardId:
@@ -32,18 +31,11 @@ const ladyOfLuminosityStarter = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "费用门槛「costs :rb_energy_5: or more」仍无法求值：触发过滤器的封闭形状（契约 3.5、" +
-    "events/trigger-spec.ts 的 ObjectFilter / EventPattern）只按对象特征、区域、事件载荷与" +
-    "amount/details 过滤；golden 用生产链真实打出的法术事件证明 chain/engine.ts 的 card-played " +
-    "emission 只有 object/player，details 为 undefined、也没有费用快照，" +
-    "所以本卡 filter 里的 printedEnergyCostAtLeast 永远命中不了（实测 matchesTriggerEvent === false）。" +
-    "206 要求的「印刷/复制费用 ≥ 5 Energy」谓词仍没有生产消费者" +
-    "（sfd/sunken-temple.ts 与 sfd/show-of-strength.ts 记录同一判定）；拿不到费用时把门槛放宽成" +
-    "「任意法术」就是近似实现，按红线不做。" +
-    "Legend 的来源区域是 Legend Zone（CR 107.4.c），effects/contract.ts 的 ZoneId 与参考内核都没有该区域，" +
-    "programs/triggers.ts 给永久物的 card-played 触发固定 activeZones ['board']，也覆盖不到 Legend 来源。" +
-    "触发时点 card-played（chain/engine.ts 已 emit）与效果 effect.draw 都已合入。" +
-    "依赖：206 的印刷费用谓词与 card-played 费用载荷、Legend Zone 契约。不近似实现。",
+    "Legend Zone 来源区域仍未合入：CR 107.4.c / 174.2.b 要求 Legend 留在 Legend Zone，" +
+    "effects/contract.ts 的 ZoneId 尚无该区域，programs/triggers.ts 的永久物 card-played 注册固定 activeZones ['board']。" +
+    "费用门槛已可执行：card-played 携带 printed cost 快照，trigger.condition 用 event-printed 判定 Energy >= 5（CR 206），" +
+    "真实链测试覆盖 4/5/6 费、非自己打出、非 spell、以及实际支付增减仍读取印刷费用；effect.draw 真实抽 1。" +
+    "依赖：Legend Zone 契约与来源区域注册；不把 Legend 的区域近似为 Board。",
   abilities: [
     {
       kind: "triggered",
@@ -54,12 +46,15 @@ const ladyOfLuminosityStarter = {
           // 被打出的牌必须是法术（355.10：触发条件里的对象不是目标）。
           object: { type: "spell" },
           // "you play"：打出者即本能力控制者（190.6.d）。
-          player: "self",
-          // 费用的谓词载体：206 的「印刷 Energy 费用 ≥ 5」需要打出事件携带费用快照。
-          // details 是 EventPattern 里既有的载荷匹配形状，但当前 card-played 事件
-          // （chain/engine.ts 的 emit）不含 printedEnergyCost，因此按当前管线这条
-          // 触发永远不会命中——这就是缺口本身，见 judgeReason，不近似成“任意法术”。
-          details: { printedEnergyCostAtLeast: 5 }
+          player: "self"
+        },
+        // CR 206: read the immutable printed/copied cost, not the paid amount.
+        condition: {
+          kind: "event-printed",
+          object: "object",
+          characteristic: "energy",
+          operator: "gte",
+          right: { kind: "constant", value: 5 }
         }
       },
       optional: false,

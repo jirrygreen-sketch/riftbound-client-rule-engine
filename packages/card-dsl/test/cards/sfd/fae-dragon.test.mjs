@@ -20,7 +20,7 @@ const SOURCE_TEXT =
 const [playTrigger, spendTrigger] = program.abilities;
 const [buffInstruction] = playTrigger.body;
 const [buffSpec] = buffInstruction.targets;
-const [tokenInstruction] = spendTrigger.body;
+const [readBase, tokenInstruction] = spendTrigger.body;
 
 const resultFor = (outcome, id) => outcome.results.find(result => result.id === id);
 
@@ -59,8 +59,9 @@ test("sfd-101-221 Fae Dragon: judgeReason names the Gold token and entry-state g
   assert.match(program.judgeReason, /440\.2\.c/);
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /143\.4/);
-  assert.match(program.judgeReason, /LocationRef/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /token-definition-or-abilities-judge-required/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("sfd-101-221 Fae Dragon: 'When you play me' is a mandatory card-played self trigger", () => {
@@ -104,20 +105,31 @@ test("sfd-101-221 Fae Dragon: 'When you spend a buff' subscribes to the buff-spe
   assert.equal(spendTrigger.optional, false);
   assert.equal(spendTrigger.trigger.condition, undefined);
 
-  assert.equal(spendTrigger.body.length, 1);
+  assert.equal(spendTrigger.body.length, 2);
+  // 440.2.b.1 / 107.1.c: the controller's Base is resolved to a concrete
+  // PlayerId at resolution; the primitive refuses a symbolic controller.
+  assert.deepEqual(readBase, {
+    id: "fae-dragon.read-base",
+    op: "condition.value",
+    args: {
+      value: { kind: "location", value: "ability-controller-base" },
+      key: { kind: "constant", value: "base" }
+    }
+  });
   assert.equal(tokenInstruction.id, "fae-dragon.play-gold-token");
   assert.equal(tokenInstruction.op, "effect.token");
+  assert.equal(tokenInstruction.linkedTo, "fae-dragon.read-base");
   assert.deepEqual(tokenInstruction.args.token, { kind: "constant", value: "gold" });
   assert.deepEqual(tokenInstruction.args.amount, { kind: "constant", value: 1 });
   // 440.2.c / 185.2.a: a *played* token is created on the Chain first.
   assert.deepEqual(tokenInstruction.args.mode, { kind: "constant", value: "play" });
   assert.deepEqual(tokenInstruction.args.location, {
-    kind: "constant",
-    value: { type: "base", player: "controller" }
+    kind: "linked-value",
+    instructionId: "fae-dragon.read-base",
+    key: "base"
   });
   // Exhausted entry (184.1/185.2.d) is a remaining blocker, kept in the TODO.
   assert.deepEqual(tokenInstruction.args.linkKey, { kind: "constant", value: "goldToken" });
-  assert.equal(tokenInstruction.linkedTo, undefined);
 });
 
 test("sfd-101-221 Fae Dragon golden: the buff body places one Buff on every locked friendly unit", () => {
@@ -194,15 +206,35 @@ test("sfd-101-221 Fae Dragon golden: an already-buffed unit is not buffed again 
   assert.equal(outcome.events.filter(event => event.action === "buff").length, 1);
 });
 
-test("sfd-101-221 Fae Dragon: Gold remains an unsupported token definition", () => {
+test("sfd-101-221 Fae Dragon golden: the printed body resolves the Base, then Gold fails closed", () => {
+  // 187.5 / 440.2.b.1: the card's own two instructions run for real. The Base
+  // resolves to the ability controller's seat, and the Gold definition reports
+  // its measured blocked outcome instead of creating a substitute token.
   const kernel = world().player("A").build();
-  const run = runInstruction(token, {
-    ...tokenInstruction.args,
-    location: { kind: "constant", value: { type: "base", player: "A" } }
-  }, { world: kernel });
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.linked.goldToken.blockedReason, "token-definition-or-abilities-judge-required");
+  const outcome = resolveChainBody(spendTrigger.body, kernel);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["fae-dragon.read-base", "executed"],
+    ["fae-dragon.play-gold-token", "negated"]
+  ]);
+  assert.deepEqual(outcome.linkedValues["fae-dragon.read-base.base"], { type: "base", player: "A" });
+  assert.equal(
+    outcome.linkedValues["fae-dragon.play-gold-token.goldToken"].blockedReason,
+    "token-definition-or-abilities-judge-required"
+  );
   assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
+});
+
+test("sfd-101-221 Fae Dragon: the controller Base really follows the ability controller", () => {
+  // 440.4 / 107.1.c: the created token belongs to the ability controller, so the
+  // destination must be that player's Base, not a hard-coded seat.
+  for (const controller of ["A", "B"]) {
+    const base = world().player("A").player("B").build();
+    const kernel = base.clone({ controller });
+    const outcome = resolveChainBody([readBase], kernel);
+    assert.equal(outcome.status, "executed");
+    assert.deepEqual(outcome.linkedValues["fae-dragon.read-base.base"], { type: "base", player: controller });
+  }
 });
 
 test("sfd-101-221 Fae Dragon: the real buff-spent trigger is rejected by the event-pattern vocabulary", () => {
@@ -225,7 +257,8 @@ test("sfd-101-221 Fae Dragon: the real buff-spent trigger is rejected by the eve
 
 test.todo(
   "sfd-101-221 Fae Dragon: create/play Gold with exhausted entry (187.5/184.1/185.2.d); " +
-    "this needs a Gold definition, an entry override and a relative controller-base token destination"
+    "this needs a Gold definition and an entry-state override on the create/play actions " +
+    "(the controller-base destination is merged)"
 );
 
 test.todo(

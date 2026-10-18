@@ -7,6 +7,8 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import mightDefinition from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 
 const CANONICAL_ID =
   "card.hash-96a4d656fe980065c6206e2b07389b146cc4347f8396756aeeb3b2ef9c30a281";
@@ -28,7 +30,8 @@ test("ven-151-166 Soul's Reflection: validateCardProgram passes and identity is 
   assert.match(program.judgeReason, /empowered-changed/);
   assert.match(program.judgeReason, /disempower/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /disempower/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
 });
 
@@ -111,17 +114,27 @@ test.todo(
     "(effect.empower header, RIFT-114)"
 );
 
-test.todo(
-  "ven-151-166: trigger only on the increase direction and only for " +
-    "\"something else\" — empowered-changed fires for empower and disempower alike (443.1) and its " +
-    "payload (previousCount/currentCount/direction) is not filled by events/action-adapter.ts; " +
-    "EventPattern has no host-exclusion key (contract change request, RIFT-120)"
-);
+test("ven-151-166 gap: the authored empowered-changed trigger spec is rejected by the pipeline validator", () => {
+  // Executed evidence for judgeReason point 1: empowered-changed is a closed
+  // timing point, but EVENT_PATTERN_TYPES has no empowerment discriminant and
+  // EventPattern has no direction / "something else" key.
+  assert.equal(triggered.trigger.at, "empowered-changed");
+  assert.throws(
+    () => assertTriggerSpec({ at: triggered.trigger.at, filter: triggered.trigger.filter }),
+    /EventPattern 不允许此字段/
+  );
+});
 
-test.todo(
-  "ven-151-166: pay the printed 'Disempower me' cost — the in-flight RIFT-261 cost kinds still do not " +
-    "include disempower (cost/plan-values.ts supports exhaust/discard/recycle/kill/reveal/spend-buff)"
-);
+test("ven-151-166 gap: 'Disempower me' has no payable cost kind", () => {
+  // Executed evidence for judgeReason point 2: plan-values.ts supports only
+  // exhaust/discard/recycle/kill/reveal/spend-buff, so the printed Disempower
+  // cost is rejected instead of being approximated with effect.disempower.
+  const kernel = world().unit("souls-reflection", { types: ["legend"], zone: "board" }).build();
+  assert.throws(
+    () => buildCostPlan(kernel, { id: "souls-reflection", cost: activated.cost }),
+    /Unsupported payment kind: disempower/
+  );
+});
 
 /**
  * The card's own `continuous.might` instruction args (the reference kernel

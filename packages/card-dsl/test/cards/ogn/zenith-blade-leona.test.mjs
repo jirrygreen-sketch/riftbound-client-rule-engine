@@ -10,8 +10,8 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
-import { ChainContractBlockedError, ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-a4a04e52d4544c14530e273f53c3890ccd0d8688ef9dc725dc0ef6b1d20103de";
 const BASE = player => ({ type: "base", player });
@@ -19,26 +19,58 @@ const BATTLEFIELD = id => ({ type: "battlefield", id });
 
 const [keyword, play] = zenithBlade.abilities;
 const [stunInstruction, readInstruction, optionalInstruction] = play.body;
-const stunSpec = stunInstruction.targets[0];
 const moveInstruction = optionalInstruction.args.body.value[0];
-const moveSpec = moveInstruction.targets[0];
+const stunSpec = stunInstruction.targets[0];
+const friendlyUnitTarget = optionalInstruction.targets[0];
 
 /**
- * Two execution paths are merged, and each accepts different argument shapes.
+ * The card is played through the real ChainEngine (describePlay -> Finalize
+ * target locks -> Resolve), which is the production path a played spell takes.
  *
- * - runAbilityBody with the default registry evaluates every argument first and
- *   hands the primitive literal values (a target id string, a LocationRef),
- *   which is what effect.stun accepts and what effect.move rejects.
- * - resolveChainBody (chain/interpreter-adapter.ts) keeps the raw Expr nodes
- *   inside one literal envelope and decodes the declared literal fields, which
- *   is what effect.move needs to evaluate a linked Location itself.
- * The tests therefore drive each half through the path the merged engine uses
- * for it, with Finalize-style locked targets supplied by the caller.
+ * The chain's interpreter adapter (chain/interpreter-adapter.ts) is what keeps
+ * the raw Expr arguments for the frozen primitives, so effect.move evaluates the
+ * linked Location itself; the adapter's literal-field table does not decode
+ * effect.stun's target, so the Stun primitive is additionally pinned through the
+ * default interpreter registry (the same convention as the merged Rune Prison,
+ * Solari Chief and Twisted Fate goldens).
  */
 const withoutTargets = instruction => {
   const { targets, ...rest } = instruction;
   return rest;
 };
+
+/** A real engine world with one legal enemy unit at a battlefield. */
+function playZenithBlade({ answer = true, enemyBattlefield = "bf-2" } = {}) {
+  const state = fixture({
+    turnPlayer: "A",
+    cards: [{ id: "zenith-blade", cardId: CANONICAL, types: ["spell"], energy: 3 }],
+    choose: request => {
+      if (request.type === "select-objects") return request.options.slice(0, request.max ?? 1);
+      if (request.type === "optional") return answer;
+      if (request.type === "mode") return request.options[0];
+      throw new Error("unexpected choose " + request.type);
+    }
+  });
+  // Move the enemy unit onto the battlefield the card reads; the friendly unit
+  // starts at its Base so the Move is a real location change.
+  state.engine.commit({ type: "move-location", object: state.kernel.ref("enemy"), to: BATTLEFIELD(enemyBattlefield) });
+  state.engine.advance();
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...zenithBlade, status: "executable", judgeReason: undefined }]
+  });
+  const draft = binding.describePlay(
+    { type: "play", object: state.kernel.ref("zenith-blade"), player: "A" },
+    state.kernel.getObject("zenith-blade")
+  );
+  return { ...state, draft };
+}
+
+/** Finalize the real chain item and return the locked target plans. */
+function finalizeZenithBlade(state) {
+  state.engine.execute(state.draft);
+  const item = state.engine.items.at(-1);
+  return item.targetPlans.map(plan => [plan.requirement.id, plan.selected.map(ref => ref.id)]);
+}
 
 test("Zenith Blade program is structurally valid EffectIR v2 data", () => {
   const result = validateCardProgram(zenithBlade);
@@ -56,16 +88,19 @@ test("Zenith Blade identity, ruleset, status, printed text and judgeReason", () 
       "Stun an enemy unit at a battlefield. You may move a friendly unit to that enemy unit's battlefield. " +
       "(A stunned unit doesn't deal combat damage this turn.)"
   );
-  // The judgeReason must name the blocked nested-target Finalize surface, the
-  // rule that makes the choice part of the Move, and the current Move
-  // consequence state.
+  // The judgeReason must name the rule that makes the choice part of the Move
+  // (355.12), the execution evidence the golden drives, and the one remaining
+  // runtime dependency: the effect Move's 355.4/355.4.a/451.1 destination
+  // legality plus the blocked combat consequences it stages.
   assert.match(zenithBlade.judgeReason, /choice\.optional/);
   assert.match(zenithBlade.judgeReason, /355\.12/);
-  assert.match(zenithBlade.judgeReason, /Finalize|生命周期/);
-  assert.match(zenithBlade.judgeReason, /Nested\/repeated targets/);
-  assert.match(zenithBlade.judgeReason, /combat|467\.2\.c\.1\.a/);
+  assert.match(zenithBlade.judgeReason, /355\.4(\.a)?/);
+  assert.match(zenithBlade.judgeReason, /451\.1/);
   assert.match(zenithBlade.judgeReason, /467\.2\.c\.1\.a/);
   assert.match(zenithBlade.judgeReason, /effect\.stun/);
+  assert.match(zenithBlade.judgeReason, /Finalize/);
+  assert.doesNotMatch(zenithBlade.judgeReason, /Nested\/repeated targets/);
+  assert.ok(!/待实现|需要裁定/.test(zenithBlade.judgeReason));
   assert.equal(cardRegistryById.get(zenithBlade.canonicalCardId), zenithBlade);
 });
 
@@ -108,14 +143,24 @@ test("Zenith Blade structure: Stun, publish that battlefield, then the optional 
   assert.equal(readInstruction.targets, undefined);
 
   // "You may move a friendly unit to that enemy unit's battlefield" — contract
-  // 3.9: choice.optional wraps the chosen instruction, which keeps its own
-  // target (CR 355.12: the choice and the game action are independent targets).
+  // 3.9: choice.optional wraps the chosen instruction, and CR 355.12 makes the
+  // friendly unit a target chosen independently of the decision to move, so the
+  // TargetSpec sits on the may node (the merged disarming-rake / salvage shape).
   assert.equal(optionalInstruction.id, "may-move-friendly-unit");
   assert.equal(optionalInstruction.op, "choice.optional");
   assert.equal(optionalInstruction.linkedTo, "read-that-battlefield");
   assert.equal(optionalInstruction.args.body.kind, "constant");
   assert.equal(optionalInstruction.args.body.value.length, 1);
-  assert.equal(optionalInstruction.targets, undefined);
+  assert.deepEqual(optionalInstruction.targets, [
+    {
+      id: "friendly-unit",
+      filter: { type: "unit", controller: "self" },
+      min: 1,
+      max: 1,
+      selection: "one"
+    }
+  ]);
+  assert.equal(optionalInstruction.picks, undefined);
   assert.equal(moveInstruction.id, "move-friendly-unit");
   assert.equal(moveInstruction.op, "effect.move");
   assert.deepEqual(moveInstruction.args.objects, { kind: "constant", value: { target: "friendly-unit" } });
@@ -124,13 +169,10 @@ test("Zenith Blade structure: Stun, publish that battlefield, then the optional 
     instructionId: "read-that-battlefield",
     key: "battlefield"
   });
-  assert.deepEqual(moveSpec, {
-    id: "friendly-unit",
-    filter: { type: "unit", controller: "self" },
-    min: 1,
-    max: 1,
-    selection: "one"
-  });
+  // The Move body carries no target of its own: the nested-target shape is what
+  // ChainEngine's Finalize surface rejected.
+  assert.equal(moveInstruction.targets, undefined);
+  assert.equal(moveInstruction.linkedTo, undefined);
   assert.equal(instructionDefinitionsById.has("effect.stun"), true);
   assert.equal(instructionDefinitionsById.has("effect.move"), true);
 });
@@ -178,25 +220,91 @@ test("Zenith Blade golden: the Stun half runs through the interpreter with the p
   assert.deepEqual(outcome.events.map(event => event.action), ["stun"]);
 });
 
+test("Zenith Blade golden: the real chain Finalize locks both printed choices", () => {
+  // 355.8 / 355.12: Finalize locks the enemy unit named by the Stun and the
+  // friendly unit named by the may-action; both live in one ability.
+  assert.deepEqual(friendlyUnitTarget, {
+    id: "friendly-unit",
+    filter: { type: "unit", controller: "self" },
+    min: 1,
+    max: 1,
+    selection: "one"
+  });
+  const state = playZenithBlade();
+  assert.equal(state.draft.speed, "action");
+  assert.deepEqual(
+    state.draft.body.flatMap(instruction => (instruction.targets ?? []).map(target => target.id)),
+    ["enemy-unit-at-battlefield", "friendly-unit"]
+  );
+  assert.deepEqual(finalizeZenithBlade(state), [
+    ["enemy-unit-at-battlefield", ["enemy"]],
+    ["friendly-unit", ["source"]]
+  ]);
+});
+
+test("Zenith Blade boundary: the nested-target shape the Finalize surface rejects is the one this card no longer ships", () => {
+  // CR 355.12 / contract 3.9: the friendly unit's TargetSpec belongs on the may
+  // node. The rejected shape was the nested one, where the Move inside
+  // choice.optional carried its own TargetSpec:
+  const { targets: mayTargets, ...mayWithoutTargets } = optionalInstruction;
+  assert.deepEqual(mayTargets, [friendlyUnitTarget]);
+  const nested = [stunInstruction, readInstruction, {
+    ...mayWithoutTargets,
+    args: {
+      ...optionalInstruction.args,
+      body: { kind: "constant", value: [{ ...moveInstruction, targets: [friendlyUnitTarget] }] }
+    }
+  }];
+  const state = playZenithBlade();
+  const binding = createProgramBinding({ cardPrograms: [{
+    ...zenithBlade, status: "executable", judgeReason: undefined,
+    abilities: [keyword, { ...play, body: nested }]
+  }] });
+  let blocked;
+  try {
+    binding.describePlay(
+      { type: "play", object: state.kernel.ref("zenith-blade"), player: "A" },
+      state.kernel.getObject("zenith-blade")
+    );
+  } catch (error) {
+    blocked = error;
+  }
+  assert.ok(blocked instanceof Error);
+  assert.match(blocked.message, /Nested instruction targets require a target lifecycle adapter/);
+
+  // The shipped program has no nested target, so the same path proceeds to the
+  // real Finalize target plans (asserted in full above).
+  assert.equal(play.body.flatMap(instruction =>
+    (instruction.args.body?.value ?? []).flatMap(nestedInstruction => nestedInstruction.targets ?? [])
+  ).length, 0);
+});
+
+test("Zenith Blade boundary: the chain adapter still cannot resolve the card's own Stun instruction", () => {
+  // The production chain keeps the IR's Expr arguments and decodes only the ops
+  // in chain/interpreter-adapter.ts LITERAL_FIELDS, which has no effect.stun
+  // entry: Resolve rejects the card's own body with this exact error. That is
+  // the engine-side dependency, not a card-semantics gap — the Stun primitive
+  // itself is exercised through the interpreter above.
+  const state = playZenithBlade();
+  finalizeZenithBlade(state);
+  assert.throws(() => resolveAll(state.engine), /effect\.stun target must be a spec id string/);
+  assert.equal(state.kernel.getObject("enemy").stunned, false);
+  assert.deepEqual(state.kernel.getObject("source").location, BASE("A"));
+});
+
 /**
  * The Move half of the card: the Location read plus the optional Move.
  *
- * This is a harness accommodation, not a card change. The merged chain adapter
- * keeps raw Exprs only for the ops in its literal-field table
- * (chain/interpreter-adapter.ts), which does not list effect.stun, so a Stun
- * instruction with a wrapped target id cannot take part in an adapter run at
- * all. The interpreter half is exercised above, and the optional body keeps its
- * nested target so the production lifecycle can finalize it once supported.
+ * This is a harness accommodation, not a card change: the Move body's target is
+ * the may node's own TargetSpec, and the reference kernel is supplied with the
+ * Finalize-locked reference through setTargets (the merged Solari Chief /
+ * pit-rookie convention). Only the Stun instruction's link is dropped, because
+ * Resolve stops at that instruction's adapter gap (asserted above); the Move's
+ * linked Location read and the optional container are the program's own nodes.
  */
 const moveHalfBody = [
-  { ...withoutTargets(readInstruction), linkedTo: undefined },
-  {
-    ...withoutTargets(optionalInstruction),
-    args: {
-      ...optionalInstruction.args,
-      body: { kind: "constant", value: [withoutTargets(moveInstruction)] }
-    }
-  }
+  { ...readInstruction, linkedTo: undefined },
+  { ...withoutTargets(optionalInstruction), args: { ...optionalInstruction.args } }
 ];
 
 test("Zenith Blade golden: accepting the optional Move sends the friendly unit to the read battlefield", () => {
@@ -249,50 +357,6 @@ test("Zenith Blade golden: declining the optional Move leaves the unit untouched
   assert.deepEqual(outcome.events, []);
 });
 
-test("Zenith Blade golden: an unresolved nested target leaves the card source and Move state untouched", () => {
-  // The nested target lifecycle remains unavailable. Assert the actual chain
-  // contract block and the post-attempt state: no Move action may leak through.
-  const kernel = world()
-    .unit("zenith-blade", { types: ["spell"], zone: "chain", owner: "A", controller: "A" })
-    .unit("enemy-unit", { owner: "B", location: BATTLEFIELD("bf1") })
-    .unit("friendly-unit", { owner: "A", location: BASE("A") })
-    .build();
-  const choose = request => {
-    if (request.type === "select-objects") return [...request.options].slice(0, request.max ?? 1);
-    if (request.type === "optional") return true;
-    throw new Error("unexpected choose " + request.type);
-  };
-  const host = createActionPipelineHost({
-    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
-    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
-    objects: () => kernel.objects,
-    perform: action => kernel.perform(action),
-    choose,
-    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
-    testTrigger: () => false
-  });
-  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
-
-  let blocked;
-  try {
-    engine.execute({
-      id: "zenith-blade:play",
-      controller: "A",
-      source: kernel.getObject("zenith-blade"),
-      kind: "activated",
-      speed: "action",
-      body: play.body
-    });
-  } catch (error) {
-    blocked = error;
-  }
-
-  assert.ok(blocked instanceof ChainContractBlockedError);
-  assert.match(blocked.message, /Nested\/repeated targets require an interpreter target-selection lifecycle adapter/);
-  assert.deepEqual(kernel.getObject("friendly-unit").location, BASE("A"));
-  assert.equal(kernel.events.some(event => event.action === "move-location"), false);
-});
-
 test("Zenith Blade golden: the Move half resolves with a caller-supplied Finalize destination", () => {
   // The production caller owns the runtime Location (355.4.a); this pins the
   // primitive half with the destination the Move above actually read.
@@ -308,27 +372,18 @@ test("Zenith Blade golden: the Move half resolves with a caller-supplied Finaliz
   assert.equal(run.linked.moved.count, 1);
 });
 
-test("Zenith Blade: the optional Move keeps its nested target in the frozen may shape", () => {
-  // The target belongs to the Move instruction inside choice.optional. Keeping
-  // it there preserves CR 355.12 and contract 3.9 for the eventual target
-  // lifecycle adapter; hoisting it would change the printed effect's meaning.
-  const nested = optionalInstruction.args.body.value;
-  assert.equal(nested.length, 1);
-  assert.equal(nested[0].targets.length, 1);
-  assert.equal(nested[0].targets[0].id, "friendly-unit");
-});
-
 test.todo(
-  "Zenith Blade optional Move: give the interpreter a Finalize/Resolve target-selection lifecycle " +
-    "so a nested target inside choice.optional can be finalized, taxed and announced (chain/README " +
-    "contract change request 2; 355.12 / 754)"
+  "Zenith Blade Move Destination legality: give the Finalize surface a location plan for effect.move so the " +
+    "stunned unit's battlefield is proved a valid Move Destination (355.4 / 355.4.a / 449.2 / 451.1); the merged " +
+    "TurnFlow/CombatFlow already produce Contested (452) and stage the Showdown for committed effect Moves, but " +
+    "combat start (466.2) and simultaneous combat damage (467.2.c.1.a / 467.3) remain explicitly blocked in the " +
+    "Turn/Combat workstream"
 );
 
 test.todo(
-  "Zenith Blade Move Destination legality: enumerate the runtime-legal Locations (355.4.a / 449.2 / " +
-    "451.1); the merged TurnFlow/CombatFlow already produce Contested (452) and stage the Showdown for " +
-    "committed effect Moves, but combat start (466.2) and simultaneous combat damage (467.2.c.1.a / 467.3) " +
-    "remain explicitly blocked in the Turn/Combat workstream"
+  "Zenith Blade chain Resolve: decode effect.stun's literal target in chain/interpreter-adapter.ts " +
+    "LITERAL_FIELDS so the card's own body resolves through the production chain (currently throws " +
+    "\"effect.stun target must be a spec id string\"); the golden asserts that exact engine-side boundary"
 );
 
 test.todo(

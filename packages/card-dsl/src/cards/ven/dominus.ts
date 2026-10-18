@@ -22,7 +22,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   "Ready me" 是 416.1 的就绪动作，
  *   已合入的 effect.ready 的缺省选择即能力来源（"ready me" 同型记录见 sfd/simian-ancestor）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。不近似实现尚缺的能力授予：
+ * status 判定（cards/README.md 第 2 节）：judge-required（2026-10-18 复核）。
+ * 不近似实现尚缺的能力授予：
  * 缺 continuous.grant-ability 原语：把一条完整启动能力（保留来源、支付、目标与持续期）
  * 授予目标对象的能力边界不存在；effects/instructions/ 的注册表没有该 op（同型记录见
  * sfd/forge-of-the-fluft、rad/heartening-soul）。
@@ -36,7 +37,7 @@ const dominus = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 continuous.grant-ability 原语，不近似实现——把一条完整启动能力" +
+    "缺 continuous.grant-ability 原语（2026-10-18 复核），不近似实现——把一条完整启动能力" +
     "（保留来源、支付、目标与持续期，CR 399-406/135.4.b/801.3.a）授予被选单位的能力边界不存在，" +
     "effects/instructions/ 的注册表没有该 op（同型记录见 sfd/forge-of-the-fluft、rad/heartening-soul）。" +
     "翻倍部分已支持：condition.value 冻结结算时当前 Might，continuous.might add 在本回合增加该固定数值" +

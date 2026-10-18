@@ -8,6 +8,7 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { translateInstructionTargets, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 
 const CANONICAL_ID =
   "card.hash-5b42742bf383c1d6c7809e387ff198cfe26b37f06ef74cd7742bf390ea3cf2a7";
@@ -17,7 +18,7 @@ const SOURCE_TEXT =
   "[Action][>] :rb_energy_1::rb_rune_chaos:: Move me and a Shadow Clone you control to each other's locations.";
 
 const [conquer, activated] = program.abilities;
-const [playClone] = conquer.body;
+const [baseLocation, playClone] = conquer.body;
 const [origin, cloneLocation, moveMe, moveClone] = activated.body;
 
 /** 静态 IR 的 targets 由 Finalize 锁定；参考内核用 setTargets 提供同样的锁定结果。 */
@@ -50,6 +51,12 @@ test("ven-112-166 Zed: the conquer trigger plays a Shadow Clone token to your ba
   assert.equal(conquer.optional, false);
 
   assert.equal(program.abilities.length, 2);
+  assert.equal(conquer.body.length, 2);
+  // "to your base" resolves through the merged relative LocationExpr and is
+  // frozen before the token instruction consumes it as a linked value.
+  assert.equal(baseLocation.id, "zed-without-a-sound.base-location");
+  assert.equal(baseLocation.op, "condition.value");
+  assert.deepEqual(baseLocation.args.value, { kind: "location", value: "ability-controller-base" });
   assert.equal(playClone.id, "zed-without-a-sound.play-shadow-clone");
   assert.equal(playClone.op, "effect.token");
   assert.deepEqual(playClone.args.token, { kind: "constant", value: "shadow-clone" });
@@ -57,17 +64,60 @@ test("ven-112-166 Zed: the conquer trigger plays a Shadow Clone token to your ba
   // 440.2.c / 185.2.a：被“打出”的新 token 先在链上创建，再由 play 接手。
   assert.deepEqual(playClone.args.mode, { kind: "constant", value: "play" });
   assert.deepEqual(playClone.args.location, {
-    kind: "constant",
-    value: { type: "base", player: "controller" }
+    kind: "linked-value",
+    instructionId: "zed-without-a-sound.base-location",
+    key: "value"
   });
+  assert.equal(playClone.linkedTo, "zed-without-a-sound.base-location");
   assert.equal(playClone.targets, undefined);
-  assert.equal(playClone.linkedTo, undefined);
 });
 
 test("ven-112-166 Zed: the conquered EventPattern spelling binds through the production trigger adapter", () => {
   const translated = translateTriggerFilter(conquer.trigger.filter, "zed", conquer.trigger.at);
   assert.deepEqual(translated, { event: "conquered", object: { objectId: "zed" } });
   assert.doesNotThrow(() => assertTriggerSpec({ at: conquer.trigger.at, filter: translated }));
+});
+
+test("ven-112-166 Zed golden: the base LocationExpr resolves to the ability controller and the token path is still refused", () => {
+  // Executed evidence for judgeReason point 1: the rewritten "to your base"
+  // destination really resolves to a PlayerId Base (RIFT-357 path), and the
+  // body then reaches the frozen token-definition table and is refused with the
+  // exact blocked reason rather than a malformed destination.
+  const kernel = world().player("A").build();
+  const outcome = resolveChainBody(conquer.body, kernel);
+
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason]), [
+    ["zed-without-a-sound.base-location", "executed", undefined],
+    ["zed-without-a-sound.play-shadow-clone", "negated", "impossible"]
+  ]);
+  assert.deepEqual(outcome.linkedValues["zed-without-a-sound.base-location.value"], {
+    type: "base",
+    player: "A"
+  });
+  assert.equal(
+    outcome.linkedValues["zed-without-a-sound.play-shadow-clone.token"].blockedReason,
+    "token-definition-or-abilities-judge-required"
+  );
+  assert.equal(kernel.objects.some((object) => object.name === "Shadow Clone"), false);
+});
+
+test("ven-112-166 Zed golden: the conquer self anchor rejects the real scoring payload", () => {
+  // Executed evidence for judgeReason point 2: turn/flow.ts's conquer emission
+  // carries player + details.battlefieldId only; the translated source: "self"
+  // anchor matches once (and only once) an object is present.
+  const pattern = translateTriggerFilter(conquer.trigger.filter, "zed-instance", conquer.trigger.at);
+  const event = {
+    type: "task-resolved", seq: 1, eventId: 1, turnNumber: 1, activePlayerId: "A",
+    taskId: "pipeline:1", sourceCardId: "", reason: "conquer", autoResolved: true,
+    timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" }
+  };
+  assert.deepEqual(pattern, { event: "conquered", object: { objectId: "zed-instance" } });
+  assert.equal(matchesTriggerEvent(pattern, event, "A"), false);
+  assert.equal(
+    matchesTriggerEvent(pattern, { ...event, object: { ref: { id: "zed-instance", zoneEntryId: 1 } } }, "A"),
+    true
+  );
 });
 
 test("ven-112-166 Zed: [Action][>] cost and the two locked swaps of the exchange body", () => {

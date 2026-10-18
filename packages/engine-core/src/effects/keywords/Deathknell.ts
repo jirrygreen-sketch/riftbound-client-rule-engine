@@ -1,6 +1,6 @@
 import type { Ability, Instruction, TriggeredAbility } from "@riftbound/card-dsl";
 
-import type { KeywordDef } from "../keyword-contract.js";
+import type { CardContextRef, KeywordDef, KeywordParameterMap } from "../keyword-contract.js";
 
 /**
  * Deathknell —— v1.5 规则 808（触发式能力关键词，仅存在于 Permanent 上）。
@@ -21,16 +21,16 @@ import type { KeywordDef } from "../keyword-contract.js";
  *   关键词）。
  * - 808.3：Deathknell 及其持有状态是永久物的特征，可被其他游戏效果检查或引用。
  *
- * 关键词与效果正文的边界（契约 3.7）：Deathknell 本身只展开为「触发时点 + 过滤条件」的
- * 触发能力骨架，**不写任何流程**。[Effect]（808.1.b.1 的 Deathknell 效果正文，例如
- * "Recycle me to ready your runes."）由卡牌程序在编译时挂到所选的 trigger-leave 能力上
- * （payload 引用的 ability id 即 deathknell:<host>:leave）；关键词不持有、也不执行效果
- * 正文。808.1.c.2 中"过去式指触发入链时刻"的语义由效果正文内的取值时机表达，不属于
- * 关键词展开。
+ * 关键词与效果正文的边界（契约 3.7）：Deathknell 展开为一个 object-killed 订阅，
+ * 结算体以 `trigger.leave` 作为离场/LKI 边界。调用方若已把该实例的正文放入
+ * `params.body`，正文会紧接在边界指令后进入同一个 Pending Item；这样订阅和结算仍是
+ * 两个明确阶段，而不是在关键词定义里伪造一次 Kill 或直接改写区域。当前生产关键词
+ * 装配器尚未把 KeywordAbility.params 转发给 KeywordDef.expand，因此无 payload 时仍只
+ * 产生可执行的边界指令，未知正文保持 judge-required。
  *
  * 依赖尚未合入的部分（均按计划由其他任务实现，本文件只按契约引用其 id，不近似实现）：
- * - trigger.leave 原语：死亡 / 离场触发的订阅原语（RIFT-9 调研 ability-templates.md 原语
- *   清单，47/47 张卡使用）。本展开的指令体仅引用该 op id。
+ * - trigger.leave 原语：死亡 / 离场触发的结算边界（RIFT-9 调研 ability-templates.md
+ *   原语清单，47/47 张卡使用）。本展开的指令体先引用该 op，再接入可选正文 payload。
  * - 事件管线在 object-killed 时点收集触发并作为 Pending Item 入链的流程（契约 3.5）由
  *   chain / events 模块提供。
  */
@@ -38,22 +38,25 @@ const deathknell = {
   keyword: "Deathknell",
   valued: false,
   stacking: "separate",
-  expand({ host }) {
+  expand({ host, params }: { readonly value?: number; readonly host: CardContextRef; readonly params?: KeywordParameterMap }) {
     const instructionId = `deathknell:${host.canonicalCardId}:leave`;
-    const body: readonly Instruction[] = [
-      {
-        id: instructionId,
-        op: "trigger.leave",
-        args: {
-          cause: { kind: "constant", value: "kill" }
-        }
+    const boundary: Instruction = {
+      id: instructionId,
+      op: "trigger.leave",
+      args: {
+        cause: { kind: "constant", value: "kill" }
       }
-    ];
+    };
+    const body = [boundary, ...gatePayload(readPayload(params?.body), instructionId)];
     const ability: TriggeredAbility = {
       kind: "triggered",
       trigger: {
         at: "object-killed",
-        filter: { self: true, cause: "kill", destination: "trash" }
+        // Cause and destination are settlement facts.  The production filter
+        // adapter intentionally accepts only the self object anchor here; the
+        // trigger.leave primitive verifies that the source really died into
+        // Trash before publishing the LKI links.
+        filter: { self: true }
       },
       optional: false,
       body
@@ -77,6 +80,41 @@ const deathknell = {
     "429.1.a.1.b"
   ]
 } satisfies KeywordDef;
+
+function readPayload(value: unknown): readonly Instruction[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new TypeError("Deathknell params.body must be an instruction array");
+  for (const instruction of value) {
+    if (typeof instruction !== "object" || instruction === null || Array.isArray(instruction)) {
+      throw new TypeError("Deathknell params.body contains a non-instruction value");
+    }
+    const candidate = instruction as unknown as Record<string, unknown>;
+    if (typeof candidate.id !== "string" || candidate.id.length === 0 ||
+        typeof candidate.op !== "string" || typeof candidate.args !== "object" ||
+        candidate.args === null || Array.isArray(candidate.args)) {
+      throw new TypeError("Deathknell params.body contains an invalid instruction");
+    }
+  }
+  return structuredClone(value) as unknown as readonly Instruction[];
+}
+
+function gatePayload(payload: readonly Instruction[], boundaryId: string): readonly Instruction[] {
+  if (payload.length === 0) return payload;
+  const leaveGate = {
+    kind: "expression" as const,
+    value: {
+      kind: "linked-value" as const,
+      instructionId: boundaryId,
+      key: "left"
+    }
+  };
+  return payload.map(instruction => ({
+    ...instruction,
+    condition: instruction.condition === undefined
+      ? leaveGate
+      : { kind: "all" as const, conditions: [leaveGate, instruction.condition] }
+  }));
+}
 
 export default deathknell;
 

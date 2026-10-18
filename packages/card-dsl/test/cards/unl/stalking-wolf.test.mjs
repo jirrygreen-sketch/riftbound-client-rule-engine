@@ -1,3 +1,5 @@
+// Execution evidence for this card lives in ../templates/keyword-static-671.test.mjs (README 4.1); this
+// card stays judge-required for the gaps asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -215,7 +217,7 @@ test.todo(
 );
 test.todo(
   "unl-166-219 Stalking Wolf: disjunctive tag filtering for \"a Bird, Cat, Dog, or Poro\" (133.8; ObjectFilter.tags is an " +
-    "AND over every tag) so the cost's candidate pool is not narrowed to one creature type (RIFT-357)"
+    "AND over every tag) so the cost's candidate pool is not narrowed to one creature type"
 );
 test.todo(
   "unl-166-219 Stalking Wolf: the CardProgram -> CostPlan wiring that charges this mandatory additional cost during " +

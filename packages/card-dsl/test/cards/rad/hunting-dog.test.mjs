@@ -2,6 +2,13 @@
 // The Deathknell declaration, the object-killed trigger and the token request
 // shape and controller-relative base binding are verifiable; the Bird
 // definition and Deathknell/Deflect consumers remain judged (see judgeReason).
+//
+// Template-level execution evidence lives in
+// test/cards/templates/keyword-triggered-object-killed-conditio-679.test.mjs
+// (RIFT-679, README 4.1): the authored death trigger binds and resolves through
+// the generic scenario harness and the 187.7 Bird request negates with the
+// frozen-definition blocked reason. This file keeps the validation, structure
+// and fail-closed dependency assertions for the same canonical identity.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -13,7 +20,13 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
 import { appliedCosts } from "../../../../engine-core/dist/layers/rules/query.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import tokenInstruction from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { collectTargetTaxes, deflectCost } from "../../../../engine-core/dist/target/tax/collect.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { fixture as keywordFixture, settle } from "../../../../engine-core/test/rules/keywords/support.mjs";
 
 const CANONICAL = "card.hash-883ac11e924326f2848f19e337d6d2f7e70dc660d572f974d06708fc1f752353";
 const SOURCE_TEXT =
@@ -40,7 +53,90 @@ test("rad-119-167 Hunting Dog: judgeReason names the Bird definition, Deathknell
   assert.match(program.judgeReason, /trigger\.leave/);
   assert.match(program.judgeReason, /809\.1\.c/);
   assert.match(program.judgeReason, /target\.tax/);
+  // Second-sweep refresh: the reason records the observed negations/binding failure.
+  assert.match(program.judgeReason, /token-definition-or-abilities-judge-required/);
+  assert.match(program.judgeReason, /DEFINITIONS/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  // 808.1.d.2/.3: the reason must record the measured subscription lifecycle,
+  // not just that the expansion body is unregistered.
+  assert.match(program.judgeReason, /object-leaves-board/);
+  assert.match(program.judgeReason, /Triggered Item/);
 });
+
+test("rad-119-167 Hunting Dog gap: the 187.7 Bird definition is absent, so the token request negates", () => {
+  const kernel = world().unit("dog", { owner: "A", controller: "A" }).build();
+  const played = runInstruction(tokenInstruction, {
+    token: playBird.args.token,
+    amount: playBird.args.amount,
+    mode: playBird.args.mode,
+    location: { kind: "constant", value: { type: "base", player: "A" } },
+    linkKey: playBird.args.linkKey
+  }, { world: kernel });
+  assert.equal(played.result.status, "negated");
+  assert.equal(played.result.reason, "impossible");
+  assert.equal(played.linked.birdToken.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.equal(played.linked.birdToken.amount, 0);
+  assert.deepEqual(played.linked.birdToken.objects, []);
+  assert.equal(kernel.objects.some((object) => object.isToken), false);
+});
+
+test("rad-119-167 Hunting Dog gap: the merged Deathknell expansion cannot run (trigger.leave is unregistered)", () => {
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+  const [expansion] = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL } });
+  assert.deepEqual(expansion.body.map((entry) => entry.op), ["trigger.leave"]);
+});
+
+test("rad-119-167 Hunting Dog gap: the merged Deflect declaration has no static-program binding", () => {
+  // A target.tax declaration cannot reach the layer registry through the
+  // production static binder, so a granted Deflect (or a token's printed one)
+  // has no program path today.
+  const f = fixture({ cards: [{ id: "src", cardId: CANONICAL, types: ["unit"], might: 3, zone: "board" }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("src"), to: "board" });
+  const binder = createEngineStaticBinder(f.engine);
+  const [expansion] = keywordDefinitionsById.get("Deflect").expand({ value: 1, host: { canonicalCardId: CANONICAL } });
+  assert.equal(expansion.effect.kind, "target.tax");
+  assert.throws(() => binder.bindStatic(expansion, f.kernel.getObject("src")), /target\.tax has no layer mapping/);
+  assert.deepEqual(f.engine.layers.registry.list(), []);
+});
+
+test("rad-119-167 Hunting Dog gap: the merged Deflect tax is any-domain Power, but Chain Finalize charges it as Energy", () => {
+  // The merged collector gets 809.1.c.1 right...
+  const kernel = world().unit("victim", { owner: "B", controller: "B", keywords: [{ id: "Deflect", value: 1 }] }).build();
+  assert.deepEqual(collectTargetTaxes(kernel, kernel.getObject("victim"), { kind: "spell" }), [
+    { id: "deflect", stage: "mandatory-additional", cost: deflectCost(1) }
+  ]);
+  assert.deepEqual(deflectCost(1).payments, [
+    { kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] }
+  ]);
+
+  // ...but the chain's own Finalize accounting converts a selected Deflect into
+  // an Energy charge instead of any-domain Power.
+  const f = fixture({ energy: 6, cards: [
+    { id: "deflector", cardId: CANONICAL, types: ["unit"], might: 3, owner: "B", controller: "B", keywords: [{ id: "Deflect", value: 1 }] }
+  ] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("deflector"), to: "board" });
+  f.engine.advance();
+  f.engine.commit({ type: "exhaust", object: f.kernel.ref("source") });
+  f.engine.advance();
+  f.engine.execute(f.draft("older"));
+  f.engine.execute(f.draft("tax-probe", {
+    kind: "activated",
+    speed: "reaction",
+    targets: [{
+      requirement: { id: "deflect-target", filter: { type: "unit", zone: "board", controller: "opponent" }, min: 1, max: 1, selection: "one" },
+      options: { tax: { kind: "deflect", amount: 1 }, selected: [f.kernel.ref("deflector")] }
+    }]
+  }));
+  const item = f.engine.items.filter((entry) => entry.id === "tax-probe").at(-1);
+  assert.equal(item.status, "finalized");
+  // The tax component is spelled as an Energy cost component, never any-domain
+  // Power (809.1.c.1).
+  assert.equal(item.costPlan.total.energy, 1);
+  assert.deepEqual(item.costPlan.total.power, []);
+  assert.equal(item.costPlan.total.xp, 0);
+  assert.deepEqual(item.costPlan.total.actions, []);
+});
+
 
 test("rad-119-167 Hunting Dog: [Deathknell] is declared as a keyword ability (808.1)", () => {
   assert.equal(program.abilities.length, 2);
@@ -109,8 +205,68 @@ test("rad-119-167 Hunting Dog: the merged Deflect expansion is a static target t
 
 test.todo(
   "rad-119-167 Hunting Dog: the 1 Might Bird unit token definition with the Bird tag and [Deflect] " +
-    "(CR 187.7) needs a token definition carrying Bird and Deflect abilities"
+    "(CR 187.7) needs a token definition carrying Bird and Deflect abilities registered in " +
+    "effect.token's definition table; the request currently negates with " +
+    "token-definition-or-abilities-judge-required"
 );
+
+test("rad-119-167 Hunting Dog gap: a real kill drops the program's death subscription before the scan", () => {
+  // Control program: the same object-killed self-trigger shape whose body uses
+  // only registered instructions, so the subscription lifecycle can be measured
+  // without the unregistered trigger.leave body. CR 808.1.d.2 requires the
+  // trigger to be added as a Pending Item, and this is the merged path that must
+  // carry it.
+  const control = {
+    canonicalCardId: "test.rift-764.hunting-dog.control",
+    rulesetVersion: "core-1.5",
+    status: "executable",
+    sourceText: "Control: when I die, draw 1.",
+    abilities: [{
+      kind: "triggered",
+      trigger: { at: "object-killed", filter: { self: true } },
+      optional: false,
+      body: [{ id: "control.draw", op: "effect.draw", args: { amount: { kind: "constant", value: 1 } } }]
+    }]
+  };
+  const f = keywordFixture({
+    programs: [control],
+    setup: w => w.hand("unit", { cardId: control.canonicalCardId, owner: "A", controller: "A", types: ["unit"], might: 3 })
+  });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("unit"), to: "board" });
+  settle(f.engine);
+  assert.deepEqual(f.errors, []);
+  assert.deepEqual(
+    [...f.engine.pipeline.triggers.values()].map(registration => [registration.spec.at, registration.activeZones]),
+    [["object-killed", ["board"]]]
+  );
+
+  const handBefore = f.kernel.player("A").handSize;
+  f.engine.commit({ type: "kill", object: f.kernel.ref("unit") });
+  settle(f.engine);
+
+  // The committed kill really emits object-killed, but the lifecycle detach on
+  // object-leaves-board removes the registration first, so no Triggered Item is
+  // ever created and the death effect never resolves.
+  assert.equal(f.engine.pipeline.triggers.size, 0);
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "object-killed"), true);
+  assert.deepEqual(f.engine.items, []);
+  assert.equal(f.kernel.player("A").handSize, handBefore);
+  assert.equal(f.get("unit").zone, "trash");
+});
+
+test("rad-119-167 Hunting Dog gap: the merged Deathknell expansion body never reaches a registered op", () => {
+  // 808.1.c.1: [Effect] comes from the card, but the keyword skeleton the merged
+  // Deathknell def expands still binds trigger.leave, which has no instruction
+  // definition. Assert both halves so the reason's wording stays reproducible.
+  const [expansion] = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL } });
+  assert.deepEqual(expansion.body.map(entry => entry.op), ["trigger.leave"]);
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+  const kernel = world().unit("dog", { types: ["unit"] }).build();
+  assert.throws(
+    () => resolveChainBody(expansion.body, kernel.clone({ sourceSnapshot: kernel.getObject("dog") })),
+    /Unregistered instruction opcode: trigger\.leave/
+  );
+});
 test("rad-119-167 Hunting Dog golden: your base follows the ability controller even when the source has another owner", () => {
   for (const controller of ["A", "B"]) {
     const base = world().unit("dog", {
@@ -127,9 +283,11 @@ test("rad-119-167 Hunting Dog golden: your base follows the ability controller e
 });
 test.todo(
   "rad-119-167 Hunting Dog: the full Deathknell expansion — the trigger.leave subscription and removal " +
-    "from the chain when the death is replaced (CR 808.1.d.1/808.1.d.3)"
+    "from the chain when the death is replaced (CR 808.1.d.1/808.1.d.3); the op is still unregistered, " +
+    "so the merged expansion body cannot execute"
 );
 test.todo(
   "rad-119-167 Hunting Dog: [Deflect] as the mandatory target additional cost on the created token " +
-    "(CR 809.1.c) needs the target.tax consumer and any-Domain Power payment"
+    "(CR 809.1.c) needs a programs/statics binding for target.tax (layerFor rejects it today) and any-Domain " +
+    "Power in Chain Finalize, which currently charges the tax as Energy"
 );

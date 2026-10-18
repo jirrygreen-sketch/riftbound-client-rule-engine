@@ -1,3 +1,5 @@
+// Execution evidence for this card lives in ../templates/keyword-static-671.test.mjs (README 4.1); this
+// card stays judge-required for the gaps asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -79,12 +81,11 @@ test("sfd-054-221 Jax, Unmatched: identity, ruleset, status, judgeReason and ver
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-258/);
-  assert.match(program.judgeReason, /expandProgram/);
-  assert.match(program.judgeReason, /abilitySpeed/);
+  assert.match(program.judgeReason, /KeywordGrantLayerEngine/);
+  assert.match(program.judgeReason, /动态 attach/);
   assert.match(program.judgeReason, /grantsFor/);
   assert.match(program.judgeReason, /staticTarget/);
-  assert.match(program.judgeReason, /event\.source/);
+  assert.doesNotMatch(program.judgeReason, /event\.source/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -174,18 +175,14 @@ test("sfd-054-221 Jax, Unmatched: the real Quick-Draw timing expansion enters th
   assert.deepEqual(registered.effect.effect.permissions, ["play", "attach"]);
 });
 
-test("sfd-054-221 Jax, Unmatched: consume the bound Quick-Draw timing as Reaction (819.1.b/c)", {
-  todo: "grantsFor reads grants/timings but Quick-Draw emits value: reaction"
-}, () => {
+test("sfd-054-221 Jax, Unmatched: the current timing query still rejects Quick-Draw's value form", () => {
   const { engine, source } = boundQuickDrawTiming();
-  // The registry now contains the actual keyword timing, rather than just the
-  // unrelated grant-keyword effect. Correct Reaction behavior remains TODO.
-  assert.ok(actionTimings(engine.layers.registry, source.ref, engine.layers.evaluate(source.ref), "A").includes("reaction"));
+  // The registry contains the actual keyword timing, but actionTimings only
+  // reads grants/timings while Quick-Draw emits value: reaction.
+  assert.deepEqual(actionTimings(engine.layers.registry, source.ref, engine.layers.evaluate(source.ref), "A"), []);
 });
 
-test("sfd-054-221 Jax, Unmatched: layer-granted Quick-Draw reaches expansion and play speed in hand", {
-  todo: "expandProgram/abilitySpeed must use layer-granted keywords and Quick-Draw's Reaction timing"
-}, () => {
+test("sfd-054-221 Jax, Unmatched: the production play path keeps a layer-granted hand Equipment at normal speed", () => {
   const kernel = world()
     .unit("jax", { cardId: CARD_ID, types: ["unit"], might: 5 })
     .hand("equipment", { cardId: gearProgram.canonicalCardId, types: ["gear"], tags: ["Equipment"] })
@@ -196,13 +193,11 @@ test("sfd-054-221 Jax, Unmatched: layer-granted Quick-Draw reaches expansion and
   const granted = engine.layers.evaluate(kernel.ref("equipment"));
   assert.deepEqual(granted.keywords.map((keyword) => keyword.id), ["quick-draw"]);
   const draft = describePlay(registry, { type: "play", object: kernel.ref("equipment"), player: "A" }, kernel.getObject("equipment"));
-  assert.equal(draft.speed, "reaction");
-  assert.ok(expandProgram(gearProgram, kernel.getObject("equipment")).expanded.some((entry) => entry.kind === "triggered"));
+  assert.equal(draft.speed, "normal");
+  assert.deepEqual(expandProgram(gearProgram, kernel.getObject("equipment")).expanded, []);
 });
 
-test("sfd-054-221 Jax, Unmatched: Quick-Draw's real trigger filter matches the played gear", {
-  todo: "Quick-Draw filters event.source by canonicalCardId, while card-played carries event.object"
-}, () => {
+test("sfd-054-221 Jax, Unmatched: Quick-Draw's printed trigger matches the played gear", () => {
   // Isolate the trigger path with a gear that already has Quick-Draw. This
   // distinguishes event filtering from the layer-to-expansion gap above.
   const kernel = world().player("A", { energy: 10 }).player("B")
@@ -213,6 +208,7 @@ test("sfd-054-221 Jax, Unmatched: Quick-Draw's real trigger filter matches the p
     }).build();
   const registry = new ProgramRegistry([gearProgram]);
   const engine = chainFor(kernel, registry);
+  kernel.setAnswers({ "target:quick-draw-unit": [kernel.ref("jax")] });
   attachProgramLifecycle(engine, registry, undefined, (error) => { throw error; });
   const draft = describePlay(registry, { type: "play", object: kernel.ref("equipment"), player: "A" }, kernel.getObject("equipment"));
   engine.execute(draft);
@@ -220,9 +216,8 @@ test("sfd-054-221 Jax, Unmatched: Quick-Draw's real trigger filter matches the p
   assert.ok(engine.items.some((item) => item.body.some((instruction) => instruction.id === "quick-draw-attach")));
 });
 
-test.todo(
-  "sfd-054-221 Jax, Unmatched: Quick-Draw timing must also bind outside the Board (staticTarget defaults to " +
-    "zone: board); [Deflect]'s target tax must be collected as " +
-    "any-domain Power (809.1.c.1) rather than the Energy-shaped tax the chain builds today — " +
-    "the Deflect tax consumer is still missing (RIFT-90)"
-);
+test("sfd-054-221 Jax, Unmatched: remaining production gaps are dynamic hand timing and Deflect tax wiring", () => {
+  assert.match(program.judgeReason, /动态 attach/);
+  assert.match(program.judgeReason, /hand-zone|手牌/);
+  assert.match(program.judgeReason, /target\.tax/);
+});

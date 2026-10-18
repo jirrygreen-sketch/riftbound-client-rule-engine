@@ -10,6 +10,7 @@ import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createEngineStaticBinder, translateCost } from "../../../../engine-core/dist/programs/index.js";
+import { collectCostModifications } from "../../../../engine-core/dist/cost/discounts/collect.js";
 import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -42,6 +43,8 @@ test("unl-170-219 Atakhan: identity, status, judgeReason and verbatim sourceText
   // Second-sweep refresh: the cost instructions exist, but neither the play
   // cost translator nor the static binder consumes the declarations.
   assert.match(program.judgeReason, /translateCost/);
+  assert.match(program.judgeReason, /cost\/discounts\/collect/);
+  assert.match(program.judgeReason, /grantedBy/);
   assert.match(program.judgeReason, /createEngineStaticBinder/);
   assert.match(program.judgeReason, /permission\.routes/);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -74,11 +77,33 @@ test("unl-170-219 Atakhan: the production static binder has no layer mapping for
   assert.deepEqual(f.engine.layers.registry.list(), []);
 });
 
-test("unl-170-219 Atakhan: the merged Ganking permission string is not yet consumed as a movement route (810.1.c)", () => {
-  // Evidence for gap (4): Ganking expands to continuous.movement with a
-  // permission *string*, while layers/rules/query.ts builds permission routes
-  // only from permission.routes. The Standard Move query therefore still
-  // reports no Battlefield-to-Battlefield permission for the holder.
+test("unl-170-219 Atakhan: the merged discount collector still rejects the grantedBy optional-cost link", () => {
+  // The generic collector is merged and can plan ordinary static discounts,
+  // but this card's 356.4.f.1 relationship is a distinct contract shape. It
+  // must fail closed until the optional additional-cost receipt is available.
+  const f = fixture({ cards: [
+    { id: "atakhan", cardId: CANONICAL_ID, types: ["unit"], energy: 1, power: [], zone: "board", location: { type: "battlefield", id: "bf-1" } }
+  ] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("atakhan"), to: "board", location: { type: "battlefield", id: "bf-1" } });
+  const source = f.kernel.getObject("atakhan");
+  const context = f.kernel.clone({ sourceSnapshot: source });
+  assert.throws(
+    () => collectCostModifications(context, {
+      id: "cost:atakhan",
+      cost: { kind: "explicit", energy: { kind: "constant", value: 5 } }
+    }, {
+      statics: [{ id: "atakhan.energy-discount", source: source.ref, ability: energyDiscount }],
+      purpose: "play"
+    }),
+    error => error.name === "CostPlanError" && /grantedBy|Unsupported cost modification field/.test(error.message)
+  );
+});
+
+test("unl-170-219 Atakhan: the merged Ganking expansion registers, but its permission string is not consumed as a movement route (810.1.c)", () => {
+  // Evidence for gap (4): the expansion now binds through the production static
+  // binder, yet it still carries a permission *string* while layers/rules/query.ts
+  // builds permission routes only from permission.routes. The Standard Move query
+  // therefore reports no Battlefield-to-Battlefield permission for the holder.
   const f = fixture({ cards: [
     { id: "atakhan", cardId: CANONICAL_ID, types: ["unit"], energy: 1, power: [], zone: "board", location: { type: "battlefield", id: "bf-1" } }
   ] });
@@ -90,6 +115,9 @@ test("unl-170-219 Atakhan: the merged Ganking permission string is not yet consu
   createEngineStaticBinder(f.engine).bindStatic(expansion, f.kernel.getObject("atakhan"));
   const object = f.kernel.getObject("atakhan");
   const view = movement(f.engine.layers.registry, object.ref, object, "A");
+  // The declaration really is registered (the layer entry exists) ...
+  assert.deepEqual(f.engine.layers.registry.list().map(entry => entry.effect.effect.kind), ["continuous.movement"]);
+  // ... but it contributes no route, so no move permission is derivable.
   assert.equal(view.permissions.length, 0);
   assert.equal(view.canGank, false);
 });
@@ -230,9 +258,9 @@ test("unl-170-219 Atakhan golden: a defender unit that already left makes the ki
 
 test.todo("atakhan: bind static optional kill costs and grantedBy discounts to Finalize, including the chosen printed/copied cost (CR 206/356.4.f.1)");
 
-test.todo("atakhan: produce attack-declared and bind defender, chooser and attack location to the forced kill (CR 383.4.e; RIFT-357)");
+test.todo("atakhan: produce attack-declared and bind defender, chooser and attack location to the forced kill (CR 383.4.e; needs the combat timing emitter and a defender/chooser scope)");
 
-test.todo("atakhan: normalize the Ganking static expansion into permission.routes before Standard Move consumes it (CR 810.1.c)");
+test.todo("atakhan: normalize the Ganking static expansion into permission.routes before Standard Move consumes it (CR 810.1.c; the declaration binds but exposes only a permission string)");
 
 for (const selected of [true, false]) {
   test(`Atakhan: the isolated optional kill component selected=${selected} produces the actual payment receipt`, () => {

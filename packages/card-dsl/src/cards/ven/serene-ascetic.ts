@@ -19,26 +19,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   让对手选择我时额外支付任意域 Power。
  * - 814.1 / 814.1.b.3 / 814.1.c：[Shield 3] 是本印刷写明的数值 3，功能等价于
  *   “当我是防守者时 +3 Might”；展开同样归 keywords/Shield.ts。
+ * - 2026-10-18 复核：programs/keyword-grants.ts 的 KeywordGrantLayerEngine 已能把授予后的
+ *   Deflect/Shield 重新展开为 target.tax / continuous.might（参考层实测），但该层未接入生产
+ *   turn/layer 构造，见 judgeReason 第 3 条。
  *
- * status = judge-required（缺口均不近似实现）：
- * 1. keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，
- *    827.1.c.1 的“3 Energy：Empower me，仅当未 Empowered 时启动”无法展开；
- * 2. 没有 Empowered 状态谓词（442.1.a 的二元状态）——“[Empowered][>]” 的门控
- *    没有可求值形态；
- * 3. “[Deflect] 和 [Shield 3]” 是持续授予关键词：programs/statics.ts 的
- *    createEngineStaticBinder().bindStatic 已能把该声明装进 ability 图层并在快照里
- *    写出 deflect 1 / shield 3（golden 有执行证据）；被授予的 Deflect 还需要
- *    target.tax 图层消费方——当前没有模块在对该宿主的 target 声明里读并收取该税。
- * 依赖：新增 Empower/Empowered 关键词任务、Empowered 状态谓词（RIFT-359 的谓词任务进行中）与
- * Deflect 目标税消费（RIFT-360 进行中）。本卡不伪造启动能力，也不把依赖能力写成无条件能力。
+ * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。
  */
 const abilities: Ability[] = [
   {
     // 827.1.c.1：印刷费 3 Energy 见 judgeReason；KeywordAbility 没有 params 字段
     // （契约 3.8.3 的 params 只加在 KeywordDef.expand 的输入上），不伪造第二条启动能力。
     kind: "keyword",
-    keyword: "empower",
-    value: 3
+    keyword: "empower"
   },
   {
     // 828.1.b.1 的依赖能力：只在宿主拥有 Empowered 状态时授予 [Deflect] 与 [Shield 3]。
@@ -54,8 +46,10 @@ const abilities: Ability[] = [
       ]
     },
     condition: {
-      kind: "expression",
-      value: { kind: "constant", value: "empowered" }
+      kind: "compare",
+      left: { kind: "object-property", object: "self", property: "empowered" },
+      operator: "gte",
+      right: { kind: "constant", value: 1 }
     }
   }
 ];
@@ -65,16 +59,22 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，" +
-    "827.1.c.1 的“3 Energy：Empower me，仅当未 Empowered 时启动”无法展开（827.1.b.1 还要求" +
-    "来源不是目标）；(2) 没有 Empowered 状态谓词——442.1.a 的二元状态不在 ObjectSnapshot / " +
-    "Condition 里，“[Empowered][>]” 的依赖能力门控（828.1.b.1 / 828.1.c）没有可求值形态；" +
-    "(3) “[Deflect] 和 [Shield 3]” 是持续授予关键词：programs/statics.ts 的 " +
-    "createEngineStaticBinder().bindStatic 已能把该声明装进 ability 图层，图层快照真实写出 " +
-    "deflect 1 / shield 3（golden 有执行证据）；剩余执行缺口是被授予的 Deflect " +
-    "需要 target.tax 图层消费方（RIFT-360 进行中）。" +
-    "依赖新的 Empower/Empowered 关键词任务、Empowered 状态谓词（RIFT-359 进行中）与 Deflect 目标税消费 " +
-    "（RIFT-360 进行中）。不近似实现：不伪造启动能力，不把依赖能力写成无条件能力。",
+    "三处缺口（827.1.c.1、828.1.b.1，2026-10-18 复核），均为实测行为，不近似实现：" +
+    "(1) Empower KeywordDef 已注册并支持未 Empowered 限制，但 KeywordAbility / programs/keywords.ts 不传递本卡印刷的 3 Energy CostSpec " +
+    "（契约 3.1 的 KeywordAbility 只有 keyword/value），expand 只产出 { kind: \"empower\" }，费用规划实测抛 " +
+    "CostPlanError judge-required \"Unsupported cost kind: empower\"，无法建立完整启动费用计划。" +
+    "(2) “在参考内核可求值、生产不可求值”的差异收窄为一处：门控 self.empowered >= 1 在参考内核里已能随真实 empower/disempower 动作开关，" +
+    "但契约 ObjectSnapshot（engine-core/src/effects/contract.ts）不声明 live empowered 计数，apps/game-server 的引擎宿主把 " +
+    "empower 动作写成 buffs，缺字段时求值抛 MissingInformation \"Unavailable characteristic: empowered\"，失败闭合。" +
+    "(3) 持续授予关键词只有参考层的重展开、没有生产消费方：已合入的 programs/keyword-grants.ts KeywordGrantLayerEngine " +
+    "能把 empower 后的 Deflect 1 / Shield 3 重新展开（实测可读到 target.tax 与 continuous.might，Shield 使防守者 Might 3→6，" +
+    "809.1.c.1 的任意域 Power 税经 createTargetTaxAdapter 可计价），但该层只被 engine-core 自身测试构造，" +
+    "既没有从任何公开入口导出，也没有被 turn/flow.ts、apps/game-server 使用（两处仍构造 TurnPhaseLayers）；" +
+    "生产 programs/statics.ts 的 bindStatic 仍不映射 Deflect 展开出的 target.tax（实测 ProgramBindingError judge-required），" +
+    "Chain Finalize 也仍未构造 createTargetTaxAdapter，Deflect 税从未进入生产目标 Finalize；" +
+    "关键词展开读取的 designation 在生产条件的默认求值器上仍不可读（实测 \"Unavailable characteristic: designation\"），" +
+    "且 combat/flow.ts 的 combat-start-transaction 仍抛 TurnCombatBlockedError，没有生产写入方发布 ObjectSnapshot.combatRole。" +
+    "模板 golden 只验证门控开/关时的关键词授予与撤销，不能证明 Shield 战斗加值或 Deflect 税已执行。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_3: (:rb_energy_3:: Empower me. Use only if not Empowered.)\n" +

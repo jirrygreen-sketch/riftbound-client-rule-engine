@@ -22,11 +22,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   打出后本卡在离开 Chain 时改为放逐。卡只声明关键词身份（契约 3.7/README 第 5 节），
  *   展开（keywords/Flow.ts 的 flow.cost + 延迟替代）归关键词注册表。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。两处依赖未合入，均不近似实现：
+ * status 判定（cards/README.md 第 2 节）：judge-required（2026-10-18 复核）。
+ * 两处依赖未合入，均不近似实现：
  * (1) Trait-Altering 层的 Base Might 设值没有已注册的卡牌侧原语：effects/instructions/ 的
  *     注册表没有 continuous.base-might / set-base-might；continuous.might 的 set 模式落在
  *     算术层（buildMightSpec 产 kind:"set-might"），不等于 143.2.a 的 Trait 层设值；
- *     this-turn 期限别名本身已支持（DurationAlias），缺的是设值原语与其图层消费方
+ *     this-turn 期限别名与图层 set-trait 本身已支持，缺的是卡牌侧设值原语到该图层的接线
  *     （同型记录见 rad/piltovan-guidebot、rad/herald-of-the-emperor）。
  * (2) [Flow] 的专用接线缺失：KeywordDef.expand 已有 params.cost，buildCostPlan 已支持
  *     flow 备选费用与 baseChoices，programs/statics.ts 也已接入 bindReplacement；
@@ -42,15 +43,15 @@ const dragonForm = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1)「Its base Might becomes 5 this turn」是 143.2.a 的 Trait-Altering " +
-    "层设值（该条规则的示例正是本句，非算术层加减、非 CR 702 的 Buff 计数），但契约 3.6 的封闭 GameAction " +
-    "集合没有 Might 修改动作，effects/instructions/ 的注册表没有 continuous.base-might / set-base-might，" +
+    "两处依赖未合入（2026-10-18 复核），均不近似实现：(1)「Its base Might becomes 5 this turn」是 143.2.a 的 Trait-Altering " +
+    "层设值（该条规则的示例正是本句，非算术层加减、非 CR 702 的 Buff 计数），effects/instructions/ " +
+    "仍无 continuous.base-might / set-base-might，" +
     "continuous.might 的 set 模式属算术层（buildMightSpec 产 kind:\"set-might\"），不等于 143.2.a 的 Trait 层设值；" +
-    "this-turn 期限别名已支持，缺的是设值原语与图层消费方（同型记录见 rad/piltovan-guidebot、rad/herald-of-the-emperor）；" +
+    "this-turn 期限和 layers.set-trait 已支持，缺卡牌侧设值原语到 Trait 图层的接线；" +
     "143.2.c.1 说明实际值不被钳制，因此不写印刷下限。" +
     "(2) [Flow]（829）的通用费用规划和替代绑定已支持：KeywordDef.expand.params.cost、buildCostPlan 的 flow/baseChoices " +
     "与 programs/statics.ts → bindReplacement 均已合入。缺口是 KeywordAbility / expandProgram 未传递印刷 Flow 费用 3 Energy，" +
-    "flow.cost 静态声明未接进 Finalize 费用选择与实付实例回执（829.1.c.1/829.1.c.3），以及从 Trash 打出的许可。" +
+    "flow.cost 在 programs/statics 无图层映射，也未接进 Finalize 费用选择与实付实例回执（829.1.c.1/829.1.c.3），以及从 Trash 打出的许可。" +
     "替代匹配器 ACTION_KINDS 不含 object-leaves-chain，flow-cost-selected 仍为字符串常量；尚未按已 finalize、" +
     "实付 Flow 实例及 leavingInstruction 匹配离链（829.1.b.1），不把 Flow 降级成普通费用。" +
     "「Choose a unit」的目标声明本身按 355.7/355.9.a.1 正确，等依赖性合入后即可执行。",

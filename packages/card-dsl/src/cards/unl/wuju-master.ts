@@ -19,30 +19,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   （143.4 / 359.2.c）替换成就绪入场（对照 805.6 的 Accelerate 写法：入场替代，
  *   不是先横置再就绪，不触发“成为就绪”）。
  *
- * status = judge-required（2026-10-16 复核）。已合入并可执行的部分（golden 覆盖）：
- * - RIFT-258 的 continuous.might 原语按本卡声明的 filter（zone board / type unit /
- *   controller）解析“你的单位”，数学图层真实 +1 Might；经 translateObjectFilter +
- *   resolveChainBody 的生产包装，作用域只覆盖控制者的单位（探针：友方 3→4、敌方不变）。
- * - RIFT-260 的 replacement/ 能通过 bindReplacement 校验本卡声明的静态 replaces 形态（单一
- *   source-targeted effect.ready），把它登记成 entry 声明（golden 断言登记成功与 id）。
- *   但该 entry 声明只匹配“声明者自身”的入场（见下方缺口第二条），对本卡的印刷语义无效。
- * 仍缺的缺口：
- * - [Level N][>] 的 Dependent Ability 没有绑定路径：RIFT-268 的 Level.ts 只发布
- *   condition.predicate（level-active / controller-xp / threshold），没有把依赖能力挂到关键词
- *   实例上的编译形式，Condition 也读不到控制者 XP（只有 always/never/compare/all/any/not/
- *   expression，PlayerSnapshot.xp 没有 Expr 路径），824.1.c.1/.d 的动态 Active/Inactive 无法评估。
- *   程序里的 compare 只是保留门控。
- * - “Your units enter ready” 现在完全不可执行，需要按对象的替代窗口：RIFT-260 的 entry 声明
- *   只匹配「声明者自身」的入场（bind.ts 的 matchesEnterAction 要求 action.object.id === hostRef.id），
- *   而本卡是 Legend、声明 filter 的 type: "unit" 描述的是被替代事件的对象，因此声明者自己的入场
- *   也永远不匹配（探针：Legend 宿主 matches 返回 false）；其它友方单位入场同样不被拦截（探针：
- *   声明者声明时 matches 返回 false）。以 self 为目标的其它 entry-body 拼写会在 bind 时被拒绝
- *   （"Unsupported entry body target value"）。该路径也不评估 ability.condition（不调用 testCondition），
- *   直接绑定还会绕过 11+ XP 门槛。要让宣言影响“你的单位”需要按对象的替代绑定或链侧入场窗口适配；
- *   createEngineStaticBinder 与 attachProgramLifecycle 已能登记 continuous.might，但当前 XP 条件求值
- *   不能安全地激活该效果。
- *
- * 依赖：RIFT-268 的 Level 展开后续（依赖能力绑定与 XP 谓词求值）、RIFT-260 后续（按对象的入场朝向替代窗口）。
+ * status = judge-required（2026-10-17 复核）。
+ * - continuous.might 已可绑定；XP 必须来自控制者实时值，不能用场上对象计数冒充。
+ *   使用现有 result 条件声明 XP 读数依赖，缺生产方时按不可用信息阻塞；RIFT-268 后续
+ *   仍须绑定 Level 依赖能力并随控制者及 XP 变化重算（824.1.c.1/.d）。
+ * - “Your units enter ready”引用被替代事件的单位，不能 ready Legend 来源。
+ *   replacement.object 是已公开的替代对象链接，但当前 entry binder 只接受 source/self
+ *   取向体，拒绝该对象选择符；需要 RIFT-260 后续的按对象入场窗口与条件求值。
+ * - test/cards/templates/static-replacement-effect-ready-677.test.mjs 保留真实路径候选及边界；
+ *   单卡 golden 仍执行已支持的 Might 子效果，均不作为整卡 executable 证据。
  */
 export default {
   canonicalCardId:
@@ -50,18 +35,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "已合入并可执行：RIFT-258 的 continuous.might 按声明的 filter 解析“你的单位”，数学图层真实 +1 Might（经 translateObjectFilter + " +
-    "resolveChainBody 的生产包装验证：友方单位 3→4、敌方不变，golden 断言）；RIFT-260 的 replacement/ 能通过 bindReplacement 校验本卡声明的静态 " +
-    "replaces 形态并登记 entry 声明。整卡仍缺两处：" +
-    "(1) [Level N][>] 的 Dependent Ability 没有绑定——RIFT-268 的 Level.ts 只发布 condition.predicate" +
-    "（level-active / controller-xp / threshold），没有把依赖能力挂到关键词实例上的编译形式，Condition 也读不到控制者 XP" +
-    "（只有 always/never/compare/all/any/not/expression，PlayerSnapshot.xp 没有 Expr 路径），824.1.c.1/.d 的动态 Active/Inactive 无法评估；" +
-    "(2) “Your units enter ready” 完全不可执行：bind.ts 的 entry 声明只匹配「声明者自身」的入场（matchesEnterAction 要求 action.object.id === hostRef.id），" +
-    "而本卡是 Legend、声明 filter 的 type: \"unit\" 描述被替代事件的对象，声明者自己的入场也不匹配（探针确认）；其它友方单位入场同样不被拦截，" +
-    "以 self 为目标的其它 entry-body 拼写又会在 bind 时被拒绝（Unsupported entry body target value）；该路径也不调用 testCondition，直接绑定会绕过 11+ XP 门槛。" +
-    "要让宣言影响“你的单位”需要按对象的替代绑定或链侧入场窗口适配（RIFT-260 后续）；createEngineStaticBinder 与 attachProgramLifecycle 已能登记 continuous.might，" +
-    "但当前 XP 条件求值不能安全地激活该效果。链侧入场朝向写在 resolve 内部（先 commit ready/exhaust 再 move-zone）。" +
-    "依赖：RIFT-268 的 Level 展开后续、RIFT-260 后续（按对象入场替代）。不近似实现。",
+    "仍缺两段生产接线（2026-10-17）：(1) RIFT-268 后续必须提供控制者实时 XP 并绑定 Level 依赖能力，" +
+    "按 CR 824.1.b.1/824.1.c.1/824.1.d 重算 Active/Inactive。已修：用现有 result 谓词声明 wuju-master.controller-xp " +
+    "读数依赖，不再用 count(subject:controller-xp) 把场上对象数量冒充 XP；当前没有该结果的生产方，缺信息时阻塞。" +
+    "continuous.might 的 +1 子效果已支持，但并不证明 XP 门控。" +
+    "(2) RIFT-260 后续需要按对象的入场朝向替代窗口（CR 143.4/359.2.c/369.3）：已修 with 的目标为 " +
+    "{ linked: replacement.object }，指进入的友方单位而非 Legend 本身。当前 replacement/bind.ts 的 entry-body 检查 " +
+    "只接受 source/self，因而拒绝该目标（Unsupported entry body target value），且自身入场路径仍跳过 ability.condition。" +
+    "执行证据：test/cards/templates/static-replacement-effect-ready-677.test.mjs；整卡与 XP/友方入场边界仍阻塞，不近似实现。",
   abilities: [
     {
       kind: "static",
@@ -75,8 +56,8 @@ export default {
         filter: { zone: "board", type: "unit", controller: "controller" }
       },
       condition: {
-        kind: "compare",
-        left: { kind: "count", subject: "controller-xp", filter: { player: "controller" } },
+        kind: "result",
+        result: "wuju-master.controller-xp",
         operator: "gte",
         right: { kind: "constant", value: 6 }
       }
@@ -90,8 +71,8 @@ export default {
         filter: { controller: "self", type: "unit", exhausted: true }
       },
       condition: {
-        kind: "compare",
-        left: { kind: "count", subject: "controller-xp", filter: { player: "controller" } },
+        kind: "result",
+        result: "wuju-master.controller-xp",
         operator: "gte",
         right: { kind: "constant", value: 11 }
       },
@@ -99,7 +80,7 @@ export default {
         {
           id: "wuju-master.enter-ready",
           op: "effect.ready",
-          args: { objects: { kind: "constant", value: { kind: "source" } } }
+          args: { objects: { kind: "constant", value: { linked: "replacement.object" } } }
         }
       ]
     }

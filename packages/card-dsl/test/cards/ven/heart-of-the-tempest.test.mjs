@@ -6,7 +6,8 @@ import program from "../../../dist/cards/ven/heart-of-the-tempest.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 const CANONICAL_ID =
   "card.hash-aa310ded3ca355bccab78b17783adac7b21e0b2477c14135b2cf52ebad7d96a5";
 const SOURCE_TEXT =
@@ -92,7 +93,10 @@ test("ven-155-166 golden: 'empower me' empowers the legend source through the in
 test("ven-155-166 golden: '[Assault 2] this turn' grants the keyword through the real primitive", () => {
   const base = world()
     .unit("heart-of-the-tempest", { types: ["legend"], zone: "board", might: null })
-    .unit("ally", { zone: "board", might: 3 })
+    .unit("ally", {
+      zone: "board", might: 3, combatRole: "attacker",
+      location: { type: "battlefield", id: "bf-1" }
+    })
     .build();
   const kernel = base.clone({ sourceSnapshot: base.getObject("heart-of-the-tempest") });
   kernel.setTargets("heart-of-the-tempest.unit", [kernel.ref("ally")]);
@@ -119,11 +123,18 @@ test("ven-155-166 golden: '[Assault 2] this turn' grants the keyword through the
   assert.equal(registration.effect.effect.keywordValue, 2);
   assert.deepEqual(registration.duration, { type: "end-of-turn" });
 
-  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
-  assert.deepEqual(layers.evaluate(kernel.ref("ally")).keywords, [{ id: "Assault", value: 2 }]);
-  assert.deepEqual(layers.evaluate(kernel.ref("heart-of-the-tempest")).keywords, []);
+  const layers = new KeywordGrantLayerEngine(kernel.objects, {
+    context: source => bindResolveContext(kernel, { source, controller: source.controller })
+  });
+  for (const entry of kernel.continuousEffects) {
+    layers.addContinuous(entry.effect, entry.duration, entry.timestamp);
+  }
+  assert.deepEqual(layers.snapshot(kernel.ref("ally")).keywords, [{ id: "Assault", value: 2 }]);
+  assert.equal(layers.snapshot(kernel.ref("ally")).might, 5);
+  assert.deepEqual(layers.snapshot(kernel.ref("heart-of-the-tempest")).keywords, []);
   assert.deepEqual(layers.expireAt("turn-end"), [registration.effect.id]);
-  assert.deepEqual(layers.evaluate(kernel.ref("ally")).keywords, []);
+  assert.deepEqual(layers.snapshot(kernel.ref("ally")).keywords, []);
+  assert.equal(layers.snapshot(kernel.ref("ally")).might, 3);
 });
 
 test("ven-155-166 golden: a target that left the board is ignored (359.3.e.6)", () => {

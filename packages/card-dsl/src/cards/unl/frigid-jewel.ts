@@ -29,12 +29,12 @@ import type { CardProgram } from "../../ir/index.js";
  *    （"Trigger condition adapter required"，没有任何已合入 host 实现它）；Condition/Expr
  *    自身也没有读取事件载荷的通道，HistoryQuery 只按动作/时点计数、不表达序号。
  *    count 表达式只是保留形状，不把“第二张”放宽成“任意抽牌”。
- * 2. 已解决：“+2 :rb_might: this turn” 由已合入的 continuous.might 原语执行（RIFT-258）：
+ * 2. 已解决：“+2 :rb_might: this turn” 由已合入的 continuous.might 原语执行：
  *    它经 ctx.addContinuous 注册 arithmetic 层效果，this-turn 映射为 end-of-turn 期限
  *    （317.1.a / 468.7.c / 479.4）；指令用契约 3.6 的 objects 选择器指回自己声明的
  *    TargetSpec，golden 用链适配器真实执行并断言注册、有效 Might 与到期。
- * 3. 已解决：卡牌程序 → TriggerRegistration 的接线（RIFT-257）已合入，card-drawn 触发可被注册。
- * 依赖：引擎批 4 的触发条件求值（host.testTrigger 或事件载荷读取，RIFT-120 后续）。
+ * 3. 已解决：卡牌程序 → TriggerRegistration 的接线已合入，card-drawn 触发可被注册。
+ * 依赖：触发条件宿主求值（host.testTrigger）与事件载荷读取。
  */
 export default {
   canonicalCardId:
@@ -42,14 +42,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) “本回合抽到的第二张牌” 仍无可求值路径：card-drawn 载荷的 drawIndexThisTurn 要在触发进链前判定（383.2.a.1），" +
+    "（2026-10-18 复核）(1) “本回合抽到的第二张牌” 仍无可求值路径：card-drawn 载荷的 drawIndexThisTurn 要在触发进链前判定（383.2.a.1），" +
     "而 events/pipeline.ts 对带 condition 的注册要求宿主提供 testTrigger 适配器（没有任何已合入 host 实现它），" +
     "Condition/Expr 也不能读取事件载荷（HistoryQuery 只按动作/时点计数，不表达序号）；count 表达式是保留形状，" +
     "不把“第二张”近似成“任意抽牌”。" +
-    "(2) 已解决：“+2 :rb_might: this turn” 由已合入的 continuous.might 原语（RIFT-258）执行——经 ctx.addContinuous 注册 arithmetic 层效果，" +
+    "(2) 已解决：“+2 :rb_might: this turn” 由已合入的 continuous.might 原语执行——经 ctx.addContinuous 注册 arithmetic 层效果，" +
     "this-turn → end-of-turn 期限（317.1.a / 468.7.c），指令用 objects 选择器指回自己声明的 TargetSpec；golden 已用链适配器真实执行。" +
-    "(3) 已解决：卡牌程序 → TriggerRegistration 的接线（RIFT-257）已合入。" +
-    "依赖：引擎批 4 的触发条件求值（host.testTrigger / 事件载荷读取，RIFT-120 后续）；不近似实现。",
+    "(3) 已解决：卡牌程序 → TriggerRegistration 的接线已合入。" +
+    "依赖：触发条件宿主求值（host.testTrigger）与事件载荷读取；不近似实现。",
   abilities: [
     {
       kind: "triggered",
@@ -81,7 +81,7 @@ export default {
       body: [
         {
           id: "frigid-jewel.grant-might",
-          // RIFT-258：已合入的 continuous.might 原语固定 arithmetic 层；objects 用契约 3.6
+          // 已合入的 continuous.might 原语固定 arithmetic 层；objects 用契约 3.6
           // 的选择器指回本指令声明的 TargetSpec（缺省选择器是来源自身）。
           op: "continuous.might",
           args: {

@@ -21,16 +21,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 756 / 757 / 757.1 / 758：最后一条 Level 能力授予 Untargetable（"can't be chosen by
  *   enemy spells and abilities"）。
  *
- * status = judge-required（缺口不近似实现）：
- * - Level 的关键词展开已经合入，但 824.1.c 的 XP 谓词仍不能从
- *   PlayerSnapshot.xp 求值，因而依赖能力不会随 XP 动态启停。
- * - cost.modify 指令已经合入；本卡的静态 cost.modify 仍没有接入打出费用
- *   Finalize 的 discounts 阶段，所以三条减费仍只是声明。
- * - 最后一条的 Untargetable（756/757/758）仍没有目标合法性消费方。
- * golden 只做校验、结构断言与缺口 todo，不为任一缺口写执行用例。
- *
- * 依赖：Level 的 XP 谓词求值、静态 cost.modify 到 Finalize 费用计划的接线、
- * Untargetable 的目标合法性消费方。
+ * 2026-10-18 复核：仍为 judge-required，当前缺口见 judgeReason。
+ * 已有原语、关键词定义或通用适配器不代表本卡完整生产路径可执行。
  */
 
 /** 356.4.b / 356.4.c：每一条 Level 能力的印刷减费（Energy + Calm Power）。 */
@@ -50,31 +42,31 @@ const DISCOUNTS: readonly PrintedDiscount[] = [
 
 /**
  * 824.1.b.1：每一条 [Level N][>] 展开为一个受 XP 门槛约束的依赖能力。
- * 减费本身是不可执行的描述性声明（见 judgeReason）；XP 门槛按 824.1.c 的"控制者有 N 点
- * 或更多 XP"写成保留形状（合并 Condition 读不到 PlayerSnapshot.xp）。
+ * XP 门槛使用契约已有的 player-property 形状；解释器和费用收集器仍未把
+ * PlayerSnapshot.xp 接入该形状（见 judgeReason）。
  */
 function levelAbility(discount: PrintedDiscount): Ability {
   return {
     kind: "static",
     effect: {
-      kind: "cost.modify",
-      id: discount.id,
-      appliesTo: "play-cost",
-      // 356.4.b："cost [amount] less" 的减费量（Energy 与 Calm Power 两个分量）。
-      value: {
-        kind: "constant",
-        value: {
-          energy: -discount.energy,
-          power: [{ domain: "Calm", amount: -discount.calmPower }]
-        }
-      },
+      // 356.4.b/c：the printed line has one Energy and one Calm Power
+      // reduction. `reductions` is the merged cost collector's multi-resource
+      // shape; the Level replacement marker remains descriptive until the
+      // collector can consume it.
+      kind: "continuous.cost-modification",
+      appliesTo: "self",
+      stage: "discount",
+      reductions: [
+        { resource: "energy", amount: discount.energy },
+        { resource: "power", amount: discount.calmPower, domain: "Calm" }
+      ],
       // "instead"：后一条 Level 能力取代前一条的减费（356.1.c / 356.4 的减费阶段）。
       instead: discount.instead
     },
     // 824.1.c："While you have N+ XP, get the effect."；保留形状，见 judgeReason。
     condition: {
       kind: "compare",
-      left: { kind: "count", subject: "controller-xp", filter: { player: "controller" } },
+      left: { kind: "player-property", player: "controller", property: "xp" },
       operator: "gte",
       right: { kind: "constant", value: discount.level }
     }
@@ -96,7 +88,7 @@ const abilities: Ability[] = [
     },
     condition: {
       kind: "compare",
-      left: { kind: "count", subject: "controller-xp", filter: { player: "controller" } },
+      left: { kind: "player-property", player: "controller", property: "xp" },
       operator: "gte",
       right: { kind: "constant", value: 16 }
     }
@@ -109,15 +101,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：（1）[Level N][>] 的关键词展开已合入，但 " +
-    "824.1.c 的『控制者有 N 点或更多 XP 时依赖能力 Active』需要可求值的 XP 谓词，" +
-    "合并 IR 的 Condition 虽能表达 compare，但读取 PlayerSnapshot.xp 尚未进入 Expr/谓词路径" +
-    "（824.1.c.1/.d 的动态失活同样缺失）。" +
-    "（2）三条减费（356.4/356.4.b/356.4.c，下限 356.6）的 cost.modify 指令已经存在，" +
-    "但静态 cost.modify 尚未接入 cost/cost-plan.ts 的 Finalize discounts 阶段，因此程序中的数值还不能实际改写打出费用。" +
-    "（3）最后一条的『I can't be chosen by enemy spells and abilities』是 756/757/757.1/758 的 Untargetable，" +
-    "目标合法性消费方仍未合入。依赖：XP 谓词求值、静态 cost.modify 到 Finalize 的接线、" +
-    "Untargetable 的目标合法性消费方。本卡所有效果都依赖上述缺口，golden 只做校验、结构断言与缺口 todo。",
+    "当前缺口（2026-10-18 实测）：(1) Level 条件已改用契约支持的 player-property(controller, xp) 形状，但 effects/interpreter/expr.ts 不求值 player-property，" +
+    "cost/discounts/values.ts 的费用条件求值也没有 PlayerSnapshot.xp 读取，因此 824.1.c/824.1.c.1/824.1.d 的 XP 动态激活与失活仍不可执行。" +
+    "(2) cost/discounts/collect.ts 已能收集 continuous.cost-modification 的 Energy/Power reductions，但 chain/engine.ts Finalize 仍直接调用 buildCostPlan；" +
+    "CardProgram 静态能力没有进入该收集器，且三级减费的 instead 覆盖没有可消费字段，不能把三行减费近似为叠加。" +
+    "(3) Level 16 的 Untargetable choose-as-target 限制已有链消费器，但 programs/statics.ts 的 staticTarget 不接受 appliesTo: spells-and-abilities，" +
+    "也没有把 chooser: opponent 与 XP 门槛接入生产规则查询（756/757.1/758）。",
   abilities,
   sourceText:
     "[Level 3][>] I cost :rb_energy_2::rb_rune_calm: less. (While you have 3+ XP, get the effect.)\n" +

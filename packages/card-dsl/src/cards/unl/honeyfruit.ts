@@ -1,7 +1,7 @@
 import type { Ability, CardProgram } from "../../ir/index.js";
 
 /**
- * Honeyfruit (unl-049-219) — Gear, 2 energy、power null（无印刷 Power）、Might null，
+ * Honeyfruit（unl-049-219）— Gear, 2 energy、power null（无印刷 Power）、Might null，
  * 领域 Calm，无标签。
  *
  * sourceText（逐字取自 packages/card-data/data/deck-catalog.json unl-049-219，含换行）：
@@ -16,7 +16,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   本卡把它改成横置进场。入场状态属于替代族（契约 3.5：替代在动作执行前拦截），
  *   与 Accelerate 805.6 “不先横置再就绪” 同一条路径；effect.exhaust 的文件头明确
  *   “入场即横置不是一次横置动作”，先入场再补 effect.exhaust 会多出一次“成为横置”
- *   事件并错过入场替代，因此不近似。程序用 replacement 能力描述该改写（与已合入
+ *   事件并错过入场替代，因此用 replacement 能力描述该改写（与已合入
  *   ogn/iron-ballista、ven/patty 同类形状）。
  * - “[Reaction][>] :rb_exhaust:: [Add] :rb_rune_rainbow:.”：813.1.a / 813.1.d 的
  *   Reaction 速度许可 → activated.timing = "reaction"；377.1 / 404.1.a 的 “:” 之前是
@@ -32,8 +32,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   while you have 6+ XP.)” 是提醒文本（不是另外的能力）：前者对应 430.2.a 的
  *   Priority/Focus 不传递；后者是 824.1 的 XP 门槛本身。
  *
- * status = judge-required：Universal Power 的资源契约、Level 的实时 XP 条件和
- * Add 启动能力的立即结算分类仍缺接线；入场替代与横置费用已合入。
+ * status = judge-required：Universal Power、Level 6 的实时 XP 谓词与 Add 的
+ * 立即结算分类仍缺接线；入场替代与横置费用已合入并有执行证据。
  */
 const abilities: Ability[] = [
   {
@@ -108,9 +108,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺三条生产路径：(1) Universal Power（rainbow/[A]；CR 163.2.b、430.5）没有 Domain / gain-power 的契约表示，effect.resources 不能加入该资源。" +
-    "(2) Level 6（824.1.c/824.1.d）的控制者 XP 不是 Expr 可读特征；programs/play.ts 的 translateRestriction 尚不能绑定 dependent-keyword 与其动态启停。" +
-    "(3) programs/activate.ts 将 Add 启动能力描述为普通 activated，尚未接到 ChainDraft.kind=add 的立即结算路径，不能满足 430.2.a 的不传递 Priority/Focus。",
+    "仍缺三条生产路径（2026-10-17 复核；入场替代与横置费用已合入并有执行证据）：" +
+    "(1) Universal Power（rainbow/[A]；CR 163.2.b、430.5）不可加入：契约的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order 六域封闭集合，" +
+    "effect.resources 的 isPower 只接受这六域，对 [\"rainbow\"] 直接判 negated(impossible) 且不产生任何 gain-power 动作（golden 实证）；" +
+    "武器库里也没有 Domain→gain-power 的 Universal 表示，故不近似成某个具体域。" +
+    "(2) Level 6（824.1.c/824.1.d）不可判定：Level 关键词展开出 condition.predicate（query: \"controller-xp\"），" +
+    "但 programs/statics.ts 的 layerFor 对 condition.predicate 抛 \"Static ability kind condition.predicate has no layer mapping\"，" +
+    "layers 的 conditionMatches 也不消费它；控制者 XP 不是 Expr 可读特征（count 表达式按 filter 统计对象，实测用 4 个无关对象即可让 gte 3 为真，" +
+    "不能当成 XP 读数）；programs/play.ts 的 translateLegalityCondition 对 dependent-keyword 直接判 judge-required" +
+    "（实测 describeActivate 抛 \"restriction ... kind dependent-keyword needs a rules adapter\"），因此该启动能力连描述都不可产出。" +
+    "(3) Add 的立即结算分类不可产出：programs/activate.ts 只发 kind \"activated\" 的 ChainDraft，" +
+    "ChainEngine 虽已识别 kind 'add'（430.2.a 的不传递 Priority/Focus），但没有把卡牌 Add 启动能力接进该路径的生产接线。",
   abilities,
   sourceText:
     "This enters exhausted.\n" +

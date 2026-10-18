@@ -37,23 +37,25 @@ import type { CardProgram } from "../../ir/index.js";
  *   both units are chosen and locked with the spell (355.8) yet neither
  *   instruction references the other's action (359.3.e.14).
  *
- * Status: judge-required, with each gap named:
- * - the [Repeat] payment cannot be charged or read back: no merged code turns a
- *   card program's declared optional additional cost into the cost planner's
- *   `optionalAdditional` input, and the paid-instance count has no binding that
- *   would drive the extra execution (820.1.c.1 / 820.1.d.1); the cost-plan
- *   owner's `optionalAdditional` wiring and a paid-count receipt are still
- *   missing.
- * - the second sentence needs a dynamic battlefield location for the second
- *   target: "another unit" is not restricted to a battlefield, but "up to one
- *   other unit" must exclude the first chosen unit, which the merged `exclude`
- *   anchor can express; the remaining gap is 355.13's zero-choice write path for
- *   a `min: 0` target in the production Finalize flow (the merged interpreter
- *   handles it, the chain-side zero-target Finalize does not).
+ * Status: judge-required（2026-10-18 逐条对源码复核）, with each gap named:
+ * - the [Repeat] payment cannot be charged or read back (820.1.c.1 / 820.1.d.1):
+ *   programs/play.ts translateCost rejects `kind: "additional"` and the
+ *   `optional` field, so no merged code turns this card's declared optional
+ *   additional cost into the planner's `optionalAdditional` input (the planner
+ *   itself accepts one and really charges it). The paid instance count also has
+ *   no card-side route into the interpreter's repeat node: the receipt reads as
+ *   a boolean `result: "cost.optional-additional-paid"` while the repeat node
+ *   requires a non-negative integer count.
+ * - the second TargetSpec's `exclude` anchor does not bind: the merged
+ *   interpreter consumes the anchor (interpreter/selectors.ts queryObjects
+ *   handles `exclude`), but programs/filters.ts translateObjectFilter rejects
+ *   the key outright ("Unsupported filter field exclude"), so describePlay
+ *   fails before any Finalize mapping exists. The zero-choice path itself is
+ *   merged end to end (explicit Finalize selection and the interpreter both
+ *   accept an empty `up-to` set).
  * Both Deal instructions use merged primitives with Finalize-locked targets, and
  * the golden test executes them (including the zero-choice and stale-target
- * cases) through the real interpreter and reference kernel; the Repeat and
- * zero-target Finalize gaps stay `test.todo` with their task numbers. Nothing is
+ * cases) through the real interpreter and reference kernel. Nothing is
  * approximated: the amounts are the printed 2s and neither unit is dropped.
  */
 export default {
@@ -62,12 +64,16 @@ export default {
   status: "judge-required",
   judgeReason:
     "两处依赖未合入，均不近似实现：(1) [Repeat] :rb_energy_2::rb_rune_fury: 的可选附加费用无法收取或回读：没有把卡牌程序声明的" +
-    "可选附加费用接进已合入 cost 计划的 optionalAdditional 入口，已付实例数也没有供结算读取的绑定（820.1.c.1 / 820.1.d.1，" +
-    "缺 optionalAdditional 接线与 paid-instance 回执）。" +
-    "(2) 第二个目标按 355.13 允许『up to one』选 0 个（selection: up-to、min: 0），已合入解释器能处理，但链侧 Finalize 的" +
-    "零目标写入路径尚未合入（目标系统的 Finalize 消费方）。两条 effect.damage 数额、目标限制（355.10.b 的 location、355.9.c/740.1.a 的" +
+    "可选附加费用接进已合入 cost 计划的 optionalAdditional 入口（费用计划本身接受该组件并真实扣费），" +
+    "已付实例数也没有供结算读取的绑定：programs/play.ts 的 translateCost 实测拒绝 kind additional 与 optional 字段；" +
+    "付费回执只能由 condition.predicate 的 result: \"cost.optional-additional-paid\" 读成布尔值，" +
+    "而解释器 repeat 节点只接受非负整数（实测 \"Repeat count must be a non-negative safe integer\"）（820.1.c.1 / 820.1.d.1）。" +
+    "(2) 第二个目标的 exclude 锚点在生产绑定层被拒：解释器已消费该锚点（interpreter/selectors.ts 的 queryObjects），" +
+    "但 programs/filters.ts 的 translateObjectFilter 实测抛 \"Unsupported filter field exclude\"，describePlay 在 Finalize 之前就失败。" +
+    "第二个目标按 355.13 允许『up to one』选 0 个（selection: up-to、min: 0），该零选择路径已端到端合入" +
+    "（Finalize 显式 selected 集与解释器都接受空 up-to 集，golden 已覆盖）。两条 effect.damage 数额、目标限制（355.10.b 的 location、355.9.c/740.1.a 的" +
     "『another』经 exclude 锚点排除首个目标）与 355.8 的锁定形状已如实编码，golden 用真实原语执行（含零选择与 stale 目标边界）。" +
-    "依赖：Repeat 可选附加费用接线与实例数回执、零目标 Finalize 写入路径。",
+    "依赖：Repeat 可选附加费用 → Finalize 接线与实例数入口、programs/filters.ts 的 exclude 锚点绑定。",
   abilities: [
     {
       kind: "play",

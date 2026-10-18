@@ -11,7 +11,7 @@ import {
   isJournalIntegrity,
   isJournalOperation,
   type Journal,
-} from "../../../protocol/dist/journal-v1.js";
+} from "@riftbound/protocol";
 import { JournalReplayError } from "./errors.js";
 
 function object(value: unknown): value is Record<string, unknown> {

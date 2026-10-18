@@ -17,24 +17,31 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "to move an attacking unit to its base"：351/355.10.c.1 的「[do X] to [do Y]」费用式
  *   代价——消灭本单位是执行移动的代价；移动本身是 451 的效果移动，"an attacking unit"
  *   是选择的具体对象（355.10 / 355.9.a.1，"attacking" = 466.2.c 的 Attacker 身份），
- *   "to its base" 是该攻击者拥有者的 Base（198.1/198.2 的 Base Location；107.1.b）。
+ *   "to its base" 是该攻击者控制者的 Base：107.1.c 把被玩家控制的永久物置于该玩家
+ *   的 Base，Base 隶属关系按控制权走（198.1/198.2 的 Base Location；107.1.b/c）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。三处已合入缺口：
- * - defense-declared 时点没有发射方：events/action-adapter.ts 只为已提交游戏动作派生时点
- *   （ACTION_TIMINGS 无 defense-declared），combat/ 的 Defender 身份指派
- *   （466.2.c/323.2）尚未接入事件管线——combat/flow.ts 的 combat 开启路径直接抛
- *   TurnCombatBlockedError('combat-start-transaction')，全仓库没有 defense-declared 的 emit。
- * - "an attacking unit" 的目标合法性需要 Attacker 身份谓词（466.2.c）；ObjectFilter 的
- *   states 只有 ready/exhausted/stunned/attached/face-down，ObjectSnapshot 没有
- *   combatRole/designation（契约 3.8 只冻结了字段设计，实现属战斗批次），
- *   目标无法在 Finalize 按「正在攻击」筛选。
- * - "to its base" 需要该攻击者拥有者的 Base Location：effect.move 的 to 只接受静态
- *   LocationRef、controller-base 或静态候选列表；controller-base 会落到移动后控制者的
- *   Base（若控制者中途改变便不等价），而 198.2 要求的是拥有者的 Base，且该值要按所选
- *   目标在结算时派生（target.location 未合入）。
- * 依赖：combat 身份指派与事件管线发射、目标与目的地计划、
- * Attacker designation。不近似实现（不换时点、不用 controller-base 冒充
- * 拥有者 Base、不把「正在攻击」放宽成任意单位）。
+ * status 判定（cards/README.md 第 2 节，复核 2026-10-17）：judge-required。三处当前缺口：
+ * - combat-start-transaction：combat/flow.ts 的 advance() 在把一个 staged battlefield
+ *   转成 Combat 时直接抛 TurnCombatBlockedError('combat-start-transaction',
+ *   "Combat start needs an atomic simultaneous timing wave + roles (CR 466.2)")，因此
+ *   Defender/Attacker 身份（323.2/466.2.c）在生产中不会被指派，也没有 defense-declared
+ *   的发射方（events/action-adapter.ts 的 ACTION_TIMINGS 只覆盖已提交游戏动作）。
+ * - 嵌套目标："an attacking unit" 是印文里的具体目标（355.9.a.1），按契约 3.9 它随
+ *   choice.optional 的 body 一起写；但 chain/engine.ts 的 assertFinalizationSurface 对
+ *   嵌套 targets 抛 ChainContractBlockedError('Nested/repeated targets require an
+ *   interpreter target-selection lifecycle adapter')，实测该正文在 Finalize 前就被拒绝，
+ *   需要解释器侧的目标选择生命周期适配器。
+ * - "kill me to move..." 按 204.1.c 是触发能力的基础费用（官方示例即本卡），须在
+ *   Finalize 支付；TriggerRegistration 已有 cost/mayAtFinalize 字段，但程序绑定
+ *   （programs/triggers.ts）没有把印文费用提取成该字段的接线，正文里的
+ *   choice.optional/kill 因此保留为待接线的结算期形状，不能作为费用流程证据。
+ * 已合入："an attacking unit" 用目标过滤器读取真实 ObjectSnapshot 的 combatRole
+ * （characteristics: { combatRole: "attacker" }，466.2.c），生产 translateObjectFilter 与
+ * layers/filter.ts 的 characteristicsMatch 都接受该拼写（golden 分别断言 attacker 命中、
+ * defender/null 不命中），因此身份谓词本身不再是缺口。
+ * 依赖：combat 的原子开始事务（角色指派 + 时点发射）、嵌套目标的生命周期适配器，
+ * 与 Finalize 基础费用提取。
+ * 不近似实现（不换时点、不把「正在攻击」放宽成任意单位）。
  */
 const abilities: Ability[] = [
   {
@@ -77,20 +84,24 @@ const abilities: Ability[] = [
                     kind: "constant",
                     value: { target: "overzealous-fan.attacking-unit" }
                   },
-                  // "to its base"：该攻击者**拥有者**的 Base（198.2）。effect.move 的
-                  // controller-base 会按移动后的控制者取 Base，不等价；按所选目标在结算时
-                  // 派生 LocationRef（target.location）尚未合入，故声明待接线的目的地。
-                  to: { kind: "constant", value: { ownerBaseOf: { target: "overzealous-fan.attacking-unit" } } },
+                  // "to its base"：该攻击者**控制者**的 Base（107.1.c：被玩家控制的
+                  // 永久物位于该玩家的 Base）。target-controller-base 位置选择器已
+                  // 端到端合入（IR 校验、结算时按所选目标派生 {type:"base",
+                  // player:controller}、effect.move 的目的地规范化）。
+                  to: {
+                    kind: "constant",
+                    value: { kind: "target-controller-base", target: "overzealous-fan.attacking-unit" }
+                  },
                   amount: { kind: "constant", value: 1 },
                   linkKey: { kind: "constant", value: "moved" }
                 },
                 targets: [
                   {
                     id: "overzealous-fan.attacking-unit",
-                    // "an attacking unit"：必须是 466.2.c 的 Attacker。ObjectFilter 的
-                    // states 没有该身份（契约 3.8 的 combatRole/designation 尚未实现），
-                    // 这里用 attacking 谓词声明该缺失条件，fail-closed 而不是放宽成任意单位。
-                    filter: { type: "unit", zone: "board", attacking: true },
+                    // "an attacking unit"：必须是 466.2.c 的 Attacker。身份在已合入的
+                    // ObjectSnapshot 里是 combatRole，用生产 filter 词汇的
+                    // characteristics 读取（layers/filter.ts characteristicsMatch）。
+                    filter: { type: "unit", zone: "board", characteristics: { combatRole: "attacker" } },
                     min: 1,
                     max: 1,
                     selection: "one"
@@ -110,18 +121,24 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处当前缺口（kill/optional 部分已合入并有 golden）：(1) defense-declared 时点没有发射方——events/action-adapter.ts 只为已提交游戏动作派生时点" +
-    "（ACTION_TIMINGS 无 defense-declared），combat/ 的 Defender 身份指派（466.2.c/323.2、383.4.f.2）尚未接入事件管线，" +
-    "combat/flow.ts 的 combat 开启路径直接抛 TurnCombatBlockedError('combat-start-transaction')，全仓库没有该时点的 emit；" +
-    "(2)「an attacking unit」的目标合法性需要 Attacker 身份谓词（466.2.c）——ObjectFilter 的 states 只有 " +
-    "ready/exhausted/stunned/attached/face-down，ObjectSnapshot 没有 combatRole/designation（契约 3.8 只冻结字段设计，" +
-    "实现属战斗批次），Finalize 无法按「正在攻击」筛选目标；" +
-    "(3)「to its base」需要所选攻击者**拥有者**的 Base（198.2）：effect.move 的 to 只接受静态 LocationRef、" +
-    "controller-base 或静态候选列表，controller-base 按移动后的控制者取 Base、不等价，按目标派生 LocationRef 的" +
-    "target.location 未合入。" +
-    "「kill me」的 effect.kill（self: true，429.1/429.1.a.1.a）与 choice.optional（403.1、契约 3.9）形状已合入，" +
-    "golden 对 kill 体做真实执行。依赖：combat 身份指派与事件发射、目标与目的地计划、" +
-    "Attacker designation。不近似实现（不换时点、不用 controller-base 冒充拥有者 Base、不放宽成任意单位）。",
+    "三处当前缺口（目标身份与目的地的拼写均已合入并有 golden）：" +
+    "(1) combat 开始事务未合入：combat/flow.ts 的 advance() 把 staged battlefield 转成 Combat 时直接抛 " +
+    "TurnCombatBlockedError('combat-start-transaction', \"Combat start needs an atomic simultaneous timing wave + roles (CR 466.2)\")，" +
+    "因此 Defender/Attacker 身份指派（323.2/466.2.c）尚未接入事件管线，events/action-adapter.ts 的 ACTION_TIMINGS 也没有 defense-declared，" +
+    "全仓库没有该时点的发射方（383.4.f.2）；" +
+    "(2) 嵌套目标没有生命周期适配器：正文按契约 3.9 把 \"an attacking unit\" 的目标写在 choice.optional 的 body 内，" +
+    "但 chain/engine.ts 的 assertFinalizationSurface 对嵌套 targets 抛 " +
+    "ChainContractBlockedError('Nested/repeated targets require an interpreter target-selection lifecycle adapter')，" +
+    "实测该正文在 Finalize 前被拒绝（同一正文以非嵌套形式执行时目标能正常锁定，见 golden）；" +
+    "(3)「kill me to move...」按 CR 204.1.c（官方示例即本卡）是触发能力的基础费用：须在 Finalize 支付，" +
+    "但当前程序绑定没有把印文费用提取成 TriggerRegistration.cost/mayAtFinalize（programs/triggers.ts 无该提取接线），" +
+    "正文里的 choice.optional/kill 也未映射为 Finalize 决定与支付；" +
+    "已合入部分：「an attacking unit」用 characteristics: { combatRole: 'attacker' } 读取真实 ObjectSnapshot 身份（466.2.c），" +
+    "programs/filters.ts 的 translateObjectFilter 与 layers/filter.ts 的 characteristicsMatch 都接受该拼写，golden 以真实 Finalize 锁定目标；" +
+    "「to its base」用已合入的 target-controller-base 位置选择器按所选目标的控制者取 Base（107.1.c），" +
+    "accept-branch golden 对 kill-self 与真实移动做端到端执行。" +
+    "依赖：combat 的原子开始事务（角色指派 + 时点发射）、嵌套目标的生命周期适配器与 Finalize 基础费用提取。" +
+    "不近似实现（不换时点、不放宽成任意单位）。",
   abilities,
   sourceText: "When I defend, you may kill me to move an attacking unit to its base."
 } satisfies CardProgram;

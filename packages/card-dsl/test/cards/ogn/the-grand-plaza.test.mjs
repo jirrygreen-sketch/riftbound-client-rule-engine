@@ -34,7 +34,7 @@ test("The Grand Plaza program validates and is judge-required", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /effect\.win/);
-  assert.match(program.judgeReason, /testTrigger/);
+  assert.doesNotMatch(program.judgeReason, /testTrigger|Trigger condition adapter required/);
   assert.ok(!/RIFT-357/.test(program.judgeReason));
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -110,9 +110,9 @@ test("The Grand Plaza golden: a replaced win is negated without declaring anyone
 
 test.todo(
   "The Grand Plaza condition scope: '7+ units here' needs the 053.3 'here' referent to " +
-    "restrict the count to the held Battlefield through the trigger condition; the registration " +
-    "path needs a host testTrigger adapter (events/pipeline.ts), and the interpreter's plain " +
-    "query path must bind controller: 'controller' to the ability controller"
+    "restrict the count to the held Battlefield through the trigger condition; the canonical " +
+    "event-aware evaluator is present, but the query path must bind controller: 'controller' " +
+    "to the ability controller"
 );
 
 test.todo(

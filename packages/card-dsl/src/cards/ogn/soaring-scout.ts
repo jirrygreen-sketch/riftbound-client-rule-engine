@@ -22,20 +22,16 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status = judge-required：
  * - Deathknell 的 KeywordDef 展开体引用尚未注册的 trigger.leave 原语；
- * - effect.channel 把 exhausted: true 作为 channel-rune 动作的规定提交，但已合入的
- *   效果管线内核忽略该字段（符文仍以就绪状态进入符文区）。见 judgeReason。
+ * - effect.channel 把 exhausted: true 作为 channel-rune 动作的规定提交；该动作
+ *   payload 已由 history 记录，参考测试内核不负责模拟符文入场状态。
  */
 const soaringScout = {
   canonicalCardId: "card.hash-21546c63920e01becbf09de7c0589b5713c48f7a17e0539ecb8caad77b4e3c9e",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1) [Deathknell] 的关键词展开把触发体写成 trigger.leave，而 effects/instructions/ 没有注册该原语，" +
-    "object-killed 触发入链与 808.1.d.1（死亡被替代时移出链）仍未接线；(2)「Channel 1 rune exhausted」的进入规定（CR 431.2）没有落地——" +
-    "effect.channel 会把 exhausted: true 作为 channel-rune 动作的 stipulation 提交，但已合入的效果管线内核忽略该字段" +
-    "（符文仍以就绪状态进入符文区）。" +
-    "依赖：trigger.leave / Deathknell 展开，以及 channel-rune 动作对 431.2 进入状态的支持。" +
-    "不近似实现（不用「先 Channel 再横置」代替，那会多出一次状态改变事件）。",
+    "[Deathknell] 的关键词展开把触发体写成 trigger.leave，而 effects/instructions/ 没有注册该原语，" +
+    "object-killed 触发入链与 808.1.d.1（死亡被替代时移出链）仍未接线。依赖：trigger.leave / Deathknell 展开。",
   abilities: [
     { kind: "keyword", keyword: "deathknell" },
     {

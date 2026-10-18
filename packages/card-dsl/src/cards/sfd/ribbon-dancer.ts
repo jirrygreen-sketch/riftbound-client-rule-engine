@@ -17,12 +17,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   修改归 continuous.might（CR 703 的 Buff 与它是两回事）。「another friendly unit」是被
  *   选择的对象（355.7/355.9.b），「another」排除来源自身。
  *
- * Current review:
- * CR v1.5 449.1/449.2 and 458/458.1: a genuine Move to a battlefield
- * must be distinguished from Recall. The body grants +1 Might this turn
- * (arithmetic layer, not a Buff), targeting another friendly unit.
- * The temporary Might body executes; move payload and exclude:source target
- * binding remain blocked. The trigger source:self anchor already translates.
+ * Current review (2026-10-17, measured):
+ * CR v1.5 449.1/449.2 and 458/458.1: a genuine Move to a battlefield must be
+ * distinguished from Recall. The body grants +1 Might this turn (arithmetic
+ * layer, not a Buff) to another friendly unit. The temporary Might body
+ * executes on an explicitly bound target; three gaps remain:
+ * - programs/filters.ts rejects the body target's exclude: "source" anchor
+ *   ("another friendly unit", 355.9.b / 359.3.e.5) with ProgramBindingError
+ *   before the trigger filter is even translated, so the whole trigger
+ *   registration fails closed;
+ * - object-moved is missing from the closed EVENT_PATTERN_TYPES vocabulary
+ *   (events/trigger-spec.ts, invalid-event-type);
+ * - the real move-location emission carries no toZone/toKind, so "to a
+ *   battlefield" (449.2) has no payload to compare against.
+ * Execution evidence: test/cards/templates/triggered-object-moved-continuous-might-687.test.mjs.
  */
 const abilities: Ability[] = [
   {
@@ -77,7 +85,20 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「When I move to a battlefield」仍缺 CR v1.5 449.1/449.2、458/458.1 的移动终点与 Recall 区分载荷：events/action-adapter.ts 的 object-moved 不带 toZone/终点，当前 toZone:\"battlefield\" 过滤不能匹配。translateTriggerFilter 已能把内层 source:self 绑定为本卡 objectId；实际未接通的是 body 目标的 exclude:\"source\"，translateObjectFilter 仍不支持该锚点，无法在 Finalize/Resolve 保证「another friendly unit」（355.9.b/359.3.e.5）。continuous.might 的临时 Might body 已有独立执行证据。依赖：真实 Move 的终点/原因载荷与非自身目标锚点的目标管道适配。",
+    "三处实测缺口（2026-10-17），均不近似实现：" +
+    "(1) body 目标的相对锚点未接通——programs/filters.ts 的 translateObjectFilter 不支持 exclude 锚点，" +
+    "实测 registerProgramTriggers 在翻译本卡 body 目标时抛 ProgramBindingError（\"Unsupported filter field exclude\"，code judge-required），" +
+    "整条触发 fail-closed、pipeline 触发器数为 0；因此 Finalize/Resolve 无法按 355.9.b/359.3.e.5 保证「another friendly unit」永远排除来源自身。" +
+    "(2) 触发无法注册——封闭 EVENT_PATTERN_TYPES（events/trigger-spec.ts）不含 object-moved，" +
+    "带 event 的 EventPattern 被 assertTriggerSpec 以 invalid-event-type 拒绝。" +
+    "(3) 终点载荷缺失——events/action-adapter.ts 为 move-location 发出的 object-moved 只带 action.to，" +
+    "不带 toZone/toKind（这两个字段只在同一发射的 zone-enters/leaves 分支写入），" +
+    "所以 toZone:\"battlefield\" 无法区分真实 Move 终点与 Recall（449.1/449.2、458/458.1）；" +
+    "实测同一 pattern 在带 toZone 的发射上匹配、在生产发射上不匹配。" +
+    "translateTriggerFilter 已能把内层 source:self 绑定为本卡 objectId。" +
+    "已可执行部分：continuous.might 的临时 +1 Might body（143.2.a、317.1.a/478，回合结束到期）在显式绑定目标上真实执行；" +
+    "执行证据在 test/cards/templates/triggered-object-moved-continuous-might-687.test.mjs。" +
+    "依赖：非自身目标锚点的目标管道适配（exclude: \"source\"）、object-moved 进入 EventPattern 词表、真实 Move 的终点载荷。",
   abilities,
   sourceText: "When I move to a battlefield, give another friendly unit +1 :rb_might: this turn."
 } satisfies CardProgram;

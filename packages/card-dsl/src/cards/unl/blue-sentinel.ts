@@ -24,15 +24,22 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   135.2.e.5 的 Universal Power（[A]，任意域力量）。430.2/430.2.a 规定 Add 能力立即结算、
  *   不传递优先权；括号提醒按 430.2.a 是说明文本。
  *
- * status = judge-required（缺口均不近似实现）：
+ * status = judge-required（2026-10-17 复核，逐项实测；缺口均不近似实现）：
  * - [A]（Universal Power）在契约的封闭 Domain 集合（Fury/Calm/Mind/Body/Chaos/Order）内不可表达；
  *   effect.resources 明确记录“Universal Power is not representable … never approximated by a
  *   chosen domain”（实测对 ["rainbow"] 返回 negated(impossible)）。
- * - “trigger an additional time” 没有引擎模型：Ability 六种形状没有触发倍率，ContinuousEffect.kind
- *   没有消费者，触发收集阶段（events/）也没有倍率接口。
- * - 延迟触发 “at the start of your next Main Phase” 没有已注册原语消费 ctx.registerDelayedTrigger，
- *   也没有“下一次 Main Phase”的期限模型。
- * 依赖：触发倍率接口、trigger.delayed 原语与“下一次 Main Phase”窗口、Universal Power 的契约变更请求。
+ * - “trigger an additional time”：continuous.trigger-multiplicity 既没有图层映射（实测 static
+ *   binder 抛 “Static ability kind continuous.trigger-multiplicity has no layer mapping”），
+ *   去掉 appliesTo 后依旧如此；触发收集阶段（events/pipeline.ts 的 scan）也不读倍率，Ability
+ *   六种形状更没有倍率槽位。
+ * - 延迟触发 “at the start of your next Main Phase” 没有已注册原语消费 ctx.registerDelayedTrigger
+ *   （registry.generated 里没有 trigger.delayed），也没有“下一次 Main Phase”的期限模型；
+ *   pipeline-types 的 delayed 只表达生存期，不提供时点窗口。
+ * - “When I hold” 的自身过滤本身可翻译（实测 translateTriggerFilter 得到
+ *   { event: "hold", object: { objectId: <source> } }），但 hold 生产事件不带 object，
+ *   所以该订阅在事件管线里不会命中来源。
+ * 依赖：触发倍率接口、trigger.delayed 原语与“下一次 Main Phase”窗口、hold 事件的来源载荷、
+ * Universal Power 的契约变更请求。
  */
 const abilities: Ability[] = [
   // 814.1.b：印刷为 [Shield 2]，带数值。
@@ -93,14 +100,17 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处缺口，均不近似实现：(1)「Your hold effects for holding here trigger an additional time」（383.4.d.2.b）没有引擎模型：" +
-    "Ability 六种形状没有触发倍率，ContinuousEffect.kind 没有消费者，触发收集阶段（events/）也没有倍率接口（同 Karthus, Eternal 的缺口）。" +
+    "四处缺口，均不近似实现：(1)「Your hold effects for holding here trigger an additional time」（383.4.d.2.b）没有引擎模型：" +
+    "continuous.trigger-multiplicity 既无图层映射（实测 static binder 抛 \"Static ability kind continuous.trigger-multiplicity has no layer mapping\"，" +
+    "去掉 appliesTo 后同样如此），触发收集阶段（events/pipeline.ts 的 scan）也不读倍率（同 Karthus, Eternal 的缺口）。" +
     "(2)「at the start of your next Main Phase」是延迟触发（391.2/392）：effects/instructions/ 没有任何 opcode 消费 " +
-    "ctx.registerDelayedTrigger，也没有「下一次 Main Phase」的期限模型。" +
+    "ctx.registerDelayedTrigger（registry.generated 无 trigger.delayed），也没有「下一次 Main Phase」的期限模型。" +
     "(3)「[Add] :rb_rune_rainbow:」的 [A]（163.2.b / 135.2.e.5）不在封闭 Domain 集合内：effect.resources 明确 Universal Power " +
     "不可表达、绝不用某个域近似（实测 power: [\"rainbow\"] 返回 negated(impossible)），本卡保留记号并提交契约变更请求。" +
+    "(4)「When I hold」的自身过滤可翻译（实测 translateTriggerFilter 得到 { event: \"hold\", object: { objectId: 来源 } }），" +
+    "但 hold 生产事件（turn/flow.ts 的 { timingPoint: 'hold', player, details }）不带 object，订阅不会命中来源。" +
     "[Shield 2]（814）已声明；hold 触发结构（383.4.d 的时点 hold）已保留。" +
-    "依赖：触发倍率接口（events/）、trigger.delayed 原语与“下一次 Main Phase”窗口、Universal Power 的契约变更请求。",
+    "依赖：触发倍率接口（events/）、trigger.delayed 原语与“下一次 Main Phase”窗口、hold 事件的来源载荷、Universal Power 的契约变更请求。",
   abilities,
   sourceText:
     "[Shield 2] (+2 :rb_might: while I'm a defender.)\n" +

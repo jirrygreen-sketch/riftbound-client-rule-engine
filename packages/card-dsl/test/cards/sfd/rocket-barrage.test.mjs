@@ -6,6 +6,12 @@ import program from "../../../dist/cards/sfd/rocket-barrage.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { AwaitChoice, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 
 const CANONICAL_ID = "card.hash-b104ab4f2d5ede379d04e1002cd97a70d95148d73cddde15852f5dce8b204e9e";
 const SOURCE_TEXT =
@@ -85,7 +91,18 @@ test("sfd-077-221 Rocket Barrage: identity, ruleset, status and verbatim text (w
 
 test("sfd-077-221 Rocket Barrage: judgeReason names the Repeat cost wiring", () => {
   assert.match(program.judgeReason, /820\.1/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /Additional costs are not bound/);
+  assert.match(program.judgeReason, /Unsupported play cost field optional/);
+  assert.match(program.judgeReason, /repeat\.cost has no layer mapping/);
+  assert.match(program.judgeReason, /Mode choices require a Finalize\/Resolve choice-plan adapter/);
+  assert.match(program.judgeReason, /依赖：PlayAbility 与 repeat\.cost 静态声明的费用计划消费方/);
+  // RIFT-89/261 are merged cost work; the reason must name the missing consumers
+  // instead of citing them as pending dependencies.
+  assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-261/);
+  // 2026-10-18 re-sweep: name the measured third half of the Repeat gap.
+  assert.match(program.judgeReason, /cost\.optional-additional-paid/);
+  assert.match(program.judgeReason, /Repeat count must be a non-negative safe integer/);
+  assert.match(program.judgeReason, /programs\/keywords\.ts/);
 });
 
 test("sfd-077-221 Rocket Barrage: the printed [Repeat] additional cost is 4 energy plus one Mind power", () => {
@@ -264,8 +281,9 @@ test("sfd-077-221 Rocket Barrage golden: the merged repeat control re-runs the b
 test.todo(
   "sfd-077-221 Rocket Barrage: [Repeat] :rb_energy_4::rb_rune_mind: must be collected at Finalize and the paid " +
     "instance count fed to the interpreter's repeat node so the mode choice is re-made for each additional " +
-    "execution (CR 820.1.c.1 / 820.1.d.1 / 820.2 / 820.2.a; RIFT-89 cost plan plus the wiring named in " +
-    "effects/keywords/Repeat.ts)."
+    "execution (CR 820.1.c.1 / 820.1.d.1 / 820.2 / 820.2.a) — no consumer turns the PlayAbility declaration or " +
+    "the Repeat keyword expansion's repeat.cost static ability into CostPlanInput, and the merged repeat control " +
+    "is only reachable from a caller-supplied paid instance count."
 );
 // Direct evidence for the [Repeat] gap recorded in the judgeReason: the merged
 // play-cost adapter refuses the optional additional-cost declaration before
@@ -280,5 +298,133 @@ test("sfd-077-221 Rocket Barrage: the merged play-cost adapter refuses the optio
       assert.match(error.message, /Unsupported play cost field optional on rocket-barrage:play/);
       return true;
     }
+  );
+});
+
+test("sfd-077-221 Rocket Barrage: no consumer maps the Repeat expansion's repeat.cost declaration", () => {
+  // Evidence for the second half of the [Repeat] gap: the merged keyword
+  // expansion authors a repeat.cost static ability, but the production static
+  // binder has no layer mapping for that effect kind, so the declared instance
+  // never reaches the Finalize cost plan.
+  const [declaration] = keywordDefinitionsById.get("Repeat").expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(declaration.kind, "static");
+  assert.equal(declaration.effect.kind, "repeat.cost");
+  const kernel = world().unit("spell", { might: 3 }).build();
+  const binder = createEngineStaticBinder({
+    layers: createLayerEngine(kernel.objects, []),
+    pipeline: {
+      host: {
+        objects: () => kernel.objects,
+        context: (snapshot) => kernel.clone({ sourceSnapshot: snapshot, source: snapshot.ref })
+      }
+    }
+  });
+  assert.throws(
+    () => binder.bindStatic(declaration, kernel.getObject("spell")),
+    /Static ability kind repeat\.cost has no layer mapping/
+  );
+});
+
+test("sfd-077-221 Rocket Barrage: the chain Finalize refuses the card's choice.mode body", () => {
+  // Evidence for the mode-choice gap: the production play draft for this card's
+  // own body is rejected by chain/engine.ts assertFinalizationSurface, so the
+  // printed "Choose one" cannot be finalized at all today.
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const kernel = world().player("A", { energy: 20 }).build();
+  kernel.addObject({
+    ref: { id: "spell", zoneEntryId: 1 },
+    cardId: CANONICAL_ID,
+    name: "Rocket Barrage",
+    types: ["spell"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "hand",
+    location: null,
+    might: null,
+    energy: 4,
+    power: ["Mind"],
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  }, "hand");
+  assert.throws(
+    () => binding.describePlay({ type: "play", object: kernel.ref("spell"), player: "A" }, kernel.getObject("spell")),
+    /Mode choices require a Finalize\/Resolve choice-plan adapter/
+  );
+});
+
+test("sfd-077-221 Rocket Barrage: the paid Repeat receipt is a boolean the repeat node cannot consume (820.1.d.1)", () => {
+  // Live evidence for the third half of the refreshed reason. The receipt is
+  // readable as a predicate, but the merged repeat node requires a
+  // non-negative integer count, so the additional execution and its re-made
+  // mode choice cannot be derived card-side from the paid/declined decision.
+  const kernel = world()
+    .player("A", { energy: 9, power: ["Mind"] })
+    .deck(["d1", "d2"])
+    .object("spell-source", { cardId: CANONICAL_ID, types: ["spell"], zone: "board", energy: 4, power: ["Mind"] })
+    .build();
+  const cost = {
+    plan: {
+      components: [{ id: "rocket-barrage.repeat-payment", stage: "optional-additional" }],
+      selectedAdditional: [{ id: "rocket-barrage.repeat-payment", kind: "repeat" }],
+      declinedAdditional: []
+    },
+    receipt: { paid: true, additional: [{ id: "rocket-barrage.repeat-payment", kind: "repeat", paid: true }] }
+  };
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("spell-source") });
+
+  const read = runAbilityBody(
+    [{ id: "rocket.read-repeat", op: "condition.predicate", args: { condition: { kind: "constant", value: { kind: "result", result: "cost.optional-additional-paid", id: "rocket-barrage.repeat-payment" } } } }],
+    context,
+    undefined,
+    { cost }
+  );
+  assert.equal(read.results[0].result.linkedValues.value, true);
+
+  const repeated = kernel.clone({ sourceSnapshot: kernel.getObject("spell-source") });
+  assert.throws(
+    () => runAbilityBody(
+      [
+        { id: "rocket.read-repeat", op: "condition.predicate", args: { condition: { kind: "constant", value: { kind: "result", result: "cost.optional-additional-paid", id: "rocket-barrage.repeat-payment" } } } },
+        {
+          id: "rocket.repeat",
+          op: "repeat",
+          linkedTo: "rocket.read-repeat",
+          args: {
+            count: { kind: "linked-value", instructionId: "rocket.read-repeat", key: "value" },
+            body: { kind: "constant", value: [{ id: "rocket.draw", op: "effect.draw", args: { amount: { kind: "constant", value: 1 } } }] }
+          }
+        }
+      ],
+      repeated,
+      undefined,
+      { cost }
+    ),
+    /Repeat count must be a non-negative safe integer/
+  );
+  assert.equal(repeated.player("A").handSize, 0, "no repetitions ran");
+});
+
+test("sfd-077-221 Rocket Barrage: programs/keywords.ts expands Repeat without the printed cost", () => {
+  // The printed 4 Energy + 1 Mind power lives on the play CostSpec; the card has
+  // no `repeat` keyword ability for expandProgram to forward a cost to, so the
+  // merged keyword registry cannot recover it (keyword → cost wiring gap).
+  const keywords = program.abilities.filter((ability) => ability.kind === "keyword").map((ability) => ability.keyword);
+  assert.equal(keywords.includes("repeat"), false);
+  const kernel = world()
+    .object("spell-source", { cardId: CANONICAL_ID, types: ["spell"], zone: "board", energy: 4, power: ["Mind"] })
+    .build();
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const expanded = expandProgram(lifted, kernel.getObject("spell-source")).expanded;
+  assert.equal(
+    expanded.some((ability) => ability.kind === "static" && ability.effect.kind === "repeat.cost"),
+    false
   );
 });

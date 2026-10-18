@@ -3,6 +3,8 @@ import { queryObjects, resolveObjectSelector, selectorSnapshot } from "./selecto
 import { arithmetic, asValue, MissingInformation } from "./values.js";
 import { resolveLocationSelector } from "./locations.js";
 import type { LocationRef } from "../contract.js";
+import { evaluateExtendedExpression } from "./expr-ext/evaluate.js";
+import { historyExpressionCount } from "./history.js";
 
 export interface ExpressionContext {
   readonly context: ResolveContext;
@@ -38,14 +40,21 @@ export function evaluateExpression(expr: Expr, environment: ExpressionContext): 
       if (value === undefined) throw new MissingInformation(`Unavailable linked value: ${expr.instructionId}`);
       return asValue(value);
     }
-    case "count": return queryObjects(expr.filter ?? {}, environment).length;
+    case "player-property":
+    case "turn-number":
+    case "player-turn-count":
+    case "object-designation": return evaluateExtendedExpression(expr, environment);
+    case "count":
+      if (expr.subject === "controller-xp" || expr.subject === "self-in-combat") return evaluateExtendedExpression(expr, environment);
+      return historyExpressionCount(expr, environment) ?? queryObjects(expr.filter ?? {}, environment).length;
     case "arithmetic": return arithmetic(expr.operator, expr.operands.map(operand => evaluateExpression(operand, environment)));
     case "object-property":
     case "object-attribute": {
+      const property = expr.kind === "object-property" ? expr.property : expr.attribute;
+      if (property === "designation") return evaluateExtendedExpression(expr, environment);
       const ref = resolveObjectSelector(expr.object, environment)[0];
       if (ref === undefined) throw new MissingInformation("Object selector has no object-valued selection");
       const snapshot = selectorSnapshot(ref, environment, expr.object === "source");
-      const property = expr.kind === "object-property" ? expr.property : expr.attribute;
       if (!Object.hasOwn(snapshot, property)) throw new MissingInformation(`Unavailable characteristic: ${property}`);
       return asValue(snapshot[property as keyof typeof snapshot]);
     }

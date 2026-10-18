@@ -7,6 +7,10 @@ import inspect from "../../../../engine-core/dist/effects/instructions/effect.in
 import order from "../../../../engine-core/dist/effects/instructions/effect.order.js";
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { bindStaticAbility, createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CARD_ID =
   "card.hash-be9352fd69cba13e7974fff0bd5db390c242339f85ca41ea8f9289e4fd245d29";
@@ -25,6 +29,13 @@ test("rad-060-167 The Empyrean: program validates and is judge-required", () => 
   assert.match(program.judgeReason, /Show Off/);
   assert.match(program.judgeReason, /832\.1\.c\.3/);
   assert.match(program.judgeReason, /832\.1\.d\.1/);
+  assert.match(program.judgeReason, /no executable KeywordDef/);
+  assert.match(program.judgeReason, /lowercase keyword id/);
+  assert.match(program.judgeReason, /cost\.reveal/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /shownPowerCost/);
+  assert.match(program.judgeReason, /Predict/);
+  assert.equal(/RIFT-\d+/.test(program.judgeReason), false);
 });
 
 test("rad-060-167 The Empyrean: sourceText is the verbatim deck-catalog ability text", () => {
@@ -38,6 +49,63 @@ test("rad-060-167 The Empyrean: sourceText is the verbatim deck-catalog ability 
 
 test("rad-060-167 The Empyrean: [Show Off] is declared as a keyword ability (832.1)", () => {
   assert.deepEqual(showOffKeyword, { kind: "keyword", keyword: "show-off", value: 1 });
+});
+
+test("rad-060-167 The Empyrean boundary: no single spelling satisfies both the keyword registry and the IR validator", () => {
+  // 832.1: the merged ShowOff KeywordDef is registered under its printed name
+  // ("Show Off"), while programs/keywords.ts folds only letter case. The card's
+  // slug spelling is therefore unresolvable, and the registry spelling is not a
+  // legal keyword id in the frozen IR shape.
+  const registered = keywordDefinitionsById.get("Show Off");
+  assert.ok(registered, "effects/keywords/ShowOff.ts is in the generated registry");
+  assert.equal(registered.keyword, "Show Off");
+  assert.equal(keywordDefinitionsById.has("show-off"), false);
+
+  const kernel = world().unit("empyrean", { types: ["unit"], zone: "board", might: 8 }).build();
+  const snapshot = { ...kernel.getObject("empyrean"), cardId: CARD_ID };
+  assert.throws(
+    () => expandProgram(program, snapshot),
+    /Keyword show-off has no executable KeywordDef/
+  );
+  const printedSpelling = {
+    ...program,
+    abilities: [{ kind: "keyword", keyword: "Show Off" }, ...program.abilities.slice(1)]
+  };
+  assert.deepEqual(
+    validateCardProgram(printedSpelling).issues.map(issue => [issue.path.split(".").at(-1), issue.code]),
+    [["keyword", "invalid-string"]],
+    "the registry spelling is rejected by the card-side validator"
+  );
+  assert.deepEqual(
+    expandProgram(printedSpelling, snapshot).abilities.slice(0, 2).map(ability => ability.kind),
+    ["keyword", "triggered"],
+    "the registry spelling does expand"
+  );
+});
+
+test("rad-060-167 The Empyrean boundary: the Show Off declaration has no consumer (832.1.c)", () => {
+  // The keyword expands to a Finalize-time static cost.reveal, but nothing
+  // consumes that kind: no layer mapping and no registered instruction.
+  const expansion = keywordDefinitionsById.get("Show Off").expand({ host: { canonicalCardId: CARD_ID } });
+  assert.equal(expansion.length, 1);
+  assert.equal(expansion[0].kind, "static");
+  assert.equal(expansion[0].effect.kind, "cost.reveal");
+  assert.equal(instructionDefinitionsById.has("cost.reveal"), false);
+  assert.deepEqual(
+    validateCardProgram({ ...program, abilities: expansion }).issues,
+    [],
+    "the declaration itself is a legal EffectIR shape"
+  );
+
+  const kernel = world().unit("empyrean", { types: ["unit"], zone: "board", might: 8 }).build();
+  assert.throws(
+    () => bindStaticAbility(
+      createEngineStaticBinder({ layers: { addContinuous() {}, removeContinuous() {}, currentTimingPoint: "cleanup-start" } }),
+      expansion[0],
+      { ...kernel.getObject("empyrean"), cardId: CARD_ID }
+    ),
+    (error) => error.code === "judge-required" && /Static ability kind cost\.reveal has no layer mapping/.test(error.message)
+  );
 });
 
 test("rad-060-167 The Empyrean: show off is a finalization-time optional choice that locks a characteristic (832.1.c.2 / 832.1.d.1)", () => {

@@ -18,19 +18,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   因此按其“进场方式”性质写成 replacement 能力（条件写在 replacement.condition）。
  *
  * status = judge-required（依赖均不近似实现）：
- * 1. 卡牌程序侧的替换注册未接线：programs/statics.ts 的 createEngineStaticBinder()
- *    .bindReplacement 已合入并能执行替代体（绑定后横置进场真的就绪进场，golden 有执行
- *    证据；机制执行证据，但没有任何生产模块把 CardProgram 的 replacement
- *    能力经该绑定装进事件管线，因此按卡牌打出流程的替换不会发生。
+ * 1. 入场条件门控仍未接入：replacement/bind.ts 的 matches() 在 matchesEnterAction 命中时
+ *    直接返回 true，不评估 ability.condition；即使 Trash 条件不成立，入场也会被错误改写为 ready。
  * 2. 同名比较没有可执行谓词：ObjectFilter 的 characteristics 只能做顶层字段等值，
  *    Expr 也没有「读来源的卡名并与候选比较」的形态；filter 里按 describe 记录的占位键
  *    （sameNameAs: "self"）没有任何消费方。把同名近似成 tag 或类型都会改变语义（132.3/132.4）。
- * 3. Trash 计数的占位符未归一化：replacement 条件经生产求值路径（replacement/bind.ts 的
- *    testCondition）对 owner: "self" 占位符求值恒为 false（catch→false，三场景实验证据：
- *    同名 trash / 异名 trash / 空 trash 都不触发），canonicalCardId 等值过滤也被参考内核与
- *    生产 ctx.query 的未知键跳过（反例查询恒真，见实验 /tmp/RIFT-438-resweep2-ven-13/
- *    experiments/canon-negative.mjs）。在占位符归一化与同名谓词落地前断言该条件等于把
- *    「不触发」写成预期。
+ * 3. Trash 计数的 sameNameAs 占位符没有消费方，生产查询无法按完整卡名比较；在同名谓词
+ *    与替代条件门控落地前，断言条件成立或不成立都会把未实现语义写成预期。
  */
 const abilities: Ability[] = [
   {
@@ -73,17 +67,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入：(1) 卡牌程序侧的替换注册未接线——programs/statics.ts 的 createEngineStaticBinder()" +
-    ".bindReplacement 已合入，绑定后替代体真实执行（横置进场 → 就绪进场，golden 有机制级执行证据；" +
-    "但没有生产模块把 CardProgram 的 replacement 能力装进事件管线，" +
-    "因此打出流程中 359.2.c/369.3 的替换不会发生；不把 effect.ready 当作事后重置来近似。" +
+    "当前有三处依赖未合入：(1) replacement/bind.ts 的 matches() 在 matchesEnterAction 命中时直接返回 true，" +
+    "不评估 ability.condition；即使 Trash 条件不成立，入场也会错误地变成 ready。" +
     "(2)「a card with my name」缺卡名比较谓词——132.1/132.3/132.4 的同名是完整牌名比较，" +
     "ObjectFilter 的 characteristics 只做顶层字段等值，Expr 也没有读取来源卡名并与候选比较的形态，" +
-    "filter 里的 sameNameAs 是无消费方的描述性占位；(3) 替换条件的占位符未归一化——replacement/bind.ts 的 " +
-    "testCondition 对 owner: 'self' 求值恒为 false（catch→false，同名/异名/空 trash 三场景实验一致），" +
-    "canonicalCardId 等值过滤在参考内核与生产 ctx.query 也被未知键跳过（反例恒真），归一化与同名谓词落地前" +
-    "不能断言条件成立。with 体的 effect.ready 本体已合入，golden 覆盖替代体执行与 bindReplacement 机制对照。" +
-    "依赖：卡牌 replacement 能力的生产注册接线、卡名比较谓词与 Trash 过滤键归一化。不近似实现。",
+    "filter 里的 sameNameAs 是无消费方的描述性占位；(3) Trash 计数无法按完整卡名比较，" +
+    "同名谓词与替代条件门控落地前不能断言条件成立。with 体的 effect.ready 本体已合入，" +
+    "模板测试覆盖该支持部分。依赖：替代条件门控与卡名比较谓词。不近似实现。",
   abilities,
   sourceText: "I enter ready if you have a card with my name in your trash."
 } satisfies CardProgram;

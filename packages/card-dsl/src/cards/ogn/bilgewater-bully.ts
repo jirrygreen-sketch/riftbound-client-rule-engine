@@ -21,19 +21,24 @@ import type { CardProgram } from "../../ir/index.js";
  * status: judge-required —— 依据以下缺口，不近似实现：
  * 1. `continuous.grant-keyword` 原语、条件的 `buffs` 求值和静态程序绑定都已具备；本卡
  *    测试真实执行并验证 ability 层的 Ganking 与回合结束到期。
- * 2. 标准移动已能查询 movement 规则，但动态获得的关键词尚未自动展开；Ganking 静态展开的
- *    permission 字符串也未转换成 movement 查询所需的 permission.routes。
- * 3. 因此本卡无法在整卡层面证明“被 Buff 时确实获得 Ganking”。
+ * 2. KeywordGrantLayerEngine 已经把动态授予的关键词重展开为 continuous.movement
+ *    许可，Bilgewater Bully 自己的重展开用例在 engine-core 的 keyword-grants
+ *    reexpand 测试中随 Buff 变化授予并撤销 canGank。该引擎还没有接入生产装配：
+ *    turn/flow.ts 的 TurnPhaseLayers 与 chain/engine.ts 默认的 LayerEngine 都不
+ *    重展开，zones/unit-lifecycle 的 deriveGanking→hasGanking 派生也没有接到规则
+ *    层查询，所以整卡层面仍无法证明“被 Buff 时确实获得 Ganking”。
  */
 export default {
   canonicalCardId: "card.hash-bfada85ea0485d763baf4f6d82594347175927b1b09ec1e1d976fce15710013e",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺少 continuous.grant-keyword 动态授予 Ganking 后的关键词重展开与撤销；" +
-    "programs/statics.ts 保留的 continuous.movement permission 字符串也未适配 layers/rules/query.ts 所读的 permission.routes。" +
-    "仍需把随 buffs 条件变化的授予接入 movement.canGank 查询或可信 hasGanking 派生" +
-    "（CR 364.3、810.1.c、144.4.c.1），并在失去 Buff 时撤销许可。",
+    "continuous.grant-keyword 的重展开与撤销已合入：KeywordGrantLayerEngine 会把动态授予的 Ganking " +
+    "重展开为 continuous.movement 许可并随 Buff 消耗撤销，本卡的原程序在 engine-core 的 " +
+    "keyword-grants reexpand 测试中真实授予、撤销 canGank（CR 364.3、810.1.c、144.4.c.1）。" +
+    "当前真实缺口是该重展开引擎还没有接入生产装配：turn/flow.ts 的 TurnPhaseLayers 与 " +
+    "chain/engine.ts 默认 LayerEngine 都不重展开，zones/unit-lifecycle 的可信 hasGanking 派生 " +
+    "也没有接进规则层 movement 查询，整卡因此仍不可执行。",
   abilities: [
     {
       kind: "static",

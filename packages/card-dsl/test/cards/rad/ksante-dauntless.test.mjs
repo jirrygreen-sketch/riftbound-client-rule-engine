@@ -1,3 +1,4 @@
+// Execution evidence for keyword expansion is consolidated in ../templates/keyword-only.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -6,7 +7,10 @@ import program from "../../../dist/cards/rad/ksante-dauntless.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import mightOp from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
+import keywordOp from "../../../../engine-core/dist/effects/instructions/continuous.keyword.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { translateInstructionTargets, translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import Shield from "../../../../engine-core/dist/effects/keywords/Shield.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
@@ -38,6 +42,8 @@ test("rad-045-167 K'Sante, Dauntless: identity, ruleset, status, judgeReason and
   assert.match(program.judgeReason, /designation|combatRole/);
   assert.match(program.judgeReason, /sameLocationAs|source-location/);
   assert.doesNotMatch(program.judgeReason, /continuous\.grant-keyword 的 value 是新增一则带值关键词/);
+  // The reason must name the merged code that fails, not a task number.
+  assert.equal(/RIFT-\d+/.test(program.judgeReason), false);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -136,13 +142,99 @@ test("rad-045-167 K'Sante, Dauntless boundary: the multiply form is not an execu
   );
 });
 
+test("rad-045-167 K'Sante, Dauntless boundary: continuous.keyword can only add a fixed value, never double the current Shield", () => {
+  // CR 814.1.b/814.2: doubling doubles the Shield Value the object has now.
+  // The merged continuous.keyword primitive only adds a printed grant, so the
+  // measured result matches a true doubling only when the grant happens to
+  // equal the printed value. This pins the gap instead of approximating it.
+  for (const [printed, grant] of [[3, 3], [3, 2], [5, 3], [1, 3]]) {
+    const kernel = world()
+      .unit("ksante", { might: 4, zone: "board", keywords: [{ id: "Shield", value: printed }] })
+      .build();
+    const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("ksante") });
+    scoped.setTargets("ksante-dauntless.unit-here", [kernel.ref("ksante")]);
+    const run = runInstruction(
+      keywordOp,
+      {
+        keywords: { kind: "constant", value: [{ id: "Shield", value: grant }] },
+        target: "ksante-dauntless.unit-here"
+      },
+      { world: scoped }
+    );
+    assert.equal(run.result.status, "executed");
+    const layers = createLayerEngine(
+      scoped.objects,
+      scoped.continuousEffects.map(entry => ({ effect: entry.effect, duration: entry.duration }))
+    );
+    const value = layers.evaluate(kernel.ref("ksante")).keywords.find(entry => entry.id === "Shield")?.value;
+    assert.equal(value, printed + grant, `Shield ${printed} plus a fixed grant ${grant} adds to ${printed + grant}`);
+    assert.equal(value === printed * 2, printed === grant, "only a coincidental equal grant matches a doubling");
+  }
+  // 814.2 doubles the value read at resolution; the primitive cannot read it.
+  const kernel = world().unit("ksante", { might: 4, keywords: [{ id: "Shield", value: 3 }] }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("ksante") });
+  scoped.setTargets("ksante-dauntless.unit-here", [kernel.ref("ksante")]);
+  assert.throws(
+    () => runInstruction(
+      keywordOp,
+      {
+        keyword: { kind: "constant", value: "Shield" },
+        value: { kind: "object-property", object: "self", property: "keywords" },
+        target: "ksante-dauntless.unit-here"
+      },
+      { world: scoped }
+    ),
+    /continuous\.keyword value must be a non-negative integer/
+  );
+});
+
 test("rad-045-167 K'Sante, Dauntless boundary: the 'here' target filter is not expressible with the merged vocabularies", () => {
-  // "a unit you control here" (383.4.e/464.2.b). Body target filters reject the
-  // sameLocationAs anchor, and the card-side validator does not accept the
-  // RIFT-357 relative location selectors that the engine-side resolver knows.
+  // "a unit you control here" (383.4.e/464.2.b). The card IR filter itself is
+  // legal and the reference interpreter's set query honors the anchor; only the
+  // production translator refuses it, so nothing can reach the chain yet.
+  assert.equal(
+    validateCardProgram(program).ok,
+    true,
+    "the declared sameLocationAs filter passes the card-side validator"
+  );
   assert.throws(
     () => translateInstructionTargets(attackAbility.body),
     /Unsupported filter field sameLocationAs/
+  );
+  const kernel = world().player("A")
+    .unit("ksante", { might: 4, controller: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("ally-here", { might: 2, controller: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("ally-elsewhere", { might: 2, controller: "A", location: { type: "battlefield", id: "bf-2" } })
+    .build();
+  const snapshot = kernel.getObject("ksante");
+  const scoped = kernel.clone({ sourceSnapshot: snapshot, host: snapshot.ref });
+  // The reference kernel compares player selectors literally; the production
+  // binding normalizes the card's relative "controller" spelling before the
+  // chain sees it (translateObjectFilter -> normalizePlayer, asserted below).
+  // Only the location anchor is therefore still a card-side gap.
+  const hereCount = runAbilityBody([{
+    id: "ksante.here-count",
+    op: "condition.predicate",
+    args: {
+      condition: {
+        kind: "constant",
+        value: {
+          kind: "compare",
+          left: {
+            kind: "count",
+            subject: "objects",
+            filter: { type: "unit", controller: "A", zone: "board", sameLocationAs: "self" }
+          },
+          operator: "eq",
+          right: { kind: "constant", value: 2 }
+        }
+      }
+    }
+  }], scoped);
+  assert.equal(
+    hereCount.linkedValues["ksante.here-count.value"],
+    true,
+    "the sameLocationAs anchor selects exactly K'Sante and the unit at the same battlefield"
   );
   // The merged program filter translation normalizes the relative player
   // anchors, which is why the sameLocationAs anchor - not the controller - is
@@ -154,6 +246,32 @@ test("rad-045-167 K'Sante, Dauntless boundary: the 'here' target filter is not e
   const relativeSelector = { ...attackInstruction.targets[0], filter: { type: "unit", zone: "board" }, location: "source-location" };
   assert.equal(relativeSelector.location, "source-location");
   assert.equal(attackInstruction.targets[0].filter.sameLocationAs, "self");
+  // target.location is the other route to "here", and it is closed too: only a
+  // concrete Battlefield id or a concrete Base reaches the selector validator,
+  // so the 359.3.f relative spellings are read as location filters.
+  for (const location of [
+    { kind: "relative", relation: "source-location" },
+    { kind: "location-of", object: "self" },
+    { kind: "location-selector", locationOf: "self" }
+  ]) {
+    const withLocation = validateCardProgram({
+      canonicalCardId: program.canonicalCardId,
+      rulesetVersion: program.rulesetVersion,
+      status: "executable",
+      abilities: [{
+        kind: "activated",
+        timing: "action",
+        cost: { energy: { kind: "constant", value: 1 } },
+        body: [{ ...attackInstruction, targets: [{ ...attackInstruction.targets[0], filter: { type: "unit", zone: "board" }, location }] }]
+      }],
+      sourceText: program.sourceText
+    });
+    assert.equal(withLocation.ok, false);
+    assert.deepEqual(
+      withLocation.issues.map(issue => [issue.path.split(".").at(-1), issue.code]),
+      [["kind", "invalid-location-kind"]]
+    );
+  }
 });
 
 test("rad-045-167 K'Sante, Dauntless boundary: the [Shield] expansion leaves the printed Might unchanged", () => {

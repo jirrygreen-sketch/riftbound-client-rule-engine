@@ -64,6 +64,7 @@ test("sfd-221-221 Veiled Temple: program validates, is registered and stays judg
   assert.match(program.judgeReason, /here/);
   assert.match(program.judgeReason, /programs\/filters\.ts/);
   assert.match(program.judgeReason, /conquer/);
+  assert.match(program.judgeReason, /details\.battlefieldId/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 

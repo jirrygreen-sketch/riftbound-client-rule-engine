@@ -8,6 +8,10 @@ import damage from "../../../../engine-core/dist/effects/instructions/effect.dam
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { CombatFlow } from "../../../../engine-core/dist/combat/flow.js";
 
 const CANONICAL = "card.hash-5db2b31990da2ad96271bf74f4d78f1ae9ef9c614ec7bcec1735b3cc17f301ae";
 const BASE = player => ({ type: "base", player });
@@ -17,6 +21,7 @@ const [play] = dragonsRage.abilities;
 const [moveInstruction, damageMoved, damageOther] = play.body;
 const movedSpec = moveInstruction.targets[0];
 const otherSpec = damageMoved.targets[0];
+const forged = { ...dragonsRage, status: "executable", judgeReason: undefined };
 
 test("Dragon's Rage program is structurally valid EffectIR v2 data", () => {
   const result = validateCardProgram(dragonsRage);
@@ -33,13 +38,13 @@ test("Dragon's Rage identity, ruleset, status, printed text and judgeReason", ()
     "Move an enemy unit. Then choose another enemy unit at its destination. " +
       "They deal damage equal to their Mights to each other."
   );
-  // The judgeReason must name the missing reflexive trigger and the target/
-  // legality ordering, with rule numbers. The Move Destination itself now has
-  // a merged LocationExpr form.
+  // The judgeReason must name the missing reflexive trigger and the target
+  // anchor rejection, with rule numbers.
   assert.match(dragonsRage.judgeReason, /trigger\.reflexive/);
   assert.match(dragonsRage.judgeReason, /388\.1/);
   assert.match(dragonsRage.judgeReason, /389\.1/);
   assert.match(dragonsRage.judgeReason, /355\.5\.b/);
+  assert.match(dragonsRage.judgeReason, /sameLocationAs/);
   assert.equal(cardRegistryById.get(dragonsRage.canonicalCardId), dragonsRage);
 });
 
@@ -198,11 +203,43 @@ test("Dragon's Rage golden: the mutual damage reads both Might values and attrib
   ]);
 });
 
+test("Dragon's Rage current gap 1: trigger.reflexive has no executor", () => {
+  assert.equal(instructionDefinitionsById.has("trigger.reflexive"), false);
+  const kernel = world().unit("unit", {}).build();
+  assert.throws(
+    () => runAbilityBody([{ id: "rage.reflexive", op: "trigger.reflexive", args: {} }], kernel),
+    /Unregistered instruction opcode: trigger\.reflexive/
+  );
+});
+
+test("Dragon's Rage current gap 2: the production binder rejects the sameLocationAs anchor, so the card cannot be described for play", () => {
+  const state = fixture({ cards: [{ id: "rage", cardId: CANONICAL, types: ["spell"], energy: 4 }] });
+  const binding = createProgramBinding({ cardPrograms: [forged] });
+  assert.throws(
+    () => binding.describePlay({ type: "play", object: state.kernel.ref("rage"), player: "A" }, state.kernel.getObject("rage")),
+    error => error instanceof Error && /Unsupported filter field sameLocationAs/.test(error.message)
+  );
+});
+
+test("Dragon's Rage current gap 3: combat cannot designate an Attacker yet, so no real attack-declared exists for a reflexive item", () => {
+  // 466.2.c / 383.4.e.2: the Attacker designation belongs to the combat start
+  // transaction. That transaction still refuses to run, so any reflexive item
+  // attached to the attack flow has no real trigger point.
+  const f = fixture({});
+  const flow = new CombatFlow(f.engine, f.engine.pipeline.host, [{ id: "bf", controller: null }], () => {});
+  assert.equal(f.engine.commit({ type: "move-zone", object: f.kernel.ref("source"), to: "board", location: BATTLEFIELD("bf") }).status, "done");
+  assert.equal(f.engine.commit({ type: "move-zone", object: f.kernel.ref("enemy"), to: "board", location: BATTLEFIELD("bf") }).status, "done");
+  assert.equal(flow.entered(f.host.objects().find(object => object.ref.id === "source")).length, 1);
+  assert.equal(flow.cleanup(), true);
+  assert.throws(() => flow.advance(), error => error.code === "combat-start-transaction" && /466\.2/.test(error.message));
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "attack-declared").length, 0);
+});
+
 test.todo(
   "Dragon's Rage reflexive trigger: after the Move, create a Pending Item that chooses another enemy " +
-    "unit at the moved unit destination and resolves the mutual damage (388.1 / 388.2 / 389.1 / 389.2, " +
-    "355.5.b) — needs the trigger.reflexive primitive and the pending-item " +
-    "target legality rules"
+    "unit at the moved unit's destination and resolves the mutual damage (388.1 / 388.2 / 389.1 / 389.2, " +
+    "355.5.b) - needs the trigger.reflexive primitive plus target-anchor support for " +
+    "sameLocationAs/exclude over a runtime moved identity"
 );
 
 test.todo(

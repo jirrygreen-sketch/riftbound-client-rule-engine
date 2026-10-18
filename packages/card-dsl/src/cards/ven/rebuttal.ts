@@ -32,8 +32,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   不退还），由已合入的 effect.counter 执行；支付回执和两路 body 已能写入 IR，实际打出仍受
  *   choice.mode 的 Finalize/Resolve choice-plan 适配器阻断。
  *
- * status = judge-required：链上目标的锁定与 effect.counter / effect.control 都已合入并有执行测试，
- * 但费用限制谓词、结算分支的 choice-plan 适配器、Making New Choices 三处缺口见 judgeReason。
+ * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。
  */
 
 /** 355.12：may 动作的目标选择与是否执行该动作无关，因此在 Finalize 一并锁定同一个法术目标。 */
@@ -44,17 +43,7 @@ const rebuttal = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1)「Choose a spell with Energy cost no more than :rb_energy_4:」的目标限制" +
-    "读不到链上法术的印刷 Energy 费用：CR 206 明确只看印刷（或复制）费用、忽略已支付的追加费用（该条自带 Defy 示例），" +
-    "而冻结的 TargetSpec filter 只能逐键比较 type/zone/location 等字段，没有任何已合入谓词读取链上项的印刷费用；" +
-    "限制以描述性键 energyMax 保留（去掉它会变成“反制任意法术”）。依赖：target 系统的印刷费用谓词（当前条件谓词工作）。" +
-    "(2)「You may pay :rb_rune_rainbow:. If you do … Otherwise, counter it」的两路结算分支虽已用 choice.mode、" +
-    "cost.pay 的 payments.power: 1 与 linked-value 回执表达，但 chain/engine.ts 的 Finalize/Resolve choice-plan 适配器" +
-    "仍阻断 choice.mode，因此支付后控制/重选与未支付反制尚不能经打出管线执行。依赖：结算期分支选择计划适配器。" +
-    "(3)「you may make new choices for it」是 CR 750-755 的 Making New Choices：752.1 只允许重选 location/mode/destination/target，" +
-    "753/753.3 要求全部重选并沿用原限制，753.2 在无合法新选择时 negated，754 重新触发成为目标，755 忽略因此产生的 to-play 费用；" +
-    "IR 没有重开已 Finalize 链项选择计划的节点，也没有 753.2 的结果绑定。依赖：位置/选择计划与条件谓词接线（RIFT-357/RIFT-358/RIFT-359）。" +
-    "已合入部分：链上法术目标（355.9.a.2）、effect.counter（426.1-426.3）与 effect.control（RIFT-117）——golden 用真实原语执行。",
+    "当前缺口：(1) CR 206 的印刷或复制 Energy <= 4 目标限制 energyMax 未被 programs/filters.ts 或 target/target-plan.ts 消费；event-printed 只读事件特征，不能替代链上目标过滤。(2) choice.mode 已能在解释器运行，但 programs/play.ts 与 chain/engine.ts 仍缺 Finalize/Resolve choice-plan 适配器。cost.pay 的 payments.power 已可规划 [A] 并产出支付回执，成功回执写在 payment；支付失败抛错并中止 body，因此控制分支依序链接支付，不读取不存在的顶层 paid。(3) CR 750-755 的 choice.remake-chain-item-choices 与已 Finalize 链项计划重建仍未实现：752.1 仅重选 location/mode/destination/target，753/753.3 全部重选且沿用限制，753.2 无合法选择则 negated，754 再触发成为目标，755 忽略新增 to-play 费用。通用地点选择和 condition.result 已合入，缺的是上述组合接线。不近似实现。",
   abilities: [
     // 813.1.c.1：印刷的 [Reaction] 只声明，展开与 Closed State 准入归关键词注册表与 chain。
     { kind: "keyword", keyword: "reaction" },
@@ -80,7 +69,7 @@ const rebuttal = {
                   body: [
                     {
                   // 结算期支付 [A]：135.2.e.5.a / 163.2.b 的任意域 Power 由数值 1 表达；
-                  // cost.pay 的 payment receipt 可由后续 linked-value 读取。
+                  // cost.pay 失败抛错；成功后才按 linkedTo 继续取得控制。
                   id: "rebuttal.pay-rainbow",
                   op: "cost.pay",
                   args: {
@@ -97,12 +86,6 @@ const rebuttal = {
                     objects: { kind: "constant", value: { target: CHOSEN_SPELL } },
                     amount: { kind: "constant", value: 1 },
                     linkKey: { kind: "constant", value: "rebuttal-controlled" }
-                  },
-                  condition: {
-                    kind: "compare",
-                    left: { kind: "linked-value", instructionId: "rebuttal.pay-rainbow", key: "paid" },
-                    operator: "eq",
-                    right: { kind: "constant", value: true }
                   }
                     },
                     {

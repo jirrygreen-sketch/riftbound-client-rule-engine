@@ -23,12 +23,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   copy → trait → ability → arithmetic），按 Assault/Shield 的既有展开形状用
  *   continuous.might（mode add、layer arithmetic、appliesTo self）。
  *
- * 无法执行的依赖（保持 judge-required）：
+ * 无法执行的依赖（保持 judge-required，2026-10-17 逐条实测）：
  * - 生产绑定链已合入（programs/statics.ts 的 bindStaticToLayers + lifecycle），且本能力
  *   的 appliesTo: "self" 直接绑定自身目标，不经过 staticFilter；原 IR 的 static 能力可以
  *   成功注册。条件查询的 queryObjects() 已消费 sameLocationAs / exclude 这类相对锚点，
- *   但生产绑定后的条件环境仍没有把 controller: "controller" 解析为来源控制者，因而
- *   “other friendly ... at my battlefield”还不能在生产路径按印刷语义筛选。
+ *   但生产绑定后的条件环境（statics.ts 的 abilityEnvironment）把标量过滤器交给
+ *   layers/filter.ts matchesObjectFilter，而 selectorMatches 对 controller 只认
+ *   "any"/"self"/"opponent"/{playerId}/字面玩家 id，不解析本卡的 controller: "controller"；
+ *   实测同一战场有 1 个友方单位 + 1 件友方装备时该条件仍为 false、layers.evaluate()
+ *   停在印刷 Might 3（期望 5），因而“other friendly ... at my battlefield”还不能在
+ *   生产路径按印刷语义筛选。
  * - continuous.might 的图层算术消费方（layers/engine.ts 的 applyArithmetic）已合入。
  */
 const othersAtMyBattlefieldFilter = {
@@ -76,9 +80,11 @@ const program = {
   judgeReason:
     "「I have +2 Might」的 continuous.might 图层算术消费方与生产绑定链（programs/statics.ts + lifecycle）" +
     "均已合入，且 appliesTo: \"self\" 使原 IR 的 static 能力可以成功注册；" +
-    "条件查询的 queryObjects() 已支持 sameLocationAs / exclude 相对锚点；剩余缺口是绑定后的条件环境" +
-    "没有把 controller: \"controller\" 解析为来源控制者，因而 740.1 的 \"other friendly ... at my battlefield\"" +
-    "还不能在生产路径按印刷语义筛选。" +
+    "条件查询的 queryObjects() 支持 sameLocationAs / exclude 相对锚点，但绑定后的条件环境" +
+    "（statics.ts 的 abilityEnvironment）把标量过滤器交给 layers/filter.ts 的 matchesObjectFilter，" +
+    "其 selectorMatches 只认 any/self/opponent/{playerId}/字面玩家 id，不解析本卡的 controller: \"controller\"：" +
+    "实测同一战场有 1 个友方单位 + 1 件友方装备时该条件仍为 false、layers.evaluate() 停在印刷 Might 3" +
+    "（期望 5），因而 740.1 的 \"other friendly ... at my battlefield\" 还不能在生产路径按印刷语义筛选。" +
     "[Tank] 的 KeywordDef 已合入并展开 continuous.combat，但 815.1.c 的伤害分配优先级缺消费方：" +
     "combat/base-combat-allocation.ts 的分配仍是 keywordPriority: proven-none。" +
     "依赖：生产条件环境对 controller 占位符的求值，以及 Tank 分配消费方；不近似实现。",

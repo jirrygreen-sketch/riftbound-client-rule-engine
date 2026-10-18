@@ -7,6 +7,8 @@ const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
+const { translateTriggerFilter } = await import(new URL("programs/filters.js", engineCore));
+const { fixture, resolveAll } = await import("../../../../engine-core/test/chain/helpers.mjs");
 
 const CANONICAL = "card.hash-6d4a83a454e91140b5cccaf25cef83d38b553d0863d8f7c80b8719fe33d8475e";
 const SOURCE_TEXT =
@@ -56,6 +58,9 @@ test("twisted-fate-gambler: identity, ruleset, status, judgeReason and sourceTex
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /388/);
   assert.match(program.judgeReason, /反身触发/);
+  assert.match(program.judgeReason, /sameLocationAs \/ exclude/);
+  assert.match(program.judgeReason, /effect\.stun/);
+  assert.match(program.judgeReason, /attack-declared/);
   assert.doesNotMatch(program.judgeReason, /ordered-pick/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -67,10 +72,10 @@ test("twisted-fate-gambler: attack trigger and the reveal → recycle → branch
   assert.equal(triggered.trigger.at, "attack-declared");
   assert.deepEqual(triggered.trigger.filter, {
     event: "attack-declared",
-    object: { objectId: "self" }
+    source: "self"
   });
   assert.equal(triggered.optional, false);
-  assert.equal(triggered.trigger.once, undefined);
+  assert.equal(triggered.trigger.once, "per-combat");
   assert.deepEqual(
     triggered.body.map((instruction) => [instruction.id, instruction.op]),
     [
@@ -173,6 +178,48 @@ test("twisted-fate-gambler golden: reveal + recycle move the top rune to the bot
   // 417.1.b: 回收进符文牌库；单张符文回收后仍在符文牌库。
   assert.deepEqual(kernel.zone("A", "rune-deck").map((ref) => ref.id), ["fury-rune"]);
   assert.equal(outcome.linkedValues["twisted-fate-gambler.recycle-rune.recycledCount"], 1);
+});
+
+test("twisted-fate-gambler golden: the authored attack spec reveals and recycles once per combat for self", () => {
+  // Supported prefix only: the domain-dependent reflexive chain item is still blocked.
+  const f = fixture({ cards: [
+    { id: "tf", cardId: CANONICAL, types: ["unit"], might: 4 },
+    { id: "top-rune", types: ["rune"], power: ["Mind"] },
+    { id: "next-rune", types: ["rune"], power: ["Fury"] }
+  ] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("tf"), to: "battlefield", location: { type: "battlefield", id: "bf-1" } });
+  for (const id of ["next-rune", "top-rune"]) {
+    f.engine.commit({ type: "move-zone", object: f.kernel.ref(id), to: "rune-deck" });
+  }
+  f.engine.advance();
+  const source = f.kernel.getObject("tf");
+  f.engine.pipeline.registerTrigger({
+    id: "tf-supported-prefix", source, controller: source.controller,
+    spec: { ...triggered.trigger, filter: translateTriggerFilter(triggered.trigger.filter, source.ref.id, triggered.trigger.at) },
+    body: triggered.body.slice(0, 2), optional: triggered.optional
+  });
+  const attack = object => {
+    f.engine.emit({ timingPoint: "attack-declared", object, player: "A" });
+    f.engine.advance();
+    resolveAll(f.engine);
+  };
+  const revealed = () => f.engine.pipeline.events.filter(event => event.timingPoint === "card-revealed");
+  f.engine.emit({ timingPoint: "combat-start", player: "A" });
+  attack(f.kernel.getObject("source"));
+  assert.equal(revealed().length, 0);
+  attack(source);
+  assert.equal(revealed().length, 1);
+  assert.equal(revealed()[0].object.ref.id, "top-rune");
+  assert.deepEqual(f.kernel.zone("A", "rune-deck").map(ref => ref.id), ["next-rune", "top-rune"]);
+  attack(source);
+  assert.equal(revealed().length, 1);
+  f.engine.emit({ timingPoint: "combat-end", player: "A" });
+  f.engine.emit({ timingPoint: "combat-start", player: "A" });
+  attack(source);
+  assert.equal(revealed().length, 2);
+  assert.equal(revealed()[1].object.ref.id, "next-rune");
+  assert.deepEqual(f.kernel.zone("A", "rune-deck").map(ref => ref.id), ["top-rune", "next-rune"]);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "card-recycled").length, 2);
 });
 
 test("twisted-fate-gambler golden: the domain read yields the revealed rune's power list", () => {

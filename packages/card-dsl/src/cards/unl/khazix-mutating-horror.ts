@@ -25,14 +25,21 @@ import type { CardProgram } from "../../ir/index.js";
  * - “and gain 2 XP”：effect.xp 已合入（730.1/733），与前面是同一从句里的两个独立动作
  *   （359.3.e.14.c），互不链接。
  *
- * status = judge-required（缺口不近似实现）：
- * - “give me +2 [M] this turn” 已有 continuous.might 指令和 arithmetic layers 注册路径；该半句
- *   仍要等 attack-declared / defense-declared 事件产生器把卡牌触发真正送入链。
- * - attack-declared / defense-declared 在已合入代码里没有发射方（combat/ 尚未接入事件管线），
- *   触发无法在真实内核里被订阅。
+ * status = judge-required（按 2026-10-17 HEAD 复核；缺口不近似实现）：
+ * - 两个触发都能注册：attack-declared / defense-declared 在封闭 EVENT_PATTERN_TYPES 内，
+ *   实测 registerProgramTriggers 成功，source:"self" 经 programs/filters.ts 转为宿主 objectId。
+ * - 但 attack-declared / defense-declared 仍没有生产发射方：combat/flow.ts 在 staged combat 路径
+ *   抛 TurnCombatBlockedError('combat-start-transaction')，docs/rules/timing-point-producers.md
+ *   把这两个时点记为待后续，因此战斗流程不会产生事件把触发送入链。
+ * - 触发条件「if an enemy unit is alone here」的生产求值路径不可用：EventPipeline 在没有 testTrigger
+ *   桥接时经 PipelineHost.context().query 求值条件，而该宿主查询不归一化相对玩家选择器——
+ *   game-server 的 EngineRuntimeHost.matchesFilter 与参考内核的 query 都按字面比较 controller/owner
+ *   （"opponent" 永不等于 "A"/"B"），参考内核还不解析 sameLocationAs 锚点；实测「此处恰有一个敌方单位」
+ *   也返回 false（条件恒为 fail-closed），因此不能区分「此处有敌方单位」与「远处有敌方单位」。
  * - [Ambush] 的展开虽然已声明合法打出位置和 Reaction 许可，但 play-location 与 timing 的消费方
  *   仍未接入打出流程。
- * continuous.might 与 effect.xp 都可以通过解释器和参考内核分别真实执行；缺口只在触发进入真实战斗管线。
+ * continuous.might 与 effect.xp 都可以通过解释器和参考内核分别真实执行；缺口在战斗事件产生器、
+ * 宿主条件求值的相对位置锚点，以及 Ambush 的打出消费方。
  *
  * 依赖：attack-declared / defense-declared 的战斗事件产生器与卡牌触发接线，以及 Ambush 的
  * play-location / timing 消费方。
@@ -44,9 +51,12 @@ export default {
   status: "judge-required",
   judgeReason:
     "两处依赖未合入：(1) attack-declared / defense-declared（383.4.e/383.4.f）的战斗事件产生器与卡牌触发接线，" +
-    "因此 continuous.might 的触发体尚不能从真实战斗进入链。" +
+    "因此 continuous.might 的触发体尚不能从真实战斗进入链；两个订阅本身实测可注册（封闭词表内）。" +
     "(2) [Ambush]（822.1.b/822.1.c 的合法位置与 Reaction 许可改写）的 play-location / timing 消费方尚未接入。" +
-    "触发条件「if an enemy unit is alone here」按 383.2.a.1 / 740.2.a 保留在 TriggerSpec.condition。" +
+    "触发条件「if an enemy unit is alone here」按 383.2.a.1 / 740.2.a 保留在 TriggerSpec.condition；" +
+    "该条件在生产 EventPipeline 的求值路径上不可用——没有 testTrigger 桥接时条件经 PipelineHost.context().query 求值，" +
+    "而该宿主查询不归一化相对玩家选择器（game-server 的 EngineRuntimeHost.matchesFilter 与参考内核的 query 都按字面比较 controller/owner，" +
+    "参考内核还不解析 sameLocationAs 锚点），实测「此处恰有一个敌方单位」(383.2.a.1/740.2.a) 仍返回 false，条件恒为 fail-closed。" +
     "continuous.might 的 +2 与到回合末到期、以及 effect.xp 的 2 XP 均可由解释器和参考图层真实执行。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "ambush" },

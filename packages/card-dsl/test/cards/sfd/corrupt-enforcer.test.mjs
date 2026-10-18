@@ -8,6 +8,8 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-6666f6b3e8f7bb7ccdcff09e4d51d69c2067503b913dd14022cb3d88f30b9476";
 const SOURCE_TEXT = "When I move to a battlefield, discard 1.\nWhen I win a combat, draw 1.";
@@ -37,7 +39,7 @@ test("sfd-123-221 Corrupt Enforcer: judgeReason names both unmerged trigger path
   assert.match(program.judgeReason, /468\.3/);
   assert.match(program.judgeReason, /423\.1/);
   assert.match(program.judgeReason, /414\.1/);
-  assert.match(program.judgeReason, /RIFT-33/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("sfd-123-221 Corrupt Enforcer: 'when I move to a battlefield' subscribes to object-moved", () => {
@@ -97,6 +99,55 @@ test("sfd-123-221 Corrupt Enforcer: 'when I win a combat' subscribes to combat-r
   assert.equal(drawInstruction.args.player, undefined);
   assert.equal(drawInstruction.targets, undefined);
   assert.equal(drawInstruction.linkedTo, undefined);
+});
+
+test("sfd-123-221 Corrupt Enforcer: neither declared subscription survives the production vocabulary", () => {
+  // Re-probed 2026-10-18: programs/filters.ts really binds the host anchor, but
+  // events/trigger-spec.ts rejects both declared event names, so no trigger is
+  // registered at all. The measured error is pinned rather than restated.
+  for (const [index, event] of [[0, "object-moved"], [1, "combat-result"]]) {
+    const ability = program.abilities[index];
+    const translated = translateTriggerFilter(ability.trigger.filter, "enforcer", ability.trigger.at);
+    const result = validateTriggerSpec({ at: ability.trigger.at, filter: translated });
+    assert.equal(result.ok, false, event);
+    assert.deepEqual(result.issues.map(issue => [issue.code, issue.path]), [
+      ["invalid-event-type", "trigger.filter.event"]
+    ]);
+  }
+  // The host anchor itself is merged and correct.
+  assert.deepEqual(
+    translateTriggerFilter(moveTrigger.trigger.filter, "enforcer", moveTrigger.trigger.at),
+    { event: "object-moved", object: { objectId: "enforcer" }, toZone: "battlefield" }
+  );
+});
+
+test("sfd-123-221 Corrupt Enforcer: a committed move-location still carries no destination zone", () => {
+  // 449.1/449.2 / 458: even with the vocabulary merged, the emission has to name
+  // where the object went. The merged action adapter emits the timing point
+  // without fromZone/toZone, so toZone: "battlefield" could never match and a
+  // Recall could not be told apart from a Move.
+  const f = fixture({ cards: [{ id: "enforcer", cardId: CANONICAL, types: ["unit"] }] });
+  assert.equal(f.engine.commit({
+    type: "move-zone", object: f.kernel.ref("enforcer"), to: "board",
+    location: { type: "battlefield", id: "bf-1" }
+  }).status, "done");
+  const before = f.engine.pipeline.events.length;
+  // The Board entry created a new zone incarnation, so re-read the live ref.
+  assert.equal(f.engine.commit({
+    type: "move-location", object: f.kernel.ref("enforcer"), to: "battlefield",
+    location: { type: "battlefield", id: "bf-2" }
+  }).status, "done");
+
+  const moved = f.engine.pipeline.events.slice(before).filter(event => event.timingPoint === "object-moved");
+  assert.equal(moved.length, 1);
+  // The production event derivation publishes the timing point with an object,
+  // a simultaneous group and an amount, but never the closed fromZone/toZone
+  // payload fields the declared filter matches on (compare the zone-change
+  // branches in events/action-adapter.ts, which do fill them).
+  assert.equal(moved[0].toZone, undefined);
+  assert.equal(moved[0].fromZone, undefined);
+  assert.equal(moved[0].object.zone, "board");
+  assert.equal(f.engine.pipeline.events.slice(before).filter(event => String(event.timingPoint).startsWith("object-enters-")).length, 0);
 });
 
 test("sfd-123-221 Corrupt Enforcer golden: the discard clause discards exactly one card through the real kernel", () => {
@@ -169,5 +220,6 @@ test.todo(
 
 test.todo(
   "sfd-123-221 Corrupt Enforcer: the combat-result timing point is emitted after combat cleanup " +
-    "(468.3.a-d, 468.4) with the winning player bound so \"When I win a combat\" can subscribe — RIFT-33 / RIFT-124"
+    "(468.3.a-d, 468.4) with the winning player bound and added to EVENT_PATTERN_TYPES so " +
+    "\"When I win a combat\" can subscribe"
 );

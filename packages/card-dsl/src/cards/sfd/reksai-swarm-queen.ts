@@ -26,37 +26,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "If the played card is a unit, you may play it here" adds an entry-location
  *   choice for the played unit (355.2.b).
  *
- * Status: judge-required — three runtime gaps, none approximated:
- * - The top-2 slice still has to be produced by the caller: effect.reveal
- *   explicitly refuses a subset of a non-hand zone ("a subset of this zone
- *   requires upstream ordered picks; query order is not deck order"), and the
- *   chain's Finalize only locks instruction.targets TargetSpecs — it owns no
- *   lifecycle for an ordered zone pick (RIFT-66 added ctx.zoneSlice, but the
- *   card-level binding that would turn "top 2" into locked picks is missing).
- *   The same gap is recorded by sfd/called-shot.
- * - Independently of that lifecycle, the original reveal instruction cannot
- *   consume a prelocked pick through the chain adapter: contract 3.2 requires
- *   an Expr-wrapped pick id, but interpreter-adapter.ts LITERAL_FIELDS declares
- *   no effect.reveal.pick unpacking. The Expr reaches the primitive unchanged,
- *   which throws "effect.reveal: pick must be a non-empty id". The reproduction
- *   uses the card's original instruction with real ordered picks already set.
- * - "If the played card is a unit" cannot be gated: although the merged
- *   compare/in condition can test "unit" membership in an object's types array
- *   (see sfd/ravenbloom-conservatory), the gate must read the *played* card's
- *   types from the effect.play receipt, and effect.play's link receipt only
- *   carries the played count (linkKey → number). It captures no object list, so
- *   there is no linked object whose types could be tested. Consequently "play it
- *   here" (the 355.2.b entry-location permission) is deliberately not encoded as
- *   an unconditional location override.
- * The golden executes the merged parts: the optional wrapper, the linked
- * recycle of the rest, and the real deck-top slice read through zoneSlice.
- * Direct primitive reveal evidence uses a bare pick id and does not prove the
- * original Expr-wrapped instruction works. A separate chain execution plays a
- * deck card without a cost override so Finalize derives and pays printed cost.
- * Dependencies: an ordered deck-top pick lifecycle in the chain Finalize/Resolve
- * (RIFT-257 follow-up), effect.reveal.pick unpacking in the chain adapter, and
- * an effect.play link receipt that records the played object references (the
- * current receipt only records the played count).
+ * Status: judge-required (re-checked 2026-10-17). RIFT-358 supplies real
+ * Finalize/Resolve zoneSlice and linked picks, including effect.reveal.pick Expr
+ * decoding. The optional reveal, optional one-card play, printed-cost payment
+ * and recycle instructions are exercised unchanged through ChainEngine.
+ * Remaining gaps are the combat attack event producer and the unit-only
+ * "play it here" entry-location choice: effect.play still links only a played
+ * count, not the played object reference, so the unit-type gate cannot read the
+ * played card's types and no unconditional location override stands in for that
+ * permission. RIFT-359 merged the condition predicates and does not close
+ * either gap.
  */
 const abilities: Ability[] = [
   {
@@ -79,23 +58,17 @@ const abilities: Ability[] = [
                 id: "reksai.reveal",
                 op: "effect.reveal",
                 args: {
-                  // The top-2 slice arrives as an ordered pick (effect.reveal
-                  // refuses to infer deck order from query). Producing that
-                  // pick from the deck top and unpacking its Expr-wrapped id
-                  // in the chain adapter are separate judged gaps.
+                  // Finalize locks the actual top two in zone order; Resolve
+                  // decodes this Expr and reveals those exact incarnations.
                   pick: { kind: "constant", value: "reksai.top-two" }
                 },
                 picks: [
                   {
                     id: "reksai.top-two",
-                    // Ordered deck-top options supplied by the engine once the
-                    // deck-top provisioning exists; the placeholder marks a
-                    // dynamic (non-literal) option set and is not an ObjectRef.
-                    options: ["dynamic:main-deck-top-two"],
-                    min: 2,
-                    max: 2,
-                    selection: "any",
-                    filter: { zone: "deck", owner: "controller" }
+                    options: [],
+                    ordered: true,
+                    selection: "all",
+                    zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 2 } }
                   }
                 ]
               },
@@ -114,21 +87,17 @@ const abilities: Ability[] = [
                         linkedTo: "reksai.reveal",
                         args: {
                           pick: { kind: "constant", value: "reksai.revealed-play" },
-                          linkKey: { kind: "constant", value: "played" }
+                          linkKey: { kind: "constant", value: "played" },
+                          amount: { kind: "constant", value: 1 },
+                          choice: { kind: "constant", value: { id: "reksai.choose-one", min: 1, max: 1 } }
                         },
                         picks: [
                           {
                             id: "reksai.revealed-play",
-                            options: [
-                              {
-                                kind: "linked-value",
-                                instructionId: "reksai.reveal",
-                                key: "revealed"
-                              }
-                            ],
-                            selection: "one",
-                            min: 1,
-                            max: 1
+                            options: [],
+                            ordered: true,
+                            selection: "all",
+                            linked: { kind: "linked-value", instructionId: "reksai.reveal", key: "revealed" }
                           }
                         ]
                       }
@@ -147,8 +116,7 @@ const abilities: Ability[] = [
                     kind: "linked-value",
                     instructionId: "reksai.reveal",
                     key: "revealed"
-                  },
-                  linkKey: { kind: "constant", value: "recycled" }
+                  }
                 }
               }
             ]
@@ -164,19 +132,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处运行时缺口，均不近似实现：(1)「reveal the top 2 cards of your Main Deck」需要按牌库真实顺序提供有序 picks——effect.reveal 对非手牌的" +
-    "真子集明确拒绝（“a subset of this zone requires upstream ordered picks; query order is not deck order”），链的 Finalize 只锁定 " +
-    "instruction.targets 的 TargetSpec、没有有序区域 pick 的生命周期；RIFT-66 只加了 ctx.zoneSlice，把「牌库顶 2 张」变成卡牌可用的有序选择仍未接线" +
-    "（同 sfd/called-shot 记录的缺口）。(2) 独立的 effect.reveal.pick Expr 解包缺口：契约 3.2 要求 args 值是 Expr，" +
-    "但 chain/interpreter-adapter.ts 的 LITERAL_FIELDS 没有声明 pick 解包；即使预置真实有序 picks，原始 reveal 指令仍把 Expr 原样交给原语，" +
-    "抛出「effect.reveal: pick must be a non-empty id」（同 sfd/ravenbloom-conservatory）。费用路径已合入：effect.play 不带 cost override 时，" +
-    "链 Finalize 会对单位/装备/法术打出生成并支付印刷费用，已有真实执行证据（3 费单位从牌库打出，能量 20→17）。(3)「If the played card is a unit」" +
-    "的闸门无法开：已合入的 compare/in 能测 types 数组成员（见 sfd/ravenbloom-conservatory 的真实执行证据），但被检查的对象必须来自 effect.play 的链接回执，" +
-    "而该回执的 linkKey 只写 played 计数（number），不记录被播放的对象引用，因此没有可读 types 的链接对象；相应地「play it here」的入场地点许可（355.2.b）" +
-    "不写成无条件 location（避免对非单位牌近似实现）。子效果测试用裸 pick id 执行 reveal 原语，并覆盖 choice.optional、链接 recycle 和 zoneSlice 真实牌库顶；" +
-    "另有原始 Expr reveal 指令经过链适配器的报错复现，" +
-    "并用无 cost override 的链上 effect.play 验证印刷费用会被生成和支付。依赖：链 Finalize/Resolve 的有序区域 pick 生命周期（RIFT-257 后续）、" +
-    "effect.reveal.pick 的链适配器解包、以及记录被播放对象引用的 effect.play 链接回执（当前只写 played 计数）。",
+    "两处缺口仍保持 judge-required（复核 2026-10-17）：(1) attack-declared 的战斗开始事务产生方尚未合入——" +
+    "combat/flow.ts 的 CombatFlow.advance 对 staged combat 仍抛 TurnCombatBlockedError('combat-start-transaction'，" +
+    "CR 466.2 要求同波次战斗开始与角色指派的原子事务)，dealDamage 也仍抛 'simultaneous-damage-transaction'（CR 467.2.c.1.a/467.3）；" +
+    "(2)「If the played card is a unit, you may play it here」需要以被打出对象的 types 为闸门，再提供 CR 355.2.b 的入场地点选择，" +
+    "effect.play 的 linkKey 目前只写 played 计数（实测 typeof number），不记录对象引用，不能写成无条件 location。" +
+    "有序选择与费用路径已合入：RIFT-358 的 ordered picks / zoneSlice 在 Finalize 锁定真实牌库顶 2 张（RIFT-66 顺序接口），" +
+    "effect.reveal.pick 的 Expr 已由 LITERAL_FIELDS 解包，后续 linked pick 读取实际 revealed 列表，effect.play.choice 只选一张。" +
+    "真实 ChainEngine 测试执行原始可选正文、展示、选择、印刷费用支付及剩余牌回收；不手动移走已打出的牌。" +
+    "RIFT-359 的条件谓词已合入，但不关闭以上任一缺口。依赖：战斗 attack-declared 产生方、effect.play 的对象回执与单位入场地点选择。",
   abilities,
   sourceText:
     "When I attack, you may reveal the top 2 cards of your Main Deck. You may play one. Then recycle the rest. If the played card is a unit, you may play it here."

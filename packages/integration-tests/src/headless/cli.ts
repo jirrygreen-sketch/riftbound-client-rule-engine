@@ -1,7 +1,7 @@
 import type { M1PreconId } from "./decks.js";
 
 const { M1_DECK_IDS } = await import(new URL("./decks.ts", import.meta.url).href);
-const { HEADLESS_MATRIX_SEEDS, runHeadlessMatrix } = await import(new URL("./duel.ts", import.meta.url).href);
+const { DEFAULT_TURN_LIMIT, DEFAULT_ACTION_LIMIT, HEADLESS_MATRIX_SEEDS, runHeadlessMatrix } = await import(new URL("./duel.ts", import.meta.url).href);
 
 function flagValue(name: string): string | undefined {
   const equals = process.argv.find(argument => argument.startsWith(`${name}=`));
@@ -30,5 +30,8 @@ function deckFlag(): readonly M1PreconId[] {
 
 const games = positiveIntegerFlag("--games", 100);
 const decks = deckFlag();
-const summary = runHeadlessMatrix({ games, decks, seeds: HEADLESS_MATRIX_SEEDS });
+const seeds = flagValue("--seeds")?.split(",").map(value => value.trim()).filter(Boolean) ?? HEADLESS_MATRIX_SEEDS;
+const maxTurns = positiveIntegerFlag("--max-turns", DEFAULT_TURN_LIMIT);
+const maxActions = positiveIntegerFlag("--max-actions", DEFAULT_ACTION_LIMIT);
+const summary = runHeadlessMatrix({ games, decks, seeds, maxTurns, maxActions });
 console.log(JSON.stringify(summary, null, 2));

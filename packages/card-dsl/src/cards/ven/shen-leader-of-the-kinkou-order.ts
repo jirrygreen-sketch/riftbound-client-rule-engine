@@ -19,10 +19,10 @@ import type { CardProgram } from "../../ir/index.js";
  * - “you score 1 point”：获得 1 点（470.1、473.1）；effect.score 已合入，与
  *   “战场被计分”是两回事（470.1–3），因此用 effect.score 而非 effect.win。
  *
- * status = judge-required（复核 2026-10-16）：Shield 半段可展开，hold 时点也已由
+ * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。Shield 半段可展开，hold 时点也已由
  * 合入的回合/计分流程发出（turn/flow.ts scheduleScore 的 Hold 计分步骤产生 'hold'
  * 发射并带 details.battlefieldId，engine-core/test/game/lifecycle.test.mjs 断言），
- * RIFT-257 的卡牌程序绑定（src/programs/triggers.ts）也已能注册 CardProgram 的
+ * 卡牌程序绑定（src/programs/triggers.ts）也已能注册 CardProgram 的
  * triggered ability。仍未接通的是：
  * 1. 053.3 的 "here" 锚点——事件的战场身份只存在于 details.battlefieldId 载荷，
  *    静态 filter 读不到事件出的战场（pipeline-match.ts 的 details 匹配只接受写死的值），
@@ -39,7 +39,7 @@ export default {
     "Hold Effects 仍差两处接线（均不近似实现）：(1) 053.3 的「here」没有可求值锚点——hold 时点" +
     "（315.2.b.2、471.2、473.2.b）已由合入的回合/计分流程发出（turn/flow.ts scheduleScore 在 Beginning 的" +
     "Hold 计分步骤产生 'hold' 发射并带 details.battlefieldId，engine-core/test/game/lifecycle.test.mjs 断言），" +
-    "RIFT-257 的卡牌程序绑定（src/programs/triggers.ts）也已能注册 CardProgram 的 triggered ability，" +
+    "卡牌程序绑定（src/programs/triggers.ts）也已能注册 CardProgram 的 triggered ability，" +
     "但事件的战场身份只存在于 details.battlefieldId 载荷，静态 filter 读不到事件出的战场" +
     "（pipeline-match.ts 的 details 匹配只接受写死的值），程序里的 here: true 也会被 " +
     "programs/filters.ts 的 translateTriggerFilter 以 judge-required 拒绝（fail closed，不静默放行）；" +

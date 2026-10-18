@@ -17,21 +17,36 @@ import type { CardProgram } from "../../ir/index.js";
  *   condition.history 的 HistoryQuery（含 exclude/objectFilter）只计数动作/时点
  *   次数，没有“某玩家的第 N 回合”范围（同已合入的 sfd/forgotten-monument 的判定）。
  *
- * status = judge-required（两处缺口均不近似实现）：
- * 1. 没有“某玩家第 N 回合”的可求值谓词（TurnFlow 私有计数尚未暴露
- *    给卡牌侧 Condition）；
- * 2. translateLegalityCondition 没有把自定义的 not-before-own-turn Requirement 转成可执行 Condition；
+ * status = judge-required（2026-10-17 RIFT-733 复核，两处缺口均不近似实现）：
+ * 1. 没有“某玩家第 N 回合”的可求值谓词：card-dsl 的 Expr 词汇表已有
+ *    player-turn-count / turn-number（IR 校验通过），但引擎侧
+ *    effects/interpreter/expr.ts 的 dispatch 尚未接入 expr-ext 的扩展求值器，
+ *    实测 evaluateCondition 抛 "Unsupported expression: player-turn-count"，
+ *    参考内核 TestWorld.test 也只会返回 false；turn/flow.ts 的 turns 仍是私有 Map。
+ * 2. translateLegalityCondition 没有把自定义的 not-before-own-turn Requirement 转成可执行 Condition：
  *    现有打出计划已能转交标准 requirements/restrictions，但没有这个回合序数适配器。
  * 本文件按契约 3.1 的 PlayAbility 形状记录该要求（descriptive kind + 常量“第 3 回合为止”），
  * 空 body 表示该牌没有任何指令；不写成恒真的 Condition、也不把该禁止改成任何可执行近似。
+ *
+ * Execution evidence (RIFT-703): test/cards/templates/play-703.test.mjs pins the real
+ * describePlay rejection of this requirement and runs the printed play procedure without
+ * it; test/cards/ven/ol-poro.test.mjs keeps the structure assertions.
  */
 export default {
   canonicalCardId: "card.hash-2ffb19822a72dc6ca4fc7111ad103487e5e4a120251c9b158b1064e31aa11748",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处当前缺口：(1) “your first, second, or third turns”需要每位玩家各自的回合序数。turn/flow.ts 虽在私有 turns 中计数，ResolveContext / Condition 没有该读数；HistoryQuery 的 scope/action/timingPoint/player/object/exclude/objectFilter 仅查询已提交历史，未把玩家回合序数暴露给合法性判断（同 sfd/forgotten-monument 的限制）。" +
-    "(2) translateLegalityCondition 不接受 not-before-own-turn Requirement，缺从上述序数到 Finalize requirements 的规则适配器（420.2.a / 358.2）。保留第 4 个己方回合才可打出的描述性要求；不按全局回合推算，也不改成恒真或恒假。",
+    "两处当前缺口（2026-10-17 RIFT-733 复核实测）：" +
+    "(1) “your first, second, or third turns”需要每位玩家各自的回合序数。card-dsl 的 Expr 词汇表已有 " +
+    "player-turn-count / turn-number（该 IR 形状通过 validateCardProgram），但引擎侧 effects/interpreter/expr.ts 的 dispatch " +
+    "尚未接入 effects/interpreter/expr-ext 的扩展求值器，programs/statics.ts 与 pipeline.ts 也仍调用基础 " +
+    "evaluateCondition/evaluateExpression：实测 evaluateCondition 抛 \"Unsupported expression: player-turn-count\"，" +
+    "参考内核 TestWorld.test 对该条件也只返回 false；turn/flow.ts 的 turns 仍是私有 Map，未暴露给卡牌侧 Condition" +
+    "（同 sfd/forgotten-monument 的同一限制）。" +
+    "(2) translateLegalityCondition（programs/play.ts）只接受 CONDITION_KINDS 或 rule.condition，" +
+    "not-before-own-turn Requirement 会以 judge-required 拒绝，缺从上述序数到 Finalize requirements 的规则适配器" +
+    "（420.2.a / 358.2）。保留第 4 个己方回合才可打出的描述性要求；不按全局回合推算，也不改成恒真或恒假。",
   abilities: [
     {
       kind: "play",

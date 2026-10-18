@@ -21,47 +21,37 @@ import type { CardProgram } from "../../ir/index.js";
  * - 807.3 / 810.3：是否拥有这些关键词是单位特征，可被检查。
  *
  * 结构说明: 两个 static 条件效果 —— (1) 授予 Assault（默认 1）；(2) 授予 Ganking；
- * 两者共用同一条件：本回合该控制者至少执行过一次 discard 动作（condition.kind
- * "expression" 用 count 主体表达历史计数，具体查询维度由 condition.history 消费）。
+ * 两者共用同一条件：本回合该控制者至少执行过一次 discard 动作。条件写成
+ * compare + count（subject 承载"本回合弃牌数"的语义）；Condition 联合类型仍没有
+ * 历史查询成员——condition.history 是 Resolve 期的 body 指令，不是 Condition——
+ * 所以这个门控目前没有真实消费方，见下。
  *
- * 当前真实缺口（复核 2026-10-17，不近似实现）:
- * - continuous.grant-keyword 指令原语已合入（RIFT-258），Assault/Ganking 的 KeywordDef
- *   也已合入（RIFT-81 的 Assault / RIFT-83 的 Ganking），卡牌 static 绑定（RIFT-257）
- *   已合入：programs/statics.ts 的 bindStaticToLayers 会把本卡两条 static 注册成图层效果
- *   （实测 createEngineStaticBinder.bindStatic 注册后图层能读到 granted 关键词）。
- * - 条件历史查询仍未接通：条件按 compare + count 声明，但 count 是对**当前对象集合**的
- *   现场查询——filter { player: "controller" } 的相对玩家占位符在集合查询里没有锚点，
- *   实测在没有弃牌的回合也会数到宿主自身并判为真，两个关键词被错误授予；需要把
- *   count/HistoryQuery 落到 ctx.history({ scope: "turn", action: "discard" }) 的消费方
- *   （当前条件消费方缺口）。
- * - 被授予的 Assault 仍需 Attacker designation：ObjectSnapshot 现在只有契约 3.8 的
- *   combatRole，而 Assault 的 KeywordDef 读 object-property "designation"，求值抛
- *   MissingInformation 后按 false 处理（实测 combatRole=attacker 时 Might 仍是印刷值）；
- *   且没有任何已合入产者写入 combatRole（combat/flow.ts 对战斗开始抛
- *   combat-start-transaction）。
- * - 被授予的 Ganking 的 continuous.movement 许可还没有可消费形态：Ganking 的 KeywordDef
- *   发出字符串 permission，而 layers/rules/query.ts 的 movement() 只读规范化的
- *   permission.routes（实测 movement().canGank 仍为 false）。
- * 依赖：条件谓词的历史消费与绑定、combatRole 生产方与 designation 对齐、movement()
- * 许可形态对齐。
+ * 当前真实缺口（复核 2026-10-18）：
+ * - compare/count 只查询现场对象，不读 subject 所描述的弃牌历史；Condition/Expr
+ *   没有读取 ctx.history 的表达式。需要按宿主控制者查询本回合 discard（364.3.a / 423.1）。
+ * - programs/keyword-grants.ts 的 KeywordGrantLayerEngine 已能把授予的 Assault
+ *   展开、把 combatRole 对齐到 designation，并规范化 Ganking 的 movement.routes；
+ *   golden 对这三项有独立执行证据。但默认 ChainEngine 仍使用普通 LayerEngine，
+ *   attachProgramLifecycle 只展开印刷关键词，尚未接入动态授予的二次展开。
+ * - combat/flow.ts 的 Combat 开始事务仍抛 combat-start-transaction，缺实际战斗指定
+ *   生产者（807.1.d.1 / 466.2）。测试初始 attacker 快照仅证明已有指定时的图层行为。
+ * 不把已合入的关键词适配器能力列为缺失，也不以注入适配器证明默认生产路径完整。
  */
 const ragingSoul = {
   canonicalCardId: "card.hash-55958c501a029c3b3b6cc885be9c3637445d707ccf6347d1f0338abd97718571",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "『If you've discarded a card this turn, I have [Assault] and [Ganking]』（复核 2026-10-17）：" +
-    "continuous.grant-keyword 指令、Assault/Ganking 的 KeywordDef 与卡牌 static 绑定" +
-    "（programs/statics.ts 的 bindStaticToLayers）均已合入，golden 用真实 binder + 图层引擎注册两条 static；" +
-    "整卡仍不可执行的三处：(1) 条件历史查询未接通——compare + count 的 count 是对当前对象集合的现场查询，" +
-    "filter 里的相对玩家占位符在集合查询中无锚点，实测没有弃牌的回合也会数到宿主自身并判为真，两个关键词被错误授予；" +
-    "需要把 count/HistoryQuery 落到 ctx.history({ scope: \"turn\", action: \"discard\" }) 的条件消费方；" +
-    "(2) 被授予的 Assault 需要 Attacker designation：ObjectSnapshot 只有契约 3.8 的 combatRole，而 Assault 的 KeywordDef 读 " +
-    "object-property \"designation\"（求值抛 MissingInformation 后按 false 处理，实测 combatRole=attacker 时 Might 仍是印刷值），" +
-    "且没有已合入产者写入 combatRole（combat/flow.ts 对战斗开始抛 combat-start-transaction）；" +
-    "(3) 被授予的 Ganking 的 continuous.movement 许可没有可消费形态：KeywordDef 发出字符串 permission，" +
-    "而 layers/rules/query.ts 的 movement() 只读规范化的 permission.routes（实测 movement().canGank 仍为 false）。" +
-    "依赖：条件谓词的历史消费与绑定、combatRole 生产方与 designation 对齐、movement() 许可形态对齐。不近似实现。",
+    "当前缺口（复核 2026-10-18）：(1) 364.3.a / 423.1 的本回合弃牌门控：" +
+    "bindStaticToLayers 经 evaluateCondition 的 compare/count 只查现场对象，" +
+    "matchesObjectFilter 忽略 filter.player，count 忽略描述性的 subject；Condition/Expr " +
+    "缺按宿主控制者读取 ctx.history({ scope: \"turn\", action: \"discard\" }) 的条件消费方，" +
+    "因此无弃牌或仅对手弃牌时也会误授予关键词。(2) 默认 ChainEngine 使用普通 LayerEngine，" +
+    "attachProgramLifecycle 只展开印刷关键词，尚未接入 KeywordGrantLayerEngine 的动态授予展开" +
+    "（含 designation/combatRole 对齐及 permission.routes 规范化）；默认路径不能把 " +
+    "continuous.grant-keyword 授予的 Assault 变成 Might 加成，也不能把 Ganking 变成 movement 许可。" +
+    "(3) combat/flow.ts 仍以 combat-start-transaction 阻塞 Combat 开始的原子时点与指定生产" +
+    "（466.2 / 807.1.d.1）。不近似实现。",
   abilities: [
     {
       kind: "static",

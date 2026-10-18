@@ -1,3 +1,5 @@
+// Scenario execution evidence: ../templates/static-666.test.mjs (one row per card plus condition boundaries).
+// This file retains validation, identity, and key IR structure checks; whole-card status stays judge-required until all consumers exist.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -41,11 +43,15 @@ test("noxus-saboteur: a single static continuous restriction forbids revealing o
 
 test("noxus-saboteur: the restricted set is the opponents' Hidden cards at this location (811.5, 421.1)", () => {
   assert.deepEqual(restriction.effect.appliesTo, {
-    tag: "Hidden",
+    keyword: "Hidden",
     controller: "opponent",
     zone: "board",
-    sameLocationAs: "self"
+    sameLocationAs: "self",
+    characteristics: { faceDown: false }
   });
+  // CR 811.5/811.5.a: Hidden is a keyword characteristic, not a tag, and is
+  // absent while the card is facedown.
+  assert.equal(restriction.effect.appliesTo.tag, undefined);
   // 811.1.a: Hidden appears on Spells, Units, and Gear, so the restriction must
   // not be narrowed to one card type (811.5 lets effects check the characteristic).
   assert.equal(restriction.effect.appliesTo.type, undefined);
@@ -74,7 +80,7 @@ test("noxus-saboteur: continuous.restrict registers the printed reveal prohibiti
   assert.deepEqual(kernel.continuousEffects[0].effect.filter, restriction.effect.appliesTo);
 });
 
-test("noxus-saboteur: the static binder refuses the relative opponent controller filter", () => {
+test("noxus-saboteur: the static binder refuses the declared Hidden/opponent appliesTo", () => {
   const kernel = world()
     .unit("noxus-saboteur", { cardId: program.canonicalCardId, location: { type: "base", player: "A" } })
     .build();
@@ -83,7 +89,7 @@ test("noxus-saboteur: the static binder refuses the relative opponent controller
   const binder = createEngineStaticBinder({ layers });
   assert.throws(
     () => binder.bindStatic(program.abilities[0], source),
-    /Unsupported static appliesTo \{"tag":"Hidden","controller":"opponent","zone":"board","sameLocationAs":"self"\}/
+    /Unsupported static appliesTo \{"keyword":"Hidden","controller":"opponent","zone":"board","sameLocationAs":"self","characteristics":\{"faceDown":false\}\}/
   );
   assert.deepEqual(layers.registry.list(), []);
 });

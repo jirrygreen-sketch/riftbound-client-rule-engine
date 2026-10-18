@@ -29,10 +29,10 @@ import type { CardProgram } from "../../ir/index.js";
  * 1. 可选附加费用的 cost kind、kill payment 和 cost.pay 均存在，但 programs/play.ts
  *    仍拒绝 CardProgram 的 additional-cost/optional 字段，不能把选择与“killed this way”回执
  *    送入生产费用计划；
- * 2. 按数量减费（每只 1 个 Order Power）仍缺卡牌程序到费用计划的数量链接；
+ * 2. cost/discounts 已支持普通静态减费，仍缺费用所选单位数到 Order 减费量的绑定；
  * 3. [Deflect] 的 target.tax 展开存在，target-plan 也能收集 taxAdapter 请求，但
- *    programs/statics.ts 没有把卡牌 static 声明接到目标 Finalize；无域 Power [A] 的支付
- *    仍需要目标税适配与费用契约共同提供；
+ *    programs/statics.ts 没有把卡牌 static 声明接到目标 Finalize，chain 当前把税额写成
+ *    Energy 加费，未形成任意域 Power 要求（809.1.c.1）；
  * 4. [Ganking] 的 continuous.movement 展开和 static binder 均已存在，但 KeywordDef 使用
  *    标量 permission，而 movement() 查询要求 normalized permission.routes，当前注册结果无法
  *    被规则查询消费。
@@ -46,12 +46,12 @@ const commanderLedros = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处依赖未合入：(1)「you may kill any number of friendly units as an additional cost」的 cost kind、kill payment 与 cost.pay 已存在，" +
+    "四处当前缺口：(1)「you may kill any number of friendly units as an additional cost」的 cost kind、kill payment 与 cost.pay 已存在，" +
     "但 programs/play.ts 仍拒绝 CardProgram 的 additional-cost/optional 字段，无法把选择和「killed this way」回执接入生产费用计划（204.2.a / 356.2.b.1）；" +
-    "(2)「Reduce my cost by [C] for each killed this way」缺卡牌程序 → 费用计划的接线与数量链接" +
-    "（356.4 折扣；buildCostPlan 只消费调用方传入的 discounts）；" +
+    "(2) 已合入的 cost/discounts 收集器没有本次费用选择/支付数量的适配，缺「killed this way」到每只 1 个 Order Power 的数量链接" +
+    "（356.4；chain/engine.ts 仍直接调用 buildCostPlan）；" +
     "(3) [Deflect] 的 target.tax 展开（809.1.c / 356.2.a.2）没有接入卡牌 static 的目标 Finalize：target-plan 能收集 taxAdapter 请求，" +
-    "但 programs/statics.ts 没有对应的 static mapping；无域 Power [A] 仍需要目标税适配与费用契约共同提供；" +
+    "但 programs/statics.ts 没有对应的 static mapping；chain 当前将 tax.amount 写为 energy 加费，尚未接到任意域 Power 要求（809.1.c.1）；" +
     "(4) [Ganking] 的 continuous.movement 展开和 static binder 均已存在，但 KeywordDef 的标量 permission 与 movement() 所需的 normalized permission.routes 不匹配，注册结果无法被规则查询消费。" +
     "依赖：CardProgram → CostPlanInput/discount 数量链接、target.tax 的无域 Power 支付，以及 Ganking permission 的 routes 归一化。",
   sourceText:

@@ -8,6 +8,9 @@ import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
+// Execution evidence for the supported replacement body is also covered by
+// ../templates/replacement-effect-ready-655.test.mjs; the assertions below
+// retain the card-specific identity, condition, structure, and edge cases.
 const ENTER_READY = "lingering-animus.enter-ready";
 
 test("rad-005-167 Lingering Animus: program validates and has expected identity", () => {
@@ -50,9 +53,16 @@ test("rad-005-167: board-entry replacement readies the entering unit (CR 369.3)"
     event: "object-enters-board",
     filter: { source: "self" }
   });
-  // The replacement Condition still cannot read the supported filtered history; it is
-  // deliberately absent instead of a placeholder that would silently be false.
-  assert.equal(ability.condition, undefined);
+  assert.deepEqual(ability.condition, {
+    kind: "compare",
+    left: {
+      kind: "count",
+      subject: "friendly-unit-or-gear-died-this-turn",
+      filter: { zone: "history-record", type: ["unit", "gear"], controller: "self" }
+    },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
+  });
   assert.equal(ability.with.length, 1);
   assert.equal(ability.with[0].id, ENTER_READY);
   assert.equal(ability.with[0].op, "effect.ready");

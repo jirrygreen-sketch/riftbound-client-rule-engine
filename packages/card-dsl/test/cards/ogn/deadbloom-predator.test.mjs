@@ -1,8 +1,19 @@
+// RIFT-670 single-card golden: validation, identity, judgeReason and the key
+// structure of Deadbloom Predator. The real execution evidence for this card
+// (whole-card scenarios through the generic card harness plus the measured
+// outcome of binding each expanded static ability) lives in
+// `test/cards/templates/keyword-static-670.test.mjs`.
+//
+// The card stays judge-required: [Deflect]'s expanded `target.tax` and the
+// printed play-location permission still have no layer mapping in
+// `engine-core/src/programs/statics.ts`, so the template row records both as
+// fail-closed. Nothing here approximates either ability.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/deadbloom-predator.js";
+import { deflectCost } from "../../../../engine-core/dist/target/tax/collect.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CANONICAL = "card.hash-c615c988d8b72525a349735e8c5029acbffec25179ae7427d5f8bc8aff9333b4";
@@ -22,12 +33,15 @@ test("ogn-161-298 Deadbloom Predator: program validates and keeps identity", () 
   );
 });
 
-test("ogn-161-298 Deadbloom Predator: judgeReason cites the target tax and the unresolved play permission", () => {
+test("ogn-161-298 Deadbloom Predator: judgeReason cites the two measured gaps", () => {
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /play-location-permission/);
-  assert.match(program.judgeReason, /RIFT-360/);
-  assert.match(program.judgeReason, /位置选择器/);
+  assert.match(program.judgeReason, /has no layer mapping/);
+  assert.match(program.judgeReason, /809\.1\.c\.1/);
   assert.match(program.judgeReason, /170\.11\.a/);
+  assert.match(program.judgeReason, /420\.3\.b\.2/);
+  // RIFT-360 is named only as the landed tax module, never as a pending dependency.
+  assert.match(program.judgeReason, /RIFT-360 已合入/);
 });
 
 test("ogn-161-298 Deadbloom Predator: Deflect stays a keyword declaration (809)", () => {
@@ -52,19 +66,6 @@ test("ogn-161-298 Deadbloom Predator: the occupied-enemy-battlefield permission 
   });
 });
 
-test("ogn-161-298 Deadbloom Predator: the same shape is the one merged for sfd-093-221 Dauntless Vanguard", async () => {
-  const dauntless = (await import("../../../dist/cards/sfd/dauntless-vanguard.js")).default;
-  const [dauntlessAbility] = dauntless.abilities;
-  assert.equal(dauntlessAbility.kind, playPermission.kind);
-  assert.equal(dauntlessAbility.effect.kind, playPermission.effect.kind);
-  assert.deepEqual(dauntlessAbility.effect.value, playPermission.effect.value);
-  assert.equal(dauntlessAbility.effect.duration, playPermission.effect.duration);
-  // The permission shape is shared — and so is the missing consumer, which is
-  // why Dauntless Vanguard also carries a test.todo for it.
-  assert.equal(dauntless.status, "executable");
-  assert.equal(program.status, "judge-required");
-});
-
 test("ogn-161-298 Deadbloom Predator: the merged Deflect KeywordDef emits only the target tax (809.1.c)", () => {
   const deflectDef = keywordDefinitionsById.get("Deflect");
   assert.ok(deflectDef, "Deflect KeywordDef must be registered");
@@ -73,13 +74,34 @@ test("ogn-161-298 Deadbloom Predator: the merged Deflect KeywordDef emits only t
   assert.deepEqual(expanded.effect.value, { kind: "constant", value: 1 });
 });
 
+test("ogn-161-298 Deadbloom Predator: the permission shape is still the one merged for sfd-093-221 Dauntless Vanguard", async () => {
+  // Same declared shape as Dauntless Vanguard, and the same missing consumer:
+  // that card carries the identical static play-location-permission and is
+  // marked executable, so the shared gap is tracked in both places.
+  const dauntless = (await import("../../../dist/cards/sfd/dauntless-vanguard.js")).default;
+  const [dauntlessAbility] = dauntless.abilities;
+  assert.equal(dauntlessAbility.kind, playPermission.kind);
+  assert.equal(dauntlessAbility.effect.kind, playPermission.effect.kind);
+  assert.deepEqual(dauntlessAbility.effect.value, playPermission.effect.value);
+  assert.equal(dauntlessAbility.effect.duration, playPermission.effect.duration);
+  assert.equal(dauntless.status, "executable");
+  assert.equal(program.status, "judge-required");
+});
+
+test("ogn-161-298 Deadbloom Predator: RIFT-360's tax module already prices the Deflect cost in any-domain Power", () => {
+  // 809.1.c.1: the Deflect Power may be of any Domain. The merged module
+  // produces a Power payment with all six domains allowed, so this half of the
+  // chain is not the gap anymore; what remains is the layer mapping that would
+  // feed it from the card's own static declaration.
+  assert.deepEqual(deflectCost(1), {
+    payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] }]
+  });
+  assert.deepEqual(deflectCost(0), { payments: [{ kind: "power", amount: { kind: "constant", value: 0 }, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] }] });
+});
+
 test.todo(
-  "ogn-161-298 Deadbloom Predator: the Deflect target tax (809.1.c/d) needs a consumer that reads the " +
-    "expanded target.tax effect during target finalization and folds it into the cost plan (contract 3.8 " +
-    "item 4; RIFT-360 target tax)."
+  "ogn-161-298 Deadbloom Predator: route the static target.tax expansion into the target-tax collector and " +
+    "consume the play-location permission in the play Finalize (170.11.a occupied enemy battlefield; " +
+    "420.3.b.2 Finalize check; 809.1.c/d) once programs/statics.ts maps both kinds"
 );
-test.todo(
-  "ogn-161-298 Deadbloom Predator: the static play-location permission (170.11.a occupied enemy " +
-    "battlefield; 420.3.b.2 Finalize check) needs the play-Finalize consumer that merges this " +
-    "permission into the legal location set."
-);
+

@@ -1,3 +1,5 @@
+// Scenario execution evidence: ../templates/static-666.test.mjs (one row per card plus condition boundaries).
+// This file retains validation, identity, and key IR structure checks; whole-card status stays judge-required until all consumers exist.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -41,11 +43,12 @@ test("ogn-236-298 Karthus, Eternal: one static trigger-multiplicity effect scope
   assert.equal(ability.effect.mode, "additional");
   assert.deepEqual(ability.effect.amount, { kind: "constant", value: 1 });
   assert.deepEqual(ability.effect.appliesTo, {
-    keyword: "deathknell",
+    keyword: "Deathknell",
     controller: "controller",
     zone: "board"
   });
   assert.equal(ability.condition, undefined);
+  assert.equal(keywordDefinitionsById.get(ability.effect.appliesTo.keyword), deathknell);
 });
 
 test("ogn-236-298 Karthus, Eternal: Deathknell declares independent self-death triggers (808.1/808.2)", () => {

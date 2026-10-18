@@ -4,6 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/tomb-raider-barbara.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -12,20 +13,18 @@ const SOURCE_TEXT =
   "When you play me, if you control 7 or more runes, choose an enemy gear. If it's [Empowered], disempower it. Otherwise, kill it.";
 
 const GEAR = "tomb-raider-barbara.enemy-gear";
+const READ = "tomb-raider-barbara.read-empowered";
 const [ability] = program.abilities;
-const [disempower, kill] = ability.body;
+const [readEmpowered, disempower, kill] = ability.body;
 
 /**
- * The printed branches are discriminated by the target's Empowered status, which
- * remains gated on the pending predicate (442.1.a / 442.2; see judgeReason), so each branch is
- * driven directly with the descriptive expression condition stripped — the same
- * treatment merged goldens give to descriptive condition data. Everything else is
- * the card's own IR (its TargetSpec id, its own args) executed for real.
+ * The merged Finalize path locks the chosen enemy gear and hands the interpreter
+ * the card's own body; the reference kernel supplies that same locked TargetSpec
+ * through setTargets (the solari-chief / iridescent-avian convention). The body
+ * under test is the card's verbatim IR with only the TargetSpec declarations
+ * stripped, because setTargets already produced the locked selection.
  */
-const branchBody = (instruction) => {
-  const { condition: _condition, targets: _targets, ...rest } = instruction;
-  return [rest];
-};
+const bodyWithoutTargets = (body) => body.map(({ targets, ...rest }) => rest);
 
 const barbaraWorld = (gearEmpowered) => {
   const kernel = world()
@@ -62,7 +61,8 @@ test("ven-037-166 Tomb-Raider Barbara: identity, status, judgeReason and verbati
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Empowered/);
   assert.match(program.judgeReason, /442\.1\.a/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /ObjectSnapshot/);
+  assert.match(program.judgeReason, /buffs/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -93,11 +93,11 @@ test("ven-037-166 Tomb-Raider Barbara: the play trigger carries the printed rune
   });
 });
 
-test("ven-037-166 Tomb-Raider Barbara: 'choose an enemy gear' is one TargetSpec shared by both branches", () => {
+test("ven-037-166 Tomb-Raider Barbara: one TargetSpec shared by both branches, read once at resolve time", () => {
   // 355.5 / 355.7 / 355.9.a.1 / 355.9.b: naming an enemy gear on the public Board
   // makes it a target, chosen once at Finalize and revalidated at resolve.
-  assert.equal(ability.body.length, 2);
-  for (const instruction of [disempower, kill]) {
+  assert.equal(ability.body.length, 3);
+  for (const instruction of [readEmpowered, disempower, kill]) {
     assert.deepEqual(instruction.targets, [
       {
         id: GEAR,
@@ -108,6 +108,19 @@ test("ven-037-166 Tomb-Raider Barbara: 'choose an enemy gear' is one TargetSpec 
       }
     ]);
   }
+  // "If it's [Empowered]" is read once and frozen as a linked value (contract
+  // 3.9); 442.1.a makes the status a characteristic readable through
+  // object-property.
+  assert.equal(readEmpowered.id, READ);
+  assert.equal(readEmpowered.op, "condition.value");
+  assert.deepEqual(readEmpowered.args.value, {
+    kind: "object-property",
+    object: { target: GEAR },
+    property: "empowered"
+  });
+  assert.deepEqual(readEmpowered.args.key, { kind: "constant", value: "empowered" });
+  assert.equal(readEmpowered.linkedTo, undefined);
+
   assert.equal(disempower.id, "tomb-raider-barbara.disempower-empowered-gear");
   assert.equal(disempower.op, "effect.empower");
   assert.deepEqual(disempower.args.objects, {
@@ -116,7 +129,6 @@ test("ven-037-166 Tomb-Raider Barbara: 'choose an enemy gear' is one TargetSpec 
   });
   // 443.1 / 443.1.a: Disempower only affects an Empowered object.
   assert.deepEqual(disempower.args.mode, { kind: "constant", value: "disempower" });
-  assert.equal(disempower.linkedTo, undefined);
 
   // 429.1 / 429.2.a: Kill moves a Board permanent to its owner's trash.
   assert.equal(kill.id, "tomb-raider-barbara.kill-otherwise");
@@ -124,33 +136,40 @@ test("ven-037-166 Tomb-Raider Barbara: 'choose an enemy gear' is one TargetSpec 
   assert.deepEqual(kill.args.target, { kind: "constant", value: GEAR });
 });
 
-test("ven-037-166 Tomb-Raider Barbara: the two printed branches are mutually exclusive negations", () => {
-  // "If it's [Empowered] … Otherwise …" reads one status before and after the same
-  // negation, so exactly one branch executes even though the discriminator itself
-  // remains descriptive until the Empowered predicate is wired (see judgeReason).
-  assert.deepEqual(disempower.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "target-is-empowered" }
-  });
-  assert.deepEqual(kill.condition, {
-    kind: "not",
-    condition: {
-      kind: "expression",
-      value: { kind: "constant", value: "target-is-empowered" }
-    }
-  });
+test("ven-037-166 Tomb-Raider Barbara: both printed branches discriminate on the frozen Empowered reading", () => {
+  // "If it's [Empowered] ... Otherwise ..." reads one status before the branches
+  // run, so exactly one branch executes and the two are mutual negations of the
+  // same frozen linked value.
+  const empoweredCompared = {
+    kind: "compare",
+    left: { kind: "linked-value", instructionId: READ, key: "empowered" },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
+  };
+  assert.deepEqual(disempower.condition, empoweredCompared);
+  assert.deepEqual(kill.condition, { kind: "not", condition: empoweredCompared });
+  // Both branch instructions depend on the frozen reading.
+  assert.equal(disempower.linkedTo, READ);
+  assert.equal(kill.linkedTo, READ);
 });
 
-test("ven-037-166 Tomb-Raider Barbara golden: disempowering an Empowered enemy gear removes its status (443.1.b)", () => {
+test("ven-037-166 Tomb-Raider Barbara golden: an Empowered enemy gear is disempowered, not killed (443.1.b)", () => {
   const kernel = barbaraWorld(true);
   // The reference kernel models the Empowered status as a counter (442.1.a);
   // 443.1.b removes one status.
   assert.equal(kernel.getObject("enemy-gear").empowered, 1);
 
-  const outcome = runAbilityBody(branchBody(disempower), kernel);
+  const outcome = runAbilityBody(bodyWithoutTargets(ability.body), kernel);
 
-  assert.equal(outcome.status, "executed");
-  assert.deepEqual(outcome.events.map(event => event.action), ["disempower"]);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason ?? null]), [
+    [READ, "executed", null],
+    ["tomb-raider-barbara.disempower-empowered-gear", "executed", null],
+    ["tomb-raider-barbara.kill-otherwise", "negated", "skipped"]
+  ]);
+  assert.deepEqual(outcome.events.map((event) => event.action), ["disempower"]);
+  assert.equal(kernel.getObject("enemy-gear").zone, "board");
+  assert.equal(kernel.getObject("enemy-gear").empowered, 0);
   // The default link key follows the mode ("disempowered") and records the
   // objects the action actually completed for (effect.empower's contract).
   assert.deepEqual(outcome.linkedValues["tomb-raider-barbara.disempower-empowered-gear.disempowered"], {
@@ -158,19 +177,22 @@ test("ven-037-166 Tomb-Raider Barbara golden: disempowering an Empowered enemy g
     count: 1,
     objects: [kernel.ref("enemy-gear")]
   });
-  assert.equal(kernel.getObject("enemy-gear").empowered, 0);
-  assert.equal(kernel.getObject("enemy-gear").zone, "board");
 });
 
-test("ven-037-166 Tomb-Raider Barbara golden: killing the otherwise enemy gear sends it to its owner's trash (429.1)", () => {
+test("ven-037-166 Tomb-Raider Barbara golden: an un-Empowered enemy gear is killed, not disempowered (429.1)", () => {
   const kernel = barbaraWorld(false);
 
-  const outcome = runAbilityBody(branchBody(kill), kernel);
+  const outcome = runAbilityBody(bodyWithoutTargets(ability.body), kernel);
 
-  assert.equal(outcome.status, "executed");
-  assert.deepEqual(outcome.events.map(event => event.action), ["kill"]);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason ?? null]), [
+    [READ, "executed", null],
+    ["tomb-raider-barbara.disempower-empowered-gear", "negated", "skipped"],
+    ["tomb-raider-barbara.kill-otherwise", "executed", null]
+  ]);
+  assert.deepEqual(outcome.events.map((event) => event.action), ["kill"]);
   assert.equal(kernel.getObject("enemy-gear").zone, "trash");
-  assert.deepEqual(kernel.objectsInZone("B", "trash").map(ref => ref.id), ["enemy-gear"]);
+  assert.deepEqual(kernel.objectsInZone("B", "trash").map((ref) => ref.id), ["enemy-gear"]);
   // 429.5.b: the kill receipt names the objects that actually left the Board.
   // The receipt keeps the reference used for the action (pre-leave zone entry),
   // which is what later "if you do" checks read.
@@ -180,23 +202,61 @@ test("ven-037-166 Tomb-Raider Barbara golden: killing the otherwise enemy gear s
   assert.equal(kernel.ref("enemy-gear").zoneEntryId, 2);
 });
 
-test("ven-037-166 Tomb-Raider Barbara golden: a gear that left the Board is ignored, not re-killed (359.3.e.7)", () => {
+test("ven-037-166 Tomb-Raider Barbara golden: the whole body runs through the production chain adapter", () => {
+  const kernel = barbaraWorld(true);
+  const outcome = resolveChainBody(bodyWithoutTargets(ability.body), kernel);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status]), [
+    [READ, "executed"],
+    ["tomb-raider-barbara.disempower-empowered-gear", "executed"],
+    ["tomb-raider-barbara.kill-otherwise", "negated"]
+  ]);
+  assert.equal(kernel.getObject("enemy-gear").empowered, 0);
+  assert.equal(outcome.linkedValues[`${READ}.empowered`], 1);
+  assert.equal(outcome.linkedValues[`${READ}.value`], 1);
+});
+
+test("ven-037-166 Tomb-Raider Barbara golden: a gear that left the Board ignores both branches (359.3.e.7)", () => {
   const kernel = barbaraWorld(false);
   const stale = kernel.ref("enemy-gear");
   kernel.perform({ type: "move-zone", object: stale, to: "hand" });
   kernel.setTargets(GEAR, [stale]);
 
-  const outcome = runAbilityBody(branchBody(kill), kernel);
+  const outcome = runAbilityBody(bodyWithoutTargets(ability.body), kernel);
 
   assert.equal(outcome.status, "partial");
-  assert.equal(outcome.results[0].result.status, "ignored");
-  assert.equal(outcome.results[0].result.reason, "mistargeted");
-  assert.equal(kernel.getObject("enemy-gear").zone, "hand");
+  assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason]), [
+    [READ, "ignored", "mistargeted"],
+    ["tomb-raider-barbara.disempower-empowered-gear", "ignored", "linked-ignored"],
+    ["tomb-raider-barbara.kill-otherwise", "ignored", "linked-ignored"]
+  ]);
   assert.deepEqual(outcome.events, []);
+  assert.equal(kernel.getObject("enemy-gear").zone, "hand");
+});
+
+test("ven-037-166 Tomb-Raider Barbara probe: the frozen ObjectSnapshot contract still hides the Empowered status", () => {
+  // Executed evidence for judgeReason point 1: the reference kernel exposes the
+  // live count, but the frozen contract's ObjectSnapshot has no `empowered`
+  // field, so a production-shaped snapshot makes the same condition fail closed.
+  const kernel = barbaraWorld(true);
+  const snapshot = { ...kernel.getObject("enemy-gear") };
+  delete snapshot.empowered;
+  delete snapshot.counters;
+  const context = {
+    source: snapshot, controller: "A", timingPoint: "card-played",
+    object: () => snapshot, lastKnown: () => snapshot, query: () => [], zoneSlice: () => [],
+    targets: () => [snapshot.ref], picks: () => [], player: () => ({ id: "A" }), evaluate: () => null,
+    test: () => true, linked: () => undefined, history: () => 0, choose: () => { throw new Error("unexpected choice"); },
+    perform: () => ({ status: "done", events: [] }), link: () => {}, addContinuous: () => {},
+    registerDelayedTrigger: () => {}
+  };
+  const outcome = runAbilityBody([{ ...bodyWithoutTargets(ability.body)[0] }], context);
+  assert.deepEqual(outcome.results.map((entry) => [entry.result.status, entry.result.reason]), [
+    ["ignored", "mistargeted"]
+  ]);
 });
 
 test.todo(
-  "ven-037-166 Tomb-Raider Barbara: evaluate \"if it's [Empowered]\" (442.1.a / 442.2) so the two printed " +
-    "branches discriminate on the chosen gear's status instead of descriptive condition data — wire the Empowered " +
-    "status predicate into CardProgram conditions (RIFT-359)"
+  "ven-037-166 Tomb-Raider Barbara: the production host must declare the Empowered status on ObjectSnapshot (442.1.a / 442.2) " +
+    "so the frozen condition.value reading can run outside the reference kernel"
 );
