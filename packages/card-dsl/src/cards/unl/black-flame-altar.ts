@@ -4,8 +4,8 @@ import type { CardProgram } from "../../ir/index.js";
  * Black Flame Altar — CR v1.5 053.3/199.1 (here), 816.3
  * (Temporary characteristic), 479.3 (ability layer), 814.1.b.3/814.1.c
  * (Shield 1 while defender). Static binding and grants exist; the exact
- * location/keyword gate and the defender gate of the granted Shield still need
- * consumers.
+ * location/keyword gate and the production consumer for the granted Shield
+ * still need wiring.
  *
  * 2026-10-18 复核后的真实缺口（不近似实现）：
  * 1. 「Units here with [Temporary]」需要“本战场 + 带 Temporary 关键词”的集合谓词。
@@ -13,20 +13,18 @@ import type { CardProgram } from "../../ir/index.js";
  *    能产出结构化 LocationRef），但 programs/statics.ts 的 staticFilter 会直接拒绝
  *    keywords 键（实测抛 Unsupported static filter field keywords），所以带关键词
  *    门槛的 filter 无法注册。keywords 键在图层匹配器里也不是可求值维度。
- * 2. 位置门槛本身也不可用：图层应用路径 layers/engine.ts 的 applyLayer 用
+ * 2. 位置门槛在默认生产图层路径仍不可用：layers/engine.ts 的 applyLayer 用
  *    layers/filter.ts 的 matchesObjectFilter 匹配 filter，后者对结构化 location 是
  *    引用比较（value.location !== object.location，随后只回落比较 location.type），
- *    因此 binder 解出的 { type:"battlefield", id } 永远不等于对象自己的 location
+ *    因此 binder 解出的 { type:"battlefield", id } 不会匹配对象自己的 location
  *    对象（实测同一战场的单位也不匹配，单位的关键词里没有 Shield）。所以去掉 keywords
  *    并不会放宽为“本战场所有单位”，而是让声明对任何对象都不生效；两种写法都不能
- *    作为 053.3/199.1 的执行证据。规则查询路径（layers/rules/query.ts 的
- *    objectFilterMatches）是按 JSON 比较的，因此这不是同一处接线。
- * 3. 814.1.c/814.1.d 的「+1 Might while they're defenders」：图层确实把 Shield 写进
- *    了快照的 keywords（实测 unit 的 keywords 变为 [Temporary, Shield 1]），但该
- *    Shield 不会再进入关键词展开，因此它的 static continuous.might 从未被注册
- *    （实测 might 保持 3）。此外 Shield.ts 的展开条件读取 designation，而
- *    ObjectSnapshot 暴露的是 combatRole；图层条件求值走基础 evaluateExpression，
- *    对不存在的 designation 抛 MissingInformation 后 fail-closed 恒假。
+ *    作为 053.3/199.1 的执行证据。KeywordGrantLayerEngine 有独立的值匹配实现，
+ *    但它尚未接入默认生产 ChainEngine。
+ * 3. 已合入的 KeywordGrantLayerEngine 能把图层授予的 Shield 重新展开，
+ *    并把 Shield 的 designation 条件映射到 ObjectSnapshot.combatRole；实测该适配器
+ *    对防守者给出 +1 Might。当前 production 的 createEngineStaticBinder/attachProgramLifecycle
+ *    仍使用默认 LayerEngine，因此这条已合入的动态关键词路径尚未成为本卡的生产执行证据。
  * 4. production 对局把 battlefield 生成为 chain 区 token（game/lifecycle.ts 只
  *    create-token），attachProgramLifecycle 只在 object-enters-board 时绑定，
  *    因此真实对局里本卡连 static 注册都不会发生。
@@ -39,19 +37,16 @@ export default {
     "当前缺口（CR v1.5）：(1) static 图层绑定与 sameLocationAs:self → source.location 的转换已合入，" +
     "但 programs/statics.ts 的 staticFilter 直接拒绝 keywords 过滤键（实测抛 Unsupported static filter field keywords），" +
     "053.3/199.1 的「本战场上且带 Temporary 的单位」仍无法注册为集合。" +
-    "(2) 位置门槛在图层应用路径也不匹配：layers/engine.ts 的 applyLayer 经 layers/filter.ts 的 matchesObjectFilter " +
+    "(2) 默认生产 LayerEngine 的位置匹配对结构化 LocationRef 仍走引用比较：layers/engine.ts 的 applyLayer 经 layers/filter.ts 的 matchesObjectFilter " +
     "比较 filter，其中结构化 location 走引用比较（value.location !== object.location），binder 解出的 " +
     "{ type:\"battlefield\", id } 与对象自身的 location 对象永不相等（实测同战场单位也不匹配），" +
-    "故删掉 keywords 不会扩大为“本战场所有单位”，而是对任何对象都不生效；两种写法都不能作为 053.3/199.1 的执行证据。" +
-    "（layers/rules/query.ts 的 objectFilterMatches 是按 JSON 比较，规则查询路径不受此影响。）" +
-    "(3) grant-keyword 与 Temporary/Shield 展开已存在，但图层授予的 Shield 不会重新进入关键词展开：实测图层把 Shield 1 写进单位 " +
-    "keywords（[Temporary, Shield 1]），但它的 static continuous.might 从未注册、might 保持 3；" +
-    "同时 Shield 展开条件读取 designation（实际战斗身份字段是 combatRole，contract 3.8），" +
-    "基础 evaluateExpression 对该不存在字段抛 MissingInformation 后 fail-closed 恒假，" +
-    "814.1.c/814.1.d 的防御期间 +1 Might 仍不完整。" +
+    "故删掉 keywords 不会扩大为“本战场所有单位”，而是对任何对象都不生效；" +
+    "KeywordGrantLayerEngine 虽已提供按值匹配的位置路径，但尚未接入默认生产 ChainEngine。" +
+    "(3) 已合入的 KeywordGrantLayerEngine 已能重新展开图层授予的 Shield，并把 designation 映射到 combatRole；" +
+    "但 createEngineStaticBinder/attachProgramLifecycle 的默认生产路径仍未使用该适配器，所以本卡的防守者 +1 Might 尚无生产执行证据。" +
     "(4) production 对局把 battlefield 生成为 chain 区 token（game/lifecycle.ts 只 create-token），" +
     "attachProgramLifecycle 只在 object-enters-board 时绑定，真实对局因此尚未注册本卡。" +
-    "需关键词特征过滤、图层位置匹配、动态关键词展开、防御身份条件接线与 battlefield 入 Board 的生命周期。",
+    "需关键词特征过滤、默认生产图层的位置值匹配、KeywordGrantLayerEngine 生产接线与 battlefield 入 Board 的生命周期。",
   sourceText:
     "Units here with [Temporary] have [Shield]. (+1 :rb_might: while they're defenders.)",
   abilities: [
