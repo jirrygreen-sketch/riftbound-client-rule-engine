@@ -4,7 +4,6 @@ import type { ContinuousEffectSpec, ObjectRef, ObjectSnapshot } from '../effects
 import { evaluateCondition } from '../effects/interpreter/condition.js';
 import { matchesObjectFilter } from '../layers/filter.js';
 import { isRelativeLocation } from '../layers/relative/location.js';
-import { isSupportedRelativeFilterValue } from '../layers/relative/filter.js';
 import { bindReplacement as bindReplacementRegistration } from '../replacement/bind.js';
 import { ProgramBindingError } from './errors.js';
 
@@ -81,6 +80,7 @@ const LAYER_BY_KIND: Readonly<Record<string, LayerName>> = {
   'continuous.grant-abilities': 'ability',
   'continuous.grant-ability': 'ability',
   'continuous.grant-keyword': 'ability',
+  'grant-keyword': 'ability',
   'continuous.ignore-abilities': 'ability',
   'continuous.ignore-ability': 'ability',
   'continuous.ignore-target-tax': 'ability',
@@ -94,19 +94,15 @@ const LAYER_BY_KIND: Readonly<Record<string, LayerName>> = {
   'continuous.trigger-multiplicity': 'ability',
   'continuous.trigger-suppression': 'ability',
   'continuous.test': 'ability',
-  'condition.predicate': 'ability',
-  'condition.value': 'ability',
   'requirement': 'ability',
   'restriction': 'ability',
   'applied-cost': 'ability',
   'target.tax': 'ability',
-  'play-location-permission': 'ability',
   'accelerate.cost': 'ability',
   'repeat.cost': 'ability',
   'cost.additional': 'ability',
   'cost.hidden': 'ability',
   'cost.modify': 'ability',
-  'cost.reveal': 'ability',
   'cost.activated': 'ability',
   'cost.printed': 'ability',
   'cost.exhaust': 'ability',
@@ -164,13 +160,17 @@ export function staticFilter(effect: AnyRecord, source: ObjectSnapshot, rawFilte
   for (const [key, rawValue] of Object.entries(raw)) {
     const value = literal(rawValue);
     if (key === 'controller' || key === 'owner') {
-      if (!isSupportedRelativeFilterValue(value)) throw new ProgramBindingError('judge-required', `Unsupported static ${key} selector ${String(value)}`);
-      output[key] = value;
+      if (value === 'controller' || value === 'you' || value === 'caster' || value === 'self') output[key] = source.controller;
+      else if (value === 'opponent' || value === 'their' || value === 'caster-opponent') throw new ProgramBindingError('judge-required', `Static ${key}:opponent filter needs a relative-player query`);
+      else output[key] = value;
     } else if (key === 'tag') output.tags = [...(Array.isArray(output.tags) ? output.tags : []), value];
     else if (key === 'types') output.type = value;
     else if (key === 'sameLocationAs') {
       if (!relativeSelector(value)) throw new ProgramBindingError('judge-required', 'Static sameLocationAs requires a supported relative anchor');
       output.sameLocationAs = value;
+      // Bind-time concrete fallback for evaluators without an anchor; the
+      // symbolic field above still wins whenever an anchor is supplied.
+      if (relativeSelector(value) && source.zone === 'board' && source.location !== null) output.location = source.location;
     } else if (key === 'object' || key === 'source') {
       if (sourceSelector(value)) {
         output.objectId = source.ref.id;
@@ -178,7 +178,7 @@ export function staticFilter(effect: AnyRecord, source: ObjectSnapshot, rawFilte
       } else throw new ProgramBindingError('judge-required', `Unsupported static object anchor ${String(value)}`);
     } else if (key === 'exclude' || key === 'other') {
       if (key === 'other' && value !== true) throw new ProgramBindingError('judge-required', 'Static other filter must be true');
-      if (key === 'exclude' && !relativeSelector(value)) throw new ProgramBindingError('judge-required', 'Static exclude requires a supported relative anchor');
+      if (key === 'exclude' && !sourceSelector(value)) throw new ProgramBindingError('judge-required', 'Static exclude requires a supported relative anchor');
       output[key] = value;
     } else if (key === 'self') {
       if (!sourceSelector(value)) throw new ProgramBindingError('judge-required', 'Static self anchor is unsupported');

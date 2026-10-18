@@ -75,14 +75,20 @@ export function matchesObjectFilter(
   if (!zoneMatches(value.zone, object)) return false;
   if (value.location !== undefined && !matchesRelativeLocation(value.location, object, anchor)) return false;
   if (value.region !== undefined && !matchesRelativeRegion(value.region, object)) return false;
-  if (value.position !== undefined && !matchesRelativePosition(value.position, object, anchor)) return false;
+  if (value.position !== undefined && anchor !== undefined && anchor !== null && !matchesRelativePosition(value.position, object, anchor)) return false;
   if (value.here !== undefined && value.here !== true) return false;
-  if (value.here === true && !matchesRelativePosition("here", object, anchor)) return false;
-  if (value.sameLocationAs !== undefined && !matchesRelativePosition(value.sameLocationAs, object, anchor)) return false;
+  // Without an anchor the caller has no way to resolve relative fields, so the
+  // historical behavior skips them instead of failing the whole filter.
+  if (anchor !== undefined && anchor !== null) {
+    if (value.here === true && !matchesRelativePosition("here", object, anchor)) return false;
+    if (value.sameLocationAs !== undefined && !matchesRelativePosition(value.sameLocationAs, object, anchor)) return false;
+  }
   if (!matchesRelativeController(value.controller, object.controller, anchor)) return false;
   if (!matchesRelativeOwner(value.owner, object.owner, anchor)) return false;
-  if (!matchesRelativeExclusion(value.exclude, object, anchor)) return false;
-  if (!matchesRelativeExclusion(value.other, object, anchor)) return false;
+  if (anchor !== undefined && anchor !== null) {
+    if (!matchesRelativeExclusion(value.exclude, object, anchor)) return false;
+    if (!matchesRelativeExclusion(value.other, object, anchor)) return false;
+  }
   if (!stateMatches(value.states ?? value.state, object)) return false;
   if (value.tags !== undefined) {
     const tags = list(value.tags) ?? [value.tags];

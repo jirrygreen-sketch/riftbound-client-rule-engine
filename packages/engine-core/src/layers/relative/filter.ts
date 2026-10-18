@@ -74,7 +74,7 @@ export function matchesRelativeLocation(
 export function matchesRelativeRegion(value: unknown, object: LayeredObjectSnapshot): boolean {
   const resolved = selectorValue(value);
   if (resolved === undefined) return true;
-  if (resolved === "board") return object.zone === "board";
+  if (resolved === "board") return object.zone === "board" && object.location?.type === "battlefield";
   if (resolved === "base" || resolved === "battlefield") return object.location?.type === resolved;
   if (typeof resolved === "string") return object.location?.type === resolved || object.location?.type === "battlefield" && object.location.id === resolved;
   const concrete = concreteLocation(resolved);
