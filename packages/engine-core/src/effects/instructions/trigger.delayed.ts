@@ -2,7 +2,7 @@ import type {
   Expr, Instruction, InstructionResult, ObjectFilter, ObjectSelector, ResolveContext, TriggerSpec,
 } from '../contract.js';
 import { isTimingPointId } from '../../events/timing-points.js';
-import { assertTriggerSpec } from '../../events/trigger-spec.js';
+import { assertTriggerSpec, validateEventPattern } from '../../events/trigger-spec.js';
 import { delayedDuration, DELAYED_EXPIRES_AT } from '../../events/delayed/duration.js';
 
 /** Parsed trigger.delayed argument shapes (all Expr, evaluated at registration). */
@@ -14,11 +14,6 @@ export interface TriggerDelayedArgs {
   readonly duration?: Expr;
   readonly window?: Expr;
   readonly once?: Expr;
-  readonly objects?: Expr;
-  readonly count?: Expr;
-  readonly uses?: Expr;
-  readonly referent?: Expr;
-  readonly target?: Expr;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -54,11 +49,17 @@ function isSelector(value: unknown): value is ObjectSelector {
 
 function parseArgs(value: unknown): TriggerDelayedArgs {
   if (!isRecord(value)) throw new TypeError('trigger.delayed requires args');
-  const allowed = [ 'at', 'body', 'filter', 'eventFilter', 'duration', 'window', 'once', 'objects', 'count', 'uses', 'referent', 'target' ];
+  const allowed = [ 'at', 'body', 'filter', 'eventFilter', 'duration', 'window', 'once' ];
   for (const [key, expression] of Object.entries(value)) {
     if (!allowed.includes(key) || !isExpr(expression)) {
-      throw new TypeError('Invalid trigger.delayed argument: ' + key);
+      throw new TypeError('Unsupported trigger.delayed argument: ' + key);
     }
+  }
+  if (value.filter !== undefined && value.eventFilter !== undefined) {
+    throw new TypeError('trigger.delayed accepts filter or eventFilter, not both');
+  }
+  if (value.duration !== undefined && value.window !== undefined) {
+    throw new TypeError('trigger.delayed accepts duration or window, not both');
   }
   if (value.at === undefined || value.body === undefined) {
     throw new TypeError('trigger.delayed requires at and body');
@@ -105,13 +106,11 @@ export default {
       filter = normalizeFilter(value);
     } else if (args.eventFilter !== undefined) {
       const value = ctx.evaluate(args.eventFilter);
-      if (isTimingPointId(value)) {
-        filter = { objectId: value };
-      } else if (isRecord(value)) {
-        filter = normalizeFilter(value);
-      } else {
+      const event = validateEventPattern(value);
+      if (!event.ok) {
         return { status: 'negated', reason: 'impossible', events: [] };
       }
+      filter = event.value as ObjectFilter;
     } else {
       filter = {};
     }

@@ -1,4 +1,4 @@
-import type { TimingPointId } from '../timing-points.js';
+import { isTimingPointId, type TimingPointId } from '../timing-points.js';
 
 /**
  * Delayed-ability windows (Core Rules v1.5 391/392).
@@ -40,8 +40,8 @@ export function delayedDuration(value: unknown): DelayedDuration | undefined {
   if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
     const record = value as Readonly<Record<string, unknown>>;
     if (record.kind === 'this-turn') return { kind: 'this-turn' };
-    if (record.kind === 'until' && typeof record.at === 'string') {
-      return { kind: 'until', at: record.at as TimingPointId };
+    if (record.kind === 'until' && isTimingPointId(record.at)) {
+      return { kind: 'until', at: record.at };
     }
   }
   return undefined;
