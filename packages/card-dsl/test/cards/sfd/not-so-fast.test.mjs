@@ -14,6 +14,9 @@ import counter from "../../../../engine-core/dist/effects/instructions/effect.co
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { translateObjectFilter, translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { describePlay } from "../../../../engine-core/dist/programs/play.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 
 const CANONICAL_ID = "card.hash-33c64673bc887d04d061bcae6dce39ed0eb58011d8102f4f2426e9d43b6a8bdc";
 const SOURCE_TEXT =
@@ -61,6 +64,11 @@ test("sfd-045-221 Not So Fast: judgeReason names the chosen-target restriction g
   assert.match(program.judgeReason, /Finalize 目标计划/);
   assert.match(program.judgeReason, /choosesFriendly/);
   assert.match(program.judgeReason, /Unsupported filter field/);
+  // 2026-10-18 re-sweep: keep the measured halves (the production reject and
+  // the fact that history counting cannot answer this question).
+  assert.match(program.judgeReason, /describePlay/);
+  assert.match(program.judgeReason, /GameAction/);
+  assert.match(program.judgeReason, /became-target/);
 });
 
 test("sfd-045-221 Not So Fast: the printed restriction cannot bind, and no merged matcher evaluates it", () => {
@@ -80,6 +88,45 @@ test("sfd-045-221 Not So Fast: the printed restriction cannot bind, and no merge
     () => translateInstructionTargets(play.body),
     /Unsupported filter field choosesFriendly/
   );
+  // describePlay (the production entry point) fails the same way, before any
+  // Finalize target mapping could run.
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const registry = new ProgramRegistry([lifted]);
+  const kernel = world()
+    .object("not-so-fast-source", { cardId: CANONICAL_ID, types: ["spell"], zone: "hand", energy: 2, power: ["Calm"] })
+    .build();
+  const source = kernel.getObject("not-so-fast-source");
+  assert.throws(
+    () => describePlay(registry, { type: "play", object: source.ref, player: "A" }, source),
+    /Unsupported filter field choosesFriendly/
+  );
+  // The layers matcher silently ignores the descriptive key: the verdict is
+  // identical with and without it, so shipping this TargetSpec as-is would
+  // counter ANY matching chain item — the reason the restriction is kept
+  // rather than dropped.
+  const enemyItem = {
+    ...kernel.getObject("not-so-fast-source"),
+    zone: "chain",
+    owner: "B",
+    controller: "B",
+    types: ["spell"]
+  };
+  const withKey = matchesObjectFilter(filter, enemyItem);
+  const { choosesFriendly: _ignored, ...withoutKey } = filter;
+  assert.equal(withKey, matchesObjectFilter(withoutKey, enemyItem));
+  assert.equal(withKey, false);
+  // A matching item without the enemy relationship passes, proving the key
+  // contributed nothing to the decision.
+  assert.equal(
+    matchesObjectFilter(filter, { ...enemyItem, controller: "A", owner: "A" }),
+    matchesObjectFilter(withoutKey, { ...enemyItem, controller: "A", owner: "A" })
+  );
+  // A history query cannot answer "what did that chain item choose": only
+  // committed GameActions are counted, and became-target is a Chain timing
+  // point rather than an action.
+  assert.equal(kernel.perform({ type: "draw", player: "A", amount: 0 }).status, "done");
+  assert.equal(kernel.history({ scope: "turn", timingPoint: "became-target" }), 0);
+  assert.equal(kernel.history({ scope: "turn", action: "play" }), 0);
   // （counter 原语本体仍有真实执行测试，见下方 golden。）
   assert.equal(instructionDefinitionsById.get("effect.counter"), counter);
 });

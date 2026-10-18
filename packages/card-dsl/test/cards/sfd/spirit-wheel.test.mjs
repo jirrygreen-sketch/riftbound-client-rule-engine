@@ -9,11 +9,11 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // layout instead of the package name.
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", ENGINE));
+const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
 const { validateTriggerSpec } = await import(new URL("events/trigger-spec.js", ENGINE));
 const { createProgramBinding } = await import(new URL("programs/index.js", ENGINE));
 const draw = (await import(new URL("effects/instructions/effect.draw.js", ENGINE))).default;
-const payCost = (await import(new URL("effects/instructions/cost.pay.js", ENGINE))).default;
 
 const CANONICAL = "card.hash-498c7e8ce2e20ef011de716db7cf2ff6e0f71a410cc40dace65553df8b0b2518";
 const SOURCE_TEXT =
@@ -22,7 +22,7 @@ const OPTIONAL_ID = "spirit-wheel.may-pay-and-draw/optional";
 
 const [ability] = program.abilities;
 const [optional] = ability.body;
-const [pay, drawInstruction] = optional.args.body.value;
+const [preparePayment, pay, drawInstruction] = optional.args.body.value;
 
 test("sfd-144-221 Spirit Wheel: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -34,21 +34,23 @@ test("sfd-144-221 Spirit Wheel: identity, ruleset, status, judgeReason and verba
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // README section 2: the reason names the real gaps. The subscription itself
-  // has merged, so the live gap is the leading base-cost binding plus the
-  // TriggeredAbility cost field.
+  // README section 2: the reason names the real gaps. The subscription and the
+  // settled-cost pair have merged, so the live gap is the Finalize binding
+  // (TriggeredAbility cost field + triggers.ts extraction) plus the chain
+  // adapter's missing cost.modify literalization.
   assert.match(program.judgeReason, /TriggerRegistration/);
   assert.match(program.judgeReason, /383\.3\.b/);
   assert.match(program.judgeReason, /404\.1\.b\.1/);
   assert.match(program.judgeReason, /TriggeredAbility/);
-  assert.match(program.judgeReason, /Invalid cost\.pay argument/);
-  assert.match(program.judgeReason, /payablePlan/);
   assert.match(program.judgeReason, /mayAtFinalize/);
   // 2026-10-18 re-sweep: the reason must keep the measured split between the
-  // settled-cost payer (merged) and the static IR spelling (still blocked).
-  assert.match(program.judgeReason, /finalized/);
-  assert.match(program.judgeReason, /ObjectRef/);
-  assert.match(program.judgeReason, /cannot-pay-cost/);
+  // settled-cost pair (merged, now authored in the card) and the two live
+  // binding gaps.
+  assert.match(program.judgeReason, /cost\.modify/);
+  assert.match(program.judgeReason, /cost\.pay/);
+  assert.match(program.judgeReason, /cost\.modify id must be a non-empty string/);
+  assert.match(program.judgeReason, /interpreter-adapter\.ts/);
+  assert.match(program.judgeReason, /415\.4/);
   assert.ok(!/RIFT-257/.test(program.judgeReason), "the merged binding task must not stay listed");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -72,23 +74,41 @@ test("sfd-144-221 Spirit Wheel: a became-target trigger for units you control", 
   assert.equal(validated.ok, true, JSON.stringify(validated.ok ? [] : validated.issues));
 });
 
-test("sfd-144-221 Spirit Wheel: contract 3.9 — one choice.optional wrapping pay and draw", () => {
+test("sfd-144-221 Spirit Wheel: contract 3.9 — one choice.optional wrapping the paid base cost and draw", () => {
   assert.deepEqual(ability.body.map((instruction) => instruction.id), ["spirit-wheel.may-pay-and-draw"]);
   assert.equal(optional.op, "choice.optional");
   assert.equal(optional.args.body.kind, "constant");
   assert.deepEqual(optional.args.body.value.map((instruction) => instruction.id), [
+    "spirit-wheel.prepare-payment",
     "spirit-wheel.pay",
     "spirit-wheel.draw-1"
   ]);
   assert.equal(optional.linkedTo, undefined);
 
   // 383.3.b / 383.3.b.1: "pay 1 energy and exhaust this" is the ability's base
-  // cost, paid at finalize.
+  // cost. It uses the merged payable shape (cost.modify locks the plan,
+  // cost.pay charges it) exactly as sfd/altar-of-memories. The remaining gap is
+  // lifting this leading cost into Finalize (judgeReason).
+  assert.equal(preparePayment.op, "cost.modify");
+  assert.deepEqual(preparePayment.args, {
+    id: { kind: "constant", value: "spirit-wheel.prepare-payment" },
+    cost: {
+      kind: "constant",
+      value: {
+        kind: "activated",
+        energy: { kind: "constant", value: 1 },
+        payments: [{ kind: "exhaust", object: "self" }]
+      }
+    }
+  });
   assert.equal(pay.op, "cost.pay");
-  assert.deepEqual(pay.args.energy, { kind: "constant", value: 1 });
-  assert.deepEqual(pay.args.payments, {
-    kind: "constant",
-    value: [{ kind: "exhaust", object: "self" }]
+  assert.equal(pay.linkedTo, "spirit-wheel.prepare-payment");
+  assert.deepEqual(pay.args, {
+    cost: {
+      kind: "linked-value",
+      instructionId: "spirit-wheel.prepare-payment",
+      key: "cost"
+    }
   });
 
   // The draw is linked to the paid cost, so a failed payment also skips the draw.
@@ -161,88 +181,104 @@ test("sfd-144-221 Spirit Wheel: the merged CardProgram binding registers through
   assert.equal(registrations[0].mayAtFinalize, undefined);
 });
 
-test("sfd-144-221 Spirit Wheel: the printed exhaust half of the base cost has no legal cost.pay spelling", () => {
-  // Live evidence for judgeReason. `payments: { energy: 1 }` is accepted and
-  // really pays one Energy, but every spelling that also carries the printed
-  // "and exhaust this" half is rejected outright, so the 383.3.b base cost can
-  // neither be bound nor paid.
-  const argsSchema = payCost.argsSchema;
+test("sfd-144-221 Spirit Wheel golden: the card's own cost.modify + cost.pay pair really pays 1 Energy and exhausts the host", () => {
+  // 383.3.b / 383.3.b.1 / 415.4 / 415.5: the two leading instructions are the
+  // merged payable spelling of "you may pay 1 energy and exhaust this". The
+  // interpreter runs the card's own IR and really charges the plan; the live
+  // gap is only the Finalize lift of that cost (judgeReason).
+  const base = world()
+    .player("A", { energy: 3 })
+    .deck(["d1", "d2"])
+    .unit("wheel", { types: ["gear"], might: 0, location: { type: "base", player: "A" } })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("wheel") });
+
+  const outcome = runAbilityBody([preparePayment, pay], kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status]), [
+    ["spirit-wheel.prepare-payment", "executed"],
+    ["spirit-wheel.pay", "executed"]
+  ]);
+  const planned = outcome.results[0].result.linkedValues.cost;
+  assert.equal(planned.finalized, true);
+  assert.deepEqual(planned.total.energy, 1);
+  assert.deepEqual(planned.total.actions.map((entry) => entry.action.type), ["exhaust"]);
+  const receipt = outcome.results[1].result.linkedValues.payment;
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.actions.map((entry) => entry.action.type), ["pay", "exhaust"]);
+  assert.equal(kernel.player("A").energy, 2);
+  assert.equal(kernel.getObject("wheel").exhausted, true);
+  // The cost is not a draw: nothing left the deck.
+  assert.equal(kernel.player("A").handSize, 0);
+  assert.deepEqual(kernel.zone("A", "deck").map((ref) => ref.id), ["d1", "d2"]);
+});
+
+test("sfd-144-221 Spirit Wheel golden: the card's own cost pair fails closed on an already exhausted host (415.4)", () => {
+  const base = world()
+    .player("A", { energy: 3 })
+    .unit("wheel", { types: ["gear"], might: 0, exhausted: true, location: { type: "base", player: "A" } })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("wheel") });
+  const before = kernel.snapshot();
+
   assert.throws(
-    () => argsSchema.parse({ energy: { kind: "constant", value: 1 }, payments: pay.args.payments }),
-    /Invalid cost\.pay argument: energy/
+    () => runAbilityBody([preparePayment, pay], kernel),
+    (error) => error?.reason === "cannot-pay-cost"
   );
-
-  // The resource-only half really pays one Energy and is accepted.
-  const payableKernel = world().player("A", { energy: 3 }).build();
-  const run = runInstruction(payCost, { payments: { kind: "constant", value: { energy: 1 } } }, { world: payableKernel });
-  assert.equal(run.result.status, "executed");
-  assert.equal(payableKernel.player("A").energy, 2);
-
-  // The card's own payments list (a nonstandard exhaust reference) and every
-  // object spelling that carries the exhaust half fail closed in payablePlan.
-  const spellings = [
-    ["card list", pay.args.payments],
-    ["actions", { kind: "constant", value: { energy: 1, actions: [{ type: "exhaust" }] } }],
-    ["exhaust", { kind: "constant", value: { energy: 1, exhaust: [{ kind: "source" }] } }]
-  ];
-  for (const [label, payments] of spellings) {
-    assert.throws(() => runInstruction(payCost, { payments }, { world: world().player("A", { energy: 3 }).build() }),
-      (error) => error.reason === "cannot-pay-cost",
-      `${label} must fail closed instead of silently dropping the exhaust`);
-  }
+  assert.deepEqual(kernel.snapshot(), before);
+  assert.equal(kernel.player("A").energy, 3);
+  assert.equal(kernel.getObject("wheel").exhausted, true);
+  assert.deepEqual(kernel.events, []);
 });
 
-test("sfd-144-221 Spirit Wheel: accepting the optional never draws without a real payment", () => {
-  // 383.3.b/383.3.b.1: the printed "pay 1 energy and exhaust this" is the
-  // ability's base cost. Whether the static IR spelling is accepted yet or
-  // not, the durable requirement is that accepting the optional never draws
-  // for free: either the payment really happens (energy spent, wheel
-  // exhausted) or the attempt fails closed with no card drawn. This keeps
-  // passing once the payment runtime lands.
-  const kernel = world().player("A", { energy: 3 }).deck(["d1", "d2"]).build();
-  kernel.setAnswers({ [OPTIONAL_ID]: true });
-
-  let outcome = null;
-  try {
-    outcome = runAbilityBody(ability.body, kernel);
-  } catch (error) {
-    // Fail-closed path while the static IR spelling is not a legal cost.pay
-    // argument: the interpreter must reject the whole attempt.
-    assert.match(String(error && error.message), /cost\.pay|payment|cost plan/i);
-    // Nothing was approximated: no card was drawn and the energy was untouched.
-    assert.equal(kernel.player("A").handSize, 0);
-    assert.equal(kernel.player("A").energy, 3);
-    assert.deepEqual(kernel.events, []);
-  }
-  if (outcome !== null) {
-    // Once the payment path exists, accepting must really pay 1 Energy (and
-    // exhaust the wheel) before the draw happens; drawing for free is never a
-    // valid outcome.
-    const paidEnergy = kernel.player("A").energy === 2;
-    assert.equal(kernel.player("A").handSize, paidEnergy ? 1 : 0);
-    assert.equal(kernel.player("A").energy <= 2, true, "the 1 Energy base cost must be really paid");
-  }
-});
-
-// The re-sweep split recorded in judgeReason: the settled-cost payer really can
-// pay "1 energy and exhaust this"; what is missing is a static-IR spelling that
-// produces such a plan (resolving the symbolic self reference at runtime).
-test("sfd-144-221 Spirit Wheel: the merged settled-cost payer really pays 1 Energy and exhausts the host", () => {
-  const kernel = world()
+test("sfd-144-221 Spirit Wheel: the production chain body cannot literalize the declared cost.modify yet", () => {
+  // Live evidence for the judgeReason gap: chain/interpreter-adapter.ts wraps
+  // primitive arguments and only decodes the declared LITERAL_FIELDS, which do
+  // not include cost.modify. The card's own leading instruction therefore
+  // reaches the primitive schema with the id still wrapped in an Expr and fails
+  // closed with a TypeError instead of silently paying nothing.
+  const base = world()
     .player("A", { energy: 3 })
     .unit("wheel", { types: ["gear"], might: 0, location: { type: "base", player: "A" } })
     .build();
-  const host = kernel.getObject("wheel");
-  const plan = { finalized: true, energy: 1, exhaust: [kernel.ref("wheel")] };
+  const kernel = base.clone({ sourceSnapshot: base.getObject("wheel") });
 
-  const run = runInstruction(payCost, { cost: { kind: "constant", value: plan } }, { world: kernel });
-
-  assert.equal(run.result.status, "executed");
-  assert.equal(kernel.player("A").energy, 2);
-  assert.equal(host.zone, "board");
-  assert.equal(kernel.getObject("wheel").exhausted, true);
-  assert.deepEqual(run.events.map((event) => event.action), ["pay", "exhaust"]);
+  assert.throws(
+    () => resolveChainBody([preparePayment, pay], kernel),
+    (error) => error instanceof TypeError && /cost\.modify id must be a non-empty string/.test(error.message)
+  );
+  assert.equal(kernel.player("A").energy, 3);
+  assert.equal(kernel.getObject("wheel").exhausted, false);
+  assert.deepEqual(kernel.events, []);
 });
+
+test("sfd-144-221 Spirit Wheel: accepting the optional never draws without a real payment (383.3.b)", () => {
+  // 383.3.b/383.3.b.1: the printed "pay 1 energy and exhaust this" is the
+  // ability's base cost, so accepting the printed optional may never produce
+  // the draw for free. The whole declared body fails closed while the finalize
+  // lift is missing (judgeReason), leaving resources, the host state and the
+  // deck untouched; once the payment path lands, the payment test above pins
+  // the required 1-Energy + exhaust charge.
+  const base = world()
+    .player("A", { energy: 3 })
+    .deck(["d1", "d2"])
+    .unit("wheel", { types: ["gear"], might: 0, location: { type: "base", player: "A" } })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("wheel") });
+  kernel.setAnswers({ [OPTIONAL_ID]: true });
+
+  assert.throws(
+    () => resolveChainBody(optional.args.body.value, kernel),
+    (error) => error instanceof TypeError && /cost\.modify id must be a non-empty string/.test(error.message)
+  );
+  // Nothing was approximated: no draw, no charge, no exhaust.
+  assert.equal(kernel.player("A").handSize, 0);
+  assert.equal(kernel.player("A").energy, 3);
+  assert.equal(kernel.getObject("wheel").exhausted, false);
+  assert.deepEqual(kernel.events, []);
+});
+
 test.todo(
   "sfd-144-221 Spirit Wheel: paying \"1 energy and exhaust this\" as the trigger's base cost " +
     "(CR 383.3.b/383.3.b.1) needs the TriggeredAbility cost field and the runtime payment " +
