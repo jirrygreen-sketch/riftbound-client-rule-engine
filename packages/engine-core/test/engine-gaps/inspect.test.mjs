@@ -34,6 +34,11 @@ function ask(f) {
   return request;
 }
 
+function resolveWithoutChoice(f) {
+  f.engine.pass("A");
+  f.engine.pass("B");
+}
+
 function filteredInspect(filter, min = 0) {
   return [{
     id: "look",
@@ -229,6 +234,22 @@ test("a prevented matching card is excluded, then reveal-until continues to the 
   assert.equal(kernel.history({ action: "reveal", object: kernel.ref("tail") }), 0);
 });
 
+test("reveal-until does not let a replacement shorten or reorder its captured physical prefix", () => {
+  const kernel = world()
+    .deck("tail", { types: ["spell"] })
+    .deck("unit", { types: ["unit"] })
+    .deck("spell", { types: ["spell"] })
+    .build();
+  kernel.addReplacement(action => action.type === "reveal" && action.object.id === "spell" ? "replaced" : null);
+  const outcome = resolveChainBody([revealUntil], kernel);
+  assert.equal(outcome.results[0].result.status, "negated");
+  assert.equal(outcome.results[0].result.reason, "replaced");
+  assert.deepEqual(ids(outcome.linkedValues[`${revealUntil.id}.revealed`]), ["unit"]);
+  assert.deepEqual(outcome.linkedValues[`${revealUntil.id}.revealedMatch`], kernel.ref("unit"));
+  assert.deepEqual(outcome.linkedValues[`${revealUntil.id}.revealedRest`], []);
+  assert.equal(kernel.history({ action: "reveal", object: kernel.ref("tail") }), 0);
+});
+
 test("Called Shot original complete effect body privately picks one of the locked top two, draws it, and recycles the other", () => {
   const f = fixture();
   const initial = f.kernel.zone("A", "deck");
@@ -343,8 +364,40 @@ test("inspect filter accepts the shared legacy selector spellings and still cons
 test("inspect filter resolves source-location and self selectors without widening the inspected set", () => {
   const f = filteredFixture();
   start(f, filteredInspect({ type: "gear", location: "source-location" }));
-  const request = ask(f);
-  assert.deepEqual(ids(request.options), ["eligible-gear"]);
+  resolveWithoutChoice(f);
+  assert.deepEqual(f.kernel.linked("look.inspected-pick"), []);
+});
+
+test("inspect filter maps self/other/here anchors through the same closed query vocabulary", () => {
+  const f = fixture({ cards: [
+    { id: "self-gear", types: ["gear"] },
+    { id: "other-gear", types: ["gear"] },
+    { id: "here-gear", types: ["gear"] }
+  ] });
+  assert.equal(f.engine.commit({ type: "move-zone", object: f.kernel.ref("here-gear"), to: "deck-top" }).status, "done");
+  f.engine.advance();
+  start(f, filteredInspect({ type: "gear", self: true }));
+  resolveWithoutChoice(f);
+  assert.deepEqual(f.kernel.linked("look.inspected-pick"), []);
+
+  const g = fixture({ cards: [
+    { id: "self-gear", types: ["gear"] },
+    { id: "other-gear", types: ["gear"] }
+  ] });
+  assert.equal(g.engine.commit({ type: "move-zone", object: g.kernel.ref("other-gear"), to: "deck-top" }).status, "done");
+  const otherGear = g.kernel.ref("other-gear");
+  assert.equal(g.engine.commit({ type: "move-zone", object: otherGear, to: "base", location: { type: "battlefield", id: "battlefield-2" } }).status, "done");
+  g.engine.advance();
+  start(g, filteredInspect({ type: "gear", other: true }));
+  resolveWithoutChoice(g);
+  assert.deepEqual(g.kernel.linked("look.inspected-pick"), []);
+
+  const h = fixture({ cards: [{ id: "other-gear", types: ["gear"] }] });
+  assert.equal(h.engine.commit({ type: "move-zone", object: h.kernel.ref("other-gear"), to: "deck-top" }).status, "done");
+  h.engine.advance();
+  start(h, filteredInspect({ type: "gear", here: true }));
+  resolveWithoutChoice(h);
+  assert.deepEqual(h.kernel.linked("look.inspected-pick"), []);
 });
 
 test("a numeric result-set restriction preserves null printed costs and offers only a known cost", () => {
