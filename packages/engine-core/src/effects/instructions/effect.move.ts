@@ -13,10 +13,13 @@
  * - amount: nonnegative safe integer upper bound, default 1; insufficient
  *   objects means as many as possible (359.3.e.11). Zero performs no action
  *   or choice. Object and destination choice ids must be distinct.
- * - mode: move (default) or recall. Recall is explicitly BLOCKED: the frozen
- *   move-location action cannot distinguish a Recall from a Move. A nonzero
- *   recall returns negated/impossible with blockedReason in its receipt, and
- *   submits no substitute move-zone or move-location action (457-460).
+ * - mode: move (default) or recall. Recall (CR v1.5 457-460) submits the
+ *   independent RecallAction through zones/recall.ts. It never falls back to
+ *   move-location, so a Move-only replacement cannot stop it and no Move event
+ *   or history is produced. A Recall destination is always the object's
+ *   current controller's Base (458.3). When the additive action is declared
+ *   but its production consumer is unavailable, the instruction links a
+ *   blockedReason and is negated/impossible instead of approximating a Move.
  * - linkKey: nonempty result key, default moved. Receipt { count, objects,
  *   movements: [{ object, from, to }] } captures actual successful movement,
  *   also on partial negation. A same-location instruction moves nothing.
@@ -42,6 +45,8 @@ import type {
   Expr, GameEvent, InstructionDef, InstructionResult, LocationRef, ObjectFilter,
   ObjectRef, ResolveContext, Value
 } from "../contract.js";
+import { performRecall } from "../../zones/recall.js";
+import { queryMoveDestinations } from "../../target/location/candidates.js";
 
 export interface MoveArgs {
   readonly objects?: Expr;
@@ -199,6 +204,41 @@ function chooseDestination(ctx: ResolveContext, to: Destination): LocationRef | 
   return answer;
 }
 
+/**
+ * One gate for every evaluated Move destination shape. The interpreter also
+ * checks dynamic selectors before the primitive, but direct constants and
+ * already-evaluated linked/controller-base values only meet the same shared
+ * Location rules here. A multi-object Move is rejected as a whole when no one
+ * destination is legal for every selected zone entry (CR 451.2).
+ */
+function resolveDestinationForObjects(
+  ctx: ResolveContext, objects: readonly ObjectRef[], to: Destination
+): LocationRef | "controller-base" | null {
+  const knownLocations: LocationRef[] = [...new Map([
+    ...ctx.query({ zone: "board" }).flatMap(object => object.location === null ? [] : [object.location]),
+    ...objects.map(ref => ctx.object(ref)!.location!).filter(location => location.type === "base"),
+    ...(to === "controller-base" ? [] : "kind" in to ? to.options : [to]),
+  ].map(location => [location.type === "base" ? `base:${location.player}` : `battlefield:${location.id}`, location] as const)).values()];
+  if (to === "controller-base") {
+    const legal = objects.every(ref => {
+      const object = ctx.object(ref)!;
+      const destination: LocationRef = { type: "base", player: object.controller };
+      return sameLocation(object.location!, destination) ||
+        queryMoveDestinations(ctx, [ref], {}, { locations: knownLocations.map(ref => ({ ref })) }).some(candidate => sameLocation(candidate, destination));
+    });
+    return legal ? to : null;
+  }
+  if (!("kind" in to)) {
+    const current = objects.every(ref => sameLocation(ctx.object(ref)!.location!, to));
+    return current || queryMoveDestinations(ctx, objects, {}, { locations: knownLocations.map(ref => ({ ref })) }).some(candidate => sameLocation(candidate, to)) ? to : null;
+  }
+  const options = to.options.filter(location =>
+    objects.every(ref => sameLocation(ctx.object(ref)!.location!, location)) ||
+    queryMoveDestinations(ctx, objects, {}, { locations: knownLocations.map(ref => ({ ref })) }).some(candidate => sameLocation(candidate, location)));
+  if (options.length === 0) return null;
+  return chooseDestination(ctx, { ...to, options });
+}
+
 export default {
   op: "effect.move",
   argsSchema: { parse: parseArgs },
@@ -223,13 +263,48 @@ export default {
     let blockedReason: string | undefined;
     if (amount > 0) {
       if (mode === "recall") {
-        reason = "impossible";
-        blockedReason = "Recall requires an action distinct from Move (CR v1.5 457-460)";
+        if (typeof to === "object" && "kind" in to) {
+          throw new TypeError("effect.move recall cannot choose a destination (CR v1.5 457)");
+        }
+        if (refs.length === 0 && !(selected.kind === "choose" && selected.min === 0)) {
+          reason = "impossible";
+        } else {
+          const objects = chooseRefs(ctx, selected, refs, amount);
+          for (const ref of objects) {
+            const before = ctx.object(ref);
+            const explicit = to === "controller-base" ? null : to;
+            // A Recall destination is always the Base of the object's current
+            // controller (CR v1.5 457); any other explicit location, including
+            // the other player's Base or a Battlefield, is impossible.
+            if (before?.zone === "board" && before.location !== null &&
+                before.types.some(type => type === "unit" || type === "gear") &&
+                explicit !== null && !sameLocation(explicit, { type: "base", player: before.controller })) {
+              reason ??= "impossible";
+              continue;
+            }
+            const outcome = performRecall(ctx, ref);
+            events.push(...outcome.events);
+            if (outcome.status !== "done") {
+              reason ??= outcome.status === "prevented" ? "skipped" : outcome.status;
+              blockedReason ??= outcome.blockedReason;
+              continue;
+            }
+            if (outcome.count > 0) {
+              moved.push(ref);
+              movements.push({ object: refValue(ref), from: locationValue(outcome.from!), to: locationValue(outcome.to!) });
+            }
+          }
+        }
       } else if (refs.length === 0 && !(selected.kind === "choose" && selected.min === 0)) {
         reason = "impossible";
       } else {
         const objects = chooseRefs(ctx, selected, refs, amount);
-        const location = objects.length === 0 ? null : chooseDestination(ctx, to);
+        const common = objects.length === 0 ? null : resolveDestinationForObjects(ctx, objects, to);
+        if (objects.length > 0 && common === null) {
+          const receipt: Value = { count: 0, objects: [], movements: [] };
+          ctx.link(linkKey, receipt);
+          return { status: "negated", reason: "impossible", events };
+        }
         for (const ref of objects) {
           const before = ctx.object(ref);
           if (before?.zone !== "board" || before.location === null ||
@@ -237,7 +312,7 @@ export default {
             reason ??= "impossible";
             continue;
           }
-          const target = location === "controller-base" ? { type: "base" as const, player: before.controller } : location!;
+          const target = common === "controller-base" ? { type: "base" as const, player: before.controller } : common!;
           if (sameLocation(before.location, target)) continue;
           const outcome = ctx.perform({ type: "move-location", object: ref, to: target });
           events.push(...outcome.events);
@@ -255,6 +330,7 @@ export default {
     }
     const receipt: Value = {
       count: moved.length, objects: moved.map(refValue), movements,
+      ...(mode === "recall" ? { mode } : {}),
       ...(blockedReason === undefined ? {} : { blockedReason })
     };
     ctx.link(linkKey, receipt);
