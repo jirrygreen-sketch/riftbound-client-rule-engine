@@ -19,6 +19,33 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { expandEffectiveKeywords, KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { runCardScenario } from "../../../../engine-core/dist/effects/testing/scenario/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+
+/** Minimal engine so the production static binder can be exercised directly. */
+function binderFor() {
+  const kernel = world().player("A").player("B").unit("caster", { owner: "A", role: "unit" }).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: () => { throw new Error("Unexpected choice"); },
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  return createEngineStaticBinder(engine);
+}
+
+function sourceSnapshot() {
+  return world().player("A").unit("caster", { owner: "A", types: ["spell"] }).build().getObject("caster");
+}
 
 const CANONICAL = "card.hash-88b2b6a8fd884959d1de40824d4d5035cc609570087e598ecc6e808b8b3cc790";
 const SOURCE_TEXT =
@@ -69,6 +96,20 @@ test("For Demacia! identity, ruleset, status and printed text", () => {
   assert.doesNotMatch(program.judgeReason, /该原语未注册/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
+});
+
+test("For Demacia!: the [Reaction] expansion really reaches the production static binder and is refused there", () => {
+  // 813.1.c: Reaction expands to a continuous.timing static ability. The real
+  // production binder (createEngineStaticBinder on a ChainEngine) refuses its
+  // appliesTo:[card,activated-ability] shape, and expandProgram still reports
+  // the keyword as declared; the play body itself is unaffected.
+  const [timingAbility] = expandProgram({ ...program, status: "executable", judgeReason: undefined }, sourceSnapshot())
+    .expanded.filter(ability => ability.kind === "static");
+  assert.equal(timingAbility.effect.kind, "continuous.timing");
+  assert.throws(
+    () => binderFor().bindStatic(timingAbility, sourceSnapshot()),
+    /Unsupported static appliesTo/
+  );
 });
 
 test("For Demacia! structure: [Reaction], printed cost, battlefield target plus Shield 2 grant", () => {
@@ -299,8 +340,53 @@ test.todo(
     "(contract 3.8 combatRole exists but no producer sets it)"
 );
 
-test.todo(
-  "For Demacia!: resolve the printed play body through the production target/chain path, including locking the " +
-    "chosen battlefield before the friendly-unit set is evaluated; current golden coverage invokes the body with " +
-    "that battlefield target already locked"
-);
+test("For Demacia!: the printed play really locks the chosen battlefield before the friendly set is evaluated", () => {
+  // 355.10.d / 053.3: the battlefield is the locked target; the friendly units
+  // are programmatically selected from its location afterwards. This runs the
+  // whole printed program through the production ProgramBinding + ChainEngine +
+  // EventPipeline path with the real target lock, real 3 Energy payment and
+  // the real sameLocationAs anchor resolution; nothing is pre-locked by hand.
+  const result = runCardScenario({ ...program, status: "executable", judgeReason: undefined }, {
+    players: { A: { energy: 3 } },
+    objects: [
+      { id: "spell", cardId: CANONICAL, types: ["spell"], zone: "hand", energy: 3, power: null },
+      { id: "bf1", types: ["battlefield"], zone: "board", location: { type: "battlefield", id: "bf1" }, energy: null, power: null, might: null },
+      { id: "bf2", types: ["battlefield"], zone: "board", location: { type: "battlefield", id: "bf2" }, energy: null, power: null, might: null },
+      { id: "allyHere", owner: "A", controller: "A", types: ["unit"], zone: "board", location: { type: "battlefield", id: "bf2" }, might: 2, combatRole: "defender" },
+      { id: "allyElsewhere", owner: "A", controller: "A", types: ["unit"], zone: "board", location: { type: "battlefield", id: "bf1" }, might: 3 },
+      { id: "foeHere", owner: "B", controller: "B", types: ["unit"], zone: "board", location: { type: "battlefield", id: "bf2" }, might: 5 },
+    ],
+    answers: { "target:for-demacia.battlefield": ["bf2"] },
+    operations: [
+      { type: "play", object: "spell", player: "A" },
+      { type: "pass", player: "A" },
+      { type: "pass", player: "B" },
+    ],
+  });
+
+  const byId = new Map(result.state.objects.map(object => [object.ref.id, object]));
+  // The real 3 Energy printed cost was paid by the chain.
+  assert.equal(result.state.players.A.energy, 0);
+  assert.equal(byId.get("spell").zone, "trash");
+  // Only the friendly unit at the locked battlefield keeps the granted keyword;
+  // the other friendly unit and the opponent are untouched.
+  assert.deepEqual(byId.get("allyHere").keywords, [{ id: "Shield", value: 2 }]);
+  assert.deepEqual(byId.get("allyElsewhere").keywords, []);
+  assert.deepEqual(byId.get("foeHere").keywords, []);
+  assert.equal(byId.get("allyHere").might, 2);
+  // The battlefield itself was really locked as the target, never a unit.
+  assert.deepEqual(
+    result.events.filter(event => event.timingPoint === "became-target").map(event => event.target.ref.id),
+    ["bf2"]
+  );
+  const events = result.events.map(event => event.timingPoint);
+  const finalizeIndex = events.indexOf("chain-item-finalize");
+  const targetIndex = events.indexOf("became-target");
+  const playIndex = events.indexOf("card-played");
+  assert.ok(finalizeIndex >= 0 && targetIndex >= 0 && playIndex >= 0);
+  assert.ok(targetIndex < finalizeIndex && finalizeIndex < playIndex, events.join(","));
+  assert.deepEqual(result.links["for-demacia.grant-shield.granted"], {
+    count: 1,
+    objects: [{ id: "allyHere", zoneEntryId: 1 }]
+  });
+});

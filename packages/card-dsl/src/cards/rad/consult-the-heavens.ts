@@ -24,15 +24,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - [Predict]（437.1 / 437.3.a / 437.4）：看牌库顶一张并选择是否回收它；数值省略时按 1 张。
  *   Predict 的查看 + 选择由 effect.inspect，回收由 effect.recycle，二者均已合入。
  *
- * status = judge-required（2026-10-18 第四轮源码复核，逐项实测）：
+ * status = judge-required（2026-10-18 第五轮源码复核，逐项实测）：
  * 1. [Reaction] 的 continuous.timing 展开仍被 programs/statics.ts 的 staticTarget 拒绝
- *    （appliesTo:[card,activated-ability] → "Unsupported static appliesTo"）。声明的
- *    reaction 关键词本身仍让 describePlay 得到 speed "reaction"，链许可由
- *    chain/engine.ts 的 canAct + layers/rules 的 canAct 判定，所以这一条只影响
- *    layers 侧的许可登记，不改变打出速度。
+ *    （appliesTo:[card,activated-ability] → "Unsupported static appliesTo"）。实测把该程序
+ *    接到生产绑定（createProgramBinding + attachProgramLifecycle）并提交
+ *    object-enters-board 后，生命周期回调收到该错误、图层注册表为空、
+ *    actionTimings() 返回 []。声明的 reaction 关键词本身仍让 describePlay 得到
+ *    speed "reaction"（实测），链许可由 chain/engine.ts 的 canAct + layers/rules 的
+ *    canAct 判定，所以这一条只影响 layers 侧的许可登记，不改变打出速度。
  * 2. [Shield 2] 的授予半段可执行（continuous.grant-keyword 注册 ability 图层效果），
  *    但生产默认的 LayerEngine 根本不展开被授予的关键词：实测经真实解释器授予后
- *    Shield 只停在 object.keywords，Might 保持印刷值（814.1.c 的 +2 不生效）。
+ *    Shield 只停在 object.keywords，Might 保持印刷值（814.1.c 的 +2 不生效）；
+ *    expandEffectiveKeywords 对该关键词求值得到的是 continuous.might + designation
+ *    条件的 static 展开，而生产链路没有任何调用方把该展开注册回图层。
  *    RIFT-710 的 KeywordGrantLayerEngine 会展开并按 designation 条件求值
  *    （实测 defender 时 Might 3→5，attacker/无角色时保持 3），但它不是生产默认
  *    （ChainEngine 仍构造 LayerEngine，programs/lifecycle.ts 也绑到该引擎）。
@@ -144,9 +148,11 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "(2026-10-18 第四轮复核实测) (1) [Reaction]（813.1.c）的 continuous.timing static 展开仍因 " +
-    "appliesTo:[card,activated-ability] 被 programs/statics.ts 拒绝为 Unsupported static appliesTo；" +
-    "reaction 关键词声明仍让 describePlay 得到 speed \"reaction\"，链许可走 chain/engine.ts 的 canAct + layers/rules。" +
+    "(2026-10-18 第五轮复核实测) (1) [Reaction]（813.1.c）的 continuous.timing static 展开仍因 " +
+    "appliesTo:[card,activated-ability] 被 programs/statics.ts 拒绝为 Unsupported static appliesTo：" +
+    "实测生产绑定（createProgramBinding + attachProgramLifecycle）在该时点收到该错误、图层注册表为空、" +
+    "actionTimings() 返回 []；reaction 关键词声明仍让 describePlay 得到 speed \"reaction\"（实测），" +
+    "链许可走 chain/engine.ts 的 canAct + layers/rules。" +
     "(2) [Shield 2]（814.1.c/814.1.d.1）的授予半段可执行，但生产默认 LayerEngine 不展开被授予的关键词：" +
     "实测经真实解释器授予后 Shield 只停在 object.keywords，Might 保持印刷值，+2 不生效。" +
     "RIFT-710 的 KeywordGrantLayerEngine 会展开并按 designation 求值（实测 defender Might 3→5，attacker/无角色保持 3），" +

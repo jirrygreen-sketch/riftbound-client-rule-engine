@@ -21,6 +21,8 @@ import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { expandEffectiveKeywords, KeywordGrantLayerEngine } from "../../../../engine-core/dist/programs/keyword-grants.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { actionTimings } from "../../../../engine-core/dist/layers/rules/query.js";
 
 /** Minimal engine so the production static binder can be exercised directly. */
 function binderFor() {
@@ -95,6 +97,76 @@ test("rad-025-167 Consult the Heavens: [Reaction] plus a play body of grant + Pr
   );
   // CR 813.1.c: Reaction is the closed-state permission keyword.
   assert.equal(reaction.keyword, "reaction");
+});
+
+test("rad-025-167 Consult the Heavens: the declared [Reaction] really drives the production play speed", () => {
+  // 813.1.c: the printed keyword is the closed-state permission. The real
+  // program binding derives the play speed from the declared keyword, so this
+  // half is executable today even though the layers-side timing registration
+  // below still fails to bind.
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .hand("consult", { cardId: CANONICAL, types: ["unit"], energy: 1, power: null, might: null })
+    .build();
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const draft = binding.describePlay(
+    { type: "play", object: kernel.ref("consult"), player: "A" },
+    kernel.getObject("consult")
+  );
+  assert.equal(draft.kind, "unit");
+  assert.equal(draft.speed, "reaction");
+  assert.deepEqual(draft.body.map(instruction => instruction.op), [
+    "continuous.grant-keyword",
+    "condition.value",
+    "effect.inspect",
+    "effect.recycle"
+  ]);
+});
+
+test("rad-025-167 Consult the Heavens: the production lifecycle really fails closed on the unbound [Reaction] static", () => {
+  // Measured on the merged production assembly: attaching the lifecycle to a
+  // real ChainEngine and committing an object-enters-board emission surfaces
+  // the Reaction keyword expansion's appliesTo:[card,activated-ability] as a
+  // binding failure (`Unsupported static appliesTo`), and no rule timing grant
+  // reaches the layer registry. This is the real remaining gap for (1) of the
+  // judgeReason, not a structural claim.
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .unit("caster", { cardId: CANONICAL, types: ["unit"], controller: "A" })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: () => { throw new Error("Unexpected choice"); },
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const errors = [];
+  const handle = binding.attachLifecycle(engine, (error) => { errors.push(error); });
+  const source = kernel.getObject("caster");
+  engine.emit({ timingPoint: "object-enters-board", object: source, player: "A" });
+
+  assert.equal(errors.length, 1);
+  assert.match(errors[0].message, /Unsupported static appliesTo/);
+  assert.deepEqual(
+    actionTimings(engine.layers.registry, source.ref, source, "A"),
+    [],
+    "the closed-state permission never reaches the layer registry"
+  );
+  assert.equal(engine.layers.registry.list().length, 0);
+  handle.detach();
 });
 
 test("rad-025-167 Consult the Heavens: the [Shield 2] grant names a unit, a value and a turn duration", () => {
