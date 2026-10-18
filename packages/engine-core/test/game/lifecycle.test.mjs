@@ -145,9 +145,17 @@ test('setup-carries-printed-card-characteristics into every created object', () 
     power: null,
     might: null,
   };
+  const domainlessUnit = {
+    ...card('domainless-unit', ['unit']),
+    cardType: 'Unit',
+    domains: [],
+    energy: 2,
+    power: 1,
+    might: 3,
+  };
   const first = deck();
   const second = deck();
-  first.mainDeck = [printedUnit, printedSpell, ...first.mainDeck.slice(2)];
+  first.mainDeck = [printedUnit, printedSpell, domainlessUnit, ...first.mainDeck.slice(3)];
   first.runeDeck = [unprintedRune, ...first.runeDeck.slice(1)];
   const { kernel } = match({ decks: [first, second], battlefieldChoice: [0, 0], mulligans: [[], []] });
   const unit = kernel.objects.find(object => object.cardId === 'card:printed-unit');
@@ -162,6 +170,9 @@ test('setup-carries-printed-card-characteristics into every created object', () 
   assert.deepEqual(spell.types, ['spell']);
   assert.equal(spell.energy, 1);
   assert.equal(spell.power, null);
+  const domainless = kernel.objects.find(object => object.cardId === 'card:domainless-unit');
+  assert.ok(domainless);
+  assert.deepEqual(domainless.power, ['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order']);
   const rune = kernel.objects.find(object => object.cardId === 'card:printed-rune');
   assert.ok(rune);
   assert.deepEqual(rune.types, ['rune']);

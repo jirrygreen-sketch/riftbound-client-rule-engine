@@ -216,12 +216,14 @@ function execute(host: MatchHost, action: GameAction): ActionOutcome {
 
 function normalizedDomains(card: MatchCard): readonly Domain[] {
   const valid = new Set<Domain>(['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order']);
-  return (card.domains ?? []).map((domain, index) => {
+  const normalized: Domain[] = [];
+  for (const [index, domain] of (card.domains ?? []).entries()) {
     if (!valid.has(domain as Domain)) {
       throw new TypeError(`Match card ${card.id} has an invalid Domain at index ${index}`);
     }
-    return domain as Domain;
-  });
+    if (!normalized.includes(domain as Domain)) normalized.push(domain as Domain);
+  }
+  return normalized;
 }
 
 /**
@@ -247,9 +249,9 @@ function objectPower(card: MatchCard): readonly Domain[] | null {
   if (printedPower === 0) return [];
   if (domains.length === 0) {
     // The object contract cannot carry a scalar amount and an [A] marker at
-    // once. Keep a canonical any-Domain carrier; exact payment stays with the
-    // catalog-bound printed-cost adapter.
-    return ['Fury'];
+    // once. The six-domain set is the contract's any-Domain carrier; exact
+    // numeric payment remains with the catalog-bound printed-cost adapter.
+    return ['Fury', 'Calm', 'Mind', 'Body', 'Chaos', 'Order'];
   }
   return domains;
 }
