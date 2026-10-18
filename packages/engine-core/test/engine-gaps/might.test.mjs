@@ -115,7 +115,9 @@ test("Base Might registers in the default registry and accepts both existing num
   for (const args of [{ amount: 0 }, { value: c(5) }, { amount: c(-1), duration: c("this-turn") }]) {
     assert.equal(definition.argsSchema.safeParse(args).success, true);
   }
-  for (const args of [{ amount: null }, { value: 1.5 }, { amount: 2, value: 3 }]) {
+  for (const args of [{ amount: null }, { value: 1.5 }, { amount: 2, value: 3 },
+    { amount: 2, mode: "add" }, { amount: 2, minimum: 0 },
+    { amount: "played-card-energy-cost" }]) {
     assert.equal(definition.argsSchema.safeParse(args).success, false);
   }
 });
@@ -175,10 +177,11 @@ test("a Base Might registration cannot follow a unit into its next zone incarnat
   assert.equal(f.snapshot("friend").might, 3);
 });
 
-test("Dragon Form's original value expression supplies a Base Might number without replacing printed null costs", () => {
+test("Dragon Form's authored value expression enters Base Might production dispatch", () => {
   const f = runtime(world().unit("caster").unit("friend", { might: 2, energy: null, power: null }));
-  // Exercise the original value Expr; explicit selection belongs to this
-  // primitive scenario, since this card's original instruction omits its target arg.
+  // Exercise the authored value Expr through the production adapter. This is
+  // a primitive scenario with an explicit target; the checked-in card IR still
+  // omits its target and keeps its independent Flow/whole-card judge gate.
   const value = dragonForm.abilities.find(ability => ability.kind === "play").body[0].args.value;
   activate(f, "value-alias", [{ id: "base", op: "continuous.base-might", args: {
     value, target: c("unit"), duration: c("this-turn") },
@@ -268,6 +271,7 @@ test("original Switcheroo does not perform half a swap after one finalized targe
   settle(f.engine);
   assert.equal(f.snapshot("right").might, 7);
   assert.equal(f.engine.layers.registry.snapshot().length, 0);
+  assert.equal(f.kernel.linked("switcheroo.swap-might.affected.count"), undefined);
   assert.equal(f.kernel.getObject("swap").zone, "trash");
 });
 

@@ -22,6 +22,9 @@ function parseArgs(value: unknown): ContinuousMightArgs {
   if (args.minimum !== undefined) {
     throw new TypeError("continuous.base-might does not apply arithmetic minimums");
   }
+  if (args.mode === "add") {
+    throw new TypeError("continuous.base-might only supports setting Base Might");
+  }
   return mightSchema.parse({ ...args, amount: args.amount === undefined ? alias : args.amount,
     mode: args.mode === undefined ? "set" : args.mode });
 }
