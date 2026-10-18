@@ -24,11 +24,10 @@ import type { CardProgram } from "../../ir/index.js";
  * - CardProgram static → layers 的绑定已经存在，且能登记本卡的
  *   continuous.grant-keyword；但 programs/statics.ts 会拒绝 static filter 中的
  *   `other`/`exclude` 动态锚点，所以“其他”单位的排除仍没有生产绑定路径。
- *   即使去掉该过滤缺口，静态授予的关键词也不会自动再次进入 KeywordDef.expand。
+ *   KeywordGrantLayerEngine 已经提供授予关键词的重展开，但生产装配尚未接入该引擎。
  * - 被授予的 Assault 还要按 807.1.c/807.2 在接收者上展开为 "+1 [M] while attacker"：
- *   Assault 的 KeywordDef 展开条件读宿主 attacker designation，而 layers 的
- *   ObjectSnapshot 只有 combatRole；攻击者角色尚未映射到该谓词，且授予的 Assault
- *   也没有在图层绑定时再次展开。
+ *   KeywordGrantLayerEngine 的重展开环境把 designation 别名到 combatRole，但生产
+ *   装配没有接入该引擎，生产侧仍没有 designation→combatRole 映射。
  * 依赖：static filter 的动态排除谓词、授予关键词的二次展开、designation → combatRole
  * 映射。
  */
@@ -39,10 +38,10 @@ const captainFarron = {
   judgeReason:
     "『Other friendly units here have [Assault]』是 static 持续能力：continuous.grant-keyword 指令原语已合入，" +
     "CardProgram static → layers 绑定已经能登记该效果，sameLocationAs 也能解析；但 programs/statics.ts " +
-    "会拒绝 filter 的 other/exclude 动态锚点，无法把“其他”单位注册成正确的受影响集合；授予的关键词也不会自动再次进入 KeywordDef.expand。" +
-    "此外被授予的 Assault 按 807.1.c/807.2 展开为条件于 attacker designation 的 +1 [M]；" +
-    "layers 的 ObjectSnapshot 只有 combatRole，尚未把攻击者角色映射到该谓词，且授予的关键词也不会在图层绑定时再次展开，" +
-    "所以无法只在攻击者状态下生效。此外 here 还受 layers/filter.ts 对 LocationRef 按对象引用而非位置值匹配的缺口影响。" +
+    "会拒绝 filter 的 other/exclude 动态锚点，无法把“其他”单位注册成正确的受影响集合；" +
+    "KeywordGrantLayerEngine 已支持授予关键词的重展开，但生产装配尚未接入该引擎。" +
+    "此外被授予的 Assault 按 807.1.c/807.2 展开为条件于 attacker designation 的 +1 [M]，重展开环境内部虽把 " +
+    "designation 别名到 combatRole，生产侧的 designation→combatRole 映射仍未接线，所以无法只在攻击者状态下生效。" +
     "依赖：动态 other/exclude 过滤、位置值匹配、授予关键词二次展开、designation → combatRole 映射。不近似实现。",
   abilities: [
     {

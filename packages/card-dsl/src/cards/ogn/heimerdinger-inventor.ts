@@ -33,7 +33,8 @@ const heimerdingerInventor = {
   judgeReason:
     "「I have all :rb_exhaust: abilities of all friendly legends, units, and gear」仍缺 CR 479.3 " +
     "的运行时能力授予：programs/statics.ts 没有 continuous.grant-abilities 映射，能力层不能复制任意启动能力正文、费用、时机与限制。还缺将复制后的能力接入 " +
-    "activationAbilities/describeActivate，并在己方合法来源集合变化时更新动态依赖闭包；关键词授予不能代替能力复制。",
+    "activationAbilities/describeActivate，并在己方合法来源集合变化时更新动态依赖闭包；" +
+    "已合入的 KeywordGrantLayerEngine 只重展开关键词，不复制能力正文，关键词授予不能代替能力复制。",
   abilities: [
     {
       kind: "static",
