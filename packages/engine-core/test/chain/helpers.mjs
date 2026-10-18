@@ -24,8 +24,6 @@ export function fixture({ turnOrder = ['A', 'B'], turnPlayer = 'A', phase = 'mai
     checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }), restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
     objects: () => kernel.objects,
     perform: action => kernel.perform(action), choose: decide,
-    performContract: action => kernel.performContract(action),
-    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
     context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose: decide }),
     testTrigger: registration => kernel.test(registration.spec.condition)
   });

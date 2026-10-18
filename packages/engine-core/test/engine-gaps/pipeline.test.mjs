@@ -11,6 +11,11 @@ import {
 import { createProgramBinding } from '../../dist/programs/index.js';
 import { matchesTriggerEvent } from '../../dist/events/pipeline-match.js';
 import { triggerEventObjectBinding } from '../../dist/events/pipeline-types.js';
+import { EventPipeline } from '../../dist/events/pipeline.js';
+import { createActionPipelineHost } from '../../dist/events/action-adapter.js';
+import { bindResolveContext } from '../../dist/events/action-adapter.js';
+import { AwaitChoice } from '../../dist/effects/contract.js';
+import { world } from '../../dist/effects/testing/index.js';
 import frigidJewel from '../../../card-dsl/dist/cards/unl/frigid-jewel.js';
 import karthusEternal from '../../../card-dsl/dist/cards/ogn/karthus-eternal.js';
 
@@ -427,4 +432,111 @@ test('EG-PIPELINE: event and trigger snapshots preserve the same immutable event
   assert.notEqual(f.kernel.ref('source').zoneEntryId, oldRef.zoneEntryId);
   assert.deepEqual(binding.ref, oldIt);
   assert.deepEqual(triggerEventObjectBinding({ ...trigger, event: { ...trigger.event, it: undefined } }, 'it'), null);
+});
+
+test('EG-PIPELINE: commitContract publishes the host Batch emissions through one trigger scan', () => {
+  const kernel = world()
+    .unit('source', { might: 2, location: { type: 'base', player: 'A' } })
+    .unit('enemy', { owner: 'B', controller: 'B', location: { type: 'battlefield', id: 'battlefield-1' } })
+    .build();
+  const choose = request => { throw new AwaitChoice(request); };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition),
+  });
+  const checkpoint = host.checkpoint();
+  const pipeline = new EventPipeline(host, ['A', 'B'], 'A');
+  const observed = [];
+  pipeline.registerTrigger({
+    id: 'typed-batch-observer',
+    source: kernel.getObject('source'),
+    controller: 'A',
+    spec: { at: 'object-killed', filter: { event: 'object-killed' }, once: 'per-batch' },
+    body: [],
+  });
+  pipeline.onTrigger = snapshot => observed.push({
+    eventId: snapshot.event.eventId,
+    batchId: snapshot.batchId,
+    objectId: snapshot.event.object.ref.id,
+    bothInTrash: kernel.getObject('source').zone === 'trash' && kernel.getObject('enemy').zone === 'trash',
+  });
+  const outcome = pipeline.commitContract({
+    type: 'batch',
+    transactionId: 'typed:pipeline-wave',
+    actions: [
+      { type: 'kill', object: kernel.ref('source') },
+      { type: 'kill', object: kernel.ref('enemy') },
+    ],
+  });
+  assert.equal(outcome.status, 'done');
+  assert.equal(outcome.receipt.status, 'committed');
+  assert.equal(pipeline.events.filter(event => event.timingPoint === 'object-killed').length, 2);
+  // The registered observer is once-per-batch; the controller chooses one of
+  // the two source events, so only that chosen instance reaches Finalize.
+  assert.equal(observed.length, 1);
+  assert.ok(observed.every(hit => hit.batchId === 'typed:pipeline-wave' && hit.bothInTrash));
+  host.restore(checkpoint);
+});
+
+test('EG-PIPELINE: commitContract fails closed when the typed host seam is absent', () => {
+  const kernel = world().unit('source').build();
+  const f = fixture();
+  const checkpoint = f.host.checkpoint();
+  const pipeline = new EventPipeline({ ...f.host, executeContract: undefined }, ['A', 'B'], 'A');
+  assert.throws(() => pipeline.commitContract({
+    type: 'batch',
+    transactionId: 'typed:missing-host',
+    actions: [{ type: 'kill', object: f.kernel.ref('source') }],
+  }), /Contract action execution is unavailable/);
+  assert.equal(pipeline.events.length, 0);
+  f.host.restore(checkpoint);
+  assert.equal(f.kernel.getObject('source').zone, 'board');
+});
+
+test('EG-PIPELINE: commitContract rolls back host state and pipeline snapshots when scanning fails', () => {
+  const kernel = world()
+    .unit('source', { location: { type: 'base', player: 'A' } })
+    .unit('enemy', { owner: 'B', controller: 'B', location: { type: 'battlefield', id: 'battlefield-1' } })
+    .build();
+  const choose = request => request.type === 'mode' ? 'invalid' : (() => { throw new AwaitChoice(request); })();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    performContract: action => kernel.performContract(action),
+    performBatchLeaf: (action, batchId) => kernel.performBatchLeafForCapability(action, batchId),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: registration => kernel.test(registration.spec.condition),
+  });
+  const checkpoint = host.checkpoint();
+  const pipeline = new EventPipeline(host, ['A', 'B'], 'A');
+  pipeline.registerTrigger({
+    id: 'one', source: kernel.getObject('source'), controller: 'A',
+    spec: { at: 'object-killed', filter: { event: 'object-killed' } }, body: [],
+  });
+  pipeline.registerTrigger({
+    id: 'two', source: kernel.getObject('enemy'), controller: 'B',
+    spec: { at: 'object-killed', filter: { event: 'object-killed' } }, body: [],
+  });
+  pipeline.onTrigger = () => { throw new Error('typed scan failed'); };
+  assert.throws(() => pipeline.commitContract({
+    type: 'batch', transactionId: 'typed:rollback',
+    actions: [
+      { type: 'kill', object: kernel.ref('source') },
+      { type: 'kill', object: kernel.ref('enemy') },
+    ],
+  }), /typed scan failed/);
+  assert.equal(pipeline.events.length, 0);
+  assert.equal(kernel.getObject('source').zone, 'board');
+  assert.equal(kernel.getObject('enemy').zone, 'board');
+  host.restore(checkpoint);
 });
