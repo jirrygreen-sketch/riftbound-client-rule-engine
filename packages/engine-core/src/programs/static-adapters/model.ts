@@ -44,22 +44,13 @@ export function liveSource(engine: ChainEngine, ref: ObjectRef): ObjectSnapshot 
   return engine.pipeline.host.objects().find(object => sameRef(object.ref, ref)) ?? null;
 }
 
-/**
- * Lifecycle entry events can carry the pre-move incarnation while the host has
- * already committed the new one. Rebind only when id and printed identity
- * agree; a same-id object of another card must never inherit this program.
- */
-export function bindingSource(engine: ChainEngine, source: ObjectSnapshot): ObjectSnapshot {
-  const exact = liveSource(engine, source.ref);
-  if (exact !== null) return exact;
-  const current = engine.pipeline.host.objects().find(object =>
-    object.ref.id === source.ref.id && object.cardId === source.cardId);
-  if (current !== undefined) return current;
-  // Some lifecycle hosts emit the entry event before the committed object is
-  // visible through host.objects(). In that narrow case the event snapshot is
-  // already the post-entry state; use it when the snapshot itself is on board.
-  if (source.zone === 'board') return source;
-  return source;
+/** Resolve only the exact registered incarnation. */
+export function bindingSource(engine: ChainEngine, source: ObjectSnapshot): ObjectSnapshot | null {
+  // A static registration belongs to one exact incarnation. Lifecycle owners
+  // must create a new registration from an authoritative entry action/event;
+  // an id or printed identity match cannot prove that a new object inherited
+  // an old registration. Same-zone moves and control changes retain the ref.
+  return liveSource(engine, source.ref);
 }
 
 export function sourceSelector(value: unknown): boolean {
@@ -264,6 +255,7 @@ export function staticObjectMatches(filter: AnyRecord, object: ObjectSnapshot, s
 
 export function abilityEnvironment(engine: ChainEngine, source: ObjectSnapshot) {
   const current = bindingSource(engine, source);
+  if (current === null) throw new MissingInformation('Static source incarnation is no longer current');
   const base = engine.pipeline.host.context(current, current.controller, engine.layers.currentTimingPoint ?? 'cleanup-start');
   const context = new Proxy(base, { get(target, key) {
     if (key === 'object') return (ref: ObjectRef) => engine.layers.snapshot(ref) ?? target.object(ref);
@@ -282,11 +274,13 @@ export function abilityEnvironment(engine: ChainEngine, source: ObjectSnapshot) 
 
 /** Missing information fails closed; programming defects and malformed conditions do not. */
 export function staticConditionMatches(engine: ChainEngine, source: ObjectSnapshot, condition: unknown): boolean {
+  const current = bindingSource(engine, source);
+  if (current === null) return false;
   if (condition === undefined || condition === true) return true;
   if (condition === false) return false;
-  if (typeof condition === 'function') return Boolean(condition(source));
+  if (typeof condition === 'function') return Boolean(condition(current));
   try {
-    return evaluateCondition(condition as Condition, abilityEnvironment(engine, source));
+    return evaluateCondition(condition as Condition, abilityEnvironment(engine, current));
   } catch (error) {
     if (error instanceof MissingInformation) return false;
     throw error;
@@ -311,7 +305,9 @@ export function createLiveRuleFilter(
   condition?: unknown,
 ): ObjectFilter {
   const normalized = normalizeStaticFilter(filter);
-  const output = baseLayerFilter(normalized) as AnyRecord;
+  const output = Object.fromEntries(Object.entries(baseLayerFilter(normalized)).filter(([key]) =>
+    key !== 'object' && key !== 'source' && key !== 'exclude' && key !== 'sameLocationAs' &&
+    key !== 'differentLocationFrom' && key !== 'attachedTo' && key !== 'relation')) as AnyRecord;
   delete output.objectId;
   delete output.id;
   delete output.zoneEntryId;
@@ -319,12 +315,15 @@ export function createLiveRuleFilter(
     enumerable: true,
     configurable: false,
     get: () => {
-      const current = liveSource(engine, source.ref);
-      const bound = current ?? bindingSource(engine, source);
+      const bound = bindingSource(engine, source);
+      if (bound === null) return [];
       if (!staticConditionMatches(engine, bound, condition)) return [];
-      return engine.pipeline.host.objects()
+      const objectIds = engine.pipeline.host.objects()
         .filter(object => staticObjectMatches(normalized, object, bound))
         .map(object => object.ref.id);
+      // Rule consumers accept the singular production spelling for one live
+      // host, while the typed query matcher also accepts arrays for 0 or many.
+      return objectIds.length === 1 ? objectIds[0] : objectIds;
     },
   });
   return output as ObjectFilter;
@@ -343,6 +342,7 @@ export function effectCondition(engine: ChainEngine, ability: Extract<Ability, {
   if (condition === undefined && normalized === undefined) return undefined;
   return (object: ObjectSnapshot): boolean => {
     const current = bindingSource(engine, source);
+    if (current === null) return false;
     if (normalized !== undefined && !staticObjectMatches(normalized, object, current)) return false;
     return staticConditionMatches(engine, current, condition);
   };

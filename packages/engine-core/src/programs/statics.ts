@@ -43,7 +43,7 @@ export interface ProgramStaticBinder {
   bindStatic?(ability: Extract<Ability, { kind: 'static' }>, source: ObjectSnapshot): StaticBindingHandle | void;
   bindReplacement?(ability: Extract<Ability, { kind: 'replacement' }>, source: ObjectSnapshot): StaticBindingHandle | void;
   /** Optional lifecycle hand-off for entry events that carry an older incarnation. */
-  sourceFor?(source: ObjectSnapshot): ObjectSnapshot;
+  sourceFor?(source: ObjectSnapshot): ObjectSnapshot | null;
 }
 export const noopStaticBinder: ProgramStaticBinder = {};
 
@@ -129,21 +129,6 @@ function normalizedEffect(effect: AnyRecord): AnyRecord {
   if (kind === 'continuous.restrict') return { ...effect, kind: 'restriction' };
   if (kind === 'continuous.require') return { ...effect, kind: 'requirement' };
   if (kind === 'continuous.applied-cost') return { ...effect, kind: 'applied-cost' };
-  if (kind === 'continuous.movement') {
-    const permission = effect.permission;
-    if (typeof permission === 'string') {
-      return {
-        ...effect,
-        permission: {
-          routes: [permission],
-          ...(effect.move === undefined ? {} : { move: effect.move }),
-          ...(effect.source === undefined ? {} : { source: effect.source }),
-          ...(effect.destination === undefined ? {} : { destination: effect.destination }),
-        },
-        canGank: permission === 'battlefield-to-battlefield' || effect.canGank === true,
-      };
-    }
-  }
   return effect;
 }
 
@@ -359,7 +344,7 @@ function bindStatic(engine: ChainEngine, ability: StaticAbility, source: ObjectS
 
 /** Build the production adapter used by attachProgramLifecycle. */
 export function createEngineStaticBinder(engine: ChainEngine): ProgramStaticBinder {
-  const staticOrdinals = new Map<string, number>();
+  const staticOrdinals = new Map<string, Set<number>>();
   return {
     /** Expose dynamic-host rebinding for lifecycle owners without editing their files. */
     sourceFor: source => bindingSource(engine, source),
@@ -370,9 +355,28 @@ export function createEngineStaticBinder(engine: ChainEngine): ProgramStaticBind
       const current = source;
       throwStaticConditionDefect(engine, current, ability.condition);
       const key = `${current.ref.id}:${current.ref.zoneEntryId}`;
-      const ordinal = staticOrdinals.get(key) ?? 0;
-      staticOrdinals.set(key, ordinal + 1);
-      return bindStatic(engine, ability, current, ordinal);
+      const used = staticOrdinals.get(key) ?? new Set<number>();
+      staticOrdinals.set(key, used);
+      let ordinal = 0;
+      while (used.has(ordinal)) ordinal++;
+      used.add(ordinal);
+      try {
+        const handle = bindStatic(engine, ability, current, ordinal);
+        let active = true;
+        return { unbind: () => {
+          if (!active) return;
+          active = false;
+          try { handle.unbind(); }
+          finally {
+            used.delete(ordinal);
+            if (used.size === 0) staticOrdinals.delete(key);
+          }
+        } };
+      } catch (error) {
+        used.delete(ordinal);
+        if (used.size === 0) staticOrdinals.delete(key);
+        throw error;
+      }
     },
     bindReplacement: (ability, source) => {
       const host = engine.pipeline.host;

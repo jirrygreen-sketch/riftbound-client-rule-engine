@@ -77,15 +77,12 @@ function sourceSnapshot(engine: ChainEngine, ref: ObjectRef): ObjectSnapshot | n
 }
 
 function active(engine: ChainEngine, binding: StaticCapabilityRecord): boolean {
-  const live = sourceSnapshot(engine, binding.source);
-  const source = live ?? engine.pipeline.host.objects().find(object => object.ref.id === binding.source.id) ?? null;
+  const source = sourceSnapshot(engine, binding.source);
   return source !== null && staticConditionMatches(engine, source, binding.ability.condition);
 }
 
 function currentSource(engine: ChainEngine, binding: StaticCapabilityRecord): ObjectSnapshot | null {
-  const exact = sourceSnapshot(engine, binding.source);
-  if (exact !== null) return exact;
-  return engine.pipeline.host.objects().find(object => object.ref.id === binding.source.id && object.cardId !== null) ?? null;
+  return sourceSnapshot(engine, binding.source);
 }
 
 function additionalFrom(binding: StaticCapabilityRecord): Extract<Ability, { kind: 'static' }> | null {
@@ -143,7 +140,7 @@ export function boundTargetTaxFor(engine: ChainEngine, target: ObjectRef): Bound
   const live = engine.pipeline.host.objects().find(object => sameRef(object.ref, target));
   if (live === undefined) return null;
   const binding = staticCapabilities(engine, 'target-tax').find(binding =>
-    binding.source.id === target.id && staticConditionMatches(engine, live, binding.ability.condition));
+    sameRef(binding.source, target) && staticConditionMatches(engine, live, binding.ability.condition));
   if (binding === undefined) return null;
   const effect = record(binding.ability.effect);
   if (effect.kind !== 'target.tax') return null;
@@ -182,8 +179,7 @@ export function activeStaticModifiers(engine: ChainEngine): readonly StaticCapab
     const effect = record(entry.effect.effect);
     if (!['continuous.bonus-damage', 'continuous.lethal-threshold', 'continuous.modify-might-reduction'].includes(String(effect.kind)) ||
         entry.effect.source === undefined) return [];
-    const source = engine.pipeline.host.objects().find(object => sameRef(object.ref, entry.effect.source!)) ??
-      engine.pipeline.host.objects().find(object => object.ref.id === entry.effect.source!.id);
+    const source = engine.pipeline.host.objects().find(object => sameRef(object.ref, entry.effect.source!));
     if (source === undefined || effect.staticCondition !== undefined && !(effect.staticCondition as (object: ObjectSnapshot) => boolean)(source)) return [];
     return [{
       id: entry.effect.id,
@@ -214,8 +210,7 @@ export function playLocationCapabilities(engine: ChainEngine): readonly StaticCa
   return Object.freeze(engine.layers.registry.list().flatMap(entry => {
     const effect = record(entry.effect.effect);
     if (effect.kind !== 'location' || entry.effect.source === undefined) return [];
-    const source = engine.pipeline.host.objects().find(object => sameRef(object.ref, entry.effect.source!)) ??
-      engine.pipeline.host.objects().find(object => object.ref.id === entry.effect.source!.id);
+    const source = engine.pipeline.host.objects().find(object => sameRef(object.ref, entry.effect.source!));
     if (source === undefined || effect.staticCondition !== undefined && !(effect.staticCondition as (object: ObjectSnapshot) => boolean)(source)) return [];
     return [{
       id: entry.effect.id,
