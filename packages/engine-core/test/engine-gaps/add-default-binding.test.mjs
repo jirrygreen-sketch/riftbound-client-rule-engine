@@ -8,6 +8,7 @@ import { world } from '../../dist/effects/testing/test-kernel.js';
 import { bindResolveContext, createActionPipelineHost } from '../../dist/events/action-adapter.js';
 import { activatedAddAbilities, createProgramBinding, describeAddActivation } from '../../dist/programs/index.js';
 import arenaBar from '../../../card-dsl/dist/cards/ogn/arena-bar.js';
+import daughterOfTheVoid from '../../../card-dsl/dist/cards/ogn/daughter-of-the-void.js';
 import energyConduit from '../../../card-dsl/dist/cards/ogn/energy-conduit.js';
 import malzaharFanatic from '../../../card-dsl/dist/cards/ogn/malzahar-fanatic.js';
 import sealOfRage from '../../../card-dsl/dist/cards/ogn/seal-of-rage.js';
@@ -153,6 +154,17 @@ test('default binding keeps a real single Add body behind an unbound activation 
   const binding = createProgramBinding({ cardPrograms: [restricted] });
   assert.throws(
     () => binding.describeActivate(source, 'A'),
+    error => error?.code === 'judge-required' && /unverified Add shape/.test(error.message),
+  );
+  assert.equal(f.engine.items.length, 0);
+});
+
+test('default binding does not coerce original Universal Power into a named Add resource', () => {
+  const f = scene(daughterOfTheVoid, { types: ['legend'] });
+  const source = f.kernel.getObject('source');
+  assert.equal(daughterOfTheVoid.status, 'judge-required');
+  assert.throws(
+    () => f.binding.describeActivate(source, 'A'),
     error => error?.code === 'judge-required' && /unverified Add shape/.test(error.message),
   );
   assert.equal(f.engine.items.length, 0);
