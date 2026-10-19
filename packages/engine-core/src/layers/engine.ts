@@ -10,7 +10,6 @@ import { evaluateExpression, type ExpressionContext } from "../effects/interpret
 import { resolveLayerEffectExpressions } from "../effects/interpreter/expr-ext/layers.js";
 import { MissingInformation } from "../effects/interpreter/values.js";
 import { additionalMightReductions } from "../effects/modifiers/query.js";
-import shieldKeyword from "../effects/keywords/Shield.js";
 import { getTimingPoint, type TimingPointId } from "../events/timing-points.js";
 import type { DuelDerivedMightEvaluatorV2 } from "../combat/derived-might.js";
 import { matchesObjectFilter, objectRefFrom } from "./filter.js";
@@ -35,8 +34,6 @@ type MutableSnapshot = { -readonly [Key in keyof LayeredObjectSnapshot]: Layered
 type AppliedArithmetic = {
   readonly effect: AnyRecord;
 };
-
-const SYNTHETIC_KEYWORD_EFFECTS = new WeakSet<RegisteredContinuousEffect>();
 
 const EMPTY_MOVEMENT: MovementPermissions = Object.freeze({
   allowed: true,
@@ -348,10 +345,10 @@ export class LayerEngine {
   private currentObject?: string;
   private restartRequested = false;
   /**
-   * Non-passive reduction totals are remembered per immutable registry entry
-   * and target incarnation. A WeakMap keeps the application-time snapshot when
-   * the registry revision changes (modifier expiry/removal) while rollback's
-   * restored registry entries get fresh identities and therefore fresh reads.
+   * Non-passive reductions remember their total only for the arithmetic entry
+   * being applied. A modifier is consumed on first application and thereafter
+   * contributes to that reduction alone; later registry changes cannot rewrite
+   * the remembered value (CR 479.4.b).
    */
   private readonly arithmeticSnapshots = new WeakMap<RegisteredContinuousEffect, Map<string, number>>();
 
@@ -470,8 +467,9 @@ export class LayerEngine {
   /**
    * CR 479.4.b: a non-passive reduction locks its limitation and modifier at
    * application time. The registration already snapshots its printed minimum;
-   * this method locks the additional-reduction modifier once, against raw
-   * source snapshots so a re-evaluation cannot recurse through currentMight.
+   * this method locks the additional-reduction modifier once. Querying from the
+   * raw registry and raw source objects keeps the consumer independent of the
+   * target's current layered Might and prevents re-entering this evaluation.
    */
   private appliedArithmetic(entry: RegisteredContinuousEffect, target: LayeredObjectSnapshot): AppliedArithmetic {
     const effect = this.materialize(entry, target);
@@ -483,59 +481,36 @@ export class LayerEngine {
 
     const targetKey = refKey(target.ref);
     const remembered = this.arithmeticSnapshots.get(entry)?.get(targetKey);
-    if (remembered !== undefined) return { effect: { ...effect, snapshottedReduction: remembered } };
+    if (remembered !== undefined) {
+      console.log('DEBUG remembered', remembered);
+      return { effect: { ...effect, snapshottedReduction: remembered } };
+    }
 
-    // A zero delta was already limited out. Re-evaluation must not turn that
-    // remembered zero into a fresh modifier application.
+    // The limited total is remembered once for this entry and target. Later
+    // expiry, source departure, or re-evaluation must not recalculate it, and
+    // a reduction already limited to zero must remain zero.
     let snapshottedReduction = 0;
     if (amount !== 0) {
       const source = this.raw(entry.effect.source);
       if (source === null) return { effect };
+      console.log('DEBUG first apply', amount, effect);
       const additional = additionalMightReductions(
         this.registry,
         { controller: source.controller, appliesTo: scope },
         ref => ref === undefined ? null : this.raw(ref),
       ).reduce((sum, modifier) => sum + modifier.amount, 0);
-      snapshottedReduction = amount + additional;
+      const total = amount + additional;
+      console.log('DEBUG additional', additional);
+      const basis = typeof effect.snapshotMight === "number" ? effect.snapshotMight : undefined;
+      const minimum = typeof effect.minimum === "number" ? effect.minimum : undefined;
+      snapshottedReduction = basis === undefined || minimum === undefined
+        ? total
+        : Math.min(0, Math.max(total, minimum - basis));
     }
     const snapshots = this.arithmeticSnapshots.get(entry) ?? new Map<string, number>();
     snapshots.set(targetKey, snapshottedReduction);
     this.arithmeticSnapshots.set(entry, snapshots);
     return { effect: { ...effect, snapshottedReduction } };
-  }
-
-  /**
-   * The default layer chain must expose effective keywords, not only raw
-   * keyword declarations. Reuse Shield's authored KeywordDef expansion here
-   * and emit its arithmetic contribution as a synthetic layer entry. The
-   * keyword-grant lifecycle owner remains responsible for dynamic grants; this
-   * bridge makes those registrations readable by effect.shield-value in the
-   * default ChainEngine without duplicating the Shield rule text.
-   */
-  private shieldEffects(target: LayeredObjectSnapshot): RegisteredContinuousEffect[] {
-    const shields = target.keywords.filter(keyword => keyword.id.toLowerCase() === "shield");
-    if (shields.length === 0 || target.combatRole !== "defender") return [];
-    const value = shields.reduce((sum, keyword) => sum +
-      (typeof keyword.value === "number" && Number.isSafeInteger(keyword.value) && keyword.value >= 0 ? keyword.value : 1), 0);
-    const expanded = shieldKeyword.expand({ value, host: { canonicalCardId: target.cardId ?? target.ref.id } })[0];
-    if (expanded?.kind !== "static") return [];
-    const generated: RegisteredContinuousEffect = {
-      effect: {
-        id: `default-keyword:shield:${target.ref.id}:${target.ref.zoneEntryId}`,
-        layer: "arithmetic",
-        source: target.ref,
-        filter: { objectId: target.ref.id, zoneEntryId: target.ref.zoneEntryId, zone: target.zone },
-        // The synthetic entry is already gated by combatRole above. A no-op
-        // callback keeps the generic evaluator from re-entering this object's
-        // layer group through the authored designation expression.
-        effect: { ...expanded.effect, condition: () => true },
-      },
-      duration: { type: "permanent" },
-      timestamp: 0,
-      sequence: 0,
-    };
-    SYNTHETIC_KEYWORD_EFFECTS.add(generated);
-    return [generated];
   }
 
   private resolveCopy(ref: ObjectRef): LayeredObjectSnapshot | null {
@@ -719,15 +694,6 @@ export class LayerEngine {
             let entry: RegisteredContinuousEffect | undefined;
             const candidates = effects.filter(item => item.effect.layer === layer &&
               !done.has(item.effect.id) && !disqualified.has(item.effect.id));
-            // KeywordGrantLayerEngine contributes its own program-keyword
-            // entries. Avoid double-applying Shield when that owner is present.
-            const keywordEngineOwnsShield = layer === "arithmetic" && effects.some(item =>
-              item.effect.id.startsWith("program-keyword:") && sameRef(item.effect.source, target.ref));
-            if (layer === "arithmetic" && !keywordEngineOwnsShield) {
-              for (const shieldEffect of this.shieldEffects(target)) {
-                if (!disqualified.has(shieldEffect.effect.id)) candidates.push(shieldEffect);
-              }
-            }
             while ((entry = this.nextEffect(candidates, target))) {
               candidates.splice(candidates.indexOf(entry), 1);
               const appliedEntry = entry.effect.layer === "arithmetic" ? this.appliedArithmetic(entry, target) : { effect: this.materialize(entry, target) };
@@ -751,7 +717,6 @@ export class LayerEngine {
             // must not disqualify its promotion/threshold condition. Legacy
             // scalar callbacks retain their historical application snapshot.
             if (this.legacyScalar(item.entry)) continue;
-            if (SYNTHETIC_KEYWORD_EFFECTS.has(item.entry)) continue;
             const before = this.beforeEffect(key, done, id);
             if (!this.withSnapshot(before, () => this.layerMatches(item.entry, before))) {
               done.delete(id);

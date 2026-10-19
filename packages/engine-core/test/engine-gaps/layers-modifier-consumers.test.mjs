@@ -12,6 +12,10 @@ import { instructionDefinitionsById } from '../../dist/effects/instructions/regi
 import { runInstruction, world } from '../../dist/effects/testing/index.js';
 import { ContinuousEffectRegistry } from '../../dist/layers/duration.js';
 import { LayerEngine } from '../../dist/layers/engine.js';
+import { ChainEngine } from '../../dist/chain/engine.js';
+import { bindResolveContext, createActionPipelineHost } from '../../dist/events/action-adapter.js';
+import { createProgramBinding } from '../../dist/programs/index.js';
+import { KeywordGrantLayerEngine } from '../../dist/programs/keyword-grants.js';
 import mel from '../../../card-dsl/dist/cards/ven/mel-newly-awakened.js';
 import stupefy from '../../../card-dsl/dist/cards/ogn/stupefy.js';
 import { cardProgram, c, fixture, settle } from '../rules/keywords/support.mjs';
@@ -60,7 +64,7 @@ function registerModifier(worldState, {
 }
 
 function registerReduction(worldState, {
-  source = worldState.ref('source-a'), controller, targetMight = undefined,
+  source = worldState.ref('source-a'), controller,
 } = {}) {
   const { objects: _objects, ...args } = stupefyDebuff.args;
   const run = runOn(worldState, mightOp, {
@@ -80,6 +84,62 @@ function registryFrom(worldState) {
 function layeredMight(worldState, registry = registryFrom(worldState)) {
   const engine = new LayerEngine(worldState.objects, registry);
   return engine.evaluate(worldState.ref('target'));
+}
+
+function shieldRuntime(builder, programs = []) {
+  const kernel = builder.build();
+  const answers = new Map();
+  const choose = request => {
+    if (answers.has(request.id)) return answers.get(request.id);
+    if (request.type === 'select-objects' && request.min === request.max && request.options.length === request.min) {
+      return [...request.options];
+    }
+    throw new Error(`Unexpected Shield choice ${request.id}`);
+  };
+  const context = source => bindResolveContext(kernel, { source, controller: source.controller, choose });
+  const layers = new KeywordGrantLayerEngine(kernel.objects, { context });
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+  });
+  const engine = new ChainEngine({
+    host, layers, turnOrder: ['A', 'B'], turnPlayer: 'A', phase: 'main',
+    cleanup: current => {
+      let changed = false;
+      current.layers.setObjects(kernel.objects);
+      for (const object of current.layers.evaluateAll()) {
+        if (object.zone !== 'board' || !object.types.includes('unit') || object.might === null ||
+          object.might > 0 && object.damage < object.might) continue;
+        current.commit({ type: 'kill', object: object.ref });
+        changed = true;
+      }
+      return changed;
+    },
+  });
+  const binding = createProgramBinding({ cardPrograms: programs });
+  binding.attachLifecycle(engine, error => { throw error; });
+  const settle = () => {
+    engine.advance();
+    for (let step = 0; engine.items.length; step++) {
+      assert.ok(step < 30, 'Shield chain settles through priority passes');
+      engine.pass(engine.priority);
+    }
+  };
+  const source = kernel.getObject('source');
+  const resolve = body => {
+    engine.execute({ id: `shield-case:${engine.trace.length}`, source, controller: source.controller,
+      kind: 'activated', speed: 'reaction', body });
+    settle();
+  };
+  const snapshot = id => {
+    layers.setObjects(kernel.objects);
+    return layers.snapshot(kernel.ref(id));
+  };
+  return { kernel, layers, engine, binding, resolve, snapshot };
 }
 
 function reductionProgram(id, { amount = -2, minimum, duration = 'permanent', settlementId = 'reduction' } = {}) {
@@ -169,16 +229,16 @@ test('modifier consumers isolate controller and scope while multiple same-contro
 });
 
 test('CR 479.4.b: a reduction limited to zero stays zero and never becomes a fresh modifier settlement', () => {
-  const state = kernel({ targetMight: 1 });
+  const state = kernel({ targetMight: 2 });
   registerModifier(state, { settlementId: 'zero-gate' });
   registerReduction(state);
   const registry = registryFrom(state);
   const engine = new LayerEngine(state.objects, registry);
   for (let index = 0; index < 5; index += 1) {
-    assert.equal(engine.evaluate(state.ref('target')).might, 1);
+    assert.equal(engine.evaluate(state.ref('target')).might, 2);
   }
   engine.setObjects(state.objects);
-  assert.equal(engine.evaluate(state.ref('target')).might, 1);
+  assert.equal(engine.evaluate(state.ref('target')).might, 2);
 });
 
 test('CR 479.4.b: expiry and source departure remove future modifiers but preserve the locked reduction', () => {
@@ -207,7 +267,7 @@ test('CR 479.4.b: expiry and source departure remove future modifiers but preser
   assert.ok(departureRegistry.list().some(entry => entry.effect.id === existingReduction.id));
 });
 
-test('default LayerEngine expands printed and granted Shield and effect.shield-value reads the stacked value', () => {
+test('KeywordGrantLayerEngine expands printed and granted Shield and effect.shield-value reads the stacked value', () => {
   const program = cardProgram('test:shield-stack', [
     {
       id: 'first-grant', op: 'continuous.grant-keyword',
@@ -224,22 +284,18 @@ test('default LayerEngine expands printed and granted Shield and effect.shield-v
       args: { object: c({ target: 'friendly' }), linkKey: c('shieldValue') },
     },
   ]);
-  const f = fixture({
-    programs: [program],
-    setup: builder => {
-      builder.hand('spell', { cardId: program.canonicalCardId, types: ['spell'], might: null, energy: 0, power: null });
-      builder.unit('ally', { might: 3, energy: null, power: null, combatRole: 'defender', keywords: [{ id: 'Shield' }] });
-    },
-  });
-  f.play('spell');
-  settle(f.engine);
+  const f = shieldRuntime(world().player('A').player('B')
+    .unit('source', { types: ['gear'], energy: null, power: null })
+    .unit('ally', { might: 3, energy: null, power: null, combatRole: 'defender', keywords: [{ id: 'Shield' }] }), [program]);
+  f.kernel.setTargets('friendly', [f.kernel.ref('ally')]);
+  f.resolve(program.abilities[0].body);
   assert.equal(f.kernel.linked('read-shield.shieldValue'), 6);
   assert.deepEqual(f.snapshot('ally').keywords, [{ id: 'Shield', value: 6 }]);
   assert.equal(f.snapshot('ally').might, 9);
   assert.equal(f.snapshot('ally').energy, null);
   assert.equal(f.snapshot('ally').power, null);
-  f.engine.layers.advance({ id: 'turn-end' });
-  assert.deepEqual(f.snapshot('ally').keywords, [{ id: 'Shield' }]);
+  f.layers.advance({ id: 'turn-end' });
+  assert.deepEqual(f.snapshot('ally').keywords, [{ id: 'Shield', value: 1 }]);
   assert.equal(f.snapshot('ally').might, 4);
 });
 
@@ -255,15 +311,11 @@ test('Shield Value remains readable for an attacker while the Might contribution
       args: { object: c({ target: 'friendly' }) },
     },
   ]);
-  const f = fixture({
-    programs: [program],
-    setup: builder => {
-      builder.hand('spell', { cardId: program.canonicalCardId, types: ['spell'], might: null, energy: 0, power: null });
-      builder.unit('ally', { might: 3, energy: null, power: null, combatRole: 'attacker', keywords: [{ id: 'Shield', value: 1 }] });
-    },
-  });
-  f.play('spell');
-  settle(f.engine);
+  const f = shieldRuntime(world().player('A').player('B')
+    .unit('source', { types: ['gear'], energy: null, power: null })
+    .unit('ally', { might: 3, energy: null, power: null, combatRole: 'attacker', keywords: [{ id: 'Shield', value: 1 }] }), [program]);
+  f.kernel.setTargets('friendly', [f.kernel.ref('ally')]);
+  f.resolve(program.abilities[0].body);
   assert.equal(f.kernel.linked('read.shieldValue'), 3);
   assert.deepEqual(f.snapshot('ally').keywords, [{ id: 'Shield', value: 3 }]);
   assert.equal(f.snapshot('ally').might, 3);

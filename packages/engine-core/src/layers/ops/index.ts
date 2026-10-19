@@ -143,6 +143,8 @@ export interface OpsTarget {
   readonly snapshot: ObjectSnapshot;
   /** CR 478.1.c printed-value floor applied by this one modification. */
   readonly minimum?: number;
+  /** Might at the time the reduction instruction resolved; used by 479.4.b. */
+  readonly snapshotMight?: number;
 }
 
 /** Deterministic per-registration effect id; stable for replay and registry dedupe. */
@@ -204,16 +206,19 @@ export function buildMightSpec(
     : mode === "set" && target.minimum !== undefined
       ? Math.max(amount, target.minimum)
       : amount;
+  // CR 479.4.b: preserve the authored signed delta and the Might used as the
+  // limitation basis. The production layer consumer adds matching modifiers
+  // and remembers the limited result when the effect is first applied.
   const effect: MightEffect = mode === "set"
     ? { kind: "set-might", value: snapshottedAmount,
       ...(snapshotMight === null ? {} : { snapshotDelta: snapshottedAmount - snapshotMight }),
       ...(target.minimum === undefined ? {} : { minimum: target.minimum }) }
-    : { kind: "continuous.might", amount: snapshottedAmount,
+    : { kind: "continuous.might", amount,
       ...(target.minimum === undefined ? {} : { minimum: target.minimum }),
-      // CR 479.4.b: only a live, non-zero reduction participates in the
-      // application-time modifier snapshot. A reduction already clamped to 0
-      // remains 0 and cannot be amplified later during layer re-evaluation.
-      ...(snapshottedAmount < 0 ? { reductionScope: "controller-spells-and-abilities" as const } : {}) };
+      ...(snapshotMight === null ? {} : { snapshotMight }),
+      // Only a signed decrease is eligible for the additional-reduction
+      // modifier. Zero and positive arithmetic stay ordinary layer effects.
+      ...(amount < 0 ? { reductionScope: "controller-spells-and-abilities" as const } : {}) };
   const spec: ContinuousEffectSpec = {
     id: effectId(op, sourceRef, target, effectIdSuffix, settlement),
     layer: "arithmetic",
