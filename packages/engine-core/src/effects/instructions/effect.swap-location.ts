@@ -193,6 +193,22 @@ export default {
       }
       throw error;
     }
+    const committed = outcome.status === "done" && outcome.receipt?.status === "committed" &&
+      outcome.receipt.actions.length === 2 && outcome.receipt.actions.every(action => action.status === "done");
+    const moved = committed && afterA !== null && afterB !== null &&
+      sameLocation(afterA.location!, originB) && sameLocation(afterB.location!, originA);
+    if (!moved) {
+      const receipt: Value = {
+        ...blockedReceipt(a.ref, b.ref, "Atomic BatchAction did not commit both relocations"),
+        ...(outcome.receipt === undefined ? {} : { actionReceipt: outcome.receipt as unknown as Value }),
+      };
+      ctx.link("swapped", receipt);
+      return {
+        status: "negated",
+        reason: outcome.status === "replaced" ? "replaced" : outcome.status === "prevented" ? "skipped" : "impossible",
+        events: [...outcome.events],
+      };
+    }
     const receipt: Value = {
       count: 2,
       objects: [refValue(a.ref), refValue(b.ref)],
@@ -205,13 +221,6 @@ export default {
       actionReceipt: outcome.receipt as unknown as Value
     };
     ctx.link("swapped", receipt);
-    if (outcome.receipt?.status === "rolled-back") {
-      return {
-        status: "negated",
-        reason: outcome.status === "replaced" ? "replaced" : outcome.status === "prevented" ? "skipped" : "impossible",
-        events: [...outcome.events],
-      };
-    }
     return { status: "executed", events: [...outcome.events], linkedValues: { swapped: receipt } };
   }
 } satisfies InstructionDef<SwapArgs>;

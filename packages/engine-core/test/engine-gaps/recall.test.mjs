@@ -8,6 +8,8 @@ import { queryMoveDestinations } from "../../dist/target/location/candidates.js"
 import { createLayerEngine } from "../../dist/layers/engine.js";
 import { cardProgram, fixture as programFixture } from "../rules/keywords/support.mjs";
 import { runInstruction, world } from "../../dist/effects/testing/index.js";
+import { bindResolveContext } from "../../dist/events/action-adapter.js";
+import { createContractActionCapability } from "../../dist/events/contract-actions/bridge.js";
 import conscription from "../../../card-dsl/dist/cards/unl/conscription.js";
 import glowstone from "../../../card-dsl/dist/cards/ven/glowstone.js";
 import smokeAndMirrors from "../../../card-dsl/dist/cards/unl/smoke-and-mirrors.js";
@@ -38,8 +40,11 @@ test("EG-RECALL moves a Board Permanent to its controller Base without a destina
   const before = kernel.getObject("hero");
   const run = runInstruction(move, recallArgs(), { world: kernel, targets: targets(kernel) });
   assert.equal(run.result.status, "executed");
-  assert.deepEqual(run.result.linkedValues.recalled.receipt.actions, [{ type: "recall", status: "done" }]);
-  assert.deepEqual(run.events.map(event => event.action.type), ["recall"]);
+  assert.deepEqual(run.linked.recalled.receipt.actions, [{ type: "recall", status: "done" }]);
+  assert.equal(run.events.length, 1);
+  assert.equal(run.events[0].details.recall, true);
+  assert.deepEqual(run.events[0].details.from, battlefield);
+  assert.deepEqual(run.events[0].details.to, base("A"));
   assert.deepEqual(kernel.getObject("hero"), { ...before, location: base("A") });
   assert.equal(kernel.history({ action: "move-location", object: before.ref }), 0);
   assert.deepEqual(run.linked.recalled, {
@@ -47,6 +52,7 @@ test("EG-RECALL moves a Board Permanent to its controller Base without a destina
     objects: [before.ref],
     movements: [{ object: before.ref, from: battlefield, to: base("A") }],
     mode: "recall",
+    receipt: { status: "committed", actions: [{ type: "recall", status: "done" }] },
   });
 });
 
@@ -70,7 +76,7 @@ test("EG-RECALL recalls an enemy unit to its current controller Base (B's Base)"
     world: kernel, targets: { units: [kernel.ref("enemy")] },
   });
   assert.equal(run.result.status, "executed");
-  assert.equal(run.result.linkedValues.recalled.receipt.actions[0].type, "recall");
+  assert.equal(run.linked.recalled.receipt.actions[0].type, "recall");
   assert.deepEqual(kernel.getObject("enemy").location, base("B"));
   assert.deepEqual(run.linked.recalled.movements, [{ object: kernel.ref("enemy"), from: battlefield, to: base("B") }]);
 });
@@ -172,18 +178,27 @@ test("EG-RECALL keeps Move restrictions on effect.move while Recall bypasses the
   const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
   const restricted = queryMoveDestinations(kernel, [kernel.ref("hero")], {}, { registry: layers.registry });
   assert.deepEqual(restricted, []);
-  const blockedMove = runInstruction(move, { objects: c({ target: "units" }), to: c(second) }, {
-    world: kernel, targets: targets(kernel),
+  const target = kernel.clone();
+  target.setTargets("units", [target.ref("hero")]);
+  const context = bindResolveContext(target, {
+    object: ref => layers.evaluate(ref),
+    layers: { registry: layers.registry },
+    contractActions: createContractActionCapability(action => target.performContract(action)),
   });
+  const blockedMove = {
+    result: move.execute(context, move.argsSchema.parse({ objects: c({ target: "units" }), to: c(second) })),
+  };
+  kernel.restore(target.snapshot());
   assert.equal(blockedMove.result.status, "negated");
   assert.equal(blockedMove.result.reason, "impossible");
-  assert.equal(blockedMove.events.length, 0);
+  assert.deepEqual(blockedMove.result.events, []);
   assert.deepEqual(kernel.getObject("hero").location, battlefield);
   const recall = runInstruction(move, recallArgs("controller-base"), {
     world: kernel, targets: targets(kernel),
   });
   assert.equal(recall.result.status, "executed");
-  assert.deepEqual(recall.events.map(event => event.action.type), ["recall"]);
+  assert.equal(recall.events.length, 1);
+  assert.equal(recall.events[0].details.recall, true);
   assert.equal(kernel.history({ action: "recall", object: kernel.ref("hero") }), 1);
   assert.equal(kernel.history({ action: "move-location", object: kernel.ref("hero") }), 0);
   assert.deepEqual(kernel.getObject("hero").location, base("A"));
@@ -207,8 +222,8 @@ test("EG-RECALL swap executes one atomic action with receipts and unchanged zone
   assert.equal(run.linked.swapped.status, "committed");
   assert.equal(run.linked.swapped.count, 2);
   assert.equal(run.linked.swapped.actionReceipt.status, "committed");
-  assert.equal(kernel.history({ action: "move-location", object: a.ref }), 1);
-  assert.equal(kernel.history({ action: "move-location", object: b.ref }), 1);
+  assert.equal(kernel.history({ action: "move-location", object: a.ref }), 2);
+  assert.equal(kernel.history({ action: "move-location", object: b.ref }), 2);
 });
 
 test("EG-RECALL swap of same-location objects performs no action", () => {
@@ -296,7 +311,10 @@ for (const behavior of ["first-rewrite", "first-prevent", "first-replace", "seco
       const target = behavior.startsWith("first") ? "hero" : "anchor";
       if (action.object.id !== target) return null;
       if (behavior === "throw") throw new Error("batch leaf failed");
-      if (behavior.endsWith("rewrite")) return { status: "rewrite", action: { ...action, to: action.to } };
+      if (behavior.endsWith("rewrite")) {
+        const current = kernel.getObject(action.object.id).location;
+        return { status: "rewrite", action: { ...action, to: current } };
+      }
       if (behavior.endsWith("replace")) return "replaced";
       return "prevented";
     });
